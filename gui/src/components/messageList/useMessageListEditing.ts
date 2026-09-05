@@ -713,7 +713,20 @@ export function useMessageListEditing(
 		if (scroller && pinScroll !== null) {
 			editingScrollTopRef.current = pinScroll;
 			editingScrollPinUntilRef.current = performance.now() + 900;
-			scroller.scrollTop = pinScroll;
+			/* chip 切到编辑态那一瞬,chrome 会把 scroller.scrollTop 静默改写到
+			   另一个位置(实测 savedScrollTop=58 → 29)。退出时如果直接
+			   scroller.scrollTop = pinScroll,等于在 grid-template-rows 1fr→0fr
+			   220ms 收缩动画中间硬跳上方内容 29px = 用户看到的"闪"。改用 scrollTo
+			   smooth 让 scrollTop 与 chip 高度同步平滑过渡回 savedScrollTop。*/
+			if (Math.abs((scroller.scrollTop ?? 0) - pinScroll) > 0.5) {
+				try {
+					scroller.scrollTo({top: pinScroll, behavior: 'smooth'});
+				} catch {
+					scroller.scrollTop = pinScroll;
+				}
+			} else {
+				scroller.scrollTop = pinScroll;
+			}
 		}
 		muteStickyLayoutSnap();
 		/* 先收控件，等高度塌完再拆编辑态，避免界面一抖 */
