@@ -146,7 +146,7 @@ export function createRemoteMirrorSlice(
 		});
 	},
 
-	appendLocalNote(text) {
+	appendLocalNote(text, opts) {
 		const sessionId = get().activeId;
 		if (!sessionId) {
 			return;
@@ -165,6 +165,7 @@ export function createRemoteMirrorSlice(
 			text: body,
 			createdAt: Date.now(),
 			uiOnly: true,
+			...(opts?.kind === 'cmd' ? {noteKind: 'cmd' as const, noteTitle: opts.title} : {}),
 		};
 		set({
 			messagesById: {...get().messagesById, [sessionId]: [...prev, msg]},

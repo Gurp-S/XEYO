@@ -161,6 +161,53 @@ function MessageBubbleInner({message, streaming, thinking}: Props) {
 	}
 
 	if (message.role === 'system') {
+		// 命令回执卡片（对齐 dsh GenericCommandCard 语义）：标题=命令行原文，
+		// 单行结果作摘要、多行结果折叠进 <details>；不再走居中红字系统提示。
+		if (message.noteKind === 'cmd') {
+			const multiline = message.text.includes('\n');
+			return (
+				<div
+					className={cn(
+						'px-3 py-1.5 sm:px-5 md:px-8',
+						enterClass(message.createdAt),
+					)}
+				>
+					<div
+						className="mx-auto flex max-w-3xl items-start gap-2 rounded-lg border border-line/50 bg-paper-deep/40 px-2.5 py-1.5 text-left"
+						data-state={message.text.startsWith('已创建') ? 'ok' : undefined}
+					>
+						<span
+							aria-hidden
+							className="mt-px flex h-4 w-4 shrink-0 items-center justify-center rounded bg-accent-soft font-mono text-[10px] leading-4 text-accent"
+						>
+							/
+						</span>
+						<div className="min-w-0 flex-1 font-mono text-[11.5px] leading-5">
+							{message.noteTitle ? (
+								<span className="font-medium text-ink">{message.noteTitle}</span>
+							) : null}
+							{multiline ? (
+								<details className="group mt-0.5">
+									<summary className="cursor-pointer list-none whitespace-nowrap text-[11px] text-mute transition-colors hover:text-ink-soft">
+										{message.text.split('\n')[0]}
+										<span className="ml-1 opacity-60 group-open:hidden">展开</span>
+									</summary>
+									<pre className="mt-1 overflow-x-auto whitespace-pre-wrap text-[11px] text-ink-soft">
+										{message.text}
+									</pre>
+								</details>
+							) : (
+								message.noteTitle ? (
+									<span className="ml-2 text-[11px] text-mute">{message.text}</span>
+								) : (
+									<span className="text-[11px] text-mute">{message.text}</span>
+								)
+							)}
+						</div>
+					</div>
+				</div>
+			);
+		}
 		return (
 			<div
 				className={cn(

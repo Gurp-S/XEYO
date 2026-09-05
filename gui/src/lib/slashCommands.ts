@@ -264,7 +264,8 @@ export async function handleComposerSlash(
 		return false;
 	}
 	const chat = useChatStore.getState();
-	chat.appendLocalNote?.(`> ${value.trim()}`);
+	// dsh 语义：composer 永不回显命令行——命令事实由结果回执卡片承载
+	// （见下方 noteKind:'cmd'），聊天流里不再出现 `> /cmd` 裸回显。
 	const outcome = await runSlashCommand(value, opts);
 	switch (outcome.status) {
 		case 'not-slash':
@@ -273,13 +274,13 @@ export async function handleComposerSlash(
 			chat.appendLocalNote?.(`未知命令 /${outcome.name}，试试 /help`);
 			return true;
 		case 'send':
-			// /run：命令行已回显；改发提示词（去掉上面的回显行，正文再补一条用户气泡由 sendMessage 负责）
+			// /run 等提示词改写命令：直接发提示词（用户气泡由 sendMessage 负责）。
 			void chat.sendMessage(outcome.text, [], [], undefined);
 			return true;
 		case 'local':
 		case 'server':
 			if (outcome.text) {
-				chat.appendLocalNote?.(outcome.text);
+				chat.appendLocalNote?.(outcome.text, {kind: 'cmd', title: value.trim()});
 			}
 			return true;
 		default:
