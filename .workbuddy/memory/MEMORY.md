@@ -1,6 +1,7 @@
 # 项目长期记忆 — XEYO
 
-## git 仓库铁律(2026-09-05 两次事故后强制,第二次 13:33)
+## git 仓库铁律(2026-09-05 三次事故后强制,第三次 14:22)
+- **第三次事故(14:22)**:与并行会话并发 push mirror 时 merge 被中断,对象库再损。**mirror bare 仓库对象只增不减,是可靠恢复源**——`git init + fetch mirror + reset --soft FETCH_HEAD` 即可无损重建(工作树不动,磁盘内容全保留),已验证 fa60398。并发写同一仓库/同一 mirror 必然互踩,两个会话必须错开或各用独立 mirror 分支。
 - **本仓库无 remote、无自动备份**——重要阶段完成立即 commit;已配置本地 bare mirror:`git push mirror master`(remote 名 `mirror` → `D:/lea/XenYon-git-mirror-20260905-1340.git`)。
 - **绝对禁止 `git stash`(任何形式,含 ASCII pathspec、单文件)**——13:33 二次事故证明 ASCII pathspec stash 同样击穿 .git(refs 清空+对象库清空)。需要暂存时只用 `git diff > patch.diff` + `git checkout -- <files>`。
 - **多会话并行时 commit 防卷入(14:16 两次实测)**:index 是共享的,`git add X && git commit` 会提交整个 staged 快照,并行会话随时往里 add。正解=路径限定提交 `git commit -m "..." -- <path>`(只提交该路径工作树内容,无视 index 其他 staged,且保持它们 staged);提交前 `git diff --cached --name-only` 检查只是缓解,竞态窗口仍存在。误卷后修复:`git reset --soft HEAD~1 && git reset -q` 再路径限定重提(均不动工作树)。
