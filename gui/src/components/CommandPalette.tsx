@@ -180,6 +180,10 @@ export function CommandPalette() {
 	const openAgent = useCallback(
 		(sessionId: string, title: string, sid: string) => {
 			void runAndClose(async () => {
+				// 页面视图（用量/扩展中心）开着时选会话：一并退出，否则导航
+				// 在覆盖层底下发生，看起来像"没反应"(2026-09-05)。
+				useSettingsStore.getState().closeUsage();
+				useSettingsStore.getState().closePlugins();
 				touchAgent({id: sessionId, title, spaceName: spaceName(sid)});
 				await selectSession(sessionId);
 				navigate(`/c/${sessionId}`);

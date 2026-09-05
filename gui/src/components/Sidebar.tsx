@@ -412,26 +412,29 @@ export const Sidebar = memo(function Sidebar() {
 		async (id: string) => {
 			clearDoneGlow(id);
 			closeUsage?.();
+			closePlugins?.();
 			await selectSession(id);
 			navigate(`/c/${id}`);
 		},
-		[clearDoneGlow, closeUsage, navigate, selectSession],
+		[clearDoneGlow, closePlugins, closeUsage, navigate, selectSession],
 	);
 
 	const onNewInSpace = useCallback(
 		async (spaceId: string) => {
 			closeUsage?.();
+			closePlugins?.();
 			const id = await createSession(spaceId);
 			navigate(`/c/${id}`);
 		},
-		[closeUsage, createSession, navigate],
+		[closePlugins, closeUsage, createSession, navigate],
 	);
 
 	const onNew = useCallback(async () => {
 		closeUsage?.();
+		closePlugins?.();
 		const id = await createSession();
 		navigate(`/c/${id}`);
-	}, [closeUsage, createSession, navigate]);
+	}, [closePlugins, closeUsage, createSession, navigate]);
 
 	const onOpenFolder = useCallback(async (path?: string) => {
 		if (opening) {
@@ -450,6 +453,7 @@ export const Sidebar = memo(function Sidebar() {
 			useWorkspaceStore.getState().setActive('files');
 			void useExplorerStore.getState().ensureRoot();
 			closeUsage?.();
+			closePlugins?.();
 			navigate(`/c/${id}`);
 		} catch (err) {
 			toast.error(
@@ -477,6 +481,7 @@ export const Sidebar = memo(function Sidebar() {
 	const handleForkSession = useCallback(
 		async (id: string) => {
 			closeUsage?.();
+			closePlugins?.();
 			try {
 				const newId = await forkSession(id);
 				clearDoneGlow(id);
@@ -487,7 +492,7 @@ export const Sidebar = memo(function Sidebar() {
 				);
 			}
 		},
-		[closeUsage, clearDoneGlow, forkSession, navigate],
+		[closePlugins, closeUsage, clearDoneGlow, forkSession, navigate],
 	);
 
 	const handleArchiveSession = useCallback(
@@ -713,34 +718,38 @@ className="xy-icon-btn rounded-md p-1.5 text-mute hover:bg-glass-hover hover:tex
 								onAdd={() => void onNewInSpace(space.id)}
 								onSelect={id => void goSession(id)}
 								onRemoveSession={id => {
-									void (async () => {
-										const wasActive =
-											useChatStore.getState().activeId === id;
-										await removeSession(id);
-										if (wasActive) {
-											const next =
-												useChatStore.getState().activeId;
-											navigate(next ? `/c/${next}` : '/');
-										}
-									})();
-								}}
+								closeUsage?.();
+								closePlugins?.();
+								void (async () => {
+									const wasActive =
+										useChatStore.getState().activeId === id;
+									await removeSession(id);
+									if (wasActive) {
+										const next =
+											useChatStore.getState().activeId;
+										navigate(next ? `/c/${next}` : '/');
+									}
+								})();
+							}}
 								onRenameSession={handleRenameSession}
 								onForkSession={handleForkSession}
 								onArchiveSession={handleArchiveSession}
 								onRestoreSession={handleRestoreSession}
-								onRemoveSpace={
-									() => {
-											void (async () => {
-												await removeSpace(space.id);
-												const next =
-													useChatStore.getState()
-														.activeId;
-												navigate(
-													next ? `/c/${next}` : '/',
-												);
-											})();
-										}
+							onRemoveSpace={
+								() => {
+									closeUsage?.();
+									closePlugins?.();
+									void (async () => {
+										await removeSpace(space.id);
+										const next =
+											useChatStore.getState()
+												.activeId;
+										navigate(
+											next ? `/c/${next}` : '/',
+										);
+									})();
 								}
+							}
 								/>
 							))
 							)
@@ -758,20 +767,24 @@ className="xy-icon-btn rounded-md p-1.5 text-mute hover:bg-glass-hover hover:tex
 									expanded={!sideChatCollapsed}
 									onToggle={() => setSideChatCollapsed(!sideChatCollapsed)}
 
-								onAdd={() => {
-									closeUsage();
-									void createSideChat().then(id => {
-										navigate(`/side/${id}`);
-									});
-								}}
-								onSelect={(id) => {
-									clearDoneGlow(id);
-									closeUsage();
-									void selectSession(id);
+							onAdd={() => {
+								closeUsage();
+								closePlugins();
+								void createSideChat().then(id => {
 									navigate(`/side/${id}`);
-								}}
-								onRemoveSession={async id => {
-									const wasActive = sideChatActiveId === id;
+								});
+							}}
+							onSelect={(id) => {
+								clearDoneGlow(id);
+								closeUsage();
+								closePlugins();
+								void selectSession(id);
+								navigate(`/side/${id}`);
+							}}
+							onRemoveSession={async id => {
+								closeUsage();
+								closePlugins();
+								const wasActive = sideChatActiveId === id;
 									await removeSession(id);
 									if (wasActive) {
 										const next = useChatStore
