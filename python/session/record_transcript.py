@@ -33,6 +33,11 @@ _logger = logging.getLogger(__name__)
 # 按 transcript 路径缓存已写入 id，避免 ui_thought 同步等路径反复全文件扫描。
 _known_ids_cache: dict[str, set[str]] = {}
 
+# G107: 磁盘临界区锁——后台写入线程与 record_transcript_sync 直写共用,
+# 防止 rotate(rename 当前→归档)与另一路 append 交错:写者把行追加进已轮转的
+# 归档或新文件出现重复/丢行。
+_disk_lock = threading.Lock()
+
 # 后台写入队列：(seq, path, line)。seq 单调递增，用于 flush 判定「全部落盘」。
 _pending: list[tuple[int, str, str]] = []
 _cv = threading.Condition()
@@ -141,11 +146,14 @@ def _write_batch(batch: list[tuple[int, str, str]]) -> None:
 		by_path.setdefault(path, []).append(line)
 	for path, lines in by_path.items():
 		p = Path(path)
-		p.parent.mkdir(parents=True, exist_ok=True)
-		_maybe_rotate(p)
-		with p.open("a", encoding="utf-8") as f:
-			f.writelines(lines)
-			f.flush()
+		# rotate + append 同一临界区,杜绝与 sync 直写交错(G107)
+		with _disk_lock:
+			p.parent.mkdir(parents=True, exist_ok=True)
+			_maybe_rotate(p)
+			with p.open("a", encoding="utf-8") as f:
+				f.writelines(lines)
+				f.flush()
+				os.fsync(f.fileno())  # 崩溃窗口不丢会话尾部(G107)
 
 
 def _ensure_writer() -> None:
@@ -259,15 +267,19 @@ def _append_new_messages(
 	if not pending:
 		return 0
 
-	path.parent.mkdir(parents=True, exist_ok=True)
-	_maybe_rotate(path)
-	with path.open("a", encoding="utf-8") as f:
-		for m in pending:
-			f.write(
-				json.dumps(message_to_dict(m, anchor=path), ensure_ascii=False) + "\n"
-			)
-			known.add(m.id)
-		f.flush()
+	# 与后台 writer 同一临界区:rotate+append 不交错;fsync 落盘(G107)
+	with _disk_lock:
+		path.parent.mkdir(parents=True, exist_ok=True)
+		_maybe_rotate(path)
+		with path.open("a", encoding="utf-8") as f:
+			for m in pending:
+				f.write(
+					json.dumps(message_to_dict(m, anchor=path), ensure_ascii=False)
+					+ "\n"
+				)
+				known.add(m.id)
+			f.flush()
+			os.fsync(f.fileno())
 	return len(pending)
 
 

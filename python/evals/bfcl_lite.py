@@ -348,10 +348,11 @@ def run_item(case: dict) -> dict:
             acct=acc,
         )
     except Exception as e:  # noqa: BLE001
-        return {"id": case["id"], "category": case["id"].split("-")[0], "pass": False, "error": str(e)[:200]}
+        return {"id": case["id"], "model": MODEL_ID, "category": case["id"].split("-")[0], "pass": False, "error": str(e)[:200]}
     ok, reason = judge(resp["tool_calls"], case["expected"], expect_no_call=case.get("expect_no_call", False))
     return {
         "id": case["id"],
+        "model": MODEL_ID,
         "category": case["id"].split("-")[0],
         "pass": ok,
         "reason": reason,
@@ -372,7 +373,12 @@ def main() -> int:
     done: set[str] = set()
     if items_path.exists():
         with items_path.open(encoding="utf-8") as f:
-            done = {json.loads(x)["id"] for x in f if x.strip()}
+            # 只认当前 model 的历史行,避免跨模型混染与误跳过(G150)。
+            done = {
+                json.loads(x)["id"]
+                for x in f
+                if x.strip() and json.loads(x).get("model") == MODEL_ID
+            }
     todo = [c for c in all_cases if c["id"] not in done]
     print(f"[bfcl] resume: done={len(done)} todo={len(todo)}")
 
@@ -394,7 +400,8 @@ def main() -> int:
     with items_path.open(encoding="utf-8") as f:
         merged = [json.loads(x) for x in f if x.strip()]
     by_id = {c["id"]: c["id"].split("-")[0] for c in all_cases}
-    merged = [r for r in merged if r["id"] in by_id]
+    # 仅汇总当前 model 的结果:历史其他模型行(含旧格式无 model 字段)一律排除,防混染成绩
+    merged = [r for r in merged if r["id"] in by_id and r.get("model") == MODEL_ID]
 
     summary = {
         "model": MODEL_ID,

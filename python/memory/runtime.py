@@ -1126,9 +1126,11 @@ def try_extend_c2(
 			return False
 		# 4) 经济门：miss 价是 hit 的约 30 倍，扩展当轮的一次性 miss 必须可被后续省 token 摊平
 		#    再加 2x 安全边际：预计收益至少 2 倍于过渡成本才扩展（否则保持冻结、字节稳定）
-		tail_chars = _region_chars(messages[new_cursor:])
-		transition_miss_tok = (len(ext) + tail_chars) / 4.0
-		saved_per_turn_tok = region_chars / 4.0
+		#    G66: token 计量统一走 memory.token.token_len(utf-8 字节/4),弃 字符/4 双口径
+		#    (中文场景原先系统性低估约 3 倍)
+		tail_tokens = _region_tokens(messages[new_cursor:])
+		transition_miss_tok = token_len(ext) + tail_tokens
+		saved_per_turn_tok = _region_tokens(region)
 		if transition_miss_tok > 0 and remaining_turns * saved_per_turn_tok < margin * price_ratio * transition_miss_tok:
 			return False
 	old_text = working.c2_summary_text or ""
@@ -1286,6 +1288,23 @@ def _region_chars(messages: list[dict]) -> int:
 				txt = b.get("content") or b.get("text") or b.get("input")
 				if isinstance(txt, str):
 					n += len(txt)
+	return n
+
+
+def _region_tokens(messages: list[dict]) -> int:
+	"""消息区间的 token 估参（G66: 统一 utf-8 字节/4，替代 字符/4）。"""
+	n = 0
+	for m in messages:
+		c = m.get("content")
+		if isinstance(c, str):
+			n += token_len(c)
+		elif isinstance(c, list):
+			for b in c:
+				if not isinstance(b, dict):
+					continue
+				txt = b.get("content") or b.get("text") or b.get("input")
+				if isinstance(txt, str):
+					n += token_len(txt)
 	return n
 
 

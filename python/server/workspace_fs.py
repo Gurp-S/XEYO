@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import functools
+import os
 import mimetypes
 import shutil
 from collections import deque
@@ -30,6 +31,24 @@ _EXCLUDED_DIRS = {
 }
 _MAX_SEARCH_DEPTH = 6
 _MAX_SEARCH_HITS = 200
+
+# G52: 直写通道的显式开关——设 XEYO_WORKSPACE_FS_READONLY=1 后,该旁路
+# 只读,任何写/删抛 PermissionError(要求走引擎权限/rewind 链)。
+def _workspace_fs_writes_allowed() -> bool:
+	raw = os.environ.get("XEYO_WORKSPACE_FS_READONLY", "").strip().lower()
+	return raw not in ("1", "true", "on", "yes")
+
+
+def _audit_write(action: str, cwd: str, rel: str, **extra: Any) -> None:
+	"""直写旁路的审计痕迹(不穿引擎权限时的最低可观测保障)。"""
+	try:
+		from audit.log import default_audit_log
+
+		default_audit_log().record(
+			f"workspace_fs.{action}", cwd=cwd, rel=rel, **extra
+		)
+	except Exception:
+		pass
 
 
 def resolve_in_workspace(cwd: str, rel: str) -> Path:
@@ -175,6 +194,11 @@ def read_file(cwd: str, rel: str) -> dict[str, Any]:
 
 
 def write_file(cwd: str, rel: str, text: str) -> dict[str, Any]:
+	if not _workspace_fs_writes_allowed():
+		raise PermissionError(
+			"workspace_fs writes disabled by XEYO_WORKSPACE_FS_READONLY=1 "
+			"(use the engine permission/rewind path instead)"
+		)
 	if len(text) > _MAX_TEXT:
 		raise ValueError(f"file too large to write (max {_MAX_TEXT} chars)")
 	path = resolve_in_workspace(cwd, rel)
@@ -186,11 +210,17 @@ def write_file(cwd: str, rel: str, text: str) -> dict[str, Any]:
 		raise PermissionError("refusing to write internal path")
 	path.parent.mkdir(parents=True, exist_ok=True)
 	path.write_text(text, encoding="utf-8", newline="\n")
+	_audit_write("write", cwd, rel, bytes=len(text))
 	return read_file(cwd, rel)
 
 
 def delete_path(cwd: str, rel: str, recursive: bool = False) -> dict[str, Any]:
 	"""删除工作区内文件或目录。目录默认仅允许空目录；recursive=True 时整棵删除。"""
+	if not _workspace_fs_writes_allowed():
+		raise PermissionError(
+			"workspace_fs writes disabled by XEYO_WORKSPACE_FS_READONLY=1 "
+			"(use the engine permission/rewind path instead)"
+		)
 	root = Path(cwd).expanduser().resolve()
 	path = resolve_in_workspace(cwd, rel)
 	if path == root:
@@ -205,6 +235,7 @@ def delete_path(cwd: str, rel: str, recursive: bool = False) -> dict[str, Any]:
 		shutil.rmtree(path)
 	else:
 		path.unlink()
+	_audit_write("delete", cwd, rel, recursive=recursive)
 	return {"ok": True, "cwd": str(root), "path": _rel_posix(root, path)}
 
 

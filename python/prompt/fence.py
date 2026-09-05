@@ -72,11 +72,23 @@ def is_fenced_untrusted_user(content: str) -> bool:
 	return bool(_USER_OPEN_RE.match(s)) and s.rstrip().endswith(_USER_CLOSE)
 
 
+def _escape_close_tags(text: str, tag: str, escaped: str) -> str:
+	"""把内容里的闭合标签字面量转义为惰性占位——围栏内内容无法自带闭合标签提前终止“不可信”区。"""
+	return text.replace(tag, escaped)
+
+
+# 惰性占位:与真实闭合标签不可混,模型不会把它当 XML 结构
+_TOOL_CLOSE_ESCAPED = "[&lt;/tool_output&gt;]"
+_USER_CLOSE_ESCAPED = "[&lt;/user_message&gt;]"
+
+
 def fence_tool_output(tool_name: str, content: str) -> str:
 	"""Wrap tool result for the model; applies harvest sanitize; idempotent."""
 	raw = content if content is not None else ""
 	inner, name = unwrap_tool_output(raw)
-	sanitized = harvest_sanitize(inner)
+	sanitized = _escape_close_tags(
+		harvest_sanitize(inner), _TOOL_CLOSE, _TOOL_CLOSE_ESCAPED
+	)
 	safe_name = (name or tool_name or "tool").replace('"', "")
 	return (
 		f'<tool_output tool="{safe_name}" untrusted="true">\n'
@@ -105,7 +117,9 @@ def fence_remote_user_text(text: str, *, source: str = "remote") -> str:
 	"""Wrap WeChat / filehelper / ilink inbound; harvest sanitize; idempotent."""
 	raw = text if text is not None else ""
 	inner = unwrap_remote_user_text(raw) if is_fenced_untrusted_user(raw) else raw
-	sanitized = harvest_sanitize(inner)
+	sanitized = _escape_close_tags(
+		harvest_sanitize(inner), _USER_CLOSE, _USER_CLOSE_ESCAPED
+	)
 	safe_src = (source or "remote").replace('"', "")
 	return (
 		f'<user_message untrusted="true" source="{safe_src}">\n'

@@ -96,6 +96,15 @@ class NotebookEditTool:
 
 	def _persist(self, full: str, content: str) -> None:
 		if self._write_store is None:
+			# 与 file_edit_tool 同款兜底：子 agent（write_scope 激活）必须经
+			# WriteStore，禁止静默直写——多 agent 写隔离唯一旁路（G129）。
+			from permissions.write_scope import get_write_scope
+
+			if get_write_scope() is not None:
+				raise RuntimeError(
+					"write_store required for sub-agent writes "
+					"(refusing direct disk bypass)"
+				)
 			write_text_file(full, content, encoding="utf-8", line_endings="LF")
 			return
 		from engine.write_store import ChangeIntent, EditOp, _content_hash_text

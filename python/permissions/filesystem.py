@@ -71,13 +71,16 @@ DANGEROUS_FILES = frozenset(
 		".env.local",
 		".env.production",
 		".gitconfig",
+		".git-credentials",
+		".netrc",
+		".npmrc",
+		".pypirc",
 		"id_rsa",
 		"id_ed25519",
 		"id_ecdsa",
+		"id_dsa",
 		"credentials.json",
 		"credentials",
-		".npmrc",
-		".pypirc",
 	}
 )
 
@@ -86,6 +89,21 @@ DANGEROUS_DIRECTORIES = frozenset(
 	{
 		".git",
 		".ssh",
+		".kube",
+		".gnupg",
+		".aws",
+	}
+)
+
+# 凭据目录（is_secret_path 硬 DENY 扫描）。刻意不含 .git——.git 的读写保护
+# 走 protected-metadata(workspace 内)/is_dangerous_path(工具),避免把"读 .git 需
+# 确认"的整体语义变成无条件 DENY(G77/G78 修正后口径)。
+_SECRET_DIRECTORIES = frozenset(
+	{
+		".ssh",
+		".kube",
+		".gnupg",
+		".aws",
 	}
 )
 
@@ -142,11 +160,17 @@ def is_secret_path(path: str, *, cwd: str | None = None) -> bool:
 	base_l = os.path.basename(abs_path).lower()
 	if base_l in DANGEROUS_FILES:
 		return True
+	if base_l.startswith(".env") and not any(
+		# 常见模板/示例后缀不含真凭据,不误伤
+		base_l.endswith(s)
+		for s in (".example", ".sample", ".template", ".dist")
+	):
+		return True  # .env 任意变体（G77: 原仅 3 个显式条目）
 	if any(base_l.endswith(suf) for suf in DANGEROUS_SUFFIXES):
 		return True
 	norm = abs_path.replace("/", os.sep).replace("\\", os.sep)
 	for part in norm.split(os.sep):
-		if part.lower() == ".ssh":
+		if part.lower() in _SECRET_DIRECTORIES:
 			return True
 	return False
 
@@ -299,10 +323,11 @@ def _protected_metadata_allowed() -> bool:
 def protected_metadata_reason(path: str, *, cwd: str | None = None) -> str | None:
 	"""路径命中 workspace 受保护元数据时返回 reason；否则 None。
 
-	- 仅约束 **workspace 根内** 的相对顶层目录（.git/.xeyo/.agents 及其子路径）；
-	  workspace 外的路径交由既有边界检查处理；
-	- 大小写不敏感（Windows 友好）；
-	- ``XEYO_ALLOW_PROTECTED_METADATA=1`` 显式放宽（配置化收敛留待 T16）。
+	- 约束 workspace 根内的 **任一路径组件** 命中 .git/.xeyo/.agents 即 DENY
+	  （G78: 原只查首组件,`sub/.git` 被降级为 ASK——嵌套仓库/子模块的
+	  git 元数据与顶层同等受保护）;workspace 外的路径交由既有边界检查处理;
+	- 大小写不敏感（Windows 友好）;
+	- ``XEYO_ALLOW_PROTECTED_METADATA=1`` 显式放宽。
 	"""
 	if _protected_metadata_allowed():
 		return None
@@ -318,10 +343,13 @@ def protected_metadata_reason(path: str, *, cwd: str | None = None) -> str | Non
 	norm = os.path.normcase(rel)
 	if norm.startswith(".."):
 		return None
-	first = os.path.normcase(rel.split(os.sep)[0].strip())
-	for name in PROTECTED_METADATA_NAMES:
-		if first == os.path.normcase(name):
-			return _PROTECTED_REASON.format(name=name)
+	for part in norm.split(os.sep):
+		pn = part.strip()
+		if not pn:
+			continue
+		for name in PROTECTED_METADATA_NAMES:
+			if pn == os.path.normcase(name):
+				return _PROTECTED_REASON.format(name=name)
 	return None
 
 

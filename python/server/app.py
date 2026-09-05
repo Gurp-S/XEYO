@@ -6,7 +6,7 @@ import os
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -18,6 +18,7 @@ from server.deps import (
 	_pool,
 	error_body,
 )
+from server.local_gate import require_loopback
 
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
@@ -248,19 +249,19 @@ app.include_router(ilink_router)
 
 from server.routers.workspace import router as workspace_router
 
-app.include_router(workspace_router)
+app.include_router(workspace_router, dependencies=[Depends(require_loopback)])
 
 from server.routers.media import router as media_router
 
-app.include_router(media_router)
+app.include_router(media_router, dependencies=[Depends(require_loopback)])
 
 from server.routers.usage import router as usage_router
 
-app.include_router(usage_router)
+app.include_router(usage_router, dependencies=[Depends(require_loopback)])
 
 from server.routers.audit import router as audit_router
 
-app.include_router(audit_router)
+app.include_router(audit_router, dependencies=[Depends(require_loopback)])
 
 from server.routers.control import router as control_router
 
@@ -281,7 +282,7 @@ app.include_router(rewind_hotpath_router)
 
 from server.routers.memory import router as memory_router
 
-app.include_router(memory_router)
+app.include_router(memory_router, dependencies=[Depends(require_loopback)])
 
 from server.routers.chat import router as chat_router
 

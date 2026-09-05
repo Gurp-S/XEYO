@@ -55,9 +55,20 @@ def test_outside_workspace_not_flagged(tmp_path: Path, ws: Path) -> None:
 	assert protected_metadata_reason(str(other / ".git" / "config"), cwd=str(ws)) is None
 
 
-def test_top_level_only_not_deep_names(ws: Path) -> None:
-	# 只有顶层目录命中；深层同名目录不受影响。
-	assert protected_metadata_reason(str(ws / "src" / ".git" / "x"), cwd=str(ws)) is None
+def test_nested_metadata_components_denied(ws: Path) -> None:
+	# G78: 任一路径组件命中即 DENY——嵌套仓库/子模块 .git 与顶层同等保护。
+	assert (
+		protected_metadata_reason(str(ws / "src" / ".git" / "x"), cwd=str(ws))
+		is not None
+	)
+	assert (
+		protected_metadata_reason(str(ws / "sub" / "mod" / ".xeyo" / "a.json"), cwd=str(ws))
+		is not None
+	)
+	assert (
+		protected_metadata_reason(str(ws / "packages" / ".agents" / "t.toml"), cwd=str(ws))
+		is not None
+	)
 
 
 def test_write_permission_for_path_denies(ws: Path) -> None:
@@ -68,3 +79,22 @@ def test_write_permission_for_path_denies(ws: Path) -> None:
 		str(ws / ".xeyo" / "settings.json"), context=ctx
 	)
 	assert decision == PermissionDecision.DENY
+
+
+def test_secret_path_new_entries(tmp_path: Path) -> None:
+	"""G77: .netrc/.git-credentials/.kube/config/.gnupg/id_dsa/.env 变体全 DENY。"""
+	from permissions.filesystem import is_secret_path
+
+	for rel in (
+		"home/.netrc",
+		"home/.git-credentials",
+		"home/.kube/config",
+		"home/.gnupg/id_dsa",
+		"home/.env.staging",
+		"home/.env.local",
+		"app/.aws/credentials",
+	):
+		assert is_secret_path(str(tmp_path / rel), cwd=str(tmp_path)), rel
+	assert not is_secret_path(str(tmp_path / "src" / "readme.md"), cwd=str(tmp_path))
+	assert not is_secret_path(str(tmp_path / ".env.example"), cwd=str(tmp_path))
+	assert not is_secret_path(str(tmp_path / ".env.sample"), cwd=str(tmp_path))

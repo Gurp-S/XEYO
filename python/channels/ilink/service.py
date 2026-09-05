@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
+import os
 import time
 from pathlib import Path
 from typing import Any
@@ -430,6 +431,46 @@ def _is_user_sender(from_id: str) -> bool:
 	return "@im.wechat" in from_id
 
 
+def _configured_owner_ids() -> list[str]:
+	"""发送者白名单（G61）:``XEYO_CHANNEL_ALLOWED_USERS``(推荐)或
+	``XEYO_ILINK_ALLOWED_USERS``,逗号分隔的微信账号 id(可带或不带
+	``@im.wechat`` 域)。空=未配置。"""
+	raw = (
+		os.environ.get("XEYO_CHANNEL_ALLOWED_USERS")
+		or os.environ.get("XEYO_ILINK_ALLOWED_USERS")
+		or ""
+	).strip()
+	return [tok.strip() for tok in raw.split(",") if tok.strip()]
+
+
+def _is_approved_sender(from_id: str) -> bool:
+	"""发送者是否在 owner 白名单内(G61)。
+
+	- 已配置白名单 → 严格比对,名单外一律拒绝;
+	- 未配置 → legacy 行为(任意 @im.wechat 视同 owner),但每次进程只告警一次
+	  （安全提示:任何能私聊/拉群给 bot 的微信用户都等同 owner）。
+	"""
+	if not from_id:
+		return False
+	owners = _configured_owner_ids()
+	if not owners:
+		if not getattr(_bridge, "allowlist_notice_shown", False):
+			_bridge.allowlist_notice_shown = True
+			log.warning(
+				"ilink sender allowlist not configured "
+				"(XEYO_CHANNEL_ALLOWED_USERS); legacy mode: any wechat user "
+				"may drive this bot. Set the env to restrict senders (G61)."
+			)
+		return True
+	low = from_id.strip().lower()
+	user_part = low.split("@")[0]
+	for owner in owners:
+		ol = owner.lower()
+		if low == ol or user_part == ol or low == (ol + "@im.wechat"):
+			return True
+	return False
+
+
 async def _handle_user_msg(msg: dict[str, Any], channel: ILinkChannel, runner: FinalOnlyRunner) -> None:
 	# 2 = bot 回声。来自 @im.wechat 的用户消息即使 type 填错也要处理。
 	msg_type = _msg_type(msg)
@@ -445,6 +486,15 @@ async def _handle_user_msg(msg: dict[str, Any], channel: ILinkChannel, runner: F
 	text = extract_text(msg)
 	if text and is_own_reply(text):
 		_note_inbound(msg, skip="own_reply")
+		return
+
+	# G61: 发送者白名单——名单外的微信用户(含群聊陌生成员)一律拒绝,
+	# 不触发 agent、不执行任何远程命令(/allow /deny /rule 等)。
+	if _is_user_sender(from_id) and not _is_approved_sender(from_id):
+		_note_inbound(msg, skip="sender_not_approved")
+		log.warning(
+			"ilink inbound from unapproved sender blocked: %s", from_id
+		)
 		return
 
 	# 纯文本不要 import media（会拉 cryptography）。系统 Python 没装时会把入站整条吞掉。

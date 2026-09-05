@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import threading
 from typing import Any, AsyncIterator
@@ -75,6 +76,42 @@ class DeepSeekModelClient:
 		self._thinking = thinking or _env("DEEPSEEK_THINKING", "disabled") or "disabled"
 		self._temperature = temperature
 		self.last_usage: dict[str, Any] | None = None  # 最近一次流式请求的 usage（含缓存命中）
+		self.context_limit: int | None = None  # 上下文窗口(token);由 build_default_engine 注入保守默认(G67)
+		self._session_id: str = ""
+		self._usage_recorded_this_stream = False
+
+	def set_session_id(self, session_id: str | None) -> None:
+		"""注入会话 id（server/session_pool._inject_session_ids），供用量账本归因。"""
+		self._session_id = (session_id or "").strip()
+
+	def _record_usage_safe(self, usage: dict[str, Any] | None) -> None:
+		"""G58: DeepSeek 客户端路径补用量账本(镜像 openai_compat)，防账本黑洞。"""
+		if not usage:
+			return
+		try:
+			from usage.ledger import record_from_openai_usage
+
+			sid = self._session_id
+			if not sid:
+				try:
+					from engine.workspace_context import get_workspace_context
+
+					ctx = get_workspace_context()
+					if ctx is not None and ctx.session_id:
+						sid = str(ctx.session_id).strip()
+				except Exception:
+					sid = ""
+			record_from_openai_usage(
+				provider="deepseek",
+				model=self._model,
+				api_key=self._api_key,
+				usage=usage,
+				session_id=sid,
+			)
+		except Exception:  # noqa: BLE001
+			logging.getLogger(__name__).debug(
+				"deepseek usage ledger write failed", exc_info=True
+			)
 
 	def _headers(self) -> dict[str, str]:
 		return {
@@ -132,6 +169,8 @@ class DeepSeekModelClient:
 		url = f"{self._base_url}/chat/completions"
 		tool_bufs: dict[int, dict[str, str]] = {}
 		self.last_usage = None
+		self._usage_recorded_this_stream = False
+		last_usage: dict[str, Any] | None = None
 		client = get_shared_httpx_client(120.0)
 		async with client.stream(
 			"POST", url, headers=self._headers(), json=body, timeout=120.0
@@ -151,12 +190,20 @@ class DeepSeekModelClient:
 				abort.raise_if_aborted()
 				u, chunks = _consume_sse_line_with_usage(line, tool_bufs)
 				if u:
+					last_usage = u
 					self.last_usage = u
+					# 用量尾帧到达即记账(不等流结束):中断也不丢 usage(G58)
+					if not self._usage_recorded_this_stream:
+						self._usage_recorded_this_stream = True
+						self._record_usage_safe(u)
 				for chunk in chunks:
 					yield chunk
 		for chunk in _finish_tool_bufs(tool_bufs):
 			abort.raise_if_aborted()
 			yield chunk
+		self.last_usage = last_usage
+		if last_usage and not self._usage_recorded_this_stream:
+			self._record_usage_safe(last_usage)
 
 	async def _stream_stdlib(
 		self,
@@ -171,6 +218,7 @@ class DeepSeekModelClient:
 		loop = asyncio.get_running_loop()
 		queue: asyncio.Queue[tuple[str, Any]] = asyncio.Queue()
 		self.last_usage = None
+		self._usage_recorded_this_stream = False
 
 		def worker() -> None:
 			tool_bufs: dict[int, dict[str, str]] = {}
@@ -217,6 +265,8 @@ class DeepSeekModelClient:
 			abort.raise_if_aborted()
 			kind, payload = await queue.get()
 			if kind == "done":
+				if self.last_usage and not self._usage_recorded_this_stream:
+					self._record_usage_safe(self.last_usage)
 				return
 			if kind == "err":
 				raise payload
@@ -246,6 +296,9 @@ class DeepSeekModelClient:
 			raise NetworkError(str(e)) from e
 
 		parsed = json.loads(raw)
+		usage = parsed.get("usage")
+		self.last_usage = usage if isinstance(usage, dict) else None
+		self._record_usage_safe(self.last_usage)  # G58: 非流式同样入账本
 		msg = ((parsed.get("choices") or [{}])[0].get("message")) or {}
 		text = msg.get("content") or ""
 		tool_uses: list[ToolUse] = []

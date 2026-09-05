@@ -230,3 +230,23 @@ def test_notebook_path_picked_by_policy(tmp_path: Path) -> None:
 		cwd=str(tmp_path),
 	)
 	assert d2.decision == PermissionDecision.DENY
+
+
+def test_notebook_write_store_required_under_write_scope(tmp_path: Path) -> None:
+	"""G129: 子 agent(write_scope 激活)经 NotebookEdit 写 .ipynb 必须走 WriteStore,禁止静默直写。"""
+	from permissions.write_scope import write_scope
+
+	tool = NotebookEditTool(cwd=str(tmp_path), read_state=ReadFileState())
+	target = str(tmp_path / "a.ipynb")
+	with write_scope(["."]):
+		with pytest.raises(RuntimeError, match="write_store required"):
+			tool._persist(target, '{"nbformat":4,"cells":[]}')
+
+
+def test_notebook_direct_write_still_ok_main_agent(tmp_path: Path) -> None:
+	"""主 agent(无 write_scope、无 store)保持直通旁路,零回归。"""
+	tool = NotebookEditTool(cwd=str(tmp_path), read_state=ReadFileState())
+	target = str(tmp_path / "a.ipynb")
+	tool._persist(target, '{"nbformat":4,"cells":[]}\n')
+	assert target.replace("\\", "/")  # 写入成功无异常
+	assert "nbformat" in (tmp_path / "a.ipynb").read_text(encoding="utf-8")

@@ -314,3 +314,33 @@ def test_shipping_default_readonly_autopass(tmp_path: Path) -> None:
 	r = evaluate_policy("Bash", {"command": "echo hi"}, cwd=str(tmp_path))
 	assert r.decision == PermissionDecision.ALLOW
 	assert r.matched_rule == "bash_readonly_allow"
+
+
+def test_multiline_never_readonly_autopass() -> None:
+	"""G74: 换行拼接的多行命令不得被只读白名单自动放行（首行 ls/echo 蹭 allow 跑第二行任意脚本）。"""
+	assert not bash_readonly_allow("ls -la\necho hi")
+	assert not bash_readonly_allow("ls -la\npython -c \"import os\"")
+	assert not bash_readonly_allow("echo hello\npython -c \"import os\"")
+	assert not bash_readonly_allow("ls\r\ncat /etc/passwd")
+	# 单行只读仍照常自动放行
+	assert bash_readonly_allow("ls -la")
+	assert bash_readonly_allow("echo hi")
+
+
+def test_multiline_rule_decision_takes_strictest_line(tmp_path: Path) -> None:
+	"""多行命令逐行判定取最严:次行命中 deny 不会被首行 allow 盖过。"""
+	_write_rules(
+		tmp_path,
+		[
+			{
+				"name": "deny-py-c",
+				"program": "python",
+				"prefix": ["-c"],
+				"decision": "deny",
+			}
+		],
+	)
+	cwd = str(tmp_path)
+	assert bash_rule_decision("ls -la", cwd=cwd) == "allow"  # 单行 allow 不受影响
+	assert bash_rule_decision("ls -la\npython -c \"import os\"", cwd=cwd) == "deny"
+	assert bash_readonly_allow("ls -la\npython -c \"import os\"", cwd=cwd) is False

@@ -161,7 +161,6 @@ class QueryEngine:
             config.get("initial_messages") or []
         )
 
-        # TODO: 后续实现 permission_denials / total_usage / read_file_state
         self._has_handled_orphaned_permission: bool = False
         self._discovered_skill_names: set[str] = set()   # 发现的内置技能名称
         self._loaded_nested_memory_paths: set[str] = set()  # 已加载的嵌套记忆路径
@@ -1161,6 +1160,36 @@ class QueryEngine:
                 yield event
 
 
+def _default_context_limit(provider: str, model: str) -> int | None:
+	"""为缺失 context_limit 的客户端提供保守默认窗口（G67）。
+
+	- ``XEYO_CONTEXT_LIMIT`` 显式覆盖（>0 生效）;
+	- deepseek 路径固定 65536（不再让 C2 三触发点因 None 全哑）;
+	- 已知大窗 OpenAI 型号给 128k;未知型号返回 None——宁可不压,也不拿错窗口压。
+	"""
+	import os
+
+	raw = (os.environ.get("XEYO_CONTEXT_LIMIT") or "").strip()
+	if raw:
+		try:
+			return max(4096, int(raw))
+		except ValueError:
+			return None
+	provider_key = (provider or "").lower()
+	model_key = (model or "").lower()
+	if provider_key == "deepseek":
+		return 65536
+	if provider_key in ("openai", "local") and (
+		model_key.startswith("gpt-4o")
+		or model_key.startswith("gpt-4.1")
+		or model_key.startswith("o1")
+		or model_key.startswith("o3")
+		or model_key.startswith("gpt-5")
+	):
+		return 128_000
+	return None
+
+
 def build_default_engine(
     *,
     max_turns: int = 50,
@@ -1298,6 +1327,14 @@ def build_default_engine(
         registry,
         enabled=supports_vision_input(provider=provider_name, model=model_name),
     )
+
+    # G67: context_limit 断链修复——CLI/DeepSeek 路径原来不设 context_limit,
+    # None 使 C2 压力/收益门恒不触发(长会话无界增长直到厂商 400)。仅当客户端
+    # 没有已知窗口(usage 尾帧/显式配置)时注入保守默认。
+    if not getattr(model_client, "context_limit", None) and resolved_provider != "fake":
+        _ctx_default = _default_context_limit(provider_name, model_name)
+        if _ctx_default:
+            model_client.context_limit = _ctx_default
 
     # F1：MCP 运行时接线（扩展层关 = 一次读盘 no-op；21 内置工具零变化）。
     try:
