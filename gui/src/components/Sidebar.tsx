@@ -125,7 +125,12 @@ export const Sidebar = memo(function Sidebar() {
 		() =>
 			sessions
 				.filter(s => s.spaceId === SIDE_SPACE_ID)
-				.map(s => ({id: s.id, title: s.title, updatedAt: s.updatedAt}))
+				.map(s => ({
+					id: s.id,
+					title: s.title,
+					updatedAt: s.updatedAt,
+					archived: s.archived === true,
+				}))
 				.sort((a, b) => b.updatedAt - a.updatedAt),
 		[sessions],
 	);
@@ -773,6 +778,8 @@ className="xy-icon-btn rounded-md p-1.5 text-mute hover:bg-glass-hover hover:tex
 										navigate(next ? `/side/${next.id}` : '/');
 									}
 								}}
+								onArchiveSession={handleArchiveSession}
+								onRestoreSession={handleRestoreSession}
 							/>
 						</div>
 						{petDocked ? <SidebarPetDock onExtract={extractPet} /> : null}
@@ -999,7 +1006,7 @@ const SpaceFolder = memo(function SpaceFolder({
 					title={
 						item.archived
 							? '恢复 / 删除'
-							: '重命名 / 分叉 / 归档 / 删除'
+							: '重命名 / 分叉 / 归档'
 					}
 					onClick={e => openItemMenu(e, item)}
 					className="xy-icon-btn xy-sidebar-affordance absolute top-1/2 right-1 -translate-y-1/2 translate-x-1 rounded p-1 text-mute opacity-0 invisible pointer-events-none hover:bg-glass-hover hover:text-ink group-hover/item:visible group-hover/item:pointer-events-auto group-hover/item:opacity-100 group-hover/item:translate-x-0 group-focus-within/item:visible group-focus-within/item:pointer-events-auto group-focus-within/item:opacity-100 group-focus-within/item:translate-x-0"
@@ -1098,8 +1105,15 @@ const SideChatSection = memo(function SideChatSection({
 		onAdd,
 		onSelect,
 		onRemoveSession,
+		onArchiveSession,
+		onRestoreSession,
 	}: {
-		sessions: Array<{id: string; title: string; updatedAt: number}>;
+		sessions: Array<{
+			id: string;
+			title: string;
+			updatedAt: number;
+			archived: boolean;
+		}>;
 		activeId: string | null;
 		runningIds: ReadonlySet<string>;
 		doneUnseen?: Set<string>;
@@ -1109,137 +1123,184 @@ const SideChatSection = memo(function SideChatSection({
 
 	onSelect: (id: string) => void;
 	onRemoveSession: (id: string) => void;
+	/** 归档门槛（2026-09-05）：与主会话同规则——常态不提供删除。 */
+	onArchiveSession: (id: string) => void;
+	onRestoreSession: (id: string) => void;
 }) {
+	// 归档门槛：常态列表只显示未归档；已归档分组渲染，仅提供恢复/删除。
+	const activeSessions = sessions.filter(s => !s.archived);
+	const archivedSessions = sessions.filter(s => s.archived);
+
+	const openSideMenu = useCallback(
+		(e: React.MouseEvent, session: {id: string; title: string; archived: boolean}) => {
+			e.preventDefault();
+			e.stopPropagation();
+			const items: ContextMenuItem[] = [
+				{
+					kind: 'action',
+					id: 'copy-id',
+					label: '复制会话 ID',
+					icon: <Clipboard className="h-3.5 w-3.5" strokeWidth={1.9} />,
+					onSelect: () =>
+						void copyTextToClipboard(session.id, '已复制会话 ID'),
+				},
+			];
+			if (session.archived) {
+				items.push({
+					kind: 'action',
+					id: 'restore',
+					label: '恢复对话',
+					icon: <RotateCcw className="h-3.5 w-3.5" strokeWidth={1.9} />,
+					onSelect: () => onRestoreSession(session.id),
+				});
+				items.push({kind: 'sep'});
+				items.push({
+					kind: 'action',
+					id: 'delete',
+					label: '删除对话',
+					danger: true,
+					icon: <Trash2 className="h-3.5 w-3.5" strokeWidth={1.9} />,
+					onSelect: () => {
+						void (async () => {
+							const ok = await confirmDialog({
+								title: '删除已归档对话？',
+								body: `「${session.title}」将连同全部聊天记录永久删除，不可恢复。`,
+								confirmText: '删除',
+								danger: true,
+							});
+							if (ok) {
+								onRemoveSession(session.id);
+							}
+						})();
+					},
+				});
+			} else {
+				items.push({
+					kind: 'action',
+					id: 'archive',
+					label: '归档对话',
+					icon: <Archive className="h-3.5 w-3.5" strokeWidth={1.9} />,
+					onSelect: () => onArchiveSession(session.id),
+				});
+			}
+			showContextMenu(e, items, session.title || '会话操作');
+		},
+		[onArchiveSession, onRemoveSession, onRestoreSession],
+	);
+
+	const renderSideRow = (
+		session: {id: string; title: string; updatedAt: number; archived: boolean},
+	) => {
+		const active = session.id === activeId;
+		const running = runningIds.has(session.id);
+		return (
+			<li
+				key={session.id}
+				className="group/item relative"
+				style={{
+					contentVisibility: 'auto',
+					containIntrinsicSize: 'auto 32px',
+				}}
+			>
+				<button
+					type="button"
+					onClick={() => onSelect(session.id)}
+					onContextMenu={event => openSideMenu(event, session)}
+					className={cn(
+						'xy-pressable flex w-full items-center gap-2 rounded-md py-1 pr-2 pl-4 text-left text-[13px]',
+						active
+							? 'bg-glass-strong font-medium text-accent'
+							: session.archived
+								? 'text-ink-soft/80 hover:bg-glass-hover'
+								: 'text-ink-soft hover:bg-glass-hover',
+					)}
+				>
+					<span
+						className={cn(
+							'xy-run-dot',
+							running
+								? 'is-running'
+								: doneUnseen?.has(session.id) && 'is-done-unseen',
+						)}
+						aria-hidden="true"
+					/>
+					<span
+						className={cn(
+							'min-w-0 flex-1 truncate',
+							session.archived && 'text-mute',
+						)}
+					>
+						{session.title}
+					</span>
+					<span className="xy-session-meta shrink-0 font-mono text-[10px] text-mute/70 group-hover/item:opacity-0">
+						{formatRelativeShort(session.updatedAt)}
+					</span>
+				</button>
+				<button
+					type="button"
+					aria-label={session.archived ? '已归档对话操作' : '对话操作'}
+					title={session.archived ? '恢复 / 删除' : '归档'}
+					onClick={event => openSideMenu(event, session)}
+					className="xy-icon-btn xy-sidebar-affordance absolute top-1/2 right-1 -translate-y-1/2 translate-x-1 rounded p-1 text-mute opacity-0 invisible pointer-events-none hover:bg-glass-hover hover:text-ink group-hover/item:visible group-hover/item:pointer-events-auto group-hover/item:opacity-100 group-hover/item:translate-x-0 group-focus-within/item:visible group-focus-within/item:pointer-events-auto group-focus-within/item:opacity-100 group-focus-within/item:translate-x-0"
+				>
+					<MoreHorizontal className="h-3.5 w-3.5" />
+				</button>
+			</li>
+		);
+	};
+
 	return (
 		<div className="mb-0.5">
 							<div className="group/section mt-1 flex items-center justify-between gap-3 rounded-md px-1 pb-1 text-mute transition-colors hover:bg-glass-hover hover:text-accent focus-within:text-accent">
-					<button
-						type="button"
-						onClick={onToggle}
-						aria-expanded={expanded}
-						className="flex min-w-0 flex-1 items-center gap-1 rounded-md px-1.5 py-1 text-left text-[11px] font-medium tracking-wide text-current focus:outline-none focus-visible:outline-none"
-					>
-								<span className="min-w-0 truncate">Chat</span>
-								<ChevronRight
-									className={cn(
-										'h-3.5 w-3.5 shrink-0 opacity-0 transition-[transform,opacity] duration-150 group-hover/section:opacity-100',
-										expanded && 'rotate-90',
-									)}
-								/>
-					</button>
-					<button
-
+				<button
 					type="button"
-					aria-label="新建 Chat 对话"
-					onClick={event => {
-						event.stopPropagation();
-						onAdd();
-					}}
-					className="xy-icon-btn rounded-md p-1 text-current hover:bg-glass-hover hover:text-current"
+					onClick={onToggle}
+					aria-expanded={expanded}
+					className="flex min-w-0 flex-1 items-center gap-1 rounded-md px-1.5 py-1 text-left text-[11px] font-medium tracking-wide text-current focus:outline-none focus-visible:outline-none"
 				>
-					<Plus className="h-3.5 w-3.5" />
+							<span className="min-w-0 truncate">Chat</span>
+							<ChevronRight
+								className={cn(
+									'h-3.5 w-3.5 shrink-0 opacity-0 transition-[transform,opacity] duration-150 group-hover/section:opacity-100',
+									expanded && 'rotate-90',
+								)}
+							/>
 				</button>
-			</div>
-				<div
-					className={cn('xy-sidebar-tree grid', expanded ? 'is-open' : 'is-closed')}
-					aria-hidden={!expanded}
-				>
-				<ul className="min-h-0 overflow-hidden pb-1">
-					{sessions.length === 0 ? (
-						<li className="px-7 py-1 font-mono text-[11px] text-mute/70">暂无 Chat 对话</li>
-					) : (
-						sessions.map(session => {
-							const active = session.id === activeId;
-							const running = runningIds.has(session.id);
-							return (
-								<li
-									key={session.id}
-									className="group/item relative"
-									style={{
-										contentVisibility: 'auto',
-										containIntrinsicSize: 'auto 32px',
-									}}
-								>
-									<button
-										type="button"
-										onClick={() => onSelect(session.id)}
-										onContextMenu={event => {
-											showContextMenu(
-												event,
-												[
-													{
-														kind: 'action',
-														id: 'copy-id',
-														label: '复制会话 ID',
-														icon: (
-															<Clipboard
-																className="h-3.5 w-3.5"
-																strokeWidth={1.9}
-															/>
-														),
-														onSelect: () =>
-															void copyTextToClipboard(
-																session.id,
-																'已复制会话 ID',
-															),
-													},
-													{kind: 'sep'},
-													{
-														kind: 'action',
-														id: 'delete',
-														label: '删除会话',
-														danger: true,
-														icon: (
-															<Trash2
-																className="h-3.5 w-3.5"
-																strokeWidth={1.9}
-															/>
-														),
-														onSelect: () => onRemoveSession(session.id),
-													},
-												],
-												session.title || '会话操作',
-											);
-										}}
-										className={cn(
-											'xy-pressable flex w-full items-center gap-2 rounded-md py-1 pr-2 pl-4 text-left text-[13px]',
-											active
-												? 'bg-glass-strong font-medium text-accent'
-												: 'text-ink-soft hover:bg-glass-hover',
-										)}
-									>
-										<span
-											className={cn(
-												'xy-run-dot',
-												running
-													? 'is-running'
-													: doneUnseen?.has(session.id) && 'is-done-unseen',
-											)}
-											aria-hidden="true"
-										/>
-										<span className="min-w-0 flex-1 truncate">{session.title}</span>
-										<span className="xy-session-meta shrink-0 font-mono text-[10px] text-mute/70 group-hover/item:opacity-0">
-											{formatRelativeShort(session.updatedAt)}
-										</span>
-									</button>
-									<button
-										type="button"
-										aria-label="删除 Chat 对话"
-										onClick={event => {
-											event.stopPropagation();
-											onRemoveSession(session.id);
-										}}
-										className="xy-icon-btn xy-sidebar-affordance absolute top-1/2 right-1 -translate-y-1/2 translate-x-1 rounded p-1 text-mute opacity-0 invisible pointer-events-none hover:text-danger group-hover/item:visible group-hover/item:pointer-events-auto group-hover/item:opacity-100 group-hover/item:translate-x-0 group-focus-within/item:visible group-focus-within/item:pointer-events-auto group-focus-within/item:opacity-100 group-focus-within/item:translate-x-0"
-									>
-										<Trash2 className="h-3 w-3" />
-									</button>
-								</li>
-							);
-						})
-					)}
-				</ul>
-			</div>
+				<button
+
+				type="button"
+				aria-label="新建 Chat 对话"
+				onClick={event => {
+					event.stopPropagation();
+					onAdd();
+				}}
+				className="xy-icon-btn rounded-md p-1 text-current hover:bg-glass-hover hover:text-current"
+			>
+				<Plus className="h-3.5 w-3.5" />
+			</button>
 		</div>
+			<div
+				className={cn('xy-sidebar-tree grid', expanded ? 'is-open' : 'is-closed')}
+				aria-hidden={!expanded}
+			>
+			<ul className="min-h-0 overflow-hidden pb-1">
+				{activeSessions.length === 0 && archivedSessions.length === 0 ? (
+					<li className="px-7 py-1 font-mono text-[11px] text-mute/70">暂无 Chat 对话</li>
+				) : (
+					activeSessions.map(session => renderSideRow(session))
+				)}
+				{archivedSessions.length > 0 ? (
+					<>
+						<li className="flex items-center gap-1 px-7 py-0.5 font-mono text-[10px] tracking-wider text-mute/70">
+							<Archive className="h-3 w-3 shrink-0" aria-hidden />
+							<span>已归档 {archivedSessions.length}</span>
+						</li>
+						{archivedSessions.map(session => renderSideRow(session))}
+					</>
+				) : null}
+			</ul>
+		</div>
+	</div>
 	);
 });
 
