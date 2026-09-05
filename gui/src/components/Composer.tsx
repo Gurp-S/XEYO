@@ -1,8 +1,11 @@
 import {
 	ArrowUp,
 	ChevronDown,
+	ChevronUp,
+	MessageCircleMore,
 	Network,
 	Plus,
+	Send,
 	Square,
 	X,
 } from 'lucide-react';
@@ -249,6 +252,14 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 	const refreshInbox = useChatUiStore(s => s.refreshInbox);
 	const cancelInboxItem = useChatUiStore(s => s.cancelInboxItem);
 	const inboxItems: InboxQueuedItem[] = (activeId ? inboxBySession[activeId] : undefined) ?? [];
+	// dsh QueueDock 同款折叠：多条默认收成计数头；队空自动复位折叠。
+	const [queueCollapsed, setQueueCollapsed] = useState(true);
+	const queueExpanded = inboxItems.length === 1 || !queueCollapsed;
+	useEffect(() => {
+		if (inboxItems.length === 0) {
+			setQueueCollapsed(true);
+		}
+	}, [inboxItems.length]);
 	// P1：chip 可见时 2s 轮询排队队列（多端一致；队空 = 已投递/取消 → 清 chip）。
 	useEffect(() => {
 		if (!hasInboxChip || !activeId) {
@@ -1192,68 +1203,88 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 				{showTodoDock ? <SessionTodoDock embedded /> : null}
 				{goalDockLive ? <SessionGoalDock embedded /> : null}
 				{hasInboxChip && inboxItems.length > 0 ? (
-					// 排队停靠条（对齐 dsh QueueDock：附着在输入卡顶部的队列面板，
-					// 行高/发丝分隔/圆形图标动作同族；XEYO 差异：不做折叠头、
-					// mono 序号直读位置、stuck 态 warn token 内联重试）。
-					<ul
-						role="list"
-						aria-label="排队消息"
-						className={cn(
-							'max-h-[180px] overflow-y-auto overscroll-contain',
-							'[&>li+li]:border-t [&>li+li]:border-line/60',
-							isComposerFused
-								? 'border-none bg-transparent'
-								: 'mb-1.5 rounded-xl border border-line/70 bg-paper-deep/30',
-						)}
-					>
-						{inboxItems.map((it, i) => {
-							const stuck = it.state === 'stuck';
-							return (
-								<li
-									key={it.queue_id || i}
-									className="flex h-[34px] shrink-0 items-center gap-2.5 pr-1.5 pl-3"
+					// 排队停靠条 —— 1:1 对齐 dsh ui-conversation QueueDock：
+					// 附着输入卡顶部的内嵌软面板（顶圆角方底 + 0.5px 描边），
+					// 多条默认折叠成「N 条排队中」计数头（气泡字形 + 箭头），单条直出且行自扛字形；
+					// 行 = 字形(仅单条) + 截断预览 + 右侧圆形图标动作；行间 inset 发丝线；
+					// 列表 max-h 180px 内滚。色值走 XEYO token（paper-deep/line/ink-soft/mute/warn）。
+					<div className="xy-queue-dock" data-queue-dock="">
+						<div className="xy-queue-panel">
+							{inboxItems.length > 1 ? (
+								<button
+									type="button"
+									className="xy-queue-header"
+									aria-expanded={queueExpanded}
+									onClick={() => setQueueCollapsed(v => !v)}
 								>
-									<span
-										aria-hidden
-										className="shrink-0 font-mono text-[11px] tabular-nums text-mute"
-									>
-										#{it.position && it.position > 0 ? it.position : i + 1}
+									<span className="xy-queue-lead" aria-hidden>
+										<MessageCircleMore className="h-3.5 w-3.5" strokeWidth={1.9} />
 									</span>
-									<span
-										className={cn(
-											'min-w-0 flex-1 truncate text-[12.5px]',
-											stuck ? 'text-warn' : 'text-ink-soft',
+									<span className="xy-queue-count">{inboxItems.length} 条排队中</span>
+									<span className="xy-queue-chevron" aria-hidden>
+										{queueExpanded ? (
+											<ChevronDown className="h-3.5 w-3.5" strokeWidth={1.9} />
+										) : (
+											<ChevronUp className="h-3.5 w-3.5" strokeWidth={1.9} />
 										)}
-									>
-										{stuck ? `投递失败：${it.text}` : it.text}
 									</span>
-									{stuck ? (
-										<button
-											type="button"
-											title="重新投递"
-											onClick={() => {
-												void resumeInbox(activeId ?? '');
-												void refreshInbox(activeId ?? '');
-											}}
-											className="xy-press shrink-0 rounded-full px-1.5 py-0.5 font-sans text-[11px] text-warn hover:bg-warn/10"
-										>
-											重试
-										</button>
-									) : null}
-									<button
-										type="button"
-										title="取消排队"
-										onClick={() => {
-											void cancelInboxItem(activeId ?? '', it.queue_id);
-										}}
-										className="xy-icon-btn inline-flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-full text-mute transition-colors hover:bg-ink/5 hover:text-ink"
-									>
-										<X className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden />
-									</button>
-								</li>
-							);
-						})}
-					</ul>
+								</button>
+							) : null}
+							<ul className="xy-queue-list" hidden={!queueExpanded}>
+								{queueExpanded &&
+									inboxItems.map((it, i) => {
+										const stuck = it.state === 'stuck';
+										return (
+											<li key={it.queue_id || i} className="xy-queue-row">
+												{inboxItems.length === 1 ? (
+													<span className="xy-queue-lead" aria-hidden>
+														<MessageCircleMore
+															className="h-3.5 w-3.5"
+															strokeWidth={1.9}
+														/>
+													</span>
+												) : null}
+												<span
+													className="xy-queue-preview"
+													data-stuck={stuck ? '' : undefined}
+												>
+													{stuck ? `投递失败：${it.text}` : it.text}
+												</span>
+												<div className="xy-queue-actions">
+													{stuck ? (
+														<button
+															type="button"
+															className="xy-queue-action"
+															title="重新投递"
+															onClick={() => {
+																void resumeInbox(activeId ?? '');
+																void refreshInbox(activeId ?? '');
+															}}
+														>
+															<Send
+																className="h-3.5 w-3.5"
+																strokeWidth={1.9}
+																aria-hidden
+															/>
+														</button>
+													) : null}
+													<button
+														type="button"
+														className="xy-queue-action"
+														title="取消排队"
+														onClick={() => {
+															void cancelInboxItem(activeId ?? '', it.queue_id);
+														}}
+													>
+														<X className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden />
+													</button>
+												</div>
+											</li>
+										);
+									})}
+							</ul>
+						</div>
+					</div>
 				) : null}
 				<PermissionDialog />
 				<AskUserDialog />

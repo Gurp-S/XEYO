@@ -438,3 +438,145 @@ html[data-smoothness="off"] .xy-panel-collapse {
 }
 /* 注：不再有 html[data-scheme="dark"] 覆盖——各值均派生自随主题翻转的变量，
    旧 dark 块与 :root 完全同值，属死代码，已删。 */
+
+/* ---- 排队停靠条 xy-queue-dock —— 1:1 对齐 dsh ui-conversation QueueDock ----
+   结构同源（panel 内嵌软面 + 计数折叠头 + 36px 行 + inset 发丝线 + 圆形图标动作），
+   色值走 XEYO token：dsw-specific-tip → paper-deep 混合；label-* → ink/ink-soft/mute。 */
+.xy-queue-dock {
+  flex: none;
+  padding: 0 10px;
+  margin-bottom: 6px;
+}
+
+.xy-queue-panel {
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  padding: 2px 0;
+  border-radius: 12px 12px 0 0;
+  background: color-mix(in srgb, var(--xy-paper-deep) 40%, transparent);
+}
+
+.xy-queue-panel::after {
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--xy-line);
+  border-bottom: none;
+  border-radius: inherit;
+  content: '';
+  pointer-events: none;
+}
+
+.xy-queue-header {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 36px;
+  padding: 4px 12px;
+  border: none;
+  background: transparent;
+  color: var(--xy-ink);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.xy-queue-lead {
+  display: grid;
+  flex: none;
+  place-items: center;
+  color: var(--xy-mute);
+}
+
+.xy-queue-count {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 24px;
+}
+
+.xy-queue-chevron {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  color: var(--xy-mute);
+}
+
+.xy-queue-list {
+  max-height: 180px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.xy-queue-row {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 36px;
+  padding: 4px 5px 4px 12px;
+  border-radius: 8px;
+}
+
+.xy-queue-row + .xy-queue-row {
+  box-shadow: inset 0 1px 0 var(--xy-line);
+}
+
+.xy-queue-preview {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--xy-ink-soft);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  word-break: break-word;
+}
+
+.xy-queue-preview[data-stuck] {
+  color: var(--xy-warn);
+}
+
+.xy-queue-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+}
+
+.xy-queue-action {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--xy-mute);
+  cursor: pointer;
+  transition:
+    color 120ms var(--ease-out-soft),
+    background 120ms var(--ease-out-soft);
+}
+
+.xy-queue-action:hover {
+  color: var(--xy-ink);
+  background: color-mix(in srgb, var(--xy-ink) 6%, transparent);
+}
+
+/* fused 一体框内：吃掉独立外距，贴住相邻面板（dsh 负 margin 贴输入卡的等价做法） */
+.xy-composer-stack .xy-queue-dock {
+  padding: 0 10px;
+  margin-bottom: 0;
+}
