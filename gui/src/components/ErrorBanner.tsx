@@ -2,6 +2,7 @@ import {AlertCircle, X} from 'lucide-react';
 import {useMemo, useRef, useState} from 'react';
 import {healthCheck} from '@/lib/api';
 import {refreshRuntimeBackendPort} from '@/lib/apiBase';
+import {openPageView} from '@/lib/appNav';
 import {errorBannerMatchesActiveSession} from '@/lib/pendingForSession';
 import {useChatUiStore} from '@/stores/chatUiStore';
 import {isSmoothnessOn, useSettingsStore} from '@/stores/settingsStore';
@@ -38,7 +39,6 @@ export function ErrorBanner({embedded = false}: Props) {
 	const errorBannerSessionId = useChatUiStore(s => s.errorBannerSessionId);
 	const clearErrorBanner = useChatUiStore(s => s.clearErrorBanner);
 	const openSettings = useSettingsStore(s => s.openSettings);
-	const openUsage = useSettingsStore(s => s.openUsage);
 	const smoothness = useSettingsStore(s => isSmoothnessOn(s.smoothness));
 	const [retrying, setRetrying] = useState(false);
 	const holdRef = useRef('');
@@ -95,7 +95,7 @@ export function ErrorBanner({embedded = false}: Props) {
 						if (category === 'settings') {
 							openSettings();
 						} else if (category === 'quota') {
-							openUsage();
+							openPageView('usage');
 						} else {
 							void retryConnection();
 						}

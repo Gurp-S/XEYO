@@ -892,7 +892,6 @@ type SettingsState = Settings & {
 	settingsModalOpen: boolean;
 	/** 打开设置时落到的页签。 */
 	settingsInitialTab: SettingsTab;
-	usagePanelOpen: boolean;
 	hydrate: () => void;
 	hydrateAsync: () => Promise<void>;
 	update: (patch: Partial<Settings>) => void;
@@ -903,14 +902,6 @@ type SettingsState = Settings & {
 	resolvedBaseUrl: () => string;
 	openSettings: (tab?: SettingsTab) => void;
 	closeSettings: () => void;
-	openUsage: () => void;
-	closeUsage: () => void;
-	/** 直设用量面板开合（全局导航历史恢复界面状态用）。 */
-	setUsagePanel: (open: boolean) => void;
-	/** 插件 / MCP 管理面板开合（侧边栏「用量」下方入口，P3-⑪ 占位）。 */
-	pluginsPanelOpen: boolean;
-	openPlugins: () => void;
-	closePlugins: () => void;
 };
 
 export const PROVIDER_DEFAULT_URL: Record<ProviderId, string> = {
@@ -940,8 +931,6 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 	hydrated: false,
 	settingsModalOpen: false,
 	settingsInitialTab: 'appearance',
-	usagePanelOpen: false,
-	pluginsPanelOpen: false,
 	hydrate() {
 		const lite = loadLite();
 		applyDocumentTheme(lite.theme);
@@ -1283,23 +1272,6 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 	},
 	closeSettings() {
 		set({settingsModalOpen: false});
-	},
-	openUsage() {
-		// 用量 / 扩展中心两页面视图互斥(2026-09-05):否则两覆盖层叠放,
-		// 后挂载者盖住先挂载者,点击对方入口看起来"没反应/卡住"。
-		set({usagePanelOpen: true, pluginsPanelOpen: false});
-	},
-	closeUsage() {
-		set({usagePanelOpen: false});
-	},
-	setUsagePanel(open) {
-		set({usagePanelOpen: open});
-	},
-	openPlugins() {
-		set({pluginsPanelOpen: true, usagePanelOpen: false});
-	},
-	closePlugins() {
-		set({pluginsPanelOpen: false});
 	},
 	resolvedBaseUrl() {
 		const {baseUrl, provider} = get();

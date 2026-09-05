@@ -7,11 +7,9 @@ vi.mock('@/stores/workspaceStore', () => ({
 	},
 }));
 
-const closeUsage = vi.fn();
-vi.mock('@/stores/settingsStore', () => ({
-	useSettingsStore: {
-		getState: () => ({closeUsage}),
-	},
+const closePageView = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/appNav', () => ({
+	closePageView,
 }));
 
 // 使用真实 chatStore（含 uiChromeSlice），验证 setImmersive 的布局副作用。
@@ -20,7 +18,7 @@ import {useChatStore} from '@/stores/chatStore';
 describe('uiChromeSlice.immersive (P3-⑫)', () => {
 	beforeEach(() => {
 		setOpen.mockReset();
-		closeUsage.mockReset();
+		closePageView.mockReset();
 		useChatStore.setState({immersive: false, sidebarOpen: true});
 	});
 
@@ -29,7 +27,7 @@ describe('uiChromeSlice.immersive (P3-⑫)', () => {
 		expect(useChatStore.getState().immersive).toBe(true);
 		expect(useChatStore.getState().sidebarOpen).toBe(false);
 		expect(setOpen).toHaveBeenCalledWith(false);
-		expect(closeUsage).toHaveBeenCalled();
+		expect(closePageView).toHaveBeenCalled();
 	});
 
 	it('setImmersive(false) only clears the flag', () => {

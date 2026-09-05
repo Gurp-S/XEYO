@@ -14,8 +14,8 @@ import {
 	type McpServerView,
 	type McpStatusReport,
 } from '@/lib/api/mcp';
+import {openPageView} from '@/lib/appNav';
 import {cn} from '@/lib/utils';
-import {useSettingsStore} from '@/stores/settingsStore';
 
 const STATUS_LABEL: Record<string, {label: string; cls: string}> = {
 	ready: {label: '就绪', cls: 'text-ok'},
@@ -178,7 +178,6 @@ export function McpPanel({open, onClose}: {open: boolean; onClose: () => void}) 
 	const [query, setQuery] = useState('');
 	const [busy, setBusy] = useState<string | null>(null);
 	const [tick, setTick] = useState(0);
-	const openPlugins = useSettingsStore(s => s.openPlugins);
 
 	useEffect(() => {
 		if (!open) {
@@ -244,7 +243,7 @@ export function McpPanel({open, onClose}: {open: boolean; onClose: () => void}) 
 					title="在扩展中心管理插件 / MCP / 技能"
 					onClick={() => {
 						onClose();
-						openPlugins();
+						openPageView('plugins');
 					}}
 					className="inline-flex h-7 shrink-0 items-center gap-1 rounded-lg px-2 text-[11px] text-mute transition-colors hover:bg-paper-deep hover:text-ink"
 				>

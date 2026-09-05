@@ -21,7 +21,10 @@ import {useLocation, useNavigate, useParams} from 'react-router-dom';
 import {ImmersiveLayer} from '@/components/immersive/ImmersiveLayer';
 import {UsagePanel} from '@/components/UsagePanel';
 import {PluginsPanel} from '@/components/PluginsPanel';
+import {PageViewPane} from '@/components/PageViewPane';
 import {usePresence} from '@/hooks/usePresence';
+import {closePageView, pageViewFromPath} from '@/lib/appNav';
+import {popEscLayer, pushEscLayer} from '@/lib/escStack';
 import {cn} from '@/lib/utils';
 
 function RecoveryBanner() {
@@ -71,11 +74,14 @@ export function ChatPage() {
 	const hydrated = useChatStore(s => s.hydrated);
 	const hydrate = useChatStore(s => s.hydrate);
 	const hydrateSettings = useSettingsStore(s => s.hydrate);
-		const usageOpen = useSettingsStore(s => s.usagePanelOpen);
-		const {mounted: usageMounted} = usePresence(usageOpen, 200, 1);
-	// P3-⑪：插件 / MCP 面板（侧边栏「用量」下方入口）。
-	const pluginsOpen = useSettingsStore(s => s.pluginsPanelOpen);
-	const {mounted: pluginsMounted} = usePresence(pluginsOpen, 200, 1);
+	// 页面视图（用量/扩展中心）→ 真路由派生（/usage、/plugins），无独立状态。
+	const location = useLocation();
+	const pageView = pageViewFromPath(location.pathname);
+	const pageViewOpen = pageView !== null;
+	const usageActive = pageView === 'usage';
+	const pluginsActive = pageView === 'plugins';
+	const {mounted: usageMounted} = usePresence(usageActive, 200, 1);
+	const {mounted: pluginsMounted} = usePresence(pluginsActive, 200, 1);
 	const recoverStuckStream = useChatStore(s => s.recoverStuckStream);
 	const activeId = useChatStore(s => s.activeId);
 	const selectSession = useChatStore(s => s.selectSession);
@@ -83,26 +89,17 @@ export function ChatPage() {
 
 	const immersiveOpen = useChatStore(s => s.immersive);
 
-	// 页面视图(用量/扩展中心)的万能出口:Esc 关闭(2026-09-05)。
-	// 侧栏收起时这两个视图没有任何可见返回控件,Esc 是结构兜底;
-	// 其他组件已消费的 Esc(defaultPrevented)不抢。
+	// 页面视图(用量/扩展中心)的万能出口:Esc 关闭 —— 统一走 escStack
+	// (2026-09-05 复用审计 ④):与命令面板等浮层同一套层级语义,后入栈者先处理。
 	useEffect(() => {
-		if (!usageOpen && !pluginsOpen) {
+		if (!pageViewOpen) {
 			return;
 		}
-		const onPageViewEsc = (e: KeyboardEvent) => {
-			if (e.key !== 'Escape' || e.defaultPrevented) {
-				return;
-			}
-			useSettingsStore.getState().closeUsage();
-			useSettingsStore.getState().closePlugins();
-		};
-		window.addEventListener('keydown', onPageViewEsc);
-		return () => window.removeEventListener('keydown', onPageViewEsc);
-	}, [usageOpen, pluginsOpen]);
+		pushEscLayer('page-view', () => closePageView());
+		return () => popEscLayer('page-view');
+	}, [pageViewOpen]);
 
-	const location = useLocation();
-		const isSideChat = location.pathname.startsWith('/side/');
+	const isSideChat = location.pathname.startsWith('/side/');
 	useEffect(() => {
 		if (offlineReplay) {
 			return;
@@ -130,51 +127,47 @@ export function ChatPage() {
 		return () => window.removeEventListener('focus', onFocus);
 	}, [recoverStuckStream, hydrated, activeId, offlineReplay]);
 
-		// URL → store。不要依赖 activeId — 否则 open-folder /
-		// createSession 会在 navigate 前更新 activeId，此 effect
-		// 会重新选中过期的 URL session（发送看似无反应）。
-		useEffect(() => {
-			if (offlineReplay || !hydrated || !sessionId) {
-				return;
-			}
-
-		const st = useChatStore.getState();
-		// 路由与会话类型必须匹配：/c/ 只接主会话，/side/ 只接 side- 会话。
-		const exists =
-			st.sessions.some(s => s.id === sessionId) &&
-			sessionId.startsWith('side-') === isSideChat;
-		if (!exists) {
-			if (isSideChat) {
-				const sideNext = st.sessions.find(s => s.id.startsWith('side-'));
-				navigate(sideNext ? `/side/${sideNext.id}` : '/', {replace: true});
-				return;
-			}
-			if (st.activeId) {
-				navigate(`/c/${st.activeId}`, {replace: true});
-				return;
-			}
-			if (creatingRef.current) {
-				return;
-			}
-			creatingRef.current = true;
-			void createSession().then(id => {
-				navigate(`/c/${id}`, {replace: true});
-				creatingRef.current = false;
-			});
-			return;
-		}
-		void selectSession(sessionId);
-		}, [offlineReplay, hydrated, sessionId, selectSession, createSession, navigate, isSideChat]);
-
-	// 路径无 session id 时 store → URL
+	// 路由 ↔ store 双向对齐（合并原两个镜像 effect，2026-09-05 复用审计 ⑥）。
+	// 页面视图路由（/usage、/plugins）不参与会话对齐。
 	useEffect(() => {
-		if (offlineReplay || !hydrated || sessionId) {
+		if (offlineReplay || !hydrated || pageViewOpen) {
 			return;
 		}
+		const st = useChatStore.getState();
+		if (sessionId) {
+			// URL → store。不要依赖 activeId — 否则 open-folder /
+			// createSession 会在 navigate 前更新 activeId，此 effect
+			// 会重新选中过期的 URL session（发送看似无反应）。
+			// 路由与会话类型必须匹配：/c/ 只接主会话，/side/ 只接 side- 会话。
+			const exists =
+				st.sessions.some(s => s.id === sessionId) &&
+				sessionId.startsWith('side-') === isSideChat;
+			if (!exists) {
+				if (isSideChat) {
+					const sideNext = st.sessions.find(s => s.id.startsWith('side-'));
+					navigate(sideNext ? `/side/${sideNext.id}` : '/', {replace: true});
+					return;
+				}
+				if (st.activeId) {
+					navigate(`/c/${st.activeId}`, {replace: true});
+					return;
+				}
+				if (creatingRef.current) {
+					return;
+				}
+				creatingRef.current = true;
+				void createSession().then(id => {
+					navigate(`/c/${id}`, {replace: true});
+					creatingRef.current = false;
+				});
+				return;
+			}
+			void selectSession(sessionId);
+			return;
+		}
+		// 路径无 session id：store → URL。
 		if (isSideChat) {
-			const sideNext = useChatStore
-				.getState()
-				.sessions.find(s => s.id.startsWith('side-'));
+			const sideNext = st.sessions.find(s => s.id.startsWith('side-'));
 			navigate(sideNext ? `/side/${sideNext.id}` : '/', {replace: true});
 			return;
 		}
@@ -191,7 +184,7 @@ export function ChatPage() {
 			navigate(`/c/${id}`, {replace: true});
 			creatingRef.current = false;
 		});
-	}, [offlineReplay, hydrated, sessionId, activeId, createSession, navigate, isSideChat]);
+	}, [offlineReplay, hydrated, sessionId, activeId, createSession, navigate, isSideChat, pageViewOpen, selectSession]);
 
 	return (
 			<AppShell>
@@ -208,13 +201,13 @@ export function ChatPage() {
 									<div
 										className={cn(
 											'absolute inset-0 flex min-h-0 min-w-0 flex-col transition-[opacity,transform] duration-200 ease-out motion-reduce:transition-none',
-											// 用量 / 扩展中心两覆盖层互斥;任一打开时聊天列让位淡出,
-											// 否则透明面板与聊天内容互相透字(2026-09-05 扩展中心冒烟发现)。
-											usageOpen || pluginsOpen
+											// 页面视图路由（用量/扩展中心）打开时聊天列让位淡出
+											// (2026-09-05):否则透明面板与聊天内容互相透字。
+											pageViewOpen
 												? 'pointer-events-none translate-y-1 opacity-0'
 												: 'pointer-events-auto translate-y-0 opacity-100',
 										)}
-										aria-hidden={usageOpen || pluginsOpen}
+										aria-hidden={pageViewOpen}
 									>
 										<div className="xy-chat-col relative flex min-h-0 min-w-0 flex-1 flex-col">
 											{!isSideChat ? (
@@ -230,32 +223,12 @@ export function ChatPage() {
 							<RecoveryBanner />
 							<Composer showTodoDock={!isSideChat} />
 							</div>
-							{usageOpen || usageMounted ? (
-										<div
-											className={cn(
-												'absolute inset-0 flex min-h-0 min-w-0 flex-col transition-[opacity,transform] duration-200 ease-out motion-reduce:transition-none',
-												usageOpen
-													? 'pointer-events-auto translate-y-0 opacity-100'
-													: 'pointer-events-none -translate-y-1 opacity-0',
-											)}
-											aria-hidden={!usageOpen}
-										>
-											<UsagePanel active={usageOpen} />
-										</div>
-									) : null}
-							{pluginsOpen || pluginsMounted ? (
-										<div
-											className={cn(
-												'absolute inset-0 flex min-h-0 min-w-0 flex-col transition-[opacity,transform] duration-200 ease-out motion-reduce:transition-none',
-												pluginsOpen
-													? 'pointer-events-auto translate-y-0 opacity-100'
-													: 'pointer-events-none -translate-y-1 opacity-0',
-											)}
-											aria-hidden={!pluginsOpen}
-										>
-											<PluginsPanel active={pluginsOpen} />
-										</div>
-									) : null}
+						<PageViewPane active={usageActive} mounted={usageMounted}>
+							<UsagePanel active={usageActive} />
+						</PageViewPane>
+						<PageViewPane active={pluginsActive} mounted={pluginsMounted}>
+							<PluginsPanel active={pluginsActive} />
+						</PageViewPane>
 								</div>
 							</main>
 						</ChatUiStoreProvider>

@@ -22,8 +22,8 @@ import {
 	type ReactNode,
 } from 'react';
 import {createPortal} from 'react-dom';
-import {useNavigate} from 'react-router-dom';
 import {searchWorkspace, setWorkspace, type WorkspaceEntry} from '@/lib/api';
+import {newSession, openPageView, openSession} from '@/lib/appNav';
 import {handleComposerSlash, lastUserText} from '@/lib/slashCommands';
 import {pushEscLayer, popEscLayer} from '@/lib/escStack';
 import {useIconTheme} from '@/lib/iconThemeLoader';
@@ -129,20 +129,16 @@ export function CommandPalette() {
 
 	const sessions = useChatStore(s => s.sessions);
 	const spaces = useChatStore(s => s.spaces);
-	const createSession = useChatStore(s => s.createSession);
 	const openFolder = useChatStore(s => s.openFolder);
 	const enterSpace = useChatStore(s => s.enterSpace);
-	const selectSession = useChatStore(s => s.selectSession);
 	const setAgentMode = useChatStore(s => s.setAgentMode);
 
 	const openSettings = useSettingsStore(s => s.openSettings);
-	const openUsage = useSettingsStore(s => s.openUsage);
 	// T32：AgentMap 等半成品收进实验菜单——默认不在命令面板列出「打开地图」。
 	const showExperimental = useSettingsStore(s => s.showExperimental);
 	const toggleRemote = useRemoteStore(s => s.toggleRemote);
 	const remoteLoggedIn = useRemoteStore(s => s.loggedIn);
 
-	const navigate = useNavigate();
 	// enterRafs=0：打开时立刻 visible，避免 StrictMode 取消 rAF 导致一直透明
 	const {mounted, shown} = usePresence(open, 160, 0);
 	const visible = open || shown;
@@ -180,16 +176,12 @@ export function CommandPalette() {
 	const openAgent = useCallback(
 		(sessionId: string, title: string, sid: string) => {
 			void runAndClose(async () => {
-				// 页面视图（用量/扩展中心）开着时选会话：一并退出，否则导航
-				// 在覆盖层底下发生，看起来像"没反应"(2026-09-05)。
-				useSettingsStore.getState().closeUsage();
-				useSettingsStore.getState().closePlugins();
 				touchAgent({id: sessionId, title, spaceName: spaceName(sid)});
-				await selectSession(sessionId);
-				navigate(`/c/${sessionId}`);
+				// 统一入口（lib/appNav）：页面视图随路由自动退出。
+				await openSession(sessionId);
 			});
 		},
-		[navigate, runAndClose, selectSession, spaceName, touchAgent],
+		[runAndClose, spaceName, touchAgent],
 	);
 
 	const openFilePath = useCallback(
@@ -399,31 +391,31 @@ export function CommandPalette() {
 							strokeWidth={1.75}
 						/>
 					),
-					run: () =>
-						void runAndClose(async () => {
-							const id = await createSession();
-							navigate(`/c/${id}`);
-						}),
-				},
-				{
-					id: 'action:open-folder',
-					label: 'Open Folder',
-					detail: '打开工作区文件夹',
-					meta: 'Ctrl+O',
-					icon: (
-						<FolderOpen className="h-4 w-4 shrink-0 text-mute" strokeWidth={1.75} />
-					),
-					run: () =>
-						void runAndClose(async () => {
-							const path = await pickFolder();
-							if (!path) {
-								return;
-							}
-							const spaceId = await openFolder(path);
-							const id = await enterSpace(spaceId);
-							navigate(`/c/${id}`);
-						}),
-				},
+				run: () =>
+					void runAndClose(async () => {
+						// 统一入口：新建会话 + 路由。
+						await newSession();
+					}),
+			},
+			{
+				id: 'action:open-folder',
+				label: 'Open Folder',
+				detail: '打开工作区文件夹',
+				meta: 'Ctrl+O',
+				icon: (
+					<FolderOpen className="h-4 w-4 shrink-0 text-mute" strokeWidth={1.75} />
+				),
+				run: () =>
+					void runAndClose(async () => {
+						const path = await pickFolder();
+						if (!path) {
+							return;
+						}
+						const spaceId = await openFolder(path);
+						const id = await enterSpace(spaceId);
+						await openSession(id);
+					}),
+			},
 				{
 					id: 'action:terminal',
 					label: 'Open Terminal',
@@ -480,13 +472,13 @@ export function CommandPalette() {
 							strokeWidth={1.75}
 						/>
 					),
-					run: () =>
-						void runAndClose(() => {
-							openUsage();
-						}),
-				},
-				{
-					id: 'action:remote',
+				run: () =>
+					void runAndClose(() => {
+						openPageView('usage');
+					}),
+			},
+			{
+				id: 'action:remote',
 					label: remoteLoggedIn ? '断开远程' : '远程连接',
 					detail: '微信远程通道',
 					icon: (
@@ -628,12 +620,11 @@ export function CommandPalette() {
 		openAgent,
 		openFilePath,
 		runSlash,
-		createSession,
-		navigate,
+		newSession,
 		openFolder,
 		enterSpace,
 		runAndClose,
-		openUsage,
+		openPageView,
 		remoteLoggedIn,
 		toggleRemote,
 		setAgentMode,

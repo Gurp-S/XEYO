@@ -8,7 +8,7 @@ import {
 	normalizeAgentMode,
 } from '@/lib/agentMode';
 import {useWorkspaceStore} from '@/stores/workspaceStore';
-import {useSettingsStore} from '@/stores/settingsStore';
+import {closePageView} from '@/lib/appNav';
 import {
 	type AskUserPendingStreamEvent,
 	type AskUserResolvedStreamEvent,
@@ -76,7 +76,8 @@ export function createUiChromeSlice(
 			// 关闭侧边栏、工作区、用量覆盖层（保持对话可见）。
 			set({sidebarOpen: false});
 			void useWorkspaceStore.getState().setOpen(false);
-			void useSettingsStore.getState().closeUsage?.();
+			// 页面视图是真路由：进入沉浸态时导航回当前会话（即关闭页面视图）。
+			closePageView();
 		}
 	},
 

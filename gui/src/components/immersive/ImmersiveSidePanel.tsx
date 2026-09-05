@@ -9,10 +9,9 @@ import {
 	X,
 } from 'lucide-react';
 import {useEffect, useRef, useState} from 'react';
-import {useNavigate} from 'react-router-dom';
 import {ImmersiveTodo} from './ImmersiveTodo';
 import {useChatUiStore} from '@/stores/chatUiStore';
-import {useSettingsStore} from '@/stores/settingsStore';
+import {newSession, openPageView, openSession} from '@/lib/appNav';
 
 /**
  * 沉浸模式右板（smoke-test #5 重做）：
@@ -21,17 +20,12 @@ import {useSettingsStore} from '@/stores/settingsStore';
  * - 受父级 ImmersiveLayer 控制开合（`Ctrl/Cmd+B` 切换，`Esc` 逐层退出）。
  */
 export function ImmersiveSidePanel({onCollapse}: {onCollapse: () => void}) {
-	const navigate = useNavigate();
 	const setImmersive = useChatUiStore(s => s.setImmersive);
 	const sessions = useChatUiStore(s => s.sessions);
 	const activeId = useChatUiStore(s => s.activeId);
-	const createSession = useChatUiStore(s => s.createSession);
-	const selectSession = useChatUiStore(s => s.selectSession);
 	const spaces = useChatUiStore(s => s.spaces);
 	const activeSpaceId = useChatUiStore(s => s.activeSpaceId);
 	const setActiveSpace = useChatUiStore(s => s.setActiveSpace);
-	const openUsage = useSettingsStore(s => s.openUsage);
-	const openPlugins = useSettingsStore(s => s.openPlugins);
 
 	const [titleOpen, setTitleOpen] = useState(false);
 	const [wsOpen, setWsOpen] = useState(false);
@@ -67,19 +61,18 @@ export function ImmersiveSidePanel({onCollapse}: {onCollapse: () => void}) {
 	const ws = spaces.find(w => w.id === activeSpaceId);
 
 	const exitImmersive = () => setImmersive(false);
-	const newChat = async () => {
-		const id = await createSession();
-		navigate(`/c/${id}`);
+	const newChat = () => {
+		// 统一入口（lib/appNav）：新建会话 + 路由。
+		void newSession();
 	};
-	const goAndExit = (open: () => void) => {
-		open();
+	// 页面视图是真路由：先退沉浸态，再导航（导航本身即打开 /usage、/plugins）。
+	const goPageView = (kind: 'usage' | 'plugins') => {
 		exitImmersive();
-		navigate('/');
+		openPageView(kind);
 	};
 	const switchSession = async (id: string) => {
-		await selectSession(id);
+		await openSession(id);
 		setTitleOpen(false);
-		navigate(`/c/${id}`);
 	};
 
 	const iconBtn =
@@ -166,7 +159,7 @@ export function ImmersiveSidePanel({onCollapse}: {onCollapse: () => void}) {
 						aria-label="用量"
 						title="用量"
 						className={iconBtn}
-						onClick={() => goAndExit(() => openUsage())}
+						onClick={() => goPageView('usage')}
 					>
 						<CircleGauge className="size-4" />
 					</button>
@@ -175,7 +168,7 @@ export function ImmersiveSidePanel({onCollapse}: {onCollapse: () => void}) {
 						aria-label="插件 / MCP"
 						title="插件 / MCP"
 						className={iconBtn}
-						onClick={() => goAndExit(() => openPlugins())}
+						onClick={() => goPageView('plugins')}
 					>
 						<Puzzle className="size-4" />
 					</button>

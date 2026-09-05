@@ -10,6 +10,7 @@ import {
 	type UsageModelBlock,
 	type UsageReport,
 } from '@/lib/api';
+import {PageShell} from '@/components/PageShell';
 import {cn} from '@/lib/utils';
 import {isLocalProvider} from '@/lib/localTestGate';
 import {
@@ -542,12 +543,9 @@ export function UsagePanel({active = true}: Props) {
 	const totals = report?.totals ?? {cost: 0, requests: 0, tokens: 0};
 	const contentKey = `${days}:${keyFp}:${modelId}:${kind}`;
 
-	return (
-			<div className="xy-usage-page flex min-h-0 flex-1 flex-col">
-			<div
-				ref={filtersRef}
-				className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line/40 px-4 py-2"
-			>
+	const toolbar = (
+		<>
+
 				<FilterMenu
 					label="时间"
 					open={openMenu === 'days'}
@@ -631,9 +629,18 @@ export function UsagePanel({active = true}: Props) {
 						}}
 					/>
 				</div>
-			</div>
+			
+		</>
+	);
 
-<div className="relative min-h-0 flex-1 overflow-y-auto px-4 py-4" aria-busy={loading}>
+	return (
+		<PageShell
+			wide
+			toolbar={toolbar}
+			toolbarRef={filtersRef}
+			aria-busy={loading}
+		>
+
 						{loading && !report ? (
 							<div className="xy-usage-loading pointer-events-none absolute inset-4 z-10">
 								<div className="xy-usage-skeleton" />
@@ -781,9 +788,8 @@ export function UsagePanel({active = true}: Props) {
 						))
 						)}
 						</div>
-				</div>
-			</div>
-		);
+		</PageShell>
+	);
 	}
 
 function SummaryCard({

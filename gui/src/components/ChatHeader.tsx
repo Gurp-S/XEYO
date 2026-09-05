@@ -1,9 +1,9 @@
 import {ChevronDown, PanelLeft, Plus, Search, X} from 'lucide-react';
 import {memo, useEffect, useRef, useState} from 'react';
-import {useNavigate} from 'react-router-dom';
+import {useLocation} from 'react-router-dom';
 import {useChatUiStore} from '@/stores/chatUiStore';
 import {useChatStore} from '@/stores/chatStore';
-import {useSettingsStore} from '@/stores/settingsStore';
+import {newSession, pageViewFromPath} from '@/lib/appNav';
 import {popEscLayer, pushEscLayer} from '@/lib/escStack';
 import {cn} from '@/lib/utils';
 import {
@@ -38,9 +38,7 @@ export const ChatHeader = memo(function ChatHeader({
 }: {
 	mode?: 'main' | 'side';
 }) {
-	const navigate = useNavigate();
 		const {
-			createSession,
 			activeId,
 		activeSpaceId,
 		sessions,
@@ -49,7 +47,6 @@ export const ChatHeader = memo(function ChatHeader({
 		} = useChatUiStore(
 
 			useShallow(s => ({
-				createSession: s.createSession,
 			activeId: s.activeId,
 			activeSpaceId: s.activeSpaceId,
 			sessions: s.sessions,
@@ -60,12 +57,13 @@ export const ChatHeader = memo(function ChatHeader({
 		const sidebarOpen = useChatStore(s => s.sidebarOpen);
 		const setSidebarOpen = useChatStore(s => s.setSidebarOpen);
 		const requestSearchFocus = useChatStore(s => s.requestSearchFocus);
-		const usagePanelOpen = useSettingsStore(s => s.usagePanelOpen);
-	const usageOpen = usagePanelOpen;
+	// 页面视图（用量/扩展中心）→ 路由派生（/usage、/plugins），无独立状态。
+	const location = useLocation();
+	const pageView = pageViewFromPath(location.pathname);
+	const usageOpen = pageView === 'usage';
 	// 扩展中心与用量同为页面级视图:打开时标题切换、用量预览让位(2026-09-05)。
-	const pluginsOpen = useSettingsStore(s => s.pluginsPanelOpen);
-	const pageViewOpen = usageOpen || pluginsOpen;
-	const closeUsage = useSettingsStore(s => s.closeUsage);
+	const pluginsOpen = pageView === 'plugins';
+	const pageViewOpen = pageView !== null;
 	const historyById = useChatStore(s => s.historyById);
 	const backendSessionId = activeId
 		? historyById[activeId]?.activeBranch?.backendSessionId ?? activeId
@@ -290,14 +288,9 @@ const usage = pageViewOpen ? null : sessionUsageById[activeId ?? ''] ?? null;
 			}
 		};
 
-		const onNew = async () => {
-		closeUsage();
-		const id = await createSession();
-		if (mode === 'main') {
-			navigate(`/c/${id}`);
-		} else {
-			navigate(`/side/${id}`);
-		}
+		const onNew = () => {
+		// 统一入口：新建会话 + 路由（页面视图若开着随路由自动退出）。
+		void newSession(mode === 'main' ? undefined : {side: true});
 	};
 
 	return (

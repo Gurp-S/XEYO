@@ -44,9 +44,6 @@ vi.mock('@/stores/settingsStore', () => {
 		removeProfile: vi.fn(),
 		openSettings: vi.fn(),
 		closeSettings: vi.fn(),
-		openUsage: vi.fn(),
-		closeUsage: vi.fn(),
-		usagePanelOpen: false,
 		settingsModalOpen: false,
 		resolvedBaseUrl: () => 'https://api.deepseek.com/v1',
 	};

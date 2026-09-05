@@ -5,16 +5,12 @@ import {
 	BarChart3,
 	Blocks,
 	ChevronRight,
-	Clipboard,
 	Folder,
-	GitBranch,
 	ListFilter,
 	MessageSquare,
 	MoreHorizontal,
 	PanelLeftClose,
-	Pencil,
 	Plus,
-	RotateCcw,
 	Search,
 	Trash2,
 } from 'lucide-react';
@@ -39,6 +35,13 @@ import {usePresence} from '@/hooks/usePresence';
 import {useViewport} from '@/hooks/useViewport';
 import {usePaneViewportClamp} from '@/hooks/paneViewportClamp';
 import {fetchWorkspacePeers, type WorkspacePeerInfo} from '@/lib/api';
+import {
+	closePageView,
+	newSession,
+	openPageView,
+	openSession,
+	pageViewFromPath,
+} from '@/lib/appNav';
 import {pickFolder} from '@/lib/openFolder';
 import {formatRelativeShort} from '@/lib/time';
 import type {ChatSession, ChatSpace} from '@/lib/types';
@@ -46,11 +49,16 @@ import {cn} from '@/lib/utils';
 import {SIDE_SPACE_ID} from '@/lib/db';
 import {selectRunningSessionIds, selectRunningSessionKey} from '@/lib/sessionStreams';
 import {copyTextToClipboard} from '@/lib/workspaceOpen';
+import {
+	buildSessionMenuItems,
+	SessionRow,
+	SessionTree,
+} from '@/components/sidebar/SessionBits';
 import {useChatStore} from '@/stores/chatStore';
 import {useExplorerStore} from '@/stores/explorerStore';
 import {useNavJournalStore} from '@/stores/navJournalStore';
 import {useWorkspaceStore} from '@/stores/workspaceStore';
-import {confirmDialog, promptDialog} from '@/lib/inlineDialog';
+import {confirmDialog} from '@/lib/inlineDialog';
 import {toast} from '@/lib/toast';
 import {invokePet} from '@/pet/PetBridge';
 import './ux-loaders.css';
@@ -100,12 +108,10 @@ export const Sidebar = memo(function Sidebar() {
 			const petExtractionInFlight = useRef(false);
 
 	const setSidebarOpen = useChatStore(s => s.setSidebarOpen);
-	const createSession = useChatStore(s => s.createSession);
 	const openFolder = useChatStore(s => s.openFolder);
 	const enterSpace = useChatStore(s => s.enterSpace);
 	const removeSpace = useChatStore(s => s.removeSpace);
 	const toggleSpaceCollapsed = useChatStore(s => s.toggleSpaceCollapsed);
-	const selectSession = useChatStore(s => s.selectSession);
 	const removeSession = useChatStore(s => s.removeSession);
 	// smoke-test #3：会话三点菜单（重命名 / 分叉 / 归档 / 恢复）。
 	const renameSession = useChatStore(s => s.renameSession);
@@ -115,13 +121,10 @@ export const Sidebar = memo(function Sidebar() {
 	const sidebarWidth = useSettingsStore(s => s.sidebarWidth);
 	const smoothness = useSettingsStore(s => isSmoothnessOn(s.smoothness));
 	const updateSettings = useSettingsStore(s => s.update);
-	const openUsage = useSettingsStore(s => s.openUsage);
-	const closeUsage = useSettingsStore(s => s.closeUsage);
-			const usageOpen = useSettingsStore(s => s.usagePanelOpen);
-	// P3-⑪：插件 / MCP 面板（侧边栏「用量」下方入口）。
-	const openPlugins = useSettingsStore(s => s.openPlugins);
-	const closePlugins = useSettingsStore(s => s.closePlugins);
-	const pluginsOpen = useSettingsStore(s => s.pluginsPanelOpen);
+	// 页面视图（用量/扩展中心）→ 路由派生；开合走 lib/appNav（真路由导航）。
+	const pageView = pageViewFromPath(location.pathname);
+	const usageOpen = pageView === 'usage';
+	const pluginsOpen = pageView === 'plugins';
 	// 侧聊会话并入 chatStore：虚拟 space（side-chat-space）标记，按需派生。
 	const sideChatSessions = useMemo(
 		() =>
@@ -294,9 +297,7 @@ export const Sidebar = memo(function Sidebar() {
 			if (!target) {
 				return;
 			}
-			if (useSettingsStore.getState().usagePanelOpen !== target.usageOpen) {
-				useSettingsStore.getState().setUsagePanel(target.usageOpen);
-			}
+			// 页面视图状态已并入路由（/usage、/plugins）——导航即恢复。
 			navigate(target.path);
 		},
 		[navigate],
@@ -408,33 +409,19 @@ export const Sidebar = memo(function Sidebar() {
 		0,
 	);
 
-	const goSession = useCallback(
-		async (id: string) => {
-			clearDoneGlow(id);
-			closeUsage?.();
-			closePlugins?.();
-			await selectSession(id);
-			navigate(`/c/${id}`);
-		},
-		[clearDoneGlow, closePlugins, closeUsage, navigate, selectSession],
-	);
+	// 统一入口（lib/appNav）：切会话/新建会话；页面视图随路由自动退出。
+	const goSession = useCallback((id: string) => {
+		clearDoneGlow(id);
+		void openSession(id);
+	}, [clearDoneGlow]);
 
-	const onNewInSpace = useCallback(
-		async (spaceId: string) => {
-			closeUsage?.();
-			closePlugins?.();
-			const id = await createSession(spaceId);
-			navigate(`/c/${id}`);
-		},
-		[closePlugins, closeUsage, createSession, navigate],
-	);
+	const onNewInSpace = useCallback((spaceId: string) => {
+		void newSession({spaceId});
+	}, []);
 
-	const onNew = useCallback(async () => {
-		closeUsage?.();
-		closePlugins?.();
-		const id = await createSession();
-		navigate(`/c/${id}`);
-	}, [closePlugins, closeUsage, createSession, navigate]);
+	const onNew = useCallback(() => {
+		void newSession();
+	}, []);
 
 	const onOpenFolder = useCallback(async (path?: string) => {
 		if (opening) {
@@ -452,9 +439,7 @@ export const Sidebar = memo(function Sidebar() {
 			useWorkspaceStore.getState().setOpen(true);
 			useWorkspaceStore.getState().setActive('files');
 			void useExplorerStore.getState().ensureRoot();
-			closeUsage?.();
-			closePlugins?.();
-			navigate(`/c/${id}`);
+			void openSession(id);
 		} catch (err) {
 			toast.error(
 				err instanceof Error ? err.message : `打开文件夹失败：${String(err)}`,
@@ -462,7 +447,7 @@ export const Sidebar = memo(function Sidebar() {
 		} finally {
 			setOpening(false);
 		}
-	}, [closeUsage, enterSpace, navigate, openFolder, opening]);
+	}, [enterSpace, openFolder, opening]);
 
 	// smoke-test #3：会话三点菜单命令 → store action + 路由（归档/恢复在 SpaceFolder 内渲染）。
 	const handleRenameSession = useCallback(
@@ -480,19 +465,17 @@ export const Sidebar = memo(function Sidebar() {
 
 	const handleForkSession = useCallback(
 		async (id: string) => {
-			closeUsage?.();
-			closePlugins?.();
 			try {
 				const newId = await forkSession(id);
 				clearDoneGlow(id);
-				navigate(`/c/${newId}`);
+				void openSession(newId);
 			} catch (err) {
 				toast.error(
 					err instanceof Error ? err.message : '分叉失败',
 				);
 			}
 		},
-		[closePlugins, closeUsage, clearDoneGlow, forkSession, navigate],
+		[clearDoneGlow, forkSession],
 	);
 
 	const handleArchiveSession = useCallback(
@@ -523,7 +506,12 @@ export const Sidebar = memo(function Sidebar() {
 							x.id !== id &&
 							!x.archived,
 					);
-				navigate(next ? `/c/${next.id}` : '/');
+				if (next) {
+					void openSession(next.id);
+				} else {
+					closePageView();
+					navigate('/');
+				}
 			}
 		},
 		[archiveSession, navigate],
@@ -542,7 +530,6 @@ export const Sidebar = memo(function Sidebar() {
 		[restoreSession],
 	);
 
-	const createSideChat = useChatStore(s => s.createSideSession);
 
 	const panelInner = (
 			<div className="flex h-full min-w-0 w-full flex-col">
@@ -615,9 +602,9 @@ className="xy-icon-btn rounded-md p-1.5 text-mute hover:bg-glass-hover hover:tex
 						type="button"
 						onClick={() => {
 							if (usageOpen) {
-								closeUsage?.();
+								closePageView();
 							} else {
-								openUsage?.();
+								openPageView('usage');
 							}
 						}}
 						className={cn(
@@ -638,9 +625,9 @@ className="xy-icon-btn rounded-md p-1.5 text-mute hover:bg-glass-hover hover:tex
 						type="button"
 						onClick={() => {
 							if (pluginsOpen) {
-								closePlugins?.();
+								closePageView();
 							} else {
-								openPlugins?.();
+								openPageView('plugins');
 							}
 						}}
 						className={cn(
@@ -718,8 +705,6 @@ className="xy-icon-btn rounded-md p-1.5 text-mute hover:bg-glass-hover hover:tex
 								onAdd={() => void onNewInSpace(space.id)}
 								onSelect={id => void goSession(id)}
 								onRemoveSession={id => {
-								closeUsage?.();
-								closePlugins?.();
 								void (async () => {
 									const wasActive =
 										useChatStore.getState().activeId === id;
@@ -727,7 +712,11 @@ className="xy-icon-btn rounded-md p-1.5 text-mute hover:bg-glass-hover hover:tex
 									if (wasActive) {
 										const next =
 											useChatStore.getState().activeId;
-										navigate(next ? `/c/${next}` : '/');
+										if (next) {
+											void openSession(next);
+										} else {
+											navigate('/');
+										}
 									}
 								})();
 							}}
@@ -737,16 +726,16 @@ className="xy-icon-btn rounded-md p-1.5 text-mute hover:bg-glass-hover hover:tex
 								onRestoreSession={handleRestoreSession}
 							onRemoveSpace={
 								() => {
-									closeUsage?.();
-									closePlugins?.();
 									void (async () => {
 										await removeSpace(space.id);
 										const next =
 											useChatStore.getState()
 												.activeId;
-										navigate(
-											next ? `/c/${next}` : '/',
-										);
+										if (next) {
+											void openSession(next);
+										} else {
+											navigate('/');
+										}
 									})();
 								}
 							}
@@ -768,31 +757,26 @@ className="xy-icon-btn rounded-md p-1.5 text-mute hover:bg-glass-hover hover:tex
 									onToggle={() => setSideChatCollapsed(!sideChatCollapsed)}
 
 							onAdd={() => {
-								closeUsage();
-								closePlugins();
-								void createSideChat().then(id => {
-									navigate(`/side/${id}`);
-								});
+								void newSession({side: true});
 							}}
 							onSelect={(id) => {
 								clearDoneGlow(id);
-								closeUsage();
-								closePlugins();
-								void selectSession(id);
-								navigate(`/side/${id}`);
+								void openSession(id);
 							}}
 							onRemoveSession={async id => {
-								closeUsage();
-								closePlugins();
 								const wasActive = sideChatActiveId === id;
-									await removeSession(id);
-									if (wasActive) {
-										const next = useChatStore
-											.getState()
-											.sessions.find(s => s.id.startsWith('side-'));
-										navigate(next ? `/side/${next.id}` : '/');
+								await removeSession(id);
+								if (wasActive) {
+									const next = useChatStore
+										.getState()
+										.sessions.find(s => s.id.startsWith('side-'));
+									if (next) {
+										void openSession(next.id);
+									} else {
+										navigate('/');
 									}
-								}}
+								}
+							}}
 								onArchiveSession={handleArchiveSession}
 								onRestoreSession={handleRestoreSession}
 							/>
@@ -900,76 +884,23 @@ const SpaceFolder = memo(function SpaceFolder({
 		(e: React.MouseEvent, item: ChatSession) => {
 			e.preventDefault();
 			e.stopPropagation();
-			const items: ContextMenuItem[] = [];
-			if (item.archived) {
-				items.push({
-					kind: 'action',
-					id: 'restore',
-					label: '恢复会话',
-					icon: <RotateCcw className="h-3.5 w-3.5" strokeWidth={1.9} />,
-					onSelect: () => onRestoreSession(item.id),
-				});
-				items.push({kind: 'sep'});
-				items.push({
-					kind: 'action',
-					id: 'delete',
-					label: '删除会话',
-					danger: true,
-					icon: <Trash2 className="h-3.5 w-3.5" strokeWidth={1.9} />,
-					onSelect: () => {
-						void (async () => {
-							const ok = await confirmDialog({
-								title: '删除已归档会话？',
-								body: `「${item.title}」将连同全部聊天记录永久删除，不可恢复。`,
-								confirmText: '删除',
-								danger: true,
-							});
-							if (ok) {
-								onRemoveSession(item.id);
-							}
-						})();
-					},
-				});
-			} else {
-				items.push({
-					kind: 'action',
-					id: 'rename',
-					label: '重命名',
-					icon: <Pencil className="h-3.5 w-3.5" strokeWidth={1.9} />,
-					onSelect: () => {
-						void (async () => {
-							const next = await promptDialog({
-								title: '重命名对话',
-								initial: item.title,
-								confirmText: '保存',
-							});
-							if (next != null) {
-								onRenameSession(item.id, next);
-							}
-						})();
-					},
-				});
-				items.push({
-					kind: 'action',
-					id: 'fork',
-					label: '分叉会话',
+			// 公共菜单工厂（SessionBits）：归档门槛/删除确认与 Chat 分区同源。
+			const items = buildSessionMenuItems(item, {
+				onRename: title => onRenameSession(item.id, title),
+				onFork: {
+					run: () => onForkSession(item.id),
 					// 分叉需要非空 transcript；空会话/侧聊（只读模式）点了必 404/被拒，
 					// 置灰而不是让用户撞错误 toast（2026-09-05 E2E 排查）。
 					disabled:
 						item.spaceId === SIDE_SPACE_ID ||
+						!Array.isArray(messagesById[item.id]) ||
 						(Array.isArray(messagesById[item.id]) &&
 							messagesById[item.id].length === 0),
-					icon: <GitBranch className="h-3.5 w-3.5" strokeWidth={1.9} />,
-					onSelect: () => onForkSession(item.id),
-				});
-				items.push({
-					kind: 'action',
-					id: 'archive',
-					label: '归档会话',
-					icon: <Archive className="h-3.5 w-3.5" strokeWidth={1.9} />,
-					onSelect: () => onArchiveSession(item.id),
-				});
-			}
+				},
+				onArchive: () => onArchiveSession(item.id),
+				onRestore: () => onRestoreSession(item.id),
+				onDelete: () => onRemoveSession(item.id),
+			});
 			showContextMenu(e, items, item.title || '会话操作');
 		},
 		[
@@ -1049,73 +980,22 @@ const SpaceFolder = memo(function SpaceFolder({
 	);
 
 	const renderSessionRow = (item: ChatSession) => {
-		const active = item.id === activeId;
-		const running = runningIds.has(item.id);
 		const peer = peerHints?.[item.id];
 		const peerLabel = peer?.label?.trim() || '';
 		return (
-			<li
+			<SessionRow
 				key={item.id}
-				className="group/item relative"
-				style={{
-					contentVisibility: 'auto',
-					containIntrinsicSize: 'auto 32px',
-				}}
-			>
-				<button
-					type="button"
-					onClick={() => onSelect(item.id)}
-					title={peerLabel ? `也在改 ${peerLabel}` : undefined}
-					className={cn(
-						'xy-pressable flex w-full items-center gap-2 rounded-md py-1 pr-2 pl-4 text-left text-[13px]',
-						active
-							? 'bg-glass-strong font-medium text-accent'
-							: item.archived
-								? 'text-ink-soft/80 hover:bg-glass-hover'
-								: 'text-ink-soft hover:bg-glass-hover',
-					)}
-				>
-					<span
-						className={cn(
-							'xy-run-dot',
-							running
-								? 'is-running'
-								: doneUnseen?.has(item.id) && 'is-done-unseen',
-						)}
-						aria-hidden="true"
-					/>
-					<span
-						className={cn(
-							'min-w-0 flex-1 truncate',
-							item.archived && 'text-mute',
-						)}
-					>
-						{item.title}
-					</span>
-					{peerLabel && !item.archived ? (
-						<span className="max-w-[5.5rem] shrink-0 truncate font-mono text-[10px] text-warn/90 group-hover/item:opacity-0">
-							{peerLabel}
-						</span>
-					) : (
-						<span className="xy-session-meta shrink-0 font-mono text-[10px] text-mute/70 group-hover/item:opacity-0">
-							{formatRelativeShort(item.updatedAt)}
-						</span>
-					)}
-				</button>
-				<button
-					type="button"
-					aria-label={item.archived ? '已归档会话操作' : '会话操作'}
-					title={
-						item.archived
-							? '恢复 / 删除'
-							: '重命名 / 分叉 / 归档'
-					}
-					onClick={e => openItemMenu(e, item)}
-					className="xy-icon-btn xy-sidebar-affordance absolute top-1/2 right-1 -translate-y-1/2 translate-x-1 rounded p-1 text-mute opacity-0 invisible pointer-events-none hover:bg-glass-hover hover:text-ink group-hover/item:visible group-hover/item:pointer-events-auto group-hover/item:opacity-100 group-hover/item:translate-x-0"
-				>
-					<MoreHorizontal className="h-3.5 w-3.5" />
-				</button>
-			</li>
+				session={item}
+				active={item.id === activeId}
+				running={runningIds.has(item.id)}
+				doneUnseen={doneUnseen?.has(item.id) ?? false}
+				peerLabel={peerLabel}
+				onSelect={() => onSelect(item.id)}
+				onMenu={e => openItemMenu(e, item)}
+				affordanceTitle={
+					item.archived ? '恢复 / 删除' : '重命名 / 分叉 / 归档'
+				}
+			/>
 		);
 	};
 
@@ -1151,34 +1031,32 @@ className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 py-1 text-
 				</button>
 			</div>
 
-			<div className={cn('xy-sidebar-tree grid', open ? 'is-open' : 'is-closed')} aria-hidden={!open}>
-				<ul className="min-h-0 overflow-hidden pb-1">
-					{listSource.length === 0 ? (
-						<li className="px-7 py-1 font-mono text-[11px] text-mute/70">
-							{viewArchived
-								? '暂无归档会话'
-								: hasRoot
-									? '暂无对话'
-									: '打开文件夹后开始'}
-						</li>
-					) : (
-						visibleList.map(item => renderSessionRow(item))
-					)}
-					{hiddenCount > 0 ? (
-						<li>
-							<button
-								type="button"
-								onClick={() => setShowAll(v => !v)}
-								className="xy-pressable flex w-full items-center rounded-md px-7 py-1 text-left text-[12px] text-mute hover:bg-glass-hover hover:text-ink"
-							>
-								{showAll
-									? '收起会话列表'
-									: `展开其余 ${hiddenCount} 个会话`}
-							</button>
-						</li>
-					) : null}
-				</ul>
-			</div>
+			<SessionTree open={open}>
+				{listSource.length === 0 ? (
+					<li className="px-7 py-1 font-mono text-[11px] text-mute/70">
+						{viewArchived
+							? '暂无归档会话'
+							: hasRoot
+								? '暂无对话'
+								: '打开文件夹后开始'}
+					</li>
+				) : (
+					visibleList.map(item => renderSessionRow(item))
+				)}
+				{hiddenCount > 0 ? (
+					<li>
+						<button
+							type="button"
+							onClick={() => setShowAll(v => !v)}
+							className="xy-pressable flex w-full items-center rounded-md px-7 py-1 text-left text-[12px] text-mute hover:bg-glass-hover hover:text-ink"
+						>
+							{showAll
+								? '收起会话列表'
+								: `展开其余 ${hiddenCount} 个会话`}
+						</button>
+					</li>
+				) : null}
+		</SessionTree>
 		</div>
 		);
 	});
@@ -1224,54 +1102,14 @@ const SideChatSection = memo(function SideChatSection({
 		(e: React.MouseEvent, session: {id: string; title: string; archived: boolean}) => {
 			e.preventDefault();
 			e.stopPropagation();
-			const items: ContextMenuItem[] = [
-				{
-					kind: 'action',
-					id: 'copy-id',
-					label: '复制会话 ID',
-					icon: <Clipboard className="h-3.5 w-3.5" strokeWidth={1.9} />,
-					onSelect: () =>
-						void copyTextToClipboard(session.id, '已复制会话 ID'),
-				},
-			];
-			if (session.archived) {
-				items.push({
-					kind: 'action',
-					id: 'restore',
-					label: '恢复对话',
-					icon: <RotateCcw className="h-3.5 w-3.5" strokeWidth={1.9} />,
-					onSelect: () => onRestoreSession(session.id),
-				});
-				items.push({kind: 'sep'});
-				items.push({
-					kind: 'action',
-					id: 'delete',
-					label: '删除对话',
-					danger: true,
-					icon: <Trash2 className="h-3.5 w-3.5" strokeWidth={1.9} />,
-					onSelect: () => {
-						void (async () => {
-							const ok = await confirmDialog({
-								title: '删除已归档对话？',
-								body: `「${session.title}」将连同全部聊天记录永久删除，不可恢复。`,
-								confirmText: '删除',
-								danger: true,
-							});
-							if (ok) {
-								onRemoveSession(session.id);
-							}
-						})();
-					},
-				});
-			} else {
-				items.push({
-					kind: 'action',
-					id: 'archive',
-					label: '归档对话',
-					icon: <Archive className="h-3.5 w-3.5" strokeWidth={1.9} />,
-					onSelect: () => onArchiveSession(session.id),
-				});
-			}
+			// 公共菜单工厂（SessionBits）：与工作区菜单同一套语义/文案。
+			const items = buildSessionMenuItems(session, {
+				onCopyId: () =>
+					void copyTextToClipboard(session.id, '已复制会话 ID'),
+				onArchive: () => onArchiveSession(session.id),
+				onRestore: () => onRestoreSession(session.id),
+				onDelete: () => onRemoveSession(session.id),
+			});
 			showContextMenu(e, items, session.title || '会话操作');
 		},
 		[onArchiveSession, onRemoveSession, onRestoreSession],
@@ -1368,11 +1206,7 @@ const SideChatSection = memo(function SideChatSection({
 				<Plus className="h-3.5 w-3.5" />
 			</button>
 		</div>
-			<div
-				className={cn('xy-sidebar-tree grid', expanded ? 'is-open' : 'is-closed')}
-				aria-hidden={!expanded}
-			>
-			<ul className="min-h-0 overflow-hidden pb-1">
+		<SessionTree open={expanded}>
 				{activeSessions.length === 0 && archivedSessions.length === 0 ? (
 					<li className="px-7 py-1 font-mono text-[11px] text-mute/70">暂无 Chat 对话</li>
 				) : (
@@ -1387,8 +1221,7 @@ const SideChatSection = memo(function SideChatSection({
 						{archivedSessions.map(session => renderSideRow(session))}
 					</>
 				) : null}
-			</ul>
-		</div>
+		</SessionTree>
 	</div>
 	);
 });

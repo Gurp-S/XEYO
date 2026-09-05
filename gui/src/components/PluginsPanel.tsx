@@ -42,6 +42,7 @@ import {
 } from '@/lib/api/plugins';
 import {fetchSkills, type SkillInfo, type SkillsReport} from '@/lib/api/skills';
 import {toast} from '@/lib/toast';
+import {PageShell} from '@/components/PageShell';
 import {cn} from '@/lib/utils';
 
 /**
@@ -72,7 +73,7 @@ const MCP_STATUS: Record<
 	string,
 	{label: string; icon: typeof Circle; cls: string}
 > = {
-	ready: {label: '就绪', icon: CheckCircle2, cls: 'text-ok'},
+	ready: {label: '就绪', icon: CheckCircle2, cls: 'text-ink-soft'},
 	failed: {label: '失败', icon: XCircle, cls: 'text-danger'},
 	unapproved: {label: '待批准', icon: AlertTriangle, cls: 'text-warn'},
 	denied: {label: '企业拒绝', icon: XCircle, cls: 'text-danger'},
@@ -115,7 +116,7 @@ function Toggle({
 			onClick={onChange}
 			className={cn(
 				'ext-toggle xy-press relative h-5 w-9 shrink-0 rounded-full',
-				checked ? 'bg-ok' : 'bg-paper-deep ring-1 ring-line',
+				checked ? 'bg-accent' : 'bg-paper-deep ring-1 ring-line',
 				disabled && 'opacity-40',
 			)}
 		>
@@ -235,7 +236,7 @@ function PluginRow({
 			<StatusPill
 				icon={active ? CheckCircle2 : Circle}
 				label={active ? '已启用' : '未启用'}
-				cls={active ? 'text-ok' : 'text-mute'}
+				cls={active ? 'text-ink-soft' : 'text-mute'}
 			/>
 			<Toggle
 				checked={active}
@@ -455,7 +456,7 @@ function SkillRow({
 			<StatusPill
 				icon={enabled ? CheckCircle2 : Circle}
 				label={enabled ? '已启用' : '已停用'}
-				cls={enabled ? 'text-ok' : 'text-mute'}
+				cls={enabled ? 'text-ink-soft' : 'text-mute'}
 			/>
 			<Toggle
 				checked={enabled}
@@ -644,13 +645,11 @@ export function PluginsPanel({active = true}: {active?: boolean}) {
 	const activeTabLabel = TABS[tabIdx]?.label ?? '';
 
 	return (
-		<div
+		<PageShell
 			data-testid="extensions-panel"
-			className="xy-usage-page flex min-h-0 flex-1 flex-col bg-transparent"
-		>
-			{/* ---- 工具栏(用量页同构:下边框单行,chips 左 / 搜索+总开关右) ----
-			    页面标题由 ChatHeader 随视图切换(「扩展中心」),此处不再重复页头。 */}
-			<div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line/40 px-4 py-2">
+			toolbar={
+				<>
+
 				<div
 					ref={tablistRef}
 					role="tablist"
@@ -717,11 +716,11 @@ export function PluginsPanel({active = true}: {active?: boolean}) {
 						) : null}
 					</div>
 				</div>
-			</div>
+			
+				</>
+			}
+		>
 
-			{/* ---- 内容滚动区:列表居中(max-w-3xl),不再贴左留大片空白 ---- */}
-			<div className="xy-hover-scroll min-h-0 flex-1 overflow-y-auto px-4 py-4">
-				<div className="mx-auto flex w-full max-w-3xl min-w-0 flex-col">
 				{loading && !plugins && !mcp && !skills ? (
 					<div className="flex items-center justify-center gap-2 py-8 text-[12px] text-mute">
 						<Loader2 className="h-4 w-4 animate-spin" />
@@ -844,8 +843,6 @@ export function PluginsPanel({active = true}: {active?: boolean}) {
 						)}
 					</div>
 				) : null}
-				</div>
-			</div>
-		</div>
+						</PageShell>
 	);
 }
