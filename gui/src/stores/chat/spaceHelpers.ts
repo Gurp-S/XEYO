@@ -5,6 +5,7 @@
 import {
 	deleteServerSession,
 	listServerSessions,
+	listWorkspaceSessions,
 	loadServerSessionMessages,
 } from '@/lib/api';
 import {
@@ -14,6 +15,7 @@ import {
 	deleteSpaceRecord,
 	getKv,
 	loadDeletedSessionIds,
+	loadSessions,
 	loadSideChatMessages,
 	markSessionDeleted,
 	replaceMessages,
@@ -145,6 +147,77 @@ async function importServerSessions(existingIds: Set<string>): Promise<void> {
 	} catch {
 		// 后端不可用时静默保持本地状态。
 	}
+}
+
+/**
+ * 重开工作区时把后端 ws_index 归属该工作区的会话挂回 space（2026-09-05）。
+ *
+ * 「移除工作区」会把其下会话迁往默认分区（不删除数据）；重开同一文件夹
+ * 时通过本函数按后端归属索引归位：本地没有的从后端 transcript 导入
+ * （消息后台补，不阻塞打开）；已在本地（如默认分区）的只改 spaceId。
+ * 用户明确删除过的会话（session tombstone）永不复活。
+ * 返回本次被导入/归位的会话记录，供调用方 merge 进 store。
+ */
+export async function adoptWorkspaceSessions(
+	spaceId: string,
+	rootPath: string,
+): Promise<ChatSession[]> {
+	const path = rootPath?.trim();
+	if (!path || !spaceId) {
+		return [];
+	}
+	let rows: Awaited<ReturnType<typeof listWorkspaceSessions>>;
+	try {
+		rows = await listWorkspaceSessions(path);
+	} catch {
+		return [];
+	}
+	if (!Array.isArray(rows) || rows.length === 0) {
+		return [];
+	}
+	const adopted: ChatSession[] = [];
+	try {
+		const deleted = await loadDeletedSessionIds();
+		const existing = await loadSessions();
+		const byId = new Map(existing.map(s => [s.id, s] as const));
+		const now = Date.now();
+		for (const row of rows) {
+			if (!row?.id || deleted.has(row.id)) {
+				continue;
+			}
+			const local = byId.get(row.id);
+			if (!local) {
+				const record: ChatSession = {
+					id: row.id,
+					spaceId,
+					title: row.title || row.id,
+					createdAt: row.createdAt ?? now,
+					updatedAt: row.updatedAt ?? now,
+				};
+				await saveSession(record);
+				void loadServerSessionMessages(row.id)
+					.then(msgs => {
+						if (msgs.length > 0) {
+							return replaceMessages(row.id, msgs);
+						}
+						return undefined;
+					})
+					.catch(() => undefined);
+				adopted.push(record);
+			} else if (local.spaceId !== spaceId) {
+				const patched: ChatSession = {
+					...local,
+					spaceId,
+					updatedAt: Math.max(local.updatedAt, now),
+				};
+				await saveSession(patched);
+				adopted.push(patched);
+			}
+		}
+	} catch {
+		return adopted;
+	}
+	return adopted;
 }
 
 async function tombstoneAndDeleteOnServer(

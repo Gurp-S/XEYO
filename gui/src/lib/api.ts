@@ -282,6 +282,22 @@ export async function listServerSessions(): Promise<ServerSession[]> {
 	}
 }
 
+/** 列出归属指定工作区路径的会话（后端 ws_index 归属映射）。
+ *
+ * 用于重开同一文件夹时把「移除工作区」时迁往默认分区的会话挂回来。 */
+export async function listWorkspaceSessions(cwd: string): Promise<ServerSession[]> {
+	try {
+		const res = await fetchWithTimeout(
+			apiUrl(`/v1/workspaces/sessions?cwd=${encodeURIComponent(cwd)}`),
+		);
+		if (!res.ok) return [];
+		const payload = (await res.json()) as {sessions?: ServerSession[]};
+		return payload.sessions ?? [];
+	} catch {
+		return [];
+	}
+}
+
 /** 按精确 session_id 读取 transcript 消息（含真实时间戳）。 */
 /** 把后端富化的 Resume 提示还原为原始 cue（P0-③ 泄漏修复）。
 

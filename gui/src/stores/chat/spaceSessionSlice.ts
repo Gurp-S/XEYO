@@ -82,6 +82,7 @@ import {
 	createInFlight,
 	findSpaceByRoot,
 	importServerSessions,
+	adoptWorkspaceSessions,
 	mergeDuplicateRootSpaces,
 	migrateSideChatSessions,
 	openInFlight,
@@ -322,6 +323,20 @@ messagesById: settled.messagesById,
 		}
 
 		const promise = (async () => {
+			// 归属恢复结果 merge 进 store：已有会话改挂 spaceId，新导入的追加。
+			const mergeAdopted = (adopted: ChatSession[]) => {
+				if (adopted.length > 0) {
+					set(s => ({
+						sessions: s.sessions
+							.map(x => adopted.find(a => a.id === x.id) ?? x)
+							.concat(
+								adopted.filter(
+									a => !s.sessions.some(y => y.id === a.id),
+								),
+							),
+					}));
+				}
+			};
 			// 进入临界区后（及任何 await 后）重新检查。
 			let existing = findSpaceByRoot(get().spaces, path);
 			if (existing) {
@@ -376,6 +391,13 @@ messagesById: settled.messagesById,
 					...get().collapsedSpaces,
 					[raced.id]: false,
 				});
+				// 重开同一文件夹：按后端 ws_index 把归属会话挂回
+				//（移除工作区时被迁往默认分区的归位；本地缺的从磁盘导入）。
+				try {
+					mergeAdopted(await adoptWorkspaceSessions(raced.id, path));
+				} catch {
+					/* 归属恢复失败不影响打开 */
+				}
 				await syncWorkspaceRoot(raced.rootPath);
 				return raced.id;
 			}
@@ -388,6 +410,11 @@ messagesById: settled.messagesById,
 				collapsedSpaces: {...s.collapsedSpaces, [space.id]: false},
 			}));
 			persistCollapsed({...get().collapsedSpaces, [space.id]: false});
+			try {
+				mergeAdopted(await adoptWorkspaceSessions(space.id, path));
+			} catch {
+				/* 归属恢复失败不影响打开 */
+			}
 			return space.id;
 		})().finally(() => {
 			openInFlight.delete(key);
@@ -424,40 +451,40 @@ messagesById: settled.messagesById,
 		}
 		const doomedSpace = before.spaces.find(x => x.id === spaceId);
 		await markSpaceDeleted(spaceId, doomedSpace?.rootPath);
+		// 2026-09-05：移除工作区不再级联删除对话。旧实现把会话
+		// tombstone + 调后端删除，而常态会话被后端归档门槛（409）挡住、
+		// 磁盘 transcript 幸存，但本地墓碑让它们永远不再导入——
+		// 「看着删了、实际没删、却再也找不到」。改为把会话迁移到
+		// 默认分区：数据零丢失；重开同一文件夹时再按后端 ws_index
+		// 归位回工作区（openFolder → adoptWorkspaceSessions）。
+		const now = Date.now();
+		const migrated = new Map<string, ChatSession>();
 		for (const sess of doomed) {
-			await tombstoneAndDeleteOnServer(sess.id, before.historyById);
-			await clearChatHistoryState(sess.id);
-			await clearRollbackState(sess.id);
-			clearComposerDraft(sess.id);
-			clearTodoDismissal(sess.id);
+			const patched = {
+				...sess,
+				spaceId: DEFAULT_SPACE_ID,
+				updatedAt: Math.max(sess.updatedAt, now),
+			};
+			await saveSession(patched);
+			migrated.set(patched.id, patched);
 		}
 		await deleteSpace(spaceId);
 		set(s => {
 			const spaces = s.spaces.filter(x => x.id !== spaceId);
-			const sessions = s.sessions.filter(x => x.spaceId !== spaceId);
-			const messagesById = {...s.messagesById};
-			for (const sess of s.sessions) {
-				if (sess.spaceId === spaceId) {
-					delete messagesById[sess.id];
-				}
-			}
-			const messagesLoadingIds = {...s.messagesLoadingIds};
-			for (const sess of doomed) {
-				delete messagesLoadingIds[sess.id];
-			}
+			const sessions = s.sessions.map(x =>
+				migrated.has(x.id) ? migrated.get(x.id)! : x,
+			);
 			const activeId =
 				s.activeId && sessions.some(x => x.id === s.activeId)
 					? s.activeId
 					: (sessions[0]?.id ?? null);
 			let sessionStreams = s.sessionStreams;
-			for (const sess of doomed) {
-				sessionStreams = clearSessionStreamState(sessionStreams, sess.id);
+			for (const sess of migrated.keys()) {
+				sessionStreams = clearSessionStreamState(sessionStreams, sess);
 			}
 			return {
 				spaces,
 				sessions,
-				messagesById,
-				messagesLoadingIds,
 				activeId,
 				activeSpaceId:
 					s.activeSpaceId === spaceId

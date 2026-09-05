@@ -727,10 +727,26 @@ className="xy-icon-btn rounded-md p-1.5 text-mute hover:bg-glass-hover hover:tex
 							onRemoveSpace={
 								() => {
 									void (async () => {
+										const n = useChatStore
+											.getState()
+											.sessions.filter(
+												s => s.spaceId === space.id,
+											).length;
+										const ok = await confirmDialog({
+											title: `移除工作区「${space.name}」？`,
+											body:
+												n > 0
+													? `工作区将从列表移除；其下 ${n} 个对话会保留并移入「默认」分区，重新打开同一文件夹时会自动归位。`
+													: '工作区将从列表移除。',
+											confirmText: '移除工作区',
+											danger: true,
+										});
+										if (!ok) {
+											return;
+										}
 										await removeSpace(space.id);
 										const next =
-											useChatStore.getState()
-												.activeId;
+											useChatStore.getState().activeId;
 										if (next) {
 											void openSession(next);
 										} else {

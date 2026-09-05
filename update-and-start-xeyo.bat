@@ -7,6 +7,11 @@ REM  XEYO launcher (all entry points - Desktop / Start Menu):
 REM  every launch applies the latest built release exe, shows
 REM  its build time, then starts the app. No manual update step.
 REM  If XEYO is already running, close its window to continue.
+REM
+REM  2026-09-05: no longer copies release exe over target/debug.
+REM  target/debug is owned by cargo (fingerprint hardlinks the
+REM  deps artifact back on next build, silently reverting any
+REM  manually copied exe). Launch the release binary directly.
 REM ============================================================
 
 echo Waiting for xeyo.exe to exit (close the XEYO window now)...
@@ -20,13 +25,6 @@ if %ERRORLEVEL%==0 (
 for %%F in ("gui\src-tauri\target\release\xeyo.exe") do set "BUILD_TIME=%%~tF"
 echo Latest build: %BUILD_TIME%
 
-copy /y "gui\src-tauri\target\release\xeyo.exe" "gui\src-tauri\target\debug\xeyo.exe" >nul
-if errorlevel 1 (
-  echo [ERROR] Copy failed. Make sure the XEYO window is closed, then retry.
-  pause
-  exit /b 1
-)
-
-echo Applied latest build. Starting XEYO...
-start "" "gui\src-tauri\target\debug\xeyo.exe"
+echo Starting XEYO...
+start "" "gui\src-tauri\target\release\xeyo.exe"
 exit /b 0

@@ -397,6 +397,60 @@ def list_sessions() -> dict[str, Any]:
 	return {"sessions": out}
 
 
+@router.get("/v1/workspaces/sessions")
+def list_workspace_sessions(
+	cwd: str = Query(default="", max_length=1024),
+) -> dict[str, Any]:
+	"""列出归属指定工作区路径的会话（ws_index 归属映射 + transcript 元数据）。
+
+	前端「移除工作区」会把其下会话迁往默认分区（不删除）；重开同一
+	文件夹时前端调本端点把归属会话重新挂回工作区（adoptWorkspaceSessions）。
+	"""
+	from session.ws_index import sessions_for_workspace
+
+	if not cwd.strip():
+		return {"sessions": []}
+	try:
+		ids = {sid for sid in sessions_for_workspace(cwd) if sid}
+	except Exception:  # noqa: BLE001 — 归属索引任何失败都降级为空列表
+		return {"sessions": []}
+	if not ids:
+		return {"sessions": []}
+	root = default_sessions_dir()
+	out: list[dict[str, Any]] = []
+	try:
+		entries = sorted(
+			root.glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True
+		)
+	except OSError:
+		return {"sessions": []}
+	for p in entries:
+		sid = p.stem
+		# 侧聊（side-）归侧聊面板管；_workspace_index 等内部文件不在归属集合里。
+		if sid.startswith("side-") or sid not in ids:
+			continue
+		title, created_at = _scan_session_meta(p)
+		try:
+			from engine.title import read_title
+
+			sc = read_title(sid)
+			if sc:
+				title = str(sc.get("title") or title)
+		except Exception:  # noqa: BLE001
+			pass
+		try:
+			updated_at = int(p.stat().st_mtime * 1000)
+		except OSError:
+			continue
+		out.append({
+			"id": sid,
+			"title": title,
+			"createdAt": created_at,
+			"updatedAt": updated_at,
+		})
+	return {"sessions": out}
+
+
 class RenameRequest(BaseModel):
 	title: str
 
