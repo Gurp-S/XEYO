@@ -151,6 +151,11 @@ export type Settings = {
 	titleBarDivider: boolean;
 	/** 侧边栏开合动画使用“极平滑减速”（④ quintic-out）而非默认“柔和减速”（② expo-out）。 */
 	paneEaseSilky: boolean;
+	/**
+	 * 气泡吸顶（Sticky）：开启后用户气泡滚近顶部被吸附、编辑气泡浮顶编辑；
+	 * 关闭（默认）则气泡随滚动自然离开、编辑在当前消息原位展开。
+	 */
+	stickyBubbles: boolean;
 	/** Context Pasture 总开关；缺失时默认开启以兼容旧配置。 */
 	pastureEnabled: boolean;
 	/** 仅保留极轻的氛围呼吸，关闭大幅动作。 */
@@ -233,6 +238,7 @@ const DEFAULTS: Settings = {
 			smoothness: true,
 			titleBarDivider: true,
 			paneEaseSilky: false,
+			stickyBubbles: false,
 			pastureEnabled: true,
 		pastureReducedMotion: false,
 		pasturePaused: false,
@@ -347,6 +353,11 @@ export function isSmoothnessOn(value?: unknown): boolean {
 export function applyDocumentSmoothness(on: boolean) {
 	const effective = isSmoothnessOn(on);
 	document.documentElement.dataset.smoothness = effective ? 'on' : 'off';
+}
+
+/** 气泡吸顶总开关 → html[data-xy-sticky-bubbles]；CSS 据此放开/启用原生 sticky。 */
+export function applyDocumentStickyBubbles(on: boolean) {
+	document.documentElement.dataset.xyStickyBubbles = on ? 'on' : 'off';
 }
 
 /** 监听系统减少动态偏好，同步 data-smoothness。 */
@@ -761,6 +772,7 @@ function loadLite(): PersistedLite {
 					smoothness: parsed.smoothness === false ? false : true,
 					titleBarDivider: parsed.titleBarDivider === false ? false : true,
 					paneEaseSilky: parsed.paneEaseSilky === true,
+					stickyBubbles: parsed.stickyBubbles === true,
 					pastureEnabled: parsed.pastureEnabled !== false,
 					pastureReducedMotion: parsed.pastureReducedMotion === true,
 					pasturePaused: parsed.pasturePaused === true,
@@ -822,6 +834,7 @@ function writePersistLite(settings: Settings) {
 			smoothness: settings.smoothness !== false,
 			titleBarDivider: settings.titleBarDivider !== false,
 			paneEaseSilky: settings.paneEaseSilky === true,
+			stickyBubbles: settings.stickyBubbles === true,
 			pastureEnabled: settings.pastureEnabled !== false,
 			pastureReducedMotion: settings.pastureReducedMotion === true,
 			pasturePaused: settings.pasturePaused === true,
@@ -935,6 +948,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 		applyDocumentAccent(accentForThemeId(lite.accentByTheme, lite.theme));
 		applyDocumentSmoothness(lite.smoothness !== false);
 		applyDocumentPaneEase(lite.paneEaseSilky === true);
+		applyDocumentStickyBubbles(lite.stickyBubbles === true);
 		set({...lite, hydrated: false});
 		void get().hydrateAsync();
 	},
@@ -968,6 +982,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 		applyDocumentAccent(accentForThemeId(lite.accentByTheme, lite.theme));
 		applyDocumentSmoothness(lite.smoothness !== false);
 		applyDocumentPaneEase(lite.paneEaseSilky === true);
+		applyDocumentStickyBubbles(lite.stickyBubbles === true);
 		const next = {...lite, bgImage, hydrated: true};
 		persistLite(next);
 		set(next);
@@ -1006,6 +1021,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 					smoothness: cur.smoothness !== false,
 					titleBarDivider: cur.titleBarDivider !== false,
 					paneEaseSilky: cur.paneEaseSilky === true,
+					stickyBubbles: cur.stickyBubbles === true,
 					pastureEnabled: cur.pastureEnabled !== false,
 					pastureReducedMotion: cur.pastureReducedMotion === true,
 					pasturePaused: cur.pasturePaused === true,
@@ -1113,6 +1129,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 		if (patch.paneEaseSilky !== undefined) {
 			next.paneEaseSilky = patch.paneEaseSilky === true;
 			applyDocumentPaneEase(next.paneEaseSilky);
+		}
+		if (patch.stickyBubbles !== undefined) {
+			next.stickyBubbles = patch.stickyBubbles === true;
+			applyDocumentStickyBubbles(next.stickyBubbles);
 		}
 		if (patch.remoteChannel !== undefined) {
 			next.remoteChannel = normalizeRemoteChannel(patch.remoteChannel);

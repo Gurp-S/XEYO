@@ -8,6 +8,8 @@ import {
 	Clipboard,
 	Folder,
 	GitBranch,
+	ListFilter,
+	MessageSquare,
 	MoreHorizontal,
 	PanelLeftClose,
 	Pencil,
@@ -957,22 +959,34 @@ const SpaceFolder = memo(function SpaceFolder({
 		],
 	);
 
-	// 工作区操作菜单（2026-09-05 三版）：行内只留一个三点按钮，把
-	// 新建对话 / 归档视图 / 删除工作区全部收进菜单。归档视图激活时按钮
-	// 变为「对话」，直接点击切回正常列表。
+	// 工作区筛选菜单（2026-09-05 四版）：行内恒为一个漏斗筛选按钮，菜单
+	// 内容随视图切换——正常态=添加对话/归档对话/删除工作区；归档态=
+	// 对话（切回）/删除工作区。
 	const openSpaceMenu = useCallback(
 		(e: React.MouseEvent) => {
 			e.preventDefault();
 			e.stopPropagation();
-			const items: ContextMenuItem[] = [
-				{
+			const items: ContextMenuItem[] = [];
+			if (viewArchived) {
+				items.push({
+					kind: 'action',
+					id: 'active-view',
+					label: '对话',
+					icon: <MessageSquare className="h-3.5 w-3.5" strokeWidth={1.9} />,
+					onSelect: () => {
+						setViewArchived(false);
+						setShowAll(false);
+					},
+				});
+			} else {
+				items.push({
 					kind: 'action',
 					id: 'add-session',
 					label: '添加对话',
 					icon: <Plus className="h-3.5 w-3.5" strokeWidth={1.9} />,
 					onSelect: onAdd,
-				},
-				{
+				});
+				items.push({
 					kind: 'action',
 					id: 'archive-view',
 					label: `归档对话${archivedSessions.length > 0 ? `（${archivedSessions.length}）` : ''}`,
@@ -981,8 +995,8 @@ const SpaceFolder = memo(function SpaceFolder({
 						setViewArchived(true);
 						setShowAll(false);
 					},
-				},
-			];
+				});
+			}
 			if (onRemoveSpace) {
 				items.push({kind: 'sep'});
 				items.push({
@@ -1008,7 +1022,7 @@ const SpaceFolder = memo(function SpaceFolder({
 			}
 			showContextMenu(e, items, space.name || '工作区操作');
 		},
-		[archivedSessions.length, onAdd, onRemoveSpace, space.name],
+		[archivedSessions.length, onAdd, onRemoveSpace, space.name, viewArchived],
 	);
 
 	const renderSessionRow = (item: ChatSession) => {
@@ -1097,31 +1111,21 @@ className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 py-1 text-
 						{space.name}
 					</span>
 				</button>
-				{viewArchived ? (
-					/* 归档视图激活：按钮变「对话」，点击切回正常列表。 */
-					<button
-						type="button"
-						title="返回全部对话"
-						onClick={e => {
-							e.stopPropagation();
-							setViewArchived(false);
-							setShowAll(false);
-						}}
-						className="xy-icon-btn xy-sidebar-affordance mr-0.5 rounded px-1.5 py-0.5 text-[11px] font-medium leading-none text-accent hover:bg-glass-strong visible opacity-100"
-					>
-						对话
-					</button>
-				) : (
-					<button
-						type="button"
-						aria-label={`${space.name} 工作区操作`}
-						title="添加对话 / 归档 / 删除"
-						onClick={e => openSpaceMenu(e)}
-						className="xy-icon-btn xy-sidebar-affordance mr-0.5 rounded p-1 text-mute opacity-0 translate-x-1 invisible pointer-events-none hover:bg-glass-strong hover:text-ink group-hover:visible group-hover:pointer-events-auto group-hover:opacity-100 group-hover:translate-x-0"
-					>
-						<MoreHorizontal className="h-3.5 w-3.5" />
-					</button>
-				)}
+				{/* 工作区筛选按钮（恒为漏斗图标）：菜单内容随视图切换。 */}
+				<button
+					type="button"
+					aria-label={`${space.name} 筛选`}
+					title={viewArchived ? '对话 / 删除' : '添加对话 / 归档 / 删除'}
+					onClick={e => openSpaceMenu(e)}
+					className={cn(
+						'xy-icon-btn xy-sidebar-affordance mr-0.5 rounded p-1 text-mute hover:bg-glass-strong hover:text-ink',
+						viewArchived
+							? 'visible pointer-events-auto opacity-100 translate-x-0 text-accent'
+							: 'opacity-0 translate-x-1 invisible pointer-events-none group-hover:visible group-hover:pointer-events-auto group-hover:opacity-100 group-hover:translate-x-0',
+					)}
+				>
+					<ListFilter className="h-3.5 w-3.5" />
+				</button>
 			</div>
 
 			<div className={cn('xy-sidebar-tree grid', open ? 'is-open' : 'is-closed')} aria-hidden={!open}>
