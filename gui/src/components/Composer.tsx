@@ -1,8 +1,7 @@
 import {
 	ArrowUp,
 	ChevronDown,
-	ChevronUp,
-	MessageCircleMore,
+	GripVertical,
 	Network,
 	Plus,
 	Send,
@@ -252,14 +251,8 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 	const refreshInbox = useChatUiStore(s => s.refreshInbox);
 	const cancelInboxItem = useChatUiStore(s => s.cancelInboxItem);
 	const inboxItems: InboxQueuedItem[] = (activeId ? inboxBySession[activeId] : undefined) ?? [];
-	// dsh QueueDock 同款折叠：多条默认收成计数头；队空自动复位折叠。
-	const [queueCollapsed, setQueueCollapsed] = useState(true);
-	const queueExpanded = inboxItems.length === 1 || !queueCollapsed;
-	useEffect(() => {
-		if (inboxItems.length === 0) {
-			setQueueCollapsed(true);
-		}
-	}, [inboxItems.length]);
+	// 排队卡最多一条：只展示最新一条（多条时以 mono 计数徽标注明总量）。
+	const latestInbox = inboxItems.length > 0 ? inboxItems[inboxItems.length - 1] : null;
 	// P1：chip 可见时 2s 轮询排队队列（多端一致；队空 = 已投递/取消 → 清 chip）。
 	useEffect(() => {
 		if (!hasInboxChip || !activeId) {
@@ -1202,87 +1195,53 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 				>
 				{showTodoDock ? <SessionTodoDock embedded /> : null}
 				{goalDockLive ? <SessionGoalDock embedded /> : null}
-				{hasInboxChip && inboxItems.length > 0 ? (
-					// 排队停靠条 —— 1:1 对齐 dsh ui-conversation QueueDock：
-					// 附着输入卡顶部的内嵌软面板（顶圆角方底 + 0.5px 描边），
-					// 多条默认折叠成「N 条排队中」计数头（气泡字形 + 箭头），单条直出且行自扛字形；
-					// 行 = 字形(仅单条) + 截断预览 + 右侧圆形图标动作；行间 inset 发丝线；
-					// 列表 max-h 180px 内滚。色值走 XEYO token（paper-deep/line/ink-soft/mute/warn）。
+				{hasInboxChip && latestInbox ? (
+					// 排队卡（最多一条）：只显示最新一条排队消息——
+					// 拖拽手柄 + 截断文本 + 右侧幽灵图标动作（stuck→重试 / 删除）；
+					// 多条时以 mono 计数徽标注明总量，不做折叠头。
 					<div className="xy-queue-dock" data-queue-dock="">
-						<div className="xy-queue-panel">
+						<div className="xy-queue-card">
+							<span className="xy-queue-grip" aria-hidden>
+								<GripVertical className="h-3.5 w-3.5" strokeWidth={1.9} />
+							</span>
 							{inboxItems.length > 1 ? (
+								<span className="xy-queue-count" title={`共 ${inboxItems.length} 条排队`}>
+									{inboxItems.length}
+								</span>
+							) : null}
+							<span
+								className="xy-queue-text"
+								data-stuck={latestInbox.state === 'stuck' ? '' : undefined}
+							>
+								{latestInbox.state === 'stuck'
+									? `投递失败：${latestInbox.text}`
+									: latestInbox.text}
+							</span>
+							<div className="xy-queue-actions">
+								{latestInbox.state === 'stuck' ? (
+									<button
+										type="button"
+										className="xy-queue-action"
+										title="重新投递"
+										onClick={() => {
+											void resumeInbox(activeId ?? '');
+											void refreshInbox(activeId ?? '');
+										}}
+									>
+										<Send className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden />
+									</button>
+								) : null}
 								<button
 									type="button"
-									className="xy-queue-header"
-									aria-expanded={queueExpanded}
-									onClick={() => setQueueCollapsed(v => !v)}
+									className="xy-queue-action"
+									title="取消排队"
+									onClick={() => {
+										void cancelInboxItem(activeId ?? '', latestInbox.queue_id);
+									}}
 								>
-									<span className="xy-queue-lead" aria-hidden>
-										<MessageCircleMore className="h-3.5 w-3.5" strokeWidth={1.9} />
-									</span>
-									<span className="xy-queue-count">{inboxItems.length} 条排队中</span>
-									<span className="xy-queue-chevron" aria-hidden>
-										{queueExpanded ? (
-											<ChevronDown className="h-3.5 w-3.5" strokeWidth={1.9} />
-										) : (
-											<ChevronUp className="h-3.5 w-3.5" strokeWidth={1.9} />
-										)}
-									</span>
+									<X className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden />
 								</button>
-							) : null}
-							<ul className="xy-queue-list" hidden={!queueExpanded}>
-								{queueExpanded &&
-									inboxItems.map((it, i) => {
-										const stuck = it.state === 'stuck';
-										return (
-											<li key={it.queue_id || i} className="xy-queue-row">
-												{inboxItems.length === 1 ? (
-													<span className="xy-queue-lead" aria-hidden>
-														<MessageCircleMore
-															className="h-3.5 w-3.5"
-															strokeWidth={1.9}
-														/>
-													</span>
-												) : null}
-												<span
-													className="xy-queue-preview"
-													data-stuck={stuck ? '' : undefined}
-												>
-													{stuck ? `投递失败：${it.text}` : it.text}
-												</span>
-												<div className="xy-queue-actions">
-													{stuck ? (
-														<button
-															type="button"
-															className="xy-queue-action"
-															title="重新投递"
-															onClick={() => {
-																void resumeInbox(activeId ?? '');
-																void refreshInbox(activeId ?? '');
-															}}
-														>
-															<Send
-																className="h-3.5 w-3.5"
-																strokeWidth={1.9}
-																aria-hidden
-															/>
-														</button>
-													) : null}
-													<button
-														type="button"
-														className="xy-queue-action"
-														title="取消排队"
-														onClick={() => {
-															void cancelInboxItem(activeId ?? '', it.queue_id);
-														}}
-													>
-														<X className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden />
-													</button>
-												</div>
-											</li>
-										);
-									})}
-							</ul>
+							</div>
 						</div>
 					</div>
 				) : null}

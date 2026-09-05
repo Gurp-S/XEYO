@@ -21,7 +21,7 @@ import {
 	Pencil,
 	Play,
 	Square,
-	Target,
+	Compass,
 	Trash2,
 } from 'lucide-react';
 import type {ReactNode} from 'react';
@@ -381,7 +381,7 @@ export function SessionGoalDock({embedded = false}: Props) {
 	const panel = (
 		<div className="xy-panel-ask is-expanded" role="region" aria-label="Session goal">
 			<div className="flex items-center gap-2 px-3 py-1.5">
-				<Target className="size-4 shrink-0 text-mute" strokeWidth={1.8} aria-hidden />
+				<Compass className="size-4 shrink-0 text-mute" strokeWidth={1.8} aria-hidden />
 				{armedDot}
 				<span
 					className={cn(
