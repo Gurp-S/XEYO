@@ -880,6 +880,9 @@ const SpaceFolder = memo(function SpaceFolder({
 	// smoke-test #3 + 归档门槛（2026-09-05）：常态菜单 = 重命名/分叉/归档，
 	// **不提供删除**；已归档菜单 = 恢复/删除（删除前危险确认）。
 	// 「归档了才能删除」——删除是不可逆操作，归档作为缓冲层。
+	// 空会话不可分叉：transcript 为空时后端 /fork 必 404（2026-09-05 E2E 排查）。
+	// 仅对已装载且零消息的会话置灰；冷会话（未装载，undefined）不误伤。
+	const messagesById = useChatStore(s => s.messagesById);
 	const openItemMenu = useCallback(
 		(e: React.MouseEvent, item: ChatSession) => {
 			e.preventDefault();
@@ -937,6 +940,12 @@ const SpaceFolder = memo(function SpaceFolder({
 					kind: 'action',
 					id: 'fork',
 					label: '分叉会话',
+					// 分叉需要非空 transcript；空会话/侧聊（只读模式）点了必 404/被拒，
+					// 置灰而不是让用户撞错误 toast（2026-09-05 E2E 排查）。
+					disabled:
+						item.spaceId === SIDE_SPACE_ID ||
+						(Array.isArray(messagesById[item.id]) &&
+							messagesById[item.id].length === 0),
 					icon: <GitBranch className="h-3.5 w-3.5" strokeWidth={1.9} />,
 					onSelect: () => onForkSession(item.id),
 				});
@@ -956,6 +965,7 @@ const SpaceFolder = memo(function SpaceFolder({
 			onArchiveSession,
 			onRestoreSession,
 			onRemoveSession,
+			messagesById,
 		],
 	);
 
@@ -1070,11 +1080,11 @@ const SpaceFolder = memo(function SpaceFolder({
 						{item.title}
 					</span>
 					{peerLabel && !item.archived ? (
-						<span className="max-w-[5.5rem] shrink-0 truncate font-mono text-[10px] text-warn/90 group-hover/item:opacity-0">
+						<span className="max-w-[5.5rem] shrink-0 truncate font-mono text-[10px] text-warn/90 group-hover/item:opacity-0 group-focus-within/item:opacity-0">
 							{peerLabel}
 						</span>
 					) : (
-						<span className="xy-session-meta shrink-0 font-mono text-[10px] text-mute/70 group-hover/item:opacity-0">
+						<span className="xy-session-meta shrink-0 font-mono text-[10px] text-mute/70 group-hover/item:opacity-0 group-focus-within/item:opacity-0">
 							{formatRelativeShort(item.updatedAt)}
 						</span>
 					)}
@@ -1298,7 +1308,7 @@ const SideChatSection = memo(function SideChatSection({
 					>
 						{session.title}
 					</span>
-					<span className="xy-session-meta shrink-0 font-mono text-[10px] text-mute/70 group-hover/item:opacity-0">
+					<span className="xy-session-meta shrink-0 font-mono text-[10px] text-mute/70 group-hover/item:opacity-0 group-focus-within/item:opacity-0">
 						{formatRelativeShort(session.updatedAt)}
 					</span>
 				</button>
