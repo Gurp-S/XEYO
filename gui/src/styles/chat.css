@@ -340,8 +340,12 @@ html[data-xy-selfwallpaper='1'] [data-pin-id] .xy-editing-bubble {
    overflow 必须 visible，否则底部控件 0fr→1fr 展开动画会被裁掉。
    高度受统一查看上限约束（与吸顶 pin 的 promptChipMaxPx 同源：现由 JS 投影成
    --xy-prompt-view-cap，与查看态共用一个 CSS var，避免 innerHeight 与 vh 漂移）；
-   编辑态比查看态高 30px（=150px，多容纳底部操作行），超出部分由 textarea 内部滚动。 */
-.xy-editing-bubble {
+   编辑态比查看态高 30px（=150px，多容纳底部操作行），超出部分由 textarea 内部滚动。
+   选择器用 .xy-user-prompt.xy-editing-bubble（双类，特异性 0,2,0）压过 motion.css
+   的 .xy-surface transition——chip 恒带 xy-surface 类，其 transition 简写（bg/color/
+   box-shadow/opacity，无 max-height）会覆盖本规则的同特异性 transition，导致
+   max-height 收缩（closing 150→120）不参与过渡、一帧直落推挤下方消息。 */
+.xy-user-prompt.xy-editing-bubble {
   z-index: 1;
   isolation: isolate;
   box-sizing: border-box;
@@ -364,17 +368,18 @@ html[data-xy-selfwallpaper='1'] [data-pin-id] .xy-editing-bubble {
     box-shadow 180ms var(--ease-out-soft);
 }
 
-/* 收起编辑：控件区收拢 + max-height 渐缩 + opacity 淡出，跨帧过渡后才拆编辑态。
-   入场动画不带 fill（both）——带 fill 时 opacity 被钉在 1，closing 需靠
-   animation:none 撤销 fill 才能让 opacity:0 生效，而 transition 不补间
-   「动画值 → 规则值」的跳变：气泡 opacity 瞬间直落 0（瞬灭）、260ms 后再
-   淡入 = 用户所见「闪一下」。去掉 fill 后 closing 的 opacity:0 是普通值
-   变化，走 180ms transition 平滑淡出；此时内容（编辑文本→原文）一致时拆
-   DOM 高度回落≈0，不推挤下方消息。 */
+/* 收起编辑：控件区收拢 + max-height 渐缩 + 边框颜色回退 + 背景色回退。
+   入场用 190ms 的 xy-editing-bubble-in(opacity .92→1, 不带 fill),
+   收场对称:整气泡始终保持可见(opacity 1)、不整体淡出再淡入,避免「消失又回来」的闪。
+   内容区在 editClosing 起始已切回 markdown 预览(原文,与查看态同像素),
+   收尾拆 DOM 时 [预览/控件 + flex:1 编辑容器] → [PromptTextClamp(原文)] 在
+   视觉上等价 —— opacity 不需要参与掩膜,只负责透明前的几何稳态收尾。
+
+   仍需 animation:none 撤销入场动画的 .92→1 末尾值 + fill:none 的副作用,避免
+   收尾拆 .xy-editing-bubble 时入场末帧的 opacity 被 transition 二次补间。 */
 .xy-editing-bubble.xy-editing-bubble-closing {
   animation: none;
   max-height: var(--xy-prompt-view-cap) !important;
-  opacity: 0;
 }
 
 @keyframes xy-editing-bubble-in {

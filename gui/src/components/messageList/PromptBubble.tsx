@@ -271,6 +271,17 @@ promptEditRef,
 				resizeEditingTextarea?.();
 			}
 		}, [editing, editPreviewOpen, editingTextareaRef, resizeEditingTextarea]);
+		/* 退出编辑对称：closing 瞬间若仍在 textarea，立即切回预览并 blur，
+		   让气泡在收缩期间显示的是「原文 markdown」(= 查看态像素等价的内容)，
+		   收尾拆 DOM 时 preview(text) → PromptTextClamp(text) 视觉等价，
+		   无需用整气泡淡出掩膜 → chip 始终保持不透明 = 与进入态对称(进入 minOp .92)。
+		   blur 阻断 textarea 失焦时浏览器把焦点元素滚进视口的原生调整(scrollTop 突变)。 */
+		useLayoutEffect(() => {
+			if (editClosing && !editPreviewOpen) {
+				editingTextareaRef?.current?.blur();
+				setEditPreviewOpen(true);
+			}
+		}, [editClosing, editPreviewOpen, editingTextareaRef]);
 		/* 吸顶编辑会 portal 重挂载控件；若首帧就带 is-open，0fr→1fr 过渡会被跳过 */
 		const [controlsOpen, setControlsOpen] = useState(false);
 		useLayoutEffect(() => {
@@ -347,7 +358,7 @@ ref={editing ? promptEditRef : undefined}
 			) : null}
 				{editing ? (
 					<>
-													{editingExistingMediaRefs.length > 0 || editImages.length > 0 || editFiles.length > 0 ? (
+													{editingExistingMediaRefs.length > 0 || ((!editClosing) && (editImages.length > 0 || editFiles.length > 0)) ? (
 								<div className="grid max-w-[20rem] grid-cols-[repeat(auto-fill,minmax(3.5rem,1fr))] items-center gap-2 border-b border-line/40 px-3 pt-2 pb-2">
 									{editingExistingMediaRefs.map((ref, index) => {
 										const src = mediaUrl(ref);
@@ -370,7 +381,7 @@ ref={editing ? promptEditRef : undefined}
 										) : null;
 									})}
 
-																	{editImages.map(image => (
+																	{!editClosing && editImages.map(image => (
 										<div
 											key={image.id}
 											className="anim-pop group relative aspect-square min-w-0 overflow-hidden rounded-xl border border-line/70 bg-paper-deep/60"
@@ -403,7 +414,7 @@ ref={editing ? promptEditRef : undefined}
 										</div>
 									))}
 
-								{editFiles.map(file => (
+								{!editClosing && editFiles.map(file => (
 									<span
 										key={file.id}
 										className="anim-pop inline-flex max-w-full items-center gap-1.5 rounded-lg border border-line bg-paper px-2 py-0.5 font-mono text-[11px] text-ink-soft"
@@ -419,7 +430,9 @@ ref={editing ? promptEditRef : undefined}
 						) : null}
 						{editPreviewOpen ? (
 							/* 预览后编辑（选项A）：编辑态默认渲染与查看态同源的 Markdown 预览，
-							   内滚查看全文；点击/聚焦切到原生 textarea 真正编辑。 */
+							   内滚查看全文；点击/聚焦切到原生 textarea 真正编辑。
+							   closing 时强制预览用原文 body,让气泡在收缩期间显示的内容
+							   与收尾后的 PromptTextClamp(view)像素等价,避免拆 DOM 时跳。 */
 							<div
 								className="xy-edit-preview xy-chat-text min-h-0 flex-1 resize-none cursor-text overflow-y-auto border-0 bg-transparent p-0 font-sans text-[15px] leading-relaxed text-ink outline-none"
 								role="button"
@@ -434,7 +447,7 @@ ref={editing ? promptEditRef : undefined}
 								}}
 							>
 								<UserMarkdownText
-									text={editingText}
+									text={editClosing ? body : editingText}
 									className="xy-chat-text min-w-0 font-sans text-[15px] leading-relaxed"
 								/>
 							</div>
