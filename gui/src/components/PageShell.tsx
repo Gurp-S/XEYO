@@ -2,7 +2,12 @@ import {type HTMLAttributes, type ReactNode, type Ref} from 'react';
 import {cn} from '@/lib/utils';
 
 type PageShellProps = {
-	/** 宽幅布局（用量/扩展等信息密度高的面板） */
+	/**
+	 * 全宽信息面板（用量页）。false = 居中列表布局（扩展中心：
+	 * max-w-5xl 居中 + xy-hover-scroll 滚动渐隐）。
+	 * 两种形态的 DOM 与两面板重构前（2026-09-05 复用审计 ⑥ 之前）
+	 * 逐类一致，勿随意增删类——视觉回归会直接被用户感知。
+	 */
 	wide?: boolean;
 	/** 顶部工具条插槽（筛选器、tablist 等） */
 	toolbar?: ReactNode;
@@ -26,21 +31,30 @@ export function PageShell({
 }: PageShellProps) {
 	return (
 		<div
-			className={cn(
-				'flex min-h-0 flex-1 flex-col',
-				className,
-			)}
+			className={cn('xy-usage-page flex min-h-0 flex-1 flex-col', className)}
 			{...rest}
 		>
 			{toolbar ? (
-				<div ref={toolbarRef} className="shrink-0 px-4 pt-3 pb-2">
+				<div
+					ref={toolbarRef}
+					className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line/40 px-4 py-2"
+				>
 					{toolbar}
 				</div>
 			) : null}
-			<div className="relative min-h-0 flex-1 overflow-y-auto px-4 pb-6">
-				<div className={cn('mx-auto w-full', wide ? 'max-w-[1600px]' : 'max-w-5xl')}>
-					{children}
-				</div>
+			<div
+				className={cn(
+					'relative min-h-0 flex-1 overflow-y-auto px-4 py-4',
+					!wide && 'xy-hover-scroll',
+				)}
+			>
+				{wide ? (
+					children
+				) : (
+					<div className="mx-auto flex w-full max-w-5xl min-w-0 flex-col">
+						{children}
+					</div>
+				)}
 			</div>
 		</div>
 	);

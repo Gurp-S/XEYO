@@ -647,6 +647,7 @@ export function PluginsPanel({active = true}: {active?: boolean}) {
 	return (
 		<PageShell
 			data-testid="extensions-panel"
+			className="bg-transparent"
 			toolbar={
 				<>
 
