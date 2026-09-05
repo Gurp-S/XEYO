@@ -863,6 +863,13 @@ const SpaceFolder = memo(function SpaceFolder({
 	const hasRoot = Boolean(space.rootPath);
 	const activeSessions = sessions.filter(x => !x.archived);
 	const archivedSessions = sessions.filter(x => x.archived);
+	// 会话数量上限（2026-09-05）：默认最多展示 5 条，超出折叠进「展开其余 N 个」。
+	const SESSION_VISIBLE_LIMIT = 5;
+	const [showAll, setShowAll] = useState(false);
+	const hiddenCount = activeSessions.length - SESSION_VISIBLE_LIMIT;
+	const visibleActive = showAll
+		? activeSessions
+		: activeSessions.slice(0, SESSION_VISIBLE_LIMIT);
 
 	// smoke-test #3 + 归档门槛（2026-09-05）：常态菜单 = 重命名/分叉/归档，
 	// **不提供删除**；已归档菜单 = 恢复/删除（删除前危险确认）。
@@ -944,6 +951,66 @@ const SpaceFolder = memo(function SpaceFolder({
 			onRestoreSession,
 			onRemoveSession,
 		],
+	);
+
+	// 归档面板（2026-09-05）：工作区行按钮 → 归档会话菜单，每项子菜单
+	// 提供 恢复/删除。归档会话不再平铺在列表下方，唯一入口在此。
+	const openArchiveMenu = useCallback(
+		(e: React.MouseEvent) => {
+			e.preventDefault();
+			e.stopPropagation();
+			if (archivedSessions.length === 0) {
+				showContextMenu(
+					e,
+					[
+						{
+							kind: 'action',
+							id: 'no-archived',
+							label: '暂无归档会话',
+							disabled: true,
+							onSelect: () => undefined,
+						},
+					],
+					`已归档（${space.name}）`,
+				);
+				return;
+			}
+			const items: ContextMenuItem[] = archivedSessions.map(item => ({
+				kind: 'submenu',
+				id: `arch-${item.id}`,
+				label: item.title || '未命名会话',
+				items: [
+					{
+						kind: 'action',
+						id: `restore-${item.id}`,
+						label: '恢复会话',
+						onSelect: () => onRestoreSession(item.id),
+					},
+					{kind: 'sep'},
+					{
+						kind: 'action',
+						id: `delete-${item.id}`,
+						label: '删除会话',
+						danger: true,
+						onSelect: () => {
+							void (async () => {
+								const ok = await confirmDialog({
+									title: '删除已归档会话？',
+									body: `「${item.title}」将连同全部聊天记录永久删除，不可恢复。`,
+									confirmText: '删除',
+									danger: true,
+								});
+								if (ok) {
+									onRemoveSession(item.id);
+								}
+							})();
+						},
+					},
+				],
+			}));
+			showContextMenu(e, items, `已归档 ${archivedSessions.length}（${space.name}）`);
+		},
+		[archivedSessions, onRemoveSession, onRestoreSession, space.name],
 	);
 
 	const renderSessionRow = (item: ChatSession) => {
@@ -1040,9 +1107,23 @@ className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 py-1 text-
 						onAdd();
 					}}
 className="xy-icon-btn xy-sidebar-affordance mr-0.5 rounded p-1 text-mute opacity-0 translate-x-1 invisible pointer-events-none hover:bg-glass-strong hover:text-ink group-hover:visible group-hover:pointer-events-auto group-hover:opacity-100 group-hover:translate-x-0"
-						
+
 				>
 					<Plus className="h-3.5 w-3.5" />
+				</button>
+				{/* 归档面板入口：点开归档会话菜单（恢复/删除），归档项不再平铺。 */}
+				<button
+					type="button"
+					aria-label={`查看 ${space.name} 的归档会话`}
+					title={archivedSessions.length > 0 ? `已归档 ${archivedSessions.length}` : '归档会话'}
+					onClick={e => openArchiveMenu(e)}
+					className={cn(
+						'xy-icon-btn xy-sidebar-affordance mr-0.5 rounded p-1 text-mute opacity-0 translate-x-1 invisible pointer-events-none hover:bg-glass-strong hover:text-ink group-hover:visible group-hover:pointer-events-auto group-hover:opacity-100 group-hover:translate-x-0',
+						archivedSessions.length > 0 &&
+							'visible pointer-events-auto opacity-100 translate-x-0 text-accent/80',
+					)}
+				>
+					<Archive className="h-3.5 w-3.5" />
 				</button>
 				{onRemoveSpace ? (
 					<button
@@ -1077,18 +1158,22 @@ className="xy-icon-btn xy-sidebar-affordance mr-0.5 rounded p-1 text-mute opacit
 							{hasRoot ? '暂无对话' : '打开文件夹后开始'}
 						</li>
 					) : (
-						activeSessions.map(item => renderSessionRow(item))
+						visibleActive.map(item => renderSessionRow(item))
 					)}
-				</ul>
-				{archivedSessions.length > 0 ? (
-					<ul className="min-h-0 overflow-hidden pb-1">
-						<li className="flex items-center gap-1 px-7 py-0.5 font-mono text-[10px] tracking-wider text-mute/70">
-							<Archive className="h-3 w-3 shrink-0" aria-hidden />
-							<span>已归档 {archivedSessions.length}</span>
+					{hiddenCount > 0 ? (
+						<li>
+							<button
+								type="button"
+								onClick={() => setShowAll(v => !v)}
+								className="xy-pressable flex w-full items-center rounded-md px-7 py-1 text-left text-[12px] text-mute hover:bg-glass-hover hover:text-ink"
+							>
+								{showAll
+									? '收起会话列表'
+									: `展开其余 ${hiddenCount} 个会话`}
+							</button>
 						</li>
-						{archivedSessions.map(item => renderSessionRow(item))}
-					</ul>
-				) : null}
+					) : null}
+				</ul>
 			</div>
 		</div>
 		);
