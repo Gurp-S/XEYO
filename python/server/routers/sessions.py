@@ -192,10 +192,23 @@ class UiThoughtsSyncRequest(BaseModel):
 @router.delete("/v1/sessions/{session_id}")
 @router.post("/v1/sessions/{session_id}/delete")
 def delete_session(session_id: str) -> dict[str, Any]:
-	"""丢弃 FE 已删除聊天的内存 engine（#7），并清理磁盘 transcript 与会话目录。"""
+	"""丢弃 FE 已删除聊天的内存 engine（#7），并清理磁盘 transcript 与会话目录。
+
+	归档门槛（2026-09-05）：常态会话一律拒绝删除——必须先归档再删，
+	删除是不可逆破坏性操作，归档作为缓冲层（防误删单点）。
+	"""
 	sid = (session_id or "").strip()
 	if not sid:
 		raise api_error(400, "session_id is empty")
+	from engine.title import read_archive
+
+	root0 = default_sessions_dir()
+	if read_archive(sid, sessions_dir=root0) is None:
+		raise api_error(
+			409,
+			"会话尚未归档：请先归档，再从已归档列表中删除",
+			"archived_required",
+		)
 	dropped = _pool.drop(sid)
 	removed: list[str] = []
 
@@ -208,6 +221,11 @@ def delete_session(session_id: str) -> dict[str, Any]:
 				f.unlink()
 				removed.append(str(f))
 		remove_blobs_dir(tp)
+		# 归档 sidecar 一并清理（删除即彻底移除，不留孤儿标记）。
+		ap = root / f"{safe_session_filename(sid)}.archive.json"
+		if ap.is_file():
+			ap.unlink()
+			removed.append(str(ap))
 	except OSError:
 		pass
 

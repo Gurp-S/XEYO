@@ -52,8 +52,19 @@ const frontendEnv = {
 export default defineConfig({
 	testDir: './e2e',
 	// B 层全栈（local→mock_llm）用 playwright.fullstack.config.ts 单独跑，勿混入 fake 后端；
-	// 回溯专项（文件检查点 Restore/Undo）用 playwright.fullstack-rewind.config.ts 单独跑。
-	testIgnore: ['**/fullstack.spec.ts', '**/rewind-fullstack.spec.ts'],
+	// 回溯专项（文件检查点 Restore/Undo）用 playwright.fullstack-rewind.config.ts 单独跑；
+	// 扩展中心（专用 seed + 独立端口）用 playwright.extensions.config.ts 单独跑；
+	// UI 几何/交互审计（纯前端、无后端、独立 vite 端口与 480s 超时）用
+	// playwright.ui-audit.config.ts / playwright.ui-audit-full.config.ts 单独跑，
+	// 混入 default 会被 60s 超时与多余后端误伤（曾整批误报 5 failed）。
+	testIgnore: [
+		'**/fullstack.spec.ts',
+		'**/rewind-fullstack.spec.ts',
+		'**/extensions.spec.ts',
+		'**/ui-audit.spec.ts',
+		'**/ui-audit-full.spec.ts',
+		'**/ui-audit-probe.spec.ts',
+	],
 	fullyParallel: false,
 	// SessionPool 单 worker + 会话内存态：必须单工作进程串行。
 	workers: 1,

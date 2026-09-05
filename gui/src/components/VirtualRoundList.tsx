@@ -32,10 +32,12 @@ export type VirtualRoundRenderContext = {
 
 /**
  * 轮数 ≤ 此阈值时全挂载(不做窗口化)，让浏览器按真实 DOM 高度给出正确 scrollHeight。
- * 窗口化的"估算取窗 + 量测回写"反馈链是滚动抖动/墙的根源——小中规模会话
- * 直接全挂载即无此问题；只有超长历史才值得付出窗口化的复杂度。
+ * 窗口化的"估算取窗 + 量测回写"反馈链曾是滚动抖动/墙的根源——高度表缓存
+ * (roundHeights + ensurePrefix 的 heightsVersion 失效)落地后窗口化已稳，
+ * 阈值从 150 降到 40：全挂载的切换延迟 ≈ O(全会话 markdown)，40 轮以上
+ * 会话切换卡顿显著(2026-09-05 排查报告 S1)；只有极小会话保留零估算全挂载。
  */
-export const VIRTUAL_WINDOW_THRESHOLD_ROUNDS = 150;
+export const VIRTUAL_WINDOW_THRESHOLD_ROUNDS = 40;
 
 /** 前缀和查询句柄：viewport 的 rail 高亮 / 跳轮用（无需接触 DOM）。 */
 export type VirtualRoundListApi = {
@@ -101,8 +103,10 @@ export function VirtualRoundList({
 	const count = roundIds.length;
 	// 轮数在阈值内 → 全挂载(浏览器直接按真实 DOM 高度得到有效 scrollHeight),
 	// 零估算、零"量测→重建→取窗"反馈,从根本上消除滚动抖动/墙/与 sticky 争抢。
-	// 超过阈值才走窗口化(此时绝对历史量才需要惰性挂载)。
-	const allMount = !smoothness || !ioAvailable || count <= VIRTUAL_WINDOW_THRESHOLD_ROUNDS;
+	// 超过阈值才走窗口化。注意:窗口化不再被 smoothness 关闭劫持——关平滑是为
+	// 省 CSS 动画开销,不应反而让大会话切换全量挂载(排查报告 S2);
+	// 挂载集合由窗口段决定,段内轮次经 bypassRoundMountIo 强制挂载。
+	const allMount = !ioAvailable || count <= VIRTUAL_WINDOW_THRESHOLD_ROUNDS;
 	const [win, setWin] = useState<RoundWindow>({start: 0, end: 0});
 	const prefixRef = useRef<number[]>([0]);
 	const prefixIdsRef = useRef<readonly string[] | null>(null);
@@ -111,6 +115,8 @@ export function VirtualRoundList({
 	const didLandRef = useRef(false);
 	const measureKeyRef = useRef(createFrameKey('round-window'));
 	void contentRef;
+	// smoothness 不再参与 allMount 判据(S2);保留 prop 兼容调用方签名。
+	void smoothness;
 
 	// 最新 props 镜像：订阅回调 / api 都从这里读，避免陈旧闭包。
 	const stateRef = useRef({roundIds, scrollElement, allMount});

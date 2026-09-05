@@ -42,6 +42,41 @@ export function createUsageAccumulator(
 ): UsageAccumulator {
 	let usageRaf = 0;
 	let pendingUsage: UsageStreamEvent[] = [];
+	// 流式期间 usage 落盘节流(2026-09-05 排查):flush 是 RAF 合并的,usage 事件
+	// 密集时原本每帧都可能 saveSession 一次。限 2 次/秒,窗口尾部补一次防丢尾。
+	let lastPersistAt = 0;
+	let persistTimer: ReturnType<typeof setTimeout> | undefined;
+
+	const persistSessionUsage = () => {
+		const cur = get();
+		const sess = cur.sessions.find(s => s.id === sessionId);
+		const usage = cur.sessionUsageById[sessionId];
+		if (!sess || !usage || !sessionStreamActive(cur, sessionId)) {
+			return;
+		}
+		void saveSession({...sess, usage, updatedAt: Date.now()});
+	};
+
+	const scheduleUsagePersist = () => {
+		const now = Date.now();
+		const elapsed = now - lastPersistAt;
+		if (elapsed >= 500) {
+			lastPersistAt = now;
+			if (persistTimer !== undefined) {
+				clearTimeout(persistTimer);
+				persistTimer = undefined;
+			}
+			persistSessionUsage();
+			return;
+		}
+		if (persistTimer === undefined) {
+			persistTimer = setTimeout(() => {
+				persistTimer = undefined;
+				lastPersistAt = Date.now();
+				persistSessionUsage();
+			}, 500 - elapsed);
+		}
+	};
 
 	const flush = () => {
 		if (usageRaf) {
@@ -115,7 +150,7 @@ export function createUsageAccumulator(
 		const nextSession = current.sessions.find(s => s.id === sessionId);
 		if (nextSession) {
 			const persisted = {...nextSession, usage: nextUsage, updatedAt: Date.now()};
-			void saveSession(persisted);
+			scheduleUsagePersist();
 			set(state => ({
 				sessions: state.sessions.map(s => s.id === sessionId ? persisted : s),
 				sessionUsageById: {...state.sessionUsageById, [sessionId]: nextUsage},

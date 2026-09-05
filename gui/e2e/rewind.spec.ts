@@ -112,12 +112,20 @@ test('continue 回溯：截断 → 完成态 → 自动重发 `ok: <edited>`', a
 	});
 
 	// 自动重发：编辑文案上屏 + fake 回声回复；旧回复随截断消失。
-	await expect(page.getByText('hello v2', {exact: true}).first()).toBeVisible({
-		timeout: 20_000,
-	});
-	await expect(page.getByText('ok: hello v2', {exact: true}).first()).toBeVisible({
-		timeout: 20_000,
-	});
+	// （sticky 钉住层会在 DOM 里留同文本的隐藏 .xy-chat-text 副本，裸
+	// getByText().first() 会命中隐藏副本永远 hidden——必须过滤 visible。）
+	await expect(
+		page
+			.getByText('hello v2', {exact: true})
+			.locator('visible=true')
+			.first(),
+	).toBeVisible({timeout: 20_000});
+	await expect(
+		page
+			.getByText('ok: hello v2', {exact: true})
+			.locator('visible=true')
+			.first(),
+	).toBeVisible({timeout: 20_000});
 	// 旧的 "ok: hello"（精确相等）不再出现。
 	await expect(page.getByText('ok: hello', {exact: true})).toHaveCount(0);
 });
@@ -171,10 +179,18 @@ test('多轮截断：回溯第 2 轮 → 第 2 轮消失；事件流（pill 数�
 	expect(evt!.after_message_id).toBeTruthy();
 
 	// 刷新后：截断结果在服务端持久化，列表不回弹、新会话不被卡死。
+	// （同前：必须过滤 visible，避开 sticky 钉住层的隐藏文本副本。）
 	await page.reload();
 	await expect(page.getByPlaceholder(COMPOSER)).toBeVisible();
-	await expect(page.getByText('hello', {exact: true}).first()).toBeVisible();
-	await expect(page.getByText('ok: world v2', {exact: true}).first()).toBeVisible();
+	await expect(
+		page.getByText('hello', {exact: true}).locator('visible=true').first(),
+	).toBeVisible();
+	await expect(
+		page
+			.getByText('ok: world v2', {exact: true})
+			.locator('visible=true')
+			.first(),
+	).toBeVisible();
 	await expect(page.getByText('world', {exact: true})).toHaveCount(0);
 });
 

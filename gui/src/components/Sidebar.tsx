@@ -857,8 +857,9 @@ const SpaceFolder = memo(function SpaceFolder({
 	const activeSessions = sessions.filter(x => !x.archived);
 	const archivedSessions = sessions.filter(x => x.archived);
 
-	// smoke-test #3：行内三点 → ContextMenu。归档行提供「恢复」；常规行提供
-	// 重命名 / 分叉 / 归档。删除两类都保留（危险项，语义与旧 hover 删除一致）。
+	// smoke-test #3 + 归档门槛（2026-09-05）：常态菜单 = 重命名/分叉/归档，
+	// **不提供删除**；已归档菜单 = 恢复/删除（删除前危险确认）。
+	// 「归档了才能删除」——删除是不可逆操作，归档作为缓冲层。
 	const openItemMenu = useCallback(
 		(e: React.MouseEvent, item: ChatSession) => {
 			e.preventDefault();
@@ -871,6 +872,27 @@ const SpaceFolder = memo(function SpaceFolder({
 					label: '恢复会话',
 					icon: <RotateCcw className="h-3.5 w-3.5" strokeWidth={1.9} />,
 					onSelect: () => onRestoreSession(item.id),
+				});
+				items.push({kind: 'sep'});
+				items.push({
+					kind: 'action',
+					id: 'delete',
+					label: '删除会话',
+					danger: true,
+					icon: <Trash2 className="h-3.5 w-3.5" strokeWidth={1.9} />,
+					onSelect: () => {
+						void (async () => {
+							const ok = await confirmDialog({
+								title: '删除已归档会话？',
+								body: `「${item.title}」将连同全部聊天记录永久删除，不可恢复。`,
+								confirmText: '删除',
+								danger: true,
+							});
+							if (ok) {
+								onRemoveSession(item.id);
+							}
+						})();
+					},
 				});
 			} else {
 				items.push({
@@ -906,15 +928,6 @@ const SpaceFolder = memo(function SpaceFolder({
 					onSelect: () => onArchiveSession(item.id),
 				});
 			}
-			items.push({kind: 'sep'});
-			items.push({
-				kind: 'action',
-				id: 'delete',
-				label: '删除会话',
-				danger: true,
-				icon: <Trash2 className="h-3.5 w-3.5" strokeWidth={1.9} />,
-				onSelect: () => onRemoveSession(item.id),
-			});
 			showContextMenu(e, items, item.title || '会话操作');
 		},
 		[
