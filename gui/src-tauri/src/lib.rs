@@ -354,9 +354,22 @@ fn spawn_python(app: &AppHandle) -> Result<Child, String> {
 }
 
 fn wait_health(timeout: Duration) -> bool {
-	let port = backend_port();
 	let start = Instant::now();
 	while start.elapsed() < timeout {
+		// G124: 只信"端口文件登记的 pid 仍存活"时的 200——本机任意进程占住端口
+		// 回 200 不再能接管 GUI 流量(端口文件 pid 会随后端死亡失效)。
+		let recorded_pid = read_backend_port_file().and_then(|(_port, pid)| pid);
+		let port = backend_port();
+		if let Some(pid) = recorded_pid {
+			if !process_alive(pid) {
+				thread::sleep(Duration::from_millis(400));
+				continue;
+			}
+		} else {
+			// 旧格式端口文件无 pid：不认健康，避免被陌生人 200 骗。
+			thread::sleep(Duration::from_millis(400));
+			continue;
+		}
 		if let Ok(resp) = ureq_get(&format!("http://127.0.0.1:{port}/health")) {
 			if resp {
 				return true;
