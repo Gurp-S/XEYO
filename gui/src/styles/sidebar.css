@@ -9,16 +9,14 @@
 }
 
 .group:hover .xy-sidebar-affordance,
-.group\/item:hover .xy-sidebar-affordance,
-.group:focus-within .xy-sidebar-affordance,
-.group\/item:focus-within .xy-sidebar-affordance {
+.group\/item:hover .xy-sidebar-affordance {
   will-change: opacity, transform;
 }
 
+/* 2026-09-05:去掉 focus-within 显示路径——三点只在鼠标 hover 时出现,
+   否则点过菜单后按钮常驻、与时间标签重叠(用户反馈)。 */
 .group:hover .xy-sidebar-affordance,
-.group\/item:hover .xy-sidebar-affordance,
-.group:focus-within .xy-sidebar-affordance,
-.group\/item:focus-within .xy-sidebar-affordance {
+.group\/item:hover .xy-sidebar-affordance {
   visibility: visible;
   opacity: 1;
   pointer-events: auto;

@@ -1080,11 +1080,11 @@ const SpaceFolder = memo(function SpaceFolder({
 						{item.title}
 					</span>
 					{peerLabel && !item.archived ? (
-						<span className="max-w-[5.5rem] shrink-0 truncate font-mono text-[10px] text-warn/90 group-hover/item:opacity-0 group-focus-within/item:opacity-0">
+						<span className="max-w-[5.5rem] shrink-0 truncate font-mono text-[10px] text-warn/90 group-hover/item:opacity-0">
 							{peerLabel}
 						</span>
 					) : (
-						<span className="xy-session-meta shrink-0 font-mono text-[10px] text-mute/70 group-hover/item:opacity-0 group-focus-within/item:opacity-0">
+						<span className="xy-session-meta shrink-0 font-mono text-[10px] text-mute/70 group-hover/item:opacity-0">
 							{formatRelativeShort(item.updatedAt)}
 						</span>
 					)}
@@ -1098,7 +1098,7 @@ const SpaceFolder = memo(function SpaceFolder({
 							: '重命名 / 分叉 / 归档'
 					}
 					onClick={e => openItemMenu(e, item)}
-					className="xy-icon-btn xy-sidebar-affordance absolute top-1/2 right-1 -translate-y-1/2 translate-x-1 rounded p-1 text-mute opacity-0 invisible pointer-events-none hover:bg-glass-hover hover:text-ink group-hover/item:visible group-hover/item:pointer-events-auto group-hover/item:opacity-100 group-hover/item:translate-x-0 group-focus-within/item:visible group-focus-within/item:pointer-events-auto group-focus-within/item:opacity-100 group-focus-within/item:translate-x-0"
+					className="xy-icon-btn xy-sidebar-affordance absolute top-1/2 right-1 -translate-y-1/2 translate-x-1 rounded p-1 text-mute opacity-0 invisible pointer-events-none hover:bg-glass-hover hover:text-ink group-hover/item:visible group-hover/item:pointer-events-auto group-hover/item:opacity-100 group-hover/item:translate-x-0"
 				>
 					<MoreHorizontal className="h-3.5 w-3.5" />
 				</button>
@@ -1308,7 +1308,7 @@ const SideChatSection = memo(function SideChatSection({
 					>
 						{session.title}
 					</span>
-					<span className="xy-session-meta shrink-0 font-mono text-[10px] text-mute/70 group-hover/item:opacity-0 group-focus-within/item:opacity-0">
+					<span className="xy-session-meta shrink-0 font-mono text-[10px] text-mute/70 group-hover/item:opacity-0">
 						{formatRelativeShort(session.updatedAt)}
 					</span>
 				</button>
@@ -1317,7 +1317,7 @@ const SideChatSection = memo(function SideChatSection({
 					aria-label={session.archived ? '已归档对话操作' : '对话操作'}
 					title={session.archived ? '恢复 / 删除' : '归档'}
 					onClick={event => openSideMenu(event, session)}
-					className="xy-icon-btn xy-sidebar-affordance absolute top-1/2 right-1 -translate-y-1/2 translate-x-1 rounded p-1 text-mute opacity-0 invisible pointer-events-none hover:bg-glass-hover hover:text-ink group-hover/item:visible group-hover/item:pointer-events-auto group-hover/item:opacity-100 group-hover/item:translate-x-0 group-focus-within/item:visible group-focus-within/item:pointer-events-auto group-focus-within/item:opacity-100 group-focus-within/item:translate-x-0"
+					className="xy-icon-btn xy-sidebar-affordance absolute top-1/2 right-1 -translate-y-1/2 translate-x-1 rounded p-1 text-mute opacity-0 invisible pointer-events-none hover:bg-glass-hover hover:text-ink group-hover/item:visible group-hover/item:pointer-events-auto group-hover/item:opacity-100 group-hover/item:translate-x-0"
 				>
 					<MoreHorizontal className="h-3.5 w-3.5" />
 				</button>
