@@ -156,10 +156,9 @@ html[data-smoothness="off"] .xy-sidebar-tree {
     transform 420ms cubic-bezier(0.16, 1, 0.3, 1) 40ms;
 }
 
-.xy-pane-row:has(.xy-pane-slot.is-open) .xy-pane-slide,
-.xy-pane-slot.is-animating .xy-pane-slide {
-  will-change: transform, width;
-}
+/* GPU 提示审计(2026-09-05):曾对 is-open 态常驻 will-change: transform, width——
+   width 不可合成;transform 仅在 420ms 过渡期间需要层,且 Chromium 会自动提升,
+   常驻提升让每个展开 pane 全程占一层显存。已移除。 */
 
 /* 鍔熻兘鐣岄潰闂村垏鎹細鏈抚璺宠繃瀹藉害/浣嶇Щ杩囨浮锛岀洿鎺ョ‖锟?*/
 .xy-pane-instant,

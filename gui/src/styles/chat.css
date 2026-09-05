@@ -510,10 +510,9 @@ html[data-scheme="dark"] .xy-user-prompt {
    reveals the wallpaper (follows bgOpacity/bgBlur). Same gradient + 40px
    distance as .is-fade-bottom, so the top edge looks identical. */
 
-.xy-tree-children.is-open,
-.xy-sidebar-tree.is-open {
-  will-change: grid-template-rows, opacity;
-}
+/* GPU 提示审计(2026-09-05):曾对 is-open 态常驻 will-change: grid-template-rows, opacity——
+   grid-template-rows 是布局属性不可合成;opacity 虽可合成但折叠同时伴随逐帧 reflow+repaint,
+   常驻层只耗显存无收益。已移除(is-closed 的 will-change:auto 复位保留为显式兜底)。 */
 
 .xy-tree-children.is-closed,
 .xy-sidebar-tree.is-closed {

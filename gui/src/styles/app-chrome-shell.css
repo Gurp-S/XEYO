@@ -240,10 +240,10 @@ html[data-scheme="dark"] .xy-detail-tooltip-trigger::after {
 }
 
 /* 收起右边内容时宽度变化同样平滑过渡：内容随分隔条一起移动 */
-.xy-pane-slot.is-animating,
-.xy-pane-row:has(.xy-pane-dragging) .xy-pane-slot {
-  will-change: width, transform;
-}
+/* GPU 提示审计(2026-09-05):此处曾设 will-change: width, transform——
+   width 是布局属性,will-change 无法将其移入合成器,只会凭空创建层耗显存;
+   transform 在 .xy-pane-slot 上并无过渡,同属死重。Chromium 对真实发生的
+   transform/opacity 过渡会自动提升,无需预埋。已整体移除。 */
 
 .xy-pane-slide {
   transition:
@@ -445,9 +445,8 @@ html[data-smoothness="on"] .xy-pane-row:has(.xy-pane-dragging) .xy-chat-col {
   transition: none !important;
 }
 
-html[data-smoothness="on"] .xy-pane-dragging {
-  will-change: width;
-}
+/* GPU 提示审计(2026-09-05):曾设 will-change: width——布局属性不可合成,
+   纯显存浪费,已移除;拖拽走主线程 reflow 与该提示无关。 */
 
 html[data-smoothness="on"] .xy-enter-fade {
   animation: xy-enter-fade 110ms ease;
