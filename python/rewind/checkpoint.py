@@ -1,4 +1,4 @@
-"""Checkpoint helpers for Rewind v2 (Cursor-aligned).
+"""Rewind v2 的检查点辅助函数。
 
 A checkpoint_id is a stable, content-addressable id bound to a user message's
 pre-agent workspace snapshot (shadow commit).  Turn end may cache shadow_paths

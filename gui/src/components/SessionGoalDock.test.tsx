@@ -1,5 +1,5 @@
 /**
- * SessionGoalDock.test.tsx — 41 号 P0 GUI 单测（对齐 DSH GoalBar 外观）。
+ * SessionGoalDock.test.tsx — 41 号 P0 GUI 单测（单行 GoalBar 外观）。
  *
  * 覆盖：
  * - 渲染矩阵：无 goal / completed / abandoned 不渲染；

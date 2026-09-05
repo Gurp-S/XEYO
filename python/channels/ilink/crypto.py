@@ -10,7 +10,7 @@ import re
 
 _HEX32 = re.compile(rb"^[0-9a-fA-F]{32}$")
 
-# FIPS-197 AES S-box
+# FIPS-197 AES S 盒
 _SBOX = bytes.fromhex(
 	"637c777bf26b6fc53001672bfed7ab76"
 	"ca82c97dfa5947f0add4a2af9ca472c0"

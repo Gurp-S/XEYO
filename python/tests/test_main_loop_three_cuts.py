@@ -41,7 +41,7 @@ from tools.tool_registry import ToolRegistry
 
 
 # ---------------------------------------------------------------------------
-# Knife 1: T_now
+# 第一刀：T_now
 # ---------------------------------------------------------------------------
 
 
@@ -113,7 +113,7 @@ def test_memory_index_appends_after_tool(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Knife 2: pending yields while sibling still running; parallel waits
+# 第二刀：兄弟任务运行中等待 pending yields；并行等待
 # ---------------------------------------------------------------------------
 
 
@@ -318,7 +318,7 @@ async def test_two_asks_pending_before_either_resolved(tmp_path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Knife 3: Before overlaps first stream; writes wait on gate
+# 第三刀：Before 与首个流重叠；写入在闸口等待
 # ---------------------------------------------------------------------------
 
 

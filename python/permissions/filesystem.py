@@ -279,7 +279,7 @@ def check_write_permission_for_path(
 	return check_read_permission_for_path(path, context=ctx)
 
 
-# ── T12：workspace 内受保护元数据（Codex WritableRoot 语义）──────────
+# ── T12：workspace 内受保护元数据（WritableRoot 语义）──────────
 
 #: workspace 根内这些顶层目录默认只读（写请求 DENY；可 env 放宽）。
 PROTECTED_METADATA_NAMES = frozenset({".git", ".xeyo", ".agents"})

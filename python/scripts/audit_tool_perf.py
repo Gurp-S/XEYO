@@ -30,7 +30,7 @@ REPO_ROOT = str(Path(__file__).resolve().parents[2])  # repo root (a git repo)
 reg = build_default_registry(cwd=REPO_ROOT)
 bash = BashTool(cwd=REPO_ROOT)
 
-# (tool, args, label)
+# 三元组 (tool, args, label)
 CASES: list[tuple[str, dict, str]] = [
     ("getTime", {}, "getTime"),
     ("Glob", {"pattern": "**/*.py"}, "Glob broad **/*.py (dir sum)"),
@@ -42,7 +42,7 @@ CASES: list[tuple[str, dict, str]] = [
     ("Git", {"action": "summary"}, "Git summary"),
 ]
 
-# Bash via call() pipeline (bypass the policy gate; measures real perf path).
+# 经 call() 管线跑 Bash（绕过策略门；测真实性能路径）。
 BASH_CASES: list[tuple[str, str]] = [
     ("Bash echo", "echo hello"),
     ("Bash git log -n 80", "git log -n 80"),

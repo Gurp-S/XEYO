@@ -29,13 +29,13 @@ export type ChatMessage = {
 	 * UI-only 行（如斜杠命令回显）：只进本地列表，不进 toApiMessages、不持久化后端。
 	 */
 	uiOnly?: boolean;
-	/** Rewind v2：对齐 Cursor checkpointId（来自 turn before_commit）。 */
+	/** Rewind v2：checkpointId（来自 turn before_commit）。 */
 	checkpointId?: string;
 	createdAt: number;
 };
 
 /**
- * 一个打开的文件夹 = 一个工作区（Cursor 打开文件夹）。
+ * 一个打开的文件夹 = 一个工作区。
  * `rootPath` 为绝对文件夹路径；空表示仅未绑定聊天。
  */
 export type ChatSpace = {

@@ -43,8 +43,8 @@ export function slashMatches(value: string): string[] {
 }
 
 /**
- * Claude-like focused prompt: round box + ❯ caret.
- * Hints live outside the box (no nested chrome).
+ * 聚焦提示行：圆角方框 + ❯ 提示符。
+ * 提示信息位于方框外（无嵌套装饰）。
  */
 export function PromptLine({
   value,

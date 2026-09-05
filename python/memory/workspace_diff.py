@@ -1,6 +1,5 @@
 """workspace_diff — 晋升佐证：工作区「相对上次成功晋升基线」的改动 diff。
 
-对齐 Codex ``write/src/workspace.rs`` 的 ``phase2_workspace_diff.md``：
 - 记忆域内维护基线（XEYO 用 ``nightshift.json`` 记 baseline_sha，非 git 仓库）；
 - 晋升时生成一次 ``~/.xeyo/memory/{wsid}/phase2_workspace_diff.md``，4MB 字符边界截断
   （``[workspace diff truncated at N bytes]`` 尾部标记）；
@@ -20,7 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable
 
-MAX_BYTES = 4 * 1024 * 1024  # 对齐 Codex workspace_diff::MAX_BYTES
+MAX_BYTES = 4 * 1024 * 1024
 ARTIFACT_NAME = "phase2_workspace_diff.md"
 
 # 候选正文/证据里的路径 token：优先带目录/反斜杠的路径，再兜底裸文件名

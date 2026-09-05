@@ -1,10 +1,10 @@
 /**
- * SessionGoalDock.tsx — 41 号 P0（对齐 DSH GoalBar 外观，保留 XEYO 半透明）。
+ * SessionGoalDock.tsx — 41 号 P0（保留 XEYO 半透明玻璃风格）。
  *
- * 对齐 dsh-client-ui-goal（client.js GoalBar）：单行 bar = 目标图标 + 阶段标签 +
+ * 单行 bar = 目标图标 + 阶段标签 +
  * 截断目标 + 右侧动作（暂停/恢复/编辑/清除），编辑为行内 input，clear 带确认。
  * XEYO 有意保留的差异（§9.4）：
- * - 投影携带 armed 态 → 条带以圆点标注「已开启自动续跑 vs 空闲」（DSH 做不到）。
+ * - 投影携带 armed 态 → 条带以圆点标注「已开启自动续跑 vs 空闲」。
  * - 额外暴露 XEYO 的候选（pending_complete）「待确认完成 + 标记完成/继续」与
  *   blocked 的「恢复」。
  * 渲染规则：无 goal / completed / abandoned 不渲染；active / paused / blocked /
@@ -211,7 +211,7 @@ export function SessionGoalDock({embedded = false}: Props) {
 			await runGoalVerb(activeId, rev =>
 				patchGoalAction(activeId, 'pause', {revision: rev}),
 			);
-			// 暂停后停掉自动续跑（paused 不续跑；语义对齐 DSH pause）。
+			// 暂停后停掉自动续跑（paused 不续跑）。
 			if (armed) {
 				await doDisarm();
 			}
@@ -221,7 +221,7 @@ export function SessionGoalDock({embedded = false}: Props) {
 			await runGoalVerb(activeId, rev =>
 				patchGoalAction(activeId, 'resume', {revision: rev}),
 			);
-			// 恢复即重新 armed（对齐 DSH「resume re-arms」）。
+			// 恢复即重新 armed（resume re-arms）。
 			const res = await roundDriverAction(activeId, 'arm');
 			if (res.ok) {
 				writeGoalState(
@@ -285,7 +285,6 @@ export function SessionGoalDock({embedded = false}: Props) {
 	const iconBtnCls =
 		'xy-icon-btn inline-flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-full text-mute transition-colors hover:bg-paper-deep hover:text-ink disabled:opacity-40';
 
-	// DSH 阶段标签
 	const phaseLabel = paused
 		? '已暂停的目标'
 		: blocked

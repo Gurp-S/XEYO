@@ -18,6 +18,8 @@ export function useStickyPromptController(opts: {
 	contentRef: MutableRefObject<HTMLElement | null>;
 	overlayRef: MutableRefObject<HTMLDivElement | null>;
 	streaming: boolean;
+	/** 气泡吸顶总开关（设置→外观；默认关）。关闭时 controller 零吸附、编辑就地展开。 */
+	enabled?: boolean;
 	/** 与 MessageList stickyLayoutMuteRef 对齐 */
 	onLayoutMute?: () => void;
 }) {
@@ -27,6 +29,7 @@ export function useStickyPromptController(opts: {
 		contentRef,
 		overlayRef,
 		streaming,
+		enabled = true,
 		onLayoutMute,
 	} = opts;
 	const [editPortalHost, setEditPortalHost] = useState<HTMLElement | null>(
@@ -49,6 +52,20 @@ export function useStickyPromptController(opts: {
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 		[],
 	);
+
+	/* 总开关同步：controller 侧关闭即清残留；开启后跑一次 flush 让已注册 chip 立即接管。 */
+	useEffect(() => {
+		const wasEnabled = controller.isEnabled();
+		controller.setEnabled(enabled);
+		if (!wasEnabled && enabled) {
+			controller.bindDom({
+				scroller: scrollerRef.current,
+				content: contentRef.current,
+				overlay: overlayRef.current,
+			});
+			controller.flush();
+		}
+	}, [controller, enabled, scrollerRef, contentRef, overlayRef]);
 
 	useEffect(() => {
 		controller.bindDom({

@@ -1,6 +1,5 @@
 /**
- * slash 弹层键盘仲裁 —— 纯函数核（参考 DeepSeek Harness ui-input-trigger 的
- * combobox 仲裁语义：焦点始终留在编辑器表面，弹层开着时 ↑↓/Tab/Enter/Esc
+ * slash 弹层键盘仲裁 —— 纯函数核（combobox 仲裁语义：焦点始终留在编辑器表面，弹层开着时 ↑↓/Tab/Enter/Esc
  * 被拦截；IME 组词期间一律放行；无高亮时 Enter 放行提交）。
  *
  * 高亮索引是「扁平列表」下标：渲染顺序 = 技能组在前、命令组在后，

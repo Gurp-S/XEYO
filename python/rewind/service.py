@@ -49,9 +49,9 @@ class RollbackIdempotencyError(RollbackError):
     """Raised when an idempotency key is reused for a different plan."""
 
 
-# Engine transcript roles used by revisions / MessageStore.  UI-only rows such as
-# ``ui_thought`` must not participate in revision matching — otherwise a live
-# journal head is replaced by a synthetic ``chat_*`` bootstrap and file ops vanish.
+# revisions / MessageStore 使用的引擎转录角色。``ui_thought`` 等
+# 仅 UI 行不得参与 revision 匹配——否则活跃的
+# journal 头会被合成的 ``chat_*`` 引导行替换，文件操作随之消失。
 _ENGINE_ROLES = frozenset({"user", "assistant", "tool", "system"})
 
 
@@ -168,8 +168,8 @@ def _write_atomic(path: Path, content: str) -> None:
             finally:
                 os.close(directory_fd)
         except OSError:
-            # The file replacement is still atomic; directory fsync is best effort
-            # on platforms that do not expose it.
+            # 文件替换仍是原子的；目录 fsync 是尽力而为，
+            # 在不暴露该能力的平台上如此。
             pass
     finally:
         try:
@@ -435,8 +435,8 @@ class RollbackService:
     def _rewindable_turn(self, turn: Any) -> bool:
         if turn.status == "committed":
             return True
-        # Aborted/failed turns may still hold a before snapshot and completed file ops
-        # (user stopped mid-turn after Edit/Write succeeded).
+        # 中止/失败的 turn 可能仍持有 before 快照和已完成的文件操作
+        # （用户在 Edit/Write 成功后于轮中停止）。
         if turn.status not in {"failed", "aborted"}:
             return False
         return bool(str((turn.metadata or {}).get("before_commit") or "").strip())
@@ -479,8 +479,8 @@ class RollbackService:
                 ),
                 target_row,
             )
-        # Journal has a rewindable turn for this message even if the head revision
-        # was bootstrapped without that turn id — still allow rewind.
+        # 即使头 revision 在引导时没有该 turn id，journal 仍有
+        # 该消息可回退的 turn——仍允许回退。
         for turn in turns:
             if turn.user_message_id == target_message_id and self._rewindable_turn(turn):
                 return turn, target_row
@@ -634,7 +634,7 @@ class RollbackService:
                     continue
                 if expected is None:
                     if current.exists:
-                        # Untracked relative to HEAD but listed in diff — treat as dirty.
+                        # 相对 HEAD 未跟踪但出现在 diff 中——按脏状态处理。
                         conflicts.append(
                             f"{rel}: local modifications after agent snapshot"
                         )
@@ -822,7 +822,7 @@ class RollbackService:
             target_commit = journal_commit or str(
                 (target_turn.metadata or {}).get("before_commit") or ""
             ).strip()
-            # Prefer journal turn metadata when the head still uses synthetic chat_* turns.
+            # 头仍使用合成 chat_* turn 时，优先取 journal 的 turn 元数据。
             if not target_commit:
                 for turn in self.journal.list_turns(latest_only=True):
                     if turn.user_message_id == target_id and self._rewindable_turn(turn):
@@ -832,9 +832,9 @@ class RollbackService:
                         if target_commit:
                             break
             normalized, conflicts = self._check_file_preconditions(details)
-            # Journal hash drift is informative when we will restore via shadow-git
-            # (target_commit).  It must NOT silence conflicts for journal-only
-            # inverse restore — that path used to force-overwrite user edits.
+            # 走 shadow-git（target_commit）恢复时，journal 哈希漂移
+            # 仅作提示。对 journal-only 逆向恢复，绝不能据此
+            # 静默冲突——该路径曾会强制覆盖用户编辑。
             hash_warnings: list[str] = []
             shadow_paths: list[str] = []
             worktree_conflicts: list[str] = []
@@ -843,7 +843,7 @@ class RollbackService:
                 if worktree_conflicts:
                     conflicts = list(dict.fromkeys([*conflicts, *worktree_conflicts]))
                 if conflicts and details:
-                    # Prefer shadow restore: journal hash mismatches become warnings.
+                    # 优先 shadow 恢复：journal 哈希不匹配降级为警告。
                     hash_warnings = [
                         c for c in conflicts if c not in worktree_conflicts
                     ]
@@ -861,7 +861,7 @@ class RollbackService:
             for item in normalized:
                 if "preview_diff" not in item:
                     item["preview_diff"] = self._preview_diff_for_operation(item)
-            # Synthetic preview rows when Bash/etc. changed files without journal ops.
+            # Bash 等改动文件但没有 journal 操作时，生成合成预览行。
             if target_commit and not normalized and shadow_paths:
                 for rel in shadow_paths:
                     normalized.append(
@@ -888,7 +888,7 @@ class RollbackService:
             ttl = max(30.0, float(ttl_seconds or self.plan_ttl_seconds))
             now = time.time()
             restores_workspace = bool(target_commit) or bool(normalized)
-            # Fingerprint only plan-touched paths so Vite/test noise cannot invalidate execute.
+            # 只对 plan 涉及的路径取指纹，避免 Vite/测试噪音使 execute 失效。
             op_paths: list[str] = []
             for item in normalized:
                 raw = str(item.get("path") or "").strip()
@@ -1102,7 +1102,7 @@ class RollbackService:
         del target_commit
         if not details:
             return []
-        # Skip synthetic shadow preview rows — they are not journal inverses.
+        # 跳过合成的 shadow 预览行——它们不是 journal 逆操作。
         real = [
             item
             for item in details
@@ -1385,7 +1385,7 @@ class RollbackService:
             if full_tree_restore is not None
             else is_rewind_full_tree_enabled()
         )
-        # v2 FE passes true; tests omit → sync full commit (backward compatible).
+        # v2 前端传 true；测试省略 → 同步完整提交（向后兼容）。
         do_async_workspace = bool(async_workspace) if async_workspace is not None else False
         with self._lock:
             existing = self.jobs.by_idempotency(idempotency_key)
@@ -1399,7 +1399,7 @@ class RollbackService:
             self._validate_plan(plan, plan_hash=plan_hash)
             if not confirmed:
                 raise RollbackApprovalError("explicit rollback confirmation is required")
-            # Skip long idle wait when session is already free.
+            # 会话已空闲时跳过长等待。
             if self._session_busy is not None and self._session_busy(self.session_id):
                 self._wait_for_session_idle()
             pool_busy_lease: int | None = None
@@ -1482,7 +1482,7 @@ class RollbackService:
                             f"expected {expected_rev}, got {precheck_rev}"
                         )
 
-                # --- Rewind v2: transcript first (Cursor-like chat projection) ---
+                # --- Rewind v2：先落 transcript（聊天投影）---
                 retained_ids = [
                     str(item) for item in plan.metadata.get("retained_message_ids") or []
                 ]
@@ -1616,7 +1616,7 @@ class RollbackService:
                 if do_restore_workspace and do_async_workspace:
                     import threading
 
-                    # Release session lease before background work so chat can continue.
+                    # 后台工作前先释放会话租约，让聊天可以继续。
                     if session_lease is not None:
                         session_lease.release()
                         session_lease = None

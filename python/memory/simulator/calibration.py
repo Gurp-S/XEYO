@@ -72,7 +72,7 @@ def scan_rho(
 def best_rho(points: Sequence[ScanPoint]) -> float:
 	if not points:
 		return 0.95
-	# prefer lowest MAE, then |Bias|
+	# 优先 MAE 最小，其次 |Bias|
 	return min(points, key=lambda p: (p.metrics.get("MAE", 1e9), abs(p.metrics.get("Bias", 1e9)))).value
 
 

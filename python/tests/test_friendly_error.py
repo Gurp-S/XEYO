@@ -10,7 +10,7 @@ from common.errors import (
 )
 
 
-# ---------- is_internal_error_text ----------
+# ---------- is_internal_error_text（内部错误判定）----------
 
 
 def test_internal_markers_detected() -> None:
@@ -28,7 +28,7 @@ def test_user_facing_one_liners_not_flagged() -> None:
 	assert not is_internal_error_text("会话正忙，请稍候")
 
 
-# ---------- safe_error_detail / safe_error_text ----------
+# ---------- safe_error_detail / safe_error_text（安全错误详情/文本）----------
 
 
 def test_safe_error_detail_hides_internal_trace() -> None:

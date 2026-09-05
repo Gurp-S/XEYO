@@ -226,7 +226,7 @@ def query_usage(
 
 	totals = _empty_bucket()
 	by_day: dict[str, dict[str, float | int]] = {}
-	# (provider, model) -> {day -> bucket}
+	# 结构：(provider, model) -> {day -> bucket}
 	by_model: dict[tuple[str, str], dict[str, dict[str, float | int]]] = {}
 	model_totals: dict[tuple[str, str], dict[str, float | int]] = {}
 

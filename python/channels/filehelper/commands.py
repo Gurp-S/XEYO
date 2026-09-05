@@ -49,11 +49,11 @@ def parse_command(text: str) -> CommandHit | None:
 	raw = (text or "").strip()
 	if not raw:
 		return None
-	# 1) rule <line>
+	# 1) rule <行内容>
 	m = _RULE_RE.match(raw)
 	if m:
 		return CommandHit(name="rule", arg=m.group(1).strip())
-	# 2) /xxx
+	# 2) /xxx（斜杠命令）
 	if raw.startswith("/"):
 		from slash.registry import parse_slash
 

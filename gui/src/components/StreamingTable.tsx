@@ -92,8 +92,8 @@ function TableShell({
 }
 
 /**
- * Pending table (header ready / delimiter still streaming):
- * cell preview only — never paint `|` or `---`.
+ * 待定表格（表头就绪 / 分隔行仍在流式输出）：
+ * 仅预览单元格——绝不直接渲染 `|` 或 `---`。
  */
 export const StreamingTablePending = memo(function StreamingTablePending({
 	pending,
@@ -127,7 +127,7 @@ export const StreamingTablePending = memo(function StreamingTablePending({
 });
 
 /**
- * Established streaming table: freeze header/widths; fade last cell only.
+ * 已成型的流式表格：冻结表头/列宽；仅淡化最后一个单元格。
  */
 export const StreamingTable = memo(function StreamingTable({
 	source,
@@ -137,7 +137,7 @@ export const StreamingTable = memo(function StreamingTable({
 	const model = useMemo(() => parseStreamTable(source), [source]);
 
 	if (!model) {
-		// Should be rare; never dump raw pipes — show a minimal placeholder.
+		// 理论上少见；绝不直接输出竖线——展示一个极简占位符。
 		return (
 			<div className="xy-stream-pending-table my-2.5 rounded-xl border border-line/55 px-3 py-2 text-[13px] text-mute">
 				…

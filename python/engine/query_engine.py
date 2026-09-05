@@ -6,8 +6,6 @@
 - 与模型客户端、工具注册表、Prompt 组装器协作
 - 通过 submit_message 驱动模型 ↔ 工具的闭环交互
 - 支持中断、预算控制、持久化转录等能力
-
-对齐 Claude Code 的会话管理设计。
 """
 
 from __future__ import annotations
@@ -240,8 +238,8 @@ class QueryEngine:
             if configured_rewind is None
             else bool(configured_rewind)
         )
-        # The stores are inert when disabled.  They are still constructed here
-        # so a later request can inspect one stable per-session owner.
+        # 关闭时这些 store 是惰性的。仍在此构造它们，
+        # 以便后续请求能查到稳定的 per-session 归属。
         self._rewind_journal = OperationJournal(
             self._session.session_id,
             enabled=self._rewind_enabled,
@@ -655,7 +653,7 @@ class QueryEngine:
         turn_stop_reason: str | None = None
         turn_error: str | None = None
         
-        # Workspace snapshot context
+        # 工作区快照上下文
         before_commit: str | None = None
         after_commit: str | None = None
         before_task: asyncio.Task[str | None] | None = None
@@ -1019,7 +1017,7 @@ class QueryEngine:
                     else "committed"
                 )
                 
-                # 2. Acquire cross-process Workspace Lock for After Snapshot
+                # 2. 为 After 快照获取跨进程工作区锁
                 eligibility = "safe"
                 if self._rewind_enabled:
                     try:
@@ -1030,7 +1028,7 @@ class QueryEngine:
                             "After",
                         )
                     except Exception as e:
-                        # Per v2.4, failure to create an After snapshot marks the turn as failed/contaminated
+                        # 按 v2.4 约定，After 快照创建失败会把该 turn 标记为失败/已污染
                         final_status = "failed"
                         turn_terminal_error = True
                         turn_error = f"Failed to create after snapshot: {e}"
@@ -1115,8 +1113,8 @@ class QueryEngine:
                             payload={"status": final_status, "error": turn_error},
                         )
                 except Exception as rewind_error:
-                    # Rewind bookkeeping must be visible but must not convert a
-                    # successful model response into an opaque server failure.
+                    # Rewind 记账必须可见，但不能把一次成功的
+                    # 模型响应变成不透明的服务器错误。
                     try:
                         self._rewind_journal.audit(
                             "rewind_recording_failed",

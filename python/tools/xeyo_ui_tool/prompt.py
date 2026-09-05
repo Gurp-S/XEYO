@@ -1,6 +1,6 @@
 XEYO_UI_TOOL_NAME = "XeyoUI"
 
-# Keep DESCRIPTION short: it is sent every turn in the tool schema.
+# DESCRIPTION 保持简短：每轮都会随工具 schema 发送。
 DESCRIPTION = (
 	"XEYO desktop UI (GUI only). "
 	"list_sessions; "

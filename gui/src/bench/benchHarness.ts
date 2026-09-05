@@ -245,7 +245,7 @@ class LongTaskCollector {
 		try {
 			this.obs?.disconnect();
 		} catch {
-			/* noop */
+			/* 空操作 */
 		}
 		this.obs = null;
 		const durations = this.entries.map(e => e.duration);

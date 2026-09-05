@@ -27,11 +27,11 @@ type GetState = StoreApi<ChatState>['getState'];
 export type UsageAccumulator = {
 	flush: () => void;
 	schedule: () => void;
-	/** append a usage event and schedule an rAF flush (guard handled by caller). */
+	/** 追加一条 usage 事件并调度 rAF 冲刷（守卫由调用方处理）。 */
 	push: (ev: UsageStreamEvent) => void;
-	/** full onUsage dispatch: guard + pasture context snapshot + flush schedule. */
+	/** 完整 onUsage 分发：守卫 + pasture 语境快照 + 调度冲刷。 */
 	onUsage: (ev: UsageStreamEvent) => void;
-	/** full onCompression dispatch: pasture compression start/complete snapshot. */
+	/** 完整 onCompression 分发：pasture 压缩开始/完成的快照。 */
 	onCompression: (ev: Omit<CompressionStreamEvent, 'kind'>) => void;
 };
 

@@ -63,7 +63,7 @@ function StatusIcon({
 }
 
 /**
- * Copilot Chat 风格 todo 清单。
+ * todo 清单面板。
  * 完成后项保留行（带勾选）；全部完成或用户关闭时隐藏整个面板。
  */
 function TodoListInner({snapshot, dock = false, onDismiss}: Props) {

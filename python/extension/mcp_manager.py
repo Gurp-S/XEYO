@@ -6,7 +6,7 @@
 - ``collect_specs`` 汇三来源（plugin>user>project 按 id 冲突 project 胜出，企业
   deny 一票否决）——见 ``extension.mcp_scopes``。
 - server 身份 = canonical 配置 sha256；attach 时按身份复用 ready client
-  （Codex ``reusable_client`` 语义），身份变更才重连（引擎重建不重 spawn）。
+  （``reusable_client`` 语义），身份变更才重连（引擎重建不重 spawn）。
 - ``required:true`` server 启动失败 → 不挡会话（工具不进快照）+ 挂 T_now 警告
   ``# MCP 依赖异常（background only）`` + 审计。
 - ``attach_mcp_tools(registry, cwd)`` 用现有 ``McpTool`` 注册工具；扩展层关 →
@@ -109,7 +109,7 @@ class McpManager:
 	def cwd(self) -> str:
 		return self._cwd
 
-	# -- config (cached; mtime-based invalidation => extension-off = +1 read) ---
+	# -- config（带缓存；按 mtime 失效 => 扩展关闭时仅 +1 次读取） ---
 
 	def _settings_sig(self) -> tuple[tuple[int, int], ...]:
 		"""失效签名：settings/mcp.json 两级 × (mtime_ns, size)。
@@ -184,7 +184,7 @@ class McpManager:
 	def config_snapshot(self) -> ExtensionConfig:
 		return self._load_config()
 
-	# -- attach -------------------------------------------------------------
+	# -- 挂载（attach） -------------------------------------------------------------
 
 	def attach_mcp_tools(self, registry: Any, cwd: str | None = None) -> "McpManager":
 		"""把启用的 MCP server 工具挂到 ``registry``（F1 接线点调用）。
@@ -340,7 +340,7 @@ class McpManager:
 			pass
 		return True  # 无 Read/不可探 → 保守按视觉开（不降级）。
 
-	# -- required-failure warning (T_now) -----------------------------------
+	# -- required 失败警告（T_now） -----------------------------------
 
 	def required_warning(self) -> str:
 		"""required server 启动失败 → T_now 警告块；无则空串。"""
@@ -353,7 +353,7 @@ class McpManager:
 			lines.append("  （另：project 级未批准 server 未启动，需 `/mcp approve`）")
 		return "\n".join(lines)
 
-	# -- gateway (F2) --------------------------------------------------------
+	# -- 网关（F2） --------------------------------------------------------
 
 	def _make_enabled_probe(self, spec: McpClientSpec, raw_name: str) -> Any:
 		"""单工具「此刻是否可用」探针（policy DENY 门用；mtime 缓存即时读效）。

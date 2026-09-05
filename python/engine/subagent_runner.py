@@ -458,7 +458,7 @@ async def _run_subagent_body(
         await _do_cycle(b)
 
         # P2 follow-up inbox：首轮 settle 后消费排队给该 agent 的消息，同实例续跑。
-        # 对齐 DSH「park 而非注入、回合边界投递」——当前工具调用窗口即本 agent 的回合边界。
+        # 「park 而非注入、回合边界投递」——当前工具调用窗口即本 agent 的回合边界。
         if not allow_followups or abort.aborted:
             break
         if cycle_no >= _followup_limit():

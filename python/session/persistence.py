@@ -1,4 +1,4 @@
-"""会话持久化开关与路径 — 对齐 Claude isSessionPersistenceDisabled / session 文件。"""
+"""会话持久化开关与路径。"""
 
 from __future__ import annotations
 

@@ -319,10 +319,10 @@ export type MultiAgentStreamHandlers = {
 };
 
 /**
- * Multi-agent SSE dispatch, extracted from streamSendSlice.  One instance is
- * created per streaming send; it owns the "first card of this batch resets the
- * agent view" latch (multiNavResetDone).  Callers must apply the
- * settled / sessionStreamActive guard before dispatching.
+ * 多 Agent 的 SSE 派发，从 streamSendSlice 拆出。每次流式发送
+ * 各创建一个实例；持有「本批首张卡片重置 Agent 视图」
+ * 的闩锁（multiNavResetDone）。调用方派发前必须先通过
+ * settled / sessionStreamActive 守卫。
  */
 export function createMultiAgentStreamHandlers(deps: {
 	get: GetState;

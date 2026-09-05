@@ -5,8 +5,8 @@ export function PetApp() {
   const {reducedMotion, loaded, loadError, state, location} = usePetRuntime();
 
 
-  // The main window owns visibility commands. Never self-hide here: after a
-  // sidebar long-press, the native window must remain visible while its runtime hydrates.
+  // 可见性指令由主窗口统一管理。此处绝不自行隐藏：
+  // 侧栏长按后，原生窗口必须保持可见，直到其运行时完成水合。
   if (loadError) {
     return (
       <div className="xeyo-pet-root">

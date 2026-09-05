@@ -1,13 +1,13 @@
 """surface — transcript 的模型可见面折叠（replace 事件化回溯的持久层语义）。
 
-对齐 DSH（DeepSeek Harness）的 surface/generation 模型：
+surface/generation 模型：
 - **append-only JSONL 是唯一真相**，回溯不再重写文件，而是追加一条
   ``surface_op`` marker 行，把「当时可见面」从 ``shadow_from`` 起的区间
   **影子化**（shadow）——原始行永不改写、永不移动。
 - 模型可见历史 = 对合并日志（含轮转归档 .old2→.old1→当前）做一次
   ``fold_surface_rows``：marker 消费为区间操作，被影子的行从可见面移除。
 - 人类侧（原始文件审计、C2 历史指针侧挂）仍可读到全部 append-origin 行——
-  与 DSH「模型看 surface、人看 append-origin」的分工一致。
+  与「模型看 surface、人看 append-origin」的分工一致。
 - undo = 追加 ``rewind_undo`` marker（幂等、原子单行追加）。此前 v3 的
   「orphan 先落盘 → transcript 原子替换 → 事件落盘」三步崩溃窗口在语义上
   不再存在：最坏情况是 marker 行写坏半行 → 读取时跳过 → 回溯视为未发生。

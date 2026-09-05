@@ -79,7 +79,7 @@ def resolve_cwd(
 			_remember_cwd(boot)
 		return boot
 
-	# Remembered workspace from last successful chat/setup.
+	# 上次成功 chat/setup 记住的工作区。
 	try:
 		from cli.config_store import load_config
 

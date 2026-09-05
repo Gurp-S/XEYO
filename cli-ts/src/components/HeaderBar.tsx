@@ -15,8 +15,8 @@ type Props = {
 };
 
 /**
- * Claude-like status strip — one quiet line, no rule bar.
- * Only elevates color when offline or non-agent mode.
+ * 状态条 —— 单行安静展示，无分隔线。
+ * 仅在离线或非 agent 模式时提升颜色强度。
  */
 export function HeaderBar({
   config,

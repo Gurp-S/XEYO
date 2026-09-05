@@ -139,7 +139,7 @@ def truncate_tool_content_preserving_fence(
 ) -> str:
 	"""C0 truncate while keeping outer <tool_output> tags intact when present.
 
-	头/尾固定预算（默认 4096/1024，对齐 DSH tool-result pruner 的
+	头/尾固定预算（默认 4096/1024，即 tool-result pruner 的
 	headChars/tailChars），比旧的"按 head_ratio 填满 max_chars"更省。头+记号+尾
 	总和不超过 ``max_chars``；超出时按 ``max_chars`` 收口（tail 让位）。
 	"""

@@ -200,7 +200,7 @@ class NotebookEditTool:
 			except OSError as e:
 				return ToolResult(content=str(e), is_error=True)
 			if mtime > entry.timestamp and entry.content:
-				# allow if content still matches disk
+				# 内容仍与磁盘一致则放行
 				try:
 					disk = await asyncio.to_thread(
 						lambda: open(full, encoding="utf-8").read()
@@ -345,7 +345,7 @@ class NotebookEditTool:
 def _source_to_list(source: str) -> list[str]:
 	if source == "":
 		return []
-	# Preserve trailing newline as empty last segment like Jupyter often does.
+	# 像 Jupyter 常做的那样，把末尾换行保留为空的最后一段。
 	parts = source.split("\n")
 	if len(parts) == 1:
 		return [parts[0]]

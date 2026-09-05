@@ -48,7 +48,7 @@ function saveRecents(agents: RecentAgent[], files: RecentFile[]) {
 	try {
 		localStorage.setItem(STORAGE_KEY, JSON.stringify({agents, files}));
 	} catch {
-		/* quota / private mode */
+		/* 配额 / 隐私模式 */
 	}
 }
 

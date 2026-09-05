@@ -44,8 +44,7 @@ export function formatUsageChipPreview(
 }
 
 /**
- * 缓存命中率显示（口径对齐 @deepseek-ai/dsh-client-ui-conversation ``cacheHitPercent``，
- * 显示精度收敛为一位小数）：「计费输入 = 命中 + 未命中(含写档)」。
+ * 缓存命中率显示（显示精度收敛为一位小数）：「计费输入 = 命中 + 未命中(含写档)」。
  *
  * - 常规：一位小数（例 85.2）
  * - 一位小数已四舍五入到 100（但并非全命中）→ 不谎报 100，按真实分位给高精度 99.9x
@@ -66,11 +65,11 @@ export function formatCacheHitPercent(
 	if (writeAndUncached === 0) return '100';
 	const oneDecimal = (read / denominator * 100).toFixed(1);
 	if (oneDecimal !== '100.0') return oneDecimal;
-	// 一位小数已撞 100% 但并非全命中：取 DSH 的高精度分位（99.9x），不谎报 100。
+	// 一位小数已撞 100% 但并非全命中：取高精度分位（99.9x），不谎报 100。
 	return nearHundredPrecision(writeAndUncached, denominator);
 }
 
-/** DSH 同款：99.9x 高精度分位（复制自 dsh-client-ui-conversation cacheHitPercent 尾部）。 */
+/** 99.9x 高精度分位：一位小数进位到 100 时按真实分位补足小数位。 */
 function nearHundredPrecision(missedTokens: number, denominator: number): string {
 	let decimalPlaces = 1;
 	let scaledDoubleGap = missedTokens * 200;

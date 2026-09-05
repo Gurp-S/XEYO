@@ -221,7 +221,7 @@ async def test_run_task_batch_resume_skips_done(tmp_path, monkeypatch):
 
 	monkeypatch.setattr(Scheduler, "_run_task", fake_run_task)
 
-	# Seed incomplete checkpoint: t1 done, t2 interrupted mid-run.
+	# 预置未完成 checkpoint：t1 完成，t2 中途被打断。
 	seed = Scheduler(
 		tmp_path,
 		main_session_id="sess-resume",
@@ -367,7 +367,7 @@ async def test_run_task_batch_interrupt_leaves_checkpoint(tmp_path, monkeypatch)
 	assert checkpoint_is_incomplete(raw)
 	statuses = {t["id"]: t["status"] for t in (raw or {}).get("tasks") or []}
 	assert statuses.get("t1") == "done"
-	# t2 may be running or pending depending on cancel timing; either is incomplete.
+	# 视取消时机，t2 可能运行中或待运行；两者都算未完成。
 	assert statuses.get("t2") in ("pending", "running")
 
 

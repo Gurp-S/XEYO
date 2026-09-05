@@ -347,7 +347,7 @@ class RewindHotpath:
         self.transcript = transcript_path(self.session_id, sessions_dir=self.sessions_dir)
         self.index = AgentFileIndex(self.session_id, sessions_dir=self.sessions_dir)
 
-    # ------------------------------------------------------------------ paths
+    # ------------------------------------------------------------------ 路径
 
     @property
     def events_path(self) -> Path:
@@ -357,7 +357,7 @@ class RewindHotpath:
     def orphans_dir(self) -> Path:
         return self._session_dir / "orphans"
 
-    # ------------------------------------------------------------------ events
+    # ------------------------------------------------------------------ 事件
 
     def list_events(self) -> list[dict[str, Any]]:
         rows = _read_rows(self.events_path)
@@ -375,7 +375,7 @@ class RewindHotpath:
                 return row
         return None
 
-    # ------------------------------------------------------------------ rewind
+    # ------------------------------------------------------------------ 回退
 
     def rewind(
         self,
@@ -526,7 +526,7 @@ class RewindHotpath:
             reused=reused,
         )
 
-    # ------------------------------------------------------------------ restore
+    # ------------------------------------------------------------------ 恢复
 
     def _spawn_restore(self, event: dict[str, Any]) -> None:
         if not self.workspace_root:
@@ -791,7 +791,7 @@ class RewindHotpath:
         report["restored"].append(rel)
         report["written"].append({"path": rel, "hash_written": cp_hash})
 
-    # ------------------------------------------------------------------ undo
+    # ------------------------------------------------------------------ 撤销
 
     def undo(self, rewind_id: str, *, confirmed: bool = False) -> dict[str, Any]:
         if not confirmed:
@@ -820,7 +820,7 @@ class RewindHotpath:
             result["status"] = "undone"
             return result
 
-    # ------------------------------------------------------------------ recover
+    # ------------------------------------------------------------------ 找回
 
     def recover(
         self,

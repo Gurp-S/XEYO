@@ -11,7 +11,7 @@ from memory.simulator.state_model import ContextState, Segment, freeze_s0, token
 
 DEFAULT_SYSTEM = "You are XEYO, a coding agent.\n"
 
-# Representative sizes in *tokens* (converted to chars via 4 bytes/token ASCII).
+# 代表性规模以 *token* 计（ASCII 按 4 字节/token 折算为字符）。
 TOOL_SIZE_TOKENS = {
 	"T1": 400,
 	"T2": 2_000,
@@ -300,7 +300,7 @@ def iter_scenarios(*, smoke: bool = False) -> Iterator[Scenario]:
 		tool_keys = tuple(TOOL_SIZE_TOKENS)
 		ttl_keys = tuple(TTL_SECONDS)
 
-	# 1) one of each length × a mid tool × kind A/B
+	# 1) 每种长度各一 × 中等工具 × A/B 类
 	for lk in length_keys:
 		tk = "T1" if lk in ("S1", "S2") else "T2"
 		if lk == "S6":
@@ -308,21 +308,21 @@ def iter_scenarios(*, smoke: bool = False) -> Iterator[Scenario]:
 		kind = "A" if lk == "S1" else "B" if lk in ("S2", "S3") else "C"
 		yield _scenario(lk, tk, kind, "T0", n_turns=length_turns[lk])
 
-	# 2) each tool size on S3/C
+	# 2) 每种工具规模跑 S3/C
 	s3_n = length_turns["S3"]
 	for tk in tool_keys:
 		yield _scenario("S3", tk, "C", "T0", n_turns=s3_n)
 
-	# 3) each kind on S3 (T1 in smoke to keep CI fast)
+	# 3) 每种类别跑 S3（smoke 用 T1 保持 CI 快速）
 	kind_tool = "T1" if smoke else "T2"
 	for kind in kinds:
 		yield _scenario("S3", kind_tool, kind, "T0", n_turns=s3_n)
 
-	# 4) TTL sweep on S2/B
+	# 4) 在 S2/B 上扫 TTL
 	for ttl in ttl_keys:
 		yield _scenario("S2", "T1", "E", ttl)
 
-	# 5) short-chat keep: 1,2,3,5 turns
+	# 5) 短对话 keep：1,2,3,5 轮
 	for n in (1, 2, 3, 5):
 		msgs: list[dict[str, Any]] = []
 		for i in range(n):
@@ -342,10 +342,10 @@ def iter_scenarios(*, smoke: bool = False) -> Iterator[Scenario]:
 			endgame=(n == 1),
 		)
 
-	# 6) R=1 endgame
+	# 6) R=1 收尾
 	yield _scenario("S2", "T1", "A", "T0", remaining=1, extra_id="endgame")
 
-	# 7) oversized tools
+	# 7) 超大工具
 	if not smoke:
 		for special, sid in (("50k", "huge50k"), ("100k", "huge100k"), ("5x20k", "huge5x20k"), ("10x10k", "huge10x10k")):
 			msgs = _build_messages(n_turns=1, size_tok=1, kind="D", special=special)
@@ -362,7 +362,7 @@ def iter_scenarios(*, smoke: bool = False) -> Iterator[Scenario]:
 				notes=special,
 			)
 
-	# 8) empty M
+	# 8) 空 M
 	yield Scenario(
 		id="empty_m",
 		length_class="S1",
@@ -376,7 +376,7 @@ def iter_scenarios(*, smoke: bool = False) -> Iterator[Scenario]:
 		notes="empty_M",
 	)
 
-	# 9) mixed high-text M so C1 can pass Q>=θ (stubs only tools)
+	# 9) 混合高文本 M 使 C1 能过 Q>=θ（工具仅打桩）
 	mix: list[dict[str, Any]] = []
 	for i in range(10):
 		mix.append(_msg_user("需求说明 " + ("细节" * 80) + str(i)))
@@ -431,7 +431,7 @@ def _scenario(
 
 
 def list_scenarios(*, smoke: bool = False) -> list[Scenario]:
-	# de-dupe by id, stable order
+	# 按 id 去重，保持稳定顺序
 	seen: set[str] = set()
 	out: list[Scenario] = []
 	for sc in iter_scenarios(smoke=smoke):

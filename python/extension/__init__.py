@@ -1,6 +1,5 @@
 """XEYO 统一扩展层：插件 = 打包 skill + MCP server 配置 + 可选提示。
 
-对齐市面主流 agent（Claude Code / Cursor 的 Extensions·MCP·Skills 三件套）：
 一个插件(manifest) 能贡献 skills、MCP server 与 T_now 提示，作为三者之上的
 统一发现/安装/生命周期单元（企业级，默认关闭，全部经权限与审计契约）。
 

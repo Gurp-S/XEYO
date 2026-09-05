@@ -457,7 +457,7 @@ def replay_path(path: Path, params: Params | None = None) -> ReplaySession:
 	api = [_as_api_message(r) for r in rows]
 	rs = replay_messages(api, session_id=path.stem, params=params)
 	rs.path = str(path)
-	# TTL: age from consecutive user ts
+	# TTL：按连续用户消息时间戳计龄
 	times = [r.get("ts") for r in rows if isinstance(r.get("ts"), (int, float))]
 	return rs
 

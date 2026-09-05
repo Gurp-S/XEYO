@@ -52,7 +52,7 @@ class SuiteRow:
 
 def _baseline_cost(messages: list, cache: CacheState, params: Params) -> tuple[int, float]:
 	L = baseline_tokens(messages)
-	# Reconstruct a stand-in X of length L for Ĥ (P0 tokenizer).
+	# 为 Ĥ 重建长度 L 的替身 X（P0 分词器）。
 	x = "B" * max(0, L * 4)
 	h, _lcp = hat_H(
 		x_a=x,
@@ -122,7 +122,7 @@ def _ab_from_rows(rows: list[SuiteRow]) -> dict[str, Any]:
 	n = max(len(rows), 1)
 	base_sum = sum(base) or 1e-15
 	savings = (sum(base) - sum(cand)) / base_sum
-	# synthetic: success = not L4; correction unknown=0; tool-loop proxy = keep on kind F
+	# 合成口径：success = 非 L4；correction 未知=0；tool-loop 代理 = F 类保持
 	f_keep = sum(1 for r in rows if r.kind == "F" and r.a_star == "keep")
 	f_n = sum(1 for r in rows if r.kind == "F") or 1
 	return {
@@ -150,7 +150,7 @@ def ab_success(ab: dict[str, Any], *, cost_eps: float = 0.0) -> dict[str, Any]:
 	here — recorded, not a selector input.
 	"""
 	cost_ok = ab.get("savings_frac", 0) >= -cost_eps
-	# require candidate cost <= baseline (savings >= 0) to claim cost ↓
+	# 要求候选成本 <= 基线（节省 >= 0）才可宣称成本 ↓
 	cost_down = ab.get("savings_frac", 0) > 0
 	succ_b = ab.get("task_success_baseline", 1.0)
 	succ_c = ab.get("task_success_v61", 1.0)

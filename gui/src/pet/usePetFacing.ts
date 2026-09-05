@@ -21,8 +21,8 @@ export function resolvePetFacing(
 }
 
 /**
- * Keeps the pet looking toward the horizontal center of the monitor it is on.
- * The dead zone prevents rapid left/right flipping while crossing the center.
+ * 让宠物朝向其所在显示器的水平中心。
+ * 死区用于避免跨越中心时左右频繁翻转。
  */
 export function usePetFacing(): PetFacing {
   const [facing, setFacing] = useState<PetFacing>(DEFAULT_FACING);
@@ -49,7 +49,7 @@ export function usePetFacing(): PetFacing {
         setFacing(nextFacing);
       }
     } catch {
-      // Browser previews and early window startup may not expose position APIs.
+      // 浏览器预览与窗口启动初期可能未暴露位置 API。
     } finally {
       isReadingPosition.current = false;
     }

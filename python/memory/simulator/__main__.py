@@ -163,7 +163,7 @@ def _run_calibrate(param: str, write: bool, hits_file: str | None = None) -> int
 		if not rows:
 			# 热路径逐枪观测优先：无 probe_hits.json 时用 calibration_events.jsonl
 			rows = hit_records_from_events()
-		# second shot of a pair carries the ρ signal
+		# 成对样本的第二枪携带 ρ 信号
 		fit = [r for r in rows if r.conversation_length >= 2] or rows
 		points = scan_rho(fit, p)
 		payload = [{"value": x.value, "metrics": x.metrics} for x in points]

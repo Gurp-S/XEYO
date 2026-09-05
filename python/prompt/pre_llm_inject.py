@@ -670,7 +670,7 @@ def _trim_blocks_to_budget(
 			else:
 				return
 
-	# 1) Continue
+	# 1) Continue（续跑块）
 	_take(continue_blocks, budget)
 	# 2) Nested 先于其它易变块（预留语义靠顺序，上限 NESTED_MAX）
 	if nested_blocks:
@@ -1189,8 +1189,8 @@ def run_pre_llm_inject(
 		_tag_block(tagged, "pending_jobs", (KLASS_DIRECTIVE, jobs_block))
 
 	# block: skill_preinvoke —— 用户直呼技能（fresh-user 轮首行 /name 命中
-	# user-invocable 技能）：宿主确定性注入渲染正文（参考 dsh tool-skill
-	# pre-step），替代「请用 Skill 工具…」的客户端改写赌注。命令命名空间
+	# user-invocable 技能）：宿主确定性注入渲染正文（tool-skill pre-step），
+	# 替代「请用 Skill 工具…」的客户端改写赌注。命令命名空间
 	# 优先（slash registry 命中即非手势）；子代理不继承；工具续写轮不重放。
 	if (ctx.cwd or "").strip() and not ctx.subagent and not after_tools:
 		try:

@@ -236,7 +236,7 @@ export function CommandPalette() {
 		[runAndClose],
 	);
 
-	// Reset UI when opened
+	// 打开时重置 UI
 	useEffect(() => {
 		if (!open) {
 			return;
@@ -257,7 +257,7 @@ export function CommandPalette() {
 		return () => popEscLayer('command-palette');
 	}, [open, close]);
 
-	// Debounced workspace file search
+	// 防抖的工作区文件搜索
 	useEffect(() => {
 		if (!open) {
 			return;
@@ -636,7 +636,7 @@ export function CommandPalette() {
 		openSettings,
 	]);
 
-	// Clamp active index
+	// 收敛高亮下标范围
 	useEffect(() => {
 		setActiveIndex(i => {
 			if (items.length === 0) {
@@ -646,7 +646,7 @@ export function CommandPalette() {
 		});
 	}, [items]);
 
-	// Keep active row visible
+	// 保证高亮行可见
 	useEffect(() => {
 		const root = listRef.current;
 		if (!root) {

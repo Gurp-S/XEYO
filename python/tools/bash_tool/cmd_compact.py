@@ -182,7 +182,7 @@ def _compact_test_runner(text: str) -> str:
 			failed += 1
 			keep.append(ln)
 			continue
-		# cargo: test xxx ... ok / FAILED
+		# cargo 输出：test xxx ... ok / FAILED
 		m = re.match(r"^test\s+\S+.*\.\.\.\s*(ok|FAILED|ignored)", ln, re.I)
 		if m:
 			if m.group(1).lower() == "ok":
@@ -191,7 +191,7 @@ def _compact_test_runner(text: str) -> str:
 				failed += 1
 				keep.append(ln)
 			continue
-		# go test FAIL / --- FAIL
+		# go test 输出 FAIL / --- FAIL
 		if re.match(r"^---\s+FAIL:", ln) or re.match(r"^FAIL\t", ln):
 			failed += 1
 			keep.append(ln)
@@ -276,7 +276,7 @@ def _compact_lint(text: str) -> str:
 		if current is not None and (ln.startswith(" ") or ln.startswith("\t")):
 			by_file[current].append(ln.strip())
 			continue
-		# ruff: path:line:col: CODE message
+		# ruff 输出：path:line:col: CODE message
 		m = re.match(r"^(\S+?):(\d+):\d+:\s+(\S+)\s+(.+)$", ln.strip())
 		if m:
 			by_file.setdefault(m.group(1), []).append(ln.strip())
@@ -305,7 +305,7 @@ def _compact_lint(text: str) -> str:
 def _compact_git(text: str) -> str:
 	"""git status/log/diff：紧凑化。"""
 	lines = [ln for ln in text.replace("\r\n", "\n").split("\n") if ln.strip() != ""]
-	# status porcelain-ish or long status
+	# status --porcelain 或长格式 status
 	if any(ln.startswith("## ") or re.match(r"^(M|A|D|R|\?\?)\s", ln) for ln in lines):
 		staged = unstaged = untracked = 0
 		branch = ""

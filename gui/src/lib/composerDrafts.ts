@@ -16,7 +16,7 @@ export type DraftFileAttachment = {
 	kind: 'file';
 	id: string;
 	name: string;
-	/** 工作区相对路径：整文件引用（Cursor 风格 chip，不塞全文）。 */
+	/** 工作区相对路径：整文件引用（chip 形式，不塞全文）。 */
 	path?: string;
 	/** 选区/小片段正文；与 path 二选一或并存（有 text 时发送内联片段）。 */
 	text?: string;

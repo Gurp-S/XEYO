@@ -34,8 +34,8 @@ export function XeyoPet({
   const isBubbleOnly = row.animationMode === 'bubble-only' && row.animationRegion !== undefined;
   const showIdleBlink = isIdle && atlasFrame === 4;
 
-  // Render the complete frozen cell. Its transparent margins already isolate
-  // the hair from neighboring atlas frames, so no inner crop is applied.
+  // 渲染完整的冻结单元格。其透明边距已将
+  // 发丝与相邻图集帧隔开，因此无需再做内部裁剪。
   const edgeGuard = 0;
   const baseFrame = isIdle || isBubbleOnly ? row.frameSequence?.[0] ?? 0 : atlasFrame;
   const baseFrameOffsetX = row.frameOffsetsX?.[baseFrame] ?? 0;
@@ -58,7 +58,7 @@ export function XeyoPet({
   const bubbleOnlyBaseStyle: CSSProperties = isBubbleOnly
     ? {
         ...style,
-        // The mask removes only the baked bubble pixels; the full character remains intact.
+        // 遮罩只移除烘焙进图集的气泡像素；角色本身保持完整。
         WebkitMaskImage: 'url(/XeyoPet/sleeping-character-mask.png)',
         maskImage: 'url(/XeyoPet/sleeping-character-mask.png)',
         WebkitMaskRepeat: 'no-repeat',
@@ -73,7 +73,7 @@ export function XeyoPet({
   const localizedAnimationStyle: CSSProperties | undefined = isBubbleOnly && animationRegion
     ? {
         ...atlasStyle(atlasFrame, row.frameOffsetsX?.[atlasFrame] ?? 0),
-        // This is the only layer that paints the current sleeping bubble.
+        // 只有这一层负责绘制当前的睡觉气泡。
         WebkitMaskImage: 'url(/XeyoPet/sleeping-bubble-mask-strip.png)',
         maskImage: 'url(/XeyoPet/sleeping-bubble-mask-strip.png)',
         WebkitMaskRepeat: 'no-repeat',
@@ -86,8 +86,8 @@ export function XeyoPet({
     : undefined;
   const blinkStyle: CSSProperties = {
     ...atlasStyle(4, row.frameOffsetsX?.[4] ?? 0),
-    // Frame 4's eye band is 12px left and 2px lower than frame 0. Keep the
-    // clip narrow so no face contour or hair from frame 4 enters the base.
+    // 第 4 帧的眼带比第 0 帧左移 12px、下移 2px。裁剪
+    // 保持收窄，避免第 4 帧的脸部轮廓或发丝混入底层。
     transform: 'translate3d(12px, -2px, 0)',
     clipPath: 'inset(62px 52px 116px 54px)',
   };

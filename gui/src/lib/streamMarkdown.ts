@@ -274,7 +274,7 @@ function padCells(cells: string[], width: number): string[] {
  * 假定 scanTrailingTable 已确认表头+分隔行存在。
  */
 
-/** Growing GFM delimiter (only | - : whitespace), complete or partial. */
+/** 生长中的 GFM 分隔行（仅含 | - : 与空白），完整或部分均可。 */
 export function isDelimiterLike(line: string): boolean {
 	const t = line.trim();
 	if (!t) {
@@ -287,8 +287,8 @@ export function isDelimiterLike(line: string): boolean {
 }
 
 /**
- * Header row exists but delimiter not finished — pull out of prose head
- * so `|` / `---` never render as live markdown source.
+ * 表头行已出现但分隔行未完成——将其从正文开头剥离，
+ * 使 `|` / `---` 绝不会以源码形式渲染出来。
  */
 export function scanPendingTable(
 	text: string,
@@ -369,7 +369,7 @@ export function scanPendingTable(
 	return null;
 }
 
-/** Drop a growing fence closer (\n` / \n``) so ticks never paint inside the code body. */
+/** 丢弃生长中的围栏收尾符（\n` / \n``），使反引号绝不落入代码体内。 */
 export function stripGrowingFenceCloser(code: string): {
 	code: string;
 	closed: boolean;

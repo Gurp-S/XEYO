@@ -166,11 +166,11 @@ class RollbackExecuteRequest(BaseModel):
 	idempotency_key: str = Field(min_length=1, max_length=256)
 	confirmed: bool = False
 	expected_workspace_revision: str | None = None
-	# Default off: restore only agent-touched files. Opt in for full shadow-git tree.
+	# 默认关：只恢复 agent 触碰过的文件。可显式开启恢复整棵 shadow-git 树。
 	full_tree_restore: bool | None = None
-	# None = follow plan.metadata.restores_workspace; False = chat transcript only.
+	# None = 跟随 plan.metadata.restores_workspace；False = 仅聊天转录。
 	restore_workspace: bool | None = None
-	# Rewind v2: return after transcript_committed; workspace finishes in background.
+	# Rewind v2：transcript_committed 后即返回；工作区在后台完成。
 	async_workspace: bool | None = None
 
 

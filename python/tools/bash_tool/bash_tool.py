@@ -498,7 +498,7 @@ class BashTool:
 
 		if out.background_task_id:
 			if out.background_job:
-				# 42 号 DSH 同款文案：完成会自动通知；job_output 收结果。
+				# 42 号文案：完成会自动通知；job_output 收结果。
 				return (
 					f"Started background job {out.background_task_id}. "
 					f"It will notify on completion automatically. "

@@ -1,5 +1,5 @@
 /* auto-split from src/styles/workflow.css body L1-289 — Activity split chrome (head/steps/rail); imported via barrel src/styles/workflow.css */
-/* ===== Agent workflow UI freeze: #10 Split + A7/A8 + L10 =====
+/* ===== Agent 工作流 UI 冻结：#10 拆分 + A7/A8 + L10 =====
    Typography contract = gui/workflow-ideas-preview.html 冻结底座 */
 .xy-activity-split {
   width: 100%;
@@ -61,7 +61,7 @@
   flex: 0 1 auto;
 }
 
-/* 工作流 Cursor 汇总：文案 + 着色 diff + chevron 贴在一起 */
+/* 工作流工具汇总：文案 + 着色 diff + chevron 贴在一起 */
 .xy-cursor-summary {
   gap: 6px;
 }

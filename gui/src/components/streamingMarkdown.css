@@ -1,6 +1,6 @@
 /*
- * Streamdown + XEYO chat prose. Tokens map shadcn vars → --xy-* so
- * Streamdown chrome matches the app without purple defaults.
+ * Streamdown + XEYO 聊天正文。将 shadcn 变量映射到 --xy-*，使
+ * Streamdown 外观贴合应用本身，不带紫色默认样式。
  */
 
 @source "../../node_modules/streamdown/dist/*.js";

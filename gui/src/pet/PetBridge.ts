@@ -11,7 +11,7 @@ function isTauri(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 }
 
-/** Subscribe to context forwarded from the main window. Falls back to a DOM event in browser preview. */
+/** 订阅主窗口转发的语境。浏览器预览下降级为 DOM 事件。 */
 export async function listenPetContext(
   handler: (payload: PetContextPayload) => void,
 ): Promise<() => void> {
@@ -41,12 +41,12 @@ export async function fetchPetContext(): Promise<PetContextPayload | null> {
   return invokePet<PetContextPayload>('pet_get_context');
 }
 
-/** Close the independent desktop-pet window before the main window exits. */
+/** 主窗口退出前关闭独立的桌面宠物窗口。 */
 export async function closePetWindow(): Promise<void> {
   await invokePet('pet_close');
 }
 
-/** Forward the current context projection from the main window to the pet window. */
+/** 将当前语境投影从主窗口转发给宠物窗口。 */
 export async function forwardContextToPet(payload: PetContextPayload): Promise<void> {
   if (!isTauri()) return;
   await invokePet('pet_set_context', {payload});

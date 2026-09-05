@@ -35,7 +35,7 @@ def instruction_char_budget() -> int:
 			pass
 	return min(MAX_CHARS, _DEFAULT_SOFT_CHARS)
 
-	# (cwd, workspace_root, budget) -> (top_sig, full_sig, text)
+	# 入参 (cwd, workspace_root, budget)，返回 (top_sig, full_sig, text)
 _CACHE: dict[
 	tuple[str, str, int],
 	tuple[tuple[tuple[str, int, int], ...], tuple[tuple[str, int, int], ...], str],

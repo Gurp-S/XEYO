@@ -1,7 +1,7 @@
 import {describe, expect, it} from 'vitest';
 import {formatCacheHitPercent} from './formatUsage';
 
-describe('formatCacheHitPercent（一位小数；口径对齐 DSH cacheHitPercent）', () => {
+describe('formatCacheHitPercent（一位小数）', () => {
 	it('无计费输入返回 null', () => {
 		expect(formatCacheHitPercent(0, 0)).toBeNull();
 	});
@@ -35,7 +35,7 @@ describe('formatCacheHitPercent（一位小数；口径对齐 DSH cacheHitPercen
 		expect(near.startsWith('99.9')).toBe(true);
 	});
 
-	it('与 DSH 语义一致：写档计入未命中（DeepSeek 下 miss 已含 write）', () => {
+	it('写档计入未命中（DeepSeek 下 miss 已含 write）', () => {
 		// 分母 = hit + miss（DeepSeek 无独立 write 桶）
 		expect(formatCacheHitPercent(500, 500)).toBe('50.0');
 	});

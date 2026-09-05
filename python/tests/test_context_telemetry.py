@@ -62,7 +62,7 @@ async def test_query_loop_emits_usage_context_telemetry() -> None:
 
     usages = [event for event in events if isinstance(event, UsageEvent)]
     assert usages
-    # DSH ``contextPressure.projectdTokens`` 口径：分子 = 当前投影 token 数（含压缩，立即反映），
+    # 投影 token 口径：分子 = 当前投影 token 数（含压缩，立即反映），
     # 不再是厂商 prompt_tokens=91（若投影为 0 则回退厂商值）。
     assert usages[0].context_tokens > 0
     assert usages[0].context_limit == 128_000
@@ -115,7 +115,7 @@ async def test_query_loop_emits_context_breakdown() -> None:
     assert usages
     bd = usages[0].context_breakdown
     assert bd
-    # DSH ``contextPressure.projectdTokens`` 口径：分子 = 当前投影 token 数（含压缩，立即反映），
+    # 投影 token 口径：分子 = 当前投影 token 数（含压缩，立即反映），
     # 不再等于厂商 prompt_tokens=91。构成明细（breakdown）是启发式组成，总和 = 投影分子。
     assert sum(b["tokens"] for b in bd) == usages[0].context_tokens
     assert usages[0].context_tokens > 0

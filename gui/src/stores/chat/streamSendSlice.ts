@@ -361,7 +361,7 @@ export function createStreamSendSlice(
 			index: 0,
 		};
 
-		// Per-send peripheral controllers (extracted from this slice).
+		// 每次发送的外围控制器（从本 slice 拆出）。
 		const persistence = createStreamPersistence({
 			get,
 			sessionId,

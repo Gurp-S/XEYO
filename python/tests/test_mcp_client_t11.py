@@ -52,7 +52,7 @@ from tools.tool_registry import ToolRegistry
 
 
 # --------------------------------------------------------------------------- #
-# Fakes
+# 桩件（Fakes）
 # --------------------------------------------------------------------------- #
 
 class FakeMcpTransport:
@@ -170,7 +170,7 @@ def _client(spec, **kw):
 
 
 # --------------------------------------------------------------------------- #
-# 1) skip-and-log: a bad server must not crash startup
+# 1) skip-and-log：坏服务器不得让启动崩溃
 # --------------------------------------------------------------------------- #
 
 def test_bad_server_start_skipped_not_raised(caplog):
@@ -207,7 +207,7 @@ def test_register_mcp_server_good_server_registers_tools():
 
 
 def test_handshake_failure_skipped(caplog):
-	# spawn OK but initialize never returns -> startup timeout -> skipped, no raise.
+	# spawn 成功但 initialize 不返回 -> 启动超时 -> 跳过且不抛。
 	spec = _spec("hang", startup_timeout_s=0.01, tool_timeout_s=300)
 	transport = SilentTransport(spec)
 	client = McpStdioClient(spec, transport_factory=lambda spec, logger=None: transport)
@@ -218,13 +218,13 @@ def test_handshake_failure_skipped(caplog):
 
 
 # --------------------------------------------------------------------------- #
-# 2) bounded crash-loop: backoff capped + max attempts, no infinite hot loop
+# 2) 有界崩溃循环：退避封顶 + 最大尝试次数，无无限热循环
 # --------------------------------------------------------------------------- #
 
 def test_backoff_sequence_and_cap():
 	b = ReconnectBackoff(base=BACKOFF_BASE_S, maximum=BACKOFF_MAX_S, max_attempts=MAX_RECONNECT_ATTEMPTS)
 	delays = [b.next_delay() for _ in range(MAX_RECONNECT_ATTEMPTS)]
-	# 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 30.0 (capped), then 30.0 ...
+	# 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 30.0（封顶），之后一直 30.0 ...
 	assert delays[0] == BACKOFF_BASE_S
 	assert delays[5] == 16.0
 	assert delays[6] == BACKOFF_MAX_S  # capped at 30s
@@ -240,7 +240,7 @@ def test_backoff_reset_for_uptime():
 	assert b.attempts == 3
 	assert b.maybe_reset_for_uptime(RESET_UPTIME_S + 1) is True
 	assert b.attempts == 0
-	# below the reset threshold -> no reset
+	# 低于重置阈值 -> 不重置
 	b.next_delay()
 	assert b.maybe_reset_for_uptime(RESET_UPTIME_S - 1) is False
 	assert b.attempts == 1
@@ -252,7 +252,7 @@ def test_crash_loop_bounded_and_exhausts():
 	client._sleep = lambda d: None
 	assert client.start() is True
 	assert client.ready is True
-	# crash then fail every respawn.
+	# 先崩溃，之后每次重启都失败。
 	transport.crash()
 	transport.spawn_error = "crash-loop"
 	with pytest.raises(McpError) as exc:
@@ -269,17 +269,17 @@ def test_reconnect_success_after_crash_resets_budget():
 	client._sleep = lambda d: None
 	assert client.start() is True
 	assert client.ready is True
-	# Simulate a prior outage that already burned most of the budget.
+	# 模拟一次已耗掉大部分预算的先前故障。
 	client._backoff._attempts = MAX_RECONNECT_ATTEMPTS - 1
-	# If the process stayed up > reset_uptime and then died, the budget resets.
+	# 若进程存活超过 reset_uptime 后才死，预算重置。
 	transport.crash()
 	client._spawn_time = time.monotonic() - (RESET_UPTIME_S + 5)
 	transport.spawn_error = None
 	assert client._ensure_running(fetch=False) is True
 	assert client.ready is True
-	# Reset happened (budget was re-armed), so only one fresh attempt was consumed.
+	# 发生了重置（预算重新装填），因此只消耗一次全新尝试。
 	assert client._backoff.attempts == 1
-	# A short-lived crash-loop must NOT get a fresh budget -> continues accumulating.
+	# 短命崩溃循环绝不能拿到新预算 -> 继续累加。
 	client._backoff._attempts = MAX_RECONNECT_ATTEMPTS - 1
 	transport.crash()
 	client._spawn_time = time.monotonic() - 1.0  # short uptime
@@ -289,7 +289,7 @@ def test_reconnect_success_after_crash_resets_budget():
 
 
 # --------------------------------------------------------------------------- #
-# 3) no name collapse: two servers / colliding raws get distinct tool names
+# 3) 名字不折叠：两个服务器 / 撞名的原始名得到不同工具名
 # --------------------------------------------------------------------------- #
 
 def test_mcp_tool_name_shape_and_12hex():
@@ -308,8 +308,8 @@ def test_two_servers_same_raw_name_not_collapsed():
 
 
 def test_normalized_collision_still_unique():
-	# "Read_File" and "read file" both normalize to "read_file" but never collide
-	# (the 12-hex tag is keyed on the raw name).
+	# "Read_File" 和 "read file" 都规范化为 "read_file" 但绝不冲突
+	# （12 位十六进制标签以原始名为键）。
 	a = mcp_tool_name("fs", "Read_File")
 	b = mcp_tool_name("fs", "read file")
 	assert normalize_raw_tool_name("Read_File") == normalize_raw_tool_name("read file")
@@ -334,7 +334,7 @@ def test_two_servers_registered_distinct_names_in_registry():
 
 
 # --------------------------------------------------------------------------- #
-# 4) permission 3-way gate: default outbound_ask, never bypassed
+# 4) 权限三态门：默认 outbound_ask，绝不绕过
 # --------------------------------------------------------------------------- #
 
 def test_default_policy_is_outbound_ask():
@@ -348,7 +348,7 @@ def test_always_allow_only_when_explicitly_declared():
 	assert resolve_mcp_policy(spec, "read_file") == "outbound_ask"
 	spec_allow = _spec("fs", tools_policy="always_allow")
 	assert resolve_mcp_policy(spec_allow, "read_file") == "always_allow"
-	# per-tool override beats server policy
+	# 单工具覆盖优先于服务器策略
 	spec_mixed = _spec("fs", tools_policy="outbound_ask", tool_policies={"read_file": "always_allow"})
 	assert resolve_mcp_policy(spec_mixed, "read_file") == "always_allow"
 	assert resolve_mcp_policy(spec_mixed, "other") == "outbound_ask"
@@ -370,17 +370,17 @@ def test_dynamic_tool_goes_through_registry_gate_as_ask():
 	registry.register(tool)
 	tool_use = ToolUse(id="1", name=tool.name, input={})
 	result = _run_registry(registry, tool_use)
-	# ASK + no coordinator -> the gate refuses to execute (no resolver), so it never
-	# reaches McpTool.execute. This is the hard-rule enforcement: dynamic tools never
-	# bypass the 3-way gate.
+	# ASK 且无协调者 -> 门拒绝执行（无 resolver），因此永远
+	# 到不了 McpTool.execute。这是硬规则执行：动态工具绝不
+	# 绕过三态门。
 	assert result.is_error is True
 	assert result.metadata.get("permission_reason") is not None
 	assert "no resolver" in result.content
 
 
 def test_skip_ask_executes_via_gate_escape_hatch():
-	# skip_ask=True is the explicit scaffold/test escape hatch: the gate still runs,
-	# but once ALLOWed it executes the tool (here through a real client+fake transport).
+	# skip_ask=True 是显式的脚手架/测试逃生口：门照常运行，
+	# 但一旦 ALLOW 便执行工具（这里经真实客户端+假传输）。
 	registry = ToolRegistry(cwd=".")
 	spec = _spec("fs")
 	raw = {"name": "read_file", "inputSchema": {"type": "object", "properties": {}}}
@@ -404,8 +404,8 @@ def _run_registry(registry, tool_use, *, skip_ask=False):
 
 
 def test_mcp_tool_execute_fails_closed_when_disconnected():
-	# A bad server that exhausts its reconnect budget: the tool returns an error
-	# result (fail closed) instead of raising through the tool loop.
+	# 重连预算耗尽的坏服务器：工具返回错误
+	# 结果（fail-closed），而不是沿工具循环抛异常。
 	spec = _spec("down")
 	client = McpStdioClient(
 		spec,
@@ -433,7 +433,7 @@ def _run_tool(tool, input):
 
 
 # --------------------------------------------------------------------------- #
-# Timeout split (30s startup / 300s tool) hoisted + applied
+# 超时拆分（启动 30s / 工具 300s）提升并应用
 # --------------------------------------------------------------------------- #
 
 def test_timeout_constants_hoisted():
@@ -494,7 +494,7 @@ def test_sanitize_env_strips_secrets_and_xeyo_then_merges_whitelist(monkeypatch)
 
 
 # --------------------------------------------------------------------------- #
-# Schema sanitize + 5KB tiered degradation
+# Schema 清洗 + 5KB 分层降级
 # --------------------------------------------------------------------------- #
 
 def test_schema_sanitize_shapes():
@@ -527,7 +527,7 @@ def test_schema_degrades_oversized_to_budget():
 
 
 # --------------------------------------------------------------------------- #
-# Whole-generation replacement (list_changed) + rollback + HMR hook
+# 整代替换（list_changed）+ 回滚 + HMR 钩子
 # --------------------------------------------------------------------------- #
 
 def test_list_changed_replaces_generation():
@@ -539,7 +539,7 @@ def test_list_changed_replaces_generation():
 	assert rt.start() is True
 	old_name = rt.tool_names()[0]
 	assert registry.get(old_name) is not None
-	# server changes its tool list
+	# 服务器变更其工具列表
 	raw_b = {"name": "beta", "inputSchema": {"type": "object"}}
 	transport.tools = [raw_b]
 	gen = rt.on_list_changed()
@@ -557,7 +557,7 @@ def test_list_changed_fetch_failure_keeps_old_generation():
 	rt = McpServerRuntime(spec, registry=None, client=client)
 	assert rt.start() is True
 	old_gen = rt.client.generation
-	# make tools/list fail -> fetch error -> keep old generation
+	# 让 tools/list 失败 -> 拉取错误 -> 保留旧一代
 	transport.list_error = "tools/list failed"
 	gen = rt.on_list_changed()
 	assert gen.applied is False
@@ -569,7 +569,7 @@ def test_generation_conflict_rolls_back():
 	spec = _spec("fs")
 	raw = {"name": "x", "inputSchema": {"type": "object"}}
 	name = mcp_tool_name("fs", "x")
-	# pre-own the exact name in the registry (another owner)
+	# 预先在注册表占用该确切名字（另一持有者）
 	class Dummy:
 		name: str = ""
 
@@ -582,7 +582,7 @@ def test_generation_conflict_rolls_back():
 	rt = McpServerRuntime(spec, registry=registry, client=client)
 	assert rt.start() is True
 	gen = rt.on_list_changed()
-	# The new generation conflicts -> whole generation rolled back, nothing registered.
+	# 新一代冲突 -> 整代回滚，什么都没注册。
 	assert gen.applied is True  # fetch succeeded
 	assert rt.tool_names() == []  # registration rolled back (not applied)
 
@@ -595,14 +595,14 @@ def test_hot_reload_hook_disconnect_reconnect():
 	rt = McpServerRuntime(spec, registry=registry, client=client)
 	assert rt.start() is True
 	assert registry.get(rt.tool_names()[0]) is not None
-	# HMR: disconnect + reconnect.
+	# HMR：断开 + 重连。
 	assert rt.reload() is True
 	assert rt.client.ready is True
 	assert rt.tool_names()  # tools re-registered
 
 
 # --------------------------------------------------------------------------- #
-# build_tools + call_tool happy path
+# build_tools + call_tool 正常路径
 # --------------------------------------------------------------------------- #
 
 def test_build_tools_and_call_tool():

@@ -9,7 +9,7 @@ type Props = {
 
 const MIN_COLS = 48;
 
-/** Skill: tiny fallback — keep quit / recovery visible. */
+/** 准则：极窄窗口的兜底 UI —— 保持退出 / 恢复入口可见。 */
 export function TinyFallback({ cols }: Props) {
   const t = theme();
   const gly = g();

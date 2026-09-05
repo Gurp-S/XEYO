@@ -100,7 +100,7 @@ def _extract_docstring_or_jsdoc(lines: list[str], target: Symbol) -> str:
 	"""目标符号体内开头 docstring，或符号正上方 JSDoc/块注释。"""
 	body = lines[target.start - 1 : target.end]
 	joined = "\n".join(body)
-	# Python """ / '''
+	# Python 三引号 """ / '''
 	m = re.search(r'(?s)^\s*(?:async\s+)?(?:def|class)\b[^\n]*:\n\s*("""|\'\'\')(.*?)\1', joined)
 	if m:
 		doc = m.group(2).strip()
@@ -163,7 +163,7 @@ def _used_imports(lines: list[str], body: str) -> list[str]:
 def _import_names(line: str) -> list[str]:
 	s = line.strip()
 	names: list[str] = []
-	# from x import a, b as c
+	# 形如 from x import a, b as c 的导入
 	m = re.match(r"^from\s+\S+\s+import\s+(.+)$", s)
 	if m:
 		for part in m.group(1).split(","):
@@ -175,7 +175,7 @@ def _import_names(line: str) -> list[str]:
 			else:
 				names.append(part.split(".")[0].strip())
 		return names
-	# import a, b as c
+	# 形如 import a, b as c 的导入
 	m = re.match(r"^import\s+(.+)$", s)
 	if m:
 		for part in m.group(1).split(","):
@@ -185,7 +185,7 @@ def _import_names(line: str) -> list[str]:
 			else:
 				names.append(part.split(".")[0].strip())
 		return names
-	# const {a} = require / import {a} from
+	# 形如 const {a} = require / import {a} from 的导入
 	for n in re.findall(r"\b([A-Za-z_][A-Za-z0-9_]*)\b", s):
 		if n not in {"import", "from", "export", "type", "as", "require", "const", "let", "var"}:
 			names.append(n)

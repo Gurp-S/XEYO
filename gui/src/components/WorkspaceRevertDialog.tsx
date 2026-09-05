@@ -91,7 +91,7 @@ export function WorkspaceRevertDialog({
 		return () => window.removeEventListener('keydown', onKey);
 	}, [canRestoreWorkspace, confirming, isSimpleConfirm, onConfirm]);
 
-	/* 历史气泡发送：简约确认（对齐 Cursor checkpoint 弹窗） */
+	/* 历史气泡发送：简约确认弹窗 */
 	if (isSimpleConfirm) {
 		return (
 			<dialog

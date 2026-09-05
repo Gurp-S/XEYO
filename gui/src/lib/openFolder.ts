@@ -1,7 +1,7 @@
 import {isTauri} from '@/lib/tauri';
 
 /**
- * Cursor 风格打开文件夹选择器。
+ * 打开文件夹选择器。
  * Tauri：原生目录对话框。浏览器：提示输入绝对路径。
  */
 export async function pickFolder(title = '打开文件夹'): Promise<string | null> {

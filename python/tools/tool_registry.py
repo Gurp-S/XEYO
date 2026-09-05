@@ -455,7 +455,7 @@ class ToolRegistry:
 				is_error=True,
 				metadata={"permission_reason": decision.reason},
 			)
-		# ASK
+		# ASK（询问用户）
 		if skip_ask:
 			return await self._execute_audited(
 				tool,

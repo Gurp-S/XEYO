@@ -1,6 +1,6 @@
 import type { TimelineItem } from "./types.js";
 
-/** Offline showcase — XEYO-styled timeline without a live server. */
+/** 离线演示 —— 无需后端服务器的 XEYO 风格时间线。 */
 export async function runDemoTurn(
   onItems: (items: TimelineItem[]) => void,
   signal?: AbortSignal,

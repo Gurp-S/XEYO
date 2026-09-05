@@ -14,7 +14,7 @@ from server.local_gate import require_loopback
 router = APIRouter(tags=["workspace"])
 
 class WorkspaceRequest(BaseModel):
-	"""一个文件夹 = 一个工作区（Cursor 风格 Open Folder）。"""
+	"""一个文件夹 = 一个工作区（Open Folder）。"""
 
 	path: str
 

@@ -137,7 +137,7 @@ class WorkspaceRestoreTransaction:
 
     def _decode_tree_path(self, path_b: bytes) -> str:
         """Decode one ls-tree path; prefer codecs whose result exists on disk."""
-        # Quoted non -z form is rare with -z, but keep unescape for safety.
+        # -z 模式下带引号形态罕见，但出于安全仍保留反转义。
         text_candidates: list[str] = []
         seen: set[str] = set()
         for encoding in _git_text_encodings():
@@ -167,7 +167,7 @@ class WorkspaceRestoreTransaction:
                 continue
             if os.path.lexists(candidate):
                 return path
-        # No on-disk hit (normal for deleted/restored paths): first valid wins.
+        # 磁盘未命中（删除/恢复路径的常态）：以第一个有效者为准。
         for path in resolved:
             try:
                 self._validate_relative_path(path)
@@ -444,8 +444,8 @@ class WorkspaceRestoreTransaction:
                     raise RestoreError(
                         f"Workspace changed: expected {expected_revision}, got {current_revision}"
                     )
-                # Scoped: only ls-tree filter after one tree walk; prefer path list
-                # when small to avoid hashing the entire commit for safety staging.
+                # 范围化：一次树遍历后只用 ls-tree 过滤；路径集较小时
+                # 优先用路径清单，避免为安全暂存而哈希整个 commit。
                 full_target = self._tree_entries(target_commit)
                 if scope is not None:
                     target_tree = {k: v for k, v in full_target.items() if k in scope}
@@ -459,7 +459,7 @@ class WorkspaceRestoreTransaction:
                 for relative_path in candidates:
                     self._validate_relative_path(relative_path)
 
-                # Rewind v2: scoped safety — never `git add -A` on restore hot path.
+                # Rewind v2：范围化安全——恢复热路径绝不 `git add -A`。
                 safety_paths = sorted(set(scope or []) | set(candidates)) if scope is not None else None
                 safety_commit = self.shadow_git.snapshot(
                     f"Safety snapshot before restoring {target_commit}",
@@ -472,7 +472,7 @@ class WorkspaceRestoreTransaction:
                         for k, v in full_safety.items()
                         if k in scope or k in candidates
                     }
-                    # Include scoped paths that exist only on one side.
+                    # 包含仅存在于单侧的范围化路径。
                     for path in scope:
                         if path in full_safety and path not in safety_tree:
                             safety_tree[path] = full_safety[path]
@@ -524,7 +524,7 @@ class WorkspaceRestoreTransaction:
                 if fault_inject:
                     fault_inject("TRASH_MOVED")
 
-                # When scoped, only touch the scoped union — not the entire trees.
+                # 范围化时只触碰范围并集，不动整棵树。
                 restore_expected = safety_tree
                 restore_target = target_tree
                 if scope is not None:
@@ -552,7 +552,7 @@ class WorkspaceRestoreTransaction:
                 if fault_inject:
                     fault_inject("TREE_RESTORING")
 
-                # Post-restore: scoped snapshot only (same path set as safety).
+                # 恢复后：仅范围化快照（与安全阶段同一路径集）。
                 new_head = self.shadow_git.snapshot(
                     f"Restored workspace to {target_commit}",
                     paths=safety_paths,

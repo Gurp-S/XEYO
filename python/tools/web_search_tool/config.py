@@ -25,7 +25,7 @@ def normalize_searxng_url(raw: str | None) -> str:
 		return ""
 	if not (parsed.hostname or "").strip():
 		return ""
-	# Drop path noise beyond root; SearXNG base is origin (+ optional path prefix).
+	# 去掉根之外的路径噪音；SearXNG base 是 origin（+ 可选路径前缀）。
 	path = (parsed.path or "").rstrip("/")
 	netloc = parsed.netloc
 	return f"{scheme}://{netloc}{path}"

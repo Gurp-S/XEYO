@@ -150,7 +150,7 @@ def _flatten_content(content: Any, *, limit: int = 240) -> str:
 
 
 # --------------------------------------------------------------------------- #
-# info
+# 信息
 # --------------------------------------------------------------------------- #
 
 def _cmd_status(ctx: DispatchContext, arg: str) -> CommandResult:
@@ -307,7 +307,7 @@ def _cmd_ls(ctx: DispatchContext, arg: str) -> CommandResult:
 
 
 # --------------------------------------------------------------------------- #
-# control
+# 控制
 # --------------------------------------------------------------------------- #
 
 def _cmd_stop(ctx: DispatchContext, arg: str) -> CommandResult:
@@ -374,7 +374,7 @@ def _cmd_allow_deny(ctx: DispatchContext, arg: str, *, approved: bool) -> Comman
 
 
 # --------------------------------------------------------------------------- #
-# memory
+# 记忆
 # --------------------------------------------------------------------------- #
 
 def _cmd_compact(ctx: DispatchContext, arg: str) -> CommandResult:
@@ -683,7 +683,7 @@ def _cmd_revert(ctx: DispatchContext, arg: str) -> CommandResult:
 
 
 # --------------------------------------------------------------------------- #
-# extension：skills / mcp / plugins
+# 扩展：skills / mcp / plugins
 # --------------------------------------------------------------------------- #
 
 def _cmd_skills(ctx: DispatchContext, arg: str) -> CommandResult:
@@ -990,7 +990,7 @@ def _cmd_plugins(ctx: DispatchContext, arg: str) -> CommandResult:
 # --------------------------------------------------------------------------- #
 
 def _cmd_goal(ctx: DispatchContext, arg: str) -> CommandResult:
-	"""创建/绑定当前会话目标（DSH 式显式新建；对齐 41 号 P1）。
+	"""创建/绑定当前会话目标（显式新建；对齐 41 号 P1）。
 
 	``/goal <目标>`` —— 用参数作为目标正文，新建并绑定到当前会话；若已绑定则
 	替换（与 PATCH ``action=new`` 同语义）。仅当前会话可能未绑定目标时生效。

@@ -77,6 +77,9 @@ export class StickyPromptController {
 	private layoutMute = false;
 	private layoutMuteTimer: ReturnType<typeof setTimeout> | null = null;
 
+	/** 总开关（设置→气泡吸顶，默认关）。关闭时零吸附：不收集几何、不建 pin/hole/portal。 */
+	private enabled = true;
+
 	private readonly getMessages: () => ChatMessage[];
 	private readonly onEditPortalHostChange?: (host: HTMLElement | null) => void;
 	private readonly onLayoutMute?: () => void;
@@ -85,6 +88,24 @@ export class StickyPromptController {
 		this.getMessages = opts.getMessages;
 		this.onEditPortalHostChange = opts.onEditPortalHostChange;
 		this.onLayoutMute = opts.onLayoutMute;
+	}
+
+	isEnabled(): boolean {
+		return this.enabled;
+	}
+
+	/** 运行时开关：关闭立即清残留（pin/hole/portal/吸顶隐藏），回到纯流内气泡。 */
+	setEnabled(on: boolean): void {
+		if (this.enabled === on) {
+			return;
+		}
+		this.enabled = on;
+		if (!on) {
+			this.editingId = null;
+			this.editPortalHost = null;
+			this.clearAll();
+			this.phase = {kind: 'idle'};
+		}
 	}
 
 	getPhase(): StickyPhase {
@@ -104,6 +125,10 @@ export class StickyPromptController {
 	 * 可视编辑气泡受统一查看上限（CSS .xy-editing-bubble）约束，测量值 ≤ 该上限。
 	 */
 	setEditPlaceholderHeight(heightPx: number): boolean {
+		if (!this.enabled) {
+			/* 就地编辑无 portal 占位概念：不锁 chip，返回「无变更」。 */
+			return false;
+		}
 		const h = Math.max(1, Math.round(heightPx));
 		if (h === this.editPlaceholderHeight) {
 			return false;
@@ -267,6 +292,20 @@ export class StickyPromptController {
 		id: string;
 		text: string;
 	}): StickyBeginEditResult {
+		if (!this.enabled) {
+			/* 关闭时编辑在原地展开：不建 portal、不锁流内占位、不吸附。
+			   scrollTop 保留原值供调用方按需跟随（hook 就地路径会自己保持可见）。 */
+			const scroller = this.scroller;
+			this.editingId = message.id;
+			this.phase = {kind: 'editing', id: message.id};
+			this.editPlaceholderHeight = PROMPT_CHIP_MAX_PX;
+			return {
+				portalHost: null,
+				scrollTop: scroller?.scrollTop ?? null,
+				usedPortal: false,
+				placeholderHeight: PROMPT_CHIP_MAX_PX,
+			};
+		}
 		const scroller = this.scroller;
 		const scrollTop = scroller?.scrollTop ?? null;
 		this.editingId = message.id;
@@ -437,6 +476,9 @@ export class StickyPromptController {
 	}
 
 	collect(): StuckSnap | null {
+		if (!this.enabled) {
+			return null;
+		}
 		const scroller = this.scroller;
 		const content = this.content;
 		if (!scroller || !content) {
@@ -852,6 +894,13 @@ export class StickyPromptController {
 	}
 
 	flush(): StickyFlushResult {
+		if (!this.enabled) {
+			return {
+				layoutMutated: false,
+				editPortalHost: null,
+				cleared: false,
+			};
+		}
 		const snap = this.collect();
 		if (snap) {
 			return this.apply(snap);

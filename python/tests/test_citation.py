@@ -1,4 +1,4 @@
-"""P1-1 citation 溯源：Codex 引用格式解析/渲染 + C2 摘要行引用锚点 + 检索引用。"""
+"""P1-1 citation 溯源：引用格式解析/渲染 + C2 摘要行引用锚点 + 检索引用。"""
 
 from __future__ import annotations
 

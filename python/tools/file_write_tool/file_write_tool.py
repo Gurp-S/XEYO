@@ -329,7 +329,7 @@ class FileWriteTool:
 						)
 					)
 
-		# Write 是整文件替换：按模型给出的换行写入（对齐 Claude 用 LF 规范化策略）
+		# Write 是整文件替换：按模型给出的换行写入（用 LF 规范化）
 		content = str(input_data.content)
 		journal_warning = self._persist(full, content, encoding=encoding, line_endings="LF")
 

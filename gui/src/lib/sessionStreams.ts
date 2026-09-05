@@ -1,4 +1,4 @@
-/** Per-session streaming / drain state (supports parallel conversations). */
+/** 每会话的流式 / drain 状态（支持并行会话）。 */
 export type SessionStreamState = {
 	streamingText: string;
 	streamingShown: string;
@@ -8,7 +8,7 @@ export type SessionStreamState = {
 	thoughtStartedAt: number | null;
 	abortRef: AbortController | null;
 	remoteStreaming: boolean;
-	/** Typewriter drain after SSE onDone; unlocks send while tail renders. */
+	/** SSE onDone 后的打字机 drain；尾部渲染期间解除发送锁定。 */
 	draining: boolean;
 	/**
 	 * 后端 turn 仍在跑，但本页 SSE 已断（刷新 / 短暂断网）。

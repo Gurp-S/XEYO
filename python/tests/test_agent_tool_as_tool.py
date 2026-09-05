@@ -41,7 +41,7 @@ async def test_agent_tool_emits_failed_progress_without_runtime():
 		res = await at.execute({"task_id": "t9", "desc": "hello"}, AbortController())
 		assert res.is_error
 		types = [getattr(e.xy, "get", lambda *_: None)("type") if e.xy else None for e in seen]
-		# dataclass xy is dict
+		# dataclass 形态下 xy 是 dict
 		types = [(e.xy or {}).get("type") for e in seen]
 		assert "multi_agent_task" in types
 		assert "multi_agent_progress" in types

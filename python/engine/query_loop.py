@@ -347,9 +347,9 @@ def _content_chars(content: object) -> int:
 
 
 def _projected_tokens(projected: list[dict]) -> int:
-	"""投影 token 数 —— DSH ``contextPressure.projectdTokens`` 的 XEYO 等价物。
+	"""投影 token 数。
 
-	DSH 口径（dsh-token-meter README）：``projectedTokens`` = 「下一个请求的提示词要花多少」，
+	口径：``projectedTokens`` = 「下一个请求的提示词要花多少」，
 	在提供方样本之上，加上自样本以来表层增减的启发式重计价，**压缩会立刻反映**。
 	XEYO 用消息投影本身（已含 C0 截断 / C1 占位 / C2 摘要折叠）作为当前表层，逐消息
 	按 token_len（≈4 字符/token）+ 每消息结构开销估算——即当前送模型投影的真实长度，

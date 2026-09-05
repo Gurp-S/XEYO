@@ -355,7 +355,7 @@ function mapLastTool(
   return items;
 }
 
-/** Map xy events into timeline patches. */
+/** 将 xy 事件映射为时间线补丁。 */
 export function applyXy(
   items: TimelineItem[],
   xy: Record<string, unknown>,

@@ -1,4 +1,4 @@
-"""内存 todo 存储（Claude AppState.todos 等价物）。
+"""内存 todo 存储。
 
 按 key 隔离：主会话 ``default``，子 agent 可用 ``agent-{id}``。
 进程内热路径；落盘由 memory.working sidecar + transcript 恢复兜底。

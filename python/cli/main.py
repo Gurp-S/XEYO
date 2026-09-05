@@ -60,7 +60,7 @@ def _run_chat(
 		json_mode=json_mode,
 		print_mode=print_mode,
 	)
-	# Reload after possible wizard writes.
+	# 在向导可能写入之后重新加载。
 	cfg = load_config(profile=profile)
 	prov = resolve_provider(provider, cfg=cfg)
 	key = resolve_api_key(api_key, cfg=cfg)

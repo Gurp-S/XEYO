@@ -157,6 +157,8 @@ export function useMessageListEditing(
 	const editingScrollTopRef = useRef<number | null>(null);
 	const editingScrollPinUntilRef = useRef(0);
 	const stickyEditFlowLockRef = useRef(false);
+	/** 本次编辑是否走 portal（吸顶浮层）；就地编辑（关闭吸顶）为 false。 */
+	const usedPortalRef = useRef(false);
 	const prevEditingMessageIdRef = useRef<string | null>(null);
 
 	const editingMessageIdRef = useRef<string | null>(null);
@@ -191,9 +193,11 @@ export function useMessageListEditing(
 	useLayoutEffect(() => {
 		if (!editingMessageId) {
 			if (prevEditingMessageIdRef.current !== null) {
+				const wasPortal = usedPortalRef.current;
 				prevEditingMessageIdRef.current = null;
 				editingMessageIdRef.current = null;
 				stickyEditFlowLockRef.current = false;
+				usedPortalRef.current = false;
 				editClosingRef.current = false;
 				setEditClosing(false);
 				setEditFlowHeight(PROMPT_CHIP_MAX_PX);
@@ -203,7 +207,9 @@ export function useMessageListEditing(
 				const pinScroll = editingScrollTopRef.current;
 				muteStickyLayoutSnap();
 				endStickyEdit();
-				if (scroller && pinScroll !== null) {
+				/* portal 编辑把 chip 钉在编辑前位置，退出时恢复该滚动点；
+				   就地编辑随 transcript 自然滚动，退出保持当前视口不动。 */
+				if (wasPortal && scroller && pinScroll !== null) {
 					scroller.scrollTop = pinScroll;
 					editingScrollPinUntilRef.current = performance.now() + 800;
 				}
@@ -212,7 +218,7 @@ export function useMessageListEditing(
 				   chip 的 visibility:hidden 解除;schedule 会等下一帧,期间用户看到
 				   流内 chip 不可见 + 没有 pin——"消失几秒才出现"。 */
 				flushStuck();
-				if (scroller && pinScroll !== null) {
+				if (wasPortal && scroller && pinScroll !== null) {
 					scroller.scrollTop = pinScroll;
 				}
 				const release = window.setTimeout(() => {
@@ -225,22 +231,32 @@ export function useMessageListEditing(
 			}
 			return;
 		}
+		const portal = usedPortalRef.current;
 		prevEditingMessageIdRef.current = editingMessageId;
 		editingMessageIdRef.current = editingMessageId;
 		setStickyEditingId(editingMessageId);
 		const scroller = scrollerRef.current;
-		const pinScroll =
-			editingScrollTopRef.current ?? scroller?.scrollTop ?? null;
-		if (scroller && pinScroll !== null) {
-			editingScrollTopRef.current = pinScroll;
-			scroller.scrollTop = pinScroll;
-			/* 编辑全程钉住 scrollTop，避免底栏展开/RO 触发跳动 */
-			editingScrollPinUntilRef.current = Number.POSITIVE_INFINITY;
+		if (portal) {
+			const pinScroll =
+				editingScrollTopRef.current ?? scroller?.scrollTop ?? null;
+			if (scroller && pinScroll !== null) {
+				editingScrollTopRef.current = pinScroll;
+				scroller.scrollTop = pinScroll;
+				/* 编辑全程钉住 scrollTop，避免底栏展开/RO 触发跳动 */
+				editingScrollPinUntilRef.current = Number.POSITIVE_INFINITY;
+			}
+		} else {
+			/* 就地编辑（关闭吸顶）：不钉死滚动，允许用户自由滚动看上下文。
+			   编辑框长高超出视口底部时由下方 RO 做底部跟随。 */
+			editingScrollPinUntilRef.current = 0;
 		}
 		muteStickyLayoutSnap();
 		flushStuck();
-		if (scroller && pinScroll !== null) {
-			scroller.scrollTop = pinScroll;
+		if (portal && scroller) {
+			const pinScroll = editingScrollTopRef.current;
+			if (pinScroll !== null) {
+				scroller.scrollTop = pinScroll;
+			}
 		}
 		scheduleTopFade();
 		const editEl = promptEditRef.current;
@@ -248,6 +264,8 @@ export function useMessageListEditing(
 		if (typeof ResizeObserver === 'undefined') {
 			return;
 		}
+		/* portal 编辑：把 scrollTop 钉回进入点（防 RO/底栏展开跳动）。
+		   就地编辑：编辑框长高超出视口底部 → 滚动跟随（底部始终可见）。 */
 		const pinScrollIfNeeded = () => {
 			const top = editingScrollTopRef.current;
 			if (
@@ -259,10 +277,27 @@ export function useMessageListEditing(
 			}
 			scrollerRef.current.scrollTop = top;
 		};
+		const followInplaceEditBottom = () => {
+			const sc = scrollerRef.current;
+			const el = editEl ?? promptEditRef.current;
+			if (!sc || !el) {
+				return;
+			}
+			const sRect = sc.getBoundingClientRect();
+			const eRect = el.getBoundingClientRect();
+			const overflow = eRect.bottom - sRect.bottom;
+			if (overflow > 0) {
+				sc.scrollTop += overflow;
+			}
+		};
 		const ro = new ResizeObserver(() => {
 			/* 开/关编辑都跟可视高度，取消收拢时占位同步塌下才不抖 */
 			syncEditFlowHeightFromVisible();
-			pinScrollIfNeeded();
+			if (portal) {
+				pinScrollIfNeeded();
+			} else {
+				followInplaceEditBottom();
+			}
 		});
 		if (editEl) {
 			ro.observe(editEl);
@@ -501,6 +536,7 @@ export function useMessageListEditing(
 				text: message.text,
 			});
 			stickyEditFlowLockRef.current = editResult.usedPortal;
+			usedPortalRef.current = editResult.usedPortal;
 			if (editResult.scrollTop !== null && scroller) {
 				scroller.scrollTop = editResult.scrollTop;
 			}
@@ -513,10 +549,13 @@ export function useMessageListEditing(
 				setEditingText(message.text);
 				setEditingCaret(caret);
 			});
-			if (scroller && savedScrollTop !== null) {
+			if (scroller && savedScrollTop !== null && editResult.usedPortal) {
+				/* 仅 portal 编辑需要硬钉：chip 已浮到吸顶层，流内原位塌空，
+				   必须把 scrollTop 钉在编辑前位置才不跳。就地编辑(chip 留在
+				   流内原位展开)随 transcript 自然滚动，此处不再设 Infinity 钉
+				   ——入口 layout effect 已把 pin window 清零，放行用户滚动。 */
 				const pin = savedScrollTop;
 				editingScrollTopRef.current = pin;
-				/* 编辑全程钉住；取消/提交后再释放 */
 				editingScrollPinUntilRef.current = Number.POSITIVE_INFINITY;
 				scroller.scrollTop = pin;
 				queueMicrotask(() => {

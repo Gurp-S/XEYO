@@ -1,5 +1,5 @@
 /**
- * Chat store facade — composes domain slices from ./chat/*.
+ * Chat store 门面——组合 ./chat/* 内的领域 slice。
  */
 import {create} from 'zustand';
 import {DEFAULT_SPACE_ID} from '@/lib/db';

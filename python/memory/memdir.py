@@ -30,7 +30,7 @@ INDEX_MAX_BYTES = 25_000
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 USER_MEMDIR_ID = "user"
 
-# P1-2 保留期剪枝（对齐 Codex prune_stage1_outputs_for_retention）：
+# P1-2 保留期剪枝（prune_stage1_outputs_for_retention）：
 # 只剪掉「非 active + 超保留期」的死 note 文件，绝不触碰 active 事实。
 ENV_RETENTION_DAYS = "XEYO_MEMORY_RETENTION_DAYS"
 DEFAULT_RETENTION_DAYS = 7.0

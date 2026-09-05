@@ -1,4 +1,4 @@
-"""带长度上限的统一 diff 预览，用于 Copilot 风格聊天 UI。"""
+"""带长度上限的统一 diff 预览，用于聊天 UI。"""
 
 from __future__ import annotations
 

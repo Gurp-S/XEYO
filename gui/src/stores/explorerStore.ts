@@ -24,7 +24,7 @@ type ExplorerState = {
 	selectedPath: string | null;
 	doc: WorkspaceFile | null;
 	reviewDiff: ReviewDiff | null;
-	/** 预览覆盖聊天列（Cursor 式放大）；不持久化。 */
+	/** 预览覆盖聊天列（放大展示）；不持久化。 */
 	previewExpanded: boolean;
 	loadingTree: boolean;
 	loadingFile: boolean;

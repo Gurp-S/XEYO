@@ -201,7 +201,7 @@ class StreamHandle:
 	_abort_box: list = field(default_factory=list)
 	_watcher_started: bool = False
 
-	# -- pump ------------------------------------------------------------
+	# -- 泵送 ------------------------------------------------------------
 	def start_pump(self) -> None:
 		if self.proc is None or self.proc.stdout is None:
 			self._pump_done.set()
@@ -227,7 +227,7 @@ class StreamHandle:
 		finally:
 			self._pump_done.set()
 
-	# -- sink / buffer ----------------------------------------------------
+	# -- 汇 / 缓冲 ----------------------------------------------------
 	def add_sink(self, sink: SinkFn) -> None:
 		with self.buf_lock:
 			self.sinks.append(sink)

@@ -256,7 +256,7 @@ describe('StickyPromptController phase machine', () => {
 		expect(snap).not.toBeNull();
 		/* 阶段1 自绘壁纸（灰度默认开）：不再产生 clip 洞，几何走 editPortal */
 		expect(snap!.holes).toHaveLength(0);
-		/* pin layout stays at placeholder height */
+		/* pin 布局保持在占位高度 */
 		expect(snap!.editPortal?.height).toBe(52);
 
 		ctrl.endEdit();

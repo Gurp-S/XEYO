@@ -99,7 +99,7 @@ def _merge_todos(old: list[TodoItem], submitted: list[TodoItem]) -> list[TodoIte
 			by_id[item.id] = item
 			order.append(item.id)
 		seen_new.add(item.id)
-	# Keep unmatched old items in their relative order; new ids already appended.
+	# 未匹配的旧项保持相对顺序；新 id 已追加。
 	return [by_id[i] for i in order if i in by_id]
 
 

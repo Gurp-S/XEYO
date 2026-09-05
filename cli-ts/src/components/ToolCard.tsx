@@ -15,7 +15,7 @@ type Props = {
 };
 
 /**
- * Claude-like tool row:
+ * 工具行卡片：
  *   ⏺ Read(path)
  *     ⎿ snippet
  */

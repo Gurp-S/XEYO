@@ -1,5 +1,5 @@
 /* auto-split from index.css L620-1152 — Composer/bubble/md/code/diff/todo + sticky/pin/editing (incl. sticky); do not edit order relative to styles/entry.css */
-/* Composer / shared translucent chip (keeps wallpaper visible). */
+/* Composer / 共用半透明底 chip（保持壁纸可见）。 */
 .xy-user-bubble {
   background: var(--xy-user-bubble);
   border: 1px solid var(--xy-user-bubble-border);
@@ -26,7 +26,7 @@
   background: transparent;
 }
 
-/* Keep all panes aligned while reclaiming a small amount of vertical space below the title bar. */
+/* 回收标题栏下方少量竖向空间的同时，保持各窗格对齐。 */
 .xy-effective-pane-row {
   margin-top: -6px;
   margin-bottom: 6px;
@@ -64,7 +64,7 @@ html[data-scheme="dark"] .xy-composer-shell textarea::placeholder {
   color: #a8b4c2;
 }
 
-/* Prose bullet: center on first line (cancel markdown first-child top margin). */
+/* 正文项目符号：与首行居中对齐（抵消 markdown 首子元素的顶边距）。 */
 .xy-chat-text > :first-child {
   margin-top: 0;
 }
@@ -108,7 +108,7 @@ html[data-scheme="dark"] .xy-md-surface {
   background: rgb(17 17 18 / 0.42);
 }
 
-/* Streaming: tables/code stay see-through so wallpaper and text behind show. */
+/* 流式输出：表格/代码保持透明，让背后的壁纸与文字透出。 */
 .xy-stream-md .xy-md-surface,
 .xy-stream-md .xy-code-surface {
   background: rgb(255 255 255 / 0.12);
@@ -125,7 +125,7 @@ html[data-scheme="dark"] .xy-stream-md .xy-code-surface {
   transition: background-color 0.25s ease, border-color 0.25s ease;
 }
 
-/* Copilot-style Changes panel */
+/* Changes 面板 */
 .xy-files-changed {
   background: rgb(245 246 248 / 0.78);
   border: 1px solid rgb(18 22 28 / 0.1);
@@ -146,7 +146,7 @@ html[data-scheme="dark"] .xy-files-changed {
   }
 }
 
-/* Copilot-style Todo panel (matches Changes card) */
+/* Todo 面板（与 Changes 卡片同款） */
 @keyframes xy-todo-spin {
   to {
     transform: rotate(360deg);
@@ -170,7 +170,7 @@ html[data-scheme="dark"] .xy-diff-preview {
   background: transparent;
 }
 
-/* ~12 lines at 11px / leading-relaxed (1.625) */
+/* 约 12 行，11px / leading-relaxed（1.625） */
 .xy-diff-preview-clamp {
   max-height: calc(12 * 1.625 * 11px);
 }
@@ -478,9 +478,16 @@ html[data-scheme="dark"] .xy-user-prompt {
   }
 }
 
-/* Native sticky push (Cursor): next section鈥檚 sticky shoves this one up.
-   Round spacing is on .xy-round-transcript-layer (pb-2.5), not margin-top here 鈥?   margin on sticky leaves a gap when bubbles stack while pushed. */
+/* 原生 sticky push：下一个分区的 sticky 会把本区上推。
+   Round spacing is on .xy-round-transcript-layer (pb-2.5), not margin-top here 鈥?   margin on sticky leaves a gap when bubbles stack while pushed.
+   总开关（设置→气泡吸顶，默认关）：仅 html[data-xy-sticky-bubbles="on"] 启用原生 sticky，
+   否则 position:static——气泡随滚动自然离开，杜绝「JS 不吸附但 CSS 仍吸住」的遮挡。
+   未设置 data 时按默认关（static）。 */
 .xy-prompt-sticky {
+  position: static;
+}
+
+html[data-xy-sticky-bubbles="on"] .xy-prompt-sticky {
   position: sticky;
   top: 0;
 }
@@ -500,15 +507,15 @@ html[data-scheme="dark"] .xy-user-prompt {
   background-color: var(--xy-user-bubble) !important;
 }
 
-/* Sticky prompts keep the exact shared surface (xy-user-bubble tint, same as the
-   composer): when stuck, the in-flow chip is hidden via [data-xy-stuck], and the
-   pin clone of the same chip is composited above the wallpaper in the overlay layer.
-   Pin layer geometry/layout lives in MessageList's imperative pin overlay div
-   (absolute inset-0 z-20) + pinOverlay.ts —— no CSS class rules needed here. */
+/* 吸顶气泡保持与共享表面完全一致（xy-user-bubble 着色，与输入框相同）：
+   吸住时，文档流内的 chip 经 [data-xy-stuck] 隐藏，
+   同一 chip 的 pin 克隆在 overlay 层合成于壁纸之上。
+   pin 层的几何/布局由 MessageList 的命令式 pin overlay div
+   （absolute inset-0 z-20）+ pinOverlay.ts 负责——此处无需 CSS 类规则。 */
 
-/* Top fade mirrors the bottom scroll-fade: a mask on the scroll content that
-   reveals the wallpaper (follows bgOpacity/bgBlur). Same gradient + 40px
-   distance as .is-fade-bottom, so the top edge looks identical. */
+/* 顶部淡出与底部 scroll-fade 对称：滚动内容上的遮罩
+   透出壁纸（跟随 bgOpacity/bgBlur）。渐变与 40px 距离
+   均与 .is-fade-bottom 相同，因此上下边缘观感一致。 */
 
 /* GPU 提示审计(2026-09-05):曾对 is-open 态常驻 will-change: grid-template-rows, opacity——
    grid-template-rows 是布局属性不可合成;opacity 虽可合成但折叠同时伴随逐帧 reflow+repaint,
@@ -553,7 +560,7 @@ body {
   color: var(--color-ink);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
-  /* Light: nearly flat cool field; dark keeps soft depth */
+  /* 亮色：近乎平整的冷色底；暗色保留柔和深度 */
   background:
     radial-gradient(900px 420px at 8% -8%, var(--xy-bg-a) 0%, transparent 58%),
     var(--color-paper);

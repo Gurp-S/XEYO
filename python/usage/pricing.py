@@ -143,7 +143,7 @@ def _as_int(v: Any) -> int:
 def split_usage(usage: dict[str, Any]) -> tuple[int, int, int]:
 	"""返回 (cache_hit, cache_miss, output)。
 
-	命中率口径说明：XEYO 对齐 DSH ``cacheHitPercent`` = cacheRead/(uncached+cacheRead+cacheWrite)。
+	命中率口径说明：``cacheHitPercent`` = cacheRead/(uncached+cacheRead+cacheWrite)。
 	无独立 write 档的厂商（DeepSeek）由 ``miss = prompt − hit`` 把 uncached+cacheWrite 合并为
 	miss，故 ``hit/(hit+miss)`` 与该公式等价（见 docs/落地前事件.md）。
 	"""
@@ -271,7 +271,7 @@ def unit_prices_cny_per_mtoken(
 	if prov == "openai":
 		key = (model or "").lower()
 		usd = _OPENAI_USD.get(key) or _OPENAI_USD["gpt-4o-mini"]
-		# OpenAI: (input miss, cached hit, output)
+		# OpenAI 三元组：(输入未命中, 缓存命中, 输出)
 		p_u = usd[0] * USD_CNY
 		p_r = usd[1] * USD_CNY
 		p_o = usd[2] * USD_CNY

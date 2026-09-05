@@ -185,7 +185,7 @@ def main() -> int:
         prev_out = out
         prev_work = after
 
-    # ---- restore ----
+    # ---- 恢复（restore） ----
     rt.l5_mode = _orig_l5
     if prior_l5 is None:
         os.environ.pop("XEYO_L5", None)

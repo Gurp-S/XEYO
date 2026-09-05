@@ -1,4 +1,4 @@
-"""Rewind v2 Cursor-align: checkpoint ids, async transcript-first execute, scoped safety."""
+"""Rewind v2 检查点：checkpoint id、transcript 优先异步执行、范围化安全。"""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ def test_derive_checkpoint_id_stable() -> None:
 
 def test_checkpoint_cache_roundtrip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("XEYO_SESSIONS_DIR", str(tmp_path / "sessions"))
-    # Force default_sessions_dir via put path override
+    # 通过 put 路径覆盖强制 default_sessions_dir
     sid = "sess_cp_cache"
     put_checkpoint_cache(
         sid,
@@ -58,7 +58,7 @@ def test_scoped_snapshot_does_not_require_full_add(tmp_path: Path) -> None:
     base = shadow.snapshot("base")
     (workspace / "tracked.txt").write_text("changed", encoding="utf-8")
     (workspace / "noise.bin").write_bytes(b"x" * 1024)
-    # Scoped safety only stages tracked.txt — noise stays unstaged relative to commit content.
+    # 范围化安全只暂存 tracked.txt——噪音相对提交内容保持未暂存。
     safety = shadow.snapshot("safety", paths=["tracked.txt"])
     assert safety
     assert safety != base or True  # may equal if commit empty after add only tracked

@@ -14,9 +14,9 @@ import {MenuSeparator} from '@/components/ui/MenuSeparator';
 import type {AgentMode} from '@/lib/agentMode';
 
 /**
- * Composer 左侧 + 按钮的 Cursor 风格快捷菜单（对齐参考图一）。
+ * Composer 左侧 + 按钮的快捷菜单（对齐参考图一）。
  *
- * - 顶部：Cursor 式**纯文本搜索**——只有文字与光标，无搜索框底/边框。
+ * - 顶部：**纯文本搜索**——只有文字与光标，无搜索框底/边框。
  * - 模式区：Plan / Ask / Multi-Agent（Plan、Ask 切 agentMode；Multi-Agent 是开关）。
  * - 底部：Files（添加文件）/ MCP（执行 /mcp）。
  * - 不含技能栏、无快捷键胶囊。
@@ -100,7 +100,7 @@ export function ComposerQuickMenu({
 			role="menu"
 			className="xy-menu-flyout absolute bottom-full left-0 z-50 mb-1.5 flex max-h-[min(420px,60vh)] w-[300px] flex-col overflow-hidden rounded-2xl border border-line/50 p-1.5"
 		>
-			{/* Cursor 式纯文本搜索：无框底，仅文字 + 光标 */}
+			{/* 纯文本搜索：无框底，仅文字 + 光标 */}
 			<div className="px-2.5 pb-1 pt-1.5">
 				<input
 					ref={searchRef}

@@ -15,14 +15,14 @@ from tools.web_fetch_tool.prompt import DESCRIPTION, WEB_FETCH_TOOL_NAME
 
 _CONNECT_S = 3.0
 _READ_S = 12.0
-# Download cap; model-facing body is smaller.
+# 下载上限；给模型看的正文更小。
 _MAX_BYTES = 200_000
 _OUT_CAP = 8_000
 _MAX_REDIRECTS = 5
 _CACHE_TTL_S = 15 * 60
 _CACHE_MAX = 32
 
-# cache_key -> (expires_at, content)
+# 结构：cache_key -> (expires_at, content)
 _cache: OrderedDict[str, tuple[float, str]] = OrderedDict()
 
 
@@ -32,7 +32,7 @@ def clear_fetch_cache() -> None:
 
 def _normalize_url(url: str) -> str:
 	parts = urlsplit(url.strip())
-	# Drop fragment; keep query (docs often keyed by ?).
+	# 去掉 fragment；保留 query（文档常按 ? 区分）。
 	return urlunsplit(
 		(parts.scheme.lower(), parts.netloc.lower(), parts.path or "/", parts.query, "")
 	)
@@ -144,7 +144,7 @@ class WebFetchTool:
 									is_error=True,
 								)
 							current = urljoin(current, loc)
-							# Drain briefly then follow.
+							# 先短暂排空再跟随重定向。
 							await stream_resp.aclose()
 							continue
 
@@ -186,7 +186,7 @@ class WebFetchTool:
 				or text.lstrip().lower().startswith("<html")
 			)
 			if is_html:
-				# Extract more than OUT_CAP so focus_text can pick relevant paras.
+				# 多提取一些（超过 OUT_CAP），让 focus_text 能挑相关段落。
 				extract_budget = max(_OUT_CAP * 4, _OUT_CAP)
 				plain = html_to_text(text, max_chars=extract_budget)
 				body = focus_text(plain, prompt, max_chars=_OUT_CAP)

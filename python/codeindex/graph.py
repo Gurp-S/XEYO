@@ -254,7 +254,7 @@ def _build_file_index(root: Path, rels: Iterable[str]) -> dict[str, str]:
 		no_ext = _strip_code_ext(posix)
 		index[no_ext] = posix
 		index[no_ext.replace("/", ".")] = posix
-		# python/engine/query_loop.py → engine.query_loop
+		# 文件路径 python/engine/query_loop.py 映射为模块名 engine.query_loop
 		if posix.startswith("python/"):
 			mod = _strip_code_ext(posix[len("python/"):]).replace("/", ".")
 			index[mod] = posix

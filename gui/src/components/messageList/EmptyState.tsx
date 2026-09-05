@@ -1,5 +1,5 @@
 /**
- * Empty transcript state, extracted from MessageList.tsx (presentational only).
+ * 空会话状态，从 MessageList.tsx 拆出（纯展示组件）。
  */
 export function EmptyState({
 	workspaceName,

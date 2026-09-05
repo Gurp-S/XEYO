@@ -41,7 +41,7 @@ export function clearPinOverlay(
 	}
 }
 
-/** Imperative pin layer — stays in sync with clip-path (no React render lag). */
+/** 命令式 pin 层——与 clip-path 保持同步（无 React 渲染延迟）。 */
 export function syncPinOverlay(
 	overlay: HTMLElement | null,
 	pinNodes: Map<string, HTMLElement>,
@@ -88,7 +88,7 @@ export function syncPinOverlay(
 			pinNodes.set(pin.id, wrap);
 			overlay.appendChild(wrap);
 		} else {
-			/* Overlay may remount; re-home detached pins or the hole stays empty. */
+			/* Overlay 可能重挂载；需重新认领脱钩的 pin，否则孔位会空置。 */
 			if (wrap.parentElement !== overlay) {
 				overlay.appendChild(wrap);
 			}

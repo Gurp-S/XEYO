@@ -18,9 +18,9 @@ export function ChatUiStoreProvider({
 }
 
 /**
- * Shared chat components use this hook instead of binding themselves to the
- * Agent store. The default remains the main Agent store, so the main page's
- * behavior is unchanged; SideChatPanel supplies its isolated store provider.
+ * 共享聊天组件改用此 hook，而不是把自己绑死在
+ * Agent store 上。默认仍指向主 Agent store，因此主页面的
+ * 行为不变；SideChatPanel 提供自己隔离的 store provider。
  */
 export function useChatUiStore<T>(selector: (state: ChatState) => T): T {
 	const store = useContext(ChatUiStoreContext);

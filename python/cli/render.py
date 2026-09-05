@@ -100,7 +100,7 @@ class EventRenderer:
 		if isinstance(ev, ReasoningDelta):
 			text = ev.text or ""
 			if text and not self._saw_assistant_delta:
-				# Soft dim stream for reasoning before answer.
+				# 回答前推理用柔和暗色流式输出。
 				self.stop_status()
 				console.print(f"[dim italic]{escape(text)}[/dim italic]", end="")
 				self._open = True
@@ -131,7 +131,7 @@ class EventRenderer:
 				snip = snip[:117] + "..."
 			console.print(ui.tool_result_line(ev.name, snip, is_error=bool(ev.is_error)))
 		elif isinstance(ev, (PermissionPendingEvent, AskUserPendingEvent, PlanPendingEvent)):
-			# Full panels are drawn by interact prompts to avoid double chrome.
+			# 完整面板由 interact 提示绘制，避免双重边框。
 			pass
 		elif isinstance(ev, FinalEvent):
 			if ev.text and not self._saw_assistant_delta:

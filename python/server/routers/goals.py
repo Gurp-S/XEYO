@@ -89,7 +89,7 @@ async def patch_goal(session_id: str, body: GoalPatch) -> dict[str, Any]:
 	- drop：置 abandoned。
 	- reopen：置 active + 清候选（blocked_reason 一并清空）。
 	- new：新建目标并重绑（忽略旧 revision）。
-	- edit：编辑 title / text / max_rounds（DSH edit 动词对齐，CAS）。
+	- edit：编辑 title / text / max_rounds（edit 动词，CAS）。
 
 	2026-09-05：改 async def（sync def 跑线程池，GoalStore 同步 API 的 ``_run``
 	会各起一个事件循环且 driver ``poke`` 拿不到 loop）——统一走 ``*_async`` 存储层；

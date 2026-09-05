@@ -5,7 +5,7 @@ import { g, theme } from "../theme.js";
 type Props = { text: string };
 
 /**
- * Claude-like user turn: ❯ prefix, no box / no speaker label.
+ * 用户输入回显：❯ 前缀，无边框 / 无说话人标签。
  */
 export function UserBubble({ text }: Props) {
   const t = theme();

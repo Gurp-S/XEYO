@@ -136,6 +136,7 @@ export function SettingsModal({open, onClose}: Props) {
 	const rewindGcMaxBytes = useSettingsStore(s => s.rewindGcMaxBytes);
 	const titleBarDivider = useSettingsStore(s => s.titleBarDivider !== false);
 	const paneEaseSilky = useSettingsStore(s => s.paneEaseSilky === true);
+	const stickyBubbles = useSettingsStore(s => s.stickyBubbles === true);
 			
 		const pastureReducedMotion = useSettingsStore(s => s.pastureReducedMotion === true);
 			const pasturePaused = useSettingsStore(s => s.pasturePaused === true);
@@ -671,6 +672,40 @@ export function SettingsModal({open, onClose}: Props) {
 							</span>
 						</button>
 
+						<button
+							type="button"
+							role="switch"
+							aria-checked={stickyBubbles}
+							onClick={() => update({stickyBubbles: !stickyBubbles})}
+							className={cn(
+								'xy-press flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors',
+								stickyBubbles
+									? 'border-accent/50 bg-accent-soft'
+									: 'border-line bg-glass-strong hover:border-line',
+							)}
+						>
+							<span>
+								<span className="block text-sm text-ink">气泡吸顶</span>
+								<span className="mt-0.5 block text-[11px] leading-snug text-mute">
+									对话中上一条你的消息吸顶为可编辑气泡。默认关：气泡留在原位。
+								</span>
+							</span>
+							<span
+								className={cn(
+									'relative h-5 w-9 shrink-0 rounded-full transition-colors',
+									stickyBubbles ? 'bg-accent' : 'bg-line',
+								)}
+								aria-hidden
+							>
+								<span
+									className={cn(
+										'absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white transition-transform',
+										stickyBubbles ? 'translate-x-4' : 'translate-x-0',
+									)}
+								/>
+							</span>
+						</button>
+
 						<div className="grid grid-cols-2 gap-2">
 								<button
 									type="button"
@@ -812,7 +847,7 @@ export function SettingsModal({open, onClose}: Props) {
 									<span className="mb-1 block text-mute">供应商名称</span>
 									<input
 										className="xy-surface w-full rounded-xl border border-line bg-glass-strong px-3 py-2 text-ink outline-none focus:border-accent"
-										placeholder="例如：Claude 官方"
+										placeholder="例如：DeepSeek 官方"
 										value={draft.name}
 										onChange={e => setDraft(d => ({...d, name: e.target.value}))}
 									/>
@@ -1616,7 +1651,7 @@ export function SettingsModal({open, onClose}: Props) {
 						回溯
 					</h3>
 					<p className="text-[12px] leading-relaxed text-mute">
-						默认只恢复本轮 Agent 改过的文件（与 Cursor / Claude / Codex 一致）。整树恢复更慢，且可能改写无关文件触发界面热更新。
+						默认只恢复本轮 Agent 改过的文件。整树恢复更慢，且可能改写无关文件触发界面热更新。
 					</p>
 					<button
 						type="button"

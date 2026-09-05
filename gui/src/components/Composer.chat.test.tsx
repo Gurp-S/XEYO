@@ -176,7 +176,7 @@ describe('Composer send UX', () => {
 		const user = userEvent.setup();
 		render(<Composer />);
 		const ta = screen.getByPlaceholderText(/描述任务/);
-		// dsh claim hint 语义：/goal 精确命中且参数空白 → 灰字提示（仅覆盖层，不进草稿）。
+		// claim hint 语义：/goal 精确命中且参数空白 → 灰字提示（仅覆盖层，不进草稿）。
 		await user.type(ta, '/goal ');
 		expect(screen.getByText('请输入目标，智能体将持续执行')).toBeInTheDocument();
 		// 参数一旦非空白，提示立即消失。
@@ -184,6 +184,20 @@ describe('Composer send UX', () => {
 		expect(screen.queryByText('请输入目标，智能体将持续执行')).not.toBeInTheDocument();
 		// 灰字不进草稿。
 		expect(ta).toHaveValue('/goal 每天检查构建');
+	});
+
+	it('keyboard pick inserts bare token + hint, never the usage placeholder', async () => {
+		const user = userEvent.setup();
+		render(<Composer />);
+		const ta = screen.getByPlaceholderText(/描述任务/);
+		// 截图同款流程：/goa → ↓ 选中 goal → Enter。
+		await user.type(ta, '/goa');
+		fireEvent.keyDown(ta, {key: 'ArrowDown'});
+		fireEvent.keyDown(ta, {key: 'Enter'});
+		// 只回填 "/goal "，usage 里的 <目标> 占位符绝不进草稿；灰字立即接管提示。
+		await waitFor(() => expect(ta).toHaveValue('/goal '));
+		expect(screen.getByText('请输入目标，智能体将持续执行')).toBeInTheDocument();
+		expect(ta).not.toHaveValue(expect.stringContaining('<目标>'));
 	});
 
 	it('routes slash commands to handleComposerSlash, not sendMessage', async () => {

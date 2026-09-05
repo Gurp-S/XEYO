@@ -262,7 +262,7 @@ def _build_default_rule_dicts() -> tuple[dict, ...]:
 					}
 				)
 				if base == "git":
-					# git -C <path> <sub> / git -c <k=v> <sub>
+					# 形如 git -C <path> <sub> / git -c <k=v> <sub>
 					rules.append(
 						{
 							"name": f"builtin-git-opt-{sub}",

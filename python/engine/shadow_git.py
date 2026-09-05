@@ -41,7 +41,7 @@ def _git_text_encodings() -> list[str]:
             continue
         name = str(candidate).strip()
         if not name or name.lower() in {"utf-8", "utf8", "ansi_x3.4-1968", "ascii"}:
-            # utf-8 already first; ascii is too narrow for paths.
+            # utf-8 已在首位；ascii 对路径来说太窄。
             if name.lower() in {"utf-8", "utf8"}:
                 continue
             if name.lower() in {"ansi_x3.4-1968", "ascii"}:
@@ -61,7 +61,7 @@ class ShadowGit:
         self.git_dir = self.workspace_root / ".xy-shadow-git"
 
     def _run(self, args: List[str], check: bool = True) -> subprocess.CompletedProcess[str]:
-        # Always capture bytes, then negotiate encoding — never pin one codec.
+        # 始终先捕获字节再协商编码——绝不钉死单一编解码器。
         raw = self._run_bytes(args, check=False)
         completed = subprocess.CompletedProcess(
             args=raw.args,
@@ -102,7 +102,7 @@ class ShadowGit:
             self._run(["config", "user.name", "XEYO Shadow"])
             self._run(["config", "user.email", "shadow@xeyo.local"])
 
-        # Setup exclude file even when another component created the directory first.
+        # 即使目录已被其他组件先创建，也要配置 exclude 文件。
         info_dir = self.git_dir / "info"
         info_dir.mkdir(exist_ok=True)
         exclude_file = info_dir / "exclude"
@@ -115,7 +115,7 @@ class ShadowGit:
                     handle.write("\n")
                 handle.write("\n".join(missing) + "\n")
 
-        # Update the user's main git exclude to ignore shadow git.
+        # 更新用户主 git exclude 以忽略 shadow git。
         main_git_info = self.workspace_root / ".git" / "info"
         if main_git_info.is_dir():
             main_exclude = main_git_info / "exclude"
@@ -192,7 +192,7 @@ class ShadowGit:
                 if not head:
                     raise ShadowGitError("Failed to retrieve HEAD after empty scoped commit")
                 return head
-            # Stage only scoped paths; never `add -A` on the restore hot path.
+            # 只暂存范围化路径；恢复热路径绝不 `add -A`。
             self._run(["add", "--", *scoped], check=False)
         else:
             self._run(["add", "-A"])

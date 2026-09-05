@@ -1,6 +1,6 @@
 """后台任务三工具（42 号 P0）——``job_output`` / ``job_list`` / ``job_kill``。
 
-对齐 ``dsh-tool-jobs``：**恒注册**（无任务时空转），schema 不随状态抖动；
+后台任务语义：**恒注册**（无任务时空转），schema 不随状态抖动；
 ``job_output``/``job_list`` 只读，``job_kill`` 仅限本会话自建任务（owner 即
 安全边界），默认 allow + 日志（冻结口径 7）。
 

@@ -38,7 +38,7 @@ from extension.errors import ManifestError
 # 允许的 MCP 权限分类：与 tools.meta PolicyKind 对齐（outbound_ask 为默认企业级）。
 McpPolicy = Literal["always_allow", "outbound_ask", "ui_ask"]
 
-# 生命周期钩子事件（对齐 Codex §12 子集；子代理/UserPromptSubmit/PrePostCompact 预留）。
+# 生命周期钩子事件（子代理/UserPromptSubmit/PrePostCompact 预留）。
 HookEvent = Literal[
 	"PreToolUse",
 	"PostToolUse",

@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 
-/** Arrow-up / arrow-down through prior submissions. */
+/** 用上 / 下方向键翻阅历史提交。 */
 export function useInputHistory(limit = 50) {
   const [history, setHistory] = useState<string[]>([]);
   const [cursor, setCursor] = useState(-1);

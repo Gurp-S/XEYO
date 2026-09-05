@@ -1,4 +1,4 @@
-"""文本读写与 Edit 字符串匹配（对齐 Claude file.ts / FileEditTool/utils.ts）。"""
+"""文本读写与 Edit 字符串匹配。"""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ RIGHT_DOUBLE_CURLY = "\u201d"
 
 
 def get_mtime_ms(path: str) -> int:
-	"""floor(mtimeMs)，对齐 Claude getFileModificationTime。"""
+	"""floor(mtimeMs)。"""
 	return math.floor(os.path.getmtime(path) * 1000)
 
 
@@ -77,7 +77,7 @@ def write_text_file(
 
 
 def add_line_numbers(content: str, *, start_line: int = 1) -> str:
-	"""cat -n 风格：spaces + line number + arrow（对齐 Claude 默认前缀）。"""
+	"""cat -n 风格：spaces + line number + arrow。"""
 	if not content:
 		return ""
 	lines = content.split("\n")

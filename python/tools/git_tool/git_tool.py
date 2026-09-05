@@ -13,7 +13,7 @@ _READ_ACTIONS = frozenset({"status", "log", "branches", "diff", "summary"})
 _WRITE_ACTIONS = frozenset(
 	{"commit", "push", "add", "reset", "checkout", "merge", "rebase", "pull"}
 )
-# Align with engine.compact.MAX_TOOL_RESULT_CHARS.
+# 与 engine.compact.MAX_TOOL_RESULT_CHARS 对齐。
 _OUT_CAP = 16_000
 _STATUS_PATH_CAP = 80
 

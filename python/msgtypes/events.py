@@ -285,7 +285,7 @@ class TaskStateEvent:
 
 @dataclass
 class LlmRetryEvent:
-	"""44 号：LLM 请求失败后的重试调度决策（= DSH ``llm/retry``，非 surface 事件）。
+	"""44 号：LLM 请求失败后的重试调度决策（``llm/retry``，非 surface 事件）。
 
 	UI 依据 ``next_retry_ms`` 渲染倒计时；``code`` 为 ``classify_llm_failure``
 	的稳定错误码；不进 transcript / 消息历史。
@@ -302,7 +302,7 @@ class LlmRetryEvent:
 
 @dataclass
 class LlmRetryStartedEvent:
-	"""44 号：重试实际开始（= DSH ``llm/retry-started``，非 surface 事件）。"""
+	"""44 号：重试实际开始（``llm/retry-started``，非 surface 事件）。"""
 
 	attempt: int
 	provider: str = ""

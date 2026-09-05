@@ -71,8 +71,8 @@ export function PetScene({
   const triggerExtract = useCallback(() => {
     if (!isSidebarDocked || !onExtract || longPressTriggered.current) return;
     longPressTriggered.current = true;
-    // Run the callback in a microtask so both synchronous and asynchronous
-    // failures are caught without depending on pointer-up timing.
+    // 在微任务中执行回调，使同步与异步失败
+    // 都能被捕获，而不依赖 pointer-up 的时机。
     void Promise.resolve()
       .then(onExtract)
       .catch(() => {
@@ -117,8 +117,8 @@ export function PetScene({
     pointerDragged.current = true;
 
     if (isSidebarDocked) {
-      // In the sidebar, a small hand movement is still a valid long-press.
-      // Do not use the desktop drag threshold to cancel the extraction timer.
+      // 在侧栏中，手部轻微移动仍属于有效长按。
+      // 不要用桌面拖拽阈值取消提取计时器。
       return;
     }
     setIsDragging(true);
@@ -142,7 +142,7 @@ export function PetScene({
     pointerDragged.current = false;
 
     if (isSidebarDocked) {
-      // Fallback for a pointer-up that races the timeout at the 2s boundary.
+      // 兜底：pointer-up 与 2s 边界处的超时发生竞争时使用。
       if (holdElapsed >= PET_EXTRACT_HOLD_MS) triggerExtract();
       if (!dragged && !longPressTriggered.current) triggerInteraction();
       longPressTriggered.current = false;

@@ -254,7 +254,7 @@ def _predict_from_prior(
 		rho=rho,
 		g=params.g,
 	)
-	# Use token LCP from char ratio, not char-tokenizer of JSON
+	# 用字符比例推 token LCP，而不是对 JSON 做字符分词
 	blk = params.g * int(lcp_tok // params.g)
 	h = min(float(prev_prompt + 8), max(0.0, rho * blk))
 	return h, int(lcp_tok)

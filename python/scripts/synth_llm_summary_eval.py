@@ -48,7 +48,7 @@ def main():
     print(f"LLM摘要chars={len(llm_summary)}")
     print(f"--- LLM摘要前300字 ---\n{llm_summary[:300]}\n")
 
-    # ②probe
+    # ② 探针（probe）
     st = {"det": [0, 0], "llm": [0, 0]}
     for q in qs:
         ans = q.get("expect_contains") or []

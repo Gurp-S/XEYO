@@ -50,7 +50,7 @@ STATUSES: tuple[str, ...] = (
 
 # 合法转换表（非法转换拒绝并记日志，不影响 turn 主路径）。pending_complete 是
 # active 上的派生候选标志，不是独立状态；何时确认完结由外层决定。
-# 41 号扩展：新增 paused（DSH 对齐 —— 持久暂停相；paused 不自动续跑）。
+# 41 号扩展：新增 paused（持久暂停相；paused 不自动续跑）。
 _LEGAL_TRANSITIONS: dict[str, frozenset[str]] = {
 	STATUS_ACTIVE: frozenset({STATUS_BLOCKED, STATUS_COMPLETED, STATUS_ABANDONED, STATUS_PAUSED}),
 	STATUS_PAUSED: frozenset({STATUS_ACTIVE, STATUS_ABANDONED}),
@@ -333,7 +333,7 @@ class GoalStore:
 				pass
 			raise
 
-	# -- CRUD --------------------------------------------------------------
+	# -- 增删改查（CRUD） --------------------------------------------------------------
 	def get(self, goal_id: str) -> Goal | None:
 		raw = self._read_json(self._goal_path(goal_id))
 		if raw is None:

@@ -12,7 +12,7 @@ from rich.text import Text
 
 from cli.logo import LOGO_GLYPH, banner_body
 
-# Soft teal + amber — readable on dark/light terminals, not purple/glow.
+# 柔和青色 + 琥珀色 —— 深浅色终端下都可读，不用紫色/荧光色。
 ACCENT = "cyan"
 WARN = "yellow"
 OK = "green"

@@ -47,7 +47,7 @@ export function RemoteSseClient() {
 					const data = JSON.parse(ev.data) as Record<string, unknown>;
 					handleRef.current(ev.type, data);
 				} catch {
-					/* ignore malformed */
+					/* 忽略畸形帧 */
 				}
 			};
 

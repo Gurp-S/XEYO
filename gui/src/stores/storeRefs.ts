@@ -1,6 +1,6 @@
 import type {WorkspaceTool} from './workspaceStore';
 
-/** Late-bound workspace accessor — breaks explorerStore → api → chatStream → workspaceStore cycle. */
+/** 延迟绑定的 workspace 访问器——打破 explorerStore → api → chatStream → workspaceStore 循环依赖。 */
 let workspaceGetState: (() => {activeTool: WorkspaceTool | null}) | null = null;
 
 export function registerWorkspaceAccessor(

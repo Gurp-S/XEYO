@@ -27,13 +27,13 @@ class CliConfig:
 	base_url: str = ""
 	permission_mode: str = "risk"
 	server_base_url: str = "http://127.0.0.1:8000"
-	# Last successful workspace (click-to-use remembers it).
+	# 上次成功使用的工作区（一键使用会记住它）。
 	last_cwd: str = ""
-	# Output-compact is bundled in profiles and read elsewhere (CLI/server).
+	# Output-compact 随 profile 打包，其他处（CLI/server）也会读取。
 	output_compact: bool = False
 	# 上一轮思考回顾 T_now 注入（默认关；GUI 会话设置等价字段 reasoning_tail）。
 	reasoning_tail: bool = False
-	# Secret is referenced by env-var name, never stored as plaintext on disk.
+	# 密钥只以环境变量名引用，绝不明文落盘。
 	api_key_env: str = ""
 	# 41 号：goal round driver 全局默认轮次上限（per-goal max_rounds>0 时优先）。
 	goal_round_cap: int = 32
@@ -111,8 +111,8 @@ def load_config(profile: str | None = None) -> CliConfig:
 			data = {}
 	known = {f.name for f in fields(CliConfig)}
 	kwargs = {k: data[k] for k in known if k in data and data[k] is not None}
-	# A secret reference (top-level `api_key_env` or `[secrets] env_key`) is
-	# normalized into the `api_key_env` field so callers read one place.
+	# 密钥引用（顶层 `api_key_env` 或 `[secrets] env_key`）会
+	# 规范化到 `api_key_env` 字段，调用方只需读一处。
 	ref = _secret_env_ref(data)
 	if ref:
 		kwargs["api_key_env"] = ref
@@ -128,11 +128,11 @@ def save_config(cfg: CliConfig) -> Path:
 	lines = ["# XEYO CLI config", ""]
 	for key, value in asdict(cfg).items():
 		if key == "api_key":
-			# NEVER write a plaintext secret to disk. The secret is persisted
-			# only as an env-var reference (api_key_env) below.
+			# 绝不把明文密钥写盘。密钥只会在下方
+			# 以环境变量引用（api_key_env）形式持久化。
 			continue
 		if key == "api_key_env":
-			# Written explicitly as the secret reference below.
+			# 在下方显式写入为密钥引用。
 			continue
 		if isinstance(value, bool):
 			lines.append(f"{key} = {str(value).lower()}")
@@ -141,9 +141,9 @@ def save_config(cfg: CliConfig) -> Path:
 		else:
 			escaped = str(value).replace("\\", "\\\\").replace('"', '\\"')
 			lines.append(f'{key} = "{escaped}"')
-	# Persist a secret as an env-var reference only. If caller left api_key set
-	# without naming an env var, default to the canonical one so the secret is
-	# never written to config.toml in clear.
+	# 密钥仅以环境变量引用持久化。若调用方设置了 api_key
+	# 却未指明环境变量名，则回退到规范变量名，确保密钥
+	# 绝不以明文写入 config.toml。
 	if cfg.api_key or cfg.api_key_env:
 		ref = (cfg.api_key_env or "XEYO_MODEL_API_KEY").strip()
 		if ref:
@@ -190,9 +190,9 @@ def resolve_api_key(explicit: str | None = None, *, cfg: CliConfig | None = None
 	if explicit and explicit.strip():
 		return explicit.strip()
 	cfg = cfg or load_config()
-	# When a secret env-var reference is configured, read ONLY from that var.
-	# If it's unset we return empty rather than falling back to any plaintext
-	# value that might still be in the file — no secret from disk.
+	# 配置了密钥环境变量引用时，只从该变量读取。
+	# 若该变量未设置则返回空，而不是回退到文件里可能残留的
+	# 任何明文值 —— 磁盘上不留密钥。
 	if cfg.api_key_env.strip():
 		return os.environ.get(cfg.api_key_env.strip(), "").strip()
 	for key in ("XEYO_MODEL_API_KEY", "DEEPSEEK_API_KEY", "OPENAI_API_KEY"):
@@ -206,7 +206,7 @@ def resolve_provider(explicit: str | None = None, *, cfg: CliConfig | None = Non
 	if explicit and explicit.strip():
 		return explicit.strip().lower()
 	env = os.environ.get("XEYO_MODEL", "").strip().lower()
-	# XEYO_MODEL historically means backend; ignore values that look like model ids.
+	# XEYO_MODEL 历史上指后端；忽略看起来像模型 id 的值。
 	if env and env in VALID_PROVIDERS:
 		return env
 	return ((cfg or load_config()).provider or "deepseek").strip().lower() or "deepseek"

@@ -72,7 +72,7 @@ def test_abort_hook_short_circuits(tmp_path):
 
 
 def test_factor_classification():
-	# Success
+	# Success（成功）
 	assert _outcome_for({"status": "ok", "returncode": 0}, _hook(fail="continue")) == "success"
 	# FailedContinue（非零 + continue）
 	assert _outcome_for({"status": "ok", "returncode": 3}, _hook(fail="continue")) == "continue"

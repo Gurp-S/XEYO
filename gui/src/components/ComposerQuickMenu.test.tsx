@@ -33,7 +33,7 @@ function renderQuick(opts: {
 }
 
 describe('ComposerQuickMenu', () => {
-	it('renders Cursor-style search, modes, Files and MCP rows', () => {
+	it('renders plain-text search, modes, Files and MCP rows', () => {
 		renderQuick();
 		expect(screen.getByPlaceholderText('Search modes, actions…')).toBeTruthy();
 		expect(screen.getByText('Plan')).toBeTruthy();

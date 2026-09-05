@@ -80,5 +80,5 @@ def test_bad_json_falls_back_empty(tmp_path):
 	assert cfg.enabled_extensions is False
 
 
-# Permission test: adding a comment to verify write access
-# This is a harmless modification to test file write permissions
+# 权限测试：添加一行注释以验证写权限
+# 这是一次无害修改，用于测试文件写权限

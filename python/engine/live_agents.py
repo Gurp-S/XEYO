@@ -1,7 +1,7 @@
 """运行中子 Agent 的 Abort 注册表 + follow-up inbox（P2）。
 
 主会话 abort 仍通过 LinkedAbortController 联动；对本表 abort 只杀指定工人。
-inbox 语义对齐 DSH mid-turn inbox（**park 而非注入**）：
+inbox 语义（mid-turn inbox，**park 而非注入**）：
 
 - ``post_to_agent`` 只入队，绝不打断正在进行的 ``_run_subagent_body`` 内 query_loop；
 - 投递点 = 子 agent 回合 settle（``_run_subagent_body`` 同实例循环处消费）；
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 	from engine.abort import AbortController
 
 _lock = threading.Lock()
-# key = "{session_id}::{agent_id}"
+# 键格式 key = "{session_id}::{agent_id}"
 _LIVE: dict[str, "AbortController"] = {}
 # follow-up inbox：key 同上；value = list[dict(text, message_id, queued_at, state)]
 _INBOX: dict[str, list[dict[str, Any]]] = {}

@@ -19,7 +19,7 @@ from tools.web_search_tool.config import (
 )
 from tools.web_search_tool.prompt import DESCRIPTION, WEB_SEARCH_TOOL_NAME
 
-# Short connect: fail fast; longer read for HTML/JSON.
+# 连接超时短：快速失败；HTML/JSON 读取给更长超时。
 _CONNECT_S = 3.0
 _READ_S = 15.0
 _DEFAULT_COUNT = 3
@@ -98,7 +98,7 @@ class WebSearchTool:
 
 		errors: list[str] = []
 
-		# 1) SearXNG if configured
+		# 1) 已配置则用 SearXNG
 		searx = get_searxng_url()
 		if searx:
 			abort.raise_if_aborted()
@@ -115,7 +115,7 @@ class WebSearchTool:
 			if not results:
 				errors.append("searxng: no results parsed")
 
-		# 2) Optional Brave (env key)
+		# 2) 可选 Brave（环境变量密钥）
 		brave_key = (os.environ.get("XEYO_BRAVE_API_KEY") or "").strip()
 		if brave_key:
 			abort.raise_if_aborted()
@@ -131,7 +131,7 @@ class WebSearchTool:
 				)
 			errors.append("brave: no results parsed")
 
-		# 3) Bing ∥ Mojeek race
+		# 3) Bing ∥ Mojeek 竞速
 		abort.raise_if_aborted()
 		race_name, race_results, race_errs = await _race_bing_mojeek(
 			httpx, query, count, abort
@@ -143,7 +143,7 @@ class WebSearchTool:
 				is_error=False,
 			)
 
-		# 4) Opt-in DDG
+		# 4) 可选启用 DDG
 		if _include_ddg():
 			for name, fn in (
 				("duckduckgo", _ddg_search),
@@ -476,7 +476,7 @@ async def _mojeek_search(
 
 async def _parse_mojeek_html(html: str, count: int) -> list[dict[str, str]]:
 	out: list[dict[str, str]] = []
-	# Split on result list items when present; else scan whole page.
+	# 有结果列表则按其切分；否则扫全页。
 	blocks = re.split(r"<li\b", html, flags=re.I)
 	if len(blocks) < 2:
 		blocks = [html]

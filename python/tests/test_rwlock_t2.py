@@ -11,7 +11,7 @@ from msgtypes.message import ToolUse
 from tools.orchestration import _run_one_tool
 
 
-# ---------- RWLock ----------
+# ---------- RWLock（读写锁）----------
 
 
 @pytest.mark.asyncio

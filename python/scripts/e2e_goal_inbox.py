@@ -133,7 +133,7 @@ def main() -> int:
 	ws = tmp_root / "ws"
 	ws.mkdir(parents=True, exist_ok=True)
 
-	# --- mock LLM -------------------------------------------------------
+	# --- 模拟 LLM（mock LLM） -------------------------------------------------------
 	disp = Dispatcher()
 	mock = MockLLMServer(disp.dispatch)
 	mock.start()

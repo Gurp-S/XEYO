@@ -16,7 +16,7 @@ from channels.ilink.client import ILinkClient, collect_update_msgs, decode_qr_pa
 from channels.jobs import JobRecord, JobStore
 from channels.runner import FinalOnlyRunner
 
-# 1×1 PNG
+# 1×1 像素 PNG
 _PNG_B64 = (
 	"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
 )

@@ -46,7 +46,7 @@ export type UseMessageListViewportOptions = {
 	requestStuck: () => void;
 	requestStuckRef: RefObject<() => void>;
 	stickyLayoutMuteRef: RefObject<boolean>;
-	/** Shared with the editing cluster: edit-lock read by follow-tail scroll. */
+	/** 与编辑簇共用：跟随尾部滚动会读取编辑锁。 */
 	editingViewportLockRef: RefObject<boolean>;
 	stickToBottom: RefObject<boolean>;
 	scrollScheduled: RefObject<boolean>;
@@ -173,9 +173,9 @@ export function useMessageListViewport(
 			}
 		} else {
 			// 兜底：api 未就绪（首个滚动事件先于列表布局 effect）时用 DOM 二分。
-			// RoundMount sections are direct children of the transcript content.
-			// Their offsetTop is equivalent to rect.top - scroller rect.top +
-			// scrollTop, without a per-frame getBoundingClientRect layout read.
+			// RoundMount 区块是 transcript 内容的直接子节点。
+			// 其 offsetTop 等价于 rect.top - scroller rect.top +
+			// scrollTop，免去逐帧的 getBoundingClientRect 布局读取。
 			const elements = roundNodesRef.current;
 			let low = 0;
 			let high = elements.length - 1;

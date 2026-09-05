@@ -15,7 +15,7 @@ from permissions import filesystem
 from tools.base_tool import ToolResult
 from tools.diagnostics_tool.prompt import DESCRIPTION, DIAGNOSTICS_TOOL_NAME
 
-# Align with engine.compact.MAX_TOOL_RESULT_CHARS to avoid wasted work.
+# 与 engine.compact.MAX_TOOL_RESULT_CHARS 对齐，避免白做。
 _TIMEOUT_S = 30
 _MAX_CHARS = 16_000
 _MAX_LINES = 100
@@ -236,7 +236,7 @@ def _iter_py_files(target: str) -> list[Path]:
 			if depth > _MAX_DEPTH:
 				dirnames[:] = []
 				continue
-			# skip noisy dirs
+			# 跳过噪音目录
 			dirnames[:] = [
 				d
 				for d in dirnames
@@ -304,7 +304,7 @@ def _run_ruff(ruff: str, target: str) -> list[str]:
 
 def _run_tsc(tsc: str, tsconfig: str | None, target: str) -> list[str]:
 	p = Path(target)
-	# Prefer single-file check when path is a TS/JS file.
+	# 路径为 TS/JS 文件时优先做单文件检查。
 	if p.is_file() and p.suffix.lower() in _TS_EXTS:
 		cmd = [tsc, "--noEmit", "--pretty", "false", str(p)]
 		cwd = str(p.parent)

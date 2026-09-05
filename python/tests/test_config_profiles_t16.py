@@ -30,7 +30,7 @@ def _write_config(text: str) -> Path:
 
 
 # ---------------------------------------------------------------------------
-# Profiles
+# Profiles（配置档）
 # ---------------------------------------------------------------------------
 
 
@@ -99,7 +99,7 @@ def test_cli_profile_option_exposed() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Feature registry
+# Feature registry（功能注册表）
 # ---------------------------------------------------------------------------
 
 
@@ -109,7 +109,7 @@ def test_parse_features_known_returns_default_and_stage() -> None:
 	assert parsed["XEYO_TOOL_AGING"] == "0"
 	assert parsed["XEYO_C2_GATE"] == "1"
 	assert warnings == []
-	# Registry exposes key/stage/default/removed per switch.
+	# 注册表为每个开关暴露 key/stage/default/removed。
 	assert FEATURE_SPECS["XEYO_PERMISSION_MODE"].key == "XEYO_PERMISSION_MODE"
 	assert FEATURE_SPECS["XEYO_PERMISSION_MODE"].stage == "stable"
 	assert FEATURE_SPECS["XEYO_L5"].stage == "internal"
@@ -139,14 +139,14 @@ def test_parse_features_unknown_key_hints_without_exception() -> None:
 
 
 def test_parse_features_defaults_to_os_environ() -> None:
-	# No mapping supplied → reads os.environ; must not raise and returns dict.
+	# 未提供映射 → 读 os.environ；不得抛异常并返回 dict。
 	parsed, warnings = parse_features()
 	assert isinstance(parsed, dict)
 	assert isinstance(warnings, list)
 
 
 # ---------------------------------------------------------------------------
-# env_key secret reference (no plaintext on disk)
+# env_key 密钥引用（磁盘无明文）
 # ---------------------------------------------------------------------------
 
 
@@ -181,7 +181,7 @@ def test_env_key_absent_returns_empty_not_plaintext(
 ) -> None:
 	monkeypatch.setenv("XEYO_HOME", str(tmp_path / "home"))
 	monkeypatch.delenv("XEYO_MODEL_API_KEY", raising=False)
-	# Env_key configured; even a legacy plaintext in the file must NOT be used.
+	# 已配置 env_key；文件里的历史明文也绝不可使用。
 	_write_config(
 		'api_key = "sk-plaintext-legacy"\n'
 		"[secrets]\n"

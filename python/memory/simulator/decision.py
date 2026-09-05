@@ -120,7 +120,7 @@ def _argmin_d(ds: dict[str, float], params: Params) -> str:
 			best_d = d
 			best_a = a
 		elif best_a is not None and abs(d - best_d) <= params.eps_d:
-			# tie → C1
+			# 平手 → C1
 			best_a = "C1" if "C1" in ds else a
 	return best_a or L4
 
@@ -228,7 +228,7 @@ def decide(
 	if r_gate is not None and r_gate.force_hardtop:
 		notes.append("R_gate_force_hardtop")
 	branches = {a: _branch(s0, cache, a, p) for a in ACTIONS}
-	# Apply must not mutate S0
+	# Apply 不得改动 S0
 	for a in ACTIONS:
 		apply(a, s0, p)
 	if fingerprint(s0) != fp0:
@@ -265,7 +265,7 @@ def decide(
 			notes=tuple(notes),
 		)
 
-	# R=1 endgame: keep, does not override HardTop (already handled)
+	# R=1 收尾：keep，不覆盖 HardTop（已另行处理）
 	if remaining_turns <= 1:
 		notes.append("R=1_keep")
 		return Decision(
@@ -346,7 +346,7 @@ def decide(
 	counts: dict[str, int] = {}
 	for a in (a4, a8, a16):
 		counts[a] = counts.get(a, 0) + 1
-	# stable: iterate ACTIONS then others
+	# 稳定顺序：先遍历 ACTIONS 再遍历其余
 	best_n = 0
 	a_vote = "keep"
 	for a in list(ACTIONS) + [x for x in counts if x not in ACTIONS]:

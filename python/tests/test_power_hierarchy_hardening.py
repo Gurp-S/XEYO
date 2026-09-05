@@ -110,7 +110,7 @@ def test_bash_allow_demoted_without_unsafe_flag(tmp_path: Path):
 	)
 	clear_policy_cache()
 	r = evaluate_policy("Bash", {"command": "python app.py"}, cwd=str(tmp_path))
-	# demoted to default → ASK for scripts
+	# 降级为 default → scripts 需 ASK
 	assert r.decision == PermissionDecision.ASK
 	assert r.matched_rule == "bash_default_ask"
 

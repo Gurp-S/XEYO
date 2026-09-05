@@ -18,19 +18,19 @@ export type PetStateRow = {
   state: string;
   row: number;
   frames: number;
-  /** Optional atlas frame order; absent means 0..frames-1. */
+  /** 可选的图集帧顺序；缺省表示 0..frames-1。 */
   frameSequence?: number[];
-  /** Optional per-atlas-frame horizontal correction in native pixels. */
+  /** 可选的逐帧水平校正（原生像素）。 */
   frameOffsetsX?: number[];
   fps?: number;
   loop?: boolean;
-  /** Apply atlas frame changes only to a bounded region instead of the whole sprite. */
+  /** 仅对限定区域应用图集帧变更，而不是整个精灵。 */
   animationMode?: PetAnimationMode;
-  /** Native cell region used by localized animation modes. */
+  /** 局部动画模式使用的原生单元格区域。 */
   animationRegion?: PetAnimationRegion;
 
   bubbleOverlay?: string;
-  /** True when the state row already contains its bubble artwork inside the atlas. */
+  /** 为 true 表示该状态行已在图集内自带气泡图。 */
   bubbleInAtlas?: boolean;
 };
 

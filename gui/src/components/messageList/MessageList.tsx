@@ -1,5 +1,5 @@
 /**
- * Message list shell — rounds, sticky edit, rewind pills.
+ * 消息列表外壳——轮次、吸顶编辑、回溯药丸。
  */
 import {
 	useCallback,
@@ -18,6 +18,7 @@ import {
 
 import {RewindCutPill} from '../WorkspaceRevertDialog';
 import {useRewindV3Store, type RewindPill} from '@/stores/rewindV3Store';
+import {useSettingsStore} from '@/stores/settingsStore';
 import {pickEmptyQuip} from '@/lib/emptyQuips';
 import {groupTranscript, patchTranscriptTail, type TranscriptBlock} from '@/lib/groupTranscript';
 import {
@@ -164,7 +165,7 @@ export function MessageList({
 			return releaseSelfWallpaper;
 		}, []);
 
-		/** Shared between viewport and editing clusters (edit-lock / follow-tail). */
+		/** 视口与编辑簇共用（编辑锁 / 跟随尾部）。 */
 		const editingViewportLockRef = useRef(false);
 		const stickToBottom = useRef(true);
 		const scrollScheduled = useRef(false);
@@ -179,6 +180,7 @@ export function MessageList({
 			scheduleFrameRead(frameKeysRef.current!.topFade, syncTopFade);
 		}, [syncTopFade]);
 
+		const stickyBubblesOn = useSettingsStore(s => s.stickyBubbles === true);
 		const {
 			controller: stickyCtrl,
 			editPortalHost,
@@ -195,6 +197,7 @@ export function MessageList({
 			contentRef,
 	overlayRef: pinOverlayRef,
 			streaming: Boolean(isLoading || streamingText),
+			enabled: stickyBubblesOn,
 			onLayoutMute: () => {
 				stickyLayoutMuteRef.current = true;
 				window.setTimeout(() => {
@@ -589,6 +592,7 @@ export function MessageList({
 										stopGeneration={stopGeneration}
 										resizeEditingTextarea={editing.resizeEditingTextarea}
 										lockEditFlow={
+											stickyBubblesOn &&
 											editing.stickyEditFlowLockRef.current &&
 											editing.editingMessageId === round.user?.id
 										}

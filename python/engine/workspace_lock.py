@@ -97,8 +97,8 @@ class WorkspaceLock:
         except OSError as exc:
             raise LeaseError("workspace lock heartbeat cannot be read") from exc
 
-        # Expiry is derived from the heartbeat, not from a mutable canonical
-        # payload.  This prevents an old owner from replacing a new owner's lock.
+        # 过期时间由心跳推导，而不是来自可变的规范
+        # 载荷。这防止旧持有者覆盖新持有者的锁。
         return Lease(
             lease_id=lease_id,
             owner=owner,
@@ -117,8 +117,8 @@ class WorkspaceLock:
     def _reclaim_stale(self, lease: Lease | None) -> bool:
         if lease is not None and time.time() < lease.expires_at:
             return False
-        # If lease is None, it means the lock is corrupt (failed to parse).
-        # In this case, we rely on the file's mtime to see if it's stale enough to reclaim.
+        # lease 为 None 说明锁文件已损坏（解析失败）。
+        # 此时依据文件 mtime 判断是否足够陈旧、可以回收。
         if lease is None and not self._lock_file_is_stale():
             return False
 

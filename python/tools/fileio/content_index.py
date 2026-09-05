@@ -1,4 +1,4 @@
-"""字面量 trigram 内容索引——加速 ``files_with_matches`` 检索（对齐 Cursor “fast regex search” 的索引思路）。
+"""字面量 trigram 内容索引——加速 ``files_with_matches`` 检索。
 
 思路（索引 → 查找 → 验证）：
 - 对**纯字面量** pattern（无 regex 元字符、>=4 个字母数字/下划线）建 root 级 trigram 倒排，

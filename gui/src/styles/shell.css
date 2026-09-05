@@ -17,7 +17,7 @@ html.tauri #root {
   overflow: hidden;
   /* 锟?fixed/portal 鍏ㄥ睆娴眰涔熻杩涘渾瑙掑唴 */
   contain: paint;
-  /* Light: nearly flat cool field; dark keeps soft depth */
+  /* 亮色：近乎平整的冷色底；暗色保留柔和深度 */
   background:
     radial-gradient(900px 420px at 8% -8%, var(--xy-bg-a) 0%, transparent 58%),
     var(--color-paper);

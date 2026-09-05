@@ -30,7 +30,7 @@ def needs_credentials(
 		return False
 	if (api_key or "").strip():
 		return False
-	# Local OpenAI-compatible servers often need no key.
+	# 本地 OpenAI 兼容服务器通常无需密钥。
 	if prov == "local" and (base_url or "").strip():
 		return False
 	return True

@@ -1,12 +1,12 @@
 """插件生命周期钩子执行器（子进程，短超时，三分结果，PermissionRequest fail-closed）。
 
-事件（对齐 Codex §12 子集；Subagent*/UserPromptSubmit/PrePostCompact 预留）：
+事件（Subagent*/UserPromptSubmit/PrePostCompact 预留）：
 ``PreToolUse`` / ``PostToolUse`` / ``PermissionRequest`` / ``SessionStart`` / ``SessionEnd``。
 
 开关：:meth:`ExtensionConfig.hooks_enabled`（扩展层主开关 && hooks 主开关，**默认关**）。
 关闭时本模块零执行、零注入（旁路形态，逐位 = 停产）。
 
-结果三分（对齐 Codex）：``Success``（exit 0）/ ``FailedContinue``（非零且
+结果三分：``Success``（exit 0）/ ``FailedContinue``（非零且
 ``fail_policy=continue``）/ ``FailedAbort``（非零且 ``fail_policy=abort`` **或超时**）。
 ``PermissionRequest`` 任一非 Success → fail-closed DENY（短路工具调用，绝不静默放行）。
 

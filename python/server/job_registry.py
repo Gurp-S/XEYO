@@ -1,6 +1,6 @@
 """Job Registry（42 号 P0）— 进程内后台任务注册表 + 完成通知管线。
 
-对齐 ``dsh-jobs`` / ``dsh-jobs-local`` / ``dsh-tool-jobs`` 的语义（42 号 §4/§6）：
+后台任务语义（42 号 §4/§6）：
 
 - **内存态、per-session（owner）**：进程重启即清空（与 41 号 armed 同纪律）。
 - **owner 即安全边界**：list/read/kill 只作用 caller 自会话任务，无 scope 分层。
@@ -410,7 +410,7 @@ class JobRegistry:
 		self._settle(job_id, status, detail)
 
 	# ------------------------------------------------------------------
-	# kill
+	# kill（终止）
 	# ------------------------------------------------------------------
 	def kill(self, job_id: str, caller_session_id: str, reason: str = "") -> str:
 		"""请求取消：置 stopping + 标记已报告；取消异常由生产方隔离为 killed。"""

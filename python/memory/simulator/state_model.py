@@ -54,7 +54,7 @@ class ContextState:
 	turn: int = 0
 	frozen_i_m: tuple[str, ...] = ()
 	frozen_v: tuple[tuple[str, int], ...] = ()
-	# After C2, I_M units are not in m; quality uses this r and the summary span.
+	# C2 之后 I_M 单元不在 m 中；quality 用此 r 和摘要跨度。
 	c2_active: bool = False
 	c2_summary_id: str | None = None
 	c2_r: float = 0.6
@@ -244,7 +244,7 @@ def roll_turn(s: ContextState, delta_text: str, params: Params) -> ContextState:
 		t_now=t_now,
 		turn=s.turn + 1,
 		turns_since_middle_edit=s.turns_since_middle_edit + 1,
-		# I_M stays the freeze from the *decision* S0; after a real turn we re-freeze.
+		# I_M 保持 *决策* S0 的冻结值；真实 turn 之后再重新冻结。
 		frozen_i_m=tuple(seg.id for seg in m),
 		frozen_v=tuple((seg.id, seg.tokens) for seg in m),
 		c2_active=False if overflow else s.c2_active,

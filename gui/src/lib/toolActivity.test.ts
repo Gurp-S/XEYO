@@ -1351,7 +1351,7 @@ describe('findHandoffStepId', () => {
 });
 
 describe('formatCursorToolParts', () => {
-	it('builds Cursor-style categorized label with lowercase follow-ons', () => {
+	it('builds categorized label with lowercase follow-ons', () => {
 		const {parts, diffs} = formatCursorToolParts([
 			{id: 'e1', verb: 'Edited', detail: 'a.ts', diff: {add: 10, del: 2}},
 			{id: 'e2', verb: 'Edited', detail: 'b.ts', diff: {add: 5, del: 1}},

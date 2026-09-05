@@ -1406,11 +1406,11 @@ export async function executeRollback(
 		idempotencyKey: string;
 		confirmed: boolean;
 		expectedWorkspaceRevision?: string | null;
-		/** Opt-in full shadow-git tree restore; default false = agent files only. */
+		/** 可选的 shadow-git 整树恢复；默认 false = 仅恢复 Agent 改动的文件。 */
 		fullTreeRestore?: boolean | null;
-		/** false = transcript only; leave workspace files as-is. */
+		/** false = 仅回滚 transcript；工作区文件保持原样。 */
 		restoreWorkspace?: boolean | null;
-		/** v2: return after transcript_committed; workspace finishes in background. */
+		/** v2：transcript_committed 后即返回；工作区在后台继续完成。 */
 		asyncWorkspace?: boolean | null;
 	},
 ): Promise<{
@@ -1465,7 +1465,7 @@ export async function resolveRollbackRecovery(
 	return {job: payload.job};
 }
 
-/** Map backend transcript rows from rollback execute into ChatMessage shape. */
+/** 将 rollback execute 返回的后端 transcript 行映射为 ChatMessage 结构。 */
 function retainedTranscriptRowsToChatMessages(
 	rows: Array<Record<string, unknown>>,
 ): ChatMessage[] {

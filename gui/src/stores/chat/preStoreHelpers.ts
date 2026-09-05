@@ -378,7 +378,7 @@ activeSpaceId: string;
 	messagesLoadingIds: Record<string, true>;
 	historyById: Record<string, ChatHistoryState>;
 	/**
-	 * 每个 session 的实时 TodoWrite 清单（镜像 Claude AppState.todos）。
+	 * 每个 session 的实时 TodoWrite 清单（镜像后端 AppState.todos）。
 	 * 在 tool_call/tool_result 时更新；transcript 仍是持久化来源。
 	 */
 	sessionTodosById: Record<string, TodoSnapshot | null>;
@@ -508,7 +508,7 @@ activeSpaceId: string;
 	requestComposerFocus: () => void;
 	setActiveSpace: (spaceId: string) => Promise<void>;
 	toggleSpaceCollapsed: (spaceId: string) => void;
-	/** 将文件夹打开为工作区（Cursor 风格）。按路径幂等。 */
+	/** 将文件夹打开为工作区。按路径幂等。 */
 	openFolder: (rootPath: string) => Promise<string>;
 	/**
 	 * 聚焦工作区：最新 session，或若无则新建空聊天。

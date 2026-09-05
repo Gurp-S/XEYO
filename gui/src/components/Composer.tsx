@@ -74,7 +74,7 @@ type Attachment = DraftAttachment;
 
 const MAX_IMAGES = 8;
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
-/** 空态单行高度（Cursor 式矮框）；输入变多后长到 TA_MAX；封顶后内部滚动 */
+/** 空态单行高度（矮框）；输入变多后长到 TA_MAX；封顶后内部滚动 */
 const TA_MIN_PX = 36;
 const TA_MAX_PX = 120;
 const TA_EXPANDED_HEIGHT = 'min(58vh, 440px)';
@@ -587,7 +587,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 	const slashFlatItems = useMemo(
 		() => [
 			...filteredSkills.map(s => ({kind: 'skill' as const, replacement: `/${s.name} `})),
-			...slashSuggest.map(c => ({kind: 'command' as const, replacement: `${c.usage} `})),
+			...slashSuggest.map(c => ({kind: 'command' as const, replacement: `/${c.name} `})),
 		],
 		[filteredSkills, slashSuggest],
 	);
@@ -603,6 +603,16 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 	useEffect(() => {
 		setSlashHighlight(null);
 	}, [slashToken, atToken, popupOpen]);
+
+	// 高亮行自动滚入可视区（dsh combobox 语义）：键盘 ↑↓ 走出视口时列表跟随，
+	// block:'nearest' 保证视口内已有行不跳动。滚动条隐藏后这是唯一的导航可见反馈。
+	const flyoutRef = useRef<HTMLDivElement>(null);
+	useEffect(() => {
+		const el = flyoutRef.current?.querySelector('[aria-selected="true"]');
+		if (el && typeof el.scrollIntoView === 'function') {
+			el.scrollIntoView({block: 'nearest'});
+		}
+	}, [slashHighlight, popupItems]);
 
 	// 输入变化即解除临时关闭；Esc 关闭后继续输入 / 会重新出现。
 	useEffect(() => {
@@ -658,7 +668,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 
 	// slash 着色覆盖层：/词元 命中命令 → 橙、命中技能 → 蓝（前缀也算，输入中即着色）。
 	// URL（https://…）、路径（src/foo）整体是一个非空白词元，不以 / 开头，不会误着色。
-	// ghost hint（dsh claim hint 对应物）：首词元精确命中命令/技能且参数空白时，
+	// ghost hint（claim hint 语义）：首词元精确命中命令/技能且参数空白时，
 	// 在词元后展示灰字提示（零 DOM 侵入草稿，仅覆盖层显示，不参与提交）。
 	const slashOverlay = useMemo(() => {
 		if (imeComposing || !value.includes('/')) {
@@ -897,7 +907,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 		const parts = [value.trim()];
 		for (const a of files) {
 			if (a.path && !a.text) {
-				// Cursor 风格：@相对路径，由 Agent 按需读文件
+				// @相对路径引用：由 Agent 按需读文件
 				const ref = a.path.replace(/\\/g, '/');
 				parts.push(`\n\n@${ref}`);
 			} else if (a.text) {
@@ -1327,9 +1337,10 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 							<div className="relative flex w-full min-h-[36px] shrink-0">
 								{slashMenuOpen ? (
 									<div
+										ref={flyoutRef}
 										role="listbox"
 										aria-label="斜杠命令与技能建议"
-										className="xy-menu-flyout absolute bottom-full left-0 z-50 mb-1.5 max-h-[280px] w-[min(440px,100%)] overflow-y-auto rounded-xl border border-line/50 p-1"
+										className="xy-menu-flyout absolute bottom-full left-0 z-50 mb-1.5 max-h-[280px] w-[min(440px,100%)] overflow-y-auto rounded-xl border border-line/50 p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
 									>
 									{filteredSkills.length > 0 ? (
 										<div className="px-1 pb-0.5 pt-1 text-[10px] font-medium uppercase tracking-[0.08em] text-mute">
@@ -1380,7 +1391,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 											aria-selected={slashHighlight === filteredSkills.length + i}
 											onMouseDown={e => e.preventDefault()}
 											onMouseEnter={() => setSlashHighlight(filteredSkills.length + i)}
-											onClick={() => applySlashPick(`${c.usage} `)}
+											onClick={() => applySlashPick(`/${c.name} `)}
 											className={cn(
 												'xy-menu-row flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left',
 												slashHighlight === filteredSkills.length + i && 'bg-paper-deep/70',
@@ -1396,9 +1407,10 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 								) : null}
 								{atMenuOpen ? (
 									<div
+										ref={flyoutRef}
 										role="listbox"
 										aria-label="文件引用建议"
-										className="xy-menu-flyout absolute bottom-full left-0 z-50 mb-1.5 max-h-[280px] w-[min(440px,100%)] overflow-y-auto rounded-xl border border-line/50 p-1"
+										className="xy-menu-flyout absolute bottom-full left-0 z-50 mb-1.5 max-h-[280px] w-[min(440px,100%)] overflow-y-auto rounded-xl border border-line/50 p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
 									>
 										<div className="px-1 pb-0.5 pt-1 text-[10px] font-medium uppercase tracking-[0.08em] text-mute">
 											文件引用

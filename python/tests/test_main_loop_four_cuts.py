@@ -28,7 +28,7 @@ from tools.tool_registry import ToolRegistry
 
 
 # ---------------------------------------------------------------------------
-# XML stream buffer
+# XML 流缓冲
 # ---------------------------------------------------------------------------
 
 
@@ -45,7 +45,7 @@ def test_xml_buffer_feeds_complete_calls_incrementally():
 
 
 # ---------------------------------------------------------------------------
-# Cross-submit proj_cache
+# 跨提交 proj_cache
 # ---------------------------------------------------------------------------
 
 
@@ -108,7 +108,7 @@ async def test_proj_cache_survives_across_submit(monkeypatch, mem_switch):
 
 
 # ---------------------------------------------------------------------------
-# Early: ToolCallEvent before stream ends; quota before run
+# 提前：流未结束先到 ToolCallEvent；配额先于 run
 # ---------------------------------------------------------------------------
 
 
@@ -219,7 +219,7 @@ async def test_early_respects_tool_call_quota(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# XML streaming early
+# XML 流式提前
 # ---------------------------------------------------------------------------
 
 
@@ -279,7 +279,7 @@ async def test_xml_stream_early_starts_before_stream_ends(monkeypatch):
 	model = _XmlStreamModel()
 	reg = ToolRegistry()
 	reg.register(_XmlReadTool())
-	# policy ALLOW for Read in workspace
+	# 工作区内 Read 的策略为 ALLOW
 	store = MessageStore([user_message("read")])
 	started_at: float | None = None
 
@@ -306,7 +306,7 @@ async def test_xml_stream_early_starts_before_stream_ends(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Queue wake: no 0.25s pad after fast tools
+# 队列唤醒：快速工具后不再垫 0.25s
 # ---------------------------------------------------------------------------
 
 

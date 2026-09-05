@@ -375,4 +375,4 @@ export function writeSettledVerb(result?: string): 'Created' | 'Wrote' {
 	return 'Wrote';
 }
 
-/** 将一次 tool 调用映射为 Cursor 风格 activity 步骤。 */
+/** 将一次 tool 调用映射为 activity 步骤。 */

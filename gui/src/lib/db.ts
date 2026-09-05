@@ -103,7 +103,7 @@ function dropOldDatabase(): void {
 	try {
 		indexedDB.deleteDatabase(OLD_DB_NAME);
 	} catch {
-		/* ignore */
+		/* 忽略 */
 	}
 }
 
@@ -131,7 +131,7 @@ async function mergeKvTombstones(
 				}
 			}
 		} catch {
-			/* ignore malformed tombstone blobs */
+			/* 忽略畸形的墓碑数据 */
 		}
 	}
 	if (merged.size === 0) {
@@ -154,7 +154,7 @@ async function migrateOldDb(): Promise<IDBPDatabase<XeyoDB>> {
 			return existing;
 		}
 	} catch {
-		/* new db not ready yet */
+		/* 新库尚未就绪 */
 	}
 
 	try {
@@ -237,7 +237,7 @@ async function migrateOldDb(): Promise<IDBPDatabase<XeyoDB>> {
 			const newDb = await openDB<XeyoDB>(NEW_DB_NAME, 4, {upgrade: dbUpgrade});
 			return finalizeMigration(newDb);
 		} catch {
-			/* fall through */
+			/* 继续向下执行 */
 		}
 	}
 	return openDB<XeyoDB>(NEW_DB_NAME, 4, {upgrade: dbUpgrade});
@@ -348,7 +348,7 @@ async function purgeSideChatSessions(deletedSessions: Set<string>): Promise<void
 				}
 			}
 		} catch {
-			/* ignore malformed side chat list */
+			/* 忽略畸形的旁路聊天列表 */
 		}
 	}
 	for (const sessionId of deletedSessions) {

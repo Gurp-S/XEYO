@@ -103,7 +103,7 @@ def bias_flags(rows: Sequence[HitRecord]) -> list[str]:
 	long_ctx = by.get("ctx>=32k")
 	ttl = [by.get("age<=5m"), by.get("age<=10m"), by.get("age>1h")]
 	if long_ctx and long_ctx["n"] >= 3 and long_ctx["Bias"] > 0 and long_ctx["MAE"] > 0:
-		# systematic overestimate on long context
+		# 长上下文下的系统性高估
 		if abs(long_ctx["Bias"]) > 0.5 * max(long_ctx["MAE"], 1e-9):
 			flags.append("long_context_overestimate" if long_ctx["Bias"] > 0 else "long_context_underestimate")
 	edge = by.get("age>1h")

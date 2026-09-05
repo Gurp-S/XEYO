@@ -4,15 +4,15 @@ import { border } from "../theme.js";
 
 type Props = {
   children: ReactNode;
-  /** Semantic border color from theme(). */
+  /** 来自 theme() 的语义化边框颜色。 */
   color?: string;
   marginBottom?: number;
   paddingLeft?: number;
 };
 
 /**
- * Left-only rail — secondary grouping without a full box.
- * Skill: reserve full borders for focus / modals.
+ * 仅左侧竖轨 —— 做次级分组，不用完整方框。
+ * 准则：完整边框只留给焦点 / 弹窗。
  */
 export function Rail({
   children,

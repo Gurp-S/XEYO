@@ -771,7 +771,7 @@ def test_chat_only_execute_resets_working_snapshot_and_session_md(
     assert reloaded.speculation == []
     assert not session_md_path(session_id).is_file()
 
-    # helpers remain safe to call twice
+    # 辅助函数重复调用仍安全
     reset_after_rollback(session_id)
     clear_after_rollback(session_id)
     assert working_path(session_id).is_file()

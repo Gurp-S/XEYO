@@ -18,17 +18,17 @@ type RoundMountProps = {
 	roundId: string;
 	always: boolean;
 	root: HTMLElement | null;
-	/** When false, skip ResizeObserver height caching (e.g. live streaming round). */
+	/** 为 false 时跳过 ResizeObserver 高度缓存（如正在流式输出的轮次）。 */
 	cacheHeight?: boolean;
 	children: ReactNode;
 };
 
 /**
- * Defers mounting off-screen rounds via IntersectionObserver.
- * Caches measured height so placeholders match last known size (no 120px jump).
+ * 通过 IntersectionObserver 延迟挂载视口外的轮次。
+ * 缓存实测高度，使占位块与上次已知尺寸一致（避免 120px 跳动）。
  *
- * Do NOT use content-visibility here: it fights position:sticky + clip-path
- * punch holes and causes sticky flicker while the transcript grows.
+ * 此处禁用 content-visibility：它会与 position:sticky + clip-path 的
+ * 打孔逻辑冲突，导致 transcript 增长时吸顶内容闪烁。
  */
 export function RoundMount({
 	roundId,

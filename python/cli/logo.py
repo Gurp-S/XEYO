@@ -6,8 +6,8 @@ from rich.console import Group, RenderableType
 from rich.table import Table
 from rich.text import Text
 
-# Rasterized from assets/xeyo-icon-white.png (white glyph on black).
-# Half-block cells (▀▄█) keep the X + nested Y silhouette with the center gap.
+# 由 assets/xeyo-icon-white.png 栅格化（黑底白字图形）。
+# 半块字符（▀▄█）保留 X + 嵌套 Y 的轮廓与中间镂空。
 LOGO_ART = """\
 ▄▄▄▄▄▄▄            ▄▄▄▄▄▄▄
  ▀██████         ▄██████▀
@@ -21,7 +21,7 @@ LOGO_ART = """\
    ▀▀▀▀▀▀▀ ▀▀▀▀▀\
 """
 
-# Compact 1-glyph stand-in for inline titles (panel chrome).
+# 行内标题（面板装饰）用的紧凑单字符替身。
 LOGO_GLYPH = "Ӿ"
 
 

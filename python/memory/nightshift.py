@@ -40,12 +40,12 @@ CANDIDATE_THRESHOLD = 20
 MEMDIR_BYTES_THRESHOLD = 2_000_000
 HOURS_INTERVAL = 24.0
 
-# P1-2 晋升限频（对齐 Codex phase2 成功 cooldown / 阈值跳过）：单轮最多晋升的
+# P1-2 晋升限频（成功 cooldown / 阈值跳过）：单轮最多晋升的
 # Candidate 条数，超出部分留到下轮 —— 避免晋升风暴。
 ENV_PROMOTE_MAX_PER_RUN = "XEYO_MEMORY_PROMOTE_MAX_PER_RUN"
 DEFAULT_PROMOTE_MAX_PER_RUN = 8
 
-# P2-1 常驻收敛：成功冷却（对齐 Codex PHASE2_SUCCESS_COOLDOWN_SECONDS=6h）只压制
+# P2-1 常驻收敛：成功冷却（默认 6h）只压制
 # 例行触发（候选阈值/体积阈值），绝不压制急件（Forget/冲突 / 有可晋升候选 —— 红线①）。
 ENV_COOLDOWN_HOURS = "XEYO_MEMORY_COOLDOWN_HOURS"
 DEFAULT_COOLDOWN_HOURS = 6.0

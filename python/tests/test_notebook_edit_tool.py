@@ -42,7 +42,7 @@ async def test_notebook_replace_insert_delete(tmp_path: Path) -> None:
 	path = tmp_path / "n.ipynb"
 	path.write_text(json.dumps(_nb("a = 1\n", "b = 2\n")), encoding="utf-8")
 	state = ReadFileState()
-	# Read first (registers read_state)
+	# 先 Read（登记 read_state）
 	from tools.file_read_tool.file_read_tool import FileReadTool
 
 	reader = FileReadTool(cwd=str(tmp_path), read_state=state)

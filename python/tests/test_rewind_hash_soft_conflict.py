@@ -56,8 +56,8 @@ def test_worktree_drift_blocks_when_target_commit_present(tmp_path: Path) -> Non
     before_snap = snapshots.put_text("v1\n", source_path=str(target), metadata={"role": "before"})
     after_snap = snapshots.put_text("v2-icon\n", source_path=str(target), metadata={"role": "after"})
     assert before_snap and after_snap
-    # Journal records v2 but disk was snapshotted as v1 then… align disk to after_snap text
-    # then snapshot so HEAD matches agent end; then drift past HEAD.
+    # journal 记录 v2 但磁盘按 v1 快照，然后…把磁盘对齐到 after_snap 文本
+    # 再快照使 HEAD 匹配 agent 结束态；随后漂移越过 HEAD。
     target.write_text("v2-icon\n", encoding="utf-8")
     after_commit = shadow.snapshot("after edit tool")
     del after_commit  # HEAD is agent end state
@@ -91,7 +91,7 @@ def test_worktree_drift_blocks_when_target_commit_present(tmp_path: Path) -> Non
         workspace_root=str(workspace),
     )
 
-    # User hand-edit after agent — worktree no longer matches HEAD.
+    # agent 之后用户手改——工作树不再匹配 HEAD。
     target.write_text("v3-drifted\n", encoding="utf-8")
 
     service = RollbackService(
@@ -138,7 +138,7 @@ def test_journal_hash_warning_but_clean_worktree_allows_shadow_restore(
     )
 
     before_snap = snapshots.put_text("v1\n", source_path=str(target), metadata={"role": "before"})
-    # Deliberately wrong after hash vs disk (disk is v2-icon matching HEAD).
+    # 故意给错 after 哈希（磁盘是匹配 HEAD 的 v2-icon）。
     after_snap = snapshots.put_text("v2-WRONG\n", source_path=str(target), metadata={"role": "after"})
     assert before_snap and after_snap
 
@@ -192,5 +192,5 @@ def test_journal_hash_warning_but_clean_worktree_allows_shadow_restore(
     )
     assert result["job"]["status"] == "committed"
     assert "retained_messages" in result
-    # Restored to before tree (file absent or not v2-icon).
+    # 恢复到 before 树（文件缺失或非 v2-icon）。
     assert not target.exists() or target.read_text(encoding="utf-8") != "v2-icon\n"

@@ -117,7 +117,7 @@ async function clearSideChatMessagesById(sessionId: string): Promise<void> {
 	try {
 		await deleteKv(`side-chat:messages:${sessionId}`);
 	} catch {
-		/* ignore */
+		/* 忽略 */
 	}
 }
 

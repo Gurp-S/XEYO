@@ -152,7 +152,7 @@ export type ChangedFile = {
 	del: number;
 	/** 任意 contributing Write 步骤创建文件时为 true。 */
 	created?: boolean;
-	/** 统一 diff 正文（无 fence），供 Copilot 风格展开。 */
+	/** 统一 diff 正文（无 fence），供展开展示。 */
 	diff?: string;
 };
 
@@ -511,7 +511,7 @@ export type RoundActivityView = {
 };
 
 /**
- * 整轮 submit 的 Cursor 风格 activity：合并所有 turn 的工具/思考步骤。
+ * 整轮 submit 的 activity 汇总：合并所有 turn 的工具/思考步骤。
  * - 进行中：展开 + aggregate 摘要
  * - 纯文本收尾：折叠 + worked for
  */
@@ -622,7 +622,7 @@ function stepCategory(
 }
 
 /**
- * Cursor 风格工具汇总：Edited N files, explored M files, K searches, lints, ran C commands
+ * 工具汇总：Edited N files, explored M files, K searches, lints, ran C commands
  * 后续项小写；+diff 由调用方着色，不拼进 label。
  */
 export function formatCursorToolParts(steps: ActivityStep[]): {
@@ -709,7 +709,7 @@ export function formatCursorToolParts(steps: ActivityStep[]): {
 		const n = steps.filter(s => s.verb !== 'Thought').length;
 		raw.push(`Ran ${n} tool${n === 1 ? '' : 's'}`);
 	}
-	// 首项保持大写，后续项首字母小写（Cursor：Edited …, explored …）
+	// 首项保持大写，后续项首字母小写（Edited …, explored …）
 	const parts = raw.map((p, i) =>
 		i === 0 ? p : p.replace(/^[A-Z]/, c => c.toLowerCase()),
 	);

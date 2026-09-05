@@ -19,7 +19,7 @@ from engine.title import (
 )
 
 
-# ---------- instant_title ----------
+# ---------- instant_title（即时标题）----------
 
 
 def test_instant_title_strips_markdown_and_folds_whitespace():
@@ -43,7 +43,7 @@ def test_instant_title_fallbacks():
 	assert instant_title("###\n```") == DEFAULT_TITLE
 
 
-# ---------- sidecar ----------
+# ---------- sidecar（侧挂）----------
 
 
 def test_sidecar_roundtrip(tmp_path: Path):

@@ -83,6 +83,24 @@ export function ChatPage() {
 
 	const immersiveOpen = useChatStore(s => s.immersive);
 
+	// 页面视图(用量/扩展中心)的万能出口:Esc 关闭(2026-09-05)。
+	// 侧栏收起时这两个视图没有任何可见返回控件,Esc 是结构兜底;
+	// 其他组件已消费的 Esc(defaultPrevented)不抢。
+	useEffect(() => {
+		if (!usageOpen && !pluginsOpen) {
+			return;
+		}
+		const onPageViewEsc = (e: KeyboardEvent) => {
+			if (e.key !== 'Escape' || e.defaultPrevented) {
+				return;
+			}
+			useSettingsStore.getState().closeUsage();
+			useSettingsStore.getState().closePlugins();
+		};
+		window.addEventListener('keydown', onPageViewEsc);
+		return () => window.removeEventListener('keydown', onPageViewEsc);
+	}, [usageOpen, pluginsOpen]);
+
 	const location = useLocation();
 		const isSideChat = location.pathname.startsWith('/side/');
 	useEffect(() => {

@@ -50,7 +50,7 @@ async function openChangedReview(f: ChangedFile): Promise<void> {
 }
 
 /**
- * Copilot Chat 风格 Changes 面板：带 +/− 与 new 标记的文件行；
+ * Changes 面板：带 +/− 与 new 标记的文件行；
  * 点击文件行直接打开右侧完整 diff 面板（复用 openReview）。
  */
 function FilesChangedInner({files}: Props) {

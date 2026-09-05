@@ -1,4 +1,4 @@
-"""文件工具共享的路径辅助函数（对齐 Glob/Grep / Claude expandPath）。"""
+"""文件工具共享的路径辅助函数。"""
 
 from __future__ import annotations
 

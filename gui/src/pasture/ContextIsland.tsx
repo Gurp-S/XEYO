@@ -1,8 +1,8 @@
 import {lazy, Suspense} from 'react';
 
 /**
- * Context island entry. Keep this module free of chat store / scene imports so a
- * disabled island does not pull pasture CSS or subscribe to usage on boot.
+ * 语境岛入口。本模块不引入 chat store / 场景依赖，
+ * 使关闭岛屿时启动阶段不会拉取 pasture CSS 或订阅 usage。
  */
 export const CONTEXT_ISLAND_RENDER_ENABLED = false;
 

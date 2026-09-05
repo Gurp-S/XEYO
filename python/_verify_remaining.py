@@ -1,6 +1,6 @@
 """Detached verifier: nightshift one-by-one + remaining batches + failure extract.
 
-Designed to be launched via Start-Process so Cursor shell SIGINT cannot kill it.
+Designed to be launched via Start-Process so the launching shell's SIGINT cannot kill it.
 """
 from __future__ import annotations
 
@@ -68,7 +68,7 @@ def main() -> int:
 	OUT.mkdir(exist_ok=True)
 	summary: dict = {"steps": []}
 
-	# 1) nightshift one-by-one
+	# 1) nightshift 逐个执行
 	ns_tests = [
 		"test_no_lock_skips",
 		"test_forget_not_resurrected",
@@ -95,7 +95,7 @@ def main() -> int:
 		encoding="utf-8",
 	)
 
-	# 2) alphabetical batch 9
+	# 2) 按字母序第 9 批
 	b9 = [
 		"tests/test_string_utils.py",
 		"tests/test_subagent_memory.py",
@@ -120,7 +120,7 @@ def main() -> int:
 	)
 	summary["steps"].append({"step": "batch9", "exit": code})
 
-	# 3) alphabetical batch 10
+	# 3) 按字母序第 10 批
 	b10 = [
 		"tests/test_vendor_models.py",
 		"tests/test_vendor_usage.py",
@@ -144,7 +144,7 @@ def main() -> int:
 	)
 	summary["steps"].append({"step": "batch10", "exit": code})
 
-	# 4) full suite for failure inventory (ignore simulator live probe)
+	# 4) 全量套件盘点失败项（忽略 simulator live probe）
 	code = run_pytest(
 		[
 			"tests",
@@ -160,7 +160,7 @@ def main() -> int:
 	)
 	summary["steps"].append({"step": "full", "exit": code})
 
-	# aggregate failures
+	# 汇总失败项
 	all_fails: list[str] = []
 	stats = {}
 	for label, junit in [

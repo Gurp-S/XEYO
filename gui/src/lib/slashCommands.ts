@@ -128,7 +128,7 @@ export async function runSlashCommand(
 	if (parsed.unknown || !parsed.command) {
 		// 技能直呼（Composer 技能候选插入的就是 /<skill_name>）：
 		// - /name        → /skills show <name>（回显技能卡片）
-		// - /name 任务…  → 发送即原文（dsh plain-text 决策）：原样进模型，
+		// - /name 任务…  → 发送即原文（plain-text 决策）：原样进模型，
 		//   由宿主 skill_preinvoke（engine/skill_preinvoke.py）识别首行 /name
 		//   并确定性注入 SKILL.md 正文——不再赌模型自觉调 Skill 工具。
 		const skill = await findSkillByName(parsed.name, opts.workspace);

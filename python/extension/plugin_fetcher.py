@@ -1,6 +1,6 @@
 """插件安装源：本地路径 / GitHub（``owner/repo[@ref]``）→ 校验 → 落入插件根 + 登记 lockfile。
 
-供应链防线（对齐 Codex core-plugins/git_policy F8）：
+供应链防线（git_policy F8）：
 - git 操作一律在**每个工作区专属的暂存目录**（``<ws>/.xeyo/.plugin-stage/``）执行，而非
   插件最终位置；克隆/解析成功后**先把 manifest 校验通过 + ``min_xeyo`` 兼容通过**，
   再把目录复制进 ``<ws>/.xeyo/plugins/<name>``，最后删除暂存目录。
@@ -39,8 +39,6 @@ _log = logging.getLogger(__name__)
 _XEYO_VERSION = "0.1.0"
 
 #: 仓库级 GIT_* 环境变量（git 操作时剥离，防泄漏主仓库/凭证/钩子）。
-#: 与 Codex core-plugins/git_policy.rs 对齐；如需精确到与上游完全一致，
-#: 以 `.tmp/codex-src` 参考副本核对全集。
 GIT_ENV_STRIP = frozenset({
 	"GIT_DIR",
 	"GIT_WORK_TREE",

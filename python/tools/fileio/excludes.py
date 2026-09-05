@@ -3,7 +3,7 @@
 默认排除两批目录：
 - 版本控制目录（VCS）：避免元数据噪音；
 - 重型/非源码目录：node_modules、构建产物、虚拟环境、缓存等。
-对齐 Claude Code 的默认 ignore 行为，避免 Grep/Glob 扫进依赖树与构建产物
+避免 Grep/Glob 扫进依赖树与构建产物
 导致结果刷屏、截断或拖慢。
 
 可用环境变量 ``XEYO_SEARCH_EXCLUDE``（逗号分隔）追加额外排除目录名。

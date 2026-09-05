@@ -192,7 +192,7 @@ export function ContextIslandRuntime() {
     }
   }, [effectiveSnapshot.usagePercent, derived.companionVisibility, flashMode]);
 
-  // Keep the desktop pet in sync with the current context projection.
+  // 让桌面宠物与当前语境投影保持同步。
   useEffect(() => {
     void forwardContextToPet({
       sessionId: activeId,

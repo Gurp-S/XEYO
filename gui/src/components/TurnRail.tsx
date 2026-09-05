@@ -13,7 +13,7 @@ import {cn} from '@/lib/utils';
 export type TurnRailItem = {
 	id: string;
 	label: string;
-	/** Optional progress chip, e.g. "2/2" from that round's todos. */
+	/** 可选的进度徽标，如该轮 todos 的 "2/2"。 */
 	badge?: string;
 };
 
@@ -30,19 +30,19 @@ type Props = {
 	badgeVersion?: number;
 };
 
-/** Idle ticks stay glanceable; hover panel lists every round. */
+/** 空闲刻度保持一眼可读；悬停面板列出全部轮次。 */
 const MAX_TICKS = 15;
 
 /**
- * Panel rows are windowed above this many items: rows share the uniform
- * `.xy-turn-rail-row` height (min-height 26px + single-line ellipsis text),
- * so off-screen rows are replaced by fixed-height spacers. Keeping the
- * threshold low-ish means normal sessions render exactly as before
- * (no spacers, no scroll listener); only huge transcripts switch to the
- * windowed path — which is what kept switch-paint O(rounds) before.
+ * 面板行数超过该阈值后启用窗口化：各行共享统一的
+ * `.xy-turn-rail-row` 高度（min-height 26px + 单行省略文本），
+ * 视口外的行以定高占位块替代。阈值保持偏低意味着
+ * 常规会话的渲染与之前完全一致
+ * （无占位块、无滚动监听）；只有超大 transcript 才切换到
+ * 窗口化路径——这正是此前切换绘制保持 O(rounds) 的原因。
  */
 const WINDOW_THRESHOLD = 60;
-/** Mirrors `.xy-turn-rail-row { min-height: 26px }`; measured at runtime. */
+/** 与 `.xy-turn-rail-row { min-height: 26px }` 保持一致；运行时实测。 */
 const ROW_H_DEFAULT = 26;
 const OVERSCAN = 6;
 
@@ -124,7 +124,7 @@ const RailRow = memo(function RailRow({
 		</button>
 	);
 });
-/** Hover panel scrolls once past this many visible rows. */
+/** 可见行数超过该值后，悬停面板启用滚动。 */
 const SCROLL_AT = 10;
 const OPEN_DELAY_MS = 150;
 const CLOSE_DELAY_MS = 120;
@@ -133,7 +133,7 @@ function oneLine(text: string): string {
 	return text.replace(/\s+/g, ' ').trim();
 }
 
-/** Gap shrinks as count grows: sparse → dense. */
+/** 间距随数量增大而收窄：稀疏 → 紧凑。 */
 function gapForCount(n: number): number {
 	if (n <= 3) {
 		return 14;
@@ -147,7 +147,7 @@ function gapForCount(n: number): number {
 	return 4;
 }
 
-/** Downsample the full timeline into ≤15 ticks; keep the active round. */
+/** 将完整时间线降采样为 ≤15 个刻度；保留活跃轮次。 */
 function sampleTicks(
 	items: TurnRailItem[],
 	activeId: string | null,
@@ -196,12 +196,12 @@ function sampleTicks(
 }
 
 /**
- * Right-middle conversation turn rail.
- * Idle = faint dashes; hover (150ms) = title card; denser as count grows.
+ * 右侧中部的会话轮次导轨。
+ * 空闲 = 淡色短划线；悬停（150ms）= 标题卡片；数量越多越密集。
  *
- * Perf contract: idle ticks are capped at MAX_TICKS; the hover panel is
- * windowed above WINDOW_THRESHOLD items (uniform row height) so a
- * 5000-round session no longer mounts ~15k DOM nodes per switch.
+ * 性能契约：空闲刻度封顶于 MAX_TICKS；悬停面板在
+ * 超过 WINDOW_THRESHOLD 项后窗口化（统一行高），
+ * 使 5000 轮的会话不再在每次切换时挂载约 1.5 万个 DOM 节点。
  */
 function turnRailEqual(prev: Props, next: Props): boolean {
 	if (prev.activeId !== next.activeId || prev.onJump !== next.onJump) {

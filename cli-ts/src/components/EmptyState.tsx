@@ -6,7 +6,7 @@ type Props = {
   connected: boolean | null;
 };
 
-/** Quiet empty — Claude leaves the canvas almost blank. */
+/** 安静的空状态 —— 画布近乎留白。 */
 export function EmptyState({ connected }: Props) {
   const t = theme();
   const gly = g();

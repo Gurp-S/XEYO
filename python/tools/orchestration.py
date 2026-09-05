@@ -1,5 +1,5 @@
 """
-工具运行器，对齐 Claude Code ``toolOrchestration.ts``。
+工具运行器。
 
 设计要点：
 - 按 ``is_concurrency_safe`` 分区（默认 False — 失败即关闭，按顺序执行）。

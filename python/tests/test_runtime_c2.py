@@ -132,10 +132,10 @@ def test_pair_safe_cut_does_not_split_tool_calls():
 		uid = f"t{i}"
 		msgs.append(_assistant_use(uid, "Grep"))
 		msgs.append(_tool_result(uid, "hit", role="tool"))
-	# naive KEEP_TAIL=6 would land inside a pair for some lengths
+	# 朴素的 KEEP_TAIL=6 在某些长度会落进配对中间
 	cut = c2_cut_index(msgs, None)
 	if cut < len(msgs):
-		# if we start on a tool row, the owning assistant must also be on the right
+		# 若起点是 tool 行，所属 assistant 也必须在右侧
 		if msgs[cut].get("role") == "tool":
 			assert cut == 0 or not (
 				msgs[cut - 1].get("role") == "assistant"
@@ -186,7 +186,7 @@ def test_c2_projection_keeps_tool_pairs(monkeypatch, mem_switch):
 					got.append(str(block.get("tool_use_id") or ""))
 		for uid in got:
 			pending.discard(uid)
-	# leftover pending would mean a tool_use with no following result in the projection
+	# 残留 pending 意味着投影里出现没有后续结果的 tool_use
 	assert not pending
 
 

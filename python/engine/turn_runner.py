@@ -27,7 +27,7 @@ _MAX_BUFFERED_BYTES = 8 * 1024 * 1024
 _MAX_TERMINAL_TURNS = 32
 
 ProducerFn = Callable[[], AsyncIterator[tuple[int, bytes, str]]]
-# yields (event_id, sse_bytes, kind)
+# 产出 (event_id, sse_bytes, kind) 三元组
 
 # 41 号：turn 终态回调槽（settlement）。server 启动时经 set_turn_settlement_listener
 # 注册（engine 不 import server，反向注入）；签名 async fn(session_id, final_status,
@@ -270,7 +270,7 @@ class TurnRunner:
 								del det.active_agents[:16]
 					except Exception:  # noqa: BLE001
 						pass
-				# fan-out
+				# 扇出
 				dead: list[asyncio.Queue[Any]] = []
 				for q in list(det.subscribers):
 					try:
@@ -349,7 +349,7 @@ class TurnRunner:
 			except Exception:  # noqa: BLE001
 				_log.debug("pool.end failed", exc_info=True)
 			# 41 号：turn 终态广播（settlement 检查点）。此刻转录已落盘、租约已放
-			# （等价 DSH 的 flush 义务）；listener 内部自隔离异常，这里再兜一层，
+			# （等价 flush 义务）；listener 内部自隔离异常，这里再兜一层，
 			# create_task 调度绝不阻塞 teardown、绝不影响 turn 终态。
 			listener = _settlement_listener
 			if listener is not None:

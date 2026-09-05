@@ -220,7 +220,7 @@ html[data-smoothness="off"] .xy-sidebar-tree {
   animation: xy-stream-caret 1s steps(1, end) infinite;
 }
 
-/* Cursor-style thinking: transparent glyphs + moving highlight band */
+/* 思考态：透明字形 + 移动高亮条 */
 .xy-thinking,
 .status-shimmer {
   display: inline-block;
@@ -258,7 +258,7 @@ html[data-scheme="dark"] .status-shimmer {
   color: var(--xy-mute);
 }
 
-/* Live tool bullet only — finished / error steps stay static.
+/* 仅限活跃工具圆点——完成 / 出错步骤保持静态。
    2026-09-05 排查·嫌疑4:box-shadow 逐帧动画是持续重绘;改为伪元素环
    scale+opacity 脉冲(合成器友好)。当前无 TSX 引用(休眠类),留作复用保险。 */
 .xy-tool-live-dot {

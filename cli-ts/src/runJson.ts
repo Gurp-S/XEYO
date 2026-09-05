@@ -1,6 +1,6 @@
 /**
- * Machine-readable headless chat — quality gate: --json bypasses all TUI chrome.
- * Emits one JSON object per line (NDJSON) on stdout.
+ * 机器可读的无头对话 —— 质量门：--json 绕过全部 TUI 装饰。
+ * 每行向 stdout 输出一个 JSON 对象（NDJSON）。
  */
 import {
   applyXy,
@@ -96,7 +96,7 @@ export async function runJsonChat(
           emit({ type: "xy", ...xy });
           const kind = String(xy.type ?? "");
           if (kind === "permission_pending") {
-            // Fail-closed in headless JSON (no TTY prompts).
+            // 无头 JSON 模式下默认拒绝（无 TTY 交互提示）。
             emit({
               type: "permission_denied",
               request_id: xy.request_id,

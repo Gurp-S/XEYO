@@ -11,7 +11,7 @@ type Props = {
 };
 
 /**
- * Claude-like landing: identity + one line of context, no dashboard chrome.
+ * 欢迎首屏：品牌标识 + 一行上下文，无仪表盘装饰。
  */
 export function WelcomeDash({
   config,

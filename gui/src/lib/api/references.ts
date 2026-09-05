@@ -6,7 +6,7 @@ import {authHeaders} from '@/lib/api/core';
  *
  * 对应后端 `GET /v1/references/files`（`server/routers/references.py`）：
  * 工作区内按相对路径子串匹配的只读候选清单。插入的 `@相对路径` 不内联
- * 文件内容——由 Agent 用既有文件工具按需读取（Cursor 式按需引用）。
+ * 文件内容——由 Agent 用既有文件工具按需读取（按需引用）。
  *
  * 失败静默：返回 `null`，由调用方维持空态，不阻塞输入。
  */

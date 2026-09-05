@@ -3,7 +3,7 @@ import React from "react";
 import { clipSmart, g, theme } from "../theme.js";
 import type { ToolStatus } from "../types.js";
 
-/** Collapsed settled tool — one quiet line (Claude transcript density). */
+/** 已结束工具的折叠态 —— 单行安静展示（紧凑 transcript 风格）。 */
 export function ToolLine({
   name,
   summary,

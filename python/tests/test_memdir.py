@@ -36,7 +36,7 @@ def test_copy_dir_gets_new_workspace_id(tmp_path, monkeypatch):
 def test_write_then_index_then_forget(tmp_path, monkeypatch):
 	root = _ws(tmp_path, monkeypatch)
 	tool = MemoryTool(cwd=str(root))
-	# execute is async
+	# execute 是异步的
 	import asyncio
 
 	out = asyncio.run(

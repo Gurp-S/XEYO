@@ -339,7 +339,7 @@ async def test_websearch_searxng_preferred(
 		host = request.url.host or ""
 		if host in ("127.0.0.1", "localhost"):
 			return httpx.Response(200, json=payload)
-		# public engines should not be needed
+		# 不应需要公共搜索引擎
 		raise httpx.ConnectTimeout("should not call")
 
 	transport = httpx.MockTransport(handler)

@@ -1,7 +1,7 @@
 /**
- * XEYO visual system — Claude Code density + XEYO teal identity.
- * Hierarchy: placement → spacing → weight → then color.
- * Borders are punctuation: full box = focus/modal only.
+ * XEYO 视觉系统 —— 紧凑的终端密度 + XEYO 青色品牌标识。
+ * 层级：位置 → 间距 → 字重 → 最后才是颜色。
+ * 边框即标点：仅焦点/弹窗使用完整方框。
  */
 
 export const space = {
@@ -11,7 +11,7 @@ export const space = {
   4: 4,
 } as const;
 
-/** Shared border language: round = focus/modal; single rail = rare secondary. */
+/** 共享边框语言：圆角 = 焦点/弹窗；单线轨 = 少见的次级样式。 */
 export const border = {
   style: "round" as const,
   rail: "single" as const,
@@ -51,7 +51,7 @@ const TRUECOLOR: Theme = {
   borderError: "#EF4444",
 };
 
-/** Named ANSI — survives light/dark better than hard RGB. */
+/** 具名 ANSI 色 —— 相比硬编码 RGB 在亮/暗终端下表现更稳定。 */
 const ANSI16: Theme = {
   accent: "cyan",
   accentSoft: "cyan",
@@ -85,8 +85,8 @@ const PLAIN: Theme = {
 };
 
 /**
- * Claude-adjacent glyph language (XEYO keeps Ӿ mark).
- * ⏺ tool · ⎿ result · ❯ prompt · ✓/✗ status
+ * 符号语言（XEYO 保留 Ӿ 标记）。
+ * ⏺ 工具 · ⎿ 结果 · ❯ 提示符 · ✓/✗ 状态
  */
 export const glyphs = {
   mark: "Ӿ",
@@ -208,7 +208,7 @@ function measure(s: string): number {
   return w;
 }
 
-/** Truncate by approximate display cells (CJK ≈ 2 — best-effort). */
+/** 按近似显示宽度截断（CJK 字符 ≈ 2 列 —— 尽力估算）。 */
 export function clipCells(s: string, max: number): string {
   const t = s.replace(/\s+/g, " ").trim();
   let w = 0;
@@ -223,7 +223,7 @@ export function clipCells(s: string, max: number): string {
 }
 
 /**
- * Path-aware truncate: keep start + end (extension / filename).
+ * 路径感知截断：保留开头 + 结尾（扩展名 / 文件名）。
  */
 export function clipPath(s: string, max: number): string {
   const t = s.replace(/\\/g, "/").trim();

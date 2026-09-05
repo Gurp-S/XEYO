@@ -49,8 +49,8 @@ export function useMessageListStore(
 	const smoothness = useSettingsStore(s => isSmoothnessOn(s.smoothness));
 	const model = useSettingsStore(s => s.model);
 
-	// Flatten every selected field — nested objects break useShallow (new
-	// identity each call → React useSyncExternalStore infinite loop).
+	// 将所有选中字段拍平——嵌套对象会破坏 useShallow（每次
+	// 调用产生新引用 → React useSyncExternalStore 死循环）。
 	const {
 		activeId,
 		storeMessages,
@@ -148,7 +148,7 @@ export type RoundStreamHostProps = {
 	latestTurnId: string | null;
 };
 
-/** Keep live stream props on the latest round so memo(RoundHost) skips history during tokens. */
+/** 将流式 props 固定在最新轮次上，使 memo(RoundHost) 在流式输出期间跳过历史轮次。 */
 export function roundStreamHostProps(
 	roundIndex: number,
 	latestRoundIndex: number,

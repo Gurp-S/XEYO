@@ -31,7 +31,7 @@ def format_updated_at(raw: object) -> str:
 	except (TypeError, ValueError):
 		return str(raw)
 	if ms > 10_000_000_000:
-		# milliseconds
+		# 单位：毫秒
 		ts = ms / 1000.0
 	else:
 		ts = float(ms)

@@ -505,8 +505,8 @@ async def main_async() -> int:
 	for sc in scenarios:
 		print(f"== {sc['id']} ==")
 		arms = {}
-		# project first then v61 so if anything leaked it would bias against v61;
-		# salts should prevent leak either way.
+		# 先 project 后 v61，即使有泄漏也会不利于 v61；
+		# 无论顺序如何，盐值都应防泄漏。
 		for mode in ("project", "v61"):
 			arms[mode] = await run_arm(
 				proj=proj,

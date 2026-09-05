@@ -11,7 +11,7 @@ import type { TimelineItem, TodoRow, TodoStatus, UsageInfo } from "../types.js";
 
 type Props = {
   item: TimelineItem;
-  /** Collapse settled tools to one line. */
+  /** 将已结束的工具折叠为单行。 */
   compactTools?: boolean;
   turnIndex?: number;
   showTurnDivider?: boolean;
@@ -108,7 +108,7 @@ function TodoRows({ todos }: { todos: TodoRow[] }) {
   );
 }
 
-/** Assign turn numbers to user messages for dividers. */
+/** 为用户消息编号轮次，供分隔符使用。 */
 export function withTurnMeta(items: TimelineItem[]): {
   item: TimelineItem;
   turnIndex?: number;

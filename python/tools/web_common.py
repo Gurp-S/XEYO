@@ -33,7 +33,7 @@ def is_blocked_url(url: str) -> str | None:
 		return "missing_host"
 	if host in _PRIVATE_HOSTS or host.endswith(".localhost"):
 		return "private_host"
-	# Literal IP
+	# 字面 IP
 	try:
 		ip = ipaddress.ip_address(host)
 		if (
@@ -45,11 +45,11 @@ def is_blocked_url(url: str) -> str | None:
 			or ip.is_unspecified
 		):
 			return "private_ip"
-		# AWS / cloud metadata
+		# AWS / 云元数据端点
 		if str(ip) == "169.254.169.254":
 			return "metadata_ip"
 	except ValueError:
-		# hostname — resolve and check; DNS failure = deny (do not allow-through)
+		# 主机名——解析后检查；DNS 失败 = 拒绝（不许放行）
 		try:
 			infos = socket.getaddrinfo(host, None)
 		except socket.gaierror:
@@ -126,7 +126,7 @@ def focus_text(text: str, prompt: str, *, max_chars: int) -> str:
 		return body
 
 	tokens = {t.lower() for t in _TOKEN_RE.findall(prompt)}
-	# Drop ultra-common English noise if mixed with content tokens.
+	# 若混有内容词，则丢弃超常见英文噪音词。
 	stop = {
 		"the",
 		"and",
@@ -183,16 +183,16 @@ def focus_text(text: str, prompt: str, *, max_chars: int) -> str:
 	scored.sort(reverse=True)
 
 	if not scored:
-		# No keyword hit — return document head (still cheaper than full page).
+		# 关键词未命中——返回文档头部（仍比整页便宜）。
 		if len(body) > max_chars:
 			return body[:max_chars] + "\n… truncated (no prompt match; head)"
 		return body
 
-	# Prefer highest-scoring paragraphs; keep relative order among top hits.
-	# Cap how many paras we take so weak neighbors don't dilute focus.
+	# 优先得分最高的段落；头部命中之间保持相对顺序。
+	# 限制段落数量，避免弱相邻段落稀释焦点。
 	top = scored[: max(1, min(5, len(scored)))]
 	min_keep = top[0][0]
-	# Keep paras within 1 of best score (or score>=2).
+	# 保留与最高分差 1 以内（或 score>=2）的段落。
 	top = [t for t in top if t[0] >= max(1, min_keep - 1) and (t[0] >= 2 or min_keep == 1)]
 	if not top:
 		top = scored[:1]

@@ -53,8 +53,8 @@ html[data-scheme="dark"] .xy-usage-tooltip {
     0 1px 0 rgb(255 255 255 / 0.05);
 }
 
-/* Native title replacement. The trigger shares the Token tooltip's visual
-   language while remaining CSS-only and cheap during pointer movement. */
+/* 原生标题替换。触发器与 Token tooltip 共用视觉语言，
+   但保持纯 CSS 实现，指针移动时开销极低。 */
 .xy-detail-tooltip-trigger {
   position: relative;
   isolation: isolate;
@@ -186,7 +186,7 @@ html[data-scheme="dark"] .xy-detail-tooltip-trigger::after {
   }
 }
 
-/* Bubble layers own their opaque base; ancestor isolation would break viewport wallpaper sampling. */
+/* 气泡层自带不透明底色；祖先层隔离会破坏视口壁纸采样。 */
 .xy-prompt-sticky,
 .xy-chat-col,
 .xy-chat-surface {
@@ -439,8 +439,8 @@ html[data-pane-ease="silky"][data-smoothness="on"] .xy-chat-col {
     flex-basis 420ms cubic-bezier(0.23, 1, 0.32, 1) 40ms;
 }
 
-/* During an active resize both siblings follow the pointer directly. The
-   normal open/close transition remains untouched when no drag is in progress. */
+/* 拖拽进行中时，两侧兄弟列都直接跟随指针。
+   未拖拽时，常规开合过渡保持不变。 */
 html[data-smoothness="on"] .xy-pane-row:has(.xy-pane-dragging) .xy-chat-col {
   transition: none !important;
 }

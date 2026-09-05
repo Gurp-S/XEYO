@@ -25,8 +25,8 @@ import os
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-# Stages are informational only; "removed" is the only stage that changes
-# parsing behaviour (the switch is recognized, dropped, and reported).
+# stage 仅作信息展示；只有 "removed" 会改变
+# 解析行为（该开关会被识别、丢弃并上报）。
 _STAGE_STABLE = "stable"
 _STAGE_INTERNAL = "internal"
 _STAGE_DEPRECATED = "deprecated"
@@ -42,7 +42,7 @@ class FeatureSpec:
 
 
 FEATURE_SPECS: dict[str, FeatureSpec] = {
-	# --- Core user-facing switches --------------------------------------
+	# --- 核心用户开关 --------------------------------------
 	"XEYO_MODEL": FeatureSpec("XEYO_MODEL", stage=_STAGE_STABLE),
 	"XEYO_MODEL_NAME": FeatureSpec("XEYO_MODEL_NAME", stage=_STAGE_STABLE),
 	"XEYO_MODEL_API_KEY": FeatureSpec("XEYO_MODEL_API_KEY", stage=_STAGE_STABLE),
@@ -75,7 +75,7 @@ FEATURE_SPECS: dict[str, FeatureSpec] = {
 	"XEYO_NO_SESSION_PERSISTENCE": FeatureSpec(
 		"XEYO_NO_SESSION_PERSISTENCE", stage=_STAGE_STABLE, default="0"
 	),
-	# --- Removed placeholders (recognized, reported, never applied) ------
+	# --- 已移除占位（识别、上报、永不生效） ------
 	"XEYO_LEGACY_THING": FeatureSpec(
 		"XEYO_LEGACY_THING", stage=_STAGE_REMOVED, removed=True
 	),

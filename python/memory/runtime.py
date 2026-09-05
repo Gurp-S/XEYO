@@ -1508,7 +1508,7 @@ def project_for_model(
 		note_c2(working, max(working.compact_cursor, c2_cut_index(messages, s0)))
 		return apply_c2_messages(messages, working, summary_provider=summary_provider)
 
-	# Path A（XEYO_C2_PRESSURE_FORMULA=1）：**压力门单一触发**（DSH 同构）。
+	# Path A（XEYO_C2_PRESSURE_FORMULA=1）：**压力门单一触发**。
 	# C2 触发只由「压力门（必要）∧ 收益门（充分）」决定，**接管 decide 的 C2 分支**
 	# （未达压 → keep，投影字节稳定；压后进稳定压缩态，扩展只走 try_extend_c2 稀疏触发）。
 	# 这正是「减改写、提命中」：decide 每轮都可能点 C2，压力门把它收敛为
@@ -1780,7 +1780,7 @@ def _c2_tail_budget_tokens(per_turn: float, rounds: int) -> int:
 def context_compact_ratio() -> float:
 	"""厂商上下文占用达到该比例时强制压缩；可用 XEYO_CONTEXT_COMPACT_RATIO 覆盖。
 
-	默认 0.80（对齐 DSH thresholdRatio=0.8 的主动压缩思路）：长会话在 80% 就
+	默认 0.80（主动压缩阈值）：长会话在 80% 就
 	压缩，避免顶到上下文窗口；短会话远低于 80%，永不触发。
 
 	Path A（XEYO_C2_PRESSURE_FORMULA=1）：改用窗口几何推导的 (l_max − tail)/window。

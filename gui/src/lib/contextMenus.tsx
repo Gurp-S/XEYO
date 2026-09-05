@@ -12,7 +12,7 @@ import {
 	saveWorkspaceFileAs,
 } from '@/lib/workspaceOpen';
 
-/** Cursor 风格：输入框 Cut / Copy / Paste / Select All（无图标，紧凑）。 */
+/** 输入框 Cut / Copy / Paste / Select All（无图标，紧凑）。 */
 export function textFieldMenuItems(
 	el: HTMLTextAreaElement | HTMLInputElement,
 ): ContextMenuItem[] {

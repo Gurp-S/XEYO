@@ -86,7 +86,7 @@ def test_glob_empty_nomatch_does_not_flood():
     assert tok(tool.map_tool_result_to_content(out)) < 500
 
 
-# --- helpers (avoid async fixture ceremony) ---
+# --- 辅助函数（省去 async 夹具仪式） ---
 
 def _run(coro):
     import asyncio

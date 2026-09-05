@@ -1,4 +1,4 @@
-/** Cached measured heights for chat rounds — placeholders & content-visibility. */
+/** 聊天轮次实测高度的缓存——供占位块与 content-visibility 使用。 */
 
 const heights = new Map<string, number>();
 

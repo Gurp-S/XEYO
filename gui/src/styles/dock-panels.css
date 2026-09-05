@@ -327,7 +327,7 @@ html[data-smoothness="off"] .xy-panel-collapse {
   transition: background-color 120ms var(--ease-out-soft);
 }
 
-/* Ask/Plan/Todo panels dock above composer */
+/* Ask/Plan/Todo 面板停靠在输入框上方 */
 .xy-composer-dock {
   display: flex;
   flex-direction: column;

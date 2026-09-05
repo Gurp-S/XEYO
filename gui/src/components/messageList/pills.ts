@@ -1,6 +1,6 @@
 /**
- * Rewind cut-pill lookup, extracted from messageList/MessageList.tsx.
- * Pure helper: maps a round to its before/after rewind cut pills.
+ * 回溯剪切药丸查找，从 messageList/MessageList.tsx 拆出。
+ * 纯函数：将轮次映射到其前/后的回溯剪切药丸。
  */
 import type {RewindPill} from '@/stores/rewindV3Store';
 import type {Round} from './types';

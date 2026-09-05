@@ -342,7 +342,7 @@ html[data-smoothness='off'] .xy-agent-map__pulse--anim {
 	--map-stripe: #6c9bcf;
 }
 
-/* Panel chrome */
+/* 面板外壳 */
 .xy-agent-map-panel {
 	font-family: var(--font-mono);
 }

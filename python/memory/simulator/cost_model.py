@@ -79,7 +79,7 @@ def split_tokens(
 	if u < -1e-9:
 		raise RuntimeError("U negative: Ĥ clip failed")
 	u = max(0.0, u)
-	# Physical fill (not billed): new aligned blocks beyond hit.
+	# 物理填充（不计费）：命中之外的新对齐块。
 	w_fill = max(float(pr.length) - h, 0.0)
 	return pr, Split(H=h, U=u, W_phys=w_inv, W_fill=w_fill, L=pr.length, lcp=lcp, rho=rho)
 

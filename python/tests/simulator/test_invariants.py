@@ -136,7 +136,7 @@ def test_fidelity_monotonic_q_and_d():
 	q_c1 = q_unit(0.6, z, kappa)
 	q_c2 = q_unit(0.25, z, kappa)
 	assert q_c2 <= q_c1 <= q_keep
-	# D uses v * [q0-qa]+ ; v=10
+	# D 使用 v * [q0-qa]+；v=10
 	d1 = 10 * max(q_keep - q_c1, 0)
 	d2 = 10 * max(q_keep - q_c2, 0)
 	assert d1 <= d2
@@ -164,16 +164,16 @@ def test_apply_quality_monotonic_when_m_is_tools():
 	q2 = evaluate_quality(apply("C2", s0), s0)
 	assert q2.Q <= qk.Q + 1e-9
 	assert q1.D >= 0 and q2.D >= 0
-	# C1 stubs r=0.25 vs C2 summary 0.6: D(C1) should be >= D(C2) if z not wildly better
-	# Not strictly required if C2 z is worse; still D>=0.
+	# C1 打桩 r=0.25 对 C2 摘要 0.6：只要 z 不显著更优，D(C1) 应 >= D(C2)
+	# 若 C2 的 z 更差则不严格成立；但仍要求 D>=0。
 	assert qk.D == 0
 
 
 def test_raw_negative_dq_alarms_if_not_position():
 	s0 = _state_with_m(_seg("tr", "Q" * 200, kind="tool_result"))
-	# Fake an apply that raises r (should alarm).
+	# 伪造一次提升 r 的 apply（应触发告警）。
 	s_bad = replace(s0, m=(replace(s0.m[0], r=1.0, text=s0.m[0].text + " extra"),))
-	# s0 unit r=1 already; make s0 lower r
+	# s0 单元已是 r=1；把 s0 的 r 调低
 	s_low = freeze_s0(replace(s0, m=(replace(s0.m[0], r=0.25),)))
 	s_high = replace(s_low, m=(replace(s_low.m[0], r=1.0),))
 	q = evaluate_quality(s_high, s_low)
@@ -222,7 +222,7 @@ def test_c0_truncates_tool_result_in_tail_and_m():
 
 def test_hardtop_bypasses_tau_and_r1():
 	p = load_params(window_tokens=800, reserve_tokens=50, alpha_win=0.55)
-	# l_max = min(750, 440) = 440
+	# 计算 l_max = min(750, 440) = 440
 	blob = "H" * 4000
 	s0 = _state_with_m(_seg("tr", blob, kind="tool_result"), _seg("u", "please keep going"))
 	assert project(s0).length > p.l_max
@@ -235,7 +235,7 @@ def test_hardtop_bypasses_tau_and_r1():
 def test_hardtop_tie_prefers_c1():
 	p = load_params()
 	s0 = _state_with_m(_seg("tr", "T" * 100, kind="tool_result"))
-	# If both illegal due to empty? not this. Just ensure helper exists.
+	# 两者都因空而非法？非本例。仅确认辅助函数存在。
 	picked = hardtop_pick(s0, _cache(), p)
 	assert picked in (None, "C1", "C2")
 
@@ -246,7 +246,7 @@ def test_c1_leaves_p_bytes_unchanged():
 	s1 = apply("C1", s0)
 	x1 = project(s1).x
 	p_end = project(s0).p_end
-	# Compare emitted prefix string up to p_end tokens is awkward; compare p_s+p_c segments.
+	# 比较到 p_end token 为止的前缀串很别扭；改为比较 p_s+p_c 分段。
 	assert s1.p_s == s0.p_s
 	assert s1.p_c == s0.p_c
 	assert x0 != x1

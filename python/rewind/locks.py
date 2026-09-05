@@ -73,8 +73,8 @@ class ResourceLease:
                 try:
                     self._state.lock.release()
                 except RuntimeError:
-                    # Defensive: a failed acquisition or process shutdown must
-                    # not turn cleanup into a second failure.
+                    # 防御性：获取失败或进程关闭时，
+                    # 清理绝不能变成第二次失败。
                     pass
         self._released = True
 

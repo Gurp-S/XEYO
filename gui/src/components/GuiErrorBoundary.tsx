@@ -27,7 +27,7 @@ function hookHmrAutoReload() {
 	import.meta.hot.on('vite:afterUpdate', () => window.location.reload());
 }
 
-/** Prevent a render throw from leaving the transparent Tauri shell fully black. */
+/** 防止渲染抛错把透明 Tauri 外壳整个熏成黑屏。 */
 export class GuiErrorBoundary extends Component<Props, State> {
 	state: State = {error: null};
 

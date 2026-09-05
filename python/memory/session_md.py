@@ -45,7 +45,7 @@ MIN_TOOL_CALLS = 8
 REWRITE_GAP = 8
 
 
-# P2-2 任务级 rollout 归档（对齐 Codex rollout_summaries/<slug>.md）：
+# P2-2 任务级 rollout 归档（归档到 rollout_summaries/<slug>.md）：
 # 会话/任务结束时把 session.md 归档一份到 memdir/rollout_summaries/，喂 L4 检索；
 # 只保留最新 N 份（按归档时间），绝不做每轮全量重建（红线②）。
 ENV_ROLLOUT_MAX = "XEYO_MEMORY_ROLLOUT_MAX"

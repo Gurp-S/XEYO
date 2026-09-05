@@ -123,7 +123,7 @@ def test_chat_restored_messages(
 	sessions = tmp_path / "sessions"
 	sessions.mkdir()
 	sid = "cli-hydrate-1"
-	# Minimal transcript row the hydrate path accepts.
+	# hydrate 路径可接受的最小转录行。
 	(sessions / f"{sid}.jsonl").write_text(
 		json.dumps({"role": "user", "content": "prior", "id": "u1"}) + "\n",
 		encoding="utf-8",
@@ -200,7 +200,7 @@ def test_logo_art_is_xeyo_mark() -> None:
 
 	assert "█" in LOGO_ART or "▀" in LOGO_ART
 	assert LOGO_GLYPH
-	# Lockup must declare identity for banner rendering.
+	# Lockup 必须声明身份才能渲染横幅。
 	from rich.console import Console
 
 	from cli.logo import logo_with_identity

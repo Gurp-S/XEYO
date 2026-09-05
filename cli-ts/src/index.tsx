@@ -21,7 +21,7 @@ function hasFlag(argv: string[], name: string): boolean {
   return argv.includes(name);
 }
 
-/** Collect trailing freeform prompt (after flags). */
+/** 收集末尾的自由文本提示词（位于各 flag 之后）。 */
 function positionalPrompt(argv: string[]): string {
   const out: string[] = [];
   for (let i = 0; i < argv.length; i++) {
@@ -31,7 +31,7 @@ function positionalPrompt(argv: string[]): string {
       break;
     }
     if (a.startsWith("-")) {
-      // skip flag values for known options that take args
+      // 跳过已知带参选项后面的值
       const takes =
         a === "--cwd" ||
         a === "--session" ||
@@ -170,7 +170,7 @@ function resolveColorMode(argv: string[]): ColorMode {
 
   if (noColor && colorArg !== "always") return "none";
   if (colorArg === "always" || process.env.FORCE_COLOR) {
-    // Override pipe/NO_COLOR for Ink; still prefer truecolor when available.
+    // 为 Ink 覆盖管道/NO_COLOR 环境；可用时仍优先 truecolor。
     const auto = detectColorMode({
       ...process.env,
       NO_COLOR: undefined,
@@ -209,12 +209,12 @@ function restoreCursor(): void {
   try {
     if (process.stdin.isTTY) process.stdin.setRawMode?.(false);
   } catch {
-    /* ignore */
+    /* 忽略 */
   }
   try {
     process.stdout.write("\x1b[?25h");
   } catch {
-    /* ignore — broken pipe */
+    /* 忽略 —— 管道已断开 */
   }
 }
 
@@ -244,7 +244,7 @@ initTheme({
 const config = buildConfig(argv);
 const prompt = positionalPrompt(argv);
 
-// Quality gate: pipes / non-TTY → JSON or refuse Ink (Broken Pipe Panic).
+// 质量门：管道 / 非 TTY 时走 JSON，或拒绝启动 Ink（避免 Broken Pipe 崩溃）。
 const interactiveOk = Boolean(process.stdout.isTTY && process.stdin.isTTY);
 
 if (jsonMode) {
@@ -265,7 +265,7 @@ const shutdown = () => {
   try {
     instance.unmount();
   } catch {
-    /* ignore */
+    /* 忽略 */
   }
   restoreCursor();
 };

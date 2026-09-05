@@ -32,7 +32,7 @@ def test_restore_transaction_reverts_tracked_and_moves_untracked_to_trash(tmp_pa
     assert target.read_text(encoding="utf-8") == "base"
     assert not untracked.exists()
     
-    # Verify trash was populated
+    # 验证回收站已写入
     trash_root = workspace / ".xy-trash"
     trash_dirs = list(trash_root.iterdir())
     assert len(trash_dirs) == 1
@@ -70,11 +70,11 @@ def test_restore_transaction_rolls_back_to_safety_on_fault(tmp_path) -> None:
             fault_inject=fault
         )
 
-    # Workspace should be fully restored to the pre-transaction state
+    # 工作区应完整恢复到事务前状态
     assert target.read_text(encoding="utf-8") == "changed"
     assert untracked.read_bytes() == b"data"
     
-    # Trash directory for this transaction should be empty/reverted
+    # 该事务的回收站目录应为空/已回退
     trash_root = workspace / ".xy-trash"
     if trash_root.exists():
         for tx_dir in trash_root.iterdir():

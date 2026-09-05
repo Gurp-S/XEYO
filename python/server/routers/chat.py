@@ -370,7 +370,7 @@ def _build_enriched_resume_prompt(
 	"""结构化续跑前缀：用户气泡仍显示「继续」，engine 收到 enriched prompt。
 
 	41 号：``round_info``（goal_id, round, cap）非 None 时为 goal 轮合成提交，
-	追加轮次行与完成判定权威声明（对齐 DSH ``<goal_round>`` 的证据要求）。
+	追加轮次行与完成判定权威声明（``<goal_round>`` 的证据要求）。
 	"""
 	lines = [
 		"[Resume] The user asked to continue an interrupted turn.",
@@ -980,7 +980,7 @@ async def chat_completions(
 		# T9：非续跑且无绑定 → create+bind 目标（单写、try/except 降级，绝不阻塞主路径）。
 		# XEYO_GOAL_AUTO_CREATE（默认 0）：生产默认**不自动建 goal**——目标只在用户
 		# 显式新建（GUI「+ 新建目标」/ PATCH action=new）后存在，GoalDock 随之出现，
-		# 对齐 DSH「显式建目标、State-not-scheduling」。设 1 可回到「每条消息自动建
+		# 显式建目标、State-not-scheduling。设 1 可回到「每条消息自动建
 		# 绑定」的旧行为（隔离/e2e 如需确定性可显式关闭，见 playwright.config.ts）。
 		_goal_auto = os.environ.get("XEYO_GOAL_AUTO_CREATE", "0").strip().lower()
 		if (

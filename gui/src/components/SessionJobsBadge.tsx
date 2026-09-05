@@ -1,7 +1,7 @@
 /**
  * SessionJobsBadge.tsx — 42 号 P0 GUI：后台任务触发器 + 角标 + 只读弹层。
  *
- * 对齐 dsh-client-ui-jobs（42 号 §8）：
+ * 角标与弹层的展示规则（42 号 §8）：
  * - 角标 = running+stopping 计数，**为零整个隐藏**（会话无任务不长控件）。
  * - 弹层行 = kind / label / detail（有则取代状态词）/ 状态标记 / 耗时——
  *   活跃行每秒推进、终态在 finishedAt 冻结；终态行弱化保留。

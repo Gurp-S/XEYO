@@ -11,7 +11,7 @@ type Props = {
 };
 
 /**
- * Claude-like assistant: bare prose, no speaker chrome.
+ * 助手输出块：纯正文，无说话人装饰。
  */
 export function AssistantBlock({ text, streaming, usage, reasoning }: Props) {
   const t = theme();

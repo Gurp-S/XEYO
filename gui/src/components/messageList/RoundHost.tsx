@@ -501,7 +501,7 @@ promptEditRef,
 	}, roundHostPropsAreEqual);
 
 /**
- * Cursor sticky push 在 scroller 内保持原生
+ * sticky push 在 scroller 内保持原生吸附
  * 吸顶时：隐藏流内 chip，打孔使真实 L0 显示，在 overlay pin 绘制
  * 相同 chip（合成在壁纸之上，而非 transcript）。
  */

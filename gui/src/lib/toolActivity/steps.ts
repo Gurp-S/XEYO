@@ -413,5 +413,5 @@ export function summarizeTools(tools: ToolView[]): {
 }
 
 /**
- * 任务收尾时长：Cursor「Worked for 7m 33s」风格。
+ * 任务收尾时长：如「Worked for 7m 33s」。
  */

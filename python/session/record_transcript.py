@@ -1,6 +1,6 @@
 """record_transcript — 把消息追加写入 session JSONL（按 id 去重）。
 
-对齐 Claude QueryEngine 阶段 ④/⑥/⑦ 的 recordTranscript 用法:
+转录用法约定:
   - persist 关闭时直接 no-op
   - 只追加尚未写过的消息
   - 用户消息进 loop 前就可先调一次，避免中途杀掉后无法 resume

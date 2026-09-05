@@ -214,7 +214,7 @@ def handle_sse_obj(
 	if json_mode:
 		sys.stdout.write(json.dumps(obj, ensure_ascii=False) + "\n")
 		sys.stdout.flush()
-		# Still resolve pending panels in headless/json mode (fail-closed).
+		# headless/json 模式下仍解析待定面板（fail-closed）。
 		xy = extract_xy(obj)
 		if xy:
 			_resolve_xy(client, xy, json_mode=True)
@@ -228,7 +228,7 @@ def handle_sse_obj(
 
 	xy = extract_xy(obj)
 	if not xy:
-		# OpenAI finish_reason stop → newline if we streamed text
+		# OpenAI finish_reason 为 stop 时，若已流式输出过文本则补一个换行
 		choices = obj.get("choices")
 		if (
 			isinstance(choices, list)

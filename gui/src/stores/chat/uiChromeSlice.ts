@@ -50,7 +50,7 @@ export function writePendingPermission(value: PendingPermissionInfo | null): voi
 	try {
 		localStorage.setItem(PENDING_PERMISSION_KEY, JSON.stringify(value));
 	} catch {
-		/* ignore */
+		/* 忽略 */
 	}
 }
 
@@ -109,7 +109,7 @@ export function createUiChromeSlice(
 		if (!path && !text) {
 			return;
 		}
-		// 防崩溃：超大片段不进 Composer 状态（Cursor 也不会把整仓文件塞进输入框）
+		// 防崩溃：超大片段不进 Composer 状态（整仓文件不该塞进输入框）
 		const MAX_SNIPPET = 48_000;
 		if (text != null && text.length > MAX_SNIPPET) {
 			toast.error(
@@ -146,8 +146,8 @@ export type PendingStreamHandlers = {
 };
 
 /**
- * Pending permission / ask / plan SSE dispatch, extracted from streamSendSlice.
- * Callers must apply the sessionStreamActive guard before dispatching.
+ * 待处理的 permission / ask / plan SSE 派发，从 streamSendSlice 拆出。
+ * 调用方派发前必须先通过 sessionStreamActive 守卫。
  */
 export function createPendingStreamHandlers(deps: {
 	get: GetState;

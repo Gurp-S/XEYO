@@ -145,9 +145,9 @@ async def test_read_pack_includes_context(work: Path) -> None:
 	assert "Apply increment" in r.content
 	assert "helper" in r.content
 	assert "## body" in r.content or "pack" in r.content.lower()
-	# callee signature present
+	# 被调方签名存在
 	assert "helper" in r.content
-	# approximate caller: other calls apply
+	# 近似被调方：其他调用同样适用
 	assert "other" in r.content or "callers" in r.content
 
 

@@ -74,7 +74,7 @@ def test_mixed_text_c1_passes_quality_gate():
 def test_endgame_keep():
 	sc = next(s for s in list_scenarios(smoke=True) if s.id.endswith(":endgame") or s.remaining_turns == 1)
 	p = load_params()
-	# If this particular endgame still fits in the window, R=1 → keep
+	# 若该收尾局仍放得进窗口，R=1 → keep
 	from memory.simulator.projection import project
 
 	s0 = sc.state()
@@ -88,7 +88,7 @@ def test_smoke_suite_runs():
 	assert len(rows) >= 8
 	c = Counter(r.a_star for r in rows)
 	assert sum(c.values()) == len(rows)
-	# short chats should not all hardtop
+	# 短对话不应全部 hardtop
 	shorts = [r for r in rows if r.scenario_id.startswith("short:")]
 	assert shorts and all(r.a_star == "keep" for r in shorts)
 

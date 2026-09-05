@@ -80,7 +80,7 @@ def _size(version: int) -> int:
 
 def _capacity_bytes(version: int) -> int:
 	data_cw = sum(d for d, _e in _BLOCKS_M[version])
-	# mode(4) + length(8) + terminator(4) ≈ 2 codewords
+	# 模式(4) + 长度(8) + 终止符(4) ≈ 2 个码字
 	return data_cw - 2
 
 

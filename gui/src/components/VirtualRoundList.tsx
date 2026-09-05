@@ -26,7 +26,7 @@ import {
 import {ALWAYS_MOUNT_LATEST} from '@/lib/roundWindow';
 
 export type VirtualRoundRenderContext = {
-	/** Virtual window mounted this round; skip RoundMount IO deferral. */
+	/** 本轮由虚拟窗口挂载；跳过 RoundMount 的 IO 延迟。 */
 	bypassRoundMountIo: boolean;
 };
 

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-/** Elapsed seconds while `active` is true. */
+/** `active` 为 true 期间经过的秒数。 */
 export function useElapsed(active: boolean): number {
   const [sec, setSec] = useState(0);
 

@@ -52,7 +52,7 @@ _log = logging.getLogger(__name__)
 
 
 # --------------------------------------------------------------------------- #
-# Hoisted, testable tuning constants (the "timeout split" + backoff bounds).
+# 提升到模块级、便于测试的调优常量（"超时拆分" + 退避边界）。
 # --------------------------------------------------------------------------- #
 
 #: Startup handshake budget (initialize + initial tools/list), seconds.
@@ -67,7 +67,7 @@ BACKOFF_MAX_S = 30.0
 MAX_RECONNECT_ATTEMPTS = 10
 #: If a run survived longer than this, reset the backoff budget.
 RESET_UPTIME_S = 30.0
-#: Schema token budget (Codex-style 5KB layer), in bytes.
+#: Schema token budget (5KB layer), in bytes.
 SCHEMA_BUDGET_BYTES = 5120
 #: MCP protocol version we advertise.
 MCP_PROTOCOL_VERSION = "2024-11-05"
@@ -76,7 +76,7 @@ MAX_MCP_STDIO_LINE = 8 * 1024 * 1024  # 8 MiB
 #: stderr ring-buffer length (human-readable logs, ``/mcp logs``).
 STDERR_RING_SIZE = 100
 
-# -- F2 visibility budget（P0b）------------------------------------------- #
+# -- F2 可见性预算（P0b）------------------------------------------- #
 #: 单工具 spec 上限（字节）：超限 → hidden（仍注册，幻觉调用走权限 ASK）。
 MAX_TOOL_SCHEMA_BYTES = 8000
 #: 每 server 工具 spec 总量上限（字节）：溢出部分 → hidden。
@@ -135,7 +135,7 @@ class McpProtocolError(McpError):
 
 
 # --------------------------------------------------------------------------- #
-# Tool name normalization + collision-proof names.
+# 工具名规范化 + 防碰撞命名。
 # --------------------------------------------------------------------------- #
 
 _RAW_NORM_RX = re.compile(r"[^a-z0-9._-]+")
@@ -205,7 +205,7 @@ def mcp_tool_name(server_id: str, raw_name: str) -> str:
 
 
 # --------------------------------------------------------------------------- #
-# Spec / config surface.
+# spec / 配置面。
 # --------------------------------------------------------------------------- #
 
 @dataclass(frozen=True)
@@ -307,7 +307,7 @@ def mcp_policy_decision(name: str, policy: str) -> PolicyDecision:
 
 
 # --------------------------------------------------------------------------- #
-# Schema sanitize + 5KB tiered degradation (Codex-style).
+# Schema 清洗 + 5KB 分层降级。
 # --------------------------------------------------------------------------- #
 
 def sanitize_tool_schema(raw: Mapping[str, Any], *, budget_bytes: int = SCHEMA_BUDGET_BYTES) -> dict[str, Any]:
@@ -337,17 +337,17 @@ def _degrade(obj: Any, budget_bytes: int) -> Any:
 	if _size(current) <= budget_bytes:
 		return current
 
-	# Tier 1: drop every human-facing description.
+	# 第 1 层：去掉所有面向人的 description。
 	tier1 = _strip_keys(current, {"description"})
 	if _size(tier1) <= budget_bytes:
 		return tier1
 
-	# Tier 2: drop optional noise (defaults / examples / additionalProperties).
+	# 第 2 层：去掉可选噪音（defaults / examples / additionalProperties）。
 	tier2 = _strip_keys(tier1, {"default", "examples", "additionalProperties", "enum"})
 	if _size(tier2) <= budget_bytes:
 		return tier2
 
-	# Tier 3: collapse to a bare object schema.
+	# 第 3 层：收敛为裸 object schema。
 	return {"type": "object", "properties": {}}
 
 
@@ -371,7 +371,7 @@ def _strip_keys(obj: Any, keys: set[str]) -> Any:
 
 
 # --------------------------------------------------------------------------- #
-# Reconnect backoff 500ms -> 30s, bounded attempts.
+# 重连退避 500ms -> 30s，尝试次数有上限。
 # --------------------------------------------------------------------------- #
 
 class ReconnectBackoff:
@@ -424,7 +424,7 @@ class ReconnectBackoff:
 
 
 # --------------------------------------------------------------------------- #
-# Transport abstraction (fake-able process interface).
+# 传输抽象（可打桩的进程接口）。
 # --------------------------------------------------------------------------- #
 
 @runtime_checkable
@@ -478,7 +478,7 @@ def sanitize_env(
 	bearer_token_env_var: str = "",
 	env_mode: str = "scrub",
 ) -> dict[str, str]:
-	"""Build the subprocess env for one stdio server (Codex container hygiene).
+	"""Build the subprocess env for one stdio server (container hygiene).
 
 	- ``scrub`` (default): strip ``XEYO_*`` / secret-ish vars, then merge the literal
 	  ``whitelist`` (spec ``env``) and the ``env_vars`` allowlist on top.
@@ -491,7 +491,7 @@ def sanitize_env(
 	av = dict(env_vars or {})
 	out: dict[str, str] = {}
 	if env_mode == "minimal":
-		# env_clear + allowlist: only env_vars names (+ literal env) survive.
+		# env_clear + 白名单：仅保留 env_vars 名称（+ 字面 env）。
 		for name in (av or {}):
 			val = os.environ.get(name)
 			if val is not None:
@@ -743,7 +743,7 @@ class StdioMcpTransport:
 
 
 # --------------------------------------------------------------------------- #
-# The stdio client: JSON-RPC driving, reconnect, tool list generation.
+# stdio 客户端：JSON-RPC 驱动、重连、工具列表生成。
 # --------------------------------------------------------------------------- #
 
 @dataclass(frozen=True)
@@ -801,7 +801,7 @@ class McpStdioClient:
 		"""Snapshot of the in-memory tool list without a fresh fetch."""
 		return McpGeneration(self._generation, dict(self._tools), applied=True)
 
-	# -- lifecycle ----------------------------------------------------------
+	# -- 生命周期（lifecycle） ----------------------------------------------------------
 
 	def start(self, *, fetch: bool = True, force: bool = False) -> bool:
 		"""Spawn + handshake + list tools. Never raises (skip-and-log).
@@ -890,7 +890,7 @@ class McpStdioClient:
 						f"mcp server {self.spec.id} exited during {method}"
 					)
 				continue
-			# notification (no id) -> dispatch; keep looping for our response.
+			# 通知（无 id）-> 直接分发；继续循环等待本次响应。
 			if "id" not in resp:
 				self._dispatch_notification(resp)
 				continue
@@ -919,7 +919,7 @@ class McpStdioClient:
 					"mcp server %s list_changed reload failed: %s", self.spec.id, e
 				)
 
-	# -- tool list (whole-generation replacement) ----------------------------
+	# -- 工具列表（整代替换） ----------------------------
 
 	def reload_tools(
 		self, *, fetch: bool = True, reserved_names: frozenset[str] = frozenset()
@@ -953,7 +953,7 @@ class McpStdioClient:
 				continue
 			name = mcp_tool_name(self.spec.id, raw_name)
 			if name in new:
-				# two raw names collapsed onto one tool name inside this generation.
+				# 两个原始名在本代内折叠成同一个工具名。
 				self._log.warning(
 					"mcp server %s generation conflict on %s; rolling back",
 					self.spec.id,
@@ -977,7 +977,7 @@ class McpStdioClient:
 		self._generation += 1
 		return McpGeneration(self._generation, dict(new), applied=True)
 
-	# -- tool execution ------------------------------------------------------
+	# -- 工具执行 ------------------------------------------------------
 
 	def _ensure_running(self, *, fetch: bool = False) -> bool:
 		"""Bounded reconnect loop. Returns True if connected, False after exhausting."""
@@ -1007,10 +1007,10 @@ class McpStdioClient:
 				if fetch:
 					self.reload_tools(fetch=True)
 				self._ready = True
-				# Do NOT reset the budget here: a server that connects then dies
-				# within <reset_uptime must keep consuming the per-outage budget, so
-				# a fast crash-loop terminates after max_attempts. The budget is only
-				# re-armed by maybe_reset_for_uptime() when the run lasted long enough.
+				# 这里不要重置预算：先连上随即死掉的服务器
+				# （存活 < reset_uptime）必须继续消耗单次故障预算，因此
+				# 快速崩溃循环会在 max_attempts 次后终止。预算只能
+				# 在运行足够久后由 maybe_reset_for_uptime() 重新装填。
 				return True
 			except (McpSpawnError, McpTimeoutError, McpProtocolError) as e:
 				self._log.warning(
@@ -1115,11 +1115,11 @@ def _result_from_mcp_call(result: Any) -> ToolResult:
 
 
 # --------------------------------------------------------------------------- #
-# Tool adapter (Tool protocol) + building tools for a generation.
+# 工具适配器（Tool 协议）+ 为一代构建工具。
 # --------------------------------------------------------------------------- #
 
 # --------------------------------------------------------------------------- #
-# Tool adapter (Tool protocol) + content fusion (F6a).
+# 工具适配器（Tool 协议）+ 内容融合（F6a）。
 # --------------------------------------------------------------------------- #
 
 def _mcp_session_id() -> str:
@@ -1301,8 +1301,8 @@ class McpTool:
 				self._client.call_tool, self.raw_name, input or {}
 			)
 		except McpError as e:
-			# Fail closed: a disconnected / crashed server is an error result, not a
-			# crash of the tool loop (matches skip-and-log philosophy).
+			# fail-closed：断连 / 崩溃的服务器返回错误结果，而不是
+			# 让工具循环崩溃（与 skip-and-log 哲学一致）。
 			_audit_mcp_call(self.server_id, self.raw_name, True, int((time.monotonic() - started) * 1000), str(e))
 			return ToolResult(
 				content=f"MCP tool {self.raw_name} error: {e}", is_error=True
@@ -1395,7 +1395,7 @@ def build_tools(client: McpStdioClient, generation: McpGeneration) -> list[McpTo
 
 
 # --------------------------------------------------------------------------- #
-# Runtime: ties a client to a real ToolRegistry with whole-generation replacement.
+# 运行时：把客户端接到真实 ToolRegistry，支持整代替换。
 # --------------------------------------------------------------------------- #
 
 class McpServerRuntime:
@@ -1462,12 +1462,12 @@ class McpServerRuntime:
 			self._apply_generation(gen)
 		return gen
 
-	# -- generation sync -----------------------------------------------------
+	# -- 代际同步 -----------------------------------------------------
 
 	def _apply_generation(self, gen: McpGeneration) -> None:
 		if not gen.applied:
 			return
-		# conflict: a new name is already owned (by another server or a stale entry).
+		# 冲突：新名字已被占用（属于其他服务器或陈旧条目）。
 		if self.registry is not None:
 			for name in gen.tools:
 				existing = self.registry.get(name)
@@ -1478,11 +1478,11 @@ class McpServerRuntime:
 						name,
 					)
 					return
-		# unregister stale names (whole-generation replacement).
+		# 注销陈旧名称（整代替换）。
 		for old_name in list(self._tools):
 			if old_name not in gen.tools:
 				self._unregister(old_name)
-		# register / refresh current tools.
+		# 注册 / 刷新当前工具。
 		built = build_tools(self.client, gen)
 		new_map: dict[str, McpTool] = {}
 		for tool in built:
@@ -1492,7 +1492,7 @@ class McpServerRuntime:
 		self._tools = new_map
 		self._applied_generation = gen.generation
 
-	# -- registry helpers (additive; no changes to tool_registry.py) ---------
+	# -- registry 辅助方法（只增不改；不动 tool_registry.py） ---------
 
 	def _register(self, tool: McpTool) -> None:
 		reg = self.registry
@@ -1501,8 +1501,8 @@ class McpServerRuntime:
 		try:
 			reg.register(tool)
 		except Exception:  # noqa: BLE001
-			# If a name is already taken, registering would clobber another server's
-			# tool — treat as a conflict and drop this tool (fail closed).
+			# 若名字已被占用，注册会覆盖其他服务器的
+			# 工具——按冲突处理并丢弃该工具（fail-closed）。
 			self._log.warning(
 				"mcp server %s could not register %s", self.spec.id, tool.name
 			)

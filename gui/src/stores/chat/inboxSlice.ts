@@ -61,5 +61,5 @@ export function createInboxSlice(
 	};
 }
 
-// re-export for typecheck convenience
+// 便于类型检查的再导出
 export type {InboxQueuedItem};

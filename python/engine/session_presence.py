@@ -98,9 +98,9 @@ class SessionPresenceRegistry:
 
 	def __init__(self) -> None:
 		self._lock = threading.Lock()
-		# root -> session_id -> entry
+		# 结构：root -> session_id -> entry
 		self._by_root: dict[str, dict[str, SessionPresenceEntry]] = {}
-		# session_id -> root (for drop without cwd)
+		# 反向索引：session_id -> root（无 cwd 时删除用）
 		self._session_root: dict[str, str] = {}
 
 	def _entry_locked(
@@ -533,10 +533,10 @@ def _git_op_touches_all(op: str, command: str) -> bool:
 	if op == "add":
 		import re
 
-		# git add . / -A / --all / -u
+		# 匹配 git add . / -A / --all / -u
 		if re.search(r"(?:^|\s)(-A|--all|-u|--update)(?:\s|$)", command or ""):
 			return True
-		# bare `git add` or `git add .`
+		# 裸 `git add` 或 `git add .`
 		if re.search(r"\bgit(?:\.exe)?\s+(?:-C\s+\S+\s+)*add\s+\.(?:\s|$)", command or "", re.I):
 			return True
 	return False

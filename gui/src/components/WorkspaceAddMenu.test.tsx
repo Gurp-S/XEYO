@@ -31,7 +31,7 @@ const recents = [
 ];
 
 describe('WorkspaceAddButton', () => {
-	it('opens a Cursor-style add menu with Recents and Repos actions', async () => {
+	it('opens an add menu with Recents and Repos actions', async () => {
 		const user = userEvent.setup();
 		const onOpenPath = vi.fn(async () => undefined);
 		render(

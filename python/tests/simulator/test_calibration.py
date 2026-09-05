@@ -40,7 +40,7 @@ def _row(pred: float, obs: float) -> HitRecord:
 
 
 def test_rho_scan_picks_closer_alpha(tmp_path: Path):
-	# predicted was computed with alpha=0.95; observed ~ 0.80/0.95 of that
+	# predicted 按 alpha=0.95 计算；observed 约为其 0.80/0.95
 	base = load_params()
 	pred = 950.0
 	obs = 800.0  # would match alpha ~ 0.80

@@ -1,12 +1,12 @@
-"""citation — 记忆引用锚点（Codex ``memories/read/src/citations.rs`` 落地）。
+"""citation — 记忆引用锚点。
 
-Codex 用 ``path:line_start-line_end|note=[...]`` + ``<rollout_ids>`` 给记忆条目加
+用 ``path:line_start-line_end|note=[...]`` + ``<rollout_ids>`` 给记忆条目加
 可追溯引用：一条事实能定位到它来自哪个文件、哪几行、以及哪个 rollout(thread/session)。
-XEYO 借鉴同一格式（只读/纯函数，无 I/O），把「压缩摘要行 → 原消息」和
+XEYO 采用该格式（只读/纯函数，无 I/O），把「压缩摘要行 → 原消息」和
 「检索命中 → 原 note 文件行」都变成可定位的引用：
 
 - ``CitationEntry``：path / line_start / line_end / note。单行格式
-  ``path:start-end|note=[note]``（对齐 Codex ``parse_memory_citation_entry``）。
+  ``path:start-end|note=[note]``。
 - ``CitationBlock``：entries + rollout_ids。块格式
   ``<citation_entries>...</citation_entries>`` + ``<rollout_ids>...</rollout_ids>``。
 
@@ -46,12 +46,12 @@ class CitationBlock:
 
 
 # --------------------------------------------------------------------------- #
-# 单行：path:start-end|note=[...] （对齐 Codex parse_memory_citation_entry）
+# 单行：path:start-end|note=[...]
 # --------------------------------------------------------------------------- #
 
 
 def entry_line(entry: CitationEntry) -> str:
-	"""把一条引用编成 Codex 单行格式。"""
+	"""把一条引用编成单行格式。"""
 	path = entry.path.strip()
 	if entry.line_start is not None and entry.line_end is not None:
 		loc = f"{path}:{entry.line_start}-{entry.line_end}"
@@ -64,7 +64,7 @@ def entry_line(entry: CitationEntry) -> str:
 
 
 def parse_entry_line(line: str) -> CitationEntry | None:
-	"""解析 Codex 单行引用；格式不合法返回 None（对齐 strict 失败的 fail-safe）。"""
+	"""解析单行引用；格式不合法返回 None（strict 失败的 fail-safe）。"""
 	raw = (line or "").strip()
 	if not raw:
 		return None
@@ -124,7 +124,7 @@ def render_block(block: CitationBlock) -> str:
 
 
 def _extract_block(text: str, open_tag: str, close_tag: str) -> list[str]:
-	"""取所有 ``open…close`` 之间内容（Codex extract_block 的多次命中版）。"""
+	"""取所有 ``open…close`` 之间内容（多次命中版）。"""
 	out: list[str] = []
 	rest = text or ""
 	while True:

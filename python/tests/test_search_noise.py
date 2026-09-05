@@ -37,7 +37,7 @@ def test_search_excludes_env_append(monkeypatch):
 
 def test_excluded_dir_globs_shape():
 	globs = excluded_dir_globs()
-	# [("--glob","!dir"), ...]
+	# 参数形如 [("--glob","!dir"), ...]
 	assert globs[0] == "--glob"
 	assert globs[1].startswith("!")
 	flat = set(globs[1::2])

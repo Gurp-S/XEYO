@@ -24,7 +24,7 @@ function enterClass(createdAt?: number) {
 	return Date.now() - createdAt < 900 ? 'anim-rise' : undefined;
 }
 
-/** Claude 风格 transcript：❯ user · ● assistant · ⎿ tool — 非聊天气泡。 */
+/** transcript 式布局：❯ user · ● assistant · ⎿ tool — 非聊天气泡。 */
 function MessageBubbleInner({message, streaming, thinking}: Props) {
 	const [previewImage, setPreviewImage] = useState<ImageReaderSource | null>(null);
 

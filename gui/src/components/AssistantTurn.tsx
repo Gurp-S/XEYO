@@ -258,7 +258,7 @@ export const ActivityBlock = memo(
 );
 
 /**
- * Cursor 风格轮次：assistant prose 始终可见；tools 折叠进 activity。
+ * 轮次布局：assistant prose 始终可见；tools 折叠进 activity。
  * 流式更新在 tool fingerprint 稳定时跳过 activity 重渲染。
  */
 function AssistantTurnInner({

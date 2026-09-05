@@ -1,6 +1,6 @@
 """主会话 Mid-Turn Inbox 注册表（P1）：把「回合进行中再发消息」从 409 变成排队投递。
 
-语义对齐 DSH ``mid-turn inbox``：
+mid-turn inbox 语义：
 - **消息只在回合边界投递**：``on_turn_settled``（turn_runner `finally` 之后的 settlement
   检查点）是唯一投递点；绝不改道已在进行的回合。
 - **park 而非注入**：只入 FIFO，不打断当前 turn，不改 MessageStore / JSONL（不碰 T_now）。
@@ -42,7 +42,7 @@ _DEFAULT_MAX_QUEUED = 8
 _MAX_CHARS = 2000
 # 投递被拒（submit_synthetic False）后的最大尝试次数；≥ 此值置 stuck（GUI 可重试）。
 _DEFAULT_MAX_ATTEMPTS = 3
-# 批投开关：1 = settle 时合并队列消息为一个合成轮；0 = 逐条（DSH 语义）。
+# 批投开关：1 = settle 时合并队列消息为一个合成轮；0 = 逐条投递。
 def _coalesce() -> bool:
 	raw = os.environ.get("XEYO_INBOX_COALESCE", "1").strip().lower()
 	return raw not in ("0", "false", "no", "off")
@@ -97,7 +97,7 @@ class InboxRegistry:
 
 	def __init__(self) -> None:
 		self._lock = threading.Lock()
-		# FIFO：key = session_id；value = deque[InboxItem]。
+		# FIFO 结构：key = session_id；value = deque[InboxItem]。
 		self._queues: dict[str, list[InboxItem]] = {}
 		# 在途排水任务（per-session），防重复 spawn。
 		self._drain_tasks: dict[str, asyncio.Task] = {}
@@ -314,7 +314,7 @@ class InboxRegistry:
 		try:
 			if final_status in ("stopped", "cancelled"):
 				# 用户停 / HTTP 取消：moss 已投递消息已被消费，剩余队列 hold；
-				# 下一条由下一次人类消息 settle 或 resume 触发（对齐 DSH「interrupt
+				# 下一条由下一次人类消息 settle 或 resume 触发（「interrupt
 				# 只停当前回合，停靠消息保留」）。
 				return
 			if final_status not in ("succeeded", "failed"):
@@ -411,7 +411,7 @@ class InboxRegistry:
 		self._requeue_failed(session_id, items)
 
 	async def _drain_one(self, session_id: str) -> None:
-		"""逐条投递（DSH 语义）：一次取一条（跳过 stuck）；成功消费，剩余下次 settle。"""
+		"""逐条投递：一次取一条（跳过 stuck）；成功消费，剩余下次 settle。"""
 		it = self._pop_first_active(session_id)
 		if it is None:
 			return

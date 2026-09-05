@@ -10,7 +10,7 @@ from slash.registry import COMMANDS, match_commands, parse_slash
 
 
 # --------------------------------------------------------------------------- #
-# registry / manifest
+# 注册表 / 清单
 # --------------------------------------------------------------------------- #
 
 def test_manifest_shape_and_alias_uniqueness() -> None:
@@ -84,7 +84,7 @@ def test_alias_conflict_guard() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# dispatch
+# 分发
 # --------------------------------------------------------------------------- #
 
 def test_dispatch_unknown_and_client_commands() -> None:

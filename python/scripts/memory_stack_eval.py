@@ -831,7 +831,7 @@ async def run_live(proj: Path) -> dict:
 	)
 	cases.append({"id": "ab_short_v61_vs_project", "live": True, "ok": True, "modes": ab_short})
 
-	# long-history A/B is projection-only (no second huge live call)
+	# 长历史 A/B 仅做投影（不发起第二次超大 live 调用）
 	_set_l5("project")
 	w_proj = WorkingSnapshot(session_id="ab_long", turns_since_c2=4)
 	only_c0c1 = project_for_model(api_hist, w_proj)
@@ -857,7 +857,7 @@ def _case_ok(c: dict) -> bool:
 		return bool(modes.get("v61", {}).get("r1_ok") and modes.get("v61", {}).get("r2_ok")
 			and modes.get("project", {}).get("r1_ok") and modes.get("project", {}).get("r2_ok"))
 	if c.get("id") == "forget_live":
-		# model may not find an id; still a success if it finished
+		# 模型可能找不到 id；只要跑完仍算成功
 		return bool(c.get("ok") or c.get("result_subtype") == "success")
 	if c.get("id") == "l1_chinese_live":
 		final = c.get("final") or ""
@@ -1155,7 +1155,7 @@ def _gate_verdict_cli() -> int:
 		"、".join(miss_a3),
 	)
 
-	# ---- θ* / overlay ----
+	# ---- θ* / 叠加层 ----
 	ov = load_overlay()
 	theta = ov.get("theta")
 	ok_theta = isinstance(theta, (int, float)) and theta >= 0.35

@@ -140,7 +140,7 @@ function dropState(sessionId: string): void {
 	try {
 		localStorage.removeItem(stateKey(sessionId));
 	} catch {
-		/* ignore */
+		/* 忽略 */
 	}
 }
 
@@ -184,7 +184,7 @@ function migrateLegacyFallback(sessionId: string, cur: RewindV3BySession): Rewin
 			}
 		}
 	} catch {
-		/* ignore */
+		/* 忽略 */
 	}
 	return cur;
 }
@@ -193,7 +193,7 @@ function dropLegacyFallback(sessionId: string): void {
 	try {
 		localStorage.removeItem(`${FALLBACK_PREFIX}.${sessionId}`);
 	} catch {
-		/* ignore */
+		/* 忽略 */
 	}
 }
 

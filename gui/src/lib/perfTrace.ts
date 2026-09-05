@@ -19,7 +19,7 @@ export function perfMeasure(name: string, start: string): void {
 	try {
 		performance.measure(`xy:${name}`, startMark, endMark);
 	} catch {
-		// A stale mark should never affect rendering or interaction.
+		// 过期的标记绝不应影响渲染或交互。
 	}
 	performance.clearMarks(startMark);
 	performance.clearMarks(endMark);

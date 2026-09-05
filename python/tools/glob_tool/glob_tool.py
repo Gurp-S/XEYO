@@ -785,7 +785,7 @@ class GlobTool:
 				"showing --iglob results.)"
 			)
 
-		# --- 3) folded ---
+		# --- 3) 折叠 ---
 		use_fold = False
 		if filenames:
 			if detail == "folded":

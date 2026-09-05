@@ -99,9 +99,9 @@ export function usePaneResize(
 				pane.style.willChange = 'width';
 				pane.classList.add('xy-pane-dragging');
 			}
-			// Keep the sibling chat column in the same layout frame as the
-			// directly-mutated pane. The RAF throttle above limits React work to
-			// the browser's paint cadence instead of every mouse event.
+			// 让相邻聊天列与被直接改动的面板处于同一布局帧。
+			// 上面的 RAF 节流把 React 工作限制在浏览器绘制节奏内，
+			// 而不是每个鼠标事件都触发。
 			onWidth(base);
 		};
 		let moveRaf = 0;

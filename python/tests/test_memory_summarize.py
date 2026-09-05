@@ -23,7 +23,7 @@ def _traceback() -> str:
     )
 
 
-# ---------- is_error_like ----------
+# ---------- is_error_like（错误判定）----------
 
 def test_is_error_like_traceback():
     assert is_error_like(_traceback())
@@ -37,7 +37,7 @@ def test_is_error_like_plain_text_false():
     assert not is_error_like("hello world\nthis is a normal message")
 
 
-# ---------- extract_tool_summary: grep ----------
+# ---------- extract_tool_summary：grep ----------
 
 def test_grep_summary_keeps_stats_not_raw_head():
     out = extract_tool_summary(_grep_like(), "Grep", max_text=160)

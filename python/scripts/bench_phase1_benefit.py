@@ -62,14 +62,14 @@ def bench_rtk() -> list[tuple[str, int, int, float]]:
 	t0, t1 = tokens(raw), tokens(after)
 	rows.append(("pytest", t0, t1, 1 - t1 / t0 if t0 else 0.0))
 
-	# git log
+	# git log 样本
 	log_lines = [f"{hex(i)[2:].zfill(7)} 2026-01-01 subject line {i}" for i in range(200)]
 	raw = _pad_fixture(log_lines)
 	after = compact_command_output("git log -n 200", raw)
 	t0, t1 = tokens(raw), tokens(after)
 	rows.append(("git_log", t0, t1, 1 - t1 / t0 if t0 else 0.0))
 
-	# tsc
+	# tsc 样本
 	tsc = [
 		f"src/a.ts({i},1): error TS2322: Type mismatch {i}" for i in range(80)
 	]
@@ -88,7 +88,7 @@ async def bench_pack() -> tuple[int, int, int, int, bool]:
 	reader = FileReadTool(cwd=str(REPO_ROOT))
 	greper = GrepTool(cwd=str(REPO_ROOT))
 
-	# before
+	# before（未开 pack）
 	r1 = await reader.execute(
 		{"file_path": str(target), "symbol": symbol}, AbortController()
 	)
@@ -107,7 +107,7 @@ async def bench_pack() -> tuple[int, int, int, int, bool]:
 	before_calls = 3
 	before_tok = tokens(r1.content) + tokens(r2.content) + tokens(r3.content)
 
-	# after
+	# after（开启 pack）
 	rp = await reader.execute(
 		{"file_path": str(target), "symbol": symbol, "pack": True},
 		AbortController(),

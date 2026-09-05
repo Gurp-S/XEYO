@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { healthOk } from "../api/sse.js";
 
-/** Poll engine /health; null = checking. */
+/** 轮询引擎 /health；null = 检测中。 */
 export function useEngineHealth(baseUrl: string, intervalMs = 8000) {
   const [connected, setConnected] = useState<boolean | null>(null);
 

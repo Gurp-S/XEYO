@@ -403,7 +403,7 @@ export function rememberTurnCursor(sessionId: string, eventId: number): void {
 	try {
 		sessionStorage.setItem(`${TURN_CURSOR_KEY}${sessionId}`, String(eventId));
 	} catch {
-		/* ignore quota */
+		/* 忽略配额 */
 	}
 }
 

@@ -53,11 +53,11 @@ def test_workspace_lock_reclaims_expired_lease(tmp_path) -> None:
         encoding="utf-8",
     )
     
-    # We must also write the sidecar heartbeat file for it to parse correctly
-    # and be considered a valid (but expired) lease, rather than corrupt.
+    # 还必须写入 sidecar 心跳文件才能被正确解析，
+    # 并被视为有效（但已过期）租约而非损坏。
     heartbeat = lock._heartbeat_path("expired")
     heartbeat.write_bytes(b"heartbeat\n")
-    # Make the heartbeat file artificially old so it is expired
+    # 人为把心跳文件改老，使其过期
     os.utime(heartbeat, (time.time() - 20, time.time() - 20))
 
     lease = lock.acquire()

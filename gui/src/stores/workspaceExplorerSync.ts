@@ -1,7 +1,7 @@
 import {useExplorerStore} from '@/stores/explorerStore';
 import {useWorkspaceStore} from '@/stores/workspaceStore';
 
-/** Bind workspace ↔ explorer mutual exclusion once at app startup. */
+/** 应用启动时一次性绑定 workspace ↔ explorer 的互斥关系。 */
 export function bindWorkspaceExplorerSync(): void {
 	useExplorerStore.subscribe((state, prev) => {
 		const openedPreview = Boolean(state.selectedPath);

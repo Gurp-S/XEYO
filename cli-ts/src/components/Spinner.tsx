@@ -11,7 +11,7 @@ type Props = {
   color?: string;
 };
 
-/** Low-frequency spinner; static glyph when reduced motion / CI. */
+/** 低频 spinner；减弱动效 / CI 环境下显示静态符号。 */
 export function Spinner({ label, ascii, color }: Props) {
   const [i, setI] = useState(0);
   const frames = ascii ? ASCII : FRAMES;
@@ -20,7 +20,7 @@ export function Spinner({ label, ascii, color }: Props) {
 
   useEffect(() => {
     if (quiet) return;
-    // Skill: spinner ~150ms for short unknown waits (calm, not flashy).
+    // 准则：短时未知等待用约 150ms 的 spinner（安静不花哨）。
     const id = setInterval(() => setI((n) => (n + 1) % frames.length), 150);
     return () => clearInterval(id);
   }, [frames.length, quiet]);

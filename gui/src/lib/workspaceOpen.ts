@@ -32,7 +32,7 @@ async function writeClipboard(text: string): Promise<void> {
 			return;
 		}
 	} catch {
-		/* fall through */
+		/* 继续向下执行 */
 	}
 	const ta = document.createElement('textarea');
 	ta.value = text;
@@ -155,7 +155,7 @@ export async function addWorkspaceFileToChat(
 		if (!path) {
 			throw new Error('路径无效');
 		}
-		// Cursor 风格：只挂文件引用，不读全文进输入框（大文件会撑爆 GUI）
+		// 只挂文件引用，不读全文进输入框（大文件会撑爆 GUI）
 		useChatStore.getState().requestComposerInsert({name, path});
 	});
 }
@@ -175,7 +175,7 @@ export async function readClipboardText(): Promise<string> {
 		try {
 			return await navigator.clipboard.readText();
 		} catch {
-			/* fall through */
+			/* 继续向下执行 */
 		}
 	}
 	throw new Error('当前环境不支持粘贴');

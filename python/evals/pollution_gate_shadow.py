@@ -1,7 +1,5 @@
 """pollution_gate_shadow — 【侧挂模块·默认关】评测环境污染门。
 
-依据：计划 `docs/实施计划/46-cursor博客技术融合优化计划.md` §A4（④）。
-对应方案稿：`docs/设计/cursor博客的技术融合到XEYO.md` §④（评测入口「环境污染门」）。
 先例：`docs/实施计划/v61落地收益与证据门报告.md` 的「源健康门」（病态源直接报错拒绝）——本门
 扩展为「环境污染门」，在跑 SWE / 长任务（含 `python/scripts/memory_stack_eval.py`）前校验环境。
 

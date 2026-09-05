@@ -3,7 +3,7 @@
 .xy-turn-rail {
   position: absolute;
   top: 50%;
-  /* Sit clear of the native scrollbar */
+  /* 与原生滚动条保持距离 */
   right: 14px;
   z-index: 25;
   display: flex;
@@ -272,6 +272,6 @@
   }
 }
 
-/* Top fade uses the scroll content's own mask (.xy-scroll-fade.is-fade-top),
-   same source as the bottom; reveals the wallpaper (bgOpacity/bgBlur). */
+/* 顶部淡出复用滚动内容自身的遮罩（.xy-scroll-fade.is-fade-top），
+   与底部同源；用于透出壁纸（bgOpacity/bgBlur）。 */
 

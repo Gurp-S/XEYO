@@ -221,7 +221,7 @@ def test_pricing_refresh_is_nonblocking(monkeypatch):
 	assert elapsed < 2.0, f"计价刷新不应阻塞调用方（耗时 {elapsed:.2f}s）"
 
 
-# ---------- B9: ReadFileState LRU ----------
+# ---------- B9：ReadFileState LRU ----------
 
 
 def test_read_file_state_bounded(tmp_path):

@@ -23,7 +23,7 @@ async function startResize(dir: ResizeDirection) {
 	await getCurrentWindow().startResizeDragging(dir);
 }
 
-/** 边缘命中区域，使无装饰窗口可像 Cursor 一样调整大小。 */
+/** 边缘命中区域，使无装饰窗口可通过拖拽边缘调整大小。 */
 export function WindowResizeHandles() {
 	if (!isTauri()) {
 		return null;

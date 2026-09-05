@@ -146,7 +146,7 @@ def read_pdf_for_llm(
 		f"rendered as image"
 		+ (f"\n\n--- text layer ---\n{text[:4000]}" if text else "")
 	)
-	# reopen briefly for page count in summary
+	# 重新短暂打开以统计页数用于摘要
 	try:
 		doc2 = fitz.open(path)
 		try:

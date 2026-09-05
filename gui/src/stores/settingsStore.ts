@@ -25,7 +25,7 @@ export type ModelProfile = {
 	model: string;
 	apiKey: string;
 	baseUrl: string;
-	/** 供应商名称（展示用，例如 “Claude 官方”）。 */
+	/** 供应商名称（展示用，例如 “DeepSeek 官方”）。 */
 	name?: string;
 	/** 账号备注（例如 “公司专用账号”）。 */
 	note?: string;

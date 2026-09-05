@@ -1,8 +1,5 @@
 """reporting_shadow — 【侧挂模块·默认关】报告口径：禁止只报单一 accuracy。
 
-依据：计划 `docs/实施计划/46-cursor博客技术融合优化计划.md` §A3（⑤）。
-对应方案稿：`docs/设计/cursor博客的技术融合到XEYO.md` §⑤（报告口径：明确「测的是什么」）。
-
 ## 为什么（收益=评测诚实度）
 - `evals/*`（humaneval_lite / mbpp_lite / bfcl_lite）summary/print 现只输出 `accuracy` 单一
   headline。这混淆「编码能力」与「编码+检索能力」，也是 reward-hacking 一类「只报一个数」的表现。

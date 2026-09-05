@@ -39,11 +39,11 @@ export type StreamPersistence = {
 	write: (msgs: ChatMessage[]) => void;
 	now: (msgs: ChatMessage[]) => void;
 	hot: (msgs: ChatMessage[]) => void;
-	/** mirror the clearStream prologue: clear only the debounce timer. */
+	/** 镜像 clearStream 的序章：仅清除防抖计时器。 */
 	cancelTimer: () => void;
-	/** mirror clearStream's `else if (persistQueued)` branch (needs get().sessions). */
+	/** 镜像 clearStream 的 `else if (persistQueued)` 分支（需要 get().sessions）。 */
 	flushQueued: () => void;
-	/** mirror flushPersistOnExit persistence part (queued ?? msgs + thoughtsync). */
+	/** 镜像 flushPersistOnExit 的持久化部分（queued ?? msgs + thoughtsync）。 */
 	onExit: (msgs: ChatMessage[]) => void;
 };
 

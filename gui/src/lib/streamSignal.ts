@@ -1,9 +1,9 @@
 import {signal} from '@preact/signals-react';
 
 /**
- * Experimental stream-only signal. The default application path never reads it.
- * Passing the signal itself to JSX lets the adapter update one text node without
- * re-running the surrounding React subtree.
+ * 实验性的 stream 专用 signal。默认应用路径不会读取它。
+ * 将 signal 本体传入 JSX，可让适配器只更新一个文本节点，
+ * 而无需重跑周围的 React 子树。
  */
 export const streamingTextSignal = signal('');
 export const streamingSignalEligible = signal(false);

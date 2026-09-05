@@ -23,7 +23,7 @@ const ROWS: { cmd: string; tip: string }[] = [
   { cmd: "Ctrl+C", tip: "Interrupt · or quit if idle" },
 ];
 
-/** Shortcuts sheet — modal-style (full border earned). */
+/** 快捷键面板 —— 弹窗样式（使用完整边框）。 */
 export function HelpPanel() {
   const t = theme();
   return (

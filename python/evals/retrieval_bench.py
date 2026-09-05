@@ -1,7 +1,6 @@
-"""retrieval_bench — ⑰ 离线检索基准（Cursor Context Bench 对等，纯词法，不引 embedding）。
+"""retrieval_bench — ⑰ 离线检索基准（纯词法，不引 embedding）。
 
-依据：计划 `docs/实施计划/48-cursor博客技术融合·第二批规划.md` §1（⑰）+ 方案稿 §⑰。
-对齐 `Cursor Context Bench`：离线、检索有已知答案；对比「含/不含语义搜索」，当前 XEYO 纯词法
+离线、检索有已知答案；对比「含/不含语义搜索」，当前 XEYO 纯词法
 先打**词法召回 hit@k** 基线——这是评估链地基，也用来判断「值不值得上 embedding」。
 
 ## 范围
@@ -134,7 +133,7 @@ def _seed_notes(wsid: str) -> None:
     from memory.governance import parse_and_validate
     from memory.memdir import write_note
 
-    # (file_id, title, body)
+    # 数据三元组 (file_id, title, body)
     seed = [
         ("note_memory_switches", "记忆开关注册表", "工作区激活记忆开关 MEMORY_SWITCHES 设置 环境变量 默认"),
         ("note_fragments_restore", "压缩碎片还原", "压缩碎片还原 retrieve 按 notes:msg 锚点 找回结构化原子"),

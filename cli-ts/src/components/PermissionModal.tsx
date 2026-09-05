@@ -7,7 +7,7 @@ type Props = {
   pending: PermissionPrompt;
 };
 
-/** Focused permission sheet — one box, explicit keys (Claude ask pattern). */
+/** 聚焦的权限确认面板 —— 单个方框，按键显式列出。 */
 export function PermissionModal({ pending }: Props) {
   const t = theme();
   const gly = g();

@@ -41,7 +41,7 @@ def _long_history() -> list[dict]:
 	return msgs
 
 
-# ---------- l5_flag / runtime ----------
+# ---------- l5_flag / runtime（运行时）----------
 
 def test_l5_flag_default_project(monkeypatch, mem_switch):
 	# 2026-09-06 用户决策：v61 默认开启（DEFAULT_MODE="v61"）；显式覆盖保证隔离

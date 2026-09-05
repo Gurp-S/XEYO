@@ -137,7 +137,7 @@ def test_derive_candidate_priority() -> None:
 	assert derive_candidate(turn_succeeded=True, todos_all_done=True, multi_agent_all_succeeded=True) == "todos_all_done"
 	# 多 Agent all_succeeded
 	assert derive_candidate(multi_agent_all_succeeded=True) == "batch_awaiting_synthesis"
-	# synthesis
+	# 合成
 	assert derive_candidate(synthesis_succeeded=True) == "synthesis_done"
 	# 无候选
 	assert derive_candidate() == "active"

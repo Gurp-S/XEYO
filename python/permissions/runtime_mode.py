@@ -1,6 +1,6 @@
 """运行时审批模式活状态源（RuntimeModeStore）。
 
-DSH 参照：模式是**活的会话状态**，不是每轮开工时的快照。GUI 在轮次进行中切换
+模式是**活的会话状态**，不是每轮开工时的快照。GUI 在轮次进行中切换
 审批模式时，通过 ``POST /v1/sessions/{sid}/runtime-mode`` 直接写入本 store；
 ``permissions.policy.permission_mode`` 在工具准入时实时读它（优先级：
 store 活值 > 请求 body 显式 > config 默认），从而**同一个请求内尚未执行的

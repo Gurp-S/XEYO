@@ -1,4 +1,4 @@
-/** Half-block mark from assets/xeyo-icon-white.png */
+/** 由 assets/xeyo-icon-white.png 生成的半块字符标记 */
 export const LOGO_ART = [
   "▄▄▄▄▄▄▄            ▄▄▄▄▄▄▄",
   " ▀██████         ▄██████▀",

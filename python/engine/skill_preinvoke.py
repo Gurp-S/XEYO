@@ -1,5 +1,4 @@
-"""技能直呼宿主注入（skill pre-invoke）——参考 DeepSeek Harness ``tool-skill``
-的 ``agent/pre-step`` 设计（见 ``D:/lea/dsh-src/packages/skill/tool-skill``）。
+"""技能直呼宿主注入（skill pre-invoke）。
 
 问题：GUI/CLI 的 ``/name 任务…`` 直呼技能，旧链路是客户端改写成
 ``[slash:/name] 请用 Skill 工具加载技能…`` 的提示词——是否真的加载取决于模型
@@ -8,7 +7,7 @@
 
 本模块（旁路形态，AGENTS.md 新功能准入）：把「用户消息首个非空行以
 ``/name`` 开头且命中 **user_invocable** 技能」识别为确定性加载手势，渲染
-SKILL.md 正文交由 T_now 管线注入本轮上下文。约束对齐 dsh：
+SKILL.md 正文交由 T_now 管线注入本轮上下文。约束：
 
 - **命令命名空间优先**：``name`` 命中 slash registry（含别名）→ 不是技能手势，
   交给既有 slash 分发，本模块返回 None（决不与命令撞名）；
@@ -51,8 +50,8 @@ def _leading_slash_token(text: str) -> tuple[str, str] | None:
 		line = raw_line.strip()
 		if not line:
 			continue
-		# token 必须止于空白或行尾：/nfs-hg/xxx 这类路径不命中（与 dsh
-		# 技能语法一致——/name 后跟 / 说明是路径，不是手势）。
+		# token 必须止于空白或行尾：/nfs-hg/xxx 这类路径不命中
+		# （/name 后跟 / 说明是路径，不是手势）。
 		m = re.match(r"^/([^\s/]+)(?:\s+(.*))?$", line)
 		if m is None:
 			return None

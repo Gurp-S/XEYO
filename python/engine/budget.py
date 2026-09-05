@@ -18,8 +18,8 @@ from usage.pricing import estimate_cny, official_cost_cny
 
 DEFAULT_MAX_TURNS = 256
 # 每回合允许进入工具接口的最大执行次数。真正的**并发**上限由编排层信号量
-# (tools/orchestration._max_concurrency, 默认 10) 控制——对齐 DSH 的
-# maxParallelToolCalls。这里只是"总执行数"的高护栏：放宽到 64，避免误杀合法的大
+# (tools/orchestration._max_concurrency, 默认 10) 控制（即 maxParallelToolCalls）。
+# 这里只是"总执行数"的高护栏：放宽到 64，避免误杀合法的大
 # 并行批次；配合 MAX_TOOL_CAP_STREAK 的连续轮判断，不再把单轮爆发当失控。
 DEFAULT_MAX_TOOL_CALLING = 64
 MAX_GRACE_TURNS = 3

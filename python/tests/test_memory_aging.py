@@ -30,7 +30,7 @@ from memory.runtime import pair_safe_cut, project_for_model
 from memory.working import WorkingSnapshot
 
 
-# ---------------------------------------------------------------- fixtures
+# ---------------------------------------------------------------- 测试夹具（fixtures）
 
 def _use(i: int) -> str:
 	return f"use_{i:012d}"

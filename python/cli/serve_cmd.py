@@ -19,7 +19,7 @@ def run_serve(
 	cwd: str | None = None,
 ) -> NoReturn:
 	ensure_utf8_stdio()
-	# Hard guard: never start with python/ package root as workspace.
+	# 硬性守卫：绝不以 python/ 包根作为工作区启动。
 	if cwd:
 		os.environ["XEYO_CWD"] = resolve_cwd(cwd)
 	else:

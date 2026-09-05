@@ -330,7 +330,7 @@ def read_changed_hunks(cwd: str) -> dict[str, Any]:
 	current: str | None = None
 	for line in diff_text.splitlines():
 		if line.startswith("diff --git "):
-			# diff --git a/path b/path
+			# 形如 diff --git a/path b/path 的头行
 			parts = line.split(" b/", 1)
 			if len(parts) == 2:
 				current = parts[1].strip()
@@ -345,7 +345,7 @@ def read_changed_hunks(cwd: str) -> dict[str, Any]:
 			continue
 		if current is None or current == "/dev/null":
 			continue
-		# @@ -old,count +new,count @@  or @@ -old +new @@
+		# hunk 头 @@ -old,count +new,count @@ 或 @@ -old +new @@
 		if line.startswith("@@"):
 			rng = _parse_unified_new_range(line)
 			if rng is not None:

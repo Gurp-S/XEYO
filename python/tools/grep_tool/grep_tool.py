@@ -781,7 +781,7 @@ class GrepTool:
 
 	@staticmethod
 	def map_tool_result_to_content(output: GrepOutput) -> str:
-		"""转化为给模型看的文本结果（对齐 Claude mapToolResultToToolResultBlockParam）。"""
+		"""转化为给模型看的文本结果。"""
 		limit_info = format_limit_info(output.applied_limit, output.applied_offset)
 
 		if output.mode == "content":

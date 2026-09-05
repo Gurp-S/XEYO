@@ -19,8 +19,8 @@ from engine.aging import (
 )
 
 # ====== 配置常量 ======
-# tool_result 内容的最大字符数，超过则截断。从 16k 收紧到 8k（对齐 DSH 的
-# thresholdChars=8192，头/尾各保留 4k/1k 量级），短会话单条工具结果成本减半。
+# tool_result 内容的最大字符数，超过则截断。从 16k 收紧到 8k
+# （thresholdChars=8192，头/尾各保留 4k/1k 量级），短会话单条工具结果成本减半。
 MAX_TOOL_RESULT_CHARS = 8_192
 KEEP_TAIL_MESSAGES = 6              # 兼容旧名：等价于保留约 N 条消息的尾部保护区
 KEEP_TAIL_TOOL_ROUNDS = 3           # 按「assistant(tool_calls)+连续 tool」成对区间保留的轮数

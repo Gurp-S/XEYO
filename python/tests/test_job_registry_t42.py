@@ -50,7 +50,7 @@ def fast_wake(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 # ---------------------------------------------------------------------------
-# _Ring
+# _Ring（环形缓冲）
 # ---------------------------------------------------------------------------
 def test_ring_keeps_tail_and_offsets() -> None:
 	r = _Ring(cap=512)
@@ -65,7 +65,7 @@ def test_ring_keeps_tail_and_offsets() -> None:
 
 
 # ---------------------------------------------------------------------------
-# registry：start / settle / owner / capacity / kill
+# registry：start / settle / owner / 容量 / kill
 # ---------------------------------------------------------------------------
 def _sync_producer(status: str = STATUS_SUCCEEDED, detail: str = ""):
 	def _p(push) -> tuple[str, str]:  # type: ignore[no-untyped-def]

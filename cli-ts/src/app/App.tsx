@@ -143,7 +143,7 @@ export function App({ config: initial }: Props) {
         },
       ]);
     } catch {
-      /* aborted */
+      /* 已中止 */
     } finally {
       setBusy(false);
     }
@@ -160,7 +160,7 @@ export function App({ config: initial }: Props) {
       try {
         if (process.stdin.isTTY) process.stdin.setRawMode?.(false);
       } catch {
-        /* ignore */
+        /* 忽略 */
       }
       process.stdout.write("\x1b[?25h");
     };
@@ -237,7 +237,7 @@ export function App({ config: initial }: Props) {
         const opts = slashMatches(input);
         if (opts.length > 0) {
           const next = (suggestIndex + 1) % opts.length;
-          // when value exactly matches one option, cycle to next; else pick current hi
+          // 输入与某项完全一致时切到下一项；否则取当前高亮项
           const cur = opts.indexOf(input);
           const pick =
             cur >= 0 ? opts[(cur + 1) % opts.length]! : opts[suggestIndex % opts.length]!;

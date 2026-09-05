@@ -36,7 +36,7 @@ from tools.file_read_tool.prompt import (
 	MAX_LINES_TO_READ,
 )
 
-# 0.25 MiB — 对齐 Claude MAX_OUTPUT_SIZE
+# 上限 0.25 MiB
 MAX_SIZE_BYTES = int(0.25 * 1024 * 1024)
 DEFAULT_MAX_TOKENS = 25_000
 
@@ -351,7 +351,7 @@ class FileReadTool:
 
 	def call(self, input_data: ReadInput) -> ReadOutput:
 		full = self.get_path(input_data)
-		# Claude: offset 默认 1；0/1 都视为文件开头
+		# offset 默认 1；0/1 都视为文件开头
 		offset = 1 if input_data.offset is None else max(1, input_data.offset)
 		if input_data.offset == 0:
 			offset = 1
@@ -453,7 +453,7 @@ class FileReadTool:
 
 		content, _endings, _enc = read_text_file(full)
 
-		# .ipynb: store full JSON in read_state; return cell index summary.
+		# .ipynb：完整 JSON 存入 read_state；返回 cell 索引摘要。
 		if ext == "ipynb":
 			mtime = get_mtime_ms(full)
 			self._read_state.set(

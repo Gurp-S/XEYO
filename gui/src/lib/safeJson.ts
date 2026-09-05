@@ -1,4 +1,4 @@
-/** Parse JSON text; return objects/arrays as-is; never throw. */
+/** 解析 JSON 文本；对象/数组原样返回；绝不抛错。 */
 export function parseJsonValue<T = unknown>(value: unknown): T | null {
 	if (value == null) {
 		return null;
@@ -20,7 +20,7 @@ export function parseJsonValue<T = unknown>(value: unknown): T | null {
 	}
 }
 
-/** Coerce IndexedDB / storage values to JSON text. */
+/** 将 IndexedDB / storage 值转换为 JSON 文本。 */
 export function coerceJsonText(value: unknown): string | undefined {
 	if (value == null) {
 		return undefined;

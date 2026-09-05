@@ -1,4 +1,4 @@
-"""FileEditTool — 精确字符串编辑（对齐 Claude uniqueness / replace_all）。"""
+"""FileEditTool — 精确字符串编辑（uniqueness / replace_all）。"""
 
 # 写权限：走 permissions.filesystem 路径狱 / 密钥 DENY / 危险 ASK；
 # ASK 仅在 registry 已 preapproved 时放行。.ipynb 请用 NotebookEdit。

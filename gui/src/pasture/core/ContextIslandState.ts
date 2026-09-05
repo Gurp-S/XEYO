@@ -71,11 +71,11 @@ export function fallenCoconutCountForPercent(percent: number): number {
   const value = clampIslandPercent(percent);
   if (value < 25) return 0;
   const onTree = coconutCountForPercent(value);
-  // During compression the tree keeps at most 2; the rest fall to the ground.
+  // 压缩期间树上最多保留 2 个，其余落到地面。
   return Math.max(0, onTree - Math.min(2, onTree));
 }
 
-/** Whether a context load change crosses the 75% reaction node (one-shot). */
+/** 语境负载变化是否跨越 75% 反应节点（一次性）。 */
 export function shouldTriggerReaction(prev: number, current: number): boolean {
   return prev < CHARACTER_REACT_AT && current >= CHARACTER_REACT_AT;
 }

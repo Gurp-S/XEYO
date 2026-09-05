@@ -24,12 +24,12 @@ function clampZoom(value: number): number {
 }
 
 /**
- * Shared Markdown-style image reader.
+ * 共用的 Markdown 式图片查看器。
  *
- * The dialog is portalled to body so it is not clipped by chat scrollers,
- * sticky surfaces, or local stacking contexts. The image and close control
- * intentionally live in separate elements so the preview remains a readable
- * panel rather than a full-screen button.
+ * 弹层 portal 到 body 上，因此不会被聊天滚动容器裁剪，
+ * 也不受吸顶层或局部层叠上下文影响。图片与关闭控件
+ * 有意放在不同元素中，使预览保持为一块可读的
+ * 面板，而不是一整颗全屏按钮。
  */
 export function ImageReaderDialog({image, onClose}: ImageReaderDialogProps) {
 	const titleId = useId();

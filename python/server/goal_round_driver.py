@@ -1,6 +1,6 @@
 """Goal Round Driver（41 号 P0）：armed 内存态 + settlement 复检 + 预约 + 合成轮。
 
-语义对齐 ``dsh-goal-round-driver``（docs/设计/41-goal-round-driver设计.md）：
+语义（docs/设计/41-goal-round-driver设计.md）：
 
 - **armed 只在内存**：进程重启必静止；本模块不写任何落盘状态（goal 实体除外，
   由 GoalStore 权威）。driver 绝不杀 turn / 挡工具 / 阻塞人类消息（38 号铁律）。
@@ -9,7 +9,7 @@
   ``succeeded`` 且 armed → 复检预约下一轮。
 - **预约不消耗轮号**：预约只是内存 create_task；只有合成轮真正被引擎接受
   （turn start 成功）后才 ``admit_round_async`` CAS 推进 rounds。409 / CAS miss /
-  让位 / disarm 一律作废，轮号不消耗（对齐 DSH「进入步骤才计数」）。
+  让位 / disarm 一律作废，轮号不消耗（「进入步骤才计数」）。
 - **人类消息让位最高优先**：chat.py 主路径在 busy 闸前调 ``yield_to_human``
   取消在途预约（不消耗轮号）；人类轮结束后的 settlement 自然重新预约。
 - **合成轮复用整条 submit 管线**：分离式 ASGI 自调用 POST /v1/chat/completions
@@ -123,7 +123,7 @@ class GoalRoundDriver:
 	# 状态读 / arm / disarm / 让位
 	# ------------------------------------------------------------------
 	def snapshot(self, session_id: str) -> dict[str, Any] | None:
-		"""GUI 投影（41 号 §9.4：XEYO 有意比 DSH 多暴露 armed 态）。"""
+		"""GUI 投影（41 号 §9.4：XEYO 有意多暴露 armed 态）。"""
 		st = self._states.get(session_id)
 		if st is None:
 			return None
