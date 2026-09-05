@@ -33,6 +33,7 @@ import {
 	type GoalMutationResult,
 	type SessionGoalState,
 } from '@/lib/api/goals';
+import {writeGoalState} from '@/lib/goalSync';
 import {cn} from '@/lib/utils';
 import {useChatStore} from '@/stores/chatStore';
 import {isSmoothnessOn, useSettingsStore} from '@/stores/settingsStore';
@@ -40,13 +41,6 @@ import {popEscLayer, pushEscLayer} from '@/lib/escStack';
 import {DockPresence} from './DockPresence';
 
 const GOAL_POLL_MS = 3000;
-
-/** whole-value 写回 store（SSE 帧与 GET/动词响应共用同形）。 */
-function writeGoalState(sessionId: string, state: SessionGoalState | null) {
-	useChatStore.setState(s => ({
-		sessionGoalById: {...s.sessionGoalById, [sessionId]: state},
-	}));
-}
 
 /**
  * 41 号 P0 轻量轮询：可见时每 3s GET 投影并 whole-value 覆写。

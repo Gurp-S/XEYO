@@ -3,8 +3,6 @@ import {
 	ChevronDown,
 	Network,
 	Plus,
-	Slash,
-	Sparkles,
 	Square,
 	X,
 } from 'lucide-react';
@@ -1366,20 +1364,11 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 											onClick={() => applySlashPick(`/${s.name} `)}
 											className={cn(
 												'xy-menu-row xy-flyout-row flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors duration-100',
+												// scroll-mt：键盘滚到顶行时给上方分组头留位，防止「技能」头被裁掉。
+												'scroll-mt-7',
 												slashHighlight === i && 'bg-paper-deep/80',
 											)}
 										>
-											<span
-												aria-hidden
-												className={cn(
-													'flex h-5 w-5 shrink-0 items-center justify-center rounded-md transition-colors duration-100',
-													slashHighlight === i
-														? 'bg-accent text-on-accent'
-														: 'bg-accent-soft text-accent',
-												)}
-											>
-												<Sparkles className="h-3 w-3" strokeWidth={2.25} />
-											</span>
 											<span className="min-w-0 flex-1 truncate font-mono text-[12.5px] font-medium text-ink">
 												{s.name}
 											</span>
@@ -1411,20 +1400,11 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 											onClick={() => applySlashPick(`/${c.name} `)}
 											className={cn(
 												'xy-menu-row xy-flyout-row flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors duration-100',
+												// scroll-mt：键盘滚到顶行时给上方分组头留位，防止「命令」头被裁掉。
+												'scroll-mt-7',
 												slashHighlight === filteredSkills.length + i && 'bg-paper-deep/80',
 											)}
 										>
-											<span
-												aria-hidden
-												className={cn(
-													'flex h-5 w-5 shrink-0 items-center justify-center rounded-md font-mono transition-colors duration-100',
-													slashHighlight === filteredSkills.length + i
-														? 'bg-ink text-paper'
-														: 'bg-ink/5 text-ink-soft',
-												)}
-											>
-												<Slash className="h-3 w-3" strokeWidth={2.5} />
-											</span>
 											<span className="min-w-0 flex-1 truncate font-mono text-[12.5px] font-medium text-ink">
 												{c.name}
 											</span>

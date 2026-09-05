@@ -172,17 +172,11 @@ function MessageBubbleInner({message, streaming, thinking}: Props) {
 						enterClass(message.createdAt),
 					)}
 				>
-					<div
-						className="mx-auto flex max-w-3xl items-start gap-2 rounded-lg border border-line/50 bg-paper-deep/40 px-2.5 py-1.5 text-left"
-						data-state={message.text.startsWith('已创建') ? 'ok' : undefined}
-					>
-						<span
-							aria-hidden
-							className="mt-px flex h-4 w-4 shrink-0 items-center justify-center rounded bg-accent-soft font-mono text-[10px] leading-4 text-accent"
-						>
-							/
-						</span>
-						<div className="min-w-0 flex-1 font-mono text-[11.5px] leading-5">
+				<div
+					className="mx-auto max-w-3xl rounded-lg border border-line/50 bg-paper-deep/40 px-2.5 py-1.5 text-left"
+					data-state={message.text.startsWith('已创建') ? 'ok' : undefined}
+				>
+					<div className="min-w-0 font-mono text-[11.5px] leading-5">
 							{message.noteTitle ? (
 								<span className="font-medium text-ink">{message.noteTitle}</span>
 							) : null}

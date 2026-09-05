@@ -11,6 +11,7 @@ import {slashCommands, type SlashCommand} from '@/generated/slashManifest';
 import {apiUrl} from '@/lib/apiBase';
 import {fetchSkills, type SkillInfo} from '@/lib/api';
 import {formatSlashHelp, parseSlashInput} from '@/lib/slash';
+import {syncGoalAfterCommand} from '@/lib/goalSync';
 import {useSettingsStore, type OutputMode, type PermissionMode} from '@/stores/settingsStore';
 import {normalizeThemeId} from '@/theme/catalog';
 import {useChatStore} from '@/stores/chatStore';
@@ -243,6 +244,12 @@ export async function runSlashCommand(
 			}
 			try {
 				const text = await postSlash(command, arg, opts);
+				// /goal 创建成功后主动同步投影 + 显式 arm：/v1/slash 不产生 SSE goal 帧，
+				// 不发消息 → 没有 chat turn → store 为空 → GoalDock（按 store 挂载）永不显示。
+				// 详见 lib/goalSync.ts 头注释（2026-09-05 调查报告 §10-④）。
+				if (command.name === 'goal' && opts.sessionId) {
+					void syncGoalAfterCommand(opts.sessionId, opts.backendSessionId);
+				}
 				return {status: 'server', text};
 			} catch (err) {
 				return {
