@@ -1182,35 +1182,6 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 					<ErrorBanner embedded />
 				</div>
 
-				{hasInboxChip && inboxItems.length > 0 ? (
-					<div className="mb-1.5 flex flex-wrap gap-1.5 px-1">
-						{inboxItems.map((it, i) => (
-							<div
-								key={it.queue_id || i}
-								className="flex items-center gap-1.5 rounded-md border border-amber-300/40 bg-amber-500/10 px-2 py-1 text-xs text-amber-200"
-							>
-								<span className="max-w-[20rem] truncate">
-									{it.state === 'stuck'
-										? `投递失败：${it.text}`
-										: `已排队${it.position > 1 ? ` #${it.position}` : ''}：${it.text}`}
-								</span>
-								{it.state === 'stuck' ? (
-									<button
-										onClick={() => { void resumeInbox(activeId ?? ''); void refreshInbox(activeId ?? ''); }}
-										className="rounded px-1 text-amber-300 hover:bg-amber-500/20"
-										title="重新投递"
-									>重试</button>
-								) : null}
-								<button
-									onClick={() => { void cancelInboxItem(activeId ?? '', it.queue_id); }}
-									className="rounded px-1 text-amber-300/80 hover:bg-amber-500/20"
-									title="取消排队"
-								><X className="h-3 w-3" /></button>
-							</div>
-						))}
-					</div>
-				) : null}
-
 				<div className="xy-composer-dock">
 				<div
 					className={cn(
@@ -1220,6 +1191,70 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 				>
 				{showTodoDock ? <SessionTodoDock embedded /> : null}
 				{goalDockLive ? <SessionGoalDock embedded /> : null}
+				{hasInboxChip && inboxItems.length > 0 ? (
+					// 排队停靠条（对齐 dsh QueueDock：附着在输入卡顶部的队列面板，
+					// 行高/发丝分隔/圆形图标动作同族；XEYO 差异：不做折叠头、
+					// mono 序号直读位置、stuck 态 warn token 内联重试）。
+					<ul
+						role="list"
+						aria-label="排队消息"
+						className={cn(
+							'max-h-[180px] overflow-y-auto overscroll-contain',
+							'[&>li+li]:border-t [&>li+li]:border-line/60',
+							isComposerFused
+								? 'border-none bg-transparent'
+								: 'mb-1.5 rounded-xl border border-line/70 bg-paper-deep/30',
+						)}
+					>
+						{inboxItems.map((it, i) => {
+							const stuck = it.state === 'stuck';
+							return (
+								<li
+									key={it.queue_id || i}
+									className="flex h-[34px] shrink-0 items-center gap-2.5 pr-1.5 pl-3"
+								>
+									<span
+										aria-hidden
+										className="shrink-0 font-mono text-[11px] tabular-nums text-mute"
+									>
+										#{it.position && it.position > 0 ? it.position : i + 1}
+									</span>
+									<span
+										className={cn(
+											'min-w-0 flex-1 truncate text-[12.5px]',
+											stuck ? 'text-warn' : 'text-ink-soft',
+										)}
+									>
+										{stuck ? `投递失败：${it.text}` : it.text}
+									</span>
+									{stuck ? (
+										<button
+											type="button"
+											title="重新投递"
+											onClick={() => {
+												void resumeInbox(activeId ?? '');
+												void refreshInbox(activeId ?? '');
+											}}
+											className="xy-press shrink-0 rounded-full px-1.5 py-0.5 font-sans text-[11px] text-warn hover:bg-warn/10"
+										>
+											重试
+										</button>
+									) : null}
+									<button
+										type="button"
+										title="取消排队"
+										onClick={() => {
+											void cancelInboxItem(activeId ?? '', it.queue_id);
+										}}
+										className="xy-icon-btn inline-flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-full text-mute transition-colors hover:bg-ink/5 hover:text-ink"
+									>
+										<X className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden />
+									</button>
+								</li>
+							);
+						})}
+					</ul>
+				) : null}
 				<PermissionDialog />
 				<AskUserDialog />
 				<PlanDialog />
