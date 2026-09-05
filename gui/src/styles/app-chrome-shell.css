@@ -166,7 +166,7 @@ html[data-scheme="dark"] .xy-detail-tooltip-trigger::after {
     rgb(255 255 255 / 0.14),
     transparent
   );
-  animation: usage-skeleton-shimmer 1.15s var(--ease-out-soft) infinite;
+  animation: usage-skeleton-shimmer 1.15s linear infinite;
 }
 
 @keyframes usage-content-switch {

@@ -184,3 +184,15 @@
   }
 }
 
+/* 平滑关闭:仅门控纯观感动画(词闪/扫掠/入场渐显)——各规则的静态声明即其
+   动画终态,去动画后直接呈现终态、零视觉差。settle-out/settle-collapse 不门控:
+   它们承载 live→done 的实际收拢(隐藏内容),去掉会让旧活动区滞留可见。 */
+html[data-smoothness="off"] .xy-morph > span.is-enter,
+html[data-smoothness="off"] .xy-morph > span.is-leave,
+html[data-smoothness="off"] .xy-split-step.is-handoff .xy-morph,
+html[data-smoothness="off"] .xy-split-step.is-handoff .xy-split-preview::after,
+html[data-smoothness="off"] .xy-split-step.is-tool-appear,
+html[data-smoothness="off"] .xy-done-on-wrap.is-settle-in {
+  animation: none !important;
+}
+

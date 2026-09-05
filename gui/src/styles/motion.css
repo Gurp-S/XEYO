@@ -121,3 +121,11 @@
     opacity var(--duration-base) ease;
 }
 
+/* 平滑关闭:入场工具类直接呈现终态(keyframes 的 to 态即元素自然态,去动画零视觉差) */
+html[data-smoothness="off"] .anim-fade,
+html[data-smoothness="off"] .anim-rise,
+html[data-smoothness="off"] .anim-scale,
+html[data-smoothness="off"] .anim-pop {
+  animation: none !important;
+}
+
