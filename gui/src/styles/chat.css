@@ -355,7 +355,7 @@ html[data-xy-selfwallpaper='1'] [data-pin-id] .xy-editing-bubble {
   box-shadow: none;
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
-  animation: xy-editing-bubble-in 190ms var(--ease-out-soft) both;
+  animation: xy-editing-bubble-in 190ms var(--ease-out-soft);
   transition:
     max-height 200ms var(--ease-out-soft),
     opacity 180ms var(--ease-out-soft),
@@ -364,9 +364,13 @@ html[data-xy-selfwallpaper='1'] [data-pin-id] .xy-editing-bubble {
     box-shadow 180ms var(--ease-out-soft);
 }
 
-/* 收起编辑：从 150 渐缩回 120 并淡出（max-height + opacity 跨帧过渡），
-   高亮边框随气泡一起淡出、不再"延迟+瞬闪"；占位随 RO 同步，退出不瞬移。
-   animation:none 以取消入场动画的 fill（否则 opacity 被钉在 1，淡出失效）。 */
+/* 收起编辑：控件区收拢 + max-height 渐缩 + opacity 淡出，跨帧过渡后才拆编辑态。
+   入场动画不带 fill（both）——带 fill 时 opacity 被钉在 1，closing 需靠
+   animation:none 撤销 fill 才能让 opacity:0 生效，而 transition 不补间
+   「动画值 → 规则值」的跳变：气泡 opacity 瞬间直落 0（瞬灭）、260ms 后再
+   淡入 = 用户所见「闪一下」。去掉 fill 后 closing 的 opacity:0 是普通值
+   变化，走 180ms transition 平滑淡出；此时内容（编辑文本→原文）一致时拆
+   DOM 高度回落≈0，不推挤下方消息。 */
 .xy-editing-bubble.xy-editing-bubble-closing {
   animation: none;
   max-height: var(--xy-prompt-view-cap) !important;
