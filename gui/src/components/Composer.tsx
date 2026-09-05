@@ -1,9 +1,10 @@
 import {
 	ArrowUp,
 	ChevronDown,
-	CircleCheck,
 	Network,
 	Plus,
+	Slash,
+	Sparkles,
 	Square,
 	X,
 } from 'lucide-react';
@@ -14,6 +15,7 @@ import {
 	useRef,
 	useState,
 	type ClipboardEvent,
+	type CSSProperties,
 	type KeyboardEvent,
 	type MouseEvent as ReactMouseEvent,
 } from 'react';
@@ -559,9 +561,13 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 		let cancelled = false;
 		void fetchSkills(activeWorkspace).then(report => {
 			if (cancelled || !report || report.ok === false) {
-				return;
+				return; // 失败不缓存：下次唤起弹层重试。
 			}
-			slashSkillsRef.current[activeWorkspace] = report.skills;
+			// 仅非空结果写缓存：空结果（server 首启/工作区切换瞬间）不上缓存位，
+			// 否则 truthy 空数组会让后续 slashZone 永久短路，技能从此消失。
+			if (report.skills.length > 0) {
+				slashSkillsRef.current[activeWorkspace] = report.skills;
+			}
 			setSlashSkills(report.skills);
 		});
 		return () => {
@@ -1336,14 +1342,16 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 						<>
 							<div className="relative flex w-full min-h-[36px] shrink-0">
 								{slashMenuOpen ? (
-									<div
-										ref={flyoutRef}
-										role="listbox"
-										aria-label="斜杠命令与技能建议"
-										className="xy-menu-flyout absolute bottom-full left-0 z-50 mb-1.5 max-h-[280px] w-[min(440px,100%)] overflow-y-auto rounded-xl border border-line/50 p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-									>
+									<div className="xy-menu-flyout anim-pop absolute bottom-full left-0 z-50 mb-1.5 w-[min(480px,100%)] overflow-hidden rounded-xl border border-line/50">
+										<div
+											ref={flyoutRef}
+											role="listbox"
+											aria-label="斜杠命令与技能建议"
+											className="max-h-[300px] overflow-y-auto p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+										>
 									{filteredSkills.length > 0 ? (
-										<div className="px-1 pb-0.5 pt-1 text-[10px] font-medium uppercase tracking-[0.08em] text-mute">
+										<div className="flex items-center gap-1.5 px-1.5 pb-1 pt-1.5 text-[10px] font-medium uppercase tracking-[0.08em] text-mute">
+											<span aria-hidden className="h-1.5 w-1.5 rounded-full bg-[#3b82f6]" />
 											技能
 										</div>
 									) : null}
@@ -1353,33 +1361,42 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 											type="button"
 											role="option"
 											aria-selected={slashHighlight === i}
+											style={{'--row-i': i} as CSSProperties}
 											onMouseDown={e => e.preventDefault()}
 											onMouseEnter={() => setSlashHighlight(i)}
 											onClick={() => applySlashPick(`/${s.name} `)}
 											className={cn(
-												'xy-menu-row flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left',
-												slashHighlight === i && 'bg-paper-deep/70',
+												'xy-menu-row xy-flyout-row flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors duration-100',
+												slashHighlight === i && 'bg-paper-deep/80',
 											)}
 										>
-											<CircleCheck
-												className="h-4 w-4 shrink-0 text-mute"
-												strokeWidth={1.75}
-											/>
-											<span className="min-w-0 flex-1 truncate">
-												<span className="font-mono text-[12.5px] font-medium text-ink">
-													{s.name}
-												</span>
-												<span className="ml-2 text-[11px] text-mute">
+											<span
+												aria-hidden
+												className={cn(
+													'flex h-5 w-5 shrink-0 items-center justify-center rounded-md transition-colors duration-100',
+													slashHighlight === i
+														? 'bg-[#3b82f6] text-white'
+														: 'bg-[#3b82f6]/10 text-[#3b82f6]',
+												)}
+											>
+												<Sparkles className="h-3 w-3" strokeWidth={2.25} />
+											</span>
+											<span className="min-w-0 flex-1 truncate font-mono text-[12.5px] font-medium text-ink">
+												{s.name}
+											</span>
+											{s.description ? (
+												<span className="max-w-[46%] truncate text-[11px] text-mute">
 													{s.description}
 												</span>
-											</span>
+											) : null}
 										</button>
 									))}
 									{slashSuggest.length > 0 && filteredSkills.length > 0 ? (
 										<MenuSeparator />
 									) : null}
 									{slashSuggest.length > 0 ? (
-										<div className="px-1 pb-0.5 pt-1 text-[10px] font-medium uppercase tracking-[0.08em] text-mute">
+										<div className="flex items-center gap-1.5 px-1.5 pb-1 pt-1.5 text-[10px] font-medium uppercase tracking-[0.08em] text-mute">
+											<span aria-hidden className="h-1.5 w-1.5 rounded-full bg-[#f97316]" />
 											命令
 										</div>
 									) : null}
@@ -1389,20 +1406,51 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 											type="button"
 											role="option"
 											aria-selected={slashHighlight === filteredSkills.length + i}
+											style={{'--row-i': filteredSkills.length + i} as CSSProperties}
 											onMouseDown={e => e.preventDefault()}
 											onMouseEnter={() => setSlashHighlight(filteredSkills.length + i)}
 											onClick={() => applySlashPick(`/${c.name} `)}
 											className={cn(
-												'xy-menu-row flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left',
-												slashHighlight === filteredSkills.length + i && 'bg-paper-deep/70',
+												'xy-menu-row xy-flyout-row flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors duration-100',
+												slashHighlight === filteredSkills.length + i && 'bg-paper-deep/80',
 											)}
 										>
-											<ChevronDown className="h-4 w-4 shrink-0 text-mute" strokeWidth={1.75} />
-											<span className="min-w-0 flex-1 truncate text-[13px] text-ink-soft">
+											<span
+												aria-hidden
+												className={cn(
+													'flex h-5 w-5 shrink-0 items-center justify-center rounded-md font-mono transition-colors duration-100',
+													slashHighlight === filteredSkills.length + i
+														? 'bg-[#f97316] text-white'
+														: 'bg-[#f97316]/10 text-[#f97316]',
+												)}
+											>
+												<Slash className="h-3 w-3" strokeWidth={2.5} />
+											</span>
+											<span className="min-w-0 flex-1 truncate font-mono text-[12.5px] font-medium text-ink">
 												{c.name}
 											</span>
+											{c.summary ? (
+												<span className="max-w-[46%] truncate text-[11px] text-mute">
+													{c.summary}
+												</span>
+											) : null}
 										</button>
 									))}
+										</div>
+										<div className="flex items-center justify-end gap-2.5 border-t border-line/40 px-2.5 py-1 text-[10.5px] text-mute">
+											<span className="flex items-center gap-1">
+												<span className="xy-menu-kbd">↑↓</span>选择
+											</span>
+											<span className="flex items-center gap-1">
+												<span className="xy-menu-kbd">Tab</span>补全
+											</span>
+											<span className="flex items-center gap-1">
+												<span className="xy-menu-kbd">Enter</span>确认
+											</span>
+											<span className="flex items-center gap-1">
+												<span className="xy-menu-kbd">Esc</span>关闭
+											</span>
+										</div>
 									</div>
 								) : null}
 								{atMenuOpen ? (

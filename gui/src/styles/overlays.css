@@ -104,3 +104,38 @@ html[data-scheme="dark"] .xy-seg-btn.is-on {
   background: rgb(255 255 255 / 0.14);
   box-shadow: none;
 }
+
+
+/* ---- slash 弹层行：stagger 入场（dsh 命令面板语义） ----
+   18ms/行、200ms 封顶：前几行即刻可见，长列表尾部不拖沓。
+   动画只做 fade+4px 上移，与弹层本身的 pop 形成两层运动叙事。 */
+@keyframes flyout-row-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.xy-flyout-row {
+  animation: flyout-row-in 160ms var(--ease-out-soft) both;
+  animation-delay: min(calc(var(--row-i, 0) * 18ms), 200ms);
+}
+@media (prefers-reduced-motion: reduce) {
+  .xy-flyout-row {
+    animation: none;
+  }
+}
+
+/* 弹层底部快捷键条的 kbd 徽章 */
+.xy-menu-kbd {
+  display: inline-block;
+  padding: 0 4px;
+  border-radius: 4px;
+  border: 1px solid color-mix(in srgb, var(--xy-line) 80%, transparent);
+  font-size: 9.5px;
+  line-height: 14px;
+  color: var(--xy-mute);
+}

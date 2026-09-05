@@ -4,9 +4,13 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {resetComposerDraftsForTests} from '@/lib/composerDrafts';
 import {patchSessionStream} from '@/lib/sessionStreams';
 
-const {chatState, sendMessage, stopGeneration} = vi.hoisted(() => {
+const {chatState, sendMessage, stopGeneration, fetchSkills} = vi.hoisted(() => {
 	const sendMessage = vi.fn();
 	const stopGeneration = vi.fn();
+	const fetchSkills = vi.fn(async () => ({
+		ok: true,
+		skills: [] as import('@/lib/api').SkillInfo[],
+	}));
 	const chatState = {
 		activeId: 'sess_1' as string | null,
 		// Composer 现在读 s.sessions / s.spaces（activeWorkspace 选择器）。
@@ -72,7 +76,7 @@ const {chatState, sendMessage, stopGeneration} = vi.hoisted(() => {
 			}
 		>,
 	};
-	return {chatState, sendMessage, stopGeneration};
+	return {chatState, sendMessage, stopGeneration, fetchSkills};
 });
 
 vi.mock('@/stores/chatStore', () => {
@@ -87,7 +91,7 @@ vi.mock('@/lib/api', () => ({
 	uploadFile: vi.fn(),
 	uploadMedia: vi.fn(async () => ({uri: '', media_ref: ''})),
 	resumeInbox: vi.fn(async () => true),
-	fetchSkills: vi.fn(async () => ({ok: true, skills: []})),
+	fetchSkills,
 	fetchVendorModels: vi.fn(async () => ({
 		vendor_ok: true,
 		data: [
@@ -198,6 +202,31 @@ describe('Composer send UX', () => {
 		await waitFor(() => expect(ta).toHaveValue('/goal '));
 		expect(screen.getByText('请输入目标，智能体将持续执行')).toBeInTheDocument();
 		expect(ta).not.toHaveValue(expect.stringContaining('<目标>'));
+	});
+
+	it('lists skills with badge and description in the slash flyout', async () => {
+		fetchSkills.mockResolvedValueOnce({
+			ok: true,
+			skills: [
+				{
+					name: 'map',
+					description: '画图技能',
+					source: 'workspace',
+					plugin: '',
+					tags: [],
+					model_hint: '',
+				},
+			],
+		});
+		const user = userEvent.setup();
+		render(<Composer />);
+		const ta = screen.getByPlaceholderText(/描述任务/);
+		await user.type(ta, '/');
+		// 技能组：分组头 + 裸名 + 描述都可见；技能行 hover 高亮下标在命令组之前。
+		await waitFor(() => expect(screen.getByText('map')).toBeInTheDocument());
+		expect(screen.getByText('技能')).toBeInTheDocument();
+		expect(screen.getByText('画图技能')).toBeInTheDocument();
+		expect(screen.getByText('命令')).toBeInTheDocument();
 	});
 
 	it('routes slash commands to handleComposerSlash, not sendMessage', async () => {
