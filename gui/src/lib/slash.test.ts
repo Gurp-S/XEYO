@@ -3,8 +3,10 @@ import {
 	formatSlashHelp,
 	parseSlashInput,
 	slashLeadingColor,
+	slashGhostHint,
 	slashSuggestions,
 	slashTokenAt,
+	SKILL_GHOST_HINT,
 } from '@/lib/slash';
 import {slashCommands} from '@/generated/slashManifest';
 
@@ -137,5 +139,42 @@ describe('formatSlashHelp', () => {
 		expect(help).toContain('/theme');
 		expect(help).not.toContain('/exit');
 		expect(help).toContain('● ');
+	});
+});
+
+describe('slashGhostHint（dsh claim hint 对应物）', () => {
+	const skills = [{name: 'pdf'}, {name: 'code-review'}];
+	it('goal 空参数 → 显示目标提示', () => {
+		expect(slashGhostHint('/goal', skills)).toBe('请输入目标，智能体将持续执行');
+		expect(slashGhostHint('/goal ', skills)).toBe('请输入目标，智能体将持续执行');
+		expect(slashGhostHint('/goal \n', skills)).toBe('请输入目标，智能体将持续执行');
+	});
+	it('已输入参数 → 不显示', () => {
+		expect(slashGhostHint('/goal 每天检查构建', skills)).toBeNull();
+		expect(slashGhostHint('/goal 每天检查构建\n第二行', skills)).toBeNull();
+	});
+	it('前缀输入中（未精确命中）→ 不显示', () => {
+		expect(slashGhostHint('/goa', skills)).toBeNull();
+		expect(slashGhostHint('/go', skills)).toBeNull();
+	});
+	it('带 arg_spec 的命令走字典，无参命令 → null', () => {
+		expect(slashGhostHint('/export ', skills)).toBe('请输入导出路径，如 a.md');
+		expect(slashGhostHint('/help', skills)).toBeNull();
+		expect(slashGhostHint('/version', skills)).toBeNull();
+	});
+	it('CLI-only 命令（不在 GUI 面）→ null', () => {
+		// load 只在 cli/cli_ts 面，GUI 不显示 hint；arg_spec 回落分支供未来新增 GUI 命令兜底。
+		expect(slashGhostHint('/load ', skills)).toBeNull();
+	});
+	it('技能直呼 → 技能默认提示', () => {
+		expect(slashGhostHint('/pdf ', skills)).toBe(SKILL_GHOST_HINT);
+		expect(slashGhostHint('/pdf 提取表格', skills)).toBeNull();
+	});
+	it('未知命令/别名命中/非开头 → null 或字典', () => {
+		expect(slashGhostHint('/zzz ', skills)).toBeNull();
+		// 别名归一到命令名后查字典（ver 是 version 的别名，无参数 → null）
+		expect(slashGhostHint('/ver', skills)).toBeNull();
+		// /goal 必须是整段开头（claim 语义），消息中途不显示
+		expect(slashGhostHint('帮我 /goal ', skills)).toBeNull();
 	});
 });

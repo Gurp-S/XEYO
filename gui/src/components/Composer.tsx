@@ -32,7 +32,13 @@ import {
 	type DraftImageAttachment,
 } from '@/lib/composerDrafts';
 import {selectActiveSessionStream, sessionStreamActive} from '@/lib/sessionStreams';
-import {slashLeadingColor, slashSuggestions, slashTokenAt, triggerTokenAt} from '@/lib/slash';
+import {
+	slashGhostHint,
+	slashLeadingColor,
+	slashSuggestions,
+	slashTokenAt,
+	triggerTokenAt,
+} from '@/lib/slash';
 import {arbitrateSlashMenuKey, type SlashMenuKey} from '@/lib/slashMenuKeys';
 import {handleComposerSlash, lastUserText} from '@/lib/slashCommands';
 import {useHasComposerPendingDock} from '@/hooks/usePendingForActiveSession';
@@ -652,6 +658,8 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 
 	// slash 着色覆盖层：/词元 命中命令 → 橙、命中技能 → 蓝（前缀也算，输入中即着色）。
 	// URL（https://…）、路径（src/foo）整体是一个非空白词元，不以 / 开头，不会误着色。
+	// ghost hint（dsh claim hint 对应物）：首词元精确命中命令/技能且参数空白时，
+	// 在词元后展示灰字提示（零 DOM 侵入草稿，仅覆盖层显示，不参与提交）。
 	const slashOverlay = useMemo(() => {
 		if (imeComposing || !value.includes('/')) {
 			return null;
@@ -675,7 +683,15 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 			}
 			return part;
 		});
-		return colored ? nodes : null;
+		const ghostHint = slashGhostHint(value, slashSkills);
+		if (ghostHint) {
+			nodes.push(
+				<span key="__ghost_hint" className="select-none text-ink/40">
+					{ghostHint}
+				</span>,
+			);
+		}
+		return colored || ghostHint ? nodes : null;
 	}, [value, slashSkills, imeComposing]);
 
 	// 覆盖层接管显示时隐藏 textarea 原文，只留光标，避免两层文字叠影。
@@ -1054,7 +1070,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 
 	const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
 		// IME 组词中：确认键/方向键属于输入法，一律放行（修复组词上屏瞬间
-		// Enter 直接发送半截输入的隐患；dsh 的仲裁同样 composing 即 pass）。
+		// Enter 直接发送半截输入的隐患；仲裁在 composing 期间同样放行）。
 		if (e.nativeEvent.isComposing) {
 			return;
 		}

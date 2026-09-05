@@ -172,6 +172,20 @@ describe('Composer send UX', () => {
 		expect(sendMessage).not.toHaveBeenCalled();
 	});
 
+	it('shows ghost hint after a command token with blank args', async () => {
+		const user = userEvent.setup();
+		render(<Composer />);
+		const ta = screen.getByPlaceholderText(/描述任务/);
+		// dsh claim hint 语义：/goal 精确命中且参数空白 → 灰字提示（仅覆盖层，不进草稿）。
+		await user.type(ta, '/goal ');
+		expect(screen.getByText('请输入目标，智能体将持续执行')).toBeInTheDocument();
+		// 参数一旦非空白，提示立即消失。
+		await user.type(ta, '每天检查构建');
+		expect(screen.queryByText('请输入目标，智能体将持续执行')).not.toBeInTheDocument();
+		// 灰字不进草稿。
+		expect(ta).toHaveValue('/goal 每天检查构建');
+	});
+
 	it('routes slash commands to handleComposerSlash, not sendMessage', async () => {
 		handleComposerSlash.mockResolvedValue(true);
 		const user = userEvent.setup();

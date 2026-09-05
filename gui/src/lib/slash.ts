@@ -142,6 +142,78 @@ export function slashLeadingColor(
 	return null;
 }
 
+/**
+ * ghost hint 字典（dsh `hint.<命令名>` 对应物）：claim 激活且参数空白时展示的灰字。
+ * 命令在SlashCommand层有 arg_spec 兜底，但中文提示优先走这张表——
+ * 新命令未登记时自动回落到 `请输入 <arg_spec>`。
+ */
+const SLASH_HINTS: Readonly<Record<string, string>> = {
+	goal: '请输入目标，智能体将持续执行',
+	load: '请输入要恢复的会话 ID',
+	export: '请输入导出路径，如 a.md',
+	run: '请输入要执行的命令',
+	usage: '请输入统计天数，如 7',
+	transcript: '请输入导出行数',
+	rule: '请输入规则行号',
+	ls: '请输入目录路径',
+	allow: '请输入权限记录 ID',
+	deny: '请输入权限记录 ID',
+	diff: '请输入提交/版本号',
+	revert: '请输入要回退的提交 ID',
+	git: '请输入 git 操作，如 status',
+	skills: '请输入技能关键词过滤',
+	model: '请输入模型 ID',
+	theme: '请输入主题 ID',
+	mode: '请输入模式，如 ask / plan',
+	output: '请输入输出级别',
+	code: '请输入代码级别',
+	approval: '请输入审批模式',
+	'reasoning-tail': '请输入 tail 模式',
+	plugins: '请输入操作，如 list',
+};
+
+/** 技能直呼（/<skill_name>）的默认 hint。 */
+export const SKILL_GHOST_HINT = '请输入任务，技能将按其流程执行';
+
+/**
+ * ghost hint 判定（dsh claim 语义的纯函数化）：
+ * 首个词元必须是整段输入的开头（claim = 草稿起点）、精确命中 GUI 命令或技能名、
+ * 且其后参数为空白（仅有换行/空格也算未输入）。前缀匹配（输入 "/goa" 中途）不显示。
+ * 命中返回提示文案；未知命令/带参/非开头 → null。
+ */
+export function slashGhostHint(
+	value: string,
+	skills: ReadonlyArray<{name: string}>,
+): string | null {
+	const text = value ?? '';
+	const m = /^(\/[^\s]+)([\s\S]*)$/.exec(text);
+	if (!m) {
+		return null;
+	}
+	if (m[2] !== undefined && m[2].trim() !== '') {
+		return null;
+	}
+	const head = m[1]!.slice(1).toLowerCase();
+	if (!head) {
+		return null;
+	}
+	const cmd = slashCommands.find(
+		c =>
+			c.surfaces.some(s => GUI_SURFACES.includes(s)) &&
+			(c.name === head || c.aliases.some(a => a.toLowerCase() === head)),
+	);
+	if (cmd) {
+		return (
+			SLASH_HINTS[cmd.name] ??
+			(cmd.arg_spec ? `请输入 ${cmd.arg_spec}` : null)
+		);
+	}
+	if (skills.some(s => s.name.toLowerCase() === head)) {
+		return SKILL_GHOST_HINT;
+	}
+	return null;
+}
+
 const CATEGORY_ZH: Record<string, string> = {
 	meta: '通用',
 	session: '会话',
