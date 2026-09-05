@@ -258,6 +258,31 @@ class InboxRegistry:
 					return True
 		return False
 
+	def edit(self, session_id: str, queue_id: str, text: str) -> InboxItem | None:
+		"""改写单条排队消息文本；not found / delivering 态返回 None（与 remove 同口径）。
+
+		超长抛 ``InboxTextTooLong``（调用方映射 413）；空文本视为无效返回 None。
+		只改 text——queue_id / 队内位置 / attempts / queued_at 全保留（编辑不重排队）。
+		"""
+		sid = (session_id or "").strip()
+		qid = (queue_id or "").strip()
+		t = (text or "").strip()
+		if not sid or not qid or not t:
+			return None
+		if len(t) > _MAX_CHARS:
+			raise InboxTextTooLong(sid, len(t), _MAX_CHARS)
+		with self._lock:
+			q = self._queues.get(sid)
+			if not q:
+				return None
+			for it in q:
+				if it.queue_id == qid:
+					if it.state == "delivering":
+						return None
+					it.text = t
+					return it
+		return None
+
 	def resume(self, session_id: str) -> dict[str, Any]:
 		"""清 stuck 计数并重新 arm（会话空闲则立即排水）。"""
 		sid = (session_id or "").strip()

@@ -4,6 +4,7 @@
 import type {ChatState} from './preStoreHelpers';
 import {
 	cancelInboxItem,
+	editInboxItem as editInboxItemApi,
 	inboxSnapshot,
 	type InboxSnapshot,
 } from '@/lib/api';
@@ -31,7 +32,7 @@ function normalizeItems(payload: InboxSnapshot | null): InboxQueuedItem[] {
 export function createInboxSlice(
 	set: SetState,
 	_get: GetState,
-): Pick<ChatState, 'refreshInbox' | 'cancelInboxItem' | 'clearInboxChip'> {
+): Pick<ChatState, 'refreshInbox' | 'cancelInboxItem' | 'editInboxItem' | 'clearInboxChip'> {
 	return {
 		async refreshInbox(sessionId: string) {
 			const payload = await inboxSnapshot(sessionId);
@@ -53,6 +54,19 @@ export function createInboxSlice(
 					inboxBySession: {...s.inboxBySession, [sessionId]: next},
 					hasInboxChip: next.length > 0,
 				};
+			});
+		},
+		async editInboxItem(sessionId: string, queue_id: string, text: string) {
+			const ok = await editInboxItemApi(sessionId, queue_id, text);
+			if (!ok) {
+				return;
+			}
+			set(s => {
+				const prev = s.inboxBySession[sessionId] ?? [];
+				const next = prev.map(it =>
+					it.queue_id === queue_id ? {...it, text} : it,
+				);
+				return {inboxBySession: {...s.inboxBySession, [sessionId]: next}};
 			});
 		},
 		clearInboxChip() {

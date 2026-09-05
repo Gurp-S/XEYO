@@ -406,6 +406,7 @@ activeSpaceId: string;
 	refreshInbox: (sessionId: string) => Promise<void>;
 	/** 取消一条排队消息（服务端 DELETE 成功后从本地移除）。 */
 	cancelInboxItem: (sessionId: string, queue_id: string) => Promise<void>;
+	editInboxItem: (sessionId: string, queue_id: string, text: string) => Promise<void>;
 	/** 清空当前会话排队 chip 状态。 */
 	clearInboxChip: () => void;
 		/** 每个 session 整个对话累计的厂商 usage，随会话持久化。 */

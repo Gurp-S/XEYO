@@ -200,3 +200,35 @@ def test_counts_stuck(reg):
     c = reg.counts()
     assert c["pending"] == 1
     assert c["stuck"] == 1
+
+
+def test_edit_updates_text_keeps_position(reg):
+    a = reg.enqueue("s1", "第一版内容")
+    b = reg.enqueue("s1", "第二条")
+    it = reg.edit("s1", a.queue_id, "  改好的内容  ")
+    assert it is not None
+    assert it.text == "改好的内容"
+    # queue_id / 位置 / queued_at 全保留（编辑不重排队）。
+    snap = reg.snapshot("s1")
+    assert [x["queue_id"] for x in snap["items"]] == [a.queue_id, b.queue_id]
+    assert snap["items"][0]["text"] == "改好的内容"
+    assert snap["items"][0]["position"] == 1
+
+
+def test_edit_not_found_or_delivering(reg):
+    reg.enqueue("s1", "a")
+    assert reg.edit("s1", "no-such-id", "x") is None
+    assert reg.edit("s1", "", "x") is None
+    it = reg.enqueue("s2", "b")
+    it.state = "delivering"
+    assert reg.edit("s2", it.queue_id, "x") is None
+
+
+def test_edit_rejects_empty_and_too_long(reg):
+    from server.inbox_registry import InboxTextTooLong
+
+    it = reg.enqueue("s1", "a")
+    assert reg.edit("s1", it.queue_id, "") is None
+    assert reg.edit("s1", it.queue_id, "   ") is None
+    with pytest.raises(InboxTextTooLong):
+        reg.edit("s1", it.queue_id, "x" * 2001)

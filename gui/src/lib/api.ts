@@ -195,6 +195,27 @@ export async function cancelInboxItem(sessionId: string, queueId: string): Promi
 	}
 }
 
+/** 改写一条排队消息的文本（排队卡「编辑」动作）。 */
+export async function editInboxItem(
+	sessionId: string,
+	queueId: string,
+	text: string,
+): Promise<boolean> {
+	try {
+		const res = await fetchWithTimeout(
+			apiUrl(`/v1/sessions/${encodeURIComponent(sessionId)}/inbox/${encodeURIComponent(queueId)}`),
+			{
+				method: 'PATCH',
+				headers: {'Content-Type': 'application/json', ...authHeaders()},
+				body: JSON.stringify({text}),
+			},
+		);
+		return res.ok;
+	} catch {
+		return false;
+	}
+}
+
 /** 重新 arm（stop 后 / stuck 后手动投递）。 */
 export async function resumeInbox(sessionId: string): Promise<boolean> {
 	try {

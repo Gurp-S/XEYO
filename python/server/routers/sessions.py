@@ -1385,6 +1385,10 @@ def session_inbox_list(session_id: str) -> dict[str, Any]:
 	return get_inbox_registry().snapshot(sid)
 
 
+class InboxEditRequest(BaseModel):
+	text: str = Field(min_length=1, description="改写后的消息文本")
+
+
 @router.delete("/v1/sessions/{session_id}/inbox/{queue_id}")
 def session_inbox_remove(session_id: str, queue_id: str) -> dict[str, Any]:
 	"""取消单条排队消息。delivering 态返回 409。"""
@@ -1398,6 +1402,29 @@ def session_inbox_remove(session_id: str, queue_id: str) -> dict[str, Any]:
 	if not ok:
 		raise api_error(409, "inbox item not found or already delivering", "inbox_delivering")
 	return {"ok": True, "session_id": sid, "queue_id": qid}
+
+
+@router.patch("/v1/sessions/{session_id}/inbox/{queue_id}")
+def session_inbox_edit(
+	session_id: str, queue_id: str, body: InboxEditRequest
+) -> dict[str, Any]:
+	"""改写单条排队消息文本（排队卡「编辑」动作）。
+
+	delivering / 不存在 → 409；超长 → 413；编辑不改变队列位置与 queue_id。
+	"""
+	from server.inbox_registry import InboxTextTooLong, get_inbox_registry
+
+	sid = (session_id or "").strip()
+	qid = (queue_id or "").strip()
+	if not sid or not qid:
+		raise api_error(400, "session_id and queue_id required", "invalid_request")
+	try:
+		item = get_inbox_registry().edit(sid, qid, body.text)
+	except InboxTextTooLong as e:
+		raise api_error(413, str(e), "inbox_text_too_long") from e
+	if item is None:
+		raise api_error(409, "inbox item not found or already delivering", "inbox_delivering")
+	return {"ok": True, "item": item.to_dict()}
 
 
 @router.post("/v1/sessions/{session_id}/inbox/resume")

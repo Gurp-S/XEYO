@@ -3,6 +3,7 @@ import {
 	ChevronDown,
 	GripVertical,
 	Network,
+	Pencil,
 	Plus,
 	Send,
 	Square,
@@ -250,9 +251,26 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 	const hasInboxChip = useChatUiStore(s => s.hasInboxChip);
 	const refreshInbox = useChatUiStore(s => s.refreshInbox);
 	const cancelInboxItem = useChatUiStore(s => s.cancelInboxItem);
+	const editInboxItem = useChatUiStore(s => s.editInboxItem);
 	const inboxItems: InboxQueuedItem[] = (activeId ? inboxBySession[activeId] : undefined) ?? [];
 	// 排队卡最多一条：只展示最新一条（多条时以 mono 计数徽标注明总量）。
 	const latestInbox = inboxItems.length > 0 ? inboxItems[inboxItems.length - 1] : null;
+	// 行内编辑：单卡只编最新一条；Enter/失焦保存，Esc 取消。
+	const [queueEditing, setQueueEditing] = useState(false);
+	const [queueDraft, setQueueDraft] = useState('');
+	const queueEditDirty = queueEditing && latestInbox != null;
+	const openQueueEdit = () => {
+		if (!latestInbox || latestInbox.state === 'delivering') return;
+		setQueueDraft(latestInbox.text);
+		setQueueEditing(true);
+	};
+	const saveQueueEdit = () => {
+		const it = latestInbox;
+		setQueueEditing(false);
+		const t = queueDraft.trim();
+		if (!it || !t || t === it.text) return;
+		void editInboxItem(activeId ?? '', it.queue_id, t);
+	};
 	// P1：chip 可见时 2s 轮询排队队列（多端一致；队空 = 已投递/取消 → 清 chip）。
 	useEffect(() => {
 		if (!hasInboxChip || !activeId) {
@@ -1209,15 +1227,39 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 									{inboxItems.length}
 								</span>
 							) : null}
-							<span
-								className="xy-queue-text"
-								data-stuck={latestInbox.state === 'stuck' ? '' : undefined}
-							>
-								{latestInbox.state === 'stuck'
-									? `投递失败：${latestInbox.text}`
-									: latestInbox.text}
-							</span>
-							<div className="xy-queue-actions">
+							{queueEditDirty ? (
+								<input
+									value={queueDraft}
+									onChange={e => setQueueDraft(e.target.value)}
+									onKeyDown={e => {
+										if (e.key === 'Enter') saveQueueEdit();
+										if (e.key === 'Escape') setQueueEditing(false);
+									}}
+									onBlur={saveQueueEdit}
+									autoFocus
+									maxLength={2000}
+									aria-label="编辑排队消息"
+									className="min-w-0 flex-1 rounded-md border border-line/70 bg-paper-deep/40 px-2 py-0.5 text-[12.5px] text-ink outline-none focus:border-accent/60"
+								/>
+							) : (
+								<span
+									className="xy-queue-text"
+									data-stuck={latestInbox.state === 'stuck' ? '' : undefined}
+								>
+									{latestInbox.state === 'stuck'
+										? `投递失败：${latestInbox.text}`
+										: latestInbox.text}
+								</span>
+							)}
+							<div className="xy-queue-actions" hidden={queueEditDirty}>
+								<button
+									type="button"
+									className="xy-queue-action"
+									title="编辑消息"
+									onClick={openQueueEdit}
+								>
+									<Pencil className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden />
+								</button>
 								{latestInbox.state === 'stuck' ? (
 									<button
 										type="button"
