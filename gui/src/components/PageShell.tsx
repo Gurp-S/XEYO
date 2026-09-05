@@ -4,7 +4,7 @@ import {cn} from '@/lib/utils';
 type PageShellProps = {
 	/**
 	 * 全宽信息面板（用量页）。false = 居中列表布局（扩展中心：
-	 * max-w-5xl 居中 + xy-hover-scroll 滚动渐隐）。
+	 * max-w-3xl 居中 + xy-hover-scroll 滚动渐隐）。
 	 * 两种形态的 DOM 与两面板重构前（2026-09-05 复用审计 ⑥ 之前）
 	 * 逐类一致，勿随意增删类——视觉回归会直接被用户感知。
 	 */
@@ -51,7 +51,7 @@ export function PageShell({
 				{wide ? (
 					children
 				) : (
-					<div className="mx-auto flex w-full max-w-5xl min-w-0 flex-col">
+					<div className="mx-auto flex w-full max-w-3xl min-w-0 flex-col">
 						{children}
 					</div>
 				)}
