@@ -44,13 +44,36 @@ function escapeHtml(s: string): string {
 		.replace(/>/g, '&gt;');
 }
 
+// 结果 LRU：虚拟列表滚回历史轮/跨会话切换/重开同一文件时，同一 (lang, code)
+// 会被反复重发——缓存命中即零计算。LRU 触碰保证热条目存活。
+const CACHE_LIMIT = 64;
+const MAX_CACHED_CHARS = 200_000;
+const resultCache = new Map<string, string>();
+
 self.onmessage = (ev: MessageEvent<HighlightRequest>) => {
 	const {id, code, lang} = ev.data;
+	const key = `${lang}\u0000${code}`;
+	const cached = resultCache.get(key);
+	if (cached !== undefined) {
+		resultCache.delete(key);
+		resultCache.set(key, cached);
+		self.postMessage({id, ok: true, html: cached} satisfies HighlightResponse);
+		return;
+	}
 	try {
 		const grammar = Prism.languages[lang] ?? Prism.languages.plain;
 		const html = grammar
 			? Prism.highlight(code, grammar, lang)
 			: escapeHtml(code);
+		if (code.length <= MAX_CACHED_CHARS) {
+			resultCache.set(key, html);
+			if (resultCache.size > CACHE_LIMIT) {
+				const oldest = resultCache.keys().next().value;
+				if (oldest !== undefined) {
+					resultCache.delete(oldest);
+				}
+			}
+		}
 		const res: HighlightResponse = {id, ok: true, html};
 		self.postMessage(res);
 	} catch {

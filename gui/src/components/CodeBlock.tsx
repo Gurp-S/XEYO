@@ -1,76 +1,14 @@
 import {Check, ChevronDown, ChevronRight, Copy} from 'lucide-react';
-import {memo, useEffect, useRef, useState} from 'react';
-import {PrismLight as SyntaxHighlighter} from 'react-syntax-highlighter';
-import bash from 'refractor/bash';
-import c from 'refractor/c';
-import cpp from 'refractor/cpp';
-import csharp from 'refractor/csharp';
-import css from 'refractor/css';
-import diff from 'refractor/diff';
-import docker from 'refractor/docker';
-import go from 'refractor/go';
-import ini from 'refractor/ini';
-import java from 'refractor/java';
-import javascript from 'refractor/javascript';
-import json from 'refractor/json';
-import jsx from 'refractor/jsx';
-import kotlin from 'refractor/kotlin';
-import less from 'refractor/less';
-import markdown from 'refractor/markdown';
-import markup from 'refractor/markup';
-import mermaid from 'refractor/mermaid';
-import php from 'refractor/php';
-import powershell from 'refractor/powershell';
-import python from 'refractor/python';
-import ruby from 'refractor/ruby';
-import rust from 'refractor/rust';
-import scss from 'refractor/scss';
-import sql from 'refractor/sql';
-import swift from 'refractor/swift';
-import toml from 'refractor/toml';
-import tsx from 'refractor/tsx';
-import typescript from 'refractor/typescript';
-import yaml from 'refractor/yaml';
-import {
-	oneDark,
-	oneLight,
-} from 'react-syntax-highlighter/dist/esm/styles/prism';
+import {lazy, memo, Suspense, useEffect, useRef, useState} from 'react';
 import {useHoverScroll} from '@/hooks/useHoverScroll';
 import {highlightCode} from '@/lib/highlightClient';
 import {cn} from '@/lib/utils';
 import {isSmoothnessOn, useSettingsStore} from '@/stores/settingsStore';
 import {isDarkScheme} from '@/theme/catalog';
 
-SyntaxHighlighter.registerLanguage('markup', markup);
-SyntaxHighlighter.registerLanguage('css', css);
-SyntaxHighlighter.registerLanguage('javascript', javascript);
-SyntaxHighlighter.registerLanguage('jsx', jsx);
-SyntaxHighlighter.registerLanguage('typescript', typescript);
-SyntaxHighlighter.registerLanguage('tsx', tsx);
-SyntaxHighlighter.registerLanguage('json', json);
-SyntaxHighlighter.registerLanguage('bash', bash);
-SyntaxHighlighter.registerLanguage('python', python);
-SyntaxHighlighter.registerLanguage('yaml', yaml);
-SyntaxHighlighter.registerLanguage('markdown', markdown);
-SyntaxHighlighter.registerLanguage('rust', rust);
-SyntaxHighlighter.registerLanguage('sql', sql);
-SyntaxHighlighter.registerLanguage('diff', diff);
-SyntaxHighlighter.registerLanguage('go', go);
-SyntaxHighlighter.registerLanguage('java', java);
-SyntaxHighlighter.registerLanguage('c', c);
-SyntaxHighlighter.registerLanguage('cpp', cpp);
-SyntaxHighlighter.registerLanguage('csharp', csharp);
-SyntaxHighlighter.registerLanguage('ruby', ruby);
-SyntaxHighlighter.registerLanguage('kotlin', kotlin);
-SyntaxHighlighter.registerLanguage('docker', docker);
-SyntaxHighlighter.registerLanguage('php', php);
-SyntaxHighlighter.registerLanguage('powershell', powershell);
-SyntaxHighlighter.registerLanguage('toml', toml);
-SyntaxHighlighter.registerLanguage('ini', ini);
-SyntaxHighlighter.registerLanguage('scss', scss);
-SyntaxHighlighter.registerLanguage('less', less);
-SyntaxHighlighter.registerLanguage('swift', swift);
-SyntaxHighlighter.registerLanguage('mermaid', mermaid);
+/** 主线程高亮兜底,懒加载(独立 chunk):react-syntax-highlighter + 28 个 refractor
+    语言定义不进主 bundle,仅在 worker 不可用/失败的首个代码块命中时才下载。 */
+const FallbackHighlighter = lazy(() => import('./FallbackHighlighter'));
 
 type Props = {
 	language?: string;
@@ -228,40 +166,32 @@ function CodeBlockInner({
 			</pre>
 		</div>
 	);
-	const codeBody = skipPrism ? (
+	const plainPre = (
 		<pre className="xy-prism-html m-0 whitespace-pre-wrap break-all">
 			<code>{value || ' '}</code>
 		</pre>
+	);
+	const codeBody = skipPrism ? (
+		plainPre
 	) : useHighlighter ? (
-		<SyntaxHighlighter
-			language={lang}
-			style={dark ? oneDark : oneLight}
-			showLineNumbers={file}
-			lineNumberStyle={
-				file
-					? {
-							minWidth: '2.75em',
-							paddingRight: '1.25rem',
-							color: 'var(--color-mute)',
-							userSelect: 'none',
-						}
-					: undefined
-			}
-			customStyle={{
-				margin: 0,
-				padding: file
-					? '8px 16px 16px 12px'
-					: collapsed
-						? '10px 14px 0 16px'
-						: '12px 14px 12px 16px',
-				background: 'transparent',
-				fontSize: '13px',
-			}}
-			PreTag="div"
-			codeTagProps={{style: {fontFamily: 'inherit'}}}
-		>
-			{value || ' '}
-		</SyntaxHighlighter>
+		<Suspense fallback={file ? filePlain : plainPre}>
+			<FallbackHighlighter
+				lang={lang}
+				dark={dark}
+				file={file}
+				value={value}
+				customStyle={{
+					margin: 0,
+					padding: file
+						? '8px 16px 16px 12px'
+						: collapsed
+							? '10px 14px 0 16px'
+							: '12px 14px 12px 16px',
+					background: 'transparent',
+					fontSize: '13px',
+				}}
+			/>
+		</Suspense>
 	) : useWorker && workerHtml != null && file ? (
 		<div className="xy-prism-file flex min-h-0">
 			<pre aria-hidden className="xy-prism-gutter m-0">

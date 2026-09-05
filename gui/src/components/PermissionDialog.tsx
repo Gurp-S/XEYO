@@ -1,7 +1,8 @@
-import {useEffect, useRef, useState} from 'react';
+import {useCallback, useEffect, useRef, useState} from 'react';
 import {ChevronDown, X} from 'lucide-react';
 import {resolvePermission} from '@/lib/api';
 import {toast} from '@/lib/toast';
+import {useHeartbeat} from '@/lib/heartbeat';
 import {usePendingPermissionForActiveSession} from '@/hooks/usePendingForActiveSession';
 import {useChatStore, type PendingPermissionInfo} from '@/stores/chatStore';
 import {isSmoothnessOn, useSettingsStore} from '@/stores/settingsStore';
@@ -61,20 +62,19 @@ function PermissionCard({pending}: {pending: PendingPermissionInfo}) {
 	}, [prompt, expanded]);
 
 	// T3：倒计时——距到期 <30s 高亮（客户端计算，无需服务端推送）。
-	useEffect(() => {
-		const expiresAt = pending.expiresAt;
+	// 全局 1s 心跳:共享单一定时器,替代自建 setInterval(见 lib/heartbeat.ts)
+	const expiresAt = pending.expiresAt;
+	const tickExpiring = useCallback(() => {
 		if (!expiresAt) {
 			setExpiring(false);
 			return;
 		}
-		const tick = () => {
-			const left = expiresAt - Date.now() / 1000;
-			setExpiring(left <= EXPIRE_WARN_S);
-		};
-		tick();
-		const id = window.setInterval(tick, 1000);
-		return () => window.clearInterval(id);
-	}, [pending.expiresAt]);
+		setExpiring(expiresAt - Date.now() / 1000 <= EXPIRE_WARN_S);
+	}, [expiresAt]);
+	useEffect(() => {
+		tickExpiring();
+	}, [tickExpiring]);
+	useHeartbeat(tickExpiring, Boolean(expiresAt));
 
 	const isPeerThree =
 		Array.isArray(pending.choices) &&

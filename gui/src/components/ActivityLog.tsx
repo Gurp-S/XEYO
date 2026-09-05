@@ -13,6 +13,7 @@ import {
 	formatCollapsedSegmentLabel,
 } from '@/lib/toolActivity';
 import {parseJsonValue} from '@/lib/safeJson';
+import {useHeartbeat} from '@/lib/heartbeat';
 import {toolStepMenuItems} from '@/lib/contextMenus';
 import {cn} from '@/lib/utils';
 import {isSmoothnessOn, useSettingsStore} from '@/stores/settingsStore';
@@ -548,15 +549,17 @@ function ActivityLogInner({
 
 	const working = Boolean(active || anyRunning);
 
+	const tickElapsed = useCallback(
+		() => setElapsed(Date.now() - startRef.current),
+		[],
+	);
 	useEffect(() => {
-		if (!working) {
-			return;
+		if (working) {
+			tickElapsed();
 		}
-		const tick = () => setElapsed(Date.now() - startRef.current);
-		tick();
-		const id = window.setInterval(tick, 1000);
-		return () => window.clearInterval(id);
-	}, [working]);
+	}, [working, tickElapsed]);
+	// 全局 1s 心跳:共享单一定时器,替代自建 setInterval(见 lib/heartbeat.ts)
+	useHeartbeat(tickElapsed, working);
 
 	// 点子 3：Working → 折叠时 Thought 先淡出
 	const [collapsing, setCollapsing] = useState(false);
