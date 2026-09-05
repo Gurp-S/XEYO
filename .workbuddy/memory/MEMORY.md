@@ -1,11 +1,11 @@
 # 项目长期记忆 — XEYO
 
-## git 仓库铁律(2026-09-05 事故后强制)
-- **本仓库无 remote、无自动备份**——重要阶段完成立即 commit;强烈建议配置本地 bare mirror remote(`git clone --bare`)或定期 zip 备份源码。
-- **禁止** `git stash push` 携带中文 pathspec + 大批量混合文件(曾直接击穿 .git 对象库)。
-- 需要暂存时:用 `git diff > patch.diff` + `git checkout -- <files>`,或只对 ASCII 路径分批 stash。
+## git 仓库铁律(2026-09-05 两次事故后强制,第二次 13:33)
+- **本仓库无 remote、无自动备份**——重要阶段完成立即 commit;已配置本地 bare mirror:`git push mirror master`(remote 名 `mirror` → `D:/lea/XenYon-git-mirror-20260905-1340.git`)。
+- **绝对禁止 `git stash`(任何形式,含 ASCII pathspec、单文件)**——13:33 二次事故证明 ASCII pathspec stash 同样击穿 .git(refs 清空+对象库清空)。需要暂存时只用 `git diff > patch.diff` + `git checkout -- <files>`。
 - Windows git 与中文路径打交道时,输出一律用 `-z` / `--porcelain`,避免 quotepath octal 与 bash NFD/NFC 混乱。
-- 若 git 报 "not a git repository" 而 `.git/` 存在:先查 `.git/refs/` 是否缺失(mkdir 重建)、再查 `.git/objects/` 是否只有 `.idx` 无 `.pack`(数据已丢,找备份)。
+- 事故征兆自查:`git cat-file -t <已知提交>` 失败 = 对象库损;`.git/refs/heads/` 空 = ref 被清;objects 只有 .idx 无 .pack = 数据已丢。恢复手册:封存现场为 `.git.broken-*` → `git init -b master` → 按 .gitignore 清垃圾暂存 → 提交重建点 → 立即建/推 bare mirror。
+- 全量 pytest 在沙箱环境不可靠(共享 basetemp mkdir 竞争产生大量假失败,单跑即过);P0 门以用户手动 run-pytest-p0a.bat 为准;`--basetemp` 每次必须用全新路径。
 
 ## 备份位置(事故恢复资产)
 - `C:/Users/48522/XenYon-code-BACKUP-20260905-0020.zip` — 2026-09-05 源码全量备份(26593 文件,374MB,排除 node_modules/__pycache__/src-tauri/target/bench-results)
