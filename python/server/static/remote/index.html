@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>XEYO Remote</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --panel: #1a222c;
+      --text: #e7ecf1;
+      --muted: #8b98a5;
+      --accent: #3d9cf0;
+      --user: #243447;
+      --bot: #1e2a24;
+      --err: #e85d5d;
+      --ok: #5bb98c;
+      --border: #2a3542;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: radial-gradient(1200px 600px at 10% -10%, #1a2a3a 0%, var(--bg) 55%);
+      color: var(--text);
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    .wrap {
+      max-width: 720px;
+      margin: 0 auto;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      padding: 12px 12px calc(12px + env(safe-area-inset-bottom));
+    }
+    header {
+      padding: 8px 4px 12px;
+    }
+    header h1 {
+      margin: 0;
+      font-size: 1.15rem;
+      font-weight: 650;
+      letter-spacing: 0.02em;
+    }
+    header p {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 0.82rem;
+    }
+    .token-row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .token-row input {
+      flex: 1;
+      min-width: 0;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 10px;
+      padding: 10px 12px;
+      font-size: 0.95rem;
+    }
+    .token-row button {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      border-radius: 10px;
+      padding: 0 12px;
+      cursor: pointer;
+    }
+    #log {
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 4px 2px 12px;
+    }
+    .bubble {
+      max-width: 92%;
+      padding: 10px 12px;
+      border-radius: 14px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      line-height: 1.45;
+      font-size: 0.95rem;
+    }
+    .bubble.user {
+      align-self: flex-end;
+      background: var(--user);
+      border: 1px solid #31465c;
+    }
+    .bubble.bot {
+      align-self: flex-start;
+      background: var(--bot);
+      border: 1px solid #2d4438;
+    }
+    .bubble.meta {
+      align-self: center;
+      background: transparent;
+      color: var(--muted);
+      font-size: 0.8rem;
+      border: none;
+      padding: 2px 8px;
+    }
+    .bubble.err {
+      align-self: flex-start;
+      background: #2a1818;
+      border: 1px solid #5a2a2a;
+      color: #ffb4b4;
+    }
+    .composer {
+      display: flex;
+      gap: 8px;
+      padding-top: 8px;
+      border-top: 1px solid var(--border);
+    }
+    .composer textarea {
+      flex: 1;
+      min-height: 44px;
+      max-height: 120px;
+      resize: vertical;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 12px;
+      padding: 10px 12px;
+      font: inherit;
+    }
+    .composer button {
+      background: var(--accent);
+      color: #061018;
+      border: none;
+      border-radius: 12px;
+      padding: 0 16px;
+      font-weight: 650;
+      cursor: pointer;
+      min-width: 72px;
+    }
+    .composer button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>XEYO Remote</h1>
+      <p>只返回最终结果 · 中间过程不推送</p>
+    </header>
+    <div class="token-row">
+      <input id="token" type="password" placeholder="Remote Token (XEYO_REMOTE_TOKEN)" autocomplete="off" />
+      <button type="button" id="saveToken">保存</button>
+    </div>
+    <div id="log"></div>
+    <div class="composer">
+      <textarea id="input" rows="2" placeholder="发一条消息给 XEYO…"></textarea>
+      <button type="button" id="send">发送</button>
+    </div>
+  </div>
+  <script>
+    const TOKEN_KEY = "xeyo_remote_token";
+    const logEl = document.getElementById("log");
+    const tokenEl = document.getElementById("token");
+    const inputEl = document.getElementById("input");
+    const sendBtn = document.getElementById("send");
+
+    tokenEl.value = localStorage.getItem(TOKEN_KEY) || "";
+
+    document.getElementById("saveToken").onclick = () => {
+      localStorage.setItem(TOKEN_KEY, tokenEl.value.trim());
+      addMeta("Token 已保存到本机");
+    };
+
+    function token() {
+      return (tokenEl.value || localStorage.getItem(TOKEN_KEY) || "").trim();
+    }
+
+    function addBubble(text, cls) {
+      const div = document.createElement("div");
+      div.className = "bubble " + cls;
+      div.textContent = text;
+      logEl.appendChild(div);
+      logEl.scrollTop = logEl.scrollHeight;
+      return div;
+    }
+
+    function addMeta(text) {
+      return addBubble(text, "meta");
+    }
+
+    async function pollJob(jobId) {
+      const headers = { "X-Remote-Token": token() };
+      for (;;) {
+        const res = await fetch("/v1/remote/jobs/" + encodeURIComponent(jobId), { headers });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data.detail || ("HTTP " + res.status));
+        }
+        if (data.status === "done") {
+          return data.final_text || "(空结果)";
+        }
+        if (data.status === "error") {
+          throw new Error(data.error || "job failed");
+        }
+        await new Promise((r) => setTimeout(r, 1200));
+      }
+    }
+
+    async function send() {
+      const text = inputEl.value.trim();
+      if (!text) return;
+      if (!token()) {
+        addBubble("请先填写 Remote Token", "err");
+        return;
+      }
+      localStorage.setItem(TOKEN_KEY, token());
+      addBubble(text, "user");
+      inputEl.value = "";
+      sendBtn.disabled = true;
+      const pending = addMeta("处理中…");
+      try {
+        const res = await fetch("/v1/remote/messages", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Remote-Token": token(),
+          },
+          body: JSON.stringify({ text }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data.detail || ("HTTP " + res.status));
+        }
+        const finalText = await pollJob(data.job_id);
+        pending.remove();
+        addBubble(finalText, "bot");
+      } catch (e) {
+        pending.remove();
+        addBubble(String(e.message || e), "err");
+      } finally {
+        sendBtn.disabled = false;
+        inputEl.focus();
+      }
+    }
+
+    sendBtn.onclick = send;
+    inputEl.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        send();
+      }
+    });
+
+    fetch("/v1/remote/health")
+      .then((r) => r.json())
+      .then((h) => {
+        if (!h.enabled) {
+          addMeta("远程通道未启用：请在 .env 设置 XEYO_REMOTE_TOKEN");
+        } else {
+          addMeta("通道已启用，发送后只回最终结果");
+        }
+      })
+      .catch(() => addMeta("无法读取 /v1/remote/health"));
+  </script>
+</body>
+</html>

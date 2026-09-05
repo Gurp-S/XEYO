@@ -1,0 +1,22 @@
+.xy-immersive {
+	background: #0b0e14;
+}
+.xy-immersive-bg {
+	background-size: cover;
+	background-position: center;
+	transform: scale(1.04);
+}
+.xy-immersive-veil {
+	background: linear-gradient(180deg, rgba(6, 10, 20, 0.55), rgba(6, 10, 20, 0.72));
+}
+.xy-immersive-msg {
+	-webkit-mask-image: linear-gradient(180deg, transparent, #000 12%);
+	mask-image: linear-gradient(180deg, transparent, #000 12%);
+}
+/* 沉浸面板玻璃（复用主题变量，压暗） */
+.xy-immersive-panel {
+	background: color-mix(in oklch, var(--xy-paper) 88%, transparent);
+	border: 1px solid var(--xy-line);
+	backdrop-filter: blur(18px);
+	box-shadow: 0 12px 40px rgba(0, 0, 0, 0.28);
+}

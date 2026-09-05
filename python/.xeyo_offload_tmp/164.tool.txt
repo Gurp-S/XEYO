@@ -1,0 +1,16 @@
+The file python/scripts/memory_stack_eval.py has been updated successfully. +1 -1
+
+```diff
+--- a/memory_stack_eval.py
++++ b/memory_stack_eval.py
+@@ -1359,7 +1359,7 @@
+ .side .rule{border:0;border-top:1px solid var(--bgline);margin:20px 0}
+ 
+ .side h3{font-size:10px;font-weight:800;letter-spacing:.16em;color:var(--mut);margin:0 0 10px}
+-.daylist{display:flex;flex-direction:column;gap:6px;overflow:auto;min-height:0}
++.daylist{display:flex;flex-direction:column;gap:6px;overflow:auto;min-height:0;max-height:30vh}
+ .daybtn{padding:10px 12px;border:1px solid var(--grid);border-radius:10px;background:transparent;
+   cursor:pointer;text-align:left;font:600 12px inherit;color:var(--mut);display:block}
+ .daybtn .d{display:block;font-weight:800;color:var(--txt);font-size:13px}
+```
+Hint: Diagnostics path=python/scripts/memory_stack_eval.py

@@ -1,0 +1,13 @@
+Pattern too broad (no file-name fragment, e.g. `*` / `**/*` / `gui/**/*`) — showing one-level directory summary instead of listing files.
+Set path or a name pattern (e.g. `*Map*.tsx`, path="gui").
+[STOP] Do NOT use Bash (find/ls/dir) to enumerate files instead — retry Glob with a name fragment or path.
+
+root: D:\lea\XenYon code\.xeyo
+total files scanned: 108
+./  (4 files)
+goals/  (76 files)
+scheduler/  (19 files)
+tool-results/  (4 files)
+plugins/  (3 files)
+skills/  (2 files)
+Pattern scope: `.xeyo/` — the summary covers only that subtree. To search it, set path=".xeyo" with a name pattern (e.g. `.xeyo/**/*.<ext>`).

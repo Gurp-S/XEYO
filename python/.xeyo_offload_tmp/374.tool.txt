@@ -1,0 +1,70 @@
+   204→
+   205→def _process_message(
+   206→    msg: dict[str, Any],
+   207→    idx: int,
+   208→    frozen_until: int,
+   209→    id_to_name: dict[str, str],
+   210→    *,
+   211→    aging: bool | None = None,
+   212→) -> dict[str, Any]:
+   213→    """处理单条消息：C0 截断 + C1 冻结区占位。不改入参；无改动时返回原对象。
+   214→
+   215→    aging=True 时占位升级为规格存根（engine.aging）：豁免 is_error/结构化结果、
+   216→    移除同消息 image 块、近档富存根/远档折叠。None 表示按开关自检。
+   217→    """
+   218→    content = msg.get("content")
+   219→    if not isinstance(content, list):
+   220→        return msg
+   221→
+   222→    frozen = idx < frozen_until
+   223→    if aging is None:
+   224→        aging = aging_enabled() and frozen
+   225→
+   226→    new_blocks: list[Any] | None = None
+   227→    aged_any = False
+   228→    for i, block in enumerate(content):
+   229→        if not isinstance(block, dict) or block.get("type") != "tool_result":
+   230→            continue
+   231→        raw = str(block.get("content") or "")
+   232→        uid = str(block.get("tool_use_id") or "")
+   233→        name = id_to_name.get(uid, "tool")
+   234→        projected, aged = _project_tool_result_content(
+   235→            raw,
+   236→            uid=uid,
+   237→            name=name,
+   238→            frozen=frozen,
+   239→            frozen_until=frozen_until,
+   240→            idx=idx,
+   241→            aging=bool(aging),
+   242→            is_error=bool(block.get("is_error")),
+   243→        )
+   244→        if aged:
+   245→            aged_any = True
+   246→        if projected == raw and not aged:
+   247→            continue
+   248→        if new_blocks is None:
+   249→            new_blocks = list(content)
+   250→        nb = dict(block)
+   251→        nb["content"] = projected
+   252→        new_blocks[i] = nb
+   253→
+   254→    if new_blocks is None and not aged_any:
+   255→        return msg
+   256→
+   257→    out = dict(msg)
+   258→    blocks = new_blocks if new_blocks is not None else list(content)
+   259→    if aged_any:
+   260→        out["content"] = [
+   261→            b
+   262→            for b in blocks
+   263→            if not (isinstance(b, dict) and b.get("type") == "image_url")
+   264→        ]
+   265→    else:
+   266→        out["content"] = blocks
+   267→    return out
+   268→
+   269→
+   270→def project_incremental(
+   271→    new_messages: list[dict[str, Any]],
+   272→    *,
+   273→    base_len: int,

@@ -1,0 +1,440 @@
+/* auto-split from index.css L3717-4139 — Ask/Plan/Todo dock panels above composer; do not edit order relative to styles/entry.css */
+/* ===== 鍔╂墜鎻愰棶璐磋緭鍏ユ闈㈡澘锛堝彉锟?C锛氬彲鎶樺彔 Todo 寮忥紝搴曢儴涓庡彂閫佹涓€浣擄級=====
+   琛ㄩ潰锟?Todo 闈㈡澘鍚屾簮锛涘簳閮ㄥ彇娑堝渾瑙掍笌涓嬭竟妗嗭紝涓庝笅锟?Composer 铻嶄负鍙屽眰琛ㄩ潰锟?
+   AskUserDialog 锟?PermissionDialog 鍏辩敤姝よ〃闈綋绯伙拷?*/
+.xy-panel-ask {
+  border-radius: 14px 14px 0 0;
+  background: var(--xy-panel-ask-bg);
+  border: 1px solid var(--xy-panel-ask-border);
+  border-bottom: none;
+  overflow: hidden;
+  margin-bottom: 0;
+  box-shadow: 0 -10px 30px rgb(0 0 0 / 0.05);
+  animation: xy-ask-rise 0.3s var(--ease-out-soft) both;
+}
+
+@keyframes xy-ask-rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .xy-panel-ask {
+    animation: none !important;
+  }
+}
+
+/* 澶撮儴锛氬彲鎶樺彔琛岋紙鐐瑰嚮鏁磋鏀惰捣/灞曞紑锟?*/
+.xy-panel-ask-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  cursor: pointer;
+  border-bottom: 1px solid transparent;
+  user-select: none;
+  transition:
+    background 140ms var(--ease-out-soft),
+    border-color var(--duration-base) var(--ease-out-soft);
+}
+.xy-panel-ask.is-expanded .xy-panel-ask-head {
+  border-bottom-color: var(--xy-panel-ask-divider);
+}
+.xy-panel-ask-head:hover {
+  background: color-mix(in srgb, var(--xy-ink) 4%, transparent);
+}
+.xy-panel-ask-caret {
+  width: 16px;
+  display: flex;
+  align-items: center;
+  color: var(--xy-text-tertiary);
+  flex-shrink: 0;
+}
+.xy-panel-ask-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--xy-ink-soft);
+}
+.xy-panel-ask-count {
+  font-size: 11px;
+  color: var(--xy-text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+.xy-panel-ask-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--xy-accent);
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.xy-panel-ask-dot.is-danger {
+  background: var(--xy-danger);
+}
+.xy-panel-ask-sub {
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--xy-text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.xy-panel-ask-dismiss {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-left: 4px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--xy-text-tertiary);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    color 140ms var(--ease-out-soft),
+    background 140ms var(--ease-out-soft);
+}
+.xy-panel-ask-dismiss:hover {
+  color: var(--xy-ink-soft);
+  background: color-mix(in srgb, var(--xy-ink) 6%, transparent);
+}
+.xy-panel-ask-card {
+  border-radius: 14px;
+  border-bottom: 1px solid var(--xy-panel-ask-border);
+}
+
+/* 主体：折叠裁切层与内容壳分离，避免 overflow-y:auto 盖掉 clip */
+.xy-panel-collapse {
+  display: grid;
+  grid-template-rows: 0fr;
+  overflow: hidden;
+  transition: grid-template-rows var(--duration-base) var(--ease-out-soft);
+}
+
+.xy-panel-collapse.open {
+  grid-template-rows: 1fr;
+}
+
+.xy-panel-collapse-inner {
+  overflow: hidden;
+  min-height: 0;
+}
+
+html[data-smoothness="off"] .xy-panel-collapse {
+  transition: none !important;
+}
+
+.xy-panel-ask-body {
+  padding: 12px;
+}
+.xy-panel-ask-q {
+  font-size: 14px;
+  line-height: 1.6;
+  font-weight: 560;
+  color: var(--xy-ink);
+  white-space: pre-wrap;
+  margin-bottom: 10px;
+}
+
+/* 閫夐」锛氱珫鍚戞暣琛屾寜锟?*/
+.xy-panel-ask-opts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.xy-panel-ask-opt {
+  text-align: left;
+  border: 1px solid var(--xy-line);
+  background: color-mix(in srgb, var(--xy-paper) 45%, transparent);
+  color: var(--xy-ink);
+  border-radius: 10px;
+  padding: 9px 13px;
+  font-size: 13px;
+  cursor: pointer;
+  font-family: inherit;
+  transition:
+    border-color 140ms var(--ease-out-soft),
+    background 140ms var(--ease-out-soft);
+}
+.xy-panel-ask-opt:hover {
+  border-color: var(--xy-accent);
+  background: color-mix(in srgb, var(--xy-accent) 14%, transparent);
+}
+
+/* 鑷敱杈撳叆 + 鍙戯拷?*/
+.xy-panel-ask-free {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+.xy-panel-ask-input {
+  flex: 1;
+  min-width: 0;
+  min-height: 40px;
+  border-radius: 11px;
+  border: 1px solid var(--xy-line);
+  background: color-mix(in srgb, var(--xy-paper) 45%, transparent);
+  color: var(--xy-ink);
+  padding: 8px 12px;
+  font-size: 13.5px;
+  font-family: inherit;
+  outline: none;
+  transition:
+    border-color 160ms var(--ease-out-soft),
+    box-shadow 160ms var(--ease-out-soft);
+}
+.xy-panel-ask-input:focus {
+  border-color: var(--xy-accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--xy-accent) 22%, transparent);
+}
+.xy-panel-ask-send {
+  width: 40px;
+  height: 40px;
+  border-radius: 11px;
+  border: none;
+  flex-shrink: 0;
+  background: var(--xy-accent);
+  color: var(--xy-on-accent);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: background 140ms var(--ease-out-soft);
+}
+.xy-panel-ask-send:hover:not(:disabled) {
+  background: var(--xy-accent-hover);
+}
+.xy-panel-ask-send svg {
+  width: 16px;
+  height: 16px;
+}
+.xy-panel-ask-send:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 鍛戒护鍐呭鍖猴紙瀹℃壒寮圭獥锛夛細搴曢儴娓愬寲 + 灞曞紑 */
+.xy-panel-ask-cmd-wrap {
+  position: relative;
+}
+.xy-panel-ask-cmd {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--xy-ink-soft);
+  white-space: pre-wrap;
+  overflow: hidden;
+}
+.xy-panel-ask-cmd.is-clipped {
+  position: relative;
+  overflow: hidden;
+}
+.xy-panel-ask-cmd-mask {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 18px;
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--xy-paper) 0%, transparent) 0%,
+    var(--xy-panel-ask-bg) 100%
+  );
+  opacity: 0;
+  transition: opacity 140ms var(--ease-out-soft);
+}
+.xy-panel-ask-cmd-mask.is-show {
+  opacity: 1;
+}
+
+/* 瀹℃壒鍔ㄤ綔锛氭嫆锟?/ 鍏佽 */
+.xy-panel-ask-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+.xy-panel-ask-reject {
+  border: 1px solid var(--xy-line);
+  background: transparent;
+  color: var(--xy-mute);
+  border-radius: 999px;
+  padding: 6px 16px;
+  font-size: 12px;
+  cursor: pointer;
+  font-family: inherit;
+  transition:
+    color 160ms var(--ease-out-soft),
+    border-color 160ms var(--ease-out-soft);
+}
+.xy-panel-ask-reject:hover {
+  color: var(--xy-ink);
+  border-color: color-mix(in srgb, var(--xy-ink) 40%, transparent);
+}
+.xy-panel-ask-allow {
+  border: none;
+  background: var(--xy-accent);
+  color: var(--xy-on-accent);
+  border-radius: 999px;
+  padding: 6px 16px;
+  font-size: 12px;
+  cursor: pointer;
+  font-weight: 600;
+  font-family: inherit;
+  transition: background 160ms var(--ease-out-soft);
+}
+.xy-panel-ask-allow:hover {
+  background: var(--xy-accent-hover);
+}
+
+.xy-panel-ask-todos ul,
+.xy-panel-ask-files ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.xy-panel-ask-todos ul {
+  max-height: 12rem;
+  overflow-y: auto;
+}
+.xy-panel-ask-todo-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  border-radius: 8px;
+  padding: 4px 6px;
+}
+.xy-panel-ask-file-row {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  padding: 6px 8px;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background-color 120ms var(--ease-out-soft);
+}
+
+/* Ask/Plan/Todo panels dock above composer */
+.xy-composer-dock {
+  display: flex;
+  flex-direction: column;
+}
+
+/* 提问/审批/Plan/Todo 与发送框一体：单一外框，发送框为底部 deck */
+.xy-composer-stack {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  border: 1px solid var(--xy-panel-ask-border);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: var(--xy-composer-shadow);
+  background: var(--xy-panel-ask-bg);
+  transition:
+    border-color 180ms var(--ease-out-soft),
+    box-shadow 180ms var(--ease-out-soft);
+}
+
+.xy-composer-stack:has(:focus-within) {
+  border-color: var(--xy-accent);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--xy-accent) 22%, transparent),
+    var(--xy-composer-shadow);
+}
+
+.xy-composer-stack.is-drag-over {
+  border-color: var(--xy-accent) !important;
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--xy-accent) 20%, transparent),
+    var(--xy-composer-shadow) !important;
+}
+
+.xy-composer-stack .xy-panel-ask {
+  flex: 0 1 auto;
+  min-width: 0;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  margin-bottom: 0;
+  animation: none;
+}
+
+.xy-composer-stack .xy-panel-ask-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--xy-panel-ask-bg);
+}
+
+/* 仅展开态才允许 body 内部滚动；折叠 / 动画过程必须由 collapse 层 clip */
+.xy-composer-stack
+  .xy-panel-ask.is-expanded
+  .xy-panel-collapse.open
+  .xy-panel-ask-body {
+  max-height: min(42vh, 22rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.xy-composer-stack .xy-panel-ask + .xy-panel-ask {
+  margin-top: 0;
+  border-radius: 0;
+}
+
+/* 矩形托槽：与上方面板同色，填平顶圆角外侧角袋 */
+.xy-composer-stack .xy-composer-fused-slot {
+  flex: 0 0 auto;
+  width: 100%;
+  margin: 0;
+  background: var(--xy-panel-ask-bg);
+}
+
+/* 底部 deck：顶圆角叠在同色托槽上，底与外框齐平 */
+.xy-composer-stack .xy-composer-fused {
+  flex: 0 0 auto;
+  width: 100%;
+  margin: 0;
+  border: none !important;
+  border-radius: 12px 12px 0 0 !important;
+  background: var(--xy-composer-deck-bg) !important;
+  box-shadow: 0 -4px 14px rgb(0 0 0 / 0.14);
+}
+
+.xy-composer-stack .xy-composer-fused:focus-within {
+  border: none !important;
+  box-shadow:
+    0 -4px 14px rgb(0 0 0 / 0.14),
+    inset 0 0 0 1px color-mix(in srgb, var(--xy-accent) 28%, transparent);
+}
+
+:root {
+  /*
+    有面板时与无面板发送框同一套透壁纸玻璃：
+    - 面板更透（alpha 更低）
+    - 输入框 = --xy-user-bubble（与单独发送框一致，比面板更不透明）
+    不改圆角 / 阴影 / 边框几何。
+  */
+  --xy-panel-ask-bg: color-mix(in srgb, var(--xy-user-bubble) 42%, transparent);
+  --xy-panel-ask-border: var(--xy-user-bubble-border);
+  --xy-panel-ask-divider: color-mix(
+    in srgb,
+    var(--xy-user-bubble-border) 55%,
+    transparent
+  );
+  --xy-composer-deck-bg: var(--xy-user-bubble);
+}
+/* 注：不再有 html[data-scheme="dark"] 覆盖——各值均派生自随主题翻转的变量，
+   旧 dark 块与 :root 完全同值，属死代码，已删。 */

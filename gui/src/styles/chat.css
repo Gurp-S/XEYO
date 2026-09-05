@@ -1,0 +1,578 @@
+/* auto-split from index.css L620-1152 — Composer/bubble/md/code/diff/todo + sticky/pin/editing (incl. sticky); do not edit order relative to styles/entry.css */
+/* Composer / shared translucent chip (keeps wallpaper visible). */
+.xy-user-bubble {
+  background: var(--xy-user-bubble);
+  border: 1px solid var(--xy-user-bubble-border);
+}
+
+.xy-composer-surface {
+  transition:
+    border-color 180ms var(--ease-out-soft),
+    box-shadow 180ms var(--ease-out-soft);
+}
+
+.xy-composer-surface:focus-within {
+  border-color: var(--xy-accent) !important;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--xy-accent) 22%, transparent);
+}
+
+/*
+  Cursor float (not frosted glass):
+  L0 wallpaper (AppShell) 锟?L1 .xy-chat-surface transparent 锟?L2 rgba tint.
+  No backdrop-filter. No wallpaper background-image on the float.
+  Pin sits above the scroller so tint composites over wallpaper, not L1 text.
+*/
+.xy-chat-surface {
+  background: transparent;
+}
+
+/* Keep all panes aligned while reclaiming a small amount of vertical space below the title bar. */
+.xy-effective-pane-row {
+  margin-top: -6px;
+  margin-bottom: 6px;
+}
+
+.xy-chat-text,
+.xy-prose-mark,
+.xy-md-doc {
+  color: var(--xy-ink);
+  font-weight: 450;
+  letter-spacing: 0.005em;
+}
+
+.xy-chat-text strong,
+.xy-prose-mark strong,
+.xy-md-doc strong,
+.xy-md-doc h1,
+.xy-md-doc h2,
+.xy-md-doc h3 {
+  color: color-mix(in srgb, var(--xy-ink) 94%, white);
+  font-weight: 700;
+}
+
+.xy-chat-text :is(.text-muted, .text-mute, .text-secondary),
+.xy-md-doc :is(.text-muted, .text-mute, .text-secondary) {
+  color: var(--xy-text-tertiary);
+}
+
+.xy-composer-shell textarea::placeholder {
+  color: var(--xy-text-tertiary);
+  opacity: 1;
+}
+
+html[data-scheme="dark"] .xy-composer-shell textarea::placeholder {
+  color: #a8b4c2;
+}
+
+/* Prose bullet: center on first line (cancel markdown first-child top margin). */
+.xy-chat-text > :first-child {
+  margin-top: 0;
+}
+
+/* 用户气泡走 MarkdownView 时内容多包一层 div，把首块顶距一并抹平。 */
+.xy-user-prompt .xy-chat-text > div > :first-child {
+  margin-top: 0;
+}
+
+/* Composer Markdown 预览层（失焦渲染，点击回编辑）：首块不留顶距。 */
+.xy-composer-md-preview .xy-streamdown > :first-child {
+  margin-top: 0;
+}
+.xy-composer-md-preview .xy-streamdown > :last-child {
+  margin-bottom: 0;
+}
+
+.xy-prose-mark {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  font-size: 15px;
+  line-height: 1.625;
+}
+
+.xy-prose-mark > .xy-prose-dot {
+  flex-shrink: 0;
+  width: 5px;
+  height: 5px;
+  margin-top: calc((1.625em - 5px) / 2);
+  border-radius: 9999px;
+  background: var(--xy-ink);
+}
+
+/* Light surface for long markdown blocks (tables / code) 锟?not a chat bubble */
+.xy-md-surface {
+  background: rgb(255 255 255 / 0.34);
+}
+
+html[data-scheme="dark"] .xy-md-surface {
+  background: rgb(17 17 18 / 0.42);
+}
+
+/* Streaming: tables/code stay see-through so wallpaper and text behind show. */
+.xy-stream-md .xy-md-surface,
+.xy-stream-md .xy-code-surface {
+  background: rgb(255 255 255 / 0.12);
+}
+
+html[data-scheme="dark"] .xy-stream-md .xy-md-surface,
+html[data-scheme="dark"] .xy-stream-md .xy-code-surface {
+  background: rgb(17 17 18 / 0.18);
+}
+
+/* 娴佸紡 鈫?闈欐€佸垏鎹㈡椂琛ㄩ潰搴曡壊娓愬彉锛岄伩鍏?settle 鐬棿鏁村潡闂彉銆?*/
+.xy-md-surface,
+.xy-code-surface {
+  transition: background-color 0.25s ease, border-color 0.25s ease;
+}
+
+/* Copilot-style Changes panel */
+.xy-files-changed {
+  background: rgb(245 246 248 / 0.78);
+  border: 1px solid rgb(18 22 28 / 0.1);
+}
+
+html[data-scheme="dark"] .xy-files-changed {
+  background: rgb(34 34 34 / 0.82);
+  border-color: rgb(255 255 255 / 0.1);
+}
+
+.xy-files-changed-row {
+  transition: background-color 0.12s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .xy-files-changed-row {
+    transition: none !important;
+  }
+}
+
+/* Copilot-style Todo panel (matches Changes card) */
+@keyframes xy-todo-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.xy-todo-spin.animate-spin {
+  animation: xy-todo-spin 0.7s linear infinite;
+}
+
+html[data-scheme="dark"] .xy-todo-panel {
+  background: rgb(34 34 34 / 0.82);
+  border-color: rgb(255 255 255 / 0.1);
+}
+
+.xy-diff-preview {
+  background: rgb(255 255 255 / 0.45);
+}
+
+html[data-scheme="dark"] .xy-diff-preview {
+  background: transparent;
+}
+
+/* ~12 lines at 11px / leading-relaxed (1.625) */
+.xy-diff-preview-clamp {
+  max-height: calc(12 * 1.625 * 11px);
+}
+
+.xy-diff-fade {
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    color-mix(in srgb, rgb(245 246 248) 88%, transparent) 100%
+  );
+}
+
+html[data-scheme="dark"] .xy-diff-fade {
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    rgb(17 17 18 / 0.95) 100%
+  );
+}
+
+.xy-diff-add {
+  background: rgb(46 160 67 / 0.16);
+  color: color-mix(in srgb, var(--xy-ink) 88%, rgb(46 160 67));
+}
+
+.xy-diff-del {
+  background: rgb(248 81 73 / 0.14);
+  color: color-mix(in srgb, var(--xy-ink) 88%, rgb(248 81 73));
+}
+
+.xy-diff-hunk {
+  background: rgb(56 139 253 / 0.1);
+  color: var(--xy-mute);
+}
+
+.xy-diff-meta,
+.xy-diff-note {
+  color: var(--xy-mute);
+}
+
+.xy-diff-ctx {
+  color: var(--xy-ink-soft);
+}
+
+html[data-scheme="dark"] .xy-diff-add {
+  background: rgb(46 160 67 / 0.22);
+}
+
+html[data-scheme="dark"] .xy-diff-del {
+  background: rgb(248 81 73 / 0.2);
+}
+
+/* Code fence shell — 微透明：卡片仍比表格略密以分层，但让壁纸微透，
+   与聊天记录的 md-surface 家族统一（流式侧已是 0.12/0.18）。 */
+.xy-code-surface {
+  background: rgb(255 255 255 / 0.5);
+  border-color: rgb(18 22 28 / 0.14);
+  /* 四角阴影修复：0 模糊 1px 偏移阴影会在 rounded-xl 圆角处切出四角斑,
+     与 border 构成双发丝线;边框已足够分层,阴影去掉。 */
+  box-shadow: none;
+}
+
+html[data-scheme="dark"] .xy-code-surface {
+  background: rgb(17 17 18 / 0.64);
+  border-color: rgb(255 255 255 / 0.18);
+  box-shadow: none;
+}
+
+.xy-file-gutter {
+  box-sizing: content-box;
+  min-width: 2ch;
+  padding-left: 12px;
+  padding-right: 8px;
+  border-right: 1px solid color-mix(in srgb, var(--xy-line) 70%, transparent);
+}
+
+.xy-file-editor {
+  tab-size: 2;
+  caret-color: var(--xy-ink);
+  padding-left: 1ch;
+}
+
+.xy-md-editable {
+  min-height: 12rem;
+  caret-color: var(--xy-ink);
+}
+
+.xy-md-editable[contenteditable="true"] [contenteditable="false"] {
+  cursor: default;
+}
+
+/* 鏂囦欢棰勮婧愮爜锛氭棤鍗＄墖杈规锛岃鍙蜂笌涓婚 mute 瀵归綈 */
+.xy-code-file .linenumber {
+  border: none !important;
+  background: transparent !important;
+}
+
+.xy-code-fade {
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    color-mix(in srgb, var(--xy-paper) 55%, transparent) 100%
+  );
+}
+
+html[data-scheme="dark"] .xy-code-fade {
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    rgb(17 17 18 / 0.92) 100%
+  );
+}
+
+/*
+  User bubble chip: fill/border from .xy-user-bubble (same tokens as composer).
+  Stuck float is the same chip in an overlay pin 锟?no wallpaper clone underlay.
+*/
+.xy-user-prompt {
+  position: relative;
+  background: var(--xy-user-bubble);
+  border: 1px solid var(--xy-user-bubble-border);
+  color: var(--xy-ink);
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  /* 统一查看上限（96px）：流内/吸顶 pin/编辑气泡共用 —— 长 prompt 一律塌成紧凑卡，
+     内容超高由底部渐变淡出软隐（见 [data-xy-overflow='1']::after）。
+     编辑气泡用 .xy-editing-bubble 的 overflow:visible !important 覆盖（控件动画不裁）。 */
+  max-height: var(--xy-prompt-view-cap);
+  overflow: hidden;
+  transition:
+    max-height 200ms var(--ease-out-soft),
+    background-color 180ms var(--ease-out-soft),
+    border-color 180ms var(--ease-out-soft),
+    box-shadow 180ms var(--ease-out-soft),
+    transform 180ms var(--ease-out-soft),
+    opacity 180ms var(--ease-out-soft);
+}
+
+.xy-user-prompt .xy-chat-text {
+  opacity: 1;
+  color: inherit;
+  -webkit-text-fill-color: currentColor;
+}
+
+/* 阶段1 灰度（html[data-xy-selfwallpaper='1']，见 stickyTypes.STICKY_SELF_WALLPAPER）：
+   吸顶 pin / portal 编辑气泡自绘壁纸 —— 背景 = [玻璃色调][合成 veil][壁纸实际绘制矩形]
+   + 纸基，层源全部来自 AppShell 暴露的 --xy-bg-*（与 L0 逐层同源）。
+   background-position 由 pinOverlay/apply 按芯片窗口原点逐帧内联写入（对齐 L0 像素），
+   因此不再需要 content clip-path 挖孔。 */
+html[data-xy-selfwallpaper='1'] [data-pin-id] .xy-user-prompt,
+html[data-xy-selfwallpaper='1'] [data-pin-id] .xy-editing-bubble {
+  background-color: var(--xy-paper) !important;
+  background-image:
+    linear-gradient(var(--xy-user-bubble), var(--xy-user-bubble)),
+    linear-gradient(var(--xy-bg-veil-composited), var(--xy-bg-veil-composited)),
+    var(--xy-bg-image) !important;
+  /* 与 L0 逐像素对齐：background-position 由 JS 按芯片 border-box 原点内联写入，
+     故 origin 必须 = border-box（getBoundingClientRect 即 border box），否则被
+     1px 边框偏移。 */
+  background-origin: border-box !important;
+  background-size: auto, auto, var(--xy-bg-draw-size) !important;
+  background-repeat: no-repeat !important;
+}
+
+/* 编辑态沿用普通气泡的透明表面；唯一新增的视觉信号是强调色边框。
+   overflow 必须 visible，否则底部控件 0fr→1fr 展开动画会被裁掉。
+   高度受统一查看上限约束（与吸顶 pin 的 promptChipMaxPx 同源：现由 JS 投影成
+   --xy-prompt-view-cap，与查看态共用一个 CSS var，避免 innerHeight 与 vh 漂移）；
+   编辑态比查看态高 30px（=150px，多容纳底部操作行），超出部分由 textarea 内部滚动。 */
+.xy-editing-bubble {
+  z-index: 1;
+  isolation: isolate;
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow: visible !important;
+  max-height: calc(var(--xy-prompt-view-cap) + 30px) !important;
+  background-color: var(--xy-user-bubble) !important;
+  border-color: var(--xy-accent) !important;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  animation: xy-editing-bubble-in 190ms var(--ease-out-soft) both;
+  transition:
+    max-height 200ms var(--ease-out-soft),
+    opacity 180ms var(--ease-out-soft),
+    background-color 180ms var(--ease-out-soft),
+    border-color 180ms var(--ease-out-soft),
+    box-shadow 180ms var(--ease-out-soft);
+}
+
+/* 收起编辑：从 150 渐缩回 120 并淡出（max-height + opacity 跨帧过渡），
+   高亮边框随气泡一起淡出、不再"延迟+瞬闪"；占位随 RO 同步，退出不瞬移。
+   animation:none 以取消入场动画的 fill（否则 opacity 被钉在 1，淡出失效）。 */
+.xy-editing-bubble.xy-editing-bubble-closing {
+  animation: none;
+  max-height: var(--xy-prompt-view-cap) !important;
+  opacity: 0;
+}
+
+@keyframes xy-editing-bubble-in {
+  from {
+    opacity: 0.92;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* 吸顶 portal 编辑：legacy 挖孔路径禁止位移/缩放/动画（避免洞与气泡不同步、抖动）。
+   自绘壁纸模式（默认）无挖孔，放行 xy-editing-bubble-in 入场淡入，让查看↔编辑平滑而非硬切。 */
+html[data-xy-selfwallpaper!='1'] [data-pin-id] .xy-editing-bubble {
+  animation: none;
+}
+
+/* 内容超高（> 统一上限 96px）→ 底部渐变淡出遮罩：剩余内容软隐，不硬裁、不出滚动条。
+   覆盖流内 chip、吸顶 pin 克隆、编辑气泡（都带 .xy-user-prompt）。
+   由 JS 打 data-xy-overflow='1'：吸顶/编辑走 pinOverlay/controller；普通查看态流内
+   chip 由 PromptTextClamp 的常驻 RO/MO 打标（syncPromptClampOverflow），保证
+   从未吸顶的长历史气泡也有淡出。用 opacity 过渡（默认 0），平滑淡入淡出。 */
+.xy-user-prompt::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 32px;
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0;
+  /* 与气泡 rounded-2xl（1rem）底部圆角对齐（减 1px 边框，嵌套进边框内），
+     避免方角遮罩盖住圆角、在底部两角出现高亮缺口。 */
+  border-radius: 0 0 calc(1rem - 1px) calc(1rem - 1px);
+  background: linear-gradient(
+    to top,
+    var(--xy-paper) 0%,
+    color-mix(in oklch, var(--xy-paper) 45%, transparent) 55%,
+    transparent 100%
+  );
+}
+
+.xy-user-prompt[data-xy-overflow='1']::after {
+  opacity: 1;
+}
+
+.xy-prompt-edit-ta {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  /* height 不能 !important：JS（resizeEditingTextarea）要按 scrollHeight 自动撑高，
+     textarea 的 height:auto 永远= rows(1) 一行，导致长消息编辑气泡塌成 ~50px。
+     上限由父 .xy-editing-bubble 的 max-height: var(--xy-prompt-view-cap) 封顶。 */
+  height: auto;
+  overflow-y: auto !important;
+}
+
+.xy-editing-bubble .xy-editing-controls {
+  flex-shrink: 0;
+}
+
+.xy-editing-controls {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  grid-template-rows: 0fr;
+  min-width: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    grid-template-rows 180ms cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 140ms var(--ease-out-soft);
+}
+
+.xy-editing-controls.is-open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.xy-editing-controls-inner {
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+html[data-smoothness="off"] .xy-editing-controls,
+html[data-smoothness="off"] .xy-editing-bubble {
+  transition: none;
+  animation: none;
+}
+
+html[data-scheme="dark"] .xy-user-prompt {
+  color: #fff;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .xy-user-prompt,
+  .xy-editing-bubble,
+  .xy-editing-controls {
+    animation: none;
+    transition: none;
+    will-change: auto;
+  }
+}
+
+/* Native sticky push (Cursor): next section鈥檚 sticky shoves this one up.
+   Round spacing is on .xy-round-transcript-layer (pb-2.5), not margin-top here 鈥?   margin on sticky leaves a gap when bubbles stack while pushed. */
+.xy-prompt-sticky {
+  position: sticky;
+  top: 0;
+}
+
+.xy-prompt-sticky[data-xy-stuck='1'] > [data-xy-prompt-chip] {
+  visibility: hidden;
+}
+
+/* 非吸顶编辑：提高层级；表面与常态同一 token */
+.xy-prompt-sticky:has(.xy-editing-bubble):not([data-xy-stuck='1']) {
+  z-index: 50;
+}
+
+/* 编辑态（含吸顶 pin）与常态同一半透明表面；差异只有强调色边框 */
+.xy-prompt-sticky:has(.xy-editing-bubble) .xy-editing-bubble,
+[data-pin-id] .xy-editing-bubble {
+  background-color: var(--xy-user-bubble) !important;
+}
+
+/* Sticky prompts keep the exact shared surface (xy-user-bubble tint, same as the
+   composer): when stuck, the in-flow chip is hidden via [data-xy-stuck], and the
+   pin clone of the same chip is composited above the wallpaper in the overlay layer.
+   Pin layer geometry/layout lives in MessageList's imperative pin overlay div
+   (absolute inset-0 z-20) + pinOverlay.ts —— no CSS class rules needed here. */
+
+/* Top fade mirrors the bottom scroll-fade: a mask on the scroll content that
+   reveals the wallpaper (follows bgOpacity/bgBlur). Same gradient + 40px
+   distance as .is-fade-bottom, so the top edge looks identical. */
+
+.xy-tree-children.is-open,
+.xy-sidebar-tree.is-open {
+  will-change: grid-template-rows, opacity;
+}
+
+.xy-tree-children.is-closed,
+.xy-sidebar-tree.is-closed {
+  will-change: auto;
+}
+
+.xy-titlebar-drag {
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+
+.xy-no-drag,
+.xy-no-drag * {
+  -webkit-app-region: no-drag !important;
+  app-region: no-drag !important;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  max-height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+  /* Opaque base 锟?never see desktop through the window (browser mode) */
+  background: var(--color-paper);
+}
+
+/* mermaid 瑙ｆ瀽澶辫触鏃朵細鎶婇敊璇浘鎸傚埌 body锛屾拺鍑烘暣绐楁粴鍔ㄦ潯 */
+body > [id^="dxy-mmd-"],
+body > [id^="xy-mmd-"] {
+  display: none !important;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  color: var(--color-ink);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  /* Light: nearly flat cool field; dark keeps soft depth */
+  background:
+    radial-gradient(900px 420px at 8% -8%, var(--xy-bg-a) 0%, transparent 58%),
+    var(--color-paper);
+  transition:
+    background-color var(--duration-base) ease,
+    color var(--duration-base) ease;
+}
+
+html[data-scheme="dark"] body {
+  /* Windows 涓婂幓鎺夊己锟?grayscale AA锛孋learType 涓嬬櫧瀛楁洿瀹烇紝娴呰壊浠嶇敤 antialiased */
+  -webkit-font-smoothing: auto;
+  background:
+    radial-gradient(
+      1200px 600px at 10% -10%,
+      var(--xy-bg-a) 0%,
+      transparent 55%
+    ),
+    radial-gradient(900px 500px at 100% 0%, var(--xy-bg-b) 0%, transparent 50%),
+    var(--color-paper);
+}
+

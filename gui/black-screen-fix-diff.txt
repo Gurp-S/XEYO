@@ -1,0 +1,354 @@
+﻿diff --git a/gui/src/components/MessageList.tsx b/gui/src/components/MessageList.tsx
+index 36e11b4..ad7ea8f 100644
+--- a/gui/src/components/MessageList.tsx
++++ b/gui/src/components/MessageList.tsx
+@@ -37,7 +37,7 @@ import {streamSignalsEnabled} from '@/lib/streamSignal';
+ import {collectLatestTodosFromItems} from '@/lib/toolActivity';
+ import type {ChatMessage} from '@/lib/types';
+ import {cn} from '@/lib/utils';
+-import {useChatStore} from '@/stores/chatStore';
++import {useChatUiStore} from '@/stores/chatUiStore';
+ import {isSmoothnessOn, useSettingsStore} from '@/stores/settingsStore';
+ import {AssistantTurn} from './AssistantTurn';
+ import {MessageBubble} from './MessageBubble';
+@@ -338,8 +338,9 @@ type RoundHostProps = {
+ 	toggleModel: () => void;
+ 		closeModel: () => void;
+ 		editingTextareaRef: MutableRefObject<HTMLTextAreaElement | null>;
+-	editModelMenuRef: MutableRefObject<HTMLDivElement | null>;
+-	anyStreaming: boolean;
++		promptEditRef: MutableRefObject<HTMLDivElement | null>;
++		editModelMenuRef: MutableRefObject<HTMLDivElement | null>;
++		anyStreaming: boolean;
+ 	stopGeneration: () => void;
+ 	resizeEditingTextarea: () => void;
+ 
+@@ -373,6 +374,7 @@ const RoundHost = memo(function RoundHost({
+ 		toggleModel,
+ 			closeModel,
+ 			editingTextareaRef,
++			promptEditRef,
+ 		editModelMenuRef,
+ 		anyStreaming,
+ 		stopGeneration,
+@@ -417,9 +419,11 @@ const RoundHost = memo(function RoundHost({
+ 
+ 				>
+ 					{editingMessageId === round.user.id ? (
+-<div
+-								ref={editRootRef} className="xy-user-prompt xy-surface xy-user-bubble xy-editing-bubble mx-auto max-w-3xl rounded-2xl px-4 pt-3.5 pb-2.5"
+-								data-xy-prompt-chip
++	<div
++									ref={promptEditRef}
++									className="xy-user-prompt xy-surface xy-user-bubble xy-editing-bubble mx-auto max-w-3xl rounded-2xl px-4 pt-3.5 pb-2.5"
++									data-xy-prompt-chip
++
+ 						>
+ 								<textarea
+ 									ref={node => {
+@@ -479,13 +483,13 @@ className="relative hidden sm:block"
+ 											/>
+ 										</button>
+ 																	<div onClick={closeModel}>
+-									<ModelPicker
+-										open={modelOpen}
+-										menuId={modelMenuId}
+-										portal
+-										anchorRef={editModelMenuRef}
+-										disabled={anyStreaming || editingSubmitting}
+-									/>
++										<ModelPicker
++											open={modelOpen}
++											menuId={modelMenuId}
++											portal
++											anchorRef={editModelMenuRef}
++											disabled={anyStreaming || editingSubmitting}
++										/>
+ 							</div>
+ 
+ 									</div>
+@@ -564,7 +568,7 @@ export function MessageList({
+ 							const smoothness = useSettingsStore(s => isSmoothnessOn(s.smoothness));
+ 			const model = useSettingsStore(s => s.model);
+ 
+-		const storeMessages = useChatStore(s => {
++		const storeMessages = useChatUiStore(s => {
+ 		const id = s.activeId;
+ 		if (!id) {
+ 			return EMPTY_MESSAGES;
+@@ -572,16 +576,16 @@ export function MessageList({
+ 		return s.messagesById?.[id] ?? EMPTY_MESSAGES;
+ 	});
+ 	const messages = messagesProp ?? storeMessages;
+-	const viewingStream = useChatStore(s =>
++	const viewingStream = useChatUiStore(s =>
+ 		Boolean(s.activeId && s.streamingSessionId && s.activeId === s.streamingSessionId),
+ 	);
+ 	const signalMode = streamSignalsEnabled && streamingTextProp === undefined;
+-	const storeStream = useChatStore(s => (signalMode ? '' : s.streamingText));
+-	const storeShown = useChatStore(s => (signalMode ? '' : s.streamingShown));
+-	const storeLoading = useChatStore(s => s.isLoading);
+-			const storeStatus = useChatStore(s => s.statusText);
+-		const stopGeneration = useChatStore(s => s.stopGeneration);
+-		const anyStreaming = useChatStore(s => s.isLoading && Boolean(s.streamingSessionId));
++	const storeStream = useChatUiStore(s => (signalMode ? '' : s.streamingText));
++	const storeShown = useChatUiStore(s => (signalMode ? '' : s.streamingShown));
++	const storeLoading = useChatUiStore(s => s.isLoading);
++			const storeStatus = useChatUiStore(s => s.statusText);
++		const stopGeneration = useChatUiStore(s => s.stopGeneration);
++		const anyStreaming = useChatUiStore(s => s.isLoading && Boolean(s.streamingSessionId));
+ 
+ 	const isLoading = isLoadingProp ?? (viewingStream && storeLoading);
+ 	const streamingSignal = signalMode && viewingStream && isLoading;
+@@ -1074,7 +1078,7 @@ export function MessageList({
+ 			};
+ 	}, [hasRows, streaming]);
+ 
+-			const activeId = useChatStore(s => s.activeId);
++			const activeId = useChatUiStore(s => s.activeId);
+ 			const sessionSwitchRef = useRef(activeId);
+ 			const sessionSwitching = sessionSwitchRef.current !== activeId;
+ 			useLayoutEffect(() => {
+@@ -1095,7 +1099,7 @@ export function MessageList({
+ 				scrollerRef.current?.style.setProperty('--xy-top-fade-h', '0px');
+ 					scheduleTopFade();
+ 				}, [activeId, scheduleTopFade]);
+-							const resendFromMessage = useChatStore(s => s.resendFromMessage);
++							const resendFromMessage = useChatUiStore(s => s.resendFromMessage);
+ 
+ 				const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+ 		const [editingText, setEditingText] = useState('');
+@@ -1104,13 +1108,14 @@ export function MessageList({
+ 		const [modelOpen, setModelOpen] = useState(false);
+ 		const modelMenuId = useId();
+ 		const editRootRef = useRef<HTMLDivElement | null>(null);
++		const promptEditRef = useRef<HTMLDivElement | null>(null);
+ 		const editingTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+ 		const editModelMenuRef = useRef<HTMLDivElement | null>(null);
+ 		const promptMorphOriginRef = useRef<PromptMorphOrigin | null>(null);
+ 
+-	const emptyQuipSeq = useChatStore(s => s.emptyQuipSeq);
+-	const activeSpaceId = useChatStore(s => s.activeSpaceId);
+-	const spaces = useChatStore(s => s.spaces);
++	const emptyQuipSeq = useChatUiStore(s => s.emptyQuipSeq);
++	const activeSpaceId = useChatUiStore(s => s.activeSpaceId);
++	const spaces = useChatUiStore(s => s.spaces);
+ 	const workspaceName =
+ 		spaces.find(s => s.id === activeSpaceId)?.name?.trim() || 'this project';
+ 	const emptyQuip = useMemo(
+@@ -1126,21 +1131,22 @@ export function MessageList({
+ 		}, [activeId]);
+ 
+ 		const beginEdit = useCallback(
+-			(message: Pick<ChatMessage, 'id' | 'text'>, event?: MouseEvent<HTMLDivElement>) => {
+-				if (event?.currentTarget) {
+-					const target = event.currentTarget;
+-					const rect = target.getBoundingClientRect();
+-					const style = getComputedStyle(target);
+-					promptMorphOriginRef.current = {
+-						left: rect.left,
+-						top: rect.top,
+-						width: rect.width,
+-						height: rect.height,
+-						borderRadius: style.borderRadius,
+-						borderColor: style.borderColor,
+-					};
+-				}
+-				let caret: number | null = null;
++							(message: Pick<ChatMessage, 'id' | 'text'>, event?: MouseEvent<HTMLDivElement>) => {
++					if (event?.currentTarget) {
++						const target = event.currentTarget;
++						const rect = target.getBoundingClientRect();
++						const style = getComputedStyle(target);
++						promptMorphOriginRef.current = {
++							left: rect.left,
++							top: rect.top,
++							width: rect.width,
++							height: rect.height,
++							borderRadius: style.borderRadius,
++							borderColor: style.borderColor,
++						};
++					}
++					let caret: number | null = null;
++
+ 				if (event) {
+ 					const textNode = event.currentTarget.querySelector<HTMLElement>('.xy-chat-text');
+ const dom = document as Document & {
+@@ -1189,69 +1195,69 @@ const toggleModel = useCallback(() => {
+ 			node.style.overflowY = node.scrollHeight > maxHeight ? 'auto' : 'hidden';
+ 		}, []);
+ 
+-		useLayoutEffect(() => {
+-			const node = editingTextareaRef.current;
+-			if (!editingMessageId || !node) {
+-				return;
+-			}
+-			node.focus({preventScroll: true});
+-			const caret = Math.min(
+-				node.value.length,
+-				Math.max(0, editingCaret ?? node.value.length),
+-			);
+-			node.setSelectionRange(caret, caret);
+-			resizeEditingTextarea();
+-		}, [editingCaret, editingMessageId, resizeEditingTextarea]);
++			useLayoutEffect(() => {
++				const node = editingTextareaRef.current;
++				if (!editingMessageId || !node) {
++					return;
++				}
++				node.focus({preventScroll: true});
++				const caret = Math.min(
++					node.value.length,
++					Math.max(0, editingCaret ?? node.value.length),
++				);
++				node.setSelectionRange(caret, caret);
++				resizeEditingTextarea();
++			}, [editingCaret, editingMessageId, resizeEditingTextarea]);
+ 
+-		useLayoutEffect(() => {
+-			if (!editingMessageId) {
+-				return;
+-			}
+-			const node = editRootRef.current;
+-			const origin = promptMorphOriginRef.current;
+-			const reduceMotion =
+-				typeof window !== 'undefined' &&
+-				window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+-			if (!node || !origin || reduceMotion || typeof node.animate !== 'function') {
+-				promptMorphOriginRef.current = null;
+-				return;
+-			}
+-			const target = node.getBoundingClientRect();
+-			if (!target.width || !target.height) {
+-				promptMorphOriginRef.current = null;
+-				return;
+-			}
+-			const targetStyle = getComputedStyle(node);
+-			const scaleX = origin.width / target.width;
+-			const scaleY = origin.height / target.height;
+-			const dx = origin.left - target.left;
+-			const dy = origin.top - target.top;
+-			const animation = node.animate(
+-				[
+-					{
+-						transform: `translate3d(${dx}px, ${dy}px, 0) scale(${scaleX}, ${scaleY})`,
+-						borderRadius: origin.borderRadius,
+-						borderColor: origin.borderColor,
+-						opacity: 0.98,
+-					},
++			useLayoutEffect(() => {
++				if (!editingMessageId) {
++					return;
++				}
++				const node = promptEditRef.current;
++				const origin = promptMorphOriginRef.current;
++				const reduceMotion =
++					typeof window !== 'undefined' &&
++					window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
++				if (!node || !origin || reduceMotion || typeof node.animate !== 'function') {
++					promptMorphOriginRef.current = null;
++					return;
++				}
++				const target = node.getBoundingClientRect();
++				if (!target.width || !target.height) {
++					promptMorphOriginRef.current = null;
++					return;
++				}
++				const targetStyle = getComputedStyle(node);
++				const scaleX = origin.width / target.width;
++				const scaleY = origin.height / target.height;
++				const dx = origin.left - target.left;
++				const dy = origin.top - target.top;
++				const animation = node.animate(
++					[
++						{
++							transform: `translate3d(${dx}px, ${dy}px, 0) scale(${scaleX}, ${scaleY})`,
++							borderRadius: origin.borderRadius,
++							borderColor: origin.borderColor,
++							opacity: 0.98,
++						},
++						{
++							transform: 'translate3d(0, 0, 0) scale(1, 1)',
++							borderRadius: targetStyle.borderRadius,
++							borderColor: targetStyle.borderColor,
++							opacity: 1,
++						},
++					],
+ 					{
+-						transform: 'translate3d(0, 0, 0) scale(1, 1)',
+-						borderRadius: targetStyle.borderRadius,
+-						borderColor: targetStyle.borderColor,
+-						opacity: 1,
++						duration: 240,
++						easing: 'cubic-bezier(0.16, 1, 0.3, 1)',
++						fill: 'both',
+ 					},
+-				],
+-				{
+-					duration: 240,
+-					easing: 'cubic-bezier(0.16, 1, 0.3, 1)',
+-					fill: 'both',
+-				},
+-			);
+-			promptMorphOriginRef.current = null;
+-			return () => animation.cancel();
+-		}, [editingMessageId]);
++				);
++				promptMorphOriginRef.current = null;
++				return () => animation.cancel();
++			}, [editingMessageId]);
+ 
+-		const cancelEdit = useCallback(() => {
++			const cancelEdit = useCallback(() => {
+ 
+ 			if (editingSubmitting) {
+ 				return;
+@@ -1271,25 +1277,25 @@ const toggleModel = useCallback(() => {
+ 					if (!(target instanceof Node)) {
+ 						return;
+ 					}
+-						const portalMenu = modelOpen
+-							? document.getElementById(modelMenuId)
+-							: null;
+-						const insidePortalMenu = Boolean(portalMenu?.contains(target));
+-						if (
+-							modelOpen &&
+-							!editModelMenuRef.current?.contains(target) &&
+-							!insidePortalMenu
+-						) {
+-							setModelOpen(false);
+-						}
+-						if (!editRootRef.current?.contains(target) && !insidePortalMenu) {
+-							cancelEdit();
+-						}
++									const portalMenu = modelOpen
++										? document.getElementById(modelMenuId)
++										: null;
++									const insidePortalMenu = Boolean(portalMenu?.contains(target));
++									if (
++										modelOpen &&
++										!editModelMenuRef.current?.contains(target) &&
++										!insidePortalMenu
++									) {
++										setModelOpen(false);
++									}
++									if (!editRootRef.current?.contains(target) && !insidePortalMenu) {
++										cancelEdit();
++									}
+ 				};
+ 
+ 			document.addEventListener('pointerdown', onPointerDown);
+ 			return () => document.removeEventListener('pointerdown', onPointerDown);
+-		}, [cancelEdit, editingMessageId, modelMenuId, modelOpen]);
++			}, [cancelEdit, editingMessageId, modelMenuId, modelOpen]);
+ 
+ 
+ 			const submitEdit = useCallback(async () => {
+@@ -1411,6 +1417,7 @@ const toggleModel = useCallback(() => {
+ 																toggleModel={toggleModel}
+ 																	closeModel={closeModel}
+ 																	editingTextareaRef={editingTextareaRef}
++										promptEditRef={promptEditRef}
+ 																editModelMenuRef={editModelMenuRef}
+ 																anyStreaming={anyStreaming}
+ 																stopGeneration={stopGeneration}

@@ -1,0 +1,68 @@
+{
+  "source": "src/index.css",
+  "policy": "force-classify contiguous slices; leave source untouched",
+  "entry": "src/styles/entry.css",
+  "note": "Switch later: main.tsx import './styles/entry.css' instead of './index.css'. index.css stays as fallback.",
+  "slices": [
+    {
+      "file": "src/styles/base.css",
+      "from": 2,
+      "to": 71,
+      "desc": "Theme doc comment + cursor/select base"
+    },
+    {
+      "file": "src/styles/tokens.css",
+      "from": 72,
+      "to": 619,
+      "desc": "@theme + all data-theme/scheme tokens + ink-wash + theme-flash"
+    },
+    {
+      "file": "src/styles/chat.css",
+      "from": 620,
+      "to": 1152,
+      "desc": "Composer/bubble/md/code/diff/todo + sticky/pin/editing (incl. sticky)"
+    },
+    {
+      "file": "src/styles/shell.css",
+      "from": 1153,
+      "to": 1354,
+      "desc": "Tauri window, scrollbar, hover-scroll, scroll-fade"
+    },
+    {
+      "file": "src/styles/sidebar.css",
+      "from": 1355,
+      "to": 1657,
+      "desc": "Sidebar affordance/tree/run-dot/pane/tool-detail wrap"
+    },
+    {
+      "file": "src/styles/workflow.css",
+      "from": 1658,
+      "to": 2705,
+      "desc": "Agent workflow UI freeze + activity/thought"
+    },
+    {
+      "file": "src/styles/overlays.css",
+      "from": 2706,
+      "to": 2790,
+      "desc": "menu-flyout / ctx-menu / seg"
+    },
+    {
+      "file": "src/styles/motion.css",
+      "from": 2791,
+      "to": 2912,
+      "desc": "Motion system keyframes + anim utilities"
+    },
+    {
+      "file": "src/styles/app-chrome.css",
+      "from": 2913,
+      "to": 3716,
+      "desc": "Sidebar page chrome, usage, panes, turn-rail"
+    },
+    {
+      "file": "src/styles/dock-panels.css",
+      "from": 3717,
+      "to": null,
+      "desc": "Ask/Plan/Todo dock panels above composer"
+    }
+  ]
+}

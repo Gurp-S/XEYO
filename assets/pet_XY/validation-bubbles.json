@@ -1,0 +1,119 @@
+{
+  "ok": true,
+  "errors": [],
+  "bubble_count": 12,
+  "bubbles": {
+    "idle-ellipsis.png": {
+      "size": [
+        248,
+        212
+      ],
+      "mode": "RGBA",
+      "sha256": "30061332d48bdf200956ace7890c7f79281b2387d7e1a18e12fcf26645f88881"
+    },
+    "failed-exclamation.png": {
+      "size": [
+        248,
+        212
+      ],
+      "mode": "RGBA",
+      "sha256": "3bdacb59f2ed390989cf768241f46b5552ae412239c672316786837cdecf3c5b"
+    },
+    "waiting-question.png": {
+      "size": [
+        252,
+        212
+      ],
+      "mode": "RGBA",
+      "sha256": "39b3d964ff73d810186f4e14286a45fc5cb17a8b3c4a39076225ef73de4f2aef"
+    },
+    "thinking-bulb.png": {
+      "size": [
+        278,
+        212
+      ],
+      "mode": "RGBA",
+      "sha256": "0353988a9277fc9c4d97dd25aee314cfffc9e48684ab4c4c3d1417c03e8d7137"
+    },
+    "happy-heart.png": {
+      "size": [
+        250,
+        212
+      ],
+      "mode": "RGBA",
+      "sha256": "e8e23fb52f5433b3a6551e7347f4760a3582dab0b9142709633785ff45020fb8"
+    },
+    "waving-note.png": {
+      "size": [
+        242,
+        212
+      ],
+      "mode": "RGBA",
+      "sha256": "aa570de5d4437e514954e0c4042a4bc00786f1d216395dd75f1eba1447ef4833"
+    },
+    "sitting-fish.png": {
+      "size": [
+        258,
+        236
+      ],
+      "mode": "RGBA",
+      "sha256": "531b10379e6157429b83a5f9a5e2d218787e411f32705b419b6dc99e6de1931a"
+    },
+    "thought-coconut.png": {
+      "size": [
+        250,
+        236
+      ],
+      "mode": "RGBA",
+      "sha256": "bb991885c2b57d671c976d9226f483e32d931bcb02880aebbd9648635e4f01c7"
+    },
+    "thought-island.png": {
+      "size": [
+        242,
+        236
+      ],
+      "mode": "RGBA",
+      "sha256": "ea1430d0ea42a3d921b0f649fe90fef14df56b65a37a04a2efb37dfb841c2143"
+    },
+    "sleeping-zzz.png": {
+      "size": [
+        238,
+        236
+      ],
+      "mode": "RGBA",
+      "sha256": "9a2df04172ff47f2dc3fa2b96b84d1122363a209fb51419eec8dc727510a5c08"
+    },
+    "review-book.png": {
+      "size": [
+        212,
+        236
+      ],
+      "mode": "RGBA",
+      "sha256": "432a76f1fbcdefb66597ea4ee1dfe69d4ac41087c12c411bb624f7f638cfaa39"
+    },
+    "thought-shell.png": {
+      "size": [
+        228,
+        236
+      ],
+      "mode": "RGBA",
+      "sha256": "bd4c0370169b997dd7c6f9772e30c8d068691f08343d0f92616dfb18e85d45a3"
+    },
+    "spritesheet-plus.webp": {
+      "size": [
+        1536,
+        2704
+      ],
+      "mode": "RGBA"
+    }
+  },
+  "character_design_frozen": true,
+  "source": "emotion-bubbles.png",
+  "extended_atlas": {
+    "size": [
+      1536,
+      2704
+    ],
+    "mode": "RGBA"
+  }
+}

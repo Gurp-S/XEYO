@@ -1,0 +1,20 @@
+   770→            try:
+   771→                await prefetch_c2_summary(
+   772→                    snap, store.as_api_messages(), system_prompt, model, abort
+   773→                )
+   774→            except Exception:
+   775→                snap._pending_c2_summary = None
+   776→        # 厂商上下文达 95%（可用 XEYO_CONTEXT_COMPACT_RATIO）→ 强制 C2，避免 1261
+   777→        pressure_limit = _positive_int(getattr(model, "context_limit", None))
+   778→        if maybe_force_compact_on_pressure(
+   779→            store.as_api_messages(),
+   780→            snap,
+   781→            context_limit=pressure_limit,
+   782→            remaining_turns=remaining,
+   783→            system_prompt=system_prompt,
+   784→        ):
+   785→            snap.proj_cache = None
+   786→        summary_fp = len(snap.c2_summary_text or "")
+   787→        frozen = snap.c1_frozen_until
+   788→        cur_len = len(store)
+   789→        # 增量缓存：

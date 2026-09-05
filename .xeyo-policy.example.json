@@ -1,0 +1,10 @@
+{
+  "allowed_roots": ["."],
+  "bash": "default",
+  "write": "risk",
+  "remote_bash": "ask",
+  "deny_tools": [],
+  "deny_commands": [],
+  "bash_job_memory_mb": 512,
+  "bash_routing": "off"
+}

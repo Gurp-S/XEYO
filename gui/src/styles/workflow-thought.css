@@ -1,0 +1,153 @@
+/* auto-split from src/styles/workflow.css body L475-611 — L6 kinetic ticker + Idea 5 peek; imported via barrel src/styles/workflow.css */
+/* L6 Kinetic 急促等宽 ticker —— 合同同 docs/l6-kinetic-preview.html */
+.xy-thought-ticker {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 1.55em;
+  width: 100%;
+  overflow: hidden;
+  mask-image: linear-gradient(90deg, transparent, #000 14%);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 14%);
+}
+
+.xy-thought-ticker-track {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  will-change: transform;
+  /* L6：急促等宽 —— ui-monospace / Consolas，12px，-0.01em */
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  line-height: 1.55;
+  color: var(--xy-ink-soft);
+}
+
+/* 已展开正文（轨道底色） */
+.xy-kinetic-body {
+  color: var(--xy-ink-soft);
+}
+
+/* 最新 burst 字符块：紫色高亮（L6 hot） */
+.xy-kinetic-hot {
+  color: #6b5b95;
+  font-weight: 700;
+}
+
+.xy-thought-sep {
+  margin: 0 0.55em;
+  opacity: 0.7;
+  font-weight: 400;
+  color: color-mix(in srgb, #6b5b95 50%, var(--xy-mute));
+}
+
+.xy-thought-fresh {
+  color: var(--xy-ink);
+  font-weight: 550;
+}
+
+.xy-thought-primary {
+  color: var(--xy-ink);
+  font-weight: 600;
+}
+
+.xy-thought-secondary {
+  opacity: 0.55;
+  font-weight: 400;
+}
+
+.xy-thought-settled {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 400;
+  line-height: 1.55;
+  color: var(--xy-mute);
+}
+
+.xy-snap-in {
+  display: inline-block;
+  animation: xy-snap-in 0.3s cubic-bezier(0.16, 1.4, 0.3, 1);
+}
+
+@keyframes xy-snap-in {
+  from {
+    opacity: 0;
+    transform: translateX(12px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+.xy-thought-blink {
+  display: inline-block;
+  width: 2px;
+  height: 0.95em;
+  margin-left: 2px;
+  background: #6b5b95;
+  vertical-align: -2px;
+  animation: xy-thought-blink 0.7s step-end infinite;
+}
+
+@keyframes xy-thought-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.xy-thought-ticker.is-collapsing .xy-snap-in,
+.xy-thought-ticker.is-collapsing .xy-thought-fresh,
+.xy-thought-ticker.is-collapsing .xy-thought-primary,
+.xy-thought-ticker.is-collapsing .xy-kinetic-hot,
+.xy-thought-ticker.is-collapsing .xy-kinetic-body {
+  animation: xy-fade-out-words 0.45s ease forwards;
+}
+
+@keyframes xy-fade-out-words {
+  to {
+    opacity: 0;
+    transform: translateY(-4px);
+    filter: blur(1px);
+  }
+}
+
+/* Idea 5 peek */
+.xy-thought-peek {
+  display: none;
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 5;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--xy-paper) 92%, white);
+  border: 1px solid var(--xy-line);
+  box-shadow: var(--xy-modal-shadow, 0 10px 24px rgb(47 45 40 / 0.12));
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.45;
+  color: var(--xy-ink-soft);
+  white-space: normal;
+}
+
+.group\/thought:hover .xy-thought-peek {
+  display: block;
+}
+
+html[data-smoothness="off"] .group\/thought:hover .xy-thought-peek {
+  display: none !important;
+}
+
+.xy-thought-peek strong {
+  font-weight: 650;
+  color: #6b5b95;
+}
+

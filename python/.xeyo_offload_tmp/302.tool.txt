@@ -1,0 +1,42 @@
+gui\src\components\ChatHeader.tsx:24:/** 上下文构成类的稳定配色（与预览一致）。 */
+gui\src\components\ChatHeader.tsx:125:		// 最近一枪的单轮拆分（非累计）：上下文构成回退条只能用它，
+gui\src\components\ChatHeader.tsx:145:		// 对齐小字口径：占用条总长=窗口，读入占 contextTokens/contextLimit。
+gui\src\components\ChatHeader.tsx:149:		// 细粒度的「上下文构成」分段条（后端下发的按内容分类 token 数）。
+gui\src\components\ChatHeader.tsx:170:		// 未拿到上下文构成时回退到 最近一轮 命中/未命中/输出 条（同样带悬停明细）。
+gui\src\components\ChatHeader.tsx:171:		// 只用单轮拆分（last*），累计值会超过窗口，不能代表"本轮上下文构成"。
+gui\src\components\ChatHeader.tsx:178:						? [{key: 'fb-rem', value: Math.max(0, contextLimit - contextTokens), color: 'transparent', label: '剩余上下文窗口'}]
+gui\src\components\ChatHeader.tsx:424:													? `${Math.min(100, Math.round((contextTokens / contextLimit) * 100))}%` : '—'} 占用
+gui\src\components\ChatHeader.tsx:503:										<span className="text-[10px] text-mute">最近一枪上下文构成</span>
+gui\src\components\ChatHeader.tsx:511:										aria-label="最近一枪上下文构成"
+gui\src\components\ChatHeader.tsx:527:											? '预览为「最近一枪输入的上下文构成 / 模型窗口」；消耗与费用见「消耗 Token（累计）」与侧栏用量页。'
+gui\src\components\SettingsModal.tsx:287:			// 模型列表必填；每个模型行 id 与上下文窗口必填（用户填写为准，不再用厂商 /models 覆盖）。
+gui\src\components\SettingsModal.tsx:300:				errs.models = '请填写每个模型的 ID 与上下文窗口（token 数）';
+gui\src\components\SettingsModal.tsx:951:														上下文窗口（token 数，必填）
+gui\src\components\SettingsModal.tsx:971:														该值将作为后端压力压缩的上下文上限（[XEYO_CONTEXT_LIMIT_TOKENS + RATIO=0.8]）。
+gui\src\components\SettingsModal.tsx:1040:									模型列表在对话输入框上拉选择；每个模型单独登记 ID / 上下文窗口 / 输出上限。
+gui\src\components\SettingsModal.tsx:1218:								只删减不改写；代码块、路径、报错原文等原样保留。注入走对话尾部，不影响上下文缓存。
+gui\src\components\SettingsModal.tsx:1608:							<span className="text-warn">太大：</span>磁盘与恢复性能占用升高，旧版本拖慢清理与启动扫描。
+gui\src\components\Sidebar.tsx:287:	// 多 Agent 子视图上下文：‹ 箭头优先驱动 agentViewStack 全局栈回退，
+gui\src\generated\slashManifest.ts:241:		summary: "查看当前上下文（压缩游标 / 摘要 / todos）",
+gui\src\generated\slashManifest.ts:243:		aliases: ["ctx", "上下文"],
+gui\src\lib\api\chatStream.ts:46:	// 上下文窗口：优先厂商 /models 缓存（权威），账号里手动保存的值只在
+gui\src\lib\api\core.ts:138:	/** 发送给模型的上下文构成（按内容分类的 token 数），用于画分段用量条。 */
+gui\src\lib\api\core.ts:374:	 * - 'session_busy'：409 租约占用，回合未启动；
+gui\src\lib\formatUsage.ts:29:/** 顶栏用量芯片：累计消耗 / 模型窗口 · 上下文占用%（窗口未知则省略中段）。 */
+gui\src\lib\formatUsage.ts:42:	const pct = contextPercent == null ? '占用待确认' : `${contextPercent}%`;
+gui\src\lib\types.ts:59:	/** 后端明确提供的上下文遥测；缺失时 Pasture 会降级为估算/旧快照。 */
+gui\src\lib\types.ts:66:	/** 发送给模型的上下文构成（按内容分类的 token 数），用于画分段用量条。 */
+gui\src\lib\types.ts:70:	 * 与 contextTokens 同轮，供「上下文构成」回退条使用——累计值会随会话
+gui\src\lib\types.ts:71:	 * 增长超过窗口，不能拿来画"本轮上下文构成"。
+gui\src\pasture\animation\context-island.css:144:.xy-context-island__coconut--tree-1 {   left: 39px; top: 17%; }
+gui\src\pasture\animation\context-island.css:145:.xy-context-island__coconut--tree-2 {   left: 52px; top: 24%; }
+gui\src\pasture\animation\context-island.css:146:.xy-context-island__coconut--tree-3 {   left: 64px; top: 14%; }
+gui\src\pasture\animation\context-island.css:147:.xy-context-island__coconut--tree-4 {   left: 78px; top: 26%; }
+gui\src\pasture\core\ContextIslandState.ts:78:/** Whether a context load change crosses the 75% reaction node (one-shot). */
+gui\src\pasture\core\ContextIslandState.ts:143:  if (compressionActive) return '正在压缩上下文记忆';
+gui\src\pasture\core\ContextIslandState.ts:146:  if (eventMode === 'react') return '上下文突破 75%，小岛角色很开心';
+gui\src\pasture\core\ContextIslandState.ts:147:  if (eventMode === 'alert') return '上下文即将到达上限';
+gui\src\pasture\core\ContextIslandState.ts:148:  if (eventMode === 'sleep') return '上下文已压缩，角色正在休息';
+gui\src\pasture\core\ContextIslandState.ts:149:  if (snapshot.usagePercent == null) return '上下文负载：暂无数据';
+
+[Showing results with pagination = limit: 40]

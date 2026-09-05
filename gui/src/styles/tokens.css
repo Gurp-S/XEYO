@@ -1,0 +1,714 @@
+/* 主题令牌:@theme 映射 + 黑白基调主题(data-theme/data-scheme)+ 主题切换反馈。
+   本文件由 styles/entry.css 引入。 */
+@theme {
+  --color-ink: var(--xy-ink);
+  --color-ink-soft: var(--xy-ink-soft);
+  --color-paper: var(--xy-paper);
+  --color-paper-deep: var(--xy-paper-deep);
+  --color-line: var(--xy-line);
+  --color-mute: var(--xy-mute);
+  --color-accent: var(--xy-accent);
+  --color-accent-soft: var(--xy-accent-soft);
+  --color-accent-hover: var(--xy-accent-hover);
+  --color-warn: var(--xy-warn);
+  --color-danger: var(--xy-danger);
+  --color-ok: var(--xy-ok);
+  --color-on-accent: var(--xy-on-accent);
+  --color-glass: var(--xy-glass);
+  --color-glass-hover: var(--xy-glass-hover);
+  --color-glass-strong: var(--xy-glass-strong);
+  --color-glass-soft: var(--xy-glass-soft);
+  --color-frame: var(--xy-frame);
+  /* 分割线强度三档：weak(软分割/次要) rule(菜单分隔等默认) strong(主边线) */
+  --color-rule-weak: var(--xy-rule-weak);
+  --color-rule: var(--xy-rule);
+  --color-rule-strong: var(--xy-rule-strong);
+  /* 正文：微软雅黑；代码/等宽：Consolas */
+  --font-display:
+    "Microsoft YaHei UI", "Microsoft YaHei", "微软雅黑", "PingFang SC",
+    "Noto Sans SC", sans-serif;
+  --font-serif:
+    "Microsoft YaHei UI", "Microsoft YaHei", "微软雅黑", "PingFang SC",
+    "Noto Sans SC", sans-serif;
+  --font-sans:
+    "Microsoft YaHei UI", "Microsoft YaHei", "微软雅黑", "PingFang SC",
+    "Noto Sans SC", sans-serif;
+  --font-mono:
+    Consolas, "Cascadia Mono", "Sarasa Mono SC", "Courier New", ui-monospace,
+    monospace;
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  --duration-fast: 140ms;
+  --duration-base: 200ms;
+}
+
+/* ============ 分割线强度 token（同一语义统一取值；暗色只在这里翻强度） ============ */
+:root {
+  --xy-rule-weak: color-mix(in oklch, var(--xy-line) 40%, transparent);
+  --xy-rule: color-mix(in oklch, var(--xy-line) 60%, transparent);
+  --xy-rule-strong: color-mix(in oklch, var(--xy-line) 70%, transparent);
+}
+html[data-scheme="dark"] {
+  --xy-rule-weak: color-mix(in oklch, var(--xy-line) 52%, transparent);
+  --xy-rule: color-mix(in oklch, var(--xy-line) 72%, transparent);
+  --xy-rule-strong: color-mix(in oklch, var(--xy-line) 82%, transparent);
+}
+
+/* ============ 浅色默认:宣纸(温润米白 × 纯黑墨) ============ */
+:root,
+html[data-theme="paper"] {
+  color-scheme: light;
+  --xy-ink: #1c1b18;
+  --xy-ink-soft: #3a3833;
+  --xy-paper: #faf9f6;
+  --xy-paper-deep: #f0efea;
+  --xy-line: #e8e7e1;
+  --xy-mute: #6f6d66;
+  --xy-text-tertiary: #8a8880;
+  --xy-text-disabled: #b5b2a9;
+  --xy-accent: #1c1b18;
+  --xy-accent-soft: #ebeae5;
+  --xy-accent-hover: #000000;
+  --xy-warn: oklch(0.615 0.098 76.4);
+  --xy-danger: oklch(0.557 0.104 27.0);
+  --xy-ok: oklch(0.537 0.073 151.1);
+  --xy-on-accent: #faf9f6;
+  /* 半透明玻璃,壁纸可透出 */
+  --xy-glass: rgb(250 249 246 / var(--xy-glass-alpha, 0.52));
+  --xy-glass-hover: rgb(250 249 246 / var(--xy-glass-hover-alpha, 0.62));
+  --xy-glass-strong: rgb(250 249 246 / var(--xy-glass-strong-alpha, 0.82));
+  --xy-glass-soft: rgb(250 249 246 / var(--xy-glass-soft-alpha, 0.36));
+  --xy-frame: #e8e7e1;
+  --xy-bg-a: #f3f2ee;
+  --xy-bg-b: #faf9f6;
+  --xy-scroll: #cfccc3;
+  /* 兜底雾面;实际强度由设置里的 bgOpacity 驱动 */
+  --xy-veil: rgb(250 249 246 / 0.22);
+  --xy-user-bubble: rgb(28 27 24 / 0.04);
+  --xy-user-bubble-border: rgb(28 27 24 / 0.06);
+  --xy-composer-shadow:
+    0 1px 0 rgb(28 27 24 / 0.04), 0 8px 20px rgb(28 27 24 / 0.05);
+  --xy-sidebar-shadow: 8px 0 24px rgb(28 27 24 / 0.08);
+  --xy-modal-shadow: 0 16px 40px rgb(28 27 24 / 0.12);
+  --xy-selection: color-mix(in oklch, var(--xy-accent) 20%, white);
+  --xy-rail-active: color-mix(in oklch, var(--xy-accent) 55%, var(--xy-mute));
+  --xy-rail-idle: color-mix(in oklch, var(--xy-mute) 42%, transparent);
+  --xy-rail-panel: color-mix(in oklch, var(--xy-glass-strong) 72%, transparent);
+  --xy-rail-shadow:
+    0 6px 20px rgb(18 22 28 / 0.06),
+    0 0 0 1px color-mix(in oklch, var(--xy-line) 42%, transparent);
+  --xy-chart: var(--xy-accent);
+  --xy-chart-mid: color-mix(in oklch, var(--xy-accent) 62%, var(--xy-paper));
+  --xy-chart-soft: color-mix(in oklch, var(--xy-accent) 30%, var(--xy-paper));
+  --xy-chart-fill: color-mix(in oklch, var(--xy-accent) 18%, transparent);
+  --xy-chart-icon: var(--xy-accent);
+  --xy-chart-icon-bg: color-mix(in oklch, var(--xy-accent) 14%, transparent);
+}
+
+/* 几何圆角：与配色无关，各主题共用 */
+:root {
+  --xy-radius-pane: 12px;
+  --xy-radius-control: 8px;
+}
+
+/* ============ 深色通用默认:石墨(中性深灰阶) ============ */
+html[data-scheme="dark"] {
+  color-scheme: dark;
+  --xy-ink: #e9eaec;
+  --xy-ink-soft: #b9bcc2;
+  --xy-paper: #141518;
+  --xy-paper-deep: #1c1e22;
+  --xy-line: #1f2227;
+  --xy-mute: #82868e;
+  --xy-text-tertiary: #666b73;
+  --xy-text-disabled: #4a4f57;
+  --xy-accent: #d5d8dd;
+  --xy-accent-soft: #24272c;
+  --xy-accent-hover: #eceef1;
+  --xy-warn: oklch(0.752 0.058 80.1);
+  --xy-danger: oklch(0.723 0.059 29.4);
+  --xy-ok: oklch(0.710 0.050 153.4);
+  --xy-on-accent: #101114;
+  /* 深色下玻璃略密,保证字形锐利 */
+  --xy-glass: rgb(16 17 20 / var(--xy-glass-alpha, 0.55));
+  --xy-glass-hover: rgb(22 23 27 / var(--xy-glass-hover-alpha, 0.62));
+  --xy-glass-strong: rgb(28 30 34 / var(--xy-glass-strong-alpha, 0.82));
+  --xy-glass-soft: rgb(16 17 20 / var(--xy-glass-soft-alpha, 0.4));
+  --xy-frame: rgb(255 255 255 / 0.06);
+  --xy-bg-a: #101114;
+  --xy-bg-b: #141518;
+  --xy-scroll: #3d4149;
+  --xy-veil: rgb(16 17 20 / 0.28);
+  --xy-user-bubble: rgb(255 255 255 / 0.06);
+  --xy-user-bubble-border: rgb(255 255 255 / 0.09);
+  --xy-composer-shadow: 0 8px 28px rgb(0 0 0 / 0.35);
+  --xy-sidebar-shadow: 8px 0 32px rgb(0 0 0 / 0.4);
+  --xy-modal-shadow: 0 24px 56px rgb(0 0 0 / 0.5);
+  --xy-selection: color-mix(in oklch, var(--xy-accent) 36%, transparent);
+  --xy-rail-active: color-mix(in oklch, var(--xy-accent) 60%, var(--xy-mute));
+  --xy-rail-idle: color-mix(in oklch, var(--xy-mute) 28%, transparent);
+  --xy-rail-panel: color-mix(in oklch, var(--xy-glass-strong) 68%, transparent);
+  --xy-rail-shadow:
+    0 8px 24px rgb(0 0 0 / 0.28), 0 0 0 1px rgb(255 255 255 / 0.035);
+  --xy-chart: var(--xy-accent);
+  --xy-chart-mid: color-mix(in oklch, var(--xy-accent) 62%, var(--xy-paper));
+  --xy-chart-soft: color-mix(in oklch, var(--xy-accent) 30%, var(--xy-paper));
+  --xy-chart-fill: color-mix(in oklch, var(--xy-accent) 18%, transparent);
+  --xy-chart-icon: var(--xy-accent);
+  --xy-chart-icon-bg: color-mix(in oklch, var(--xy-accent) 14%, transparent);
+}
+
+/* ============ 浅色各主题 ============ */
+
+/* —— 极简白:正白 × 正黑,零色偏 —— */
+html[data-theme="pure"] {
+  color-scheme: light;
+  --xy-ink: #0a0a0a;
+  --xy-ink-soft: #3f3f46;
+  --xy-paper: #ffffff;
+  --xy-paper-deep: #f4f4f5;
+  --xy-line: #e4e4e7;
+  --xy-mute: #71717a;
+  --xy-text-tertiary: #8e8e96;
+  --xy-text-disabled: #c0c0c6;
+  --xy-accent: #0a0a0a;
+  --xy-accent-soft: #efeff1;
+  --xy-accent-hover: #000000;
+  --xy-on-accent: #ffffff;
+  --xy-glass: rgb(255 255 255 / var(--xy-glass-alpha, 0.55));
+  --xy-glass-hover: rgb(255 255 255 / var(--xy-glass-hover-alpha, 0.65));
+  --xy-glass-strong: rgb(255 255 255 / var(--xy-glass-strong-alpha, 0.84));
+  --xy-glass-soft: rgb(255 255 255 / var(--xy-glass-soft-alpha, 0.38));
+  --xy-frame: #e4e4e7;
+  --xy-bg-a: #fafafa;
+  --xy-bg-b: #ffffff;
+  --xy-scroll: #d4d4d8;
+  --xy-veil: rgb(255 255 255 / 0.22);
+  --xy-user-bubble: rgb(10 10 10 / 0.04);
+  --xy-user-bubble-border: rgb(10 10 10 / 0.09);
+  --xy-composer-shadow:
+    0 1px 0 rgb(10 10 10 / 0.04), 0 8px 20px rgb(10 10 10 / 0.05);
+  --xy-sidebar-shadow: 8px 0 24px rgb(10 10 10 / 0.08);
+  --xy-modal-shadow: 0 16px 40px rgb(10 10 10 / 0.12);
+}
+
+/* —— 铂银:冷调银灰阶,金属质感 —— */
+html[data-theme="platinum"] {
+  color-scheme: light;
+  --xy-ink: #17191c;
+  --xy-ink-soft: #363a3f;
+  --xy-paper: #f6f7f8;
+  --xy-paper-deep: #eceef0;
+  --xy-line: #dde0e3;
+  --xy-mute: #666c73;
+  --xy-text-tertiary: #7f868e;
+  --xy-text-disabled: #adb3ba;
+  --xy-accent: #2f353b;
+  --xy-accent-soft: #e8ebed;
+  --xy-accent-hover: #1f242a;
+  --xy-on-accent: #f6f7f8;
+  --xy-glass: rgb(246 247 248 / var(--xy-glass-alpha, 0.55));
+  --xy-glass-hover: rgb(246 247 248 / var(--xy-glass-hover-alpha, 0.65));
+  --xy-glass-strong: rgb(246 247 248 / var(--xy-glass-strong-alpha, 0.84));
+  --xy-glass-soft: rgb(246 247 248 / var(--xy-glass-soft-alpha, 0.38));
+  --xy-frame: #dde0e3;
+  --xy-bg-a: #f0f2f4;
+  --xy-bg-b: #f6f7f8;
+  --xy-scroll: #c3c8cd;
+  --xy-veil: rgb(246 247 248 / 0.22);
+  --xy-user-bubble: rgb(23 25 28 / 0.04);
+  --xy-user-bubble-border: rgb(23 25 28 / 0.09);
+  --xy-composer-shadow:
+    0 1px 0 rgb(23 25 28 / 0.04), 0 8px 20px rgb(23 25 28 / 0.05);
+  --xy-sidebar-shadow: 8px 0 24px rgb(23 25 28 / 0.08);
+  --xy-modal-shadow: 0 16px 40px rgb(23 25 28 / 0.12);
+}
+
+/* —— 珍珠:柔和珍珠灰,低对比 —— */
+html[data-theme="pearl"] {
+  color-scheme: light;
+  --xy-ink: #232326;
+  --xy-ink-soft: #424247;
+  --xy-paper: #f5f5f6;
+  --xy-paper-deep: #ebebed;
+  --xy-line: #dfdfe2;
+  --xy-mute: #707076;
+  --xy-text-tertiary: #8b8b91;
+  --xy-text-disabled: #bcbcc1;
+  --xy-accent: #4a4a52;
+  --xy-accent-soft: #e9e9ec;
+  --xy-accent-hover: #35353c;
+  --xy-on-accent: #f5f5f6;
+  --xy-glass: rgb(245 245 246 / var(--xy-glass-alpha, 0.55));
+  --xy-glass-hover: rgb(245 245 246 / var(--xy-glass-hover-alpha, 0.65));
+  --xy-glass-strong: rgb(245 245 246 / var(--xy-glass-strong-alpha, 0.84));
+  --xy-glass-soft: rgb(245 245 246 / var(--xy-glass-soft-alpha, 0.38));
+  --xy-frame: #dfdfe2;
+  --xy-bg-a: #efeff1;
+  --xy-bg-b: #f5f5f6;
+  --xy-scroll: #c8c8cd;
+  --xy-veil: rgb(245 245 246 / 0.22);
+  --xy-user-bubble: rgb(35 35 38 / 0.04);
+  --xy-user-bubble-border: rgb(35 35 38 / 0.09);
+  --xy-composer-shadow:
+    0 1px 0 rgb(35 35 38 / 0.04), 0 8px 20px rgb(35 35 38 / 0.05);
+  --xy-sidebar-shadow: 8px 0 24px rgb(35 35 38 / 0.08);
+  --xy-modal-shadow: 0 16px 40px rgb(35 35 38 / 0.12);
+}
+
+/* —— 铅印:暖白纸 + 加重边框,活字印刷 —— */
+html[data-theme="letterpress"] {
+  color-scheme: light;
+  --xy-ink: #161513;
+  --xy-ink-soft: #383632;
+  --xy-paper: #f3f1ec;
+  --xy-paper-deep: #e8e5dd;
+  --xy-line: #c9c4b6;
+  --xy-mute: #6b675f;
+  --xy-text-tertiary: #837f75;
+  --xy-text-disabled: #b3afa4;
+  --xy-accent: #161513;
+  --xy-accent-soft: #e6e3da;
+  --xy-accent-hover: #000000;
+  --xy-on-accent: #f3f1ec;
+  --xy-glass: rgb(243 241 236 / var(--xy-glass-alpha, 0.56));
+  --xy-glass-hover: rgb(243 241 236 / var(--xy-glass-hover-alpha, 0.66));
+  --xy-glass-strong: rgb(243 241 236 / var(--xy-glass-strong-alpha, 0.85));
+  --xy-glass-soft: rgb(243 241 236 / var(--xy-glass-soft-alpha, 0.4));
+  --xy-frame: #c9c4b6;
+  --xy-bg-a: #edeae3;
+  --xy-bg-b: #f3f1ec;
+  --xy-scroll: #b8b2a2;
+  --xy-veil: rgb(243 241 236 / 0.22);
+  --xy-user-bubble: rgb(22 21 19 / 0.05);
+  --xy-user-bubble-border: rgb(22 21 19 / 0.12);
+  --xy-composer-shadow:
+    0 1px 0 rgb(22 21 19 / 0.05), 0 8px 20px rgb(22 21 19 / 0.06);
+  --xy-sidebar-shadow: 8px 0 24px rgb(22 21 19 / 0.1);
+  --xy-modal-shadow: 0 16px 40px rgb(22 21 19 / 0.14);
+}
+
+/* —— 素描:炭笔灰阶 + 印章红落款 —— */
+html[data-theme="sketch"] {
+  color-scheme: light;
+  --xy-ink: #1f1f1f;
+  --xy-ink-soft: #3d3d3d;
+  --xy-paper: #f5f4f2;
+  --xy-paper-deep: #eae8e5;
+  --xy-line: #dcdad6;
+  --xy-mute: #6d6d6d;
+  --xy-text-tertiary: #8a8a8a;
+  --xy-text-disabled: #bdbdbd;
+  --xy-accent: #a83a32;
+  --xy-accent-soft: #f0e2e0;
+  --xy-accent-hover: #8f2f28;
+  --xy-on-accent: #f5f4f2;
+  --xy-glass: rgb(245 244 242 / var(--xy-glass-alpha, 0.55));
+  --xy-glass-hover: rgb(245 244 242 / var(--xy-glass-hover-alpha, 0.65));
+  --xy-glass-strong: rgb(245 244 242 / var(--xy-glass-strong-alpha, 0.84));
+  --xy-glass-soft: rgb(245 244 242 / var(--xy-glass-soft-alpha, 0.38));
+  --xy-frame: #dcdad6;
+  --xy-bg-a: #efedea;
+  --xy-bg-b: #f5f4f2;
+  --xy-scroll: #c9c6c1;
+  --xy-veil: rgb(245 244 242 / 0.22);
+  --xy-user-bubble: rgb(31 31 31 / 0.04);
+  --xy-user-bubble-border: rgb(31 31 31 / 0.09);
+  --xy-composer-shadow:
+    0 1px 0 rgb(31 31 31 / 0.04), 0 8px 20px rgb(31 31 31 / 0.05);
+  --xy-sidebar-shadow: 8px 0 24px rgb(31 31 31 / 0.08);
+  --xy-modal-shadow: 0 16px 40px rgb(31 31 31 / 0.12);
+}
+
+/* —— 月白:冷白纸 × 墨蓝灰 —— */
+html[data-theme="moon"] {
+  color-scheme: light;
+  --xy-ink: #1b2026;
+  --xy-ink-soft: #39424c;
+  --xy-paper: #f5f7f8;
+  --xy-paper-deep: #eaedf0;
+  --xy-line: #dbe1e6;
+  --xy-mute: #6a7683;
+  --xy-text-tertiary: #85909b;
+  --xy-text-disabled: #b8c1ca;
+  --xy-accent: #3d4f5e;
+  --xy-accent-soft: #e6ebf0;
+  --xy-accent-hover: #2c3b49;
+  --xy-on-accent: #f5f7f8;
+  --xy-glass: rgb(245 247 248 / var(--xy-glass-alpha, 0.55));
+  --xy-glass-hover: rgb(245 247 248 / var(--xy-glass-hover-alpha, 0.65));
+  --xy-glass-strong: rgb(245 247 248 / var(--xy-glass-strong-alpha, 0.84));
+  --xy-glass-soft: rgb(245 247 248 / var(--xy-glass-soft-alpha, 0.38));
+  --xy-frame: #dbe1e6;
+  --xy-bg-a: #eef1f3;
+  --xy-bg-b: #f5f7f8;
+  --xy-scroll: #c2ccd4;
+  --xy-veil: rgb(245 247 248 / 0.22);
+  --xy-user-bubble: rgb(27 32 38 / 0.04);
+  --xy-user-bubble-border: rgb(27 32 38 / 0.09);
+  --xy-composer-shadow:
+    0 1px 0 rgb(27 32 38 / 0.04), 0 8px 20px rgb(27 32 38 / 0.05);
+  --xy-sidebar-shadow: 8px 0 24px rgb(27 32 38 / 0.08);
+  --xy-modal-shadow: 0 16px 40px rgb(27 32 38 / 0.12);
+}
+
+/* —— 晨雾:灰蒙低对比软灰阶 —— */
+html[data-theme="mist"] {
+  color-scheme: light;
+  --xy-ink: #2e3236;
+  --xy-ink-soft: #4c5156;
+  --xy-paper: #f2f3f4;
+  --xy-paper-deep: #e9ebec;
+  --xy-line: #dee1e3;
+  --xy-mute: #7c8186;
+  --xy-text-tertiary: #989da1;
+  --xy-text-disabled: #c2c6c9;
+  --xy-accent: #5a6167;
+  --xy-accent-soft: #eceef0;
+  --xy-accent-hover: #464c52;
+  --xy-on-accent: #f2f3f4;
+  --xy-glass: rgb(242 243 244 / var(--xy-glass-alpha, 0.55));
+  --xy-glass-hover: rgb(242 243 244 / var(--xy-glass-hover-alpha, 0.65));
+  --xy-glass-strong: rgb(242 243 244 / var(--xy-glass-strong-alpha, 0.84));
+  --xy-glass-soft: rgb(242 243 244 / var(--xy-glass-soft-alpha, 0.38));
+  --xy-frame: #dee1e3;
+  --xy-bg-a: #eceeee;
+  --xy-bg-b: #f2f3f4;
+  --xy-scroll: #c6cacd;
+  --xy-veil: rgb(242 243 244 / 0.22);
+  --xy-user-bubble: rgb(46 50 54 / 0.04);
+  --xy-user-bubble-border: rgb(46 50 54 / 0.09);
+  --xy-composer-shadow:
+    0 1px 0 rgb(46 50 54 / 0.04), 0 8px 20px rgb(46 50 54 / 0.05);
+  --xy-sidebar-shadow: 8px 0 24px rgb(46 50 54 / 0.08);
+  --xy-modal-shadow: 0 16px 40px rgb(46 50 54 / 0.12);
+}
+
+/* —— 青钢:青灰冷钢色,工业感 —— */
+html[data-theme="steel"] {
+  color-scheme: light;
+  --xy-ink: #1a2126;
+  --xy-ink-soft: #363f45;
+  --xy-paper: #f3f5f6;
+  --xy-paper-deep: #e9ecee;
+  --xy-line: #dae0e3;
+  --xy-mute: #647078;
+  --xy-text-tertiary: #7f8b93;
+  --xy-text-disabled: #b0bcc3;
+  --xy-accent: #2e3d47;
+  --xy-accent-soft: #e7ecef;
+  --xy-accent-hover: #1f2c35;
+  --xy-on-accent: #f3f5f6;
+  --xy-glass: rgb(243 245 246 / var(--xy-glass-alpha, 0.55));
+  --xy-glass-hover: rgb(243 245 246 / var(--xy-glass-hover-alpha, 0.65));
+  --xy-glass-strong: rgb(243 245 246 / var(--xy-glass-strong-alpha, 0.84));
+  --xy-glass-soft: rgb(243 245 246 / var(--xy-glass-soft-alpha, 0.38));
+  --xy-frame: #dae0e3;
+  --xy-bg-a: #edf0f2;
+  --xy-bg-b: #f3f5f6;
+  --xy-scroll: #bec9d0;
+  --xy-veil: rgb(243 245 246 / 0.22);
+  --xy-user-bubble: rgb(26 33 38 / 0.04);
+  --xy-user-bubble-border: rgb(26 33 38 / 0.09);
+  --xy-composer-shadow:
+    0 1px 0 rgb(26 33 38 / 0.04), 0 8px 20px rgb(26 33 38 / 0.05);
+  --xy-sidebar-shadow: 8px 0 24px rgb(26 33 38 / 0.08);
+  --xy-modal-shadow: 0 16px 40px rgb(26 33 38 / 0.12);
+}
+
+/* —— 象牙:暖象牙白 × 暖黑墨 —— */
+html[data-theme="ivory"] {
+  color-scheme: light;
+  --xy-ink: #1e1c18;
+  --xy-ink-soft: #3c3933;
+  --xy-paper: #f7f5f0;
+  --xy-paper-deep: #edeae2;
+  --xy-line: #e0dcd1;
+  --xy-mute: #716c62;
+  --xy-text-tertiary: #8d887c;
+  --xy-text-disabled: #bfb9ac;
+  --xy-accent: #2a2723;
+  --xy-accent-soft: #eae6db;
+  --xy-accent-hover: #131210;
+  --xy-on-accent: #f7f5f0;
+  --xy-glass: rgb(247 245 240 / var(--xy-glass-alpha, 0.55));
+  --xy-glass-hover: rgb(247 245 240 / var(--xy-glass-hover-alpha, 0.65));
+  --xy-glass-strong: rgb(247 245 240 / var(--xy-glass-strong-alpha, 0.84));
+  --xy-glass-soft: rgb(247 245 240 / var(--xy-glass-soft-alpha, 0.38));
+  --xy-frame: #e0dcd1;
+  --xy-bg-a: #f0ede5;
+  --xy-bg-b: #f7f5f0;
+  --xy-scroll: #cec8ba;
+  --xy-veil: rgb(247 245 240 / 0.22);
+  --xy-user-bubble: rgb(30 28 24 / 0.04);
+  --xy-user-bubble-border: rgb(30 28 24 / 0.09);
+  --xy-composer-shadow:
+    0 1px 0 rgb(30 28 24 / 0.04), 0 8px 20px rgb(30 28 24 / 0.05);
+  --xy-sidebar-shadow: 8px 0 24px rgb(30 28 24 / 0.08);
+  --xy-modal-shadow: 0 16px 40px rgb(30 28 24 / 0.12);
+}
+
+/* ============ 深色各主题(叠加在 data-scheme="dark" 之上) ============ */
+
+/* —— 纯黑:OLED 纯黑 × 白 —— */
+html[data-theme="void"] {
+  --xy-ink: #f3f3f4;
+  --xy-ink-soft: #c9c9cc;
+  --xy-paper: #050506;
+  --xy-paper-deep: #101012;
+  --xy-line: #16161a;
+  --xy-mute: #8a8a90;
+  --xy-text-tertiary: #6f6f76;
+  --xy-text-disabled: #4c4c53;
+  --xy-accent: #f3f3f4;
+  --xy-accent-soft: #1c1c1f;
+  --xy-accent-hover: #ffffff;
+  --xy-on-accent: #0a0a0b;
+  --xy-glass: rgb(10 10 12 / var(--xy-glass-alpha, 0.58));
+  --xy-glass-hover: rgb(18 18 21 / var(--xy-glass-hover-alpha, 0.65));
+  --xy-glass-strong: rgb(24 24 28 / var(--xy-glass-strong-alpha, 0.84));
+  --xy-glass-soft: rgb(10 10 12 / var(--xy-glass-soft-alpha, 0.42));
+  --xy-frame: rgb(255 255 255 / 0.055);
+  --xy-bg-a: #0b0b0d;
+  --xy-bg-b: #050506;
+  --xy-scroll: #3a3a40;
+  --xy-veil: rgb(5 5 6 / 0.28);
+  --xy-user-bubble: rgb(255 255 255 / 0.06);
+  --xy-user-bubble-border: rgb(255 255 255 / 0.09);
+}
+
+/* —— 暗房:漆黑底 × 安全灯红 —— */
+html[data-theme="darkroom"] {
+  --xy-ink: #ebebeb;
+  --xy-ink-soft: #c3c3c3;
+  --xy-paper: #09090a;
+  --xy-paper-deep: #131315;
+  --xy-line: #26262a;
+  --xy-mute: #8b8b8b;
+  --xy-text-tertiary: #6e6e6e;
+  --xy-text-disabled: #4d4d4d;
+  --xy-accent: #c94f43;
+  --xy-accent-soft: #2a1715;
+  --xy-accent-hover: #e0685c;
+  --xy-on-accent: #0d0505;
+  --xy-glass: rgb(6 6 7 / var(--xy-glass-alpha, 0.58));
+  --xy-glass-hover: rgb(14 14 16 / var(--xy-glass-hover-alpha, 0.65));
+  --xy-glass-strong: rgb(20 20 22 / var(--xy-glass-strong-alpha, 0.84));
+  --xy-glass-soft: rgb(6 6 7 / var(--xy-glass-soft-alpha, 0.42));
+  --xy-frame: rgb(255 255 255 / 0.08);
+  --xy-bg-a: #070708;
+  --xy-bg-b: #09090a;
+  --xy-scroll: #333336;
+  --xy-veil: rgb(6 6 7 / 0.28);
+  --xy-user-bubble: rgb(255 255 255 / 0.07);
+  --xy-user-bubble-border: rgb(255 255 255 / 0.13);
+}
+
+/* —— 版画:纯黑纯白硬边重描线 —— */
+html[data-theme="woodcut"] {
+  --xy-ink: #ffffff;
+  --xy-ink-soft: #d4d4d4;
+  --xy-paper: #000000;
+  --xy-paper-deep: #0e0e0e;
+  --xy-line: #2e2e2e;
+  --xy-mute: #909090;
+  --xy-text-tertiary: #757575;
+  --xy-text-disabled: #4e4e4e;
+  --xy-accent: #ffffff;
+  --xy-accent-soft: #191919;
+  --xy-accent-hover: #ffffff;
+  --xy-on-accent: #000000;
+  --xy-glass: rgb(0 0 0 / var(--xy-glass-alpha, 0.6));
+  --xy-glass-hover: rgb(10 10 10 / var(--xy-glass-hover-alpha, 0.68));
+  --xy-glass-strong: rgb(14 14 14 / var(--xy-glass-strong-alpha, 0.86));
+  --xy-glass-soft: rgb(0 0 0 / var(--xy-glass-soft-alpha, 0.45));
+  --xy-frame: rgb(255 255 255 / 0.14);
+  --xy-bg-a: #000000;
+  --xy-bg-b: #000000;
+  --xy-scroll: #3c3c3c;
+  --xy-veil: rgb(0 0 0 / 0.3);
+  --xy-user-bubble: rgb(255 255 255 / 0.08);
+  --xy-user-bubble-border: rgb(255 255 255 / 0.18);
+  --xy-composer-shadow: 0 8px 28px rgb(0 0 0 / 0.5);
+  --xy-sidebar-shadow: 8px 0 32px rgb(0 0 0 / 0.55);
+  --xy-modal-shadow: 0 24px 56px rgb(0 0 0 / 0.65);
+  --xy-rail-shadow:
+    0 8px 24px rgb(0 0 0 / 0.4), 0 0 0 1px rgb(255 255 255 / 0.08);
+}
+
+/* —— 灰阶:完全无彩色的纯灰阶 —— */
+html[data-theme="grayscale"] {
+  --xy-ink: #dcdcdc;
+  --xy-ink-soft: #b4b4b4;
+  --xy-paper: #1a1a1a;
+  --xy-paper-deep: #242424;
+  --xy-line: #363636;
+  --xy-mute: #828282;
+  --xy-text-tertiary: #676767;
+  --xy-text-disabled: #474747;
+  --xy-accent: #b0b0b0;
+  --xy-accent-soft: #2c2c2c;
+  --xy-accent-hover: #cfcfcf;
+  --xy-on-accent: #141414;
+  --xy-glass: rgb(20 20 20 / var(--xy-glass-alpha, 0.58));
+  --xy-glass-hover: rgb(28 28 28 / var(--xy-glass-hover-alpha, 0.65));
+  --xy-glass-strong: rgb(34 34 34 / var(--xy-glass-strong-alpha, 0.84));
+  --xy-glass-soft: rgb(20 20 20 / var(--xy-glass-soft-alpha, 0.42));
+  --xy-frame: rgb(255 255 255 / 0.1);
+  --xy-bg-a: #141414;
+  --xy-bg-b: #1a1a1a;
+  --xy-scroll: #3d3d3d;
+  --xy-veil: rgb(20 20 20 / 0.28);
+  --xy-user-bubble: rgb(255 255 255 / 0.07);
+  --xy-user-bubble-border: rgb(255 255 255 / 0.13);
+}
+
+/* —— 玄岩:冷调玄武岩黑 × 钢白 —— */
+html[data-theme="basalt"] {
+  --xy-ink: #e9ebee;
+  --xy-ink-soft: #bcc1c8;
+  --xy-paper: #0b0c0e;
+  --xy-paper-deep: #121417;
+  --xy-line: #23262b;
+  --xy-mute: #828892;
+  --xy-text-tertiary: #676d77;
+  --xy-text-disabled: #4a505a;
+  --xy-accent: #ccd2d9;
+  --xy-accent-soft: #20242a;
+  --xy-accent-hover: #e2e7ec;
+  --xy-on-accent: #0b0c0e;
+  --xy-glass: rgb(10 11 13 / var(--xy-glass-alpha, 0.58));
+  --xy-glass-hover: rgb(18 19 22 / var(--xy-glass-hover-alpha, 0.65));
+  --xy-glass-strong: rgb(24 26 30 / var(--xy-glass-strong-alpha, 0.84));
+  --xy-glass-soft: rgb(10 11 13 / var(--xy-glass-soft-alpha, 0.42));
+  --xy-frame: rgb(255 255 255 / 0.08);
+  --xy-bg-a: #0d0e11;
+  --xy-bg-b: #0b0c0e;
+  --xy-scroll: #3a3d44;
+  --xy-veil: rgb(10 11 13 / 0.28);
+  --xy-user-bubble: rgb(255 255 255 / 0.07);
+  --xy-user-bubble-border: rgb(255 255 255 / 0.13);
+}
+
+/* —— 煤烟:暖黑 × 暖米白 —— */
+html[data-theme="soot"] {
+  --xy-ink: #ecebe8;
+  --xy-ink-soft: #c1beb7;
+  --xy-paper: #121110;
+  --xy-paper-deep: #1a1917;
+  --xy-line: #2b2a27;
+  --xy-mute: #85817a;
+  --xy-text-tertiary: #6b6761;
+  --xy-text-disabled: #4b4844;
+  --xy-accent: #e6e2d9;
+  --xy-accent-soft: #262420;
+  --xy-accent-hover: #f4f1ea;
+  --xy-on-accent: #121110;
+  --xy-glass: rgb(18 17 16 / var(--xy-glass-alpha, 0.58));
+  --xy-glass-hover: rgb(26 25 23 / var(--xy-glass-hover-alpha, 0.65));
+  --xy-glass-strong: rgb(32 30 28 / var(--xy-glass-strong-alpha, 0.84));
+  --xy-glass-soft: rgb(18 17 16 / var(--xy-glass-soft-alpha, 0.42));
+  --xy-frame: rgb(255 255 255 / 0.09);
+  --xy-bg-a: #141311;
+  --xy-bg-b: #121110;
+  --xy-scroll: #3b3936;
+  --xy-veil: rgb(18 17 16 / 0.28);
+  --xy-user-bubble: rgb(255 255 255 / 0.07);
+  --xy-user-bubble-border: rgb(255 255 255 / 0.13);
+}
+
+/* —— 硒盐:硒调相纸暖黑 × 硒米 —— */
+html[data-theme="selenium"] {
+  --xy-ink: #eae6df;
+  --xy-ink-soft: #c4beb2;
+  --xy-paper: #141210;
+  --xy-paper-deep: #1c1916;
+  --xy-line: #2e2a25;
+  --xy-mute: #8a847a;
+  --xy-text-tertiary: #6e6860;
+  --xy-text-disabled: #4d4842;
+  --xy-accent: #ded2bd;
+  --xy-accent-soft: #29241d;
+  --xy-accent-hover: #efe6d5;
+  --xy-on-accent: #141210;
+  --xy-glass: rgb(20 18 16 / var(--xy-glass-alpha, 0.58));
+  --xy-glass-hover: rgb(28 26 23 / var(--xy-glass-hover-alpha, 0.65));
+  --xy-glass-strong: rgb(34 31 27 / var(--xy-glass-strong-alpha, 0.84));
+  --xy-glass-soft: rgb(20 18 16 / var(--xy-glass-soft-alpha, 0.42));
+  --xy-frame: rgb(255 255 255 / 0.09);
+  --xy-bg-a: #161412;
+  --xy-bg-b: #141210;
+  --xy-scroll: #3e3931;
+  --xy-veil: rgb(20 18 16 / 0.28);
+  --xy-user-bubble: rgb(255 255 255 / 0.07);
+  --xy-user-bubble-border: rgb(255 255 255 / 0.13);
+}
+
+/* —— 黑绒:紫黑丝绒 × 雾紫白 —— */
+html[data-theme="velvet"] {
+  --xy-ink: #ece9f0;
+  --xy-ink-soft: #c2bdcb;
+  --xy-paper: #0e0c10;
+  --xy-paper-deep: #16131a;
+  --xy-line: #272230;
+  --xy-mute: #8a8494;
+  --xy-text-tertiary: #6d6878;
+  --xy-text-disabled: #4c4855;
+  --xy-accent: #d6cfe0;
+  --xy-accent-soft: #241f2b;
+  --xy-accent-hover: #e8e2f0;
+  --xy-on-accent: #0e0c10;
+  --xy-glass: rgb(14 12 16 / var(--xy-glass-alpha, 0.58));
+  --xy-glass-hover: rgb(22 19 27 / var(--xy-glass-hover-alpha, 0.65));
+  --xy-glass-strong: rgb(28 24 34 / var(--xy-glass-strong-alpha, 0.84));
+  --xy-glass-soft: rgb(14 12 16 / var(--xy-glass-soft-alpha, 0.42));
+  --xy-frame: rgb(255 255 255 / 0.09);
+  --xy-bg-a: #100e13;
+  --xy-bg-b: #0e0c10;
+  --xy-scroll: #38333f;
+  --xy-veil: rgb(14 12 16 / 0.28);
+  --xy-user-bubble: rgb(255 255 255 / 0.07);
+  --xy-user-bubble-border: rgb(255 255 255 / 0.13);
+}
+
+/* —— 铅灰:柔和深灰中对比,护眼向 —— */
+html[data-theme="lead"] {
+  --xy-ink: #e4e4e6;
+  --xy-ink-soft: #b8b8bc;
+  --xy-paper: #212124;
+  --xy-paper-deep: #2a2a2e;
+  --xy-line: #3b3b40;
+  --xy-mute: #86868c;
+  --xy-text-tertiary: #6c6c73;
+  --xy-text-disabled: #4d4d54;
+  --xy-accent: #a9a9b0;
+  --xy-accent-soft: #313136;
+  --xy-accent-hover: #c4c4cb;
+  --xy-on-accent: #1c1c1f;
+  --xy-glass: rgb(28 28 31 / var(--xy-glass-alpha, 0.58));
+  --xy-glass-hover: rgb(36 36 40 / var(--xy-glass-hover-alpha, 0.65));
+  --xy-glass-strong: rgb(44 44 49 / var(--xy-glass-strong-alpha, 0.84));
+  --xy-glass-soft: rgb(28 28 31 / var(--xy-glass-soft-alpha, 0.42));
+  --xy-frame: rgb(255 255 255 / 0.1);
+  --xy-bg-a: #1d1d20;
+  --xy-bg-b: #212124;
+  --xy-scroll: #47474d;
+  --xy-veil: rgb(28 28 31 / 0.28);
+  --xy-user-bubble: rgb(255 255 255 / 0.07);
+  --xy-user-bubble-border: rgb(255 255 255 / 0.13);
+}
+
+/* 主题切换短暂反馈 */
+@keyframes xy-theme-flash {
+  0% { filter: brightness(1.045); }
+  100% { filter: none; }
+}
+html[data-theme-flash="1"] body,
+html[data-theme-flash="1"].tauri #root {
+  animation: xy-theme-flash 320ms var(--ease-out-soft);
+}
+@media (prefers-reduced-motion: reduce) {
+  html[data-theme-flash="1"] body,
+  html[data-theme-flash="1"].tauri #root {
+    animation: none;
+  }
+}

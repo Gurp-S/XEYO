@@ -1,0 +1,986 @@
+﻿.context-island-backup-20260821/pasture.css:12:  contain: layout paint style;
+.context-island-backup-20260821/pasture.css:38:  transform: translateX(-50%) scale(var(--pasture-scale, 1));
+.context-island-backup-20260821/pasture.css:41:  transition: opacity 920ms ease, filter 920ms ease, transform 500ms ease;
+.context-island-backup-20260821/pasture.css:43:  will-change: transform, opacity;
+.context-island-backup-20260821/pasture.css:76:  transform: translateX(-50%) scale(var(--pasture-scale, 1));
+.context-island-backup-20260821/pasture.css:79:  will-change: opacity;
+.context-island-backup-20260821/pasture.css:87:  will-change: transform;
+.context-island-backup-20260821/pasture.css:105:  transition: opacity 900ms ease;
+.context-island-backup-20260821/pasture.css:114:    transform: translateX(-50%) scale(var(--pasture-scale, 1)) rotate(-0.65deg);
+.context-island-backup-20260821/pasture.css:117:    transform: translateX(-50%) scale(var(--pasture-scale, 1)) rotate(0.35deg);
+.context-island-backup-20260821/pasture.css:120:    transform: translateX(-50%) scale(var(--pasture-scale, 1)) rotate(-0.15deg);
+.context-island-backup-20260821/pasture.css:125:  from { opacity: 0; transform: translateX(-50%) scale(calc(var(--pasture-scale, 1) * 0.82)); }
+.context-island-backup-20260821/pasture.css:126:  to { opacity: 0.58; transform: translateX(-50%) scale(var(--pasture-scale, 1)); }
+.context-island-backup-20260821/pasture.css:130:  from { opacity: 0.58; transform: translateX(-50%) scale(var(--pasture-scale, 1)); }
+.context-island-backup-20260821/pasture.css:131:  to { opacity: 0; transform: translateX(-50%) translateY(-2px) scale(calc(var(--pasture-scale, 1) * 0.86)); }
+.context-island-backup-20260821/pasture.css:136:    transform: translate3d(0, 0, 0) rotate(var(--pasture-rotation, 0deg));
+.context-island-backup-20260821/pasture.css:139:    transform: translate3d(var(--pasture-flight-x1, 4px), var(--pasture-flight-y1, -2px), 0) rotate(calc(var(--pasture-rotation, 0deg) - 2deg));
+.context-island-backup-20260821/pasture.css:142:    transform: translate3d(var(--pasture-flight-x2, -5px), var(--pasture-flight-y2, 3px), 0) rotate(calc(var(--pasture-rotation, 0deg) + 2deg));
+.context-island-backup-20260821/pasture.css:145:    transform: translate3d(var(--pasture-flight-x3, 3px), var(--pasture-flight-y3, -1px), 0) rotate(calc(var(--pasture-rotation, 0deg) - 1deg));
+.context-island-backup-20260821/pasture.css:148:    transform: translate3d(var(--pasture-flight-x1, 4px), var(--pasture-flight-y1, -2px), 0) rotate(var(--pasture-rotation, 0deg));
+.context-island-backup-20260821/pasture.css:155:    transition: none !important;
+src/bench/OfflineReplayRoute.tsx:81:			cancelAnimationFrame(streamRaf);
+src/bench/OfflineReplayRoute.tsx:116:					streamRaf = requestAnimationFrame(flushStream);
+src/bench/OfflineReplayRoute.tsx:121:					cancelAnimationFrame(streamRaf);
+src/components/ActivityLog.tsx:5:	useLayoutEffect,
+src/components/ActivityLog.tsx:337:		const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
+src/components/ActivityLog.tsx:344:	useLayoutEffect(() => {
+src/components/ActivityLog.tsx:349:		el.scrollTop = el.scrollHeight;
+src/components/ActivityLog.tsx:368:		el.scrollTo({top: el.scrollHeight, behavior: 'smooth'});
+src/components/AppShell.tsx:73:							transform: 'scale(1.04)',
+src/components/Composer.tsx:471:				requestAnimationFrame(() => {
+src/components/EditableMarkdown.tsx:6:	useLayoutEffect,
+src/components/EditableMarkdown.tsx:122:		useLayoutEffect(() => {
+src/components/FilePreview.tsx:48:	return range.getBoundingClientRect();
+src/components/FilePreview.tsx:68:	return {text, rect, bound: root.getBoundingClientRect()};
+src/components/FilePreview.tsx:323:			window.requestAnimationFrame(refreshPick);
+src/components/FilePreview.tsx:333:				window.requestAnimationFrame(refreshPick);
+src/components/MarkdownView.tsx:84:	el?.scrollIntoView({block: 'start', behavior: 'smooth'});
+src/components/MermaidBlock.tsx:170:										transform: `scale(${scale})`,
+src/components/MessageList.chat.test.tsx:6:vi.stubGlobal('IntersectionObserver', undefined);
+src/components/MessageList.tsx:6:	useLayoutEffect,
+src/components/MessageList.tsx:163:	el.style.setProperty('-webkit-clip-path', clip);
+src/components/MessageList.tsx:263:						requestAnimationFrame(() => resizeEditingTextarea?.());
+src/components/MessageList.tsx:418:		if (!el || typeof IntersectionObserver === 'undefined') {
+src/components/MessageList.tsx:422:		const io = new IntersectionObserver(
+src/components/MessageList.tsx:823:	useLayoutEffect(() => {
+src/components/MessageList.tsx:842:					const scrollerRect = scroller.getBoundingClientRect();
+src/components/MessageList.tsx:850:						const rect = chip?.getBoundingClientRect() ?? null;
+src/components/MessageList.tsx:864:					scroller.style.setProperty('--xy-top-fade-h', `${height}px`);
+src/components/MessageList.tsx:948:									const scrollerRect = scroller.getBoundingClientRect();
+src/components/MessageList.tsx:954:					const chipRect = chip?.getBoundingClientRect() ?? null;
+src/components/MessageList.tsx:972:							const rect = layer.getBoundingClientRect();
+src/components/MessageList.tsx:1086:			scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
+src/components/MessageList.tsx:1095:			// offsetTop is equivalent to rect.top - scroller rect.top + scrollTop,
+src/components/MessageList.tsx:1096:			// without a per-frame getBoundingClientRect layout read.
+src/components/MessageList.tsx:1106:				if (el.offsetTop - scroller.scrollTop <= readOffset) {
+src/components/MessageList.tsx:1131:					el.getBoundingClientRect().top -
+src/components/MessageList.tsx:1132:					scroller.getBoundingClientRect().top +
+src/components/MessageList.tsx:1133:					scroller.scrollTop -
+src/components/MessageList.tsx:1135:				scroller.scrollTo({top: Math.max(0, top), behavior: 'smooth'});
+src/components/MessageList.tsx:1139:			requestAnimationFrame(run);
+src/components/MessageList.tsx:1177:		useLayoutEffect(() => {
+src/components/MessageList.tsx:1184:							const gap = gapFromBottom(el.scrollHeight, el.scrollTop, el.clientHeight);
+src/components/MessageList.tsx:1194:				typeof ResizeObserver !== 'undefined'
+src/components/MessageList.tsx:1195:							? new ResizeObserver(() => {
+src/components/MessageList.tsx:1215:		useLayoutEffect(() => {
+src/components/MessageList.tsx:1234:	useLayoutEffect(() => {
+src/components/MessageList.tsx:1239:		if (!content || typeof ResizeObserver === 'undefined') {
+src/components/MessageList.tsx:1242:			const ro = new ResizeObserver(() => {
+src/components/MessageList.tsx:1268:			useLayoutEffect(() => {
+src/components/MessageList.tsx:1283:				scrollerRef.current?.style.setProperty('--xy-top-fade-h', '0px');
+src/components/MessageList.tsx:1338:				scroller.style.setProperty('overflow-anchor', 'none');
+src/components/MessageList.tsx:1352:					scroller.style.setProperty('overflow-anchor', previous.value, previous.priority);
+src/components/MessageList.tsx:1409:							window.cancelAnimationFrame(pending.timer);
+src/components/MessageList.tsx:1417:					pending.timer = window.requestAnimationFrame(finish);
+src/components/MessageList.tsx:1491:			useLayoutEffect(() => {
+src/components/MessageList.tsx:1641:								ioAvailable={typeof IntersectionObserver !== 'undefined'}
+src/components/ModelPicker.tsx:4:	useLayoutEffect,
+src/components/ModelPicker.tsx:176:		useLayoutEffect(() => {
+src/components/ModelPicker.tsx:187:				const rect = anchor.getBoundingClientRect();
+src/components/PaneSlot.tsx:94:						transform: shown ? 'translateX(0)' : hiddenTransform,
+src/components/SelectionToolbar.tsx:2:import {useLayoutEffect, useRef, useState} from 'react';
+src/components/SelectionToolbar.tsx:83:	useLayoutEffect(() => {
+src/components/SelectionToolbar.tsx:88:		const r = el.getBoundingClientRect();
+src/components/Sidebar.tsx:479:						transform: sidebarOpen
+src/components/TextFileEditor.tsx:46:			gutter.scrollTop = ta.scrollTop;
+src/components/TextFileEditor.tsx:85:						requestAnimationFrame(() => {
+src/components/TurnRail.tsx:273:		row?.scrollIntoView?.({block: 'nearest'});
+src/components/UsageChart.tsx:1:import {useEffect, useId, useLayoutEffect, useMemo, useRef, useState} from 'react';
+src/components/UsageChart.tsx:84:		const ro = new ResizeObserver(apply);
+src/components/UsageChart.tsx:137:	useLayoutEffect(() => {
+src/components/UsageChart.tsx:154:					const rect = e.currentTarget.getBoundingClientRect();
+src/hooks/useHoverScroll.ts:20:	      const top = edgeFadeTop ? Math.max(0, Math.min(topCap, el.scrollTop)) : 0;
+src/hooks/useHoverScroll.ts:25:				el.scrollHeight - el.clientHeight - el.scrollTop,
+src/hooks/useHoverScroll.ts:32:			el.style.setProperty('--xy-fade-top', `${top}px`);
+src/hooks/useHoverScroll.ts:36:			el.style.setProperty('--xy-fade-bottom', `${bottom}px`);
+src/hooks/useHoverScroll.ts:41:		typeof ResizeObserver !== 'undefined' ? new ResizeObserver(sync) : null;
+src/hooks/useHoverScroll.ts:52:		typeof MutationObserver !== 'undefined'
+src/hooks/useHoverScroll.ts:53:			? new MutationObserver(() => {
+src/hooks/usePaneResize.ts:44:					pane.style.setProperty('--xy-pane-w', px);
+src/hooks/usePaneResize.ts:73:				moveRaf = requestAnimationFrame(applyPending);
+src/hooks/usePaneResize.ts:78:				cancelAnimationFrame(moveRaf);
+src/hooks/usePaneResize.ts:101:				cancelAnimationFrame(moveRaf);
+src/hooks/usePresence.ts:20:			const id = requestAnimationFrame(() => {
+src/hooks/usePresence.ts:25:				inner = requestAnimationFrame(() => setShown(true));
+src/hooks/usePresence.ts:28:				cancelAnimationFrame(id);
+src/hooks/usePresence.ts:30:					cancelAnimationFrame(inner);
+src/hooks/useStreamTypewriter.ts:193:			raf = requestAnimationFrame(tick);
+src/hooks/useStreamTypewriter.ts:196:		raf = requestAnimationFrame(tick);
+src/hooks/useStreamTypewriter.ts:199:			cancelAnimationFrame(raf);
+src/hooks/useViewport.ts:25:			cancelAnimationFrame(raf);
+src/hooks/useViewport.ts:26:			raf = requestAnimationFrame(() => setVp(read()));
+src/hooks/useViewport.ts:30:			cancelAnimationFrame(raf);
+src/index.css:183:  transition:
+src/index.css:295:  transition: background-color 0.12s ease;
+src/index.css:300:    transition: none !important;
+src/index.css:307:    transform: rotate(360deg);
+src/index.css:451:  transition:
+src/index.css:457:  will-change: background-color, border-color, box-shadow, transform, opacity;
+src/index.css:477:  transition:
+src/index.css:481:  will-change: auto;
+src/index.css:491:  transition:
+src/index.css:510:  transition: none;
+src/index.css:526:    transition: none;
+src/index.css:527:    will-change: auto;
+src/index.css:533:  position: sticky;
+src/index.css:536:  contain: paint;
+src/index.css:554:  position: fixed;
+src/index.css:569:  position: sticky;
+src/index.css:574:  transform: translateY(calc(-1 * (var(--xy-top-fade-h, 0px) + 36px) - 2px));
+src/index.css:583:  transition:
+src/index.css:602:  will-change: grid-template-rows, opacity;
+src/index.css:643:  transition:
+src/index.css:776:  will-change: opacity, transform;
+src/index.css:779:  transition:
+src/index.css:792:  transition: opacity 120ms var(--ease-out-soft);
+src/index.css:800:  transition:
+src/index.css:927:  transition: grid-template-rows 0.2s ease;
+src/index.css:946:  transition:
+src/index.css:960:  transform: translateY(6px);
+src/index.css:961:  transition:
+src/index.css:968:  transform: translateY(0);
+src/index.css:972:  transition:
+src/index.css:986:  position: sticky;
+src/index.css:1083:    transform: translateY(6px);
+src/index.css:1087:    transform: translateY(0);
+src/index.css:1094:    transform: translate3d(0, 2px, 0);
+src/index.css:1098:    transform: translate3d(0, 0, 0);
+src/index.css:1105:    transform: scale(0.97);
+src/index.css:1109:    transform: scale(1);
+src/index.css:1116:    transform: scale(0.94);
+src/index.css:1120:    transform: scale(1);
+src/index.css:1141:  transition:
+src/index.css:1148:  will-change: auto;
+src/index.css:1152:  transform: translateY(-1px);
+src/index.css:1156:  transform: translateY(0) scale(0.97);
+src/index.css:1160:  transform: none;
+src/index.css:1164:  transition:
+src/index.css:1171:  transform: scale(1.04);
+src/index.css:1175:  transform: translate3d(0, 0, 0) scale(1.04);
+src/index.css:1179:  transform: scale(0.94);
+src/index.css:1183:  transition:
+src/index.css:1193:  contain: paint;
+src/index.css:1198:  transition:
+src/index.css:1208:  transform: translateY(-2px);
+src/index.css:1218:  transition:
+src/index.css:1264:  transform: translate(-50%, -2px);
+src/index.css:1265:  transition:
+src/index.css:1273:  transform: translate(-50%, 0);
+src/index.css:1285:    transition: none;
+src/index.css:1293:  transition:
+src/index.css:1337:  transform: translateX(-100%);
+src/index.css:1350:    transform: translate3d(0, 4px, 0);
+src/index.css:1354:    transform: translate3d(0, 0, 0);
+src/index.css:1360:    transform: translateX(100%);
+src/index.css:1377:    transition: none;
+src/index.css:1388:  will-change: transform;
+src/index.css:1395:    will-change: auto;
+src/index.css:1403:  transition:
+src/index.css:1409:  will-change: transform;
+src/index.css:1410:  transition: transform var(--duration-base) var(--ease-out-soft);
+src/index.css:1431:  transition: grid-template-columns var(--duration-base) var(--ease-out-soft);
+src/index.css:1437:  transition: none !important;
+src/index.css:1442:    transition: none;
+src/index.css:1447:  transition: none !important;
+src/index.css:1451:  transition: none !important;
+src/index.css:1456:  contain: layout paint;
+src/index.css:1457:  transition:
+src/index.css:1465:  transition: none !important;
+src/index.css:1469:  will-change: width;
+src/index.css:1579:  transition: opacity var(--duration-base) ease;
+src/index.css:1583:  transition:
+src/index.css:1589:  contain: paint;
+src/index.css:1590:  transition: opacity 220ms ease;
+src/index.css:1646:  transform: translateY(-50%);
+src/index.css:1650:  transition: opacity 180ms ease;
+src/index.css:1666:  transition: opacity 140ms ease;
+src/index.css:1717:  transition:
+src/index.css:1752:  transform: translateY(-50%) translateX(4px);
+src/index.css:1761:  transition:
+src/index.css:1769:  transform: translateY(-50%) translateX(0);
+src/index.css:1798:  transition:
+src/index.css:1890:    transform: none;
+src/lib/chatScroll.test.ts:17:	it('does not write scrollTop when the user has scrolled up', () => {
+src/lib/chatScroll.test.ts:18:		const el = {scrollHeight: 1000, scrollTop: 100};
+src/lib/chatScroll.test.ts:20:		expect(el.scrollTop).toBe(100);
+src/lib/chatScroll.test.ts:23:	it('writes scrollTop only while pinned', () => {
+src/lib/chatScroll.test.ts:24:		const el = {scrollHeight: 1000, scrollTop: 100};
+src/lib/chatScroll.test.ts:26:		expect(el.scrollTop).toBe(1000);
+src/lib/chatScroll.ts:5:	scrollTop: number,
+src/lib/chatScroll.ts:8:	return scrollHeight - scrollTop - clientHeight;
+src/lib/chatScroll.ts:18:/** 浠呭湪浠嶉拤浣忓簳閮ㄦ椂鍐?scrollTop锛涚敤鎴蜂笂婊氭椂涓嶈窡灏俱€?*/
+src/lib/chatScroll.ts:20:	el: {scrollTop: number; scrollHeight: number},
+src/lib/chatScroll.ts:26:	el.scrollTop = el.scrollHeight;
+src/lib/frameScheduler.ts:21:	queues.raf = requestAnimationFrame(() => {
+src/lib/roundWindow.test.ts:43:	it('mounts all when IntersectionObserver is unavailable', () => {
+src/lib/roundWindow.ts:9:	/** jsdom 鏃?IntersectionObserver 鏃舵寕杞藉叏閮紝閬垮厤娴嬭瘯鐪嬩笉鍒板巻鍙层€?*/
+src/pasture/ContextIsland.tsx:76:    const observer = new MutationObserver(updateTheme);
+src/pasture/animation/animals.css:7:  transform: translate(-50%, -50%) scaleX(var(--animal-direction)) scale(var(--animal-scale));
+src/pasture/animation/animals.css:118:.xy-pasture-animal-bird .xy-pasture-animal-body::after { right: -4px; transform: scaleX(-1); transform-origin: 0 100%; }
+src/pasture/animation/animals.css:138:.xy-pasture-animal-butterfly .xy-pasture-animal-body::after { right: -5px; transform: scaleX(-1); transform-origin: 0 80%; }
+src/pasture/animation/animals.css:170:  will-change: transform, opacity;
+src/pasture/animation/animals.css:179:  from { opacity: 0; transform: translate(-50%, -35%) scaleX(var(--animal-direction)) scale(0.55); }
+src/pasture/animation/animals.css:180:  to { opacity: 0.94; transform: translate(-50%, -50%) scaleX(var(--animal-direction)) scale(var(--animal-scale)); }
+src/pasture/animation/animals.css:184:  0%, 100% { margin-left: -2px; transform: translate(-50%, -50%) scaleX(var(--animal-direction)) scale(var(--animal-scale)); }
+src/pasture/animation/animals.css:185:  48% { margin-left: 7px; transform: translate(-50%, -55%) scaleX(var(--animal-direction)) scale(var(--animal-scale)); }
+src/pasture/animation/animals.css:189:  0%, 100% { margin-left: -6px; transform: translate(-50%, -50%) scaleX(var(--animal-direction)) scale(var(--animal-scale)); }
+src/pasture/animation/animals.css:190:  50% { margin-left: 18px; transform: translate(-50%, -55%) scaleX(var(--animal-direction)) scale(var(--animal-scale)); }
+src/pasture/animation/animals.css:194:  0%, 72%, 100% { transform: translate(-50%, -50%) scaleX(var(--animal-direction)) scale(var(--animal-scale)); }
+src/pasture/animation/animals.css:195:  78% { transform: translate(-50%, -45%) scaleX(var(--animal-direction)) scale(var(--animal-scale)); }
+src/pasture/animation/animals.css:196:  84% { transform: translate(-50%, -54%) scaleX(var(--animal-direction)) scale(var(--animal-scale)); }
+src/pasture/animation/animals.css:200:  0%, 100% { transform: translate(-50%, -50%) scaleX(var(--animal-direction)) scale(var(--animal-scale)); opacity: 0.62; }
+src/pasture/animation/animals.css:201:  50% { transform: translate(-50%, -46%) scaleX(var(--animal-direction)) scale(var(--animal-scale)); opacity: 0.88; }
+src/pasture/animation/animals.css:205:  0%, 100% { transform: translate(-50%, -50%) scaleX(var(--animal-direction)) scale(var(--animal-scale)); }
+src/pasture/animation/animals.css:206:  50% { transform: translate(-50%, -54%) scaleX(var(--animal-direction)) scale(var(--animal-scale)); }
+src/pasture/animation/animals.css:210:  0% { left: -8%; transform: translateY(4px) scaleX(var(--animal-direction)) scale(var(--animal-scale)); }
+src/pasture/animation/animals.css:211:  48% { transform: translateY(-8px) scaleX(var(--animal-direction)) scale(var(--animal-scale)); }
+src/pasture/animation/animals.css:212:  100% { left: 108%; transform: translateY(5px) scaleX(var(--animal-direction)) scale(var(--animal-scale)); }
+src/pasture/animation/animals.css:216:  from { opacity: 0.94; transform: translate(-50%, -50%) scaleX(var(--animal-direction)) scale(var(--animal-scale)); }
+src/pasture/animation/animals.css:217:  to { opacity: 0; transform: translate(-50%, 14%) scaleX(var(--animal-direction)) scale(0.65); }
+src/pasture/animation/animals.css:221:  0%, 100% { transform: rotate(8deg) scaleY(1); }
+src/pasture/animation/animals.css:222:  50% { transform: rotate(-18deg) scaleY(0.45); }
+src/pasture/animation/animals.css:226:  from { transform: rotate(8deg); }
+src/pasture/animation/animals.css:227:  to { transform: rotate(-28deg); }
+src/pasture/animation/context-island.css:5:  position: fixed;
+src/pasture/animation/context-island.css:15:  transition: opacity 0.8s ease-in-out;
+src/pasture/animation/context-island.css:16:  contain: layout paint style;
+src/pasture/animation/context-island.css:40:  transition: opacity 0.8s ease-in-out;
+src/pasture/animation/context-island.css:137:  transition: opacity 0.8s ease-in-out;
+src/pasture/animation/context-island.css:169:  transition: opacity 0.8s ease-in-out;
+src/pasture/animation/context-island.css:182:  transition: opacity 0.8s ease-in-out;
+src/pasture/animation/context-island.css:197:  transition: opacity 0.8s ease-in-out;
+src/pasture/animation/context-island.css:234:  transition: opacity 0.7s ease-in-out;
+src/pasture/animation/context-island.css:266:  transform: translateY(2px);
+src/pasture/animation/context-island.css:267:  transition: opacity 0.7s ease-in-out;
+src/pasture/animation/environment.css:35:.xy-pasture-cloud-b { top: 28%; left: 78%; transform: scale(0.72); animation-duration: 31s; animation-delay: -12s; }
+src/pasture/animation/environment.css:48:.xy-pasture-mountain-b { right: 14%; transform: scale(0.82); opacity: 0.22; }
+src/pasture/animation/plants.css:7:  transform: translate(-50%, -84%) rotate(var(--plant-rotation)) scale(var(--plant-scale));
+src/pasture/animation/plants.css:36:  transform: rotate(4deg);
+src/pasture/animation/plants.css:58:  transform: rotate(-5deg);
+src/pasture/animation/plants.css:169:  from { opacity: 0; transform: translate(-50%, 0) rotate(var(--plant-rotation)) scale(0.28); }
+src/pasture/animation/plants.css:170:  to { opacity: 0.92; transform: translate(-50%, -84%) rotate(var(--plant-rotation)) scale(var(--plant-scale)); }
+src/pasture/animation/plants.css:174:  from { transform: translate(-50%, -84%) rotate(calc(var(--plant-rotation) - 1deg)) scale(var(--plant-scale)); }
+src/pasture/animation/plants.css:175:  to { transform: translate(-50%, -84%) rotate(calc(var(--plant-rotation) + 1deg)) scale(var(--plant-scale)); }
+src/pasture/animation/plants.css:179:  from { opacity: 0.9; transform: translate(-50%, -84%) rotate(var(--plant-rotation)) scale(var(--plant-scale)); }
+src/pasture/animation/plants.css:180:  to { opacity: 0; transform: translate(-50%, -40%) rotate(var(--plant-rotation)) scale(0.45); }
+src/stores/chatStore.test.ts:334:		vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+src/stores/chatStore.test.ts:338:		vi.stubGlobal('cancelAnimationFrame', (id: number) => {
+src/stores/chatStore.test.ts:382:			vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+src/stores/chatStore.test.ts:386:			vi.stubGlobal('cancelAnimationFrame', () => {});
+src/stores/chatStore.test.ts:392:		vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+src/stores/chatStore.test.ts:396:		vi.stubGlobal('cancelAnimationFrame', (id: number) => {
+src/stores/chatStore.test.ts:440:			vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+src/stores/chatStore.test.ts:444:			vi.stubGlobal('cancelAnimationFrame', () => {});
+src/stores/chatStore.test.ts:450:		vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+src/stores/chatStore.test.ts:454:		vi.stubGlobal('cancelAnimationFrame', (id: number) => {
+src/stores/chatStore.test.ts:506:			vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+src/stores/chatStore.test.ts:510:			vi.stubGlobal('cancelAnimationFrame', () => {});
+src/stores/chatStore.ts:1356:				cancelAnimationFrame(frameRaf);
+src/stores/chatStore.ts:1464:				frameRaf = requestAnimationFrame(flushFrame);
+src/stores/chatStore.ts:1470:					cancelAnimationFrame(usageRaf);
+src/stores/chatStore.ts:1531:					usageRaf = requestAnimationFrame(flushUsage);
+src/stores/remoteStore.ts:171:		cancelAnimationFrame(streamRaf);
+src/stores/remoteStore.ts:187:	streamRaf = requestAnimationFrame(() => {
+src/stores/remoteStore.ts:198:		cancelAnimationFrame(streamRaf);
+src/test/setup.ts:5:vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+src/test/setup.ts:9:vi.stubGlobal('cancelAnimationFrame', () => {});
+tmp-7e2f5fd-Composer.tsx:462:				requestAnimationFrame(() => {
+tmp-7e2f5fd-MessageList.tsx:4:	useLayoutEffect,
+tmp-7e2f5fd-MessageList.tsx:191:		if (!el || typeof IntersectionObserver === 'undefined') {
+tmp-7e2f5fd-MessageList.tsx:195:		const io = new IntersectionObserver(
+tmp-7e2f5fd-MessageList.tsx:344:				const scrollerRect = scroller.getBoundingClientRect();
+tmp-7e2f5fd-MessageList.tsx:351:					const rect = node.getBoundingClientRect();
+tmp-7e2f5fd-MessageList.tsx:360:				scroller.style.setProperty('--xy-top-fade-h', `${height}px`);
+tmp-7e2f5fd-MessageList.tsx:376:			scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
+tmp-7e2f5fd-MessageList.tsx:382:		const root = scroller.getBoundingClientRect();
+tmp-7e2f5fd-MessageList.tsx:393:			const rect = el.getBoundingClientRect();
+tmp-7e2f5fd-MessageList.tsx:420:					el.getBoundingClientRect().top -
+tmp-7e2f5fd-MessageList.tsx:421:					scroller.getBoundingClientRect().top +
+tmp-7e2f5fd-MessageList.tsx:422:					scroller.scrollTop -
+tmp-7e2f5fd-MessageList.tsx:424:				scroller.scrollTo({top: Math.max(0, top), behavior: 'smooth'});
+tmp-7e2f5fd-MessageList.tsx:427:			requestAnimationFrame(run);
+tmp-7e2f5fd-MessageList.tsx:461:		useLayoutEffect(() => {
+tmp-7e2f5fd-MessageList.tsx:467:					const gap = gapFromBottom(el.scrollHeight, el.scrollTop, el.clientHeight);
+tmp-7e2f5fd-MessageList.tsx:475:				typeof ResizeObserver !== 'undefined'
+tmp-7e2f5fd-MessageList.tsx:476:						? new ResizeObserver(() => {
+tmp-7e2f5fd-MessageList.tsx:494:		useLayoutEffect(() => {
+tmp-7e2f5fd-MessageList.tsx:509:	useLayoutEffect(() => {
+tmp-7e2f5fd-MessageList.tsx:514:		if (!content || typeof ResizeObserver === 'undefined') {
+tmp-7e2f5fd-MessageList.tsx:517:		const ro = new ResizeObserver(() => {
+tmp-7e2f5fd-MessageList.tsx:534:			useLayoutEffect(() => {
+tmp-7e2f5fd-MessageList.tsx:540:					scrollerRef.current?.style.setProperty('--xy-top-fade-h', '0px');
+tmp-7e2f5fd-MessageList.tsx:665:							typeof IntersectionObserver !== 'undefined';
+tmp-7e2f5fd-index.css:273:  transition: background-color 0.12s ease;
+tmp-7e2f5fd-index.css:278:    transition: none !important;
+tmp-7e2f5fd-index.css:285:    transform: rotate(360deg);
+tmp-7e2f5fd-index.css:441:  position: sticky;
+tmp-7e2f5fd-index.css:444:  contain: paint;
+tmp-7e2f5fd-index.css:461:  position: sticky;
+tmp-7e2f5fd-index.css:474:  transition:
+tmp-7e2f5fd-index.css:497:  will-change: grid-template-rows, opacity;
+tmp-7e2f5fd-index.css:542:  transition:
+tmp-7e2f5fd-index.css:671:  position: sticky;
+tmp-7e2f5fd-index.css:687:  transition: opacity 90ms linear;
+tmp-7e2f5fd-index.css:695:  will-change: opacity, transform;
+tmp-7e2f5fd-index.css:698:  transition:
+tmp-7e2f5fd-index.css:711:  transition: opacity 120ms var(--ease-out-soft);
+tmp-7e2f5fd-index.css:719:  transition:
+tmp-7e2f5fd-index.css:846:  transition: grid-template-rows 0.2s ease;
+tmp-7e2f5fd-index.css:865:  transition:
+tmp-7e2f5fd-index.css:879:  transform: translateY(6px);
+tmp-7e2f5fd-index.css:880:  transition:
+tmp-7e2f5fd-index.css:887:  transform: translateY(0);
+tmp-7e2f5fd-index.css:891:  transition:
+tmp-7e2f5fd-index.css:905:  position: sticky;
+tmp-7e2f5fd-index.css:1002:    transform: translateY(6px);
+tmp-7e2f5fd-index.css:1006:    transform: translateY(0);
+tmp-7e2f5fd-index.css:1013:    transform: translate3d(0, 2px, 0);
+tmp-7e2f5fd-index.css:1017:    transform: translate3d(0, 0, 0);
+tmp-7e2f5fd-index.css:1024:    transform: scale(0.97);
+tmp-7e2f5fd-index.css:1028:    transform: scale(1);
+tmp-7e2f5fd-index.css:1035:    transform: scale(0.94);
+tmp-7e2f5fd-index.css:1039:    transform: scale(1);
+tmp-7e2f5fd-index.css:1060:  transition:
+tmp-7e2f5fd-index.css:1067:  will-change: auto;
+tmp-7e2f5fd-index.css:1071:  transform: translateY(-1px);
+tmp-7e2f5fd-index.css:1075:  transform: translateY(0) scale(0.97);
+tmp-7e2f5fd-index.css:1079:  transform: none;
+tmp-7e2f5fd-index.css:1083:  transition:
+tmp-7e2f5fd-index.css:1090:  transform: scale(1.04);
+tmp-7e2f5fd-index.css:1094:  transform: translate3d(0, 0, 0) scale(1.04);
+tmp-7e2f5fd-index.css:1098:  transform: scale(0.94);
+tmp-7e2f5fd-index.css:1102:  transition:
+tmp-7e2f5fd-index.css:1112:  contain: paint;
+tmp-7e2f5fd-index.css:1117:  transition: background-color var(--duration-fast) ease, color var(--duration-fast) ease;
+tmp-7e2f5fd-index.css:1125:  transform: translateY(-2px);
+tmp-7e2f5fd-index.css:1133:  transition:
+tmp-7e2f5fd-index.css:1175:  transform: translate(-50%, -2px);
+tmp-7e2f5fd-index.css:1176:  transition:
+tmp-7e2f5fd-index.css:1184:  transform: translate(-50%, 0);
+tmp-7e2f5fd-index.css:1194:    transition: none;
+tmp-7e2f5fd-index.css:1202:  transition:
+tmp-7e2f5fd-index.css:1246:  transform: translateX(-100%);
+tmp-7e2f5fd-index.css:1252:  from { opacity: 0.72; transform: translate3d(0, 4px, 0); }
+tmp-7e2f5fd-index.css:1253:  to { opacity: 1; transform: translate3d(0, 0, 0); }
+tmp-7e2f5fd-index.css:1257:  to { transform: translateX(100%); }
+tmp-7e2f5fd-index.css:1268:  contain: paint;
+tmp-7e2f5fd-index.css:1277:    transition: none;
+tmp-7e2f5fd-index.css:1288:  will-change: transform;
+tmp-7e2f5fd-index.css:1295:    will-change: auto;
+tmp-7e2f5fd-index.css:1303:  transition:
+tmp-7e2f5fd-index.css:1309:  will-change: transform;
+tmp-7e2f5fd-index.css:1310:  transition: transform var(--duration-base) var(--ease-out-soft);
+tmp-7e2f5fd-index.css:1331:  transition: grid-template-columns var(--duration-base) var(--ease-out-soft);
+tmp-7e2f5fd-index.css:1337:  transition: none !important;
+tmp-7e2f5fd-index.css:1342:    transition: none;
+tmp-7e2f5fd-index.css:1347:  transition: none !important;
+tmp-7e2f5fd-index.css:1351:  transition: none !important;
+tmp-7e2f5fd-index.css:1356:  contain: layout paint;
+tmp-7e2f5fd-index.css:1357:  transition: width var(--duration-base) var(--ease-out-soft), flex-basis var(--duration-base) var(--ease-out-soft);
+tmp-7e2f5fd-index.css:1363:  transition: none !important;
+tmp-7e2f5fd-index.css:1367:  will-change: width;
+tmp-7e2f5fd-index.css:1477:  transition: opacity var(--duration-base) ease;
+tmp-7e2f5fd-index.css:1481:  transition:
+tmp-7e2f5fd-index.css:1487:  contain: paint;
+tmp-7e2f5fd-index.css:1488:  transition: opacity 220ms ease;
+tmp-7e2f5fd-index.css:1544:  transform: translateY(-50%);
+tmp-7e2f5fd-index.css:1548:  transition: opacity 180ms ease;
+tmp-7e2f5fd-index.css:1564:  transition: opacity 140ms ease;
+tmp-7e2f5fd-index.css:1615:  transition:
+tmp-7e2f5fd-index.css:1650:  transform: translateY(-50%) translateX(4px);
+tmp-7e2f5fd-index.css:1659:  transition:
+tmp-7e2f5fd-index.css:1667:  transform: translateY(-50%) translateX(0);
+tmp-7e2f5fd-index.css:1696:  transition: color 100ms ease, background-color 100ms ease;
+tmp-7e2f5fd-index.css:1786:    transform: none;
+tmp-afaec04-Composer.tsx:462:				requestAnimationFrame(() => {
+tmp-afaec04-MessageList.tsx:4:	useLayoutEffect,
+tmp-afaec04-MessageList.tsx:189:		if (!el || typeof IntersectionObserver === 'undefined') {
+tmp-afaec04-MessageList.tsx:193:		const io = new IntersectionObserver(
+tmp-afaec04-MessageList.tsx:339:			const top = scroller.getBoundingClientRect().top + 9;
+tmp-afaec04-MessageList.tsx:342:				const rect = node.getBoundingClientRect();
+tmp-afaec04-MessageList.tsx:361:			scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
+tmp-afaec04-MessageList.tsx:367:		const root = scroller.getBoundingClientRect();
+tmp-afaec04-MessageList.tsx:378:			const rect = el.getBoundingClientRect();
+tmp-afaec04-MessageList.tsx:405:					el.getBoundingClientRect().top -
+tmp-afaec04-MessageList.tsx:406:					scroller.getBoundingClientRect().top +
+tmp-afaec04-MessageList.tsx:407:					scroller.scrollTop -
+tmp-afaec04-MessageList.tsx:409:				scroller.scrollTo({top: Math.max(0, top), behavior: 'smooth'});
+tmp-afaec04-MessageList.tsx:412:			requestAnimationFrame(run);
+tmp-afaec04-MessageList.tsx:446:		useLayoutEffect(() => {
+tmp-afaec04-MessageList.tsx:452:					const gap = gapFromBottom(el.scrollHeight, el.scrollTop, el.clientHeight);
+tmp-afaec04-MessageList.tsx:460:				typeof ResizeObserver !== 'undefined'
+tmp-afaec04-MessageList.tsx:461:						? new ResizeObserver(() => {
+tmp-afaec04-MessageList.tsx:479:		useLayoutEffect(() => {
+tmp-afaec04-MessageList.tsx:494:	useLayoutEffect(() => {
+tmp-afaec04-MessageList.tsx:499:		if (!content || typeof ResizeObserver === 'undefined') {
+tmp-afaec04-MessageList.tsx:502:		const ro = new ResizeObserver(() => {
+tmp-afaec04-MessageList.tsx:519:			useLayoutEffect(() => {
+tmp-afaec04-MessageList.tsx:642:							typeof IntersectionObserver !== 'undefined';
+tmp-afaec04-index.css:273:  transition: background-color 0.12s ease;
+tmp-afaec04-index.css:278:    transition: none !important;
+tmp-afaec04-index.css:285:    transform: rotate(360deg);
+tmp-afaec04-index.css:441:  position: sticky;
+tmp-afaec04-index.css:444:  contain: paint;
+tmp-afaec04-index.css:455:  will-change: grid-template-rows, opacity;
+tmp-afaec04-index.css:500:  transition:
+tmp-afaec04-index.css:629:  position: sticky;
+tmp-afaec04-index.css:645:  transition: opacity 90ms linear;
+tmp-afaec04-index.css:653:  will-change: opacity, transform;
+tmp-afaec04-index.css:656:  transition:
+tmp-afaec04-index.css:669:  transition: opacity 120ms var(--ease-out-soft);
+tmp-afaec04-index.css:677:  transition:
+tmp-afaec04-index.css:804:  transition: grid-template-rows 0.2s ease;
+tmp-afaec04-index.css:823:  transition:
+tmp-afaec04-index.css:837:  transform: translateY(6px);
+tmp-afaec04-index.css:838:  transition:
+tmp-afaec04-index.css:845:  transform: translateY(0);
+tmp-afaec04-index.css:849:  transition:
+tmp-afaec04-index.css:863:  position: sticky;
+tmp-afaec04-index.css:960:    transform: translateY(6px);
+tmp-afaec04-index.css:964:    transform: translateY(0);
+tmp-afaec04-index.css:971:    transform: translate3d(0, 2px, 0);
+tmp-afaec04-index.css:975:    transform: translate3d(0, 0, 0);
+tmp-afaec04-index.css:982:    transform: scale(0.97);
+tmp-afaec04-index.css:986:    transform: scale(1);
+tmp-afaec04-index.css:993:    transform: scale(0.94);
+tmp-afaec04-index.css:997:    transform: scale(1);
+tmp-afaec04-index.css:1018:  transition:
+tmp-afaec04-index.css:1025:  will-change: auto;
+tmp-afaec04-index.css:1029:  transform: translateY(-1px);
+tmp-afaec04-index.css:1033:  transform: translateY(0) scale(0.97);
+tmp-afaec04-index.css:1037:  transform: none;
+tmp-afaec04-index.css:1041:  transition:
+tmp-afaec04-index.css:1048:  transform: scale(1.04);
+tmp-afaec04-index.css:1052:  transform: translate3d(0, 0, 0) scale(1.04);
+tmp-afaec04-index.css:1056:  transform: scale(0.94);
+tmp-afaec04-index.css:1060:  transition:
+tmp-afaec04-index.css:1070:  contain: paint;
+tmp-afaec04-index.css:1075:  transition: background-color var(--duration-fast) ease, color var(--duration-fast) ease;
+tmp-afaec04-index.css:1083:  transform: translateY(-2px);
+tmp-afaec04-index.css:1091:  transition:
+tmp-afaec04-index.css:1106:  transition:
+tmp-afaec04-index.css:1150:  transform: translateX(-100%);
+tmp-afaec04-index.css:1156:  from { opacity: 0.72; transform: translate3d(0, 4px, 0); }
+tmp-afaec04-index.css:1157:  to { opacity: 1; transform: translate3d(0, 0, 0); }
+tmp-afaec04-index.css:1161:  to { transform: translateX(100%); }
+tmp-afaec04-index.css:1172:  contain: paint;
+tmp-afaec04-index.css:1181:    transition: none;
+tmp-afaec04-index.css:1192:  will-change: transform;
+tmp-afaec04-index.css:1199:    will-change: auto;
+tmp-afaec04-index.css:1207:  transition:
+tmp-afaec04-index.css:1213:  will-change: transform;
+tmp-afaec04-index.css:1214:  transition: transform var(--duration-base) var(--ease-out-soft);
+tmp-afaec04-index.css:1235:  transition: grid-template-columns var(--duration-base) var(--ease-out-soft);
+tmp-afaec04-index.css:1241:  transition: none !important;
+tmp-afaec04-index.css:1246:    transition: none;
+tmp-afaec04-index.css:1251:  transition: none !important;
+tmp-afaec04-index.css:1255:  transition: none !important;
+tmp-afaec04-index.css:1260:  contain: layout paint;
+tmp-afaec04-index.css:1261:  transition: width var(--duration-base) var(--ease-out-soft), flex-basis var(--duration-base) var(--ease-out-soft);
+tmp-afaec04-index.css:1265:  will-change: width;
+tmp-afaec04-index.css:1375:  transition: opacity var(--duration-base) ease;
+tmp-afaec04-index.css:1379:  transition:
+tmp-afaec04-index.css:1385:  contain: paint;
+tmp-afaec04-index.css:1386:  transition: opacity 220ms ease;
+tmp-afaec04-index.css:1442:  transform: translateY(-50%);
+tmp-afaec04-index.css:1446:  transition: opacity 180ms ease;
+tmp-afaec04-index.css:1462:  transition: opacity 140ms ease;
+tmp-afaec04-index.css:1513:  transition:
+tmp-afaec04-index.css:1548:  transform: translateY(-50%) translateX(4px);
+tmp-afaec04-index.css:1557:  transition:
+tmp-afaec04-index.css:1565:  transform: translateY(-50%) translateX(0);
+tmp-afaec04-index.css:1594:  transition: color 100ms ease, background-color 100ms ease;
+tmp-afaec04-index.css:1684:    transform: none;
+tmp-c0e0fdc-Composer.tsx:462:				requestAnimationFrame(() => {
+tmp-c0e0fdc-MessageList.tsx:4:	useLayoutEffect,
+tmp-c0e0fdc-MessageList.tsx:199:	el.style.setProperty('-webkit-clip-path', clip);
+tmp-c0e0fdc-MessageList.tsx:250:		if (!el || typeof IntersectionObserver === 'undefined') {
+tmp-c0e0fdc-MessageList.tsx:254:		const io = new IntersectionObserver(
+tmp-c0e0fdc-MessageList.tsx:415:			scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
+tmp-c0e0fdc-MessageList.tsx:421:		const root = scroller.getBoundingClientRect();
+tmp-c0e0fdc-MessageList.tsx:432:			const rect = el.getBoundingClientRect();
+tmp-c0e0fdc-MessageList.tsx:459:					el.getBoundingClientRect().top -
+tmp-c0e0fdc-MessageList.tsx:460:					scroller.getBoundingClientRect().top +
+tmp-c0e0fdc-MessageList.tsx:461:					scroller.scrollTop -
+tmp-c0e0fdc-MessageList.tsx:463:				scroller.scrollTo({top: Math.max(0, top), behavior: 'smooth'});
+tmp-c0e0fdc-MessageList.tsx:466:			requestAnimationFrame(run);
+tmp-c0e0fdc-MessageList.tsx:526:		const sRect = scroller.getBoundingClientRect();
+tmp-c0e0fdc-MessageList.tsx:532:				const rect = node.getBoundingClientRect();
+tmp-c0e0fdc-MessageList.tsx:551:		const cRect = content.getBoundingClientRect();
+tmp-c0e0fdc-MessageList.tsx:559:			const chipRect = chip.getBoundingClientRect();
+tmp-c0e0fdc-MessageList.tsx:690:	useLayoutEffect(() => {
+tmp-c0e0fdc-MessageList.tsx:696:			const gap = gapFromBottom(el.scrollHeight, el.scrollTop, el.clientHeight);
+tmp-c0e0fdc-MessageList.tsx:704:			typeof ResizeObserver !== 'undefined'
+tmp-c0e0fdc-MessageList.tsx:705:				? new ResizeObserver(() => {
+tmp-c0e0fdc-MessageList.tsx:741:	useLayoutEffect(() => {
+tmp-c0e0fdc-MessageList.tsx:757:	useLayoutEffect(() => {
+tmp-c0e0fdc-MessageList.tsx:762:		if (!content || typeof ResizeObserver === 'undefined') {
+tmp-c0e0fdc-MessageList.tsx:765:		const ro = new ResizeObserver(() => {
+tmp-c0e0fdc-MessageList.tsx:892:							typeof IntersectionObserver !== 'undefined';
+tmp-c0e0fdc-index.css:273:  transition: background-color 0.12s ease;
+tmp-c0e0fdc-index.css:278:    transition: none !important;
+tmp-c0e0fdc-index.css:285:    transform: rotate(360deg);
+tmp-c0e0fdc-index.css:441:  position: sticky;
+tmp-c0e0fdc-index.css:487:  transition:
+tmp-c0e0fdc-index.css:732:  transition: grid-template-rows 0.2s ease;
+tmp-c0e0fdc-index.css:751:  transition:
+tmp-c0e0fdc-index.css:765:  transform: translateY(6px);
+tmp-c0e0fdc-index.css:766:  transition:
+tmp-c0e0fdc-index.css:773:  transform: translateY(0);
+tmp-c0e0fdc-index.css:777:  transition:
+tmp-c0e0fdc-index.css:791:  position: sticky;
+tmp-c0e0fdc-index.css:888:    transform: translateY(6px);
+tmp-c0e0fdc-index.css:892:    transform: translateY(0);
+tmp-c0e0fdc-index.css:899:    transform: scale(0.97);
+tmp-c0e0fdc-index.css:903:    transform: scale(1);
+tmp-c0e0fdc-index.css:910:    transform: scale(0.94);
+tmp-c0e0fdc-index.css:914:    transform: scale(1);
+tmp-c0e0fdc-index.css:935:  transition:
+tmp-c0e0fdc-index.css:942:  will-change: auto;
+tmp-c0e0fdc-index.css:946:  transform: translateY(-1px);
+tmp-c0e0fdc-index.css:950:  transform: translateY(0) scale(0.97);
+tmp-c0e0fdc-index.css:954:  transform: none;
+tmp-c0e0fdc-index.css:958:  transition:
+tmp-c0e0fdc-index.css:965:  transform: scale(1.04);
+tmp-c0e0fdc-index.css:969:  transform: scale(0.94);
+tmp-c0e0fdc-index.css:973:  transition:
+tmp-c0e0fdc-index.css:983:  contain: paint;
+tmp-c0e0fdc-index.css:999:  will-change: transform;
+tmp-c0e0fdc-index.css:1000:  transition: transform var(--duration-base) var(--ease-out-soft);
+tmp-c0e0fdc-index.css:1021:  transition: grid-template-columns var(--duration-base) var(--ease-out-soft);
+tmp-c0e0fdc-index.css:1027:  transition: none !important;
+tmp-c0e0fdc-index.css:1031:  transition: none !important;
+tmp-c0e0fdc-index.css:1035:  transition: none !important;
+tmp-c0e0fdc-index.css:1039:  contain: layout paint;
+tmp-c0e0fdc-index.css:1043:  will-change: width;
+tmp-c0e0fdc-index.css:1153:  transition: opacity var(--duration-base) ease;
+tmp-c0e0fdc-index.css:1157:  transition:
+tmp-c0e0fdc-index.css:1163:  contain: paint;
+tmp-c0e0fdc-index.css:1164:  transition: opacity 220ms ease;
+tmp-c0e0fdc-index.css:1220:  transform: translateY(-50%);
+tmp-c0e0fdc-index.css:1224:  transition: opacity 180ms ease;
+tmp-c0e0fdc-index.css:1240:  transition: opacity 140ms ease;
+tmp-c0e0fdc-index.css:1291:  transition:
+tmp-c0e0fdc-index.css:1326:  transform: translateY(-50%) translateX(4px);
+tmp-c0e0fdc-index.css:1335:  transition:
+tmp-c0e0fdc-index.css:1343:  transform: translateY(-50%) translateX(0);
+tmp-c0e0fdc-index.css:1372:  transition: color 100ms ease, background-color 100ms ease;
+tmp-c0e0fdc-index.css:1462:    transform: none;
+tmp-cae4584-Composer.tsx:462:				requestAnimationFrame(() => {
+tmp-cae4584-MessageList.tsx:4:	useLayoutEffect,
+tmp-cae4584-MessageList.tsx:199:	el.style.setProperty('-webkit-clip-path', clip);
+tmp-cae4584-MessageList.tsx:250:		if (!el || typeof IntersectionObserver === 'undefined') {
+tmp-cae4584-MessageList.tsx:254:		const io = new IntersectionObserver(
+tmp-cae4584-MessageList.tsx:415:			scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
+tmp-cae4584-MessageList.tsx:421:		const root = scroller.getBoundingClientRect();
+tmp-cae4584-MessageList.tsx:432:			const rect = el.getBoundingClientRect();
+tmp-cae4584-MessageList.tsx:459:					el.getBoundingClientRect().top -
+tmp-cae4584-MessageList.tsx:460:					scroller.getBoundingClientRect().top +
+tmp-cae4584-MessageList.tsx:461:					scroller.scrollTop -
+tmp-cae4584-MessageList.tsx:463:				scroller.scrollTo({top: Math.max(0, top), behavior: 'smooth'});
+tmp-cae4584-MessageList.tsx:466:			requestAnimationFrame(run);
+tmp-cae4584-MessageList.tsx:526:		const sRect = scroller.getBoundingClientRect();
+tmp-cae4584-MessageList.tsx:532:				const rect = node.getBoundingClientRect();
+tmp-cae4584-MessageList.tsx:551:		const cRect = content.getBoundingClientRect();
+tmp-cae4584-MessageList.tsx:559:			const chipRect = chip.getBoundingClientRect();
+tmp-cae4584-MessageList.tsx:690:	useLayoutEffect(() => {
+tmp-cae4584-MessageList.tsx:696:			const gap = gapFromBottom(el.scrollHeight, el.scrollTop, el.clientHeight);
+tmp-cae4584-MessageList.tsx:704:			typeof ResizeObserver !== 'undefined'
+tmp-cae4584-MessageList.tsx:705:				? new ResizeObserver(() => {
+tmp-cae4584-MessageList.tsx:741:	useLayoutEffect(() => {
+tmp-cae4584-MessageList.tsx:757:	useLayoutEffect(() => {
+tmp-cae4584-MessageList.tsx:762:		if (!content || typeof ResizeObserver === 'undefined') {
+tmp-cae4584-MessageList.tsx:765:		const ro = new ResizeObserver(() => {
+tmp-cae4584-MessageList.tsx:780:			useLayoutEffect(() => {
+tmp-cae4584-MessageList.tsx:910:							typeof IntersectionObserver !== 'undefined';
+tmp-cae4584-index.css:273:  transition: background-color 0.12s ease;
+tmp-cae4584-index.css:278:    transition: none !important;
+tmp-cae4584-index.css:285:    transform: rotate(360deg);
+tmp-cae4584-index.css:441:  position: sticky;
+tmp-cae4584-index.css:487:  transition:
+tmp-cae4584-index.css:732:  transition: grid-template-rows 0.2s ease;
+tmp-cae4584-index.css:751:  transition:
+tmp-cae4584-index.css:765:  transform: translateY(6px);
+tmp-cae4584-index.css:766:  transition:
+tmp-cae4584-index.css:773:  transform: translateY(0);
+tmp-cae4584-index.css:777:  transition:
+tmp-cae4584-index.css:791:  position: sticky;
+tmp-cae4584-index.css:888:    transform: translateY(6px);
+tmp-cae4584-index.css:892:    transform: translateY(0);
+tmp-cae4584-index.css:899:    transform: scale(0.97);
+tmp-cae4584-index.css:903:    transform: scale(1);
+tmp-cae4584-index.css:910:    transform: scale(0.94);
+tmp-cae4584-index.css:914:    transform: scale(1);
+tmp-cae4584-index.css:935:  transition:
+tmp-cae4584-index.css:942:  will-change: auto;
+tmp-cae4584-index.css:946:  transform: translateY(-1px);
+tmp-cae4584-index.css:950:  transform: translateY(0) scale(0.97);
+tmp-cae4584-index.css:954:  transform: none;
+tmp-cae4584-index.css:958:  transition:
+tmp-cae4584-index.css:965:  transform: scale(1.04);
+tmp-cae4584-index.css:969:  transform: scale(0.94);
+tmp-cae4584-index.css:973:  transition:
+tmp-cae4584-index.css:983:  contain: paint;
+tmp-cae4584-index.css:988:  transition: background-color var(--duration-fast) ease, color var(--duration-fast) ease;
+tmp-cae4584-index.css:995:  transform: translateY(-2px);
+tmp-cae4584-index.css:1004:  transition:
+tmp-cae4584-index.css:1024:  contain: paint;
+tmp-cae4584-index.css:1031:    transition: none;
+tmp-cae4584-index.css:1042:  will-change: transform;
+tmp-cae4584-index.css:1049:    will-change: auto;
+tmp-cae4584-index.css:1061:  will-change: transform;
+tmp-cae4584-index.css:1062:  transition: transform var(--duration-base) var(--ease-out-soft);
+tmp-cae4584-index.css:1083:  transition: grid-template-columns var(--duration-base) var(--ease-out-soft);
+tmp-cae4584-index.css:1089:  transition: none !important;
+tmp-cae4584-index.css:1093:  transition: none !important;
+tmp-cae4584-index.css:1097:  transition: none !important;
+tmp-cae4584-index.css:1101:  contain: layout paint;
+tmp-cae4584-index.css:1105:  will-change: width;
+tmp-cae4584-index.css:1215:  transition: opacity var(--duration-base) ease;
+tmp-cae4584-index.css:1219:  transition:
+tmp-cae4584-index.css:1225:  contain: paint;
+tmp-cae4584-index.css:1226:  transition: opacity 220ms ease;
+tmp-cae4584-index.css:1282:  transform: translateY(-50%);
+tmp-cae4584-index.css:1286:  transition: opacity 180ms ease;
+tmp-cae4584-index.css:1302:  transition: opacity 140ms ease;
+tmp-cae4584-index.css:1353:  transition:
+tmp-cae4584-index.css:1388:  transform: translateY(-50%) translateX(4px);
+tmp-cae4584-index.css:1397:  transition:
+tmp-cae4584-index.css:1405:  transform: translateY(-50%) translateX(0);
+tmp-cae4584-index.css:1434:  transition: color 100ms ease, background-color 100ms ease;
+tmp-cae4584-index.css:1524:    transform: none;
+tmp-e7c65a5-Composer.tsx:462:				requestAnimationFrame(() => {
+tmp-e7c65a5-MessageList.tsx:4:	useLayoutEffect,
+tmp-e7c65a5-MessageList.tsx:188:		if (!el || typeof IntersectionObserver === 'undefined') {
+tmp-e7c65a5-MessageList.tsx:192:		const io = new IntersectionObserver(
+tmp-e7c65a5-MessageList.tsx:337:			scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
+tmp-e7c65a5-MessageList.tsx:343:		const root = scroller.getBoundingClientRect();
+tmp-e7c65a5-MessageList.tsx:354:			const rect = el.getBoundingClientRect();
+tmp-e7c65a5-MessageList.tsx:381:					el.getBoundingClientRect().top -
+tmp-e7c65a5-MessageList.tsx:382:					scroller.getBoundingClientRect().top +
+tmp-e7c65a5-MessageList.tsx:383:					scroller.scrollTop -
+tmp-e7c65a5-MessageList.tsx:385:				scroller.scrollTo({top: Math.max(0, top), behavior: 'smooth'});
+tmp-e7c65a5-MessageList.tsx:388:			requestAnimationFrame(run);
+tmp-e7c65a5-MessageList.tsx:422:		useLayoutEffect(() => {
+tmp-e7c65a5-MessageList.tsx:428:				const gap = gapFromBottom(el.scrollHeight, el.scrollTop, el.clientHeight);
+tmp-e7c65a5-MessageList.tsx:435:				typeof ResizeObserver !== 'undefined'
+tmp-e7c65a5-MessageList.tsx:436:					? new ResizeObserver(() => {
+tmp-e7c65a5-MessageList.tsx:452:		useLayoutEffect(() => {
+tmp-e7c65a5-MessageList.tsx:467:	useLayoutEffect(() => {
+tmp-e7c65a5-MessageList.tsx:472:		if (!content || typeof ResizeObserver === 'undefined') {
+tmp-e7c65a5-MessageList.tsx:475:		const ro = new ResizeObserver(() => {
+tmp-e7c65a5-MessageList.tsx:491:			useLayoutEffect(() => {
+tmp-e7c65a5-MessageList.tsx:611:							typeof IntersectionObserver !== 'undefined';
+tmp-e7c65a5-index.css:273:  transition: background-color 0.12s ease;
+tmp-e7c65a5-index.css:278:    transition: none !important;
+tmp-e7c65a5-index.css:285:    transform: rotate(360deg);
+tmp-e7c65a5-index.css:441:  position: sticky;
+tmp-e7c65a5-index.css:444:  contain: paint;
+tmp-e7c65a5-index.css:454:  will-change: grid-template-rows, opacity;
+tmp-e7c65a5-index.css:499:  transition:
+tmp-e7c65a5-index.css:744:  transition: grid-template-rows 0.2s ease;
+tmp-e7c65a5-index.css:763:  transition:
+tmp-e7c65a5-index.css:777:  transform: translateY(6px);
+tmp-e7c65a5-index.css:778:  transition:
+tmp-e7c65a5-index.css:785:  transform: translateY(0);
+tmp-e7c65a5-index.css:789:  transition:
+tmp-e7c65a5-index.css:803:  position: sticky;
+tmp-e7c65a5-index.css:900:    transform: translateY(6px);
+tmp-e7c65a5-index.css:904:    transform: translateY(0);
+tmp-e7c65a5-index.css:911:    transform: translate3d(0, 2px, 0);
+tmp-e7c65a5-index.css:915:    transform: translate3d(0, 0, 0);
+tmp-e7c65a5-index.css:922:    transform: scale(0.97);
+tmp-e7c65a5-index.css:926:    transform: scale(1);
+tmp-e7c65a5-index.css:933:    transform: scale(0.94);
+tmp-e7c65a5-index.css:937:    transform: scale(1);
+tmp-e7c65a5-index.css:958:  transition:
+tmp-e7c65a5-index.css:965:  will-change: auto;
+tmp-e7c65a5-index.css:969:  transform: translateY(-1px);
+tmp-e7c65a5-index.css:973:  transform: translateY(0) scale(0.97);
+tmp-e7c65a5-index.css:977:  transform: none;
+tmp-e7c65a5-index.css:981:  transition:
+tmp-e7c65a5-index.css:988:  transform: scale(1.04);
+tmp-e7c65a5-index.css:992:  transform: scale(0.94);
+tmp-e7c65a5-index.css:996:  transition:
+tmp-e7c65a5-index.css:1006:  contain: paint;
+tmp-e7c65a5-index.css:1011:  transition: background-color var(--duration-fast) ease, color var(--duration-fast) ease;
+tmp-e7c65a5-index.css:1018:  transform: translateY(-2px);
+tmp-e7c65a5-index.css:1027:  transition:
+tmp-e7c65a5-index.css:1057:  contain: paint;
+tmp-e7c65a5-index.css:1066:    transition: none;
+tmp-e7c65a5-index.css:1077:  will-change: transform;
+tmp-e7c65a5-index.css:1084:    will-change: auto;
+tmp-e7c65a5-index.css:1093:  transition: width var(--duration-base) var(--ease-out-soft);
+tmp-e7c65a5-index.css:1097:  will-change: transform;
+tmp-e7c65a5-index.css:1098:  transition: transform var(--duration-base) var(--ease-out-soft);
+tmp-e7c65a5-index.css:1119:  transition: grid-template-columns var(--duration-base) var(--ease-out-soft);
+tmp-e7c65a5-index.css:1125:  transition: none !important;
+tmp-e7c65a5-index.css:1130:    transition: none;
+tmp-e7c65a5-index.css:1135:  transition: none !important;
+tmp-e7c65a5-index.css:1139:  transition: none !important;
+tmp-e7c65a5-index.css:1143:  contain: layout paint;
+tmp-e7c65a5-index.css:1147:  will-change: width;
+tmp-e7c65a5-index.css:1257:  transition: opacity var(--duration-base) ease;
+tmp-e7c65a5-index.css:1261:  transition:
+tmp-e7c65a5-index.css:1267:  contain: paint;
+tmp-e7c65a5-index.css:1268:  transition: opacity 220ms ease;
+tmp-e7c65a5-index.css:1324:  transform: translateY(-50%);
+tmp-e7c65a5-index.css:1328:  transition: opacity 180ms ease;
+tmp-e7c65a5-index.css:1344:  transition: opacity 140ms ease;
+tmp-e7c65a5-index.css:1395:  transition:
+tmp-e7c65a5-index.css:1430:  transform: translateY(-50%) translateX(4px);
+tmp-e7c65a5-index.css:1439:  transition:
+tmp-e7c65a5-index.css:1447:  transform: translateY(-50%) translateX(0);
+tmp-e7c65a5-index.css:1476:  transition: color 100ms ease, background-color 100ms ease;
+tmp-e7c65a5-index.css:1566:    transform: none;
+tmp-f5ed007-Composer.tsx:462:				requestAnimationFrame(() => {
+tmp-f5ed007-MessageList.tsx:4:	useLayoutEffect,
+tmp-f5ed007-MessageList.tsx:172:	el.style.setProperty('-webkit-clip-path', clip);
+tmp-f5ed007-MessageList.tsx:223:		if (!el || typeof IntersectionObserver === 'undefined') {
+tmp-f5ed007-MessageList.tsx:227:		const io = new IntersectionObserver(
+tmp-f5ed007-MessageList.tsx:388:			scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
+tmp-f5ed007-MessageList.tsx:394:		const root = scroller.getBoundingClientRect();
+tmp-f5ed007-MessageList.tsx:405:			const rect = el.getBoundingClientRect();
+tmp-f5ed007-MessageList.tsx:432:					el.getBoundingClientRect().top -
+tmp-f5ed007-MessageList.tsx:433:					scroller.getBoundingClientRect().top +
+tmp-f5ed007-MessageList.tsx:434:					scroller.scrollTop -
+tmp-f5ed007-MessageList.tsx:436:				scroller.scrollTo({top: Math.max(0, top), behavior: 'smooth'});
+tmp-f5ed007-MessageList.tsx:439:			requestAnimationFrame(run);
+tmp-f5ed007-MessageList.tsx:499:		const sRect = scroller.getBoundingClientRect();
+tmp-f5ed007-MessageList.tsx:505:				const rect = node.getBoundingClientRect();
+tmp-f5ed007-MessageList.tsx:524:		const cRect = content.getBoundingClientRect();
+tmp-f5ed007-MessageList.tsx:532:			const chipRect = chip.getBoundingClientRect();
+tmp-f5ed007-MessageList.tsx:663:	useLayoutEffect(() => {
+tmp-f5ed007-MessageList.tsx:669:			const gap = gapFromBottom(el.scrollHeight, el.scrollTop, el.clientHeight);
+tmp-f5ed007-MessageList.tsx:677:			typeof ResizeObserver !== 'undefined'
+tmp-f5ed007-MessageList.tsx:678:				? new ResizeObserver(() => {
+tmp-f5ed007-MessageList.tsx:714:	useLayoutEffect(() => {
+tmp-f5ed007-MessageList.tsx:730:	useLayoutEffect(() => {
+tmp-f5ed007-MessageList.tsx:735:		if (!content || typeof ResizeObserver === 'undefined') {
+tmp-f5ed007-MessageList.tsx:738:		const ro = new ResizeObserver(() => {
+tmp-f5ed007-MessageList.tsx:799:							typeof IntersectionObserver !== 'undefined';
+tmp-f5ed007-index.css:273:  transition: background-color 0.12s ease;
+tmp-f5ed007-index.css:278:    transition: none !important;
+tmp-f5ed007-index.css:285:    transform: rotate(360deg);
+tmp-f5ed007-index.css:441:  position: sticky;
+tmp-f5ed007-index.css:487:  transition:
+tmp-f5ed007-index.css:732:  transition: grid-template-rows 0.2s ease;
+tmp-f5ed007-index.css:751:  transition:
+tmp-f5ed007-index.css:765:  transform: translateY(6px);
+tmp-f5ed007-index.css:766:  transition:
+tmp-f5ed007-index.css:773:  transform: translateY(0);
+tmp-f5ed007-index.css:777:  transition:
+tmp-f5ed007-index.css:791:  position: sticky;
+tmp-f5ed007-index.css:888:    transform: translateY(6px);
+tmp-f5ed007-index.css:892:    transform: translateY(0);
+tmp-f5ed007-index.css:899:    transform: scale(0.97);
+tmp-f5ed007-index.css:903:    transform: scale(1);
+tmp-f5ed007-index.css:910:    transform: scale(0.94);
+tmp-f5ed007-index.css:914:    transform: scale(1);
+tmp-f5ed007-index.css:935:  transition:
+tmp-f5ed007-index.css:942:  will-change: auto;
+tmp-f5ed007-index.css:946:  transform: translateY(-1px);
+tmp-f5ed007-index.css:950:  transform: translateY(0) scale(0.97);
+tmp-f5ed007-index.css:954:  transform: none;
+tmp-f5ed007-index.css:958:  transition:
+tmp-f5ed007-index.css:965:  transform: scale(1.04);
+tmp-f5ed007-index.css:969:  transform: scale(0.94);
+tmp-f5ed007-index.css:973:  transition:
+tmp-f5ed007-index.css:983:  contain: paint;
+tmp-f5ed007-index.css:998:  transition: width var(--duration-base) var(--ease-out-soft);
+tmp-f5ed007-index.css:1002:  will-change: transform;
+tmp-f5ed007-index.css:1003:  transition: transform var(--duration-base) var(--ease-out-soft);
+tmp-f5ed007-index.css:1024:  transition: grid-template-columns var(--duration-base) var(--ease-out-soft);
+tmp-f5ed007-index.css:1030:  transition: none !important;
+tmp-f5ed007-index.css:1034:  transition: none !important;
+tmp-f5ed007-index.css:1038:  transition: none !important;
+tmp-f5ed007-index.css:1042:  contain: layout paint;
+tmp-f5ed007-index.css:1046:  will-change: width;
+tmp-f5ed007-index.css:1156:  transition: opacity var(--duration-base) ease;
+tmp-f5ed007-index.css:1160:  transition:
+tmp-f5ed007-index.css:1166:  contain: paint;
+tmp-f5ed007-index.css:1167:  transition: opacity 220ms ease;
+tmp-f5ed007-index.css:1223:  transform: translateY(-50%);
+tmp-f5ed007-index.css:1227:  transition: opacity 180ms ease;
+tmp-f5ed007-index.css:1243:  transition: opacity 140ms ease;
+tmp-f5ed007-index.css:1294:  transition:
+tmp-f5ed007-index.css:1329:  transform: translateY(-50%) translateX(4px);
+tmp-f5ed007-index.css:1338:  transition:
+tmp-f5ed007-index.css:1346:  transform: translateY(-50%) translateX(0);
+tmp-f5ed007-index.css:1375:  transition: color 100ms ease, background-color 100ms ease;
+tmp-f5ed007-index.css:1465:    transform: none;
+tmp-head-Composer.tsx:462:				requestAnimationFrame(() => {
+tmp-head-MessageList.tsx:5:	useLayoutEffect,
+tmp-head-MessageList.tsx:191:		if (!el || typeof IntersectionObserver === 'undefined') {
+tmp-head-MessageList.tsx:195:		const io = new IntersectionObserver(
+tmp-head-MessageList.tsx:482:	useLayoutEffect(() => {
+tmp-head-MessageList.tsx:501:				const scrollerRect = scroller.getBoundingClientRect();
+tmp-head-MessageList.tsx:508:					const rect = node.getBoundingClientRect();
+tmp-head-MessageList.tsx:517:				scroller.style.setProperty('--xy-top-fade-h', `${height}px`);
+tmp-head-MessageList.tsx:532:			scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
+tmp-head-MessageList.tsx:541:			// offsetTop is equivalent to rect.top - scroller rect.top + scrollTop,
+tmp-head-MessageList.tsx:542:			// without a per-frame getBoundingClientRect layout read.
+tmp-head-MessageList.tsx:552:				if (el.offsetTop - scroller.scrollTop <= readOffset) {
+tmp-head-MessageList.tsx:577:					el.getBoundingClientRect().top -
+tmp-head-MessageList.tsx:578:					scroller.getBoundingClientRect().top +
+tmp-head-MessageList.tsx:579:					scroller.scrollTop -
+tmp-head-MessageList.tsx:581:				scroller.scrollTo({top: Math.max(0, top), behavior: 'smooth'});
+tmp-head-MessageList.tsx:585:			requestAnimationFrame(run);
+tmp-head-MessageList.tsx:620:		useLayoutEffect(() => {
+tmp-head-MessageList.tsx:626:					const gap = gapFromBottom(el.scrollHeight, el.scrollTop, el.clientHeight);
+tmp-head-MessageList.tsx:634:				typeof ResizeObserver !== 'undefined'
+tmp-head-MessageList.tsx:635:							? new ResizeObserver(() => {
+tmp-head-MessageList.tsx:653:		useLayoutEffect(() => {
+tmp-head-MessageList.tsx:668:	useLayoutEffect(() => {
+tmp-head-MessageList.tsx:673:		if (!content || typeof ResizeObserver === 'undefined') {
+tmp-head-MessageList.tsx:676:		const ro = new ResizeObserver(() => {
+tmp-head-MessageList.tsx:694:			useLayoutEffect(() => {
+tmp-head-MessageList.tsx:699:							scrollerRef.current?.style.setProperty('--xy-top-fade-h', '0px');
+tmp-head-MessageList.tsx:829:								ioAvailable={typeof IntersectionObserver !== 'undefined'}
+tmp-head-index.css:273:  transition: background-color 0.12s ease;
+tmp-head-index.css:278:    transition: none !important;
+tmp-head-index.css:285:    transform: rotate(360deg);
+tmp-head-index.css:441:  position: sticky;
+tmp-head-index.css:444:  contain: paint;
+tmp-head-index.css:461:  position: sticky;
+tmp-head-index.css:474:  transition:
+tmp-head-index.css:497:  will-change: grid-template-rows, opacity;
+tmp-head-index.css:542:  transition:
+tmp-head-index.css:671:  position: sticky;
+tmp-head-index.css:687:  transition: opacity 90ms linear;
+tmp-head-index.css:695:  will-change: opacity, transform;
+tmp-head-index.css:698:  transition:
+tmp-head-index.css:711:  transition: opacity 120ms var(--ease-out-soft);
+tmp-head-index.css:719:  transition:
+tmp-head-index.css:846:  transition: grid-template-rows 0.2s ease;
+tmp-head-index.css:865:  transition:
+tmp-head-index.css:879:  transform: translateY(6px);
+tmp-head-index.css:880:  transition:
+tmp-head-index.css:887:  transform: translateY(0);
+tmp-head-index.css:891:  transition:
+tmp-head-index.css:905:  position: sticky;
+tmp-head-index.css:1002:    transform: translateY(6px);
+tmp-head-index.css:1006:    transform: translateY(0);
+tmp-head-index.css:1013:    transform: translate3d(0, 2px, 0);
+tmp-head-index.css:1017:    transform: translate3d(0, 0, 0);
+tmp-head-index.css:1024:    transform: scale(0.97);
+tmp-head-index.css:1028:    transform: scale(1);
+tmp-head-index.css:1035:    transform: scale(0.94);
+tmp-head-index.css:1039:    transform: scale(1);
+tmp-head-index.css:1060:  transition:
+tmp-head-index.css:1067:  will-change: auto;
+tmp-head-index.css:1071:  transform: translateY(-1px);
+tmp-head-index.css:1075:  transform: translateY(0) scale(0.97);
+tmp-head-index.css:1079:  transform: none;
+tmp-head-index.css:1083:  transition:
+tmp-head-index.css:1090:  transform: scale(1.04);
+tmp-head-index.css:1094:  transform: translate3d(0, 0, 0) scale(1.04);
+tmp-head-index.css:1098:  transform: scale(0.94);
+tmp-head-index.css:1102:  transition:
+tmp-head-index.css:1112:  contain: paint;
+tmp-head-index.css:1117:  transition: background-color var(--duration-fast) ease, color var(--duration-fast) ease;
+tmp-head-index.css:1125:  transform: translateY(-2px);
+tmp-head-index.css:1133:  transition:
+tmp-head-index.css:1175:  transform: translate(-50%, -2px);
+tmp-head-index.css:1176:  transition:
+tmp-head-index.css:1184:  transform: translate(-50%, 0);
+tmp-head-index.css:1194:    transition: none;
+tmp-head-index.css:1202:  transition:
+tmp-head-index.css:1246:  transform: translateX(-100%);
+tmp-head-index.css:1252:  from { opacity: 0.72; transform: translate3d(0, 4px, 0); }
+tmp-head-index.css:1253:  to { opacity: 1; transform: translate3d(0, 0, 0); }
+tmp-head-index.css:1257:  to { transform: translateX(100%); }
+tmp-head-index.css:1268:  contain: paint;
+tmp-head-index.css:1277:    transition: none;
+tmp-head-index.css:1288:  will-change: transform;
+tmp-head-index.css:1295:    will-change: auto;
+tmp-head-index.css:1303:  transition:
+tmp-head-index.css:1309:  will-change: transform;
+tmp-head-index.css:1310:  transition: transform var(--duration-base) var(--ease-out-soft);
+tmp-head-index.css:1331:  transition: grid-template-columns var(--duration-base) var(--ease-out-soft);
+tmp-head-index.css:1337:  transition: none !important;
+tmp-head-index.css:1342:    transition: none;
+tmp-head-index.css:1347:  transition: none !important;
+tmp-head-index.css:1351:  transition: none !important;
+tmp-head-index.css:1356:  contain: layout paint;
+tmp-head-index.css:1357:  transition: width var(--duration-base) var(--ease-out-soft), flex-basis var(--duration-base) var(--ease-out-soft);
+tmp-head-index.css:1363:  transition: none !important;
+tmp-head-index.css:1367:  will-change: width;
+tmp-head-index.css:1477:  transition: opacity var(--duration-base) ease;
+tmp-head-index.css:1481:  transition:
+tmp-head-index.css:1487:  contain: paint;
+tmp-head-index.css:1488:  transition: opacity 220ms ease;
+tmp-head-index.css:1544:  transform: translateY(-50%);
+tmp-head-index.css:1548:  transition: opacity 180ms ease;
+tmp-head-index.css:1564:  transition: opacity 140ms ease;
+tmp-head-index.css:1615:  transition:
+tmp-head-index.css:1650:  transform: translateY(-50%) translateX(4px);
+tmp-head-index.css:1659:  transition:
+tmp-head-index.css:1667:  transform: translateY(-50%) translateX(0);
+tmp-head-index.css:1696:  transition: color 100ms ease, background-color 100ms ease;
+tmp-head-index.css:1786:    transform: none;
+tmp-message-at-fade-hole.tsx:6:	useLayoutEffect,
+tmp-message-at-fade-hole.tsx:144:	el.style.setProperty('-webkit-clip-path', clip);
+tmp-message-at-fade-hole.tsx:226:		if (!el || typeof IntersectionObserver === 'undefined') {
+tmp-message-at-fade-hole.tsx:230:		const io = new IntersectionObserver(
+tmp-message-at-fade-hole.tsx:549:	useLayoutEffect(() => {
+tmp-message-at-fade-hole.tsx:568:				const scrollerRect = scroller.getBoundingClientRect();
+tmp-message-at-fade-hole.tsx:575:					const rect = node.getBoundingClientRect();
+tmp-message-at-fade-hole.tsx:584:				scroller.style.setProperty('--xy-top-fade-h', `${height}px`);
+tmp-message-at-fade-hole.tsx:626:				const scrollerRect = scroller.getBoundingClientRect();
+tmp-message-at-fade-hole.tsx:630:					const chipRect = chip?.getBoundingClientRect() ?? null;
+tmp-message-at-fade-hole.tsx:654:						const fadeRect = topFade.getBoundingClientRect();
+tmp-message-at-fade-hole.tsx:693:					const rect = layer.getBoundingClientRect();
+tmp-message-at-fade-hole.tsx:777:			scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
+tmp-message-at-fade-hole.tsx:786:			// offsetTop is equivalent to rect.top - scroller rect.top + scrollTop,
+tmp-message-at-fade-hole.tsx:787:			// without a per-frame getBoundingClientRect layout read.
+tmp-message-at-fade-hole.tsx:797:				if (el.offsetTop - scroller.scrollTop <= readOffset) {
+tmp-message-at-fade-hole.tsx:822:					el.getBoundingClientRect().top -
+tmp-message-at-fade-hole.tsx:823:					scroller.getBoundingClientRect().top +
+tmp-message-at-fade-hole.tsx:824:					scroller.scrollTop -
+tmp-message-at-fade-hole.tsx:826:				scroller.scrollTo({top: Math.max(0, top), behavior: 'smooth'});
+tmp-message-at-fade-hole.tsx:830:			requestAnimationFrame(run);
+tmp-message-at-fade-hole.tsx:865:		useLayoutEffect(() => {
+tmp-message-at-fade-hole.tsx:871:					const gap = gapFromBottom(el.scrollHeight, el.scrollTop, el.clientHeight);
+tmp-message-at-fade-hole.tsx:880:				typeof ResizeObserver !== 'undefined'
+tmp-message-at-fade-hole.tsx:881:							? new ResizeObserver(() => {
+tmp-message-at-fade-hole.tsx:901:		useLayoutEffect(() => {
+tmp-message-at-fade-hole.tsx:916:	useLayoutEffect(() => {
+tmp-message-at-fade-hole.tsx:921:		if (!content || typeof ResizeObserver === 'undefined') {
+tmp-message-at-fade-hole.tsx:924:		const ro = new ResizeObserver(() => {
+tmp-message-at-fade-hole.tsx:950:			useLayoutEffect(() => {
+tmp-message-at-fade-hole.tsx:968:				scrollerRef.current?.style.setProperty('--xy-top-fade-h', '0px');
+tmp-message-at-fade-hole.tsx:1135:								ioAvailable={typeof IntersectionObserver !== 'undefined'}
+tmp-message-before-fade-hole.tsx:6:	useLayoutEffect,
+tmp-message-before-fade-hole.tsx:144:	el.style.setProperty('-webkit-clip-path', clip);
+tmp-message-before-fade-hole.tsx:226:		if (!el || typeof IntersectionObserver === 'undefined') {
+tmp-message-before-fade-hole.tsx:230:		const io = new IntersectionObserver(
+tmp-message-before-fade-hole.tsx:549:	useLayoutEffect(() => {
+tmp-message-before-fade-hole.tsx:568:				const scrollerRect = scroller.getBoundingClientRect();
+tmp-message-before-fade-hole.tsx:575:					const rect = node.getBoundingClientRect();
+tmp-message-before-fade-hole.tsx:584:				scroller.style.setProperty('--xy-top-fade-h', `${height}px`);
+tmp-message-before-fade-hole.tsx:626:				const scrollerRect = scroller.getBoundingClientRect();
+tmp-message-before-fade-hole.tsx:630:					const chipRect = chip?.getBoundingClientRect() ?? null;
+tmp-message-before-fade-hole.tsx:654:						const fadeRect = topFade.getBoundingClientRect();
+tmp-message-before-fade-hole.tsx:693:					const rect = layer.getBoundingClientRect();
+tmp-message-before-fade-hole.tsx:777:			scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
+tmp-message-before-fade-hole.tsx:786:			// offsetTop is equivalent to rect.top - scroller rect.top + scrollTop,
+tmp-message-before-fade-hole.tsx:787:			// without a per-frame getBoundingClientRect layout read.
+tmp-message-before-fade-hole.tsx:797:				if (el.offsetTop - scroller.scrollTop <= readOffset) {
+tmp-message-before-fade-hole.tsx:822:					el.getBoundingClientRect().top -
+tmp-message-before-fade-hole.tsx:823:					scroller.getBoundingClientRect().top +
+tmp-message-before-fade-hole.tsx:824:					scroller.scrollTop -
+tmp-message-before-fade-hole.tsx:826:				scroller.scrollTo({top: Math.max(0, top), behavior: 'smooth'});
+tmp-message-before-fade-hole.tsx:830:			requestAnimationFrame(run);
+tmp-message-before-fade-hole.tsx:865:		useLayoutEffect(() => {
+tmp-message-before-fade-hole.tsx:871:					const gap = gapFromBottom(el.scrollHeight, el.scrollTop, el.clientHeight);
+tmp-message-before-fade-hole.tsx:880:				typeof ResizeObserver !== 'undefined'
+tmp-message-before-fade-hole.tsx:881:							? new ResizeObserver(() => {
+tmp-message-before-fade-hole.tsx:901:		useLayoutEffect(() => {
+tmp-message-before-fade-hole.tsx:916:	useLayoutEffect(() => {
+tmp-message-before-fade-hole.tsx:921:		if (!content || typeof ResizeObserver === 'undefined') {
+tmp-message-before-fade-hole.tsx:924:		const ro = new ResizeObserver(() => {
+tmp-message-before-fade-hole.tsx:950:			useLayoutEffect(() => {
+tmp-message-before-fade-hole.tsx:968:				scrollerRef.current?.style.setProperty('--xy-top-fade-h', '0px');
+tmp-message-before-fade-hole.tsx:1135:								ioAvailable={typeof IntersectionObserver !== 'undefined'}

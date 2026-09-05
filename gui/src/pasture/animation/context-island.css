@@ -1,0 +1,303 @@
+.xy-context-island {
+  --island-width: 240px;
+  --island-height: clamp(64px, 12vh, 92px);
+  --island-subject-width: 176px;
+  position: fixed;
+  z-index: 8;
+  left: 0;
+  bottom: 0;
+  width: var(--island-width);
+  height: var(--island-height);
+  overflow: hidden;
+  pointer-events: none;
+  isolation: isolate;
+  opacity: 0.84;
+  transition: opacity 0.8s ease-in-out;
+  contain: layout paint style;
+}
+
+.xy-context-island:hover,
+.xy-context-island:focus-within {
+  opacity: 1;
+}
+
+.xy-context-island__scene {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  mask-image: linear-gradient(90deg, #000 0%, #000 68%, rgb(0 0 0 / 0.76) 86%, transparent 100%);
+  -webkit-mask-image: linear-gradient(90deg, #000 0%, #000 68%, rgb(0 0 0 / 0.76) 86%, transparent 100%);
+}
+
+.xy-context-island__layer,
+.xy-context-island__asset {
+  position: absolute;
+  display: block;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+  transition: opacity 0.8s ease-in-out;
+}
+
+.xy-context-island__sea {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 62%;
+  opacity: 0.5;
+  z-index: 1;
+}
+
+.xy-context-island__sea img {
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+}
+
+.xy-context-island__sea img:nth-child(1) { opacity: 0.92; }
+.xy-context-island__sea img:nth-child(2) { opacity: 0.5; }
+.xy-context-island__sea img:nth-child(3) { opacity: 0.36; }
+.xy-context-island__sea img:nth-child(4) { opacity: 0.26; }
+
+.xy-context-island__foam {
+  left: 0;
+  right: 0;
+  bottom: 8%;
+  height: 38%;
+  opacity: 0.64;
+  z-index: 2;
+}
+
+.xy-context-island__foam img {
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+}
+
+.xy-context-island__foam img:nth-child(2) {
+  opacity: 0.55;
+}
+
+.xy-context-island__base {
+  position: absolute;
+  display: block;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0.92;
+  z-index: 3;
+}
+
+.xy-context-island__base--island {
+  left: 0;
+  bottom: 0;
+  width: var(--island-subject-width);
+  height: 100%;
+  object-fit: contain;
+  object-position: left bottom;
+}
+
+.xy-context-island__tree-window {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 96px;
+  height: 84px;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 4;
+}
+
+.xy-context-island__tree {
+  position: absolute;
+  display: block;
+  left: 0;
+  top: 0;
+  width: 96px;
+  height: 92px;
+  object-fit: fill;
+  object-position: left top;
+}
+
+.xy-context-island__coconuts {
+  position: absolute;
+  z-index: 6;
+  inset: 0;
+  pointer-events: none;
+}
+
+.xy-context-island__coconut {
+  position: absolute;
+  width: clamp(8px, 1.7vw, 14px);
+  height: clamp(8px, 1.7vw, 14px);
+  object-fit: contain;
+  opacity: 0;
+  transition: opacity 0.8s ease-in-out;
+}
+
+.xy-context-island__coconut.is-visible {
+  opacity: 0.96;
+}
+
+.xy-context-island__coconut--tree-1 {   left: 39px; top: 17%; }
+.xy-context-island__coconut--tree-2 {   left: 52px; top: 24%; }
+.xy-context-island__coconut--tree-3 {   left: 64px; top: 14%; }
+.xy-context-island__coconut--tree-4 {   left: 78px; top: 26%; }
+
+.xy-context-island__coconut--ground-1 {
+  left: 50px;
+  bottom: 9%;
+  width: clamp(10px, 2vw, 16px);
+  height: clamp(10px, 2vw, 16px);
+}
+
+.xy-context-island__coconut--ground-2 {
+  left: 68px;
+  bottom: 7%;
+  width: clamp(9px, 1.8vw, 14px);
+  height: clamp(9px, 1.8vw, 14px);
+}
+
+.xy-context-island__stars {
+  position: absolute;
+  z-index: 5;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.8s ease-in-out;
+}
+
+.xy-context-island__stars.is-dark {
+  opacity: 0.84;
+}
+
+.xy-context-island__star {
+  position: absolute;
+  width: var(--star-size, 10px);
+  height: var(--star-size, 10px);
+  object-fit: contain;
+  opacity: 0;
+  transition: opacity 0.8s ease-in-out;
+}
+
+.xy-context-island__star.is-visible {
+  opacity: var(--star-opacity, 0.72);
+}
+
+.xy-context-island__companion {
+  position: absolute;
+  left: 122px;
+  bottom: 3%;
+  width: 52px;
+  height: clamp(46px, 10vh, 68px);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.8s ease-in-out;
+  z-index: 7;
+}
+
+.xy-context-island__companion.is-head {
+  bottom: 26%;
+  height: clamp(28px, 5.5vh, 40px);
+}
+
+.xy-context-island__companion.is-visible {
+  opacity: 0.94;
+}
+
+.xy-context-island__sprite-window {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.xy-context-island__sprite-window > svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.xy-context-island__emotion {
+  position: absolute;
+  z-index: 8;
+  top: -7%;
+  right: auto;
+  left: 170px;
+  width: clamp(14px, 2.4vw, 22px);
+  height: clamp(14px, 2.4vw, 22px);
+  object-fit: contain;
+  opacity: 0;
+  transition: opacity 0.7s ease-in-out;
+}
+
+.xy-context-island__emotion.is-visible {
+  opacity: 0.94;
+}
+
+.xy-context-island__tooltip-anchor {
+  position: absolute;
+  left: 8px;
+  bottom: 3px;
+  width: 20px;
+  height: 20px;
+  pointer-events: auto;
+  border-radius: 999px;
+  outline: none;
+}
+
+.xy-context-island__tooltip-anchor::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  width: max-content;
+  max-width: 220px;
+  padding: 5px 8px;
+  border: 1px solid rgb(255 255 255 / 0.18);
+  border-radius: 8px;
+  background: rgb(25 31 39 / 0.9);
+  color: rgb(255 255 255 / 0.92);
+  font: 11px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace;
+  opacity: 0;
+  transform: translateY(2px);
+  transition: opacity 0.7s ease-in-out;
+  white-space: nowrap;
+}
+
+.xy-context-island__tooltip-anchor:hover::after,
+.xy-context-island__tooltip-anchor:focus-visible::after {
+  opacity: 1;
+}
+
+@media (max-width: 900px) {
+  .xy-context-island {
+    --island-height: clamp(48px, 8vh, 58px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .xy-context-island,
+  .xy-context-island__layer,
+  .xy-context-island__asset,
+  .xy-context-island__coconut,
+  .xy-context-island__star,
+  .xy-context-island__companion,
+  .xy-context-island__emotion,
+  .xy-context-island__tooltip-anchor::after {
+    transition-duration: 0.2s;
+  }
+}
+
+.xy-context-island[data-reduced-motion='true'] .xy-context-island__layer,
+.xy-context-island[data-reduced-motion='true'] .xy-context-island__asset,
+.xy-context-island[data-reduced-motion='true'] .xy-context-island__coconut,
+.xy-context-island[data-reduced-motion='true'] .xy-context-island__star,
+.xy-context-island[data-reduced-motion='true'] .xy-context-island__companion,
+.xy-context-island[data-reduced-motion='true'] .xy-context-island__emotion {
+  transition-duration: 0.2s;
+  transition-delay: 0s !important;
+}

@@ -1,0 +1,60 @@
+     1→"""本轮易变上下文：挂到投影最后一个 user 的尾部（T_now），不进 system 左段。
+     2→
+     3→模式说明、已批准计划、预算提示、MEMORY 索引等易变内容放这里，
+     4→避免打爆 system 前缀的 KV 缓存。
+     5→
+     6→编排入口见 ``prompt.pre_llm_inject.run_pre_llm_inject``（LLM 调用前注入管线）。
+     7→"""
+     8→
+     9→from __future__ import annotations
+    10→
+    11→from typing import Any, Sequence
+    12→
+    13→# 已批准计划注入上限，避免整份 Markdown 撑爆本轮 user。
+    14→APPROVED_PLAN_MAX_CHARS = 4_000
+    15→
+    16→# 首写收敛后替换全量块的指针（正文已进历史，只留"仍在实施"锚点）。
+    17→PLAN_POINTER_BLOCK = (
+    18→	"# Approved plan（实施中）\n"
+    19→	"已开始按已批准计划实施；后续步骤以历史消息中的已批准计划为准，不再重复附全文。"
+    20→	"有新证据与计划冲突时，以证据为准并简要说明偏差。"
+    21→)
+    22→
+    23→# 工具轮后投影尾插 user：强制续写原问题；勿把后续背景块当新提问。
+    24→CONTINUE_AFTER_TOOLS = (
+    25→	"# Continue（续写原问题 — 不是新用户消息）\n"
+    26→	"The preceding messages end with tool_result(s), including any "
+    27→	"[Agent tool_result]. Answer ONLY the user's original request using "
+    28→	"those results (e.g. what the subagent did / found).\n"
+    29→	"Do NOT summarize Memory / MEMORY.md / memory titles. "
+    30→	"Do NOT ask how to operate memories unless the user explicitly asked.\n"
+    31→	"Blocks below (mode notes, Multi-Agent preference, etc.) are "
+    32→	"background only — not a new user question."
+    33→)
+    34→
+    35→
+    36→def ends_with_tool_result(messages: list[dict[str, Any]]) -> bool:
+    37→	"""投影末条是否为 tool / 含 tool_result（需 Continue、且勿挂 Memory）。"""
+    38→	if not messages:
+    39→		return False
+    40→	last = messages[-1]
+    41→	role = last.get("role")
+    42→	if role == "tool":
+    43→		return True
+    44→	if role != "user":
+    45→		return False
+    46→	content = last.get("content")
+    47→	if not isinstance(content, list):
+    48→		return False
+    49→	return any(
+    50→		isinstance(b, dict) and b.get("type") == "tool_result" for b in content
+    51→	)
+    52→
+    53→
+    54→def append_text_blocks_to_last_user(
+    55→	messages: list[dict[str, Any]],
+    56→	blocks: Sequence[str],
+    57→) -> list[dict[str, Any]]:
+    58→	"""把若干文本块挂到投影 T_now；不修改入参列表与既有消息对象。
+    59→
+    60→	末条是 user 时追加到该条（copy-on-write）。否则在投影尾部插入一条

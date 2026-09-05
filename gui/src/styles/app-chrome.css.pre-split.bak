@@ -1,0 +1,805 @@
+/* auto-split from index.css L2913-3716 — Sidebar page chrome, usage, panes, turn-rail; do not edit order relative to styles/entry.css */
+.xy-sidebar {
+  overflow: hidden;
+  contain: paint;
+}
+
+/* 鍙充晶/澶撮儴鎻愮ず涓嶅鍒跺绾革紝涓嶅厑璁稿簳灞傛枃瀛楅€忚繃瀹炰綋鎻愮ず闈拷?*/
+.xy-usage-chip {
+  transition:
+    background-color var(--duration-fast) ease,
+    color var(--duration-fast) ease;
+}
+html[data-smoothness="on"] .xy-usage-chip {
+  animation: xy-usage-enter 0.35s ease-out;
+}
+@keyframes xy-usage-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.xy-usage-chip:hover {
+  background: var(--xy-glass-hover);
+  color: var(--xy-ink);
+}
+.xy-detail-tooltip,
+.xy-usage-tooltip {
+  transform: translateY(-2px);
+  transform-origin: top right;
+  isolation: isolate;
+  border: 1px solid color-mix(in srgb, var(--xy-line) 80%, transparent);
+  background: color-mix(in srgb, var(--xy-paper) 96%, transparent);
+  box-shadow:
+    0 10px 28px rgb(18 22 28 / 0.16),
+    0 1px 0 rgb(18 22 28 / 0.05);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  transition:
+    opacity 150ms var(--ease-out-soft),
+    transform 150ms var(--ease-out-soft);
+}
+
+html[data-scheme="dark"] .xy-detail-tooltip,
+html[data-scheme="dark"] .xy-usage-tooltip {
+  background: color-mix(in srgb, var(--xy-paper) 92%, transparent);
+  box-shadow:
+    0 12px 30px rgb(0 0 0 / 0.28),
+    0 1px 0 rgb(255 255 255 / 0.05);
+}
+
+/* Native title replacement. The trigger shares the Token tooltip's visual
+   language while remaining CSS-only and cheap during pointer movement. */
+.xy-detail-tooltip-trigger {
+  position: relative;
+  isolation: isolate;
+}
+
+.xy-detail-tooltip-trigger::after {
+  content: attr(data-xy-tooltip);
+  position: absolute;
+  left: 50%;
+  top: calc(100% + 7px);
+  z-index: 70;
+  width: max-content;
+  max-width: min(20rem, 52vw);
+  pointer-events: none;
+  border: 1px solid color-mix(in srgb, var(--xy-line) 80%, transparent);
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.625rem;
+  color: var(--xy-ink-soft);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  line-height: 1.45;
+  text-align: left;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: color-mix(in srgb, var(--xy-paper) 96%, transparent);
+  box-shadow:
+    0 10px 28px rgb(18 22 28 / 0.16),
+    0 1px 0 rgb(18 22 28 / 0.05);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  opacity: 0;
+  transform: translate(-50%, -2px);
+  transition:
+    opacity 150ms var(--ease-out-soft),
+    transform 150ms var(--ease-out-soft);
+}
+
+.xy-detail-tooltip-trigger:hover::after,
+.xy-detail-tooltip-trigger:focus-visible::after {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+html[data-scheme="dark"] .xy-detail-tooltip-trigger::after {
+  background: color-mix(in srgb, var(--xy-paper) 92%, transparent);
+  box-shadow:
+    0 12px 30px rgb(0 0 0 / 0.28),
+    0 1px 0 rgb(255 255 255 / 0.05);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .xy-detail-tooltip-trigger::after {
+    transition: none;
+  }
+}
+
+/* 鐢ㄩ噺鍐呭浠呭仛 opacity/transform 杩囨浮锛涜〃鏍奸珮搴︿粛鐢辨甯稿竷灞€鍐冲畾锟?*/
+.xy-usage-card,
+.xy-usage-row,
+.xy-usage-section {
+  transition:
+    opacity var(--duration-base) var(--ease-out-soft),
+    transform var(--duration-base) var(--ease-out-soft),
+    border-color var(--duration-fast) ease,
+    background-color var(--duration-fast) ease;
+}
+
+.xy-usage-card,
+.xy-usage-row {
+  animation: rise-in var(--duration-base) var(--ease-out-soft) both;
+}
+
+.xy-session-switch {
+  transform-origin: center;
+  animation: none;
+}
+
+.xy-usage-page {
+  transform-origin: center;
+  animation: session-switch 180ms var(--ease-out-soft) both;
+}
+
+.xy-usage-content-switch {
+  animation: usage-content-switch 180ms var(--ease-out-soft) both;
+}
+
+.xy-usage-loading {
+  display: grid;
+  gap: 12px;
+}
+
+.xy-usage-skeleton {
+  position: relative;
+  overflow: hidden;
+  min-height: 76px;
+  border: 1px solid var(--xy-line);
+  border-radius: 14px;
+  background: var(--xy-glass-hover);
+}
+
+.xy-usage-skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgb(255 255 255 / 0.14),
+    transparent
+  );
+  animation: usage-skeleton-shimmer 1.15s var(--ease-out-soft) infinite;
+}
+
+@keyframes usage-content-switch {
+  from {
+    opacity: 0.72;
+    transform: translate3d(0, 4px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes usage-skeleton-shimmer {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+/* Bubble layers own their opaque base; ancestor isolation would break viewport wallpaper sampling. */
+.xy-prompt-sticky,
+.xy-chat-col,
+.xy-chat-surface {
+  isolation: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .xy-usage-card,
+  .xy-usage-row,
+  .xy-session-switch,
+  .xy-usage-page {
+    animation: none;
+    transition: none;
+  }
+}
+
+.xy-pane-row > main {
+  min-width: 180px;
+  flex: 1 1 0%;
+}
+
+.xy-pane-slot,
+.xy-pane-slide {
+  will-change: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .xy-pane-slot,
+  .xy-pane-slide {
+    will-change: auto;
+  }
+}
+
+.xy-pane-slot {
+  overflow: hidden;
+  min-width: 0;
+  flex: 0 0 auto;
+  /* 鍏滃簳闃叉孩鍑猴細闈㈡澘妲斤紙鍚€滄敹璧峰彸杈瑰唴瀹光€濇椂鍙犲姞鐨勬爲瀹斤級涓嶅緱鎶婅亰澶╁尯
+     鏈€灏忓垪锟?xy-pane-row > main 锟?min-width: 180px锛夐《鍑鸿鍙ｏ拷?*/
+  max-width: calc(100% - 180px);
+  transition:
+    width 420ms cubic-bezier(0.16, 1, 0.3, 1) 40ms,
+    flex-basis 420ms cubic-bezier(0.16, 1, 0.3, 1) 40ms;
+}
+
+/* 收起右边内容时宽度变化同样平滑过渡：内容随分隔条一起移动 */
+.xy-pane-slot.is-animating,
+.xy-pane-row:has(.xy-pane-dragging) .xy-pane-slot {
+  will-change: width, transform;
+}
+
+.xy-pane-slide {
+  transition:
+    width 420ms cubic-bezier(0.16, 1, 0.3, 1) 40ms,
+    transform 420ms cubic-bezier(0.16, 1, 0.3, 1) 40ms;
+}
+
+/* 璁剧疆閲屽紑鍚€滄瀬骞虫粦鍑忛€熲€濇椂鍒囨崲锟?锟?quintic-out锟?*/
+html[data-pane-ease="silky"] .xy-pane-slot {
+  transition:
+    width 420ms cubic-bezier(0.23, 1, 0.32, 1) 40ms,
+    flex-basis 420ms cubic-bezier(0.23, 1, 0.32, 1) 40ms;
+}
+
+html[data-pane-ease="silky"] .xy-pane-slide {
+  transition:
+    width 420ms cubic-bezier(0.23, 1, 0.32, 1) 40ms,
+    transform 420ms cubic-bezier(0.23, 1, 0.32, 1) 40ms;
+}
+
+.xy-header-tools {
+  display: grid;
+  grid-template-columns: 1fr;
+}
+
+.xy-header-tools.is-collapsed {
+  grid-template-columns: 0fr;
+  pointer-events: none;
+}
+
+.xy-header-tools-inner {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  overflow: hidden;
+  transform: none;
+}
+
+.xy-header-tools.is-collapsed .xy-header-tools-inner {
+  transform: translateX(-14px);
+}
+
+html[data-smoothness="on"] .xy-header-tools {
+  transition: grid-template-columns 300ms cubic-bezier(0.22, 1, 0.36, 1) 40ms;
+}
+
+html[data-smoothness="on"] .xy-header-tools-inner {
+  transition: transform 300ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* 鏍囬闅忓伐鍏风粍涓€璧峰悜鍙虫媺锟?鏀跺洖 */
+html[data-smoothness="on"] .xy-hdr-title {
+  transition:
+    opacity 300ms cubic-bezier(0.22, 1, 0.36, 1) 40ms,
+    transform 300ms cubic-bezier(0.22, 1, 0.36, 1) 40ms,
+    max-width 300ms cubic-bezier(0.22, 1, 0.36, 1) 40ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-smoothness="on"] .xy-header-tools,
+  html[data-smoothness="on"] .xy-header-tools-inner,
+  html[data-smoothness="on"] .xy-hdr-title {
+    transition: none;
+  }
+
+  html[data-smoothness="on"] .xy-usage-chip {
+    animation: none;
+  }
+}
+
+.xy-pane-dragging .xy-pane-slide,
+.xy-sidebar-dragging .xy-pane-slide,
+.xy-pane-dragging.xy-pane-slot {
+  transition: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .xy-pane-slot,
+  html[data-pane-ease="silky"] .xy-pane-slot {
+    transition: none;
+  }
+}
+
+.xy-sidebar-dragging {
+  transition: none !important;
+}
+
+.xy-pane-dragging {
+  transition: none !important;
+}
+
+html[data-smoothness="on"] .xy-chat-col {
+  min-width: 0;
+  contain: layout paint;
+  transition:
+    width 420ms cubic-bezier(0.16, 1, 0.3, 1) 40ms,
+    flex-basis 420ms cubic-bezier(0.16, 1, 0.3, 1) 40ms;
+}
+
+html[data-pane-ease="silky"][data-smoothness="on"] .xy-chat-col {
+  transition:
+    width 420ms cubic-bezier(0.23, 1, 0.32, 1) 40ms,
+    flex-basis 420ms cubic-bezier(0.23, 1, 0.32, 1) 40ms;
+}
+
+/* During an active resize both siblings follow the pointer directly. The
+   normal open/close transition remains untouched when no drag is in progress. */
+html[data-smoothness="on"] .xy-pane-row:has(.xy-pane-dragging) .xy-chat-col {
+  transition: none !important;
+}
+
+html[data-smoothness="on"] .xy-pane-dragging {
+  will-change: width;
+}
+
+html[data-smoothness="on"] .xy-enter-fade {
+  animation: xy-enter-fade 110ms ease;
+}
+
+@keyframes xy-enter-fade {
+  from {
+    opacity: 0.4;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Prism worker HTML 锟?last-good fence, scoped so it does not fight SyntaxHighlighter. */
+.xy-prism-html {
+  margin: 0;
+  padding: 12px 14px 12px 16px;
+  overflow-x: auto;
+  background: transparent;
+  font-size: 13px;
+  line-height: 1.25rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--xy-ink);
+}
+
+.xy-prism-file {
+  min-height: 0;
+  padding: 8px 16px 16px 0;
+  font-size: 13px;
+  line-height: 1.25rem;
+}
+
+.xy-prism-file .xy-prism-html {
+  padding: 0 0 0 0;
+}
+
+.xy-prism-gutter {
+  min-width: 2.75em;
+  margin: 0;
+  padding: 0 1.25rem 0 12px;
+  color: var(--xy-mute);
+  user-select: none;
+  text-align: right;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.25rem;
+}
+
+.xy-prism-html .token.comment,
+.xy-prism-html .token.prolog,
+.xy-prism-html .token.doctype,
+.xy-prism-html .token.cdata {
+  color: var(--xy-mute);
+}
+
+.xy-prism-html .token.punctuation {
+  color: var(--xy-ink-soft);
+}
+
+.xy-prism-html .token.keyword,
+.xy-prism-html .token.selector,
+.xy-prism-html .token.important {
+  color: #7c3aed;
+}
+
+.xy-prism-html .token.string,
+.xy-prism-html .token.attr-value,
+.xy-prism-html .token.char {
+  color: #0f766e;
+}
+
+.xy-prism-html .token.function,
+.xy-prism-html .token.class-name {
+  color: #2563eb;
+}
+
+.xy-prism-html .token.number,
+.xy-prism-html .token.boolean {
+  color: #c2410c;
+}
+
+.xy-prism-html .token.operator,
+.xy-prism-html .token.entity {
+  color: var(--xy-ink-soft);
+}
+
+html[data-scheme="dark"] .xy-prism-html .token.keyword,
+html[data-scheme="dark"] .xy-prism-html .token.selector {
+  color: #c4b5fd;
+}
+
+html[data-scheme="dark"] .xy-prism-html .token.string,
+html[data-scheme="dark"] .xy-prism-html .token.attr-value {
+  color: #5eead4;
+}
+
+html[data-scheme="dark"] .xy-prism-html .token.function,
+html[data-scheme="dark"] .xy-prism-html .token.class-name {
+  color: #93c5fd;
+}
+
+html[data-scheme="dark"] .xy-prism-html .token.number,
+html[data-scheme="dark"] .xy-prism-html .token.boolean {
+  color: #fdba74;
+}
+
+.xy-modal-backdrop {
+  transition: opacity var(--duration-base) ease;
+}
+
+.xy-modal-panel {
+  transition:
+    opacity var(--duration-base) var(--ease-out-soft),
+    transform var(--duration-base) var(--ease-out-soft);
+}
+
+.xy-bg-layer {
+  contain: paint;
+  transition: opacity 220ms ease;
+}
+
+.xy-composer-shell {
+  box-shadow: var(--xy-composer-shadow);
+}
+
+.xy-sidebar-drawer {
+  box-shadow: var(--xy-sidebar-shadow);
+}
+
+.xy-file-preview {
+  backdrop-filter: none;
+}
+
+.xy-md-doc {
+  font-size: 14.5px;
+  line-height: 1.7;
+  color: var(--xy-ink);
+  font-weight: 450;
+}
+
+.xy-md-doc > :first-child {
+  margin-top: 0;
+}
+
+.katex {
+  color: inherit;
+  font-size: 1.05em;
+}
+
+.katex-display {
+  margin: 0.85em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.katex-error {
+  color: var(--xy-mute) !important;
+}
+
+.xy-modal-elevated {
+  box-shadow: var(--xy-modal-shadow);
+}
+
+.xy-rewind-dialog {
+  color: var(--xy-ink);
+  box-sizing: border-box;
+  /* 闅忕獥鍙ｇ缉鏀撅紝涓婇檺绾?22rem锛屽皬绐椾笉浣庝簬 15rem */
+  width: min(clamp(15rem, 32vw, 22rem), calc(100vw - 1.25rem));
+  max-height: min(82dvh, 34rem);
+}
+
+.xy-rewind-dialog::backdrop {
+  transition: opacity var(--duration-base) ease;
+}
+
+/* 鈹€鈹€ Right-side conversation turn rail 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */
+.xy-turn-rail {
+  position: absolute;
+  top: 50%;
+  /* Sit clear of the native scrollbar */
+  right: 14px;
+  z-index: 25;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  padding: 8px 0 8px 14px;
+  transform: translateY(-50%);
+  pointer-events: auto;
+  /* Ghost default 锟?rises a bit on hover intent */
+  opacity: 0.42;
+  transition: opacity 180ms ease;
+}
+
+.xy-turn-rail:hover,
+.xy-turn-rail.is-open {
+  opacity: 0.88;
+}
+
+.xy-turn-rail-idle {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--xy-rail-gap, 10px);
+  padding: 6px 2px;
+  max-height: min(48vh, 320px);
+  overflow: hidden;
+  transition: opacity 140ms ease;
+}
+
+.xy-turn-rail-idle.is-capped {
+  padding-top: 10px;
+  padding-bottom: 10px;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    #fff 22%,
+    #fff 78%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    #fff 22%,
+    #fff 78%,
+    transparent 100%
+  );
+}
+
+.xy-turn-rail-idle.is-capped .xy-turn-rail-tick:first-child,
+.xy-turn-rail-idle.is-capped .xy-turn-rail-tick:nth-child(2),
+.xy-turn-rail-idle.is-capped .xy-turn-rail-tick:nth-last-child(2),
+.xy-turn-rail-idle.is-capped .xy-turn-rail-tick:last-child {
+  filter: blur(0.7px);
+  opacity: 0.28;
+}
+
+.xy-turn-rail-idle.is-capped .xy-turn-rail-tick.is-active {
+  filter: none;
+  opacity: 0.95;
+}
+
+.xy-turn-rail-idle.is-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.xy-turn-rail-tick {
+  display: block;
+  width: 10px;
+  height: 2px;
+  flex-shrink: 0;
+  border: 0;
+  padding: 0;
+  border-radius: 999px;
+  background: var(--xy-rail-idle);
+  opacity: 0.7;
+  cursor: pointer;
+  transform: translateY(0);
+  transition:
+    background-color 140ms ease,
+    width 140ms ease,
+    height 140ms ease,
+    opacity 140ms ease,
+    transform 160ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 160ms ease;
+}
+
+.xy-turn-rail.is-dense .xy-turn-rail-tick {
+  width: 8px;
+  height: 1.5px;
+}
+
+.xy-turn-rail-tick:hover {
+  opacity: 1;
+  background: color-mix(in srgb, var(--xy-ink-soft) 55%, transparent);
+  transform: translateY(-3px);
+  box-shadow:
+    0 4px 9px rgba(0, 0, 0, 0.3),
+    0 0 9px color-mix(in srgb, var(--xy-accent) 28%, transparent);
+}
+
+.xy-turn-rail-tick.is-active {
+  width: 12px;
+  height: 2.5px;
+  opacity: 0.95;
+  background: var(--xy-rail-active);
+}
+
+.xy-turn-rail.is-dense .xy-turn-rail-tick.is-active {
+  width: 10px;
+  height: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .xy-turn-rail-tick:hover {
+    transform: none;
+    box-shadow: none;
+  }
+}
+
+.xy-turn-rail-panel {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  width: min(236px, calc(100vw - 4rem));
+  max-height: min(56vh, 380px);
+  transform: translateY(-50%) translateX(4px);
+  opacity: 0;
+  pointer-events: none;
+  border-radius: 12px;
+  background: var(--xy-rail-panel);
+  box-shadow: var(--xy-rail-shadow);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  overflow: hidden;
+  transition:
+    opacity 160ms ease,
+    transform 160ms ease;
+}
+
+.xy-turn-rail-panel.is-open {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(-50%) translateX(0);
+}
+
+.xy-turn-rail-list {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 5px 6px 8px;
+  max-height: min(56vh, 380px);
+}
+
+.xy-turn-rail-list.is-scroll {
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
+}
+
+.xy-turn-rail-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 26px;
+  padding: 3px 5px 3px 3px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  color: color-mix(in srgb, var(--xy-mute) 78%, transparent);
+  transition:
+    color 100ms ease,
+    background-color 100ms ease;
+}
+
+.xy-turn-rail-row:hover,
+.xy-turn-rail-row.is-hover {
+  color: var(--xy-ink-soft);
+  background: color-mix(in srgb, var(--xy-ink) 3.5%, transparent);
+}
+
+.xy-turn-rail-row.is-active {
+  color: var(--xy-rail-active);
+  background: transparent;
+}
+
+.xy-turn-rail-row.is-active:hover {
+  color: var(--xy-rail-active);
+  background: color-mix(in srgb, var(--xy-accent) 7%, transparent);
+}
+
+.xy-turn-rail-label {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 5px;
+}
+
+.xy-turn-rail-badge {
+  flex-shrink: 0;
+  border-radius: 999px;
+  padding: 0 5px;
+  font-size: 9.5px;
+  line-height: 15px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: color-mix(in srgb, var(--xy-on-accent) 88%, transparent);
+  background: color-mix(in srgb, var(--xy-mute) 38%, transparent);
+}
+
+.xy-turn-rail-row.is-active .xy-turn-rail-badge {
+  background: color-mix(in srgb, var(--xy-accent) 42%, transparent);
+}
+
+.xy-turn-rail-text {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 1.35;
+  font-weight: 500;
+}
+
+.xy-turn-rail-mark {
+  flex-shrink: 0;
+  width: 9px;
+  height: 1.5px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.4;
+}
+
+.xy-turn-rail-row.is-active .xy-turn-rail-mark,
+.xy-turn-rail-mark.is-active {
+  width: 11px;
+  height: 2px;
+  opacity: 0.85;
+  background: var(--xy-rail-active);
+}
+
+.xy-turn-rail-row.is-hover .xy-turn-rail-mark {
+  opacity: 0.7;
+  background: var(--xy-ink-soft);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .xy-press:hover,
+  .xy-press:active,
+  .xy-icon-btn:hover,
+  .xy-icon-btn:active {
+    transform: none;
+  }
+}
+
+/* Top fade uses the scroll content's own mask (.xy-scroll-fade.is-fade-top),
+   same source as the bottom; reveals the wallpaper (bgOpacity/bgBlur). */
+

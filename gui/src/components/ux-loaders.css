@@ -1,0 +1,76 @@
+.xy-skeleton-bar {
+  display: block;
+  height: 18px;
+  flex: none;
+  border-radius: 6px;
+  background: linear-gradient(
+    90deg,
+    var(--xy-paper-deep) 25%,
+    var(--xy-glass-soft) 50%,
+    var(--xy-paper-deep) 75%
+  );
+  background-size: 200% 100%;
+  animation: xy-shimmer 1.3s linear infinite;
+}
+
+.xy-skeleton-row:nth-child(6n + 1) .xy-skeleton-bar {
+  width: 82%;
+}
+
+.xy-skeleton-row:nth-child(6n + 2) .xy-skeleton-bar {
+  width: 70%;
+}
+
+.xy-skeleton-row:nth-child(6n + 3) .xy-skeleton-bar {
+  width: 88%;
+}
+
+.xy-skeleton-row:nth-child(6n + 4) .xy-skeleton-bar {
+  width: 74%;
+}
+
+.xy-skeleton-row:nth-child(6n + 5) .xy-skeleton-bar {
+  width: 90%;
+}
+
+.xy-skeleton-row:nth-child(6n + 6) .xy-skeleton-bar {
+  width: 78%;
+}
+
+@keyframes xy-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
+.xy-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  flex: none;
+  border: 2px solid var(--xy-line);
+  border-top-color: var(--xy-accent);
+  border-radius: 50%;
+  vertical-align: -2px;
+  margin-right: 6px;
+  animation: xy-spin 0.7s linear infinite;
+}
+
+@keyframes xy-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .xy-skeleton-bar {
+    animation: none;
+  }
+
+  .xy-spinner {
+    animation: none;
+  }
+}

@@ -1,0 +1,164 @@
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:12:import {createPortal} from 'react-dom';
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:14:import {useHoverScroll} from '@/hooks/useHoverScroll';
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:20:} from '@/lib/chatScroll';
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:145:function clipPathPath(
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:164:function applyClipPath(el: HTMLElement, clip: string) {
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:165:el.style.clipPath = clip;
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:438:* Cursor sticky push 在 scroller 内保持原生.
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:448:const contentClipPathId = `xy-content-clip-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:473:const hover = useHoverScroll();
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:474:const scrollerRef = useRef<HTMLDivElement>(null);
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:475:const [scrollerEl, setScrollerEl] = useState<HTMLDivElement | null>(null);
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:477:const contentClipPathRef = useRef<SVGPathElement>(null);
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:484:const stuckReadScheduled = useRef(false);
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:485:const stuckWriteScheduled = useRef(false);
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:491:const scrollScheduled = useRef(false);
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:496:scroll: string;
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:499:stuckRead: string;
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:500:stuckWrite: string;
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:505:scroll: createFrameKey('message-scroll'),
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:506:topFade: createFrameKey('message-top-fade'),
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:508:stuckRead: createFrameKey('message-stuck-read'),
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:509:stuckWrite: createFrameKey('message-stuck-write'),
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:581:const scroller = scrollerRef.current;
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:582:if (!scroller) {
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:587:scroller.querySelectorAll<HTMLElement>('[data-round-id]'),
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:589:}, [roundSignature, scrollerEl]);
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:594:const scroller = scrollerRef.current;
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:595:if (!scroller) {
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:599:const scrollerRect = scroller.getBoundingClientRect();
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:603:const boundary = scrollerRect.top + 4;
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:607:if (rect.top < boundary - 0.5 && rect.bottom > scrollerRect.top + 1) {
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:615:scroller.style.setProperty('--xy-top-fade-h', `${height}px`);
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:649:const scroller = scrollerRef.current;
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:652:if (!scroller || !content || !occlusionRoot) {
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:662:const scrollerRect = scroller.getBoundingClientRect();
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:663:const edge = scrollerRect.top;
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:679:chipRect.bottom > scrollerRect.top &&
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:680:chipRect.top < scrollerRect.bottom &&
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:681:chipRect.right > scrollerRect.left &&
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:682:chipRect.left < scrollerRect.right,
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:730:const scroller = scrollerRef.current;
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:733:if (!scroller || !content || !occlusionRoot) {
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:742:const contentClip = clipPathPath(
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:749:contentClipPathRef.current?.setAttribute('d', contentClip);
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:750:applyClipPath(occlusionRoot, `url(#${contentClipPathId})`);
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:751:applyClipPath(content, 'none');
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:753:applyClipPath(occlusionRoot, 'none');
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:754:applyClipPath(content, 'none');
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:766:if (stuckReadScheduled.current) {
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:769:stuckReadScheduled.current = true;
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:770:scheduleFrameRead(frameKeysRef.current!.stuckRead, () => {
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:771:stuckReadScheduled.current = false;
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:776:if (stuckWriteScheduled.current) {
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:777:cancelFrameTask(frameKeysRef.current!.stuckWrite);
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:779:stuckWriteScheduled.current = true;
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:780:scheduleFrameWrite(frameKeysRef.current!.stuckWrite, () => {
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:781:stuckWriteScheduled.current = false;
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:808:const scroller = scrollerRef.current;
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:809:if (!scroller || railItems.length === 0) {
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:813:scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:819:const readOffset = Math.min(96, scroller.clientHeight * 0.28);
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:822:// offsetTop is equivalent to rect.top - scroller rect.top + scrollTop,
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:833:if (el.offsetTop - scroller.scrollTop <= readOffset) {
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:849:const scroller = scrollerRef.current;
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:850:const el = scroller?.querySelector<HTMLElement>(
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:853:if (!scroller || !el) {
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:859:scroller.getBoundingClientRect().top +
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:860:scroller.scrollTop -
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:862:scroller.scrollTo({top: Math.max(0, top), behavior: 'smooth'});
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:866:requestAnimationFrame(run);
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:887:if (scrollScheduled.current) {
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:890:scrollScheduled.current = true;
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:891:scheduleFrameWrite(frameKeysRef.current!.scroll, () => {
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:892:scrollScheduled.current = false;
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:893:const scroller = scrollerRef.current;
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:894:if (!scroller) {
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:897:writeFollowTail(scroller, stickToBottom.current);
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:902:const el = scrollerRef.current;
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:906:const onScroll = () => {
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:907:const gap = gapFromBottom(el.scrollHeight, el.scrollTop, el.clientHeight);
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:913:el.addEventListener('scroll', onScroll, {passive: true});
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:914:window.addEventListener('resize', onScroll);
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:931:el.removeEventListener('scroll', onScroll);
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:932:window.removeEventListener('resize', onScroll);
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:968:cancelFrameTask(frameKeysRef.current!.scroll);
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:971:cancelFrameTask(frameKeysRef.current!.stuckRead);
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:972:cancelFrameTask(frameKeysRef.current!.stuckWrite);
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:977:stuckReadScheduled.current = false;
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:978:stuckWriteScheduled.current = false;
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:979:scrollScheduled.current = false;
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:994:contentRef.current && applyClipPath(contentRef.current, 'none');
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:995:contentClipPathRef.current?.removeAttribute('d');
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:998:scrollerRef.current?.style.setProperty('--xy-top-fade-h', '0px');
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:1104:scrollerRef.current = node;
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:1105:setScrollerEl(node);
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:1106:hover.scrollerRef(node);
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:1109:className="xy-chat-surface xy-hover-scroll relative z-0 h-full min-h-0 min-w-0 overflow-y-auto overflow-x-clip"
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:1113:className="pointer-events-none absolute h-0 w-0 overflow-hidden"
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:1116:<clipPath id={contentClipPathId} clipPathUnits="objectBoundingBox">
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:1117:<path ref={contentClipPathRef} fillRule="evenodd" clipRule="evenodd" />
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:1118:</clipPath>
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:1124:'xy-chat-top-fade',
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:1140:root={scrollerEl}
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:1161:? createPortal(
+D:\lea\XenYon code\cli\src\components\MessageList.tsx:1194:<div className="xy-modal-backdrop pointer-events-auto fixed inset-0 z-[100] flex items-center justify-center p-4">
+D:\lea\XenYon code\cli\src\index.css:98:--xy-scroll: #c5cad3;
+D:\lea\XenYon code\cli\src\index.css:149:--xy-scroll: #525252;
+D:\lea\XenYon code\cli\src\index.css:181:Pin sits above the scroller so tint composites over wallpaper, not L1 text.
+D:\lea\XenYon code\cli\src\index.css:474:pointer-events: none;
+D:\lea\XenYon code\cli\src\index.css:480:pointer-events: auto;
+D:\lea\XenYon code\cli\src\index.css:485:.xy-chat-top-fade {
+D:\lea\XenYon code\cli\src\index.css:487:top: calc(-1 * (var(--xy-top-fade-h, 0px) + 24px));
+D:\lea\XenYon code\cli\src\index.css:489:height: calc(var(--xy-top-fade-h, 0px) + 24px);
+D:\lea\XenYon code\cli\src\index.css:490:margin-bottom: calc(-1 * (var(--xy-top-fade-h, 0px) + 24px));
+D:\lea\XenYon code\cli\src\index.css:491:pointer-events: none;
+D:\lea\XenYon code\cli\src\index.css:504:.xy-chat-top-fade.is-active {
+D:\lea\XenYon code\cli\src\index.css:508:html[data-theme="dark"] .xy-chat-top-fade {
+D:\lea\XenYon code\cli\src\index.css:538:overscroll-behavior: none;
+D:\lea\XenYon code\cli\src\index.css:578:scrollbar-width: thin;
+D:\lea\XenYon code\cli\src\index.css:579:scrollbar-color: var(--xy-scroll) transparent;
+D:\lea\XenYon code\cli\src\index.css:583:.xy-hover-scroll {
+D:\lea\XenYon code\cli\src\index.css:584:scrollbar-width: thin;
+D:\lea\XenYon code\cli\src\index.css:585:scrollbar-color: transparent transparent;
+D:\lea\XenYon code\cli\src\index.css:586:scrollbar-gutter: stable;
+D:\lea\XenYon code\cli\src\index.css:589:.xy-hover-scroll.xy-hover-scroll-on {
+D:\lea\XenYon code\cli\src\index.css:590:scrollbar-color: var(--xy-scroll) transparent;
+D:\lea\XenYon code\cli\src\index.css:593:.xy-hover-scroll::-webkit-scrollbar {
+D:\lea\XenYon code\cli\src\index.css:598:.xy-hover-scroll::-webkit-scrollbar-thumb {
+D:\lea\XenYon code\cli\src\index.css:603:.xy-hover-scroll.xy-hover-scroll-on::-webkit-scrollbar-thumb {
+D:\lea\XenYon code\cli\src\index.css:604:background: var(--xy-scroll);
+D:\lea\XenYon code\cli\src\index.css:607:.xy-hover-scroll::-webkit-scrollbar-track {
+D:\lea\XenYon code\cli\src\index.css:612:.xy-scroll-fade {
+D:\lea\XenYon code\cli\src\index.css:620:.xy-scroll-fade.is-fade-top:not(.is-fade-bottom) {
+D:\lea\XenYon code\cli\src\index.css:641:.xy-scroll-fade.is-fade-bottom:not(.is-fade-top) {
+D:\lea\XenYon code\cli\src\index.css:662:.xy-scroll-fade.is-fade-top.is-fade-bottom {
+D:\lea\XenYon code\cli\src\index.css:839:/* Tool / activity detail: height animate via grid (no scrollHeight measurement) */
+D:\lea\XenYon code\cli\src\index.css:893:/* Growing tool list while live — scrollable, stick-to-bottom handled in JS */
+D:\lea\XenYon code\cli\src\index.css:894:.xy-tool-scroll {
+D:\lea\XenYon code\cli\src\index.css:898:overscroll-behavior: contain;
+D:\lea\XenYon code\cli\src\index.css:1156:pointer-events: none;
+D:\lea\XenYon code\cli\src\index.css:1313:pointer-events: none;
+D:\lea\XenYon code\cli\src\index.css:1530:/* Sit clear of the native scrollbar */
+D:\lea\XenYon code\cli\src\index.css:1538:pointer-events: auto;
+D:\lea\XenYon code\cli\src\index.css:1594:pointer-events: none;
+D:\lea\XenYon code\cli\src\index.css:1645:pointer-events: none;
+D:\lea\XenYon code\cli\src\index.css:1659:pointer-events: auto;
+D:\lea\XenYon code\cli\src\index.css:1670:.xy-turn-rail-list.is-scroll {
+D:\lea\XenYon code\cli\src\index.css:1673:scrollbar-gutter: stable;
+D:\lea\XenYon code\cli\src\index.css:1772:scroll-behavior: auto !important;
+D:\lea\XenYon code\cli\src\hooks\useHoverScroll.ts:9:el.classList.add('xy-scroll-fade');
+D:\lea\XenYon code\cli\src\hooks\useHoverScroll.ts:13:const top = Math.max(0, Math.min(cap, el.scrollTop));
+D:\lea\XenYon code\cli\src\hooks\useHoverScroll.ts:18:el.scrollHeight - el.clientHeight - el.scrollTop,
+D:\lea\XenYon code\cli\src\hooks\useHoverScroll.ts:26:el.addEventListener('scroll', sync, {passive: true});
+D:\lea\XenYon code\cli\src\hooks\useHoverScroll.ts:48:el.removeEventListener('scroll', sync);
+D:\lea\XenYon code\cli\src\hooks\useHoverScroll.ts:51:el.classList.remove('xy-scroll-fade', 'is-fade-top', 'is-fade-bottom');
+D:\lea\XenYon code\cli\src\hooks\useHoverScroll.ts:58:export function useHoverScroll(
+D:\lea\XenYon code\cli\src\hooks\useHoverScroll.ts:67:const scrollerRef = useCallback((el: HTMLElement | null) => {
+D:\lea\XenYon code\cli\src\hooks\useHoverScroll.ts:87:scrollerRef,
+D:\lea\XenYon code\cli\src\hooks\useHoverScroll.ts:93:node.current?.classList.add('xy-hover-scroll-on');
+D:\lea\XenYon code\cli\src\hooks\useHoverScroll.ts:102:node.current?.classList.remove('xy-hover-scroll-on');
+D:\lea\XenYon code\cli\src\pages\ChatPage.tsx:120:? 'pointer-events-none translate-y-1 opacity-0'
+D:\lea\XenYon code\cli\src\pages\ChatPage.tsx:121:: 'pointer-events-auto translate-y-0 opacity-100',
+D:\lea\XenYon code\cli\src\pages\ChatPage.tsx:137:? 'pointer-events-auto translate-y-0 opacity-100'
+D:\lea\XenYon code\cli\src\pages\ChatPage.tsx:138:: 'pointer-events-none -translate-y-1 opacity-0',

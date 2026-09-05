@@ -1,0 +1,95 @@
+  1576→def _c2_pressure_ratio(working: WorkingSnapshot | None, params=None, window_override: int | None = None) -> float:
+  1577→	"""Path A 压力门：从窗口硬顶几何推导，**窗口自适应**（不拍固定 0.62 / 0.90）。
+  1578→
+  1579→	公式 = (l_hard_send − output_reserve − tail_budget) / window。
+  1580→	- l_hard_send = window − reserve（随窗口变，替代旧的 l_max=alpha_win·window——后者在
+  1581→	  窗口大时与硬顶严重错位）。
+  1582→	- output_reserve：给本轮输出预留的 token（c2_output_reserve，默认 0，overlay 可设）。
+  1583→	- tail_budget = 每轮均 token × 保留轮数（从真录统计，不再拍 24k）。
+  1584→
+  1585→	``window_override``：**真实模型窗口**（用户添加模型时必填的上下文窗口 / route capacity，如 1M）。
+  1586→	**必须传入**——不再回退 ``params.window_tokens``（恒 128k，会让 C2 误以为窗口只有 128k，
+  1587→	主流模型已 1M）。缺省 None → 返回 None（窗口未知 → 不触发压力 C2）。
+  1588→
+  1589→	仅 XEYO_C2_PRESSURE_FORMULA=1 时启用；否则回退冻结的 context_compact_ratio。
+  1590→	可用 XEYO_C2_PRESSURE_RATIO 环境变量直接覆盖结果（闭环定参用，不改公式）。
+  1591→	"""
+  1592→	if not _c2_formula_enabled("XEYO_C2_PRESSURE_FORMULA"):
+  1593→		return context_compact_ratio()
+  1594→	# 显式 env 覆盖（A/B 定参脚本用）：优先级最高，绕过窗口校验（脚本可无窗口直接注入比值）。
+  1595→	raw = os.environ.get("XEYO_C2_PRESSURE_RATIO", "").strip()
+  1596→	if raw:
+  1597→		try:
+  1598→			v = float(raw)
+  1599→			if 0.0 <= v <= 1.0:
+  1600→				return v
+  1601→		except ValueError:
+  1602→			pass
+  1603→	try:
+  1604→		from memory.simulator.params import load_params as _lp
+  1605→
+  1606→		p = params or _lp()
+  1607→		from memory.simulator.c2_gate import pressure_ratio
+  1608→
+  1609→		# 真实模型窗口：**必须**由上层传入（用户添加模型时必填的上下文窗口）。
+  1610→		# 不再回退 params.window_tokens（恒 128k）——那会让 C2 误以为窗口只有 128k。
+  1611→		# 无真实窗口 → 返回 None（未知），调用方按「窗口未知 → 不触发压力 C2」处理（安全）。
+  1612→		win = int(window_override) if window_override and int(window_override) > 0 else None
+  1613→		if win is None:
+  1614→			return None
+  1615→		per_turn = _c2_per_turn_tokens(working)
+  1616→		rounds = _c2_retain_rounds()
+  1617→		tail_budget = _c2_tail_budget_tokens(per_turn, rounds)
+  1618→		# Path A 压力门（**窗口自适应**）：= (l_hard_send − output_reserve − tail_budget) / window。
+  1619→		# 用 l_hard_send（随窗口变）替代 l_max，保证任何模型窗口下都「离硬顶留够输出+保尾
+  1620→		# 余量才压」——切换模型/窗口大小不一致时结果不串味。output_reserve 默认 0，
+  1621→		# overlay 可设（如 50000），代表「再给本轮输出预留这么多 token」。
+  1622→		res = pressure_ratio(
+  1623→			window=win,
+  1624→			l_hard_send=int(win - getattr(p, "reserve_tokens", 2048)),
+  1625→			output_reserve=int(getattr(p, "c2_output_reserve", 0) or 0),
+  1626→			tail_budget=tail_budget,
+  1627→		)
+  1628→	except Exception:
+  1629→		res = context_compact_ratio()
+  1630→	return res
+  1631→
+  1632→
+  1633→def _c2_per_turn_tokens(working: WorkingSnapshot | None) -> float:
+  1634→	"""每轮均 token（Path A 保尾输入）。优先用投影计量，其次环境覆盖。"""
+  1635→	raw = os.environ.get("XEYO_C2_PER_TURN_TOKENS", "").strip()
+  1636→	if raw:
+  1637→		try:
+  1638→			return max(1.0, float(raw))
+  1639→		except ValueError:
+  1640→			pass
+  1641→	try:
+  1642→		from memory.simulator.projection import project as sim_project
+  1643→
+  1644→		if working is not None:
+  1645→			cur = sim_project(working)
+  1646→			if cur and int(getattr(cur, "length", 0) or 0) > 0:
+  1647→				# 用消息数折半估轮数（与 project_for_model 的 B3 avg_turn 口径一致）
+  1648→				n = max(1, int(getattr(working, "msg_count", 0) or 0))
+  1649→				return float(getattr(cur, "length", 0)) / max(1.0, n / 2.0)
+  1650→	except Exception:
+  1651→		pass
+  1652→	return 717.0  # 基线 fallback：sess_real_200turn_c2 实测每轮均 token
+  1653→
+  1654→
+  1655→def _c2_retain_rounds() -> int:
+  1656→	"""保尾保留轮数：默认 3（对齐 KEEP_TAIL_TOOL_ROUNDS），可用环境覆盖。"""
+  1657→	raw = os.environ.get("XEYO_C2_RETAIN_ROUNDS", "").strip()
+  1658→	if raw:
+  1659→		try:
+  1660→			return max(1, int(raw))
+  1661→		except ValueError:
+  1662→			pass
+  1663→	return 3
+  1664→
+  1665→
+  1666→def _c2_tail_budget_tokens(per_turn: float, rounds: int) -> int:
+  1667→	"""保尾 ≈ 每轮均 token × 保留轮数。A/B 网格允许直接覆盖尾预算（闭环定参）。"""
+  1668→	raw = os.environ.get("XEYO_C2_TAIL_BUDGET_TOKENS", "").strip()
+  1669→	if raw:
+  1670→		try:

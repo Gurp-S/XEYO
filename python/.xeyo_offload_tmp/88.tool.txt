@@ -1,0 +1,110 @@
+  1314→_A3_CSS = """
+  1315→:root{
+  1316→  --bg:#EEF1F6; --panel:#FFFFFF; --txt:#0A2149; --mut:rgba(10,33,73,.58);
+  1317→  --lab:rgba(10,33,73,.72); --faint:rgba(10,33,73,.32); --quiet:rgba(10,33,73,.14);
+  1318→  --grid:rgba(10,33,73,.13); --line:rgba(10,33,73,.10); --bgline:rgba(10,33,73,.08);
+  1319→  --data:#2E5FB7; --data2:#7C9BD6; --hero:#0A2149; --onhero:#FFFFFF; --faintdata:#BBD0EE;
+  1320→  --good:#2E7D5B; --warn:#B08A2E; --bad:#B23A3A; --side:#FFFFFF; --sidegrid:rgba(10,33,73,.07);
+  1321→  --scrim:rgba(8,20,45,.5); --shadow:0 30px 70px rgba(8,20,45,.35);
+  1322→  --track:rgba(10,33,73,.07); --hit:#2E5FB7; --miss:#BBD0EE;
+  1323→  --m0:#0A2149; --m1:#2E5FB7; --m2:#7C9BD6; --m3:#BBD0EE; --m4:#5B7BC4; --m5:#8FA9D8;
+  1324→  --svgtxt:#0A2149; --hildim:rgba(10,33,73,.28); --scroll:rgba(10,33,73,.22); --scrollhover:rgba(10,33,73,.34);
+  1325→}
+  1326→/* ═ 黑夜模式（纯黑底：亮色数据必须亮于卡底）══ */
+  1327→[data-theme="dark"]{
+  1328→  --bg:#000000; --panel:#11141B; --txt:#E9EFFB; --mut:rgba(232,240,255,.64);
+  1329→  --lab:rgba(232,240,255,.80); --faint:rgba(232,240,255,.44); --quiet:rgba(232,240,255,.12);
+  1330→  --grid:rgba(232,240,255,.24); --line:rgba(232,240,255,.16); --bgline:rgba(232,240,255,.11);
+  1331→  --data:#6E9BEC; --data2:#9BBEFF; --hero:#6E9BEC; --onhero:#000000; --faintdata:#C9DDF9;
+  1332→  --good:#4FBF8F; --warn:#E0B84F; --bad:#E78687; --side:#0A0C10; --sidegrid:rgba(232,240,255,.08);
+  1333→  --scrim:rgba(0,0,0,.72); --shadow:0 30px 70px rgba(0,0,0,.6);
+  1334→  --track:rgba(110,155,236,.18); --hit:#6E9BEC; --miss:#40598C;
+  1335→  --m0:#6E9BEC; --m1:#4E7BD9; --m2:#9BBEFF; --m3:#C9DDF9; --m4:#5C86E0; --m5:#AFC6F0;
+  1336→  --svgtxt:#DCE6F8; --hildim:rgba(232,240,255,.28); --scroll:rgba(232,240,255,.18); --scrollhover:rgba(232,240,255,.30);
+  1337→}
+  1338→*{box-sizing:border-box;margin:0;padding:0}
+  1339→::-webkit-scrollbar{width:8px;height:8px}
+  1340→::-webkit-scrollbar-track{background:transparent}
+  1341→::-webkit-scrollbar-thumb{background:var(--scroll);border-radius:8px}
+  1342→::-webkit-scrollbar-thumb:hover{background:var(--scrollhover)}
+  1343→*{scrollbar-width:thin;scrollbar-color:var(--scroll) transparent}
+  1344→html,body{height:100%;color:var(--txt);-webkit-font-smoothing:antialiased;
+  1345→  font-variant-numeric:tabular-nums lining-nums;overflow:hidden}
+  1346→body{font-family:'Inter','Noto Sans SC',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;background:var(--bg)}
+  1347→#app{display:grid;grid-template-columns:264px 1fr;height:100vh;gap:0}
+  1348→
+  1349→/* ═ 侧边栏 ═ */
+  1350→.side{background:var(--side);border-right:1px solid var(--bgline);padding:24px 20px;display:flex;
+  1351→  flex-direction:column;overflow:auto}
+  1352→.side .brand{font-size:11px;font-weight:800;letter-spacing:.22em;color:var(--mut)}
+  1353→.side h1{font-size:24px;font-weight:900;letter-spacing:.01em;margin-top:8px;line-height:1.15}
+  1354→.side .sub{font-size:11px;color:var(--faint);margin-top:8px;line-height:1.6}
+  1355→.side .rule{border:0;border-top:1px solid var(--bgline);margin:20px 0}
+  1356→
+  1357→.side h3{font-size:10px;font-weight:800;letter-spacing:.16em;color:var(--mut);margin:0 0 10px}
+  1358→.daylist{display:flex;flex-direction:column;gap:6px}
+  1359→.daybtn{padding:10px 12px;border:1px solid var(--grid);border-radius:10px;background:transparent;
+  1360→  cursor:pointer;text-align:left;font:600 12px inherit;color:var(--mut);display:block}
+  1361→.daybtn .d{display:block;font-weight:800;color:var(--txt);font-size:13px}
+  1362→.daybtn .s{display:block;font-size:10px;color:var(--faint);margin-top:2px;letter-spacing:.06em}
+  1363→.daybtn.act{background:var(--hero);color:var(--onhero);border-color:var(--hero)}
+  1364→.daybtn.act .d,.daybtn.act .s{color:var(--onhero)}
+  1365→.daybtn.act .s{opacity:.7}
+  1366→
+  1367→.modelgroup{display:flex;flex-direction:column;gap:6px}
+  1368→.mcheck{display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:9px;cursor:pointer;
+  1369→  font-size:12px;font-weight:600;color:var(--lab);border:1px solid transparent}
+  1370→.mcheck:hover{background:var(--quiet)}
+  1371→.mcheck i{width:12px;height:12px;border-radius:3px;flex:none;border:1.5px solid var(--faint)}
+  1372→.mcheck.on i{border-color:transparent}
+  1373→.mcheck .nm{flex:1;font-weight:700;color:var(--txt)}
+  1374→.mcheck .pc{font-size:10px;color:var(--mut);font-variant-numeric:tabular-nums}
+  1375→
+  1376→.legend{margin-top:auto;border-top:1px solid var(--bgline);padding-top:16px}
+  1377→.legend .lgitem{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--mut);margin-top:8px}
+  1378→.legend .sw{width:11px;height:11px;border-radius:3px;flex:none}
+  1379→.tools{margin-top:18px;display:flex;gap:8px}
+  1380→.btn{background:var(--hero);color:var(--onhero);border:0;border-radius:9px;padding:10px 14px;
+  1381→  font:700 12px/1 inherit;cursor:pointer;letter-spacing:.02em;flex:1}
+  1382→.btn.ghost{background:transparent;color:var(--txt);border:1px solid var(--grid);flex:0 0 auto}
+  1383→.btn:hover{filter:brightness(1.08)}.btn:active{transform:translateY(1px)}
+  1384→.themerow{display:flex;gap:8px;margin-top:10px}
+  1385→.themerow .ghost{flex:1}
+  1386→.themetoggle{flex:1;background:transparent;border:1px solid var(--grid);border-radius:9px;padding:9px 12px;
+  1387→  font:700 11.5px/1 inherit;color:var(--lab);cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px}
+  1388→.themetoggle:hover{background:var(--quiet)}
+  1389→.side .src{font-size:10px;color:var(--faint);margin-top:14px;line-height:1.7;letter-spacing:.03em}
+  1390→
+  1391→/* ═ 主区 ═ */
+  1392→.main{padding:22px 26px 24px;display:flex;flex-direction:column;gap:12px;overflow:auto}
+  1393→.hero{display:flex;justify-content:space-between;align-items:flex-end;gap:20px}
+  1394→.hero .ttl{min-width:0}
+  1395→.hero .ttl h2{font-size:27px;font-weight:900;letter-spacing:-.01em;line-height:1.1}
+  1396→.hero .ttl .dek{font-size:11.5px;color:var(--mut);margin-top:5px}
+  1397→.hero .meta{font-size:11px;color:var(--mut);text-align:right;line-height:1.6;flex:none}
+  1398→.hero .meta b{color:var(--data)}
+  1399→
+  1400→.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+  1401→.kpi{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:11px 14px 10px}
+  1402→.kpi .k{font-size:9.5px;font-weight:700;letter-spacing:.13em;color:var(--mut)}
+  1403→.kpi .v{font-size:23px;font-weight:900;letter-spacing:-.02em;margin-top:4px;line-height:1}
+  1404→.kpi .s{font-size:9px;color:var(--faint);margin-top:5px;line-height:1.4}
+  1405→.kpi.accent .v{color:var(--data)}
+  1406→.kpi.bad .v{color:var(--bad)}
+  1407→.kpi.good .v{color:var(--good)}
+  1408→.kpi.warn .v{color:var(--warn)}
+  1409→
+  1410→.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;align-content:start}
+  1411→.card{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:13px 14px 10px;
+  1412→  display:flex;flex-direction:column;min-height:0;justify-content:space-between;transition:border-color .2s ease}
+  1413→.card:hover{border-color:var(--grid)}
+  1414→.card header{display:flex;justify-content:space-between;align-items:baseline;gap:10px;
+  1415→  margin-bottom:2px}
+  1416→.card header h2{font-size:14px;font-weight:900;letter-spacing:.02em}
+  1417→.card header .sub{font-size:8.5px;font-weight:700;letter-spacing:.1em;color:var(--mut)}
+  1418→.card .body{width:100%;flex:1;display:flex;align-items:center;justify-content:center;min-height:0;padding:2px 0 4px}
+  1419→.svg-wrap{display:block;width:100%;height:auto;max-height:100%}
+  1420→.svg-wrap.hsvg{height:100%;width:100%}
+  1421→svg text{font-family:'Inter','Noto Sans SC',sans-serif}
+  1422→
+  1423→/* 环形中心 */

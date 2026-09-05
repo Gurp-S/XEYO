@@ -1,0 +1,45 @@
+   163→def normalize_messages_for_openai(
+   164→	messages: list[dict[str, Any]],
+   165→	*,
+   166→	provider: str = "",
+   167→	model: str = "",
+   168→) -> list[dict[str, Any]]:
+   169→	"""将内部消息转换为 OpenAI chat 格式，并按供应商上限物化图片。"""
+   170→	from media_store import materialize_image_url
+   171→
+   172→	image_count = 0
+   173→	for row in messages:
+   174→		content = row.get("content")
+   175→		if isinstance(content, list):
+   176→			image_count += sum(
+   177→				1
+   178→				for block in content
+   179→				if isinstance(block, dict) and block.get("type") == "image_url"
+   180→			)
+   181→
+   182→	out: list[dict[str, Any]] = []
+   183→	for m in messages:
+   184→		role = m.get("role")
+   185→		content = m.get("content")
+   186→
+   187→		if role == "system":
+   188→			out.append(
+   189→				{
+   190→					"role": "system",
+   191→					"content": content if isinstance(content, str) else json.dumps(content),
+   192→				}
+   193→			)
+   194→			continue
+   195→
+   196→		if role == "user":
+   197→			if isinstance(content, str):
+   198→				out.append({"role": "user", "content": content})
+   199→				continue
+   200→			if isinstance(content, list):
+   201→				vision: list[dict[str, Any]] = []
+   202→				texts: list[str] = []
+   203→				for block in content:
+   204→					if not isinstance(block, dict):
+   205→						continue
+   206→					if block.get("type") == "tool_result":
+   207→						out.append(

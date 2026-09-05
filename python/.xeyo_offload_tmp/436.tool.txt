@@ -1,0 +1,135 @@
+     1→"""c2_tail_profiler — 真录会话的「尾区每轮均 token/字符」测量 + C2 触发压力现状。
+     2→
+     3→只读、零 LLM、零费用：从转录 JSONL 重建消息，逐 assistant 调用用 v61 默认公式
+     4→驱动 project_for_model，统计：
+     5→  - 每轮(assistant→tool 成对区)均字符与均 token
+     6→  - 当前默认(alpha_win=0.55 / l_max=70400 / l_hard_send=125952)下边界推进次数与触发压力
+     7→  - 尾区(KEEP_TAIL)的字符/token 体量，供「保尾 = 每轮均 token × 保留轮数」定参
+     8→
+     9→用法（在 python/ 下）:
+    10→  py -3.11 -m scripts.c2_tail_profiler <session_id> [cwd]
+    11→"""
+    12→
+    13→from __future__ import annotations
+    14→
+    15→import os
+    16→import sys
+    17→from pathlib import Path
+    18→
+    19→ROOT = Path(__file__).resolve().parents[1]
+    20→if str(ROOT) not in sys.path:
+    21→    sys.path.insert(0, str(ROOT))
+    22→
+    23→
+    24→def _load(session_id: str) -> list[dict]:
+    25→    from session.hydrate import message_from_row
+    26→    from session.record_transcript import load_transcript, transcript_read_paths
+    27→    from session.persistence import transcript_path
+    28→
+    29→    rows: list[dict] = []
+    30→    try:
+    31→        for p in transcript_read_paths(transcript_path(session_id)):
+    32→            rows.extend(load_transcript(p))
+    33→    except Exception as exc:  # noqa: BLE001
+    34→        print(f"[warn] transcript read: {exc}")
+    35→    out: list[dict] = []
+    36→    for r in rows:
+    37→        m = message_from_row(r)
+    38→        if m is not None:
+    39→            out.append(m.__dict__)
+    40→    return out
+    41→
+    42→
+    43→def _chars(messages: list[dict]) -> int:
+    44→    n = 0
+    45→    for m in messages:
+    46→        c = m.get("content")
+    47→        if isinstance(c, str):
+    48→            n += len(c)
+    49→        elif isinstance(c, list):
+    50→            for b in c:
+    51→                if not isinstance(b, dict):
+    52→                    continue
+    53→                t = b.get("content") or b.get("text") or b.get("input")
+    54→                if isinstance(t, str):
+    55→                    n += len(t)
+    56→    return n
+    57→
+    58→
+    59→def main() -> int:
+    60→    import argparse
+    61→
+    62→    ap = argparse.ArgumentParser()
+    63→    ap.add_argument("session_id")
+    64→    ap.add_argument("cwd", nargs="?", default=".")
+    65→    args = ap.parse_args()
+    66→
+    67→    import memory.runtime as rt
+    68→    from engine.compact import tool_pair_ranges
+    69→    from memory.working import WorkingSnapshot, hydrate
+    70→
+    71→    messages = _load(args.session_id)
+    72→    print(f"[session] {args.session_id}  messages={len(messages)}")
+    73→    if not messages:
+    74→        return 0
+    75→
+    76→    # 逐 assistant 调用驱动 v61（与 runtime_probe 同 patch，仅统计边界推进）
+    77→    rt.l5_mode = lambda: "v61"
+    78→    working = hydrate(args.session_id)
+    79→    if not working.session_id:
+    80→        working = WorkingSnapshot(session_id=args.session_id)
+    81→
+    82→    from memory.runtime import project_for_model
+    83→    from memory.simulator.params import load_params
+    84→
+    85→    p = load_params()
+    86→    call_idxs = [i for i, m in enumerate(messages) if m.get("role") == "assistant"]
+    87→    advances = 0
+    88→    last_cursor = 0
+    89→    # 尾区（最后 3 个 tool 轮）字符统计
+    90→    pairs = tool_pair_ranges(messages)
+    91→    tail_cut = messages[-3]["start"] if False else None
+    92→    # 直接用 keep_tail_cut
+    93→    from engine.compact import keep_tail_cut
+    94→
+    95→    tc = keep_tail_cut(messages)
+    96→    tail_msgs = messages[tc:]
+    97→    tail_chars = _chars(tail_msgs)
+    98→
+    99→    # 每轮均字符：用成对区间
+   100→    pair_chars = []
+   101→    for (start, end) in pairs:
+   102→        pair_chars.append(_chars(messages[start:end]))
+   103→    avg_pair_chars = sum(pair_chars) / max(1, len(pair_chars))
+   104→    avg_pair_tok = avg_pair_chars / 4.0
+   105→
+   106→    for idx in call_idxs:
+   107→        try:
+   108→            project_for_model(
+   109→                messages[:idx], working, remaining_turns=8, include_memory_index=False
+   110→            )
+   111→        except Exception:  # noqa: BLE001
+   112→            continue
+   113→        if int(working.compact_cursor or 0) != last_cursor:
+   114→            advances += 1
+   115→            last_cursor = int(working.compact_cursor or 0)
+   116→
+   117→    print("\n# 统计")
+   118→    print(f"assistant 调用数        = {len(call_idxs)}")
+   119→    print(f"成对(assistant+tool)区间 = {len(pairs)}")
+   120→    print(f"每轮均字符              = {avg_pair_chars:.0f}  (≈{avg_pair_tok:.0f} tok)")
+   121→    print(f"每轮均 token(字符/4)     = {avg_pair_tok:.0f}")
+   122→    print(f"尾区起点(keep_tail_cut)  = {tc} / {len(messages)}")
+   123→    print(f"尾区字符                = {tail_chars} (≈{tail_chars/4:.0f} tok)")
+   124→    print(f"C2 边界推进次数(v61 默认)= {advances}")
+   125→    print(f"\nparams: alpha_win={p.alpha_win} window={p.window_tokens} reserve={p.reserve_tokens} "
+   126→          f"l_max={p.l_max} l_hard_send={p.l_hard_send}")
+   127→    print(f"l_max/window 压力比      = {p.l_max / p.window_tokens:.3f}")
+   128→    print(f"l_hard_send/window      = {p.l_hard_send / p.window_tokens:.3f}")
+   129→    print(f"→ 若保尾=每轮均token×3轮：{avg_pair_tok * 3:.0f} tok（当前硬编码 KEEP_TAIL_TOOL_ROUNDS=3）")
+   130→    return 0
+   131→
+   132→
+   133→if __name__ == "__main__":
+   134→    raise SystemExit(main())
+   135→

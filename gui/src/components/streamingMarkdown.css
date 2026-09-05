@@ -1,0 +1,76 @@
+/*
+ * Streamdown + XEYO chat prose. Tokens map shadcn vars → --xy-* so
+ * Streamdown chrome matches the app without purple defaults.
+ */
+
+@source "../../node_modules/streamdown/dist/*.js";
+@source "../../node_modules/@streamdown/math/dist/*.js";
+@source "../../node_modules/@streamdown/cjk/dist/*.js";
+
+:root,
+html[data-scheme="light"] {
+  --background: var(--xy-paper);
+  --foreground: var(--xy-ink);
+  --card: var(--xy-paper);
+  --card-foreground: var(--xy-ink);
+  --muted: var(--xy-paper-deep);
+  --muted-foreground: var(--xy-mute);
+  --border: var(--xy-line);
+  --input: var(--xy-line);
+  --primary: var(--xy-accent);
+  --primary-foreground: var(--xy-on-accent);
+  --radius: 0.625rem;
+}
+
+html[data-scheme="dark"] {
+  --background: var(--xy-paper);
+  --foreground: var(--xy-ink);
+  --card: var(--xy-paper-deep);
+  --card-foreground: var(--xy-ink);
+  --muted: var(--xy-paper-deep);
+  --muted-foreground: var(--xy-mute);
+  --border: var(--xy-line);
+  --input: var(--xy-line);
+  --primary: var(--xy-accent);
+  --primary-foreground: var(--xy-on-accent);
+}
+
+.xy-streamdown {
+  font-size: inherit;
+  line-height: inherit;
+  color: var(--xy-ink);
+}
+
+/*
+ * 末尾渐变：逐字 .xy-char 设 opacity（rehypeTailFade 生成）。
+ * opacity 不改布局、无 background-clip 裁剪层；这里只负责保证
+ * 逐字 span 边界处字形宽度与整段文本完全一致（关 kerning/连字）。
+ */
+.xy-streamdown-live {
+  font-kerning: none;
+  font-variant-ligatures: none;
+}
+
+.xy-stream-md .xy-md-surface,
+.xy-stream-md .xy-code-surface {
+  transition: none;
+}
+
+/*
+ * 流式代码块尾行渐隐：代码内容不走逐字渐变（跳过 pre/code），
+ * 用纵向 mask 让最后一行淡出，提示仍在输出；落盘后自动消失。
+ */
+.xy-stream-md .xy-stream-code code {
+  -webkit-mask-image: linear-gradient(
+    180deg,
+    #000 0%,
+    #000 calc(100% - 1.5em),
+    rgba(0, 0, 0, 0.3) 100%
+  );
+  mask-image: linear-gradient(
+    180deg,
+    #000 0%,
+    #000 calc(100% - 1.5em),
+    rgba(0, 0, 0, 0.3) 100%
+  );
+}

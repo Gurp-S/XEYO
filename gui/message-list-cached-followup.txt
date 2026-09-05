@@ -1,0 +1,13 @@
+diff --git a/gui/src/components/MessageList.tsx b/gui/src/components/MessageList.tsx
+index 8d84c3f..4481fa8 100644
+--- a/gui/src/components/MessageList.tsx
++++ b/gui/src/components/MessageList.tsx
+@@ -436,7 +436,7 @@ const RoundHost = memo(function RoundHost({
+ 										}
+ 									}}
+ 									rows={1}
+-									className="xy-chat-text block min-h-8 max-h-[15rem] w-full resize-none overflow-y-hidden border-0 bg-transparent p-0 font-sans text-[15px] leading-relaxed text-ink outline-none"
++									className="xy-chat-text xy-editing-input block min-h-8 max-h-[15rem] w-full resize-none overflow-y-hidden border-0 bg-transparent p-0 font-sans text-[15px] leading-relaxed text-ink outline-none"
+ 									disabled={editingSubmitting || anyStreaming}
+ 									aria-label="缂栬緫鍘嗗彶娑堟伅"
+ 								/>

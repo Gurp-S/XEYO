@@ -1,0 +1,160 @@
+  1937→
+  1938→/* ── 明细弹窗：分模型表 + 分对话 ── */
+  1939→function openModal(day){
+  1940→  var m=mk('div');m.className='modal on';
+  1941→  var sheet=mk('div');sheet.className='sheet';
+  1942→  var head=mk('div');head.className='mhead';
+  1943→  var close=mk('div');close.className='close';close.textContent='×';
+  1944→  close.addEventListener('click',function(){m.parentNode&&m.parentNode.removeChild(m)});
+  1945→  head.innerHTML='<h2>'+esc(day.day)+' · 会话明细</h2><div class="x">'+esc(day.total.by_turn.length)+' 轮 · 点击列头排序</div>';
+  1946→  head.appendChild(close);
+  1947→  sheet.appendChild(head);
+  1948→
+  1949→  // 分模型（固定）
+  1950→  var mh=mk('h3');mh.textContent='分模型';mh.style.cssText='margin:16px 0 6px;font-size:14px';sheet.appendChild(mh);
+  1951→  var modelFixed=mk('div');modelFixed.className='model-fixed';sheet.appendChild(modelFixed);
+  1952→  var bm=filterByModel(buildModels(day).slice(),'model');
+  1953→  var T=mk('table');T.className='tbl';
+  1954→  T.innerHTML='<thead><tr><th>模型</th><th>Provider</th><th class="num">命中率</th><th class="num">命中/输入</th>'+
+  1955→    '<th class="num">请求</th><th class="num">输出</th><th class="num">成本</th></tr></thead><tbody></tbody>';
+  1956→  var tb=T.querySelector('tbody');
+  1957→  function paint(list){
+  1958→    tb.innerHTML='';
+  1959→    list.forEach(function(m){
+  1960→      var ti=Number(m.cache_hit)+Number(m.cache_miss);
+  1961→      var tr=mk('tr');
+  1962→      tr.innerHTML='<td><span class="model-chip"><i style="background:'+m._c+'"></i>'+esc(m.model)+'</span></td>'+
+  1963→        '<td><span class="tag">'+esc(m.provider)+'</span></td>'+
+  1964→        '<td class="num" style="font-weight:800">'+pct(m.hit_rate)+'</td>'+
+  1965→        '<td class="num"><span class="tag">'+fmt(m.cache_hit)+'/'+fmt(ti)+'</span></td>'+
+  1966→        '<td class="num">'+fmt(m.requests)+'</td><td class="num">'+fmt(m.output)+'</td>'+
+  1967→        '<td class="num">'+cost(m.cost_cny)+'</td>';
+  1968→      tb.appendChild(tr);
+  1969→    });
+  1970→  }
+  1971→  paint(bm);
+  1972→  modelFixed.appendChild(T);
+  1973→
+  1974→  // 分对话（滚动区域）
+  1975→  var ch=mk('h3');ch.textContent='分对话';ch.style.cssText='margin:16px 0 6px;font-size:14px';sheet.appendChild(ch);
+  1976→  var scrollable=mk('div');scrollable.className='scrollable';sheet.appendChild(scrollable);
+  1977→  var sr=mk('div');sr.className='searchrow';
+  1978→  sr.innerHTML='<input type="text" placeholder="搜索用户消息…" /><div class="filters"></div>';
+  1979→  var input=sr.querySelector('input');
+  1980→  var fl=sr.querySelector('.filters');
+  1981→  var models=buildModels(day);
+  1982→  fl.innerHTML='<button class="chip on" data-m="">全部</button>'+models.map(function(m){
+  1983→    return '<button class="chip" data-m="'+esc(m.model)+'">'+esc(shortModel(m.model))+'</button>'}).join('');
+  1984→  scrollable.appendChild(sr);
+  1985→
+  1986→  var list=mk('div');scrollable.appendChild(list);
+  1987→  var byTurn=(day.total.by_turn||[]).slice();
+  1988→  var q='',model='';
+  1989→  function visible(t){
+  1990→    var lab=String(t.label||'').toLowerCase();
+  1991→    if(q&&lab.indexOf(q)<0)return false;
+  1992→    if(model&&t.model!==model)return false;
+  1993→    return true;
+  1994→  }
+  1995→
+  1996→  function render(){
+  1997→    list.innerHTML='';
+  1998→    var shown=byTurn.filter(visible);
+  1999→    if(!shown.length){var e=mk('div');e.className='empty';e.textContent='无匹配对话';list.appendChild(e);return}
+  2000→    shown.sort(function(a,b){return (Number(a.first_ts)||0)-(Number(b.first_ts)||0)});
+  2001→    shown.forEach(function(t){
+  2002→      var st=Number(t.cache_hit)||0,sm=Number(t.cache_miss)||0,ti=st+sm;
+  2003→      var det=mk('details');det.className='turn';
+  2004→      var sum=mk('summary');
+  2005→      sum.innerHTML='<span class="t">'+esc(t.label||'未命名消息')+'</span>'+
+  2006→        '<span class="r"><span class="m">'+esc(shortModel(t.model))+'</span><span>'+pct(t.hit_rate)+'</span>'+
+  2007→        '<span>'+esc(t.requests)+' req</span><span>'+cost(t.cost_cny)+'</span></span>';
+  2008→      det.appendChild(sum);
+  2009→      var inner=mk('div');inner.className='inner';
+  2010→      var TT=mk('table');TT.className='tbl';
+  2011→      TT.innerHTML='<thead><tr><th>时间</th><th>模型</th><th>命中率</th><th>命中/输入</th><th class="num">请求</th>'+
+  2012→        '<th class="num">输出</th><th class="num">成本</th><th class="num">Prompt</th></tr></thead><tbody></tbody>';
+  2013→      var tbb=TT.querySelector('tbody');
+  2014→      function row(ts,model2,hitc,misc,req,out,co,pr,faint){
+  2015→        var tr=mk('tr');if(faint)tr.setAttribute('style','opacity:.72');
+  2016→        var hv=hitc+misc;
+  2017→        tr.innerHTML='<td>'+esc(ts)+'</td><td>'+esc(model2)+'</td><td>'+pct(hv?hitc/hv:0,1)+'</td>'+
+  2018→          '<td><span class="tag">'+fmt(hitc)+'/'+fmt(hv)+'</span></td>'+
+  2019→          '<td class="num">'+req+'</td><td class="num">'+fmt(out)+'</td><td class="num">'+cost(co)+'</td>'+
+  2020→          '<td class="num">'+fmt(pr)+'</td>';
+  2021→        return tr;
+  2022→      }
+  2023→      var ts0=new Date(Number(t.first_ts)*1000).toTimeString().slice(0,8);
+  2024→      tbb.appendChild(row(ts0,t.model,st,sm,t.requests,t.output,t.cost_cny,(t.prompt!=null?t.prompt:ti),false));
+  2025→      (t.events||[]).forEach(function(e){
+  2026→        var eh=Number(e.cache_hit)||0,em=Number(e.cache_miss)||0;
+  2027→        tbb.appendChild(row(new Date(Number(e.ts)*1000).toTimeString().slice(0,8),e.model,eh,em,1,e.output,e.cost_cny,e.prompt_tokens,true));
+  2028→      });
+  2029→      inner.appendChild(TT);
+  2030→      det.appendChild(inner);
+  2031→      list.appendChild(det);
+  2032→    });
+  2033→  }
+  2034→  input.addEventListener('input',function(){q=input.value.trim().toLowerCase();render()});
+  2035→  fl.querySelectorAll('.chip').forEach(function(ch){
+  2036→    ch.addEventListener('click',function(){
+  2037→      model=ch.getAttribute('data-m')||'';
+  2038→      fl.querySelectorAll('.chip').forEach(function(c){c.className=c===ch?'chip on':'chip'});
+  2039→      render();});
+  2040→  });
+  2041→  render();
+  2042→  m.appendChild(sheet);
+  2043→  document.body.appendChild(m);
+  2044→}
+  2045→
+  2046→function toggleTheme(){
+  2047→  var cur=document.documentElement.getAttribute('data-theme');
+  2048→  var next=cur==='dark'?'light':'dark';
+  2049→  document.documentElement.setAttribute('data-theme',next);
+  2050→  try{localStorage.setItem('a3-theme',next)}catch(e){}
+  2051→  renderAll();
+  2052→}
+  2053→
+  2054→function renderAll(){
+  2055→  root.innerHTML='';
+  2056→  var day=null;
+  2057→  DAYS.forEach(function(d){if(d.day===state.day)day=d});
+  2058→  if(!day)day=DAYS[DAYS.length-1];
+  2059→  if(!day){var d=mk('div');d.textContent='暂无数据';root.appendChild(d);return}
+  2060→  if(!state.day)state.day=day.day;
+  2061→  root.appendChild(renderSidebar(day));
+  2062→  root.appendChild(renderMain(day));
+  2063→}
+  2064→
+  2065→document.addEventListener('DOMContentLoaded',function(){
+  2066→  root=document.getElementById('app');
+  2067→  if(!root)return;
+  2068→  // 初始主题：优先 localStorage，其次跟随系统偏好，默认浅色
+  2069→  var saved=null;
+  2070→  try{saved=localStorage.getItem('a3-theme')}catch(e){}
+  2071→  var pref=window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';
+  2072→  document.documentElement.setAttribute('data-theme',saved||pref);
+  2073→  state.day=null;state.models=[];
+  2074→  renderAll();
+  2075→});
+  2076→})();
+  2077→
+  2078→
+  2079→"""
+  2080→
+  2081→
+  2082→def render_a3_html(rows: dict) -> str:
+  2083→	"""A3（deploy_project_mode_*）渲染为独立 HTML 页面：总表 + 模型表 + 对话表（每枪明细 + 对话属性）+ 导出JSON。
+  2084→	完整数据内嵌为 JSON，浏览端自行渲染与导出。"""
+  2085→	a3 = {k: v for k, v in rows.items() if k.startswith(A3_PREFIX)}
+  2086→	payload = {
+  2087→		"generated_at": _now(),
+  2088→		"days": [
+  2089→			{
+  2090→				"day": v.get("detail", {}).get("day", k.removeprefix(A3_PREFIX)),
+  2091→				"total": v.get("detail", {}),
+  2092→				"by_model": v.get("detail", {}).get("by_model", []),
+  2093→				"by_session": v.get("detail", {}).get("by_session", []),
+  2094→				"by_turn": v.get("detail", {}).get("by_turn", []),
+  2095→				"accepted": bool(v.get("accepted")),
+  2096→			}

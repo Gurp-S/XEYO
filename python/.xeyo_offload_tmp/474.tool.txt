@@ -1,0 +1,20 @@
+The file D:\lea\XenYon code\python\prompt\pre_llm_inject.py has been updated successfully. +2 -2
+
+```diff
+--- a/pre_llm_inject.py
++++ b/pre_llm_inject.py
+@@ -917,10 +917,10 @@
+ 	# 输出精简 / 写代码精简（开关关闭时不挂，T_now 与历史保持干净）。
+ 	compact_block = output_compact_block()
+ 	if compact_block:
+-		tagged.append((KLASS_DIRECTIVE, compact_block))
++		tagged.append((KLASS_DIRECTIVE, bg_wrap(compact_block)))
+ 	code_block = code_compact_block()
+ 	if code_block:
+-		tagged.append((KLASS_DIRECTIVE, code_block))
++		tagged.append((KLASS_DIRECTIVE, bg_wrap(code_block)))
+ 
+ 	# F1：MCP required server 启动失败 → T_now 警告块（background only，带归属头）。
+ 	if (ctx.cwd or "").strip() and not ctx.subagent:
+```
+Hint: Diagnostics path=D:\lea\XenYon code\python\prompt\pre_llm_inject.py

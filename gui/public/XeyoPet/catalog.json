@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "defaultPetId": "xeyo-sea-sprite-plus",
+  "pets": [
+    {
+      "id": "xeyo-sea-sprite-plus",
+      "manifestPath": "pet-plus.json",
+      "enabled": true
+    }
+  ]
+}

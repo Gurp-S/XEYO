@@ -1,0 +1,24 @@
+python\memory\runtime.py:209:def maybe_advance_aging_boundary(messages: list[dict], working: WorkingSnapshot) -> bool:
+python\memory\runtime.py:1042:	working.c1_frozen_until = max(working.c1_frozen_until, new_cursor)
+python\memory\simulator\replay.py:345:					c1_frozen_until=c1_frozen,
+python\memory\simulator\replay.py:398:				c1_frozen_until=c1_frozen,
+python\memory\working.py:380:        c1_frozen_until=frozen,
+python\memory\working.py:475:    snap.c1_frozen_until = 0
+python\memory\working.py:501:    snap.c1_frozen_until = max(snap.c1_frozen_until, new_cursor)
+python\memory\working.py:512:    snap.c1_frozen_until = new_until
+python\tests\test_c2_llm_summary_t8.py:220:	w = WorkingSnapshot(compact_cursor=3, c1_frozen_until=3)
+python\tests\test_c2_llm_summary_t8.py:236:	w = WorkingSnapshot(compact_cursor=3, c1_frozen_until=3)
+python\tests\test_c2_llm_summary_t8.py:246:	w = WorkingSnapshot(compact_cursor=3, c1_frozen_until=3)
+python\tests\test_c2_llm_summary_t8.py:257:	w = WorkingSnapshot(compact_cursor=3, c1_frozen_until=3)
+python\tests\test_c2_llm_summary_t8.py:313:	w = WorkingSnapshot(session_id="cp1", compact_cursor=11, c1_frozen_until=11)
+python\tests\test_c2_llm_summary_t8.py:323:	assert got.c1_frozen_until == w.c1_frozen_until
+python\tests\test_c2_llm_summary_t8.py:357:	w = WorkingSnapshot(compact_cursor=6, c1_frozen_until=6, c2_summary_text="FROZEN")
+python\tests\test_c2_llm_summary_t8.py:392:	w = WorkingSnapshot(session_id="cp4", compact_cursor=5, c1_frozen_until=5, c2_summary_text="STALE")
+python\tests\test_memory_aging.py:194:	assert w.c1_frozen_until == expected > 0
+python\tests\test_memory_aging.py:199:	assert w.c1_frozen_until == expected
+python\tests\test_memory_aging.py:211:	assert w.c1_frozen_until == 0
+python\tests\test_rewind_service.py:744:    stale.c1_frozen_until = 4
+python\tests\test_rewind_service.py:769:    assert reloaded.c1_frozen_until == 0
+python\tests\test_runtime_c2.py:262:	assert working.c1_frozen_until == n - KEEP_TAIL_MESSAGES
+python\tests\test_runtime_c2.py:285:	assert working.c1_frozen_until == n - KEEP_TAIL_MESSAGES
+python\tests\test_runtime_c2.py:304:	assert working.c1_frozen_until == 0

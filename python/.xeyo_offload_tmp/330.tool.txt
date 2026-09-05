@@ -1,0 +1,10 @@
+python\cli\feature_registry.py:72:	"XEYO_CONTEXT_LIMIT_TOKENS": FeatureSpec(
+python\cli\feature_registry.py:73:		"XEYO_CONTEXT_LIMIT_TOKENS", stage=_STAGE_STABLE
+python\engine\budget.py:35:def _positive_int_from_env(name: str, default: int) -> int:
+python\engine\query_loop.py:298:def _positive_int(value: object) -> int | None:
+python\memory\token.py:11:def token_len(text: str) -> int:
+python\model\openai_compat.py:46:def _positive_int(value: Any) -> int | None:
+python\model\openai_compat.py:81:	优先级：usage 字段 → env XEYO_CONTEXT_LIMIT_TOKENS。均未提供时返回 None
+python\model\openai_compat.py:88:	env_limit = _positive_int(os.environ.get("XEYO_CONTEXT_LIMIT_TOKENS"))
+python\model\openai_compat.py:158:			os.environ.get("XEYO_CONTEXT_LIMIT_TOKENS")
+python\tests\test_context_telemetry.py:43:    monkeypatch.setenv("XEYO_CONTEXT_LIMIT_TOKENS", "131072")

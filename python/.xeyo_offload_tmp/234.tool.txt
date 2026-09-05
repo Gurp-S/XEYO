@@ -1,0 +1,9 @@
+python\engine\query_engine.py:1216:        model_client = OpenAICompatClient(
+python\scripts\formula_live_ab.py:195:		"model_client": OpenAICompatClient(
+python\scripts\hitrate_c2_only_live.py:96:	client = OpenAICompatClient(
+python\scripts\memory_stack_eval.py:208:	model = OpenAICompatClient(
+python\scripts\memory_stack_eval.py:2578:	client = OpenAICompatClient(
+python\server\routers\chat.py:1103:						_title_client = OpenAICompatClient(
+python\server\session_pool.py:336:			model = OpenAICompatClient(
+python\tests\test_model_client_contract.py:261:	with_pk = OpenAICompatClient(api_key="k", base_url="https://api.test/v1", model="m", max_tokens=4096)
+python\tests\test_model_client_contract.py:265:	without = OpenAICompatClient(api_key="k", base_url="https://api.test/v1", model="m")

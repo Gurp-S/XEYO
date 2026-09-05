@@ -1,0 +1,166 @@
+/* 扩展中心(插件 / MCP / Skill)专属样式 — 由 entry.css 引入。
+   动效原则:仅 opacity / translate / scale(GPU 友好,不触发 layout);
+   hover 位移走独立 `translate` 属性,与入场动画(animating transform)互不打架;
+   prefers-reduced-motion 下全量降级为无动画。 */
+
+:root {
+  /* 交互弹簧曲线:小幅过冲,用于开关滑块 / tab 指示器 */
+  --xy-ext-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* ============ 行入场:rise + 微缩放,stagger 由内联 --stagger-i 驱动 ============ */
+@keyframes xy-ext-row-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.ext-row {
+  position: relative;
+  animation: xy-ext-row-in var(--duration-base) var(--ease-out-soft) both;
+  animation-delay: calc(min(var(--stagger-i, 0), 12) * 32ms);
+  transition:
+    background-color var(--duration-fast) ease,
+    box-shadow var(--duration-base) ease;
+}
+
+/* 统一容器内的行:hover 以底色高亮 + 左侧 accent 竖轨,不做位移 */
+.ext-row:hover {
+  background-color: color-mix(in oklch, var(--xy-ink) 3.5%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in oklch, var(--xy-line) 60%, transparent);
+}
+
+/* 左侧 accent 竖轨:hover 时 scaleY 展开(mask 式显现) */
+.ext-row::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  border-radius: 9999px;
+  background: var(--xy-accent);
+  opacity: 0.55;
+  transform: scaleY(0);
+  transform-origin: top;
+  transition: transform var(--duration-base) var(--ease-out-soft);
+  pointer-events: none;
+}
+
+.ext-row:hover::before {
+  transform: scaleY(1);
+}
+
+/* 忙碌行:轻呼吸,提示该行操作进行中 */
+@keyframes xy-ext-busy-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.62;
+  }
+}
+
+.ext-busy {
+  animation:
+    xy-ext-row-in var(--duration-base) var(--ease-out-soft) both,
+    xy-ext-busy-pulse 1.2s ease-in-out infinite;
+  animation-delay: 0ms, calc(min(var(--stagger-i, 0), 12) * 32ms);
+}
+
+/* ============ 开关:弹簧滑块 ============ */
+.ext-toggle {
+  transition:
+    background-color var(--duration-base) var(--ease-out-soft),
+    box-shadow var(--duration-base) ease,
+    opacity var(--duration-fast) ease;
+}
+
+.ext-toggle[data-checked="true"] {
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--xy-ok) 14%, transparent);
+}
+
+.ext-toggle-knob {
+  transition:
+    translate 240ms var(--xy-ext-spring),
+    scale 160ms var(--xy-ext-spring);
+}
+
+.ext-toggle:active:not(:disabled) .ext-toggle-knob {
+  scale: 0.9;
+}
+
+/* ============ 搜索框 ============ */
+.ext-search {
+  transition:
+    border-color var(--duration-fast) ease,
+    box-shadow var(--duration-fast) ease,
+    background-color var(--duration-fast) ease;
+}
+
+.ext-search:focus-within {
+  border-color: color-mix(in oklch, var(--xy-mute) 55%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--xy-accent) 10%, transparent);
+}
+
+/* ============ 键盘焦点(统一 focus-visible) ============ */
+.ext-focus:focus-visible {
+  outline: 2px solid var(--xy-accent);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+/* ============ 状态点:开启时呼吸 ============ */
+@keyframes xy-ext-dot-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in oklch, var(--xy-ok) 34%, transparent);
+  }
+  60% {
+    box-shadow: 0 0 0 4px color-mix(in oklch, var(--xy-ok) 0%, transparent);
+  }
+}
+
+.ext-dot-live {
+  animation: xy-ext-dot-pulse 2.2s var(--ease-out-soft) infinite;
+}
+
+/* ============ MCP 工具展开区 ============ */
+@keyframes xy-ext-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.ext-reveal {
+  animation: xy-ext-reveal var(--duration-base) var(--ease-out-soft) both;
+}
+
+/* ============ 无障碍:reduced-motion 全量降级 ============ */
+@media (prefers-reduced-motion: reduce) {
+  .ext-row,
+  .ext-busy,
+  .ext-reveal,
+  .ext-dot-live {
+    animation: none;
+  }
+
+  .ext-row,
+  .ext-row::before,
+  .ext-toggle,
+  .ext-toggle-knob,
+  .ext-search {
+    transition-duration: 0ms;
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "_note": "T7 bash 前缀规则引擎示例。复制到 <workspace>/.xeyo/bash_rules.json（或改用 bash_rules.toml 的 [[rules]] 表数组）生效。decision=allow 只在 bash_mode=default / worker 只读沙箱自动放行（T26）；ask/deny 在所有模式收紧。多规则命中最严胜出（allow<ask<deny）。match/not_match 示例在加载期自校验，与规则矛盾 → 该规则拒载并报错。prefix token 支持 a|b 备选与 * 单 token 通配。",
+  "rules": [
+    {
+      "name": "terraform-plan",
+      "program": "terraform",
+      "prefix": ["plan"],
+      "decision": "allow",
+      "match_examples": ["terraform plan -out=main.tfplan"],
+      "not_match_examples": ["terraform apply"]
+    },
+    {
+      "name": "kubectl-read",
+      "program": "kubectl",
+      "prefix": ["get|describe"],
+      "decision": "allow"
+    },
+    {
+      "name": "npm-no-publish",
+      "program": "npm",
+      "prefix": ["publish"],
+      "decision": "deny",
+      "match_examples": ["npm publish --access public"],
+      "not_match_examples": ["npm view lodash"]
+    },
+    {
+      "name": "docker-run-confirm",
+      "program": "docker",
+      "prefix": ["run"],
+      "decision": "ask"
+    }
+  ]
+}

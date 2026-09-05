@@ -1,0 +1,30 @@
+  1100→						)
+  1101→					if _existing is None and cfg.api_key:
+  1102→						# 仅首个 sidecar 缺失时派发一次后台增强；失败保留即时标题。
+  1103→						_title_client = OpenAICompatClient(
+  1104→							api_key=cfg.api_key,
+  1105→							base_url=cfg.base_url,
+  1106→							model=cfg.model,
+  1107→							provider=cfg.provider,
+  1108→							thinking="disabled",
+  1109→							reasoning_effort="",
+  1110→						)
+  1111→						fire_and_forget_enhance(session_id, user_text, _title_client)
+  1112→				except Exception:  # noqa: BLE001
+  1113→					pass
+  1114→				async for ev in engine.submit(submit_text, options=submit_options):
+  1115→					frames: list[tuple[int, bytes, str]] = []
+  1116→					if isinstance(ev, AssistantDelta):
+  1117→						full += ev.text
+  1118→						eid = envelope_gen.next()
+  1119→						frames.append((
+  1120→							eid,
+  1121→							_openai_chunk(ev.text, model=body.model).encode("utf-8"),
+  1122→							"delta",
+  1123→						))
+  1124→					elif isinstance(ev, ReasoningDelta):
+  1125→						if ev.text:
+  1126→							xy = _id({"type": "reasoning_delta", "text": ev.text})
+  1127→							frames.append((
+  1128→								int(xy["event_id"]),
+  1129→								_xy_chunk(xy, model=body.model).encode("utf-8"),

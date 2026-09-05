@@ -1,0 +1,85 @@
+    46→| PERF-01 | Performance safety | 12 | Scroll/pointer handlers use `requestAnimationFrame`, heavy work is deferred, WebGL resources are disposable, and no forced synchronous layout loops are introduced. |
+    47→| RESP-01 | Responsive resilience | 10 | Layout has stable dimensions and checks at 375px, 768px, and 1440px; text does not overflow buttons, cards, or fixed-format UI. |
+    48→| BRAND-01 | Domain fit | 8 | The visual system reflects the domain and audience instead of applying a generic dark neon or purple gradient style. |
+    49→
+    50→Before returning code, include:
+    51→- Final score as `UI-Max Scorecard: NN/100`.
+    52→- One sentence of evidence for each rubric ID.
+    53→- Any deliberate tradeoffs, such as disabling WebGL for a corporate dashboard or replacing GSAP with CSS/IntersectionObserver for a static HTML build.
+    54→
+    55→### 1. Advanced Presentation & Layouts
+    56→- **Full-Bleed & Asymmetry:** Move beyond the 12-column grid. Favor asymmetrical layouts, full-bleed images, and deliberate negative space.
+    57→- **Progressive Disclosure:** Reveal content on scroll. Use bento-box grids for densely packed feature sections.
+    58→- **Horizontal Contexts:** Where appropriate, convert vertical scroll into a horizontal scrub for card or image sequences.
+    59→- **Awwwards Directory Framing:** Choose the page category first: agency/studio, product, portfolio, editorial, commerce, dashboard, or tool. Let that category set density, navigation, copy length, and how much spectacle is appropriate.
+    60→
+    61→### 2. Motion & Smooth Scrolling
+    62→- **Libraries:** Use `Lenis` or `GSAP ScrollTrigger` for smooth scrolling and scroll-triggered reveal animations.
+    63→- **Easing First:** Important movement needs slow-in/slow-out or a clear cubic-bezier curve. Linear easing is acceptable only for continuous spinners, marquee loops, and progress indicators.
+    64→- **Offset & Delay:** Related elements should not arrive at once. Use tight stagger windows for UI (40-80ms) and slower staged reveals for hero/editorial moments (80-140ms).
+    65→- **Fade With Movement:** Fade-in/fade-out should usually be paired with translate, scale, mask, or clip-path so state changes feel spatial instead of flat.
+    66→- **Transform, Morph, Mask:** Use shape continuity when moving between states. A thumbnail can become a hero image, a pill can become a panel, and a mask can reveal media without losing the user's attention.
+    67→- **Zoom Continuity:** Use scale/camera-style movement to connect sections when it clarifies navigation or storytelling. Avoid zoom effects that obscure readability or induce motion sickness.
+    68→- **Parallax:** Apply subtle parallax to images, background layers, and large typographic elements.
+    69→- **Micro-interactions:** Buttons, links, and cards should respond with magnetic pull, SVG morphing, text scramble effects, or fluid border-radius transitions — not just opacity fades.
+    70→
+    71→### 3. Custom Cursor Behaviors
+    72→- **Implementation:** Build div-based cursors with `position: fixed` and update their position inside a `requestAnimationFrame` loop for zero jank.
+    73→- **Magnetic Snap:** On hover, the cursor should visibly stretch or snap toward interactive elements.
+    74→- **Blend Mode Effects:** Use `mix-blend-mode: difference` when the cursor passes over high-contrast text or imagery to create a color-inversion reveal effect.
+    75→
+    76→### 4. 3D & Spatial Design
+    77→- **WebGL / Three.js:** Add a WebGL canvas as a background layer — interactive particles, fluid noise, or shader-based distortion responding to mouse movement.
+    78→- **Glassmorphism:** Apply `backdrop-filter: blur()` sparingly to create depth over 3D or vibrant backgrounds. Overuse kills the effect.
+    79→- **Floating Dimensionality:** Use layered foreground/midground/background movement to make depth understandable. Tie motion distance to hierarchy: foreground moves most, background moves least.
+    80→
+    81→### 5. Color Palettes & Readability
+    82→
+    83→Draw inspiration from curated, award-winning sites. The following palettes are extracted from analyzed high-quality developer portfolios:
+    84→
+    85→| Palette | Background | Primary Accent | Secondary Accent | Text |
+    86→|---|---|---|---|---|
+    87→| Dark & Neon | `#121212` | `#FA5D29` (orange) | `#49B3FC` (blue) | `#FFFFFF` |
+    88→| Studio Monochrome | `#F8F8F8` | `#222222` | `#502BD8` (indigo) | `#222222` |
+    89→| Nature Dark | `#0E1A14` | `#AAEEC4` (pastel green) | `#E2F4E9` | `#F8F8F8` |
+    90→| High Contrast Warm | `#1A0A00` | `#FF9667` (warm orange) | `#FFC5B1` (blush) | `#FFFFFF` |
+    91→
+    92→**Rules:**
+    93→- Always verify contrast algorithmically. Text on any colored background must pass WCAG AA (4.5:1 minimum ratio).
+    94→- Use a maximum of two accent colors per project. Restraint creates premium feel.
+    95→- A monochromatic base with one "pop" color for interactive elements consistently produces high-quality results.
+    96→
+    97→### 6. Typography
+    98→- **Scale:** Create extreme contrast. Pair screen-filling display text with small, highly legible body copy.
+    99→- **Fonts:** Choose a display/body pairing that fits the page category and audience; use generous line-height for readable body text.
+   100→- **Font Range:** Prefer distinctive pairings that fit the domain. `Syne`, `Outfit`, `Archivo`, `Sora`, `Bricolage Grotesque`, `Fraunces`, and `Instrument Serif` can work; avoid defaulting to Inter unless the product context calls for restraint.
+   101→- **Tracking:** Keep letter spacing at `0` unless the existing design system requires otherwise. Use weight, size, contrast, and line-height rather than negative tracking for polish.
+   102→- **Variable Fonts:** When available, use variable font axes to animate weight or width on scroll.
+   103→
+   104→---
+   105→
+   106→## React & Framer Motion Blueprints (Aceternity & Componentry)
+   107→
+   108→When building in a React environment, default to these high-performance patterns:
+   109→- **Velocity Scroll & Marquees**: Use Framer Motion's `useScroll` and `useSpring` combined with `useTransform` to bind x-axis translation to the scroll position.
+   110→- **Bento Grids**: Design feature sections using asymmetric grids. Animate grid items with staggered `initial={{ opacity: 0, y: 20 }}` and `whileInView={{ opacity: 1, y: 0 }}`.
+   111→- **Sticky Scroll Cards**: Pin sections to the viewport while internal cards scroll past. Use CSS `position: sticky` or Framer Motion's scroll tracking for the choreography.
+   112→- **Text Repel & Kinetic Text**: Animate words or characters individually using Framer Motion variants. Use `staggerChildren: 0.05` for smooth cascading reveals.
+   113→- **Magnetic Components**: Wrap buttons or icons in a Framer Motion component that tracks `onMouseMove` to calculate a bounded `x/y` offset based on cursor proximity, returning to center on `onMouseLeave`.
+   114→
+   115→## Spring Physics & Micro-Interactions (recent.design/x)
+   116→
+   117→Modern UI feels "alive" due to physics-based animations rather than linear easing.
+   118→- **Avoid standard easing** (like `ease-in-out`) for interactive elements.
+   119→- **Use Framer Motion Springs** for state changes (hover, click, drag).
+   120→- **Recommended Spring Configs**:
+   121→  - **Snappy / Bouncy (Cards, Modals)**: `{ type: "spring", stiffness: 300, damping: 20 }`
+   122→  - **Fluid / Smooth (Hover states, Cursors)**: `{ type: "spring", stiffness: 150, damping: 15, mass: 0.5 }`
+   123→  - **Heavy / Dramatic (Hero reveals)**: `{ type: "spring", stiffness: 100, damping: 30 }`
+   124→
+   125→## Systematic Design Tokens (styles.refero.design)
+   126→
+   127→Even avant-garde design needs mathematical structure. Do not guess arbitrary pixel values.
+   128→- **Spacing Scale**: Enforce a strict 4px/8px baseline (e.g., `4, 8, 12, 16, 24, 32, 48, 64, 96, 128`).
+   129→- **Typography Scale**: Use geometric progression for headers. E.g., `12px (caption)`, `16px (body)`, `24px (h3)`, `48px (h2)`, `80px+ (h1/display)`.
+   130→- **Radii**: Use deliberate extremes. Either `0px` (Neobrutalism/sharp), `8px` (subtle/technical), or `9999px` (pill/friendly). Avoid mixing `4px` and `12px` arbitrarily.

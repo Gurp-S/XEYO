@@ -1,0 +1,10 @@
+  1470→.panel .tbl .reqcaps .num{min-width:0}
+  1471→
+  1472→/* 环形下方 · 具体数据明细列表（点击色块/条目高亮） */
+  1473→.dlist{margin-top:10px;border-top:1px solid var(--line);padding-top:8px;display:flex;flex-direction:column;gap:2px}
+  1474→.drow{display:flex;align-items:center;gap:8px;padding:5px 7px;border-radius:8px;cursor:pointer;
+  1475→  font-size:11px;color:var(--lab);transition:background .15s ease,color .15s ease;min-width:0}
+  1476→.drow:hover{background:var(--quiet)}
+  1477→.drow .sw{width:10px;height:10px;border-radius:3px;flex:none;transition:transform .15s ease}
+  1478→.drow .nm{flex:1;min-width:0;font-weight:600;text-overflow:ellipsis;overflow:hidden;white-space:nowrap}
+  1479→.drow .vv{font-variant-numeric:tabular-nums;font-weight:800;color:var(--txt)}

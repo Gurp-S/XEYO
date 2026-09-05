@@ -1,0 +1,771 @@
+/* 地图面板局部赛博皮肤：不改全局主题。动画仅 opacity/stroke（无 blur）。 */
+
+.xy-agent-map {
+	--map-rail: color-mix(in oklch, var(--xy-line) 70%, transparent);
+	--map-dot: color-mix(in oklch, var(--xy-mute) 28%, transparent);
+	--map-edge: color-mix(in oklch, var(--xy-mute) 35%, transparent);
+	--map-edge-hot: color-mix(in oklch, var(--xy-accent) 55%, var(--xy-mute));
+	--map-live: var(--xy-ok);
+	--map-seen: color-mix(in oklch, var(--xy-ok) 55%, var(--xy-mute));
+	--map-node-idle: color-mix(in oklch, var(--xy-glass-strong) 88%, var(--xy-paper));
+	--map-node-fill: var(--map-node-idle);
+	--map-node-stroke: color-mix(in oklch, var(--xy-line) 85%, var(--xy-mute));
+	--map-select: var(--xy-accent);
+	--map-search: color-mix(in oklch, var(--xy-warn) 70%, var(--xy-accent));
+	--map-hover: color-mix(in oklch, var(--xy-accent) 40%, var(--xy-line));
+	--map-label: var(--xy-mute);
+	--map-ink: var(--xy-ink);
+	contain: strict;
+	isolation: isolate;
+	background: transparent;
+}
+
+html[data-scheme='dark'] .xy-agent-map {
+	--map-dot: color-mix(in oklch, var(--xy-mute) 22%, transparent);
+	--map-node-idle: color-mix(in oklch, var(--xy-paper-deep) 80%, #0a0b0d);
+	--map-live: color-mix(in oklch, var(--xy-ok) 85%, #7dffb0);
+	--map-edge-hot: color-mix(in oklch, var(--xy-ok) 45%, var(--xy-mute));
+}
+
+.xy-agent-map__svg {
+	display: block;
+}
+
+.xy-agent-map__grid {
+	fill: var(--map-dot);
+	opacity: 0.55;
+}
+
+.xy-agent-map__rail {
+	display: none;
+}
+
+.xy-agent-map__edge {
+	stroke: var(--map-edge);
+	fill: none;
+	opacity: 0.55;
+	transition: stroke 120ms ease, opacity 120ms ease;
+}
+
+.xy-agent-map__edge--dim {
+	opacity: 0.22;
+}
+
+.xy-agent-map__edge--hot {
+	stroke: var(--map-edge-hot);
+	stroke-width: 1.6;
+	opacity: 1;
+}
+
+.xy-agent-map__edge--flow {
+	stroke-dasharray: 7 5;
+	animation: xy-map-flow 0.9s linear infinite;
+}
+
+.xy-agent-map__lane-label {
+	fill: var(--map-label);
+	font-family: var(--font-mono);
+	font-size: 10px;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	pointer-events: none;
+}
+
+/* UE 蓝图式功能区：半透明底 + 轻描边，只作预览分组 */
+.xy-agent-map__band {
+	fill: color-mix(in oklch, var(--map-band, var(--xy-mute)) 10%, transparent);
+	stroke: color-mix(in oklch, var(--map-band, var(--xy-mute)) 32%, transparent);
+	stroke-width: 1;
+}
+
+.xy-agent-map__band-label {
+	fill: color-mix(in oklch, var(--map-band, var(--xy-mute)) 78%, var(--xy-ink));
+	font-family: var(--font-mono);
+	font-size: 11px;
+	font-weight: 600;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	pointer-events: none;
+}
+
+.xy-agent-map__band--ui {
+	--map-band: #5b8def;
+}
+.xy-agent-map__band--api {
+	--map-band: #3db8a0;
+}
+.xy-agent-map__band--engine {
+	--map-band: #c9a227;
+}
+.xy-agent-map__band--tools {
+	--map-band: #8b7ec8;
+}
+.xy-agent-map__band--prompt {
+	--map-band: #d17a4a;
+}
+.xy-agent-map__band--memory {
+	--map-band: #6aa6c9;
+}
+.xy-agent-map__band--policy {
+	--map-band: #c45c6a;
+}
+.xy-agent-map__band--core {
+	--map-band: #8a9099;
+}
+.xy-agent-map__band--test {
+	--map-band: #6f9e6a;
+}
+.xy-agent-map__band--docs {
+	--map-band: #9a8f7a;
+}
+.xy-agent-map__band--agent {
+	--map-band: #4ecdc4;
+}
+.xy-agent-map__band--read {
+	--map-band: #5b8def;
+}
+.xy-agent-map__band--write {
+	--map-band: #e07a5f;
+}
+.xy-agent-map__band--search {
+	--map-band: #c9a227;
+}
+.xy-agent-map__band--command {
+	--map-band: #81b29a;
+}
+.xy-agent-map__band--other {
+	--map-band: #7a7f88;
+}
+.xy-agent-map__band--files {
+	--map-band: #6c9bcf;
+}
+
+.xy-agent-map__node-body {
+	fill: color-mix(in oklch, var(--map-node-fill) 92%, transparent);
+	stroke: color-mix(in oklch, var(--map-node-stroke) 70%, transparent);
+	transition: fill 140ms ease, stroke 140ms ease, stroke-width 140ms ease;
+}
+
+.xy-agent-map__node:hover:not(.xy-agent-map__node--selected):not(.xy-agent-map__node--live) .xy-agent-map__node-body {
+	stroke: var(--map-hover);
+	stroke-width: 1.5;
+}
+
+.xy-agent-map__node-title {
+	fill: var(--map-ink);
+	font-family: var(--font-mono);
+	font-size: 12px;
+	pointer-events: none;
+}
+
+.xy-agent-map__node-sub {
+	fill: var(--map-label);
+	font-family: var(--font-mono);
+	font-size: 10px;
+	pointer-events: none;
+}
+
+.xy-agent-map__node--seen .xy-agent-map__node-body {
+	stroke: var(--map-seen);
+	fill: color-mix(in oklch, var(--map-seen) 12%, var(--map-node-idle));
+}
+
+.xy-agent-map__node--live .xy-agent-map__node-body {
+	stroke: var(--map-live);
+	stroke-width: 1.8;
+	fill: color-mix(in oklch, var(--map-live) 14%, var(--map-node-idle));
+}
+
+.xy-agent-map__node--selected .xy-agent-map__node-body {
+	stroke: var(--map-select);
+	stroke-width: 1.8;
+}
+
+.xy-agent-map__node--replay .xy-agent-map__node-body {
+	stroke: color-mix(in oklch, var(--xy-accent) 70%, var(--map-live));
+	stroke-width: 1.8;
+	fill: color-mix(in oklch, var(--xy-accent) 12%, var(--map-node-idle));
+}
+
+.xy-agent-map__node--search .xy-agent-map__node-body {
+	stroke: var(--map-search);
+}
+
+.xy-agent-map__node--dim {
+	opacity: 0.38;
+	transition: opacity 140ms ease;
+}
+
+.xy-agent-map__pulse {
+	fill: none;
+	stroke: var(--map-live);
+	stroke-width: 1.35;
+	opacity: 0.7;
+	pointer-events: none;
+}
+
+.xy-agent-map__pulse--replay {
+	stroke: color-mix(in oklch, var(--xy-accent) 65%, var(--map-live));
+}
+
+.xy-agent-map__pulse--anim {
+	animation: xy-map-pulse 1.8s ease-in-out infinite;
+}
+
+.xy-agent-map__action-bg {
+	fill: color-mix(in oklch, var(--map-live) 88%, var(--xy-paper));
+	stroke: none;
+}
+
+.xy-agent-map__action-bg--replay {
+	fill: color-mix(in oklch, var(--xy-accent) 82%, var(--xy-paper));
+}
+
+.xy-agent-map__action-text {
+	fill: var(--xy-on-accent, #fff);
+	font-family: var(--font-mono);
+	font-size: 9px;
+	font-weight: 600;
+	letter-spacing: 0.02em;
+	pointer-events: none;
+}
+
+@keyframes xy-map-pulse {
+	0%,
+	100% {
+		opacity: 0.55;
+		stroke-width: 1.2;
+	}
+	50% {
+		opacity: 0.2;
+		stroke-width: 1.8;
+	}
+}
+
+@keyframes xy-map-flow {
+	to {
+		stroke-dashoffset: -28;
+	}
+}
+
+@keyframes xy-map-flow-head {
+	to {
+		stroke-dashoffset: -120;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.xy-agent-map__pulse--anim,
+	.xy-agent-map__trail--flow,
+	.xy-agent-map__trail-head,
+	.xy-agent-map__edge--flow {
+		animation: none;
+	}
+
+	.xy-agent-map__pulse--anim {
+		opacity: 0.65;
+		stroke-width: 1.4;
+	}
+
+	.xy-agent-map__edge,
+	.xy-agent-map__node-body,
+	.xy-agent-map__node--dim {
+		transition: none;
+	}
+}
+
+html[data-smoothness='off'] .xy-agent-map__pulse--anim,
+html[data-smoothness='off'] .xy-agent-map__trail--flow,
+html[data-smoothness='off'] .xy-agent-map__trail-head,
+html[data-smoothness='off'] .xy-agent-map__edge--flow {
+	animation: none;
+}
+
+html[data-smoothness='off'] .xy-agent-map__pulse--anim {
+	opacity: 0.65;
+}
+
+/* 层色条：固定调色板，不跟主题 accent 抢戏 */
+.xy-agent-map__stripe {
+	fill: var(--map-stripe, var(--xy-mute));
+}
+
+.xy-agent-map__stripe--ui {
+	--map-stripe: #5b8def;
+}
+.xy-agent-map__stripe--api {
+	--map-stripe: #3db8a0;
+}
+.xy-agent-map__stripe--engine {
+	--map-stripe: #c9a227;
+}
+.xy-agent-map__stripe--tools {
+	--map-stripe: #8b7ec8;
+}
+.xy-agent-map__stripe--prompt {
+	--map-stripe: #d17a4a;
+}
+.xy-agent-map__stripe--memory {
+	--map-stripe: #6aa6c9;
+}
+.xy-agent-map__stripe--policy {
+	--map-stripe: #c45c6a;
+}
+.xy-agent-map__stripe--core {
+	--map-stripe: #8a9099;
+}
+.xy-agent-map__stripe--test {
+	--map-stripe: #6f9e6a;
+}
+.xy-agent-map__stripe--docs {
+	--map-stripe: #9a8f7a;
+}
+.xy-agent-map__stripe--agent {
+	--map-stripe: #4ecdc4;
+}
+.xy-agent-map__stripe--read {
+	--map-stripe: #5b8def;
+}
+.xy-agent-map__stripe--write {
+	--map-stripe: #e07a5f;
+}
+.xy-agent-map__stripe--search {
+	--map-stripe: #c9a227;
+}
+.xy-agent-map__stripe--command {
+	--map-stripe: #81b29a;
+}
+.xy-agent-map__stripe--other {
+	--map-stripe: #7a7f88;
+}
+.xy-agent-map__stripe--files {
+	--map-stripe: #6c9bcf;
+}
+
+/* Panel chrome */
+.xy-agent-map-panel {
+	font-family: var(--font-mono);
+}
+
+.xy-agent-map-panel__tabs {
+	display: flex;
+	gap: 2px;
+	padding: 3px;
+	border: 1px solid color-mix(in oklch, var(--xy-line) 70%, transparent);
+	border-radius: 999px;
+	background: color-mix(in oklch, var(--xy-paper-deep) 55%, transparent);
+}
+
+.xy-agent-map-panel__tab {
+	padding: 3px 10px;
+	border-radius: 999px;
+	font-size: 11px;
+	letter-spacing: 0.02em;
+	color: var(--xy-mute);
+}
+
+.xy-agent-map-panel__tab:hover {
+	color: var(--xy-ink);
+	background: color-mix(in oklch, var(--xy-glass-hover) 80%, transparent);
+}
+
+.xy-agent-map-panel__tab--on {
+	color: var(--xy-ink);
+	background: color-mix(in oklch, var(--xy-glass-strong) 92%, var(--xy-paper));
+	box-shadow: none;
+}
+
+.xy-agent-map-panel__search {
+	min-width: 0;
+	flex: 1;
+	border: 1px solid color-mix(in oklch, var(--xy-line) 65%, transparent);
+	border-radius: 999px;
+	background: transparent;
+	padding: 4px 10px;
+	font-family: var(--font-mono);
+	font-size: 11px;
+	color: var(--xy-ink);
+	outline: none;
+}
+
+.xy-agent-map-panel__search:focus {
+	border-color: color-mix(in oklch, var(--xy-accent) 55%, var(--xy-line));
+}
+
+.xy-agent-map-panel__search::placeholder {
+	color: var(--xy-mute);
+}
+
+.xy-agent-map-panel__hud {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	height: 26px;
+	padding: 0 10px;
+	border-bottom: 1px solid color-mix(in oklch, var(--xy-line) 45%, transparent);
+	font-size: 11px;
+	color: var(--xy-mute);
+	letter-spacing: 0.02em;
+}
+
+.xy-agent-map-panel__hud-link {
+	min-width: 0;
+	max-width: 100%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	border: 0;
+	padding: 0;
+	background: transparent;
+	color: var(--xy-ink-soft);
+	text-decoration: underline;
+	text-decoration-color: color-mix(in oklch, var(--xy-accent) 45%, transparent);
+	text-underline-offset: 2px;
+	cursor: pointer;
+	font: inherit;
+}
+
+.xy-agent-map-panel__hud-link:hover {
+	color: var(--xy-accent);
+	text-decoration-color: var(--xy-accent);
+}
+
+.xy-agent-map-panel__hud-live {
+	color: var(--xy-ok);
+}
+
+.xy-agent-map-panel__legend {
+	margin-left: auto;
+	display: flex;
+	gap: 10px;
+	flex-shrink: 0;
+	font-size: 10px;
+}
+
+.xy-agent-map-panel__dot {
+	display: inline-block;
+	width: 6px;
+	height: 6px;
+	margin-right: 4px;
+	border: 1px solid currentColor;
+	border-radius: 999px;
+	vertical-align: 1px;
+}
+
+.xy-agent-map-panel__dot--live {
+	background: var(--xy-ok);
+	border-color: var(--xy-ok);
+}
+
+.xy-agent-map-panel__dot--seen {
+	background: color-mix(in oklch, var(--xy-ok) 35%, transparent);
+	border-color: color-mix(in oklch, var(--xy-ok) 55%, var(--xy-mute));
+}
+
+.xy-agent-map-panel__dot--idle {
+	background: transparent;
+	border-color: var(--xy-mute);
+}
+
+.xy-agent-map-panel__dock {
+	position: absolute;
+	right: 10px;
+	bottom: 10px;
+	z-index: 2;
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	gap: 3px;
+	max-width: calc(100% - 20px);
+	pointer-events: none;
+}
+
+.xy-agent-map-panel__dock > * {
+	pointer-events: auto;
+}
+
+.xy-agent-map-panel__card {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	max-width: min(200px, 100%);
+	border: 1px solid color-mix(in oklch, var(--xy-line) 60%, transparent);
+	border-radius: 999px;
+	background: color-mix(in oklch, var(--xy-paper) 90%, transparent);
+	padding: 3px 6px 3px 10px;
+	box-shadow: 0 4px 12px color-mix(in oklch, var(--xy-ink) 5%, transparent);
+}
+
+.xy-agent-map-panel__summary {
+	max-width: min(280px, 100%);
+	max-height: 120px;
+	overflow: auto;
+	border: 1px solid color-mix(in oklch, var(--xy-line) 55%, transparent);
+	border-radius: 12px;
+	background: color-mix(in oklch, var(--xy-paper) 94%, transparent);
+	padding: 8px 10px;
+	font-size: 11px;
+	line-height: 1.45;
+	color: var(--xy-ink-soft);
+	white-space: pre-wrap;
+	box-shadow: 0 4px 14px color-mix(in oklch, var(--xy-ink) 6%, transparent);
+}
+
+.xy-agent-map-panel__path {
+	min-width: 0;
+	font-family: var(--font-mono);
+	font-size: 10px;
+	font-weight: 600;
+	color: var(--xy-ink);
+}
+
+.xy-agent-map-panel__kind {
+	display: none;
+}
+
+.xy-agent-map-panel__btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 22px;
+	height: 22px;
+	border: 0;
+	border-radius: 999px;
+	padding: 0;
+	font-family: var(--font-mono);
+	font-size: 10px;
+	color: var(--xy-ink-soft);
+}
+
+.xy-agent-map-panel__btn:hover {
+	background: color-mix(in oklch, var(--xy-glass-hover) 80%, transparent);
+	color: var(--xy-ink);
+}
+
+.xy-agent-map-panel__btn:disabled {
+	opacity: 0.5;
+}
+
+.xy-agent-map-panel__float {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	max-width: min(280px, 100%);
+	padding: 4px;
+	border: 1px solid color-mix(in oklch, var(--xy-line) 55%, transparent);
+	border-radius: 999px;
+	background: color-mix(in oklch, var(--xy-paper) 88%, transparent);
+	box-shadow: 0 4px 14px color-mix(in oklch, var(--xy-ink) 6%, transparent);
+}
+
+.xy-agent-map-panel__float-cap {
+	min-width: 0;
+	max-width: 160px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	border: 0;
+	border-radius: 999px;
+	background: transparent;
+	padding: 2px 8px;
+	font-family: var(--font-mono);
+	font-size: 10px;
+	color: var(--xy-ink-soft);
+	cursor: pointer;
+}
+
+.xy-agent-map-panel__float-cap:hover {
+	color: var(--xy-accent);
+}
+
+.xy-agent-map-panel__replay {
+	display: none;
+}
+
+.xy-agent-map-panel__ops {
+	display: none;
+}
+
+.xy-agent-map-panel__replay-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 22px;
+	height: 22px;
+	border: 1px solid color-mix(in oklch, var(--xy-line) 65%, transparent);
+	border-radius: 999px;
+	color: var(--xy-ink-soft);
+}
+
+.xy-agent-map-panel__replay-btn:hover:not(:disabled) {
+	color: var(--xy-ink);
+	background: color-mix(in oklch, var(--xy-glass-hover) 80%, transparent);
+}
+
+.xy-agent-map-panel__replay-btn:disabled {
+	opacity: 0.35;
+}
+
+.xy-agent-map-panel__ops {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 5px;
+	max-height: 56px;
+	overflow: auto;
+	padding: 5px 10px;
+	border-bottom: 1px solid color-mix(in oklch, var(--xy-line) 45%, transparent);
+	background: color-mix(in oklch, var(--xy-paper-deep) 40%, transparent);
+}
+
+.xy-agent-map-panel__ops-label {
+	flex-shrink: 0;
+	font-size: 10px;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	color: var(--xy-mute);
+}
+
+.xy-agent-map-panel__op {
+	display: inline-flex;
+	max-width: 100%;
+	align-items: center;
+	gap: 4px;
+	border: 1px solid color-mix(in oklch, var(--xy-line) 70%, transparent);
+	border-radius: 999px;
+	padding: 2px 8px;
+	font-size: 10px;
+	letter-spacing: 0.02em;
+	color: var(--xy-ink-soft);
+	background: color-mix(in oklch, var(--xy-glass-strong) 70%, transparent);
+}
+
+.xy-agent-map-panel__op:hover {
+	border-color: color-mix(in oklch, var(--xy-accent) 45%, var(--xy-line));
+	color: var(--xy-ink);
+}
+
+.xy-agent-map-panel__op--live {
+	border-color: color-mix(in oklch, var(--xy-ok) 65%, var(--xy-line));
+	color: var(--xy-ok);
+}
+
+.xy-agent-map-panel__op-verb {
+	flex-shrink: 0;
+	opacity: 0.85;
+}
+
+.xy-agent-map-panel__op-file {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.xy-agent-map__trail {
+	stroke: var(--map-edge-hot);
+	stroke-dasharray: 7 5;
+	stroke-width: 1.6;
+	stroke-linecap: round;
+	opacity: 0.85;
+	pointer-events: none;
+	transition: stroke 120ms ease, opacity 120ms ease, stroke-width 120ms ease;
+}
+
+.xy-agent-map__trail--dim {
+	opacity: 0.22;
+}
+
+.xy-agent-map__trail--hot {
+	stroke: var(--xy-accent);
+	stroke-width: 2.2;
+	opacity: 1;
+}
+
+.xy-agent-map__trail--flow {
+	animation: xy-map-flow 0.9s linear infinite;
+}
+
+.xy-agent-map__trail-head {
+	stroke: var(--xy-accent);
+	stroke-width: 2;
+	stroke-linecap: round;
+	stroke-dasharray: 10 110;
+	opacity: 0.7;
+	pointer-events: none;
+	animation: xy-map-flow-head 1.5s linear infinite;
+	filter: none;
+}
+
+.xy-agent-map__trail-head--hot {
+	stroke: var(--xy-accent);
+	stroke-width: 2.6;
+	opacity: 0.9;
+}
+
+.xy-agent-map__trail-arrow {
+	fill: var(--map-edge-hot);
+}
+
+.xy-agent-map__trail-arrow--hot {
+	fill: var(--xy-accent);
+}
+
+.xy-agent-map-panel__op--on {
+	border-color: var(--xy-accent);
+	background: color-mix(in oklch, var(--xy-accent) 10%, var(--xy-glass-strong));
+	color: var(--xy-ink);
+	border-radius: 999px;
+}
+
+.xy-agent-map-panel__op-dir {
+	opacity: 0.55;
+}
+
+html[data-scheme='dark'] .xy-agent-map__trail {
+	stroke: var(--map-edge-hot);
+	opacity: 0.9;
+}
+
+html[data-scheme='dark'] .xy-agent-map__trail--hot {
+	stroke: var(--xy-accent);
+	opacity: 1;
+}
+
+html[data-scheme='dark'] .xy-agent-map__trail-head {
+	stroke: var(--xy-accent);
+}
+
+html[data-scheme='dark'] .xy-agent-map__trail-arrow {
+	fill: var(--map-edge-hot);
+}
+
+.xy-agent-map-fence {
+	display: flex;
+	width: 100%;
+	align-items: center;
+	gap: 8px;
+	border: 1px solid color-mix(in oklch, var(--xy-line) 70%, transparent);
+	border-left: 2px solid var(--xy-accent);
+	background: color-mix(in oklch, var(--xy-paper-deep) 55%, transparent);
+	padding: 8px 10px;
+	text-align: left;
+	font-family: var(--font-mono);
+}
+
+.xy-agent-map-fence:hover {
+	background: color-mix(in oklch, var(--xy-glass-hover) 80%, transparent);
+}
+
+.xy-agent-map-fence__title {
+	display: block;
+	font-size: 12px;
+	color: var(--xy-ink);
+}
+
+.xy-agent-map-fence__meta {
+	display: block;
+	font-size: 10px;
+	letter-spacing: 0.03em;
+	color: var(--xy-mute);
+}

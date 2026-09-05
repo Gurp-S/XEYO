@@ -1,0 +1,95 @@
+  1120→            # 收益≈0，弱模型存在"旧结论指令化"锚定/续写压力；子代理短上下文
+  1121→            # 不继承（T14 净化清单精神）。
+  1122→            previous_reasoning_tail = reasoning_blob[-600:]
+  1123→
+  1124→        usage = getattr(model, "last_usage", None)
+  1125→        hit, miss, out = split_usage(usage) if isinstance(usage, dict) else (0, 0, 0)
+  1126→        # DSH ``contextPressure.projectdTokens`` 口径：分子 = 当前送模型投影的 token 数
+  1127→        # （含 C0/C1/C2 压缩，立即反映），而非厂商 prompt_tokens（压缩后仍延迟一轮）。
+  1128→        projected_tokens = _projected_tokens(projected)
+  1129→        context_tokens = projected_tokens if projected_tokens > 0 else _positive_int(
+  1130→            getattr(model, "last_context_tokens", None)
+  1131→        )
+  1132→        if context_tokens is None and hit + miss > 0:
+  1133→            context_tokens = hit + miss
+  1134→        context_limit = _positive_int(getattr(model, "context_limit", None))
+  1135→        category_chars = _compute_category_chars(
+  1136→            system_breakdown=system_breakdown,
+  1137→            system_text=system_prompt,
+  1138→            tool_schemas_json=tool_schemas_json,
+  1139→            projected=projected,
+  1140→        )
+  1141→        context_breakdown = _scale_breakdown(
+  1142→            category_chars, context_tokens if context_tokens is not None else 0
+  1143→        )
+  1144→        # Rules soft_over 标记从组装 breakdown 透传
+  1145→        if system_breakdown and context_breakdown:
+  1146→            soft_over = any(
+  1147→                str(r.get("category")) == "rules" and r.get("soft_over")
+  1148→                for r in system_breakdown
+  1149→            )
+  1150→            if soft_over:
+  1151→                for row in context_breakdown:
+  1152→                    if row.get("category") == "rules":
+  1153→                        row["soft_over"] = True
+  1154→        note_shot(snap, hit=hit, prompt=hit + miss, at=datetime.now())
+  1155→        # observe_shot：dumps 全投影 + 落盘；丢到后台与后续收尾/工具重叠，
+  1156→        # 离开本回合前 await（下一轮 Ĥ / LCP 依赖 last_x_sent）。
+  1157→        def _observe_body() -> None:
+  1158→            try:
+  1159→                from memory.observe import observe_shot
+  1160→
+  1161→                observe_shot(
+  1162→                    snap,
+  1163→                    projected,
+  1164→                    hit=hit,
+  1165→                    miss=miss,
+  1166→                    out=out,
+  1167→                    context_tokens=context_tokens,
+  1168→                    turn=budget.turn_count,
+  1169→                    provider=getattr(model, "provider", None),
+  1170→                    model=getattr(model, "_model", None)
+  1171→                    or getattr(model, "model", None),
+  1172→                )
+  1173→            except Exception:
+  1174→                pass
+  1175→
+  1176→        _observe_task = asyncio.create_task(asyncio.to_thread(_observe_body))
+  1177→
+  1178→        async def _await_observe() -> None:
+  1179→            try:
+  1180→                await _observe_task
+  1181→            except Exception:
+  1182→                pass
+  1183→
+  1184→        budget.add_usage(usage)
+  1185→        if budget.last_usage is not None:
+  1186→            yield UsageEvent(
+  1187→                prompt_tokens=hit + miss,
+  1188→                completion_tokens=out,
+  1189→                cache_hit_tokens=hit,
+  1190→                cache_miss_tokens=miss,
+  1191→                tokens=budget.last_usage_tokens,
+  1192→                used_tokens=budget.used_tokens,
+  1193→                usd=round(budget.last_usage_usd, 8),
+  1194→                used_usd=round(budget.used_usd, 8),
+  1195→                cny=round(budget.last_usage_cny, 8),
+  1196→                used_cny=round(budget.used_cny, 8),
+  1197→                cost_source=budget.last_cost_source,
+  1198→                usd_limit=budget.usd_limit,
+  1199→                context_tokens=context_tokens,
+  1200→                context_limit=context_limit,
+  1201→                context_breakdown=context_breakdown or None,
+  1202→                compact_cursor=int(snap.compact_cursor or 0),
+  1203→                last_action=str(snap.last_action or ""),
+  1204→                c2_summary_chars=len(snap.c2_summary_text or ""),
+  1205→            )
+  1206→        if compression_started:
+  1207→            yield ContextCompressionEvent(
+  1208→                phase="complete",
+  1209→                source="automatic",
+  1210→                context_tokens=context_tokens,
+  1211→                context_limit=context_limit,
+  1212→            )
+  1213→        if budget.over_budget:
+  1214→            await _cancel_early_tasks(early)

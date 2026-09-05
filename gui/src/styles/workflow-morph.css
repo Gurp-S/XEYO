@@ -1,0 +1,186 @@
+/* auto-split from src/styles/workflow.css body L290-474 — A8 morph + handoff + live→done settle; imported via barrel src/styles/workflow.css */
+/* A8 Morph contract — weight 650 matches preview .verb */
+.xy-morph {
+  display: inline-grid;
+  position: relative;
+  font-size: 12.5px;
+  font-weight: 650;
+  line-height: 1.55;
+  color: var(--xy-mute);
+}
+
+.xy-morph > span {
+  grid-area: 1 / 1;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+  transition:
+    opacity 0.35s ease,
+    transform 0.35s ease;
+}
+
+.xy-morph > span.off {
+  opacity: 0;
+  transform: translateY(4px);
+  pointer-events: none;
+}
+
+.xy-morph > span.on {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* A8：enter/leave 用 keyframes，不依赖 rAF 切换 .on/.off */
+.xy-morph > span.is-enter {
+  opacity: 1;
+  transform: translateY(0);
+  transition: none;
+  animation: xy-morph-in 0.35s ease both;
+}
+
+.xy-morph > span.is-leave {
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: none;
+  pointer-events: none;
+  animation: xy-morph-out 0.35s ease both;
+}
+
+@keyframes xy-morph-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes xy-morph-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+/* H2 handoff：词命中时轻柔闪（不改 A8 morph） */
+.xy-split-step.is-handoff .xy-morph {
+  animation: xy-verb-flash 0.7s ease;
+}
+
+.xy-split-step.is-handoff .xy-split-preview {
+  position: relative;
+}
+
+.xy-split-step.is-handoff .xy-split-preview::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 1px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--xy-accent) 70%, transparent);
+  transform-origin: left center;
+  animation: xy-preview-sweep 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* 新工具入轨：短延迟后透明度渐变淡入（Thought/Thinking 不参与） */
+.xy-split-step.is-tool-appear {
+  animation: xy-tool-appear 0.45s ease-out both;
+  animation-delay: 0.16s;
+}
+
+@keyframes xy-tool-appear {
+  0% {
+    opacity: 0;
+  }
+  35% {
+    opacity: 0.35;
+  }
+  70% {
+    opacity: 0.78;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes xy-verb-flash {
+  0%,
+  100% {
+    filter: none;
+  }
+  40% {
+    color: var(--xy-accent);
+  }
+}
+
+@keyframes xy-preview-sweep {
+  from {
+    transform: scaleX(0);
+    opacity: 0.3;
+  }
+  to {
+    transform: scaleX(1);
+    opacity: 0.85;
+  }
+}
+
+/* live → done on：交叉淡出 / 淡入 */
+.xy-done-on-wrap.is-settle-in {
+  animation: xy-done-settle-in 0.48s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.xy-round-transcript-layer.is-settling .xy-activity-split {
+  overflow: hidden;
+  max-height: 2400px;
+  pointer-events: none;
+  animation:
+    xy-activity-settle-out 0.45s cubic-bezier(0.22, 1, 0.36, 1) forwards,
+    xy-activity-settle-collapse 0.45s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.xy-round-transcript-layer.is-settling .xy-enter-fade {
+  animation: none;
+}
+
+@keyframes xy-done-settle-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes xy-activity-settle-out {
+  0% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+
+@keyframes xy-activity-settle-collapse {
+  0% {
+    max-height: 2400px;
+  }
+  100% {
+    max-height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    border: none;
+  }
+}
+

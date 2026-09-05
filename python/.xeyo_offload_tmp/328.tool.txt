@@ -1,0 +1,30 @@
+   334→def _projected_tokens(projected: list[dict]) -> int:
+   335→	"""投影 token 数 —— DSH ``contextPressure.projectdTokens`` 的 XEYO 等价物。
+   336→
+   337→	DSH 口径（dsh-token-meter README）：``projectedTokens`` = 「下一个请求的提示词要花多少」，
+   338→	在提供方样本之上，加上自样本以来表层增减的启发式重计价，**压缩会立刻反映**。
+   339→	XEYO 用消息投影本身（已含 C0 截断 / C1 占位 / C2 摘要折叠）作为当前表层，逐消息
+   340→	按 token_len（≈4 字符/token）+ 每消息结构开销估算——即当前送模型投影的真实长度，
+   341→	任何压缩/截断都立即反映在分子里（不再像厂商 prompt_tokens 那样延迟一轮）。
+   342→	"""
+   343→	total = 0
+   344→	for msg in projected:
+   345→		# 结构开销（role / 块 envelope）
+   346→		total += 2
+   347→		if isinstance(msg, dict):
+   348→			role = str(msg.get("role") or "")
+   349→			if role:
+   350→				total += token_len(role) + 2
+   351→			total += token_len(json.dumps(msg.get("content"), ensure_ascii=False, default=str))
+   352→		else:
+   353→			total += token_len(str(getattr(msg, "content", "")))
+   354→	return max(0, total)
+   355→
+   356→
+   357→def _content_parts(content: object) -> tuple[int, int]:
+   358→	"""返回 (memory_index 字符数, 其余 conversation 字符数) 的粗略拆分。
+   359→
+   360→	识别记忆索引块（以 ``# Memory index`` 开头的内容段）；其余算对话。
+   361→	"""
+   362→	if not isinstance(content, list):
+   363→		return 0, _content_chars(content)

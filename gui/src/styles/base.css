@@ -1,0 +1,49 @@
+/* auto-split from index.css L2-71 — Theme doc comment + cursor/select base; do not edit order relative to styles/entry.css */
+/*
+ * 主题系统说明（黑白基调）：
+ * 全部主题以黑白灰为基调，个别仅强调色带极少彩色点缀。
+ * - paper (默认): 宣纸 - 温润米白纸面 × 纯黑墨字
+ * - pure: 极简白 / platinum: 铂银 / pearl: 珍珠 / letterpress: 铅印
+ * - sketch: 素描（印章红点缀） / moon: 月白 / mist: 晨雾 / steel: 青钢 / ivory: 象牙
+ * - void: 纯黑 (OLED) / graphite: 石墨（深色通用默认）
+ * - darkroom: 暗房（安全灯红点缀） / woodcut: 版画 / grayscale: 灰阶
+ *
+ * 深色主题由 html[data-scheme="dark"] 提供通用默认，data-theme 叠加覆盖。
+ * 使用方法：html[data-theme="主题名"] 来应用不同主题
+ */
+html,
+body,
+#root {
+  cursor: default;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+input,
+textarea,
+[contenteditable="true"],
+.xy-md-editable,
+.xy-file-editor,
+.xy-code-file,
+.xy-prism-file,
+.xy-selectable {
+  cursor: text;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.xy-chat-text,
+.xy-prose-mark,
+.xy-selectable,
+pre,
+code {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/*
+  Light = xuan-paper warm white (solid surfaces, no milky fog).
+  Dark  = carbon black (near-neutral, slightly lifted lines).
+  Accents stay untouched (original teal/blue system).
+*/
+

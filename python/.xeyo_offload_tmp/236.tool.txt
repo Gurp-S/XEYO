@@ -1,0 +1,30 @@
+  1205→                key = (os.environ.get("XEYO_MODEL_API_KEY") or "local").strip()
+  1206→        if not key and backend != "local":
+  1207→            raise ValueError(f"api key required for provider {backend}")
+  1208→        if backend == "local" and not key:
+  1209→            key = "local"
+  1210→        url = (base_url or "").strip() or preset["base_url"]
+  1211→        resolved_model_name = (
+  1212→            resolved_model_name
+  1213→            or os.environ.get("XEYO_MODEL_NAME")
+  1214→            or ("deepseek-chat" if backend == "deepseek" else "gpt-4o-mini")
+  1215→        )
+  1216→        model_client = OpenAICompatClient(
+  1217→            api_key=key,
+  1218→            base_url=url,
+  1219→            model=resolved_model_name,
+  1220→            provider=backend if backend in PROVIDER_PRESETS else "openai",
+  1221→        )
+  1222→        resolved_provider = backend if backend in PROVIDER_PRESETS else "openai"
+  1223→    elif backend == "deepseek":
+  1224→        from model.deepseek import DeepSeekModelClient
+  1225→        model_client = DeepSeekModelClient()
+  1226→        resolved_provider = "deepseek"
+  1227→        resolved_model_name = (
+  1228→            resolved_model_name
+  1229→            or getattr(model_client, "_model", None)
+  1230→            or "deepseek-v4-flash"
+  1231→        )
+  1232→    else:
+  1233→        raise ValueError(f"unknown model backend: {backend}")
+  1234→

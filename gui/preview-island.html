@@ -1,0 +1,457 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>上下文小岛 · 独立预览</title>
+    <style>
+      :root {
+        --coconut: 14px;
+        --tree-w: 130px;
+        --tree-h: 118px;
+        --companion-w: 86px;
+        --companion-h: 108px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgb(232 236 242);
+        color: #1f2937;
+        font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+
+      .toolbar {
+        position: fixed;
+        top: 14px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        max-width: 96vw;
+        padding: 10px 14px;
+        background: rgb(255 255 255 / 0.9);
+        border: 1px solid rgb(255 255 255 / 0.7);
+        border-radius: 12px;
+        box-shadow: 0 8px 24px rgb(0 0 0 / 0.08);
+        backdrop-filter: blur(6px);
+        z-index: 20;
+      }
+
+      .toolbar .group {
+        display: flex;
+        gap: 4px;
+        align-items: center;
+        padding-right: 8px;
+        border-right: 1px solid rgb(0 0 0 / 0.08);
+      }
+
+      .toolbar .group:last-child {
+        border-right: 0;
+        padding-right: 0;
+      }
+
+      .toolbar .lab {
+        font-size: 12px;
+        font-weight: 600;
+        color: #6b7280;
+        margin-right: 2px;
+      }
+
+      .toolbar button {
+        min-width: 34px;
+        padding: 4px 8px;
+        border: 0;
+        border-radius: 7px;
+        background: rgb(0 0 0 / 0.06);
+        color: #374151;
+        font: inherit;
+        cursor: pointer;
+      }
+
+      .toolbar button:hover {
+        background: rgb(0 0 0 / 0.11);
+      }
+
+      .toolbar button.active {
+        background: #2563eb;
+        color: #fff;
+      }
+
+      .card {
+        position: relative;
+        width: 560px;
+        height: 320px;
+        overflow: hidden;
+        border-radius: 16px;
+        background: linear-gradient(180deg, #b6e0f0 0%, #cdecf7 46%, #e9f7fc 100%);
+        box-shadow: 0 12px 40px rgb(0 0 0 / 0.14);
+        transition: background 0.8s ease;
+      }
+
+      .card.dark {
+        background: linear-gradient(180deg, #101b2e 0%, #14233a 48%, #1a2c44 100%);
+      }
+
+      .scene {
+        position: absolute;
+        inset: 0;
+      }
+
+      .scene *,
+      .scene img {
+        position: absolute;
+        user-select: none;
+        -webkit-user-drag: none;
+        transition: opacity 0.7s ease-in-out;
+      }
+
+      /* sea */
+      .sea {
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 55%;
+        opacity: 0.6;
+      }
+
+      .sea img {
+        width: 100%;
+        height: 100%;
+        object-fit: fill;
+      }
+
+      .sea img:nth-child(1) { opacity: 0.95; }
+      .sea img:nth-child(2) { opacity: 0.55; }
+      .sea img:nth-child(3) { opacity: 0.4; }
+      .sea img:nth-child(4) { opacity: 0.3; }
+
+      .foam {
+        left: 0;
+        right: 0;
+        bottom: 9%;
+        height: 36%;
+        opacity: 0.7;
+      }
+
+      .foam img {
+        width: 100%;
+        height: 100%;
+        object-fit: fill;
+      }
+
+      .foam img:nth-child(2) { opacity: 0.6; }
+
+      /* island base */
+      .island {
+        left: 0;
+        bottom: 0;
+        width: 300px;
+        height: 210px;
+        object-fit: contain;
+        object-position: left bottom;
+        opacity: 0.95;
+      }
+
+      /* palm tree */
+      .tree {
+        left: 26px;
+        bottom: 40px;
+        width: var(--tree-w);
+        height: var(--tree-h);
+        object-fit: contain;
+        object-position: left bottom;
+      }
+
+      /* coconuts */
+      .coconut {
+        width: var(--coconut);
+        height: var(--coconut);
+        object-fit: contain;
+        opacity: 0;
+      }
+
+      .coconut.visible {
+        opacity: 0.96;
+      }
+
+      .c-t1 { left: 92px; top: 92px; }
+      .c-t2 { left: 112px; top: 118px; }
+      .c-t3 { left: 132px; top: 82px; }
+      .c-t4 { left: 152px; top: 130px; }
+      .c-g1 { left: 78px; bottom: 54px; width: 17px; height: 17px; }
+      .c-g2 { left: 120px; bottom: 48px; width: 15px; height: 15px; }
+
+      /* stars */
+      .stars {
+        position: absolute;
+        inset: 0;
+        opacity: 0;
+        transition: opacity 0.8s ease;
+      }
+
+      .card.dark .stars {
+        opacity: 0.9;
+      }
+
+      .star {
+        width: 12px;
+        height: 12px;
+        object-fit: contain;
+        opacity: 0;
+      }
+
+      .star.visible {
+        opacity: 0.85;
+      }
+
+      .s1 { left: 14%; top: 12%; }
+      .s2 { left: 27%; top: 9%; }
+      .s3 { left: 41%; top: 17%; }
+      .s4 { left: 56%; top: 8%; }
+      .s5 { left: 68%; top: 20%; }
+      .s6 { left: 82%; top: 12%; }
+      .s7 { left: 20%; top: 30%; }
+      .s8 { left: 37%; top: 31%; }
+      .s9 { left: 52%; top: 28%; }
+      .s10 { left: 72%; top: 36%; }
+      .s11 { left: 87%; top: 28%; }
+      .s12 { left: 62%; top: 47%; }
+
+      /* character */
+      .companion {
+        left: 216px;
+        bottom: 56px;
+        width: var(--companion-w);
+        height: var(--companion-h);
+        overflow: hidden;
+        opacity: 0;
+      }
+
+      .companion.head {
+        bottom: 78px;
+        height: 62px;
+      }
+
+      .companion.visible {
+        opacity: 0.96;
+      }
+
+      .companion svg {
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+
+      .emotion {
+        left: 292px;
+        top: 118px;
+        width: 30px;
+        height: 30px;
+        object-fit: contain;
+        opacity: 0;
+      }
+
+      .emotion.visible {
+        opacity: 0.96;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="toolbar" id="toolbar">
+      <div class="group">
+        <span class="lab">负载</span>
+        <button data-level="0">0</button>
+        <button data-level="25">25</button>
+        <button data-level="50">50</button>
+        <button data-level="60">60</button>
+        <button data-level="75">75</button>
+        <button data-level="90">90</button>
+        <button data-level="100">100</button>
+      </div>
+      <div class="group">
+        <span class="lab">表情</span>
+        <button data-mode="idle">待机</button>
+        <button data-mode="thinking">思考</button>
+        <button data-mode="happy">开心</button>
+        <button data-mode="react">反应</button>
+        <button data-mode="compression">压缩</button>
+        <button data-mode="sleep">睡眠</button>
+      </div>
+      <div class="group">
+        <button id="compress">压缩落地</button>
+        <button id="dark">暗夜</button>
+      </div>
+    </div>
+
+    <div class="card" id="card">
+      <div class="scene">
+        <div class="sea">
+          <img src="/context-island/sea/wave-01.svg" alt="" />
+          <img src="/context-island/sea/wave-02.svg" alt="" />
+          <img src="/context-island/sea/wave-03.svg" alt="" />
+          <img src="/context-island/sea/wave-04.svg" alt="" />
+        </div>
+        <div class="foam">
+          <img src="/context-island/foam/foam-01.svg" alt="" />
+          <img src="/context-island/foam/foam-02.svg" alt="" />
+        </div>
+        <img class="island" src="/context-island/island.svg" alt="" />
+        <img class="tree" src="/context-island/palm-tree.svg" alt="" />
+
+        <img class="coconut c-t1" src="/context-island/coconut.svg" alt="" />
+        <img class="coconut c-t2" src="/context-island/coconut.svg" alt="" />
+        <img class="coconut c-t3" src="/context-island/coconut.svg" alt="" />
+        <img class="coconut c-t4" src="/context-island/coconut.svg" alt="" />
+        <img class="coconut c-g1" src="/context-island/coconut.svg" alt="" />
+        <img class="coconut c-g2" src="/context-island/coconut.svg" alt="" />
+
+        <div class="stars">
+          <img class="star s1" src="/context-island/stars/star-small.svg" alt="" />
+          <img class="star s2" src="/context-island/stars/sparkle.svg" alt="" />
+          <img class="star s3" src="/context-island/stars/star-dot.svg" alt="" />
+          <img class="star s4" src="/context-island/stars/star-medium.svg" alt="" />
+          <img class="star s5" src="/context-island/stars/star-small.svg" alt="" />
+          <img class="star s6" src="/context-island/stars/star-dot.svg" alt="" />
+          <img class="star s7" src="/context-island/stars/star-small.svg" alt="" />
+          <img class="star s8" src="/context-island/stars/sparkle.svg" alt="" />
+          <img class="star s9" src="/context-island/stars/star-dot.svg" alt="" />
+          <img class="star s10" src="/context-island/stars/star-medium.svg" alt="" />
+          <img class="star s11" src="/context-island/stars/star-small.svg" alt="" />
+          <img class="star s12" src="/context-island/stars/star-dot.svg" alt="" />
+        </div>
+
+        <div class="companion" id="companion">
+          <svg id="companionSvg" viewBox="0 0 850 980" preserveAspectRatio="xMidYMid meet">
+            <image
+              id="companionImg"
+              href="/context-island/character/character.svg"
+              x="0"
+              y="0"
+              width="2980"
+              height="1810.4165"
+              preserveAspectRatio="none"
+            />
+          </svg>
+        </div>
+        <img class="emotion" id="emotion" src="/context-island/emotion/heart.svg" alt="" />
+      </div>
+    </div>
+
+    <script>
+      const CROPS = {
+        idle: {x: 0, y: 0, w: 850, h: 980},
+        thinking: {x: 700, y: 1000, w: 650, h: 810},
+        happy: {x: 0, y: 1000, w: 850, h: 810},
+        react: {x: 0, y: 1000, w: 850, h: 810},
+        compression: {x: 2350, y: 1000, w: 630, h: 810},
+        sleep: {x: 2350, y: 1000, w: 630, h: 810},
+      };
+      const EMOTION = {
+        thinking: '/context-island/emotion/dots.svg',
+        happy: '/context-island/emotion/heart.svg',
+        react: '/context-island/emotion/heart.svg',
+        compression: '/context-island/emotion/sleep.svg',
+        sleep: '/context-island/emotion/sleep.svg',
+      };
+
+      const state = {
+        level: 60,
+        mode: 'idle',
+        compress: false,
+        dark: false,
+      };
+
+      const $ = (s) => document.querySelector(s);
+      const treeSlots = ['.c-t1', '.c-t2', '.c-t3', '.c-t4'];
+      const groundSlots = ['.c-g1', '.c-g2'];
+      const starEls = ['.s1', '.s2', '.s3', '.s4', '.s5', '.s6', '.s7', '.s8', '.s9', '.s10', '.s11', '.s12'];
+
+      function setVisible(el, on) {
+        if (on) el.classList.add('visible');
+        else el.classList.remove('visible');
+      }
+
+      function render() {
+        const p = state.level;
+        let tree = p < 25 ? 0 : p < 50 ? 1 : p < 75 ? 2 : p < 90 ? 3 : 4;
+        let ground = 0;
+        if (state.compress) {
+          ground = Math.min(2, Math.max(0, tree - 2));
+          tree = tree - ground;
+        }
+        treeSlots.forEach((sel, i) => setVisible($(sel), i < tree));
+        groundSlots.forEach((sel, i) => setVisible($(sel), i < ground));
+
+        const visibility = p < 50 ? 'hidden' : p < 60 ? 'head' : 'full';
+        const companion = $('#companion');
+        companion.classList.toggle('head', visibility === 'head');
+        setVisible(companion, visibility !== 'hidden');
+
+        // mode: compression overrides; otherwise the selected expression
+        const mode = state.compress ? 'compression' : state.mode;
+        const crop = CROPS[mode] || CROPS.idle;
+        const svg = $('#companionSvg');
+        const img = $('#companionImg');
+        svg.setAttribute('viewBox', `0 0 ${crop.w} ${crop.h}`);
+        img.setAttribute('x', String(-crop.x));
+        img.setAttribute('y', String(-crop.y));
+        const emotion = $('#emotion');
+        if (EMOTION[mode]) {
+          emotion.src = EMOTION[mode];
+          setVisible(emotion, true);
+        } else {
+          setVisible(emotion, false);
+        }
+
+        // stars: night only, count grows with load
+        const starCount = state.dark ? (p < 25 ? 1 : p < 50 ? 5 : p < 75 ? 9 : 12) : 0;
+        starEls.forEach((sel, i) => setVisible($(sel), i < starCount));
+
+        $('#card').classList.toggle('dark', state.dark);
+      }
+
+      const toolbar = $('#toolbar');
+      toolbar.querySelectorAll('[data-level]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          state.level = Number(btn.dataset.level);
+          toolbar.querySelectorAll('[data-level]').forEach((b) => b.classList.toggle('active', b === btn));
+          render();
+        });
+      });
+      toolbar.querySelectorAll('[data-mode]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          state.mode = btn.dataset.mode;
+          state.compress = false;
+          toolbar.querySelectorAll('[data-mode]').forEach((b) => b.classList.toggle('active', b === btn));
+          $('#compress').classList.remove('active');
+          render();
+        });
+      });
+      $('#compress').addEventListener('click', () => {
+        state.compress = !state.compress;
+        $('#compress').classList.toggle('active', state.compress);
+        render();
+      });
+      $('#dark').addEventListener('click', () => {
+        state.dark = !state.dark;
+        $('#dark').classList.toggle('active', state.dark);
+        render();
+      });
+
+      // highlight defaults
+      toolbar.querySelector('[data-level="60"]').classList.add('active');
+      toolbar.querySelector('[data-mode="idle"]').classList.add('active');
+      render();
+    </script>
+  </body>
+</html>

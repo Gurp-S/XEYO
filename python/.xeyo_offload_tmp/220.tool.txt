@@ -1,0 +1,45 @@
+   305→				for chunk in _finish_tool_bufs(tool_bufs2):
+   306→					loop.call_soon_threadsafe(queue.put_nowait, ("chunk", chunk))
+   307→				if last_usage:
+   308→					loop.call_soon_threadsafe(queue.put_nowait, ("usage", last_usage))
+   309→				loop.call_soon_threadsafe(queue.put_nowait, ("done", None))
+   310→			except HTTPError as e:
+   311→				detail = sanitize_http_body(e.read().decode("utf-8", errors="replace"))
+   312→				loop.call_soon_threadsafe(
+   313→					queue.put_nowait,
+   314→					("err", ProviderError(
+   315→						provider_error_message(e.code, detail),
+   316→						status_code=e.code,
+   317→						retry_after_ms=parse_retry_after(e.headers.get("Retry-After")),
+   318→					)),
+   319→				)
+   320→			except URLError as e:
+   321→				loop.call_soon_threadsafe(
+   322→					queue.put_nowait,
+   323→					("err", NetworkError(str(e))),
+   324→				)
+   325→			except Exception as e:  # noqa: BLE001
+   326→				loop.call_soon_threadsafe(queue.put_nowait, ("err", e))
+   327→
+   328→		threading.Thread(target=worker, name="openai-sse", daemon=True).start()
+   329→		while True:
+   330→			abort.raise_if_aborted()
+   331→			kind, payload = await queue.get()
+   332→			if kind == "done":
+   333→				return
+   334→			if kind == "usage":
+   335→				self.last_usage = payload if isinstance(payload, dict) else None
+   336→				self.last_context_tokens = context_tokens_from_usage(self.last_usage)
+   337→				self.context_limit = _context_limit_from_usage_fields(self.last_usage) or self.context_limit
+   338→				self._record_usage_safe(self.last_usage)
+   339→				continue
+   340→			if kind == "err":
+   341→				raise payload
+   342→			yield payload  # type: ignore[misc]
+   343→
+   344→
+   345→PROVIDER_PRESETS: dict[str, dict[str, str]] = {
+   346→	"deepseek": {
+   347→		# OpenAI SDK 风格：base + /chat/completions
+   348→		"base_url": "https://api.deepseek.com/v1",
+   349→		"label": "DeepSeek",

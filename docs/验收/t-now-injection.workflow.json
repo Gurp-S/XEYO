@@ -1,0 +1,67 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "T_now 每轮注入流水线",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "output": "docs/验收/t-now-injection.workflow.html"
+  },
+  "lanes": [
+    { "id": "data", "label": "数据源 / 回写" },
+    { "id": "pipeline", "label": "投影 → T_now → 送模型 → 执行" },
+    { "id": "controls", "label": "注入控制 · P1", "variant": "exception" }
+  ],
+  "phases": [
+    { "id": "proj", "label": "投影 + 注入", "fromCol": 0, "toCol": 1, "variant": "emphasis" },
+    { "id": "run", "label": "执行与回写", "fromCol": 2, "toCol": 3, "variant": "dashed" }
+  ],
+  "groups": [
+    { "id": "gate_box", "label": "P1 门控 / 预算 / 分仓", "lane": "controls", "fromCol": 0, "toCol": 1, "variant": "security" }
+  ],
+  "mainPath": ["project", "inject", "stream", "execute"],
+  "semanticChecks": {
+    "allowedRoots": ["mstore", "gate"]
+  },
+  "nodes": [
+    { "id": "mstore", "lane": "data", "col": 0, "type": "database", "label": "消息存储", "sublabel": "MessageStore", "width": 108 },
+    { "id": "project", "lane": "pipeline", "col": 0, "type": "backend", "label": "投影", "sublabel": "C0/C1/C2", "tag": "copy-on-write", "width": 108 },
+    { "id": "inject", "lane": "pipeline", "col": 1, "type": "backend", "label": "注入 + 装配", "sublabel": "run_pre_llm_inject", "tag": "唯一注入点", "width": 108 },
+    { "id": "stream", "lane": "pipeline", "col": 2, "type": "messagebus", "label": "送模型", "sublabel": "model.stream", "width": 108 },
+    { "id": "execute", "lane": "pipeline", "col": 3, "type": "messagebus", "label": "执行工具", "sublabel": "run_tools_partitioned", "width": 108 },
+    { "id": "aftertools", "lane": "controls", "col": 0, "type": "security", "label": "after_tools?", "sublabel": "末条 tool/result", "width": 108 },
+    { "id": "gate", "lane": "controls", "col": 1, "type": "security", "label": "P1 门控/预算", "sublabel": "D1 · F1 · A1", "width": 108 },
+    { "id": "writeback", "lane": "data", "col": 3, "type": "database", "label": "落库 + 衰减", "sublabel": "plan 首写收敛", "width": 108 }
+  ],
+  "edges": [
+    { "id": "e1", "from": "mstore", "to": "project", "label": "as_api_messages()", "variant": "default" },
+    { "id": "e2", "from": "project", "to": "inject", "label": "projected", "variant": "default" },
+    { "id": "e3", "from": "project", "to": "aftertools", "label": "末条判定", "variant": "security", "role": "branch" },
+    { "id": "e4", "from": "aftertools", "to": "inject", "label": "轮型（续写/fresh）", "variant": "security", "role": "branch" },
+    { "id": "e5", "from": "gate", "to": "inject", "label": "作用于注入", "variant": "security", "role": "branch" },
+    { "id": "e6", "from": "inject", "to": "stream", "label": "api_messages", "variant": "emphasis" },
+    { "id": "e7", "from": "stream", "to": "execute", "label": "tool_use / text", "variant": "default" },
+    { "id": "e8", "from": "execute", "to": "writeback", "label": "结果落库", "variant": "dashed", "role": "return" }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "三类块与红线（F3 / copy-on-write）",
+      "items": [
+        "directive：指令，尾插、绝不裁剪",
+        "event：事件（drain），绝不门控、绝不裁剪",
+        "inventory：参考数据，fresh 轮前插、模糊轮静默、双闸预算",
+        "只改投影尾 user，不写回 MessageStore / JSONL，不碰 system 左段"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "轮型驱动 A1/D1，回写后进入下一枪",
+      "items": [
+        "after_tools → Continue 首位 + 只挂本轮新 Nested",
+        "fresh-user → inventory 前插 + 限窗 Nested + Stale",
+        "结果落库（approved_plan 首写收敛）→ 重跑投影；下一枪 Continue 首位"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,180 @@
+  2082→def render_a3_html(rows: dict) -> str:
+  2083→	"""A3（deploy_project_mode_*）渲染为独立 HTML 页面：总表 + 模型表 + 对话表（每枪明细 + 对话属性）+ 导出JSON。
+  2084→	完整数据内嵌为 JSON，浏览端自行渲染与导出。"""
+  2085→	a3 = {k: v for k, v in rows.items() if k.startswith(A3_PREFIX)}
+  2086→	payload = {
+  2087→		"generated_at": _now(),
+  2088→		"days": [
+  2089→			{
+  2090→				"day": v.get("detail", {}).get("day", k.removeprefix(A3_PREFIX)),
+  2091→				"total": v.get("detail", {}),
+  2092→				"by_model": v.get("detail", {}).get("by_model", []),
+  2093→				"by_session": v.get("detail", {}).get("by_session", []),
+  2094→				"by_turn": v.get("detail", {}).get("by_turn", []),
+  2095→				"accepted": bool(v.get("accepted")),
+  2096→			}
+  2097→			for k, v in sorted(a3.items())
+  2098→		],
+  2099→	}
+  2100→	def _jsjson(o) -> str:
+  2101→		# 内嵌到 HTML <script>：转义 </script> 与 U+2028/2029，保持 JSON 合法。
+  2102→		s = json.dumps(o, ensure_ascii=False, default=str)
+  2103→		return s.replace("</", "<\\/").replace("\u2028", "\\u2028").replace("\u2029", "\\u2029")
+  2104→
+  2105→	json_blob = _jsjson(payload)
+  2106→	mono_css = _A3_CSS
+  2107→	# 可选 Inter 字体（联网时更佳；离线自动回退系统栈）。
+  2108→	font_link = (
+  2109→		'<link rel="preconnect" href="https://fonts.googleapis.com">'
+  2110→		'<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900'
+  2111→		'&family=Noto+Sans+SC:wght@400;500;700;900&display=swap" rel="stylesheet">'
+  2112→	)
+  2113→	html = [
+  2114→		"<!doctype html>",
+  2115→		'<html lang="zh-CN"><head><meta charset="utf-8">',
+  2116→		'<meta name="viewport" content="width=device-width,initial-scale=1">',
+  2117→		"<title>A3 日常监控快照</title>",
+  2118→		font_link,
+  2119→		"<style>" + mono_css + "</style>",
+  2120→		"</head><body>",
+  2121→		'<div class="wrap">',
+  2122→		'<div id="app"></div>',
+  2123→		"</div>",
+  2124→		# ── 数据：完整 payload 以 JSON 内嵌，端侧自行渲染 ──
+  2125→		"<script>window.__A3__=" + json_blob + "</script>",
+  2126→		# ── 导出工具（供渲染器按钮调用）──
+  2127→		"<script>",
+  2128→		"function exportJson(){var b=JSON.stringify(window.__A3__,null,2);",
+  2129→		"var a=document.createElement('a');a.href=URL.createObjectURL(new Blob([b],{type:'application/json'}));",
+  2130→		"a.download='a3-monitor-'+new Date().toISOString().slice(0,10)+'.json';a.click();}",
+  2131→		"</script>",
+  2132→		# ── 渲染器 ──
+  2133→		"<script>" + _A3_RENDER_JS + "</script>",
+  2134→		"</body></html>",
+  2135→	]
+  2136→	return "\n".join(html)
+  2137→
+  2138→
+  2139→def render_a3_table(rows: dict) -> str:
+  2140→	"""A3（deploy_project_mode_*）行渲染为 docs/A3-monitor.md 的总表 + 分模型 + 分会话。"""
+  2141→	lines: list[str] = []
+  2142→	for cid in sorted(k for k in rows if k.startswith(A3_PREFIX)):
+  2143→		row = rows[cid]
+  2144→		d = row.get("detail") or {}
+  2145→		total_in = int(d.get("cache_hit", 0)) + int(d.get("cache_miss", 0))
+  2146→		hit_rate = d.get("hit_rate") or (int(d.get("cache_hit", 0)) / total_in if total_in else 0.0)
+  2147→		ok = "☑" if row.get("accepted") else "☐"
+  2148→		by_model = "; ".join(
+  2149→			f"{m.get('model')}@{m.get('provider')} {float(m.get('hit_rate', 0)) * 100:.1f}% ({m.get('cache_hit')}/{m.get('cache_hit', 0) + m.get('cache_miss', 0)})"
+  2150→			for m in d.get("by_model", [])
+  2151→		)
+  2152→		lines.append(f"### {d.get('day', cid.removeprefix(A3_PREFIX))}")
+  2153→		lines.append("")
+  2154→		lines.append("#### 总计")
+  2155→		lines.append("")
+  2156→		lines.append("| 日期 | 命中率 | 命中/输入 | 请求 | 输出 | 成本 | C2 | 验收 |")
+  2157→		lines.append("|---|---|---|---|---|---|---|---|")
+  2158→		lines.append(
+  2159→			f"| {d.get('day', cid.removeprefix(A3_PREFIX))} | {float(hit_rate) * 100:.2f}% | "
+  2160→			f"{d.get('cache_hit', 0)}/{total_in} | {d.get('requests', 0)} | {d.get('output', 0)} | "
+  2161→			f"{d.get('cost_cny', 0)} | {d.get('c2_count', 0)} | {ok} |"
+  2162→		)
+  2163→		lines.append("")
+  2164→		lines.append("#### 分模型")
+  2165→		lines.append("")
+  2166→		lines.append("| 模型 | Provider | 命中率 | 命中/输入 | 请求 | 输出 |")
+  2167→		lines.append("|---|---|---|---|---|---|")
+  2168→		for m in d.get("by_model", []):
+  2169→			mt = int(m.get("cache_hit", 0)) + int(m.get("cache_miss", 0))
+  2170→			lines.append(
+  2171→				f"| {m.get('model')} | {m.get('provider')} | {float(m.get('hit_rate', 0)) * 100:.1f}% | "
+  2172→				f"{m.get('cache_hit')}/{mt} | {m.get('requests')} | {m.get('output')} |"
+  2173→			)
+  2174→		lines.append("")
+  2175→		lines.append("#### 分对话")
+  2176→		lines.append("")
+  2177→		if not d.get("by_turn") and not d.get("by_session"):
+  2178→			lines.append("_无对话数据_")
+  2179→			lines.append("")
+  2180→			continue
+  2181→		# 按用户消息轮次分组，标题=用户消息，模型+命中率摘要，details 展开显示每轮明细。
+  2182→		for t in d.get("by_turn", []):
+  2183→			st = int(t.get("cache_hit", 0)) + int(t.get("cache_miss", 0))
+  2184→			label = t.get("label") or t.get("session_id") or "(auto)"
+  2185→			model = t.get("model") or "?"
+  2186→			hit_pct = float(t.get("hit_rate", 0)) * 100
+  2187→			lines.append(f"<details>")
+  2188→			lines.append(f"<summary>{label} — {model} · {hit_pct:.1f}% ({t.get('cache_hit')}/{st}) · {t.get('requests')} req · 成本{t.get('cost_cny')}</summary>")
+  2189→			lines.append("")
+  2190→			lines.append("| 轮次 | 模型 | 命中率 | 命中/输入 | 请求 | 输出 | 成本 |")
+  2191→			lines.append("|---|---|---|---|---|---|---|")
+  2192→			lines.append(
+  2193→				f"| {t.get('label')} | {model} | {hit_pct:.1f}% | {t.get('cache_hit')}/{st} | "
+  2194→				f"{t.get('requests')} | {t.get('output')} | {t.get('cost_cny')} |"
+  2195→			)
+  2196→			lines.append("")
+  2197→			lines.append("</details>")
+  2198→			lines.append("")
+  2199→	return "\n".join(lines)
+  2200→
+  2201→
+  2202→def _replace_section(path, begin, end, section) -> bool:
+  2203→	if not path.is_file():
+  2204→		print(f"no file at {path}")
+  2205→		return False
+  2206→	text = path.read_text(encoding="utf-8")
+  2207→	if begin not in text or end not in text:
+  2208→		print(f"{path} missing markers")
+  2209→		return False
+  2210→	import re
+  2211→
+  2212→	new_text = re.sub(re.escape(begin) + r".*?" + re.escape(end), lambda m: section, text, flags=re.S)
+  2213→	path.write_text(new_text, encoding="utf-8", newline="\n")
+  2214→	return True
+  2215→
+  2216→
+  2217→def update_docs12_table_d(rows: dict) -> bool:
+  2218→	# A3 行拆到 docs/A3-monitor.md + docs/A3-monitor.html，其余行留 docs/12 表D
+  2219→	non_a3 = {k: v for k, v in rows.items() if not k.startswith(A3_PREFIX)}
+  2220→	a3 = {k: v for k, v in rows.items() if k.startswith(A3_PREFIX)}
+  2221→	ok = True
+  2222→	if a3:
+  2223→		ok = _replace_section(A3_MONITOR, A3_BEGIN, A3_END, A3_BEGIN + "\n" + render_a3_table(a3) + "\n" + A3_END)
+  2224→		print("rendered A3 ->", A3_MONITOR)
+  2225→		A3_HTML.write_text(render_a3_html(a3), encoding="utf-8", newline="\n")
+  2226→		print("rendered A3 ->", A3_HTML)
+  2227→	if not ok:
+  2228→		return False
+  2229→	if not DOCS12.is_file():
+  2230→		print(f"no docs/12 at {DOCS12}")
+  2231→		return False
+  2232→	text = DOCS12.read_text(encoding="utf-8")
+  2233→	begin, end = TABLE_D_BEGIN, TABLE_D_END
+  2234→	if begin not in text or end not in text:
+  2235→		print("docs/12 missing 表D markers")
+  2236→		return False
+  2237→	section = begin + "\n" + render_table_d(non_a3) + "\n" + end
+  2238→	import re
+  2239→
+  2240→	new_text = re.sub(re.escape(begin) + r".*?" + re.escape(end), lambda m: section, text, flags=re.S)
+  2241→	DOCS12.write_text(new_text, encoding="utf-8", newline="\n")
+  2242→	print("rendered 表D ->", DOCS12)
+  2243→	return True
+  2244→
+  2245→
+  2246→def load_probes(source: str) -> dict:
+  2247→	p = PROBES_DIR / f"ab_{source}_probes.json"
+  2248→	if not p.is_file():
+  2249→		return {"questions": []}
+  2250→	try:
+  2251→		data = json.loads(p.read_text(encoding="utf-8"))
+  2252→	except Exception:
+  2253→		return {"questions": []}
+  2254→	if not isinstance(data, dict):
+  2255→		return {"questions": []}
+  2256→	data.setdefault("questions", [])
+  2257→	return data
+  2258→
+  2259→
+  2260→def synthetic_probes() -> dict:
+  2261→	"""合成源确定性模板题库（≥12 题，三层齐全）。"""

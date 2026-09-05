@@ -1,0 +1,12 @@
+1141:        context_breakdown = _scale_breakdown(
+379:def _compute_category_chars(
+420:def _scale_breakdown(chars: OrderedDict[str, int], total_tokens: int) -> list[dict]:
+579:def _attach_turn_context(
+585:	include_memory_index: bool = True,
+598:	``inject_instructions``：None 时跟随 ``include_memory_index``。
+643:			include_memory_index=include_memory_index,
+654:def _append_skipped_tool_results(
+687:	include_memory_index: bool = True,
+698:    ``include_memory_index``：是否在 T_now 挂 Memory 索引。子 Agent 应传 False，
+857:                include_memory_index=False,
+886:            include_memory_index=include_memory_index and not _is_side,

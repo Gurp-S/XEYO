@@ -1,0 +1,52 @@
+[
+  {
+    "id": "empty_m",
+    "a4": "keep",
+    "a8": "keep",
+    "a16": "keep",
+    "a_vote": "keep",
+    "a_hard": null,
+    "a_star": "keep",
+    "hardtop": false
+  },
+  {
+    "id": "short:1",
+    "a4": "keep",
+    "a8": "keep",
+    "a16": "keep",
+    "a_vote": "keep",
+    "a_hard": null,
+    "a_star": "keep",
+    "hardtop": false
+  },
+  {
+    "id": "short:2",
+    "a4": "keep",
+    "a8": "keep",
+    "a16": "keep",
+    "a_vote": "keep",
+    "a_hard": null,
+    "a_star": "keep",
+    "hardtop": false
+  },
+  {
+    "id": "short:3",
+    "a4": "keep",
+    "a8": "keep",
+    "a16": "keep",
+    "a_vote": "keep",
+    "a_hard": null,
+    "a_star": "keep",
+    "hardtop": false
+  },
+  {
+    "id": "short:5",
+    "a4": "keep",
+    "a8": "keep",
+    "a16": "keep",
+    "a_vote": "keep",
+    "a_hard": null,
+    "a_star": "keep",
+    "hardtop": false
+  }
+]

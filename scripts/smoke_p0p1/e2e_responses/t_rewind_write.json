@@ -1,0 +1,4 @@
+[
+  {"tool_calls": [{"name": "Write", "arguments": {"file_path": "note.txt", "content": "hello rewind\n"}}]},
+  {"content": "文件已创建"}
+]

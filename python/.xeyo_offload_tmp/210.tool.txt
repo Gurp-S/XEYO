@@ -1,0 +1,50 @@
+    44→def record_from_openai_usage(
+    45→	*,
+    46→	provider: str,
+    47→	model: str,
+    48→	api_key: str,
+    49→	usage: dict[str, Any],
+    50→	ts: float | None = None,
+    51→	session_id: str = "",
+    52→) -> None:
+    53→	if not isinstance(usage, dict) or not usage:
+    54→		return
+    55→	now = float(ts if ts is not None else datetime.now(tz=BJ).timestamp())
+    56→	hit, miss, out = split_usage(usage)
+    57→	prompt = _as_int(usage.get("prompt_tokens"))
+    58→	official_total = _as_int(usage.get("total_tokens"))
+    59→	tokens = official_total if official_total > 0 else (
+    60→		prompt + out if prompt or out else hit + miss + out
+    61→	)
+    62→	if tokens <= 0 and hit + miss + out <= 0:
+    63→		tokens = 0
+    64→	api_cost = official_cost_cny(usage)
+    65→	if api_cost is not None:
+    66→		cost_cny = api_cost
+    67→		cost_source = "api"
+    68→	else:
+    69→		cost_cny = estimate_cny(
+    70→			provider=provider, model=model, usage=usage, ts=now
+    71→		)
+    72→		cost_source = "estimate"
+    73→	event = {
+    74→		"ts": now,
+    75→		"day": datetime.fromtimestamp(now, tz=BJ).date().isoformat(),
+    76→		"provider": (provider or "unknown").lower(),
+    77→		"model": model or "unknown",
+    78→		"session_id": (session_id or "").strip(),
+    79→		"key_fp": key_fingerprint(api_key),
+    80→		"prompt_tokens": prompt,
+    81→		"completion_tokens": out,
+    82→		"cache_hit": hit,
+    83→		"cache_miss": miss,
+    84→		"output": out,
+    85→		"tokens": tokens,
+    86→		"cost_cny": round(float(cost_cny), 8),
+    87→		"cost_source": cost_source,
+    88→	}
+    89→	_append(event)
+    90→
+    91→
+    92→def _append(event: dict[str, Any]) -> None:
+    93→	path = events_path()

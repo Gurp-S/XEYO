@@ -1,0 +1,29 @@
+{
+  "source": "src/styles/workflow.css",
+  "slices": [
+    {
+      "file": "src/styles/workflow-split.css",
+      "from": 1,
+      "to": 289,
+      "desc": "Activity split chrome (head/steps/rail)"
+    },
+    {
+      "file": "src/styles/workflow-morph.css",
+      "from": 290,
+      "to": 474,
+      "desc": "A8 morph + handoff + live→done settle"
+    },
+    {
+      "file": "src/styles/workflow-thought.css",
+      "from": 475,
+      "to": 611,
+      "desc": "L10 thought ticker + Idea 5 peek"
+    },
+    {
+      "file": "src/styles/workflow-agent.css",
+      "from": 612,
+      "to": null,
+      "desc": "Idea 8 agent cards + activity list"
+    }
+  ]
+}

@@ -1,0 +1,233 @@
+     1→"""系统提示词组装。
+     2→
+     3→左段顺序：Identity → env → XEYO.md → Tool policy → append。
+     4→项目结构/依赖不自动注入：人写进 XEYO.md，需要时用工具现查。
+     5→记忆行为规则已下沉到各记忆工具的 description。
+     6→MEMORY.md 索引不在左段（mutation 会弄废整段 KV 前缀），由 runtime 追加到投影 T_now 尾部。
+     7→custom_system_prompt / append_system_prompt 只允许 append，不得整段替换 default+instructions。
+     8→"""
+     9→
+    10→from __future__ import annotations
+    11→
+    12→from dataclasses import dataclass, field
+    13→from typing import Any, Sequence
+    14→
+    15→from prompt.fence import FENCE_POLICY
+    16→
+    17→# 单一身份入口（中文主场景；GUI / CLI / side-chat / 子 agent 前缀共用）
+    18→IDENTITY = (
+    19→	"你是 XEYO，桌面与微信场景下的编程助手。"
+    20→	"回答简洁；需要时用工具；代码用 fenced code block。"
+    21→)
+    22→
+    23→# 左段只留跨工具纪律；细则在各工具短 description（schema 预算）与全文 prompt。
+    24→TOOL_POLICY = (
+    25→	"工具策略：可并行的只读工具同一回合一起调用；信息够了就停，勿重复空搜或重读已读文件。"
+    26→	"文件操作只用专用工具：找文件名→Glob（可 path/分页）、找内容→Grep（path/glob 过滤）、"
+    27→	"读→Read（offset/limit）、改→Edit、写→Write、git 只读→Git；"
+    28→	"Bash 只用于无专用工具的命令（构建/测试/安装/进程/网络），勿用 Bash cat/find/ls/rg 绕开。"
+    29→	"时刻用 getTime，勿臆造日期。TodoWrite 仅在步骤状态变化时 merge 更新，勿用相同清单刷屏。"
+    30→	"长流程用 Skill 按需加载，勿塞进 XEYO.md；项目约定写短指针，结构用工具现查。"
+    31→	"分钟级长命令用 Bash run_in_background 先领活再干别的；完成会自动通知，"
+    32→	"凭通知 job_output 收结果；终答前收掉仍相关的任务，不再重要的 job_kill，勿空转轮询。"
+    33→	"改码后 Diagnostics(path=文件)；仓库用 Git(summary)；外网需确认："
+    34→	"已知文档 URL 只 WebFetch；不知 URL 则一次 WebSearch，不够再 Fetch 最相关 1 条；勿连搜或批量 Fetch。"
+    35→	+ FENCE_POLICY
+    36→)
+    37→
+    38→# 子 agent：短工人附录（勿塞整份 XEYO.md / Memory 索引）；scope 由硬门禁强制。
+    39→SUBAGENT_APPEND = (
+    40→	"你是短命子 Agent。只完成指派任务；"
+    41→	"写文件仅限任务 scope（空 scope 则只读，系统会拒写）；"
+    42→	"仓库状态用 Git 工具；Bash 仅短只读命令（echo/dir/git status/rg 等），"
+    43→	"不可解释器脚本、管道复合、后台或写盘；不要 spawn 子 Agent、不要用 Memory。"
+    44→	"信息够就立刻停：禁止空转重复 Glob/Grep/Read；"
+    45→	"结论用简洁中文要点，勿粘贴整文件，供主 Agent 汇总。"
+    46→)
+    47→
+    48→
+    49→@dataclass
+    50→class SystemPromptParts:
+    51→	"""build_system 的中间结果：默认段 + 用户/系统上下文"""
+    52→
+    53→	default_system_prompt: list[str] = field(default_factory=list)  # 身份与工具说明段落
+    54→	user_context: dict[str, str] = field(default_factory=dict)  # 含 instructions（XEYO.md）
+    55→	system_context: dict[str, str] = field(default_factory=dict)  # 保留字段；不再注入左段
+    56→
+    57→
+    58→def get_default_system_prompt_parts(
+    59→	*,
+    60→	cwd: str,
+    61→	model: str,
+    62→	tool_names: Sequence[str],
+    63→	date_iso: str | None = None,
+    64→) -> list[str]:
+    65→	"""身份 + 环境 + 工具策略。
+    66→
+    67→	Date / Model 都不进左段：避免换日/换模型打爆 KV；需要时刻时用 getTime。
+    68→	``date_iso`` / ``model`` 仍保留在签名与 memo 键中（兼容调用方），但不写入正文。
+    69→	工具名清单不进左段：以 API ``tools`` schemas 为准。
+    70→	侧聊（side）模式不注入 CWD 行：侧聊不绑定工作区叙事，路径由工具按需现查。
+    71→	"""
+    72→	_ = tool_names, model, date_iso
+    73→	from permissions.policy import side_mode
+    74→
+    75→	if side_mode():
+    76→		return [
+    77→			IDENTITY,
+    78→			TOOL_POLICY,
+    79→		]
+    80→	return [
+    81→		IDENTITY,
+    82→		f"CWD: {cwd}",
+    83→		TOOL_POLICY,
+    84→	]
+    85→
+    86→
+    87→def get_user_context(*, cwd: str) -> dict[str, str]:
+    88→	"""用户侧上下文；instructions 由 fetch 填 XEYO.md。"""
+    89→	return {
+    90→		"cwd": cwd,
+    91→	}
+    92→
+    93→
+    94→def get_system_context() -> dict[str, str]:
+    95→	"""保留 API；组装时不再注入 OS 等字段（避免无用字节）。"""
+    96→	return {}
+    97→
+    98→
+    99→def _load_instructions(cwd: str) -> str:
+   100→	"""读取 L1 XEYO.md 族；失败则空串。"""
+   101→	try:
+   102→		from memory.instruction import load_instruction_text
+   103→
+   104→		return load_instruction_text(cwd, cwd)
+   105→	except Exception:
+   106→		return ""
+   107→
+   108→
+   109→async def fetch_system_prompt_parts(
+   110→	*,
+   111→	cwd: str,
+   112→	model: str,
+   113→	tool_names: Sequence[str],
+   114→	custom_system_prompt: str | None = None,
+   115→	date_iso: str | None = None,
+   116→) -> SystemPromptParts:
+   117→	"""拉取 default / user_context；custom 只允许后续 append，不得整段替换 default+instructions"""
+   118→	_ = custom_system_prompt
+   119→	from permissions.policy import side_mode
+   120→
+   121→	if side_mode():
+   122→		# 侧聊：跳过 XEYO.md 维护与 instructions 注入——不读也不写工作区约定文件。
+   123→		return SystemPromptParts(
+   124→			default_system_prompt=get_default_system_prompt_parts(
+   125→				cwd=cwd,
+   126→				model=model,
+   127→				tool_names=tool_names,
+   128→				date_iso=date_iso,
+   129→			),
+   130→			user_context={},
+   131→			system_context=get_system_context(),
+   132→		)
+   133→	user_ctx = get_user_context(cwd=cwd)
+   134→	user_ctx["instructions"] = _load_instructions(cwd)
+   135→	return SystemPromptParts(
+   136→		default_system_prompt=get_default_system_prompt_parts(
+   137→			cwd=cwd,
+   138→			model=model,
+   139→			tool_names=tool_names,
+   140→			date_iso=date_iso,
+   141→		),
+   142→		user_context=user_ctx,
+   143→		system_context=get_system_context(),
+   144→	)
+   145→
+   146→
+   147→def assemble_system_prompt_parts(
+   148→	parts: SystemPromptParts,
+   149→	*,
+   150→	custom_system_prompt: str | None = None,
+   151→	append_system_prompt: str | None = None,
+   152→	include_context_blocks: bool = True,
+   153→) -> tuple[str, list[dict[str, Any]]]:
+   154→	"""按锁死顺序拼 system 左段，并返回每段对应的上下文构成（供用量条分类）。
+   155→
+   156→	顺序：Identity → env → XEYO.md → tool policy → custom → append。
+   157→	defaults 约定：[identity, env, tool_policy]。
+   158→	"""
+   159→	defaults = [s.strip() for s in parts.default_system_prompt if s and s.strip()]
+   160→	# 前两段固定为身份 + 环境；其余为 tool policy
+   161→	identity_env = defaults[:2]
+   162→	rest = defaults[2:]
+   163→	chunks: list[str] = []
+   164→	breakdown: list[dict[str, Any]] = []
+   165→
+   166→	def add(text: str, category: str, label: str) -> None:
+   167→		if not text:
+   168→			return
+   169→		chunks.append(text)
+   170→		breakdown.append({"category": category, "label": label, "chars": len(text)})
+   171→
+   172→	for t in identity_env:
+   173→		add(t, "system", "System prompt")
+   174→
+   175→	instr = ""
+   176→	if parts.user_context:
+   177→		instr = str(parts.user_context.get("instructions") or "").strip()
+   178→	if include_context_blocks and instr:
+   179→		add("# Instructions (XEYO.md)\n" + instr, "rules", "Rules")
+   180→		try:
+   181→			from memory.instruction_maintain import soft_instruction_budget
+   182→
+   183→			soft = soft_instruction_budget()
+   184→			if len(instr) >= soft:
+   185→				breakdown[-1]["soft_over"] = True
+   186→				breakdown[-1]["chars_raw"] = len(instr)
+   187→		except Exception:
+   188→			pass
+   189→
+   190→	for t in rest:
+   191→		add(t, "system", "System prompt")
+   192→
+   193→	# custom 与 append 合并去重：相同内容只保留一次；剥掉误拼的第二段身份
+   194→	extras: list[str] = []
+   195→	for blob in (custom_system_prompt, append_system_prompt):
+   196→		s = (blob or "").strip()
+   197→		if s.startswith(IDENTITY):
+   198→			s = s[len(IDENTITY) :].lstrip("\n").strip()
+   199→		if s and s not in extras:
+   200→			extras.append(s)
+   201→	for s in extras:
+   202→		add(s, "system", "System prompt")
+   203→
+   204→	return "\n\n".join(chunks), breakdown
+   205→
+   206→
+   207→def assemble_system_prompt(
+   208→	parts: SystemPromptParts,
+   209→	*,
+   210→	custom_system_prompt: str | None = None,
+   211→	append_system_prompt: str | None = None,
+   212→	include_context_blocks: bool = True,
+   213→) -> str:
+   214→	"""按锁死顺序拼 system 左段。MEMORY.md 索引不在左段，由 runtime 追加到投影 T_now 尾部"""
+   215→	text, _breakdown = assemble_system_prompt_parts(
+   216→		parts,
+   217→		custom_system_prompt=custom_system_prompt,
+   218→		append_system_prompt=append_system_prompt,
+   219→		include_context_blocks=include_context_blocks,
+   220→	)
+   221→	return text
+   222→
+   223→
+   224→def tool_names_from_registry(tools: Any) -> list[str]:
+   225→	"""从 ToolRegistry 或带 schemas() 的对象取出工具名。"""
+   226→	if tools is None:
+   227→		return []
+   228→	if hasattr(tools, "schemas"):
+   229→		return [str(s.get("name", "")) for s in tools.schemas() if s.get("name")]
+   230→	if hasattr(tools, "_tools"):
+   231→		return list(getattr(tools, "_tools").keys())
+   232→	return []
+   233→

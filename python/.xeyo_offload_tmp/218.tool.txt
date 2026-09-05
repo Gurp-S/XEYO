@@ -1,0 +1,152 @@
+python\bridge\__main__.py:120:			current = asyncio.create_task(_run_submit(engine, text))
+python\channels\filehelper\bridge.py:344:		self._loop_task = asyncio.create_task(self._boot_and_loop())
+python\channels\filehelper\bridge.py:549:		self._inbound_debounce = asyncio.create_task(_run())
+python\channels\filehelper\service.py:417:			asyncio.create_task(_notify())
+python\channels\filehelper\service.py:592:		asyncio.create_task(_send_wechat())
+python\channels\ilink\bridge.py:156:			asyncio.create_task(
+python\channels\ilink\bridge.py:163:			asyncio.create_task(
+python\channels\ilink\service.py:487:		asyncio.create_task(
+python\channels\ilink\service.py:499:				asyncio.create_task(
+python\channels\ilink\service.py:515:			asyncio.create_task(
+python\channels\ilink\service.py:950:				asyncio.create_task(
+python\channels\ilink\service.py:997:		asyncio.create_task(_send())
+python\channels\ilink\service.py:1013:	_bridge._loop_task = asyncio.create_task(_run(channel, runner))
+python\channels\remote_deliver.py:51:	task = loop.create_task(_run())
+python\channels\runner.py:295:		task = asyncio.create_task(self._process(rec.job_id))
+python\cli\attach_cmd.py:166:				with client.stream(
+python\cli\chat_cmd.py:278:			line = await asyncio.to_thread(_read_repl_line, mode)
+python\cli\interact.py:164:	decision = await asyncio.to_thread(
+python\cli\interact.py:184:	decision = await asyncio.to_thread(
+python\cli\interact.py:200:	decision = await asyncio.to_thread(
+python\engine\permission_coordinator.py:143:			reminder = asyncio.create_task(self._remind_before_expiry(request_id))
+python\engine\query_engine.py:77:    """在跨进程工作区锁内拍 shadow-git 快照（阻塞操作，供 to_thread 调用）。"""
+python\engine\query_engine.py:641:                    turn_baseline = await asyncio.to_thread(capture_turn_baseline, cwd)
+python\engine\query_engine.py:647:                commit = await asyncio.to_thread(
+python\engine\query_engine.py:686:                        await asyncio.to_thread(
+python\engine\query_engine.py:699:            before_task = asyncio.create_task(_before_snapshot())
+python\engine\query_engine.py:977:                        after_commit = await asyncio.to_thread(
+python\engine\query_loop.py:987:                early[tu.id] = asyncio.create_task(
+python\engine\query_loop.py:1015:                async for chunk in model.stream(api_messages, tool_schemas, abort):
+python\engine\query_loop.py:1176:        _observe_task = asyncio.create_task(asyncio.to_thread(_observe_body))
+python\engine\query_loop.py:1473:        # 整批工具跑完后再 gather 解析（用户若已点确认则立即返回）。
+python\engine\query_loop.py:1527:                ask_waiters[tu.id] = asyncio.create_task(ask_store.wait(rid))
+python\engine\query_loop.py:1562:                perm_waiters[tu.id] = asyncio.create_task(coordinator.wait(rid))
+python\engine\query_loop.py:1569:                late_task = asyncio.create_task(
+python\engine\query_loop.py:1580:                early_task = asyncio.create_task(_await_early_map())
+python\engine\scheduler.py:381:                    running[t.id] = asyncio.create_task(
+python\engine\scheduler.py:390:                abort_watcher = asyncio.create_task(self._watch_batch_abort())
+python\engine\scheduler.py:444:            await asyncio.gather(*running.values(), return_exceptions=True)
+python\engine\scheduler.py:521:                run_fut = asyncio.create_task(
+python\engine\subagent_runner.py:95:        async for chunk in inner.stream(messages, tools, abort):
+python\engine\subagent_runner.py:1246:    async for chunk in model_client.stream(store.as_api_messages(), [], abort):
+python\engine\subagent_runner.py:1403:    async for chunk in model_client.stream(store.as_api_messages(), [], abort):
+python\engine\title.py:183:	async for chunk in client.stream(
+python\engine\title.py:268:	return loop.create_task(_run())
+python\engine\turn_runner.py:180:			det.task = asyncio.create_task(
+python\engine\turn_runner.py:353:			# create_task 调度绝不阻塞 teardown、绝不影响 turn 终态。
+python\engine\turn_runner.py:359:						asyncio.create_task(_coro)
+python\engine\write_store.py:4:- **每文件一把锁**：同文件串行 apply，不同文件可并行（submit 走 to_thread）。
+python\engine\write_store.py:192:        return asyncio.to_thread(self.submit_sync, intent)
+python\extension\mcp_client.py:1300:			result = await asyncio.to_thread(
+python\memory\nightshift.py:608:    more = await asyncio.to_thread(_run_safe, workspace_id, chain_budget=chain)
+python\memory\nightshift.py:618:    """submit 结束后 create_task 投递整理；禁止在 query_loop 的 while 里 await"""
+python\memory\nightshift.py:626:    loop.create_task(_run_async(workspace_id))
+python\memory\runtime.py:121:		async for chunk in model.stream(replay, [], abort):
+python\memory\simulator\probe.py:109:		async with client.stream("POST", url, headers=inner._headers(), json=body) as resp:
+python\model\deepseek.py:136:		async with client.stream(
+python\model\openai_compat.py:242:			async with client.stream(
+python\scripts\hitrate_c2_only_live.py:114:			async for chunk in client.stream(messages, [], AbortController()):
+python\scripts\kv_cache_probe.py:234:			async for chunk in self._inner.stream(messages, tools, abort):
+python\scripts\kv_cache_probe.py:249:			async with client.stream(
+python\scripts\memory_stack_eval.py:2589:			async for chunk in client.stream(messages, [], AbortController()):
+python\server\app.py:129:				await asyncio.to_thread(garbage_collect)
+python\server\app.py:133:	gc_task = asyncio.create_task(_sidechain_gc_loop())
+python\server\app.py:134:	blob_gc_task = asyncio.create_task(_blob_gc_loop())
+python\server\goal_round_driver.py:10:- **预约不消耗轮号**：预约只是内存 create_task；只有合成轮真正被引擎接受
+python\server\goal_round_driver.py:184:			st.pending = asyncio.create_task(
+python\server\goal_round_driver.py:200:		异常全隔离——本协程绝不向调度方抛（turn_runner create_task 不等待它）。
+python\server\inbox_registry.py:271:		异常全隔离——本协程绝不向调度方抛（turn_runner create_task 不等待它）。
+python\server\inbox_registry.py:305:			task = loop.create_task(
+python\server\job_registry.py:455:			task = asyncio.create_task(self.on_delivery_tick(sid))
+python\server\routers\chat.py:1433:		# ContextVar 在 create_task 时拷贝；HTTP finally 清 mode 不影响 producer。
+python\server\routers\media.py:52:		asset = await asyncio.to_thread(
+python\server\routers\media.py:71:	await asyncio.to_thread(dest.write_bytes, raw)
+python\server\synthetic_round.py:121:			async with client.stream(
+python\tests\test_abort.py:55:	task = asyncio.create_task(killer())
+python\tests\test_goal_round_driver_t41.py:339:	st.pending = asyncio.create_task(asyncio.sleep(30))
+python\tests\test_ilink_channel.py:772:	task = asyncio.create_task(svc._poll_loop(ch, _DummyRunner()))  # type: ignore[arg-type]
+python\tests\test_ilink_channel.py:851:	task = asyncio.create_task(svc._poll_loop(ch, _DummyRunner()))  # type: ignore[arg-type]
+python\tests\test_job_registry_t42.py:202:	# 先让 call_soon_threadsafe 的回调落地（create_task），再等决策任务全部终态；
+python\tests\test_main_loop_four_cuts.py:289:	watcher = asyncio.create_task(_watch())
+python\tests\test_model_client_contract.py:6:  而既有测试（test_vendor_models.py 等）从不调用 .stream()，故 pytest 全绿，
+python\tests\test_multi_agent_p1.py:123:	"""P1：depends_on 必须等上游完成后再启动（不能 gather 全 pending）。"""
+python\tests\test_multi_agent_p1.py:689:	asyncio.create_task(killer())
+python\tests\test_multi_agent_p1.py:996:	asyncio.create_task(killer())
+python\tests\test_multiagent_hardening.py:3:背景：单任务异常曾从 gather 炸出导致整批 SSE 流断掉（前端无卡片无横幅）。
+python\tests\test_permission_ask_resume.py:70:		waiting = asyncio.create_task(_wait())
+python\tests\test_permission_ask_resume.py:242:	waiter = asyncio.create_task(coord.wait(rid))
+python\tests\test_permission_t3.py:94:	waiter = asyncio.create_task(store.wait(item.request_id))
+python\tests\test_plan_flow.py:23:	approved = asyncio.create_task(engine.wait(pending.request_id))
+python\tests\test_query_loop_retry_a2.py:59:		async for chunk in super().stream(messages, tool_schemas, abort):
+python\tests\test_rwlock_t2.py:31:	await asyncio.gather(*[_reader() for _ in range(8)])
+python\tests\test_rwlock_t2.py:56:	await asyncio.gather(_writer(), *[_reader() for _ in range(6)])
+python\tests\test_rwlock_t2.py:87:	await asyncio.gather(_holder(), _writer(), _late_reader())
+python\tests\test_rwlock_t2.py:125:	task = asyncio.create_task(
+python\tests\test_rwlock_t2.py:158:	task = asyncio.create_task(
+python\tests\test_unclosed_tool_use_t4.py:96:	await asyncio.to_thread(flush_transcript)  # 直接 flush 不抛
+python\tests\test_unclosed_tool_use_t4.py:107:	stream_idx = src.find("model.stream(api_messages")
+python\tests\test_web_tools.py:129:	<p>Asyncio gather runs awaitables concurrently.</p>
+python\tests\test_web_tools.py:153:			"prompt": "How does asyncio gather work?",
+python\tests\test_web_tools.py:158:	assert "gather" in r.content.lower()
+python\tests\test_web_tools.py:203:	body = "Cats sleep.\n\nAsyncio gather waits.\n\nRain today."
+python\tests\test_web_tools.py:204:	out = focus_text(body, "asyncio gather", max_chars=200)
+python\tests\test_web_tools.py:205:	assert "gather" in out.lower()
+python\tools\bash_tool\bash_tool.py:616:			out = await asyncio.to_thread(
+python\tools\diagnostics_tool\diagnostics_tool.py:114:				lines.extend(await asyncio.to_thread(runner, target))
+python\tools\file_edit_tool\file_edit_tool.py:170:			# 现读现比对：本调用已在 to_thread 中，store 锁仍串行写者。
+python\tools\file_edit_tool\file_edit_tool.py:590:				output = await asyncio.to_thread(self.call, edit_input)
+python\tools\file_edit_tool\file_edit_tool.py:593:				output = await asyncio.to_thread(self.call, edit_input)
+python\tools\file_read_tool\file_read_tool.py:597:			return await asyncio.to_thread(self._execute_image, full, read_input)
+python\tools\file_read_tool\file_read_tool.py:599:			return await asyncio.to_thread(self._execute_pdf, full, read_input)
+python\tools\file_read_tool\file_read_tool.py:603:			output = await asyncio.to_thread(self.call, read_input)
+python\tools\file_write_tool\file_write_tool.py:131:			# 现读现比对：本调用已在 to_thread 中，store 锁仍串行写者。
+python\tools\file_write_tool\file_write_tool.py:408:				output = await asyncio.to_thread(self.call, write_input)
+python\tools\file_write_tool\file_write_tool.py:411:				output = await asyncio.to_thread(self.call, write_input)
+python\tools\git_tool\git_tool.py:95:				st, log, ch = await asyncio.gather(
+python\tools\git_tool\git_tool.py:96:					asyncio.to_thread(read_git_status, self._cwd),
+python\tools\git_tool\git_tool.py:97:					asyncio.to_thread(read_git_log, self._cwd, limit=3),
+python\tools\git_tool\git_tool.py:98:					asyncio.to_thread(read_changed_hunks, self._cwd),
+python\tools\git_tool\git_tool.py:110:						touched = await asyncio.to_thread(
+python\tools\git_tool\git_tool.py:124:				payload = await asyncio.to_thread(read_git_status, self._cwd)
+python\tools\git_tool\git_tool.py:132:				payload = await asyncio.to_thread(read_git_log, self._cwd, limit=limit)
+python\tools\git_tool\git_tool.py:135:				payload = await asyncio.to_thread(read_git_branches, self._cwd)
+python\tools\git_tool\git_tool.py:143:			payload = await asyncio.to_thread(read_file_diff, self._cwd, path)
+python\tools\glob_tool\glob_tool.py:928:			output = await asyncio.to_thread(
+python\tools\grep_tool\grep_tool.py:932:			output = await asyncio.to_thread(self.call, grep_input, abort=abort)
+python\tools\journal_query_tool\journal_query_tool.py:82:        rows = await asyncio.to_thread(
+python\tools\memory_tool\memory_tool.py:286:        hits = await asyncio.to_thread(
+python\tools\memory_tool\memory_tool.py:300:            session_hits = await asyncio.to_thread(
+python\tools\memory_tool\memory_tool.py:313:            rollout_hits = await asyncio.to_thread(
+python\tools\memory_tool\memory_tool.py:379:        rows = await asyncio.to_thread(_collect)
+python\tools\memory_tool\memory_tool.py:453:        existing = await asyncio.to_thread(load_notes, wsid)
+python\tools\memory_tool\memory_tool.py:469:                await asyncio.to_thread(
+python\tools\memory_tool\memory_tool.py:476:        await asyncio.to_thread(write_note, note, wsid=wsid)
+python\tools\memory_tool\memory_tool.py:480:        await asyncio.to_thread(rewrite_index, await asyncio.to_thread(load_notes, target), wsid=target)
+python\tools\memory_tool\memory_tool.py:518:        await asyncio.to_thread(write_note, note, wsid=wsid)
+python\tools\notebook_edit_tool\notebook_edit_tool.py:205:					disk = await asyncio.to_thread(
+python\tools\notebook_edit_tool\notebook_edit_tool.py:220:				text = await asyncio.to_thread(
+python\tools\notebook_edit_tool\notebook_edit_tool.py:307:				await asyncio.to_thread(self._persist, full, content)
+python\tools\orchestration.py:9:- 安全批次 ``gather(return_exceptions=True)``：单工具异常不拖垮整批。
+python\tools\orchestration.py:185:		heartbeat = asyncio.create_task(_beat())
+python\tools\orchestration.py:262:	   gather(return_exceptions=True)：单工具失败不影响同批兄弟结果。
+python\tools\orchestration.py:304:			pairs = await asyncio.gather(
+python\tools\screenshot_tool\screenshot_tool.py:81:			path = await asyncio.to_thread(capture_primary, monitor=monitor)
+python\tools\screenshot_tool\screenshot_tool.py:97:			embed = await asyncio.to_thread(preview_png, path)
+python\tools\web_fetch_tool\web_fetch_tool.py:107:		deny = await asyncio.to_thread(is_blocked_url, url)
+python\tools\web_fetch_tool\web_fetch_tool.py:132:					deny = await asyncio.to_thread(is_blocked_url, current)
+python\tools\web_fetch_tool\web_fetch_tool.py:138:					async with client.stream("GET", current) as stream_resp:
+python\tools\web_fetch_tool\web_fetch_tool.py:151:						deny = await asyncio.to_thread(is_blocked_url, str(stream_resp.url))
+python\tools\web_search_tool\web_search_tool.py:209:	if not url.startswith("http") or await asyncio.to_thread(is_blocked_url, url):
+python\tools\web_search_tool\web_search_tool.py:232:		asyncio.create_task(run("bing", _bing_search)),
+python\tools\web_search_tool\web_search_tool.py:233:		asyncio.create_task(run("mojeek", _mojeek_search)),
+python\tools\web_search_tool\web_search_tool.py:255:			await asyncio.gather(*pending, return_exceptions=True)

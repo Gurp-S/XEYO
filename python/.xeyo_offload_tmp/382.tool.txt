@@ -1,0 +1,77 @@
+1006:	kept = _trim_tagged_blocks(tagged)
+1046:		return append_text_blocks_to_last_user(out, [t for _k, t in kept])
+1050:		out = prepend_text_blocks_to_last_user(out, head)
+1052:		out = append_text_blocks_to_last_user(out, tail)
+1067:	"pending_jobs_block",
+1075:	"output_compact_block",
+1076:	"code_compact_block",
+1077:	"browser_preview_block",
+1078:	"runtime_mode_snapshot_block",
+1080:	"file_conflict_block",
+116:def output_compact_block() -> str:
+176:def code_compact_block() -> str:
+186:def browser_preview_block() -> str:
+200:def runtime_mode_snapshot_block(session_id: str) -> str:
+225:		_log.debug("runtime_mode_snapshot_block failed", exc_info=True)
+233:def pending_jobs_block() -> str:
+262:class InjectContext:
+269:	#: 锚点（见 prompt.turn_context.PLAN_POINTER_BLOCK）。
+297:def _tool_result_is_error(msg: dict[str, Any]) -> bool:
+312:def _path_from_tool_use_input(inp: object) -> str:
+332:def _tool_result_content_hint(msg: dict[str, Any]) -> str:
+35:	append_text_blocks_to_last_user,
+358:def _collect_successful_read_paths(
+36:	build_mode_context_blocks,
+38:	prepend_text_blocks_to_last_user,
+436:def collect_session_touched_paths(
+470:def file_conflict_block(cwd: str, self_id: str, paths: list[str]) -> str:
+481:		_log.debug("file_conflict_block failed", exc_info=True)
+496:def _discover_nested_from_projection(
+527:def _format_nested_block(paths: list[str], *, max_chars: int = NESTED_MAX_CHARS) -> str:
+549:def _nested_paths_for_touched(
+585:def _trim_blocks_to_budget(
+595:	continue_blocks: list[str] = []
+596:	nested_blocks: list[str] = []
+603:			continue_blocks.append(b)
+605:			nested_blocks.append(b)
+629:	_take(continue_blocks, budget)
+631:	if nested_blocks:
+637:		_take(nested_blocks, used + want)
+646:def approved_plan_decays_on(name: str, is_error: bool) -> bool:
+696:def _last_user_text(projected: list[dict[str, Any]]) -> str:
+709:def _is_vague_referent_turn(projected: list[dict[str, Any]]) -> bool:
+733:def _trim_tagged_blocks(
+742:	与旧 ``_trim_blocks_to_budget`` 的差异：覆盖原 bypass 组（compact / mcp /
+773:def run_pre_llm_inject(
+790:	for blk in build_mode_context_blocks(
+853:			nested_block = _format_nested_block(new_paths)
+859:			nested_block = _format_nested_block(
+865:		if nested_block:
+866:			tagged.append((KLASS_INVENTORY, nested_block))
+899:	# 与 memory_index_context_block 仍供脚本/评测使用。
+903:	compact_block = output_compact_block()
+904:	if compact_block:
+905:		tagged.append((KLASS_DIRECTIVE, compact_block))
+906:	code_block = code_compact_block()
+907:	if code_block:
+908:		tagged.append((KLASS_DIRECTIVE, code_block))
+913:			from extension.mcp_manager import mcp_required_warning_block
+915:			mcp_warn = mcp_required_warning_block(ctx.cwd.strip())
+925:			from extension.reconcile import consume_reconcile_blocks
+927:			for blk in consume_reconcile_blocks():
+942:			from engine.session_presence import peer_activity_block
+944:			peer = peer_activity_block(ctx.cwd.strip(), ctx.session_id.strip())
+948:			_log.debug("peer_activity_block failed", exc_info=True)
+953:			conflict = file_conflict_block(
+959:			_log.debug("file_conflict_block failed", exc_info=True)
+961:	preview = browser_preview_block()
+969:			mode_block = runtime_mode_snapshot_block(ctx.session_id.strip())
+970:			if mode_block:
+971:				tagged.append((KLASS_DIRECTIVE, mode_block))
+980:				format_settlement_block,
+983:			settle_block = format_settlement_block(
+986:			if settle_block:
+987:				tagged.append((KLASS_EVENT, settle_block))
+996:	jobs_block = pending_jobs_block()
+997:	if jobs_block and not ctx.subagent:
+998:		tagged.append((KLASS_DIRECTIVE, jobs_block))

@@ -1,0 +1,74 @@
+[
+ {
+  "cls": "mb-5 space-y-3",
+  "w": 508,
+  "h": 895,
+  "display": "block",
+  "visibility": "visible",
+  "textHead": "外观宣纸极简白铂银珍珠铅印素"
+ },
+ {
+  "cls": "mb-5 space-y-3 hidden",
+  "w": 0,
+  "h": 0,
+  "display": "none",
+  "visibility": "visible",
+  "textHead": "桌宠加载器XeyoPet 桌"
+ },
+ {
+  "cls": "mb-5 space-y-3 hidden",
+  "w": 0,
+  "h": 0,
+  "display": "none",
+  "visibility": "visible",
+  "textHead": "模型与密钥添加账号可保存多套"
+ },
+ {
+  "cls": "mb-5 space-y-3",
+  "w": 508,
+  "h": 515,
+  "display": "block",
+  "visibility": "visible",
+  "textHead": "记忆系统开关持久化到 .xe"
+ },
+ {
+  "cls": "mb-5 space-y-3",
+  "w": 508,
+  "h": 371,
+  "display": "block",
+  "visibility": "visible",
+  "textHead": "桌面壁纸各主题均全窗显示。原"
+ },
+ {
+  "cls": "mb-5 space-y-3 hidden",
+  "w": 0,
+  "h": 0,
+  "display": "none",
+  "visibility": "visible",
+  "textHead": "权限审批模式（请求批准 / "
+ },
+ {
+  "cls": "mb-5 space-y-3 hidden",
+  "w": 0,
+  "h": 0,
+  "display": "none",
+  "visibility": "visible",
+  "textHead": "回溯默认只恢复本轮 Agen"
+ },
+ {
+  "cls": "mb-5 space-y-3 hidden",
+  "w": 0,
+  "h": 0,
+  "display": "none",
+  "visibility": "visible",
+  "textHead": "远程 · 微信两种方式并存，"
+ },
+ {
+  "cls": "xy-sidebar xy-pane-slide absolute inset-y-0 flex min-h-0 min",
+  "w": 248,
+  "h": 860,
+  "display": "flex",
+  "visibility": "visible",
+  "textHead": "XEYO 工作区文件夹根目录"
+ }
+]

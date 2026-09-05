@@ -1,0 +1,25 @@
+   325→	) -> QueryEngine:
+   326→		reg = build_default_registry(cwd=cwd)
+   327→		# HTTP 全栈测试的确定性假模型：直接复用 FakeModelClient + 注入 EchoTool
+   328→		# （与 query_engine 的 fake 分支同款）；不走 OpenAI 兼容客户端。
+   329→		if cfg.provider == "fake":
+   330→			from model.fake import FakeModelClient
+   331→			from tools.echo import EchoTool
+   332→
+   333→			model: Any = FakeModelClient()
+   334→			reg.register(EchoTool())
+   335→		else:
+   336→			model = OpenAICompatClient(
+   337→				api_key=cfg.api_key,
+   338→				base_url=cfg.base_url,
+   339→				model=cfg.model,
+   340→				provider=cfg.provider,
+   341→				thinking=cfg.thinking,
+   342→				reasoning_effort=cfg.reasoning_effort,
+   343→				max_tokens=cfg.max_tokens,
+   344→			)
+   345→			if cfg.context_limit is not None and cfg.context_limit > 0:
+   346→				model.context_limit = cfg.context_limit
+   347→			# Read vision：按模型能力在建表时开关（同会话 schema 稳定，不中途改 tools）
+   348→			from model.vision_capability import supports_vision_input
+   349→			from tools.catalog import apply_read_vision

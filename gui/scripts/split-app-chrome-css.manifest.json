@@ -1,0 +1,17 @@
+{
+  "source": "src/styles/app-chrome.css",
+  "slices": [
+    {
+      "file": "src/styles/app-chrome-shell.css",
+      "from": 1,
+      "to": 528,
+      "desc": "Usage/title/panes/chrome shell"
+    },
+    {
+      "file": "src/styles/app-turn-rail.css",
+      "from": 529,
+      "to": null,
+      "desc": "Right-side conversation turn rail"
+    }
+  ]
+}

@@ -1,0 +1,70 @@
+    40→	r_orig: float = 1.0
+    41→	r_stub: float = 0.25
+    42→	r_summary: float = 0.6
+    43→	r_cap: int = 24
+    44→	horizons: tuple[int, ...] = (4, 8, 16)
+    45→	window_tokens: int = 128_000
+    46→	reserve_tokens: int = 2_048
+    47→	o_mean: float = 800.0
+    48→	eps_d: float = 1e-9
+    49→	j_round_ndigits: int = 9
+    50→	provider: str = "deepseek"
+    51→	model: str = "deepseek-v4-flash"
+    52→	price_slot: str = "offpeak"
+    53→	lambda_q: float = 2.0  # 丢信息换成钱：约几轮补救的代价（C_qual = λ_q·p_o·o_mean·(D/|M|)）
+    54→	default_ts: float = DEFAULT_TS
+    55→	invoice_w_phys_zero: bool = True
+    56→	c_cmp: float = 0.0  # P0 stub
+    57→	min_middle_edit_gap: int = 4
+    58→	c2_min_gain_chars: int = 4000  # C2 收益门：待压缩区比摘要文本至少大这么多字符才压缩
+    59→	c2_min_save_ratio: float = 0.25  # C2 收益门：压缩后投影必须比全量至少小这么多比例（否则拒绝压缩）
+    60→	# 扩展闸：新区 ≥ 已冻区的 25%（不再要求整段等量）；剩余轮次 ≥8；2× 安全边际
+    61→	c2_extend_ratio: float = 0.25
+    62→	c2_extend_min_remaining_turns: int = 8
+    63→	c2_extend_price_ratio: float = 30.0  # miss/hit 价比（DeepSeek ≈30x）
+    64→	c2_extend_safety_margin: float = 2.0
+    65→	# 压缩态扩展与 θ 门解耦：首压后 Q 常 <θ，不解耦则扩展永不触发、省幅封顶
+    66→	c2_extend_decouple: bool = True
+    67→	# Path A 压力门「输出预留」：给本轮输出预留的 token，保证「离硬顶 l_hard_send 留够
+    68→	# 输出余量才压缩」。压力门 = (l_hard_send − c2_output_reserve − tail_budget) / window，
+    69→	# **窗口自适应**（l_hard_send 随窗口变），切换模型/窗口大小不一致时结果不串味。
+    70→	# 默认 0 = 不预留（兼容旧行为，压力门退化为 (l_hard_send − tail)/window）。
+    71→	c2_output_reserve: int = 0
+    72→	rho_age_table: tuple[tuple[float, float], ...] = DEFAULT_RHO_AGE_TABLE
+    73→	# A1（优化4）：缓存冷却平滑因子 ω(Δt)=max(ω_floor, e^(−Δt/T½))——age 衰减交给 ω 的
+    74→	# 平滑下包络，TTL 硬跳闸不再把预测命中打到 0（消除「挂机后短问候被误压缩」）。
+    75→	# 仅在 XEYO_CACHE_COOLDOWN_OMEGA=1 时生效（默认关，行为与冻结版一致）。
+    76→	omega_half_life_min: float = 60.0
+    77→	omega_floor: float = 0.4
+    78→
+    79→	@property
+    80→	def l_max(self) -> int:
+    81→		return min(
+    82→			self.window_tokens - self.reserve_tokens,
+    83→			int(self.alpha_win * self.window_tokens),
+    84→		)
+    85→
+    86→	@property
+    87→	def l_hard_send(self) -> int:
+    88→		return self.window_tokens - self.reserve_tokens
+    89→
+    90→
+    91→def _parse_table(raw: Any) -> tuple[tuple[float, float], ...]:
+    92→	if not raw:
+    93→		return DEFAULT_RHO_AGE_TABLE
+    94→	out: list[tuple[float, float]] = []
+    95→	for row in raw:
+    96→		age, s = row[0], row[1]
+    97→		age_f = float("inf") if age in ("inf", None) else float(age)
+    98→		out.append((age_f, float(s)))
+    99→	out.sort(key=lambda x: x[0])
+   100→	return tuple(out)
+   101→
+   102→
+   103→def overlay_path() -> Path:
+   104→	return _OVERLAY_PATH
+   105→
+   106→
+   107→def load_overlay(path: Path | None = None) -> dict[str, Any]:
+   108→	p = path or _OVERLAY_PATH
+   109→	if not p.is_file():

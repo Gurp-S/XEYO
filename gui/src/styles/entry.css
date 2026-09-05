@@ -1,0 +1,20 @@
+/* Split CSS entry (smoke): domain barrels expand workflow/app-chrome children.
+ * Live styles live under styles/*.css — do not reintroduce a monolithic index.css.
+ */
+@import "tailwindcss";
+/* dark: 变体跟随应用主题开关（html[data-scheme="dark"]），而非 OS 偏好 */
+@custom-variant dark (&:where(html[data-scheme="dark"] *));
+@import "base.css";
+@import "tokens.css";
+@import "chat.css";
+@import "shell.css";
+@import "sidebar.css";
+@import "workflow.css";
+@import "overlays.css";
+@import "motion.css";
+@import "app-chrome.css";
+@import "dock-panels.css";
+@import "agent-map.css";
+@import "../components/streamingMarkdown.css";
+@import "immersive.css";
+@import "extensions.css";

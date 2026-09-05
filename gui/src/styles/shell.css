@@ -1,0 +1,203 @@
+/* auto-split from index.css L1153-1354 — Tauri window, scrollbar, hover-scroll, scroll-fade; do not edit order relative to styles/entry.css */
+/* ============================================================
+   Tauri 閫忔槑鍦嗚绐楀彛锛堢湡姝ｈ鍑哄绾稿洓瑙掞級锟?
+   - html/body 姘歌繙閫忔槑锛屽渾瑙掑姬绾垮鐩存帴閫忓嚭妗岄潰澹佺焊锟?
+   - #root 锟?14px 鍦嗚绾搁潰闈㈡澘 + 1px var(--xy-line) 鎻忚竟锟?
+     overflow:hidden + contain:paint 瑁佸渾瑙掞拷?
+   娴忚鍣紙锟?Tauri锛変繚鎸佷笉閫忔槑绾搁潰銆佷笉濂楀渾瑙掞拷?
+   ============================================================ */
+html.tauri,
+html.tauri body {
+  background: transparent;
+}
+
+html.tauri #root {
+  border-radius: 14px;
+  border: 1px solid color-mix(in oklch, var(--xy-frame) 70%, transparent);
+  overflow: hidden;
+  /* 锟?fixed/portal 鍏ㄥ睆娴眰涔熻杩涘渾瑙掑唴 */
+  contain: paint;
+  /* Light: nearly flat cool field; dark keeps soft depth */
+  background:
+    radial-gradient(900px 420px at 8% -8%, var(--xy-bg-a) 0%, transparent 58%),
+    var(--color-paper);
+}
+
+html[data-scheme="dark"].tauri #root {
+  background:
+    radial-gradient(
+      1200px 600px at 10% -10%,
+      var(--xy-bg-a) 0%,
+      transparent 55%
+    ),
+    radial-gradient(900px 500px at 100% 0%, var(--xy-bg-b) 0%, transparent 50%),
+    var(--color-paper);
+}
+
+/* 鏈€澶у寲鏃剁獥鍙ｉ《婊″睆骞曪細鍘诲渾锟?杈规锛岀敤绾歌壊濉弧锛岄伩鍏嶉湶澹佺焊鍥涜 */
+html.tauri[data-window-maximized="1"] body {
+  background: var(--color-paper);
+}
+
+html.tauri[data-window-maximized="1"] #root {
+  border-radius: 0;
+  border: none;
+}
+
+/* ============================================================
+   鐜颁唬鍖栨粴鍔ㄦ潯锛圵ebView2/Chromium锟?
+   - 鐗规剰涓嶈缃爣锟?scrollbar-width/scrollbar-color锛欳hromium 涓€鏃﹁锟?
+     灏辫蛋鏍囧噯娓叉煋锛屼細蹇界暐 ::-webkit-scrollbar*锛堝鑷寸澶撮噸鐜帮級锟?
+   - 鍏ㄩ儴锟?::-webkit-scrollbar锛氬幓绠ご + 绾ょ粏鑳跺泭婊戝潡 + 閫忔槑杞ㄩ亾锟?
+   ============================================================ */
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--xy-scroll) 55%, transparent);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  transition: background 160ms var(--ease-out-soft);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--xy-scroll);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* 杞ㄩ亾瀹藉害濮嬬粓淇濈暀锛屽彧鍒囨崲婊戝潡閫忔槑搴︼紝閬垮厤鍑虹幇/娑堝け鏃舵妸鍐呭鎸ゅ姩 */
+.xy-hover-scroll {
+  scrollbar-gutter: stable;
+}
+
+.xy-hover-scroll::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.xy-hover-scroll::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  transition: background 160ms var(--ease-out-soft);
+}
+
+.xy-hover-scroll.xy-hover-scroll-on::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--xy-scroll) 55%, transparent);
+  background-clip: padding-box;
+}
+
+.xy-hover-scroll.xy-hover-scroll-on::-webkit-scrollbar-thumb:hover {
+  background: var(--xy-scroll);
+  background-clip: padding-box;
+}
+
+.xy-hover-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.xy-hover-scroll::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+/* 婊氬姩杈圭紭閫忔槑搴︽笎闅愩€俶ask 蹇呴』鐢ㄧ櫧锛堜寒锟?alpha 閮借〃绀哄彲瑙侊級锛涢粦浼氭妸鏁存爮鐩栨病锟?*/
+.xy-scroll-fade {
+  --xy-fade-top: 0px;
+  --xy-fade-bottom: 0px;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  mask-mode: alpha;
+}
+
+.xy-scroll-fade.is-fade-top:not(.is-fade-bottom) {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    rgb(255 255 255 / 0.16) calc(var(--xy-top-fade-h, var(--xy-fade-top)) * 0.22),
+    rgb(255 255 255 / 0.48) calc(var(--xy-top-fade-h, var(--xy-fade-top)) * 0.48),
+    rgb(255 255 255 / 0.82) calc(var(--xy-top-fade-h, var(--xy-fade-top)) * 0.76),
+    #fff var(--xy-top-fade-h, var(--xy-fade-top)),
+    #fff 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    rgb(255 255 255 / 0.16) calc(var(--xy-top-fade-h, var(--xy-fade-top)) * 0.22),
+    rgb(255 255 255 / 0.48) calc(var(--xy-top-fade-h, var(--xy-fade-top)) * 0.48),
+    rgb(255 255 255 / 0.82) calc(var(--xy-top-fade-h, var(--xy-fade-top)) * 0.76),
+    #fff var(--xy-top-fade-h, var(--xy-fade-top)),
+    #fff 100%
+  );
+}
+
+.xy-scroll-fade.is-fade-bottom:not(.is-fade-top) {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    #fff 0,
+    #fff calc(100% - var(--xy-fade-bottom)),
+    rgb(255 255 255 / 0.82) calc(100% - var(--xy-fade-bottom) * 0.76),
+    rgb(255 255 255 / 0.48) calc(100% - var(--xy-fade-bottom) * 0.48),
+    rgb(255 255 255 / 0.16) calc(100% - var(--xy-fade-bottom) * 0.22),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    #fff 0,
+    #fff calc(100% - var(--xy-fade-bottom)),
+    rgb(255 255 255 / 0.82) calc(100% - var(--xy-fade-bottom) * 0.76),
+    rgb(255 255 255 / 0.48) calc(100% - var(--xy-fade-bottom) * 0.48),
+    rgb(255 255 255 / 0.16) calc(100% - var(--xy-fade-bottom) * 0.22),
+    transparent 100%
+  );
+}
+
+.xy-scroll-fade.is-fade-top.is-fade-bottom {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    rgb(255 255 255 / 0.16) calc(var(--xy-top-fade-h, var(--xy-fade-top)) * 0.22),
+    rgb(255 255 255 / 0.48) calc(var(--xy-top-fade-h, var(--xy-fade-top)) * 0.48),
+    rgb(255 255 255 / 0.82) calc(var(--xy-top-fade-h, var(--xy-fade-top)) * 0.76),
+    #fff var(--xy-top-fade-h, var(--xy-fade-top)),
+    #fff calc(100% - var(--xy-fade-bottom)),
+    rgb(255 255 255 / 0.82) calc(100% - var(--xy-fade-bottom) * 0.76),
+    rgb(255 255 255 / 0.48) calc(100% - var(--xy-fade-bottom) * 0.48),
+    rgb(255 255 255 / 0.16) calc(100% - var(--xy-fade-bottom) * 0.22),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    rgb(255 255 255 / 0.16) calc(var(--xy-top-fade-h, var(--xy-fade-top)) * 0.22),
+    rgb(255 255 255 / 0.48) calc(var(--xy-top-fade-h, var(--xy-fade-top)) * 0.48),
+    rgb(255 255 255 / 0.82) calc(var(--xy-top-fade-h, var(--xy-fade-top)) * 0.76),
+    #fff var(--xy-top-fade-h, var(--xy-fade-top)),
+    #fff calc(100% - var(--xy-fade-bottom)),
+    rgb(255 255 255 / 0.82) calc(100% - var(--xy-fade-bottom) * 0.76),
+    rgb(255 255 255 / 0.48) calc(100% - var(--xy-fade-bottom) * 0.48),
+    rgb(255 255 255 / 0.16) calc(100% - var(--xy-fade-bottom) * 0.22),
+    transparent 100%
+  );
+}
+

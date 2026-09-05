@@ -1,0 +1,60 @@
+     1→"""通用 OpenAI 兼容 Chat Completions 客户端（DeepSeek / OpenAI 等）。"""
+     2→
+     3→from __future__ import annotations
+     4→
+     5→import asyncio
+     6→import json
+     7→import logging
+     8→import os
+     9→import threading
+    10→from typing import Any, AsyncIterator
+    11→from urllib.error import HTTPError, URLError
+    12→from urllib.request import Request, urlopen
+    13→
+    14→from common.errors import (
+    15→	NetworkError,
+    16→	ProviderError,
+    17→	parse_retry_after,
+    18→	provider_error_message,
+    19→	sanitize_http_body,
+    20→)
+    21→
+    22→from engine.abort import AbortController
+    23→from model.chunks import ModelChunk
+    24→from msgtypes.message import ToolUse
+    25→
+    26→try:
+    27→	import httpx
+    28→except ImportError:  # pragma: no cover
+    29→	httpx = None  # type: ignore
+    30→
+    31→
+    32→from model._openai_common import (
+    33→	consume_sse_line_with_usage as _consume_sse_line_with_usage,
+    34→	finish_tool_bufs as _finish_tool_bufs,
+    35→	get_shared_httpx_client,
+    36→	normalize_messages_for_openai as _normalize_messages_for_openai,
+    37→	to_openai_tool as _to_openai_tool,
+    38→)
+    39→
+    40→
+    41→def parse_sse_usage(line: str) -> dict[str, Any] | None:
+    42→	"""从 SSE 行取 usage（与 deepseek 共用 consume_sse_line_with_usage，避免重复解析）。"""
+    43→	return _consume_sse_line_with_usage(line, {})[0]
+    44→
+    45→
+    46→def _positive_int(value: Any) -> int | None:
+    47→	try:
+    48→		n = int(value)
+    49→	except (TypeError, ValueError):
+    50→		return None
+    51→	return n if n > 0 else None
+    52→
+    53→
+    54→def context_tokens_from_usage(usage: dict[str, Any] | None) -> int | None:
+    55→	"""读取本次请求真实输入 token 数，不用字符数伪造。"""
+    56→	if not isinstance(usage, dict):
+    57→		return None
+    58→	for key in ("prompt_tokens", "input_tokens", "context_tokens"):
+    59→		value = _positive_int(usage.get(key))
+    60→		if value is not None:

@@ -1,0 +1,150 @@
+   120→} & EventIdentity;
+   121→
+   122→export type UsageStreamEvent = {
+   123→	kind: 'usage';
+   124→	promptTokens: number;
+   125→	completionTokens: number;
+   126→	cacheHitTokens: number;
+   127→	cacheMissTokens: number;
+   128→	tokens: number;
+   129→	usedTokens: number;
+   130→	usd: number;
+   131→	usedUsd: number;
+   132→	cny: number;
+   133→	usedCny: number;
+   134→	costSource: 'api' | 'estimate' | 'unknown';
+   135→	usdLimit: number | null;
+   136→	contextTokens?: number;
+   137→	contextLimit?: number;
+   138→	/** 发送给模型的上下文构成（按内容分类的 token 数），用于画分段用量条。 */
+   139→	contextBreakdown?: {category: string; label: string; tokens: number}[];
+   140→	/** C2 压缩态（来自后端 WorkingSnapshot）。 */
+   141→	compactCursor?: number;
+   142→	lastAction?: string;
+   143→	c2SummaryChars?: number;
+   144→} & EventIdentity;
+   145→
+   146→export type CompressionStreamEvent = {
+   147→	kind: 'compression';
+   148→	phase: 'start' | 'complete';
+   149→	source: 'automatic' | 'manual';
+   150→	contextTokens?: number;
+   151→	contextLimit?: number;
+   152→} & EventIdentity;
+   153→
+   154→export type PermissionPendingStreamEvent = {
+   155→	kind: 'permission_pending';
+   156→	requestId: string;
+   157→	toolName: string;
+   158→	input: unknown;
+   159→	reason: string;
+   160→	prompt: string;
+   161→	path?: string | null;
+   162→	expiresAt?: number | null;
+   163→	/** 三选 peer ASK：deny / remind / allow；缺省为普通二元。 */
+   164→	choices?: string[];
+   165→	peerSummary?: string;
+   166→	/** T3：confirm（普通确认）/ choice（三选冲突）/ plan-review。 */
+   167→	intent?: string;
+   168→} & EventIdentity;
+   169→
+   170→export type PermissionResolvedStreamEvent = {
+   171→	kind: 'permission_resolved';
+   172→	requestId: string;
+   173→	approved: boolean;
+   174→	actor: string;
+   175→	reason: string;
+   176→	resolvedAt?: number | null;
+   177→	choice?: string;
+   178→} & EventIdentity;
+   179→
+   180→export type TaskStateStreamEvent = {
+   181→	kind: 'task_state_changed';
+   182→	status: string;
+   183→	currentTool?: string | null;
+   184→	interruptible: boolean;
+   185→	error?: string | null;
+   186→} & EventIdentity;
+   187→
+   188→export type AskUserPendingStreamEvent = {
+   189→	kind: 'ask_user_pending';
+   190→	requestId: string;
+   191→	question: string;
+   192→	options: string[];
+   193→	default?: string | null;
+   194→	expiresAt?: number | null;
+   195→} & EventIdentity;
+   196→
+   197→export type AskUserResolvedStreamEvent = {
+   198→	kind: 'ask_user_resolved';
+   199→	requestId: string;
+   200→	answer?: string;
+   201→	actor?: string;
+   202→	timeout?: boolean;
+   203→	resolvedAt?: number | null;
+   204→} & EventIdentity;
+   205→
+   206→export type PlanPendingStreamEvent = {
+   207→	kind: 'plan_pending';
+   208→	requestId: string;
+   209→	sessionId?: string;
+   210→	turnId?: string;
+   211→	plan: string;
+   212→	expiresAt?: number | null;
+   213→} & EventIdentity;
+   214→
+   215→export type PlanResolvedStreamEvent = {
+   216→	kind: 'plan_resolved';
+   217→	requestId: string;
+   218→	approved: boolean;
+   219→	actor: string;
+   220→	reason: string;
+   221→	resolvedAt?: number | null;
+   222→} & EventIdentity;
+   223→
+   224→/**
+   225→ * 41 号：goal 投影帧（whole-value，turn 起点推送）。
+   226→ * payload = Goal.to_dict() + driver 快照；见 lib/api/goals.ts 的归一化。
+   227→ */
+   228→export type GoalStreamEvent = {
+   229→	kind: 'goal';
+   230→	goal: unknown;
+   231→	driver: unknown;
+   232→} & EventIdentity;
+   233→
+   234→/**
+   235→ * 42 号：后台任务 whole-value 快照帧（turn 起点播种；owner turn 存活期内
+   236→ * 结算变化由 GET 轮询补齐）。payload = JobRecord.to_dict() 列表。
+   237→ */
+   238→export type JobsStreamEvent = {
+   239→	kind: 'jobs';
+   240→	jobs: unknown[];
+   241→	wake_budget_left?: number;
+   242→} & EventIdentity;
+   243→
+   244→/** 多 Agent：单个子任务卡片的运行时视图。 */
+   245→export type MultiAgentTaskView = {
+   246→	uid: string;
+   247→	taskId: string;
+   248→	agentId: string;
+   249→	desc: string;
+   250→	status: 'pending' | 'running' | 'done' | 'failed';
+   251→	reason?: string;
+   252→	result?: string;
+   253→	/** 空 scope = 只读工人（无 Write/Edit）。 */
+   254→	readOnly?: boolean;
+   255→	/** 允许写入的路径前缀（有值时非只读）。 */
+   256→	scope?: string[];
+   257→	/** 子 Agent 实际改过的路径（主会话 Changes 汇总用）。 */
+   258→	filesTouched?: string[];
+   259→	/** 产生该批次的后端 SSE turn_id（仅实时流可得；历史批为空）。 */
+   260→	turnId?: string;
+   261→	/**
+   262→	 * 批次出现时刻（本地毫秒；历史批合并时取 meta.startedAt）。
+   263→	 * 渲染期据此把卡片锚定到「此前最近一条用户消息」所在轮。
+   264→	 */
+   265→	batchAt?: number;
+   266→	/** P2：该 agent 的 follow-up 收件箱数（列表 API 带来；>0 卡片角标）。 */
+   267→	inboxCount?: number;
+   268→};
+   269→

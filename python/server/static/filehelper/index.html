@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>XEYO File Helper</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --panel: #1a222c;
+      --text: #e7ecf1;
+      --muted: #8b98a5;
+      --accent: #3d9cf0;
+      --ok: #5bb98c;
+      --err: #e85d5d;
+      --border: #2a3542;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background: radial-gradient(1200px 600px at 10% -10%, #1a2a3a 0%, var(--bg) 55%);
+      color: var(--text);
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    .wrap {
+      max-width: 520px;
+      margin: 0 auto;
+      padding: 20px 14px 28px;
+    }
+    h1 { margin: 0 0 6px; font-size: 1.2rem; }
+    p { color: var(--muted); font-size: 0.86rem; line-height: 1.45; }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 16px;
+      margin: 14px 0;
+      text-align: center;
+    }
+    #qr {
+      width: 240px;
+      height: 240px;
+      object-fit: contain;
+      background: #fff;
+      border-radius: 8px;
+      display: none;
+    }
+    .row { display: flex; gap: 8px; justify-content: center; margin-top: 12px; }
+    button {
+      background: var(--accent);
+      color: #061018;
+      border: none;
+      border-radius: 10px;
+      padding: 8px 16px;
+      font-weight: 650;
+      cursor: pointer;
+    }
+    button.ghost {
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid var(--border);
+    }
+    #state { font-weight: 650; }
+    #state.ok { color: var(--ok); }
+    #state.err { color: var(--err); }
+    .jobs { text-align: left; font-size: 0.82rem; color: var(--muted); }
+    .jobs div { margin: 6px 0; white-space: pre-wrap; word-break: break-word; }
+    footer { color: var(--muted); font-size: 0.75rem; margin-top: 18px; line-height: 1.4; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>微信文件传输助手</h1>
+    <p>手机微信扫码登录后，发消息给「文件传输助手」即可驱动 XEYO。只回最终结果。发送「截图」可收回屏幕截图。</p>
+    <div class="card">
+      <div id="state">stopped</div>
+      <p id="error"></p>
+      <img id="qr" alt="登录二维码" />
+      <div class="row">
+        <button type="button" id="start">启动</button>
+        <button type="button" class="ghost" id="stop">停止</button>
+      </div>
+    </div>
+    <div class="card jobs" id="jobs"></div>
+    <footer>
+      官方页由本机浏览器自动化打开；登录态保存在本机 profile，请勿提交。微信改版可能导致选择器失效。
+    </footer>
+  </div>
+  <script>
+    const stateEl = document.getElementById("state");
+    const errEl = document.getElementById("error");
+    const qrEl = document.getElementById("qr");
+    const jobsEl = document.getElementById("jobs");
+
+    async function tick() {
+      const s = await fetch("/v1/filehelper/status").then((r) => r.json());
+      stateEl.textContent = s.state + (s.logged_in ? " · 已登录" : "");
+      stateEl.className = s.state === "error" ? "err" : s.logged_in ? "ok" : "";
+      errEl.textContent = s.error || "";
+      if (s.has_qr && !s.logged_in) {
+        qrEl.src = "/v1/filehelper/qr.png?t=" + Date.now();
+        qrEl.style.display = "inline-block";
+      } else {
+        qrEl.style.display = "none";
+      }
+      const jobs = s.recent_jobs || [];
+      jobsEl.innerHTML = jobs.length
+        ? jobs.map((j) => {
+            const body = j.status === "done" ? (j.final_text || "") : (j.error || j.status);
+            return "<div><b>" + j.status + "</b> · " + (body || "").slice(0, 240) + "</div>";
+          }).join("")
+        : "<div>暂无任务</div>";
+    }
+
+    document.getElementById("start").onclick = async () => {
+      const r = await fetch("/v1/filehelper/start", { method: "POST" });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        errEl.textContent = d.detail || ("HTTP " + r.status);
+        return;
+      }
+      tick();
+    };
+    document.getElementById("stop").onclick = async () => {
+      await fetch("/v1/filehelper/stop", { method: "POST" });
+      tick();
+    };
+    tick();
+    setInterval(tick, 1500);
+  </script>
+</body>
+</html>

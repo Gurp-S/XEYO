@@ -1,0 +1,22 @@
+python\memory\runtime.py:1580:	- l_hard_send = window − reserve（随窗口变，替代旧的 l_max=alpha_win·window——后者在
+python\memory\simulator\__main__.py:33:			"alpha_win", "beta", "t_k", "r_cap", "lambda_q",
+python\memory\simulator\__main__.py:148:		scan_alpha_win,
+python\memory\simulator\__main__.py:185:		"alpha_win": scan_alpha_win,
+python\memory\simulator\c2_gate.py:14:公式来源（params.py，与 alpha_win / window_tokens / reserve_tokens 同源）：
+python\memory\simulator\c2_gate.py:50:    （取代旧的 ``(l_max − tail_budget)/window``——l_max=alpha_win·window 在窗口大时
+python\memory\simulator\c2_gate.py:171:    """l_max = min(window − reserve, alpha_win·window)；与 params.l_max 属性一致。"""
+python\memory\simulator\c2_gate.py:174:        int(float(getattr(params, "alpha_win")) * int(getattr(params, "window_tokens"))),
+python\memory\simulator\calibration.py:98:		"alpha_win": "alpha_win",
+python\memory\simulator\calibration.py:171:def scan_alpha_win(base: Params | None = None) -> list[ScanPoint]:
+python\memory\simulator\calibration.py:174:	return scan_numeric(ALPHA_WIN_GRID, lambda v: evaluate_action_mix(replace(p0, alpha_win=v)))
+python\memory\simulator\params.py:38:	alpha_win: float = 0.55
+python\memory\simulator\params.py:83:			int(self.alpha_win * self.window_tokens),
+python\memory\summarize.py:195:    只取「独立数字」（前面不是字母，避免把 P0/alpha_win 里的数字当取值），
+python\scripts\c2_tail_profiler.py:6:  - 当前默认(alpha_win=0.55 / l_max=70400 / l_hard_send=125952)下边界推进次数与触发压力
+python\scripts\c2_tail_profiler.py:125:    print(f"\nparams: alpha_win={p.alpha_win} window={p.window_tokens} reserve={p.reserve_tokens} "
+python\tests\simulator\test_calibration.py:11:	scan_alpha_win,
+python\tests\simulator\test_calibration.py:77:	aw = scan_alpha_win(p)
+python\tests\simulator\test_calibration.py:92:	apply_overlay("alpha_win", 0.6, tmp_path / "o1.json")
+python\tests\simulator\test_calibration.py:97:	assert load_params(tmp_path / "o1.json").alpha_win == 0.6
+python\tests\simulator\test_invariants.py:224:	p = load_params(window_tokens=800, reserve_tokens=50, alpha_win=0.55)
+python\tests\test_c2_path_a.py:4:- 压力门 = (l_max − tail_budget)/window，与 alpha_win 同源（不独立拍 0.62）。

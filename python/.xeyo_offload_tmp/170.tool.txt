@@ -1,0 +1,14 @@
+  1439→.dcenter .l{font-size:7px;font-weight:700;letter-spacing:.1em;color:var(--mut);margin-top:3px}
+  1440→
+  1441→/* ═ 下方功能面板（占满剩余高度）══ */
+  1442→.extra{flex:1;display:grid;grid-template-columns:1fr 1fr;gap:14px;min-height:0}
+  1443→.panel{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:14px 16px;
+  1444→  display:flex;flex-direction:column;min-height:0;overflow:hidden}
+  1445→.panel header{display:flex;justify-content:space-between;align-items:baseline;gap:10px;
+  1446→  margin-bottom:6px}
+  1447→.panel header h2{font-size:14px;font-weight:900;letter-spacing:.02em}
+  1448→.panel header .sub{font-size:8.5px;font-weight:700;letter-spacing:.1em;color:var(--mut)}
+  1449→.panel .pbody{flex:1;min-height:0}
+  1450→.panel .tbl{margin-top:0}
+  1451→.minikpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;flex:1;align-content:center}
+  1452→.mkpi{text-align:center}

@@ -1,0 +1,28 @@
+  1123→    model_backend: str | None = None,
+  1124→    session_id: str | None = None,
+  1125→    api_key: str | None = None,
+  1126→    provider: str | None = None,
+  1127→    model: str | None = None,
+  1128→    base_url: str | None = None,
+  1129→    initial_messages: list[Message] | None = None,
+  1130→) -> QueryEngine:
+  1131→    """为 CLI 或测试构建默认的查询引擎。
+  1132→
+  1133→    参数：
+  1134→                max_turns: 最大对话轮数。
+  1135→        max_tool_calling: 每个模型 Turn 的最大工具执行次数。
+  1136→        cwd: 工作目录，若未指定则使用当前工作目录。
+  1137→
+  1138→        model_backend: 模型后端，支持 "deepseek"（默认）、"fake"（测试）、
+  1139→                      "openai" / "local"（走 OpenAI 兼容客户端）。
+  1140→                      也可通过环境变量 XEYO_MODEL 覆盖。
+  1141→        session_id: 与磁盘 transcript 共用的会话键。
+  1142→        api_key / provider / model / base_url: CLI/配置文件注入的连接信息。
+  1143→        initial_messages: 冷启动 hydrate 的历史消息。
+  1144→
+  1145→    返回：
+  1146→        配置好的 QueryEngine 实例。
+  1147→    """
+  1148→    import os
+  1149→
+  1150→    from prompt.system_prompt import SUBAGENT_APPEND

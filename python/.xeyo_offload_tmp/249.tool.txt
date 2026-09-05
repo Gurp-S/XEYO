@@ -1,0 +1,14 @@
+100:	session_id: str | None = None
+1002:				ckpt_old = read_scheduler_checkpoint(ws, session_id)
+1004:					clear_scheduler_checkpoint(ws, session_id)
+1022:				"session_id": session_id,
+1042:					_g = _GS(_ws).current(session_id) if _ws else None
+1047:							"driver": _get_driver().snapshot(session_id),
+1065:							"jobs": _jobs_reg.snapshot_list(session_id),
+1066:							"wake_budget_left": _jobs_reg.wake_budget_left(session_id),
+1085:					_existing = read_title(session_id)
+1086:					_entry = ensure_instant_title(session_id, user_text)
+1111:						fire_and_forget_enhance(session_id, user_text, _title_client)
+1327:							"session_id": ev.session_id,
+
+[Showing results with pagination = limit: 12]

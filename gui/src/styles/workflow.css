@@ -1,0 +1,9 @@
+/* Domain barrel: was monolithic src/styles/workflow.css.
+ * Children below are a partition of the previous body; cascade order matters.
+ * Restore: copy workflow.css.pre-split.bak over this file.
+ */
+
+@import "./workflow-split.css";
+@import "./workflow-morph.css";
+@import "./workflow-thought.css";
+@import "./workflow-agent.css";

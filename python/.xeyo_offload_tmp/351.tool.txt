@@ -1,0 +1,70 @@
+  1316→def project_for_model(
+  1317→	messages: list[dict],
+  1318→	working: WorkingSnapshot,
+  1319→	*,
+  1320→	remaining_turns: int = 8,
+  1321→	system_prompt: str | None = None,
+  1322→	include_memory_index: bool = True,
+  1323→	summary_provider=None,
+  1324→	context_limit: int | None = None,
+  1325→) -> list[dict]:
+  1326→	"""按开关生成送模型投影。
+  1327→
+  1328→	- 默认 project：字节级等于 compact.project（硬不变量），不跑 decide；
+  1329→	    仅当 XEYO_C2_GATE 打开（超长会话单开）时才允许公式 C2。
+  1330→	- v61：实验通道，每轮 decide（keep/C1/C2）。
+  1331→
+  1332→	``context_limit``：**真实模型上下文窗口**（用户添加模型时必填的上下文窗口 / route capacity）。
+  1333→	Path A 压力门据此推导「离硬顶留够余量才压」。**必需**：缺省 None 时压力门返回 None（窗口未知
+  1334→	→ 不触发压力 C2），**绝不回退 params.window_tokens=128k**——主流模型已 1M，回退会让 C2
+  1335→	误以为窗口只有 128k。
+  1336→	"""
+  1337→	if l5_mode() == "project" and not c2_gate():
+  1338→		if aging_enabled():
+  1339→			maybe_advance_aging_boundary(messages, working)
+  1340→			working.last_action = "project"
+  1341→			out = project_c0c1(messages, frozen_until=working.c1_frozen_until)
+  1342→		else:
+  1343→			working.last_action = "project"
+  1344→			out = project_c0c1(messages)
+  1345→		return _append_memory_index(out) if include_memory_index else out
+  1346→
+  1347→	# T38 解耦（条件 import）：默认 project 路径（上方 return）不 import 离线 simulator，
+  1348→	# 仅 v61 实验通道 / C2 gate 真正需要 decide 时才加载，且绑定为局部名。
+  1349→	from memory.simulator.params import load_params
+  1350→	from memory.simulator.scenarios import DEFAULT_SYSTEM, state_from_messages
+  1351→	from memory.simulator.cache_model import CacheState
+  1352→	from memory.simulator.decision import decide
+  1353→
+  1354→	p = load_params()
+  1355→	# r_cap 接线（原死参数）：剩余轮数估计按 params.r_cap 封顶（与 replay.estimate_remaining 一致）
+  1356→	try:
+  1357→		remaining_turns = min(max(1, int(remaining_turns)), int(p.r_cap))
+  1358→	except (TypeError, ValueError):
+  1359→		remaining_turns = max(1, remaining_turns)
+  1360→	s0 = state_from_messages(
+  1361→		messages,
+  1362→		cursor=working.compact_cursor,
+  1363→		system=system_prompt or DEFAULT_SYSTEM,
+  1364→	)
+  1365→	# P1 缺失2：为 keep 分支的可重入 lcp_keep 记录上一枪投影 P 的计量。
+  1366→	prev_proj = getattr(working, "last_projection", None)
+  1367→	prev_frozen_len = int(prev_proj.frozen_len or 0) if prev_proj is not None else 0
+  1368→	update_projection_digest(working, s0)  # 刷新为当前 s0 的 P 计量（供下一枪/重启）
+  1369→	# P1 缺失3：把剩余轮数降级为约束条件——按窗口使用率 + 待读文件数给 {4,8,16} 分级。
+  1370→	try:
+  1371→		from memory.simulator.projection import project as sim_project
+  1372→		from memory.simulator.r_estimator import (
+  1373→			count_unread_files,
+  1374→			estimate_r_gate,
+  1375→			usage_ratio_from_tokens,
+  1376→		)
+  1377→
+  1378→		cur_tokens = sim_project(s0).length
+  1379→		usage_ratio = usage_ratio_from_tokens(cur_tokens, p.window_tokens)
+  1380→		unread_count = count_unread_files(getattr(working, "read_file_state", {}) or {})
+  1381→		# B3 证据门：窗口余量 ÷ 近期增速（≈ cur_tokens / 历史轮数）作 R_base 输入；
+  1382→		# env 关闭时传 None → 静态规则（与 P1 缺失3 冻结行为逐位一致）。
+  1383→		avg_turn = None
+  1384→		if os.environ.get("XEYO_V61_DYNAMIC_R", "").strip().lower() in ("1", "true", "yes", "on"):
+  1385→			n_turns = max(1, len(messages) // 2)

@@ -1,0 +1,7 @@
+/* Domain barrel: was monolithic src/styles/app-chrome.css.
+ * Children below are a partition of the previous body; cascade order matters.
+ * Restore: copy app-chrome.css.pre-split.bak over this file.
+ */
+
+@import "./app-chrome-shell.css";
+@import "./app-turn-rail.css";

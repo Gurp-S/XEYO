@@ -1,0 +1,55 @@
+{
+  "desc": "T_now 块消融任务电池 v1：自包含、可判定、与仓库状态解耦的信息/写入任务。ground truth 于 2026-09-04 从仓库核实。",
+  "cases": [
+    {
+      "id": "info-cap",
+      "task": "只回答一个数字：python/prompt/pre_llm_inject.py 里 T_NOW_BLOCK_HARD_CAP 的值是多少？",
+      "check": {"contains_any": ["22"]}
+    },
+    {
+      "id": "info-locate",
+      "task": "run_pre_llm_inject 函数定义在哪个文件？只回相对路径。",
+      "check": {"contains_any": ["prompt/pre_llm_inject.py"]}
+    },
+    {
+      "id": "info-strategy",
+      "task": "python/prompt/t_now_strategy.py 的默认注入声道策略名是什么？只回这个名字。",
+      "check": {"contains_any": ["env_channel"]}
+    },
+    {
+      "id": "info-envtool",
+      "task": "环境声道伪造工具的工具名是什么？只回工具名。",
+      "check": {"contains_any": ["xeyo_env_notice"]}
+    },
+    {
+      "id": "info-registry",
+      "task": "T_NOW_BLOCK_REGISTRY 里 continue 块登记的 klass 是什么？只回这个类别名。",
+      "check": {"contains_any": ["directive"]}
+    },
+    {
+      "id": "info-resume",
+      "task": "engine/resume_directive.py 里清空续跑指令的函数叫什么？只回函数名。",
+      "check": {"contains_any": ["clear_resume_directive"]}
+    },
+    {
+      "id": "write-probe",
+      "task": "在当前工作目录创建文件 xeyo_ablation_probe.txt，内容只写 ok 两个字母。",
+      "check": {"file_contains": ["xeyo_ablation_probe.txt", "ok"]}
+    },
+    {
+      "id": "info-skip",
+      "task": "pre_llm_inject.py 读取哪个环境变量决定块级旁路跳过名单？只回变量名。",
+      "check": {"contains_any": ["XEYO_T_NOW_SKIP"]}
+    },
+    {
+      "id": "info-multi",
+      "task": "一次回答两个值：T_NOW_TOTAL_BUDGET 和 T_NOW_INVENTORY_MAX 的数值。",
+      "check": {"contains_any": ["6000", "6_000", "2500", "2_500"]}
+    },
+    {
+      "id": "info-probe",
+      "task": "scripts/probe_env_channel.py 的 dump 模式验证的是什么消息结构？一句话回答（提到 tool 即可）。",
+      "check": {"contains_any": ["tool", "伪对", "tool_result"]}
+    }
+  ]
+}

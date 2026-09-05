@@ -1,0 +1,49 @@
+{
+  "id": "xeyo-sea-sprite-plus",
+  "displayName": "XEYO Sea Sprite Plus",
+  "description": "A tiny fish-themed sea girl companion for XEYO with reference-accurate emotion bubbles.",
+  "spritesheetPath": "spritesheet-plus.webp",
+  "cellSize": {
+    "width": 192,
+    "height": 208
+  },
+  "columns": 8,
+  "rows": 13,
+  "stateRows": [
+    {"state": "idle", "row": 0, "frames": 6, "frameSequence": [0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "fps": 3},
+    {"state": "running-right", "row": 1, "frames": 8},
+    {"state": "running-left", "row": 2, "frames": 8},
+    {"state": "waving", "row": 3, "frames": 4, "bubbleOverlay": "assets/bubbles/waving-note.png"},
+    {"state": "jumping", "row": 4, "frames": 5},
+    {"state": "failed", "row": 5, "frames": 8, "bubbleOverlay": "assets/bubbles/failed-exclamation.png"},
+    {"state": "waiting", "row": 6, "frames": 6, "bubbleOverlay": "assets/bubbles/waiting-question.png"},
+    {"state": "running", "row": 7, "frames": 6, "bubbleOverlay": "assets/bubbles/thinking-bulb.png"},
+    {"state": "review", "row": 8, "frames": 6, "bubbleOverlay": "assets/bubbles/review-book.png"},
+    {"state": "happy", "row": 9, "frames": 6, "bubbleOverlay": "assets/bubbles/happy-heart.png", "bubbleInAtlas": true},
+    {"state": "sleeping", "row": 10, "frames": 6, "frameSequence": [0, 1, 2, 3, 4, 5], "fps": 2, "animationMode": "bubble-only", "animationRegion": {"x": 116, "y": 24, "width": 68, "height": 64}, "bubbleOverlay": "assets/bubbles/sleeping-zzz.png", "bubbleInAtlas": true},
+    {"state": "thinking", "row": 11, "frames": 6, "bubbleOverlay": "assets/bubbles/thinking-bulb.png", "bubbleInAtlas": true},
+    {"state": "sitting", "row": 12, "frames": 6, "bubbleOverlay": "assets/bubbles/sitting-fish.png", "bubbleInAtlas": true}
+  ],
+  "bubbleOverlays": [
+    {"id": "failed-exclamation", "path": "assets/bubbles/failed-exclamation.png", "kind": "speech", "sourcePosition": "top row, second bubble", "useFor": ["failed"]},
+    {"id": "waiting-question", "path": "assets/bubbles/waiting-question.png", "kind": "speech", "sourcePosition": "top row, third bubble", "useFor": ["waiting"]},
+    {"id": "thinking-bulb", "path": "assets/bubbles/thinking-bulb.png", "kind": "speech", "sourcePosition": "top row, fourth bubble", "useFor": ["running", "thinking"]},
+    {"id": "happy-heart", "path": "assets/bubbles/happy-heart.png", "kind": "speech", "sourcePosition": "top row, fifth bubble", "useFor": ["happy"]},
+    {"id": "waving-note", "path": "assets/bubbles/waving-note.png", "kind": "speech", "sourcePosition": "top row, sixth bubble", "useFor": ["waving"]},
+    {"id": "sitting-fish", "path": "assets/bubbles/sitting-fish.png", "kind": "thought", "sourcePosition": "second row, first bubble", "useFor": ["sitting"]},
+    {"id": "thought-coconut", "path": "assets/bubbles/thought-coconut.png", "kind": "thought", "sourcePosition": "second row, second bubble", "useFor": ["context-growth"]},
+    {"id": "thought-island", "path": "assets/bubbles/thought-island.png", "kind": "thought", "sourcePosition": "second row, third bubble", "useFor": ["context-island"]},
+    {"id": "sleeping-zzz", "path": "assets/bubbles/sleeping-zzz.png", "kind": "thought", "sourcePosition": "second row, fourth bubble", "useFor": ["sleeping"]},
+    {"id": "review-book", "path": "assets/bubbles/review-book.png", "kind": "thought", "sourcePosition": "second row, fifth bubble", "useFor": ["review"]},
+    {"id": "thought-shell", "path": "assets/bubbles/thought-shell.png", "kind": "thought", "sourcePosition": "second row, sixth bubble", "useFor": ["ambient"]}
+  ],
+  "compatibility": {
+    "basePetId": "xeyo-sea-sprite",
+    "baseSpritesheetPath": "spritesheet.webp",
+    "baseAtlasSize": "1536x1872",
+    "extendedAtlasSize": "1536x2704",
+    "characterDesignFrozen": true,
+    "bubbleSource": "emotion-bubbles.png",
+    "bubbleDesignRule": "Use only source-derived shapes, linework, icons, spacing, and color treatment; no invented bubble artwork."
+  }
+}

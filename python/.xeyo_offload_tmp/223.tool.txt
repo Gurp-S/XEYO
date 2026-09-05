@@ -1,0 +1,25 @@
+  1235→    system = _DECOMPOSE_INSTRUCTION.format(max_tasks=MAX_DECOMPOSE_TASKS)
+  1236→    store = MessageStore(
+  1237→        initial=[
+  1238→            Message(role="system", content=system),
+  1239→            user_message(_DECOMPOSE_PROMPT.format(text=user_text, files=files)),
+  1240→        ]
+  1241→    )
+  1242→
+  1243→    text = ""
+  1244→    emitted = 0
+  1245→    json_hit = False
+  1246→    async for chunk in model_client.stream(store.as_api_messages(), [], abort):
+  1247→        if getattr(chunk, "kind", "") == "text_delta":
+  1248→            piece = str(getattr(chunk, "text", "") or "")
+  1249→            if not piece:
+  1250→                continue
+  1251→            text += piece
+  1252→            if not json_hit:
+  1253→                plan_prefix, hit = _plan_prefix_before_json(text)
+  1254→                if len(plan_prefix) > emitted:
+  1255→                    yield ("delta", plan_prefix[emitted:])
+  1256→                    emitted = len(plan_prefix)
+  1257→                if hit:
+  1258→                    json_hit = True
+  1259→                    # 说明已写完，正等 JSON——避免主界面干等像卡住。

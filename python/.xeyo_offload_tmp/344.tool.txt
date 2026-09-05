@@ -1,0 +1,75 @@
+   815→            and proj_cache[2] == int(snap.compact_cursor or 0)
+   816→            and proj_cache[3] == summary_fp
+   817→            and cur_len >= proj_cache[0]
+   818→        ):
+   819→            base_len, _bf, cursor, _sfp, base_proj, base_names = proj_cache
+   820→            if cur_len == base_len:
+   821→                projected = base_proj
+   822→            else:
+   823→                api_all = store.as_api_messages()
+   824→                new_msgs = api_all[base_len:]
+   825→                if cursor > 0:
+   826→                    frozen_rel = max(0, frozen - cursor)
+   827→                    new_proj, names = project_incremental(
+   828→                        new_msgs,
+   829→                        base_len=base_len - cursor,
+   830→                        frozen_until=frozen_rel,
+   831→                        id_to_name=base_names,
+   832→                    )
+   833→                else:
+   834→                    new_proj, names = project_incremental(
+   835→                        new_msgs,
+   836→                        base_len=base_len,
+   837→                        frozen_until=frozen,
+   838→                        id_to_name=base_names,
+   839→                    )
+   840→                new_proj = apply_tool_output_fences(new_proj, id_to_name=names)
+   841→                projected = base_proj + new_proj
+   842→                snap.proj_cache = (
+   843→                    cur_len,
+   844→                    frozen,
+   845→                    cursor,
+   846→                    summary_fp,
+   847→                    projected,
+   848→                    names,
+   849→                )
+   850→        else:
+   851→            api_all = store.as_api_messages()
+   852→            projected = project_for_model(
+   853→                api_all,
+   854→                snap,
+   855→                remaining_turns=remaining,
+   856→                system_prompt=system_prompt,
+   857→                include_memory_index=False,
+   858→                # 真实模型窗口（route capacity）——Path A 压力门据此推导，修复
+   859→                # 「C2 误以为窗口只有 128k」：主流模型已 1M，但 params.window_tokens 恒 128k。
+   860→                context_limit=_positive_int(getattr(model, "context_limit", None)),
+   861→            )
+   862→            names = build_tool_use_names(api_all)
+   863→            projected = apply_tool_output_fences(projected, id_to_name=names)
+   864→            if use_proj_cache:
+   865→                snap.proj_cache = (
+   866→                    cur_len,
+   867→                    snap.c1_frozen_until,
+   868→                    int(snap.compact_cursor or 0),
+   869→                    len(snap.c2_summary_text or ""),
+   870→                    projected,
+   871→                    names,
+   872→                )
+   873→            else:
+   874→                snap.proj_cache = None
+   875→        # 侧聊（side）模式：T_now 不挂 workspace 派生内容（Nested XEYO / stale
+   876→        # 提醒 / Memory 索引），cwd 传空即由 pre_llm_inject 统一跳过。
+   877→        from permissions.policy import side_mode as _side_mode
+   878→        from permissions.policy import in_subagent as _in_subagent
+   879→
+   880→        _is_side = _side_mode()
+   881→        projected = _attach_turn_context(
+   882→            projected,
+   883→            approved_plan=approved_plan,
+   884→            forced_wrap_up=forced_wrap_up,
+   885→            runtime_notice=runtime_notice,
+   886→            include_memory_index=include_memory_index and not _is_side,
+   887→            multi_agent=multi_agent,
+   888→            working=snap,
+   889→            cwd="" if _is_side else _workspace_cwd_for_turn(tools),

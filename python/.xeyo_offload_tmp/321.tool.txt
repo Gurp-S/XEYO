@@ -1,0 +1,52 @@
+python\engine\query_loop.py:777:        pressure_limit = _positive_int(getattr(model, "context_limit", None))
+python\engine\query_loop.py:781:            context_limit=pressure_limit,
+python\engine\query_loop.py:860:                context_limit=_positive_int(getattr(model, "context_limit", None)),
+python\engine\query_loop.py:1061:                        context_tokens=_positive_int(
+python\engine\query_loop.py:1062:                            getattr(model, "last_context_tokens", None)
+python\engine\query_loop.py:1065:                        context_limit=_positive_int(
+python\engine\query_loop.py:1066:                            getattr(model, "context_limit", None)
+python\engine\query_loop.py:1129:        context_tokens = projected_tokens if projected_tokens > 0 else _positive_int(
+python\engine\query_loop.py:1130:            getattr(model, "last_context_tokens", None)
+python\engine\query_loop.py:1132:        if context_tokens is None and hit + miss > 0:
+python\engine\query_loop.py:1133:            context_tokens = hit + miss
+python\engine\query_loop.py:1134:        context_limit = _positive_int(getattr(model, "context_limit", None))
+python\engine\query_loop.py:1142:            category_chars, context_tokens if context_tokens is not None else 0
+python\engine\query_loop.py:1167:                    context_tokens=context_tokens,
+python\engine\query_loop.py:1199:                context_tokens=context_tokens,
+python\engine\query_loop.py:1200:                context_limit=context_limit,
+python\engine\query_loop.py:1210:                context_tokens=context_tokens,
+python\engine\query_loop.py:1211:                context_limit=context_limit,
+python\memory\observe.py:62:	context_tokens: int | None = None,
+python\memory\observe.py:108:				context_length=max(int(context_tokens or prompt_tokens), 0),
+python\memory\runtime.py:1324:	context_limit: int | None = None,
+python\memory\runtime.py:1332:	``context_limit``：**真实模型上下文窗口**（用户添加模型时必填的上下文窗口 / route capacity）。
+python\memory\runtime.py:1428:			# 真实窗口：**必须**是传入的 model.context_limit（用户添加模型时必填的上下文窗口）。
+python\memory\runtime.py:1430:			win = int(context_limit) if context_limit and int(context_limit) > 0 else None
+python\memory\runtime.py:1431:			pressure_ratio = _c2_pressure_ratio(working, p, window_override=context_limit)
+python\memory\runtime.py:1704:	context_limit: int | None,
+python\memory\runtime.py:1709:	"""上一枪（或本会话累计）prompt 已达厂商 context_limit 的 ratio 时返回 True。
+python\memory\runtime.py:1713:	limit = int(context_limit or 0)
+python\memory\runtime.py:1717:	# pressure_ratio 必须用**真实窗口**（context_limit）推导，与分母 limit 同一窗口——
+python\memory\runtime.py:1720:	thr = ratio if ratio is not None else _c2_pressure_ratio(working, params, window_override=context_limit)
+python\memory\runtime.py:1730:	context_limit: int | None,
+python\memory\runtime.py:1743:		prompt_tokens=tokens, context_limit=context_limit, working=working
+python\model\openai_compat.py:54:def context_tokens_from_usage(usage: dict[str, Any] | None) -> int | None:
+python\model\openai_compat.py:58:	for key in ("prompt_tokens", "input_tokens", "context_tokens"):
+python\model\openai_compat.py:65:def _context_limit_from_usage_fields(usage: dict[str, Any] | None) -> int | None:
+python\model\openai_compat.py:68:		for key in ("context_limit", "context_window", "context_length", "max_context_tokens"):
+python\model\openai_compat.py:75:def context_limit_from_usage(
+python\model\openai_compat.py:85:	value = _context_limit_from_usage_fields(usage)
+python\model\openai_compat.py:155:		self.last_context_tokens: int | None = None
+python\model\openai_compat.py:157:		self.context_limit: int | None = _positive_int(
+python\model\openai_compat.py:236:		self.last_context_tokens = None
+python\model\openai_compat.py:267:						self.last_context_tokens = context_tokens_from_usage(u)
+python\model\openai_compat.py:268:						self.context_limit = (
+python\model\openai_compat.py:269:							_context_limit_from_usage_fields(u)
+python\model\openai_compat.py:270:							or self.context_limit
+python\model\openai_compat.py:281:			self.last_context_tokens = context_tokens_from_usage(last_usage)
+python\model\openai_compat.py:282:			self.context_limit = _context_limit_from_usage_fields(last_usage) or self.context_limit
+python\model\openai_compat.py:339:				self.last_context_tokens = context_tokens_from_usage(self.last_usage)
+python\model\openai_compat.py:340:				self.context_limit = _context_limit_from_usage_fields(self.last_usage) or self.context_limit
+python\model\vendor_models.py:24:		"max_context_tokens",
+
+[Showing results with pagination = limit: 50]

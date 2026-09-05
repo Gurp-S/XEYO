@@ -1,0 +1,120 @@
+  1786→  var rule=mk('hr');rule.className='rule';side.appendChild(rule);
+  1787→
+  1788→  side.appendChild(sideHead('日期'));
+  1789→  var dl=mk('div');dl.className='daylist';
+  1790→  DAYS.forEach(function(d){
+  1791→    var b=mk('button');b.className='daybtn'+(state.day===d.day?' act':'');
+  1792→    b.innerHTML='<span class="d">'+esc(d.day)+'</span><span class="s">'+(d.accepted?'已验收':'待验收')+'</span>';
+  1793→    b.addEventListener('click',function(){state.day=d.day;renderAll()});
+  1794→    dl.appendChild(b);
+  1795→  });
+  1796→  side.appendChild(dl);
+  1797→  var rule2=mk('hr');rule2.className='rule';side.appendChild(rule2);
+  1798→
+  1799→  side.appendChild(sideHead('模型'));
+  1800→  var mg=mk('div');mg.className='modelgroup';
+  1801→  models.forEach(function(m){
+  1802→    var on=!state.models.length||state.models.indexOf(m.model)>=0;
+  1803→    var row=mk('label');row.className='mcheck'+(on?' on':'');
+  1804→    row.innerHTML='<i style="background:'+(on?m._c:'transparent')+';border-color:'+(on?m._c:'var(--faint)')+'"></i>'+
+  1805→      '<span class="nm">'+esc(shortModel(m.model))+'</span><span class="pc">'+pct(m.hit_rate)+'</span>';
+  1806→    row.addEventListener('click',function(ev){ev.preventDefault();
+  1807→      var i=state.models.indexOf(m.model);
+  1808→      if(i<0)state.models.push(m.model);else state.models.splice(i,1);
+  1809→      state.models.sort();renderAll();});
+  1810→    mg.appendChild(row);
+  1811→  });
+  1812→  side.appendChild(mg);
+  1813→
+  1814→  var rule3=mk('hr');rule3.className='rule';side.appendChild(rule3);
+  1815→  var lg=mk('div');lg.className='legend';
+  1816→  lg.appendChild(sideHead('图例'));
+  1817→  var hc=mk('div');hc.className='lgitem';hc.innerHTML='<span class="sw" style="background:'+HIT+'"></span>缓存命中';
+  1818→  var mc=mk('div');mc.className='lgitem';mc.innerHTML='<span class="sw" style="background:'+MISS+'"></span>缓存未命中';
+  1819→  lg.appendChild(hc);lg.appendChild(mc);
+  1820→  side.appendChild(lg);
+  1821→
+  1822→  var tools=mk('div');tools.className='tools';
+  1823→  var eb=mk('button');eb.className='btn';eb.textContent='导出 JSON';
+  1824→  eb.addEventListener('click',exportJson);
+  1825→  tools.appendChild(eb);
+  1826→  side.appendChild(tools);
+  1827→
+  1828→  var tr=mk('div');tr.className='themerow';
+  1829→  var tb=mk('button');tb.className='themetoggle';
+  1830→  var isDark=document.documentElement.getAttribute('data-theme')==='dark';
+  1831→  tb.innerHTML=(isDark?'☀ 切换白天':'☾ 切换黑夜')+'<span class="lbl"></span>';
+  1832→  tb.addEventListener('click',toggleTheme);
+  1833→  tr.appendChild(tb);
+  1834→  side.appendChild(tr);
+  1835→
+  1836→  var src=mk('div');src.className='src';src.textContent='数据源 quality_validation.json';
+  1837→  side.appendChild(src);
+  1838→  return side;
+  1839→}
+  1840→function sideHead(t){var h=mk('h3');h.textContent=t;return h}
+  1841→
+  1842→function renderMain(day){
+  1843→  var main=mk('div');main.className='main';
+  1844→  var tot=day.total||{};
+  1845→  var hr=Number(tot.hit_rate)||0;
+  1846→  var accepted=day.accepted;
+  1847→
+  1848→  // hero
+  1849→  var hero=mk('div');hero.className='hero';
+  1850→  var ttl=mk('div');ttl.className='ttl';
+  1851→  ttl.innerHTML='<h2>'+esc(day.day)+' · 快照</h2><div class="dek">命中率 / 成本 / 用量，一屏总览</div>';
+  1852→  var meta=mk('div');meta.className='meta';
+  1853→  meta.innerHTML='<b>状态</b> '+(accepted?'已验收':'待验收')+'<br>生成于 '+esc(D.generated_at||'—');
+  1854→  hero.appendChild(ttl);hero.appendChild(meta);
+  1855→  main.appendChild(hero);
+  1856→
+  1857→  // KPIs
+  1858→  var kpi=mk('div');kpi.className='kpis';
+  1859→  var kcls=hr>=0.9?'good':(hr>=0.7?'':'bad');
+  1860→  kpi.appendChild(kpiCard('命中率','CACHE HIT RATE',pct(hr),'accent'));
+  1861→  kpi.appendChild(kpiCard('请求','ALL REQUESTS',fmt(tot.requests)));
+  1862→  kpi.appendChild(kpiCard('输出 token','OUTPUT',fmt(tot.output)));
+  1863→  kpi.appendChild(kpiCard('输入 token','PROMPT INPUT',fmt(tot.prompt_tokens)));
+  1864→  kpi.appendChild(kpiCard('成本','COST · CNY',cost(tot.cost_cny)));
+  1865→  kpi.appendChild(kpiCard('C2','COMPACTIONS',fmt(tot.c2_count),accepted?'good':''));
+  1866→  kpi.appendChild(kpiCard('会话数','SESSIONS',fmt(tot.sessions||0)));
+  1867→  kpi.appendChild(kpiCard('单位成本','COST/REQ',cost(tot.cost_cny/(tot.requests||1))));
+  1868→  main.appendChild(kpi);
+  1869→
+  1870→  // donut cards
+  1871→  var models=filterByModel(buildModels(day),'model');
+  1872→  var cards=mk('div');cards.className='cards';
+  1873→
+  1874→  // 1. 整体命中率（按模型细分）
+  1875→  var hit=Number(tot.cache_hit)||0, miss=Number(tot.cache_miss)||0;
+  1876→  var hitSegs=models.map(function(m){
+  1877→    var h=Number(m.cache_hit)||0, ms=Number(m.cache_miss)||0;
+  1878→    var p=(h+ms)>0?(h/(h+ms)*100).toFixed(1):'0.0';
+  1879→    return {v:h,color:m._c,name:shortModel(m.model),miss:ms,rate:p};
+  1880→  });
+  1881→  cards.appendChild(donutCard('整体命中率','HIT RATE',
+  1882→    hitSegs,
+  1883→    pct(hr),'命中 / 总输入',fmt));
+  1884→
+  1885→  // 2. 输入 token 构成 (per model hit)
+  1886→  var toks=filterByModel(buildModels(day),'model').map(function(m){
+  1887→    return {v:m.prompt_tokens,color:m._c,name:shortModel(m.model)}});
+  1888→  var maxTok=toks.reduce(function(s,x){return s+Number(x.v||0)},0)||1;
+  1889→  cards.appendChild(donutCard('输入 token · 构成','INPUT BY MODEL',
+  1890→    toks,fmt(maxTok),'总输入 token',fmt));
+  1891→
+  1892→  // 3. 成本分模型（老行可能缺 cost_cny：此时按该模型输入 token 占比分摊日总成本兜底）
+  1893→  var dayCost=Number(tot.cost_cny)||0, dayTok=buildModels(day).reduce(function(s,m){return s+Number(m.prompt_tokens||0)},0)||1;
+  1894→  var costs=models.map(function(m){
+  1895→    var c=Number(m.cost_cny);
+  1896→    if(!c){c=dayCost*(Number(m.prompt_tokens||0)/dayTok);}
+  1897→    return {v:c,color:m._c,name:shortModel(m.model)}});
+  1898→  var totCost=costs.reduce(function(s,x){return s+Number(x.v||0)},0);
+  1899→  cards.appendChild(donutCard('成本 · 模型','COST BY MODEL',
+  1900→    costs,cost(totCost),'总成本 CNY',cost));
+  1901→
+  1902→  // 4. 请求分模型
+  1903→  var reqs=models.map(function(m){return {v:m.requests,color:m._c,name:shortModel(m.model)}});
+  1904→  var totReq=reqs.reduce(function(s,x){return s+Number(x.v||0)},0);
+  1905→  cards.appendChild(donutCard('请求 · 模型','REQUESTS BY MODEL',

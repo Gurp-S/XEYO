@@ -1,0 +1,106 @@
+/* auto-split from index.css L2706-2790 — menu-flyout / ctx-menu / seg; do not edit order relative to styles/entry.css */
+
+/* 全 GUI 菜单统一毛玻璃：半透明底 + 真实 backdrop blur */
+.xy-menu-flyout,
+.xy-ctx-menu,
+.xy-menu-frosted {
+  background: color-mix(in oklch, var(--xy-paper) 48%, transparent);
+  -webkit-backdrop-filter: blur(32px) saturate(1.45);
+  backdrop-filter: blur(32px) saturate(1.45);
+  box-shadow:
+    var(--xy-modal-shadow),
+    0 0 0 0.5px color-mix(in srgb, var(--xy-ink) 8%, transparent);
+}
+html[data-scheme="dark"] .xy-menu-flyout,
+html[data-scheme="dark"] .xy-ctx-menu,
+html[data-scheme="dark"] .xy-menu-frosted {
+  background: rgb(22 22 24 / 0.66);
+  box-shadow:
+    var(--xy-modal-shadow),
+    0 0 0 0.5px rgb(255 255 255 / 0.08),
+    inset 0 1px 0 rgb(255 255 255 / 0.05);
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .xy-menu-flyout,
+  .xy-ctx-menu,
+  .xy-menu-frosted {
+    background: var(--xy-glass-strong);
+  }
+}
+
+.xy-menu-frosted-input,
+.xy-menu-flyout input:not([type="checkbox"]):not([type="radio"]),
+.xy-menu-flyout textarea {
+  background: color-mix(in oklch, var(--xy-paper) 35%, transparent);
+  border-color: color-mix(in srgb, var(--xy-line) 85%, transparent);
+}
+html[data-scheme="dark"] .xy-menu-frosted-input,
+html[data-scheme="dark"] .xy-menu-flyout input:not([type="checkbox"]):not([type="radio"]),
+html[data-scheme="dark"] .xy-menu-flyout textarea {
+  background: rgb(255 255 255 / 0.05);
+  border-color: rgb(255 255 255 / 0.1);
+}
+
+/* 右键菜单行 hover */
+.xy-ctx-row:hover:not(:disabled) {
+  background: var(--xy-glass-hover);
+  color: var(--xy-ink);
+}
+html[data-scheme="dark"] .xy-ctx-row:hover:not(:disabled) {
+  background: var(--xy-glass-hover);
+}
+
+.xy-menu-row {
+  border-radius: 8px;
+}
+.xy-menu-row:hover,
+.xy-menu-row.is-hover {
+  background: var(--xy-glass-hover);
+  color: var(--xy-ink);
+}
+html[data-scheme="dark"] .xy-menu-row:hover,
+html[data-scheme="dark"] .xy-menu-row.is-hover {
+  background: var(--xy-glass-hover);
+}
+.xy-menu-row.is-active:not(:hover):not(.is-hover) {
+  background: var(--xy-glass);
+}
+html[data-scheme="dark"] .xy-menu-row.is-active:not(:hover):not(.is-hover) {
+  background: var(--xy-glass);
+}
+
+.xy-seg {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 10px;
+  background: rgb(18 22 28 / 0.06);
+}
+html[data-scheme="dark"] .xy-seg {
+  background: rgb(255 255 255 / 0.06);
+}
+.xy-seg-btn {
+  border-radius: 7px;
+  padding: 5px 6px;
+  font-size: 11px;
+  color: var(--xy-mute);
+  text-align: center;
+}
+.xy-seg-btn:hover {
+  color: var(--xy-ink);
+  background: rgb(18 22 28 / 0.05);
+}
+html[data-scheme="dark"] .xy-seg-btn:hover {
+  background: rgb(255 255 255 / 0.08);
+}
+.xy-seg-btn.is-on {
+  color: var(--xy-ink);
+  background: rgb(255 255 255 / 0.9);
+  box-shadow: 0 1px 2px rgb(18 22 28 / 0.08);
+}
+html[data-scheme="dark"] .xy-seg-btn.is-on {
+  background: rgb(255 255 255 / 0.14);
+  box-shadow: none;
+}

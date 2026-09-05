@@ -1,0 +1,30 @@
+    54→def context_tokens_from_usage(usage: dict[str, Any] | None) -> int | None:
+    55→	"""读取本次请求真实输入 token 数，不用字符数伪造。"""
+    56→	if not isinstance(usage, dict):
+    57→		return None
+    58→	for key in ("prompt_tokens", "input_tokens", "context_tokens"):
+    59→		value = _positive_int(usage.get(key))
+    60→		if value is not None:
+    61→			return value
+    62→	return None
+    63→
+    64→
+    65→def _context_limit_from_usage_fields(usage: dict[str, Any] | None) -> int | None:
+    66→	"""只从 usage 字段取供应商返回的上下文窗口；不读 env / 破表。"""
+    67→	if isinstance(usage, dict):
+    68→		for key in ("context_limit", "context_window", "context_length", "max_context_tokens"):
+    69→			value = _positive_int(usage.get(key))
+    70→			if value is not None:
+    71→				return value
+    72→	return None
+    73→
+    74→
+    75→def context_limit_from_usage(
+    76→	usage: dict[str, Any] | None,
+    77→	model: str | None = None,
+    78→) -> int | None:
+    79→	"""只接受供应商明确返回 / 运行配置显式提供的 context 上限。
+    80→
+    81→	优先级：usage 字段 → env XEYO_CONTEXT_LIMIT_TOKENS。均未提供时返回 None
+    82→	（前端显示「暂无数据」，绝不按模型名伪造窗口）。
+    83→	"""

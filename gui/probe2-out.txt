@@ -1,0 +1,34 @@
+--- 采样时间线:
+  t+0s rootLen=30138 palette=true
+  t+1s rootLen=30138 palette=true
+  t+2s rootLen=30138 palette=true
+  t+3s rootLen=30138 palette=true
+  t+4s rootLen=30138 palette=true
+  t+5s rootLen=30138 palette=true
+  t+6s rootLen=30138 palette=true
+  t+7s rootLen=30138 palette=true
+  t+8s rootLen=30138 palette=true
+  t+9s rootLen=30138 palette=true
+  t+10s rootLen=30138 palette=true
+  t+11s rootLen=30138 palette=true
+--- console 日志（近 30 条）:
+  t=54011 [debug] [vite] connecting...
+  t=54027 [debug] [vite] connected.
+  t=54458 [info] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+  t=54824 [error] Failed to load resource: the server responded with a status of 502 (Bad Gateway)
+  t=54824 [error] Failed to load resource: the server responded with a status of 502 (Bad Gateway)
+  t=54824 [error] Failed to load resource: the server responded with a status of 502 (Bad Gateway)
+  t=54824 [error] Failed to load resource: the server responded with a status of 502 (Bad Gateway)
+  t=54824 [error] Failed to load resource: the server responded with a status of 502 (Bad Gateway)
+  t=54824 [error] Failed to load resource: the server responded with a status of 502 (Bad Gateway)
+  t=54824 [error] Failed to load resource: the server responded with a status of 502 (Bad Gateway)
+  t=54824 [error] Failed to load resource: the server responded with a status of 502 (Bad Gateway)
+  t=54927 [warning] [XEYO] migration skipped: NotFoundError: Failed to execute 'transaction' on 'IDBDatabase': One of the specified object stores was not found.
+    at Proxy.<anony
+  t=54941 [error] Failed to load resource: the server responded with a status of 502 (Bad Gateway)
+  t=54944 [error] Failed to load resource: the server responded with a status of 502 (Bad Gateway)
+  t=54981 [error] Failed to load resource: the server responded with a status of 502 (Bad Gateway)
+  t=54982 [error] Failed to load resource: the server responded with a status of 502 (Bad Gateway)
+  t=54982 [error] Failed to load resource: the server responded with a status of 502 (Bad Gateway)
+  t=55011 [error] Failed to load resource: the server responded with a status of 502 (Bad Gateway)
+  t=55011 [error] Failed to load resource: the server responded with a status of 502 (Bad Gateway)

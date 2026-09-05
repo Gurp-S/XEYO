@@ -1,0 +1,32 @@
+{
+  "name": "@xeyo/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "XEYO terminal UI — Ink + TypeScript",
+  "bin": {
+    "xeyo": "./dist/index.js"
+  },
+  "scripts": {
+    "dev": "tsx src/index.tsx",
+    "start": "tsx src/index.tsx",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "demo": "tsx src/index.tsx --demo",
+    "json": "tsx src/index.tsx --json"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "ink": "^5.2.0",
+    "ink-text-input": "^6.0.0",
+    "react": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/react": "^18.3.12",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

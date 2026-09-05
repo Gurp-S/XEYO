@@ -1,0 +1,123 @@
+/* auto-split from index.css L2791-2912 — Motion system keyframes + anim utilities; do not edit order relative to styles/entry.css */
+/* 鈥斺€旓拷?Motion system: GPU-friendly (opacity + transform only) 鈥斺€旓拷?*/
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes session-switch {
+  from {
+    opacity: 0.96;
+    transform: translate3d(0, 2px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.anim-fade {
+  animation: fade-in var(--duration-base) var(--ease-out-soft) both;
+}
+
+.anim-rise {
+  animation: rise-in var(--duration-base) var(--ease-out-soft) both;
+}
+
+.anim-scale {
+  animation: scale-in var(--duration-base) var(--ease-out-soft) both;
+}
+
+.anim-pop {
+  animation: pop-in var(--duration-fast) var(--ease-out-soft) both;
+}
+
+.xy-press {
+  transition:
+    transform var(--duration-fast) var(--ease-out-soft),
+    background-color var(--duration-fast) ease,
+    color var(--duration-fast) ease,
+    border-color var(--duration-fast) ease,
+    opacity var(--duration-fast) ease,
+    box-shadow var(--duration-fast) ease;
+  will-change: auto;
+}
+
+.xy-press:hover {
+  transform: translateY(-1px);
+}
+
+.xy-press:active {
+  transform: translateY(0) scale(0.97);
+}
+
+.xy-press:disabled {
+  transform: none;
+}
+
+.xy-icon-btn {
+  transition:
+    transform var(--duration-fast) var(--ease-out-soft),
+    background-color var(--duration-fast) ease,
+    color var(--duration-fast) ease;
+}
+
+.xy-icon-btn:hover {
+  transform: scale(1.04);
+}
+
+.xy-icon-btn.xy-sidebar-affordance:hover {
+  transform: translate3d(0, 0, 0) scale(1.04);
+}
+
+.xy-icon-btn:active {
+  transform: scale(0.94);
+}
+
+.xy-surface {
+  transition:
+    background-color var(--duration-fast) ease,
+    border-color var(--duration-fast) ease,
+    color var(--duration-fast) ease,
+    box-shadow var(--duration-fast) ease,
+    opacity var(--duration-base) ease;
+}
+

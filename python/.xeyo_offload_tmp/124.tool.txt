@@ -1,0 +1,35 @@
+  2007→
+  2008→  function render(){
+  2009→    list.innerHTML='';
+  2010→    var shown=byTurn.filter(visible);
+  2011→    if(!shown.length){var e=mk('div');e.className='empty';e.textContent='无匹配对话';list.appendChild(e);return}
+  2012→    shown.sort(function(a,b){return (Number(a.first_ts)||0)-(Number(b.first_ts)||0)});
+  2013→    shown.forEach(function(t){
+  2014→      var st=Number(t.cache_hit)||0,sm=Number(t.cache_miss)||0,ti=st+sm;
+  2015→      var det=mk('details');det.className='turn';
+  2016→      var sum=mk('summary');
+  2017→      sum.innerHTML='<span class="t">'+esc(t.label||'未命名消息')+'</span>'+
+  2018→        '<span class="r"><span class="m">'+esc(shortModel(t.model))+'</span><span>'+pct(t.hit_rate)+'</span>'+
+  2019→        '<span>'+esc(t.requests)+' req</span><span>'+cost(t.cost_cny)+'</span></span>';
+  2020→      det.appendChild(sum);
+  2021→      var inner=mk('div');inner.className='inner';
+  2022→      var TT=mk('table');TT.className='tbl';
+  2023→      TT.innerHTML='<thead><tr><th>时间</th><th>模型</th><th>命中率</th><th>命中/输入</th><th class="num">请求</th>'+
+  2024→        '<th class="num">输出</th><th class="num">成本</th><th class="num">Prompt</th></tr></thead><tbody></tbody>';
+  2025→      var tbb=TT.querySelector('tbody');
+  2026→      function row(ts,model2,hitc,misc,req,out,co,pr,faint){
+  2027→        var tr=mk('tr');if(faint)tr.setAttribute('style','opacity:.72');
+  2028→        var hv=hitc+misc;
+  2029→        tr.innerHTML='<td>'+esc(ts)+'</td><td>'+esc(model2)+'</td><td>'+pct(hv?hitc/hv:0,1)+'</td>'+
+  2030→          '<td><span class="tag">'+fmt(hitc)+'/'+fmt(hv)+'</span></td>'+
+  2031→          '<td class="num">'+req+'</td><td class="num">'+fmt(out)+'</td><td class="num">'+cost(co)+'</td>'+
+  2032→          '<td class="num">'+fmt(pr)+'</td>';
+  2033→        return tr;
+  2034→      }
+  2035→      var ts0=new Date(Number(t.first_ts)*1000).toTimeString().slice(0,8);
+  2036→      tbb.appendChild(row(ts0,t.model,st,sm,t.requests,t.output,t.cost_cny,(t.prompt!=null?t.prompt:ti),false));
+  2037→      (t.events||[]).forEach(function(e){
+  2038→        var eh=Number(e.cache_hit)||0,em=Number(e.cache_miss)||0;
+  2039→        tbb.appendChild(row(new Date(Number(e.ts)*1000).toTimeString().slice(0,8),e.model,eh,em,1,e.output,e.cost_cny,e.prompt_tokens,true));
+  2040→      });
+  2041→      inner.appendChild(TT);

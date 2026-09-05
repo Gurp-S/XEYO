@@ -1,0 +1,40 @@
+   500→            一系列 EngineEvent，包括 AssistantDelta 等中间事件，最后一定是 ResultEvent。
+   501→        """
+   502→        _ = options or {}
+   503→        options_dict = options if isinstance(options, dict) else {}
+   504→        cfg = self._config
+   505→        cwd = cfg["cwd"]
+   506→        tools = cfg["tools"]
+   507→        max_budget_usd = cfg.get("max_budget_usd")
+   508→        if max_budget_usd is None:
+   509→            max_budget_usd = cfg.get("max_budget")
+   510→        if max_budget_usd is None:
+   511→            from engine.budget import max_budget_usd_from_env
+   512→
+   513→            max_budget_usd = max_budget_usd_from_env()
+   514→        custom_system_prompt = cfg.get("custom_system_prompt")
+   515→        append_system_prompt = cfg.get("append_system_prompt")
+   516→        user_specified_model = cfg.get("user_specified_model")
+   517→        # Multi-Agent chip：query_loop 在 T_now 挂软提示；不裁剪工具。
+   518→        multi_agent = bool(options_dict.get("multi_agent"))
+   519→
+   520→        # 1. 入口清理和环境复位
+   521→        self._discovered_skill_names.clear()
+   522→        persist_session = not is_session_persistence_disabled()
+   523→        cwd = resolve_physical_cwd(cwd)
+   524→        self._session.cwd = cwd
+   525→        # M2：会话级工作区上下文随 async 上下文隔离；任务状态进入 running。
+   526→        turn_id = uuid.uuid4().hex[:12]
+   527→        set_workspace_context(
+   528→            WorkspaceContext(
+   529→                session_id=self._session.session_id,
+   530→                cwd=cwd,
+   531→                permission_profile=self._permission_profile,
+   532→            )
+   533→        )
+   534→        agent_mode = normalize_agent_mode(options_dict.get("agent_mode"))
+   535→        set_agent_mode(agent_mode)
+   536→        self._task_state.set_status("running", turn_id=turn_id, agent_mode=agent_mode)
+   537→        # 左段不再枚举工具名；Ask/Plan 只过滤 API tools schemas（query_loop）。
+   538→        coordinator = PermissionCoordinator(
+   539→            store=default_permission_store(),

@@ -1,0 +1,12 @@
+   150→		self._temperature = temperature
+   151→		# 最大输出 tokens（可选）：None = 不限制，不发送该字段。
+   152→		self._max_tokens = _positive_int(max_tokens)
+   153→		self._session_id = (session_id or "").strip()
+   154→		self.last_usage: dict[str, Any] | None = None  # 最近一次流式请求的 usage（含缓存命中）
+   155→		self.last_context_tokens: int | None = None
+   156→		# 上下文窗口优先级：厂商 /models 元数据(cfg) → env。绝不按模型名猜窗口。
+   157→		self.context_limit: int | None = _positive_int(
+   158→			os.environ.get("XEYO_CONTEXT_LIMIT_TOKENS")
+   159→		)
+   160→
+   161→	def _headers(self) -> dict[str, str]:

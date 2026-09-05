@@ -1,0 +1,9 @@
+{
+  "kids": [
+    "DIV.xy-pane-slot.relative: x=0 w=248",
+    "DIV.xy-pane-chat-host.relative: x=248 w=204",
+    "DIV.xy-pane-slot.relative: x=452 w=248"
+  ],
+  "mainW": 204,
+  "pW": 164
+}

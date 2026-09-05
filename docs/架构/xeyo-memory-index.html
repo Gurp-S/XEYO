@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>XEYO 记忆系统 · 架构 / 流程 / 时序图集</title>
+<style>
+  :root { --bg:#f7f8fa; --card:#fff; --line:#e3e6ec; --ink:#1f2933; --sub:#6b7280; --accent:#2563eb; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+    font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif; }
+  header { padding:28px 32px 12px; }
+  header h1 { margin:0 0 6px; font-size:22px; letter-spacing:.2px; }
+  header p { margin:0; color:var(--sub); font-size:13px; max-width:980px; line-height:1.6; }
+  .grid { display:grid; gap:24px; padding:20px 32px 40px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+  .card > .head { display:flex; align-items:baseline; gap:12px; padding:14px 18px;
+    border-bottom:1px solid var(--line); }
+  .card > .head .n { font-size:16px; font-weight:600; }
+  .card > .head .d { color:var(--sub); font-size:12.5px; }
+  .card > .head .tag { margin-left:auto; font-size:11px; color:var(--accent);
+    border:1px solid var(--accent); border-radius:999px; padding:2px 8px; }
+  .frame-wrap { position:relative; }
+  .frame-wrap iframe { width:100%; height:860px; border:0; display:block; background:var(--card); }
+  .note { padding:10px 18px 14px; color:var(--sub); font-size:12px; line-height:1.6; }
+  .note b { color:var(--ink); }
+  @media (max-width:820px){ .grid{padding:14px;} .frame-wrap iframe{height:600px;} }
+</style>
+</head>
+<body>
+  <header>
+    <h1>XEYO 记忆系统 · 图集（架构 / 流程 / 时序）</h1>
+    <p>三张图覆盖同一套记忆系统：<b>架构图</b>是组件与数据归属全景，
+      <b>流程图</b>是每轮 v61 记忆决策（H/J/Q/D + 安全门 θ + L4 兜底），
+      <b>时序图</b>是每轮 query_loop 的记忆请求生命周期（读上下文→决策→压缩→送模型→落快照）。
+      每张为独立可交互 Viewer（缩放/平移/搜索/聚焦/明暗/导出）。</p>
+  </header>
+
+  <div class="grid">
+    <section class="card">
+      <div class="head">
+        <span class="n">① 架构图 · 组件全景</span>
+        <span class="d">热路径 / 工作记忆 L3 / 长期记忆 L4·L5b（md 为 source of truth，sqlite 为派生索引）</span>
+        <span class="tag">Architecture</span>
+      </div>
+      <div class="frame-wrap"><iframe src="xeyo-memory-architecture.html" loading="lazy" title="XEYO 记忆系统架构图"></iframe></div>
+      <div class="note"><b>验证：</b>9 项 artifact 检查全绿、0 错误 0 警告；桌面 4 档（1440/1600/1920/2048）明暗全部 containment 通过、无溢出。</div>
+    </section>
+
+    <section class="card">
+      <div class="head">
+        <span class="n">② 流程图 · 每轮 v61 记忆决策</span>
+        <span class="d">HardTop → 多数档 J 投票 → 安全门 Q≥θ → keep / C1 / C2 / L4</span>
+        <span class="tag">Workflow</span>
+      </div>
+      <div class="frame-wrap"><iframe src="xeyo-memory-workflow.html" loading="lazy" title="XEYO 每轮记忆决策流程图"></iframe></div>
+      <div class="note"><b>验证：</b>9 项 artifact 检查全绿、0 错误 0 警告、最小投影字号 ≥6px。
+        说明：该图内容天然较高（5 泳道 × 多列），在 1440~1920 高度桌面会纵向滚动，2048×1320 可整屏容纳。</div>
+    </section>
+
+    <section class="card">
+      <div class="head">
+        <span class="n">③ 时序图 · 每轮 query_loop 记忆生命周期</span>
+        <span class="d">读上下文 → project_for_model 冻结 s0 → decide →（C2: A2/A3）→ 送模型 → note_shot/note_c2</span>
+        <span class="tag">Sequence</span>
+      </div>
+      <div class="frame-wrap"><iframe src="xeyo-memory-sequence.html" loading="lazy" title="XEYO 每轮记忆生命周期时序图"></iframe></div>
+      <div class="note"><b>验证：</b>9 项 artifact 检查全绿、0 错误 0 警告、最小投影字号 ≥7px。
+        说明：同上，内容较高，短视口会纵向滚动；可在 Viewer 内缩放查看全貌。</div>
+    </section>
+  </div>
+</body>
+</html>

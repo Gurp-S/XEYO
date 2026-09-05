@@ -1,0 +1,10 @@
+  1354→.side{background:var(--side);border-right:1px solid var(--bgline);padding:24px 20px;display:flex;
+  1355→  flex-direction:column;overflow:auto}
+  1356→.side .brand{font-size:11px;font-weight:800;letter-spacing:.22em;color:var(--mut)}
+  1357→.side h1{font-size:24px;font-weight:900;letter-spacing:.01em;margin-top:8px;line-height:1.15}
+  1358→.side .sub{font-size:11px;color:var(--faint);margin-top:8px;line-height:1.6}
+  1359→.side .rule{border:0;border-top:1px solid var(--bgline);margin:20px 0}
+  1360→
+  1361→.side h3{font-size:10px;font-weight:800;letter-spacing:.16em;color:var(--mut);margin:0 0 10px}
+  1362→.daylist{display:flex;flex-direction:column;gap:6px;overflow:auto;min-height:0}
+  1363→.daybtn{padding:10px 12px;border:1px solid var(--grid);border-radius:10px;background:transparent;

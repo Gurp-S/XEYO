@@ -1,0 +1,42 @@
+[
+  {
+    "advances": 11,
+    "rewrite_calls": 11,
+    "avg_rewrite_chars": 117331.54545454546,
+    "hit_proxy": 0.9801652892561984,
+    "tail_overflow_calls": 0,
+    "calls": 605,
+    "config": "frozen",
+    "pressure": null
+  },
+  {
+    "advances": 9,
+    "rewrite_calls": 9,
+    "avg_rewrite_chars": 143405.22222222222,
+    "hit_proxy": 0.9834710743801653,
+    "tail_overflow_calls": 0,
+    "calls": 605,
+    "config": "adaptive",
+    "pressure": null
+  },
+  {
+    "advances": 8,
+    "rewrite_calls": 8,
+    "avg_rewrite_chars": 161330.875,
+    "hit_proxy": 0.9851239669421488,
+    "tail_overflow_calls": 0,
+    "calls": 605,
+    "config": "p078",
+    "pressure": 0.78
+  },
+  {
+    "advances": 8,
+    "rewrite_calls": 8,
+    "avg_rewrite_chars": 161330.875,
+    "hit_proxy": 0.9851239669421488,
+    "tail_overflow_calls": 0,
+    "calls": 605,
+    "config": "p090",
+    "pressure": 0.9
+  }
+]

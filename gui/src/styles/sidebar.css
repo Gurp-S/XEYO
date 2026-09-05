@@ -1,0 +1,304 @@
+/* auto-split from index.css L1355-1657 — Sidebar affordance/tree/run-dot/pane/tool-detail wrap; do not edit order relative to styles/entry.css */
+.xy-sidebar-affordance {
+  backface-visibility: hidden;
+  -webkit-font-smoothing: antialiased;
+  transition:
+    opacity 140ms var(--ease-out-soft),
+    transform 160ms var(--ease-out-soft),
+    visibility 0s linear 140ms;
+}
+
+.group:hover .xy-sidebar-affordance,
+.group\/item:hover .xy-sidebar-affordance,
+.group:focus-within .xy-sidebar-affordance,
+.group\/item:focus-within .xy-sidebar-affordance {
+  will-change: opacity, transform;
+}
+
+.group:hover .xy-sidebar-affordance,
+.group\/item:hover .xy-sidebar-affordance,
+.group:focus-within .xy-sidebar-affordance,
+.group\/item:focus-within .xy-sidebar-affordance {
+  visibility: visible;
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(0);
+  transition-delay: 0s;
+}
+
+/* 触屏 / 无精细指针：删除等操作常显 */
+@media (hover: none), (pointer: coarse) {
+  .xy-sidebar-affordance,
+  .xy-hover-reveal {
+    opacity: 1 !important;
+    visibility: visible !important;
+    pointer-events: auto !important;
+    transform: none !important;
+    translate: 0 !important;
+  }
+  .xy-session-meta {
+    opacity: 0;
+  }
+}
+
+/* 可点行按下态 */
+.xy-pressable:active {
+  background: var(--xy-glass-strong) !important;
+}
+
+.xy-session-meta {
+  transition: opacity 120ms var(--ease-out-soft);
+}
+
+/* #02 鍛煎惛寰厜锛氫細璇濊杩愯鎬佹寚绀虹偣锛堟祦寮忚緭鍑?/ 鎺掓按鏈熺偣浜級 */
+.xy-run-dot {
+  --xy-run-glow: var(--color-accent, #4d9fff);
+  position: relative;
+  flex-shrink: 0;
+  width: 0;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--xy-run-glow);
+  opacity: 0;
+  transition: width 180ms var(--ease-out-soft), opacity 180ms var(--ease-out-soft);
+}
+.xy-run-dot.is-running {
+  width: 7px;
+  opacity: 1;
+  animation: xy-run-breath 2s ease-in-out infinite;
+}
+.xy-run-dot.is-running::before {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: inherit;
+  pointer-events: none;
+  background: radial-gradient(circle, rgb(77 159 255 / 50%) 0%, transparent 72%);
+  animation: xy-run-halo 2s ease-in-out infinite;
+}
+@supports (background: color-mix(in srgb, red 50%, transparent)) {
+  .xy-run-dot.is-running::before {
+    background: radial-gradient(
+      circle,
+      color-mix(in srgb, var(--xy-run-glow) 55%, transparent) 0%,
+      transparent 72%
+    );
+  }
+}
+
+/* 瀹屾垚鏈洖鐪嬶細闈欐€佺豢鑹插井鍏夛紙涓嶅懠鍚革級鈥斺€斾换鍔″湪娴忚鍒鏃剁粨鏉熺殑浼氳瘽鎻愮ず锛?   鍒囧洖璇ヤ細璇濆悗鐢?Sidebar 绉婚櫎 is-done-unseen 鍗崇唲鐏€?*/
+.xy-run-dot.is-done-unseen {
+  --xy-run-glow: var(--color-ok, #34d399);
+  width: 7px;
+  opacity: 1;
+}
+.xy-run-dot.is-done-unseen::before {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: inherit;
+  pointer-events: none;
+  background: radial-gradient(circle, rgb(52 211 153 / 28%) 0%, transparent 72%);
+}
+@supports (background: color-mix(in srgb, red 50%, transparent)) {
+  .xy-run-dot.is-done-unseen::before {
+    background: radial-gradient(
+      circle,
+      color-mix(in srgb, var(--xy-run-glow) 32%, transparent) 0%,
+      transparent 72%
+    );
+  }
+}
+@keyframes xy-run-breath {
+  0%, 100% { transform: scale(0.82); }
+  50% { transform: scale(1.22); }
+}
+@keyframes xy-run-halo {
+  0%, 100% { transform: scale(0.72); opacity: 0.28; }
+  50% { transform: scale(1.45); opacity: 0.62; }
+}
+html[data-smoothness="off"] .xy-run-dot.is-running,
+html[data-smoothness="off"] .xy-run-dot.is-running::before {
+  animation: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .xy-run-dot.is-running,
+  .xy-run-dot.is-running::before {
+    animation: none;
+  }
+}
+
+.xy-sidebar-tree {
+  min-height: 0;
+  overflow: hidden;
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transition:
+    grid-template-rows var(--duration-base) var(--ease-out-soft),
+    opacity var(--duration-fast) var(--ease-out-soft);
+}
+
+.xy-sidebar-tree.is-closed {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+
+/* 宸﹀彸渚ц竟鏍忔爲灞曞紑/鏀惰捣鍔ㄧ敾涓€鑷达紝骞惰窡闅忚缃€滃姩鐢烩€濆紑鍏筹細
+   鍏抽棴鏃朵袱杈规爲閮戒笉鎾斁 grid-rows 杩囨浮锟?*/
+html[data-smoothness="off"] .xy-sidebar-tree {
+  transition: none !important;
+}
+
+/* 收起右边内容时宽度与位移同帧过渡：内容随分隔条平滑移 */
+.xy-pane-slide {
+  transition:
+    width 420ms cubic-bezier(0.16, 1, 0.3, 1) 40ms,
+    transform 420ms cubic-bezier(0.16, 1, 0.3, 1) 40ms;
+}
+
+.xy-pane-row:has(.xy-pane-slot.is-open) .xy-pane-slide,
+.xy-pane-slot.is-animating .xy-pane-slide {
+  will-change: transform, width;
+}
+
+/* 鍔熻兘鐣岄潰闂村垏鎹細鏈抚璺宠繃瀹藉害/浣嶇Щ杩囨浮锛岀洿鎺ョ‖锟?*/
+.xy-pane-instant,
+.xy-pane-instant .xy-pane-slide {
+  transition: none !important;
+}
+
+::selection {
+  background: var(--xy-selection);
+}
+
+@keyframes blink-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+
+.blink-dot {
+  animation: blink-dot 1s steps(2, jump-none) infinite;
+}
+
+@keyframes xy-stream-caret {
+  50% {
+    opacity: 0;
+  }
+}
+
+/*
+ * 娴佸紡娲诲尯涓嶅啀鍓ラ/灏惧厓绱犵殑 margin锛? * 鏃ц鍒欐妸 live 棣栧厓绱犻《杈硅窛娓呴浂锛屼絾琛屾彁浜よ繘 head 鍚庯紙鍖呭湪 display:contents
+ * 鍖呰灞傞噷锛屽瓙閫夋嫨鍣ㄧ┛涓嶉€忥級鍘熺敓 margin 鎭㈠ 鈥斺€?鏍囬/鍒楄〃/琛ㄦ牸姣忔彁浜や竴琛岋紝
+ * 涓嬫柟鍐呭灏卞悜涓嬪脊 6~12px銆傜幇鍦ㄤ袱绔竴寰嬩娇鐢ㄥ師鐢?margin锛岃涓轰竴鑷村嵆鏃犺烦鍔ㄣ€? */
+
+.xy-stream-math {
+  font-family: ui-serif, Georgia, serif;
+  font-style: italic;
+  line-height: 1.5rem;
+}
+
+.xy-stream-caret {
+  display: inline-block;
+  width: 2px;
+  height: 1.05em;
+  margin-left: 0.12em;
+  vertical-align: -0.12em;
+  background: var(--xy-accent);
+  animation: xy-stream-caret 1s steps(1, end) infinite;
+}
+
+/* Cursor-style thinking: transparent glyphs + moving highlight band */
+.xy-thinking,
+.status-shimmer {
+  display: inline-block;
+  color: transparent;
+  background: linear-gradient(
+    90deg,
+    #8b8b8b 0%,
+    #8b8b8b 40%,
+    #e8e8e8 50%,
+    #8b8b8b 60%,
+    #8b8b8b 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: shimmer 3.2s linear infinite;
+}
+
+html[data-scheme="dark"] .xy-thinking,
+html[data-scheme="dark"] .status-shimmer {
+  background: linear-gradient(
+    90deg,
+    #6a6f78 0%,
+    #6a6f78 40%,
+    #f0f2f5 50%,
+    #6a6f78 60%,
+    #6a6f78 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
+.xy-thinking-done {
+  color: var(--xy-mute);
+}
+
+/* Live tool bullet only 锟?finished / error steps stay static */
+.xy-tool-live-dot {
+  box-shadow: 0 0 0 0 rgb(240 242 245 / 0.35);
+  animation: xy-tool-live-pulse 1.6s ease-out infinite;
+}
+
+@keyframes xy-tool-live-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgb(240 242 245 / 0.35);
+  }
+  70% {
+    box-shadow: 0 0 0 5px rgb(240 242 245 / 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgb(240 242 245 / 0);
+  }
+}
+
+/* Tool / activity detail: ExpandPanel 负责高度；保留 class 兼容旧选择器 */
+.xy-tool-detail-wrap {
+  display: contents;
+}
+
+.xy-tool-detail-wrap.open {
+  display: contents;
+}
+
+.xy-tool-detail-wrap > .xy-tool-detail-inner {
+  min-height: 0;
+}
+
+.xy-expand-panel {
+  min-height: 0;
+}
+
+.xy-expand-panel-inner {
+  min-height: 0;
+}
+
+html[data-smoothness="off"] .xy-tool-detail-wrap {
+  transition: none;
+}
+

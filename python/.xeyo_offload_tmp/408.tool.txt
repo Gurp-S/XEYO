@@ -1,0 +1,62 @@
+python\_verify_remaining.py:107:		"tests/test_tool_orchestration.py",
+python\channels\filehelper\bridge.py:381:					0.9 if self.state == "logged_in" else 0.5
+python\channels\filehelper\page.py:387:	ratio = w / max(h, 1)
+python\channels\filehelper\page.py:388:	return 0.72 <= ratio <= 1.38
+python\channels\filehelper\page.py:408:		side = float(area) ** 0.5
+python\channels\ilink\service.py:80:_POLL_ERR_SLEEP_S = 0.25
+python\cli\chat_cmd.py:137:			except Exception:  # noqa: BLE001 — 含 StopAsyncIteration：流自然结束
+python\codeindex\pack.py:15:DEFAULT_BUDGET_CHARS = 8_000
+python\codeindex\pack.py:30:	budget: int = DEFAULT_BUDGET_CHARS,
+python\codeindex\symbols.py:264:	"class_declaration": "class",
+python\codeindex\symbols.py:265:	"abstract_class_declaration": "class",
+python\codeindex\symbols.py:267:	"interface_declaration": "interface",
+python\codeindex\symbols.py:268:	"enum_declaration": "enum",
+python\codeindex\symbols.py:269:	"type_alias_declaration": "type",
+python\codeindex\symbols.py:270:	"function_declaration": "function",
+python\codeindex\symbols.py:272:	"generator_function_declaration": "function",
+python\codeindex\symbols.py:309:		if node.type in ("variable_declarator", "lexical_declaration", "variable_declaration"):
+python\codeindex\symbols.py:368:			parser = Parser(language)  # tree-sitter >= 0.22 新 API
+python\common\errors.py:190:	r"|AssertionError|StopIteration|NotImplementedError)\b\s*:"
+python\engine\budget.py:21:# (tools/orchestration._max_concurrency, 默认 10) 控制——对齐 DSH 的
+python\engine\budget.py:57:	"""读取 XEYO_MAX_BUDGET_USD；未设置或非法返回 None（不限额）。"""
+python\engine\budget.py:58:	raw = os.environ.get("XEYO_MAX_BUDGET_USD", "").strip()
+python\engine\process_narration.py:61:def is_process_narration(text: str) -> bool:
+python\engine\process_narration.py:87:def split_process_narration(text: str) -> tuple[str, str]:
+python\engine\process_narration.py:93:	narration: list[str] = []
+python\engine\process_narration.py:102:			if narration and not narration[-1].endswith("\n"):
+python\engine\process_narration.py:103:				narration.append(part)
+python\engine\process_narration.py:105:		if is_process_narration(part.strip()):
+python\engine\process_narration.py:106:			narration.append(part)
+python\engine\process_narration.py:110:	narr = re.sub(r"\n{3,}", "\n\n", "".join(narration)).strip()
+python\engine\process_narration.py:114:def strip_process_narration(text: str) -> str:
+python\engine\process_narration.py:116:	return split_process_narration(text)[0]
+python\engine\process_narration.py:119:class StreamNarrationGate:
+python\engine\process_narration.py:122:	__slots__ = ("parts", "narration")
+python\engine\process_narration.py:126:		self.narration: str = ""
+python\engine\process_narration.py:141:			body, narr = split_process_narration(joined)
+python\engine\process_narration.py:142:			self.narration = narr
+python\engine\process_narration.py:144:		self.narration = ""
+python\engine\process_narration.py:147:	def drain_narration(self) -> str:
+python\engine\process_narration.py:149:		n = self.narration
+python\engine\process_narration.py:150:		self.narration = ""
+python\engine\query_engine.py:66:from rewind.journal import OperationJournal
+python\engine\query_engine.py:119:    #: API 侧 output task_budget，用于限制模型输出 token 等（具体由模型客户端解释）。
+python\engine\query_engine.py:245:        self._rewind_journal = OperationJournal(
+python\engine\query_engine.py:788:            duration_ms = int((time.time() - start_time) * 1000)
+python\engine\query_engine.py:796:                and not self._session.budget.over_token_budget()
+python\engine\query_engine.py:811:                    duration_ms=duration_ms,
+python\engine\query_engine.py:816:            elif self._session.budget.over_token_budget():
+python\engine\query_engine.py:821:                    duration_ms=duration_ms,
+python\engine\query_engine.py:831:                    duration_ms=duration_ms,
+python\engine\query_engine.py:843:                    duration_ms=duration_ms,
+python\engine\query_engine.py:853:                    duration_ms=duration_ms,
+python\engine\query_engine.py:863:                    duration_ms=duration_ms,
+python\engine\query_engine.py:874:                    duration_ms=duration_ms,
+python\engine\query_engine.py:884:                    duration_ms=duration_ms,
+python\engine\query_engine.py:1016:                    operation_ids = tuple(rewind_context.operation_ids) if rewind_context else ()
+python\engine\query_engine.py:1022:                        operation_ids=operation_ids,
+python\engine\query_engine.py:1041:                                "operation_count": len(operation_ids),
+python\engine\query_engine.py:1057:                                "operation_count": len(operation_ids),
+python\engine\query_loop.py:23:from engine.process_narration import StreamNarrationGate
+
+[Showing results with pagination = limit: 60]

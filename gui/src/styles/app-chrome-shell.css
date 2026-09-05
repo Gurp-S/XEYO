@@ -1,0 +1,631 @@
+/* auto-split from src/styles/app-chrome.css body L1-528 — Usage/title/panes/chrome shell; imported via barrel src/styles/app-chrome.css */
+.xy-sidebar {
+  overflow: hidden;
+  contain: paint;
+}
+
+/* 鍙充晶/澶撮儴鎻愮ず涓嶅鍒跺绾革紝涓嶅厑璁稿簳灞傛枃瀛楅€忚繃瀹炰綋鎻愮ず闈拷?*/
+.xy-usage-chip {
+  transition:
+    background-color var(--duration-fast) ease,
+    color var(--duration-fast) ease;
+}
+html[data-smoothness="on"] .xy-usage-chip {
+  animation: xy-usage-enter 0.35s ease-out;
+}
+@keyframes xy-usage-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.xy-usage-chip:hover {
+  background: var(--xy-glass-hover);
+  color: var(--xy-ink);
+}
+.xy-detail-tooltip,
+.xy-usage-tooltip {
+  transform: translateY(-2px);
+  transform-origin: top right;
+  isolation: isolate;
+  border: 1px solid color-mix(in srgb, var(--xy-line) 80%, transparent);
+  background: color-mix(in srgb, var(--xy-paper) 96%, transparent);
+  box-shadow:
+    0 10px 28px rgb(18 22 28 / 0.16),
+    0 1px 0 rgb(18 22 28 / 0.05);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  transition:
+    opacity 150ms var(--ease-out-soft),
+    transform 150ms var(--ease-out-soft);
+}
+
+html[data-scheme="dark"] .xy-detail-tooltip,
+html[data-scheme="dark"] .xy-usage-tooltip {
+  background: color-mix(in srgb, var(--xy-paper) 92%, transparent);
+  box-shadow:
+    0 12px 30px rgb(0 0 0 / 0.28),
+    0 1px 0 rgb(255 255 255 / 0.05);
+}
+
+/* Native title replacement. The trigger shares the Token tooltip's visual
+   language while remaining CSS-only and cheap during pointer movement. */
+.xy-detail-tooltip-trigger {
+  position: relative;
+  isolation: isolate;
+}
+
+.xy-detail-tooltip-trigger::after {
+  content: attr(data-xy-tooltip);
+  position: absolute;
+  left: 50%;
+  top: calc(100% + 7px);
+  z-index: 70;
+  width: max-content;
+  max-width: min(20rem, 52vw);
+  pointer-events: none;
+  border: 1px solid color-mix(in srgb, var(--xy-line) 80%, transparent);
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.625rem;
+  color: var(--xy-ink-soft);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  line-height: 1.45;
+  text-align: left;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: color-mix(in srgb, var(--xy-paper) 96%, transparent);
+  box-shadow:
+    0 10px 28px rgb(18 22 28 / 0.16),
+    0 1px 0 rgb(18 22 28 / 0.05);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  opacity: 0;
+  transform: translate(-50%, -2px);
+  transition:
+    opacity 150ms var(--ease-out-soft),
+    transform 150ms var(--ease-out-soft);
+}
+
+.xy-detail-tooltip-trigger:hover::after,
+.xy-detail-tooltip-trigger:focus-visible::after {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+html[data-scheme="dark"] .xy-detail-tooltip-trigger::after {
+  background: color-mix(in srgb, var(--xy-paper) 92%, transparent);
+  box-shadow:
+    0 12px 30px rgb(0 0 0 / 0.28),
+    0 1px 0 rgb(255 255 255 / 0.05);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .xy-detail-tooltip-trigger::after {
+    transition: none;
+  }
+}
+
+/* 鐢ㄩ噺鍐呭浠呭仛 opacity/transform 杩囨浮锛涜〃鏍奸珮搴︿粛鐢辨甯稿竷灞€鍐冲畾锟?*/
+.xy-usage-card,
+.xy-usage-row,
+.xy-usage-section {
+  transition:
+    opacity var(--duration-base) var(--ease-out-soft),
+    transform var(--duration-base) var(--ease-out-soft),
+    border-color var(--duration-fast) ease,
+    background-color var(--duration-fast) ease;
+}
+
+.xy-usage-card,
+.xy-usage-row {
+  animation: rise-in var(--duration-base) var(--ease-out-soft) both;
+}
+
+.xy-session-switch {
+  transform-origin: center;
+  animation: none;
+}
+
+.xy-usage-page {
+  transform-origin: center;
+  animation: session-switch 180ms var(--ease-out-soft) both;
+}
+
+.xy-usage-content-switch {
+  animation: usage-content-switch 180ms var(--ease-out-soft) both;
+}
+
+.xy-usage-loading {
+  display: grid;
+  gap: 12px;
+}
+
+.xy-usage-skeleton {
+  position: relative;
+  overflow: hidden;
+  min-height: 76px;
+  border: 1px solid var(--xy-line);
+  border-radius: 14px;
+  background: var(--xy-glass-hover);
+}
+
+.xy-usage-skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgb(255 255 255 / 0.14),
+    transparent
+  );
+  animation: usage-skeleton-shimmer 1.15s var(--ease-out-soft) infinite;
+}
+
+@keyframes usage-content-switch {
+  from {
+    opacity: 0.72;
+    transform: translate3d(0, 4px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes usage-skeleton-shimmer {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+/* Bubble layers own their opaque base; ancestor isolation would break viewport wallpaper sampling. */
+.xy-prompt-sticky,
+.xy-chat-col,
+.xy-chat-surface {
+  isolation: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .xy-usage-card,
+  .xy-usage-row,
+  .xy-session-switch,
+  .xy-usage-page {
+    animation: none;
+    transition: none;
+  }
+}
+
+/* 聊天列在 xy-pane-chat-host 内（与 FilePreview 同宿主，便于放大覆盖）。 */
+.xy-pane-row .xy-pane-chat-host > main,
+.xy-pane-row > main {
+  min-width: 180px;
+  flex: 1 1 0%;
+}
+
+.xy-pane-chat-host {
+  min-width: 0;
+  flex: 1 1 0%;
+}
+
+.xy-pane-slot,
+.xy-pane-slide {
+  will-change: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .xy-pane-slot,
+  .xy-pane-slide {
+    will-change: auto;
+  }
+}
+
+.xy-pane-slot {
+  overflow: hidden;
+  min-width: 0;
+  flex: 0 0 auto;
+  /* 鍏滃簳闃叉孩鍑猴細闈㈡澘妲斤紙鍚€滄敹璧峰彸杈瑰唴瀹光€濇椂鍙犲姞鐨勬爲瀹斤級涓嶅緱鎶婅亰澶╁尯
+     鏈€灏忓垪锟?xy-pane-row > main 锟?min-width: 180px锛夐《鍑鸿鍙ｏ拷?*/
+  max-width: calc(100% - 180px);
+  transition:
+    width 420ms cubic-bezier(0.16, 1, 0.3, 1) 40ms,
+    flex-basis 420ms cubic-bezier(0.16, 1, 0.3, 1) 40ms;
+}
+
+/* 收起右边内容时宽度变化同样平滑过渡：内容随分隔条一起移动 */
+.xy-pane-slot.is-animating,
+.xy-pane-row:has(.xy-pane-dragging) .xy-pane-slot {
+  will-change: width, transform;
+}
+
+.xy-pane-slide {
+  transition:
+    width 420ms cubic-bezier(0.16, 1, 0.3, 1) 40ms,
+    transform 420ms cubic-bezier(0.16, 1, 0.3, 1) 40ms;
+}
+
+/* 璁剧疆閲屽紑鍚€滄瀬骞虫粦鍑忛€熲€濇椂鍒囨崲锟?锟?quintic-out锟?*/
+html[data-pane-ease="silky"] .xy-pane-slot {
+  transition:
+    width 420ms cubic-bezier(0.23, 1, 0.32, 1) 40ms,
+    flex-basis 420ms cubic-bezier(0.23, 1, 0.32, 1) 40ms;
+}
+
+html[data-pane-ease="silky"] .xy-pane-slide {
+  transition:
+    width 420ms cubic-bezier(0.23, 1, 0.32, 1) 40ms,
+    transform 420ms cubic-bezier(0.23, 1, 0.32, 1) 40ms;
+}
+
+.xy-header-tools {
+  display: grid;
+  grid-template-columns: 1fr;
+}
+
+.xy-header-tools.is-collapsed {
+  grid-template-columns: 0fr;
+  pointer-events: none;
+}
+
+.xy-header-tools-inner {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  overflow: hidden;
+  transform: none;
+}
+
+.xy-header-tools.is-collapsed .xy-header-tools-inner {
+  transform: translateX(-14px);
+}
+
+html[data-smoothness="on"] .xy-header-tools {
+  transition: grid-template-columns 300ms cubic-bezier(0.22, 1, 0.36, 1) 40ms;
+}
+
+html[data-smoothness="on"] .xy-header-tools-inner {
+  transition: transform 300ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* 鏍囬闅忓伐鍏风粍涓€璧峰悜鍙虫媺锟?鏀跺洖 */
+html[data-smoothness="on"] .xy-hdr-title {
+  transition:
+    opacity 300ms cubic-bezier(0.22, 1, 0.36, 1) 40ms,
+    transform 300ms cubic-bezier(0.22, 1, 0.36, 1) 40ms,
+    max-width 300ms cubic-bezier(0.22, 1, 0.36, 1) 40ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-smoothness="on"] .xy-header-tools,
+  html[data-smoothness="on"] .xy-header-tools-inner,
+  html[data-smoothness="on"] .xy-hdr-title {
+    transition: none;
+  }
+
+  html[data-smoothness="on"] .xy-usage-chip {
+    animation: none;
+  }
+}
+
+.xy-pane-dragging .xy-pane-slide,
+.xy-sidebar-dragging .xy-pane-slide,
+.xy-pane-dragging.xy-pane-slot {
+  transition: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .xy-pane-slot,
+  html[data-pane-ease="silky"] .xy-pane-slot {
+    transition: none;
+  }
+}
+
+.xy-sidebar-dragging {
+  transition: none !important;
+}
+
+.xy-pane-dragging {
+  transition: none !important;
+}
+
+/* 分割条：全高命中；视觉为中段圆角缝 + 悬停握把（见 PaneResizeHandle） */
+.xy-pane-resize-handle {
+  touch-action: none;
+}
+
+/* 常显中缝：圆角胶囊 + 上下 mask 淡出，不顶到窗沿，避免「切开」感 */
+.xy-pane-resize-seam {
+  pointer-events: none;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 2px;
+  height: min(56%, 24rem);
+  translate: -50% -50%;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--xy-line) 48%, transparent);
+  opacity: 0.65;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    #000 22%,
+    #000 78%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    #000 22%,
+    #000 78%,
+    transparent 100%
+  );
+  transition:
+    height 180ms var(--ease-out-soft, ease),
+    opacity 180ms var(--ease-out-soft, ease),
+    background-color 180ms var(--ease-out-soft, ease),
+    width 180ms var(--ease-out-soft, ease);
+}
+
+html[data-scheme="dark"] .xy-pane-resize-seam {
+  background: color-mix(in oklch, var(--xy-line) 58%, transparent);
+  opacity: 0.72;
+}
+
+.xy-pane-resize-handle.is-lit .xy-pane-resize-seam {
+  width: 2.5px;
+  height: min(62%, 26rem);
+  opacity: 0.92;
+  background: color-mix(in oklch, var(--xy-accent) 22%, var(--xy-line));
+}
+
+.xy-pane-resize-handle.is-dragging .xy-pane-resize-seam {
+  width: 3px;
+  opacity: 1;
+  background: color-mix(in oklch, var(--xy-accent) 36%, var(--xy-line));
+}
+
+.xy-pane-resize-grip {
+  box-shadow:
+    0 0 0 1px color-mix(in oklch, var(--xy-accent) 16%, transparent),
+    0 0 12px color-mix(in oklch, var(--xy-accent) 12%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .xy-pane-resize-seam {
+    transition: none;
+  }
+}
+
+/* 水平软分割：inset 阴影（不占布局高度，两端等宽不淡出；需淡出用 mask，见 xy-pane-resize-seam）。
+   强度走 --xy-rule-weak，暗色由 token 翻转，无需单独覆盖。 */
+.xy-soft-rule-b {
+  box-shadow: inset 0 -1px 0 var(--xy-rule-weak);
+}
+
+.xy-soft-rule-t {
+  box-shadow: inset 0 1px 0 var(--xy-rule-weak);
+}
+
+/* 侧栏：靠聊天侧圆角，与工作区左右对称，缝与圆角衔接 */
+.xy-sidebar-chrome {
+  border-top-right-radius: var(--xy-radius-pane, 12px);
+  border-bottom-right-radius: var(--xy-radius-pane, 12px);
+}
+
+/* 右侧工作区/预览：左侧直角，与文件树、聊天列之间保持直线分割 */
+.xy-workspace-chrome {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+html[data-smoothness="on"] .xy-chat-col {
+  min-width: 0;
+  contain: layout paint;
+  transition:
+    width 420ms cubic-bezier(0.16, 1, 0.3, 1) 40ms,
+    flex-basis 420ms cubic-bezier(0.16, 1, 0.3, 1) 40ms;
+}
+
+html[data-pane-ease="silky"][data-smoothness="on"] .xy-chat-col {
+  transition:
+    width 420ms cubic-bezier(0.23, 1, 0.32, 1) 40ms,
+    flex-basis 420ms cubic-bezier(0.23, 1, 0.32, 1) 40ms;
+}
+
+/* During an active resize both siblings follow the pointer directly. The
+   normal open/close transition remains untouched when no drag is in progress. */
+html[data-smoothness="on"] .xy-pane-row:has(.xy-pane-dragging) .xy-chat-col {
+  transition: none !important;
+}
+
+html[data-smoothness="on"] .xy-pane-dragging {
+  will-change: width;
+}
+
+html[data-smoothness="on"] .xy-enter-fade {
+  animation: xy-enter-fade 110ms ease;
+}
+
+@keyframes xy-enter-fade {
+  from {
+    opacity: 0.4;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Prism worker HTML 锟?last-good fence, scoped so it does not fight SyntaxHighlighter. */
+.xy-prism-html {
+  margin: 0;
+  padding: 12px 14px 12px 16px;
+  overflow-x: auto;
+  background: transparent;
+  font-size: 13px;
+  line-height: 1.25rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--xy-ink);
+}
+
+.xy-prism-file {
+  min-height: 0;
+  padding: 8px 16px 16px 0;
+  font-size: 13px;
+  line-height: 1.25rem;
+}
+
+.xy-prism-file .xy-prism-html {
+  padding: 0 0 0 0;
+}
+
+.xy-prism-gutter {
+  min-width: 2.75em;
+  margin: 0;
+  padding: 0 1.25rem 0 12px;
+  color: var(--xy-mute);
+  user-select: none;
+  text-align: right;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.25rem;
+}
+
+.xy-prism-html .token.comment,
+.xy-prism-html .token.prolog,
+.xy-prism-html .token.doctype,
+.xy-prism-html .token.cdata {
+  color: var(--xy-mute);
+}
+
+.xy-prism-html .token.punctuation {
+  color: var(--xy-ink-soft);
+}
+
+.xy-prism-html .token.keyword,
+.xy-prism-html .token.selector,
+.xy-prism-html .token.important {
+  color: #7c3aed;
+}
+
+.xy-prism-html .token.string,
+.xy-prism-html .token.attr-value,
+.xy-prism-html .token.char {
+  color: #0f766e;
+}
+
+.xy-prism-html .token.function,
+.xy-prism-html .token.class-name {
+  color: #2563eb;
+}
+
+.xy-prism-html .token.number,
+.xy-prism-html .token.boolean {
+  color: #c2410c;
+}
+
+.xy-prism-html .token.operator,
+.xy-prism-html .token.entity {
+  color: var(--xy-ink-soft);
+}
+
+html[data-scheme="dark"] .xy-prism-html .token.keyword,
+html[data-scheme="dark"] .xy-prism-html .token.selector {
+  color: #c4b5fd;
+}
+
+html[data-scheme="dark"] .xy-prism-html .token.string,
+html[data-scheme="dark"] .xy-prism-html .token.attr-value {
+  color: #5eead4;
+}
+
+html[data-scheme="dark"] .xy-prism-html .token.function,
+html[data-scheme="dark"] .xy-prism-html .token.class-name {
+  color: #93c5fd;
+}
+
+html[data-scheme="dark"] .xy-prism-html .token.number,
+html[data-scheme="dark"] .xy-prism-html .token.boolean {
+  color: #fdba74;
+}
+
+.xy-modal-backdrop {
+  transition: opacity var(--duration-base) ease;
+}
+
+.xy-modal-panel {
+  transition:
+    opacity var(--duration-base) var(--ease-out-soft),
+    transform var(--duration-base) var(--ease-out-soft);
+}
+
+.xy-bg-layer {
+  contain: paint;
+  transition: opacity 220ms ease;
+}
+
+.xy-composer-shell {
+  box-shadow: var(--xy-composer-shadow);
+}
+
+.xy-sidebar-drawer {
+  box-shadow: var(--xy-sidebar-shadow);
+}
+
+.xy-file-preview {
+  backdrop-filter: none;
+}
+
+.xy-md-doc {
+  font-size: 14.5px;
+  line-height: 1.7;
+  color: var(--xy-ink);
+  font-weight: 450;
+}
+
+.xy-md-doc > :first-child {
+  margin-top: 0;
+}
+
+.katex {
+  color: inherit;
+  font-size: 1.05em;
+}
+
+.katex-display {
+  margin: 0.85em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.katex-error {
+  color: var(--xy-mute) !important;
+}
+
+.xy-modal-elevated {
+  box-shadow: var(--xy-modal-shadow);
+}
+
+.xy-rewind-dialog {
+  color: var(--xy-ink);
+  box-sizing: border-box;
+  /* 随窗口缩放，上限约 22rem，小窗不低于 15rem */
+  width: min(clamp(15rem, 32vw, 22rem), calc(100vw - 1.25rem));
+  max-height: min(82dvh, 34rem);
+}
+
+.xy-rewind-dialog-simple {
+  width: min(22rem, calc(100vw - 1.5rem));
+  max-height: none;
+}
+
+.xy-rewind-dialog::backdrop {
+  transition: opacity var(--duration-base) ease;
+}
+

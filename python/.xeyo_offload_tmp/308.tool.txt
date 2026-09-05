@@ -1,0 +1,70 @@
+   370→							onClick={() => setUsagePreviewOpen(open => !open)}
+   371→							className={cn(
+   372→								'xy-usage-chip inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 transition-colors hover:bg-glass-hover hover:text-ink',
+   373→								usagePreviewOpen && 'bg-glass-hover text-ink',
+   374→							)}
+   375→						>
+   376→							{usage
+   377→								? formatUsageChipPreview(
+   378→										totalTokens,
+   379→										// smoke-test #2：chip 也显示模型窗口（此前硬编码 null）。
+   380→										usage.contextLimit,
+   381→										contextPercent == null
+   382→											? null
+   383→											: contextPercent.toFixed(1),
+   384→									)
+   385→								: '用量 · 暂无数据'}
+   386→												<ChevronDown className={cn('h-3 w-3 transition-transform', usagePreviewOpen && 'rotate-180')} strokeWidth={1.8} />
+   387→						</button>
+   388→						{usagePreviewOpen ? (
+   389→								<div
+   390→									id={usagePreviewId}
+   391→									role="dialog"
+   392→									aria-label="本对话用量详情"
+   393→									className="xy-menu-flyout xy-usage-card anim-pop absolute left-0 right-auto top-full z-50 mt-2 w-[min(340px,calc(100vw-1rem))] origin-top-left whitespace-normal rounded-xl border border-line/50 p-3 text-left text-[11px] leading-4 text-ink-soft"
+   394→								>
+   395→									<div className="flex items-center justify-between gap-2">
+   396→										<h3 className="font-semibold text-ink">本对话用量</h3>
+   397→										<button
+   398→											type="button"
+   399→											aria-label="关闭用量详情"
+   400→											onClick={() => setUsagePreviewOpen(false)}
+   401→											className="xy-icon-btn -mr-1 rounded-md p-1 text-mute hover:bg-glass-hover hover:text-ink"
+   402→										>
+   403→											<X className="h-3.5 w-3.5" strokeWidth={1.8} />
+   404→										</button>
+   405→									</div>
+   406→									<div className="mt-2 grid grid-cols-2 gap-2">
+   407→										<div className="min-w-0 rounded-lg border border-line/70 bg-glass-hover px-2.5 py-2">
+   408→											<div className="text-mute">消耗 Token（累计）</div>
+   409→											<div className="mt-0.5 font-mono text-[18px] font-semibold leading-tight text-ink">
+   410→												{usage
+   411→													? formatTokenCount(totalTokens)
+   412→													: '暂无数据'}
+   413→											</div>
+   414→										</div>
+   415→										<div className="min-w-0 rounded-lg border border-line/70 bg-glass-hover px-2.5 py-2">
+   416→											<div className="text-mute">模型窗口</div>
+   417→											<div className="mt-0.5 font-mono text-[18px] font-semibold leading-tight text-ink">
+   418→												{contextLimit != null
+   419→													? formatTokenCount(contextLimit)
+   420→													: '暂无数据'}
+   421→											</div>
+   422→											<div className="mt-0.5 text-right font-mono text-[11px] leading-tight text-mute">
+   423→												{contextLimit != null && contextTokens != null
+   424→													? `${Math.min(100, Math.round((contextTokens / contextLimit) * 100))}%` : '—'} 占用
+   425→											</div>
+   426→										</div>
+   427→										<div className="min-w-0 rounded-lg border border-line/70 bg-glass-hover px-2.5 py-2">
+   428→											<div className="text-mute">缓存命中（累计）</div>
+   429→											<div className="mt-0.5 font-mono text-[18px] font-semibold leading-tight text-ink">{cacheHitRateText == null ? '暂无数据' : `${cacheHitRateText}%`}</div>
+   430→										</div>
+   431→										<div className="min-w-0 rounded-lg border border-line/70 bg-glass-hover px-2.5 py-2">
+   432→											<div className="text-mute">本轮输出</div>
+   433→											<div className="mt-0.5 font-mono text-[18px] font-semibold leading-tight text-ink">{totalOut != null ? formatTokenCount(totalOut) : '暂无数据'}</div>
+   434→										</div>
+   435→									</div>
+   436→									{(() => {
+   437→										const cursor =
+   438→											compression?.compact_cursor ?? usage?.compactCursor ?? 0;
+   439→										const active =

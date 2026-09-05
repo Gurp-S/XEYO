@@ -1,0 +1,47 @@
+--- before Ctrl+K: root children = 2
+--- after Ctrl+K: {
+  "rootChildren": 2,
+  "rootHtmlLen": 30156,
+  "bodyChildren": [
+    "DIV.",
+    "SCRIPT.",
+    "DIV.fixed inset-0 z-[9999] flex items-start "
+  ],
+  "bodyHtmlHead": "\n    <div id=\"root\"><div class=\"relative h-full w-full min-h-0 min-w-0\"><div class=\"relative z-0 flex h-full w-full min-h-0 min-w-0 flex-col overflow-hidden bg-paper\" style=\"--xy-bg-image: none; --xy-bg-wallpaper-opacity: 0; --xy-bg-blur: 12px; --xy-bg-veil: var(--xy-paper); --xy-bg-veil-composited: var(--xy-paper); --xy-bg-draw-size: 0px 0px; --xy-bg-draw-pos: 0px 0px;\"><div class=\"relative z-10 flex min-h-0 min-w-0 flex-1 flex-col bg-transparent\"><div class=\"xy-titlebar relative z-50 flex h-10"
+}
+--- logs:
+  [debug] [vite] connecting...
+  [debug] [vite] connected.
+  [info] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+  [http 502] http://127.0.0.1:5175/v1/workspace/git/status
+  [error] Failed to load resource: the server responded with a status of 502 (Bad Gateway)
+  [http 502] http://127.0.0.1:5175/v1/workspace/git/log?limit=500
+  [error] Failed to load resource: the server responded with a status of 502 (Bad Gateway)
+  [http 502] http://127.0.0.1:5175/v1/workspace/git/branches
+  [error] Failed to load resource: the server responded with a status of 502 (Bad Gateway)
+  [http 502] http://127.0.0.1:5175/v1/ilink/status?omit_jobs=1&stream_from=0
+  [error] Failed to load resource: the server responded with a status of 502 (Bad Gateway)
+  [http 502] http://127.0.0.1:5175/v1/workspace/git/status
+  [error] Failed to load resource: the server responded with a status of 502 (Bad Gateway)
+  [http 502] http://127.0.0.1:5175/v1/workspace/git/log?limit=500
+  [error] Failed to load resource: the server responded with a status of 502 (Bad Gateway)
+  [http 502] http://127.0.0.1:5175/v1/workspace/git/branches
+  [error] Failed to load resource: the server responded with a status of 502 (Bad Gateway)
+  [http 502] http://127.0.0.1:5175/v1/ilink/status?omit_jobs=1&stream_from=0
+  [error] Failed to load resource: the server responded with a status of 502 (Bad Gateway)
+  [warning] [XEYO] migration skipped: NotFoundError: Failed to execute 'transaction' on 'IDBDatabase': One of the specified object stores was not found.
+    at Proxy.<anonymous> (http://127.0.0.1:5175/n
+  [http 502] http://127.0.0.1:5175/v1/sessions
+  [error] Failed to load resource: the server responded with a status of 502 (Bad Gateway)
+  [http 502] http://127.0.0.1:5175/v1/sessions
+  [error] Failed to load resource: the server responded with a status of 502 (Bad Gateway)
+  [http 502] http://127.0.0.1:5175/v1/workspace/git/status
+  [error] Failed to load resource: the server responded with a status of 502 (Bad Gateway)
+  [http 502] http://127.0.0.1:5175/v1/workspace/git/log?limit=500
+  [error] Failed to load resource: the server responded with a status of 502 (Bad Gateway)
+  [http 502] http://127.0.0.1:5175/v1/workspace/git/branches
+  [error] Failed to load resource: the server responded with a status of 502 (Bad Gateway)
+  [http 502] http://127.0.0.1:5175/v1/sessions/sess_mtnw5il7_z2cdwu/jobs
+  [error] Failed to load resource: the server responded with a status of 502 (Bad Gateway)
+  [http 502] http://127.0.0.1:5175/v1/sessions/sess_mtnw5il7_z2cdwu/rewind
+  [error] Failed to load resource: the server responded with a status of 502 (Bad Gateway)

@@ -1,0 +1,15 @@
+{
+  "name": "xeyo",
+  "private": true,
+  "description": "XEYO monorepo orchestration (Python engine + GUI + cli-ts)",
+  "scripts": {
+    "typecheck": "npm run typecheck --prefix gui && npm run typecheck --prefix cli-ts",
+    "test:gui": "npm test --prefix gui",
+    "test:e2e": "npm run test:e2e --prefix gui",
+    "test:python": "cd python && py -3.11 -m pytest -q --timeout=60 -m \"not live\"",
+    "check:slash": "cd python && py -3.11 -m slash.export_manifest --check"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

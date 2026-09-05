@@ -1,0 +1,118 @@
+# 环境变量（含密钥，严禁提交）
+.env
+.env.*
+!.env.example
+
+# 敏感/本地数据
+.xeyo_uploads/
+.xeyo_filehelper/
+.xeyo_ilink/
+python/.xeyo_filehelper/
+python/.xeyo_ilink/
+credentials
+credentials.*
+
+# IDE 配置
+.idea/
+.vscode/
+.cursor/
+*.iml
+
+# 构建产物与日志
+artifacts/
+logs/
+tmp/
+node_modules/
+cli-ts/dist/
+*.log
+debug-*.log
+java/target/
+gui/tsconfig.tsbuildinfo
+gui/src-tauri/target/
+
+# 截图
+screenshots/*.png
+screenshots/*.preview.png
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# 测试临时文件
+test_*.txt
+tool_test*.txt
+
+# 本地 dev 启动开关（启动 XEYO.bat 检测后走 Tauri dev / Vite）
+gui/.xeyo-dev
+
+# 运行时索引（会话检索缓存，不入库）
+*.session_index.json
+
+# 审计日志（本机运行时产物）
+.xeyo_audit/
+python/.xeyo_audit/
+
+# 工作区杂项产物（截图/预览/临时分析，不入库）
+$null
+out.txt
+shot_log.txt
+_vite-usage.*
+_*.png
+_*.html
+*-preview.html
+_*.patch
+_*.txt
+_*.md
+anim-base.png
+anim-f*.png
+stream-previews/
+usage-previews/
+workspace-layouts/
+gui/bench-results/
+**/bench-results/
+screen-current.png
+xy-window-*.png
+
+# 回溯/会话运行时数据（本机会话记录，严禁入库）
+.xeyo/
+.xeyo_sessions/
+python/.xeyo/
+.xeyo_test_tmp/
+xeyo_test_tmp/
+python/.xeyo_test_tmp/
+.breath-debug/
+gui/tmp-*
+gui/_repair-*
+
+# 一次性 refactor 产物 / 运行时 shadow git（不入库）
+gui/.dismantle/
+gui/.context-island-backup-*/
+.xy-shadow-git/
+python/.xy-shadow-git/
+.stmptmp/
+.pytmp/
+.dsh-repro*
+python/chunk*.txt
+.diag_memory_cost/
+
+python/xeyo.egg-info/
+gui/test-results/
+
+# 会话/工具临时目录（2026-09-05 二次事故后补充）
+.tmp/
+.archify/
+
+# 二次事故重建补充（2026-09-05 13:37）
+.git.broken*/
+.xy-trash/
+.pnpm-store/
+**/.pytest-tmp/
+**/.pytest_tmp*/
+.workbuddy/**/*.tmp
+gui/context_island/
+gui/.test_write_probe
+.tmp_*.txt
+gui/test-results*/
+test-results/

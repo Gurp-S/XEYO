@@ -1,0 +1,20 @@
+   375→						>
+   376→							{usage
+   377→								? formatUsageChipPreview(
+   378→										totalTokens,
+   379→										// smoke-test #2：chip 也显示模型窗口（此前硬编码 null）。
+   380→										usage.contextLimit,
+   381→										contextPercent == null
+   382→											? null
+   383→											: contextPercent.toFixed(1),
+   384→									)
+   385→								: '用量 · 暂无数据'}
+   386→												<ChevronDown className={cn('h-3 w-3 transition-transform', usagePreviewOpen && 'rotate-180')} strokeWidth={1.8} />
+   387→						</button>
+   388→						{usagePreviewOpen ? (
+   389→								<div
+   390→									id={usagePreviewId}
+   391→									role="dialog"
+   392→									aria-label="本对话用量详情"
+   393→									className="xy-menu-flyout xy-usage-card anim-pop absolute left-0 right-auto top-full z-50 mt-2 w-[min(340px,calc(100vw-1rem))] origin-top-left whitespace-normal rounded-xl border border-line/50 p-3 text-left text-[11px] leading-4 text-ink-soft"
+   394→								>

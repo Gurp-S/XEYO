@@ -1,0 +1,68 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "xeyo"
+version = "0.1.0"
+description = "XEYO coding assistant engine"
+requires-python = ">=3.11"
+dependencies = [
+	"httpx>=0.27.0",
+	"fastapi>=0.115.0",
+	"uvicorn[standard]>=0.32.0",
+	"python-multipart>=0.0.12",
+	"typer>=0.12.0",
+	"rich>=13.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+	"pytest>=8.0.0",
+	"pytest-asyncio>=0.24.0",
+	"pytest-timeout>=2.3.0",
+]
+
+[project.scripts]
+xeyo = "cli.main:app"
+
+# 顶层单文件模块（非包目录）；不写进这里则 editable 安装后 from media_store 会失败。
+[tool.setuptools]
+py-modules = ["media_store"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = [
+	"audit*",
+	"bridge*",
+	"channels*",
+	"cli*",
+	"codeindex*",
+	"common*",
+	"engine*",
+	"evals*",
+	"extension*",
+	"memory*",
+	"model*",
+	"msgtypes*",
+	"permissions*",
+	"prompt*",
+	"rewind*",
+	"server*",
+	"session*",
+	"slash*",
+	"tools*",
+	"usage*",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+pythonpath = ["."]
+testpaths = ["tests"]
+timeout = 60
+timeout_method = "thread"
+markers = [
+	"live: hits real provider APIs (deselected unless --live)",
+	"slow: long-running tests, allowed up to 300s",
+	"channel: filehelper/ilink 通道测试（fixture 做单例隔离）",
+]

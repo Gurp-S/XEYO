@@ -1,0 +1,60 @@
+   195→			body["stream_options"] = {"include_usage": True}
+   196→		return body
+   197→
+   198→	def _record_usage_safe(self, usage: dict[str, Any] | None) -> None:
+   199→		if not usage:
+   200→			return
+   201→		try:
+   202→			from usage.ledger import record_from_openai_usage
+   203→
+   204→			sid = ""
+   205→			try:
+   206→				from engine.workspace_context import get_workspace_context
+   207→
+   208→				ctx = get_workspace_context()
+   209→				if ctx is not None and ctx.session_id:
+   210→					sid = str(ctx.session_id).strip()
+   211→			except Exception:
+   212→				sid = ""
+   213→			record_from_openai_usage(
+   214→				provider=self._provider,
+   215→				model=self._model,
+   216→				api_key=self._api_key,
+   217→				usage=usage,
+   218→				session_id=sid,
+   219→			)
+   220→		except Exception:  # noqa: BLE001
+   221→			logging.getLogger(__name__).debug(
+   222→				"usage ledger write failed", exc_info=True
+   223→			)
+   224→
+   225→	async def stream(
+   226→		self,
+   227→		messages: list[dict[str, Any]],
+   228→		tools: list[dict[str, Any]],
+   229→		abort: AbortController,
+   230→	) -> AsyncIterator[ModelChunk]:
+   231→		abort.raise_if_aborted()
+   232→		self.last_usage = None
+   233→		self.last_context_tokens = None
+   234→		self._usage_recorded_this_stream = False
+   235→		body = self._build_body(messages, tools, stream=True)
+   236→		url = f"{self._base_url}/chat/completions"
+   237→
+   238→		if httpx is not None:
+   239→			tool_bufs: dict[int, dict[str, str]] = {}
+   240→			last_usage: dict[str, Any] | None = None
+   241→			client = get_shared_httpx_client(180.0)
+   242→			async with client.stream(
+   243→				"POST", url, headers=self._headers(), json=body, timeout=180.0
+   244→			) as resp:
+   245→				if resp.status_code >= 400:
+   246→					err = await resp.aread()
+   247→					raw = err.decode("utf-8", errors="replace")
+   248→					raise ProviderError(
+   249→						provider_error_message(
+   250→							resp.status_code,
+   251→							sanitize_http_body(raw),
+   252→						),
+   253→						status_code=resp.status_code,
+   254→						retry_after_ms=parse_retry_after(resp.headers.get("Retry-After")),

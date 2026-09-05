@@ -1,0 +1,19 @@
+The file python/scripts/memory_stack_eval.py has been updated successfully. +2 -3
+
+```diff
+--- a/memory_stack_eval.py
++++ b/memory_stack_eval.py
+@@ -1497,9 +1497,8 @@
+ .modal .sheet .mhead{display:flex;justify-content:space-between;align-items:center;gap:16px;
+   border-bottom:1px solid var(--txt);padding-bottom:12px}
+ .modal .sheet .mhead h2{font-size:22px;font-weight:900}
+-.modal .sheet .close{position:absolute;top:20px;right:20px;width:28px;height:28px;
+-  background:var(--panel);border:1px solid var(--line);border-radius:50%;display:flex;
+-  align-items:center;justify-content-center;cursor:pointer;font-size:18px;color:var(--mut)}
++.modal .sheet .close{background:none;border:0;border-radius:8px;padding:4px 8px;margin-left:auto;
++  display:flex;align-items:center;cursor:pointer;font-size:20px;color:var(--mut);flex:none}
+ .modal .sheet .close:hover{background:var(--quiet);color:var(--txt)}
+ .modal .sheet .model-fixed{flex:none;background:var(--bg);z-index:10;
+   border-bottom:1px solid var(--line);margin-bottom:12px;padding-bottom:12px}
+```
+Hint: Diagnostics path=python/scripts/memory_stack_eval.py

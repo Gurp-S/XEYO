@@ -1,0 +1,1088 @@
+/* auto-split from index.css L1658-2705 — Agent workflow UI freeze + activity/thought; do not edit order relative to styles/entry.css */
+/* ===== Agent workflow UI freeze: #10 Split + A7/A8 + L10 =====
+   Typography contract = gui/workflow-ideas-preview.html 冻结底座 */
+.xy-activity-split {
+  width: 100%;
+  min-width: 0;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--xy-ink-soft);
+  -webkit-font-smoothing: antialiased;
+}
+
+.xy-split-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 0 0 8px;
+  margin-bottom: 2px;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--xy-line) 80%, transparent);
+  background: none;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.55;
+  color: var(--xy-ink-soft);
+  text-align: left;
+  cursor: pointer;
+  outline: none;
+}
+
+.xy-split-head:focus-visible {
+  color: var(--xy-ink);
+  box-shadow: inset 0 -2px 0 0 color-mix(in srgb, var(--xy-accent) 45%, transparent);
+}
+
+.xy-split-head:hover {
+  color: var(--xy-ink);
+}
+
+.xy-split-head-label {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: inherit;
+  color: var(--xy-ink);
+}
+
+/* 标签 + chevron 贴在一起；右侧 meta 仍靠右 */
+.xy-split-head-lead {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+.xy-split-head-lead .xy-split-summary {
+  flex: 0 1 auto;
+}
+
+/* 工作流 Cursor 汇总：文案 + 着色 diff + chevron 贴在一起 */
+.xy-cursor-summary {
+  gap: 6px;
+}
+
+.xy-cursor-diff {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.xy-split-head-meta {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: inherit;
+  color: var(--xy-mute);
+  font-variant-numeric: tabular-nums;
+}
+
+.xy-activity-timer {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--xy-accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.xy-done-extra {
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--xy-mute);
+  opacity: 0.85;
+  font-variant-numeric: tabular-nums;
+}
+
+.xy-split-summary {
+  font-weight: 500;
+  color: var(--xy-ink-soft);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.xy-done-on,
+.xy-worked-for {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.55;
+  color: var(--xy-mute);
+  padding: 2px 0 6px;
+  user-select: none;
+}
+
+.xy-done-on-head {
+  margin-bottom: 0;
+  border-bottom-color: color-mix(in srgb, var(--xy-line) 55%, transparent);
+}
+
+.xy-done-on-head .xy-split-summary {
+  font-weight: 500;
+  color: var(--xy-mute);
+}
+
+/* Idea 5 peek 样式见下方「Idea 5 peek」完整块 */
+
+.xy-split-row-main {
+  display: inline-flex;
+  max-width: 100%;
+  width: auto;
+  min-width: 0;
+  align-items: center;
+  gap: 2px;
+  text-align: left;
+}
+
+.xy-split-chevron {
+  margin-left: 0;
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  color: var(--xy-mute);
+  opacity: 0.65;
+  transform: none;
+  transition:
+    opacity 0.15s ease,
+    transform 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.xy-split-chevron.is-open {
+  transform: rotate(90deg);
+}
+
+.group\/head:hover .xy-split-chevron,
+.group\/step:hover .xy-split-chevron,
+.xy-split-head:focus-visible .xy-split-chevron,
+.xy-split-row-main:focus-visible .xy-split-chevron {
+  opacity: 1;
+}
+
+.xy-split-caret {
+  display: inline-block;
+  width: 12px;
+  flex-shrink: 0;
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 400;
+  color: var(--xy-mute);
+  transition: transform 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.xy-split-caret.open {
+  transform: rotate(90deg);
+}
+
+.xy-split-rail {
+  padding-top: 4px;
+}
+
+.xy-split-step {
+  position: relative;
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 8px;
+  padding: 3px 0;
+  border-radius: 0;
+  border-bottom: 1px dashed color-mix(in srgb, var(--xy-line) 55%, transparent);
+}
+
+.xy-split-step:last-child {
+  border-bottom: 0;
+}
+
+.xy-split-left {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  border: 0;
+  background: none;
+  padding: 0;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 400;
+  line-height: 1.55;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  outline: none;
+}
+
+.xy-split-left:disabled {
+  cursor: default;
+}
+
+.xy-split-right button {
+  border: 0;
+  background: none;
+  padding: 0;
+  margin: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  outline: none;
+}
+
+.xy-split-right button:disabled {
+  cursor: default;
+}
+
+.xy-split-right button:focus-visible .xy-split-preview,
+.xy-split-left:focus-visible {
+  color: var(--xy-ink);
+}
+
+.xy-split-right {
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 400;
+  line-height: 1.55;
+  color: var(--xy-mute);
+  min-width: 0;
+}
+
+.xy-split-preview {
+  display: block;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 400;
+  line-height: 1.55;
+  color: var(--xy-mute);
+}
+
+.xy-morph.is-ok {
+  color: var(--xy-ok);
+}
+
+.xy-morph.is-error {
+  color: var(--xy-danger);
+}
+
+.xy-split-step.thought-step .xy-morph {
+  color: #6b5b95;
+}
+
+.xy-split-step.is-ok .xy-morph {
+  color: var(--xy-ok);
+}
+
+.xy-split-step.is-failed .xy-morph {
+  color: var(--xy-danger);
+}
+
+/* A8 Morph contract — weight 650 matches preview .verb */
+.xy-morph {
+  display: inline-grid;
+  position: relative;
+  font-size: 12.5px;
+  font-weight: 650;
+  line-height: 1.55;
+  color: var(--xy-mute);
+}
+
+.xy-morph > span {
+  grid-area: 1 / 1;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+  transition:
+    opacity 0.35s ease,
+    transform 0.35s ease;
+}
+
+.xy-morph > span.off {
+  opacity: 0;
+  transform: translateY(4px);
+  pointer-events: none;
+}
+
+.xy-morph > span.on {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* A8：enter/leave 用 keyframes，不依赖 rAF 切换 .on/.off */
+.xy-morph > span.is-enter {
+  opacity: 1;
+  transform: translateY(0);
+  transition: none;
+  animation: xy-morph-in 0.35s ease both;
+}
+
+.xy-morph > span.is-leave {
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: none;
+  pointer-events: none;
+  animation: xy-morph-out 0.35s ease both;
+}
+
+@keyframes xy-morph-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes xy-morph-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+/* H2 handoff：词命中时轻柔闪（不改 A8 morph） */
+.xy-split-step.is-handoff .xy-morph {
+  animation: xy-verb-flash 0.7s ease;
+}
+
+.xy-split-step.is-handoff .xy-split-preview {
+  position: relative;
+}
+
+.xy-split-step.is-handoff .xy-split-preview::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 1px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--xy-accent) 70%, transparent);
+  transform-origin: left center;
+  animation: xy-preview-sweep 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* 新工具入轨：短延迟后透明度渐变淡入（Thought/Thinking 不参与） */
+.xy-split-step.is-tool-appear {
+  animation: xy-tool-appear 0.45s ease-out both;
+  animation-delay: 0.16s;
+}
+
+@keyframes xy-tool-appear {
+  0% {
+    opacity: 0;
+  }
+  35% {
+    opacity: 0.35;
+  }
+  70% {
+    opacity: 0.78;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes xy-verb-flash {
+  0%,
+  100% {
+    filter: none;
+  }
+  40% {
+    color: var(--xy-accent);
+  }
+}
+
+@keyframes xy-preview-sweep {
+  from {
+    transform: scaleX(0);
+    opacity: 0.3;
+  }
+  to {
+    transform: scaleX(1);
+    opacity: 0.85;
+  }
+}
+
+/* live → done on：交叉淡出 / 淡入 */
+.xy-done-on-wrap.is-settle-in {
+  animation: xy-done-settle-in 0.48s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.xy-round-transcript-layer.is-settling .xy-activity-split {
+  overflow: hidden;
+  max-height: 2400px;
+  pointer-events: none;
+  animation:
+    xy-activity-settle-out 0.45s cubic-bezier(0.22, 1, 0.36, 1) forwards,
+    xy-activity-settle-collapse 0.45s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.xy-round-transcript-layer.is-settling .xy-enter-fade {
+  animation: none;
+}
+
+@keyframes xy-done-settle-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes xy-activity-settle-out {
+  0% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+
+@keyframes xy-activity-settle-collapse {
+  0% {
+    max-height: 2400px;
+  }
+  100% {
+    max-height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    border: none;
+  }
+}
+
+/* L10 Thought ticker */
+.xy-thought-ticker {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 1.55em;
+  width: 100%;
+  overflow: hidden;
+  mask-image: linear-gradient(90deg, transparent, #000 14%);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 14%);
+}
+
+.xy-thought-ticker-track {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 400;
+  line-height: 1.55;
+  color: var(--xy-ink-soft);
+  transition: transform 0.28s cubic-bezier(0.16, 1.4, 0.3, 1);
+}
+
+.xy-thought-sep {
+  margin: 0 0.55em;
+  opacity: 0.7;
+  font-weight: 400;
+  color: color-mix(in srgb, #6b5b95 50%, var(--xy-mute));
+}
+
+.xy-thought-fresh {
+  color: var(--xy-ink);
+  font-weight: 550;
+}
+
+.xy-thought-primary {
+  color: var(--xy-ink);
+  font-weight: 600;
+}
+
+.xy-thought-secondary {
+  opacity: 0.55;
+  font-weight: 400;
+}
+
+.xy-thought-settled {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 400;
+  line-height: 1.55;
+  color: var(--xy-mute);
+}
+
+.xy-snap-in {
+  display: inline-block;
+  animation: xy-snap-in 0.3s cubic-bezier(0.16, 1.4, 0.3, 1);
+}
+
+@keyframes xy-snap-in {
+  from {
+    opacity: 0;
+    transform: translateX(12px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+.xy-thought-blink {
+  display: inline-block;
+  width: 2px;
+  height: 0.95em;
+  margin-left: 2px;
+  background: #6b5b95;
+  vertical-align: -2px;
+  animation: xy-thought-blink 0.7s step-end infinite;
+}
+
+@keyframes xy-thought-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.xy-thought-ticker.is-collapsing .xy-snap-in,
+.xy-thought-ticker.is-collapsing .xy-thought-fresh,
+.xy-thought-ticker.is-collapsing .xy-thought-primary {
+  animation: xy-fade-out-words 0.45s ease forwards;
+}
+
+@keyframes xy-fade-out-words {
+  to {
+    opacity: 0;
+    transform: translateY(-4px);
+    filter: blur(1px);
+  }
+}
+
+/* Idea 5 peek */
+.xy-thought-peek {
+  display: none;
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 5;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--xy-paper) 92%, white);
+  border: 1px solid var(--xy-line);
+  box-shadow: var(--xy-modal-shadow, 0 10px 24px rgb(47 45 40 / 0.12));
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.45;
+  color: var(--xy-ink-soft);
+  white-space: normal;
+}
+
+.group\/thought:hover .xy-thought-peek {
+  display: block;
+}
+
+html[data-smoothness="off"] .group\/thought:hover .xy-thought-peek {
+  display: none !important;
+}
+
+.xy-thought-peek strong {
+  font-weight: 650;
+  color: #6b5b95;
+}
+
+/* Idea 8 — 子 Agent：跟随输入框/用户气泡中性色，微光点表达运行态 */
+.xy-agent-done-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.xy-agent-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 0;
+  margin: 0;
+  border: 1px solid var(--xy-user-bubble-border);
+  border-radius: 12px;
+  background: var(--xy-user-bubble);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.55;
+  color: var(--xy-ink-soft);
+  text-align: left;
+  outline: none;
+  transition:
+    border-color 180ms var(--ease-out-soft),
+    background-color 180ms var(--ease-out-soft);
+}
+
+.xy-agent-bar-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+  margin: 0;
+  padding: 8px 4px 8px 12px;
+  border: none;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  outline: none;
+}
+
+.xy-agent-bar-actions {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+  padding-right: 8px;
+}
+
+.xy-agent-bar-action {
+  margin: 0;
+  padding: 2px 8px;
+  border: 1px solid var(--xy-user-bubble-border);
+  border-radius: 8px;
+  background: transparent;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 550;
+  color: var(--xy-ink-soft);
+  cursor: pointer;
+  outline: none;
+}
+
+.xy-agent-bar-action:hover {
+  border-color: color-mix(in srgb, var(--xy-accent) 40%, var(--xy-user-bubble-border));
+  color: var(--xy-ink);
+}
+
+.xy-agent-bar-action:focus-visible {
+  border-color: var(--xy-accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--xy-accent) 22%, transparent);
+}
+
+.xy-agent-bar:hover {
+  border-color: color-mix(in srgb, var(--xy-accent) 45%, var(--xy-user-bubble-border));
+}
+
+.xy-agent-bar:focus-within {
+  border-color: var(--xy-accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--xy-accent) 22%, transparent);
+}
+
+.xy-agent-bar.is-failed .xy-agent-bar-label {
+  color: var(--xy-danger);
+}
+
+.xy-agent-bar.is-disabled .xy-agent-bar-main {
+  cursor: default;
+  opacity: 0.75;
+}
+
+.xy-agent-bar-pulse {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  flex-shrink: 0;
+}
+
+.xy-agent-bar-caret {
+  font-size: 10px;
+  color: var(--xy-mute);
+}
+
+.xy-agent-bar-label {
+  flex-shrink: 0;
+  max-width: 9.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--xy-ink);
+  letter-spacing: 0.01em;
+}
+
+.xy-agent-bar-label.is-failed {
+  color: var(--xy-danger);
+}
+
+.xy-agent-bar-scope {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border: 1px solid var(--xy-user-bubble-border);
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--xy-ink-soft);
+  line-height: 1.4;
+}
+
+.xy-agent-bar-scope.is-readonly {
+  color: var(--xy-mute);
+  border-color: color-mix(in srgb, var(--xy-mute) 35%, var(--xy-user-bubble-border));
+}
+
+.xy-agent-bar-out {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+.xy-agent-bar-settled {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  color: var(--xy-mute);
+}
+
+.xy-agent-bar.is-running .xy-agent-bar-out {
+  color: var(--xy-ink-soft);
+}
+
+.xy-agent-bar.is-pending {
+  opacity: 0.78;
+}
+
+.xy-agent-bar-pending {
+  font-size: 11px;
+  color: var(--xy-ink-faint, var(--xy-ink-soft));
+}
+
+.xy-run-dot.is-pending {
+  width: 7px;
+  opacity: 0.55;
+  background: var(--xy-ink-soft);
+  animation: none;
+}
+
+/* 完成：绿微光（有光晕、不呼吸） */
+.xy-run-dot.is-done {
+  --xy-run-glow: var(--color-ok, #34d399);
+  width: 7px;
+  opacity: 1;
+  animation: none;
+}
+.xy-run-dot.is-done::before {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: inherit;
+  pointer-events: none;
+  background: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--xy-run-glow) 36%, transparent) 0%,
+    transparent 72%
+  );
+  animation: none;
+}
+
+.xy-run-dot.is-failed-static {
+  --xy-run-glow: var(--color-danger, #f87171);
+  width: 7px;
+  opacity: 1;
+  animation: none;
+}
+.xy-run-dot.is-failed-static::before {
+  content: none;
+}
+
+/* live → 任务名：A8 同款两层淡入 */
+.xy-agent-bar-morph {
+  display: inline-grid;
+  position: relative;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.xy-agent-bar-face {
+  grid-area: 1 / 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  color: var(--xy-mute);
+  transition:
+    opacity 0.35s ease,
+    transform 0.35s ease;
+}
+
+.xy-agent-bar-face.off {
+  opacity: 0;
+  transform: translateY(4px);
+  pointer-events: none;
+  /* 叠字主要来自半透明过渡；收尾时直接藏起离场面 */
+  visibility: hidden;
+}
+
+.xy-agent-bar-face.on {
+  opacity: 1;
+  transform: translateY(0);
+  visibility: visible;
+}
+
+html[data-smoothness="off"] .xy-agent-bar-face {
+  transition: none;
+}
+
+.xy-workflow-fold {
+  margin-top: 2px;
+  transition: grid-template-rows 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* done 展开：更紧凑；去掉中间说明黑点 */
+.xy-workflow-fold .xy-prose-dot {
+  display: none !important;
+}
+
+.xy-workflow-fold .xy-prose-mark {
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  font-size: 12.5px;
+  line-height: 1.3;
+}
+
+.xy-workflow-fold .xy-chat-text {
+  font-size: 12.5px !important;
+  line-height: 1.3 !important;
+  margin: 0 !important;
+}
+
+.xy-workflow-fold .xy-chat-text p,
+.xy-workflow-fold .xy-chat-text > * {
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+}
+
+.xy-workflow-fold .space-y-2 {
+  gap: 0;
+}
+
+.xy-workflow-fold .space-y-2 > :not([hidden]) ~ :not([hidden]) {
+  margin-top: 0 !important;
+}
+
+.xy-workflow-fold .px-3 {
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
+}
+
+.xy-workflow-fold .py-2 {
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+}
+
+.xy-workflow-fold .xy-enter-fade {
+  margin: 0;
+  padding: 0;
+}
+
+.xy-workflow-fold .xy-activity-split {
+  line-height: 1.3;
+  margin: 0;
+  padding: 0;
+}
+
+.xy-workflow-fold .xy-split-head {
+  padding: 0;
+  margin: 0;
+  gap: 6px;
+  min-height: 0;
+  line-height: 1.3;
+  border-bottom-color: color-mix(in srgb, var(--xy-line) 40%, transparent);
+}
+
+.xy-workflow-fold .xy-split-head-label,
+.xy-workflow-fold .xy-split-summary {
+  font-size: 12.5px;
+  line-height: 1.3;
+}
+
+.xy-workflow-fold .xy-split-step {
+  padding: 0;
+  gap: 6px;
+}
+
+.xy-workflow-fold .xy-split-rail {
+  padding-top: 0;
+}
+
+.xy-workflow-fold .xy-split-left,
+.xy-workflow-fold .xy-split-right {
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.xy-workflow-fold .xy-split-preview {
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+/* 段与段：仅保留很细的分隔，上下几乎贴住 */
+.xy-workflow-fold .xy-activity-detail-inner > * + * {
+  margin-top: 2px;
+  padding-top: 2px;
+  border-top: 1px solid color-mix(in srgb, var(--xy-line) 35%, transparent);
+}
+
+.xy-thought-expand-body {
+  display: block;
+  width: 100%;
+  margin-top: 2px;
+  padding: 4px 0 6px;
+  border: 0;
+  background: none;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 400;
+  line-height: 1.45;
+  color: var(--xy-ink-soft);
+  text-align: left;
+  white-space: pre-wrap;
+  word-break: break-word;
+  cursor: pointer;
+  outline: none;
+}
+
+html[data-smoothness="off"] .xy-morph > span {
+  transition: none !important;
+  animation: none !important;
+}
+
+html[data-smoothness="off"] .xy-thought-ticker-track {
+  transition: none !important;
+}
+
+html[data-smoothness="off"] .xy-snap-in {
+  animation: none !important;
+}
+
+html[data-smoothness="off"] .xy-thought-blink {
+  animation: none !important;
+}
+
+html[data-smoothness="off"] .xy-split-step.is-handoff .xy-morph,
+html[data-smoothness="off"] .xy-split-step.is-tool-appear {
+  animation: none !important;
+  opacity: 1 !important;
+  transform: none !important;
+}
+
+html[data-smoothness="off"] .xy-split-step.is-handoff .xy-split-preview::after {
+  display: none !important;
+}
+
+html[data-smoothness="off"] .xy-done-on-wrap.is-settle-in,
+html[data-smoothness="off"] .xy-round-transcript-layer.is-settling .xy-activity-split {
+  animation: none !important;
+  opacity: 1 !important;
+  transform: none !important;
+}
+
+html[data-smoothness="off"] .xy-thought-ticker.is-collapsing .xy-snap-in,
+html[data-smoothness="off"] .xy-thought-ticker.is-collapsing .xy-thought-fresh,
+html[data-smoothness="off"] .xy-thought-ticker.is-collapsing .xy-thought-primary {
+  animation: none !important;
+}
+
+.xy-send-stop-icon {
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease;
+}
+
+.xy-dock-presence {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--duration-base) var(--ease-out-soft);
+}
+
+.xy-dock-presence:has(> .xy-dock-presence-inner.open) {
+  grid-template-rows: 1fr;
+}
+
+.xy-dock-presence > .xy-dock-presence-inner {
+  overflow: hidden;
+  min-height: 0;
+  opacity: 0;
+  transform: translateY(6px);
+  transition:
+    opacity 160ms ease,
+    transform 160ms ease;
+}
+
+.xy-dock-presence > .xy-dock-presence-inner.open {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+html[data-smoothness="off"] .xy-dock-presence {
+  transition: none !important;
+}
+
+html[data-smoothness="off"] .xy-dock-presence > .xy-dock-presence-inner {
+  transition: none !important;
+}
+
+.xy-step-verb {
+  transition:
+    opacity 90ms ease,
+    color 90ms ease;
+}
+
+/* Activity step list: no nested scroll 鈥?chat scroller owns overflow */
+.xy-tool-scroll {
+  overflow: visible;
+  max-height: none;
+}
+
+.xy-tool-jump {
+  position: sticky;
+  bottom: 0.25rem;
+  margin-inline: auto;
+  display: block;
+  border-radius: 9999px;
+  border: 1px solid var(--xy-frame);
+  background: var(--xy-glass-strong);
+  padding: 0.2rem 0.65rem;
+  font-size: 11px;
+  color: var(--xy-ink-soft);
+}
+
+/* 娴眰锟?2px 妯＄硦銆侀珮涓嶉€忔槑搴︼紝閬垮厤瀛楀彔鍦ㄥ绾镐笂 */

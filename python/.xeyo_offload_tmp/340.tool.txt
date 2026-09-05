@@ -1,0 +1,20 @@
+    30→MAX_TOOL_CAP_STREAK = 2
+    31→MAX_TURN_WARNING = "任务已经运行较久，请检查进度并准备收尾。"
+    32→MAX_TOOL_WARNING = "工具使用已经过多，请检查是否已经实现任务。"
+    33→
+    34→
+    35→def _positive_int_from_env(name: str, default: int) -> int:
+    36→	raw = os.environ.get(name, "").strip()
+    37→	if not raw:
+    38→		return default
+    39→	try:
+    40→		value = int(raw)
+    41→	except (TypeError, ValueError):
+    42→		return default
+    43→	return value if value > 0 else default
+    44→
+    45→
+    46→def max_turns_from_env(default: int = DEFAULT_MAX_TURNS) -> int:
+    47→	"""读取 XEYO_MAX_TURNS；未设置或非法时返回 default。"""
+    48→	return _positive_int_from_env("XEYO_MAX_TURNS", default)
+    49→

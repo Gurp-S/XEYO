@@ -1,0 +1,33 @@
+The file python/model/openai_compat.py has been updated successfully. +10 -9
+
+```diff
+--- a/openai_compat.py
++++ b/openai_compat.py
+@@ -203,15 +203,16 @@
+ 		try:
+ 			from usage.ledger import record_from_openai_usage
+ 
+-			sid = ""
+-			try:
+-				from engine.workspace_context import get_workspace_context
+-
+-				ctx = get_workspace_context()
+-				if ctx is not None and ctx.session_id:
+-					sid = str(ctx.session_id).strip()
+-			except Exception:
+-				sid = ""
++			sid = self._session_id
++			if not sid:
++				try:
++					from engine.workspace_context import get_workspace_context
++
++					ctx = get_workspace_context()
++					if ctx is not None and ctx.session_id:
++						sid = str(ctx.session_id).strip()
++				except Exception:
++					sid = ""
+ 			record_from_openai_usage(
+ 				provider=self._provider,
+ 				model=self._model,
+```
+Hint: Diagnostics path=python/model/openai_compat.py

@@ -1,0 +1,290 @@
+/* auto-split from src/styles/workflow.css body L1-289 — Activity split chrome (head/steps/rail); imported via barrel src/styles/workflow.css */
+/* ===== Agent workflow UI freeze: #10 Split + A7/A8 + L10 =====
+   Typography contract = gui/workflow-ideas-preview.html 冻结底座 */
+.xy-activity-split {
+  width: 100%;
+  min-width: 0;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--xy-ink-soft);
+  -webkit-font-smoothing: antialiased;
+}
+
+.xy-split-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 0 0 8px;
+  margin-bottom: 2px;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--xy-line) 80%, transparent);
+  background: none;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.55;
+  color: var(--xy-ink-soft);
+  text-align: left;
+  cursor: pointer;
+  outline: none;
+}
+
+.xy-split-head:focus-visible {
+  color: var(--xy-ink);
+  box-shadow: inset 0 -2px 0 0 color-mix(in srgb, var(--xy-accent) 45%, transparent);
+}
+
+.xy-split-head:hover {
+  color: var(--xy-ink);
+}
+
+.xy-split-head-label {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: inherit;
+  color: var(--xy-ink);
+}
+
+/* 标签 + chevron 贴在一起；右侧 meta 仍靠右 */
+.xy-split-head-lead {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+.xy-split-head-lead .xy-split-summary {
+  flex: 0 1 auto;
+}
+
+/* 工作流 Cursor 汇总：文案 + 着色 diff + chevron 贴在一起 */
+.xy-cursor-summary {
+  gap: 6px;
+}
+
+.xy-cursor-diff {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.xy-split-head-meta {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: inherit;
+  color: var(--xy-mute);
+  font-variant-numeric: tabular-nums;
+}
+
+.xy-activity-timer {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--xy-accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.xy-done-extra {
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--xy-mute);
+  opacity: 0.85;
+  font-variant-numeric: tabular-nums;
+}
+
+.xy-split-summary {
+  font-weight: 500;
+  color: var(--xy-ink-soft);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.xy-done-on,
+.xy-worked-for {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.55;
+  color: var(--xy-mute);
+  padding: 2px 0 6px;
+  user-select: none;
+}
+
+.xy-done-on-head {
+  margin-bottom: 0;
+  border-bottom-color: color-mix(in srgb, var(--xy-line) 55%, transparent);
+}
+
+.xy-done-on-head .xy-split-summary {
+  font-weight: 500;
+  color: var(--xy-mute);
+}
+
+/* Idea 5 peek 样式见下方「Idea 5 peek」完整块 */
+
+.xy-split-row-main {
+  display: inline-flex;
+  max-width: 100%;
+  width: auto;
+  min-width: 0;
+  align-items: center;
+  gap: 2px;
+  text-align: left;
+}
+
+.xy-split-chevron {
+  margin-left: 0;
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  color: var(--xy-mute);
+  opacity: 0.65;
+  transform: none;
+  transition:
+    opacity 0.15s ease,
+    transform 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.xy-split-chevron.is-open {
+  transform: rotate(90deg);
+}
+
+.group\/head:hover .xy-split-chevron,
+.group\/step:hover .xy-split-chevron,
+.xy-split-head:focus-visible .xy-split-chevron,
+.xy-split-row-main:focus-visible .xy-split-chevron {
+  opacity: 1;
+}
+
+.xy-split-caret {
+  display: inline-block;
+  width: 12px;
+  flex-shrink: 0;
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 400;
+  color: var(--xy-mute);
+  transition: transform 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.xy-split-caret.open {
+  transform: rotate(90deg);
+}
+
+.xy-split-rail {
+  padding-top: 4px;
+}
+
+.xy-split-step {
+  position: relative;
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 8px;
+  padding: 3px 0;
+  border-radius: 0;
+  border-bottom: 1px dashed color-mix(in srgb, var(--xy-line) 55%, transparent);
+}
+
+.xy-split-step:last-child {
+  border-bottom: 0;
+}
+
+.xy-split-left {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  border: 0;
+  background: none;
+  padding: 0;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 400;
+  line-height: 1.55;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  outline: none;
+}
+
+.xy-split-left:disabled {
+  cursor: default;
+}
+
+.xy-split-right button {
+  border: 0;
+  background: none;
+  padding: 0;
+  margin: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  outline: none;
+}
+
+.xy-split-right button:disabled {
+  cursor: default;
+}
+
+.xy-split-right button:focus-visible .xy-split-preview,
+.xy-split-left:focus-visible {
+  color: var(--xy-ink);
+}
+
+.xy-split-right {
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 400;
+  line-height: 1.55;
+  color: var(--xy-mute);
+  min-width: 0;
+}
+
+.xy-split-preview {
+  display: block;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 400;
+  line-height: 1.55;
+  color: var(--xy-mute);
+}
+
+.xy-morph.is-ok {
+  color: var(--xy-ok);
+}
+
+.xy-morph.is-error {
+  color: var(--xy-danger);
+}
+
+.xy-split-step.thought-step .xy-morph {
+  color: #6b5b95;
+}
+
+.xy-split-step.is-ok .xy-morph {
+  color: var(--xy-ok);
+}
+
+.xy-split-step.is-failed .xy-morph {
+  color: var(--xy-danger);
+}
+

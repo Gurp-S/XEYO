@@ -1,0 +1,14 @@
+   916→	# ---- P1/F1：原 bypass 组全部纳入装配（真硬顶，不再有无闸块）----
+   917→	# 输出精简 / 写代码精简（开关关闭时不挂，T_now 与历史保持干净）。
+   918→	compact_block = output_compact_block()
+   919→	if compact_block:
+   920→		tagged.append((KLASS_DIRECTIVE, compact_block))
+   921→	code_block = code_compact_block()
+   922→	if code_block:
+   923→		tagged.append((KLASS_DIRECTIVE, code_block))
+   924→
+   925→	# F1：MCP required server 启动失败 → T_now 警告块（background only，带归属头）。
+   926→	if (ctx.cwd or "").strip() and not ctx.subagent:
+   927→		try:
+   928→			from extension.mcp_manager import mcp_required_warning_block
+   929→

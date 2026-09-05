@@ -1,0 +1,16 @@
+The file python/scripts/memory_stack_eval.py has been updated successfully. +1 -1
+
+```diff
+--- a/memory_stack_eval.py
++++ b/memory_stack_eval.py
+@@ -2009,7 +2009,7 @@
+     list.innerHTML='';
+     var shown=byTurn.filter(visible);
+     if(!shown.length){var e=mk('div');e.className='empty';e.textContent='无匹配对话';list.appendChild(e);return}
+-    shown.sort(function(a,b){return (Number(a.first_ts)||0)-(Number(b.first_ts)||0)});
++    shown.sort(function(a,b){return (Number(b.first_ts)||0)-(Number(a.first_ts)||0)});
+     shown.forEach(function(t){
+       var st=Number(t.cache_hit)||0,sm=Number(t.cache_miss)||0,ti=st+sm;
+       var det=mk('details');det.className='turn';
+```
+Hint: Diagnostics path=python/scripts/memory_stack_eval.py
