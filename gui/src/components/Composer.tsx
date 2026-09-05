@@ -55,7 +55,6 @@ import {useChatStore} from '@/stores/chatStore';
 import {useRemoteStore} from '@/stores/remoteStore';
 import {ModelPicker} from '@/components/ModelPicker';
 import {showContextMenu} from '@/components/ui/ContextMenu';
-import {MenuSeparator} from '@/components/ui/MenuSeparator';
 import {ZoomIn} from 'lucide-react';
 import {ApprovalModeButton} from './ApprovalModeButton';
 import {ModeChip} from './ModeChip';
@@ -554,7 +553,9 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 			return;
 		}
 		const cached = slashSkillsRef.current[activeWorkspace];
-		if (cached) {
+		if (cached && cached.length > 0) {
+			// 仅非空缓存可短路：写入端已不缓存空结果，这里再设读取端防线，
+			// 兜住 HMR/热更新残留的陈旧空数组（react-refresh 保留 useRef 状态）。
 			setSlashSkills(cached);
 			return;
 		}
@@ -687,11 +688,9 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 				const color = slashLeadingColor(part.slice(1), slashSkills);
 				if (color) {
 					colored = true;
+					// 强调色统一走主题 accent token（黑白基调主题下与整体同相）。
 					return (
-						<span
-							key={i}
-							className={color === 'skill' ? 'text-[#3b82f6]' : 'text-[#f97316]'}
-						>
+						<span key={i} className="text-accent">
 							{part}
 						</span>
 					);
@@ -1347,11 +1346,11 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 											ref={flyoutRef}
 											role="listbox"
 											aria-label="斜杠命令与技能建议"
-											className="max-h-[300px] overflow-y-auto p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+											className="max-h-[320px] overflow-y-auto px-1.5 py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
 										>
 									{filteredSkills.length > 0 ? (
-										<div className="flex items-center gap-1.5 px-1.5 pb-1 pt-1.5 text-[10px] font-medium uppercase tracking-[0.08em] text-mute">
-											<span aria-hidden className="h-1.5 w-1.5 rounded-full bg-[#3b82f6]" />
+										<div className="flex items-center gap-1.5 px-2 pb-1 pt-2 text-[10px] font-medium uppercase tracking-[0.08em] text-mute">
+											<span aria-hidden className="h-1.5 w-1.5 rounded-full bg-accent" />
 											技能
 										</div>
 									) : null}
@@ -1366,7 +1365,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 											onMouseEnter={() => setSlashHighlight(i)}
 											onClick={() => applySlashPick(`/${s.name} `)}
 											className={cn(
-												'xy-menu-row xy-flyout-row flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors duration-100',
+												'xy-menu-row xy-flyout-row flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors duration-100',
 												slashHighlight === i && 'bg-paper-deep/80',
 											)}
 										>
@@ -1375,8 +1374,8 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 												className={cn(
 													'flex h-5 w-5 shrink-0 items-center justify-center rounded-md transition-colors duration-100',
 													slashHighlight === i
-														? 'bg-[#3b82f6] text-white'
-														: 'bg-[#3b82f6]/10 text-[#3b82f6]',
+														? 'bg-accent text-on-accent'
+														: 'bg-accent-soft text-accent',
 												)}
 											>
 												<Sparkles className="h-3 w-3" strokeWidth={2.25} />
@@ -1392,11 +1391,11 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 										</button>
 									))}
 									{slashSuggest.length > 0 && filteredSkills.length > 0 ? (
-										<MenuSeparator />
+										<div aria-hidden className="mx-2 my-1.5 h-px bg-line/50" />
 									) : null}
 									{slashSuggest.length > 0 ? (
-										<div className="flex items-center gap-1.5 px-1.5 pb-1 pt-1.5 text-[10px] font-medium uppercase tracking-[0.08em] text-mute">
-											<span aria-hidden className="h-1.5 w-1.5 rounded-full bg-[#f97316]" />
+										<div className="flex items-center gap-1.5 px-2 pb-1 pt-2 text-[10px] font-medium uppercase tracking-[0.08em] text-mute">
+											<span aria-hidden className="h-1.5 w-1.5 rounded-full bg-mute" />
 											命令
 										</div>
 									) : null}
@@ -1411,7 +1410,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 											onMouseEnter={() => setSlashHighlight(filteredSkills.length + i)}
 											onClick={() => applySlashPick(`/${c.name} `)}
 											className={cn(
-												'xy-menu-row xy-flyout-row flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors duration-100',
+												'xy-menu-row xy-flyout-row flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors duration-100',
 												slashHighlight === filteredSkills.length + i && 'bg-paper-deep/80',
 											)}
 										>
@@ -1420,8 +1419,8 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 												className={cn(
 													'flex h-5 w-5 shrink-0 items-center justify-center rounded-md font-mono transition-colors duration-100',
 													slashHighlight === filteredSkills.length + i
-														? 'bg-[#f97316] text-white'
-														: 'bg-[#f97316]/10 text-[#f97316]',
+														? 'bg-ink text-paper'
+														: 'bg-ink/5 text-ink-soft',
 												)}
 											>
 												<Slash className="h-3 w-3" strokeWidth={2.5} />
@@ -1446,9 +1445,6 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 											</span>
 											<span className="flex items-center gap-1">
 												<span className="xy-menu-kbd">Enter</span>确认
-											</span>
-											<span className="flex items-center gap-1">
-												<span className="xy-menu-kbd">Esc</span>关闭
 											</span>
 										</div>
 									</div>
