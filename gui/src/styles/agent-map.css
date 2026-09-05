@@ -231,14 +231,14 @@ html[data-scheme='dark'] .xy-agent-map {
 }
 
 @keyframes xy-map-pulse {
+	/* 2026-09-05 排查·嫌疑4:stroke-width 逐帧变化迫使 SVG 几何重排,
+	   移除后仅剩 opacity 重绘;基础宽度取原区间中值 1.35。 */
 	0%,
 	100% {
 		opacity: 0.55;
-		stroke-width: 1.2;
 	}
 	50% {
 		opacity: 0.2;
-		stroke-width: 1.8;
 	}
 }
 

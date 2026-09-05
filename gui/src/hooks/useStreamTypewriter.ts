@@ -214,6 +214,10 @@ export function useStreamTypewriter(target: string): string {
 	const pointsRef = useRef<string[]>(Array.from(target));
 	const indexRef = useRef(0);
 	const shownRef = useRef('');
+	// 空转修复(2026-09-05 排查·嫌疑6):旧实现 tick 末尾无条件 reschedule,
+	// backlog=0 也每帧空转。改为"无进展即停",由 target 更新路径 wake 唤醒。
+	const rafRef = useRef(0);
+	const wakeRef = useRef<() => void>(() => {});
 
 	useEffect(() => {
 		targetRef.current = target;
@@ -234,16 +238,18 @@ export function useStreamTypewriter(target: string): string {
 			shownRef.current = next;
 			setShown(next);
 		}
+		wakeRef.current();
 	}, [target]);
 
 	useEffect(() => {
 		let alive = true;
-		let raf = 0;
 
 		const tick = () => {
 			if (!alive) {
 				return;
 			}
+			rafRef.current = 0;
+			let progress = false;
 			const t = targetRef.current;
 			const points = pointsRef.current;
 			let i = indexRef.current;
@@ -263,30 +269,49 @@ export function useStreamTypewriter(target: string): string {
 				indexRef.current = i;
 				if (changed) {
 					setShown(prefix);
+					progress = true;
 				}
 			}
-			const backlog = points.length - i;
+			const backlog = points.length - indexRef.current;
 			if (backlog > 0) {
-				const nextRaw = Math.min(points.length, i + typewriterStep(backlog));
+				const nextRaw = Math.min(points.length, indexRef.current + typewriterStep(backlog));
 				const nextIndex = holdBackPartialListMarker(points, nextRaw);
-				if (nextIndex !== i) {
-					// 回退揭示（标号行未成形）时需整体重建，而非追加
+				if (nextIndex !== indexRef.current) {
+					// 回退揭示(标号行未成形)时需整体重建,而非追加
 					const next = points.slice(0, nextIndex).join('');
-					const changed = next !== shownRef.current;
-					shownRef.current = next;
-					indexRef.current = nextIndex;
-					if (changed) {
+					if (next !== shownRef.current) {
+						shownRef.current = next;
+						indexRef.current = nextIndex;
 						setShown(next);
+						progress = true;
+					} else {
+						indexRef.current = nextIndex;
 					}
 				}
 			}
-			raf = requestAnimationFrame(tick);
+			// 无进展(已打完 / 标号被扣住等新 delta)即停;target 更新会 wake。
+			if (
+				progress ||
+				indexRef.current < pointsRef.current.length ||
+				!targetRef.current.startsWith(shownRef.current)
+			) {
+				rafRef.current = requestAnimationFrame(tick);
+			}
 		};
 
-		raf = requestAnimationFrame(tick);
+		wakeRef.current = () => {
+			if (alive && rafRef.current === 0) {
+				rafRef.current = requestAnimationFrame(tick);
+			}
+		};
+		wakeRef.current();
 		return () => {
 			alive = false;
-			cancelAnimationFrame(raf);
+			wakeRef.current = () => {};
+			if (rafRef.current) {
+				cancelAnimationFrame(rafRef.current);
+				rafRef.current = 0;
+			}
 		};
 	}, []);
 

@@ -152,20 +152,56 @@ export const ThoughtTicker = memo(function ThoughtTicker({
 			sw > tw ? `translateX(${tw - sw}px)` : 'translateX(0)';
 	}, []);
 
+	// 轨道节点一次性构建(2026-09-05 排查·嫌疑2):旧实现每拍 innerHTML 全量
+	// 重建 DOM(16-38ms 一拍 ≈ 26-60Hz 的节点销毁/重建 + GC 压力)。改为
+	// body/hot/cursor 三个持久节点 + textContent 原位更新,视觉等价
+	// (.xy-kinetic-hot/.xy-thought-fresh 均为纯色样式,无逐拍重启动画)。
+	const trackNodesRef = useRef<{
+		body: HTMLSpanElement;
+		hot: HTMLSpanElement;
+		cursor: HTMLSpanElement;
+	} | null>(null);
+
+	const ensureTrackNodes = useCallback(() => {
+		const track = trackRef.current;
+		if (!track) {
+			return null;
+		}
+		let nodes = trackNodesRef.current;
+		if (!nodes || track.firstChild !== nodes.body) {
+			// 静态路径/外部 reset 写过 innerHTML:重建持久节点。
+			track.textContent = '';
+			const body = document.createElement('span');
+			body.className = 'xy-kinetic-body';
+			const hot = document.createElement('span');
+			hot.className = 'xy-kinetic-hot xy-thought-fresh';
+			hot.style.display = 'none';
+			const cursor = document.createElement('span');
+			cursor.className = 'xy-thought-blink';
+			cursor.setAttribute('aria-hidden', 'true');
+			track.append(body, hot, cursor);
+			nodes = {body, hot, cursor};
+			trackNodesRef.current = nodes;
+		}
+		return nodes;
+	}, []);
+
 	const renderTrack = useCallback(
 		(hot: string) => {
-			const track = trackRef.current;
-			if (!track) {
+			const nodes = ensureTrackNodes();
+			if (!nodes) {
 				return;
 			}
-			const blink = '<span class="xy-thought-blink" aria-hidden></span>';
-			track.innerHTML =
-				`<span class="xy-kinetic-body">${escapeHtml(shownRef.current)}</span>` +
-				(hot ? `<span class="xy-kinetic-hot xy-thought-fresh">${escapeHtml(hot)}</span>` : '') +
-				blink;
+			nodes.body.textContent = shownRef.current;
+			if (hot) {
+				nodes.hot.textContent = hot;
+				nodes.hot.style.display = '';
+			} else {
+				nodes.hot.style.display = 'none';
+			}
 			pinEnd();
 		},
-		[escapeHtml, pinEnd],
+		[ensureTrackNodes, pinEnd],
 	);
 
 	/** 把新 content 增量喂进 pending；滑动尾窗（子 Agent 栏）按尾部对齐。 */

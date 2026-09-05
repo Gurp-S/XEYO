@@ -259,21 +259,37 @@ html[data-scheme="dark"] .status-shimmer {
   color: var(--xy-mute);
 }
 
-/* Live tool bullet only 锟?finished / error steps stay static */
+/* Live tool bullet only — finished / error steps stay static.
+   2026-09-05 排查·嫌疑4:box-shadow 逐帧动画是持续重绘;改为伪元素环
+   scale+opacity 脉冲(合成器友好)。当前无 TSX 引用(休眠类),留作复用保险。 */
 .xy-tool-live-dot {
-  box-shadow: 0 0 0 0 rgb(240 242 245 / 0.35);
+  position: relative;
+}
+
+.xy-tool-live-dot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: 0 0 0 5px rgb(240 242 245 / 0.35);
+  opacity: 0;
+  transform: scale(0.45);
   animation: xy-tool-live-pulse 1.6s ease-out infinite;
 }
 
 @keyframes xy-tool-live-pulse {
   0% {
-    box-shadow: 0 0 0 0 rgb(240 242 245 / 0.35);
+    opacity: 0.9;
+    transform: scale(0.45);
   }
   70% {
-    box-shadow: 0 0 0 5px rgb(240 242 245 / 0);
+    opacity: 0;
+    transform: scale(1);
   }
   100% {
-    box-shadow: 0 0 0 0 rgb(240 242 245 / 0);
+    opacity: 0;
+    transform: scale(1);
   }
 }
 
