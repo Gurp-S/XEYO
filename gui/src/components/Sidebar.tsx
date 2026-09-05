@@ -342,14 +342,14 @@ export const Sidebar = memo(function Sidebar() {
 				petExtractionInFlight.current = true;
 				try {
 					const lift = invokePet('character_lift', {x: 220, y: 200});
-					// Remove the dock as soon as the lift command is dispatched. This
-					// avoids waiting on a newly-created WebviewWindow to settle.
+					// lift 指令派发后立即移除 dock。这样可以
+					// 避免等待新建的 WebviewWindow 完成初始化。
 					setPetDocked(false);
 					await lift;
 				} catch (error) {
 					setPetDocked(true);
 					console.error('[XeyoPet] failed to lift pet from sidebar', error);
-					// Restore the dock if the native window cannot be lifted.
+					// 原生窗口无法置顶时恢复 dock。
 				} finally {
 					petExtractionInFlight.current = false;
 				}
@@ -866,10 +866,14 @@ const SpaceFolder = memo(function SpaceFolder({
 	// 会话数量上限（2026-09-05）：默认最多展示 5 条，超出折叠进「展开其余 N 个」。
 	const SESSION_VISIBLE_LIMIT = 5;
 	const [showAll, setShowAll] = useState(false);
-	const hiddenCount = activeSessions.length - SESSION_VISIBLE_LIMIT;
-	const visibleActive = showAll
-		? activeSessions
-		: activeSessions.slice(0, SESSION_VISIBLE_LIMIT);
+	// 筛选视图（2026-09-05 二版）：漏斗按钮 → 菜单勾选「已归档」→ 列表就地
+	// 切换为归档视图（GitHub 通知面板 Filters 交互，参考图 1-3）。
+	const [viewArchived, setViewArchived] = useState(false);
+	const listSource = viewArchived ? archivedSessions : activeSessions;
+	const hiddenCount = listSource.length - SESSION_VISIBLE_LIMIT;
+	const visibleList = showAll
+		? listSource
+		: listSource.slice(0, SESSION_VISIBLE_LIMIT);
 
 	// smoke-test #3 + 归档门槛（2026-09-05）：常态菜单 = 重命名/分叉/归档，
 	// **不提供删除**；已归档菜单 = 恢复/删除（删除前危险确认）。
@@ -953,64 +957,58 @@ const SpaceFolder = memo(function SpaceFolder({
 		],
 	);
 
-	// 归档面板（2026-09-05）：工作区行按钮 → 归档会话菜单，每项子菜单
-	// 提供 恢复/删除。归档会话不再平铺在列表下方，唯一入口在此。
-	const openArchiveMenu = useCallback(
+	// 工作区操作菜单（2026-09-05 三版）：行内只留一个三点按钮，把
+	// 新建对话 / 归档视图 / 删除工作区全部收进菜单。归档视图激活时按钮
+	// 变为「对话」，直接点击切回正常列表。
+	const openSpaceMenu = useCallback(
 		(e: React.MouseEvent) => {
 			e.preventDefault();
 			e.stopPropagation();
-			if (archivedSessions.length === 0) {
-				showContextMenu(
-					e,
-					[
-						{
-							kind: 'action',
-							id: 'no-archived',
-							label: '暂无归档会话',
-							disabled: true,
-							onSelect: () => undefined,
-						},
-					],
-					`已归档（${space.name}）`,
-				);
-				return;
+			const items: ContextMenuItem[] = [
+				{
+					kind: 'action',
+					id: 'add-session',
+					label: '添加对话',
+					icon: <Plus className="h-3.5 w-3.5" strokeWidth={1.9} />,
+					onSelect: onAdd,
+				},
+				{
+					kind: 'action',
+					id: 'archive-view',
+					label: `归档对话${archivedSessions.length > 0 ? `（${archivedSessions.length}）` : ''}`,
+					icon: <Archive className="h-3.5 w-3.5" strokeWidth={1.9} />,
+					onSelect: () => {
+						setViewArchived(true);
+						setShowAll(false);
+					},
+				},
+			];
+			if (onRemoveSpace) {
+				items.push({kind: 'sep'});
+				items.push({
+					kind: 'action',
+					id: 'remove-space',
+					label: '删除工作区',
+					danger: true,
+					icon: <Trash2 className="h-3.5 w-3.5" strokeWidth={1.9} />,
+					onSelect: () => {
+						void (async () => {
+							const ok = await confirmDialog({
+								title: '删除工作区？',
+								body: `删除工作区「${space.name}」并删除其全部对话？`,
+								confirmText: '删除',
+								danger: true,
+							});
+							if (ok) {
+								onRemoveSpace();
+							}
+						})();
+					},
+				});
 			}
-			const items: ContextMenuItem[] = archivedSessions.map(item => ({
-				kind: 'submenu',
-				id: `arch-${item.id}`,
-				label: item.title || '未命名会话',
-				items: [
-					{
-						kind: 'action',
-						id: `restore-${item.id}`,
-						label: '恢复会话',
-						onSelect: () => onRestoreSession(item.id),
-					},
-					{kind: 'sep'},
-					{
-						kind: 'action',
-						id: `delete-${item.id}`,
-						label: '删除会话',
-						danger: true,
-						onSelect: () => {
-							void (async () => {
-								const ok = await confirmDialog({
-									title: '删除已归档会话？',
-									body: `「${item.title}」将连同全部聊天记录永久删除，不可恢复。`,
-									confirmText: '删除',
-									danger: true,
-								});
-								if (ok) {
-									onRemoveSession(item.id);
-								}
-							})();
-						},
-					},
-				],
-			}));
-			showContextMenu(e, items, `已归档 ${archivedSessions.length}（${space.name}）`);
+			showContextMenu(e, items, space.name || '工作区操作');
 		},
-		[archivedSessions, onRemoveSession, onRestoreSession, space.name],
+		[archivedSessions.length, onAdd, onRemoveSpace, space.name],
 	);
 
 	const renderSessionRow = (item: ChatSession) => {
@@ -1099,66 +1097,45 @@ className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 py-1 text-
 						{space.name}
 					</span>
 				</button>
-				<button
-					type="button"
-					aria-label={`在 ${space.name} 中新建对话`}
-					onClick={e => {
-						e.stopPropagation();
-						onAdd();
-					}}
-className="xy-icon-btn xy-sidebar-affordance mr-0.5 rounded p-1 text-mute opacity-0 translate-x-1 invisible pointer-events-none hover:bg-glass-strong hover:text-ink group-hover:visible group-hover:pointer-events-auto group-hover:opacity-100 group-hover:translate-x-0"
-
-				>
-					<Plus className="h-3.5 w-3.5" />
-				</button>
-				{/* 归档面板入口：点开归档会话菜单（恢复/删除），归档项不再平铺。 */}
-				<button
-					type="button"
-					aria-label={`查看 ${space.name} 的归档会话`}
-					title={archivedSessions.length > 0 ? `已归档 ${archivedSessions.length}` : '归档会话'}
-					onClick={e => openArchiveMenu(e)}
-					className={cn(
-						'xy-icon-btn xy-sidebar-affordance mr-0.5 rounded p-1 text-mute opacity-0 translate-x-1 invisible pointer-events-none hover:bg-glass-strong hover:text-ink group-hover:visible group-hover:pointer-events-auto group-hover:opacity-100 group-hover:translate-x-0',
-						archivedSessions.length > 0 &&
-							'visible pointer-events-auto opacity-100 translate-x-0 text-accent/80',
-					)}
-				>
-					<Archive className="h-3.5 w-3.5" />
-				</button>
-				{onRemoveSpace ? (
+				{viewArchived ? (
+					/* 归档视图激活：按钮变「对话」，点击切回正常列表。 */
 					<button
 						type="button"
-						aria-label={`关闭工作区 ${space.name}`}
+						title="返回全部对话"
 						onClick={e => {
 							e.stopPropagation();
-							void (async () => {
-								const ok = await confirmDialog({
-									title: '关闭工作区？',
-									body: `关闭工作区「${space.name}」并删除其全部对话？`,
-									confirmText: '关闭',
-									danger: true,
-								});
-								if (ok) {
-									onRemoveSpace();
-								}
-							})();
+							setViewArchived(false);
+							setShowAll(false);
 						}}
-						className="xy-icon-btn xy-sidebar-affordance mr-0.5 rounded p-1 text-mute opacity-0 translate-x-1 invisible pointer-events-none hover:bg-danger/10 hover:text-danger group-hover:visible group-hover:pointer-events-auto group-hover:opacity-100 group-hover:translate-x-0"
-						
+						className="xy-icon-btn xy-sidebar-affordance mr-0.5 rounded px-1.5 py-0.5 text-[11px] font-medium leading-none text-accent hover:bg-glass-strong visible opacity-100"
 					>
-						<Trash2 className="h-3 w-3" />
+						对话
 					</button>
-				) : null}
+				) : (
+					<button
+						type="button"
+						aria-label={`${space.name} 工作区操作`}
+						title="添加对话 / 归档 / 删除"
+						onClick={e => openSpaceMenu(e)}
+						className="xy-icon-btn xy-sidebar-affordance mr-0.5 rounded p-1 text-mute opacity-0 translate-x-1 invisible pointer-events-none hover:bg-glass-strong hover:text-ink group-hover:visible group-hover:pointer-events-auto group-hover:opacity-100 group-hover:translate-x-0"
+					>
+						<MoreHorizontal className="h-3.5 w-3.5" />
+					</button>
+				)}
 			</div>
 
 			<div className={cn('xy-sidebar-tree grid', open ? 'is-open' : 'is-closed')} aria-hidden={!open}>
 				<ul className="min-h-0 overflow-hidden pb-1">
-					{activeSessions.length === 0 && archivedSessions.length === 0 ? (
+					{listSource.length === 0 ? (
 						<li className="px-7 py-1 font-mono text-[11px] text-mute/70">
-							{hasRoot ? '暂无对话' : '打开文件夹后开始'}
+							{viewArchived
+								? '暂无归档会话'
+								: hasRoot
+									? '暂无对话'
+									: '打开文件夹后开始'}
 						</li>
 					) : (
-						visibleActive.map(item => renderSessionRow(item))
+						visibleList.map(item => renderSessionRow(item))
 					)}
 					{hiddenCount > 0 ? (
 						<li>
