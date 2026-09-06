@@ -292,6 +292,56 @@ def pending_jobs_block() -> str:
 		"用 job_output 收结果后继续或收尾，不再相关的可 job_kill。\n"
 		+ digest
 	)
+def budget_mirror_block(budget: Any, working: Any) -> str:
+	"""禀赋①：预算镜像块——把真实预算状态与待交付项如实渲染给模型。
+
+	数据源（全部既有字段，零新表单）：
+	- BudgetTracker：turn_count/max_turns、used_usd/usd_limit、墙钟死线进度；
+	- WorkingSnapshot.todos：模型自己写的计划项（pending = 待交付视图）。
+
+	无死线 / 无数据时返回空串（正常会话零注入）。
+	"""
+	if budget is None:
+		return ""
+	parts: list[str] = []
+	try:
+		if budget.max_turns:
+			parts.append(f"回合 {budget.turn_count}/{budget.max_turns}")
+		if getattr(budget, "wall_deadline_ts", None) and getattr(budget, "wall_started_ts", None):
+			total = budget.wall_deadline_ts - budget.wall_started_ts
+			if total > 0:
+				remain_min = max(0, int((budget.wall_deadline_ts - time.time()) / 60))
+				pct = min(100, int((time.time() - budget.wall_started_ts) / total * 100))
+				parts.append(f"剩余时间 ~{remain_min}m（已用 {pct}%）")
+		if budget.usd_limit:
+			parts.append(f"${budget.used_usd:.2f}/${budget.usd_limit:.2f}")
+	except Exception:  # noqa: BLE001
+		pass
+
+	todo_lines: list[str] = []
+	try:
+		for t in (getattr(working, "todos", None) or []):
+			if not isinstance(t, dict):
+				continue
+			st = str(t.get("status", ""))
+			if st in ("completed", "done"):
+				continue
+			content = str(t.get("content") or t.get("text") or "").strip()
+			if content:
+				todo_lines.append(f"- [{st or 'pending'}] {content[:80]}")
+	except Exception:  # noqa: BLE001
+		pass
+
+	if not parts and not todo_lines:
+		return ""
+	out = "# Budget mirror（background only — 事实呈现，决策归你）\n"
+	if parts:
+		out += " | ".join(parts) + "\n"
+	if todo_lines:
+		out += "未完成计划项（交付前自查）：\n" + "\n".join(todo_lines[:12]) + "\n"
+	return out
+
+
 NESTED_MAX_CHARS = 4_000
 NESTED_RESERVE_CHARS = 2_000
 # 只扫投影尾部，避免长会话每轮全历史 O(n)
@@ -332,6 +382,8 @@ class InjectContext:
 	#: ``legacy`` = 块文本尾插末条 user（原行为，回退档）。
 	#: ``prefill`` 预留档在解析时回落 env_channel。
 	strategy: str = ""
+	#: 禀赋①：BudgetTracker（仅当调用方设置墙钟死线时用于预算镜像渲染；None = 不注入）。
+	budget: Any | None = None
 
 	def instructions_enabled(self) -> bool:
 		if self.inject_instructions is None:
@@ -1113,9 +1165,17 @@ def run_pre_llm_inject(
 		and not ctx.subagent
 	):
 		try:
-			from engine.session_presence import peer_activity_block
+			# 逃生门 XEYO_PEER_PRESENCE_OFF（默认关=正常注入）：仅测试 harness 用。
+			# FakeModelClient 的回声语义（model/fake.py）会把本块的环境声道
+			# tool_result 当回声源，回 `echoed: [system-environment]…` 污染
+			# e2e 断言（2026-09-05 排查）；真实 LLM 不受影响，生产默认照常注入。
+			_off = os.environ.get("XEYO_PEER_PRESENCE_OFF", "").strip().lower()
+			if _off in ("1", "true", "on"):
+				peer = ""
+			else:
+				from engine.session_presence import peer_activity_block
 
-			peer = peer_activity_block(ctx.cwd.strip(), ctx.session_id.strip())
+				peer = peer_activity_block(ctx.cwd.strip(), ctx.session_id.strip())
 			if peer:
 				_tag_block(tagged, "peer_presence", (KLASS_EVENT, peer))
 		except Exception:
@@ -1187,6 +1247,18 @@ def run_pre_llm_inject(
 	jobs_block = pending_jobs_block()
 	if jobs_block and not ctx.subagent:
 		_tag_block(tagged, "pending_jobs", (KLASS_DIRECTIVE, jobs_block))
+
+	# 禀赋①：预算镜像（时间感来源）——仅当调用方设置了墙钟死线时渲染
+	#（评测适配器 / 带超时的会话）。数据全部来自 BudgetTracker 与 WorkingSnapshot
+	# 的既有字段，如实渲染，不含指令；正常无死线会话零输出（KV 无扰）。
+	try:
+		_b = getattr(ctx.budget, "wall_deadline_ts", None)
+		if _b is not None and not ctx.subagent:
+			blk = budget_mirror_block(ctx.budget, ctx.working)
+			if blk:
+				_tag_block(tagged, "budget_mirror", (KLASS_DIRECTIVE, blk))
+	except Exception:
+		_log.debug("budget mirror inject failed", exc_info=True)
 
 	# block: skill_preinvoke —— 用户直呼技能（fresh-user 轮首行 /name 命中
 	# user-invocable 技能）：宿主确定性注入渲染正文（tool-skill pre-step），

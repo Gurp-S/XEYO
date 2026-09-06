@@ -9,6 +9,8 @@ custom_system_prompt / append_system_prompt 只允许 append，不得整段替�
 
 from __future__ import annotations
 
+import os
+
 from dataclasses import dataclass, field
 from typing import Any, Sequence
 
@@ -32,6 +34,8 @@ TOOL_POLICY = (
 	"凭通知 job_output 收结果；终答前收掉仍相关的任务，不再重要的 job_kill，勿空转轮询。"
 	"改码后 Diagnostics(path=文件)；仓库用 Git(summary)；外网需确认："
 	"已知文档 URL 只 WebFetch；不知 URL 则一次 WebSearch，不够再 Fetch 最相关 1 条；勿连搜或批量 Fetch。"
+	"宣布任务完成前，反问自己一遍：是否有遗漏或缺失的步骤？是否真的满足原始要求的全部条目？"
+	"对照要求逐项确认，未验证过的先验证，再结束。"
 	+ FENCE_POLICY
 )
 
@@ -72,15 +76,28 @@ def get_default_system_prompt_parts(
 	_ = tool_names, model, date_iso
 	from permissions.policy import side_mode
 
+	# 基准评测最小档案（XEYO_BENCH_MINIMAL=1）：文件/Skill/Agent 等工具未注册，
+	# 提示词同步去除相应句段（bash-only 工作方式，与 Terminus-2 对齐），其余逐字节不变。
+	policy = TOOL_POLICY
+	if os.environ.get("XEYO_BENCH_MINIMAL") == "1":
+		policy = policy.replace("长流程用 Skill 按需加载，勿塞进 XEYO.md；项目约定写短指针，结构用工具现查。", "")
+		policy = policy.replace(
+			"文件操作只用专用工具：找文件名→Glob（可 path/分页）、找内容→Grep（path/glob 过滤）、"
+			"读→Read（offset/limit）、改→Edit、写→Write、git 只读→Git；"
+			"Bash 只用于无专用工具的命令（构建/测试/安装/进程/网络），勿用 Bash cat/find/ls/rg 绕开。",
+			"本会话为 bash-only 环境：文件的查找/读取/编辑/写入一律用 Bash（cat/heredoc/sed/find/grep 等），"
+			"写文件优先 heredoc（cat > 路径 <<'EOF'），编辑优先 python3 或 sed；产物必须写到任务要求的精确路径。",
+		)
+
 	if side_mode():
 		return [
 			IDENTITY,
-			TOOL_POLICY,
+			policy,
 		]
 	return [
 		IDENTITY,
 		f"CWD: {cwd}",
-		TOOL_POLICY,
+		policy,
 	]
 
 

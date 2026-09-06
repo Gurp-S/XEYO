@@ -654,6 +654,7 @@ def _attach_turn_context(
 		InjectContext(
 			working=working,
 			cwd=root,
+			budget=budget,
 			approved_plan=approved_plan,
 			forced_wrap_up=forced_wrap_up,
 			runtime_notice=runtime_notice,

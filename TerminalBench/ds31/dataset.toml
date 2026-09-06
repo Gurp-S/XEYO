@@ -1,0 +1,135 @@
+# Dataset manifest for xeyo-bench/se-debug
+# Add tasks using: harbor add <org>/<name>
+# Publish using: harbor publish
+
+[dataset]
+name = "xeyo-bench/se-debug"
+version = "1.0.0"
+description = ""
+authors = []
+keywords = []
+
+[[tasks]]
+name = "terminal-bench/build-pmars"
+digest = "sha256:63f0449b276f081986740c941ea9372068b310a02b062c1e5e3400f575241893"
+
+[[tasks]]
+name = "terminal-bench/build-pov-ray"
+digest = "sha256:4f08dab602fe2e9e2f42051cc6aef684a88cf2822e8b499b3ca19e670759fddb"
+
+[[tasks]]
+name = "terminal-bench/cancel-async-tasks"
+digest = "sha256:a3d048d351136e48070696cda8bb79660dfd74db1fea3b6da88559f0332699c1"
+
+[[tasks]]
+name = "terminal-bench/circuit-fibsqrt"
+digest = "sha256:9bcffe1054bb33249aa578a9a2a74f3c8cca66b0cb7aa1328233f1d31822aae3"
+
+[[tasks]]
+name = "terminal-bench/cobol-modernization"
+digest = "sha256:e03aa03965eee48c9f772d566ff9bcd741fceeac9693123f82a13fdd46be0d88"
+
+[[tasks]]
+name = "terminal-bench/code-from-image"
+digest = "sha256:ef2907bb300d9b3352410c2a75dbf831278c187c073298371870ea9c83526f78"
+
+[[tasks]]
+name = "terminal-bench/fix-git"
+digest = "sha256:16948b980df9d96de616a205f5acca1c5d395de83ff4f8ffabcafacb93226f2e"
+
+[[tasks]]
+name = "terminal-bench/fix-ocaml-gc"
+digest = "sha256:2031f3d5224b891fe443a31526b569eb756be2f88b663cb025448af9c4f97e2c"
+
+[[tasks]]
+name = "terminal-bench/git-leak-recovery"
+digest = "sha256:22a9ec10dbd4cd8b99477b70e1944103775ca41de9b9e0025ec4898cd17bd334"
+
+[[tasks]]
+name = "terminal-bench/gpt2-codegolf"
+digest = "sha256:fe42af8e9c5aa927c3b680acd08e43032c84088fa9d770b03ce63dbc66fea4e7"
+
+[[tasks]]
+name = "terminal-bench/headless-terminal"
+digest = "sha256:203953871ebdae4efbf163af9499849368dab5e219b70d447e5ee9701ad382d9"
+
+[[tasks]]
+name = "terminal-bench/kv-store-grpc"
+digest = "sha256:973c5d4c111fb61a344457936f1c36400acd2d9e44389e7b319586fe23a7a307"
+
+[[tasks]]
+name = "terminal-bench/make-doom-for-mips"
+digest = "sha256:2d83dd3dee8e0f055e09973934cf0d7e3169a9cd90704cba5c8940b170be9498"
+
+[[tasks]]
+name = "terminal-bench/make-mips-interpreter"
+digest = "sha256:41a55da0abec5d7b32a0c2321f8b18e84000ca8074ae62c6874d6ed4a3a1cd3c"
+
+[[tasks]]
+name = "terminal-bench/path-tracing"
+digest = "sha256:cf56094c881a488b27e9f204a638a7e78ed7d55e12dc3064108c93357190314c"
+
+[[tasks]]
+name = "terminal-bench/path-tracing-reverse"
+digest = "sha256:035880d7ef5554b217e53a75ce5e87e43193b7a44c30ad17226a6ab10fc11a6c"
+
+[[tasks]]
+name = "terminal-bench/polyglot-c-py"
+digest = "sha256:25570ccacf63f573a252eaa2a9c62ee8b55f5aa228cc803b5beb39dd6d8afeb7"
+
+[[tasks]]
+name = "terminal-bench/polyglot-rust-c"
+digest = "sha256:a33dc72e2278d225513c0724abe2e4539653d5ee7e4c2a90ba2d676586ba9f3d"
+
+[[tasks]]
+name = "terminal-bench/prove-plus-comm"
+digest = "sha256:d5ae25720df1f7cd619ed8408cda4b87b79a3d8b0ff4f1919e2c96e9547339c2"
+
+[[tasks]]
+name = "terminal-bench/pypi-server"
+digest = "sha256:1a1e0542f58e2d3362fec17a9bbb98667717d9a4a3e9a4c8413d3150a4fa0ff1"
+
+[[tasks]]
+name = "terminal-bench/regex-chess"
+digest = "sha256:e763e0ac1c9759081af0a4a82ba51b8cf9ae5485a93de3bbe42d7d344597bd78"
+
+[[tasks]]
+name = "terminal-bench/schemelike-metacircular-eval"
+digest = "sha256:58130c2166c3115276dc8592f358e326ff2d81ea852e3d88636c82fd1dff57e6"
+
+[[tasks]]
+name = "terminal-bench/torch-pipeline-parallelism"
+digest = "sha256:db605337c749a872cea7b5b413429b3915bb4c3efe0f7875f0c46ce81bd8c4fb"
+
+[[tasks]]
+name = "terminal-bench/torch-tensor-parallelism"
+digest = "sha256:f32ce74a5aeb6638480247ab799fe46127bbee631acdd0921b0f394ec49b3684"
+
+[[tasks]]
+name = "terminal-bench/winning-avg-corewars"
+digest = "sha256:a9f2c630fb7d656e96f3a42ade600a8abcb500631d153d62d5ceb2df073bc256"
+
+[[tasks]]
+name = "terminal-bench/write-compressor"
+digest = "sha256:d9ddd9a8e925e2c566b37b2492cbf995afecefe58874e4043ef78d7f3c892c7e"
+
+[[tasks]]
+name = "terminal-bench/build-cython-ext"
+digest = "sha256:35dc561790e73f13e59837828ac0863c0893edc6b71d42cf7d58656c843adf12"
+
+[[tasks]]
+name = "terminal-bench/custom-memory-heap-crash"
+digest = "sha256:61e021e0304c9818a9be2c9173c8a0938ce5d136e95c5422e099f1fdb2dc080e"
+
+[[tasks]]
+name = "terminal-bench/merge-diff-arc-agi-task"
+digest = "sha256:6aab6511a5344ce87698293bb1ce4cc51d9a45f1ad9f0c075d2a83197b36727d"
+
+[[tasks]]
+name = "terminal-bench/overfull-hbox"
+digest = "sha256:3c3b16e4b2de5fea90ca98db242b155a6843f9cc4dfd00be3479985a34bab4f7"
+
+[[tasks]]
+name = "terminal-bench/sqlite-db-truncate"
+digest = "sha256:956f038b479cc3b9b493553b57a60a8ff4154526386c3914c0b99e93e1ab6e87"
+

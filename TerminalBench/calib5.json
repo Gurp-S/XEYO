@@ -1,0 +1,27 @@
+{
+ "build-pmars": {
+  "image": "alexgshaw/build-pmars:20251031",
+  "agent_timeout_min": 15.0,
+  "difficulty": "medium"
+ },
+ "build-pov-ray": {
+  "image": "alexgshaw/build-pov-ray:20251031",
+  "agent_timeout_min": 200.0,
+  "difficulty": "medium"
+ },
+ "cancel-async-tasks": {
+  "image": "alexgshaw/cancel-async-tasks:20251031",
+  "agent_timeout_min": 15.0,
+  "difficulty": "hard"
+ },
+ "circuit-fibsqrt": {
+  "image": "alexgshaw/circuit-fibsqrt:20251031",
+  "agent_timeout_min": 60.0,
+  "difficulty": "hard"
+ },
+ "cobol-modernization": {
+  "image": "alexgshaw/cobol-modernization:20251031",
+  "agent_timeout_min": 15.0,
+  "difficulty": "easy"
+ }
+}

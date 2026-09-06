@@ -3,18 +3,16 @@
 模型填参数 → validate → checkPermissions(stub) → call → semantics → truncate → map
 """
 
-# TODO: [后台] 超时自动转后台、与 TaskOutput 打通
-# TODO: [sed] _simulatedSedEdit 预览写盘
-# TODO: [取消] 后台任务 abort/kill
-# TODO: [测试] 语义 exit、截断、Windows 编码、复合命令
+# TODO: [测试] 语义 exit、截断（Windows 编码 / 复合命令 / 后台转档已有专项测试）
 
 from __future__ import annotations
 
 import asyncio
 import logging
 import os
+import shlex
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Optional
 
 _log = logging.getLogger(__name__)
@@ -161,6 +159,10 @@ class BashInput:
 	description: Optional[str] = None
 	run_in_background: bool = False
 	working_directory: Optional[str] = None
+	#: 禀赋②：净室执行——在只含 isolation_inputs 的临时目录里跑命令，
+	#  验证交付物"离开会话上下文仍然可用"。信息给足，判断归模型。
+	run_isolated: bool = False
+	isolation_inputs: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -203,12 +205,20 @@ def parse_input(raw: dict[str, Any]) -> BashInput:
 	if isinstance(wd, str) and wd.strip():
 		working_directory = wd.strip()
 
+	run_isolated = _coerce_bool(raw.get("run_isolated"), False)
+	isolation_inputs: list[str] = []
+	raw_inputs = raw.get("isolation_inputs")
+	if isinstance(raw_inputs, list):
+		isolation_inputs = [str(p) for p in raw_inputs if isinstance(p, str) and p.strip()]
+
 	return BashInput(
 		command=command,
 		timeout_ms=clamp_timeout_ms(timeout),
 		description=description,
 		run_in_background=_coerce_bool(raw.get("run_in_background"), False),
 		working_directory=working_directory,
+		run_isolated=run_isolated,
+		isolation_inputs=isolation_inputs,
 	)
 
 
@@ -302,6 +312,44 @@ class BashTool:
 	) -> BashOutput:
 		timeout_ms = clamp_timeout_ms(inp.timeout_ms)
 		run_cwd = cwd if cwd is not None else self._cwd
+
+		# 容器路由（评测适配）：XEYO_BASH_EXEC_PREFIX 设置时，所有命令经前缀转发
+		# 执行（如 `docker exec -i <cid> bash -lc`）。前缀含 {cmd} 占位符则整串替换
+		#（调用方自负责引号安全），否则追加 shlex.quote 后的单参数——保证任意命令
+		#（含引号/管道/换行）原样进入目标 shell。cwd 语义由目标侧 WORKDIR 承担。
+		exec_prefix = os.environ.get("XEYO_BASH_EXEC_PREFIX", "").strip()
+
+		# 禀赋②：净室执行——在只含声明输入的临时目录里跑命令（信息给足，判断归模型）。
+		# 组合为 POSIX 片段后随同路由（容器内 mktemp/cp 均可用），与 EXEC_PREFIX 正交。
+		if inp.run_isolated:
+			inputs = [p.strip().lstrip("/") for p in inp.isolation_inputs if p.strip()]
+			cp_part = ("cp --parents " + " ".join(shlex.quote(p) for p in inputs) + " \"$__iso/\" 2>&1; ") if inputs else ""
+			composed = (
+				'__iso="$(mktemp -d)"; '
+				+ cp_part
+				+ 'cd "$__iso" || exit 95; '
+				+ "{ " + inp.command + "; __rc=$?; } ; "
+				+ 'echo "__ISO_DIR=$__iso"; '
+				+ 'echo "__ISOLATED_NEW_FILES:"; find "$__iso" -type f | head -40; exit $__rc'
+			)
+			inp = BashInput(
+				command=composed,
+				timeout_ms=inp.timeout_ms,
+				run_in_background=inp.run_in_background,
+				description=inp.description,
+			)
+
+		if exec_prefix:
+			if "{cmd}" in exec_prefix:
+				routed = exec_prefix.replace("{cmd}", inp.command)
+			else:
+				routed = exec_prefix + " " + shlex.quote(inp.command)
+			inp = BashInput(
+				command=routed,
+				timeout_ms=inp.timeout_ms,
+				run_in_background=inp.run_in_background,
+				description=inp.description,
+			)
 
 		# 预检查：只拦「等 TTY/编辑器会挂」的形态；预检自身异常必须 fail-open，
 		# 否则一次正则意外就把整个 Bash 工具打挂（call 是 Bash 唯一执行路径）。
@@ -545,6 +593,23 @@ class BashTool:
 					"command": {
 						"type": "string",
 						"description": "The command to execute",
+					},
+					"run_isolated": {
+						"type": "boolean",
+						"description": (
+							"Run in a clean temporary directory containing ONLY "
+							"isolation_inputs. Use to verify a deliverable works "
+							"outside your session context (missing files will "
+							"surface as normal errors)"
+						),
+					},
+					"isolation_inputs": {
+						"type": "array",
+						"items": {"type": "string"},
+						"description": (
+							"Paths (relative to cwd) copied into the isolated "
+							"directory before execution; empty = no inputs"
+						),
 					},
 					"timeout": {
 						"type": "number",

@@ -1,0 +1,15 @@
+job_name: p3-batch2-xeyo-smoke
+jobs_dir: p3-batch2-xeyo-smoke
+n_attempts: 1
+n_concurrent_trials: 2
+agents:
+  - name: xeyo_harbor_agent:XeyoHarborAgent
+    model_name: deepseek/deepseek-v4-flash
+datasets:
+  - name: terminal-bench/terminal-bench-2-1
+    task_names:
+      - terminal-bench/build-pmars
+      - terminal-bench/build-pov-ray
+      - terminal-bench/cancel-async-tasks
+      - terminal-bench/circuit-fibsqrt
+      - terminal-bench/cobol-modernization

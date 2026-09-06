@@ -20,7 +20,6 @@ from tools.base_tool import (
 	tool_flag,
 )
 from tools.bash_tool.bash_tool import BashTool
-from tools.echo import EchoTool
 from tools.file_edit_tool.file_edit_tool import FileEditTool
 from tools.fileio.read_state import ReadFileState
 from tools.file_read_tool.file_read_tool import FileReadTool
@@ -81,8 +80,6 @@ __all__ = [
 ]
 
 
-def _echo(_cwd: str) -> Tool:
-	return EchoTool()
 
 
 def _get_time(_cwd: str) -> Tool:
@@ -286,8 +283,21 @@ def _register_factories(
 def build_default_registry(*, cwd: str = ".") -> ToolRegistry:
 	work = os.path.abspath(os.path.expanduser(cwd or "."))
 	reg = ToolRegistry(cwd=work)
+	entries = ENABLED_TOOL_ENTRIES
+	if os.environ.get("XEYO_BENCH_MINIMAL") == "1":
+		# 基准评测最小档案：排除 Skill/Agent（skills、slash、subagent/live_agents 面）
+		# 与文件工具（Read/Write/Edit/Glob/Grep）及 Memory/AskUserQuestion/Screenshot/
+		# SendToWeChat/XeyoUI/JournalQuery——基准任务与 Terminus-2 对齐为 bash-only
+		# 工作方式（同尺对比）；容器路由下文件 I/O 走 bash。预算/abort/记忆开关不受影响。
+		excluded = {
+			"Skill", "Agent", "Memory", "AskUserQuestion",
+			"Read", "Write", "Edit", "Glob", "Grep", "NotebookEdit",
+			"Screenshot", "SendToWeChat", "XeyoUI", "JournalQuery",
+			"Diagnostics", "Git", "WebFetch", "WebSearch",
+		}
+		entries = [e for e in entries if e[0] not in excluded]
 	_register_factories(
-		reg, ENABLED_TOOL_ENTRIES, cwd=work, read_state=ReadFileState()
+		reg, entries, cwd=work, read_state=ReadFileState()
 	)
 	return reg
 

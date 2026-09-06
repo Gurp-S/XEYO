@@ -1,0 +1,36 @@
+{
+ "regression": [
+  "build-pmars",
+  "cancel-async-tasks",
+  "circuit-fibsqrt"
+ ],
+ "fail20": [
+  "chess-best-move",
+  "count-dataset-tokens",
+  "db-wal-recovery",
+  "dna-assembly",
+  "extract-elf",
+  "extract-moves-from-video",
+  "gcode-to-text",
+  "gpt2-codegolf",
+  "install-windows-3.11",
+  "kv-store-grpc",
+  "make-doom-for-mips",
+  "make-mips-interpreter",
+  "model-extraction-relu-logits",
+  "mteb-leaderboard",
+  "mteb-retrieve",
+  "overfull-hbox",
+  "path-tracing",
+  "path-tracing-reverse",
+  "protein-assembly",
+  "raman-fitting",
+  "regex-chess",
+  "rstan-to-pystan",
+  "torch-pipeline-parallelism",
+  "torch-tensor-parallelism",
+  "train-fasttext",
+  "video-processing",
+  "write-compressor"
+ ]
+}

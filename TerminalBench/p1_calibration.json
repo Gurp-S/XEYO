@@ -1,0 +1,66 @@
+{
+ "n_trials": 6,
+ "solved": 4,
+ "input_tokens_median": 230490.0,
+ "output_tokens_median": 51237.0,
+ "cache_hit_ratio_median": 0.891,
+ "cost_usd_sum": 0.7875,
+ "cny_per_trial_offpeak_median": 0.274,
+ "cny_per_trial_offpeak_mean": 0.449,
+ "rows": [
+  {
+   "task": "circuit-fibsqrt",
+   "reward": 0.0,
+   "it": 134570,
+   "ct": 117504,
+   "ot": 95685,
+   "cost_usd": 0.13545829600000003,
+   "err": null
+  },
+  {
+   "task": "build-pmars",
+   "reward": 1.0,
+   "it": 277508,
+   "ct": 248320,
+   "ot": 10543,
+   "cost_usd": 0.030235960000000006,
+   "err": null
+  },
+  {
+   "task": "build-pov-ray",
+   "reward": 1.0,
+   "it": 1153407,
+   "ct": 1099392,
+   "ot": 22495,
+   "cost_usd": 0.068851488,
+   "err": null
+  },
+  {
+   "task": "cancel-async-tasks",
+   "reward": 1.0,
+   "it": 88321,
+   "ct": 78336,
+   "ot": 42192,
+   "cost_usd": 0.061183544000000006,
+   "err": null
+  },
+  {
+   "task": "circuit-fibsqrt",
+   "reward": 1.0,
+   "it": 1440383,
+   "ct": 1375232,
+   "ot": 267218,
+   "cost_usd": 0.40064744800000013,
+   "err": null
+  },
+  {
+   "task": "cobol-modernization",
+   "reward": 0.0,
+   "it": 183472,
+   "ct": 162304,
+   "ot": 60282,
+   "cost_usd": 0.09115841599999999,
+   "err": null
+  }
+ ]
+}

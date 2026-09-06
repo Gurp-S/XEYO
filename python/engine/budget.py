@@ -105,6 +105,43 @@ class BudgetTracker:
 	_pending_notices: list[str] = field(default_factory=list, init=False, repr=False)
 	_notified_reasons: set[str] = field(default_factory=set, init=False, repr=False)
 	_hard_stop_reason: str | None = field(default=None, init=False, repr=False)
+	# 墙钟死线（禀赋①：时间感来源）。由调用方（评测适配器/会话）在 submit 前设置；
+	# prepare_next_turn 时检查 80%/90% 阈值，经既有 runtime notice 通道注入（一次性）。
+	wall_deadline_ts: float | None = field(default=None, init=False, repr=False)
+	wall_started_ts: float | None = field(default=None, init=False, repr=False)
+
+	def set_wall_deadline(self, deadline_ts: float | None, *, started_ts: float | None = None) -> None:
+		"""设置墙钟死线与（可选）起始时刻；None 清除。reset_for_new_submit 不清除。"""
+		self.wall_deadline_ts = deadline_ts
+		if started_ts is not None:
+			self.wall_started_ts = started_ts
+
+	def check_wall_deadline(self, now: float | None = None) -> str | None:
+		"""按墙钟进度排队 80%/90% 收尾提醒（每阈值一次）；到点返回硬停原因由调用方裁决。"""
+		if self.wall_deadline_ts is None:
+			return None
+		now = time.time() if now is None else now
+		start = self.wall_started_ts
+		if start is None or start >= self.wall_deadline_ts:
+			return None
+		total = self.wall_deadline_ts - start
+		if total <= 0:
+			return None
+		elapsed = now - start
+		for threshold, label in ((0.9, "90%"), (0.8, "80%")):
+			key = f"wall_{label}"
+			if key in self._notified_reasons:
+				continue
+			if elapsed >= total * threshold:
+				self._notified_reasons.add(key)
+				remain_min = max(0, int((self.wall_deadline_ts - now) / 60))
+				notice = (
+					f"时间预算已用 {label}，剩余约 {remain_min} 分钟。"
+					"立即停止开始新工作：把当前成果写入任务要求的最终交付物路径，然后结束。"
+				)
+				self._queue_notice(notice)
+				return notice
+		return None
 
 	def _start_grace(self, reason: str) -> None:
 		"""首次触发软上限时建立共享收尾窗口并排队临时提醒。"""
@@ -137,6 +174,11 @@ class BudgetTracker:
 		该方法不增加 Turn。只有真正调用 ``begin_turn`` 时才会计入下一次
 		模型响应，因此 Tool Call 达到上限不会凭空制造或消耗一个 Turn。
 		"""
+		# 墙钟死线检查（禀赋①）：80%/90% 阈值提醒走既有 runtime notice 通道。
+		try:
+			self.check_wall_deadline()
+		except Exception:  # noqa: BLE001
+			pass
 		if self.grace_started:
 			if self.turn_count >= self.max_turns:
 				self._queue_notice("max_turns")
