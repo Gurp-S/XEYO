@@ -1053,15 +1053,20 @@ def run_pre_llm_inject(
 	# T6：重复调用递进提醒（background only）——query_loop 轮内状态，
 	# 不进历史、不改写 ToolResult；每次 submit 由引擎 clear_advice 重置。
 	# T14 净化清单：子代理上下文不继承主循环的 repeat guard。
+	# 停滞监测（todo 契约执行侧）同块消费：同为 advice-only、逐 submit
+	# 重置、子代理豁免——不新增注册条目、不动 T_NOW_BLOCK_HARD_CAP。
 	try:
 		from engine.repeat_guard import current_advice
+		from engine.stagnation_watch import current_stall_advice
 
 		rep = current_advice()
-		if rep and not ctx.subagent:
+		stall = current_stall_advice()
+		combined = "\n".join(x for x in (rep, stall) if x)
+		if combined and not ctx.subagent:
 			_tag_block(
 			tagged,
 			"repeat_guard",
-				(KLASS_DIRECTIVE, f"# Repeat guard（background only）\n{rep}"),
+				(KLASS_DIRECTIVE, f"# Repeat guard（background only）\n{combined}"),
 			)
 	except Exception:
 		_log.debug("repeat advice inject failed", exc_info=True)

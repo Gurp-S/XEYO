@@ -28,6 +28,7 @@ from engine.repeat_guard import (
 	ZERO_HIT_ADVICE_AT,
 	clear_advice,
 )
+from engine.stagnation_watch import StagnationWatch, clear_stall_advice
 from memory.l5_flag import c2_gate, l5_mode
 from memory.runtime import (
 	c2_llm_summary_enabled,
@@ -739,6 +740,10 @@ async def query_loop(
     # 每次 submit 新建即用户输入级重置）。
     repeat_guard = RepeatCallGuard()
     clear_advice()  # 轮首清残留提醒，T_now 块只反映本轮状态
+    # 停滞监测（todo 契约执行侧；仅 bench 档案启用，XEYO_TODO_CONTRACT=0 关闭；
+    # advice 与 repeat_guard 同块消费，只提醒不拒执行）。
+    stall_watch = StagnationWatch(budget)
+    clear_stall_advice()
     # 零命中前提复核：不同查询累计空结果 ≥2 起追加中立提示。
     zero_hit_tracker = ZeroHitTracker()
     # tu.id → 该调用结果上要追加的零命中提示文本。
@@ -992,6 +997,8 @@ async def query_loop(
             # T6：ACTION_ADVICE 不改写 ToolResult——提醒经 T_now
             # （pre_llm_inject 的 Repeat guard 块）在下一轮模型请求前注入。
             _ = guard_action
+            # 停滞监测：同一准入点观察（只计数与产提醒，不拒执行）。
+            stall_watch.observe(tu.name, tu.input)
             if not budget.begin_tool_call():
                 results_by_id[tu.id] = ToolResult(
                     content="[max_tool_calling reached; tool call was not executed]",
