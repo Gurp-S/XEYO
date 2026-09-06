@@ -104,7 +104,10 @@ class XeyoHarborAgent(BaseAgent):
         container = _container_name_from_session(session_id)
         cid = _resolve_container(container)
         if cid:
-            os.environ["XEYO_BASH_EXEC_PREFIX"] = f"docker exec -i {cid} bash -lc"
+            # docker SDK 直连（named pipe）：pwsh -Command 下 docker exec 的 stdout
+            # 会静默丢失（批 2 实测模型全程盲打），SDK 走 API 无此问题。
+            os.environ["XEYO_DOCKER_CONTAINER"] = cid
+            os.environ.pop("XEYO_BASH_EXEC_PREFIX", None)
             self.logger.info("XEYO bash routed to container %s", cid)
         else:
             self.logger.warning(
@@ -125,6 +128,22 @@ class XeyoHarborAgent(BaseAgent):
         # 检查必然误拒——headless 评测放开审批档（never=免确认），硬边界
         # （密钥/策略文件/受保护元数据/危险路径）仍由 policy 更早分支拦截。
         os.environ["XEYO_PERMISSION_MODE"] = "never"
+
+        # 并发 trial 防串线（p4 冒烟实测）：os.environ 是进程级的，harbor 多
+        # trial 共进程时互相覆盖 → 全部 bash 串进最后 setup 的容器（query-optimize
+        # 的 agent 落进 raman-fitting 容器被误判"输入文件不存在"）。改为每 trial
+        # 在自身协程上下文设置 ContextVar 覆盖（bash/job 工具优先读，env 仅回退）。
+        try:
+            from tools.container_routing import set_container_override
+
+            cid_self = _resolve_container(
+                _container_name_from_session(self.session_id)
+            )
+            if cid_self:
+                set_container_override(cid_self)
+                self.logger.info("XEYO contextvar routed to %s", cid_self)
+        except Exception as exc:  # noqa: BLE001
+            self.logger.warning("contextvar routing failed: %s", exc)
 
         agent_timeout = self._agent_timeout_sec()
         scratch = Path(self.logs_dir) / "workspace"

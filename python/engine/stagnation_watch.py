@@ -75,6 +75,16 @@ STUCK_WALL_FRAC = _env_float("XEYO_STALL_STUCK_FRAC", 0.30)
 THRASH_TIMES = _env_int("XEYO_STALL_THRASH_TIMES", 2)
 #: 走过场："创建即完成"条目数。
 RUBBER_STAMP_ITEMS = _env_int("XEYO_STALL_RUBBER_STAMP", 3)
+#: 契约 nudge（recency 提醒）：前 N 次工具调用且尚无清单时，每轮注入。
+#: 一次性长提醒对弱模型无效（p4 raman 实测：50% advice 送达被无视）——
+#: 改为早期窗口每轮短促命令，趁注意力未被数据输出淹没前建立契约。
+NUDGE_TURNS = _env_int("XEYO_STALL_NUDGE_TURNS", 4)
+
+NUDGE_TEXT = (
+	"[契约] 工作契约尚未建立。下一步必须先用 TodoWrite 写："
+	"2-4 条「验收:」开头的可检验验收项 + 首批构成最小端到端交付路径的"
+	"执行项；在此之前不要开始新的探索。"
+)
 
 
 # ── 模块级当前提醒（单进程单 loop；与 repeat_guard 同型）────────────
@@ -150,6 +160,12 @@ class StagnationWatch:
 			self._check_stuck()
 
 		if not self._todo_seen:
+			# 契约 nudge（recency 窗口）：前 N 次工具调用内开始注入短促命令。
+			# 槽位单值持久 → 之后每轮模型请求都注入（即每轮重复），直到契约
+			# 建立被清或被更强信号替换；已有真信号（_fired 非空）时不抢位。
+			# 窗口过后无清单 → no_contract（50% 墙钟/30 调用）会接管更强话术。
+			if self._calls <= NUDGE_TURNS and not self._fired:
+				publish_stall_advice(NUDGE_TEXT)
 			self._check_no_contract()
 
 	def _observe_todo(self, input_data: Any) -> None:
@@ -158,6 +174,9 @@ class StagnationWatch:
 			todos = input_data.get("todos")
 		if not isinstance(todos, list):
 			return
+		# 契约首次建立：清掉残留的 nudge 文本（过期提醒不再挂在槽里）。
+		if not self._todo_seen:
+			clear_stall_advice()
 		self._todo_seen = True
 		changed = False
 		seen_ids: set[str] = set()

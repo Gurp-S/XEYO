@@ -6,6 +6,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from engine.budget import BudgetTracker
 from engine.stagnation_watch import (
 	NO_CONTRACT_CALLS,
+	NUDGE_TURNS,
 	RUBBER_STAMP_ITEMS,
 	STUCK_CALLS,
 	THRASH_TIMES,
@@ -69,9 +70,9 @@ def test_no_contract_fires_at_wall_half(monkeypatch):
 def test_contract_written_never_fires_no_contract():
 	"""一旦写过清单，无契约信号永久熄火（回退阈值路径）。"""
 	w = StagnationWatch(None)
-	for _ in range(5):  # 未达回退阈值，安静
+	for _ in range(5):  # 未达回退阈值：只有 nudge，无 no_contract 话术
 		w.observe("Bash", {"command": "true"})
-	assert current_stall_advice() == ""
+	assert "无 todo 清单" not in current_stall_advice()
 	w.observe("TodoWrite", _todo("1", "pending"))
 	for _ in range(NO_CONTRACT_CALLS + 5):
 		w.observe("Bash", {"command": "true"})
@@ -122,3 +123,36 @@ def test_normal_completion_never_fires():
 		w.observe("Bash", {"command": "true"})
 		w.observe("TodoWrite", _todo(str(i), "completed"))
 	assert current_stall_advice() == ""
+
+
+# ====== 契约 nudge（recency 窗口）======
+
+def test_nudge_persists_until_contract_or_signal():
+	"""窗口内开始注入；槽位持久=之后每轮请求都注入；契约建立即清空。"""
+	w = StagnationWatch(None)
+	w.observe("Bash", {"command": "true"})
+	assert "工作契约尚未建立" in current_stall_advice()
+	for _ in range(NUDGE_TURNS + 3):
+		w.observe("Bash", {"command": "true"})
+	assert "工作契约尚未建立" in current_stall_advice()  # 持久，直到契约/信号
+	w.observe("TodoWrite", _todo("1", "in_progress"))
+	assert "工作契约尚未建立" not in current_stall_advice()
+
+
+def test_nudge_cleared_once_contract_written():
+	"""契约建立 → 残留 nudge 立即清空。"""
+	w = StagnationWatch(None)
+	w.observe("Bash", {"command": "true"})
+	assert "工作契约尚未建立" in current_stall_advice()
+	w.observe("TodoWrite", _todo("1", "in_progress"))
+	assert "工作契约尚未建立" not in current_stall_advice()
+
+
+def test_nudge_does_not_suppress_later_signals():
+	"""nudge 窗口后触发的 no_contract 不被 nudge 顶掉（信号优先于提醒）。"""
+	w = StagnationWatch(None)
+	for _ in range(NUDGE_TURNS):
+		w.observe("Bash", {"command": "true"})
+	for _ in range(NO_CONTRACT_CALLS):
+		w.observe("Bash", {"command": "true"})
+	assert "无 todo 清单" in current_stall_advice()
