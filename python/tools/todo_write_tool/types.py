@@ -14,6 +14,10 @@ class TodoItem:
 	status: TodoStatus
 	active_form: str
 	id: str = ""
+	#: 可选产物路径（相对工作区）。步骤以"生成文件/产物"收尾时由模型声明；
+	#: 进入 sidecar/transcript 恢复链，是引擎侧任务状态注册表的确定性引用，
+	#: 供恢复/续跑/收尾引导等消费。UI 白名单（content/status/activeForm）丢弃。
+	output: str = ""
 
 	def to_dict(self) -> dict[str, str]:
 		return {
@@ -21,6 +25,7 @@ class TodoItem:
 			"content": self.content,
 			"status": self.status,
 			"activeForm": self.active_form,
+			"output": self.output,
 		}
 
 
@@ -43,9 +48,16 @@ def todo_item_from_raw(raw: Any) -> TodoItem | None:
 		if isinstance(raw_id, str) and raw_id.strip()
 		else uuid4().hex[:8]
 	)
+	raw_output = raw.get("output")
+	output = (
+		str(raw_output).strip()
+		if isinstance(raw_output, str) and raw_output.strip()
+		else ""
+	)
 	return TodoItem(
 		content=content.strip(),
 		status=status,  # type: ignore[arg-type]
 		active_form=active.strip(),
 		id=item_id,
+		output=output,
 	)

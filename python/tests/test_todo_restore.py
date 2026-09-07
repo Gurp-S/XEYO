@@ -30,6 +30,34 @@ def test_parse_todos_from_result_text() -> None:
 	assert items[0].content == "A"
 
 
+def test_output_field_survives_transcript_restore() -> None:
+	"""R4 注册表：output 必须穿透 tool_result → 解析 → 恢复全链路。"""
+	blob = json.dumps(
+		[
+			{
+				"content": "A",
+				"status": "completed",
+				"activeForm": "Doing A",
+				"output": "out/a.json",
+			}
+		]
+	)
+	text = f"ok\n<todo_list>\n{blob}\n</todo_list>"
+	items = parse_todos_from_result_text(text)
+	assert items is not None
+	assert items[0].output == "out/a.json"
+
+	msg = Message(
+		role="tool",
+		name="TodoWrite",
+		content=text,
+		tool_call_id="1",
+	)
+	got = restore_todos_from_messages([msg])
+	assert len(got) == 1
+	assert got[0].output == "out/a.json"
+
+
 def test_restore_from_messages_prefers_last_tool_result() -> None:
 	first = Message(
 		role="tool",

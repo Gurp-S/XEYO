@@ -251,13 +251,24 @@ class TodoWriteTool:
 										"completed",
 									],
 								},
-								"activeForm": {
-									"type": "string",
-									"description": (
-										"Present continuous form "
-										'(e.g. "Running tests")'
-									),
-								},
+							"activeForm": {
+								"type": "string",
+								"description": (
+									"Present continuous form "
+									'(e.g. "Running tests")'
+								),
+							},
+							"output": {
+								"type": "string",
+								"description": (
+									"Optional artifact path (relative to the "
+									'workspace, e.g. "reports/summary.md"). Set '
+									"it when this step ends by producing a file "
+									"or concrete result on disk; omit for "
+									"research/transient steps. The engine keeps "
+									"it as structured task state."
+								),
+							},
 							},
 							"required": ["content", "status", "activeForm", "id"],
 						},
@@ -266,6 +277,40 @@ class TodoWriteTool:
 				"required": ["todos"],
 			},
 		}
+
+	def _materialization_facts(self, todos: list[TodoItem]) -> str:
+		"""产物落盘事实（R4 注册表的确定性核对，非命令、非闸门）。
+
+		对「标 completed 且声明了产物路径」的条目 stat 磁盘，把存在/缺失
+		作为事实追加给模型与 UI——引擎自己看磁盘，不依赖模型自觉，但
+		不做任何拦截（是否补救仍由模型/用户裁决）。in_progress 与未声明
+		产物的条目零开销；文件系统异常 fail-open（不加行）。
+		"""
+		if not todos:
+			return ""
+		rows: list[str] = []
+		for t in todos:
+			path = (t.output or "").strip()
+			if t.status != "completed" or not path:
+				continue
+			try:
+				from pathlib import Path
+
+				full = Path(self._cwd or ".").joinpath(path)
+				if full.exists() and full.is_file():
+					try:
+						size = full.stat().st_size
+						rows.append(f"[task-check] 产物 {path}: 已存在（{size} B）")
+					except OSError:
+						rows.append(f"[task-check] 产物 {path}: 已存在")
+				else:
+					rows.append(
+						f"[task-check] 产物 {path}: 磁盘上不存在——该步骤标了 "
+						"completed，但声明的产物文件尚未落盘。"
+					)
+			except Exception:  # noqa: BLE001 — fail-open
+				continue
+		return "\n".join(rows)
 
 	async def execute(
 		self,
@@ -289,8 +334,12 @@ class TodoWriteTool:
 			return ToolResult(content=str(e), is_error=True)
 		abort.raise_if_aborted()
 		self._note_presence_todos(out.new_todos)
+		content = self.map_tool_result_to_content(out)
+		facts = self._materialization_facts(out.new_todos)
+		if facts:
+			content = f"{content}\n\n{facts}"
 		return ToolResult(
-			content=self.map_tool_result_to_content(out),
+			content=content,
 			is_error=False,
 			todos=[t.to_dict() for t in out.new_todos],
 		)
