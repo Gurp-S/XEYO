@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 
-from msgtypes.envelope import Envelope, wrap
+from msgtypes.envelope import wrap
 from msgtypes.events import ResultEvent, ToolCallEvent, ToolResultEvent
 from engine.query_loop import _tool_input_summary
 

@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 import logging
 import os
 import time
-from pathlib import Path
 from typing import Any
 
 import channels.ilink._state as _st
@@ -16,23 +14,19 @@ import httpx
 
 from channels.base import InboundMessage
 from channels.filehelper.commands import parse_command, with_screenshot_nudge
-from channels.filehelper.inbound_queue import InboundQueue
 from channels.filehelper.prefix import is_own_reply, xeyo_reply
 from common.errors import safe_error_text
 from channels.ilink import SESSION_ID, session_id_for
-from channels.ilink import broadcast as il_broadcast
 from channels.ilink.channel import ILinkChannel
 from channels.ilink.client import (
 	ILinkClient,
 	collect_update_msgs,
 	decode_qr_payload,
 	extract_text,
-	rpc_ok,
 )
 from channels.ilink.qr_png import looks_like_image_url, render_qr_png, sniff_image
 from channels.ilink.store import clear_credentials, load_credentials, save_credentials
 from channels.jobs import JobRecord, JobStore
-from channels.mirror import ChannelMirror
 from channels.runner import FinalOnlyRunner, set_runtime_model_config
 from permissions.store import default_permission_store
 from server.session_pool import ModelConfig
@@ -46,20 +40,12 @@ _HELP = _shared_remote_help_text()
 
 
 from channels.ilink._state import _bridge, _inbound_q
-from channels.ilink.bridge import ILinkBridge, _silent_typing
+from channels.ilink.bridge import ILinkBridge
 from channels.ilink.stream import (
 	_mirror,
 	accepts_stream_session,
-	events_since,
-	status_payload,
 	_broadcast_state,
-	_broadcast_stream,
-	_cancel_stream_flush,
-	_flush_stream,
-	_mirror_sid,
 	_push_event,
-	_publish_stream,
-	_state_payload,
 )
 _st._msg_lock: asyncio.Lock | None = None
 _PERSIST_DELAY_S = 2.0

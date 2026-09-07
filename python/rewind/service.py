@@ -11,12 +11,11 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
 
 from rewind.journal import OperationJournal
-from engine.workspace_lock import LeaseBusyError, LeaseError, WorkspaceLock
+from engine.workspace_lock import LeaseBusyError, WorkspaceLock
 from rewind.locks import SessionLock
 from rewind.models import ApprovalRecord, RecoveryJob, RollbackPlan, SessionRevision, TurnRecord
 from rewind.revision import RevisionStore
 from rewind.snapshot import SnapshotStore
-from session.hydrate import messages_from_rows
 from session.persistence import (
     default_sessions_dir,
     is_session_persistence_disabled,

@@ -9,13 +9,11 @@ from engine.stagnation_watch import (
 	NUDGE_TURNS,
 	RUBBER_STAMP_ITEMS,
 	STUCK_CALLS,
-	THRASH_TIMES,
 	StagnationWatch,
 	clear_stall_advice,
 	current_stall_advice,
 	stagnation_enabled,
 )
-import os
 
 import pytest
 

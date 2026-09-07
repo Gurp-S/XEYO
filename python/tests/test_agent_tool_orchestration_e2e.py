@@ -12,7 +12,6 @@ from engine.abort import AbortController
 from msgtypes.events import ToolProgressEvent
 from msgtypes.message import ToolUse
 from tools.agent_tool import AgentTool
-from tools.base_tool import ToolResult
 from tools.orchestration import run_tools_partitioned
 from tools.tool_registry import ToolRegistry
 

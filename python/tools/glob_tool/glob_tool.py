@@ -13,11 +13,7 @@
    并随 ToolResult.metadata 上报单次 num_files/truncated/cached。
 
 # 读权限：走 permissions.filesystem 路径狱；ASK 仅信 registry preapproved。
-# TODO: [权限] preparePermissionMatcher：按 pattern 做 shell 通配规则匹配
-# TODO: [路径] 绝对路径 pattern 拆分 baseDir + relativePattern（对齐 extractGlobBaseDirectory）
-# TODO: [取消] abort 时杀掉已运行的 rg 子进程（现在只在 execute 前后检查 abort）
-# TODO: [校验] 用严格 schema（如 pydantic/zod 等价物）做 input/output 运行时校验
-# TODO: [UI] 专用终端渲染 / Hooks / 遥测接入（现仅 glob_stats() + metadata）
+# TODO: [路径] 绝对路径 pattern 拆分 baseDir + relativePattern
 """
 
 from __future__ import annotations

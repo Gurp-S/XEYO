@@ -34,7 +34,6 @@ from extension.config import (
 	write_settings,
 )
 from extension.errors import ConfigError
-from extension import mcp_client as mc
 from extension import mcp_scopes as scopes
 from extension.mcp_client import (
 	MAX_SERVER_SCHEMA_BYTES,

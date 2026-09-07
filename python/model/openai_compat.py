@@ -21,7 +21,6 @@ from common.errors import (
 
 from engine.abort import AbortController
 from model.chunks import ModelChunk
-from msgtypes.message import ToolUse
 
 try:
 	import httpx

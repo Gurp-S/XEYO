@@ -15,10 +15,10 @@ import pytest
 from engine.abort import AbortController
 from engine.budget import BudgetTracker
 from engine.query_loop import query_loop
-from engine.xml_tool_call import XmlToolCallBuffer, extract_xml_tool_calls
+from engine.xml_tool_call import XmlToolCallBuffer
 from memory.working import WorkingSnapshot
 from model.chunks import ModelChunk
-from msgtypes.events import FinalEvent, ToolCallEvent, ToolResultEvent
+from msgtypes.events import ToolCallEvent, ToolResultEvent
 from msgtypes.message import ToolUse, user_message
 from prompt.assembler import DEFAULT_SYSTEM, PromptAssembler
 from session.message_store import MessageStore

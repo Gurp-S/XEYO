@@ -14,7 +14,6 @@ import asyncio
 import bisect
 import json
 import os
-import re
 import subprocess
 import sys
 import time
@@ -119,7 +118,7 @@ def formula_snapshot(messages: list[dict], cursor: int = 0) -> dict:
 	from memory.simulator.cache_model import CacheState
 	from memory.simulator.decision import decide
 	from memory.simulator.params import load_params
-	from memory.simulator.scenarios import DEFAULT_SYSTEM, state_from_messages
+	from memory.simulator.scenarios import state_from_messages
 
 	p = load_params()
 	s0 = state_from_messages(messages, cursor=cursor)
@@ -2636,7 +2635,7 @@ def _freeze_projections(api: list[dict], *, source: str, llm_summary: str | None
 	"""
 	from engine.compact import project as project_c0c1
 	from memory.runtime import apply_c2_messages, c2_cut_index
-	from memory.simulator.scenarios import DEFAULT_SYSTEM, state_from_messages
+	from memory.simulator.scenarios import state_from_messages
 	from memory.working import WorkingSnapshot
 
 	if not api:
@@ -2910,7 +2909,7 @@ async def run_ab_same_task(proj: Path, style: str) -> dict:
 
 def _left_region(api: list[dict]) -> list[dict]:
 	from memory.runtime import c2_cut_index
-	from memory.simulator.scenarios import DEFAULT_SYSTEM, state_from_messages
+	from memory.simulator.scenarios import state_from_messages
 
 	s0 = state_from_messages(api, cursor=0)
 	cut = c2_cut_index(api, s0)

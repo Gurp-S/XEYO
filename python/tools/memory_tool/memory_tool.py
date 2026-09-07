@@ -14,8 +14,6 @@ from typing import Any
 
 from engine.abort import AbortController
 from memory.governance import (
-    ALLOWED_SCOPE,
-    ALLOWED_TYPES,
     MemorySchemaError,
     may_resurrect,
     new_note_id,

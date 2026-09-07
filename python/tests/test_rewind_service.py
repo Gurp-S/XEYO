@@ -7,7 +7,6 @@ import pytest
 
 from msgtypes.message import Message
 from rewind.journal import OperationJournal
-from rewind.models import OperationRecord
 from rewind.revision import RevisionStore
 from rewind.service import (
     RollbackApprovalError,

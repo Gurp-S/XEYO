@@ -18,7 +18,7 @@ from engine.repeat_guard import (
 	clear_advice,
 	current_advice,
 )
-from msgtypes.events import FinalEvent, StoppedEvent, ToolCallEvent, ToolResultEvent
+from msgtypes.events import FinalEvent, StoppedEvent
 from msgtypes.message import ToolUse, user_message
 from prompt.assembler import DEFAULT_SYSTEM, PromptAssembler
 from session.message_store import MessageStore

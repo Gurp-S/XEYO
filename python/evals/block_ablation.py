@@ -49,7 +49,6 @@ async def _run_case(case: dict, *, api_key: str, base_url: str, model: str,
                     smoke: bool) -> dict:
     from contextlib import aclosing
 
-    from engine.abort import AbortController
     from engine.query_engine import build_default_engine
 
     cwd = Path(tempfile.mkdtemp(prefix="xeyo_ablation_"))

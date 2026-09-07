@@ -14,10 +14,9 @@ from memory.working import (
     hydrate,
 )
 from memory.simulator.cache_model import CacheState
-from memory.simulator.cost_model import shot_cost, split_tokens
+from memory.simulator.cost_model import shot_cost
 from memory.simulator.params import load_params
 from memory.simulator.projection import project
-from memory.simulator.scenarios import state_from_messages
 from memory.simulator.state_model import ContextState, Segment, freeze_s0
 
 

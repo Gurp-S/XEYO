@@ -1,16 +1,12 @@
 """简单的功能测试 - 验证基础工具和功能"""
 
 import pytest
-from pathlib import Path
-import tempfile
-import os
 
 from tools.catalog import build_default_registry
 from msgtypes.message import user_message
 from engine.query_loop import query_loop
 from engine.abort import AbortController
 from engine.budget import BudgetTracker
-from msgtypes.events import FinalEvent
 from model.chunks import ModelChunk
 
 
@@ -22,7 +18,6 @@ class SimpleTestModel:
         self.turns = 0
     
     async def stream(self, messages, tools, abort):
-        from msgtypes.message import ToolUse
         
         abort.raise_if_aborted()
         self.turns += 1

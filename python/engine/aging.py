@@ -14,7 +14,6 @@ logs/toolout 文件级恢复为后续增强（见设计文档前置依赖①）�
 
 from __future__ import annotations
 
-import os
 import re
 
 ENV_KEY = "XEYO_TOOL_AGING"

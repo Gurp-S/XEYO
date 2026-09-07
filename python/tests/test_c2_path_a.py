@@ -96,7 +96,6 @@ def test_gain_gate_rejects_when_save_ratio_not_met():
 
 
 def test_default_path_keeps_frozen_behavior():
-	import os
 
 	import memory.runtime as rt
 	from memory.working import WorkingSnapshot

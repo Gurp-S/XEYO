@@ -32,7 +32,7 @@ from engine.compact import (
 from engine.compact import project as project_c0c1
 from engine.aging import AGING_VERSION, aging_enabled
 from memory.citation import message_citation
-from memory.l5_flag import c2_gate, l5_mode, use_v61
+from memory.l5_flag import l5_mode, use_v61
 from memory.summarize import extract_tool_summary, is_error_like
 from memory.token import token_len
 from memory.working import (

@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import contextvars
-import hashlib
 import os
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any, Iterator
 
 from rewind.journal import OperationJournal

@@ -8,7 +8,6 @@
 
 from __future__ import annotations
 
-import pytest
 
 from memory.instruction_maintain import (
 	load_nested_instruction_text,

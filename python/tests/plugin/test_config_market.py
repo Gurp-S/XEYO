@@ -2,10 +2,8 @@
 
 from pathlib import Path
 
-import pytest
 
 from extension.config import (
-	ExtensionConfig,
 	load_ext_config,
 	set_hooks_enabled,
 	set_plugin_market_enabled,

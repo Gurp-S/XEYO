@@ -203,7 +203,6 @@ def test_checkpoint_helpers_persist_resume_abandon(tmp_path):
 
 @pytest.mark.asyncio
 async def test_run_task_batch_resume_skips_done(tmp_path, monkeypatch):
-	import asyncio
 	from engine.scheduler import (
 		Scheduler,
 		Task,

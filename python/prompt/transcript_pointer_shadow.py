@@ -19,7 +19,6 @@
 from __future__ import annotations
 
 import importlib
-import os
 
 _TARGET_MODULE = "prompt.pre_llm_inject"
 _HOOK_NAME = "run_pre_llm_inject"

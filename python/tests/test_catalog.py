@@ -13,7 +13,6 @@ from tools.catalog import (
 	build_subagent_registry,
 	default_tool_names,
 	factory_for,
-	shared_read_state,
 	tools_system_hint,
 )
 from tools.fileio.read_state import ReadFileState

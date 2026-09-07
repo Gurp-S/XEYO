@@ -9,7 +9,6 @@
 
 from __future__ import annotations
 
-import pytest
 
 from evals import retrieval_bench as rb
 
@@ -73,7 +72,7 @@ def test_non_literal_query_fail_open():
 
 def test_bench_code_controlled_corpus(tmp_path):
     """受控 corpus 写入后可建索引且命中期望文件。"""
-    from evals.retrieval_bench import CODE_CASES, _CODE_SOURCES, bench_code
+    from evals.retrieval_bench import CODE_CASES, bench_code
 
     root = tmp_path / "corpus"
     results = bench_code(CODE_CASES, code_root=str(root))

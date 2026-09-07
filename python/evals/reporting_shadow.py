@@ -21,7 +21,6 @@
 
 from __future__ import annotations
 
-import os
 
 _ENV = "XEYO_EVAL_REPORTING"
 

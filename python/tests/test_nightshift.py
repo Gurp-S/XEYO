@@ -146,7 +146,6 @@ def test_agent_harvest_promotes(tmp_path, monkeypatch):
 def test_stale_lock_reclaimed(tmp_path, monkeypatch):
 	"""持有者 PID 已死 → 可回收锁再取得。"""
 	import os
-	from pathlib import Path
 
 	import memory.nightshift as ns
 

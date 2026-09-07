@@ -7,7 +7,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
 
-from tools.fileio import excludes
 from tools.fileio.excludes import excluded_dir_globs, search_excluded_dirs
 from tools.glob_tool.glob_tool import GlobTool, GlobOutput
 from tools.grep_tool.grep_tool import GrepInput, GrepOutput, GrepTool, build_rg_args, run_ripgrep

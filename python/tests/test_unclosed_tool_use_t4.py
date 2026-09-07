@@ -8,10 +8,8 @@ import pytest
 
 from session.hydrate import (
 	messages_from_rows,
-	_repair_unclosed_tool_uses,
 )
 from session.record_transcript import flush_transcript
-from session.persistence import transcript_path
 
 
 def _assistant_with_uses(*uses: tuple[str, str]):

@@ -5,21 +5,15 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
-import os
 import queue
 
 import pytest
 
-from engine.abort import AbortController
 from extension import mcp_manager as mm
-from extension.config import load_ext_config
 from extension.mcp_client import (
 	MAX_MCP_STDIO_LINE,
 	McpClientSpec,
-	McpServerRuntime,
-	McpStdioClient,
 	StdioMcpTransport,
 	sanitize_env,
 )

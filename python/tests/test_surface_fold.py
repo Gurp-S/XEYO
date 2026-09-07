@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
 
 from rewind.hotpath import mark_crashed_rewinds
 from session.hydrate import messages_from_transcript

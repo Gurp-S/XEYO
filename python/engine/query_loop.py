@@ -22,7 +22,6 @@ from permissions.pending_ttl import (
 from engine.plan import default_plan_engine
 from engine.process_narration import StreamNarrationGate
 from engine.repeat_guard import (
-	ACTION_ADVICE,
 	RepeatCallGuard,
 	ZeroHitTracker,
 	ZERO_HIT_ADVICE_AT,
@@ -83,7 +82,6 @@ from memory.token import token_len
 from msgtypes.message import Message, ToolUse, assistant_text_message, tool_result_message
 from common.errors import (
     EmptyResponseError,
-    NetworkError,
     ProviderError,
     classify_llm_failure,
     empty_response_failure,
@@ -608,6 +606,7 @@ def _attach_turn_context(
 	subagent: bool = False,
 	plan_pointer: bool = False,
 	t_now_strategy: str = "",
+	budget: object | None = None,
 ) -> list[dict]:
 	"""薄封装：委托 ``prompt.pre_llm_inject.run_pre_llm_inject``。
 
@@ -615,10 +614,10 @@ def _attach_turn_context(
 	``inject_instructions``：None 时跟随 ``include_memory_index``。
 	``subagent``：T14 净化清单——子代理上下文跳过 peer/冲突/预览等易变块。
 	``t_now_strategy``：声道策略（env_channel/legacy）；空串跟随全局解析。
+	``budget``：BudgetTracker（禀赋①预算镜像数据源）；None 则零注入。
 	"""
 	from prompt.pre_llm_inject import (
 		InjectContext,
-		approved_plan_decays_on,
 		run_pre_llm_inject,
 	)
 
@@ -926,6 +925,7 @@ async def query_loop(
             previous_reasoning_tail=previous_reasoning_tail,
             subagent=_in_subagent(),
             plan_pointer=plan_pointer,
+            budget=budget,
         )
         projected_pre_inject = projected
         projected = _attach_turn_context(

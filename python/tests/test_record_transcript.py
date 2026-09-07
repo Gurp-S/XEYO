@@ -6,7 +6,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from msgtypes.message import user_message, assistant_text_message
-from session.persistence import transcript_path
 from session.record_transcript import (
 	load_transcript,
 	record_transcript_sync,

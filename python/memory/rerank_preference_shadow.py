@@ -29,7 +29,6 @@
 from __future__ import annotations
 
 import importlib
-import os
 import time
 
 _TARGET_MODULE = "memory.search"

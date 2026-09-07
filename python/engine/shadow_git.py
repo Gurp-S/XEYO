@@ -2,7 +2,7 @@ import locale
 import os
 import subprocess
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import List, Optional
 
 
 class ShadowGitError(RuntimeError):

@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from slash.dispatch import CommandResult, DispatchContext, dispatch
+from slash.dispatch import DispatchContext, dispatch
 from slash.registry import parse_slash
 
 

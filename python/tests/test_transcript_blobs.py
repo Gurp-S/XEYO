@@ -1,19 +1,15 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 
-import pytest
 from msgtypes.message import Message
 from session.record_transcript import (
-	flush_pending_sync,
 	load_transcript,
 	record_transcript_sync,
 )
 from session.transcript_blobs import (
 	blob_file,
-	blob_threshold_bytes,
 	resolve_transcript_row,
 	row_from_message,
 )

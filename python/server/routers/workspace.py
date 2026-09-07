@@ -205,7 +205,6 @@ def workspace_graph(refresh: bool = Query(default=False)) -> dict[str, Any]:
 @router.get("/v1/workspace/outline")
 def workspace_outline(path: str = Query(default="")) -> dict[str, Any]:
 	"""单文件符号大纲（按需，不扫全仓）。"""
-	from pathlib import Path
 
 	from codeindex.symbols import outline
 	from server.workspace_fs import resolve_in_workspace

@@ -7,7 +7,6 @@ from pathlib import Path
 from engine.abort import AbortController
 from memory.governance import parse_and_validate
 from memory.memdir import (
-	is_under_memdir,
 	load_index_text,
 	load_notes,
 	rewrite_index,

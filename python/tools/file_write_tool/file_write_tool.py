@@ -2,10 +2,7 @@
 
 # 写权限：走 permissions.filesystem 路径狱 / 密钥 DENY / 危险 ASK；
 # ASK 仅在 registry 已 preapproved 时放行。.ipynb 请用 NotebookEdit。
-# TODO: [历史] fileHistory 备份 / 结构化 patch 展示
-# TODO: [集成] VSCode diff 通知
 # TODO: [密钥] team-memory secret 扫描
-# TODO: [UI] 专用终端渲染 / Hooks / 遥测
 
 from __future__ import annotations
 
@@ -22,7 +19,7 @@ from tools.base_tool import ToolResult
 
 from tools.fileio.diff_preview import append_diff_fence, format_capped_unified_diff
 from tools.fileio.paths import expand_path
-from tools.fileio.read_state import FileStateEntry, ReadFileState
+from tools.fileio.read_state import ReadFileState
 from tools.fileio.text import get_mtime_ms, normalize_newlines, read_text_file, write_text_file
 from tools.fileio.conflict import build_stale_message
 from tools.file_write_tool.prompt import DESCRIPTION, FILE_WRITE_TOOL_NAME

@@ -23,7 +23,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from rewind.snapshot import SnapshotStore
 from session.persistence import default_sessions_dir, safe_session_filename

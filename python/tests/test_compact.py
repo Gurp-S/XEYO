@@ -8,7 +8,6 @@ from engine.budget import BudgetTracker
 from engine.compact import (
 	KEEP_TAIL_MESSAGES,
 	MAX_TOOL_RESULT_CHARS,
-	TRUNCATE_SUFFIX,
 	_iter_tool_result_blocks,
 	_message_chars,
 	project,

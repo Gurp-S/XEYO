@@ -2,10 +2,7 @@
 
 # 读权限：走 permissions.filesystem 路径狱 / 密钥 DENY / 危险 ASK；
 # ASK 仅在 registry 已 preapproved 时放行。
-# TODO: [媒体] 图片 / PDF 原生读取与多模态输出（.ipynb 已返回 cell 摘要）
-# TODO: [去重] GrowthBook killswitch / 更精细的 unchanged stub 策略
 # TODO: [token] API 级 token 计数（现用 chars/4 粗估）
-# TODO: [UI] 专用终端渲染 / Hooks / 遥测
 
 from __future__ import annotations
 

@@ -9,10 +9,8 @@ Bash 透明路由纯函数 / bash 策略判定吞吐。
 
 from __future__ import annotations
 
-import json
 import time
 
-import pytest
 
 # ---------------------------------------------------------------- schemas 缓存
 

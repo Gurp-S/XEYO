@@ -5,11 +5,11 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from memory.simulator.cache_model import CacheState
 from memory.simulator.cost_model import shot_cost
-from memory.simulator.decision import Decision, decide
+from memory.simulator.decision import decide
 from memory.simulator.params import Params, load_params
 from memory.simulator.scenarios import DEFAULT_SYSTEM, state_from_messages
 from memory.simulator.state_model import token_len
@@ -265,7 +265,6 @@ def replay_messages(
 	from memory.simulator.cache_model import prices_for
 	from memory.simulator.cost_model import c_action_yuan
 	from memory.simulator.state_model import apply as apply_action
-	from memory.simulator.projection import project
 
 	p = params or load_params()
 	result = ReplaySession(

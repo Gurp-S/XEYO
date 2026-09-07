@@ -6,15 +6,12 @@
 
 from __future__ import annotations
 
-from memory.simulator.cache_model import CacheState
-from memory.simulator.cost_model import shot_cost
 from memory.simulator.params import load_params
 from memory.simulator.quality_model import evaluate_quality
 from memory.simulator.scenarios import state_from_messages
 from memory.simulator.state_model import (
     ContextState,
     Segment,
-    apply,
     freeze_s0,
 )
 from memory.simulator.state_model import atomize_m_segments

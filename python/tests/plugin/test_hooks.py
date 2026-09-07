@@ -3,7 +3,6 @@
 import json
 from pathlib import Path
 
-from extension.config import ExtensionConfig
 from extension.hooks import _outcome_for, run_event_hooks
 from extension.reconcile import consume_reconcile_blocks, reset_reconcile_state
 

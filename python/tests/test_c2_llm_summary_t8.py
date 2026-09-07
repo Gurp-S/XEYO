@@ -9,18 +9,14 @@
 
 from __future__ import annotations
 
-import asyncio
-from types import SimpleNamespace
 
 import pytest
 
 from engine.abort import AbortController
-from engine.compact import project as project_c0c1
 from engine.compact import project
 from memory.runtime import (
 	c2_llm_bypass,
 	c2_llm_summary_enabled,
-	deterministic_c2_summary,
 	project_for_model,
 	apply_c2_messages,
 	force_compact,
@@ -31,7 +27,6 @@ from memory.working import (
 	flush,
 	hydrate,
 	note_compact_checkpoint,
-	path_for,
 )
 from model.chunks import ModelChunk
 from msgtypes.message import ToolUse

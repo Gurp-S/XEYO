@@ -14,7 +14,6 @@ import asyncio
 import pytest
 
 from engine.agent_roles import (
-	AgentRole,
 	load_agent_roles,
 	role_developer_suffix,
 )

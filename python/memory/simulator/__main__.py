@@ -91,7 +91,7 @@ def main(argv: list[str] | None = None) -> int:
 		print(mp)
 		return 0
 	if args.cmd == "ab":
-		from memory.simulator.report import ab_success, build_report
+		from memory.simulator.report import build_report
 
 		rep = build_report(smoke=args.smoke, include_replay=False)
 		print(json.dumps({"business": rep["business"], "gate": rep["ab_gate"]}, indent=2))

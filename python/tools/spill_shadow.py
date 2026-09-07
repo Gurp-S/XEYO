@@ -18,7 +18,6 @@
 from __future__ import annotations
 
 import importlib
-import os
 
 _TARGET_MODULE = "tools.spill"
 _HOOK_NAME = "save_text"

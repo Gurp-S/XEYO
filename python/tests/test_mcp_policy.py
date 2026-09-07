@@ -8,10 +8,8 @@ from __future__ import annotations
 import asyncio
 import os
 
-import pytest
 
 from engine.abort import AbortController
-from extension import mcp_scopes as scopes
 from extension.mcp_client import (
 	McpClientSpec,
 	McpTool,
@@ -24,7 +22,6 @@ from permissions.policy import (
 	evaluate_policy,
 	evaluate_policy_impl,
 	readonly_gate,
-	set_permission_mode,
 )
 from tools.tool_registry import ToolRegistry
 

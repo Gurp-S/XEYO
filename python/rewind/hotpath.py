@@ -25,7 +25,6 @@ from typing import Any
 
 from rewind.index import (
     AgentFileIndex,
-    FileCheckpoint,
     load_checkpoint,
 )
 from rewind.snapshot import SnapshotStore

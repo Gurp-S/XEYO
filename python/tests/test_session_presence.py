@@ -184,6 +184,32 @@ def test_t_now_peer_survives_after_tools(tmp_path: Path):
 	assert "另有 1 个会话运行中" in blob
 
 
+def test_t_now_peer_block_env_off_switch(monkeypatch, tmp_path: Path):
+	"""逃生门 XEYO_PEER_PRESENCE_OFF：测试 harness 显式关掉 peer 活动块。
+
+	背景（2026-09-05 E2E 排查）：FakeModelClient 的回声语义会把本块的环境
+	声道 tool_result 当回声源，污染 rewind e2e 断言；生产默认必须照常注入。
+	"""
+	reg = reset_session_presence_for_tests()
+	cwd = str(tmp_path)
+	reg.note_write(cwd, "peer", "f.py")
+	monkeypatch.setenv("XEYO_PEER_PRESENCE_OFF", "1")
+	projected = [
+		{"role": "user", "content": "hi"},
+		{
+			"role": "user",
+			"content": [
+				{"type": "tool_result", "tool_use_id": "1", "content": "ok"},
+			],
+		},
+	]
+	out = run_pre_llm_inject(
+		projected,
+		InjectContext(cwd=cwd, session_id="self"),
+	)
+	assert "其他会话活动" not in str(out[-1].get("content") or "")
+
+
 def test_detect_git_write_ops():
 	assert detect_git_write_op("git status") is None
 	assert detect_git_write_op("git commit -am 'x'") == "commit"

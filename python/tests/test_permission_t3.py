@@ -10,7 +10,6 @@ from permissions.pending_ttl import (
 	CANCELLED_COPY,
 	PENDING_DANGER_TTL_SECONDS,
 	PENDING_PANEL_TTL_SECONDS,
-	PENDING_REMINDER_BEFORE_S,
 	REJECTED_COPY,
 	UNAVAILABLE_COPY,
 	intent_for,
@@ -128,7 +127,7 @@ def test_unified_copies_are_distinct_and_nonempty():
 
 @pytest.mark.asyncio
 async def test_allow_is_audited_paired_with_pending(tmp_path):
-	from audit.log import AuditLog, default_audit_log, reset_default_audit_log
+	from audit.log import AuditLog, reset_default_audit_log
 
 	log_path = tmp_path / "audit.jsonl"
 	reset_default_audit_log()

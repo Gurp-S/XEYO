@@ -116,7 +116,6 @@ def _cold_cache(state):
 
 def _drops_stack(s0, action: str) -> bool:
     """该动作执行后，完整报错栈是否还留在投影内容里（C2 摘要一行引用不算存活）。"""
-    from memory.simulator.projection import project
     from memory.simulator.state_model import apply as sim_apply
 
     if action == "keep":
@@ -158,7 +157,6 @@ def gate_b1_pareto() -> dict:
     门槛：同成本保真 +≥3pp 或 同保真成本 −≥5%；「丢高价值原子省 <5% 成本」清零；
     J_pred 误差不升。θ_D 扫描（0.05/0.2/0.5）取最优前沿——θ 是 B1 的待校准参数。
     """
-    from memory.simulator.decision import ACTIONS
     from memory.simulator.projection import project
 
     grids = []

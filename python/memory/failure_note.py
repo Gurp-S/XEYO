@@ -13,7 +13,6 @@ convention 段（memindex 既有检索自动可见）。治理审批的接入是
 from __future__ import annotations
 
 import time
-from typing import Any
 
 from memory.memdir import ensure_layout, workspace_id
 

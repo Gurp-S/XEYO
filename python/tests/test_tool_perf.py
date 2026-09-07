@@ -9,8 +9,6 @@
 
 from __future__ import annotations
 
-import os
-import shutil
 from pathlib import Path
 
 import pytest
@@ -19,8 +17,6 @@ from engine.abort import AbortController
 from tools.bash_tool.cmd_compact import compact_command_output
 from tools.catalog import build_default_registry
 from tools.glob_tool.glob_tool import GlobInput, GlobTool
-from tools.grep_tool.grep_tool import GrepTool
-from tools.file_read_tool.file_read_tool import FileReadTool
 
 REPO_ROOT = str(Path(__file__).resolve().parents[2])
 

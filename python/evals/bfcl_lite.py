@@ -19,7 +19,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from client import (  # noqa: E402
-    DATA_DIR,
     MODEL_ID,
     STARTUP_DIR,
     account,

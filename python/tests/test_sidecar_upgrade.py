@@ -8,9 +8,7 @@
 
 from __future__ import annotations
 
-import importlib
 
-import pytest
 
 from sidecar import upgrade
 from sidecar.policy import sidemod_promote

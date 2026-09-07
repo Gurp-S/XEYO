@@ -7,7 +7,7 @@ from typing import Any, Iterator
 
 from memory.simulator.cache_model import CacheState
 from memory.simulator.params import Params, load_params
-from memory.simulator.state_model import ContextState, Segment, freeze_s0, token_len
+from memory.simulator.state_model import ContextState, Segment, freeze_s0
 
 DEFAULT_SYSTEM = "You are XEYO, a coding agent.\n"
 

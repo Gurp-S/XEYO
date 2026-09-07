@@ -3,7 +3,6 @@
 from pathlib import Path
 
 from extension.config import (
-	ExtensionConfig,
 	load_ext_config,
 	set_plugin_enabled,
 	workspace_settings_path,

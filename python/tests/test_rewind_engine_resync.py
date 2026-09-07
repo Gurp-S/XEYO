@@ -22,7 +22,7 @@ from fastapi.testclient import TestClient
 from server import app as app_mod
 from server.app import app
 from server.session_pool import ModelConfig, SessionPool
-from session.persistence import safe_session_filename, transcript_path
+from session.persistence import transcript_path
 
 
 def _cfg() -> ModelConfig:

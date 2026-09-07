@@ -20,7 +20,6 @@ from engine.task_state import SessionTaskState
 from model.chunks import ModelChunk
 from msgtypes.events import (
 	AskUserPendingEvent,
-	AskUserResolvedEvent,
 	FinalEvent,
 	PermissionPendingEvent,
 	PermissionResolvedEvent,

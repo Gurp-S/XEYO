@@ -102,7 +102,6 @@ def bench_notes(cases: list[BenchCase], *, wsid: str | None = None) -> list[Benc
     import importlib
 
     search_mod = importlib.import_module("memory.search")  # memory.search 是 facade 遮蔽，须 importlib
-    from memory.memdir import write_note
 
     wsid = wsid or _dedicated_wsid()
     _seed_notes(wsid)
@@ -165,7 +164,6 @@ def bench_code(cases: list[BenchCase], *, code_root: str) -> list[BenchResult]:
     在 `code_root` 下写入 `_CODE_SOURCES` 对应的文件（保证索引可建、不触发 repo 大小上限回退），
     再对每个 query 用 `content_index.lookup` 求候选集。这是**超集召回**基线：真正匹配还需 rg 精确验证。
     """
-    import shutil
 
     from tools.fileio import content_index
 

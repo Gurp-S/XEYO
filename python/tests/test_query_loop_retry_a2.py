@@ -172,7 +172,6 @@ class _AbortMidStreamClient(FakeModelClient):
 @pytest.mark.asyncio
 async def test_abort_persists_interrupted_anchor(monkeypatch) -> None:
 	"""44 号 A3：abort 时已有非空前缀 → 部分输出以 interrupted 锚入史。"""
-	from engine.abort import Aborted
 	from msgtypes.events import StoppedEvent
 
 	abort = AbortController()

@@ -25,7 +25,6 @@
 from __future__ import annotations
 
 import importlib
-import os
 
 _TARGET_MODULE = "memory.search"
 _HOOK_NAME = "search"

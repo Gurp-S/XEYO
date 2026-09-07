@@ -11,7 +11,6 @@ from engine.title import (
 	DEFAULT_TITLE,
 	MAX_TITLE_BYTES,
 	enhance_with_model,
-	ensure_instant_title,
 	instant_title,
 	read_title,
 	title_sidecar_path,
@@ -97,7 +96,7 @@ class _FakeClient:
 
 @pytest.mark.asyncio
 async def test_enhance_applies_title_and_audits_before_dispatch(tmp_path: Path):
-	from audit.log import AuditLog, default_audit_log, reset_default_audit_log
+	from audit.log import AuditLog, reset_default_audit_log
 
 	log_path = tmp_path / "audit.jsonl"
 	reset_default_audit_log()
@@ -118,7 +117,7 @@ async def test_enhance_applies_title_and_audits_before_dispatch(tmp_path: Path):
 
 @pytest.mark.asyncio
 async def test_enhance_rejects_empty_and_pinned(tmp_path: Path):
-	from audit.log import AuditLog, default_audit_log, reset_default_audit_log
+	from audit.log import AuditLog, reset_default_audit_log
 
 	log_path = tmp_path / "audit.jsonl"
 	reset_default_audit_log()

@@ -14,7 +14,7 @@ from rewind.index import freeze_checkpoint
 from server import app as app_mod
 from server.app import app
 from server.session_pool import ModelConfig, SessionPool
-from session.persistence import safe_session_filename, transcript_path
+from session.persistence import safe_session_filename
 
 
 def _cfg() -> ModelConfig:

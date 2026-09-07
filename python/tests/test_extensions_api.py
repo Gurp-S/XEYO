@@ -10,9 +10,7 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
-import queue
 from pathlib import Path
 
 import pytest

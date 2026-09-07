@@ -15,7 +15,7 @@ from engine.abort import AbortController
 from engine.budget import BudgetTracker, max_budget_usd_from_env
 from engine.query_engine import QueryEngine
 from model.chunks import ModelChunk
-from msgtypes.events import FinalEvent, ResultEvent, StoppedEvent, UsageEvent
+from msgtypes.events import ResultEvent, StoppedEvent, UsageEvent
 from msgtypes.message import ToolUse
 from tools.echo import EchoTool
 from tools.tool_registry import ToolRegistry

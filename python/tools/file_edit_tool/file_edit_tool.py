@@ -2,9 +2,6 @@
 
 # 写权限：走 permissions.filesystem 路径狱 / 密钥 DENY / 危险 ASK；
 # ASK 仅在 registry 已 preapproved 时放行。.ipynb 请用 NotebookEdit。
-# TODO: [历史] fileHistory 备份 / structuredPatch 展示
-# TODO: [集成] VSCode diff / settings 文件特殊校验
-# TODO: [UI] 专用终端渲染 / Hooks / 遥测
 
 from __future__ import annotations
 
@@ -12,7 +9,7 @@ import asyncio
 import difflib
 import os
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 from engine.abort import AbortController
 from permissions import filesystem
@@ -26,7 +23,7 @@ from tools.fileio.paths import (
 	find_similar_file,
 	suggest_path_under_cwd,
 )
-from tools.fileio.read_state import FileStateEntry, ReadFileState
+from tools.fileio.read_state import ReadFileState
 from tools.fileio.text import (
 	apply_edit_to_file,
 	find_actual_string,

@@ -11,14 +11,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from engine.goal_state import (
-	CANDIDATE_ACTIVE,
 	GoalConflict,
 	GoalStore,
 	STATUS_ABANDONED,
 	STATUS_ACTIVE,
 	STATUS_COMPLETED,
 	STATUS_PAUSED,
-	candidate_is_pending,
 )
 from server.deps import _pool
 from server.local_gate import require_loopback

@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import difflib
 import time
-from typing import Optional
 
 from engine.session_presence import (
 	default_session_presence,

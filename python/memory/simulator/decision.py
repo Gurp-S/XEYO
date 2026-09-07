@@ -9,7 +9,6 @@ from memory.simulator.cache_model import CacheState
 from memory.simulator.cost_model import shot_cost
 from memory.simulator.horizon import Trajectory, trajectory_for
 from memory.simulator.params import Params, load_params
-from memory.simulator.projection import project
 from memory.simulator.quality_model import g_beta
 from memory.simulator.r_estimator import RGate
 from memory.simulator.state_model import (

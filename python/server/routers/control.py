@@ -40,7 +40,7 @@ def get_memory_switches(
 	"""记忆系统开关生效值（settings.memory > env > 默认），供设置面板读取。"""
 	_ = authorization
 	require_loopback(request)
-	from memory.memory_switches import MEMORY_SWITCHES, current
+	from memory.memory_switches import current
 	from server.deps import CWD
 
 	ws = (workspace or "").strip() or (CWD or "")

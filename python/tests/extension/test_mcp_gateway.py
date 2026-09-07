@@ -9,7 +9,6 @@ import asyncio
 import json
 import queue
 
-import pytest
 
 from engine.abort import AbortController
 from extension import mcp_manager as mm

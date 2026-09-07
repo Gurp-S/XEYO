@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from engine.abort import AbortController
 from engine.scheduler import Task, scope_conflicts, toposort
 from engine.subagent_context import build_subagent_context
-from engine.write_store import ChangeIntent, EditOp, WriteStore, _content_hash
+from engine.write_store import ChangeIntent, EditOp, WriteStore
 from tools.agent_tool import AgentTool
 from tools.catalog import build_default_registry, build_subagent_registry, default_tool_names
 from tools.fileio.read_state import ReadFileState

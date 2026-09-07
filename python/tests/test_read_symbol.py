@@ -12,7 +12,7 @@ import pytest
 
 from engine.abort import AbortController
 from tools.file_read_tool.file_read_tool import FileReadTool
-from tools.fileio.read_state import FileStateEntry, ReadFileState
+from tools.fileio.read_state import FileStateEntry
 
 
 PY_SRC = (

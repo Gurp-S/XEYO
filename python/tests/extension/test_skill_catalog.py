@@ -11,10 +11,8 @@ import json
 import pytest
 
 from engine.abort import AbortController
-from extension import mcp_scopes as scopes
-from extension.mcp_client import McpClientSpec, _finalize_mcp_result
+from extension.mcp_client import _finalize_mcp_result
 from extension.skill_loader import (
-	discover_skills,
 	discover_skills_report,
 	repair_frontmatter_scalar_fields,
 )
@@ -185,7 +183,6 @@ def test_digest_cache_skips_rescan(home, tmp_path):
 	ws.mkdir()
 	_enable(ws)
 	_write_skill(ws, "a", "---\ndescription: A\n---\n# A")
-	import time
 	from extension.skill_loader import _CACHE
 
 	_CACHE.clear()
@@ -227,7 +224,6 @@ def test_image_fusion_degrade_when_vision_off(tmp_path):
 
 def test_resource_fusion_spills(tmp_path, monkeypatch):
 	from extension import mcp_client as mc
-	from tools.spill import spill_root
 
 	monkeypatch.setenv("XEYO_SPILL_DIR", str(tmp_path / "spill"))
 	raw = mc._result_from_mcp_call({

@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import importlib
 
-import pytest
 
 # (模块名, 主目标模块名, 挂钩函数名, 专用开关env名)
 _HOOKED = [

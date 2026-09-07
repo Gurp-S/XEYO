@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import date
-from pathlib import Path
 
-import pytest
 
 from prompt.assembler import PromptAssembler
 from prompt.system_prompt import TOOL_POLICY, assemble_system_prompt, fetch_system_prompt_parts

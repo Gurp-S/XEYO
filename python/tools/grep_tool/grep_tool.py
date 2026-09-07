@@ -2,9 +2,7 @@
 
 # 读权限：走 permissions.filesystem 路径狱；ASK 仅信 registry preapproved。
 # abort→杀 rg：已由 fileio.rg_subprocess 的 abort watcher 覆盖。
-# TODO: [权限] preparePermissionMatcher：按 pattern 做 shell 通配规则匹配
-# TODO: [ignore] 接入权限 ignore 列表（gitignore / 用户 deny 路径 / 插件缓存排除等）
-# TODO: [校验] 用严格 schema（如 pydantic/zod 等价物）做 input/output 运行时校验
+# TODO: [ignore] 挂载 .agentignore（glob_tool 已接，grep 尚未）与用户 deny 路径接入
 
 from __future__ import annotations
 

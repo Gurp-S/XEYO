@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import pytest
 
-from evals import blind_audit_shadow as bas
 from evals.blind_audit_shadow import (
     BlindAuditResult,
     _parse_category,

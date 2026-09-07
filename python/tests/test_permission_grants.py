@@ -24,7 +24,6 @@ from permissions.policy import (
 from permissions.presets import normalize_preset
 from permissions.store import (
 	PermissionGrantStore,
-	default_permission_store,
 	grant_fingerprint,
 )
 
