@@ -1,4 +1,0 @@
-[
-  {"tool_calls": [{"name": "Bash", "arguments": {"command": "git push", "description": "push"}}]},
-  {"content": "已推送。"}
-]
