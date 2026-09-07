@@ -4,7 +4,7 @@
 - RepeatCallGuard 管"同一签名反复跑"；
 - ZeroHitTracker 管"换着花样搜、次次空"；
 - StagnationWatch 管"todo 状态机层面的停滞"，四类信号：
-  1) 无契约启动：预算过半仍没有任何 TodoWrite（完成定义/最小交付路径缺失）；
+  1) 未建计划：预算过半仍没有任何 TodoWrite（完成定义/交付步骤缺失）；
   2) 卡死：清单长时间无真实状态变化（工具调用数 + 墙钟进度双条件，宁漏勿误）；
   3) 震荡：同一项 completed→重开 反复（验收标准或方法可能有误）；
   4) 走过场：条目"创建即完成"批量出现（completed 缺乏中间验证动作）。
@@ -77,13 +77,13 @@ THRASH_TIMES = _env_int("XEYO_STALL_THRASH_TIMES", 2)
 RUBBER_STAMP_ITEMS = _env_int("XEYO_STALL_RUBBER_STAMP", 3)
 #: 契约 nudge（recency 提醒）：前 N 次工具调用且尚无清单时，每轮注入。
 #: 一次性长提醒对弱模型无效（p4 raman 实测：50% advice 送达被无视）——
-#: 改为早期窗口每轮短促命令，趁注意力未被数据输出淹没前建立契约。
+#: 改为早期窗口每轮短促命令，趁注意力未被数据输出淹没前建立计划。
+#: 文本保持通用（先计划后动手），不含任何评测特定格式约定。
 NUDGE_TURNS = _env_int("XEYO_STALL_NUDGE_TURNS", 4)
 
 NUDGE_TEXT = (
-	"[契约] 工作契约尚未建立。下一步必须先用 TodoWrite 写："
-	"2-4 条「验收:」开头的可检验验收项 + 首批构成最小端到端交付路径的"
-	"执行项；在此之前不要开始新的探索。"
+	"[提醒] 尚未建立任务计划。建议立即用 TodoWrite 写下完成标准与交付步骤，"
+	"再继续工具调用。"
 )
 
 
@@ -227,16 +227,15 @@ class StagnationWatch:
 			if frac >= NO_CONTRACT_WALL_FRAC:
 				self._fire(
 					"no_contract",
-					f"[停滞] 任务预算已用 {int(frac*100)}% 仍无 todo 清单。立即用 "
-					"TodoWrite 产出：2-4 条可检验验收项（文件存在/命令 exit 0/指标"
-					"阈值，禁止空泛表述）+ 首批构成最小端到端交付路径的执行项，再继续。",
+					f"[停滞] 任务预算已用 {int(frac*100)}% 仍无任务计划。建议先用 "
+					"TodoWrite 明确完成标准与交付路径，再继续工具调用。",
 				)
 			return
 		if self._calls >= NO_CONTRACT_CALLS:
 			self._fire(
 				"no_contract",
-				"[停滞] 已累计 30+ 次工具调用仍无 todo 清单。立即用 TodoWrite 产出："
-				"2-4 条可检验验收项 + 首批构成最小端到端交付路径的执行项，再继续。",
+				"[停滞] 已累计 30+ 次工具调用仍无任务计划。建议先用 TodoWrite "
+				"明确完成标准与交付路径，再继续工具调用。",
 			)
 
 	def _check_stuck(self) -> None:
@@ -251,7 +250,7 @@ class StagnationWatch:
 		self._fire(
 			"stuck",
 			f"[停滞] 清单已 {idle} 次工具调用无任何状态变化，当前项疑似卡死。"
-			"考虑：拆小该步骤 / 换方法 / 先推进最小交付路径并落盘成果。",
+			"考虑：拆小该步骤 / 换方法 / 先把已有成果落盘再继续。",
 		)
 
 	def reset(self) -> None:

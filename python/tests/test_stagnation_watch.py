@@ -61,10 +61,10 @@ def test_no_contract_fires_at_wall_half(monkeypatch):
 	w = StagnationWatch(b)
 	monkeypatch.setattr("engine.stagnation_watch._now", lambda: 600.0)  # 60% > 50%
 	w.observe("Bash", {"command": "true"})
-	assert "无 todo 清单" in current_stall_advice()
+	assert "无任务计划" in current_stall_advice()
 	# 一次性：再次触发不重复发布新内容（fired 集合去重）。
 	w.observe("Bash", {"command": "true"})
-	assert current_stall_advice().count("无 todo 清单") == 1
+	assert current_stall_advice().count("无任务计划") == 1
 
 
 def test_contract_written_never_fires_no_contract():
@@ -72,11 +72,11 @@ def test_contract_written_never_fires_no_contract():
 	w = StagnationWatch(None)
 	for _ in range(5):  # 未达回退阈值：只有 nudge，无 no_contract 话术
 		w.observe("Bash", {"command": "true"})
-	assert "无 todo 清单" not in current_stall_advice()
+	assert "无任务计划" not in current_stall_advice()
 	w.observe("TodoWrite", _todo("1", "pending"))
 	for _ in range(NO_CONTRACT_CALLS + 5):
 		w.observe("Bash", {"command": "true"})
-	assert "无 todo 清单" not in current_stall_advice()
+	assert "无任务计划" not in current_stall_advice()
 
 
 # ====== 信号 2：卡死（双条件） ======
@@ -131,21 +131,21 @@ def test_nudge_persists_until_contract_or_signal():
 	"""窗口内开始注入；槽位持久=之后每轮请求都注入；契约建立即清空。"""
 	w = StagnationWatch(None)
 	w.observe("Bash", {"command": "true"})
-	assert "工作契约尚未建立" in current_stall_advice()
+	assert "尚未建立任务计划" in current_stall_advice()
 	for _ in range(NUDGE_TURNS + 3):
 		w.observe("Bash", {"command": "true"})
-	assert "工作契约尚未建立" in current_stall_advice()  # 持久，直到契约/信号
+	assert "尚未建立任务计划" in current_stall_advice()  # 持久，直到契约/信号
 	w.observe("TodoWrite", _todo("1", "in_progress"))
-	assert "工作契约尚未建立" not in current_stall_advice()
+	assert "尚未建立任务计划" not in current_stall_advice()
 
 
 def test_nudge_cleared_once_contract_written():
 	"""契约建立 → 残留 nudge 立即清空。"""
 	w = StagnationWatch(None)
 	w.observe("Bash", {"command": "true"})
-	assert "工作契约尚未建立" in current_stall_advice()
+	assert "尚未建立任务计划" in current_stall_advice()
 	w.observe("TodoWrite", _todo("1", "in_progress"))
-	assert "工作契约尚未建立" not in current_stall_advice()
+	assert "尚未建立任务计划" not in current_stall_advice()
 
 
 def test_nudge_does_not_suppress_later_signals():
@@ -155,4 +155,4 @@ def test_nudge_does_not_suppress_later_signals():
 		w.observe("Bash", {"command": "true"})
 	for _ in range(NO_CONTRACT_CALLS):
 		w.observe("Bash", {"command": "true"})
-	assert "无 todo 清单" in current_stall_advice()
+	assert "无任务计划" in current_stall_advice()
