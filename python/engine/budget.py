@@ -30,6 +30,18 @@ MAX_GRACE_TURNS = 3
 MAX_TOOL_CAP_STREAK = 2
 MAX_TURN_WARNING = "任务已经运行较久，请检查进度并准备收尾。"
 MAX_TOOL_WARNING = "工具使用已经过多，请检查是否已经实现任务。"
+# 墙钟硬停告警（R1'：仅在显式武装 wall_hard_stop 时才可能触发收尾窗口）。
+WALL_STOP_NOTICE = "时间预算已到上限：进入收尾，把当前成果落盘后结束。"
+
+
+def wall_hard_stop_from_env() -> bool:
+	"""默认关（产品会话无墙钟武装 → 行为零变化）。
+
+	评测/宿主显式要求"到点收尾"时置 ``XEYO_WALL_HARD_STOP=1``：
+	墙钟走尽后引擎内优雅收尾（而非等外部硬杀在模型半句上掐断）。
+	"""
+	raw = os.environ.get("XEYO_WALL_HARD_STOP", "0").strip().lower()
+	return raw in ("1", "true", "yes", "on")
 
 
 def _positive_int_from_env(name: str, default: int) -> int:
@@ -109,6 +121,9 @@ class BudgetTracker:
 	# prepare_next_turn 时检查 80%/90% 阈值，经既有 runtime notice 通道注入（一次性）。
 	wall_deadline_ts: float | None = field(default=None, init=False, repr=False)
 	wall_started_ts: float | None = field(default=None, init=False, repr=False)
+	# R1'：墙钟硬停是否武装。默认 False（产品零变化）；宿主显式置 True 后，
+	# 墙钟走尽 → 进入共享收尾窗口（与 max_turns 同一条 grace → wrap-up 链路）。
+	wall_hard_stop: bool = field(default=False, init=False, repr=False)
 
 	def set_wall_deadline(self, deadline_ts: float | None, *, started_ts: float | None = None) -> None:
 		"""设置墙钟死线与（可选）起始时刻；None 清除。reset_for_new_submit 不清除。"""
@@ -116,8 +131,20 @@ class BudgetTracker:
 		if started_ts is not None:
 			self.wall_started_ts = started_ts
 
+	def arm_wall_stop(self, enabled: bool | None = None) -> None:
+		"""武装/解除墙钟硬停。None → 跟随 XEYO_WALL_HARD_STOP 环境变量。
+
+		默认不自动武装——产品会话即使设了死线（仅时间感播报）也不会被引擎
+		硬停；只有宿主显式要求"到点收尾"（评测适配器/用户时间预算）才生效。
+		"""
+		self.wall_hard_stop = wall_hard_stop_from_env() if enabled is None else bool(enabled)
+
 	def check_wall_deadline(self, now: float | None = None) -> str | None:
-		"""按墙钟进度排队 80%/90% 收尾提醒（每阈值一次）；到点返回硬停原因由调用方裁决。"""
+		"""按墙钟进度排队 80%/90% 收尾提醒（每阈值一次）。
+
+		武装状态下走尽 100% → 进入共享收尾窗口（grace + wrap-up），
+		返回硬停原因由调用方裁决；未武装 → 到点仅返回 None（只播报，不硬停）。
+		"""
 		if self.wall_deadline_ts is None:
 			return None
 		now = time.time() if now is None else now
@@ -128,6 +155,7 @@ class BudgetTracker:
 		if total <= 0:
 			return None
 		elapsed = now - start
+		pending_notice: str | None = None
 		for threshold, label in ((0.9, "90%"), (0.8, "80%")):
 			key = f"wall_{label}"
 			if key in self._notified_reasons:
@@ -140,8 +168,14 @@ class BudgetTracker:
 					"立即停止开始新工作：把当前成果写入任务要求的最终交付物路径，然后结束。"
 				)
 				self._queue_notice(notice)
-				return notice
-		return None
+				# 同一时刻可能既越 90% 又走尽 100%：先记下播报，不提前 return，
+				# 让下方武装分支仍能在此次调用里启动收尾 grace。
+				pending_notice = notice
+				break
+		# R1'：100% 走尽且武装 → 进入共享收尾窗口（grace → forced_wrap_up）。
+		if self.wall_hard_stop and elapsed >= total and not self.grace_started:
+			self._start_grace("wall")
+		return pending_notice
 
 	def _start_grace(self, reason: str) -> None:
 		"""首次触发软上限时建立共享收尾窗口并排队临时提醒。"""
@@ -157,6 +191,8 @@ class BudgetTracker:
 			notice = MAX_TURN_WARNING
 		elif reason == "max_tool_calling":
 			notice = MAX_TOOL_WARNING
+		elif reason == "wall":
+			notice = WALL_STOP_NOTICE
 		else:
 			return
 		if reason in self._notified_reasons:

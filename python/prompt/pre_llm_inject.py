@@ -68,10 +68,28 @@ PLAN_MODE_INSTRUCTIONS = (
 
 WRAP_UP_INSTRUCTIONS = (
 	"# Wrap-up required\n"
-	"本请求已达回合/工具调用上限，本轮不能再调工具。"
-	"仅根据已收集信息，立刻给出尽力而为的最终回答；"
+	"本请求已进入收尾(预算/回合已到上限):收尾工具配额内仍可落盘/验证,"
+	"但不得开始新的探索、安装或长时间任务。"
+	"优先把当前已完成的成果写入其目标产物路径,然后立刻给出尽力而为的最终回答;"
 	"写明已确认的事实与仍不确定或未完成之处。"
 )
+
+
+def _wrap_up_block_text() -> str:
+	"""完整 wrap_up 指令文本 = 基础指令 + 引擎 stat 出的缺口清单(若存在)。
+
+	缺口清单经 engine.wrap_gap 模块级发布(query_loop 在进收尾窗时写入),
+	消费前即时读取;失败/为空则回落纯基础指令(不挡 wrap 主路径)。
+	"""
+	try:
+		from engine.wrap_gap import current_gap
+
+		gap = current_gap()
+	except Exception:  # noqa: BLE001
+		gap = ""
+	if not gap:
+		return WRAP_UP_INSTRUCTIONS
+	return f"{WRAP_UP_INSTRUCTIONS}\n\n[engine] {gap}"
 
 # ── 方案一/三b：无主语背景块统一身份标记 + 分隔符 ──
 # 所有挂在「最后一条 user 内部」的系统背景块，用 [system-background] 前缀
@@ -805,7 +823,7 @@ T_NOW_INVENTORY_MAX = 2_500
 #      「能不能不进上下文」（引擎能强制的，一律不给模型看）。
 # 执法：tests/test_t_now_block_registry.py。
 # ---------------------------------------------------------------------------
-T_NOW_BLOCK_HARD_CAP = 22
+T_NOW_BLOCK_HARD_CAP = 23  # 22→23：补登 23ca693 预算镜像块（预算不破——仅死线会话渲染且受 6k 总预算闸，正常会话零字节）
 
 T_NOW_BLOCK_REGISTRY: dict[str, dict[str, str]] = {
 	"continue": {
@@ -818,11 +836,15 @@ T_NOW_BLOCK_REGISTRY: dict[str, dict[str, str]] = {
 	},
 	"wrap_up": {
 		"klass": "directive",
-		"why": "收尾轮禁工具强制作答；无此块空响应/硬停概率上升",
+		"why": "收尾窗引导:配额内可落盘/验证但不得开新探索;缺口清单来自引擎 stat",
 	},
 	"runtime_budget": {
 		"klass": "directive",
 		"why": "预算透明：模型需知剩余额度以决定收敛节奏",
+	},
+	"budget_mirror": {
+		"klass": "directive",
+		"why": "死线会话每轮稳态预算/时间镜像（23ca693 禀赋①）；正常会话零注入，与 runtime_budget 瞬时通知互补",
 	},
 	"reasoning_tail": {
 		"klass": "directive",
@@ -1046,7 +1068,7 @@ def run_pre_llm_inject(
 	# 裁剪），trim 后再兜底强挂一次（去重）——挤掉它会让模型只看到"没有工具"
 	# 却不知道要立即作答，空响应/硬停概率上升。
 	if ctx.forced_wrap_up:
-		_tag_block(tagged, "wrap_up", (KLASS_DIRECTIVE, WRAP_UP_INSTRUCTIONS))
+		_tag_block(tagged, "wrap_up", (KLASS_DIRECTIVE, _wrap_up_block_text()))
 	if ctx.runtime_notice:
 		_tag_block(
 			tagged,
@@ -1281,6 +1303,8 @@ def run_pre_llm_inject(
 	# 禀赋①：预算镜像（时间感来源）——仅当调用方设置了墙钟死线时渲染
 	#（评测适配器 / 带超时的会话）。数据全部来自 BudgetTracker 与 WorkingSnapshot
 	# 的既有字段，如实渲染，不含指令；正常无死线会话零输出（KV 无扰）。
+	# block: budget_mirror —— 稳态仪表盘（每轮）；与 runtime_budget（跨阈值瞬时
+	# 通知）、R1' 墙钟收口（100% 后 grace→wrap）互补，同钟不同层。
 	try:
 		_b = getattr(ctx.budget, "wall_deadline_ts", None)
 		if _b is not None and not ctx.subagent:
@@ -1319,7 +1343,7 @@ def run_pre_llm_inject(
 		and "wrap_up" not in _skipped_blocks()
 		and not any(t.startswith("# Wrap-up required") for _k, t in kept)
 	):
-		kept.append((KLASS_DIRECTIVE, WRAP_UP_INSTRUCTIONS))
+		kept.append((KLASS_DIRECTIVE, _wrap_up_block_text()))
 
 	# stale 只有真正进入 T_now 才 commit stamp，避免「刷过但模型看不见」
 	if pending_stale_commit_cwd:

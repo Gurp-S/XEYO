@@ -47,7 +47,7 @@ def test_todo_write_identical_snapshot_is_guarded():
 
 
 def test_guard_advice_progression_and_quiet_gaps():
-	"""T6：[3,5,8] 递进；3=短、5/8=详细；4/6/7 安静；>8 每次提醒。"""
+	"""T6+R2':[3,5,8] 递进;3=短、5/8=详细;4/6/7 安静;越过末档后静默(逐字告知移交 repeat_fold)。"""
 	clear_advice()
 	guard = RepeatCallGuard()
 	snapshots: list[tuple[str, str]] = []
@@ -60,9 +60,8 @@ def test_guard_advice_progression_and_quiet_gaps():
 	assert acts[4] == ACTION_ADVICE and "tool: Grep" in snapshots[4][1]
 	assert acts[5] == ACTION_RUN and acts[6] == ACTION_RUN
 	assert acts[7] == ACTION_ADVICE and "args:" in snapshots[7][1]
-	assert acts[8] == ACTION_ADVICE and acts[9] == ACTION_ADVICE
-	# 详细档带参数预览且 ≤500 字符。
-	assert len(snapshots[9][1]) < 800
+	# R2':越过末档(9、10)后静默——持续空转告知由 repeat_fold 的字节级折叠行承担。
+	assert acts[8] == ACTION_RUN and acts[9] == ACTION_RUN
 
 
 def test_guard_advice_publishes_to_module_state():
@@ -103,8 +102,9 @@ def test_guard_env_overrides(monkeypatch):
 	assert feed[1] == ACTION_ADVICE   # 第 2 次：首档
 	assert feed[2] == ACTION_RUN
 	assert feed[3] == ACTION_ADVICE   # 第 4 次：末档
-	assert feed[4] == ACTION_ADVICE   # 越末档：每次提醒
-	assert feed[5] == ACTION_ADVICE
+	# R2':越过末档后静默(不再每次长提醒,逐字告知移交 repeat_fold)。
+	assert feed[4] == ACTION_RUN
+	assert feed[5] == ACTION_RUN
 
 
 def test_guard_legacy_env_still_readable(monkeypatch):
@@ -184,6 +184,75 @@ def test_zero_hit_requires_search_tool_metadata():
 	assert ZeroHitTracker.is_zero_hit("Grep", {"no_match": False}) is False
 	assert ZeroHitTracker.is_zero_hit("Grep", None) is False
 	assert ZeroHitTracker.is_zero_hit("Read", {"no_match": True}) is False
+
+
+# ====== 单元：IdenticalResultFold（R2' 同签名 · 同输出折叠） ======
+
+def test_fold_silent_before_threshold_and_folds_third():
+	from engine.repeat_fold import IdenticalResultFold, _FOLD_EXPLAIN, _REPEAT_SHORT
+
+	fold = IdenticalResultFold()
+	text = "progress line 1\n"
+	# 前两次输出字节级相同 → 原样保留（前两次给足模型看清的机会）。
+	assert fold.process("Bash", {"cmd": "poll"}, text) == (text, False)
+	assert fold.process("Bash", {"cmd": "poll"}, text) == (text, False)
+	# 第 3 次 → 折叠为一行解释性事实（信息无损：首次完整输出仍在历史）。
+	out, folded = fold.process("Bash", {"cmd": "poll"}, text)
+	assert folded is True and "[fold]" in out and "第 3 次" in out
+	# 第 4+ 次持续相同 → 超短占位,不再重复长文。
+	out2, folded2 = fold.process("Bash", {"cmd": "poll"}, text)
+	assert folded2 is True and "[fold]" in out2 and "第 4 次" in out2
+	assert len(out2) < len(_FOLD_EXPLAIN)
+
+
+def test_fold_resets_when_output_changes():
+	"""合法轮询/进度推进:输出一变即重置 → 永不折叠(零误杀)。"""
+	from engine.repeat_fold import IdenticalResultFold
+
+	fold = IdenticalResultFold()
+	assert fold.process("Bash", {"cmd": "poll"}, "run 1") == ("run 1", False)
+	assert fold.process("Bash", {"cmd": "poll"}, "run 2") == ("run 2", False)
+	assert fold.process("Bash", {"cmd": "poll"}, "run 3") == ("run 3", False)
+	# 每个输出都不同:连续相同计数永不达到 3。
+	assert fold.process("Bash", {"cmd": "poll"}, "run 4") == ("run 4", False)
+
+
+def test_fold_signature_and_tool_separation():
+	"""不同签名 / 不同工具不互相串扰。"""
+	from engine.repeat_fold import IdenticalResultFold
+
+	fold = IdenticalResultFold()
+	text = "same"
+	# Bash cmd=a 连续 3 次 → 折叠;同工具不同 cmd 独立计数。
+	assert fold.process("Bash", {"cmd": "a"}, text) == (text, False)
+	assert fold.process("Bash", {"cmd": "b"}, text) == (text, False)
+	assert fold.process("Bash", {"cmd": "b"}, text) == (text, False)
+	assert fold.process("Bash", {"cmd": "a"}, text) == (text, False)  # a 第 2 次
+	assert fold.process("Bash", {"cmd": "a"}, text)[1] is True        # a 第 3 次
+	assert fold.process("Read", {"file_path": "f"}, text) == (text, False)
+
+
+def test_fold_reset():
+	"""submit 级重置:实例复用前先 reset。"""
+	from engine.repeat_fold import IdenticalResultFold
+
+	fold = IdenticalResultFold()
+	text = "same"
+	fold.process("Bash", {"cmd": "x"}, text)
+	fold.process("Bash", {"cmd": "x"}, text)
+	fold.reset()
+	assert fold.process("Bash", {"cmd": "x"}, text) == (text, False)
+
+
+def test_fold_fail_open_on_empty_or_exotic_content():
+	"""空输出/异常内容:不崩溃、不折叠(单次调用永不达阈值)。"""
+	from engine.repeat_fold import IdenticalResultFold
+
+	fold = IdenticalResultFold()
+	assert fold.process("Bash", {"cmd": "empty"}, "") == ("", False)
+	assert fold.process("Bash", {"cmd": "none"}, None) == ("", False)
+	# 非字符串入参以 str 化后处理——单次调用仍不折叠。
+	assert fold.process("Bash", {"cmd": "obj"}, {"a": 1})[1] is False
 
 
 def test_grep_result_no_match_classification():

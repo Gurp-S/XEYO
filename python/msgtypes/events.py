@@ -96,7 +96,7 @@ class FinalEvent:
 
 @dataclass
 class StoppedEvent:
-	reason: Literal["max_turns", "max_tool_calling", "aborted", "budget", "budget_usd"]
+	reason: Literal["max_turns", "max_tool_calling", "aborted", "budget", "budget_usd", "wall"]
 	"""L1.2：超 USD 上限时附带本轮金额，便于 UI 提示。"""
 	budget_used_usd: float | None = None
 	budget_limit_usd: float | None = None

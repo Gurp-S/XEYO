@@ -27,6 +27,7 @@ from engine.repeat_guard import (
 	ZERO_HIT_ADVICE_AT,
 	clear_advice,
 )
+from engine.repeat_fold import IdenticalResultFold
 from engine.stagnation_watch import StagnationWatch, clear_stall_advice
 from memory.l5_flag import c2_gate, l5_mode
 from memory.runtime import (
@@ -112,6 +113,43 @@ def early_readonly_tools_enabled() -> bool:
 	"""默认开；``XEYO_EARLY_READONLY_TOOLS=0`` 关闭。"""
 	raw = os.environ.get("XEYO_EARLY_READONLY_TOOLS", "1").strip().lower()
 	return raw in ("1", "true", "yes", "on")
+
+
+def wrap_quota_from_env(default: int = 3) -> int:
+	"""收尾窗（forced_wrap_up）的剩余工具配额默认值。
+
+	``XEYO_WRAP_QUOTA`` 逗号无关整数覆盖；0 = 维持旧"一开闸全禁"语义。
+	"""
+	raw = os.environ.get("XEYO_WRAP_QUOTA", "").strip()
+	if raw:
+		try:
+			return max(0, int(raw))
+		except (TypeError, ValueError):
+			return default
+	return default
+
+
+def _publish_wrap_guide(tools: Any, cwd: str, quota: int) -> None:
+	"""进入收尾窗时发布缺口清单 + 配额（wrap_gap 模块级，pre_llm_inject 消费）。
+
+	从 TodoWrite 工具的当前清单读 output 声明,stat 磁盘缺口;失败 fail-open
+	为空(不挡 wrap 主路径)。纯事实呈现,不裁决不拦截。
+	"""
+	try:
+		from engine.wrap_gap import build_gap_lines, compose_guide_text, publish_gap
+
+		todo_tool = tools.get("TodoWrite") if tools is not None else None
+		todos = todo_tool.current_todos() if todo_tool is not None else None
+		lines = build_gap_lines(todos, cwd)
+		text = compose_guide_text(quota, lines)
+		publish_gap(text if text.strip() else "")
+	except Exception:  # noqa: BLE001 — 缺口清单只是引导增强，失败静默
+		try:
+			from engine.wrap_gap import publish_gap
+
+			publish_gap("")
+		except Exception:  # noqa: BLE001
+			pass
 
 
 def _eligible_for_early(
@@ -739,6 +777,9 @@ async def query_loop(
     # 每次 submit 新建即用户输入级重置）。
     repeat_guard = RepeatCallGuard()
     clear_advice()  # 轮首清残留提醒，T_now 块只反映本轮状态
+    # R2'：同签名·同输出字节级折叠（结果写入 store 前替换为一行 [fold] 事实；
+    # 每 submit 新建 → 与 repeat_guard 同步的用户输入级重置）。
+    result_fold = IdenticalResultFold()
     # 停滞监测（todo 契约执行侧；仅 bench 档案启用，XEYO_TODO_CONTRACT=0 关闭；
     # advice 与 repeat_guard 同块消费，只提醒不拒执行）。
     stall_watch = StagnationWatch(budget)
@@ -747,9 +788,12 @@ async def query_loop(
     zero_hit_tracker = ZeroHitTracker()
     # tu.id → 该调用结果上要追加的零命中提示文本。
     zero_hit_advice: dict[str, str] = {}
-    # max_turns / max_tool_calling 硬停前的一次性收尾放行：禁用工具、
-    # 追加收尾指令让模型基于已有信息作答，最终以 FinalEvent 结束。
+    # max_turns / max_tool_calling 硬停前的一次性收尾放行：配额内工具仍可用
+    # （R3'：不再"一开闸全禁"——收尾恰好最需要落盘；配额尽才禁，文本引导
+    # 收敛）。forced_wrap_up=True 表示已进入收尾窗；wrap_quota_left 是剩余
+    # 可调用次数（XEYO_WRAP_QUOTA 覆盖，默认 3；0=维持旧的全禁语义）。
     forced_wrap_up = False
+    wrap_quota_left = wrap_quota_from_env()
     # OpenAI 系厂商不回传 reasoning（历史里没有上一轮思考）；把上一轮思考
     # 结尾截选挂 T_now，避免弱模型每轮从零重推同样的内容（"重复思考"循环）。
     # 默认**关闭**（XEYO_REASONING_TAIL=1 开启）：权衡后旧结论指令化的
@@ -769,6 +813,13 @@ async def query_loop(
                 yield StoppedEvent(reason=budget.hard_stop_reason or "max_turns")
                 return
             forced_wrap_up = True
+            # R3'：进收尾窗时发布缺口清单 + 剩余配额（T_now wrap_up 块消费）。
+            try:
+                _publish_wrap_guide(
+                    tools, _workspace_cwd_for_turn(tools), wrap_quota_left
+                )
+            except Exception:  # noqa: BLE001 — 引导增强失败不影响 wrap 主路径
+                pass
         runtime_notice = budget.consume_runtime_notice()
         # system 左段保持稳定；Ask/Plan/计划/预算/wrap-up/MEMORY index 挂 T_now。
         budget.begin_turn()
@@ -939,8 +990,8 @@ async def query_loop(
         # 收尾请求（forced_wrap_up）同样保留 tools 数组：DeepSeek 把工具定义渲染在
         # prompt 最前端，若在最后一枪摘掉 tools，整个请求前缀会从工具段起错位重哈希，
         # 导致该枪缓存命中率坍缩到仅 system 段（观测上一枪 90%+ → 6%），白付一次
-        # 26k~36k token 的全量 miss（miss 价 ≈ hit×30）。"模型可能仍调工具"由
-        # _admit_tool_use 的 wrap_up 确定性拒绝 + _fill_missing_tool_results 兜底。
+        # 26k~36k token 的全量 miss（miss 价 ≈ hit×30）。"模型仍可能调工具"由
+        # _admit_tool_use 的 wrap 配额(配额内放行/配额尽才拒) + _fill_missing 兜底。
         # schemas 会话内只读：JSON 序列化缓存，避免每轮重复 dumps。
         if schemas_json_cache is not None and schemas_json_cache[0] == tool_schemas:
             tool_schemas_json = schemas_json_cache[1]
@@ -979,6 +1030,7 @@ async def query_loop(
 
         def _admit_tool_use(tu: ToolUse) -> list[EngineEvent]:
             """占配额 + yield ToolCall；只读可 early。返回待 yield 事件。"""
+            nonlocal wrap_quota_left
             events: list[EngineEvent] = []
             if tu.id in seen_tool_ids:
                 return events
@@ -986,20 +1038,27 @@ async def query_loop(
             narration_gate.on_tool_use()
             tool_uses.append(tu)
             if forced_wrap_up:
-                results_by_id[tu.id] = ToolResult(
-                    content="[wrap_up] the tool limit was reached; "
-                    "tools are disabled for this final answer",
-                    is_error=True,
-                    metadata={"wrap_up_rejected": True},
-                )
-                return events
+                if wrap_quota_left <= 0:
+                    results_by_id[tu.id] = ToolResult(
+                        content="[wrap_up] wrap quota exhausted; "
+                        "tools are disabled for this final answer",
+                        is_error=True,
+                        metadata={"wrap_up_rejected": True},
+                    )
+                    return events
+                # R3'：收尾窗配额内放行——不再一开闸全禁。配额内的调用仍按
+                # 只读/并发规则评估执行，但绕过 budget 的 tool-cap 拒绝（该闸
+                # 的用途是防失控循环，收尾配额由引擎计数封顶，双闸语义重叠）。
+                wrap_quota_left -= 1
             guard_action = repeat_guard.observe(tu.name, tu.input)
             # T6：ACTION_ADVICE 不改写 ToolResult——提醒经 T_now
             # （pre_llm_inject 的 Repeat guard 块）在下一轮模型请求前注入。
             _ = guard_action
             # 停滞监测：同一准入点观察（只计数与产提醒，不拒执行）。
             stall_watch.observe(tu.name, tu.input)
-            if not budget.begin_tool_call():
+            # R3'：收尾窗配额内的调用由引擎配额计数封顶，跳过 budget 的
+            # tool-cap 拒绝（该闸防失控循环，wrap 配额与其语义重叠）。
+            if not forced_wrap_up and not budget.begin_tool_call():
                 results_by_id[tu.id] = ToolResult(
                     content="[max_tool_calling reached; tool call was not executed]",
                     is_error=True,
@@ -1876,11 +1935,22 @@ async def query_loop(
                 ),
                 ui=getattr(result, "ui", None),
             )
+            # R2'：同签名 · 输出字节级相同 → 历史/模型视图折叠为一行 [fold] 事实，
+            # 保留 tool_use↔result 配对且首次完整输出仍在历史（信息无损）。
+            # GUI 实时事件仍展示真实输出；折叠只作用于写入 store 的持久文本。
+            stored_content = out_content
+            try:
+                if not getattr(result, "images", None):
+                    stored_content, _folded = result_fold.process(
+                        tu.name, tu.input, out_content
+                    )
+            except Exception:  # noqa: BLE001 — 折叠失败 fail-open 保留原文
+                pass
             store.append(
                 tool_result_message(
                     tu.id,
                     tu.name,
-                    out_content,
+                    stored_content,
                     is_error=result.is_error,
                     images=getattr(result, "images", None),
                 )

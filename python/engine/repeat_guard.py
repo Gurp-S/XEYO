@@ -3,12 +3,15 @@
 同一 submit 内，"(工具名, 签名)" 相同的调用按出现次数递进提醒：
 - 阈值 ``[3, 5, 8]``（``XEYO_REPEAT_TOOL_ADVICE`` 逗号分隔覆盖）：
   第 1 阈短提示；后续阈值详细提醒（点名 tool / count / args 预览 ≤500 字符）；
-  越过末档后每次调用都详细提醒。
+  越过末档后**静默**（R2'：持续空转的逐字告知交给 ``engine.repeat_fold``
+  的字节级折叠行——同签名且输出不变时每轮一行 ``[fold]``，此处不再刷长文）。
 - **只提醒、永不拒执行**（旧版 block 语义移除；轮次/预算硬顶仍兜底死循环）。
 - **denied 调用同样计数**——观察点在调用准入处，权限结果不影响计数。
 - 提醒**不改写 ToolResult**：经 T_now 注入（``prompt/pre_llm_inject`` 的
   ``# Repeat guard（background only）`` 块），source-attributed。
 - 每次 submit 新建 guard（用户输入即重置）；``clear_advice()`` 在轮首调用。
+- 边界：签名重复但输出在变（合法轮询 / 进度推进）→ 不折叠也不长提醒——
+  由 ``repeat_fold`` 的字节级判据天然豁免；此处只管"同签名计数"。
 
 签名分两档：
 - 检索型工具（Grep/Glob）：按"语义字段"归一——pattern 去成对包裹引号、
@@ -187,7 +190,8 @@ class RepeatCallGuard:
 	"""跟踪一次 submit 内每个 (tool, canonical_input) 的出现次数并递进提醒。
 
 	T6：只建议、永不拒执行。阈值 [3,5,8]（可覆盖）；首次阈值给短提示，
-	其后阈值给详细提醒（tool / count / args 预览）；越过末档后每次都提醒。
+	其后阈值给详细提醒（tool / count / args 预览）；越过末档后静默
+	（R2'：持续空转告知移交 ``repeat_fold`` 的字节级折叠行）。
 	denied 调用同样计数（观察点在调用准入处）。
 	"""
 
@@ -233,8 +237,10 @@ class RepeatCallGuard:
 				break
 		if level_idx is None:
 			if count > self.advice_at[-1]:
-				# 越过末档：每次调用都详细提醒（合法轮询应有豁免/分页签名）。
-				level_idx = len(self.advice_at) - 1
+				# R2'：越过末档 → 静默。持续空转的逐字告知已移交 repeat_fold
+				# 的字节级折叠行（同签名同输出每轮一行 [fold]）；此处再刷长文
+				# 只会稀释 attention（P4 实测 advice 送达被无视）。
+				return ACTION_RUN
 			else:
 				return ACTION_RUN
 		self.last_advice = self.advice_text(
