@@ -1,7 +1,9 @@
 {
   "name": "xeyo",
   "private": true,
-  "description": "XEYO monorepo orchestration (Python engine + GUI + cli-ts)",
+  "version": "0.1.0",
+  "description": "XEYO — local coding agent (Python engine + GUI + cli-ts)",
+  "license": "MIT",
   "scripts": {
     "typecheck": "npm run typecheck --prefix gui && npm run typecheck --prefix cli-ts",
     "test:gui": "npm test --prefix gui",
