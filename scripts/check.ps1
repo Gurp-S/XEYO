@@ -1,4 +1,4 @@
-# Unified local gate: Python pytest + GUI typecheck/vitest + cli-ts typecheck.
+# Unified local gate: Python pytest + GUI typecheck/vitest + tui typecheck.
 # Usage: pwsh -File scripts/check.ps1
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
@@ -24,8 +24,8 @@ try {
     Pop-Location
 }
 
-Write-Host "`n== cli-ts ==" -ForegroundColor Cyan
-Push-Location (Join-Path $Root "cli-ts")
+Write-Host "`n== tui ==" -ForegroundColor Cyan
+Push-Location (Join-Path $Root "tui")
 try {
     if (-not (Test-Path "node_modules")) { npm ci }
     npm run typecheck

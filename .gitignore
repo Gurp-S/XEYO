@@ -23,7 +23,7 @@ artifacts/
 logs/
 tmp/
 node_modules/
-cli-ts/dist/
+tui/dist/
 *.log
 debug-*.log
 java/target/
