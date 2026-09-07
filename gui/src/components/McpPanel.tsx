@@ -169,7 +169,7 @@ function ServerCard({
 }
 
 /**
- * MCP 面板（smoke-test #8；视觉参照 + 菜单参考图：Search / Manage / 空态）。
+ * MCP 面板（smoke-test #8；Search / Manage / 空态）。
  * 从加号菜单打开：搜索服务器与工具、逐工具勾选、启用/停用、批准（project 信任）。
  * Manage 按钮跳转到页面级「扩展中心」视图（不再有内联 manage 分支）。
  */

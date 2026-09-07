@@ -287,8 +287,8 @@ def build_default_registry(*, cwd: str = ".") -> ToolRegistry:
 	if os.environ.get("XEYO_BENCH_MINIMAL") == "1":
 		# 基准评测最小档案：排除 Skill/Agent（skills、slash、subagent/live_agents 面）
 		# 与文件工具（Read/Write/Edit/Glob/Grep）及 Memory/AskUserQuestion/Screenshot/
-		# SendToWeChat/XeyoUI/JournalQuery——基准任务与 Terminus-2 对齐为 bash-only
-		# 工作方式（同尺对比）；容器路由下文件 I/O 走 bash。预算/abort/记忆开关不受影响。
+		# SendToWeChat/XeyoUI/JournalQuery——基准任务采用 bash-only 工作方式（同尺对比）；
+		# 容器路由下文件 I/O 走 bash。预算/abort/记忆开关不受影响。
 		excluded = {
 			"Skill", "Agent", "Memory", "AskUserQuestion",
 			"Read", "Write", "Edit", "Glob", "Grep", "NotebookEdit",

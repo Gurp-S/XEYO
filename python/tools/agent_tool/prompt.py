@@ -3,7 +3,7 @@
 TOOL_NAME = "Agent"
 
 DESCRIPTION = (
-	"Spawn a short-lived scoped sub-agent (Cursor/Claude Code Task style). "
+	"Spawn a short-lived scoped sub-agent (task-style isolation). "
 	"Always available in Agent mode — Multi-Agent chip only soft-prefers spawn.\n"
 	"Use when work benefits from isolation or parallelism: multi-file explore/edit, "
 	"independent docs/dirs, research that would bloat the main transcript. "

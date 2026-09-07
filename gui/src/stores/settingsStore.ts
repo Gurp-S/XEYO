@@ -58,7 +58,7 @@ export type ModelInput = {
 	maxOutputTokens?: number;
 	inputType?: 'text' | 'image' | 'video';
 	outputType?: 'text' | 'image';
-	/** 该模型支持的思考等级集合（多选，对齐图片选项）；空/缺省 = 未限定。 */
+	/** 该模型支持的思考等级集合（多选）；空/缺省 = 未限定。 */
 	reasoningLevels?: ReasoningEffort[];
 	/** 该模型的默认思考等级；空/缺省 = 用会话级 reasoningEffort。 */
 	defaultReasoningEffort?: ReasoningEffort | '';
@@ -66,7 +66,7 @@ export type ModelInput = {
 	reasoningEffort?: ReasoningEffort | '';
 };
 
-/** 思考等级（对齐图片选项；空字符串 = 自动/不指定）。 */
+/** 思考等级（空字符串 = 自动/不指定）。 */
 export type ReasoningEffort =
 	| 'none'
 	| 'minimal'

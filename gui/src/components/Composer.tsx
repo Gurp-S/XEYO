@@ -223,7 +223,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 	const [previewImage, setPreviewImage] = useState<ImageAttachment | null>(null);
 	const [modelOpen, setModelOpen] = useState(false);
 	const [quickMenuOpen, setQuickMenuOpen] = useState(false);
-	/** smoke-test #8：+ 菜单里的 MCP 面板（参考图：搜索 + Manage + 空态）。 */
+	/** smoke-test #8：+ 菜单里的 MCP 面板（搜索 + Manage + 空态）。 */
 	const [mcpOpen, setMcpOpen] = useState(false);
 	const [multiAgent, setMultiAgent] = useState(false);
 	/** 会话输入框手动选的思考等级；空 = 该模型默认/会话级。 */
@@ -1661,7 +1661,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 											onRunMcp={() => {
 												setQuickMenuOpen(false);
 												// smoke-test #8：+ 菜单 MCP 入口 → 打开 MCP 面板
-												//（搜索/工具勾选/启停/批准/Manage；参考图样式）。
+												//（搜索/工具勾选/启停/批准/Manage）。
 												setMcpOpen(v => !v);
 											}}
 										/>

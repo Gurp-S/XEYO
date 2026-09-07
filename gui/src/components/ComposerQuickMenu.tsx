@@ -14,7 +14,7 @@ import {MenuSeparator} from '@/components/ui/MenuSeparator';
 import type {AgentMode} from '@/lib/agentMode';
 
 /**
- * Composer 左侧 + 按钮的快捷菜单（对齐参考图一）。
+ * Composer 左侧 + 按钮的快捷菜单。
  *
  * - 顶部：**纯文本搜索**——只有文字与光标，无搜索框底/边框。
  * - 模式区：Plan / Ask / Multi-Agent（Plan、Ask 切 agentMode；Multi-Agent 是开关）。
@@ -188,7 +188,7 @@ export function ComposerQuickMenu({
 				>
 					<Server className="h-4 w-4 shrink-0 text-mute" strokeWidth={1.9} />
 					<span className="min-w-0 flex-1">MCP</span>
-					{/* 参考图：行尾 chevron 指示进入面板 */}
+					{/* 行尾 chevron 指示进入面板 */}
 					<ChevronRight
 						className="h-3.5 w-3.5 shrink-0 text-mute"
 						strokeWidth={1.75}

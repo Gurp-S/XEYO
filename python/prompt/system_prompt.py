@@ -77,7 +77,7 @@ def get_default_system_prompt_parts(
 	from permissions.policy import side_mode
 
 	# 基准评测最小档案（XEYO_BENCH_MINIMAL=1）：文件/Skill/Agent 等工具未注册，
-	# 提示词同步去除相应句段（bash-only 工作方式，与 Terminus-2 对齐），其余逐字节不变。
+	# 提示词同步去除相应句段（bash-only 工作方式），其余逐字节不变。
 	policy = TOOL_POLICY
 	if os.environ.get("XEYO_BENCH_MINIMAL") == "1":
 		policy = policy.replace("长流程用 Skill 按需加载，勿塞进 XEYO.md；项目约定写短指针，结构用工具现查。", "")

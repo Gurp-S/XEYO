@@ -15,7 +15,7 @@ import {
 export const NO_AGENT_TASKS: MultiAgentTaskView[] = [];
 
 /**
- * 多 Agent 卡片 → 轮次锚定（图二位置）：任务落在「触发它的那条用户
+ * 多 Agent 卡片 → 轮次锚定：任务落在「触发它的那条用户
  * 消息」所在轮。live 批 batchAt=SSE 到达时刻，必然晚于该用户消息、早于
  * 下一条用户消息；历史批取 meta.startedAt，同理。无锚点（异常）时兜底
  * 挂最早一轮。

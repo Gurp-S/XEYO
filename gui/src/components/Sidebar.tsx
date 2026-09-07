@@ -882,7 +882,7 @@ const SpaceFolder = memo(function SpaceFolder({
 	const SESSION_VISIBLE_LIMIT = 5;
 	const [showAll, setShowAll] = useState(false);
 	// 筛选视图（2026-09-05 二版）：漏斗按钮 → 菜单勾选「已归档」→ 列表就地
-	// 切换为归档视图（GitHub 通知面板 Filters 交互，参考图 1-3）。
+	// 切换为归档视图（筛选器交互：勾选行切换列表源）。
 	const [viewArchived, setViewArchived] = useState(false);
 	const listSource = viewArchived ? archivedSessions : activeSessions;
 	const hiddenCount = listSource.length - SESSION_VISIBLE_LIMIT;

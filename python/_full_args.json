@@ -1,1 +1,0 @@
-["tests", "-q", "--tb=line", "--timeout=60", "--ignore=tests/simulator", "--junitxml=_full_junit.xml"]

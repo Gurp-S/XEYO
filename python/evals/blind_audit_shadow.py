@@ -130,7 +130,7 @@ def audit_transcript(
 
 
 def aggregate(results: list[BlindAuditResult]) -> dict:
-    """汇总多条轨迹 → 各类占比 + leakage_rate（对齐 57%/9% 口径）。"""
+    """汇总多条轨迹 → 各类占比 + leakage_rate（按泄漏来源口径聚合）。"""
     total = len(results)
     by: dict[str, int] = {}
     for r in results:
