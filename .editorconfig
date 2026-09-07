@@ -17,8 +17,8 @@ indent_size = 4
 indent_style = tab
 indent_size = 4
 
-# ---- cli-ts（Ink TUI）：既有代码以 4 空格缩进为主 ----
-[cli-ts/src/**/*.{ts,tsx}]
+# ---- tui（Ink TUI）：既有代码以 4 空格缩进为主 ----
+[tui/src/**/*.{ts,tsx}]
 indent_style = space
 indent_size = 4
 
