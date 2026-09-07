@@ -1,0 +1,74 @@
+/* 面板布局与分割线（设置 → 外观 → 面板布局；html[data-pane-layout]）。
+   四档：
+   - classic  现状（圆角胶囊缝）
+   - wireless 方案1 无线化：缝隐藏（悬停/拖拽显形），会话列变圆角玻璃岛
+   - islands  方案4 圆角分岛：三栏各自成卡（border + radius + glass），行间 8px 缝
+   - dotted   方案6 虚点呼吸线：缝改 1px 点状竖线
+
+   硬约束：
+   - 只做视觉覆盖，不改 PaneResizeHandle 命中区 / 拖拽逻辑 / .xy-pane-row 尺寸测量
+     （FilePreview / WorkspaceToolPanel 依赖 row.clientWidth，禁止动 padding）。
+   - 全部走 token（--xy-glass / --xy-line / --xy-radius-pane），主题与壁纸自动适配。 */
+
+/* ============ 方案 1 · 无线化 ============ */
+html[data-pane-layout='wireless'] .xy-pane-resize-seam {
+  opacity: 0;
+}
+
+/* 悬停点亮 / 拖拽中仍显形：既有 .is-lit/.is-dragging 规则特异性更高，此处无需重复 */
+html[data-pane-layout='wireless'] .xy-pane-row > .xy-pane-chat-host > main {
+  background: var(--xy-glass);
+  border-radius: var(--xy-radius-pane, 12px);
+}
+
+/* ============ 方案 4 · 圆角分岛 ============ */
+/* 仅加 gap（不占 clientWidth），pane 宽度测量与拖拽增量不受影响 */
+html[data-pane-layout='islands'] .xy-pane-row {
+  gap: 8px;
+}
+
+html[data-pane-layout='islands'] .xy-sidebar-chrome,
+html[data-pane-layout='islands'] .xy-workspace-chrome,
+html[data-pane-layout='islands'] .xy-pane-row > .xy-pane-chat-host > main {
+  border: 1px solid color-mix(in srgb, var(--xy-line) 55%, transparent);
+  border-radius: var(--xy-radius-pane, 12px);
+  background: var(--xy-glass);
+}
+
+/* 工作区 chrome 原本强制左直角，分岛下恢复四角对称 */
+html[data-pane-layout='islands'] .xy-workspace-chrome {
+  border-top-left-radius: var(--xy-radius-pane, 12px);
+  border-bottom-left-radius: var(--xy-radius-pane, 12px);
+}
+
+/* 卡片自带边界，胶囊缝退役；悬停/拖拽显形同方案 1 */
+html[data-pane-layout='islands'] .xy-pane-resize-seam {
+  opacity: 0;
+}
+
+/* ============ 方案 6 · 虚点呼吸线 ============ */
+html[data-pane-layout='dotted'] .xy-pane-resize-seam {
+  width: 1px;
+  height: calc(100% - 24px);
+  background: none;
+  border-left: 1px dotted color-mix(in srgb, var(--xy-line) 85%, transparent);
+  -webkit-mask-image: none;
+  mask-image: none;
+  opacity: 0.85;
+}
+
+html[data-pane-layout='dotted'] .xy-pane-resize-handle.is-lit .xy-pane-resize-seam,
+html[data-pane-layout='dotted'] .xy-pane-resize-handle.is-dragging .xy-pane-resize-seam {
+  width: 1px;
+  height: calc(100% - 16px);
+  background: none;
+  border-left: 1px dotted color-mix(in srgb, var(--xy-accent) 45%, var(--xy-line));
+  opacity: 1;
+}
+
+/* 减少动态偏好下，所有布局切换不做缝过渡 */
+@media (prefers-reduced-motion: reduce) {
+  html[data-pane-layout] .xy-pane-resize-seam {
+    transition: none;
+  }
+}

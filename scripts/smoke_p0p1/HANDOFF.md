@@ -67,7 +67,7 @@ XEYO_ALLOW_LOCAL_MODEL=1
 | T29 断流→banner、不自动 interrupt | 未测 | **Playwright** / GUI |
 | T9 chip 四态、候选条、恢复横幅 | 未测 | **Playwright** / GUI |
 | T11 `always_allow` 端到端未打通 | 未测（需 MCP fixture，后端） | scenarios/ 新增 |
-| T31 三边界（cwd 跨重启、permission_mode durable、cli-ts 自造 uuid） | 未测 | cli-ts 驱动 / 手工 |
+| T31 三边界（cwd 跨重启、permission_mode durable、tui 自造 uuid） | 未测 | tui 驱动 / 手工 |
 | T38 `/compact` 按钮按 gate 显隐 | 未测 | **Playwright** / GUI |
 
 ## 6. Playwright 全栈落法（下会话主任务）

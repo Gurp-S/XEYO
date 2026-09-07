@@ -6,7 +6,7 @@ export type WorkspaceSection =
 	| 'files' // 项目文件
 	| 'map' // 代码/架构地图
 	| 'history' // 历史 diff
-	| 'git' // Git
+	| 'git'
 	| 'terminal' // 终端
 	| 'browser'; // 浏览器预览
 

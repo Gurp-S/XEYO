@@ -142,3 +142,7 @@ _design_drafts/
 # 注：目录名含方括号，须转义，否则 [过程] 被 glob 解析为字符类导致规则失效
 \[过程\]/
 api_key.txt
+
+# python 测试临时目录与一次性调试脚本
+python/.tmp-*/
+python/dbg_*.py

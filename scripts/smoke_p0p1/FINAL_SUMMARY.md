@@ -83,7 +83,7 @@
 3. **前端未实现项（建议单开产品 issue）**：T9 chip/候选条、T13 spilled/correlation、T3 30s 帧。
 4. **可选收敛 jsdom**：`fakeProvider` mock 补导出 `isProviderId`、`Composer.chat` 断言改 `title="停止生成"` → 5 红收敛到 1 红。
 5. **补偿 `fake` 骨架**：`main-path.spec.ts` 想绿，改 `Composer.tsx:821` 为 `allowsEmptyApiKey(provider)`（生产行为不变，仅测试下放行 fake）——按约定本轮未改，仅上报。
-6. **手工清单（需真人工，未做）**：T31（cli-ts TUI plan→/load 模式仍在、id 服务端签发、workspace 权威）、T32（全新环境双击 `XEYO-CLI.bat` 拉起引擎、`/help` 无 404、`/demo` 需显式 flag）、T37（EmptyState 中文化、AgentMap 收进实验功能开关、`/bench`/`/lab` 路由守卫）。分步见 HANDOFF.md「手动冒烟清单」。
+6. **手工清单（需真人工，未做）**：T31（tui TUI plan→/load 模式仍在、id 服务端签发、workspace 权威）、T32（全新环境双击 `XEYO-TUI.bat` 拉起引擎、`/help` 无 404、`/demo` 需显式 flag）、T37（EmptyState 中文化、AgentMap 收进实验功能开关、`/bench`/`/lab` 路由守卫）。分步见 HANDOFF.md「手动冒烟清单」。
 
 ---
 

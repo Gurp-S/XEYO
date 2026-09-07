@@ -1,7 +1,7 @@
 /**
- * streamRecoverySlice.ts — recovery & reattach methods, extracted verbatim
- * from streamSendSlice.createStreamSendSlice(). Behavior unchanged;
- * createStreamSendSlice spreads createStreamRecoverySlice(set, get).
+ * streamRecoverySlice.ts — 恢复与重新挂载方法，自
+ * streamSendSlice.createStreamSendSlice() 原样拆出。行为不变；
+ * createStreamSendSlice 在原位置展开 createStreamRecoverySlice(set, get)。
  */
 import type {StoreApi} from 'zustand';
 import {

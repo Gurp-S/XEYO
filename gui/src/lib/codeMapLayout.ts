@@ -48,13 +48,6 @@ export type GraphFile = {
 	pkg: string;
 };
 
-export type GraphPackage = {
-	id: string;
-	name: string;
-	layer: string;
-	files: number;
-};
-
 export type GraphEdge = {from: string; to: string};
 
 export type LaidNode = {

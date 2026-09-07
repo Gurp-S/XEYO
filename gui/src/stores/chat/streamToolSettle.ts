@@ -1,8 +1,8 @@
 /**
- * streamToolSettle.ts — tool-result settling helpers for a single streaming send,
- * extracted verbatim from streamSendSlice.createStreamSendSlice()
- * (scheduleWaitingToolSettle / applyLateToolResult). Behavior unchanged;
- * callers delegate to the returned controller.
+ * streamToolSettle.ts — 单次流式发送的工具结果落定辅助逻辑，自
+ * streamSendSlice.createStreamSendSlice() 原样拆出
+ * (scheduleWaitingToolSettle / applyLateToolResult)。行为不变；
+ * 调用方委托给返回的 controller。
  */
 import type {StoreApi} from 'zustand';
 import {dispatchXeyoUi} from '@/lib/dispatchXeyoUi';

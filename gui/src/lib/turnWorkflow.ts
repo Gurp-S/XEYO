@@ -26,16 +26,6 @@ export type TurnWorkflowStep = {
 	createdAt: number;
 };
 
-export const TURN_LANE_LABELS: Record<TurnWorkflowLane, string> = {
-	agent: 'Agent',
-	read: '读',
-	write: '改',
-	search: '搜',
-	command: '命令',
-	other: '其他',
-	files: '文件',
-};
-
 function laneOf(
 	step: ActivityStep,
 	toolName: string,
@@ -214,8 +204,4 @@ export function turnWorkflowToLanes(
 		edges.push({from: fileIds[i]!, to: fileIds[i + 1]!});
 	}
 	return {items, edges, stepById};
-}
-
-export function turnLaneLabels(): Record<string, string> {
-	return {...TURN_LANE_LABELS};
 }

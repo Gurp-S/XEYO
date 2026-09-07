@@ -18,6 +18,27 @@ export type RemoteChannel = 'filehelper' | 'ilink';
 export type PermissionMode = 'always' | 'risk' | 'never';
 export type OutputMode = 'lite' | 'full' | 'ultra';
 
+/**
+ * 面板布局与分割线（设置 → 外观）。
+ * classic=现状胶囊缝；wireless=无线化纯留白；islands=圆角分岛；dotted=虚点呼吸线。
+ * 仅视觉档位，CSS 按 html[data-pane-layout] 分发（styles/pane-layouts.css）。
+ */
+export type PaneLayout = 'classic' | 'wireless' | 'islands' | 'dotted';
+
+export const PANE_LAYOUTS: readonly {id: PaneLayout; label: string; hint: string}[] = [
+	{id: 'islands', label: '圆角分岛', hint: '三栏各自成卡，结构感最强（原方案4）'},
+	{id: 'wireless', label: '无线化', hint: '无分割线，会话区变圆角岛（原方案1）'},
+	{id: 'dotted', label: '虚点线', hint: '1px 点状虚线，视觉重量最低（原方案6）'},
+	{id: 'classic', label: '经典', hint: '当前默认：圆角胶囊缝'},
+];
+
+export function normalizePaneLayout(v: unknown): PaneLayout {
+	// 默认档 = 圆角分岛（islands）；与 DEFAULTS.paneLayout 保持一致。
+	return v === 'wireless' || v === 'islands' || v === 'dotted' || v === 'classic'
+		? v
+		: 'islands';
+}
+
 export type ModelProfile = {
 	id: string;
 	provider: ProviderId;
@@ -149,6 +170,11 @@ export type Settings = {
 	smoothness: boolean;
 	/** 标题栏底部分割线；缺省为开。 */
 	titleBarDivider: boolean;
+	/**
+	 * 面板布局与分割线档位（外观页可切）。缺省/非法 = islands（圆角分岛）。
+	 * CSS 分发见 styles/pane-layouts.css。
+	 */
+	paneLayout: PaneLayout;
 	/** 侧边栏开合动画使用“极平滑减速”（④ quintic-out）而非默认“柔和减速”（② expo-out）。 */
 	paneEaseSilky: boolean;
 	/**
@@ -237,6 +263,7 @@ const DEFAULTS: Settings = {
 		explorerWidth: EXPLORER_WIDTH_DEFAULT,
 			smoothness: true,
 			titleBarDivider: true,
+			paneLayout: 'islands',
 			paneEaseSilky: false,
 			stickyBubbles: false,
 			pastureEnabled: true,
@@ -358,6 +385,11 @@ export function applyDocumentSmoothness(on: boolean) {
 /** 气泡吸顶总开关 → html[data-xy-sticky-bubbles]；CSS 据此放开/启用原生 sticky。 */
 export function applyDocumentStickyBubbles(on: boolean) {
 	document.documentElement.dataset.xyStickyBubbles = on ? 'on' : 'off';
+}
+
+/** 面板布局档位 → html[data-pane-layout]；CSS 据此分发分割线样式。 */
+export function applyDocumentPaneLayout(layout: PaneLayout) {
+	document.documentElement.dataset.paneLayout = normalizePaneLayout(layout);
 }
 
 /** 监听系统减少动态偏好，同步 data-smoothness。 */
@@ -769,8 +801,9 @@ function loadLite(): PersistedLite {
 				parsed.explorerWidth,
 				EXPLORER_WIDTH_DEFAULT,
 			),
-					smoothness: parsed.smoothness === false ? false : true,
-					titleBarDivider: parsed.titleBarDivider === false ? false : true,
+				smoothness: parsed.smoothness === false ? false : true,
+				titleBarDivider: parsed.titleBarDivider === false ? false : true,
+				paneLayout: normalizePaneLayout(parsed.paneLayout),
 					paneEaseSilky: parsed.paneEaseSilky === true,
 					stickyBubbles: parsed.stickyBubbles === true,
 					pastureEnabled: parsed.pastureEnabled !== false,
@@ -833,6 +866,7 @@ function writePersistLite(settings: Settings) {
 		explorerWidth: settings.explorerWidth,
 			smoothness: settings.smoothness !== false,
 			titleBarDivider: settings.titleBarDivider !== false,
+			paneLayout: normalizePaneLayout(settings.paneLayout),
 			paneEaseSilky: settings.paneEaseSilky === true,
 			stickyBubbles: settings.stickyBubbles === true,
 			pastureEnabled: settings.pastureEnabled !== false,
@@ -938,6 +972,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 		applyDocumentSmoothness(lite.smoothness !== false);
 		applyDocumentPaneEase(lite.paneEaseSilky === true);
 		applyDocumentStickyBubbles(lite.stickyBubbles === true);
+		applyDocumentPaneLayout(lite.paneLayout);
 		set({...lite, hydrated: false});
 		void get().hydrateAsync();
 	},
@@ -972,6 +1007,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 		applyDocumentSmoothness(lite.smoothness !== false);
 		applyDocumentPaneEase(lite.paneEaseSilky === true);
 		applyDocumentStickyBubbles(lite.stickyBubbles === true);
+		applyDocumentPaneLayout(lite.paneLayout);
 		const next = {...lite, bgImage, hydrated: true};
 		persistLite(next);
 		set(next);
@@ -1007,8 +1043,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 			sidebarWidth: cur.sidebarWidth ?? SIDEBAR_WIDTH_DEFAULT,
 			previewWidth: cur.previewWidth ?? PREVIEW_WIDTH_DEFAULT,
 			explorerWidth: cur.explorerWidth ?? EXPLORER_WIDTH_DEFAULT,
-					smoothness: cur.smoothness !== false,
-					titleBarDivider: cur.titleBarDivider !== false,
+				smoothness: cur.smoothness !== false,
+				titleBarDivider: cur.titleBarDivider !== false,
+				paneLayout: normalizePaneLayout(cur.paneLayout),
 					paneEaseSilky: cur.paneEaseSilky === true,
 					stickyBubbles: cur.stickyBubbles === true,
 					pastureEnabled: cur.pastureEnabled !== false,
@@ -1114,6 +1151,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 		}
 		if (patch.titleBarDivider !== undefined) {
 			next.titleBarDivider = patch.titleBarDivider !== false;
+		}
+		if (patch.paneLayout !== undefined) {
+			next.paneLayout = normalizePaneLayout(patch.paneLayout);
+			applyDocumentPaneLayout(next.paneLayout);
 		}
 		if (patch.paneEaseSilky !== undefined) {
 			next.paneEaseSilky = patch.paneEaseSilky === true;

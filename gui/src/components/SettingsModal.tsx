@@ -30,6 +30,7 @@ import {getThemeMeta, type ThemeId} from '@/theme/catalog';
 import {ThemePicker} from '@/theme/ThemePicker';
 import {BashRoutingSetting} from './BashRoutingSetting';
 import {MemorySwitchesSetting} from './MemorySwitchesSetting';
+import {PaneLayoutSetting} from './PaneLayoutSetting';
 
 type Props = {
 	open: boolean;
@@ -467,6 +468,8 @@ export function SettingsModal({open, onClose}: Props) {
 						value={theme}
 						onChange={id => update({theme: id})}
 					/>
+
+					<PaneLayoutSetting />
 
 					{/* T32：半成品实验功能收进「实验菜单」——默认隐藏，需显式开启 */}
 					<div className="rounded-xl border border-line/70 bg-glass-strong">

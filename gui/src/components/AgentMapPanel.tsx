@@ -13,7 +13,7 @@ import {
 	X,
 } from 'lucide-react';
 import {AgentMapCanvas, useLaneLayout} from '@/components/AgentMapCanvas';
-import {usePanelSubtitle} from '@/components/workspaceToolSubtitle';
+import {usePanelSubtitle} from '@/lib/panelSubtitle';
 import {cn} from '@/lib/utils';
 import {
 	buildOpsTrail,

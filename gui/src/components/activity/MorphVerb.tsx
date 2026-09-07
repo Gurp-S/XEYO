@@ -74,9 +74,6 @@ export const MorphVerb = memo(function MorphVerb({
 	);
 });
 
-const PATHISH =
-	/[\\/]|\.(?:tsx?|jsx?|json|css|md|py|rs|go|html)\b|[A-Za-z0-9_-]+\.(?:tsx?|jsx?|css|md)/;
-
 export function tokenizeThought(text: string): string[] {
 	const raw = text
 		.split(/(?<=[。！？.!?\n])\s*|(?<=；|;)\s*|·|\s{2,}/)
@@ -86,10 +83,6 @@ export function tokenizeThought(text: string): string[] {
 		return [text.trim()];
 	}
 	return raw;
-}
-
-export function thoughtTokenTier(token: string): 'primary' | 'secondary' {
-	return PATHISH.test(token) ? 'secondary' : 'primary';
 }
 
 /**

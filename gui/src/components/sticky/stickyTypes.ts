@@ -1,5 +1,3 @@
-import type {ChatMessage} from '@/lib/types';
-
 /** 状态机：idle → stuck(pin) → editing(portal) → idle */
 export type StickyPhase =
 	| {kind: 'idle'}
@@ -52,8 +50,6 @@ export type StickyDomBind = {
 	content: HTMLElement | null;
 	overlay: HTMLElement | null;
 };
-
-export type StickyMessagesLookup = () => ChatMessage[];
 
 /** 与气泡 rounded-2xl（1rem）一致 */
 export const PROMPT_CHIP_RADIUS_PX = 16;

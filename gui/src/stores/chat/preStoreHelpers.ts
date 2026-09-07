@@ -1,7 +1,7 @@
 /**
- * preStoreHelpers.ts — shared store helpers retained after slimming.
- * Cross-module shared state / normalizers / types that cannot move without
- * creating a circular import. Behavior unchanged.
+ * preStoreHelpers.ts — 精简拆分后保留的共享 store 辅助函数。
+ * 跨模块共享的状态 / 规范化函数 / 类型，若移走会造成循环导入，
+ * 故留在原处。行为不变。
  */
 import {
 	loadServerSessionMessages,

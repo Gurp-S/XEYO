@@ -210,12 +210,6 @@ export type RollbackPreviewState = {
 	autoContinue?: boolean | null;
 };
 
-export type RollbackApiErrorPayload = {
-	detail?: string;
-	type?: string;
-	status?: number;
-};
-
 /** 回溯 v3 热路径：POST /rewind 的同步返回（transcript 已提交，恢复可能仍在后台）。 */
 export type RewindHotpathResult = {
 	rewind_id: string;

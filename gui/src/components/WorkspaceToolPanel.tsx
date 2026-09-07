@@ -15,7 +15,7 @@ import {useWorkspaceStore, type WorkspaceTool} from '@/stores/workspaceStore';
 import {useExplorerStore} from '@/stores/explorerStore';
 import {AgentMapPanel} from '@/components/AgentMapPanel';
 import {BrowserPreviewPanel} from '@/components/BrowserPreviewPanel';
-import {WorkspaceToolSubtitleContext, usePanelSubtitle} from '@/components/workspaceToolSubtitle';
+import {WorkspaceToolSubtitleContext, usePanelSubtitle} from '@/lib/panelSubtitle';
 const LABELS: Record<WorkspaceTool, string> = {
 	git: 'Git',
 	terminal: '终端',

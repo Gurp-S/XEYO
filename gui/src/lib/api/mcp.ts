@@ -74,12 +74,6 @@ export async function mcpOp(
 	}
 }
 
-export async function setExtensionsEnabled(
-	enabled: boolean,
-): Promise<{ok: boolean; message?: string}> {
-	return patchExtensions({enabled_extensions: enabled});
-}
-
 export type ExtensionToggleSet = {
 	enabled: boolean;
 };

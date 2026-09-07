@@ -513,7 +513,7 @@ function activityEqual(prev: Props, next: Props): boolean {
 	return true;
 }
 
-/** #10 Split header + A7/A8 + L10 activity。 */
+/** #10 拆分头部 + A7/A8 + L10 活动记录。 */
 function ActivityLogInner({
 	summary,
 	diffs,

@@ -82,7 +82,7 @@ export class StickyPromptController {
 
 	private readonly getMessages: () => ChatMessage[];
 	private readonly onEditPortalHostChange?: (host: HTMLElement | null) => void;
-	private readonly onLayoutMute?: () => void;
+	private readonly onLayoutMute?: (ms?: number) => void;
 
 	constructor(opts: StickyPromptControllerOptions) {
 		this.getMessages = opts.getMessages;
@@ -452,6 +452,9 @@ export class StickyPromptController {
 
 	/** editing → stuck|idle */
 	endEdit(): void {
+		/* 不能改长:flush() 在 layoutMutated 时会调 muteLayoutSnap() 默认 80ms
+		   重置 timer,把本方法设的时长截断成 80ms,后续 reconcile 在 mute 窗口内
+		   屏蔽 → portal 退出后 chip stuck hidden(sticky=ON 路径必触发)。 */
 		this.muteLayoutSnap(120);
 		const previousHost = this.editPortalHost;
 		this.editingId = null;

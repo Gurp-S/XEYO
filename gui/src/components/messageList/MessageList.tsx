@@ -18,6 +18,8 @@ import {
 
 import {RewindCutPill} from '../WorkspaceRevertDialog';
 import {useRewindV3Store, type RewindPill} from '@/stores/rewindV3Store';
+import {useChatStore} from '@/stores/chatStore';
+import {SIDE_SPACE_ID} from '@/lib/db';
 import {useSettingsStore} from '@/stores/settingsStore';
 import {pickEmptyQuip} from '@/lib/emptyQuips';
 import {groupTranscript, patchTranscriptTail, type TranscriptBlock} from '@/lib/groupTranscript';
@@ -493,13 +495,24 @@ export function MessageList({
 	);
 	const loadCutPills = useRewindV3Store(s => s.loadPills);
 	const rehydrateRewind = useRewindV3Store(s => s.rehydrate);
+	// 未绑工作区的会话（默认空间未开目录 / 侧聊虚拟 space）对服务端 rewind
+	// 端点必 400「session has no workspace」——pill 拉取与回溯重对齐均无意义，
+	// 直接跳过，避免每次切会话/上屏都打一轮注定失败的请求（2026-09-05 E2E 排查）。
+	const pillWorkspaceBound = useChatStore(s => {
+		const ses = s.sessions.find(x => x.id === activeSessionId);
+		if (!ses || ses.spaceId === SIDE_SPACE_ID) {
+			return false;
+		}
+		const space = s.spaces.find(sp => sp.id === ses.spaceId);
+		return Boolean(space?.rootPath?.trim());
+	});
 	useEffect(() => {
-		if (activeSessionId) {
+		if (activeSessionId && pillWorkspaceBound) {
 			void loadCutPills(activeSessionId);
 			// 重载后若是进行中回溯（未决态），按持久化 rewindId 重对齐（设计 §6.1 C3）。
 			void rehydrateRewind(activeSessionId);
 		}
-	}, [activeSessionId, loadCutPills, rehydrateRewind]);
+	}, [activeSessionId, pillWorkspaceBound, loadCutPills, rehydrateRewind]);
 
 	const workspaceName =
 		spaces.find(s => s.id === activeSpaceId)?.name?.trim() || 'this project';

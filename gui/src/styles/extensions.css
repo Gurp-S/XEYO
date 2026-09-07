@@ -83,7 +83,7 @@
 }
 
 .ext-toggle[data-checked="true"] {
-  box-shadow: 0 0 0 3px color-mix(in oklch, var(--xy-ok) 14%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--xy-accent) 12%, transparent);
 }
 
 .ext-toggle-knob {
@@ -120,10 +120,10 @@
 @keyframes xy-ext-dot-pulse {
   0%,
   100% {
-    box-shadow: 0 0 0 0 color-mix(in oklch, var(--xy-ok) 34%, transparent);
+    box-shadow: 0 0 0 0 color-mix(in oklch, var(--xy-accent) 30%, transparent);
   }
   60% {
-    box-shadow: 0 0 0 4px color-mix(in oklch, var(--xy-ok) 0%, transparent);
+    box-shadow: 0 0 0 4px color-mix(in oklch, var(--xy-accent) 0%, transparent);
   }
 }
 

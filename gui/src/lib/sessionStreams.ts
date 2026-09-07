@@ -207,8 +207,3 @@ export function isSessionStreamLive(s: SessionStreamState): boolean {
 	}
 	return s.abortRef !== null && !isAbortDead(s.abortRef);
 }
-
-/** 后端仍可能在跑：用于决定是否 reattach 而非 interrupt。 */
-export function isTurnLikelyDetached(s: SessionStreamState): boolean {
-	return Boolean(s.turnDetached) || (s.isLoading && isAbortDead(s.abortRef));
-}

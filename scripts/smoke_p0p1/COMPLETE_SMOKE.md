@@ -138,8 +138,8 @@
 
 | 项 | 要求 | 状态 | 备注 |
 |---|---|---|---|
-| T31（cli-ts 真 TUI）| GUI 开 plan → `XEYO-CLI.bat /load` → 模式仍在；id 服务端签发；workspace 服务端权威 | ❌ 未做 | 服务器端侧已由 `t31_ssot` 验（server-issued id + workspace service-authoritative）；TUI 边界需真 `cli-ts` 交互 |
-| T32 | 全新环境双击 `XEYO-CLI.bat` 自动拉起引擎；`/help` 无 404；`/demo` 需显式 flag | ❌ 未做 | 需双击 `XEYO-CLI.bat`；属 TUI 手工 |
+| T31（tui 真 TUI）| GUI 开 plan → `XEYO-TUI.bat /load` → 模式仍在；id 服务端签发；workspace 服务端权威 | ❌ 未做 | 服务器端侧已由 `t31_ssot` 验（server-issued id + workspace service-authoritative）；TUI 边界需真 `tui` 交互 |
+| T32 | 全新环境双击 `XEYO-TUI.bat` 自动拉起引擎；`/help` 无 404；`/demo` 需显式 flag | ❌ 未做 | 需双击 `XEYO-TUI.bat`；属 TUI 手工 |
 | T37 | EmptyState 中文化；AgentMap 收进「实验功能」开关；`/bench`、`/lab` 路由守卫 | ❌ 未做 | 需浏览器/GUI 手工 |
 
 > 详细分步见 `scripts/smoke_p0p1/HANDOFF.md`（手动冒烟清单章节）。每一项请手动记录「过/不过 + 截图证据」。
@@ -154,7 +154,7 @@
 | T3 面板 + 服务端 30s 提醒帧 | 未测 | **审批面板实跑通过 ✅**（默认展开/允许/Esc=取消）；服务端 30s 提醒帧**仍无消费方**（自动放行从不触发到期） |
 | T11 `always_allow` | 未测（需 MCP fixture） | 未做（按你的归档：需真 MCP fixture，建议单独加后端场景） |
 | T9 轮次驱动 + resume 三级链 | 未测 | 后端 goal 已验；前端 **chip 四态/候选条不存在**，仅恢复横幅读实体 |
-| T31 三边界 | 未测 | 后端 `t31_ssot` 验一半；cli-ts cwd 跨重启 / permission durable / 自造 uuid 需 TUI 手工 |
+| T31 三边界 | 未测 | 后端 `t31_ssot` 验一半；tui cwd 跨重启 / permission durable / 自造 uuid 需 TUI 手工 |
 | T38 `/compact` 按钮 gate | 未测 | **实跑通过 ✅**：gate=1 时「立即压缩 /compact」出现（先展开用量预览） |
 
 ---

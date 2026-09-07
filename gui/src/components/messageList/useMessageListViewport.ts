@@ -1,7 +1,7 @@
 /**
- * Viewport / scroll cluster extracted from messageList/MessageList.tsx.
- * Behavior unchanged: virtual-scroll follow-tail, rAF sticky/pin flush,
- * session-switch landing, rail active tracking.
+ * 自 messageList/MessageList.tsx 拆出的视口 / 滚动逻辑簇。
+ * 行为不变：虚拟滚动跟随尾部、rAF 粘性/固定刷新、
+ * 会话切换落点、rail 活动项跟踪。
  */
 import {
 	useCallback,

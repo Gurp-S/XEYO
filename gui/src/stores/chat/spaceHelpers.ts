@@ -1,6 +1,6 @@
 /**
- * spaceHelpers.ts — space / session / sidebar-collapse helper functions.
- * Extracted verbatim from preStoreHelpers.ts (auto-dismantle). Behavior unchanged.
+ * spaceHelpers.ts — 空间 / 会话 / 侧边栏折叠相关辅助函数。
+ * 自 preStoreHelpers.ts 原样拆出（自动拆分）。行为不变。
  */
 import {
 	deleteServerSession,

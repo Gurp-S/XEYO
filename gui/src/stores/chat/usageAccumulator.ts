@@ -1,7 +1,8 @@
 /**
- * usageAccumulator.ts — per-stream usage accounting, extracted verbatim from
- * streamSendSlice.createStreamSendSlice() flushUsage/scheduleUsage/pendingUsage.
- * Behavior unchanged; the onUsage stream handler delegates to push().
+ * usageAccumulator.ts — 单次流的用量统计，自
+ * streamSendSlice.createStreamSendSlice() 原样拆出
+ * flushUsage/scheduleUsage/pendingUsage。行为不变；
+ * onUsage 流处理委托给 push()。
  */
 import type {StoreApi} from 'zustand';
 import {

@@ -223,7 +223,11 @@ export function ModelPicker({
 								/>
 							</label>
 						</div>
-						<div className="min-h-0 flex-1 overflow-y-auto px-1.5 py-1.5">
+						<div
+							className="min-h-0 flex-1 overflow-y-auto px-1.5 py-1.5"
+							role="listbox"
+							aria-label="模型列表"
+						>
 							{models.length === 0 ? (
 								<p className="px-2 py-3 text-[12px] leading-relaxed text-mute">
 									该账号尚未登记模型，请先在设置里添加模型。
@@ -237,7 +241,8 @@ export function ModelPicker({
 										<button
 											key={opt}
 											type="button"
-
+											role="option"
+											aria-selected={active}
 											onClick={() => pickModel(hoverAccount, opt)}
 											className={cn(
 												'xy-menu-row flex w-full items-center gap-2 px-2.5 py-2 text-left',

@@ -19,13 +19,6 @@ export function formatTokenCount(tokens: number): string {
 	return `${rounded.toFixed(2)}${TOKEN_UNITS[unitIndex]} tok`;
 }
 
-export function formatCnyAmount(cny: number | null | undefined): string {
-	if (cny == null || !Number.isFinite(cny)) {
-		return '费用待确认';
-	}
-	return `¥${Math.max(0, cny).toFixed(2)}`;
-}
-
 /** 顶栏用量芯片：累计消耗 / 输出token · 模型窗口占用%（最近一枪 context_tokens / 窗口，未知则省略）。 */
 export function formatUsageChipPreview(
 	consumedTokens: number | null | undefined,

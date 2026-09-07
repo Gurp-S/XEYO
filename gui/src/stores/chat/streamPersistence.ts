@@ -1,8 +1,8 @@
 /**
- * streamPersistence.ts — debounced IDB persistence for a single streaming send,
- * extracted verbatim from streamSendSlice.createStreamSendSlice() (persistWrites /
- * persistNow / persistHot / persistTimer / persistIdle / fingerprints / thoughtsync).
- * Behavior unchanged; callers delegate to the returned controller.
+ * streamPersistence.ts — 单次流式发送的防抖 IDB 持久化，自
+ * streamSendSlice.createStreamSendSlice() 原样拆出 (persistWrites /
+ * persistNow / persistHot / persistTimer / persistIdle / fingerprints / thoughtsync)。
+ * 行为不变；调用方委托给返回的 controller。
  */
 import type {StoreApi} from 'zustand';
 import {

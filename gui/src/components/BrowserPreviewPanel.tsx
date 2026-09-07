@@ -7,7 +7,7 @@ import {
 	Loader2,
 	RefreshCw,
 } from 'lucide-react';
-import {usePanelSubtitle} from '@/components/workspaceToolSubtitle';
+import {usePanelSubtitle} from '@/lib/panelSubtitle';
 import {isTauri} from '@/lib/tauri';
 import {cn} from '@/lib/utils';
 import {useBrowserPreviewStore} from '@/stores/browserPreviewStore';

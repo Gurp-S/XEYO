@@ -133,17 +133,3 @@ export function buildRollbackDiffTree(
 
 	return sortNodes(root.children);
 }
-
-export function collectRollbackTreeKeys(nodes: RollbackTreeNode[]): string[] {
-	const keys: string[] = [];
-	const walk = (list: RollbackTreeNode[]) => {
-		for (const node of list) {
-			keys.push(node.key);
-			if (node.type === 'dir') {
-				walk(node.children);
-			}
-		}
-	};
-	walk(nodes);
-	return keys;
-}

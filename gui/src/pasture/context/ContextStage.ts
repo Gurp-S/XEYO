@@ -126,11 +126,6 @@ export function stageForPercent(percent: number): PastureStage {
   );
 }
 
-export function stageProgress(percent: number, stage = stageForPercent(percent)): number {
-  if (stage.to <= stage.from) return 1;
-  return Math.min(1, Math.max(0, (clampPercent(percent) - stage.from) / (stage.to - stage.from)));
-}
-
 export function animalBudget(percent: number): number {
   const value = clampPercent(percent);
   if (value < 20) return 0;
@@ -143,18 +138,6 @@ export function animalBudget(percent: number): number {
 
 export function plantDensity(percent: number): number {
   return Math.min(1, Math.max(0, clampPercent(percent) / 100));
-}
-
-export function grassDensity(percent: number): number {
-  const value = clampPercent(percent);
-  if (value < 5) return value / 25;
-  return Math.min(1, 0.2 + value / 125);
-}
-
-export function atmosphereDensity(percent: number): number {
-  const value = clampPercent(percent);
-  if (value < 25) return 0;
-  return Math.min(1, (value - 25) / 75);
 }
 
 export function snapshotFromUsage(

@@ -234,23 +234,6 @@ export function digestConversationOps(
 		.slice(0, Math.max(1, limit));
 }
 
-/** 只保留最近一轮（最后一个 user 之后）消息上的落点。 */
-export function sliceMessagesAfterLastUser(
-	messages: ChatMessage[],
-): ChatMessage[] {
-	if (!messages.length) {
-		return messages;
-	}
-	let start = 0;
-	for (let i = messages.length - 1; i >= 0; i -= 1) {
-		if (messages[i]?.role === 'user') {
-			start = i;
-			break;
-		}
-	}
-	return messages.slice(start);
-}
-
 /**
  * 本轮落点时间序轨迹（相邻不同路径连边），供地图画主路径。
  * 最多返回 maxEdges 条，避免轨迹把图糊满。

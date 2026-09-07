@@ -11,14 +11,6 @@ export function markThoughtFinalized(id: string): void {
 	streamingThoughtIds.delete(id);
 }
 
-export function clearStreamingThoughtMarks(): void {
-	streamingThoughtIds.clear();
-}
-
-export function isThoughtStreaming(id: string): boolean {
-	return streamingThoughtIds.has(id);
-}
-
 export function isSyncableThought(m: ChatMessage): boolean {
 	return (
 		m.isThought === true &&

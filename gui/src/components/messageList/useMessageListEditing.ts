@@ -1,7 +1,7 @@
 /**
- * Editing cluster extracted from messageList/MessageList.tsx.
- * Behavior unchanged: sticky edit refs, layout effects, begin/cancel/submit,
- * and the pinned-chip click-to-edit wiring. Edit submit opens rewindV3Store dialog.
+ * 自 messageList/MessageList.tsx 拆出的编辑逻辑簇。
+ * 行为不变：粘性编辑 refs、布局 effect、begin/cancel/submit，
+ * 以及固定 chip 点击进入编辑的接线。编辑提交会打开 rewindV3Store 对话框。
  */
 import {
 	useCallback,

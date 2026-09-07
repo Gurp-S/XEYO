@@ -1,10 +1,10 @@
 /**
- * streamSendSlice.ts — streaming send slice.
- * sendMessage / stopGeneration / sendToSession live here. The recovery &
- * reattach methods were spun out to streamRecoverySlice.ts (spread below) and the
- * per-send peripheral logic (persistence / usage / drain / multi-agent dispatch /
- * pending dispatch) went to streamPersistence.ts, usageAccumulator.ts,
- * streamDrain.ts, multiAgentSlice.ts and uiChromeSlice.ts. Behavior unchanged.
+ * streamSendSlice.ts — 流式发送 slice。
+ * sendMessage / stopGeneration / sendToSession 在此实现。恢复与重新挂载
+ * 方法已拆分到 streamRecoverySlice.ts（在下方展开），单次发送的外围逻辑
+ * （持久化 / 用量 / 收尾排水 / 多 agent 分发 / 待处理分发）分别移入
+ * streamPersistence.ts、usageAccumulator.ts、streamDrain.ts、
+ * multiAgentSlice.ts 与 uiChromeSlice.ts。行为不变。
  */
 import type {StoreApi} from 'zustand';
 import {

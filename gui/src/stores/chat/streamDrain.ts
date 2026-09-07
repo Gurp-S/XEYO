@@ -1,8 +1,9 @@
 /**
- * streamDrain.ts — end-of-stream typewriter drain, extracted verbatim from
- * streamSendSlice.createStreamSendSlice() (drainFrame/startDrain/finish/discard /
- * drainTextSnap / drainMode). Behavior unchanged; commitAssistant reads the
- * drained snapshot via getTextSnap()/isDraining().
+ * streamDrain.ts — 流结束后的打字机收尾排水逻辑，自
+ * streamSendSlice.createStreamSendSlice() 原样拆出
+ * (drainFrame/startDrain/finish/discard /
+ * drainTextSnap / drainMode)。行为不变；commitAssistant 通过
+ * getTextSnap()/isDraining() 读取排水后的快照。
  */
 import type {StoreApi} from 'zustand';
 import {

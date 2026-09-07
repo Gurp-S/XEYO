@@ -1,6 +1,6 @@
 /**
- * streamHelpers.ts — stream / tool / thought / todo helper functions.
- * Extracted verbatim from preStoreHelpers.ts (auto-dismantle). Behavior unchanged.
+ * streamHelpers.ts — 流 / 工具 / 思考 / todo 相关辅助函数。
+ * 自 preStoreHelpers.ts 原样拆出（自动拆分）。行为不变。
  */
 import {
 	syncUiThoughtsToServer,
