@@ -1,0 +1,43 @@
+# https://editorconfig.org
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# ---- Python（引擎/server/cli）：既有代码以 tab 缩进为主 ----
+[*.py]
+indent_style = tab
+indent_size = 4
+
+# ---- GUI（React+TS）：既有代码以 tab 缩进为主 ----
+[gui/src/**/*.{ts,tsx}]
+indent_style = tab
+indent_size = 4
+
+# ---- cli-ts（Ink TUI）：既有代码以 4 空格缩进为主 ----
+[cli-ts/src/**/*.{ts,tsx}]
+indent_style = space
+indent_size = 4
+
+# ---- 其余 TS/JS ----
+[*.{ts,tsx,js,jsx,mjs,cjs}]
+indent_style = tab
+indent_size = 4
+
+# ---- 数据/样式/文档 ----
+[*.{css,scss,less,html,json,yml,yaml,toml}]
+indent_style = space
+indent_size = 2
+
+# ---- Markdown：不强制去尾随空白（表格/引用排版需要）----
+[*.md]
+indent_style = space
+indent_size = 2
+trim_trailing_whitespace = false
+
+# ---- Windows 批处理 ----
+[*.bat]
+end_of_line = crlf

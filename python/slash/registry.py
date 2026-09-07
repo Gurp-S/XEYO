@@ -15,7 +15,7 @@
 1. 在此追加一个 ``Command`` 条目（别名先查重）；
 2. 若 ``handler=server``，在 :mod:`slash.dispatch` 注册处理函数；
 3. 运行 ``py -3.11 -m slash.export_manifest`` 重新生成 GUI / CLI-TS 的 manifest TS；
-4. 更新 ``docs/设计/37-斜杠命令统一设计.md``（帮助文案由 help_text 自动生成）。
+4. 同步更新斜杠命令设计文档 #37（帮助文案由 help_text 自动生成）。
 """
 
 from __future__ import annotations

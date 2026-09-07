@@ -1,6 +1,6 @@
 """MCP 网关工具 ``Mcp``（P0b F2/F2.5）：会话内新增工具的唯一通道。
 
-设计（对齐 ``docs/设计/40-MCP与SKILL企业级融合设计.md`` §F2/§F2.5/§F6b）：
+设计（对齐 MCP×SKILL 企业级融合冻结稿 #40 §F2/§F2.5/§F6b）：
 
 - 扩展开启即常驻注册（静态 schema ~150 token，tools 数组冻结红线内）；
 - ``action=list``：全量 server 侧集合（含 hidden 标注）——hidden-but-registered

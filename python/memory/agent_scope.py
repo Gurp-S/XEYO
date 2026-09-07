@@ -1,6 +1,6 @@
 """多 Agent 记忆范围：共享 / 隔离 / 回传。
 
-设计见 docs/设计/10-完整记忆体系.md §5、docs/设计/11-记忆体系落地步骤书.md Wave 6。
+设计见记忆体系设计 #10 §5、记忆体系落地 #11 Wave 6。
 子 Agent 完整 transcript 走侧链；主会话只追加一条回传摘要（+ 可选 MemoryCandidate）。
 """
 

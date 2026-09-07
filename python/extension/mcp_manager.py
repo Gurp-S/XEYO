@@ -1,6 +1,6 @@
 """MCP 运行时接线（F1）：workspace 级进程单例，把 MCP server 挂到会话 registry。
 
-设计（对齐 ``docs/设计/40-MCP与SKILL企业级融合设计.md`` §F1）：
+设计（对齐 MCP×SKILL 企业级融合冻结稿 #40 §F1）：
 
 - ``McpManager`` 按 resolved cwd 进程级单例（``get_mcp_manager(cwd)``）。
 - ``collect_specs`` 汇三来源（plugin>user>project 按 id 冲突 project 胜出，企业
@@ -181,8 +181,6 @@ class McpManager:
 		cfg = config if config is not None else self._load_config()
 		return scopes.collect_mcp_specs(self._cwd, config=cfg)
 
-	def config_snapshot(self) -> ExtensionConfig:
-		return self._load_config()
 
 	# -- 挂载（attach） -------------------------------------------------------------
 

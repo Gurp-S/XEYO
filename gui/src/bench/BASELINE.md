@@ -7,7 +7,7 @@
 
 ### 1.0 一键脚本（推荐）
 
-双击仓库根目录 **`XEYO-bench.bat`**：
+双击仓库根目录本地一键基准脚本（`XEYO-bench.bat`，位于本地归档目录）：
 自动起 dev（端口 5177，新窗口）→ 等就绪 → 打开自动基准页 → 页面就绪 2.5s 后
 自动顺序跑 `rounds=5000 → 2000 → 500` 三个尺寸，每个尺寸跑完自动下载
 `xy-bench-r<rounds>-<时间戳>.json` 到「下载」目录（约 2-4 分钟）。
@@ -93,7 +93,7 @@ reuseRoundPrefix → roundsWithAgentTasks → rounds.map → computeRoundPrefix�
 流式热点的第一嫌疑转移到「最新轮子树的 React 提交 + XyStreamdown
 尾部增量渲染 + 布局/绘制」，须由浏览器基准（§3.2）定位。
 
-### 3.2 浏览器基准 ✅（2026-09-01，Edge 152 / Win10 / 1912×994 / DPR 1，`XEYO-bench.bat` 自动采集）
+### 3.2 浏览器基准 ✅（2026-09-01，Edge 152 / Win10 / 1912×994 / DPR 1，本地一键基准脚本自动采集）
 
 文件名 r<消息数>：r1177≈500 轮、r4706≈2000 轮、r11831≈5000 轮（每轮 ≈2.36 条消息）。
 
@@ -222,7 +222,7 @@ messagesById[id] === undefined` 全跳过异步管线），无剩余白捡空间
    - 契约测试 `TurnRail.test.tsx`（5 测）：≤60 全量无 spacer、>60 行数有界 +
      spacer 补高、>15 刻度降采样、打开滚动到活动行 + scroll 事件后窗口覆盖、
      onJump 接线。
-   - 待复测：`XEYO-bench.bat` 重跑，预期 warm paint 5000 轮 257ms → ~常数
+   - 待复测：本地一键基准脚本重跑，预期 warm paint 5000 轮 257ms → ~常数
      （目标 <50ms）；若仍不达标，下一嫌疑是 railItems badge 的
      collectLatestTodosFromItems O(总 items) 扫描（改按需计算）。
    - **复测（第二轮）已确认**：warm p95 257→65ms、p50 244→48ms@5000 轮，

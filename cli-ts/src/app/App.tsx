@@ -462,7 +462,7 @@ export function App({ config: initial }: Props) {
         sys("XEYO CLI-TS（Node/Ink）· 引擎由 Python 侧提供");
         return;
       case "docs":
-        sys("文档见仓库 docs/ 目录（docs/README.md 有索引）。");
+        sys("文档见仓库 docs/ 目录（架构图与评测结果）。");
         return;
       case "load": {
         if (!arg) {

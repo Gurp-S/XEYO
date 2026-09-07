@@ -306,7 +306,7 @@ export function WorkspaceRevertDialog({
 
 
 /* ------------------------------------------------------------------ */
-/* 回溯 v3 热路径弹窗（合同 docs/设计/31：双动作 + 完成/Undo 生命周期）   */
+/* 回溯 v3 热路径弹窗（合同 #31：双动作 + 完成/Undo 生命周期）   */
 
 export function RewindV3Dialog({sessionId}: {sessionId: string}) {
 	const state = useRewindV3Store(s => s.bySession[sessionId]);

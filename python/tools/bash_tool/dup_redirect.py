@@ -6,7 +6,7 @@
 
 - ``plan_bash_route``：把「意图毫无歧义」的纯文件读命令解析成等价专用工具计划
   （BashRoutePlan：tier 分级 / tool_name / tool_input / 审计摘要），供 Phase 0
-  观测审计与 Phase 1 透明路由共用（见 docs/设计/43-bash专用工具路由设计.md）；
+  观测审计与 Phase 1 透明路由共用（见 bash 专用工具路由设计 #43）；
 - ``redirect_hint``：现有 L2 的调用点错误提示（与 plan 同源，文案逐字节不变）。
 
 判据原则（宁放勿拦——无法精确映射到专用工具语义的一律放行执行）：
@@ -23,7 +23,7 @@
 **明确不路由**：
 - ls/dir/ll/la（裸列目录）：Glob 是"按名搜索"工具，对宽匹配 ``*`` 只回「目录摘要
   （文件数）」而不列文件名，无法满足"列出目录内容"→ 交给 bash 真实列目录
-  （实测 `dir "docs\设计"` → Glob 只回 `./ (30 files)`，见 docs/设计/43 §3.1）。
+  （实测 `dir "docs\设计"` → Glob 只回 `./ (30 files)`，见 bash 路由设计 #43 §3.1）。
 - find：**不在 bash 只读白名单**，`bash=default` 下先 ASK 用户，ALLOW 分支到不了、
   路由不触发，故不纳入解析。
 """

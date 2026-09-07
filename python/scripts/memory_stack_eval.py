@@ -1329,8 +1329,6 @@ def render_table_d(rows: dict) -> str:
 	return "\n".join(lines)
 
 
-def _esc(s) -> str:
-	return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
 
 
 # ── A3 日常监控报告 · 样式正本（porcelain 青瓷蓝 · 明度即数值）──

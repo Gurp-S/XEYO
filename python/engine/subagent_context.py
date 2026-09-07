@@ -1,6 +1,6 @@
 """子 Agent 短上下文构建（A3 前缀稳定 + A4 工具白名单 + 近期变更注入）。
 
-设计（docs/实施计划/29-普通多Agent协同落地实施计划书.md §2.3 / 附录 A C2/C6）：
+设计（多 Agent 协同落地 #29 §2.3 / 附录 A C2/C6）：
 - **稳定前缀（A3/#4）**：`[Fix System][工具 schema]` 严格连续、置于最前 —— 保证多个子 agent
   命中同一段 provider 前缀缓存。
 - **动态尾部，只能 append 在最后**：任务 prompt + 近期变更（`recent_changes`）。任何动态内容

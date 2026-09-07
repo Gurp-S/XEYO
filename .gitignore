@@ -103,6 +103,12 @@ gui/test-results/
 # 会话/工具临时目录（2026-09-05 二次事故后补充）
 .tmp/
 .archify/
+.xeyo_offload_tmp/
+python/.xeyo_offload_tmp/
+python/.xeyo_offload/
+python/.cgraph_v7/
+python/.xeyo_session_index.json
+gui/.tmp-*-layout-scan.txt
 
 # 二次事故重建补充（2026-09-05 13:37）
 .git.broken*/

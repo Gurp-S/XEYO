@@ -121,7 +121,7 @@ function A3SnapshotRow() {
 					<span className="block text-sm text-ink">A3 日常监控快照</span>
 					<span className="mt-0.5 block text-[11px] leading-snug text-mute">
 						点按立即快照（读生产 ledger，写 docs/12 表D，无模型调用）。
-						默认每天 09:30 由计划任务自动执行（A3_daily_monitor.bat）。
+						默认每天 09:30 由本地计划任务自动执行。
 					</span>
 				</span>
 				<button

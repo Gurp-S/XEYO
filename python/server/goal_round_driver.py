@@ -1,6 +1,6 @@
 """Goal Round Driver（41 号 P0）：armed 内存态 + settlement 复检 + 预约 + 合成轮。
 
-语义（docs/设计/41-goal-round-driver设计.md）：
+语义（goal-round-driver 设计 #41）：
 
 - **armed 只在内存**：进程重启必静止；本模块不写任何落盘状态（goal 实体除外，
   由 GoalStore 权威）。driver 绝不杀 turn / 挡工具 / 阻塞人类消息（38 号铁律）。
@@ -111,13 +111,6 @@ class GoalRoundDriver:
 		except Exception:  # noqa: BLE001
 			pass
 
-	def _env_for(self, session_id: str) -> dict[str, Any] | None:
-		try:
-			from server.synthetic_round import env_for
-
-			return env_for(session_id)
-		except Exception:  # noqa: BLE001
-			return None
 
 	# ------------------------------------------------------------------
 	# 状态读 / arm / disarm / 让位

@@ -58,4 +58,4 @@
 - **指纹 v2（授权身份）**：`permissions/store.py` `mcp_grant_fingerprint = "v2:" + sha256(["mcp-tool", 注册名])[:32]`（**参数不进指纹** → 注入免疫）；`mcp_target` 贯通 `PolicyDecision → 挂起项 → /v1/permission/resolve`。v1 已不匹配 v2。
 - **控制路径**：`GET/POST /v1/extensions/settings`（`server/routers/extensions.py`，loopback 门禁，POST=push reconcile）+ `/mcp enable|disable|tool`（`python/slash/dispatch.py`）；manifest 已重导出到 `*/generated/slashManifest.ts`。
 - **契约测试（改扩展层必须守）**：`tests/extension/test_freeze_invariants.py`、`tests/extension/test_reconcile.py`、`tests/extension/test_mcp_fingerprint_v2.py`、`tests/extension/test_mcp_gateway.py`、`tests/extension/test_mcp_exposure.py`、`tests/test_extensions_api.py`。
-- **扩展层改动验收**：`run-pytest-p0b.bat`（用户手动执行）；无网关路径零回归（P0a 出口）。
+- **扩展层改动验收**：`py -3.11 -m pytest python/tests/extension -m "not live"`（本地手动执行）；无网关路径零回归（P0a 出口）。

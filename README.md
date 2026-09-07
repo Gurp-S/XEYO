@@ -84,7 +84,7 @@ pwsh -File scripts/check.ps1
 - Agentic 主循环：模型 ↔ 工具多轮（中断 / 预算 / 工具分区执行）
 - 编码工具：Glob / Grep / Read / Write / Edit / Bash / TodoWrite
 - 符号级代码理解（33号计划）：Read 支持 `symbol` 参数只读单个类/函数体；Grep 支持 `output_mode: "symbols"` 列出仓库符号目录（tree-sitter 可选，未装自动降级）
-- 权限沙箱：工作区外路径 deny（Bash 门禁仍在加强，见 `docs/设计/08`）
+- 权限沙箱：工作区外路径 deny（Bash 门禁仍在加强中）
 - 流式桌面 UI + Stop（`POST /v1/interrupt`）
 - 微信远程：文件传输助手 / iLink Bot；按微信号隔离会话，重启后端可从磁盘续聊；截图与文件可回传到微信
 - 会话 JSONL 持久化（`SessionPool` 键 = 引擎 session_id = 磁盘文件名）
@@ -146,24 +146,15 @@ py -3.11 -m cli chat --provider fake --print --json "hello"
 py -3.11 -m cli sessions list
 ```
 
-REPL / Ink 斜杠（统一 manifest：`python/slash/registry.py` → 四表面共用；**完整命令表见文档**）：
-
-详见 [docs/设计/37-斜杠命令统一设计.md](./docs/设计/37-斜杠命令统一设计.md)。无 TTY 时权限 ASK **fail-closed**。
-
-下一阶段（可用 → 企业级 → 微信亮点）：`docs/实施计划/09-企业级落地计划-时序与排期.md`
+REPL / Ink 斜杠：统一 manifest 在 `python/slash/registry.py`（GUI / cli-ts / Python CLI / 微信四表面共用；运行 `python -m slash.export_manifest` 导出到 `*/generated/slashManifest.ts`）。无 TTY 时权限 ASK **fail-closed**。
 
 ## 文档
 
 > 代码地图（新人必读）：[`python/ARCHITECTURE.md`](./python/ARCHITECTURE.md) · [`gui/ARCHITECTURE.md`](./gui/ARCHITECTURE.md)
 
-> docs 目录已按类别分目录整理，完整索引见 [docs/README.md](./docs/README.md)。
+- 架构可视化（系统 / 记忆架构 HTML 图）：[`docs/架构/`](./docs/架构/)
+- 起步阶段评测结果（BFCL / HumanEval 等）：[`docs/起步阶段评测结果.md`](./docs/起步阶段评测结果.md)
 
-- 执行总纲（时序 / 理由 / 周排期）：`docs/实施计划/09-企业级落地计划-时序与排期.md`
-- 产品身份：`docs/设计/08-从Demo到企业级.md`
-- 远程微信（重启续聊 + 按人隔离，已落地）：`docs/任务书/task8-远程微信-重启续聊与按人隔离.md`
-- 演示期总纲：`docs/总纲与路线/00-总计划书-可上线路线图.md`
-- Task4 API：`docs/任务书/task4-服务端API稳定.md`
-- Task5 前端：`docs/任务书/task5-前端产品化.md`
 
 ## 开发自测（可选）
 

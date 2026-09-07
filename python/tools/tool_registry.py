@@ -16,7 +16,7 @@ from permissions.filesystem import (
 )
 from permissions.policy import agent_mode, evaluate_policy, readonly_gate
 from permissions.workspace_policy import load_workspace_policy
-from tools.ask_user_question_tool import ASK_REQUEST_ID_KEY, ASK_USER_TOOL_NAME
+from tools.ask_user_question_tool import ASK_USER_TOOL_NAME
 from tools.base_tool import Tool, ToolResult
 from tools.bash_tool.dup_redirect import BashRoutePlan, plan_bash_route
 
@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 def _observe_bash_route(
 	tool_use: ToolUse, raw_input: dict[str, Any], coordinator: "PermissionCoordinator | None"
 ) -> None:
-	"""Phase 0/1 观测（docs/设计/43）：Bash 纯文件读命令命中即记审计，不拦截。
+	"""Phase 0/1 观测（bash 路由设计 #43）：Bash 纯文件读命令命中即记审计，不拦截。
 
 	记录 ``tool.routed_observed``（tier/routed_to/摘要），用于决策与效果基线；
 	无论后续是否真路由都会记录（单元：plan 命中）。
@@ -527,7 +527,7 @@ class ToolRegistry:
 		cwd: str,
 		allowed_paths: list[str] | None,
 	) -> ToolResult | None:
-		"""Phase 1（docs/设计/43）：Bash→专用工具 的路由 / L2 决策。
+		"""Phase 1（bash 路由设计 #43）：Bash→专用工具 的路由 / L2 决策。
 
 		返回 ToolResult → 调用方直接返回；返回 None → 走正常 Bash 执行。
 		决策表（在 Bash 已 ALLOW 之后）：

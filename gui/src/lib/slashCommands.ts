@@ -164,7 +164,7 @@ export async function runSlashCommand(
 		case 'version':
 			return {status: 'local', text: 'XEYO GUI（版本随构建打包）'};
 		case 'docs':
-			return {status: 'local', text: '文档见仓库 docs/ 目录（docs/README.md 有索引）。'};
+			return {status: 'local', text: '文档见仓库 docs/ 目录（架构图与评测结果）。'};
 		case 'clear':
 			opts.onNewSession();
 			return {status: 'local', text: '已新建会话。'};

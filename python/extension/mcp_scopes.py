@@ -1,6 +1,6 @@
 """MCP scope 文件读取：project / user / plugin 三来源汇集 + 信任 + 企业 deny。
 
-契约（对齐 ``docs/设计/40-MCP与SKILL企业级融合设计.md`` §7 配置契约）：
+契约（对齐 MCP×SKILL 企业级融合冻结稿 #40 §7 配置契约）：
 
 - project scope：``<ws>/.xeyo/mcp.json``（首次 spawn 前需 approve，存信任）
 - user scope：``~/.xeyo/mcp.json``（免批）

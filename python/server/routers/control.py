@@ -80,7 +80,7 @@ def post_memory_switches(
 def run_memory_snapshot(request: Request) -> dict[str, Any]:
 	"""手动运行一次 A3 日常监控快照（复用 --monitor-daily，按天 upsert 天然去重）。
 
-	与每日计划任务（A3_daily_monitor.bat + schtasks）写同一处证据：docs/12 表D
+	与每日计划任务（本地 A3 监控批处理 + schtasks）写同一处证据：docs/12 表D
 	的 ``deploy_project_mode_<day>`` 行，同一天重复点只覆盖不新增。
 	"""
 	require_loopback(request)

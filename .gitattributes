@@ -1,0 +1,53 @@
+# 统一行尾与换行符
+* text=auto
+
+# 源码文本文件（LF，git 侧归一化；Windows 检出时按 core.autocrlf 行为）
+*.py    text eol=lf
+*.ts    text eol=lf
+*.tsx   text eol=lf
+*.js    text eol=lf
+*.mjs   text eol=lf
+*.cjs   text eol=lf
+*.json  text eol=lf
+*.md    text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.toml  text eol=lf
+*.css   text eol=lf
+*.html  text eol=lf
+*.sh    text eol=lf
+*.ps1   text eol=lf
+*.toml  text eol=lf
+*.cfg   text eol=lf
+*.ini   text eol=lf
+*.lock  text eol=lf
+
+# Windows 批处理必须 CRLF 才能可靠执行
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+
+# 二进制文件（不做文本归一化）
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.webp  binary
+*.ico   binary
+*.svg   binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.eot   binary
+*.pdf   binary
+*.zip   binary
+*.gz    binary
+*.tar   binary
+*.exe   binary
+*.sqlite3 binary
+*.db    binary
+*.pyc   binary
+*.pyo   binary
+*.pyd   binary
+*.so    binary
+*.dll   binary
+*.dylib binary

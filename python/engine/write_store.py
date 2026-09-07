@@ -1,6 +1,6 @@
 """每文件单写者写路径（write-through store）。
 
-设计（docs/实施计划/29-普通多Agent协同落地实施计划书.md §2.1）：
+设计（多 Agent 协同落地 #29 §2.1）：
 - **每文件一把锁**：同文件串行 apply，不同文件可并行（submit 走 to_thread）。
 - **content-hash 版本校验**：base vs 磁盘哈希，不一致 -> stale，不覆盖。
 - **原子写**：temp + os.replace。

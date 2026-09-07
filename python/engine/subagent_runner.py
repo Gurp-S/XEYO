@@ -1,6 +1,6 @@
 """子 Agent 运行器：用**独立 query_loop**驱动一个受限子 agent + 侧链。
 
-设计（docs/实施计划/29-普通多Agent协同落地实施计划书.md §3 / 附录 C）：
+设计（多 Agent 协同落地 #29 §3 / 附录 C）：
 - **不重建 QueryEngine 上帝对象**：直接复用 `query_loop`，组件各自独立拆装：
   `MessageStore(任务 prompt)` / `BudgetTracker(小预算)` / `WorkingSnapshot(agent_id)` /
   `AbortController(独立)` / `build_subagent_registry`(注入 write_store+agent_id) /

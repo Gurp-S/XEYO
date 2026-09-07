@@ -22,7 +22,7 @@ import {
 import {useChatStore} from '@/stores/chatStore';
 
 /**
- * 回溯 v3 热路径 store（合同见 docs/设计/31，企业级口径 docs/设计/36）。
+ * 回溯 v3 热路径 store（合同见 #31，企业级口径 #36）。
  *
  * 相对旧版的关键加固（设计 §6.1）：
  * - C1 幂等键确定化：`rw:{sid}:{target}:{attemptId}:{hash(editedText)[:8]}`；
