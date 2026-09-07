@@ -109,6 +109,7 @@ python/.xeyo_offload/
 python/.cgraph_v7/
 python/.xeyo_session_index.json
 gui/.tmp-*-layout-scan.txt
+python/_full_junit.xml
 
 # 二次事故重建补充（2026-09-05 13:37）
 .git.broken*/
