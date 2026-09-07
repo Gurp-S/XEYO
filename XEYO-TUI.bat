@@ -3,7 +3,7 @@ setlocal EnableExtensions
 cd /d "%~dp0"
 
 REM ============================================================
-REM  XEYO CLI (TypeScript / Ink) — double-click entry
+REM  XEYO TUI (TypeScript / Ink) — double-click entry
 REM  Falls back to Python CLI if Node deps are missing.
 REM ============================================================
 
@@ -34,16 +34,16 @@ if not defined XEYO_SERVER_URL set "XEYO_SERVER_URL=http://%XEYO_HTTP_HOST%:%ENG
 echo   Engine ready at %XEYO_SERVER_URL%
 
 echo.
-echo   XEYO CLI  —  I am XEYO  (TypeScript)
+echo   XEYO TUI  —  I am XEYO  (TypeScript)
 echo   ----------------------------------------
 echo.
 
 where node >nul 2>&1
 if errorlevel 1 goto FALLBACK_PY
 
-if not exist "%~dp0cli-ts\node_modules\" (
-  echo   First run: npm install in cli-ts...
-  pushd "%~dp0cli-ts"
+if not exist "%~dp0tui\node_modules\" (
+  echo   First run: npm install in tui...
+  pushd "%~dp0tui"
   call npm install
   if errorlevel 1 (
     popd
@@ -54,7 +54,7 @@ if not exist "%~dp0cli-ts\node_modules\" (
 )
 
 REM Live chat by default. Pass --demo for a one-shot UI showcase.
-pushd "%~dp0cli-ts"
+pushd "%~dp0tui"
 call npx --yes tsx src/index.tsx --cwd "%XEYO_CWD%" %*
 set "EXITCODE=%ERRORLEVEL%"
 popd

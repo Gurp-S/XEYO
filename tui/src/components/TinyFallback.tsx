@@ -26,4 +26,3 @@ export function TinyFallback({ cols }: Props) {
   );
 }
 
-export const TINY_MIN_COLS = MIN_COLS;

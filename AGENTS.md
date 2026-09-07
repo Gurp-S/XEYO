@@ -1,13 +1,13 @@
 # XEYO 项目级说明
 
-仓库结构：`gui/`（React+TS 前端，Tauri 壳）、`cli-ts/`（Ink 终端 UI）、`python/`（engine + FastAPI server + Typer CLI）。
+仓库结构：`gui/`（React+TS 前端，Tauri 壳）、`tui/`（Ink 终端 UI）、`python/`（engine + FastAPI server + Typer CLI）。
 
 ## 入口与运行模型（读代码前先看）
 
 | 你要…               | 入口                               | 与引擎的连接                                                                        |
 | -------------------- | ---------------------------------- | ----------------------------------------------------------------------------------- |
 | 桌面 GUI             | `XEYO.bat` → `gui/` Tauri dev | HTTP/SSE →`python/server`                                                        |
-| 终端 TUI（Ink）      | `XEYO-CLI.bat` → `cli-ts/`    | **必须先** `py -3.11 -m cli serve` 或已运行的 FastAPI                       |
+| 终端 TUI（Ink）      | `XEYO-TUI.bat` → `tui/`    | **必须先** `py -3.11 -m cli serve` 或已运行的 FastAPI                       |
 | 脚本 / 管道 / attach | `python/cli/` Typer              | 进程内`QueryEngine` 或 HTTP attach                                                |
 | 改斜杠命令           | `python/slash/registry.py`       | 改后跑`py -3.11 -m slash.export_manifest` 并提交 `*/generated/slashManifest.ts` |
 

@@ -58,12 +58,12 @@ jobs:
       - run: npm run typecheck
       - run: npm test
 
-  cli-ts:
-    name: cli-ts typecheck
+  tui:
+    name: tui typecheck
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: cli-ts
+        working-directory: tui
     steps:
       - uses: actions/checkout@v4
 
@@ -71,7 +71,7 @@ jobs:
         with:
           node-version: "20"
           cache: npm
-          cache-dependency-path: cli-ts/package-lock.json
+          cache-dependency-path: tui/package-lock.json
 
       - run: npm ci
       - run: npm run typecheck

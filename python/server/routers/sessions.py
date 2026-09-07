@@ -613,7 +613,7 @@ async def session_messages(session_id: str):
 		resolve_transcript_rows(fold_surface_rows(raw_rows), p)
 	):
 		messages.extend(_side_row_to_ui(row, i, pending_calls))
-	# T31：随消息返回服务端权威 cwd（供 cli-ts 等薄客户端恢复会话时不自定工作区）。
+	# T31：随消息返回服务端权威 cwd（供 tui 等薄客户端恢复会话时不自定工作区）。
 	return {
 		"session_id": session_id,
 		"messages": messages,

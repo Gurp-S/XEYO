@@ -174,7 +174,7 @@ def test_create_session_server_issued(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_server_session_id_stable_on_reuse(tmp_path: Path, monkeypatch) -> None:
-    """服务端签发的 id 在 engine 复用时不换（cli-ts 不再每轮自造 UUID）。"""
+    """服务端签发的 id 在 engine 复用时不换（tui 不再每轮自造 UUID）。"""
     from server.routers import sessions as sessions_module
     from server.session_pool import ModelConfig, SessionPool
 

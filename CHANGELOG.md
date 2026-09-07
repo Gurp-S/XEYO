@@ -9,7 +9,7 @@
 ### 初始化（Initial）
 
 - 首次公开：XEYO —— 本地编码 Agent（Python 编排主循环 + React/Tauri 前端 + Ink 终端 UI）。
-- 仓库结构：`python/`（engine + FastAPI server + Typer CLI）、`gui/`（React+TS，Tauri 壳）、`cli-ts/`（Ink TUI）。
+- 仓库结构：`python/`（engine + FastAPI server + Typer CLI）、`gui/`（React+TS，Tauri 壳）、`tui/`（Ink TUI）。
 
 ### Added
 

@@ -2,7 +2,7 @@
 DEPRECATED — 请使用 FastAPI 主服务：`py -3.11 -m server`（`server/app.py`）。
 
 本模块为早期 stdlib HTTP/SSE 桥，与 `server/` 并行维护 EnginePool，仅作历史参考。
-新代码与 GUI/cli-ts 均通过 `server/routers/chat.py` 访问引擎。
+新代码与 GUI/tui 均通过 `server/routers/chat.py` 访问引擎。
 
   cd python
   py -3.11 -u -m bridge.http   # 不推荐

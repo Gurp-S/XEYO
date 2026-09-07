@@ -5,7 +5,7 @@
  */
 import { type SlashCommand, slashCommands } from "../generated/slashManifest.js";
 
-const SURFACES = new Set(["cli_ts"]);
+const SURFACES = new Set(["tui"]);
 
 export type SlashParseResult = {
   isSlash: boolean;
@@ -14,7 +14,7 @@ export type SlashParseResult = {
   /** 规范命令名（含未知时的首 token） */
   name: string;
   arg: string;
-  /** / 开头但不在 cli_ts 可用面 */
+  /** / 开头但不在 tui 可用面 */
   unknown: boolean;
 };
 
@@ -41,7 +41,7 @@ export function parseSlashInput(text: string): SlashParseResult {
 
 export function formatSlashHelp(): string {
   const lines: string[] = [
-    "cli-ts 是薄客户端：会话列表 / /load 恢复 / 审批在本地（经服务端）；其余命令由服务端引擎执行（〔服务端〕）",
+    "tui 是薄客户端：会话列表 / /load 恢复 / 审批在本地（经服务端）；其余命令由服务端引擎执行（〔服务端〕）",
   ];
   for (const c of slashCommands) {
     if (!c.surfaces.some((s) => SURFACES.has(s))) continue;

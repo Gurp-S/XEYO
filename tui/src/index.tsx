@@ -181,7 +181,7 @@ function resolveColorMode(argv: string[]): ColorMode {
 }
 
 function printHelp(): void {
-  console.log(`XEYO CLI (TypeScript / Ink)
+  console.log(`XEYO TUI (TypeScript / Ink)
 
   npm start                 interactive chat
   npm run demo              one-shot UI showcase

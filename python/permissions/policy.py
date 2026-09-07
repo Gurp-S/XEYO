@@ -110,7 +110,7 @@ _side_mode_ctx: contextvars.ContextVar[bool] = contextvars.ContextVar(
 _subagent_ctx: contextvars.ContextVar[bool] = contextvars.ContextVar(
 	"xeyo_in_subagent", default=False
 )
-# T35：入口面标识（gui / cli / cli_ts / remote，见 slash.SURFACES）。
+# T35：入口面标识（gui / cli / tui / remote，见 slash.SURFACES）。
 # 高阶工具（XeyoUI）据此诚实降级：非 GUI 面不再假成功。缺省 gui（主桌面面）。
 _surface_ctx: contextvars.ContextVar[str] = contextvars.ContextVar(
 	"xeyo_surface", default="gui"
@@ -135,8 +135,8 @@ def side_mode() -> bool:
 	return bool(_side_mode_ctx.get())
 
 
-# 入口面标识（与 slash.SURFACES 对齐）：gui / cli / cli_ts / remote。
-_NON_GUI_SURFACES = frozenset({"cli", "cli_ts", "remote"})
+# 入口面标识（与 slash.SURFACES 对齐）：gui / cli / tui / remote。
+_NON_GUI_SURFACES = frozenset({"cli", "tui", "remote"})
 
 
 def set_surface(surface: str | None) -> None:

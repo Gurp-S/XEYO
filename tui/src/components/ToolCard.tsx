@@ -17,7 +17,7 @@ type Props = {
 /**
  * 工具行卡片：
  *   ⏺ Read(path)
- *     ⎿ snippet
+ *     ⎿ 结果片段
  */
 export function ToolCard({ name, summary, status, result, isError, progress }: Props) {
   const t = theme();

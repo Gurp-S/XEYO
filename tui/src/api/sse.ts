@@ -21,24 +21,6 @@ function parseDataLine(line: string): Record<string, unknown> | null {
   }
 }
 
-export function* iterSseObjects(chunks: Iterable<string>): Generator<Record<string, unknown>> {
-  let buf = "";
-  for (const chunk of chunks) {
-    buf += chunk.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-    while (buf.includes("\n")) {
-      const i = buf.indexOf("\n");
-      const one = buf.slice(0, i);
-      buf = buf.slice(i + 1);
-      const obj = parseDataLine(one);
-      if (obj) yield obj;
-    }
-  }
-  if (buf.trim()) {
-    const obj = parseDataLine(buf);
-    if (obj) yield obj;
-  }
-}
-
 export function deltaText(obj: Record<string, unknown>): string {
   const choices = obj.choices;
   if (!Array.isArray(choices) || !choices[0] || typeof choices[0] !== "object") {
@@ -159,7 +141,7 @@ export async function resolvePermission(
       request_id: requestId,
       approved: choice === "allow",
       outcome: choice,
-      actor: "cli-ts",
+      actor: "tui",
     }),
   });
 }

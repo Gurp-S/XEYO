@@ -8,7 +8,7 @@
 - ``aliases``：额外匹配名（去掉前导斜杠、小写）；含中文自然别名（XEYO 风格）与
   少数通用短别名（/help → h / ?）。**别名全局唯一**，不得跨命令重复。
 - ``handler``：``client`` = 发起面本地处理；``server`` = 后端 ``slash.dispatch`` 执行。
-- ``surfaces``：哪些面展示 / 接受该命令（gui / cli / cli_ts / remote）。
+- ``surfaces``：哪些面展示 / 接受该命令（gui / cli / tui / remote）。
 - ``when``：``idle`` = 会话空闲才可执行；``always`` = 运行中也允许（/stop /allow /deny）。
 
 新增命令步骤：
@@ -37,8 +37,8 @@ Category = Literal[
 HandlerKind = Literal["client", "server"]
 When = Literal["idle", "always"]
 
-# 面标识：gui=Web/Tauri 桌面；cli=Python REPL；cli_ts=TypeScript Ink；remote=微信远程通道
-SURFACES: tuple[str, ...] = ("gui", "cli", "cli_ts", "remote")
+# 面标识：gui=Web/Tauri 桌面；cli=Python REPL；tui=Ink 终端界面；remote=微信远程通道
+SURFACES: tuple[str, ...] = ("gui", "cli", "tui", "remote")
 
 
 @dataclass(frozen=True)
@@ -83,7 +83,7 @@ _COMMANDS: tuple[Command, ...] = (
 		summary="打开 XEYO 文档（docs/）",
 		usage="/docs",
 		aliases=("文档", "资料"),
-		surfaces=("gui", "cli_ts"),
+		surfaces=("gui", "tui"),
 	),
 	# ------------------------------------------------------------- 会话
 	Command(
@@ -102,7 +102,7 @@ _COMMANDS: tuple[Command, ...] = (
 		usage="/load <session_id>",
 		aliases=("载入", "打开会话"),
 		arg_spec="sid",
-		surfaces=("cli", "cli_ts"),
+		surfaces=("cli", "tui"),
 	),
 	Command(
 		name="export",
@@ -137,7 +137,7 @@ _COMMANDS: tuple[Command, ...] = (
 		summary="退出 REPL",
 		usage="/exit",
 		aliases=("quit", "q"),
-		surfaces=("cli", "cli_ts"),
+		surfaces=("cli", "tui"),
 	),
 	# ---------------------------------------------------------------- 模式
 	Command(

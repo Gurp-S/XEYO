@@ -600,7 +600,7 @@ def resolve_modes(
     语义（T31）：
     - 字段在请求体里**显式提供**（agent_mode/output_compact 等非 None）而非
       None → 该字段以请求体为准（投影覆盖）。
-    - 字段为 None（客户端没有设置意图，如 cli-ts 恢复会话）→ 以 durable 记录
+    - 字段为 None（客户端没有设置意图，如 tui 恢复会话）→ 以 durable 记录
       为准；durable 从未设置时回退默认（agent / off）。
     """
     eff_agent = _norm_agent(agent_mode) if agent_mode is not None else _norm_agent(

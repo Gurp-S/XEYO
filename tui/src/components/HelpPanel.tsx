@@ -3,11 +3,11 @@ import React from "react";
 import { slashCommands } from "../generated/slashManifest.js";
 import { border, theme } from "../theme.js";
 
-const CLI_TS_SURFACES = new Set(["cli_ts"]);
+const TUI_SURFACES = new Set(["tui"]);
 
-/** 命令行来自生成 manifest（cli_ts 面），快捷键保留固定行。 */
+/** 命令行来自生成 manifest（tui 面），快捷键保留固定行。 */
 const COMMAND_ROWS: { cmd: string; tip: string }[] = slashCommands
-  .filter((c) => c.surfaces.some((s) => CLI_TS_SURFACES.has(s)))
+  .filter((c) => c.surfaces.some((s) => TUI_SURFACES.has(s)))
   .map((c) => ({
     cmd: c.usage,
     tip: c.aliases.length

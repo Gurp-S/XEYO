@@ -7,10 +7,10 @@ import { border, g, isAscii, theme } from "../theme.js";
 import { Spinner } from "./Spinner.js";
 
 /** CLI-TS 可用面（gui / remote 命令不进补全）。 */
-const CLI_TS_SURFACES = new Set(["cli_ts"]);
+const TUI_SURFACES = new Set(["tui"]);
 
 const visible = slashCommands.filter((c) =>
-  c.surfaces.some((s) => CLI_TS_SURFACES.has(s)),
+  c.surfaces.some((s) => TUI_SURFACES.has(s)),
 );
 
 export const SLASH_COMMANDS = visible.map((c) => `/${c.name}`) as string[];

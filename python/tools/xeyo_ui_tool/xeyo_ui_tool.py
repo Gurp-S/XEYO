@@ -116,7 +116,7 @@ class XeyoUITool:
 		action = str(raw.get("action") or "").strip()
 		if action == "list_sessions":
 			return self._list_sessions()
-		# T35：XeyoUI 仅 GUI 面可用。非 GUI 面（cli/cli_ts/remote）明确返回
+		# T35：XeyoUI 仅 GUI 面可用。非 GUI 面（cli/tui/remote）明确返回
 		# 「需要 GUI」，不再假成功（避免脚本/终端误以为预览/面板已打开）。
 		if not is_gui_surface():
 			return ToolResult(

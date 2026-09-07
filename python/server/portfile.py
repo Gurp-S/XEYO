@@ -2,7 +2,7 @@
 
 - 写入方：`server/__main__.py`（启动时落盘实际监听端口与进程身份）。
 - 读取方：`gui/vite.config.ts`、`python/scripts/read_port.py`、
-  `python/scripts/wait_health.py`、cli-ts（JSON 优先，兼容旧「纯数字」格式）。
+  `python/scripts/wait_health.py`、tui（JSON 优先，兼容旧「纯数字」格式）。
 - 僵尸判定：port 文件里的 pid 不存在即清理文件；活实例保留，
   复用/拒绝由上层（lib.rs 健康探测 / 双实例提示）决定。
 """

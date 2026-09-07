@@ -459,7 +459,7 @@ export function App({ config: initial }: Props) {
         return;
       }
       case "version":
-        sys("XEYO CLI-TS（Node/Ink）· 引擎由 Python 侧提供");
+        sys("XEYO TUI-TS（Node/Ink）· 引擎由 Python 侧提供");
         return;
       case "docs":
         sys("文档见仓库 docs/ 目录（架构图与评测结果）。");

@@ -6,7 +6,7 @@
 export const SURFACES = [
 	"gui",
 	"cli",
-	"cli_ts",
+	"tui",
 	"remote",
 ] as const;
 
@@ -44,7 +44,7 @@ export const slashCommands: SlashCommand[] = [
 		usage: "/help",
 		aliases: ["h", "?", "帮助", "命令"],
 		arg_spec: "",
-		surfaces: ["gui", "cli", "cli_ts", "remote"],
+		surfaces: ["gui", "cli", "tui", "remote"],
 		when: "idle",
 	},
 	{
@@ -55,7 +55,7 @@ export const slashCommands: SlashCommand[] = [
 		usage: "/version",
 		aliases: ["ver"],
 		arg_spec: "",
-		surfaces: ["gui", "cli", "cli_ts", "remote"],
+		surfaces: ["gui", "cli", "tui", "remote"],
 		when: "idle",
 	},
 	{
@@ -66,7 +66,7 @@ export const slashCommands: SlashCommand[] = [
 		usage: "/docs",
 		aliases: ["文档", "资料"],
 		arg_spec: "",
-		surfaces: ["gui", "cli_ts"],
+		surfaces: ["gui", "tui"],
 		when: "idle",
 	},
 	{
@@ -77,7 +77,7 @@ export const slashCommands: SlashCommand[] = [
 		usage: "/clear",
 		aliases: ["reset", "new", "清空", "新会话"],
 		arg_spec: "",
-		surfaces: ["gui", "cli", "cli_ts", "remote"],
+		surfaces: ["gui", "cli", "tui", "remote"],
 		when: "idle",
 	},
 	{
@@ -88,7 +88,7 @@ export const slashCommands: SlashCommand[] = [
 		usage: "/load <session_id>",
 		aliases: ["载入", "打开会话"],
 		arg_spec: "sid",
-		surfaces: ["cli", "cli_ts"],
+		surfaces: ["cli", "tui"],
 		when: "idle",
 	},
 	{
@@ -99,7 +99,7 @@ export const slashCommands: SlashCommand[] = [
 		usage: "/export <file.md>",
 		aliases: ["导出", "存档"],
 		arg_spec: "file",
-		surfaces: ["gui", "cli", "cli_ts", "remote"],
+		surfaces: ["gui", "cli", "tui", "remote"],
 		when: "idle",
 	},
 	{
@@ -110,7 +110,7 @@ export const slashCommands: SlashCommand[] = [
 		usage: "/retry",
 		aliases: ["重试", "再来"],
 		arg_spec: "",
-		surfaces: ["gui", "cli", "cli_ts", "remote"],
+		surfaces: ["gui", "cli", "tui", "remote"],
 		when: "idle",
 	},
 	{
@@ -121,7 +121,7 @@ export const slashCommands: SlashCommand[] = [
 		usage: "/goal <目标>",
 		aliases: ["目标"],
 		arg_spec: "text",
-		surfaces: ["gui", "cli", "cli_ts", "remote"],
+		surfaces: ["gui", "cli", "tui", "remote"],
 		when: "idle",
 	},
 	{
@@ -132,7 +132,7 @@ export const slashCommands: SlashCommand[] = [
 		usage: "/exit",
 		aliases: ["quit", "q"],
 		arg_spec: "",
-		surfaces: ["cli", "cli_ts"],
+		surfaces: ["cli", "tui"],
 		when: "idle",
 	},
 	{
@@ -143,7 +143,7 @@ export const slashCommands: SlashCommand[] = [
 		usage: "/mode <agent|plan|ask>",
 		aliases: ["模式"],
 		arg_spec: "m",
-		surfaces: ["gui", "cli", "cli_ts", "remote"],
+		surfaces: ["gui", "cli", "tui", "remote"],
 		when: "idle",
 	},
 	{
@@ -154,7 +154,7 @@ export const slashCommands: SlashCommand[] = [
 		usage: "/output [lite|full|ultra|off]",
 		aliases: ["out", "输出", "精简"],
 		arg_spec: "lvl",
-		surfaces: ["gui", "cli", "cli_ts", "remote"],
+		surfaces: ["gui", "cli", "tui", "remote"],
 		when: "idle",
 	},
 	{
@@ -165,7 +165,7 @@ export const slashCommands: SlashCommand[] = [
 		usage: "/code [lite|full|ultra|off]",
 		aliases: ["代码", "写码"],
 		arg_spec: "lvl",
-		surfaces: ["gui", "cli", "cli_ts", "remote"],
+		surfaces: ["gui", "cli", "tui", "remote"],
 		when: "idle",
 	},
 	{
@@ -176,7 +176,7 @@ export const slashCommands: SlashCommand[] = [
 		usage: "/reasoning-tail <on|off>",
 		aliases: ["思考回顾", "推理回顾"],
 		arg_spec: "m",
-		surfaces: ["gui", "cli", "cli_ts", "remote"],
+		surfaces: ["gui", "cli", "tui", "remote"],
 		when: "idle",
 	},
 	{
@@ -187,7 +187,7 @@ export const slashCommands: SlashCommand[] = [
 		usage: "/model <model_id>",
 		aliases: ["模型", "档位"],
 		arg_spec: "id",
-		surfaces: ["gui", "cli", "cli_ts", "remote"],
+		surfaces: ["gui", "cli", "tui", "remote"],
 		when: "idle",
 	},
 	{
@@ -209,7 +209,7 @@ export const slashCommands: SlashCommand[] = [
 		usage: "/approval <always|risk|never>",
 		aliases: ["审批", "审批模式"],
 		arg_spec: "m",
-		surfaces: ["gui", "cli", "cli_ts", "remote"],
+		surfaces: ["gui", "cli", "tui", "remote"],
 		when: "idle",
 	},
 	{
@@ -220,7 +220,7 @@ export const slashCommands: SlashCommand[] = [
 		usage: "/status",
 		aliases: ["状态"],
 		arg_spec: "",
-		surfaces: ["gui", "cli", "cli_ts", "remote"],
+		surfaces: ["gui", "cli", "tui", "remote"],
 		when: "idle",
 	},
 	{
@@ -231,7 +231,7 @@ export const slashCommands: SlashCommand[] = [
 		usage: "/usage [days]",
 		aliases: [],
 		arg_spec: "days",
-		surfaces: ["gui", "cli", "cli_ts", "remote"],
+		surfaces: ["gui", "cli", "tui", "remote"],
 		when: "idle",
 	},
 	{
@@ -242,7 +242,7 @@ export const slashCommands: SlashCommand[] = [
 		usage: "/context",
 		aliases: ["ctx", "上下文"],
 		arg_spec: "",
-		surfaces: ["gui", "cli", "cli_ts", "remote"],
+		surfaces: ["gui", "cli", "tui", "remote"],
 		when: "idle",
 	},
 	{
@@ -253,7 +253,7 @@ export const slashCommands: SlashCommand[] = [
 		usage: "/cwd",
 		aliases: ["pwd", "目录", "工作目录", "路径"],
 		arg_spec: "",
-		surfaces: ["gui", "cli", "cli_ts", "remote"],
+		surfaces: ["gui", "cli", "tui", "remote"],
 		when: "idle",
 	},
 	{
@@ -275,7 +275,7 @@ export const slashCommands: SlashCommand[] = [
 		usage: "/stop",
 		aliases: ["停止", "中断"],
 		arg_spec: "",
-		surfaces: ["gui", "cli", "cli_ts", "remote"],
+		surfaces: ["gui", "cli", "tui", "remote"],
 		when: "always",
 	},
 	{
@@ -286,7 +286,7 @@ export const slashCommands: SlashCommand[] = [
 		usage: "/allow [request_id]",
 		aliases: ["允许", "同意", "approve"],
 		arg_spec: "rid",
-		surfaces: ["gui", "cli", "cli_ts", "remote"],
+		surfaces: ["gui", "cli", "tui", "remote"],
 		when: "always",
 	},
 	{
@@ -297,7 +297,7 @@ export const slashCommands: SlashCommand[] = [
 		usage: "/deny [request_id]",
 		aliases: ["拒绝", "不允许", "reject"],
 		arg_spec: "rid",
-		surfaces: ["gui", "cli", "cli_ts", "remote"],
+		surfaces: ["gui", "cli", "tui", "remote"],
 		when: "always",
 	},
 	{
@@ -308,7 +308,7 @@ export const slashCommands: SlashCommand[] = [
 		usage: "/compact",
 		aliases: ["压缩"],
 		arg_spec: "",
-		surfaces: ["gui", "cli", "cli_ts", "remote"],
+		surfaces: ["gui", "cli", "tui", "remote"],
 		when: "idle",
 	},
 	{
@@ -319,7 +319,7 @@ export const slashCommands: SlashCommand[] = [
 		usage: "/transcript [n]",
 		aliases: ["history", "历史", "回放"],
 		arg_spec: "n",
-		surfaces: ["gui", "cli", "cli_ts", "remote"],
+		surfaces: ["gui", "cli", "tui", "remote"],
 		when: "idle",
 	},
 	{
@@ -363,7 +363,7 @@ export const slashCommands: SlashCommand[] = [
 		usage: "/run <command>",
 		aliases: ["bash", "执行", "跑命令"],
 		arg_spec: "cmd",
-		surfaces: ["gui", "cli", "cli_ts", "remote"],
+		surfaces: ["gui", "cli", "tui", "remote"],
 		when: "idle",
 	},
 	{
@@ -374,7 +374,7 @@ export const slashCommands: SlashCommand[] = [
 		usage: "/git <status|log|branch>",
 		aliases: [],
 		arg_spec: "op",
-		surfaces: ["gui", "cli", "cli_ts", "remote"],
+		surfaces: ["gui", "cli", "tui", "remote"],
 		when: "idle",
 	},
 	{
@@ -385,7 +385,7 @@ export const slashCommands: SlashCommand[] = [
 		usage: "/diff [rev]",
 		aliases: ["差异", "区别"],
 		arg_spec: "rev",
-		surfaces: ["gui", "cli", "cli_ts", "remote"],
+		surfaces: ["gui", "cli", "tui", "remote"],
 		when: "idle",
 	},
 	{
@@ -396,7 +396,7 @@ export const slashCommands: SlashCommand[] = [
 		usage: "/revert [rewind_id] [confirm]",
 		aliases: ["rollback", "回退", "撤销", "还原"],
 		arg_spec: "id",
-		surfaces: ["gui", "cli", "cli_ts", "remote"],
+		surfaces: ["gui", "cli", "tui", "remote"],
 		when: "idle",
 	},
 	{
@@ -407,7 +407,7 @@ export const slashCommands: SlashCommand[] = [
 		usage: "/skills [show <name>]",
 		aliases: ["skill", "技能"],
 		arg_spec: "q",
-		surfaces: ["gui", "cli", "cli_ts", "remote"],
+		surfaces: ["gui", "cli", "tui", "remote"],
 		when: "idle",
 	},
 	{
@@ -418,7 +418,7 @@ export const slashCommands: SlashCommand[] = [
 		usage: "/mcp [list|status|enable|disable <id>|tool <id> <raw> <on|off>]",
 		aliases: [],
 		arg_spec: "",
-		surfaces: ["gui", "cli", "cli_ts", "remote"],
+		surfaces: ["gui", "cli", "tui", "remote"],
 		when: "idle",
 	},
 	{
@@ -429,7 +429,7 @@ export const slashCommands: SlashCommand[] = [
 		usage: "/plugins [list|enable|disable <name>|install <source> [update]|update <name>|remove <name>]",
 		aliases: ["插件"],
 		arg_spec: "op",
-		surfaces: ["gui", "cli", "cli_ts", "remote"],
+		surfaces: ["gui", "cli", "tui", "remote"],
 		when: "idle",
 	},
 ];

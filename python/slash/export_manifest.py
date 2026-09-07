@@ -1,4 +1,4 @@
-"""从 registry 生成 GUI / CLI-TS 消费的 manifest TS 模块。
+"""从 registry 生成 GUI / TUI 消费的 manifest TS 模块。
 
 用法（在 ``python/`` 目录下）::
 
@@ -6,7 +6,7 @@
 
 产出（提交到仓库，供各端构建期直接 import，避免跨语言运行时耦合）：
 - ``gui/src/generated/slashManifest.ts``
-- ``cli-ts/src/generated/slashManifest.ts``
+- ``tui/src/generated/slashManifest.ts``
 
 两处内容一致；只换一次身份声明文案。
 """
@@ -28,8 +28,8 @@ _OUTPUTS: tuple[tuple[Path, str], ...] = (
 		"gui",
 	),
 	(
-		_REPO_ROOT / "cli-ts" / "src" / "generated" / "slashManifest.ts",
-		"cli_ts",
+		_REPO_ROOT / "tui" / "src" / "generated" / "slashManifest.ts",
+		"tui",
 	),
 )
 

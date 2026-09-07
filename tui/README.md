@@ -1,4 +1,4 @@
-# XEYO CLI (TypeScript)
+# XEYO TUI (TypeScript)
 
 Ink + React terminal UI. Visual system follows calm TUI craft: **one teal accent + semantic states**, one rounded border language, spacing 0/1/2 — not a Claude clone.
 
@@ -7,7 +7,7 @@ Python remains the **engine**. This package is the **face**.
 ## Quick start
 
 ```powershell
-cd cli-ts
+cd tui
 npm install
 npm run demo
 npm start -- --cwd D:\path\to\project   # needs: py -3.11 -m cli serve

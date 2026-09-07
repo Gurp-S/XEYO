@@ -192,7 +192,7 @@ def _cors_origins() -> list[str]:
 
 
 _cors_origins_resolved = _cors_origins()
-# T33：方法/头从 "*" 收敛为实际清单（GUI/cli-ts/远程 UI 实际使用的全集）。
+# T33：方法/头从 "*" 收敛为实际清单（GUI/tui/远程 UI 实际使用的全集）。
 _CORS_METHODS = ["GET", "POST", "DELETE", "PATCH", "OPTIONS"]
 _CORS_HEADERS = [
 	"Content-Type",

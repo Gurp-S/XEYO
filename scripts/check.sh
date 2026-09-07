@@ -19,8 +19,8 @@ npm run typecheck
 npm test
 
 echo
-echo "== cli-ts =="
-cd "$ROOT/cli-ts"
+echo "== tui =="
+cd "$ROOT/tui"
 if [[ ! -d node_modules ]]; then npm ci; fi
 npm run typecheck
 

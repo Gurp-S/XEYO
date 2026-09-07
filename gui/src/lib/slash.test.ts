@@ -163,7 +163,7 @@ describe('slashGhostHint（命令 claim hint 对应物）', () => {
 		expect(slashGhostHint('/version', skills)).toBeNull();
 	});
 	it('CLI-only 命令（不在 GUI 面）→ null', () => {
-		// load 只在 cli/cli_ts 面，GUI 不显示 hint；arg_spec 回落分支供未来新增 GUI 命令兜底。
+		// load 只在 cli/tui 面，GUI 不显示 hint；arg_spec 回落分支供未来新增 GUI 命令兜底。
 		expect(slashGhostHint('/load ', skills)).toBeNull();
 	});
 	it('技能直呼 → 技能默认提示', () => {

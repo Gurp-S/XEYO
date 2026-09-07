@@ -2,10 +2,10 @@
   "name": "xeyo",
   "private": true,
   "version": "0.1.0",
-  "description": "XEYO — local coding agent (Python engine + GUI + cli-ts)",
+  "description": "XEYO — local coding agent (Python engine + GUI + tui)",
   "license": "MIT",
   "scripts": {
-    "typecheck": "npm run typecheck --prefix gui && npm run typecheck --prefix cli-ts",
+    "typecheck": "npm run typecheck --prefix gui && npm run typecheck --prefix tui",
     "test:gui": "npm test --prefix gui",
     "test:e2e": "npm run test:e2e --prefix gui",
     "test:python": "cd python && py -3.11 -m pytest -q --timeout=60 -m \"not live\"",

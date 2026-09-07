@@ -4,13 +4,6 @@
  * 边框即标点：仅焦点/弹窗使用完整方框。
  */
 
-export const space = {
-  0: 0,
-  1: 1,
-  2: 2,
-  4: 4,
-} as const;
-
 /** 共享边框语言：圆角 = 焦点/弹窗；单线轨 = 少见的次级样式。 */
 export const border = {
   style: "round" as const,
@@ -180,10 +173,6 @@ export function theme(): Theme {
 
 export function g(): GlyphSet {
   return _glyphs;
-}
-
-export function colorMode(): ColorMode {
-  return _mode;
 }
 
 export function isAscii(): boolean {

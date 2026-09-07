@@ -8,7 +8,7 @@
 
 确保系统已安装：
 - Python 3.11+
-- Node.js 20+（GUI 与 cli-ts；`XEYO-CLI.bat` 在缺 Node 时会回退 Python CLI）
+- Node.js 20+（GUI 与 tui；`XEYO-TUI.bat` 在缺 Node 时会回退 Python CLI）
 - Rust（Tauri 桌面端，可选）
 
 ```bat
@@ -67,7 +67,7 @@ pwsh -File scripts/check.ps1
 
 或在 Linux/macOS：`bash scripts/check.sh`
 
-跑 Python pytest（`-m "not live"`）、GUI typecheck + vitest、cli-ts typecheck。GitHub Actions 见 `.github/workflows/ci.yml`。
+跑 Python pytest（`-m "not live"`）、GUI typecheck + vitest、tui typecheck。GitHub Actions 见 `.github/workflows/ci.yml`。
 
 ## `npm run dev` vs `tauri:dev`
 
@@ -104,7 +104,7 @@ pwsh -File scripts/check.ps1
 | 场景 | 命令 |
 |------|------|
 | 桌面 GUI（推荐） | 双击 `XEYO.bat` |
-| 终端 Ink TUI | 双击 `XEYO-CLI.bat`（自动检查并拉起引擎） |
+| 终端 Ink TUI | 双击 `XEYO-TUI.bat`（自动检查并拉起引擎） |
 | 浏览器联调 UI | 手动：`py -3.11 -m cli serve` + `cd gui && npm run dev` |
 | 脚本 / CI / 管道 | `py -3.11 -m cli chat --json "..."` |
 | 本地门禁 | `pwsh -File scripts/check.ps1` |
@@ -115,13 +115,13 @@ pwsh -File scripts/check.ps1
 
 | | |
 |---|---|
-| **TypeScript UI（推荐看外观）** | [`cli-ts/`](./cli-ts/) — Ink · `Ӿ I am XEYO` · 工具卡片 |
+| **TypeScript UI（推荐看外观）** | [`tui/`](./tui/) — Ink · `Ӿ I am XEYO` · 工具卡片 |
 | **Python CLI（脚本 / serve）** | [`python/cli/`](./python/cli/) — Typer · 进程内 chat · `serve` |
 
-**最快上手（Windows）：** 双击 [`XEYO-CLI.bat`](./XEYO-CLI.bat)（优先 TS Ink；引擎未启动会自动拉起；`/demo` 为**显式**演示入口，非主路径）。
+**最快上手（Windows）：** 双击 [`XEYO-TUI.bat`](./XEYO-TUI.bat)（优先 TS Ink；引擎未启动会自动拉起；`/demo` 为**显式**演示入口，非主路径）。
 
 ```powershell
-cd cli-ts
+cd tui
 npm install
 npm run demo
 
@@ -129,7 +129,7 @@ npm run demo
 cd ..\python
 py -3.11 -m cli serve --cwd D:\path\to\project
 # 另开窗口
-cd ..\cli-ts
+cd ..\tui
 npm start -- --cwd D:\path\to\project
 
 # 脚本 / 管道（无 TUI）
@@ -146,7 +146,7 @@ py -3.11 -m cli chat --provider fake --print --json "hello"
 py -3.11 -m cli sessions list
 ```
 
-REPL / Ink 斜杠：统一 manifest 在 `python/slash/registry.py`（GUI / cli-ts / Python CLI / 微信四表面共用；运行 `python -m slash.export_manifest` 导出到 `*/generated/slashManifest.ts`）。无 TTY 时权限 ASK **fail-closed**。
+REPL / Ink 斜杠：统一 manifest 在 `python/slash/registry.py`（GUI / tui / Python CLI / 微信四表面共用；运行 `python -m slash.export_manifest` 导出到 `*/generated/slashManifest.ts`）。无 TTY 时权限 ASK **fail-closed**。
 
 ## 文档
 

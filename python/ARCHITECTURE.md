@@ -2,7 +2,7 @@
 
 > 新人第一小时：先读本文，再按「推荐阅读顺序」进源码。
 
-## 请求主路径（GUI / cli-ts 用这个）
+## 请求主路径（GUI / tui 用这个）
 
 ```
 POST /v1/chat/completions

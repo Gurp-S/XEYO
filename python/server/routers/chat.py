@@ -863,7 +863,7 @@ async def chat_completions(
 		set_browser_preview_url(body.browser_preview_url)
 		set_searxng_url(body.searxng_url)
 		set_side_mode(bool(body.side))
-		# T35：入口面标识（默认 gui；cli_ts/remote 由客户端经 X-Xeyo-Surface 上报）。
+		# T35：入口面标识（默认 gui；tui/remote 由客户端经 X-Xeyo-Surface 上报）。
 		set_surface(x_xeyo_surface)
 		envelope_gen = EventIdGenerator()
 		turn_id = uuid.uuid4().hex[:12]
