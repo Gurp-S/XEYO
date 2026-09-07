@@ -49,32 +49,6 @@ SUBAGENT_APPEND = (
 	"结论用简洁中文要点，勿粘贴整文件，供主 Agent 汇总。"
 )
 
-# 基准评测工作契约（todo 驱动）：完成定义先行 + 先交付再深化 + 执行即验证。
-# 仅 bench 最小档案注入（XEYO_BENCH_MINIMAL=1），XEYO_TODO_CONTRACT=0 关闭；
-# 追加在系统提示尾部（append-only，不影响既有前缀的 KV 命中）。
-BENCH_TODO_CONTRACT = (
-	"# 工作契约（todo 驱动）\n"
-	"接到任务后，第一个动作是用 TodoWrite 建立工作契约，清单由两类条目组成：\n"
-	"- 验收项（content 以「验收:」开头，2-4 条）：任务完成的可检验标准，从任务"
-	"陈述推导——交付物路径、字段/格式、命令 exit 0、指标阈值。禁止空泛表述"
-	"（「完成任务」不合格；「/app/results.json 存在且含 x0/gamma/omega 三键」合格）。\n"
-	"- 执行项：第一批必须构成最小端到端交付路径（朴素但完整，尽快落盘可交付"
-	"成果）；深化/优化项只允许排在全部交付项之后。\n"
-	"规则：\n"
-	"1. 执行项标 completed 前必须有真实验证动作（跑命令或读文件核对对应验收项），"
-	"并在 content 末尾附一行证据（如「(证据: exit 0)」）；验收项未全部完成不得"
-	"宣称任务完成。\n"
-	"2. 执行中途获知新的完成要求，立即补进验收区再继续。\n"
-	"3. 保持轻量：更新只改状态与证据行，不重写未变化条目，不重复提交相同清单。\n"
-	"4. 效率/性能类验收项的证据标准：预热后 ≥5 轮交替计时取中位数，与基线"
-	"同条件对比；单轮计时不足以证明快慢——不达标就继续改，达不了标就如实记录。\n"
-	"5. 提取/检索类验收项的证据标准：交付值必须与源文档逐字段交叉核对（重读"
-	"原文比对，而非凭记忆填写），字段间不得错位。\n"
-	"6. 数值/模型类验收项的证据标准：若环境存在带标签或已知答案的参照数据，"
-	"先在参照数据上实测自己的输出质量（如准确率），质量不达标说明管线有误，"
-	"迭代修正后再交付；不得用未经验证的管线直接产出最终数值。\n"
-)
-
 
 @dataclass
 class SystemPromptParts:
@@ -105,9 +79,7 @@ def get_default_system_prompt_parts(
 	# 基准评测最小档案（XEYO_BENCH_MINIMAL=1）：文件/Skill/Agent 等工具未注册，
 	# 提示词同步去除相应句段（bash-only 工作方式，与 Terminus-2 对齐），其余逐字节不变。
 	policy = TOOL_POLICY
-	bench_contract = False
 	if os.environ.get("XEYO_BENCH_MINIMAL") == "1":
-		bench_contract = os.environ.get("XEYO_TODO_CONTRACT", "").strip() != "0"
 		policy = policy.replace("长流程用 Skill 按需加载，勿塞进 XEYO.md；项目约定写短指针，结构用工具现查。", "")
 		policy = policy.replace(
 			"文件操作只用专用工具：找文件名→Glob（可 path/分页）、找内容→Grep（path/glob 过滤）、"
@@ -122,14 +94,11 @@ def get_default_system_prompt_parts(
 			IDENTITY,
 			policy,
 		]
-	parts = [
+	return [
 		IDENTITY,
 		f"CWD: {cwd}",
 		policy,
 	]
-	if bench_contract:
-		parts.append(BENCH_TODO_CONTRACT)
-	return parts
 
 
 def get_user_context(*, cwd: str) -> dict[str, str]:
