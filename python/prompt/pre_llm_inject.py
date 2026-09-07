@@ -1110,11 +1110,24 @@ def run_pre_llm_inject(
 		stall = current_stall_advice()
 		combined = "\n".join(x for x in (rep, stall) if x)
 		if combined and not ctx.subagent:
-			_tag_block(
-			tagged,
-			"repeat_guard",
-				(KLASS_DIRECTIVE, f"# Repeat guard（background only）\n{combined}"),
-			)
+			# #2 完成度提示（思想蒸馏自 Todo DAG「失败要局部化」）并入同块：
+			# advice 非空 = 引擎已检出卡住/重复证据，此刻补渲染"已完成 X/Y +
+			# 剩余项"纯事实，提醒弱模型单步卡住 ≠ 整份计划作废、已完成的探索
+			# 不白费。常态零注入；与停滞监测同块消费先例一致——不新增注册
+			# 条目、不动 T_NOW_BLOCK_HARD_CAP（消融随 repeat_guard）。
+			block_text = f"# Repeat guard（background only）\n{combined}"
+			if ctx.working is not None:
+				try:
+					from engine.todo_hint import build_todo_hint
+
+					hint = build_todo_hint(
+						getattr(ctx.working, "todos", None) or []
+					)
+					if hint:
+						block_text += "\n\n" + hint
+				except Exception:
+					_log.debug("todo progress inject failed", exc_info=True)
+			_tag_block(tagged, "repeat_guard", (KLASS_DIRECTIVE, block_text))
 	except Exception:
 		_log.debug("repeat advice inject failed", exc_info=True)
 
