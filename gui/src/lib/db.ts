@@ -621,13 +621,6 @@ export async function loadChatHistoryState(
 	}
 }
 
-export async function saveChatHistoryState(
-	sessionId: string,
-	value: ChatHistoryState,
-): Promise<void> {
-	await setKv(`${CHAT_HISTORY_STATE_PREFIX}${sessionId}`, JSON.stringify(value));
-}
-
 export async function clearChatHistoryState(sessionId: string): Promise<void> {
 	await deleteKv(`${CHAT_HISTORY_STATE_PREFIX}${sessionId}`);
 }
@@ -659,13 +652,6 @@ export async function loadSideChatMessages(sessionId: string): Promise<ChatMessa
 	} catch {
 		return [];
 	}
-}
-
-export async function saveSideChatMessages(
-	sessionId: string,
-	messages: ChatMessage[],
-): Promise<void> {
-	await setKv(`${SIDE_CHAT_MESSAGES_PREFIX}${sessionId}`, JSON.stringify(messages));
 }
 
 export async function clearSideChatMessages(sessionId: string): Promise<void> {

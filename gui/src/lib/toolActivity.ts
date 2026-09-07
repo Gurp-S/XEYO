@@ -158,20 +158,6 @@ export type ChangedFile = {
 
 export const FILE_CHANGE_VERBS = new Set(['Edited', 'Wrote', 'Created']);
 
-/** 从 tool_result 文本提取 ```diff … ``` 正文。 */
-export function formatWorkedFor(ms: number): string {
-	if (ms < 1000) {
-		return 'Worked for <1s';
-	}
-	const s = Math.round(ms / 1000);
-	if (s < 60) {
-		return `Worked for ${s}s`;
-	}
-	const m = Math.floor(s / 60);
-	const rs = s % 60;
-	return rs > 0 ? `Worked for ${m}m ${rs}s` : `Worked for ${m}m`;
-}
-
 /** 折叠顶栏：done on Aug 28, 2026 · 2:05 PM（段级可选） */
 export function formatDoneOn(atMs: number = Date.now()): string {
 	const d = new Date(atMs);
@@ -194,14 +180,6 @@ export function formatCollapsedRoundSummary(
 	endedAt: number = Date.now(),
 ): string {
 	return formatDoneOn(endedAt);
-}
-
-/** 去掉 aggregate 摘要尾部的 +N -M（diff 由右侧色块单独展示） */
-export function stripSummaryDiffSuffix(summary: string): string {
-	return summary
-		.replace(/\s*\+\d+(?:\s*-\d+)?\s*$/u, '')
-		.replace(/\s*-\d+\s*$/u, '')
-		.trim();
 }
 
 /** 折叠段标题：纯 Thought → Thought 4s；否则 N steps（不再用 Explored 汇总）。 */
