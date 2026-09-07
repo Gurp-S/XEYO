@@ -117,10 +117,6 @@ class XmlToolCallBuffer:
 	def buffer(self) -> str:
 		return self._buf
 
-	def take_remainder(self) -> str:
-		out = self._buf
-		self._buf = ""
-		return out
 
 
 def _coerce_arg(val: str) -> Any:

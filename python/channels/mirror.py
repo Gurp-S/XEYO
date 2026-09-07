@@ -8,7 +8,6 @@ events_since / _broadcast_stream / _emit_ui_tool / status_payload 的流段）�
 from __future__ import annotations
 
 import asyncio
-import json
 import time
 from typing import Any, Callable
 
@@ -45,11 +44,7 @@ class ChannelMirror:
 		self._stream_tools: list[dict[str, Any]] = []
 		self._tool_seq = 0
 		self._stream_flush_handle: asyncio.TimerHandle | None = None
-		self._state_builder: Callable[[], dict[str, Any]] | None = None
 
-	def set_state_builder(self, builder: Callable[[], dict[str, Any]] | None) -> None:
-		"""status_payload 之外的 state 快照（/state 广播用），由 service 注入。"""
-		self._state_builder = builder
 
 	# ==================== 事件 ====================
 
@@ -182,12 +177,6 @@ class ChannelMirror:
 			self._stream_flush_handle.cancel()
 			self._stream_flush_handle = None
 
-	def accepts_session(self, session_id: str) -> bool:
-		"""当前只镜像本通道 session 前缀的流。"""
-		sid = (session_id or "").strip()
-		if not sid.startswith(self._session_prefix):
-			return False
-		return True
 
 	# ==================== 工具事件 ====================
 
@@ -261,5 +250,3 @@ class ChannelMirror:
 		self._stream_tools = []
 		self._tool_seq = 0
 
-	def json_dumps(self, payload: dict[str, Any]) -> str:
-		return json.dumps(payload, ensure_ascii=False)

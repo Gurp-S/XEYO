@@ -85,10 +85,6 @@ class ReadFileState:
 			),
 		)
 
-	def writer_of(self, path: str) -> FileStateEntry | None:
-		"""返回已登记的写入者条目（含 writer_session_id）；无写入则 None。"""
-		entry = self.get(path)
-		return entry
 
 	@staticmethod
 	def _key(path: str) -> str:

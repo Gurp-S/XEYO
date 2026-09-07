@@ -22,8 +22,6 @@ class ManifestError(ExtensionError):
 		return f"[{self.name}] {self.message}" if self.name else self.message
 
 
-class SkillConflictError(ExtensionError):
-	"""skill 同名冲突（默认禁止覆盖）。"""
 
 
 class ConfigError(ExtensionError):

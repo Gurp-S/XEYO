@@ -26,7 +26,7 @@ import logging
 import os
 import tempfile
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -291,8 +291,6 @@ class GoalStore:
 			GoalStore._GLOBAL_LOCKS[gkey] = lock
 		return lock
 
-	def reset_locks(self) -> None:
-		GoalStore._GLOBAL_LOCKS.clear()
 
 	# -- 低层原子读写 -------------------------------------------------------
 	def _goal_path(self, goal_id: str) -> Path:

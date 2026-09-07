@@ -15,9 +15,8 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from common.errors import friendly_error
-from engine.abort import AbortController
 
-from model.openai_compat import OpenAICompatClient, PROVIDER_PRESETS
+from model.openai_compat import PROVIDER_PRESETS
 
 from msgtypes.envelope import EventIdGenerator
 from msgtypes.events import (
@@ -69,7 +68,6 @@ from server.deps import (
 )
 from server.session_pool import CwdConflictError, ModelConfig
 from server.local_gate import require_loopback
-from memory.runtime import project_for_model
 
 _stream_log = logging.getLogger("xeyo.chat.stream")
 
@@ -576,59 +574,12 @@ def _sse_error(message: str, err_type: str = "model_error") -> str:
 	return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
-def _runtime_from_engine(engine: Any) -> Any:
-	"""从 session engine 提取子 agent 运行时（复用其 model_client / prompt_assembler / cwd）。"""
-	from datetime import date
-
-	from engine.subagent_runner import SubagentRuntime
-	from prompt.system_prompt import SUBAGENT_APPEND
-
-	cfg = getattr(engine, "config", None) or {}
-	append = str(cfg.get("append_system_prompt") or "").strip() or SUBAGENT_APPEND
-	return SubagentRuntime(
-		model_client=getattr(engine, "_model", None),
-		prompt_assembler=getattr(engine, "_prompt", None),
-		workspace_root=str(cfg.get("cwd") or "."),
-		append_system_prompt=append,
-		date_iso=date.today().isoformat(),
-	)
 
 
-def _sse_data(payload: dict[str, Any], model: str) -> bytes:
-	"""以 OpenAI 风格 chunk 包装多 Agent 元数据事件（FE 读取 xy 字段）。
-
-	与主链路 tool/usage 事件一样放在 ``xy`` 字段（此前误用 ``xeyo`` 字段，
-	FE parseSseBlock 不解析，导致 UI 看不到正在运行的 agent）。
-	"""
-	data = {
-		"id": "multi-agent",
-		"object": "chat.completion.chunk",
-		"created": int(time.time()),
-		"model": model,
-		"xy": payload,
-		"choices": [{"index": 0, "delta": {}, "finish_reason": None}],
-	}
-	return f"data: {json.dumps(data, ensure_ascii=False)}\n\n".encode("utf-8")
 
 
-def _chunk_text(text: str, size: int = 160) -> list[str]:
-	return [text[i : i + size] for i in range(0, len(text), size)]
 
 
-def _sanitize_agent_surface_text(text: str, *, limit: int = 800) -> str:
-	"""主会话可见的多 Agent 结论文本：去掉未执行的 XML tool_call，再限长。"""
-	from common.errors import sanitize_agent_prose
-	from engine.xml_tool_call import extract_xml_tool_calls, looks_like_raw_tool_markup
-
-	raw = (text or "").strip()
-	if not raw:
-		return ""
-	if looks_like_raw_tool_markup(raw):
-		_uses, cleaned = extract_xml_tool_calls(raw)
-		raw = cleaned.strip()
-		if not raw:
-			return ""
-	return sanitize_agent_prose(raw, limit=limit)
 
 
 @router.post("/v1/chat/completions", response_model=None)

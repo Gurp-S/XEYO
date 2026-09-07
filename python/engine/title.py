@@ -14,7 +14,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import os
 import re
@@ -31,8 +30,6 @@ _MD_NOISE_RE = re.compile(r"[#>*_`~]+")
 _LEADING_MARKER_RE = re.compile(r"^[\-\+•·]+\s*")
 
 
-class _AbortLike(Protocol):
-	def abort(self) -> bool: ...
 
 
 class _StreamClient(Protocol):

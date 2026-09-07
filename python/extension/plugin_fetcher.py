@@ -314,17 +314,6 @@ def trust_path(cwd: str | None) -> Path:
 	return xeyo_home() / "plugin-trust.json"
 
 
-def _trust_entry(plugin: Any) -> dict[str, Any]:
-	# 声明身份：manifest 的 canonical JSON；不含插件 root 路径（避免随安装位置漂移）。
-	decl = {
-		"name": plugin.name,
-		"version": plugin.manifest.version,
-		"min_xeyo": plugin.manifest.min_xeyo,
-	}
-	return {
-		"declaration_hash": plugin_declaration_hash(decl),
-		"manifest": decl,
-	}
 
 
 def plugin_declaration_hash(decl: dict[str, Any]) -> str:

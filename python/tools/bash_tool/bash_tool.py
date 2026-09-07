@@ -11,11 +11,17 @@ import asyncio
 import logging
 import os
 import shlex
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
 _log = logging.getLogger(__name__)
+
+# docker 路由的后台 job 表（评测场景自持；registry 依赖 server，headless 不可用）
+_DOCKER_BG_JOBS: dict[str, dict] = {}
+_DOCKER_BG_LOCK = threading.Lock()
+_DOCKER_BG_SEQ = 0
 
 from engine.abort import AbortController
 from permissions.filesystem import (
@@ -28,6 +34,7 @@ from permissions.policy import evaluate_policy
 from tools.base_tool import ToolResult
 from tools.bash_tool.background import start_background
 from tools.bash_tool.cmd_compact import compact_command_output
+from tools.container_routing import current_container as _routed_container
 from tools.bash_tool.jobs_bridge import adopt_registry_job, start_registry_job
 from tools.bash_tool.prompt import BASH_TOOL_NAME, DESCRIPTION
 from tools.bash_tool.runner import (
@@ -83,6 +90,113 @@ def prompt() -> str:
 def expect_no_output(command: str) -> bool:
 	base = extract_base_command(command)
 	return base in SILENT_COMMANDS
+
+
+def _docker_exec_with_timeout(
+	cid: str,
+	command: str,
+	timeout_ms: int,
+) -> tuple[int, str]:
+	"""经 docker SDK 在容器内执行命令（named pipe 直连，零宿主 shell 依赖）。
+
+	promote 等价物（评测路由分支）：promote 阈值（默认 45s，XEYO_BASH_PROMOTE_MS
+	可覆盖）内完成 → 直接返回；超时 → 命令转「docker 后台 job」（worker 线程继续
+	跑完写入 `_DOCKER_BG_JOBS`），立即把控制权还给模型并告知 job_id——长命令不再
+	阻塞回合（复现：p90 间隔 77-407s 的长命令曾把 15 分钟预算吃光）。完成状态经
+	`job_list` / `pending_jobs_block` 镜像给模型，输出用 `job_output` 领取。
+	"""
+	import queue
+	import threading
+
+	q: "queue.Queue[tuple[int, str]]" = queue.Queue()
+	job_box: dict = {"id": None}
+
+	def _worker() -> None:
+		try:
+			import docker
+
+			client = docker.from_env()
+			res = client.containers.get(cid).exec_run(
+				["bash", "-lc", command], demux=True
+			)
+			out_b, err_b = res.output
+			text = ((out_b or b"") + (err_b or b"")).decode("utf-8", "replace")
+			code = int(res.exit_code or 0)
+		except Exception as exc:  # noqa: BLE001
+			code, text = 95, f"docker exec failed: {exc}"
+		q.put((code, text))
+		jid = job_box.get("id")
+		if jid:
+			with _DOCKER_BG_LOCK:
+				job = _DOCKER_BG_JOBS.get(jid)
+				if job is not None:
+					job["status"] = "done"
+					job["output"] = text
+					job["exit_code"] = code
+
+	promote_s = _docker_promote_seconds()
+	try:
+		promote_s = max(1.0, min(promote_s, timeout_ms / 1000))
+	except Exception:  # noqa: BLE001
+		promote_s = 45.0
+
+	# 快路径：阈值内完成 → 直接返回
+	threading.Thread(
+		target=_worker, daemon=True, name="xeyo-docker-exec"
+	).start()
+	try:
+		return q.get(timeout=promote_s)
+	except queue.Empty:
+		pass
+
+	# 晋升：先确认 worker 未恰好完成（竞态窗口），再登记后台 job——
+	# 原 worker 继续跑（零重复执行），完成后经 job_box 桥写入 job 表。
+	try:
+		return q.get_nowait()
+	except queue.Empty:
+		pass
+	global _DOCKER_BG_SEQ
+	with _DOCKER_BG_LOCK:
+		_DOCKER_BG_SEQ += 1
+		job_id = f"bash-{_DOCKER_BG_SEQ}"
+		_DOCKER_BG_JOBS[job_id] = {
+			"status": "running",
+			"output": "",
+			"exit_code": None,
+			"command": command,
+			"delivered": False,
+			"started": time.time(),
+		}
+	job_box["id"] = job_id
+	return (
+		0,
+		f"[命令仍在运行，已自动转入后台 job {job_id}。**不要等待它完成**——立即继续"
+		f"其他工作；完成通知会在下一回合自动出现，届时用 job_output(job_id=\"{job_id}\")"
+		f"（不要传 wait=true，会白等）领取输出]\n已累积输出：\n",
+	)
+
+
+def _docker_promote_seconds() -> float:
+	try:
+		return float(os.environ.get("XEYO_BASH_PROMOTE_MS", "45000")) / 1000
+	except Exception:  # noqa: BLE001
+		return 45.0
+
+
+def docker_bg_snapshot() -> list[dict]:
+	"""外部只读视图（job_tools 回退 / pending_jobs_block 镜像用）。"""
+	with _DOCKER_BG_LOCK:
+		return [
+			{"job_id": k, **{kk: vv for kk, vv in v.items()}}
+			for k, v in _DOCKER_BG_JOBS.items()
+		]
+
+
+def docker_bg_mark_delivered(job_id: str) -> None:
+	with _DOCKER_BG_LOCK:
+		job = _DOCKER_BG_JOBS.get(job_id)
+		if job is not None:
+			job["delivered"] = True
 
 
 def _worker_bash_active() -> bool:
@@ -313,14 +427,8 @@ class BashTool:
 		timeout_ms = clamp_timeout_ms(inp.timeout_ms)
 		run_cwd = cwd if cwd is not None else self._cwd
 
-		# 容器路由（评测适配）：XEYO_BASH_EXEC_PREFIX 设置时，所有命令经前缀转发
-		# 执行（如 `docker exec -i <cid> bash -lc`）。前缀含 {cmd} 占位符则整串替换
-		#（调用方自负责引号安全），否则追加 shlex.quote 后的单参数——保证任意命令
-		#（含引号/管道/换行）原样进入目标 shell。cwd 语义由目标侧 WORKDIR 承担。
-		exec_prefix = os.environ.get("XEYO_BASH_EXEC_PREFIX", "").strip()
-
 		# 禀赋②：净室执行——在只含声明输入的临时目录里跑命令（信息给足，判断归模型）。
-		# 组合为 POSIX 片段后随同路由（容器内 mktemp/cp 均可用），与 EXEC_PREFIX 正交。
+		# 组合为 POSIX 片段后随同路由（容器内 mktemp/cp 均可用），与容器路由正交。
 		if inp.run_isolated:
 			inputs = [p.strip().lstrip("/") for p in inp.isolation_inputs if p.strip()]
 			cp_part = ("cp --parents " + " ".join(shlex.quote(p) for p in inputs) + " \"$__iso/\" 2>&1; ") if inputs else ""
@@ -339,17 +447,19 @@ class BashTool:
 				description=inp.description,
 			)
 
-		if exec_prefix:
-			if "{cmd}" in exec_prefix:
-				routed = exec_prefix.replace("{cmd}", inp.command)
-			else:
-				routed = exec_prefix + " " + shlex.quote(inp.command)
-			inp = BashInput(
-				command=routed,
-				timeout_ms=inp.timeout_ms,
-				run_in_background=inp.run_in_background,
-				description=inp.description,
+		# 容器路由（评测适配）：XEYO_DOCKER_CONTAINER 设置时，所有命令经 docker SDK
+		# exec_run 直连 named pipe 转发进容器（bash -lc）。之所以不走宿主 shell 拼串
+		#（XEYO_BASH_EXEC_PREFIX 的 docker exec … 方案）：Windows 上 pwsh7 -Command
+		# 下 docker exec 的 stdout 会静默丢失（实测 rc=0 空输出，模型全程盲打），
+		# SDK 走 API 无 shell/TTY/wsl 依赖，输出与退出码可靠。cwd 语义由 WORKDIR 承担。
+		# 并发 trial 防串线：ContextVar（每 trial 协程上下文）优先于进程级 env——
+		# harbor 多 trial 共进程时后者会被互相覆盖（p4 冒烟实测串线事故）。
+		cid = _routed_container() or os.environ.get("XEYO_DOCKER_CONTAINER", "").strip()
+		if cid:
+			out_code, out_text = _docker_exec_with_timeout(
+				cid, inp.command, timeout_ms
 			)
+			return BashOutput(code=out_code, stdout=out_text)
 
 		# 预检查：只拦「等 TTY/编辑器会挂」的形态；预检自身异常必须 fail-open，
 		# 否则一次正则意外就把整个 Bash 工具打挂（call 是 Bash 唯一执行路径）。

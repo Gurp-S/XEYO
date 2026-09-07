@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-from typing import Any
 
 from fastapi import Header, Request
 
@@ -33,10 +32,6 @@ def require_loopback(request: Request) -> None:
 	)
 
 
-def loopback_or_raise(request: Request) -> dict[str, Any] | None:
-	"""兼容：校验失败抛 HTTPException；成功返回 None。"""
-	require_loopback(request)
-	return None
 
 
 async def loopback_or_remote_token(

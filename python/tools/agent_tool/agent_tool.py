@@ -520,10 +520,3 @@ class SubagentOutput:
     max_turns: int = 0
     had_write_stale: bool = False
 
-    def to_summary(self) -> str:
-        parts = [self.conclusion]
-        if self.files_touched:
-            parts.append("Files: " + ", ".join(self.files_touched))
-        if self.memories:
-            parts.append(f"Memory candidates: {len(self.memories)}")
-        return "\n".join(parts)

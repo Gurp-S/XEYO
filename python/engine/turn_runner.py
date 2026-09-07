@@ -427,7 +427,6 @@ class TurnRunner:
 			t = self._turn_locked(session_id)
 		if t is None:
 			return
-			yield  # pragma: no cover — make this an async generator
 		q: asyncio.Queue[Any] = asyncio.Queue(maxsize=512)
 		# 先挂订阅再重放，避免窗口丢帧；用 cursor 去重。
 		t.subscribers.append(q)

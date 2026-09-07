@@ -1,29 +1,27 @@
-"""MCP stdio client for the XEYO extension layer (T11).
+"""MCP stdio 客户端（XEYO 扩展层，T11）。
 
-This module implements a *self-contained* Model Context Protocol (MCP) client over
-stdio (JSON-RPC 2.0, newline-delimited) that is safe to build the XEYO plug-in
-infra on. It is OFF by default (the extension layer is disabled unless
-``.xeyo/settings.json`` sets ``enabled_extensions``), and a single bad server must
-never bring down discovery/startup (fail closed + skip-and-log).
+本模块实现一个*自包含*的 Model Context Protocol (MCP) 客户端，走 stdio
+（JSON-RPC 2.0，换行分帧），可安全作为 XEYO 插件基础设施的底座。默认关闭
+（扩展层仅在 ``.xeyo/settings.json`` 设置 ``enabled_extensions`` 时启用）；
+单个坏服务器绝不能拖垮发现/启动流程（fail closed + skip-and-log）。
 
-Design goals (DSH lifecycle x Codex container):
+设计目标：
 
-* **skip-and-log** — a server that fails to spawn / handshake / list is logged and
-  skipped; ``start()`` never raises.
-* **bounded crash-loop** — reconnects with exponential backoff 500ms -> 30s, at most
-  ``MAX_RECONNECT_ATTEMPTS`` (10) attempts per outage; if the previous run survived
-  longer than ``RESET_UPTIME_S`` the backoff budget is reset.
-* **no tool-name collapse** — two servers may expose the same raw tool name; every
-  tool gets the unique name ``mcp__<server_id>__<normalized_raw>__<12hex>``.
-* **permission 3-way gate is never bypassed** — dynamic tools are registered through
-  ``tools.tool_registry.ToolRegistry`` and default to ``outbound_ask`` (always ASK);
-  ``always_allow`` only when the manifest declares it.
-* **timeout split** — 30s startup / 300s per tool call (hoisted constants).
-* **schema sanitize + 5KB tiered degradation** (Codex-style).
-* **list_changed whole-generation replacement** with rollback on conflict.
-* **settings HMR** — a disconnect+reconnect hook the config layer can call.
+* **skip-and-log** — 生成/握手/列举失败的服务器只记日志并跳过；
+  ``start()`` 绝不抛异常。
+* **有界崩溃循环** — 指数退避重连 500ms -> 30s，单次故障最多
+  ``MAX_RECONNECT_ATTEMPTS``（10）次；若上一次存活超过
+  ``RESET_UPTIME_S`` 则重置换行预算。
+* **不折叠工具名** — 两个服务器可暴露同名原始工具；每个工具获得唯一名
+  ``mcp__<server_id>__<normalized_raw>__<12hex>``。
+* **权限三向门禁不可绕过** — 动态工具经 ``tools.tool_registry.ToolRegistry``
+  注册，默认 ``outbound_ask``（必 ASK）；仅 manifest 声明时才 ``always_allow``。
+* **超时拆分** — 启动 30s / 单次工具调用 300s（常量上提）。
+* **schema 清洗 + 5KB 分级降级**。
+* **list_changed 整代替换**，冲突时回滚。
+* **settings HMR** — 供配置层调用的断连+重连钩子。
 
-Indentation follows the rest of ``extension/``: tabs.
+缩进与 ``extension/`` 其余部分一致：tab。
 """
 
 from __future__ import annotations
@@ -46,7 +44,7 @@ from typing import Any, Protocol, runtime_checkable
 from engine.abort import AbortController
 from permissions.filesystem import PermissionDecision
 from permissions.policy import PolicyDecision
-from tools.base_tool import Tool, ToolResult
+from tools.base_tool import ToolResult
 
 _log = logging.getLogger(__name__)
 
@@ -55,7 +53,7 @@ _log = logging.getLogger(__name__)
 # 提升到模块级、便于测试的调优常量（"超时拆分" + 退避边界）。
 # --------------------------------------------------------------------------- #
 
-#: Startup handshake budget (initialize + initial tools/list), seconds.
+#: 启动握手预算（initialize + 首次 tools/list），单位秒。
 STARTUP_TIMEOUT_S = 30.0
 #: Per tool call budget, seconds.
 TOOL_TIMEOUT_S = 300.0
@@ -804,10 +802,10 @@ class McpStdioClient:
 	# -- 生命周期（lifecycle） ----------------------------------------------------------
 
 	def start(self, *, fetch: bool = True, force: bool = False) -> bool:
-		"""Spawn + handshake + list tools. Never raises (skip-and-log).
+		"""生成子进程 + 握手 + 列举工具。绝不抛异常（skip-and-log）。
 
-		Returns True if the server is ready; False if it was skipped (auto_start off,
-		spawn failure, handshake/list failure, reconnect exhausted).
+		服务器就绪返回 True；被跳过则返回 False（auto_start 关、
+		生成失败、握手/列举失败、重连次数耗尽）。
 		"""
 		if self._ready:
 			return True

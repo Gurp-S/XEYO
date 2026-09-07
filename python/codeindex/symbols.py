@@ -123,8 +123,6 @@ def locate_all(path: str, symbol_path: str) -> list[Symbol]:
 		return []
 	symbols = outline(path)
 
-	def full_name(sym: Symbol) -> str:
-		return f"{sym.parent}.{sym.name}" if sym.parent else sym.name
 
 	# 1) 全路径精确匹配（父链逐级比对，支持 A.B.method 深路径）
 	for depth in range(len(parts) - 1, 0, -1):

@@ -806,8 +806,6 @@ class Scheduler:
         if self._user_goal:
             write_last_user_goal(self._root, self._user_goal, self._main_session_id)
 
-    def clear_state(self) -> None:
-        clear_scheduler_checkpoint(self._root, self._main_session_id)
 
     def load_state(self) -> bool:
         raw = read_scheduler_checkpoint(self._root, self._main_session_id)
@@ -870,17 +868,11 @@ class Scheduler:
         self._persist()
         return [t for t in self._order if t.status == "pending"]
 
-    def all_settled(self) -> bool:
-        return bool(self._tasks) and all(
-            t.status in ("done", "failed") for t in self._tasks.values()
-        )
 
     def all_succeeded(self) -> bool:
         """全部成功才清 checkpoint；有失败则保留以便 Continue 重试。"""
         return bool(self._tasks) and all(t.status == "done" for t in self._tasks.values())
 
-    def has_incomplete(self) -> bool:
-        return any(t.status in ("pending", "running") for t in self._tasks.values())
 
     def whitelist_for(self, task: Task) -> list[str]:
         # 按任务裁剪：空 scope 工人绝不能因批次冻结表看见写工具。
@@ -1032,22 +1024,6 @@ def write_last_user_goal(
         pass
 
 
-def read_last_user_goal(
-    workspace_root: str | Path, session_id: str = ""
-) -> str:
-    path = last_user_goal_path(workspace_root, session_id)
-    if path.is_file():
-        try:
-            return path.read_text(encoding="utf-8").strip()
-        except OSError:
-            pass
-    legacy = Path(workspace_root).expanduser().resolve() / ".xeyo" / "last_multi_agent_goal.txt"
-    if not session_id or not legacy.is_file():
-        return ""
-    try:
-        return legacy.read_text(encoding="utf-8").strip()
-    except OSError:
-        return ""
 
 
 def checkpoint_summary(raw: dict[str, Any]) -> dict[str, Any]:

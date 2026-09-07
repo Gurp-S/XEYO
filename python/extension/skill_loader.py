@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import re
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -300,11 +300,6 @@ def _plugin_skill_entries(loaded: list[object]) -> dict[str, SkillEntry]:
 # 主发现（3s TTL + digest 跳过重扫）+ report。
 # --------------------------------------------------------------------------- #
 
-def _digest(entries: list[SkillEntry]) -> str:
-	import hashlib
-
-	parts = [(e.name, e.source, e.description) for e in entries]
-	return hashlib.sha256(repr(parts).encode("utf-8")).hexdigest()
 
 
 def _discover_uncached(

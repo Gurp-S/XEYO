@@ -14,10 +14,12 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from typing import Any
 
 from engine.abort import AbortController
 from tools.base_tool import ToolResult
+from tools.container_routing import current_container as _routed_container
 
 JOB_OUTPUT_TOOL_NAME = "job_output"
 JOB_LIST_TOOL_NAME = "job_list"
@@ -101,12 +103,43 @@ class JobOutputTool:
 		job_id = str(input.get("job_id") or "").strip()
 		if not job_id:
 			return ToolResult(content="job_id is required", is_error=True)
-		wait = bool(input.get("wait"))
+		# docker 评测路由下禁用阻塞等待：同步工具调用期间模型无法做任何其他
+		# 工作，wait 最多烧 60s×N 次（实测 gpt2/pipeline 的 p90 间隔黑洞）。
+		# 完成通知由 pending_jobs_block 每回合自动镜像——模型根本不需要 wait。
+		# 并发 trial 防串线：ContextVar 优先于进程级 env（同 bash_tool）。
+		if _routed_container() or os.environ.get("XEYO_DOCKER_CONTAINER", "").strip():
+			wait = False
+		else:
+			wait = bool(input.get("wait"))
 		try:
 			timeout_ms = int(float(input.get("timeout_ms") or _OUTPUT_WAIT_DEFAULT_MS))
 		except (TypeError, ValueError):
 			timeout_ms = _OUTPUT_WAIT_DEFAULT_MS
 		timeout_ms = max(1_000, min(_OUTPUT_WAIT_MAX_MS, timeout_ms))
+		# docker 后台 job 回退（评测 headless：registry 依赖 server，不可用）
+		try:
+			from tools.bash_tool.bash_tool import docker_bg_snapshot
+
+			bg = {j["job_id"]: j for j in docker_bg_snapshot()}
+			if job_id in bg:
+				j = bg[job_id]
+				deadline = asyncio.get_running_loop().time() + timeout_ms / 1000.0
+				while wait and j["status"] == "running":
+					if abort.aborted or asyncio.get_running_loop().time() >= deadline:
+						break
+					await asyncio.sleep(_POLL_INTERVAL_S)
+					bg = {x["job_id"]: x for x in docker_bg_snapshot()}
+					j = bg.get(job_id, j)
+				text = (j.get("output") or "").strip()
+				parts: list[str] = []
+				if text:
+					parts.append(text[-8000:])
+				elif j["status"] == "running":
+					parts.append("(no output yet)")
+				parts.append(_format_status_line(j["status"]))
+				return ToolResult(content="\n".join(parts))
+		except Exception:  # noqa: BLE001
+			pass
 		try:
 			reg = _registry()
 			sid = _owner_only(_session_id())
@@ -163,6 +196,20 @@ class JobListTool:
 		self, input: dict[str, Any], abort: AbortController
 	) -> ToolResult:
 		_ = input, abort
+		# docker 后台 job 回退（评测 headless）
+		try:
+			from tools.bash_tool.bash_tool import docker_bg_snapshot
+
+			bg = docker_bg_snapshot()
+			if bg:
+				lines = [
+					f"{j['job_id']} [docker] {j['status']}"
+					f" — {_clip(str(j.get('command') or ''), 80)}"
+					for j in bg
+				]
+				return ToolResult(content="\n".join(lines))
+		except Exception:  # noqa: BLE001
+			pass
 		try:
 			jobs = _registry().snapshot_list(_owner_only(_session_id()))
 		except Exception:  # noqa: BLE001

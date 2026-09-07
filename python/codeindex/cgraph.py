@@ -150,12 +150,6 @@ def _index_file(conn: sqlite3.Connection, base: Path, abs_path: str) -> int:
 	return n
 
 
-def _name_map(conn: sqlite3.Connection) -> dict[str, list[str]]:
-	"""符号名 → 该名所有 (path, name) 定义，供跨文件边解析。"""
-	m: dict[str, list[str]] = {}
-	for path, name in conn.execute("SELECT path, name FROM symbols"):
-		m.setdefault(name, []).append((path, name))
-	return m
 
 
 def _build_edges(conn: sqlite3.Connection) -> int:

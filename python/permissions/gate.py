@@ -28,10 +28,6 @@ class GateResult:
 	def allowed(self) -> bool:
 		return self.decision == PermissionDecision.ALLOW
 
-	def error_message(self) -> str:
-		if self.path:
-			return f"Permission denied: {self.reason} ({self.path})"
-		return f"Permission denied: {self.reason}"
 
 
 def _deny_reason(path: str, *, cwd: str, fallback: str) -> str:

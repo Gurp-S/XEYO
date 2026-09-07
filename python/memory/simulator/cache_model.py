@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import math
-import os
 from dataclasses import dataclass, replace
 from typing import Protocol
 
@@ -43,7 +42,6 @@ class ProviderProfile(Protocol):
 	g: int
 	invoice_w_phys_zero: bool
 
-	def survival(self, age_seconds: float, params: Params) -> float: ...
 
 	def prices(self, cache: CacheState, params: Params) -> Prices: ...
 
@@ -102,8 +100,6 @@ class DeepSeekProfile:
 	g: int = 64
 	invoice_w_phys_zero: bool = True
 
-	def survival(self, age_seconds: float, params: Params) -> float:
-		return survival_from_table(age_seconds, params)
 
 	def prices(self, cache: CacheState, params: Params) -> Prices:
 		return prices_for(cache, params)
@@ -117,8 +113,6 @@ class OpenAIProfile:
 	g: int = 128
 	invoice_w_phys_zero: bool = True
 
-	def survival(self, age_seconds: float, params: Params) -> float:
-		return survival_from_table(age_seconds, params)
 
 	def prices(self, cache: CacheState, params: Params) -> Prices:
 		return prices_for(replace(cache, provider="openai"), params)

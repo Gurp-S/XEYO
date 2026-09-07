@@ -70,9 +70,6 @@ class SessionState:
             # 允许先用占位路径；submit 阶段①再严格 set_cwd
             self.cwd = os_path_fallback(self.cwd)
 
-    def set_session_persistence_disabled(self, disabled: bool) -> None:
-        """设置当前会话是否禁用持久化。"""
-        self.session_persistence_disabled = disabled
 
     def is_session_persistence_disabled(self) -> bool:
         """返回当前会话是否禁用持久化。"""

@@ -129,11 +129,5 @@ def parse_features(
 	return parsed, warnings
 
 
-def get_spec(key: str) -> FeatureSpec | None:
-	"""Return the spec for ``key``, or ``None`` when it is not registered."""
-	return FEATURE_SPECS.get(key)
 
 
-def is_removed(key: str) -> bool:
-	spec = FEATURE_SPECS.get(key)
-	return bool(spec is not None and spec.removed)

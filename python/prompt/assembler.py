@@ -37,9 +37,6 @@ class PromptAssembler:
 
         return [{"role": "system", "content": system}, *history]
 
-    def clear_system_memo(self) -> None:
-
-        self._system_memo.clear()
 
     def _memo_key(
 

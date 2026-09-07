@@ -236,12 +236,6 @@ class StreamHandle:
 		with self.buf_lock:
 			return "".join(self.buf)
 
-	def take_buffered(self) -> str:
-		"""取走已缓冲输出并清空（晋升时一次性 replay 进 registry ring）。"""
-		with self.buf_lock:
-			text = "".join(self.buf)
-			self.buf.clear()
-			return text
 
 	def tail(self, n: int = 4000) -> str:
 		text = self.buffered()
@@ -262,13 +256,6 @@ class StreamHandle:
 
 	attach_abort = watch_abort  # 晋升/收编后换绑 ctl（registry ctl / merged abort）
 
-	def detach_abort(self) -> None:
-		"""晋升为后台 job 前调用：清空槽，会话 abort 不再杀进程（42 号口径）。
-
-		监视线程保持运行（收编方随后 attach registry ctl 恢复 job_kill 通道）。
-		"""
-		if self._abort_box:
-			self._abort_box[0] = None
 
 	def replay_and_attach(self, sink: SinkFn) -> str:
 		"""原子的「取走已缓冲输出 + 挂上新 sink」（晋升收编用，防丢行）。

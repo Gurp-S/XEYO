@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -282,9 +281,35 @@ def pending_jobs_block() -> str:
 
 		digest = pending_jobs_digest()
 	except Exception:  # noqa: BLE001
-		return ""
+		digest = ""
 	digest = (digest or "").strip()
 	if not digest:
+		# docker 后台 job 回退（评测 headless）：已完成未领取的 job 一次性补投
+		try:
+			from tools.bash_tool.bash_tool import (
+				docker_bg_mark_delivered,
+				docker_bg_snapshot,
+			)
+
+			done = [
+				j for j in docker_bg_snapshot()
+				if j.get("status") == "done" and not j.get("delivered")
+			]
+			if done:
+				rows = "\n".join(
+					f"- {j['job_id']}（exit_code={j.get('exit_code')}）："
+					f"{(j.get('command') or '').strip().splitlines()[0][:100]}"
+					for j in done
+				)
+				for j in done:
+					docker_bg_mark_delivered(j["job_id"])
+				return (
+					"# Background jobs（background only）\n"
+					"以下后台任务已完成，输出尚未领取。用 job_output(job_id=…) 收结果"
+					"后继续或收尾。\n" + rows
+				)
+		except Exception:  # noqa: BLE001
+			return ""
 		return ""
 	return (
 		"# Background jobs（background only）\n"

@@ -148,11 +148,3 @@ def has_undo_marker(rows: list[dict[str, Any]], rewind_id: str) -> bool:
 	)
 
 
-def has_rewind_marker(rows: list[dict[str, Any]], rewind_id: str) -> bool:
-	rid = str(rewind_id or "")
-	return any(
-		is_surface_marker(row)
-		and str(row.get("op") or "") == _OP_REWIND
-		and str(row.get("rewind_id") or "") == rid
-		for row in rows
-	)

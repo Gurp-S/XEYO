@@ -197,16 +197,6 @@ async def probe_state_actions(
 	return rows
 
 
-def predicted_split_for_x(x: str, cache: CacheState, action: str, params: Params):
-	h, lcp = hat_H(
-		x_a=x,
-		x_prev=cache.x_prev,
-		L=token_len(x),
-		action=action,
-		rho=rho_hat(cache, params),
-		g=params.g,
-	)
-	return h, lcp
 
 
 def ttl_grid_rho(params: Params | None = None) -> list[dict[str, float | str]]:

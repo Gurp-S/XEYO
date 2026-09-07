@@ -88,9 +88,6 @@ def workspace_id(canonical_path: str) -> str:
     return f"{slug}_{digest}"
 
 
-def user_memdir_id() -> str:
-    """跨工作区的用户级记忆域 id（偏好 / 人设）。"""
-    return USER_MEMDIR_ID
 
 
 def workspace_path(wsid: str) -> str:

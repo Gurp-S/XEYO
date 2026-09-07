@@ -142,7 +142,7 @@ def read_pdf_for_llm(
 
 	data_url, img_meta = compress_image_for_llm(png, max_dimension=max_dimension)
 	summary = (
-		f"PDF page {page_i}/{meta.get('pages', '?') if False else page_i} "
+		f"PDF page {page_i}/{page_i} "
 		f"rendered as image"
 		+ (f"\n\n--- text layer ---\n{text[:4000]}" if text else "")
 	)
