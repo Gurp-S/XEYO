@@ -47,6 +47,10 @@ class WriteOutput:
 	new_content: str = ""
 	# T28：WriteStore journal 记录失败警示（文件已落盘但证据链缺口）。
 	notice: str = ""
+	# #10：内容与磁盘一致 → 跳过落盘（true 时 map 文案提示「未变化」）。
+	unchanged: bool = False
+	# #11：写后语法自检发现**新引入**的解析错误 → 可行动提示（含行/列）。
+	syntax_hint: str = ""
 
 
 def _line_diff_counts(old: str, new: str) -> tuple[int, int]:
@@ -328,9 +332,31 @@ class FileWriteTool:
 
 		# Write 是整文件替换：按模型给出的换行写入（用 LF 规范化）
 		content = str(input_data.content)
+		normalized = normalize_newlines(content)
+
+		# #10：内容与磁盘一致 → 跳过落盘（省无效写盘/去重）。判据只认磁盘
+		# 旧正文（权威），不认 read_state；store 直通两条路径都先在此短路。
+		if existed and old_content is not None:
+			old_norm = normalize_newlines(old_content)
+			if old_norm == normalized:
+				self._read_state.set_written(
+					full,
+					normalized,
+					get_mtime_ms(full),
+					self._session_id,
+					offset=None,
+					limit=None,
+				)
+				return WriteOutput(
+					type="update",
+					file_path=input_data.file_path,
+					old_content=old_content,
+					new_content=normalized,
+					unchanged=True,
+				)
+
 		journal_warning = self._persist(full, content, encoding=encoding, line_endings="LF")
 
-		normalized = normalize_newlines(content)
 		self._read_state.set_written(
 			full,
 			normalized,
@@ -339,6 +365,21 @@ class FileWriteTool:
 			offset=None,
 			limit=None,
 		)
+
+		# #11：语法门闭环——写后自检「新引入」的解析错误，把行列细节带回
+		# 工具结果让模型自纠（只提示不拦截：允许 WIP 写盘）。
+		syntax_hint = ""
+		try:
+			from tools.fileio.syntax_check import introduces_error, syntax_error_detail
+
+			prev = normalize_newlines(old_content) if old_content is not None else ""
+			if introduces_error(full, prev, normalized):
+				syntax_hint = (
+					"Written file has a parse error — "
+					+ str(syntax_error_detail(full, normalized) or "see linter")
+				)
+		except Exception:  # noqa: BLE001 — 自检失败不影响写盘主路径
+			syntax_hint = ""
 
 		prev = old_content if old_content is not None else ""
 		added, removed = _line_diff_counts(prev, normalized)
@@ -350,10 +391,23 @@ class FileWriteTool:
 			old_content=prev,
 			new_content=normalized,
 			notice=journal_warning,
+			syntax_hint=syntax_hint,
 		)
 
 	@staticmethod
 	def map_tool_result_to_content(output: WriteOutput) -> str:
+		if output.unchanged:
+			msg = (
+				f"File content is unchanged — identical write skipped: "
+				f"{output.file_path}"
+			)
+			hint = _diagnostics_hint(output.file_path)
+			out = msg + hint if hint else msg
+			if getattr(output, "notice", ""):
+				out = f"{out}\n{output.notice}"
+			if getattr(output, "syntax_hint", ""):
+				out = f"{out}\n{output.syntax_hint}"
+			return out
 		if output.type == "create":
 			msg = f"File created successfully at: {output.file_path}"
 		else:
@@ -370,6 +424,8 @@ class FileWriteTool:
 		out = body + hint if hint else body
 		if getattr(output, "notice", ""):
 			out = f"{out}\n{output.notice}"
+		if getattr(output, "syntax_hint", ""):
+			out = f"{out}\n{output.syntax_hint}"
 		return out
 
 	def parse_input(self, raw: dict[str, Any]) -> WriteInput:

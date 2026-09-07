@@ -313,6 +313,16 @@ def parse_input(raw: dict[str, Any]) -> BashInput:
 	timeout = _coerce_optional_int(raw.get("timeout"))
 	if timeout is None:
 		timeout = _coerce_optional_int(raw.get("timeout_ms"))
+	# #15：模型未显式传 timeout 时按命令族给分级默认（pip/编译等长命令
+	# 免 120s 一刀切被掐）。worker（子 Agent）模式不生效——30s/60s 是
+	# 刻意的花钱护栏，不让命令族覆盖。纯查表、不碰 LLM 判断。
+	if timeout is None and not _worker_bash_active():
+		try:
+			from tools.bash_tool.timeout_map import family_default_ms
+
+			timeout = family_default_ms(cmd)
+		except Exception:  # noqa: BLE001 — 映射失败回落全局默认，不阻断执行
+			timeout = None
 
 	wd = raw.get("working_directory")
 	working_directory = None

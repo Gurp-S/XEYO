@@ -979,6 +979,24 @@ async def query_loop(
             budget=budget,
         )
         projected_pre_inject = projected
+        # #8 首轮嗅探：会话第一轮（历史无 assistant）注入有界 pwd+ls 清单，
+        # 零 LLM 调用、投影-only（env 声道对）、side/子代理/开关关闭时跳过。
+        if not _is_side and not _in_subagent():
+            try:
+                from engine.first_sniff import maybe_first_sniff_text
+
+                sniff_text = maybe_first_sniff_text(
+                    projected,
+                    "" if _is_side else _workspace_cwd_for_turn(tools),
+                    subagent=_in_subagent(),
+                    side=_is_side,
+                )
+                if sniff_text:
+                    from prompt.turn_context import append_env_notice_pair
+
+                    projected = append_env_notice_pair(projected, sniff_text)
+            except Exception:  # noqa: BLE001 — 嗅探失败绝不影响主请求
+                pass
         projected = _attach_turn_context(
             projected,
             t_now_strategy=t_now_strat,
