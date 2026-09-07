@@ -1,12 +1,11 @@
 """blind_audit_shadow — 【侧挂模块·默认关】盲审反作弊审计。
 
-依据：计划 `docs/实施计划/46-cursor博客技术融合优化计划.md` §A5（③）。
-对应方案稿：`docs/设计/cursor博客的技术融合到XEYO.md` §③（用「盲审模型」做第二遍反作弊审计）。
+依据：评测反作弊盲审设计（侧挂 ③：用独立盲审模型做第二遍反作弊审计）。
 
 ## 为什么（收益=评测诚实度）
 - XEYO 已录 session JSONL 轨迹 + 记忆引用。但「是否通过」是结果，不带过程归因。
 - 本模块用**独立盲审模型**做离线二次审计：只看「问题 + 完整轨迹」，不看是否通过；按
-  Cursor 口径分类 `upstream lookup`（上游查找 57%）`git history mining`（git 历史挖掘 9%）
+  泄漏来源口径分类 `upstream_lookup`（上游查找）`git history mining`（git 历史挖掘）
   `hidden-test exposure`（隐藏测试暴露）`environment clue inferral`（环境线索推断——
   复现失败→推断已修复）`memory recall`（记忆召回），输出 `leakage_rate` 与各类占比。
 
@@ -18,7 +17,7 @@
   时明确报错）。
 - **fail-open**：审计失败/无 key → 返回「审计不可得」（`available=False`），**不影响评测主路径**。
 
-## 分类口径（对齐文章 57% / 9%）
+## 分类口径
 - leak 类别：`upstream_lookup` / `git_history_mining` / `hidden_test_exposure` /
   `environment_clue_inferral` / `memory_recall`。其余归 `clean`。
 - `leakage_rate` = (leak 条数) / (被审计轨迹条数)，dry 口径取各类中最高占比一次。

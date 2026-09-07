@@ -1,7 +1,6 @@
 """memindex_sig_shadow — 【侧挂模块·默认关】memindex 签名从 (mtime,size) 改为 (size, content_sha)。
 
-依据：计划 `docs/实施计划/46-cursor博客技术融合优化计划.md` §B1（⑧.5）。
-对应方案稿：`docs/设计/cursor博客的技术融合到XEYO.md` §⑧.5（记忆索引签名口径一致性修复）。
+依据：memindex 签名口径一致性设计（侧挂 ⑧.5：记忆索引签名 (mtime,size) → (size,content_sha)）。
 
 ## 为什么（收益目标）
 - `memindex._sync_table` 现状用 `(mtime, size)` 做懒同步签名；`mtime` 在 Windows/部分

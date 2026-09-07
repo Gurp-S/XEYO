@@ -161,7 +161,7 @@ function MessageBubbleInner({message, streaming, thinking}: Props) {
 	}
 
 	if (message.role === 'system') {
-		// 命令回执卡片（对齐 dsh GenericCommandCard 语义）：标题=命令行原文，
+		// 命令回执卡片语义：标题=命令行原文，
 		// 单行结果作摘要、多行结果折叠进 <details>；不再走居中红字系统提示。
 		if (message.noteKind === 'cmd') {
 			const multiline = message.text.includes('\n');

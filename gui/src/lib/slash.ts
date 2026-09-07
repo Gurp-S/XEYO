@@ -143,7 +143,7 @@ export function slashLeadingColor(
 }
 
 /**
- * ghost hint 字典（dsh `hint.<命令名>` 对应物）：claim 激活且参数空白时展示的灰字。
+ * ghost hint 字典（命令 `hint.<命令名>` 对应物）：claim 激活且参数空白时展示的灰字。
  * 命令在SlashCommand层有 arg_spec 兜底，但中文提示优先走这张表——
  * 新命令未登记时自动回落到 `请输入 <arg_spec>`。
  */
@@ -176,7 +176,7 @@ const SLASH_HINTS: Readonly<Record<string, string>> = {
 export const SKILL_GHOST_HINT = '请输入任务，技能将按其流程执行';
 
 /**
- * ghost hint 判定（dsh claim 语义的纯函数化）：
+ * ghost hint 判定（claim 语义的纯函数化）：
  * 首个词元必须是整段输入的开头（claim = 草稿起点）、精确命中 GUI 命令或技能名、
  * 且其后参数为空白（仅有换行/空格也算未输入）。前缀匹配（输入 "/goa" 中途）不显示。
  * 命中返回提示文案；未知命令/带参/非开头 → null。

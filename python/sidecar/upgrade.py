@@ -1,6 +1,6 @@
 """sidecar.upgrade — 侧挂模块「升格」聚合器（单点 apply / unapply）。
 
-依据：计划 `docs/实施计划/46-cursor博客技术融合优化计划.md` + 用户决策（总开关 promotion=1）。
+依据：侧挂模块「升格」聚合器设计 + 用户决策（总开关 promotion=1）。
 作用：把升格动作集中到一处，供 `engine.query_engine.build_default_engine` 在构造时调用一次。
 - `apply()`：受 `XEYO_SIDEMOD_PROMOTE` 门控，对 6 个**挂钩型**侧挂模块统一 `install()`。
 - `unapply()`：对它们统一 `uninstall()`（一键回退）。

@@ -29,7 +29,7 @@ export type ChatMessage = {
 	 * UI-only 行（如斜杠命令回显）：只进本地列表，不进 toApiMessages、不持久化后端。
 	 */
 	uiOnly?: boolean;
-	/** 系统行形态：cmd=命令回执卡片（对齐 dsh command flow node）；缺省=居中系统提示。 */
+	/** 系统行形态：cmd=命令回执卡片（命令 flow 节点）；缺省=居中系统提示。 */
 	noteKind?: 'cmd';
 	/** 命令回执卡片标题（命令行原文，如 `/goal 介绍自己`）。 */
 	noteTitle?: string;

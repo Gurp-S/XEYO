@@ -1,8 +1,6 @@
 """transcript_pointer_shadow — 【侧挂模块·默认关】C2 压缩后注入「原始历史文件」指针。
 
-依据：计划 `docs/实施计划/46-cursor博客技术融合优化计划.md` §C2（⑬）。
-对应方案稿：`docs/设计/cursor博客的技术融合到XEYO.md` §⑬（C2 压缩后注入「原始历史文件」指针，
-治压缩后失忆）。
+依据：C2 压缩后原始历史指针设计（侧挂 ⑬：压缩后注入「原始历史文件」指针，治压缩后失忆）。
 
 ## 为什么（收益=治压缩失忆）
 - C2 压后左段冻结 `working.c2_summary_text`，摘要缺细节时模型无法取回原始消息。
@@ -155,8 +153,6 @@ def transcript_pointer_block(session_id: str) -> str:
     )
 
 
-def seen_sessions() -> set[str]:
-    return set(_SEEN_SESSIONS)
 
 
 def header() -> str:

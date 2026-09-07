@@ -1,7 +1,6 @@
 """content_index_cache_shadow — 【侧挂模块·默认关】per-file 内容哈希缓存 trigram 贡献。
 
-依据：计划 `docs/实施计划/46-cursor博客技术融合优化计划.md` §B2（⑧）。
-对应方案稿：`docs/设计/cursor博客的技术融合到XEYO.md` §⑧（按内容哈希缓存的 per-file 索引层）。
+依据：per-file 内容哈希索引缓存设计（侧挂 ⑧：按内容哈希缓存的 per-file 索引层）。
 
 ## 为什么（收益目标 — 诚实口径：省 CPU，非省 IO）
 - `tools/fileio/content_index.py` 的 `_build_index` 每次 TTL 过期都全量 `_trigrams`（每个文件

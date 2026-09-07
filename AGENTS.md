@@ -24,7 +24,7 @@
 ## Bash 专用工具路由（本工作区已开启）
 
 `<workspace>/.xeyo-policy.json`（即仓库根 `.xeyo-policy.json`）已设 `"bash_routing": "auto"` +
-`"bash": "default"`。权威设计见 `docs/设计/43-bash专用工具路由设计.md`。
+`"bash": "default"`。权威口径以 `python/tools/bash_tool/` 路由实现与 `tests/test_bash_routing*` 契约为准。
 
 - **透明路由**：Bash 中纯文件读命令且目标在**工作区内**时，引擎直接改用专用工具执行并返回结果——
   `cat/type/Get-Content`→`Read`、`rg/grep/findstr`→`Grep`（`output_mode="content"`）。
@@ -36,7 +36,7 @@
 
 ## 易变上下文必须走 T_now（新增前先查重 + 硬准入）
 
-新增"每轮可能变化 / 随时可能开关"的模型可见内容（提示块、状态、提醒、开关类指令）时，**默认走 T_now 注入管线**（`python/prompt/pre_llm_inject.py`），不要写进 system prompt、不要拼进历史消息。权威口径与修订见 `docs/设计/32-LLM调用前注入选型冻结.md`。
+新增"每轮可能变化 / 随时可能开关"的模型可见内容（提示块、状态、提醒、开关类指令）时，**默认走 T_now 注入管线**（`python/prompt/pre_llm_inject.py`），不要写进 system prompt、不要拼进历史消息。权威口径以 `pre_llm_inject.py` / `t_now_strategy.py` 实现与 `tests/test_t_now_block_registry.py` 为冻结面。
 
 **注入声道（方案 A 环境声道，2026-09-04）：** 默认策略 `env_channel`（`python/prompt/t_now_strategy.py`）——全部易变块装进一对**仅存在于投影**的伪造 tool 对（`assistant(xeyo_env_notice) → tool_result`，`turn_context.append_env_notice_pair`）尾插，不进 MessageStore/JSONL、不进 tools 数组（schemas 冻结红线不受影响）、尾部追加 KV 前缀逐字节不动。tool_result 是模型训练出的"环境声道"，注入内容与用户意图在消息结构上隔离（根治说话人混淆型注意力漂移）。回退档 `legacy` = 原行为（bg_wrap 身份标记 + 尾插末条 user，A1 分仓仍生效）；运行时 env_channel 被厂商以结构类 4xx（400/404/413/415/422）拒绝且未吐 chunk 时，自动记进程级备忘并当场以 legacy 重建重试。策略优先级：会话/请求显式（`set_t_now_strategy`）> `XEYO_T_NOW_STRATEGY` 环境变量 > 默认 env_channel；`prefill` 为预留档（实测前回落 env_channel）。
 
@@ -48,7 +48,7 @@
 
 ## 扩展层（MCP × SKILL）契约
 
-权威设计：`docs/设计/40-MCP与SKILL企业级融合设计.md`（冻结稿，§7 配置、§2 产品决策、§9 实施注记）。
+权威口径以 `python/extension/`（`mcp_gateway.py` / `mcp_client.py` / `reconcile.py` / `config.py`）实现与 `tests/extension/test_freeze_invariants.py` 等契约为冻结面（配置、产品决策、实施注记见代码注释）。
 
 - **配置单一来源**：`<root>/.xeyo/settings.json`（后台纯 JSON，无 GUI）。home 级 `~/.xeyo/settings.json` 与工作区级 `<ws>/.xeyo/settings.json` 按范围合并，**workspace 更具体者优先**；总开关 `enabled_extensions`（默认 **关**）；`plugins/skills/mcp_servers` 各带 `{"<name>": {"enabled": true, ...}}`。坏 JSON 走 keep-last-good + `config.invalid` 审计，方向安全（不静默打回默认）。
 - **原生工具面 = 会话起点快照**：attach 时按当时启用状态决定哪些 MCP 工具进 `schemas()`；此后 **tools 数组会话内冻结、零前缀重缓存**（绝对红线）。会话内启停**永不触碰 `_schemas_cache`**。

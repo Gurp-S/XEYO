@@ -106,7 +106,7 @@ html[data-scheme="dark"] .xy-seg-btn.is-on {
 }
 
 
-/* ---- slash 弹层行：stagger 入场（dsh 命令面板语义） ----
+/* ---- slash 弹层行：stagger 入场（命令面板语义） ----
    18ms/行、200ms 封顶：前几行即刻可见，长列表尾部不拖沓。
    动画只做 fade+4px 上移，与弹层本身的 pop 形成两层运动叙事。 */
 @keyframes flyout-row-in {

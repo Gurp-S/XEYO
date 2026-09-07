@@ -1,13 +1,11 @@
 """mcp_name_manifest_shadow — 【侧挂模块·默认关】MCP 工具「name-manifest 暴露档」。
 
-依据：计划 `docs/实施计划/46-cursor博客技术融合优化计划.md` §C3（⑫）。
-对应方案稿：`docs/设计/cursor博客的技术融合到XEYO.md` §⑫（MCP 工具只显示 name、description 按需）。
-权威约束：`docs/设计/40-MCP与SKILL企业级融合设计.md` §F2 / §F2.5（tools 数组会话内绝对冻结、
-`_schemas_cache` 会话内永不失效、零前缀重缓存红线）。
+依据：MCP 工具 name-manifest 暴露档设计（侧挂 ⑫：工具只显示 name、description 按需）。
+权威约束：extension/mcp_gateway.py + mcp_client.py 的冻结面契约（tools 数组会话内绝对冻结、`_schemas_cache`
+会话内永不失效、零前缀重缓存红线）。
 
 ## 为什么（收益目标：省 token）
-- Cursor A/B：调用过 MCP 工具的 run 总 token 降 **46.9%**（大量带长 `inputSchema` 的工具
-  永远用不到却被全量塞进 prompt）。
+- 动机：大量带长 `inputSchema` 的工具永远用不到却被全量塞进 prompt。
 - 本模块提供一个「name-manifest」**快照构建器**：把一个工具的 schema 收缩为 `name + 一句短描述`
   （丢弃 `inputSchema`/`parameters`），并保留到完整 schema 的按需取回通道（`Mcp describe`）。
 

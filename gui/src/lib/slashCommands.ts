@@ -271,7 +271,7 @@ export async function handleComposerSlash(
 		return false;
 	}
 	const chat = useChatStore.getState();
-	// dsh 语义：composer 永不回显命令行——命令事实由结果回执卡片承载
+	// 语义：composer 永不回显命令行——命令事实由结果回执卡片承载
 	// （见下方 noteKind:'cmd'），聊天流里不再出现 `> /cmd` 裸回显。
 	const outcome = await runSlashCommand(value, opts);
 	switch (outcome.status) {

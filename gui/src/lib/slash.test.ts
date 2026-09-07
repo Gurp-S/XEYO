@@ -142,7 +142,7 @@ describe('formatSlashHelp', () => {
 	});
 });
 
-describe('slashGhostHint（dsh claim hint 对应物）', () => {
+describe('slashGhostHint（命令 claim hint 对应物）', () => {
 	const skills = [{name: 'pdf'}, {name: 'code-review'}];
 	it('goal 空参数 → 显示目标提示', () => {
 		expect(slashGhostHint('/goal', skills)).toBe('请输入目标，智能体将持续执行');

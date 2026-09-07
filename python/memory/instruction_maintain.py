@@ -616,7 +616,7 @@ def nested_change_notice(
 
 	- 文件被删 → 移除墓碑（commit 时从 loaded 列表摘除，停止渲染）。
 	- SHA-1 与登记时不符 → 「已更新」（commit 时刷新登记哈希）。
-	``commit=True`` 只在通知真正进入最终 blocks 后调用（照抄 stale stamp 范式）。
+	``commit=True`` 只在通知真正进入最终 blocks 后调用（沿用 stale stamp 范式）。
 	"""
 	loaded = list(getattr(working, "loaded_nested_instruction_paths", None) or [])
 	hashes = getattr(working, "nested_hashes", None)

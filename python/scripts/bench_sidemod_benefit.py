@@ -1,7 +1,7 @@
-"""46号收益评测：侧挂模块「开启 vs 基线」离线对比（无 API key / 模型 / 网络）。
+"""侧挂模块收益评测：各侧挂模块「开启 vs 基线」离线对比（无 API key / 模型 / 网络）。
 
-用途：把计划 `docs/实施计划/46-cursor博客技术融合优化计划.md` 各侧挂模块的**收益**量化成
-「前(基线/默认关) vs 后(侧挂开启)」表格——正是「只有明确收益才落地」的判定依据。
+用途：把各侧挂模块的**收益**量化成「前(基线/默认关) vs 后(侧挂开启)」表格——
+正是「只有明确收益才落地」的判定依据。
 
 ## 覆盖与口径
 - **⑧.5 memindex 签名**（correctness）：同秒编辑（同 mtime 同 size 改内容）——基线 `(mtime,size)`
@@ -16,7 +16,7 @@
 说明：⑧.5/⑧ 的收益在**程序性测试**里已有覆盖（test_memindex_sig_shadow / test_content_index_cache_shadow
 已断言未变零重跑、同秒命中），此处给出前/后量化对照。
 
-用法：cd python && python scripts/bench_cursor_benefit.py
+用法：cd python && python scripts/bench_sidemod_benefit.py
 """
 
 from __future__ import annotations

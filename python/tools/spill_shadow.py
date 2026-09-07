@@ -1,7 +1,6 @@
 """spill_shadow — 【侧挂模块·默认关】spill 预览补「Read 该路径」tail 建议。
 
-依据：计划 `docs/实施计划/46-cursor博客技术融合优化计划.md` §C1（⑭）。
-对应方案稿：`docs/设计/cursor博客的技术融合到XEYO.md` §⑭（spill 预览补 `tail` 建议行，文案级）。
+依据：spill 预览补 tail 建议设计（侧挂 ⑭：大输出落盘后提示 Read 该路径，文案级）。
 
 ## 为什么（收益=可用性）
 - 大工具输出落文件后，`spill.save_text` 返回的 `SpillRef.hint` 只有 `full output: <path> (N bytes)`。

@@ -14,7 +14,7 @@
 	  "mcp_servers": {"<id>": {"enabled": true, "auto_start": true}}
 	}
 
-读侧经 contextvar 快照注入（照抄 set_searxng_url 范式）：请求入口 set、finally 复位。
+读侧经 contextvar 快照注入（沿用 set_searxng_url 范式）：请求入口 set、finally 复位。
 """
 
 from __future__ import annotations

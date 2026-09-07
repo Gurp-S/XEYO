@@ -631,7 +631,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 		setSlashHighlight(null);
 	}, [slashToken, atToken, popupOpen]);
 
-	// 高亮行自动滚入可视区（dsh combobox 语义）：键盘 ↑↓ 走出视口时列表跟随，
+	// 高亮行自动滚入可视区（命令面板 combobox 语义）：键盘 ↑↓ 走出视口时列表跟随，
 	// block:'nearest' 保证视口内已有行不跳动。滚动条隐藏后这是唯一的导航可见反馈。
 	const flyoutRef = useRef<HTMLDivElement>(null);
 	useEffect(() => {

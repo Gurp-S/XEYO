@@ -95,16 +95,6 @@ def tools_hash(cwd: str) -> tuple[int, str]:
         return (0, f"<err:{type(exc).__name__}>")
 
 
-def projected_hash(messages: list[dict], frozen_until: int, idx: int) -> str:
-    """对到第 idx 条消息为止的前缀（不含 idx 本身）做投影，返回哈希。"""
-    from engine.compact import project
-
-    prefix = messages[:idx]
-    try:
-        proj = project(prefix, frozen_until=frozen_until)
-        return _sha([_norm(m) for m in proj])
-    except Exception as exc:  # noqa: BLE001
-        return f"<err:{type(exc).__name__}>"
 
 
 def mode() -> str:
@@ -296,7 +286,7 @@ def main() -> int:
     if first_kind:
         print(f"首次头部变化: {first_kind}")
     print("\n提示: 头部不在本会话变 → 问题多半是【C1/C2 冻结边界推进改写历史】(压缩阈值/时机)。"
-          "DSH 也在压缩，但 head-anchored+保尾+压力阈值；XEYO 每轮 decide 就可能在更高频边界改写。"
+          "同类实现也 head-anchored+保尾+压力阈值才触发；XEYO 每轮 decide 就可能在更高频边界改写。"
           "请到真实活跃 C2 会话(working.compat_cursor>0 或 c2_events>0)上再跑本探针，会显现 REWRITE@i。")
     return 0
 

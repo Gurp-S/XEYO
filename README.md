@@ -1,6 +1,6 @@
 # XEYO
 
-本地编码 Agent：Python 编排主循环 + React/Tauri 前端。参考 Claude Code **架构思想**，不抄商业售卖层。
+本地编码 Agent：Python 编排主循环 + React/Tauri 前端。
 
 ## 一键启动（推荐）
 

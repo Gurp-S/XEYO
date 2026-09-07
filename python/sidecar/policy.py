@@ -1,6 +1,6 @@
 """sidecar.policy — 侧挂模块的「升格」总谓词（单一来源）。
 
-依据：计划 `docs/实施计划/46-cursor博客技术融合优化计划.md`。
+依据：侧挂模块「升格」总谓词设计（单一来源）。
 用户决策：全部升格（除 ⑫），用总开关 `XEYO_SIDEMOD_PROMOTE`（默认 1）一键回退=0。
 
 ## 语义
@@ -33,8 +33,6 @@ def sidemod_promote() -> bool:
     return raw not in ("0", "false", "off", "no", "")
 
 
-def promote_env() -> str:
-    return _PROMOTE_ENV
 
 
 def side_enabled(env_name: str) -> bool:

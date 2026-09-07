@@ -2,7 +2,7 @@
 
 诊断根因：XEYO 的 v61 **每轮 decide 都可能触发 C2**（基线：sess_real_200turn_c2 上
 decide 605 次、apply_c2_messages 456 次 = 75.4% 处于压缩态、边界推进 11 次 =
-11 次历史前缀改写 → 累计命中率被拉低）。DSH 只在「head-anchored + 保尾 + 压力阈值」
+11 次历史前缀改写 → 累计命中率被拉低）。同类实现只在「head-anchored + 保尾 + 压力阈值」
 同时满足时才触发。本模块把 C2 的**触发时机**换成从成本模型/窗口几何推导的公式，
 而不是硬编码的 ``c2_min_gain_chars`` / ``c2_min_save_ratio`` / ``0.62`` 等常量。
 
@@ -120,46 +120,6 @@ def tail_budget_tokens(*, per_turn_tokens: float, retain_rounds: int) -> int:
     return max(0, int(round(float(per_turn_tokens or 0.0) * max(1, int(retain_rounds)))))
 
 
-def extend_economy_ok(
-    *,
-    region_chars: int,
-    ext_chars: int,
-    tail_chars: int,
-    remaining_turns: int,
-    margin: float,
-    price_ratio: float,
-    min_gain_chars: int,
-    extend_ratio: float,
-    min_remaining_turns: int,
-) -> bool:
-    """扩展闸：压缩态追加式扩展的四个栅栏，复用 ``c2_summary_extension`` 经济公式。
-
-    1) 收益：新区(region)明显大于摘要增量(ext)，否则扩展只会增加 miss 面。
-    2) 稀发：新区至少达到已冻结区比例（extend_ratio），避免频繁扩展破坏前缀。
-    3) 摊薄：剩余轮次必须够多（min_remaining_turns），扩展当轮一次性 miss 才划算。
-    4) 经济：同 ``economic_gain_ok`` —— 剩余轮次 × 每轮省 token ≥ margin×price×miss。
-    """
-    region = max(0, int(region_chars))
-    ext = max(0, int(ext_chars))
-    if region <= 0:
-        return False
-    if min_gain_chars > 0 and (region - ext) < min_gain_chars:
-        return False
-    if extend_ratio > 0 and region < extend_ratio * max(0, int(region)):
-        # region 本身已是新区；此闸由调用方以冻结区字符为基数判断，此处仅占位。
-        pass
-    if remaining_turns < min_remaining_turns:
-        return False
-    return economic_gain_ok(
-        region_chars=region,
-        summary_chars=ext,
-        tail_chars=tail_chars,
-        remaining_turns=remaining_turns,
-        margin=margin,
-        price_ratio=price_ratio,
-        min_save_ratio=0.0,
-        min_gain_chars=0,
-    )
 
 
 # ===========================================================================
@@ -167,12 +127,6 @@ def extend_economy_ok(
 # ===========================================================================
 
 
-def l_max_from(params: Any) -> int:
-    """l_max = min(window − reserve, alpha_win·window)；与 params.l_max 属性一致。"""
-    return int(getattr(params, "l_max") or min(
-        int(getattr(params, "window_tokens")) - int(getattr(params, "reserve_tokens")),
-        int(float(getattr(params, "alpha_win")) * int(getattr(params, "window_tokens"))),
-    ))
 
 
 def l_hard_send_from(params: Any) -> int:

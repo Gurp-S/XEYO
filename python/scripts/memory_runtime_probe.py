@@ -214,7 +214,7 @@ def main() -> int:
     if n_c2:
         print(f"→ C2 触发率 ≈ {n_c2}/{total_calls} = {n_c2 / max(1, total_calls) * 100:.1f}%")
         print("→ 每次 C2 = 一次边界推进 = 一次历史前缀改写；频率越高，累计命中率被拉低越狠。"
-              "这就是『C2 触发阈值/时机』问题：DSH 是 head-anchored+保尾+压力阈值才触发，"
+              "这就是『C2 触发阈值/时机』问题：同类实现 head-anchored+保尾+压力阈值才触发，"
               "XEYO 每轮 decide 都可能触发（此处复现 v61）。")
     if not n_c2 and rewrite_calls == 0:
         print("未触发 C2、无前缀改写 —— 此会话头部稳定、纯追加；若命中率仍低，需结合真实 cacheHit/cacheMiss 数据看。")

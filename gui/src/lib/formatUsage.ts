@@ -52,7 +52,7 @@ export function formatUsageChipPreview(
  *
  * - hit：会话累计命中（cacheHitTokens，DeepSeek = prompt_cache_hit_tokens）
  * - miss：会话累计未命中（cacheMissTokens；DeepSeek 无独立 write 档，
- *   未命中已含写入部分 → 与 DSH 的 uncached+write 口径一致）
+ *   未命中已含写入部分 → 按 uncached+write 口径计入）
  */
 export function formatCacheHitPercent(
 	hit: number,

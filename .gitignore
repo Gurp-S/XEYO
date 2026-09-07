@@ -116,3 +116,22 @@ gui/.test_write_probe
 .tmp_*.txt
 gui/test-results*/
 test-results/
+
+# 工作区数据目录（memory 已跟踪文件不受影响，屏蔽 tmp/截图噪音；2026-09-05）
+.workbuddy/
+
+# 评测基准资产（体积大，仅本地保留；2026-09-05）
+BFCL/
+TerminalBench/
+
+# 历史构建产物目录（dist-* 各历史快照）
+gui/dist-old-*/
+gui/dist-prev*/
+
+# 设计草稿归档（未跟踪，仅本地）
+_design_drafts/
+
+# 开源整理：内部过程文档/遗留物归档区（2026-09-07，永不入公开仓库）
+# 注：目录名含方括号，须转义，否则 [过程] 被 glob 解析为字符类导致规则失效
+\[过程\]/
+api_key.txt

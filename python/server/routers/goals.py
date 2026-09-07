@@ -45,7 +45,7 @@ def get_goal(session_id: str) -> dict[str, Any]:
 	"""T9/41 号：当前会话绑定的目标（未绑定返回 {}，不报错）。
 
 	bound 时 additive 附 ``driver`` 投影（armed 态——41 号 §9.4，XEYO 有意比
-	DSH 多暴露；无 driver 记录时默认 disarmed）。
+	默认实现多暴露；无 driver 记录时默认 disarmed）。
 	"""
 	goal = _current_or_empty(session_id)
 	if goal:

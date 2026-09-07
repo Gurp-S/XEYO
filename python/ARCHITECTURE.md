@@ -55,8 +55,6 @@ POST /v1/chat/completions
 | **v3 热路径** | `rewind/hotpath.py` + `server/routers/rewind.py` | **现行默认** |
 | v2 预览/执行 | `rewind/service.py` + sessions rollback API | 兼容/迁移中 |
 
-设计文档：`docs/设计/31-回溯v3对齐Cursor热路径.md`
-
 ## 配置
 
 - 环境变量：分散在 60+ 文件（`XEYO_*`）；模板见仓库根 `.env.example`

@@ -17,10 +17,8 @@
 }
 
 /*
-  Cursor float (not frosted glass):
-  L0 wallpaper (AppShell) 锟?L1 .xy-chat-surface transparent 锟?L2 rgba tint.
-  No backdrop-filter. No wallpaper background-image on the float.
-  Pin sits above the scroller so tint composites over wallpaper, not L1 text.
+  气泡悬浮层（非毛玻璃）：L0 壁纸(AppShell) → L1 .xy-chat-surface 透明 → L2 rgba 着色。
+  无 backdrop-filter；悬浮层不设壁纸背景图。pin 位于 scroller 之上，着色叠加在壁纸上而非 L1 文本上。
 */
 .xy-chat-surface {
   background: transparent;

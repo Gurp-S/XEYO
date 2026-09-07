@@ -43,7 +43,7 @@ def preinvoke_enabled() -> bool:
 def _leading_slash_token(text: str) -> tuple[str, str] | None:
 	"""首个非空行若以 ``/token`` 开头（前无空白粘滞），返回 (token, 剩余文本)。
 
-	词边界与 GUI ``slashTokenAt`` / dsh 技能语法一致：``/`` 前是行首；
+	词边界与 GUI ``slashTokenAt`` / 技能语法一致：``/`` 前是行首；
 	``https://…``、``src/foo`` 不命中（``/`` 不在行首）。
 	"""
 	for raw_line in (text or "").splitlines():
