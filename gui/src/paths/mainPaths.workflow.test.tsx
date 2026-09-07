@@ -54,14 +54,6 @@ vi.mock('@/hooks/useStreamTypewriter', async (importOriginal) => {
 	};
 });
 
-vi.mock('@/hooks/useDebounced', async (importOriginal) => {
-	const actual = await importOriginal<typeof import('@/hooks/useDebounced')>();
-	return {
-		...actual,
-		useDebounced: (v: unknown) => v,
-	};
-});
-
 const streamChat = vi.fn();
 const interruptChat = vi.fn();
 const setWorkspace = vi.fn();

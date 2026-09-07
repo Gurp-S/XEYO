@@ -110,11 +110,6 @@ export function patchComposerDraftModes(
 	);
 }
 
-/** 仅移除 map 条目（调用方负责 URL 生命周期 — 例如仍在 Composer 中显示）。 */
-export function dropComposerDraft(sessionId: string): void {
-	drafts.delete(sessionId);
-}
-
 /** 删除草稿并 revoke 所有图片 object URL。 */
 export function clearComposerDraft(sessionId: string): void {
 	const prev = drafts.get(sessionId);

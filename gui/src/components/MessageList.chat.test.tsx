@@ -17,16 +17,13 @@ vi.mock('@/hooks/useStreamTypewriter', () => ({
 	typewriterStep: () => 1,
 }));
 
-vi.mock('@/hooks/useDebounced', () => ({
-	useDebounced: (v: unknown) => v,
-}));
-
 vi.mock('@/stores/chatStore', () => {
 	const state = {
 		activeId: 'sess-1',
 		emptyQuipSeq: 0,
 		activeSpaceId: 'space-1',
 		spaces: [{id: 'space-1', name: 'XEYO code', rootPath: 'D:/x'}],
+		sessions: [{id: 'sess-1', spaceId: 'space-1', title: 't', createdAt: 0, updatedAt: 0}],
 		sessionStreams: {} as Record<string, {
 			streamingText: string;
 			streamingShown: string;
