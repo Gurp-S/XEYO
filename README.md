@@ -52,8 +52,10 @@ pwsh -File scripts/build_installer.ps1
 
 **精简策略**：
 - python/ 裁 evals/bridge/scripts/tests/_shadow/memory.simulator/out（runtime 无用）
-- .venv 裁 ray(118M) + sqlalchemy(19M) + playwright(104M, 注: playwright 运行时 channels/filehelper 用, 已恢复) + pytest 系列
+- .venv 裁 ray(118M) + sqlalchemy(19M) + pytest 顶层(0M) + playwright (保留: channels/filehelper/bridge.py 运行时用 sync_playwright)
 - 补拷 .pyd（Rust 编译扩展，不被 ignore 误伤）
+- 补装缺失 typer（cli 子模块依赖）
+- 残余：pytest/_pytest 子目录（pytest_asyncio 内部依赖，~5M，对运行无影响）
 
 NSIS 压缩后 52M（含 ~40M 精简引擎、~4M 代码、~12M 前端 + GUI 壳）。
 
