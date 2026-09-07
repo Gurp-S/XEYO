@@ -44,6 +44,7 @@ import {fetchSkills, type SkillInfo, type SkillsReport} from '@/lib/api/skills';
 import {toast} from '@/lib/toast';
 import {PageShell} from '@/components/PageShell';
 import {cn} from '@/lib/utils';
+import {Switch} from '@/components/ui/Switch';
 
 /**
  * 扩展中心（插件 / MCP / Skill 三页）。
@@ -92,44 +93,6 @@ type BusyKey = string | null;
 /** stagger 入场延迟变量（封顶 12 行，防长列表拖尾）。 */
 function staggerVar(i: number): CSSProperties {
 	return {'--stagger-i': i} as CSSProperties;
-}
-
-function Toggle({
-	checked,
-	disabled,
-	onChange,
-	label,
-}: {
-	checked: boolean;
-	disabled: boolean;
-	onChange: () => void;
-	label: string;
-}) {
-	return (
-		<button
-			type="button"
-			role="switch"
-			aria-checked={checked}
-			aria-label={label}
-			disabled={disabled}
-			data-checked={checked}
-			onClick={onChange}
-			className={cn(
-				'ext-toggle xy-press relative h-5 w-9 shrink-0 rounded-full',
-				checked ? 'bg-accent' : 'bg-paper-deep ring-1 ring-line',
-				disabled && 'opacity-40',
-			)}
-		>
-			<span
-				aria-hidden="true"
-				className={cn(
-					'ext-toggle-knob absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-paper',
-					'shadow-sm',
-					checked ? 'translate-x-4' : 'translate-x-0',
-				)}
-			/>
-		</button>
-	);
 }
 
 function StatusPill({
@@ -238,7 +201,7 @@ function PluginRow({
 				label={active ? '已启用' : '未启用'}
 				cls={active ? 'text-ink-soft' : 'text-mute'}
 			/>
-			<Toggle
+			<Switch
 				checked={active}
 				disabled={!masterOn || busy !== null}
 				label={`${plugin.enabled ? '停用' : '启用'}插件 ${plugin.name}`}
@@ -339,7 +302,7 @@ function McpRow({
 					</button>
 				) : null}
 				{!pending && !server.denied ? (
-					<Toggle
+					<Switch
 						checked={active}
 						disabled={!masterOn || busy !== null}
 						label={`${server.enabled ? '停用' : '启用'}MCP ${server.id}`}
@@ -458,7 +421,7 @@ function SkillRow({
 				label={enabled ? '已启用' : '已停用'}
 				cls={enabled ? 'text-ink-soft' : 'text-mute'}
 			/>
-			<Toggle
+			<Switch
 				checked={enabled}
 				disabled={!masterOn || busy !== null}
 				label={`${explicitOff ? '启用' : '停用'}技能 ${name}`}
