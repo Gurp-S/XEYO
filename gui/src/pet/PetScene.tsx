@@ -3,9 +3,9 @@ import type {PointerEvent as ReactPointerEvent} from 'react';
 import type {CharacterLocation, IslandCompanionMode} from '@/pasture/core/ContextIslandState';
 import {invokePet} from '@/pet/PetBridge';
 import {usePetFacing} from '@/pet/usePetFacing';
-import {stateForLegacyMode} from '@/XeyoPet/PetStateBridge';
-import {XeyoPet} from '@/XeyoPet/XeyoPet';
-import type {LoadedPetManifest} from '@/XeyoPet/types';
+import {stateForLegacyMode} from '@/pet/core/PetStateBridge';
+import {XeyoPet} from '@/pet/core/XeyoPet';
+import type {LoadedPetManifest} from '@/pet/core/types';
 
 const PET_EXTRACT_HOLD_MS = 2000;
 

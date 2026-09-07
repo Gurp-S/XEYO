@@ -1,7 +1,7 @@
 import {useEffect, useState} from 'react';
-import {loadSelectedPet} from '@/XeyoPet/PetCatalog';
-import {stateForPetContext} from '@/XeyoPet/PetStateBridge';
-import type {LoadedPetManifest} from '@/XeyoPet/types';
+import {loadSelectedPet} from '@/pet/core/PetCatalog';
+import {stateForPetContext} from '@/pet/core/PetStateBridge';
+import type {LoadedPetManifest} from '@/pet/core/types';
 import {useSettingsStore} from '@/stores/settingsStore';
 import {fetchPetContext, listenPetContext, type PetContextPayload} from '@/pet/PetBridge';
 import type {CharacterLocation} from '@/pasture/core/ContextIslandState';
