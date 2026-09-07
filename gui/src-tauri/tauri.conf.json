@@ -43,7 +43,9 @@
       "icons/icon.png",
       "icons/icon.ico"
     ],
-    "resources": [],
+    "resources": {
+      "resources/python/": "python/"
+    },
     "windows": {
       "certificateThumbprint": null,
       "digestAlgorithm": "sha256",

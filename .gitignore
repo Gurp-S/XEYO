@@ -146,3 +146,6 @@ api_key.txt
 # python 测试临时目录与一次性调试脚本
 python/.tmp-*/
 python/dbg_*.py
+
+# Tauri 安装包资源：精简 Python 引擎（构建脚本产物，不入库）
+gui/src-tauri/resources/python/
