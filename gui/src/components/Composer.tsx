@@ -22,6 +22,7 @@ import {
 } from 'react';
 import {fetchFileReferences, fetchSkills, uploadFile, uploadMedia, resumeInbox, type SkillInfo} from '@/lib/api';
 import {createTaAutoResize} from '@/lib/taAutoResize';
+import {TypingCaret, type CaretColorRange, type TypingCaretApi} from '@/components/composer/TypingCaret';
 import {
 	activeBackendSessionId,
 	type InboxQueuedItem,
@@ -288,6 +289,10 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 	const [taExpanded, setTaExpanded] = useState(false);
 	/** 光标位置：slash 弹层按「光标处词元」判定，支持消息中途输入 / 唤起。 */
 	const [taCaret, setTaCaret] = useState(0);
+	/** 拖选方向：自绘光标跟 focus 端,与原生 caret 行为一致。 */
+	const [taCaretDir, setTaCaretDir] = useState<'forward' | 'backward' | 'none'>('forward');
+	/** textarea 聚焦态:自绘光标聚焦浮现、失焦隐没。 */
+	const [taFocused, setTaFocused] = useState(false);
 	/** Esc / 点击外部临时关闭弹层；输入变化后自动恢复。 */
 	const [slashDismissed, setSlashDismissed] = useState(false);
 	/** 弹层键盘高亮（扁平列表下标：技能组在前、命令组在后）；hover 与键盘共用。 */
@@ -313,8 +318,8 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 	const quickMenuId = useId();
 	/** 点选候选项后待应用的光标位置（等 DOM value 提交后再 setSelectionRange）。 */
 	const pendingCaretRef = useRef<number | null>(null);
-	/** slash 着色覆盖层（镜像 textarea 文本，给 /词元 上色）。 */
-	const slashOverlayRef = useRef<HTMLDivElement>(null);
+	/** 自绘光标重测出口(TypingCaret):textarea 滚动后视觉坐标重算。 */
+	const caretApiRef = useRef<TypingCaretApi | null>(null);
 	/** 技能清单缓存：workspace → skills。 */
 	const slashSkillsRef = useRef<Record<string, SkillInfo[]>>({});
 	const activeIdRef = useRef(activeId);
@@ -704,44 +709,38 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 		pendingCaretRef.current = caret;
 	};
 
-	// slash 着色覆盖层：/词元 命中命令 → 橙、命中技能 → 蓝（前缀也算，输入中即着色）。
-	// URL（https://…）、路径（src/foo）整体是一个非空白词元，不以 / 开头，不会误着色。
-	// ghost hint（claim hint 语义）：首词元精确命中命令/技能且参数空白时，
-	// 在词元后展示灰字提示（零 DOM 侵入草稿，仅覆盖层显示，不参与提交）。
-	const slashOverlay = useMemo(() => {
+	// slash 着色 + ghost hint:由「镜像覆盖层 + 自绘光标」(TypingCaret)统一渲染。
+	// /词元 命中命令 → 橙、命中技能 → 蓝(前缀也算,输入中即着色)——这里只算
+	// 字符区间(闭开,UTF-16),渲染交给 TypingCaret 的逐字符镜像。
+	// URL(https://…)、路径(src/foo)整体是一个非空白词元,不以 / 开头,不会误着色。
+	const caretColoring = useMemo(() => {
 		if (imeComposing || !value.includes('/')) {
-			return null;
+			return {ranges: [] as CaretColorRange[], hint: ''};
 		}
+		const ranges: CaretColorRange[] = [];
 		const parts = value.split(/(\s+)/);
+		let off = 0;
 		let colored = false;
-		const nodes = parts.map((part, i) => {
+		for (const part of parts) {
 			if (part && part.startsWith('/') && part.length > 1) {
 				const color = slashLeadingColor(part.slice(1), slashSkills);
 				if (color) {
 					colored = true;
-					// 强调色统一走主题 accent token（黑白基调主题下与整体同相）。
-					return (
-						<span key={i} className="text-accent">
-							{part}
-						</span>
-					);
+					ranges.push({start: off, end: off + part.length});
 				}
 			}
-			return part;
-		});
-		const ghostHint = slashGhostHint(value, slashSkills);
-		if (ghostHint) {
-			nodes.push(
-				<span key="__ghost_hint" className="select-none text-ink/40">
-					{ghostHint}
-				</span>,
-			);
+			off += part.length;
 		}
-		return colored || ghostHint ? nodes : null;
+		// ghost hint(claim hint 语义):首词元精确命中命令/技能且参数空白时,
+		// 在词元后展示灰字提示(零 DOM 侵入草稿,仅覆盖层显示,不参与提交)。
+		const hint = slashGhostHint(value, slashSkills) ?? '';
+		return colored || hint ? {ranges, hint} : {ranges: [] as CaretColorRange[], hint: ''};
 	}, [value, slashSkills, imeComposing]);
 
-	// 覆盖层接管显示时隐藏 textarea 原文，只留光标，避免两层文字叠影。
-	const slashColoring = slashOverlay !== null;
+	// 自绘光标接管条件:非 IME 且文本量在阈值内(超大文本退回原生,保编辑流畅)。
+	// 接管时 textarea 文字隐藏(text-transparent),原生光标 caret-color: transparent。
+	const CARET_MAX_CHARS = 2000;
+	const caretOverlayActive = !imeComposing && value.length <= CARET_MAX_CHARS;
 
 	useEffect(() => {
 		if (!remoteLoggedIn) {
@@ -1548,21 +1547,26 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 										setTaCaret(e.target.selectionStart ?? e.target.value.length);
 									}}
 									onSelect={e => {
-										// 方向键/点击移动光标时同步词元位置
+										// 方向键/点击/拖选移动光标:同步词元位置 + 方向(自绘光标跟 focus 端)
 										setTaCaret(e.currentTarget.selectionStart ?? 0);
+										setTaCaretDir(e.currentTarget.selectionDirection ?? 'forward');
 									}}
 									onKeyDown={onKeyDown}
 									onPaste={onPaste}
 									onCompositionStart={() => setImeComposing(true)}
 									onCompositionEnd={() => setImeComposing(false)}
 									onScroll={e => {
-										if (slashOverlayRef.current) {
-											slashOverlayRef.current.scrollTop =
-												e.currentTarget.scrollTop;
-										}
+										caretApiRef.current?.reposition();
+										void e.currentTarget.scrollTop;
 									}}
-									onFocus={() => setSlashDismissed(false)}
-									onBlur={() => setSlashDismissed(true)}
+									onFocus={() => {
+										setSlashDismissed(false);
+										setTaFocused(true);
+									}}
+									onBlur={() => {
+										setSlashDismissed(true);
+										setTaFocused(false);
+									}}
 									onContextMenu={(e: ReactMouseEvent<HTMLTextAreaElement>) => {
 										const el = taRef.current;
 										if (!el) {
@@ -1574,19 +1578,20 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 									placeholder="描述任务… Enter 发送"
 									className={cn(
 										'min-h-[36px] w-full resize-none bg-transparent px-3 pt-3 text-left font-sans text-[14px] leading-6 text-ink outline-none transition-[height] duration-200 [transition-timing-function:var(--ease-out-soft)] placeholder:text-mute/65',
-										/* 着色层接管显示时隐藏原文，只留可见光标，避免两层文字叠影 */
-										slashColoring && 'text-transparent caret-accent',
+										/* 自绘光标接管显示:原文隐藏 + 原生 caret 透明(IME/超大文本自动回退),避免两层文字叠影 */
+										caretOverlayActive && 'text-transparent [caret-color:transparent]',
 									)}
 								/>
-								{slashColoring ? (
-									<div
-										ref={slashOverlayRef}
-										aria-hidden
-										className="pointer-events-none absolute inset-0 z-[4] overflow-hidden whitespace-pre-wrap break-words px-3 pt-3 font-sans text-[14px] leading-6 text-ink"
-									>
-										{slashOverlay}
-									</div>
-								) : null}
+								<TypingCaret
+									value={value}
+									caret={taCaret}
+									caretDir={taCaretDir}
+									colorRanges={caretColoring.ranges}
+									ghostHint={caretColoring.hint}
+									focused={taFocused}
+									active={caretOverlayActive}
+									apiRef={caretApiRef}
+								/>
 								{taCapped || taExpanded ? (
 									<button
 										type="button"
