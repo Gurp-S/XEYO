@@ -120,7 +120,9 @@ html[data-scheme="dark"] .xy-stream-md .xy-code-surface {
 /* 娴佸紡 鈫?闈欐€佸垏鎹㈡椂琛ㄩ潰搴曡壊娓愬彉锛岄伩鍏?settle 鐬棿鏁村潡闂彉銆?*/
 .xy-md-surface,
 .xy-code-surface {
-  transition: background-color 0.25s ease, border-color 0.25s ease;
+  transition:
+    background-color 0.25s ease,
+    border-color 0.25s ease;
 }
 
 /* Changes 面板 */
@@ -319,8 +321,8 @@ html[data-scheme="dark"] .xy-code-fade {
    + 纸基，层源全部来自 AppShell 暴露的 --xy-bg-*（与 L0 逐层同源）。
    background-position 由 pinOverlay/apply 按芯片窗口原点逐帧内联写入（对齐 L0 像素），
    因此不再需要 content clip-path 挖孔。 */
-html[data-xy-selfwallpaper='1'] [data-pin-id] .xy-user-prompt,
-html[data-xy-selfwallpaper='1'] [data-pin-id] .xy-editing-bubble {
+html[data-xy-selfwallpaper="1"] [data-pin-id] .xy-user-prompt,
+html[data-xy-selfwallpaper="1"] [data-pin-id] .xy-editing-bubble {
   background-color: var(--xy-paper) !important;
   background-image:
     linear-gradient(var(--xy-user-bubble), var(--xy-user-bubble)),
@@ -391,7 +393,7 @@ html[data-xy-selfwallpaper='1'] [data-pin-id] .xy-editing-bubble {
 
 /* 吸顶 portal 编辑：legacy 挖孔路径禁止位移/缩放/动画（避免洞与气泡不同步、抖动）。
    自绘壁纸模式（默认）无挖孔，放行 xy-editing-bubble-in 入场淡入，让查看↔编辑平滑而非硬切。 */
-html[data-xy-selfwallpaper!='1'] [data-pin-id] .xy-editing-bubble {
+html[data-xy-selfwallpaper!="1"] [data-pin-id] .xy-editing-bubble {
   animation: none;
 }
 
@@ -401,7 +403,7 @@ html[data-xy-selfwallpaper!='1'] [data-pin-id] .xy-editing-bubble {
    chip 由 PromptTextClamp 的常驻 RO/MO 打标（syncPromptClampOverflow），保证
    从未吸顶的长历史气泡也有淡出。用 opacity 过渡（默认 0），平滑淡入淡出。 */
 .xy-user-prompt::after {
-  content: '';
+  content: "";
   position: absolute;
   left: 0;
   right: 0;
@@ -421,7 +423,7 @@ html[data-xy-selfwallpaper!='1'] [data-pin-id] .xy-editing-bubble {
   );
 }
 
-.xy-user-prompt[data-xy-overflow='1']::after {
+.xy-user-prompt[data-xy-overflow="1"]::after {
   opacity: 1;
 }
 
@@ -499,12 +501,12 @@ html[data-xy-sticky-bubbles="on"] .xy-prompt-sticky {
   top: 0;
 }
 
-.xy-prompt-sticky[data-xy-stuck='1'] > [data-xy-prompt-chip] {
+.xy-prompt-sticky[data-xy-stuck="1"] > [data-xy-prompt-chip] {
   visibility: hidden;
 }
 
 /* 非吸顶编辑：提高层级；表面与常态同一 token */
-.xy-prompt-sticky:has(.xy-editing-bubble):not([data-xy-stuck='1']) {
+.xy-prompt-sticky:has(.xy-editing-bubble):not([data-xy-stuck="1"]) {
   z-index: 50;
 }
 
@@ -589,49 +591,71 @@ html[data-scheme="dark"] body {
     var(--color-paper);
 }
 
-
 /* ── 自绘光标(TypingCaret.tsx,选型 3·macOS 弹性微过冲 白色版) ── */
 /* 自绘光标(TypingCaret)双档运动版(2026-09-08,web-motion 逐帧诊断后定稿)。
    颜色必须跟 --xy-ink:浅色主题=墨、深色主题=近白;硬编码 #f5f5f7 在浅色
-   作曲卡上几乎不可见(录屏实测,整帧找不到光标),勿改回定值。 */
+   作曲卡上几乎不可见(录屏实测,整帧找不到光标),勿改回定值。
+   可视条 ::after 用 bottom 锚定 → 高度变化只向上生长:变矮=顶部下沉、
+   底边钉在原位(2026-09-08 用户指定方向)。
+   尺寸旋钮:--xy-gcaret-h(常态高)/ xy-moving 里的同变量(拉伸高)/
+   width(粗细)。改常态高后若垂直居中差 1~2px,同步 TypingCaret.tsx 里
+   placeCaret 的 -2.5 偏移 ≈ (24 - 高度)/2。 */
 .xy-gcaret {
+  /* 壳高恒锁常态值(bottom 锚定基准);可视条单独伸缩 */
+  --xy-gcaret-rest: 19px; /* ← 常态高度(底边锚定) */
+  --xy-gcaret-h: var(--xy-gcaret-rest);
   position: absolute;
   left: 0;
   top: 0;
   z-index: 5;
-  width: 2.5px;
-  height: 19px;
-  border-radius: 2.5px;
-  background: var(--xy-ink);
-  box-shadow: 0 0 8px color-mix(in srgb, var(--xy-ink) 45%, transparent);
+  width: 2px;          /* ← 粗细 */
+  height: var(--xy-gcaret-rest);
   pointer-events: none;
   opacity: 0;
   transform: translate3d(-100px, -100px, 0);
   transform-origin: center;
-  /* macro 档(点选/Home/End/换行/粘贴):轻过冲弹簧 + 移动拉伸 */
+  /* macro 档(点选/Home/End/换行/粘贴):轻过冲弹簧;壳只管位移与显隐 */
   transition:
     transform 170ms cubic-bezier(0.3, 1.18, 0.35, 1),
-    height 150ms cubic-bezier(0.3, 1.1, 0.4, 1),
     opacity 0.18s ease;
+}
+/* 可视条:bottom:0 钉在壳底 → 拉伸向上长、变矮顶部下沉 */
+.xy-gcaret::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  height: var(--xy-gcaret-h);
+  border-radius: 2.5px;
+  background: var(--xy-ink);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--xy-ink) 45%, transparent);
+  transition: height 150ms cubic-bezier(0.3, 1.1, 0.4, 1);
 }
 /* fast 档(连续打字/退格/左右单步):纯 ease-out 紧贴,零过冲不拉伸。
    Timing 原则:即时反馈 ≤100ms;150ms 弹簧每键重启 = 光标永远追文本。 */
 .xy-gcaret.xy-fast {
   transition:
     transform 68ms cubic-bezier(0.22, 1, 0.36, 1),
-    height 90ms ease,
     opacity 0.18s ease;
+}
+.xy-gcaret.xy-fast::after {
+  transition: height 90ms ease;
 }
 /* snap 档(首次落位/失焦重现/滚动跟踪):位移瞬时,只留浮现过渡 */
 .xy-gcaret.xy-snap {
   transition: opacity 0.18s ease;
 }
+.xy-gcaret.xy-snap::after {
+  transition: none;
+}
 .xy-gcaret.xy-on {
   opacity: 1;
 }
-/* 拉伸只属于 macro 大跳的手势感;打字微移保持 19px 静态 */
+/* 拉伸只属于 macro 大跳的手势感;打字微移保持常态高。
+   只改可视条变量,壳高不动 → 条从底边向上生长 */
 .xy-gcaret.xy-moving {
-  height: 24px;
+  --xy-gcaret-h: 24px; /* ← 拉伸态高度(比常态高 3~5px 有弹性感) */
 }
 /* 呼吸:0.18 下限太狠(忽明忽暗),0.35 读感沉稳;打字期间 xy-idle 被
    摘除 = 常亮,停手 560ms 后从最亮起步,无"亮→暗→骤亮"跳变 */
@@ -650,6 +674,11 @@ html[data-scheme="dark"] body {
 @media (prefers-reduced-motion: reduce) {
   .xy-gcaret {
     transition: opacity 0.15s ease;
+  }
+  .xy-gcaret::after,
+  .xy-gcaret.xy-fast::after,
+  .xy-gcaret.xy-snap::after {
+    transition: none;
   }
   .xy-gcaret.xy-idle {
     animation: none;
