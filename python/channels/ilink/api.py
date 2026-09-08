@@ -10,7 +10,10 @@ from pydantic import BaseModel
 
 from channels import api as remote_api
 from channels.ilink import broadcast as il_broadcast
-from channels.ilink.service import get_bridge, start, status_payload, stop
+# status_payload 的实现与模块态在 stream.py(ruff F401 曾把 service 的 re-export
+# 误删致 app 启动即 ImportError,2026-09-08 修复——不要合并回单行 service import)。
+from channels.ilink.service import get_bridge, start, stop
+from channels.ilink.stream import status_payload
 from model.openai_compat import PROVIDER_PRESETS
 from server.local_gate import loopback_or_remote_token
 from server.session_pool import ModelConfig
