@@ -65,7 +65,7 @@ def test_p0_tool_round_skips_memory_index(monkeypatch):
 	assert "# Continue" in blob
 	assert "Memory index" not in blob
 	assert "Tool Test Result" not in blob
-	assert "Multi-Agent preference" in blob or MULTI_AGENT_HINT[:40] in blob
+	assert "用户开启了 multi-agent" in blob
 
 
 def test_p0_user_turn_no_longer_pushes_memory_index(monkeypatch):

@@ -126,14 +126,14 @@ async def test_max_turns_allows_three_shared_grace_turns_and_stops():
 	assert model.tools[-1] == model.tools[0]
 	assert len(model.tools[-1]) > 0
 
-	warning = "任务已经运行较久，请检查进度并准备收尾。"
+	warning = "回合数已接近上限。"
 	requests_with_warning = [
 		_request_text(messages).count(warning) for messages in model.messages
 	]
 	assert requests_with_warning == [0, 0, 0, 1, 0, 0, 0]
 	# 提醒挂 T_now，不得进 system 左段（KV）。
 	assert all(warning not in _system_text(m) for m in model.messages)
-	wrapup = "# Wrap-up required"
+	wrapup = "# Wrap-up(预算已尽)"
 	assert wrapup in _request_text(model.messages[-1])
 	assert wrapup not in _system_text(model.messages[-1])
 	assert all(wrapup not in _request_text(m) for m in model.messages[:-1])

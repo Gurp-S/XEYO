@@ -214,7 +214,7 @@ def test_wrap_up_survives_and_single(monkeypatch):
 		InjectContext(working=None, include_memory_index=True, forced_wrap_up=True),
 	)
 	joined = "\n".join(_text_blocks(out[-1]))
-	assert joined.count("Wrap-up required") == 1
+	assert joined.count("Wrap-up(预算已尽)") == 1
 	assert "浏览器预览" not in joined  # 模糊轮已静默
 
 
@@ -263,10 +263,6 @@ def test_proposals_digest_no_longer_pushed(tmp_path, monkeypatch):
 	"""
 	from memory.working import WorkingSnapshot
 
-	monkeypatch.setattr(
-		"memory.instruction_maintain.stale_instruction_notice",
-		lambda _cwd, commit=True: "",
-	)
 	monkeypatch.setattr(
 		"memory.instruction_maintain.format_proposals_digest",
 		lambda _wsid: "# XEYO.md 写入提案（未自动应用）\n- (×3) 评测偏好用中文",
@@ -344,10 +340,6 @@ def test_nested_tail_window_filters_stale_dirs(tmp_path, monkeypatch):
 			str(other / "XEYO.md"),
 		],
 	)
-	monkeypatch.setattr(
-		"memory.instruction_maintain.stale_instruction_notice",
-		lambda _cwd, commit=True: "",
-	)
 	# 尾窗只触碰 pkg；末条带路径标记（非模糊轮）
 	projected = _read_turn(pkg, "继续改 pkg/foo.py 的校验逻辑")
 	out = run_pre_llm_inject(
@@ -369,10 +361,6 @@ def test_nested_tail_window_silent_when_no_recent_touch(tmp_path, monkeypatch):
 		session_id="t",
 		loaded_nested_instruction_paths=[str(pkg / "XEYO.md")],
 	)
-	monkeypatch.setattr(
-		"memory.instruction_maintain.stale_instruction_notice",
-		lambda _cwd, commit=True: "",
-	)
 	out = run_pre_llm_inject(
 		[{"role": "user", "content": "聊点别的吧，说说你今天遇到的有趣事情"}],
 		InjectContext(working=snap, cwd=str(tmp_path)),
@@ -393,10 +381,6 @@ def test_nested_tail_window_subtree_touch_remounts(tmp_path, monkeypatch):
 	snap = WorkingSnapshot(
 		session_id="t",
 		loaded_nested_instruction_paths=[str(pkg / "XEYO.md")],
-	)
-	monkeypatch.setattr(
-		"memory.instruction_maintain.stale_instruction_notice",
-		lambda _cwd, commit=True: "",
 	)
 	projected = [
 		{"role": "user", "content": "先看子目录"},
@@ -458,7 +442,8 @@ def test_query_loop_wires_plan_decay():
 	assert "approved_plan_decays_on" in src
 	assert "approved_plan = None" in src
 	assert "plan_pointer = True" in src
-	# 证据优先豁免条款进 T_now 模板（turn_context / pre_llm_inject 任一来源）
+	# 裁决 4：指针块只留指针事实，无引擎引导条款。
 	from prompt.turn_context import PLAN_POINTER_BLOCK
 
-	assert "以证据为准" in PLAN_POINTER_BLOCK
+	assert "已开始按已批准计划实施" in PLAN_POINTER_BLOCK
+	assert "以证据为准" not in PLAN_POINTER_BLOCK

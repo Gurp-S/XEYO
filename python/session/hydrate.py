@@ -1,9 +1,9 @@
 """把 transcript JSONL 行还原成 Message（坏行跳过）。
 
 T4：tail-scan 未闭合 tool_use → 合成确定性 tool_result，防厂商 400：
-- 只读工具：``TOOL_NOT_STARTED``（未执行，可安全重试）；
+- 只读工具：``TOOL_NOT_STARTED``（未执行）；
 - 其余（写/副作用，含未知工具，fail-closed）：``TOOL_OUTCOME_UNKNOWN``
-  （可能已执行，先核实状态再继续，勿盲目重试）。
+  （可能已执行；纯事实，防重放副作用由引擎执行层承担）。
 """
 
 from __future__ import annotations
@@ -102,12 +102,14 @@ def _repair_unclosed_tool_uses(messages: list[Message]) -> list[Message]:
 			if name in readonly:
 				text = (
 					f"[{name}] TOOL_NOT_STARTED — 上一进程在工具开始前中断；"
-					"该调用未执行，可安全重试。"
+					"该调用未执行。"
 				)
 			else:
+				# F5 裁决：纯事实；防重放副作用由引擎执行层承担
+				# （write_store missing_read 门 / unchanged 短路 / 语法门）。
 				text = (
 					f"[{name}] TOOL_OUTCOME_UNKNOWN — 上一进程中断且该调用"
-					"可能已执行；先核实文件/状态再继续，勿盲目重试。"
+					"可能已执行。"
 				)
 			out.append(tool_result_message(uid, name, text, is_error=True))
 		i = j

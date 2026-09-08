@@ -7,7 +7,7 @@ from datetime import date
 
 
 from prompt.assembler import PromptAssembler
-from prompt.system_prompt import TOOL_POLICY, assemble_system_prompt, fetch_system_prompt_parts
+from prompt.system_prompt import assemble_system_prompt, fetch_system_prompt_parts
 
 FIXED = "2026-08-18"
 
@@ -30,7 +30,8 @@ def test_left_has_no_date_even_when_date_iso_passed(tmp_path, monkeypatch):
 	assert f"Date: {FIXED}" not in text
 	assert "Date:" not in text
 	assert f"CWD: {root}" in text
-	assert "getTime" in TOOL_POLICY
+	# A1 裁决：TOOL_POLICY 已从左段删除——任何工具纪律文本不再出现。
+	assert "getTime" not in text
 
 
 def test_left_has_no_today_date(tmp_path, monkeypatch):

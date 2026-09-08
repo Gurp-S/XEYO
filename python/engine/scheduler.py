@@ -743,16 +743,16 @@ class Scheduler:
         original = self._original_desc.get(task_id, "")
         t = self._tasks.get(task_id)
         paths = list((t.files_touched if t else []) or (t.scope if t else []) or [])
-        hint = ""
+        # B5 裁决：只留 retry 计数与"哪些文件已被改动"的事实；重试动作由模型自决。
+        fact = ""
         if paths:
-            hint = (
-                "Re-read these files before editing (do not replay writes already "
-                f"on disk): {', '.join(paths[:12])}\n\n"
+            fact = (
+                "Files modified since dispatch: "
+                f"{', '.join(paths[:12])}\n\n"
             )
         return (
             f"[Patch retry {attempt}/{MAX_PATCH_RETRIES}] "
-            "Merge or re-apply your changes onto the latest version of the file(s). "
-            f"{hint}"
+            f"{fact}"
             f"{original}"
         )
 

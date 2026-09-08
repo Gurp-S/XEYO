@@ -52,7 +52,7 @@ def test_run_pre_llm_inject_does_not_mutate_input():
 	)
 	assert projected[0]["content"] == "hi"
 	assert out is not projected
-	assert "Wrap-up required" in _joined_user_texts(out)
+	assert "Wrap-up(预算已尽)" in _joined_user_texts(out)
 
 
 def test_repeat_guard_block_injected_as_t_now(monkeypatch):
@@ -89,10 +89,6 @@ def test_after_tools_hangs_new_nested_skips_memory(tmp_path, monkeypatch):
 	monkeypatch.setattr(
 		"memory.runtime.memory_index_context_block",
 		lambda: "# Memory index\nshould-not-appear",
-	)
-	monkeypatch.setattr(
-		"memory.instruction_maintain.stale_instruction_notice",
-		lambda _cwd, commit=True: "# XEYO.md 可能过时\nstale-should-not",
 	)
 	monkeypatch.setattr(
 		"memory.instruction_maintain.format_proposals_digest",
@@ -158,10 +154,6 @@ def test_nested_hangs_on_non_tool_tail(tmp_path, monkeypatch):
 	(pkg / "foo.py").write_text("x=1\n", encoding="utf-8")
 
 	monkeypatch.setattr("memory.runtime.memory_index_context_block", lambda: "")
-	monkeypatch.setattr(
-		"memory.instruction_maintain.stale_instruction_notice",
-		lambda _cwd, commit=True: "",
-	)
 	monkeypatch.setattr(
 		"memory.instruction_maintain.format_proposals_digest",
 		lambda _wsid: "",
@@ -325,7 +317,7 @@ def test_attach_turn_context_thin_wrapper_compat(monkeypatch):
 		include_memory_index=False,
 	)
 	joined = _joined_user_texts(out)
-	assert "Wrap-up required" in joined
+	assert "Wrap-up(预算已尽)" in joined
 	assert "Runtime budget notice" in joined
 	assert projected[0]["content"] == "hi"
 
@@ -438,58 +430,6 @@ def test_read_scan_tail_only():
 	assert old_path not in paths
 
 
-def test_stale_commit_only_when_injected(tmp_path, monkeypatch):
-	"""注入成功进 T_now 后才 refresh stamp。"""
-	root = tmp_path / "proj"
-	root.mkdir()
-	snap = WorkingSnapshot(session_id="t")
-	calls: list[str] = []
-
-	def fake_stale(cwd, commit=True):
-		if commit:
-			return ""
-		return "# XEYO.md 可能过时\n探测文件已变：package.json。"
-
-	def fake_refresh(cwd):
-		calls.append(cwd)
-		return {}
-
-	monkeypatch.setattr("memory.runtime.memory_index_context_block", lambda: "")
-	monkeypatch.setattr(
-		"memory.instruction_maintain.format_proposals_digest",
-		lambda _wsid: "",
-	)
-	monkeypatch.setattr(
-		"memory.instruction_maintain.stale_instruction_notice",
-		fake_stale,
-	)
-	monkeypatch.setattr(
-		"memory.instruction_maintain.refresh_instruction_stamp",
-		fake_refresh,
-	)
-	out = run_pre_llm_inject(
-		[{"role": "user", "content": "hi"}],
-		InjectContext(working=snap, cwd=str(root), include_memory_index=True),
-	)
-	joined = _joined_user_texts(out)
-	assert "可能过时" in joined
-	assert len(calls) == 1
-	assert Path(calls[0]).resolve() == root.resolve() or calls[0] == str(root)
-
-
-def test_stale_peek_without_commit(tmp_path):
-	from memory.instruction_maintain import stale_instruction_notice
-
-	root = tmp_path / "proj"
-	root.mkdir()
-	(root / "package.json").write_text('{"dependencies":{"a":"1"}}', encoding="utf-8")
-	assert stale_instruction_notice(str(root)) == ""
-	(root / "package.json").write_text('{"dependencies":{"a":"2"}}', encoding="utf-8")
-	peek = stale_instruction_notice(str(root), commit=False)
-	assert "过时" in peek or "package.json" in peek
-	assert stale_instruction_notice(str(root), commit=False)
-
-
 def test_previous_reasoning_tail_is_injected():
 	"""批次1：思考截选仅工具续写轮注入；fresh-user 轮不注入（旧任务残留）。"""
 	from prompt.pre_llm_inject import InjectContext, run_pre_llm_inject
@@ -509,7 +449,8 @@ def test_previous_reasoning_tail_is_injected():
 	blob = str(out)
 	assert "上一轮思考回顾" in blob
 	assert "下一步该读配置文件" in blob
-	assert "不要逐字重复" in blob
+	# B4 裁决：只给信息，不带"不要逐字重复…"导演句。
+	assert "不要逐字重复" not in blob
 
 	fresh = run_pre_llm_inject(
 		[{"role": "user", "content": "新问题"}],

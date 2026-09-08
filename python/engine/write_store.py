@@ -281,7 +281,7 @@ class WriteStore:
                 reason="missing_read",
                 base_stale=True,
                 version=current,
-                detail="Read the file before writing when using WriteStore",
+                detail="missing_read: no prior Read for this path in this session",
             )
 
         new_content = _compute_new_content(intent.ops[0], path)
@@ -320,9 +320,10 @@ class WriteStore:
             _journal_logger.exception(
                 "write_store journal record failed path=%s", path
             )
+            # F3 裁决：只报事实，不带"请检查"类说教（排查动作在引擎日志侧）。
             journal_warning = (
                 f"[journal] rewind 证据记录失败（{type(journal).__name__}）："
-                "本次写操作已落盘但未进入可回溯日志，请检查磁盘/权限。"
+                "本次写操作已落盘但未进入可回溯日志。"
             )
         self._note_presence_write(path, session_id)
 

@@ -1,52 +1,27 @@
 """系统提示词组装。
 
-左段顺序：Identity → env → XEYO.md → Tool policy → append。
+左段顺序：Identity → env → FENCE → XEYO.md → append。
 项目结构/依赖不自动注入：人写进 XEYO.md，需要时用工具现查。
 记忆行为规则已下沉到各记忆工具的 description。
 MEMORY.md 索引不在左段（mutation 会弄废整段 KV 前缀），由 runtime 追加到投影 T_now 尾部。
 custom_system_prompt / append_system_prompt 只允许 append，不得整段替换 default+instructions。
+
+理念红线（2026-09-08 用户裁决）：引擎不向模型注意力注入任何纪律/建议/劝导
+文本——行为约束一律由执行层（权限/路由/工具门）静默强制。左段只保留身份、
+环境事实与安全围栏声明。
 """
 
 from __future__ import annotations
-
-import os
 
 from dataclasses import dataclass, field
 from typing import Any, Sequence
 
 from prompt.fence import FENCE_POLICY
 
-# 单一身份入口（中文主场景；GUI / CLI / side-chat / 子 agent 前缀共用）
+# 单一身份入口（中文主场景；GUI / CLI / side-chat / 子 agent 前缀共用）。
+# 裁决 2：身份句不含行为要求（"回答简洁/需要时用工具"已删）。
 IDENTITY = (
 	"你是 XEYO，桌面与微信场景下的编程助手。"
-	"回答简洁；需要时用工具；代码用 fenced code block。"
-)
-
-# 左段只留跨工具纪律；细则在各工具短 description（schema 预算）与全文 prompt。
-TOOL_POLICY = (
-	"工具策略：可并行的只读工具同一回合一起调用；信息够了就停，勿重复空搜或重读已读文件。"
-	"文件操作只用专用工具：找文件名→Glob（可 path/分页）、找内容→Grep（path/glob 过滤）、"
-	"读→Read（offset/limit）、改→Edit、写→Write、git 只读→Git；"
-	"Bash 只用于无专用工具的命令（构建/测试/安装/进程/网络），勿用 Bash cat/find/ls/rg 绕开。"
-	"时刻用 getTime，勿臆造日期。TodoWrite 仅在步骤状态变化时 merge 更新，勿用相同清单刷屏。"
-	"长流程用 Skill 按需加载，勿塞进 XEYO.md；项目约定写短指针，结构用工具现查。"
-	"分钟级长命令用 Bash run_in_background 先领活再干别的；完成会自动通知，"
-	"凭通知 job_output 收结果；终答前收掉仍相关的任务，不再重要的 job_kill，勿空转轮询。"
-	"改码后 Diagnostics(path=文件)；仓库用 Git(summary)；外网需确认："
-	"已知文档 URL 只 WebFetch；不知 URL 则一次 WebSearch，不够再 Fetch 最相关 1 条；勿连搜或批量 Fetch。"
-	"宣布任务完成前，反问自己一遍：是否有遗漏或缺失的步骤？是否真的满足原始要求的全部条目？"
-	"对照要求逐项确认，未验证过的先验证，再结束。"
-	+ FENCE_POLICY
-)
-
-# 子 agent：短工人附录（勿塞整份 XEYO.md / Memory 索引）；scope 由硬门禁强制。
-SUBAGENT_APPEND = (
-	"你是短命子 Agent。只完成指派任务；"
-	"写文件仅限任务 scope（空 scope 则只读，系统会拒写）；"
-	"仓库状态用 Git 工具；Bash 仅短只读命令（echo/dir/git status/rg 等），"
-	"不可解释器脚本、管道复合、后台或写盘；不要 spawn 子 Agent、不要用 Memory。"
-	"信息够就立刻停：禁止空转重复 Glob/Grep/Read；"
-	"结论用简洁中文要点，勿粘贴整文件，供主 Agent 汇总。"
 )
 
 
@@ -66,38 +41,31 @@ def get_default_system_prompt_parts(
 	tool_names: Sequence[str],
 	date_iso: str | None = None,
 ) -> list[str]:
-	"""身份 + 环境 + 工具策略。
+	"""身份 + 环境 + 安全围栏。
 
 	Date / Model 都不进左段：避免换日/换模型打爆 KV；需要时刻时用 getTime。
 	``date_iso`` / ``model`` 仍保留在签名与 memo 键中（兼容调用方），但不写入正文。
 	工具名清单不进左段：以 API ``tools`` schemas 为准。
 	侧聊（side）模式不注入 CWD 行：侧聊不绑定工作区叙事，路径由工具按需现查。
+
+	TOOL_POLICY / SUBAGENT_APPEND 已删（2026-09-08 理念裁决 A1/A2）：
+	行为约束由执行层（权限/路由/工具门）静默强制，不再写进注意力。
+	左段 defaults = [identity, env, FENCE_POLICY]。
 	"""
 	_ = tool_names, model, date_iso
 	from permissions.policy import side_mode
 
-	# 基准评测最小档案（XEYO_BENCH_MINIMAL=1）：文件/Skill/Agent 等工具未注册，
-	# 提示词同步去除相应句段（bash-only 工作方式），其余逐字节不变。
-	policy = TOOL_POLICY
-	if os.environ.get("XEYO_BENCH_MINIMAL") == "1":
-		policy = policy.replace("长流程用 Skill 按需加载，勿塞进 XEYO.md；项目约定写短指针，结构用工具现查。", "")
-		policy = policy.replace(
-			"文件操作只用专用工具：找文件名→Glob（可 path/分页）、找内容→Grep（path/glob 过滤）、"
-			"读→Read（offset/limit）、改→Edit、写→Write、git 只读→Git；"
-			"Bash 只用于无专用工具的命令（构建/测试/安装/进程/网络），勿用 Bash cat/find/ls/rg 绕开。",
-			"本会话为 bash-only 环境：文件的查找/读取/编辑/写入一律用 Bash（cat/heredoc/sed/find/grep 等），"
-			"写文件优先 heredoc（cat > 路径 <<'EOF'），编辑优先 python3 或 sed；产物必须写到任务要求的精确路径。",
-		)
-
+	# XEYO_BENCH_MINIMAL 不再改写左段文本（原 TOOL_POLICY 替换段已随 A1 删除；
+	# bench 最小化只由工具注册面控制）。
 	if side_mode():
 		return [
 			IDENTITY,
-			policy,
+			FENCE_POLICY,
 		]
 	return [
 		IDENTITY,
 		f"CWD: {cwd}",
-		policy,
+		FENCE_POLICY,
 	]
 
 
@@ -174,7 +142,7 @@ def assemble_system_prompt_parts(
 	defaults 约定：[identity, env, tool_policy]。
 	"""
 	defaults = [s.strip() for s in parts.default_system_prompt if s and s.strip()]
-	# 前两段固定为身份 + 环境；其余为 tool policy
+	# 前两段固定为身份 + 环境；其余为安全围栏（FENCE_POLICY）
 	identity_env = defaults[:2]
 	rest = defaults[2:]
 	chunks: list[str] = []

@@ -67,11 +67,9 @@ PLAN_MODE_INSTRUCTIONS = (
 )
 
 WRAP_UP_INSTRUCTIONS = (
-	"# Wrap-up required\n"
-	"本请求已进入收尾(预算/回合已到上限):收尾工具配额内仍可落盘/验证,"
-	"但不得开始新的探索、安装或长时间任务。"
-	"优先把当前已完成的成果写入其目标产物路径,然后立刻给出尽力而为的最终回答;"
-	"写明已确认的事实与仍不确定或未完成之处。"
+	"# Wrap-up(预算已尽)\n"
+	"本请求的预算/回合已达上限，引擎已开启收尾窗；"
+	"剩余收尾工具配额内工具仍可执行。"
 )
 
 
@@ -136,7 +134,6 @@ OUTPUT_MODE_VARIANTS: dict[str, str] = {
 		"报错：精简（高危除外）\n"
 		"长会话约束:\n"
 		"每轮输出长度不得递增禁止随对话变冗长。"
-		"若检测到单轮输出超过上一轮 120%自动截断并重写。"
 	),
 	"ultra": (
 		"句子风格：极简碎片\n"
@@ -148,7 +145,6 @@ OUTPUT_MODE_VARIANTS: dict[str, str] = {
 		"报错：完整原文\n"
 		"长会话约束:\n"
 		"每轮输出长度不得递增禁止随对话变冗长。"
-		"若检测到单轮输出超过上一轮 120%自动截断并重写。"
 	),
 }
 
@@ -250,7 +246,7 @@ def browser_preview_block() -> str:
 	return (
 		"# 浏览器预览（background only）\n"
 		f"url: {url}\n"
-		"读页面正文用 WebFetch(url=…)；非用户新提问。"
+		"WebFetch 可以读页面正文；非用户新提问。"
 	)
 
 
@@ -323,8 +319,8 @@ def pending_jobs_block() -> str:
 					docker_bg_mark_delivered(j["job_id"])
 				return (
 					"# Background jobs（background only）\n"
-					"以下后台任务已完成，输出尚未领取。用 job_output(job_id=…) 收结果"
-					"后继续或收尾。\n" + rows
+					"以下后台任务已完成，输出尚未领取。"
+					"job_output(job_id=…) 可收取输出。\n" + rows
 				)
 		except Exception:  # noqa: BLE001
 			return ""
@@ -332,7 +328,7 @@ def pending_jobs_block() -> str:
 	return (
 		"# Background jobs（background only）\n"
 		"以下后台任务在你看不到的时机完成了。这是完成通知，不是新任务；"
-		"用 job_output 收结果后继续或收尾，不再相关的可 job_kill。\n"
+		"job_output 可收取输出，job_kill 可终止任务。\n"
 		+ digest
 	)
 def budget_mirror_block(budget: Any, working: Any) -> str:
@@ -381,7 +377,7 @@ def budget_mirror_block(budget: Any, working: Any) -> str:
 	if parts:
 		out += " | ".join(parts) + "\n"
 	if todo_lines:
-		out += "未完成计划项（交付前自查）：\n" + "\n".join(todo_lines[:12]) + "\n"
+		out += "未完成计划项：\n" + "\n".join(todo_lines[:12]) + "\n"
 	return out
 
 
@@ -622,14 +618,13 @@ def file_conflict_block(cwd: str, self_id: str, paths: list[str]) -> str:
 		return ""
 	if not conflicts:
 		return ""
-	lines = ["# 文件冲突（background only — 写入前请先重新 Read）"]
+	lines = ["# 文件冲突（background only）"]
 	for rel, (label, ts) in sorted(conflicts.items()):
 		try:
 			when = time.strftime("%H:%M", time.localtime(ts))
 		except Exception:  # noqa: BLE001
 			when = "不久前"
 		lines.append(f"- `{rel}` 于 {when} 被会话「{label}」写入")
-	lines.append("这些文件与你所见快照不同，写入/编辑前先 Read 再重放你的修改。")
 	return "\n".join(lines)
 
 
@@ -823,7 +818,7 @@ T_NOW_INVENTORY_MAX = 2_500
 #      「能不能不进上下文」（引擎能强制的，一律不给模型看）。
 # 执法：tests/test_t_now_block_registry.py。
 # ---------------------------------------------------------------------------
-T_NOW_BLOCK_HARD_CAP = 23  # 22→23：补登 23ca693 预算镜像块（预算不破——仅死线会话渲染且受 6k 总预算闸，正常会话零字节）
+T_NOW_BLOCK_HARD_CAP = 21  # 23→21：裁决 5 删除 stale_xeyo_md / nested_change 两块（提醒类退出注意力，状态维护转引擎静默）
 
 T_NOW_BLOCK_REGISTRY: dict[str, dict[str, str]] = {
 	"continue": {
@@ -861,14 +856,6 @@ T_NOW_BLOCK_REGISTRY: dict[str, dict[str, str]] = {
 	"nested_instructions": {
 		"klass": "inventory",
 		"why": "子目录规则按需加载；限窗注入，滚出尾窗静默",
-	},
-	"nested_change": {
-		"klass": "inventory",
-		"why": "嵌套规则变更墓碑 diff；确认送达后才 commit（T17）",
-	},
-	"stale_xeyo_md": {
-		"klass": "directive",
-		"why": "规则文件已过时的提醒；确认进投影才刷 stamp",
 	},
 	"compact": {
 		"klass": "directive",
@@ -1084,8 +1071,7 @@ def run_pre_llm_inject(
 			(
 				KLASS_DIRECTIVE,
 				"# 上一轮思考回顾（截选）\n"
-				"你在上一轮模型调用中已经推理过，结尾如下。这是延续，不是新任务；"
-				"不要逐字重复同样的推理，直接在此基础上决定下一步动作。\n"
+				"你在上一轮模型调用中已经推理过，结尾如下（延续，不是新任务）：\n"
 				f"{ctx.previous_reasoning_tail.strip()}",
 			)
 		)
@@ -1104,17 +1090,17 @@ def run_pre_llm_inject(
 	# 重置、子代理豁免——不新增注册条目、不动 T_NOW_BLOCK_HARD_CAP。
 	try:
 		from engine.repeat_guard import current_advice
-		from engine.stagnation_watch import current_stall_advice
 
+		# C3 裁决（2026-09-08）：stagnation_watch 已删——引擎检测到停滞不再
+		# 生成劝导文本，行为纠偏交给执行层失败信号；本块只消费 repeat 的
+		# 事实性信息（同签名重复计数）。
 		rep = current_advice()
-		stall = current_stall_advice()
-		combined = "\n".join(x for x in (rep, stall) if x)
+		combined = rep
 		if combined and not ctx.subagent:
 			# #2 完成度提示（思想蒸馏自 Todo DAG「失败要局部化」）并入同块：
-			# advice 非空 = 引擎已检出卡住/重复证据，此刻补渲染"已完成 X/Y +
-			# 剩余项"纯事实，提醒弱模型单步卡住 ≠ 整份计划作废、已完成的探索
-			# 不白费。常态零注入；与停滞监测同块消费先例一致——不新增注册
-			# 条目、不动 T_NOW_BLOCK_HARD_CAP（消融随 repeat_guard）。
+			# advice 非空 = 引擎已检出重复证据，此刻补渲染"已完成 X/Y +
+			# 剩余项"纯事实。常态零注入——不新增注册条目、不动
+			# T_NOW_BLOCK_HARD_CAP（消融随 repeat_guard）。
 			block_text = f"# Repeat guard（background only）\n{combined}"
 			if ctx.working is not None:
 				try:
@@ -1131,8 +1117,6 @@ def run_pre_llm_inject(
 	except Exception:
 		_log.debug("repeat advice inject failed", exc_info=True)
 
-	pending_stale_commit_cwd: str | None = None
-	pending_nested_change = False
 	allow_instr = bool(
 		ctx.instructions_enabled() and ctx.working is not None and (ctx.cwd or "").strip()
 	)
@@ -1158,28 +1142,15 @@ def run_pre_llm_inject(
 		if nested_block:
 			_tag_block(tagged, "nested_instructions", (KLASS_INVENTORY, nested_block))
 
-		# T17：已加载嵌套指令的更新/移除墓碑 diff（commit 仅在块幸存后发生）
+		# 裁决 5（2026-09-08）：stale XEYO.md 提醒与嵌套变更通知块已删——
+		# 规则文件的内容变化由 Nested 块实时读取自然生效；引擎只静默维护
+		# 嵌套登记状态（reconcile_nested_state），不给模型任何"请检查/停止参照"。
 		try:
-			from memory.instruction_maintain import nested_change_notice
+			from memory.instruction_maintain import reconcile_nested_state
 
-			change = nested_change_notice(ctx.working, commit=False)
-			if change:
-				_tag_block(tagged, "nested_change", (KLASS_INVENTORY, change))
-				pending_nested_change = True
+			reconcile_nested_state(ctx.working)
 		except Exception:
-			_log.debug("nested change notice failed", exc_info=True)
-
-		if not after_tools:
-			try:
-				from memory.instruction_maintain import stale_instruction_notice
-
-				# commit=False：确认进最终 blocks 后再刷 stamp
-				stale = stale_instruction_notice(cwd, commit=False)
-				if stale:
-					_tag_block(tagged, "stale_xeyo_md", (KLASS_DIRECTIVE, stale))
-					pending_stale_commit_cwd = cwd
-			except Exception:
-				_log.debug("stale inject failed", exc_info=True)
+			_log.debug("reconcile nested state failed", exc_info=True)
 		# 批次1：Proposals digest 不再推送 T_now——模型对候选晋升无可执行
 		# 动作（NightShift / 人工确认），纯 ambient 噪音。拉取通道：
 		# /proposals slash 命令；Memory(action=search) 结果附带候选计数行
@@ -1354,36 +1325,9 @@ def run_pre_llm_inject(
 	if (
 		ctx.forced_wrap_up
 		and "wrap_up" not in _skipped_blocks()
-		and not any(t.startswith("# Wrap-up required") for _k, t in kept)
+		and not any(t.startswith("# Wrap-up(预算已尽)") for _k, t in kept)
 	):
 		kept.append((KLASS_DIRECTIVE, _wrap_up_block_text()))
-
-	# stale 只有真正进入 T_now 才 commit stamp，避免「刷过但模型看不见」
-	if pending_stale_commit_cwd:
-		stale_survived = any(
-			(b or "").lstrip().startswith("# XEYO.md 可能过时") for _k, b in kept
-		)
-		if stale_survived:
-			try:
-				from memory.instruction_maintain import refresh_instruction_stamp
-
-				refresh_instruction_stamp(pending_stale_commit_cwd)
-			except Exception:
-				_log.debug("refresh_instruction_stamp failed", exc_info=True)
-
-	# T17：嵌套变更通知真正进入 T_now 才 commit（摘墓碑 / 刷新登记哈希）
-	if pending_nested_change:
-		change_survived = any(
-			(b or "").lstrip().startswith("# Nested instructions 变更")
-			for _k, b in kept
-		)
-		if change_survived:
-			try:
-				from memory.instruction_maintain import nested_change_notice
-
-				nested_change_notice(ctx.working, commit=True)
-			except Exception:
-				_log.debug("nested change commit failed", exc_info=True)
 
 	# ---- P1/A1 分仓 / 方案A 环境声道 ----
 	# env_channel：全部块装进一对仅存在于投影的伪造 tool 对尾插——

@@ -28,7 +28,6 @@ from engine.repeat_guard import (
 	clear_advice,
 )
 from engine.repeat_fold import IdenticalResultFold
-from engine.stagnation_watch import StagnationWatch, clear_stall_advice
 from memory.l5_flag import c2_gate, l5_mode
 from memory.runtime import (
 	c2_llm_summary_enabled,
@@ -780,10 +779,6 @@ async def query_loop(
     # R2'：同签名·同输出字节级折叠（结果写入 store 前替换为一行 [fold] 事实；
     # 每 submit 新建 → 与 repeat_guard 同步的用户输入级重置）。
     result_fold = IdenticalResultFold()
-    # 停滞监测（todo 契约执行侧；仅 bench 档案启用，XEYO_TODO_CONTRACT=0 关闭；
-    # advice 与 repeat_guard 同块消费，只提醒不拒执行）。
-    stall_watch = StagnationWatch(budget)
-    clear_stall_advice()
     # 零命中前提复核：不同查询累计空结果 ≥2 起追加中立提示。
     zero_hit_tracker = ZeroHitTracker()
     # tu.id → 该调用结果上要追加的零命中提示文本。
@@ -1072,8 +1067,6 @@ async def query_loop(
             # T6：ACTION_ADVICE 不改写 ToolResult——提醒经 T_now
             # （pre_llm_inject 的 Repeat guard 块）在下一轮模型请求前注入。
             _ = guard_action
-            # 停滞监测：同一准入点观察（只计数与产提醒，不拒执行）。
-            stall_watch.observe(tu.name, tu.input)
             # R3'：收尾窗配额内的调用由引擎配额计数封顶，跳过 budget 的
             # tool-cap 拒绝（该闸防失控循环，wrap 配额与其语义重叠）。
             if not forced_wrap_up and not budget.begin_tool_call():

@@ -1223,7 +1223,6 @@ def build_default_engine(
     """
     import os
 
-    from prompt.system_prompt import SUBAGENT_APPEND
     from tools.catalog import build_default_registry
 
     work_cwd = cwd or os.getcwd()
@@ -1356,7 +1355,7 @@ def build_default_engine(
     # 共享 PromptAssembler（主会话与子 agent 一致，便于复用缓存/前缀）
     shared_assembler: PromptAssembler = PromptAssembler()
 
-    # 子 agent：A3 稳定前缀 + SUBAGENT_APPEND（工人角色，不含微信策略）
+    # 子 agent：A3 稳定前缀（工人角色；append 段已随理念裁决 A2 删除）
     from engine.subagent_runner import SubagentRuntime
     from tools.catalog import inject_subagent_runtime, shared_read_state
 
@@ -1365,7 +1364,6 @@ def build_default_engine(
             model_client=model_client,
             prompt_assembler=shared_assembler,
             workspace_root=work_cwd,
-            append_system_prompt=SUBAGENT_APPEND,
             date_iso=date.today().isoformat(),
             read_state=shared_read_state(registry),
         )

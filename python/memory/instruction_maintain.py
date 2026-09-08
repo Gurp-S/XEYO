@@ -29,14 +29,6 @@ _DERIVABLE_PATTERNS = (
 	re.compile(r"(?i)\btop[- ]?level dirs?\b"),
 )
 
-_STALE_PROBES = (
-	"package.json",
-	"gui/package.json",
-	"pyproject.toml",
-	"requirements.txt",
-	".github/workflows",
-)
-
 MINIMAL_TEMPLATE = """# XEYO 项目说明（指针式，保持简短）
 
 ## 常用命令
@@ -374,80 +366,6 @@ def format_proposals_digest(wsid: str) -> str:
 	return "\n".join(lines)
 
 
-def _stamp_path(workspace_root: str) -> Path:
-	return Path(workspace_root).expanduser().resolve() / ".xeyo" / "instruction_stamp.json"
-
-
-def _probe_fingerprint(workspace_root: str) -> dict[str, str]:
-	root = Path(workspace_root).expanduser().resolve()
-	out: dict[str, str] = {}
-	for rel in _STALE_PROBES:
-		p = root / rel
-		try:
-			if p.is_file():
-				h = hashlib.sha256(p.read_bytes()).hexdigest()[:16]
-				out[rel] = f"file:{h}"
-			elif p.is_dir():
-				names = sorted(x.name for x in p.iterdir())[:32]
-				blob = "|".join(names).encode()
-				out[rel] = f"dir:{hashlib.sha256(blob).hexdigest()[:16]}"
-		except OSError:
-			continue
-	return out
-
-
-def refresh_instruction_stamp(workspace_root: str) -> dict[str, str]:
-	fp = _probe_fingerprint(workspace_root)
-	path = _stamp_path(workspace_root)
-	path.parent.mkdir(parents=True, exist_ok=True)
-	payload = {"probes": fp, "updated_at": datetime.now(timezone.utc).isoformat()}
-	path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-	return fp
-
-
-def stale_instruction_notice(workspace_root: str, *, commit: bool = True) -> str:
-	"""探测文件相对上次 stamp 有变 → 提醒检查 XEYO.md（不自动改）。
-
-	``commit=True``（默认）：返回非空时立刻刷 stamp，避免每轮重复刷。
-	``commit=False``：只计算文案，由调用方确认已注入模型后再
-	``refresh_instruction_stamp``，避免「刷过 stamp 但模型没看见」。
-	首次建 stamp / 坏 stamp 仍立即写盘（无 notice 可展示）。
-	"""
-	try:
-		root = str(Path(workspace_root).expanduser().resolve())
-	except OSError:
-		return ""
-	path = _stamp_path(root)
-	current = _probe_fingerprint(root)
-	if not current:
-		return ""
-	if not path.is_file():
-		refresh_instruction_stamp(root)
-		return ""
-	try:
-		prev = json.loads(path.read_text(encoding="utf-8"))
-		old = prev.get("probes") if isinstance(prev, dict) else {}
-		if not isinstance(old, dict):
-			old = {}
-	except (OSError, json.JSONDecodeError):
-		refresh_instruction_stamp(root)
-		return ""
-	changed = [k for k, v in current.items() if old.get(k) != v]
-	# 新出现的探测也算
-	changed += [k for k in current if k not in old]
-	changed = sorted(set(changed))
-	if not changed:
-		return ""
-	notice = (
-		"# XEYO.md 可能过时\n"
-		f"探测文件已变：{', '.join(changed[:6])}。"
-		"请检查常用命令/禁区是否仍正确；细则用工具现查，勿把依赖列表写进 md。"
-	)
-	if commit:
-		refresh_instruction_stamp(root)
-	return notice
-
-
 def discover_nested_instruction_files(
 	file_path: str,
 	workspace_root: str,
@@ -607,24 +525,22 @@ def note_read_path_for_nested(
 	return new
 
 
-def nested_change_notice(
-	working: Any,
-	*,
-	commit: bool = False,
-) -> str:
-	"""T17：已加载嵌套指令的更新/移除检测 → T_now diff 通知。
+def reconcile_nested_state(working: Any) -> None:
+	"""T17 状态维护（裁决 5，2026-09-08）：静默版 nested_change_notice。
 
-	- 文件被删 → 移除墓碑（commit 时从 loaded 列表摘除，停止渲染）。
-	- SHA-1 与登记时不符 → 「已更新」（commit 时刷新登记哈希）。
-	``commit=True`` 只在通知真正进入最终 blocks 后调用（沿用 stale stamp 范式）。
+	原「变更通知块」已删——嵌套规则文件的内容变化由 `_format_nested_block`
+	实时读取自然生效；本函数只做引擎侧状态卫生，不产生任何模型可见文本：
+	- 文件被删 → 从 loaded 列表摘除并清哈希（墓碑静默清理）；
+	- SHA-1 与登记不符 → 刷新登记哈希；
+	- 从未登记哈希（旧会话迁移）→ 补登记。
 	"""
 	loaded = list(getattr(working, "loaded_nested_instruction_paths", None) or [])
 	hashes = getattr(working, "nested_hashes", None)
 	if not isinstance(hashes, dict):
 		hashes = {}
 		working.nested_hashes = hashes
-	updates: list[str] = []
 	removed: list[str] = []
+	updated: list[str] = []
 	for p in loaded:
 		try:
 			cur = Path(p)
@@ -636,29 +552,17 @@ def nested_change_notice(
 		digest = _sha1_file(p)
 		prev = hashes.get(p, "")
 		if prev and prev != digest:
-			updates.append(p)
+			updated.append(p)
 		elif not prev:
-			# 从未登记哈希（旧会话迁移）：补登记，不报警
 			hashes[p] = digest
-	if not updates and not removed:
-		return ""
-	if commit:
-		if removed:
-			working.loaded_nested_instruction_paths = [
-				p for p in loaded if p not in set(removed)
-			]
-			for p in removed:
-				hashes.pop(p, None)
-		for p in updates:
-			hashes[p] = _sha1_file(p)
-	lines: list[str] = ["# Nested instructions 变更（background only）"]
-	if updates:
-		names = "、".join(Path(p).name for p in updates[:6])
-		lines.append(f"- 已更新：{names} —— 下一轮 Nested 块将是新内容，勿沿用旧印象。")
 	if removed:
-		names = "、".join(Path(p).name for p in removed[:6])
-		lines.append(f"- 已移除：{names} —— 该嵌套指令已失效，停止参照。")
-	return "\n".join(lines)
+		working.loaded_nested_instruction_paths = [
+			p for p in loaded if p not in set(removed)
+		]
+		for p in removed:
+			hashes.pop(p, None)
+	for p in updated:
+		hashes[p] = _sha1_file(p)
 
 
 __all__ = [
@@ -673,12 +577,10 @@ __all__ = [
 	"refresh_instruction_proposals",
 	"list_pending_proposals",
 	"format_proposals_digest",
-	"stale_instruction_notice",
-	"refresh_instruction_stamp",
 	"discover_nested_instruction_files",
 	"load_nested_instruction_text",
 	"note_read_path_for_nested",
-	"nested_change_notice",
+	"reconcile_nested_state",
 	"_sha1_text",
 	"_sha1_file",
 ]

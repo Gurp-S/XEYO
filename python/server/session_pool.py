@@ -12,7 +12,6 @@ from engine.query_engine import QueryEngine, QueryEngineConfig
 from model.openai_compat import OpenAICompatClient
 from msgtypes.message import Message
 from prompt.assembler import PromptAssembler
-from prompt.system_prompt import SUBAGENT_APPEND
 from tools.catalog import build_default_registry
 
 class CwdConflictError(ValueError):
@@ -469,8 +468,8 @@ class SessionPool:
 			import logging
 
 			logging.getLogger(__name__).warning("mcp attach failed", exc_info=True)
-		# 身份与 Tool policy 已在 PromptAssembler 左段；勿再 append 第二段 You-are。
-		# 子 agent 用 SUBAGENT_APPEND（工人角色），不继承微信/截图策略。
+		# 身份与安全围栏已在 PromptAssembler 左段；勿再 append 第二段 You-are。
+		# 子 agent 不再附加任何文本附录（理念裁决 A2：约束由执行层强制）。
 		assembler = PromptAssembler()
 		config: QueryEngineConfig = {
 			"cwd": cwd,
@@ -524,7 +523,6 @@ class SessionPool:
 				model_client=model,
 				prompt_assembler=assembler,
 				workspace_root=cwd,
-				append_system_prompt=SUBAGENT_APPEND,
 				date_iso=date.today().isoformat(),
 				read_state=shared_read_state(reg),
 			),

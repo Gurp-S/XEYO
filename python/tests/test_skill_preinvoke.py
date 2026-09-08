@@ -88,8 +88,9 @@ def test_preinvoke_injects_body(fake_skills, tmp_path: Path):
 	assert "<skill_content>" in block and "</skill_content>" in block
 	assert "1. 先读 diff" in block
 	assert "/review 直接调用" in block
-	# 不再要求模型自己去调 Skill 工具
-	assert "不要" in block and "Skill 工具" in block
+	# 裁决 6：不指令"不要再调用"，改为能力说明。
+	assert "不要" not in block
+	assert "调用 Skill 工具返回的也是该内容" in block
 	_ = st
 
 

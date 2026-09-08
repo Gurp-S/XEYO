@@ -18,16 +18,9 @@ DESCRIPTION = (
 	"After tool_result(s), YOU write the final answer to the user."
 )
 
-# Composer Multi-Agent chip：挂到本轮 T_now，软偏向（不裁剪工具、不拦截收尾）。
+# Composer Multi-Agent chip：挂到本轮 T_now。E2 裁决：只告知事实
+# （用户开启了 multi-agent），不教模型怎么拆活——拆不拆、何时派由模型自决。
 MULTI_AGENT_HINT = (
-	"# Multi-Agent preference（用户已打开）\n"
-	"本回合优先用 Agent 工具拆活，而不是自己在主线程做完所有搜索/编辑。\n"
-	"何时 spawn：\n"
-	"- 两个以上互不重叠的目录/文件/子问题 → **同回合多次**调用 Agent（可并行），"
-	"不要「派一个→等结果→再派」串行浪费轮次\n"
-	"- 探索范围大、怕污染主对话上下文 → 交给子 Agent，拿 tool_result 再答\n"
-	"何时自己干：一句话问答、单文件小改、已读内容足够直接回答。\n"
-	"先用 Glob/Read 摸一眼可以；摸清边界后仍要拆时，立刻 Agent，勿把整活做完。\n"
-	"每个 Agent 写清 task_id + desc；有写路径就填**窄** scope（勿用 `.` 全仓）。\n"
-	"所有 Agent 的 tool_result 回来后，由你汇总写最终回答（勿再开分解流水线）。"
+	"# Multi-Agent（background only）\n"
+	"用户开启了 multi-agent（多代理）模式。"
 )

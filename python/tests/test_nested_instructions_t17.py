@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from memory.instruction_maintain import (
 	load_nested_instruction_text,
-	nested_change_notice,
 	note_read_path_for_nested,
+	reconcile_nested_state,
 )
 from memory.working import WorkingSnapshot, _from_dict, _to_dict
 from prompt.pre_llm_inject import _discover_nested_from_projection
@@ -82,10 +82,11 @@ def test_note_read_records_hashes(tmp_path):
 	assert len(new) == 1
 	assert snap.nested_hashes and list(snap.nested_hashes.values())[0]
 	# 无变更 → 无通知
-	assert nested_change_notice(snap) == ""
+	# 裁决 5：通知块已删，reconcile 静默维护状态、零文本。
+	assert reconcile_nested_state(snap) is None
 
 
-def test_change_notice_update_then_commit(tmp_path):
+def test_reconcile_refreshes_hash_silently(tmp_path):
 	pkg = tmp_path / "pkg"
 	pkg.mkdir()
 	nested = pkg / "XEYO.md"
@@ -94,17 +95,11 @@ def test_change_notice_update_then_commit(tmp_path):
 	note_read_path_for_nested(snap, str(pkg / "a.py"), str(tmp_path))
 
 	nested.write_text("规则 v2 —— 新增禁区", encoding="utf-8")
-	notice = nested_change_notice(snap, commit=False)
-	assert "已更新" in notice
-	assert "XEYO.md" in notice
-	# 未 commit：再查仍在
-	assert nested_change_notice(snap) != ""
-	# commit 后：哈希刷新，通知消失
-	nested_change_notice(snap, commit=True)
-	assert nested_change_notice(snap) == ""
+	reconcile_nested_state(snap)  # 哈希静默刷新，无任何模型可见输出
+	assert snap.loaded_nested_instruction_paths  # 文件仍在 → loaded 不动
 
 
-def test_change_notice_tombstone_on_removal(tmp_path):
+def test_reconcile_tombstone_on_removal(tmp_path):
 	pkg = tmp_path / "pkg"
 	pkg.mkdir()
 	nested = pkg / "XEYO.md"
@@ -115,14 +110,9 @@ def test_change_notice_tombstone_on_removal(tmp_path):
 	assert loaded
 
 	nested.unlink()
-	notice = nested_change_notice(snap, commit=False)
-	assert "已移除" in notice
-	# 未 commit：loaded 仍在
-	assert snap.loaded_nested_instruction_paths
-	nested_change_notice(snap, commit=True)
-	# commit：墓碑摘除，不再渲染
+	reconcile_nested_state(snap)
+	# 墓碑静默摘除（无通知块）
 	assert snap.loaded_nested_instruction_paths == []
-	assert nested_change_notice(snap) == ""
 
 
 def test_snapshot_roundtrip_nested_hashes(tmp_path):

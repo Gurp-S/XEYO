@@ -46,7 +46,7 @@ def test_attach_turn_context_injects_soft_hint():
 	last = out[-1]
 	content = last.get("content")
 	blob = content if isinstance(content, str) else str(content)
-	assert "Multi-Agent preference" in blob or MULTI_AGENT_HINT[:40] in blob
+	assert "用户开启了 multi-agent" in blob
 
 	plain = _attach_turn_context(
 		msgs,

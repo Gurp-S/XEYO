@@ -71,13 +71,14 @@ def test_partition_allows_multiple_agents_concurrent():
 
 
 def test_agent_always_registered_soft_hint():
-	"""无 chip 也可调 Agent；chip 文案为软偏向。"""
+	"""无 chip 也可调 Agent；chip 文案为纯事实(E2 裁决)。"""
 	from tools.agent_tool.prompt import DESCRIPTION, MULTI_AGENT_HINT
 	from tools.catalog import build_default_registry
 
 	reg = build_default_registry(cwd=".")
 	assert reg.get("Agent") is not None
 	assert "Always available" in DESCRIPTION
-	assert "Multi-Agent preference" in MULTI_AGENT_HINT
-	assert "优先用 Agent" in MULTI_AGENT_HINT
+	# E2 裁决：chip 只告知"用户开启了 multi-agent"这一事实，无行为偏向。
+	assert "multi-agent" in MULTI_AGENT_HINT
+	assert "优先用 Agent" not in MULTI_AGENT_HINT
 	assert "MUST" not in MULTI_AGENT_HINT

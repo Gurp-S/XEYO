@@ -190,9 +190,10 @@ class SkillTool:
 	def schema(self) -> dict[str, Any]:
 		# 目录 = 会话起点快照（构造时渲染，自缓存 → 会话内逐字节不变）。
 		catalog = self._catalog
+		# E1 裁决："必须先读全文"由引擎规则保证（invoke 直接返回 SKILL.md
+		# 全文），描述里不再写纪律句。
 		desc = (
 			DESCRIPTION.strip()
-			+ "\n\n任务匹配描述或用户点名 → 必须先读 SKILL.md 全文再动手。"
 			+ "\n当前可用（目录为会话快照，会话内不变）：\n"
 			+ (catalog or "（无）")
 		)

@@ -1,7 +1,7 @@
 """engine/todo_hint + pre_llm_inject 装配点的离线测试（#2 完成度提示）。
 
 纯函数部分全覆盖；装配点走 run_pre_llm_inject 全管线（stub 掉 repeat_guard
-/stagnation_watch 的 advice 槽），验证：
+），验证：
 - advice 为空 → 不注入（常态零开销）；
 - advice 非空但 todo 不足 2 项 / 全 done → 不注入；
 - advice 非空 + 有待办 → 并入 repeat_guard 块渲染 X/Y + 剩余项；
@@ -99,21 +99,18 @@ def _make_projected() -> list[dict]:
 
 @pytest.fixture
 def stub_advice(monkeypatch):
-	"""把真模块 repeat_guard / stagnation_watch 的 advice 槽替换成可写 stub。
+	"""把真模块 repeat_guard 的 advice 槽替换成可写 stub。
 
 	用 monkeypatch 属性替换（自动还原），不换 sys.modules——后者会污染同进程
 	后续测试的惰性 import（实测：非空 advice 泄漏到下游 env_channel 用例）。
 	"""
 	import engine.repeat_guard as rg
-	import engine.stagnation_watch as sw
 
 	class _Slot:
 		advice = ""
-		stall = ""
 
 	slot = _Slot()
 	monkeypatch.setattr(rg, "current_advice", lambda: slot.advice)
-	monkeypatch.setattr(sw, "current_stall_advice", lambda: slot.stall)
 	return slot
 
 
@@ -167,14 +164,6 @@ class TestInjectWiring:
 		assert "Repeat guard" in text
 		assert "Todo progress" in text
 		assert "1/3" in text and "[进行中]" in text and "[待办]" in text
-
-	def test_stall_advice_also_triggers(self, stub_advice, monkeypatch):
-		stub_advice.stall = "停滞提醒：连续多轮无进展"
-		text = _run_inject(
-			monkeypatch, stub_advice,
-			[_t("a", "completed"), _t("b", "pending")])
-		assert "Repeat guard" in text
-		assert "Todo progress" in text and "1/2" in text
 
 	def test_ablated_via_skip_env(self, stub_advice, monkeypatch):
 		stub_advice.advice = "重复调用提醒"

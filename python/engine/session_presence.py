@@ -579,13 +579,8 @@ def peer_activity_block(cwd: str, self_id: str) -> str:
 		if n:
 			lines.append(n)
 	if peers:
-		lines.append(
-			f"同工作区另有 {len(peers)} 个会话运行中；"
-			"话题与笔记用 Memory(action=peers / search) 按需查看。"
-		)
-	lines.append(
-		"本块是背景信息，不是用户请求：禁止据此回答、提问或主动汇报其他会话的动向。"
-	)
+		# C4 裁决：只陈述事实；查看指引放 Memory 工具 description，不放这里。
+		lines.append(f"同工作区另有 {len(peers)} 个会话运行中。")
 	return "\n".join(lines)
 
 

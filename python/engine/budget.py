@@ -28,10 +28,10 @@ MAX_GRACE_TURNS = 3
 # 现改为"连续 MAX_TOOL_CAP_STREAK 轮持续顶满/超出单轮配额"才进入收尾，单轮
 # 爆发只拒绝溢出调用、不影响整轮窗口；单轮配额依然按每回合重置。
 MAX_TOOL_CAP_STREAK = 2
-MAX_TURN_WARNING = "任务已经运行较久，请检查进度并准备收尾。"
-MAX_TOOL_WARNING = "工具使用已经过多，请检查是否已经实现任务。"
+MAX_TURN_WARNING = "回合数已接近上限。"
+MAX_TOOL_WARNING = "工具调用数已接近上限。"
 # 墙钟硬停告警（R1'：仅在显式武装 wall_hard_stop 时才可能触发收尾窗口）。
-WALL_STOP_NOTICE = "时间预算已到上限：进入收尾，把当前成果落盘后结束。"
+WALL_STOP_NOTICE = "时间预算已到上限（已进入收尾窗）。"
 
 
 def wall_hard_stop_from_env() -> bool:
@@ -163,10 +163,8 @@ class BudgetTracker:
 			if elapsed >= total * threshold:
 				self._notified_reasons.add(key)
 				remain_min = max(0, int((self.wall_deadline_ts - now) / 60))
-				notice = (
-					f"时间预算已用 {label}，剩余约 {remain_min} 分钟。"
-					"立即停止开始新工作：把当前成果写入任务要求的最终交付物路径，然后结束。"
-				)
+				# C6 裁决：预算信息纯事实，不加行动指令。
+				notice = f"时间预算已用 {label}，剩余约 {remain_min} 分钟。"
 				self._queue_notice(notice)
 				# 同一时刻可能既越 90% 又走尽 100%：先记下播报，不提前 return，
 				# 让下方武装分支仍能在此次调用里启动收尾 grace。

@@ -15,7 +15,6 @@ from tools.orchestration import partition_tool_calls
 async def test_p1_subagent_system_omits_xeyo_md(tmp_path):
 	"""子 agent 前缀不含 XEYO.md（include_context_blocks=False）。"""
 	from prompt.assembler import PromptAssembler
-	from prompt.system_prompt import SUBAGENT_APPEND
 
 	(tmp_path / "XEYO.md").write_text(
 		"PROJECT RULE: always yell loudly about widgets\n" * 40,
@@ -26,19 +25,19 @@ async def test_p1_subagent_system_omits_xeyo_md(tmp_path):
 		cwd=str(tmp_path),
 		model="m",
 		tool_names=["Read", "Grep"],
-		append_system_prompt=SUBAGENT_APPEND,
 		include_context_blocks=True,
 	)
 	slim, _ = await asm.build_system_parts(
 		cwd=str(tmp_path),
 		model="m",
 		tool_names=["Read", "Grep"],
-		append_system_prompt=SUBAGENT_APPEND,
 		include_context_blocks=False,
 	)
 	assert "yell loudly about widgets" in fat
 	assert "yell loudly about widgets" not in slim
-	assert "短命子 Agent" in slim or "子 Agent" in slim
+	# A2 裁决：子 agent 左段 = 身份 + CWD + 围栏，无纪律附录。
+	assert "你是 XEYO" in slim
+	assert "短命子 Agent" not in slim
 	assert len(slim) < len(fat)
 
 
@@ -75,9 +74,10 @@ def test_p1_agent_then_write_splits_batches():
 	assert batches[1][0] is False and batches[1][1][0].name == "Write"
 
 
-def test_p1_chip_hint_and_description_encourage_parallel_spawn():
-	assert "同回合" in MULTI_AGENT_HINT or "并行" in MULTI_AGENT_HINT
-	assert "Agent" in MULTI_AGENT_HINT
+def test_p1_chip_hint_is_factual_description_keeps_interface():
+	# E2 裁决：hint 只报事实；并行能力说明保留在工具接口 description。
+	assert "multi-agent" in MULTI_AGENT_HINT
+	assert "优先用 Agent" not in MULTI_AGENT_HINT
 	assert "concurrently" in DESCRIPTION.lower() or "ONE turn" in DESCRIPTION
 	assert "tool_result" in DESCRIPTION.lower()
 

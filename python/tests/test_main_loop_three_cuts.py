@@ -50,7 +50,7 @@ def test_append_blocks_after_tool_result_inserts_projection_user():
 		{"role": "assistant", "content": "…"},
 		{"role": "tool", "name": "Grep", "tool_call_id": "c1", "content": "hits"},
 	]
-	out = append_text_blocks_to_last_user(msgs, ["# Wrap-up required\nok"])
+	out = append_text_blocks_to_last_user(msgs, ["# Wrap-up(预算已尽)\nok"])
 	assert msgs[-1]["role"] == "tool"  # store / 投影入参未改
 	assert out[-1]["role"] == "user"
 	assert out[-1]["content"][0]["text"].startswith("# Wrap-up")
@@ -74,7 +74,7 @@ def test_attach_turn_context_after_tool_includes_wrap_up_and_notice(monkeypatch)
 		projected,
 		approved_plan="do the thing",
 		forced_wrap_up=True,
-		runtime_notice="工具使用已经过多，请检查是否已经实现任务。",
+		runtime_notice="工具调用数已接近上限。",
 		include_memory_index=False,
 	)
 	assert out[-1]["role"] == "user"
@@ -85,7 +85,7 @@ def test_attach_turn_context_after_tool_includes_wrap_up_and_notice(monkeypatch)
 		if isinstance(b, dict)
 	)
 	assert "Approved plan" in joined
-	assert "Wrap-up required" in joined
+	assert "Wrap-up(预算已尽)" in joined
 	assert "Runtime budget notice" in joined
 
 

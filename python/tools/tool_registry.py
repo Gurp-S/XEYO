@@ -447,11 +447,11 @@ class ToolRegistry:
 				agent_id=str(getattr(tool, "_agent_id", "") or ""),
 				matched_rule=str(getattr(decision, "matched_rule", "") or ""),
 			)
+			# F1 裁决：DENY 一律中性结果型（reason 已含机器可读原因）。
+			# decision.prompt 是给用户的 ASK 问句文案（如 "Allow executing: …"），
+			# 不得作为拒绝结果回给模型（语义错位）。
 			return ToolResult(
-				content=(
-					decision.prompt
-					or f"Permission denied: {decision.reason}"
-				),
+				content=f"Permission denied: {decision.reason}",
 				is_error=True,
 				metadata={"permission_reason": decision.reason},
 			)

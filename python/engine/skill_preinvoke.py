@@ -110,13 +110,12 @@ def preinvoke_skill_block(cwd: str, user_text: str) -> str:
 		return ""
 	body = _apply_arguments(body.strip(), args)
 	if len(body) > BODY_MAX:
-		body = body[:BODY_MAX].rstrip() + "\n\n…（技能正文过长已截断；完整内容用 Read 读 "
-		f"{entry.path / 'SKILL.md'} 继续。）"
+		body = body[:BODY_MAX].rstrip() + "\n\n…（技能正文过长已截断；完整内容在 "
+		f"{entry.path / 'SKILL.md'}，Read 可读。）"
 	return (
 		"# Skill invocation（用户直呼技能 — background only）\n"
 		f"用户在本轮消息里以 /{entry.name} 直接调用了技能「{entry.name}」。"
-		"以下是其 SKILL.md 全文，**即本轮任务的操作规程**：按它执行用户任务，"
-		"不要再调用 Skill 工具重复加载该技能。\n\n"
+		"以下是其 SKILL.md 全文（调用 Skill 工具返回的也是该内容）。\n\n"
 		"<skill_content>\n"
 		f"{body}\n"
 		"</skill_content>"

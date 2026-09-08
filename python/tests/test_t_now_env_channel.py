@@ -52,7 +52,7 @@ def test_env_channel_wraps_blocks_in_fabricated_pair():
 	projected = [{"role": "user", "content": "帮我修 bug"}]
 	out = run_pre_llm_inject(projected, InjectContext(cwd="", forced_wrap_up=True))
 	_use, res = _last_pair(out)
-	assert "Wrap-up required" in res["content"]
+	assert "Wrap-up(预算已尽)" in res["content"]
 	assert res["content"].startswith("[system-environment]")
 	# 用户消息保持原样——不再被任何注入块夹持（P1/A1 分仓退役）
 	assert out[0]["content"] == "帮我修 bug"
@@ -93,7 +93,7 @@ def test_legacy_strategy_preserves_user_tail_insert():
 		for b in content
 		if isinstance(b, dict) and b.get("type") == "text"
 	]
-	assert any("Wrap-up required" in t for t in texts if t)
+	assert any("Wrap-up(预算已尽)" in t for t in texts if t)
 	assert ENV_TOOL_NAME not in str(out)
 
 
@@ -107,7 +107,7 @@ def test_normalize_env_pair_to_openai_tool_messages():
 	assert norm[1]["tool_calls"][0]["function"]["name"] == ENV_TOOL_NAME
 	assert norm[2]["role"] == "tool"
 	assert norm[2]["tool_call_id"] == norm[1]["tool_calls"][0]["id"]
-	assert "Wrap-up required" in norm[2]["content"]
+	assert "Wrap-up(预算已尽)" in norm[2]["content"]
 
 
 def test_env_notice_header_declares_not_user():
@@ -116,6 +116,9 @@ def test_env_notice_header_declares_not_user():
 	assert "非用户消息" in ENV_NOTICE_HEADER
 	# 纯状态陈述：不含行为引导词（runtime mode snapshot 契约同款约束）
 	assert "继续" not in ENV_NOTICE_HEADER
+	# 裁决（2026-09-08）：环境头只做来源声明，不含"按其中约束"类抬格指令。
+	assert "按其中约束" not in ENV_NOTICE_HEADER
+	assert "状态通知" in ENV_NOTICE_HEADER
 	text = format_env_notice(["# 输出压缩铁律\nx", ""])
 	assert "[system-environment]" in text
 	assert "# 输出压缩铁律" in text
@@ -256,10 +259,6 @@ def test_env_nested_tail_window(tmp_path, monkeypatch):
 			str(pkg / "XEYO.md"),
 			str(other / "XEYO.md"),
 		],
-	)
-	monkeypatch.setattr(
-		"memory.instruction_maintain.stale_instruction_notice",
-		lambda _cwd, commit=True: "",
 	)
 	projected = [
 		{"role": "user", "content": "先看一下代码"},

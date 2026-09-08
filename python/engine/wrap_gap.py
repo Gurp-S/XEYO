@@ -4,7 +4,7 @@
 ----
 - TodoItem.output（R4，c86ad50）让"completed 但磁盘缺失"成为引擎可 stat 的
   确定性事实。收尾窗（forced_wrap_up）打开时，把这份缺口清单拼进
-  ``# Wrap-up required`` 引导，让模型的最后配额花在"把登记产物落盘"上，
+  ``# Wrap-up(预算已尽)`` 引导，让模型的最后配额花在"把登记产物落盘"上，
   而不是再开新探索或空泛收尾。
 - 不裁决、不拦截：只把 stat 结果作为事实呈现（fail-open——工具未注册、
   stat 异常、cwd 缺失一律产出空清单）。
@@ -89,7 +89,7 @@ def compose_gap_text(lines: list[str]) -> str:
 	"""缺口行 → 引导文本;空清单返回空串(wrap 装配直接跳过)。"""
 	if not lines:
 		return ""
-	return "收尾前请优先写入以下已登记产物(引擎已核对磁盘,仍缺失):\n" + "\n".join(lines)
+	return "以下已登记产物引擎核对磁盘仍缺失:\n" + "\n".join(lines)
 
 
 def compose_guide_text(quota: int, lines: list[str]) -> str:
@@ -100,7 +100,8 @@ def compose_guide_text(quota: int, lines: list[str]) -> str:
 	"""
 	parts: list[str] = []
 	if quota >= 0:
-		parts.append(f"剩余收尾工具配额:{quota} 次——仅用于写入产物/必要验证,不得开启新探索")
+		# F6 裁决：只报配额事实，不带"仅用于/不得"类文本约束。
+		parts.append(f"剩余收尾工具配额:{quota} 次")
 	gap = compose_gap_text(lines)
 	if gap:
 		parts.append(gap)

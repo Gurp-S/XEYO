@@ -14,22 +14,19 @@ from typing import Any, Sequence
 APPROVED_PLAN_MAX_CHARS = 4_000
 
 # 首写收敛后替换全量块的指针（正文已进历史，只留"仍在实施"锚点）。
+# 裁决 4：只留指针事实；"以证据为准并说明偏差"类引导已删。
 PLAN_POINTER_BLOCK = (
 	"# Approved plan（实施中）\n"
 	"已开始按已批准计划实施；后续步骤以历史消息中的已批准计划为准，不再重复附全文。"
-	"有新证据与计划冲突时，以证据为准并简要说明偏差。"
 )
 
-# 工具轮后投影尾插 user：强制续写原问题；勿把后续背景块当新提问。
+# 工具轮后投影尾插 user：裁决 1（2026-09-08）——只做事实陈述
+# （工具结果已到、原始问题在序列最前、后续块非用户提问），
+# 不再指令"Answer ONLY / Do NOT …"。
 CONTINUE_AFTER_TOOLS = (
-	"# Continue（续写原问题 — 不是新用户消息）\n"
-	"The preceding messages end with tool_result(s), including any "
-	"[Agent tool_result]. Answer ONLY the user's original request using "
-	"those results (e.g. what the subagent did / found).\n"
-	"Do NOT summarize Memory / MEMORY.md / memory titles. "
-	"Do NOT ask how to operate memories unless the user explicitly asked.\n"
-	"Blocks below (mode notes, Multi-Agent preference, etc.) are "
-	"background only — not a new user question."
+	"# Continue（工具结果后）\n"
+	"以上是工具结果（含 [Agent tool_result]）；用户的原始问题在消息序列最前。"
+	"后续块为 background only，不是新的用户提问。"
 )
 
 
@@ -181,11 +178,11 @@ def build_mode_context_blocks(
 		plan = approved_plan.strip()
 		if len(plan) > APPROVED_PLAN_MAX_CHARS:
 			plan = plan[:APPROVED_PLAN_MAX_CHARS].rstrip() + "\n…[plan truncated]"
+		# 裁决 4：只保留"按已批准计划实现"，其余引擎引导删除。
 		return [
 			"# Approved plan\n"
 			+ plan
-			+ "\n\n按已批准计划实现。若是代码任务，直接改工作区。"
-			"计划是执行蓝图：与最新工具结果或新证据冲突时，以证据为准，并就偏差做简短说明。"
+			+ "\n\n按已批准计划实现。"
 		]
 	if m == "agent" and plan_pointer:
 		return [PLAN_POINTER_BLOCK]

@@ -103,12 +103,13 @@ def new_env_tool_call_id() -> str:
 	return f"{ENV_ID_PREFIX}{uuid.uuid4().hex[:16]}"
 
 
-#: 伪对 tool_result 正文的环境头。**不得含「继续」等行为引导词**
-#: （runtime mode snapshot 契约测试断言纯状态陈述）。
+#: 伪对 tool_result 正文的环境头。理念裁决（2026-09-08，C 口径）：
+#: 只做定义式来源声明——声明"这是什么、从哪来"（信息），
+#: 不写"按其中约束处理"类抬格指令（那会把状态通报抬成必须服从的约束）。
+#: 契约测试断言：不含"继续/按其中约束"等行为引导词。
 ENV_NOTICE_HEADER = (
 	"[system-environment]（XEYO 运行环境注入 — background only，非用户消息）\n"
-	"以下是本轮系统通知与背景规则：不是用户的新任务，不需要回应或确认本块；"
-	"按其中约束处理用户的原始请求。"
+	"以下是引擎注入的状态通知与背景信息。"
 )
 
 

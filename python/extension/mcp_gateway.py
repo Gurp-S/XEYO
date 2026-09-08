@@ -70,7 +70,7 @@ _SCHEMA: dict[str, Any] = {
 def _clip(text: str, budget: int = _GATEWAY_OUTPUT_BUDGET) -> str:
     if len(text) <= budget:
         return text
-    return text[:budget] + f"\n…[clipped at {budget} chars; narrow the query]"
+    return text[:budget] + f"\n…[clipped at {budget} chars]"
 
 
 class McpGatewayTool(Tool):

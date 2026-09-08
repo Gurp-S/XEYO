@@ -171,11 +171,12 @@ def test_zero_hit_counts_distinct_signatures_only():
 
 
 def test_zero_hit_notice_neutral_and_at_threshold():
+	"""C2 裁决：只报第 N 次空结果这一事实，零评价、零建议。"""
 	text = ZeroHitTracker.notice(2)
 	assert str(ZERO_HIT_ADVICE_AT) in text
-	assert "回读用户原始请求" in text
-	# 中立性约束：绝不指向具体方向（如"外部依赖"），避免带偏模型。
-	for banned in ("依赖", "node_modules", "package"):
+	assert "空结果" in text
+	# 不带任何评价/劝导词。
+	for banned in ("可能", "请", "建议", "依赖", "node_modules", "package", "回读"):
 		assert banned not in text
 
 
@@ -298,8 +299,8 @@ class _AlwaysSameToolClient:
 	async def stream(self, messages, tools, abort):
 		# wrap-up 挂在 T_now（末条 user），不在 system 左段。
 		blob = "\n".join(str(m.get("content") or "") for m in (messages or []))
-		if "# Wrap-up required" in blob or not tools:
-			self.wrapup_seen = "# Wrap-up required" in blob or not tools
+		if "# Wrap-up(预算已尽)" in blob or not tools:
+			self.wrapup_seen = "# Wrap-up(预算已尽)" in blob or not tools
 			yield _Chunk(kind="text_delta", text="best-effort final answer")
 			return
 		yield _Chunk(
@@ -362,7 +363,7 @@ async def test_duplicate_calls_advise_without_blocking():
 		if isinstance(b, dict)
 	]
 	assert not any("[blocked duplicate tool call]" in c for c in tool_rows)
-	assert not any(RepeatCallGuard.hint_notice() in c for c in tool_rows)
+	assert not any("不要重复执行" in c or "基于已有结果直接作答" in c for c in tool_rows)
 	# 最终以 FinalEvent 收尾（而非空 error_max_turns）。
 	finals = [e for e in events if isinstance(e, FinalEvent)]
 	assert finals and finals[0].text.strip()

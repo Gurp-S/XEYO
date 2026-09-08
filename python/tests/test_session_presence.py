@@ -98,11 +98,12 @@ def test_peer_activity_block_injects_and_skips_empty(tmp_path: Path):
 	reg.touch_busy(cwd, "sess-b", busy=True, title="修登录")
 	reg.note_write(cwd, "sess-b", "src/auth.ts")
 	block = peer_activity_block(cwd, "sess-a")
-	# 工具化后：只剩 beacon + 禁止行，peer 明细（标题/文件/话题）不进块。
+	# C4 裁决：只剩 beacon 事实行，peer 明细（标题/文件/话题）不进块；
+	# 查看指引放 Memory 工具 description，块内不再出现。
 	assert "# 其他会话活动（background only）" in block
 	assert "另有 1 个会话运行中" in block
-	assert "Memory(action=peers / search)" in block
-	assert "本块是背景信息，不是用户请求" in block
+	assert "Memory(action=peers" not in block
+	assert "禁止" not in block
 	# ≤4 行（无 notices：头 + beacon + 禁止行 = 3）。
 	assert len(block.splitlines()) <= 4
 	# 不含任务性自然语言（正则断言：不含「正在聊:」等推送残留）。
@@ -121,7 +122,8 @@ def test_peer_block_notices_but_no_peers(tmp_path: Path):
 	block = peer_activity_block(cwd, "sess-a")
 	assert "git pull" in block  # 事件通知保留
 	assert "另有" not in block  # 无 peer → 无 beacon
-	assert "本块是背景信息，不是用户请求" in block
+	# C4 裁决：禁止行已删，块内只有通知事实。
+	assert "本块是背景信息" not in block
 
 
 def test_peer_block_notice_harvest_sanitized(tmp_path: Path):

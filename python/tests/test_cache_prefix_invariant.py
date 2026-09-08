@@ -115,7 +115,7 @@ def test_tnow_never_enters_system_segment():
     ctx = _activate_blocks()
     out = run_pre_llm_inject(msgs, ctx)
     system_text = "\n".join(_text_blobs([m for m in out if m.get("role") == "system"]))
-    assert "Wrap-up required" not in system_text
+    assert "Wrap-up(预算已尽)" not in system_text
     assert "预算" not in system_text
     assert "你只读" not in system_text  # plan 指令块
     assert "Multi-Agent" not in system_text
@@ -152,11 +152,11 @@ def test_tnow_localized_to_tail_only(strategy):
         assert len(out) == len(msgs)
         tail = _join([out[-1]])
         history = _join(out[:-1])
-    assert "Wrap-up required" in tail
+    assert "Wrap-up(预算已尽)" in tail
     assert "预算" not in history
     assert "Multi-Agent" not in history
     assert "你只读" not in history
-    assert "Wrap-up required" not in history
+    assert "Wrap-up(预算已尽)" not in history
 
 
 @pytest.mark.parametrize("strategy", _STRATS)
@@ -182,8 +182,8 @@ def test_inbox_delivery_preserves_prefix_identity(strategy):
     for m1, m2 in zip(out_normal[: len(base)], out_inbox[: len(base)]):
         assert _bytes(m1) == _bytes(m2)
     # 注入尾承载各自文本（legacy=并入末条 user；env_channel=伪对正文 + 每次随机 id）。
-    assert "Wrap-up required" in _join_any(out_normal[len(base):])
-    assert "Wrap-up required" in _join_any(out_inbox[len(base):])
+    assert "Wrap-up(预算已尽)" in _join_any(out_normal[len(base):])
+    assert "Wrap-up(预算已尽)" in _join_any(out_inbox[len(base):])
 
 
 @pytest.mark.parametrize("strategy", _STRATS)
@@ -205,10 +205,10 @@ def test_after_tools_projection_only_tail_appended(strategy):
     if strategy == "env_channel":
         assert out[-2].get("role") == "assistant"
         assert out[-1].get("role") == "user"
-        assert "Wrap-up required" in _join_any([out[-1]])
+        assert "Wrap-up(预算已尽)" in _join_any([out[-1]])
     else:
         assert out[-1].get("role") == "user"
-        assert "Wrap-up required" in _join([out[-1]])
+        assert "Wrap-up(预算已尽)" in _join([out[-1]])
     # system 与既有 history 段未变
     for i in range(len(msgs)):
         assert _bytes(out[i]) == _bytes(msgs[i])

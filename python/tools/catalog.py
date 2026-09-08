@@ -404,7 +404,7 @@ def default_tool_names(*, cwd: str = ".") -> list[str]:
 
 
 def tools_system_hint(*, cwd: str = ".") -> str:
-	"""兼容旧调用：策略已并入 ``prompt.system_prompt.TOOL_POLICY``，此处返回空串。"""
+	"""兼容旧调用：恒空串（TOOL_POLICY 已随理念裁决 A1 从左段删除）。"""
 	_ = cwd
 	return ""
 

@@ -1032,6 +1032,9 @@ export function createStreamSendSlice(
 							id: uid('msg'),
 							role: 'system' as const,
 							text: '模型未返回任何内容（空回复）。请重试，或检查设置中的模型 / API Key。',
+							// 裁决 7：UI 横幅必须标 uiOnly，否则 toApiMessages 会把它
+							// 当 system 消息漏进模型上下文（对模型是指令）。
+							uiOnly: true,
 							createdAt: Date.now(),
 						},
 					];

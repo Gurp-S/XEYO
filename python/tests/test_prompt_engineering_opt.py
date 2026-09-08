@@ -38,14 +38,15 @@ def test_system_left_has_no_tool_catalog(tmp_path):
 	text = asyncio.run(_run())
 	assert "Available tools:" not in text
 	assert "Search discipline:" not in text
-	assert "工具策略：" in text
+	# A1 裁决：左段无工具纪律文本。
+	assert "工具策略：" not in text
 	assert FENCE_POLICY in text
 	assert IDENTITY in text
 	assert text.count(IDENTITY) == 1
 	assert f"CWD: {tmp_path}" in text
 	assert "Model:" not in text  # 换模型不打爆左段 KV
 	assert "Date:" not in text  # 时刻走 getTime，不进左段
-	assert "getTime" in text
+	assert "getTime" not in text  # A1 裁决：工具纪律句已不在左段
 	assert "write-only" not in text  # Memory 细则不在左段
 
 
@@ -75,11 +76,13 @@ def test_turn_context_mode_and_plan_cap():
 	blocks = build_mode_context_blocks(mode="agent", approved_plan=plan)
 	assert blocks and "[plan truncated]" in blocks[0]
 	assert len(blocks[0]) < len(plan) + 200
-	# 证据优先豁免条款：计划是执行蓝图，与最新工具结果/新证据冲突时以证据为准。
-	assert "以证据为准" in blocks[0]
-	# 首写收敛后指针块：全量正文已进历史，只留"实施中"锚点（同样带豁免条款）。
+	# 裁决 4：计划块只保留"按已批准计划实现"，无引擎引导条款。
+	assert "按已批准计划实现" in blocks[0]
+	assert "以证据为准" not in blocks[0]
+	# 首写收敛后指针块：全量正文已进历史，只留"实施中"锚点（纯指针事实）。
 	ptr = build_mode_context_blocks(mode="agent", plan_pointer=True)
-	assert ptr and "实施中" in ptr[0] and "以证据为准" in ptr[0]
+	assert ptr and "实施中" in ptr[0]
+	assert "以证据为准" not in ptr[0]
 	assert len(ptr[0]) < 200
 	# 无计划且无指针 → 空；全量计划在场时指针不抢占。
 	assert not build_mode_context_blocks(mode="agent")

@@ -120,7 +120,7 @@ async def test_max_tool_calling_executes_only_sixteen_and_pairs_skips():
     assert model.calls == 2
     assert eng._session.budget.turn_count == 2
 
-    warning = "工具使用已经过多，请检查是否已经实现任务。"
+    warning = "工具调用数已接近上限。"
     assert _system_text(model.messages[0]).count(warning) == 0
     assert _system_text(model.messages[1]).count(warning) == 0
     assert _request_text(model.messages[0]).count(warning) == 0

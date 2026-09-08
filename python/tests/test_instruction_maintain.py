@@ -17,7 +17,6 @@ from memory.instruction_maintain import (
 	format_doctor_report,
 	refresh_instruction_proposals,
 	soft_instruction_budget,
-	stale_instruction_notice,
 )
 
 
@@ -93,17 +92,6 @@ def test_proposals_after_repeats(tmp_path, monkeypatch):
 		)
 	props = refresh_instruction_proposals(wsid, repeat_n=REPEAT_PROMOTE_N)
 	assert any(rule in str(p.get("content")) for p in props) or props
-
-
-def test_stale_notice_on_probe_change(tmp_path):
-	root = tmp_path / "proj"
-	root.mkdir()
-	(root / "package.json").write_text('{"dependencies":{"a":"1"}}', encoding="utf-8")
-	# 首次建 stamp
-	assert stale_instruction_notice(str(root)) == ""
-	(root / "package.json").write_text('{"dependencies":{"a":"2"}}', encoding="utf-8")
-	notice = stale_instruction_notice(str(root))
-	assert "过时" in notice or "package.json" in notice
 
 
 def test_instruction_budget_caps_left(tmp_path, monkeypatch):

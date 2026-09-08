@@ -257,21 +257,19 @@ class RepeatCallGuard:
 	def advice_text(
 		tool_name: str, input_data: Any, level_idx: int, count: int
 	) -> str:
-		"""第 1 阈短提示；后续阈值详细（点名工具/次数/参数预览 ≤500 字符）。"""
+		"""纯事实（理念裁决 C1）：工具名 + 次数；详细档附参数预览 ≤500 字符。
+
+		不带任何"请作答/请换参数"类劝导——是否换方法由模型自决；引擎
+		侧的强制手段是 repeat_fold 的输出折叠与 tool 执行层，不是文本。
+		"""
 		base = f"'{tool_name}' 已用完全相同的参数连续调用 {count} 次。"
 		if level_idx <= 0:
-			return (
-				f"[repeat] {base}若非有意，请基于已有结果直接作答，"
-				"或更换参数 / 方法。"
-			)
+			return f"[repeat] {base}"
 		preview = canonical_input(input_data)[:500]
 		return (
 			f"[repeat] {base}\n"
 			f"tool: {tool_name}\n"
-			f"args: {preview}\n"
-			"若这是合法轮询 / 等待（如长任务状态检查），请改用带 offset 或"
-			"状态参数的签名使其可区分；否则请基于已有结果直接作答，"
-			"或更换参数 / 方法。"
+			f"args: {preview}"
 		)
 
 	def reset(self) -> None:
@@ -280,38 +278,12 @@ class RepeatCallGuard:
 		self.last_advice = ""
 		clear_advice()
 
-	# ── 兼容旧 API（T6 前 block/hint 文案）；query_loop 不再调用。──
-
-	@staticmethod
-	def hint_notice() -> str:
-		return (
-			"你正在用完全相同的参数重复调用同一个工具。不要重复执行："
-			"基于已有结果直接作答，或换一种参数 / 方法再试。"
-		)
-
-	@staticmethod
-	def todo_hint_notice() -> str:
-		return (
-			"待办清单与上一次提交完全相同，这是一次无效写入。"
-			"不要重复提交未变化的清单：直接继续执行下一项任务，"
-			"仅在清单内容真正变化时再调用 TodoWrite。"
-		)
-
-	def block_or_hint_notice(self, tool_name: str) -> str:
-		"""旧入口：保留给历史调用方；T6 主路径走 observe + current_advice。"""
-		if tool_name == "TodoWrite":
-			return self.todo_hint_notice()
-		return self.hint_notice()
-
-
-# ====== 零命中前提复核（多组不同查询全部空结果 → 建议回读原题） ======
+# ====== 零命中计数（多组不同查询全部空结果 → 纯事实计数） ======
 #
 # 与 RepeatCallGuard 分工：
 # - RepeatCallGuard 管"同一签名反复跑"；
-# - ZeroHitTracker 管"换着花样搜、次次空"——这通常意味着查找前提错了。
-#
-# 措辞约束：提示保持中立，只建议"回读用户原始请求 / 复核前提"，
-# 不指向任何具体方向（例如不提"可能来自外部依赖"），避免把模型带偏。
+# - ZeroHitTracker 管"换着花样搜、次次空"（C2 裁决：只报第 N 次空结果
+#   这一事实，不做任何前提评价与行动建议）。
 
 ZERO_HIT_ADVICE_AT = 2
 
@@ -340,8 +312,4 @@ class ZeroHitTracker:
 
 	@staticmethod
 	def notice(count: int) -> str:
-		return (
-			f"[提示] 这是本次任务中第 {count} 个不同查询的空结果。"
-			"你的查找前提可能有误——请先回读用户原始请求，"
-			"确认目标确实存在于当前工作区后，再决定是否继续检索或更换方法。"
-		)
+		return f"[第 {count} 次空结果]"
