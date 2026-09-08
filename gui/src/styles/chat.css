@@ -591,6 +591,9 @@ html[data-scheme="dark"] body {
 
 
 /* ── 自绘光标(TypingCaret.tsx,选型 3·macOS 弹性微过冲 白色版) ── */
+/* 自绘光标(TypingCaret)双档运动版(2026-09-08,web-motion 逐帧诊断后定稿)。
+   颜色必须跟 --xy-ink:浅色主题=墨、深色主题=近白;硬编码 #f5f5f7 在浅色
+   作曲卡上几乎不可见(录屏实测,整帧找不到光标),勿改回定值。 */
 .xy-gcaret {
   position: absolute;
   left: 0;
@@ -599,25 +602,41 @@ html[data-scheme="dark"] body {
   width: 2.5px;
   height: 19px;
   border-radius: 2.5px;
-  background: #f5f5f7;
-  box-shadow: 0 0 8px rgba(255, 255, 255, 0.5);
+  background: var(--xy-ink);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--xy-ink) 45%, transparent);
   pointer-events: none;
   opacity: 0;
   transform: translate3d(-100px, -100px, 0);
   transform-origin: center;
+  /* macro 档(点选/Home/End/换行/粘贴):轻过冲弹簧 + 移动拉伸 */
   transition:
-    transform 150ms cubic-bezier(0.3, 1.35, 0.35, 1),
-    height 160ms cubic-bezier(0.3, 1.2, 0.4, 1),
-    opacity 0.15s ease;
+    transform 170ms cubic-bezier(0.3, 1.18, 0.35, 1),
+    height 150ms cubic-bezier(0.3, 1.1, 0.4, 1),
+    opacity 0.18s ease;
+}
+/* fast 档(连续打字/退格/左右单步):纯 ease-out 紧贴,零过冲不拉伸。
+   Timing 原则:即时反馈 ≤100ms;150ms 弹簧每键重启 = 光标永远追文本。 */
+.xy-gcaret.xy-fast {
+  transition:
+    transform 68ms cubic-bezier(0.22, 1, 0.36, 1),
+    height 90ms ease,
+    opacity 0.18s ease;
+}
+/* snap 档(首次落位/失焦重现/滚动跟踪):位移瞬时,只留浮现过渡 */
+.xy-gcaret.xy-snap {
+  transition: opacity 0.18s ease;
 }
 .xy-gcaret.xy-on {
   opacity: 1;
 }
+/* 拉伸只属于 macro 大跳的手势感;打字微移保持 19px 静态 */
 .xy-gcaret.xy-moving {
   height: 24px;
 }
+/* 呼吸:0.18 下限太狠(忽明忽暗),0.35 读感沉稳;打字期间 xy-idle 被
+   摘除 = 常亮,停手 560ms 后从最亮起步,无"亮→暗→骤亮"跳变 */
 .xy-gcaret.xy-idle {
-  animation: xy-gcaret-breathe 1.2s ease-in-out infinite;
+  animation: xy-gcaret-breathe 1.06s ease-in-out infinite;
 }
 @keyframes xy-gcaret-breathe {
   0%,
@@ -625,7 +644,7 @@ html[data-scheme="dark"] body {
     opacity: 1;
   }
   50% {
-    opacity: 0.18;
+    opacity: 0.35;
   }
 }
 @media (prefers-reduced-motion: reduce) {

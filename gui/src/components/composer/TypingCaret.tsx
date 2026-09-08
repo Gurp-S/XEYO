@@ -1,10 +1,28 @@
 import {useLayoutEffect, useRef, type ReactNode} from 'react';
 
 /**
- * 自绘光标 + 镜像覆盖层(2026-09-08,选型「3 · macOS 弹性微过冲」白色版)。
+ * 自绘光标 + 镜像覆盖层(2026-09-08 双档运动改版,初版同日)。
  *
  * 结构:textarea 文字 text-transparent,本组件逐字符渲染镜像文本并放一个
- * 自绘光标 div(150ms 弹性微过冲滑移,移动拉伸,停手柔和呼吸)。
+ * 自绘光标 div。颜色跟 var(--xy-ink)(浅色主题=墨,深色主题=近白)——
+ * 硬编码白色在浅色作曲卡上不可见(2026-09-08 录屏实测),勿改回定值。
+ *
+ * 运动模型(双档物理,web-motion 逐帧诊断后定稿):
+ * - fast 档(连续打字/退格/左右单步):同行且 |dx| ≤ 26px(≈1.5 字) →
+ *   68ms 纯 ease-out 紧贴,零过冲不拉伸。Timing 原则:即时反馈 ≤100ms,
+ *   旧版每键 150ms 弹簧重启 = 光标永远落后 1-1.5 字符(实测 lag p95 6.4px)。
+ * - macro 档(点选/Home/End/换行/粘贴):170ms 轻过冲弹簧(cubic-bezier
+ *   y1=1.18,≈3-5% 距离),移动拉伸(19→24px)只在此档,大手势才配得上花活。
+ * - snap 档(首次落位/失焦重现/滚动跟踪):位移瞬时。点击聚焦瞬置是原生
+ *   行为;滚动跟踪必须 1:1,滞后=脱锚。
+ * - 呼吸:停手 560ms 后从最亮起步 dip 到 0.35(旧 0.18 太狠),周期 1.06s;
+ *   打字期间摘除 xy-idle=常亮(相位重启无"忽明忽暗")。
+ * - blur 清光全部类 → 基础 opacity:0 真隐没。旧版 blur 还 add('xy-idle'),
+ *   而 CSS animation 优先级高于基础声明 → 失焦后光标原地呼吸
+ *   (实测 blur 后 opacity 峰值 0.908,2026-09-08),勿改回。
+ *
+ * 滚动镜像:textarea 超高滚动时 inner 层 translateY(-scrollTop) 同步,
+ * 测量在同步之后(span rects 已含平移),光标与文本永不脱锚。
  *
  * 测量内核(与 _design_drafts/composer-caret-styles.html 同源,已机器验证):
  * - 逐字符 span:元素边界不产生断行点,镜像换行与 textarea 完全一致
@@ -16,7 +34,7 @@ import {useLayoutEffect, useRef, type ReactNode} from 'react';
  *
  * 显示策略:
  * - active=false(IME 组词 / 超大文本)→ 整层不渲染,退回原生光标;
- * - 失焦隐没,聚焦浮现;滚动由父级调 apiRef.reposition() 重测视觉坐标。
+ * - 失焦隐没,聚焦浮现;滚动由父级调 apiRef.reposition()(snap 档)。
  *
  * 与 Composer 的对齐契约(改 textarea 排版类必须同步这里):
  * px-3 pt-3(12px)、text-[14px]、leading-6(24px)。
@@ -29,7 +47,7 @@ export interface CaretColorRange {
 }
 
 export interface TypingCaretApi {
-	/** 父级在 textarea scroll / 程序化 setSelectionRange 后调用,仅重测位置 */
+	/** 父级在 textarea scroll 后调用:同步镜像滚动 + snap 重测位置 */
 	reposition: () => void;
 }
 
@@ -51,6 +69,7 @@ interface TypingCaretProps {
 const PAD_X = 12;            /* = textarea px-3 */
 const PAD_Y = 12;            /* = textarea pt-3 */
 const IDLE_DELAY_MS = 560;   /* 停手后转呼吸的延迟 */
+const MICRO_MAX_DX = 26;     /* fast 档上限:同行 ≤≈1.5 字(中文 14px/字) */
 
 export function TypingCaret({
 	value,
@@ -63,11 +82,15 @@ export function TypingCaret({
 	apiRef,
 }: TypingCaretProps) {
 	const overlayRef = useRef<HTMLDivElement>(null);
+	const innerRef = useRef<HTMLDivElement>(null);
 	const caretRef = useRef<HTMLDivElement>(null);
 	const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const lastPosRef = useRef<{x: number; y: number} | null>(null);
+	const onShownRef = useRef(false);
 
-	const placeCaret = () => {
+	const placeCaret = (mode: 'auto' | 'snap') => {
 		const overlayEl = overlayRef.current;
+		const innerEl = innerRef.current;
 		const g = caretRef.current;
 		if (!overlayEl || !g) {
 			return;
@@ -76,6 +99,15 @@ export function TypingCaret({
 		if (!parent) {
 			return;
 		}
+
+		/* 镜像滚动同步(必须在测量前):textarea 滚动后内容反向平移 */
+		const ta = parent.querySelector<HTMLTextAreaElement>('textarea');
+		if (innerEl && ta && ta.scrollTop > 0) {
+			innerEl.style.transform = `translateY(${-ta.scrollTop}px)`;
+		} else if (innerEl) {
+			innerEl.style.transform = 'translateY(0px)';
+		}
+
 		const wrapRect = parent.getBoundingClientRect();
 		const spanEls = Array.from(
 			overlayEl.querySelectorAll<HTMLSpanElement>('span[data-ci]'),
@@ -95,12 +127,16 @@ export function TypingCaret({
 
 		let x: number;
 		let y: number;
-		let empty = false;
 		if (spanEls.length === 0) {
-			/* 空文本:光标落内容起点,坐标已是 wrap 局部系,不再减 wrapRect */
-			x = PAD_X;
-			y = PAD_Y;
-			empty = true;
+			/* 空文本:零宽探针 span 给出与字符测量完全同系的几何(字体盒顶/内容
+			 * 起点)。勿改回 PAD 常量——那与 span 路径差 ~3.5px,首字符会垂直
+			 * 跳动并被误判 macro(2026-09-08 录屏实测)。坐标统一视口系。 */
+			const probe = overlayEl.querySelector('span[data-probe]');
+			const r = probe
+				? probe.getBoundingClientRect()
+				: null;
+			x = r ? r.left : wrapRect.left + PAD_X;
+			y = r ? r.top : wrapRect.top + PAD_Y;
 		} else if (nextCp < spanEls.length) {
 			const rNext = spanEls[nextCp].getBoundingClientRect();
 			if (nextCp > 0) {
@@ -122,10 +158,37 @@ export function TypingCaret({
 			y = rPrev.top;
 		}
 
-		const tx = empty ? x : x - wrapRect.left;
-		const ty = (empty ? y : y - wrapRect.top) - 2.5; /* 光标高 19 在行高 24 内居中 */
+		const tx = x - wrapRect.left;
+		const ty = y - wrapRect.top - 2.5; /* 光标高 19 在行高 24 内居中(全路径同系) */
+		g.classList.add('xy-on');
+
+		/* 位置未变(如流式回复期间的父级重渲染):只保可见,不动节律 */
+		const prev = lastPosRef.current;
+		if (prev && onShownRef.current && prev.x === tx && prev.y === ty) {
+			return;
+		}
+		lastPosRef.current = {x: tx, y: ty};
+
+		const kind = mode === 'snap' || !prev || !onShownRef.current
+			? 'snap'
+			: Math.abs(ty - prev.y) < 1 && Math.abs(tx - prev.x) <= MICRO_MAX_DX
+				? 'fast'
+				: 'macro';
+		onShownRef.current = true;
+
+		g.classList.toggle('xy-snap', kind === 'snap');
+		g.classList.toggle('xy-fast', kind === 'fast');
+		if (kind === 'macro') {
+			g.classList.add('xy-moving');
+		} else if (kind === 'fast') {
+			g.classList.remove('xy-moving'); /* 微移不拉伸:19px 静态 */
+		}
 		g.style.transform = `translate3d(${tx}px, ${ty}px, 0)`;
-		g.classList.add('xy-on', 'xy-moving');
+
+		/* snap(滚动/落位)不搅动呼吸节律;打字/大跳 = 常亮 + 停手后呼吸 */
+		if (kind === 'snap') {
+			return;
+		}
 		g.classList.remove('xy-idle');
 		if (idleTimer.current) {
 			clearTimeout(idleTimer.current);
@@ -139,26 +202,30 @@ export function TypingCaret({
 	/* 渲染驱动:值/光标/显隐变化后测量定位(layout effect 避免闪一帧) */
 	useLayoutEffect(() => {
 		if (active && focused) {
-			placeCaret();
+			placeCaret('auto');
 		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [value, caret, caretDir, active, focused, colorRanges, ghostHint]);
 
-	/* 失焦 / 退场:光标隐没 */
+	/* 失焦 / 退场:清光全部类 → 基础 opacity:0 真隐没(CSS animation 会
+	 * 压过基础声明,绝不能留 xy-idle,否则失焦后原地呼吸) */
 	useLayoutEffect(() => {
 		if (!active || !focused) {
 			const g = caretRef.current;
 			if (g) {
-				g.classList.remove('xy-on', 'xy-moving');
-				g.classList.add('xy-idle');
+				g.classList.remove('xy-on', 'xy-moving', 'xy-idle', 'xy-fast', 'xy-snap');
+			}
+			onShownRef.current = false;
+			if (idleTimer.current) {
+				clearTimeout(idleTimer.current);
 			}
 		}
 	}, [active, focused]);
 
-	/* 父级滚动同步出口 */
+	/* 父级滚动同步出口:snap 档(镜像平移 + 位移瞬时) */
 	useLayoutEffect(() => {
 		if (apiRef) {
-			apiRef.current = {reposition: placeCaret};
+			apiRef.current = {reposition: () => placeCaret('snap')};
 		}
 		return () => {
 			if (apiRef) {
@@ -198,14 +265,24 @@ export function TypingCaret({
 			<div
 				ref={overlayRef}
 				aria-hidden
-				className="pointer-events-none absolute inset-0 z-[4] overflow-hidden whitespace-pre-wrap break-words px-3 pt-3 font-sans text-[14px] leading-6 text-ink [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+				className="pointer-events-none absolute inset-0 z-[4] overflow-hidden px-3 pt-3"
 			>
-				{nodes}
-				{ghostHint ? (
-					<span data-ghost className="select-none text-ink/40">
-						{ghostHint}
-					</span>
-				) : null}
+				{/* inner 层承担 translateY(-scrollTop) 滚动镜像,外层只做裁剪 */}
+				<div
+					ref={innerRef}
+					className="whitespace-pre-wrap break-words font-sans text-[14px] leading-6 text-ink"
+				>
+					{cps.length === 0 ? (
+						/* 空文本测量探针:零宽,几何与真实字符同系(字体盒顶/内容起点) */
+						<span data-probe>{'\u200b'}</span>
+					) : null}
+					{nodes}
+					{ghostHint ? (
+						<span data-ghost className="select-none text-ink/40">
+							{ghostHint}
+						</span>
+					) : null}
+				</div>
 			</div>
 			<div ref={caretRef} aria-hidden className="xy-gcaret" />
 		</>
