@@ -72,19 +72,38 @@ def _last_user_text(messages: list[dict]) -> str | None:
 
 
 def _find_latest_echo_result(messages: list[dict]) -> str | None:
-	"""仅当「最近一条真实 user 文本之后」存在 tool_result 时触发 echoed 回复。"""
+	"""仅当「最近一条真实 user 文本之后」存在 **echo 工具**的 tool_result 时触发 echoed。
+
+	env 声道(T_now)尾插的伪造 assistant/tool_result 对不是 echo 调用——
+	其 tool_result 无对应 name=="echo" 的 tool_use id,必须被跳过,否则 fake
+	会把背景块误当 echo 结果回显(导致 HTTP fake 全栈测试断言落空)。
+	"""
 	from prompt.fence import unwrap_tool_output
+
+	echo_ids: set[str] = set()
+	for m in messages:
+		content = m.get("content")
+		if m.get("role") == "assistant" and isinstance(content, list):
+			for block in content:
+				if (
+					isinstance(block, dict)
+					and block.get("type") == "tool_use"
+					and block.get("name") == "echo"
+					and block.get("id")
+				):
+					echo_ids.add(str(block["id"]))
 
 	for m in reversed(messages):
 		content = m.get("content")
 		if m.get("role") == "user" and isinstance(content, str):
-			return None
+			return None  # 已越过最近真实 user → 其后无 echo 待回显
 		if isinstance(content, list):
 			for block in content:
 				if (
 					isinstance(block, dict)
 					and block.get("type") == "tool_result"
 					and not block.get("is_error")
+					and str(block.get("tool_use_id") or "") in echo_ids
 				):
 					c = block.get("content")
 					if isinstance(c, str):
