@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING
 from audit.log import default_audit_log
 from engine.abort import AbortController
 from msgtypes.message import ToolUse
-from permissions.ask_store import default_ask_store
 from permissions.filesystem import (
 	PermissionDecision,
 	expand_to_abs,
@@ -18,7 +17,7 @@ from permissions.policy import agent_mode, evaluate_policy, readonly_gate
 from permissions.workspace_policy import load_workspace_policy
 from tools.ask_user_question_tool import ASK_USER_TOOL_NAME
 from tools.base_tool import Tool, ToolResult
-from tools.bash_tool.dup_redirect import BashRoutePlan, plan_bash_route
+from tools.ask_user_question_tool import ASK_USER_TOOL_NAME
 
 if TYPE_CHECKING:
 	from engine.permission_coordinator import PermissionCoordinator
@@ -33,6 +32,8 @@ def _observe_bash_route(
 	无论后续是否真路由都会记录（单元：plan 命中）。
 	"""
 	try:
+		from tools.bash_tool.dup_redirect import plan_bash_route  # 惰性:Bash 路由才拉 dup_redirect 链
+
 		plan = plan_bash_route(str(raw_input.get("command") or ""))
 		if plan is None:
 			return
@@ -386,6 +387,8 @@ class ToolRegistry:
 				return ToolResult(
 					content="AskUserQuestion requires a question", is_error=True
 				)
+			from permissions.ask_store import default_ask_store  # 惰性:仅提问分支
+
 			store = default_ask_store()
 			item = store.create(
 				session_id=coordinator.session_id,
@@ -537,6 +540,8 @@ class ToolRegistry:
 		  - auto + 目标路径区外       → None（直行 bash，避免 路由→DENY→回退 白跑）
 		  - auto + 目标路径区内       → 透明路由（_route_bash）
 		"""
+		from tools.bash_tool.dup_redirect import plan_bash_route  # 惰性:仅 Bash 路由路径
+
 		plan = plan_bash_route(str(raw_input.get("command") or ""))
 		if plan is None:
 			return None
