@@ -122,7 +122,7 @@ async def test_materialization_fact_reports_missing_output(tmp_path) -> None:
 		AbortController(),
 	)
 	assert res.is_error is False
-	assert "[task-check]" in res.content
+	assert "[引擎核对]" in res.content
 	assert "不存在" in res.content
 	assert "out/result.json" in res.content
 
@@ -147,7 +147,7 @@ async def test_materialization_fact_confirms_existing_output(tmp_path) -> None:
 		AbortController(),
 	)
 	assert res.is_error is False
-	assert "[task-check]" in res.content
+	assert "[引擎核对]" in res.content
 	assert "已存在" in res.content
 
 
@@ -174,4 +174,4 @@ async def test_materialization_fact_skips_inprogress_and_no_output(tmp_path) -> 
 		AbortController(),
 	)
 	assert res.is_error is False
-	assert "[task-check]" not in res.content
+	assert "[引擎核对]" not in res.content

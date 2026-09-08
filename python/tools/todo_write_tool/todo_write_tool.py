@@ -279,12 +279,16 @@ class TodoWriteTool:
 		}
 
 	def _materialization_facts(self, todos: list[TodoItem]) -> str:
-		"""产物落盘事实（R4 注册表的确定性核对，非命令、非闸门）。
+		"""产物落盘事实（R4 注册表的确定性核对）。
 
 		对「标 completed 且声明了产物路径」的条目 stat 磁盘，把存在/缺失
-		作为事实追加给模型与 UI——引擎自己看磁盘，不依赖模型自觉，但
-		不做任何拦截（是否补救仍由模型/用户裁决）。in_progress 与未声明
-		产物的条目零开销；文件系统异常 fail-open（不加行）。
+		作为事实追加给模型与 UI——引擎自己看磁盘，不依赖模型自觉。
+		in_progress 与未声明产物的条目零开销；文件系统异常 fail-open（不加行）。
+
+		措辞裁决（用户 2026-09-08，#9）：**纯信息传递**——只陈述情况，
+		不得含命令/劝说/引导措辞（"请写入/建议补齐"一类一律禁止）；
+		契约测试 test_todo_output_facts.py 锁死。含 ``://`` 的非路径
+		output 跳过（URL/命令不是磁盘事实，报"未落盘"是错误信息）。
 		"""
 		if not todos:
 			return ""
@@ -293,6 +297,8 @@ class TodoWriteTool:
 			path = (t.output or "").strip()
 			if t.status != "completed" or not path:
 				continue
+			if "://" in path:
+				continue  # 非磁盘路径（URL 等），无法也不应 stat
 			try:
 				from pathlib import Path
 
@@ -300,14 +306,11 @@ class TodoWriteTool:
 				if full.exists() and full.is_file():
 					try:
 						size = full.stat().st_size
-						rows.append(f"[task-check] 产物 {path}: 已存在（{size} B）")
+						rows.append(f"[引擎核对] 产物 {path}: 已存在（{size} B）")
 					except OSError:
-						rows.append(f"[task-check] 产物 {path}: 已存在")
+						rows.append(f"[引擎核对] 产物 {path}: 已存在")
 				else:
-					rows.append(
-						f"[task-check] 产物 {path}: 磁盘上不存在——该步骤标了 "
-						"completed，但声明的产物文件尚未落盘。"
-					)
+					rows.append(f"[引擎核对] 产物 {path}: 磁盘上不存在（该项已标 completed）")
 			except Exception:  # noqa: BLE001 — fail-open
 				continue
 		return "\n".join(rows)
