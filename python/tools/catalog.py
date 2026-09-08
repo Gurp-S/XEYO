@@ -19,8 +19,6 @@ from tools.base_tool import (
 	WriteStoreAware,
 	tool_flag,
 )
-from tools.bash_tool.bash_tool import BashTool
-from tools.file_edit_tool.file_edit_tool import FileEditTool
 from tools.fileio.read_state import ReadFileState
 from tools.file_read_tool.file_read_tool import FileReadTool
 from tools.file_write_tool.file_write_tool import FileWriteTool
@@ -41,7 +39,6 @@ from tools.meta import (
 )
 from tools.screenshot_tool import ScreenshotTool
 from tools.send_to_wechat_tool import SendToWeChatTool
-from tools.skill_tool import SkillTool
 from tools.todo_write_tool.todo_write_tool import TodoWriteTool
 from tools.tool_registry import ToolRegistry
 from tools.agent_tool import AgentTool  # noqa: F401  # 多Agent 子工人
@@ -103,6 +100,8 @@ def _journal_query(cwd: str) -> Tool:
 
 
 def _bash(cwd: str) -> Tool:
+	from tools.bash_tool.bash_tool import BashTool
+
 	return BashTool(cwd=cwd)
 
 
@@ -111,6 +110,8 @@ def _file_read(cwd: str) -> Tool:
 
 
 def _file_edit(cwd: str) -> Tool:
+	from tools.file_edit_tool.file_edit_tool import FileEditTool
+
 	return FileEditTool(cwd=cwd)
 
 
@@ -143,6 +144,8 @@ def _send_to_wechat(cwd: str) -> Tool:
 
 
 def _skill(cwd: str) -> Tool:
+	from tools.skill_tool import SkillTool
+
 	return SkillTool(cwd=cwd)
 
 
