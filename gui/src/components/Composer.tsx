@@ -21,6 +21,7 @@ import {
 	type MouseEvent as ReactMouseEvent,
 } from 'react';
 import {fetchFileReferences, fetchSkills, uploadFile, uploadMedia, resumeInbox, type SkillInfo} from '@/lib/api';
+import {createTaAutoResize} from '@/lib/taAutoResize';
 import {
 	activeBackendSessionId,
 	type InboxQueuedItem,
@@ -296,6 +297,16 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 	/** 当前工作区技能清单（/ 弹层与着色候选；按 workspace 缓存）。 */
 	const [slashSkills, setSlashSkills] = useState<SkillInfo[]>([]);
 	const taExpandedRef = useRef(false);
+	/** 自动高度调度器(rAF 批处理 + 写保护,契约见 lib/taAutoResize.ts)。 */
+	const taAutoResizeRef = useRef<ReturnType<typeof createTaAutoResize> | null>(null);
+	if (!taAutoResizeRef.current) {
+		taAutoResizeRef.current = createTaAutoResize({
+			minPx: TA_MIN_PX,
+			maxPx: TA_MAX_PX,
+			isExpanded: () => taExpandedRef.current,
+			onCapped: setTaCapped,
+		});
+	}
 	const modelMenuRef = useRef<HTMLDivElement>(null);
 	const quickMenuRef = useRef<HTMLDivElement>(null);
 	const modelMenuId = useId();
@@ -760,16 +771,13 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 	}, []);
 
 	const resizeTa = () => {
+		// 2026-09-08 打字跟手优化:测高+写入走 rAF 批处理(关键路径零回流),
+		// 高度未变不写 style。契约见 lib/taAutoResize.ts。
 		const el = taRef.current;
-		if (!el || taExpandedRef.current) {
+		if (!el) {
 			return;
 		}
-		el.style.height = 'auto';
-		const measured = el.scrollHeight;
-		setTaCapped(measured >= TA_MAX_PX);
-		const next = Math.min(TA_MAX_PX, Math.max(TA_MIN_PX, measured));
-		el.style.height = `${next}px`;
-		el.style.overflowY = measured > TA_MAX_PX ? 'auto' : 'hidden';
+		taAutoResizeRef.current?.schedule(el);
 	};
 
 	const applyTaHeight = (expanded: boolean) => {
@@ -793,6 +801,8 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 	useEffect(() => {
 		resizeTa();
 	}, [value]);
+	// 卸载时取消未落盘的 rAF 测高回调
+	useEffect(() => () => taAutoResizeRef.current?.cancel(), []);
 
 	const removeAttachment = (id: string) => {
 		setAttachments(prev => {
