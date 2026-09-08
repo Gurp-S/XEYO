@@ -41,6 +41,17 @@ FILE_UNEXPECTEDLY_MODIFIED_ERROR = (
 )
 
 
+def _invalidate_glob_cache() -> None:
+	"""落盘成功后失效 Glob 缓存（2026-09-09 A1，同 file_write_tool）。
+
+	写后 60s TTL 内 Glob 命中旧缓存会让新改动"看不见"。全清而非按前缀——
+	写频远低于读，语义最简单且无副作用。懒导入防环。
+	"""
+	from tools.glob_tool.glob_tool import clear_glob_cache
+
+	clear_glob_cache()
+
+
 def _coerce_bool(value: Any, default: bool = False) -> bool:
 	if value is None:
 		return default
@@ -154,6 +165,7 @@ class FileEditTool:
 					"(refusing direct disk bypass)"
 				)
 			write_text_file(full, content, encoding=encoding, line_endings=line_endings)
+			_invalidate_glob_cache()
 			return ""
 		from engine.write_store import ChangeIntent, EditOp, _content_hash_text
 
@@ -208,6 +220,7 @@ class FileEditTool:
 					detail += "\n" + extra
 				raise RuntimeError(detail + " Re-Read then retry.")
 			raise RuntimeError(f"write failed: {reason}")
+		_invalidate_glob_cache()
 		return str(getattr(result, "journal_warning", "") or "")
 
 	@staticmethod

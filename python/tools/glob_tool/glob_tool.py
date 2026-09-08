@@ -21,9 +21,11 @@ from __future__ import annotations
 import asyncio
 import difflib
 import os
+import subprocess
 import threading
 import time
 from collections import OrderedDict, defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -253,6 +255,49 @@ def _exclusion_args(
 	return args
 
 
+def _summary_fresh_enabled() -> bool:
+	"""目录摘要新鲜度列（2026-09-09 并入主链路）：默认开，XEYO_GLOB_SUMMARY_FRESH=0 显式关。
+
+	旁路期（默认关）已验证：根级摘要 +0 token（全仓 tracked 静默逐字节一致）、
+	scoped 下钻才在零 tracked 目录浮现 `untracked · newest 日期`。默认开无回归面。
+	"""
+	return os.environ.get("XEYO_GLOB_SUMMARY_FRESH", "1").strip() != "0"
+
+
+def _stat_mtime_safe(path: str) -> float:
+	"""stat 失败（文件被删/权限）返回 0.0，调用方以 0 视为"无数据"。"""
+	try:
+		return os.stat(path).st_mtime
+	except OSError:
+		return 0.0
+
+
+def _tracked_files(root_dir: str) -> set[str] | None:
+	"""git index 内的跟踪文件相对路径集合（normcase 归一）。
+
+	方案 D（2026-09-09）：git 跟踪是唯一确定性的"人的策展事实"——文件被
+	commit 过 = 人主动声明它是仓库正式状态。git 不可用 / 非 repo → None，
+	调用方据此整体静默（无策展事实，日期失去正当性前提）。
+	"""
+	try:
+		proc = subprocess.run(
+			["git", "ls-files", "-z"],
+			cwd=root_dir,
+			capture_output=True,
+			timeout=10.0,
+		)
+	except (OSError, subprocess.SubprocessError):
+		return None
+	if proc.returncode != 0:
+		return None
+	out: set[str] = set()
+	for raw in proc.stdout.decode("utf-8", "replace").split("\0"):
+		if not raw:
+			continue
+		out.add(os.path.normcase(raw.replace("\\", "/")))
+	return out
+
+
 def summarize_root_dirs(
 	root_dir: str,
 	*,
@@ -264,6 +309,21 @@ def summarize_root_dirs(
 	cmd.extend(excluded_dir_globs())
 	cmd.extend(agentignore_args(root_dir, *ignore_roots))
 	cmd.append(".")
+	# 新鲜度列（默认开，XEYO_GLOB_SUMMARY_FRESH=0 关），方案 D git 跟踪态分区：
+	# 日期只在"人未收编区"（目录内零文件被 git 跟踪）显示——tracked 文件
+	# 是人主动 commit 的策展事实，权威区日期是噪声（定稿冻结/代码日均
+	# churn）；草稿区没有任何权威版本，"哪版最新"是唯一有意义的迭代问题。
+	# 非 git 工作区 → 整体静默（无策展事实，日期失去正当性前提）。
+	# 不用目录自身 mtime——Windows 上它只反映直接子项增删，深层修改不
+	# 更新，浅信号会给错信息；逐文件 stat 是唯一真值来源。
+	fresh = _summary_fresh_enabled()
+	# ls-files 与 rg 并行：两者是独立只读子进程，串行白等 ~130ms。
+	# 在 rg 启动前先把 git 子进程放出去，rg 扫描期间 git 同步跑。
+	tracked_future = None
+	pool: ThreadPoolExecutor | None = None
+	if fresh:
+		pool = ThreadPoolExecutor(max_workers=1)
+		tracked_future = pool.submit(_tracked_files, root_dir)
 	try:
 		all_files = run_ripgrep_lines(
 			cmd,
@@ -277,18 +337,89 @@ def summarize_root_dirs(
 		)
 	except RipgrepRunnerError as e:
 		raise RuntimeError(str(e)) from e
-
+	finally:
+		if pool is not None:
+			pool.shutdown(wait=True)  # ls-files ~130ms，rg 期间已跑完，此处不阻塞
+	tracked: set[str] | None = tracked_future.result() if tracked_future else None
+	if fresh and tracked is None:
+		fresh = False  # 非 git / git 不可用 → 全静默
 	counts: dict[str, int] = defaultdict(int)
 	root_files = 0
+	newest: dict[str, float] = {}
+	root_newest = 0.0
+	tracked_tops: dict[str, int] = defaultdict(int)
+	tracked_root = 0
+	scanned = 0
 	for rel in all_files:
 		norm = rel.replace("\\", "/").lstrip("./")
 		if not norm:
 			continue
+		# stat 与 tracked 匹配用未剥点路径——lstrip("./") 会把隐藏目录
+		# `.github/` 的名字改成 `github/`（字符级剥离，不是路径语义）。
+		# 但 rg 输出可能带 `./` 前缀，直接 normcase 进 tracked 集合必不
+		# 匹配（`./mixed/a.py` vs `mixed/a.py`）——所以只按路径语义循环
+		# 剥前导 `./`，保留 `.github` 的点。显示名维持 lstrip 既有契约。
+		stat_norm = rel.replace("\\", "/")
+		while stat_norm.startswith("./"):
+			stat_norm = stat_norm[2:]
 		if "/" in norm:
 			top = norm.split("/", 1)[0] + "/"
 			counts[top] += 1
+			if fresh and tracked is not None and os.path.normcase(stat_norm) in tracked:
+				tracked_tops[top] += 1
 		else:
 			root_files += 1
+			if fresh and tracked is not None and os.path.normcase(stat_norm) in tracked:
+				tracked_root += 1
+
+	if fresh and tracked is not None:
+		# 两遍法：tracked 目录的 newest 永不显示（_fresh_col 对 >0 静默），
+		# 对它们逐文件 stat 是纯浪费。第二遍只 stat 零 tracked 目录 + 根文件
+		# （同样仅 tracked_root==0 时才用得上）——输出与全量 stat 逐字节一致。
+		zero_tops = {t for t in counts if tracked_tops.get(t, 0) == 0}
+		need_root = tracked_root == 0
+		for rel in all_files:
+			norm = rel.replace("\\", "/").lstrip("./")
+			if not norm:
+				continue
+			stat_norm = rel.replace("\\", "/")
+			while stat_norm.startswith("./"):
+				stat_norm = stat_norm[2:]
+			if "/" in norm:
+				top = norm.split("/", 1)[0] + "/"
+				if top not in zero_tops:
+					continue
+				m = _stat_mtime_safe(os.path.join(root_dir, stat_norm))
+				if m > newest.get(top, 0.0):
+					newest[top] = m
+			else:
+				if not need_root:
+					continue
+				m = _stat_mtime_safe(os.path.join(root_dir, stat_norm))
+				if m > root_newest:
+					root_newest = m
+			scanned += 1
+			if scanned % 1000 == 0 and _aborted(abort):
+				fresh = False  # 中止 → 新鲜度整体省略，摘要退回旧格式
+				newest.clear()
+				root_newest = 0.0
+				break
+
+	def _fresh_col(tracked_count: int, total: int, n: float) -> str:
+		if not fresh or tracked is None:
+			return ""  # 非 git / 中止 → 静默
+		untracked = total - tracked_count
+		if tracked_count > 0:
+			# 混合目录（B2，2026-09-09）：只报 untracked 计数——纯 git 状态
+			# 事实，不带日期（权威区 mtime 是噪声，B2 不重蹈覆辙）。仅真有
+			# 未收编文件时付 ~3 tok。
+			if untracked > 0:
+				return f" · {untracked} untracked"
+			return ""  # 权威区（人已 commit）→ 静默
+		col = " · untracked"  # 零 tracked：亮出分区事实 + newest（草稿区唯一有意义的问题）
+		if n > 0:
+			col += f" · newest {time.strftime('%Y-%m-%d', time.localtime(n))}"
+		return col
 
 	lines = [
 		"Pattern too broad (no file-name fragment, e.g. `*` / `**/*` / "
@@ -301,9 +432,11 @@ def summarize_root_dirs(
 		f"total files scanned: {len(all_files)}",
 	]
 	if root_files:
-		lines.append(f"./  ({root_files} files)")
+		lines.append(f"./  ({root_files} files{_fresh_col(tracked_root, root_files, root_newest)})")
 	for name, n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[:_MAX_SUMMARY_DIRS]:
-		lines.append(f"{name}  ({n} files)")
+		lines.append(
+			f"{name}  ({n} files{_fresh_col(tracked_tops.get(name, 0), n, newest.get(name, 0.0))})"
+		)
 	if len(counts) > _MAX_SUMMARY_DIRS:
 		lines.append(f"… +{len(counts) - _MAX_SUMMARY_DIRS} more directories")
 	return "\n".join(lines)

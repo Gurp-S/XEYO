@@ -131,6 +131,16 @@ def _get_or_build(root: str) -> ContentIndex | None:
 	return idx
 
 
+def clear_content_index() -> None:
+	"""全清索引缓存（2026-09-09：写突变后失效，与 glob 缓存同轨）。
+
+	清错只损失一次加速（fail-open 语义不变，回退全量 rg）；不清才是
+	正确性事故（30s TTL 内新写文件进不了候选集 → files_with_matches 漏）。
+	"""
+	with _lock:
+		_cache.clear()
+
+
 def lookup(root: str, pattern: str) -> list[str] | None:
 	"""返回候选（相对，可含假阳性）；无法加速时返回 ``None``（调用方走全量 rg）。
 

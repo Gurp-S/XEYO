@@ -7,7 +7,11 @@ excludes (node_modules, dist, .git, secret files).
 Prefer a name fragment (e.g. *Map*.tsx) and set path when the subtree is known.
 Do NOT use pattern `**/*` / `*` to explore — even directory-scoped like
 `gui/**/*` — any pattern without a file-name fragment returns a one-level
-directory summary only (scoped to the prefix directory when given).
+directory summary only (scoped to the prefix directory when given); git
+tracking state is surfaced as fact: directories with zero git-tracked files
+carry an `untracked` marker plus their newest file mtime date; mixed
+directories list only `N untracked` (no date); fully tracked directories
+stay silent.
 head_limit: default 120 = hard cap. Truncated → "Too many matches": narrow the glob
 (add a name/extension fragment) or set path; do not page through everything.
 Empty first pass with letters in the pattern retries case-insensitively; if it is

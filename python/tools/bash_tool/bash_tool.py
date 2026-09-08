@@ -42,13 +42,74 @@ from tools.bash_tool.runner import (
 	shell_display_name,
 	spawn_streaming,
 )
-from tools.bash_tool.semantics import extract_base_command, interpret_command_result
+from tools.bash_tool.semantics import (
+	_split_segment,
+	extract_base_command,
+	interpret_command_result,
+)
 from tools.bash_tool.truncate import truncate_for_model
 from tools.bash_tool.destructive_guard import (
 	plan_destructive_snapshot,
 	settle_destructive_plan,
 )
 from tools.bash_tool.precheck import precheck_command
+
+# ====== 搜索缓存门控失效（2026-09-09，A1 扩展：Bash 是第二条写盘路径）======
+# Write/Edit 走各自 _persist 漏斗已失效 glob 缓存；Bash 改文件（echo>/
+# sed -i/npm install...）此前不触发，留 60s/30s"写后看不见"窗口。
+# fail-closed：只读白名单全命中才保留缓存；解释器/未知/解析失败一律判写。
+# 误清只损失一次缓存重建（~140ms），漏清是正确性事故——误差单向朝安全。
+
+# 纯读基础命令（任意参数都只读；重定向/命令替换另行拦截）。
+_PURE_READ_BASES = frozenset({
+	"ls", "dir", "cat", "type", "head", "tail", "rg", "grep", "findstr",
+	"wc", "stat", "du", "df", "file", "ps", "tasklist", "whoami",
+	"hostname", "pwd", "date", "printenv", "which", "where", "echo",
+	"printf", "test", "true", "false", "sleep", "uname", "id", "tty",
+	"basename", "dirname", "realpath", "readlink", "cut", "uniq", "tr",
+	"column", "nl", "tac", "rev", "fold", "fmt", "join", "cmp", "diff",
+	"comm", "cksum", "md5sum", "sha1sum", "sha256sum", "iconv", "xxd",
+	"od", "hexdump", "strings", "tree", "free", "uptime", "ver", "vol",
+	"git",  # git 另查子命令白名单
+})
+_GIT_READ_SUBS = frozenset({
+	"status", "log", "diff", "show", "blame", "rev-parse", "describe",
+	"shortlog", "ls-files", "ls-remote", "cat-file", "grep", "reflog",
+	"version", "help",
+})
+
+
+def _segment_base(seg: str) -> str:
+	token = seg.strip().split()[0] if seg.strip() else ""
+	if "/" in token or "\\" in token:
+		token = token.replace("\\", "/").rsplit("/", 1)[-1]
+	if token.lower().endswith(".exe"):
+		token = token[:-4]
+	return token.lower()
+
+
+def _command_may_mutate_workspace(command: str) -> bool:
+	"""Bash 命令是否可能写盘 → 是否应失效搜索缓存。"""
+	if not command or not command.strip() or "\n" in command:
+		return True  # 空/多行不可解析 → fail-closed
+	try:
+		from permissions.policy import bash_writes_file
+
+		if bash_writes_file(command):
+			return True  # 显式写特征（重定向/写命令/解释器带写标记）
+	except Exception:
+		return True  # 分类器不可用 → fail-closed
+	if "$(" in command or "`" in command:
+		return True  # 命令替换可藏任意写
+	for seg in _split_segment(command):
+		base = _segment_base(seg)
+		if base == "git":
+			sub = _segment_base(" ".join(seg.strip().split()[1:]))
+			if sub not in _GIT_READ_SUBS:
+				return True
+		elif base not in _PURE_READ_BASES:
+			return True
+	return False
 
 
 def fast_fail_message(failure_reason: str) -> str:
@@ -853,10 +914,12 @@ class BashTool:
 			)
 		except Exception as e:  # noqa: BLE001
 			self._end_presence(work, git_op)
+			self._invalidate_search_caches(inp.command, background=inp.run_in_background)
 			return ToolResult(content=str(e), is_error=True)
 		self._end_presence(work, git_op)
 		abort.raise_if_aborted()
 		self._note_bash_write_target(work, inp.command)
+		self._invalidate_search_caches(inp.command, background=inp.run_in_background)
 		return ToolResult(
 			content=self.map_tool_result_to_content(out),
 			is_error=bool(out.is_error),
@@ -920,5 +983,26 @@ class BashTool:
 				return
 			path = expand_to_abs(target, cwd=cwd)
 			default_session_presence().note_write(cwd, sid, path)
+		except Exception:  # noqa: BLE001
+			pass
+
+	def _invalidate_search_caches(self, command: str, *, background: bool = False) -> None:
+		"""Bash 执行后门控失效 Glob/Grep 搜索缓存（A1 扩展，2026-09-09）。
+
+		后台命令不透明（执行期才写盘）→ 一律清；前台命令按
+		_command_may_mutate_workspace 门控。失效失败不影响 Bash 主路径。
+		"""
+		if not background:
+			try:
+				if not _command_may_mutate_workspace(command):
+					return
+			except Exception:  # noqa: BLE001
+				pass  # 分类器异常 → 继续清（正确性优先）
+		try:
+			from tools.glob_tool.glob_tool import clear_glob_cache
+			from tools.fileio.content_index import clear_content_index
+
+			clear_glob_cache()
+			clear_content_index()
 		except Exception:  # noqa: BLE001
 			pass
