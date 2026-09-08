@@ -595,21 +595,19 @@ html[data-scheme="dark"] body {
 /* 自绘光标(TypingCaret)双档运动版(2026-09-08,web-motion 逐帧诊断后定稿)。
    颜色必须跟 --xy-ink:浅色主题=墨、深色主题=近白;硬编码 #f5f5f7 在浅色
    作曲卡上几乎不可见(录屏实测,整帧找不到光标),勿改回定值。
-   可视条 ::after 用 bottom 锚定 → 高度变化只向上生长:变矮=顶部下沉、
-   底边钉在原位(2026-09-08 用户指定方向)。
-   尺寸旋钮:--xy-gcaret-h(常态高)/ xy-moving 里的同变量(拉伸高)/
-   width(粗细)。改常态高后若垂直居中差 1~2px,同步 TypingCaret.tsx 里
-   placeCaret 的 -2.5 偏移 ≈ (24 - 高度)/2。 */
+   可视条 ::after 用 bottom 锚定 + 壳高锁 19px 常数 → 任何高度变化都从
+   底边生长:调矮=顶部下沉、拉伸=向上长,底边钉死(2026-09-08 用户指定)。
+   尺寸旋钮:::after 的 --xy-gcaret-h(常态高,直接改那个 19px fallback 或
+   在 xy-moving 覆盖)/ width(粗细)。改常态高后若垂直居中差 1~2px,同步
+   TypingCaret.tsx 里 placeCaret 的 -2.5 偏移 ≈ (24 - 高度)/2。 */
 .xy-gcaret {
-  /* 壳高恒锁常态值(bottom 锚定基准);可视条单独伸缩 */
-  --xy-gcaret-rest: 19px; /* ← 常态高度(底边锚定) */
-  --xy-gcaret-h: var(--xy-gcaret-rest);
+  --xy-gcaret-h: 16px; /* ←★ 常态高度旋钮(底边锚定:调矮=顶部往下沉) */
   position: absolute;
   left: 0;
   top: 0;
   z-index: 5;
-  width: 2px;          /* ← 粗细 */
-  height: var(--xy-gcaret-rest);
+  width: 2px; /* ← 粗细 */
+  height: 19px; /* 锚定基准,恒定勿动——调高度只改上面的 --xy-gcaret-h */
   pointer-events: none;
   opacity: 0;
   transform: translate3d(-100px, -100px, 0);
@@ -619,14 +617,14 @@ html[data-scheme="dark"] body {
     transform 170ms cubic-bezier(0.3, 1.18, 0.35, 1),
     opacity 0.18s ease;
 }
-/* 可视条:bottom:0 钉在壳底 → 拉伸向上长、变矮顶部下沉 */
+/* 可视条:bottom:0 钉在壳底 → 高度变化永远从底边向上长/向下沉 */
 .xy-gcaret::after {
-  content: '';
+  content: "";
   position: absolute;
   left: 0;
   bottom: 0;
   width: 100%;
-  height: var(--xy-gcaret-h);
+  height: var(--xy-gcaret-h); /* 跟随旋钮,bottom:0 钉死壳底 */
   border-radius: 2.5px;
   background: var(--xy-ink);
   box-shadow: 0 0 8px color-mix(in srgb, var(--xy-ink) 45%, transparent);
@@ -671,6 +669,27 @@ html[data-scheme="dark"] body {
     opacity: 0.35;
   }
 }
+/* ── 字符浮现(预览选型 C 的字符部分,2026-09-08)──
+   新字符 3px 上浮+模糊消散 ~150ms。注意:绝不能用预览页的 inline-block——
+   atomic inline 会在英文单词中间制造断行点,镜像换行与 textarea 错位
+   (2026-09-08 已踩坑);position:relative + top 是纯视觉偏移,不进行盒
+   参与 断行。由 TypingCaret 命令式加类/animationend 摘除,React 不感知。 */
+.xy-ch-in {
+  position: relative;
+  animation: xy-ch-in 150ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes xy-ch-in {
+  from {
+    opacity: 0;
+    top: 3px;
+    filter: blur(3px);
+  }
+  to {
+    opacity: 1;
+    top: 0;
+    filter: blur(0);
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   .xy-gcaret {
     transition: opacity 0.15s ease;
@@ -681,6 +700,9 @@ html[data-scheme="dark"] body {
     transition: none;
   }
   .xy-gcaret.xy-idle {
+    animation: none;
+  }
+  .xy-ch-in {
     animation: none;
   }
 }

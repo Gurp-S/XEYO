@@ -70,6 +70,7 @@ const PAD_X = 12;            /* = textarea px-3 */
 const PAD_Y = 12;            /* = textarea pt-3 */
 const IDLE_DELAY_MS = 560;   /* 停手后转呼吸的延迟 */
 const MICRO_MAX_DX = 26;     /* fast 档上限:同行 ≤≈1.5 字(中文 14px/字) */
+const CH_IN_MAX_CP = 12;     /* 字符浮现上限:粘贴/大段插入跳过动画 */
 
 export function TypingCaret({
 	value,
@@ -87,6 +88,7 @@ export function TypingCaret({
 	const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const lastPosRef = useRef<{x: number; y: number} | null>(null);
 	const onShownRef = useRef(false);
+	const prevValueRef = useRef('');
 
 	const placeCaret = (mode: 'auto' | 'snap') => {
 		const overlayEl = overlayRef.current;
@@ -206,6 +208,62 @@ export function TypingCaret({
 		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [value, caret, caretDir, active, focused, colorRanges, ghostHint]);
+
+	/* 字符浮现(选型 C 字符部分,2026-09-08):新插入字符 3px 上浮+模糊消散。
+	 * 命令式加类 + animationend 摘除——React 渲染不感知这类名,下一键不会
+	 * 中途打断动画;类被着色重渲染覆盖(slash)时只是该字符动画静默,可接受。
+	 * 粘贴/大段插入(>CH_IN_MAX_CP 个码点)跳过;IME 组词期间覆盖层卸载,
+	 * 天然静默(提交的中文走 value diff,按普通插入浮现)。 */
+	useLayoutEffect(() => {
+		const pv = prevValueRef.current;
+		prevValueRef.current = value;
+		if (pv === value || !overlayRef.current) {
+			return;
+		}
+		/* 公共前后缀 diff → 插入区间(UTF-16 闭开) */
+		let p = 0;
+		const maxP = Math.min(pv.length, value.length);
+		while (p < maxP && pv[p] === value[p]) p++;
+		let s = 0;
+		const maxS = Math.min(pv.length, value.length) - p;
+		while (s < maxS && pv[pv.length - 1 - s] === value[value.length - 1 - s]) s++;
+		const insStart = p;
+		const insEnd = value.length - s;
+		if (insEnd <= insStart) {
+			return; /* 纯删除:无动画 */
+		}
+		const overlayEl = overlayRef.current;
+		const targets: HTMLSpanElement[] = [];
+		const chars = Array.from(value);
+		let u16 = 0;
+		let nCp = 0;
+		for (let i = 0; i < chars.length; i++) {
+			const start = u16;
+			u16 += chars[i].length;
+			if (start < insEnd && start + chars[i].length > insStart) {
+				nCp++;
+				const el = overlayEl.querySelector<HTMLSpanElement>(
+					`span[data-ci="${i}"]`,
+				);
+				if (el) {
+					targets.push(el);
+				}
+			}
+		}
+		if (nCp === 0 || nCp > CH_IN_MAX_CP) {
+			return; /* 粘贴/大段插入:静默 */
+		}
+		for (const el of targets) {
+			if (!el.classList.contains('xy-ch-in')) {
+				el.classList.add('xy-ch-in');
+				el.addEventListener(
+					'animationend',
+					() => el.classList.remove('xy-ch-in'),
+					{once: true},
+				);
+			}
+		}
+	}, [value]);
 
 	/* 失焦 / 退场:清光全部类 → 基础 opacity:0 真隐没(CSS animation 会
 	 * 压过基础声明,绝不能留 xy-idle,否则失焦后原地呼吸) */
