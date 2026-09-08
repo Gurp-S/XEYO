@@ -3,6 +3,7 @@
 import json
 import sys
 import time
+import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -217,7 +218,7 @@ def test_disk_cache_avoids_network(monkeypatch, tmp_path):
 	def boom(*_a, **_k):
 		raise AssertionError("network should not run with fresh disk cache")
 
-	monkeypatch.setattr(pricing, "urlopen", boom)
+	monkeypatch.setattr(urllib.request, "urlopen", boom)
 	assert pricing._load_pricing_json(2.0) == payload
 
 
@@ -241,7 +242,7 @@ def test_stale_disk_fallback_when_offline(monkeypatch, tmp_path):
 	def boom(*_a, **_k):
 		raise OSError("offline")
 
-	monkeypatch.setattr(pricing, "urlopen", boom)
+	monkeypatch.setattr(urllib.request, "urlopen", boom)
 	assert pricing._load_pricing_json(2.0) == payload
 
 
@@ -262,7 +263,7 @@ def test_fetch_refreshes_disk_cache(monkeypatch, tmp_path):
 				b'"pricing":{"inputPerM":0.22,"outputPerM":0.66}}]}'
 			)
 
-	monkeypatch.setattr(pricing, "urlopen", lambda *_a, **_k: FakeResp())
+	monkeypatch.setattr(urllib.request, "urlopen", lambda *_a, **_k: FakeResp())
 	with pricing._pricing_lock:
 		pricing._pricing_cache = None
 		pricing._refresh_inflight = False
@@ -625,7 +626,7 @@ def test_budget_tool_call_boundary_does_not_create_turn():
     assert b.tool_cap_streak == 0
     assert b.prepare_next_turn() is True
     assert b.turn_count == 1
-    assert b.consume_runtime_notice() == "工具使用已经过多，请检查是否已经实现任务。"
+    assert b.consume_runtime_notice() == "工具调用数已接近上限。"
     assert b.consume_runtime_notice() is None
 
 
@@ -664,8 +665,8 @@ def test_budget_shared_grace_merges_notices_and_allows_three_turns():
     # max_turns=1 时由 max_turns 先触发共享 grace，因此 reason 是 max_turns。
     assert b.hard_stop_reason == "max_turns"
     assert b.consume_runtime_notice() == (
-        "任务已经运行较久，请检查进度并准备收尾。\n"
-        "工具使用已经过多，请检查是否已经实现任务。"
+        "回合数已接近上限。\n"
+        "工具调用数已接近上限。"
     )
 
 
@@ -673,7 +674,7 @@ def test_budget_turn_notice_is_one_shot_and_reset_clears_state():
     b = BudgetTracker(max_turns=1, max_tool_calling=16)
     b.begin_turn()
     assert b.prepare_next_turn() is True
-    assert b.consume_runtime_notice() == "任务已经运行较久，请检查进度并准备收尾。"
+    assert b.consume_runtime_notice() == "回合数已接近上限。"
     b.begin_turn()
     assert b.prepare_next_turn() is True
     assert b.consume_runtime_notice() is None

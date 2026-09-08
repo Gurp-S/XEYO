@@ -191,6 +191,8 @@ def test_journal_transition_with_read_cache(tmp_path):
 
 
 def test_pricing_refresh_is_nonblocking(monkeypatch):
+	import urllib.request
+
 	import usage.pricing as pricing
 
 	# 强制缓存过期 + 网络挂起：调用方必须立即返回（本地兜底价），不被 urlopen 卡住
@@ -213,7 +215,7 @@ def test_pricing_refresh_is_nonblocking(monkeypatch):
 	def slow_urlopen(req, timeout=2.0):
 		return SlowResp()
 
-	monkeypatch.setattr(pricing, "urlopen", slow_urlopen)
+	monkeypatch.setattr(urllib.request, "urlopen", slow_urlopen)
 	t0 = time.perf_counter()
 	price = pricing.get_model_pricing("deepseek", "deepseek-v4-flash", timeout=30.0)
 	elapsed = time.perf_counter() - t0

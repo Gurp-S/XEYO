@@ -17,7 +17,6 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
-from urllib.request import Request, urlopen
 
 BJ = timezone(timedelta(hours=8))
 USD_CNY = 7.2
@@ -460,6 +459,8 @@ def _load_pricing_json(timeout: float) -> dict[str, Any] | None:
 	过期时立刻返回现有值（含过期磁盘兜底），由后台线程刷新，下轮生效。
 	失败也缓存为 None，避免每次 submit 都卡网络。
 	"""
+	from urllib.request import Request, urlopen  # 惰性:仅联网取价路径
+
 	global _pricing_cache, _pricing_disk_loaded, _refresh_inflight
 	now = time.time()
 	ttl = _pricing_ttl_seconds()
@@ -512,6 +513,8 @@ def _load_pricing_json(timeout: float) -> dict[str, Any] | None:
 
 def refresh_pricing_blocking(timeout: float = 2.0) -> dict[str, Any] | None:
 	"""显式同步拉取实时价（供启动预热 / 测试）；热路径请用 _load_pricing_json。"""
+	from urllib.request import Request, urlopen  # 惰性:仅联网取价路径
+
 	global _pricing_cache, _pricing_disk_loaded, _refresh_inflight
 	url = os.environ.get("XEYO_PRICING_URL", "").strip() or PRICING_URL
 	data: dict[str, Any] | None

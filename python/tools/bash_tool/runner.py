@@ -182,6 +182,17 @@ def shell_display_name() -> str:
 
 SinkFn = Callable[[str], None]
 
+# P3 旁路:副作用台账登记(env XEYO_PROC_LEDGER 门控,默认关;关时零行为差异)。
+# 导入失败绝不拖垮 bash 主路径。
+try:
+	from engine.process_ledger import (
+		register_process as _ledger_register_process,
+		unregister_process as _ledger_unregister_process,
+	)
+except Exception:  # noqa: BLE001 — 台账不可用 → 全空操作
+	_ledger_register_process = lambda *a, **k: False
+	_ledger_unregister_process = lambda *a, **k: False
+
 
 @dataclass
 class StreamHandle:
@@ -305,6 +316,10 @@ class StreamHandle:
 			if self._released:
 				return
 			self._released = True
+		if self.proc is not None:
+			# 台账除名:释放=引擎责任终止。kill 失败而逃逸的进程成为台账孤儿,
+			# 由后续 sweep/收口处置(旁路默认只登记不自动杀)。
+			_ledger_unregister_process(self.proc.pid)
 		if self.proc is not None and self.proc.poll() is None:
 			_kill_process(self.proc, self.job)
 		self._pump_done.wait(_PUMP_DRAIN_S)
@@ -345,6 +360,7 @@ def spawn_streaming(
 		return h
 	if proc.pid:
 		job.assign(proc.pid)
+	_ledger_register_process(proc.pid, cmdline=command)
 	h = StreamHandle(proc=proc, job=job)
 	if on_output is not None:
 		h.add_sink(on_output)
