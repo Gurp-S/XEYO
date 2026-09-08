@@ -89,6 +89,7 @@ export function TypingCaret({
 	const lastPosRef = useRef<{x: number; y: number} | null>(null);
 	const onShownRef = useRef(false);
 	const prevValueRef = useRef('');
+	const recentKeyRef = useRef(0); /* 最近 keydown 时刻:拉伸只认键盘手势 */
 
 	const placeCaret = (mode: 'auto' | 'snap') => {
 		const overlayEl = overlayRef.current;
@@ -180,10 +181,13 @@ export function TypingCaret({
 
 		g.classList.toggle('xy-snap', kind === 'snap');
 		g.classList.toggle('xy-fast', kind === 'fast');
-		if (kind === 'macro') {
+		/* 拉伸只属于键盘大跳的手势感(Home/End/PageUp…):鼠标点击同样是 macro
+		 * 位移,但点击后光标"蹿高再缩回"读感就是 bug(2026-09-08 用户实测),
+		 * 只滑移不拉伸。键盘性用 keydown 时间戳判定(点击不触发 keydown)。 */
+		if (kind === 'macro' && performance.now() - recentKeyRef.current < 150) {
 			g.classList.add('xy-moving');
-		} else if (kind === 'fast') {
-			g.classList.remove('xy-moving'); /* 微移不拉伸:19px 静态 */
+		} else if (kind !== 'macro') {
+			g.classList.remove('xy-moving'); /* fast 微移/snap 不拉伸:常态高 */
 		}
 		g.style.transform = `translate3d(${tx}px, ${ty}px, 0)`;
 
@@ -264,6 +268,21 @@ export function TypingCaret({
 			}
 		}
 	}, [value]);
+
+	/* 键盘手势标记:拉伸档只在 keydown 后 150ms 内生效,鼠标点击不触发
+	 * keydown → 点击大跳只滑移不蹿高 */
+	useLayoutEffect(() => {
+		const parent = overlayRef.current?.parentElement;
+		const ta = parent?.querySelector('textarea');
+		if (!ta) {
+			return;
+		}
+		const markKey = () => {
+			recentKeyRef.current = performance.now();
+		};
+		ta.addEventListener('keydown', markKey);
+		return () => ta.removeEventListener('keydown', markKey);
+	}, [active]);
 
 	/* 失焦 / 退场:清光全部类 → 基础 opacity:0 真隐没(CSS animation 会
 	 * 压过基础声明,绝不能留 xy-idle,否则失焦后原地呼吸) */
