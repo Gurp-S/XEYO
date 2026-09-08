@@ -12,7 +12,6 @@ from engine.query_engine import QueryEngine, QueryEngineConfig
 from model.openai_compat import OpenAICompatClient
 from msgtypes.message import Message
 from prompt.assembler import PromptAssembler
-from tools.catalog import build_default_registry
 
 class CwdConflictError(ValueError):
 	"""Session is already pinned to a different workspace root."""
@@ -424,6 +423,8 @@ class SessionPool:
 		initial_messages: list[Message] | None = None,
 		cwd: str,
 	) -> QueryEngine:
+		from tools.catalog import build_default_registry  # 惰性:会话创建时才建工具面
+
 		reg = build_default_registry(cwd=cwd)
 		# HTTP 全栈测试的确定性假模型：直接复用 FakeModelClient + 注入 EchoTool
 		# （与 query_engine 的 fake 分支同款）；不走 OpenAI 兼容客户端。
