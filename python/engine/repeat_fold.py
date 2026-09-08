@@ -24,11 +24,19 @@
 from __future__ import annotations
 
 import hashlib
+import os
 from typing import Any
 
 from engine.repeat_guard import semantic_key
 
 DEFAULT_FOLD_AFTER = 3
+
+#: 结果等价档默认触发次数：同工具第 N 次出现相同内容（N=1 首次完整，
+#: N≥2 为等价重复）。默认 3——与逐字节档同底线（R2' 契约：前两次原文
+#: 保留，给足模型看清的机会）；``XEYO_FOLD_EQUIV_AT`` 可调激进档。
+#: 属行为账本方案（engine/loop_ledger.py）的消费端之一，受总开关
+#: XEYO_LOOP_LEDGER 管控。
+DEFAULT_FOLD_EQUIV_AT = 3
 
 #: 超短占位（seq > fold_after 时使用）：既保持配对又几乎零 token。
 _REPEAT_SHORT = "[fold] 与上一条输出相同（第 {n} 次连续）——详情见首次输出。"
@@ -38,6 +46,28 @@ _FOLD_EXPLAIN = (
 	"[fold] 这是同一签名的第 {n} 次调用，输出与首次逐字节相同——"
 	"引擎已折叠后续重复内容以节省上下文。"
 )
+#: 结果等价档（loop_ledger 方案）：同工具、**不同参数**但输出内容完全相同
+#: ——"换着花样调但结果全是旧的"的瘦身档；纯事实措辞，同受措辞测试执法。
+_FOLD_EQUIV = (
+	"[fold] 本次输出与该工具既往某次输出完全相同（第 {n} 次等价结果）——"
+	"引擎已折叠重复内容以节省上下文。"
+)
+
+
+def _fold_equiv_at() -> int:
+	raw = os.environ.get("XEYO_FOLD_EQUIV_AT", "").strip()
+	if raw:
+		try:
+			v = int(raw)
+			if v >= 2:
+				return v
+		except ValueError:
+			pass
+	return DEFAULT_FOLD_EQUIV_AT
+
+def _equiv_enabled() -> bool:
+	"""等价档随行为账本总开关（XEYO_LOOP_LEDGER=0 → 只保留原逐字节档）。"""
+	return os.environ.get("XEYO_LOOP_LEDGER", "").strip() != "0"
 
 
 def _digest(content: Any) -> str:
@@ -59,6 +89,10 @@ class IdenticalResultFold:
 		self.fold_after = max(2, int(fold_after))
 		#: key → (last_digest, seq)
 		self._state: dict[str, tuple[str, int]] = {}
+		#: 等价档（loop_ledger 方案）：tool → 出现过的结果摘要集合。
+		self._equi_seen: dict[str, set[str]] = {}
+		#: tool → 等价重复连续计数（新内容出现即清零）。
+		self._equi_seq: dict[str, int] = {}
 
 	def process(
 		self,
@@ -66,21 +100,41 @@ class IdenticalResultFold:
 		input_data: Any,
 		content: Any,
 	) -> tuple[str, bool]:
-		"""决定写入 store 的文本。返回 (text, folded)。"""
-		key = f"{tool_name}\x00{semantic_key(tool_name, input_data)}"
+		"""决定写入 store 的文本。返回 (text, folded)。未命中返回原文 + False。
+
+		两档判定独立计数，逐字节档（同签名相邻相同）优先于等价档
+		（同工具跨签名同内容）——前者文案更具体。均为纯替换：调用照常执行。
+		"""
 		d = _digest(content)
 		text = str(content or "")
+
+		# 等价档状态推进（先于逐字节档：seen 集合需登记本次摘要）。
+		equi_n = 0
+		if _equiv_enabled() and d:
+			seen = self._equi_seen.setdefault(tool_name, set())
+			if d in seen:
+				self._equi_seq[tool_name] = self._equi_seq.get(tool_name, 0) + 1
+			else:
+				self._equi_seq[tool_name] = 0
+				seen.add(d)
+			equi_n = self._equi_seq[tool_name] + 1  # 该内容第 N 次出现（N≥2 为等价重复）
+
+		key = f"{tool_name}\x00{semantic_key(tool_name, input_data)}"
 		last_digest, seq = self._state.get(key, ("", 0))
 		if d and d == last_digest:
 			seq += 1
 		else:
 			seq = 1
 		self._state[key] = (d, seq)
-		if seq < self.fold_after:
-			return text, False
-		if seq == self.fold_after:
-			return _FOLD_EXPLAIN.format(n=seq), True
-		return _REPEAT_SHORT.format(n=seq), True
+		if seq >= self.fold_after:
+			if seq == self.fold_after:
+				return _FOLD_EXPLAIN.format(n=seq), True
+			return _REPEAT_SHORT.format(n=seq), True
+		if _equiv_enabled() and equi_n >= _fold_equiv_at():
+			return _FOLD_EQUIV.format(n=equi_n), True
+		return text, False
 
 	def reset(self) -> None:
 		self._state.clear()
+		self._equi_seen.clear()
+		self._equi_seq.clear()

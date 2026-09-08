@@ -219,17 +219,32 @@ def test_fold_resets_when_output_changes():
 
 
 def test_fold_signature_and_tool_separation():
-	"""不同签名 / 不同工具不互相串扰。"""
+	"""不同签名 / 不同工具不互相串扰。
+
+	契约更新（loop_ledger 方案，2026-09-08）：逐字节档仍按签名独立计数
+	（a/b 互不串扰）；新增"结果等价档"按工具级内容查重——同内容第 3 次
+	出现时，无论签名是否相同都折叠（"换参数同结果"是逐字节档盲区，
+	正是本方案要补的形态）。不同工具（Read）完全隔离不变。
+	"""
 	from engine.repeat_fold import IdenticalResultFold
 
 	fold = IdenticalResultFold()
 	text = "same"
-	# Bash cmd=a 连续 3 次 → 折叠;同工具不同 cmd 独立计数。
+	# 前 2 次出现（无论签名）原文保留——R2' 契约不变。
 	assert fold.process("Bash", {"cmd": "a"}, text) == (text, False)
 	assert fold.process("Bash", {"cmd": "b"}, text) == (text, False)
-	assert fold.process("Bash", {"cmd": "b"}, text) == (text, False)
-	assert fold.process("Bash", {"cmd": "a"}, text) == (text, False)  # a 第 2 次
-	assert fold.process("Bash", {"cmd": "a"}, text)[1] is True        # a 第 3 次
+	# 该内容第 3 次出现 → 等价档折叠（跨签名；原逐字节档因签名隔离不会触发）。
+	t3, folded3 = fold.process("Bash", {"cmd": "b"}, text)
+	assert folded3 and "完全相同" in t3
+	# 等价档跨签名推进：cmd=a 第 2 次调用时内容 "same" 已是第 4 次出现
+	# （a,b,b,a），逐字节档签名计数未达标（seq=2），但等价档 equi_n=4≥3
+	# 仍折叠——这正是等价档要覆盖的"换签名同结果"形态。
+	t4, folded4 = fold.process("Bash", {"cmd": "a"}, text)
+	assert folded4 and "完全相同" in t4
+	# 第 5 次：cmd=a 逐字节计数达标（seq=3），逐字节档优先 → "同一签名"文案。
+	t5, folded5 = fold.process("Bash", {"cmd": "a"}, text)
+	assert folded5 and "同一签名" in t5
+	# 不同工具完全隔离。
 	assert fold.process("Read", {"file_path": "f"}, text) == (text, False)
 
 

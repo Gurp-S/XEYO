@@ -22,12 +22,14 @@ from permissions.pending_ttl import (
 from engine.plan import default_plan_engine
 from engine.process_narration import StreamNarrationGate
 from engine.repeat_guard import (
+	EXEMPT_TOOLS,
 	RepeatCallGuard,
 	ZeroHitTracker,
 	ZERO_HIT_ADVICE_AT,
 	clear_advice,
 )
 from engine.repeat_fold import IdenticalResultFold
+from engine.loop_ledger import LoopLedger
 from memory.l5_flag import c2_gate, l5_mode
 from memory.runtime import (
 	c2_llm_summary_enabled,
@@ -644,6 +646,7 @@ def _attach_turn_context(
 	plan_pointer: bool = False,
 	t_now_strategy: str = "",
 	budget: object | None = None,
+	loop_ledger: object | None = None,
 ) -> list[dict]:
 	"""薄封装：委托 ``prompt.pre_llm_inject.run_pre_llm_inject``。
 
@@ -704,6 +707,7 @@ def _attach_turn_context(
 			goal=goal_block,
 			plan_pointer=plan_pointer,
 			strategy=t_now_strategy,
+			loop_ledger=loop_ledger,
 		),
 	)
 
@@ -779,6 +783,9 @@ async def query_loop(
     # R2'：同签名·同输出字节级折叠（结果写入 store 前替换为一行 [fold] 事实；
     # 每 submit 新建 → 与 repeat_guard 同步的用户输入级重置）。
     result_fold = IdenticalResultFold()
+    # 行为账本（循环信号计数器：s1 结果等价 / s2 内容已见 / s3 首句重复）；
+    # 豁免集与 RepeatCallGuard 同源；经 InjectContext 供 pre_llm_inject 直读。
+    loop_ledger = LoopLedger(exempt_tools=frozenset(EXEMPT_TOOLS))
     # 零命中前提复核：不同查询累计空结果 ≥2 起追加中立提示。
     zero_hit_tracker = ZeroHitTracker()
     # tu.id → 该调用结果上要追加的零命中提示文本。
@@ -972,6 +979,7 @@ async def query_loop(
             subagent=_in_subagent(),
             plan_pointer=plan_pointer,
             budget=budget,
+            loop_ledger=loop_ledger,
         )
         projected_pre_inject = projected
         # #8 首轮嗅探：会话第一轮（历史无 assistant）注入有界 pwd+ls 清单，
@@ -1393,6 +1401,8 @@ async def query_loop(
         # T28：过程旁白不再从 transcript 剥除——随消息留档（background only），
         # 投影送模型时忽略，仅供「当时为何动手」追溯与刷新后回看。
         narration = narration_gate.drain_narration()
+        # 行为账本：s3 首句重复信号采集（在写入 store 前登记本轮输出）。
+        loop_ledger.observe_assistant(assistant_text)
         store.append(
             assistant_text_message(
                 assistant_text, tool_uses or None, narration=narration
@@ -1951,6 +1961,9 @@ async def query_loop(
             # GUI 实时事件仍展示真实输出；折叠只作用于写入 store 的持久文本。
             stored_content = out_content
             try:
+                # 行为账本：s1/s2 信号采集（纯计数，无副作用；豁免集在
+                # LoopLedger 内部处理）。fold 判定与其独立、互不影响。
+                loop_ledger.observe_tool(tu.name, out_content)
                 if not getattr(result, "images", None):
                     stored_content, _folded = result_fold.process(
                         tu.name, tu.input, out_content

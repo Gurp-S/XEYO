@@ -423,6 +423,10 @@ class InjectContext:
 	strategy: str = ""
 	#: 禀赋①：BudgetTracker（仅当调用方设置墙钟死线时用于预算镜像渲染；None = 不注入）。
 	budget: Any | None = None
+	#: 行为账本（engine.loop_ledger.LoopLedger 实例；None = 不渲染账本行）。
+	#: repeat_guard 块内直读当前计数——每轮新鲜渲染，不走 publish/clear 槽位
+	#: （账本需持续在场，信号清零自动消失）。子代理上下文不渲染（净化清单）。
+	loop_ledger: Any | None = None
 
 	def instructions_enabled(self) -> bool:
 		if self.inject_instructions is None:
@@ -1095,7 +1099,16 @@ def run_pre_llm_inject(
 		# 生成劝导文本，行为纠偏交给执行层失败信号；本块只消费 repeat 的
 		# 事实性信息（同签名重复计数）。
 		rep = current_advice()
-		combined = rep
+		# 行为账本（loop_ledger 方案）：s1/s2/s3 任一达阈值时渲染 ≤5 行
+		# 纯数据（计数与事实，无导演词——措辞由 test_loop_ledger 执法）；
+		# 与 advice 同块消费，不新增注册条目、不动 T_NOW_BLOCK_HARD_CAP。
+		ledger_text = ""
+		if ctx.loop_ledger is not None:
+			try:
+				ledger_text = ctx.loop_ledger.render()
+			except Exception:
+				_log.debug("loop ledger render failed", exc_info=True)
+		combined = "\n".join(x for x in (rep, ledger_text) if x)
 		if combined and not ctx.subagent:
 			# #2 完成度提示（思想蒸馏自 Todo DAG「失败要局部化」）并入同块：
 			# advice 非空 = 引擎已检出重复证据，此刻补渲染"已完成 X/Y +
