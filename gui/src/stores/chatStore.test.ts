@@ -297,35 +297,43 @@ describe('chatStore dialogue — errors & busy', () => {
 		expect(texts.some(t => t.includes('boom'))).toBe(false);
 	});
 
-	it('rejects second send while streaming (busy)', async () => {
-		let release!: () => void;
-		const gate = new Promise<void>(r => {
-			release = r;
-		});
+	it('queues second send while streaming (busy) and notifies inbox', async () => {
 		streamChat.mockImplementation(
 			async (
 				_sid: string,
 				_text: string,
 				handlers: ChatStreamHandlers,
 			) => {
-				await gate;
-				handlers.onDone();
+				// 队列请求：后端立即 202（不依赖回合结束）。
+				handlers.onQueued?.({queueId: 'q-2', position: 1});
 			},
 		);
+		// 预置 live 流：isLoading + 未 dead 的 abortRef → busy & live 均真。
+		useChatStore.setState(s => ({
+			sessionStreams: patchSessionStream(s.sessionStreams, 'sess_test', {
+				isLoading: true,
+				streamingText: '',
+				streamingShown: '',
+				abortRef: new AbortController(),
+				remoteStreaming: false,
+				turnDetached: false,
+				draining: false,
+			}),
+		}));
 
-		const first = useChatStore.getState().sendMessage('one');
+		// 不再被拒：走排队路径（乐观气泡 + 后端 202 → inbox chip）。
+		expect(await useChatStore.getState().sendMessage('two')).toBe(true);
 		await vi.waitFor(() => {
-			expect(sessionStreamActive(useChatStore.getState(), 'sess_test')).toBe(
+			const inbox = useChatStore.getState().inboxBySession.sess_test ?? [];
+			expect(inbox.some(item => item.text === 'two' && item.state === 'queued')).toBe(
 				true,
 			);
+			expect(useChatStore.getState().hasInboxChip).toBe(true);
 		});
-		expect(await useChatStore.getState().sendMessage('two')).toBe(false);
-		release();
-		expect(await first).toBe(true);
 		const users = (useChatStore.getState().messagesById.sess_test ?? [])
 			.filter(m => m.role === 'user')
 			.map(m => m.text);
-		expect(users).toEqual(['one']);
+		expect(users).toEqual(['two']);
 	});
 
 	it('updates tool row in place on result (no call/result remount pair)', async () => {
@@ -1253,7 +1261,9 @@ describe('chatStore hydrate', () => {
 			expect(loadRollbackState).toHaveBeenCalledWith('sess_cached');
 		});
 
-		it('surfaces recovery banner for persisted committed_resend_failed (PR-R4)', async () => {
+		it('v2 rollback retired: hydrate 一律 idle,未决态由 rewindV3 接管', async () => {
+			// V2 前端已退役(spaceSessionSlice):启动不再 surface v2 的
+			// committed_resend_failed,统一置 idle;重发失败接管方=rewindV3Store。
 			const sp = space();
 			const sess = session('sess_recover');
 			vi.mocked(loadSpaces).mockResolvedValue([sp]);
@@ -1272,9 +1282,9 @@ describe('chatStore hydrate', () => {
 			useChatStore.setState({hydrated: false, activeId: null, sessions: [], spaces: [], messagesById: {}});
 			await useChatStore.getState().hydrate();
 			expect(useChatStore.getState().rollbackById.sess_recover?.phase).toBe(
-				'committed_resend_failed',
+				'idle',
 			);
-			expect(useChatStore.getState().errorBanner).toMatch(/未完成重发/);
+			expect(useChatStore.getState().errorBanner).toBeNull();
 		});
 
 	it('skips tombstoned sessions when importing from server', async () => {
