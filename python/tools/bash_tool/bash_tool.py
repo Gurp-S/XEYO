@@ -44,6 +44,10 @@ from tools.bash_tool.runner import (
 )
 from tools.bash_tool.semantics import extract_base_command, interpret_command_result
 from tools.bash_tool.truncate import truncate_for_model
+from tools.bash_tool.destructive_guard import (
+	plan_destructive_snapshot,
+	settle_destructive_plan,
+)
 from tools.bash_tool.precheck import precheck_command
 
 
@@ -504,12 +508,16 @@ class BashTool:
 					"falling back to log-file background",
 					err,
 				)
+			# registry 直通路径生产者线程无 rewind ctx（Phase A 已知缺口）；
+			# 仅登记失败落回日志文件后台时做 before 快照保护。
+			guard_plan = plan_destructive_snapshot(inp.command, run_cwd)
 			h = start_background(
 				inp.command.strip(),
 				cwd=run_cwd,
 				timeout_ms=timeout_ms,
 				description=inp.description,
 				abort=abort,
+				guard_plan=guard_plan,
 			)
 			return BashOutput(
 				background_task_id=h.task_id,
@@ -519,6 +527,11 @@ class BashTool:
 		cmd = inp.command.strip()
 		if abort is not None and abort.aborted:
 			return BashOutput(stdout="", code=1, interrupted=True)
+
+		# #14 Phase A：破坏性命令（rm/mv/del…）执行前做 before 快照并登记
+		# started 操作；fail-open，返回 None = 本命令不保护。ctx 经 contextvars
+		# 在此处捕获（早于任何线程 spawn）。
+		guard_plan = plan_destructive_snapshot(cmd, run_cwd)
 
 		# 前台两阶段：先等 promote 阈值，仍未结束 → 活进程晋升为后台 job
 		#（进程不重启、已累积输出随晋升返回）。worker 模式禁晋升。
@@ -540,8 +553,13 @@ class BashTool:
 				loop=loop,
 				abort=abort,
 				promote_ms=promote_ms,
+				guard_plan=guard_plan,
 			)
 			if promoted is not None:
+				if guard_plan is not None and promoted.background_job:
+					# registry 收编路径无内部结算钩子：守护 poller 跟踪原
+					# 进程，结束时结算（adopt_background 路径由其 worker 结算）。
+					self._settle_guard_when_proc_ends(h, guard_plan)
 				return promoted
 		# 已消耗 promote 等待窗（或未启用晋升），剩余超时 = timeout - 实际已等时长。
 		# 用单调时钟精确扣减：避免被 max(1_000, ...) 抬高而突破用户指定的 timeout。
@@ -550,6 +568,10 @@ class BashTool:
 			max(0, timeout_ms - elapsed_promote) if promote_ms else timeout_ms
 		)
 		result = finish_streaming(h, timeout_ms=remaining_ms)
+
+		# 破坏性命令已有结局：执行过（含非零退出/中断/超时）→ completed；
+		# spawn 失败根本没跑 → cancelled。settle 自身 fail-open。
+		settle_destructive_plan(guard_plan, executed=h.spawn_error is None)
 
 		is_error, msg = interpret_command_result(inp.command, result.code)
 		if result.interrupted or result.timed_out:
@@ -593,6 +615,7 @@ class BashTool:
 		loop: Any,
 		abort: AbortController | None,
 		promote_ms: int,
+		guard_plan: Any = None,
 	) -> BashOutput | None:
 		"""前台超时晋升：把仍在运行的活进程移交后台（进程不重启、不重跑）。
 
@@ -627,7 +650,8 @@ class BashTool:
 			from tools.bash_tool.background import adopt_background
 
 			bh = adopt_background(
-				handle, cwd=run_cwd, description=description, parent_abort=abort
+				handle, cwd=run_cwd, description=description, parent_abort=abort,
+				guard_plan=guard_plan,
 			)
 		except Exception:  # noqa: BLE001 — 收编全失败 → 继续前台等待
 			return None
@@ -638,6 +662,32 @@ class BashTool:
 			promoted_after_ms=promote_ms,
 			stdout=partial,
 		)
+
+	@staticmethod
+	def _settle_guard_when_proc_ends(handle: Any, guard_plan: Any) -> None:
+		"""registry 收编后的 guard 结算：守护线程跟踪原进程，结束时结算。
+
+		adopt_registry_job 内部不感知 rewind（Phase A 缺口），故由 call 在
+		晋升返回后挂此 poller；持有裸 proc 引用，release() 置空 handle.proc
+		不影响跟踪。双重结算安全（completed → completed 是合法 no-op）。
+		"""
+
+		if guard_plan is None:
+			return
+		proc = getattr(handle, "proc", None)
+		if proc is None:
+			settle_destructive_plan(guard_plan, executed=True)
+			return
+
+		def _poll() -> None:
+			try:
+				while proc.poll() is None:
+					time.sleep(0.5)
+			except Exception:  # noqa: BLE001 — 进程对象异常也必须结算
+				pass
+			settle_destructive_plan(guard_plan, executed=True)
+
+		threading.Thread(target=_poll, name="bash-guard-settle", daemon=True).start()
 
 	@staticmethod
 	def map_tool_result_to_content(out: BashOutput) -> str:

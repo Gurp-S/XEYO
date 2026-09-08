@@ -5,9 +5,10 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from engine.abort import AbortController
+from tools.bash_tool.destructive_guard import settle_destructive_plan
 from tools.bash_tool.runner import run_command
 
 if TYPE_CHECKING:  # 循环导入防护：仅类型标注用
@@ -60,10 +61,13 @@ def start_background(
 	timeout_ms: int,
 	description: str | None = None,
 	abort: AbortController | None = None,
+	guard_plan: Any = None,
 ) -> BackgroundHandle:
 	"""
 	立即返回 task_id；daemon 线程实时把输出追加进 log（模型可随时 Read）。
 	绑定会话 abort + 可 cancel_background(task_id) 杀进程。
+	guard_plan 非 None 时（#14 Phase A 破坏性命令 before 快照）在 worker
+	结束的 finally 里结算（run_command 返回即视为执行过 → completed）。
 	"""
 	task_id = uuid.uuid4().hex[:12]
 	task_abort = AbortController()
@@ -109,6 +113,11 @@ def start_background(
 					f.write(f"# status: completed exit={result.code}\n")
 		finally:
 			log.close()
+			if guard_plan is not None:
+				try:
+					settle_destructive_plan(guard_plan, executed=True)
+				except Exception:  # noqa: BLE001 — fail-open
+					pass
 			with _TASK_LOCK:
 				_TASK_ABORTS.pop(task_id, None)
 
@@ -135,12 +144,14 @@ def adopt_background(
 	cwd: str,
 	description: str | None = None,
 	parent_abort: AbortController | None = None,
+	guard_plan: Any = None,
 ) -> BackgroundHandle:
 	"""registry 不可用时的晋升回退：把前台活进程转成日志文件后台任务。
 
 	已缓冲输出先落盘，随后增量实时追加（replay_and_attach 原子换 sink）；
 	abort 换绑 merged(task local, parent)——cancel_background(task_id) 与
 	会话 abort 均可杀。与 start_background 的产物形状一致（task_id + log）。
+	guard_plan 非 None 时在 worker 结束的 finally 里结算。
 	"""
 	task_id = uuid.uuid4().hex[:12]
 	task_abort = AbortController()
@@ -181,6 +192,11 @@ def adopt_background(
 				status = f"completed exit={code}"
 			_append_log(log_path, f"\n# status: {status}\n")
 		finally:
+			if guard_plan is not None:
+				try:
+					settle_destructive_plan(guard_plan, executed=True)
+				except Exception:  # noqa: BLE001 — fail-open
+					pass
 			with _TASK_LOCK:
 				_TASK_ABORTS.pop(task_id, None)
 
