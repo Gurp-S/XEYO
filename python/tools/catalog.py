@@ -10,7 +10,6 @@ import os
 from collections.abc import Callable, Sequence
 from typing import Any
 
-from tools.ask_user_question_tool import AskUserQuestionTool
 from tools.base_tool import (
 	AgentIdAware,
 	ReadStateAware,
@@ -20,13 +19,6 @@ from tools.base_tool import (
 	tool_flag,
 )
 from tools.fileio.read_state import ReadFileState
-from tools.file_read_tool.file_read_tool import FileReadTool
-from tools.file_write_tool.file_write_tool import FileWriteTool
-from tools.get_time import GetTimeTool
-from tools.offload_read_tool import OffloadReadTool
-from tools.glob_tool.glob_tool import GlobTool
-from tools.grep_tool.grep_tool import GrepTool
-from tools.memory_tool import MemoryTool
 from tools.meta import (
 	ENABLED_META_NAMES,
 	FORBIDDEN_SUB_TOOLS,
@@ -37,23 +29,54 @@ from tools.meta import (
 	WRITE_STORE_TOOL_NAMES,
 	meta_for,
 )
-from tools.screenshot_tool import ScreenshotTool
-from tools.send_to_wechat_tool import SendToWeChatTool
-from tools.todo_write_tool.todo_write_tool import TodoWriteTool
 from tools.tool_registry import ToolRegistry
-from tools.agent_tool import AgentTool  # noqa: F401  # 多Agent 子工人
-from tools.journal_query_tool import JournalQueryTool
-from tools.diagnostics_tool import DiagnosticsTool
-from tools.git_tool import GitTool
-from tools.notebook_edit_tool import NotebookEditTool
-from tools.web_fetch_tool import WebFetchTool
-from tools.web_search_tool import WebSearchTool
-from tools.xeyo_ui_tool import XeyoUITool
-from tools.job_tools import (  # 42 号：后台任务三工具（恒注册）
-	JobKillTool,
-	JobListTool,
-	JobOutputTool,
-)
+
+# ---------------------------------------------------------------------------
+# 工具类惰性解析(PEP 562 模块 __getattr__):工厂函数体引用的类名在
+# **首次调用**时才真正 import。import tools.catalog 因此不拖 24 个工具模块
+# (启动 import 329ms→数十 ms;registry 构建语义不变,仍逐个实例化)。
+# 首次解析后写入模块全局缓存,后续访问零开销。
+# ---------------------------------------------------------------------------
+_LAZY_TOOL_IMPORTS: dict[str, str] = {
+	"AskUserQuestionTool": "tools.ask_user_question_tool",
+	"FileReadTool": "tools.file_read_tool.file_read_tool",
+	"FileWriteTool": "tools.file_write_tool.file_write_tool",
+	"GetTimeTool": "tools.get_time",
+	"OffloadReadTool": "tools.offload_read_tool",
+	"GlobTool": "tools.glob_tool.glob_tool",
+	"GrepTool": "tools.grep_tool.grep_tool",
+	"MemoryTool": "tools.memory_tool",
+	"BashTool": "tools.bash_tool.bash_tool",
+	"FileEditTool": "tools.file_edit_tool.file_edit_tool",
+	"SkillTool": "tools.skill_tool",
+	"ScreenshotTool": "tools.screenshot_tool",
+	"SendToWeChatTool": "tools.send_to_wechat_tool",
+	"TodoWriteTool": "tools.todo_write_tool.todo_write_tool",
+	"AgentTool": "tools.agent_tool",
+	"JournalQueryTool": "tools.journal_query_tool",
+	"DiagnosticsTool": "tools.diagnostics_tool",
+	"GitTool": "tools.git_tool",
+	"NotebookEditTool": "tools.notebook_edit_tool",
+	"WebFetchTool": "tools.web_fetch_tool",
+	"WebSearchTool": "tools.web_search_tool",
+	"XeyoUITool": "tools.xeyo_ui_tool",
+	"JobKillTool": "tools.job_tools",
+	"JobListTool": "tools.job_tools",
+	"JobOutputTool": "tools.job_tools",
+}
+
+
+def __getattr__(name: str):
+	"""惰性解析被移除的工具类 import;其余缺失属性正常抛 AttributeError。"""
+	module_name = _LAZY_TOOL_IMPORTS.get(name)
+	if module_name is None:
+		raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+	import importlib
+
+	value = getattr(importlib.import_module(module_name), name)
+	globals()[name] = value  # 首次解析后缓存,热路径零开销
+	return value
+
 
 ToolFactory = Callable[[str], Tool]
 
@@ -80,22 +103,32 @@ __all__ = [
 
 
 def _get_time(_cwd: str) -> Tool:
+	from tools.get_time import GetTimeTool
+
 	return GetTimeTool()
 
 
 def _offload_read(_cwd: str) -> Tool:
+	from tools.offload_read_tool import OffloadReadTool
+
 	return OffloadReadTool()
 
 
 def _glob(cwd: str) -> Tool:
+	from tools.glob_tool.glob_tool import GlobTool
+
 	return GlobTool(cwd=cwd)
 
 
 def _agent(cwd: str) -> Tool:
+	from tools.agent_tool import AgentTool
+
 	return AgentTool(cwd=cwd)
 
 
 def _journal_query(cwd: str) -> Tool:
+	from tools.journal_query_tool import JournalQueryTool
+
 	return JournalQueryTool(cwd=cwd)
 
 
@@ -106,6 +139,8 @@ def _bash(cwd: str) -> Tool:
 
 
 def _file_read(cwd: str) -> Tool:
+	from tools.file_read_tool.file_read_tool import FileReadTool
+
 	return FileReadTool(cwd=cwd)
 
 
@@ -116,30 +151,44 @@ def _file_edit(cwd: str) -> Tool:
 
 
 def _file_write(cwd: str) -> Tool:
+	from tools.file_write_tool.file_write_tool import FileWriteTool
+
 	return FileWriteTool(cwd=cwd)
 
 
 def _grep(cwd: str) -> Tool:
+	from tools.grep_tool.grep_tool import GrepTool
+
 	return GrepTool(cwd=cwd)
 
 
 def _todo_write(_cwd: str) -> Tool:
+	from tools.todo_write_tool.todo_write_tool import TodoWriteTool
+
 	return TodoWriteTool()
 
 
 def _memory(cwd: str) -> Tool:
+	from tools.memory_tool import MemoryTool
+
 	return MemoryTool(cwd=cwd)
 
 
 def _ask_user(_cwd: str) -> Tool:
+	from tools.ask_user_question_tool import AskUserQuestionTool
+
 	return AskUserQuestionTool()
 
 
 def _screenshot(_cwd: str) -> Tool:
+	from tools.screenshot_tool import ScreenshotTool
+
 	return ScreenshotTool()
 
 
 def _send_to_wechat(cwd: str) -> Tool:
+	from tools.send_to_wechat_tool import SendToWeChatTool
+
 	return SendToWeChatTool(cwd=cwd)
 
 
@@ -150,38 +199,56 @@ def _skill(cwd: str) -> Tool:
 
 
 def _diagnostics(cwd: str) -> Tool:
+	from tools.diagnostics_tool import DiagnosticsTool
+
 	return DiagnosticsTool(cwd=cwd)
 
 
 def _git(cwd: str) -> Tool:
+	from tools.git_tool import GitTool
+
 	return GitTool(cwd=cwd)
 
 
 def _notebook_edit(cwd: str) -> Tool:
+	from tools.notebook_edit_tool import NotebookEditTool
+
 	return NotebookEditTool(cwd=cwd)
 
 
 def _web_fetch(_cwd: str) -> Tool:
+	from tools.web_fetch_tool import WebFetchTool
+
 	return WebFetchTool()
 
 
 def _web_search(_cwd: str) -> Tool:
+	from tools.web_search_tool import WebSearchTool
+
 	return WebSearchTool()
 
 
 def _xeyo_ui(cwd: str) -> Tool:
+	from tools.xeyo_ui_tool import XeyoUITool
+
 	return XeyoUITool(cwd=cwd)
 
 
 def _job_output(_cwd: str) -> Tool:
+	from tools.job_tools import JobOutputTool
+
 	return JobOutputTool()
 
 
 def _job_list(_cwd: str) -> Tool:
+	from tools.job_tools import JobListTool
+
 	return JobListTool()
 
 
 def _job_kill(_cwd: str) -> Tool:
+	from tools.job_tools import JobKillTool
+
 	return JobKillTool()
 
 
