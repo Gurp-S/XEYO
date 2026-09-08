@@ -7,7 +7,8 @@
 - ``ZeroHitTracker`` 管"换着花样搜、次次空"；
 - ``LoopLedger`` 管**行为循环**的三个逐字节可判定信号，供两处消费：
   ① ``repeat_fold`` 的"结果等价档"折叠（瘦身，见 repeat_fold.py）；
-  ② ``pre_llm_inject`` repeat_guard 块内的行为账本（≤5 行纯数据，T_now）。
+  ② ``pre_llm_inject`` repeat_guard 块内的行为账本（≤3 行纯数据，每
+     episode 一次，T_now）。
 
 理念对齐（2026-09-08 红线 + 用户裁决 19:04）
 -------------------------------------------
@@ -34,8 +35,10 @@ s3 首句重复：assistant 输出文本前 30 字符与上一轮逐字节相同
 
 生命周期：每 submit 新建（与 RepeatCallGuard / IdenticalResultFold 同步的
 用户输入级重置）；实例由 query_loop 持有，pre_llm_inject 经 InjectContext
-直读当前计数（**不走** publish/clear 槽位——账本需每轮持续渲染，不受
-"至多触发一次"类防噪音逻辑影响）。
+直读当前计数（**不走** publish/clear 槽位）。注入节奏（用户裁决
+2026-09-08 晚）：每个信号每个 episode 只 render 一次——达阈值首次注入后
+静默，该信号被新内容清零（新 episode）时重新武装；只报"重复了什么"，
+不报工具调用汇总。
 """
 
 from __future__ import annotations
@@ -128,8 +131,12 @@ class LoopLedger:
 		# s3：连续相同首句轮数。
 		self._last_head = ""
 		self._s3 = 0
-		# 工具调用总数（账本末行）。
+		# 工具调用总数（内部统计；render 不输出——用户裁决 2026-09-08 晚：
+		# 只注入"重复了什么"，汇总行是噪音）。
 		self._tool_calls = 0
+		# 每 episode 一次性注入状态（用户裁决 2026-09-08 晚）：达阈值后只
+		# render 一次；对应信号被新内容清零即重新武装（新的循环 episode）。
+		self._notified = [False, False, False]  # [s1, s2, s3]
 
 	@property
 	def s1(self) -> int:
@@ -161,11 +168,12 @@ class LoopLedger:
 		if not d:
 			return
 		self._tool_calls += 1
-		# s2：全文摘要跨工具查重（新内容清零）。
+		# s2：全文摘要跨工具查重（新内容清零 → 重新武装）。
 		if d in self._seen:
 			self._s2 += 1
 		else:
 			self._s2 = 0
+			self._notified[1] = False
 			self._seen.add(d)
 		# s1：同工具等价组查重（换参数同结果同样计数；新内容清零）。
 		groups = self._tool_groups.setdefault(tool_name, {})
@@ -174,6 +182,7 @@ class LoopLedger:
 			group = {"n": 0, "params": set()}
 			groups[d] = group
 			self._s1 = 0
+			self._notified[0] = False  # 新 episode → 重新武装
 		else:
 			self._s1 += 1
 		group["n"] += 1
@@ -192,10 +201,16 @@ class LoopLedger:
 			self._s3 += 1
 		else:
 			self._s3 = 1
+			self._notified[2] = False  # 新 episode → 重新武装
 			self._last_head = head
 
 	def render(self) -> str:
-		"""账本数据行（纯事实数字，≤5 行）；未达任何阈值返回空串。
+		"""账本数据行（纯事实，≤3 行）；未达任何阈值返回空串。
+
+		一次性语义（用户裁决 2026-09-08 晚）：每个信号每个 episode 只
+		render 一次——达阈值首次渲染后即静默，直至该信号被新内容清零
+		（新 episode）重新武装。避免命中期每轮注入的 token 与注意力税。
+		只报"重复了什么"（信号行），不报汇总（工具累计行已删）。
 
 		措辞红线（测试执法）：不出现 应该/建议/请/勿/优先/推荐 等导演词，
 		不带褒贬评价——只有计数与事实。
@@ -204,19 +219,21 @@ class LoopLedger:
 			return ""
 		at1, at2, at3 = self._at
 		lines: list[str] = []
-		if self._s1 >= at1 and self._last_equiv:
+		if self._s1 >= at1 and self._last_equiv and not self._notified[0]:
 			tool, n, k = self._last_equiv
 			line = f"- {tool}:本次结果与既往 {n - 1} 次调用结果逐字节相同"
 			if k:
 				line += f"(参数变体 {k} 种)"
 			lines.append(line)
-		if self._s2 >= at2:
+			self._notified[0] = True
+		if self._s2 >= at2 and not self._notified[1]:
 			lines.append(f"- 返回本回合已见内容的调用:{self._s2} 次")
-		if self._s3 >= at3:
+			self._notified[1] = True
+		if self._s3 >= at3 and not self._notified[2]:
 			lines.append(f"- 输出首句与上一轮逐字节相同:连续 {self._s3} 轮")
+			self._notified[2] = True
 		if not lines:
 			return ""
-		lines.append(f"- 本回合工具调用累计：{self._tool_calls} 次")
 		return "\n".join(lines)
 
 	def reset(self) -> None:
@@ -227,3 +244,4 @@ class LoopLedger:
 		self._tool_calls = 0
 		self._last_equiv = None
 		self._last_head = ""
+		self._notified = [False, False, False]

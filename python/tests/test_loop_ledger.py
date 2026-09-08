@@ -151,7 +151,38 @@ class TestRenderGate:
 		# params_digest → 参数未知 → 变体段如实省略（不报"0 种"误导）。
 		assert "Grep:本次结果与既往 3 次调用结果逐字节相同" in out
 		assert "参数变体" not in out
-		assert "本回合工具调用累计：4 次" in out
+		# 汇总行已删（用户裁决：只注入"重复了什么"）。
+		assert "工具调用累计" not in out
+
+	def test_render_once_per_episode(self):
+		"""每 episode 一次性注入（用户裁决 2026-09-08 晚）：达阈值首次
+		render 后静默；信号被新内容清零（新 episode）→ 重新武装。"""
+		led = LoopLedger()
+		for _ in range(4):
+			led.observe_tool("Grep", "same")  # s1=3 达阈值
+		first = led.render()
+		assert "逐字节相同" in first
+		# 同 episode 内后续 render：静默（零 token、零注意力税）。
+		assert led.render() == ""
+		assert led.render() == ""
+		# 新内容 → s1 清零 → 新 episode；再次循环达阈值 → 重新注入一次。
+		led.observe_tool("Grep", "brand new output")
+		assert led.render() == ""  # 未达阈值
+		for _ in range(4):
+			led.observe_tool("Grep", "brand new output")
+		second = led.render()
+		assert "逐字节相同" in second
+
+	def test_render_once_s3_episode(self):
+		led = LoopLedger()
+		for _ in range(3):
+			led.observe_assistant("基于我对代码的深入分析，我发现了若干问题")
+		assert "连续 3 轮" in led.render()
+		assert led.render() == ""  # 同 episode 静默
+		led.observe_assistant("换一个完全不同的开头新的总结内容")  # s3 清零
+		for _ in range(3):
+			led.observe_assistant("基于我对代码的深入分析，我发现了若干问题")
+		assert "连续 3 轮" in led.render()  # 新 episode 重新武装
 
 	def test_anchor_param_variants(self):
 		"""锚点核心价值：换参数同结果 → "参数变体 N 种"事实可核。"""
