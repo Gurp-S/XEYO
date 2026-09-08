@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 import os
+import sys
+import threading
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -19,6 +23,47 @@ from server.deps import (
 	error_body,
 )
 from server.local_gate import require_loopback
+
+# ---------------------------------------------------------------------------
+# 工具链后台预热(18:1x):import 惰性化的代价(启动→首用点平移)用后台线程回填。
+# 启动完成即起 daemon 线程把 catalog/24 工具模块导入并弃置式构建一次 registry,
+# 使 sys.modules 在首个会话/首条命令前就绪 → 首会话 _build / 首条 Bash 路由 /
+# 首次 Ask 不再付一次性 import。事件循环不受阻塞;失败静默(不影响服务)。
+# 关闭:XEYO_NO_PREWARM=1;pytest 进程内不预热(TestClient 大量实例防拖慢)。
+# ---------------------------------------------------------------------------
+_prewarm_lock = threading.Lock()
+_prewarm_started = False
+
+
+def _run_toolchain_prewarm() -> None:
+	try:
+		from tools.catalog import build_default_registry
+
+		build_default_registry(cwd=str(Path.cwd()))  # 触发全部工具模块 import,弃置实例
+	except Exception:  # noqa: BLE001 — 预热失败静默,服务照常
+		logging.getLogger("xeyo.lifespan").debug("toolchain prewarm failed", exc_info=True)
+
+
+def _ensure_toolchain_prewarm() -> None:
+	"""进程级幂等:同一进程只起一次预热线程。"""
+	global _prewarm_started
+	if _prewarm_started:
+		return
+	flag = os.environ.get("XEYO_NO_PREWARM", "").strip().lower()
+	if flag in ("1", "true", "yes", "on"):
+		return
+	if "pytest" in sys.modules:  # TestClient 生命周期反复进入 → 不预热
+		return
+	with _prewarm_lock:
+		if _prewarm_started:
+			return
+		_prewarm_started = True
+	threading.Thread(
+		target=_run_toolchain_prewarm,
+		name="toolchain-prewarm",
+		daemon=True,
+	).start()
+
 
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
@@ -134,6 +179,7 @@ async def _lifespan(_app: FastAPI):
 	gc_task = asyncio.create_task(_sidechain_gc_loop())
 	blob_gc_task = asyncio.create_task(_blob_gc_loop())
 	await autostart(get_runner(), get_store())
+	_ensure_toolchain_prewarm()
 	try:
 		yield
 	finally:
