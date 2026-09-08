@@ -17,6 +17,7 @@ from engine.loop_ledger import (
 	assistant_head,
 	content_digest,
 	ledger_enabled,
+	params_digest,
 )
 
 
@@ -146,8 +147,48 @@ class TestRenderGate:
 		for _ in range(4):  # 首次 + 3 次等价重复 → s1=3 达阈值
 			led.observe_tool("Grep", "same")
 		out = led.render()
-		assert "与该工具既往结果完全一致的调用：3 次" in out
+		# 锚点化（2026-09-08 晚）：s1 行报本次所属等价组的既往次数；未传
+		# params_digest → 参数未知 → 变体段如实省略（不报"0 种"误导）。
+		assert "Grep:本次结果与既往 3 次调用结果逐字节相同" in out
+		assert "参数变体" not in out
 		assert "本回合工具调用累计：4 次" in out
+
+	def test_anchor_param_variants(self):
+		"""锚点核心价值：换参数同结果 → "参数变体 N 种"事实可核。"""
+		led = LoopLedger()
+		led.observe_tool("Bash", "same", params_digest({"cmd": "a"}))
+		led.observe_tool("Bash", "same", params_digest({"cmd": "b"}))
+		led.observe_tool("Bash", "same", params_digest({"cmd": "c"}))
+		led.observe_tool("Bash", "same", params_digest({"cmd": "d"}))  # s1=3 达阈值
+		out = led.render()
+		assert "Bash:本次结果与既往 3 次调用结果逐字节相同" in out
+		assert "参数变体 4 种" in out
+
+	def test_anchor_same_params_one_variant(self):
+		led = LoopLedger()
+		for _ in range(4):
+			led.observe_tool("Bash", "same", params_digest({"cmd": "a"}))
+		assert "参数变体 1 种" in led.render()
+
+	def test_anchor_params_none_compat(self):
+		"""旧调用方不传 params_digest：行为不变，变体段如实省略。"""
+		led = LoopLedger()
+		for _ in range(4):
+			led.observe_tool("Grep", "same")
+		out = led.render()
+		assert "逐字节相同" in out and "参数变体" not in out
+
+	def test_anchor_reports_last_group(self):
+		"""锚点只报"本次所属等价组"——换新内容后组切换,既往次数跟随新组。"""
+		led = LoopLedger()
+		for _ in range(4):
+			led.observe_tool("Grep", "A")  # 组 A:s1=3 命中过
+		led.observe_tool("Grep", "B")  # 新内容 → s1 清零,组 B n=1
+		for _ in range(3):
+			led.observe_tool("Grep", "B")  # 组 B n=4 → s1=3 再达阈值
+		out = led.render()
+		assert "Grep:本次结果与既往 3 次调用结果逐字节相同" in out
+		assert led.s1 == 3
 
 	def test_reset(self):
 		led = LoopLedger()
@@ -175,7 +216,7 @@ class TestKillSwitch:
 		for _ in range(3):  # s1=2（2 次等价重复）达覆盖阈值
 			led.observe_tool("Grep", "same")
 		out = led.render()
-		assert "与该工具既往结果完全一致的调用：2 次" in out
+		assert "Grep:本次结果与既往 2 次调用结果逐字节相同" in out
 		assert "已见内容" not in out
 
 
@@ -272,7 +313,7 @@ class TestInjectWiring:
 			led.observe_tool("Grep", "same")
 			led.observe_assistant("基于我对代码的深入分析，我发现了问题")
 		text = self._run(monkeypatch, led)
-		assert "与该工具既往结果完全一致的调用" in text
+		assert "Grep:本次结果与既往 3 次调用结果逐字节相同" in text
 		assert "Repeat guard" in text
 
 	def test_ledger_silent_when_cold(self, monkeypatch):
@@ -280,7 +321,7 @@ class TestInjectWiring:
 		led = LoopLedger()
 		led.observe_tool("Grep", "same")
 		text = self._run(monkeypatch, led)
-		assert "与该工具既往结果完全一致的调用" not in text
+		assert "逐字节相同" not in text
 
 	def test_ledger_none_no_crash(self, monkeypatch):
 		monkeypatch.delenv("XEYO_LOOP_LEDGER", raising=False)
@@ -295,6 +336,12 @@ class TestPureFns:
 		assert content_digest("abc") == content_digest("abc")
 		assert content_digest("") == "" and content_digest("  \n") == ""
 		assert content_digest(None) == ""
+
+	def test_params_digest_stable_and_key_order_free(self):
+		assert params_digest({"a": 1, "b": 2}) == params_digest({"b": 2, "a": 1})
+		assert params_digest({"a": 1}) != params_digest({"a": 2})
+		assert params_digest(None) != ""  # None 也是确定摘要
+		assert params_digest(object()) != ""  # 不可序列化回退 str() 不炸
 
 	def test_head_strip(self):
 		assert assistant_head("  hello world  ") == "hello world"

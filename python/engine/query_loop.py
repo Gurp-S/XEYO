@@ -29,7 +29,7 @@ from engine.repeat_guard import (
 	clear_advice,
 )
 from engine.repeat_fold import IdenticalResultFold
-from engine.loop_ledger import LoopLedger
+from engine.loop_ledger import LoopLedger, params_digest
 from memory.l5_flag import c2_gate, l5_mode
 from memory.runtime import (
 	c2_llm_summary_enabled,
@@ -1963,7 +1963,10 @@ async def query_loop(
             try:
                 # 行为账本：s1/s2 信号采集（纯计数，无副作用；豁免集在
                 # LoopLedger 内部处理）。fold 判定与其独立、互不影响。
-                loop_ledger.observe_tool(tu.name, out_content)
+                # params_digest 只存摘要（锚点报"参数变体种数"用）。
+                loop_ledger.observe_tool(
+                    tu.name, out_content, params_digest=getattr(tu, "input", None)
+                )
                 if not getattr(result, "images", None):
                     stored_content, _folded = result_fold.process(
                         tu.name, tu.input, out_content

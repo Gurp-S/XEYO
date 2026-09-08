@@ -19,11 +19,12 @@
 
 信号定义
 --------
-s1 结果等价：同工具的调用，本次结果归一化摘要与该工具既往某次**完全一致**
+s1 结果等价：同工具的调用，本次结果 sha256 摘要与该工具既往某次**完全一致**
   （参数可以不同——"换着花样调但结果全是旧的"正是循环特征；不要求相邻，
-  中途插入其他工具不重置，由"新内容清零"承担连续性）；
+  中途插入其他工具不重置，由"新内容清零"承担连续性。render 锚点化：报
+  本次所属等价组的既往次数与参数变体种数，均为逐字节事实）；
 s2 内容已见：本次结果全文 sha256 已在本回合出现过（跨工具）；
-s3 首句重复：assistant 输出文本前 30 字符与上一轮相同（连续计数）。
+s3 首句重复：assistant 输出文本前 30 字符与上一轮逐字节相同（连续计数）。
 
 开关与阈值
 ----------
@@ -40,6 +41,7 @@ s3 首句重复：assistant 输出文本前 30 字符与上一轮相同（连续
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 from typing import Any
 
@@ -78,6 +80,18 @@ def content_digest(content: Any) -> str:
 		return ""
 
 
+def params_digest(params: Any) -> str:
+	"""调用参数的稳定摘要（16 hex）；只存摘要不存原文，序列化失败回退 str()。"""
+	try:
+		try:
+			text = json.dumps(params, ensure_ascii=False, sort_keys=True, default=str)
+		except Exception:  # noqa: BLE001
+			text = str(params)
+		return hashlib.sha256(text.encode("utf-8", "replace")).hexdigest()[:16]
+	except Exception:  # noqa: BLE001
+		return ""
+
+
 def assistant_head(text: Any) -> str:
 	"""assistant 输出文本的首句比较键（前 30 字符，strip 后取）。"""
 	try:
@@ -102,9 +116,12 @@ class LoopLedger:
 	) -> None:
 		self._at = at or ledger_thresholds_from_env()
 		self._exempt = exempt_tools if exempt_tools is not None else frozenset()
-		# s1：tool → 该工具出现过的结果摘要集合；等价重复计数。
-		self._tool_seen: dict[str, set[str]] = {}
+		# s1：tool → 结果摘要 → 等价组（组内次数 + 参数摘要集合）。
+		# 锚点化（2026-09-08 晚）：render 报"本次调用所属等价组"的既往次数
+		# 与参数变体种数——只报逐字节事实关系，不下"循环"类结论。
+		self._tool_groups: dict[str, dict[str, dict[str, Any]]] = {}
 		self._s1 = 0
+		self._last_equiv: tuple[str, int, int] | None = None
 		# s2：本回合出现过的全部结果摘要。
 		self._seen: set[str] = set()
 		self._s2 = 0
@@ -130,8 +147,14 @@ class LoopLedger:
 	def tool_calls(self) -> int:
 		return self._tool_calls
 
-	def observe_tool(self, tool_name: str, content: Any) -> None:
-		"""工具结果写入 store 前登记（豁免工具 / 空内容 / 总开关关 → 跳过）。"""
+	def observe_tool(
+		self, tool_name: str, content: Any, params_digest: str | None = None
+	) -> None:
+		"""工具结果写入 store 前登记（豁免工具 / 空内容 / 总开关关 → 跳过）。
+
+		``params_digest`` 可选（``params_digest(tu.input)``）；缺省时等价组
+		不记参数变体，render 省略变体段——旧调用方零破坏。
+		"""
 		if not ledger_enabled() or tool_name in self._exempt:
 			return
 		d = content_digest(content)
@@ -144,13 +167,19 @@ class LoopLedger:
 		else:
 			self._s2 = 0
 			self._seen.add(d)
-		# s1：同工具的既往摘要查重（换参数同结果同样计数；新内容清零）。
-		seen = self._tool_seen.setdefault(tool_name, set())
-		if d in seen:
-			self._s1 += 1
-		else:
+		# s1：同工具等价组查重（换参数同结果同样计数；新内容清零）。
+		groups = self._tool_groups.setdefault(tool_name, {})
+		group = groups.get(d)
+		if group is None:
+			group = {"n": 0, "params": set()}
+			groups[d] = group
 			self._s1 = 0
-			seen.add(d)
+		else:
+			self._s1 += 1
+		group["n"] += 1
+		if params_digest:
+			group["params"].add(params_digest)
+		self._last_equiv = (tool_name, group["n"], len(group["params"]))
 
 	def observe_assistant(self, text: Any) -> None:
 		"""assistant 消息写入 store 前登记首句重复（s3）。"""
@@ -175,12 +204,16 @@ class LoopLedger:
 			return ""
 		at1, at2, at3 = self._at
 		lines: list[str] = []
-		if self._s1 >= at1:
-			lines.append(f"- 与该工具既往结果完全一致的调用：{self._s1} 次")
+		if self._s1 >= at1 and self._last_equiv:
+			tool, n, k = self._last_equiv
+			line = f"- {tool}:本次结果与既往 {n - 1} 次调用结果逐字节相同"
+			if k:
+				line += f"(参数变体 {k} 种)"
+			lines.append(line)
 		if self._s2 >= at2:
-			lines.append(f"- 返回本回合已见内容的调用：{self._s2} 次")
+			lines.append(f"- 返回本回合已见内容的调用:{self._s2} 次")
 		if self._s3 >= at3:
-			lines.append(f"- 输出首句与上一轮相同：连续 {self._s3} 轮")
+			lines.append(f"- 输出首句与上一轮逐字节相同:连续 {self._s3} 轮")
 		if not lines:
 			return ""
 		lines.append(f"- 本回合工具调用累计：{self._tool_calls} 次")
@@ -188,8 +221,9 @@ class LoopLedger:
 
 	def reset(self) -> None:
 		"""用户输入级重置（同一实例复用时）。"""
-		self._tool_seen.clear()
+		self._tool_groups.clear()
 		self._seen.clear()
 		self._s1 = self._s2 = self._s3 = 0
 		self._tool_calls = 0
+		self._last_equiv = None
 		self._last_head = ""
