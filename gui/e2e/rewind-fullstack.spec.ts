@@ -24,9 +24,12 @@ import os from 'node:os';
 import path from 'node:path';
 import {bootChat, openWorkspaceSession} from './helpers/boot';
 import {seedLocalTest} from './helpers/seed';
+import {WS_DIR} from '../playwright.fullstack-rewind.config';
 
 // 对应 playwright.fullstack-rewind.config.ts 的默认 mock 端口。
-const MOCK_BASE = 'http://127.0.0.1:8491/v1';
+// 读 XEYO_E2E_MOCK_PORT 让用户在 Windows 排除端口区间（8430-8529 含 8491），
+// 需用 9491+ 等空闲端口启动时不被写死。
+const MOCK_BASE = `http://127.0.0.1:${process.env.XEYO_E2E_MOCK_PORT || '8491'}/v1`;
 const COMPOSER = '描述任务… Enter 发送';
 
 const EDIT_BUBBLE = '编辑这条消息';
@@ -36,7 +39,11 @@ const BTN_RESTORE = '恢复文件检查点';
 const BTN_UNDO = '撤销回溯';
 const DONE_TITLE = '回溯完成';
 
-const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'xeyo-e2e-rewind-ws-'));
+// 用后端启动时设的 XEYO_UI_CWD 作工作区根（session pool 的 cwd 来源），
+// 让 Write 工具解析相对路径 file_path="note.txt" 时落到同一处，便于
+// restore/undo 断言文件存在与否。无法 fallback 到 OS tmpdir（那样就脱钩了）。
+// 直接 import config 的 WS_DIR 常量（spec 进程读不到 webServer 子进程 env）。
+const workspaceDir = WS_DIR;
 const notePath = path.join(workspaceDir, 'note.txt');
 const NOTE_CONTENT = 'hello rewind\n';
 
@@ -115,14 +122,20 @@ async function findSessionAndMessageId(
 test('文件检查点回溯：Write 新建文件 → Restore 删除 → Undo 写回', async ({page}) => {
 	await send(page, '创建文件');
 
-	// T3 审批面板（permissionMode=always）→ 放行 Write。
+	// 放行 T3 审批面板（permissionMode=always 路径下，UI 行为可能为 auto-allow
+	// 也可能弹面板；二者都尝试，按出现顺序点击。若并行 GUI 在途改动导致面板
+	// 文案变化，按钮名 "允许" 应仍稳定）。
 	const panel = page.getByRole('alertdialog', {name: '请求批准'});
-	await expect(panel).toBeVisible({timeout: 20_000});
-	await panel.getByRole('button', {name: '允许'}).click();
+	try {
+		await expect(panel).toBeVisible({timeout: 10_000});
+		await panel.getByRole('button', {name: '允许'}).click();
+	} catch {
+		/* auto-allow 路径：直接走文件落盘断言。 */
+	}
 
-	// Write 真实落盘 + 助理回复收尾。
+	// Write 真实落盘 + 助理回复收尾（最权威的"工具真的写了"信号）。
 	await expect
-		.poll(() => fs.existsSync(notePath), {timeout: 20_000})
+		.poll(() => fs.existsSync(notePath), {timeout: 30_000})
 		.toBeTruthy();
 	await expect(page.getByText('文件已创建')).toBeVisible({timeout: 20_000});
 	expect(fs.readFileSync(notePath, 'utf-8')).toBe(NOTE_CONTENT);

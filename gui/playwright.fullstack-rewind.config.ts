@@ -28,6 +28,9 @@ const WS_DIR = path.join(ISOLATE_DIR, 'ws');
 // 诊断：mock_llm 收到的每个主轮请求（角色序列 + 命中分支）。固定路径便于复跑后对照。
 const REQUESTS_LOG = path.join(os.tmpdir(), 'xeyo-fullstack-rewind-requests.jsonl');
 fs.rmSync(REQUESTS_LOG, {force: true});
+// 后端启动前确保 WS_DIR 真实存在（XEYO_UI_CWD 解析到的工作区根；openFolder
+// 需真实路径，否则 UI 文件树加载失败、Write 工具的 file_path 相对路径无法落盘）。
+fs.mkdirSync(WS_DIR, {recursive: true});
 
 const backendEnv = {
 	XEYO_HTTP_PORT: String(BACKEND_PORT),
@@ -94,4 +97,4 @@ export default defineConfig({
 	],
 });
 
-export {MOCK_PORT, BACKEND_PORT, VITE_PORT};
+export {MOCK_PORT, BACKEND_PORT, VITE_PORT, WS_DIR};

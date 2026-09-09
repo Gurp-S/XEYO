@@ -67,6 +67,12 @@ test.beforeEach(async ({page}) => {
 	await bootChat(page);
 	// 打开真实文件夹作为工作区并建会话（确定性会话/工作区骨架）。
 	await openWorkspaceSession(page, workspaceDir);
+	// 等 UI 真就绪：cold start 下 store hydrate 慢，openWorkspaceSession 返回
+	// 时 active session 未必已设到 UI；让首测能过，否则 send 被「请先打开一个
+	// 项目文件夹」守卫拦（已观察 72/133 在冷启动首测必挂、96/249 在热环境过）。
+	await expect(
+		page.getByText('请先打开一个项目文件夹,再发送消息。', {exact: true}),
+	).toHaveCount(0, {timeout: 15_000});
 });
 
 test('回溯弹窗：打开 → 取消关闭，消息列表不变', async ({page}) => {
