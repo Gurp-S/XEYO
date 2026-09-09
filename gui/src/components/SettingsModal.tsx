@@ -1,4 +1,4 @@
-import {Eye, EyeOff, ImagePlus, Pencil, Plus, Trash2, X} from 'lucide-react';
+import {Check, Eye, EyeOff, ImagePlus, Pencil, Plus, RefreshCw, Trash2, X} from 'lucide-react';
 import {useEffect, useRef, useState} from 'react';
 import {usePresence} from '@/hooks/usePresence';
 import {AccentColorPicker} from '@/components/AccentColorPicker';
@@ -6,7 +6,7 @@ import {GrantsPanel} from '@/components/GrantsPanel';
 import {ReasoningLevelsSelect} from '@/components/ReasoningLevelsSelect';
 import {RuntimePresetSetting} from '@/components/RuntimePresetSetting';
 import {BG_PICK_MAX_BYTES, compressBackgroundImage} from '@/lib/bgImage';
-import {setRewindGcSettings} from '@/lib/api';
+import {fetchVendorModels, setRewindGcSettings, type VendorModel} from '@/lib/api';
 import {cn} from '@/lib/utils';
 import {toast} from '@/lib/toast';
 import {confirmDialog} from '@/lib/inlineDialog';
@@ -20,6 +20,7 @@ import {
 	REASONING_EFFORTS,
 	keyFingerprint,
 	profileModelIds,
+	syncSessionUsageContextLimits,
 	useSettingsStore,
 	type ModelInput,
 	type ModelProfile,
@@ -86,6 +87,7 @@ const draftRowsToModels = (rows: DraftModelRow[]): ModelInput[] =>
 				inputType: r.inputType,
 				outputType: r.outputType,
 			};
+			// 上下文窗口必填：保存前的校验已保证 >0。
 			if (contextLimit > 0) {
 				out.contextLimit = contextLimit;
 			}
@@ -103,7 +105,6 @@ const draftRowsToModels = (rows: DraftModelRow[]): ModelInput[] =>
 		.filter((m): m is ModelInput => m !== null);
 
 export function SettingsModal({open, onClose}: Props) {
-	const provider = useSettingsStore(s => s.provider);
 	const profiles = useSettingsStore(s => s.profiles) ?? [];
 	const activeProfileId = useSettingsStore(s => s.activeProfileId);
 	const addProfile = useSettingsStore(s => s.addProfile);
@@ -223,10 +224,8 @@ export function SettingsModal({open, onClose}: Props) {
 		/** 表单内 API Key 输入框的明密文切换。 */
 		const [showKey, setShowKey] = useState(false);
 		const [draft, setDraft] = useState({
-			provider: provider as ProviderId,
 			name: '',
 			note: '',
-			website: '',
 			apiKey: '',
 			baseUrl: '',
 			models: [] as DraftModelRow[],
@@ -236,6 +235,10 @@ export function SettingsModal({open, onClose}: Props) {
 			baseUrl?: string;
 			models?: string;
 		}>({});
+		/** 厂商 GET /models 拉取状态（模型 ID 候选：可拉取也可手填）。 */
+		const [vendorModels, setVendorModels] = useState<VendorModel[] | null>(null);
+		const [vendorFetchError, setVendorFetchError] = useState<string | null>(null);
+		const [fetchingVendorModels, setFetchingVendorModels] = useState(false);
 
 	useEffect(() => {
 		if (open) {
@@ -265,15 +268,105 @@ export function SettingsModal({open, onClose}: Props) {
 			setDraft(d => ({...d, models: d.models.filter((_, i) => i !== idx)}));
 		};
 
+		/** 重置厂商模型拉取状态（表单打开 / baseUrl·Key 变化时候选作废）。 */
+		const resetVendorModelCache = () => {
+			setVendorModels(null);
+			setVendorFetchError(null);
+		};
+
+		/** 按 API 请求地址推断服务商协议（表单不再暴露「服务商」选择）。 */
+		const inferProviderFromBaseUrl = (url: string): ProviderId => {
+			const u = url.trim().toLowerCase();
+			if (u.includes('deepseek')) {
+				return 'deepseek';
+			}
+			if (u.includes('openai')) {
+				return 'openai';
+			}
+			if (u.includes('localhost') || u.includes('127.0.0.1')) {
+				return 'local';
+			}
+			return 'openai';
+		};
+
+		/** 从厂商 GET /models 拉取模型候选（用表单当前 Key/地址，不依赖已保存值）。 */
+		const loadVendorModelCandidates = async () => {
+			const baseUrl = draft.baseUrl.trim();
+			if (!baseUrl) {
+				setVendorFetchError('请先填写 API 请求地址');
+				return;
+			}
+			setFetchingVendorModels(true);
+			setVendorFetchError(null);
+			try {
+				const report = await fetchVendorModels({
+					apiKey: draft.apiKey.trim(),
+					provider: inferProviderFromBaseUrl(baseUrl),
+					baseUrl,
+				});
+				if (!report.vendor_ok && report.data.length === 0) {
+					setVendorModels(null);
+					setVendorFetchError(
+						`拉取失败：${report.vendor_error || '厂商未返回模型列表'}；可直接手动填写模型 ID`,
+					);
+					return;
+				}
+				setVendorModels(report.data);
+				if (report.data.length === 0) {
+					setVendorFetchError('厂商未返回模型列表；可直接手动填写模型 ID');
+				}
+			} catch (err) {
+				setVendorModels(null);
+				setVendorFetchError(
+					`拉取失败：${err instanceof Error ? err.message : String(err)}；可直接手动填写模型 ID`,
+				);
+			} finally {
+				setFetchingVendorModels(false);
+			}
+		};
+
+		/** 点选厂商模型 → 填入草稿（带 context_length 时预填上下文窗口）。 */
+		const addVendorModelToDraft = (vm: VendorModel) => {
+			const ctx =
+				Number.isFinite(Number(vm.context_length)) &&
+				Number(vm.context_length) > 0
+					? String(Math.floor(Number(vm.context_length)))
+					: '';
+			setDraft(d => {
+				if (d.models.some(m => m.id.trim() === vm.id)) {
+					return d;
+				}
+				// 首行还是空占位行时直接复用该行，否则追加。
+				const firstEmptyIdx = d.models.findIndex(m => !m.id.trim());
+				if (firstEmptyIdx >= 0) {
+					return {
+						...d,
+						models: d.models.map((m, i) =>
+							i === firstEmptyIdx ? {...m, id: vm.id, contextLimit: ctx} : m,
+						),
+					};
+				}
+				return {
+					...d,
+					models: [
+						...d.models,
+						{...emptyDraftModel(), id: vm.id, contextLimit: ctx},
+					],
+				};
+			});
+			if (fieldErrors.models) {
+				setFieldErrors(f => ({...f, models: undefined}));
+			}
+		};
+
 		const openAddAccount = () => {
 			setEditingId(null);
 			setShowKey(false);
 			setFieldErrors({});
+			resetVendorModelCache();
 			setDraft({
-				provider,
 				name: '',
 				note: '',
-				website: '',
 				apiKey: '',
 				baseUrl: '',
 				models: [emptyDraftModel()],
@@ -285,11 +378,10 @@ export function SettingsModal({open, onClose}: Props) {
 			setEditingId(p.id);
 			setShowKey(false);
 			setFieldErrors({});
+			resetVendorModelCache();
 			setDraft({
-				provider: p.provider,
 				name: p.name ?? '',
 				note: p.note ?? '',
-				website: p.website ?? '',
 				apiKey: p.apiKey,
 				baseUrl: p.baseUrl,
 				// 兼容旧单模型：无 models 数组时从 model/contextLimit/maxOutputTokens 迁移出首行。
@@ -316,13 +408,17 @@ export function SettingsModal({open, onClose}: Props) {
 
 		const saveDraftAccount = () => {
 			const errs: {apiKey?: string; baseUrl?: string; models?: string} = {};
-			if (!draft.apiKey.trim()) {
+			// 空 Key 仅允许本地测试 provider（localTestGate，T25c）。
+			if (
+				!draft.apiKey.trim() &&
+				!allowsEmptyApiKey(inferProviderFromBaseUrl(draft.baseUrl))
+			) {
 				errs.apiKey = '请填写 API Key';
 			}
 			if (!draft.baseUrl.trim()) {
 				errs.baseUrl = '请填写 API 请求地址';
 			}
-			// 模型列表必填；每个模型行 id 与上下文窗口必填（用户填写为准，不再用厂商 /models 覆盖）。
+			// 模型列表必填；每行模型 ID 与上下文窗口均为必填（以用户填写为准）。
 			let hasRowError = false;
 			for (const row of draft.models) {
 				if (!row.id.trim()) {
@@ -335,7 +431,7 @@ export function SettingsModal({open, onClose}: Props) {
 			if (draft.models.length === 0) {
 				errs.models = '请至少添加一个模型';
 			} else if (hasRowError) {
-				errs.models = '请填写每个模型的 ID 与上下文窗口（token 数）';
+				errs.models = '请填写每个模型的 ID 与上下文窗口（token 数，必填）';
 			}
 			if (errs.apiKey || errs.baseUrl || errs.models) {
 				setFieldErrors(errs);
@@ -350,32 +446,36 @@ export function SettingsModal({open, onClose}: Props) {
 				existing?.model && rows.some(m => m.id === existing.model)
 					? existing.model
 					: rows[0].id;
+			// 「服务商」字段已从表单移除：按 API 请求地址推断协议；编辑时沿用现存值。
+			const providerForSave = editingId
+				? (existing?.provider ?? inferProviderFromBaseUrl(draft.baseUrl))
+				: inferProviderFromBaseUrl(draft.baseUrl);
 			if (editingId) {
 				updateProfile(editingId, {
-					provider: draft.provider,
+					provider: providerForSave,
 					model: nextModel,
 					apiKey: draft.apiKey,
 					baseUrl: draft.baseUrl,
 					name: draft.name,
 					note: draft.note,
-					website: draft.website,
 					models: rows,
 				});
 				toast.success('已更新账号');
 			} else {
 				addProfile({
-					provider: draft.provider,
+					provider: providerForSave,
 					model: nextModel,
 					apiKey: draft.apiKey,
 					baseUrl: draft.baseUrl,
 					name: draft.name,
 					note: draft.note,
-					website: draft.website,
 					models: rows,
 				});
 				const fp = keyFingerprint(draft.apiKey);
 				toast.success(fp ? `已保存账号 ${fp}` : '已保存账号');
 			}
+			// 设置里填写的上下文窗口即时同步到聊天界面用量预览（分母对齐）。
+			syncSessionUsageContextLimits();
 			setEditingId(null);
 			setShowAdd(false);
 			setFieldErrors({});
@@ -825,7 +925,7 @@ export function SettingsModal({open, onClose}: Props) {
 						</button>
 					</div>
 					<p className="text-[11px] leading-relaxed text-mute">
-						可保存多套服务商 / Key，全部写在本机。模型列表由你在下方手动登记，对话输入框上拉选择。
+						可保存多套 API Key，全部写在本机。模型 ID 可从厂商拉取或手动填写，对话输入框上拉选择。
 					</p>
 
 					{showAdd ? (
@@ -865,30 +965,6 @@ export function SettingsModal({open, onClose}: Props) {
 									/>
 								</label>
 							</div>
-							<label className="block text-xs">
-								<span className="mb-1 block text-mute">官网链接（可选）</span>
-								<input
-									className="xy-surface w-full rounded-xl border border-line bg-glass-strong px-3 py-2 text-ink outline-none focus:border-accent"
-									placeholder="https://example.com"
-									value={draft.website}
-									onChange={e => setDraft(d => ({...d, website: e.target.value}))}
-								/>
-							</label>
-							<label className="block text-xs">
-								<span className="mb-1 block text-mute">服务商</span>
-								<select
-									className="xy-surface w-full rounded-xl border border-line bg-glass-strong px-3 py-2 text-ink outline-none focus:border-accent"
-									value={draft.provider}
-									onChange={e => setDraft(d => ({...d, provider: e.target.value as ProviderId}))}
-								>
-<option value="deepseek">DeepSeek</option>
-									<option value="openai">OpenAI</option>
-									{/* 本地模型仅 localTestGate 开启时可选（T25c）。 */}
-									{allowsEmptyApiKey('local') && (
-										<option value="local">本地模型（测试）</option>
-									)}
-								</select>
-							</label>
 							<div className="text-xs">
 								<span className="mb-1 block text-mute">API Key（仅本机）</span>
 								<div className="flex items-center gap-2">
@@ -932,6 +1008,67 @@ export function SettingsModal({open, onClose}: Props) {
 									</span>
 								) : null}
 							</div>
+							{/* 厂商模型拉取：候选可一键填入，也可跳过直接在下方手填。 */}
+							<div className="text-xs">
+								<button
+									type="button"
+									disabled={fetchingVendorModels}
+									onClick={loadVendorModelCandidates}
+									className="xy-press inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[12px] text-accent hover:bg-accent-soft disabled:opacity-50"
+								>
+									<RefreshCw
+										className={cn('h-3.5 w-3.5', fetchingVendorModels && 'animate-spin')}
+									/>
+									{fetchingVendorModels
+										? '正在从厂商拉取模型列表…'
+										: vendorModels
+											? `重新拉取（已拉到 ${vendorModels.length} 个）`
+											: '从厂商拉取模型列表'}
+								</button>
+								<span className="ml-2 text-[10px] text-mute">
+									拉取需要先在上方填写 API Key 与请求地址；拉不到时可直接手动填写模型 ID。
+								</span>
+								{vendorFetchError ? (
+									<span
+										className="mt-1 block text-[11.5px]"
+										style={{color: 'var(--xy-danger)'}}
+									>
+										{vendorFetchError}
+									</span>
+								) : null}
+								{vendorModels && vendorModels.length > 0 ? (
+									<div className="mt-1.5 max-h-40 space-y-0.5 overflow-y-auto rounded-xl border border-line/70 bg-paper-deep/40 p-1.5">
+										{vendorModels.map(vm => {
+											const added = draft.models.some(
+												m => m.id.trim() === vm.id,
+											);
+											return (
+												<button
+													key={vm.id}
+													type="button"
+													onClick={() => addVendorModelToDraft(vm)}
+													className="flex w-full items-center gap-2 rounded-lg px-2 py-1 text-left hover:bg-accent-soft/60"
+												>
+													<span className="min-w-0 flex-1 truncate font-mono text-[11px] text-ink">
+														{vm.id}
+													</span>
+													{Number.isFinite(Number(vm.context_length)) &&
+													Number(vm.context_length) > 0 ? (
+														<span className="shrink-0 text-[10px] text-mute">
+															{vm.context_length} ctx
+														</span>
+													) : null}
+													{added ? (
+														<Check className="h-3 w-3 shrink-0 text-accent" />
+													) : (
+														<Plus className="h-3 w-3 shrink-0 text-mute" />
+													)}
+												</button>
+											);
+										})}
+									</div>
+								) : null}
+							</div>
 							<label className="block text-xs">
 								<span className="mb-1 block text-mute">API 请求地址</span>
 								<input
@@ -945,6 +1082,7 @@ export function SettingsModal({open, onClose}: Props) {
 									value={draft.baseUrl}
 									onChange={e => {
 										setDraft(d => ({...d, baseUrl: e.target.value}));
+										resetVendorModelCache();
 										if (fieldErrors.baseUrl) {
 											setFieldErrors(f => ({...f, baseUrl: undefined}));
 										}
@@ -987,10 +1125,10 @@ export function SettingsModal({open, onClose}: Props) {
 									</span>
 								) : null}
 								{draft.models.map((m, idx) => {
-									const rowBad =
-										!!fieldErrors.models &&
-										(!m.id.trim() ||
-											!(Math.floor(Number(m.contextLimit) || 0) > 0));
+									const ctxBad = !(Math.floor(Number(m.contextLimit) || 0) > 0);
+									const idBad = !m.id.trim();
+									const showIdBad = !!fieldErrors.models && idBad;
+									const showCtxBad = !!fieldErrors.models && ctxBad;
 									const fieldCls = (bad: boolean) =>
 										cn(
 											'xy-surface w-full rounded-xl border bg-glass-strong px-3 py-2 text-ink outline-none focus:border-accent',
@@ -1004,12 +1142,12 @@ export function SettingsModal({open, onClose}: Props) {
 											<div className="grid grid-cols-2 gap-2">
 												<label className="block text-xs">
 													<span className="mb-1 block text-mute">
-														模型 ID（必填）
+														模型 ID（必填，可从上方厂商列表点选）
 													</span>
 													<input
-														className={fieldCls(rowBad)}
+														className={fieldCls(showIdBad)}
 														style={
-															rowBad
+															showIdBad
 																? {borderColor: 'var(--xy-danger)'}
 																: undefined
 														}
@@ -1027,9 +1165,10 @@ export function SettingsModal({open, onClose}: Props) {
 													<input
 														type="number"
 														min={1}
-														className={fieldCls(rowBad)}
+														required
+														className={fieldCls(showCtxBad)}
 														style={
-															rowBad
+															showCtxBad
 																? {borderColor: 'var(--xy-danger)'}
 																: undefined
 														}
@@ -1041,9 +1180,18 @@ export function SettingsModal({open, onClose}: Props) {
 															})
 														}
 													/>
-													<span className="mt-1 block text-[10px] leading-4 text-mute">
-														该值将作为后端压力压缩的上下文上限（[XEYO_CONTEXT_LIMIT_TOKENS + RATIO=0.8]）。
-													</span>
+													{showCtxBad ? (
+														<span
+															className="mt-1 block text-[10px] leading-4"
+															style={{color: 'var(--xy-danger)'}}
+														>
+															上下文窗口为必填项
+														</span>
+													) : (
+														<span className="mt-1 block text-[10px] leading-4 text-mute">
+															与聊天界面用量预览同口径：保存后立即同步为窗口分母与后端压力压缩上限。
+														</span>
+													)}
 												</label>
 											</div>
 											<div className="grid grid-cols-3 gap-2">
@@ -1159,7 +1307,7 @@ export function SettingsModal({open, onClose}: Props) {
 									);
 								})}
 								<span className="block text-[10px] leading-4 text-mute">
-									模型列表在对话输入框上拉选择；每个模型单独登记 ID / 上下文窗口 / 输出上限。
+									模型列表在对话输入框上拉选择；每个模型单独登记 ID / 上下文窗口（必填）/ 输出上限。
 								</span>
 							</div>
 							<div className="flex justify-end gap-2 pt-1">

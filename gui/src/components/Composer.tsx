@@ -1543,8 +1543,19 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 									ref={taRef}
 									value={value}
 									onChange={e => {
-										setValue(e.target.value);
-										setTaCaret(e.target.selectionStart ?? e.target.value.length);
+										const next = e.target.value;
+										setValue(next);
+										setTaCaret(e.target.selectionStart ?? next.length);
+										// 输入即写入当前会话草稿（防抖 250ms 落 localStorage）：
+										// 不切会话 / 不发送 / 直接刷新时输入不丢。setComposerDraft
+										// 为按字段合并，仅 text 变化，attachments/模式不受影响。
+										const draftSessionId = activeIdRef.current ?? activeId;
+										if (draftSessionId) {
+											setComposerDraft(draftSessionId, {
+												text: next,
+												attachments: attachmentsRef.current,
+											});
+										}
 									}}
 									onSelect={e => {
 										// 方向键/点击/拖选移动光标:同步词元位置 + 方向(自绘光标跟 focus 端)

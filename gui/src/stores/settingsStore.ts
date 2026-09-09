@@ -619,6 +619,81 @@ export function profileModelIds(profile: ModelProfile): string[] {
 	return profile.model ? [profile.model] : [];
 }
 
+/**
+ * 返回 profile 中指定模型（缺省为激活模型 profile.model）登记的上下文窗口
+ * （token）。只返回显式登记值：模型未登记窗口时回退到旧版单值字段
+ * profile.contextLimit；仍未知则返回 undefined —— 调用方不得拿它当 0 或猜测。
+ */
+export function profileContextLimitFor(
+	profile: ModelProfile,
+	modelId?: string,
+): number | undefined {
+	const id = modelId ?? profile.model;
+	if (Array.isArray(profile.models)) {
+		const hit = profile.models.find(m => m.id === id);
+		if (hit?.contextLimit != null && hit.contextLimit > 0) {
+			return hit.contextLimit;
+		}
+	}
+	// 旧版单值字段兜底（迁移后一般已并入 models[0]，此处仅兼容老数据）。
+	if (profile.contextLimit != null && profile.contextLimit > 0) {
+		return profile.contextLimit;
+	}
+	return undefined;
+}
+
+/**
+ * 设置里保存账号（上下文窗口可能已改）后调用：把聊天界面用量预览的「分母」
+ * 即时对齐到当前激活账号主模型登记的窗口，避免旧的/未知窗口残留显示。
+ *
+ * 定位 = 即时预览对齐，非权威修正：
+ * - 下一轮流式 usage 事件（usageAccumulator）会用厂商真实窗口覆盖回权威值；
+ * - activeProfile 未登记窗口（profileContextLimitFor 返回 undefined）时本函数
+ *   no-op，绝不往预览里塞猜测值；
+ * - 被覆盖的条目标记 contextSource='fallback'（设置口径，非流测量值）。
+ *
+ * 经动态 import 访问 chatStore：settingsStore 被 chatStore 依赖，若在模块顶层
+ * 互相 import 会成环，故只在事件触发时惰性取 store（此时两模块均已就绪）。
+ */
+export function syncSessionUsageContextLimits(): void {
+	const {profiles, activeProfileId} = useSettingsStore.getState();
+	const active = profiles.find(p => p.id === activeProfileId) ?? profiles[0];
+	if (!active) {
+		return;
+	}
+	const windowLimit = profileContextLimitFor(active);
+	if (windowLimit === undefined) {
+		return;
+	}
+	void import('@/stores/chatStore').then(({useChatStore}) => {
+		useChatStore.setState(state => {
+			const usageById = state.sessionUsageById;
+			if (!usageById) {
+				return state;
+			}
+			const next: Record<string, typeof usageById[string]> = {};
+			let changed = false;
+			for (const [sid, usage] of Object.entries(usageById)) {
+				if (!usage || usage.contextLimit === windowLimit) {
+					next[sid] = usage;
+					continue;
+				}
+				changed = true;
+				next[sid] = {
+					...usage,
+					contextLimit: windowLimit,
+					contextPercent:
+						usage.contextTokens != null && Number.isFinite(usage.contextTokens)
+							? Math.min(100, Math.max(0, (usage.contextTokens / windowLimit) * 100))
+							: usage.contextPercent,
+					contextSource: 'fallback',
+				};
+			}
+			return changed ? {...state, sessionUsageById: next} : state;
+		});
+	});
+}
+
 function normalizeProfile(raw: unknown): ModelProfile | null {
 	if (!raw || typeof raw !== 'object') {
 		return null;
