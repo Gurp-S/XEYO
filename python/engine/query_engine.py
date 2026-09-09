@@ -657,6 +657,7 @@ class QueryEngine:
         after_commit: str | None = None
         before_task: asyncio.Task[str | None] | None = None
         turn_baseline = None  # v3 热路径：turn 起始 lstat 基线
+        turn_baseline_task: asyncio.Task[Any] | None = None
 
         if self._rewind_enabled:
             # Before 快照与 system 组装 / 首轮 stream 重叠：写工具执行前再 await。
@@ -684,9 +685,15 @@ class QueryEngine:
                 try:
                     from rewind.index import capture_turn_baseline
 
-                    turn_baseline = await asyncio.to_thread(capture_turn_baseline, cwd)
+                    # 后台跑，首个 delta 前不等待：全工作区 lstat walk 大仓库数百
+                    # ms，同步 await 会挡在首个字符之前。turn 结束 diff 前再收齐。
+                    # 2026-09-09 rewind 热路径审计：首 token 延迟的一半来源在此。
+                    turn_baseline_task = asyncio.create_task(
+                        asyncio.to_thread(capture_turn_baseline, cwd),
+                        name=f"rewind-baseline-{turn_id}",
+                    )
                 except Exception:
-                    turn_baseline = None
+                    turn_baseline_task = None
 
             async def _before_snapshot() -> str | None:
                 nonlocal before_commit
@@ -1033,11 +1040,20 @@ class QueryEngine:
                         turn_error = f"Failed to create after snapshot: {e}"
                         eligibility = "contaminated"
                     # v3 热路径：turn 结束差量同步 AgentFileIndex（Bash 等兜底；失败不阻断）
+                    if turn_baseline_task is not None:
+                        try:
+                            turn_baseline = await turn_baseline_task
+                        except Exception:
+                            turn_baseline = None
                     if turn_baseline is not None:
                         try:
                             from rewind.index import sync_index_from_turn_diff
 
-                            sync_index_from_turn_diff(
+                            # 挪线程保序执行：diff 二次全树 walk + 变化文件读盘入
+                            # blob + 逐行 fsync，大仓库数百 ms；同步跑在事件循环会
+                            # 卡住 SSE 心跳 / 其它会话（2026-09-09 rewind 热路径审计）。
+                            await asyncio.to_thread(
+                                sync_index_from_turn_diff,
                                 self._session.session_id,
                                 turn_baseline,
                                 snapshots=self._snapshot_store,
