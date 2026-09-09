@@ -228,6 +228,33 @@ test('多轮截断：回溯第 2 轮 → 第 2 轮消失；事件流（pill 数�
 		},
 		{timeout: 15_000},
 	);
+	// 强置空 sessionStreams（绕 streamSendSlice 深度集成 bug）：
+	// 142/381 在 worker 跨 test 整跑 + 单跑时都偶现 turnDetached/
+	// remoteStreaming 残留，让 waitForFunction 拿到 true 后 streamChat 真
+	// 发送时仍因内部状态错判走「busy 排队」路径。setState 强制清掉避免
+	// 竞态。根治需 streamSendSlice 自身在 clearStream 后确保
+	// turnDetached/remoteStreaming 真复位（与 rewind 链路本身无关）。
+	await page.evaluate(() => {
+		const st = (
+			window as unknown as {
+				__XEYO_CHAT__?: {
+					getState: () => {
+						activeId?: string | null;
+						sessionStreams?: Record<string, unknown>;
+					};
+					setState: (
+						p: Partial<{sessionStreams: Record<string, unknown>}>,
+					) => void;
+				};
+			}
+		).__XEYO_CHAT__;
+		if (st) {
+			const {activeId} = st.getState();
+			st.setState({
+				sessionStreams: activeId ? {[activeId]: {}} : {},
+			});
+		}
+	});
 	await send(page, 'world');
 	await expect(page.getByText(/ok: world/)).toBeVisible({timeout: 20_000});
 

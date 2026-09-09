@@ -77,20 +77,24 @@ export async function bootChat(page: Page, timeoutMs = 15_000): Promise<void> {
  * 完整两步：归档（解除 DELETE 409 archived_required）→ 硬删。
  * 不区分主/侧聊；侧聊 session_id 以 "side-" 开头走同一端点。
  */
-export async function resetBackendSessions(page: Page): Promise<void> {
-	const res = await page.request.get('http://127.0.0.1:8177/v1/sessions');
+export async function resetBackendSessions(
+	page: Page,
+	backendPort: number = Number(
+		process.env.XEYO_E2E_BACKEND_PORT ?? process.env.XEYO_E2E_PORT ?? '8177',
+	),
+): Promise<void> {
+	const base = `http://127.0.0.1:${backendPort}`;
+	const res = await page.request.get(`${base}/v1/sessions`);
 	const body = (await res.json()) as {sessions?: Array<{id: string}>};
 	const list = body.sessions ?? [];
 	for (const s of list) {
 		try {
-			await page.request.post(
-				`http://127.0.0.1:8177/v1/sessions/${s.id}/archive`,
-			);
+			await page.request.post(`${base}/v1/sessions/${s.id}/archive`);
 		} catch {
 			/* 归档失败继续尝试 delete（已归档/已删会 4xx） */
 		}
 		try {
-			await page.request.delete(`http://127.0.0.1:8177/v1/sessions/${s.id}`);
+			await page.request.delete(`${base}/v1/sessions/${s.id}`);
 		} catch {
 			/* 同上：容忍已删 */
 		}

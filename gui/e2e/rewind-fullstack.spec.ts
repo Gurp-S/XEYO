@@ -22,7 +22,7 @@ import {test, expect} from '@playwright/test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import {bootChat, openWorkspaceSession} from './helpers/boot';
+import {bootChat, openWorkspaceSession, resetBackendSessions} from './helpers/boot';
 import {seedLocalTest} from './helpers/seed';
 import {WS_DIR} from '../playwright.fullstack-rewind.config';
 
@@ -49,6 +49,10 @@ const NOTE_CONTENT = 'hello rewind\n';
 
 test.beforeEach(async ({page}) => {
 	await seedLocalTest(page, {baseUrl: MOCK_BASE, permissionMode: 'always'});
+	// 跨 test 隔离：worker 内 ISOLATE_DIR/sessions 共享 → 残留污染。
+	// fullstack config 用 BACKEND_PORT=8187（与 default config 8177 不同），
+	// 必须显式传。
+	await resetBackendSessions(page, 8187);
 	// 启动诊断：若命中 GuiErrorBoundary 崩溃屏，抛出 boundary/控制台的真实错误。
 	await bootChat(page);
 	// 打开真实文件夹作为工作区并建会话（同 fullstack.spec.ts 的骨架）。
