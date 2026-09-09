@@ -656,6 +656,9 @@ class QueryEngine:
         before_commit: str | None = None
         after_commit: str | None = None
         before_task: asyncio.Task[str | None] | None = None
+        # v4 对账窗口（2026-09-09）：回合开始时刻纳秒，用于区分「本轮新写」的
+        # 文件与工作区里既有的未管理文件——只把真实变化入账，不整树入 blob。
+        turn_started_ns = time.time_ns()
         # v4 对账（2026-09-09）：以索引账本为基线做变更发现，turn 起始不再
         # 拍全树 lstat 基线——首 token 前零等待、turn 结束零二次扫描。
 
@@ -1039,6 +1042,7 @@ class QueryEngine:
                             self._session.session_id,
                             snapshots=self._snapshot_store,
                             workspace_root=cwd,
+                            turn_started_ns=turn_started_ns,
                             )
                     except Exception:
                         pass

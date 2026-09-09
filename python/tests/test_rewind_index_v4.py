@@ -122,6 +122,82 @@ def test_git_workspace_uses_fast_path_and_keeps_ignored_semantics(tmp_path) -> N
     assert set(idx.entries()) >= {"x.txt"}
 
 
+def test_turn_window_prevents_blob_all_preexisting(tmp_path) -> None:
+    """回合窗口闸门：空账本 + 既有文件(mtime<turn 起点)绝不全量入账。
+
+    基准反证：v4.0 把账本当基线整树比对，新会话空账本把 6000 个既有文件
+    全量读盘入 blob = 14s。窗口规则下首回合必须只收「回合内新写」。
+    """
+    import os
+    import time
+
+    ws = _make_ws(tmp_path, "ws-window")
+    sid = "v4-window"
+    idx = AgentFileIndex(sid)
+    snaps = SnapshotStore(sid)
+    # 大量既有文件在回合开始前就已存在（mtime 显式拨到过去，避免与
+    # started 微秒级竞态——Windows 下文件 mtime 与 time.time_ns() 的时钟
+    # 对齐不保证在写盘后立刻落后于 started）。
+    past = time.time_ns() - 3_600_000_000_000
+    for i in range(300):
+        full = ws / f"old{i:04d}.txt"
+        full.write_text(f"pre-{i}", encoding="utf-8")
+        os.utime(full, ns=(past, past))
+    started = time.time_ns()
+
+    # 空账本 + 窗口：既有文件一个都不该入账（否则首回合就整树 blob）。
+    r = sync_index_from_ledger(sid, snapshots=snaps, workspace_root=ws,
+                               turn_started_ns=started)
+    assert r["upserted"] == 0 and r["removed"] == 0 and not r["failed"]
+    assert idx.entries() == {}
+
+    # 回合内新写(窗口内 mtime)才会入账。
+    (ws / "agent_new.txt").write_text("made during turn", encoding="utf-8")
+    r = sync_index_from_ledger(sid, snapshots=snaps, workspace_root=ws,
+                               turn_started_ns=started)
+    assert r["upserted"] == 1 and not r["failed"]
+    e = idx.entries()
+    assert set(e) == {"agent_new.txt"}
+    assert snaps.get_text(e["agent_new.txt"].content_hash) == "made during turn"
+
+    # 受管路径之后被改(无论何时 mtime)都会同步——账本内语义不依赖窗口。
+    (ws / "agent_new.txt").write_text("edited later", encoding="utf-8")
+    r = sync_index_from_ledger(sid, snapshots=snaps, workspace_root=ws,
+                               turn_started_ns=started)
+    assert r["upserted"] == 1 and not r["failed"]
+    assert snaps.get_text(idx.entries()["agent_new.txt"].content_hash) == "edited later"
+
+
+@pytest.mark.skipif(not _HAVE_GIT, reason="git 不可用")
+def test_git_untracked_new_only_in_window(tmp_path) -> None:
+    """git 快路径同样受窗口约束：回合前已存在的 untracked 不整批入账。"""
+    import os
+    import time
+
+    ws = _make_ws(tmp_path, "ws-gitwin")
+    subprocess.run(["git", "-C", str(ws), "init", "-q"], check=True)
+    sid = "v4-gitwin"
+    idx = AgentFileIndex(sid)
+    snaps = SnapshotStore(sid)
+    past = time.time_ns() - 3_600_000_000_000
+    for i in range(50):
+        full = ws / f"loose{i:03d}.txt"
+        full.write_text(f"u-{i}", encoding="utf-8")
+        os.utime(full, ns=(past, past))
+    started = time.time_ns()
+
+    r = sync_index_from_ledger(sid, snapshots=snaps, workspace_root=ws,
+                               turn_started_ns=started)
+    assert r["upserted"] == 0 and not r["failed"]
+    assert idx.entries() == {}
+
+    (ws / "new_in_turn.txt").write_text("n", encoding="utf-8")
+    r = sync_index_from_ledger(sid, snapshots=snaps, workspace_root=ws,
+                               turn_started_ns=started)
+    assert r["upserted"] == 1
+    assert set(idx.entries()) == {"new_in_turn.txt"}
+
+
 if __name__ == "__main__":
     import sys
 

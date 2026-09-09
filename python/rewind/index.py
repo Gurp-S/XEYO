@@ -577,36 +577,64 @@ def sync_index_from_ledger(
     workspace_root: Path | str,
     sessions_dir: Path | None = None,
     index: AgentFileIndex | None = None,
+    turn_started_ns: int | None = None,
 ) -> dict[str, Any]:
-    """v4 对账：turn 结束时把工作区状态对进 AgentFileIndex，无需 turn 起始基线。
+    """v4 对账（2026-09-09 v4.2）：回合结束把「本轮真实变化」对进 AgentFileIndex。
 
-    与旧 ``sync_index_from_turn_diff`` 的差异只在**变更发现**方式，落账段共用：
+    无需回合起始基线，但**只对账真实变化**——基准反证：把账本当基线直接整树
+    比对，新会话空账本会把整棵既有工作区当「changed」全量读盘入 blob（6000
+    文件 14s）。因此变更候选要过入账闸门才落账：
 
-    - 参考集 = 索引账本自身（上次同步留下的 (size, mtime) 签名）。账本即基线：
-      turn 间任何外部/agent 改动只要还没同步，签名必然不同于账本 → 被发现。
-      checkpoint 冻结本就只读账本，因此语义与「turn 起始另拍一次全树基线」等价，
-      但省掉每轮第一次全树扫描（首 token 不再有任何等待）。
-    - git 工作区（workspace_root 即 worktree 顶层）：``git status`` 增量发现，
-      靠 git 的 index/stat cache，整树成本只在首次；对账本补 lstat 覆盖
-      user-gitignore 掉的已跟踪路径。
-    - 非 git 工作区：单次全树签名 walk 与账本比对（v3 旧差量的一半成本）。
+    - 已在账本（此前被 agent 管理/索引过，``reference`` 含其签名）→ 签名变化
+      即同步（覆盖 agent/外部/Bash 的一切后续改动）；
+    - 不在账本的新路径 → 仅当 ``turn_started_ns`` 窗口内被写入（mtime_ns >=
+      turn_started_ns，None = 不设窗口全收，测试/旧调用用）才读盘入账。
+      既有未动用户文件（mtime < turn 起点）永不入账——不炸首回合、不无限膨胀。
+
+    变更发现双路径（都不需要回合起始全树扫描）：
+    - git 工作区（workspace_root 即 worktree 顶层）：``git status --porcelain=v1
+      -z --no-renames --untracked-files=all``，靠 git 的 index/stat cache；对账本
+      补定向 lstat，覆盖被 user gitignore、status 不报的已跟踪路径（不丢语义）。
+    - 非 git：单次全树签名 walk 与账本比对。
+    walk 超限（truncated）时只同步现存路径变化，不做删除判定（防误墓碑）。
 
     返回 {"upserted","removed","failed","before_missing","truncated"}。
     """
     root = Path(workspace_root)
     idx = index or AgentFileIndex(session_id, sessions_dir=sessions_dir)
     prior = idx.entries()
+    # reference = 账本中「活着」的受管路径签名（content_hash 非空）。
     reference = _signature_reference(prior)
+    managed = set(reference)
+
+    changed: set[str] = set()
+    removed: set[str] = set()
+    truncated = False
+
+    def _new_in_window(rel: str, mtime_ns: int) -> None:
+        """不在账本的新路径：回合窗口内被写入才入账（无窗口则全收）。"""
+        if rel not in changed and (
+            turn_started_ns is None or mtime_ns >= turn_started_ns
+        ):
+            changed.add(rel)
 
     git_result = _git_status_changes(root)
-    truncated = False
     if git_result is not None:
-        changed, removed = git_result
-        # 账本路径在 git 眼中「已知且未变」或「被 user gitignore」→ status 不报。
-        # 对这类路径做定向 lstat：变了进 changed、消失进 removed（语义与 walk 同）。
-        known = changed | removed
-        for rel, signature in reference.items():
-            if rel in known:
+        gchanged, gremoved = git_result
+        removed |= gremoved
+        for rel in gchanged:
+            if rel in managed:
+                changed.add(rel)
+                continue
+            try:
+                stat = (root / rel).lstat()
+            except OSError:
+                continue
+            _new_in_window(rel, stat.st_mtime_ns)
+        # 账本路径在 git 眼中「已知且未变」或被 user gitignore → status 不报；
+        # 定向 lstat：变了进 changed、消失进 removed（语义与 walk 一致）。
+        for rel in sorted(managed):
+            if rel in changed or rel in removed:
                 continue
             try:
                 stat = (root / rel).lstat()
@@ -615,18 +643,21 @@ def sync_index_from_ledger(
                 continue
             if not stat.st_size and Path(rel).suffix in {".sock", ".pipe"}:
                 continue
-            if (stat.st_size, stat.st_mtime_ns) != signature:
+            if (stat.st_size, stat.st_mtime_ns) != reference[rel]:
                 changed.add(rel)
-        diff = TurnFileDiff(changed=sorted(changed), removed=sorted(removed))
     else:
-        current, truncated = _walk_signatures(root, ignore_names=None, limit=DEFAULT_TURN_SCAN_LIMIT)
-        diff = TurnFileDiff(
-            changed=sorted(
-                path for path, sig in current.items() if reference.get(path) != sig
-            ),
-            removed=sorted(path for path in reference if path not in current),
-            truncated=truncated,
+        current, truncated = _walk_signatures(
+            root, ignore_names=None, limit=DEFAULT_TURN_SCAN_LIMIT
         )
+        if not truncated:
+            removed |= {rel for rel in managed if rel not in current}
+        for rel, (size, mtime_ns) in current.items():
+            if rel in managed:
+                if reference[rel] != (size, mtime_ns):
+                    changed.add(rel)
+            else:
+                _new_in_window(rel, mtime_ns)
+    diff = TurnFileDiff(changed=sorted(changed), removed=sorted(removed), truncated=truncated)
     return _apply_turn_diff(idx, prior, diff, snapshots=snapshots, root=root)
 
 
