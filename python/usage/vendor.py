@@ -9,6 +9,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+from usage.attribution import canonical_vendor
+
 BJ = timezone(timedelta(hours=8))
 
 _USAGE_TYPES = {
@@ -53,7 +55,14 @@ def _empty_report(
 	day_ids = _day_list(days)
 	return {
 		"days": day_ids,
-		"totals": {"cost": 0.0, "requests": 0, "tokens": 0},
+		"totals": {
+			"cost": 0.0,
+			"requests": 0,
+			"tokens": 0,
+			"cache_hit": 0,
+			"cache_miss": 0,
+			"output": 0,
+		},
 		"lifetime_cost": 0.0,
 		"cost_source": "vendor",
 		"source": "vendor",
@@ -282,12 +291,18 @@ def _merge_report(
 		model_totals.items(),
 		key=lambda kv: (-int(kv[1]["requests"]), kv[0]),
 	):
+		# 与账本一致：models[].provider 携带模型真实厂商 id（P0-1），不再写通道名。
+		vendor = canonical_vendor(model=mid, provider=provider)
 		models.append(
 			{
-				"provider": provider,
+				"provider": vendor,
+				"vendor": vendor,
 				"model": mid,
 				"requests": int(tot["requests"]),
 				"tokens": int(tot["tokens"]),
+				"cache_hit": int(tot["cache_hit"]),
+				"cache_miss": int(tot["cache_miss"]),
+				"output": int(tot["output"]),
 				"cost": round(float(tot["cost"]), 6),
 				"series": _series_from(day_ids, by_model.get(mid, {})),
 			}
@@ -299,6 +314,9 @@ def _merge_report(
 			"cost": round(float(totals["cost"]), 6),
 			"requests": int(totals["requests"]),
 			"tokens": int(totals["tokens"]),
+			"cache_hit": int(totals["cache_hit"]),
+			"cache_miss": int(totals["cache_miss"]),
+			"output": int(totals["output"]),
 		},
 		"lifetime_cost": round(float(totals["cost"]), 6),
 		"cost_source": "vendor",

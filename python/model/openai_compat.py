@@ -221,6 +221,7 @@ class OpenAICompatClient:
 				api_key=self._api_key,
 				usage=usage,
 				session_id=sid,
+				base_url=self._base_url,
 			)
 		except Exception:  # noqa: BLE001
 			logging.getLogger(__name__).debug(

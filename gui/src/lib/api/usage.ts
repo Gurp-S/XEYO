@@ -169,7 +169,15 @@ export type UsageModelBlock = {
 
 export type UsageReport = {
 	days: string[];
-	totals: {cost: number; requests: number; tokens: number};
+	totals: {
+		cost: number;
+		requests: number;
+		tokens: number;
+		/** 拆分口径（2026-09-09 起后端 totals 携带）：命中/未命中/输出。 */
+		cache_hit?: number;
+		cache_miss?: number;
+		output?: number;
+	};
 	lifetime_cost: number;
 	cost_source?: 'api' | 'estimate' | 'mixed' | 'vendor';
 	source?: 'vendor' | 'local' | 'mixed' | string;

@@ -199,6 +199,46 @@ def official_cost_cny(usage: dict[str, Any]) -> float | None:
 	return None
 
 
+def _deepseek_multiplier(
+	ts: float, model: str, forced_slot: str | None = None
+) -> float:
+	"""DeepSeek 分时倍率：读 XEYO_TIME_TIERS_JSON（或内置表）的 multipliers。
+
+	2026-09-09 修复（P1-2）：旧实现把高峰硬编码为「空闲 × 2」（_DEEPSEEK 字面 peak 档），
+	忽略配置里的自定义窗口 / 倍率；此处统一为 ``基价(空闲档) × 当前档倍率``，
+	与 ``effective_prices``（USD 预算链）的时段语义一致。未覆盖档一律 ×1.0。
+	"""
+	cfg = _time_tiers().get("deepseek")
+	tier: str
+	if forced_slot in ("peak", "onpeak"):
+		tier = "peak"
+	elif forced_slot in ("offpeak", "idle", "off"):
+		tier = "offpeak"
+	else:
+		tier = time_tier("deepseek", ts, model)
+	if not isinstance(cfg, dict):
+		return 1.0
+	try:
+		return float(((cfg.get("multipliers") or {}).get(tier, 1.0)))
+	except (TypeError, ValueError):
+		return 1.0
+
+
+def _has_explicit_price(provider: str) -> bool:
+	"""该厂商是否有显式价目（LOCAL_PRICING_DB 登记 或 env 覆盖）；无则走中性估算档。"""
+	db = LOCAL_PRICING_DB.get((provider or "").lower())
+	if isinstance(db, dict) and db:
+		return True
+	return any(
+		os.environ.get(k, "").strip()
+		for k in (
+			"XEYO_BUDGET_PRICE_INPUT_USD",
+			"XEYO_BUDGET_PRICE_CACHED_INPUT_USD",
+			"XEYO_BUDGET_PRICE_OUTPUT_USD",
+		)
+	)
+
+
 def estimate_cny(
 	*,
 	provider: str,
@@ -218,16 +258,24 @@ def estimate_cny(
 	prov = (provider or "").lower()
 	if local_only:
 		if prov == "deepseek":
-			idle, peak = _DEEPSEEK[_deepseek_tier(model)]
-			rates = peak if is_beijing_peak(ts) else idle
+			idle, _ = _DEEPSEEK[_deepseek_tier(model)]
+			mult = _deepseek_multiplier(ts, model)
+			rates = (idle[0] * mult, idle[1] * mult, idle[2] * mult)
 			return (hit * rates[0] + miss * rates[1] + out * rates[2]) / _M
 		if prov == "openai":
 			key = (model or "").lower()
 			usd = _OPENAI_USD.get(key) or _OPENAI_USD["gpt-4o-mini"]
 			return (miss * usd[0] + hit * usd[1] + out * usd[2]) / _M * USD_CNY
-		# 未知厂商（smoke-test #2 修正）：不再一律按 DeepSeek flash 空闲价估算 ——
-		# 先按机型匹配本地价目（LOCAL_PRICING_DB，USD/1M）折人民币；
-		# 价目也没有时再落 _DEFAULT_USD_PRICES。全程不联网（local_only 语义）。
+		# 其它厂商（智谱 / 通义 / Kimi …，2026-09-09 P0-1 修正）：
+		# 本机没有官方价目时**不为它硬定价**——沿用中性估算档（与 DeepSeek flash
+		# 空闲档同量级），不落 _DEFAULT_USD_PRICES（2.0/8.0 美元是预算保守上限，
+		# 拿来做面板金额会把无价目厂商的消费虚高数倍）。
+		# LOCAL_PRICING_DB 显式登记 / env 显式覆盖的厂商仍按其价目估算。
+		if not _has_explicit_price(prov):
+			neutral = _DEEPSEEK["flash"][0]  # (hit, miss, out) 元 / 百万
+			return (
+				hit * neutral[0] + miss * neutral[1] + out * neutral[2]
+			) / _M
 		price = _local_pricing(provider, model)
 		price = effective_prices(provider, model, ts, price) or price
 		return (
@@ -256,16 +304,10 @@ def unit_prices_cny_per_mtoken(
 	DeepSeek 无独立 write 档，p_w 恒为 0。
 	"""
 	prov = (provider or "").lower()
-	forced = (slot or "").strip().lower()
-	if forced in ("peak", "onpeak"):
-		peak = True
-	elif forced in ("offpeak", "idle", "off"):
-		peak = False
-	else:
-		peak = is_beijing_peak(ts)
 	if prov == "deepseek":
-		idle, pk = _DEEPSEEK[_deepseek_tier(model)]
-		rates = pk if peak else idle
+		idle, _pk = _DEEPSEEK[_deepseek_tier(model)]
+		mult = _deepseek_multiplier(ts, model, forced_slot=(slot or "").strip().lower())
+		rates = (idle[0] * mult, idle[1] * mult, idle[2] * mult)
 		return rates[0], rates[1], rates[2], 0.0
 	if prov == "openai":
 		key = (model or "").lower()
@@ -275,8 +317,11 @@ def unit_prices_cny_per_mtoken(
 		p_r = usd[1] * USD_CNY
 		p_o = usd[2] * USD_CNY
 		return p_r, p_u, p_o, 0.0
-	# 未知厂商（smoke-test #2）：按机型匹配本地价目（USD/1M）折人民币,不再按
-	# DeepSeek flash 档估算;价目缺失时落 _DEFAULT_USD_PRICES(env 可覆盖)。
+	# 其它厂商（P0-1 修正）：无显式价目时不硬定价 → 中性估算档（deepseek-flash
+	# 空闲档同量级，CNY），与 estimate_cny 的 local_only 分支保持同一口径。
+	if not _has_explicit_price(prov):
+		neutral = _DEEPSEEK["flash"][0]
+		return neutral[0], neutral[1], neutral[2], 0.0
 	price = _local_pricing(provider, model)
 	price = effective_prices(provider, model, ts, price) or price
 	return price["input_hit"] * USD_CNY, price["input_miss"] * USD_CNY, price["output"] * USD_CNY, 0.0

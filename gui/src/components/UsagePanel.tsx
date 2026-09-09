@@ -46,6 +46,33 @@ const REQ_SERIES = [
 	{key: 'requests', label: '请求次数', color: 'var(--xy-chart)'},
 ];
 
+/**
+ * 模型真实厂商(vendor) → 中文名。后端用量统计的 models[].provider / vendor 从
+ * 2026-09-09 起携带「模型真实厂商」而非接入通道（P0-1）；providerId 白名单之外的
+ * vendor（zhipu/qwen/…）也在此登记。与 python/usage/attribution.py::VENDOR_LABEL 同步。
+ */
+const VENDOR_LABEL: Record<string, string> = {
+	deepseek: 'DeepSeek',
+	openai: 'OpenAI',
+	local: '本地模型',
+	fake: 'Fake（测试）',
+	zhipu: '智谱',
+	qwen: '通义千问',
+	moonshot: 'Kimi',
+	doubao: '豆包',
+	tencent: '腾讯混元',
+	baidu: '百度文心',
+	iflytek: '讯飞星火',
+	anthropic: 'Anthropic',
+	google: 'Google',
+	minimax: 'MiniMax',
+	mistral: 'Mistral',
+	meta: 'Meta',
+	cohere: 'Cohere',
+	'01ai': '零一万物',
+	unknown: '未知厂商',
+};
+
 function fmtCny(n: number): string {
 	if (!Number.isFinite(n) || n === 0) {
 		return '¥0';
@@ -70,7 +97,7 @@ function costSourceHint(source?: string, costSource?: string): string {
 		return '金额与用量来自厂商官方接口（权威）';
 	}
 	if (source === 'mixed') {
-		return '汇总以厂商为准；按模型拆分厂商未提供，已用本机记账补上';
+		return '多来源合并：厂商官方优先，缺口由本机记账补足';
 	}
 	if (source === 'local') {
 		return '厂商未提供历史用量，以下为本机根据对话官方 usage 记账';
@@ -107,6 +134,11 @@ function fmtCompact(n: number): string {
 	return n.toFixed(2);
 }
 
+/** 金额刻度：compact 数字带 ¥（P2-2：消费图 y 轴此前是无单位纯数字）。 */
+function fmtCnyCompact(n: number): string {
+	return `¥${fmtCompact(n)}`;
+}
+
 function dayLabel(iso: string): string {
 	const parts = iso.split('-');
 	if (parts.length < 3) {
@@ -127,19 +159,54 @@ function toRows(
 }
 
 function providerName(id: string): string {
+	// 面板分组头：优先真实厂商中文名映射（含 zhipu/qwen 等非通道厂商）。
+	const vendorName = VENDOR_LABEL[id];
+	if (vendorName) {
+		return vendorName;
+	}
 	return isProviderId(id) ? PROVIDER_LABEL[id] : id;
 }
 
 /** 合并多个厂商的用量（「全部」视图）：模型分块去重合并、系列按天累加、总额相加。 */
 function mergeReports(reports: UsageReport[]): UsageReport {
-	const totals = reports.reduce(
-		(a, r) => ({
-			cost: a.cost + (r.totals?.cost ?? 0),
-			requests: a.requests + (r.totals?.requests ?? 0),
-			tokens: a.tokens + (r.totals?.tokens ?? 0),
-		}),
-		{cost: 0, requests: 0, tokens: 0},
-	);
+	const sum = (k: keyof UsageReport['totals']) =>
+		reports.reduce((a, r) => a + (r.totals?.[k] ?? 0), 0);
+	const totals: UsageReport['totals'] = {
+		cost: sum('cost'),
+		requests: sum('requests'),
+		tokens: sum('tokens'),
+		cache_hit: sum('cache_hit'),
+		cache_miss: sum('cache_miss'),
+		output: sum('output'),
+	};
+	// P1/P2 修复：多来源报告的 source/cost_source 必须如实反映"混合"，
+	// 不能因为任一厂商是 vendor/api 就整体标注成 vendor/api（误导为全权威）。
+	const sources = new Set(reports.map(r => r.source).filter(Boolean));
+	const hasV = sources.has('vendor');
+	const hasL = sources.has('local');
+	const hasM = sources.has('mixed');
+	const source = hasV && (hasL || hasM) || hasL && hasM
+		? 'mixed'
+		: hasV
+			? 'vendor'
+			: hasL
+				? 'local'
+				: hasM
+					? 'mixed'
+					: 'local';
+	const costSources = new Set(reports.map(r => r.cost_source).filter(Boolean));
+	const cost_source: UsageReport['cost_source'] =
+		costSources.size > 1
+			? 'mixed'
+			: costSources.size === 1
+				? costSources.has('vendor')
+					? 'vendor'
+					: costSources.has('api')
+						? 'api'
+						: costSources.has('mixed')
+							? 'mixed'
+							: 'estimate'
+				: 'estimate';
 	const lifetimeCost = reports.reduce((a, r) => a + (r.lifetime_cost ?? 0), 0);
 	const seriesMap = new Map<string, UsageDayPoint>();
 	for (const r of reports) {
@@ -172,16 +239,8 @@ function mergeReports(reports: UsageReport[]): UsageReport {
 		days: reports[0]?.days ?? [],
 		totals,
 		lifetime_cost: lifetimeCost,
-		cost_source: reports.some(r => r.cost_source === 'vendor')
-			? 'vendor'
-			: reports.some(r => r.cost_source === 'api')
-				? 'api'
-				: 'estimate',
-		source: reports.some(r => r.source === 'vendor')
-			? 'vendor'
-			: reports.some(r => r.source === 'local')
-				? 'local'
-				: 'mixed',
+		cost_source,
+		source,
 		vendor_ok: reports.some(r => r.vendor_ok),
 		series: [...seriesMap.values()],
 		models,
@@ -541,6 +600,12 @@ export function UsagePanel({active = true}: Props) {
 
 	const series = report?.series ?? [];
 	const totals = report?.totals ?? {cost: 0, requests: 0, tokens: 0};
+	// 口径修正（P0-2）：全局大数字的主口径 = 未命中输入 + 输出（真正"新产生"的量）。
+	// tokens 字段是含缓存命中的吞吐量——把命中当主数字会重现"小任务百万 token"的误读。
+	const cacheHit = totals.cache_hit ?? 0;
+	const cacheMiss = totals.cache_miss ?? 0;
+	const outputTokens = totals.output ?? 0;
+	const newTokens = cacheMiss + outputTokens > 0 ? cacheMiss + outputTokens : totals.tokens;
 	const contentKey = `${days}:${keyFp}:${modelId}:${kind}`;
 
 	const toolbar = (
@@ -670,7 +735,8 @@ export function UsagePanel({active = true}: Props) {
 					) : null}
 					{!error && report && report.source === 'mixed' ? (
 						<p className="mb-3 rounded-xl border border-line bg-glass-hover px-3 py-2 text-[12px] text-ink-soft">
-							汇总以厂商为准；按模型拆分厂商未返回，已用本机记账补上。
+							多来源合并：厂商官方数据优先采用，缺口由本机按对话官方 usage
+							记账补足（余额仍来自官方 /user/balance）。
 						</p>
 					) : null}
 					{!error &&
@@ -722,18 +788,14 @@ export function UsagePanel({active = true}: Props) {
 							hint="官方 topped_up_balance"
 						/>
 						<SummaryCard
-							label="请求 / Tokens"
+							label="请求 / 非缓存 Tokens"
 							icon={Coins}
-							value={`${fmtInt(totals.requests)} / ${fmtInt(totals.tokens)}`}
-								hint={
-									loading
-										? '刷新中…'
-										: report?.source === 'vendor'
-											? '厂商用量汇总'
-											: report?.source === 'mixed'
-												? '厂商汇总 · 模型见本机'
-												: '本机 usage 记账'
-								}
+							value={`${fmtInt(totals.requests)} / ${fmtInt(newTokens)}`}
+							hint={
+								loading
+									? '刷新中…'
+									: `未命中输入+输出（缓存命中 ${fmtCompact(cacheHit)} 低价另计）`
+							}
 						/>
 					</div>
 
@@ -757,7 +819,7 @@ export function UsagePanel({active = true}: Props) {
 							kind={kind}
 							stacked
 							height={200}
-							formatY={fmtCompact}
+							formatY={fmtCnyCompact}
 							formatTotal={fmtCny}
 							emptyText="暂无消费记录"
 						/>
@@ -869,7 +931,7 @@ className={cn(
 				</div>
 				<div className="rounded-xl border border-line bg-glass-hover px-3 pb-1 pt-2.5">
 					<div className="mb-0.5 flex items-baseline justify-between">
-						<span className="text-[13px] font-medium text-ink">Tokens</span>
+						<span className="text-[13px] font-medium text-ink">Tokens（含命中）</span>
 						<span className="text-[13px] tabular-nums text-ink-soft">
 							{fmtInt(block.tokens)}
 						</span>

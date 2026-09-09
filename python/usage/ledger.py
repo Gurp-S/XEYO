@@ -9,6 +9,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from usage.attribution import canonical_vendor, event_vendor
 from usage.pricing import BJ, estimate_cny, official_cost_cny, split_usage
 
 _lock = threading.Lock()
@@ -49,7 +50,14 @@ def record_from_openai_usage(
 	usage: dict[str, Any],
 	ts: float | None = None,
 	session_id: str = "",
+	base_url: str | None = None,
 ) -> None:
+	"""追加一笔用量事件。
+
+	``provider`` = 接入通道（deepseek/openai preset 等），保持「通道」语义不变；
+	事件同时写 ``vendor``（模型真实厂商，见 usage.attribution），统计 / 计价 / 分组
+	一律按 vendor —— 修 P0-1（provider 与模型错位导致套错价目与分组错乱）。
+	"""
 	if not isinstance(usage, dict) or not usage:
 		return
 	now = float(ts if ts is not None else datetime.now(tz=BJ).timestamp())
@@ -61,19 +69,22 @@ def record_from_openai_usage(
 	)
 	if tokens <= 0 and hit + miss + out <= 0:
 		tokens = 0
+	vendor = canonical_vendor(model=model, provider=provider, base_url=base_url)
 	api_cost = official_cost_cny(usage)
 	if api_cost is not None:
 		cost_cny = api_cost
 		cost_source = "api"
 	else:
+		# 计价按真实厂商(vendor)，而不是接入通道 —— 错位通道不再套错档。
 		cost_cny = estimate_cny(
-			provider=provider, model=model, usage=usage, ts=now
+			provider=vendor, model=model, usage=usage, ts=now
 		)
 		cost_source = "estimate"
 	event = {
 		"ts": now,
 		"day": datetime.fromtimestamp(now, tz=BJ).date().isoformat(),
 		"provider": (provider or "unknown").lower(),
+		"vendor": vendor,
 		"model": model or "unknown",
 		"session_id": (session_id or "").strip(),
 		"key_fp": key_fingerprint(api_key),
@@ -209,14 +220,21 @@ def query_usage(
 		fp = str(ev.get("key_fp") or "")
 		if fp and fp != "…":
 			keys.add(fp)
-		lifetime_cost += float(ev.get("cost_cny") or 0)
-		if ev.get("day") not in day_set:
-			continue
+		# lifetime_cost 语义（P1-1 钉正）：忽略「近 N 天」窗口，但尊重 厂商/模型/Key
+		# 筛选 —— 等于「筛选子集的全部历史」。无条件全量会令多厂商前端相加时重复计数。
 		if want_model and str(ev.get("model") or "") != want_model:
 			continue
-		if want_provider and str(ev.get("provider") or "").lower() != want_provider:
+		# 厂商过滤语义（P0-1 钉正）：仅在「纯厂商视图」（未指定 model/key）时按
+		# vendor 匹配 —— 厂商已是最细维度时它=「该厂商全部用量」。一旦 model 或
+		# key_fp 已把行子集唯一化，再按厂商卡会滤空错位通道的历史行（如 openai
+		# 通道 key 下全是 vendor=deepseek 的 deepseek-v4-flash 行）。
+		# event_vendor 对缺 vendor 字段的迁移前旧行也能现场推断，不漏滤。
+		if want_provider and not want_model and not want_key and event_vendor(ev) != want_provider:
 			continue
 		if want_key and fp != want_key:
+			continue
+		lifetime_cost += float(ev.get("cost_cny") or 0)
+		if ev.get("day") not in day_set:
 			continue
 		filtered.append(ev)
 		if str(ev.get("cost_source") or "") == "api":
@@ -235,7 +253,8 @@ def query_usage(
 		d = str(ev.get("day") or "")
 		by_day.setdefault(d, _empty_bucket())
 		_add(by_day[d], ev)
-		key = (str(ev.get("provider") or "unknown"), str(ev.get("model") or "unknown"))
+		# 按「真实厂商(model 归属)」分组，不再按接入通道 —— P0-1。
+		key = (event_vendor(ev), str(ev.get("model") or "unknown"))
 		model_totals.setdefault(key, _empty_bucket())
 		_add(model_totals[key], ev)
 		slot = by_model.setdefault(key, {})
@@ -249,10 +268,15 @@ def query_usage(
 	):
 		models.append(
 			{
+				# provider 字段携带真实厂商 id（前端分组头/厂商名映射读它）。
 				"provider": prov,
+				"vendor": prov,
 				"model": mid,
 				"requests": int(tot["requests"]),
 				"tokens": int(tot["tokens"]),
+				"cache_hit": int(tot["cache_hit"]),
+				"cache_miss": int(tot["cache_miss"]),
+				"output": int(tot["output"]),
 				"cost": round(float(tot["cost"]), 6),
 				"series": _series_from(day_ids, by_model.get((prov, mid), {})),
 			}
@@ -264,6 +288,10 @@ def query_usage(
 			"cost": round(float(totals["cost"]), 6),
 			"requests": int(totals["requests"]),
 			"tokens": int(totals["tokens"]),
+			# 拆分口径（命中/未命中/输出）——前端「吞吐 vs 计费」展示需要。
+			"cache_hit": int(totals["cache_hit"]),
+			"cache_miss": int(totals["cache_miss"]),
+			"output": int(totals["output"]),
 		},
 		"lifetime_cost": round(lifetime_cost, 6),
 		"cost_source": "api" if cost_from_api and not cost_from_estimate else (
