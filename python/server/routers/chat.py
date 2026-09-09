@@ -29,6 +29,7 @@ from msgtypes.events import (
 	ToolResultEvent,
 	UsageEvent,
 	ContextCompressionEvent,
+	ResultEvent,
 	AskUserPendingEvent,
 	AskUserResolvedEvent,
 	PermissionPendingEvent,
@@ -1005,6 +1006,7 @@ async def chat_completions(
 		async def _producer() -> AsyncIterator[tuple[int, bytes, str]]:
 			"""Detached producer：与 HTTP 连接无关；转换 engine 事件为 SSE 帧。"""
 			full = ""
+			done_sent = False
 			try:
 				# 41 号：goal 投影帧（whole-value）——turn 起点同步 goal + driver
 				# 态（GUI 另有事件驱动刷新与轻量轮询补 settlement 后的变化）。
@@ -1391,8 +1393,24 @@ async def chat_completions(
 						))
 					for item in frames:
 						yield item
-				done_id = envelope_gen.next()
-				yield (done_id, b"data: [DONE]\n\n", "done")
+					# A2b（2026-09-09）：完成信号锚定「内容终结事件」而非 submit
+					# 迭代自然排空。引擎契约：ResultEvent 是 submit_message 的
+					# 最后一个事件（query_loop 不产它），其后只剩 finally 收尾
+					# （transcript flush / memory 归档 / rewind After 快照+差量同步
+					# +journal 终态 / revision commit），全部不产帧。因此此刻立即
+					# 发 [DONE]——GUI 判定的回合完成不再被 rewind/memory 数百 ms
+					# 收尾阻塞（「模型答完仍回复中」根因 #2）；runner/lease/settle
+					# 语义零变化（收尾照常排空后才归还租约）。防御：若 ResultEvent
+					# 后仍出现事件（引擎契约破坏），继续正常分发，不吞帧。
+					if isinstance(ev, ResultEvent) and not done_sent:
+						done_sent = True
+						done_id = envelope_gen.next()
+						yield (done_id, b"data: [DONE]\n\n", "done")
+				if not done_sent:
+					# 引擎契约破坏兜底：迭代自然排空却没产 ResultEvent →
+					# 补发完成帧（等同旧行为），绝不让客户端空等。
+					done_id = envelope_gen.next()
+					yield (done_id, b"data: [DONE]\n\n", "done")
 			except Exception as e:  # noqa: BLE001
 				err_id = envelope_gen.next()
 				yield (
