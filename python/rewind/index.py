@@ -39,6 +39,7 @@ __all__ = [
     "get_checkpoint_anchor",
     "load_checkpoint",
     "mark_checkpoint_anchor",
+    "sync_index_from_ledger",
     "sync_index_from_turn_diff",
 ]
 
@@ -440,6 +441,195 @@ def diff_turn_changes(
     return TurnFileDiff(changed=changed, removed=removed, truncated=truncated)
 
 
+def _apply_turn_diff(
+    idx: AgentFileIndex,
+    prior: dict[str, IndexEntry],
+    diff: TurnFileDiff,
+    *,
+    snapshots: SnapshotStore,
+    root: Path,
+) -> dict[str, Any]:
+    """把一次 turn 差量落到索引账本：changed 读盘入 blob + upsert，removed 记删除。
+
+    旧 ``sync_index_from_turn_diff`` 与 v4 ``sync_index_from_ledger`` 共用本段，
+    保证两条发现路径（全树 walk / git 增量）的落账语义完全一致。
+    """
+    upserted = 0
+    failed: list[str] = []
+    for rel in diff.changed:
+        full = root / rel
+        try:
+            data = full.read_bytes()
+            stat = full.lstat()
+        except OSError:
+            failed.append(rel)
+            continue
+        manifest = snapshots.put_bytes(data, source_path=rel)
+        if manifest is None:
+            # rewind 记录被禁用：差量放弃（不产生半状态索引）
+            failed.append(rel)
+            continue
+        idx.upsert(
+            rel,
+            content_hash=manifest.content_hash,
+            size=stat.st_size,
+            mtime_ns=stat.st_mtime_ns,
+            source="turn_diff",
+        )
+        upserted += 1
+    removed = 0
+    for rel in diff.removed:
+        prior_entry = prior.get(rel)
+        idx.upsert(rel, content_hash=None, size=0, mtime_ns=0, source="turn_diff")
+        if prior_entry is not None and prior_entry.content_hash:
+            removed += 1
+    before_missing = [
+        rel for rel in diff.changed if rel not in prior or not prior[rel].content_hash
+    ]
+    return {
+        "upserted": upserted,
+        "removed": removed,
+        "failed": failed,
+        "before_missing": before_missing,
+        "truncated": diff.truncated,
+    }
+
+
+def _signature_reference(prior: dict[str, IndexEntry]) -> dict[str, tuple[int, int]]:
+    """索引账本 → 签名参考集（v4 对账用；账本即基线，无需 turn 起始全树扫描）。"""
+    return {
+        path: (entry.size, entry.mtime_ns)
+        for path, entry in prior.items()
+        if entry.content_hash
+    }
+
+
+def _git_status_changes(
+    workspace_root: Path,
+) -> tuple[set[str], set[str]] | None:
+    """git 增量发现：workspace_root 本身是 git worktree 顶层时，用
+    ``git status --porcelain -z`` 找出相对根的 changed/removed 路径。
+
+    语义对齐 v3 全树 walk 的忽略范围：
+    - status 只报「git 认识的」变化（tracked 修改/删除 + 未忽略的 untracked）；
+    - 用户 .gitignore 掉、但 XEYO 账本已跟踪的路径不会出现在 status 里，
+      由调用方对账本补 lstat（见 ``sync_index_from_ledger``）——不丢账本语义。
+    任何失败（非 git 仓库 / git 缺失 / 子目录非顶层）返回 None → walk 兜底。
+    """
+    import subprocess
+
+    root = Path(workspace_root)
+    try:
+        top = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--show-toplevel"],
+            capture_output=True,
+        )
+        if top.returncode != 0:
+            return None
+        toplevel = Path(top.stdout.decode("utf-8", "surrogateescape").strip())
+        if toplevel != root.resolve():
+            # workspace_root 是仓库子目录：status 路径相对仓库根，无法直接映射 →
+            # 不冒险，走 walk 兜底。
+            return None
+        proc = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(root),
+                "status",
+                "--porcelain=v1",
+                "-z",
+                "--no-renames",
+                "--untracked-files=all",
+            ],
+            capture_output=True,
+        )
+    except (OSError, ValueError):
+        return None
+    if proc.returncode != 0:
+        return None
+    changed: set[str] = set()
+    removed: set[str] = set()
+    raw = proc.stdout
+    if not raw:
+        return changed, removed
+    for token in raw.split(b"\0"):
+        if len(token) < 3 or token[2:3] != b" ":
+            continue
+        x = token[0:1]
+        y = token[1:2]
+        path = token[3:].decode("utf-8", "surrogateescape").replace("\\", "/")
+        path = path.strip()
+        if not path or path.startswith("../"):
+            continue
+        if x == b"D" or y == b"D":
+            removed.add(path)
+        elif token[:2] == b"??" or x in (b"A", b"M", b"T", b"U") or y in (b"A", b"M", b"T", b"U"):
+            changed.add(path)
+        # R/C 已被 --no-renames 拆成 D + A/??；其余 XY 状态不落账。
+    return changed, removed
+
+
+def sync_index_from_ledger(
+    session_id: str,
+    *,
+    snapshots: SnapshotStore,
+    workspace_root: Path | str,
+    sessions_dir: Path | None = None,
+    index: AgentFileIndex | None = None,
+) -> dict[str, Any]:
+    """v4 对账：turn 结束时把工作区状态对进 AgentFileIndex，无需 turn 起始基线。
+
+    与旧 ``sync_index_from_turn_diff`` 的差异只在**变更发现**方式，落账段共用：
+
+    - 参考集 = 索引账本自身（上次同步留下的 (size, mtime) 签名）。账本即基线：
+      turn 间任何外部/agent 改动只要还没同步，签名必然不同于账本 → 被发现。
+      checkpoint 冻结本就只读账本，因此语义与「turn 起始另拍一次全树基线」等价，
+      但省掉每轮第一次全树扫描（首 token 不再有任何等待）。
+    - git 工作区（workspace_root 即 worktree 顶层）：``git status`` 增量发现，
+      靠 git 的 index/stat cache，整树成本只在首次；对账本补 lstat 覆盖
+      user-gitignore 掉的已跟踪路径。
+    - 非 git 工作区：单次全树签名 walk 与账本比对（v3 旧差量的一半成本）。
+
+    返回 {"upserted","removed","failed","before_missing","truncated"}。
+    """
+    root = Path(workspace_root)
+    idx = index or AgentFileIndex(session_id, sessions_dir=sessions_dir)
+    prior = idx.entries()
+    reference = _signature_reference(prior)
+
+    git_result = _git_status_changes(root)
+    truncated = False
+    if git_result is not None:
+        changed, removed = git_result
+        # 账本路径在 git 眼中「已知且未变」或「被 user gitignore」→ status 不报。
+        # 对这类路径做定向 lstat：变了进 changed、消失进 removed（语义与 walk 同）。
+        known = changed | removed
+        for rel, signature in reference.items():
+            if rel in known:
+                continue
+            try:
+                stat = (root / rel).lstat()
+            except OSError:
+                removed.add(rel)
+                continue
+            if not stat.st_size and Path(rel).suffix in {".sock", ".pipe"}:
+                continue
+            if (stat.st_size, stat.st_mtime_ns) != signature:
+                changed.add(rel)
+        diff = TurnFileDiff(changed=sorted(changed), removed=sorted(removed))
+    else:
+        current, truncated = _walk_signatures(root, ignore_names=None, limit=DEFAULT_TURN_SCAN_LIMIT)
+        diff = TurnFileDiff(
+            changed=sorted(
+                path for path, sig in current.items() if reference.get(path) != sig
+            ),
+            removed=sorted(path for path in reference if path not in current),
+            truncated=truncated,
+        )
+    return _apply_turn_diff(idx, prior, diff, snapshots=snapshots, root=root)
+
+
 def sync_index_from_turn_diff(
     session_id: str,
     baseline: TurnBaseline,
@@ -460,49 +650,4 @@ def sync_index_from_turn_diff(
     idx = index or AgentFileIndex(session_id, sessions_dir=sessions_dir)
     prior = idx.entries()
     diff = diff_turn_changes(baseline)
-    upserted = 0
-    failed: list[str] = []
-    for rel in diff.changed:
-        full = root / rel
-        try:
-            data = full.read_bytes()
-            stat = full.lstat()
-        except OSError:
-            failed.append(rel)
-            continue
-        manifest = snapshots.put_bytes(data, source_path=rel)
-        if manifest is None:
-            # rewind 记录被禁用：差量放弃（不产生半状态索引）
-            failed.append(rel)
-            continue
-        content_hash = manifest.content_hash
-        idx.upsert(
-            rel,
-            content_hash=content_hash,
-            size=stat.st_size,
-            mtime_ns=stat.st_mtime_ns,
-            source="turn_diff",
-        )
-        upserted += 1
-    removed = 0
-    for rel in diff.removed:
-        prior_entry = prior.get(rel)
-        idx.upsert(
-            rel,
-            content_hash=None,
-            size=0,
-            mtime_ns=0,
-            source="turn_diff",
-        )
-        if prior_entry is not None and prior_entry.content_hash:
-            removed += 1
-    before_missing = [
-        rel for rel in diff.changed if rel not in prior or not prior[rel].content_hash
-    ]
-    return {
-        "upserted": upserted,
-        "removed": removed,
-        "failed": failed,
-        "before_missing": before_missing,
-        "truncated": diff.truncated,
-    }
+    return _apply_turn_diff(idx, prior, diff, snapshots=snapshots, root=root)
