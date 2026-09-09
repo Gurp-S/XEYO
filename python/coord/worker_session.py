@@ -97,8 +97,13 @@ def run_worker_session(worktree: Path, task: Any, *,
     """在 worktree 起真会话执行任务卡。返回 {ok, text, subtype}。
 
     ``model_client`` 注入 = 离线 scripted e2e；否则 build_default_engine 按
-    provider/model 走真后端（api_key 缺省读环境，同 CLI 语义）。"""
-    from permissions.policy import set_agent_mode, set_permission_mode, set_surface
+    provider/model 走真后端（api_key 缺省读环境，同 CLI 语义）。
+
+    写范围硬门禁：与引擎 ``run_subagent`` 同款执法——``write_scope(task.scope)``
+    contextvar 激活后，policy 走 worker 分支（scope 内 ALLOW / 越界 **DENY**，
+    永不 ASK），权限面与子代理零旁路；scope 为空 = 只读工人。"""
+    from permissions.policy import set_agent_mode, set_in_subagent, set_permission_mode, set_surface
+    from permissions.write_scope import write_scope as write_scope_cm
 
     from engine.query_engine import build_default_engine
 
@@ -117,11 +122,24 @@ def run_worker_session(worktree: Path, task: Any, *,
     if model_client is not None:
         engine._model = model_client  # scripted 注入（fake 后端已建 echo 工具面）
 
+    # write_scope 激活 ⇒ Write/Edit 必须经 WriteStore（引擎纪律：拒直接绕盘）。
+    # root=worktree：跨 worker 互斥仍由 coord 租约 + rebase 裁决，store 只兜
+    # 同 worktree 内的串行与 missing_read 防盲写。
+    from engine.write_store import WriteStore
+    from tools.catalog import inject_write_store
+
+    inject_write_store(engine._tools, WriteStore(str(worktree)), sid)
+
     set_permission_mode("never")
     set_agent_mode("agent")
     set_surface("cli")
-    return asyncio.run(_drain_session(
-        engine, task_card_text(task), timeout_sec=timeout_sec))
+    set_in_subagent(True)  # T_now 易变块净化 + worker 语义（与 subagent_runner 同轨）
+    try:
+        with write_scope_cm(list(getattr(task, "scope", None) or [])):
+            return asyncio.run(_drain_session(
+                engine, task_card_text(task), timeout_sec=timeout_sec))
+    finally:
+        set_in_subagent(None)
 
 
 def session_work_fn(task: Any, *, provider: str | None = None,

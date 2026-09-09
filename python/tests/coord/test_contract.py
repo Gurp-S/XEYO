@@ -245,6 +245,11 @@ def test_scope_conflicts_semantics():
     assert scope_conflicts(["a.py"], []) is True
     assert scope_conflicts(["a.py"], ["b.py"]) is False
     assert scope_conflicts(["src\\a.py"], ["src/a.py"]) is True  # 分隔符归一
+    # 前缀包含 = 冲突（coord 加严档：src/ vs src/a.py 合并层必撞车）
+    assert scope_conflicts(["src/"], ["src/a.py"]) is True
+    assert scope_conflicts(["src/a.py"], ["src/"]) is True
+    assert scope_conflicts(["src/components/"], ["src/utils/"]) is False  # 平行目录
+    assert scope_conflicts(["src"], ["src2/a.py"]) is False  # 字符串前缀≠路径前缀
 
 
 def test_ask_queue_roundtrip(tmp_path: Path):

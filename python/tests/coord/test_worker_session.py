@@ -130,3 +130,26 @@ def test_worker_session_direct_no_worktree(tmp_path, monkeypatch):
                              model_client=WriteScriptedClient("d.txt", "direct\n"))
     assert out["ok"] is True, out
     assert (handle.path / "d.txt").read_text(encoding="utf-8") == "direct\n"
+
+
+@pytest.mark.timeout(120)
+def test_worker_session_write_scope_hard_deny(tmp_path, monkeypatch):
+    """无旁路契约：worker 会话写越出任务 scope 的路径必须被拒（write_scope 硬门禁，
+    与引擎 run_subagent 同款执法；越权产物不得进 rebase）。"""
+    monkeypatch.setenv("XEYO_HOME", str(tmp_path / "home"))
+    repo = _mk_repo(tmp_path)
+    from coord.worktree import WorktreeManager
+
+    wm = WorktreeManager(repo)
+    handle = wm.create("task_scope1", git(repo, "rev-parse", "main").stdout.strip())
+    from coord.store import Task
+
+    t = Task(task_id="task_scope1", goal_id="g", title="越界写",
+             scope=["in_scope.txt"], claimed_by="w3", max_turns=6)
+    out = run_worker_session(handle.path, t,
+                             model_client=WriteScriptedClient("out_of_scope.txt",
+                                                              "should be denied\n"))
+    # 越界写被拒 → 无产物；会话本身可正常收尾（工具层错误回喂模型，不炸会话）。
+    # 阳性对照见 test_worker_session_offline_e2e（scope 内写成功落盘并收敛）。
+    assert not (handle.path / "out_of_scope.txt").exists(), \
+        "write_scope bypassed — worker wrote outside task scope"

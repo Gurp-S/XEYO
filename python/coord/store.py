@@ -61,15 +61,25 @@ def norm_scope_path(p: str, root: str | Path | None = None) -> str:
 
 
 def scope_conflicts(a: list[str], b: list[str]) -> bool:
-    """路径级写范围冲突。语义与 ``engine/scheduler.scope_conflicts`` 一致：
-    任一方为空 → 冲突（保守串行）；否则归一后有交集才冲突。"""
-    left = {norm_scope_path(p) for p in a if norm_scope_path(p)}
-    right = {norm_scope_path(p) for p in b if norm_scope_path(p)}
+    """路径级写范围冲突（coord 加严档，2026-09-10 热点洞修复）。
+
+    任一方为空 → 冲突（保守串行）。非空时**前缀包含也判冲突**：
+    ``src/`` vs ``src/a.py`` 会在合并层真撞车，精确字符串交集漏检 →
+    双放行 → 冲突重试烧 token。与 ``engine/scheduler.scope_conflicts``
+    （同会话串行调度，精确交集够用）**有意分歧**：跨进程派发层取严。"""
+    left = {norm_scope_path(p).rstrip("/") for p in a if norm_scope_path(p)}
+    right = {norm_scope_path(p).rstrip("/") for p in b if norm_scope_path(p)}
     left.discard("")
     right.discard("")
     if not left or not right:
         return True
-    return bool(left & right)
+    if left & right:
+        return True
+    for l in left:
+        for r in right:
+            if l.startswith(r + "/") or r.startswith(l + "/"):
+                return True
+    return False
 
 
 # ---------------------------------------------------------------------------
