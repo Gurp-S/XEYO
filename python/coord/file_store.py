@@ -39,10 +39,14 @@ from coord.store import (
     new_ask as _new_ask,
     prune_leases,
     release_scope as _release_scope,
+    release_scope_paths as _release_scope_paths,
     reopen_conflict as _reopen_conflict,
     reopen_task as _reopen_task,
     resume_task as _resume_task,
+    review_reopen as _review_reopen,
     submit_result as _submit_result,
+    supersede_task as _supersede_task,
+    suspend_release as _suspend_release,
     worker_failed as _worker_failed,
 )
 
@@ -267,6 +271,12 @@ class CoordFileStore:
                 nxt = _mark_pending_review(task, worker_id)
             elif action == "resume":
                 nxt = _resume_task(task, worker_id)
+            elif action == "suspend":
+                nxt = _suspend_release(task, worker_id)
+            elif action == "review_reopen":
+                nxt = _review_reopen(task, worker_id, findings or [])
+            elif action == "supersede":
+                nxt = _supersede_task(task)
             elif action == "complete":
                 nxt = _complete_task(task, worker_id)
             elif action == "reopen":
@@ -352,13 +362,52 @@ class CoordFileStore:
                                {"leases": [l.to_dict() for l in remain]})
             return len(remain) != len(current)
 
+    def release_scope_by_owner(self, root: str | Path, owner: str) -> int:
+        """释放该 owner 全部活动租约（任务离开 hands 时闭环）。返回释放条数。"""
+        owner = (owner or "").strip()
+        if not owner:
+            return 0
+        h = root_hash(root)
+        with self._guard(f"scope-{h}") as ok:
+            if not ok:
+                return 0
+            current = self.active_leases(root)
+            remain = [l for l in current if l.owner != owner]
+            n = len(current) - len(remain)
+            if n:
+                _atomic_write_json(self._scope_path(root),
+                                   {"leases": [l.to_dict() for l in remain]})
+            return n
+
+    def release_task_scope(self, root: str | Path, owner: str,
+                           paths: list[str]) -> int:
+        """从该 owner 的租约里精确移除任务 scope 路径（同 owner 合并租约按路径释放）。"""
+        owner = (owner or "").strip()
+        drop = [p for p in (paths or []) if p]
+        if not owner or not drop:
+            return 0
+        h = root_hash(root)
+        with self._guard(f"scope-{h}") as ok:
+            if not ok:
+                return 0
+            current = self.active_leases(root)
+            remain = _release_scope_paths(current, owner, drop)
+            n = sum(len(l.paths) for l in current if l.owner == owner) \
+                - sum(len(l.paths) for l in remain if l.owner == owner)
+            if n:
+                _atomic_write_json(self._scope_path(root),
+                                   {"leases": [l.to_dict() for l in remain]})
+            return n
+
     # -- ask queue ----------------------------------------------------------
 
     def _asks_path(self, root: str | Path) -> Path:
         return self.coord_dir / "asks" / f"{root_hash(root)}.json"
 
-    def put_ask(self, root: str | Path, worker_id: str, kind: str, payload: str) -> AskItem:
-        item = _new_ask(str(root), worker_id, kind, payload)
+    def put_ask(self, root: str | Path, worker_id: str, kind: str, payload: str, *,
+                task_id: str = "", lease_id: str = "") -> AskItem:
+        item = _new_ask(str(root), worker_id, kind, payload,
+                        task_id=task_id, lease_id=lease_id)
         h = root_hash(root)
         with self._guard(f"asks-{h}") as ok:
             if not ok:
@@ -377,6 +426,41 @@ class CoordFileStore:
         items = [AskItem.from_dict(d) for d in (data.get("asks") if isinstance(data, dict) else [])
                  if isinstance(d, dict)]
         return [a for a in items if a.status == "pending"]
+
+    def ask_of_task(self, root: str | Path, task_id: str) -> AskItem | None:
+        """按 task_id 反查该任务的挂起 ask（含 resolved/expired，取最近一条）。"""
+        data = _read_json(self._asks_path(root))
+        items = [AskItem.from_dict(d) for d in (data.get("asks") if isinstance(data, dict) else [])
+                 if isinstance(d, dict)]
+        hit = [a for a in items if a.task_id == task_id]
+        return hit[-1] if hit else None
+
+    def load_asks(self, root: str | Path) -> list[AskItem]:
+        """全量 ask 列表（含 pending/resolved/expired），供按 ask_id 反查。"""
+        data = _read_json(self._asks_path(root))
+        return [AskItem.from_dict(d)
+                for d in (data.get("asks") if isinstance(data, dict) else [])
+                if isinstance(d, dict)]
+
+    def expire_ask(self, root: str | Path, ask_id: str) -> bool:
+        """标记 ask 为 expired（网关超时，非 deny；任务转 pending 见 suspend）。"""
+        h = root_hash(root)
+        with self._guard(f"asks-{h}") as ok:
+            if not ok:
+                return False
+            data = _read_json(self._asks_path(root))
+            items = [AskItem.from_dict(d) for d in (data.get("asks") if isinstance(data, dict) else [])
+                     if isinstance(d, dict)]
+            hit = False
+            for a in items:
+                if a.ask_id == ask_id and a.status == "pending":
+                    a.status = "expired"
+                    a.resolved_at = time.time()
+                    hit = True
+            if hit:
+                _atomic_write_json(self._asks_path(root),
+                                   {"asks": [a.to_dict() for a in items]})
+            return hit
 
     def resolve_ask(self, root: str | Path, ask_id: str, choice: str) -> bool:
         h = root_hash(root)

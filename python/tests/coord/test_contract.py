@@ -13,6 +13,7 @@ import os
 import subprocess
 import sys
 import time
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -180,12 +181,13 @@ def test_task_state_machine_full(tmp_path: Path):
 
 
 def test_reopen_fuse_blocks_after_limit(tmp_path: Path):
+    """v1.1 验收口径：允许 REOPEN_LIMIT 次打回重做，第 4 次打回自动 blocked。"""
     store = CoordFileStore(tmp_path)
     task = new_task("goal-1", "t", ["a.py"])
     store.create_task(task)
     tid = task.task_id
 
-    for round_no in range(REOPEN_LIMIT):
+    for round_no in range(REOPEN_LIMIT + 1):
         claimed = store.claim_task(tid, "w1", "base1")
         assert claimed is not None
         reopened = store.task_transition(
@@ -194,11 +196,26 @@ def test_reopen_fuse_blocks_after_limit(tmp_path: Path):
         assert reopened is not None
         assert reopened.reopen_count == round_no + 1
         assert reopened.findings[0]["line"] == 12
+        if round_no < REOPEN_LIMIT:
+            assert reopened.status == STATUS_REOPENED
+        else:
+            assert reopened.status == STATUS_BLOCKED
 
-    # 第 3 次打回已熔断：blocked，不可再认领
+    # 第 4 次打回已熔断：blocked，不可再认领
     final = store.load_task(tid)
     assert final.status == STATUS_BLOCKED
     assert store.claim_task(tid, "w1", "base1") is None
+
+
+def test_claim_requires_scope(tmp_path: Path):
+    """阶段 2：无 scope 任务不可认领（scope 声明强制，认领闸门机器执法）。"""
+    store = CoordFileStore(tmp_path)
+    naked = new_task("goal-1", "no scope", [])
+    store.create_task(naked)
+    assert store.claim_task(naked.task_id, "w1", "base1") is None
+    # 补 scope 后可认领
+    store._save_task(replace(naked, scope=["x.py"]))
+    assert store.claim_task(naked.task_id, "w1", "base1") is not None
 
 
 def test_scope_lease_mutual_exclusion(tmp_path: Path):

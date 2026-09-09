@@ -175,7 +175,7 @@ def test_reopen_conflict_fuse(tmp_path):
     def work(p: Path, i: int = 0) -> None:
         (p / "seed.txt").write_text(f"worker-{i}\n", encoding="utf-8")
 
-    for i in range(REOPEN_LIMIT):
+    for i in range(REOPEN_LIMIT + 1):
         # worker 基于当前 main 干活并上交
         out = WorkerPool(repo, store).run_task(tid, f"w{i}", lambda p, i=i: work(p, i))
         assert out.ok, out.error
@@ -185,11 +185,12 @@ def test_reopen_conflict_fuse(tmp_path):
         _git(repo, "commit", "-m", f"main moves {i}")
 
         report = rec.reconcile_ready()
-        if i < REOPEN_LIMIT - 1:
+        if i < REOPEN_LIMIT:  # 前 REOPEN_LIMIT 次打回：reopened 可重做
             assert store.load_task(tid).status == STATUS_REOPENED, report
-        else:
+        else:  # 第 REOPEN_LIMIT+1 次：熔断 blocked
             assert store.load_task(tid).status == STATUS_BLOCKED, report
             assert len(report["blocked"]) == 1
+            assert store.claim_task(tid, f"w{i}", "x") is None  # 不可再认领
 
 
 # -- submit 前置校验 ----------------------------------------------------------

@@ -20,6 +20,7 @@ reconciler 在收敛；锁忙则跳过本轮（守方稍后重试）。
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from coord.file_store import CoordFileStore
@@ -28,9 +29,11 @@ from coord.store import (
     STATUS_BLOCKED,
     STATUS_READY_TO_MERGE,
     STATUS_REOPENED,
+    Task,
 )
 from coord.worktree import WorktreeError, WorktreeManager, git
 
+_log = logging.getLogger("xeyo.coord.reconcile")
 RECONCILER_LOCK = "reconciler"
 
 
@@ -53,13 +56,24 @@ class Reconciler:
     def _lock_path(self) -> Path:
         return self.repo / ".xeyo" / "coord" / "locks" / f"{RECONCILER_LOCK}.lock"
 
-    def _classify(self, task_id: str, nxt, report: dict) -> None:
+    def _release(self, owner: str, scope: list[str]) -> None:
+        """任务离开 hands → 释放其 scope 租约（同 owner 其他任务路径不动）。"""
+        if owner and scope:
+            try:
+                self.store.release_task_scope(self.repo, owner, scope)
+            except Exception:  # noqa: BLE001
+                _log.debug("reconcile release lease failed", exc_info=True)
+
+    def _classify(self, task_id: str, nxt, report: dict, *,
+                  owner: str = "", scope: list[str] | None = None) -> None:
         if nxt is None:
             report["rejected"].append({"task_id": task_id, "reason": "cas_rejected"})
         elif nxt.status == STATUS_REOPENED:
             report["reopened"].append({"task_id": task_id, "base_commit": nxt.base_commit[:12]})
         elif nxt.status == STATUS_BLOCKED:
             report["blocked"].append({"task_id": task_id, "reopen_count": nxt.reopen_count})
+        # 任务离开 hands（reopened/blocked）→ 释放租约。
+        self._release(owner, scope or [])
 
     # -- 主入口 -------------------------------------------------------------
 
@@ -73,10 +87,12 @@ class Reconciler:
             tasks = self.store.list_tasks(STATUS_READY_TO_MERGE)
             tasks.sort(key=lambda t: t.updated_at)  # 按上交先后收敛
             for t in tasks:
-                self._reconcile_one(t.task_id, report)
+                self._reconcile_one(t, report)
         return report
 
-    def _reconcile_one(self, task_id: str, report: dict) -> None:
+    def _reconcile_one(self, task: Task, report: dict) -> None:
+        task_id = task.task_id
+        owner, scope = task.claimed_by, list(task.scope)
         main_head = self._main_head()
         try:
             handle = self.wt.load(task_id)
@@ -84,7 +100,7 @@ class Reconciler:
             nxt = self.store.reopen_conflict(
                 task_id, main_head,
                 [{"file": "", "line": 0, "error": f"worktree_missing: {exc}"}])
-            self._classify(task_id, nxt, report)
+            self._classify(task_id, nxt, report, owner=owner, scope=scope)
             return
 
         try:
@@ -93,7 +109,7 @@ class Reconciler:
             nxt = self.store.reopen_conflict(
                 task_id, main_head,
                 [{"file": "", "line": 0, "error": f"rebase_error: {exc}"}])
-            self._classify(task_id, nxt, report)
+            self._classify(task_id, nxt, report, owner=owner, scope=scope)
             self.wt.remove(task_id)
             return
 
@@ -105,7 +121,7 @@ class Reconciler:
                 findings = [{"file": "", "line": 0,
                              "error": f"rebase_failed: {r.stderr.strip()[:200]}"}]
             nxt = self.store.reopen_conflict(task_id, main_head, findings)
-            self._classify(task_id, nxt, report)
+            self._classify(task_id, nxt, report, owner=owner, scope=scope)
             self.wt.remove(task_id)  # 完成即弃（重做时重建）
             return
 
@@ -116,7 +132,7 @@ class Reconciler:
             nxt = self.store.reopen_conflict(
                 task_id, main_head,
                 [{"file": "", "line": 0, "error": "object_missing_after_rebase"}])
-            self._classify(task_id, nxt, report)
+            self._classify(task_id, nxt, report, owner=owner, scope=scope)
             self.wt.remove(task_id)
             return
 
@@ -126,6 +142,7 @@ class Reconciler:
         if self.push_remote:
             git(self.repo, "push", self.push_remote, "main", check=False)
         self.wt.remove(task_id)
+        self._release(owner, scope)  # merged：任务离开 hands → 释放租约
 
 
 __all__ = ["Reconciler"]

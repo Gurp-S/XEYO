@@ -31,13 +31,17 @@ STATUS_PENDING_REVIEW = "PENDING_REVIEW"
 STATUS_COMPLETED = "completed"
 STATUS_REOPENED = "reopened"
 STATUS_BLOCKED = "blocked"
+STATUS_SUPERSEDED = "superseded"  # 被 replan 子任务替代（终态，不可认领）
 
-#: reopen 熔断：第 REOPEN_LIMIT 次打回后不再重开，转 blocked 交人在环。
+#: reopen 熔断：允许 REOPEN_LIMIT 次打回重做；第 REOPEN_LIMIT+1 次不再重开，
+#: 转 blocked 交人在环（v1.1 §3 阶段 2：打回-重做死循环防线）。
 REOPEN_LIMIT = 3
 
 SCOPE_LEASE_TTL_SEC = 10 * 60  # 与 session_presence FILE_OWNERSHIP_TTL 对齐
+ASK_TTL_SEC = 10 * 60          # 无人值守等待人裁决的挂起时限
 ASK_STATUS_PENDING = "pending"
 ASK_STATUS_RESOLVED = "resolved"
+ASK_STATUS_EXPIRED = "expired"  # 超 TTL 无人裁决（中性事实；任务仍挂起，不 deny 丢弃）
 
 
 def norm_scope_path(p: str, root: str | Path | None = None) -> str:
@@ -86,6 +90,7 @@ class Task:
     status: str = STATUS_PENDING
     claimed_by: str = ""
     branch: str = ""  # worker 上交的 worktree 分支（coord/task/<短名>）
+    parent_id: str = ""  # replan 产物的来源任务（scope 执法 + 溯源）
     revision: int = 0
     reopen_count: int = 0
     findings: list[dict] = field(default_factory=list)
@@ -105,6 +110,7 @@ class Task:
             "status": self.status,
             "claimed_by": self.claimed_by,
             "branch": self.branch,
+            "parent_id": self.parent_id,
             "revision": int(self.revision),
             "reopen_count": int(self.reopen_count),
             "findings": [dict(f) for f in self.findings if isinstance(f, dict)],
@@ -126,6 +132,7 @@ class Task:
             status=str(raw.get("status") or STATUS_PENDING),
             claimed_by=str(raw.get("claimed_by") or ""),
             branch=str(raw.get("branch") or ""),
+            parent_id=str(raw.get("parent_id") or ""),
             revision=int(raw.get("revision") or 0),
             reopen_count=int(raw.get("reopen_count") or 0),
             findings=[dict(f) for f in (raw.get("findings") or []) if isinstance(f, dict)],
@@ -139,7 +146,8 @@ def new_task_id() -> str:
 
 
 def new_task(goal_id: str, title: str, scope: list[str], *, model: str = "",
-             max_turns: int = 0, required_tools: list[str] | None = None) -> Task:
+             max_turns: int = 0, required_tools: list[str] | None = None,
+             parent_id: str = "") -> Task:
     now = time.time()
     return Task(
         task_id=new_task_id(),
@@ -149,6 +157,7 @@ def new_task(goal_id: str, title: str, scope: list[str], *, model: str = "",
         model=str(model or "").strip(),
         max_turns=int(max_turns or 0),
         required_tools=[str(t) for t in (required_tools or [])],
+        parent_id=str(parent_id or "").strip(),
         status=STATUS_PENDING,
         revision=1,
         created_at=now,
@@ -156,9 +165,41 @@ def new_task(goal_id: str, title: str, scope: list[str], *, model: str = "",
     )
 
 
+def findings_files(findings: list[dict]) -> list[str]:
+    """从结构化 findings 抽文件路径集合（去重、保序）——重规划 scope 白名单来源。"""
+    seen: dict[str, None] = {}
+    for f in findings or []:
+        if not isinstance(f, dict):
+            continue
+        for key in ("file", "path"):
+            v = f.get(key)
+            if isinstance(v, str) and v.strip():
+                seen.setdefault(norm_scope_path(v), None)
+    return list(seen.keys())
+
+
+def enforce_replan_scope(parent: Task, proposed_scope: list[str]) -> bool:
+    """机器执法（v1.1 §3 阶段 2）：重规划产物 scope ⊆ 原 scope ∪ findings.files。
+
+    超界 → False（调用方拒收，返回中性结果；禁止 Reviewer/Planner 擅自扩大
+    scope 重构）。空 proposed → False（无 scope 不可认领，保守）。"""
+    allowed = {norm_scope_path(p) for p in parent.scope if norm_scope_path(p)}
+    allowed |= {norm_scope_path(p) for p in findings_files(parent.findings) if norm_scope_path(p)}
+    proposed = {norm_scope_path(p) for p in (proposed_scope or [])}
+    proposed.discard("")
+    if not proposed:
+        return False
+    return proposed.issubset(allowed)
+
+
 def claim_task(task: Task, worker_id: str, base_commit: str) -> Task | None:
-    """CAS 认领：pending / reopened（被打回待重做）可认领。其余态 → None。"""
+    """CAS 认领：pending / reopened（被打回待重做）可认领。其余态 → None。
+
+    阶段 2（v1.1）：**无 scope 任务不可认领**——scope 声明强制由认领闸门
+    机器执法（执行层拒绝，不写劝导文本）。"""
     if task.status not in (STATUS_PENDING, STATUS_REOPENED):
+        return None
+    if not any(norm_scope_path(p) for p in task.scope):
         return None
     now = time.time()
     return replace(
@@ -187,6 +228,33 @@ def resume_task(task: Task, worker_id: str) -> Task | None:
                    revision=task.revision + 1, updated_at=time.time())
 
 
+def suspend_release(task: Task, worker_id: str) -> Task | None:
+    """ASK 无人裁决超 TTL：PENDING_REVIEW → pending，清 claimed_by（转 pending
+    挂起，可被重新认领；非 deny 丢弃——v1.1 §3 阶段 2 网关超时语义）。"""
+    if task.status != STATUS_PENDING_REVIEW or task.claimed_by != str(worker_id or "").strip():
+        return None
+    return replace(task, status=STATUS_PENDING, claimed_by="",
+                   revision=task.revision + 1, updated_at=time.time())
+
+
+def review_reopen(task: Task, worker_id: str, findings: list[dict]) -> Task | None:
+    """ASK 裁决 deny/remind：PENDING_REVIEW → reopened(→blocked 熔断)。
+
+    与 reopen_task（要求 claimed）互补——suspend 已把态转 PENDING_REVIEW，
+    打回须从该态直接进 reopen 轨道（base_commit 保持不变，重做仍基于原基线）。"""
+    if task.status != STATUS_PENDING_REVIEW or task.claimed_by != str(worker_id or "").strip():
+        return None
+    return _reopen_or_block(task, task.base_commit, findings)
+
+
+def supersede_task(task: Task) -> Task | None:
+    """replan 子任务接管后，原任务转 superseded（终态，清持有，不可认领）。"""
+    if task.status not in (STATUS_REOPENED, STATUS_CLAIMED):
+        return None
+    return replace(task, status=STATUS_SUPERSEDED, claimed_by="",
+                   revision=task.revision + 1, updated_at=time.time())
+
+
 def complete_task(task: Task, worker_id: str) -> Task | None:
     if task.status != STATUS_CLAIMED or task.claimed_by != str(worker_id or "").strip():
         return None
@@ -195,33 +263,27 @@ def complete_task(task: Task, worker_id: str) -> Task | None:
 
 
 def _reopen_or_block(task: Task, base_commit: str, findings: list[dict]) -> Task:
-    """打回共用实现：reopen_count 熔断（≥ REOPEN_LIMIT → blocked），base_commit 对齐新基线。"""
+    """打回共用实现：允许 REOPEN_LIMIT 次重开；第 REOPEN_LIMIT+1 次转 blocked。
+
+    base_commit 对齐新基线（传空 = 保持原值）。"""
     count = task.reopen_count + 1
     now = time.time()
     clean = [dict(f) for f in (findings or []) if isinstance(f, dict)]
-    if count >= REOPEN_LIMIT:
+    base = str(base_commit or "") or task.base_commit
+    if count > REOPEN_LIMIT:
         return replace(task, status=STATUS_BLOCKED, reopen_count=count,
-                       base_commit=str(base_commit or ""), findings=clean,
+                       base_commit=base, findings=clean,
                        revision=task.revision + 1, updated_at=now)
     return replace(task, status=STATUS_REOPENED, reopen_count=count,
-                   base_commit=str(base_commit or ""), findings=clean,
+                   base_commit=base, findings=clean,
                    revision=task.revision + 1, updated_at=now)
 
 
 def reopen_task(task: Task, worker_id: str, findings: list[dict]) -> Task | None:
-    """Reviewer 打回：claimed → reopened(→pending 可再认领)；含熔断。
-
-    返回 (task, blocked: bool) 语义由调用方拆：本函数直接给出终态。"""
+    """Reviewer 打回：claimed → reopened(→blocked 熔断)；base_commit 保持认领值。"""
     if task.status != STATUS_CLAIMED or task.claimed_by != str(worker_id or "").strip():
         return None
-    count = task.reopen_count + 1
-    now = time.time()
-    clean = [dict(f) for f in (findings or []) if isinstance(f, dict)]
-    if count >= REOPEN_LIMIT:
-        return replace(task, status=STATUS_BLOCKED, reopen_count=count,
-                       findings=clean, revision=task.revision + 1, updated_at=now)
-    return replace(task, status=STATUS_REOPENED, reopen_count=count,
-                   findings=clean, revision=task.revision + 1, updated_at=now)
+    return _reopen_or_block(task, task.base_commit, findings)
 
 
 def submit_result(task: Task, worker_id: str, branch: str) -> Task | None:
@@ -347,6 +409,26 @@ def release_scope(leases: list[ScopeLease], lease_id: str, owner: str) -> list[S
     return [l for l in leases if not (l.lease_id == lease_id and l.owner == owner)]
 
 
+def release_scope_paths(leases: list[ScopeLease], owner: str,
+                        paths: list[str]) -> list[ScopeLease]:
+    """从该 owner 的活动租约移除指定路径（任务离开 hands 时闭环）；租约清空则删除。
+
+    同 owner 的多任务租约会合并成一条（acquire_scope 续约语义），因此释放必须
+    按路径粒度，而不是整条租约——否则误放同 worker 其他在途任务的 scope。"""
+    drop = {norm_scope_path(p) for p in (paths or []) if norm_scope_path(p)}
+    if not drop:
+        return leases
+    out: list[ScopeLease] = []
+    for l in leases:
+        if l.owner != owner:
+            out.append(l)
+            continue
+        remain = [p for p in l.paths if p not in drop]
+        if remain:
+            out.append(replace(l, paths=remain))
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Ask queue
 # ---------------------------------------------------------------------------
@@ -359,6 +441,8 @@ class AskItem:
     worker_id: str
     kind: str
     payload: str
+    task_id: str = ""
+    lease_id: str = ""
     status: str = ASK_STATUS_PENDING
     created_at: float = 0.0
     resolved_at: float = 0.0
@@ -371,6 +455,8 @@ class AskItem:
             "worker_id": self.worker_id,
             "kind": self.kind,
             "payload": self.payload,
+            "task_id": self.task_id,
+            "lease_id": self.lease_id,
             "status": self.status,
             "created_at": float(self.created_at),
             "resolved_at": float(self.resolved_at),
@@ -385,6 +471,8 @@ class AskItem:
             worker_id=str(raw.get("worker_id") or ""),
             kind=str(raw.get("kind") or ""),
             payload=str(raw.get("payload") or ""),
+            task_id=str(raw.get("task_id") or ""),
+            lease_id=str(raw.get("lease_id") or ""),
             status=str(raw.get("status") or ASK_STATUS_PENDING),
             created_at=float(raw.get("created_at") or 0.0),
             resolved_at=float(raw.get("resolved_at") or 0.0),
@@ -392,21 +480,26 @@ class AskItem:
         )
 
 
-def new_ask(root: str, worker_id: str, kind: str, payload: str) -> AskItem:
+def new_ask(root: str, worker_id: str, kind: str, payload: str, *,
+            task_id: str = "", lease_id: str = "") -> AskItem:
     return AskItem(
         ask_id=f"ask_{uuid.uuid4().hex[:12]}",
         root=str(root or ""),
         worker_id=str(worker_id or "").strip(),
         kind=str(kind or "").strip(),
         payload=str(payload or ""),
+        task_id=str(task_id or "").strip(),
+        lease_id=str(lease_id or "").strip(),
         status=ASK_STATUS_PENDING,
         created_at=time.time(),
     )
 
 
 __all__ = [
+    "ASK_STATUS_EXPIRED",
     "ASK_STATUS_PENDING",
     "ASK_STATUS_RESOLVED",
+    "ASK_TTL_SEC",
     "AskItem",
     "REOPEN_LIMIT",
     "SCOPE_LEASE_TTL_SEC",
@@ -418,11 +511,14 @@ __all__ = [
     "STATUS_PENDING_REVIEW",
     "STATUS_READY_TO_MERGE",
     "STATUS_REOPENED",
+    "STATUS_SUPERSEDED",
     "ScopeLease",
     "Task",
     "acquire_scope",
     "claim_task",
     "complete_task",
+    "enforce_replan_scope",
+    "findings_files",
     "mark_merged",
     "mark_pending_review",
     "new_ask",
@@ -432,10 +528,14 @@ __all__ = [
     "norm_scope_path",
     "prune_leases",
     "release_scope",
+    "release_scope_paths",
     "reopen_conflict",
     "reopen_task",
     "resume_task",
+    "review_reopen",
     "scope_conflicts",
     "submit_result",
+    "supersede_task",
+    "suspend_release",
     "worker_failed",
 ]

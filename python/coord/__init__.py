@@ -9,8 +9,11 @@
 - ``worktree``：worker worktree 生命周期（add→commit→remove，git 子进程封装）
 - ``reconciler``：单点串行收敛（三路合并 rebase + update-ref ff + 冲突退回熔断）
 - ``worker_pool``：claim → worktree → 执行回调 → 上交（L1 执行层）
+- ``planner``：任务入表 + 认领闸门（scope 声明强制 + 租约先行拒并行）
+- ``reviewer``：评审打回 + 重规划 scope 执法（findings 结构化 + scope ⊆ 原∪findings）
+- ``ask_gate``：人在环 ASK 队列化（挂起即释放租约 + 超时转 pending 非丢弃）
 
-权威面：``_design_drafts/distributed-agents-plan.md``（v1.1）§2/§3 阶段 0-1。
+权威面：``_design_drafts/distributed-agents-plan.md``（v1.1）§2/§3 阶段 0-2。
 """
 
 from coord.config import BACKEND_FILE, BACKEND_MEMORY, coord_backend
