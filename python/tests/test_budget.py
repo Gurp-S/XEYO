@@ -684,3 +684,51 @@ def test_budget_turn_notice_is_one_shot_and_reset_clears_state():
     assert b.grace_started is False
     assert b.hard_stop_reason is None
     assert b.consume_runtime_notice() is None
+
+
+# ====== 旁路默认预算档（XEYO_BUDGET_DEFAULT_USD，2026-09-09 Phase 1）======
+
+
+def test_budget_default_tier_resolution(monkeypatch):
+    """旁路档解析:默认关=零变化;显式限额优先于默认档;非法值回落 None。"""
+    from engine.budget import default_budget_usd_from_env, max_budget_usd_from_env
+
+    # 1) 什么都不设 → None(历史行为逐字节一致)
+    monkeypatch.delenv("XEYO_MAX_BUDGET_USD", raising=False)
+    monkeypatch.delenv("XEYO_BUDGET_DEFAULT_USD", raising=False)
+    assert max_budget_usd_from_env() is None
+    assert default_budget_usd_from_env() is None
+
+    # 2) 只开旁路档 → 生效
+    monkeypatch.setenv("XEYO_BUDGET_DEFAULT_USD", "5")
+    assert max_budget_usd_from_env() == 5.0
+
+    # 3) 显式限额优先(0 也是合法显式值)
+    monkeypatch.setenv("XEYO_MAX_BUDGET_USD", "2")
+    assert max_budget_usd_from_env() == 2.0
+    monkeypatch.setenv("XEYO_MAX_BUDGET_USD", "0")
+    assert max_budget_usd_from_env() == 0.0
+
+    # 4) 显式值非法 → 回落默认档
+    monkeypatch.setenv("XEYO_MAX_BUDGET_USD", "invalid")
+    assert max_budget_usd_from_env() == 5.0
+
+    # 5) 旁路档非法/零/负 → None(fail-safe 不限额,与"默认关"同语义)
+    monkeypatch.delenv("XEYO_MAX_BUDGET_USD", raising=False)
+    monkeypatch.setenv("XEYO_BUDGET_DEFAULT_USD", "invalid")
+    assert max_budget_usd_from_env() is None
+    monkeypatch.setenv("XEYO_BUDGET_DEFAULT_USD", "0")
+    assert max_budget_usd_from_env() is None
+    monkeypatch.setenv("XEYO_BUDGET_DEFAULT_USD", "-3")
+    assert max_budget_usd_from_env() is None
+
+
+def test_budget_default_tier_enforces_over_budget(monkeypatch):
+    """集成:旁路档生效 → used_usd 达档 → over_budget=True(既有停止链入口)。"""
+    tracker = BudgetTracker()
+    tracker.reset_for_new_submit(usd_limit=1.0, provider="test", prices=PIN)
+    assert not tracker.over_budget
+    # PIN: miss 2.0 USD/1M → 600k tokens = 1.2 USD > 1.0
+    tracker.add_usage({"prompt_tokens": 600_000, "completion_tokens": 0})
+    assert tracker.over_budget
+    assert tracker.used_usd >= 1.0

@@ -65,16 +65,36 @@ def max_tool_calling_from_env(default: int = DEFAULT_MAX_TOOL_CALLING) -> int:
 	return _positive_int_from_env("XEYO_MAX_TOOL_CALLING", default)
 
 
-def max_budget_usd_from_env() -> float | None:
-	"""读取 XEYO_MAX_BUDGET_USD；未设置或非法返回 None（不限额）。"""
-	raw = os.environ.get("XEYO_MAX_BUDGET_USD", "").strip()
+def default_budget_usd_from_env() -> float | None:
+	"""读取旁路默认预算档 ``XEYO_BUDGET_DEFAULT_USD``（2026-09-09 Phase 1，默认关）。
+
+	未设 → None → 行为零变化（兜底仍只有 max_turns，与历史完全一致）。
+	设为正数后：当会话 config 与 ``XEYO_MAX_BUDGET_USD`` 均未限额时，以该值
+	作为 per-submit USD 硬顶——超限走既有 ``over_budget → budget_usd`` 停止
+	链，零新机制。注意：档位生效即 ``usd_limit is not None``，费用折算不再
+	强制 local_only（与显式限额同一条价格链）。
+	"""
+	raw = os.environ.get("XEYO_BUDGET_DEFAULT_USD", "").strip()
 	if not raw:
 		return None
 	try:
 		v = float(raw)
 	except (TypeError, ValueError):
 		return None
-	return v if v >= 0 else None
+	return v if v > 0 else None
+
+
+def max_budget_usd_from_env() -> float | None:
+	"""读取 ``XEYO_MAX_BUDGET_USD``；未设置/非法时回落默认档，均无则 None（不限额）。"""
+	raw = os.environ.get("XEYO_MAX_BUDGET_USD", "").strip()
+	if raw:
+		try:
+			v = float(raw)
+		except (TypeError, ValueError):
+			v = None
+		if v is not None and v >= 0:
+			return v
+	return default_budget_usd_from_env()
 
 
 @dataclass
