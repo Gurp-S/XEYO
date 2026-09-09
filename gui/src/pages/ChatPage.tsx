@@ -17,6 +17,7 @@ import {useChatStore} from '@/stores/chatStore';
 import {ChatUiStoreProvider} from '@/stores/chatUiStore';
 import {useRemoteStore} from '@/stores/remoteStore';
 import {useSettingsStore} from '@/stores/settingsStore';
+import {DEFAULT_SPACE_ID} from '@/lib/db';
 import {useLocation, useNavigate, useParams} from 'react-router-dom';
 import {ImmersiveLayer} from '@/components/immersive/ImmersiveLayer';
 import {UsagePanel} from '@/components/UsagePanel';
@@ -177,6 +178,16 @@ export function ChatPage() {
 			return;
 		}
 		if (creatingRef.current) {
+			return;
+		}
+		// 默认 space（空 IDB 或未开工作区）下自动建 DEFAULT_SPACE_ID 孤儿
+		// session 没有意义：streamSendSlice 的工作区守卫会一律拒其发送，
+		// 用户看到「请先打开一个项目文件夹」banner,这条 orphan 永远不能
+		// 消费、只会在 IDB 残留并污染 rewind/会话选择。引导用户显式开工作
+		// 区即可（FileMenu/CommandPalette/Sidebar 的「打开工作区」入口）。
+		// 仅当 activeSpaceId 已是真实 space（IDB 恢复 / 已 openFolder）
+		// 才允许自动建会话。
+		if (!st.activeSpaceId || st.activeSpaceId === DEFAULT_SPACE_ID) {
 			return;
 		}
 		creatingRef.current = true;

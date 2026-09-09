@@ -354,18 +354,14 @@ _CONTEXT_CATEGORIES: list[tuple[str, str]] = [
 
 
 def _memory_index_live_enabled() -> bool:
-	"""Memory 索引常驻注入是否开启（XEYO_MEMORY_INDEX_LIVE，**默认开**，用户决策）。
+	"""Memory 索引常驻注入开关：**恒关**（2026-09-09 用户裁决维持下线）。
 
-	事故 sess_mtiche8l（弱模型把索引条目当任务对象）的历史背景：索引已瘦身为一行
-	导航（rewrite_index 上限 200 行/25KB，当前实测 ≈0.7k tok），settings 写 0 可关。
-	注入走 project_for_model 的 _append_memory_index。
+	事故 sess_mtiche8l（弱模型把索引条目当任务对象）后已退役，AGENTS「已下线」
+	与此对齐。注入走 project_for_model 的 _append_memory_index 仍供脚本/评测用，
+	生产投影层不推送；settings/env 残留一律忽略（同其他固化恒关项）。受控重开
+	须源码级改此函数 + A1（200+ 轮 live）/ A3 过门证据。
 	"""
-	try:
-		from memory.memory_switches import get_value
-
-		return get_value("XEYO_MEMORY_INDEX_LIVE") == "1"
-	except Exception:
-		return False
+	return False
 
 
 def _content_chars(content: object) -> int:
@@ -955,10 +951,10 @@ async def query_loop(
 
         _is_side = _side_mode()
         # T_now 声道（方案A）：env_channel 默认；模型被运行时标记不支持伪造
-        # tool 对时 resolve 回 legacy。解析在投影前做，回退路径复用同一 kwargs。
+        # tool 对时 resolve 回 skip（L2：宁缺毋滥，不落 legacy 用户尾插）。
         from prompt.t_now_strategy import (
             ENV_FALLBACK_STATUS,
-            STRATEGY_LEGACY,
+            STRATEGY_SKIP,
             env_unsupported_key,
             mark_env_channel_unsupported,
             resolve_t_now_strategy,
@@ -1208,10 +1204,11 @@ async def query_loop(
                 yield StoppedEvent(reason="aborted", interrupted=interrupted)
                 return
             except ProviderError as exc:
-                # 方案A运行时回退：env_channel 下、未吐任何 chunk 的结构类 4xx
+                # L2（2026-09-09）：env_channel 下、未吐任何 chunk 的结构类 4xx
                 # （400/404/413/415/422 等），视为该模型/网关不接受伪造 tool 对
-                # ——记进程级备忘，当场以 legacy 声道重建请求重试；非结构错误
-                # （402 欠费 / 429 限流 / 5xx）不回退，避免掩盖真实原因。
+                # ——记进程级备忘，**本轮跳过 T_now 注入**（不再落回 legacy 用户
+                # 尾插：引擎文本进用户角色=说话人混淆源；宁缺毋滥，执行层硬约束
+                # 兜底）。非结构错误（402 欠费 / 429 限流 / 5xx）不回退。
                 if (
                     t_now_strat == "env_channel"
                     and not saw_any
@@ -1220,7 +1217,7 @@ async def query_loop(
                     _fb_prov = _llm_provider_name(model)
                     _fb_model = _llm_model_name(model)
                     mark_env_channel_unsupported(env_unsupported_key(_fb_prov, _fb_model))
-                    t_now_strat = STRATEGY_LEGACY
+                    t_now_strat = STRATEGY_SKIP
                     projected = _attach_turn_context(
                         projected_pre_inject,
                         t_now_strategy=t_now_strat,
@@ -1229,7 +1226,7 @@ async def query_loop(
                     api_messages = prompt.build(system_prompt, projected)
                     logging.getLogger(__name__).warning(
                         "T_now env_channel rejected (status=%s, provider=%s, "
-                        "model=%s)；本轮以 legacy 声道重试，后续轮直接 legacy。",
+                        "model=%s)；本轮跳过 T_now 注入（L2，不再 legacy 尾插）。",
                         exc.status_code,
                         _fb_prov,
                         _fb_model,

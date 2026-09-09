@@ -131,6 +131,13 @@ async function importServerSessions(existingIds: Set<string>): Promise<void> {
 			if (existingIds.has(s.id) || deleted.has(s.id)) {
 				continue;
 			}
+			// 防御：下划线开头为后端内部索引/工作区归属文件（_workspace_index
+			// 等），即便后端 /v1/sessions 漏过滤也不应进 IDB。后端
+			// list_sessions 已过滤下划线前缀；这里兜底（任何后端改 list 行为
+			// 都不会污染前端 store.activeId）。
+			if (s.id.startsWith("_")) {
+				continue;
+			}
 			existingIds.add(s.id);
 			await saveSession({
 				id: s.id,

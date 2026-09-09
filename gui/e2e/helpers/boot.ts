@@ -70,17 +70,68 @@ export async function bootChat(page: Page, timeoutMs = 15_000): Promise<void> {
 }
 
 /**
- * 打开真实文件夹为工作区并新建会话（fullstack 骨架同款）。
+ * 清空后端 session store（ISOLATE_DIR/sessions 跨 test 共享，否则 76 test
+ * 留下的会话会在 100 test 启动时通过 hydrate.importServerSessions 拉回
+ * IDB，ChatPage 路由 effect 把 activeId 切到残留 sid 导致 send 守卫拦）。
+ *
+ * 完整两步：归档（解除 DELETE 409 archived_required）→ 硬删。
+ * 不区分主/侧聊；侧聊 session_id 以 "side-" 开头走同一端点。
+ */
+export async function resetBackendSessions(page: Page): Promise<void> {
+	const res = await page.request.get('http://127.0.0.1:8177/v1/sessions');
+	const body = (await res.json()) as {sessions?: Array<{id: string}>};
+	const list = body.sessions ?? [];
+	for (const s of list) {
+		try {
+			await page.request.post(
+				`http://127.0.0.1:8177/v1/sessions/${s.id}/archive`,
+			);
+		} catch {
+			/* 归档失败继续尝试 delete（已归档/已删会 4xx） */
+		}
+		try {
+			await page.request.delete(`http://127.0.0.1:8177/v1/sessions/${s.id}`);
+		} catch {
+			/* 同上：容忍已删 */
+		}
+	}
+}
+
+/**
+ * 打开真实文件夹为工作区并新建会话，返回新建的 sessionId。
  *
  * fake 层用例必须显式建会话：不绑 workspace 会被「请先打开一个项目文件夹」
  * 守卫拦截，而被启动期自动状态带偏时连「发送被接受但气泡消失」这种悬案都会出现。
  * `dir` 需真实存在（后端校验），用例侧用 fs.mkdtempSync 生成。
+ *
+ * 三道屏障覆盖 rewind.spec 72/133 冷启动首测必挂的根因：
+ *  1. ChatPage effect 触发 hydrate() 不 await，其收尾是整包
+ *     set({spaces, sessions, ...hydrated:true})。若 openFolder 抢跑，
+ *     新建 state 会被旧快照覆盖 → send 守卫拦。等 `hydrated===true`。
+ *  2. ChatPage 路由对齐 effect 会在 hydrated 后抢跑、可能把 activeId
+ *     倒回任何残留的孤儿 session（防御式：即便 production 已修
+ *     DEFAULT_SPACE_ID 跳过，e2e 也以 activeId===新建 sid 为权威信号）。
+ *  3. 等 spaces 绑上 rootPath + activeSpaceId + 挂在它下的会话真存在
+ *     —— 避免 createSession resolve 与 UI 渲染之间微小窗口让守卫拦首条 send。
  */
 export async function openWorkspaceSession(
 	page: Page,
 	dir: string,
-): Promise<void> {
-	await page.evaluate(p => {
+): Promise<string> {
+	await page.waitForFunction(
+		() => {
+			const st = (
+				window as unknown as {
+					__XEYO_CHAT__?: {
+						getState: () => {hydrated?: boolean};
+					};
+				}
+			).__XEYO_CHAT__!.getState();
+			return st.hydrated === true;
+		},
+		{timeout: 20_000},
+	);
+	const sid = (await page.evaluate(p => {
 		const st = (
 			window as unknown as {
 				__XEYO_CHAT__?: {
@@ -93,7 +144,69 @@ export async function openWorkspaceSession(
 		).__XEYO_CHAT__!.getState();
 		return (async () => {
 			await st.openFolder(p);
-			await st.createSession();
+			return await st.createSession();
 		})();
-	}, dir);
+	}, dir)) as string;
+	// 双层幂等校验（防 ChatPage 路由 effect 把 activeId 拉回任何残留 session）：
+	// ① spaces 里有 rootPath 精确等于 dir 的空间、activeSpaceId 指向它；
+	// ② activeId 已切到 createSession 返回的 dirSpace 会话（send 守卫读
+	//    session.spaceId === spaces[].id，若 activeId 错位 send 必被拦）。
+	try {
+		await page.waitForFunction(
+			({p, sid}) => {
+				const st = (
+					window as unknown as {
+						__XEYO_CHAT__?: {
+							getState: () => {
+								spaces?: Array<{rootPath?: string}>;
+								activeSpaceId?: string | null;
+								sessions?: Array<{spaceId?: string}>;
+								activeId?: string | null;
+							};
+						};
+					}
+				).__XEYO_CHAT__!.getState();
+				return (
+					!!st.spaces &&
+					st.spaces.some(s => s.rootPath === p) &&
+					!!st.activeSpaceId &&
+					!!st.sessions &&
+					st.sessions.some(s => s.spaceId === st.activeSpaceId) &&
+					st.activeId === sid
+				);
+			},
+			{p: dir, sid},
+			{timeout: 15_000},
+		);
+	} catch (err) {
+		// 诊断：失败时 dump store + 路由态，给 e2e 失败根因可定位的快照。
+		const diag = await page.evaluate(() => {
+			const st = (
+				window as unknown as {
+					__XEYO_CHAT__?: {getState: () => Record<string, unknown>};
+				}
+			).__XEYO_CHAT__?.getState();
+			return {
+				hydrated: st?.hydrated,
+				activeId: st?.activeId,
+				activeSpaceId: st?.activeSpaceId,
+				spaces: (st?.spaces as Array<{id: string; rootPath: string}> | undefined)?.map(s => ({
+					id: s.id,
+					rootPath: s.rootPath,
+				})),
+				sessions: (st?.sessions as Array<{id: string; spaceId: string}> | undefined)?.map(s => ({
+					id: s.id,
+					spaceId: s.spaceId,
+				})),
+				url: window.location.pathname,
+			};
+		});
+		throw new Error(
+			`[openWorkspaceSession] 双层校验超时\n` +
+				`  expected dir=${dir} sid=${sid}\n` +
+				`  store=${JSON.stringify(diag, null, 2)}\n` +
+				`  cause=${(err as Error).message}`,
+		);
+	}
+	return sid;
 }

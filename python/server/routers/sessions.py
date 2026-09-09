@@ -364,6 +364,13 @@ def list_sessions() -> dict[str, Any]:
 		# 侧聊（side-）transcript 归侧聊面板管，不进主会话恢复列表。
 		if sid.startswith("side-"):
 			continue
+		# 内部索引/工作区归属文件（_workspace_index 等）以 _ 开头，永远
+		# 不该出现在用户可见会话列表里（白名单守护的是默认 ~/.xeyo/
+		# sessions 真实用户会话；e2e / pytest 隔离目录走 XEYO_SESSIONS_DIR
+		# 不套用白名单，若不显式过滤 _workspace_index.jsonl 会被 list 当
+		# session 返回，污染前端 hydrate.importServerSessions 的 activeId）。
+		if sid.startswith("_"):
+			continue
 		if whitelist is not None and sid not in whitelist:
 			continue
 		title, created_at = _scan_session_meta(p)
