@@ -21,6 +21,7 @@ import hashlib
 import json
 import os
 import re
+import uuid
 from datetime import datetime
 from typing import Any
 
@@ -124,6 +125,12 @@ async def c2_llm_bypass(
 	]
 	parts: list[str] = []
 	try:
+		# B0.5：C2 LLM 摘要旁路是一次真实的模型调用，必须独立入账（dsh D-3
+		# 教训：压缩走模型的花费不可静默消失）。kind=compact_summary + 独立
+		# request_id —— 与主回合（turn）互不折叠。属性注入保持 stream() 接口不变。
+		model._meta_request_id = uuid.uuid4().hex[:16]
+		model._meta_attempt = 1
+		model._meta_kind = "compact_summary"
 		async for chunk in model.stream(replay, [], abort):
 			if chunk.kind == "tool_use":
 				# 旁路只收纯文本；出现工具调用即失败回退

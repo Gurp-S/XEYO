@@ -101,12 +101,17 @@ class DeepSeekModelClient:
 						sid = str(ctx.session_id).strip()
 				except Exception:
 					sid = ""
+			# B0.5：流内单结算 + 请求归因（dsh S2/S4）。meta 由 stream() 在每次
+			# 逻辑调用开始时注入；非 stream 路径无 meta → 不写 request_id。
 			record_from_openai_usage(
 				provider="deepseek",
 				model=self._model,
 				api_key=self._api_key,
 				usage=usage,
 				session_id=sid,
+				request_id=str(getattr(self, "_meta_request_id", "") or ""),
+				attempt=int(getattr(self, "_meta_attempt", 1) or 1),
+				kind=str(getattr(self, "_meta_kind", "turn") or "turn"),
 			)
 		except Exception:  # noqa: BLE001
 			logging.getLogger(__name__).debug(
@@ -151,6 +156,9 @@ class DeepSeekModelClient:
 		tools: list[dict[str, Any]],
 		abort: AbortController,
 	) -> AsyncIterator[ModelChunk]:
+		# 调用方（query_loop / C2 摘要旁路）会在调用前注入 B0.5 记账 meta：
+		# model._meta_request_id / _meta_attempt / _meta_kind —— 本处不取参，
+		# 保持 stream() 接口对所有模型实现（含测试 fake）一致。
 		abort.raise_if_aborted()
 		if httpx is not None:
 			async for chunk in self._stream_httpx(messages, tools, abort):
@@ -277,6 +285,9 @@ class DeepSeekModelClient:
 		messages: list[dict[str, Any]],
 		tools: list[dict[str, Any]],
 	) -> tuple[str, list[ToolUse]]:
+		# 非流式不是 engine 的流式逻辑调用：清掉可能残留的 stream meta，
+		# 避免上一条流式请求的 request_id 错误贴到本行（B0.5 归因洁净）。
+		self._meta_request_id = ""
 		body = self._build_body(messages, tools, stream=False)
 		url = f"{self._base_url}/chat/completions"
 		data = json.dumps(body).encode("utf-8")

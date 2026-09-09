@@ -1125,9 +1125,18 @@ async def query_loop(
         # 在同 turn 内重建同一请求重试（assistant 消息只在流结束后落盘，=
         # 「失败 chunk 永不进史」，重试安全）。已产出 chunk 的尝试不原地重试
         # （会向 GUI 重复吐字），直接失败收敛由上层错误路径收尾。
+        # B0.5：每个逻辑模型调用一个 request_id，跨 attempt 不变（dsh S2/S4
+        # 归因 + 重试可观测）；attempt 递增区分第几次尝试。
+        call_request_id = uuid.uuid4().hex[:16]
         attempt = 0
         while True:
             attempt += 1
+            # B0.5：每次尝试前注入记账 meta（model._meta_*），保持 stream() 接口
+            # 不变 —— 对测试 fake / 其它模型实现零侵入。request_id 跨 attempt
+            # 不变（归并同一次逻辑调用的重试），attempt 递增区分第几次尝试。
+            model._meta_request_id = call_request_id
+            model._meta_attempt = attempt
+            model._meta_kind = "turn"
             saw_any = False
             failure: Any = None
             failure_message = ""

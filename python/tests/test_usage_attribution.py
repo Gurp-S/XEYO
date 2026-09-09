@@ -239,3 +239,133 @@ def test_key_detail_not_emptied_by_vendor_filter(tmp_path, monkeypatch) -> None:
 	assert rep["lifetime_cost"] == rep["totals"]["cost"]
 	# model detail 视图同理
 	assert query_usage(days=30, provider="openai", model="deepseek-v4-flash")["totals"]["requests"] == 1
+
+
+# ---------------------------------------------------------------------------
+# B0.5 记账地基：request_id/attempt/kind 归因（对齐 DeepSeek Harness S2/S4/D-3）
+# ---------------------------------------------------------------------------
+
+def _rows(tmp_path) -> list[dict]:
+	from usage.ledger import events_path
+
+	p = events_path()
+	if not p.is_file():
+		return []
+	return [json.loads(l) for l in p.read_text(encoding="utf-8").splitlines() if l.strip()]
+
+
+def test_record_writes_request_meta_when_provided(tmp_path, monkeypatch) -> None:
+	monkeypatch.setenv("XEYO_USAGE_DIR", str(tmp_path))
+	record_from_openai_usage(
+		provider="deepseek",
+		model="deepseek-v4-flash",
+		api_key="sk-abcdefghijklmnopqrstuv",
+		usage={"prompt_tokens": 100, "prompt_cache_miss_tokens": 100, "completion_tokens": 10},
+		ts=utc_ts(2026, 8, 17, 19, 0),
+		session_id="sess-a",
+		request_id="req-0000000000000001",
+		attempt=2,
+		kind="turn",
+	)
+	rows = _rows(tmp_path)
+	assert len(rows) == 1
+	r = rows[0]
+	assert r["request_id"] == "req-0000000000000001"
+	assert r["attempt"] == 2
+	assert r["kind"] == "turn"
+	# cache_write / reasoning_tokens 恒 0 / 缺省时不写（保持行最小）
+	assert "cache_write" not in r
+	assert "reasoning_tokens" not in r
+
+
+def test_record_cache_write_and_reasoning_only_when_positive(tmp_path, monkeypatch) -> None:
+	monkeypatch.setenv("XEYO_USAGE_DIR", str(tmp_path))
+	record_from_openai_usage(
+		provider="openai",
+		model="gpt-4o",
+		api_key="sk-abcdefghijklmnopqrstuv",
+		usage={"prompt_tokens": 100, "prompt_cache_miss_tokens": 100, "completion_tokens": 10},
+		ts=utc_ts(2026, 8, 17, 19, 0),
+		request_id="req-x", kind="turn",
+		cache_write=0, reasoning_tokens=0,
+	)
+	# 零值不落键：dsh S1 四桶兜底字段只在真有 write 时出现
+	assert "cache_write" not in _rows(tmp_path)[0]
+	assert "reasoning_tokens" not in _rows(tmp_path)[0]
+	record_from_openai_usage(
+		provider="openai",
+		model="gpt-4o",
+		api_key="sk-abcdefghijklmnopqrstuv",
+		usage={"prompt_tokens": 100, "prompt_cache_miss_tokens": 100, "completion_tokens": 10},
+		ts=utc_ts(2026, 8, 17, 19, 1),
+		request_id="req-y", kind="turn",
+		cache_write=55, reasoning_tokens=33,
+	)
+	r2 = _rows(tmp_path)[1]
+	assert r2["cache_write"] == 55
+	assert r2["reasoning_tokens"] == 33
+	# reasoning 归 output 子分类：只作诊断字段，不参与 output 求和（dsh S1）
+	assert r2["output"] == 10
+
+
+def test_same_request_id_retry_attempts_both_recorded(tmp_path, monkeypatch) -> None:
+	"""dsh S4 / 0.1.2-alpha.1 语义：重试的 attempt 各自入账（provider 对每个
+	HTTP 请求独立计费），request_id 归并 family 供审计，不做撤销记账（YAGNI）。"""
+	monkeypatch.setenv("XEYO_USAGE_DIR", str(tmp_path))
+	rid = "req-retry-1"
+	for att in (1, 2):
+		record_from_openai_usage(
+			provider="deepseek",
+			model="deepseek-v4-flash",
+			api_key="sk-abcdefghijklmnopqrstuv",
+			usage={"prompt_tokens": 100, "prompt_cache_miss_tokens": 100, "completion_tokens": 10},
+			ts=utc_ts(2026, 8, 17, 19, att),  # 两次尝试、不同秒
+			session_id="sess-a",
+			request_id=rid,
+			attempt=att,
+			kind="turn",
+		)
+	rows = _rows(tmp_path)
+	assert len(rows) == 2
+	assert {r["attempt"] for r in rows} == {1, 2}
+	assert all(r["request_id"] == rid for r in rows)
+	assert query_usage(days=30)["totals"]["requests"] == 2
+
+
+def test_record_without_request_id_keeps_old_row_shape(tmp_path, monkeypatch) -> None:
+	"""无 request_id 的调用点（CLI/评测/旧路径）保持原行结构，零扰动。"""
+	monkeypatch.setenv("XEYO_USAGE_DIR", str(tmp_path))
+	record_from_openai_usage(
+		provider="deepseek",
+		model="deepseek-v4-flash",
+		api_key="sk-abcdefghijklmnopqrstuv",
+		usage={"prompt_tokens": 100, "prompt_cache_miss_tokens": 100, "completion_tokens": 10},
+		ts=utc_ts(2026, 8, 17, 19, 0),
+	)
+	r = _rows(tmp_path)[0]
+	assert "request_id" not in r
+	assert "attempt" not in r
+	assert "kind" not in r
+	assert "cost_cny" in r  # 原始日志字段仍在
+
+
+def test_ledger_session_id_faithful_for_fork_isolation(tmp_path, monkeypatch) -> None:
+	"""fork 隔离的结构免疫依据：账本行忠实记录 session_id，事件归属写方会话。
+
+	fork（server/sessions.py）只复制 transcript、从不复制 events 账本；子会话用
+	新 sid 记账 → 按 session 下钻时子会话天然不含父历史（对齐 dsh S5，结构免疫）。
+	"""
+	monkeypatch.setenv("XEYO_USAGE_DIR", str(tmp_path))
+	for sid in ("sess-parent", "xeyo-newforkchild"):
+		record_from_openai_usage(
+			provider="deepseek",
+			model="deepseek-v4-flash",
+			api_key="sk-abcdefghijklmnopqrstuv",
+			usage={"prompt_tokens": 100, "prompt_cache_miss_tokens": 100, "completion_tokens": 10},
+			ts=utc_ts(2026, 8, 17, 19, 0),
+			session_id=sid,
+			request_id=f"req-{sid}",
+		)
+	by_sid = {r["session_id"]: r for r in _rows(tmp_path)}
+	assert set(by_sid) == {"sess-parent", "xeyo-newforkchild"}
+	assert by_sid["sess-parent"]["request_id"] != by_sid["xeyo-newforkchild"]["request_id"]

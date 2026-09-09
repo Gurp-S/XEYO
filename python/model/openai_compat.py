@@ -215,6 +215,7 @@ class OpenAICompatClient:
 						sid = str(ctx.session_id).strip()
 				except Exception:
 					sid = ""
+			# B0.5：请求归因 meta（dsh S2/S4），stream() 注入；无 meta → 不写 request_id。
 			record_from_openai_usage(
 				provider=self._provider,
 				model=self._model,
@@ -222,6 +223,9 @@ class OpenAICompatClient:
 				usage=usage,
 				session_id=sid,
 				base_url=self._base_url,
+				request_id=str(getattr(self, "_meta_request_id", "") or ""),
+				attempt=int(getattr(self, "_meta_attempt", 1) or 1),
+				kind=str(getattr(self, "_meta_kind", "turn") or "turn"),
 			)
 		except Exception:  # noqa: BLE001
 			logging.getLogger(__name__).debug(
@@ -234,6 +238,8 @@ class OpenAICompatClient:
 		tools: list[dict[str, Any]],
 		abort: AbortController,
 	) -> AsyncIterator[ModelChunk]:
+		# 调用方会在调用前注入 B0.5 记账 meta（model._meta_request_id / _meta_attempt
+		# / _meta_kind）；本处不取参，保持 stream() 接口对全部模型实现一致。
 		abort.raise_if_aborted()
 		self.last_usage = None
 		self.last_context_tokens = None

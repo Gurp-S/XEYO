@@ -51,12 +51,28 @@ def record_from_openai_usage(
 	ts: float | None = None,
 	session_id: str = "",
 	base_url: str | None = None,
+	request_id: str = "",
+	attempt: int = 1,
+	kind: str = "turn",
+	cache_write: int | None = None,
+	reasoning_tokens: int | None = None,
 ) -> None:
 	"""追加一笔用量事件。
 
 	``provider`` = 接入通道（deepseek/openai preset 等），保持「通道」语义不变；
 	事件同时写 ``vendor``（模型真实厂商，见 usage.attribution），统计 / 计价 / 分组
 	一律按 vendor —— 修 P0-1（provider 与模型错位导致套错价目与分组错乱）。
+
+	对齐 DeepSeek Harness 记账纪律（v4 设计，S2/S4）：
+	- ``request_id``：逻辑模型调用唯一 id（engine 在每个请求前生成，跨 attempt 不变）。
+	  **只在 request_id 非空时**才把 request_id/attempt/kind 写进行——其余调用点
+	  （CLI/评测/无 meta 场景）保持旧行结构，零扰动。
+	- ``attempt``：同一逻辑调用的第几次尝试（dsh S4：重试 attempt 各自入账——
+	  provider 对每次 HTTP 请求独立计费，死 attempt 若真的烧了 token 就该留下）。
+	- ``kind``：回合类型。``turn`` 主循环；``compact_summary`` C2 LLM 摘要旁路
+	  （dsh D-3 教训：压缩走模型的调用必须可归因、不得静默消失）。
+	- 每个 ``stream()`` 内的双写防御由模型适配器 ``_usage_recorded_this_stream``
+	  布尔完成（同一次尝试只记一次 = dsh S2 的流内单结算）。
 	"""
 	if not isinstance(usage, dict) or not usage:
 		return
@@ -80,7 +96,7 @@ def record_from_openai_usage(
 			provider=vendor, model=model, usage=usage, ts=now
 		)
 		cost_source = "estimate"
-	event = {
+	event: dict[str, Any] = {
 		"ts": now,
 		"day": datetime.fromtimestamp(now, tz=BJ).date().isoformat(),
 		"provider": (provider or "unknown").lower(),
@@ -97,6 +113,20 @@ def record_from_openai_usage(
 		"cost_cny": round(float(cost_cny), 8),
 		"cost_source": cost_source,
 	}
+	rid = (request_id or "").strip()
+	if rid:
+		# schema v2 记账键（B0.5）：请求归因 + retry 可观测 + 会话/请求下钻。
+		event["request_id"] = rid
+		event["attempt"] = max(1, int(attempt or 1))
+		event["kind"] = (kind or "turn").strip() or "turn"
+		cw = _as_int(cache_write)
+		if cw > 0:
+			# dsh S1 四桶兜底：DeepSeek 通道恒 0（无 cache write），保留字段对齐跨厂。
+			event["cache_write"] = cw
+		rt = _as_int(reasoning_tokens)
+		if rt > 0:
+			# reasoning 归 output 子分类，只作诊断字段、不参与 output 求和（dsh S1）。
+			event["reasoning_tokens"] = rt
 	_append(event)
 
 

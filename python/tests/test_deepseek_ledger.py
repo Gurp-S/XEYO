@@ -27,10 +27,10 @@ async def test_record_usage_safe_writes_ledger(monkeypatch: pytest.MonkeyPatch) 
 
     captured: dict = {}
 
-    def fake_record(*, provider, model, api_key, usage, session_id):
+    def fake_record(*, provider, model, api_key, usage, session_id, **kw):
         captured.update(
             provider=provider, model=model, api_key=api_key,
-            usage=usage, session_id=session_id,
+            usage=usage, session_id=session_id, kw=kw,
         )
 
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key-ds")
@@ -44,6 +44,10 @@ async def test_record_usage_safe_writes_ledger(monkeypatch: pytest.MonkeyPatch) 
     assert captured["model"] == "deepseek-chat"
     assert captured["session_id"] == "sess-1"
     assert captured["usage"]["prompt_tokens"] == 5
+    # B0.5：请求归因 meta 贯通到记账入口（request_id 缺省空 → ledger 不写键）
+    assert captured["kw"]["request_id"] == ""
+    assert captured["kw"]["attempt"] == 1
+    assert captured["kw"]["kind"] == "turn"
 
 
 @pytest.mark.asyncio
