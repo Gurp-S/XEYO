@@ -71,10 +71,51 @@ def coord_backend(cwd: str | None = None) -> str:
     return str(backend)
 
 
+def _read_workers(path: Path) -> bool | None:
+    """读单处 settings.json 的 coord.workers；坏文件/缺失返回 None（该处不表态）。"""
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        _log.debug("coord workers config read failed at %s: %s", path, exc)
+        return None
+    if not isinstance(raw, dict):
+        return None
+    coord = raw.get("coord")
+    if not isinstance(coord, dict):
+        return None
+    val = coord.get("workers")
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, str):
+        low = val.strip().lower()
+        if low in ("true", "1", "on"):
+            return True
+        if low in ("false", "0", "off"):
+            return False
+    return None
+
+
+def coord_workers_enabled(cwd: str | None = None) -> bool:
+    """worker 接线总开关（默认 **关**）：workspace 覆盖 home；任何缺省/非法回退关。
+
+    关 = 引擎主链路零变化（coord runner 不派生会话、goal_round_driver 不接管）；
+    开 = 显式允许本机 worker 池经 worktree 派生真会话。方向安全：默认最保守。"""
+    enabled = _read_workers(home_settings_path())
+    ws_path = workspace_settings_path(cwd)
+    if ws_path is not None:
+        ws = _read_workers(ws_path)
+        if ws is not None:
+            enabled = ws
+    return bool(enabled)
+
+
 __all__ = [
     "BACKEND_FILE",
     "BACKEND_MEMORY",
     "coord_backend",
+    "coord_workers_enabled",
     "home_settings_path",
     "workspace_settings_path",
 ]

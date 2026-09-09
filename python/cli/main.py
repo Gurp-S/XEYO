@@ -19,8 +19,10 @@ app = typer.Typer(
 
 sessions_app = typer.Typer(help="Manage sessions via running HTTP server.")
 config_app = typer.Typer(help="Read/write ~/.xeyo/config.toml")
+coord_app = typer.Typer(help="Coord worker pool (feature-flag gated).")
 app.add_typer(sessions_app, name="sessions")
 app.add_typer(config_app, name="config")
+app.add_typer(coord_app, name="coord")
 
 
 def _run_chat(
@@ -203,6 +205,36 @@ def serve_cmd(
 	from cli.serve_cmd import run_serve
 
 	run_serve(host=host, port=port, cwd=cwd)
+
+
+@coord_app.command("run")
+def coord_run(
+	cwd: Optional[str] = typer.Option(None, "--cwd"),
+	provider: Optional[str] = typer.Option(None, "--provider"),
+	model: Optional[str] = typer.Option(None, "--model", "-m"),
+	api_key: Optional[str] = typer.Option(None, "--api-key"),
+	idle_poll_sec: float = typer.Option(2.0, "--idle-poll"),
+	max_tasks: int = typer.Option(0, "--tasks", help="处理 N 张任务卡后退出(0=不限)"),
+	once: bool = typer.Option(False, "--once"),
+	reconcile_only: bool = typer.Option(False, "--reconcile-only"),
+) -> None:
+	from cli.coord_cmd import run_coord_run
+
+	run_coord_run(
+		cwd=cwd, provider=provider, model=model, api_key=api_key,
+		idle_poll_sec=idle_poll_sec, max_tasks=max_tasks, once=once,
+		reconcile_only=reconcile_only,
+	)
+
+
+@coord_app.command("status")
+def coord_status(
+	cwd: Optional[str] = typer.Option(None, "--cwd"),
+	as_json: bool = typer.Option(False, "--json"),
+) -> None:
+	from cli.coord_cmd import run_coord_status
+
+	run_coord_status(cwd=cwd, as_json=as_json)
 
 
 @sessions_app.command("list")

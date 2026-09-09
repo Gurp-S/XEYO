@@ -91,6 +91,7 @@ class Task:
     claimed_by: str = ""
     branch: str = ""  # worker 上交的 worktree 分支（coord/task/<短名>）
     parent_id: str = ""  # replan 产物的来源任务（scope 执法 + 溯源）
+    brief: str = ""  # 任务卡正文（worker 会话首条消息来源，不进 T_now）
     revision: int = 0
     reopen_count: int = 0
     findings: list[dict] = field(default_factory=list)
@@ -111,6 +112,7 @@ class Task:
             "claimed_by": self.claimed_by,
             "branch": self.branch,
             "parent_id": self.parent_id,
+            "brief": self.brief,
             "revision": int(self.revision),
             "reopen_count": int(self.reopen_count),
             "findings": [dict(f) for f in self.findings if isinstance(f, dict)],
@@ -133,6 +135,7 @@ class Task:
             claimed_by=str(raw.get("claimed_by") or ""),
             branch=str(raw.get("branch") or ""),
             parent_id=str(raw.get("parent_id") or ""),
+            brief=str(raw.get("brief") or ""),
             revision=int(raw.get("revision") or 0),
             reopen_count=int(raw.get("reopen_count") or 0),
             findings=[dict(f) for f in (raw.get("findings") or []) if isinstance(f, dict)],
@@ -147,7 +150,7 @@ def new_task_id() -> str:
 
 def new_task(goal_id: str, title: str, scope: list[str], *, model: str = "",
              max_turns: int = 0, required_tools: list[str] | None = None,
-             parent_id: str = "") -> Task:
+             parent_id: str = "", brief: str = "") -> Task:
     now = time.time()
     return Task(
         task_id=new_task_id(),
@@ -158,6 +161,7 @@ def new_task(goal_id: str, title: str, scope: list[str], *, model: str = "",
         max_turns=int(max_turns or 0),
         required_tools=[str(t) for t in (required_tools or [])],
         parent_id=str(parent_id or "").strip(),
+        brief=str(brief or ""),
         status=STATUS_PENDING,
         revision=1,
         created_at=now,
