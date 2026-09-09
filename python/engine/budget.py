@@ -222,6 +222,26 @@ class BudgetTracker:
 			key=lambda value: 0 if value == MAX_TURN_WARNING else 1
 		)
 
+	def check_usd_waterline(self) -> None:
+		"""USD 预算 80%/90% 水位事实播报（每阈值一次，纯数字，无行动指令）。
+
+		与墙钟 80%/90% 走同一 runtime notice 通道；仅 ``usd_limit`` 为正时
+		武装。默认档/显式限额共用——模型在硬停前能看到水位事实，自行收敛。
+		"""
+		if not self.usd_limit or self.usd_limit <= 0 or self.used_usd <= 0:
+			return
+		for threshold, label in ((0.9, "90%"), (0.8, "80%")):
+			key = f"usd_{label}"
+			if key in self._notified_reasons:
+				continue
+			if self.used_usd >= self.usd_limit * threshold:
+				self._notified_reasons.add(key)
+				self.queue_runtime_notice(
+					f"USD 预算已用 {label}"
+					f"（已花费 ${self.used_usd:.4f} / 上限 ${self.usd_limit:.4f}）。"
+				)
+				break
+
 	def prepare_next_turn(self) -> bool:
 		"""判断下一次模型 API 请求是否允许，并在边界排队软提醒。
 
@@ -231,6 +251,11 @@ class BudgetTracker:
 		# 墙钟死线检查（禀赋①）：80%/90% 阈值提醒走既有 runtime notice 通道。
 		try:
 			self.check_wall_deadline()
+		except Exception:  # noqa: BLE001
+			pass
+		# USD 水位事实播报（默认档/显式限额共用，纯数字）。
+		try:
+			self.check_usd_waterline()
 		except Exception:  # noqa: BLE001
 			pass
 		if self.grace_started:

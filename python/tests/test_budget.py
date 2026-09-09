@@ -732,3 +732,89 @@ def test_budget_default_tier_enforces_over_budget(monkeypatch):
     tracker.add_usage({"prompt_tokens": 600_000, "completion_tokens": 0})
     assert tracker.over_budget
     assert tracker.used_usd >= 1.0
+
+
+# ====== Phase 2 验证（2026-09-09）：旁路档引擎级测试 + 水位事实播报 ======
+
+
+class EndTurnModel:
+	"""一轮文本后结束——正常短会话形态。"""
+
+	async def stream(self, messages, tools, abort):
+		abort.raise_if_aborted()
+		yield ModelChunk(kind="text_delta", text="done")
+
+
+@pytest.mark.asyncio
+async def test_phase2_tier_cuts_runaway_loop(pin_pricing, monkeypatch):
+	"""失控循环 + 仅旁路档(env,无显式限额)→ budget_usd 截停。
+
+	无档位时同形态以 max_turns 收尾(test_submit_without_limit_is_unchanged);
+	档位把终局从 256 turns 提前到费用上限。
+	"""
+	monkeypatch.setenv("XEYO_BUDGET_DEFAULT_USD", "0.008")
+	eng = _engine(UsageToolModel(_usage()))
+	events = []
+	async for ev in eng.submit("go"):
+		events.append(ev)
+	stopped = [e for e in events if isinstance(e, StoppedEvent)]
+	assert stopped and stopped[-1].reason == "budget_usd"
+	assert stopped[-1].budget_limit_usd == pytest.approx(0.008)
+	results = [e for e in events if isinstance(e, ResultEvent)]
+	assert results and results[-1].stop_reason == "budget_usd"
+
+
+@pytest.mark.asyncio
+async def test_phase2_normal_session_not_killed_by_tier(pin_pricing, monkeypatch):
+	"""正常短会话(一轮文本即止)在档位下完整跑完,无误伤。"""
+	monkeypatch.setenv("XEYO_BUDGET_DEFAULT_USD", "0.0001")
+	eng = _engine(EndTurnModel())
+	events = []
+	async for ev in eng.submit("go"):
+		events.append(ev)
+	stopped = [e for e in events if isinstance(e, StoppedEvent)]
+	assert not any(e.reason == "budget_usd" for e in stopped)
+	results = [e for e in events if isinstance(e, ResultEvent)]
+	assert results and results[-1].stop_reason == "end_turn"
+
+
+@pytest.mark.asyncio
+async def test_phase2_explicit_limit_beats_tier(pin_pricing, monkeypatch):
+	"""显式限额(含 config)优先于旁路档——解析链优先级引擎级验证。"""
+	monkeypatch.setenv("XEYO_BUDGET_DEFAULT_USD", "0.008")
+	eng = _engine(UsageToolModel(_usage()), max_budget_usd=0.004)
+	events = []
+	async for ev in eng.submit("go"):
+		events.append(ev)
+	usage_events = [e for e in events if isinstance(e, UsageEvent)]
+	assert usage_events and usage_events[0].usd_limit == pytest.approx(0.004)
+	stopped = [e for e in events if isinstance(e, StoppedEvent)]
+	assert stopped and stopped[-1].reason == "budget_usd"
+	assert stopped[-1].budget_limit_usd == pytest.approx(0.004)
+
+
+def test_phase2_usd_waterline_factual_notice():
+	"""硬停前水位事实:80%/90% 各播一次,纯数字;未限额零播报。"""
+	tracker = BudgetTracker()
+	tracker.reset_for_new_submit(usd_limit=1.0, provider="test", prices=PIN)
+	# <80%: 无
+	tracker.add_usage({"prompt_tokens": 300_000, "completion_tokens": 0})  # 0.6 USD
+	assert tracker.prepare_next_turn() is True
+	assert tracker.consume_runtime_notice() is None
+	# ≥80% <90%: 播 80% 一次
+	tracker.add_usage({"prompt_tokens": 150_000, "completion_tokens": 0})  # +0.3 = 0.9
+	tracker.prepare_next_turn()
+	notice = tracker.consume_runtime_notice()
+	assert notice is not None and "80%" in notice and "90%" not in notice
+	assert tracker.consume_runtime_notice() is None  # 一次性
+	# ≥90%: 播 90%
+	tracker.add_usage({"prompt_tokens": 50_000, "completion_tokens": 0})  # +0.1 = 1.0
+	tracker.prepare_next_turn()
+	notice = tracker.consume_runtime_notice()
+	assert notice is not None and "90%" in notice
+	# 未限额: 零播报
+	none_tracker = BudgetTracker()
+	none_tracker.reset_for_new_submit(provider="test", prices=PIN)
+	none_tracker.add_usage({"prompt_tokens": 900_000, "completion_tokens": 0})
+	none_tracker.prepare_next_turn()
+	assert none_tracker.consume_runtime_notice() is None
