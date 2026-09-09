@@ -1,0 +1,80 @@
+"""Coord 开关配置：读 ``coord.backend``，默认 ``memory``（零行为变化）。
+
+权威面见 ``_design_drafts/distributed-agents-plan.md`` §3 阶段 0：
+- ``memory``（默认）= 现状，进程内 dict，零持久化；
+- ``file`` = presence/任务/租约/ask 队列持久化到 ``<ws>/.xeyo/coord/``，跨进程可见。
+
+读取姿势参照 ``extension/config.py``：home 级 ``~/.xeyo/settings.json`` 与
+工作区级 ``<ws>/.xeyo/settings.json`` 两层，workspace 更具体者优先；
+坏 JSON / 非法值一律回退 ``memory``（方向安全：最坏情况=回到现状，绝不静默升级）。
+coord 只读该键，不写 settings.json。
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+from pathlib import Path
+
+_log = logging.getLogger("xeyo.coord.config")
+
+BACKEND_MEMORY = "memory"
+BACKEND_FILE = "file"
+_VALID_BACKENDS = (BACKEND_MEMORY, BACKEND_FILE)
+
+_DEFAULT = {"coord": {"backend": BACKEND_MEMORY}}
+
+
+def home_settings_path() -> Path:
+    home = os.environ.get("XEYO_HOME", "").strip()
+    base = Path(home) if home else Path.home()
+    return base / ".xeyo" / "settings.json"
+
+
+def workspace_settings_path(cwd: str | None) -> Path | None:
+    if not cwd or not str(cwd).strip():
+        return None
+    return Path(str(cwd)).expanduser().resolve() / ".xeyo" / "settings.json"
+
+
+def _read_backend(path: Path) -> str | None:
+    """读单处 settings.json 的 coord.backend；坏文件返回 None（该处回退空）。"""
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        _log.debug("coord config read failed at %s: %s", path, exc)
+        return None
+    if not isinstance(raw, dict):
+        return None
+    coord = raw.get("coord")
+    if not isinstance(coord, dict):
+        return None
+    backend = coord.get("backend")
+    if isinstance(backend, str) and backend.strip().lower() in _VALID_BACKENDS:
+        return backend.strip().lower()
+    return None
+
+
+def coord_backend(cwd: str | None = None) -> str:
+    """返回生效后端：workspace 覆盖 home；任何失败回退 memory。"""
+    backend = _read_backend(home_settings_path())
+    ws_path = workspace_settings_path(cwd)
+    if ws_path is not None:
+        ws_backend = _read_backend(ws_path)
+        if ws_backend is not None:
+            backend = ws_backend
+    if backend not in _VALID_BACKENDS:
+        return _DEFAULT["coord"]["backend"]
+    return str(backend)
+
+
+__all__ = [
+    "BACKEND_FILE",
+    "BACKEND_MEMORY",
+    "coord_backend",
+    "home_settings_path",
+    "workspace_settings_path",
+]
