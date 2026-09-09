@@ -186,21 +186,49 @@ def _day_list(days: int, *, end: date | None = None) -> list[str]:
 	return out
 
 
-def _empty_bucket() -> dict[str, float | int]:
+def _hit_rate(hit: Any, miss: Any) -> float | None:
+	"""缓存命中率（官方口径）hit÷(hit+miss)，百分数一位小数；无输入时 None。
+
+	对齐 DeepSeek Harness usage-stats 生态同一公式。命中率是健康指标（前缀稳定度），
+	不是营销数字；本地界面只展示、不设阈值文案。
+	"""
+	h, m = _as_int(hit), _as_int(miss)
+	if h + m <= 0:
+		return None
+	return round(h / (h + m) * 100.0, 1)
+
+
+def _bucket_view(bucket: dict[str, Any]) -> dict[str, Any]:
+	"""把聚合桶渲染成对外口径（v4：无金额、无吞吐大数）。
+
+	- 三分类（hit/miss/output）分列 —— dsh S1 disjoint，禁止相加成「总消耗」；
+	- input_total = hit + miss（官方 prompt_tokens 语义），唯一允许的合计；
+	- hit_rate 健康指标常驻；requests = 成功结算的模型调用数（S3）。
+	"""
+	h = _as_int(bucket.get("cache_hit"))
+	m = _as_int(bucket.get("cache_miss"))
+	o = _as_int(bucket.get("output"))
 	return {
-		"cost": 0.0,
+		"requests": int(bucket.get("requests") or 0),
+		"input_hit": h,
+		"input_miss": m,
+		"output": o,
+		"input_total": h + m,
+		"hit_rate": _hit_rate(h, m),
+	}
+
+
+def _empty_bucket() -> dict[str, int]:
+	return {
 		"requests": 0,
-		"tokens": 0,
 		"cache_hit": 0,
 		"cache_miss": 0,
 		"output": 0,
 	}
 
 
-def _add(bucket: dict[str, float | int], ev: dict[str, Any]) -> None:
-	bucket["cost"] = float(bucket["cost"]) + float(ev.get("cost_cny") or 0)
+def _add(bucket: dict[str, int], ev: dict[str, Any]) -> None:
 	bucket["requests"] = int(bucket["requests"]) + 1
-	bucket["tokens"] = int(bucket["tokens"]) + _as_int(ev.get("tokens"))
 	bucket["cache_hit"] = int(bucket["cache_hit"]) + _as_int(ev.get("cache_hit"))
 	bucket["cache_miss"] = int(bucket["cache_miss"]) + _as_int(ev.get("cache_miss"))
 	bucket["output"] = int(bucket["output"]) + _as_int(ev.get("output"))
@@ -208,22 +236,14 @@ def _add(bucket: dict[str, float | int], ev: dict[str, Any]) -> None:
 
 def _series_from(
 	days: list[str],
-	by_day: dict[str, dict[str, float | int]],
+	by_day: dict[str, dict[str, int]],
 ) -> list[dict[str, Any]]:
 	out: list[dict[str, Any]] = []
 	for d in days:
 		b = by_day.get(d) or _empty_bucket()
-		out.append(
-			{
-				"day": d,
-				"cost": round(float(b["cost"]), 6),
-				"requests": int(b["requests"]),
-				"tokens": int(b["tokens"]),
-				"cache_hit": int(b["cache_hit"]),
-				"cache_miss": int(b["cache_miss"]),
-				"output": int(b["output"]),
-			}
-		)
+		point = _bucket_view(b)
+		point["day"] = d
+		out.append(point)
 	return out
 
 
@@ -243,15 +263,10 @@ def query_usage(
 	events = _read_events()
 	filtered: list[dict[str, Any]] = []
 	keys: set[str] = set()
-	lifetime_cost = 0.0
-	cost_from_api = 0
-	cost_from_estimate = 0
 	for ev in events:
 		fp = str(ev.get("key_fp") or "")
 		if fp and fp != "…":
 			keys.add(fp)
-		# lifetime_cost 语义（P1-1 钉正）：忽略「近 N 天」窗口，但尊重 厂商/模型/Key
-		# 筛选 —— 等于「筛选子集的全部历史」。无条件全量会令多厂商前端相加时重复计数。
 		if want_model and str(ev.get("model") or "") != want_model:
 			continue
 		# 厂商过滤语义（P0-1 钉正）：仅在「纯厂商视图」（未指定 model/key）时按
@@ -263,20 +278,15 @@ def query_usage(
 			continue
 		if want_key and fp != want_key:
 			continue
-		lifetime_cost += float(ev.get("cost_cny") or 0)
 		if ev.get("day") not in day_set:
 			continue
 		filtered.append(ev)
-		if str(ev.get("cost_source") or "") == "api":
-			cost_from_api += 1
-		else:
-			cost_from_estimate += 1
 
 	totals = _empty_bucket()
-	by_day: dict[str, dict[str, float | int]] = {}
+	by_day: dict[str, dict[str, int]] = {}
 	# 结构：(provider, model) -> {day -> bucket}
-	by_model: dict[tuple[str, str], dict[str, dict[str, float | int]]] = {}
-	model_totals: dict[tuple[str, str], dict[str, float | int]] = {}
+	by_model: dict[tuple[str, str], dict[str, dict[str, int]]] = {}
+	model_totals: dict[tuple[str, str], dict[str, int]] = {}
 
 	for ev in filtered:
 		_add(totals, ev)
@@ -294,42 +304,35 @@ def query_usage(
 	models: list[dict[str, Any]] = []
 	for (prov, mid), tot in sorted(
 		model_totals.items(),
-		key=lambda kv: (-int(kv[1]["requests"]), kv[0][0], kv[0][1]),
+		# v4 排序：默认按「输入未命中(新增内容)」降序 —— 谁让模型读的新东西最多
+		# 排最前；无金额后不再按 cost 排。命中率最低者前缀漂移最重。
+		key=lambda kv: (
+			-_as_int(kv[1].get("cache_miss")),
+			-_as_int(kv[1].get("requests")),
+			kv[0][0],
+			kv[0][1],
+		),
 	):
-		models.append(
+		mv = _bucket_view(tot)
+		mv.update(
 			{
 				# provider 字段携带真实厂商 id（前端分组头/厂商名映射读它）。
 				"provider": prov,
 				"vendor": prov,
 				"model": mid,
-				"requests": int(tot["requests"]),
-				"tokens": int(tot["tokens"]),
-				"cache_hit": int(tot["cache_hit"]),
-				"cache_miss": int(tot["cache_miss"]),
-				"output": int(tot["output"]),
-				"cost": round(float(tot["cost"]), 6),
 				"series": _series_from(day_ids, by_model.get((prov, mid), {})),
 			}
 		)
+		models.append(mv)
 
 	return {
 		"days": day_ids,
-		"totals": {
-			"cost": round(float(totals["cost"]), 6),
-			"requests": int(totals["requests"]),
-			"tokens": int(totals["tokens"]),
-			# 拆分口径（命中/未命中/输出）——前端「吞吐 vs 计费」展示需要。
-			"cache_hit": int(totals["cache_hit"]),
-			"cache_miss": int(totals["cache_miss"]),
-			"output": int(totals["output"]),
-		},
-		"lifetime_cost": round(lifetime_cost, 6),
-		"cost_source": "api" if cost_from_api and not cost_from_estimate else (
-			"mixed" if cost_from_api else "estimate"
-		),
+		"totals": _bucket_view(totals),
 		"series": _series_from(day_ids, by_day),
 		"models": models,
 		"keys": sorted(keys),
+		# source 由 combine 层注入（local/vendor/mixed），本地纯账本恒 local。
+		"source": "local",
 	}
 
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from model.openai_compat import parse_sse_usage
 from usage.ledger import query_usage, record_from_openai_usage
-from usage.pricing import estimate_cny, is_beijing_peak, official_cost_cny, split_usage
+from usage.pricing import estimate_cny, is_beijing_peak, split_usage
 
 
 def test_parse_sse_usage_from_empty_choices() -> None:
@@ -100,30 +100,62 @@ def test_record_and_query(tmp_path, monkeypatch) -> None:
 	)
 	rep = query_usage(days=30)
 	assert rep["totals"]["requests"] == 2
-	assert rep["totals"]["tokens"] == 180
+	# v4 三分类（dsh S1 disjoint）：只分 hit/miss/output，禁止相加成「总消耗」
+	assert rep["totals"]["input_hit"] == 60
+	assert rep["totals"]["input_miss"] == 90
+	assert rep["totals"]["output"] == 30
+	assert rep["totals"]["input_total"] == 150
+	assert rep["totals"]["hit_rate"] == 40.0
 	assert len(rep["models"]) == 2
 	assert rep["keys"] == ["…stuv"]
 	flash = query_usage(days=30, model="deepseek-v4-flash")
 	assert flash["totals"]["requests"] == 1
+	assert flash["totals"]["input_miss"] == 40
 	assert flash["models"][0]["model"] == "deepseek-v4-flash"
 
 
-def test_official_cost_field_wins_over_estimate(tmp_path, monkeypatch) -> None:
+def test_report_totals_money_free_schema(tmp_path, monkeypatch) -> None:
+	"""v4 红线：聚合报表层全链路无金额 / 无吞吐大数。
+
+	events 行保留 cost_cny / tokens 等原始字段（日志保留、供后端审计），但
+	query_usage 的 totals / series / models 每层只允许三分类 + hit_rate +
+	成功结算 requests —— 前端拿不到钱数，杜绝「估算不准却显示」。
+	"""
 	monkeypatch.setenv("XEYO_USAGE_DIR", str(tmp_path))
-	assert official_cost_cny({"prompt_tokens": 10}) is None
-	assert official_cost_cny({"cost_cny": 1.25}) == 1.25
 	record_from_openai_usage(
 		provider="deepseek",
 		model="deepseek-v4-flash",
 		api_key="sk-abcdefghijklmnopqrstuv",
 		usage={
 			"prompt_tokens": 100,
+			"prompt_cache_hit_tokens": 60,
+			"prompt_cache_miss_tokens": 40,
 			"completion_tokens": 20,
-			"total_tokens": 120,
 			"cost_cny": 0.42,
 		},
 	)
 	rep = query_usage(days=7)
-	assert rep["totals"]["tokens"] == 120
-	assert abs(rep["totals"]["cost"] - 0.42) < 1e-9
-	assert rep["cost_source"] == "api"
+	assert set(rep["totals"]) == {
+		"requests",
+		"input_hit",
+		"input_miss",
+		"output",
+		"input_total",
+		"hit_rate",
+	}
+	assert rep["totals"]["requests"] == 1
+	assert rep["totals"]["input_hit"] == 60
+	assert rep["totals"]["input_miss"] == 40
+	assert rep["totals"]["output"] == 20
+	assert rep["totals"]["input_total"] == 100
+	assert rep["totals"]["hit_rate"] == 60.0
+	# 顶层与模型行同样无金额字段
+	assert "cost" not in rep
+	assert "tokens" not in rep
+	assert "cost_source" not in rep
+	assert "lifetime_cost" not in rep
+	# 系列点：同一 schema + day 维度键
+	p0 = rep["series"][-1]  # 今天（ts=None 落在窗口末位）
+	assert p0["requests"] == 1
+	assert p0["input_miss"] == 40
+	assert set(p0) - {"day"} == set(rep["totals"])

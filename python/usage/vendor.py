@@ -34,11 +34,39 @@ def _day_list(days: int, *, end: date | None = None) -> list[str]:
 	return out
 
 
-def _empty_bucket() -> dict[str, float | int]:
+def _hit_rate(hit: Any, miss: Any) -> float | None:
+	"""与 usage.ledger._hit_rate 同口径（v4：无金额）。"""
+	try:
+		h, m = max(0, int(hit or 0)), max(0, int(miss or 0))
+	except (TypeError, ValueError):
+		return None
+	if h + m <= 0:
+		return None
+	return round(h / (h + m) * 100.0, 1)
+
+
+def _bucket_view(bucket: dict[str, Any]) -> dict[str, Any]:
+	"""渲染对外口径：三分类 + input_total + hit_rate，无金额/吞吐大数（dsh S1）。"""
+	try:
+		h = max(0, int(bucket.get("cache_hit") or 0))
+		m = max(0, int(bucket.get("cache_miss") or 0))
+		o = max(0, int(bucket.get("output") or 0))
+		r = max(0, int(bucket.get("requests") or 0))
+	except (TypeError, ValueError):
+		h = m = o = r = 0
 	return {
-		"cost": 0.0,
+		"requests": r,
+		"input_hit": h,
+		"input_miss": m,
+		"output": o,
+		"input_total": h + m,
+		"hit_rate": _hit_rate(h, m),
+	}
+
+
+def _empty_bucket() -> dict[str, int]:
+	return {
 		"requests": 0,
-		"tokens": 0,
 		"cache_hit": 0,
 		"cache_miss": 0,
 		"output": 0,
@@ -53,19 +81,11 @@ def _empty_report(
 	provider: str = "",
 ) -> dict[str, Any]:
 	day_ids = _day_list(days)
+	eb = _empty_bucket()
 	return {
 		"days": day_ids,
-		"totals": {
-			"cost": 0.0,
-			"requests": 0,
-			"tokens": 0,
-			"cache_hit": 0,
-			"cache_miss": 0,
-			"output": 0,
-		},
-		"lifetime_cost": 0.0,
-		"cost_source": "vendor",
-		"source": "vendor",
+		"totals": _bucket_view(eb),
+		"source": "vendor" if vendor_ok else "local",
 		"vendor_ok": vendor_ok,
 		"vendor_error": vendor_error,
 		"provider": provider,
@@ -77,22 +97,14 @@ def _empty_report(
 
 def _series_from(
 	days: list[str],
-	by_day: dict[str, dict[str, float | int]],
+	by_day: dict[str, dict[str, int]],
 ) -> list[dict[str, Any]]:
 	out: list[dict[str, Any]] = []
 	for d in days:
 		b = by_day.get(d) or _empty_bucket()
-		out.append(
-			{
-				"day": d,
-				"cost": round(float(b["cost"]), 6),
-				"requests": int(b["requests"]),
-				"tokens": int(b["tokens"]),
-				"cache_hit": int(b["cache_hit"]),
-				"cache_miss": int(b["cache_miss"]),
-				"output": int(b["output"]),
-			}
-		)
+		point = _bucket_view(b)
+		point["day"] = d
+		out.append(point)
 	return out
 
 
@@ -185,9 +197,6 @@ def parse_platform_amount(payload: Any) -> list[dict[str, Any]]:
 						prompt += amt
 				if int(bucket["cache_hit"]) + int(bucket["cache_miss"]) == 0 and prompt:
 					bucket["cache_miss"] = int(prompt)
-			bucket["tokens"] = (
-				int(bucket["cache_hit"]) + int(bucket["cache_miss"]) + int(bucket["output"])
-			)
 			rows.append({"day": iso, "model": mid, "bucket": bucket})
 	return rows
 
@@ -238,18 +247,24 @@ def _merge_report(
 	model: str | None,
 	end: date | None = None,
 ) -> dict[str, Any]:
+	"""按日+模型聚合 amount 桶成统一报告（v4 无金额）。
+
+	``cost_rows`` 保留形参以兼容厂商解析接口，但 **不再累计/输出**（本地界面不出现
+	金额；厂商账单请在官方费用中心查看 —— 用户裁定）。
+	"""
+	_ = cost_rows
 	day_ids = _day_list(days, end=end)
 	day_set = set(day_ids)
 	want = (model or "").strip()
-	by_day: dict[str, dict[str, float | int]] = {}
-	by_model: dict[str, dict[str, dict[str, float | int]]] = {}
-	model_totals: dict[str, dict[str, float | int]] = {}
+	by_day: dict[str, dict[str, int]] = {}
+	by_model: dict[str, dict[str, dict[str, int]]] = {}
+	model_totals: dict[str, dict[str, int]] = {}
 	totals = _empty_bucket()
+	_KEYS = ("requests", "cache_hit", "cache_miss", "output")
 
-	def take(mid: str, iso: str) -> dict[str, float | int]:
+	def take(mid: str, iso: str) -> dict[str, int]:
 		slot = by_model.setdefault(mid, {})
-		b = slot.setdefault(iso, _empty_bucket())
-		return b
+		return slot.setdefault(iso, _empty_bucket())
 
 	for row in amount_rows:
 		iso = str(row.get("day") or "")
@@ -260,66 +275,37 @@ def _merge_report(
 			continue
 		src = row.get("bucket") or _empty_bucket()
 		b = take(mid, iso)
-		for k in ("requests", "tokens", "cache_hit", "cache_miss", "output"):
-			b[k] = int(b[k]) + int(src.get(k) or 0)
 		day_b = by_day.setdefault(iso, _empty_bucket())
-		for k in ("requests", "tokens", "cache_hit", "cache_miss", "output"):
-			day_b[k] = int(day_b[k]) + int(src.get(k) or 0)
-			totals[k] = int(totals[k]) + int(src.get(k) or 0)
 		mt = model_totals.setdefault(mid, _empty_bucket())
-		for k in ("requests", "tokens", "cache_hit", "cache_miss", "output"):
-			mt[k] = int(mt[k]) + int(src.get(k) or 0)
-
-	for row in cost_rows:
-		iso = str(row.get("day") or "")
-		mid = str(row.get("model") or "unknown")
-		if iso not in day_set:
-			continue
-		if want and mid != want:
-			continue
-		c = float(row.get("cost") or 0)
-		b = take(mid, iso)
-		b["cost"] = float(b["cost"]) + c
-		day_b = by_day.setdefault(iso, _empty_bucket())
-		day_b["cost"] = float(day_b["cost"]) + c
-		totals["cost"] = float(totals["cost"]) + c
-		mt = model_totals.setdefault(mid, _empty_bucket())
-		mt["cost"] = float(mt["cost"]) + c
+		for k in _KEYS:
+			v = int(src.get(k) or 0)
+			b[k] = int(b[k]) + v
+			day_b[k] = int(day_b[k]) + v
+			totals[k] = int(totals[k]) + v
+			mt[k] = int(mt[k]) + v
 
 	models: list[dict[str, Any]] = []
 	for mid, tot in sorted(
 		model_totals.items(),
-		key=lambda kv: (-int(kv[1]["requests"]), kv[0]),
+		# v4：与账本同排序 —— 输入未命中(新增内容)降序。
+		key=lambda kv: (-int(kv[1].get("cache_miss") or 0), -int(kv[1].get("requests") or 0), kv[0]),
 	):
 		# 与账本一致：models[].provider 携带模型真实厂商 id（P0-1），不再写通道名。
 		vendor = canonical_vendor(model=mid, provider=provider)
-		models.append(
+		mv = _bucket_view(tot)
+		mv.update(
 			{
 				"provider": vendor,
 				"vendor": vendor,
 				"model": mid,
-				"requests": int(tot["requests"]),
-				"tokens": int(tot["tokens"]),
-				"cache_hit": int(tot["cache_hit"]),
-				"cache_miss": int(tot["cache_miss"]),
-				"output": int(tot["output"]),
-				"cost": round(float(tot["cost"]), 6),
 				"series": _series_from(day_ids, by_model.get(mid, {})),
 			}
 		)
+		models.append(mv)
 
 	return {
 		"days": day_ids,
-		"totals": {
-			"cost": round(float(totals["cost"]), 6),
-			"requests": int(totals["requests"]),
-			"tokens": int(totals["tokens"]),
-			"cache_hit": int(totals["cache_hit"]),
-			"cache_miss": int(totals["cache_miss"]),
-			"output": int(totals["output"]),
-		},
-		"lifetime_cost": round(float(totals["cost"]), 6),
-		"cost_source": "vendor",
+		"totals": _bucket_view(totals),
 		"source": "vendor",
 		"vendor_ok": True,
 		"vendor_error": "",
@@ -382,7 +368,6 @@ def parse_openai_usage_page(payload: Any, *, provider: str = "openai") -> tuple[
 			b["cache_hit"] = cached
 			b["cache_miss"] = max(0, inp - cached)
 			b["output"] = out
-			b["tokens"] = inp + out if inp or out else cached + out
 			b["requests"] = int(_as_num(item.get("num_model_requests") or item.get("num_requests")))
 			amount_rows.append({"day": iso, "model": mid, "bucket": b, "provider": provider})
 			cost = _as_num(item.get("amount") or item.get("cost"))

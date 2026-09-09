@@ -232,11 +232,18 @@ def _cmd_usage(ctx: DispatchContext, arg: str) -> CommandResult:
 			vendor = {"vendor_ok": False, "vendor_error": str(exc)}
 	report = compose_usage_report(vendor, local)
 	totals = report.get("totals") or {}
-	tokens = totals.get("tokens") or totals.get("total_tokens") or 0
-	cost = totals.get("cost") or totals.get("total_cost") or 0
 	reqs = totals.get("requests") or 0
+	hit = totals.get("input_hit") or 0
+	miss = totals.get("input_miss") or 0
+	out = totals.get("output") or 0
+	hr = totals.get("hit_rate")
+	hr_txt = "—" if hr is None else f"{hr}%"
 	source = report.get("source") or "local"
-	msg = f"近 {days} 天用量（来源 {source}）：请求 {reqs}，tokens {tokens}，成本 {cost}"
+	# v4：报表层无金额/吞吐大数，只回三分类 + hit_rate（dsh S1 disjoint）
+	msg = (
+		f"近 {days} 天用量（来源 {source}）：请求 {reqs} 次，"
+		f"输入·命中 {hit} / 未命中 {miss}，输出 {out}，命中率 {hr_txt}"
+	)
 	return CommandResult(handled=True, kind="info", message=msg, result={"report": report})
 
 

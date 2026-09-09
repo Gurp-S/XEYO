@@ -1,9 +1,11 @@
-"""用量真实厂商(vendor)归属与计价口径契约（2026-09-09 P0-1 / P1-2 修复）。
+"""用量真实厂商(vendor)归属与口径契约（2026-09-09 P0-1 / P1-2 修复；B1 v4 去金额）。
 
 覆盖：
 - canonical_vendor：通道语义(local/fake)、base_url 主机、模型名前缀、回退通道。
-- 记账：错位通道(openai×deepseek 模型 / deepseek×glm 模型)按 vendor 归组计价。
-- 计价：无官方价目厂商走中性估算档（不落 2/8 美元预算兜底）。
+- 记账：错位通道(openai×deepseek 模型 / deepseek×glm 模型)按 vendor 归组。
+- v4：聚合报表无金额 —— totals/models 只回三分类 + hit_rate + 成功结算 requests；
+  价目估算只留在 usage.pricing 纯函数层与事件行日志（无官方价目厂商走中性估算档，
+  不落 2/8 美元预算兜底）。
 - P1-2：XEYO_TIME_TIERS_JSON 自定义倍率对 estimate_cny / unit_prices 生效。
 """
 
@@ -69,7 +71,7 @@ def test_deepseek_under_openai_channel() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 记账：vendor 归组 + 按真实厂商计价
+# 记账：vendor 归组（v4 无金额，只验三分类）
 # ---------------------------------------------------------------------------
 
 def test_ledger_groups_by_vendor_not_channel(tmp_path, monkeypatch) -> None:
@@ -95,38 +97,43 @@ def test_ledger_groups_by_vendor_not_channel(tmp_path, monkeypatch) -> None:
 	assert by_model["deepseek-v4-flash"]["provider"] == "deepseek"  # 归位，不是 openai
 	assert by_model["glm-4.5-air"]["provider"] == "zhipu"  # 归位，不是 deepseek
 	assert rep["totals"]["requests"] == 2
-	assert rep["totals"]["cache_miss"] == 300  # totals 拆分字段
+	assert rep["totals"]["input_miss"] == 300
+	assert rep["totals"]["input_hit"] == 0
 	assert rep["totals"]["output"] == 30
+	assert rep["totals"]["hit_rate"] == 0.0
 
 
-def test_ledger_estimate_uses_real_vendor_prices(tmp_path, monkeypatch) -> None:
+def test_ledger_report_money_free_by_vendor(tmp_path, monkeypatch) -> None:
+	"""v4 红线：记账行即使带真实官方 cost_cny，聚合报表也不回金额。
+
+	错位通道（openai×deepseek）按真实厂商归组；大额行只以三分类形式呈现。
+	"""
 	monkeypatch.setenv("XEYO_USAGE_DIR", str(tmp_path))
-	# openai 通道 + deepseek 模型：不能再按 gpt-4o-mini 兜底价，应按 DeepSeek 官方空闲档。
 	record_from_openai_usage(
 		provider="openai",
 		model="deepseek-v4-flash",
 		api_key="sk-abcdefghijklmnopqrstuv",
-		usage={"prompt_tokens": 1_000_000, "prompt_cache_hit_tokens": 0, "prompt_cache_miss_tokens": 1_000_000, "completion_tokens": 1_000_000},
-		ts=utc_ts(2026, 8, 16, 19, 0),  # 空闲
-	)
-	rep = query_usage(days=30)
-	# deepseek flash 空闲：未命中 1.5 + 输出 4.5 = 6.0
-	assert abs(rep["totals"]["cost"] - 6.0) < 1e-6
-
-
-def test_ledger_glm_neutral_estimate(tmp_path, monkeypatch) -> None:
-	monkeypatch.setenv("XEYO_USAGE_DIR", str(tmp_path))
-	# glm 无本地官方价目：中性估算档 = deepseek-flash 空闲（1.5/0.05/4.5），不暴涨。
-	record_from_openai_usage(
-		provider="deepseek",
-		model="glm-4.5-air",
-		api_key="sk-abcdefghijklmnopqrstuv",
-		usage={"prompt_tokens": 1_000_000, "prompt_cache_hit_tokens": 0, "prompt_cache_miss_tokens": 1_000_000, "completion_tokens": 1_000_000},
+		usage={
+			"prompt_tokens": 1_000_000,
+			"prompt_cache_hit_tokens": 0,
+			"prompt_cache_miss_tokens": 1_000_000,
+			"completion_tokens": 1_000_000,
+			"cost_cny": 6.0,
+		},
 		ts=utc_ts(2026, 8, 16, 19, 0),
 	)
 	rep = query_usage(days=30)
-	assert abs(rep["totals"]["cost"] - 6.0) < 1e-6
-	assert rep["cost_source"] == "estimate"
+	m0 = rep["models"][0]
+	assert m0["provider"] == "deepseek"  # 归位，不是 openai
+	assert m0["model"] == "deepseek-v4-flash"
+	assert rep["totals"]["input_miss"] == 1_000_000
+	assert rep["totals"]["output"] == 1_000_000
+	assert rep["totals"]["input_total"] == 1_000_000
+	assert rep["totals"]["hit_rate"] == 0.0
+	assert "cost" not in rep["totals"]
+	assert "tokens" not in rep["totals"]
+	assert "cost_source" not in rep
+	assert "lifetime_cost" not in rep
 
 
 # ---------------------------------------------------------------------------
@@ -187,34 +194,36 @@ def test_time_tier_override_affects_unit_prices(monkeypatch) -> None:
 
 
 # ---------------------------------------------------------------------------
-# lifetime_cost 语义（P1-1）：尊重厂商/模型/Key 筛选，忽略时间窗口
+# 窗口 / 维度筛选语义：totals 只计窗口内成功结算请求，厂商/模型/Key 筛选各司其职
 # ---------------------------------------------------------------------------
 
-def test_lifetime_filters_non_day_dimensions(tmp_path, monkeypatch) -> None:
+def test_window_and_filter_dimensions(tmp_path, monkeypatch) -> None:
+	"""窗口过滤：30 天窗口外旧行不进 totals；厂商/模型筛选仍精确。"""
 	monkeypatch.setenv("XEYO_USAGE_DIR", str(tmp_path))
 	old_ts = utc_ts(2026, 6, 1, 19, 0)  # 30 天窗口之外（距今 ~100 天）
 	record_from_openai_usage(
 		provider="deepseek", model="deepseek-v4-flash",
 		api_key="sk-abcdefghijklmnopqrstuv",
-		usage={"prompt_tokens": 1_000_000, "completion_tokens": 0}, ts=old_ts,
+		usage={"prompt_tokens": 1_000_000, "prompt_cache_miss_tokens": 1_000_000, "completion_tokens": 0}, ts=old_ts,
 	)
-	# 新行：真·deepseek 官方档空闲 cost 0.0045*? -> 直接按 flash 空闲估算 1.5 元
 	record_from_openai_usage(
 		provider="deepseek", model="deepseek-v4-flash",
 		api_key="sk-abcdefghijklmnopqrstuv",
 		usage={"prompt_tokens": 100, "prompt_cache_miss_tokens": 100, "completion_tokens": 0}, ts=None,
 	)
 	rep30 = query_usage(days=30)
-	# 30 天窗口内 totals 只含新行；lifetime 含 90 天外旧行
+	# 30 天窗口只含新行；旧行（~100 天前）被窗口滤掉
 	assert rep30["totals"]["requests"] == 1
-	assert rep30["lifetime_cost"] > rep30["totals"]["cost"]
-	# 厂商筛选同样作用于 lifetime
+	assert rep30["totals"]["input_miss"] == 100
+	assert rep30["totals"]["hit_rate"] == 0.0
+	# 厂商筛选
 	rep_deep = query_usage(days=30, provider="deepseek")
-	assert rep_deep["lifetime_cost"] == rep30["lifetime_cost"]
-	# 模型筛选作用
+	assert rep_deep["totals"]["requests"] == rep30["totals"]["requests"]
+	# 不存在的模型 → 全零桶 + hit_rate None（无输入不做除法）
 	rep_other = query_usage(days=30, model="nonexistent-model")
-	assert rep_other["lifetime_cost"] == 0.0
 	assert rep_other["totals"]["requests"] == 0
+	assert rep_other["totals"]["input_miss"] == 0
+	assert rep_other["totals"]["hit_rate"] is None
 
 
 def test_key_detail_not_emptied_by_vendor_filter(tmp_path, monkeypatch) -> None:
@@ -236,7 +245,8 @@ def test_key_detail_not_emptied_by_vendor_filter(tmp_path, monkeypatch) -> None:
 	# key detail 视图：同一查询带上 key_fp 后必须命中（厂商过滤让位给 key）
 	rep = query_usage(days=30, provider="openai", key_fp="…stuv")
 	assert rep["totals"]["requests"] == 1
-	assert rep["lifetime_cost"] == rep["totals"]["cost"]
+	assert rep["totals"]["input_miss"] == 100
+	assert rep["totals"]["output"] == 10
 	# model detail 视图同理
 	assert query_usage(days=30, provider="openai", model="deepseek-v4-flash")["totals"]["requests"] == 1
 
