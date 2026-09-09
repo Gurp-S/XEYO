@@ -34,12 +34,16 @@ from coord.store import (
     acquire_scope as _acquire_scope,
     claim_task as _claim_task,
     complete_task as _complete_task,
+    mark_merged as _mark_merged,
     mark_pending_review as _mark_pending_review,
     new_ask as _new_ask,
     prune_leases,
     release_scope as _release_scope,
+    reopen_conflict as _reopen_conflict,
     reopen_task as _reopen_task,
     resume_task as _resume_task,
+    submit_result as _submit_result,
+    worker_failed as _worker_failed,
 )
 
 _log = logging.getLogger("xeyo.coord.file")
@@ -273,6 +277,40 @@ class CoordFileStore:
                 return None
             self._save_task(nxt)
             return nxt
+
+    # -- 阶段 1：worker 上交 / reconciler 收敛 ------------------------------
+
+    def _task_cas(self, task_id: str, fn) -> Task | None:
+        """锁内 load → 纯函数转换 → save 的通用骨架。fn 返回 None 即拒绝。"""
+        with self._guard(f"task-{task_id}") as ok:
+            if not ok:
+                return None
+            task = self.load_task(task_id)
+            if task is None:
+                return None
+            nxt = fn(task)
+            if nxt is None:
+                return None
+            self._save_task(nxt)
+            return nxt
+
+    def submit_result(self, task_id: str, worker_id: str, branch: str) -> Task | None:
+        """worker 上交：claimed → ready_to_merge，附 worktree 分支（仅持有者本人）。"""
+        return self._task_cas(task_id, lambda t: _submit_result(t, worker_id, branch))
+
+    def mark_merged(self, task_id: str) -> Task | None:
+        """reconciler 收敛成功：ready_to_merge → merged。"""
+        return self._task_cas(task_id, _mark_merged)
+
+    def reopen_conflict(self, task_id: str, base_commit: str,
+                        findings: list[dict]) -> Task | None:
+        """三路合并真冲突打回：ready_to_merge → reopened(→blocked)，base_commit=最新 main head。"""
+        return self._task_cas(task_id, lambda t: _reopen_conflict(t, base_commit, findings or []))
+
+    def worker_failed(self, task_id: str, worker_id: str,
+                      findings: list[dict]) -> Task | None:
+        """worker 执行异常：claimed → reopened(→blocked)，可被重试。"""
+        return self._task_cas(task_id, lambda t: _worker_failed(t, worker_id, findings or []))
 
     # -- scope leases -------------------------------------------------------
 

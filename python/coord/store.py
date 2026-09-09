@@ -25,6 +25,8 @@ from pathlib import Path
 
 STATUS_PENDING = "pending"
 STATUS_CLAIMED = "claimed"
+STATUS_READY_TO_MERGE = "ready_to_merge"  # worker 已上交 worktree 分支，待 reconciler 收敛
+STATUS_MERGED = "merged"  # reconciler 三路合并成功，已 fast-forward main
 STATUS_PENDING_REVIEW = "PENDING_REVIEW"
 STATUS_COMPLETED = "completed"
 STATUS_REOPENED = "reopened"
@@ -83,6 +85,7 @@ class Task:
     base_commit: str = ""
     status: str = STATUS_PENDING
     claimed_by: str = ""
+    branch: str = ""  # worker 上交的 worktree 分支（coord/task/<短名>）
     revision: int = 0
     reopen_count: int = 0
     findings: list[dict] = field(default_factory=list)
@@ -101,6 +104,7 @@ class Task:
             "base_commit": self.base_commit,
             "status": self.status,
             "claimed_by": self.claimed_by,
+            "branch": self.branch,
             "revision": int(self.revision),
             "reopen_count": int(self.reopen_count),
             "findings": [dict(f) for f in self.findings if isinstance(f, dict)],
@@ -121,6 +125,7 @@ class Task:
             base_commit=str(raw.get("base_commit") or ""),
             status=str(raw.get("status") or STATUS_PENDING),
             claimed_by=str(raw.get("claimed_by") or ""),
+            branch=str(raw.get("branch") or ""),
             revision=int(raw.get("revision") or 0),
             reopen_count=int(raw.get("reopen_count") or 0),
             findings=[dict(f) for f in (raw.get("findings") or []) if isinstance(f, dict)],
@@ -189,6 +194,20 @@ def complete_task(task: Task, worker_id: str) -> Task | None:
                    revision=task.revision + 1, updated_at=time.time())
 
 
+def _reopen_or_block(task: Task, base_commit: str, findings: list[dict]) -> Task:
+    """打回共用实现：reopen_count 熔断（≥ REOPEN_LIMIT → blocked），base_commit 对齐新基线。"""
+    count = task.reopen_count + 1
+    now = time.time()
+    clean = [dict(f) for f in (findings or []) if isinstance(f, dict)]
+    if count >= REOPEN_LIMIT:
+        return replace(task, status=STATUS_BLOCKED, reopen_count=count,
+                       base_commit=str(base_commit or ""), findings=clean,
+                       revision=task.revision + 1, updated_at=now)
+    return replace(task, status=STATUS_REOPENED, reopen_count=count,
+                   base_commit=str(base_commit or ""), findings=clean,
+                   revision=task.revision + 1, updated_at=now)
+
+
 def reopen_task(task: Task, worker_id: str, findings: list[dict]) -> Task | None:
     """Reviewer 打回：claimed → reopened(→pending 可再认领)；含熔断。
 
@@ -203,6 +222,40 @@ def reopen_task(task: Task, worker_id: str, findings: list[dict]) -> Task | None
                        findings=clean, revision=task.revision + 1, updated_at=now)
     return replace(task, status=STATUS_REOPENED, reopen_count=count,
                    findings=clean, revision=task.revision + 1, updated_at=now)
+
+
+def submit_result(task: Task, worker_id: str, branch: str) -> Task | None:
+    """worker 上交产物：claimed → ready_to_merge，附 worktree 分支（仅持有者本人）。"""
+    if task.status != STATUS_CLAIMED or task.claimed_by != str(worker_id or "").strip():
+        return None
+    return replace(task, status=STATUS_READY_TO_MERGE,
+                   branch=str(branch or "").strip(),
+                   revision=task.revision + 1, updated_at=time.time())
+
+
+def mark_merged(task: Task) -> Task | None:
+    """reconciler 收敛成功（update-ref ff 完成后）：ready_to_merge → merged。"""
+    if task.status != STATUS_READY_TO_MERGE:
+        return None
+    return replace(task, status=STATUS_MERGED,
+                   revision=task.revision + 1, updated_at=time.time())
+
+
+def reopen_conflict(task: Task, base_commit: str, findings: list[dict]) -> Task | None:
+    """reconciler 三路合并真冲突：ready_to_merge → reopened(→blocked 熔断)。
+
+    base_commit 写回**最新** main head（v1.1 §3：worker 基于新基线重放意图，
+    杜绝基于旧快照的无效重试）。"""
+    if task.status != STATUS_READY_TO_MERGE:
+        return None
+    return _reopen_or_block(task, base_commit, findings)
+
+
+def worker_failed(task: Task, worker_id: str, findings: list[dict]) -> Task | None:
+    """worker 执行异常：claimed → reopened(→blocked 熔断)，任务可被重试。"""
+    if task.status != STATUS_CLAIMED or task.claimed_by != str(worker_id or "").strip():
+        return None
+    return _reopen_or_block(task, task.base_commit, findings)
 
 
 # ---------------------------------------------------------------------------
@@ -360,14 +413,17 @@ __all__ = [
     "STATUS_BLOCKED",
     "STATUS_CLAIMED",
     "STATUS_COMPLETED",
+    "STATUS_MERGED",
     "STATUS_PENDING",
     "STATUS_PENDING_REVIEW",
+    "STATUS_READY_TO_MERGE",
     "STATUS_REOPENED",
     "ScopeLease",
     "Task",
     "acquire_scope",
     "claim_task",
     "complete_task",
+    "mark_merged",
     "mark_pending_review",
     "new_ask",
     "new_scope_lease",
@@ -376,7 +432,10 @@ __all__ = [
     "norm_scope_path",
     "prune_leases",
     "release_scope",
+    "reopen_conflict",
     "reopen_task",
     "resume_task",
     "scope_conflicts",
+    "submit_result",
+    "worker_failed",
 ]
