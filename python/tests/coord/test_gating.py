@@ -1,10 +1,11 @@
-"""coord 接入门控回归：锁死"主链路零污染"的默认值与惰性导入。
+"""coord 接入门控回归：锁死主链路边界与惰性导入。
 
-准入并入的前提是**默认全关 + 引擎主路径不加载 coord 重依赖**。本测冻结：
+准入转正(2026-09-10)后的冻结口径：
 1. coord_backend 默认 memory（presence file 后端不进 GUI server event loop）；
-2. coord_workers_enabled 默认 False（worker 池不在未声明工作区激活）；
+2. coord_workers_enabled 默认 **True**（唯一消费方 = `xeyo coord run` 显式 CLI
+   入口；引擎主链路不读此键）——显式 false 仍可关；
 3. import cli.coord_cmd / coord.config 不拉起 engine.query_engine（接线代码惰性）；
-4. 非法/损坏配置一律回退到最保守档（方向安全）。
+4. 坏配置：backend 回退 memory（保守），workers 缺省落开。
 """
 
 from __future__ import annotations
@@ -34,24 +35,27 @@ def _write_settings(path: Path, payload) -> None:
 
 
 def test_defaults_are_conservative(tmp_path, monkeypatch):
+    """准入转正(2026-09-10)：workers 默认开；backend 保持 memory 保守默认。"""
     monkeypatch.setenv("XEYO_HOME", str(tmp_path / "home"))  # 无 settings.json
     ws = tmp_path / "ws"
     ws.mkdir()
     assert coord_backend(str(ws)) == BACKEND_MEMORY
-    assert coord_workers_enabled(str(ws)) is False
+    assert coord_workers_enabled(str(ws)) is True  # 默认开（唯一消费方=coord run 显式入口）
 
 
-def test_workers_enabled_requires_explicit_true(tmp_path, monkeypatch):
+def test_workers_disabled_requires_explicit_false(tmp_path, monkeypatch):
     monkeypatch.setenv("XEYO_HOME", str(tmp_path / "home"))
     ws = tmp_path / "ws"
     (ws / ".xeyo").mkdir(parents=True)
-    assert coord_workers_enabled(str(ws)) is False  # 有目录无配置
+    assert coord_workers_enabled(str(ws)) is True  # 有目录无配置 = 默认开
     _write_settings(ws / ".xeyo" / "settings.json", {"coord": {"workers": False}})
+    assert coord_workers_enabled(str(ws)) is False
+    _write_settings(ws / ".xeyo" / "settings.json", {"coord": {"workers": "off"}})
     assert coord_workers_enabled(str(ws)) is False
     _write_settings(ws / ".xeyo" / "settings.json", {"coord": {"workers": True}})
     assert coord_workers_enabled(str(ws)) is True
-    # 字符串形态容错
-    _write_settings(ws / ".xeyo" / "settings.json", {"coord": {"workers": "true"}})
+    # 非法值（默认开档下）→ 不表态，落默认 True
+    _write_settings(ws / ".xeyo" / "settings.json", {"coord": {"workers": "maybe"}})
     assert coord_workers_enabled(str(ws)) is True
 
 
@@ -60,9 +64,10 @@ def test_bad_config_direction_safe(tmp_path, monkeypatch):
     monkeypatch.setenv("XEYO_HOME", str(tmp_path / "home"))
     ws = tmp_path / "ws"
     (ws / ".xeyo").mkdir(parents=True)
+    # 坏 JSON：backend 回退 memory（保守），workers 缺省落开（默认准入态）
     _write_settings(ws / ".xeyo" / "settings.json", "{not json")
     assert coord_backend(str(ws)) == BACKEND_MEMORY
-    assert coord_workers_enabled(str(ws)) is False
+    assert coord_workers_enabled(str(ws)) is True
     _write_settings(ws / ".xeyo" / "settings.json", {"coord": {"backend": "sqlite"}})
     assert coord_backend(str(ws)) == BACKEND_MEMORY
 

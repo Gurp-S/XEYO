@@ -98,17 +98,18 @@ def _read_workers(path: Path) -> bool | None:
 
 
 def coord_workers_enabled(cwd: str | None = None) -> bool:
-    """worker 接线总开关（默认 **关**）：workspace 覆盖 home；任何缺省/非法回退关。
+    """worker 接线开关（**默认开**，2026-09-10 阶段 4 准入转正）：
+    workspace 覆盖 home；显式 ``false``（或 ``"false"/"0"/"off"``）关闭。
 
-    关 = 引擎主链路零变化（coord runner 不派生会话、goal_round_driver 不接管）；
-    开 = 显式允许本机 worker 池经 worktree 派生真会话。方向安全：默认最保守。"""
+    唯一消费方 = ``xeyo coord run``（显式 CLI 入口）；引擎主链路不读此键，
+    GUI/server 行为与本键无关。缺省/坏配置 → 开（默认即准入态）。"""
     enabled = _read_workers(home_settings_path())
     ws_path = workspace_settings_path(cwd)
     if ws_path is not None:
         ws = _read_workers(ws_path)
         if ws is not None:
             enabled = ws
-    return bool(enabled)
+    return True if enabled is None else bool(enabled)
 
 
 __all__ = [
