@@ -152,3 +152,6 @@ gui/src-tauri/resources/python/
 
 # 打包缓存：python-build-standalone 发行包（构建脚本自动下载，46MB，不入库）
 .cache/
+
+# 一次性探针脚本：内含硬编码真实 API key（文件自身 docstring 标注「勿提交到任何仓库」）
+python/scripts/channel_probe_*.py
