@@ -404,11 +404,6 @@ class InjectContext:
 	#: None → 跟随 include_memory_index（兼容旧调用）。
 	inject_instructions: bool | None = None
 	multi_agent: bool = False
-	#: 上一轮模型思考的结尾截选（OpenAI 系厂商不回传 reasoning，历史里没有；
-	#: 不回填会驱使弱模型每轮从零重推同样的内容）。仅工具续写轮注入——
-	#: fresh-user 轮里它是上一个任务的残留推理，注入反而造成锚定污染。
-	#: 空串 = 不注入。
-	previous_reasoning_tail: str = ""
 	#: 当前顶层会话 id（多会话 peer 提醒）；空则跳过 peer 块。
 	session_id: str = ""
 	#: T14：子代理（侧链）上下文——净化清单跳过 peer/冲突/预览/repeat 等易变块。
@@ -845,10 +840,6 @@ T_NOW_BLOCK_REGISTRY: dict[str, dict[str, str]] = {
 		"klass": "directive",
 		"why": "死线会话每轮稳态预算/时间镜像（23ca693 禀赋①）；正常会话零注入，与 runtime_budget 瞬时通知互补",
 	},
-	"reasoning_tail": {
-		"klass": "directive",
-		"why": "续写轮延续上轮推理（GUI 设置默认关；弱模型锚定风险已评估）",
-	},
 	"multi_agent_hint": {
 		"klass": "directive",
 		"why": "多代理分解/汇总的协作合同，缺了会单干或重复汇总",
@@ -1065,19 +1056,6 @@ def run_pre_llm_inject(
 			tagged,
 			"runtime_budget",
 			(KLASS_DIRECTIVE, f"# Runtime budget notice\n{ctx.runtime_notice}"),
-		)
-	# 批次1：仅工具续写轮注入——fresh-user 轮里它是上一个任务的推理残留，
-	# 对新任务无用，还可能把弱模型锚定回旧任务（指代污染同族）。
-	if after_tools and ctx.previous_reasoning_tail.strip():
-		_tag_block(
-			tagged,
-			"reasoning_tail",
-			(
-				KLASS_DIRECTIVE,
-				"# 上一轮思考回顾（截选）\n"
-				"你在上一轮模型调用中已经推理过，结尾如下（延续，不是新任务）：\n"
-				f"{ctx.previous_reasoning_tail.strip()}",
-			)
 		)
 	if ctx.multi_agent:
 		try:

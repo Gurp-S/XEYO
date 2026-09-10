@@ -58,12 +58,23 @@ def assistant_text_message(
 	*,
 	narration: str = "",
 	interrupted: bool = False,
+	reasoning: str = "",
 ) -> Message:
+	"""构造 assistant 消息。
+
+	reasoning 是厂商思考态原文（DeepSeek `reasoning_content`），按其产生位置
+	作为 content 数组的首个 block 留档：原样存储，不做任何清洗/截断/重排。
+	纯文本轮（无 tool_uses）没有 block 数组可挂，故只在有工具调用时承载——
+	这与协议一致：需要回传的正是工具轮（且跨厂商转码时非工具轮的思考无处
+	承载，见 dsh 的说明）。
+	"""
 	if not tool_uses:
 		return Message(
 			role="assistant", content=text, narration=narration or "", interrupted=interrupted
 		)
 	blocks: list[dict[str, Any]] = []
+	if reasoning:
+		blocks.append({"type": "reasoning", "text": reasoning})
 	if text:
 		blocks.append({"type": "text", "text": text})
 	for tu in tool_uses:

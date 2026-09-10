@@ -41,7 +41,6 @@ def test_mode_durable_roundtrip(tmp_path: Path, monkeypatch) -> None:
             "output_mode": "ultra",
             "code_compact": True,
             "code_mode": "lite",
-            "reasoning_tail": True,
         },
     )
     flush("s1", snap)
@@ -52,7 +51,6 @@ def test_mode_durable_roundtrip(tmp_path: Path, monkeypatch) -> None:
     assert resumed.output_mode == "ultra"
     assert resumed.code_compact is True
     assert resumed.code_mode == "lite"
-    assert resumed.reasoning_tail is True
 
 
 def test_mode_durable_default_when_absent(tmp_path: Path, monkeypatch) -> None:
@@ -65,7 +63,6 @@ def test_mode_durable_default_when_absent(tmp_path: Path, monkeypatch) -> None:
     assert resumed.output_compact is False
     assert resumed.code_compact is False
     assert resumed.output_mode == ""
-    assert resumed.reasoning_tail is False
 
 
 def test_resolve_modes_durable_authoritative_on_resume() -> None:
@@ -77,7 +74,6 @@ def test_resolve_modes_durable_authoritative_on_resume() -> None:
         output_mode="full",
         code_compact=False,
         code_mode="",
-        reasoning_tail=True,
     )
     # 客户端未发模式 → durable 胜出
     eff = resolve_modes(
@@ -87,19 +83,17 @@ def test_resolve_modes_durable_authoritative_on_resume() -> None:
         output_mode=None,
         code_compact=None,
         code_mode=None,
-        reasoning_tail=None,
     )
     assert eff["agent_mode"] == "ask"
     assert eff["output_compact"] is True
     assert eff["output_mode"] == "full"
     assert eff["code_compact"] is False
-    assert eff["reasoning_tail"] is True
     # 显式覆盖：请求体仍是投影，显式值胜出；未设字段继续用 durable
-    eff2 = resolve_modes(snap, agent_mode="agent", output_compact=False, reasoning_tail=False)
+    eff2 = resolve_modes(snap, agent_mode="agent", output_compact=False, code_mode="ultra")
     assert eff2["agent_mode"] == "agent"
     assert eff2["output_compact"] is False
     assert eff2["output_mode"] == "full"
-    assert eff2["reasoning_tail"] is False
+    assert eff2["code_mode"] == "ultra"
 
 
 def test_effective_request_modes_overlay() -> None:
@@ -125,7 +119,6 @@ def test_effective_request_modes_overlay() -> None:
     assert eff["agent_mode"] == "plan"
     assert eff["output_compact"] is True
     assert eff["output_mode"] == "ultra"
-    assert eff["reasoning_tail"] is False  # durable 从未设置 → 默认关
 
     # 显式覆盖非默认：写回 durable
     body2 = ChatCompletionRequest(
@@ -136,19 +129,16 @@ def test_effective_request_modes_overlay() -> None:
         output_mode="lite",
         code_compact=True,
         code_mode="lite",
-        reasoning_tail=True,
     )
     eff2 = _effective_request_modes(engine, body2)
     assert eff2["agent_mode"] == "ask"
     assert eff2["output_compact"] is False
     assert eff2["output_mode"] == "lite"
     assert eff2["code_compact"] is True
-    assert eff2["reasoning_tail"] is True
     # durable 记录已被覆盖（供后续 resume 重放）
     assert snap.agent_mode == "ask"
     assert snap.output_compact is False
     assert snap.code_compact is True
-    assert snap.reasoning_tail is True
 
 
 # --------------------------------------------------------------------------- #

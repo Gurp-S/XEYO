@@ -102,7 +102,6 @@ class WorkingSnapshot:
     output_mode: str = ""  # ""=未显式；否则 lite / full / ultra
     code_compact: bool = False  # 写代码精简开关
     code_mode: str = ""  # ""=未显式；否则 lite / full / ultra
-    reasoning_tail: bool = False  # 上一轮思考回顾 T_now 注入开关（默认关）
     # P1 缺失1：当前 M 段的信息原子分段（可重入计量，不存全文）。
     # 序列化为 [{kind, weight, text}]，供 Q 按原子计权与审计观察。
     current_atoms: list[dict[str, Any]] = field(default_factory=list)
@@ -252,7 +251,6 @@ def _to_dict(snap: WorkingSnapshot) -> dict[str, Any]:
         "output_mode": str(snap.output_mode or ""),
         "code_compact": bool(snap.code_compact),
         "code_mode": str(snap.code_mode or ""),
-        "reasoning_tail": bool(snap.reasoning_tail),
         "current_atoms": list(getattr(snap, "current_atoms", []) or []),
         "last_projection": _projection_to_dict(getattr(snap, "last_projection", None)),
     }
@@ -399,7 +397,6 @@ def _from_dict(raw: dict[str, Any], session_id: str) -> WorkingSnapshot:
         output_mode=output_mode,
         code_compact=bool(raw.get("code_compact")),
         code_mode=code_mode,
-        reasoning_tail=bool(raw.get("reasoning_tail")),
         current_atoms=[x for x in raw.get("current_atoms") if isinstance(x, dict)]
         if isinstance(raw.get("current_atoms"), list)
         else [],
@@ -593,7 +590,6 @@ def resolve_modes(
     output_mode: object | None = None,
     code_compact: object | None = None,
     code_mode: object | None = None,
-    reasoning_tail: object | None = None,
 ) -> dict[str, Any]:
     """求本回合生效模式：durable 记录为权威源，请求体作投影覆盖。
 
@@ -626,18 +622,12 @@ def resolve_modes(
             getattr(snap, "code_mode", ""), default=""
         )
     )
-    eff_reasoning_tail = (
-        bool(reasoning_tail)
-        if reasoning_tail is not None
-        else bool(getattr(snap, "reasoning_tail", False))
-    )
     return {
         "agent_mode": eff_agent,
         "output_compact": eff_out_compact,
         "output_mode": eff_out_mode,
         "code_compact": eff_code_compact,
         "code_mode": eff_code_mode,
-        "reasoning_tail": eff_reasoning_tail,
     }
 
 
@@ -648,5 +638,4 @@ def apply_modes(snap: WorkingSnapshot, modes: dict[str, Any]) -> None:
     snap.output_mode = _norm_quad(modes.get("output_mode"), default="")
     snap.code_compact = bool(modes.get("code_compact"))
     snap.code_mode = _norm_quad(modes.get("code_mode"), default="")
-    snap.reasoning_tail = bool(modes.get("reasoning_tail"))
 

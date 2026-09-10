@@ -430,35 +430,6 @@ def test_read_scan_tail_only():
 	assert old_path not in paths
 
 
-def test_previous_reasoning_tail_is_injected():
-	"""批次1：思考截选仅工具续写轮注入；fresh-user 轮不注入（旧任务残留）。"""
-	from prompt.pre_llm_inject import InjectContext, run_pre_llm_inject
-
-	tail = "...想到这里，下一步该读配置文件"
-	after_tools = [
-		{"role": "user", "content": "task"},
-		{
-			"role": "assistant",
-			"content": [{"type": "tool_use", "id": "1", "name": "Read"}],
-		},
-		{"role": "tool", "tool_call_id": "1", "content": "x"},
-	]
-	out = run_pre_llm_inject(
-		after_tools, InjectContext(previous_reasoning_tail=tail)
-	)
-	blob = str(out)
-	assert "上一轮思考回顾" in blob
-	assert "下一步该读配置文件" in blob
-	# B4 裁决：只给信息，不带"不要逐字重复…"导演句。
-	assert "不要逐字重复" not in blob
-
-	fresh = run_pre_llm_inject(
-		[{"role": "user", "content": "新问题"}],
-		InjectContext(previous_reasoning_tail=tail),
-	)
-	assert "上一轮思考回顾" not in str(fresh)
-
-
 def test_browser_preview_block_injected():
 	from permissions.policy import set_browser_preview_url
 	from prompt.pre_llm_inject import browser_preview_block

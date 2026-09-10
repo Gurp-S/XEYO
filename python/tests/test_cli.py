@@ -82,14 +82,6 @@ def test_validate_permission_allow_maps_never() -> None:
 	assert validate_config_value("permission_mode", "allow") == "never"
 
 
-def test_validate_reasoning_tail() -> None:
-	assert validate_config_value("reasoning_tail", "on") is True
-	assert validate_config_value("reasoning_tail", "off") is False
-	assert validate_config_value("reasoning_tail", "true") is True
-	with pytest.raises(ValueError):
-		validate_config_value("reasoning_tail", "maybe")
-
-
 def test_chat_print_fake(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 	monkeypatch.setenv("XEYO_NO_SESSION_PERSISTENCE", "1")
 	cwd = tmp_path / "ws"

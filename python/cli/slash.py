@@ -104,19 +104,6 @@ def handle_slash(
 			message=f"{which} {'on' if on else 'off'}"
 			+ (f"（{lvl}）" if on else ""),
 		)
-	if name == "reasoning-tail":
-		val = (arg or "").strip().lower()
-		if val not in ("on", "off", "开", "关"):
-			return SlashResult(
-				handled=True, message="用法：/reasoning-tail <on|off>"
-			)
-		from permissions.policy import set_reasoning_tail_enabled
-
-		on = val in ("on", "开")
-		set_reasoning_tail_enabled(on)
-		return SlashResult(
-			handled=True, message=f"上一轮思考回顾 {'on' if on else 'off'}"
-		)
 	if name == "approval":
 		from permissions.policy import set_permission_mode
 

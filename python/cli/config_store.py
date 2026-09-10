@@ -31,8 +31,6 @@ class CliConfig:
 	last_cwd: str = ""
 	# Output-compact 随 profile 打包，其他处（CLI/server）也会读取。
 	output_compact: bool = False
-	# 上一轮思考回顾 T_now 注入（默认关；GUI 会话设置等价字段 reasoning_tail）。
-	reasoning_tail: bool = False
 	# 密钥只以环境变量名引用，绝不明文落盘。
 	api_key_env: str = ""
 	# 41 号：goal round driver 全局默认轮次上限（per-goal max_rounds>0 时优先）。
@@ -176,13 +174,6 @@ def validate_config_value(key: str, value: str) -> str | bool:
 		if low in ("0", "false", "no", "off"):
 			return False
 		raise ValueError("output_compact must be true/false (or 1/0, on/off)")
-	if key == "reasoning_tail":
-		low = v.lower()
-		if low in ("1", "true", "yes", "on"):
-			return True
-		if low in ("0", "false", "no", "off"):
-			return False
-		raise ValueError("reasoning_tail must be true/false (or 1/0, on/off)")
 	return v
 
 

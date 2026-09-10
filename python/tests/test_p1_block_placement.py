@@ -280,14 +280,6 @@ def test_proposals_digest_no_longer_pushed(tmp_path, monkeypatch):
 	assert "未自动应用" not in "\n".join(_text_blocks(out[-1]))
 
 
-def test_reasoning_tail_fresh_user_turn_not_injected():
-	"""批次1：思考截选仅 after_tools 注入；fresh-user 轮不注入（旧任务残留）。"""
-	tail = "...想到这里，下一步该读配置文件"
-	projected = _prior_conversation("继续")
-	out = run_pre_llm_inject(projected, InjectContext(previous_reasoning_tail=tail))
-	assert "上一轮思考回顾" not in "\n".join(_text_blocks(out[-1]))
-
-
 # ---------------------------------------------------------------------------
 # 批次2：Nested 限窗（只注入尾窗触碰目录的规则；滚出尾窗静默，回触恢复）
 # ---------------------------------------------------------------------------

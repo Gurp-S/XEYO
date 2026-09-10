@@ -161,11 +161,6 @@ export type Settings = {
 	codeCompact: boolean;
 	/** 写代码精简模式；仅 codeCompact 开启时生效。 */
 	codeMode: OutputMode;
-	/**
-	 * 上一轮思考回顾：开启后工具续写轮把上一轮推理结尾注入 T_now（弱模型防
-	 * 重复思考的兜底）；强模型不建议。默认关；子代理不继承。
-	 */
-	reasoningTail: boolean;
 	/** 可选自建 SearXNG 基址；空则 WebSearch 用 Bing/Mojeek。 */
 	searxngUrl: string;
 	/** 本地保存的多套厂商账号；当前对话使用 activeProfileId 对应的那套。 */
@@ -276,7 +271,6 @@ const DEFAULTS: Settings = {
 	outputMode: 'lite',
 	codeCompact: false,
 	codeMode: 'lite',
-	reasoningTail: false,
 	searxngUrl: '',
 	profiles: [],
 	activeProfileId: '',
@@ -925,7 +919,6 @@ function loadLite(): PersistedLite {
 			outputMode: normalizeOutputMode(parsed.outputMode),
 			codeCompact: parsed.codeCompact === true,
 			codeMode: normalizeOutputMode(parsed.codeMode),
-			reasoningTail: parsed.reasoningTail === true,
 			searxngUrl:
 				typeof parsed.searxngUrl === 'string' ? parsed.searxngUrl.trim() : '',
 			profiles: seeded.profiles,
@@ -994,7 +987,6 @@ function writePersistLite(settings: Settings) {
 		outputMode: normalizeOutputMode(settings.outputMode),
 		codeCompact: settings.codeCompact === true,
 		codeMode: normalizeOutputMode(settings.codeMode),
-		reasoningTail: settings.reasoningTail === true,
 		searxngUrl: settings.searxngUrl ?? '',
 		profiles: settings.profiles,
 		activeProfileId: settings.activeProfileId,
@@ -1175,7 +1167,6 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 			outputMode: normalizeOutputMode(cur.outputMode),
 			codeCompact: cur.codeCompact === true,
 			codeMode: normalizeOutputMode(cur.codeMode),
-			reasoningTail: cur.reasoningTail === true,
 			searxngUrl: cur.searxngUrl ?? '',
 			profiles: cur.profiles,
 			activeProfileId: cur.activeProfileId,

@@ -49,7 +49,6 @@ from permissions.policy import (
 	set_output_compact,
 	set_output_mode,
 	set_permission_mode,
-	set_reasoning_tail_enabled,
 	set_side_mode,
 	set_surface,
 )
@@ -127,10 +126,6 @@ class ChatCompletionRequest(BaseModel):
 	code_compact: bool | None = None
 	# 写代码精简模式：lite / full / ultra；仅 code_compact 开启时生效，缺省 lite。
 	code_mode: Literal["lite", "full", "ultra"] | None = None
-	# 设置「上一轮思考回顾」：True 时工具续写轮把上一轮推理结尾截选注入 T_now
-	# （query_loop 捕获侧门控；子代理不继承）。T31：None = 客户端未设置 →
-	# 由会话 durable 模式记录决定（投影覆盖）。
-	reasoning_tail: bool | None = None
 	# 右侧预览浏览器当前 URL（仅面板打开时由 GUI 上报）；T_now 注入，不进历史。
 	browser_preview_url: str | None = None
 	# Composer Multi-Agent chip：True → T_now 软提示偏向 Agent；不锁工具、不拦收尾；
@@ -278,7 +273,6 @@ def _effective_request_modes(engine: Any, body: ChatCompletionRequest) -> dict[s
 		output_mode=body.output_mode,
 		code_compact=body.code_compact,
 		code_mode=body.code_mode,
-		reasoning_tail=body.reasoning_tail,
 	)
 	apply_modes(working, eff)
 	return eff
@@ -860,7 +854,6 @@ async def chat_completions(
 		set_output_mode(eff["output_mode"])
 		set_code_compact(eff["code_compact"])
 		set_code_mode(eff["code_mode"])
-		set_reasoning_tail_enabled(eff["reasoning_tail"])
 		set_browser_preview_url(body.browser_preview_url)
 		set_searxng_url(body.searxng_url)
 		set_side_mode(bool(body.side))
@@ -1479,7 +1472,6 @@ async def chat_completions(
 			set_output_mode(None)
 			set_code_compact(False)
 			set_code_mode(None)
-			set_reasoning_tail_enabled(None)
 			set_browser_preview_url(None)
 			set_searxng_url(None)
 			set_side_mode(False)

@@ -169,17 +169,6 @@ export const slashCommands: SlashCommand[] = [
 		when: "idle",
 	},
 	{
-		name: "reasoning-tail",
-		category: "mode",
-		handler: "client",
-		summary: "切换「上一轮思考回顾」注入：on / off",
-		usage: "/reasoning-tail <on|off>",
-		aliases: ["思考回顾", "推理回顾"],
-		arg_spec: "m",
-		surfaces: ["gui", "cli", "tui", "remote"],
-		when: "idle",
-	},
-	{
 		name: "model",
 		category: "mode",
 		handler: "client",

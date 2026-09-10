@@ -168,7 +168,6 @@ const SLASH_HINTS: Readonly<Record<string, string>> = {
 	output: '请输入输出级别',
 	code: '请输入代码级别',
 	approval: '请输入审批模式',
-	'reasoning-tail': '请输入 tail 模式',
 	plugins: '请输入操作，如 list',
 };
 

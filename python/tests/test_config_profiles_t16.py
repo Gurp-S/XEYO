@@ -42,32 +42,27 @@ def test_profile_declared_keys_override_base_and_undeclared_keep_base(
 		'model = "base-model"\n'
 		'permission_mode = "risk"\n'
 		"output_compact = false\n"
-		"reasoning_tail = false\n"
 		"[profiles.dev]\n"
 		'model = "dev-model"\n'
 		"output_compact = true\n"
-		"reasoning_tail = true\n"
 	)
 	base = load_config()
 	assert base.model == "base-model"
 	assert base.permission_mode == "risk"
 	assert base.output_compact is False
-	assert base.reasoning_tail is False
 
 	dev = load_config(profile="dev")
 	assert dev.model == "dev-model"          # declared → override
 	assert dev.output_compact is True        # declared → override
-	assert dev.reasoning_tail is True        # declared → override
 	assert dev.permission_mode == "risk"     # undeclared → keeps base
 
 
 def test_resolve_profile_only_declared_keys_override() -> None:
 	base = CliConfig(model="base", permission_mode="never", output_compact=False)
-	data = {"profiles": {"fast": {"model": "fast-model", "output_compact": True, "reasoning_tail": True}}}
+	data = {"profiles": {"fast": {"model": "fast-model", "output_compact": True}}}
 	out = resolve_profile(base, data, "fast")
 	assert out.model == "fast-model"
 	assert out.output_compact is True
-	assert out.reasoning_tail is True
 	assert out.permission_mode == "never"  # undeclared keeps base
 
 

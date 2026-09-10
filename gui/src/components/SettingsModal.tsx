@@ -153,7 +153,6 @@ export function SettingsModal({open, onClose}: Props) {
 	const outputMode = useSettingsStore(s => s.outputMode ?? 'lite');
 	const codeCompact = useSettingsStore(s => s.codeCompact === true);
 	const codeMode = useSettingsStore(s => s.codeMode ?? 'lite');
-	const reasoningTail = useSettingsStore(s => s.reasoningTail === true);
 	const showExperimental = useSettingsStore(s => s.showExperimental === true);
 	const update = useSettingsStore(s => s.update);
 	const updateProfile = useSettingsStore(s => s.updateProfile);
@@ -1639,47 +1638,6 @@ export function SettingsModal({open, onClose}: Props) {
 							</p>
 						</>
 					) : null}
-
-					<div className="border-t border-line/60 pt-4">
-						<h3 className="font-mono text-[10px] uppercase tracking-wider text-mute">
-							上一轮思考回顾
-						</h3>
-					</div>
-					<button
-						type="button"
-						role="switch"
-						aria-checked={reasoningTail}
-						onClick={() => update({reasoningTail: !reasoningTail})}
-						className={cn(
-							'xy-press flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors',
-							reasoningTail
-								? 'border-accent/50 bg-accent-soft'
-								: 'border-line bg-glass-strong hover:border-line',
-						)}
-					>
-						<span>
-							<span className="block text-sm text-ink">
-								上一轮思考回顾（建议仅弱模型）
-							</span>
-							<span className="mt-0.5 block text-[11px] leading-snug text-mute">
-								工具续写轮把上一轮推理结尾注入对话尾部，防弱模型重复思考。强模型不建议；默认关。
-							</span>
-						</span>
-						<span
-							className={cn(
-								'relative h-5 w-9 shrink-0 rounded-full transition-colors',
-								reasoningTail ? 'bg-accent' : 'bg-line',
-							)}
-							aria-hidden
-						>
-							<span
-								className={cn(
-									'absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white transition-transform',
-									reasoningTail ? 'translate-x-4' : 'translate-x-0',
-								)}
-							/>
-						</span>
-					</button>
 				</section>
 
 				<section className={cn('mb-5 space-y-3', activeTab !== 'appearance' && 'hidden')}>

@@ -246,11 +246,14 @@ def normalize_messages_for_openai(
 				continue
 			if isinstance(content, list):
 				text_parts: list[str] = []
+				reasoning_parts: list[str] = []
 				tool_calls: list[dict[str, Any]] = []
 				for block in content:
 					if not isinstance(block, dict):
 						continue
-					if block.get("type") == "text":
+					if block.get("type") == "reasoning":
+						reasoning_parts.append(str(block.get("text") or ""))
+					elif block.get("type") == "text":
 						text_parts.append(str(block.get("text") or ""))
 					elif block.get("type") == "tool_use":
 						tool_calls.append(
@@ -269,6 +272,12 @@ def normalize_messages_for_openai(
 					"role": "assistant",
 					"content": "".join(text_parts),
 				}
+				# 思考态原样回传：厂商要求参与拼接的正是历史里这条 assistant
+				# 消息自己的思考，故按原文（未清洗/未截断/未重排）贴回。无思考
+				# 则不发该字段。
+				reasoning_text = "".join(reasoning_parts)
+				if reasoning_text:
+					msg["reasoning_content"] = reasoning_text
 				if tool_calls:
 					msg["tool_calls"] = tool_calls
 				out.append(msg)

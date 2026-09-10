@@ -352,40 +352,6 @@ def code_mode() -> str:
 	return normalize_code_mode(mode) if mode else "lite"
 
 
-# 上一轮思考回顾（T_now 注入）开关：会话/请求显式设置 > 环境变量兜底。
-_reasoning_tail_ctx: contextvars.ContextVar[bool | None] = contextvars.ContextVar(
-	"xeyo_reasoning_tail", default=None
-)
-
-
-def set_reasoning_tail_enabled(enabled: bool | None) -> None:
-	"""按会话/请求设置「上一轮思考回顾」；None = 清除显式值（回落进程默认）。"""
-	_reasoning_tail_ctx.set(bool(enabled) if enabled is not None else None)
-
-
-def _reasoning_tail_env_default() -> bool:
-	"""进程级默认：XEYO_REASONING_TAIL=1/true/on 开启。"""
-	return os.environ.get("XEYO_REASONING_TAIL", "").strip().lower() in (
-		"1",
-		"true",
-		"on",
-	)
-
-
-def reasoning_tail_enabled() -> bool:
-	"""上一轮思考回顾 T_now 注入开关（默认**关**）。
-
-	优先级：会话/请求显式设置（``set_reasoning_tail_enabled``，GUI 设置
-	经 T31 模式链路）> 环境变量 ``XEYO_REASONING_TAIL``（进程级默认，
-	覆盖无 GUI/未接线入口的脚本与评测路径）。默认移除：强模型收益≈0、
-	弱模型存在"旧结论指令化"的锚定/续写压力；仅在显式开启时恢复。
-	"""
-	v = _reasoning_tail_ctx.get()
-	if v is not None:
-		return v
-	return _reasoning_tail_env_default()
-
-
 _browser_preview_url_ctx: contextvars.ContextVar[str | None] = contextvars.ContextVar(
 	"xeyo_browser_preview_url", default=None
 )

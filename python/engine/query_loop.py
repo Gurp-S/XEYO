@@ -46,7 +46,6 @@ from permissions.policy import (
 	begin_permission_turn,
 	evaluate_policy,
 	in_subagent,
-	reasoning_tail_enabled,
 	set_agent_mode,
 	tool_allowed_in_mode,
 )
@@ -637,7 +636,6 @@ def _attach_turn_context(
 	working: WorkingSnapshot | None = None,
 	workspace_cwd: str = "",
 	cwd: str = "",
-	previous_reasoning_tail: str = "",
 	subagent: bool = False,
 	plan_pointer: bool = False,
 	t_now_strategy: str = "",
@@ -697,7 +695,6 @@ def _attach_turn_context(
 			include_memory_index=include_memory_index,
 			inject_instructions=inject_instructions,
 			multi_agent=multi_agent,
-			previous_reasoning_tail=previous_reasoning_tail,
 			session_id=session_id,
 			subagent=subagent,
 			goal=goal_block,
@@ -792,11 +789,6 @@ async def query_loop(
     # 可调用次数（XEYO_WRAP_QUOTA 覆盖，默认 3；0=维持旧的全禁语义）。
     forced_wrap_up = False
     wrap_quota_left = wrap_quota_from_env()
-    # OpenAI 系厂商不回传 reasoning（历史里没有上一轮思考）；把上一轮思考
-    # 结尾截选挂 T_now，避免弱模型每轮从零重推同样的内容（"重复思考"循环）。
-    # 默认**关闭**（XEYO_REASONING_TAIL=1 开启）：权衡后旧结论指令化的
-    # 锚定/续写压力 > 弱模型循环兜底收益，仅在显式开启时捕获。
-    previous_reasoning_tail = ""
     turn_reasoning_parts: list[str] = []
     # 配对修复只在 submit 入口（及 abort 路径的 _fill_missing）做一次，
     # 不在每轮模型请求前全量扫 store。
@@ -979,7 +971,6 @@ async def query_loop(
             multi_agent=multi_agent,
             working=snap,
             cwd="" if _is_side else _workspace_cwd_for_turn(tools),
-            previous_reasoning_tail=previous_reasoning_tail,
             subagent=_in_subagent(),
             plan_pointer=plan_pointer,
             budget=budget,
@@ -1276,14 +1267,6 @@ async def query_loop(
                 model=_llm_model_name(model),
             )
 
-        reasoning_blob = "".join(turn_reasoning_parts).strip()
-        if reasoning_blob and reasoning_tail_enabled() and not in_subagent():
-            # 只留结尾截选：开场白价值低，结尾才是"想到哪了"。
-            # 开关默认关（GUI 会话设置或 XEYO_REASONING_TAIL 开启）：强模型
-            # 收益≈0，弱模型存在"旧结论指令化"锚定/续写压力；子代理短上下文
-            # 不继承（T14 净化清单精神）。
-            previous_reasoning_tail = reasoning_blob[-600:]
-
         usage = getattr(model, "last_usage", None)
         hit, miss, out = split_usage(usage) if isinstance(usage, dict) else (0, 0, 0)
         # 分子口径（窗口占用）：厂商权威 prompt_tokens 优先——它含 system prompt 与
@@ -1419,7 +1402,10 @@ async def query_loop(
         loop_ledger.observe_assistant(assistant_text)
         store.append(
             assistant_text_message(
-                assistant_text, tool_uses or None, narration=narration
+                assistant_text,
+                tool_uses or None,
+                narration=narration,
+                reasoning="".join(turn_reasoning_parts),
             )
         )
 

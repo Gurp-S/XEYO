@@ -128,8 +128,6 @@ export async function streamChat(
 					output_mode: s.outputCompact ? s.outputMode : undefined,
 					code_compact: s.codeCompact === true,
 					code_mode: s.codeCompact ? s.codeMode : undefined,
-					// 上一轮思考回顾：弱模型防重复思考兜底；默认关，子代理不继承。
-					reasoning_tail: s.reasoningTail === true,
 					...(previewUrl ? {browser_preview_url: previewUrl} : {}),
 					searxng_url: s.searxngUrl?.trim() || undefined,
 					agent_mode: options?.agentMode ?? 'agent',

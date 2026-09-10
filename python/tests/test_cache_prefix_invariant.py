@@ -103,7 +103,6 @@ def _activate_blocks(strategy: str = ""):
     return _ctx(
         runtime_notice="[预算] 本轮已用 $0.42",  # runtime budget notice
         multi_agent=True,             # Multi-Agent hint
-        previous_reasoning_tail="上一轮结尾…",   # after_tools 才注入（fresh-user 不注入）
         approved_plan="实现 send-queue 机制。",  # agent mode 下走 approved plan 块
         **kw,
     )
