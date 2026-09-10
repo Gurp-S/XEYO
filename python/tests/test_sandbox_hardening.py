@@ -234,3 +234,14 @@ def test_win_job_creates() -> None:
 	job = create_bash_job(memory_mb=128)
 	assert job.handle is not None
 	job.close()
+
+
+def test_win_job_default_memory_not_below_vitest_floor() -> None:
+	"""回归：Windows Bash job 内存默认不得低于 2048MB。
+
+	512MB 曾让 vitest 多文件合集 worker 树触 JobMemoryLimit → V8 低堆
+	NewSpace 分配失败（2026-09-09 受控复现，见 win_job.py 模块注记）。
+	"""
+	from tools.bash_tool.win_job import DEFAULT_JOB_MEMORY_MB
+
+	assert DEFAULT_JOB_MEMORY_MB >= 2048

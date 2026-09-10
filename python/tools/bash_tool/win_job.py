@@ -12,7 +12,14 @@ from dataclasses import dataclass
 from typing import Any
 
 # 默认 512 MiB；可用环境变量或 .xeyo-policy.json 覆盖。
-DEFAULT_JOB_MEMORY_MB = 512
+# Windows 单条 Bash 进程树的内存上限（MB）。2026-09-09 从 512 上调到 2048：
+# 512 时代 node/vitest/jsdom 单 worker 尚可，现代 vitest 多文件合集 worker 树
+# 常超 512 → JobMemoryLimit 触发，V8 在极低堆(~60MB)报 NewSpace allocation
+# failed、worker "emitted unexpectedly"（受控复现：3 文件合集 512MB 下 rc=1 且
+# 耗时 62.8s，2048MB 下全绿 6.9s）。2048 仍是受限沙箱（机器 32GB），单进程
+# 失控仍会被按树封顶；需要更细可按命令在 BashInput 层覆盖或
+# XEYO_BASH_JOB_MEMORY_MB / workspace policy bash_job_memory_mb。
+DEFAULT_JOB_MEMORY_MB = 2048
 
 
 @dataclass

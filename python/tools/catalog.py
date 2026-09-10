@@ -162,10 +162,12 @@ def _grep(cwd: str) -> Tool:
 	return GrepTool(cwd=cwd)
 
 
-def _todo_write(_cwd: str) -> Tool:
+def _todo_write(cwd: str) -> Tool:
 	from tools.todo_write_tool.todo_write_tool import TodoWriteTool
 
-	return TodoWriteTool()
+	# cwd 必须透传：_materialization_facts 按 self._cwd stat 产物路径，
+	# 不传会退化为进程 cwd → 工作区相对路径产物误报"磁盘上不存在"（2026-09-09 修复）。
+	return TodoWriteTool(cwd=cwd)
 
 
 def _memory(cwd: str) -> Tool:

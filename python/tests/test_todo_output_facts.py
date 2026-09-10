@@ -89,3 +89,28 @@ class TestMaterializationFacts:
 		)
 		row = next(line for line in content.splitlines() if "引擎核对" in line)
 		assert row == "[引擎核对] 产物 missing.bin: 磁盘上不存在（该项已标 completed）"
+
+
+class TestFactoryCwdWiring:
+	"""回归：catalog 工厂必须把工作区根透传给 TodoWriteTool。
+
+	曾丢参（``_todo_write`` 直接 ``TodoWriteTool()``）→ 工具 _cwd="."=进程
+	cwd，产物核对按进程 cwd stat 工作区相对路径 → 误报"磁盘上不存在"
+	（2026-09-09 模型会话实测：formatUsage.test.ts 在盘却被报缺失）。
+	本用例走真实装配路径（catalog 工厂），修复前必红——tmp 工作区 ≠ 进程 cwd。
+	"""
+
+	def test_factory_passes_workspace_cwd(self, tmp_path):
+		from tools.catalog import TOOL_FACTORY_BY_NAME
+
+		ws = tmp_path / "ws"
+		target = ws / "gui" / "src" / "lib" / "formatUsage.test.ts"
+		target.parent.mkdir(parents=True)
+		target.write_text("export const x = 1;\n", encoding="utf-8")
+		tool = TOOL_FACTORY_BY_NAME["TodoWrite"](cwd=str(ws))
+		item = _item("写测试文件", "completed", output="gui/src/lib/formatUsage.test.ts")
+		result = asyncio.run(
+			tool.execute({"todos": [item.to_dict()]}, AbortController())
+		)
+		assert result.is_error is not True
+		assert "已存在" in result.content

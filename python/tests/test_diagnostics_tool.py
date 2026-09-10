@@ -72,3 +72,47 @@ async def test_diagnostics_abort(tmp_path: Path) -> None:
 	abort.abort()
 	with pytest.raises(Exception):
 		await tool.execute({}, abort)
+
+
+class TestLocalTscResolution:
+	"""回归：PATH 无全局 tsc 时，Diagnostics 应回落项目本地 node_modules/.bin。
+
+	曾只认 shutil.which("tsc")——GUI 仓库的 tsc 在 gui/node_modules/.bin，
+	不在 PATH → TypeScript 后端恒落空（2026-09-09 会话实测）。
+	"""
+
+	def _make_ws(self, tmp_path: Path, *, with_tsc: bool) -> tuple[Path, Path]:
+		ws = tmp_path / "ws"
+		src = ws / "src"
+		src.mkdir(parents=True)
+		target = src / "a.ts"
+		target.write_text("const x: number = 1;\n", encoding="utf-8")
+		if with_tsc:
+			bin_dir = ws / "node_modules" / ".bin"
+			bin_dir.mkdir(parents=True)
+			(bin_dir / "tsc.cmd").write_text("@echo off\n", encoding="utf-8")
+		return ws, target
+
+	def test_uses_local_tsc_when_global_missing(
+		self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+	) -> None:
+		import shutil
+
+		ws, target = self._make_ws(tmp_path, with_tsc=True)
+		monkeypatch.setattr(shutil, "which", lambda n: None)
+		tool = DiagnosticsTool(cwd=str(ws))
+		backends, notes = tool._select_backends(str(target), "typescript")
+		assert any(name == "tsc" for name, _ in backends), notes
+		assert not any("skipped" in n for n in notes)
+
+	def test_no_local_tsc_reports_skipped(
+		self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+	) -> None:
+		import shutil
+
+		ws, target = self._make_ws(tmp_path, with_tsc=False)
+		monkeypatch.setattr(shutil, "which", lambda n: None)
+		tool = DiagnosticsTool(cwd=str(ws))
+		backends, notes = tool._select_backends(str(target), "typescript")
+		assert not backends
+		assert any("tsc not on PATH" in n for n in notes)

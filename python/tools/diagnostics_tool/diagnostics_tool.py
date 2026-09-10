@@ -139,7 +139,7 @@ class DiagnosticsTool:
 					notes.append("ruff not on PATH; using py_compile (syntax only).")
 
 		if want_ts and _looks_typescript(target, lang):
-			tsc = shutil.which("tsc")
+			tsc = shutil.which("tsc") or _find_local_tsc(target, self._cwd)
 			tsconfig = _find_tsconfig(target, self._cwd)
 			if tsc and (tsconfig or Path(target).is_file()):
 				backends.append(
@@ -148,7 +148,7 @@ class DiagnosticsTool:
 			else:
 				missing = []
 				if not tsc:
-					missing.append("tsc not on PATH")
+					missing.append("tsc not on PATH or node_modules/.bin")
 				if not tsconfig and not Path(target).is_file():
 					missing.append("no tsconfig.json found")
 				notes.append("TypeScript backend skipped: " + "; ".join(missing))
@@ -302,6 +302,39 @@ def _run_ruff(ruff: str, target: str) -> list[str]:
 	return out
 
 
+def _find_local_tsc(target: str, cwd: str) -> str | None:
+	"""沿 tsconfig 同款链条找项目本地 node_modules/.bin/tsc（PATH 外也能用）。
+
+	Diagnostics 之前只认 PATH 上的 tsc，GUI/打包环境 PATH 无全局 tsc 时 TypeScript
+	后端恒落空（2026-09-09 会话实测：写测试期间类型检查死掉）。本地优先于全局，
+	与 `npm test` 的可复现面一致。
+	"""
+	start = Path(target)
+	if start.is_file():
+		start = start.parent
+	bases: list[Path] = []
+	for base in (start, Path(cwd)):
+		cur = base
+		for _ in range(8):
+			if cur not in bases:
+				bases.append(cur)
+			if cur.parent == cur:
+				break
+			cur = cur.parent
+	cands: list[str] = []
+	if os.name == "nt":
+		cands = ["tsc.cmd", "tsc.exe", "tsc.ps1", "tsc"]
+	else:
+		cands = ["tsc"]
+	for base in bases:
+		bin_dir = base / "node_modules" / ".bin"
+		for cand in cands:
+			p = bin_dir / cand
+			if p.is_file():
+				return str(p)
+	return None
+
+
 def _run_tsc(tsc: str, tsconfig: str | None, target: str) -> list[str]:
 	p = Path(target)
 	# 路径为 TS/JS 文件时优先做单文件检查。
@@ -313,6 +346,10 @@ def _run_tsc(tsc: str, tsconfig: str | None, target: str) -> list[str]:
 		cwd = str(Path(tsconfig).parent)
 	else:
 		return [f"{target}:0:0: error: tsc needs a file or tsconfig.json"]
+
+	if os.name == "nt" and tsc.lower().endswith((".cmd", ".bat")):
+		# Windows 上 .cmd/.bat 需经 cmd.exe 启动（直接 CreateProcess 报 193）。
+		cmd = [os.environ.get("COMSPEC", "cmd.exe"), "/d", "/s", "/c", *cmd]
 
 	proc = subprocess.run(
 		cmd,
