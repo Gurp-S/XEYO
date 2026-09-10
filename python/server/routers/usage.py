@@ -8,7 +8,6 @@ from typing import Any
 from fastapi import APIRouter, Header, Query
 
 from common.errors import friendly_error
-from model.openai_compat import PROVIDER_PRESETS
 from server.deps import _extract_bearer, _resolve_base_url
 
 router = APIRouter(tags=["usage"])
@@ -45,10 +44,13 @@ def get_usage(
 
 	api_key = _extract_bearer(authorization)
 	prov = (provider or x_provider or "deepseek").lower()
+	# 与 /v1/models、/v1/usage/balance 同口径：base_url 必须过 SSRF 门，
+	# 否则本机任意进程可借服务端把用户 API key 发往任意地址。
+	base_url = _resolve_base_url(prov, x_base_url)
 	vendor = fetch_vendor_usage(
 		api_key=api_key,
 		provider=prov,
-		base_url=x_base_url,
+		base_url=base_url,
 		days=days,
 		model=model,
 		key_fp=key_fp,
@@ -76,7 +78,7 @@ def get_usage_balance(
 	if not api_key:
 		return {"available": False, "reason": "missing_key"}
 
-	base = (x_base_url or "").strip() or PROVIDER_PRESETS["deepseek"]["base_url"]
+	base = _resolve_base_url(provider, x_base_url)
 	root = base.rstrip("/")
 	if root.endswith("/v1"):
 		root = root[: -len("/v1")]
