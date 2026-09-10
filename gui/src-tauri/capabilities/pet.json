@@ -1,0 +1,9 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "pet",
+  "description": "桌宠窗口能力集：仅事件收发 + 窗口自身位置读取（拖拽朝向），不含 shell / 对话框 / 文件系统。",
+  "windows": ["pet"],
+  "permissions": [
+    "core:default"
+  ]
+}

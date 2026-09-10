@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Default capabilities for XEYO",
-  "windows": ["main", "pet"],
+  "description": "主窗口能力集：完整桌面 shell / 对话框 / 窗口控制。",
+  "windows": ["main"],
   "permissions": [
     "core:default",
     "core:window:allow-close",
