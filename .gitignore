@@ -149,3 +149,6 @@ python/dbg_*.py
 
 # Tauri 安装包资源：精简 Python 引擎（构建脚本产物，不入库）
 gui/src-tauri/resources/python/
+
+# 打包缓存：python-build-standalone 发行包（构建脚本自动下载，46MB，不入库）
+.cache/

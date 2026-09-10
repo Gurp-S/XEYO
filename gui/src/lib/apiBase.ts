@@ -37,3 +37,30 @@ export function apiUrl(path: string): string {
 	const p = path.startsWith('/') ? path : `/${path}`;
 	return `${apiBase()}${p}`;
 }
+
+/** 当前后端端口字面量，用于错误文案（避免各处再读一次 env 而读不到运行时迁移值）。 */
+export function backendPortLabel(): string {
+	return _runtimePort || import.meta.env.VITE_XEYO_HTTP_PORT || '8000';
+}
+
+/**
+ * 向壳查询最近一次后端启动失败的原因。
+ *
+ * 历史事故：内嵌 Python 是薄壳 venv（缺 python3xx.dll / 标准库），装到没装
+ * Python 的机器上 spawn 必然失败，但壳只把错误写进 stderr，界面统一显示
+ * "无法连接后端"，用户只能猜是端口或网络问题。这里把壳里的真实原因取出来，
+ * 让错误横幅直接说明"内嵌 Python 不可用"。
+ */
+export async function fetchBackendSpawnError(): Promise<string | null> {
+	if (!isTauri()) {
+		return null;
+	}
+	try {
+		const {invoke} = await import('@tauri-apps/api/core');
+		const msg = await invoke<string | null>('get_backend_error');
+		const s = typeof msg === 'string' ? msg.trim() : '';
+		return s || null;
+	} catch {
+		return null;
+	}
+}

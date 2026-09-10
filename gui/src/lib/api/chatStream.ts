@@ -14,6 +14,8 @@ import {
 } from '@/stores/storeRefs';
 import {
 	apiUrl,
+	backendPortLabel,
+	fetchBackendSpawnError,
 } from '@/lib/apiBase';
 import {
 	STREAM_IDLE_TIMEOUT_MS,
@@ -152,8 +154,15 @@ export async function streamChat(
 			handlers.onError(`连接空闲超时：连续 ${STREAM_IDLE_TIMEOUT_MS / 1000} 秒未收到任何数据`);
 			return;
 		}
+		// 壳里若记录了后端启动失败原因（如内嵌 Python 不可用），优先展示它——
+		// 否则用户只会看到"无法连接后端"，误以为是端口/网络问题。
+		const spawnError = await fetchBackendSpawnError();
+		if (spawnError) {
+			handlers.onError(`后端未能启动：${spawnError}`);
+			return;
+		}
 		handlers.onError(
-			`无法连接后端 127.0.0.1:${import.meta.env.VITE_XEYO_HTTP_PORT || '8000'}（${err instanceof Error ? err.message : String(err)}）。请先运行：py -3.11 -m server`,
+			`无法连接后端 127.0.0.1:${backendPortLabel()}（${err instanceof Error ? err.message : String(err)}）。`,
 		);
 		return;
 	}

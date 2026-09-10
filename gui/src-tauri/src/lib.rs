@@ -253,11 +253,47 @@ fn spawn_within_grace(mark: &SharedSpawnMark) -> bool {
 	false
 }
 
-fn resolve_python_exe(root: &Path) -> PathBuf {
+/// G125：解释器可用性探测——文件存在不等于能跑。
+///
+/// 历史事故（MSI 装完连不上后端）：`resources/python/.venv` 曾由 `virtualenv`
+/// 产出，是**薄壳**——`Scripts/python.exe` 只是 ~270KB 的 launcher，真正的
+/// `python3xx.dll` 与标准库留在构建机的 base 解释器里（pyvenv.cfg 的 `home=`
+/// 指向 `C:\Users\<someone>\...`）。发布包装到没装该版本 Python 的机器上时，
+/// 文件俱在但启动即失败，`is_file()` 完全挡不住，`spawn_python` 只把错误写进
+/// stderr，GUI 无任何提示，用户只能看到"无法连接后端"。
+///
+/// 这里用一次真实 import 探测把"存在但不可用"的解释器筛掉。
+fn python_exe_usable(exe: &Path) -> bool {
+	if !exe.is_file() {
+		return false;
+	}
+	let mut cmd = Command::new(exe);
+	cmd.args(["-c", "import sys; sys.stdout.write(sys.version_info[:2].__str__())"])
+		.stdout(Stdio::piped())
+		.stderr(Stdio::null())
+		.stdin(Stdio::null());
+	#[cfg(windows)]
+	{
+		cmd.creation_flags(CREATE_NO_WINDOW);
+	}
+	match cmd.output() {
+		Ok(out) => out.status.success(),
+		Err(_) => false,
+	}
+}
+
+fn resolve_python_exe(root: &Path) -> Result<PathBuf, String> {
 	if let Ok(override_py) = std::env::var("XEYO_PYTHON") {
 		let trimmed = override_py.trim();
 		if !trimmed.is_empty() {
-			return PathBuf::from(trimmed);
+			let p = PathBuf::from(trimmed);
+			if python_exe_usable(&p) {
+				return Ok(p);
+			}
+			return Err(format!(
+				"XEYO_PYTHON 指定的解释器无法运行: {}",
+				p.display()
+			));
 		}
 	}
 	#[cfg(windows)]
@@ -265,7 +301,14 @@ fn resolve_python_exe(root: &Path) -> PathBuf {
 	#[cfg(not(windows))]
 	let venv = root.join(".venv").join("bin").join("python");
 	if venv.is_file() {
-		return venv;
+		if python_exe_usable(&venv) {
+			return Ok(venv);
+		}
+		// 产物残缺：明确报错，不要静默换解释器——换掉会让用户用错环境跑后端。
+		return Err(format!(
+			"内嵌 Python 不可用（可能是薄壳 venv，缺少 python3xx.dll / 标准库）: {}",
+			venv.display()
+		));
 	}
 	#[cfg(windows)]
 	{
@@ -273,33 +316,87 @@ fn resolve_python_exe(root: &Path) -> PathBuf {
 			.args(["-3.11", "-c", "import sys; print(sys.executable)"])
 			.stdout(Stdio::piped())
 			.stderr(Stdio::null())
+			.stdin(Stdio::null())
 			.creation_flags(CREATE_NO_WINDOW)
 			.output();
 		if let Ok(out) = probe {
 			if out.status.success() {
 				let p = String::from_utf8_lossy(&out.stdout).trim().to_string();
 				if !p.is_empty() {
-					return PathBuf::from(p);
+					let candidate = PathBuf::from(p);
+					if python_exe_usable(&candidate) {
+						return Ok(candidate);
+					}
 				}
 			}
 		}
-		PathBuf::from("python")
+		let fallback = PathBuf::from("python");
+		if python_exe_usable(&fallback) {
+			return Ok(fallback);
+		}
+		Err(format!(
+			"未找到可用的 Python 解释器：{} 缺失或不可用，且系统未安装 Python 3.11",
+			venv.display()
+		))
 	}
 	#[cfg(not(windows))]
 	{
-		PathBuf::from("python3")
+		let fallback = PathBuf::from("python3");
+		if python_exe_usable(&fallback) {
+			return Ok(fallback);
+		}
+		Err(format!(
+			"未找到可用的 Python 解释器：{} 缺失或不可用",
+			venv.display()
+		))
+	}
+}
+
+/// 最近一次后端启动失败的原因：GUI 可查询并展示，用户不必去翻 stderr。
+/// （历史事故：spawn 失败只 eprintln，界面只说"无法连接后端"，用户完全不知道
+/// 是内嵌 Python 坏了，只能猜是端口/网络问题。）
+static BACKEND_SPAWN_ERROR: OnceLock<Mutex<Option<String>>> = OnceLock::new();
+
+fn spawn_error_slot() -> &'static Mutex<Option<String>> {
+	BACKEND_SPAWN_ERROR.get_or_init(|| Mutex::new(None))
+}
+
+fn record_spawn_error(msg: &str) {
+	if let Ok(mut g) = spawn_error_slot().lock() {
+		*g = Some(msg.to_string());
+	}
+	eprintln!("[xeyo] backend spawn failed: {msg}");
+}
+
+#[tauri::command]
+fn get_backend_error() -> Option<String> {
+	spawn_error_slot().lock().ok().and_then(|g| g.clone())
+}
+
+#[tauri::command]
+fn clear_backend_error() {
+	if let Ok(mut g) = spawn_error_slot().lock() {
+		*g = None;
 	}
 }
 
 fn spawn_python(app: &AppHandle) -> Result<Child, String> {
 	let root = python_root(app);
 	if !root.exists() {
-		return Err(format!("python root not found: {}", root.display()));
+		let msg = format!("python root not found: {}", root.display());
+		record_spawn_error(&msg);
+		return Err(msg);
 	}
 
 	cleanup_stale_backend();
 
-	let py = resolve_python_exe(&root);
+	let py = match resolve_python_exe(&root) {
+		Ok(p) => p,
+		Err(e) => {
+			record_spawn_error(&e);
+			return Err(e);
+		}
+	};
 	let mut cmd = Command::new(&py);
 	cmd.args(["-u", "-m", "server"])
 		.current_dir(&root)
@@ -326,7 +423,9 @@ fn spawn_python(app: &AppHandle) -> Result<Child, String> {
 	}
 
 	let mut child = cmd.spawn().map_err(|e| {
-		format!("spawn python failed ({}): {e}", py.display())
+		let msg = format!("spawn python failed ({}): {e}", py.display());
+		record_spawn_error(&msg);
+		msg
 	})?;
 
 	if let Some(stdout) = child.stdout.take() {
@@ -619,7 +718,9 @@ pub fn run() {
 				git_init,
 				git_clone,
 				list_git_repos,
-				get_backend_port
+				get_backend_port,
+				get_backend_error,
+				clear_backend_error
 			])
 .setup(|app| {
 				// 透明窗口不支持 DWM 阴影（layered 窗口），不再强制开渲染阴影，
@@ -636,10 +737,15 @@ pub fn run() {
 						*app.state::<PythonChild>().0.lock().unwrap() = Some(child);
 						record_spawn(&spawn_mark);
 						if !wait_health(Duration::from_secs(25)) {
-							eprintln!("warning: python health check timed out");
+							record_spawn_error(
+								"后端进程已启动但健康检查超时（25s 内 /health 未就绪）",
+							);
+						} else {
+							clear_backend_error();
 						}
 					}
 					Err(err) => {
+						// spawn_python 内部已记录到 BACKEND_SPAWN_ERROR
 						eprintln!("failed to start python backend: {err}");
 					}
 				}
