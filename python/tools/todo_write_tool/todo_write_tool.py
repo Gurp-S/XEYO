@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from engine.abort import AbortController
@@ -300,15 +301,18 @@ class TodoWriteTool:
 			if "://" in path:
 				continue  # 非磁盘路径（URL 等），无法也不应 stat
 			try:
-				from pathlib import Path
+				# 观测域一致性：核对必须与模型的动作走同一通道。容器路由下用宿主
+				# Path 去看容器内产物，会输出一条引擎自己都证不了的"不存在"。
+				# 不可观测（None）→ 该条不加行（沉默），绝不退化成宿主结果。
+				from tools.exec_channel import stat_path
 
-				full = Path(self._cwd or ".").joinpath(path)
-				if full.exists() and full.is_file():
-					try:
-						size = full.stat().st_size
-						rows.append(f"[引擎核对] 产物 {path}: 已存在（{size} B）")
-					except OSError:
-						rows.append(f"[引擎核对] 产物 {path}: 已存在")
+				p = Path(self._cwd or ".").joinpath(path)
+				probe = stat_path(str(p))
+				if probe is None:
+					continue
+				is_file, size = probe
+				if is_file:
+					rows.append(f"[引擎核对] 产物 {path}: 已存在（{size} B）")
 				else:
 					rows.append(f"[引擎核对] 产物 {path}: 磁盘上不存在（该项已标 completed）")
 			except Exception:  # noqa: BLE001 — fail-open

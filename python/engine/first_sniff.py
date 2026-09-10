@@ -57,34 +57,24 @@ def build_first_sniff_text(cwd: str) -> str:
 	"""
 	if not cwd or not isinstance(cwd, str):
 		return ""
+	# 观测域一致性：嗅探必须与模型的动作走同一通道（宿主 / 容器路由）。容器路由下
+	# 宿主 scratch 是空目录，读它会注入一份模型看不到的清单——那是不该说的话。
+	# 不可观测（None）→ 不注入（沉默），而不是退化成宿主结果。
 	try:
-		root = os.path.abspath(cwd)
-		if not os.path.isdir(root):
-			return ""
-		entries: list[tuple[str, str]] = []
-		with os.scandir(root) as it:
-			for entry in it:
-				try:
-					if entry.is_dir(follow_symlinks=False):
-						kind = "d"
-					elif entry.is_file(follow_symlinks=False):
-						kind = "f"
-					elif entry.is_symlink():
-						kind = "l"
-					else:
-						kind = "?"
-				except OSError:
-					kind = "?"
-				entries.append((entry.name, kind))
-	except OSError:
+		from tools.exec_channel import model_workspace
+
+		display, entries = model_workspace(cwd)
+	except Exception:  # noqa: BLE001 — 观测失败静默，不影响主路径
+		return ""
+	if entries is None:
 		return ""
 	if not entries:
-		return f"cwd: {root}\n(空目录)"
+		return f"cwd: {display}\n(空目录)" if display else ""
 
 	# 目录优先 + 名字排序（确定性输出，便于缓存/回归）。
 	entries.sort(key=lambda t: (t[1] != "d", t[0].lower()))
 
-	lines: list[str] = [f"cwd: {root}"]
+	lines: list[str] = [f"cwd: {display}"]
 	chars = len(lines[0])
 	count = 0
 	truncated = 0
