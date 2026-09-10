@@ -1,5 +1,6 @@
-import {memo, useEffect, useState} from 'react';
+import {memo, useEffect, useRef, useState} from 'react';
 import {Loader2, QrCode, Smartphone, X} from 'lucide-react';
+import {useModalA11y} from '@/hooks/useModalA11y';
 import {usePresence} from '@/hooks/usePresence';
 import {cn} from '@/lib/utils';
 import {remoteQrUrl, useRemoteStore} from '@/stores/remoteStore';
@@ -61,6 +62,16 @@ const RemoteQrPanelBody = memo(function RemoteQrPanelBody({
 	const remoteChannel = useSettingsStore(s => s.remoteChannel);
 	const ilink = remoteChannel === 'ilink';
 
+	// Body 的挂载期 == 弹层存在期，故 open 恒真；Esc / 背景隔离 / 焦点陷阱
+	// 由基座统一接管（此前本弹层既无 Esc 也无焦点陷阱）。
+	const rootRef = useRef<HTMLDivElement>(null);
+	useModalA11y({
+		open: true,
+		rootRef,
+		escId: 'remote-qr',
+		onEscape: () => void stopRemote(),
+	});
+
 	const title =
 		state === 'scanned'
 			? '请在手机上确认'
@@ -79,6 +90,7 @@ const RemoteQrPanelBody = memo(function RemoteQrPanelBody({
 
 	return (
 		<div
+			ref={rootRef}
 			className={cn(
 				'xy-modal-backdrop pointer-events-none fixed inset-0 z-[100] flex items-center justify-center p-4',
 				shown ? 'opacity-100' : 'opacity-0',
@@ -118,8 +130,8 @@ const RemoteQrPanelBody = memo(function RemoteQrPanelBody({
 					<button
 						type="button"
 						onClick={() => void stopRemote()}
+						aria-label="关闭"
 						className="xy-icon-btn shrink-0 rounded-xl p-1.5 text-mute hover:bg-paper-deep hover:text-ink"
-						
 					>
 						<X className="h-4 w-4" />
 					</button>

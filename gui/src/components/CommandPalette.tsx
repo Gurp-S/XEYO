@@ -31,6 +31,7 @@ import {pickFolder} from '@/lib/openFolder';
 import {formatRelativeShort} from '@/lib/time';
 import {toast} from '@/lib/toast';
 import {cn} from '@/lib/utils';
+import {useModalA11y} from '@/hooks/useModalA11y';
 import {usePresence} from '@/hooks/usePresence';
 import {slashCommands, type SlashCommand} from '@/generated/slashManifest';
 import {useChatStore} from '@/stores/chatStore';
@@ -160,6 +161,18 @@ export function CommandPalette() {
 	const close = useCallback(() => {
 		closePalette();
 	}, [closePalette]);
+
+	// 可达性基座：焦点陷阱 + 关闭后焦点归还 + 背景 inert。
+	// Esc 不在此接管——本组件已有 pushEscLayer('command-palette') 一处，
+	// 再传 escId 会推入同 id 的第二层（pushEscLayer 按 id 去重，净效果是
+	// 卸载顺序变成两个 cleanup 相互抵消，属于自找的时序风险）。
+	// 陷阱与既有 Tab 语义兼容：面板把 Tab 用于切换过滤器，而陷阱仅在焦点
+	// 位于首/末元素时回卷（回卷目标恰是输入框），中部按键一律放行。
+	const a11yRootRef = useRef<HTMLDivElement>(null);
+	useModalA11y({
+		open: open && mounted,
+		rootRef: a11yRootRef,
+	});
 
 	const runAndClose = useCallback(
 		async (fn: () => void | Promise<void>) => {
@@ -716,6 +729,7 @@ export function CommandPalette() {
 
 	return createPortal(
 		<div
+			ref={a11yRootRef}
 			className={cn(
 				'fixed inset-0 z-[9999] flex items-start justify-center bg-black/45 px-4 pt-[12vh] backdrop-blur-[3px]',
 				visible

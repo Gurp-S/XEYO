@@ -20,6 +20,8 @@ import {popEscLayer, pushEscLayer} from '@/lib/escStack';
 import {highlightLangForName, isMarkdownName} from '@/lib/fileKind';
 import {gitFileDiff, statWorkspaceFile} from '@/lib/api';
 import {applyMdFormat, type MdFormatKind} from '@/lib/mdFormat';
+import {promptDialog} from '@/lib/inlineDialog';
+import {toast} from '@/lib/toast';
 import {cn} from '@/lib/utils';
 import {joinWorkspacePath} from '@/lib/workspaceOpen';
 import {sessionStreamActive} from '@/lib/sessionStreams';
@@ -456,7 +458,8 @@ export const FilePreview = memo(function FilePreview() {
 				// 403 通常是 workspace_fs 直写通道未开启（默认关闭，属安全默认值）。
 				// 给出可执行的说明，而不是把后端原文直接抛给用户。
 				const msg = err instanceof Error ? err.message : String(err);
-				window.alert(
+				// 原生 window.alert 阻塞主线程且与全局浮层语言脱节；改走 ToastHost。
+				toast.error(
 					msg.includes('XEYO_WORKSPACE_FS_WRITABLE')
 						? '当前未开启编辑器直写保存。如需在预览面板直接保存文件，' +
 								'请设置环境变量 XEYO_WORKSPACE_FS_WRITABLE=1 后重启应用；' +
@@ -618,28 +621,37 @@ export const FilePreview = memo(function FilePreview() {
 				return;
 			}
 			if (truncated) {
-				window.alert('文件过长，无法在预览里直接编辑。');
+				toast.warn('文件过长，无法在预览里直接编辑。');
 				return;
 			}
-			let href: string | undefined;
-			if (kind === 'link') {
-				const next = window.prompt('链接地址', 'https://');
+
+			const apply = (href?: string) => {
+				const fromPreview = mdEditRef.current?.flush() ?? draftRef.current;
+				const next = applyMdFormat(fromPreview, cur.text, kind, href);
+				if (!next) {
+					toast.warn('选区无法对应到 Markdown 源码，请改用源码视图再试。');
+					return;
+				}
+				onDraftChange(next);
+				setMdRevision(n => n + 1);
+				void persist(next);
+				window.getSelection()?.removeAllRanges();
+				setPick(null);
+			};
+
+			// 非链接格式保持原同步路径（行为逐字不变）。
+			// 链接需先取地址：原先用阻塞式 window.prompt，会冻住主线程且与应用浮层
+			// 视觉脱节，改为统一的 promptDialog（原生 <dialog>，自带焦点陷阱与 Esc）。
+			if (kind !== 'link') {
+				apply();
+				return;
+			}
+			void promptDialog({title: '链接地址', initial: 'https://'}).then(next => {
 				if (next == null) {
 					return;
 				}
-				href = next;
-			}
-			const fromPreview = mdEditRef.current?.flush() ?? draftRef.current;
-			const next = applyMdFormat(fromPreview, cur.text, kind, href);
-			if (!next) {
-				window.alert('选区无法对应到 Markdown 源码，请改用源码视图再试。');
-				return;
-			}
-			onDraftChange(next);
-			setMdRevision(n => n + 1);
-			void persist(next);
-			window.getSelection()?.removeAllRanges();
-			setPick(null);
+				apply(next);
+			});
 		},
 		[doc, onDraftChange, persist, truncated],
 	);

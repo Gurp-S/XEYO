@@ -4,6 +4,8 @@
  * 视觉与现有浮层同语言：glass-strong 表面 + line 描边 + 14px 圆角 + 浮层级阴影。
  */
 
+import {cssDurationMs} from './motionDuration';
+
 export interface ConfirmDialogOptions {
 	title: string;
 	body?: string;
@@ -51,6 +53,25 @@ dialog.xy-inline-dialog::backdrop {
   box-shadow:
     0 0 0 1px rgb(31 41 55 / 0.05),
     0 16px 40px rgb(31 41 55 / 0.16);
+  transition:
+    opacity var(--duration-fast, 140ms) var(--ease-out-soft),
+    transform var(--duration-fast, 140ms) var(--ease-out-soft);
+}
+/* 退出动画：与入场 .anim-pop 镜像对称。animation 必须置 none——
+   .anim-pop 的 both 填充会持续压住 opacity/transform，过渡无从生效。 */
+.xy-id-card.xy-id-closing {
+  animation: none;
+  opacity: 0;
+  transform: scale(0.98);
+  pointer-events: none;
+}
+html[data-smoothness="off"] .xy-id-card.xy-id-closing {
+  transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .xy-id-card.xy-id-closing {
+    transition: none;
+  }
 }
 .xy-id-title {
   margin: 0;
@@ -173,6 +194,23 @@ function showModal(dlg: HTMLDialogElement) {
 	dlg.showModal();
 }
 
+/**
+ * 关闭并移除：先播退出过渡，再 close + remove。
+ * 原先 finish() 直接 close+remove，弹窗瞬消，是全 GUI 唯一无退场动画的浮层，
+ * 与入场 .anim-pop 不对称。Promise 仍同步 resolve，调用方无需等待动画。
+ */
+function dismissCard(dlg: HTMLDialogElement, card: HTMLElement) {
+	card.classList.add('xy-id-closing');
+	window.setTimeout(() => {
+		try {
+			dlg.close();
+		} catch {
+			/* 已关闭 */
+		}
+		dlg.remove();
+	}, cssDurationMs('fast'));
+}
+
 /** Esc 走原生 cancel 事件。 */
 function bindCancel(dlg: HTMLDialogElement, onCancel: () => void) {
 	dlg.addEventListener('cancel', e => {
@@ -206,12 +244,7 @@ export function confirmDialog(o: ConfirmDialogOptions): Promise<boolean> {
 				return;
 			}
 			settled = true;
-			try {
-				dlg.close();
-			} catch {
-				/* 已关闭 */
-			}
-			dlg.remove(); // resolve 后必须移除，防泄漏
+			dismissCard(dlg, card); // 过渡结束即 close+remove，仍不移除泄漏
 			resolve(v);
 		};
 		cancel.addEventListener('click', () => finish(false));
@@ -246,12 +279,7 @@ export function promptDialog(o: PromptDialogOptions): Promise<string | null> {
 				return;
 			}
 			settled = true;
-			try {
-				dlg.close();
-			} catch {
-				/* 已关闭 */
-			}
-			dlg.remove();
+			dismissCard(dlg, card);
 			resolve(v);
 		};
 		const confirm = () => {

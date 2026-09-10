@@ -38,10 +38,12 @@ export async function pickFolder(title = '打开文件夹'): Promise<string | nu
 		return null;
 	}
 
-	const typed = window.prompt(
-		'输入要打开的文件夹绝对路径（浏览器模式无原生选夹）',
-		'',
-	);
+	// 原生 window.prompt 阻塞主线程、样式与应用浮层脱节；改用统一弹窗。
+	const {promptDialog} = await import('@/lib/inlineDialog');
+	const typed = await promptDialog({
+		title: '输入要打开的文件夹绝对路径（浏览器模式无原生选夹）',
+		placeholder: '例如 D:\\project',
+	});
 	if (typed === null) {
 		return null;
 	}
