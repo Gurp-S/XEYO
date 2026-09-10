@@ -443,7 +443,9 @@ async def test_bash_bridge_registry_backed(monkeypatch: pytest.MonkeyPatch) -> N
 	from engine.abort import AbortController
 
 	tool = BashTool(cwd=".")
-	tool.check_permissions = lambda inp, context=None: True  # type: ignore[method-assign]
+	# 桩需对齐真实签名 ``check_permissions(inp, context=None, *, cwd=None)``
+	# （bash_tool.py:950 以 cwd=work 调用；仅回 True 时不必读 cwd）
+	tool.check_permissions = lambda inp, context=None, **kw: True  # type: ignore[method-assign]
 	out = await tool.execute(
 		{**_bash_input(), "description": "全量回归"}, AbortController()
 	)
@@ -465,13 +467,18 @@ async def test_bash_bridge_falls_back_to_legacy(monkeypatch: pytest.MonkeyPatch)
 	from engine.abort import AbortController
 
 	tool = BashTool(cwd=".")
-	tool.check_permissions = lambda inp, context=None: True  # type: ignore[method-assign]
+	tool.check_permissions = lambda inp, context=None, **kw: True  # type: ignore[method-assign]
 	out = await tool.execute(_bash_input(), AbortController())
 	assert "Command running in background with ID:" in out.content, "旧式文案保留"
 
 
 @pytest.mark.asyncio
 async def test_bash_bridge_capacity_error(monkeypatch: pytest.MonkeyPatch) -> None:
+	"""registry 容量满 → 记录 warning 并**回退旧式日志后台**（不报错给模型）。
+
+	bash_tool.py:602-622 语义：registry 可达但登记失败属引擎内部可自愈情形，
+	执行层静默降级（旧式日志文件后台仍能跑完并留日志），不把容量信息推给模型。
+	"""
 	monkeypatch.setattr(
 		"tools.bash_tool.bash_tool.start_registry_job",
 		lambda **kw: ("", "background job capacity full (10/10) for this session; use job_kill to free slots, then retry"),
@@ -484,9 +491,10 @@ async def test_bash_bridge_capacity_error(monkeypatch: pytest.MonkeyPatch) -> No
 	from engine.abort import AbortController
 
 	tool = BashTool(cwd=".")
-	tool.check_permissions = lambda inp, context=None: True  # type: ignore[method-assign]
+	tool.check_permissions = lambda inp, context=None, **kw: True  # type: ignore[method-assign]
 	out = await tool.execute(_bash_input(), AbortController())
-	assert out.is_error is True and "job_kill" in out.content
+	assert out.is_error is False, "容量满属引擎可自愈，不向模型报错"
+	assert "Command running in background with ID:" in out.content, "已回退旧式日志后台"
 
 
 # ---------------------------------------------------------------------------
@@ -508,7 +516,7 @@ async def test_bash_permission_denied_produces_no_job(monkeypatch: pytest.Monkey
 	from engine.abort import AbortController
 
 	tool = BashTool(cwd=".")
-	tool.check_permissions = lambda inp, context=None: False  # type: ignore[method-assign]
+	tool.check_permissions = lambda inp, context=None, **kw: False  # type: ignore[method-assign]
 	out = await tool.execute(_bash_input(), AbortController())
 	assert out.is_error is True and "permission denied" in out.content
 	assert reg.snapshot_list(SID) == [], "权限拒绝不产生 job"
@@ -579,6 +587,11 @@ def _joined_user_texts(msgs: list[dict]) -> str:
 
 
 def test_pending_jobs_block_strong_hung(monkeypatch: pytest.MonkeyPatch) -> None:
+	"""非 docker 路径：块 = 块头 + digest 事实（id/exit_code/命令）。
+
+	2026-09-09 起刻意去掉 `job_output(...)` 收取提示（叙事/编排非状态，见
+	pre_llm_inject.py:330-336）；该提示仅在 docker 分支保留。
+	"""
 	from permissions.policy import set_pending_jobs_digest
 
 	set_pending_jobs_digest("- bash-3 [bash] failed — exit code 1 — 全量回归")
@@ -589,7 +602,7 @@ def test_pending_jobs_block_strong_hung(monkeypatch: pytest.MonkeyPatch) -> None
 		)
 		blob = _joined_user_texts(out)
 		assert "# Background jobs（background only）" in blob
-		assert "bash-3" in blob and "job_output" in blob
+		assert "bash-3" in blob and "exit code 1" in blob, "只报 job 事实"
 	finally:
 		set_pending_jobs_digest("")
 
@@ -603,3 +616,104 @@ def test_pending_jobs_block_absent_without_digest() -> None:
 		projected, InjectContext(cwd="", include_memory_index=False)
 	)
 	assert "# Background jobs" not in _joined_user_texts(out)
+
+
+# ---------------------------------------------------------------------------
+# P0-5：后台 job 物理上限
+# ---------------------------------------------------------------------------
+def test_job_max_timeout_default_is_six_hours() -> None:
+	"""默认上限 6h——足够长（不破坏"后台可长跑"），但确实存在。"""
+	from server.job_registry import JOB_NO_TIMEOUT_MS, _job_max_timeout_ms
+
+	assert JOB_NO_TIMEOUT_MS == 6 * 3600_000
+	monkeypatch_env = None
+	assert _job_max_timeout_ms() == 6 * 3600_000
+
+
+def test_job_max_timeout_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
+	from server.job_registry import _job_max_timeout_ms
+
+	monkeypatch.setenv("XEYO_JOB_MAX_TIMEOUT_MS", "120000")
+	assert _job_max_timeout_ms() == 120_000
+
+
+@pytest.mark.parametrize("bad", ["", "abc", "-1", "0", "1.5"])
+def test_job_max_timeout_invalid_falls_back(
+	bad: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""非法值一律回退默认，不得变成"无上限"或"立即超时"。"""
+	from server.job_registry import _job_max_timeout_ms
+
+	monkeypatch.setenv("XEYO_JOB_MAX_TIMEOUT_MS", bad)
+	assert _job_max_timeout_ms() == 6 * 3600_000
+
+
+def test_adopt_bash_producer_kills_on_timeout(
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""超时后 _produce 必须 kill 进程并结算为 failed（而非无限忙等）。
+
+	用一个极短的上限 + 一个不会自己退出的假进程来验证。
+	"""
+	import subprocess
+	import sys as _sys
+	import time as _time
+
+	from server.job_registry import (
+		JobRegistry,
+		STATUS_FAILED,
+	)
+
+	monkeypatch.setenv("XEYO_JOB_MAX_TIMEOUT_MS", "600")
+
+	reg = JobRegistry()
+	# 一个睡眠 30s 的子进程：远超 600ms 上限
+	proc = subprocess.Popen(
+		[_sys.executable, "-c", "import time; time.sleep(30)"],
+		stdout=subprocess.PIPE,
+		stderr=subprocess.STDOUT,
+	)
+
+	class _FakeHandle:
+		def __init__(self, p):
+			self.proc = p
+			self.killed_by_abort = False
+			self.released = False
+
+		def attach_abort(self, ctl):
+			return None
+
+		def release(self):
+			self.released = True
+
+		def kill(self):
+			self.proc.kill()
+
+		def replay_and_attach(self, sink):
+			return ""
+
+	handle = _FakeHandle(proc)
+	try:
+		job_id, err = reg.adopt_bash(
+			handle=handle,
+			command="sleep 30",
+			cwd=".",
+			label="timeout-probe",
+			owner_session_id="s-timeout",
+		)
+		assert job_id, err
+		# 等到结算（上限 600ms + 余量）
+		deadline = _time.monotonic() + 10.0
+		status = None
+		while _time.monotonic() < deadline:
+			snap = reg.snapshot_list("s-timeout")
+			if snap:
+				status = snap[0].get("status")
+				if status in ("failed", "killed", "succeeded"):
+					break
+			_time.sleep(0.1)
+		assert status == STATUS_FAILED
+	finally:
+		if proc.poll() is None:
+			proc.kill()
+		proc.wait(timeout=5)

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import threading
 import time
 from dataclasses import dataclass, field
@@ -34,8 +35,28 @@ MAX_CONSECUTIVE_WAKES = 3
 MAX_CONCURRENT_JOBS_PER_OWNER = 10
 #: ring 缓冲 cap（字符，保尾）。开放问题 #3：先取 12 号 spill 同量级的常数。
 RING_CAP_CHARS = 16_000
-#: 后台命令不适用超时（冻结口径：后台语义）；给 24h 物理上限防僵尸。
-JOB_NO_TIMEOUT_MS = 86_400_000
+#: 后台命令不适用"短超时"（冻结口径：后台语义允许长跑）。
+#: 但必须有**物理上限**：此前取 24h，而 `_produce` 的 `while proc.poll()` 循环
+#: 根本不检查它——等于事实上无上限。runaway job（例如卡在等 stdin）会让该
+#: 忙等线程永远转下去。改为可配置的 6h 上限：足够长，不破坏"后台可长跑"的
+#: 产品承诺，同时挡住真正的僵尸。
+JOB_NO_TIMEOUT_MS = 6 * 3600_000
+
+
+def _job_max_timeout_ms() -> int:
+	"""后台 job 物理上限（毫秒）。`XEYO_JOB_MAX_TIMEOUT_MS` 可覆盖，非法值回退默认。"""
+	raw = os.environ.get("XEYO_JOB_MAX_TIMEOUT_MS", "").strip()
+	if not raw:
+		return JOB_NO_TIMEOUT_MS
+	try:
+		val = int(raw)
+	except ValueError:
+		_logger.warning("XEYO_JOB_MAX_TIMEOUT_MS 不是整数：%r，回退默认", raw)
+		return JOB_NO_TIMEOUT_MS
+	if val <= 0:
+		_logger.warning("XEYO_JOB_MAX_TIMEOUT_MS 必须为正数：%r，回退默认", raw)
+		return JOB_NO_TIMEOUT_MS
+	return val
 #: 唤醒决策防抖（与 41 号同款，给人类消息留让位窗口）。
 _WAKE_DEBOUNCE_S = 2.0
 
@@ -251,7 +272,7 @@ class JobRegistry:
 			result = run_command(
 				command,
 				cwd=cwd,
-				timeout_ms=JOB_NO_TIMEOUT_MS,
+				timeout_ms=_job_max_timeout_ms(),
 				abort=ctl,
 				on_output=push,
 			)
@@ -311,11 +332,25 @@ class JobRegistry:
 			proc = getattr(handle, "proc", None)
 			if proc is None:
 				return STATUS_FAILED, "promoted handle has no process"
+			deadline = time.monotonic() + _job_max_timeout_ms() / 1000.0
+			timed_out = False
 			try:
 				while proc.poll() is None:
+					if time.monotonic() > deadline:
+						timed_out = True
+						try:
+							handle.kill()
+						except Exception:  # noqa: BLE001 — kill 失败仍按超时收尾
+							_logger.warning("job kill on timeout failed", exc_info=True)
+						break
 					time.sleep(0.2)
 			finally:
 				handle.release()  # 等泵收尾 + 关 Job Object（幂等）
+			if timed_out:
+				return (
+					STATUS_FAILED,
+					f"job exceeded max runtime ({_job_max_timeout_ms()}ms)",
+				)
 			if handle.killed_by_abort:
 				return STATUS_KILLED, "killed by job_kill"
 			code = proc.returncode if proc.returncode is not None else 1
