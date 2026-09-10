@@ -364,6 +364,13 @@ PROVIDER_PRESETS: dict[str, dict[str, str]] = {
 		"base_url": "https://api.openai.com/v1",
 		"label": "OpenAI",
 	},
+	# Claude：**不走本兼容客户端**，由 model/anthropic.py 讲 Messages API。
+	# 此条目只作「支持的 provider 名单」与 base_url 解析的登记处
+	# （server/deps._resolve_base_url 按 provider 取 preset 默认地址）。
+	"anthropic": {
+		"base_url": "https://api.anthropic.com",
+		"label": "Anthropic",
+	},
 	# 本地推理（llama.cpp 等）；服务端需 XEYO_ALLOW_LOCAL_MODEL=1 才放行。
 	"local": {
 		"base_url": "http://localhost:8080/v1",

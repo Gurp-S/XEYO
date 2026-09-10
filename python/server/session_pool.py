@@ -434,6 +434,22 @@ class SessionPool:
 
 			model: Any = FakeModelClient()
 			reg.register(EchoTool())
+		elif cfg.provider == "anthropic":
+			# Claude 思考态是 content block + 不透明签名；OpenAI 兼容层没有承载
+			# 签名的字段 → 直接讲 Messages API（见 model/anthropic.py docstring）。
+			from model.anthropic import AnthropicModelClient
+
+			model = AnthropicModelClient(
+				api_key=cfg.api_key,
+				base_url=cfg.base_url,
+				model=cfg.model,
+				thinking=cfg.thinking,
+				reasoning_effort=cfg.reasoning_effort,
+				max_tokens=cfg.max_tokens,
+				session_id=session_id or "",
+			)
+			if cfg.context_limit is not None and cfg.context_limit > 0:
+				model.context_limit = cfg.context_limit
 		else:
 			model = OpenAICompatClient(
 				api_key=cfg.api_key,

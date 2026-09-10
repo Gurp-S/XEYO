@@ -13,7 +13,7 @@ export type {ThemeId} from '@/theme/catalog';
 import {isTestProvider} from '@/lib/localTestGate';
 
 // 'local'/'fake' 仅本地测试 provider（localTestGate 管理，生产构建不可达）。
-export type ProviderId = 'deepseek' | 'openai' | 'local' | 'fake';
+export type ProviderId = 'deepseek' | 'openai' | 'anthropic' | 'local' | 'fake';
 export type RemoteChannel = 'filehelper' | 'ilink';
 export type PermissionMode = 'always' | 'risk' | 'never';
 export type OutputMode = 'lite' | 'full' | 'ultra';
@@ -507,7 +507,12 @@ function newProfileId(): string {
 
 export function isProviderId(v: unknown): v is ProviderId {
 	// 'local'/'fake' 仅为本地测试 provider，受 localTestGate 管理（T25c）。
-	return v === 'deepseek' || v === 'openai' || isTestProvider(v as string);
+	return (
+		v === 'deepseek' ||
+		v === 'openai' ||
+		v === 'anthropic' ||
+		isTestProvider(v as string)
+	);
 }
 
 export function keyFingerprint(apiKey: string): string {
@@ -1049,6 +1054,8 @@ type SettingsState = Settings & {
 export const PROVIDER_DEFAULT_URL: Record<ProviderId, string> = {
 	deepseek: 'https://api.deepseek.com/v1',
 	openai: 'https://api.openai.com/v1',
+	// Claude 走 Messages API 原生适配器（思考态带签名，兼容层承载不了）。
+	anthropic: 'https://api.anthropic.com',
 	// 本地 llama.cpp（仅 localTestGate 开启时可选）。
 	local: 'http://localhost:8080/v1',
 	// HTTP 全栈测试假模型（仅 localTestGate 开启时可选）。
@@ -1058,6 +1065,7 @@ export const PROVIDER_DEFAULT_URL: Record<ProviderId, string> = {
 export const PROVIDER_LABEL: Record<ProviderId, string> = {
 	deepseek: 'DeepSeek',
 	openai: 'OpenAI',
+	anthropic: 'Anthropic',
 	// 仅 localTestGate 开启时可选（T25c）。
 	local: '本地模型',
 	fake: 'Fake（测试）',

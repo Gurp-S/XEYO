@@ -1257,6 +1257,33 @@ def build_default_engine(
         model_client: ModelClient = FakeModelClient()
         resolved_provider = "fake"
         resolved_model_name = resolved_model_name or "fake"
+    elif backend == "anthropic":
+        # Anthropic 走 Messages API 原生客户端：Claude 的思考态是 content block
+        # + 不透明签名，OpenAI 兼容层没有承载签名的字段，必然丢签名导致下一轮
+        # 被拒。故不做兼容层，直接原生。
+        from model.anthropic import AnthropicModelClient
+
+        key = (api_key or "").strip() or (
+            os.environ.get("ANTHROPIC_API_KEY")
+            or os.environ.get("XEYO_MODEL_API_KEY")
+            or ""
+        ).strip()
+        if not key:
+            raise ValueError("api key required for provider anthropic")
+        url = (base_url or "").strip() or None
+        resolved_model_name = (
+            resolved_model_name
+            or os.environ.get("XEYO_MODEL_NAME")
+            or os.environ.get("ANTHROPIC_MODEL")
+            or "claude-sonnet-4-5"
+        )
+        model_client = AnthropicModelClient(
+            api_key=key,
+            base_url=url,
+            model=resolved_model_name,
+            session_id=session_id or "",
+        )
+        resolved_provider = "anthropic"
     elif backend in ("openai", "local") or (
         api_key and backend in ("deepseek", "openai", "local")
     ):

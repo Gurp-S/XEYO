@@ -15,7 +15,7 @@ else:  # pragma: no cover
 
 from session.workspace_path import xeyo_data_root
 
-VALID_PROVIDERS = frozenset({"deepseek", "openai", "local", "fake"})
+VALID_PROVIDERS = frozenset({"deepseek", "openai", "anthropic", "local", "fake"})
 VALID_PERMISSION_MODES = frozenset({"always", "risk", "never", "allow"})
 
 

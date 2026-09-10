@@ -280,6 +280,11 @@ export function SettingsModal({open, onClose}: Props) {
 			if (u.includes('deepseek')) {
 				return 'deepseek';
 			}
+			// Anthropic 走 Messages API 原生适配器，协议与 OpenAI 不同，
+			// 必须按地址识别出来，否则请求体会被按 chat/completions 组装。
+			if (u.includes('anthropic') || u.includes('claude')) {
+				return 'anthropic';
+			}
 			if (u.includes('openai')) {
 				return 'openai';
 			}
