@@ -1,10 +1,10 @@
 /* auto-split from index.css L1153-1354 — Tauri window, scrollbar, hover-scroll, scroll-fade; do not edit order relative to styles/entry.css */
 /* ============================================================
-   Tauri 閫忔槑鍦嗚绐楀彛锛堢湡姝ｈ鍑哄绾稿洓瑙掞級锟?
-   - html/body 姘歌繙閫忔槑锛屽渾瑙掑姬绾垮鐩存帴閫忓嚭妗岄潰澹佺焊锟?
-   - #root 锟?14px 鍦嗚绾搁潰闈㈡澘 + 1px var(--xy-line) 鎻忚竟锟?
-     overflow:hidden + contain:paint 瑁佸渾瑙掞拷?
-   娴忚鍣紙锟?Tauri锛変繚鎸佷笉閫忔槑绾搁潰銆佷笉濂楀渾瑙掞拷?
+   Tauri 透明圆角窗口（真正裁出纸面四角）
+   - html/body 永远透明，圆角弧线外直接透出桌面壁纸
+   - #root 带 14px 圆角纸面面板 + 1px var(--xy-line) 描边
+     overflow:hidden + contain:paint 裁圆角
+   浏览器（非 Tauri）保持不透明纸面、不套圆角
    ============================================================ */
 html.tauri,
 html.tauri body {
@@ -15,7 +15,7 @@ html.tauri #root {
   border-radius: 14px;
   border: 1px solid color-mix(in oklch, var(--xy-frame) 70%, transparent);
   overflow: hidden;
-  /* 锟?fixed/portal 鍏ㄥ睆娴眰涔熻杩涘渾瑙掑唴 */
+  /* 给 fixed/portal 全屏浮层也裁进圆角内 */
   contain: paint;
   /* 亮色：近乎平整的冷色底；暗色保留柔和深度 */
   background:
@@ -34,7 +34,7 @@ html[data-scheme="dark"].tauri #root {
     var(--color-paper);
 }
 
-/* 鏈€澶у寲鏃剁獥鍙ｉ《婊″睆骞曪細鍘诲渾锟?杈规锛岀敤绾歌壊濉弧锛岄伩鍏嶉湶澹佺焊鍥涜 */
+/* 最大化时窗口顶满屏幕：去圆角与边框，用纸色填满，避免露壁纸四角 */
 html.tauri[data-window-maximized="1"] body {
   background: var(--color-paper);
 }
@@ -45,10 +45,10 @@ html.tauri[data-window-maximized="1"] #root {
 }
 
 /* ============================================================
-   鐜颁唬鍖栨粴鍔ㄦ潯锛圵ebView2/Chromium锟?
-   - 鐗规剰涓嶈缃爣锟?scrollbar-width/scrollbar-color锛欳hromium 涓€鏃﹁锟?
-     灏辫蛋鏍囧噯娓叉煋锛屼細蹇界暐 ::-webkit-scrollbar*锛堝鑷寸澶撮噸鐜帮級锟?
-   - 鍏ㄩ儴锟?::-webkit-scrollbar锛氬幓绠ご + 绾ょ粏鑳跺泭婊戝潡 + 閫忔槑杞ㄩ亾锟?
+   现代化滚动条（WebView2/Chromium）
+   - 特意不设置标准 scrollbar-width/scrollbar-color：Chromium 一旦设置
+     就走标准渲染，会忽略 ::-webkit-scrollbar*（导致箭头重现）
+   - 全部用 ::-webkit-scrollbar：去箭头 + 纤细胶囊滑块 + 透明轨道
    ============================================================ */
 
 *::-webkit-scrollbar {
@@ -83,7 +83,7 @@ html.tauri[data-window-maximized="1"] #root {
   background: transparent;
 }
 
-/* 杞ㄩ亾瀹藉害濮嬬粓淇濈暀锛屽彧鍒囨崲婊戝潡閫忔槑搴︼紝閬垮厤鍑虹幇/娑堝け鏃舵妸鍐呭鎸ゅ姩 */
+/* 轨道宽度始终保留，只切换滑块透明度，避免出现/消失时把内容挤动 */
 .xy-hover-scroll {
   scrollbar-gutter: stable;
 }
@@ -121,7 +121,7 @@ html.tauri[data-window-maximized="1"] #root {
   height: 0;
 }
 
-/* 婊氬姩杈圭紭閫忔槑搴︽笎闅愩€俶ask 蹇呴』鐢ㄧ櫧锛堜寒锟?alpha 閮借〃绀哄彲瑙侊級锛涢粦浼氭妸鏁存爮鐩栨病锟?*/
+/* 滚动边缘透明度渐隐。mask 必须用白（亮/暗 alpha 都表示可见）；黑会把整栏盖没 */
 .xy-scroll-fade {
   --xy-fade-top: 0px;
   --xy-fade-bottom: 0px;

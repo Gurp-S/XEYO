@@ -1,7 +1,7 @@
 /* auto-split from index.css L3717-4139 — Ask/Plan/Todo dock panels above composer; do not edit order relative to styles/entry.css */
-/* ===== 鍔╂墜鎻愰棶璐磋緭鍏ユ闈㈡澘锛堝彉锟?C锛氬彲鎶樺彔 Todo 寮忥紝搴曢儴涓庡彂閫佹涓€浣擄級=====
-   琛ㄩ潰锟?Todo 闈㈡澘鍚屾簮锛涘簳閮ㄥ彇娑堝渾瑙掍笌涓嬭竟妗嗭紝涓庝笅锟?Composer 铻嶄负鍙屽眰琛ㄩ潰锟?
-   AskUserDialog 锟?PermissionDialog 鍏辩敤姝よ〃闈綋绯伙拷?*/
+/* ===== 助手提问贴输入框面板（变体 C：可折叠 Todo 式，底部与发送框一体）=====
+   表面与 Todo 面板同源；底部取消圆角与下边框，与下方 Composer 融为双层表面。
+   AskUserDialog 与 PermissionDialog 共用此表面体系。 */
 .xy-panel-ask {
   border-radius: 14px 14px 0 0;
   background: var(--xy-panel-ask-bg);
@@ -30,7 +30,7 @@
   }
 }
 
-/* 澶撮儴锛氬彲鎶樺彔琛岋紙鐐瑰嚮鏁磋鏀惰捣/灞曞紑锟?*/
+/* 头部：可折叠行（点击整行收起/展开） */
 .xy-panel-ask-head {
   display: flex;
   align-items: center;
@@ -145,7 +145,7 @@ html[data-smoothness="off"] .xy-panel-collapse {
   margin-bottom: 10px;
 }
 
-/* 閫夐」锛氱珫鍚戞暣琛屾寜锟?*/
+/* 选项：竖向整行按钮 */
 .xy-panel-ask-opts {
   display: flex;
   flex-direction: column;
@@ -221,7 +221,7 @@ html[data-smoothness="off"] .xy-panel-collapse {
   cursor: not-allowed;
 }
 
-/* 鍛戒护鍐呭鍖猴紙瀹℃壒寮圭獥锛夛細搴曢儴娓愬寲 + 灞曞紑 */
+/* 命令内容区（审批弹窗）：底部渐化 + 展开 */
 .xy-panel-ask-cmd-wrap {
   position: relative;
 }
@@ -255,7 +255,7 @@ html[data-smoothness="off"] .xy-panel-collapse {
   opacity: 1;
 }
 
-/* 瀹℃壒鍔ㄤ綔锛氭嫆锟?/ 鍏佽 */
+/* 审批动作：拒绝 / 允许 */
 .xy-panel-ask-actions {
   display: flex;
   justify-content: flex-end;

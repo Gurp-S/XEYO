@@ -97,7 +97,7 @@ html[data-scheme="dark"] .xy-composer-shell textarea::placeholder {
   background: var(--xy-ink);
 }
 
-/* Light surface for long markdown blocks (tables / code) 锟?not a chat bubble */
+/* Light surface for long markdown blocks (tables / code) —— not a chat bubble */
 .xy-md-surface {
   background: rgb(255 255 255 / 0.34);
 }
@@ -117,7 +117,7 @@ html[data-scheme="dark"] .xy-stream-md .xy-code-surface {
   background: rgb(17 17 18 / 0.18);
 }
 
-/* 娴佸紡 鈫?闈欐€佸垏鎹㈡椂琛ㄩ潰搴曡壊娓愬彉锛岄伩鍏?settle 鐬棿鏁村潡闂彉銆?*/
+/* 流式 → 静态切换时表面底色渐变，避免 settle 瞬间整块闪变。 */
 .xy-md-surface,
 .xy-code-surface {
   transition:
@@ -262,7 +262,7 @@ html[data-scheme="dark"] .xy-code-surface {
   cursor: default;
 }
 
-/* 鏂囦欢棰勮婧愮爜锛氭棤鍗＄墖杈规锛岃鍙蜂笌涓婚 mute 瀵归綈 */
+/* 文件预览源码：无卡片边框，行号与主题 mute 对齐 */
 .xy-code-file .linenumber {
   border: none !important;
   background: transparent !important;
@@ -286,7 +286,7 @@ html[data-scheme="dark"] .xy-code-fade {
 
 /*
   User bubble chip: fill/border from .xy-user-bubble (same tokens as composer).
-  Stuck float is the same chip in an overlay pin 锟?no wallpaper clone underlay.
+  Stuck float is the same chip in an overlay pin —— no wallpaper clone underlay.
 */
 .xy-user-prompt {
   position: relative;
@@ -488,7 +488,7 @@ html[data-scheme="dark"] .xy-user-prompt {
 }
 
 /* 原生 sticky push：下一个分区的 sticky 会把本区上推。
-   Round spacing is on .xy-round-transcript-layer (pb-2.5), not margin-top here 鈥?   margin on sticky leaves a gap when bubbles stack while pushed.
+   Round spacing is on .xy-round-transcript-layer (pb-2.5), not margin-top here ——   margin on sticky leaves a gap when bubbles stack while pushed.
    总开关（设置→气泡吸顶，默认关）：仅 html[data-xy-sticky-bubbles="on"] 启用原生 sticky，
    否则 position:static——气泡随滚动自然离开，杜绝「JS 不吸附但 CSS 仍吸住」的遮挡。
    未设置 data 时按默认关（static）。 */
@@ -553,11 +553,11 @@ body,
   max-height: 100%;
   overflow: hidden;
   overscroll-behavior: none;
-  /* Opaque base 锟?never see desktop through the window (browser mode) */
+  /* Opaque base —— never see desktop through the window (browser mode) */
   background: var(--color-paper);
 }
 
-/* mermaid 瑙ｆ瀽澶辫触鏃朵細鎶婇敊璇浘鎸傚埌 body锛屾拺鍑烘暣绐楁粴鍔ㄦ潯 */
+/* mermaid 解析失败时会把错误图挂到 body，撑出整窗滚动条 */
 body > [id^="dxy-mmd-"],
 body > [id^="xy-mmd-"] {
   display: none !important;
@@ -579,7 +579,7 @@ body {
 }
 
 html[data-scheme="dark"] body {
-  /* Windows 涓婂幓鎺夊己锟?grayscale AA锛孋learType 涓嬬櫧瀛楁洿瀹烇紝娴呰壊浠嶇敤 antialiased */
+  /* Windows 上去掉强 grayscale AA，ClearType 下白字更实，浅色仍用 antialiased */
   -webkit-font-smoothing: auto;
   background:
     radial-gradient(

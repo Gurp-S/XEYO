@@ -457,7 +457,7 @@ html[data-smoothness="off"] .xy-dock-presence > .xy-dock-presence-inner {
     color 90ms ease;
 }
 
-/* Activity step list: no nested scroll 鈥?chat scroller owns overflow */
+/* Activity step list: no nested scroll —— chat scroller owns overflow */
 .xy-tool-scroll {
   overflow: visible;
   max-height: none;
@@ -476,4 +476,4 @@ html[data-smoothness="off"] .xy-dock-presence > .xy-dock-presence-inner {
   color: var(--xy-ink-soft);
 }
 
-/* 娴眰锟?2px 妯＄硦銆侀珮涓嶉€忔槑搴︼紝閬垮厤瀛楀彔鍦ㄥ绾镐笂 */
+/* 浮层 2px 模糊、高不透明度，避免字叠在纸面上 */

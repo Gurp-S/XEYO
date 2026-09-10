@@ -12,7 +12,7 @@
   padding: 8px 0 8px 14px;
   transform: translateY(-50%);
   pointer-events: auto;
-  /* Ghost default 锟?rises a bit on hover intent */
+  /* Ghost default —— rises a bit on hover intent */
   opacity: 0.42;
   transition: opacity 180ms ease;
 }

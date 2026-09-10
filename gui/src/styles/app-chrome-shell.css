@@ -4,7 +4,7 @@
   contain: paint;
 }
 
-/* 鍙充晶/澶撮儴鎻愮ず涓嶅鍒跺绾革紝涓嶅厑璁稿簳灞傛枃瀛楅€忚繃瀹炰綋鎻愮ず闈拷?*/
+/* 右侧/头部提示不复制纸底，不允许底层文字透过实体提示面 */
 .xy-usage-chip {
   transition:
     background-color var(--duration-fast) ease,
@@ -111,7 +111,7 @@ html[data-scheme="dark"] .xy-detail-tooltip-trigger::after {
   }
 }
 
-/* 鐢ㄩ噺鍐呭浠呭仛 opacity/transform 杩囨浮锛涜〃鏍奸珮搴︿粛鐢辨甯稿竷灞€鍐冲畾锟?*/
+/* 用量内容仅做 opacity/transform 过渡；表格高度仍由正常布局决定 */
 .xy-usage-card,
 .xy-usage-row,
 .xy-usage-section {
@@ -231,8 +231,8 @@ html[data-scheme="dark"] .xy-detail-tooltip-trigger::after {
   overflow: hidden;
   min-width: 0;
   flex: 0 0 auto;
-  /* 鍏滃簳闃叉孩鍑猴細闈㈡澘妲斤紙鍚€滄敹璧峰彸杈瑰唴瀹光€濇椂鍙犲姞鐨勬爲瀹斤級涓嶅緱鎶婅亰澶╁尯
-     鏈€灏忓垪锟?xy-pane-row > main 锟?min-width: 180px锛夐《鍑鸿鍙ｏ拷?*/
+  /* 兜底防溢出：面板槽（含「收起右边内容」时叠加的树宽）不得把聊天区
+     最小列（xy-pane-row > main 的 min-width: 180px）顶出视口 */
   max-width: calc(100% - 180px);
   transition:
     width 420ms cubic-bezier(0.16, 1, 0.3, 1) 40ms,
@@ -251,7 +251,7 @@ html[data-scheme="dark"] .xy-detail-tooltip-trigger::after {
     transform 420ms cubic-bezier(0.16, 1, 0.3, 1) 40ms;
 }
 
-/* 璁剧疆閲屽紑鍚€滄瀬骞虫粦鍑忛€熲€濇椂鍒囨崲锟?锟?quintic-out锟?*/
+/* 设置里开启「极平滑减速」时切换为 quintic-out */
 html[data-pane-ease="silky"] .xy-pane-slot {
   transition:
     width 420ms cubic-bezier(0.23, 1, 0.32, 1) 40ms,
@@ -294,7 +294,7 @@ html[data-smoothness="on"] .xy-header-tools-inner {
   transition: transform 300ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-/* 鏍囬闅忓伐鍏风粍涓€璧峰悜鍙虫媺锟?鏀跺洖 */
+/* 标题随工具组一起向右拉 → 收回 */
 html[data-smoothness="on"] .xy-hdr-title {
   transition:
     opacity 300ms cubic-bezier(0.22, 1, 0.36, 1) 40ms,
@@ -461,7 +461,7 @@ html[data-smoothness="on"] .xy-enter-fade {
   }
 }
 
-/* Prism worker HTML 锟?last-good fence, scoped so it does not fight SyntaxHighlighter. */
+/* Prism worker HTML —— last-good fence, scoped so it does not fight SyntaxHighlighter. */
 .xy-prism-html {
   margin: 0;
   padding: 12px 14px 12px 16px;

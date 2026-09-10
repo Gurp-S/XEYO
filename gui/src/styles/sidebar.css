@@ -48,7 +48,7 @@
   transition: opacity 120ms var(--ease-out-soft);
 }
 
-/* #02 鍛煎惛寰厜锛氫細璇濊杩愯鎬佹寚绀虹偣锛堟祦寮忚緭鍑?/ 鎺掓按鏈熺偣浜級 */
+/* #02 呼吸微光：会话行运行态指示点（流式输出 / 排水期点亮） */
 .xy-run-dot {
   --xy-run-glow: var(--color-accent, #4d9fff);
   position: relative;
@@ -84,7 +84,7 @@
   }
 }
 
-/* 瀹屾垚鏈洖鐪嬶細闈欐€佺豢鑹插井鍏夛紙涓嶅懠鍚革級鈥斺€斾换鍔″湪娴忚鍒鏃剁粨鏉熺殑浼氳瘽鎻愮ず锛?   鍒囧洖璇ヤ細璇濆悗鐢?Sidebar 绉婚櫎 is-done-unseen 鍗崇唲鐏€?*/
+/* 完成未回看：静态绿色微光（不呼吸）——任务在浏览别处时结束的会话提示；切回该会话后由 Sidebar 移除 is-done-unseen 即熄灭。 */
 .xy-run-dot.is-done-unseen {
   --xy-run-glow: var(--color-ok, #34d399);
   width: 7px;
@@ -141,8 +141,8 @@ html[data-smoothness="off"] .xy-run-dot.is-running::before {
   opacity: 0;
 }
 
-/* 宸﹀彸渚ц竟鏍忔爲灞曞紑/鏀惰捣鍔ㄧ敾涓€鑷达紝骞惰窡闅忚缃€滃姩鐢烩€濆紑鍏筹細
-   鍏抽棴鏃朵袱杈规爲閮戒笉鎾斁 grid-rows 杩囨浮锟?*/
+/* 左右侧边栏树展开/收起动画一致，并跟随设置「动画」开关：
+   关闭时两边树都不播放 grid-rows 过渡 */
 html[data-smoothness="off"] .xy-sidebar-tree {
   transition: none !important;
 }
@@ -158,7 +158,7 @@ html[data-smoothness="off"] .xy-sidebar-tree {
    width 不可合成;transform 仅在 420ms 过渡期间需要层,且 Chromium 会自动提升,
    常驻提升让每个展开 pane 全程占一层显存。已移除。 */
 
-/* 鍔熻兘鐣岄潰闂村垏鎹細鏈抚璺宠繃瀹藉害/浣嶇Щ杩囨浮锛岀洿鎺ョ‖锟?*/
+/* 功能界面间切换：本帧跳过宽度/位移过渡，直接硬切 */
 .xy-pane-instant,
 .xy-pane-instant .xy-pane-slide {
   transition: none !important;
@@ -198,9 +198,9 @@ html[data-smoothness="off"] .xy-sidebar-tree {
 }
 
 /*
- * 娴佸紡娲诲尯涓嶅啀鍓ラ/灏惧厓绱犵殑 margin锛? * 鏃ц鍒欐妸 live 棣栧厓绱犻《杈硅窛娓呴浂锛屼絾琛屾彁浜よ繘 head 鍚庯紙鍖呭湪 display:contents
- * 鍖呰灞傞噷锛屽瓙閫夋嫨鍣ㄧ┛涓嶉€忥級鍘熺敓 margin 鎭㈠ 鈥斺€?鏍囬/鍒楄〃/琛ㄦ牸姣忔彁浜や竴琛岋紝
- * 涓嬫柟鍐呭灏卞悜涓嬪脊 6~12px銆傜幇鍦ㄤ袱绔竴寰嬩娇鐢ㄥ師鐢?margin锛岃涓轰竴鑷村嵆鏃犺烦鍔ㄣ€? */
+ * 流式活区不再剥首/尾元素的 margin——旧规则把 live 首元素顶边距清零，但行提交进 head 后（包在 display:contents
+ * 包装层里，子选择器穿不透）原生 margin 恢复 —— 标题/列表/表格每提交一行，
+ * 下方内容就向下弹 6~12px。现在两端一律使用原生 margin，行为一致即无跳动。 */
 
 .xy-stream-math {
   font-family: ui-serif, Georgia, serif;
