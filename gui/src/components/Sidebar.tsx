@@ -59,6 +59,7 @@ import {useExplorerStore} from '@/stores/explorerStore';
 import {useNavJournalStore} from '@/stores/navJournalStore';
 import {useWorkspaceStore} from '@/stores/workspaceStore';
 import {confirmDialog} from '@/lib/inlineDialog';
+import {confirmSessionDelete} from '@/lib/confirmSessionDelete';
 import {toast} from '@/lib/toast';
 import {invokePet} from '@/pet/PetBridge';
 import './ux-loaders.css';
@@ -706,6 +707,13 @@ className="xy-icon-btn rounded-md p-1.5 text-mute hover:bg-glass-hover hover:tex
 								onSelect={id => void goSession(id)}
 								onRemoveSession={id => {
 								void (async () => {
+									const title = useChatStore
+										.getState()
+										.sessions.find(s => s.id === id)?.title;
+									// 硬删不可撤销，先二次确认（与 removeSpace 策略对齐）
+									if (!(await confirmSessionDelete(title))) {
+										return;
+									}
 									const wasActive =
 										useChatStore.getState().activeId === id;
 									await removeSession(id);
@@ -780,6 +788,13 @@ className="xy-icon-btn rounded-md p-1.5 text-mute hover:bg-glass-hover hover:tex
 								void openSession(id);
 							}}
 							onRemoveSession={async id => {
+								const title = useChatStore
+									.getState()
+									.sessions.find(s => s.id === id)?.title;
+								// 硬删不可撤销，先二次确认（与 removeSpace 策略对齐）
+								if (!(await confirmSessionDelete(title))) {
+									return;
+								}
 								const wasActive = sideChatActiveId === id;
 								await removeSession(id);
 								if (wasActive) {
