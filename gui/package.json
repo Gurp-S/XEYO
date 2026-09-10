@@ -31,7 +31,6 @@
     "@streamdown/cjk": "^1.0.3",
     "@streamdown/code": "^1.1.1",
     "@streamdown/math": "^1.0.2",
-    "@tanstack/react-virtual": "^3.14.10",
     "@tauri-apps/plugin-dialog": "^2.7.2",
     "@tauri-apps/plugin-shell": "^2.3.5",
     "clsx": "^2.1.1",
