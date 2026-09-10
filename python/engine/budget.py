@@ -151,6 +151,12 @@ class BudgetTracker:
 		if started_ts is not None:
 			self.wall_started_ts = started_ts
 
+	def wall_remaining_s(self, now: float | None = None) -> float | None:
+		"""距墙钟死线的剩余秒数；未设置死线 → None（= 无时间感，不做时间相关决策）。"""
+		if self.wall_deadline_ts is None:
+			return None
+		return max(0.0, self.wall_deadline_ts - (now if now is not None else time.time()))
+
 	def arm_wall_stop(self, enabled: bool | None = None) -> None:
 		"""武装/解除墙钟硬停。None → 跟随 XEYO_WALL_HARD_STOP 环境变量。
 

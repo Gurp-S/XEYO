@@ -819,6 +819,14 @@ async def query_loop(
             except Exception:  # noqa: BLE001 — 引导增强失败不影响 wrap 主路径
                 pass
         runtime_notice = budget.consume_runtime_notice()
+        # 收尾窗广播（工具层只读信号）：窗口内长命令后台化，把窗口留给落盘。
+        # 每轮刷新 → 剩余墙钟变化可被工具层看到；未进入窗口时广播 inactive。
+        try:
+            from engine.wrap_window import set_wrap_window
+
+            set_wrap_window(forced_wrap_up, budget.wall_remaining_s())
+        except Exception:  # noqa: BLE001 — 广播失败不影响主路径
+            pass
         # system 左段保持稳定；Ask/Plan/计划/预算/wrap-up/MEMORY index 挂 T_now。
         budget.begin_turn()
 

@@ -138,6 +138,41 @@ def promote_threshold_ms() -> int:
 		return max(0, int(raw))
 	except ValueError:
 		return BASH_PROMOTE_DEFAULT_MS
+
+
+#: 收尾窗内"立即后台化长命令"的剩余时间闸门（秒）。窗口还剩很多时不动——让
+#: 可能在窗口内跑完的命令照常前台等结果（保住"最后一步长命令出产物"的路径）；
+#: 只在窗口已经很短（或剩余时间未知=配额型收尾窗）时才提前交还控制权。
+WRAP_WINDOW_BG_MAX_REMAINING_S = 120.0
+
+
+def effective_promote_ms(cmd: str, base_ms: int) -> int:
+	"""收尾窗内**时间不够**的长命令族 → 1ms（立即后台化），否则原样返回。
+
+	窗口（R1'/R3' 的 forced_wrap_up）只剩几十秒时，等 promote 阈值（默认 45s）
+	等于把落盘时间吃掉；提前交还控制权，模型就能用余下时间落盘。这是**执行层
+	路由决策**，不向模型输出任何劝告文本。
+
+	不触发的情况（保持旧行为）：不在窗口内 / 非长命令族 / base_ms<=0 /
+	窗口剩余时间充裕（>= WRAP_WINDOW_BG_MAX_REMAINING_S，让能跑完的命令照常等）。
+	"""
+
+	if base_ms <= 0:
+		return base_ms
+	try:
+		from engine.wrap_window import in_wrap_window, wrap_remaining_s
+		from tools.bash_tool.timeout_map import family_default_ms
+
+		if not in_wrap_window():
+			return base_ms
+		if family_default_ms(cmd) is None:
+			return base_ms
+		remaining = wrap_remaining_s()
+		if remaining is not None and remaining >= WRAP_WINDOW_BG_MAX_REMAINING_S:
+			return base_ms
+		return 1
+	except Exception:  # noqa: BLE001 — 信号/映射不可用即按原阈值
+		return base_ms
 # Phase 2 工人 Bash：更短默认/上限，防测挂烧钱（可用 XEYO_WORKER_BASH_TIMEOUT_MS 覆盖默认）。
 WORKER_BASH_DEFAULT_TIMEOUT_MS = 30_000
 WORKER_BASH_MAX_TIMEOUT_MS = 60_000
@@ -462,6 +497,7 @@ class BashTool:
 
 	def __init__(self, *, cwd: str = ".") -> None:
 		self._cwd = os.path.abspath(cwd or ".")
+		self._shell_notice_sent = False
 
 	@staticmethod
 	def is_read_only() -> bool:
@@ -599,6 +635,8 @@ class BashTool:
 		promote_ms = 0 if _worker_bash_active() else promote_threshold_ms()
 		if promote_ms > 0:
 			promote_ms = min(promote_ms, timeout_ms)
+			# 收尾窗内长命令族立即后台化（见 effective_promote_ms 注释）。
+			promote_ms = effective_promote_ms(cmd, promote_ms)
 		h = spawn_streaming(cmd, cwd=run_cwd, abort=abort)
 		promote_started = time.monotonic()
 		if (
@@ -655,6 +693,19 @@ class BashTool:
 			limit=self.max_result_size_chars,
 			persist_dir=os.path.join(self._cwd, ".xeyo", "tool-results"),
 		)
+		# 会话内首个成功结果带一次 shell 身份行（Windows 实为 PowerShell/pwsh，
+		# 模型若不读工具描述会先试 bash 语法白烧一轮）。只发一次，不常驻计费。
+		if (
+			not self._shell_notice_sent
+			and os.name == "nt"
+			and stdout
+			and not is_error
+			and not result.interrupted
+			and not result.timed_out
+			and not expect_no_output(inp.command)
+		):
+			self._shell_notice_sent = True
+			stdout = f"[shell: {shell_display_name()}]\n" + stdout
 		return BashOutput(
 			stdout=stdout,
 			code=result.code,
