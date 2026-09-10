@@ -118,9 +118,9 @@
   }
 }
 
-/* Idea 5 前瞻（peek） */
+/* Idea 5 前瞻（peek）：常驻挂载 + 过渡显隐（对齐 .xy-sidebar-affordance 的成熟写法）。
+   原先 display:none ↔ block 硬切、零过渡，光标在触发区边缘往复时闪烁。 */
 .xy-thought-peek {
-  display: none;
   position: absolute;
   left: 0;
   right: 0;
@@ -136,13 +136,26 @@
   line-height: 1.45;
   color: var(--xy-ink-soft);
   white-space: normal;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(4px);
+  transition:
+    opacity var(--duration-fast) var(--ease-out-soft),
+    transform var(--duration-fast) var(--ease-out-soft),
+    visibility 0s linear var(--duration-fast);
 }
 
 .group\/thought:hover .xy-thought-peek {
-  display: block;
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateY(0);
+  transition-delay: 0s;
 }
 
-html[data-smoothness="off"] .group\/thought:hover .xy-thought-peek {
+/* 动效关闭时保持原语义：前瞻卡不出现在界面 */
+html[data-smoothness="off"] .xy-thought-peek {
   display: none !important;
 }
 
