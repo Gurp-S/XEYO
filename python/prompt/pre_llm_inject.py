@@ -33,6 +33,7 @@ from permissions.policy import (
 from prompt.t_now_strategy import (
 	STRATEGY_ENV_CHANNEL,
 	STRATEGY_PREFILL,
+	STRATEGY_SKIP,
 	format_env_notice,
 	t_now_strategy,
 )
@@ -243,10 +244,11 @@ def browser_preview_block() -> str:
 	url = browser_preview_url()
 	if not url:
 		return ""
+	# 只报 URL。曾带「WebFetch 可以读页面正文；非用户新提问」——前者是动作提议
+	# （替模型判断"这页值得读"），后者与块头 background only 重复（2026-09-09）。
 	return (
 		"# 浏览器预览（background only）\n"
-		f"url: {url}\n"
-		"WebFetch 可以读页面正文；非用户新提问。"
+		f"url: {url}"
 	)
 
 
@@ -325,10 +327,11 @@ def pending_jobs_block() -> str:
 		except Exception:  # noqa: BLE001
 			return ""
 		return ""
+	# 只报 job 事实（id/exit_code/命令）。曾带「在你看不到的时机完成了。这是完成
+	# 通知，不是新任务」——前者是叙事非状态，后者是预防性否定指令，块头已承担
+	# background only 语义（2026-09-09）。
 	return (
 		"# Background jobs（background only）\n"
-		"以下后台任务在你看不到的时机完成了。这是完成通知，不是新任务；"
-		"job_output 可收取输出，job_kill 可终止任务。\n"
 		+ digest
 	)
 def budget_mirror_block(budget: Any, working: Any) -> str:
@@ -357,27 +360,30 @@ def budget_mirror_block(budget: Any, working: Any) -> str:
 	except Exception:  # noqa: BLE001
 		pass
 
-	todo_lines: list[str] = []
+	# 只报计数，不列具体项：逐项列出 pending 是选取偏向——让"还剩多少"恒定
+	# 占据注意力，等于替模型做了"该收尾了吗"的判断前提（2026-09-09）。
+	total_todos = 0
+	open_todos = 0
 	try:
 		for t in (getattr(working, "todos", None) or []):
 			if not isinstance(t, dict):
 				continue
+			total_todos += 1
 			st = str(t.get("status", ""))
-			if st in ("completed", "done"):
-				continue
-			content = str(t.get("content") or t.get("text") or "").strip()
-			if content:
-				todo_lines.append(f"- [{st or 'pending'}] {content[:80]}")
+			if st not in ("completed", "done"):
+				open_todos += 1
 	except Exception:  # noqa: BLE001
 		pass
 
-	if not parts and not todo_lines:
+	if not parts and total_todos == 0:
 		return ""
-	out = "# Budget mirror（background only — 事实呈现，决策归你）\n"
+	# 标题不带「— 事实呈现，决策归你」：自我否认式导演——声明"我不是在指挥"
+	# 本身就在提醒"这里有个决策要做"（2026-09-09）。
+	out = "# Budget mirror（background only）\n"
 	if parts:
 		out += " | ".join(parts) + "\n"
-	if todo_lines:
-		out += "未完成计划项：\n" + "\n".join(todo_lines[:12]) + "\n"
+	if total_todos:
+		out += f"计划项 {total_todos - open_todos}/{total_todos} 已完成\n"
 	return out
 
 
@@ -1331,6 +1337,11 @@ def run_pre_llm_inject(
 	if strategy == STRATEGY_PREFILL:
 		# 预留档：prefill 厂商容忍度实测通过前回落环境声道。
 		strategy = STRATEGY_ENV_CHANNEL
+	if strategy == STRATEGY_SKIP:
+		# L2（2026-09-09）：厂商拒绝伪造 tool 对时本轮不注入，绝不落回
+		# legacy 用户尾插（引擎文本进用户角色=说话人混淆源）。执行层
+		# 硬约束（预算/回合/wrap 门）不依赖提示文本。
+		return out
 	if strategy == STRATEGY_ENV_CHANNEL:
 		env_text = format_env_notice([t for _k, t in kept])
 		if env_text:

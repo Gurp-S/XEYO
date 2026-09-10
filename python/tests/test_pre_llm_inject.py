@@ -438,7 +438,8 @@ def test_browser_preview_block_injected():
 	try:
 		block = browser_preview_block()
 		assert "http://localhost:5173" in block
-		assert "WebFetch" in block
+		# 2026-09-09 裁决：只报 URL，不再带"WebFetch 可以读页面正文"动作提议
+		assert "WebFetch" not in block
 		out = run_pre_llm_inject(
 			[{"role": "user", "content": "hi"}],
 			InjectContext(cwd="/proj", session_id="s1"),

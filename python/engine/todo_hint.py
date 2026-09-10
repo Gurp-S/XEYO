@@ -101,9 +101,13 @@ def build_todo_hint(
 	extra = len(open_items) - max_open_lines
 	if extra > 0:
 		body += f"\n… 其余 {extra} 项省略（可用 todo 工具查全量）"
+	# 标题不带「— 事实呈现，决策归你」：自我否认式导演（声明"我不是在指挥"
+	# 本身就在提醒"这里有个决策要做"）。正文不带「已完成部分不随下一步动作
+	# 作废」：预防性否定，且本模块 docstring 明写该结论"由模型自行得出"
+	# ——把它写进注入文案等于替模型下了结论（2026-09-09）。
 	return (
-		"# Todo progress（background only — 事实呈现，决策归你）\n"
-		f"{head}尚未完成的项（已完成部分不随下一步动作作废）：\n{body}"
+		"# Todo progress（background only）\n"
+		f"{head}尚未完成的项：\n{body}"
 	)
 
 

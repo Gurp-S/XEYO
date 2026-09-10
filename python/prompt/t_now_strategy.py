@@ -7,13 +7,14 @@
   tool_result 是模型训练出来的「环境数据声道」——注入内容不再与用户
   意图同层（根治说话人混淆），也不再有"挂在用户话里"的可被误读面。
 - ``legacy``：原行为——块以文本追加进末条 user（bg_wrap 身份标记 +
-  分隔符）。作为 env_channel 被厂商拒绝时的自动回退档与审计对照档。
+  分隔符）。**仅作审计对照/显式评测档**（``XEYO_T_NOW_STRATEGY=legacy``
+  或 ``set_t_now_strategy``），不再充当任何自动回退档——引擎文本进用户
+  角色正是 L2（2026-09-09）要消灭的说话人混淆源。
+- ``skip``：内部档——本轮不注入任何 T_now 块。env_channel 被厂商以
+  结构类 4xx 拒绝（未吐任何 chunk）时回落到这里：宁缺毋滥，不把引擎
+  文本伪装成用户消息。执行层硬约束（预算/回合/wrap 门）不依赖提示文本。
 - ``prefill``：预留（尾部 assistant 预填充锚定）。厂商容忍度实测通过前
   不开放，当前解析为 env_channel。
-
-运行时回退：env_channel 请求被厂商以结构类 4xx 拒绝（且未吐任何
-chunk）时，``mark_env_channel_unsupported`` 记进程级备忘，本轮当场以
-legacy 重建请求重试。备忘按 provider:model 粒度，进程生命周期内生效。
 
 优先级：会话/请求显式设置（``set_t_now_strategy``）> 环境变量
 ``XEYO_T_NOW_STRATEGY`` > 默认 env_channel。
@@ -27,44 +28,55 @@ from contextvars import ContextVar
 
 STRATEGY_ENV_CHANNEL = "env_channel"
 STRATEGY_LEGACY = "legacy"
+STRATEGY_SKIP = "skip"
 #: 预留档：解析为 env_channel，待 prefill 厂商容忍度实测通过后启用。
 STRATEGY_PREFILL = "prefill"
 
-_VALID_STRATEGIES = (STRATEGY_ENV_CHANNEL, STRATEGY_LEGACY, STRATEGY_PREFILL)
+_VALID_STRATEGIES = (
+    STRATEGY_ENV_CHANNEL,
+    STRATEGY_LEGACY,
+    STRATEGY_SKIP,
+    STRATEGY_PREFILL,
+)
 _STRATEGY_ENV = "XEYO_T_NOW_STRATEGY"
 
 _strategy_ctx: ContextVar[str | None] = ContextVar(
-	"xeyo_t_now_strategy", default=None
+    "xeyo_t_now_strategy", default=None
 )
 
 
 def set_t_now_strategy(strategy: str | None) -> None:
-	"""会话/请求级显式设置；None = 清除显式值（回落环境变量/默认）。"""
-	v = (strategy or "").strip().lower()
-	_strategy_ctx.set(v if v in _VALID_STRATEGIES else None)
+    """会话/请求级显式设置；None = 清除显式值（回落环境变量/默认）。"""
+    v = (strategy or "").strip().lower()
+    _strategy_ctx.set(v if v in _VALID_STRATEGIES else None)
 
 
 def t_now_strategy() -> str:
-	"""解析当前策略：显式 > 环境变量 > env_channel。"""
-	v = _strategy_ctx.get()
-	if v:
-		return v
-	env = os.environ.get(_STRATEGY_ENV, "").strip().lower()
-	if env in _VALID_STRATEGIES:
-		return env
-	return STRATEGY_ENV_CHANNEL
+    """解析当前策略：显式 > 环境变量 > env_channel。"""
+    v = _strategy_ctx.get()
+    if v:
+        return v
+    env = os.environ.get(_STRATEGY_ENV, "").strip().lower()
+    if env in _VALID_STRATEGIES:
+        return env
+    return STRATEGY_ENV_CHANNEL
 
 
 def resolve_t_now_strategy(provider: str = "", model: str = "") -> str:
-	"""按模型解析最终策略：env_channel 被标记不支持 → legacy；prefill 暂回落 env_channel。"""
-	s = t_now_strategy()
-	if s == STRATEGY_PREFILL:
-		s = STRATEGY_ENV_CHANNEL
-	if s == STRATEGY_ENV_CHANNEL and env_channel_unsupported(
-		env_unsupported_key(provider, model)
-	):
-		return STRATEGY_LEGACY
-	return s
+    """按模型解析最终策略。
+
+    env_channel 被标记不支持（结构类 4xx，进程级备忘）→ **skip**：本轮起不再
+    尝试注入，也绝不落回 legacy 用户尾插（L2，2026-09-09）。显式 legacy
+    （评测/审计对照）保持可用。prefill 暂回落 env_channel。
+    """
+    s = t_now_strategy()
+    if s == STRATEGY_PREFILL:
+        s = STRATEGY_ENV_CHANNEL
+    if s == STRATEGY_ENV_CHANNEL and env_channel_unsupported(
+        env_unsupported_key(provider, model)
+    ):
+        return STRATEGY_SKIP
+    return s
 
 
 # ── 运行时能力备忘（进程级；非持久化——重启即重新尝试 env_channel）──

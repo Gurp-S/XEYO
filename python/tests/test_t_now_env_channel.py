@@ -24,6 +24,7 @@ from prompt.t_now_strategy import (
 	ENV_TOOL_NAME,
 	STRATEGY_ENV_CHANNEL,
 	STRATEGY_LEGACY,
+	STRATEGY_SKIP,
 	env_unsupported_key,
 	format_env_notice,
 	mark_env_channel_unsupported,
@@ -145,14 +146,20 @@ def test_strategy_resolution_and_unsupported_fallback(monkeypatch):
 	set_t_now_strategy("prefill")
 	assert resolve_t_now_strategy() == STRATEGY_ENV_CHANNEL
 	set_t_now_strategy(None)
-	# 备忘仅影响被标记的 provider:model 组合
+	# 备忘仅影响被标记的 provider:model 组合 → 回落 skip（L2：不落 legacy 用户尾插）
 	mark_env_channel_unsupported(env_unsupported_key("openai", "gpt-x"))
-	assert resolve_t_now_strategy("openai", "gpt-x") == STRATEGY_LEGACY
+	assert resolve_t_now_strategy("openai", "gpt-x") == STRATEGY_SKIP
 	assert resolve_t_now_strategy("openai", "other") == STRATEGY_ENV_CHANNEL
-	# 显式 legacy 不受备忘影响
+	# 显式 legacy 不受备忘影响（评测/审计对照档保留）
 	set_t_now_strategy("legacy")
 	assert resolve_t_now_strategy("openai", "gpt-x") == STRATEGY_LEGACY
 	set_t_now_strategy(None)
+	# skip 显式设置不注入任何 T_now 块
+	out = run_pre_llm_inject(
+		[{"role": "user", "content": "hi"}],
+		InjectContext(cwd="", forced_wrap_up=True, strategy=STRATEGY_SKIP),
+	)
+	assert "Wrap-up" not in str(out) and len(out) == 1
 	# 非法环境变量值忽略 → 默认
 	monkeypatch.setenv("XEYO_T_NOW_STRATEGY", "bogus")
 	assert t_now_strategy() == STRATEGY_ENV_CHANNEL
