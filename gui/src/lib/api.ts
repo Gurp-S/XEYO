@@ -5,7 +5,7 @@ import {REQUEST_TIMEOUT_MS, authHeaders, fetchWithTimeout, formatErrorDetail} fr
 import type {} from './api/core';
 import type {ServerSession, SessionAgentMeta} from './api/chatStream';
 export {VENDOR_CONTEXT_LIMIT_KEY, fetchUsage, fetchUsageBalance, fetchVendorModels, getCachedModelContextLimit, healthCheck, loadVendorContextLimits, persistVendorContextLimits, rememberVendorContextLimits, vendorContextLimitCache, vendorModelCacheKey} from './api/usage';
-export type {UsageBalance, UsageDayPoint, UsageModelBlock, UsageReport, VendorModel, VendorModelMode, VendorModelsReport} from './api/usage';
+export type {UsageBalance, UsageBucket, UsageDayPoint, UsageModelBlock, UsageReport, VendorModel, VendorModelMode, VendorModelsReport} from './api/usage';
 export {uploadFile, uploadMedia} from './api/uploads';
 export {listPermissionGrants, resolveAsk, resolvePermission, resolvePlan, revokePermissionGrant} from './api/permissions';
 export type {PermissionGrantInfo} from './api/permissions';

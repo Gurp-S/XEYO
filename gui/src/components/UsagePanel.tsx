@@ -1,4 +1,4 @@
-import {BarChart3, ChevronDown, Coins, CreditCard, Gift, LineChart, Wallet} from 'lucide-react';
+import {BarChart3, ChevronDown, CreditCard, Gift, LineChart, Wallet} from 'lucide-react';
 import {useEffect, useId, useMemo, useRef, useState} from 'react';
 import {UsageChart, type ChartKind, type ChartRow} from '@/components/UsageChart';
 import {
@@ -10,6 +10,7 @@ import {
 	type UsageModelBlock,
 	type UsageReport,
 } from '@/lib/api';
+import {emptyBucket, mergeReports} from '@/lib/usageMerge';
 import {PageShell} from '@/components/PageShell';
 import {cn} from '@/lib/utils';
 import {isLocalProvider} from '@/lib/localTestGate';
@@ -21,14 +22,16 @@ import {
 	type ProviderId,
 } from '@/stores/settingsStore';
 
+// v4 三分类（dsh S1 disjoint）：输入·命中 / 输入·未命中 / 输出 三色分列。
+// 禁止相加成「总消耗」；系列字段对应后端 totals/point 的 input_hit/input_miss/output。
 const TOKEN_SERIES = [
 	{
-		key: 'cache_hit',
+		key: 'input_hit',
 		label: '输入（命中缓存）',
 		color: 'var(--xy-chart-soft)',
 	},
 	{
-		key: 'cache_miss',
+		key: 'input_miss',
 		label: '输入（未命中缓存）',
 		color: 'var(--xy-chart-mid)',
 	},
@@ -37,10 +40,6 @@ const TOKEN_SERIES = [
 		label: '输出',
 		color: 'var(--xy-chart)',
 	},
-];
-
-const COST_SERIES = [
-	{key: 'cost', label: '消费金额', color: 'var(--xy-chart)'},
 ];
 const REQ_SERIES = [
 	{key: 'requests', label: '请求次数', color: 'var(--xy-chart)'},
@@ -73,14 +72,9 @@ const VENDOR_LABEL: Record<string, string> = {
 	unknown: '未知厂商',
 };
 
-function fmtCny(n: number): string {
-	if (!Number.isFinite(n) || n === 0) {
-		return '¥0';
-	}
-	if (n >= 1) {
-		return `¥${n.toFixed(2)}`;
-	}
-	return `¥${n.toFixed(4)}`;
+/** 命中率展示：null/无输入 → '—'，否则 'xx.x%'。 */
+function fmtHitRate(hr: number | null | undefined): string {
+	return hr == null ? '—' : `${hr}%`;
 }
 
 function fmtBalance(raw: string, currency?: string): string {
@@ -92,24 +86,16 @@ function fmtBalance(raw: string, currency?: string): string {
 	return `${unit}${raw}`;
 }
 
-function costSourceHint(source?: string, costSource?: string): string {
+/** v4：无金额 —— 来源提示只说明「厂商官方 / 本机记账」。 */
+function usageSourceHint(source?: string): string {
 	if (source === 'vendor') {
-		return '金额与用量来自厂商官方接口（权威）';
+		return '用量来自厂商官方接口（权威）';
 	}
 	if (source === 'mixed') {
 		return '多来源合并：厂商官方优先，缺口由本机记账补足';
 	}
 	if (source === 'local') {
 		return '厂商未提供历史用量，以下为本机根据对话官方 usage 记账';
-	}
-	if (costSource === 'api') {
-		return '金额来自接口 usage 字段';
-	}
-	if (costSource === 'mixed') {
-		return '部分来自接口金额，其余按官方 token × 价目估算';
-	}
-	if (costSource === 'estimate') {
-		return '金额按官方 token × 价目估算';
 	}
 	return '正在拉取用量';
 }
@@ -132,11 +118,6 @@ function fmtCompact(n: number): string {
 		return String(Math.round(n));
 	}
 	return n.toFixed(2);
-}
-
-/** 金额刻度：compact 数字带 ¥（P2-2：消费图 y 轴此前是无单位纯数字）。 */
-function fmtCnyCompact(n: number): string {
-	return `¥${fmtCompact(n)}`;
 }
 
 function dayLabel(iso: string): string {
@@ -165,108 +146,6 @@ function providerName(id: string): string {
 		return vendorName;
 	}
 	return isProviderId(id) ? PROVIDER_LABEL[id] : id;
-}
-
-/** 合并多个厂商的用量（「全部」视图）：模型分块去重合并、系列按天累加、总额相加。 */
-function mergeReports(reports: UsageReport[]): UsageReport {
-	const sum = (k: keyof UsageReport['totals']) =>
-		reports.reduce((a, r) => a + (r.totals?.[k] ?? 0), 0);
-	const totals: UsageReport['totals'] = {
-		cost: sum('cost'),
-		requests: sum('requests'),
-		tokens: sum('tokens'),
-		cache_hit: sum('cache_hit'),
-		cache_miss: sum('cache_miss'),
-		output: sum('output'),
-	};
-	// P1/P2 修复：多来源报告的 source/cost_source 必须如实反映"混合"，
-	// 不能因为任一厂商是 vendor/api 就整体标注成 vendor/api（误导为全权威）。
-	const sources = new Set(reports.map(r => r.source).filter(Boolean));
-	const hasV = sources.has('vendor');
-	const hasL = sources.has('local');
-	const hasM = sources.has('mixed');
-	const source = hasV && (hasL || hasM) || hasL && hasM
-		? 'mixed'
-		: hasV
-			? 'vendor'
-			: hasL
-				? 'local'
-				: hasM
-					? 'mixed'
-					: 'local';
-	const costSources = new Set(reports.map(r => r.cost_source).filter(Boolean));
-	const cost_source: UsageReport['cost_source'] =
-		costSources.size > 1
-			? 'mixed'
-			: costSources.size === 1
-				? costSources.has('vendor')
-					? 'vendor'
-					: costSources.has('api')
-						? 'api'
-						: costSources.has('mixed')
-							? 'mixed'
-							: 'estimate'
-				: 'estimate';
-	const lifetimeCost = reports.reduce((a, r) => a + (r.lifetime_cost ?? 0), 0);
-	const seriesMap = new Map<string, UsageDayPoint>();
-	for (const r of reports) {
-		for (const p of r.series ?? []) {
-			const cur =
-				seriesMap.get(p.day) ??
-				({day: p.day, cost: 0, requests: 0, tokens: 0, cache_hit: 0, cache_miss: 0, output: 0} as UsageDayPoint);
-			cur.cost += p.cost;
-			cur.requests += p.requests;
-			cur.tokens += p.tokens;
-			cur.cache_hit += p.cache_hit;
-			cur.cache_miss += p.cache_miss;
-			cur.output += p.output;
-			seriesMap.set(p.day, cur);
-		}
-	}
-	// 跨厂商去重 same provider+model 分块，避免重复计数。
-	const modelMap = new Map<string, UsageModelBlock>();
-	for (const m of reports.flatMap(r => r.models ?? [])) {
-		const key = `${m.provider}:${m.model}`;
-		const cur = modelMap.get(key) ?? {provider: m.provider, model: m.model, requests: 0, tokens: 0, cost: 0, series: []};
-		cur.requests += m.requests;
-		cur.tokens += m.tokens;
-		cur.cost += m.cost;
-		cur.series = mergeSeries(cur.series, m.series ?? []);
-		modelMap.set(key, cur);
-	}
-	const models = [...modelMap.values()];
-	return {
-		days: reports[0]?.days ?? [],
-		totals,
-		lifetime_cost: lifetimeCost,
-		cost_source,
-		source,
-		vendor_ok: reports.some(r => r.vendor_ok),
-		series: [...seriesMap.values()],
-		models,
-		keys: reports.flatMap(r => r.keys ?? []),
-	};
-}
-
-/** 按天累加合并两组日序列（保持原顺序）。 */
-function mergeSeries(
-	a: UsageDayPoint[],
-	b: UsageDayPoint[],
-): UsageDayPoint[] {
-	const map = new Map<string, UsageDayPoint>();
-	for (const p of [...a, ...b]) {
-		const cur =
-			map.get(p.day) ??
-			({day: p.day, cost: 0, requests: 0, tokens: 0, cache_hit: 0, cache_miss: 0, output: 0} as UsageDayPoint);
-		cur.cost += p.cost;
-		cur.requests += p.requests;
-		cur.tokens += p.tokens;
-		cur.cache_hit += p.cache_hit;
-		cur.cache_miss += p.cache_miss;
-		cur.output += p.output;
-		map.set(p.day, cur);
-	}
-	return [...map.values()];
 }
 
 function isProviderId(v: string): v is ProviderId {
@@ -599,13 +478,10 @@ export function UsagePanel({active = true}: Props) {
 	const activeChoice = modelChoices.find(m => m.id === modelId) ?? modelChoices[0];
 
 	const series = report?.series ?? [];
-	const totals = report?.totals ?? {cost: 0, requests: 0, tokens: 0};
-	// 口径修正（P0-2）：全局大数字的主口径 = 未命中输入 + 输出（真正"新产生"的量）。
-	// tokens 字段是含缓存命中的吞吐量——把命中当主数字会重现"小任务百万 token"的误读。
-	const cacheHit = totals.cache_hit ?? 0;
-	const cacheMiss = totals.cache_miss ?? 0;
-	const outputTokens = totals.output ?? 0;
-	const newTokens = cacheMiss + outputTokens > 0 ? cacheMiss + outputTokens : totals.tokens;
+	const totals = report?.totals ?? emptyBucket();
+	// v4 主口径（B1）：三分类分列展示，输入合计 = hit + miss（官方 prompt_tokens 语义）；
+	// 不出现「总消耗」大数。命中率只展示、不设阈值文案。
+	const hitRate = fmtHitRate(totals.hit_rate);
 	const contentKey = `${days}:${keyFp}:${modelId}:${kind}`;
 
 	const toolbar = (
@@ -751,7 +627,8 @@ export function UsagePanel({active = true}: Props) {
 						</p>
 					) : null}
 
-					<div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4 xy-usage-section">
+					{/* 账户区：余额为官方真实数据，留在账户区；不做金额统计（v4）。 */}
+					<div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 xy-usage-section">
 						<SummaryCard
 							label="余额"
 							icon={Wallet}
@@ -787,41 +664,58 @@ export function UsagePanel({active = true}: Props) {
 							}
 							hint="官方 topped_up_balance"
 						/>
-						<SummaryCard
-							label="请求 / 非缓存 Tokens"
-							icon={Coins}
-							value={`${fmtInt(totals.requests)} / ${fmtInt(newTokens)}`}
-							hint={
-								loading
-									? '刷新中…'
-									: `未命中输入+输出（缓存命中 ${fmtCompact(cacheHit)} 低价另计）`
-							}
-						/>
 					</div>
 
 					<section className="xy-usage-section mb-4 rounded-xl border border-line bg-glass-hover px-4 pb-2 pt-3">
-						<div className="mb-1 flex items-baseline justify-between gap-2">
+						<div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
 							<div>
 								<h3 className="text-[14px] font-medium text-ink">
-									消费金额
+									用量（三分类）
 								</h3>
 								<p className="text-[11px] text-mute">
-									{costSourceHint(report?.source, report?.cost_source)}
+									{usageSourceHint(report?.source)}
 								</p>
 							</div>
-							<span className="text-[13px] tabular-nums text-ink-soft">
-								{fmtCny(totals.cost)}
+							<div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] tabular-nums">
+								<span className="text-mute">
+									请求 <span className="text-ink-soft">{fmtInt(totals.requests)}</span>
+								</span>
+								<span className="text-mute">
+									输入·命中 <span className="text-ink-soft">{fmtCompact(totals.input_hit)}</span>
+								</span>
+								<span className="text-mute">
+									输入·未命中 <span className="text-ink-soft">{fmtCompact(totals.input_miss)}</span>
+								</span>
+								<span className="text-mute">
+									输出 <span className="text-ink-soft">{fmtCompact(totals.output)}</span>
+								</span>
+								<span className="text-mute">
+									命中率 <span className="text-ink-soft">{hitRate}</span>
+								</span>
+							</div>
+						</div>
+						<div className="mb-2 border-t border-line/60 pt-1.5 text-[11px] text-mute">
+							输入合计{' '}
+							<span className="font-mono tabular-nums text-ink-soft">
+								{fmtInt(totals.input_total)}
 							</span>
+							（= 命中 + 未命中，官方 prompt_tokens 语义）；输出与输入分列、禁止加总。
 						</div>
 						<UsageChart
-							rows={toRows(series, p => ({cost: p.cost}))}
-							series={COST_SERIES}
+							rows={toRows(series, p => ({
+								input_hit: p.input_hit,
+								input_miss: p.input_miss,
+								output: p.output,
+							}))}
+							series={TOKEN_SERIES}
 							kind={kind}
 							stacked
 							height={200}
-							formatY={fmtCnyCompact}
-							formatTotal={fmtCny}
-							emptyText="暂无消费记录"
+							formatY={fmtCompact}
+							tipSummary={v =>
+								`${fmtCompact((v.input_hit ?? 0) + (v.input_miss ?? 0))} 输入 · ${fmtCompact(v.output ?? 0)} 输出`
+							}
+							emptyText="暂无用量记录"
 						/>
 					</section>
 
@@ -908,8 +802,13 @@ className={cn(
 				<div>
 					<div className="font-mono text-[12px] text-ink">{block.model}</div>
 				</div>
-				<div className="text-[12px] tabular-nums text-mute">
-					{fmtCny(block.cost)}
+				<div className="flex items-center gap-3 text-[12px] tabular-nums text-mute">
+					<span>
+						输入合计 <span className="text-ink-soft">{fmtCompact(block.input_total)}</span>
+					</span>
+					<span>
+						命中率 <span className="text-ink-soft">{fmtHitRate(block.hit_rate)}</span>
+					</span>
 				</div>
 			</div>
 			<div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -931,15 +830,16 @@ className={cn(
 				</div>
 				<div className="rounded-xl border border-line bg-glass-hover px-3 pb-1 pt-2.5">
 					<div className="mb-0.5 flex items-baseline justify-between">
-						<span className="text-[13px] font-medium text-ink">Tokens（含命中）</span>
-						<span className="text-[13px] tabular-nums text-ink-soft">
-							{fmtInt(block.tokens)}
+						<span className="text-[13px] font-medium text-ink">Token 三分类</span>
+						<span className="text-[12px] tabular-nums text-mute">
+							输入 <span className="text-ink-soft">{fmtCompact(block.input_total)}</span>
+							{' · '}输出 <span className="text-ink-soft">{fmtCompact(block.output)}</span>
 						</span>
 					</div>
 					<UsageChart
 						rows={toRows(block.series, p => ({
-							cache_hit: p.cache_hit,
-							cache_miss: p.cache_miss,
+							input_hit: p.input_hit,
+							input_miss: p.input_miss,
 							output: p.output,
 						}))}
 						series={TOKEN_SERIES}
@@ -947,7 +847,9 @@ className={cn(
 						stacked
 						height={148}
 						formatY={fmtCompact}
-						formatTotal={fmtInt}
+						tipSummary={v =>
+							`${fmtCompact((v.input_hit ?? 0) + (v.input_miss ?? 0))} 输入 · ${fmtCompact(v.output ?? 0)} 输出`
+						}
 					/>
 				</div>
 			</div>

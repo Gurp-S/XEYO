@@ -23,6 +23,11 @@ type Props = {
 	height?: number;
 	formatY?: (n: number) => string;
 	formatTotal?: (n: number) => string;
+	/**
+	 * v4（B1）：命中/未命中/输出 三桶 disjoint，禁止相加成「总消耗」。
+	 * 传入后 tooltip 顶行改用本函数逐项渲染，而不是显示系列之和。
+	 */
+	tipSummary?: (values: Record<string, number>) => string;
 	emptyText?: string;
 	className?: string;
 };
@@ -63,6 +68,7 @@ export function UsageChart({
 	height = 176,
 	formatY = n => String(Math.round(n)),
 	formatTotal,
+	tipSummary,
 	emptyText = '暂无数据',
 	className,
 }: Props) {
@@ -393,9 +399,15 @@ export function UsageChart({
 				>
 					<div className="mb-1 flex items-center justify-between gap-4 text-mute">
 						<span>{tip.date}</span>
-						<span className="tabular-nums text-ink">
-							{(formatTotal ?? formatY)(tipTotal)}
-						</span>
+						{tipSummary ? (
+							<span className="tabular-nums text-ink">
+								{tipSummary(tip.values)}
+							</span>
+						) : (
+							<span className="tabular-nums text-ink">
+								{(formatTotal ?? formatY)(tipTotal)}
+							</span>
+						)}
 					</div>
 					{series.map(ser => (
 						<div

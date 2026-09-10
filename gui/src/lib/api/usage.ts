@@ -148,38 +148,35 @@ export async function fetchVendorModels(opts?: {
 	};
 }
 
-export type UsageDayPoint = {
-	day: string;
-	cost: number;
+/**
+ * v4 聚合口径（对齐 DeepSeek Harness usage-stats，2026-09-09 B1）：
+ * totals / series / models 每层只有三分类 + hit_rate + 成功结算 requests，
+ * 无金额、无吞吐大数。input_total = hit + miss（官方 prompt_tokens 语义），
+ * 是唯一允许的合计；output 与输入分列，禁止相加。
+ */
+export type UsageBucket = {
 	requests: number;
-	tokens: number;
-	cache_hit: number;
-	cache_miss: number;
+	input_hit: number;
+	input_miss: number;
 	output: number;
+	input_total: number;
+	/** 缓存命中率 hit/(hit+miss)×100，一位小数；无输入时为 null。 */
+	hit_rate: number | null;
 };
 
-export type UsageModelBlock = {
+export type UsageDayPoint = UsageBucket & {
+	day: string;
+};
+
+export type UsageModelBlock = UsageBucket & {
 	provider: string;
 	model: string;
-	requests: number;
-	tokens: number;
-	cost: number;
 	series: UsageDayPoint[];
 };
 
 export type UsageReport = {
 	days: string[];
-	totals: {
-		cost: number;
-		requests: number;
-		tokens: number;
-		/** 拆分口径（2026-09-09 起后端 totals 携带）：命中/未命中/输出。 */
-		cache_hit?: number;
-		cache_miss?: number;
-		output?: number;
-	};
-	lifetime_cost: number;
-	cost_source?: 'api' | 'estimate' | 'mixed' | 'vendor';
+	totals: UsageBucket;
 	source?: 'vendor' | 'local' | 'mixed' | string;
 	vendor_ok?: boolean;
 	vendor_error?: string;

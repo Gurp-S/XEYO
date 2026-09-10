@@ -20,18 +20,7 @@ import {
 	type SessionCompression,
 } from '@/lib/api';
 import {useShallow} from 'zustand/react/shallow';
-
-/** 上下文构成类的稳定配色（与预览一致）。 */
-const CONTEXT_CATEGORY_COLORS: Record<string, string> = {
-	system: '#8a8f98',
-	rules: '#7d9a86',
-	memory_behavior: '#5a7d8c',
-	tool_definitions: '#6ea8c9',
-	memory_index: '#c7a24b',
-	summary: '#d06a8f',
-	conversation: '#c9574f',
-	remaining: 'transparent',
-};
+import {computeUsageSegments, segmentWidths} from '@/lib/usageSegments';
 
 export const ChatHeader = memo(function ChatHeader({
 	mode = 'main',
@@ -133,10 +122,6 @@ const usage = pageViewOpen ? null : sessionUsageById[activeId ?? ''] ?? null;
 		const lastMiss = usage?.lastCacheMissTokens != null && Number.isFinite(usage.lastCacheMissTokens)
 			? Math.max(0, usage.lastCacheMissTokens!)
 			: null;
-		// 最近一枪的输出 token（单轮、非累计）；与 lastHit/lastMiss 同为 fallback 分段条的数据源。
-		const lastOut = usage?.lastCompletionTokens != null && Number.isFinite(usage.lastCompletionTokens)
-			? Math.max(0, usage.lastCompletionTokens!)
-			: null;
 		// 会话累计输出（权威，单调）；lastCompletionTokens 只是最近一枪，不用。
 		const totalOut = usage && Number.isFinite(usage.completionTokens)
 			? Math.max(0, usage.completionTokens)
@@ -145,47 +130,18 @@ const usage = pageViewOpen ? null : sessionUsageById[activeId ?? ''] ?? null;
 			? formatCacheHitPercent(usage.cacheHitTokens, usage.cacheMissTokens)
 			: null;
 		const measuredContext = contextLimit != null && contextTokens != null;
-		// 对齐小字口径：占用条总长=窗口，读入占 contextTokens/contextLimit。
-		const usageBarTotal = measuredContext
-			? contextLimit!
-			: Math.max(1, lastHit ?? 0, lastMiss ?? 0, lastOut ?? 0);
 		// 细粒度的「上下文构成」分段条（后端下发的按内容分类 token 数）。
-		const contextBreakdown = usage?.contextBreakdown ?? [];
-		const hasContextBreakdown = contextBreakdown.length > 0;
-		const breakdownDenom =
-			contextLimit != null && contextLimit > 0
-				? contextLimit
-				: contextBreakdown.reduce((a, b) => a + Math.max(0, b.tokens), 0) || 1;
-		const contextSegments = contextBreakdown.map((b, index) => {
-			const tokens = Math.max(0, b.tokens);
-			const chars = Math.max(0, Number((b as {chars?: number}).chars) || 0);
-			const softOver = Boolean((b as {soft_over?: boolean}).soft_over);
-			return {
-				key: `${b.category}-${index}`,
-				value: tokens,
-				color: softOver && b.category === 'rules' ? '#c47a3a' : CONTEXT_CATEGORY_COLORS[b.category] || '#8a8f98',
-				label: softOver && b.category === 'rules' ? `${b.label}（超软预算）` : b.label,
-				tokens,
-				chars,
-				share: Math.min(100, Math.round((tokens / breakdownDenom) * 100)),
-			};
+		// 计算抽到 @/lib/usageSegments（纯函数、可单测）：权威段 sum === context_tokens，
+		// 回退段只含输入命中/未命中（输出不属于窗口占用，2026-09-09 修正）。
+		const {segments, denominator: segDenom} = computeUsageSegments({
+			contextBreakdown: usage?.contextBreakdown,
+			contextLimit,
+			contextTokens,
+			lastCacheHitTokens: lastHit,
+			lastCacheMissTokens: lastMiss,
 		});
-		// 未拿到上下文构成时回退到 最近一轮 命中/未命中/输出 条（同样带悬停明细）。
-		// 只用单轮拆分（last*），累计值会超过窗口，不能代表"本轮上下文构成"。
-		const fallbackSegments = usage && (lastHit != null || lastMiss != null || lastOut != null)
-			? [
-					{key: 'fb-hit', value: lastHit ?? 0, color: 'var(--xy-chart-soft)', label: '输入 · 命中缓存'},
-					{key: 'fb-miss', value: lastMiss ?? 0, color: 'var(--xy-chart-mid)', label: '输入 · 未命中'},
-					{key: 'fb-out', value: lastOut ?? 0, color: 'var(--xy-chart)', label: '输出'},
-					...(measuredContext
-						? [{key: 'fb-rem', value: Math.max(0, contextLimit - contextTokens), color: 'transparent', label: '剩余上下文窗口'}]
-						: []),
-				].map(s => ({...s, tokens: s.value, share: Math.min(100, Math.round((s.value / usageBarTotal) * 100))}))
-			: [];
-		const segments = hasContextBreakdown ? contextSegments : fallbackSegments;
-		const segDenom = hasContextBreakdown ? breakdownDenom : usageBarTotal;
 		// 渲染宽度（%），带命中最窄 0.5% 的钳制（与 UI 一致），供按坐标命中测试。
-		const segWidths = segments.map(s => Math.max(0.5, Math.min(98, (s.value / segDenom) * 100)));
+		const segWidths = segmentWidths(segments, segDenom);
 		const segRanges: {seg: (typeof segments)[number]; start: number; end: number}[] = [];
 		{
 			let cursor = 0;
