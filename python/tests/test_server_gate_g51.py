@@ -1,4 +1,4 @@
-"""G51+G52: workspace/media/usage/audit/memory 路由挂 loopback 门禁;workspace_fs 直写有只读开关+审计。"""
+"""G51+G52: workspace/media/usage/audit/memory 路由挂 loopback 门禁;workspace_fs 直写默认关闭+审计。"""
 
 from __future__ import annotations
 
@@ -31,8 +31,9 @@ def test_require_loopback_allows_local(monkeypatch: pytest.MonkeyPatch) -> None:
 	require_loopback(_FakeRequest("localhost"))
 
 
-def test_workspace_fs_readonly_env_blocks_writes(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-	monkeypatch.setenv("XEYO_WORKSPACE_FS_READONLY", "1")
+def test_workspace_fs_writes_blocked_by_default(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+	"""直写通道默认关闭：未显式开启时写/删一律拒绝（安全默认值）。"""
+	monkeypatch.delenv("XEYO_WORKSPACE_FS_WRITABLE", raising=False)
 	from server import workspace_fs as fs
 
 	(tmp_path / "a.txt").write_text("x", encoding="utf-8")
@@ -44,11 +45,13 @@ def test_workspace_fs_readonly_env_blocks_writes(tmp_path, monkeypatch: pytest.M
 	assert fs.read_file(str(tmp_path), "a.txt")["text"] == "x"
 
 
-def test_workspace_fs_write_allowed_by_default(tmp_path) -> None:
-	import os
+def test_workspace_fs_write_allowed_when_explicitly_enabled(
+	tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""显式开关开启后才允许直写。"""
+	monkeypatch.setenv("XEYO_WORKSPACE_FS_WRITABLE", "1")
 	import server.workspace_fs as fs
 
-	os.environ.pop("XEYO_WORKSPACE_FS_READONLY", None)
 	out = fs.write_file(str(tmp_path), "b.txt", "hello")
 	assert out["path"] == "b.txt"
 	assert (tmp_path / "b.txt").read_text(encoding="utf-8") == "hello"

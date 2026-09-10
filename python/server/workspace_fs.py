@@ -32,15 +32,21 @@ _EXCLUDED_DIRS = {
 _MAX_SEARCH_DEPTH = 6
 _MAX_SEARCH_HITS = 200
 
-# G52: 直写通道的显式开关——设 XEYO_WORKSPACE_FS_READONLY=1 后,该旁路
-# 只读,任何写/删抛 PermissionError(要求走引擎权限/rewind 链)。
+# 直写通道的显式开关。默认**拒绝**写入：该旁路不穿引擎权限与 rewind，
+# 必须由用户显式开启才能承担写/删风险。
+#   XEYO_WORKSPACE_FS_WRITABLE=1  → 允许直写（GUI Explorer 编辑器即时保存依赖它）
+#   未设置 / 其他值                → 只读，写/删抛 PermissionError
 def _workspace_fs_writes_allowed() -> bool:
-	raw = os.environ.get("XEYO_WORKSPACE_FS_READONLY", "").strip().lower()
-	return raw not in ("1", "true", "on", "yes")
+	raw = os.environ.get("XEYO_WORKSPACE_FS_WRITABLE", "").strip().lower()
+	return raw in ("1", "true", "on", "yes")
 
 
 def _audit_write(action: str, cwd: str, rel: str, **extra: Any) -> None:
-	"""直写旁路的审计痕迹(不穿引擎权限时的最低可观测保障)。"""
+	"""直写旁路的审计痕迹(不穿引擎权限时的最低可观测保障)。
+
+	审计失败**必须可见**：直写通道的全部可观测性都依赖这一条记录，
+	静默吞掉等于把"谁在什么时候写了什么"变成空白。
+	"""
 	try:
 		from audit.log import default_audit_log
 
@@ -48,7 +54,12 @@ def _audit_write(action: str, cwd: str, rel: str, **extra: Any) -> None:
 			f"workspace_fs.{action}", cwd=cwd, rel=rel, **extra
 		)
 	except Exception:
-		pass
+		import logging
+
+		logging.getLogger("xeyo.workspace_fs").warning(
+			"workspace_fs audit write failed action=%s rel=%s", action, rel,
+			exc_info=True,
+		)
 
 
 def resolve_in_workspace(cwd: str, rel: str) -> Path:
@@ -196,8 +207,8 @@ def read_file(cwd: str, rel: str) -> dict[str, Any]:
 def write_file(cwd: str, rel: str, text: str) -> dict[str, Any]:
 	if not _workspace_fs_writes_allowed():
 		raise PermissionError(
-			"workspace_fs writes disabled by XEYO_WORKSPACE_FS_READONLY=1 "
-			"(use the engine permission/rewind path instead)"
+			"workspace_fs writes are disabled: set XEYO_WORKSPACE_FS_WRITABLE=1 "
+			"to enable the direct-write channel, or use the engine permission/rewind path"
 		)
 	if len(text) > _MAX_TEXT:
 		raise ValueError(f"file too large to write (max {_MAX_TEXT} chars)")
@@ -218,8 +229,8 @@ def delete_path(cwd: str, rel: str, recursive: bool = False) -> dict[str, Any]:
 	"""删除工作区内文件或目录。目录默认仅允许空目录；recursive=True 时整棵删除。"""
 	if not _workspace_fs_writes_allowed():
 		raise PermissionError(
-			"workspace_fs writes disabled by XEYO_WORKSPACE_FS_READONLY=1 "
-			"(use the engine permission/rewind path instead)"
+			"workspace_fs writes are disabled: set XEYO_WORKSPACE_FS_WRITABLE=1 "
+			"to enable the direct-write channel, or use the engine permission/rewind path"
 		)
 	root = Path(cwd).expanduser().resolve()
 	path = resolve_in_workspace(cwd, rel)

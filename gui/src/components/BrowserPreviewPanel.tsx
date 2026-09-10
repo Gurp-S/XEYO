@@ -20,14 +20,22 @@ const QUICK_URLS = [
 	BACKEND_ORIGIN,
 ];
 
-/** 把用户输入规范成可导航的 URL；空串返回 null。 */
+/**
+ * 预览面板允许的 scheme 白名单。
+ * 只放行可导航的网页协议——`data:` / `javascript:` / `file:` 等一律拒绝：
+ * 它们能把「预览」变成可执行上下文（iframe 内脚本可触达父窗口与 Tauri IPC）。
+ */
+const ALLOWED_PREVIEW_SCHEMES = new Set(['http:', 'https:']);
+
+/** 把用户输入规范成可导航的 URL；空串或非白名单 scheme 返回 null。 */
 function normalizeUrl(raw: string): string | null {
 	const trimmed = raw.trim();
 	if (!trimmed) {
 		return null;
 	}
 	if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) {
-		return trimmed;
+		const scheme = trimmed.slice(0, trimmed.indexOf(':') + 1).toLowerCase();
+		return ALLOWED_PREVIEW_SCHEMES.has(scheme) ? trimmed : null;
 	}
 	if (
 		trimmed.startsWith('localhost') ||
@@ -338,13 +346,18 @@ export const BrowserPreviewPanel = memo(function BrowserPreviewPanel() {
 							</button>
 						</div>
 					) : null}
+					{/*
+					 * 刻意不含 allow-same-origin：与 allow-scripts 同时出现会让 sandbox 形同虚设
+					 * （帧内脚本可移除自身 sandbox 属性，进而触达父窗口与 Tauri IPC）。
+					 * 移除后 iframe 为 opaque origin，预览本地 dev server 等常规场景不受影响。
+					 */}
 					<iframe
 						key={frameKey}
 						title="浏览器预览"
 						src={url}
 						className="h-full w-full border-0 bg-white"
 						referrerPolicy="no-referrer"
-						sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads"
+						sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads"
 						onLoad={() => {
 							setLoading(false);
 							setLoadError(false);

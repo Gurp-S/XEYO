@@ -480,11 +480,12 @@ fn wait_health(timeout: Duration) -> bool {
 }
 
 #[tauri::command]
-fn save_text_file(path: String, text: String) -> Result<(), String> {
-	let destination = PathBuf::from(path.trim());
-	if destination.as_os_str().is_empty() {
-		return Err("保存路径不能为空".to_string());
-	}
+fn save_text_file(
+	path: String,
+	text: String,
+	state: tauri::State<'_, AllowedRoots>,
+) -> Result<(), String> {
+	let destination = assert_within_allowed(&path, &state.snapshot())?;
 	std::fs::write(&destination, text.as_bytes())
 		.map_err(|err| format!("保存文件失败（{}）：{err}", destination.display()))
 }
@@ -500,8 +501,9 @@ fn reveal_in_folder(path: String) -> Result<(), String> {
 	{
 		use std::os::windows::process::CommandExt;
 		const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-		// explorer 需要 /select,"path" 形式；路径含空格时必须带引号
-		let path_str = target.to_string_lossy();
+		// explorer 需要 /select,"path" 形式；路径含空格时必须带引号。
+		// 路径内出现的 `"` 会破坏参数边界，统一替换为 `'` 后再拼（explorer 不解析转义）。
+		let path_str = target.to_string_lossy().replace('"', "'");
 		let select_arg = format!("/select,\"{path_str}\"");
 		std::process::Command::new("explorer")
 			.raw_arg(&select_arg)
@@ -549,6 +551,156 @@ fn abs_path(path: &str) -> Result<PathBuf, String> {
 	Ok(dest)
 }
 
+/// 允许写入的根集合（进程级）。默认只含用户主目录。
+///
+/// 与 `abs_path` 的区别：`abs_path` 回答「是否绝对」，本模块回答「**是否被允许**」。
+/// 设计取舍：XEYO 需要「新建工作区」能力（`create_directory` / `git_clone` 的目标
+/// 目录在**当前工作区之外**，由用户在系统选夹对话框里当场指定），因此不能用
+/// 「必须在当前工作区内」这种断言——那样会把建工作区的功能一起挡掉。
+/// 正确的边界是「**用户显式授权过的根 + 系统保护目录排除**」。
+fn default_allowed_roots() -> Vec<PathBuf> {
+	let mut roots = Vec::new();
+	if let Ok(home) = std::env::var("USERPROFILE") {
+		if !home.trim().is_empty() {
+			roots.push(PathBuf::from(home.trim()));
+		}
+	}
+	if let Ok(home) = std::env::var("HOME") {
+		if !home.trim().is_empty() && !roots.iter().any(|r| r == &PathBuf::from(home.trim())) {
+			roots.push(PathBuf::from(home.trim()));
+		}
+	}
+	roots
+}
+
+/// 系统保护目录：即便落在允许根内也一律拒绝（避免 `C:\Windows` 类误操作）。
+fn is_protected_path(path: &Path) -> bool {
+	#[cfg(target_os = "windows")]
+	{
+		let mut prot = Vec::new();
+		if let Ok(root) = std::env::var("SystemRoot") {
+			prot.push(root);
+		}
+		if let Ok(pf) = std::env::var("ProgramFiles") {
+			prot.push(pf);
+		}
+		if let Ok(pfx86) = std::env::var("ProgramFiles(x86)") {
+			prot.push(pfx86);
+		}
+		if let Ok(pd) = std::env::var("ProgramData") {
+			prot.push(pd);
+		}
+		let canon = canonicalize_lenient(path);
+		for p in prot {
+			let cp = canonicalize_lenient(Path::new(&p));
+			if !cp.as_os_str().is_empty() && canon.starts_with(&cp) {
+				return true;
+			}
+		}
+		false
+	}
+	#[cfg(not(target_os = "windows"))]
+	{
+		let canon = canonicalize_lenient(path);
+		canon.starts_with("/System")
+			|| canon.starts_with("/usr")
+			|| canon.starts_with("/bin")
+			|| canon.starts_with("/sbin")
+			|| canon.starts_with("/etc")
+	}
+}
+
+/// 宽容规范化：目标可能不存在（新建文件/目录），此时规范化其最近的已存在祖先
+/// 再拼回剩余段。**必须走这一步**，否则 `a/../../etc/passwd` 这类含 `..` 的
+/// 路径能穿过朴素的 `starts_with` 前缀检查。
+fn canonicalize_lenient(path: &Path) -> PathBuf {
+	if let Ok(c) = path.canonicalize() {
+		return c;
+	}
+	let mut rest: Vec<std::ffi::OsString> = Vec::new();
+	let mut cur = path.to_path_buf();
+	loop {
+		match cur.parent() {
+			Some(parent) => {
+				if let Some(name) = cur.file_name() {
+					rest.push(name.to_os_string());
+				}
+				if let Ok(c) = parent.canonicalize() {
+					let mut out = c;
+					for seg in rest.iter().rev() {
+						out.push(seg);
+					}
+					return out;
+				}
+				if parent.parent().is_none() {
+					break;
+				}
+				cur = parent.to_path_buf();
+			}
+			None => break,
+		}
+	}
+	path.to_path_buf()
+}
+
+/// 断言路径落在允许根内且非系统保护目录。返回规范化后的绝对路径。
+fn assert_within_allowed(path: &str, roots: &[PathBuf]) -> Result<PathBuf, String> {
+	let dest = abs_path(path)?;
+	let resolved = canonicalize_lenient(&dest);
+	if is_protected_path(&resolved) {
+		return Err(format!("路径位于受保护的系统目录，已拒绝：{}", resolved.display()));
+	}
+	let allowed = roots
+		.iter()
+		.map(|r| canonicalize_lenient(r))
+		.any(|r| !r.as_os_str().is_empty() && resolved.starts_with(&r));
+	if !allowed {
+		return Err(format!(
+			"路径不在允许的目录范围内（需先通过系统对话框选择该目录）：{}",
+			resolved.display()
+		));
+	}
+	Ok(resolved)
+}
+
+/// 用户显式授权过的路径根（工作区 + 经系统对话框选择的目录）。
+struct AllowedRoots(Mutex<Vec<PathBuf>>);
+
+impl AllowedRoots {
+	fn snapshot(&self) -> Vec<PathBuf> {
+		self.0.lock().map(|g| g.clone()).unwrap_or_default()
+	}
+
+	/// 加入一个根。只接受绝对路径；已存在（含被祖先覆盖）时不重复登记。
+	fn add(&self, root: &str) {
+		let Ok(p) = abs_path(root) else {
+			return;
+		};
+		let canon = canonicalize_lenient(&p);
+		if canon.as_os_str().is_empty() {
+			return;
+		}
+		let Ok(mut guard) = self.0.lock() else {
+			return;
+		};
+		if guard.iter().any(|r| canon.starts_with(canonicalize_lenient(r))) {
+			return;
+		}
+		guard.push(canon);
+	}
+}
+
+/// 登记允许写入的根：前端在工作区打开/新建时调用。
+///
+/// 这是**信任边界的一部分**——路径来自用户在系统对话框里的显式选择
+/// （或 IndexedDB 中已保存的工作区记录）。前端不得用模型可控的输入调用它。
+#[tauri::command]
+fn set_allowed_roots(roots: Vec<String>, state: tauri::State<'_, AllowedRoots>) {
+	for root in roots {
+		state.add(&root);
+	}
+}
+
 fn run_git(args: &[&str]) -> Result<(), String> {
 	let mut cmd = Command::new("git");
 	cmd.args(args).stdout(Stdio::piped()).stderr(Stdio::piped());
@@ -576,8 +728,8 @@ fn run_git(args: &[&str]) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn create_directory(path: String) -> Result<(), String> {
-	let dest = abs_path(&path)?;
+fn create_directory(path: String, state: tauri::State<'_, AllowedRoots>) -> Result<(), String> {
+	let dest = assert_within_allowed(&path, &state.snapshot())?;
 	if dest.exists() {
 		return Err(format!("文件夹已存在（{}）", dest.display()));
 	}
@@ -586,19 +738,23 @@ fn create_directory(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn git_init(path: String) -> Result<(), String> {
-	let dest = abs_path(&path)?;
+fn git_init(path: String, state: tauri::State<'_, AllowedRoots>) -> Result<(), String> {
+	let dest = assert_within_allowed(&path, &state.snapshot())?;
 	let dest_str = dest.to_str().ok_or("路径无效")?;
 	run_git(&["-C", dest_str, "init"])
 }
 
 #[tauri::command]
-async fn git_clone(url: String, dest: String) -> Result<(), String> {
+async fn git_clone(
+	url: String,
+	dest: String,
+	state: tauri::State<'_, AllowedRoots>,
+) -> Result<(), String> {
 	let url = url.trim().to_string();
 	if url.is_empty() {
 		return Err("仓库地址不能为空".to_string());
 	}
-	let dest = abs_path(&dest)?;
+	let dest = assert_within_allowed(&dest, &state.snapshot())?;
 	let dest_str = dest.to_str().ok_or("路径无效")?.to_string();
 	tauri::async_runtime::spawn_blocking(move || {
 		run_git(&["clone", "--", url.as_str(), dest_str.as_str()])
@@ -718,10 +874,12 @@ pub fn run() {
 				git_init,
 				git_clone,
 				list_git_repos,
+				set_allowed_roots,
 				get_backend_port,
 				get_backend_error,
 				clear_backend_error
 			])
+		.manage(AllowedRoots(Mutex::new(default_allowed_roots())))
 .setup(|app| {
 				// 透明窗口不支持 DWM 阴影（layered 窗口），不再强制开渲染阴影，
 				// 否则会覆盖 tauri.conf.json 的 shadow:false，导致 WebView 用不透明底色。

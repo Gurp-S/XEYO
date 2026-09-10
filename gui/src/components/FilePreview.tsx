@@ -453,7 +453,16 @@ export const FilePreview = memo(function FilePreview() {
 				setDirty(false);
 				dirtyRef.current = false;
 			} catch (err) {
-				window.alert(err instanceof Error ? err.message : String(err));
+				// 403 通常是 workspace_fs 直写通道未开启（默认关闭，属安全默认值）。
+				// 给出可执行的说明，而不是把后端原文直接抛给用户。
+				const msg = err instanceof Error ? err.message : String(err);
+				window.alert(
+					msg.includes('XEYO_WORKSPACE_FS_WRITABLE')
+						? '当前未开启编辑器直写保存。如需在预览面板直接保存文件，' +
+								'请设置环境变量 XEYO_WORKSPACE_FS_WRITABLE=1 后重启应用；' +
+								'也可以让 XEYO 代为修改该文件（走引擎权限与回滚链）。'
+						: msg,
+				);
 			} finally {
 				setSaving(false);
 			}

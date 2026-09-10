@@ -17,6 +17,33 @@ from server.workspace_fs import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _enable_direct_writes(monkeypatch: pytest.MonkeyPatch) -> None:
+	"""直写通道默认关闭（安全默认值），本模块的写/删用例显式开启。
+
+	默认关闭本身由 `test_writes_default_denied` 覆盖。
+	"""
+	monkeypatch.setenv("XEYO_WORKSPACE_FS_WRITABLE", "1")
+
+
+def test_writes_default_denied(
+	tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""未显式开启时，直写通道必须拒绝写入与删除。"""
+	monkeypatch.delenv("XEYO_WORKSPACE_FS_WRITABLE", raising=False)
+	root = tmp_path / "ws"
+	root.mkdir()
+	(root / "notes.md").write_text("keep\n", encoding="utf-8")
+
+	with pytest.raises(PermissionError):
+		write_file(str(root), "notes.md", "hack")
+	with pytest.raises(PermissionError):
+		delete_path(str(root), "notes.md")
+
+	# 内容原样保留
+	assert (root / "notes.md").read_text(encoding="utf-8") == "keep\n"
+
+
 def test_resolve_blocks_escape(tmp_path: Path) -> None:
 	root = tmp_path / "ws"
 	root.mkdir()

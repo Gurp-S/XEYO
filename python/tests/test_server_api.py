@@ -29,6 +29,15 @@ def _client() -> TestClient:
 	return TestClient(app)
 
 
+@pytest.fixture(autouse=True)
+def _enable_direct_writes(monkeypatch: pytest.MonkeyPatch) -> None:
+	"""直写通道默认关闭（安全默认值），本模块的写/删契约用例显式开启。
+
+	默认关闭本身由 test_server_gate_g51 / test_workspace_fs 覆盖。
+	"""
+	monkeypatch.setenv("XEYO_WORKSPACE_FS_WRITABLE", "1")
+
+
 def test_health_ok() -> None:
 	c = _client()
 	r = c.get("/health")
