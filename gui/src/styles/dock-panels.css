@@ -40,7 +40,7 @@
   border-bottom: 1px solid transparent;
   user-select: none;
   transition:
-    background 140ms var(--ease-out-soft),
+    background var(--duration-fast) var(--ease-out-soft),
     border-color var(--duration-base) var(--ease-out-soft);
 }
 .xy-panel-ask.is-expanded .xy-panel-ask-head {
@@ -100,8 +100,8 @@
   cursor: pointer;
   flex-shrink: 0;
   transition:
-    color 140ms var(--ease-out-soft),
-    background 140ms var(--ease-out-soft);
+    color var(--duration-fast) var(--ease-out-soft),
+    background var(--duration-fast) var(--ease-out-soft);
 }
 .xy-panel-ask-dismiss:hover {
   color: var(--xy-ink-soft);
@@ -162,8 +162,8 @@ html[data-smoothness="off"] .xy-panel-collapse {
   cursor: pointer;
   font-family: inherit;
   transition:
-    border-color 140ms var(--ease-out-soft),
-    background 140ms var(--ease-out-soft);
+    border-color var(--duration-fast) var(--ease-out-soft),
+    background var(--duration-fast) var(--ease-out-soft);
 }
 .xy-panel-ask-opt:hover {
   border-color: var(--xy-accent);
@@ -207,7 +207,7 @@ html[data-smoothness="off"] .xy-panel-collapse {
   display: grid;
   place-items: center;
   cursor: pointer;
-  transition: background 140ms var(--ease-out-soft);
+  transition: background var(--duration-fast) var(--ease-out-soft);
 }
 .xy-panel-ask-send:hover:not(:disabled) {
   background: var(--xy-accent-hover);
@@ -249,7 +249,7 @@ html[data-smoothness="off"] .xy-panel-collapse {
     var(--xy-panel-ask-bg) 100%
   );
   opacity: 0;
-  transition: opacity 140ms var(--ease-out-soft);
+  transition: opacity var(--duration-fast) var(--ease-out-soft);
 }
 .xy-panel-ask-cmd-mask.is-show {
   opacity: 1;

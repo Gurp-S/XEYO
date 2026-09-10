@@ -3,9 +3,9 @@
   backface-visibility: hidden;
   -webkit-font-smoothing: antialiased;
   transition:
-    opacity 140ms var(--ease-out-soft),
+    opacity var(--duration-fast) var(--ease-out-soft),
     transform 160ms var(--ease-out-soft),
-    visibility 0s linear 140ms;
+    visibility 0s linear var(--duration-fast);
 }
 
 .group:hover .xy-sidebar-affordance,

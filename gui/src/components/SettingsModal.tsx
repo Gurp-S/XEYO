@@ -1,5 +1,5 @@
 import {Check, Eye, EyeOff, ImagePlus, Pencil, Plus, RefreshCw, Trash2, X} from 'lucide-react';
-import {useEffect, useRef, useState} from 'react';
+import {useEffect, useMemo, useRef, useState} from 'react';
 import {usePresence} from '@/hooks/usePresence';
 import {AccentColorPicker} from '@/components/AccentColorPicker';
 import {GrantsPanel} from '@/components/GrantsPanel';
@@ -10,6 +10,7 @@ import {fetchVendorModels, setRewindGcSettings, type VendorModel} from '@/lib/ap
 import {cn} from '@/lib/utils';
 import {toast} from '@/lib/toast';
 import {confirmDialog} from '@/lib/inlineDialog';
+import {cssDurationMs, presenceExitMs} from '@/lib/motionDuration';
 import {useRemoteStore} from '@/stores/remoteStore';
 import {allowsEmptyApiKey} from '@/lib/localTestGate';
 import {invokePet} from '@/pet/PetBridge';
@@ -211,7 +212,10 @@ export function SettingsModal({open, onClose}: Props) {
 	};
 	const fileRef = useRef<HTMLInputElement>(null);
 		const [compressing, setCompressing] = useState(false);
-		const {mounted, shown} = usePresence(open, 160);
+		// 退出延迟由 .xy-modal-panel 的 transition 时长推导。
+		// 原先写死 160ms < CSS 的 200ms，关闭末帧被截断。
+		const modalExitMs = useMemo(() => presenceExitMs(cssDurationMs('base')), []);
+		const {mounted, shown} = usePresence(open, modalExitMs);
 
 	const [activeTab, setActiveTab] = useState<
 		'appearance' | 'accounts' | 'rewind' | 'perms' | 'pet' | 'remote'

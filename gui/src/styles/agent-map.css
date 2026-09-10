@@ -143,7 +143,10 @@ html[data-scheme='dark'] .xy-agent-map {
 .xy-agent-map__node-body {
 	fill: color-mix(in oklch, var(--map-node-fill) 92%, transparent);
 	stroke: color-mix(in oklch, var(--map-node-stroke) 70%, transparent);
-	transition: fill 140ms ease, stroke 140ms ease, stroke-width 140ms ease;
+	transition:
+    fill var(--duration-fast) ease,
+    stroke var(--duration-fast) ease,
+    stroke-width var(--duration-fast) ease;
 }
 
 .xy-agent-map__node:hover:not(.xy-agent-map__node--selected):not(.xy-agent-map__node--live) .xy-agent-map__node-body {
@@ -193,7 +196,7 @@ html[data-scheme='dark'] .xy-agent-map {
 
 .xy-agent-map__node--dim {
 	opacity: 0.38;
-	transition: opacity 140ms ease;
+	transition: opacity var(--duration-fast) ease;
 }
 
 .xy-agent-map__pulse {

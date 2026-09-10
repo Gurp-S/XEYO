@@ -30,7 +30,7 @@
   padding: 6px 2px;
   max-height: min(48vh, 320px);
   overflow: hidden;
-  transition: opacity 140ms ease;
+  transition: opacity var(--duration-fast) ease;
 }
 
 .xy-turn-rail-idle.is-capped {
@@ -83,10 +83,10 @@
   cursor: pointer;
   transform: translateY(0);
   transition:
-    background-color 140ms ease,
-    width 140ms ease,
-    height 140ms ease,
-    opacity 140ms ease,
+    background-color var(--duration-fast) ease,
+    width var(--duration-fast) ease,
+    height var(--duration-fast) ease,
+    opacity var(--duration-fast) ease,
     transform 160ms cubic-bezier(0.22, 1, 0.36, 1),
     box-shadow 160ms ease;
 }

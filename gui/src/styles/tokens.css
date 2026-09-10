@@ -24,12 +24,6 @@
   --color-rule: var(--xy-rule);
   --color-rule-strong: var(--xy-rule-strong);
   /* 正文：微软雅黑；代码/等宽：Consolas */
-  --font-display:
-    "Microsoft YaHei UI", "Microsoft YaHei", "微软雅黑", "PingFang SC",
-    "Noto Sans SC", sans-serif;
-  --font-serif:
-    "Microsoft YaHei UI", "Microsoft YaHei", "微软雅黑", "PingFang SC",
-    "Noto Sans SC", sans-serif;
   --font-sans:
     "Microsoft YaHei UI", "Microsoft YaHei", "微软雅黑", "PingFang SC",
     "Noto Sans SC", sans-serif;
