@@ -407,6 +407,15 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 		});
 	}, [agentMode, permissionMode, multiAgent]);
 
+	/** 思考等级变更写入草稿：切走再切回、或重开会话时不丢手选等级。 */
+	useEffect(() => {
+		const id = activeIdRef.current;
+		if (!id) {
+			return;
+		}
+		patchComposerDraftModes(id, {reasoningEffort});
+	}, [reasoningEffort]);
+
 	useEffect(() => {
 		if (composerInsertSeq === 0) {
 			return;

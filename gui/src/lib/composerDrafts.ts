@@ -410,7 +410,10 @@ export function setComposerDraft(
 export function patchComposerDraftModes(
 	sessionId: string,
 	patch: Partial<
-		Pick<ComposerDraft, 'agentMode' | 'permissionMode' | 'multiAgent'>
+		Pick<
+			ComposerDraft,
+			'agentMode' | 'permissionMode' | 'multiAgent' | 'reasoningEffort'
+		>
 	>,
 ): void {
 	ensureLoaded();

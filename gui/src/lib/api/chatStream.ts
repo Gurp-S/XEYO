@@ -76,6 +76,12 @@ export async function streamChat(
 		(modelDefaultSupported ? modelDefaultEffort : '') || s.reasoningEffort || '';
 	const reasoningEffort =
 		(options?.reasoningEffort?.trim() || defaultEffort) || undefined;
+	// 思考开关与等级是成对的：选了等级就必须开 thinking，否则后端收不到
+	// reasoning_effort（DeepSeek 要求 `thinking.type==="enabled"` 才发等级）。
+	// 用户显式关思考时等级一并作废，避免发出「关了思考却带等级」的矛盾请求。
+	const thinking: 'enabled' | 'disabled' =
+		s.thinking === 'enabled' || reasoningEffort ? 'enabled' : 'disabled';
+	const effectiveEffort = thinking === 'enabled' ? reasoningEffort : undefined;
 	const previewUrl = browserPreviewUrlForChat();
 	// 空 Key 仅允许本地测试 provider（localTestGate，T25c）。
 	if (!s.apiKey.trim() && !allowsEmptyApiKey(s.provider)) {
@@ -112,8 +118,8 @@ export async function streamChat(
 					session_id: sessionId,
 					provider: s.provider,
 					base_url: s.resolvedBaseUrl(),
-					thinking: s.thinking ?? 'disabled',
-					reasoning_effort: reasoningEffort,
+					thinking,
+					reasoning_effort: effectiveEffort,
 					// L1.2：USD 上限；空字符串 = 不限
 					max_budget_usd: s.maxBudgetUsd ? Number(s.maxBudgetUsd) : undefined,
 					permission_mode: s.permissionMode,

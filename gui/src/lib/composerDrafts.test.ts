@@ -145,3 +145,41 @@ describe('composerDrafts 持久化（刷新恢复）', () => {
 		expect(reloaded.getComposerDraft('sess_a')).toBeUndefined();
 	});
 });
+
+describe('patchComposerDraftModes 支持思考等级（缺口③ 契约）', () => {
+	it('patch reasoningEffort 写入内存态且刷新后可恢复', async () => {
+		mod.patchComposerDraftModes('sess_r', {reasoningEffort: 'high'});
+		expect(mod.getComposerDraft('sess_r')?.reasoningEffort).toBe('high');
+		mod.flushPersistDrafts();
+		const reloaded = await loadFresh();
+		expect(reloaded.getComposerDraft('sess_r')?.reasoningEffort).toBe('high');
+	});
+
+	it('patch 只改等级时不动既有模式字段', () => {
+		mod.setComposerDraft('sess_m', {
+			text: 'hi',
+			attachments: [],
+			agentMode: 'plan',
+			permissionMode: 'never',
+			multiAgent: true,
+			reasoningEffort: '',
+		});
+		mod.patchComposerDraftModes('sess_m', {reasoningEffort: 'max'});
+		const d = mod.getComposerDraft('sess_m');
+		expect(d?.reasoningEffort).toBe('max');
+		expect(d?.agentMode).toBe('plan');
+		expect(d?.permissionMode).toBe('never');
+		expect(d?.multiAgent).toBe(true);
+		expect(d?.text).toBe('hi');
+	});
+
+	it('空串清除等级（回到自动）', () => {
+		mod.setComposerDraft('sess_c', {
+			text: '',
+			attachments: [],
+			reasoningEffort: 'low',
+		});
+		mod.patchComposerDraftModes('sess_c', {reasoningEffort: ''});
+		expect(mod.getComposerDraft('sess_c')?.reasoningEffort).toBe('');
+	});
+});

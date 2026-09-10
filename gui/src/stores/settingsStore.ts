@@ -110,6 +110,38 @@ export const REASONING_EFFORTS: readonly ReasoningEffort[] = [
 	'ultra',
 ];
 
+/** 厂商 /models 里每条 reasoning_effort 档位声明（id 必填，label 可选）。 */
+type VendorModeEntry = {id?: unknown; label?: unknown} | string;
+
+/**
+ * 从厂商返回的 `modes.reasoning_effort` 提取可用思考等级。
+ *
+ * 取不到（老模型或兼容网关未声明）返回空数组，语义为「不限」——设置页保持
+ * 未勾选状态，输入框回落「自动」。非法值与重复值一律剔除，返回顺序按全局
+ * 展示顺序，保证勾选框列出顺序稳定。
+ */
+export function vendorReasoningLevels(vm: {
+	modes?: {reasoning_effort?: unknown} | undefined;
+}): ReasoningEffort[] {
+	const raw = vm.modes?.reasoning_effort;
+	if (!Array.isArray(raw)) {
+		return [];
+	}
+	const picked = new Set<ReasoningEffort>();
+	for (const entry of raw as VendorModeEntry[]) {
+		const id =
+			typeof entry === 'string'
+				? entry
+				: entry && typeof entry === 'object'
+					? String(entry.id ?? '')
+					: '';
+		if (isReasoningEffort(id)) {
+			picked.add(id);
+		}
+	}
+	return REASONING_EFFORTS.filter(l => picked.has(l));
+}
+
 export type Settings = {
 	provider: ProviderId;
 	model: string;

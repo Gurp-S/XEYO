@@ -22,6 +22,7 @@ import {
 	profileModelIds,
 	syncSessionUsageContextLimits,
 	useSettingsStore,
+	vendorReasoningLevels,
 	type ModelInput,
 	type ModelProfile,
 	type ProviderId,
@@ -337,6 +338,14 @@ export function SettingsModal({open, onClose}: Props) {
 				Number(vm.context_length) > 0
 					? String(Math.floor(Number(vm.context_length)))
 					: '';
+			// 厂商声明了思考等级就预填勾选框：省去手动照抄，且避免默认等级
+			// 落在未勾选集合里被判为「不支持」而被静默丢弃。
+			const levels = vendorReasoningLevels(vm);
+			const defaults: Partial<DraftModelRow> = {
+				id: vm.id,
+				contextLimit: ctx,
+				...(levels.length > 0 ? {reasoningLevels: levels} : {}),
+			};
 			setDraft(d => {
 				if (d.models.some(m => m.id.trim() === vm.id)) {
 					return d;
@@ -347,16 +356,13 @@ export function SettingsModal({open, onClose}: Props) {
 					return {
 						...d,
 						models: d.models.map((m, i) =>
-							i === firstEmptyIdx ? {...m, id: vm.id, contextLimit: ctx} : m,
+							i === firstEmptyIdx ? {...m, ...defaults} : m,
 						),
 					};
 				}
 				return {
 					...d,
-					models: [
-						...d.models,
-						{...emptyDraftModel(), id: vm.id, contextLimit: ctx},
-					],
+					models: [...d.models, {...emptyDraftModel(), ...defaults}],
 				};
 			});
 			if (fieldErrors.models) {

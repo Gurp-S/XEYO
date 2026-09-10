@@ -423,3 +423,63 @@ describe('streamChat SSE — normal / extreme', () => {
 		});
 	});
 
+
+describe('streamChat 思考开关与等级成对（缺口① 契约）', () => {
+	const fetchMock = vi.fn();
+
+	beforeEach(() => {
+		fetchMock.mockReset();
+		vi.stubGlobal('fetch', fetchMock);
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	/** 取本次请求的实际 body（推导 thinking / reasoning_effort 的值）。 */
+	async function bodyOf(options?: {
+		reasoningEffort?: string;
+		thinking?: 'enabled' | 'disabled';
+	}): Promise<Record<string, unknown>> {
+		const {useSettingsStore} = await import('@/stores/settingsStore');
+		const state = useSettingsStore.getState() as Record<string, unknown>;
+		const prevThinking = state.thinking;
+		if (options?.thinking !== undefined) {
+			state.thinking = options.thinking;
+		}
+		fetchMock.mockResolvedValue(sseResponse(['data: [DONE]\n\n']));
+		await streamChat(
+			's1',
+			'hi',
+			{
+				onDelta: () => undefined,
+				onDone: () => undefined,
+				onError: () => undefined,
+			},
+			options?.reasoningEffort !== undefined
+				? {reasoningEffort: options.reasoningEffort}
+				: undefined,
+		);
+		state.thinking = prevThinking;
+		const init = fetchMock.mock.calls[0]?.[1] as {body?: string} | undefined;
+		return JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
+	}
+
+	it('输入框选了等级 → 自动开思考并带上该等级', async () => {
+		const body = await bodyOf({reasoningEffort: 'high'});
+		expect(body.thinking).toBe('enabled');
+		expect(body.reasoning_effort).toBe('high');
+	});
+
+	it('显式开思考但未选等级 → 发 enabled 且不带等级', async () => {
+		const body = await bodyOf({thinking: 'enabled'});
+		expect(body.thinking).toBe('enabled');
+		expect(body.reasoning_effort).toBeUndefined();
+	});
+
+	it('未选等级且未开思考 → 保持 disabled，不发送等级', async () => {
+		const body = await bodyOf({thinking: 'disabled'});
+		expect(body.thinking).toBe('disabled');
+		expect(body.reasoning_effort).toBeUndefined();
+	});
+});
