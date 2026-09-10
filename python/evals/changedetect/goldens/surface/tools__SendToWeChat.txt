@@ -1,0 +1,1 @@
+{"description":"Send a workspace file to WeChat.","input_schema":{"additionalProperties":false,"properties":{"path":{"description":"Absolute or workspace-relative file path.","type":"string"}},"required":["path"],"type":"object"},"name":"SendToWeChat"}

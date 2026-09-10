@@ -1,0 +1,1 @@
+{"description":"Create/overwrite a file. Read first if it exists.","input_schema":{"properties":{"content":{"description":"The content to write to the file","type":"string"},"file_path":{"description":"The absolute path to the file to write (must be absolute, not relative)","type":"string"}},"required":["file_path","content"],"type":"object"},"name":"Write"}

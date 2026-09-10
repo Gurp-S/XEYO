@@ -1,0 +1,1 @@
+{"assistant_chars":10,"events":["ToolCall:echo","ToolResult","Final"],"final":"echoed: hi","id":"echo_roundtrip","tools":["echo"]}

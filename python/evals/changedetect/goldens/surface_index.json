@@ -1,0 +1,322 @@
+{
+ "artifact_count": 45,
+ "artifacts": {
+  "meta/power_table": {
+   "chars": 227,
+   "file": "meta__power_table.txt",
+   "group": "meta",
+   "note": "",
+   "sha256": "0a396e6698f1c93459d077c0e29ae08e1d4051635a6e715c338674d12985b8df"
+  },
+  "slash/gui_manifest": {
+   "chars": 8797,
+   "file": "slash__gui_manifest.txt",
+   "group": "slash",
+   "note": "",
+   "sha256": "0fa6d85dc9c9ab46c98eea2370222adfd50790adf74ada07482b7af447288319"
+  },
+  "slash/tui_manifest": {
+   "chars": 8797,
+   "file": "slash__tui_manifest.txt",
+   "group": "slash",
+   "note": "",
+   "sha256": "0fa6d85dc9c9ab46c98eea2370222adfd50790adf74ada07482b7af447288319"
+  },
+  "system/assembled": {
+   "chars": 217,
+   "file": "system__assembled.txt",
+   "group": "system",
+   "note": "",
+   "sha256": "d2c766fa30dac799aeb5f7d1d756c95d65b1a6e6edd8c3ca3349dbf6c53c7c07"
+  },
+  "system/assembled_with_custom": {
+   "chars": 251,
+   "file": "system__assembled_with_custom.txt",
+   "group": "system",
+   "note": "",
+   "sha256": "6feb688866b3f9a3614a31f7c64f44331f655f43aea4127688233dcababe2c17"
+  },
+  "system/env": {
+   "chars": 11,
+   "file": "system__env.txt",
+   "group": "system",
+   "note": "",
+   "sha256": "ed71578f1f946cb946985d2e2e860b423f98dfba1eca59654de0c44c1815ecf2"
+  },
+  "system/fence": {
+   "chars": 74,
+   "file": "system__fence.txt",
+   "group": "system",
+   "note": "",
+   "sha256": "f17cf05be9ad4f4751f57d4f6c345d2752ac3f0fbb45f7245abcd09cce6c7a86"
+  },
+  "system/identity": {
+   "chars": 23,
+   "file": "system__identity.txt",
+   "group": "system",
+   "note": "",
+   "sha256": "d18180556fb91528d064f8f3d4ae7573de233993bf5526948955ae1bbe124f40"
+  },
+  "tnow/block/browser_preview": {
+   "chars": 0,
+   "file": "tnow__block__browser_preview.txt",
+   "group": "tnow",
+   "note": "",
+   "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "tnow/block/code_compact": {
+   "chars": 0,
+   "file": "tnow__block__code_compact.txt",
+   "group": "tnow",
+   "note": "",
+   "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "tnow/block/compact": {
+   "chars": 0,
+   "file": "tnow__block__compact.txt",
+   "group": "tnow",
+   "note": "",
+   "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "tnow/block/output_compact": {
+   "chars": 0,
+   "file": "tnow__block__output_compact.txt",
+   "group": "tnow",
+   "note": "",
+   "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "tnow/block/pending_jobs": {
+   "chars": 0,
+   "file": "tnow__block__pending_jobs.txt",
+   "group": "tnow",
+   "note": "",
+   "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "tnow/block/runtime_mode_snapshot": {
+   "chars": 0,
+   "file": "tnow__block__runtime_mode_snapshot.txt",
+   "group": "tnow",
+   "note": "",
+   "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "tnow/block/wrap_up": {
+   "chars": 56,
+   "file": "tnow__block__wrap_up.txt",
+   "group": "tnow",
+   "note": "",
+   "sha256": "a14fd8bf06f0b6730920de1e5f9c70496c8d52e34094f7382ff1e736446401bc"
+  },
+  "tnow/block_count": {
+   "chars": 3,
+   "file": "tnow__block_count.txt",
+   "group": "tnow",
+   "note": "登记块数（与硬顶一起决定准入）",
+   "sha256": "5378796307535df3ec8d8b15a2e2dc5641419c3d3060cfe32238c0fa973f7aa3"
+  },
+  "tnow/hard_cap": {
+   "chars": 3,
+   "file": "tnow__hard_cap.txt",
+   "group": "tnow",
+   "note": "",
+   "sha256": "6e2ae11dad0616f66bbb2b6e6556f580bb987fd911d7132aa6bee2bfc7cc7b52"
+  },
+  "tnow/registry": {
+   "chars": 1141,
+   "file": "tnow__registry.txt",
+   "group": "tnow",
+   "note": "块登记表（加块必须登记，机器执法）",
+   "sha256": "f3d5cf7e28e6d3abaea099b7ba6ac7b29ba40bf2911a469e95f234ce3fe5cde1"
+  },
+  "tools/Agent": {
+   "chars": 1136,
+   "file": "tools__Agent.txt",
+   "group": "tools",
+   "note": "工具 schema（决定模型怎么调）",
+   "sha256": "a7712448d3d4cee050898f750261005ff772503c21536c19182926cea532acd6"
+  },
+  "tools/AskUserQuestion": {
+   "chars": 1220,
+   "file": "tools__AskUserQuestion.txt",
+   "group": "tools",
+   "note": "工具 schema（决定模型怎么调）",
+   "sha256": "02fea9b01195a72c3439ddbe3590c7f3e3de6ccc0f27d0fedc3b20f8b50edf00"
+  },
+  "tools/Bash": {
+   "chars": 1366,
+   "file": "tools__Bash.txt",
+   "group": "tools",
+   "note": "工具 schema（决定模型怎么调）",
+   "sha256": "c4c54d21e0a00e468f6101a53a0088d95f1492c8f9b778358384ef300e07b89f"
+  },
+  "tools/Diagnostics": {
+   "chars": 486,
+   "file": "tools__Diagnostics.txt",
+   "group": "tools",
+   "note": "工具 schema（决定模型怎么调）",
+   "sha256": "3826b9eb06268725d708634cfa7201d4536fbbbd896c10c4635855e9f65b0b9a"
+  },
+  "tools/Edit": {
+   "chars": 575,
+   "file": "tools__Edit.txt",
+   "group": "tools",
+   "note": "工具 schema（决定模型怎么调）",
+   "sha256": "270dcb18eca4573228de429f9b2deef07959fa4354e6e54e61b380cc9b0d9412"
+  },
+  "tools/Git": {
+   "chars": 608,
+   "file": "tools__Git.txt",
+   "group": "tools",
+   "note": "工具 schema（决定模型怎么调）",
+   "sha256": "a606fe6c4ceec3850e3742b672bcb538ca345b78aed82316e016c49edc320310"
+  },
+  "tools/Glob": {
+   "chars": 1283,
+   "file": "tools__Glob.txt",
+   "group": "tools",
+   "note": "工具 schema（决定模型怎么调）",
+   "sha256": "07599a9aea7d52e4f15b2360aa0e184010dc5c51d1f00ae8e500754361d20f79"
+  },
+  "tools/Grep": {
+   "chars": 1930,
+   "file": "tools__Grep.txt",
+   "group": "tools",
+   "note": "工具 schema（决定模型怎么调）",
+   "sha256": "17eb49bbc526f43af9060ebe7817ae06b0e602bdae71ffc64b232b94272a5e2b"
+  },
+  "tools/JournalQuery": {
+   "chars": 528,
+   "file": "tools__JournalQuery.txt",
+   "group": "tools",
+   "note": "工具 schema（决定模型怎么调）",
+   "sha256": "5dce311eade4813e7fcbf2be418b384ff4d5c4f08d3d7f3079b761fffda57825"
+  },
+  "tools/Memory": {
+   "chars": 867,
+   "file": "tools__Memory.txt",
+   "group": "tools",
+   "note": "工具 schema（决定模型怎么调）",
+   "sha256": "d54435670290ec93c1cc4b2a8da42acba721257997cfa2b8ea8f5443312fbe2b"
+  },
+  "tools/NotebookEdit": {
+   "chars": 720,
+   "file": "tools__NotebookEdit.txt",
+   "group": "tools",
+   "note": "工具 schema（决定模型怎么调）",
+   "sha256": "fb1ec310a177e72693c2545c78ea502ce46c7f0b1d1e20679fc034653cf25ae8"
+  },
+  "tools/Read": {
+   "chars": 975,
+   "file": "tools__Read.txt",
+   "group": "tools",
+   "note": "工具 schema（决定模型怎么调）",
+   "sha256": "935d79c3850f856c56338e75310f3d443e7fbb6c0a6e439ca0970a1de3e4d0a6"
+  },
+  "tools/Screenshot": {
+   "chars": 407,
+   "file": "tools__Screenshot.txt",
+   "group": "tools",
+   "note": "工具 schema（决定模型怎么调）",
+   "sha256": "3930240a10af5cabb38ff96679aa3e9e3890f4f934ac27ab8ac17f3fd0b10685"
+  },
+  "tools/SendToWeChat": {
+   "chars": 253,
+   "file": "tools__SendToWeChat.txt",
+   "group": "tools",
+   "note": "工具 schema（决定模型怎么调）",
+   "sha256": "979232c4f83256d8d3f6b09795bbeddcbc3705fc2fd7c19f50e441c6c8960887"
+  },
+  "tools/Skill": {
+   "chars": 481,
+   "file": "tools__Skill.txt",
+   "group": "tools",
+   "note": "工具 schema（决定模型怎么调）",
+   "sha256": "d0e973ead7bd2968402755474888221180db9108bd3d8c4fc33e4f4f2e92a6ca"
+  },
+  "tools/TodoWrite": {
+   "chars": 1131,
+   "file": "tools__TodoWrite.txt",
+   "group": "tools",
+   "note": "工具 schema（决定模型怎么调）",
+   "sha256": "8e90fc34bcb24714f1a93b6bdc110524dbdd6df3c556d39b5e038309ac38ea55"
+  },
+  "tools/WebFetch": {
+   "chars": 425,
+   "file": "tools__WebFetch.txt",
+   "group": "tools",
+   "note": "工具 schema（决定模型怎么调）",
+   "sha256": "3d75b826ced25be77bf77a39496b682092f35bbffe6e479b9a9f61b1ca267bed"
+  },
+  "tools/WebSearch": {
+   "chars": 313,
+   "file": "tools__WebSearch.txt",
+   "group": "tools",
+   "note": "工具 schema（决定模型怎么调）",
+   "sha256": "13d64cd75aa8af66471d176c6d6cfd8e3cb422784b642df154d9b84d0a7964d4"
+  },
+  "tools/Write": {
+   "chars": 361,
+   "file": "tools__Write.txt",
+   "group": "tools",
+   "note": "工具 schema（决定模型怎么调）",
+   "sha256": "fb3013b84f5ad5bc1d952764f0b9dcb08072de35164704b7dcd2e81cfc112e5b"
+  },
+  "tools/XeyoUI": {
+   "chars": 934,
+   "file": "tools__XeyoUI.txt",
+   "group": "tools",
+   "note": "工具 schema（决定模型怎么调）",
+   "sha256": "7126c4ca62c86f097ea8911d46685c83d4c21743a8fe5390a21718f1f759595f"
+  },
+  "tools/_bench_minimal_names": {
+   "chars": 52,
+   "file": "tools___bench_minimal_names.txt",
+   "group": "tools",
+   "note": "XEYO_BENCH_MINIMAL=1 时的工具集（评测口径红线）",
+   "sha256": "5f27f922a017e4c64e56857364b90003f0071df98f2e9107a653fb94ab116cd1"
+  },
+  "tools/_count": {
+   "chars": 3,
+   "file": "tools___count.txt",
+   "group": "tools",
+   "note": "",
+   "sha256": "68ca3fba3b7e864770cb61aeb306d4bd4354b68ab4dd38450860c5d823e42a53"
+  },
+  "tools/_index": {
+   "chars": 205,
+   "file": "tools___index.txt",
+   "group": "tools",
+   "note": "工具名清单（模型可见面）",
+   "sha256": "7d8cab49b122fbfaaa2d3c440890e5675f5835ceb90a7caae8a3fd450bd30a32"
+  },
+  "tools/getTime": {
+   "chars": 163,
+   "file": "tools__getTime.txt",
+   "group": "tools",
+   "note": "工具 schema（决定模型怎么调）",
+   "sha256": "177bbdd589a4d286c2beb2d713d6336a026e767c37a01549145bfc919081ce06"
+  },
+  "tools/job_kill": {
+   "chars": 292,
+   "file": "tools__job_kill.txt",
+   "group": "tools",
+   "note": "工具 schema（决定模型怎么调）",
+   "sha256": "30b16fad8c239200b9b7e35e15051d256b3db46ab1f5a8834dd4398e60f1d86a"
+  },
+  "tools/job_list": {
+   "chars": 122,
+   "file": "tools__job_list.txt",
+   "group": "tools",
+   "note": "工具 schema（决定模型怎么调）",
+   "sha256": "da66af8d8a2a57d317df93a5fdaa085c0c0029bf01897997f42c778f6c98e931"
+  },
+  "tools/job_output": {
+   "chars": 464,
+   "file": "tools__job_output.txt",
+   "group": "tools",
+   "note": "工具 schema（决定模型怎么调）",
+   "sha256": "f8078abd3db5556263deb3895d37b43d665621cb93369ccc5ae5a01bc9810773"
+  }
+ },
+ "generated_by": "evals.changedetect.surface",
+ "schema": 1
+}

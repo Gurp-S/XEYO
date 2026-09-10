@@ -1,0 +1,1 @@
+{"assistant_chars":11,"events":["Final"],"final":"ok: 只回一个字：好","id":"plain_text","tools":[]}

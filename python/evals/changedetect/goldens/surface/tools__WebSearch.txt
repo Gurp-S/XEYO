@@ -1,0 +1,1 @@
+{"description":"Web search (ASK). Returns titles/urls/snippets.","input_schema":{"additionalProperties":false,"properties":{"count":{"description":"Max results (1–10). Default 3.","type":"integer"},"query":{"description":"Search query.","type":"string"}},"required":["query"],"type":"object"},"name":"WebSearch"}

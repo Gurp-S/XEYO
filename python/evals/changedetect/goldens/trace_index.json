@@ -1,0 +1,102 @@
+{
+ "generated_by": "evals.changedetect.trace",
+ "schema": 1,
+ "traces": {
+  "inject/after_failed_tool": {
+   "chars": 718,
+   "sha256": "83f860150c53dfb29caca1eb11c1c33acf7fddf3e467b83b83d1dd2d4734692e"
+  },
+  "inject/after_tools": {
+   "chars": 702,
+   "sha256": "ef0b7f491ca41098c950e973c66eae24144f5ba8da77c9c61f2e67e2ce7f6a87"
+  },
+  "inject/approved_plan": {
+   "chars": 412,
+   "sha256": "bb99720474edc36fc837e37abac6421b3146766cec160fe42afb0446d79162f5"
+  },
+  "inject/approved_plan_pointer": {
+   "chars": 404,
+   "sha256": "47eb3582b02ae830c68effbd92e9f556f962770561674e26fe8d92f4312a8430"
+  },
+  "inject/ask_mode": {
+   "chars": 443,
+   "sha256": "7d68ad26fe1acf98f38d3b79bbc3b2f47242b3c02f907ee4de21197d63218027"
+  },
+  "inject/budget_mirror": {
+   "chars": 44,
+   "sha256": "0ae2bd4802c89f954aff7776790d976b2b5ef1d76c0d78c2c41bf924080859dd"
+  },
+  "inject/channel_env": {
+   "chars": 446,
+   "sha256": "1c29c89bdff16b2c136014d1dcbc5169302a0d0182b6a0aa7a27c0724eff5e84"
+  },
+  "inject/channel_legacy": {
+   "chars": 210,
+   "sha256": "4f33605dca931c2fad441d2ef53ff1261b2a1cfda706fdec0108321e9af17d57"
+  },
+  "inject/goal": {
+   "chars": 373,
+   "sha256": "fbc0a1940d041044d8a6da67db2db143a101bff8781a4f9b9f31fc3c70f1bd66"
+  },
+  "inject/instructions_off": {
+   "chars": 720,
+   "sha256": "c37edda2dc3c93e0e261d2f6ed875e006475a554c537d4ef98b8af9896579023"
+  },
+  "inject/instructions_on": {
+   "chars": 720,
+   "sha256": "c37edda2dc3c93e0e261d2f6ed875e006475a554c537d4ef98b8af9896579023"
+  },
+  "inject/multi_agent": {
+   "chars": 410,
+   "sha256": "4b5ce122f967d1519d97074b0f0202fbe6ea89954c7fe28639f4174af72ba18e"
+  },
+  "inject/no_instructions": {
+   "chars": 44,
+   "sha256": "0ae2bd4802c89f954aff7776790d976b2b5ef1d76c0d78c2c41bf924080859dd"
+  },
+  "inject/plain": {
+   "chars": 44,
+   "sha256": "0ae2bd4802c89f954aff7776790d976b2b5ef1d76c0d78c2c41bf924080859dd"
+  },
+  "inject/plan_mode": {
+   "chars": 466,
+   "sha256": "f2760f89d130d9e760afccfddfbe7bcbfe8e5ce25e021aebf730c12ce08e9a74"
+  },
+  "inject/runtime_notice": {
+   "chars": 387,
+   "sha256": "63cb9b11be2943d99ff662081d701d64bfd2d04419743a171ed21d9511307912"
+  },
+  "inject/runtime_notice_after_tools": {
+   "chars": 740,
+   "sha256": "00671a8cee8ad56a3cfb3719c5f7a992a92adf047df454cf4dfbce6eed0a5048"
+  },
+  "inject/subagent": {
+   "chars": 702,
+   "sha256": "ef0b7f491ca41098c950e973c66eae24144f5ba8da77c9c61f2e67e2ce7f6a87"
+  },
+  "inject/wrap_up": {
+   "chars": 409,
+   "sha256": "4576f05e4432214eb3d094c9ca7190c339b7c0685f95807d621331735235117b"
+  },
+  "inject/wrap_up_after_tools": {
+   "chars": 762,
+   "sha256": "68695de5a298e0867fcaddb6f91534dab5574a8c96eb05814464740794c26f6c"
+  },
+  "loop/echo_empty": {
+   "chars": 125,
+   "sha256": "672feb6af26154f27901caca3c5d76c71b0f52013d469bc1a9f41e91d9f26e7f"
+  },
+  "loop/echo_roundtrip": {
+   "chars": 132,
+   "sha256": "5cfde2033c75769fab76d64d9a79f64fdbc358843b7377e2940ccbb1a04822e6"
+  },
+  "loop/multi_turn": {
+   "chars": 65,
+   "sha256": "f0a5bbe1b3952bebbc801a5018f27301db98ee3fa5b61e99ee19188861a1f10c"
+  },
+  "loop/plain_text": {
+   "chars": 94,
+   "sha256": "5728b71e25f7a5d7c97b87ff04a338def36a8ace4eb457f87820fbe66b515849"
+  }
+ }
+}

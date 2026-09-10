@@ -1,0 +1,1 @@
+{"description":"Current local date/time. Use instead of guessing.","input_schema":{"additionalProperties":false,"properties":{},"type":"object"},"name":"getTime"}

@@ -1,0 +1,1 @@
+{"description":"List this session's background jobs.","input_schema":{"properties":{},"type":"object"},"name":"job_list"}

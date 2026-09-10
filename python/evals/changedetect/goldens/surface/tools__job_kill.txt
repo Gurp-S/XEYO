@@ -1,0 +1,1 @@
+{"description":"Request cancellation of one of this session's background jobs.","input_schema":{"properties":{"job_id":{"description":"Job id to stop","type":"string"},"reason":{"description":"Optional short reason","type":"string"}},"required":["job_id"],"type":"object"},"name":"job_kill"}
