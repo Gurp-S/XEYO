@@ -37,15 +37,20 @@ def get_memory_switches(
 	workspace: str | None = Query(default=None, max_length=1024),
 	authorization: str | None = Header(default=None, alias="Authorization"),
 ) -> dict[str, Any]:
-	"""记忆系统开关生效值（settings.memory > env > 默认），供设置面板读取。"""
+	"""记忆系统开关生效值（settings.memory > 默认），供设置面板读取。
+
+	``switches`` 每项带 ``exposed``（是否 GUI 暴露）/ ``ignored``（运行时是否忽略该键）/
+	``effective``（运行时真值）——前端按 ``exposed`` 过滤、按 ``effective`` 显示。
+	``stale`` = settings.memory 里的已删/未知残留键（只读报告，不写盘；POST 时才清理）。
+	"""
 	_ = authorization
 	require_loopback(request)
-	from memory.memory_switches import current
+	from memory.memory_switches import current, stale_keys
 	from server.deps import CWD
 
 	ws = (workspace or "").strip() or (CWD or "")
 	try:
-		return {"ok": True, "switches": current(ws or None)}
+		return {"ok": True, "switches": current(ws or None), "stale": stale_keys(ws or None)}
 	except Exception as exc:  # noqa: BLE001
 		return {"ok": False, "message": str(exc)}
 
@@ -57,10 +62,14 @@ def post_memory_switches(
 	workspace: str | None = Query(default=None, max_length=1024),
 	authorization: str | None = Header(default=None, alias="Authorization"),
 ) -> dict[str, Any]:
-	"""应用记忆系统开关：settings.json 原子写 + 实时写 os.environ（运行时立即生效）。"""
+	"""应用记忆系统开关：settings.json 原子写 + 实时写 os.environ（运行时立即生效）。
+
+	``save`` 顺带清掉 settings.memory 里的已删/未知残留键（运行时本就不读）；
+	``pruned`` 回执被清理的键名，便于审计。
+	"""
 	_ = authorization
 	require_loopback(request)
-	from memory.memory_switches import MEMORY_SWITCHES, apply_to_environ, current, save
+	from memory.memory_switches import MEMORY_SWITCHES, apply_to_environ, current, prune_stale, save
 	from server.deps import CWD
 
 	ws = (workspace or body.workspace or "").strip() or (CWD or "")
@@ -69,9 +78,19 @@ def post_memory_switches(
 	if bad:
 		return {"ok": False, "error": f"未知记忆开关: {', '.join(map(str, bad))}"}
 	try:
+		# 先清两侧残留键（home + workspace）；无残留则零写入。回执用于审计。
+		# save 内部也会再清一次（幂等），此处先做是为了拿到"本次清掉了哪些"的准确回执。
+		pruned = prune_stale(ws or None)
 		saved = save(body.updates, ws or None)
 		applied = apply_to_environ(ws or None)
-		return {"ok": True, "memory": saved, "applied_env": applied, "switches": current(ws or None)}
+		return {
+			"ok": True,
+			"memory": saved,
+			"applied_env": applied,
+			"pruned": pruned,
+			"switches": current(ws or None),
+			"stale": [],
+		}
 	except Exception as exc:  # noqa: BLE001 — 非法取值等
 		return {"ok": False, "message": str(exc)}
 

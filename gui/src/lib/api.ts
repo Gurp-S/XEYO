@@ -1342,19 +1342,31 @@ export async function setRewindGcSettings(
 	}
 }
 
-/** 记忆系统开关：设置读取/写入（持久到 .xeyo/settings.json 的 memory 段 + 运行时 os.environ）。 */
+/** 记忆系统开关：设置读取/写入（持久到 .xeyo/settings.json 的 memory 段 + 运行时 os.environ）。
+ *
+ * `exposed` = 是否在设置面板暴露（测试/评测便捷开关为 false，仅后端可切）；
+ * `ignored` = 运行时是否忽略该键（已下线/恒关占位）；`effective` = 运行时真值。
+ * 前端一律按 `exposed` 过滤、按 `effective` 显示开关态。
+ */
 export type MemorySwitch = {
 	key: string;
 	label: string;
 	value: string;
 	allowed: string[];
-	source: 'settings' | 'env' | 'default';
+	source: 'settings' | 'env' | 'default' | 'ignored';
 	default: string;
+	exposed?: boolean;
+	ignored?: boolean;
+	effective?: string;
 };
 
 export type MemorySwitchesResponse = {
 	ok: boolean;
 	switches?: Record<string, MemorySwitch>;
+	/** settings.memory 里的已删/未知残留键（只读报告；保存时后端会自动清理）。 */
+	stale?: string[];
+	/** 保存时被清理的残留键（仅 POST 回执）。 */
+	pruned?: string[];
 	message?: string;
 	error?: string;
 };

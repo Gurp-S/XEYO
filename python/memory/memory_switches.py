@@ -3,9 +3,15 @@
 运行时的各开关（``memory/l5_flag`` / ``engine/aging`` / ``memory/runtime``）都是读
 ``os.environ``。本模块提供统一入口：
 
-* ``MEMORY_SWITCHES``：记忆系统开关注册表（key / 说明 / 合法值 / 未设默认），
-  取值域对齐 ``cli.feature_registry`` 的口径。
-* ``current(cwd)``：生效值 = ``settings.memory`` 覆盖 > 环境变量 > 默认（方向安全）。
+* ``MEMORY_SWITCHES``：记忆系统开关注册表
+  （key / 说明 / 合法值 / 未设默认 / **是否 GUI 暴露** / **运行时是否读该键**）。
+* ``current(cwd)``：生效值 = ``settings.memory`` 覆盖 > 默认（方向安全）。每项额外带
+  ``exposed``（是否在 GUI 面板暴露）/ ``ignored``（运行时是否忽略该键）/ ``effective``
+  （运行时真值）。**GUI 一律按 ``exposed`` 过滤、按 ``effective`` 显示开关态**——恒关键
+  的 ``source`` 报 ``"ignored"`` 而不再报 ``"settings"``，杜绝「显示开、实际关」。
+* ``stale_keys`` / ``prune_stale``：已删/未知残留键的只读查询与清理。这些键运行时本就
+  不读（``get_value`` 对未注册键返回空），删除无行为影响；留着会让同名键未来复活时
+  **静默继承旧值**（无提示、无清理入口）。
 * ``apply_to_environ(cwd)``：把 ``settings.memory`` 中明确指定的键写进 ``os.environ``
   （服务器启动 + 每次切换时调用，使运行时读到新值）。settings 未指定的键不动环境，
   于是用户手动 ``set XEYO_*=...`` 仍然可用。
@@ -24,11 +30,20 @@ from typing import Any
 
 from extension import config as _cfg
 
-# (key, 中文说明, 合法取值, 未设默认)
-MEMORY_SWITCHES: tuple[tuple[str, str, tuple[str, ...], str], ...] = (
-	("XEYO_L5", "L5 模式：project=默认链(不跑每轮 decide)；v61=实验通道(每轮 decide)", ("project", "v61"), "project"),
-	("XEYO_C2_LLM_SUMMARY", "C2 摘要 LLM 旁路：压缩摘要改由模型生成（强保真要点列表，多一次模型调用；实测吸收潜力高但输出不稳定，默认关=确定性摘要）", ("0", "1"), "0"),
-	("XEYO_TOOL_AGING", "工具结果老化：压缩后冻结区仍可按窗口紧追推进（默认关）", ("0", "1"), "0"),
+# (key, 中文说明, 合法取值, 未设默认, GUI 暴露, 运行时读该键)
+#
+# ``GUI 暴露``：仅产品设置面板可见的开关为 True。测试 / 评测便捷开关置 False——
+#   仍可经 ``save`` / settings.json 切换，只是不出现在产品 GUI（它们是测试方便用的，
+#   不是产品功能）。
+# ``运行时读该键``：该键是否真被运行时读取。False = 已下线 / 恒关占位（authority 面
+#   仍保留注册，以免"已裁决键"凭空消失）。GUI 若展示这类键必须按 ``effective`` 显示
+#   并标注已忽略，禁止出现「显示开、实际关」。
+MEMORY_SWITCHES: tuple[tuple[str, str, tuple[str, ...], str, bool, bool], ...] = (
+	# ---- GUI 暴露（当前唯一一项）----
+	("XEYO_C2_LLM_SUMMARY", "C2 摘要 LLM 旁路：压缩摘要改由模型生成（强保真要点列表，多一次模型调用；实测吸收潜力高但输出不稳定，默认关=确定性摘要）", ("0", "1"), "0", True, True),
+	# ---- 非 GUI 暴露（测试 / 评测便捷开关）----
+	("XEYO_L5", "L5 模式：project=默认链(不跑每轮 decide)；v61=实验通道(每轮 decide)", ("project", "v61"), "project", False, True),
+	("XEYO_TOOL_AGING", "工具结果老化：压缩后冻结区仍可按窗口紧追推进（默认关）", ("0", "1"), "0", False, True),
 	# ---- 固化（2026-09-06 用户决策 "v61 默认开启"）→ 删除的 7 个开关 ----
 	# XEYO_C2_GATE（project 专用闸；v61 下 decide 自主，无读取意义）
 	# XEYO_V61_PARETO / XEYO_V61_SI / XEYO_V61_DYNAMIC_R（B1/B2/B3 证据门未过，恒关）
@@ -43,17 +58,20 @@ MEMORY_SWITCHES: tuple[tuple[str, str, tuple[str, ...], str], ...] = (
 	# 各固化行为所在：search.query_reweight_enabled / runtime._c2_citation_enabled /
 	# runtime._c2_escape_hatch_enabled / runtime._restore_enabled（=memindex.restore_enabled）/
 	# session_md.deltas_enabled —— 均恒 True。旧 settings 残留值被忽略。
-	# ---- Memory 索引常驻注入（实验通道，默认关）----
-	# 事故 sess_mtiche8l（glm-4.5-air 把索引条目当任务对象）后生产恒关（query_loop
-	# 传 include_memory_index=False）。本键是受控重开通道：注入仍走 project_for_model
-	# 的 _append_memory_index（受索引上限与 D1 模糊指代静默约束）。默认关：
-	# 须 A1（200+ 轮 live）+ A3 过门证据后再开。
-	("XEYO_MEMORY_INDEX_LIVE", "Memory 索引常驻注入：把 MEMORY.md 一行索引随投影注入（约 0.7k tok/上限 25KB；用户决策默认开）", ("0", "1"), "1"),
+	# ---- Memory 索引常驻注入（已下线：恒关，2026-09-09 用户裁决维持下线）----
+	# 事故 sess_mtiche8l（glm-4.5-air 把索引条目当任务对象）后退役；AGENTS「已下线」
+	# 与此对齐。engine/query_loop._memory_index_live_enabled 恒 False（不看本键），
+	# 旧 settings 残留值被忽略；受控重开须源码级 + A1（200+ 轮 live）+ A3 过门证据。
+	# 本条目仅保留注册占位（authority 面不因下线而少一个已裁决键）；
+	# 运行时读该键 = False → ``current()`` 的 effective 恒为默认、source 报 "ignored"。
+	("XEYO_MEMORY_INDEX_LIVE", "Memory 索引常驻注入：已下线恒关（2026-09-09 裁决维持下线；事故 sess_mtiche8l 后退役；重开须源码级+A1/A3 证据门）", ("0", "1"), "0", False, False),
 )
 
-_ALLOWED = {k: v for (k, _, v, _) in MEMORY_SWITCHES}
-_LABELS = {k: v for (k, v, _, _) in MEMORY_SWITCHES}
-_DEFAULTS = {k: v for (k, _, _, v) in MEMORY_SWITCHES}
+_ALLOWED = {k: v for (k, _, v, *_) in MEMORY_SWITCHES}
+_LABELS = {k: v for (k, v, *_) in MEMORY_SWITCHES}
+_DEFAULTS = {k: v for (k, _, _, v, *_) in MEMORY_SWITCHES}
+_EXPOSED = {k: e for (k, _, _, _, e, _) in MEMORY_SWITCHES}
+_RUNTIME_READS = {k: r for (k, _, _, _, _, r) in MEMORY_SWITCHES}
 
 
 def _memory_store(cwd: str | None) -> dict[str, Any]:
@@ -91,6 +109,51 @@ def _resolve_cwd(cwd: str | None) -> str | None:
 	return os.environ.get("XEYO_CWD", "").strip() or None
 
 
+def stale_keys(cwd: str | None = None) -> list[str]:
+	"""只读：settings.memory 中不属于注册表（已删 / 未知）的残留键。不写盘。"""
+	store = _memory_store(_resolve_cwd(cwd))
+	return sorted(k for k in store if k not in _DEFAULTS)
+
+
+def prune_stale(cwd: str | None = None) -> list[str]:
+	"""清理 home + workspace settings.json ``memory`` 段里的残留键，返回被删清单。
+
+	为什么删：这些键**运行时本就不读**（``get_value`` 对未注册键返回空串），留着
+	不生效、不报错、无清理入口；一旦同名键将来重新注册，历史残留值会被**静默继承**。
+	删除因此是纯收益——不改变任何运行时行为。
+
+	边界：
+	- 只在确有残留时写盘（无残留 → 零写入，避免每次启动重写 settings.json）。
+	- 只动 ``memory`` 段；``plugins`` / ``skills`` / ``mcp_servers`` / ``hooks`` 不碰。
+	- best-effort：写盘失败只跳过该文件，不影响调用方（server 启动不应被阻断）。
+	"""
+	targets: list[Any] = [_cfg.home_settings_path()]
+	ws = _resolve_cwd(cwd)
+	if ws:
+		targets.append(_cfg.workspace_settings_path(ws))
+	removed: list[str] = []
+	for path in targets:
+		data = _cfg._read_json(path)  # noqa: SLF001
+		mem = data.get("memory")
+		if not isinstance(mem, dict) or not mem:
+			continue
+		stale = sorted(k for k in mem if k not in _DEFAULTS)
+		if not stale:
+			continue
+		for k in stale:
+			del mem[k]
+		if mem:
+			data["memory"] = mem
+		else:
+			data.pop("memory", None)
+		try:
+			_cfg.write_settings(path, data)  # noqa: SLF001
+		except Exception:  # noqa: BLE001 — 清理失败不阻断启动/保存
+			continue
+		removed.extend(stale)
+	return removed
+
+
 def get_value(key: str, cwd: str | None = None) -> str:
 	"""记忆开关生效值：**settings.memory（GUI 设置）为唯一权威** > 默认。
 
@@ -112,21 +175,36 @@ def get_value(key: str, cwd: str | None = None) -> str:
 
 
 def current(cwd: str | None = None) -> dict[str, Any]:
-	"""返回每个开关的生效值（settings.memory > 默认；环境变量不再参与）。"""
+	"""返回每个开关的生效值（settings.memory > 默认；环境变量不再参与）。
+
+	每项额外带 ``exposed`` / ``ignored`` / ``effective``：消费者（GUI）一律按
+	``exposed`` 过滤、按 ``effective`` 显示开关态。恒关键（``runtime_reads=False``）
+	的 ``effective`` 恒为默认、``source`` 报 ``"ignored"``——不再出现「显示开、实际关」。
+	"""
 	store = _memory_store(_resolve_cwd(cwd))
 	out: dict[str, Any] = {}
-	for key, label, allowed, default in MEMORY_SWITCHES:
+	for key, label, allowed, default, exposed, runtime_reads in MEMORY_SWITCHES:
 		val: Any = store.get(key)
 		coerced = _coerce(key, val) if val is not None else None
 		if coerced is None:
 			coerced = default
+		if runtime_reads:
+			effective = coerced
+			source = "settings" if (key in store) else "default"
+		else:
+			# 已下线 / 恒关占位键：运行时恒为默认，settings 里的值一律被忽略。
+			effective = default
+			source = "ignored"
 		out[key] = {
 			"key": key,
 			"label": label,
 			"value": coerced,
 			"allowed": list(allowed),
-			"source": "settings" if (key in store) else "default",
+			"source": source,
 			"default": default,
+			"exposed": exposed,
+			"ignored": not runtime_reads,
+			"effective": effective,
 		}
 	return out
 
@@ -139,7 +217,7 @@ def apply_to_environ(cwd: str | None = None) -> dict[str, str]:
 	"""
 	store = _memory_store(cwd)
 	applied: dict[str, str] = {}
-	for key, label, allowed, default in MEMORY_SWITCHES:
+	for key, label, allowed, default, *_rest in MEMORY_SWITCHES:
 		if key not in store:
 			continue
 		val = _coerce(key, store[key]) or default
@@ -155,7 +233,8 @@ def save(updates: dict[str, str | bool], cwd: str | None = None) -> dict[str, An
 	"""
 	target = _cfg.workspace_settings_path(cwd) if cwd else _cfg.home_settings_path()
 	data = _cfg._read_json(target)  # noqa: SLF001
-	mem = dict(data.get("memory") or {})
+	# 顺带清掉已删/未知残留键：运行时本就不读，留着会被同名键将来复活时静默继承旧值。
+	mem = {k: v for k, v in (data.get("memory") or {}).items() if k in _DEFAULTS}
 	for key, val in updates.items():
 		if key not in _DEFAULTS:
 			# 未知/已删键（如已固化开启的 A4/ω/⑮）一律拒绝，防 GUI/脚本误写回惰性残留。
@@ -165,6 +244,9 @@ def save(updates: dict[str, str | bool], cwd: str | None = None) -> dict[str, An
 		if coerced is None:
 			raise ValueError(f"memory switch {key} 非法取值 {val!r}，允许 {_ALLOWED.get(key)}")
 		mem[key] = coerced
-	data["memory"] = mem
+	if mem:
+		data["memory"] = mem
+	else:
+		data.pop("memory", None)
 	_cfg.write_settings(target, data)  # noqa: SLF001
-	return data["memory"]
+	return data.get("memory") or {}

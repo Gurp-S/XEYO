@@ -14,9 +14,6 @@ from __future__ import annotations
 ENV_KEY = "XEYO_L5"
 # 上线默认 v61（2026-09-06 用户决策）；project 作快路径回退。
 DEFAULT_MODE = "v61"
-C2_GATE_ENV = "XEYO_C2_GATE"
-# 已固化（v61 默认后 C2_GATE 不再作为开关；读取点已改为恒 True，见 runtime.c2_gate）
-DEFAULT_C2_GATE = True
 
 
 def l5_mode() -> str:

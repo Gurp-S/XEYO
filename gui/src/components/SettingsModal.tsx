@@ -1647,7 +1647,7 @@ export function SettingsModal({open, onClose}: Props) {
 						</h3>
 					</div>
 					<p className="text-[11px] leading-relaxed text-mute">
-						持久化到 .xeyo/settings.json 的 memory 段，切换后运行时立即生效（超长会话 C2 灰度即在此）。
+						持久化到 .xeyo/settings.json 的 memory 段，切换后运行时立即生效。其余记忆开关仅供测试/评测，不在本面板暴露。
 					</p>
 					<MemorySwitchesSetting />
 				</section>

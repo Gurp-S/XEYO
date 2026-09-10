@@ -54,21 +54,21 @@ def test_digest_empty_and_header_only():
 	assert "other 1" in _memory_index_digest("没有方括号的散行\n")
 
 
-def test_block_shape_fenced_and_unconditional():
+def test_block_shape_fenced_and_pure_info():
 	block = _memory_index_block(_INDEX_FULL)
 	lines = block.splitlines()
 	assert lines[0].startswith("# Memory index (background only")
 	assert '<memory_index readonly="true">' in block
 	assert "</memory_index>" in block
 	assert "Memory index: 5 entries" in block
-	# C2：不再有要求模型判断用户意图的条件式措辞
-	assert "unless" not in block.lower()
-	assert "除非" not in block
-	# 归属声明 + 无条件禁止指令必须存在
-	assert "不是用户请求" in block
-	assert "禁止" in block
-	# 何时可用锚定到可观察信号（用户消息字样），而不是意图判断
-	assert "记忆 / memory" in block
+	# 铁律 5（2026-09-09 裁决维持下线）：正文不再含行为指令/条件式措辞，
+	# 来源由块头 + readonly 围栏承担。
+	for marker in ("禁止", "除非", "忽略", "仅当", "否则"):
+		assert marker not in block, f"Memory index 块含行为指令: {marker}"
+	assert "不是用户请求" not in block
+	assert "记忆 / memory" not in block
+	# 正文止于摘要行：除围栏标签外无额外说明
+	assert block.rstrip().endswith("</memory_index>")
 
 
 def test_block_omitted_without_entries():

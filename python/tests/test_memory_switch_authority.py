@@ -123,7 +123,23 @@ def test_side_enabled_unregistered_key_keeps_env_and_promote(monkeypatch):
 	assert side_enabled("XEYO_NOT_A_REGISTERED_SWITCH") is False
 
 
-def test_index_live_switch_registered_and_default_on():
-	"""XEYO_MEMORY_INDEX_LIVE 已注册且默认开（用户决策 2026-09；settings 写 0 可关）。"""
+def test_index_live_switch_registered_and_default_off():
+	"""XEYO_MEMORY_INDEX_LIVE 已注册、默认关、且**不在 GUI 暴露**（2026-09-09 裁决维持下线）。
+
+	契约（缺陷修复）：注册占位键的运行时真值由 ``effective`` 表达、``source`` 报
+	``ignored``——GUI 不得据此显示为「开」。
+	"""
 	assert any(k == "XEYO_MEMORY_INDEX_LIVE" for k, *_ in memory_switches.MEMORY_SWITCHES)
-	assert memory_switches.get_value("XEYO_MEMORY_INDEX_LIVE") == "1"
+	assert memory_switches.get_value("XEYO_MEMORY_INDEX_LIVE") == "0"
+	item = memory_switches.current(None)["XEYO_MEMORY_INDEX_LIVE"]
+	assert item["exposed"] is False
+	assert item["ignored"] is True
+	assert item["effective"] == "0"
+	assert item["source"] == "ignored"
+
+
+def test_gui_exposed_surface_is_exactly_one():
+	"""产品面板只暴露一个开关（C2 摘要 LLM 旁路）；其余是测试/评测便捷开关。"""
+	cur = memory_switches.current(None)
+	assert {k for k, v in cur.items() if v["exposed"]} == {"XEYO_C2_LLM_SUMMARY"}
+	assert all(v["exposed"] is False for k, v in cur.items() if k != "XEYO_C2_LLM_SUMMARY")

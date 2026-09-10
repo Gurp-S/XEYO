@@ -33,12 +33,17 @@ def main() -> None:
 	# 记忆系统开关：把 settings.json 的 memory 段桥接到 os.environ（运行时各开关读 env）。
 	# cwd 取当前工作区（若已设为 XEYO_CWD）或默认 home 级 settings。
 	try:
-		from memory.memory_switches import apply_to_environ
+		from memory.memory_switches import apply_to_environ, prune_stale
 
 		ws = os.environ.get("XEYO_CWD", "").strip() or None
 		applied = apply_to_environ(ws)
 		if applied:
 			print("[xeyo] 应用记忆开关: " + ", ".join(f"{k}={v}" for k, v in applied.items()), flush=True)
+		# 清理 settings.memory 里的已删残留键：运行时本就不读，留着会让同名键将来
+		# 复活时静默继承旧值。无残留则零写入（不重写 settings.json）。
+		pruned = prune_stale(ws)
+		if pruned:
+			print("[xeyo] 清理记忆开关残留键: " + ", ".join(pruned), flush=True)
 	except Exception:  # noqa: BLE001 — 启动失败不应阻断 server
 		pass
 	host = os.environ.get("XEYO_HTTP_HOST", "127.0.0.1")
