@@ -779,7 +779,40 @@ function applyActiveProfile(settings: Settings, profile: ModelProfile): Settings
 	};
 }
 
-function syncActiveIntoProfiles(settings: Settings): Settings {
+/**
+ * 把激活 profile 的模型配置投影到顶层字段。
+ *
+ * **唯一方向：profiles（权威）→ 顶层（派生投影）。** `apiKey` / `baseUrl` /
+ * `provider` / `model` 只在 profile 里真值存储，顶层字段一律由本函数算出，
+ * 不再有"顶层写回 profile"的反向同步（旧 `syncActiveIntoProfiles` 是
+ * 双拷贝漂移的源头：切 profile 或分步 update 时两份可能不一致，导致用错 key）。
+ */
+function projectActiveToTop(settings: Settings): Settings {
+	if (!settings.profiles.length) {
+		return settings;
+	}
+	const id = settings.activeProfileId || settings.profiles[0].id;
+	const profile = settings.profiles.find(p => p.id === id);
+	if (!profile) {
+		return settings;
+	}
+	return {
+		...settings,
+		activeProfileId: id,
+		provider: profile.provider,
+		model: profile.model,
+		apiKey: profile.apiKey,
+		baseUrl: profile.baseUrl,
+	};
+}
+
+/**
+ * 把顶层模型字段（provider/model/apiKey/baseUrl）单向写入激活 profile。
+ *
+ * 供 `update()` 使用：用户改顶层即改"当前账号"，落库只落 profile 一处，
+ * 再由 `projectActiveToTop` 回读，保证两份永远一致。
+ */
+function writeTopIntoActiveProfile(settings: Settings): Settings {
 	if (!settings.profiles.length) {
 		return settings;
 	}
@@ -1256,7 +1289,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 			patch.apiKey !== undefined ||
 			patch.baseUrl !== undefined
 		) {
-			next = syncActiveIntoProfiles(next);
+			// 单向：顶层 → 激活 profile，再回投影到顶层。
+			// 旧实现是双向 sync，两份可能漂移；现在 profile 是唯一真值存储。
+			next = projectActiveToTop(writeTopIntoActiveProfile(next));
 		}
 		const patchKeys = Object.keys(patch);
 		const widthOnlyPatch =

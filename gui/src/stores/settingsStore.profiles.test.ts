@@ -211,4 +211,43 @@ describe('model profiles', () => {
 		expect(prof.model).toBe('a');
 		expect(useSettingsStore.getState().model).toBe('a');
 	});
+
+	// P0-6 档 3：apiKey 单一真值存储——顶层永远等于激活 profile 的 key，
+	// 不允许出现"顶层与 profiles 内两份不一致"（旧双向 sync 的漂移 bug 面）。
+	it('keeps top-level and active-profile apiKey in lockstep (single source)', () => {
+		useSettingsStore.getState().hydrate();
+		useSettingsStore.getState().update({apiKey: 'sk-lockstepaaaa'});
+		let st = useSettingsStore.getState();
+		let active = st.profiles.find(p => p.id === st.activeProfileId)!;
+		expect(active.apiKey).toBe('sk-lockstepaaaa');
+		expect(st.apiKey).toBe(active.apiKey);
+
+		const second = useSettingsStore.getState().addProfile({
+			provider: 'deepseek',
+			model: 'deepseek-v4-pro',
+			apiKey: 'sk-secondbbbb',
+		});
+		st = useSettingsStore.getState();
+		active = st.profiles.find(p => p.id === second)!;
+		expect(st.apiKey).toBe('sk-secondbbbb');
+		expect(st.apiKey).toBe(active.apiKey);
+
+		// 切回第一个：两份仍锁步，且用的是第一个 profile 的 key
+		const firstId = st.profiles.find(p => p.id !== second)!.id;
+		useSettingsStore.getState().selectProfile(firstId);
+		st = useSettingsStore.getState();
+		active = st.profiles.find(p => p.id === st.activeProfileId)!;
+		expect(active.apiKey).toBe('sk-lockstepaaaa');
+		expect(st.apiKey).toBe(active.apiKey);
+
+		// 顶层改 key → 只改激活 profile，另一个 profile 不受影响（不串改）
+		useSettingsStore.getState().update({apiKey: 'sk-editedcccc'});
+		st = useSettingsStore.getState();
+		expect(st.profiles.find(p => p.id === st.activeProfileId)!.apiKey).toBe(
+			'sk-editedcccc',
+		);
+		expect(st.profiles.find(p => p.id === second)!.apiKey).toBe(
+			'sk-secondbbbb',
+		);
+	});
 });
