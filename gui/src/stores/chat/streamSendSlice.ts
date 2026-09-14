@@ -1154,6 +1154,28 @@ export function createStreamSendSlice(
 				onCompression(ev) {
 					usage.onCompression(ev);
 				},
+				onTitle(ev) {
+					// T5：标题帧（投影-only）。本地会话标题随后端 sidecar 更新；
+					// pinned（用户显式改名）为真时不覆盖，与后端 write_title 同语义。
+					if (ev.pinned) {
+						return;
+					}
+					const title = ev.title.trim();
+					if (!title) {
+						return;
+					}
+					const cur = get().sessions.find(x => x.id === sessionId);
+					if (!cur || cur.title === title) {
+						return;
+					}
+					const nextSession = {...cur, title};
+					set(s => ({
+						sessions: s.sessions.map(x => (x.id === sessionId ? nextSession : x)),
+					}));
+					void saveSession(nextSession).catch(() => {
+						/* 尽力而为；后端 sidecar 已持有权威标题 */
+					});
+				},
 				onPermissionPending(ev) {
 					pending.onPermissionPending(ev);
 				},

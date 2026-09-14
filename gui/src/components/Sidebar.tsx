@@ -12,7 +12,7 @@ import {
 	PanelLeftClose,
 	Plus,
 	Search,
-	Trash2,
+	X,
 } from 'lucide-react';
 import {
 	memo,
@@ -945,8 +945,8 @@ const SpaceFolder = memo(function SpaceFolder({
 	);
 
 	// 工作区筛选菜单（2026-09-05 四版）：行内恒为一个漏斗筛选按钮，菜单
-	// 内容随视图切换——正常态=添加对话/归档对话/删除工作区；归档态=
-	// 对话（切回）/删除工作区。
+	// 内容随视图切换——正常态=添加对话/归档对话/移除工作区；归档态=
+	// 对话（切回）/移除工作区。
 	const openSpaceMenu = useCallback(
 		(e: React.MouseEvent) => {
 			e.preventDefault();
@@ -987,16 +987,18 @@ const SpaceFolder = memo(function SpaceFolder({
 				items.push({
 					kind: 'action',
 					id: 'remove-space',
-					label: '删除工作区',
-					danger: true,
-					icon: <Trash2 className="h-3.5 w-3.5" strokeWidth={1.9} />,
+					label: '移除工作区',
+					icon: <X className="h-3.5 w-3.5" strokeWidth={1.9} />,
 					onSelect: () => {
 						void (async () => {
+							// 实际行为 = 仅从侧栏移除（spaceSessionSlice.ts 的
+							// removeSpace 注释：会话记录与消息原样留在 IndexedDB，
+							// 重新打开同一文件夹即可恢复）。文案必须与行为一致，
+							// 也不应给可逆操作套危险样式。
 							const ok = await confirmDialog({
-								title: '删除工作区？',
-								body: `删除工作区「${space.name}」并删除其全部对话？`,
-								confirmText: '删除',
-								danger: true,
+								title: '移除工作区？',
+								body: `从侧栏移除「${space.name}」？对话记录将保留，重新打开该文件夹可恢复。`,
+								confirmText: '移除',
 							});
 							if (ok) {
 								onRemoveSpace();

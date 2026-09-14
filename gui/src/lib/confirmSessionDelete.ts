@@ -5,8 +5,8 @@ import {confirmDialog} from '@/lib/inlineDialog';
  *
  * 为什么必须有：`removeSession` 是硬删——`tombstoneAndDeleteOnServer` 先标记本地墓碑
  * 再调服务端 DELETE，随后清掉 IDB 与全部 per-session 状态，**不可撤销**。
- * 而工作区删除（`removeSpace`）一直带 `confirmDialog({danger:true})`；
- * 两者危险级别相同却策略不对称，误点一次即永久丢失整段对话。
+ * 作为对照，工作区侧的「移除工作区」是可逆操作（仅从侧栏隐藏，重开文件夹即恢复），
+ * 故它不再套危险样式——两者危险级别不同，策略本就不该对称。
  *
  * 提示里给出「先归档」这条可逆替代路径：归档后的会话可用 `restoreSession` 恢复。
  */
