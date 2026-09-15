@@ -160,6 +160,47 @@ def append_env_notice_pair(
 	return [*messages, *pair]
 
 
+def append_system_notice(
+	messages: list[dict[str, Any]],
+	text: str,
+) -> list[dict[str, Any]]:
+	"""把环境通知作为**原生 system 消息**追加在投影尾部（声道 B）。
+
+	与 ``append_env_notice_pair`` 的差别**只在形态**：这里不伪造
+	``assistant(tool_use) → tool_result`` 对，因此投影里不会出现一条"模型自己
+	发出的工具调用"。
+
+	## 为什么必须换形态（结构性根因，不是措辞问题）
+
+	伪对在结构上与「模型自己的工具调用」完全同形 ⇒ 模型在上下文里看到自己调过
+	``xeyo_env_notice``，于是得出「我有这个工具」并真的去调它。实测：第六轮
+	单会话 70+ 次；第七轮单会话 **60+ 次**，其中多次整条响应体只有这一个调用，
+	且**在用户明说"别管"之后仍每次发生**——意图抑制不可靠。
+
+	更糟的是闭环自催化：伪对产出调用 → host 侧应答者回一份新的环境通知 →
+	上下文里再添一条 ``tool_use`` 先例 → 下一次更容易再调。
+
+	⇒ **不可调用性必须来自形态本身**，不能靠劝阻文本（那会违反引擎铁律：
+	注意力里只出现信息，不出现导演）。system 是"引擎注入的状态"的原生声道：
+	它不是 user（说话人隔离成立，env_channel 的原始动机同样满足），也不是
+	assistant（不会伪装成模型自己的行为）。
+
+	## 协议分工（由归一化层承担，本函数只负责形态）
+
+	- OpenAI 系：``normalize_messages_for_openai`` 保留 role=system 原样输出。
+	- Anthropic：messages 不允许 system role ⇒
+	  ``normalize_messages_for_anthropic._split_system`` 按序拼到顶层 ``system``
+	  字段；``_build_body`` 未设 cache_control，故无显式缓存可损。
+
+	copy-on-write：不修改入参列表与既有消息对象，绝不进 MessageStore / JSONL。
+	尾部追加 ⇒ 既有 system 左段与 history 逐字节不动（KV 前缀语义与另两档一致）。
+	"""
+	t = (text or "").strip()
+	if not messages or not t:
+		return messages
+	return [*messages, {"role": "system", "content": t}]
+
+
 def build_mode_context_blocks(
 	*,
 	mode: str,

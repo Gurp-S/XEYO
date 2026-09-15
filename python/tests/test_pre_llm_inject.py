@@ -48,11 +48,13 @@ def test_run_pre_llm_inject_does_not_mutate_input():
 	snap = WorkingSnapshot(session_id="t")
 	out = run_pre_llm_inject(
 		projected,
-		InjectContext(working=snap, cwd="", forced_wrap_up=True),
+		InjectContext(working=snap, cwd="", multi_agent=True),
 	)
 	assert projected[0]["content"] == "hi"
 	assert out is not projected
-	assert "Wrap-up(预算已尽)" in _joined_user_texts(out)
+	assert "Multi-Agent" in _joined_user_texts(out)
+	# 撤块锚（2026-09-15 用户裁定）：预算/收尾文本不得出现在模型可见面
+	assert "Wrap-up(预算已尽)" not in _joined_user_texts(out)
 
 
 def test_repeat_guard_block_injected_as_t_now(monkeypatch):
@@ -311,14 +313,17 @@ def test_attach_turn_context_thin_wrapper_compat(monkeypatch):
 	projected = [{"role": "user", "content": "hi"}]
 	out = _attach_turn_context(
 		projected,
-		approved_plan=None,
+		approved_plan="实现 send-queue。",
 		forced_wrap_up=True,
 		runtime_notice="预算到了",
 		include_memory_index=False,
 	)
 	joined = _joined_user_texts(out)
-	assert "Wrap-up(预算已尽)" in joined
-	assert "Runtime budget notice" in joined
+	assert "Approved plan" in joined
+	# 撤块锚（2026-09-15 用户裁定）：forced_wrap_up / runtime_notice 只影响
+	# 执行层状态，不得再产生任何模型可见的"预算/收尾"文本。
+	assert "Wrap-up(预算已尽)" not in joined
+	assert "Runtime budget notice" not in joined
 	assert projected[0]["content"] == "hi"
 
 
@@ -332,7 +337,7 @@ def test_jsonl_store_untouched_by_inject():
 	frozen = copy.deepcopy(store_api)
 	out = run_pre_llm_inject(
 		store_api,
-		InjectContext(forced_wrap_up=True, include_memory_index=False),
+		InjectContext(multi_agent=True, include_memory_index=False),
 	)
 	assert store_api == frozen
 	assert out[-1]["role"] == "user"

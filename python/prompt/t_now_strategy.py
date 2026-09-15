@@ -85,12 +85,9 @@ def resolve_t_now_strategy(provider: str = "", model: str = "") -> str:
     s = t_now_strategy()
     if s == STRATEGY_PREFILL:
         s = STRATEGY_ENV_CHANNEL
-    if s == STRATEGY_SYSTEM_CHANNEL:
-        # 预留档：投影构造（turn_context.append_system_notice + pre_llm_inject 分派
-        # + anthropic 顶层 system 上提）尚未接线前，**一律解析为 env_channel**——
-        # 与 prefill 同款约定：常量先落地，行为零变化，避免"设了环境变量却走到
-        # 未定义分支"的隐性故障。
-        s = STRATEGY_ENV_CHANNEL
+    # ``system_channel`` 已接线（turn_context.append_system_notice +
+    # pre_llm_inject 分派 + 归一化层上提顶层 system），故**不再回落**
+    # env_channel——否则设了该档却仍走伪对，"治本档"名存实亡。
     if s == STRATEGY_ENV_CHANNEL and env_channel_unsupported(
         env_unsupported_key(provider, model)
     ):

@@ -34,12 +34,14 @@ from prompt.t_now_strategy import (
 	STRATEGY_ENV_CHANNEL,
 	STRATEGY_PREFILL,
 	STRATEGY_SKIP,
+	STRATEGY_SYSTEM_CHANNEL,
 	format_env_notice,
 	t_now_strategy,
 )
 from prompt.turn_context import (
 	CONTINUE_AFTER_TOOLS,
 	append_env_notice_pair,
+	append_system_notice,
 	append_text_blocks_to_last_user,
 	build_mode_context_blocks,
 	ends_with_tool_result,
@@ -1321,6 +1323,16 @@ def run_pre_llm_inject(
 		env_text = format_env_notice([t for _k, t in kept])
 		if env_text:
 			return append_env_notice_pair(out, env_text)
+		return out
+	if strategy == STRATEGY_SYSTEM_CHANNEL:
+		# 声道 B（治本档）：同一份正文（复用 ENV_NOTICE_HEADER / format_env_notice），
+		# 但承载形态是**原生 system 消息**而非伪造 tool 对 —— 伪对在结构上与
+		# "模型自己的工具调用"同形，模型因此认定自己拥有 xeyo_env_notice 并真的
+		# 去调它（第六轮 70+ 次；第七轮单会话 60+ 次，且被 host 转成工具轮回灌
+		# Continue 形成自催化闭环）。不可调用性必须来自形态，不靠劝阻文本。
+		env_text = format_env_notice([t for _k, t in kept])
+		if env_text:
+			return append_system_notice(out, env_text)
 		return out
 	if after_tools:
 		return append_text_blocks_to_last_user(out, [t for _k, t in kept])

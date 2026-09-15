@@ -84,6 +84,12 @@ def _split_system(messages: list[dict[str, Any]]) -> tuple[str, list[dict[str, A
 	"""把内部消息拆成（顶层 system 文本, 其余对话消息）。
 
 	Anthropic 的 system 是请求顶层字段而非消息；多条 system 按序拼接。
+
+	T_now 声道 B（2026-09-15）：``prompt.turn_context.append_system_notice``
+	在投影尾部追加的 role=system 消息会被本函数按序拼到顶层 ``system`` 末尾。
+	这是**有意**的——Messages API 不接受 messages 里的 system role，而
+	``_build_body`` 未设置 cache_control，故不存在"显式缓存断点被移动"的代价；
+	messages 数组本身（对话前缀）逐字节不受影响。
 	"""
 	system_parts: list[str] = []
 	rest: list[dict[str, Any]] = []
