@@ -82,7 +82,15 @@ class Aggregate:
 			if k not in first_turn or int(t.turn) < first_turn[k]:
 				first_turn[k] = int(t.turn)
 		steady = [t for t in cmp_turns if int(t.turn) != first_turn.get(t.session)]
-		compressed_turns = [t for t in self.turns if not t.gain_gate_skipped]
+		# ⚠️ 2026-09-15 修正：必须**同时**排除两道闸的跳过回合。
+		# 触发器（trigger_skipped）= 未过生产水位，**根本没尝试压缩**；
+		# 收益门（gain_gate_skipped）= 尝试了但拒绝。
+		# 只排后者时，生产口径下大量"根本没压"的回合会混进来，把
+		# `reduction_vs_base_compressed_only` 与 `hot_tokens` 的 median 稀释成 0
+		# ——实测 trig08 报出 n=697/median=0，而真实"压过的"回合只有 210 个。
+		compressed_turns = [
+			t for t in self.turns if not t.gain_gate_skipped and not t.trigger_skipped
+		]
 		base = self._vals("base_tokens")
 		wsc = self._vals("wsc_tokens")
 		hot = [float(t.hot_tokens) for t in compressed_turns]
