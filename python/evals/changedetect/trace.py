@@ -130,6 +130,11 @@ def _inject_scenarios(tmp: Path) -> list[InjectScenario]:
         InjectScenario("plain", PLAIN, {}),
         InjectScenario("after_tools", AFTER_TOOLS, {}),
         InjectScenario("after_failed_tool", AFTER_FAILED_TOOL, {}),
+        # ── 撤块锚（2026-09-15 用户裁定）──────────────────────────────
+        # wrap_up / runtime_notice 两类块已从模型可见面撤除。以下四个场景
+        # 保留 id 不变，其 golden 现在锁定的是「撤块后不再注入任何预算文本」
+        # ——即输出与 plain / after_tools 逐字节同形。任何重新接线都会让
+        # L1 轨迹红。
         InjectScenario("wrap_up", PLAIN, {"forced_wrap_up": True}),
         InjectScenario("runtime_notice", PLAIN, {"runtime_notice": "turn 8/10"}),
         InjectScenario("runtime_notice_after_tools", AFTER_TOOLS,
@@ -148,15 +153,27 @@ def _inject_scenarios(tmp: Path) -> list[InjectScenario]:
         ),
         InjectScenario("subagent", AFTER_TOOLS, {"subagent": True}),
         InjectScenario("wrap_up_after_tools", AFTER_TOOLS, {"forced_wrap_up": True}),
+        # 双声道场景必须挂"仍然存活"的块，否则 legacy 与 env_channel 退化成
+        # 同形，injection 层的判别力作废（test_inject_battery_* 断言二者不同）。
         InjectScenario(
             "channel_legacy",
             PLAIN,
-            {"forced_wrap_up": True, "runtime_notice": "turn 5/8", "strategy": "legacy"},
+            {
+                "multi_agent": True,
+                "approved_plan": "1. 读 registry\n2. 加字段",
+                "runtime_notice": "turn 5/8",
+                "strategy": "legacy",
+            },
         ),
         InjectScenario(
             "channel_env",
             PLAIN,
-            {"forced_wrap_up": True, "runtime_notice": "turn 5/8", "strategy": "env_channel"},
+            {
+                "multi_agent": True,
+                "approved_plan": "1. 读 registry\n2. 加字段",
+                "runtime_notice": "turn 5/8",
+                "strategy": "env_channel",
+            },
         ),
         InjectScenario("no_instructions", PLAIN, {"include_memory_index": False}),
         InjectScenario("instructions_on", nested_projected, {}),

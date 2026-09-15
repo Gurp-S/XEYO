@@ -22,14 +22,19 @@ def test_loop_battery_event_compression_stable():
     assert a == b
 
 
-def test_one_char_change_in_wrap_up_text_is_detected(tmp_path):
-    """wrap_up 块改一个字符 → 注入轨迹必变。"""
+def test_one_char_change_in_block_text_is_detected(tmp_path):
+    """块文本改一个字符 → 注入轨迹必变（灵敏度）。
+
+    载荷原为 ``_wrap_up_block_text``；该块已于 2026-09-15 撤销（用户裁定），
+    故改用仍然存活的 ``browser_preview_block``（plain 场景即装配）。
+    """
     from prompt import pre_llm_inject as inj
-    original = inj._wrap_up_block_text()
+    original = inj.browser_preview_block
+    base = original()
     try:
-        inj._wrap_up_block_text = lambda: original + "!"  # type: ignore[assignment]
+        inj.browser_preview_block = lambda: base + "!"  # type: ignore[assignment]
         tr = trace.collect(batteries={"inject"})
-        target = "inject/wrap_up"
+        target = "inject/plain"
         # 把当前渲染写为临时 golden
         gdir = tmp_path / "g"
         (gdir / "trace").mkdir(parents=True)
@@ -37,12 +42,12 @@ def test_one_char_change_in_wrap_up_text_is_detected(tmp_path):
             tr[target], encoding="utf-8"
         )
         # 还原函数后再跑一次，应当被侦测到
-        inj._wrap_up_block_text = lambda: original  # type: ignore[assignment]
+        inj.browser_preview_block = lambda: base  # type: ignore[assignment]
         tr2 = trace.collect(batteries={"inject"})
         changes = trace.compare(tr2, directory=gdir)
         assert any(c["name"] == target for c in changes)
     finally:
-        inj._wrap_up_block_text = lambda: original  # type: ignore[assignment]
+        inj.browser_preview_block = original  # type: ignore[assignment]
 
 
 def test_trace_check_against_committed_golden_passes():

@@ -132,10 +132,17 @@ def wrap_quota_from_env(default: int = 3) -> int:
 
 
 def _publish_wrap_guide(tools: Any, cwd: str, quota: int) -> None:
-	"""进入收尾窗时发布缺口清单 + 配额（wrap_gap 模块级，pre_llm_inject 消费）。
+	"""进入收尾窗时发布缺口清单 + 配额（wrap_gap 模块级）。
 
 	从 TodoWrite 工具的当前清单读 output 声明,stat 磁盘缺口;失败 fail-open
 	为空(不挡 wrap 主路径)。纯事实呈现,不裁决不拦截。
+
+	⚠️ 2026-09-15（用户裁定撤块后）：本函数的**模型可见承载已不存在**——
+	``pre_llm_inject`` 的 wrap_up 块连同渲染器 ``_wrap_up_block_text`` 一并删除，
+	``current_gap()`` 目前没有消费者。保留原因（用户裁决：缩小本轮爆炸半径）：
+	它只发布引擎侧事实、绝不写模型可见文本，留着零风险；但**它不是"还有人在读"
+	的活路径**——将来要么找到新承载（新块须自证作用域：写"回合配额"而非"预算"），
+	要么整体删除。切勿把 ``current_gap()`` 直接塞回任何模型可见文本。
 	"""
 	try:
 		from engine.wrap_gap import build_gap_lines, compose_guide_text, publish_gap
@@ -810,7 +817,10 @@ async def query_loop(
                 yield StoppedEvent(reason=budget.hard_stop_reason or "max_turns")
                 return
             forced_wrap_up = True
-            # R3'：进收尾窗时发布缺口清单 + 剩余配额（T_now wrap_up 块消费）。
+            # R3'：进收尾窗时发布缺口清单 + 剩余配额。
+            # 2026-09-15 起模型可见承载（T_now wrap_up 块）已撤销 ⇒ 本发布目前
+            # 无消费者（见 _publish_wrap_guide docstring）；引擎侧事实保留，
+            # 收尾窗本身与配额闸不受影响。
             try:
                 _publish_wrap_guide(
                     tools, _workspace_cwd_for_turn(tools), wrap_quota_left

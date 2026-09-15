@@ -50,10 +50,10 @@ def test_append_blocks_after_tool_result_inserts_projection_user():
 		{"role": "assistant", "content": "…"},
 		{"role": "tool", "name": "Grep", "tool_call_id": "c1", "content": "hits"},
 	]
-	out = append_text_blocks_to_last_user(msgs, ["# Wrap-up(预算已尽)\nok"])
+	out = append_text_blocks_to_last_user(msgs, ["# SAMPLE-BLOCK\nok"])
 	assert msgs[-1]["role"] == "tool"  # store / 投影入参未改
 	assert out[-1]["role"] == "user"
-	assert out[-1]["content"][0]["text"].startswith("# Wrap-up")
+	assert out[-1]["content"][0]["text"].startswith("# SAMPLE-BLOCK")
 	assert len(out) == len(msgs) + 1
 
 
@@ -85,8 +85,10 @@ def test_attach_turn_context_after_tool_includes_wrap_up_and_notice(monkeypatch)
 		if isinstance(b, dict)
 	)
 	assert "Approved plan" in joined
-	assert "Wrap-up(预算已尽)" in joined
-	assert "Runtime budget notice" in joined
+	# 撤块锚（2026-09-15 用户裁定）：forced_wrap_up / runtime_notice 只影响
+	# 执行层状态，不得再产生任何模型可见的"预算/收尾"文本。
+	assert "Wrap-up(预算已尽)" not in joined
+	assert "Runtime budget notice" not in joined
 
 
 def test_memory_index_appends_after_tool(monkeypatch):

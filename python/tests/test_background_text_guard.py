@@ -25,9 +25,11 @@ from pathlib import Path
 
 _PY_ROOT = Path(__file__).resolve().parents[1]
 
-# ── 白名单：允许承载指令语义的块类别（恰五类，2026-09-10 起）──
+# ── 白名单：允许承载指令语义的块类别（2026-09-15 起恰四类）──
+# 原第五类 ``wrap_up`` 已于 2026-09-15 随块撤销移出（用户裁定：该块只说
+# 「预算已尽」却不标作用域，模型必然误标；限制只在执行层表达）。
 DIRECTIVE_WHITELIST: frozenset[str] = frozenset(
-    {"ask", "plan", "approved_plan", "continue", "wrap_up"}
+    {"ask", "plan", "approved_plan", "continue"}
 )
 
 # ── 禁词（已裁决违规句式；background 类渲染函数命中即红）──
@@ -71,7 +73,6 @@ _DIRECTIVE_ANCHORS: dict[str, tuple[str, str]] = {
     "plan": ("prompt/pre_llm_inject.py", "PLAN_MODE_INSTRUCTIONS"),
     "approved_plan": ("prompt/turn_context.py", "PLAN_POINTER_BLOCK"),
     "continue": ("prompt/turn_context.py", "CONTINUE_AFTER_TOOLS"),
-    "wrap_up": ("prompt/pre_llm_inject.py", "WRAP_UP_INSTRUCTIONS"),
 }
 
 # 自动注入（非用户可选）directive 模板的注意力上限（字符；动态内容另计）。
@@ -79,7 +80,6 @@ _DIRECTIVE_ANCHORS: dict[str, tuple[str, str]] = {
 _AUTO_DIRECTIVE_CAP_CHARS: dict[str, tuple[str, str, int]] = {
     # 类别: (文件, 锚点, 上限)
     "continue": ("prompt/turn_context.py", "CONTINUE_AFTER_TOOLS", 200),
-    "wrap_up": ("prompt/pre_llm_inject.py", "WRAP_UP_INSTRUCTIONS", 200),
 }
 
 
@@ -141,10 +141,10 @@ def _module_literal_anchor(rel_path: str, anchor: str) -> list[tuple[int, str]]:
 
 # ── 测试 ──
 
-def test_whitelist_exactly_five_and_anchored() -> None:
-	"""白名单恰为裁决的五类；每类都有可检索实现锚点。"""
+def test_whitelist_exactly_four_and_anchored() -> None:
+	"""白名单恰为裁决的四类（wrap_up 已于 2026-09-15 撤销）；每类有实现锚点。"""
 	assert DIRECTIVE_WHITELIST == frozenset(
-		{"ask", "plan", "approved_plan", "continue", "wrap_up"}
+		{"ask", "plan", "approved_plan", "continue"}
 	)
 	for cat in DIRECTIVE_WHITELIST:
 		assert cat in _DIRECTIVE_ANCHORS

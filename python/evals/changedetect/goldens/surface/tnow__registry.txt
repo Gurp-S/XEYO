@@ -1,6 +1,6 @@
 agent_settlement	event	子代理结算通知，drain 语义——静默即永久丢失
 browser_preview	inventory	用户预览页 URL：读页面正文的必要指针
-budget_mirror	directive	死线会话每轮稳态预算/时间镜像（23ca693 禀赋①）；正常会话零注入，与 runtime_budget 瞬时通知互补
+budget_mirror	directive	死线会话每轮稳态预算/时间镜像（23ca693 禀赋①）；正常会话零注入
 compact	directive	输出/写码压缩开关生效的统一行为规则（任一开关开启即注入；③合并两块减一）
 continue	directive	工具续写轮无此块模型把 tool_result 当终点，不回用户问题
 file_conflict	event	触碰文件被其他会话写入——静默即丢，覆盖风险
@@ -14,7 +14,5 @@ pending_jobs	directive	job 完成补投：一次性待领信息，模型不读�
 reconcile_events	event	工具面/技能目录变更，consume 语义——静默即永久丢失
 repeat_guard	directive	轮内防复读提醒（引擎 clear_advice 逐轮重置）
 resume_directive	event	续跑富化指令投影-only 送达（修订2）：落库只存用户真实文本
-runtime_budget	directive	预算透明：模型需知剩余额度以决定收敛节奏
 runtime_mode_snapshot	directive	审批模式活状态（supersedes）；真门禁在 permissions 层
 skill_preinvoke	directive	用户 /name 直呼技能的宿主确定性加载；不注入则直呼依赖模型自觉调 Skill 工具，user 只见技能的直呼即失效
-wrap_up	directive	收尾窗引导:配额内可落盘/验证但不得开新探索;缺口清单来自引擎 stat

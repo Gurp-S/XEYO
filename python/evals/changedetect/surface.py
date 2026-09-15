@@ -196,7 +196,8 @@ def _collect_tools() -> list[Artifact]:
 
 #: T_now 静态块渲染器：(artifact 名, 模块属性名, 调用参数)
 _TNOW_STATIC: tuple[tuple[str, str, tuple[Any, ...]], ...] = (
-    ("tnow/block/wrap_up", "_wrap_up_block_text", ()),
+    # ``tnow/block/wrap_up`` 已于 2026-09-15 随块撤销删除（用户裁定）：
+    # 渲染器 ``_wrap_up_block_text`` 不再存在，故不登记 artifact。
     ("tnow/block/output_compact", "output_compact_block", ()),
     ("tnow/block/code_compact", "code_compact_block", ()),
     ("tnow/block/compact", "compact_block", ()),

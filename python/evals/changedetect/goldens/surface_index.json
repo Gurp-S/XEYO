@@ -1,5 +1,5 @@
 {
- "artifact_count": 45,
+ "artifact_count": 44,
  "artifacts": {
   "meta/power_table": {
    "chars": 227,
@@ -99,19 +99,12 @@
    "note": "",
    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
   },
-  "tnow/block/wrap_up": {
-   "chars": 56,
-   "file": "tnow__block__wrap_up.txt",
-   "group": "tnow",
-   "note": "",
-   "sha256": "a14fd8bf06f0b6730920de1e5f9c70496c8d52e34094f7382ff1e736446401bc"
-  },
   "tnow/block_count": {
    "chars": 3,
    "file": "tnow__block_count.txt",
    "group": "tnow",
    "note": "登记块数（与硬顶一起决定准入）",
-   "sha256": "5378796307535df3ec8d8b15a2e2dc5641419c3d3060cfe32238c0fa973f7aa3"
+   "sha256": "7ee29791fc17e986b97128845622b077fb45e349fdb80523fac9dba879b4ad60"
   },
   "tnow/hard_cap": {
    "chars": 3,
@@ -121,11 +114,11 @@
    "sha256": "6e2ae11dad0616f66bbb2b6e6556f580bb987fd911d7132aa6bee2bfc7cc7b52"
   },
   "tnow/registry": {
-   "chars": 1141,
+   "chars": 1016,
    "file": "tnow__registry.txt",
    "group": "tnow",
    "note": "块登记表（加块必须登记，机器执法）",
-   "sha256": "f3d5cf7e28e6d3abaea099b7ba6ac7b29ba40bf2911a469e95f234ce3fe5cde1"
+   "sha256": "a71f006bcde01a91aa4d118ed3c2c19c19efd71eb3e8ba1e133d084af74dd1cd"
   },
   "tools/Agent": {
    "chars": 1136,

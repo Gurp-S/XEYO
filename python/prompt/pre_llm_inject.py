@@ -67,28 +67,10 @@ PLAN_MODE_INSTRUCTIONS = (
 	+ "最后调用 ExitPlanMode，附上简洁的 Markdown 实现计划。"
 )
 
-WRAP_UP_INSTRUCTIONS = (
-	"# Wrap-up(预算已尽)\n"
-	"本请求的预算/回合已达上限，引擎已开启收尾窗；"
-	"剩余收尾工具配额内工具仍可执行。"
-)
-
-
-def _wrap_up_block_text() -> str:
-	"""完整 wrap_up 指令文本 = 基础指令 + 引擎 stat 出的缺口清单(若存在)。
-
-	缺口清单经 engine.wrap_gap 模块级发布(query_loop 在进收尾窗时写入),
-	消费前即时读取;失败/为空则回落纯基础指令(不挡 wrap 主路径)。
-	"""
-	try:
-		from engine.wrap_gap import current_gap
-
-		gap = current_gap()
-	except Exception:  # noqa: BLE001
-		gap = ""
-	if not gap:
-		return WRAP_UP_INSTRUCTIONS
-	return f"{WRAP_UP_INSTRUCTIONS}\n\n[engine] {gap}"
+# ── 已撤文本（2026-09-15，用户裁定）：``# Wrap-up(预算已尽)`` ──
+# 渲染器 ``_wrap_up_block_text`` 与常量 ``WRAP_UP_INSTRUCTIONS`` 连同装配点
+# 一并删除（不是注释掉）：保留一个"预算已尽"文本生成器等于给它留了重新接线
+# 的口子。撤块理由见下方 run_pre_llm_inject 的「已撤块」说明。
 
 # ── 方案一/三b：无主语背景块统一身份标记 + 分隔符 ──
 # 所有挂在「最后一条 user 内部」的系统背景块，用 [system-background] 前缀
@@ -834,17 +816,13 @@ T_NOW_BLOCK_REGISTRY: dict[str, dict[str, str]] = {
 		"klass": "directive",
 		"why": "Ask/Plan/批准计划是本轮行为模式合同，决定能否写盘",
 	},
-	"wrap_up": {
-		"klass": "directive",
-		"why": "收尾窗引导:配额内可落盘/验证但不得开新探索;缺口清单来自引擎 stat",
-	},
-	"runtime_budget": {
-		"klass": "directive",
-		"why": "预算透明：模型需知剩余额度以决定收敛节奏",
-	},
+	# ``wrap_up`` / ``runtime_budget`` 已于 2026-09-15 撤销（用户裁定）：
+	# 二者都只讲「预算已尽」却不标预算作用域，模型必然误标（第五/第六轮各一次
+	# 猜成"上下文窗口"）。按引擎铁律「限制只在执行层」，收尾窗与配额由
+	# engine/query_loop 强制，无需模型可见文本 ⇒ 登记表相应收缩（更宽松）。
 	"budget_mirror": {
 		"klass": "directive",
-		"why": "死线会话每轮稳态预算/时间镜像（23ca693 禀赋①）；正常会话零注入，与 runtime_budget 瞬时通知互补",
+		"why": "死线会话每轮稳态预算/时间镜像（23ca693 禀赋①）；正常会话零注入",
 	},
 	"multi_agent_hint": {
 		"klass": "directive",
@@ -1052,17 +1030,20 @@ def run_pre_llm_inject(
 		plan_pointer=ctx.plan_pointer,
 	):
 		_tag_block(tagged, "mode_instructions", (KLASS_DIRECTIVE, blk))
-	# forced_wrap_up 的收尾指令开了就必须生效：装配进 directive（预算内绝不
-	# 裁剪），trim 后再兜底强挂一次（去重）——挤掉它会让模型只看到"没有工具"
-	# 却不知道要立即作答，空响应/硬停概率上升。
-	if ctx.forced_wrap_up:
-		_tag_block(tagged, "wrap_up", (KLASS_DIRECTIVE, _wrap_up_block_text()))
-	if ctx.runtime_notice:
-		_tag_block(
-			tagged,
-			"runtime_budget",
-			(KLASS_DIRECTIVE, f"# Runtime budget notice\n{ctx.runtime_notice}"),
-		)
+	# ── 已撤块（2026-09-15，用户裁定）─────────────────────────────────
+	# ``wrap_up``（``# Wrap-up(预算已尽)``）与 ``runtime_budget``
+	# （``# Runtime budget notice``）**不再装配进模型可见文本**。
+	#
+	# 结构性理由（不是"话说得不好"）：这两块是 directive 类、预算内绝不裁剪，
+	# 必然进注意力；而它们只说「预算已尽 / 预算」**不说是哪一种预算**。同一个
+	# TurnBudget 里混装了三种作用域的预算（回合级 max_turns / 任务级墙钟 /
+	# 会话级 USD），模型收到不标作用域的"预算已尽"只能自己猜——第五轮猜成
+	# 「上下文窗口」，第六轮再次猜成「上下文窗口」（本会话实测 100+ 次幻觉调用）。
+	#
+	# 按引擎铁律第 3/4 条（限制只在执行层 / 能静默就不说话）：收尾窗、工具配额、
+	# 硬停本来就是执行层事实（query_loop 的 prepare_next_turn / wrap_quota_left），
+	# 不需要讲给模型听。执行层一律保留：forced_wrap_up 状态、收尾配额、
+	# StoppedEvent 语义、成本闸全部照旧（删的只是文本，不是机制）。
 	if ctx.multi_agent:
 		try:
 			from tools.agent_tool.prompt import MULTI_AGENT_HINT
@@ -1317,14 +1298,8 @@ def run_pre_llm_inject(
 	# ---- P1/F1：类感知真硬顶 ----
 	kept = _trim_tagged_blocks(tagged)
 
-	# forced_wrap_up 兜底：万一被裁则强挂（去重，单次）；消融跳过名单同样
-	# 生效（XEYO_T_NOW_SKIP 含 wrap_up 时兜底也不挂，否则消融测不到该块缺席）。
-	if (
-		ctx.forced_wrap_up
-		and "wrap_up" not in _skipped_blocks()
-		and not any(t.startswith("# Wrap-up(预算已尽)") for _k, t in kept)
-	):
-		kept.append((KLASS_DIRECTIVE, _wrap_up_block_text()))
+	# wrap_up 兜底已随该块整体撤销（见上方「已撤块」说明）：不再向模型重挂
+	# 任何"预算/收尾"文本。执行层的收尾窗与配额与提示文本无关。
 
 	# ---- P1/A1 分仓 / 方案A 环境声道 ----
 	# env_channel：全部块装进一对仅存在于投影的伪造 tool 对尾插——
@@ -1361,7 +1336,6 @@ def run_pre_llm_inject(
 __all__ = [
 	"ASK_MODE_INSTRUCTIONS",
 	"PLAN_MODE_INSTRUCTIONS",
-	"WRAP_UP_INSTRUCTIONS",
 	"OUTPUT_COMPACT_RULES",
 	"OUTPUT_MODE_VARIANTS",
 	"CODE_COMPACT_RULES",

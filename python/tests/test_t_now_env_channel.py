@@ -54,12 +54,15 @@ def test_env_channel_wraps_blocks_in_fabricated_pair():
 	set_t_now_strategy(None)
 	assert t_now_strategy() == STRATEGY_ENV_CHANNEL
 	projected = [{"role": "user", "content": "帮我修 bug"}]
-	out = run_pre_llm_inject(projected, InjectContext(cwd="", forced_wrap_up=True))
+	out = run_pre_llm_inject(projected, InjectContext(cwd="", multi_agent=True))
 	_use, res = _last_pair(out)
-	assert "Wrap-up(预算已尽)" in res["content"]
+	assert "Multi-Agent" in res["content"]
 	assert res["content"].startswith("[system-environment]")
 	# 用户消息保持原样——不再被任何注入块夹持（P1/A1 分仓退役）
 	assert out[0]["content"] == "帮我修 bug"
+	# 撤块锚（2026-09-15 用户裁定）：任何"预算"文本不得出现在模型可见面
+	assert "预算已尽" not in str(out)
+	assert "Runtime budget notice" not in str(out)
 
 
 def test_env_channel_input_never_mutated_and_tool_name_not_in_input():
@@ -69,7 +72,7 @@ def test_env_channel_input_never_mutated_and_tool_name_not_in_input():
 		{"role": "assistant", "content": "ok"},
 	]
 	frozen = copy.deepcopy(projected)
-	out = run_pre_llm_inject(projected, InjectContext(cwd="", forced_wrap_up=True))
+	out = run_pre_llm_inject(projected, InjectContext(cwd="", multi_agent=True))
 	assert projected == frozen
 	assert out is not projected
 	assert ENV_TOOL_NAME not in str(projected)
@@ -88,7 +91,7 @@ def test_legacy_strategy_preserves_user_tail_insert():
 	projected = [{"role": "user", "content": "hi"}]
 	out = run_pre_llm_inject(
 		projected,
-		InjectContext(cwd="", forced_wrap_up=True, strategy=STRATEGY_LEGACY),
+		InjectContext(cwd="", multi_agent=True, strategy=STRATEGY_LEGACY),
 	)
 	assert out[-1]["role"] == "user"
 	content = out[-1]["content"]
@@ -97,21 +100,21 @@ def test_legacy_strategy_preserves_user_tail_insert():
 		for b in content
 		if isinstance(b, dict) and b.get("type") == "text"
 	]
-	assert any("Wrap-up(预算已尽)" in t for t in texts if t)
+	assert any("Multi-Agent" in t for t in texts if t)
 	assert ENV_TOOL_NAME not in str(out)
 
 
 def test_normalize_env_pair_to_openai_tool_messages():
 	set_t_now_strategy(None)
 	projected = [{"role": "user", "content": "hi"}]
-	out = run_pre_llm_inject(projected, InjectContext(cwd="", forced_wrap_up=True))
+	out = run_pre_llm_inject(projected, InjectContext(cwd="", multi_agent=True))
 	norm = normalize_messages_for_openai(out)
 	assert norm[0] == {"role": "user", "content": "hi"}
 	assert norm[1]["role"] == "assistant"
 	assert norm[1]["tool_calls"][0]["function"]["name"] == ENV_TOOL_NAME
 	assert norm[2]["role"] == "tool"
 	assert norm[2]["tool_call_id"] == norm[1]["tool_calls"][0]["id"]
-	assert "Wrap-up(预算已尽)" in norm[2]["content"]
+	assert "Multi-Agent" in norm[2]["content"]
 
 
 def test_normalize_env_pair_gets_relay_reasoning_placeholder():
@@ -125,7 +128,7 @@ def test_normalize_env_pair_gets_relay_reasoning_placeholder():
 	"""
 	set_t_now_strategy(None)
 	projected = [{"role": "user", "content": "hi"}]
-	out = run_pre_llm_inject(projected, InjectContext(cwd="", forced_wrap_up=True))
+	out = run_pre_llm_inject(projected, InjectContext(cwd="", multi_agent=True))
 	norm = normalize_messages_for_openai(out)
 	msg = norm[1]
 	assert msg["role"] == "assistant"
@@ -151,8 +154,8 @@ def test_env_notice_header_declares_not_user():
 def test_env_channel_ids_unique_per_call():
 	set_t_now_strategy(None)
 	projected = [{"role": "user", "content": "hi"}]
-	out1 = run_pre_llm_inject(projected, InjectContext(cwd="", forced_wrap_up=True))
-	out2 = run_pre_llm_inject(projected, InjectContext(cwd="", forced_wrap_up=True))
+	out1 = run_pre_llm_inject(projected, InjectContext(cwd="", multi_agent=True))
+	out2 = run_pre_llm_inject(projected, InjectContext(cwd="", multi_agent=True))
 	id1 = out1[-2]["content"][0]["id"]
 	id2 = out2[-2]["content"][0]["id"]
 	assert id1.startswith(ENV_ID_PREFIX) and id2.startswith(ENV_ID_PREFIX)
@@ -181,7 +184,7 @@ def test_strategy_resolution_and_unsupported_fallback(monkeypatch):
 		[{"role": "user", "content": "hi"}],
 		InjectContext(cwd="", forced_wrap_up=True, strategy=STRATEGY_SKIP),
 	)
-	assert "Wrap-up" not in str(out) and len(out) == 1
+	assert "预算" not in str(out) and len(out) == 1
 	# 非法环境变量值忽略 → 默认
 	monkeypatch.setenv("XEYO_T_NOW_STRATEGY", "bogus")
 	assert t_now_strategy() == STRATEGY_ENV_CHANNEL

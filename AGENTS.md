@@ -54,9 +54,9 @@ XEYO 引擎对模型注意力的总原则：**注意力里只出现信息，不�
 
 **硬准入（2026-09-04）：** 块登记表 `T_NOW_BLOCK_REGISTRY`（`pre_llm_inject.py`）：每个块一行（类别 / 为什么必须在上下文 / 预算与门控），**登记数硬顶 20**，加一块必须删一块或证明预算不破；所有 `tagged.append` 装配点必须带 `# block: <名>` 标记且与登记表一一对应，由 `tests/test_t_now_block_registry.py` 机器执法——新块不登记，测试即红。第一问永远是"能不能不进上下文"（引擎能强制的，一律不给模型看）。
 
-**现有 T_now 候选（新增前先查重）：** Continue（工具续写）、Ask/Plan 模式指令、Approved Plan（首写收敛 + 实施中指针）、Wrap-up、Runtime budget notice、续跑指令 Resume（投影-only，`engine/resume_directive.py`）、上一轮思考回顾（GUI 设置，默认**关**）、Multi-Agent hint、Repeat guard、Nested XEYO.md（限窗）、stale XEYO.md 提醒、输出精简、写代码精简、MCP required 故障、工具面/技能目录变更（reconcile）、其他会话活动、文件冲突、浏览器预览、审批模式快照、子代理结算、Goal、jobs 补投。最新权威清单以 `T_NOW_BLOCK_REGISTRY` 为准。
+**现有 T_now 候选（新增前先查重）：** Continue（工具续写）、Ask/Plan 模式指令、Approved Plan（首写收敛 + 实施中指针）、续跑指令 Resume（投影-only，`engine/resume_directive.py`）、上一轮思考回顾（GUI 设置，默认**关**）、Multi-Agent hint、Repeat guard、Nested XEYO.md（限窗）、stale XEYO.md 提醒、输出精简、写代码精简、MCP required 故障、工具面/技能目录变更（reconcile）、其他会话活动、文件冲突、浏览器预览、审批模式快照、子代理结算、Goal、jobs 补投。最新权威清单以 `T_NOW_BLOCK_REGISTRY` 为准。
 
-**已下线（不再推送 T_now）：** Proposals digest（拉取走 `/proposals` + Memory 候选计数行）、Memory index 块（脚本/评测用）。
+**已下线（不再推送 T_now）：** Proposals digest（拉取走 `/proposals` + Memory 候选计数行）、Memory index 块（脚本/评测用）、`wrap_up` / `runtime_budget` 两块（2026-09-15 用户裁定撤销：只讲"预算已尽"却不标作用域，模型必然误标成上下文窗口——第五/第六轮各一次；按引擎铁律「限制只在执行层」，收尾窗与配额由 `engine/query_loop` 强制，不需要讲给模型听。**预算机制保留**，撤的只是模型可见文本）。
 
 ## 扩展层（MCP × SKILL）契约
 
