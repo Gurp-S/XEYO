@@ -67,6 +67,17 @@ class Seeds:
 	trace: list[dict[str, str]] = field(default_factory=list)
 
 
+def request_skip(seeds: Seeds) -> frozenset[int]:
+	"""``[REQUESTS]`` 渲染与冷层绑定**共用**的跳过集合。
+
+	首个 pin 节点（通常是当前目标）已经在 ``[PIN]`` 里逐字出现过，``[REQUESTS]``
+	里再来一行只是重复占位。这个表达式原先在 ``assemble`` 与 ``project`` 各写了一份：
+	两份逻辑一旦漂移，渲染说「这行覆盖 A」、绑定说「这个句柄展开成 B」，
+	可恢复性就被悄悄破坏。故收敛到这一个函数。
+	"""
+	return frozenset({seeds.pin_nodes[0]}) if seeds.pin_nodes else frozenset()
+
+
 def _substantive(text: str) -> bool:
 	s = (text or "").strip()
 	if len(s) < 4:

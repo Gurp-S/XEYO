@@ -180,6 +180,7 @@ ALGORITHM_MODULES = (
 	"graph.py",
 	"filestate.py",
 	"seeds.py",
+	"paths.py",
 	"budget.py",
 	"closure.py",
 	"prune.py",

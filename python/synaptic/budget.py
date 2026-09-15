@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from synaptic.coldstore import parse_reqs_payload
 from synaptic.graph import Graph
 from synaptic.textutil import node_token_len
 from synaptic.types import KIND_USER, WscParams
@@ -47,22 +48,32 @@ def rendered_request_nodes(items: list[Line] | tuple[Line, ...]) -> frozenset[in
 	"""返回 ``[REQUESTS]`` 行中句柄实际覆盖的节点集合。
 
 	``render_requests_grouped`` 会把这些节点合并为 ``node://i,j,...``；
-	覆盖率审计若直接数行数，会变成「分母逐节点、分子逐行」的异源口径。
+	``render_requests_compact`` 会把旧节点合并成 ``reqs://<首>-<末>``。
+	覆盖率审计若直接数行数，会变成「分母逐节点、分子逐行」的异源口径（踩过）。
+
+	**区间句柄按 [首, 末] 全展开是安全的**：调用方始终拿它与 ``request_nodes`` 求交，
+	区间内混进的非用户节点会被交集滤掉；而区间内真正的用户节点，要么属于该块、
+	要么属于按 idx 升序的相邻块——两种情形它们**都有出口**，不存在「虚报可见」。
 	"""
 	out: set[int] = set()
-	marker = "expand(node://"
 	for _key, line in items:
-		start = line.rfind(marker)
-		if start < 0:
-			continue
-		start += len(marker)
-		end = line.find(")", start)
-		if end < 0:
-			continue
-		for part in line[start:end].split(","):
-			part = part.strip()
-			if part.isdigit():
-				out.add(int(part))
+		marker = line.rfind("expand(node://")
+		if marker >= 0:
+			start = marker + len("expand(node://")
+			end = line.find(")", start)
+			if end >= 0:
+				for part in line[start:end].split(","):
+					part = part.strip()
+					if part.isdigit():
+						out.add(int(part))
+		rmarker = line.rfind("expand(reqs://")
+		if rmarker >= 0:
+			start = rmarker + len("expand(reqs://")
+			end = line.find(")", start)
+			if end >= 0:
+				span = parse_reqs_payload(line[start:end])
+				if span is not None:
+					out.update(range(span[0], span[1] + 1))
 	return frozenset(out)
 
 
@@ -85,6 +96,33 @@ def _request_nodes(
 	return out
 
 
+def _recent_verbatim_ids(user_nodes: tuple[int, ...], params: WscParams) -> frozenset[int]:
+	"""最近 N 条用户节点（要求逐字可见的那一批）。``user_nodes`` 已按 idx 升序。"""
+	k = max(0, int(params.request_recent_verbatim))
+	if k <= 0:
+		return frozenset()
+	return frozenset(user_nodes[-k:])
+
+
+def _node_excerpt_chars(
+	idx: int,
+	params: WscParams,
+	*,
+	recent: frozenset[int],
+	override: int | None,
+) -> int:
+	"""单条用户节点的内联摘录上限（分层 + 80 字符硬地板）。
+
+	硬地板的理由：关键信息针按原话前 80 字符判定，摘录低于 80 就等于「有摘录但针不可见」，
+	报告会把它算成 ``user`` 针丢失（这是假缺口，但一样要避免——它会让降级阶梯失去刻度）。
+	"""
+	if override is not None:
+		return max(0, int(override))
+	old = max(80, int(params.request_excerpt_chars_old))
+	full = max(old, int(params.request_excerpt_chars))
+	return full if idx in recent else old
+
+
 def render_requests(
 	graph: Graph,
 	region_end: int,
@@ -95,8 +133,11 @@ def render_requests(
 	excerpt_chars: int | None = None,
 	handle_only: bool = False,
 ) -> list[Line]:
-	"""渲染逐节点 ``[REQUESTS]``；每个节点一条独立句柄。"""
-	limit = params.request_excerpt_chars if excerpt_chars is None else excerpt_chars
+	"""渲染逐节点 ``[REQUESTS]``；每个节点一条独立句柄。
+
+	分层：最近 ``request_recent_verbatim`` 条用完整摘录，更早的用 ``request_excerpt_chars_old``。
+	"""
+	recent = _recent_verbatim_ids(user_nodes, params)
 	out: list[Line] = []
 	for idx, text in _request_nodes(
 		graph, region_end, skip=skip, user_nodes=user_nodes
@@ -104,6 +145,7 @@ def render_requests(
 		if handle_only:
 			line = f"#{idx} 用户 expand(node://{idx})"
 		else:
+			limit = _node_excerpt_chars(idx, params, recent=recent, override=excerpt_chars)
 			text = excerpt_preserving_needle(text, limit)
 			if not text:
 				continue
@@ -127,7 +169,8 @@ def render_requests_grouped(
 	同一文本只保留一份摘录；该文本的所有原始节点合并进一个 ``node://i,j,...``
 	组句柄，因此每个节点仍可从冷层无损拉回。预算不足时再退化成整组仅句柄。
 	"""
-	limit = params.request_excerpt_chars if excerpt_chars is None else excerpt_chars
+	limit_default = params.request_excerpt_chars if excerpt_chars is None else excerpt_chars
+	recent = _recent_verbatim_ids(user_nodes, params)
 	groups: dict[str, list[int]] = {}
 	texts: dict[str, str] = {}
 	for idx, raw in _request_nodes(
@@ -149,6 +192,14 @@ def render_requests_grouped(
 		if handle_only:
 			line = f"{head} expand({handle})"
 		else:
+			# 同一文本的节点可能横跨两个分层 ⇒ 取该组里**最宽松**的那一档
+			# （组内文本完全相同，多留字符不会误导，只会少压一点）。
+			limit = max(
+				_node_excerpt_chars(i, params, recent=recent, override=excerpt_chars)
+				if excerpt_chars is None
+				else limit_default
+				for i in idxs
+			)
 			text = excerpt_preserving_needle(texts[key], limit)
 			if not text:
 				continue
@@ -315,6 +366,77 @@ def apply_hot_budgets(
 		main_overflow_tokens=max(0, main_tokens - int(params.main_segment_budget_tokens)),
 	)
 	return out, audit
+
+
+def request_chunk_ids(
+	graph: Graph,
+	region_end: int,
+	params: WscParams,
+	*,
+	skip: frozenset[int],
+	user_nodes: tuple[int, ...],
+) -> list[tuple[int, int, tuple[int, ...]]]:
+	"""旧用户节点的分块 ``[(首, 末, idxs)]``（P1-b）。
+
+	**渲染与冷层绑定必须共用这一个实现**：渲染侧决定「哪一行写哪个区间」，
+	绑定侧决定「那个区间展开回哪些节点」。两处各写一份分块逻辑，就会出现
+	「行里写的区间」与「句柄绑定的节点集」不一致——那正是可恢复性被悄悄破坏的形态。
+	"""
+	recent = _recent_verbatim_ids(user_nodes, params)
+	items = [
+		(idx, text)
+		for idx, text in _request_nodes(graph, region_end, skip=skip, user_nodes=user_nodes)
+		if idx not in recent
+	]
+	size = max(1, int(params.request_old_group_size))
+	out: list[tuple[int, int, tuple[int, ...]]] = []
+	for i in range(0, len(items), size):
+		chunk = items[i : i + size]
+		idxs = tuple(idx for idx, _ in chunk)
+		out.append((idxs[0], idxs[-1], idxs))
+	return out
+
+
+def render_requests_compact(
+	graph: Graph,
+	region_end: int,
+	params: WscParams,
+	*,
+	skip: frozenset[int],
+	user_nodes: tuple[int, ...],
+) -> list[Line]:
+	"""``[REQUESTS]`` 的紧凑形态（P1-b）：旧节点合并成区间句柄，行数封顶。
+
+	行数是这段**唯一**的真实开销来源：每行约 10–15 token（``#<idx>`` + 头部 + ``expand(...)``），
+	实测 93 行/回合 ≈ 1565 token。摘录字符数不是瓶颈——用户原话普遍短于上限时，
+	320 与 80 两档输出逐字相同（见 docs §12.7 的负向结果与账目复核）。
+
+	发射顺序：**旧块（按 idx 升序）在前，最近 K 条在后**。理由与 ``[PATHS]`` 同一条：
+	新内容一律追加在段尾，段内不因「某条原话翻进/翻出近期窗口」而整体重排。
+	"""
+	recent = _recent_verbatim_ids(user_nodes, params)
+	out: list[Line] = []
+	for first, last, idxs in request_chunk_ids(
+		graph, region_end, params, skip=skip, user_nodes=user_nodes
+	):
+		if len(idxs) == 1:
+			out.append((f"req:{first}", f"#{first} 用户 expand(node://{first})"))
+			continue
+		out.append(
+			(
+				f"reqs:{first}",
+				f"#{first}…{last} 用户[{len(idxs)}] expand(reqs://{first}-{last})",
+			)
+		)
+	for idx, text in _request_nodes(graph, region_end, skip=skip, user_nodes=user_nodes):
+		if idx not in recent:
+			continue
+		limit = _node_excerpt_chars(idx, params, recent=recent, override=None)
+		excerpt = excerpt_preserving_needle(text, limit)
+		if not excerpt:
+			continue
+		out.append((f"req:{idx}", f"#{idx} 用户: {excerpt} expand(node://{idx})"))
+	return out
 
 
 __all__ = [

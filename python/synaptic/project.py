@@ -14,12 +14,19 @@ from synaptic.assemble import (
 	build_pins,
 	render_pins,
 )
+from synaptic.budget import request_chunk_ids
 from synaptic.closure import audit_rows, plan_selection
-from synaptic.coldstore import ColdStore, branch_handle, node_group_handle, node_handle
+from synaptic.coldstore import (
+	ColdStore,
+	branch_handle,
+	node_group_handle,
+	node_handle,
+	reqs_handle,
+)
 from synaptic.filestate import build_file_states, file_state_tokens, working_set
 from synaptic.graph import Graph, build_graph, graph_digest
 from synaptic.prune import build_cards, cards_tokens
-from synaptic.seeds import Seeds, collect_seeds, recent_paths
+from synaptic.seeds import Seeds, collect_seeds, recent_paths, request_skip
 from synaptic.textutil import node_token_len
 from synaptic.types import (
 	KIND_USER,
@@ -137,7 +144,7 @@ def project(
 	# [REQUESTS] 是**截断摘要 + 句柄**：句柄必须是真句柄，否则「无损可恢复」被截断悄悄破坏。
 	# 集合取 seeds.user_nodes（实质人类用户消息），不按 kind 扫图——kind 上还挂着工具结果。
 	user_groups: dict[str, list[int]] = {}
-	request_skip = frozenset({seeds.pin_nodes[0]}) if seeds.pin_nodes else frozenset()
+	req_skip = request_skip(seeds)
 	for idx in seeds.user_nodes:
 		if idx >= region_end:
 			continue
@@ -146,7 +153,7 @@ def project(
 			continue
 		cs.bind(node_handle(idx), (idx,))
 		cold_nodes.append((idx, n.text, {"kind": n.kind, "tool": n.tool_name}))
-		if idx in request_skip:
+		if idx in req_skip:
 			continue
 		key = " ".join(n.text.split())
 		if key:
@@ -154,6 +161,16 @@ def project(
 	# 去重 [REQUESTS] 用的组句柄：同文本节点一次展开即可拿回全部原文。
 	for idxs in user_groups.values():
 		cs.bind(node_group_handle(tuple(idxs)), tuple(idxs))
+	# P1-b 区间句柄：旧用户节点在紧凑渲染里被合并成 reqs://<首>-<末>。
+	# **分块与渲染必须共用 ``request_chunk_ids``**（唯一实现在 budget.py）：
+	# 各写一份就会出现「行里写的区间」与「句柄展开的节点集」不一致——
+	# 那正是可恢复性被悄悄破坏的形态，而且往返比对会照样通过（句柄自洽地错）。
+	# 单节点块渲染成 ``node://<idx>``（上面已绑），故这里只绑多节点块。
+	for first, last, idxs in request_chunk_ids(
+		graph, region_end, p, skip=req_skip, user_nodes=seeds.user_nodes
+	):
+		if len(idxs) > 1:
+			cs.bind(reqs_handle(first, last), idxs)
 	cs.put_nodes(cold_nodes)
 
 	hot = HotLayer(

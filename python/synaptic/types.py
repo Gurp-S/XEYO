@@ -231,6 +231,39 @@ class WscParams:
 	# [REQUESTS] 每条用户原话内联的字符上限（超出附 expand(node://<idx>) 句柄取全文）。
 	request_excerpt_chars: int = 320
 
+	# ---- [REQUESTS] 分层（P1-a，用户裁定「分层」口径）----
+	#
+	# 实测（标准 200 回合会话，紧凑渲染）：``[REQUESTS]`` med **1565 tok/回合**，是热层
+	# 里最大的一段（总 med 3526），且随用户回合数线性增长。但它的信息价值并非均匀分布：
+	#
+	# * 最近几轮原话：必须逐字可见（下一步很可能直接依赖它们的字面约束）；
+	# * 更早的原话：**意图与约束抽取已由 [CONSTRAINTS]/[UNRESOLVED] 承担**，
+	#   而针口径只要求前 80 字符可见 ⇒ 留 80 字符摘录 + 句柄即可，
+	#   全文永远可从冷层 ``expand(node://<idx>)`` 无损拉回。
+	#: 逐字保留的「最近 N 条」用户原话（按节点序从尾部取）。
+	request_recent_verbatim: int = 3
+	#: 更早用户节点的内联摘录上限。**不得低于 80**：关键信息针按前 80 字符判定，
+	#: 低于它就等于把文本针换成句柄，会在报告里表现为 ``needle_survival.user`` 掉档
+	#: （见 ``budget.py`` 的降级阶梯注释）。
+	request_excerpt_chars_old: int = 80
+	#: 旧用户节点的**分块大小**（P1-b）：每块合并成一行区间句柄。
+	#:
+	#: 依据（docs §12.7 的账目）：``[REQUESTS]`` 的真实开销是「行数 × 每行 10–15 token」，
+	#: 93 行/回合 ≈ 1565 token；摘录字符数不是瓶颈。8 行合一 ⇒ 行数降 ~8 倍，
+	#: 而信息仍无损（区间句柄绑定块内**全部**节点，``expand`` 逐字节返回原文）。
+	request_old_group_size: int = 8
+
+	# ---- [PATHS] 路径索引（P0-1）：强制配额，见 ``synaptic/paths.py`` ----
+	#
+	# 配额内的路径**必然发射**，不受闭包评分/背包选择影响——它们代表「还在用的依赖」，
+	# 而闭包只回答「从当前目标反推可达」，两者不是一回事（第五轮实测：path 针存活率
+	# 0.61 / path_recent 0.69，缺口全在这里）。
+	#: 配额条数（按「最近触碰 → 失败现场 → 保留节点 → 钉住路径」优先级取前 N）。
+	path_index_limit: int = 24
+	#: 配额的 token 上限（``node_token_len`` 口径，含行尾）。与条数上限共同生效，从尾部裁。
+	#: 默认 256 ≈ 在 Medium+ 的 3000 预算里占 8.5%，换取 path_recent 从 0.69 → 预期 0.9+。
+	path_index_budget_tokens: int = 256
+
 	def for_level(self, level: str) -> "WscParams":
 		"""按级别派生参数（水位 → 预算/跳数），保持其它权重不变。"""
 		if level not in LEVELS:
@@ -270,6 +303,15 @@ class WscParams:
 			churn_min_obs=self.churn_min_obs,
 			journal_layout=self.journal_layout,
 			request_excerpt_chars=self.request_excerpt_chars,
+			# P1-a / P1-b / P0-1 的行为参数必须**显式透传**。
+			# 漏传时 dataclass 会静默回落到默认值：若默认值恰好相同就毫无症状，
+			# 一旦有人在 ``WscParams(...)`` 上改了值、又走 ``for_level``，
+			# 改动会被无声吃掉（P1-a 那两个已经漏过一次）。
+			request_recent_verbatim=self.request_recent_verbatim,
+			request_excerpt_chars_old=self.request_excerpt_chars_old,
+			request_old_group_size=self.request_old_group_size,
+			path_index_limit=self.path_index_limit,
+			path_index_budget_tokens=self.path_index_budget_tokens,
 			**preset,
 		)
 

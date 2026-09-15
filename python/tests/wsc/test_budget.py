@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 from synaptic.assemble import H_CONSTRAINTS, H_REQUESTS
-from synaptic.budget import apply_hot_budgets, segment_tokens
+from synaptic.budget import (
+	apply_hot_budgets,
+	render_requests_compact,
+	render_requests_grouped,
+	rendered_request_nodes,
+	segment_tokens,
+)
 from synaptic.graph import build_graph
 from synaptic.project import project
-from synaptic.seeds import collect_seeds
+from synaptic.seeds import collect_seeds, request_skip
 from synaptic.types import LEVELS, WscParams
 from wsc._fixtures import msg_asst_text, msg_user, synth_session
 
@@ -77,45 +83,60 @@ def test_dedup_short_keeps_full_80_char_needle():
 		assert needle in rendered, f"80 字符档丢失关键针: idx={idx}"
 
 def test_requests_dedup_preserves_unique_user_text_across_turns():
-	"""循环级回归：REQUESTS 超预算时，重复原话必须保留文本针而不是退成纯句柄。"""
+	"""回归：REQUESTS 超预算时，重复原话必须保留文本针而不是退成纯句柄。
+
+	P1-b 之后区间句柄把 ``[REQUESTS]`` 行数压掉一个量级，真实语料通常已经撞不到
+	固定段预算。**所以这里显式把预算压到「装得下去重形态、装不下完整形态」那一档**：
+	不改的话这条回归会因为「压根没触发降级」而静默失效——测试还是绿的，但机制没人守。
+	"""
 	prompts = (
 		"第一个问题：" + "甲" * 120,
 		"第二个问题：" + "乙" * 120,
 		"第三个问题：" + "丙" * 120,
 	)
 	msgs = [msg_user("总目标"), msg_asst_text("ok")]
-	prev = None
-	cold = None
-	saw_dedup = False
-	for _ in range(14):
+	for _ in range(9):
 		for text in prompts:
 			msgs.append(msg_user(text))
 			msgs.append(msg_asst_text("收到 " + "x" * 80))
-		region_end = max(0, len(msgs) - 12)
-		if region_end <= 1:
-			continue
-		p = project(
-			msgs,
-			region_end=region_end,
-			params=WscParams().for_level("Medium+"),
-			prev=prev,
-			cold=cold,
-			session="dedup-loop",
-		)
-		prev = p.state
-		cold = p.cold
-		if p.result.budget["request_mode"] in ("dedup", "dedup_short"):
-			saw_dedup = True
-			for text in prompts:
-				needle = " ".join(text.split())[:80]
-				assert needle in p.text, f"唯一用户原话未逐字进入热层: {needle!r}"
-			for idx in p.seeds.user_nodes:
-				if idx >= region_end:
-					continue
-				node = p.graph.node(idx)
-				assert node is not None
-				assert p.cold.expand(f"node://{idx}") == (node.text,)
-	assert saw_dedup, "循环未触发 REQUESTS 去重降级"
+	region_end = len(msgs)
+	g = build_graph(msgs)
+	s = collect_seeds(g, msgs, {})
+	base = WscParams().for_level("Medium+")
+	kwargs = {"skip": request_skip(s), "user_nodes": s.user_nodes}
+	full = render_requests_compact(g, region_end, base, **kwargs)
+	grouped = render_requests_grouped(g, region_end, base, **kwargs)
+	full_tok, grouped_tok = segment_tokens(full), segment_tokens(grouped)
+	assert grouped_tok < full_tok, (grouped_tok, full_tok)
+
+	params = WscParams(
+		fixed_segment_budget_tokens=grouped_tok, main_segment_budget_tokens=1_800
+	)
+	out, audit = apply_hot_budgets(
+		{H_REQUESTS: full},
+		params,
+		graph=g,
+		region_end=region_end,
+		request_header=H_REQUESTS,
+		request_skip=request_skip(s),
+		user_nodes=s.user_nodes,
+		fixed_headers=(H_REQUESTS,),
+		main_headers=(),
+	)
+	assert audit.request_mode == "dedup", audit.request_mode
+	rendered = "\n".join(line for _key, line in out[H_REQUESTS])
+	for text in prompts:
+		needle = " ".join(text.split())[:80]
+		assert needle in rendered, f"唯一用户原话未逐字保留: {needle!r}"
+	# 句柄口径：去重形态把同文本节点并成一个 ``node://i,j,...`` 组句柄，
+	# 所以**不能**断言每个节点各有一条 ``node://<idx>``——要断言的是
+	# 「每个节点都被某个已发射句柄覆盖」，这正是 rendered_request_nodes 的口径。
+	covered = rendered_request_nodes(out[H_REQUESTS])
+	# skip 集合里的节点已经在 [PIN] 里逐字出现，[REQUESTS] 不再为它们发句柄——
+	# 这是设计口径，不是覆盖漏洞。
+	skip = request_skip(s)
+	in_region = {i for i in s.user_nodes if i < region_end} - set(skip)
+	assert in_region <= covered, f"未覆盖的用户节点: {sorted(in_region - covered)}"
 
 
 def test_fixed_overflow_is_recorded_when_other_sections_exceed_budget():
@@ -142,8 +163,13 @@ def test_fixed_overflow_is_recorded_when_other_sections_exceed_budget():
 	assert audit.request_mode == "dedup_min80_overflow"
 
 
-def test_project_counts_dedup_request_nodes_not_lines():
-	"""覆盖率回归：一行组句柄覆盖 N 个节点时，分子必须按 N 计数。"""
+def test_project_counts_interval_request_nodes_not_lines():
+	"""覆盖率回归：一行区间句柄覆盖 N 个节点时，分子必须按 N 计数。
+
+	P1-b 换掉了 `[REQUESTS]` 的渲染形态（逐节点 → 区间句柄），断言里的
+	`request_mode` 已不再是本条要守的契约；**要守的契约是「分子按节点算、不按行算」**，
+	而区间句柄恰好把这件事放大到 8 倍（一行覆盖一整块），所以这里把它显式钉住。
+	"""
 	prompts = (
 		"重复问题：" + "甲" * 120,
 		"另一个问题：" + "乙" * 120,
@@ -159,15 +185,16 @@ def test_project_counts_dedup_request_nodes_not_lines():
 		params=WscParams().for_level("Medium+"),
 		session="coverage-dedup",
 	)
-	assert p.result.budget["request_mode"] in (
-		"dedup",
-		"dedup_short",
-		"dedup_min80_overflow",
+	req_lines = [ln for ln in p.text.splitlines() if ln.startswith(H_REQUESTS)]
+	assert any("expand(reqs://" in ln for ln in req_lines), (
+		"未走区间句柄形态，本条回归就测不到「一行多节点」",
+		req_lines,
 	)
 	# “总目标”只有 3 个字符，按 _substantive 规则不算实质用户消息；
 	# 其余 2 条不同原话各重复 9 次，共 18 个节点。
 	assert p.result.user_requests_total == 2 * 9
 	assert p.result.user_requests_rendered == p.result.user_requests_total
+	assert len(req_lines) < p.result.user_requests_total, "行数没有真正降下来"
 
 
 def test_project_exposes_budget_audit_and_trace():

@@ -14,10 +14,34 @@ from typing import Any
 
 BRANCH_PREFIX = "branch://"
 NODE_PREFIX = "node://"
+#: 区间句柄（P1-b）：一个句柄覆盖**一批旧用户节点**。
+#:
+#: 动机：``[REQUESTS]`` 的固定开销是「每行约 10–15 token」，实测每回合 93 行
+#: ⇒ 约 1565 token/回合，是热层里最大的一段。摘录字符数**不是**瓶颈（用户原话普遍短于
+#: 80 字符，两档摘录输出逐字相同）。压它只能合并**行**。
+#:
+#: 形态取 ``reqs://<首>-<末>`` 而不是把上百个下标全列进 ``node://`` 的理由：
+#: ① 由首末下标唯一决定 ⇒ 确定性；② 展开仍走 ``handles`` 里绑定的节点列表，
+#: 逐字节返回原文 ⇒ 无损可恢复性不变；③ 审计只需解析区间就能判定这些节点有出口。
+REQS_PREFIX = "reqs://"
 
 
 def branch_handle(card_id: str) -> str:
 	return f"{BRANCH_PREFIX}{card_id}"
+
+
+def reqs_handle(first: int, last: int) -> str:
+	"""旧用户节点的区间句柄。绑定时必须给出**完整**节点列表（展开不靠区间推断）。"""
+	return f"{REQS_PREFIX}{int(first)}-{int(last)}"
+
+
+def parse_reqs_payload(payload: str) -> tuple[int, int] | None:
+	"""``"12-30"`` -> ``(12, 30)``；不合法返回 ``None``（不猜）。"""
+	head, sep, tail = str(payload or "").partition("-")
+	if not sep or not head.strip().isdigit() or not tail.strip().isdigit():
+		return None
+	first, last = int(head), int(tail)
+	return (first, last) if last >= first else None
 
 
 def node_handle(idx: int) -> str:
@@ -34,6 +58,8 @@ def parse_handle(handle: str) -> tuple[str, str]:
 	s = str(handle or "")
 	if s.startswith(BRANCH_PREFIX):
 		return "branch", s[len(BRANCH_PREFIX) :]
+	if s.startswith(REQS_PREFIX):
+		return "reqs", s[len(REQS_PREFIX) :]
 	if s.startswith(NODE_PREFIX):
 		return "node", s[len(NODE_PREFIX) :]
 	return "unknown", s

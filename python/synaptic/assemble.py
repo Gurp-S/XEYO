@@ -13,11 +13,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from synaptic.budget import apply_hot_budgets, render_requests, rendered_request_nodes
+from synaptic.budget import (
+	apply_hot_budgets,
+	render_requests_compact,
+	rendered_request_nodes,
+)
 from synaptic.filestate import render_file_state
 from synaptic.graph import Graph
+from synaptic.paths import H_PATHS, render_paths
 from synaptic.prune import render_card
-from synaptic.seeds import Seeds
+from synaptic.seeds import Seeds, request_skip
 from synaptic.textutil import node_token_len
 from synaptic.types import (
 	KIND_ASST_TEXT,
@@ -56,6 +61,7 @@ _SECTION_PRIOR: tuple[str, ...] = (
 	H_DECISIONS,
 	H_PRUNED,
 	H_WORKING,
+	H_PATHS,
 	H_MAIN,
 	H_TODO,
 	H_NEXT,
@@ -304,6 +310,11 @@ def _segment_groups(
 		out.setdefault(pin_group(p), []).append((f"pin:{p.key}", pin_line(p)))
 	if fs:
 		out[H_WORKING] = render_working_set(fs)
+	# [PATHS]：路径的第四条渲染通道 + 强制配额（见 synaptic/paths.py 的根因说明）。
+	# 没有它，「最近碰过但没进 working set / kept」的路径在热层里没有出口。
+	paths_lines = render_paths(graph, seeds, region_end=region_end, kept=kept, params=params)
+	if paths_lines:
+		out[H_PATHS] = paths_lines
 	main = render_main(graph, kept, params, pin_nodes=pin_nodes)
 	if main:
 		out[H_MAIN] = main
@@ -313,11 +324,11 @@ def _segment_groups(
 	pruned = render_pruned(cards)
 	if pruned:
 		out[H_PRUNED] = pruned
-	req = render_requests(
+	req = render_requests_compact(
 		graph,
 		region_end,
 		params,
-		skip=frozenset({seeds.pin_nodes[0]}) if seeds.pin_nodes else frozenset(),
+		skip=request_skip(seeds),
 		user_nodes=seeds.user_nodes,
 	)
 	if req:
@@ -459,7 +470,7 @@ def assemble(
 		request_header=H_REQUESTS,
 		request_skip=request_skip,
 		user_nodes=seeds.user_nodes,
-		fixed_headers=(H_CONSTRAINTS, H_UNRESOLVED, H_TODO, H_WORKING, H_REQUESTS, H_NEXT),
+		fixed_headers=(H_CONSTRAINTS, H_UNRESOLVED, H_TODO, H_WORKING, H_PATHS, H_REQUESTS, H_NEXT),
 		main_headers=(H_MAIN, H_DECISIONS, H_PRUNED),
 	)
 	trace.append({"mode": params.mode, "action": "budget", "why": budget_audit.describe()})
