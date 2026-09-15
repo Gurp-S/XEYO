@@ -160,6 +160,11 @@ class WscParams:
 	level: str = "Medium+"
 	mode: str = MODE_CLOSURE
 	hot_budget_tokens: int = 3_000
+	# 热层总预算拆成两个显式闸门：固定段（PIN / WORKING SET / REQUESTS / NEXT）
+	# 与主链预算（MAIN / DECISIONS / PRUNED）。二者合计必须等于 hot_budget_tokens。
+	# 旧实现只闸 kept 的选择，REQUESTS 等段在预算外生长，长会话会系统性超预算。
+	fixed_segment_budget_tokens: int = 1_200
+	main_segment_budget_tokens: int = 1_800
 	# 反向闭包跳数：Medium+ 用 2 跳（PIN 集 2 跳内），Hard 收紧到 1 跳。
 	closure_hops: int = 2
 	# 五维权重
@@ -237,8 +242,14 @@ class WscParams:
 			"Medium+": dict(hot_budget_tokens=3_000, closure_hops=2, max_cards=24),
 			"Hard": dict(hot_budget_tokens=1_800, closure_hops=1, max_cards=32),
 		}[level]
+		# 固定段上限默认 1200；低档总预算不足 1200 时按总预算截断，主链拿剩余额度。
+		# 这样 fixed + main 恒等于 hot_budget_tokens，不留下第三个未入账水位。
+		hot_budget = int(preset["hot_budget_tokens"])
+		fixed_budget = min(int(self.fixed_segment_budget_tokens), hot_budget)
+		preset["fixed_segment_budget_tokens"] = fixed_budget
+		preset["main_segment_budget_tokens"] = hot_budget - fixed_budget
 		# 日志增长预算 = 2× 热层预算（见 journal_growth_tokens 的实测扫描）。
-		preset["journal_growth_tokens"] = 2 * int(preset["hot_budget_tokens"])
+		preset["journal_growth_tokens"] = 2 * hot_budget
 		return WscParams(
 			level=level,
 			mode=self.mode,
@@ -289,4 +300,6 @@ class WscResult:
 	# 信息留存审计：区域内用户原话的渲染通道是否真的接上了（规则 1 空白的补丁）。
 	user_requests_rendered: int = 0
 	user_requests_total: int = 0
+	#: 固定段/主链双预算审计（金额单位为 node_token_len 口径的 token）。
+	budget: dict[str, int | str] = field(default_factory=dict)
 	trace: list[dict[str, Any]] = field(default_factory=list)

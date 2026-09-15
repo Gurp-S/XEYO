@@ -277,6 +277,21 @@ def collect_seeds(
 # 关键信息针（用于「即时关键信息保留」的非同义反复度量）
 # ---------------------------------------------------------------------------
 
+def recent_paths(graph: Graph, *, region_end: int | None = None) -> tuple[str, ...]:
+	"""区域内后 25% 节点触碰过的路径（近期工作集口径）。
+
+	与 ``harvest_needles`` 的 ``path_recent`` 共用同一实现，避免「哪个路径算近期」
+	在种子收集与工作集排序之间出现两套口径。
+	"""
+	limit = region_end if region_end is not None else 1 << 30
+	nodes = [n for n in graph.nodes if n.idx < limit]
+	cut = int(len(nodes) * 0.75)
+	out: list[str] = []
+	for n in nodes[cut:]:
+		out.extend(n.refs)
+	return tuple(dict.fromkeys(x for x in out if x))
+
+
 def harvest_needles(
 	graph: Graph,
 	file_states: dict[str, FileState],
@@ -313,10 +328,7 @@ WSC 是否真的把关键信息带过去了，而不是把 PIN 塞满就算完�
 	# 近期路径：区域后 25% 内被触碰的路径。长尾路径（早期读一次、之后再没碰过）
 	# **本来就应该被丢掉**（冷层可 expand），所以「全部路径存活率」天然偏低；
 	# 真正该问的是「还在用的那些路径有没有留下来」。
-	cut = int(len(nodes) * 0.75)
-	recent: list[str] = []
-	for n in nodes[cut:]:
-		recent.extend(n.refs)
+	recent = list(recent_paths(graph, region_end=region_end))
 
 	# 失败现场：出现错误的节点所触碰的路径（与 path 类不同——这里是「踩过坑」的地方）
 	fails: list[str] = []

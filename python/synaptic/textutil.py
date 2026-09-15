@@ -9,6 +9,11 @@ import hashlib
 import re
 from typing import Any
 
+from synaptic.memo import Memo
+
+#: ``extract_paths`` 的记忆表（进程内、有界、不落盘）。见 ``synaptic/memo.py``。
+_PATH_MEMO = Memo()
+
 # ---------------------------------------------------------------------------
 # 消息扁平化
 # ---------------------------------------------------------------------------
@@ -159,7 +164,26 @@ _SYMBOL_RE = re.compile(r"\b([A-Z][A-Za-z0-9_]{2,}(?:\.[a-zA-Z_][A-Za-z0-9_]*)*)
 _DRIVE_RE = re.compile(r"^[A-Za-z]:")
 
 # 目录/扩展名黑名单（降低噪音）
-_EXT_DENY = {"png", "jpg", "jpeg", "gif", "webp", "ico", "woff", "ttf", "mp4", "lock"}
+_EXT_DENY = {
+	"png", "jpg", "jpeg", "gif", "webp", "ico", "woff", "woff2", "ttf", "otf",
+	"mp3", "mp4", "mov", "avi", "mkv", "wav", "flac", "pdf", "zip", "gz", "tar",
+	"bz2", "7z", "rar", "lock",
+}
+
+# 无目录分隔符时只承认真实文件扩展名。否则 ``block.get`` / ``os.path`` /
+# ``torch.nn`` 这类点号链会被误当路径，推高 path 针的分母并污染文件状态。
+_EXT_ALLOW = frozenset({
+	"bash", "bat", "c", "cc", "cfg", "cjs", "cmd", "conf", "cpp", "cs", "css",
+	"csv", "cxx", "dart", "env", "go", "gql", "graphql", "h", "hpp", "hxx",
+	"htm", "html", "ini", "java", "js", "json", "json5", "jsonc", "jsonl", "jsx",
+	"kt", "kts", "less", "lua", "md", "mdx", "mjs", "php", "pl", "proto", "ps1",
+	"py", "pyi", "r", "rb", "rs", "rst", "sass", "scss", "sh", "sql", "svelte",
+	"swift", "tex", "tf", "tfvars", "toml", "ts", "tsv", "tsx", "txt", "vue", "xml",
+	"yaml", "yml", "zsh",
+})
+
+# 少数无目录分隔符、扩展名碰巧像真实后缀的点号链，显式拒绝。
+_DOTTED_CHAIN_DENY = frozenset({"block.get", "mss.mss", "sct.grab", "img.rgb", "os.path", "torch.nn"})
 
 
 def normalize_path(path: str) -> str:
@@ -176,18 +200,32 @@ def normalize_path(path: str) -> str:
 
 
 def extract_paths(text: str, *, limit: int = 24) -> tuple[str, ...]:
-	"""从任意文本抽取文件路径（确定性顺序：首次出现顺序，去重）。"""
+	"""从任意文本抽取文件路径（确定性顺序：首次出现顺序，去重）。
+
+	记忆化：本函数对每条消息各跑一次正则（标准会话 profile 里 14k 次 / 0.45 s），
+	而输入文本在相邻两轮之间基本不变。纯函数 ⇒ 只影响耗时，不影响结果。
+	返回值是**不可变 tuple**，调用方不可能原地改坏缓存。
+	"""
 	if not text:
 		return ()
+	return _PATH_MEMO.get_or((text, limit), lambda: _extract_paths_uncached(text, limit=limit))
+
+
+def _extract_paths_uncached(text: str, *, limit: int = 24) -> tuple[str, ...]:
 	scrubbed = _URL_RE.sub(" ", text)
 	out: list[str] = []
 	seen: set[str] = set()
 	for m in _PATH_RE.finditer(scrubbed):
 		raw = m.group(0)
+		if raw.lower() in _DOTTED_CHAIN_DENY:
+			continue
 		ext = raw.rsplit(".", 1)[-1].lower()
 		if ext in _EXT_DENY:
 			continue
 		p = normalize_path(raw)
+		# 带目录分隔符的真实路径允许项目私有扩展名；无分隔符时只接受白名单后缀。
+		if "/" not in p and ext not in _EXT_ALLOW:
+			continue
 		if not p or len(p) > 200 or "/" not in p and len(p) < 4:
 			continue
 		if p in seen:

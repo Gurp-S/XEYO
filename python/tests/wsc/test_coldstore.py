@@ -7,6 +7,7 @@ import pytest
 from synaptic.coldstore import (
 	ColdStore,
 	branch_handle,
+	node_group_handle,
 	node_handle,
 	parse_handle,
 )
@@ -37,6 +38,15 @@ def test_missing_node_raises():
 	cs.bind(branch_handle("B2"), (9,))
 	with pytest.raises(KeyError):
 		cs.expand(branch_handle("B2"))
+
+
+def test_group_node_handle_expands_all_originals():
+	cs = ColdStore(session="group")
+	cs.put_nodes([(1, "原文一", {}), (2, "原文二", {})])
+	handle = node_group_handle((1, 2))
+	cs.bind(handle, (1, 2))
+	assert handle == "node://1,2"
+	assert cs.expand(handle) == ("原文一", "原文二")
 
 
 def test_gzip_roundtrip_preserves_handles_and_texts(tmp_path):

@@ -15,11 +15,11 @@ from synaptic.assemble import (
 	render_pins,
 )
 from synaptic.closure import audit_rows, plan_selection
-from synaptic.coldstore import ColdStore, branch_handle, node_handle
+from synaptic.coldstore import ColdStore, branch_handle, node_group_handle, node_handle
 from synaptic.filestate import build_file_states, file_state_tokens, working_set
 from synaptic.graph import Graph, build_graph, graph_digest
 from synaptic.prune import build_cards, cards_tokens
-from synaptic.seeds import Seeds, collect_seeds
+from synaptic.seeds import Seeds, collect_seeds, recent_paths
 from synaptic.textutil import node_token_len
 from synaptic.types import (
 	KIND_USER,
@@ -80,13 +80,19 @@ def project(
 
 	pins = build_pins(seeds)
 	pin_tokens = sum(node_token_len(line) + 1 for _, line in render_pins(pins))
-	ws = working_set(file_states, limit=12, pin_paths=seeds.pin_paths)
+	ws = working_set(
+		file_states,
+		limit=12,
+		pin_paths=seeds.pin_paths,
+		recent_paths=recent_paths(graph, region_end=region_end),
+	)
 	ws_tokens = file_state_tokens(ws)
 
 	unresolved_set = _unresolved_idx(graph)
 
 	overhead = pin_tokens + ws_tokens
-	budget = max(0, p.hot_budget_tokens - overhead - _CARD_RESERVE_SEED)
+	# 主链预算独立于固定段：REQUESTS 不再与 kept 抢同一个未分账水位。
+	budget = max(0, p.main_segment_budget_tokens - _CARD_RESERVE_SEED)
 
 	selection = None
 	cards = ()
@@ -102,7 +108,7 @@ def project(
 		)
 		cards = build_cards(graph, selection.pruned, p, region_end=region_end)
 		used = selection.used_tokens + cards_tokens(cards)
-		overflow = overhead + used - p.hot_budget_tokens
+		overflow = used - p.main_segment_budget_tokens
 		if overflow <= 0:
 			break
 		budget = max(0, budget - overflow - 20)
@@ -130,6 +136,8 @@ def project(
 		cold_nodes.append((idx, n.text, {"kind": n.kind, "tool": n.tool_name}))
 	# [REQUESTS] 是**截断摘要 + 句柄**：句柄必须是真句柄，否则「无损可恢复」被截断悄悄破坏。
 	# 集合取 seeds.user_nodes（实质人类用户消息），不按 kind 扫图——kind 上还挂着工具结果。
+	user_groups: dict[str, list[int]] = {}
+	request_skip = frozenset({seeds.pin_nodes[0]}) if seeds.pin_nodes else frozenset()
 	for idx in seeds.user_nodes:
 		if idx >= region_end:
 			continue
@@ -138,6 +146,14 @@ def project(
 			continue
 		cs.bind(node_handle(idx), (idx,))
 		cold_nodes.append((idx, n.text, {"kind": n.kind, "tool": n.tool_name}))
+		if idx in request_skip:
+			continue
+		key = " ".join(n.text.split())
+		if key:
+			user_groups.setdefault(key, []).append(idx)
+	# 去重 [REQUESTS] 用的组句柄：同文本节点一次展开即可拿回全部原文。
+	for idxs in user_groups.values():
+		cs.bind(node_group_handle(tuple(idxs)), tuple(idxs))
 	cs.put_nodes(cold_nodes)
 
 	hot = HotLayer(
@@ -169,7 +185,11 @@ def project(
 		},
 		{
 			"step": "assemble",
-			"detail": f"mode={p.mode} rebuilt={rebuilt} tokens={tokens} overhead={overhead}",
+			"detail": (
+				f"mode={p.mode} rebuilt={rebuilt} tokens={tokens} overhead={overhead} "
+				f"fixed_budget={p.fixed_segment_budget_tokens} "
+				f"main_budget={p.main_segment_budget_tokens}"
+			),
 		},
 		{
 			"step": "sections",
@@ -178,9 +198,15 @@ def project(
 		},
 		*({"step": "assembly", "detail": t["action"] + ": " + t["why"]} for t in atrace),
 	]
-	if overhead >= p.hot_budget_tokens:
+	if overhead > p.fixed_segment_budget_tokens:
 		trace.append(
-			{"step": "warn", "detail": f"PIN+工作集已超预算（{overhead}>{p.hot_budget_tokens}），主链为空"}
+			{
+				"step": "warn",
+				"detail": (
+					f"PIN+工作集已超固定段预算（{overhead}>{p.fixed_segment_budget_tokens}），"
+					"[REQUESTS] 仅保留句柄且固定段仍可能超预算"
+				),
+			}
 		)
 
 	# 收益门（规则 7）：热层不比重放原文更省 → 不压缩。
@@ -214,6 +240,7 @@ def project(
 			journal_tokens=node_token_len(state.full_text) if p.journal_layout else 0,
 			user_requests_rendered=state.req_rendered,
 			user_requests_total=state.req_total,
+			budget=state.budget,
 			trace=trace,
 		),
 		cold=cs,

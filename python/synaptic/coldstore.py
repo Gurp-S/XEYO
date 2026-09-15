@@ -24,6 +24,11 @@ def node_handle(idx: int) -> str:
 	return f"{NODE_PREFIX}{idx}"
 
 
+def node_group_handle(indices: tuple[int, ...]) -> str:
+	"""一个句柄覆盖多个同文本节点；展开顺序与 indices 一致。"""
+	return NODE_PREFIX + ",".join(str(i) for i in indices)
+
+
 def parse_handle(handle: str) -> tuple[str, str]:
 	"""解析句柄 -> (类型, 载荷)。"""
 	s = str(handle or "")

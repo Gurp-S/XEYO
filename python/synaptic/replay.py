@@ -105,6 +105,7 @@ class TurnRecord:
 	n_messages: int
 	# 三条口径统一在 simulator 的 emit_segment 空间，可直接相减
 	base_tokens: int  # 未压缩（仅 C0）整段前缀
+	region_raw_tokens: int  # 未压缩（仅 C0）区域内前缀，hot_tokens 的同源分母
 	v61_tokens: int  # XEYO 实际 C0/C1/C2 投影
 	wsc_tokens: int  # WSC 热层 + 原样尾部（= simulator 口径的 L，已含尾部）
 	# 成本与命中
@@ -245,6 +246,7 @@ def run_session(
 		if region_end <= 1:
 			continue
 
+		region_raw = _region_raw_tokens(c0_project(prefix[:region_end]))
 		t0 = time.perf_counter()
 		proj = project(
 			prefix,
@@ -252,7 +254,7 @@ def run_session(
 			params=pset,
 			prev=prev_state,
 			session=rec.session,
-			region_baseline_tokens=_region_raw_tokens(c0_project(prefix[:region_end])),
+			region_baseline_tokens=region_raw,
 		)
 		dt_ms = (time.perf_counter() - t0) * 1000.0
 
@@ -277,6 +279,7 @@ def run_session(
 					region_end=region_end,
 					n_messages=len(prefix),
 					base_tokens=int(sim_pr.length),
+					region_raw_tokens=region_raw,
 					v61_tokens=_v61(base_turns, t, "tokens"),
 					v61_cost=_v61(base_turns, t, "cost"),
 					v61_hit=_v61_hit(base_turns, t),
@@ -337,6 +340,7 @@ def run_session(
 				region_end=region_end,
 				n_messages=len(prefix),
 				base_tokens=_c0_sim_tokens(prefix, c0_project, sim_pr, sp),
+				region_raw_tokens=region_raw,
 				v61_tokens=_v61(base_turns, t, "tokens"),
 				v61_cost=_v61(base_turns, t, "cost"),
 				v61_hit=_v61_hit(base_turns, t),

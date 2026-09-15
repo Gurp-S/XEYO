@@ -59,8 +59,10 @@ def needle_survival(
 			if target in norm_hot:
 				hit += 1
 				continue
-			# 路径类允许命中其归一化形态的最后一段（热层可能写全路径或短名）
-			if cat == "path":
+			# 路径类允许命中其归一化形态的最后一段（热层可能写全路径或短名）。
+			# path_recent 是 path 的近期子集，必须使用同一宽松口径，否则会在
+			# 完全相同的渲染下报出偏低存活率。
+			if cat in ("path", "path_recent"):
 				short = normalize_path(target).split("/")[-1]
 				if short and short in norm_hot:
 					hit += 1
@@ -173,10 +175,12 @@ def assert_no_llm_dependency(package_dir: Path | None = None) -> list[str]:
 ALGORITHM_MODULES = (
 	"__init__.py",
 	"types.py",
+	"memo.py",
 	"textutil.py",
 	"graph.py",
 	"filestate.py",
 	"seeds.py",
+	"budget.py",
 	"closure.py",
 	"prune.py",
 	"assemble.py",

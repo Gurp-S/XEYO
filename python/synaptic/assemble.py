@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from synaptic.budget import apply_hot_budgets, render_requests, rendered_request_nodes
 from synaptic.filestate import render_file_state
 from synaptic.graph import Graph
 from synaptic.prune import render_card
@@ -224,45 +225,6 @@ def render_next(graph: Graph, seeds: Seeds, kept: tuple[int, ...]) -> list[tuple
 	return [("next:0", f"未解决: {_one_line(seeds.unresolved_errors[0], 160)}")]
 
 
-def render_requests(
-	graph: Graph,
-	region_end: int,
-	params: WscParams,
-	*,
-	skip: frozenset[int],
-	user_nodes: tuple[int, ...],
-) -> list[tuple[str, str]]:
-	"""``[REQUESTS]``：区域内（未被尾部逐字携带的）用户原话。
-
-	规则 1 删掉 ``指令`` 段后留下的信息空洞就补在这里。三条边界：
-	1. 只取 ``idx < region_end`` 的节点——尾部（``>= region_end``）本来就逐字携带，
-	   再进热层是重复计费（规则 1 的原则不变）；
-	2. ``skip`` 排除已作为 ``目标`` pin 渲染的首个用户节点，避免同一条话出现两次；
-	3. 节点集合由 ``seeds.user_nodes`` 给出，**不在这里按 kind 扫图**：
-	   ``kind == KIND_USER`` 上还挂着工具结果与引擎注入的伪用户消息
-	   （199 回合会话里区域内 188 个 kind=user，实质人类消息只有 17 条），
-	   按 kind 扫会把工具结果当用户原话导出（踩过，见 ``Seeds.user_nodes`` 注释）。
-
-	按 idx 升序发射 ⇒ 新用户消息只会追加在段尾，段内永不重排；
-	``region_end`` 单调右移 ⇒ 一个用户节点一旦进入该段就**不会**被移出
-	（它始终满足 ``idx < region_end``）⇒ 集合只增不减，段本身 append-only。
-
-	每条附 ``expand(node://<idx>)``：内联的是截断摘要，全文经冷层句柄取回，
-	保证「无损可恢复」这条数据不被截断悄悄破坏。
-	"""
-	out: list[tuple[str, str]] = []
-	for idx in user_nodes:
-		if idx >= region_end or idx in skip:
-			continue
-		n = graph.node(idx)
-		if n is None or n.kind != KIND_USER:
-			continue
-		text = _one_line(n.text, params.request_excerpt_chars)
-		if not text:
-			continue
-		out.append((f"req:{idx}", f"#{idx} 用户: {text} expand(node://{idx})"))
-	return out
-
 
 # ---------------------------------------------------------------------------
 # 组装器（带 append_only 状态）
@@ -295,6 +257,8 @@ class AssemblyState:
 	req_total: int = 0
 	#: 本轮日志新增条目数（0 = 本轮投影是上一轮的严格前缀，KV 零损失）
 	journal_appends: int = 0
+	#: 固定段/主链双预算审计（REQUESTS 降级档与超预算量）。
+	budget: dict[str, int | str] = field(default_factory=dict)
 
 	def clone(self) -> "AssemblyState":
 		return AssemblyState(
@@ -314,6 +278,7 @@ class AssemblyState:
 			req_rendered=self.req_rendered,
 			req_total=self.req_total,
 			journal_appends=self.journal_appends,
+			budget=dict(self.budget),
 		)
 
 
@@ -485,6 +450,19 @@ def assemble(
 	groups = _segment_groups(
 		graph, seeds, pins, fs, cards, kept, params, region_end=region_end
 	)
+	request_skip = frozenset({seeds.pin_nodes[0]}) if seeds.pin_nodes else frozenset()
+	groups, budget_audit = apply_hot_budgets(
+		groups,
+		params,
+		graph=graph,
+		region_end=region_end,
+		request_header=H_REQUESTS,
+		request_skip=request_skip,
+		user_nodes=seeds.user_nodes,
+		fixed_headers=(H_CONSTRAINTS, H_UNRESOLVED, H_TODO, H_WORKING, H_REQUESTS, H_NEXT),
+		main_headers=(H_MAIN, H_DECISIONS, H_PRUNED),
+	)
+	trace.append({"mode": params.mode, "action": "budget", "why": budget_audit.describe()})
 	stats: dict[str, SegStat] = {
 		k: SegStat(v.obs, v.changed, v.front_break) for k, v in (prev.seg_stats if prev else {}).items()
 	}
@@ -503,16 +481,16 @@ def assemble(
 	# 分母用 seeds.user_nodes（_substantive 过滤后的实质人类消息），与 render_requests
 	# 的输入同源。**不要**按 kind == KIND_USER 数——那会把非实质节点算进分母（199 vs 188），
 	# 看起来像漏渲染，其实只是口径不同（踩过）。
-	req_total = sum(1 for i in seeds.user_nodes if i < region_end)
-	req_rendered = len(groups.get(H_REQUESTS, ()))
-	if (
-		seeds.pin_nodes
-		and seeds.pin_nodes[0] < region_end
-		and seeds.pin_nodes[0] in seeds.user_nodes
-	):
+	request_nodes = {i for i in seeds.user_nodes if i < region_end}
+	req_total = len(request_nodes)
+	# 去重后的 REQUESTS 一行可能携带 node://i,j,... 组句柄；必须按句柄展开后的
+	# **节点数**计数，不能数行数，否则分子逐行、分母逐节点，报出假缺口。
+	req_visible = rendered_request_nodes(groups.get(H_REQUESTS, ())) & request_nodes
+	if seeds.pin_nodes and seeds.pin_nodes[0] in request_nodes:
 		# 首个用户节点渲染成 [CONSTRAINTS] 的「目标」pin，不占 [REQUESTS] 行，
 		# 但它在热层里可见 ⇒ 覆盖率要把它算进去。
-		req_rendered += 1
+		req_visible = req_visible | {seeds.pin_nodes[0]}
+	req_rendered = len(req_visible)
 
 	def _finish(
 		text: str,
@@ -581,6 +559,7 @@ def assemble(
 				req_rendered=req_rendered,
 				req_total=req_total,
 				journal_appends=appends,
+				budget=budget_audit.as_dict(),
 			),
 			trace,
 		)

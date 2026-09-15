@@ -98,9 +98,9 @@ class Aggregate:
 		# 一旦错位（只要有一个回合被收益门跳过），后面每对都错行——曾报出 hot_share=198.9
 		# 这种物理上不可能的值（热层 ≤ 区域基线 ≤ 整段基线 ⇒ 该比值必然 < 1）。
 		hot_ratio = [
-			float(t.hot_tokens) / float(t.base_tokens)
+			float(t.hot_tokens) / float(t.region_raw_tokens)
 			for t in compressed_turns
-			if float(t.base_tokens) > 0
+			if float(t.region_raw_tokens) > 0
 		]
 		v61 = [float(t.v61_tokens) for t in cmp_turns]
 		red_v61 = [1 - float(t.wsc_tokens) / float(t.v61_tokens) for t in cmp_turns if t.v61_tokens > 0]
@@ -333,6 +333,24 @@ DEVIATIONS = [
 	"**自检口径修正（规则 3 的补丁）**：段统计改为落在**最终投影文本**上。"
 	"旧实现在模式分支之前统计，append_only 报出的 churn 表与 closure 逐字相同，"
 	"而它的最终投影是字节冻结的——自相矛盾。修好后 append_only 的段前缀失稳率恒为 0。",
+	"**hot_share_of_base 口径修正**：分母从整段 base_tokens 改为同一回合的 "
+	"region_raw_tokens（被压缩区域的原始 token）。用整段作分母会把未压缩尾部也算进来，"
+	"并在收益门跳过一个回合时与压缩子集错行；两者都属于分子分母不同源。",
+	"**热层双预算（规则 8 的补丁）**：hot_budget_tokens 拆成 "
+	"fixed_segment_budget_tokens + main_segment_budget_tokens，Medium+ 为 1200+1800。"
+	"REQUESTS 固定在 1200 内按 full→dedup→dedup_short→handles 降级；"
+	"若固定段和主链仍超限，审计字段 fixed_overflow_tokens / main_overflow_tokens "
+	"如实记账，不伪装成未超预算。",
+	"**80 字符针保底不是硬闸**：当固定段预算连 dedup@80 都装不下时，"
+	"request_mode=dedup_min80_overflow，用户原话前 80 字符优先于固定段预算，"
+	"溢出量进 fixed_overflow_tokens。这是显式取舍：文本针优先，账面如实反映溢出。",
+	"**path 针口径放宽**：path/path_recent 的存活判定改为路径 basename 级宽松匹配，"
+	"并与 working_set/recent_paths 共用排序来源；这只改变「是否可见」的判定，"
+	"不会凭空恢复冷层里已经剪掉的路径。",
+	"**[REQUESTS] 覆盖率的分子分母必须同源**：total 用 seeds.user_nodes 的节点数，"
+	"rendered 必须解析 node://i,j,... 组句柄后按节点集合计数，不能数渲染行数；"
+	"去重后的行数少于节点数是正常现象。needle_survival.user 是文本针去重口径，"
+	"与 user_requests.coverage 的节点级口径不可互相换算。",
 ]
 
 

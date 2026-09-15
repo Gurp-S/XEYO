@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from synaptic.graph import Graph
+from synaptic.memo import Memo
 from synaptic.seeds import Seeds
 from synaptic.textutil import node_token_len
 from synaptic.types import (
@@ -28,9 +29,23 @@ _STOP = frozenset(
 	{"the", "and", "for", "with", "this", "that", "from", "have", "not", "are", "was", "you"}
 )
 
+#: ``keywords`` 的记忆表（进程内、有界、不落盘）。见 ``synaptic/memo.py`` 的说明。
+_KEYWORD_MEMO = Memo()
+
 
 def keywords(text: str, *, limit: int = 400) -> set[str]:
-	"""确定性关键词集：拉丁词（≥3）+ 中文 bigram + 路径。"""
+	"""确定性关键词集：拉丁词（≥3）+ 中文 bigram + 路径。
+
+记忆化：本函数每轮要对**整段历史**的每个节点各跑一次正则，而相邻两轮的输入
+只差最后几条消息。输入是纯文本、输出只取决于输入 ⇒ 记忆化只改变耗时。
+返回的是**同一个 set 对象**，调用方只做读操作（交集/长度），不得原地修改。
+	"""
+	if not text:
+		return set()
+	return _KEYWORD_MEMO.get_or((text, limit), lambda: _keywords_uncached(text, limit=limit))
+
+
+def _keywords_uncached(text: str, *, limit: int = 400) -> set[str]:
 	out: set[str] = set()
 	if not text:
 		return out

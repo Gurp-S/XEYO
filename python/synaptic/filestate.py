@@ -188,17 +188,36 @@ def _err_pairs(graph: Graph, path: str) -> list[tuple[int, str]]:
 
 
 def working_set(
-	states: dict[str, FileState], *, limit: int = 12, pin_paths: tuple[str, ...] = ()
+	states: dict[str, FileState],
+	*,
+	limit: int = 12,
+	pin_paths: tuple[str, ...] = (),
+	recent_paths: tuple[str, ...] = (),
 ) -> tuple[FileState, ...]:
-	"""工作集：按「最近触碰」排序，PIN 路径无条件前置。
+	"""工作集：PIN 路径 > 近期触碰路径 > 其余按最近触碰排序。
 
-	时间不是唯一价值——PIN 路径（目标/未解决错误直接涉及的）优先保留。
+	时间不是唯一价值——PIN 路径（目标/未解决错误直接涉及的）优先保留。近期路径
+	与 ``harvest_needles(path_recent)`` 共用同一集合，避免「还在用」的路径在
+	存活率审计里算近期、在工作集排序里却先被丢掉。
 	"""
+	pin_set = set(pin_paths)
+	recent_set = set(recent_paths) - pin_set
 	pinned = [states[p] for p in pin_paths if p in states]
-	rest = [s for p, s in states.items() if p not in set(pin_paths)]
+	recent: list[FileState] = []
+	seen_recent: set[str] = set()
+	for path in recent_paths:
+		if path in pin_set or path in seen_recent or path not in states:
+			continue
+		seen_recent.add(path)
+		recent.append(states[path])
+	rest = [
+		s
+		for p, s in states.items()
+		if p not in pin_set and p not in recent_set
+	]
 	rest.sort(key=lambda s: (max(s.last_read_idx, s.stale_at), s.path), reverse=True)
 	out = list(pinned)
-	for s in rest:
+	for s in (*recent, *rest):
 		if len(out) >= limit:
 			break
 		out.append(s)

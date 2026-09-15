@@ -48,6 +48,7 @@ from synaptic.seeds import collect_seeds, harvest_needles  # noqa: E402
 from synaptic.types import KIND_USER, WscParams  # noqa: E402
 
 _REQ_LINE = re.compile(r"^\[REQUESTS\] #(\d+) ")
+_HANDLE = re.compile(r"expand\((node://[0-9,]+)\)")
 
 
 def main(path: str, turn: int = -1, *, journal: bool = True, requests: bool = True) -> int:
@@ -93,29 +94,35 @@ def main(path: str, turn: int = -1, *, journal: bool = True, requests: bool = Tr
 
 	pinned = [n.idx for n in sub_users if n.idx in set(seeds.pin_nodes)]
 
-	# [REQUESTS] 通道审计：行数 / 句柄完整性 / 句柄往返无损
-	req_idxs: list[int] = []
-	for line in hot.splitlines():
-		m = _REQ_LINE.match(line)
-		if m:
-			req_idxs.append(int(m.group(1)))
+	# [REQUESTS] 通道审计：行数 / 句柄完整性 / 句柄往返无损。
+	# R4 去重模式把同文本节点合并成 node://i,j,...；必须逐节点核对，不能只看首 idx。
+	req_lines = 0
 	handled = 0
 	broken: list[int] = []
-	for idx in req_idxs:
-		node = proj.graph.node(idx)
-		handle = f"node://{idx}"
-		if node is None or handle not in hot:
-			broken.append(idx)
+	for line in hot.splitlines():
+		if not _REQ_LINE.match(line):
 			continue
+		req_lines += 1
+		hm = _HANDLE.search(line)
+		if not hm:
+			broken.append(-1)
+			continue
+		handle = hm.group(1)
+		idxs = [int(x) for x in handle[len("node://") :].split(",") if x]
 		try:
 			got = tuple(proj.cold.expand(handle))
 		except KeyError:
-			broken.append(idx)
+			broken.extend(idxs)
 			continue
-		if got == (node.text,):
-			handled += 1
+		want = tuple(
+			proj.graph.node(i).text
+			for i in idxs
+			if proj.graph.node(i) is not None
+		)
+		if got == want:
+			handled += len(idxs)
 		else:
-			broken.append(idx)
+			broken.extend(idxs)
 
 	print(f"session={f.stem} msgs={len(prefix)} turns={len(starts)} turn={t}")
 	print(f"journal_layout={journal}  requests_channel={requests}")
@@ -125,7 +132,7 @@ def main(path: str, turn: int = -1, *, journal: bool = True, requests: bool = Tr
 		f"去重后唯一文本（harvest_needles）={len(user_needles)}  "
 		f"其中热层可见={len(present)} 不可见={len(missing)}"
 	)
-	print(f"[REQUESTS] 行数={len(req_idxs)}  句柄往返无损={handled}  句柄异常={len(broken)} {broken[:8]}")
+	print(f"[REQUESTS] 行数={req_lines}  句柄往返无损={handled}  句柄异常={len(broken)} {broken[:8]}")
 	# 双通道合并计数：首个用户节点走「目标」pin，不占 [REQUESTS] 行。
 	by_channel = handled + (1 if sub_users and sub_users[0].idx == seeds.pin_nodes[0] and "目标:" in hot else 0)
 	print(f"节点级渲染覆盖 = {by_channel}/{max(1, len(sub_users))}（[REQUESTS] {handled} + 目标 pin）")

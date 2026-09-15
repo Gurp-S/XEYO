@@ -22,6 +22,7 @@ def _turn(
 	*,
 	hot: int,
 	base: int,
+	region_raw: int | None = None,
 	wsc: int | None = None,
 	wsc_hit: float = 0.0,
 	v61_hit: float = 0.0,
@@ -37,6 +38,7 @@ def _turn(
 		region_end=100,
 		n_messages=120,
 		base_tokens=base,
+		region_raw_tokens=region_raw if region_raw is not None else base,
 		v61_tokens=base,
 		wsc_tokens=wsc if wsc is not None else base,
 		v61_cost=1.0,
@@ -61,10 +63,11 @@ def test_hot_share_pairs_within_turn_not_by_position():
 	turns = [
 		# 被收益门跳过：hot 极小、base 极小
 		_turn("s1", 0, hot=1, base=1_000, skipped=True),
-		# 正常回合：hot = 5000 / base = 10000 ⇒ 真实比值 0.5
-		_turn("s1", 1, hot=5_000, base=10_000),
-		_turn("s1", 2, hot=5_000, base=10_000),
-		_turn("s1", 3, hot=5_000, base=10_000),
+		# 正常回合：hot = 5000 / 区域内原始投影 = 10000 ⇒ 真实比值 0.5。
+		# 整段 base 故意设成不同值，锁死分子分母必须同源。
+		_turn("s1", 1, hot=5_000, base=100_000, region_raw=10_000),
+		_turn("s1", 2, hot=5_000, base=100_000, region_raw=10_000),
+		_turn("s1", 3, hot=5_000, base=100_000, region_raw=10_000),
 	]
 	rep = Aggregate(label="t", level="Medium+", mode="closure", turns=turns).summary()
 	share = rep["hot_share_of_base"]
@@ -73,12 +76,35 @@ def test_hot_share_pairs_within_turn_not_by_position():
 	assert share["n"] == 3.0
 
 
+def test_hot_share_uses_region_raw_tokens_not_full_base():
+	"""
+	热层分子是区域内的裸文本 token，分母也必须是同一区域口径；
+	拿整段 base 当分母会把比值系统性压低。
+	"""
+	turn = _turn("s1", 0, hot=500, base=10_000, region_raw=1_000)
+	rep = Aggregate(label="t", level="Medium+", mode="closure", turns=[turn]).summary()
+	share = rep["hot_share_of_base"]
+	assert abs(share["max"] - 0.5) < 1e-9, share
+
+
+def test_hot_share_stays_bounded_across_legal_sequence():
+	"""合法构造下热层 ≤ 区域内原始投影，循环覆盖边界附近值。"""
+	turns = [
+		_turn("s1", i, hot=hot, base=50_000, region_raw=region_raw)
+		for i, (hot, region_raw) in enumerate(((0, 10), (9, 10), (999, 1_000), (1_000, 1_000)))
+	]
+	for turn in turns:
+		assert 0 <= turn.hot_tokens <= turn.region_raw_tokens
+	rep = Aggregate(label="t", level="Medium+", mode="closure", turns=turns).summary()
+	assert 0.0 <= rep["hot_share_of_base"]["p10"] <= rep["hot_share_of_base"]["max"] <= 1.0
+
+
 def test_hot_share_never_exceeds_one_when_gate_respected():
 	"""热层 ≤ 区域基线 ≤ 整段基线 ⇒ 该比值在合法输入下必然 < 1。"""
 	turns = [
-		_turn("s1", 0, hot=10, base=1_000, skipped=True),
-		_turn("s1", 1, hot=999, base=1_000),
-		_turn("s1", 2, hot=1, base=1_000),
+		_turn("s1", 0, hot=10, base=1_000, region_raw=100, skipped=True),
+		_turn("s1", 1, hot=99, base=10_000, region_raw=100),
+		_turn("s1", 2, hot=1, base=10_000, region_raw=100),
 	]
 	share = Aggregate(label="t", level="Medium+", mode="closure", turns=turns).summary()[
 		"hot_share_of_base"
