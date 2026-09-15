@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import time
 from typing import TYPE_CHECKING
@@ -21,6 +22,8 @@ from tools.ask_user_question_tool import ASK_USER_TOOL_NAME
 
 if TYPE_CHECKING:
 	from engine.permission_coordinator import PermissionCoordinator
+
+_log = logging.getLogger(__name__)
 
 
 def _observe_bash_route(
@@ -47,8 +50,8 @@ def _observe_bash_route(
 			routed_to=plan.tool_name,
 			command=plan.brief,
 		)
-	except Exception:  # noqa: BLE001 — 观测失败绝不挡执行
-		pass
+	except Exception:  # noqa: BLE001 — 观测失败绝不挡执行（debug 留痕，不静默）
+		_log.debug("bash route observe failed", exc_info=True)
 
 
 def _routed_target_in_workspace(
@@ -75,6 +78,18 @@ def _bash_shape_key(plan: BashRoutePlan) -> str:
 		or plan.tool_input.get("pattern")
 	)
 	return f"{plan.tier}|{plan.tool_name}|{str(arg) if arg is not None else ''}"
+
+
+#: 引擎保留的工具名前缀（环境声道伪对 `assistant(xeyo_env_notice) → tool_result`）。
+#:
+#: 为什么执行层要显式拒：该伪对**只存在于投影**（`prompt/turn_context.py::append_env_notice_pair`），
+#: 引擎从不把它交给工具执行层。因此凡是从执行层进来的同名 tool_use，一定是**模型自己发起**的
+#: （模仿投影里的伪对，或纯幻觉）。若不显式拒绝，模型就等于拿到了一个「自造注入通道」：
+#: 名字被应答成一段环境正文，审计上会被误读为「引擎注入」。
+#:
+#: 与 `prompt.t_now_strategy.ENV_ID_PREFIX` 同值，由 `tests/test_reserved_tool_prefix.py`
+#: 断言锁定（不直接 import 是为了避免 tools → prompt 的反向依赖）。
+RESERVED_TOOL_PREFIX = "xeyo_env_"
 
 
 class ToolRegistry:
@@ -301,11 +316,17 @@ class ToolRegistry:
 		coordinator: "PermissionCoordinator | None" = None,
 		skip_ask: bool = False,
 	) -> ToolResult:
-		tool = self._tools.get(tool_use.name)
-		if tool is None:
+		name = str(tool_use.name or "")
+		if name.startswith(RESERVED_TOOL_PREFIX):
+			# 保留前缀：引擎自己的 env 伪对只进投影，从不走执行层（见 RESERVED_TOOL_PREFIX
+			# 的注释）。所以这里是**模型发起**的同名调用，一律中性拒绝、不派发、不产生副作用。
+			# 措辞只陈述结果，不带劝导。
 			return ToolResult(
-				content=f"unknown tool: {tool_use.name}", is_error=True
+				content=f"reserved environment channel: {name}", is_error=True
 			)
+		tool = self._tools.get(name)
+		if tool is None:
+			return ToolResult(content=f"unknown tool: {name}", is_error=True)
 
 		readonly_reason = readonly_gate(tool_use.name, tool=tool)
 		if readonly_reason:
@@ -383,6 +404,7 @@ class ToolRegistry:
 			question = str(payload.get("question") or "").strip()
 			options = list(payload.get("options") or [])
 			default = payload.get("default")
+			questions = list(payload.get("questions") or [])
 			if not question:
 				return ToolResult(
 					content="AskUserQuestion requires a question", is_error=True
@@ -405,6 +427,8 @@ class ToolRegistry:
 					"question": question,
 					"options": options,
 					"default": str(default) if default is not None else None,
+					# 结构化分题口径（GUI 分题渲染用）；legacy 平铺字段保留兼容。
+					"questions": questions,
 					"expires_at": item.expires_at,
 				},
 			)
@@ -620,7 +644,7 @@ class ToolRegistry:
 				command=routed.brief,
 			)
 		except Exception:  # noqa: BLE001 — 审计失败不挡执行
-			pass
+			_log.debug("tool.routed audit failed", exc_info=True)
 		metadata = dict(result.metadata or {})
 		metadata.update(
 			{
