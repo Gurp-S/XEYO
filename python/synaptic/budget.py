@@ -23,6 +23,10 @@ from synaptic.types import KIND_USER, WscParams
 
 Line = tuple[str, str]
 
+#: 一个块行内多条摘录的分隔符。选一个不会出现在正常用户原话里的可见分隔符：
+#: 既不与内容歧义，也不影响「关键信息针按连续子串判定」（每条摘录各自连续）。
+_EXCERPT_SEP = " ⏐ "
+
 
 def one_line(text: str, limit: int = 0) -> str:
 	"""单行化；``limit`` 为正时保留尾部省略号。"""
@@ -405,27 +409,57 @@ def render_requests_compact(
 	skip: frozenset[int],
 	user_nodes: tuple[int, ...],
 ) -> list[Line]:
-	"""``[REQUESTS]`` 的紧凑形态（P1-b）：旧节点合并成区间句柄，行数封顶。
+	"""``[REQUESTS]`` 的紧凑形态（P1-b/P1-b′）：旧节点合并成区间句柄，行数封顶。
 
 	行数是这段**唯一**的真实开销来源：每行约 10–15 token（``#<idx>`` + 头部 + ``expand(...)``），
 	实测 93 行/回合 ≈ 1565 token。摘录字符数不是瓶颈——用户原话普遍短于上限时，
 	320 与 80 两档输出逐字相同（见 docs §12.7 的负向结果与账目复核）。
 
+	**P1-b′ 修正（必须记住的教训）**：P1-b 的第一版对旧块**只发句柄、不发摘录**，
+	换来 +0.20pp 压缩率，却把 ``needle_survival.user`` 从 1.0000 打到 0.8320
+	（segmented 臂 0.6560）——**「可恢复 ≠ 可见」**：原话能用 ``expand`` 逐字节拉回，
+	但模型在热层文本里看不见它，关键信息针就没了。
+
+	所以本形态改成：**一个块一行，块内每个节点的 80 字符摘录都内联在同一行里**，
+	行尾挂一个区间句柄。行数仍降 ~``request_old_group_size`` 倍（省掉每行的
+	``#<idx> 用户:`` 头部与 ``expand(...)`` 尾巴），而文本可见性与逐节点形态相同。
+
 	发射顺序：**旧块（按 idx 升序）在前，最近 K 条在后**。理由与 ``[PATHS]`` 同一条：
 	新内容一律追加在段尾，段内不因「某条原话翻进/翻出近期窗口」而整体重排。
 	"""
 	recent = _recent_verbatim_ids(user_nodes, params)
+	old: dict[int, str] = {
+		idx: text
+		for idx, text in _request_nodes(graph, region_end, skip=skip, user_nodes=user_nodes)
+		if idx not in recent
+	}
 	out: list[Line] = []
 	for first, last, idxs in request_chunk_ids(
 		graph, region_end, params, skip=skip, user_nodes=user_nodes
 	):
+		parts: list[str] = []
+		for idx in idxs:
+			limit = _node_excerpt_chars(idx, params, recent=recent, override=None)
+			excerpt = excerpt_preserving_needle(old.get(idx, ""), limit)
+			if excerpt:
+				parts.append(excerpt)
+		if not parts:
+			# 块内一个可发射的摘录都没有（全是空白用户消息）：保留句柄行，
+			# 否则这些节点在热层里就真的没有出口了。
+			handle = f"node://{first}" if len(idxs) == 1 else f"reqs://{first}-{last}"
+			head = f"#{first}" if len(idxs) == 1 else f"#{first}…{last} 用户[{len(idxs)}]"
+			out.append((f"reqs:{first}", f"{head} expand({handle})"))
+			continue
+		body = _EXCERPT_SEP.join(parts)
 		if len(idxs) == 1:
-			out.append((f"req:{first}", f"#{first} 用户 expand(node://{first})"))
+			out.append(
+				(f"req:{first}", f"#{first} 用户: {body} expand(node://{first})")
+			)
 			continue
 		out.append(
 			(
 				f"reqs:{first}",
-				f"#{first}…{last} 用户[{len(idxs)}] expand(reqs://{first}-{last})",
+				f"#{first}…{last} 用户[{len(idxs)}]: {body} expand(reqs://{first}-{last})",
 			)
 		)
 	for idx, text in _request_nodes(graph, region_end, skip=skip, user_nodes=user_nodes):

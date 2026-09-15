@@ -186,10 +186,15 @@ def test_project_counts_interval_request_nodes_not_lines():
 		session="coverage-dedup",
 	)
 	req_lines = [ln for ln in p.text.splitlines() if ln.startswith(H_REQUESTS)]
-	assert any("expand(reqs://" in ln for ln in req_lines), (
-		"未走区间句柄形态，本条回归就测不到「一行多节点」",
-		req_lines,
-	)
+	# 「一行覆盖多节点」在两种形态下都成立：区间句柄 ``reqs://a-b``，
+	# 或去重组句柄 ``node://i,j,...``。本条要守的是**分子按节点算、不按行算**，
+	# 不是某一种句柄拼写，所以两种都接受（否则降级一发生测试就假红）。
+	multi_node = [
+		ln
+		for ln in req_lines
+		if "reqs://" in ln or ("," in ln.split("expand(")[-1])
+	]
+	assert multi_node, ("未走「一行多节点」形态，本条回归就测不到覆盖口径", req_lines)
 	# “总目标”只有 3 个字符，按 _substantive 规则不算实质用户消息；
 	# 其余 2 条不同原话各重复 9 次，共 18 个节点。
 	assert p.result.user_requests_total == 2 * 9
