@@ -140,6 +140,11 @@ def _replay(args) -> int:
 					min_prefix_messages=args.min_messages,
 					sample_turns=args.sample_turns,
 					params=pset,
+					# 生产触发口径旁路开关（默认关；见 replay.run_session 的说明与 docs §13.8）。
+					# 用环境变量而非 CLI 标志：这是**评测用**开关，不进产品命令行面。
+					#   XEYO_WSC_TRIGGER_RATIO=0.8  XEYO_WSC_CONTEXT_LIMIT=131072
+					trigger_ratio=float(os.environ.get("XEYO_WSC_TRIGGER_RATIO") or 0),
+					context_limit_tokens=int(os.environ.get("XEYO_WSC_CONTEXT_LIMIT") or 0),
 				)
 			)
 			if (i + 1) % 25 == 0:

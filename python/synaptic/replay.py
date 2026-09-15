@@ -138,6 +138,9 @@ class TurnRecord:
 	journal_refroze: bool = False
 	req_rendered: int = 0
 	req_total: int = 0
+	#: 生产触发闸未过（未达水位 ⇒ 本回合不压缩，原样发送整段前缀）。
+	#: 与 ``gain_gate_skipped``（收益不足）**分开计数**：两者的成因与治理方式不同。
+	trigger_skipped: bool = False
 
 	@property
 	def reduction_vs_base(self) -> float:
@@ -186,6 +189,11 @@ def run_session(
 	min_prefix_messages: int = 8,
 	sample_turns: int = 0,
 	sim_params: Any = None,
+	#: 生产触发口径（旁路开关）：>0 时只有 ``C0(prefix) tokens ≥ ratio × limit`` 才压缩。
+	#: 默认 0 = 关闭（保持历史行为，便于背靠背 A/B）。生产取 0.8。
+	trigger_ratio: float = 0.0,
+	#: 上下文窗口上限（token）；与 ``trigger_ratio`` 配合，任一为 0 即关闭闸门。
+	context_limit_tokens: int = 0,
 ) -> SessionRecord:
 	"""回放单个会话：逐用户回合同时跑 XEYO 基线与 WSC。"""
 	rows = load_jsonl(path)
@@ -247,14 +255,29 @@ def run_session(
 			continue
 
 		region_raw = _region_raw_tokens(c0_project(prefix[:region_end]))
+		# ── 生产触发口径（旁路开关，默认关）────────────────────────────
+		# 生产 C2 只在「累计 prompt 过水位」时压缩一次，压缩之间原样增长；
+		# 而本回放此前对**每回合**都尝试压缩 ⇒ 测的是生产不会跑的工况
+		# （见 docs §13.8）。打开本开关后按生产判据触发，未过水位则本回合不压缩。
+		# 锚点：memory/runtime.py:1855/1871、engine/query_loop.py:857。
+		prompt_tokens = _region_raw_tokens(c0_project(prefix))
+		trigger_skipped = bool(
+			trigger_ratio > 0
+			and context_limit_tokens > 0
+			and prompt_tokens < int(trigger_ratio * context_limit_tokens)
+		)
 		t0 = time.perf_counter()
-		proj = project(
-			prefix,
-			region_end=region_end,
-			params=pset,
-			prev=prev_state,
-			session=rec.session,
-			region_baseline_tokens=region_raw,
+		proj = (
+			None
+			if trigger_skipped
+			else project(
+				prefix,
+				region_end=region_end,
+				params=pset,
+				prev=prev_state,
+				session=rec.session,
+				region_baseline_tokens=region_raw,
+			)
 		)
 		dt_ms = (time.perf_counter() - t0) * 1000.0
 
@@ -264,8 +287,8 @@ def run_session(
 			node_token_len(json.dumps(m, ensure_ascii=False, sort_keys=True)) for m in tail_c0
 		)
 
-		# 收益门拒绝：该回合实际发送的就是「C0 后的整段前缀」，不压缩
-		if not proj.result.compressed:
+		# 不压缩的回合（生产触发闸未过 / 收益门拒绝）：该回合实际发送的就是整段前缀。
+		if trigger_skipped or not proj.result.compressed:
 			state = state_from_messages(c0_project(prefix), cursor=0, system=_SYSTEM_STANDIN)
 			cache = _cache(sp, prev_x)
 			sim_pr, spl, cost = _measure(state, cache, sp)
@@ -292,9 +315,10 @@ def run_session(
 					pruned=0,
 					cards=0,
 					rebuilt=False,
-					lcp_prev=lcp_tokens(proj.text, prev_hot),
+					lcp_prev=lcp_tokens(proj.text, prev_hot) if proj else 0,
 					latency_ms=dt_ms,
-					gain_gate_skipped=True,
+					trigger_skipped=trigger_skipped,
+					gain_gate_skipped=not trigger_skipped,
 					baseline_missing=baseline_missing,
 					needles={},
 					recover={},
@@ -309,7 +333,8 @@ def run_session(
 				)
 			)
 			# 不推进组装状态：本轮没有产生压缩态，下一轮仍以「未压缩」为起点
-			prev_hot = proj.text
+			if proj is not None:
+				prev_hot = proj.text
 			continue
 
 		# 与基线同口径：把 WSC 投影建成 simulator 的 ContextState，再算 L / H / cost。
