@@ -196,35 +196,31 @@ class NotebookEditTool:
 			nb = json.loads(json.dumps(_EMPTY_NB))
 			created = True
 		else:
+			# ── 「先读门禁」已删除（2026-09-15，用户裁定：很难用）──────────
+			# 见 file_edit_tool 同处说明。保留：**读过的** notebook 仍做
+			# 新鲜度校验（防覆盖他人/外部改动）；没读过则无可比对基线。
 			entry = self._read_state.get(full)
-			if not entry or entry.is_partial_view:
-				return ToolResult(
-					content=(
-						"Notebook has not been read yet. "
-						"Read it first before NotebookEdit."
-					),
-					is_error=True,
-				)
-			try:
-				mtime = get_mtime_ms(full)
-			except OSError as e:
-				return ToolResult(content=str(e), is_error=True)
-			if mtime > entry.timestamp and entry.content:
-				# 内容仍与磁盘一致则放行
+			if entry is not None and not entry.is_partial_view:
 				try:
-					disk = await asyncio.to_thread(
-						lambda: open(full, encoding="utf-8").read()
-					)
+					mtime = get_mtime_ms(full)
 				except OSError as e:
 					return ToolResult(content=str(e), is_error=True)
-				if disk != entry.content:
-					return ToolResult(
-						content=(
-							"Notebook modified since Read. Read it again "
-							"before NotebookEdit."
-						),
-						is_error=True,
-					)
+				if mtime > entry.timestamp and entry.content:
+					# 内容仍与磁盘一致则放行
+					try:
+						disk = await asyncio.to_thread(
+							lambda: open(full, encoding="utf-8").read()
+						)
+					except OSError as e:
+						return ToolResult(content=str(e), is_error=True)
+					if disk != entry.content:
+						return ToolResult(
+							content=(
+								"Notebook modified since Read. Read it again "
+								"before NotebookEdit."
+							),
+							is_error=True,
+						)
 			try:
 				# ipynb 常含大段 output（数 MB），读盘+解析挪线程。
 				text = await asyncio.to_thread(

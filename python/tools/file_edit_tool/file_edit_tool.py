@@ -369,39 +369,42 @@ class FileEditTool:
 				}
 			return {"result": True}
 
+		# ── 「先读门禁」已删除（2026-09-15，用户裁定：很难用）──────────────
+		# 原为 `if not entry or entry.is_partial_view: return errorCode 6`
+		# （"File has not been read yet. Read it first before writing to it."）。
+		# 删因：误报远多于收益——Write 新建的文件 Edit 仍被拦；跨会话 / 子代理 /
+		# 新会话没有 read_state；LRU 淘汰、限窗读（is_partial_view）之后
+		# **重读也无用**，模型侧表现为无法自解的死循环。真正的安全网是下面
+		# old_string 的**精确匹配**（匹配不上即 errorCode 8），它不依赖
+		# "是否读过"这一会话态。
+		#
+		# 保留：**读过的**文件仍做新鲜度校验（防覆盖他人/外部改动）；没读过则
+		# 无可比对的基线，直接进匹配。
 		entry = self._read_state.get(full)
-		if not entry or entry.is_partial_view:
-			return {
-				"result": False,
-				"message": (
-					"File has not been read yet. Read it first before writing to it."
-				),
-				"errorCode": 6,
-			}
+		if entry is not None and not entry.is_partial_view:
+			try:
+				mtime = get_mtime_ms(full)
+			except OSError as e:
+				return {"result": False, "message": str(e), "errorCode": 11}
 
-		try:
-			mtime = get_mtime_ms(full)
-		except OSError as e:
-			return {"result": False, "message": str(e), "errorCode": 11}
-
-		# content_known=False：sidecar 恢复的条目没有正文快照，"内容对不上"
-		# 不能证明被改过；放行，由 old_string 精确匹配兜底。
-		if mtime > entry.timestamp and entry.content_known:
-			is_full = entry.offset is None and entry.limit is None
-			if not (is_full and file_content == entry.content):
-				return {
-					"result": False,
-					"message": build_stale_message(
-						"File has been modified since read, either by the user "
-						"or by a linter. Read it again before attempting to write it.",
-						self._cwd,
-						full,
-						self._session_id,
-						entry.content,
-						file_content or "",
-					),
-					"errorCode": 7,
-				}
+			# content_known=False：sidecar 恢复的条目没有正文快照，"内容对不上"
+			# 不能证明被改过；放行，由 old_string 精确匹配兜底。
+			if mtime > entry.timestamp and entry.content_known:
+				is_full = entry.offset is None and entry.limit is None
+				if not (is_full and file_content == entry.content):
+					return {
+						"result": False,
+						"message": build_stale_message(
+							"File has been modified since read, either by the user "
+							"or by a linter. Read it again before attempting to write it.",
+							self._cwd,
+							full,
+							self._session_id,
+							entry.content,
+							file_content or "",
+						),
+						"errorCode": 7,
+					}
 
 		actual = find_actual_string(file_content, input_data.old_string)
 		if actual is None:

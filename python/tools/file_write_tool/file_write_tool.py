@@ -261,47 +261,42 @@ class FileWriteTool:
 				"errorCode": 4,
 			}
 
+		# ── 「先读门禁」已删除（2026-09-15，用户裁定：很难用）──────────────
+		# 见 file_edit_tool 同处说明。保留：**读过的**文件仍做新鲜度校验
+		# （防静默覆盖他人/外部改动）；没读过则无可比对基线，直接放行。
 		entry = self._read_state.get(full)
-		if not entry or entry.is_partial_view:
-			return {
-				"result": False,
-				"message": (
-					"File has not been read yet. Read it first before writing to it."
-				),
-				"errorCode": 2,
-			}
-
-		try:
-			mtime = get_mtime_ms(full)
-		except OSError as e:
-			return {
-				"result": False,
-				"message": str(e),
-				"errorCode": 5,
-			}
-
-		# content_known=False：sidecar 恢复的条目没有正文快照，放行由整文
-		# 写入语义兜底（同 file_edit_tool 的误报修复）。
-		if mtime > entry.timestamp and entry.content_known:
-			is_full = entry.offset is None and entry.limit is None
+		if entry is not None and not entry.is_partial_view:
 			try:
-				disk_content, _, _ = read_text_file(full)
-			except OSError:
-				disk_content = None
-			if not (is_full and disk_content == entry.content):
+				mtime = get_mtime_ms(full)
+			except OSError as e:
 				return {
 					"result": False,
-					"message": build_stale_message(
-						"File has been modified since read, either by the user or "
-						"by a linter. Read it again before attempting to write it.",
-						self._cwd,
-						full,
-						self._session_id,
-						entry.content,
-						disk_content or "",
-					),
-					"errorCode": 3,
+					"message": str(e),
+					"errorCode": 5,
 				}
+
+			# content_known=False：sidecar 恢复的条目没有正文快照，放行由整文
+			# 写入语义兜底（同 file_edit_tool 的误报修复）。
+			if mtime > entry.timestamp and entry.content_known:
+				is_full = entry.offset is None and entry.limit is None
+				try:
+					disk_content, _, _ = read_text_file(full)
+				except OSError:
+					disk_content = None
+				if not (is_full and disk_content == entry.content):
+					return {
+						"result": False,
+						"message": build_stale_message(
+							"File has been modified since read, either by the user or "
+							"by a linter. Read it again before attempting to write it.",
+							self._cwd,
+							full,
+							self._session_id,
+							entry.content,
+							disk_content or "",
+						),
+						"errorCode": 3,
+					}
 
 		return {"result": True}
 
