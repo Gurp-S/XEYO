@@ -25,7 +25,7 @@ from synaptic.coldstore import (
 )
 from synaptic.filestate import build_file_states, file_state_tokens, working_set
 from synaptic.graph import Graph, build_graph, graph_digest
-from synaptic.prune import build_cards, cards_tokens
+from synaptic.prune import build_cards, cards_handle, cards_tokens, group_cards
 from synaptic.seeds import Seeds, collect_seeds, recent_paths, request_skip
 from synaptic.textutil import node_token_len
 from synaptic.types import (
@@ -135,6 +135,12 @@ def project(
 			n = graph.node(i)
 			if n is not None:
 				cold_nodes.append((i, n.text, {"kind": n.kind, "tool": n.tool_name}))
+	# 合并卡行的组句柄：渲染（prune.render_card_group）与本处共用 group_cards/cards_handle。
+	# 两边各拼一次 ``branch://id1,id2`` 会漂移，而漂移在往返比对里看不出来（句柄自洽地错），
+	# 所以句柄的拼装必须只有一处实现。
+	for group in group_cards(cards):
+		if len(group) > 1:
+			cs.bind(cards_handle(group), tuple(i for c in group for i in c.nodes))
 	for idx in selection.kept:
 		n = graph.node(idx)
 		if n is None or n.tokens <= p.inline_max_tokens:

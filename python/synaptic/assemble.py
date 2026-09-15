@@ -21,7 +21,7 @@ from synaptic.budget import (
 from synaptic.filestate import render_file_state
 from synaptic.graph import Graph
 from synaptic.paths import H_PATHS, render_paths
-from synaptic.prune import render_card
+from synaptic.prune import render_card, render_cards_merged
 from synaptic.seeds import Seeds, request_skip
 from synaptic.textutil import node_token_len
 from synaptic.types import (
@@ -211,10 +211,12 @@ def render_decisions(cards: tuple[PruneCard, ...]) -> list[tuple[str, str]]:
 		if c.error_sig
 	]
 def render_pruned(cards: tuple[PruneCard, ...]) -> list[tuple[str, str]]:
-	"""[PRUNED]：其余被剪分支（每条卡只出现一次，不在 DECISIONS 里重复）。"""
-	return [
-		(f"card:{c.card_id}", render_card(c)) for c in cards if not c.error_sig
-	]
+	"""[PRUNED]：其余被剪分支（每条卡只出现一次，不在 DECISIONS 里重复）。
+
+	行形态为**同组合并**（见 ``prune.render_card_group`` 的账目说明）：组的归并键是
+	「同错误签名 + 同文件集合」，组内每条结论仍逐字内联，只有前缀与句柄降为 1 份。
+	"""
+	return render_cards_merged(tuple(c for c in cards if not c.error_sig))
 
 
 def render_working_set(states: tuple[FileState, ...]) -> list[tuple[str, str]]:

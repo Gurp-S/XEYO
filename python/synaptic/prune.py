@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from synaptic.coldstore import BRANCH_PREFIX
 from synaptic.graph import Graph
 from synaptic.textutil import node_token_len
 from synaptic.types import EDGE_USE, KIND_TOOL_RESULT, KIND_TOOL_USE, PruneCard, WscParams
@@ -253,3 +254,74 @@ def render_card(c: PruneCard) -> str:
 
 def cards_tokens(cards: tuple[PruneCard, ...]) -> int:
 	return sum(node_token_len(render_card(c)) for c in cards)
+
+
+#: 卡组内多条结论的分隔符（与 ``budget._EXCERPT_SEP`` 同款理由：可见、不歧义、
+#: 不破坏「关键信息针按连续子串判定」）。
+_CARD_SEP = " ⏐ "
+
+
+def card_group_key(c: PruneCard) -> tuple[str, tuple[str, ...]]:
+	"""卡组归并键：同错误签名 + 同文件集合。
+
+	**只按事实字段归并，不按结论文本**——结论逐卡唯一（实测同回合重复率 0.0%），
+	按文本归并等于不去重。
+	"""
+	return (c.error_sig, tuple(c.files))
+
+
+def group_cards(cards: tuple[PruneCard, ...]) -> list[list[PruneCard]]:
+	"""按 ``card_group_key`` 归并，保持**首次出现顺序**（前缀追加友好、确定性）。"""
+	order: list[tuple[str, tuple[str, ...]]] = []
+	groups: dict[tuple[str, tuple[str, ...]], list[PruneCard]] = {}
+	for c in cards:
+		k = card_group_key(c)
+		if k not in groups:
+			groups[k] = []
+			order.append(k)
+		groups[k].append(c)
+	return [groups[k] for k in order]
+
+
+def cards_handle(cards: list[PruneCard]) -> str:
+	"""组句柄：**渲染与冷层绑定共用这一处**。
+
+	两边各拼一次 ``branch://id1,id2`` 就会漂移——「行里写的句柄」与「绑定的节点集」
+	不一致时可恢复性会被悄悄破坏，而往返比对照样通过（句柄自洽地错）。
+	与 ``budget.request_chunk_ids`` 是同一条纪律。
+	"""
+	if len(cards) == 1:
+		return cards[0].handle
+	return BRANCH_PREFIX + ",".join(c.card_id for c in cards)
+
+
+def render_card_group(cards: list[PruneCard]) -> str:
+	"""一组卡的热层文本（单行）。
+
+	为什么合并：实测 `[PRUNED]` 1221 tok ÷ 24 卡 ≈ 51 tok/卡行，而单卡结论本身只有
+	med 34 tok ⇒ **约 17 tok/卡是纯行开销**（``<id>:`` 前缀 + ``expand(branch://<id>)``
+	尾巴，且 id 在一行里出现两次）。行开销与结论长度无关，只能靠**合并行**压。
+
+	合并后**每条结论仍逐字内联**——不做「只留首条」那种压缩，那会把结论文本针打掉，
+	与 docs §13.4 的 `user` 针事故同型。只有前缀与句柄从 N 份降到 1 份；
+	行尾句柄覆盖组内**全部**卡 ⇒ 展开仍逐字节无损。
+	"""
+	head = cards[0]
+	bits = [_CARD_SEP.join(c.conclusion for c in cards)]
+	if head.files:
+		bits.append(f"files={','.join(head.files)}")
+	if head.error_sig:
+		bits.append(f"err={head.error_sig[:80]}")
+	if head.replay:
+		bits.append(f"replay={head.replay[:100]}")
+	bits.append(f"expand({cards_handle(cards)})")
+	return " ".join(bits)
+
+
+def render_cards_merged(cards: tuple[PruneCard, ...]) -> list[tuple[str, str]]:
+	"""``[PRUNED]`` 行列表：同组卡并成一行（组内 1 张时退化为原单卡形态）。"""
+	out: list[tuple[str, str]] = []
+	for group in group_cards(cards):
+		key = group[0].card_id if len(group) == 1 else ",".join(c.card_id for c in group)
+		out.append((f"cards:{key}", render_card_group(group)))
+	return out
