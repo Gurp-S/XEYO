@@ -51,7 +51,7 @@ def _last_pair(out: list[dict]) -> tuple[dict, dict]:
 
 
 def test_env_channel_wraps_blocks_in_fabricated_pair():
-	set_t_now_strategy(None)
+	set_t_now_strategy(STRATEGY_ENV_CHANNEL)
 	assert t_now_strategy() == STRATEGY_ENV_CHANNEL
 	projected = [{"role": "user", "content": "帮我修 bug"}]
 	out = run_pre_llm_inject(projected, InjectContext(cwd="", multi_agent=True))
@@ -81,7 +81,7 @@ def test_env_channel_input_never_mutated_and_tool_name_not_in_input():
 
 def test_env_channel_empty_blocks_no_pair():
 	"""无任何块时不伪造空对（避免无意义的环境消息）。"""
-	set_t_now_strategy(None)
+	set_t_now_strategy(STRATEGY_ENV_CHANNEL)
 	projected = [{"role": "user", "content": "hi"}]
 	out = run_pre_llm_inject(projected, InjectContext(cwd=""))
 	assert out == projected
@@ -105,7 +105,7 @@ def test_legacy_strategy_preserves_user_tail_insert():
 
 
 def test_normalize_env_pair_to_openai_tool_messages():
-	set_t_now_strategy(None)
+	set_t_now_strategy(STRATEGY_ENV_CHANNEL)
 	projected = [{"role": "user", "content": "hi"}]
 	out = run_pre_llm_inject(projected, InjectContext(cwd="", multi_agent=True))
 	norm = normalize_messages_for_openai(out)
@@ -126,7 +126,7 @@ def test_normalize_env_pair_gets_relay_reasoning_placeholder():
 	的 id 是引擎造的（xeyo_env_ 前缀），必须带占位（只声明来源，不含
 	指令/评价——引擎铁律：注意力里只出现信息）。
 	"""
-	set_t_now_strategy(None)
+	set_t_now_strategy(STRATEGY_ENV_CHANNEL)
 	projected = [{"role": "user", "content": "hi"}]
 	out = run_pre_llm_inject(projected, InjectContext(cwd="", multi_agent=True))
 	norm = normalize_messages_for_openai(out)
@@ -152,7 +152,7 @@ def test_env_notice_header_declares_not_user():
 
 
 def test_env_channel_ids_unique_per_call():
-	set_t_now_strategy(None)
+	set_t_now_strategy(STRATEGY_ENV_CHANNEL)
 	projected = [{"role": "user", "content": "hi"}]
 	out1 = run_pre_llm_inject(projected, InjectContext(cwd="", multi_agent=True))
 	out2 = run_pre_llm_inject(projected, InjectContext(cwd="", multi_agent=True))
@@ -164,13 +164,13 @@ def test_env_channel_ids_unique_per_call():
 
 def test_strategy_resolution_and_unsupported_fallback(monkeypatch):
 	reset_env_unsupported_for_test()
-	set_t_now_strategy(None)
+	set_t_now_strategy(STRATEGY_ENV_CHANNEL)
 	monkeypatch.delenv("XEYO_T_NOW_STRATEGY", raising=False)
 	assert resolve_t_now_strategy("openai", "gpt-x") == STRATEGY_ENV_CHANNEL
 	# prefill 预留档回落 env_channel（实测通过前不开放）
 	set_t_now_strategy("prefill")
 	assert resolve_t_now_strategy() == STRATEGY_ENV_CHANNEL
-	set_t_now_strategy(None)
+	set_t_now_strategy(STRATEGY_ENV_CHANNEL)
 	# 备忘仅影响被标记的 provider:model 组合 → 回落 skip（L2：不落 legacy 用户尾插）
 	mark_env_channel_unsupported(env_unsupported_key("openai", "gpt-x"))
 	assert resolve_t_now_strategy("openai", "gpt-x") == STRATEGY_SKIP
@@ -178,7 +178,7 @@ def test_strategy_resolution_and_unsupported_fallback(monkeypatch):
 	# 显式 legacy 不受备忘影响（评测/审计对照档保留）
 	set_t_now_strategy("legacy")
 	assert resolve_t_now_strategy("openai", "gpt-x") == STRATEGY_LEGACY
-	set_t_now_strategy(None)
+	set_t_now_strategy(STRATEGY_ENV_CHANNEL)
 	# skip 显式设置不注入任何 T_now 块
 	out = run_pre_llm_inject(
 		[{"role": "user", "content": "hi"}],
@@ -225,7 +225,7 @@ def test_env_vague_turn_drops_inventory_keeps_directives(monkeypatch):
 	monkeypatch.setattr(repeat_guard, "current_advice", lambda: "[repeat] x3")
 	out = run_pre_llm_inject(
 		_prior_conversation("帮我修改"),
-		InjectContext(working=None, include_memory_index=True),
+		InjectContext(working=None, include_memory_index=True, strategy=STRATEGY_ENV_CHANNEL),
 	)
 	blob = _env_blob(out)
 	# D1：模糊指代轮 → inventory 静默；指令类存活（与 legacy 同一装配，仅换声道）
@@ -249,7 +249,7 @@ def test_env_reconcile_event_never_gated(monkeypatch):
 	)
 	out = run_pre_llm_inject(
 		_prior_conversation("帮我修改"),
-		InjectContext(working=None, include_memory_index=True),
+		InjectContext(working=None, include_memory_index=True, strategy=STRATEGY_ENV_CHANNEL),
 	)
 	# D1 只静默 inventory；事件类（reconcile，drain 语义）必须存活
 	assert "工具面变更" in _env_blob(out)
@@ -266,7 +266,7 @@ def test_env_after_tools_continue_inside_pair(monkeypatch):
 		{"role": "tool", "tool_call_id": "1", "content": "x"},
 	]
 	out = run_pre_llm_inject(
-		projected, InjectContext(working=None, include_memory_index=True)
+		projected, InjectContext(working=None, include_memory_index=True, strategy=STRATEGY_ENV_CHANNEL)
 	)
 	blob = _env_blob(out)
 	assert "# Continue" in blob
@@ -320,7 +320,8 @@ def test_env_nested_tail_window(tmp_path, monkeypatch):
 		{"role": "user", "content": "继续改 pkg/foo.py 的校验逻辑"},
 	]
 	out = run_pre_llm_inject(
-		projected, InjectContext(working=snap, cwd=str(tmp_path))
+		projected,
+		InjectContext(working=snap, cwd=str(tmp_path), strategy=STRATEGY_ENV_CHANNEL),
 	)
 	blob = _env_blob(out)
 	assert "pkg-rule" in blob

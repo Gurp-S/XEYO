@@ -76,6 +76,10 @@ def test_attach_turn_context_after_tool_includes_wrap_up_and_notice(monkeypatch)
 		forced_wrap_up=True,
 		runtime_notice="工具调用数已接近上限。",
 		include_memory_index=False,
+		# 本用例断言的是「尾插 user」形态；默认档 system_channel 会把块放进
+		# 尾部新增的 system 消息（见 tests/test_t_now_system_channel.py），
+		# 故显式钉住 env_channel 形态。
+		t_now_strategy="env_channel",
 	)
 	assert out[-1]["role"] == "user"
 	# 声道无关：legacy=text 块；env_channel（方案A）=伪对 tool_result 正文

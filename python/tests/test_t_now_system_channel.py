@@ -44,10 +44,13 @@ from permissions.policy import set_agent_mode
 from prompt.pre_llm_inject import InjectContext, run_pre_llm_inject
 from prompt.t_now_strategy import (
 	STRATEGY_ENV_CHANNEL,
+	STRATEGY_SKIP,
 	STRATEGY_SYSTEM_CHANNEL,
 	env_unsupported_key,
 	mark_env_channel_unsupported,
+	mark_system_channel_unsupported,
 	reset_env_unsupported_for_test,
+	reset_system_unsupported_for_test,
 	resolve_t_now_strategy,
 	set_t_now_strategy,
 )
@@ -74,10 +77,12 @@ def _activate(**kw: object) -> InjectContext:
 def _clean_state():
 	set_t_now_strategy(None)
 	reset_env_unsupported_for_test()
+	reset_system_unsupported_for_test()
 	set_agent_mode("agent")
 	yield
 	set_t_now_strategy(None)
 	reset_env_unsupported_for_test()
+	reset_system_unsupported_for_test()
 	set_agent_mode("agent")
 
 
@@ -150,7 +155,9 @@ def test_no_tool_use_carrier_in_projection() -> None:
 	assert "tool_result" not in blob
 	assert "xeyo_env_notice" not in blob
 	# 参考：伪对档必然命中（证明本断言不是空洞的）
-	env_out = run_pre_llm_inject([dict(m) for m in _BASE], _activate())
+	env_out = run_pre_llm_inject(
+		[dict(m) for m in _BASE], _activate(strategy=STRATEGY_ENV_CHANNEL)
+	)
 	assert "tool_use" in _bytes(env_out) and "xeyo_env_notice" in _bytes(env_out)
 
 
@@ -159,12 +166,34 @@ def test_no_tool_use_carrier_in_projection() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_env_channel_untouched_during_bypass_window() -> None:
-	assert resolve_t_now_strategy() == STRATEGY_ENV_CHANNEL
+def test_default_is_system_channel_and_env_still_available() -> None:
+	"""默认已切声道 B（2026-09-15）；env_channel 保留为对照/回退档，行为不变。"""
+	set_t_now_strategy(None)
+	assert resolve_t_now_strategy() == STRATEGY_SYSTEM_CHANNEL
+	# 显式回到伪对档 ⇒ 行为与切换前逐字一致（回退路径可用）
+	set_t_now_strategy(STRATEGY_ENV_CHANNEL)
 	out = run_pre_llm_inject([dict(m) for m in _BASE], _activate())
 	assert out[-2]["role"] == "assistant"
 	assert out[-1]["role"] == "user"
 	assert "xeyo_env_notice" in _bytes(out)
+
+
+def test_fallback_ladder_system_then_env_then_skip() -> None:
+	"""回退阶梯：system_channel --4xx--> env_channel --4xx--> skip。
+
+	备忘是 provider:model 粒度的，只影响被标记的组合。
+	"""
+	set_t_now_strategy(None)
+	key = env_unsupported_key("openai", "gpt-x")
+	assert resolve_t_now_strategy("openai", "gpt-x") == STRATEGY_SYSTEM_CHANNEL
+	mark_system_channel_unsupported(key)
+	assert resolve_t_now_strategy("openai", "gpt-x") == STRATEGY_ENV_CHANNEL
+	assert resolve_t_now_strategy("openai", "other") == STRATEGY_SYSTEM_CHANNEL
+	mark_env_channel_unsupported(key)
+	assert resolve_t_now_strategy("openai", "gpt-x") == STRATEGY_SKIP
+	# 显式 legacy 不受任何备忘影响（评测/审计对照档）
+	set_t_now_strategy("legacy")
+	assert resolve_t_now_strategy("openai", "gpt-x") == "legacy"
 
 
 def test_system_channel_no_longer_falls_back_to_env_channel() -> None:

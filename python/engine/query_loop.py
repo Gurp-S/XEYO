@@ -967,13 +967,16 @@ async def query_loop(
         from permissions.policy import in_subagent as _in_subagent
 
         _is_side = _side_mode()
-        # T_now 声道（方案A）：env_channel 默认；模型被运行时标记不支持伪造
-        # tool 对时 resolve 回 skip（L2：宁缺毋滥，不落 legacy 用户尾插）。
+        # T_now 声道：system_channel 默认（声道 B，原生 system 消息）；被厂商
+        # 以结构类 4xx 拒绝时进程内退回 env_channel（保功能），env_channel 再被
+        # 拒绝才 skip（L2：宁缺毋滥，不落 legacy 用户尾插）。
         from prompt.t_now_strategy import (
             ENV_FALLBACK_STATUS,
+            STRATEGY_ENV_CHANNEL,
             STRATEGY_SKIP,
             env_unsupported_key,
             mark_env_channel_unsupported,
+            mark_system_channel_unsupported,
             resolve_t_now_strategy,
         )
 
@@ -1262,6 +1265,35 @@ async def query_loop(
                     logging.getLogger(__name__).warning(
                         "T_now env_channel rejected (status=%s, provider=%s, "
                         "model=%s)；本轮跳过 T_now 注入（L2，不再 legacy 尾插）。",
+                        exc.status_code,
+                        _fb_prov,
+                        _fb_model,
+                    )
+                    continue
+                # 声道 B：厂商不接受 messages 里的 system 角色（结构类 4xx）
+                # ⇒ 进程内退回伪对档（保功能）。已知代价：会重新引入
+                # xeyo_env_notice affordance，故仅在厂商确实拒绝时发生；
+                # 若该档随后也 4xx，上面的 env_channel 分支会进一步降为 skip。
+                if (
+                    t_now_strat == "system_channel"
+                    and not saw_any
+                    and exc.status_code in ENV_FALLBACK_STATUS
+                ):
+                    _fb_prov = _llm_provider_name(model)
+                    _fb_model = _llm_model_name(model)
+                    mark_system_channel_unsupported(
+                        env_unsupported_key(_fb_prov, _fb_model)
+                    )
+                    t_now_strat = STRATEGY_ENV_CHANNEL
+                    projected = _attach_turn_context(
+                        projected_pre_inject,
+                        t_now_strategy=t_now_strat,
+                        **_inject_kwargs,
+                    )
+                    api_messages = prompt.build(system_prompt, projected)
+                    logging.getLogger(__name__).warning(
+                        "T_now system_channel rejected (status=%s, provider=%s, "
+                        "model=%s)；本进程内退回 env_channel 档。",
                         exc.status_code,
                         _fb_prov,
                         _fb_model,

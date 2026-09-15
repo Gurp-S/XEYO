@@ -109,9 +109,14 @@ def _activate_blocks(strategy: str = ""):
 
 
 def test_tnow_never_enters_system_segment():
-    """断言 A：易变块绝不进 role=system 段（保前缀）。"""
+    """断言 A：易变块绝不进 role=system 段（保前缀）——**仅对 user/伪对两档**。
+
+    2026-09-15 起默认档是 system_channel（声道 B），它的设计就是把块放进
+    "尾部**新增的** system 消息"（前缀仍逐字节不动，见
+    tests/test_t_now_system_channel.py 断言③）。故本断言显式钉住 env_channel。
+    """
     msgs = [_msg("system", "# You are a coding agent."), _msg("user", "请排队并投递。")]
-    ctx = _activate_blocks()
+    ctx = _activate_blocks(strategy="env_channel")
     out = run_pre_llm_inject(msgs, ctx)
     system_text = "\n".join(_text_blobs([m for m in out if m.get("role") == "system"]))
     assert "Wrap-up(预算已尽)" not in system_text

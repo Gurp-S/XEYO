@@ -50,7 +50,11 @@ XEYO 引擎对模型注意力的总原则：**注意力里只出现信息，不�
 
 新增"每轮可能变化 / 随时可能开关"的模型可见内容（提示块、状态、提醒、开关类指令）时，**默认走 T_now 注入管线**（`python/prompt/pre_llm_inject.py`），不要写进 system prompt、不要拼进历史消息。权威口径以 `pre_llm_inject.py` / `t_now_strategy.py` 实现与 `tests/test_t_now_block_registry.py` 为冻结面。
 
-**注入声道（方案 A 环境声道，2026-09-04）：** 默认策略 `env_channel`（`python/prompt/t_now_strategy.py`）——全部易变块装进一对**仅存在于投影**的伪造 tool 对（`assistant(xeyo_env_notice) → tool_result`，`turn_context.append_env_notice_pair`）尾插，不进 MessageStore/JSONL、不进 tools 数组（schemas 冻结红线不受影响）、尾部追加 KV 前缀逐字节不动。tool_result 是模型训练出的"环境声道"，注入内容与用户意图在消息结构上隔离（根治说话人混淆型注意力漂移）。回退档 `legacy` = 原行为（bg_wrap 身份标记 + 尾插末条 user，A1 分仓仍生效）；运行时 env_channel 被厂商以结构类 4xx（400/404/413/415/422）拒绝且未吐 chunk 时，自动记进程级备忘并当场以 legacy 重建重试。策略优先级：会话/请求显式（`set_t_now_strategy`）> `XEYO_T_NOW_STRATEGY` 环境变量 > 默认 env_channel；`prefill` 为预留档（实测前回落 env_channel）。
+**注入声道（声道 B 原生 system，2026-09-15 起默认）：** 默认策略 `system_channel`（`python/prompt/t_now_strategy.py`）——全部易变块作为一条**原生 system 消息**追加在投影尾部（`turn_context.append_system_notice`），不进 MessageStore/JSONL、不进 tools 数组（schemas 冻结红线不受影响）、尾部追加 KV 前缀逐字节不动。协议分工：OpenAI 系保留 `role=system`；Anthropic 由 `anthropic._split_system` 上提顶层 `system` 字段（`_build_body` 无 `cache_control`，无显式缓存可损）。
+
+**为什么废掉伪对（原方案 A 环境声道）：** 伪对 `assistant(tool_use: xeyo_env_notice) → tool_result` 与「模型自己的工具调用」**完全同形** ⇒ 模型在投影里看到自己调过该工具，判定自己拥有它并真的去调。实测第六轮单会话 70+ 次、第七轮 80+ 次（含多次整条响应体只有该调用），且**被 host 侧应答者当成真实工具轮应答**（回灌 `# Continue（工具结果后）`）⇒ 自催化闭环；意图抑制不可靠（明知情、正在修它时仍复现）。system 是"引擎注入的状态"的原生声道：既非 user（说话人隔离仍成立）也非 assistant ⇒ **不可调用性来自形态本身**，不靠劝阻文本。
+
+**回退阶梯（均为进程级备忘，重启即重试）：** `system_channel` --结构类 4xx（400/404/413/415/422，未吐 chunk）--> `env_channel`（保功能；已知会重新引入上述 affordance）--结构类 4xx--> `skip`（L2：宁缺毋滥，绝不落回 legacy 用户尾插）。`env_channel` / `legacy` 保留为对照与显式评测档。策略优先级：会话/请求显式（`set_t_now_strategy`）> `XEYO_T_NOW_STRATEGY` 环境变量 > 默认 `system_channel`；`prefill` 为预留档（实测前回落 `env_channel`）。
 
 **硬准入（2026-09-04）：** 块登记表 `T_NOW_BLOCK_REGISTRY`（`pre_llm_inject.py`）：每个块一行（类别 / 为什么必须在上下文 / 预算与门控），**登记数硬顶 20**，加一块必须删一块或证明预算不破；所有 `tagged.append` 装配点必须带 `# block: <名>` 标记且与登记表一一对应，由 `tests/test_t_now_block_registry.py` 机器执法——新块不登记，测试即红。第一问永远是"能不能不进上下文"（引擎能强制的，一律不给模型看）。
 

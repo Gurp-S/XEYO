@@ -337,10 +337,14 @@ def test_jsonl_store_untouched_by_inject():
 	frozen = copy.deepcopy(store_api)
 	out = run_pre_llm_inject(
 		store_api,
-		InjectContext(multi_agent=True, include_memory_index=False),
+		InjectContext(
+			multi_agent=True, include_memory_index=False, strategy="system_channel"
+		),
 	)
 	assert store_api == frozen
-	assert out[-1]["role"] == "user"
+	# 声道 B：注入以投影-only 的 system 消息尾插，绝不进 MessageStore / JSONL
+	assert out[-1]["role"] == "system"
+	assert len(out) == len(store_api) + 1
 
 
 def test_budget_keeps_continue_and_nested_before_notice():

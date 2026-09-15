@@ -1,23 +1,36 @@
-"""T_now 注入声道策略（设计 32 号修订：方案 A 环境声道）。
+"""T_now 注入声道策略（设计 32 号修订：方案 A 环境声道 → 声道 B 治本）。
 
-三值策略：
-- ``env_channel``（默认）：全部易变块装进一对**仅存在于投影**的
-  assistant(tool_use) → tool_result 消息（``append_env_notice_pair``），
-  尾部追加、前缀逐字节不动（KV 缓存语义与 legacy 完全等价）。
-  tool_result 是模型训练出来的「环境数据声道」——注入内容不再与用户
-  意图同层（根治说话人混淆），也不再有"挂在用户话里"的可被误读面。
-- ``legacy``：原行为——块以文本追加进末条 user（bg_wrap 身份标记 +
+四值策略：
+- ``system_channel``（**2026-09-15 起默认**）：全部易变块作为一条**原生
+  system 消息**追加在投影尾部（``turn_context.append_system_notice``）。
+  这是伪对缺陷的治本档：``env_channel`` 的伪对
+  ``assistant(tool_use: xeyo_env_notice) → tool_result`` 与「模型自己的工具
+  调用」完全同形 ⇒ 模型在投影里看到自己调过该工具，判定自己拥有它并真的去调。
+  实测：第六轮单会话 70+ 次，第七轮单会话 80+ 次（含多次整条响应体只有该调用），
+  且**被 host 侧应答者当成真实工具轮应答**（回灌 ``# Continue（工具结果后）``）
+  ⇒ 自催化闭环，意图抑制无效。
+  system 是"引擎注入的状态"的原生声道：不是 user（说话人隔离成立），
+  也不是 assistant（不伪装成模型自身行为）⇒ 不可调用性来自形态本身。
+  协议分工：OpenAI 系保留 role=system；Anthropic 由 ``_split_system``
+  上提顶层 ``system`` 字段。
+- ``env_channel``：原默认（伪造 tool 对）。**保留为对照/回退档**：声道 B 被
+  厂商以结构类 4xx 拒绝（厂商不接受 messages 里的 system 角色）时，本进程内
+  对该 provider:model 退回本档（保功能；已知代价是会重新引入上述 affordance）。
+- ``legacy``：更早的行为——块以文本追加进末条 user（bg_wrap 身份标记 +
   分隔符）。**仅作审计对照/显式评测档**（``XEYO_T_NOW_STRATEGY=legacy``
-  或 ``set_t_now_strategy``），不再充当任何自动回退档——引擎文本进用户
-  角色正是 L2（2026-09-09）要消灭的说话人混淆源。
-- ``skip``：内部档——本轮不注入任何 T_now 块。env_channel 被厂商以
-  结构类 4xx 拒绝（未吐任何 chunk）时回落到这里：宁缺毋滥，不把引擎
-  文本伪装成用户消息。执行层硬约束（预算/回合/wrap 门）不依赖提示文本。
+  或 ``set_t_now_strategy``），不充当任何自动回退档——引擎文本进用户角色
+  正是 L2（2026-09-09）要消灭的说话人混淆源。
+- ``skip``：内部档——本轮不注入任何 T_now 块。env_channel 被标记不支持时的
+  终态：宁缺毋滥，不把引擎文本伪装成用户消息。执行层硬约束（预算/回合/wrap
+  门）不依赖提示文本。
 - ``prefill``：预留（尾部 assistant 预填充锚定）。厂商容忍度实测通过前
   不开放，当前解析为 env_channel。
 
 优先级：会话/请求显式设置（``set_t_now_strategy``）> 环境变量
-``XEYO_T_NOW_STRATEGY`` > 默认 env_channel。
+``XEYO_T_NOW_STRATEGY`` > 默认 system_channel。
+
+回退阶梯（均为进程级备忘，重启即重试）：
+``system_channel`` --结构类 4xx--> ``env_channel`` --结构类 4xx--> ``skip``
 """
 
 from __future__ import annotations
@@ -65,32 +78,32 @@ def set_t_now_strategy(strategy: str | None) -> None:
 
 
 def t_now_strategy() -> str:
-    """解析当前策略：显式 > 环境变量 > env_channel。"""
+    """解析当前策略：显式 > 环境变量 > 默认 system_channel（声道 B）。"""
     v = _strategy_ctx.get()
     if v:
         return v
     env = os.environ.get(_STRATEGY_ENV, "").strip().lower()
     if env in _VALID_STRATEGIES:
         return env
-    return STRATEGY_ENV_CHANNEL
+    return STRATEGY_SYSTEM_CHANNEL
 
 
 def resolve_t_now_strategy(provider: str = "", model: str = "") -> str:
-    """按模型解析最终策略。
+    """按模型解析最终策略（回退阶梯见模块 docstring）。
 
-    env_channel 被标记不支持（结构类 4xx，进程级备忘）→ **skip**：本轮起不再
-    尝试注入，也绝不落回 legacy 用户尾插（L2，2026-09-09）。显式 legacy
+    ``system_channel`` 被标记不支持（厂商不接受 messages 里的 system 角色，
+    结构类 4xx）→ 进程内退回 ``env_channel``（保功能；已知会重新引入伪对
+    affordance，故仅在厂商确实拒绝时发生）。``env_channel`` 再被标记 →
+    ``skip``（L2：宁缺毋滥，绝不落回 legacy 用户尾插）。显式 legacy
     （评测/审计对照）保持可用。prefill 暂回落 env_channel。
     """
     s = t_now_strategy()
     if s == STRATEGY_PREFILL:
         s = STRATEGY_ENV_CHANNEL
-    # ``system_channel`` 已接线（turn_context.append_system_notice +
-    # pre_llm_inject 分派 + 归一化层上提顶层 system），故**不再回落**
-    # env_channel——否则设了该档却仍走伪对，"治本档"名存实亡。
-    if s == STRATEGY_ENV_CHANNEL and env_channel_unsupported(
-        env_unsupported_key(provider, model)
-    ):
+    key = env_unsupported_key(provider, model)
+    if s == STRATEGY_SYSTEM_CHANNEL and system_channel_unsupported(key):
+        s = STRATEGY_ENV_CHANNEL
+    if s == STRATEGY_ENV_CHANNEL and env_channel_unsupported(key):
         return STRATEGY_SKIP
     return s
 
@@ -118,6 +131,23 @@ def env_channel_unsupported(key: str) -> bool:
 
 def reset_env_unsupported_for_test() -> None:
 	_env_unsupported.clear()
+
+
+# ── 声道 B 备忘：厂商不接受 messages 里的 system 角色（结构类 4xx）──
+_system_unsupported: set[str] = set()
+
+
+def mark_system_channel_unsupported(key: str) -> None:
+	if key and key.strip():
+		_system_unsupported.add(key)
+
+
+def system_channel_unsupported(key: str) -> bool:
+	return key in _system_unsupported
+
+
+def reset_system_unsupported_for_test() -> None:
+	_system_unsupported.clear()
 
 
 # ── 伪造对身份 ──
