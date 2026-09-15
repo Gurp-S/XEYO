@@ -157,6 +157,15 @@ class Aggregate:
 			"gain_gate_skip_rate": float(
 				sum(1 for t in self.turns if t.gain_gate_skipped) / max(1, len(self.turns))
 			),
+			# 2026-09-15：两道闸**必须分开报**——语义完全不同：
+			#   trigger  = C0 未过生产水位（0.8×context_limit）⇒ **根本没尝试压缩**；
+			#   gain_gate= 压了但区域太小、压了反而更大 ⇒ 尝试了但拒绝。
+			# 混报会把"生产不会压缩的回合"读成"压缩了但收益不够"，正是 §13.8
+			# 记的口径事故。trigger_ratio=0（闸门关闭）时该率恒为 0。
+			"trigger_skipped": int(sum(1 for t in self.turns if t.trigger_skipped)),
+			"trigger_skip_rate": float(
+				sum(1 for t in self.turns if t.trigger_skipped) / max(1, len(self.turns))
+			),
 			"hit_rate_wsc": _stat([float(t.wsc_hit) for t in cmp_turns]),
 			"hit_rate_v61": _stat([float(t.v61_hit) for t in cmp_turns]),
 			# 跳首回合口径：只在「同一会话内有上一轮投影可比」的回合上算
@@ -407,6 +416,10 @@ def render_markdown(rep: dict[str, Any]) -> str:
 			f"（{r.get('gain_gate_skip_rate', 0):.1%}，区域太小、压了反而更大）"
 		)
 		L.append(
+			f"- 触发闸未过水位 {r.get('trigger_skipped', 0)} 回合"
+			f"（{r.get('trigger_skip_rate', 0):.1%}，本回合**根本没尝试压缩**）"
+		)
+		L.append(
 			f"- 未压缩基线 token median {r['base_tokens']['median']:.0f}"
 		)
 		L.append(
@@ -516,6 +529,7 @@ def render_markdown(rep: dict[str, Any]) -> str:
 			("hot_tokens", "热层 token 中位数"),
 			("rebuild_rate", "整层重建率"),
 			("gain_gate_skip_rate", "收益门拒绝率"),
+			("trigger_skip_rate", "触发闸跳过率"),
 			("hit_rate_wsc", "命中率均值"),
 			("latency_ms", "延迟中位数(ms)"),
 		):
@@ -525,7 +539,7 @@ def render_markdown(rep: dict[str, Any]) -> str:
 					cells.append(f"{v.get(metric, {}).get('mean', 0):.4f}")
 				elif metric in ("hot_tokens", "latency_ms"):
 					cells.append(f"{v.get(metric, {}).get('median', 0):.1f}")
-				elif metric in ("rebuild_rate", "gain_gate_skip_rate"):
+				elif metric in ("rebuild_rate", "gain_gate_skip_rate", "trigger_skip_rate"):
 					cells.append(f"{v.get(metric, 0):.1%}")
 				else:
 					cells.append(str(v.get(metric, 0)))
@@ -535,9 +549,9 @@ def render_markdown(rep: dict[str, Any]) -> str:
 		L.append("## 按会话长度分 cohort")
 		L.append("")
 		L.append(
-			"| cohort | 会话 | 回合 | 压缩率均值 | 压缩率中位 | 收益门拒绝 | 热层token中位 | 重建率 | 近期路径针 | 错误针 |"
+			"| cohort | 会话 | 回合 | 压缩率均值 | 压缩率中位 | 收益门拒绝 | 触发闸跳过 | 热层token中位 | 重建率 | 近期路径针 | 错误针 |"
 		)
-		L.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+		L.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
 		for c in rep["cohorts"]:
 			if not c.get("turns"):
 				continue
@@ -545,6 +559,7 @@ def render_markdown(rep: dict[str, Any]) -> str:
 				f"| {c['label']} | {c['sessions']} | {c['turns']} | "
 				f"{c['reduction_vs_base']['mean']:.1%} | {c['reduction_vs_base']['median']:.1%} | "
 				f"{c.get('gain_gate_skip_rate', 0):.1%} | "
+				f"{c.get('trigger_skip_rate', 0):.1%} | "
 				f"{c['hot_tokens']['median']:.0f} | {c['rebuild_rate']:.1%} | "
 				f"{c.get('needle_survival', {}).get('path_recent', {}).get('mean_rate', 0):.1%} | "
 				f"{c.get('needle_survival', {}).get('error_sig', {}).get('mean_rate', 0):.1%} |"
