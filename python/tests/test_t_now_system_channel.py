@@ -40,6 +40,7 @@ import pytest
 
 from model._openai_common import normalize_messages_for_openai
 from model.anthropic import normalize_messages_for_anthropic
+from model.fake import FakeModelClient
 from permissions.policy import set_agent_mode
 from prompt.pre_llm_inject import InjectContext, run_pre_llm_inject
 from prompt.t_now_strategy import (
@@ -53,6 +54,7 @@ from prompt.t_now_strategy import (
 	reset_system_unsupported_for_test,
 	resolve_t_now_strategy,
 	set_t_now_strategy,
+	system_channel_unsupported,
 )
 from prompt.turn_context import append_system_notice
 
@@ -230,3 +232,128 @@ def test_anthropic_normalization_lifts_system_to_top_level_field() -> None:
 	assert system_text.startswith("# You are a coding agent.")
 	# 对话前缀未被污染（只被 system 字段承载）
 	assert [m["role"] for m in msgs] == ["user", "assistant", "user"]
+
+
+# ---------------------------------------------------------------------------
+# query_loop 层：结构类 4xx ⇒ 本轮退回 env_channel 重建（回退阶梯的一段）
+# ---------------------------------------------------------------------------
+
+
+class _RecordingFallbackClient(FakeModelClient):
+	"""第 1 次调用抛结构类 4xx（零 chunk），之后转正常；记录每次收到的投影。
+
+	provider / _model 决定备忘 key（`query_loop._llm_provider_name/_llm_model_name`）。
+	"""
+
+	provider = "openai"
+
+	def __init__(self, error: Exception) -> None:
+		super().__init__()
+		self._model = "gpt-x"
+		self._error = error
+		self.seen: list[str] = []
+
+	async def stream(self, messages, tool_schemas, abort):  # noqa: ANN001
+		self.seen.append(json.dumps(messages, ensure_ascii=False))
+		if len(self.seen) == 1:
+			raise self._error
+		async for chunk in super().stream(messages, tool_schemas, abort):
+			yield chunk
+
+
+async def _drive_loop(client) -> list[object]:  # noqa: ANN001
+	from engine.abort import AbortController
+	from engine.budget import BudgetTracker
+	from engine.query_loop import query_loop
+	from msgtypes.message import user_message
+	from prompt.assembler import DEFAULT_SYSTEM, PromptAssembler
+	from session.message_store import MessageStore
+	from tools.echo import EchoTool
+	from tools.tool_registry import ToolRegistry
+
+	reg = ToolRegistry()
+	reg.register(EchoTool())
+	events: list[object] = []
+	async for ev in query_loop(
+		store=MessageStore([user_message("hello")]),
+		model=client,
+		tools=reg,
+		prompt=PromptAssembler(),
+		system_prompt=DEFAULT_SYSTEM,
+		abort=AbortController(),
+		budget=BudgetTracker(max_turns=4),
+	):
+		events.append(ev)
+	return events
+
+
+def _has_pseudo_pair(blob: str) -> bool:
+	"""结构化判定：投影里是否存在 `assistant(tool_use: xeyo_env_notice)` 伪对。
+
+	**不用子串匹配**：项目文档（AGENTS.md / docs）本身就会写到这个名字，子串
+	判定必然误报（本轮踩过）。
+	"""
+	for m in json.loads(blob):
+		if not isinstance(m, dict):
+			continue
+		content = m.get("content")
+		if not isinstance(content, list):
+			continue
+		for blk in content:
+			if (
+				isinstance(blk, dict)
+				and blk.get("type") == "tool_use"
+				and blk.get("name") == "xeyo_env_notice"
+			):
+				return True
+	return False
+
+
+@pytest.mark.asyncio
+async def test_query_loop_falls_back_to_env_channel_on_structural_4xx() -> None:
+	"""声道 B 被厂商以结构类 4xx 拒绝（且未吐 chunk）⇒ 记备忘并**当场重建重试**。
+
+	回退是「进程级备忘 + 不向上抛错」；断言落在**契约**上而不是表象上：
+	降级后的请求里有没有伪对，取决于该轮恰好有没有块可注入，不能当契约。
+	"""
+	from common.errors import ProviderError
+
+	set_t_now_strategy(STRATEGY_SYSTEM_CHANNEL)
+	client = _RecordingFallbackClient(ProviderError("bad system role", status_code=400))
+	events = await _drive_loop(client)  # 不得抛错：回退把它吸收了
+
+	assert len(client.seen) >= 2, "结构类 4xx 后未重建重试"
+	# 第 1 次：声道 B —— 投影里绝无伪对（本改动的全部目的）
+	assert not _has_pseudo_pair(client.seen[0])
+	# 备忘落盘，且阶梯已降级为 env_channel
+	key = env_unsupported_key("openai", "gpt-x")
+	assert system_channel_unsupported(key) is True
+	assert resolve_t_now_strategy("openai", "gpt-x") == STRATEGY_ENV_CHANNEL
+	# 其他 provider:model 不受牵连
+	assert resolve_t_now_strategy("openai", "other") == STRATEGY_SYSTEM_CHANNEL
+	assert events, "回退后未产出任何事件"
+
+
+@pytest.mark.asyncio
+async def test_query_loop_does_not_fall_back_on_non_structural_error() -> None:
+	"""非结构类（429 限流）**不得**触发回退——回退只会掩盖真实原因。"""
+	from common.errors import ProviderError
+
+	monkeypatch = pytest.MonkeyPatch()
+	monkeypatch.setattr("engine.query_loop._llm_max_attempts", lambda: 1)
+	try:
+		set_t_now_strategy(STRATEGY_SYSTEM_CHANNEL)
+		client = _RecordingFallbackClient(
+			ProviderError("rate limited", status_code=429, retry_after_ms=0)
+		)
+		try:
+			await _drive_loop(client)
+		except Exception:  # noqa: BLE001 — 429 耗尽重试后向上抛是预期
+			pass
+	finally:
+		monkeypatch.undo()
+
+	assert system_channel_unsupported(env_unsupported_key("openai", "gpt-x")) is False
+	# 未回退 ⇒ 每次请求都仍是声道 B（无伪对）
+	for blob in client.seen:
+		assert not _has_pseudo_pair(blob)

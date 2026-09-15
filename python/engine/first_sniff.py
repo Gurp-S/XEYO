@@ -10,8 +10,10 @@
   目录不递归——递归探索留给模型按需做；
 - **一次**：仅当投影历史里还没有任何 assistant 消息（新会话/无前文）时注入；
   续跑/同会话二次提问（历史含 assistant）不重复注入；
-- **投影-only**：经 ``append_env_notice_pair`` 进入请求，不进 MessageStore /
-  JSONL（与 T_now 环境声道同源）；side 会话与子代理不注入（窄任务不需要）；
+- **投影-only**：经 ``turn_context`` 的声道承载进入请求（默认
+  ``append_system_notice`` 原生 system；``env_channel`` 档为
+  ``append_env_notice_pair``），不进 MessageStore / JSONL（与 T_now 同源）；
+  side 会话与子代理不注入（窄任务不需要）；
 - 旁路开关：``XEYO_FIRST_SNIFF=0`` 关闭（消融/对比用）。
 """
 

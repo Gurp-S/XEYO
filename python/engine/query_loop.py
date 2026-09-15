@@ -974,6 +974,7 @@ async def query_loop(
             ENV_FALLBACK_STATUS,
             STRATEGY_ENV_CHANNEL,
             STRATEGY_SKIP,
+            STRATEGY_SYSTEM_CHANNEL,
             env_unsupported_key,
             mark_env_channel_unsupported,
             mark_system_channel_unsupported,
@@ -1010,9 +1011,18 @@ async def query_loop(
                     side=_is_side,
                 )
                 if sniff_text:
-                    from prompt.turn_context import append_env_notice_pair
+                    # 与 T_now 同源：按当前声道策略选承载形态。2026-09-15 前这里
+                    # **硬编码伪对**——默认档切到声道 B 后它成了漏网路径：首轮投影里
+                    # 仍出现 `assistant(tool_use: xeyo_env_notice)`，模型据此认定自己
+                    # 拥有该工具并真的去调（伪对缺陷只修了一半）。
+                    if t_now_strat == STRATEGY_SYSTEM_CHANNEL:
+                        from prompt.turn_context import append_system_notice
 
-                    projected = append_env_notice_pair(projected, sniff_text)
+                        projected = append_system_notice(projected, sniff_text)
+                    else:
+                        from prompt.turn_context import append_env_notice_pair
+
+                        projected = append_env_notice_pair(projected, sniff_text)
             except Exception:  # noqa: BLE001 — 嗅探失败绝不影响主请求
                 pass
         projected = _attach_turn_context(
