@@ -31,12 +31,25 @@ STRATEGY_LEGACY = "legacy"
 STRATEGY_SKIP = "skip"
 #: 预留档：解析为 env_channel，待 prefill 厂商容忍度实测通过后启用。
 STRATEGY_PREFILL = "prefill"
+#: 声道 B（治本档，2026-09-15）：易变块以**原生 system 消息**追加在投影尾部，
+#: 不再伪造 ``assistant(tool_use) → tool_result`` 对。
+#:
+#: 动机来自第六轮实测：伪对在结构上与「模型自己的工具调用」完全同形，模型会得出
+#: 「我有个工具叫 xeyo_env_notice」的结论并真的去调它——本轮单会话触发 70+ 次，
+#: 每次都换回整段环境正文（含原始目标全文，约 7k token），且幻觉调用在审计上被
+#: 读成「引擎注入」（第五轮两次误判的根源）。**不可调用性必须来自形态本身，
+#: 不能靠劝阻文本**（那会违反引擎铁律：注意力里只出现信息，不出现导演）。
+#:
+#: 说话人隔离的原始动机（env_channel 的目的）同样满足：system ≠ 用户意图。
+#: 默认仍为 env_channel——新行为按「新功能准入」先以旁路形态验证收益。
+STRATEGY_SYSTEM_CHANNEL = "system_channel"
 
 _VALID_STRATEGIES = (
     STRATEGY_ENV_CHANNEL,
     STRATEGY_LEGACY,
     STRATEGY_SKIP,
     STRATEGY_PREFILL,
+    STRATEGY_SYSTEM_CHANNEL,
 )
 _STRATEGY_ENV = "XEYO_T_NOW_STRATEGY"
 
@@ -71,6 +84,12 @@ def resolve_t_now_strategy(provider: str = "", model: str = "") -> str:
     """
     s = t_now_strategy()
     if s == STRATEGY_PREFILL:
+        s = STRATEGY_ENV_CHANNEL
+    if s == STRATEGY_SYSTEM_CHANNEL:
+        # 预留档：投影构造（turn_context.append_system_notice + pre_llm_inject 分派
+        # + anthropic 顶层 system 上提）尚未接线前，**一律解析为 env_channel**——
+        # 与 prefill 同款约定：常量先落地，行为零变化，避免"设了环境变量却走到
+        # 未定义分支"的隐性故障。
         s = STRATEGY_ENV_CHANNEL
     if s == STRATEGY_ENV_CHANNEL and env_channel_unsupported(
         env_unsupported_key(provider, model)
