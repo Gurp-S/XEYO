@@ -29,6 +29,16 @@ except ImportError:  # pragma: no cover
 	httpx = None  # type: ignore
 
 
+#: 环境声道伪造对的 tool_call id 前缀。与 ``prompt.t_now_strategy.ENV_ID_PREFIX``
+#: 同源；此处保留本地常量，避免 model 层反向依赖 prompt 层。
+ENV_TOOL_CALL_ID_PREFIX = "xeyo_env_"
+
+#: 伪造对补的**结构性占位**思考态（信息：声明该条 assistant 是引擎的环境通知
+#: 中继，而非模型自己的思考产出）。存在的唯一原因是协议合规——见
+#: ``normalize_messages_for_openai`` assistant 分支的注释。
+ENV_RELAY_REASONING_PLACEHOLDER = "[xeyo] environment notice relay"
+
+
 # 事件循环 → 共享 AsyncClient。httpx 连接池绑定创建它的 loop，不能跨 loop 复用；
 # loop 被 GC 时条目随之消失（测试场景每个 loop 一个 client）。
 _shared_httpx_clients: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, Any]" = (
@@ -278,6 +288,18 @@ def normalize_messages_for_openai(
 				reasoning_text = "".join(reasoning_parts)
 				if reasoning_text:
 					msg["reasoning_content"] = reasoning_text
+				elif tool_calls and any(
+					str(tc.get("id") or "").startswith(ENV_TOOL_CALL_ID_PREFIX)
+					for tc in tool_calls
+				):
+					# 环境声道伪造对（T_now env_channel）：这条 assistant 与其
+					# tool_call id 都是引擎造的，厂商从未签发过该 id。**实测
+					# 2026-09-14**（`TerminalBench/zero/probe_envpair_400.py` /
+					# `probe_reasoning_400.py`）：DeepSeek 在 thinking 模式下对
+					# 「自己没签发过的 tool_call」强制要求 reasoning_content，
+					# 缺则 400 `must be passed back to the API`（真 id 则不要求）。
+					# 故补一段**结构性占位**（只声明来源，不含任何指令/评价）。
+					msg["reasoning_content"] = ENV_RELAY_REASONING_PLACEHOLDER
 				if tool_calls:
 					msg["tool_calls"] = tool_calls
 				out.append(msg)
@@ -285,6 +307,8 @@ def normalize_messages_for_openai(
 
 		if role == "tool":
 			tool_call_id = m.get("tool_call_id") or ""
+			# dsh 口径（serialize.ts:269-271）：空 tool 输出在 wire 上也需要
+			# 非空内容——部分网关拒收空串 tool 消息，统一给结构性哨兵。
 			if isinstance(content, list):
 				for block in content:
 					if isinstance(block, dict) and block.get("type") == "tool_result":
@@ -292,7 +316,7 @@ def normalize_messages_for_openai(
 							{
 								"role": "tool",
 								"tool_call_id": block.get("tool_use_id") or tool_call_id,
-								"content": str(block.get("content") or ""),
+								"content": str(block.get("content") or "") or "(no output)",
 							}
 						)
 			else:
@@ -300,7 +324,7 @@ def normalize_messages_for_openai(
 					{
 						"role": "tool",
 						"tool_call_id": tool_call_id,
-						"content": str(content or ""),
+						"content": str(content or "") or "(no output)",
 					}
 				)
 	return out

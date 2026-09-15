@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -367,4 +368,6 @@ class TodoWriteTool:
 
 			default_session_presence().note_todos(self._cwd, sid, briefs)
 		except Exception:  # noqa: BLE001
-			pass
+			logging.getLogger(__name__).debug(
+				"session presence note_todos failed", exc_info=True
+			)

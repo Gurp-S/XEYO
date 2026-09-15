@@ -95,6 +95,11 @@ def params_digest(params: Any) -> str:
 		return ""
 
 
+#: 内部别名：``observe_tool`` 的形参 ``params_digest`` 会遮蔽模块级同名函数，
+#: 这里留一份引用供 callee 侧契约收敛使用。
+_params_digest_of = params_digest
+
+
 def assistant_head(text: Any) -> str:
 	"""assistant 输出文本的首句比较键（前 30 字符，strip 后取）。"""
 	try:
@@ -160,7 +165,9 @@ class LoopLedger:
 		"""工具结果写入 store 前登记（豁免工具 / 空内容 / 总开关关 → 跳过）。
 
 		``params_digest`` 可选（``params_digest(tu.input)``）；缺省时等价组
-		不记参数变体，render 省略变体段——旧调用方零破坏。
+		不记参数变体，render 省略变体段——旧调用方零破坏。**非 str 入参
+		（误传原始 params）当场归一为摘要，不抛异常**：本方法属诊断采集，
+		永不因契约违反影响调用方主链路。
 		"""
 		if not ledger_enabled() or tool_name in self._exempt:
 			return
@@ -187,7 +194,15 @@ class LoopLedger:
 			self._s1 += 1
 		group["n"] += 1
 		if params_digest:
-			group["params"].add(params_digest)
+			# callee 侧契约收敛：本参数语义是"可哈希短串摘要"，不是原始参数。
+			# 调用方误传原始 params（dict/list）时当场归一为摘要，而不是抛
+			# TypeError——契约违反不得把同 try 块内的防护动作连带打死
+			# （2026-09-14 事故：传 dict → unhashable → [fold] 全域失效）。
+			group["params"].add(
+				params_digest
+				if isinstance(params_digest, str)
+				else _params_digest_of(params_digest)
+			)
 		self._last_equiv = (tool_name, group["n"], len(group["params"]))
 
 	def observe_assistant(self, text: Any) -> None:

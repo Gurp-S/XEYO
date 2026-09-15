@@ -79,4 +79,20 @@ describe('mergeTranscript', () => {
 		const merged = mergeTranscriptWithLocalThoughts(server, local);
 		expect(merged.map(m => m.id)).toEqual(['u1', 'thought-1', 'thought-2']);
 	});
+
+	it('mergeTranscriptWithLocalThoughts dedupes backend-projected thoughts by text', () => {
+		// 服务端投影出的 Thought 用 `<mid>#r<k>` 派生 id，与前端本地 id 不同；
+		// 只按 id 去重会把同一段思考插成两条。
+		const server: ChatMessage[] = [
+			{id: 'u1', role: 'user', text: 'hi', createdAt: 100},
+			thought('a1#r0', '  thinking\nabout   it ', 200),
+			{id: 'a1', role: 'assistant', text: 'answer', createdAt: 300},
+		];
+		const local: ChatMessage[] = [
+			...server,
+			thought('thought-local-1', 'thinking about it', 200, 1200),
+		];
+		const merged = mergeTranscriptWithLocalThoughts(server, local);
+		expect(merged.map(m => m.id)).toEqual(['u1', 'a1#r0', 'a1']);
+	});
 });

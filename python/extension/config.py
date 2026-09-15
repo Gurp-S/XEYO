@@ -20,6 +20,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -124,7 +125,7 @@ def _record_invalid(path_key: str, error: str, kept_good: bool) -> None:
 			action="keep_last_good" if kept_good else "defaults_applied",
 		)
 	except Exception:  # 审计故障不影响配置回退
-		pass
+		logging.getLogger(__name__).debug("config.invalid audit failed", exc_info=True)
 
 
 @dataclass

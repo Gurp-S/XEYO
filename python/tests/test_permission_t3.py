@@ -177,28 +177,5 @@ def test_pending_event_intent_default_and_choice():
 	assert ev2.intent == "choice"
 
 
-@pytest.mark.asyncio
-async def test_coordinator_wait_schedules_and_cleans_reminder():
-	"""reminder 任务在 wait 结束后被清理（不泄漏）。"""
-	from engine.task_state import SessionTaskState
-	from engine.permission_coordinator import PermissionCoordinator
-	from permissions.store import PendingPermissionStore
-
-	coord = PermissionCoordinator(
-		store=PendingPermissionStore(ttl_seconds=0.05),
-		task_state=SessionTaskState(session_id="s-t3b"),
-		session_id="s-t3b",
-		turn_id="t",
-	)
-	rid = coord.request(tool_name="Bash", tool_input={}, reason="r", prompt="p")
-	choice = await asyncio.wait_for(coord.wait(rid), timeout=2.0)
-	assert choice in ("deny", "timeout")
-	await asyncio.sleep(0.01)  # reminder 取消落地
-	pending_tasks = [t for t in asyncio.all_tasks() if not t.done()]
-	assert not any(
-		"_remind_before_expiry" in repr(t.get_coro()) for t in pending_tasks
-	)
-
-
 if __name__ == "__main__":
 	raise SystemExit(pytest.main([__file__, "-q"]))

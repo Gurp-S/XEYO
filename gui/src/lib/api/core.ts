@@ -91,9 +91,6 @@ export type ToolCallStreamEvent = {
 	name: string;
 	input: unknown;
 	toolUseId?: string;
-	/** T13：tool_call.begin 参数摘要 + 是否同批并行。 */
-	inputSummary?: string;
-	parallel?: boolean;
 } & EventIdentity;
 
 export type ToolResultStreamEvent = {
@@ -131,7 +128,7 @@ export type UsageStreamEvent = {
 	usedUsd: number;
 	cny: number;
 	usedCny: number;
-	costSource: 'api' | 'estimate' | 'unknown';
+	costSource: 'api' | 'estimate';
 	usdLimit: number | null;
 	contextTokens?: number;
 	contextLimit?: number;
@@ -185,12 +182,61 @@ export type TaskStateStreamEvent = {
 	error?: string | null;
 } & EventIdentity;
 
+/** 分题选项：label 必有，description 为 GUI 副行说明。 */
+export type AskQuestionOption = {
+	label: string;
+	description?: string;
+};
+
+/** 结构化分题（多问题表单）；GUI 按题渲染选项组，替代旧的拍平口径。 */
+export type AskQuestion = {
+	question: string;
+	options: AskQuestionOption[];
+	multiSelect: boolean;
+	default?: string | null;
+};
+
+function normalizeAskQuestion(raw: unknown): AskQuestion | null {
+	if (typeof raw !== 'object' || raw === null) return null;
+	const q = raw as Record<string, unknown>;
+	const question = typeof q.question === 'string' ? q.question.trim() : '';
+	if (!question) return null;
+	const rawOpts = Array.isArray(q.options) ? q.options : [];
+	const options = rawOpts
+		.map((o): AskQuestionOption | null => {
+			if (typeof o === 'string') {
+				const label = o.trim();
+				return label ? {label} : null;
+			}
+			if (typeof o === 'object' && o !== null) {
+				const oo = o as Record<string, unknown>;
+				const label = typeof oo.label === 'string' ? oo.label.trim() : '';
+				if (!label) return null;
+				const description =
+					typeof oo.description === 'string' && oo.description.trim()
+						? oo.description.trim()
+						: undefined;
+				return description ? {label, description} : {label};
+			}
+			return null;
+		})
+		.filter((o): o is AskQuestionOption => o !== null);
+	return {
+		question,
+		options,
+		multiSelect: Boolean(q.multiSelect),
+		default: typeof q.default === 'string' && q.default.trim() ? q.default.trim() : null,
+	};
+}
+
 export type AskUserPendingStreamEvent = {
 	kind: 'ask_user_pending';
 	requestId: string;
 	question: string;
 	options: string[];
 	default?: string | null;
+	/** 结构化分题；空数组 = legacy 单问题，回落 question/options 渲染。 */
+	questions: AskQuestion[];
 	expiresAt?: number | null;
 } & EventIdentity;
 
@@ -726,6 +772,11 @@ export function parseSseBlock(part: string): ParsedSse | null {
 						question: String(xy.question ?? ''),
 						options: Array.isArray(xy.options) ? xy.options.map(String) : [],
 						default: xy.default == null ? undefined : String(xy.default),
+						questions: Array.isArray(xy.questions)
+							? xy.questions
+									.map(normalizeAskQuestion)
+									.filter((q): q is AskQuestion => q !== null)
+							: [],
 						expiresAt: Number.isFinite(Number(xy.expires_at)) ? Number(xy.expires_at) : undefined,
 						...readIdentity(xy),
 					};
@@ -900,9 +951,6 @@ export function parseSseBlock(part: string): ParsedSse | null {
 					input: xy.input ?? {},
 					toolUseId:
 						typeof xy.tool_use_id === 'string' ? xy.tool_use_id : undefined,
-					inputSummary:
-						typeof xy.input_summary === 'string' ? xy.input_summary : undefined,
-					parallel: Boolean(xy.parallel),
 					...readIdentity(xy),
 				};
 			}

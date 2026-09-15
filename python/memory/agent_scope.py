@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -327,7 +328,7 @@ async def persist_multi_agent_turn(
             session.transcript_persist_index = len(store.items)
         flush_transcript(transcript_path(sid))
     except Exception:
-        pass
+        logging.getLogger(__name__).debug("subagent transcript flush failed", exc_info=True)
 
 
 __all__ = [

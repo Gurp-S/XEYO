@@ -1015,7 +1015,7 @@ class BashTool:
 
 			default_session_presence().note_git(cwd, sid, None)
 		except Exception:  # noqa: BLE001
-			pass
+			_log.debug("session presence note_git failed", exc_info=True)
 
 	def _note_bash_write_target(self, cwd: str, command: str) -> None:
 		"""能解析出写目标时记入 presence（不假装能锁未解析路径）。"""
@@ -1035,7 +1035,7 @@ class BashTool:
 			path = expand_to_abs(target, cwd=cwd)
 			default_session_presence().note_write(cwd, sid, path)
 		except Exception:  # noqa: BLE001
-			pass
+			_log.debug("session presence note_write failed", exc_info=True)
 
 	def _invalidate_search_caches(self, command: str, *, background: bool = False) -> None:
 		"""Bash 执行后门控失效 Glob/Grep 搜索缓存（A1 扩展，2026-09-09）。

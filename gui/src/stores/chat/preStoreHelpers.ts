@@ -7,6 +7,7 @@ import {
 	loadServerSessionMessages,
 	setWorkspace,
 	type AgentDetail,
+	type AskQuestion,
 	type MultiAgentTaskView,
 	type SessionAgentMeta,
 } from '@/lib/api';
@@ -317,7 +318,8 @@ export type PendingAskInfo = {
 	question: string;
 	options: string[];
 	default?: string | null;
-	expiresAt?: number | null;
+	/** 结构化分题（GUI 分题渲染）；空数组 = legacy 单问题。 */
+	questions: AskQuestion[];
 	sessionId: string;
 };
 
@@ -399,16 +401,12 @@ activeSpaceId: string;
 	 * settle 后自动投递）。GUI 据此渲染 Composer chip；轮询刷新、可逐条取消。
 	 */
 	inboxBySession: Record<string, InboxQueuedItem[]>;
-	/** 当前会话是否有可见的排队 chip（Composer 渲染开关）。 */
-	hasInboxChip: boolean;
-	setHasInboxChip: (v: boolean) => void;
 	/** 刷新某会话的排队快照（2s 轮询；队空 = 已投递/取消 → 清 chip）。 */
 	refreshInbox: (sessionId: string) => Promise<void>;
-	/** 取消一条排队消息（服务端 DELETE 成功后从本地移除）。 */
-	cancelInboxItem: (sessionId: string, queue_id: string) => Promise<void>;
-	editInboxItem: (sessionId: string, queue_id: string, text: string) => Promise<void>;
-	/** 清空当前会话排队 chip 状态。 */
-	clearInboxChip: () => void;
+	/** 取消一条排队消息（服务端 DELETE 成功后从本地移除）。false = 失败（如已投递）。 */
+	cancelInboxItem: (sessionId: string, queue_id: string) => Promise<boolean>;
+	/** 改写一条排队消息文本。false = 失败（如已投递/超长）。 */
+	editInboxItem: (sessionId: string, queue_id: string, text: string) => Promise<boolean>;
 		/** 每个 session 整个对话累计的厂商 usage，随会话持久化。 */
 	sessionUsageById: Record<string, SessionUsageView | null>;
 	/** 每个 session 的回溯预览、确认和恢复作业状态。 */

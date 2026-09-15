@@ -1,4 +1,9 @@
-"""pollution_gate_shadow — 【侧挂模块·默认关】评测环境污染门。
+"""pollution_gate_shadow — 【侧挂模块·升格后默认开】评测环境污染门。
+
+升格状态（2026-09-14 更正）：纯函数型侧挂模块，`enabled()` 走 `sidecar.policy.side_enabled()`；
+专用 env 未设时回退总升格开关 `XEYO_SIDEMOD_PROMOTE`（默认 1=升格）⇒ 实际**默认开**，
+原「默认关」表述与运行时相反。单项关闭用 `XEYO_EVAL_POLLUTION_GATE=0`，全局回退用
+`XEYO_SIDEMOD_PROMOTE=0`（见 `sidecar/policy.py:38-58`）。
 
 先例：v61 落地收益与证据门报告的「源健康门」（病态源直接报错拒绝）——本门
 扩展为「环境污染门」，在跑 SWE / 长任务（含 `python/scripts/memory_stack_eval.py`）前校验环境。
@@ -9,7 +14,8 @@
 - 本门在入口拒绝这些污染环境，把泄漏面挡在评测外。
 
 ## 侧挂契约（不改主逻辑）
-- `enabled()`：读 `XEYO_EVAL_POLLUTION_GATE`（默认 0=关；评测置 1 才启用）。开=评测入口先跑
+- `enabled()`：读 `XEYO_EVAL_POLLUTION_GATE`；未设时回退总升格开关（默认开）。
+  开=评测入口先跑
   `check_environment(...)`，违例即拒；关=不拦（逐位不变）。
 - 纯函数校验（可独立调用/单测）：`check_environment(env) -> GateVerdict`。
 - **fail-open**：校验本身异常 → 返回「无法证实（fail-open）」并按评测配置决定拦或不拦

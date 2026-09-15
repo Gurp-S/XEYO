@@ -30,7 +30,9 @@ REM Per-run log path (unique name so a stale holder from a previous run can neve
 REM lock the same file and block a new launch with a file-sharing violation).
 if not defined XEYO_PY_LOG_TAG set "XEYO_PY_LOG_TAG=%RANDOM%"
 set "XEYO_PY_LOG=%TEMP%\xeyo-python_%XEYO_PY_LOG_TAG%.log"
-REM Optional local llama.cpp — set XEYO_LLAMA_DIR in .env (see .env.example). No default path.
+REM 本地模型（llama.cpp）不再由本脚本拉起：进程归后端所有，是否启用看
+REM 设置 → 模型与账号 → 本地模型（持久在 ~/.xeyo/settings.json）。本脚本只做
+REM 两件事：启动前收掉上次遗留、退出后收掉本次残留（硬杀兜底）。
 
 echo.
 echo   XEYO - launcher (dev / hot-reload)
@@ -79,8 +81,8 @@ popd
 REM Free stale listeners on both the backend and frontend port first (port-occupied fix).
 call :FREE_PORT
 
-REM Optional llama sidecar (only when XEYO_LLAMA_DIR set in .env)
-call :START_LLAMA
+REM 收掉上一次遗留的本地模型进程（崩溃残留会一直占着显存与端口）
+call :SCAVENGE_LOCAL_MODEL
 
 REM ---------- start backend (background) + wait for /health ----------
 echo   Starting FastAPI backend on http://%XEYO_HTTP_HOST%:%XEYO_HTTP_PORT% ...
@@ -116,8 +118,8 @@ call npm run tauri:dev
 set "EXITCODE=%ERRORLEVEL%"
 popd
 call :FREE_PORT
-REM Stop optional llama sidecar if configured
-call :STOP_LLAMA
+REM 关闭 XEYO = 关闭本地模型。正常路径由后端 shutdown 钩子完成，这里兜住硬杀/崩溃。
+call :STOP_LOCAL_MODEL
 if not "%EXITCODE%"=="0" goto ERR_TAURI
 goto DONE
 
@@ -136,34 +138,15 @@ if defined XEYO_FRONTEND_PORT (
 )
 exit /b 0
 
-REM ===== LOCAL-TEST helpers: llama lifecycle; remove before release. =====
-:START_LLAMA
-if not defined XEYO_LLAMA_DIR exit /b 0
-if not defined XEYO_LLAMA_PORT set "XEYO_LLAMA_PORT=8080"
-if not defined XEYO_LLAMA_MODEL set "XEYO_LLAMA_MODEL=model.gguf"
-if not exist "%XEYO_LLAMA_DIR%\llama-server.exe" (
-  echo   Warning: llama-server.exe not found in %XEYO_LLAMA_DIR%, skip llama.
-  exit /b 0
-)
-if not exist "%XEYO_LLAMA_DIR%\%XEYO_LLAMA_MODEL%" (
-  echo   Warning: model %XEYO_LLAMA_MODEL% not found, skip llama.
-  exit /b 0
-)
-set "LLAMA_UP="
-for /f "tokens=5" %%p in ('netstat -ano ^| findstr ":%XEYO_LLAMA_PORT% " ^| findstr LISTENING') do set "LLAMA_UP=1"
-if defined LLAMA_UP (
-  echo   llama-server already running on :%XEYO_LLAMA_PORT%, reuse.
-  exit /b 0
-)
-echo   Starting local llama-server on :%XEYO_LLAMA_PORT% ...
-pushd "%XEYO_LLAMA_DIR%"
-start "XEYO-Llama" /b llama-server.exe -m "%XEYO_LLAMA_MODEL%" -ngl 99 -c 8192 -ctk q8_0 -ctv q8_0 -t 8 -b 512 --host 0.0.0.0 --port %XEYO_LLAMA_PORT% --no-mmap > "%TEMP%\xeyo-llama.log" 2>&1
-popd
+REM ===== 本地模型（llama.cpp）生命周期兜底；进程归后端所有，这里只做清理 =====
+REM 凭 ~/.xeyo/local-models/run/run.json 里的 pid 收掉整棵进程树。
+REM 后端正常退出时自己就会收；这两个钩子专门覆盖"Python 被硬杀"的路径。
+:SCAVENGE_LOCAL_MODEL
+py -3.11 "%~dp0python\scripts\local_model_ctl.py" --stop >nul 2>&1
 exit /b 0
 
-:STOP_LLAMA
-if not defined XEYO_LLAMA_DIR exit /b 0
-for /f "tokens=5" %%p in ('netstat -ano ^| findstr ":%XEYO_LLAMA_PORT% " ^| findstr LISTENING') do taskkill /PID %%p /T /F >nul 2>&1
+:STOP_LOCAL_MODEL
+py -3.11 "%~dp0python\scripts\local_model_ctl.py" --stop >nul 2>&1
 exit /b 0
 
 :ERR_NODE

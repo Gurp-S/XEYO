@@ -1145,7 +1145,7 @@ def _audit_mcp_call(server_id: str, raw_name: str, is_error: bool, duration_ms: 
 			error=(error or "")[:500],
 		)
 	except Exception:  # noqa: BLE001 — 审计失败不阻断调用
-		pass
+		logging.getLogger(__name__).debug("mcp.tool.call audit failed", exc_info=True)
 
 
 def _finalize_mcp_result(

@@ -62,22 +62,19 @@ def assistant_text_message(
 ) -> Message:
 	"""构造 assistant 消息。
 
-	reasoning 是厂商思考态原文（DeepSeek `reasoning_content`），按其产生位置
-	作为 content 数组的首个 block 留档：原样存储，不做任何清洗/截断/重排。
-	纯文本轮（无 tool_uses）没有 block 数组可挂，故只在有工具调用时承载——
-	这与协议一致：需要回传的正是工具轮（且跨厂商转码时非工具轮的思考无处
-	承载，见 dsh 的说明）。
+	reasoning 是厂商思考态原文（DeepSeek `reasoning_content`），作为 content
+	数组的 block 留档：原样存储，不做任何清洗/截断/重排。**任何带 reasoning
+	的 assistant 轮（含纯文本轮）都承载**——dsh 口径
+	（`dsh-src/packages/llm/llm-deepseek/src/serialize.ts:228-233`）：
+	官方规则只要求工具轮回传、非工具轮忽略该字段（无害）；且非工具轮的
+	reasoning 是跨厂商转码时恢复思考签名的唯一载体（2026-09-14 落地）。
 	"""
-	if not tool_uses:
-		return Message(
-			role="assistant", content=text, narration=narration or "", interrupted=interrupted
-		)
 	blocks: list[dict[str, Any]] = []
 	if reasoning:
 		blocks.append({"type": "reasoning", "text": reasoning})
 	if text:
 		blocks.append({"type": "text", "text": text})
-	for tu in tool_uses:
+	for tu in tool_uses or []:
 		blocks.append(
 			{
 				"type": "tool_use",
@@ -88,7 +85,10 @@ def assistant_text_message(
 		)
 	return Message(
 		role="assistant",
-		content=blocks,
+		# block 数组只在「有工具或带思考」时使用；纯文本无 reasoning 轮回落
+		# 纯字符串（老形状零回归——下游 20+ 处 isinstance(content,str) 消费者
+		# 只需兼容"带 reasoning 的纯文本轮"这一种新形状）。
+		content=blocks if (tool_uses or reasoning) else text,
 		narration=narration or "",
 		interrupted=interrupted,
 	)

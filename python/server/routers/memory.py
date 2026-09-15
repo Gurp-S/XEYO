@@ -1,4 +1,4 @@
-"""Memory plane HTTP：列表 / 搜索 / 手动 compact。"""
+"""Memory plane HTTP：列表 / 手动 compact。"""
 
 from __future__ import annotations
 
@@ -14,14 +14,6 @@ router = APIRouter(tags=["memory"])
 
 class CompactBody(BaseModel):
 	session_id: str = Field(min_length=1)
-
-
-class SearchBody(BaseModel):
-	query: str = Field(min_length=1)
-	scope: str = ""
-	top_k: int = 8
-	cwd: str | None = None
-	session_id: str | None = None
 
 
 def _cwd() -> str:
@@ -61,66 +53,6 @@ def list_notes(
 			}
 		)
 	return {"workspace_id": wsid, "notes": rows}
-
-
-@router.post("/v1/memory/search")
-def search_notes(body: SearchBody) -> dict[str, Any]:
-	from memory.search import search, search_rollout_summaries, search_session_notes
-
-	cwd = body.cwd or _cwd()
-	hits = search(
-		body.query,
-		scope=body.scope,
-		top_k=body.top_k,
-		cwd=cwd,
-		touch=True,
-	)
-	# 跨会话共享记忆：同工作区其他对话的 session notes 一并返回。
-	try:
-		sessions = search_session_notes(
-			body.query,
-			cwd=cwd,
-			self_session_id=body.session_id or "",
-			top_k=body.top_k,
-		)
-	except Exception:  # noqa: BLE001 — 跨会话检索失败不挡记忆搜索
-		sessions = []
-	# P2-2 任务级 rollout 归档：历史任务语义笔记一并返回。
-	try:
-		rollouts = search_rollout_summaries(body.query, cwd=cwd, top_k=body.top_k)
-	except Exception:  # noqa: BLE001 — 归档检索失败不挡记忆搜索
-		rollouts = []
-	return {
-		"notes": [
-			{
-				"id": n.id,
-				"type": n.type,
-				"scope": n.scope,
-				"title": n.title,
-				"content": n.content[:500],
-				"confidence": n.confidence,
-				"last_used_at": n.last_used_at,
-			}
-			for n in hits
-		],
-		"sessions": [
-			{
-				"session_id": h.session_id,
-				"title": h.title,
-				"excerpt": h.excerpt,
-			}
-			for h in sessions
-		],
-		"rollouts": [
-			{
-				"session_id": h.session_id,
-				"file": h.file_name,
-				"title": h.title,
-				"excerpt": h.excerpt,
-			}
-			for h in rollouts
-		],
-	}
 
 
 @router.post("/v1/memory/compact")

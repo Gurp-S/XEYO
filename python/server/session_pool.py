@@ -60,6 +60,26 @@ def _load_disk_messages(session_id: str) -> list[Message]:
 	return load_session_messages(session_id)
 
 
+def _apply_declared_context_limit(model: Any, context_limit: int | None) -> None:
+	"""把「用户在设置里为模型登记的上下文窗口」注入模型客户端并钉成权威值。
+
+	这一个数同时是：聊天顶部用量面板的窗口分母（GUI 侧 modelWindow 同一口径）、
+	以及后端压缩上限（C2 压力门 / HardTop / 投影 params 的 window_tokens）。
+	走客户端的 declare 接口 = 顺带钉住：厂商 usage 尾帧再回传别的窗口也不覆写，
+	否则压缩时机变成「面板一个数、引擎按另一个数压」。
+
+	未登记（None / 非正数）→ 什么都不做：留给厂商元数据与保守默认（G67）兜底。
+	"""
+	if context_limit is None or int(context_limit) <= 0:
+		return
+	declare = getattr(model, "declare_context_limit", None)
+	if callable(declare):
+		declare(int(context_limit))
+		return
+	# 无 declare 接口的客户端（Fake 等）：退回裸赋值。
+	model.context_limit = int(context_limit)
+
+
 @dataclass(frozen=True)
 class ModelConfig:
 	provider: str
@@ -448,8 +468,7 @@ class SessionPool:
 				max_tokens=cfg.max_tokens,
 				session_id=session_id or "",
 			)
-			if cfg.context_limit is not None and cfg.context_limit > 0:
-				model.context_limit = cfg.context_limit
+			_apply_declared_context_limit(model, cfg.context_limit)
 		else:
 			model = OpenAICompatClient(
 				api_key=cfg.api_key,
@@ -461,8 +480,7 @@ class SessionPool:
 				max_tokens=cfg.max_tokens,
 				session_id=session_id or "",
 			)
-			if cfg.context_limit is not None and cfg.context_limit > 0:
-				model.context_limit = cfg.context_limit
+			_apply_declared_context_limit(model, cfg.context_limit)
 			# Read vision：按模型能力在建表时开关（同会话 schema 稳定，不中途改 tools）
 			from model.vision_capability import supports_vision_input
 			from tools.catalog import apply_read_vision

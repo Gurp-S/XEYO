@@ -16,7 +16,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from model._openai_common import normalize_messages_for_openai
+from model._openai_common import (
+	ENV_RELAY_REASONING_PLACEHOLDER,
+	normalize_messages_for_openai,
+)
 from prompt.pre_llm_inject import InjectContext, run_pre_llm_inject
 from prompt.t_now_strategy import (
 	ENV_ID_PREFIX,
@@ -109,6 +112,25 @@ def test_normalize_env_pair_to_openai_tool_messages():
 	assert norm[2]["role"] == "tool"
 	assert norm[2]["tool_call_id"] == norm[1]["tool_calls"][0]["id"]
 	assert "Wrap-up(预算已尽)" in norm[2]["content"]
+
+
+def test_normalize_env_pair_gets_relay_reasoning_placeholder():
+	"""伪造对 assistant 无思考时，normalize 补结构性占位 reasoning_content。
+
+	实测口径（2026-09-14，`TerminalBench/zero/probe_envpair_400.py`）：
+	DeepSeek thinking 模式对「自己没签发过的 tool_call id」强制要求回传
+	reasoning_content，缺则 400 `must be passed back to the API`。伪造对
+	的 id 是引擎造的（xeyo_env_ 前缀），必须带占位（只声明来源，不含
+	指令/评价——引擎铁律：注意力里只出现信息）。
+	"""
+	set_t_now_strategy(None)
+	projected = [{"role": "user", "content": "hi"}]
+	out = run_pre_llm_inject(projected, InjectContext(cwd="", forced_wrap_up=True))
+	norm = normalize_messages_for_openai(out)
+	msg = norm[1]
+	assert msg["role"] == "assistant"
+	assert msg["tool_calls"][0]["id"].startswith(ENV_ID_PREFIX)
+	assert msg["reasoning_content"] == ENV_RELAY_REASONING_PLACEHOLDER
 
 
 def test_env_notice_header_declares_not_user():

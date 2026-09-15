@@ -511,7 +511,18 @@ class AnthropicModelClient:
 		self.context_limit: int | None = _positive_int(
 			os.environ.get("XEYO_CONTEXT_LIMIT_TOKENS")
 		)
+		# 用户登记的窗口 = 权威口径，后端压缩上限以它为分母（与 OpenAI 兼容层同款
+		# 接口；厂商响应里若带窗口元数据，不得事后覆写登记值）。
+		self.context_limit_declared: bool = self.context_limit is not None
 		self._usage_recorded_this_stream = False
+
+	def declare_context_limit(self, context_limit: int | None) -> None:
+		"""登记用户/配置显式指定的上下文窗口（token）并钉住它。"""
+		limit = _positive_int(context_limit)
+		if limit is None:
+			return
+		self.context_limit = limit
+		self.context_limit_declared = True
 
 	def set_session_id(self, session_id: str | None) -> None:
 		"""注入会话 id，供用量账本归因（与 DeepSeek 客户端同款接口）。"""

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import time
 from dataclasses import dataclass, field
@@ -516,7 +517,9 @@ class Scheduler:
                             attempt=attempt,
                         )
                     except Exception:  # noqa: BLE001
-                        pass
+                        logging.getLogger(__name__).debug(
+                            "patch retry metric failed", exc_info=True
+                        )
 
                 run_fut = asyncio.create_task(
                     self._run_task(t, patch_attempt=attempt, abort=abort)
@@ -623,7 +626,9 @@ class Scheduler:
                 had_write_stale=stale_flag,
             )
         except Exception:  # noqa: BLE001
-            pass
+            logging.getLogger(__name__).debug(
+                "task finished metric failed", exc_info=True
+            )
 
     async def _run_task(
         self,

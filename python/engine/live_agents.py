@@ -8,6 +8,10 @@ inbox 语义（mid-turn inbox，**park 而非注入**）：
 - 队列仅内存（随进程消失），与 ``_LIVE`` 同口径。
 
 key = ``{session_id}::{agent_id}``（与 ``_LIVE`` 一致）。
+
+与 ``server.inbox_registry`` 的会话级用户消息队列是两套生命周期模型：
+本 inbox 按 agent 隔离，无 queue_id / attempts / 三态重投；追加指令在子 agent
+settle 时消费，迟到项由调用方写入 ``meta.pending_followups``。
 """
 
 from __future__ import annotations

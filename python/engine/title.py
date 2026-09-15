@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import re
 import time
@@ -274,7 +275,7 @@ def _audit(kind: str, **fields: Any) -> None:
 
 		default_audit_log().record(kind, **fields)
 	except Exception:  # noqa: BLE001
-		pass
+		logging.getLogger(__name__).debug("title audit failed", exc_info=True)
 
 
 async def enhance_with_model(

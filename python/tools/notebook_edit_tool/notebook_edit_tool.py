@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 from typing import Any
 
@@ -338,7 +339,9 @@ class NotebookEditTool:
 					agent_id=self._agent_id,
 				)
 			except Exception:  # noqa: BLE001
-				pass
+				logging.getLogger(__name__).debug(
+					"rewind file mutation note failed", exc_info=True
+				)
 
 		preview = ""
 		if isinstance(new_source, str) and new_source and mode != "delete":

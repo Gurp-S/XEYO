@@ -29,7 +29,9 @@ from engine.repeat_guard import (
 	clear_advice,
 )
 from engine.repeat_fold import IdenticalResultFold
+from engine.loop_breaker import LoopBreaker
 from engine.loop_ledger import LoopLedger, params_digest
+from engine.observe_safety import safe_observe
 from memory.l5_flag import c2_gate, l5_mode
 from memory.runtime import (
 	c2_llm_summary_enabled,
@@ -305,7 +307,7 @@ def _audit_llm_failure(
             model=model_name,
         )
     except Exception:  # noqa: BLE001
-        pass
+        logging.getLogger(__name__).debug("llm failure audit failed", exc_info=True)
 
 
 def _persist_interrupted_anchor(
@@ -779,6 +781,11 @@ async def query_loop(
     # 行为账本（循环信号计数器：s1 结果等价 / s2 内容已见 / s3 首句重复）；
     # 豁免集与 RepeatCallGuard 同源；经 InjectContext 供 pre_llm_inject 直读。
     loop_ledger = LoopLedger(exempt_tools=frozenset(EXEMPT_TOOLS))
+    # 循环熔断（铁律 #3 的执行层形态：无进展路径持续报错，永不静默）。
+    # L1 同签名连续 / L2 周期重复 / L3 同签名同结果 / L4 同工具无新内容；
+    # 命中即该次调用不执行，回一条中性结果型 ToolResult（不写 store 历史）。
+    # 与 repeat_guard / result_fold 同步：每 submit 新建即用户输入级重置。
+    loop_breaker = LoopBreaker(exempt=frozenset(EXEMPT_TOOLS))
     # 零命中前提复核：不同查询累计空结果 ≥2 起追加中立提示。
     zero_hit_tracker = ZeroHitTracker()
     # tu.id → 该调用结果上要追加的零命中提示文本。
@@ -1066,10 +1073,29 @@ async def query_loop(
                 # 只读/并发规则评估执行，但绕过 budget 的 tool-cap 拒绝（该闸
                 # 的用途是防失控循环，收尾配额由引擎计数封顶，双闸语义重叠）。
                 wrap_quota_left -= 1
-            guard_action = repeat_guard.observe(tu.name, tu.input)
+            guard_action = safe_observe(
+                repeat_guard.observe, tu.name, tu.input,
+                label="RepeatCallGuard.observe",
+            )
             # T6：ACTION_ADVICE 不改写 ToolResult——提醒经 T_now
             # （pre_llm_inject 的 Repeat guard 块）在下一轮模型请求前注入。
             _ = guard_action
+            # 循环熔断：命中即该次调用不执行（也不占 tool-call 配额），回中性
+            # 结果型 ToolResult；同签名再来一次仍会命中（永不静默）。判定失败
+            # fail-open 放行（safe_observe 记 debug，不静默吞）。
+            loop_refusal = safe_observe(
+                loop_breaker.admit,
+                tu.name,
+                tu.input,
+                label="LoopBreaker.admit",
+            )
+            if loop_refusal is not None:
+                results_by_id[tu.id] = ToolResult(
+                    content=loop_refusal.text,
+                    is_error=True,
+                    metadata=loop_refusal.metadata(),
+                )
+                return events
             # R3'：收尾窗配额内的调用由引擎配额计数封顶，跳过 budget 的
             # tool-cap 拒绝（该闸防失控循环，wrap 配额与其语义重叠）。
             if not forced_wrap_up and not budget.begin_tool_call():
@@ -1305,33 +1331,42 @@ async def query_loop(
         # observe_shot：dumps 全投影 + 落盘；丢到后台与后续收尾/工具重叠，
         # 离开本回合前 await（下一轮 Ĥ / LCP 依赖 last_x_sent）。
         def _observe_body() -> None:
-            try:
-                from memory.observe import observe_shot
+            from memory.observe import observe_shot
 
-                observe_shot(
-                    snap,
-                    projected,
-                    hit=hit,
-                    miss=miss,
-                    out=out,
-                    context_tokens=context_tokens,
-                    turn=budget.turn_count,
-                    provider=getattr(model, "provider", None),
-                    model=getattr(model, "_model", None)
-                    or getattr(model, "model", None),
-                )
-            except Exception:
-                pass
+            # 观测侧一律经 safe_observe 隔离（2026-09-14 事故的结构性防线）：
+            # Ĥ / LCP 采样失败只落 debug 日志，绝不进主链路、绝不与防护共 try。
+            safe_observe(
+                observe_shot,
+                snap,
+                projected,
+                hit=hit,
+                miss=miss,
+                out=out,
+                context_tokens=context_tokens,
+                turn=budget.turn_count,
+                provider=getattr(model, "provider", None),
+                model=getattr(model, "_model", None) or getattr(model, "model", None),
+                label="memory.observe.observe_shot",
+            )
 
         _observe_task = asyncio.create_task(asyncio.to_thread(_observe_body))
 
         async def _await_observe() -> None:
             try:
                 await _observe_task
-            except Exception:
-                pass
+            except Exception:  # noqa: BLE001 — 观测任务失败只留痕
+                logging.getLogger(__name__).debug(
+                    "observe shot task failed", exc_info=True
+                )
 
         budget.add_usage(usage)
+        # 循环熔断取证：本回 token 归到该轮前最后一次放行的签名上（只记录，
+        # 不驱动判据——按签名归属的占比会误伤整回合 bash 密集的正常工作）。
+        safe_observe(
+            loop_breaker.note_turn_tokens,
+            budget.last_usage_tokens,
+            label="LoopBreaker.note_turn_tokens",
+        )
         if budget.last_usage is not None:
             yield UsageEvent(
                 prompt_tokens=hit + miss,
@@ -1399,7 +1434,10 @@ async def query_loop(
         # 投影送模型时忽略，仅供「当时为何动手」追溯与刷新后回看。
         narration = narration_gate.drain_narration()
         # 行为账本：s3 首句重复信号采集（在写入 store 前登记本轮输出）。
-        loop_ledger.observe_assistant(assistant_text)
+        safe_observe(
+            loop_ledger.observe_assistant, assistant_text,
+            label="LoopLedger.observe_assistant",
+        )
         store.append(
             assistant_text_message(
                 assistant_text,
@@ -1657,7 +1695,10 @@ async def query_loop(
             events: list[EngineEvent] = []
             meta = getattr(result, "metadata", None) or {}
             if ZeroHitTracker.is_zero_hit(tu.name, meta):
-                distinct_zero = zero_hit_tracker.record(tu.name, tu.input)
+                distinct_zero = safe_observe(
+                    zero_hit_tracker.record, tu.name, tu.input,
+                    label="ZeroHitTracker.record", default=0,
+                )
                 if distinct_zero >= ZERO_HIT_ADVICE_AT:
                     zero_hit_advice[tu.id] = ZeroHitTracker.notice(distinct_zero)
             ask_id = meta.get("ask_pending")
@@ -1675,6 +1716,7 @@ async def query_loop(
                         question=str(meta.get("question", "")),
                         options=list(meta.get("options") or []),
                         default=meta.get("default") or None,
+                        questions=list(meta.get("questions") or []),
                         expires_at=ask_pending.expires_at if ask_pending else None,
                     )
                 )
@@ -1960,19 +2002,38 @@ async def query_loop(
             # 保留 tool_use↔result 配对且首次完整输出仍在历史（信息无损）。
             # GUI 实时事件仍展示真实输出；折叠只作用于写入 store 的持久文本。
             stored_content = out_content
+            # 诊断采集与防护动作**分属两条独立路径**：账本是诊断（失败只剩少
+            # 一行数据），折叠是防护（失败即空转失去止血阀）。任何“共用一个
+            # try”的写法都会让诊断侧异常连带打死折叠——2026-09-14 事故
+            # （params_digest 传了原始 dict → TypeError → [fold] 全域失效）。
+            # 观测统一经 safe_observe 隔离；折叠单独 try / fail-open 保留原文。
+            # 行为账本：s1/s2 信号采集（纯计数，无副作用；豁免集在 LoopLedger
+            # 内部处理）。fold 判定与其独立、互不影响。params_digest 只存摘要
+            # （锚点报“参数变体种数”用）。
+            safe_observe(
+                loop_ledger.observe_tool,
+                tu.name,
+                out_content,
+                label="LoopLedger.observe_tool",
+                params_digest=params_digest(getattr(tu, "input", None)),
+            )
+            # 循环熔断：L3 结果等价 / L4 无新内容 / 半开探针自愈（写入 store 前）。
+            safe_observe(
+                loop_breaker.observe_result,
+                tu.name,
+                getattr(tu, "input", None),
+                out_content,
+                label="LoopBreaker.observe_result",
+            )
             try:
-                # 行为账本：s1/s2 信号采集（纯计数，无副作用；豁免集在
-                # LoopLedger 内部处理）。fold 判定与其独立、互不影响。
-                # params_digest 只存摘要（锚点报"参数变体种数"用）。
-                loop_ledger.observe_tool(
-                    tu.name, out_content, params_digest=getattr(tu, "input", None)
-                )
                 if not getattr(result, "images", None):
                     stored_content, _folded = result_fold.process(
                         tu.name, tu.input, out_content
                     )
             except Exception:  # noqa: BLE001 — 折叠失败 fail-open 保留原文
-                pass
+                logging.getLogger(__name__).debug(
+                    "repeat fold failed", exc_info=True
+                )
             store.append(
                 tool_result_message(
                     tu.id,

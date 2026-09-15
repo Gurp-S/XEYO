@@ -1044,8 +1044,10 @@ class QueryEngine:
                             workspace_root=cwd,
                             turn_started_ns=turn_started_ns,
                             )
-                    except Exception:
-                        pass
+                    except Exception:  # noqa: BLE001 — 索引观测失败只留痕
+                        logging.getLogger(__name__).debug(
+                            "rewind index sync failed", exc_info=True
+                        )
                 try:
                     message_ids = tuple(
                         message.id
@@ -1123,7 +1125,9 @@ class QueryEngine:
                             payload={"error": f"{type(rewind_error).__name__}: {rewind_error}"[:2000]},
                         )
                     except Exception:
-                        pass
+                        logging.getLogger(__name__).debug(
+                            "rewind failure audit failed", exc_info=True
+                        )
             self._active_rewind_context = None
             # M2：写任务状态终态（供 /health / API 查询；不作为流事件，避免干扰 ResultEvent 序列）。
             terminal_status = (
@@ -1204,6 +1208,8 @@ def build_default_engine(
     model: str | None = None,
     base_url: str | None = None,
     initial_messages: list[Message] | None = None,
+    thinking: str = "disabled",
+    reasoning_effort: str = "",
 ) -> QueryEngine:
     """为 CLI 或测试构建默认的查询引擎。
 
@@ -1321,6 +1327,12 @@ def build_default_engine(
             base_url=url,
             model=resolved_model_name,
             provider=backend if backend in PROVIDER_PRESETS else "openai",
+            # 思考态与档位：默认值与 OpenAICompatClient 自身默认一致（deepseek
+            # 提供方下显式发 thinking:disabled），故既有调用方行为零变化。
+            # 走 deepseek 提供方的调用方现在能显式开思考/抬档位——此前
+            # build_default_engine 不传这两个参数，档位无法表达。
+            thinking=thinking,
+            reasoning_effort=reasoning_effort,
             session_id=session_id or "",
         )
         resolved_provider = backend if backend in PROVIDER_PRESETS else "openai"

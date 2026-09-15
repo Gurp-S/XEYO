@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
 import uuid
@@ -245,7 +246,7 @@ def maybe_advance_aging_boundary(messages: list[dict], working: WorkingSnapshot)
 			messages=len(messages),
 		)
 	except Exception:
-		pass
+		logging.getLogger(__name__).debug("memory.aging.advance audit failed", exc_info=True)
 	return True
 
 
@@ -361,17 +362,29 @@ def _msg_tokens(msg: dict[str, Any]) -> int:
 	return 0
 
 
+# C2 确定性摘要里「思考」片段的字符上限。
+# 口径与 deepseek-harness 对齐：reasoning 计入上下文用量（_msg_tokens 与 text 同价），
+# 因此也允许进摘要输入；但它是过程性文本，信噪比低于正文与工具调用，故单独限长，
+# 不让它抢占同一轮正文化/工具语义的摘要预算。
+_C2_REASONING_CHARS = 60
+
+
 def _msg_text(msg: dict[str, Any], limit: int = 160, *, id_to_name: dict[str, str] | None = None) -> str:
 	"""取消息纯文本片段，供确定性摘要保留语义。
 
 	tool_result 块按内容类型动态抽摘要（memory.summarize），不再无脑取前 160 字符：
 	错误/栈回溯保留首尾、grep 只留 文件:行号 统计、read 保留开头、其它长文本 head+tail。
 	text / assistant / tool_use 块仍取前 limit 字符，行为不变。
+
+	reasoning 块单独处理：限长 ``_C2_REASONING_CHARS``，并整体退到行尾。因为块顺序是
+	reasoning 在前、正文在后，若让思考先进 ``parts`` 再统一截断，一段长思考会先吃掉
+	limit 预算，把同一轮真正的正文/工具调用语义挤出摘要。
 	"""
 	content = msg.get("content")
 	if isinstance(content, str):
 		return content.strip()[:limit]
 	if isinstance(content, list):
+		thoughts: list[str] = []
 		parts: list[str] = []
 		for block in content:
 			if not isinstance(block, dict):
@@ -379,6 +392,11 @@ def _msg_text(msg: dict[str, Any], limit: int = 160, *, id_to_name: dict[str, st
 			bt = block.get("type")
 			if bt == "text":
 				txt = block.get("text") or ""
+			elif bt == "reasoning":
+				raw_thought = block.get("text")
+				if isinstance(raw_thought, str) and raw_thought.strip():
+					thoughts.append(raw_thought.strip()[:_C2_REASONING_CHARS])
+				continue
 			elif bt == "tool_result":
 				txt = block.get("content") or ""
 				if not isinstance(txt, str):
@@ -395,7 +413,16 @@ def _msg_text(msg: dict[str, Any], limit: int = 160, *, id_to_name: dict[str, st
 				txt = block.get("text") or ""
 			if isinstance(txt, str) and txt.strip():
 				parts.append(txt.strip())
-		return "\n".join(parts).strip()[:limit]
+		body = "\n".join(parts).strip()[:limit]
+		if not thoughts:
+			return body
+		tail = "思考:" + " ".join(thoughts)
+		if not body:
+			return tail[:limit]
+		room = limit - len(body) - 1
+		if room <= 0:
+			return body
+		return body + "\n" + tail[:room]
 	return ""
 
 
@@ -1195,7 +1222,7 @@ def update_projection_digest(working: WorkingSnapshot, s0) -> None:
 		)
 	except Exception:
 		# 计量失败不阻塞热路径：保持既有 last_projection，或保守为 None（=0）
-		pass
+		logging.getLogger(__name__).debug("projection digest note failed", exc_info=True)
 
 
 MEMORY_INDEX_HEADER = "# Memory index (background only — NOT the user request)"
@@ -1436,6 +1463,27 @@ def _c2_price_ratio_margin(params) -> tuple[float, float]:
 		return 30.0, 2.0
 
 
+def params_for_window(params, context_limit: int | None):
+	"""把「用户登记的真实窗口」注入 simulator params —— 压缩上限的唯一分母。
+
+	``params.window_tokens`` 是离线校准常量（恒 128k），与当前模型无关；拿它当分母
+	会让压力门 / HardTop / usage_ratio / r_gate 全按 128k 判，而面板显示的是用户
+	填的那个窗口。登记多少就按多少压：填小了压得晚、填大了压得早，都是用户口径。
+
+	fail-open：窗口未登记 / 非法 / 与常量相同 → 原样返回（逐字节等价于改动前行为）。
+	"""
+	try:
+		from dataclasses import replace
+
+		window = int(context_limit or 0)
+		current = int(getattr(params, "window_tokens", 0) or 0)
+		if window <= 0 or window == current:
+			return params
+		return replace(params, window_tokens=window)
+	except Exception:  # noqa: BLE001 — 注入失败退回校准常量，绝不挡投影
+		return params
+
+
 def project_for_model(
 	messages: list[dict],
 	working: WorkingSnapshot,
@@ -1474,7 +1522,7 @@ def project_for_model(
 	from memory.simulator.cache_model import CacheState
 	from memory.simulator.decision import decide
 
-	p = load_params()
+	p = params_for_window(load_params(), context_limit)
 	# r_cap 接线（原死参数）：剩余轮数估计按 params.r_cap 封顶（与 replay.estimate_remaining 一致）
 	try:
 		remaining_turns = min(max(1, int(remaining_turns)), int(p.r_cap))
@@ -1575,7 +1623,7 @@ def project_for_model(
 
 					record_c2_event(session_id=working.session_id, cursor=new_cursor)
 				except Exception:
-					pass
+					logging.getLogger(__name__).debug("record_c2_event failed", exc_info=True)
 				return _append_memory_index(
 					apply_c2_messages(messages, working, summary_provider=summary_provider)
 				) if include_memory_index else apply_c2_messages(
@@ -1586,7 +1634,7 @@ def project_for_model(
 			out = project_c0c1(messages, frozen_until=working.c1_frozen_until)
 			return _append_memory_index(out) if include_memory_index else out
 		except Exception:
-			pass  # 公式失败回退下方 decide 路径（fail-closed 到冻结行为）
+			logging.getLogger(__name__).debug("c2 formula path failed; falling back to decide", exc_info=True)
 
 	def send(action: str) -> list[dict]:
 		"""把已选动作的投影记为 last_x_sim，再追加记忆索引尾部（只影响 T_now）"""
@@ -1616,7 +1664,7 @@ def project_for_model(
 						record_c2_event(session_id=working.session_id, cursor=new_cursor)
 					except Exception:
 						# 监控记录失败不阻塞热路径
-						pass
+						logging.getLogger(__name__).debug("record_c2_event failed", exc_info=True)
 					try:
 						from memory.instruction import clear_instruction_cache
 
@@ -1642,7 +1690,7 @@ def project_for_model(
 					record_c2_event(session_id=working.session_id, cursor=new_cursor)
 				except Exception:
 					# 监控记录失败不阻塞热路径
-					pass
+					logging.getLogger(__name__).debug("record_c2_event failed", exc_info=True)
 				try:
 					from memory.instruction import clear_instruction_cache
 
@@ -1663,7 +1711,7 @@ def project_for_model(
 				record_c2_event(session_id=working.session_id, cursor=new_cursor)
 			except Exception:
 				# 监控记录失败不阻塞热路径
-				pass
+				logging.getLogger(__name__).debug("record_c2_event failed", exc_info=True)
 			try:
 				from memory.instruction import clear_instruction_cache
 
@@ -1916,7 +1964,7 @@ def force_compact(
 
 			record_c2_event(session_id=working.session_id, cursor=working.compact_cursor)
 		except Exception:
-			pass
+			logging.getLogger(__name__).debug("record_c2_event failed", exc_info=True)
 		working.last_action = "C2"
 		return apply_c2_messages(messages, working, summary_provider=summary_provider)
 	if working.compact_cursor > 0:

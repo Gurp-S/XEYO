@@ -96,10 +96,6 @@ export function createUsageAccumulator(
 		for (const ev of events) {
 			const hasContextTokens = typeof ev.contextTokens === 'number';
 			const hasContextLimit = typeof ev.contextLimit === 'number' && ev.contextLimit > 0;
-			const estimated = (
-				nextUsage?.costSource === 'unknown' ||
-				ev.costSource === 'unknown'
-			);
 			nextUsage = {
 				promptTokens: (nextUsage?.promptTokens ?? 0) + ev.promptTokens,
 				completionTokens: (nextUsage?.completionTokens ?? 0) + ev.completionTokens,
@@ -109,11 +105,7 @@ export function createUsageAccumulator(
 				cny: (nextUsage?.cny ?? 0) + ev.cny,
 				requests: (nextUsage?.requests ?? 0) + 1,
 				costSource:
-					estimated
-						? 'unknown'
-						: nextUsage?.costSource === 'api' && ev.costSource === 'api'
-						? 'api'
-						: 'estimate',
+					nextUsage?.costSource === 'api' && ev.costSource === 'api' ? 'api' : 'estimate',
 				usdLimit: ev.usdLimit,
 				contextTokens: hasContextTokens ? ev.contextTokens : nextUsage?.contextTokens,
 				// smoke-test #2：事件未带窗口时清空而非沿用旧值 —— 换模型后

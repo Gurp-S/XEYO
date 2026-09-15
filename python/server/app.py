@@ -180,6 +180,15 @@ async def _lifespan(_app: FastAPI):
 	blob_gc_task = asyncio.create_task(_blob_gc_loop())
 	await autostart(get_runner(), get_store())
 	_ensure_toolchain_prewarm()
+	# 本地模型：仅在设置里启用时拉起。默认关 ⇒ 进程不存在 ⇒ 零常驻占用。
+	# 已在跑（上次会话遗留且 /health 通）则收养，不重复拉起：单实例约束下
+	# 重复拉起会把显存撞爆。
+	try:
+		from localmodels.manager import default_manager as _local_model_manager
+
+		_local_model_manager().autostart()
+	except Exception:  # noqa: BLE001 — 本地模型起不来不应阻断引擎启动
+		_log.warning("local model autostart failed", exc_info=True)
 	try:
 		yield
 	finally:
@@ -209,6 +218,14 @@ async def _lifespan(_app: FastAPI):
 			shutdown_all_managers()
 		except Exception:  # noqa: BLE001
 			_log.warning("mcp shutdown_all_managers failed", exc_info=True)
+		# 本地模型：连带收掉 llama-server 的 pid 树。「随 XEYO 关闭而关闭」不能只靠
+		# 正常退出路径——异常退出时由 run.json 兜底（XEYO.bat 也读同一份文件）。
+		try:
+			from localmodels.manager import shutdown as local_model_shutdown
+
+			local_model_shutdown()
+		except Exception:  # noqa: BLE001
+			_log.warning("local model shutdown failed", exc_info=True)
 
 
 app = FastAPI(title="XEYO", version="0.1.0", lifespan=_lifespan)
@@ -363,6 +380,10 @@ from server.routers.plugins import router as plugins_router  # noqa: E402
 
 app.include_router(plugins_router)
 
+from server.routers.local_models import router as local_models_router  # noqa: E402
+
+app.include_router(local_models_router, dependencies=[Depends(require_loopback)])
+
 
 @app.exception_handler(HTTPException)
 async def _http_error(request: Request, exc: HTTPException):  # type: ignore[no-untyped-def]
@@ -446,6 +467,7 @@ from server.deps import (  # noqa: F401
 	_resolve_base_url,
 	_validated_media_refs,
 	api_error,
+	local_model_allowed,
 	local_model_enabled,
 )
 from server.routers.chat import (  # noqa: F401

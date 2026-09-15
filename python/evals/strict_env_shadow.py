@@ -1,4 +1,8 @@
-"""strict_env_shadow — 【侧挂模块·默认关】严格环境档（隔离 git 历史 + 出口收紧 + 四字段报告）。
+"""strict_env_shadow — 【侧挂模块·升格后默认开】严格环境档（隔离 git 历史 + 出口收紧 + 四字段报告）。
+
+升格状态（2026-09-14 更正）：纯函数型侧挂模块，`enabled()` 走 `sidecar.policy.side_enabled()`；
+专用 env 未设时回退总升格开关 `XEYO_SIDEMOD_PROMOTE`（默认 1=升格）⇒ 实际**默认开**，
+原「默认关」表述与运行时相反。单项关闭 `XEYO_EVAL_STRICT=0`，全局回退 `XEYO_SIDEMOD_PROMOTE=0`。
 
 ## 为什么（收益=评测诚实度）
 - SWE-bench 系基于「历史公开代码仓库」，最易泄漏。把被测仓库放进「严格档」：
@@ -9,7 +13,7 @@
   3. **报告口径**：summary 同时输出 `standard / strict / Δ / leakage_rate`，非单一 headline。
 
 ## 侧挂契约（不改主逻辑）
-- `enabled()`：读 `XEYO_EVAL_STRICT`（默认 0=关）。开=评测入口先 `isolate_git_history` +
+- `enabled()`：读 `XEYO_EVAL_STRICT`；未设时回退总升格开关（默认开）。开=评测入口先 `isolate_git_history` +
   `apply_egress_profile`；关=不拦（逐位不变）。
 - 均为独立可调函数（无需真实 git 也能单测其流程/回滚逻辑，见 `test_strict_env`）。
 - **fail-open**：隔离/回滚任一步失败 → 把仓库恢复为原状态并报告明确错误，**绝不留下**
@@ -18,7 +22,7 @@
 
 ## 说明
 - 现有 `evals/*` 是 DeepSeek 代码生成客户端（无 agent 回路），本模块主要面向**XEYO 自身
-  agent 回路在真仓库上跑 SWE/长任务**的场景；对纯代码生成 harness 是无害旁路（默认关）。
+  agent 回路在真仓库上跑 SWE/长任务**的场景；对纯代码生成 harness 是无害旁路（可单项关闭）。
 """
 
 from __future__ import annotations

@@ -50,7 +50,6 @@ const {chatState, sendMessage, stopGeneration, fetchSkills} = vi.hoisted(() => {
 				text: string;
 			}[]
 		>,
-		hasInboxChip: false,
 		refreshInbox: vi.fn(async () => {}),
 		cancelInboxItem: vi.fn(async () => {}),
 		resumeInbox: vi.fn(async () => {}),

@@ -142,3 +142,75 @@ async def test_pending_events_carry_question_and_answer() -> None:
 	)
 	assert resolved_ev.answer == "yes"
 	assert resolved_ev.timeout is False
+
+
+def _payload(raw: dict) -> dict:
+	from tools.ask_user_question_tool import format_questions_payload
+
+	return format_questions_payload(raw)
+
+
+def test_multi_question_payload_keeps_structure() -> None:
+	"""多问题：结构化 questions 逐题保留（含 description/multiSelect/default），
+	平铺 options 顺序拼接且**不跨问题去重**。"""
+	raw = {
+		"questions": [
+			{
+				"question": "范围怎么定？",
+				"options": [
+					{"label": "保留", "description": "作为第五轮起点"},
+					{"label": "废弃"},
+					"重开",
+				],
+				"default": "保留",
+			},
+			{
+				"question": "口径怎么定？",
+				"options": ["保留", "重算"],
+				"multiSelect": True,
+			},
+		]
+	}
+	payload = _payload(raw)
+	assert payload["question"] == "1. 范围怎么定？\n2. 口径怎么定？"
+	# 平铺口径：顺序拼接、不去重（「保留」出现两次是合法内容）。
+	assert payload["options"] == ["保留", "废弃", "重开", "保留", "重算"]
+	assert payload["default"] == "保留"
+	questions = payload["questions"]
+	assert len(questions) == 2
+	assert questions[0]["question"] == "范围怎么定？"
+	assert questions[0]["options"] == [
+		{"label": "保留", "description": "作为第五轮起点"},
+		{"label": "废弃"},
+		{"label": "重开"},
+	]
+	assert questions[0]["multiSelect"] is False
+	assert questions[0]["default"] == "保留"
+	assert questions[1]["multiSelect"] is True
+	assert questions[1]["default"] is None
+
+
+def test_multi_question_payload_renumbers_after_invalid_entries() -> None:
+	"""无效项（非 dict / 空题干）被跳过后，编号按有效问题连续重排不断档。"""
+	raw = {
+		"questions": [
+			"garbage",
+			{"question": "", "options": ["x"]},
+			{"question": "第一题", "options": ["a"]},
+			{"question": "第二题", "options": ["b"]},
+		]
+	}
+	payload = _payload(raw)
+	assert payload["question"] == "1. 第一题\n2. 第二题"
+	assert [q["question"] for q in payload["questions"]] == ["第一题", "第二题"]
+
+
+def test_legacy_single_question_payload_has_empty_questions() -> None:
+	"""legacy 单问题：平铺字段不变，questions 恒为空列表（GUI 回落平铺渲染）。"""
+	payload = _payload({"question": "Which path?", "options": ["a", "b"]})
+	assert payload == {
+		"question": "Which path?",
+		"options": ["a", "b"],
+		"default": None,
+		"questions": [],
+	}

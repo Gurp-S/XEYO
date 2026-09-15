@@ -53,6 +53,11 @@ function shouldCompactTool(
 function messagesToItems(msgs: LoadedMessage[]): TimelineItem[] {
   const out: TimelineItem[] = [];
   for (const m of msgs) {
+    // 服务端会把 assistant 行内的 reasoning 块投影成 isThought 行（供 GUI 的时间线渲染 Thought）。
+    // TUI 没有思考态样式，跳过它们以保持恢复视图与改动前一致。
+    if (m.isThought) {
+      continue;
+    }
     if (m.role === "user") {
       out.push({ id: m.id, kind: "user", text: m.text });
     } else if (m.role === "assistant") {

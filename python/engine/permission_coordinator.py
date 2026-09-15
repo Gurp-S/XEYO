@@ -11,7 +11,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import time
 
 from typing import Any, Callable
@@ -19,14 +18,10 @@ from typing import Any, Callable
 from audit.log import default_audit_log
 from engine.task_state import SessionTaskState
 from msgtypes.events import (
-	PermissionExpiringEvent,
 	PermissionPendingEvent,
 	PermissionResolvedEvent,
 )
-from permissions.pending_ttl import (
-	PENDING_REMINDER_BEFORE_S,
-	intent_for,
-)
+from permissions.pending_ttl import intent_for
 from permissions.store import (
 	USER_CHOICE_ALLOW,
 	USER_CHOICE_DENY,
@@ -113,46 +108,9 @@ class PermissionCoordinator:
 		)
 		return item.request_id
 
-	async def _remind_before_expiry(self, request_id: str) -> None:
-		"""T3：到期前 30s 推提醒事件；先 resolve / 取消则静默退出。"""
-		item = self.store.get(request_id)
-		if item is None or item.expires_at is None:
-			return
-		delay = item.expires_at - PENDING_REMINDER_BEFORE_S - time.time()
-		if delay > 0:
-			await asyncio.sleep(delay)
-		fresh = self.store.get(request_id)
-		if fresh is None or fresh.resolved:
-			return
-		self._emit(
-			PermissionExpiringEvent(
-				request_id=request_id,
-				expires_at=fresh.expires_at,
-				seconds_left=max(
-					0.0, (fresh.expires_at or 0.0) - time.time()
-				),
-			)
-		)
-
 	async def wait(self, request_id: str, timeout: float | None = None) -> str:
 		"""等待用户选择，返回 allow / deny / remind / timeout。"""
-		# T3：到期前 30s 推一次提醒（GUI 倒计时高亮）；随 wait 结束清理。
-		reminder: asyncio.Task[None] | None = None
-		try:
-			reminder = asyncio.create_task(self._remind_before_expiry(request_id))
-		except RuntimeError:
-			reminder = None
-		try:
-			item = await self.store.wait(request_id, timeout=timeout)
-		finally:
-			if reminder is not None:
-				reminder.cancel()
-				try:
-					await reminder
-				except asyncio.CancelledError:
-					pass
-				except Exception:  # noqa: BLE001
-					pass
+		item = await self.store.wait(request_id, timeout=timeout)
 		if item is None:
 			return "timeout"
 		if not item.resolved:

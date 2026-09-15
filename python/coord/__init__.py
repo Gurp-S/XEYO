@@ -13,7 +13,8 @@
 - ``reviewer``：评审打回 + 重规划 scope 执法（findings 结构化 + scope ⊆ 原∪findings）
 - ``ask_gate``：人在环 ASK 队列化（挂起即释放租约 + 超时转 pending 非丢弃）
 
-权威面：``_design_drafts/distributed-agents-plan.md``（v1.1）§2/§3 阶段 0-2。
+权威面 = 本包实现（`python/coord/`）。设计来源 ``_design_drafts/distributed-agents-plan.md``
+（v1.1）§2/§3 阶段 0-2 早于实现、可能漂移，**以各模块实际行为为准**。
 """
 
 from coord.config import BACKEND_FILE, BACKEND_MEMORY, coord_backend

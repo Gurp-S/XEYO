@@ -1,4 +1,9 @@
-"""transcript_pointer_shadow — 【侧挂模块·默认关】C2 压缩后注入「原始历史文件」指针。
+"""transcript_pointer_shadow — 【侧挂模块·升格后默认开】C2 压缩后注入「原始历史文件」指针。
+
+升格状态（2026-09-14 更正）：挂钩型侧挂模块（在 `sidecar/upgrade.py` 的 `_HOOKED` 清单内），
+`enabled()` 走 `sidecar.policy.side_enabled()`；专用 env 未设时回退总升格开关
+`XEYO_SIDEMOD_PROMOTE`（默认 1=升格）⇒ 实际**默认开**，原「默认关」表述与运行时相反。
+单项关闭 `XEYO_C2_TRANSCRIPT_POINTER=0`，全局回退 `XEYO_SIDEMOD_PROMOTE=0`。
 
 依据：C2 压缩后原始历史指针设计（侧挂 ⑬：压缩后注入「原始历史文件」指针，治压缩后失忆）。
 
@@ -8,7 +13,7 @@
   `permissions/filesystem.py:206` 已放行读取。给模型一个**可 grep 的历史文件指针**，缺细节可找回。
 
 ## 侧挂契约（不改主逻辑）
-- `enabled()`：读 `XEYO_C2_TRANSCRIPT_POINTER`（默认 0=关）。开=经 `install()` 挂在
+- `enabled()`：读 `XEYO_C2_TRANSCRIPT_POINTER`；未设时回退总升格开关（默认开）。开=经 `install()` 挂在
   `prompt.pre_llm_inject.run_pre_llm_inject`；关=原逻辑（逐位不变）。
 - **注入条件**：仅当该会话**已发生 C2 压缩**（`ctx.working.c2_summary_text` 非空）才注入，
   且**每会话只注入一次**（模块级 per-session 集合；重压缩不重复注入——指针字节稳定）。

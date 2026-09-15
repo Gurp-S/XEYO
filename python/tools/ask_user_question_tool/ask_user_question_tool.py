@@ -31,8 +31,23 @@ def _option_label(opt: Any) -> str | None:
 	return None
 
 
+def _option_entry(opt: Any) -> dict[str, Any] | None:
+	"""单选项规范化：保留 label + 可选 description（供 GUI 副行展示）。"""
+	if isinstance(opt, str) and opt.strip():
+		return {"label": opt.strip()}
+	if isinstance(opt, dict):
+		label = opt.get("label")
+		if isinstance(label, str) and label.strip():
+			entry: dict[str, Any] = {"label": label.strip()}
+			desc = opt.get("description")
+			if isinstance(desc, str) and desc.strip():
+				entry["description"] = desc.strip()
+			return entry
+	return None
+
+
 def flatten_options(options_raw: Any) -> list[str]:
-	"""Normalize options from string[] or {label, description}[]."""
+	"""Normalize options from string[] or {label, description}[] (labels only)."""
 	if not isinstance(options_raw, list):
 		return []
 	out: list[str] = []
@@ -44,36 +59,57 @@ def flatten_options(options_raw: Any) -> list[str]:
 
 
 def format_questions_payload(raw: dict[str, Any]) -> dict[str, Any]:
-	"""Build combined question + flattened options for PendingAsk.
+	"""Build pending-ask payload for AskUserQuestion.
 
-	If questions[] is non-empty: number them into one string and flatten options.
-	Else: legacy single question / options / default.
+	questions[] 非空时返回三份口径：
+	- ``question``：连续编号合并文本（CLI / 旧面板兼容，编号按有效问题重排不断档）；
+	- ``options``：全部 label 顺序拼接（兼容平铺口径；**不跨问题去重**——
+	  选项归属各自的问题，不同问题出现相同 label 是合法内容）；
+	- ``questions``：结构化列表（question / options[{label,description}] /
+	  multiSelect / default），GUI 优先消费这份做分题渲染。
+	否则回落 legacy 单问题字段。
 	"""
 	questions_raw = raw.get("questions")
 	if isinstance(questions_raw, list) and questions_raw:
 		parts: list[str] = []
-		all_options: list[str] = []
+		structured: list[dict[str, Any]] = []
+		flat: list[str] = []
 		default: str | None = None
-		for i, q in enumerate(questions_raw, start=1):
+		number = 0
+		for q in questions_raw:
 			if not isinstance(q, dict):
 				continue
 			text = str(q.get("question") or "").strip()
 			if not text:
 				continue
-			parts.append(f"{i}. {text}")
-			opts = flatten_options(q.get("options"))
-			for o in opts:
-				if o not in all_options:
-					all_options.append(o)
-			if default is None:
-				d = q.get("default")
-				if isinstance(d, str) and d.strip():
-					default = d.strip()
+			number += 1
+			parts.append(f"{number}. {text}")
+			opts = [
+				e for e in (_option_entry(o) for o in (q.get("options") or [])) if e
+			]
+			flat.extend(e["label"] for e in opts)
+			q_default = q.get("default")
+			q_default = (
+				q_default.strip()
+				if isinstance(q_default, str) and q_default.strip()
+				else None
+			)
+			if default is None and q_default:
+				default = q_default
+			structured.append(
+				{
+					"question": text,
+					"options": opts,
+					"multiSelect": bool(q.get("multiSelect")),
+					"default": q_default,
+				}
+			)
 		combined = "\n".join(parts).strip()
 		return {
 			"question": combined,
-			"options": all_options,
+			"options": flat,
 			"default": default,
+			"questions": structured,
 		}
 
 	question = str(raw.get("question") or "").strip()
@@ -84,7 +120,12 @@ def format_questions_payload(raw: dict[str, Any]) -> dict[str, Any]:
 		if isinstance(default_raw, str) and default_raw.strip()
 		else (str(default_raw) if default_raw is not None else None)
 	)
-	return {"question": question, "options": options, "default": default}
+	return {
+		"question": question,
+		"options": options,
+		"default": default,
+		"questions": [],
+	}
 
 
 class AskUserQuestionTool:

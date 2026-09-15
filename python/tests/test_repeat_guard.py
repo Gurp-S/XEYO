@@ -433,6 +433,81 @@ async def test_hard_stop_empty_wrapup_preserves_stopped_event():
 	assert stops and stops[-1].reason == "max_turns"
 
 
+# ====== 集成：折叠接线在 query_loop 内真实生效（2026-09-14 事故回归）======
+#
+# 事故形态：折叠类单测全绿，但真实调用点把原始 params（dict）传给了
+# ``LoopLedger.observe_tool`` 的 ``params_digest``（语义是可哈希摘要串）→
+# 每次调用抛 `TypeError: unhashable type: 'dict'`，被相邻的裸 except 吞掉 →
+# [fold] 在真实会话中**从未生效**（一次 GUI 会话同签名同输出空转 167 次，
+# 上下文从 0 涨到 93k）。教训：只测"类"测不出"接线"。
+
+
+def _tool_texts(store) -> list[str]:
+	return [
+		str(b.get("content"))
+		for m in store.items
+		if m.role == "tool" and isinstance(m.content, list)
+		for b in m.content
+		if isinstance(b, dict)
+	]
+
+
+def test_observe_tool_tolerates_raw_params_object():
+	"""callee 侧契约收敛：误传原始 params（dict）不得抛异常，按 1 种变体入账。"""
+	from engine.loop_ledger import LoopLedger
+
+	led = LoopLedger(at=(2, 99, 99))
+	for _ in range(3):  # 第 3 次达 s1=2 阈值
+		led.observe_tool("Bash", "same", params_digest={"command": "rg"})
+	out = led.render()
+	assert "Bash:本次结果与既往 2 次调用结果逐字节相同" in out
+	assert "参数变体 1 种" in out
+
+
+@pytest.mark.asyncio
+async def test_fold_actually_fires_inside_query_loop():
+	"""同签名同输出连续出现 → store 持久文本必须出现 [fold]（接线级）。"""
+	reg = ToolRegistry()
+	reg.register(EchoTool())
+	store = MessageStore([user_message("go")])
+	events = await _collect(
+		store, reg, _AlwaysSameToolClient(), BudgetTracker(max_turns=6)
+	)
+
+	texts = _tool_texts(store)
+	assert len(texts) >= 4, texts
+	# 前两次：原文完整保留（给足模型看清的机会）。
+	assert texts[0] == "same" and texts[1] == "same"
+	# 第 3 次起：折叠（首次为解释行，其后为极短占位）。
+	assert "[fold]" in texts[2], texts
+	assert any("[fold]" in t for t in texts), texts
+	# 越过 L1 阈值（LoopBreaker，same_at=6）后由准入层接管：该次调用不执行，
+	# 回一条中性结果型事实。折叠（展示瘦身）之后仍有执行层止损，二者不互斥——
+	# 2026-09-14 事故：只有折叠（且要求逐字节相同）时，同签名空转 166 次无人止损。
+	assert any(t.startswith("[loop_break]") for t in texts), texts
+	clear_advice()
+
+
+@pytest.mark.asyncio
+async def test_broken_diagnostics_cannot_kill_fold_wiring(monkeypatch):
+	"""诊断采集（账本）失败不得连带打死防护（折叠）——二者必须分属不同 try。"""
+	from engine.loop_ledger import LoopLedger
+
+	def boom(self, tool_name, content, params_digest=None):  # noqa: ANN001
+		raise RuntimeError("ledger broken")
+
+	monkeypatch.setattr(LoopLedger, "observe_tool", boom)
+
+	reg = ToolRegistry()
+	reg.register(EchoTool())
+	store = MessageStore([user_message("go")])
+	await _collect(store, reg, _AlwaysSameToolClient(), BudgetTracker(max_turns=6))
+
+	texts = _tool_texts(store)
+	assert any("[fold]" in t for t in texts), texts
+	clear_advice()
+
+
 if __name__ == "__main__":
 	import pytest
 

@@ -1,4 +1,9 @@
-"""content_index_cache_shadow — 【侧挂模块·默认关】per-file 内容哈希缓存 trigram 贡献。
+"""content_index_cache_shadow — 【侧挂模块·升格后默认开】per-file 内容哈希缓存 trigram 贡献。
+
+升格状态（2026-09-14 更正）：挂钩型侧挂模块（在 `sidecar/upgrade.py` 的 `_HOOKED` 清单内），
+`enabled()` 走 `sidecar.policy.side_enabled()`；专用 env 未设时回退总升格开关
+`XEYO_SIDEMOD_PROMOTE`（默认 1=升格）⇒ 实际**默认开**，原「默认关」表述与运行时相反。
+单项关闭 `XEYO_CONTENT_INDEX_CACHE=0`，全局回退 `XEYO_SIDEMOD_PROMOTE=0`。
 
 依据：per-file 内容哈希索引缓存设计（侧挂 ⑧：按内容哈希缓存的 per-file 索引层）。
 
@@ -12,7 +17,7 @@
 - 内容哈希用 blake2b（同 `codeindex.symbols`），不依赖 mtime（规避 Windows 同秒粗粒度）。
 
 ## 侧挂契约（不改主文件逻辑）
-- `enabled()`：读 `XEYO_CONTENT_INDEX_CACHE`（默认 0=关）。开=`_build_index` 换成缓存版；
+- `enabled()`：读 `XEYO_CONTENT_INDEX_CACHE`；未设时回退总升格开关（默认开）。开=`_build_index` 换成缓存版；
   关=原逻辑（逐位不变）。
 - `install()` / `uninstall()`：挂钩 `content_index._build_index`。卸载即恢复原函数。
 - **fail-open**：读/哈希任何异常 → 与原文一致（返回 `None`，调用方回退全量 `rg`）。

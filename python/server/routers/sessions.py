@@ -616,10 +616,13 @@ async def session_messages(session_id: str):
 	# replace 事件化回溯：模型可见面 = fold 后的行（旧日志无 marker 时恒等）。
 	from session.surface import fold_surface_rows
 
-	for i, row in enumerate(
-		resolve_transcript_rows(fold_surface_rows(raw_rows), p)
-	):
-		messages.extend(_side_row_to_ui(row, i, pending_calls))
+	surface_rows = resolve_transcript_rows(fold_surface_rows(raw_rows), p)
+	# 去重集必须先整表预扫：ui_thought 行由前端 debounce 批量落盘，位置可能不在所属轮次之后。
+	persisted_thoughts = _persisted_thought_keys(surface_rows)
+	for i, row in enumerate(surface_rows):
+		messages.extend(
+			_side_row_to_ui(row, i, pending_calls, persisted_thoughts=persisted_thoughts)
+		)
 	# T31：随消息返回服务端权威 cwd（供 tui 等薄客户端恢复会话时不自定工作区）。
 	return {
 		"session_id": session_id,
@@ -628,20 +631,54 @@ async def session_messages(session_id: str):
 	}
 
 
+def _thought_key(text: Any) -> str:
+	"""Thought 去重键：折叠全部空白后的全文；空白差异不该算两条。
+
+	assistant 行内的 reasoning 块与前端 debounce 补写的 ``ui_thought`` 行描述同一段思考，
+	文本只可能差首尾/换行空白，因此用折叠后的全文当键。
+	"""
+	return " ".join(str(text or "").split())
+
+
+def _persisted_thought_keys(rows: list[dict[str, Any]]) -> set[str]:
+	"""预扫 transcript 里既有的 ``ui_thought`` 行文本，作为投影去重的「已落盘」集合。
+
+	``ui_thought`` 是前端补写的 UI-only 行（``record_ui_thoughts``），额外携带前端测量的
+	思考耗时（``thought_ms``）。它与 assistant 行内的 reasoning 块同源，因此同文本时保留前者。
+	必须在投影前整表预扫：``ui_thought`` 行由 debounce 批量落盘，位置可能远离所属轮次。
+	"""
+	keys: set[str] = set()
+	for row in rows:
+		if not isinstance(row, dict) or str(row.get("role") or "") != "ui_thought":
+			continue
+		content = row.get("content")
+		if isinstance(content, str):
+			key = _thought_key(content)
+			if key:
+				keys.add(key)
+	return keys
+
+
 def _side_row_to_ui(
 	row: dict[str, Any],
 	idx: int,
 	pending_calls: deque[dict[str, Any]],
+	*,
+	persisted_thoughts: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     """把侧链 transcript 行（Message dict）展开为前端 ChatMessage 形状。
 
     与主会话恢复接口保持一致的渲染语义：
     - user：进 text（list 块拆出图片引用）；
-    - assistant：str 直接用；list 块拆出 text 段落，并把 ``tool_use`` 块压入
-      pending 队列 —— 它们的输入参数要配对到随后的 tool 结果行；
+    - assistant：str 直接用；list 块按顺序拆出 reasoning（思考→``isThought`` 行）、
+      text（正文段落），并把 ``tool_use`` 块压入 pending 队列 —— 它们的输入参数要配对到
+      随后的 tool 结果行；
     - tool：content 是块列表（tool_result + 可选 image_url）；按名字/FIFO 配对
       到最近一个未消费的 tool_use，输出「合并单行」：toolName/toolInput/text。
-    返回 0..n 行；空返回表示该行无可渲染内容（如纯 thinking 块）。
+    返回 0..n 行；空返回表示该行无可渲染内容。
+
+    ``persisted_thoughts`` 传入已落盘 ``ui_thought`` 行的文本键，命中则不重复投影该块
+    （见 ``_persisted_thought_keys``）。
     """
     role = str(row.get("role") or "")
     content = row.get("content")
@@ -683,14 +720,33 @@ def _side_row_to_ui(
             if not content.strip():
                 return []
             return [{"id": mid, "role": "assistant", "text": content, "createdAt": created}]
-        # list：拆 text 段落 + 把 tool_use 参数入队等待结果行配对。
+        # list：按块顺序拆 reasoning（思考）+ text（正文），并把 tool_use 参数入队等待结果行配对。
+        # 顺序与实时渲染一致：Thought 在正文之前；tool 行由后续独立行补齐。
+        out_rows: list[dict[str, Any]] = []
         texts: list[str] = []
         if isinstance(content, list):
-            for block in content:
+            known = persisted_thoughts or set()
+            for k, block in enumerate(content):
                 if not isinstance(block, dict):
                     continue
                 btype = block.get("type")
-                if btype == "text" and isinstance(block.get("text"), str) and block["text"].strip():
+                if btype == "reasoning":
+                    rtext = block.get("text")
+                    if not isinstance(rtext, str) or not rtext.strip():
+                        continue
+                    key = _thought_key(rtext)
+                    if key and key in known:
+                        # 已有前端补写的 ui_thought 行（还带着思考耗时）⇒ 不重复投影。
+                        continue
+                    out_rows.append({
+                        # 确定性派生 id：不与 ui_thought 行的前端 id 冲突，也不与正文行同 id。
+                        "id": f"{mid}#r{k}",
+                        "role": "assistant",
+                        "text": rtext.strip(),
+                        "isThought": True,
+                        "createdAt": created,
+                    })
+                elif btype == "text" and isinstance(block.get("text"), str) and block["text"].strip():
                     if texts:
                         texts.append("\n")
                     texts.append(block["text"])
@@ -701,9 +757,11 @@ def _side_row_to_ui(
                         "ts": created,
                     })
         text = "".join(texts)
-        if not text.strip():
-            return []
-        return [{"id": mid, "role": "assistant", "text": text, "createdAt": created}]
+        if text.strip():
+            out_rows.append({"id": mid, "role": "assistant", "text": text, "createdAt": created})
+        # 纯思考轮（无 text / 无 tool_use）也返回 Thought 行：历史 text-only 轮的思考态
+        # 只能从这里恢复，否则刷新后该轮的 Thinking 归零。
+        return out_rows
 
     if role == "tool":
         result_text = ""
@@ -1098,7 +1156,7 @@ async def session_agent_retry(
         _extract_bearer,
         _resolve_base_url,
         fake_model_enabled,
-        local_model_enabled,
+        local_model_allowed,
     )
     from server.session_pool import ModelConfig
     from tools.agent_tool import AgentTool
@@ -1142,7 +1200,7 @@ async def session_agent_retry(
             api_key = _extract_bearer(authorization)
             provider = (body.provider or x_provider or "deepseek").lower()
             if provider not in PROVIDER_PRESETS or (
-                provider == "local" and not local_model_enabled()
+                provider == "local" and not local_model_allowed()
             ) or (provider == "fake" and not fake_model_enabled()):
                 raise api_error(400, f"unsupported provider: {provider}")
             if not api_key:

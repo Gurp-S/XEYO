@@ -72,31 +72,3 @@ def slash_command(
 		"message": result.message,
 		"result": result.result,
 	}
-
-
-class SlashParseRequest(BaseModel):
-	text: str = Field(default="", max_length=100_000)
-	surfaces: list[str] = Field(default_factory=list)
-
-
-@router.post("/v1/slash/parse")
-def slash_parse(body: SlashParseRequest, request: Request) -> dict[str, Any]:
-	"""轻量解析：各面用于未知命令判定（不执行任何 handler）。"""
-	require_loopback(request)
-	from slash.registry import parse_slash as _parse
-
-	cmd, arg = _parse(body.text)
-	if cmd is None:
-		text = (body.text or "").strip()
-		if text.startswith("/"):
-			unknown = text[1:].strip()
-			return {"handled": False, "unknown": True, "name": unknown.split(None, 1)[0] if unknown else ""}
-		return {"handled": False, "unknown": False, "name": ""}
-	return {
-		"handled": True,
-		"unknown": False,
-		"name": cmd.name,
-		"handler": cmd.handler,
-		"arg": arg,
-		"when": cmd.when,
-	}

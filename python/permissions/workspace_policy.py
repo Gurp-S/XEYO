@@ -11,6 +11,7 @@ Agent 对策略文件本身不可写（由 policy 硬拒绝）。
 """
 
 from __future__ import annotations
+import logging
 
 import json
 import os
@@ -136,7 +137,7 @@ def _invalid_policy(path: Path, why: str) -> WorkspacePolicy:
 			action="defaults_applied_bash_ask_write_ask",
 		)
 	except Exception:  # 审计故障不得影响策略回退
-		pass
+		logging.getLogger(__name__).debug("policy.invalid audit failed", exc_info=True)
 	# 坏文件 = 比「无文件缺省」更严：显式 ask/ask（T25 fail-closed，宁可多问）。
 	# 缺省 bash=default / write=risk 只适用于「无策略文件」；坏文件不得落在宽松档。
 	return WorkspacePolicy(

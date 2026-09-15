@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import os
 import time
 import uuid
@@ -179,7 +180,7 @@ class PendingPermissionStore:
 				fields["command_summary"] = item.command_summary
 			default_audit_log().record("permission.resolved", **fields)
 		except Exception:
-			pass
+			logging.getLogger(__name__).debug("permission.resolved audit failed", exc_info=True)
 		return True
 
 	def cancel_pending_for_session(
@@ -358,7 +359,7 @@ class PermissionGrantStore:
 			actor=grant.actor,
 		)
 		except Exception:
-			pass
+			logging.getLogger(__name__).debug("permission.grant.added audit failed", exc_info=True)
 		return grant
 
 	def match(
@@ -403,7 +404,7 @@ class PermissionGrantStore:
 				scope=grant.scope,
 			)
 		except Exception:
-			pass
+			logging.getLogger(__name__).debug("permission.grant.revoked audit failed", exc_info=True)
 		return True
 
 	def list(self, scope: str | None = None) -> list[PermissionGrant]:

@@ -328,7 +328,6 @@ describe('chatStore dialogue — errors & busy', () => {
 			expect(inbox.some(item => item.text === 'two' && item.state === 'queued')).toBe(
 				true,
 			);
-			expect(useChatStore.getState().hasInboxChip).toBe(true);
 		});
 		const users = (useChatStore.getState().messagesById.sess_test ?? [])
 			.filter(m => m.role === 'user')

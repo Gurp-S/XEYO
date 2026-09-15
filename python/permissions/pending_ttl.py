@@ -4,7 +4,6 @@
 - 交互式提问（AskUserQuestion）→ 不超时（``None``），由用户显式关闭结束；
 - 普通权限确认 → 180s（``PENDING_PANEL_TTL_SECONDS``）；
 - 危险操作（reason/matched_rule 命中 danger/secret/protected）→ 60s；
-- 到期前 30s 推 ``PermissionExpiringEvent`` 提醒（GUI 倒计时高亮）。
 
 统一结果文案（query_loop 组装 ToolResult 用）：
 - rejected：用户显式拒绝；
@@ -19,7 +18,6 @@ from __future__ import annotations
 
 PENDING_PANEL_TTL_SECONDS = 180.0
 PENDING_DANGER_TTL_SECONDS = 60.0
-PENDING_REMINDER_BEFORE_S = 30.0
 
 _DANGER_MARKERS = ("danger", "secret", "protected")
 

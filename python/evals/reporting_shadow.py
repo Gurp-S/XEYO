@@ -1,4 +1,8 @@
-"""reporting_shadow — 【侧挂模块·默认关】报告口径：禁止只报单一 accuracy。
+"""reporting_shadow — 【侧挂模块·升格后默认开】报告口径：禁止只报单一 accuracy。
+
+升格状态（2026-09-14 更正）：纯函数型侧挂模块，`enabled()` 走 `sidecar.policy.side_enabled()`；
+专用 env 未设时回退总升格开关 `XEYO_SIDEMOD_PROMOTE`（默认 1=升格）⇒ 实际**默认开**，
+原「默认关」表述与运行时相反。单项关闭 `XEYO_EVAL_REPORTING=0`。
 
 ## 为什么（收益=评测诚实度）
 - `evals/*`（humaneval_lite / mbpp_lite / bfcl_lite）summary/print 现只输出 `accuracy` 单一
@@ -8,7 +12,7 @@
   拒绝只写单一 `accuracy`。
 
 ## 侧挂契约（不改主逻辑）
-- `enabled()`：读 `XEYO_EVAL_REPORTING`（默认 0=关）。开=评测写入 summary 时经
+- `enabled()`：读 `XEYO_EVAL_REPORTING`；未设时回退总升格开关（默认开）。开=评测写入 summary 时经
   `build_report(summary, ...)` 规范化；关=原样。
 - `build_report(summary, *, mode_label=None) -> dict`：纯函数，返回至少含 4 字段的字典；
   若传入的 summary 只有 `accuracy`（无 strict 等），会自动补 `strict=None / Δ=None /

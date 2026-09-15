@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime
 from typing import Any
 
@@ -111,5 +112,5 @@ def observe_shot(
 			)
 		except Exception:
 			# 校准观测失败不阻塞热路径
-			pass
+			logging.getLogger(__name__).debug("calibration observe failed", exc_info=True)
 	snap.last_x_sent = x_sent

@@ -31,14 +31,30 @@ export function collectSyncableThoughts(
 	}));
 }
 
+/**
+ * Thought 去重键：折叠全部空白后的全文。
+ * 必须与后端 `server/routers/sessions.py::_thought_key` 保持一致 —— 服务端投影出的
+ * Thought（assistant 行内的 reasoning 块）和本地补写的 Thought 是同源文本，只可能差空白。
+ */
+function thoughtKey(text: string): string {
+	return text.replace(/\s+/g, ' ').trim();
+}
+
 /** 服务端 transcript 恢复后，把本地 IDB 里尚未落盘的 Thought 按时间插回。 */
 export function mergeTranscriptWithLocalThoughts(
 	server: ChatMessage[],
 	local: ChatMessage[],
 ): ChatMessage[] {
 	const serverIds = new Set(server.map(m => m.id));
+	// 服务端现已把 assistant 行内的 reasoning 块投影为 Thought 行，其 id（`<mid>#r<k>`）
+	// 与前端本地 id 不同 —— 只按 id 去重会插出重复 Thought，因此叠加文本键判定。
+	const serverThoughtKeys = new Set(
+		server.filter(m => m.isThought === true).map(m => thoughtKey(m.text)),
+	);
 	const localThoughts = collectSyncableThoughts(local);
-	const missing = localThoughts.filter(t => !serverIds.has(t.id));
+	const missing = localThoughts.filter(
+		t => !serverIds.has(t.id) && !serverThoughtKeys.has(thoughtKey(t.text)),
+	);
 	if (missing.length === 0) {
 		return server;
 	}

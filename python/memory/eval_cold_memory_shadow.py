@@ -1,4 +1,9 @@
-"""eval_cold_memory_shadow — 【侧挂模块·默认关】评测冷记忆：清空召回面，只测「解」不测「记」。
+"""eval_cold_memory_shadow — 【侧挂模块·升格后默认开】评测冷记忆：清空召回面，只测「解」不测「记」。
+
+升格状态（2026-09-14 更正）：挂钩型侧挂模块（在 `sidecar/upgrade.py` 的 `_HOOKED` 清单内），
+`enabled()` 走 `sidecar.policy.side_enabled()`；专用 env 未设时回退总升格开关
+`XEYO_SIDEMOD_PROMOTE`（默认 1=升格）⇒ 实际**默认开**，原「默认关」表述与运行时相反。
+单项关闭 `XEYO_EVAL_COLD_MEMORY=0`，全局回退 `XEYO_SIDEMOD_PROMOTE=0`。
 
 依据：评测冷记忆设计（侧挂 ①：把「记忆召回」当作「已知修复检索」通道）。
 
@@ -9,7 +14,7 @@
   （`mark_retrieval_assisted`），把「靠检索命中的引用」与「原创解决」分开标注。
 
 ## 侧挂契约（不改主文件逻辑）
-- `enabled()`：读 `XEYO_EVAL_COLD_MEMORY`（默认 0=关，仅评测置 1）。开=`search()` 候选召回面
+- `enabled()`：读 `XEYO_EVAL_COLD_MEMORY`；未设时回退总升格开关（默认开）。开=`search()` 候选召回面
   置空返回 `[]`；关=原逻辑（逐位不变）。
 - `install()` / `uninstall()`：挂钩 `memory.search.search`。卸载即恢复原函数，零源改动。
 - **作用域限制**：为避免误伤生产路径，仅当**调用链处于评测上下文**才真正清空召回面——

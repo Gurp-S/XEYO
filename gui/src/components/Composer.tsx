@@ -78,6 +78,8 @@ type Attachment = DraftAttachment;
 
 const MAX_IMAGES = 8;
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+/** 排队卡默认展示条数：超出折叠为「展开其余 N 条」。 */
+const QUEUE_PREVIEW_COUNT = 3;
 /** 空态单行高度（矮框）；输入变多后长到 TA_MAX；封顶后内部滚动 */
 const TA_MIN_PX = 36;
 const TA_MAX_PX = 120;
@@ -250,28 +252,62 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 	}, [levelOptions, reasoningEffort]);
 	// P1 mid-turn inbox：排队 chip（会话忙时后端 202 排队；轮询刷新/逐条取消）。
 	const inboxBySession = useChatUiStore(s => s.inboxBySession);
-	const hasInboxChip = useChatUiStore(s => s.hasInboxChip);
 	const refreshInbox = useChatUiStore(s => s.refreshInbox);
 	const cancelInboxItem = useChatUiStore(s => s.cancelInboxItem);
 	const editInboxItem = useChatUiStore(s => s.editInboxItem);
 	const inboxItems: InboxQueuedItem[] = (activeId ? inboxBySession[activeId] : undefined) ?? [];
-	// 排队卡最多一条：只展示最新一条（多条时以 mono 计数徽标注明总量）。
-	const latestInbox = inboxItems.length > 0 ? inboxItems[inboxItems.length - 1] : null;
-	// 行内编辑：单卡只编最新一条；Enter/失焦保存，Esc 取消。
-	const [queueEditing, setQueueEditing] = useState(false);
+	// 每会话派生：切走再切回时不会因其它会话的轮询结果把本会话 chip 熄灭。
+	const hasInboxChip = inboxItems.length > 0;
+	// 队列列表：全部条目可见（默认最多 3 条，超出折叠）。
+	const [queueExpanded, setQueueExpanded] = useState(false);
+	const visibleInbox = queueExpanded
+		? inboxItems
+		: inboxItems.slice(0, QUEUE_PREVIEW_COUNT);
+	const hiddenInboxCount = inboxItems.length - visibleInbox.length;
+	// 行内编辑：editingId 锁定目标条目——轮询导致的队列位移不会再改错行。
+	// Enter/失焦保存；Esc 取消（escRef 拦住失焦触发的保存，避免误保存）。
+	const [editingId, setEditingId] = useState<string | null>(null);
 	const [queueDraft, setQueueDraft] = useState('');
-	const queueEditDirty = queueEditing && latestInbox != null;
-	const openQueueEdit = () => {
-		if (!latestInbox || latestInbox.state === 'delivering') return;
-		setQueueDraft(latestInbox.text);
-		setQueueEditing(true);
+	const queueEscRef = useRef(false);
+	const editingItem =
+		editingId != null
+			? (inboxItems.find(it => it.queue_id === editingId) ?? null)
+			: null;
+	const closeQueueEdit = () => {
+		setEditingId(null);
+		setQueueDraft('');
+	};
+	const openQueueEdit = (it: InboxQueuedItem) => {
+		if (it.state === 'delivering') return;
+		queueEscRef.current = false;
+		setEditingId(it.queue_id);
+		setQueueDraft(it.text);
 	};
 	const saveQueueEdit = () => {
-		const it = latestInbox;
-		setQueueEditing(false);
+		// Esc 取消路径：跳过这次由失焦触发的调用。
+		if (queueEscRef.current) {
+			queueEscRef.current = false;
+			closeQueueEdit();
+			return;
+		}
+		const it = editingItem;
 		const t = queueDraft.trim();
+		closeQueueEdit();
 		if (!it || !t || t === it.text) return;
-		void editInboxItem(activeId ?? '', it.queue_id, t);
+		if (it.state === 'delivering') {
+			// 编辑期间被投递：保存必 409，直接提示而不是静默丢改动。
+			toast.error('该消息已开始投递，无法编辑');
+			return;
+		}
+		void editInboxItem(activeId ?? '', it.queue_id, t).then(ok => {
+			if (!ok) toast.error('编辑失败（消息可能已开始投递）');
+		});
+	};
+	const cancelQueueItem = (it: InboxQueuedItem) => {
+		if (it.queue_id === editingId) closeQueueEdit();
+		void cancelInboxItem(activeId ?? '', it.queue_id).then(ok => {
+			if (!ok) toast.error('取消失败（消息可能已开始投递）');
+		});
 	};
 	// P1：chip 可见时 2s 轮询排队队列（多端一致；队空 = 已投递/取消 → 清 chip）。
 	useEffect(() => {
@@ -1231,78 +1267,101 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 				>
 				{showTodoDock ? <SessionTodoDock embedded /> : null}
 				{goalDockLive ? <SessionGoalDock embedded /> : null}
-				{hasInboxChip && latestInbox ? (
-					// 排队卡（最多一条）：只显示最新一条排队消息——
-					// 拖拽手柄 + 截断文本 + 右侧幽灵图标动作（stuck→重试 / 删除）；
-					// 多条时以 mono 计数徽标注明总量，不做折叠头。
+				{hasInboxChip && inboxItems.length > 0 ? (
+					// 排队列表：全部条目可见（默认 3 条，超出折叠）——
+					// 每条独立行：拖拽手柄 + 截断文本 + 幽灵图标动作（编辑 / stuck→重试 / 删除）。
+					// delivering 行不可编辑/取消（后端 409，前端先行拦截）。
 					<div className="xy-queue-dock" data-queue-dock="">
-						<div className="xy-queue-card">
-							<span className="xy-queue-grip" aria-hidden>
-								<GripVertical className="h-3.5 w-3.5" strokeWidth={1.9} />
-							</span>
-							{inboxItems.length > 1 ? (
-								<span className="xy-queue-count" title={`共 ${inboxItems.length} 条排队`}>
-									{inboxItems.length}
-								</span>
-							) : null}
-							{queueEditDirty ? (
-								<input
-									value={queueDraft}
-									onChange={e => setQueueDraft(e.target.value)}
-									onKeyDown={e => {
-										if (e.key === 'Enter') saveQueueEdit();
-										if (e.key === 'Escape') setQueueEditing(false);
-									}}
-									onBlur={saveQueueEdit}
-									autoFocus
-									maxLength={2000}
-									aria-label="编辑排队消息"
-									className="min-w-0 flex-1 rounded-md border border-line/70 bg-paper-deep/40 px-2 py-0.5 text-[12.5px] text-ink outline-none focus:border-accent/60"
-								/>
-							) : (
-								<span
-									className="xy-queue-text"
-									data-stuck={latestInbox.state === 'stuck' ? '' : undefined}
-								>
-									{latestInbox.state === 'stuck'
-										? `投递失败：${latestInbox.text}`
-										: latestInbox.text}
-								</span>
-							)}
-							<div className="xy-queue-actions" hidden={queueEditDirty}>
-								<button
-									type="button"
-									className="xy-queue-action"
-									title="编辑消息"
-									onClick={openQueueEdit}
-								>
-									<Pencil className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden />
-								</button>
-								{latestInbox.state === 'stuck' ? (
-									<button
-										type="button"
-										className="xy-queue-action"
-										title="重新投递"
-										onClick={() => {
-											void resumeInbox(activeId ?? '');
-											void refreshInbox(activeId ?? '');
-										}}
-									>
-										<Send className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden />
-									</button>
-								) : null}
-								<button
-									type="button"
-									className="xy-queue-action"
-									title="取消排队"
-									onClick={() => {
-										void cancelInboxItem(activeId ?? '', latestInbox.queue_id);
-									}}
-								>
-									<X className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden />
-								</button>
-							</div>
-						</div>
+						{visibleInbox.map(it => {
+							const isEditing = editingId === it.queue_id;
+							return (
+								<div className="xy-queue-card" key={it.queue_id}>
+									<span className="xy-queue-grip" aria-hidden>
+										<GripVertical className="h-3.5 w-3.5" strokeWidth={1.9} />
+									</span>
+									{isEditing ? (
+										<input
+											value={queueDraft}
+											onChange={e => setQueueDraft(e.target.value)}
+											onKeyDown={e => {
+												if (e.key === 'Enter') saveQueueEdit();
+												if (e.key === 'Escape') {
+													// 先立旗再关闭：拦住随后的失焦保存，避免 Esc 误保存。
+													queueEscRef.current = true;
+													closeQueueEdit();
+												}
+											}}
+											onBlur={saveQueueEdit}
+											autoFocus
+											maxLength={2000}
+											aria-label="编辑排队消息"
+											className="min-w-0 flex-1 rounded-md border border-line/70 bg-paper-deep/40 px-2 py-0.5 text-[12.5px] text-ink outline-none focus:border-accent/60"
+										/>
+									) : (
+										<span
+											className="xy-queue-text"
+											data-stuck={it.state === 'stuck' ? '' : undefined}
+										>
+											{it.state === 'stuck' ? `投递失败：${it.text}` : it.text}
+										</span>
+									)}
+									<div className="xy-queue-actions" hidden={isEditing}>
+										{it.state !== 'delivering' ? (
+											<button
+												type="button"
+												className="xy-queue-action"
+												title="编辑消息"
+												onClick={() => openQueueEdit(it)}
+											>
+												<Pencil className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden />
+											</button>
+										) : null}
+										{it.state === 'stuck' ? (
+											<button
+												type="button"
+												className="xy-queue-action"
+												title="重新投递"
+												onClick={() => {
+													void resumeInbox(activeId ?? '');
+													void refreshInbox(activeId ?? '');
+												}}
+											>
+												<Send className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden />
+											</button>
+										) : null}
+										<button
+											type="button"
+											className="xy-queue-action"
+											title={
+												it.state === 'delivering' ? '已开始投递，无法取消' : '取消排队'
+											}
+											disabled={it.state === 'delivering'}
+											onClick={() => cancelQueueItem(it)}
+										>
+											<X className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden />
+										</button>
+									</div>
+								</div>
+							);
+						})}
+						{hiddenInboxCount > 0 ? (
+							<button
+								type="button"
+								className="xy-queue-more"
+								onClick={() => setQueueExpanded(true)}
+							>
+								展开其余 {hiddenInboxCount} 条
+							</button>
+						) : null}
+						{queueExpanded && hiddenInboxCount === 0 && inboxItems.length > QUEUE_PREVIEW_COUNT ? (
+							<button
+								type="button"
+								className="xy-queue-more"
+								onClick={() => setQueueExpanded(false)}
+							>
+								收起排队列表
+							</button>
+						) : null}
 					</div>
 				) : null}
 				<PermissionDialog />

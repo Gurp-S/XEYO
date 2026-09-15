@@ -1,9 +1,15 @@
-// T25c：LOCAL-TEST 统一收口（原散落在 12 处的 LOCAL-TEST 条件）。
+// 本地/测试 provider 门禁。
 //
-// 「本地模型（测试）」provider 只在 dev 构建 + 显式开启（localStorage
-// XEYO_ENABLE_LOCAL_TEST=1）时可用；生产构建（vite build / tauri build）恒关闭。
-// 关闭时：provider 选项不渲染、空 Key 校验恢复、存量 local profile 归一化为
-// deepseek（经 settingsStore.isProviderId）。
+// 'local' 与 'fake' 走的是相反的路，2026-09-14 起分开管理：
+//
+// * **'local' = 正式功能**（本地模型服务，llama.cpp / 任何 OpenAI 兼容的环回服务）。
+//   它**不再受 dev 构建门禁**——生产包同样可用，因为要不要开放由用户在本机决定
+//   （设置 → 模型与账号 → 本地模型）。后端对应的授权位是
+//   `settings.local_models.enabled`（见 `python/localmodels/gate.py`）。
+//   本地服务通常不校验 Key，所以空 Key 合法。
+// * **'fake' = 测试专用**（Playwright 全栈测试的确定性假模型）。仍然只在
+//   dev 构建 + 显式开启（localStorage `XEYO_ENABLE_LOCAL_TEST=1`）时可用，
+//   生产构建恒关闭。
 
 export function isLocalTestEnabled(): boolean {
 	if (!import.meta.env.DEV) {
@@ -16,24 +22,38 @@ export function isLocalTestEnabled(): boolean {
 	}
 }
 
-/** provider 是否为受 gate 管理的本地测试 provider（'local'）。 */
+/** provider 是否为本地模型服务（'local'）。正式功能，不受 dev 门禁限制。 */
 export function isLocalProvider(provider: string | undefined | null): boolean {
-	return !!provider && provider === 'local' && isLocalTestEnabled();
+	return !!provider && provider === 'local';
+}
+
+/** 受 dev 门禁管理的测试 provider（仅 'fake'）。 */
+export function isTestProvider(provider: string | undefined | null): boolean {
+	return !!provider && provider === 'fake' && isLocalTestEnabled();
 }
 
 /**
- * 受 gate 管理的「本地/测试」provider 全集：'local' 与 'fake'。
- * 两者均允许空 API Key；fake 供 Playwright 全栈（真浏览器+真后端）测试用。
+ * 空 API Key 放行条件。
+ *
+ * 'local' 恒放行（本机服务不校验 Key）；'fake' 仅门禁开启时放行。
  */
-export function isTestProvider(provider: string | undefined | null): boolean {
-	return (
-		!!provider &&
-		(provider === 'local' || provider === 'fake') &&
-		isLocalTestEnabled()
-	);
+export function allowsEmptyApiKey(provider: string | undefined | null): boolean {
+	return isLocalProvider(provider) || isTestProvider(provider);
 }
 
-/** 空 API Key 放行条件：仅本地/测试 provider 允许无 Key。 */
-export function allowsEmptyApiKey(provider: string | undefined | null): boolean {
-	return isTestProvider(provider);
+/**
+ * 已知 provider 全集（`settingsStore.isProviderId` 的判定实体）。
+ *
+ * 放在这里而不是 settingsStore，是为了让判定可以在不加载 store（zustand +
+ * IndexedDB）的前提下被测试与复用——测试替身也直接转发本函数，不再是各写一份
+ * "看起来一样"的实现。
+ */
+export function isKnownProvider(v: unknown): boolean {
+	return (
+		v === 'deepseek' ||
+		v === 'openai' ||
+		v === 'anthropic' ||
+		isLocalProvider(v as string) ||
+		isTestProvider(v as string)
+	);
 }

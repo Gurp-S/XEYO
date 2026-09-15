@@ -1,6 +1,14 @@
-"""memindex_sig_shadow — 【侧挂模块·默认关】memindex 签名从 (mtime,size) 改为 (size, content_sha)。
+"""memindex_sig_shadow — 【侧挂模块·升格后默认开】memindex 签名从 (mtime,size) 改为 (size, content_sha)。
 
 依据：memindex 签名口径一致性设计（侧挂 ⑧.5：记忆索引签名 (mtime,size) → (size,content_sha)）。
+
+## 升格状态（2026-09-14 更正，此前文档失实）
+本模块属 `sidecar/upgrade.py` 的挂钩型清单，由 `engine.query_engine.build_default_engine`
+在构造时统一 `apply()`；总开关 `XEYO_SIDEMOD_PROMOTE` **默认 1（升格）**，见 `sidecar/policy.py`。
+故实际状态是**默认开**，只是当初写文档时按「侧挂=默认关」的旧约定描述，与运行时相反。
+- 全局回退：`XEYO_SIDEMOD_PROMOTE=0`（同时回退全部挂钩型模块）。
+- 单项关闭：`XEYO_MEMINDEX_SIG_HASH=0`。
+- 已注册进 `memory_switches` 的键则严格按 settings.memory（env/promote 均不穿越）。
 
 ## 为什么（收益目标）
 - `memindex._sync_table` 现状用 `(mtime, size)` 做懒同步签名；`mtime` 在 Windows/部分
@@ -9,8 +17,8 @@
   `(size, content_hash)`。本模块把记忆侧 notes 表对齐到同一哲学。
 
 ## 侧挂契约（不改主文件逻辑）
-- `enabled()`：读 `XEYO_MEMINDEX_SIG_HASH`（默认 0=关）。开=notes 走 `(size, sha)` 签名；
-  关=`_sync_table` 原逻辑（逐位不变）。
+- `enabled()`：读 `XEYO_MEMINDEX_SIG_HASH`；未设时回退总升格开关（默认开）。
+  开=notes 走 `(size, sha)` 签名；关=`_sync_table` 原逻辑（逐位不变）。
 - `install()` / `uninstall()`：挂钩 `memindex._sync_table`（`load_notes_cached` /
   `load_rollouts_cached` 均经它）。卸载即恢复原函数，零源改动。
 - **fail-open**：签名/读文件任何异常 → 抛给调用方 `load_notes` 回退文件扫描（P0 词法召回

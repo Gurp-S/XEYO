@@ -156,6 +156,28 @@ class OpenAICompatClient:
 		self.context_limit: int | None = _positive_int(
 			os.environ.get("XEYO_CONTEXT_LIMIT_TOKENS")
 		)
+		# 用户登记的窗口 = 权威口径（GUI「账户」里为该模型填的上下文窗口，或 env
+		# 显式值）。它同时是后端压缩上限的分母，事后不得被厂商 usage 元数据改掉。
+		self.context_limit_declared: bool = self.context_limit is not None
+
+	def declare_context_limit(self, context_limit: int | None) -> None:
+		"""登记用户/配置显式指定的上下文窗口（token）并钉住它。
+
+		后端压缩上限（C2 压力门 / HardTop / 投影 params）一律以它为分母：用户把窗口
+		填小 → 压得晚、填大 → 压得早，都是用户的口径，引擎不拿厂商返回值另起一套。
+		非正数 / None → 视为未登记（不钉），留给厂商 usage 元数据兜底。
+		"""
+		limit = _positive_int(context_limit)
+		if limit is None:
+			return
+		self.context_limit = limit
+		self.context_limit_declared = True
+
+	def _apply_usage_context_limit(self, usage: dict[str, Any] | None) -> None:
+		"""厂商 usage 尾帧带的窗口：**未登记时**才兜底，已登记则原样不动。"""
+		if self.context_limit_declared:
+			return
+		self.context_limit = _context_limit_from_usage_fields(usage) or self.context_limit
 
 	def _headers(self) -> dict[str, str]:
 		return {
@@ -274,10 +296,7 @@ class OpenAICompatClient:
 						# 中断(stop/断流)也不丢用量与缓存命中统计。
 						self.last_usage = u
 						self.last_context_tokens = context_tokens_from_usage(u)
-						self.context_limit = (
-							_context_limit_from_usage_fields(u)
-							or self.context_limit
-						)
+						self._apply_usage_context_limit(u)
 						if not self._usage_recorded_this_stream:
 							self._usage_recorded_this_stream = True
 							self._record_usage_safe(u)
@@ -288,7 +307,7 @@ class OpenAICompatClient:
 				yield chunk
 			self.last_usage = last_usage
 			self.last_context_tokens = context_tokens_from_usage(last_usage)
-			self.context_limit = _context_limit_from_usage_fields(last_usage) or self.context_limit
+			self._apply_usage_context_limit(last_usage)
 			if last_usage and not self._usage_recorded_this_stream:
 				self._record_usage_safe(last_usage)
 			return
@@ -346,7 +365,7 @@ class OpenAICompatClient:
 			if kind == "usage":
 				self.last_usage = payload if isinstance(payload, dict) else None
 				self.last_context_tokens = context_tokens_from_usage(self.last_usage)
-				self.context_limit = _context_limit_from_usage_fields(self.last_usage) or self.context_limit
+				self._apply_usage_context_limit(self.last_usage)
 				self._record_usage_safe(self.last_usage)
 				continue
 			if kind == "err":

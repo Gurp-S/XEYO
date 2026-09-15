@@ -149,7 +149,7 @@ function providerName(id: string): string {
 }
 
 function isProviderId(v: string): v is ProviderId {
-	// 'local' 受 localTestGate 管理（T25c）。
+	// 'local' 是正式功能（本地模型服务）。
 	return v === 'deepseek' || v === 'openai' || isLocalProvider(v);
 }
 

@@ -348,6 +348,8 @@ describe('streamChat SSE — normal / extreme', () => {
 							question: 'Pick one?',
 							options: ['x', 'y'],
 							default: 'x',
+							// legacy 帧：无 questions 字段 → 空数组（回落平铺渲染）。
+							questions: [],
 							expiresAt: 123,
 							version: undefined,
 							sessionId: 's1',
@@ -366,6 +368,53 @@ describe('streamChat SSE — normal / extreme', () => {
 							version: undefined,
 							sessionId: undefined,
 							turnId: undefined,
+							eventId: undefined,
+						},
+					]);
+				});
+
+				it('parses structured questions[] on ask_user_pending (multi-question form)', async () => {
+					fetchMock.mockResolvedValue(
+						sseResponse([
+							'data: {"xy":{"type":"ask_user_pending","request_id":"a2","session_id":"s1","turn_id":"t1","question":"1. A?\\n2. B?","options":["x","y","z"],"default":"x","questions":[{"question":"A?","options":[{"label":"x","description":"xx"},{"label":"y"}],"multiSelect":false,"default":"x"},{"question":"B?","options":["z"],"multiSelect":true,"default":null}],"expires_at":null}}\n\n',
+							'data: [DONE]\n\n',
+						]),
+					);
+					const pending: unknown[] = [];
+					await streamChat('s1', 'hi', {
+						onDelta: () => undefined,
+						onAskUserPending: ev => pending.push(ev),
+						onDone: () => undefined,
+						onError: () => undefined,
+					});
+					expect(pending).toEqual([
+						{
+							kind: 'ask_user_pending',
+							requestId: 'a2',
+							question: '1. A?\n2. B?',
+							options: ['x', 'y', 'z'],
+							default: 'x',
+							questions: [
+								{
+									question: 'A?',
+									options: [
+										{label: 'x', description: 'xx'},
+										{label: 'y'},
+									],
+									multiSelect: false,
+									default: 'x',
+								},
+								{
+									question: 'B?',
+									options: [{label: 'z'}],
+									multiSelect: true,
+									default: null,
+								},
+							],
+							expiresAt: undefined,
+							version: undefined,
+							sessionId: 's1',
+							turnId: 't1',
 							eventId: undefined,
 						},
 					]);

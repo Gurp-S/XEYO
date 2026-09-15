@@ -1,4 +1,7 @@
-"""rerank_preference_shadow — 【侧挂模块·默认关】轨迹驱动检索重排偏好信号。
+"""rerank_preference_shadow — 【侧挂模块·已固化开启】轨迹驱动检索重排偏好信号。
+
+说明（2026-09-14 更正标题）：本模块 `enabled()` 恒 True（叠加语义修复 + 召回集不变已过验收），
+不是「默认关」；残留下只有 `XEYO_SIDEMOD_PROMOTE=0` 会跳过 install（见下方契约）。
 
 依据：轨迹驱动的检索/重排偏好信号设计（侧挂 ⑮）。
 

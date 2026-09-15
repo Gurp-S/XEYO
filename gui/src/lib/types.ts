@@ -59,7 +59,7 @@ export type ChatUsage = {
 	tokens: number;
 	cny: number;
 	requests: number;
-	costSource: 'api' | 'estimate' | 'mixed' | 'unknown';
+	costSource: 'api' | 'estimate';
 	/** 后端明确提供的上下文遥测；缺失时 Pasture 会降级为估算/旧快照。 */
 	contextTokens?: number;
 	contextLimit?: number;

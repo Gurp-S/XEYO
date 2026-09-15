@@ -1,6 +1,8 @@
 """Coord 开关配置：读 ``coord.backend``，默认 ``memory``（零行为变化）。
 
-权威面见 ``_design_drafts/distributed-agents-plan.md`` §3 阶段 0：
+权威面 = 本模块实现（`python/coord/`）。设计来源为
+``_design_drafts/distributed-agents-plan.md`` §3 阶段 0，但该稿早于实现、可能漂移，
+**以本模块与 `coord/__init__.py` 的实际行为为准**：
 - ``memory``（默认）= 现状，进程内 dict，零持久化；
 - ``file`` = presence/任务/租约/ask 队列持久化到 ``<ws>/.xeyo/coord/``，跨进程可见。
 

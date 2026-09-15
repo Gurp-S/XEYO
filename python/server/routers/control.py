@@ -13,7 +13,6 @@ from permissions.store import default_permission_store
 from rewind.blob_gc import (
     _flag,
     _int_env,
-    garbage_collect,
     read_rewind_gc_config,
     write_rewind_gc_config,
 )
@@ -138,7 +137,6 @@ class InterruptRequest(BaseModel):
 
 
 @router.post("/v1/interrupt")
-@router.post("/api/interrupt")
 def interrupt(body: InterruptRequest, request: Request) -> dict[str, Any]:
 	require_loopback(request)
 	try:
@@ -280,18 +278,6 @@ def put_rewind_gc_settings(body: RewindGcSettings, request: Request) -> dict[str
 		max_bytes=body.max_bytes,
 	)
 	return {"ok": True, **saved}
-
-
-@router.post("/v1/settings/rewind-gc/run")
-def run_rewind_gc(request: Request) -> dict[str, Any]:
-	"""手动触发一次 blob GC（读取配置/环境；默认 dry-run 只报告）。"""
-	require_loopback(request)
-	try:
-		result = garbage_collect()
-		return {"ok": True, **result.to_dict()}
-	except Exception as exc:  # noqa: BLE001
-		# T34：内部异常痕迹不出 API。
-		return {"ok": False, "error": safe_error_detail(exc)}
 
 
 @router.post("/v1/plan/{turn_id}/approve")

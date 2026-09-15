@@ -32,34 +32,35 @@ function normalizeItems(payload: InboxSnapshot | null): InboxQueuedItem[] {
 export function createInboxSlice(
 	set: SetState,
 	_get: GetState,
-): Pick<ChatState, 'refreshInbox' | 'cancelInboxItem' | 'editInboxItem' | 'clearInboxChip'> {
+): Pick<ChatState, 'refreshInbox' | 'cancelInboxItem' | 'editInboxItem'> {
 	return {
 		async refreshInbox(sessionId: string) {
 			const payload = await inboxSnapshot(sessionId);
 			const items = normalizeItems(payload);
 			set(s => ({
 				inboxBySession: {...s.inboxBySession, [sessionId]: items},
-				hasInboxChip: items.length > 0,
 			}));
 		},
 		async cancelInboxItem(sessionId: string, queue_id: string) {
 			const ok = await cancelInboxItem(sessionId, queue_id);
+			// 失败（delivering 409 / 网络）不本地移除，调用方据返回值提示。
 			if (!ok) {
-				return;
+				return false;
 			}
 			set(s => {
 				const prev = s.inboxBySession[sessionId] ?? [];
 				const next = prev.filter(it => it.queue_id !== queue_id);
 				return {
 					inboxBySession: {...s.inboxBySession, [sessionId]: next},
-					hasInboxChip: next.length > 0,
 				};
 			});
+			return true;
 		},
 		async editInboxItem(sessionId: string, queue_id: string, text: string) {
 			const ok = await editInboxItemApi(sessionId, queue_id, text);
+			// 失败不改本地文本，调用方据返回值提示（避免「以为保存了」）。
 			if (!ok) {
-				return;
+				return false;
 			}
 			set(s => {
 				const prev = s.inboxBySession[sessionId] ?? [];
@@ -68,9 +69,7 @@ export function createInboxSlice(
 				);
 				return {inboxBySession: {...s.inboxBySession, [sessionId]: next}};
 			});
-		},
-		clearInboxChip() {
-			set({hasInboxChip: false});
+			return true;
 		},
 	};
 }

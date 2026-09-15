@@ -15,12 +15,39 @@ import {SessionJobsBadge} from '@/components/SessionJobsBadge';
 import {
 	fetchMemoryNotes,
 	fetchSessionCompression,
+	getCachedModelContextLimit,
 	requestManualCompact,
 	type MemoryNoteRow,
 	type SessionCompression,
 } from '@/lib/api';
+import {useSettingsStore} from '@/stores/settingsStore';
+import {
+	registeredWindowFromSettings,
+	resolveWindowLimit,
+	windowUsagePercent,
+} from '@/lib/modelWindow';
 import {useShallow} from 'zustand/react/shallow';
 import {computeUsageSegments, segmentWidths} from '@/lib/usageSegments';
+
+/**
+ * 「模型窗口」的活口径（@/lib/modelWindow）：**设置里登记的窗口优先**，厂商
+ * /models 缓存兜底；两者都没有才回退会话快照里厂商回传的实测窗口。
+ * 直接订阅 settingsStore（profiles / 激活账号 / 激活模型都是它派生投影），所以
+ * 保存账号、切账号、换模型都会**立即**改分母，不再等下一次请求的 usage 事件。
+ * 返回原始数值 → 引用稳定，不会造成额外重渲染。
+ */
+const selectDeclaredWindow = (
+	s: ReturnType<typeof useSettingsStore.getState>,
+): number | null =>
+	resolveWindowLimit({
+		registered: registeredWindowFromSettings(s),
+		vendorCached: getCachedModelContextLimit(
+			s.provider,
+			s.resolvedBaseUrl(),
+			s.model,
+		),
+	}) ?? null;
+
 
 export const ChatHeader = memo(function ChatHeader({
 	mode = 'main',
@@ -98,17 +125,24 @@ const usage = pageViewOpen ? null : sessionUsageById[activeId ?? ''] ?? null;
 		// 悬停分段条显示明细（与预览一致：label + Tokens + 占窗口），并高亮当前区域。
 		const [segTip, setSegTip] = useState<{key: string; label: string; tokens: number; chars?: number; share: number; color: string; x: number; y: number} | null>(null);
 		const hoverSegKey = segTip?.key ?? null;
-		const contextLimit = usage && Number.isFinite(usage.contextLimit) && usage.contextLimit! > 0
-			? usage.contextLimit!
-			: null;
+		// 分母（模型窗口）见 selectDeclaredWindow：设置登记值优先、厂商缓存兜底，
+		// 都缺才用会话快照里厂商回传的实测窗口（= 唯一还能报出窗口的来源）。
+		const declaredWindow = useSettingsStore(selectDeclaredWindow);
+		const measuredWindow =
+			usage && Number.isFinite(usage.contextLimit) && usage.contextLimit! > 0
+				? usage.contextLimit!
+				: null;
+		const contextLimit = declaredWindow ?? measuredWindow;
 		const contextTokens = usage && Number.isFinite(usage.contextTokens) && usage.contextTokens! >= 0
 			? usage.contextTokens!
 			: null;
-		const contextPercent = usage && Number.isFinite(usage.contextPercent)
-			? Math.max(0, Math.min(100, usage.contextPercent!))
-			: contextLimit && contextTokens != null
-				? Math.max(0, Math.min(100, (contextTokens / contextLimit) * 100))
-				: null;
+		// 占用% 永远按**面板显示的那个分母**算；只有窗口完全未知时才退回快照里
+		// 厂商自算的百分比（否则会出现「窗口 128K / 占用按 64K 算」两张皮）。
+		const contextPercent =
+			windowUsagePercent({contextTokens, limit: contextLimit}) ??
+			(usage && Number.isFinite(usage.contextPercent)
+				? Math.max(0, Math.min(100, usage.contextPercent!))
+				: null);
 		// 「消耗」必须是单调的会话累计值；contextTokens（最近一枪的输入大小）会在
 		// 收尾请求（去 tools）或 C2 压缩后缩小，显示它会把真实消耗画出"倒退"。
 		const totalTokens = usage && Number.isFinite(usage.tokens)
@@ -369,7 +403,16 @@ className="xy-icon-btn shrink-0 rounded-md p-1.5 text-mute hover:bg-glass-hover 
 													: '暂无数据'}
 											</div>
 										</div>
-										<div className="min-w-0 rounded-lg border border-line/70 bg-glass-hover px-2.5 py-2">
+										<div
+											className="min-w-0 rounded-lg border border-line/70 bg-glass-hover px-2.5 py-2"
+											title={
+												contextLimit == null
+													? '窗口未知：请在设置 → 模型与账号里为该模型登记上下文窗口。'
+													: declaredWindow != null
+														? '以设置 → 模型与账号里该模型登记的上下文窗口为准（改后立即生效）；厂商 /models 缓存仅在未登记时兜底。'
+														: '该模型未在设置里登记窗口，暂用厂商本次回传的实测窗口。'
+											}
+										>
 											<div className="text-mute">模型窗口</div>
 											<div className="mt-0.5 font-mono text-[18px] font-semibold leading-tight text-ink">
 												{contextLimit != null
@@ -377,8 +420,9 @@ className="xy-icon-btn shrink-0 rounded-md p-1.5 text-mute hover:bg-glass-hover 
 													: '暂无数据'}
 											</div>
 											<div className="mt-0.5 text-right font-mono text-[11px] leading-tight text-mute">
-												{contextLimit != null && contextTokens != null
-													? `${Math.min(100, Math.round((contextTokens / contextLimit) * 100))}%` : '—'} 占用
+												{contextPercent != null
+													? `${Math.round(contextPercent)}%`
+													: '—'} 占用
 											</div>
 										</div>
 										<div className="min-w-0 rounded-lg border border-line/70 bg-glass-hover px-2.5 py-2">

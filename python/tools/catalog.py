@@ -357,15 +357,21 @@ def build_default_registry(*, cwd: str = ".") -> ToolRegistry:
 	reg = ToolRegistry(cwd=work)
 	entries = ENABLED_TOOL_ENTRIES
 	if os.environ.get("XEYO_BENCH_MINIMAL") == "1":
-		# 基准评测最小档案：排除 Skill/Agent（skills、slash、subagent/live_agents 面）
-		# 与文件工具（Read/Write/Edit/Glob/Grep）及 Memory/AskUserQuestion/Screenshot/
-		# SendToWeChat/XeyoUI/JournalQuery——基准任务采用 bash-only 工作方式（同尺对比）；
-		# 容器路由下文件 I/O 走 bash。预算/abort/记忆开关不受影响。
+		# 评测档工具面（红线：只允许影响工具集，不得影响信息正确性）——见下方 excluded。
+		# 2026-09-14 收窄：原先把 Read/Write/Edit/Glob/Grep + Git/WebFetch/
+		# WebSearch/Diagnostics/Agent/Skill/Memory/JournalQuery 一起裁掉，等于把
+		# 产品原生工具面砍到只剩 bash。取证：harbor 自带适配器里 claude-code
+		# 默认 permission-mode=bypassPermissions 且不传 allowed/disallowed tools，
+		# codex 默认 reasoning_effort=high —— 富工具面 scaffold 一律用**产品原生
+		# 工具面**参赛；只有 terminus-2（tmux 键击）/ mini-swe-agent（单 bash 工具）
+		# 这类 scaffold 天生 bash-only，那是它们的形态，不是评测口径。
+		# 仍排除的只剩「在 headless 评测里没有作用对象」的工具：人机交互工具会把
+		# agent 卡在等一个不存在的用户上，宿主 GUI / 微信通道在此进程里没有接口。
+		# 另外 JournalQuery（会话自查询）不得被评测分支排除 —— 见红线
+		# 「会话自查询工具必须无条件注册」。
 		excluded = {
-			"Skill", "Agent", "Memory", "AskUserQuestion",
-			"Read", "Write", "Edit", "Glob", "Grep", "NotebookEdit",
-			"Screenshot", "SendToWeChat", "XeyoUI", "JournalQuery",
-			"Diagnostics", "Git", "WebFetch", "WebSearch",
+			"AskUserQuestion",
+			"Screenshot", "SendToWeChat", "XeyoUI",
 		}
 		entries = [e for e in entries if e[0] not in excluded]
 	_register_factories(

@@ -162,21 +162,31 @@ def scan_session(path: Path) -> list[DriftVerdict]:
 			continue
 		role = o.get("role")
 		content = o.get("content")
+		has_tool = False
 		if isinstance(content, str):
 			text = content
 		elif isinstance(content, list):
-			text = " ".join(
-				b.get("text", "")
-				for b in content
-				if isinstance(b, dict) and b.get("type") == "text"
-			)
+			texts: list[str] = []
+			for b in content:
+				if not isinstance(b, dict):
+					continue
+				btype = b.get("type")
+				if btype == "text":
+					texts.append(str(b.get("text") or ""))
+				elif btype == "tool_use":
+					has_tool = True
+			text = " ".join(texts)
 		else:
 			continue
 		if role == "user" and text.strip():
 			last_user = text
-		elif role == "assistant" and isinstance(content, str) and text.strip():
+		elif role == "assistant" and text.strip() and not has_tool:
 			pairs.append((last_user, text))
-		# list 形态 assistant（tool_use 轮）跳过：漂移发生在文本回复
+		# 工具轮跳过：漂移发生在文本回复。
+		# ⚠️ 判据必须是「有无 tool_use 块」，**不能**写成 ``isinstance(content, str)``：
+		# 自 2026-09-14 起纯文本轮也承载 reasoning 块（`msgtypes/message.py` 的
+		# ``content = blocks if (tool_uses or reasoning) else text``），按 str 判定会把
+		# 几乎全部 assistant 文本轮整轮丢掉 ⇒ 本函数是该 eval 唯一的取数口，样本归零。
 	return [regex_judge(u, r) for u, r in pairs]
 
 

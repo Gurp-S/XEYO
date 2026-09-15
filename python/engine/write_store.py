@@ -258,7 +258,7 @@ class WriteStore:
 
                 record_write_stale(agent_id=intent.agent_id, path=str(path))
             except Exception:  # noqa: BLE001
-                pass
+                logging.getLogger(__name__).debug("record_write_stale failed", exc_info=True)
             detail = ""
             try:
                 from engine.session_presence import format_stale_owner_hint
@@ -359,7 +359,9 @@ class WriteStore:
                 str(self._root), session_id, str(path)
             )
         except Exception:  # noqa: BLE001
-            pass
+            logging.getLogger(__name__).debug(
+                "session presence note_write failed", exc_info=True
+            )
 
     async def _apply_multi(self, intent: ChangeIntent) -> ApplyResult:
         """多文件预检：先全部校验 base，任一冲突则整体拒绝。"""

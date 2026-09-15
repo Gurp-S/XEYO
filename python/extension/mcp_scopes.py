@@ -265,7 +265,7 @@ def _record_policy_invalid(path: Path, error: str) -> None:
 			"config.invalid", path=str(path), error=error, action="enterprise_policy_defaults"
 		)
 	except Exception:  # noqa: BLE001 — 审计故障不影响回退
-		pass
+		logging.getLogger(__name__).debug("enterprise policy invalid audit failed", exc_info=True)
 
 
 def mcp_server_denied(server_id: str, *, policy: dict[str, list[str]] | None = None) -> bool:

@@ -268,11 +268,11 @@
    "sha256": "7126c4ca62c86f097ea8911d46685c83d4c21743a8fe5390a21718f1f759595f"
   },
   "tools/_bench_minimal_names": {
-   "chars": 52,
+   "chars": 158,
    "file": "tools___bench_minimal_names.txt",
    "group": "tools",
    "note": "XEYO_BENCH_MINIMAL=1 时的工具集（评测口径红线）",
-   "sha256": "5f27f922a017e4c64e56857364b90003f0071df98f2e9107a653fb94ab116cd1"
+   "sha256": "29615ea6929b88efbe3fda27d511fc3848e57cdf9955607a7672a3e790190ae5"
   },
   "tools/_count": {
    "chars": 3,

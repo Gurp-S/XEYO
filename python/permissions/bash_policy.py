@@ -416,7 +416,7 @@ def _report_invalid_rules(source: str, why: str) -> BashRuleset:
 			action="builtin_rules_only",
 		)
 	except Exception:  # 审计故障不影响回退
-		pass
+		logging.getLogger(__name__).debug("bash_rules.invalid audit failed", exc_info=True)
 	base = _default_ruleset()
 	return BashRuleset(list(base.rules), list(base.errors) + [f"{source}: {why}"])
 

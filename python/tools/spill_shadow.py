@@ -1,4 +1,9 @@
-"""spill_shadow — 【侧挂模块·默认关】spill 预览补「Read 该路径」tail 建议。
+"""spill_shadow — 【侧挂模块·升格后默认开】spill 预览补「Read 该路径」tail 建议。
+
+升格状态（2026-09-14 更正）：挂钩型侧挂模块（在 `sidecar/upgrade.py` 的 `_HOOKED` 清单内），
+`enabled()` 走 `sidecar.policy.side_enabled()`；专用 env 未设时回退总升格开关
+`XEYO_SIDEMOD_PROMOTE`（默认 1=升格）⇒ 实际**默认开**，原「默认关」表述与运行时相反。
+单项关闭 `XEYO_SPILL_TAIL_HINT=0`，全局回退 `XEYO_SIDEMOD_PROMOTE=0`。
 
 依据：spill 预览补 tail 建议设计（侧挂 ⑭：大输出落盘后提示 Read 该路径，文案级）。
 
@@ -9,7 +14,7 @@
   同款。
 
 ## 侧挂契约（不改主逻辑）
-- `enabled()`：读 `XEYO_SPILL_TAIL_HINT`（默认 0=关）。开=`save_text` 的 hint 追加建议；
+- `enabled()`：读 `XEYO_SPILL_TAIL_HINT`；未设时回退总升格开关（默认开）。开=`save_text` 的 hint 追加建议；
   关=原样（逐位不变）。
 - `install()` / `uninstall()`：挂钩 `tools.spill.save_text`。卸载即恢复原函数。
 - **fail-open**：任何异常 → 交回原 `save_text`（落盘不受影响；宁可 hint 无建议也不破坏证据）。

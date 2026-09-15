@@ -1,4 +1,8 @@
-"""blind_audit_shadow — 【侧挂模块·默认关】盲审反作弊审计。
+"""blind_audit_shadow — 【侧挂模块·升格后默认开】盲审反作弊审计。
+
+升格状态（2026-09-14 更正）：纯函数型侧挂模块，`enabled()` 走 `sidecar.policy.side_enabled()`；
+专用 env 未设时回退总升格开关 `XEYO_SIDEMOD_PROMOTE`（默认 1=升格）⇒ 实际**默认开**，
+原「默认关」表述与运行时相反。单项关闭 `XEYO_EVAL_BLIND_AUDIT=0`。
 
 依据：评测反作弊盲审设计（侧挂 ③：用独立盲审模型做第二遍反作弊审计）。
 
@@ -10,7 +14,7 @@
   复现失败→推断已修复）`memory recall`（记忆召回），输出 `leakage_rate` 与各类占比。
 
 ## 侧挂契约（不改主逻辑）
-- `enabled()`：读 `XEYO_EVAL_BLIND_AUDIT`（默认 0=关）。开=评测回收时跑审计；关=不跑。
+- `enabled()`：读 `XEYO_EVAL_BLIND_AUDIT`；未设时回退总升格开关（默认开）。开=评测回收时跑审计；关=不跑。
 - `audit_transcript(transcript_json, ...) -> BlindAuditResult`：纯编排——把「问题+轨迹」喂给
   盲审 prompt，结构化解析分类。**不改 session 记录路径**，天然旁路。
 - 依赖 `evals/client.py` 的非流式 `chat()`（复用同一 `EvalError` 语义：无 `DEEPSEEK_API_KEY`

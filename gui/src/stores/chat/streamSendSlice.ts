@@ -259,7 +259,6 @@ export function createStreamSendSlice(
 										},
 									],
 								},
-								hasInboxChip: true,
 							};
 						});
 					},
@@ -1281,7 +1280,6 @@ export function createStreamSendSlice(
 									},
 								],
 							},
-							hasInboxChip: true,
 						};
 					});
 				},

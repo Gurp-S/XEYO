@@ -1,3 +1,9 @@
+"""回溯 v2 兼容 / 降级路径。
+
+生产热路径走 ``rewind.hotpath``（v3，``POST /rewind``）；本模块保留 ``/rollback/*``
+兼容端点与测试入口，见 ``rewind/hotpath.py`` 顶部说明。
+"""
+
 from __future__ import annotations
 
 import hashlib

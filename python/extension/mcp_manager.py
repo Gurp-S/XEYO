@@ -324,7 +324,7 @@ class McpManager:
 				"mcp.server.failed", server=sid, error=error[:500], required=entry.spec.required
 			)
 		except Exception:  # noqa: BLE001
-			pass
+			logging.getLogger(__name__).debug("mcp.server.failed audit failed", exc_info=True)
 
 	def _registry_vision(self, registry: Any) -> bool:
 		"""读 registry 内 Read 工具的能力开关（``apply_read_vision`` 语义）。"""

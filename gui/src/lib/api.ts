@@ -10,15 +10,30 @@ export {uploadFile, uploadMedia} from './api/uploads';
 export {listPermissionGrants, resolveAsk, resolvePermission, resolvePlan, revokePermissionGrant} from './api/permissions';
 export type {PermissionGrantInfo} from './api/permissions';
 export {fetchMemoryNotes, requestManualCompact, syncUiThoughtsToServer} from './api/memory';
+export {
+	getLocalModelLog,
+	getLocalModels,
+	setLocalModelSettings,
+	startLocalModel,
+	stopLocalModel,
+	switchLocalModel,
+} from './api/localModels';
+export type {
+	LocalModelEntry,
+	LocalModelSettings,
+	LocalModelSettingsPatch,
+	LocalModelState,
+	LocalModelStatus,
+	LocalModelsSnapshot,
+} from './api/localModels';
 export {setSessionRuntimeMode} from './api/runtimeMode';
-export {fetchSkills} from './api/skills';
-export type {SkillInfo, SkillSource, SkillsReport} from './api/skills';
+export {fetchSkills} from './api/skills';export type {SkillInfo, SkillSource, SkillsReport} from './api/skills';
 export {fetchFileReferences} from './api/references';
 export type {FileReferencesReport} from './api/references';
 export {readTurnCursor, rememberTurnCursor, streamChat, streamTurnEvents} from './api/chatStream';
 export type {ServerSession, SessionAgentMeta} from './api/chatStream';
 export {MEDIA_REF_RE, REQUEST_TIMEOUT_MS, STREAM_IDLE_TIMEOUT_MS, authHeaders, createStreamWatchdog, fetchWithTimeout, formatErrorDetail, mediaUrl, parseOpenAiSse, parseSseBlock, readIdentity} from './api/core';
-export type {AskUserPendingStreamEvent, AskUserResolvedStreamEvent, ChatApiMessage, ChatRequestOptions, ChatStreamHandlers, CompressionStreamEvent, EventIdentity, MultiAgentDeltaStreamEvent, MultiAgentProgressStreamEvent, MultiAgentResultStreamEvent, MultiAgentStatusStreamEvent, MultiAgentTaskStreamEvent, MultiAgentTaskView, ParsedSse, PermissionPendingStreamEvent, PermissionResolvedStreamEvent, PlanPendingStreamEvent, PlanResolvedStreamEvent, ReasoningStreamEvent, SseTermination, StreamWatchdog, TaskStateStreamEvent, ToolCallStreamEvent, ToolProgressStreamEvent, ToolResultStreamEvent, UsageStreamEvent} from './api/core';
+export type {AskQuestion, AskQuestionOption, AskUserPendingStreamEvent, AskUserResolvedStreamEvent, ChatApiMessage, ChatRequestOptions, ChatStreamHandlers, CompressionStreamEvent, EventIdentity, MultiAgentDeltaStreamEvent, MultiAgentProgressStreamEvent, MultiAgentResultStreamEvent, MultiAgentStatusStreamEvent, MultiAgentTaskStreamEvent, MultiAgentTaskView, ParsedSse, PermissionPendingStreamEvent, PermissionResolvedStreamEvent, PlanPendingStreamEvent, PlanResolvedStreamEvent, ReasoningStreamEvent, SseTermination, StreamWatchdog, TaskStateStreamEvent, ToolCallStreamEvent, ToolProgressStreamEvent, ToolResultStreamEvent, UsageStreamEvent} from './api/core';
 
 export async function listSessionAgents(sessionId: string): Promise<SessionAgentMeta[]> {
 	try {

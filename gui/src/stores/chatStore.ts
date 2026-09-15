@@ -29,8 +29,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
 	sessionGoalById: {},
 	sessionJobsById: {},
 	inboxBySession: {},
-	hasInboxChip: false,
-	setHasInboxChip: (v: boolean) => set({hasInboxChip: v}),
 	sessionUsageById: {},
 	rollbackById: {},
 	pendingPermission: savedPendingPermission,

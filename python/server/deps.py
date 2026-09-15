@@ -98,8 +98,8 @@ def _resolve_base_url(provider: str, base_url: str | None) -> str:
 	if _is_user_configured_base_url(provider, candidate):
 		return candidate
 
-	# provider=local 且显式开启本地模型档：允许环回/私网（本地 llama.cpp 等）。
-	if provider == "local" and local_model_enabled():
+	# provider=local 且本地模型已授权：允许环回/私网（本地 llama.cpp 等）。
+	if provider == "local" and local_model_allowed():
 		return candidate
 
 	from tools.web_common import is_blocked_url
@@ -176,6 +176,9 @@ def local_model_enabled() -> bool:
 
 	开启后仍允许空 API key（本地推理服务通常不校验）。默认关闭，
 	避免生产环境残留免鉴权的本地通道。
+
+	注意：这是**环境变量口径**（评测 / 脚本 / CI 用）。产品路径请用
+	:func:`local_model_allowed`——它把「设置面板里启用本地模型」也算作授权。
 	"""
 	return os.environ.get("XEYO_ALLOW_LOCAL_MODEL", "").strip().lower() in (
 		"1",
@@ -183,6 +186,17 @@ def local_model_enabled() -> bool:
 		"yes",
 		"on",
 	)
+
+
+def local_model_allowed() -> bool:
+	"""provider="local" 是否被接受：环境变量 **或** 设置面板启用本地模型。
+
+	判定实现在 ``localmodels.gate``（单一权威）；此处只做惰性转发，避免
+	模块级 import 把 ``localmodels``（会读 settings.json）拖进启动路径。
+	"""
+	from localmodels.gate import local_model_allowed as _allowed
+
+	return _allowed()
 
 
 def fake_model_enabled() -> bool:

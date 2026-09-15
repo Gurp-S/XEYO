@@ -93,7 +93,12 @@ class InboxItem:
 
 
 class InboxRegistry:
-	"""per-session 主会话消息队列 + settlement 排水租户。"""
+	"""per-session 主会话消息队列 + settlement 排水租户。
+
+	与 ``engine.live_agents`` 的 agent follow-up inbox 是两套生命周期模型：
+	本队列面向用户消息，带 queue_id / attempts / 三态重投；agent inbox 面向
+	子 Agent 的追加指令，无重试状态，仅落 ``meta.pending_followups`` 等待 settle/retry。
+	"""
 
 	def __init__(self) -> None:
 		self._lock = threading.Lock()

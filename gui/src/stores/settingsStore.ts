@@ -1,5 +1,9 @@
 import {create} from 'zustand';
 import {deleteKv, getKv, setKv} from '@/lib/db';
+import {
+	registeredContextLimitOf,
+	registeredWindowFromSettings,
+} from '@/lib/modelWindow';
 import {prefersReducedMotion} from '@/lib/prefersReducedMotion';
 import {
 	isDarkScheme,
@@ -10,9 +14,9 @@ import {
 } from '@/theme/catalog';
 
 export type {ThemeId} from '@/theme/catalog';
-import {isTestProvider} from '@/lib/localTestGate';
+import {isKnownProvider} from '@/lib/localTestGate';
 
-// 'local'/'fake' 仅本地测试 provider（localTestGate 管理，生产构建不可达）。
+// 'local' = 本地模型服务（正式功能）；'fake' = 测试假模型（仅 dev 门禁内可达）。
 export type ProviderId = 'deepseek' | 'openai' | 'anthropic' | 'local' | 'fake';
 export type RemoteChannel = 'filehelper' | 'ilink';
 export type PermissionMode = 'always' | 'risk' | 'never';
@@ -248,6 +252,64 @@ export const EXPLORER_WIDTH_DEFAULT = 248;
 const STORAGE_KEY = 'xeyo-settings';
 const OLD_STORAGE_KEY = 'xy-agent-settings';
 const BG_KV_KEY = 'bgImage';
+
+/**
+ * 设置滚动备份键（2026-09-14 账号丢失事故的结构性防线）。
+ *
+ * 为什么必须有：账号只存在 `xeyo-settings` **一个键**里（IndexedDB 只放
+ * messages/sessions/spaces），而 `loadLite` 读不到时的行为是**回落默认值**，
+ * `hydrateAsync` 随后又**无条件把当前值写回盘**——于是一次瞬时读失败（存储层
+ * 异常、profile 损坏）会被立刻固化成永久丢失：原值被默认值覆盖，且不留痕迹。
+ * 备份把「读失败」从终点改成中转站：主键读不到时用备份顶上，而不是写死默认值。
+ *
+ * 覆盖规则：只在「新值的 profile 数 ≥ 备份的 profile 数」时覆盖，避免默认值或
+ * 半截状态把好备份冲掉（事故当次写回的正是 1 个 profile 的默认值）。已知副作用：
+ * 用户主动删号后备份仍留着旧账号，仅在**主键不可读**时会被自动恢复——那一刻
+ * 恢复旧账号远好于全丢，且删号是可逆的。
+ */
+const BACKUP_KEY = 'xeyo-settings.bak';
+
+/** 序列化设置里的 profile 数；解析失败返回 -1（视为「比任何值都穷」）。 */
+function profileCountOf(raw: string | null): number {
+	if (!raw) {
+		return -1;
+	}
+	try {
+		const parsed = JSON.parse(raw) as {profiles?: unknown};
+		// 无 profiles 数组的旧形态算 0（可解析，但内容更少）。
+		return Array.isArray(parsed.profiles) ? parsed.profiles.length : 0;
+	} catch {
+		return -1;
+	}
+}
+
+/** 主键读不到时的自愈：用备份顶上并写回主键。取不到备份返回 null。 */
+function rescueRawFromBackup(): string | null {
+	try {
+		const backup = localStorage.getItem(BACKUP_KEY);
+		if (profileCountOf(backup) < 0) {
+			return null;
+		}
+		localStorage.setItem(STORAGE_KEY, backup as string);
+		console.warn('[settings] 主键缺失/损坏，已用滚动备份恢复');
+		return backup;
+	} catch {
+		return null;
+	}
+}
+
+/** 刷新滚动备份。永不抛：备份失败不得影响正常读写设置。 */
+function refreshBackup(serialized: string) {
+	try {
+		if (
+			profileCountOf(serialized) >= profileCountOf(localStorage.getItem(BACKUP_KEY))
+		) {
+			localStorage.setItem(BACKUP_KEY, serialized);
+		}
+	} catch {
+		/* 备份是尽力而为 */
+	}
+}
 
 /** 解析设置里的可空整数（GC 保留数量 / 空间预算），非整数或空缺回 null。 */
 function asIntOrNull(value: unknown): number | null {
@@ -532,13 +594,9 @@ function newProfileId(): string {
 }
 
 export function isProviderId(v: unknown): v is ProviderId {
-	// 'local'/'fake' 仅为本地测试 provider，受 localTestGate 管理（T25c）。
-	return (
-		v === 'deepseek' ||
-		v === 'openai' ||
-		v === 'anthropic' ||
-		isTestProvider(v as string)
-	);
+	// 判定实体在 localTestGate.isKnownProvider（'local' 是正式功能；
+	// 'fake' 仅测试门禁内可达）。
+	return isKnownProvider(v);
 }
 
 export function keyFingerprint(apiKey: string): string {
@@ -654,46 +712,35 @@ export function profileModelIds(profile: ModelProfile): string[] {
  * 返回 profile 中指定模型（缺省为激活模型 profile.model）登记的上下文窗口
  * （token）。只返回显式登记值：模型未登记窗口时回退到旧版单值字段
  * profile.contextLimit；仍未知则返回 undefined —— 调用方不得拿它当 0 或猜测。
+ *
+ * 实现住在 @/lib/modelWindow（与用量面板、发给后端的 context_limit 同一口径）。
  */
 export function profileContextLimitFor(
 	profile: ModelProfile,
 	modelId?: string,
 ): number | undefined {
-	const id = modelId ?? profile.model;
-	if (Array.isArray(profile.models)) {
-		const hit = profile.models.find(m => m.id === id);
-		if (hit?.contextLimit != null && hit.contextLimit > 0) {
-			return hit.contextLimit;
-		}
-	}
-	// 旧版单值字段兜底（迁移后一般已并入 models[0]，此处仅兼容老数据）。
-	if (profile.contextLimit != null && profile.contextLimit > 0) {
-		return profile.contextLimit;
-	}
-	return undefined;
+	return registeredContextLimitOf(profile, modelId);
 }
 
 /**
- * 设置里保存账号（上下文窗口可能已改）后调用：把聊天界面用量预览的「分母」
- * 即时对齐到当前激活账号主模型登记的窗口，避免旧的/未知窗口残留显示。
+ * 设置里登记的窗口一变（保存账号 / 切账号 / 换模型 / 冷启动恢复），就把各会话
+ * usage 快照的「分母」对齐过来，避免旧的/未知窗口在这些快照里残留。
  *
- * 定位 = 即时预览对齐，非权威修正：
- * - 下一轮流式 usage 事件（usageAccumulator）会用厂商真实窗口覆盖回权威值；
- * - activeProfile 未登记窗口（profileContextLimitFor 返回 undefined）时本函数
- *   no-op，绝不往预览里塞猜测值；
- * - 被覆盖的条目标记 contextSource='fallback'（设置口径，非流测量值）。
+ * 聊天顶部用量面板本身**不依赖**本函数——面板直接订阅 profiles（见
+ * ChatHeader + @/lib/modelWindow），所以登记值改动是响应式即时生效的；
+ * 本函数服务对象是那些只读会话快照的消费方（Pasture 上下文岛等）。
+ *
+ * 约束：
+ * - 以「当前激活账号 + 当前激活模型」的登记值为准（用户显式意图，与发给后端的
+ *   context_limit 同一口径）；未登记窗口时 no-op，绝不往快照里塞猜测值；
+ * - 被改写的条目标记 contextSource='fallback'（设置口径，非厂商测量值）。
  *
  * 经动态 import 访问 chatStore：settingsStore 被 chatStore 依赖，若在模块顶层
  * 互相 import 会成环，故只在事件触发时惰性取 store（此时两模块均已就绪）。
  */
 export function syncSessionUsageContextLimits(): void {
-	const {profiles, activeProfileId} = useSettingsStore.getState();
-	const active = profiles.find(p => p.id === activeProfileId) ?? profiles[0];
-	if (!active) {
-		return;
-	}
-	const windowLimit = profileContextLimitFor(active);
-	if (windowLimit === undefined) {
+	const windowLimit = registeredWindowFromSettings(useSettingsStore.getState());
+	if (windowLimit === null) {
 		return;
 	}
 	void import('@/stores/chatStore').then(({useChatStore}) => {
@@ -890,9 +937,23 @@ function loadLite(): PersistedLite {
 			}
 		}
 		if (!raw) {
+			// 主键缺失：先试滚动备份，再谈回落默认值（见 BACKUP_KEY 注释）。
+			raw = rescueRawFromBackup();
+		}
+		if (!raw) {
 			return fallback();
 		}
-		const parsed = {...DEFAULTS, ...JSON.parse(raw)} as Settings;
+		let parsed: Settings;
+		try {
+			parsed = {...DEFAULTS, ...JSON.parse(raw)} as Settings;
+		} catch (error) {
+			// 主键在但不可解析（半截写入 / 编码损坏）：同样先用备份顶上。
+			const rescued = rescueRawFromBackup();
+			if (!rescued) {
+				throw error;
+			}
+			parsed = {...DEFAULTS, ...JSON.parse(rescued)} as Settings;
+		}
 		const seeded = seedProfiles(parsed);
 		const active =
 			seeded.profiles.find(p => p.id === seeded.activeProfileId) ??
@@ -1017,7 +1078,9 @@ function writePersistLite(settings: Settings) {
 			rewindGcMaxBytes: asIntOrNull(settings.rewindGcMaxBytes),
 			showExperimental: settings.showExperimental === true,
 		};
-	localStorage.setItem(STORAGE_KEY, JSON.stringify(lite));
+	const serialized = JSON.stringify(lite);
+	localStorage.setItem(STORAGE_KEY, serialized);
+	refreshBackup(serialized);
 }
 
 function persistLite(settings: Settings) {
@@ -1080,7 +1143,7 @@ export const PROVIDER_DEFAULT_URL: Record<ProviderId, string> = {
 	openai: 'https://api.openai.com/v1',
 	// Claude 走 Messages API 原生适配器（思考态带签名，兼容层承载不了）。
 	anthropic: 'https://api.anthropic.com',
-	// 本地 llama.cpp（仅 localTestGate 开启时可选）。
+	// 本地模型服务（llama.cpp 等 OpenAI 兼容环回服务）；无需 API Key。
 	local: 'http://localhost:8080/v1',
 	// HTTP 全栈测试假模型（仅 localTestGate 开启时可选）。
 	fake: '',
@@ -1090,7 +1153,7 @@ export const PROVIDER_LABEL: Record<ProviderId, string> = {
 	deepseek: 'DeepSeek',
 	openai: 'OpenAI',
 	anthropic: 'Anthropic',
-	// 仅 localTestGate 开启时可选（T25c）。
+	// 正式功能：设置 → 模型与账号 → 本地模型（llama.cpp）。
 	local: '本地模型',
 	fake: 'Fake（测试）',
 };
@@ -1467,3 +1530,24 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 		return url;
 	},
 }));
+
+/**
+ * 登记窗口一变就对齐各会话 usage 快照的分母（供只读快照的消费方，如 Pasture
+ * 上下文岛）。
+ *
+ * 用订阅而不是在每个 mutation 里各调一次：窗口来源分散在保存账号 / 切账号 /
+ * ModelPicker 换模型 / slash /model / 冷启动 hydrate 五条路上，漏一条就是
+ * 「设置里填了却不变」的一种形态。只在派生值真的改变时动手，且同步本身幂等
+ * （同值条目跳过），不会引发回环（写入的是 chatStore）。
+ */
+{
+	let lastWindow = registeredWindowFromSettings(useSettingsStore.getState());
+	useSettingsStore.subscribe(state => {
+		const nextWindow = registeredWindowFromSettings(state);
+		if (nextWindow === lastWindow) {
+			return;
+		}
+		lastWindow = nextWindow;
+		syncSessionUsageContextLimits();
+	});
+}

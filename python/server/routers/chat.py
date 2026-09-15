@@ -64,7 +64,7 @@ from server.deps import (
 	api_error,
 	error_body,
 	fake_model_enabled,
-	local_model_enabled,
+	local_model_allowed,
 )
 from server.session_pool import CwdConflictError, ModelConfig
 from server.local_gate import require_loopback
@@ -594,7 +594,7 @@ async def chat_completions(
 	from engine.turn_runner import get_turn_runner
 	provider = (body.provider or x_provider or "deepseek").lower()
 	if provider not in PROVIDER_PRESETS or (
-		provider == "local" and not local_model_enabled()
+		provider == "local" and not local_model_allowed()
 	) or (provider == "fake" and not fake_model_enabled()):
 		raise api_error(400, f"unsupported provider: {provider}")
 	# 本地模型免 API Key 需 XEYO_ALLOW_LOCAL_MODEL=1 显式开启。
@@ -777,7 +777,7 @@ async def chat_completions(
 				},
 			)
 		except Exception:  # noqa: BLE001
-			pass
+			logging.getLogger(__name__).debug("note_request_env failed", exc_info=True)
 
 	# TurnRunner 判活兜底：busy 租约被 stale 回收但 detached turn 仍在跑时，
 	# 租约互斥会放行叠跑；runner 知道所有活 turn，此处拦下（同 409 语义）。
@@ -1303,6 +1303,7 @@ async def chat_completions(
 							"question": ev.question,
 							"options": ev.options,
 							"default": ev.default,
+							"questions": ev.questions,
 							"expires_at": ev.expires_at,
 						})
 						frames.append((

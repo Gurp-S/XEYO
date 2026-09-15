@@ -16,9 +16,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import logging
 from pathlib import Path
 import os
 from typing import Any
+
+_log = logging.getLogger(__name__)
 
 DEFAULT_SUB_MAX_TURNS = 32
 DEFAULT_SUB_MAX_TOOL_CALLING = 64
@@ -384,8 +387,8 @@ async def _run_subagent_body(
                 known_ids=live_known,
             )
             live_persist_index = len(items)
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception:  # noqa: BLE001 — 失败不阻断子 agent（debug 留痕）
+            _log.debug("subagent live transcript flush failed", exc_info=True)
 
     # 厂商调用前先把本轮用户/续跑触发落盘，避免 403 后侧链缺首条。
     await _flush_live_transcript()
@@ -393,8 +396,8 @@ async def _run_subagent_body(
         from session.record_transcript import flush_transcript
 
         flush_transcript(sidechain)
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception:  # noqa: BLE001 — 失败不阻断子 agent（debug 留痕）
+        _log.debug("subagent transcript flush failed", exc_info=True)
 
     last_flush_mono = 0.0
     # 流式回放：包装 model_client，把 text_delta 镜像给 on_text_delta 回调
@@ -500,7 +503,7 @@ async def _run_subagent_body(
         )
     except Exception:  # noqa: BLE001
         # 侧链失败不阻断子 agent 结果；仅供调试/审计。
-        pass
+        _log.debug("record_transcript failed", exc_info=True)
     try:
         _flush_subagent_snapshot(main_session_id, agent_id, snap)
     except Exception:  # noqa: BLE001
@@ -559,7 +562,7 @@ async def _run_subagent_body(
                 usage=budget.last_usage,
             )
         except Exception:  # noqa: BLE001
-            pass
+            _log.debug("record_subagent_usage failed", exc_info=True)
 
     return result
 

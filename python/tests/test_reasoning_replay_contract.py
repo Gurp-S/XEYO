@@ -279,11 +279,66 @@ def test_reasoning_survives_blob_externalization(tmp_path: Path) -> None:
 			os.environ["XEYO_TRANSCRIPT_BLOB_THRESHOLD"] = old
 
 
-def test_no_tool_uses_means_no_block_array() -> None:
-	"""纯文本轮没有 block 数组可挂 → reasoning 不落（协议上无需回传）。"""
-	msg = assistant_text_message("就一句话", None, reasoning="这段思考无处承载")
-	assert isinstance(msg.content, str)
-	assert msg.content == "就一句话"
+def test_text_only_turn_carries_reasoning_block() -> None:
+	"""纯文本轮（无工具）带 reasoning → 也落 block 数组（dsh 口径）。
+
+	2026-09-14 按 dsh 改判（serialize.ts:228-233）：官方在非工具轮**忽略**
+	reasoning_content（无害），且非工具轮 reasoning 是跨厂商转码恢复签名的
+	唯一载体——"协议上无处承载"的旧决策作废。空 reasoning 纯文本轮仍回
+	落纯字符串（不发空数组）。
+	"""
+	msg = assistant_text_message("就一句话", None, reasoning="这段思考现在有处承载")
+	assert isinstance(msg.content, list)
+	assert msg.content == [
+		{"type": "reasoning", "text": "这段思考现在有处承载"},
+		{"type": "text", "text": "就一句话"},
+	]
+	# 空 reasoning + 纯文本 → 旧行为不变（纯字符串，零回归）
+	plain = assistant_text_message("就一句话", None, reasoning="")
+	assert isinstance(plain.content, str)
+	assert plain.content == "就一句话"
+
+
+def test_text_only_reasoning_replayed_to_wire() -> None:
+	"""dsh R2（非工具轮）：text-only 轮的 reasoning 必须回传到 wire。"""
+	row = _assistant_row("纯文本轮思考", "答案", None)
+	assert isinstance(row["content"], list), "方案1 后 text-only+reasoning 应为 block 数组"
+	out = _only_assistant([row])
+	assert out["reasoning_content"] == "纯文本轮思考"
+	assert out["content"] == "答案"
+	assert "tool_calls" not in out
+
+
+def test_reasoning_only_turn_content_empty_string_with_reasoning() -> None:
+	"""★ dsh 红线（serialize.ts:219-227）：reasoning-only 轮 wire 上
+	content 必须是 `""` 而非 null——null+无 tool_calls 会被 live API 400
+	且砖掉整个会话。
+	"""
+	out = _only_assistant(
+		[{"role": "assistant", "content": [{"type": "reasoning", "text": "只在思考通道作答"}]}]
+	)
+	assert out["content"] == ""
+	assert out["content"] is not None
+	assert out["reasoning_content"] == "只在思考通道作答"
+	assert "tool_calls" not in out
+
+
+def test_empty_tool_result_gets_no_output_sentinel() -> None:
+	"""dsh R3（serialize.ts:269-271）：空 tool 输出在 wire 上也要有内容，
+	统一补结构性哨兵 `(no output)`（部分网关拒收空串 tool 消息）。
+	"""
+	msgs = [
+		{"role": "tool", "tool_call_id": "c1", "content": ""},
+		{"role": "tool", "tool_call_id": "c2", "content": [
+			{"type": "tool_result", "tool_use_id": "c2", "content": ""}
+		]},
+		{"role": "tool", "tool_call_id": "c3", "content": "正常输出"},
+	]
+	out = _norm(msgs)
+	by_id = {m["tool_call_id"]: m["content"] for m in out}
+	assert by_id["c1"] == "(no output)"
+	assert by_id["c2"] == "(no output)"
+	assert by_id["c3"] == "正常输出"
 
 
 def test_message_defaults_unchanged_without_reasoning() -> None:

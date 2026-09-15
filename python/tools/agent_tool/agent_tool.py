@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import threading
 import uuid
@@ -424,7 +425,9 @@ class AgentTool:
                         summary="子代理结果未带回主会话（回合被中断或异常）",
                     )
             except Exception:  # noqa: BLE001
-                pass
+                logging.getLogger(__name__).debug(
+                    "record_agent_settlement failed", exc_info=True
+                )
             unregister_live_agent(self._session_id, agent_id)
             try:
                 record_agent_tool_end(
@@ -438,7 +441,9 @@ class AgentTool:
                     max_turns=max_turns_used,
                 )
             except Exception:  # noqa: BLE001
-                pass
+                logging.getLogger(__name__).debug(
+                    "record_agent_tool_end failed", exc_info=True
+                )
             _agent_slots.release()
     def _tools_for(self, agent_input: AgentInput) -> list[str]:
         from engine.scheduler import Task, build_tool_whitelist

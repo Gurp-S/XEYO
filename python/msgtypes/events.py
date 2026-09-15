@@ -193,16 +193,6 @@ class PermissionPendingEvent:
 
 
 @dataclass
-class PermissionExpiringEvent:
-	"""T3：权限请求即将到期（默认提前 30s），GUI 倒计时高亮。"""
-
-	request_id: str
-	expires_at: float | None = None
-	seconds_left: float = 30.0
-	type: str = "permission_expiring"
-
-
-@dataclass
 class PermissionResolvedEvent:
 	"""审批结果：确认 / 拒绝 / 提醒 / 超时，唤醒被挂起的工具调用。"""
 
@@ -230,6 +220,9 @@ class AskUserPendingEvent:
 	question: str
 	options: list[str] = field(default_factory=list)
 	default: str | None = None
+	#: 结构化分题口径（[{question, options[{label,description}], multiSelect, default}]）；
+	#: 空列表 = legacy 单问题，GUI 回落 question/options 平铺渲染。
+	questions: list[dict] = field(default_factory=list)
 	expires_at: float | None = None
 	type: str = "ask_user_pending"
 

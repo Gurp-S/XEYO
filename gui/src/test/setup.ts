@@ -1,5 +1,7 @@
 import '@testing-library/jest-dom/vitest';
 import {vi} from 'vitest';
+// 转发真实判定实体，避免替身与实现各写一份"看起来一样"的规则。
+import {isKnownProvider} from '@/lib/localTestGate';
 
 /** 同步 flush rAF，以便测试流式合并。 */
 vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
@@ -89,17 +91,9 @@ vi.mock('@/stores/settingsStore', () => {
 		isSmoothnessOn: (v?: unknown) => v !== false,
 		normalizeRemoteChannel: (v: unknown) =>
 			v === 'filehelper' ? 'filehelper' : 'ilink',
-		// 复刻 settingsStore.isProviderId 的真实语义：deepseek/openai 恒真；
-		// local/fake 受 LOCAL-TEST gate 管理（localStorage XEYO_ENABLE_LOCAL_TEST=1）。
-		isProviderId: (v: unknown) => {
-			if (v === 'deepseek' || v === 'openai') {
-				return true;
-			}
-			return (
-				(v === 'local' || v === 'fake') &&
-				typeof window !== 'undefined' &&
-				window.localStorage.getItem('XEYO_ENABLE_LOCAL_TEST') === '1'
-			);
-		},
+		// 转发 settingsStore.isProviderId 的真实判定实体（localTestGate.isKnownProvider）：
+		// 'local' 是正式功能恒真；'fake' 受 LOCAL-TEST gate 管理。
+		// 替身不再自己复刻规则，因此不会与实现漂移。
+		isProviderId: (v: unknown) => isKnownProvider(v),
 	};
 });

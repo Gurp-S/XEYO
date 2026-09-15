@@ -32,6 +32,7 @@ import {
 import {getThemeMeta, type ThemeId} from '@/theme/catalog';
 import {ThemePicker} from '@/theme/ThemePicker';
 import {BashRoutingSetting} from './BashRoutingSetting';
+import {LocalModelSetting} from './LocalModelSetting';
 import {MemorySwitchesSetting} from './MemorySwitchesSetting';
 import {PaneLayoutSetting} from './PaneLayoutSetting';
 
@@ -1374,13 +1375,15 @@ export function SettingsModal({open, onClose}: Props) {
 												{p.name?.trim()
 													? `${PROVIDER_LABEL[p.provider]} · `
 													: ''}
-												{revealedId === p.id && p.apiKey ? (
-													<span className="font-mono">{p.apiKey}</span>
-												) : fp ? (
-													'本机 Key'
-												) : (
-													'未填 Key'
-												)}
+											{revealedId === p.id && p.apiKey ? (
+												<span className="font-mono">{p.apiKey}</span>
+											) : fp ? (
+												'本机 Key'
+											) : p.provider === 'local' ? (
+												'无需 Key'
+											) : (
+												'未填 Key'
+											)}
 												{p.model ? ` · ${profileModelIds(p).length} 个模型` : ''}
 											</div>
 										</button>
@@ -1456,6 +1459,10 @@ export function SettingsModal({open, onClose}: Props) {
 							每轮按厂商响应 usage 累计；超过上限立即停止并提示「预算超限」。
 						</span>
 					</label>
+
+					{/* 本地模型（llama.cpp）：与「账号」同族的另一种拿模型的方式——账号是
+					    远端 API Key，它是本机进程。放在账号列表之后、网络工具之前。 */}
+					<LocalModelSetting />
 
 					<div className="border-t border-line/60 pt-4">
 						<h3 className="font-mono text-[10px] uppercase tracking-wider text-mute">
