@@ -155,3 +155,6 @@ gui/src-tauri/resources/python/
 
 # 一次性探针脚本：内含硬编码真实 API key（文件自身 docstring 标注「勿提交到任何仓库」）
 python/scripts/channel_probe_*.py
+
+# WSC 突触压缩离线评测产物（scratch：报告 / 基线快照 / pytest 临时目录；2026-09-15）
+_wsc_out/
