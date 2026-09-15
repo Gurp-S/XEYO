@@ -281,7 +281,7 @@ def run_session(
 		)
 		dt_ms = (time.perf_counter() - t0) * 1000.0
 
-		hot_text = proj.text
+		hot_text = proj.text if proj is not None else ""
 		tail_c0 = c0_project(prefix[region_end:])
 		tail_tokens = sum(
 			node_token_len(json.dumps(m, ensure_ascii=False, sort_keys=True)) for m in tail_c0
