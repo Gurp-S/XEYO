@@ -124,7 +124,13 @@ async def test_notebook_insert_defaults_cell_type(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_notebook_requires_read_first(tmp_path: Path) -> None:
+async def test_notebook_edit_without_read_first_is_allowed(tmp_path: Path) -> None:
+	"""「先读门禁」已删除（2026-09-15 用户裁定：很难用）。
+
+	原断言 = `r.is_error` 且正文含 "read"（"Notebook has not been read yet"）。
+	删因见 file_edit_tool 同处说明（跨会话无 read_state / LRU 淘汰后重读也无用）；
+	真正的安全网是 cell 索引与结构匹配，不依赖"是否读过"这一会话态。
+	"""
 	path = tmp_path / "n.ipynb"
 	path.write_text(json.dumps(_nb("x")), encoding="utf-8")
 	tool = NotebookEditTool(cwd=str(tmp_path))
@@ -137,8 +143,8 @@ async def test_notebook_requires_read_first(tmp_path: Path) -> None:
 		},
 		AbortController(),
 	)
-	assert r.is_error
-	assert "read" in r.content.lower()
+	assert not r.is_error
+	assert "y" in path.read_text(encoding="utf-8")
 
 
 @pytest.mark.asyncio

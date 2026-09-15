@@ -139,14 +139,15 @@ async def test_write_edit_success_error_abort(work: Path) -> None:
 	assert not e.is_error
 	assert "hello_marker = 3" in target.read_text(encoding="utf-8")
 
-	# 未读先写应失败
+	# 未读先写：门禁已删除（2026-09-15 用户裁定：很难用）⇒ 直接放行
 	fresh = FileWriteTool(cwd=str(work))
 	fresh.set_read_file_state(ReadFileState())
-	bad = await fresh.execute(
+	ok = await fresh.execute(
 		{"file_path": str(work / "src" / "b.txt"), "content": "x"},
 		AbortController(),
 	)
-	assert bad.is_error
+	assert not ok.is_error
+	assert (work / "src" / "b.txt").read_text(encoding="utf-8") == "x"
 
 	abort = AbortController()
 	abort.abort()
