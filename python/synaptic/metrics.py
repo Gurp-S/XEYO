@@ -205,6 +205,7 @@ ALGORITHM_MODULES = (
 	"fixed_budget.py",
 	"freeze.py",
 	"rehydrate.py",
+	"retrieval.py",
 	"budget.py",
 	"closure.py",
 	"prune.py",

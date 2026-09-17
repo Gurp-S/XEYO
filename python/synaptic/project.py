@@ -36,6 +36,14 @@ from synaptic.rehydrate import (
 	plan_working_set_rehydration,
 	renew_leases,
 )
+from synaptic.retrieval import (
+	CurrentState,
+	HistoryCandidate,
+	HistoryQuery,
+	build_current_state,
+	build_history_query,
+	discover_history,
+)
 from synaptic.seeds import Seeds, collect_seeds, recent_paths, request_skip
 from synaptic.textutil import node_token_len
 from synaptic.timing import StageTimer
@@ -63,6 +71,10 @@ class Projection:
 	audit: list[dict] = field(default_factory=list)
 	#: 冷层取回视图路径（`handle_style=read` 时非空）。
 	view_path: str = ""
+	#: 当前状态与历史候选（仅审计/旁路；不改变当前热层文本）。
+	current_state: CurrentState | None = None
+	history_query: HistoryQuery | None = None
+	history_candidates: tuple[HistoryCandidate, ...] = ()
 
 	@property
 	def text(self) -> str:
@@ -123,6 +135,13 @@ def project(
 	if p.freeze_working_set and prev is not None and prev.frozen_file_states:
 		ws = freeze_working_set(prev.frozen_file_states, ws, limit=12)
 	ws_tokens = file_state_tokens(ws)
+	current_state = build_current_state(
+		seeds,
+		file_states,
+		working_paths=tuple(state.path for state in ws),
+	)
+	history_query = build_history_query(current_state, region_end=region_end)
+	history_candidates = discover_history(graph, history_query)
 
 	unresolved_set = _unresolved_idx(graph)
 
@@ -460,6 +479,9 @@ def project(
 		state=state,
 		graph=graph,
 		seeds=seeds,
+		current_state=current_state,
+		history_query=history_query,
+		history_candidates=history_candidates,
 		audit=audit_rows(graph, selection),
 	)
 
