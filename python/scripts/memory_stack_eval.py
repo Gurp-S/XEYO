@@ -3734,11 +3734,11 @@ def _turn_label_for(umap, sid_raw, ts) -> tuple[str, str]:
 	return f"t{i}", raw or f"消息{i}"
 
 
-def _monitor_daily_cli(day: str) -> int:
-	"""C4 日常监控：按日聚合 ledger（token/命中/未命中）+ C2 事件，写入表D。
+def _a3_snapshot_one_day(day: str, *, render: bool = True) -> int:
+	"""单日快照：聚合 ledger（token/命中/未命中）+ C2 事件，upsert 成 ``deploy_project_mode_<day>`` 行。
 
-	行 id 为 ``deploy_project_mode_<day>``，每天一行，人工用 ``--accept`` 验收。
-	读真实 ledger（``~/.xeyo/usage/events.jsonl``，尊重 ``XEYO_USAGE_DIR``）。
+	``render=False`` 只写行、不重渲染报告 —— 多天补齐时由 :func:`_monitor_daily_cli`
+	在最后统一渲染一次（避免逐天重写整份 HTML）。
 	"""
 	from usage.ledger import _read_events, read_c2_events, usage_dir
 
@@ -3893,11 +3893,45 @@ def _monitor_daily_cli(day: str) -> int:
 		output=output_line,
 		detail=detail,
 	)
-	rows = load_quality_rows()
-	update_docs12_table_d(rows)
+	if render:
+		update_docs12_table_d(load_quality_rows())
 	print("monitor snapshot ->", cid)
 	print(f"  day={day} input={total_in} hit={hit} miss={miss} hit_rate={hit_rate:.2%} c2={c2_count}")
 	return 0
+
+
+def _monitor_daily_cli(day: str) -> int:
+	"""C4 日常监控入口：先规划「本次该写哪几天」，再逐天写行，最后渲染一次报告。
+
+	写哪些天由 :func:`scripts.a3_day_window.plan_snapshot_days` 决定：
+
+	- 显式 ``DAY`` → 只写那天（历史洞按天补写用）；
+	- ``auto`` → 「上次快照日之后 → ledger 最新日」之间所有有事件的天（升序）。
+
+	旧版 ``auto`` 取的是「当时 ledger 最新的一天」，于是"覆盖哪天"由运行时刻决定、
+	"报告有几行"由运行次数决定 —— 两次运行之间被跳过的天永不成行，报告里直接少掉那几天
+	（实测 2026-09-05~09-09、09-11~09-14 全缺，而 ledger 里这些天都有量）。
+	读真实 ledger（``~/.xeyo/usage/events.jsonl``，尊重 ``XEYO_USAGE_DIR``）。
+	"""
+	from scripts.a3_day_window import plan_snapshot_days
+	from usage.ledger import _read_events, usage_dir
+
+	events = _read_events()
+	ledger_days = sorted({str(ev.get("day") or "") for ev in events if ev.get("day")})
+	if not ledger_days:
+		print("SKIP: ledger 无事件（" + str(usage_dir() / "events.jsonl") + " 为空）")
+		return 1
+	snapshotted = [k.removeprefix(A3_PREFIX) for k in load_quality_rows() if k.startswith(A3_PREFIX)]
+	targets = plan_snapshot_days(ledger_days, snapshotted, day)
+	if not targets:
+		print(f"SKIP: 无 {day} 的 ledger 数据（已有日: {', '.join(ledger_days)}）")
+		return 1
+	rc = 0
+	for target in targets:
+		rc |= _a3_snapshot_one_day(target, render=False)
+	print("A3 snapshot days:", ", ".join(targets))
+	update_docs12_table_d(load_quality_rows())
+	return 0 if rc == 0 else 1
 
 
 def measure_r_summary_cli() -> int:

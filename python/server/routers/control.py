@@ -118,15 +118,15 @@ def run_memory_snapshot(request: Request) -> dict[str, Any]:
 		)
 	except Exception as exc:  # noqa: BLE001 — 内部异常痕迹不外漏
 		return {"ok": False, "error": safe_error_detail(exc)}
-	out = "\n".join((proc.stdout or "").splitlines()[-6:])
-	# 从监控输出解析真实日（ledger 的本地日），避免 UTC 与本地日不一致
-	day = None
-	m = re.search(r"deploy_project_mode_(\S+)", proc.stdout or "")
-	if m:
-		day = m.group(1)
+	raw = proc.stdout or ""
+	out = "\n".join(raw.splitlines()[-6:])
+	# 从监控输出解析真实日（ledger 的本地日），避免 UTC 与本地日不一致。
+	# auto 会补齐「上次快照日之后 → ledger 最新日」的所有天，故列出全部、day 取最新那天。
+	days = re.findall(r"deploy_project_mode_(\S+)", raw)
 	return {
 		"ok": proc.returncode == 0,
-		"day": day,
+		"day": days[-1] if days else None,
+		"days": days,
 		"rc": proc.returncode,
 		"tail": out,
 	}

@@ -14,6 +14,10 @@ from typing import Any
 from msgtypes.message import Message, tool_result_message
 from session.record_transcript import load_transcript, transcript_read_paths
 from session.transcript_blobs import resolve_transcript_rows
+from session.tool_sequence import (
+	discard_unpaired_tool_results,
+	reorder_system_messages_around_tool_results,
+)
 
 _ROLES: frozenset[str] = frozenset({"system", "user", "assistant", "tool"})
 
@@ -81,6 +85,8 @@ def _assistant_tool_uses(m: Message) -> list[tuple[str, str]]:
 
 def _repair_unclosed_tool_uses(messages: list[Message]) -> list[Message]:
 	"""T4：为没有对应 tool_result 行的 tool_use 合成确定性结果。"""
+	messages = reorder_system_messages_around_tool_results(messages)
+	messages = discard_unpaired_tool_results(messages)
 	try:
 		from tools.meta import READONLY_ALLOW as _readonly
 

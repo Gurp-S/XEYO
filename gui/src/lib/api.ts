@@ -1418,6 +1418,8 @@ export async function setMemorySwitches(
 export type MemorySnapshotResult = {
 	ok: boolean;
 	day?: string;
+	/** auto 会补齐「上次快照日之后 → 最新日」的所有天；按写入顺序排列。 */
+	days?: string[];
 	rc?: number;
 	tail?: string;
 	error?: string;

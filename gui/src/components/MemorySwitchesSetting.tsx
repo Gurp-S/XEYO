@@ -154,7 +154,7 @@ export function MemorySwitchesSetting() {
 	);
 }
 
-/** A3 日常监控：手动立即快照（按天去重，与每日自动任务写同一处证据）。 */
+/** A3 日常监控：手动立即快照（按天 upsert；auto 会补齐上次快照日之后被跳过的天）。 */
 function A3SnapshotRow() {
 	const [running, setRunning] = useState(false);
 	const [result, setResult] = useState<string | null>(null);
@@ -165,7 +165,12 @@ function A3SnapshotRow() {
 		const r = await runMemorySnapshot();
 		setRunning(false);
 		if (r?.ok) {
-			setResult(`快照完成 · ${r.day ?? ''}（同日重复点按天去重，不新增）`);
+			const days = r.days ?? (r.day ? [r.day] : []);
+			setResult(
+				days.length > 1
+					? `快照完成 · 补齐 ${days.length} 天（${days[0]} → ${days[days.length - 1]}）`
+					: `快照完成 · ${r.day ?? ''}（同日重复点只覆盖不新增）`,
+			);
 		} else {
 			toast.error(r?.error || 'A3 快照失败');
 		}
@@ -178,7 +183,7 @@ function A3SnapshotRow() {
 					<span className="block text-sm text-ink">A3 日常监控快照</span>
 					<span className="mt-0.5 block text-[11px] leading-snug text-mute">
 						点按立即快照（读生产 ledger，写 docs/12 表D，无模型调用）。
-						默认每天 09:30 由本地计划任务自动执行。
+						默认每天 09:30 由本地计划任务自动执行；隔多天再点会补齐中间被跳过的天。
 					</span>
 				</span>
 				<button

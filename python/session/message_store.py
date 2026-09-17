@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 from msgtypes.message import Message
+from session.tool_sequence import (
+	discard_unpaired_tool_results,
+	reorder_system_messages_around_tool_results,
+)
 
 
 class MessageStore:
@@ -76,6 +80,11 @@ class MessageStore:
 		OpenAI/DeepSeek 要求 assistant.tool_calls 后必须跟 role=tool + tool_call_id。
 		结果按消息追加/插入缓存，避免每轮重建整个 dict 列表。
 		"""
+		ordered = reorder_system_messages_around_tool_results(self._items)
+		ordered = discard_unpaired_tool_results(ordered)
+		if ordered is not self._items:
+			self._items = ordered
+			self._api_cache = None
 		if self._api_cache is not None:
 			return self._api_cache
 		out: list[dict] = []

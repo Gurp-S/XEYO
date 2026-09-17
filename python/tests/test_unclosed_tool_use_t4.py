@@ -86,6 +86,31 @@ def test_repair_is_stable_on_clean_transcript():
 	assert all(m.role != "tool" or "TOOL_" not in str(m.content) for m in msgs)
 
 
+def test_system_note_between_parallel_tool_results_is_reordered():
+	"""T_now 留痕不得打断同一 assistant 的多工具结果批次。"""
+	rows = [
+		_assistant_with_uses(("u1", "Read"), ("u2", "Grep")),
+		_tool_row("u1", "Read"),
+		{
+			"role": "system",
+			"content": "# state",
+			"note_kind": "state",
+			"note_key": "nested_instructions",
+			"note_fp": "fp-1",
+		},
+		_tool_row("u2", "Grep"),
+	]
+	msgs = messages_from_rows(rows)
+	assert [m.role for m in msgs] == ["assistant", "tool", "tool", "system"]
+	assert [m.tool_call_id for m in msgs if m.role == "tool"] == ["u1", "u2"]
+
+
+def test_orphan_tool_result_is_not_sent_to_model_history():
+	"""没有对应 assistant tool_use 的旧脏行不再阻塞后续请求。"""
+	msgs = messages_from_rows([_tool_row("orphan", "Read")])
+	assert msgs == []
+
+
 @pytest.mark.asyncio
 async def test_flush_transcript_safe_under_no_session():
 	"""_safe_flush_transcript 在无活动 session 时静默（不抛异常）。"""

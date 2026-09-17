@@ -33,9 +33,8 @@ _logger = logging.getLogger(__name__)
 # 按 transcript 路径缓存已写入 id，避免 ui_thought 同步等路径反复全文件扫描。
 _known_ids_cache: dict[str, set[str]] = {}
 
-# G107: 磁盘临界区锁——后台写入线程与 record_transcript_sync 直写共用,
-# 防止 rotate(rename 当前→归档)与另一路 append 交错:写者把行追加进已轮转的
-# 归档或新文件出现重复/丢行。
+# G107: 磁盘临界区锁——所有物理写入路径共用，防止 rotate(rename 当前→归档)
+# 与另一路 append 交错，造成行写入已轮转归档或新文件中的重复/丢失。
 _disk_lock = threading.Lock()
 
 # 后台写入队列：(seq, path, line)。seq 单调递增，用于 flush 判定「全部落盘」。
@@ -337,8 +336,22 @@ def record_transcript_sync(
 
 	target = path or default_transcript_path(session_id)
 	known = _resolve_known_ids(target, known_ids)
-
-	return _append_new_messages(messages, path=target, known=known)
+	pending = [m for m in messages if m.id and m.id not in known]
+	if not pending:
+		return 0
+	rows = [
+		json.dumps(message_to_dict(m, anchor=target), ensure_ascii=False) + "\n"
+		for m in pending
+	]
+	# 同步调用方也进入同一全局有序队列。此前这里直写文件，而普通
+	# record_transcript() 走后台队列，导致 system 留痕可能插入一个多工具
+	# 批次的两个 role=tool 行之间，重启后上游会返回 400。
+	for m in pending:
+		known.add(m.id)
+	submit_async_append(str(target), rows)
+	if not flush_pending_sync():
+		raise TimeoutError("transcript writer did not drain")
+	return len(pending)
 
 
 def load_transcript(path: Path) -> list[dict[str, Any]]:

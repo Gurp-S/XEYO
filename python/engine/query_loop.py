@@ -228,6 +228,15 @@ def _message_tool_call_id(m: Message) -> str:
 
 def _repair_unpaired_tool_calls(store: MessageStore, reason: str = "aborted") -> None:
     """Insert missing tool rows immediately after their assistant tool calls."""
+    from session.tool_sequence import (
+        discard_unpaired_tool_results,
+        reorder_system_messages_around_tool_results,
+    )
+
+    ordered = reorder_system_messages_around_tool_results(store.items)
+    ordered = discard_unpaired_tool_results(ordered)
+    if ordered is not store.items:
+        store.replace(ordered)
     items = store.items
     i = 0
     while i < len(items):
