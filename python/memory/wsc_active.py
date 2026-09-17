@@ -21,6 +21,10 @@ import os
 
 
 _ENV_ACTIVE = "XEYO_WSC_ACTIVE"
+_ENV_MARGIN = "XEYO_WSC_ACTIVE_MARGIN"
+_ENV_JOURNAL = "XEYO_WSC_ACTIVE_JOURNAL"
+_ENV_PATH_LIMIT = "XEYO_WSC_ACTIVE_PATH_LIMIT"
+_ENV_PATH_BUDGET = "XEYO_WSC_ACTIVE_PATH_BUDGET"
 
 
 def enabled() -> bool:
@@ -73,6 +77,37 @@ def _clone_cold(cold: Any) -> Any:
 	return ColdStore.from_json(cold.to_json())
 
 
+def _int_env(name: str, default: int) -> int:
+	try:
+		return max(0, int(os.environ.get(name, "") or default))
+	except (TypeError, ValueError):
+		return default
+
+
+def _active_params(params: Any = None) -> Any:
+	"""Return the frozen replacement candidate's params.
+
+	The active flag is deliberately separate from the shadow flag.  Its default
+	candidate is the currently selected offline setting; explicit environment
+	overrides make a canary reproducible without changing the production C2 path.
+	"""
+	if params is not None:
+		return params
+	from dataclasses import replace
+	from synaptic.types import WscParams
+
+	base = WscParams(mode="closure", fold_cadence="econ", handle_style="read").for_level("Medium+")
+	return replace(
+		base,
+		fold_margin=float(os.environ.get(_ENV_MARGIN, "0.65") or 0.65),
+		journal_growth_tokens=_int_env(_ENV_JOURNAL, 9000),
+		path_index_limit=_int_env(_ENV_PATH_LIMIT, 256),
+		path_index_budget_tokens=_int_env(_ENV_PATH_BUDGET, 2048),
+		retain_nonerror_pruned=False,
+		handle_style="read",
+	)
+
+
 def _baseline(messages: list[dict[str, Any]], cwd: str | Path | None) -> list[dict[str, Any]]:
 	from engine.compact import project as c0c1
 
@@ -118,6 +153,7 @@ def project_messages(
 	*,
 	session: str,
 	cwd: str | Path | None = None,
+	baseline: list[dict[str, Any]] | None = None,
 	state: Any = None,
 	cold: Any = None,
 	params: Any = None,
@@ -127,20 +163,22 @@ def project_messages(
 	``state`` 和 ``cold`` 是调用方上一次成功结果中的同一对对象。失败路径
 	永远不提交试算期间的副作用，防止一次坏投影污染后续回合。
 	"""
-	base = _baseline(messages, cwd)
+	# 调用方若已经完成生产基线投影，必须把那份最终消息作为回退值传入。
+	# 只有独立探针未提供 baseline 时，才在这里计算兼容性的 C0/C1 基线。
+	base = list(baseline) if baseline is not None else _baseline(messages, cwd)
 	try:
 		from memory.runtime import c2_cut_index
 		from memory.offload import ref_path_for
+		from synaptic.replay import _region_raw_tokens
 		from synaptic.project import project
 		from synaptic.types import WscParams
+		from engine.compact import project as c0c1
 
 		cut = int(c2_cut_index(messages, None))
 		if cut <= 1 or cut >= len(messages):
 			return ActiveProjection(base, False, "no_compressible_region", cut=cut)
 
-		pset = params or WscParams(
-			mode="closure", fold_cadence="econ", handle_style="read"
-		).for_level("Medium+")
+		pset = _active_params(params)
 		if getattr(pset, "handle_style", "") != "read":
 			from dataclasses import replace
 
@@ -159,6 +197,7 @@ def project_messages(
 			prev=trial_state,
 			cold=trial_cold,
 			session=session,
+			region_baseline_tokens=_region_raw_tokens(c0c1(list(messages[:cut]), cwd=cwd)),
 			view_path=trial_view,
 			view_ref=ref,
 		)

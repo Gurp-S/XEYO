@@ -956,6 +956,7 @@ async def query_loop(
             except Exception:
                 pass
         proj_cache = snap.proj_cache
+        api_all = store.as_api_messages()
         if (
             use_proj_cache
             and proj_cache is not None
@@ -968,7 +969,6 @@ async def query_loop(
             if cur_len == base_len:
                 projected = base_proj
             else:
-                api_all = store.as_api_messages()
                 new_msgs = api_all[base_len:]
                 if cursor > 0:
                     frozen_rel = max(0, frozen - cursor)
@@ -1001,7 +1001,6 @@ async def query_loop(
                     names,
                 )
         else:
-            api_all = store.as_api_messages()
             projected = project_for_model(
                 api_all,
                 snap,
@@ -1045,6 +1044,41 @@ async def query_loop(
                 )
             else:
                 snap.proj_cache = None
+        # 阶段 C：WSC active 档（默认关）。active 适配器只在完整校验通过后
+        # 返回 WSC 投影；失败保持当前 C2/C0-C1 投影，并且不提交试算状态。
+        # state/cold 由当前 WorkingSnapshot 的进程内 sidecar 成对携带，避免
+        # 跨轮重建视图时旧 Read 区间漂移。适配器只留接线点，算法仍在 synaptic。
+        try:
+            from memory.wsc_active import enabled as wsc_active_enabled
+            from memory.wsc_active import project_messages as wsc_project_messages
+
+            if wsc_active_enabled():
+                names = build_tool_use_names(api_all)
+                wsc_active = wsc_project_messages(
+                    api_all,
+                    session=getattr(snap, "session_id", "") or "",
+                    cwd=_turn_cwd,
+                    baseline=projected,
+                    state=getattr(snap, "_wsc_state", None),
+                    cold=getattr(snap, "_wsc_cold", None),
+                )
+                if wsc_active.used_wsc:
+                    projected = apply_tool_output_fences(
+                        wsc_active.messages, id_to_name=names
+                    )
+                    projected = apply_tool_result_digest(projected, id_to_name=names)
+                    # 提交必须在 active 结果完整成功后发生；回退分支不覆盖上一份有效 state/cold。
+                    setattr(snap, "_wsc_state", wsc_active.state)
+                    setattr(snap, "_wsc_cold", wsc_active.cold)
+                    setattr(snap, "_wsc_active_last_reason", "active")
+                else:
+                    setattr(
+                        snap,
+                        "_wsc_active_last_reason",
+                        str(wsc_active.fallback_reason or "fallback_c2"),
+                    )
+        except Exception as exc:  # noqa: BLE001 - active must never block C2
+            setattr(snap, "_wsc_active_last_reason", f"{type(exc).__name__}:{exc}")
         # 侧聊（side）模式：T_now 不挂 workspace 派生内容（Nested XEYO / stale
         # 提醒 / Memory 索引），cwd 传空即由 pre_llm_inject 统一跳过。
         from permissions.policy import side_mode as _side_mode

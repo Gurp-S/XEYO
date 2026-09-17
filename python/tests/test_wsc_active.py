@@ -95,9 +95,11 @@ def test_cross_turn_state_and_cold_are_committed_only_after_success(tmp_path: Pa
 
 def test_short_history_falls_back_without_state(tmp_path: Path):
 	rows = [{"role": "user", "content": "short"}]
-	result = project_messages(rows, session="short", cwd=tmp_path)
+	baseline = [{"role": "system", "content": "current production baseline"}]
+	result = project_messages(rows, session="short", cwd=tmp_path, baseline=baseline)
 	assert not result.used_wsc
 	assert result.fallback_reason == "no_compressible_region"
+	assert result.messages == baseline
 	assert result.state is None and result.cold is None
 
 
