@@ -93,6 +93,30 @@ def test_cross_turn_state_and_cold_are_committed_only_after_success(tmp_path: Pa
 	assert second.view_path == first.view_path
 
 
+def test_restart_restores_state_and_cold_sidecar(tmp_path: Path):
+	rows = _history()
+	first = project_messages(rows, session="active-restart", cwd=tmp_path)
+	assert first.used_wsc
+	assert (tmp_path / ".xeyo_offload" / "wsc-active" / "active-restart.txt.state.json").is_file()
+
+	rows.extend(
+		[
+			{"role": "assistant", "content": "A new observed fact was recorded."},
+			{"role": "user", "content": "Continue after restart."},
+		]
+	)
+	second = project_messages(
+		rows,
+		session="active-restart",
+		cwd=tmp_path,
+		state=None,
+		cold=None,
+	)
+	assert second.used_wsc
+	assert second.state is not None and second.cold is not None
+	assert len(second.cold.view_blocks) >= len(first.cold.view_blocks)
+
+
 def test_short_history_falls_back_without_state(tmp_path: Path):
 	rows = [{"role": "user", "content": "short"}]
 	baseline = [{"role": "system", "content": "current production baseline"}]

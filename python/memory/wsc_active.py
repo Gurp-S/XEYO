@@ -14,9 +14,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from typing import Any
+import json
 import os
 
 
@@ -60,6 +61,75 @@ def _view_path(cwd: str | Path | None, session: str) -> Path:
 def _trial_view_path(view: Path) -> Path:
 	"""返回不影响已发布 Read 句柄的试算视图路径。"""
 	return view.with_name(view.name + ".trial")
+
+
+def _sidecar_path(view: Path) -> Path:
+	"""进程重启后的状态副本；不进入模型输入，也不替代冷层视图。"""
+	return view.with_name(view.name + ".state.json")
+
+
+def _state_json(state: Any) -> dict[str, Any]:
+	return asdict(state)
+
+
+def _state_from_json(raw: dict[str, Any]) -> Any:
+	from synaptic.assemble import AssemblyState, SegStat
+	from synaptic.types import FileState, PruneCard
+
+	state = AssemblyState()
+	known = {f.name for f in fields(AssemblyState)}
+	for name, value in raw.items():
+		if name not in known:
+			continue
+		if name == "seg_stats":
+			value = {
+				str(k): SegStat(**v) for k, v in (value or {}).items() if isinstance(v, dict)
+			}
+		elif name == "frozen_cards":
+			value = tuple(PruneCard(**v) for v in (value or ()) if isinstance(v, dict))
+		elif name == "frozen_file_states":
+			value = tuple(FileState(**v) for v in (value or ()) if isinstance(v, dict))
+		elif name in {
+			"appended", "journal", "churn_warn", "seg_order", "frozen_kept",
+			"frozen_pruned", "rehydration_leases", "rehydration_nodes",
+			"compact_state_current",
+		}:
+			value = tuple(value or ())
+		setattr(state, name, value)
+	return state
+
+
+def _load_sidecar(view: Path, session: str) -> tuple[Any, Any] | tuple[None, None]:
+	path = _sidecar_path(view)
+	try:
+		raw = json.loads(path.read_text(encoding="utf-8"))
+		if not isinstance(raw, dict) or str(raw.get("session") or "") != str(session):
+			return None, None
+		state_raw = raw.get("state")
+		cold_raw = raw.get("cold")
+		if not isinstance(state_raw, dict) or not isinstance(cold_raw, dict):
+			return None, None
+		from synaptic.coldstore import ColdStore
+
+		return _state_from_json(state_raw), ColdStore.from_json(cold_raw)
+	except (OSError, UnicodeError, ValueError, TypeError, KeyError):
+		return None, None
+
+
+def _save_sidecar(view: Path, session: str, state: Any, cold: Any) -> None:
+	if state is None or cold is None:
+		return
+	path = _sidecar_path(view)
+	tmp = path.with_name(path.name + ".tmp")
+	payload = {
+		"version": 1,
+		"session": str(session),
+		"state": _state_json(state),
+		"cold": cold.to_json(),
+	}
+	path.parent.mkdir(parents=True, exist_ok=True)
+	tmp.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+	os.replace(tmp, path)
 
 
 def _discard_trial_view(path: Path) -> None:
@@ -185,6 +255,8 @@ def project_messages(
 			pset = replace(pset, handle_style="read")
 		view = _view_path(cwd, session)
 		ref = ref_path_for(view, cwd)
+		if state is None and cold is None:
+			state, cold = _load_sidecar(view, session)
 		trial_view = _trial_view_path(view)
 		_discard_trial_view(trial_view)
 		# 试算用副本；只有所有硬校验通过后才把 state/cold 交给调用方。
@@ -224,6 +296,7 @@ def project_messages(
 		# 试算期间正式视图保持不动；通过全部校验后再发布同一份已验证字节。
 		view.parent.mkdir(parents=True, exist_ok=True)
 		os.replace(trial_view, view)
+		_save_sidecar(view, session, projection.state, projection.cold)
 		projection.view_path = str(view)
 		return ActiveProjection(
 			candidate,
