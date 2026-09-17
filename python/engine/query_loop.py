@@ -1059,14 +1059,15 @@ async def query_loop(
                     session=getattr(snap, "session_id", "") or "",
                     cwd=_turn_cwd,
                     baseline=projected,
+                    postprocess=lambda candidate: apply_tool_result_digest(
+                        apply_tool_output_fences(candidate, id_to_name=names),
+                        id_to_name=names,
+                    ),
                     state=getattr(snap, "_wsc_state", None),
                     cold=getattr(snap, "_wsc_cold", None),
                 )
                 if wsc_active.used_wsc:
-                    projected = apply_tool_output_fences(
-                        wsc_active.messages, id_to_name=names
-                    )
-                    projected = apply_tool_result_digest(projected, id_to_name=names)
+                    projected = wsc_active.messages
                     # 提交必须在 active 结果完整成功后发生；回退分支不覆盖上一份有效 state/cold。
                     setattr(snap, "_wsc_state", wsc_active.state)
                     setattr(snap, "_wsc_cold", wsc_active.cold)

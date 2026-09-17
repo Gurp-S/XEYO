@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, fields
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 import json
 import os
 
@@ -70,6 +70,12 @@ def _sidecar_path(view: Path) -> Path:
 
 def _state_json(state: Any) -> dict[str, Any]:
 	return asdict(state)
+
+
+def _message_tokens(messages: list[dict[str, Any]]) -> int:
+	from synaptic.textutil import message_text, node_token_len
+
+	return sum(node_token_len(message_text(message)) for message in messages)
 
 
 def _state_from_json(raw: dict[str, Any]) -> Any:
@@ -227,6 +233,7 @@ def project_messages(
 	state: Any = None,
 	cold: Any = None,
 	params: Any = None,
+	postprocess: Callable[[list[dict[str, Any]]], list[dict[str, Any]]] | None = None,
 ) -> ActiveProjection:
 	"""生成一次 WSC active 发送序列；异常只影响本次，确定性回退 C0/C1。
 
@@ -290,9 +297,14 @@ def project_messages(
 			{"role": "assistant", "content": projection.text, "name": "wsc_snapshot"},
 			*tail,
 		]
+		if postprocess is not None:
+			candidate = postprocess(candidate)
 		if not _pairs_are_valid(candidate):
 			_discard_trial_view(trial_view)
 			return ActiveProjection(base, False, "broken_tool_pair", cut=cut)
+		if baseline is not None and _message_tokens(candidate) > _message_tokens(base):
+			_discard_trial_view(trial_view)
+			return ActiveProjection(base, False, "full_prompt_gain_gate", cut=cut)
 		# 试算期间正式视图保持不动；通过全部校验后再发布同一份已验证字节。
 		view.parent.mkdir(parents=True, exist_ok=True)
 		os.replace(trial_view, view)

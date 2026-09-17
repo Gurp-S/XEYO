@@ -127,6 +127,15 @@ def test_short_history_falls_back_without_state(tmp_path: Path):
 	assert result.state is None and result.cold is None
 
 
+def test_full_prompt_gate_rejects_growth_against_actual_baseline(tmp_path: Path):
+	rows = _history()
+	baseline = [{"role": "system", "content": "tiny baseline"}]
+	result = project_messages(rows, session="active-gate", cwd=tmp_path, baseline=baseline)
+	assert not result.used_wsc
+	assert result.fallback_reason == "full_prompt_gain_gate"
+	assert result.messages == baseline
+
+
 def test_wsc_exception_cannot_pollute_prior_cold(monkeypatch, tmp_path: Path):
 	import importlib
 
