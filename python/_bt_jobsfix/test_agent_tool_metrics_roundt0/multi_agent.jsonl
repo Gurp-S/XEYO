@@ -1,2 +1,0 @@
-{"ts":1789527210.64,"kind":"agent_tool_start","session_id":"s1","agent_id":"a1","task_id":"t1","desc":"probe","multi_agent_chip":false,"read_only":false}
-{"ts":1789527210.641,"kind":"agent_tool_end","session_id":"s1","agent_id":"a1","task_id":"t1","status":"done","duration_ms":42,"reason":"","read_only":false,"turns_used":0,"max_turns":0}

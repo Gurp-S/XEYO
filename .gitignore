@@ -158,3 +158,20 @@ python/scripts/channel_probe_*.py
 
 # WSC 突触压缩离线评测产物（scratch：报告 / 基线快照 / pytest 临时目录；2026-09-15）
 _wsc_out/
+
+# 开源仓库不收录的本地调试、测试残留与个人/工作区文件
+/_*.py
+/_wsc_tmp*/
+/.xeyo_offload/
+/.xeyo-policy.json
+/_schema.json
+/batch-06.md
+/docs.zip
+/pytest_baseline.txt
+/scripts/tmp_*.py
+/skill-dev-desk.html
+docs/*/_audit_citations.py
+docs/A3-monitor.html
+python/_bt_jobsfix/
+python/_wsc_out_probe_read.py
+resume/
