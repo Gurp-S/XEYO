@@ -22,6 +22,7 @@ def test_for_level_splits_exact_hot_budget():
 	assert p.hot_budget_tokens == 3_000
 	assert p.fixed_segment_budget_tokens == 1_800
 	assert p.main_segment_budget_tokens == 1_200
+	assert p.journal_growth_tokens == 9_000
 	assert p.fixed_segment_budget_tokens + p.main_segment_budget_tokens == p.hot_budget_tokens
 
 
@@ -31,6 +32,8 @@ def test_for_level_never_leaves_unaccounted_budget():
 		assert p.fixed_segment_budget_tokens + p.main_segment_budget_tokens == p.hot_budget_tokens
 		want_fixed = 1_800 if level == "Medium+" else 1_200
 		assert p.fixed_segment_budget_tokens == min(want_fixed, p.hot_budget_tokens)
+		want_growth = 9_000 if level == "Medium+" else 2 * p.hot_budget_tokens
+		assert p.journal_growth_tokens == want_growth
 	clamped = WscParams(fixed_segment_budget_tokens=99_999).for_level("Hard")
 	assert clamped.fixed_segment_budget_tokens == clamped.hot_budget_tokens
 	assert clamped.main_segment_budget_tokens == 0

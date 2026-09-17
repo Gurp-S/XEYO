@@ -2066,3 +2066,4 @@ t199  hot=2734 | fixed 1156/1200 over=0 | main 1426/1800 over=0 | requests=dedup
 - 任务集与执行前指纹已落盘：`_wsc_out/wsc_task_battery_v1.json`（26 题、官方 verifier）与 `_wsc_out/wsc_task_ab_v1_manifest.json`；执行必须使用干净隔离 checkout，当前脏工作树不可直接跑 A/B。
 - 当前生产适配器仍是 `memory.wsc_shadow` 旁路；C/D 行为 arm 的阶段 C 接线尚未完成，故本轮只完成 task preflight，不宣称已有 task-success A/B 结果。
 - 零 API task replay（26 题 / 2,117 个真实 tool-result 快照）已完成：WSC `Σhot/Σbase=0.5693`；五类针池化均为 1.0000。该结果仅是结构/长度诊断，不能作为行为收益或 task-success 证据。
+- 2026-09-17 命中率定向优化：Medium+ `journal_growth_tokens` 由 6000 调至 9000；严格生产 Read 相对句柄对撞 736 回合，m=0.1/m=0.25 成本比分别为 **0.9790/0.9639**（旧 6000 基线 **1.0007/1.0050**），命中率分别为 **0.7142/0.7202**（旧基线 **0.5445/0.5729**）。

@@ -229,9 +229,11 @@ class WscParams:
 	#  24 000    0.835    16 344 tok    407 244      1.0%     15.08 M
 	#
 	# 结论：成本最优点在 12 000（≈4× 热层预算），但那里投影比分段布局大 1.8 倍——
-	# 「省钱」与「少占窗口」在命中率轴上是对立目标。默认取 **2× 热层预算**
-	# （见 ``for_level``），在成本曲线的平坦段而非极值点上；要追极限成本再显式放大。
-	journal_growth_tokens: int = 6_000
+	# 「省钱」与「少占窗口」在命中率轴上是对立目标。Medium+ 现取 **3× 热层预算**：
+	# 严格同节奏/同切点/同尾部、生产 Read 相对句柄的 736 回合对撞中，
+	# 6000 → 9000 使 m=0.1 成本比 1.0007 → 0.9790、m=0.25 1.0050 → 0.9639，
+	# 同时命中率 0.5445/0.5729 → 0.7142/0.7202。其它档位仍按 2× 取值。
+	journal_growth_tokens: int = 9_000
 	# [REQUESTS] 每条用户原话内联的字符上限（超出附 expand(node://<idx>) 句柄取全文）。
 	request_excerpt_chars: int = 320
 
@@ -342,8 +344,8 @@ class WscParams:
 		fixed_budget = min(configured_fixed, hot_budget)
 		preset["fixed_segment_budget_tokens"] = fixed_budget
 		preset["main_segment_budget_tokens"] = hot_budget - fixed_budget
-		# 日志增长预算 = 2× 热层预算（见 journal_growth_tokens 的实测扫描）。
-		preset["journal_growth_tokens"] = 2 * hot_budget
+		# 日志增长预算：Medium+ 采用已通过生产形态对撞的 3×；其它档位保持 2×。
+		preset["journal_growth_tokens"] = (3 if level == "Medium+" else 2) * hot_budget
 		return WscParams(
 			level=level,
 			mode=self.mode,

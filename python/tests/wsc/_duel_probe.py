@@ -48,6 +48,7 @@
                                故只有 `read` 档的比例是「真换上 WSC」的比例。
     --view-dir DIR             `read` 档的取回视图目录（每会话一份）
     --view-ref-base DIR        引用渲染基准（给了就渲染工作区相对路径）
+    --journal-growth TOK       评测覆盖：日志达到 TOK token 后才允许重冻结；默认使用档位值
 
 ## 形态（2026-09-16 补）
 
@@ -636,15 +637,21 @@ def main(argv: list[str]) -> int:
     handle_style = opt("--handle-style", os.environ.get("XEYO_WSC_HANDLE_STYLE", "expand") or "expand")
     view_dir = opt("--view-dir", os.environ.get("XEYO_WSC_VIEW_DIR", ""))
     view_ref_base = opt("--view-ref-base", os.environ.get("XEYO_WSC_VIEW_REF_BASE", ""))
+    journal_growth = int(opt("--journal-growth", os.environ.get("XEYO_WSC_JOURNAL_GROWTH", "0") or "0"))
 
     files = sorted(target.glob("*.jsonl")) if target.is_dir() else [target]
     if max_sessions:
         files = files[:max_sessions]
     pset = WscParams(mode=mode).for_level(level)
-    if handle_style == "read":
+    if handle_style == "read" or journal_growth > 0:
         import dataclasses as _dc
 
-        pset = _dc.replace(pset, handle_style="read")
+        updates = {}
+        if handle_style == "read":
+            updates["handle_style"] = "read"
+        if journal_growth > 0:
+            updates["journal_growth_tokens"] = journal_growth
+        pset = _dc.replace(pset, **updates)
 
     all_rows: list[dict] = []
     kw = dict(
