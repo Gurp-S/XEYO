@@ -155,11 +155,13 @@ def test_rejected_partial_tool_batch_cannot_rewrite_published_view(tmp_path: Pat
 		rows,
 		session="active-d",
 		cwd=tmp_path,
+		baseline=[{"role": "system", "content": "the already published C2 baseline"}],
 		state=first.state,
 		cold=first.cold,
 	)
 
 	assert not second.used_wsc
 	assert second.fallback_reason == "broken_tool_pair"
+	assert second.messages == [{"role": "system", "content": "the already published C2 baseline"}]
 	assert view.read_bytes() == published
 	assert not Path(str(view) + ".trial").exists()
