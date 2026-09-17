@@ -52,6 +52,9 @@ MEMORY_SWITCHES: tuple[tuple[str, str, tuple[str, ...], str, bool, bool], ...] =
 	# 锁死为「恒一项」，扩大它属产品决策，不由本模块顺手改。切换走 settings.json：
 	# `memory_switches.save({"XEYO_WSC": "1"}, cwd=<工作区>)`。
 	("XEYO_WSC", "WSC 影子档（阶段 B：只观察不生效）——记「若改用突触压缩会长什么样」，不改发送；每会话采样 6 轮", ("0", "1"), "0", False, True),
+	# 阶段 C：active 适配器（默认关）。开启后 WSC 成为候选发送头，任何校验/收益
+	# 失败自动回退 C2；不暴露到 GUI，避免在行为证据完成前误触主链。
+	("XEYO_WSC_ACTIVE", "WSC active 候选：通过 Read/工具配对/收益校验后替换本轮 C2；失败自动回退", ("0", "1"), "0", False, True),
 	# ---- 非 GUI 暴露（测试 / 评测便捷开关）----
 	("XEYO_L5", "L5 模式：project=默认链(不跑每轮 decide)；v61=实验通道(每轮 decide)", ("project", "v61"), "project", False, True),
 	("XEYO_TOOL_AGING", "工具结果老化：压缩后冻结区仍可按窗口紧追推进（默认关）", ("0", "1"), "0", False, True),
