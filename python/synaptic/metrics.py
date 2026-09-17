@@ -62,7 +62,14 @@ def needle_survival(
 			# 路径类允许命中其归一化形态的最后一段（热层可能写全路径或短名）。
 			# path_recent 是 path 的近期子集，必须使用同一宽松口径，否则会在
 			# 完全相同的渲染下报出偏低存活率。
-			if cat in ("path", "path_recent"):
+			#
+			# 2026-09-16：``failure_site`` 与 ``path`` **是同一批字符串**
+			# （都是 `is_error` 节点的 refs，见 seeds.harvest_needles），此前却只在
+			# `path` 上有回退 ⇒ 同一条路径在同一个热层里「path 记命中、failure_site 记漏失」。
+			# 实测纯口径差 7.7pp（最大 4 会话末 6 回合，n=336）。补上后三类同判据。
+			# 已知代价：basename 子串匹配会多计（`src/config.ts` 命中 `src/myconfig.ts`），
+			# 三类一并承担，故仍是**上界**口径，不改变相对比较。
+			if cat in ("path", "path_recent", "failure_site"):
 				short = normalize_path(target).split("/")[-1]
 				if short and short in norm_hot:
 					hit += 1
@@ -106,6 +113,20 @@ def recoverability(proj) -> dict[str, float | int]:
 		"lossless": lossless,
 		"lossless_rate": (lossless / checked) if checked else 1.0,
 	}
+
+
+def exposed_handles(proj) -> int:
+	"""投影里**实际暴露给模型**的取回句柄数（去重）。
+
+	为什么单列一个指标：「剪枝不是删除，是降级成缺口 + 可展开句柄」这句设计承诺，
+	只有配上**暴露量 / 使用量**才算证据。暴露量在这里（离线可算），
+	使用量在真实会话里（按需取回工具的调用率）。实测 4 条真实长会话 / 35 个投影：
+	median **28** 个句柄/轮，而同一批回合被剪节点 median **390**。
+	"""
+	cold = getattr(proj, "cold", None)
+	if cold is None:
+		return 0
+	return len(getattr(cold, "handles", {}) or {})
 
 
 @dataclass
@@ -181,9 +202,15 @@ ALGORITHM_MODULES = (
 	"filestate.py",
 	"seeds.py",
 	"paths.py",
+	"fixed_budget.py",
+	"freeze.py",
+	"rehydrate.py",
 	"budget.py",
 	"closure.py",
 	"prune.py",
+	"handles.py",
+	"cadence.py",
+	"timing.py",
 	"assemble.py",
 	"coldstore.py",
 	"project.py",

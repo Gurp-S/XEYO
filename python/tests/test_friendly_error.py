@@ -71,6 +71,15 @@ def test_friendly_error_keeps_known_patterns() -> None:
 	assert "微信" in friendly_error(RuntimeError("connection has been closed"))
 
 
+def test_friendly_error_hides_http_transport_detail() -> None:
+	class ConnectError(Exception):
+		__module__ = "httpx"
+
+	msg = friendly_error(ConnectError("All connection attempts failed"))
+	assert "All connection attempts failed" not in msg
+	assert "模型服务" in msg
+
+
 def test_friendly_error_provider_unchanged() -> None:
 	from common.errors import ProviderError
 

@@ -34,6 +34,27 @@ class SystemPromptParts:
 	system_context: dict[str, str] = field(default_factory=dict)  # 保留字段；不再注入左段
 
 
+def _display_cwd(cwd: str) -> str:
+	"""模型可见的工作目录：容器路由下显示**容器内**的 pwd（2026-09-16）。
+
+	为什么必须改：Bash 经容器路由在容器里执行，而左段此前一律报宿主 ``cwd``
+	（评测里是适配器建的空 scratch 目录）。模型得到一个"工作目录"，在那里既
+	找不到题面文件、也写不出产物——它会先怀疑路径、再怀疑自己，白烧轮次。
+
+	KV 前缀稳定性：容器 pwd 在会话内固定 ⇒ 左段逐字节稳定，不破坏前缀缓存
+	（左段只在会话起点组装一次，见 ``prompt/assembler.py``）。
+
+	口径单一来源：与各工具错误文案共用 ``tools.container_fs.display_cwd``，
+	避免"提示词说 /app、错误说 D:\\..."的自相矛盾。
+	"""
+	try:
+		from tools.container_fs import display_cwd
+
+		return display_cwd(cwd)
+	except Exception:  # noqa: BLE001 — 探测失败绝不挡系统提示词组装
+		return cwd
+
+
 def get_default_system_prompt_parts(
 	*,
 	cwd: str,
@@ -64,7 +85,7 @@ def get_default_system_prompt_parts(
 		]
 	return [
 		IDENTITY,
-		f"CWD: {cwd}",
+		f"CWD: {_display_cwd(cwd)}",
 		FENCE_POLICY,
 	]
 

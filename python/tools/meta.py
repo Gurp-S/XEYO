@@ -66,15 +66,7 @@ TOOL_META: dict[str, ToolMeta] = {
 			read_only=True,
 			concurrency_safe=True,
 			policy="always_allow",
-			short_description="Current local date/time. Use instead of guessing.",
-		),
-		ToolMeta(
-			name="offload_read",
-			read_only=True,
-			concurrency_safe=True,
-			policy="read_path",
-			exposure="hidden",  # hidden-but-registered：不撑 schema，保留可用性（按需读取外部化工具结果）
-			short_description="按行区间读取一个被外部化的工具结果文件（L3 offload 引用）。",
+			short_description="Returns the current local date/time.",
 		),
 		ToolMeta(
 			name="Glob",
@@ -84,8 +76,8 @@ TOOL_META: dict[str, ToolMeta] = {
 			subagent_ok=True,
 			subagent_baseline=True,
 			short_description=(
-				"Find files by glob. Optional path root; paginate head_limit/offset. "
-				"Prefer over Bash find; use Grep for contents."
+				"Finds files by glob. Optional path root; supports head_limit/offset "
+				"pagination. Results contain file paths."
 			),
 		),
 		ToolMeta(
@@ -96,8 +88,8 @@ TOOL_META: dict[str, ToolMeta] = {
 			subagent_ok=True,
 			subagent_baseline=True,
 			short_description=(
-				"Search file contents (rg). Filter with path/glob. "
-				"Use Glob for filenames only."
+				"Searches file contents with rg. Supports path and glob filters. "
+				"Results contain matching content locations."
 			),
 		),
 		ToolMeta(
@@ -122,7 +114,7 @@ TOOL_META: dict[str, ToolMeta] = {
 			subagent_baseline=True,
 			needs_write_store=True,
 			needs_read_state=True,
-			short_description="Create/overwrite a file. Read first if it exists.",
+			short_description="Creates or overwrites a file.",
 		),
 		ToolMeta(
 			name="Edit",
@@ -133,7 +125,7 @@ TOOL_META: dict[str, ToolMeta] = {
 			subagent_baseline=True,
 			needs_write_store=True,
 			needs_read_state=True,
-			short_description="Exact string replace in a file. Read first.",
+			short_description="Replaces an exact string in a file.",
 		),
 		ToolMeta(
 			name="Bash",
@@ -147,10 +139,9 @@ TOOL_META: dict[str, ToolMeta] = {
 			# registry 级预算，避免双重截断/双重落盘。
 			output_budget=0,
 			short_description=(
-				"Only for commands with no dedicated tool: "
-				"build/test/install/process/network, git writes. "
-				"NEVER for file ops — list→Glob, search→Grep, read→Read, "
-				"edit→Edit, write→Write, git read→Git."
+				"Runs shell commands, including build/test/install/process/network "
+				"and git operations. File listing, content search, file reads, "
+				"file edits, and file writes are also exposed by dedicated tools."
 			),
 		),
 	ToolMeta(
@@ -217,8 +208,8 @@ TOOL_META: dict[str, ToolMeta] = {
 			needs_write_store=True,
 			needs_runtime_provider=True,
 			short_description=(
-				"Spawn a short-lived sub-agent. Skip for simple Q&A; "
-				"sub-agents: Git + readonly Bash sandbox; no Memory/nested Agents."
+				"Spawns a short-lived sub-agent. Sub-agents have Git and a "
+				"readonly Bash sandbox; Memory and nested Agents are unavailable."
 			),
 		),
 		ToolMeta(
@@ -229,7 +220,7 @@ TOOL_META: dict[str, ToolMeta] = {
 			subagent_ok=True,
 			subagent_baseline=True,
 			short_description=(
-				"Diagnostics on required path (file you edited). Not a full LSP."
+				"Diagnostics for a required path. Not a full LSP."
 			),
 		),
 		ToolMeta(
@@ -250,7 +241,7 @@ TOOL_META: dict[str, ToolMeta] = {
 			subagent_baseline=False,
 			needs_write_store=True,
 			needs_read_state=True,
-			short_description="Edit .ipynb by cell (Read first). Not Edit/Write.",
+			short_description="Edits .ipynb files by cell.",
 		),
 		ToolMeta(
 			name="WebFetch",

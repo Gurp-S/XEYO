@@ -108,6 +108,10 @@ class _Ring:
 		text = "".join(self._buf)[start - self._start :]
 		return text, self._start + self._len, truncated
 
+	def read_all(self) -> tuple[str, bool]:
+		"""返回 (ring 全量文本, 是否有早期内容被丢弃)——GUI 窥视通道专用。"""
+		return "".join(self._buf), self._start > 0
+
 
 @dataclass
 class JobRecord:
@@ -414,6 +418,28 @@ class JobRegistry:
 			key=lambda j: (-j.finished_at, j.job_id),
 		)
 		return [j.to_dict() for j in active + done]
+
+	def peek_output(self, job_id: str, caller_session_id: str) -> dict[str, Any] | None:
+		"""GUI 只读窥视：ring 全量文本 + 截断标志 + 状态；未知/越权 → None。
+
+		与 ``read``（job_output，模型单游标增量消费）严格分离：本方法**不消费
+		游标、不置 reported**，可重复调用——GUI 轮询/展开查看不影响通知管线。
+		"""
+		with self._lock:
+			rec = self._jobs.get(job_id)
+			if rec is None or rec.owner_session_id != (caller_session_id or "").strip():
+				return None
+			ring = self._rings.get(job_id)
+			if ring is None:
+				text, truncated = "", False
+			else:
+				text, truncated = ring.read_all()
+			return {
+				"job_id": job_id,
+				"status": rec.status,
+				"text": text,
+				"truncated": truncated,
+			}
 
 	def version(self) -> int:
 		with self._lock:

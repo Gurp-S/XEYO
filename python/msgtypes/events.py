@@ -147,6 +147,19 @@ class ContextCompressionEvent:
 
 
 @dataclass
+class SteerDeliveredEvent:
+	"""运行中输入的用户消息已在**边界**投递进历史的回执（管道 1）。
+
+	只放事实：条数 + 客户端消息 id。不回灌文本——文本客户端本地已有，
+	回灌反而会跟用户在输入框里的编辑打架。
+	"""
+
+	count: int = 0
+	message_ids: tuple[str, ...] = ()
+	type: str = "steer_delivered"
+
+
+@dataclass
 class ResultEvent:
 	"""一轮 submit 的结束信号（flush 之后 yield）。"""
 

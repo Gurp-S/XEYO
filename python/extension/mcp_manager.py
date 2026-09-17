@@ -347,7 +347,7 @@ class McpManager:
 		for sid in sorted(self._required_failed):
 			lines.append(f"- MCP 服务 `{sid}` 启动失败，其工具当前不可用；会话照常。")
 		if self._unapproved:
-			lines.append("  （另：project 级未批准 server 未启动，需 `/mcp approve`）")
+			lines.append("  project_scope_approval=false；server_state=not_started。")
 		return "\n".join(lines)
 
 	# -- 网关（F2） --------------------------------------------------------

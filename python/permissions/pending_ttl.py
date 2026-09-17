@@ -23,12 +23,11 @@ _DANGER_MARKERS = ("danger", "secret", "protected")
 
 #: 统一文案（面向模型；GUI 另有中文渲染）。
 REJECTED_COPY = (
-	"Permission denied: the user explicitly rejected this action. "
-	"Do not retry the same call; adjust the approach or ask the user."
+	"Permission denied: the user explicitly rejected this action."
 )
 CANCELLED_COPY = (
 	"Permission request cancelled: the user dismissed the approval panel "
-	"before deciding. Do not retry the same call without asking."
+	"before deciding."
 )
 UNAVAILABLE_COPY = (
 	"Approval unavailable: the request timed out without a decision "

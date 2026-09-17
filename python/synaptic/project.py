@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from synaptic.assemble import (
 	AssemblyState,
@@ -15,19 +16,29 @@ from synaptic.assemble import (
 	render_pins,
 )
 from synaptic.budget import request_chunk_ids
-from synaptic.closure import audit_rows, plan_selection
+from synaptic.closure import Selection, audit_rows, plan_selection
 from synaptic.coldstore import (
 	ColdStore,
 	branch_handle,
+	head_handle,
 	node_group_handle,
 	node_handle,
 	reqs_handle,
 )
 from synaptic.filestate import build_file_states, file_state_tokens, working_set
+from synaptic.freeze import freeze_working_set, phase_signature
 from synaptic.graph import Graph, build_graph, graph_digest
+from synaptic.handles import HandleRenderer
 from synaptic.prune import build_cards, cards_handle, cards_tokens, group_cards
+from synaptic.rehydrate import (
+	decay_leases,
+	leased_paths,
+	plan_working_set_rehydration,
+	renew_leases,
+)
 from synaptic.seeds import Seeds, collect_seeds, recent_paths, request_skip
 from synaptic.textutil import node_token_len
+from synaptic.timing import StageTimer
 from synaptic.types import (
 	KIND_USER,
 	MODE_APPEND_ONLY,
@@ -50,6 +61,8 @@ class Projection:
 	graph: Graph
 	seeds: Seeds
 	audit: list[dict] = field(default_factory=list)
+	#: 冷层取回视图路径（`handle_style=read` 时非空）。
+	view_path: str = ""
 
 	@property
 	def text(self) -> str:
@@ -70,6 +83,16 @@ def project(
 	goal_override: str = "",
 	session: str = "",
 	region_baseline_tokens: int | None = None,
+	#: 冷层取回视图落盘路径。给了且 `params.handle_style == "read"` 时，热层句柄
+	#: 渲染成 `Read(file_path=…, offset=…, limit=…)`；不给则保持 `expand(<handle>)`。
+	view_path: Path | str | None = None,
+	#: 句柄里**渲染**出来的取回路径（默认 = `str(view_path)`）。
+	#: 与 `view_path` 分开的理由：写入位置必须是绝对路径（进程 cwd ≠ 工作区时相对路径会写错地方），
+	#: 而**渲染**给模型的引用应当尽量短——`Read` 的 cwd 是读取方工作区，工作区相对路径同样能解析。
+	#: 调用方用 `memory.offload.ref_path_for()` 生成它（判不出相对会自动回落绝对）。
+	view_ref: str = "",
+	#: 当前轮显式触碰的工作集路径；供旁路自动取回使用，不做语义推断。
+	rehydrate_paths: tuple[str, ...] = (),
 ) -> Projection:
 	"""压缩 ``messages[:region_end]`` 为热层；``[region_end, end)`` 不触碰。
 
@@ -78,12 +101,16 @@ def project(
 短会话上 PIN + 卡片开销会超过节省，没有这道门就会出现「压缩后更大」。
 	"""
 	p = params or WscParams()
+	timer = StageTimer()
 	if region_end <= 0:
 		region_end = 0
 
-	graph = build_graph(messages)
+	graph = build_graph(messages, include_soft_edges=p.soft_dag)
+	timer.mark("graph")
 	file_states = build_file_states(graph, messages)
+	timer.mark("file_state")
 	seeds = collect_seeds(graph, messages, file_states, goal_override=goal_override)
+	timer.mark("seeds")
 
 	pins = build_pins(seeds)
 	pin_tokens = sum(node_token_len(line) + 1 for _, line in render_pins(pins))
@@ -93,6 +120,8 @@ def project(
 		pin_paths=seeds.pin_paths,
 		recent_paths=recent_paths(graph, region_end=region_end),
 	)
+	if p.freeze_working_set and prev is not None and prev.frozen_file_states:
+		ws = freeze_working_set(prev.frozen_file_states, ws, limit=12)
 	ws_tokens = file_state_tokens(ws)
 
 	unresolved_set = _unresolved_idx(graph)
@@ -101,31 +130,97 @@ def project(
 	# 主链预算独立于固定段：REQUESTS 不再与 kept 抢同一个未分账水位。
 	budget = max(0, p.main_segment_budget_tokens - _CARD_RESERVE_SEED)
 
+	phase_key = phase_signature(graph, seeds, region_end)
+	frozen_reuse = bool(
+		p.freeze_main_chain
+		and prev is not None
+		and prev.frozen_phase_signature
+		and prev.frozen_phase_signature == phase_key
+		and prev.frozen_region_end > 0
+	)
 	selection = None
 	cards = ()
 	used = 0
-	for _ in range(4):
-		selection = plan_selection(
-			graph,
-			seeds,
-			p,
-			region_end=region_end,
-			budget_tokens=budget,
-			unresolved_set=unresolved_set,
+	if frozen_reuse:
+		frozen_kept = tuple(i for i in prev.frozen_kept if i < region_end)
+		frozen_pruned = tuple(i for i in prev.frozen_pruned if i < region_end)
+		kept_set = set(frozen_kept)
+		new_pruned = tuple(
+			i for i in range(max(0, prev.frozen_region_end), region_end)
+			if i not in kept_set
 		)
-		cards = build_cards(graph, selection.pruned, p, region_end=region_end)
+		selection = Selection(
+			kept=frozen_kept,
+			pruned=tuple(sorted(set(frozen_pruned) | set(new_pruned))),
+			candidates=tuple(range(region_end)),
+			scores={},
+			budget_tokens=prev.frozen_selection_budget,
+			used_tokens=prev.frozen_selection_used,
+			reason={},
+		)
+		cards = tuple(prev.frozen_cards)
 		used = selection.used_tokens + cards_tokens(cards)
-		overflow = used - p.main_segment_budget_tokens
-		if overflow <= 0:
-			break
-		budget = max(0, budget - overflow - 20)
+	else:
+		for _ in range(4):
+			with timer.measure("select_plan"):
+				selection = plan_selection(
+					graph,
+					seeds,
+					p,
+					region_end=region_end,
+					budget_tokens=budget,
+					unresolved_set=unresolved_set,
+				)
+			with timer.measure("select_cards"):
+				cards = build_cards(graph, selection.pruned, p, region_end=region_end)
+			used = selection.used_tokens + cards_tokens(cards)
+			overflow = used - p.main_segment_budget_tokens
+			if overflow <= 0:
+				break
+			budget = max(0, budget - overflow - 20)
 
 	assert selection is not None
-	text, rebuilt, state, atrace = assemble(
-		graph, seeds, pins, ws, cards, selection.kept, p, prev=prev, region_end=region_end
-	)
-	tokens = node_token_len(text)
-
+	timer.mark("select")
+	rehydration = None
+	next_rehydration_leases: tuple[tuple[str, int], ...] = ()
+	if p.auto_rehydrate_working_set:
+		rehydrate_budget = max(0, int(p.main_segment_budget_tokens) - int(used))
+		rehydrate_budget = min(rehydrate_budget, max(0, int(p.rehydrate_budget_tokens)))
+		# ``kept`` only means the node won selection; large nodes are emitted as a
+		# skeleton + handle and are therefore not fully visible.  Auto rehydration
+		# must exclude only nodes whose complete text is already inline.
+		inline_visible = {
+			n.idx
+			for n in graph.nodes
+			if n.idx in selection.kept and n.tokens <= p.inline_max_tokens and n.text.strip()
+		}
+		# Append-only journals already contain the previous recall lines.  They are
+		# visible facts, so do not emit the same node again on every lease turn.
+		if p.journal_layout and prev is not None and prev.mode == p.mode:
+			inline_visible.update(prev.rehydration_nodes)
+		previous_leases = prev.rehydration_leases if prev is not None else ()
+		active_leases = decay_leases(
+			previous_leases,
+			working_paths=tuple(state.path for state in ws),
+			min_working_set_lease=p.rehydrate_min_working_set_lease,
+		)
+		active_paths = leased_paths(active_leases)
+		explicit_paths = tuple(str(path) for path in rehydrate_paths if str(path).strip())
+		eligible_paths = tuple(dict.fromkeys((*active_paths, *explicit_paths)))
+		rehydration = plan_working_set_rehydration(
+			graph,
+			ws,
+			region_end=region_end,
+			budget_tokens=rehydrate_budget,
+			exclude=inline_visible,
+			eligible_paths=eligible_paths,
+		)
+		next_rehydration_leases = renew_leases(
+			active_leases,
+			selected_paths=rehydration.selected_paths,
+			initial_lease=p.rehydrate_initial_lease,
+			refresh_lease=p.rehydrate_refresh_lease,
+		)
 	# 冷层：被剪枝的 + 被骨架化的（未内联的）保留节点，全部可无损拉回
 	cs = cold or ColdStore(session=session)
 	cold_nodes: list[tuple[int, str, dict]] = []
@@ -147,6 +242,19 @@ def project(
 			continue
 		cs.bind(node_handle(idx), (idx,))
 		cold_nodes.append((idx, n.text, {"kind": n.kind, "tool": n.tool_name}))
+	if frozen_reuse:
+		# New nodes entering the compressed region stay out of the frozen main
+		# decision, but remain recoverable without forcing a phase recompute.
+		old_end = max(0, prev.frozen_region_end)
+		old_pruned = set(prev.frozen_pruned)
+		for idx in selection.pruned:
+			if idx < old_end or idx in old_pruned:
+				continue
+			n = graph.node(idx)
+			if n is None:
+				continue
+			cs.bind(node_handle(idx), (idx,))
+			cold_nodes.append((idx, n.text, {"kind": n.kind, "tool": n.tool_name}))
 	# [REQUESTS] 是**截断摘要 + 句柄**：句柄必须是真句柄，否则「无损可恢复」被截断悄悄破坏。
 	# 集合取 seeds.user_nodes（实质人类用户消息），不按 kind 扫图——kind 上还挂着工具结果。
 	user_groups: dict[str, list[int]] = {}
@@ -178,6 +286,70 @@ def project(
 		if len(idxs) > 1:
 			cs.bind(reqs_handle(first, last), idxs)
 	cs.put_nodes(cold_nodes)
+	# 换头时的旧热层也必须有冷层出口；快照是内容寻址且只 setdefault，
+	# 不改变已有节点/快照的插入顺序或 Read 行号。
+	old_head = head_handle(prev.full_text) if prev is not None and prev.full_text else ""
+	if old_head:
+		cs.put_snapshot(old_head, prev.full_text)
+	# ── 取回视图 + 句柄渲染器（2026-09-16 用户裁定：取回统一到 `Read`）──────────
+	# 顺序要求：**先定稿节点集 → 写视图拿行号 → 再渲染**。旧顺序是「先渲染句柄文本、
+	# 再绑冷层」，那样渲染时拿不到行号，也就渲染不出 `Read(file_path=…, offset=…, limit=…)`。
+	# 视图路径不给 / style 非 read 时，渲染仍走历史形态 `expand(<handle>)`（零行为变更）。
+	handles = HandleRenderer()
+	view_out = ""
+	if p.handle_style == "read":
+		if view_path:
+			ranges = cs.write_text_view(Path(view_path))
+			handles = HandleRenderer(
+				style="read",
+				path=view_ref or str(view_path),
+				node_ranges=ranges,
+				handle_nodes=dict(cs.handles),
+			)
+			view_out = str(view_path)
+		else:
+			# 没给视图路径 ⇒ 回落 expand 形态。**不静默**：调用方给了 read 却没给路径是配置错，
+			# 落进 trace 让它可查（渲染坏引用的后果比降级严重得多）。
+			pass
+	timer.mark("coldstore")
+
+	text, rebuilt, state, atrace = assemble(
+		graph,
+		seeds,
+		pins,
+		ws,
+		cards,
+		selection.kept,
+		p,
+		prev=prev,
+		region_end=region_end,
+		handles=handles,
+		old_head_handle=old_head,
+		rehydration=rehydration,
+	)
+	timer.mark("assemble")
+	if p.freeze_main_chain:
+		state.frozen_phase_signature = phase_key
+		state.frozen_region_end = region_end
+		state.frozen_kept = tuple(selection.kept)
+		state.frozen_pruned = tuple(selection.pruned)
+		state.frozen_cards = tuple(cards)
+		state.frozen_selection_budget = int(selection.budget_tokens)
+		state.frozen_selection_used = int(selection.used_tokens)
+	if p.freeze_working_set:
+		state.frozen_file_states = tuple(ws)
+	if p.auto_rehydrate_working_set:
+		state.rehydration_leases = next_rehydration_leases
+		prior_rehydrated = (
+			prev.rehydration_nodes
+			if p.journal_layout and prev is not None and prev.mode == p.mode
+			else ()
+		)
+		state.rehydration_nodes = tuple(
+			dict.fromkeys((*prior_rehydrated, *(rehydration.nodes if rehydration else ())))
+		)
+	tokens = node_token_len(text)
+
 
 	hot = HotLayer(
 		text=text,
@@ -189,9 +361,17 @@ def project(
 		pins=pins,
 		level=p.level,
 		mode=p.mode,
+		rehydrated_nodes=tuple(rehydration.nodes) if rehydration else (),
 	)
 
 	trace = [
+		{
+			"step": "freeze",
+			"detail": (
+				f"main={'reuse' if frozen_reuse else 'recompute' if p.freeze_main_chain else 'off'} "
+				f"working_set={'reuse' if p.freeze_working_set and prev is not None and prev.frozen_file_states else 'recompute' if p.freeze_working_set else 'off'}"
+			),
+		},
 		{
 			"step": "graph",
 			"detail": f"nodes={len(graph.nodes)} edges={len(graph.edges)} digest={graph_digest(graph)}",
@@ -218,6 +398,14 @@ def project(
 			"step": "sections",
 			"detail": " → ".join(state.seg_order)
 			+ "".join(f" | {h}:{st.change_rate:.0%}" for h, st in state.seg_stats.items() if st.obs),
+		},
+		{
+			"step": "handles",
+			# 引用路径必须留痕：绝对/相对两种形态的热层 token 不同（成本不可跨形态相减）。
+			"detail": (
+				f"style={p.handle_style} view={view_out or '-'} "
+				f"ref={view_ref or view_out or '-'}"
+			),
 		},
 		*({"step": "assembly", "detail": t["action"] + ": " + t["why"]} for t in atrace),
 	]
@@ -259,14 +447,16 @@ def project(
 			front_break={h: st.front_rate for h, st in state.seg_stats.items()},
 			churn_warnings=state.churn_warn,
 			journal_appends=state.journal_appends,
-			journal_refroze=rebuilt if p.journal_layout else False,
+			journal_refroze=state.journal_refroze if p.journal_layout else False,
 			journal_tokens=node_token_len(state.full_text) if p.journal_layout else 0,
 			user_requests_rendered=state.req_rendered,
 			user_requests_total=state.req_total,
 			budget=state.budget,
+			stage_ms=timer.finish(),
 			trace=trace,
 		),
 		cold=cs,
+		view_path=view_out,
 		state=state,
 		graph=graph,
 		seeds=seeds,

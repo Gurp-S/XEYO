@@ -34,10 +34,9 @@ const backendEnv = {
 	XEYO_ALLOW_FAKE_MODEL: '1',
 	// 对话型 e2e 确定性：关闭自动建 goal（否则 GoalDock 常驻、二次发送被拒）。
 	XEYO_GOAL_AUTO_CREATE: '0',
-	// T_now「其他会话活动」块逃生门：FakeModelClient 回声语义会把该块的环境
-	// 声道 tool_result 当回声源（echoed: [system-environment]…），污染 rewind
-	// 多轮截断断言（2026-09-05 排查）。真实 LLM 不受影响，生产默认注入。
-	XEYO_PEER_PRESENCE_OFF: '1',
+	// 注：原 XEYO_PEER_PRESENCE_OFF（T_now「其他会话活动」块逃生门）已于
+	// 2026-09-15 随该块收窄删除——常驻 beacon 移除后，块只在真有跨会话事件
+	// 通知时注入（单会话 e2e 恒为空），不再需要逃生门。
 	// 与 pytest conftest 同等隔离：单测级 env，避免本机真实数据污染。
 	XEYO_C2_GATE: '0',
 	XEYO_TOOL_AGING: '0',

@@ -108,7 +108,7 @@ def _volatile_markers(monkeypatch):
 	import engine.repeat_guard as rg
 	import prompt.pre_llm_inject as pli
 
-	monkeypatch.setattr(sp, "peer_activity_block", lambda *a, **k: "PEERMARK")
+	monkeypatch.setattr(sp, "peer_notice_block", lambda *a, **k: "PEERMARK")
 	monkeypatch.setattr(pli, "file_conflict_block", lambda *a, **k: "CONFLICTMARK")
 	monkeypatch.setattr(pli, "browser_preview_block", lambda: "PREVIEWMARK")
 	monkeypatch.setattr(rg, "current_advice", lambda: "REPEATMARK")

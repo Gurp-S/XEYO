@@ -585,11 +585,13 @@ def restore_session(session_id: str) -> dict[str, Any]:
 
 
 @router.get("/v1/sessions/{session_id}/messages", response_model=None)
-async def session_messages(session_id: str):
+async def session_messages(session_id: str, include_notes: bool = False):
 	"""按精确 session_id 读取 transcript 消息（不套 side- 前缀），供前端恢复本地历史。
 
 	跨轮转归档（.old2 → .old1 → 当前）按时间顺序合并读取。
 	工具行与 list 形 assistant 块通过 ``_side_row_to_ui`` 展开为前端 ChatMessage 形状。
+	``include_notes=True``：连 T_now 留痕条目（hidden system note）一起返回——
+	供调试与用户自查（默认过滤：它们是引擎状态，不是对话内容）。
 	"""
 	raw_rows: list[dict[str, Any]] = []
 	p = transcript_path(session_id)
@@ -617,6 +619,13 @@ async def session_messages(session_id: str):
 	from session.surface import fold_surface_rows
 
 	surface_rows = resolve_transcript_rows(fold_surface_rows(raw_rows), p)
+	# T_now v2 留痕条目（hidden system note）：模型可见 / 用户不可见——它们是
+	# 引擎的当前态与事件留痕，不是对话内容，默认不进 UI 流（``include_notes=1``
+	# 可显式取出，供调试与自查）。身份由 note_key 决定，缺 kind/fp 也照样过滤。
+	if not include_notes:
+		surface_rows = [
+			r for r in surface_rows if not str(r.get("note_key") or "").strip()
+		]
 	# 去重集必须先整表预扫：ui_thought 行由前端 debounce 批量落盘，位置可能不在所属轮次之后。
 	persisted_thoughts = _persisted_thought_keys(surface_rows)
 	for i, row in enumerate(surface_rows):
@@ -930,6 +939,7 @@ def session_agents(session_id: str) -> dict[str, Any]:
                 str(x) for x in (m.get("write_scope") or []) if str(x).strip()
             ][:16],
             "inboxCount": len(pending) + live_inbox_count(sid, aid),
+            "tokensUsed": max(0, int(m.get("tokens_used") or 0)),
         })
     return {"session_id": sid, "agents": agents}
 

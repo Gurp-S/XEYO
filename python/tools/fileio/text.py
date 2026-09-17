@@ -14,8 +14,29 @@ LEFT_DOUBLE_CURLY = "\u201c"
 RIGHT_DOUBLE_CURLY = "\u201d"
 
 
+def _routed_container() -> str:
+	"""活动容器路由；宿主路由返回空串（路由模块不可用也视为宿主）。"""
+	try:
+		from tools.container_fs import active_container
+
+		return active_container()
+	except Exception:  # noqa: BLE001
+		return ""
+
+
 def get_mtime_ms(path: str) -> int:
-	"""floor(mtimeMs)。"""
+	"""floor(mtimeMs)。
+
+	容器路由（2026-09-16）：取**容器内**的 mtime——引擎的新鲜度/冲突判定否则会
+	拿宿主空目录的时间戳去比容器文件，永远判错。
+	"""
+	if _routed_container():
+		from tools.container_fs import mtime_ms
+
+		ms = mtime_ms(path)
+		if ms is None:
+			raise FileNotFoundError(path)
+		return ms
 	return math.floor(os.path.getmtime(path) * 1000)
 
 
@@ -28,13 +49,28 @@ def detect_line_endings(raw: bytes | str) -> LineEnding:
 	return "CRLF" if "\r\n" in text else "LF"
 
 
+def _read_raw_bytes(path: str) -> bytes:
+	"""按活动路由取原始字节（容器路由 → 容器内；否则宿主）。"""
+	if _routed_container():
+		from tools.container_fs import read_bytes
+
+		data = read_bytes(path)
+		if data is None:
+			raise FileNotFoundError(path)
+		return data
+	with open(path, "rb") as f:
+		return f.read()
+
+
 def read_text_file(path: str) -> tuple[str, LineEnding, str]:
 	"""
 	读取文本文件。
 	返回 (normalized_LF_content, original_line_endings, encoding_name)。
+
+	容器路由（2026-09-16）：工作面在容器里时读容器——本函数是 Read / Edit /
+	Write / NotebookEdit 的**共用汇聚点**，在此接线四处同时生效。
 	"""
-	with open(path, "rb") as f:
-		data = f.read()
+	data = _read_raw_bytes(path)
 	encoding = "utf-8"
 	if len(data) >= 2 and data[0] == 0xFF and data[1] == 0xFE:
 		encoding = "utf-16-le"
@@ -58,19 +94,33 @@ def write_text_file(
 	encoding: str = "utf-8",
 	line_endings: LineEnding = "LF",
 ) -> None:
-	"""写入文本；按 line_endings 还原换行。"""
+	"""写入文本；按 line_endings 还原换行。
+
+	容器路由（2026-09-16）：字节落到**容器内**；容器分支失败抛错，绝不静默回落
+	宿主（"报了成功、文件却去了另一个文件系统"是本轮在消灭的失败形态）。
+	"""
 	to_write = normalize_newlines(content)
 	if line_endings == "CRLF":
 		to_write = "\r\n".join(to_write.split("\n"))
-	parent = os.path.dirname(path)
-	if parent:
-		os.makedirs(parent, exist_ok=True)
 	# utf-16-le 编码器不写 BOM：不带 BOM 的 UTF-16 文件下一次 Read 检测
 	# 不到编码（首字节不是 FF FE），会按 utf-8 解码成乱码。原文件带 BOM
 	# （Read 就是靠它识别的），写回时必须补上。
 	if encoding == "utf-16-le":
+		payload = b"\xff\xfe" + to_write.encode("utf-16-le")
+	else:
+		payload = to_write.encode(encoding, errors="replace")
+	if _routed_container():
+		from tools.container_fs import write_bytes
+
+		if not write_bytes(path, payload):
+			raise OSError(f"container write failed: {path}")
+		return
+	parent = os.path.dirname(path)
+	if parent:
+		os.makedirs(parent, exist_ok=True)
+	if encoding == "utf-16-le":
 		with open(path, "wb") as f:
-			f.write(b"\xff\xfe" + to_write.encode("utf-16-le"))
+			f.write(payload)
 		return
 	with open(path, "w", encoding=encoding, newline="") as f:
 		f.write(to_write)

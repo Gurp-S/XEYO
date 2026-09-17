@@ -120,11 +120,17 @@ async def test_max_tool_calling_executes_only_sixteen_and_pairs_skips():
     assert model.calls == 2
     assert eng._session.budget.turn_count == 2
 
+    # 2026-09-15 用户裁定撤销 `runtime_notice` / `wrap_up` 两块模型可见文本
+    # （docs/synaptic-compression.md §14.3；`engine/budget.py` 的机制**全部保留**，
+    # 只是不再讲给模型听）。本文件原来的断言是「该文本在第 2 次请求里出现恰好 1 次」，
+    # 撤块后**在结构上永远为假**（`run_pre_llm_inject` 已无 `runtime_notice` 参数、
+    # 模块内也无该渲染器）⇒ 按撤块裁定翻成**负向契约**：任何模型可见面都不得出现它。
+    # 同款翻正在 `tests/test_t_now_budget_text_revoked.py` 与 `test_pre_llm_inject.py`。
     warning = "工具调用数已接近上限。"
     assert _system_text(model.messages[0]).count(warning) == 0
     assert _system_text(model.messages[1]).count(warning) == 0
     assert _request_text(model.messages[0]).count(warning) == 0
-    assert _request_text(model.messages[1]).count(warning) == 1
+    assert _request_text(model.messages[1]).count(warning) == 0
     assert warning not in "\n".join(
         str(message.content) for message in eng._session.messages.items
     )

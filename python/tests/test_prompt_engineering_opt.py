@@ -77,7 +77,8 @@ def test_turn_context_mode_and_plan_cap():
 	assert blocks and "[plan truncated]" in blocks[0]
 	assert len(blocks[0]) < len(plan) + 200
 	# 裁决 4：计划块只保留"按已批准计划实现"，无引擎引导条款。
-	assert "按已批准计划实现" in blocks[0]
+	assert "按已批准计划实现" not in blocks[0]
+	assert blocks[0].startswith("# Approved plan")
 	assert "以证据为准" not in blocks[0]
 	# 首写收敛后指针块：全量正文已进历史，只留"实施中"锚点（纯指针事实）。
 	ptr = build_mode_context_blocks(mode="agent", plan_pointer=True)

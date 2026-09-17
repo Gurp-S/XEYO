@@ -164,8 +164,7 @@ class WebSearchTool:
 
 		hint = (
 			"All search providers failed (timeout/blocked is common without proxy). "
-			"Set SearXNG URL in Settings (or XEYO_SEARXNG_URL), or use a known "
-			"https URL with WebFetch."
+			"Configured SearXNG URL and WebFetch are available search surfaces."
 		)
 		detail = "; ".join(errors[:4]) if errors else "unknown"
 		return ToolResult(

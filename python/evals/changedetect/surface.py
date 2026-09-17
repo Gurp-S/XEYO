@@ -203,7 +203,8 @@ _TNOW_STATIC: tuple[tuple[str, str, tuple[Any, ...]], ...] = (
     ("tnow/block/compact", "compact_block", ()),
     ("tnow/block/browser_preview", "browser_preview_block", ()),
     ("tnow/block/pending_jobs", "pending_jobs_block", ()),
-    ("tnow/block/runtime_mode_snapshot", "runtime_mode_snapshot_block", ("<SID>",)),
+    # ``tnow/block/runtime_mode_snapshot`` 已于 2026-09-15 随块撤销删除（用户
+    # 裁定，宁缺毋滥：登记表 why 自陈"真门禁在 permissions 层"）。
 )
 
 
@@ -213,7 +214,8 @@ def _collect_tnow() -> list[Artifact]:
     out: list[Artifact] = []
     registry = inj.T_NOW_BLOCK_REGISTRY
     table = "\n".join(
-        f"{name}\t{meta.get('klass', '')}\t{meta.get('why', '')}"
+        f"{name}\t{meta.get('pipe', '')}\t{meta.get('quota', '')}\t"
+        f"{meta.get('dedup', '')}\t{meta.get('why', '')}"
         for name, meta in sorted(registry.items())
     )
     out.append(

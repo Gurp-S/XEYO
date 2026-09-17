@@ -77,6 +77,7 @@ def render_paths(
 	region_end: int,
 	kept: tuple[int, ...],
 	params: WscParams,
+	budget_tokens: int | None = None,
 ) -> list[Line]:
 	"""返回 ``[PATHS]`` 的行列表（可能为空）。
 
@@ -123,6 +124,8 @@ def render_paths(
 	# 宁可不发这一段，也不让它悄悄超预算占掉 [MAIN] 的额度。
 	limit = max(0, int(params.path_index_limit))
 	budget = max(0, int(params.path_index_budget_tokens))
+	if budget_tokens is not None:
+		budget = min(budget, max(0, int(budget_tokens)))
 	if limit <= 0 or budget <= 0:
 		return []
 	ordered = ordered[:limit]

@@ -151,6 +151,7 @@ class HotLayer:
 	pins: tuple[Pin, ...]
 	level: str
 	mode: str
+	rehydrated_nodes: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -167,6 +168,9 @@ class WscParams:
 	main_segment_budget_tokens: int = 1_800
 	# 反向闭包跳数：Medium+ 用 2 跳（PIN 集 2 跳内），Hard 收紧到 1 跳。
 	closure_hops: int = 2
+	#: soft seq/file/err 边只作为离线对照；默认闭包只走语法确定的 use 边。
+	#: 这保留 hard-use provenance，同时阻止启发式 DAG 进入默认选择主线。
+	soft_dag: bool = False
 	# 五维权重
 	w_goal: float = 1.0
 	w_unresolved: float = 0.9
@@ -208,10 +212,10 @@ class WscParams:
 	#
 	# 日志布局把它变成结构上不可能：所有条目按**首次发射顺序**追加，永不改写、
 	# 永不重排 ⇒ 整段投影逐轮单调 ⇒ LCP = 上一轮全长。代价是日志会变胖，
-	# 用「重冻结」把它压回紧凑渲染（一次前缀 miss，摊到多轮）。
+	# 达阈值时只做逻辑换头：追加新头与旧头句柄，不改写已发前缀。
 	journal_layout: bool = True
 	# 重冻结阈值：距上次冻结累计追加了多少 token 就重冻结一次。
-	# 太小 → 频繁重整（miss 变多）；太大 → 日志臃肿（token 变多）。
+	# 太小 → 频繁追加换头记录；太大 → 日志臃肿（token 变多）。
 	#
 	# **这是「压缩率 ↔ 命中率」的显式旋钮，不是可以随便取的常数。** 实测（199 回合会话，
 	# 单会话扫描，成本指数 ∝ H+30U，DeepSeek miss/hit 价差 ≈30×）：
@@ -252,6 +256,23 @@ class WscParams:
 	#: 93 行/回合 ≈ 1565 token；摘录字符数不是瓶颈。8 行合一 ⇒ 行数降 ~8 倍，
 	#: 而信息仍无损（区间句柄绑定块内**全部**节点，``expand`` 逐字节返回原文）。
 	request_old_group_size: int = 8
+	#: 固定段紧张时给用户原话通道预留的最低额度（token）。
+	request_min_budget_tokens: int = 1_000
+	#: 方向二旁路：阶段边界才重算 main selection/cards。
+	freeze_main_chain: bool = False
+	#: 方向二旁路：文件版本未变化时冻结 working set 顺序与条目。
+	freeze_working_set: bool = False
+	#: 阶段 C 旁路：按当前 working-set 的显式路径把冷节点重新放回热层。
+	#: 默认关闭；启用时取回节点计入主链剩余预算。
+	auto_rehydrate_working_set: bool = False
+	#: 自动取回的最大原文 token 数（实际还会受主链剩余预算限制）。
+	rehydrate_budget_tokens: int = 900
+	#: 取回后在 working-set 内的最短留存轮数（旁路 lease）。
+	rehydrate_min_working_set_lease: int = 3
+	#: 首次取回的 lease 轮数。
+	rehydrate_initial_lease: int = 3
+	#: 再次命中的 lease 轮数。
+	rehydrate_refresh_lease: int = 5
 
 	# ---- [PATHS] 路径索引（P0-1）：强制配额，见 ``synaptic/paths.py`` ----
 	#
@@ -259,10 +280,47 @@ class WscParams:
 	# 而闭包只回答「从当前目标反推可达」，两者不是一回事（第五轮实测：path 针存活率
 	# 0.61 / path_recent 0.69，缺口全在这里）。
 	#: 配额条数（按「最近触碰 → 失败现场 → 保留节点 → 钉住路径」优先级取前 N）。
-	path_index_limit: int = 24
+	#:
+	#: 24 → 96（2026-09-16 第九轮，**有实测支撑的默认值变更**）：官方 adopted 口径
+	#: 全语料（243 会话 / 736 回合）扫描，quota 是这条通道的真正约束（候选池覆盖
+	#: 被剪节点，不是取不到而是被配额裁掉）：
+	#:
+	#: | limit/budget | path | path_recent | failure_site | 压缩 median | 成本合计 |
+	#: |---:|---:|---:|---:|---:|---:|
+	#: | 24 / 256 | 0.716 | 0.823 | 0.912 | 0.7652 | ¥19.0478 |
+	#: | 48 / 512 | 0.754 | 0.900 | 0.930 | 0.7671 | ¥19.0507 |
+	#: | 96 / 1024 | **0.829** | **0.994** | **0.991** | 0.7656 | ¥19.0591 |
+	#:
+	#: ⇒ 96/1024 让三个路径类针**全部达到 DOD**（0.75 / 0.85 / 0.95），
+	#: 代价是热层 median +507 token、**总成本 +0.06%**、压缩率 median 未退化。
+	#: 回退档 = 24/256（历史 A/B 基线口径，报告 `sampling.path_index_*` 会留痕）。
+	path_index_limit: int = 96
 	#: 配额的 token 上限（``node_token_len`` 口径，含行尾）。与条数上限共同生效，从尾部裁。
-	#: 默认 256 ≈ 在 Medium+ 的 3000 预算里占 8.5%，换取 path_recent 从 0.69 → 预期 0.9+。
-	path_index_budget_tokens: int = 256
+	path_index_budget_tokens: int = 1024
+
+	#: 热层句柄形态（2026-09-16 用户裁定：取回统一到 `Read`）。
+	#: - ``"expand"``（默认；离线回放与历史逐字节一致）：``expand(node://12)``；
+	#: - ``"read"``（生产形态）：``Read(file_path='…', offset=…, limit=…)``——需要
+	#:   `project(view_path=…)` 先写冷层取回视图，否则**回落** expand
+	#:   （渲染一个取不回的坏引用比降级严重得多）。
+	#: 渲染与解析的**唯一实现**在 `synaptic/handles.py`：形态改了而解析没跟，
+	#: `[REQUESTS]` 覆盖审计会静默归零（报「用户原话全丢」而实际没丢）。
+	handle_style: str = "expand"
+
+	#: 折叠节奏：``"always"``（调用方判断何时折，WSC 不介入——评测台的 `trigger_ratio`
+	#: 与生产水位走这条）/ ``"econ"``（**成本驱动**：由 ``synaptic.cadence`` 判据决定
+	#: 这次折叠摊不摊得平）。实测差 2.6 倍总成本（docs §15.9.2）⇒ 生产应走 `econ`。
+	fold_cadence: str = "always"
+	#: `econ` 的保守边际。**默认 0.1**（越小越爱折）。
+	#:
+	#: 2026-09-16 第十二轮**复扫更正**：第十轮那张「最优 0.25」的 U 形表是在
+	#: **带自锁的系统**上扫出来的（估计无上界 ⇒ 偏高即永久拒折），极值不可信。
+	#: 修掉自锁后，长会话子集（25 个最长会话 / 405 回合）单调偏好小 margin：
+	#: `0.1 → ¥4.5877` / `0.25 → ¥4.6654` / `0.5 → ¥4.6716`，且针不退化
+	#: （path 0.874 / 0.868 / 0.858）。全语料确认见 `_wsc_out/_adopted_m01.*`。
+	fold_margin: float = 0.1
+	#: 价差倍率（未命中价 / 命中价）；契约测试比对 `usage/pricing.py`，勿手改。
+	fold_price_ratio: float = 30.0
 
 	def for_level(self, level: str) -> "WscParams":
 		"""按级别派生参数（水位 → 预算/跳数），保持其它权重不变。"""
@@ -275,10 +333,13 @@ class WscParams:
 			"Medium+": dict(hot_budget_tokens=3_000, closure_hops=2, max_cards=24),
 			"Hard": dict(hot_budget_tokens=1_800, closure_hops=1, max_cards=32),
 		}[level]
-		# 固定段上限默认 1200；低档总预算不足 1200 时按总预算截断，主链拿剩余额度。
+		# Medium+ 固定段为 1800，覆盖真实 PIN/工作集峰值；其它档保持 1200，主链拿剩余额度。
 		# 这样 fixed + main 恒等于 hot_budget_tokens，不留下第三个未入账水位。
 		hot_budget = int(preset["hot_budget_tokens"])
-		fixed_budget = min(int(self.fixed_segment_budget_tokens), hot_budget)
+		configured_fixed = int(self.fixed_segment_budget_tokens)
+		if level == "Medium+":
+			configured_fixed = max(configured_fixed, 1_800)
+		fixed_budget = min(configured_fixed, hot_budget)
 		preset["fixed_segment_budget_tokens"] = fixed_budget
 		preset["main_segment_budget_tokens"] = hot_budget - fixed_budget
 		# 日志增长预算 = 2× 热层预算（见 journal_growth_tokens 的实测扫描）。
@@ -286,6 +347,7 @@ class WscParams:
 		return WscParams(
 			level=level,
 			mode=self.mode,
+			soft_dag=self.soft_dag,
 			w_goal=self.w_goal,
 			w_unresolved=self.w_unresolved,
 			w_constraint=self.w_constraint,
@@ -310,8 +372,20 @@ class WscParams:
 			request_recent_verbatim=self.request_recent_verbatim,
 			request_excerpt_chars_old=self.request_excerpt_chars_old,
 			request_old_group_size=self.request_old_group_size,
+			request_min_budget_tokens=self.request_min_budget_tokens,
+			freeze_main_chain=self.freeze_main_chain,
+			freeze_working_set=self.freeze_working_set,
+			auto_rehydrate_working_set=self.auto_rehydrate_working_set,
+			rehydrate_budget_tokens=self.rehydrate_budget_tokens,
+			rehydrate_min_working_set_lease=self.rehydrate_min_working_set_lease,
+			rehydrate_initial_lease=self.rehydrate_initial_lease,
+			rehydrate_refresh_lease=self.rehydrate_refresh_lease,
 			path_index_limit=self.path_index_limit,
 			path_index_budget_tokens=self.path_index_budget_tokens,
+			fold_cadence=self.fold_cadence,
+			fold_margin=self.fold_margin,
+			fold_price_ratio=self.fold_price_ratio,
+			handle_style=self.handle_style,
 			**preset,
 		)
 
@@ -324,7 +398,7 @@ class WscResult:
 	level: str
 	mode: str
 	base_tokens: int
-	rebuilt: bool  # 本次是否发生了整层重建（= 一次 KV 前缀 miss）
+	rebuilt: bool  # 本次是否发生了实际整层重建（= 一次 KV 前缀 miss）
 	# 收益门：热层不比重放原文更省时不压缩（规则 7 的「收益不足不做」）。
 	# False 时调用方必须原样发送未压缩区域，hot.text 仅供诊断。
 	compressed: bool = True
@@ -344,4 +418,6 @@ class WscResult:
 	user_requests_total: int = 0
 	#: 固定段/主链双预算审计（金额单位为 node_token_len 口径的 token）。
 	budget: dict[str, int | str] = field(default_factory=dict)
+	#: project() 阶段耗时，仅用于 tail latency 归因，不参与算法决策。
+	stage_ms: dict[str, float] = field(default_factory=dict)
 	trace: list[dict[str, Any]] = field(default_factory=list)

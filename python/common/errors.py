@@ -83,6 +83,14 @@ def classify_llm_failure(exc: BaseException) -> LlmFailure:
 	"""
 	if isinstance(exc, NetworkError):
 		return LlmFailure("network", retryable=True)
+	# httpx/httpcore transport errors are intentionally recognized without
+	# importing either optional transport package here.  The async model clients
+	# expose these exceptions directly when connection setup/read fails.
+	if _is_http_transport_error(exc):
+		return LlmFailure(
+			"timeout" if "timeout" in type(exc).__name__.lower() else "network",
+			retryable=True,
+		)
 	if isinstance(exc, EmptyResponseError):
 		return empty_response_failure()
 	if isinstance(exc, (TimeoutError, URLError, ConnectionError)):
@@ -110,6 +118,17 @@ def classify_llm_failure(exc: BaseException) -> LlmFailure:
 			return LlmFailure("context_window_exceeded", retryable=False)
 		return LlmFailure("provider_error", retryable=False, retry_after_ms=retry_after)
 	return LlmFailure("unknown", retryable=False)
+
+
+def _is_http_transport_error(exc: BaseException) -> bool:
+	"""Whether an exception is an httpx/httpcore request transport failure."""
+	module = type(exc).__module__
+	name = type(exc).__name__
+	return module.startswith(("httpx", "httpcore")) and (
+		name.endswith("RequestError")
+		or name.endswith("Timeout")
+		or name in {"ConnectError", "ConnectTimeout", "ReadTimeout", "WriteTimeout"}
+	)
 
 
 #: 400 类「上下文超长」特征（OpenAI 兼容各厂商常见措辞，覆盖常见变体）。
@@ -322,6 +341,12 @@ def friendly_error(exc: BaseException, *, default: str | None = None) -> str:
 	"""把异常翻译成中文一句话；未知异常保留原文（绝不出 traceback）。"""
 	if isinstance(exc, NetworkError):
 		return "连不上模型服务，请检查网络连接或服务地址"
+	if _is_http_transport_error(exc):
+		return (
+			"模型服务请求超时，请稍后重试"
+			if "timeout" in type(exc).__name__.lower()
+			else "连不上模型服务，请检查网络连接或服务地址"
+		)
 	if isinstance(exc, ProviderError):
 		return provider_error_message(exc.status_code or 0, str(exc))
 	if isinstance(exc, URLError):

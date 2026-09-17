@@ -2,6 +2,6 @@ from tools.file_read_tool.prompt import FILE_READ_TOOL_NAME
 
 FILE_EDIT_TOOL_NAME = "Edit"
 
-DESCRIPTION = f"""Exact string replace in a file. Must {FILE_READ_TOOL_NAME} first.
-Match old_string exactly as in the file (never include Read's line-number prefix).
-If not unique, add context or set replace_all=true. Prefer Edit over creating new files."""
+DESCRIPTION = f"""Replaces an exact string in a file. Existing-file edits require a prior {FILE_READ_TOOL_NAME} result.
+old_string matches file text exactly and excludes Read's line-number prefix.
+Non-unique matches require additional context or replace_all=true. Edit creates no new file."""

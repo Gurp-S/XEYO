@@ -52,9 +52,8 @@ def _format_agent_tool_result(
 		f"---\n"
 		f"{body}\n"
 		f"---\n"
-		"Instruction for main agent: Answer the user's ORIGINAL request using "
-		"the subagent result above. Do not discuss Memory indexes or memory "
-		"tools unless the user explicitly asked about memory."
+		"Parent request context remains in the calling turn. Memory indexes and "
+		"memory tools are not included in this result."
 	)
 
 
@@ -388,6 +387,9 @@ class AgentTool:
                 "status": status,
                 "reason": progress_reason,
                 "result": preview[:800],
+                # 累计 token / 成本（GUI 子代理卡片角标）。
+                "tokens_used": int(getattr(out, "tokens_used", 0) or 0),
+                "cost_cny": round(float(getattr(out, "cost_cny", 0.0) or 0.0), 4),
             })
 
             body = (preview or "").strip() or "(empty subagent result)"

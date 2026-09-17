@@ -26,8 +26,56 @@ from engine.compact import (
 	project,
 	project_incremental,
 )
-from memory.runtime import pair_safe_cut, project_for_model
+from memory.runtime import pair_safe_cut, project_for_model, reasoning_tokens_in_context
 from memory.working import WorkingSnapshot
+
+
+def test_project_offload_uses_explicit_workspace_cwd(tmp_path, monkeypatch):
+	"""C0/L3 溢出文件跟随读取方工作区，不跟随进程当前目录。"""
+	from memory.offload import OFFLOAD_THRESHOLD
+
+	workspace = tmp_path / "workspace"
+	process_cwd = tmp_path / "process"
+	workspace.mkdir()
+	process_cwd.mkdir()
+	monkeypatch.chdir(process_cwd)
+	monkeypatch.setenv("XEYO_TOOL_OFFLOAD", "1")
+	monkeypatch.delenv("XEYO_OFFLOAD_DIR", raising=False)
+
+	uid = "offload-u1"
+	history = [
+		{
+			"role": "assistant",
+			"content": [{"type": "tool_use", "id": uid, "name": "Read"}],
+		},
+		{
+			"role": "tool",
+			"content": [
+				{
+					"type": "tool_result",
+					"tool_use_id": uid,
+					"content": "x" * (OFFLOAD_THRESHOLD + 1),
+				}
+			],
+		},
+	]
+
+	projected = project(history, cwd=workspace)
+	written = workspace / ".xeyo_offload" / "1_offload-u1.tool.txt"
+	assert written.exists()
+	assert process_cwd / ".xeyo_offload" not in written.parents
+	assert str(written) in projected[1]["content"][0]["content"]
+
+
+def test_reasoning_tokens_are_counted_from_replayed_context():
+	messages = [
+		{"role": "assistant", "reasoning_content": "r" * 400},
+		{
+			"role": "assistant",
+			"content": [{"type": "reasoning", "text": "s" * 400}],
+		},
+	]
+	assert reasoning_tokens_in_context(messages) == 200
 
 
 # ---------------------------------------------------------------- 测试夹具（fixtures）

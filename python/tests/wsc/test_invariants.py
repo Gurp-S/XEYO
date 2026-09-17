@@ -6,15 +6,17 @@
 
 from __future__ import annotations
 
+from synaptic.graph import build_graph
 from synaptic.metrics import (
 	determinism_digest,
 	needle_survival,
 	recoverability,
 )
+from synaptic.prune import CARD_FILES_MAX, build_cards
 from synaptic.project import default_params, project
 from synaptic.seeds import harvest_needles
 from synaptic.types import MODE_APPEND_ONLY, MODE_CLOSURE
-from wsc._fixtures import CONSTRAINT, SRC, synth_session
+from wsc._fixtures import CONSTRAINT, SRC, msg_asst_use, msg_tool, msg_user, synth_session
 
 
 def _p(msgs, level="Medium+", mode=MODE_CLOSURE, region_end=None):
@@ -65,6 +67,33 @@ def test_failure_path_is_not_lost():
 	res = needle_survival(p.text, needles)
 	assert res["path"]["n"] > 0
 	assert res["path"]["rate"] > 0.0, "文件路径全部丢失"
+
+
+def test_multifile_error_card_keeps_more_than_four_paths():
+	"""多文件失败单元的路径**不许在卡片层被丢掉**。
+
+	归因实测：185 条 failure_site 漏失里 52 条来自 `files=u.files[:4]`——Bash 单元的
+	refs 会把命令串与输出里的路径全并进来，超出 4 条的部分此前没有任何渲染出口。
+	直接对 `build_cards` 断言（不走 project：那里节点可能被 kept 而不生成卡）。"""
+	paths = [f"src/mod{i}/util{i}.ts" for i in range(6)]
+	msgs = [
+		msg_user("修复多模块超时"),
+		msg_asst_use("e0", "Bash", {"command": "npm test -- " + " ".join(paths)}),
+		msg_tool(
+			"e0",
+			"Bash",
+			"FAILED\n" + "\n".join(f"见 {p} 第 12 行" for p in paths),
+			is_error=True,
+		),
+	]
+	graph = build_graph(msgs)
+	pruned = tuple(n.idx for n in graph.nodes)
+	cards = build_cards(graph, pruned, default_params("Medium+"), region_end=len(msgs))
+	assert cards, "全剪之后必须产卡"
+	kept = {f for c in cards for f in c.files}
+	missing = [x for x in paths if x not in kept]
+	assert not missing, f"卡片层丢了路径：{missing}（上限应为 {CARD_FILES_MAX} 条）"
+	assert CARD_FILES_MAX > 4
 
 
 def test_compression_is_substantial_on_synthetic_busy_session():

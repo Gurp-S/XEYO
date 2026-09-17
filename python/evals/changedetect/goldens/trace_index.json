@@ -22,10 +22,6 @@
    "chars": 253,
    "sha256": "0293cb5b6663e8333a2670860ccaba7ae6bf11ff7f353b08afad8a29ef6b6d32"
   },
-  "inject/budget_mirror": {
-   "chars": 44,
-   "sha256": "0ae2bd4802c89f954aff7776790d976b2b5ef1d76c0d78c2c41bf924080859dd"
-  },
   "inject/channel_env": {
    "chars": 465,
    "sha256": "a04f86673581b2ae2beba6072fa38e7d65ab959bdf14d10656491a7f2cdbb846"

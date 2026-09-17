@@ -56,11 +56,15 @@ XEYO 引擎对模型注意力的总原则：**注意力里只出现信息，不�
 
 **回退阶梯（均为进程级备忘，重启即重试）：** `system_channel` --结构类 4xx（400/404/413/415/422，未吐 chunk）--> `env_channel`（保功能；已知会重新引入上述 affordance）--结构类 4xx--> `skip`（L2：宁缺毋滥，绝不落回 legacy 用户尾插）。`env_channel` / `legacy` 保留为对照与显式评测档。策略优先级：会话/请求显式（`set_t_now_strategy`）> `XEYO_T_NOW_STRATEGY` 环境变量 > 默认 `system_channel`；`prefill` 为预留档（实测前回落 `env_channel`）。
 
-**硬准入（2026-09-04）：** 块登记表 `T_NOW_BLOCK_REGISTRY`（`pre_llm_inject.py`）：每个块一行（类别 / 为什么必须在上下文 / 预算与门控），**登记数硬顶 20**，加一块必须删一块或证明预算不破；所有 `tagged.append` 装配点必须带 `# block: <名>` 标记且与登记表一一对应，由 `tests/test_t_now_block_registry.py` 机器执法——新块不登记，测试即红。第一问永远是"能不能不进上下文"（引擎能强制的，一律不给模型看）。
+**硬准入（2026-09-04）：** 块登记表 `T_NOW_BLOCK_REGISTRY`（`pre_llm_inject.py`）：每个块一行（**pipe 管道 / quota 是否受配额裁剪 / dedup 是否纳入"值不变不重注"台账 / why 为什么必须在上下文**），**登记数硬顶 16**，加一块必须删一块或证明预算不破；所有装配点必须走 `_tag_block(tagged, "登记名", 正文)`（裸 `tagged.append(` 被测试禁止），名与登记表一一对应，由 `tests/test_t_now_block_registry.py` 机器执法——新块不登记、事件块声明去重或配额，测试即红。第一问永远是"能不能不进上下文"（引擎能强制的，一律不给模型看）。
 
-**现有 T_now 候选（新增前先查重）：** Continue（工具续写）、Ask/Plan 模式指令、Approved Plan（首写收敛 + 实施中指针）、续跑指令 Resume（投影-only，`engine/resume_directive.py`）、上一轮思考回顾（GUI 设置，默认**关**）、Multi-Agent hint、Repeat guard、Nested XEYO.md（限窗）、stale XEYO.md 提醒、输出精简、写代码精简、MCP required 故障、工具面/技能目录变更（reconcile）、其他会话活动、文件冲突、浏览器预览、审批模式快照、子代理结算、Goal、jobs 补投。最新权威清单以 `T_NOW_BLOCK_REGISTRY` 为准。
+**T_now v2 = 一个边界，三条管道（2026-09-16 重分类 + 落地）：** 边界 = 工具批次完成后 / 下一次采样前（`engine/query_loop` 边界处三件事同刻：留痕落库 → 引导投递 → 装配注入）。**管道 1 用户消息**：运行中输入 → 队列（`engine/t_now_steer`）→ 到边界取出 → **真 user 消息进历史**（`role=user`，可被引用/压缩；不打断工具批次、不伪装角色）。服务端开关 `steer_if_busy`（需同时 `queue_if_busy`）。**管道 2 引擎当前态 → `PIPE_STATE`**（每轮可能变；`dedup=True` 者值不变不重注——台账 `python/prompt/inject_store.py`，档位 `XEYO_T_NOW_DEDUP=on|shadow|off`，**默认 on**；未落库成功的版本一律重发，`off` 为逃生门）。**管道 3 引擎事件 → `PIPE_EVENT`**（drain 语义：永不裁剪、永不门控、**永不去重**，去重＝静默丢事件）。装配点不自带类目，类目只在登记表。
 
-**已下线（不再推送 T_now）：** Proposals digest（拉取走 `/proposals` + Memory 候选计数行）、Memory index 块（脚本/评测用）、`wrap_up` / `runtime_budget` 两块（2026-09-15 用户裁定撤销：只讲"预算已尽"却不标作用域，模型必然误标成上下文窗口——第五/第六轮各一次；按引擎铁律「限制只在执行层」，收尾窗与配额由 `engine/query_loop` 强制，不需要讲给模型听。**预算机制保留**，撤的只是模型可见文本）。
+**留痕面（hidden note，管道 2 的"进历史"半边）：** 值变过一次的块，在下一个边界以 `role=system` 条目落进 MessageStore + transcript（`msgtypes.message.system_note`，身份字段 `note_kind/note_key/note_fp`，`row_from_message` 持久化、`message_from_row` 恢复），此后历史里就有这一版 ⇒ 台账判「值没变」成立 ⇒ 尾部不再重发。**模型可见 / 用户不可见**：`/v1/sessions/{id}/messages` 过滤 `note_key` 行。历史被改写（压缩 / 回溯 / 会话删除）⇒ 台账清账（`engine/t_now_notes.invalidate_after_compaction`、`session_pool.resync_after_rewind` / `.drop`），下一轮按当前值重注——先改写、后重注。失败一律 fail-open。
+
+**现有 T_now 候选（新增前先查重）：** 管道 2｜Continue（工具续写）、Ask/Plan 模式指令 + Approved Plan（首写收敛 + 实施中指针）、Multi-Agent hint、Repeat guard、Nested XEYO.md（限窗，quota）、输出精简 / 写代码精简（compact）、浏览器预览（quota）、Goal、技能直呼（skill_preinvoke）；管道 3｜续跑指令 Resume（投影-only，`engine/resume_directive.py`）、MCP required 故障、工具面/技能目录变更（reconcile）、跨会话通知（peer_notices）、文件冲突、子代理结算、jobs 补投。最新权威清单以 `T_NOW_BLOCK_REGISTRY` 为准。
+
+**已下线（不再推送 T_now）：** Proposals digest（拉取走 `/proposals` + Memory 候选计数行）、Memory index 块（脚本/评测用）、`wrap_up` / `runtime_budget` 两块（2026-09-15 用户裁定撤销：只讲"预算已尽"却不标作用域，模型必然误标成上下文窗口——第五/第六轮各一次；按引擎铁律「限制只在执行层」，收尾窗与配额由 `engine/query_loop` 强制，不需要讲给模型听。**预算机制保留**，撤的只是模型可见文本）、`budget_mirror`（触发条件产品链路从无设置＝死块）、`runtime_mode_snapshot`（真门禁在 permissions 层）、**D1「模糊指代轮静默参考块」（2026-09-16：弱模型特化，按铁律 1/5 删除——注意力里只出现信息，模型强弱不改变口径）**。
 
 ## 扩展层（MCP × SKILL）契约
 
@@ -69,7 +73,7 @@ XEYO 引擎对模型注意力的总原则：**注意力里只出现信息，不�
 - **配置单一来源**：`<root>/.xeyo/settings.json`（后台纯 JSON，无 GUI）。home 级 `~/.xeyo/settings.json` 与工作区级 `<ws>/.xeyo/settings.json` 按范围合并，**workspace 更具体者优先**；总开关 `enabled_extensions`（默认 **关**）；`plugins/skills/mcp_servers` 各带 `{"<name>": {"enabled": true, ...}}`。坏 JSON 走 keep-last-good + `config.invalid` 审计，方向安全（不静默打回默认）。
 - **原生工具面 = 会话起点快照**：attach 时按当时启用状态决定哪些 MCP 工具进 `schemas()`；此后 **tools 数组会话内冻结、零前缀重缓存**（绝对红线）。会话内启停**永不触碰 `_schemas_cache`**。
 - **会话内新增工具的唯一通道 = `Mcp` 网关工具**（`python/extension/mcp_gateway.py`）：`action=list|describe|call|resources|read_resource`，扩展开启时**始终注册**。list 含 hidden-but-registered 标注；describe 按 (server,tool) 返回入参 schema；call 身份经**已知工具集解析**（`resolve_tool`），绝不从 args 之外的通道取身份。
-- **会话内启停 = push 为主 reconcile**（`python/extension/reconcile.py`）：`set_mcp_enabled`/`set_skill_enabled` 后**直接发布**单轮 T_now 活页块（`# 工具面变更`/`# 技能目录变更`），digest 幂等（同值零块）；pull 兜底 = `enabled_probe`。活页块经 `prompt/pre_llm_inject.py` 按类别装配（directive/event/inventory），**事件类静默即失，绝不门控**。
+- **会话内启停 = push 为主 reconcile**（`python/extension/reconcile.py`）：`set_mcp_enabled`/`set_skill_enabled` 后**直接发布**单轮 T_now 活页块（`# 工具面变更`/`# 技能目录变更`），digest 幂等（同值零块）；pull 兜底 = `enabled_probe`。活页块经 `prompt/pre_llm_inject.py` 按**管道**装配（`PIPE_STATE` / `PIPE_EVENT`），**事件类静默即失，绝不门控、绝不去重**。
 - **停用即时 DENY，不可被 grant 穿越**：`permissions/policy.py` 先于 grant 两分支判定，`移除→DENY` 门。网关**不绕权限**——`registry.run` 的 ASK/DENY 在 `execute` 之前已按目标工具策略裁决；子代理注册表只来自静态工厂，网关天然不可达。
 - **指纹 v2（授权身份）**：`permissions/store.py` `mcp_grant_fingerprint = "v2:" + sha256(["mcp-tool", 注册名])[:32]`（**参数不进指纹** → 注入免疫）；`mcp_target` 贯通 `PolicyDecision → 挂起项 → /v1/permission/resolve`。v1 已不匹配 v2。
 - **控制路径**：`GET/POST /v1/extensions/settings`（`server/routers/extensions.py`，loopback 门禁，POST=push reconcile）+ `/mcp enable|disable|tool`（`python/slash/dispatch.py`）；manifest 已重导出到 `*/generated/slashManifest.ts`。

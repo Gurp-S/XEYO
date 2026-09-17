@@ -28,6 +28,41 @@ class Message:
 	narration: str = ""
 	# 44 号：中断锚（「用户看到的必须入史」）——abort 时部分输出以该标记留档。
 	interrupted: bool = False
+	# T_now v2 留痕面（C 阶段）：引擎注入的易变块以 role=system 进历史，
+	# 模型可见、用户不可见。三字段是台账身份，不是内容：
+	#   note_kind 管道标记（见 prompt/pre_llm_inject.PIPE_*）
+	#   note_key  块登记名（去重身份）
+	#   note_fp   正文指纹（值变才重注）
+	# 非空即 hidden：UI 面过滤、投影面照常、压缩面按 key 折叠保留最新。
+	note_kind: str = ""
+	note_key: str = ""
+	note_fp: str = ""
+
+	@property
+	def hidden(self) -> bool:
+		"""是否是引擎注入的留痕条目（模型可见 / 用户不可见）。"""
+		return bool(self.note_key)
+
+
+def system_note(
+	text: str,
+	*,
+	key: str,
+	fp: str,
+	kind: str = "state",
+) -> Message:
+	"""构造 T_now 留痕条目（管道 2/3 → 历史中的原生 system 消息）。
+
+	形态即身份：role=system ⇒ 既非 user（说话人隔离成立）也非 assistant
+	（模型不会以为自己调过某个工具）；不可调用性来自形态本身。
+	"""
+	return Message(
+		role="system",
+		content=text,
+		note_kind=kind,
+		note_key=key,
+		note_fp=fp,
+	)
 
 
 def user_message(

@@ -59,7 +59,6 @@ _BANNED_SECOND_PERSON = ("你", "您")
 BACKGROUND_RENDERERS: tuple[tuple[str, str], ...] = (
     ("prompt/pre_llm_inject.py", "browser_preview_block"),
     ("prompt/pre_llm_inject.py", "pending_jobs_block"),
-    ("prompt/pre_llm_inject.py", "budget_mirror_block"),
     ("prompt/pre_llm_inject.py", "file_conflict_block"),
     ("engine/todo_hint.py", "build_todo_hint"),
     ("engine/wrap_gap.py", "compose_gap_text"),
@@ -237,32 +236,12 @@ class TestBackgroundDataDialect:
 			]
 		)
 
-	def _budget(self):
-		from types import SimpleNamespace
-		import time
-
-		return SimpleNamespace(
-			turn_count=3,
-			max_turns=12,
-			wall_deadline_ts=time.time() + 300,
-			wall_started_ts=time.time() - 60,
-			usd_limit=1.0,
-			used_usd=0.42,
-		)
-
 	def test_todo_hint_data_dialect(self):
 		from engine.todo_hint import build_todo_hint
 
 		block = build_todo_hint(self._todo_working().todos)
 		assert block.startswith("# Todo progress")
 		_assert_pure_text(block, "todo_hint")
-
-	def test_budget_mirror_data_dialect(self):
-		from prompt.pre_llm_inject import budget_mirror_block
-
-		block = budget_mirror_block(self._budget(), self._todo_working())
-		assert block.startswith("# Budget mirror")
-		_assert_pure_text(block, "budget_mirror")
 
 	def test_browser_preview_data_dialect(self, monkeypatch):
 		import prompt.pre_llm_inject as pli

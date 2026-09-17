@@ -7,17 +7,22 @@
 * 主链：MAIN / DECISIONS / PRUNED（项目选择阶段另用 ``_CARD_RESERVE_SEED`` 预扣）。
 
 固定段内部优先级固定为 ``PIN > WORKING SET > REQUESTS``。预算不足时只降级 REQUESTS：
-先缩短内联摘录，再退化成仅句柄行；``expand(node://<idx>)`` 永不丢，因此截断不会悄悄破坏
-无损可恢复性。若 PIN + WORKING SET 自身已超固定预算，REQUESTS 仍保留句柄行并如实记
-over-budget，而不是为了账面好看丢信息。
+先缩短内联摘录，再退化成合并句柄行；句柄也装不下时关闭该段，绝不主动突破硬上限。
+冷层仍保留原文，因此截断不会破坏无损可恢复性。若受保护固定段自身已超固定预算，
+审计单独记录不可避免的超额。
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
-from synaptic.coldstore import parse_reqs_payload
+from synaptic.coldstore import node_handle, parse_reqs_payload, reqs_handle
+from synaptic.fixed_budget import (
+	trim_fixed_for_request_floor,
+)
 from synaptic.graph import Graph
+from synaptic.handles import renderer_or_default
 from synaptic.textutil import node_token_len
 from synaptic.types import KIND_USER, WscParams
 
@@ -26,6 +31,12 @@ Line = tuple[str, str]
 #: 一个块行内多条摘录的分隔符。选一个不会出现在正常用户原话里的可见分隔符：
 #: 既不与内容歧义，也不影响「关键信息针按连续子串判定」（每条摘录各自连续）。
 _EXCERPT_SEP = " ⏐ "
+
+#: 固定段中不能为满足账面预算而静默省略的事实。PATHS / REQUESTS / NEXT 有各自的
+#: 降级或关闭机制；PIN 与当前 working state 没有，故把两类超额分开审计。
+_PROTECTED_FIXED_HEADERS = frozenset(
+	{"[CONSTRAINTS]", "[UNRESOLVED]", "[TODO]", "[WORKING SET]"}
+)
 
 
 def one_line(text: str, limit: int = 0) -> str:
@@ -48,36 +59,27 @@ def excerpt_preserving_needle(text: str, limit: int = 0) -> str:
 	return s
 
 
-def rendered_request_nodes(items: list[Line] | tuple[Line, ...]) -> frozenset[int]:
+def rendered_request_nodes(
+	items: list[Line] | tuple[Line, ...], *, handles: Any = None
+) -> frozenset[int]:
 	"""返回 ``[REQUESTS]`` 行中句柄实际覆盖的节点集合。
 
 	``render_requests_grouped`` 会把这些节点合并为 ``node://i,j,...``；
 	``render_requests_compact`` 会把旧节点合并成 ``reqs://<首>-<末>``。
 	覆盖率审计若直接数行数，会变成「分母逐节点、分子逐行」的异源口径（踩过）。
 
+	**解析收在 `handles.HandleRenderer.extract_nodes`**：渲染形态与解析必须同源，
+	两处各写一份就会漂移——渲染换成 `Read` 形态而解析仍找 `expand(`，覆盖率会**静默归零**
+	（审计报「用户原话全丢」而实际没丢）。本函数只负责把渲染器接进来。
+
 	**区间句柄按 [首, 末] 全展开是安全的**：调用方始终拿它与 ``request_nodes`` 求交，
 	区间内混进的非用户节点会被交集滤掉；而区间内真正的用户节点，要么属于该块、
 	要么属于按 idx 升序的相邻块——两种情形它们**都有出口**，不存在「虚报可见」。
 	"""
+	hr = renderer_or_default(handles)
 	out: set[int] = set()
 	for _key, line in items:
-		marker = line.rfind("expand(node://")
-		if marker >= 0:
-			start = marker + len("expand(node://")
-			end = line.find(")", start)
-			if end >= 0:
-				for part in line[start:end].split(","):
-					part = part.strip()
-					if part.isdigit():
-						out.add(int(part))
-		rmarker = line.rfind("expand(reqs://")
-		if rmarker >= 0:
-			start = rmarker + len("expand(reqs://")
-			end = line.find(")", start)
-			if end >= 0:
-				span = parse_reqs_payload(line[start:end])
-				if span is not None:
-					out.update(range(span[0], span[1] + 1))
+		out.update(hr.extract_nodes(line))
 	return frozenset(out)
 
 
@@ -136,24 +138,27 @@ def render_requests(
 	user_nodes: tuple[int, ...],
 	excerpt_chars: int | None = None,
 	handle_only: bool = False,
+	handles: Any = None,
 ) -> list[Line]:
 	"""渲染逐节点 ``[REQUESTS]``；每个节点一条独立句柄。
 
 	分层：最近 ``request_recent_verbatim`` 条用完整摘录，更早的用 ``request_excerpt_chars_old``。
 	"""
+	hr = renderer_or_default(handles)
 	recent = _recent_verbatim_ids(user_nodes, params)
 	out: list[Line] = []
 	for idx, text in _request_nodes(
 		graph, region_end, skip=skip, user_nodes=user_nodes
 	):
+		expr = hr.expression(node_handle(idx))
 		if handle_only:
-			line = f"#{idx} 用户 expand(node://{idx})"
+			line = f"#{idx} 用户 {expr}"
 		else:
 			limit = _node_excerpt_chars(idx, params, recent=recent, override=excerpt_chars)
 			text = excerpt_preserving_needle(text, limit)
 			if not text:
 				continue
-			line = f"#{idx} 用户: {text} expand(node://{idx})"
+			line = f"#{idx} 用户: {text} {expr}"
 		out.append((f"req:{idx}", line))
 	return out
 
@@ -167,6 +172,7 @@ def render_requests_grouped(
 	user_nodes: tuple[int, ...],
 	excerpt_chars: int | None = None,
 	handle_only: bool = False,
+	handles: Any = None,
 ) -> list[Line]:
 	"""按原话文本去重渲染 ``[REQUESTS]``。
 
@@ -186,15 +192,17 @@ def render_requests_grouped(
 		groups.setdefault(key, []).append(idx)
 		texts.setdefault(key, raw)
 	out: list[Line] = []
+	hr = renderer_or_default(handles)
 	for key, idxs in groups.items():
 		handle = "node://" + ",".join(str(i) for i in idxs)
+		expr = hr.expression(handle)
 		head = f"#{idxs[0]}"
 		if len(idxs) > 1:
 			head += f" 用户[{len(idxs)}]"
 		else:
 			head += " 用户"
 		if handle_only:
-			line = f"{head} expand({handle})"
+			line = f"{head} {expr}"
 		else:
 			# 同一文本的节点可能横跨两个分层 ⇒ 取该组里**最宽松**的那一档
 			# （组内文本完全相同，多留字符不会误导，只会少压一点）。
@@ -207,7 +215,7 @@ def render_requests_grouped(
 			text = excerpt_preserving_needle(texts[key], limit)
 			if not text:
 				continue
-			line = f"{head}: {text} expand({handle})"
+			line = f"{head}: {text} {expr}"
 		out.append((f"reqgroup:{idxs[0]}", line))
 	return out
 
@@ -228,7 +236,12 @@ class HotBudgetAudit:
 	request_tokens: int
 	request_mode: str
 	request_excerpt_chars: int
+	request_reserved_tokens: int
 	fixed_overflow_tokens: int
+	#: 受保护事实本身已超过固定预算；不是通过再裁 PATHS/REQUESTS 能解决的超额。
+	fixed_unavoidable_overflow_tokens: int
+	#: 可通过可降级固定段消除的超额。
+	fixed_avoidable_overflow_tokens: int
 	main_overflow_tokens: int
 
 	def as_dict(self) -> dict[str, int | str]:
@@ -240,7 +253,10 @@ class HotBudgetAudit:
 			"request_tokens": self.request_tokens,
 			"request_mode": self.request_mode,
 			"request_excerpt_chars": self.request_excerpt_chars,
+			"request_reserved_tokens": self.request_reserved_tokens,
 			"fixed_overflow_tokens": self.fixed_overflow_tokens,
+			"fixed_unavoidable_overflow_tokens": self.fixed_unavoidable_overflow_tokens,
+			"fixed_avoidable_overflow_tokens": self.fixed_avoidable_overflow_tokens,
 			"main_overflow_tokens": self.main_overflow_tokens,
 		}
 
@@ -276,6 +292,7 @@ def apply_hot_budgets(
 	user_nodes: tuple[int, ...],
 	fixed_headers: tuple[str, ...],
 	main_headers: tuple[str, ...],
+	handles: Any = None,
 ) -> tuple[dict[str, list[Line]], HotBudgetAudit]:
 	"""对已渲染的 ``groups`` 应用固定段/主链预算并返回副本与审计。
 
@@ -284,6 +301,13 @@ def apply_hot_budgets(
 	预算后的紧凑版本。
 	"""
 	out = {h: list(items) for h, items in groups.items()}
+	out, _request_floor = trim_fixed_for_request_floor(
+		out,
+		fixed_headers=fixed_headers,
+		request_header=request_header,
+		fixed_budget_tokens=params.fixed_segment_budget_tokens,
+		request_floor_tokens_=params.request_min_budget_tokens,
+	)
 	fixed_other = sum(
 		segment_tokens(out.get(h, ())) for h in fixed_headers if h != request_header
 	)
@@ -302,6 +326,7 @@ def apply_hot_budgets(
 			params,
 			skip=request_skip,
 			user_nodes=user_nodes,
+			handles=handles,
 		)
 		if grouped_full and segment_tokens(grouped_full) <= request_available:
 			chosen = grouped_full
@@ -318,6 +343,7 @@ def apply_hot_budgets(
 					skip=request_skip,
 					user_nodes=user_nodes,
 					excerpt_chars=cut,
+					handles=handles,
 				)
 				if candidate and segment_tokens(candidate) <= request_available:
 					chosen = candidate
@@ -325,30 +351,41 @@ def apply_hot_budgets(
 					excerpt = cut
 					break
 		if chosen is None:
-			# 用户原话的文本针优先级高于固定段预算：离预算只差一点时，
-			# 仍保留每段原话的前 80 字符，否则 long-session 会静默退化成
-			# 纯句柄并让 needle_survival.user 掉档。溢出在下面的审计里如实记账。
-			chosen = render_requests_grouped(
+			# REQUESTS floor is a visibility floor, not a reason to discard every
+			# old user needle.  Compact all user nodes to the 80-character needle
+			# contract before falling back to handle-only rows.
+			candidate = render_requests_compact(
 				graph,
 				region_end,
 				params,
 				skip=request_skip,
 				user_nodes=user_nodes,
 				excerpt_chars=80,
+				handles=handles,
 			)
-			if chosen:
-				mode = "dedup_min80_overflow"
+			if candidate and segment_tokens(candidate) <= request_available:
+				chosen = candidate
+				mode = "compact_short"
 				excerpt = 80
-			else:
-				chosen = render_requests(
-					graph,
-					region_end,
-					params,
-					skip=request_skip,
-					user_nodes=user_nodes,
-					handle_only=True,
-				)
+
+		if chosen is None:
+			# 固定段是硬上限：文本针装不下时只保留可恢复句柄，
+			# 句柄本身也装不下则关闭 REQUESTS；不再主动制造超预算段。
+			chosen = render_requests_compact(
+				graph,
+				region_end,
+				params,
+				skip=request_skip,
+				user_nodes=user_nodes,
+				handle_only=True,
+				handles=handles,
+			)
+			if chosen and segment_tokens(chosen) <= request_available:
 				mode = "handles"
+				excerpt = 0
+			else:
+				chosen = []
+				mode = "dropped"
 				excerpt = 0
 		if chosen:
 			out[request_header] = chosen
@@ -356,6 +393,11 @@ def apply_hot_budgets(
 			out.pop(request_header, None)
 
 	fixed_tokens = sum(segment_tokens(out.get(h, ())) for h in fixed_headers)
+	protected_tokens = sum(
+		segment_tokens(out.get(h, ())) for h in fixed_headers if h in _PROTECTED_FIXED_HEADERS
+	)
+	fixed_overflow = max(0, fixed_tokens - int(params.fixed_segment_budget_tokens))
+	fixed_unavoidable = max(0, protected_tokens - int(params.fixed_segment_budget_tokens))
 	main_tokens = sum(segment_tokens(out.get(h, ())) for h in main_headers)
 	request_tokens = segment_tokens(out.get(request_header, ()))
 	audit = HotBudgetAudit(
@@ -366,7 +408,10 @@ def apply_hot_budgets(
 		request_tokens=request_tokens,
 		request_mode=mode,
 		request_excerpt_chars=excerpt,
-		fixed_overflow_tokens=max(0, fixed_tokens - int(params.fixed_segment_budget_tokens)),
+		request_reserved_tokens=int(_request_floor),
+		fixed_overflow_tokens=fixed_overflow,
+		fixed_unavoidable_overflow_tokens=fixed_unavoidable,
+		fixed_avoidable_overflow_tokens=max(0, fixed_overflow - fixed_unavoidable),
 		main_overflow_tokens=max(0, main_tokens - int(params.main_segment_budget_tokens)),
 	)
 	return out, audit
@@ -408,6 +453,9 @@ def render_requests_compact(
 	*,
 	skip: frozenset[int],
 	user_nodes: tuple[int, ...],
+	excerpt_chars: int | None = None,
+	handle_only: bool = False,
+	handles: Any = None,
 ) -> list[Line]:
 	"""``[REQUESTS]`` 的紧凑形态（P1-b/P1-b′）：旧节点合并成区间句柄，行数封顶。
 
@@ -428,6 +476,7 @@ def render_requests_compact(
 	新内容一律追加在段尾，段内不因「某条原话翻进/翻出近期窗口」而整体重排。
 	"""
 	recent = _recent_verbatim_ids(user_nodes, params)
+	hr = renderer_or_default(handles)
 	old: dict[int, str] = {
 		idx: text
 		for idx, text in _request_nodes(graph, region_end, skip=skip, user_nodes=user_nodes)
@@ -437,39 +486,53 @@ def render_requests_compact(
 	for first, last, idxs in request_chunk_ids(
 		graph, region_end, params, skip=skip, user_nodes=user_nodes
 	):
+		if handle_only:
+			handle = node_handle(first) if len(idxs) == 1 else reqs_handle(first, last)
+			head = f"#{first}" if len(idxs) == 1 else f"#{first}…{last} 用户[{len(idxs)}]"
+			out.append((f"reqs:{first}", f"{head} {hr.expression(handle)}"))
+			continue
 		parts: list[str] = []
 		for idx in idxs:
-			limit = _node_excerpt_chars(idx, params, recent=recent, override=None)
+			limit = _node_excerpt_chars(idx, params, recent=recent, override=excerpt_chars)
 			excerpt = excerpt_preserving_needle(old.get(idx, ""), limit)
 			if excerpt:
 				parts.append(excerpt)
 		if not parts:
 			# 块内一个可发射的摘录都没有（全是空白用户消息）：保留句柄行，
 			# 否则这些节点在热层里就真的没有出口了。
-			handle = f"node://{first}" if len(idxs) == 1 else f"reqs://{first}-{last}"
+			handle = node_handle(first) if len(idxs) == 1 else reqs_handle(first, last)
 			head = f"#{first}" if len(idxs) == 1 else f"#{first}…{last} 用户[{len(idxs)}]"
-			out.append((f"reqs:{first}", f"{head} expand({handle})"))
+			out.append((f"reqs:{first}", f"{head} {hr.expression(handle)}"))
 			continue
 		body = _EXCERPT_SEP.join(parts)
 		if len(idxs) == 1:
 			out.append(
-				(f"req:{first}", f"#{first} 用户: {body} expand(node://{first})")
+				(
+					f"req:{first}",
+					f"#{first} 用户: {body} {hr.expression(node_handle(first))}",
+				)
 			)
 			continue
 		out.append(
 			(
 				f"reqs:{first}",
-				f"#{first}…{last} 用户[{len(idxs)}]: {body} expand(reqs://{first}-{last})",
+				f"#{first}…{last} 用户[{len(idxs)}]: {body} "
+				f"{hr.expression(reqs_handle(first, last))}",
 			)
 		)
 	for idx, text in _request_nodes(graph, region_end, skip=skip, user_nodes=user_nodes):
 		if idx not in recent:
 			continue
-		limit = _node_excerpt_chars(idx, params, recent=recent, override=None)
+		if handle_only:
+			out.append((f"req:{idx}", f"#{idx} 用户 {hr.expression(node_handle(idx))}"))
+			continue
+		limit = _node_excerpt_chars(idx, params, recent=recent, override=excerpt_chars)
 		excerpt = excerpt_preserving_needle(text, limit)
 		if not excerpt:
 			continue
-		out.append((f"req:{idx}", f"#{idx} 用户: {excerpt} expand(node://{idx})"))
+		out.append(
+			(f"req:{idx}", f"#{idx} 用户: {excerpt} {hr.expression(node_handle(idx))}")
+		)
 	return out
 
 

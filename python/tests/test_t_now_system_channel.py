@@ -261,7 +261,7 @@ class _RecordingFallbackClient(FakeModelClient):
 			yield chunk
 
 
-async def _drive_loop(client) -> list[object]:  # noqa: ANN001
+async def _drive_loop(client, *, store=None) -> list[object]:  # noqa: ANN001
 	from engine.abort import AbortController
 	from engine.budget import BudgetTracker
 	from engine.query_loop import query_loop
@@ -275,7 +275,7 @@ async def _drive_loop(client) -> list[object]:  # noqa: ANN001
 	reg.register(EchoTool())
 	events: list[object] = []
 	async for ev in query_loop(
-		store=MessageStore([user_message("hello")]),
+		store=store or MessageStore([user_message("hello")]),
 		model=client,
 		tools=reg,
 		prompt=PromptAssembler(),
@@ -332,6 +332,38 @@ async def test_query_loop_falls_back_to_env_channel_on_structural_4xx() -> None:
 	# 其他 provider:model 不受牵连
 	assert resolve_t_now_strategy("openai", "other") == STRATEGY_SYSTEM_CHANNEL
 	assert events, "回退后未产出任何事件"
+
+
+@pytest.mark.asyncio
+async def test_fallback_rebuild_hides_historical_t_now_notes() -> None:
+	"""system → env 回退不得把历史 system 留痕带进中段消息。"""
+	from common.errors import ProviderError
+	from msgtypes.message import system_note, user_message
+	from session.message_store import MessageStore
+
+	set_t_now_strategy(STRATEGY_SYSTEM_CHANNEL)
+	store = MessageStore(
+		[
+			user_message("hello"),
+			system_note("# Goal\n旧值", key="goal", fp="old"),
+			system_note("# Goal\n新值", key="goal", fp="new"),
+		]
+	)
+	client = _RecordingFallbackClient(ProviderError("bad system role", status_code=400))
+	await _drive_loop(client, store=store)
+
+	first = json.loads(client.seen[0])
+	second = json.loads(client.seen[1])
+	assert "旧值" not in json.dumps(first, ensure_ascii=False)
+	assert "旧值" not in json.dumps(second, ensure_ascii=False)
+	assert any(
+		m.get("role") == "system" and "新值" in str(m.get("content"))
+		for m in first
+	)
+	assert not any(
+		m.get("role") == "system" and "新值" in str(m.get("content"))
+		for m in second
+	)
 
 
 @pytest.mark.asyncio

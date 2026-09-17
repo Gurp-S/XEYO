@@ -156,8 +156,13 @@ def _looks_like_error(text: str) -> bool:
 	return any(m in low for m in _STRONG_ERR_MARKERS)
 
 
-def build_graph(messages: list[dict]) -> Graph:
-	"""从 API 形式的消息列构建证据 DAG。"""
+def build_graph(messages: list[dict], *, include_soft_edges: bool = True) -> Graph:
+	"""从 API 形式的消息列构建证据图。
+
+	``include_soft_edges`` 只控制启发式 ``seq/file/err`` 边是否进入图的邻接表。
+	默认保持完整图，便于离线 oracle 与历史契约；WSC 的 ``project()`` 默认关闭，
+	主线只消费语法确定的 ``tool_use -> tool_result`` provenance。
+	"""
 	# 第一遍：tool_use_id -> 工具名（tool_result 需要反查名字）
 	name_by_id: dict[str, str] = {}
 	for msg in messages:
@@ -237,9 +242,10 @@ def build_graph(messages: list[dict]) -> Graph:
 		for p in n.refs:
 			file_index.setdefault(p, []).append(n.idx)
 
-	# seq：时序相邻
-	for i in range(len(nodes) - 1):
-		edges.append(Edge(i, i + 1, EDGE_SEQ, 0.4))
+	if include_soft_edges:
+		# seq：时序相邻
+		for i in range(len(nodes) - 1):
+			edges.append(Edge(i, i + 1, EDGE_SEQ, 0.4))
 
 	# use：tool_use -> tool_result（语法因果边；对应生产链 memindex.edges 的那条）
 	pending: list[int] = []
@@ -254,24 +260,26 @@ def build_graph(messages: list[dict]) -> Graph:
 			if pending:
 				pending.pop()
 
-	# file：同一路径的相邻两次访问（共访链）
-	for p, idxs in file_index.items():
-		for a, b in zip(idxs, idxs[1:]):
-			if a != b:
-				edges.append(Edge(a, b, EDGE_FILE, 0.5))
+	if include_soft_edges:
+		# file：同一路径的相邻两次访问（共访链）
+		for p, idxs in file_index.items():
+			for a, b in zip(idxs, idxs[1:]):
+				if a != b:
+					edges.append(Edge(a, b, EDGE_FILE, 0.5))
 
-	# err：失败结果 -> 之后首次触碰同一路径的调用（错误归因启发式）
-	for n in nodes:
-		if not n.is_error or not n.refs:
-			continue
-		cands = [
-			j
-			for p in n.refs
-			for j in file_index.get(p, ())
-			if j > n.idx and nodes[j].kind == KIND_TOOL_USE
-		]
-		if cands:
-			edges.append(Edge(n.idx, min(cands), EDGE_ERR, 0.8))
+	if include_soft_edges:
+		# err：失败结果 -> 之后首次触碰同一路径的调用（错误归因启发式）
+		for n in nodes:
+			if not n.is_error or not n.refs:
+				continue
+			cands = [
+				j
+				for p in n.refs
+				for j in file_index.get(p, ())
+				if j > n.idx and nodes[j].kind == KIND_TOOL_USE
+			]
+			if cands:
+				edges.append(Edge(n.idx, min(cands), EDGE_ERR, 0.8))
 
 	# 邻接表（确定性顺序：按边序）+ 按边类型预索引（``outgoing/incoming(kind=…)`` 的 O(1) 通道）
 	out_map: dict[int, list[int]] = {}

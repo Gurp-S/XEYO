@@ -52,6 +52,15 @@ def _stat(xs: Sequence[float]) -> dict[str, float]:
 	}
 
 
+def _mean(xs: Sequence[float]) -> float:
+	return float(statistics.fmean(xs)) if xs else 0.0
+
+
+def _ratio(num: float, den: float) -> float:
+	"""比值；分母为 0 时返回 0（不返回 inf/nan——报告要能直接进 JSON 与表格）。"""
+	return float(num / den) if den else 0.0
+
+
 @dataclass
 class Aggregate:
 	label: str
@@ -91,6 +100,12 @@ class Aggregate:
 		compressed_turns = [
 			t for t in self.turns if not t.gain_gate_skipped and not t.trigger_skipped
 		]
+		# ── adopted 口径（2026-09-16 新增）────────────────────────────────
+		# legacy 档：未过闸的回合发整段原文 ⇒ 只有「压过」的回合才算压缩态。
+		# adopted 档：一旦压过，后续每轮都发紧凑投影（生产 runtime.py:1643-1645）
+		#   ⇒ 「紧凑态回合」才是压缩率/成本的可比群体，且它与「折叠事件回合」不是一回事。
+		active_turns = [t for t in self.turns if t.wsc_active]
+		event_turns = [t for t in self.turns if t.compaction_event]
 		base = self._vals("base_tokens")
 		wsc = self._vals("wsc_tokens")
 		hot = [float(t.hot_tokens) for t in compressed_turns]
@@ -128,6 +143,23 @@ class Aggregate:
 					"p10": _pct(rates, 10),
 				}
 
+		# 信息针**池化**口径（Σhit/Σn，2026-09-16 新增）。
+		# 上面的 `needles[cat]["mean_rate"]` 是「在**该针有样本的回合**上取均值」——
+		# 不同触发口径下样本群体本身就变了（生产口径下短/中会话从不压缩 ⇒ 无样本
+		# ⇒ 自动退出分母），跨口径相减会把"样本退出"读成"指标退化"（第七轮实测：
+		# 汇总报 −10pp，同群体实为 −4.95pp）。池化口径把分子分母放在一起加，
+		# 至少让**同一档内**的 cohort 拆分不会因回合数变化而漂移。
+		needles_pooled: dict[str, dict[str, float]] = {}
+		for cat in NEEDLE_CATS:
+			hit = sum(int(t.needles.get(cat, {}).get("hit", 0)) for t in self.turns)
+			n = sum(int(t.needles.get(cat, {}).get("n", 0)) for t in self.turns)
+			if n:
+				needles_pooled[cat] = {
+					"n": float(n),
+					"hit": float(hit),
+					"rate": float(hit / n),
+				}
+
 		pruned = sum(int(t.recover.get("pruned", 0) or 0) for t in self.turns)
 		bound = sum(int(t.recover.get("bound", 0) or 0) for t in self.turns)
 		checked = sum(int(t.recover.get("checked", 0) or 0) for t in self.turns)
@@ -144,6 +176,12 @@ class Aggregate:
 				"change_max": float(max(chg)) if chg else 0.0,
 				"front_break_mean": float(statistics.fmean(frb)) if frb else 0.0,
 			}
+
+		stage_latency: dict[str, dict[str, float]] = {}
+		for name in sorted({name for t in self.turns for name in t.stage_ms}):
+			stage_latency[name] = _stat(
+				[float(t.stage_ms[name]) for t in self.turns if name in t.stage_ms]
+			)
 
 		return {
 			"label": self.label,
@@ -174,11 +212,53 @@ class Aggregate:
 			"trigger_skip_rate": float(
 				sum(1 for t in self.turns if t.trigger_skipped) / max(1, len(self.turns))
 			),
+			# ── adopted 口径计数（legacy 档下 active == 压过的回合）──────────
+			# 与 `trigger_skipped` 一起读：adopted 档里「未过闸」**不等于**「没压缩」，
+			# 只等于「本回合没有折叠」——投影仍是上一次折叠留下的紧凑态。
+			"wsc_active_turns": len(active_turns),
+			"wsc_active_rate": float(len(active_turns) / max(1, len(self.turns))),
+			"compaction_events": len(event_turns),
+			"compaction_event_rate": float(len(event_turns) / max(1, len(self.turns))),
+			# 紧凑态回合上的压缩率：adopted 档下这才是「压缩率」的可比群体
+			# （全回合口径会被"从未压过"的原文回合稀释成 0，见 §14.6）。
+			"reduction_vs_base_active_only": _stat(
+				[
+					1 - float(t.wsc_tokens) / float(t.base_tokens)
+					for t in active_turns
+					if t.base_tokens > 0
+				]
+			),
+			# ── 同一批回合上的成本比（「WSC 能否替换 C2」的准入判据）──────────
+			# 只在**两臂都可比**的回合上求和：v61 基线不可得的回合不进分母。
+			# 2026-09-16：此前该比值由 `_r7_ab3_strict2.py` 等一次性脚本现算，
+			# 现固化进报告，避免"每个结论配一个脚本、脚本口径还各不相同"。
+			"cost_ratio_wsc_v61_active": _ratio(
+				sum(float(t.wsc_cost) for t in active_turns if t.v61_tokens > 0),
+				sum(float(t.v61_cost) for t in active_turns if t.v61_tokens > 0),
+			),
+			"cost_ratio_wsc_v61_active_n": int(
+				sum(1 for t in active_turns if t.v61_tokens > 0)
+			),
 			"hit_rate_wsc": _stat([float(t.wsc_hit) for t in cmp_turns]),
 			"hit_rate_v61": _stat([float(t.v61_hit) for t in cmp_turns]),
 			# 跳首回合口径：只在「同一会话内有上一轮投影可比」的回合上算
 			"hit_rate_wsc_steady": _stat([float(t.wsc_hit) for t in steady]),
 			"hit_rate_v61_steady": _stat([float(t.v61_hit) for t in steady]),
+			# ── 命中率**主指标**（2026-09-15，用户裁定）─────────────────────
+			# 三条纪律，都是踩过的坑：
+			#  1) **必须报 mean**：`_stat` 同时给出 mean/median，而 median 在含冷启动的
+			#     分布里恒为 0（本语料实测 median=0 而 mean=0.12~0.22）——把它当主值会
+			#     把"命中率崩了"和"样本里一半是首轮"混为一谈（第七轮真的这么误读过）。
+			#  2) **主口径 = steady**（剔掉每会话首轮：首轮没有 x_prev，命中必为 0，
+			#     是定义性稀释而非性能信号）。
+			#  3) 含冷启动的 `hit_rate_*` 保留作对照，不删——它才是"真实平均"。
+			"hit_rate_primary_scope": "steady(mean)",
+			"hit_rate_wsc_mean": _mean([float(t.wsc_hit) for t in cmp_turns]),
+			"hit_rate_v61_mean": _mean([float(t.v61_hit) for t in cmp_turns]),
+			"hit_rate_wsc_steady_mean": _mean([float(t.wsc_hit) for t in steady]),
+			"hit_rate_v61_steady_mean": _mean([float(t.v61_hit) for t in steady]),
+			"hit_rate_steady_delta": _mean([float(t.wsc_hit) for t in steady])
+			- _mean([float(t.v61_hit) for t in steady]),
 			"cost_wsc_total": float(sum(float(t.wsc_cost) for t in cmp_turns)),
 			"cost_v61_total": float(sum(float(t.v61_cost) for t in cmp_turns)),
 			"cost_wsc_steady": float(sum(float(t.wsc_cost) for t in steady)),
@@ -192,9 +272,11 @@ class Aggregate:
 			),
 			"lcp_prev_tokens": _stat(self._vals("lcp_prev")),
 			"latency_ms": _stat(self._vals("latency_ms")),
+			"stage_latency_ms": stage_latency,
 			"cards_per_turn": _stat(self._vals("cards")),
 			"pruned_per_turn": _stat(self._vals("pruned")),
 			"needle_survival": needles,
+			"needle_survival_pooled": needles_pooled,
 			"recoverability": {
 				"pruned_nodes": pruned,
 				"bound_nodes": bound,
@@ -345,7 +427,8 @@ DEVIATIONS = [
 	"189/199 回合是「串中改写」，中位 LCP 只剩 324 token；首个失配点分布 [MAIN] 102 / "
 	"[WORKING SET] 49 / [UNRESOLVED] 24 / [DECISIONS] 20 / [PRUNED] 4。"
 	"排序只能缓解（总有第二名会长的段），日志布局让它结构上不可能。"
-	"代价是日志变胖，用 ``journal_growth_tokens`` 触发重冻结压回紧凑渲染（一次前缀 miss）。"
+	"代价是日志变胖，用 ``journal_growth_tokens`` 触发逻辑换头；换头只追加新头与旧头句柄，"
+	"不改写已发前缀，故不把逻辑换头计为一次 KV 前缀 miss。"
 	"关掉开关（``journal_layout=False``）即回到分段布局，用于 A/B。",
 	"**自检口径修正（规则 3 的补丁）**：段统计改为落在**最终投影文本**上。"
 	"旧实现在模式分支之前统计，append_only 报出的 churn 表与 closure 逐字相同，"
@@ -354,13 +437,12 @@ DEVIATIONS = [
 	"region_raw_tokens（被压缩区域的原始 token）。用整段作分母会把未压缩尾部也算进来，"
 	"并在收益门跳过一个回合时与压缩子集错行；两者都属于分子分母不同源。",
 	"**热层双预算（规则 8 的补丁）**：hot_budget_tokens 拆成 "
-	"fixed_segment_budget_tokens + main_segment_budget_tokens，Medium+ 为 1200+1800。"
+	"fixed_segment_budget_tokens + main_segment_budget_tokens，Medium+ 为 1800+1200。"
 	"REQUESTS 固定在 1200 内按 full→dedup→dedup_short→handles 降级；"
 	"若固定段和主链仍超限，审计字段 fixed_overflow_tokens / main_overflow_tokens "
 	"如实记账，不伪装成未超预算。",
-	"**80 字符针保底不是硬闸**：当固定段预算连 dedup@80 都装不下时，"
-	"request_mode=dedup_min80_overflow，用户原话前 80 字符优先于固定段预算，"
-	"溢出量进 fixed_overflow_tokens。这是显式取舍：文本针优先，账面如实反映溢出。",
+	"**固定段硬闸**：当固定段预算连 dedup@80 都装不下时，``[REQUESTS]`` 只尝试句柄；"
+	"连句柄也装不下则记录 ``request_mode=dropped`` 并关闭该段，``[PATHS]`` 同样受子段额度限制。",
 	"**path 针口径放宽**：path/path_recent 的存活判定改为路径 basename 级宽松匹配，"
 	"并与 working_set/recent_paths 共用排序来源；这只改变「是否可见」的判定，"
 	"不会凭空恢复冷层里已经剪掉的路径。",
@@ -450,6 +532,15 @@ def render_markdown(rep: dict[str, Any]) -> str:
 			f"- 热层 token：median {r['hot_tokens']['median']:.0f} / p90 {r['hot_tokens']['p90']:.0f}"
 		)
 		if r.get("compared_turns"):
+			# 主指标先行（2026-09-15，用户裁定）：steady + mean。
+			# 含冷启动口径退到下一行作对照——它的 median 恒为 0（首轮稀释），
+			# 拿 median 当主值会把"命中率崩了"和"样本一半是首轮"混为一谈。
+			L.append(
+				f"- **命中率（主口径：跳每会话首回合，mean）**："
+				f"WSC {r.get('hit_rate_wsc_steady_mean', 0):.3f} vs XEYO v6.1 "
+				f"{r.get('hit_rate_v61_steady_mean', 0):.3f}"
+				f"（Δ {r.get('hit_rate_steady_delta', 0):+.3f}，回合 {r.get('steady_turns', 0)}）"
+			)
 			L.append(
 				f"- 命中率（含冷启动，可比回合 {r['compared_turns']}）："
 				f"WSC {r['hit_rate_wsc']['mean']:.3f} vs XEYO v6.1 {r['hit_rate_v61']['mean']:.3f}"
@@ -485,6 +576,15 @@ def render_markdown(rep: dict[str, Any]) -> str:
 		L.append(
 			f"- 压缩延迟：median {r['latency_ms']['median']:.2f} ms / p95 {r['latency_ms']['p95']:.2f} ms"
 		)
+		stages = r.get("stage_latency_ms") or {}
+		if stages:
+			top = sorted(
+				stages.items(), key=lambda item: item[1].get("p95", 0.0), reverse=True
+			)[:3]
+			L.append(
+				"- 阶段 p95（前三）："
+				+ "；".join(f"{name} {stats['p95']:.2f} ms" for name, stats in top)
+			)
 		L.append(f"- LLM 调用：{r['llm_calls']}")
 		L.append("")
 		L.append("### 关键信息针存活率（热层内命中）")

@@ -19,12 +19,13 @@ from synaptic.assemble import (
 	SegStat,
 	order_segments,
 	pick_level,
+	render_decisions,
 )
 from synaptic.graph import build_graph
 from synaptic.metrics import lcp_tokens
 from synaptic.project import Projection, project
 from synaptic.textutil import node_token_len
-from synaptic.types import KIND_USER, MODE_APPEND_ONLY, MODE_CLOSURE, WscParams
+from synaptic.types import KIND_USER, MODE_APPEND_ONLY, MODE_CLOSURE, PruneCard, WscParams
 from wsc._fixtures import CONSTRAINT, SRC, synth_session
 
 
@@ -186,7 +187,7 @@ def test_journal_layout_never_breaks_prefix_while_growing():
 
 
 def test_journal_refreezes_when_growth_budget_exceeded():
-	"""日志胖过阈值 → 必须发生一次重冻结（并且被如实记为 rebuilt）。"""
+	"""日志胖过阈值 → 追加新头与旧头句柄，但不能打断已发前缀。"""
 	msgs = synth_session(turns=12, error_turn=4)
 	prev = None
 	refroze = 0
@@ -202,7 +203,8 @@ def test_journal_refreezes_when_growth_budget_exceeded():
 		)
 		if prev is not None and p.result.journal_refroze:
 			refroze += 1
-			assert p.result.rebuilt is True, "重冻结未记为前缀失效"
+			assert p.result.rebuilt is False, "append-only 换头不应记为前缀失效"
+			assert p.text.startswith(prev.full_text), "换头改写了已发出的前缀"
 		prev = p.state
 	assert refroze > 0, "阈值设到 1 仍从未重冻结"
 
@@ -376,6 +378,28 @@ def test_prune_card_not_duplicated_across_decisions_and_pruned():
 	handles = [c.handle for c in p.result.hot.cards]
 	for h in handles:
 		assert p.text.count(h) == 1, f"{h} 在热层出现多次"
+
+
+def test_decisions_row_carries_extra_files_without_duplicating_first():
+	"""`[DECISIONS]` 行必须带 ``files=``（只发射 ``files[1:]``）。
+
+	归因实测：185 条 failure_site 漏失里 17 条是「卡里已有这条路径、就是没渲染」。
+	`_conclusion` 只内联 `files[0]`；其余路径此前在热层没有任何出口。"""
+	cards = (
+		PruneCard(
+			card_id="B7",
+			conclusion="Bash 对 src/a.ts 失败：FAILED",
+			files=("src/a.ts", "src/b.ts", "src/c.ts"),
+			error_sig="FAILED",
+			replay="npm test",
+			nodes=(7,),
+			tokens=10,
+		),
+	)
+	row = render_decisions(cards)[0][1]
+	assert "src/b.ts" in row and "src/c.ts" in row, f"DECISIONS 行漏了 files[1:]：{row}"
+	assert row.count("src/a.ts") == 1, "files[0] 已在结论里，不得重复发射"
+	assert "branch://B7" in row
 
 
 def test_level_watermarks():

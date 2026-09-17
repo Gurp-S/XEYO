@@ -74,6 +74,7 @@ from msgtypes.events import (
     PermissionResolvedEvent,
     PlanPendingEvent,
     PlanResolvedEvent,
+    SteerDeliveredEvent,
     StoppedEvent,
     ToolCallEvent,
     ToolProgressEvent,
@@ -84,8 +85,9 @@ from usage.pricing import split_usage
 from memory.token import token_len
 from msgtypes.message import Message, ToolUse, assistant_text_message, tool_result_message
 from common.errors import (
-    EmptyResponseError,
-    ProviderError,
+	EmptyResponseError,
+	NetworkError,
+	ProviderError,
     classify_llm_failure,
     empty_response_failure,
     friendly_error,
@@ -551,7 +553,7 @@ def _self_session_id() -> str:
 
 
 def _peer_remind_tool_message(tu: ToolUse) -> str:
-	"""提醒：不执行工具，给模型可操作建议。"""
+	"""记录交叉会话选择结果；不执行工具。"""
 	name = (tu.name or "").strip() or "tool"
 	inp = tu.input if isinstance(tu.input, dict) else {}
 	cmd = str(inp.get("command") or "").strip()
@@ -559,18 +561,12 @@ def _peer_remind_tool_message(tu: ToolUse) -> str:
 		inp.get("file_path") or inp.get("path") or inp.get("notebook_path") or ""
 	).strip()
 	lines = [
-		"Permission reminded (not executed): peer session conflict.",
-		"Do not overwrite peer-owned files. Prefer waiting or editing only your paths.",
+		"Permission result: executed=false; reason=peer_session_conflict.",
 	]
 	if name == "Bash" and cmd:
-		lines.append(f"Blocked command: {cmd[:300]}")
-		lines.append(
-			"Suggestion: `git add <only-your-paths>` then commit, "
-			"or re-Read peer files before editing."
-		)
+		lines.append(f"Command: {cmd[:300]}")
 	elif path:
-		lines.append(f"Blocked path: {path}")
-		lines.append("Suggestion: Re-Read the file after the other session finishes.")
+		lines.append(f"Path: {path}")
 	return "\n".join(lines)
 
 
@@ -617,8 +613,8 @@ def _queue_peer_remind_notices(tu: ToolUse, *, cwd: str) -> None:
 			inp.get("file_path") or inp.get("path") or inp.get("notebook_path") or ""
 		).strip()
 		detail = cmd[:200] if cmd else (path or (tu.name or "tool"))
-		self_msg = f"已选择提醒：未执行冲突操作（{detail}）。请只改自己的路径。"
-		peer_msg = f"会话「{label}」因交叉选择了提醒，未执行: {detail}"
+		self_msg = f"交叉会话权限结果：执行=false；对象={detail}。"
+		peer_msg = f"会话「{label}」的交叉权限结果：执行=false；对象={detail}。"
 		reg.queue_notice(sid, self_msg)
 		for peer in reg.peers(cwd, sid):
 			reg.queue_notice(peer.session_id, peer_msg)
@@ -650,6 +646,7 @@ def _attach_turn_context(
 	t_now_strategy: str = "",
 	budget: object | None = None,
 	loop_ledger: object | None = None,
+	visible_notes: frozenset[tuple[str, str]] | None = None,
 ) -> list[dict]:
 	"""薄封装：委托 ``prompt.pre_llm_inject.run_pre_llm_inject``。
 
@@ -710,6 +707,7 @@ def _attach_turn_context(
 			plan_pointer=plan_pointer,
 			strategy=t_now_strategy,
 			loop_ledger=loop_ledger,
+			visible_notes=visible_notes,
 		),
 	)
 
@@ -844,12 +842,66 @@ async def query_loop(
             budget.max_turns + budget.grace_turns_remaining - budget.turn_count,
         )
 
+        # T_now v2 边界（唯一注入时机）三件事，同刻完成、顺序固定：
+        # ① 声道闸（A）：只有 system 声道才允许留痕出现在模型输入里——厂商
+        #    不吃中段 system 时（env/skip 档）留痕既不写新、也不进投影，状态块
+        #    改由 notice 声道送达（否则历史里的 system 会让请求持续 4xx）。
+        # ② 管道 2 留痕落库：上一轮登记的条目此刻追加进历史 ⇒ 本轮投影已含
+        #    这一版，台账判「值没变」成立，尾部不再重发。
+        # ③ 管道 1 引导（steer）：运行中用户消息此刻取出，作为真 user 消息
+        #    进历史——不打断工具批次、不伪装角色，模型下一次采样前看到它。
+        _notes_ok = True
+        try:
+            from prompt.t_now_strategy import (
+                STRATEGY_SYSTEM_CHANNEL,
+                resolve_t_now_strategy,
+            )
+
+            _notes_ok = (
+                resolve_t_now_strategy(
+                    _llm_provider_name(model), _llm_model_name(model)
+                )
+                == STRATEGY_SYSTEM_CHANNEL
+            )
+        except Exception:  # noqa: BLE001 — 解析失败按设计行为（允许留痕）
+            _notes_ok = True
+        try:
+            store.set_note_policy(_notes_ok)
+        except Exception:  # noqa: BLE001
+            pass
+        _delivered_steer: list[Any] = []
+        _sid = ""
+        try:
+            from engine.t_now_notes import current_session_id, persist_pending
+            from engine.t_now_steer import deliver as _deliver_steer
+
+            _sid = current_session_id()
+            persist_pending(
+                store, session_id=_sid, snapshot=snap, allow_notes=_notes_ok
+            )
+            # 引导投递：幂等（同 message_id 已在历史里即跳过）+ 至少一次
+            # （append 失败的项回队，下一边界重投）。
+            _delivered_steer = _deliver_steer(_sid, store)
+            if _delivered_steer:
+                snap.proj_cache = None
+        except Exception:  # noqa: BLE001 — 留痕/引导失败不影响主路径
+            pass
+        # 投递回执（管道 1）：只报事实（条数 + 消息 id），让前端能贴位/标记。
+        if _delivered_steer:
+            yield SteerDeliveredEvent(
+                count=len(_delivered_steer),
+                message_ids=tuple(
+                    str(getattr(m, "id", "") or "") for m in _delivered_steer
+                ),
+            )
+
         compact_cursor_before = snap.compact_cursor
         # T8：每轮先清空预取槽（防跨轮脏数据），再按开关决定是否异步预取。
         # C2 LLM 摘要旁路（默认关）：仅首压前（compact_cursor==0 且会话足够长）
         # 重放前缀打 warm cache，结果存进 snap._pending_c2_summary，供
         # apply_c2_messages 同步消费（失败/未启用 → 置空回退确定性摘要）。
         snap._pending_c2_summary = None
+        _turn_cwd = _workspace_cwd_for_turn(tools)
         if (
             c2_llm_summary_enabled()
             and int(snap.compact_cursor or 0) == 0
@@ -858,7 +910,12 @@ async def query_loop(
         ):
             try:
                 await prefetch_c2_summary(
-                    snap, store.as_api_messages(), system_prompt, model, abort
+                    snap,
+                    store.as_api_messages(),
+                    system_prompt,
+                    model,
+                    abort,
+                    cwd=_turn_cwd,
                 )
             except Exception:
                 snap._pending_c2_summary = None
@@ -870,6 +927,7 @@ async def query_loop(
             context_limit=pressure_limit,
             remaining_turns=remaining,
             system_prompt=system_prompt,
+            cwd=_turn_cwd,
         ):
             snap.proj_cache = None
         summary_fp = len(snap.c2_summary_text or "")
@@ -881,6 +939,7 @@ async def query_loop(
         # γ4 围栏写进 proj_cache（不进 MessageStore）：增量只围栏新段，
         # 命中缓存时不再全历史扫 fences。
         from prompt.fence import apply_tool_output_fences
+        from prompt.tool_result_diff_digest import apply_tool_result_digest
 
         use_proj_cache = l5_mode() == "project" and (
             (not c2_gate()) or int(snap.compact_cursor or 0) > 0
@@ -918,6 +977,7 @@ async def query_loop(
                         base_len=base_len - cursor,
                         frozen_until=frozen_rel,
                         id_to_name=base_names,
+                        cwd=_turn_cwd,
                     )
                 else:
                     new_proj, names = project_incremental(
@@ -925,8 +985,12 @@ async def query_loop(
                         base_len=base_len,
                         frozen_until=frozen,
                         id_to_name=base_names,
+                        cwd=_turn_cwd,
                     )
                 new_proj = apply_tool_output_fences(new_proj, id_to_name=names)
+                # 模型可见面瘦身（旁路档，默认关）：剥离文件改动类结果的 diff 围栏。
+                # 与 γ4 围栏同刻同位置——只改投影副本，transcript / GUI 卡片不动。
+                new_proj = apply_tool_result_digest(new_proj, id_to_name=names)
                 projected = base_proj + new_proj
                 snap.proj_cache = (
                     cur_len,
@@ -947,9 +1011,29 @@ async def query_loop(
                 # 真实模型窗口（route capacity）——Path A 压力门据此推导，修复
                 # 「C2 误以为窗口只有 128k」：主流模型已 1M，但 params.window_tokens 恒 128k。
                 context_limit=_positive_int(getattr(model, "context_limit", None)),
+                cwd=_turn_cwd,
             )
             names = build_tool_use_names(api_all)
             projected = apply_tool_output_fences(projected, id_to_name=names)
+            projected = apply_tool_result_digest(projected, id_to_name=names)
+            # 阶段 B：WSC 影子档（默认关，`XEYO_WSC=1` 开）。只记账、不生效——
+            # 无返回值，异常在模块内吞掉（`memory/wsc_shadow.py` 红线 1/2）。
+            # 位置说明：本分支是**每轮都会走到**的全量投影路径（缓存命中路径要求
+            # 消息数未变，新用户轮必然不命中）⇒ 影子档每轮都有机会采样。
+            try:
+                from memory.wsc_shadow import maybe_observe
+
+                maybe_observe(
+                    api_all,
+                    session_id=getattr(snap, "session_id", "") or "",
+                    projected=projected,
+                    context_limit=_positive_int(getattr(model, "context_limit", None)),
+                    # 读取方自己的工作区：影子档据此把取回视图落进 `<ws>/.xeyo_offload/`
+                    # （`Read` 的 read-state 豁免按该根判定，见 memory/offload.py）。
+                    cwd=_turn_cwd,
+                )
+            except Exception:  # noqa: BLE001 — 影子档绝不挡主链
+                pass
             if use_proj_cache:
                 snap.proj_cache = (
                     cur_len,
@@ -991,12 +1075,40 @@ async def query_loop(
             include_memory_index=include_memory_index and not _is_side,
             multi_agent=multi_agent,
             working=snap,
-            cwd="" if _is_side else _workspace_cwd_for_turn(tools),
+            cwd="" if _is_side else _turn_cwd,
             subagent=_in_subagent(),
             plan_pointer=plan_pointer,
             budget=budget,
             loop_ledger=loop_ledger,
+            # 管道 2 去重真相源：本轮投影里真实存在的留痕身份（见 _dedup_round）。
+            # 台账只是快路径——投影里没有就必须重发（历史被改写未清账时兜底）。
+            visible_notes=frozenset(
+                store.note_fingerprints(start=int(snap.compact_cursor or 0))
+            ),
         )
+
+        def _rebuild_projection_without_t_now_notes() -> list[dict]:
+            """回退到非 system 声道时重建不含历史留痕的基底投影。"""
+            try:
+                store.set_note_policy(False)
+            except Exception:  # noqa: BLE001 — 与边界主路径保持 fail-open
+                pass
+            snap.proj_cache = None
+            _inject_kwargs["visible_notes"] = frozenset()
+            hidden_api = store.as_api_messages()
+            rebuilt = project_for_model(
+                hidden_api,
+                snap,
+                remaining_turns=remaining,
+                system_prompt=system_prompt,
+                include_memory_index=_memory_index_live_enabled(),
+                context_limit=_positive_int(getattr(model, "context_limit", None)),
+                cwd=_turn_cwd,
+            )
+            hidden_names = build_tool_use_names(hidden_api)
+            rebuilt = apply_tool_output_fences(rebuilt, id_to_name=hidden_names)
+            return apply_tool_result_digest(rebuilt, id_to_name=hidden_names)
+
         projected_pre_inject = projected
         # #8 首轮嗅探：会话第一轮（历史无 assistant）注入有界 pwd+ls 清单，
         # 零 LLM 调用、投影-only（env 声道对）、side/子代理/开关关闭时跳过。
@@ -1006,7 +1118,7 @@ async def query_loop(
 
                 sniff_text = maybe_first_sniff_text(
                     projected,
-                    "" if _is_side else _workspace_cwd_for_turn(tools),
+                    "" if _is_side else _turn_cwd,
                     subagent=_in_subagent(),
                     side=_is_side,
                 )
@@ -1049,6 +1161,14 @@ async def query_loop(
         compression_started = snap.compact_cursor > compact_cursor_before
         if compression_started:
             yield ContextCompressionEvent(phase="start", source="automatic")
+            # 历史被改写（有界窗口折叠）⇒ 留痕台账清账：被折掉的版本不再是
+            # 可见面，下一轮按当前值重注（先压缩、后重注）。
+            try:
+                from engine.t_now_notes import invalidate_after_compaction
+
+                invalidate_after_compaction()
+            except Exception:  # noqa: BLE001 — 清账失败只影响一次重注
+                pass
 
         narration_gate = StreamNarrationGate()
         tool_uses: list[ToolUse] = []
@@ -1173,6 +1293,7 @@ async def query_loop(
         # 归因 + 重试可观测）；attempt 递增区分第几次尝试。
         call_request_id = uuid.uuid4().hex[:16]
         attempt = 0
+        prepared_events_acknowledged = False
         while True:
             attempt += 1
             # B0.5：每次尝试前注入记账 meta（model._meta_*），保持 stream() 接口
@@ -1190,6 +1311,16 @@ async def query_loop(
                 async for chunk in model.stream(api_messages, tool_schemas, abort):
                     abort.raise_if_aborted()
                     saw_any = True
+                    # skip 不携带 T_now；它不能确认此前因请求失败而暂存的事件。
+                    # system/env/legacy 请求才可能真正把暂存事件送到模型。
+                    if not prepared_events_acknowledged and t_now_strat != STRATEGY_SKIP:
+                        try:
+                            from prompt.pre_llm_inject import acknowledge_prepared_events
+
+                            acknowledge_prepared_events(_sid)
+                        except Exception:  # noqa: BLE001 — 事件确认不挡主路径
+                            pass
+                        prepared_events_acknowledged = True
                     if chunk.kind == "text_delta":
                         for tu in xml_buf.feed(chunk.text):
                             xml_recovered = True
@@ -1295,6 +1426,7 @@ async def query_loop(
                         env_unsupported_key(_fb_prov, _fb_model)
                     )
                     t_now_strat = STRATEGY_ENV_CHANNEL
+                    projected_pre_inject = _rebuild_projection_without_t_now_notes()
                     projected = _attach_turn_context(
                         projected_pre_inject,
                         t_now_strategy=t_now_strat,
@@ -1316,6 +1448,17 @@ async def query_loop(
             except OSError as exc:
                 pending_exc = exc
                 failure = classify_llm_failure(exc)
+                failure_message = friendly_error(exc)
+                failure_status = None
+            except Exception as exc:
+                # httpx/httpcore transport errors are not OSError. Normalize
+                # them here so transient provider connection failures use the
+                # existing bounded retry path instead of leaking raw English
+                # messages such as "All connection attempts failed".
+                failure = classify_llm_failure(exc)
+                if failure.code not in {"network", "timeout"}:
+                    raise
+                pending_exc = NetworkError(friendly_error(exc))
                 failure_message = friendly_error(exc)
                 failure_status = None
             if not (failure.retryable and not saw_any and attempt < _llm_max_attempts()):

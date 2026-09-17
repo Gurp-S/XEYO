@@ -175,7 +175,7 @@ def _conflict(name: str, existing: dict[str, Any]) -> PluginError:
 
 	return PluginConflictError(
 		f"plugin '{name}' already installed (source={existing.get('source')}); "
-		"refusing to overwrite. Use update to refresh from the same source."
+		"overwrite=false; existing installation unchanged."
 	)
 
 

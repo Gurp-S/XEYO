@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from engine.abort import AbortController
+from engine.workspace_context import WorkspaceContext, set_workspace_context
 from msgtypes.message import ToolUse
 from permissions.filesystem import (
 	PermissionDecision,
@@ -103,6 +104,26 @@ def test_gate_deny_git(work: Path) -> None:
 	)
 	assert not r.allowed
 	assert r.reason == "dangerous_path"
+
+
+def test_current_session_spill_is_readable_but_other_session_is_not(
+	tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	from tools.spill import save_text
+
+	spill_root = tmp_path / "spill"
+	monkeypatch.setenv("XEYO_SPILL_DIR", str(spill_root))
+	workspace = tmp_path / "workspace"
+	workspace.mkdir()
+	set_workspace_context(WorkspaceContext(session_id="session-a", cwd=str(workspace)))
+	try:
+		own = save_text("session-a", "own evidence")
+		other = save_text("session-b", "other evidence")
+		ctx = default_permission_context(str(workspace))
+		assert check_read_permission_for_path(own.path, context=ctx) == PermissionDecision.ALLOW
+		assert check_read_permission_for_path(other.path, context=ctx) == PermissionDecision.DENY
+	finally:
+		set_workspace_context(None)
 
 
 def test_gate_glob_default_cwd_ok(work: Path) -> None:

@@ -96,14 +96,23 @@ def format_questions_payload(raw: dict[str, Any]) -> dict[str, Any]:
 			)
 			if default is None and q_default:
 				default = q_default
-			structured.append(
-				{
-					"question": text,
-					"options": opts,
-					"multiSelect": bool(q.get("multiSelect")),
-					"default": q_default,
-				}
-			)
+			# 稳定 id（dsh 协议）：答案按 id 回显，调用方未给则按有效序合成。
+			qid = q.get("id")
+			qid = qid.strip() if isinstance(qid, str) and qid.strip() else f"q{number}"
+			entry: dict[str, Any] = {
+				"id": qid,
+				"question": text,
+				"options": opts,
+				"multiSelect": bool(q.get("multiSelect")),
+				"default": q_default,
+			}
+			header = q.get("header")
+			if isinstance(header, str) and header.strip():
+				entry["header"] = header.strip()
+			detail = q.get("detail")
+			if isinstance(detail, str) and detail.strip():
+				entry["detail"] = detail.strip()
+			structured.append(entry)
 		combined = "\n".join(parts).strip()
 		return {
 			"question": combined,
@@ -143,9 +152,24 @@ class AskUserQuestionTool:
 		question_item = {
 			"type": "object",
 			"properties": {
+				"id": {
+					"type": "string",
+					"description": (
+						"Stable id echoed in the answer; synthesized "
+						"from position when omitted."
+					),
+				},
 				"question": {
 					"type": "string",
 					"description": "The question text.",
+				},
+				"header": {
+					"type": "string",
+					"description": "Optional short heading/group label.",
+				},
+				"detail": {
+					"type": "string",
+					"description": "Optional supporting detail shown with the question.",
 				},
 				"options": {
 					"description": (
@@ -191,8 +215,8 @@ class AskUserQuestionTool:
 					"options": {
 						"type": "array",
 						"items": {"type": "string"},
-						"description": "Optional fixed choices. If given, prefer them; "
-						"otherwise the user may freely type an answer.",
+						"description": "Optional fixed choices displayed in the answer UI; "
+						"free-form text remains available when omitted.",
 					},
 					"default": {
 						"type": "string",

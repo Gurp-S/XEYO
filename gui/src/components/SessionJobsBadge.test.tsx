@@ -15,6 +15,7 @@ import {SessionJobsBadge} from './SessionJobsBadge';
 import type {JobSnapshot} from '@/lib/api/jobs';
 
 const fetchSessionJobsMock = vi.fn();
+const fetchJobOutputMock = vi.fn();
 
 vi.mock('@/lib/api/jobs', async importOriginal => {
 	const actual = await importOriginal<typeof import('@/lib/api/jobs')>();
@@ -22,6 +23,8 @@ vi.mock('@/lib/api/jobs', async importOriginal => {
 		...actual,
 		fetchSessionJobs: (...args: unknown[]) =>
 			fetchSessionJobsMock(...args),
+		fetchJobOutput: (...args: unknown[]) =>
+			fetchJobOutputMock(...args),
 	};
 });
 
@@ -62,6 +65,8 @@ beforeEach(() => {
 		jobs: fixtureJobs ?? [],
 		version: 0,
 	}));
+	fetchJobOutputMock.mockReset();
+	fetchJobOutputMock.mockResolvedValue(null);
 	fixtureJobs = null;
 	useChatStore.setState({activeId: 's1', sessionJobsById: {}});
 });
@@ -136,5 +141,28 @@ describe('SessionJobsBadge', () => {
 		await waitFor(() => {
 			expect(container).toBeEmptyDOMElement();
 		});
+	});
+
+	it('点击行展开终端输出（只读窥视通道）', async () => {
+		fetchJobOutputMock.mockResolvedValue({
+			jobId: 'bash-1',
+			status: 'running',
+			text: 'step 1 done\nstep 2 running',
+			truncated: false,
+		});
+		seed('s1', [job({job_id: 'bash-1', status: 'running'})]);
+		render(<SessionJobsBadge sessionId="s1" />);
+		await userEvent.setup().click(screen.getByRole('button'));
+		const region = await screen.findByRole('region', {name: '后台任务'});
+		// 展开前无终端区。
+		expect(screen.queryByText('终端输出（只读）')).not.toBeInTheDocument();
+		// 点击行 → 展开终端区并显示输出文本。
+		await userEvent.click(region.querySelector('li button')!);
+		expect(await screen.findByText('终端输出（只读）')).toBeInTheDocument();
+		expect(await screen.findByText(/step 1 done/)).toBeInTheDocument();
+		expect(fetchJobOutputMock).toHaveBeenCalledWith('s1', 'bash-1');
+		// 再次点击 → 收起。
+		await userEvent.click(region.querySelector('li button')!);
+		expect(screen.queryByText('终端输出（只读）')).not.toBeInTheDocument();
 	});
 });

@@ -23,6 +23,7 @@ from tools.bash_tool.runner import (
 from tools.bash_tool.bash_tool import (
 	BashInput,
 	BashTool,
+	promote_threshold_for,
 	promote_threshold_ms,
 )
 
@@ -52,13 +53,32 @@ def test_run_command_smoke() -> None:
 
 def test_promote_threshold_env(monkeypatch) -> None:
 	monkeypatch.delenv("XEYO_BASH_PROMOTE_MS", raising=False)
-	assert promote_threshold_ms() == 45_000
+	assert promote_threshold_ms() == 300_000
 	monkeypatch.setenv("XEYO_BASH_PROMOTE_MS", "300")
 	assert promote_threshold_ms() == 300
 	monkeypatch.setenv("XEYO_BASH_PROMOTE_MS", "bogus")
-	assert promote_threshold_ms() == 45_000
+	assert promote_threshold_ms() == 300_000
 	monkeypatch.setenv("XEYO_BASH_PROMOTE_MS", "0")
 	assert promote_threshold_ms() == 0
+
+
+def test_promote_threshold_scales_below_command_timeout(monkeypatch) -> None:
+	"""晋升阈值必须严格小于命令自身超时——否则命令先被超时杀掉、永远进不了后台。"""
+	monkeypatch.delenv("XEYO_BASH_PROMOTE_MS", raising=False)
+	# 默认 120s 超时 → 0.8×120s = 96s（小于超时）
+	assert promote_threshold_for("echo hi", 120_000) == 96_000
+	# 命令族 300s → 0.8×300s = 240s
+	assert promote_threshold_for("make -j4", 300_000) == 240_000
+	# cargo 420s → 上限 300s 生效（仍小于超时）
+	assert promote_threshold_for("cargo build", 420_000) == 300_000
+	# 极短超时 → 下限兜底，但不得超过超时本身之外的语义由调用方保证
+	assert promote_threshold_for("echo hi", 1_000) == 5_000
+	# env 显式覆盖优先
+	monkeypatch.setenv("XEYO_BASH_PROMOTE_MS", "1000")
+	assert promote_threshold_for("make -j4", 300_000) == 1_000
+	# env 关闭
+	monkeypatch.setenv("XEYO_BASH_PROMOTE_MS", "0")
+	assert promote_threshold_for("make -j4", 300_000) == 0
 
 
 def test_fast_command_not_promoted(monkeypatch, tmp_path: Path) -> None:

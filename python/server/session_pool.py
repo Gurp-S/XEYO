@@ -354,6 +354,19 @@ class SessionPool:
 			if sid in self._busy:
 				self._pending_resync.add(sid)
 				return False
+		# 历史被重写（回溯）⇒ 留痕台账清账：被折掉的版本不再是可见面，
+		# 下一轮按当前值重注（与压缩同一条纪律：先改写、后重注）。
+		# 排队中的引导消息一并作废（用户已经把那一段回退掉了）。
+		try:
+			from engine.t_now_steer import clear as _steer_clear
+			from prompt.inject_store import get_store
+
+			get_store().invalidate(sid)
+			_steer_clear(sid)
+		except Exception:
+			logging.getLogger(__name__).debug(
+				"t_now ledger invalidate failed", exc_info=True
+			)
 		return self._resync_now(sid)
 
 	def _resync_now(self, session_id: str) -> bool:
@@ -818,6 +831,18 @@ class SessionPool:
 			logging.getLogger(__name__).debug(
 				"session presence drop failed", exc_info=True
 			)
+		# 会话被删除：留痕台账 + 引导队列一并清（会话 id 若被复用，脏账会让
+		# "值没变"误判成"历史里还有那一版" ⇒ 丢信息）。
+		try:
+			from engine.t_now_steer import clear as _steer_clear
+			from prompt.inject_store import get_store
+
+			get_store().forget(session_id)
+			_steer_clear(session_id)
+		except Exception:
+			logging.getLogger(__name__).debug(
+				"t_now ledger forget failed", exc_info=True
+			)
 		return had
 
 	def drop_engine(self, session_id: str) -> bool:
@@ -842,6 +867,18 @@ class SessionPool:
 					item[1].interrupt()
 				except Exception:
 					pass
+		# 引擎被丢弃 = 下次从磁盘重建（回滚 / 回溯提交路径）：历史与上次投影
+		# 不再有对应关系 ⇒ 留痕清账 + 作废排队中的引导消息，下一轮按当前值重注。
+		try:
+			from engine.t_now_steer import clear as _steer_clear
+			from prompt.inject_store import get_store
+
+			get_store().invalidate(session_id)
+			_steer_clear(session_id)
+		except Exception:
+			logging.getLogger(__name__).debug(
+				"t_now ledger invalidate failed", exc_info=True
+			)
 		return had
 
 	def write_store(self, cwd: str | None = None) -> Any:

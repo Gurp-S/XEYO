@@ -12,10 +12,12 @@ T26 单向性：收紧即时、放宽延后。
   ``baseline`` 与 ``requested`` 中**更严**者 —— 收紧立即生效，放宽等到
   下一 turn 才放行（防止「批准完当前危险操作后，同轮剩余调用被静默放行」）。
 
-模型同步（增量快照 + supersedes）：同一 store 携带 ``_last_broadcast``，
-turn 边界复位为 None 强制首次全量快照；轮内仅变更时重发（见
-``prompt.pre_llm_inject.runtime_mode_snapshot_block``）。快照只是广播，
-**不透支任何权限**——真开关始终在 ToolRegistry 准入 gate。
+模型面同步已于 2026-09-15 **整条撤销**（用户裁定）：原 ``_last_broadcast``
+/ ``mark_turn_broadcast`` / ``runtime_mode_snapshot_text`` 组成的 T_now 广播
+（块名 ``runtime_mode_snapshot``）已删。理由：该块只陈述"现在是什么模式"，
+而**真开关始终在 ToolRegistry 准入 gate**——删掉后模型能做的事一点不变，
+变的只是模型"知道自己被看着"（引擎铁律 3：限制只在执行层）。本 store 保留
+的职责收敛为：活值读取 + turn 边界拍定基线（``permission_mode`` 消费）。
 """
 
 from __future__ import annotations
@@ -60,11 +62,6 @@ class RuntimeModeStore:
         self._requested: dict[str, str] = {}
         #: 本 turn 基线（begin_turn 拍定）；轮内不因放宽而变。
         self._baseline: dict[str, str] = {}
-        #: 上一次广播给模型的快照键（None=本 turn 尚未广播）。
-        self._last_broadcast: dict[str, str | None] = {}
-        #: 本 turn 首是否有活值（决定快照块是否在 turn 首广播；轮中才出现的
-        #: 活值不广播——避免弱模型被轮中背景块带偏，见 AGENTS.md T_now 扰动）。
-        self._armed: dict[str, bool] = {}
 
     def set(self, session_id: str, mode: object) -> str | None:
         """写入活审批模式；非法返回 None（不写入）。
@@ -87,13 +84,11 @@ class RuntimeModeStore:
         return self._requested.get(session_id)
 
     def begin_turn(self, session_id: str, default: str) -> str:
-        """turn 边界：拍定基线 = 活值 or 默认；复位广播并武装（若本轮首有活值）。"""
+        """turn 边界：拍定基线 = 活值 or 默认。"""
         with self._lock:
             requested = self._requested.get(session_id)
             baseline = requested or normalize_mode(default) or "risk"
             self._baseline[session_id] = baseline
-            self._last_broadcast[session_id] = None
-            self._armed[session_id] = requested is not None
             return baseline
 
     def effective(self, session_id: str) -> str | None:
@@ -104,27 +99,11 @@ class RuntimeModeStore:
         baseline = self._baseline.get(session_id)
         return requested if baseline is None else stricter(baseline, requested)
 
-    def mark_turn_broadcast(self, session_id: str, key: str) -> bool:
-        """turn 首才广播（#1）：仅当本轮首有活值且本 turn 尚未广播时返回 True。
-
-        原子；返回 True 时记录键。轮内即使模式变化也不再广播 —— 避免弱模型
-        在回合中途被新增背景块带偏（门禁本身已即时生效，不依赖此广播）。
-        """
-        with self._lock:
-            if not self._armed.get(session_id, False):
-                return False
-            if self._last_broadcast.get(session_id) is not None:
-                return False
-            self._last_broadcast[session_id] = key
-            return True
-
     def clear(self, session_id: str) -> None:
-        """会话删除：清空该会话全部活状态与广播位。"""
+        """会话删除：清空该会话全部活状态。"""
         with self._lock:
             self._requested.pop(session_id, None)
             self._baseline.pop(session_id, None)
-            self._last_broadcast.pop(session_id, None)
-            self._armed.pop(session_id, None)
 
 
 #: 模块级单例（懒加载由 get_runtime_mode_store 返回）；不随 import 显式实例化，
@@ -140,15 +119,3 @@ def get_runtime_mode_store() -> RuntimeModeStore:
             if _store is None:
                 _store = RuntimeModeStore()
     return _store
-
-
-def runtime_mode_snapshot_text(mode: str) -> str:
-    """把实效审批模式格式化为可广播的快照正文（仅易变维度，纯状态陈述）。
-
-    刻意去掉一切引导/要求性措辞（避免弱模型误当用户新指令而重做任务）。
-    """
-    return (
-        "# Runtime mode（background only）\n"
-        "This snapshot supersedes earlier runtime-mode snapshots.\n"
-        f"当前审批模式: {mode}"
-    )

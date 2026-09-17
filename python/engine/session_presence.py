@@ -744,14 +744,18 @@ def _git_op_may_touch(op: str, command: str, owned: list[str]) -> bool:
 	return False
 
 
-def peer_activity_block(cwd: str, self_id: str) -> str:
-	"""T_now 块：peer 事件通知 + 一行 presence beacon；无交叉返回空串。
+def peer_notice_block(cwd: str, self_id: str) -> str:
+	"""T_now 块：跨会话**事件通知**投递口（无通知返回空串）。
 
-	「其他会话正在聊什么」已工具化：话题与笔记由模型按需
-	``Memory(action=peers)`` / ``Memory(action=search)`` 拉取，本块只保留
-	- queued notices（事件，drain 语义，取走即清；先过 harvest_sanitize）；
-	- 一行 beacon（能力宣告，指向 Memory 工具）；
-	- 无条件禁止行（防弱模型把背景信息当任务）。
+	2026-09-15 用户裁定收窄：原 ``peer_activity_block`` 内含一行常驻 beacon
+	（"同工作区另有 N 个会话运行中"）——无对象、无路径、无可动作项，实测既
+	不改变模型任何决策又每轮占注意力，已删。保留的 notices 是 **drain 语义**
+	（``take_notices`` 取走即清）：这是跨会话事件的唯一投递口，删掉即永久
+	丢失（source: ``engine/query_loop._queue_peer_conflict_notices`` /
+	``_queue_peer_remind_notices``）。块名同步改为 ``peer_notices``，
+	使登记表与实态一致（登记表不得腐烂）。
+
+	"其他会话正在聊什么"仍走工具：``Memory(action=peers)`` 按需拉取。
 	"""
 	from permissions.policy import side_mode
 	from prompt.fence import harvest_sanitize
@@ -759,20 +763,12 @@ def peer_activity_block(cwd: str, self_id: str) -> str:
 	if side_mode():
 		return ""
 	reg = default_session_presence()
-	# 先吐出排队通知（事件绝不静默：取走即清，静默即永久丢失）。
+	# 排队通知（事件绝不静默：取走即清，静默即永久丢失）。
 	notices = [harvest_sanitize(n) for n in reg.take_notices(self_id)]
-	peers = reg.peers(cwd, self_id)
-	if not peers and not notices:
+	lines = [n.strip() for n in notices if n and n.strip()]
+	if not lines:
 		return ""
-	lines = ["# 其他会话活动（background only）"]
-	for n in notices:
-		n = n.strip()
-		if n:
-			lines.append(n)
-	if peers:
-		# C4 裁决：只陈述事实；查看指引放 Memory 工具 description，不放这里。
-		lines.append(f"同工作区另有 {len(peers)} 个会话运行中。")
-	return "\n".join(lines)
+	return "\n".join(["# 其他会话事件（background only）", *lines])
 
 
 def format_peer_file_prompt(owner: SessionPresenceEntry, path: str) -> str:
@@ -780,7 +776,7 @@ def format_peer_file_prompt(owner: SessionPresenceEntry, path: str) -> str:
 	rel = path.replace("\\", "/")
 	return (
 		f"文件 `{rel}` 正由会话「{label}」持有（忙碌中）。\n"
-		"请选择：硬拦（不写）/ 提醒双方后取消 / 继续写入。"
+		"冲突决策枚举：deny / remind / allow。"
 	)
 
 
@@ -956,7 +952,7 @@ __all__ = [
 	"detect_git_write_op",
 	"format_peer_file_prompt",
 	"format_stale_owner_hint",
-	"peer_activity_block",
+	"peer_notice_block",
 	"reset_session_presence_for_tests",
 	"session_tree_root",
 ]

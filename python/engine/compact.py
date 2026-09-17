@@ -123,7 +123,10 @@ def split_at_cursor(
 
 # ====== 主函数 ======
 def project(
-    history: list[dict[str, Any]], *, frozen_until: int = 0
+    history: list[dict[str, Any]],
+    *,
+    frozen_until: int = 0,
+    cwd: str | os.PathLike[str] | None = None,
 ) -> list[dict[str, Any]]:
     """投影 history：C0 截断 + C1 占位（frozen_until 之前的 tool_result 一律占位）。
 
@@ -135,7 +138,7 @@ def project(
     boundary = max(0, min(int(frozen_until), len(history)))
     aging = aging_enabled()
     return [
-        _process_message(msg, idx, boundary, id_to_name, aging=aging)
+        _process_message(msg, idx, boundary, id_to_name, aging=aging, cwd=cwd)
         for idx, msg in enumerate(history)
     ]
 
@@ -174,6 +177,7 @@ def _project_tool_result_content(
     idx: int,
     aging: bool,
     is_error: bool,
+    cwd: str | os.PathLike[str] | None,
 ) -> tuple[str, bool]:
     """对单个 tool_result 内容做 C0/C1，返回 (投影文本, 是否写入老化存根)。"""
     n_lines = raw.count("\n") + (1 if raw else 0)
@@ -187,7 +191,7 @@ def _project_tool_result_content(
     from memory.offload import OFFLOAD_THRESHOLD, maybe_offload, offload_enabled
 
     if not frozen and offload_enabled() and len(inner) > OFFLOAD_THRESHOLD:
-        raw, _offloaded = maybe_offload(raw, msg_idx=idx, uid=uid)
+        raw, _offloaded = maybe_offload(raw, msg_idx=idx, uid=uid, cwd=cwd)
     elif len(inner) > MAX_TOOL_RESULT_CHARS:
         # 保底：offload 未开启 / 未超阈值但超 8192 的极少数 → C0 截断。
         raw = truncate_tool_content_preserving_fence(
@@ -225,6 +229,7 @@ def _process_message(
     id_to_name: dict[str, str],
     *,
     aging: bool | None = None,
+    cwd: str | os.PathLike[str] | None = None,
 ) -> dict[str, Any]:
     """处理单条消息：C0 截断 + C1 冻结区占位。不改入参；无改动时返回原对象。
 
@@ -256,6 +261,7 @@ def _process_message(
             idx=idx,
             aging=bool(aging),
             is_error=bool(block.get("is_error")),
+            cwd=cwd,
         )
         if aged:
             aged_any = True
@@ -289,6 +295,7 @@ def project_incremental(
     base_len: int,
     frozen_until: int,
     id_to_name: dict[str, str],
+    cwd: str | os.PathLike[str] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, str]]:
     """增量投影：只处理 [base_len, base_len + len(new_messages)) 这一段。
 
@@ -304,7 +311,7 @@ def project_incremental(
     boundary = max(0, int(frozen_until))
     aging = aging_enabled()
     out = [
-        _process_message(m, base_len + i, boundary, names, aging=aging)
+        _process_message(m, base_len + i, boundary, names, aging=aging, cwd=cwd)
         for i, m in enumerate(new_messages)
     ]
     return out, names

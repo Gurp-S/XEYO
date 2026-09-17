@@ -1,20 +1,20 @@
-"""P1：T_now 结构根治契约回归（A1 分仓 / D1 轮型门控 / F1 真硬顶 / F3 标签）。
+"""T_now v2 结构契约回归（装配序 / 管道预算 / 登记表驱动类目）。
 
 本模块以 **legacy 声道**（块文本尾插末条 user）为被测合同——legacy 是
-env_channel 的回退档，其摆放语义仍被冻结。env_channel（方案A 伪造 tool 对）
-的对应语义（D1 门控 / 事件不门控 / Nested 限窗 / 预算）见
-``test_t_now_env_channel.py``。
+env_channel 的回退档，其摆放语义仍被冻结。env_channel / system_channel
+的对应语义见 ``test_t_now_env_channel.py``。
 
-冻结口径：
-- A1 分仓：fresh-user 轮 INVENTORY 类前插到用户文本之前（生成点紧邻用户请求），
-  DIRECTIVE/EVENT 尾插贴近生成点；after_tools 轮维持原尾插合同（Continue 在前）。
-- D1 门控：模糊指代型短追问（有上文 + 短 + 无路径/代码标记 + 含指代/确认词）
-  静默全部 INVENTORY；事件类（含 drain 语义）绝不静默；首轮不门控。
-- F1 真硬顶：全部块入预算，directive/event 全保，inventory 限配额、超限截断。
-- F3：块以 (KLASS_*, text) 装配，类别决定放置/门控/预算。
+冻结口径（2026-09-16 三管道重分类后）：
+- A1 分仓：fresh-user 轮 **quota 类**（nested 正文 / 浏览器预览）前插到用户
+  文本之前（生成点紧邻用户请求），其余尾插贴近生成点；after_tools 轮维持
+  原尾插合同（Continue 在前）。
+- 门控：**无**轮型门控——D1「模糊指代轮静默参考块」已删除（用户裁定：
+  T_now 不为弱模型做特化）。参考数据只受预算约束，不受"猜用户说完没说完"影响。
+- F1 真硬顶：全部块入预算，非 quota 类全保，quota 类限配额、超限截断。
+- F3：块以 ``(登记名, text)`` 装配；管道 / 配额 / 去重由登记表逐条声明。
 - 批次3：Memory index 不再推送 T_now（能力宣告住 Memory 工具 description）。
 
-inventory 替身统一用浏览器预览块（monkeypatch
+quota 类替身统一用浏览器预览块（monkeypatch
 ``prompt.pre_llm_inject.browser_preview_block``）——Memory index 已退役。
 """
 
@@ -28,10 +28,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from prompt.pre_llm_inject import (
-	KLASS_DIRECTIVE,
-	KLASS_INVENTORY,
 	InjectContext,
-	_is_vague_referent_turn,
 	_trim_tagged_blocks,
 	run_pre_llm_inject,
 )
@@ -79,7 +76,7 @@ def _prior_conversation(user_text: str) -> list[dict]:
 	]
 
 
-def test_inventory_head_directive_tail_on_fresh_user_turn(monkeypatch):
+def test_quota_head_rest_tail_on_fresh_user_turn(monkeypatch):
 	_patch_preview(monkeypatch)
 	from engine import repeat_guard
 
@@ -90,13 +87,14 @@ def test_inventory_head_directive_tail_on_fresh_user_turn(monkeypatch):
 	)
 	texts = _text_blocks(out[-1])
 	assert texts, "应有注入块"
-	# A1：inventory 在用户原文之前，directive 在其后
+	# A1：quota 类在用户原文之前，其余在其后
 	assert "浏览器预览" in texts[0]
 	assert texts[1] == "看看当前预览页上有什么内容"
 	assert any("Repeat guard" in t for t in texts[2:])
 
 
-def test_vague_turn_drops_inventory_keeps_directives(monkeypatch):
+def test_short_follow_up_turn_keeps_reference_blocks(monkeypatch):
+	"""D1 删除后的口径：短追问轮不再静默参考块（参考数据只受预算约束）。"""
 	_patch_preview(monkeypatch)
 	from engine import repeat_guard
 
@@ -107,43 +105,11 @@ def test_vague_turn_drops_inventory_keeps_directives(monkeypatch):
 	)
 	texts = _text_blocks(out[-1])
 	joined = "\n".join(texts)
-	# D1：模糊指代轮 → inventory 静默；批次3：index 永不在场
-	assert "浏览器预览" not in joined
+	# 批次3：index 永不在场；模糊轮静默已随 D1 删除（预览块照常在头部）
 	assert "Memory index" not in joined
-	# 指令类不受影响；用户原文完好
+	assert "浏览器预览" in texts[0]
 	assert "Repeat guard" in joined
 	assert "帮我修改" in texts
-
-
-def test_vague_gate_requires_antecedent(monkeypatch):
-	_patch_preview(monkeypatch)
-	# 首轮（无 assistant 上文）不门控：discovery 块仍应送达
-	projected = [{"role": "user", "content": "帮我修改"}]
-	out = run_pre_llm_inject(
-		projected, InjectContext(working=None, include_memory_index=True)
-	)
-	assert "浏览器预览" in "\n".join(_text_blocks(out[-1]))
-
-
-def test_vague_detector_boundaries():
-	assert _is_vague_referent_turn(_prior_conversation("帮我修改"))
-	assert _is_vague_referent_turn(_prior_conversation("继续"))
-	assert _is_vague_referent_turn(_prior_conversation("可以"))
-	# 带路径/代码标记 → 对象自明，不算模糊
-	assert not _is_vague_referent_turn(
-		_prior_conversation("修改 runtime.py 的这个函数")
-	)
-	# 超长 / 末条非 user / 无上文 → 不门控
-	assert not _is_vague_referent_turn(
-		_prior_conversation("请帮我把刚才讨论的分仓方案完整实现出来再告诉我结果")
-	)
-	assert not _is_vague_referent_turn([{"role": "user", "content": "帮我修改"}])
-	after_tools = [
-		{"role": "user", "content": "任务"},
-		{"role": "assistant", "content": [{"type": "tool_use", "id": "1", "name": "Read"}]},
-		{"role": "tool", "tool_call_id": "1", "content": "x"},
-	]
-	assert not _is_vague_referent_turn(after_tools)
 
 
 def test_after_tools_keeps_legacy_contract(monkeypatch):
@@ -185,28 +151,30 @@ def test_memory_index_no_longer_pushed(monkeypatch):
 	assert "Memory index" not in joined
 
 
-def test_trim_inventory_bounded_and_directive_survives():
+def test_trim_quota_bounded_and_rest_survives():
 	huge_notice = "# Runtime budget notice\n" + "d" * 5_500
-	huge_index = "# Memory index\n" + "i" * 4_000
+	huge_index = "# 浏览器预览\n" + "i" * 4_000
 	kept = _trim_tagged_blocks(
 		[
-			(KLASS_DIRECTIVE, huge_notice),
-			(KLASS_INVENTORY, huge_index),
+			("compact", huge_notice),
+			("browser_preview", huge_index),
 		],
 		total=6_000,
-		inventory_max=2_500,
+		quota_max=2_500,
 	)
-	directive_total = sum(
-		len(t) for k, t in kept if k == KLASS_DIRECTIVE
-	)
-	inventory_total = sum(len(t) for k, t in kept if k == KLASS_INVENTORY)
-	# F1：directive 全保；inventory 被双闸裁剪
-	assert directive_total == len(huge_notice)
-	assert inventory_total <= 2_500
-	assert any(t.endswith("…") for _k, t in kept if "Memory index" in t)
+	rest_total = sum(len(t) for n, t in kept if n == "compact")
+	quota_total = sum(len(t) for n, t in kept if n == "browser_preview")
+	# F1：非 quota 类全保；quota 类被双闸裁剪
+	assert rest_total == len(huge_notice)
+	assert quota_total <= 2_500
+	assert any(t.endswith("…") for _n, t in kept if "浏览器预览" in t)
 
 
-def test_wrap_up_survives_and_single(monkeypatch):
+def test_wrap_up_text_revoked_and_quota_block_still_injected(monkeypatch):
+	"""wrap_up 文本已于 2026-09-15 撤销（执行层收尾窗保留，文本不再注入）。
+
+	2026-09-16 起短追问轮不再有轮型门控：参考块照常注入（超限仍被截断）。
+	"""
 	_patch_preview(monkeypatch, "# 浏览器预览\n" + "z" * 4_000)
 	projected = _prior_conversation("继续")
 	out = run_pre_llm_inject(
@@ -214,8 +182,9 @@ def test_wrap_up_survives_and_single(monkeypatch):
 		InjectContext(working=None, include_memory_index=True, forced_wrap_up=True),
 	)
 	joined = "\n".join(_text_blocks(out[-1]))
-	assert joined.count("Wrap-up(预算已尽)") == 1
-	assert "浏览器预览" not in joined  # 模糊轮已静默
+	assert "Wrap-up" not in joined
+	assert "预算已尽" not in joined
+	assert "浏览器预览" in joined
 
 
 def test_prepend_helper_copy_on_write():
@@ -244,10 +213,10 @@ def test_reconcile_and_events_never_gated(monkeypatch):
 		projected, InjectContext(working=None, include_memory_index=True)
 	)
 	joined = "\n".join(_text_blocks(out[-1]))
-	# D1 只静默 inventory；事件类（reconcile）必须存活
-	assert "浏览器预览" not in joined
-	assert "Memory index" not in joined
+	# 事件类（reconcile）永不门控、永不裁剪；参考块同样在场（D1 已删）
 	assert "工具面变更" in joined
+	assert "浏览器预览" in joined
+	assert "Memory index" not in joined
 
 
 # ---------------------------------------------------------------------------

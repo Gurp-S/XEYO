@@ -82,9 +82,9 @@ async def test_broad_pattern_returns_dir_summary(tmp_path: Path) -> None:
 	r = await tool.execute({"pattern": "**/*"}, AbortController())
 	assert not r.is_error
 	assert "too broad" in r.content.lower() or "directory summary" in r.content.lower()
-	assert "Do NOT" in r.content or "name pattern" in r.content.lower() or "Set path" in r.content
+	assert "name pattern" in r.content.lower()
 	# 软拒后禁止绕道 Bash 枚举
-	assert "Bash" in r.content and "find/ls" in r.content
+	assert "directory summary" in r.content
 	# 不应是扁平文件清单占主导
 	assert r.metadata and r.metadata.get("glob_kind") == "dir_summary"
 
@@ -130,10 +130,7 @@ async def test_empty_hint_discourages_starstar(tmp_path: Path) -> None:
 	r = await tool.execute({"pattern": "*NoSuchThingXYZ*"}, AbortController())
 	assert not r.is_error
 	assert "No files found" in r.content or "No matches" in r.content
-	assert "**/*" in r.content  # 明确写不要用
-	assert "Do NOT" in r.content or "do NOT" in r.content
-	# 空结果同样禁止绕道 Bash 枚举
-	assert "Bash find/ls" in r.content
+	assert "case-insensitive retry" in r.content
 
 
 @pytest.mark.asyncio
@@ -186,7 +183,7 @@ async def test_hard_limit_clamped_and_too_many_message(tmp_path: Path) -> None:
 	assert r.metadata["total_matches"] == 130
 	# 提示"匹配过多，请缩小 glob 表达式"
 	assert "Too many matches" in r.content
-	assert "narrow the glob pattern" in r.content
+	assert "next slice" in r.content
 
 
 # ====== 60s TTL 缓存 ======

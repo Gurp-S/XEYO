@@ -33,7 +33,7 @@ class JournalQueryTool:
                 "properties": {
                     "path_prefix": {
                         "type": "string",
-                        "description": "Only return changes whose path starts with this prefix.",
+						"description": "Path-prefix filter for returned changes.",
                     },
                     "limit": {
                         "type": "integer",
@@ -41,11 +41,11 @@ class JournalQueryTool:
                     },
                     "since_ts": {
                         "type": "number",
-                        "description": "Only return changes at or after this unix timestamp (seconds).",
+						"description": "Unix timestamp lower bound for returned changes (seconds).",
                     },
                     "agent_id": {
                         "type": "string",
-                        "description": "Only return changes from this agent_id.",
+						"description": "Agent-id filter for returned changes.",
                     },
                 },
                 "additionalProperties": False,

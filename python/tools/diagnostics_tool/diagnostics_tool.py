@@ -50,7 +50,7 @@ class DiagnosticsTool:
 						"type": "string",
 						"description": (
 							"Required file or small directory under workspace. "
-							"Prefer the file you just edited; do not omit."
+							"The path identifies the file whose diagnostics are returned."
 						),
 					},
 					"language": {

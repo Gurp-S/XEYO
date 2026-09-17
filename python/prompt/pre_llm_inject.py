@@ -18,9 +18,11 @@ import logging
 import os
 import time
 from dataclasses import dataclass
+from threading import Lock
 from typing import Any
 
 from memory.working import WorkingSnapshot
+from prompt import inject_store
 from permissions.policy import (
 	agent_mode as current_agent_mode,
 	browser_preview_url,
@@ -50,23 +52,23 @@ from prompt.turn_context import (
 
 _log = logging.getLogger(__name__)
 
-# Ask / Plan / Wrap-up 文案（与 query_loop 历史常量同源，供单测与薄封装复用）
-_READONLY_MODE_BASE = (
-	"你只能用只读工具查看或搜索工作区，禁止写文件、改文件、跑命令、发消息或持久化记忆。"
-)
+# provider 结构类 4xx 回退期间的事件暂存。
+# 事件源采用 drain 语义：装配读取即清空，不能在回退重装时再次从源头读取。
+# 这里保存已经取出的（登记名, 正文）投影材料；请求收到首个响应 chunk 后由
+# query_loop 确认清除。空响应/结构错误则保留到下一次可送达的采样。
+_prepared_event_lock = Lock()
+_prepared_event_blocks: dict[str, list[tuple[str, str]]] = {}
+_MAX_PREPARED_EVENT_SESSIONS = 64
 
+# Ask / Plan / Wrap-up 文案（与 query_loop 历史常量同源，供单测与薄封装复用）
 ASK_MODE_INSTRUCTIONS = (
 	"# Agent mode: Ask\n"
-	"你以只读助手回答用户。"
-	+ _READONLY_MODE_BASE
-	+ "不要写或提出实现计划。直接回答后结束。"
+	"当前 agent mode=ask；工具可用性与执行结果由权限层决定。"
 )
 
 PLAN_MODE_INSTRUCTIONS = (
 	"# Agent mode: Plan\n"
-	"你在改代码前只产出实现计划。"
-	+ _READONLY_MODE_BASE
-	+ "最后调用 ExitPlanMode，附上简洁的 Markdown 实现计划。"
+	"当前 agent mode=plan；工具可用性与计划状态由权限层和回合状态决定。"
 )
 
 # ── 已撤文本（2026-09-15，用户裁定）：``# Wrap-up(预算已尽)`` ──
@@ -89,47 +91,57 @@ def bg_wrap(text: str) -> str:
 	return f"{BG_HEADER}{BG_SEP}{text.strip()}"
 
 
-# 输出精简（设置开关打开后注入 T_now；不进 system 左段，保住 KV 前缀）。
+def acknowledge_prepared_events(session_id: str) -> None:
+	"""确认当前会话最近一次已装配的事件已被 provider 接收。"""
+	sid = (session_id or "").strip()
+	if not sid:
+		return
+	with _prepared_event_lock:
+		_prepared_event_blocks.pop(sid, None)
+
+
+def _prepared_events_for(session_id: str) -> list[tuple[str, str]]:
+	sid = (session_id or "").strip()
+	if not sid:
+		return []
+	with _prepared_event_lock:
+		return list(_prepared_event_blocks.get(sid, ()))
+
+
+def _remember_prepared_events(
+	session_id: str,
+	events: list[tuple[str, str]],
+) -> None:
+	sid = (session_id or "").strip()
+	if not sid or not events:
+		return
+	with _prepared_event_lock:
+		if sid not in _prepared_event_blocks and len(_prepared_event_blocks) >= _MAX_PREPARED_EVENT_SESSIONS:
+			_oldest = next(iter(_prepared_event_blocks), None)
+			if _oldest is not None:
+				_prepared_event_blocks.pop(_oldest, None)
+		_prepared_event_blocks[sid] = list(events)
+
+
+# 输出精简状态（设置开关打开后注入 T_now；不进 system 左段，保住 KV 前缀）。
 OUTPUT_COMPACT_RULES = (
-	"# 输出压缩铁律（所有模式强制）\n"
-	"1. 保护清单（原样保留，禁改）：代码块、路径、报错原文、API名称、CLI命令、"
-	"not/no/never/only/except。\n"
-	"2. 禁止：自创缩写、→箭头、新增文字、输出模式前缀。\n"
-	"3. 仅删减，不改写。若删减后语义受损或引发技术歧义，立即停止压缩，输出完整原文。\n"
-	"4. 非“直接回复用户”的输出（写文件/注释/commit/issue/报告），跳过压缩，输出完整原文。"
+	"# 输出精简状态\n"
+	"output_compact=enabled；保护对象=代码块/路径/报错原文/API名称/CLI命令；"
+	"非直接回复用户的产物=完整文本。"
 )
 
 OUTPUT_MODE_VARIANTS: dict[str, str] = {
 	"lite": (
-		"句子风格：完整语法，保留冠词\n"
-		"开场白：简短\n"
-		"工具告知：简短意图\n"
-		"过渡语：极简\n"
-		"思考：精简完整推理\n"
-		"回复用户：简洁完整句\n"
-		"报错：精简,高危除外"
+		"# 输出模式\n"
+		"mode=lite"
 	),
 	"full": (
-		"句子风格：碎片短句，删冠词\n"
-		"开场白：直接切入\n"
-		"工具告知：核心意图\n"
-		"过渡语：1-2短句\n"
-		"思考：碎片推理\n"
-		"回复用户：短句去冗余\n"
-		"报错：精简（高危除外）\n"
-		"长会话约束:\n"
-		"每轮输出长度不得递增禁止随对话变冗长。"
+		"# 输出模式\n"
+		"mode=full"
 	),
 	"ultra": (
-		"句子风格：极简碎片\n"
-		"开场白：省略\n"
-		"工具告知：尽量省略\n"
-		"过渡语：省略\n"
-		"思考：仅关键节点\n"
-		"回复用户：事实裸奔\n"
-		"报错：完整原文\n"
-		"长会话约束:\n"
-		"每轮输出长度不得递增禁止随对话变冗长。"
+		"# 输出模式\n"
+		"mode=ultra"
 	),
 }
 
@@ -144,52 +156,25 @@ def output_compact_block() -> str:
 	return f"{OUTPUT_COMPACT_RULES}\n\n{variant}"
 
 
-# 写代码精简（设置开关打开后注入 T_now；不进 system 左段）。
+# 写代码精简状态（设置开关打开后注入 T_now；不进 system 左段）。
 CODE_COMPACT_RULES = (
-	"# 写代码压缩铁律（所有模式强制）\n"
-	"1. 保护清单（原样保留，禁砍）：用户明确要求的功能、既有测试与接口契约、"
-	"报错原文、安全边界。\n"
-	"2. 禁止：未要求的抽象层、新配置、示例、文档、顺手重构、顺手加测试脚手架。\n"
-	"3. 仅少写，不改需求。若少写会导致功能缺失、行为漂移或安全回退，"
-	"立即停止精简，按完整需求实现。\n"
-	"4. 本块只约束“写代码/改代码”。回复用户的文风走输出精简；"
-	"解释、报错原文、计划正文不套本块。"
+	"# 写代码精简状态\n"
+	"code_compact=enabled；保护对象=用户明确功能/既有测试与接口契约/报错原文/安全边界；"
+	"适用范围=写代码/改代码。"
 )
 
 CODE_MODE_VARIANTS: dict[str, str] = {
 	"lite": (
-		"# 写代码精简：lite\n"
-		"实现范围：用户所求，不扩\n"
-		"复用优先：本仓库已有、标准库\n"
-		"更短做法：一行点出，仍按所求交付\n"
-		"抽象：不主动加\n"
-		"依赖：不主动加\n"
-		"diff：正常完成功能即可\n"
-		"注释：只写非写不可的"
+		"# 写代码模式\n"
+		"mode=lite"
 	),
 	"full": (
-		"# 写代码精简：full\n"
-		"实现范围：仅明确要求\n"
-		"复用梯子：仓库已有 → 标准库 → 成熟依赖 → 一行 → 才手写\n"
-		"抽象：禁止顺手加\n"
-		"依赖：禁止顺手加\n"
-		"diff：最短\n"
-		"注释：能省则省\n"
-		"# 长任务约束\n"
-		"每轮改动面不得递增，禁止顺手扩大范围。"
-		"发现可删的未要求代码时优先删，而不是再包一层。"
+		"# 写代码模式\n"
+		"mode=full"
 	),
 	"ultra": (
-		"# 写代码精简：ultra\n"
-		"实现范围：仅明确要求（不挑战已确认需求）\n"
-		"复用梯子：能复用绝不新写；一行能做就一行\n"
-		"抽象：禁止\n"
-		"依赖：禁止（标准库除外）\n"
-		"diff：能删不增\n"
-		"注释：省略\n"
-		"# 长任务约束\n"
-		"每轮改动面不得递增，禁止顺手扩大范围。"
-		"发现可删的未要求代码时优先删，而不是再包一层。"
+		"# 写代码模式\n"
+		"mode=ultra"
 	),
 }
 
@@ -236,34 +221,10 @@ def browser_preview_block() -> str:
 	)
 
 
-def runtime_mode_snapshot_block(session_id: str) -> str:
-	"""审批模式活状态快照（T_now 广播，仅易变维度，turn 首一次）。
-
-	- #1：**只在 turn 首发一次**（``begin_permission_turn`` 复位后再发），
-	  轮内不再注入 —— 避免弱模型在回合中途被新增背景块带偏而重做任务；
-	  真开关（门禁）本身已即时生效，不依赖此广播。
-	- 头带「（background only）」；措辞含 supersedes，明确最新覆盖此前。
-	- 只改投影（copy-on-write），绝不写历史；子代理/side 上下文跳过。
-	"""
-	if not (session_id or "").strip():
-		return ""
-	try:
-		from permissions.runtime_mode import (
-			get_runtime_mode_store,
-			runtime_mode_snapshot_text,
-		)
-
-		store = get_runtime_mode_store()
-		mode = store.effective(session_id)
-		if not mode:
-			return ""
-		if not store.mark_turn_broadcast(session_id, mode):
-			return ""
-		return runtime_mode_snapshot_text(mode)
-	except Exception:  # noqa: BLE001
-		_log.debug("runtime_mode_snapshot_block failed", exc_info=True)
-		return ""
-
+# 已撤块 runtime_mode_snapshot（2026-09-15 用户裁定）：登记表 why 自陈
+# 「真门禁在 permissions 层」——删掉它模型能做的事一点不变，变的只是
+# 模型"知道自己被看着"。按铁律 3「限制只在执行层」+ 铁律 4「能静默就不
+# 说话」，审批模式状态由 GUI 呈现给用户，不占模型注意力。
 
 # T_now 增量硬顶（字符）；Continue 优先，Nested 预留。
 T_NOW_EXTRA_BUDGET = 6_000
@@ -273,8 +234,8 @@ def pending_jobs_block() -> str:
 	"""42 号：待领 job 完成通知补投块（人类下一轮开工时注入，一次性消费）。
 
 	通知即输入的被动通道（主动通道 = 唤醒轮）。属「一次性待领信息」——
-	模型看不见就永久丢失，故装配为 KLASS_DIRECTIVE（预算内不裁剪、模糊
-	指代轮不静默），与 forced_wrap_up / settlement 同纪律（42 号开放 #2）。
+	模型看不见就永久丢失，故装配为管道 3 事件类（预算内不裁剪、不去重）；
+	与 reconcile / settlement 同纪律（42 号开放 #2）。
 	"""
 	try:
 		from permissions.policy import pending_jobs_digest
@@ -318,58 +279,11 @@ def pending_jobs_block() -> str:
 		"# Background jobs（background only）\n"
 		+ digest
 	)
-def budget_mirror_block(budget: Any, working: Any) -> str:
-	"""禀赋①：预算镜像块——把真实预算状态与待交付项如实渲染给模型。
-
-	数据源（全部既有字段，零新表单）：
-	- BudgetTracker：turn_count/max_turns、used_usd/usd_limit、墙钟死线进度；
-	- WorkingSnapshot.todos：模型自己写的计划项（pending = 待交付视图）。
-
-	无死线 / 无数据时返回空串（正常会话零注入）。
-	"""
-	if budget is None:
-		return ""
-	parts: list[str] = []
-	try:
-		if budget.max_turns:
-			parts.append(f"回合 {budget.turn_count}/{budget.max_turns}")
-		if getattr(budget, "wall_deadline_ts", None) and getattr(budget, "wall_started_ts", None):
-			total = budget.wall_deadline_ts - budget.wall_started_ts
-			if total > 0:
-				remain_min = max(0, int((budget.wall_deadline_ts - time.time()) / 60))
-				pct = min(100, int((time.time() - budget.wall_started_ts) / total * 100))
-				parts.append(f"剩余时间 ~{remain_min}m（已用 {pct}%）")
-		if budget.usd_limit:
-			parts.append(f"${budget.used_usd:.2f}/${budget.usd_limit:.2f}")
-	except Exception:  # noqa: BLE001
-		pass
-
-	# 只报计数，不列具体项：逐项列出 pending 是选取偏向——让"还剩多少"恒定
-	# 占据注意力，等于替模型做了"该收尾了吗"的判断前提（2026-09-09）。
-	total_todos = 0
-	open_todos = 0
-	try:
-		for t in (getattr(working, "todos", None) or []):
-			if not isinstance(t, dict):
-				continue
-			total_todos += 1
-			st = str(t.get("status", ""))
-			if st not in ("completed", "done"):
-				open_todos += 1
-	except Exception:  # noqa: BLE001
-		pass
-
-	if not parts and total_todos == 0:
-		return ""
-	# 标题不带「— 事实呈现，决策归你」：自我否认式导演——声明"我不是在指挥"
-	# 本身就在提醒"这里有个决策要做"（2026-09-09）。
-	out = "# Budget mirror（background only）\n"
-	if parts:
-		out += " | ".join(parts) + "\n"
-	if total_todos:
-		out += f"计划项 {total_todos - open_todos}/{total_todos} 已完成\n"
-	return out
-
+# 已撤块 budget_mirror（2026-09-15 用户裁定）：唯一触发条件
+# ``budget.wall_deadline_ts`` 全仓只有 tests 设置，产品链路从无调用
+# ⇒ 真实会话里永远不注入（死块）。且它想讲的内容正是同日撤销的
+# wrap_up / runtime_budget 同类文本（预算作用域不明 → 模型必然误标）。
+# 要时间感走 ``BudgetTracker.check_wall_deadline`` 的 80%/90% 播报通道。
 
 NESTED_MAX_CHARS = 4_000
 NESTED_RESERVE_CHARS = 2_000
@@ -412,6 +326,12 @@ class InjectContext:
 	#: repeat_guard 块内直读当前计数——每轮新鲜渲染，不走 publish/clear 槽位
 	#: （账本需持续在场，信号清零自动消失）。子代理上下文不渲染（净化清单）。
 	loop_ledger: Any | None = None
+	#: 管道 2 去重的**真相源**：本轮投影里真实存在的留痕身份集合
+	#: ``{(note_key, note_fp)}``（由调用方从 MessageStore + 压缩游标算出）。
+	#: 为空集 = 本轮投影里没有任何留痕 ⇒ 一律重发；``None`` = 调用方未提供
+	#: （脚本/评测/单测）⇒ 退化为只看台账。
+	#: 「台账说值没变」不再足以跳过：必须这一版**真的还在模型输入里**。
+	visible_notes: frozenset[tuple[str, str]] | None = None
 
 	def instructions_enabled(self) -> bool:
 		if self.inject_instructions is None:
@@ -778,23 +698,36 @@ def approved_plan_decays_on(name: str, is_error: bool) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# P1：F3 块性质标签（治理位——新增块必须声明类别，遗漏按 inventory 处理）
+# T_now v2：一个边界，三条管道（2026-09-16 重分类；治理位）
 # ---------------------------------------------------------------------------
-# DIRECTIVE：模型必须服从的行为指令。贴生成点（尾插），预算内绝不裁剪。
-KLASS_DIRECTIVE = "directive"
-# EVENT：事件驱动的必须生效通知（文件冲突 / 子代理结算 / queued notices /
-# reconcile / MCP required 故障）。部分含 drain 语义——静默即永久丢失，
-# 绝不门控、绝不裁剪。
-KLASS_EVENT = "event"
-# INVENTORY：参考数据 / 能力宣告（索引、proposals、nested 正文、浏览器预览）。
-# 非任务内容：fresh-user 轮前插到用户文本之前；模糊指代轮整类静默；预算紧时先裁。
-KLASS_INVENTORY = "inventory"
+# 边界（唯一注入时机）：工具批次完成后 / 下一次模型采样前。
+#
+# 管道 1｜用户消息（``user``）：**不在本表**——真 user 消息进历史
+#         （MessageStore/JSONL），可被引用、可被压缩。
+# 管道 2｜引擎当前态（``PIPE_STATE``）：每轮可能变。块文本是"当前值"，值不变
+#         不重注（``dedup=True`` 者过 prompt/inject_store 台账）；受总量预算。
+# 管道 3｜引擎事件（``PIPE_EVENT``）：发生一次即消费（drain 语义，取走即清）。
+#         静默即永久丢失 ⇒ 永不裁剪、永不门控、**永不去重**。
+# 第零管道｜静默：引擎能强制的（折叠 / guard / 清理 / 回退）永不进上下文。
+#
+# 登记表逐条声明三件事，遗漏一律按最保守处理（未知块 = PIPE_STATE +
+# quota=True + dedup=False，即最容易被裁）：
+#   pipe  归哪条管道；
+#   quota 是否受总量配额裁剪（False = 构造处自有界，全保）；
+#   dedup 是否纳入"值不变不重注"台账（仅 PIPE_STATE 可声明为 True）。
+# 类目不再按"模型该不该服从"划分（那是导演视角），只按"这条信息从哪来、
+# 什么时候该重发"划分。
+PIPE_STATE = "state"
+PIPE_EVENT = "event"
 
 # F1 真硬顶：覆盖**全部**块（原 bypass 组取消）。
-# directive/event 由构造处各自有界（plan ≤4k、reasoning ≤600 等），全保；
-# inventory 受双闸：自身配额 与 (总预算 - 指令已用) 取小。
+# PIPE_EVENT 由构造处各自有界（drain 一次），全保；
+# quota 类受双闸：自身配额 与 (总预算 - 已用) 取小。
 T_NOW_TOTAL_BUDGET = 6_000
-T_NOW_INVENTORY_MAX = 2_500
+T_NOW_QUOTA_MAX = 2_500
+#: 事件块体积告警阈值（不裁剪，只观测：超了说明上游该收敛/摘要）
+T_NOW_EVENT_WARN_BLOCKS = 8
+T_NOW_EVENT_WARN_CHARS = 6_000
 
 # ---------------------------------------------------------------------------
 # 硬准入（2026-09-04，问题#2 修复）：块登记表 + 装配点标记，机器执法。
@@ -807,83 +740,118 @@ T_NOW_INVENTORY_MAX = 2_500
 #      「能不能不进上下文」（引擎能强制的，一律不给模型看）。
 # 执法：tests/test_t_now_block_registry.py。
 # ---------------------------------------------------------------------------
-T_NOW_BLOCK_HARD_CAP = 21  # 23→21：裁决 5 删除 stale_xeyo_md / nested_change 两块（提醒类退出注意力，状态维护转引擎静默）
+T_NOW_BLOCK_HARD_CAP = 16  # =现存量：23→21（删 stale_xeyo_md / nested_change）→18→16（2026-09-15 删 budget_mirror / runtime_mode_snapshot，peer_presence 收窄为 peer_notices）
 
-T_NOW_BLOCK_REGISTRY: dict[str, dict[str, str]] = {
+T_NOW_BLOCK_REGISTRY: dict[str, dict[str, Any]] = {
 	"continue": {
-		"klass": "directive",
+		"pipe": PIPE_STATE,
+		"quota": False,
+		# 不去重：文本恒定但每批工具结果都需要它——"值没变"在这里不等于
+		# "可以不再说"，它是边界提示（本轮语境），不是状态快照。
+		"dedup": False,
 		"why": "工具续写轮无此块模型把 tool_result 当终点，不回用户问题",
 	},
 	"mode_instructions": {
-		"klass": "directive",
+		"pipe": PIPE_STATE,
+		"quota": False,
+		"dedup": True,
 		"why": "Ask/Plan/批准计划是本轮行为模式合同，决定能否写盘",
 	},
 	# ``wrap_up`` / ``runtime_budget`` 已于 2026-09-15 撤销（用户裁定）：
 	# 二者都只讲「预算已尽」却不标预算作用域，模型必然误标（第五/第六轮各一次
 	# 猜成"上下文窗口"）。按引擎铁律「限制只在执行层」，收尾窗与配额由
 	# engine/query_loop 强制，无需模型可见文本 ⇒ 登记表相应收缩（更宽松）。
-	"budget_mirror": {
-		"klass": "directive",
-		"why": "死线会话每轮稳态预算/时间镜像（23ca693 禀赋①）；正常会话零注入",
-	},
+	# ``budget_mirror`` / ``runtime_mode_snapshot`` 已于 2026-09-15 撤销
+	# （用户裁定，18→16）。理由：
+	# ① budget_mirror：触发条件 ``wall_deadline_ts`` 产品链路从无设置（死块）；
+	# ② runtime_mode_snapshot：登记表 why 自陈"真门禁在 permissions 层"，
+	#    属"知道自己被看着"的状态展示而非信息（铁律 3/4）。
+	# 同轮 ``peer_presence`` 未整块撤销而**收窄**为 ``peer_notices``：常驻
+	# beacon 是噪声，但 notices 有 drain 语义，整块删＝静默丢跨会话事件。
 	"multi_agent_hint": {
-		"klass": "directive",
+		"pipe": PIPE_STATE,
+		"quota": False,
+		"dedup": True,
 		"why": "多代理分解/汇总的协作合同，缺了会单干或重复汇总",
 	},
 	"repeat_guard": {
-		"klass": "directive",
+		"pipe": PIPE_STATE,
+		"quota": False,
+		"dedup": True,
 		"why": "轮内防复读提醒（引擎 clear_advice 逐轮重置）",
 	},
 	"nested_instructions": {
-		"klass": "inventory",
+		"pipe": PIPE_STATE,
+		"quota": True,
+		"dedup": True,
 		"why": "子目录规则按需加载；限窗注入，滚出尾窗静默",
 	},
 	"compact": {
-		"klass": "directive",
+		"pipe": PIPE_STATE,
+		"quota": False,
+		"dedup": True,
 		"why": "输出/写码压缩开关生效的统一行为规则（任一开关开启即注入；③合并两块减一）",
 	},
 	"mcp_required_warn": {
-		"klass": "event",
+		"pipe": PIPE_EVENT,
+		"quota": False,
+		"dedup": False,
 		"why": "required MCP server 启动失败的可见警告（fail-visible）",
 	},
 	"reconcile_events": {
-		"klass": "event",
+		"pipe": PIPE_EVENT,
+		"quota": False,
+		"dedup": False,
 		"why": "工具面/技能目录变更，consume 语义——静默即永久丢失",
 	},
-	"peer_presence": {
-		"klass": "event",
-		"why": "多会话交叉活动提醒，冲突预防（drain 队列）",
+	"peer_notices": {
+		"pipe": PIPE_EVENT,
+		"quota": False,
+		"dedup": False,
+		"why": "跨会话事件通知的唯一投递口，drain 语义——静默即永久丢失（原 peer_presence 收窄而来，常驻 beacon 已删）",
 	},
 	"file_conflict": {
-		"klass": "event",
+		"pipe": PIPE_EVENT,
+		"quota": False,
+		"dedup": False,
 		"why": "触碰文件被其他会话写入——静默即丢，覆盖风险",
 	},
 	"browser_preview": {
-		"klass": "inventory",
+		"pipe": PIPE_STATE,
+		"quota": True,
+		"dedup": True,
 		"why": "用户预览页 URL：读页面正文的必要指针",
 	},
-	"runtime_mode_snapshot": {
-		"klass": "directive",
-		"why": "审批模式活状态（supersedes）；真门禁在 permissions 层",
-	},
 	"agent_settlement": {
-		"klass": "event",
+		"pipe": PIPE_EVENT,
+		"quota": False,
+		"dedup": False,
 		"why": "子代理结算通知，drain 语义——静默即永久丢失",
 	},
 	"goal": {
-		"klass": "directive",
+		"pipe": PIPE_STATE,
+		"quota": False,
+		"dedup": True,
 		"why": "仅 blocked/pending_complete 注入：恢复执行/完成确认的锚",
 	},
 	"resume_directive": {
-		"klass": "event",
+		"pipe": PIPE_EVENT,
+		"quota": False,
+		"dedup": False,
 		"why": "续跑富化指令投影-only 送达（修订2）：落库只存用户真实文本",
 	},
 	"pending_jobs": {
-		"klass": "directive",
-		"why": "job 完成补投：一次性待领信息，模型不读则任务结果不可见",
+		"pipe": PIPE_EVENT,
+		"quota": False,
+		"dedup": False,
+		"why": "job 完成补投：一次性待领信息（chat 入口已 drain），模型不读则任务结果不可见",
 	},
 	"skill_preinvoke": {
-		"klass": "directive",
+		"pipe": PIPE_STATE,
+		"quota": False,
+		# 不去重：同一句 /name 直呼会在不同用户轮反复出现，文本相同而轮次
+		# 语境不同——按值去重会静默掉后一次直呼。
+		"dedup": False,
 		"why": "用户 /name 直呼技能的宿主确定性加载；不注入则直呼依赖模型自觉调 Skill 工具，user 只见技能的直呼即失效",
 	},
 }
@@ -899,36 +867,87 @@ def _skipped_blocks() -> frozenset[str]:
 	return frozenset(s.strip() for s in raw.split(",") if s.strip())
 
 
+def _block_meta(name: str) -> dict[str, Any]:
+	"""登记表查询：未登记名按最保守处理（state + 受配额 + 不去重）并告警。
+
+	未登记名正常进不来（``tests/test_t_now_block_registry.py`` 双向核对源码里
+	``_tag_block`` 的名字），这里是防御性兜底 + 可见告警。
+	"""
+	meta = T_NOW_BLOCK_REGISTRY.get(name)
+	if meta is None:
+		_log.warning("T_now block not registered: %s（按 state+quota+不去重 兜底）", name)
+		return {"pipe": PIPE_STATE, "quota": True, "dedup": False}
+	return meta
+
+
 def _tag_block(
 	tagged: list[tuple[str, str]],
 	name: str,
-	block: tuple[str, str],
+	text: str,
 ) -> None:
-	"""装配点统一入口：登记名进代码（执法测试解析对象）+ 块级旁路。"""
+	"""装配点统一入口：登记名进代码（执法测试解析对象）+ 块级旁路。
+
+	装配点**不再自带类目**：块归哪条管道、受不受配额、要不要去重，一律由
+	登记表决定（单一来源）。新增块只写名与正文，类目写在登记表那一行。
+	"""
 	if name in _skipped_blocks():
 		return
-	tagged.append(block)
+	body = (text or "").strip()
+	if not body:
+		return
+	tagged.append((name, body))
 
-# D1：模糊指代轮识别。仅 fresh-user 轮 + 确有上文（≥1 条 assistant）才判，
-# 首轮不门控（无从指代，且首问依赖 discovery 块）。
-# fail-open：误判只丢一轮参考数据；指令/事件永不受影响。
-_VAGUE_ACK = {
-	"好", "好的", "好吧", "好呀", "行", "可以", "嗯", "嗯嗯", "ok", "okay",
-	"yes", "go", "确认", "同意", "开始吧", "就这样", "这么办", "照做",
-	"继续", "接着来", "辛苦了",
-}
-_VAGUE_MARKERS = (
-	"帮我", "麻烦", "继续", "接着", "改一下", "修改", "弄一下", "做一下",
-	"处理一下", "优化一下", "重构", "那个", "这个", "刚才", "上面",
-	"按你", "按刚才", "按上面", "按之前", "提交吧", "动手", "开干",
-	"执行吧", "搞定", "试试", "跑一下",
-)
-_VAGUE_MAX_CHARS = 24
-_VAGUE_CODE_MARKERS = (
-	"http", "`", "/", "\\", ".py", ".ts", ".tsx", ".json", ".md", ".toml",
-	"#", "def ", "class ",
-)
 
+def _dedup_round(
+	tagged: list[tuple[str, str]],
+	*,
+	visible: frozenset[tuple[str, str]] | None = None,
+) -> list[tuple[str, str]]:
+	"""管道 2 纪律：值不变不重注（仅登记表 ``dedup=True`` 的块）。
+
+	按块名分组、逐段独立成键（同名多段用 ``#i`` 后缀区分）——一段变了只重发
+	那一段，不连带整组。
+	跳过条件 = 台账指纹未变 **且** 这一版真的在本轮投影里（``visible``）：
+	后者是真相源，台账只是快路径（历史被改写却没人清账时，这里兜底）。
+	事件类**永不过此处**：drain 语义下"第二次发生"必须是第二次注入。
+	"""
+	groups: dict[str, list[int]] = {}
+	counts: dict[str, int] = {}
+	for i, (name, _text) in enumerate(tagged):
+		counts[name] = counts.get(name, 0) + 1
+	seen: dict[str, int] = {}
+	for i, (name, _text) in enumerate(tagged):
+		meta = _block_meta(name)
+		if meta.get("pipe") != PIPE_STATE or not meta.get("dedup"):
+			continue
+		if counts[name] > 1:
+			idx = seen.get(name, 0)
+			seen[name] = idx + 1
+			key = f"{name}#{idx}"
+		else:
+			key = name
+		groups.setdefault(key, []).append(i)
+	if not groups:
+		return tagged
+	drop: set[int] = set()
+	for key, idxs in groups.items():
+		joined = "\n".join(tagged[i][1] for i in idxs)
+		if not inject_store.decide(key, joined, visible=visible):
+			drop.update(idxs)
+			continue
+		# 本轮以「值变了 / 已不在可见面」送达：登记留痕 → 下一个边界落库进历史。
+		# 此后历史里就有这一版 ⇒ 台账判「值没变」成立，尾部不再重发。
+		inject_store.note(key, joined, kind="state")
+	if not drop:
+		return tagged
+	return [item for i, item in enumerate(tagged) if i not in drop]
+
+# D1「模糊指代轮识别」已于 2026-09-16 删除（用户裁定：T_now 不为弱模型做特化）。
+# 删掉的东西：``_VAGUE_ACK`` / ``_VAGUE_MARKERS`` / ``_VAGUE_MAX_CHARS`` /
+# ``_VAGUE_CODE_MARKERS`` / ``_is_vague_referent_turn`` 及装配口那一道
+# 「命中即静默全部参考块」的闸。理由不是"判断不准"，而是这条闸的准入标准
+# 本身在导演注意力：它猜「用户这句话是不是没说完」，然后替模型减少信息。
+# 按铁律 1/5：注意力里只出现信息；模型强弱不改变口径，护栏只在执行层。
 
 def _last_user_text(projected: list[dict[str, Any]]) -> str:
 	"""取末条 user 的首个文本块（无则空串）。"""
@@ -943,56 +962,46 @@ def _last_user_text(projected: list[dict[str, Any]]) -> str:
 	return ""
 
 
-def _is_vague_referent_turn(projected: list[dict[str, Any]]) -> bool:
-	"""D1：当前 fresh-user 轮是否为「模糊指代型短追问」（如「帮我修改」）。
-
-	命中即静默本轮全部 INVENTORY 块——事故复盘：弱模型把尾插背景内容当成
-	模糊请求的对象（glm-4.5-air 把「帮我修改」绑定到 Memory index 条目）。
-	带路径/代码标记的请求不算模糊（对象自明）。
-	"""
-	if not projected:
-		return False
-	last = projected[-1]
-	if last.get("role") != "user" or ends_with_tool_result(projected):
-		return False
-	if not any(m.get("role") == "assistant" for m in projected[:-1]):
-		return False
-	s = _last_user_text(projected).strip()
-	if not s or len(s) > _VAGUE_MAX_CHARS:
-		return False
-	if any(m in s for m in _VAGUE_CODE_MARKERS):
-		return False
-	if s in _VAGUE_ACK:
-		return True
-	return any(m in s for m in _VAGUE_MARKERS)
-
-
 def _trim_tagged_blocks(
 	tagged: list[tuple[str, str]],
 	*,
 	total: int = T_NOW_TOTAL_BUDGET,
-	inventory_max: int = T_NOW_INVENTORY_MAX,
+	quota_max: int = T_NOW_QUOTA_MAX,
 ) -> list[tuple[str, str]]:
-	"""F1：类感知预算。directive/event 全保（构造处各自有界）；inventory 按
-	装配序填充 min(inventory_max, total - 指令已用) 的配额，末块超限截断（带 …）。
+	"""F1：管道感知预算。非 quota 类全保（构造处各自有界）；quota 类按装配序
+	填充 min(quota_max, total - 已用) 的配额，末块超限截断（带 …）。
 
 	与旧 ``_trim_blocks_to_budget`` 的差异：覆盖原 bypass 组（compact / mcp /
-	reconcile / peer / conflict / preview / snapshot / settlements / goal），
-	使 T_now 总量真正有闸；Continue / Wrap-up 属 directive 天然全保。
+	reconcile / peer / conflict / preview / settlements / goal），使 T_now
+	总量真正有闸。quota 与否不再由类目猜，而是登记表逐块声明（``quota``）。
 	"""
 	kept: list[tuple[str, str]] = []
 	inv: list[tuple[str, str]] = []
 	used = 0
-	for k, raw in tagged:
+	ev_blocks = 0
+	ev_chars = 0
+	for name, raw in tagged:
 		b = (raw or "").strip()
 		if not b:
 			continue
-		if k == KLASS_INVENTORY:
-			inv.append((k, b))
+		meta = _block_meta(name)
+		if meta.get("quota"):
+			inv.append((name, b))
 		else:
-			kept.append((k, b))
+			kept.append((name, b))
 			used += len(b)
-	room = max(0, min(inventory_max, total - used))
+		if meta.get("pipe") == PIPE_EVENT:
+			ev_blocks += 1
+			ev_chars += len(b)
+	# 事件类不裁剪（drain 语义，裁＝静默丢）⇒ 体积异常必须在上游收敛。
+	# 这里只做可观测：超阈值 WARN，不改变送达。
+	if ev_blocks > T_NOW_EVENT_WARN_BLOCKS or ev_chars > T_NOW_EVENT_WARN_CHARS:
+		_log.warning(
+			"T_now 事件块体积异常：blocks=%d chars=%d（事件永不裁剪，请上游收敛）",
+			ev_blocks,
+			ev_chars,
+		)
+	room = max(0, min(quota_max, total - used))
 	for k, b in inv:
 		if room <= 0:
 			break
@@ -1016,13 +1025,23 @@ def run_pre_llm_inject(
 		return projected
 
 	out = projected
-	# P1/F3：所有块以 (类别, 文本) 装配；类别决定放置（A1）、门控（D1）与
-	# 预算（F1）。新增块必须声明 KLASS_*，遗漏按 INVENTORY 处理（最保守）。
+	strategy = (ctx.strategy or "").strip() or t_now_strategy()
+	if strategy == STRATEGY_PREFILL:
+		# 预留档：prefill 厂商容忍度实测通过前回落环境声道。
+		strategy = STRATEGY_ENV_CHANNEL
+	prepared_events = (
+		_prepared_events_for(ctx.session_id)
+		if strategy != STRATEGY_SKIP
+		else []
+	)
+	# T_now v2：所有块以 ``(登记名, 正文)`` 装配；归哪条管道、受不受配额、
+	# 要不要去重，全部由登记表逐条声明（装配点不自带类目）。未登记名按最
+	# 保守处理（state + 受配额 + 不去重）。
 	tagged: list[tuple[str, str]] = []
 	after_tools = ends_with_tool_result(out)
 
 	if after_tools:
-		_tag_block(tagged, "continue", (KLASS_DIRECTIVE, CONTINUE_AFTER_TOOLS))
+		_tag_block(tagged, "continue", CONTINUE_AFTER_TOOLS)
 
 	for blk in build_mode_context_blocks(
 		mode=current_agent_mode(),
@@ -1031,7 +1050,7 @@ def run_pre_llm_inject(
 		plan_instructions=PLAN_MODE_INSTRUCTIONS,
 		plan_pointer=ctx.plan_pointer,
 	):
-		_tag_block(tagged, "mode_instructions", (KLASS_DIRECTIVE, blk))
+		_tag_block(tagged, "mode_instructions", blk)
 	# ── 已撤块（2026-09-15，用户裁定）─────────────────────────────────
 	# ``wrap_up``（``# Wrap-up(预算已尽)``）与 ``runtime_budget``
 	# （``# Runtime budget notice``）**不再装配进模型可见文本**。
@@ -1050,7 +1069,7 @@ def run_pre_llm_inject(
 		try:
 			from tools.agent_tool.prompt import MULTI_AGENT_HINT
 
-			_tag_block(tagged, "multi_agent_hint", (KLASS_DIRECTIVE, MULTI_AGENT_HINT.strip()))
+			_tag_block(tagged, "multi_agent_hint", MULTI_AGENT_HINT.strip())
 		except Exception:
 			_log.debug("MULTI_AGENT_HINT load failed", exc_info=True)
 
@@ -1093,7 +1112,7 @@ def run_pre_llm_inject(
 						block_text += "\n\n" + hint
 				except Exception:
 					_log.debug("todo progress inject failed", exc_info=True)
-			_tag_block(tagged, "repeat_guard", (KLASS_DIRECTIVE, block_text))
+			_tag_block(tagged, "repeat_guard", block_text)
 	except Exception:
 		_log.debug("repeat advice inject failed", exc_info=True)
 
@@ -1120,7 +1139,7 @@ def run_pre_llm_inject(
 				)
 			)
 		if nested_block:
-			_tag_block(tagged, "nested_instructions", (KLASS_INVENTORY, nested_block))
+			_tag_block(tagged, "nested_instructions", nested_block)
 
 		# 裁决 5（2026-09-08）：stale XEYO.md 提醒与嵌套变更通知块已删——
 		# 规则文件的内容变化由 Nested 块实时读取自然生效；引擎只静默维护
@@ -1140,14 +1159,14 @@ def run_pre_llm_inject(
 	# Memory 工具 description（含「依赖历史上下文/偏好先 search」指引），
 	# 检索走 Memory(action=search) 拉取。include_memory_index 字段保留
 	# 兼容（决定 inject_instructions 默认值）；runtime._append_memory_index
-	# 仍供脚本/评测使用。生产投影层的重开走 XEYO_MEMORY_INDEX_LIVE
-	# （engine/query_loop._memory_index_live_enabled，用户决策默认开），不经 T_now。
+	# 仍供脚本/评测使用。生产投影层恒不推送，不经 T_now；受控重开须同时
+	# 修改 engine/query_loop._memory_index_live_enabled 与对应准入测试。
 
 	# ---- P1/F1：原 bypass 组全部纳入装配（真硬顶，不再有无闸块）----
 	# 压缩块（输出精简/写代码精简合并为一个 compact；相关开关全关时不挂，T_now 与历史保持干净）。
 	_compact = compact_block()
 	if _compact:
-		_tag_block(tagged, "compact", (KLASS_DIRECTIVE, bg_wrap(_compact)))
+		_tag_block(tagged, "compact", bg_wrap(_compact))
 
 	# F1：MCP required server 启动失败 → T_now 警告块（background only，带归属头）。
 	if (ctx.cwd or "").strip() and not ctx.subagent:
@@ -1156,7 +1175,7 @@ def run_pre_llm_inject(
 
 			mcp_warn = mcp_required_warning_block(ctx.cwd.strip())
 			if mcp_warn:
-				_tag_block(tagged, "mcp_required_warn", (KLASS_EVENT, mcp_warn))
+				_tag_block(tagged, "mcp_required_warn", mcp_warn)
 		except Exception:
 			_log.debug("mcp required warning inject failed", exc_info=True)
 
@@ -1168,7 +1187,7 @@ def run_pre_llm_inject(
 
 			for blk in consume_reconcile_blocks():
 				if blk and str(blk).strip():
-					_tag_block(tagged, "reconcile_events", (KLASS_EVENT, str(blk).strip()))
+					_tag_block(tagged, "reconcile_events", str(blk).strip())
 		except Exception:
 			_log.debug("reconcile inject failed", exc_info=True)
 
@@ -1180,22 +1199,19 @@ def run_pre_llm_inject(
 		and (ctx.session_id or "").strip()
 		and not ctx.subagent
 	):
+		# block: peer_notices —— 跨会话事件通知（drain 语义；取走即清，静默即
+		# 永久丢失）。2026-09-15 收窄：原 peer_presence 的常驻 beacon
+		# （"同工作区另有 N 个会话运行中"）已删——无对象告知不改变任何动作；
+		# 但 notices 是跨会话事件的唯一投递口，必须保留。原
+		# XEYO_PEER_PRESENCE_OFF 逃生门随之取消（无 beacon 后块常态自静默）。
 		try:
-			# 逃生门 XEYO_PEER_PRESENCE_OFF（默认关=正常注入）：仅测试 harness 用。
-			# FakeModelClient 的回声语义（model/fake.py）会把本块的环境声道
-			# tool_result 当回声源，回 `echoed: [system-environment]…` 污染
-			# e2e 断言（2026-09-05 排查）；真实 LLM 不受影响，生产默认照常注入。
-			_off = os.environ.get("XEYO_PEER_PRESENCE_OFF", "").strip().lower()
-			if _off in ("1", "true", "on"):
-				peer = ""
-			else:
-				from engine.session_presence import peer_activity_block
+			from engine.session_presence import peer_notice_block
 
-				peer = peer_activity_block(ctx.cwd.strip(), ctx.session_id.strip())
+			peer = peer_notice_block(ctx.cwd.strip(), ctx.session_id.strip())
 			if peer:
-				_tag_block(tagged, "peer_presence", (KLASS_EVENT, peer))
+				_tag_block(tagged, "peer_notices", peer)
 		except Exception:
-			_log.debug("peer_activity_block failed", exc_info=True)
+			_log.debug("peer_notice_block failed", exc_info=True)
 		# 文件冲突前景提醒：本会话触碰过的文件被其他会话树写入。
 		# 只列冲突路径，静默即无冲突。
 		try:
@@ -1204,23 +1220,16 @@ def run_pre_llm_inject(
 				ctx.cwd.strip(), ctx.session_id.strip(), touched
 			)
 			if conflict:
-				_tag_block(tagged, "file_conflict", (KLASS_EVENT, conflict))
+				_tag_block(tagged, "file_conflict", conflict)
 		except Exception:
 			_log.debug("file_conflict_block failed", exc_info=True)
 
 	preview = browser_preview_block()
 	if preview and not ctx.subagent:
-		_tag_block(tagged, "browser_preview", (KLASS_INVENTORY, preview))
+		_tag_block(tagged, "browser_preview", preview)
 
-	# 审批模式活状态快照（supersedes）：状态类块，开了就要生效；
+	# 已撤块 runtime_mode_snapshot（2026-09-15 用户裁定）：见文件上方常量区说明。
 	# T14 净化清单：子代理上下文不继承主会话 GUI 模式广播。
-	if (ctx.session_id or "").strip() and not ctx.subagent:
-		try:
-			mode_block = runtime_mode_snapshot_block(ctx.session_id.strip())
-			if mode_block:
-				_tag_block(tagged, "runtime_mode_snapshot", (KLASS_DIRECTIVE, mode_block))
-		except Exception:
-			_log.debug("runtime mode snapshot inject failed", exc_info=True)
 
 	# T14：子代理结算通知（turn 边界、source-attributed）。取走即清，幂等。
 	if (ctx.session_id or "").strip() and not ctx.subagent:
@@ -1234,13 +1243,13 @@ def run_pre_llm_inject(
 				drain_agent_settlements(ctx.session_id.strip())
 			)
 			if settle_block:
-				_tag_block(tagged, "agent_settlement", (KLASS_EVENT, settle_block))
+				_tag_block(tagged, "agent_settlement", settle_block)
 		except Exception:
 			_log.debug("agent settlement inject failed", exc_info=True)
 
 	# T9：Goal 块（仅 blocked / pending_complete 注入，active 常态静默）；子代理上下文不注入。
 	if (ctx.goal or "").strip() and not ctx.subagent:
-		_tag_block(tagged, "goal", (KLASS_DIRECTIVE, ctx.goal.strip()))
+		_tag_block(tagged, "goal", ctx.goal.strip())
 
 	# 修订2（设计32）：续跑富化指令（[Resume] 契约）——chat 层不再把富化长文
 	# 落库成 user 消息（JSONL 只存真实用户文本），指令经 contextvar 在本轮每次
@@ -1252,9 +1261,9 @@ def run_pre_llm_inject(
 			rd = get_resume_directive()
 			if rd:
 				_tag_block(
-			tagged,
-			"resume_directive",
-					(KLASS_EVENT, f"# Resume（续跑指令 — background only）\n{rd}"),
+					tagged,
+					"resume_directive",
+					f"# Resume state（background only）\n{rd}",
 				)
 		except Exception:
 			_log.debug("resume directive inject failed", exc_info=True)
@@ -1262,21 +1271,11 @@ def run_pre_llm_inject(
 	# 42 号：job 完成通知补投块（一次性待领信息，chat.py 入口已 drain）。
 	jobs_block = pending_jobs_block()
 	if jobs_block and not ctx.subagent:
-		_tag_block(tagged, "pending_jobs", (KLASS_DIRECTIVE, jobs_block))
+		_tag_block(tagged, "pending_jobs", jobs_block)
 
-	# 禀赋①：预算镜像（时间感来源）——仅当调用方设置了墙钟死线时渲染
-	#（评测适配器 / 带超时的会话）。数据全部来自 BudgetTracker 与 WorkingSnapshot
-	# 的既有字段，如实渲染，不含指令；正常无死线会话零输出（KV 无扰）。
-	# block: budget_mirror —— 稳态仪表盘（每轮）；与 runtime_budget（跨阈值瞬时
-	# 通知）、R1' 墙钟收口（100% 后 grace→wrap）互补，同钟不同层。
-	try:
-		_b = getattr(ctx.budget, "wall_deadline_ts", None)
-		if _b is not None and not ctx.subagent:
-			blk = budget_mirror_block(ctx.budget, ctx.working)
-			if blk:
-				_tag_block(tagged, "budget_mirror", (KLASS_DIRECTIVE, blk))
-	except Exception:
-		_log.debug("budget mirror inject failed", exc_info=True)
+	# 已撤块 budget_mirror（2026-09-15 用户裁定）：见文件上方常量区说明。
+	# 注意执行层一律保留：墙钟 80%/90% 播报、100% grace→wrap、回合与成本闸
+	# 全部照旧（删的只是文本，不是机制）。
 
 	# block: skill_preinvoke —— 用户直呼技能（fresh-user 轮首行 /name 命中
 	# user-invocable 技能）：宿主确定性注入渲染正文（tool-skill pre-step），
@@ -1288,16 +1287,37 @@ def run_pre_llm_inject(
 
 			skill_blk = preinvoke_skill_block(ctx.cwd.strip(), _last_user_text(out))
 			if skill_blk:
-				_tag_block(tagged, "skill_preinvoke", (KLASS_DIRECTIVE, skill_blk))
+				_tag_block(tagged, "skill_preinvoke", skill_blk)
 		except Exception:
 			_log.debug("skill preinvoke inject failed", exc_info=True)
 
-	# ---- P1/D1：模糊指代轮静默全部 INVENTORY。事件/指令绝不静默：
-	# notices / settlements / reconcile 有 drain 语义，静默即永久丢失。----
-	if not after_tools and _is_vague_referent_turn(out):
-		tagged = [(k, t) for k, t in tagged if k != KLASS_INVENTORY]
+	# 回退重装：事件源已经在上一次装配时 drain，这里复用已取出的事件正文。
+	# 事件仍按登记表进入，不经过去重或配额裁剪。
+	for event_name, event_text in prepared_events:
+		_tag_block(tagged, event_name, event_text)
 
-	# ---- P1/F1：类感知真硬顶 ----
+	# 记录本轮最终保留的事件。事件不走 _dedup_round，且 _trim_tagged_blocks
+	# 对事件无裁剪；请求没有收到响应 chunk 时，下一次声道重装复用这一批。
+	if strategy != STRATEGY_SKIP:
+		_remember_prepared_events(
+			ctx.session_id,
+			[
+				(name, text)
+				for name, text in tagged
+				if _block_meta(name).get("pipe") == PIPE_EVENT
+			],
+		)
+
+	# ---- 管道 2 纪律：值不变不重注（台账 prompt/inject_store，默认 on）----
+	# 只作用于登记表 ``dedup=True`` 的块；事件类永不过此处（drain 语义下
+	# "第二次发生"必须是第二次注入）。台账关档时逐字节零影响。
+	token = inject_store.begin_round((ctx.session_id or "").strip())
+	try:
+		tagged = _dedup_round(tagged, visible=ctx.visible_notes)
+	finally:
+		inject_store.end_round(token)
+
+	# ---- P1/F1：管道感知真硬顶 ----
 	kept = _trim_tagged_blocks(tagged)
 
 	# wrap_up 兜底已随该块整体撤销（见上方「已撤块」说明）：不再向模型重挂
@@ -1305,15 +1325,11 @@ def run_pre_llm_inject(
 
 	# ---- P1/A1 分仓 / 方案A 环境声道 ----
 	# env_channel：全部块装进一对仅存在于投影的伪造 tool 对尾插——
-	# 用户消息原文不再被任何注入块夹持（fresh-user 轮不再需要 inventory
+	# 用户消息原文不再被任何注入块夹持（fresh-user 轮不再需要参考数据
 	# 前插分仓），说话人身份由消息结构保证。
-	# legacy：fresh-user 轮 inventory/capability 前插到用户文本之前（生成点
-	# 紧邻用户请求，recency 为用户服务）；directive/event 尾插贴近生成点。
+	# legacy：fresh-user 轮 quota 类（nested 正文 / 浏览器预览）前插到用户
+	# 文本之前（生成点紧邻用户请求，recency 为用户服务）；其余尾插贴近生成点。
 	# after_tools 轮维持原尾插合同（Continue 在前）。
-	strategy = (ctx.strategy or "").strip() or t_now_strategy()
-	if strategy == STRATEGY_PREFILL:
-		# 预留档：prefill 厂商容忍度实测通过前回落环境声道。
-		strategy = STRATEGY_ENV_CHANNEL
 	if strategy == STRATEGY_SKIP:
 		# L2（2026-09-09）：厂商拒绝伪造 tool 对时本轮不注入，绝不落回
 		# legacy 用户尾插（引擎文本进用户角色=说话人混淆源）。执行层
@@ -1336,8 +1352,8 @@ def run_pre_llm_inject(
 		return out
 	if after_tools:
 		return append_text_blocks_to_last_user(out, [t for _k, t in kept])
-	head = [t for k, t in kept if k == KLASS_INVENTORY]
-	tail = [t for k, t in kept if k != KLASS_INVENTORY]
+	head = [t for n, t in kept if _block_meta(n).get("quota")]
+	tail = [t for n, t in kept if not _block_meta(n).get("quota")]
 	if head:
 		out = prepend_text_blocks_to_last_user(out, head)
 	if tail:
@@ -1354,11 +1370,11 @@ __all__ = [
 	"CODE_MODE_VARIANTS",
 	"T_NOW_EXTRA_BUDGET",
 	"T_NOW_TOTAL_BUDGET",
-	"T_NOW_INVENTORY_MAX",
+	"T_NOW_QUOTA_MAX",
 	"pending_jobs_block",
-	"KLASS_DIRECTIVE",
-	"KLASS_EVENT",
-	"KLASS_INVENTORY",
+	"PIPE_STATE",
+	"PIPE_EVENT",
+	"T_NOW_BLOCK_REGISTRY",
 	"NESTED_RESERVE_CHARS",
 	"InjectContext",
 	"run_pre_llm_inject",
@@ -1367,7 +1383,6 @@ __all__ = [
 	"code_compact_block",
 	"compact_block",
 	"browser_preview_block",
-	"runtime_mode_snapshot_block",
 	"collect_session_touched_paths",
 	"file_conflict_block",
 ]

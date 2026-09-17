@@ -112,7 +112,7 @@ def _list_response(entries: list[SkillEntry], query: str) -> str:
 		desc = _one_line(e.description, limit=LIST_LINE_DESC)
 		line = f"- {e.name}: {desc}[{origin}]" if desc else f"- {e.name}[{origin}]"
 		if total + len(line) > LIST_MAX_CHARS:
-			out.append("…（响应截断，请缩小 query。）")
+			out.append(f"…（响应截断；query={query!r}。）")
 			break
 		out.append(line)
 		total += len(line)
@@ -272,7 +272,7 @@ class SkillTool:
 		if len(body) > BODY_MAX:
 			body = (
 				body[:BODY_MAX].rstrip()
-				+ f"\n\n[truncated; full file: {path} — use Read to continue]"
+				+ f'\n\n[truncated; full file: {path}; Read(file_path="{path}") returns it]'
 			)
 		return ToolResult(content=f"{header}\n\n{body}", is_error=False)
 

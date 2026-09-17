@@ -136,15 +136,15 @@ async def test_c2_llm_bypass_collects_only_text(monkeypatch, mem_switch):
 		region_text=4000,
 	)
 	assert out == "SUMMARY-THAT-SHRINKS"
-	# 重放前缀 = system + 投影消息 + 末尾追加压缩指令
+	# 重放前缀 = system + 投影消息 + 末尾追加摘要请求参数
 	replay, tools = client.calls[0]
 	assert replay[0] == {"role": "system", "content": "SYS"}
 	assert tools == []
-	# 原用户文本作为前缀块保留，末尾追加压缩指令
+	# 原用户文本作为前缀块保留，末尾追加摘要请求参数
 	last = replay[-1]
 	joined = "\n".join(str(b.get("text") or "") for b in last["content"]) if isinstance(last["content"], list) else str(last["content"])
 	assert "A" * 50 in joined
-	assert "压缩指令" in joined
+	assert "C2 摘要请求参数" in joined
 
 
 @pytest.mark.asyncio
@@ -221,6 +221,7 @@ def test_apply_c2_provider_summary_used(monkeypatch, mem_switch):
 	provider = lambda left, region_chars: captured.update(left=left, rc=region_chars) or "LLM-SUMMARY"
 	out = apply_c2_messages(msgs, w, summary_provider=provider)
 	assert w.c2_summary_text == "LLM-SUMMARY"
+	assert out[0]["role"] == "assistant"
 	assert out[0]["name"] == "session_summary"
 	assert out[0]["content"] == "LLM-SUMMARY"
 	assert "LLM-SUMMARY" not in str(msgs)  # JSONL 不写摘要（投影只在 working）

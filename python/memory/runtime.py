@@ -64,12 +64,11 @@ C2_QUOTA_TOOL_USE = 80
 # 关闭时 project_for_model/apply_c2_messages/force_compact 走纯确定性摘要（行为不劣化）。
 C2_LLM_SUMMARY_ENV = "XEYO_C2_LLM_SUMMARY"
 
-# 旁路请求末尾追加的压缩指令（重放前缀后原样追加，只收纯文本摘要）。
+# 旁路请求末尾追加的摘要请求参数（重放前缀后原样追加，只收纯文本摘要）。
 C2_SUMMARY_INSTRUCTION = (
-	"\n\n# 压缩指令（请只输出摘要正文）\n"
-	"请把以上对话压缩成一段纯文本摘要：保留用户目标、已确认的决定、关键工具结论、"
-	"错误/取值事实、以及后续仍需要的上下文；省略普通寒暄与已无关的中间过程。"
-	"只输出摘要正文本身，不要任何前言、解释、markdown 代码块或工具调用。"
+	"\n\n# C2 摘要请求参数\n"
+	"format=plain_text；scope=用户目标/已确认决定/关键工具结论/错误与取值事实/"
+	"后续上下文；exclude=普通寒暄/无关中间过程/前言/解释/markdown代码块/工具调用。"
 )
 
 
@@ -87,7 +86,7 @@ def c2_llm_summary_enabled() -> bool:
 
 
 def _append_c2_instruction(messages: list[dict]) -> list[dict]:
-	"""在重放前缀（system + 投影消息）末尾追加一条压缩指令。"""
+	"""在重放前缀末尾追加摘要请求参数。"""
 	out = list(messages)
 	try:
 		from prompt.turn_context import append_text_blocks_to_last_user
@@ -155,6 +154,8 @@ async def prefetch_c2_summary(
 	system_prompt: str | None,
 	model,
 	abort,
+	*,
+	cwd: str | os.PathLike[str] | None = None,
 ) -> str | None:
 	"""引擎侧异步预取：在首压前把旁路摘要算好存进 ``working._pending_c2_summary``。
 
@@ -167,7 +168,7 @@ async def prefetch_c2_summary(
 			return None
 		if not system_prompt:
 			return None
-		prefix = project_c0c1(api_messages)
+		prefix = project_c0c1(api_messages, cwd=cwd)
 		region_text = _region_chars(api_messages)
 		summary = await c2_llm_bypass(
 			system_prompt=system_prompt,
@@ -1049,8 +1050,9 @@ def apply_c2_messages(
 	working: WorkingSnapshot,
 	*,
 	summary_provider=None,
+	cwd: str | os.PathLike[str] | None = None,
 ) -> list[dict]:
-	"""左段替换为一条 system/summary，右段从 cursor 起再跑 C0+C1。
+	"""左段替换为一条 assistant 摘要，右段从 cursor 起再跑 C0+C1。
 
 	摘要文本在首次压缩时冻结进 ``working.c2_summary_text``，后续请求复用同一文本，
 	保证压缩投影字节稳定（KV 缓存可命中）。右段按 c1_frozen_until（相对 cursor 的
@@ -1092,8 +1094,11 @@ def apply_c2_messages(
 				summary_text=working.c2_summary_text,
 			)
 	frozen_rel = max(0, working.c1_frozen_until - working.compact_cursor)
-	head = [{"role": "system", "content": working.c2_summary_text, "name": "session_summary"}]
-	return head + project_c0c1(right, frozen_until=frozen_rel)
+	# 摘要来自历史压缩/可选模型旁路，属于会话内容，不具备 system 权限。
+	# 用 assistant 角色保留其在历史中的来源，同时避免把模型生成文本升格为
+	# system 指令；权限与模式门禁仍由执行层处理。
+	head = [{"role": "assistant", "content": working.c2_summary_text, "name": "session_summary"}]
+	return head + project_c0c1(right, frozen_until=frozen_rel, cwd=cwd)
 
 
 def try_extend_c2(
@@ -1493,6 +1498,7 @@ def project_for_model(
 	include_memory_index: bool = True,
 	summary_provider=None,
 	context_limit: int | None = None,
+	cwd: str | os.PathLike[str] | None = None,
 ) -> list[dict]:
 	"""按开关生成送模型投影。
 
@@ -1509,10 +1515,10 @@ def project_for_model(
 		if aging_enabled():
 			maybe_advance_aging_boundary(messages, working)
 			working.last_action = "project"
-			out = project_c0c1(messages, frozen_until=working.c1_frozen_until)
+			out = project_c0c1(messages, frozen_until=working.c1_frozen_until, cwd=cwd)
 		else:
 			working.last_action = "project"
-			out = project_c0c1(messages)
+			out = project_c0c1(messages, cwd=cwd)
 		return _append_memory_index(out) if include_memory_index else out
 
 	# T38 解耦（条件 import）：默认 project 路径（上方 return）不 import 离线 simulator，
@@ -1581,7 +1587,7 @@ def project_for_model(
 		# 正常不触发；这里防御性接管，交给 HardTop 强制压缩保护窗口。
 		working.last_action = "C2"
 		note_c2(working, max(working.compact_cursor, c2_cut_index(messages, s0)))
-		return apply_c2_messages(messages, working, summary_provider=summary_provider)
+		return apply_c2_messages(messages, working, summary_provider=summary_provider, cwd=cwd)
 
 	# Path A（XEYO_C2_PRESSURE_FORMULA=1）：**压力门单一触发**。
 	# C2 触发只由「压力门（必要）∧ 收益门（充分）」决定，**接管 decide 的 C2 分支**
@@ -1625,13 +1631,13 @@ def project_for_model(
 				except Exception:
 					logging.getLogger(__name__).debug("record_c2_event failed", exc_info=True)
 				return _append_memory_index(
-					apply_c2_messages(messages, working, summary_provider=summary_provider)
+					apply_c2_messages(messages, working, summary_provider=summary_provider, cwd=cwd)
 				) if include_memory_index else apply_c2_messages(
-					messages, working, summary_provider=summary_provider
+					messages, working, summary_provider=summary_provider, cwd=cwd
 				)
 			# 未达压 / 收益不足：keep（投影字节稳定，KV 命中）
 			working.last_action = "keep"
-			out = project_c0c1(messages, frozen_until=working.c1_frozen_until)
+			out = project_c0c1(messages, frozen_until=working.c1_frozen_until, cwd=cwd)
 			return _append_memory_index(out) if include_memory_index else out
 		except Exception:
 			logging.getLogger(__name__).debug("c2 formula path failed; falling back to decide", exc_info=True)
@@ -1642,9 +1648,9 @@ def project_for_model(
 		working.last_x_sim = _branch_x(d, action)
 		if action == "C2" or working.compact_cursor > 0:
 			# 已压缩态保持：后续请求继续发紧凑投影（摘要+右尾），字节稳定 → KV 命中
-			out = apply_c2_messages(messages, working, summary_provider=summary_provider)
+			out = apply_c2_messages(messages, working, summary_provider=summary_provider, cwd=cwd)
 		else:
-			out = project_c0c1(messages, frozen_until=working.c1_frozen_until)
+			out = project_c0c1(messages, frozen_until=working.c1_frozen_until, cwd=cwd)
 		return _append_memory_index(out) if include_memory_index else out
 
 	cooling = (not d.hardtop) and working.turns_since_c2 < p.min_middle_edit_gap
@@ -1736,10 +1742,10 @@ def project_for_model(
 			maybe_advance_aging_boundary(messages, working)
 		if working.compact_cursor > 0:
 			working.last_action = "C2"
-			out = apply_c2_messages(messages, working, summary_provider=summary_provider)
+			out = apply_c2_messages(messages, working, summary_provider=summary_provider, cwd=cwd)
 		else:
 			working.last_action = "project"
-			out = project_c0c1(messages, frozen_until=working.c1_frozen_until)
+			out = project_c0c1(messages, frozen_until=working.c1_frozen_until, cwd=cwd)
 		return _append_memory_index(out) if include_memory_index else out
 
 	# 日常 keep：投影只按既有冻结边界走，旧消息字节稳定
@@ -1871,6 +1877,61 @@ def context_compact_ratio() -> float:
 	return 0.80
 
 
+#: token 估算比例（字符/token）。reasoning 以英文为主，取 4.0 比 3.5 更接近真实，
+#: 且宁可略微低估也不提前压缩——压缩是我们已知会丢信息的那一侧。
+_CHARS_PER_TOKEN_EST = 4.0
+
+
+def reasoning_tokens_in_context(messages: object) -> int:
+	"""估算上下文里**回传的思考态**体积（token）。
+
+	为什么要补这一项（2026-09-16 取证）：
+	    引擎把每轮 assistant 的 ``reasoning_content`` 按原文回传（S1/S2/S3，见
+	    ``tests/test_reasoning_replay_contract.py``），而厂商**把它排除在
+	    ``prompt_tokens`` 之外**（同族契约 ``test_reasoning_retention_contract.py``
+	    第 4 行写明）。它却真实排在 KV 前缀里占位——实测模型输出字符的 99.8% 是
+	    reasoning。于是只按 ``prompt_tokens`` 判水位，等于看不见上下文里最大的一块：
+	    压力门会在"以为还空"时不动、"以为满了"时砍掉可见证据（那恰是评分依赖的部分）。
+
+	读法 fail-open：结构不认识 / 无 reasoning → 返回 0（不改变既有判定）。
+	"""
+	total_chars = 0
+
+	def _walk(node: object) -> None:
+		nonlocal total_chars
+		if isinstance(node, str):
+			return
+		if isinstance(node, dict):
+			# 内部 Message 的 reasoning 块：{"type": "reasoning", "text": ...}
+			if node.get("type") == "reasoning":
+				text = node.get("text")
+				if isinstance(text, str):
+					total_chars += len(text)
+				return
+			for key, value in node.items():
+				if key in ("reasoning", "reasoning_content") and isinstance(value, str):
+					total_chars += len(value)
+				else:
+					_walk(value)
+			return
+		if isinstance(node, (list, tuple)):
+			for item in node:
+				_walk(item)
+			return
+		# 内部 Message 对象：reasoning 留在 content 数组的 {type:"reasoning"} 块里
+		content = getattr(node, "content", None)
+		if content is not None and not callable(content):
+			_walk(content)
+
+	try:
+		_walk(messages)
+	except Exception:  # noqa: BLE001 — 估算失败绝不影响主路径
+		return 0
+	if total_chars <= 0:
+		return 0
+	return int(total_chars / _CHARS_PER_TOKEN_EST)
+
+
 def should_force_compact_on_pressure(
 	*,
 	prompt_tokens: int,
@@ -1905,13 +1966,19 @@ def maybe_force_compact_on_pressure(
 	remaining_turns: int = 16,
 	system_prompt: str | None = None,
 	summary_provider=None,
+	cwd: str | os.PathLike[str] | None = None,
 ) -> bool:
-	"""达压则 ``force_compact`` 并清空投影缓存；返回是否触发了压缩。"""
+	"""达压则 ``force_compact`` 并清空投影缓存；返回是否触发了压缩。
+
+	水位 = 厂商 ``prompt_tokens`` + **回传思考态的本地估算**（后者不计入
+	``prompt_tokens``，见 ``reasoning_tokens_in_context``）。
+	"""
 	tokens = (
 		int(prompt_tokens)
 		if prompt_tokens is not None
 		else int(working.last_prompt_tokens or 0)
 	)
+	tokens += reasoning_tokens_in_context(messages)
 	if not should_force_compact_on_pressure(
 		prompt_tokens=tokens, context_limit=context_limit, working=working
 	):
@@ -1923,6 +1990,7 @@ def maybe_force_compact_on_pressure(
 		remaining_turns=remaining_turns,
 		system_prompt=system_prompt,
 		summary_provider=summary_provider,
+		cwd=cwd,
 	)
 	working.proj_cache = None
 	return int(working.compact_cursor or 0) > before or bool(working.c2_summary_text)
@@ -1935,6 +2003,7 @@ def force_compact(
 	remaining_turns: int = 16,
 	system_prompt: str | None = None,
 	summary_provider=None,
+	cwd: str | os.PathLike[str] | None = None,
 ) -> list[dict]:
 	"""手动 /compact：强制前进 cursor 并返回 C2 投影（忽略 gate/θ）。
 
@@ -1966,9 +2035,9 @@ def force_compact(
 		except Exception:
 			logging.getLogger(__name__).debug("record_c2_event failed", exc_info=True)
 		working.last_action = "C2"
-		return apply_c2_messages(messages, working, summary_provider=summary_provider)
+		return apply_c2_messages(messages, working, summary_provider=summary_provider, cwd=cwd)
 	if working.compact_cursor > 0:
 		working.last_action = "C2"
-		return apply_c2_messages(messages, working, summary_provider=summary_provider)
+		return apply_c2_messages(messages, working, summary_provider=summary_provider, cwd=cwd)
 	working.last_action = "project"
-	return project_c0c1(messages, frozen_until=working.c1_frozen_until)
+	return project_c0c1(messages, frozen_until=working.c1_frozen_until, cwd=cwd)

@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import os
+from tools.fileio import fsprobe as _fsprobe
 from typing import Any
 
 from engine.abort import AbortController
@@ -190,7 +191,7 @@ class NotebookEditTool:
 
 		abort.raise_if_aborted()
 		created = False
-		if not os.path.exists(full):
+		if not _fsprobe.exists(full):
 			if mode != "insert":
 				return ToolResult(content=f"notebook not found: {full}", is_error=True)
 			nb = json.loads(json.dumps(_EMPTY_NB))

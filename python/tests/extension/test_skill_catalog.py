@@ -175,7 +175,7 @@ def test_result_head_path_and_truncation(home, tmp_path):
 	r = asyncio.run(_execute(tool, name="big"))
 	assert "(path:" in r.content
 	assert len(r.content) <= 13_000
-	assert "use Read to continue" in r.content
+	assert "Read(file_path=" in r.content
 
 
 def test_digest_cache_skips_rescan(home, tmp_path):

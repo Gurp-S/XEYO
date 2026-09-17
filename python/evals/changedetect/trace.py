@@ -182,11 +182,8 @@ def _inject_scenarios(tmp: Path) -> list[InjectScenario]:
         ),
         InjectScenario("plan_mode", PLAIN, {}, mode="plan"),
         InjectScenario("ask_mode", PLAIN, {}, mode="ask"),
-        InjectScenario(
-            "budget_mirror",
-            PLAIN,
-            {"budget": BudgetTracker(max_turns=3, max_tool_calling=2)},
-        ),
+        # ``budget_mirror`` 场景已于 2026-09-15 随块撤销删除（用户裁定：
+        # 产品链路从不设置 wall_deadline_ts ⇒ 该块在真实会话永不注入）。
     ]
 
 

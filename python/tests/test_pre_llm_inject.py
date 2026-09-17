@@ -469,41 +469,19 @@ def test_browser_preview_block_skips_invalid():
 		set_browser_preview_url(None)
 
 
-def test_runtime_mode_snapshot_turn_first_then_no_repeat_then_subagent_skip():
-	from permissions.runtime_mode import get_runtime_mode_store
+def test_runtime_mode_snapshot_block_removed():
+	"""审批模式快照块已撤销（2026-09-15 用户裁定）：T_now 不再注入该块。
+
+	真门禁在 permissions 层（ToolRegistry 准入 gate），模型能做的事不依赖
+	本块；故断言的是"不存在"，而非它的渲染内容。
+	"""
 	from prompt.pre_llm_inject import InjectContext, run_pre_llm_inject
 
 	sid = "rtmt-inject-test"
-	store = get_runtime_mode_store()
-	store.clear(sid)
-	try:
-		store.set(sid, "always")
-		store.begin_turn(sid, "risk")  # 本轮首有活值 → armed，turn 首必发
-		out = run_pre_llm_inject(
-			[{"role": "user", "content": "hi"}],
-			InjectContext(cwd="", session_id=sid, include_memory_index=False),
-		)
-		blob = _joined_user_texts(out)
-		assert "supersedes" in blob
-		assert "当前审批模式: always" in blob
-		# #2：纯状态陈述，不含引导词。
-		assert "继续" not in blob
-
-		# #1：同 turn 轮内不再重复（即便轮中改活值）。
-		store.set(sid, "never")
-		out2 = run_pre_llm_inject(
-			[{"role": "user", "content": "hi"}],
-			InjectContext(cwd="", session_id=sid, include_memory_index=False),
-		)
-		assert "当前审批模式: always" not in _joined_user_texts(out2)
-
-		# 子代理：净化清单跳过主会话 GUI 模式广播。
-		out3 = run_pre_llm_inject(
-			[{"role": "user", "content": "hi"}],
-			InjectContext(
-				cwd="", session_id=sid, include_memory_index=False, subagent=True
-			),
-		)
-		assert "当前审批模式: always" not in _joined_user_texts(out3)
-	finally:
-		store.clear(sid)
+	out = run_pre_llm_inject(
+		[{"role": "user", "content": "hi"}],
+		InjectContext(cwd="", session_id=sid, include_memory_index=False),
+	)
+	blob = _joined_user_texts(out)
+	assert "当前审批模式" not in blob
+	assert "Runtime mode" not in blob

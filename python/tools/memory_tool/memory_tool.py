@@ -456,7 +456,7 @@ class MemoryTool:
             verdict = resolve_conflict(old, note)
             if verdict == "keep_old":
                 return ToolResult(
-                    content="inference must not override a user-confirmed note",
+					content="user-confirmed note has precedence over inferred note",
                     is_error=True,
                 )
             if verdict == "supersede":

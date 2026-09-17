@@ -42,7 +42,6 @@ _LAZY_TOOL_IMPORTS: dict[str, str] = {
 	"FileReadTool": "tools.file_read_tool.file_read_tool",
 	"FileWriteTool": "tools.file_write_tool.file_write_tool",
 	"GetTimeTool": "tools.get_time",
-	"OffloadReadTool": "tools.offload_read_tool",
 	"GlobTool": "tools.glob_tool.glob_tool",
 	"GrepTool": "tools.grep_tool.grep_tool",
 	"MemoryTool": "tools.memory_tool",
@@ -106,12 +105,6 @@ def _get_time(_cwd: str) -> Tool:
 	from tools.get_time import GetTimeTool
 
 	return GetTimeTool()
-
-
-def _offload_read(_cwd: str) -> Tool:
-	from tools.offload_read_tool import OffloadReadTool
-
-	return OffloadReadTool()
 
 
 def _glob(cwd: str) -> Tool:
@@ -260,7 +253,6 @@ def _job_kill(_cwd: str) -> Tool:
 # 【契约】名须与 tools.meta.TOOL_META 且 tool.name 一致；副作用工具须有边界测。
 ENABLED_TOOL_ENTRIES: Sequence[tuple[str, ToolFactory]] = (
 	("getTime", _get_time),
-	("offload_read", _offload_read),
 	("Glob", _glob),
 	("Grep", _grep),
 	("Read", _file_read),
@@ -289,6 +281,40 @@ ENABLED_TOOL_ENTRIES: Sequence[tuple[str, ToolFactory]] = (
 TOOL_FACTORY_BY_NAME: dict[str, ToolFactory] = {
 	name: factory for name, factory in ENABLED_TOOL_ENTRIES
 }
+
+#: 最小工作面（``XEYO_TOOL_SURFACE=minimal``）：只给模型真正在用的那几个。
+#:
+#: 依据（2026-09-16 实测，40 份轨迹 / 1378 个 assistant 轮的工具调用分布）：
+#:   Bash 1405 · job_output 160 · job_list 22 · job_kill 16 · TodoWrite 14 ·
+#:   Read 6 · getTime 1 · 其余（Write/Edit/Glob/Grep/Agent/Skill/Memory/
+#:   WebFetch/WebSearch/Diagnostics/Git/NotebookEdit/JournalQuery）**全部为 0**。
+#: 20 个工具里 13 个零调用——每个 schema 都是每轮要模型读一遍却不参与工作的死重。
+#:
+#: 为什么带 job 三件套：Bash 超过晋升阈值会返回 job_id（见 bash_tool
+#: promote_threshold_for），没有 job_output 模型就无法取回输出——那是把工具面
+#: 剪成残废，不是剪成最小。
+#:
+#: 注意：含 **Read**（用户 2026-09-16 追认；文件内容读取不再只能靠 Bash 的 cat），
+#: 且容器路由下 Read/Write/Edit/Glob/Grep 全部已接 `tools/container_fs.py`
+#: （2026-09-16）——工作面在容器里时它们读写的也是容器，不再指向宿主空 scratch。
+MINIMAL_SURFACE_TOOLS: frozenset[str] = frozenset({
+	"Bash",
+	"Read",
+	"Write",
+	"Edit",
+	"Glob",
+	"Grep",
+	"Agent",
+	"job_output",
+	"job_list",
+	"job_kill",
+})
+
+
+def _minimal_surface_requested() -> bool:
+	"""``XEYO_TOOL_SURFACE=minimal`` 时启用最小面；缺省/其它值不改行为。"""
+	raw = (os.environ.get("XEYO_TOOL_SURFACE") or "").strip().lower()
+	return raw in ("minimal", "min", "small")
 
 # 兼容旧调用：仅工厂序列
 ENABLED_TOOLS: Sequence[ToolFactory] = tuple(
@@ -374,6 +400,9 @@ def build_default_registry(*, cwd: str = ".") -> ToolRegistry:
 			"Screenshot", "SendToWeChat", "XeyoUI",
 		}
 		entries = [e for e in entries if e[0] not in excluded]
+	# 最小工作面（显式命名，与 XEYO_BENCH_MINIMAL 正交）：只留模型真正在用的那几个。
+	if _minimal_surface_requested():
+		entries = [e for e in entries if e[0] in MINIMAL_SURFACE_TOOLS]
 	_register_factories(
 		reg, entries, cwd=work, read_state=ReadFileState()
 	)

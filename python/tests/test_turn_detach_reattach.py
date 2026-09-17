@@ -42,7 +42,7 @@ def test_resume_cue_helpers():
 		todos=[{"content": "写 TurnRunner", "status": "in_progress"}],
 		stop_reason="user_stop",
 	)
-	assert "[Resume]" in prompt
+	assert "Resume state" in prompt
 	assert "实现断点续跑" in prompt
 	assert "写 TurnRunner" in prompt
 

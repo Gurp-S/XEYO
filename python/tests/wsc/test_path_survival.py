@@ -32,6 +32,24 @@ def test_path_recent_uses_same_basename_relaxation_as_path():
 	assert out["path_recent"]["rate"] == 1.0
 
 
+def test_failure_site_uses_same_basename_relaxation_as_path():
+	"""`failure_site` 与 `path` 是**同一批字符串**，判据必须同口径。
+
+	此前只在 `path`/`path_recent` 上有 basename 回退 ⇒ 同一条路径在同一个热层里
+	「path 记命中、failure_site 记漏失」，纯属度量伪影（实测 7.7pp）。"""
+	hot = "[PATHS] a/util.ts | [WORKING SET] util.ts"
+	needles = {"path": ("src/a/util.ts",), "failure_site": ("src/a/util.ts",)}
+	out = needle_survival(hot, needles)
+	assert out["path"]["rate"] == 1.0
+	assert out["failure_site"]["rate"] == 1.0, "failure_site 必须与 path 同判据"
+
+
+def test_failure_site_still_misses_when_basename_absent():
+	"""放宽不等于恒真：basename 不在热层里就必须记漏（防断言空洞）。"""
+	out = needle_survival("无关内容", {"failure_site": ("src/a/util.ts",)})
+	assert out["failure_site"]["rate"] == 0.0
+
+
 def _state(path: str, idx: int) -> FileState:
 	return FileState(path=path, observed_hash="h", last_read_idx=idx, read_ranges=())
 

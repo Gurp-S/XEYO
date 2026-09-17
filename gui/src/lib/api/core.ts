@@ -22,7 +22,9 @@ export function mediaUrl(mediaRef: string): string {
 }
 
 export const REQUEST_TIMEOUT_MS = 20_000;
-export const STREAM_IDLE_TIMEOUT_MS = 60_000;
+// SSE 保活帧由后端每 12 秒发送；60 秒过于接近前端/代理调度抖动，
+// 长工具批次时容易把仍存活的流误判为断开。
+export const STREAM_IDLE_TIMEOUT_MS = 180_000;
 
 export async function fetchWithTimeout(
 	url: string,
@@ -146,6 +148,16 @@ export type CompressionStreamEvent = {
 	source: 'automatic' | 'manual';
 	contextTokens?: number;
 	contextLimit?: number;
+} & EventIdentity;
+
+/**
+ * 引导投递回执（管道 1）：运行中输入的用户消息已在**边界**送达模型。
+ * 只带事实（条数 + 客户端消息 id）——文本本地已有，回灌会与编辑打架。
+ */
+export type SteerDeliveredStreamEvent = {
+	kind: 'steer_delivered';
+	count: number;
+	messageIds: string[];
 } & EventIdentity;
 
 export type PermissionPendingStreamEvent = {
@@ -311,6 +323,10 @@ export type MultiAgentTaskView = {
 	batchAt?: number;
 	/** P2：该 agent 的 follow-up 收件箱数（列表 API 带来；>0 卡片角标）。 */
 	inboxCount?: number;
+	/** 累计 token（首轮 + follow-up 预算之和；progress/列表帧带来，>0 卡片角标）。 */
+	tokensUsed?: number;
+	/** 累计成本（CNY；title 提示用）。 */
+	costCny?: number;
 };
 
 export type MultiAgentTaskStreamEvent = {
@@ -338,6 +354,9 @@ export type MultiAgentProgressStreamEvent = {
 	status: 'pending' | 'running' | 'done' | 'failed';
 	reason?: string;
 	result?: string;
+	/** 落定帧携带：子 agent 累计 token / 成本。 */
+	tokensUsed?: number;
+	costCny?: number;
 } & EventIdentity;
 
 /** 多 Agent：子 agent 输出的 token 级文本增量（同一 SSE 流内按 agent 有序）。 */
@@ -454,6 +473,7 @@ export type ParsedSse =
 	| ToolProgressStreamEvent
 	| UsageStreamEvent
 	| CompressionStreamEvent
+	| SteerDeliveredStreamEvent
 	| PermissionPendingStreamEvent
 	| PermissionResolvedStreamEvent
 	| AskUserPendingStreamEvent
@@ -735,6 +755,16 @@ export function parseSseBlock(part: string): ParsedSse | null {
 						...readIdentity(xy),
 					};
 				}
+				if (xy.type === 'steer_delivered') {
+					return {
+						kind: 'steer_delivered',
+						count: Number.isFinite(Number(xy.count)) ? Number(xy.count) : 0,
+						messageIds: Array.isArray(xy.message_ids)
+							? xy.message_ids.map(String)
+							: [],
+						...readIdentity(xy),
+					};
+				}
 				if (xy.type === 'permission_pending') {
 					return {
 						kind: 'permission_pending',
@@ -905,18 +935,24 @@ export function parseSseBlock(part: string): ParsedSse | null {
 				};
 			}
 			if (xy.type === 'multi_agent_progress') {
-				const st = String(xy.status ?? 'running');
-				return {
-					kind: 'multi_agent_progress',
-					uid: String(xy.uid ?? xy.task_id ?? ''),
-					taskId: String(xy.task_id ?? ''),
-					agentId: String(xy.agent_id ?? ''),
-					status: (st === 'done' || st === 'failed' || st === 'pending' ? st : 'running'),
-					reason: typeof xy.reason === 'string' && xy.reason ? xy.reason : undefined,
-					result: typeof xy.result === 'string' && xy.result ? xy.result : undefined,
-					...readIdentity(xy),
-				};
-			}
+					const st = String(xy.status ?? 'running');
+					return {
+						kind: 'multi_agent_progress',
+						uid: String(xy.uid ?? xy.task_id ?? ''),
+						taskId: String(xy.task_id ?? ''),
+						agentId: String(xy.agent_id ?? ''),
+						status: (st === 'done' || st === 'failed' || st === 'pending' ? st : 'running'),
+						reason: typeof xy.reason === 'string' && xy.reason ? xy.reason : undefined,
+						result: typeof xy.result === 'string' && xy.result ? xy.result : undefined,
+						tokensUsed: Number.isFinite(Number(xy.tokens_used))
+							? Math.max(0, Number(xy.tokens_used))
+							: undefined,
+						costCny: Number.isFinite(Number(xy.cost_cny))
+							? Math.max(0, Number(xy.cost_cny))
+							: undefined,
+						...readIdentity(xy),
+					};
+				}
 			if (xy.type === 'multi_agent_delta') {
 				const text = typeof xy.text === 'string' ? xy.text : '';
 				if (!text) {
@@ -1012,6 +1048,8 @@ export async function* parseOpenAiSse(
 		if (done) {
 			break;
 		}
+		// read() 收到的既可能是数据帧，也可能只是 SSE 注释/保活帧。
+		// 二者都证明本地后端连接仍然存活。
 		onActivity?.();
 		buffer += decoder.decode(value, {stream: true});
 		const parts = buffer.split('\n\n');
@@ -1062,4 +1100,10 @@ export type ChatRequestOptions = {
 	workspace?: string;
 	/** 会话级思考等级覆盖（输入框手动选）；优先级最高，其次模型默认等级，再次会话级。 */
 	reasoningEffort?: string;
+	/**
+	 * 引导（steer）：会话忙时把这条消息投到**边界**（下一次采样前），作为真
+	 * user 消息进历史——工具批次不被打断，模型立刻看到。不开启时保持既有语义
+	 * （排队等 settle）。side- 会话忽略。
+	 */
+	steerIfBusy?: boolean;
 };

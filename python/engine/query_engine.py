@@ -1165,12 +1165,41 @@ class QueryEngine:
                 yield event
 
 
+#: 已知模型的**真实**上下文窗口（token）。权威顺序：
+#: 会话显式配置 > ``XEYO_CONTEXT_LIMIT`` > 厂商 /v1/models 声明 > 本表 > 保守兜底。
+#: 只登记有官方口径的型号；未登记不猜（宁可落保守兜底，也不按错窗口压）。
+KNOWN_CONTEXT_WINDOWS: tuple[tuple[str, int], ...] = (
+	# V4.1-Flash：deepseek-v4-flash 的厂商规范名即 deepseek-flash（/v1/models 只列
+	# deepseek-flash 与 deepseek-v4-pro，实测见 TerminalBench/zero/step0_evidence.json）
+	("deepseek-flash", 1_000_000),
+	("deepseek-v4-flash", 1_000_000),
+)
+
+#: 未登记型号的保守兜底：取"当前主流模型的最小窗口"档。
+#: 2026-09-16 修正：原实现对 deepseek 一律硬编码 65536，比 V4.1-Flash 的真实窗口
+#: 小 16 倍 ⇒ 压力门在 ~52k 就认为"快满了"，而 TB 单题实测 prompt peak 已到 73-78k，
+#: 引擎开始对上下文做取舍，取舍掉的正是评分依赖的可见证据。
+CONSERVATIVE_CONTEXT_WINDOW = 128_000
+
+
+def _known_context_window(model_key: str) -> int | None:
+	"""按型号前缀查真实窗口；未登记返回 None。"""
+	key = (model_key or "").strip().lower()
+	if not key:
+		return None
+	for prefix, window in KNOWN_CONTEXT_WINDOWS:
+		if key.startswith(prefix):
+			return window
+	return None
+
+
 def _default_context_limit(provider: str, model: str) -> int | None:
-	"""为缺失 context_limit 的客户端提供保守默认窗口（G67）。
+	"""为缺失 context_limit 的客户端提供真实窗口（G67；2026-09-16 改为按型号）。
 
 	- ``XEYO_CONTEXT_LIMIT`` 显式覆盖（>0 生效）;
-	- deepseek 路径固定 65536（不再让 C2 三触发点因 None 全哑）;
-	- 已知大窗 OpenAI 型号给 128k;未知型号返回 None——宁可不压,也不拿错窗口压。
+	- deepseek：先查已知型号的真实窗口，未登记落 ``CONSERVATIVE_CONTEXT_WINDOW``
+	  （不再让 C2 三触发点因 None 全哑，也不再用 64k 误判大窗模型）;
+	- 已知大窗 OpenAI 型号给 128k;未知型号返回 None——宁可不压，也不拿错窗口压。
 	"""
 	import os
 
@@ -1183,7 +1212,7 @@ def _default_context_limit(provider: str, model: str) -> int | None:
 	provider_key = (provider or "").lower()
 	model_key = (model or "").lower()
 	if provider_key == "deepseek":
-		return 65536
+		return _known_context_window(model_key) or CONSERVATIVE_CONTEXT_WINDOW
 	if provider_key in ("openai", "local") and (
 		model_key.startswith("gpt-4o")
 		or model_key.startswith("gpt-4.1")

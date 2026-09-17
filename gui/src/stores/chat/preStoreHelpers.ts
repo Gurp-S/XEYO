@@ -542,6 +542,12 @@ activeSpaceId: string;
 			background?: boolean;
 			/** 会话输入框手动选的思考等级；优先级最高（与 streamSendSlice 实现对齐）。 */
 			reasoningEffort?: string;
+			/**
+			 * 引导（steer）：会话忙时把这条消息投到**边界**（下一次采样前），
+			 * 作为真 user 消息进历史——不打断工具批次，模型立刻看到。不开时
+			 * 保持既有语义（排队等 settle）。
+			 */
+			steerIfBusy?: boolean;
 		},
 	) => Promise<boolean>;
 	/**

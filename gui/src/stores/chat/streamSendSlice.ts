@@ -137,6 +137,8 @@ export function createStreamSendSlice(
 				background?: boolean;
 				/** 会话输入框手动选的思考等级；优先级最高。 */
 				reasoningEffort?: string;
+				/** 引导（steer）：忙时投到边界（下一次采样前），不打断工具批次。 */
+				steerIfBusy?: boolean;
 			},
 		) {
 		const background = Boolean(opts?.background && opts.sessionId);
@@ -1406,7 +1408,7 @@ export function createStreamSendSlice(
 					persistence.now(msgs);
 				},
 			},
-			{mediaRefs, agentMode: requestedAgentMode, multiAgent: requestedMultiAgent, workspace: workspaceRoot, reasoningEffort: opts?.reasoningEffort},
+			{mediaRefs, agentMode: requestedAgentMode, multiAgent: requestedMultiAgent, workspace: workspaceRoot, reasoningEffort: opts?.reasoningEffort, steerIfBusy: opts?.steerIfBusy},
 			);
 		} catch (err) {
 			flushFrame();

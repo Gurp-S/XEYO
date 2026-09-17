@@ -104,10 +104,10 @@ def test_schema_mentions_grep_paths(env):
 
 
 def test_schema_mentions_recall_guidance(env):
-	"""批次3：索引不再推送 T_now——召回指引住 description（静态文本）。"""
+	"""批次3：索引不再推送 T_now——召回能力住 description（静态文本）。"""
 	desc = _tool(env).schema()["description"]
 	assert "prior context" in desc
-	assert "call it first before answering" in desc
+	assert "returns matching durable notes" in desc
 
 
 @pytest.mark.asyncio

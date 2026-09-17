@@ -87,10 +87,11 @@ def test_attach_after_tool_skips_memory_index(monkeypatch):
 		include_memory_index=True,
 		multi_agent=False,
 	)
-	assert out[-1]["role"] == "user"
-	parts = out[-1]["content"]
-	assert isinstance(parts, list)
-	# 声道无关：legacy=text 块（Continue 首块）；env_channel（方案A）=伪对 tool_result 正文
+	assert out[-1]["role"] in {"user", "system"}
+	# 声道无关：legacy=text 块（Continue 首块）；env_channel（方案A）=伪对
+	# tool_result 正文；system_channel（默认档，2026-09-15 起）=原生 system 消息。
+	content = out[-1]["content"]
+	parts = content if isinstance(content, list) else [{"type": "text", "text": str(content)}]
 	texts = [str(p.get("text") or "") for p in parts if isinstance(p, dict)]
 	res = [
 		str(p.get("content") or "")

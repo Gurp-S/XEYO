@@ -3,26 +3,32 @@
  *
  * 角标与弹层的展示规则（42 号 §8）：
  * - 角标 = running+stopping 计数，**为零整个隐藏**（会话无任务不长控件）。
- * - 弹层行 = kind / label / detail（有则取代状态词）/ 状态标记 / 耗时——
- *   活跃行每秒推进、终态在 finishedAt 冻结；终态行弱化保留。
+ * - 弹层 = 菜单同款视觉（xy-ctx-menu 毛玻璃 + 紧凑行）；行 = kind / label /
+ *   detail（有则取代状态词）/ 状态标记 / 耗时——活跃行每秒推进、终态行弱化保留。
+ * - 点击行展开终端输出（GET jobs/{id}/output 只读窥视，不消费模型侧游标）；
+ *   运行中每 2s 刷新，终态冻结。
  * - 排序确定性：活跃行前（startedAt 升序）、终态行后（finishedAt 降序）。
  * - 数据：SSE jobs 帧（turn 起点播种，经 chatStore onJobs 落库）+ GET 轻量
  *   轮询（有任务才轮询；owner turn 结束后的结算变化靠它补齐）。
  * - 只读纪律：无流直读、无人类中断行（冻结口径 6）。
  */
 import {useEffect, useRef, useState} from 'react';
-import {Loader2, ListTree} from 'lucide-react';
+import {ChevronDown, Loader2, ListTree, Terminal} from 'lucide-react';
 import {useChatStore} from '@/stores/chatStore';
 import {cn} from '@/lib/utils';
 import {
 	activeJobsCount,
+	fetchJobOutput,
 	fetchSessionJobs,
 	sortJobsForPanel,
+	type JobOutputPeek,
 	type JobSnapshot,
 } from '@/lib/api/jobs';
 import {popEscLayer, pushEscLayer} from '@/lib/escStack';
 
 const JOBS_POLL_MS = 5000;
+/** 展开行运行中的输出刷新间隔。 */
+const JOB_OUTPUT_REFRESH_MS = 2000;
 
 function formatElapsed(ms: number): string {
 	const total = Math.max(0, Math.floor(ms / 1000));
@@ -117,6 +123,7 @@ export function SessionJobsBadge({
 	const jobsRecord = useChatStore(s => s.sessionJobsById);
 	const jobs = sessionId ? (jobsRecord[sessionId] ?? EMPTY_JOBS) : EMPTY_JOBS;
 	const [open, setOpen] = useState(false);
+	const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
 	const rootRef = useRef<HTMLDivElement>(null);
 	useSessionJobsLive(sessionId);
 
@@ -148,6 +155,7 @@ export function SessionJobsBadge({
 
 	useEffect(() => {
 		setOpen(false);
+		setExpandedJobId(null);
 	}, [sessionId, mode]);
 
 	const active = activeJobsCount(jobs);
@@ -186,10 +194,11 @@ export function SessionJobsBadge({
 				<div
 					role="region"
 					aria-label="后台任务"
-					className="absolute right-0 top-[calc(100%+6px)] z-[70] max-h-72 w-[min(360px,calc(100vw-32px))] overflow-y-auto rounded-xl border border-frame bg-glass-strong p-1.5 shadow-[var(--xy-modal-shadow)]"
+					// 菜单同款面板：xy-ctx-menu 毛玻璃 + rounded-md + line/60 边 + shadow-lg。
+					className="xy-ctx-menu absolute right-0 top-[calc(100%+6px)] z-[70] max-h-80 w-[min(400px,calc(100vw-32px))] overflow-y-auto rounded-md border border-line/60 p-1 shadow-lg"
 				>
 					<p className="px-1.5 pb-1 pt-0.5 text-[10px] text-mute">
-						后台任务（只读；完成会自动通知模型，由模型 job_output 收结果）
+						后台任务（只读；点击行查看终端输出）
 					</p>
 					<ul className="m-0 list-none space-y-0.5 p-0">
 						{rows.map(j => {
@@ -197,25 +206,33 @@ export function SessionJobsBadge({
 							const elapsed = formatElapsed(
 								(isActive ? now : j.finished_at || now) - j.started_at,
 							);
+							const expanded = expandedJobId === j.job_id;
 							return (
 								<li
 									key={j.job_id}
 									className={cn(
-										'rounded-lg border border-line/50 bg-glass-hover/40 px-2 py-1.5',
+										'rounded-[5px]',
 										!isActive && 'opacity-60',
 									)}
 								>
-									<div className="flex items-center gap-1.5">
+									<button
+										type="button"
+										className={cn(
+											'flex w-full items-start gap-1.5 rounded-[5px] px-2 py-1.5 text-left transition-colors duration-75 hover:bg-glass-hover',
+										)}
+										aria-expanded={expanded}
+										onClick={() => setExpandedJobId(expanded ? null : j.job_id)}
+									>
 										{isActive ? (
 											<Loader2
-												className="size-3 shrink-0 animate-spin text-ok"
+												className="mt-0.5 size-3 shrink-0 animate-spin text-ok"
 												strokeWidth={2}
 												aria-hidden
 											/>
 										) : (
 											<span
 												className={cn(
-													'size-1.5 shrink-0 rounded-full',
+													'mt-1.5 size-1.5 shrink-0 rounded-full',
 													j.status === 'failed' || j.status === 'killed'
 														? 'bg-warn'
 														: 'bg-mute/60',
@@ -223,38 +240,127 @@ export function SessionJobsBadge({
 												aria-hidden
 											/>
 										)}
-										<span className="min-w-0 flex-1 truncate text-[11px] leading-4 text-ink">
-											{j.label || j.kind}
+										<span className="min-w-0 flex-1">
+											<span className="flex items-center gap-1.5">
+												<span className="min-w-0 flex-1 truncate text-[11.5px] leading-4 text-ink">
+													{j.label || j.kind}
+												</span>
+												<span
+													className={cn(
+														'shrink-0 font-mono text-[10px]',
+														statusTone(j.status),
+													)}
+												>
+													{elapsed}
+												</span>
+												<ChevronDown
+													className={cn(
+														'size-3 shrink-0 text-mute/70 transition-transform duration-150',
+														expanded && 'rotate-180',
+													)}
+													strokeWidth={1.8}
+													aria-hidden
+												/>
+											</span>
+											<span className="mt-0.5 flex items-center gap-1.5 text-[10px] leading-4">
+												<span className="shrink-0 font-mono text-mute">
+													{j.job_id}
+												</span>
+												{/* detail 有则取代状态词（42 号 §8）。 */}
+												<span
+													className={cn(
+														'min-w-0 flex-1 truncate',
+														j.detail ? 'text-ink-soft' : statusTone(j.status),
+													)}
+												>
+													{j.detail || (STATUS_TEXT[j.status] ?? j.status)}
+												</span>
+											</span>
 										</span>
-										<span
-											className={cn(
-												'shrink-0 font-mono text-[10px]',
-												statusTone(j.status),
-											)}
-										>
-											{elapsed}
-										</span>
-									</div>
-									<div className="mt-0.5 flex items-center gap-1.5 text-[10px] leading-4">
-										<span className="shrink-0 font-mono text-mute">
-											{j.job_id}
-										</span>
-										{/* detail 有则取代状态词（42 号 §8）。 */}
-										<span
-											className={cn(
-												'min-w-0 flex-1 truncate',
-												j.detail ? 'text-ink-soft' : statusTone(j.status),
-											)}
-										>
-											{j.detail || (STATUS_TEXT[j.status] ?? j.status)}
-										</span>
-									</div>
+									</button>
+									{expanded ? (
+										<JobTerminal sessionId={sessionId} job={j} running={isActive} />
+									) : null}
 								</li>
 							);
 						})}
 					</ul>
 				</div>
 			) : null}
+		</div>
+	);
+}
+
+/** 行内终端输出查看器：展开时拉取一次；运行中每 2s 刷新，终态冻结。 */
+function JobTerminal({
+	sessionId,
+	job,
+	running,
+}: {
+	sessionId: string;
+	job: JobSnapshot;
+	running: boolean;
+}) {
+	const [peek, setPeek] = useState<JobOutputPeek | null>(null);
+	const [loaded, setLoaded] = useState(false);
+	const preRef = useRef<HTMLPreElement>(null);
+
+	useEffect(() => {
+		let stopped = false;
+		let timer = 0;
+		const load = async () => {
+			const out = await fetchJobOutput(sessionId, job.job_id);
+			if (!stopped && out !== null) {
+				setPeek(out);
+			}
+			if (!stopped) {
+				setLoaded(true);
+			}
+		};
+		void load();
+		if (running) {
+			timer = window.setInterval(() => void load(), JOB_OUTPUT_REFRESH_MS);
+		}
+		return () => {
+			stopped = true;
+			window.clearInterval(timer);
+		};
+	}, [sessionId, job.job_id, running]);
+
+	// 输出更新时贴底（终端语义）；用户往上翻过就不强拉（滚动位置在顶部 8px 内才贴底）。
+	useEffect(() => {
+		const el = preRef.current;
+		if (!el || !peek?.text) return;
+		const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 8;
+		if (atBottom || !loaded) {
+			el.scrollTop = el.scrollHeight;
+		}
+	}, [peek?.text, loaded]);
+
+	const text = peek?.text ?? '';
+	return (
+		<div className="mx-1 mb-1.5 mt-0.5 rounded-[5px] border border-line/40 bg-black/25">
+			<div className="flex items-center gap-1.5 border-b border-line/40 px-2 py-1 text-[9.5px] text-mute">
+				<Terminal className="size-2.5" strokeWidth={1.8} aria-hidden />
+				<span className="flex-1">终端输出（只读）</span>
+				{peek?.truncated ? (
+					<span title="早期输出超出缓冲上限，已只保留尾部">已截断</span>
+				) : null}
+			</div>
+			<pre
+				ref={preRef}
+				className="max-h-48 overflow-y-auto whitespace-pre-wrap break-words px-2 py-1.5 font-mono text-[10.5px] leading-4 text-ink-soft"
+			>
+				{loaded ? (
+					text ? (
+						text
+					) : (
+						<span className="text-mute">（暂无输出）</span>
+					)
+				) : (
+					<span className="text-mute">加载中…</span>
+				)}
+			</pre>
 		</div>
 	);
 }

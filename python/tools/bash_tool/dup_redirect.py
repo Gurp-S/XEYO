@@ -141,8 +141,8 @@ def _hit_read(tokens: list[str]) -> _Hit | None:
 		tool_name="Read",
 		tool_input={"file_path": path},
 		hint=(
-			f'Use Read instead of Bash {tokens[0]}: file_path="{path}" '
-			"(offset/limit for long files)."
+			f'Bash {tokens[0]} maps to Read(file_path="{path}") '
+			"(offset/limit are available for long files)."
 		),
 	)
 
@@ -196,7 +196,7 @@ def _hit_search(tokens: list[str]) -> _Hit | None:
 		tool_name="Grep",
 		tool_input=inp,
 		hint=(
-			f'Use Grep instead of Bash {tokens[0]}: pattern="{pattern}"{tail}'
+			f'Bash {tokens[0]} maps to Grep(pattern="{pattern}"{tail})'
 			f"{extra}."
 		),
 	)
@@ -208,11 +208,7 @@ def _routed_note(command: str, hit: _Hit) -> str:
 	arg = hit.tool_input.get("file_path") or hit.tool_input.get("path")
 	arg = arg if isinstance(arg, str) and arg.strip() else hit.tool_input.get("pattern")
 	frag = f" {_short(str(arg))}" if isinstance(arg, str) and arg.strip() else ""
-	return (
-		f"[routed: Bash {base} → {hit.tool_name}{frag}] "
-		f"Use {hit.tool_name} directly — "
-		"Bash is only for commands without a dedicated tool."
-	)
+	return f"[routed: Bash {base} → {hit.tool_name}{frag}]"
 
 
 def plan_bash_route(command: str | None) -> BashRoutePlan | None:

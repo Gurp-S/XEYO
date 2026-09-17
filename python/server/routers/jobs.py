@@ -12,6 +12,7 @@ from typing import Any
 from fastapi import APIRouter, Depends
 
 from server.local_gate import require_loopback
+from server.deps import api_error
 
 router = APIRouter(tags=["jobs"], dependencies=[Depends(require_loopback)])
 
@@ -34,3 +35,22 @@ def list_jobs(session_id: str) -> dict[str, Any]:
 		}
 	except Exception:  # noqa: BLE001 — 降级为空集
 		return {"jobs": [], "version": 0, "wake_budget_left": 0}
+
+
+@router.get("/v1/sessions/{session_id}/jobs/{job_id}/output")
+def job_output_peek(session_id: str, job_id: str) -> dict[str, Any]:
+	"""GUI 只读窥视单个任务的终端输出（ring 全量 + 截断标志）。
+
+	与模型侧 ``job_output``（单游标增量消费 + reported 置位）严格分离：
+	本端点不消费游标、不影响通知管线，可重复轮询。未知/越权 → 404。
+	"""
+	from server.job_registry import get_job_registry
+
+	sid = (session_id or "").strip()
+	jid = (job_id or "").strip()
+	if not sid or not jid:
+		raise api_error(400, "session_id and job_id required", "invalid_request")
+	peek = get_job_registry().peek_output(jid, sid)
+	if peek is None:
+		raise api_error(404, "job not found", "job_not_found")
+	return peek

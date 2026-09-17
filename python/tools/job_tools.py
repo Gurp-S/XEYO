@@ -266,6 +266,18 @@ class JobKillTool:
 		if not job_id:
 			return ToolResult(content="job_id is required", is_error=True)
 		reason = str(input.get("reason") or "").strip()
+		# 容器后台 job 优先（与 job_output/job_list 同一可见面，2026-09-16 对齐）：
+		# 此前 kill 只查 registry ⇒ 模型能看见容器 job 却杀不掉，每次白烧一轮。
+		try:
+			from tools.bash_tool.bash_tool import cancel_docker_bg, docker_bg_snapshot
+
+			if any(j["job_id"] == job_id for j in docker_bg_snapshot()):
+				msg = cancel_docker_bg(job_id, reason)
+				if msg is None:
+					return ToolResult(content=f"unknown job: {job_id}", is_error=True)
+				return ToolResult(content=msg)
+		except Exception:  # noqa: BLE001 — 回退 registry 路径
+			pass
 		try:
 			msg = _registry().kill(job_id, _owner_only(_session_id()), reason)
 			unknown = msg.startswith("unknown job")

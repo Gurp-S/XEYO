@@ -1,21 +1,19 @@
-"""Agent tool description (when to spawn a sub-agent)."""
+"""Agent tool description and input/output facts."""
 
 TOOL_NAME = "Agent"
 
 DESCRIPTION = (
 	"Spawn a short-lived scoped sub-agent (task-style isolation). "
-	"Always available in Agent mode — Multi-Agent chip only soft-prefers spawn.\n"
-	"Use when work benefits from isolation or parallelism: multi-file explore/edit, "
-	"independent docs/dirs, research that would bloat the main transcript. "
-	"You may call Agent multiple times in ONE turn for independent scopes "
-	"(they run concurrently).\n"
+	"Always available in Agent mode; the Multi-Agent chip is a separate session state.\n"
+	"The sub-agent supports isolated or parallel work over multi-file scopes, "
+	"independent directories, and research context. Multiple Agent calls in ONE turn "
+	"run concurrently when their scopes are independent.\n"
 	"Provide task_id, desc; optional scope (write paths this worker may touch; "
 	"empty scope = read-only hard gate, no Write/Edit), required_tools "
 	"(Read, Edit, Grep, Glob…), and reuse_agent_id to retry an existing sidechain.\n"
-	"Do NOT spawn for simple Q&A or a single-file edit you can do yourself. "
-	"Sub-agents get Git + a readonly Bash sandbox (allowlist only; else DENY, no ASK); "
-	"they cannot use Memory or spawn Agents. "
-	"After tool_result(s), YOU write the final answer to the user."
+	"Sub-agents get Git and a readonly Bash sandbox (allowlist only; other commands "
+	"are denied); Memory and nested Agents are unavailable. "
+	"After tool_result messages, the parent agent produces the final user response."
 )
 
 # Composer Multi-Agent chip：挂到本轮 T_now。E2 裁决：只告知事实

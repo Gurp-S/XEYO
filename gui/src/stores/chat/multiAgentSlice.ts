@@ -232,6 +232,8 @@ export function createMultiAgentSlice(
 					...(m.readOnly !== undefined ? {readOnly: m.readOnly} : {}),
 					...(m.scope?.length || m.readOnly ? {scope: m.scope ?? []} : {}),
 					...(m.inboxCount ? {inboxCount: m.inboxCount} : {}),
+					// 历史批 token（meta 持久化）；运行中卡片由 progress 帧覆盖。
+					...(m.tokensUsed ? {tokensUsed: m.tokensUsed} : {}),
 				});
 			}
 			return {
@@ -462,6 +464,10 @@ export function createMultiAgentStreamHandlers(deps: {
 								status: ev.status,
 								reason: ev.reason,
 								result: ev.result,
+								...(ev.tokensUsed !== undefined
+									? {tokensUsed: ev.tokensUsed}
+									: {}),
+								...(ev.costCny !== undefined ? {costCny: ev.costCny} : {}),
 								batchAt: Date.now(),
 							},
 						],
@@ -480,6 +486,9 @@ export function createMultiAgentStreamHandlers(deps: {
 									status: ev.status,
 									reason: ev.reason ?? t.reason,
 									result: ev.result ?? t.result,
+									// token 落定帧才带：有值覆盖，无值保留（列表帧兜底历史批）。
+									tokensUsed: ev.tokensUsed ?? t.tokensUsed,
+									costCny: ev.costCny ?? t.costCny,
 								}
 							: t,
 					),

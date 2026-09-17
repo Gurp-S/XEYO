@@ -135,6 +135,10 @@ class SubagentRunResult:
     turns_used: int = 0
     max_turns: int = 0
     read_only: bool = False
+    #: 累计 token（首轮 + follow-up 预算的 used_tokens 之和；GUI 卡片展示用）。
+    tokens_used: int = 0
+    #: 累计成本（CNY，两段预算 used_cny 之和）。
+    cost_cny: float = 0.0
 
 
 async def run_subagent(
@@ -490,6 +494,15 @@ async def _run_subagent_body(
             followup_budget.model = model
         cycle_no += 1
 
+    # 累计 token / 成本 = 首轮 + follow-up 两段预算之和（GUI 卡片 token 角标数据源）。
+    # 在 meta 落盘前算好，step 5 的 upsert 一并写入。
+    tokens_used_total = int(getattr(budget, "used_tokens", 0) or 0) + int(
+        getattr(followup_budget, "used_tokens", 0) or 0
+    )
+    cost_cny_total = float(getattr(budget, "used_cny", 0.0) or 0.0) + float(
+        getattr(followup_budget, "used_cny", 0.0) or 0.0
+    )
+
     # 4) 侧链兜底全量写（增量收尾已落绝大部分；此处扫盘去重补齐）+ snapshot 持久化
     try:
         from session.record_transcript import record_transcript
@@ -525,6 +538,7 @@ async def _run_subagent_body(
             finished_at=time.time(),
             result_preview=result.conclusion,
             has_transcript=sidechain.is_file(),
+            tokens_used=tokens_used_total,
         )
     except Exception:  # noqa: BLE001
         pass
@@ -549,6 +563,9 @@ async def _run_subagent_body(
         int(getattr(budget, "max_turns", 0) or 0),
         int(getattr(followup_budget, "max_turns", 0) or 0),
     )
+    # 累计 token / 成本（GUI 卡片 token 角标数据源）。
+    result.tokens_used = tokens_used_total
+    result.cost_cny = cost_cny_total
 
     if budget.last_usage and task_batch_id:
         try:
@@ -687,6 +704,7 @@ def upsert_subagent_meta(
     has_transcript: bool | None = None,
     write_scope: list[str] | None = None,
     pending_followups: list[str] | None = None,
+    tokens_used: int = -1,
 ) -> None:
     """写/更新子 agent 元数据（best-effort）：UI 卡片列表与历史回放的数据源。
 
@@ -694,6 +712,7 @@ def upsert_subagent_meta(
     ``write_scope`` 空列表 = 只读工人（无 Write/Edit）。
     ``pending_followups``：P2 已结束 agent 的迟到 follow-up（merge-keep，不覆盖旧值）；由
     retry 连带执行。``inbox_count`` 为派生值（不在 meta 存储，读取时合成）。
+    ``tokens_used``：-1 = 保留旧值（调用方未知时不冲掉历史）。
     """
     import json
     import os
@@ -757,6 +776,13 @@ def upsert_subagent_meta(
             if str(x).strip()
         ][:16],
     }
+    if tokens_used >= 0:
+        payload["tokens_used"] = int(tokens_used)
+    else:
+        try:
+            payload["tokens_used"] = max(0, int(existing.get("tokens_used") or 0))
+        except (TypeError, ValueError):
+            payload["tokens_used"] = 0
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_name(path.name + ".tmp")

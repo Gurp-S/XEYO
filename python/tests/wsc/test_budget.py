@@ -20,8 +20,8 @@ from wsc._fixtures import msg_asst_text, msg_user, synth_session
 def test_for_level_splits_exact_hot_budget():
 	p = WscParams().for_level("Medium+")
 	assert p.hot_budget_tokens == 3_000
-	assert p.fixed_segment_budget_tokens == 1_200
-	assert p.main_segment_budget_tokens == 1_800
+	assert p.fixed_segment_budget_tokens == 1_800
+	assert p.main_segment_budget_tokens == 1_200
 	assert p.fixed_segment_budget_tokens + p.main_segment_budget_tokens == p.hot_budget_tokens
 
 
@@ -29,7 +29,8 @@ def test_for_level_never_leaves_unaccounted_budget():
 	for level in LEVELS:
 		p = WscParams().for_level(level)
 		assert p.fixed_segment_budget_tokens + p.main_segment_budget_tokens == p.hot_budget_tokens
-		assert p.fixed_segment_budget_tokens == min(1_200, p.hot_budget_tokens)
+		want_fixed = 1_800 if level == "Medium+" else 1_200
+		assert p.fixed_segment_budget_tokens == min(want_fixed, p.hot_budget_tokens)
 	clamped = WscParams(fixed_segment_budget_tokens=99_999).for_level("Hard")
 	assert clamped.fixed_segment_budget_tokens == clamped.hot_budget_tokens
 	assert clamped.main_segment_budget_tokens == 0
@@ -65,10 +66,13 @@ def _request_budget_case(*, fixed_budget: int = 80):
 
 def test_requests_degrade_before_dropping_handles():
 	g, s, out, audit = _request_budget_case()
-	assert audit.request_mode in ("dedup_short", "dedup_min80_overflow", "handles")
-	rendered = "\n".join(line for _key, line in out[H_REQUESTS])
-	for idx in s.user_nodes:
-		assert f"expand(node://{idx})" in rendered, f"用户节点 {idx} 的 expand 句柄丢失"
+	assert audit.request_mode in ("dedup_short", "handles", "dropped")
+	assert audit.request_tokens <= audit.fixed_budget_tokens
+	if audit.request_mode == "dropped":
+		assert H_REQUESTS not in out
+	else:
+		rendered = "\n".join(line for _key, line in out[H_REQUESTS])
+		assert "expand(" in rendered
 
 
 def test_dedup_short_keeps_full_80_char_needle():
@@ -158,9 +162,12 @@ def test_fixed_overflow_is_recorded_when_other_sections_exceed_budget():
 		fixed_headers=(H_CONSTRAINTS, H_REQUESTS),
 		main_headers=(),
 	)
-	assert audit.fixed_overflow_tokens > 0
-	assert audit.request_mode in ("dedup_short", "dedup_min80_overflow", "handles")
-	assert audit.request_mode == "dedup_min80_overflow"
+	assert audit.fixed_overflow_tokens == 0
+	assert audit.fixed_unavoidable_overflow_tokens == 0
+	assert audit.fixed_avoidable_overflow_tokens == 0
+	assert audit.request_mode in ("handles", "dropped")
+	assert audit.fixed_avoidable_overflow_tokens == 0
+	assert audit.request_tokens <= audit.fixed_budget_tokens
 
 
 def test_project_counts_interval_request_nodes_not_lines():
@@ -206,6 +213,6 @@ def test_project_exposes_budget_audit_and_trace():
 	msgs = synth_session(turns=12, user_every=3)
 	p = project(msgs, region_end=len(msgs), params=WscParams().for_level("Medium+"))
 	assert p.result.budget
-	assert p.result.budget["fixed_budget_tokens"] == 1_200
-	assert p.result.budget["main_budget_tokens"] == 1_800
+	assert p.result.budget["fixed_budget_tokens"] == 1_800
+	assert p.result.budget["main_budget_tokens"] == 1_200
 	assert any("fixed_budget=" in t.get("detail", "") for t in p.result.trace)

@@ -1,5 +1,5 @@
 import {useState} from 'react';
-import {ChevronDown} from 'lucide-react';
+import {ChevronDown, ChevronLeft, ChevronRight} from 'lucide-react';
 import {resolveAsk} from '@/lib/api';
 import {toast} from '@/lib/toast';
 import {usePendingAskForActiveSession} from '@/hooks/usePendingForActiveSession';
@@ -24,27 +24,337 @@ export function AskUserDialog() {
 	);
 }
 
-/** 每题的作答状态：options 题存选中 label（multiSelect 可多个），无 options 题存自由文本。 */
-type QuestionAnswers = Record<number, string[]>;
+/** 拆掉约定俗成的推荐后缀（dsh 同款），选中值不带后缀。 */
+export function parseRecommendedLabel(label: string): {
+	label: string;
+	recommended: boolean;
+} {
+	const suffix = /\s*(?:\((?:recommended|推荐)\)|（(?:recommended|推荐)）)\s*$/i;
+	return suffix.test(label)
+		? {label: label.replace(suffix, ''), recommended: true}
+		: {label, recommended: false};
+}
 
-function buildCombinedAnswer(
-	questions: AskQuestion[],
-	sel: QuestionAnswers,
-	free: Record<number, string>,
-): string | null {
-	const lines: string[] = [];
-	for (let i = 0; i < questions.length; i++) {
-		const q = questions[i];
-		const picked = sel[i] ?? [];
-		const freeText = (free[i] ?? '').trim();
-		const answer = q.options.length > 0 ? picked.join('；') : freeText;
-		if (!answer) {
-			// 有未作答的题：返回 null 由调用方提示，不产出残缺答案。
-			return null;
+/** 每题的草稿作答（dsh 同款三元组）：选中 labels + 自由文本 + 跳过标记。 */
+type QuestionDraft = {selected: string[]; custom: string; skipped: boolean};
+
+const emptyDraft = (): QuestionDraft => ({selected: [], custom: '', skipped: false});
+
+/** 结构化多题的答案 JSON（模型侧按 id 对号；跳过题 selected 为空数组）。 */
+function buildAnswersJson(questions: AskQuestion[], drafts: QuestionDraft[]): string {
+	const answers = questions.map((q, i) => {
+		const d = drafts[i] ?? emptyDraft();
+		if (d.skipped) {
+			return {id: q.id, selected: []};
 		}
-		lines.push(`${i + 1}. ${answer}`);
-	}
-	return lines.join('\n');
+		const custom = d.custom.trim();
+		// dsh 口径：单选题填了自由文本则以文本作答；多选题文本与勾选并存。
+		const selected =
+			custom === '' || q.multiSelect ? d.selected : [];
+		return custom === ''
+			? {id: q.id, selected}
+			: {id: q.id, selected, custom};
+	});
+	return JSON.stringify({answers});
+}
+
+/** dsh 同款单题向导流：一次一题 + 翻页 + 跳过 + 校验后整组提交。 */
+function QuestionFlow({
+	questions,
+	submitting,
+	onSubmit,
+}: {
+	questions: AskQuestion[];
+	submitting: boolean;
+	onSubmit: (answer: string) => void;
+}) {
+	const [index, setIndex] = useState(0);
+	const [drafts, setDrafts] = useState<QuestionDraft[]>(() =>
+		questions.map(q => {
+			const base = emptyDraft();
+			// default 命中选项时预选（多选同值也只预选一个，够用且不出错）。
+			if (q.default && q.options.some(o => o.label === q.default)) {
+				return {...base, selected: [q.default]};
+			}
+			return base;
+		}),
+	);
+	const [error, setError] = useState<string | null>(null);
+
+	const q = questions[index] ?? questions[0];
+	const draft = drafts[index] ?? emptyDraft();
+	const answered = (d: QuestionDraft) =>
+		d.selected.length > 0 || d.custom.trim() !== '';
+	const completed = (d: QuestionDraft) => answered(d) || d.skipped;
+
+	const write = (nextIndex: number, nextDrafts: QuestionDraft[]) => {
+		setIndex(nextIndex);
+		setDrafts(nextDrafts);
+		setError(null);
+	};
+
+	const patch = (update: (d: QuestionDraft) => QuestionDraft) => {
+		setDrafts(prev => prev.map((d, i) => (i === index ? update(d) : d)));
+		setError(null);
+	};
+
+	const choose = (label: string) => {
+		if (q.multiSelect) {
+			patch(d => ({
+				...d,
+				selected: d.selected.includes(label)
+					? d.selected.filter(l => l !== label)
+					: [...d.selected, label],
+				skipped: false,
+			}));
+			return;
+		}
+		// 单选：点击即落定，非末题自动跳下一题（dsh 同款节奏）。
+		const next = drafts.map((d, i) =>
+			i === index ? {selected: [label], custom: '', skipped: false} : d,
+		);
+		write(index < questions.length - 1 ? index + 1 : index, next);
+	};
+
+	const setCustom = (text: string) => {
+		patch(d => ({
+			...d,
+			// 单选：自由输入取代勾选；多选：文本与勾选并存。
+			selected: q.multiSelect ? d.selected : [],
+			custom: text,
+			skipped: false,
+		}));
+	};
+
+	const go = (nextIndex: number) => {
+		if (nextIndex < 0 || nextIndex >= questions.length) return;
+		write(nextIndex, drafts);
+	};
+
+	const skip = () => {
+		const next = drafts.map((d, i) =>
+			i === index ? {selected: [], custom: '', skipped: true} : d,
+		);
+		if (index < questions.length - 1) {
+			write(index + 1, next);
+			return;
+		}
+		submitAll(next);
+	};
+
+	const submitAll = (values: QuestionDraft[]) => {
+		const missing = values.findIndex(d => !completed(d));
+		if (missing >= 0) {
+			setIndex(missing);
+			setDrafts(values);
+			setError('还有问题未作答');
+			return;
+		}
+		onSubmit(buildAnswersJson(questions, values));
+	};
+
+	const continueFlow = () => {
+		if (!answered(draft)) {
+			setError('请先作答（选择或输入）');
+			return;
+		}
+		if (index < questions.length - 1) {
+			write(index + 1, drafts);
+			return;
+		}
+		submitAll(drafts);
+	};
+
+	const hasOptions = q.options.length > 0;
+
+	return (
+		<div>
+			{q.header ? <div className="xy-panel-ask-eyebrow">{q.header}</div> : null}
+			<div className="xy-panel-ask-q">
+				{index + 1}. {q.question}
+				{q.multiSelect ? (
+					<span className="xy-panel-ask-multi-hint">（可多选）</span>
+				) : null}
+			</div>
+			{q.detail ? <div className="xy-panel-ask-detail">{q.detail}</div> : null}
+
+			{hasOptions ? (
+				<div
+					className="xy-panel-ask-opts"
+					role={q.multiSelect ? 'group' : 'radiogroup'}
+				>
+					{q.options.map((opt: AskQuestionOption, oi) => {
+						const picked = draft.selected.includes(opt.label);
+						const display = parseRecommendedLabel(opt.label);
+						return (
+							<button
+								key={`${oi}-${opt.label}`}
+								type="button"
+								className={cn('xy-panel-ask-opt', picked && 'is-picked')}
+								role={q.multiSelect ? 'checkbox' : 'radio'}
+								aria-checked={picked}
+								disabled={submitting}
+								onClick={() => choose(opt.label)}
+							>
+								<span className="xy-panel-ask-opt-main">
+									{q.multiSelect ? (
+										<span
+											className={cn(
+												'xy-ask-check',
+												picked && 'is-on',
+											)}
+											aria-hidden
+										>
+											<svg
+												viewBox="0 0 24 24"
+												fill="none"
+												stroke="currentColor"
+												strokeWidth="3"
+											>
+												<path d="M5 13l4 4 10-10" />
+											</svg>
+										</span>
+									) : (
+										<span className="xy-ask-num" aria-hidden>
+											{oi + 1}
+										</span>
+									)}
+									<span className="xy-panel-ask-opt-label">
+										{display.label}
+										{display.recommended ? (
+											<span className="xy-ask-badge">推荐</span>
+										) : null}
+									</span>
+								</span>
+								{opt.description ? (
+									<span className="xy-panel-ask-opt-desc">
+										{opt.description}
+									</span>
+								) : null}
+							</button>
+						);
+					})}
+
+					{/* 自由输入行（dsh 同款"Other"）：单选填文本即取代勾选 */}
+					<div
+						className={cn(
+							'xy-ask-custom',
+							draft.custom !== '' && 'is-active',
+						)}
+					>
+						{q.multiSelect ? (
+							<span
+								className={cn(
+									'xy-ask-check',
+									draft.custom !== '' && 'is-on',
+								)}
+								aria-hidden
+							>
+								<svg
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									strokeWidth="3"
+								>
+									<path d="M5 13l4 4 10-10" />
+								</svg>
+							</span>
+						) : (
+							<span className="xy-ask-num" aria-hidden>
+								<svg
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									strokeWidth="2"
+								>
+									<path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
+								</svg>
+							</span>
+						)}
+						<input
+							className="xy-ask-custom-input"
+							placeholder="或自由输入…"
+							value={draft.custom}
+							disabled={submitting}
+							onChange={e => setCustom(e.target.value)}
+							onKeyDown={e => {
+								if (e.key === 'Enter') {
+									e.preventDefault();
+									continueFlow();
+								}
+							}}
+						/>
+					</div>
+				</div>
+			) : (
+				<input
+					autoFocus
+					className="xy-panel-ask-input"
+					placeholder="输入你的回答…"
+					value={draft.custom}
+					disabled={submitting}
+					onChange={e => setCustom(e.target.value)}
+					onKeyDown={e => {
+						if (e.key === 'Enter') {
+							e.preventDefault();
+							continueFlow();
+						}
+					}}
+				/>
+			)}
+
+			<div className="xy-panel-ask-foot">
+				<div className="xy-ask-pager">
+					<button
+						type="button"
+						className="xy-ask-icon-btn"
+						aria-label="上一题"
+						disabled={index === 0 || submitting}
+						onClick={() => go(index - 1)}
+					>
+						<ChevronLeft className="size-3.5" />
+					</button>
+					<span className="xy-ask-progress">
+						{index + 1} / {questions.length}
+					</span>
+					<button
+						type="button"
+						className="xy-ask-icon-btn"
+						aria-label="下一题"
+						disabled={index === questions.length - 1 || submitting}
+						onClick={() => go(index + 1)}
+					>
+						<ChevronRight className="size-3.5" />
+					</button>
+				</div>
+				<span className="xy-ask-feedback" role="status">
+					{error}
+				</span>
+				<div className="xy-ask-foot-actions">
+					<button
+						type="button"
+						className="xy-ask-skip"
+						disabled={submitting}
+						onClick={skip}
+					>
+						跳过
+					</button>
+					<button
+						type="button"
+						className="xy-panel-ask-submit xy-ask-next"
+						disabled={submitting || !answered(draft)}
+						onClick={continueFlow}
+					>
+						{submitting
+							? '提交中…'
+							: index === questions.length - 1
+								? '提交全部答案'
+								: '下一题'}
+					</button>
+				</div>
+			</div>
+		</div>
+	);
 }
 
 function AskCard({pending}: {pending: PendingAskInfo}) {
@@ -52,32 +362,10 @@ function AskCard({pending}: {pending: PendingAskInfo}) {
 	const [value, setValue] = useState(
 		(pending.options?.length ?? 0) > 0 ? '' : (pending.default ?? ''),
 	);
-	// 分题作答状态（仅多问题表单用）；default 命中选项时预选。
-	const questions = pending.questions ?? [];
-	const isForm = questions.length > 1;
-	const [sel, setSel] = useState<QuestionAnswers>(() => {
-		const init: QuestionAnswers = {};
-		questions.forEach((q, i) => {
-			if (!q.default) return;
-			if (q.options.some(o => o.label === q.default)) {
-				init[i] = [q.default];
-			}
-		});
-		return init;
-	});
-	const [free, setFree] = useState<Record<number, string>>({});
 	// 提交中：防止双击重复 resolve；失败时保留面板与已选内容供重试。
 	const [submitting, setSubmitting] = useState(false);
 	const [expanded, setExpanded] = useState(true);
 	const options = pending.options ?? [];
-
-	const submit = (answer: string) => {
-		const trimmed = answer.trim();
-		if (!trimmed || submitting) {
-			return;
-		}
-		void doResolve(trimmed);
-	};
 
 	const doResolve = async (answer: string) => {
 		setSubmitting(true);
@@ -91,40 +379,21 @@ function AskCard({pending}: {pending: PendingAskInfo}) {
 		}
 	};
 
-	const submitForm = () => {
-		if (submitting) return;
-		const combined = buildCombinedAnswer(questions, sel, free);
-		if (combined === null) {
-			toast.error('还有问题未作答');
+	const submit = (answer: string) => {
+		const trimmed = answer.trim();
+		if (!trimmed || submitting) {
 			return;
 		}
-		void doResolve(combined);
+		void doResolve(trimmed);
 	};
 
-	const freeText = !isForm && options.length === 0 && questions.length === 0;
-
-	/** 单题（含 legacy 平铺）：保持旧的即点即答交互。 */
-	const singleOptions = isForm
-		? []
-		: (questions[0]?.options.map(o => o.label) ?? options);
-
-	const toggle = (qi: number, label: string, multiSelect: boolean) => {
-		setSel(prev => {
-			const cur = prev[qi] ?? [];
-			if (multiSelect) {
-				const next = cur.includes(label)
-					? cur.filter(l => l !== label)
-					: [...cur, label];
-				return {...prev, [qi]: next};
-			}
-			return {...prev, [qi]: cur.includes(label) ? [] : [label]};
-		});
-	};
-
-	const countLabel = isForm
+	const questions = pending.questions ?? [];
+	const isWizard = questions.length > 0;
+	const freeText = !isWizard && options.length === 0;
+	const countLabel = isWizard
 		? `${questions.length} 个问题`
-		: singleOptions.length
-			? `${singleOptions.length} 个选项`
+		: options.length
+			? `${options.length} 个选项`
 			: '自由作答';
 
 	return (
@@ -152,45 +421,19 @@ function AskCard({pending}: {pending: PendingAskInfo}) {
 			</div>
 
 			<PanelCollapse open={expanded} className="xy-panel-ask-body">
-				{isForm ? (
-					<form
-						onSubmit={e => {
-							e.preventDefault();
-							submitForm();
-						}}
-					>
-						{questions.map((q, qi) => (
-							<QuestionBlock
-								key={`${qi}-${q.question.slice(0, 24)}`}
-								index={qi}
-								q={q}
-								picked={sel[qi] ?? []}
-								freeValue={free[qi] ?? ''}
-								onToggle={label => toggle(qi, label, q.multiSelect)}
-								onFreeChange={t => setFree(prev => ({...prev, [qi]: t}))}
-							/>
-						))}
-						<div className="xy-panel-ask-free">
-							<button
-								type="submit"
-								className="xy-panel-ask-submit"
-								title="提交全部答案"
-								disabled={
-									submitting ||
-									buildCombinedAnswer(questions, sel, free) === null
-								}
-							>
-								{submitting ? '提交中…' : '提交全部答案'}
-							</button>
-						</div>
-					</form>
+				{isWizard ? (
+					<QuestionFlow
+						questions={questions}
+						submitting={submitting}
+						onSubmit={a => void doResolve(a)}
+					/>
 				) : (
 					<>
 						<div className="xy-panel-ask-q">{pending.question}</div>
 
-						{singleOptions.length > 0 ? (
+						{options.length > 0 ? (
 							<div className="xy-panel-ask-opts">
-								{singleOptions.map((opt, oi) => (
+								{options.map((opt, oi) => (
 									<button
 										key={`${oi}-${opt}`}
 										type="button"
@@ -239,69 +482,6 @@ function AskCard({pending}: {pending: PendingAskInfo}) {
 					</>
 				)}
 			</PanelCollapse>
-		</div>
-	);
-}
-
-/** 分题块：题干 + 选项组（单选/多选）或自由输入。 */
-function QuestionBlock({
-	index,
-	q,
-	picked,
-	freeValue,
-	onToggle,
-	onFreeChange,
-}: {
-	index: number;
-	q: AskQuestion;
-	picked: string[];
-	freeValue: string;
-	onToggle: (label: string) => void;
-	onFreeChange: (text: string) => void;
-}) {
-	return (
-		<div className="xy-panel-ask-qblock">
-			<div className="xy-panel-ask-q">
-				{index + 1}. {q.question}
-				{q.multiSelect ? (
-					<span className="xy-panel-ask-multi-hint">（可多选）</span>
-				) : null}
-			</div>
-			{q.options.length > 0 ? (
-				<div
-					className="xy-panel-ask-opts"
-					role={q.multiSelect ? 'group' : 'radiogroup'}
-				>
-					{q.options.map((opt: AskQuestionOption, oi) => {
-						const active = picked.includes(opt.label);
-						return (
-							<button
-								key={`${oi}-${opt.label}`}
-								type="button"
-								className={cn('xy-panel-ask-opt', active && 'is-picked')}
-								aria-pressed={q.multiSelect ? active : undefined}
-								aria-checked={q.multiSelect ? undefined : active}
-								title={opt.description}
-								onClick={() => onToggle(opt.label)}
-							>
-								{opt.label}
-								{opt.description ? (
-									<span className="xy-panel-ask-opt-desc">
-										{opt.description}
-									</span>
-								) : null}
-							</button>
-						);
-					})}
-				</div>
-			) : (
-				<input
-					className="xy-panel-ask-input"
-					placeholder="输入你的回答…"
-					value={freeValue}
-					onChange={e => onFreeChange(e.target.value)}
-				/>
-			)}
 		</div>
 	);
 }

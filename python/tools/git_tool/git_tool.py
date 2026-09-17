@@ -45,9 +45,9 @@ class GitTool:
 						"type": "string",
 						"enum": ["summary", "status", "log", "branches", "diff"],
 						"description": (
-							"Read-only git action. Prefer summary for a quick "
-							"overview (dirty repos also list touched: symbols "
-							"hit by changed lines). Write ops unsupported."
+							"Read-only git action. summary returns a quick overview; "
+							"dirty repositories also list symbols hit by changed lines. "
+							"Write operations are unsupported."
 						),
 					},
 					"path": {

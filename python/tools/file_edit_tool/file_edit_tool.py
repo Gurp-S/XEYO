@@ -8,6 +8,8 @@ from __future__ import annotations
 import asyncio
 import difflib
 import os
+from tools.fileio import fsprobe as _fsprobe
+from tools.container_fs import display_cwd as _cfs_display_cwd
 from dataclasses import dataclass
 from typing import Any
 
@@ -218,7 +220,7 @@ class FileEditTool:
 				)
 				if extra and "session" not in detail:
 					detail += "\n" + extra
-				raise RuntimeError(detail + " Re-Read then retry.")
+				raise RuntimeError(detail)
 			raise RuntimeError(f"write failed: {reason}")
 		_invalidate_glob_cache()
 		return str(getattr(result, "journal_warning", "") or "")
@@ -241,8 +243,7 @@ class FileEditTool:
 					"file_path": {
 						"type": "string",
 						"description": (
-							"The absolute path to the file to modify "
-							"(must be absolute, not relative)"
+						"Absolute path to the file to modify."
 						),
 					},
 					"old_string": {
@@ -252,8 +253,7 @@ class FileEditTool:
 					"new_string": {
 						"type": "string",
 						"description": (
-							"The text to replace it with (must be different "
-							"from old_string)"
+						"Replacement text; it differs from old_string."
 						),
 					},
 					"replace_all": {
@@ -324,7 +324,7 @@ class FileEditTool:
 		encoding = "utf-8"
 		endings = "LF"
 		try:
-			size = os.path.getsize(full)
+			size = _fsprobe.getsize(full)
 			if size > MAX_EDIT_FILE_SIZE:
 				return {
 					"result": False,
@@ -339,7 +339,7 @@ class FileEditTool:
 		except FileNotFoundError:
 			file_content = None
 		except OSError as e:
-			if getattr(e, "errno", None) == 2 or not os.path.exists(full):
+			if getattr(e, "errno", None) == 2 or not _fsprobe.exists(full):
 				file_content = None
 			else:
 				return {"result": False, "message": str(e), "errorCode": 11}
@@ -351,12 +351,12 @@ class FileEditTool:
 			suggestion = suggest_path_under_cwd(full, cwd=self._cwd)
 			similar = find_similar_file(full)
 			message = (
-				f"File does not exist. {FILE_NOT_FOUND_CWD_NOTE} {self._cwd}."
+				f"File does not exist. {FILE_NOT_FOUND_CWD_NOTE} {_cfs_display_cwd(self._cwd)}."
 			)
 			if suggestion:
-				message += f" Did you mean {suggestion}?"
+				message += f" Nearest existing path: {suggestion}."
 			elif similar:
-				message += f" Did you mean {similar}?"
+				message += f" Nearest existing path: {similar}."
 			return {"result": False, "message": message, "errorCode": 4}
 
 		# 空 old_string：仅空文件允许（创建内容）
@@ -395,8 +395,8 @@ class FileEditTool:
 					return {
 						"result": False,
 						"message": build_stale_message(
-							"File has been modified since read, either by the user "
-							"or by a linter. Read it again before attempting to write it.",
+							"File has been modified since the recorded snapshot, either by "
+							"the user or by a linter.",
 							self._cwd,
 							full,
 							self._session_id,
@@ -423,9 +423,8 @@ class FileEditTool:
 				"result": False,
 				"message": (
 					f"Found {matches} matches of the string to replace, but "
-					"replace_all is false. To replace all occurrences, set "
-					"replace_all to true. To replace only one occurrence, please "
-					"provide more context to uniquely identify the instance.\n"
+					"replace_all is false. replace_all=true addresses every match; "
+					"additional old_string context can identify one occurrence.\n"
 					f"String: {input_data.old_string}"
 				),
 				"errorCode": 9,
@@ -445,7 +444,7 @@ class FileEditTool:
 		full = self.get_path(input_data)
 
 		# 新文件创建：old_string == ""
-		if not os.path.exists(full) and input_data.old_string == "":
+		if not _fsprobe.exists(full) and input_data.old_string == "":
 			journal_warning = self._persist(
 				full, input_data.new_string, encoding="utf-8", line_endings="LF"
 			)
@@ -597,7 +596,7 @@ class FileEditTool:
 			return ToolResult(content="permission denied", is_error=True)
 
 		abort.raise_if_aborted()
-		existed_before = os.path.exists(self.get_path(edit_input))
+		existed_before = _fsprobe.exists(self.get_path(edit_input))
 		try:
 			if self._write_store is not None:
 				output = await asyncio.to_thread(self.call, edit_input)

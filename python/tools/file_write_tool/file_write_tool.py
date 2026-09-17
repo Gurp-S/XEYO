@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import difflib
 import os
+from tools.fileio import fsprobe as _fsprobe
 from dataclasses import dataclass
 from typing import Any, Literal, Optional
 
@@ -184,7 +185,7 @@ class FileWriteTool:
 				)
 				if extra and "session" not in detail:
 					detail += "\n" + extra
-				raise RuntimeError(detail + " Re-Read then retry.")
+				raise RuntimeError(detail)
 			raise RuntimeError(f"write failed: {reason}")
 		_invalidate_glob_cache()
 		return str(getattr(result, "journal_warning", "") or "")
@@ -207,8 +208,7 @@ class FileWriteTool:
 					"file_path": {
 						"type": "string",
 						"description": (
-							"The absolute path to the file to write "
-							"(must be absolute, not relative)"
+						"Absolute path to the file to write."
 						),
 					},
 					"content": {
@@ -250,11 +250,11 @@ class FileWriteTool:
 				"errorCode": 6,
 			}
 
-		if not os.path.exists(full):
+		if not _fsprobe.exists(full):
 			# 新文件：无需先读
 			return {"result": True}
 
-		if os.path.isdir(full):
+		if _fsprobe.isdir(full):
 			return {
 				"result": False,
 				"message": f"Path is a directory, not a file: {input_data.file_path}",
@@ -305,7 +305,7 @@ class FileWriteTool:
 
 	def call(self, input_data: WriteInput) -> WriteOutput:
 		full = self.get_path(input_data)
-		existed = os.path.exists(full)
+		existed = _fsprobe.exists(full)
 
 		old_content: Optional[str] = None
 		encoding = "utf-8"

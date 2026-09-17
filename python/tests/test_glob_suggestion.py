@@ -26,7 +26,7 @@ def test_pattern_miss_suggests_real_file(work):
 	assert "agent-b.md" in out.suggestion
 	assert "docs" in out.suggestion
 	text = tool.map_tool_result_to_content(out)
-	assert "Did you mean:" in text
+	assert "Nearest matching paths:" in text
 	assert "agent-b.md" in text
 
 
@@ -35,7 +35,7 @@ def test_path_miss_suggests_fuzzy_dir(work):
 	tool = GlobTool(cwd=str(work))
 	v = tool.validate_input(GlobInput(pattern="agent_b.md", path="doc"))
 	assert v["result"] is False
-	assert "Did you mean docs" in v["message"]
+	assert "Nearest existing directory: docs" in v["message"]
 
 
 @pytest.mark.skipif(not shutil.which("rg"), reason="ripgrep not installed")

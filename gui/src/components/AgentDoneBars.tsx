@@ -22,6 +22,17 @@ export function agentDisplayName(desc: string, index: number): string {
 	return `${n}·${short}`;
 }
 
+/** token 紧凑显示：万 / k 两档，其余原值。 */
+export function formatTokensUsed(n: number): string {
+	if (n >= 10_000) {
+		return `${(n / 10_000).toFixed(1)}万 tok`;
+	}
+	if (n >= 1000) {
+		return `${(n / 1000).toFixed(1)}k tok`;
+	}
+	return `${n} tok`;
+}
+
 /**
  * 子 Agent 栏：左侧短名可分辨；进行中滚动；完成后显示文字输出（冻结点子 8）。
  * 运行中可取消；失败后可重试；点击主体进入侧链回放。
@@ -179,6 +190,18 @@ const AgentBar = memo(function AgentBar({
 					title={`${task.inboxCount} 条 follow-up 已排队（回合结束后自动续跑）`}
 				>
 					+{task.inboxCount}
+				</span>
+			) : null}
+			{task.tokensUsed ? (
+				<span
+					className="xy-agent-bar-tokens"
+					title={
+						task.costCny
+							? `共消耗 ${task.tokensUsed.toLocaleString()} tokens，约 ¥${task.costCny.toFixed(4)}`
+							: `共消耗 ${task.tokensUsed.toLocaleString()} tokens`
+					}
+				>
+					{formatTokensUsed(task.tokensUsed)}
 				</span>
 			) : null}
 			<span className="xy-agent-bar-out">

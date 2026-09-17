@@ -18,6 +18,9 @@ import time
 
 RG_POLL_INTERVAL_S = 0.05
 
+#: 容器里没有 rg 时的专门文案：调用方据此回退 find/grep（任务镜像常年不带 rg）。
+RG_MISSING_IN_CONTAINER = "ripgrep not available in the task container"
+
 
 class RipgrepRunnerError(RuntimeError):
 	"""rg 启动失败（缺失）或非零退出时抛出。"""
@@ -36,6 +39,42 @@ def _kill(proc: subprocess.Popen) -> None:
 		pass
 
 
+def _run_in_container(
+	cmd: list[str],
+	*,
+	cwd: str | None,
+	timeout_seconds: float,
+	timeout_message: str | None,
+) -> list[str]:
+	"""容器路由分支：同一条 argv 在**容器内**执行（2026-09-16 接线）。
+
+	为什么必须在汇聚点接线：Grep / Glob / content_index 全走本函数，而它们的
+	``cwd`` 在评测里是宿主**空** scratch 目录——不接线就统一报"没找到"，而文件
+	明明在容器里（静默错答，比报错更坏）。
+
+	约定与宿主分支一致：0=有匹配、1=无匹配、其它非零抛错；rg 在任务镜像里常年
+	缺失（127）时抛专门文案，由调用方决定是否回退 find/grep。
+	"""
+	from tools.container_fs import run_argv
+
+	probed = run_argv(list(cmd), cwd=cwd, timeout_s=max(1.0, float(timeout_seconds)))
+	if probed is None:
+		raise RipgrepRunnerError(
+			"ripgrep runner: container route unavailable (the work面 is inside the container)"
+		)
+	code, out, err = probed
+	if code == 127 or "command not found" in (err or ""):
+		raise RipgrepRunnerError(RG_MISSING_IN_CONTAINER)
+	if code >= 2:
+		detail = (err or "").strip() or f"exit {code}"
+		raise RipgrepRunnerError(f"ripgrep error: {detail}")
+	return [
+		line.replace("\r", "")
+		for line in (out or "").splitlines()
+		if line.strip()
+	]
+
+
 def run_ripgrep_lines(
 	cmd: list[str],
 	*,
@@ -48,11 +87,23 @@ def run_ripgrep_lines(
 
 	约定退出码语义：0=有匹配，1=无匹配，>=2 抛错。abort 或超时杀死进程时，
 	按现有文案路径处理超时；abort 杀死则视为无匹配返回。
+
+	容器路由生效时改在容器内执行（见 ``_run_in_container``）；宿主路由行为不变。
 	"""
 	# 安全硬化：--no-config 屏蔽宿主 RIPGREP_CONFIG_PATH / .rgrc 注入，保证装配的
 	# argv 完全由本层控制（命令注入之外的配置注入风险，审计/可重现也受益）。
 	if cmd and cmd[0] == "rg" and "--no-config" not in cmd:
 		cmd = [cmd[0], "--no-config", *cmd[1:]]
+	try:
+		from tools.container_fs import active_container
+
+		_routed = active_container()
+	except Exception:  # noqa: BLE001 — 路由模块不可用视为宿主
+		_routed = ""
+	if _routed:
+		return _run_in_container(
+			cmd, cwd=cwd, timeout_seconds=timeout_seconds, timeout_message=timeout_message
+		)
 	try:
 		proc = subprocess.Popen(
 			cmd,

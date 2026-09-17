@@ -73,11 +73,41 @@ def truncate_for_model(
 	"""
 	if text is None:
 		text = ""
+
 	if len(text) <= limit:
 		return text, None
 
-	ensure_dir(persist_dir)
+	# 容器路由（2026-09-16）：溢出文件必须落在**容器内**，且路径要以容器形态
+	# 告诉模型。原实现写宿主 cwd（``<host cwd>/.xeyo/tool-results/…``）并把该
+	# **宿主路径**塞进 ``[output truncated, full at …]``——容器里读不到，
+	# 模型照着去读必然失败（证据取不回 + 白烧一轮）。
 	path = os.path.join(persist_dir, f"bash-{uuid.uuid4().hex}.txt")
+	_full_text = text
+	try:
+		from tools.container_fs import active_container, write_text as _cfs_write
+
+		if active_container():
+			path = f"/tmp/.xeyo/tool-results/bash-{uuid.uuid4().hex}.txt"
+			if not _cfs_write(path, _full_text):
+				# 落盘失败：宁可给未截断原文（超预算），也不给"假的可取回路径"。
+				return text, None
+			head = text[:HEAD_CHARS]
+			tail = text[-TAIL_CHARS:] if len(text) > HEAD_CHARS + TAIL_CHARS else ""
+			middle = text[HEAD_CHARS : len(text) - TAIL_CHARS] if tail else ""
+			body = head
+			if tail:
+				body = head + "\n\n...[middle truncated]...\n\n"
+				if middle and not _has_signal_line(tail):
+					excerpt = _error_excerpt(middle)
+					if excerpt:
+						body += excerpt + "\n\n"
+				body += tail
+			body = body + f"\n\n[output truncated, full at {path} ({len(text)} chars)]"
+			return body, path
+	except Exception:  # noqa: BLE001 — 路由模块异常回落宿主路径（改动前行为）
+		path = os.path.join(persist_dir, f"bash-{uuid.uuid4().hex}.txt")
+
+	ensure_dir(persist_dir)
 	with open(path, "w", encoding="utf-8", errors="replace") as f:
 		f.write(text)
 

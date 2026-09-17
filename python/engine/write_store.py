@@ -68,6 +68,16 @@ class ApplyResult:
     journal_warning: str = ""
 
 
+def _routed_container() -> str:
+    """当前活动容器路由；宿主路由返回空串。"""
+    try:
+        from tools.container_fs import active_container
+
+        return active_container()
+    except Exception:  # noqa: BLE001 — 路由模块不可用视为宿主
+        return ""
+
+
 def _content_hash(path: Path) -> str:
     """读盘算 sha256（不用 mtime，B8/C6）。
 
@@ -75,6 +85,10 @@ def _content_hash(path: Path) -> str:
     原始字节——base_hashes 由 `_content_hash_text(entry.content)` 产生，而
     entry.content 是 Read 归一化后的文本；若这里按原始字节哈希，Windows 上
     的 CRLF/UTF-16 文件永远对不上，子 agent 首次写入必报 stale。
+
+    容器路由（2026-09-16）：容器分支已在 `tools/fileio/text.py::read_text_file`
+    汇聚点接线（Read/Edit/Write/NotebookEdit 共用），此处无需再判——保持单一
+    接缝，避免两处路由逻辑漂移。
     """
     try:
         from tools.fileio.text import read_text_file
@@ -114,16 +128,22 @@ def _syntax_ok(path: Path, new_content: str) -> bool:
     new_err = _syntax_error_count(suffix, new_content)
     if new_err == 0:
         return True
-    try:
-        old = path.read_text(encoding="utf-8")
-    except OSError:
-        old = ""
+    if _routed_container():
+        old = _read_text_safe(path)
+    else:
+        try:
+            old = path.read_text(encoding="utf-8")
+        except OSError:
+            old = ""
     old_err = _syntax_error_count(suffix, old)
     return new_err <= old_err
 
 
 def _read_text_safe(path: Path) -> str:
-    """写前读取归一化文本（CRLF→LF / utf-16 解码）；不存在或失败返回空串。"""
+    """写前读取归一化文本（CRLF→LF / utf-16 解码）；不存在或失败返回空串。
+
+    容器路由：容器分支在 `tools/fileio/text.py` 汇聚点接线，此处保持单一路径。
+    """
     try:
         from tools.fileio.text import read_text_file
 
@@ -400,6 +420,15 @@ class WriteStore:
 
     @staticmethod
     def _atomic_write(path: Path, content: str, encoding: str = "utf-8") -> None:
+        # 容器路由（2026-09-16）：工作面在容器里，落宿主等于"报了成功但判分看不见"。
+        # 容器分支失败必须抛错（**绝不静默回落宿主**）——那正是本模块要消灭的
+        # 失败形态：write 说 ok、文件却去了另一个文件系统。
+        if _routed_container():
+            from tools.container_fs import write_text as _cfs_write
+
+            if not _cfs_write(str(path), content):
+                raise OSError(f"container write failed: {path}")
+            return
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_name(path.name + ".xeyo.write.tmp")
         # 复用 write_text_file 的编码语义（utf-16-le 补 BOM），

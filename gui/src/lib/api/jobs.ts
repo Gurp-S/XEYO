@@ -106,3 +106,40 @@ export async function fetchSessionJobs(
 		return {jobs: [], version: 0, wake_budget_left: 0};
 	}
 }
+
+export type JobOutputPeek = {
+	jobId: string;
+	status: string;
+	text: string;
+	truncated: boolean;
+};
+
+/**
+ * GET /v1/sessions/{sid}/jobs/{job_id}/output → 终端输出窥视。
+ *
+ * 只读通道：不消费模型侧 job_output 的游标、不影响 reported/通知管线；
+ * null = 未知 / 越权 / 网络失败（调用方按「暂无输出」渲染）。
+ */
+export async function fetchJobOutput(
+	sessionId: string,
+	jobId: string,
+): Promise<JobOutputPeek | null> {
+	try {
+		const res = await fetchWithTimeout(
+			apiUrl(
+				`/v1/sessions/${encodeURIComponent(sessionId)}/jobs/${encodeURIComponent(jobId)}/output`,
+			),
+			{method: 'GET'},
+		);
+		if (!res.ok) return null;
+		const data = (await res.json()) as Record<string, unknown>;
+		return {
+			jobId: String(data.job_id ?? jobId),
+			status: String(data.status ?? ''),
+			text: typeof data.text === 'string' ? data.text : '',
+			truncated: Boolean(data.truncated),
+		};
+	} catch {
+		return null;
+	}
+}

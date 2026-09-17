@@ -171,7 +171,13 @@ def note_compact_checkpoint(
     """首压 C2：建立 compact checkpoint（投影锚点 + 窗口链第一项）。"""
     if not cursor or cursor <= 0:
         return
-    cp = snap.compact_checkpoint
+    # 2026-09-15：用 getattr 容忍"桩快照"。离线回放（memory/simulator/replay.py）
+    # 用 SimpleNamespace 造轻量 snapshot 复用同一套 runtime 函数，桩上未必有
+    # compact_checkpoint 字段 —— 直接取属性会抛 AttributeError，导致 v6.1 基线
+    # **恰好在长会话（= WSC 真正出手的那些回合）上全部崩塌**（实测：WSC 压过的
+    # 228 个回合里 227 个 baseline_missing，占 99.6%）。用 getattr 后桩会自然
+    # 长出该字段（setattr 对 SimpleNamespace 有效），真实 WorkingSnapshot 行为不变。
+    cp = getattr(snap, "compact_checkpoint", None)
     if cp is None:
         cp = CompactCheckpoint(
             anchor_cursor=int(cursor),
@@ -197,7 +203,13 @@ def append_compact_window(
     """已压缩态 append-only 扩展：窗口链记一条，锚点同步推进。"""
     if not cursor or cursor <= 0:
         return
-    cp = snap.compact_checkpoint
+    # 2026-09-15：用 getattr 容忍"桩快照"。离线回放（memory/simulator/replay.py）
+    # 用 SimpleNamespace 造轻量 snapshot 复用同一套 runtime 函数，桩上未必有
+    # compact_checkpoint 字段 —— 直接取属性会抛 AttributeError，导致 v6.1 基线
+    # **恰好在长会话（= WSC 真正出手的那些回合）上全部崩塌**（实测：WSC 压过的
+    # 228 个回合里 227 个 baseline_missing，占 99.6%）。用 getattr 后桩会自然
+    # 长出该字段（setattr 对 SimpleNamespace 有效），真实 WorkingSnapshot 行为不变。
+    cp = getattr(snap, "compact_checkpoint", None)
     if cp is None:
         cp = CompactCheckpoint(
             anchor_cursor=int(cursor),
@@ -214,7 +226,13 @@ def append_compact_window(
 def _to_dict(snap: WorkingSnapshot) -> dict[str, Any]:
     """把快照编成可 JSON 化的字典。"""
     at = snap.last_model_call_at
-    cp = snap.compact_checkpoint
+    # 2026-09-15：用 getattr 容忍"桩快照"。离线回放（memory/simulator/replay.py）
+    # 用 SimpleNamespace 造轻量 snapshot 复用同一套 runtime 函数，桩上未必有
+    # compact_checkpoint 字段 —— 直接取属性会抛 AttributeError，导致 v6.1 基线
+    # **恰好在长会话（= WSC 真正出手的那些回合）上全部崩塌**（实测：WSC 压过的
+    # 228 个回合里 227 个 baseline_missing，占 99.6%）。用 getattr 后桩会自然
+    # 长出该字段（setattr 对 SimpleNamespace 有效），真实 WorkingSnapshot 行为不变。
+    cp = getattr(snap, "compact_checkpoint", None)
     cp_payload = None
     if cp is not None:
         cp_payload = {

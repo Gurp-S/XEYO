@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from msgtypes.message import Message
 
@@ -7,6 +7,47 @@ class MessageStore:
 	def __init__(self, initial: list[Message] | None = None) -> None:
 		self._items: list[Message] = list(initial or [])
 		self._api_cache: list[dict] | None = None
+		#: 投影是否包含 T_now 留痕条目（hidden system note）。默认包含；
+		#: 声道解析为 env/skip（厂商拒绝中段 system）时由引擎置 False——
+		#: 留痕只在 system 声道下才允许出现在模型输入里。
+		self._notes_visible: bool = True
+
+	def set_note_policy(self, include: bool) -> None:
+		"""设置投影是否包含留痕条目（变更即失效投影缓存）。"""
+		flag = bool(include)
+		if flag == self._notes_visible:
+			return
+		self._notes_visible = flag
+		self._api_cache = None
+
+	def note_fingerprints(self, *, start: int = 0) -> set[tuple[str, str]]:
+		"""管道 2 去重的**真相源**：``start`` 之后仍在可见面的留痕身份。
+
+		C0/C1 只改 tool_result 内容、不丢消息；C2 用一个摘要替换左段
+		``[0, compact_cursor)`` ⇒ 左段里的留痕不再可见，故调用方传压缩游标。
+		``start`` 使用模型投影的消息下标，而不是内部 append-only 历史下标；
+		旧版本留痕在模型面折叠后不会造成下标漂移。
+		留痕被 A 闸排除（``_notes_visible=False``）时返回空集。
+		"""
+		if not self._notes_visible:
+			return set()
+		out: set[tuple[str, str]] = set()
+		items = self._items
+		projection_index = 0
+		start_index = max(0, int(start or 0))
+		latest: dict[str, int] = {}
+		for index, item in enumerate(items):
+			key = getattr(item, "note_key", "")
+			if key:
+				latest[key] = index
+		for index, item in enumerate(items):
+			key = getattr(item, "note_key", "")
+			if key and latest.get(key) != index:
+				continue
+			if key and projection_index >= start_index:
+				out.add((key, getattr(item, "note_fp", "") or ""))
+			projection_index += 1
+		return out
 
 	def append(self, msg: Message) -> None:
 		self._items.append(msg)
@@ -38,7 +79,20 @@ class MessageStore:
 		if self._api_cache is not None:
 			return self._api_cache
 		out: list[dict] = []
-		for m in self._items:
+		# T_now 留痕在历史面 append-only；模型投影是按 note_key 的最新值，
+		# 否则同一状态每次变化都会把旧版本继续带进上下文。
+		latest_note_index: dict[str, int] = {}
+		for index, item in enumerate(self._items):
+			key = getattr(item, "note_key", "")
+			if key:
+				latest_note_index[key] = index
+		for index, m in enumerate(self._items):
+			note_key = getattr(m, "note_key", "")
+			if note_key and (
+				not self._notes_visible or latest_note_index.get(note_key) != index
+			):
+				# 历史保留所有版本供审计/恢复；模型只看到每个状态键的最新版本。
+				continue
 			if m.role == "tool":
 				row: dict = {
 					"role": "tool",

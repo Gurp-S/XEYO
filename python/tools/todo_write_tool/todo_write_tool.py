@@ -181,9 +181,7 @@ class TodoWriteTool:
 	def map_tool_result_to_content(out: TodoWriteOutput) -> str:
 		"""供模型阅读的人类文本 + 供 UI 的 <todo_list> JSON。"""
 		lines = [
-			"Todos have been modified successfully. Ensure that you continue "
-			"to use the todo list to track your progress. Please proceed with "
-			"the current tasks if applicable",
+			"Todo list modified successfully. The current list follows.",
 		]
 		if out.new_todos:
 			lines.append("")
@@ -192,10 +190,7 @@ class TodoWriteTool:
 				lines.append(f"- [{t.status}] {t.content}")
 			if all(t.status == "completed" for t in out.new_todos):
 				lines.append("")
-				lines.append(
-					"All todos are completed. Do not keep restating the "
-					"finished list unless the user asks for new work."
-				)
+				lines.append("All todos are completed.")
 		else:
 			lines.append("")
 			lines.append("Todo list is now empty.")

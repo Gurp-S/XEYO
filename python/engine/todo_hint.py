@@ -24,7 +24,8 @@ from __future__ import annotations
 
 from typing import Any, Iterable
 
-#: 视为「已完成」的状态（对齐 budget_mirror_block 的既有语义）。
+#: 视为「已完成」的状态（原 budget_mirror_block 同源口径；该块 2026-09-15 撤销，
+#: 口径由本模块与 repeat_guard 共同承载）。
 DONE_STATUSES = frozenset({"completed", "done"})
 #: 视为「仍在推进」的显式状态（其余非 done 一律按待办处理，宁显勿漏）。
 PROGRESS_STATUSES = frozenset({"pending", "in_progress", "active"})
@@ -34,7 +35,7 @@ CONTENT_MAX_CHARS = 80
 
 
 def _content(t: Any) -> str:
-	"""取条目内容；与 budget_mirror_block 同源容错。"""
+	"""取条目内容；与 repeat_guard 同源容错（content/text 双键）。"""
 	if not isinstance(t, dict):
 		return ""
 	return str(t.get("content") or t.get("text") or "").strip()

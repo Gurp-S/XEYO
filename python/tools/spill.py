@@ -44,6 +44,21 @@ def spill_root() -> Path:
 	return Path.home() / ".xeyo" / "spill"
 
 
+def _routed_container() -> str:
+	"""活动容器路由；宿主路由返回空串。"""
+	try:
+		from tools.container_fs import active_container
+
+		return active_container()
+	except Exception:  # noqa: BLE001 — 路由模块不可用视为宿主
+		return ""
+
+
+def _container_spill_dir(session_ns: str) -> str:
+	"""容器内溢出目录（与宿主 ``~/.xeyo/spill`` 同构，放在 /tmp 下）。"""
+	return f"/tmp/.xeyo/spill/{session_ns}"
+
+
 def _safe_session(session_id: str) -> str:
 	raw = session_id or ""
 	parts: list[str] = []
@@ -91,10 +106,27 @@ def save_text(session_id: str, text: str) -> SpillRef:
 	- 每次保存顺带做一次保留期清理（成本：一次 os.walk，量级可控）。
 	"""
 	data = (text or "").encode("utf-8", errors="replace")
+	stamp = time.strftime("%Y%m%d-%H%M%S", time.localtime())
+	name = f"{stamp}-{uuid.uuid4().hex[:8]}.txt"
+
+	# 容器路由（2026-09-16）：溢出文件必须落在**容器内**。原实现一律写
+	# ``~/.xeyo/spill/…``（宿主），而 hint 告诉模型"Read 这个路径"——容器里
+	# 读不到 ⇒ 证据取不回 + 白烧一轮。溢出内容恰恰是最需要事后取证的部分。
+	if _routed_container():
+		from tools.container_fs import write_bytes
+
+		cpath = f"{_container_spill_dir(_safe_session(session_id))}/{name}"
+		if not write_bytes(cpath, data):
+			raise OSError(f"container spill failed: {cpath}")
+		return SpillRef(
+			path=cpath,
+			bytes=len(data),
+			hint=f"full output: {cpath} ({len(data)} bytes)",
+		)
+
 	ns = spill_root() / _safe_session(session_id)
 	ns.mkdir(parents=True, exist_ok=True)
-	stamp = time.strftime("%Y%m%d-%H%M%S", time.localtime())
-	path = ns / f"{stamp}-{uuid.uuid4().hex[:8]}.txt"
+	path = ns / name
 	fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
 	try:
 		os.write(fd, data)

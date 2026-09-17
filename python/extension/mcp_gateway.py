@@ -37,7 +37,8 @@ _SCHEMA: dict[str, Any] = {
         "action=call: execute a server tool (server+tool+args; args per describe). "
         "action=resources: list server resources (optional server, cursor). "
         "action=read_resource: read one resource by uri (server+uri required). "
-        "Describe before call. Unlisted/unchecked tools may still be callable - use list."
+		"describe returns the schema associated with a server/tool pair; "
+		"call resolves the target from the registered server/tool set."
     ),
     "inputSchema": {
         "type": "object",
@@ -116,8 +117,8 @@ class McpGatewayTool(Tool):
                 return await self._act_call(data, abort)
             else:
                 return ToolResult(
-                    content=f"Mcp gateway: unknown action {action!r} "
-                    "(use list / describe / call / resources / read_resource)",
+                    content=f"Mcp gateway: unknown action {action!r}; "
+                    "available actions: list, describe, call, resources, read_resource",
                     is_error=True,
                 )
         except Exception as e:  # noqa: BLE001 — 网关不炸工具循环
@@ -289,7 +290,6 @@ class McpGatewayTool(Tool):
         server = str(data.get("server") or "").strip()
         raw = str(data.get("tool") or "").strip()
         return (
-            f"Mcp gateway: unknown tool {server}/{raw} — fail-closed. "
-            "Use action=list to enumerate servers/tools; the tool may be "
-            "unchecked or its server disabled/unapproved."
+			f"Mcp gateway: unknown tool {server}/{raw} — fail-closed. "
+			"The registered server/tool set contains no callable target for this pair."
         )

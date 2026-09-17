@@ -9,6 +9,8 @@ from __future__ import annotations
 import json
 import asyncio
 import os
+from tools.fileio import fsprobe as _fsprobe
+from tools.container_fs import display_cwd as _cfs_display_cwd
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -36,6 +38,20 @@ from tools.file_read_tool.prompt import (
 # 上限 0.25 MiB
 MAX_SIZE_BYTES = int(0.25 * 1024 * 1024)
 DEFAULT_MAX_TOKENS = 25_000
+
+
+def _is_externalized(path: str, cwd: str | None = None) -> bool:
+	"""路径是否属于外部化内容（offload / 冷层取回视图）——决定要不要记 read-state。
+
+	**必须传自己的工作区**（不是进程 cwd）：offload 根默认 ``<cwd>/.xeyo_offload``。
+	懒 import + fail-open：`memory` 不可用时按「非外部化」处理（= 旧行为，方向安全）。
+	"""
+	try:
+		from memory.offload import is_externalized_path
+
+		return bool(is_externalized_path(path, cwd))
+	except Exception:  # noqa: BLE001
+		return False
 
 IMAGE_EXTENSIONS = frozenset({"png", "jpg", "jpeg", "gif", "webp"})
 BINARY_EXTENSIONS = frozenset(
@@ -192,8 +208,7 @@ class FileReadTool:
 			"file_path": {
 				"type": "string",
 				"description": (
-					"The absolute path to the file to read "
-					"(must be absolute, not relative)"
+					"Absolute path to the file to read."
 				),
 			},
 			"offset": {
@@ -201,34 +216,32 @@ class FileReadTool:
 				"description": (
 					"Text: start line (1-indexed). "
 					"PDF (vision): page number (1-indexed). "
-					"Only provide if needed."
+					"Optional; omitted value starts at the first page."
 				)
 				if self._vision_enabled
 				else (
-					"The line number to start reading from (1-indexed). "
-					"Only provide if the file is too large to read at once."
+					"Line number to start reading from (1-indexed)."
 				),
 			},
 			"limit": {
 				"type": "integer",
 				"description": (
-					"The number of lines to read. "
-					"Only provide if the file is too large to read at once."
+					"Number of lines to read."
 				),
 			},
 			"symbol": {
 				"type": "string",
 				"description": (
-					'Read only one symbol\'s body instead of the file, e.g. '
+					'When set, returns one symbol\'s body, e.g. '
 					'"MyClass.handle_request" or "query_loop". '
-					"To also pack same-file context, set pack=true. "
+					"pack=true includes same-file context. "
 					"Cannot be combined with offset/limit."
 				),
 			},
 			"pack": {
 				"type": "boolean",
 				"description": (
-					"With symbol: also pack same-file docstring, used imports, "
+					"With symbol: includes same-file docstring, used imports, "
 					"callee/caller signatures (budget-capped). "
 					"Ignored without symbol. Cannot combine with offset/limit."
 				),
@@ -266,7 +279,7 @@ class FileReadTool:
 					"result": False,
 					"message": (
 						f"Read is text-only for this model: cannot read image .{ext}. "
-						"Use a vision-capable model or Screenshot."
+						"Vision-capable models and Screenshot support image content."
 					),
 					"errorCode": 4,
 				}
@@ -277,7 +290,7 @@ class FileReadTool:
 					"result": False,
 					"message": (
 						"Read is text-only for this model: cannot read PDF. "
-						"Use a vision-capable model, or convert pages to PNG."
+						"Vision-capable models and rendered PNG pages support PDF content."
 					),
 					"errorCode": 4,
 				}
@@ -287,7 +300,7 @@ class FileReadTool:
 				"result": False,
 				"message": (
 					f"Read is text-only: cannot read binary .{ext} files "
-					"(Office/archives). Use an external tool."
+					"(Office/archives); external readers support these files."
 				),
 				"errorCode": 4,
 			}
@@ -321,7 +334,7 @@ class FileReadTool:
 					"result": False,
 					"message": (
 						"symbol cannot be combined with offset/limit; "
-						"pass only symbol to read one symbol's body"
+						"symbol selects one symbol body"
 					),
 					"errorCode": 5,
 				}
@@ -374,19 +387,41 @@ class FileReadTool:
 			except OSError:
 				pass
 
-		if not os.path.exists(full):
+		# 容器路由（2026-09-16）：工作面在容器里时，存在性/目录判定必须问容器。
+		# 用宿主 os.path 判定会把 /app/x 规范化成 D:\app\x，然后报"文件不存在"——
+		# 而文件明明在容器里（模型据此以为整个路径都错了）。
+		_routed = ""
+		try:
+			from tools.container_fs import active_container as _ac
+
+			_routed = _ac()
+		except Exception:  # noqa: BLE001 — 路由模块不可用视为宿主
+			_routed = ""
+		if _routed:
+			from tools.container_fs import exists as _cfs_exists
+			from tools.container_fs import is_dir as _cfs_isdir
+
+			if _cfs_exists(full) is False:
+				raise FileNotFoundError(
+					f"File does not exist in the container: {input_data.file_path}"
+				)
+			if _cfs_isdir(full) is True:
+				raise IsADirectoryError(
+					f"Path is a directory, not a file: {input_data.file_path}"
+				)
+		elif not _fsprobe.exists(full):
 			suggestion = suggest_path_under_cwd(full, cwd=self._cwd)
 			similar = find_similar_file(full)
 			message = (
-				f"File does not exist. {FILE_NOT_FOUND_CWD_NOTE} {self._cwd}."
+				f"File does not exist. {FILE_NOT_FOUND_CWD_NOTE} {_cfs_display_cwd(self._cwd)}."
 			)
 			if suggestion:
-				message += f" Did you mean {suggestion}?"
+				message += f" Nearest existing path: {suggestion}."
 			elif similar:
-				message += f" Did you mean {similar}?"
+				message += f" Nearest existing path: {similar}."
 			raise FileNotFoundError(message)
 
-		if os.path.isdir(full):
+		if not _routed and _fsprobe.isdir(full):
 			raise IsADirectoryError(
 				f"Path is a directory, not a file: {input_data.file_path}"
 			)
@@ -395,25 +430,25 @@ class FileReadTool:
 		if ext in IMAGE_EXTENSIONS:
 			if not self._vision_enabled:
 				raise RuntimeError(
-					f"Image file '.{ext}' detected. This model has Read vision "
-					"disabled; open externally or use Screenshot."
+					f"Image file '.{ext}' detected. Read vision is disabled for this "
+					"model; Screenshot and external readers support image content."
 				)
 			raise RuntimeError("__VISION_IMAGE__")  # execute 分支处理
 		if ext == "pdf":
 			if not self._vision_enabled:
 				raise RuntimeError(
-					"PDF detected. This model has Read vision disabled; "
-					"convert pages to PNG or enable a vision model."
+					"PDF detected. Read vision is disabled for this model; rendered "
+					"PNG pages and vision-capable models support PDF content."
 				)
 			raise RuntimeError("__VISION_PDF__")
 		if ext in BINARY_EXTENSIONS:
 			raise RuntimeError(
 				f"Binary/non-text file '.{ext}' is not supported by Read "
-				"(text-only). Use an external tool for Office/archives."
+				"(text-only); external readers support Office/archives."
 			)
 
 		try:
-			size = os.path.getsize(full)
+			size = _fsprobe.getsize(full)
 		except OSError as e:
 			raise RuntimeError(f"Cannot stat file: {e}") from e
 
@@ -424,8 +459,8 @@ class FileReadTool:
 			if not candidates:
 				raise RuntimeError(
 					f"Symbol '{input_data.symbol}' not found in "
-					f"{input_data.file_path}. Use Grep with "
-					'output_mode="symbols" to list symbol names first.'
+					f"{input_data.file_path}. Grep output_mode=\"symbols\" "
+					"returns symbol names."
 				)
 			if len(candidates) > 1:
 				listing = "\n".join(
@@ -436,7 +471,7 @@ class FileReadTool:
 				)
 				raise RuntimeError(
 					f"Symbol '{input_data.symbol}' is ambiguous "
-					f"({len(candidates)} matches). Use a qualified path like "
+					f"({len(candidates)} matches). A qualified path such as "
 					f"'ClassName.method':\n{listing}"
 				)
 			sym = candidates[0]
@@ -444,8 +479,8 @@ class FileReadTool:
 		if size > MAX_SIZE_BYTES and limit is None and sym is None:
 			raise RuntimeError(
 				f"File content ({size} bytes) exceeds maximum allowed size "
-				f"({MAX_SIZE_BYTES} bytes). Use offset and limit parameters to "
-				"read specific portions of the file, or search with Grep."
+				f"({MAX_SIZE_BYTES} bytes). offset and limit parameters select "
+				"specific portions; Grep exposes content search."
 			)
 
 		content, _endings, _enc = read_text_file(full)
@@ -514,21 +549,27 @@ class FileReadTool:
 		if tokens > DEFAULT_MAX_TOKENS:
 			raise RuntimeError(
 				f"File content ({tokens} tokens) exceeds maximum allowed tokens "
-				f"({DEFAULT_MAX_TOKENS}). Use offset and limit parameters to read "
-				"specific portions of the file, or search for specific content "
-				"instead of reading the whole file."
+				f"({DEFAULT_MAX_TOKENS}). offset and limit parameters select "
+				"specific portions; content search returns matching sections."
 			)
 
 		mtime = get_mtime_ms(full)
-		self._read_state.set(
-			full,
-			FileStateEntry(
-				content=content,
-				timestamp=mtime,
-				offset=start_line_out if symbol_meta is None else None,
-				limit=None if symbol_meta is not None else limit,
-			),
-		)
+		# 外部化内容（offload 落地文件 / WSC 冷层取回视图）**不记 read-state**：
+		# ① 它不是模型在编辑的对象，记进去只会占 `ReadFileState` 的 LRU 槽位，
+		#    把正在编辑的真文件快照挤掉——而那份快照是写前新鲜度校验的依据；
+		# ② 同一 path+offset+limit 重复读会返回 `FILE_UNCHANGED_STUB` 顶掉正文，
+		#    而取回语义要求每次都给正文。
+		# 判定走 `memory.offload.is_externalized_path`（按 offload 根前缀，见其 docstring）。
+		if not _is_externalized(full, self._cwd):
+			self._read_state.set(
+				full,
+				FileStateEntry(
+					content=content,
+					timestamp=mtime,
+					offset=start_line_out if symbol_meta is None else None,
+					limit=None if symbol_meta is not None else limit,
+				),
+			)
 
 		return ReadOutput(
 			type="text",
@@ -620,8 +661,20 @@ class FileReadTool:
 		from tools.file_read_tool.vision_media import compress_image_for_llm
 
 		try:
-			with open(full, "rb") as fh:
-				raw = fh.read()
+			# 容器路由（2026-09-16）：图片字节也必须从**容器**取——直读宿主
+			# 路径在评测里必然 FileNotFoundError（图在容器里）。
+			from tools.container_fs import active_container as _ac
+			from tools.container_fs import read_bytes as _cfs_read_bytes
+
+			if _ac():
+				raw = _cfs_read_bytes(full)
+				if raw is None:
+					return ToolResult(
+						content=f"Cannot read image (container): {full}", is_error=True
+					)
+			else:
+				with open(full, "rb") as fh:
+					raw = fh.read()
 			data_url, meta = compress_image_for_llm(raw)
 		except MediaError as e:
 			return ToolResult(content=str(e), is_error=True)
@@ -665,7 +718,7 @@ def _notebook_cell_summary(raw: str, file_path: str) -> str:
 	lines = [
 		f"Notebook {file_path}: {len(cells)} cells "
 		f"(nbformat {nb.get('nbformat', '?')}). "
-		"Use NotebookEdit with cell_idx below.",
+		"NotebookEdit addresses cells by cell_idx.",
 	]
 	for i, cell in enumerate(cells):
 		if not isinstance(cell, dict):

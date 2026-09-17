@@ -1,18 +1,16 @@
-agent_settlement	event	子代理结算通知，drain 语义——静默即永久丢失
-browser_preview	inventory	用户预览页 URL：读页面正文的必要指针
-budget_mirror	directive	死线会话每轮稳态预算/时间镜像（23ca693 禀赋①）；正常会话零注入
-compact	directive	输出/写码压缩开关生效的统一行为规则（任一开关开启即注入；③合并两块减一）
-continue	directive	工具续写轮无此块模型把 tool_result 当终点，不回用户问题
-file_conflict	event	触碰文件被其他会话写入——静默即丢，覆盖风险
-goal	directive	仅 blocked/pending_complete 注入：恢复执行/完成确认的锚
-mcp_required_warn	event	required MCP server 启动失败的可见警告（fail-visible）
-mode_instructions	directive	Ask/Plan/批准计划是本轮行为模式合同，决定能否写盘
-multi_agent_hint	directive	多代理分解/汇总的协作合同，缺了会单干或重复汇总
-nested_instructions	inventory	子目录规则按需加载；限窗注入，滚出尾窗静默
-peer_presence	event	多会话交叉活动提醒，冲突预防（drain 队列）
-pending_jobs	directive	job 完成补投：一次性待领信息，模型不读则任务结果不可见
-reconcile_events	event	工具面/技能目录变更，consume 语义——静默即永久丢失
-repeat_guard	directive	轮内防复读提醒（引擎 clear_advice 逐轮重置）
-resume_directive	event	续跑富化指令投影-only 送达（修订2）：落库只存用户真实文本
-runtime_mode_snapshot	directive	审批模式活状态（supersedes）；真门禁在 permissions 层
-skill_preinvoke	directive	用户 /name 直呼技能的宿主确定性加载；不注入则直呼依赖模型自觉调 Skill 工具，user 只见技能的直呼即失效
+agent_settlement	event	False	False	子代理结算通知，drain 语义——静默即永久丢失
+browser_preview	state	True	True	用户预览页 URL：读页面正文的必要指针
+compact	state	False	True	输出/写码压缩开关生效的统一行为规则（任一开关开启即注入；③合并两块减一）
+continue	state	False	False	工具续写轮无此块模型把 tool_result 当终点，不回用户问题
+file_conflict	event	False	False	触碰文件被其他会话写入——静默即丢，覆盖风险
+goal	state	False	True	仅 blocked/pending_complete 注入：恢复执行/完成确认的锚
+mcp_required_warn	event	False	False	required MCP server 启动失败的可见警告（fail-visible）
+mode_instructions	state	False	True	Ask/Plan/批准计划是本轮行为模式合同，决定能否写盘
+multi_agent_hint	state	False	True	多代理分解/汇总的协作合同，缺了会单干或重复汇总
+nested_instructions	state	True	True	子目录规则按需加载；限窗注入，滚出尾窗静默
+peer_notices	event	False	False	跨会话事件通知的唯一投递口，drain 语义——静默即永久丢失（原 peer_presence 收窄而来，常驻 beacon 已删）
+pending_jobs	event	False	False	job 完成补投：一次性待领信息（chat 入口已 drain），模型不读则任务结果不可见
+reconcile_events	event	False	False	工具面/技能目录变更，consume 语义——静默即永久丢失
+repeat_guard	state	False	True	轮内防复读提醒（引擎 clear_advice 逐轮重置）
+resume_directive	event	False	False	续跑富化指令投影-only 送达（修订2）：落库只存用户真实文本
+skill_preinvoke	state	False	False	用户 /name 直呼技能的宿主确定性加载；不注入则直呼依赖模型自觉调 Skill 工具，user 只见技能的直呼即失效

@@ -7,13 +7,24 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from synaptic.coldstore import BRANCH_PREFIX
 from synaptic.graph import Graph
+from synaptic.handles import renderer_or_default
 from synaptic.textutil import node_token_len
 from synaptic.types import EDGE_USE, KIND_TOOL_RESULT, KIND_TOOL_USE, PruneCard, WscParams
 
 CARD_ID_PREFIX = "B"
+
+#: 一张卡最多内联多少条文件路径。
+#:
+#: 原为 4（**丢弃**其余），归因实测（185 条 failure_site 漏失里 52 条）证明这是
+#: 主要漏失源：Bash 单元的 refs 会把「命令串里提到的路径 + 输出里提到的路径」全部
+#: 并进来，一个 `npm test && cat a b c` 型单元轻松超过 4 条，而被丢掉的那些路径
+#: 在热层里**没有别的出口**（[MAIN] 只渲染 refs[0]、[PATHS] 有条数配额、
+#: [WORKING SET] ≤12 条）⇒ 失败现场整条消失。8 条覆盖实测分布，代价约 +30–40 tok/张。
+CARD_FILES_MAX = 8
 
 
 @dataclass(frozen=True)
@@ -167,7 +178,7 @@ def build_cards(
 			PruneCard(
 				card_id=f"{CARD_ID_PREFIX}{u.root}",
 				conclusion=concl,
-				files=u.files[:4],
+				files=u.files[:CARD_FILES_MAX],
 				error_sig=u.error_sig,
 				replay=u.replay,
 				nodes=u.nodes,
@@ -186,7 +197,7 @@ def build_cards(
 			merged[i] = PruneCard(
 				card_id=prev.card_id,
 				conclusion=prev.conclusion,
-				files=tuple(dict.fromkeys(prev.files + c.files))[:4],
+				files=tuple(dict.fromkeys(prev.files + c.files))[:CARD_FILES_MAX],
 				error_sig=prev.error_sig,
 				replay=prev.replay or c.replay,
 				nodes=tuple(dict.fromkeys(prev.nodes + c.nodes)),
@@ -210,7 +221,7 @@ def build_cards(
 		merged[idx] = PruneCard(
 			card_id=a.card_id,
 			conclusion=concl,
-			files=tuple(dict.fromkeys(a.files + b.files))[:4],
+			files=tuple(dict.fromkeys(a.files + b.files))[:CARD_FILES_MAX],
 			error_sig=a.error_sig,
 			replay=a.replay,
 			nodes=new_nodes,
@@ -238,8 +249,13 @@ def _nearest_mergeable(cards: list[PruneCard], avoid: int) -> int | None:
 	return min(cands, key=lambda i: (abs(i - avoid), -i))
 
 
-def render_card(c: PruneCard) -> str:
-	"""一张卡的热层文本（单行，便于前缀稳定）。"""
+def render_card(c: PruneCard, *, handles: Any = None) -> str:
+	"""一张卡的热层文本（单行，便于前缀稳定）。
+
+	句柄表达式由 `handles.HandleRenderer` 产出（**不在这里拼 `expand(...)`**：
+	渲染形态与解析必须同源，见 `synaptic/handles.py` 的模块文档）。
+	"""
+	hr = renderer_or_default(handles)
 	bits = [f"{c.card_id}:"]
 	bits.append(c.conclusion)
 	if c.files:
@@ -248,12 +264,12 @@ def render_card(c: PruneCard) -> str:
 		bits.append(f"err={c.error_sig[:80]}")
 	if c.replay:
 		bits.append(f"replay={c.replay[:100]}")
-	bits.append(f"expand({c.handle})")
+	bits.append(hr.expression(c.handle))
 	return " ".join(bits)
 
 
-def cards_tokens(cards: tuple[PruneCard, ...]) -> int:
-	return sum(node_token_len(render_card(c)) for c in cards)
+def cards_tokens(cards: tuple[PruneCard, ...], *, handles: Any = None) -> int:
+	return sum(node_token_len(render_card(c, handles=handles)) for c in cards)
 
 
 #: 卡组内多条结论的分隔符（与 ``budget._EXCERPT_SEP`` 同款理由：可见、不歧义、
@@ -295,17 +311,18 @@ def cards_handle(cards: list[PruneCard]) -> str:
 	return BRANCH_PREFIX + ",".join(c.card_id for c in cards)
 
 
-def render_card_group(cards: list[PruneCard]) -> str:
+def render_card_group(cards: list[PruneCard], *, handles: Any = None) -> str:
 	"""一组卡的热层文本（单行）。
 
 	为什么合并：实测 `[PRUNED]` 1221 tok ÷ 24 卡 ≈ 51 tok/卡行，而单卡结论本身只有
-	med 34 tok ⇒ **约 17 tok/卡是纯行开销**（``<id>:`` 前缀 + ``expand(branch://<id>)``
-	尾巴，且 id 在一行里出现两次）。行开销与结论长度无关，只能靠**合并行**压。
+	med 34 tok ⇒ **约 17 tok/卡是纯行开销**（``<id>:`` 前缀 + 句柄尾巴，且 id 在一行里出现两次）。
+	行开销与结论长度无关，只能靠**合并行**压。
 
 	合并后**每条结论仍逐字内联**——不做「只留首条」那种压缩，那会把结论文本针打掉，
 	与 docs §13.4 的 `user` 针事故同型。只有前缀与句柄从 N 份降到 1 份；
 	行尾句柄覆盖组内**全部**卡 ⇒ 展开仍逐字节无损。
 	"""
+	hr = renderer_or_default(handles)
 	head = cards[0]
 	bits = [_CARD_SEP.join(c.conclusion for c in cards)]
 	if head.files:
@@ -314,14 +331,16 @@ def render_card_group(cards: list[PruneCard]) -> str:
 		bits.append(f"err={head.error_sig[:80]}")
 	if head.replay:
 		bits.append(f"replay={head.replay[:100]}")
-	bits.append(f"expand({cards_handle(cards)})")
+	bits.append(hr.expression(cards_handle(cards)))
 	return " ".join(bits)
 
 
-def render_cards_merged(cards: tuple[PruneCard, ...]) -> list[tuple[str, str]]:
+def render_cards_merged(
+	cards: tuple[PruneCard, ...], *, handles: Any = None
+) -> list[tuple[str, str]]:
 	"""``[PRUNED]`` 行列表：同组卡并成一行（组内 1 张时退化为原单卡形态）。"""
 	out: list[tuple[str, str]] = []
 	for group in group_cards(cards):
 		key = group[0].card_id if len(group) == 1 else ",".join(c.card_id for c in group)
-		out.append((f"cards:{key}", render_card_group(group)))
+		out.append((f"cards:{key}", render_card_group(group, handles=handles)))
 	return out

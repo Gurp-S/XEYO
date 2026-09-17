@@ -1,5 +1,5 @@
 {
- "artifact_count": 44,
+ "artifact_count": 43,
  "artifacts": {
   "meta/power_table": {
    "chars": 227,
@@ -92,33 +92,26 @@
    "note": "",
    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
   },
-  "tnow/block/runtime_mode_snapshot": {
-   "chars": 0,
-   "file": "tnow__block__runtime_mode_snapshot.txt",
-   "group": "tnow",
-   "note": "",
-   "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-  },
   "tnow/block_count": {
    "chars": 3,
    "file": "tnow__block_count.txt",
    "group": "tnow",
    "note": "登记块数（与硬顶一起决定准入）",
-   "sha256": "7ee29791fc17e986b97128845622b077fb45e349fdb80523fac9dba879b4ad60"
+   "sha256": "e6c21e8d260fe71882debdb339d2402a2ca7648529bc2303f48649bce0380017"
   },
   "tnow/hard_cap": {
    "chars": 3,
    "file": "tnow__hard_cap.txt",
    "group": "tnow",
    "note": "",
-   "sha256": "6e2ae11dad0616f66bbb2b6e6556f580bb987fd911d7132aa6bee2bfc7cc7b52"
+   "sha256": "e6c21e8d260fe71882debdb339d2402a2ca7648529bc2303f48649bce0380017"
   },
   "tnow/registry": {
-   "chars": 1016,
+   "chars": 1084,
    "file": "tnow__registry.txt",
    "group": "tnow",
    "note": "块登记表（加块必须登记，机器执法）",
-   "sha256": "a71f006bcde01a91aa4d118ed3c2c19c19efd71eb3e8ba1e133d084af74dd1cd"
+   "sha256": "7b8bafc64cbef616bd091d6d2c4398986e796772cf70abedafa7512e8bea8569"
   },
   "tools/Agent": {
    "chars": 1136,
@@ -128,11 +121,11 @@
    "sha256": "a7712448d3d4cee050898f750261005ff772503c21536c19182926cea532acd6"
   },
   "tools/AskUserQuestion": {
-   "chars": 1220,
+   "chars": 1505,
    "file": "tools__AskUserQuestion.txt",
    "group": "tools",
    "note": "工具 schema（决定模型怎么调）",
-   "sha256": "02fea9b01195a72c3439ddbe3590c7f3e3de6ccc0f27d0fedc3b20f8b50edf00"
+   "sha256": "ee808fd91ba83f79be7a74c5c8f0ac2126c64645c3c2c315063655988a542e2e"
   },
   "tools/Bash": {
    "chars": 1366,

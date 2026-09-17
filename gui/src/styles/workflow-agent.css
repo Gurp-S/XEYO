@@ -144,6 +144,18 @@
   border-color: color-mix(in srgb, var(--xy-mute) 35%, var(--xy-user-bubble-border));
 }
 
+/* 子代理卡片 token 角标：mono 紧凑，与 scope 徽标同族但更弱 */
+.xy-agent-bar-tokens {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--xy-mute);
+  background: color-mix(in srgb, var(--xy-mute) 12%, transparent);
+}
+
 .xy-agent-bar-out {
   min-width: 0;
   flex: 1;

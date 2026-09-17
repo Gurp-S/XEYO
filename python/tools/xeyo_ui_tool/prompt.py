@@ -9,6 +9,6 @@ DESCRIPTION = (
 	"browser url=…|op=reload|back|fwd|ext|close; "
 	"show_tool_flow show=bool; "
 	"send_to_session session_id=… text=…. "
-	"list_sessions before send_to_session; never current/side id. "
+	"send_to_session excludes the current and side session ids. "
 	"UI-only — not Read/Git/Bash/WebFetch."
 )

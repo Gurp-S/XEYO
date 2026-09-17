@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Iterable
 
 from synaptic.graph import Graph
 from synaptic.memo import Memo
@@ -90,16 +90,33 @@ class Selection:
 	reason: dict[int, str] = field(default_factory=dict)
 
 
-def backward_closure(graph: Graph, seeds: tuple[int, ...], hops: int) -> set[int]:
-	"""种子在 DAG 上的反向 k 跳可达集（沿 in_adj 反向遍历）。"""
+def backward_closure(
+	graph: Graph,
+	seeds: tuple[int, ...],
+	hops: int,
+	*,
+	edge_kinds: Iterable[str] | None = None,
+) -> set[int]:
+	"""种子在指定边集上的反向 k 跳可达集。
+
+	不传 ``edge_kinds`` 时保留完整图的历史 API；WSC 默认由 ``plan_selection``
+	传入 hard-use provenance，避免 soft DAG 的启发式关联改变主线选择。
+	"""
 	if not seeds or hops <= 0:
 		return set(seeds)
+	kinds = frozenset(edge_kinds) if edge_kinds is not None else None
 	seen: set[int] = set(seeds)
 	frontier: set[int] = set(seeds)
 	for _ in range(max(1, hops)):
 		nxt: set[int] = set()
 		for idx in sorted(frontier):
-			for src in graph.in_adj.get(idx, ()):
+			if kinds is None:
+				sources = graph.in_adj.get(idx, ())
+			else:
+				sources = tuple(
+					src for kind in sorted(kinds) for src in graph.incoming(idx, kind)
+				)
+			for src in sources:
 				if src not in seen:
 					seen.add(src)
 					nxt.add(src)
@@ -124,6 +141,7 @@ def score_nodes(
 	)
 	seed_kw = keywords(seed_text)
 	seed_paths = set(seeds.pin_paths)
+	pin_set = set(seeds.pin_nodes)
 	denom = max(1, len(seed_kw))
 	span = max(1, region_end - 1)
 
@@ -133,7 +151,7 @@ def score_nodes(
 			continue
 		# goal_rel：关键词交集 + 路径命中（扫描窗口限 4k，避免超长工具输出主导耗时）
 		kw = keywords(n.text[:4000], limit=200)
-		ref_hit = len(set(n.refs) & seed_paths)
+		ref_hit = any(ref in seed_paths for ref in n.refs)
 		inter = len(kw & seed_kw)
 		goal_rel = min(1.0, (inter / denom) * 3.0 + (0.4 if ref_hit else 0.0))
 
@@ -147,7 +165,7 @@ def score_nodes(
 		constraint = 0.0
 		if n.role == "user":
 			constraint = 0.4
-		if n.idx in set(seeds.pin_nodes) and n.role == "user":
+		if n.idx in pin_set and n.role == "user":
 			constraint = 1.0
 		if seeds.constraints and any(c[:24] in n.text for c in seeds.constraints):
 			constraint = 1.0
@@ -257,7 +275,17 @@ def plan_selection(
 	from synaptic.assemble import emitted_tokens
 
 	seed_nodes = tuple(sorted(set(seeds.pin_nodes)))
-	reachable = backward_closure(graph, seed_nodes, params.closure_hops)
+	edge_kinds = None
+	if not params.soft_dag:
+		from synaptic.types import EDGE_USE
+
+		edge_kinds = (EDGE_USE,)
+	reachable = backward_closure(
+		graph,
+		seed_nodes,
+		params.closure_hops,
+		edge_kinds=edge_kinds,
+	)
 	# 候选 = 可达集 ∪ 闭包外全体（闭包外节点仍参与竞争，只是没有可达加成）
 	candidates = {n.idx for n in graph.nodes if n.idx < region_end}
 	must_keep = set(seed_nodes) | {i for i in reachable if graph.nodes[i].is_error}

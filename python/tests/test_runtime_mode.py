@@ -1,7 +1,11 @@
-"""RuntimeModeStore 活审批模式：store 语义 + permission_mode 优先级 + 快照广播。
+"""RuntimeModeStore 活审批模式：store 语义 + permission_mode 优先级。
 
-覆盖：严格度排序、T26 单向性（收紧即时/放宽延后）、增量广播（全量/变更/
-切回默认/会话清理）、permission_mode() 优先级（store 活值 > body > config）。
+覆盖：严格度排序、T26 单向性（收紧即时/放宽延后）、permission_mode()
+优先级（store 活值 > body > config）。
+
+2026-09-15：快照广播（``mark_turn_broadcast`` / ``runtime_mode_snapshot_text``
+与 T_now 块 ``runtime_mode_snapshot``）整条链路随块撤销删除——真开关始终在
+ToolRegistry 准入 gate，不依赖模型可见文本，故对应测试同步删除。
 """
 
 from __future__ import annotations
@@ -17,7 +21,6 @@ from permissions.policy import (
 from permissions.runtime_mode import (
 	get_runtime_mode_store,
 	normalize_mode,
-	runtime_mode_snapshot_text,
 	stricter,
 )
 
@@ -87,47 +90,12 @@ def test_tighten_immediate_relax_deferred() -> None:
 	_clear()
 
 
-def test_broadcast_turn_first_only() -> None:
+def test_broadcast_removed_with_t_now_block() -> None:
+	"""快照广播 API 已随 T_now 块撤销删除（2026-09-15）；store 只留活状态。"""
 	store = get_runtime_mode_store()
-	_clear()
-	# 本轮首即有活值 → armed；turn 首发一次。
-	store.set(SID, "always")
-	assert store.begin_turn(SID, "risk") == "always"
-	assert store.mark_turn_broadcast(SID, "always") is True
-	# 同 turn 不再重复（#1：轮内不再注入）。
-	assert store.mark_turn_broadcast(SID, "always") is False
-	store.set(SID, "never")  # 轮中改动（放宽/收紧），effective 仍取更严
-	assert store.mark_turn_broadcast(SID, "always") is False
-	# 下一 turn 首：复位后重新武装 → 再发。
-	assert store.begin_turn(SID, "risk") == "never"
-	assert store.mark_turn_broadcast(SID, "never") is True
-	# 会话清理后：不再武装。
-	store.clear(SID)
-	assert store.mark_turn_broadcast(SID, "always") is False
-
-
-def test_broadcast_skips_midturn_appearance() -> None:
-	store = get_runtime_mode_store()
-	_clear()
-	# turn 首无活值 → 不武装；轮中才出现活值不该注入（#1）。
-	store.begin_turn(SID, "risk")
-	assert store.mark_turn_broadcast(SID, "always") is False
-	store.set(SID, "always")
-	assert store.mark_turn_broadcast(SID, "always") is False  # 轮中不注入
-	# 下一 turn 首：有活值 → 武装 → 广播。
-	store.begin_turn(SID, "risk")
-	assert store.mark_turn_broadcast(SID, "always") is True
-	_clear()
-
-
-def test_snapshot_text_states_background() -> None:
-	text = runtime_mode_snapshot_text("always")
-	assert "background only" in text
-	assert "supersedes" in text
-	assert "当前审批模式: always" in text
-	# #2：纯状态陈述，不含引导/要求性措辞。
-	for hint in ("继续", "请", "按当前", "需要你"):
-		assert hint not in text
+	assert not hasattr(store, "mark_turn_broadcast")
+	assert not hasattr(store, "_last_broadcast")
+	assert not hasattr(store, "_armed")
 
 
 # ── permission_mode() 优先级（store > body > config）─────────────────────

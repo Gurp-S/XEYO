@@ -41,6 +41,17 @@ from extension import config as _cfg
 MEMORY_SWITCHES: tuple[tuple[str, str, tuple[str, ...], str, bool, bool], ...] = (
 	# ---- GUI 暴露（当前唯一一项）----
 	("XEYO_C2_LLM_SUMMARY", "C2 摘要 LLM 旁路：压缩摘要改由模型生成（强保真要点列表，多一次模型调用；实测吸收潜力高但输出不稳定，默认关=确定性摘要）", ("0", "1"), "0", True, True),
+	# WSC 影子档（docs/synaptic-compression.md 阶段 B）：**只观察、不改变发送的投影**。
+	# 开=每个长会话最多记 6 轮「若改用突触压缩会长什么样」到 ~/.xeyo/wsc_shadow.jsonl。
+	# 注册进本表的两个理由：①settings.memory 可切换（`apply_to_environ` 启动时与
+	# 切换时把它桥接进 os.environ，影子档读 env）；②注册键在 `side_enabled` 语义下
+	# **不再回退全局升格默认**，不会出现「用户没开、影子自己在跑」（该事故形态见
+	# memory/wsc_shadow.py 的开关说明）。
+	# `exposed=False`：**刻意不占 GUI 暴露面**——该面由
+	# `tests/test_memory_switch_authority.py::test_gui_exposed_surface_is_exactly_one`
+	# 锁死为「恒一项」，扩大它属产品决策，不由本模块顺手改。切换走 settings.json：
+	# `memory_switches.save({"XEYO_WSC": "1"}, cwd=<工作区>)`。
+	("XEYO_WSC", "WSC 影子档（阶段 B：只观察不生效）——记「若改用突触压缩会长什么样」，不改发送；每会话采样 6 轮", ("0", "1"), "0", False, True),
 	# ---- 非 GUI 暴露（测试 / 评测便捷开关）----
 	("XEYO_L5", "L5 模式：project=默认链(不跑每轮 decide)；v61=实验通道(每轮 decide)", ("project", "v61"), "project", False, True),
 	("XEYO_TOOL_AGING", "工具结果老化：压缩后冻结区仍可按窗口紧追推进（默认关）", ("0", "1"), "0", False, True),

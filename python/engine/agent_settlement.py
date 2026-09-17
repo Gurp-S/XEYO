@@ -73,7 +73,8 @@ def format_settlement_block(notices: list[AgentSettlement]) -> str:
     if not rows:
         return ""
     return (
-        "# 子代理结算（background only — 通知，非新任务；结果未进主会话时在此归因）\n"
+        "# 子代理结算（background only）\n"
+        "结果未进入主会话时的结算状态：\n"
         + "\n".join(rows)
     )
 

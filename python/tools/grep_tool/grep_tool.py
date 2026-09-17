@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import asyncio
 import os
+from tools.fileio import fsprobe as _fsprobe
+from tools.container_fs import display_cwd as _cfs_display_cwd
 import re
 from dataclasses import dataclass, field
 from typing import Any, Literal, Optional
@@ -18,20 +20,25 @@ from tools.base_tool import ToolResult
 from codeindex.symbols import iter_symbols
 from tools.fileio import content_index
 from tools.fileio.excludes import excluded_dir_globs
-from tools.fileio.rg_subprocess import RipgrepRunnerError, run_ripgrep_lines
+from tools.fileio.rg_subprocess import (
+	RG_MISSING_IN_CONTAINER,
+	RipgrepRunnerError,
+	run_ripgrep_lines,
+)
 from tools.grep_tool.prompt import DESCRIPTION, GREP_TOOL_NAME
 
 FILE_NOT_FOUND_CWD_NOTE = "Current working directory:"
 
 # 空结果时追加的处置提示（大小写/范围）。
 _NO_MATCH_TIP = (
-	"\n\nNo matches. If you expected matches, retry with -i (case-insensitive), "
-	"or narrow the path/glob (e.g. scope to gui/src, use a glob like \"*.tsx\")."
+	"\n\nNo matches. case_insensitive=true enables a case-insensitive pass; "
+	"path and glob restrict the searched files (for example path=\"gui/src\" "
+	"or glob=\"*.tsx\")."
 )
 # files_with_matches 命中少时提醒改用 content 模式，避免额外 Read。
 _SMALL_FILES_TIP = (
-	"\n\nTip: use output_mode=\"content\" to see the matching lines directly "
-	"instead of file names only (add -i if case may differ)."
+	"\n\noutput_mode=\"content\" returns matching lines; "
+	"output_mode=\"files_with_matches\" returns matching file paths."
 )
 
 # 默认 head_limit；显式传 0 表示不限制
@@ -271,7 +278,55 @@ def run_ripgrep(
 			),
 		)
 	except RipgrepRunnerError as e:
-		raise RuntimeError(str(e)) from e
+		# 容器路由已在 run_ripgrep_lines 汇聚点接线。任务镜像**全部没有 rg**
+		#（2026-09-16 抽样实测 5/5），故这里回退到容器内 GNU grep——输出形状与
+		# rg 逐字同形（path:line:content / path:count / path），解析层无需改动。
+		# 映射不出逐字等价语义时保持原错误：宁可不给结果，也不给改过语义的结果。
+		if RG_MISSING_IN_CONTAINER not in str(e):
+			raise RuntimeError(str(e)) from e
+		from tools.container_fs import active_container as _ac
+		from tools.grep_tool.rg_fallback import grep_argv_from_rg, pipeline_from_rg
+
+		if not _ac():
+			raise RuntimeError(str(e)) from e
+		# 带正向 glob 时必须走 find|grep 管道：GNU grep 里只要出现 --exclude，
+		# --include 就失效（实测 grep 3.11），直接用会把不该搜的文件也搜进来。
+		pipeline = pipeline_from_rg(args, target)
+		if pipeline is not None:
+			from tools.container_fs import container_exec as _cexec
+
+			probed = _cexec(pipeline, timeout_s=float(timeout) + 5.0, separate=True)
+			if probed is None:
+				raise RuntimeError(str(e)) from e
+			code, out, err = probed
+			if code >= 2 and not out.strip():
+				raise RuntimeError(
+					f"grep fallback error: {(err or '').strip() or f'exit {code}'}"
+				) from e
+			return [
+				line.replace("\r", "")
+				for line in (out or "").splitlines()
+				if line.strip()
+			]
+		mapped = grep_argv_from_rg(args, target)
+		if mapped is None:
+			raise RuntimeError(
+				"ripgrep is not installed in the task container and this search "
+				"cannot be mapped to the available grep backend."
+			) from e
+		from tools.container_fs import run_argv as _run_argv
+
+		probed = _run_argv(["grep", *mapped], timeout_s=float(timeout))
+		if probed is None:
+			raise RuntimeError(str(e)) from e
+		code, out, err = probed
+		if code >= 2:
+			raise RuntimeError(f"grep error: {(err or '').strip() or f'exit {code}'}") from e
+		return [
+			line.replace("\r", "")
+			for line in (out or "").splitlines()
+			if line.strip()
+		]
 
 
 def _split_rg_path_prefix(line: str) -> tuple[str, str] | None:
@@ -410,8 +465,7 @@ class GrepTool:
 						"description": (
 							'content | files_with_matches (default) | count | '
 							"symbols (list matching symbol definitions with "
-							"signatures — prefer this to find classes/functions). "
-							"Prefer content when answering from matches."
+							"signatures)."
 						),
 					},
 					"kinds": {
@@ -426,9 +480,9 @@ class GrepTool:
 						"type": "string",
 						"enum": ["signatures", "folded"],
 						"description": (
-							"symbols mode only: folded collapses methods into their "
-							"container line (class X (12 members)) — use for repo-wide "
-							"overviews; expand later via path/kinds or Read symbol"
+							"symbols mode only: folded groups methods under their "
+							"container line (class X (12 members)); signatures returns "
+							"individual symbol signatures"
 						),
 					},
 					"-B": {
@@ -545,14 +599,14 @@ class GrepTool:
 		if abs_path.startswith("\\\\") or abs_path.startswith("//"):
 			return {"result": True}
 
-		if not os.path.exists(abs_path):
+		if not _fsprobe.exists(abs_path):
 			suggestion = suggest_path_under_cwd(abs_path, cwd=self._cwd)
 			message = (
 				f"Path does not exist: {raw}. "
-				f"{FILE_NOT_FOUND_CWD_NOTE} {self._cwd}."
+				f"{FILE_NOT_FOUND_CWD_NOTE} {_cfs_display_cwd(self._cwd)}."
 			)
 			if suggestion:
-				message += f" Did you mean {suggestion}?"
+				message += f" Nearest existing path: {suggestion}."
 			return {"result": False, "message": message, "errorCode": 1}
 
 		return {"result": True}
@@ -573,13 +627,25 @@ class GrepTool:
 		# files_with_matches 字面量检索：用内容索引预筛候选文件，把 rg 扫描面从全库
 		# 收窄到候选集（索引为完整超集 + rg 精确验证 → 仍是“确切匹配”）。
 		# 任何索引不可用/异常/候选为空 → 回退全量 rg（fail-open，不改正确性）。
+		#
+		# 容器路由（2026-09-16）：**必须跳过预筛**。索引是按**宿主**文件系统建的，
+		# 而工作面在容器里 ⇒ 候选集恒为空 ⇒ 直接返回"零命中"。那正是"静默错答"
+		# （比报错更坏）：模型会以为文件里没有这个词。
+		_index_usable = True
+		try:
+			from tools.container_fs import active_container as _ac
+
+			_index_usable = not bool(_ac())
+		except Exception:  # noqa: BLE001 — 路由模块不可用视为宿主
+			_index_usable = True
 		index_prefiltered = False
 		if (
-			mode == "files_with_matches"
+			_index_usable
+			and mode == "files_with_matches"
 			and content_index.is_literal(input_data.pattern)
 			and not input_data.glob
 			and not input_data.type
-			and os.path.isdir(absolute_path)
+			and _fsprobe.isdir(absolute_path)
 		):
 			cands = content_index.lookup(absolute_path, input_data.pattern)
 			if cands is not None:
@@ -729,8 +795,7 @@ class GrepTool:
 					if n_members > 0:
 						lines.append(
 							f"{rel}:{s.start}: {s.signature} "
-							f"[+{n_members} members: scope path to this file, "
-							'or use Read symbol to expand]'
+							f"[+{n_members} members: containing scope available]"
 						)
 					else:
 						lines.append(f"{rel}:{s.start}: {s.signature}")
@@ -762,9 +827,9 @@ class GrepTool:
 		if any_folded and applied_limit is None:
 			# 折叠模式尾部提示如何展开（仅在实际折叠过且未被分页截断时）
 			limited = limited + [
-				"\n[folded view: methods hidden inside containers — "
-				'narrow "path" to a single file with output_mode="symbols" '
-			 '(detail omitted), or Read symbol="Class.method" to expand]'
+				"\n[folded view: methods hidden inside containers; "
+				'path and output_mode="symbols" address individual files; '
+				'Read symbol="Class.method" returns a symbol body]'
 			]
 		return GrepOutput(
 			mode="symbols",
@@ -811,7 +876,7 @@ class GrepTool:
 			matches = output.num_matches or 0
 			summary = f"\n\nFound {matches} {_plural(matches, 'symbol')} matched."
 			if limit_info:
-				summary = f"{summary} Pagination: {limit_info}; increase head_limit or narrow path/glob for more."
+				summary = f"{summary} Pagination: {limit_info}; head_limit, path, and glob define the returned segment."
 			return output.content + summary
 
 		# files_with_matches 模式

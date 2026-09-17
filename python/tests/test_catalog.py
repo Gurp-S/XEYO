@@ -39,7 +39,8 @@ from permissions.policy import (
 
 _FROZEN_ENABLED = (
 	"getTime",
-	"offload_read",  # hidden-but-registered：注册不进 schemas
+	# `offload_read` 已于 2026-09-16 删除（用户裁定：expand/offload/Read 是同一功能，
+	# 只保留 Read；取回引用统一成 `Read(file_path=…, offset=…, limit=…)`）。
 	"Glob",
 	"Grep",
 	"Read",
@@ -97,11 +98,13 @@ def test_default_registry_matches_frozen_names():
 	reg = build_default_registry(cwd=".")
 	registered = set(reg._tools)  # type: ignore[attr-defined]
 	assert registered == set(_FROZEN_ENABLED)
-	# hidden-but-registered 工具（如 offload_read）注册但不进 schemas。
+	# exposure 过滤语义：hidden 的工具注册但不进 schemas（当前**无** hidden 工具，
+	# 该断言仍保留——它锁的是过滤机制本身，将来再加 hidden 工具时自动生效）。
 	from tools.meta import exposure_of
 
 	hidden = {n for n in _FROZEN_ENABLED if exposure_of(reg.get(n)) == "hidden"}
 	schema_names = {t["name"] for t in reg.schemas() if isinstance(t, dict)}
+	assert hidden == set(), "当前不应有 hidden 工具；若有，请连同本条注释一起更新"
 	assert schema_names == set(_FROZEN_ENABLED) - hidden
 
 

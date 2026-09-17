@@ -46,6 +46,15 @@ def message_from_row(row: dict[str, Any]) -> Message | None:
 		kwargs["narration"] = narr  # T28：旁白随行恢复（background only）
 	if row.get("interrupted") is True:
 		kwargs["interrupted"] = True  # 44 号：中断锚恢复
+	note_key = row.get("note_key")
+	if isinstance(note_key, str) and note_key.strip():
+		# T_now v2 留痕条目：三字段成套恢复（缺 kind/fp 时按最保守补空串，
+		# 条目仍按 hidden 处理——身份由 note_key 决定）。
+		kwargs["note_key"] = note_key.strip()
+		kind = row.get("note_kind")
+		kwargs["note_kind"] = kind.strip() if isinstance(kind, str) else ""
+		fp = row.get("note_fp")
+		kwargs["note_fp"] = fp.strip() if isinstance(fp, str) else ""
 	return Message(role=role, content=content, **kwargs)  # type: ignore[arg-type]
 
 

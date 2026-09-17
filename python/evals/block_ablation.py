@@ -134,6 +134,20 @@ def main() -> None:
     parser.add_argument("--api-key", default="")
     parser.add_argument("--base-url", default="")
     parser.add_argument("--model", default="")
+    parser.add_argument(
+        "--strategy",
+        default="system_channel",
+        choices=["system_channel", "env_channel", "legacy", "skip"],
+        help="T_now 声道。默认 system_channel（生产默认）。"
+             "注意：本台原先硬编码 env_channel（伪对档，2026-09-15 已废），"
+             "在该声道下测出的块间差值是「污染底座上的差值」，不可与生产结论混用；"
+             "传 skip 即为「整条管道关闭」的全管道消融。",
+    )
+    parser.add_argument(
+        "--repeat", type=int, default=1,
+        help="每个配置重复次数。默认 1——但换 harness 噪声 sd≈5pp、同配置重跑噪声 4-5pp，"
+             "单次差 1 题不足以判定；要下结论用 --repeat 3。",
+    )
     args = parser.parse_args()
 
     cases = json.loads(Path(args.cases).read_text(encoding="utf-8"))["cases"]
@@ -151,7 +165,13 @@ def main() -> None:
     if not args.baseline:
         labels.extend(blocks)
 
-    set_t_now_strategy("env_channel")
+    # 声道必须显式记录：历史上本台硬编码 env_channel，而那是已被判废的伪对档
+    # （模型把注入对当成自己的工具调用，实测单会话 70-89 次）。在污染底座上测
+    # 出的块间差值不能代表生产，故打印出来防止跨声道误比。
+    set_t_now_strategy(args.strategy)
+    repeat = max(1, int(args.repeat))
+    print(f"== 声道 strategy={args.strategy}  repeat={repeat}"
+          + ("（skip = 整条管道关闭）" if args.strategy == "skip" else ""))
     kw = dict(
         api_key=args.api_key
         or os.environ.get("XEYO_API_KEY")
@@ -164,10 +184,13 @@ def main() -> None:
     for label in labels:
         os.environ[_SKIP_ENV] = label or ""
         print(f"== {'基线（全块在）' if label is None else f'跳过 {label}'}")
-        summaries.append(_summary(label or "baseline", asyncio.run(_run_battery(cases, **kw))))
+        runs = [asyncio.run(_run_battery(cases, **kw)) for _ in range(repeat)]
+        merged: list[dict] = [r for run in runs for r in run]
+        summaries.append(_summary(label or "baseline", merged))
     os.environ.pop(_SKIP_ENV, None)
 
     print("\n===== 消融矩阵 =====")
+    print(f"声道={args.strategy}  repeat={repeat}")
     print(f"{'配置':<24} pass率   drift  平均回复ch  错误")
     for s in summaries:
         print(f"{s['label']:<24} {s['pass_rate']:<7.0%} {s['drift_hits']:<6} "
@@ -175,20 +198,29 @@ def main() -> None:
 
     if args.out:
         Path(args.out).write_text(
-            json.dumps(summaries, ensure_ascii=False, indent=2), encoding="utf-8"
+            json.dumps({"strategy": args.strategy, "repeat": repeat, "arms": summaries},
+                       ensure_ascii=False, indent=2), encoding="utf-8"
         )
         print(f"已写 {args.out}")
 
-    # 结论提示：pass_rate 相对基线跌幅 ≥1 题且 drift 不降 → 该块有真实收益
+    # 三向判定（原实现把「缺席涨分」读成「无伤」，等于只给块发准入证、不发死亡证明）。
+    # 阈值：单题粒度下 1 题的差就下结论会被噪声吃掉（同配置重跑噪声 4-5pp），
+    # 故 <repeat> 次下要求差值 ≥1 题当量，且提示噪声未消。
     if not args.baseline and summaries:
         base = summaries[0]
+        per = len(cases) * repeat
         for s in summaries[1:]:
             delta = s["pass_rate"] - base["pass_rate"]
-            verdict = (
-                "块有真实收益（缺席跌分）→ 保留" if delta < 0
-                else "缺席无伤 → 消融通过，候选退役（登记表删行）"
-            )
-            print(f"[{s['label']}] 相对基线 pass 差 {delta:+.0%} → {verdict}")
+            if delta < 0:
+                verdict = "★ 缺席跌分 → 该块有真实收益（保留）"
+            elif delta > 0:
+                verdict = "★★ 缺席涨分 → 该块疑似净负（在场有害，考虑退役）"
+            else:
+                verdict = "缺席无变化 → 无明显收益（可退役，或换更有判别力的用例）"
+            print(f"[{s['label']}] 相对基线 pass 差 {delta:+.0%}"
+                  f"（≈{delta * per:+.1f} 题 / 共 {per}） → {verdict}")
+            if repeat == 1:
+                print("      ⚠ repeat=1：差值小于 1 题当量时不可判定，用 --repeat 3 复现。")
 
 
 if __name__ == "__main__":

@@ -20,7 +20,11 @@ from model._openai_common import (
 	ENV_RELAY_REASONING_PLACEHOLDER,
 	normalize_messages_for_openai,
 )
-from prompt.pre_llm_inject import InjectContext, run_pre_llm_inject
+from prompt.pre_llm_inject import (
+	InjectContext,
+	acknowledge_prepared_events,
+	run_pre_llm_inject,
+)
 from prompt.t_now_strategy import (
 	ENV_ID_PREFIX,
 	ENV_NOTICE_HEADER,
@@ -215,7 +219,7 @@ def _prior_conversation(user_text: str) -> list[dict]:
 	]
 
 
-def test_env_vague_turn_drops_inventory_keeps_directives(monkeypatch):
+def test_env_short_follow_up_keeps_reference_blocks(monkeypatch):
 	monkeypatch.setattr(
 		"prompt.pre_llm_inject.browser_preview_block",
 		lambda: "# 浏览器预览（background only）\nurl: http://localhost:5173",
@@ -228,8 +232,8 @@ def test_env_vague_turn_drops_inventory_keeps_directives(monkeypatch):
 		InjectContext(working=None, include_memory_index=True, strategy=STRATEGY_ENV_CHANNEL),
 	)
 	blob = _env_blob(out)
-	# D1：模糊指代轮 → inventory 静默；指令类存活（与 legacy 同一装配，仅换声道）
-	assert "浏览器预览" not in blob
+	# D1 已删（2026-09-16）：短追问轮不再静默参考块；其余装配语义不变
+	assert "浏览器预览" in blob
 	assert "Repeat guard" in blob
 	# 用户原文完好、不在伪对里
 	assert "帮我修改" not in blob
@@ -251,8 +255,88 @@ def test_env_reconcile_event_never_gated(monkeypatch):
 		_prior_conversation("帮我修改"),
 		InjectContext(working=None, include_memory_index=True, strategy=STRATEGY_ENV_CHANNEL),
 	)
-	# D1 只静默 inventory；事件类（reconcile，drain 语义）必须存活
+	# 事件类（reconcile，drain 语义）永不门控、永不裁剪
 	assert "工具面变更" in _env_blob(out)
+
+
+def test_drained_event_reused_after_channel_fallback(monkeypatch):
+	"""system 声道失败重装时复用已 drain 的事件，不依赖事件源再次吐出。"""
+	monkeypatch.setattr("prompt.pre_llm_inject.browser_preview_block", lambda: "")
+	import extension.reconcile as reconcile_mod
+
+	event = "# 工具面变更（background only）\n新增工具 Foo"
+	queued = [[event], []]
+	monkeypatch.setattr(
+		reconcile_mod,
+		"consume_reconcile_blocks",
+		lambda: queued.pop(0),
+	)
+	base = _prior_conversation("帮我修改")
+	first = run_pre_llm_inject(
+		base,
+		InjectContext(
+			working=None,
+			include_memory_index=True,
+			strategy="system_channel",
+			session_id="fallback-event",
+		),
+	)
+	second = run_pre_llm_inject(
+		base,
+		InjectContext(
+			working=None,
+			include_memory_index=True,
+			strategy=STRATEGY_ENV_CHANNEL,
+			session_id="fallback-event",
+		),
+	)
+	assert first[-1]["role"] == "system"
+	assert event in first[-1]["content"]
+	assert event in _env_blob(second)
+	acknowledge_prepared_events("fallback-event")
+
+
+def test_skip_channel_does_not_ack_undelivered_event(monkeypatch):
+	"""skip 未送达事件时不确认；后续可用声道仍能收到同一事件。"""
+	monkeypatch.setattr("prompt.pre_llm_inject.browser_preview_block", lambda: "")
+	import extension.reconcile as reconcile_mod
+
+	event = "# 技能目录变更（background only）\n新增技能 Foo"
+	queued = [[event], []]
+	monkeypatch.setattr(
+		reconcile_mod,
+		"consume_reconcile_blocks",
+		lambda: queued.pop(0),
+	)
+	base = _prior_conversation("继续")
+	first = run_pre_llm_inject(
+		base,
+		InjectContext(
+			working=None,
+			strategy="system_channel",
+			session_id="skip-event",
+		),
+	)
+	skipped = run_pre_llm_inject(
+		base,
+		InjectContext(
+			working=None,
+			strategy=STRATEGY_SKIP,
+			session_id="skip-event",
+		),
+	)
+	later = run_pre_llm_inject(
+		base,
+		InjectContext(
+			working=None,
+			strategy=STRATEGY_ENV_CHANNEL,
+			session_id="skip-event",
+		),
+	)
+	assert event in first[-1]["content"]
+	assert skipped == base
+	assert event in _env_blob(later)
+	acknowledge_prepared_events("skip-event")
 
 
 def test_env_after_tools_continue_inside_pair(monkeypatch):

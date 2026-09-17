@@ -570,6 +570,20 @@ class ToolRegistry:
 		if plan is None:
 			return None
 		_observe_bash_route(tool_use, raw_input, coordinator)
+		# 容器路由（2026-09-16 修正）：工作面在容器里时**绝不回 L2 错误**。
+		# 原行为（下表第二行）在评测里是净损失：评测 cwd 是宿主 scratch，策略为
+		# 默认 off ⇒ `cat /app/x` 收到 "Use Read instead of Bash cat" 而不是内容，
+		# 模型被从**唯一能碰容器的 Bash** 推向专用工具（而那些工具在本轮之前还
+		# 指向宿主空目录）。实测 9/14 那批 5 道题各触发 1-2 次。
+		# 现在：容器路由生效时直接放行原 Bash（容器原生路径），既不报错也不改道。
+		try:
+			from tools.container_fs import active_container
+
+			_container_routed = bool(active_container())
+		except Exception:  # noqa: BLE001 — 路由模块不可用视为宿主
+			_container_routed = False
+		if _container_routed:
+			return None
 		pol = load_workspace_policy(cwd)
 		if pol.bash_routing != "auto":
 			from tools.bash_tool.bash_tool import _worker_bash_active

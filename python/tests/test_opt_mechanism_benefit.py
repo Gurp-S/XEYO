@@ -103,11 +103,11 @@ def test_fence_marks_untrusted_and_is_cheap() -> None:
 def test_t_now_trim_respects_budget() -> None:
 	import prompt.pre_llm_inject as inj
 
-	tag = inj.KLASS_INVENTORY
+	tag = "browser_preview"  # quota 类（登记表声明，见 T_NOW_BLOCK_REGISTRY）
 	blocks = [(tag, "很长的内容" * 100) for _ in range(30)]  # 每块 500 字符
 	trimmed = inj._trim_tagged_blocks(blocks, total=inj.T_NOW_TOTAL_BUDGET)
 	kept_chars = sum(len(t) for _, t in trimmed)
-	# inventory 有独立配额：不会 30 块全保
+	# quota 类有独立配额：不会 30 块全保
 	assert len(trimmed) < len(blocks)
 	# 总量受 total 预算约束（token≈chars/4）
 	assert kept_chars <= inj.T_NOW_TOTAL_BUDGET * 4 + 100

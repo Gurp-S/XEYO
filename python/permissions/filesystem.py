@@ -229,6 +229,12 @@ def readable_extra_roots(*, cwd: str | None = None) -> list[str]:
 		from engine.workspace_context import get_workspace_context
 		from session.persistence import transcript_path
 		from session.record_transcript import rotated_transcript_paths
+		from tools.spill import (
+			_container_spill_dir,
+			_routed_container,
+			_safe_session,
+			spill_root,
+		)
 
 		ctx = get_workspace_context()
 		sid = (ctx.session_id if ctx is not None else "") or ""
@@ -239,6 +245,12 @@ def readable_extra_roots(*, cwd: str | None = None) -> list[str]:
 			for p in rotated_transcript_paths(tp):
 				if p.is_file():
 					roots.append(str(p))
+			# spill 只按当前会话开放，不能把整个 ~/.xeyo/spill 暴露给 Read/Glob。
+			# 容器路由下 hint 是 /tmp 路径，宿主路由下使用 XEYO_SPILL_DIR/默认目录。
+			if _routed_container():
+				roots.append(_container_spill_dir(_safe_session(sid)))
+			else:
+				roots.append(str(spill_root() / _safe_session(sid)))
 	except Exception:
 		pass
 	return [r for r in roots if r]

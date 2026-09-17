@@ -93,6 +93,12 @@ def row_from_message(message: Message, *, anchor: Path) -> dict[str, Any]:
 	# 44 号：中断锚（用户看到的必须入史）。
 	if getattr(message, "interrupted", False):
 		row["interrupted"] = True
+	# T_now v2 留痕条目身份（C 阶段）：刷新/重启后仍须可辨（UI 面过滤、
+	# 压缩面按 key 折叠、去重台账重启后仍能判"这一版还在历史里"）。
+	if getattr(message, "note_key", ""):
+		row["note_kind"] = message.note_kind
+		row["note_key"] = message.note_key
+		row["note_fp"] = message.note_fp
 
 	content = message.content
 	payload = _content_json_bytes(content)

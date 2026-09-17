@@ -17,11 +17,16 @@ from synaptic.budget import (
 	apply_hot_budgets,
 	render_requests_compact,
 	rendered_request_nodes,
+	segment_tokens,
 )
 from synaptic.filestate import render_file_state
+from synaptic.fixed_budget import request_floor_tokens
+from synaptic.handles import renderer_or_default
 from synaptic.graph import Graph
 from synaptic.paths import H_PATHS, render_paths
 from synaptic.prune import render_card, render_cards_merged
+from synaptic.coldstore import node_handle
+from synaptic.rehydrate import RehydrationPlan, render_rehydrated_nodes
 from synaptic.seeds import Seeds, request_skip
 from synaptic.textutil import node_token_len
 from synaptic.types import (
@@ -49,6 +54,7 @@ H_NEXT = "[NEXT]"
 #: （既是信息空洞，又因为 pin 不被剪 ⇒ 连 expand 句柄都没有 = 不可恢复）。
 #: 该段按 idx 升序发射，天然只追加不移位。
 H_REQUESTS = "[REQUESTS]"
+H_REHYDRATED = "[REHYDRATED]"
 
 #: 固定先验序（stable_prefix_ordering=False 时使用；也是动态排序的初始次序与平局裁决）。
 #: 依据：越靠前越应当稳定。CONSTRAINTS 只随新约束追加；UNRESOLVED 会因「错误被解决」
@@ -63,6 +69,7 @@ _SECTION_PRIOR: tuple[str, ...] = (
 	H_WORKING,
 	H_PATHS,
 	H_MAIN,
+	H_REHYDRATED,
 	H_TODO,
 	H_NEXT,
 	H_REQUESTS,
@@ -186,8 +193,10 @@ def render_main(
 	params: WscParams,
 	*,
 	pin_nodes: frozenset[int],
+	handles: Any = None,
 ) -> list[tuple[str, str]]:
 	"""主链：小节点留原文，大节点只留骨架 + 展开句柄（去噪留结论）。"""
+	hr = renderer_or_default(handles)
 	out: list[tuple[str, str]] = []
 	for idx in kept:
 		node = graph.node(idx)
@@ -198,25 +207,42 @@ def render_main(
 		if node.tokens <= params.inline_max_tokens:
 			line = f"#{idx} {_one_line(node.text, 400)}"
 		else:
-			line = f"#{idx} {_skeleton_of(node)} expand(node://{idx})"
+			line = f"#{idx} {_skeleton_of(node)} {hr.expression(node_handle(idx))}"
 		out.append((f"main:{idx}", line))
 	return out
 
 
-def render_decisions(cards: tuple[PruneCard, ...]) -> list[tuple[str, str]]:
-	"""[DECISIONS]：已排除分支（带错误签名的卡）。"""
-	return [
-		(f"card:{c.card_id}", f"已排除: {c.conclusion}  expand({c.handle})")
-		for c in cards
-		if c.error_sig
-	]
-def render_pruned(cards: tuple[PruneCard, ...]) -> list[tuple[str, str]]:
+def render_decisions(cards: tuple[PruneCard, ...], *, handles: Any = None) -> list[tuple[str, str]]:
+	"""[DECISIONS]：已排除分支（带错误签名的卡）。
+
+	行里**必须带 ``files=``**。归因实测（`_cost_decompose` 同批的针漏失分类，n=185）：
+	185 条 failure_site 漏失里有 **17 条**是「卡里已经有这条路径、就是没渲染」——
+	`_conclusion` 只内联 ``files[0]``（失败目标），其余相关路径此前**没有任何出口**
+	（[MAIN] 只渲染 `refs[0]`、[WORKING SET] ≤12 条、剪枝卡只覆盖被剪节点）。
+	这是「信息已经算出来却没发射」，按引擎铁律优先于任何调参。
+
+	只发射 ``files[1:]``：``files[0]`` 已在结论里，重复发射是纯重复计费。
+	"""
+	hr = renderer_or_default(handles)
+	out: list[tuple[str, str]] = []
+	for c in cards:
+		if not c.error_sig:
+			continue
+		rest = tuple(c.files[1:]) if c.files else ()
+		tail = f" files={','.join(rest)}" if rest else ""
+		out.append(
+			(f"card:{c.card_id}", f"已排除: {c.conclusion}{tail}  {hr.expression(c.handle)}")
+		)
+	return out
+
+
+def render_pruned(cards: tuple[PruneCard, ...], *, handles: Any = None) -> list[tuple[str, str]]:
 	"""[PRUNED]：其余被剪分支（每条卡只出现一次，不在 DECISIONS 里重复）。
 
 	行形态为**同组合并**（见 ``prune.render_card_group`` 的账目说明）：组的归并键是
 	「同错误签名 + 同文件集合」，组内每条结论仍逐字内联，只有前缀与句柄降为 1 份。
 	"""
-	return render_cards_merged(tuple(c for c in cards if not c.error_sig))
+	return render_cards_merged(tuple(c for c in cards if not c.error_sig), handles=handles)
 
 
 def render_working_set(states: tuple[FileState, ...]) -> list[tuple[str, str]]:
@@ -265,8 +291,23 @@ class AssemblyState:
 	req_total: int = 0
 	#: 本轮日志新增条目数（0 = 本轮投影是上一轮的严格前缀，KV 零损失）
 	journal_appends: int = 0
+	#: 逻辑换头已发生，但 append-only 保证旧热层前缀仍然存在。
+	journal_refroze: bool = False
 	#: 固定段/主链双预算审计（REQUESTS 降级档与超预算量）。
 	budget: dict[str, int | str] = field(default_factory=dict)
+	#: 方向二冻结快照。
+	frozen_phase_signature: str = ""
+	frozen_region_end: int = 0
+	frozen_kept: tuple[int, ...] = ()
+	frozen_pruned: tuple[int, ...] = ()
+	frozen_cards: tuple[PruneCard, ...] = ()
+	frozen_file_states: tuple[FileState, ...] = ()
+	frozen_selection_budget: int = 0
+	frozen_selection_used: int = 0
+	#: Recall Plane 的路径 lease；旁路开启时跨轮携带，默认空。
+	rehydration_leases: tuple[tuple[str, int], ...] = ()
+	#: 上一轮已回灌的节点，用于 append-only 下去重。
+	rehydration_nodes: tuple[int, ...] = ()
 
 	def clone(self) -> "AssemblyState":
 		return AssemblyState(
@@ -286,7 +327,18 @@ class AssemblyState:
 			req_rendered=self.req_rendered,
 			req_total=self.req_total,
 			journal_appends=self.journal_appends,
+			journal_refroze=self.journal_refroze,
 			budget=dict(self.budget),
+			frozen_phase_signature=self.frozen_phase_signature,
+			frozen_region_end=self.frozen_region_end,
+			frozen_kept=tuple(self.frozen_kept),
+			frozen_pruned=tuple(self.frozen_pruned),
+			frozen_cards=tuple(self.frozen_cards),
+			frozen_file_states=tuple(self.frozen_file_states),
+			frozen_selection_budget=self.frozen_selection_budget,
+			frozen_selection_used=self.frozen_selection_used,
+			rehydration_leases=tuple(self.rehydration_leases),
+			rehydration_nodes=tuple(self.rehydration_nodes),
 		)
 
 
@@ -300,6 +352,8 @@ def _segment_groups(
 	params: WscParams,
 	*,
 	region_end: int = 0,
+	handles: Any = None,
+	rehydration: RehydrationPlan | None = None,
 ) -> dict[str, list[tuple[str, str]]]:
 	"""渲染成「段落 → 行」的分组（尚未排序）。
 
@@ -314,16 +368,43 @@ def _segment_groups(
 		out[H_WORKING] = render_working_set(fs)
 	# [PATHS]：路径的第四条渲染通道 + 强制配额（见 synaptic/paths.py 的根因说明）。
 	# 没有它，「最近碰过但没进 working set / kept」的路径在热层里没有出口。
-	paths_lines = render_paths(graph, seeds, region_end=region_end, kept=kept, params=params)
+	# 路径配额从属于固定段共享预算；REQUESTS 随后再拿实际剩余额度。
+	fixed_before_paths = sum(segment_tokens(items) for items in out.values())
+	request_possible = any(
+		idx < region_end
+		and idx not in request_skip(seeds)
+		and graph.node(idx) is not None
+		and bool(graph.node(idx).text.strip())
+		for idx in seeds.user_nodes
+	)
+	request_floor = request_floor_tokens(
+		params.fixed_segment_budget_tokens,
+		params.request_min_budget_tokens,
+		has_requests=request_possible,
+	)
+	paths_budget = max(
+		0,
+		int(params.fixed_segment_budget_tokens) - fixed_before_paths - request_floor,
+	)
+	paths_lines = render_paths(
+		graph,
+		seeds,
+		region_end=region_end,
+		kept=kept,
+		params=params,
+		budget_tokens=paths_budget,
+	)
 	if paths_lines:
 		out[H_PATHS] = paths_lines
-	main = render_main(graph, kept, params, pin_nodes=pin_nodes)
+	main = render_main(graph, kept, params, pin_nodes=pin_nodes, handles=handles)
 	if main:
 		out[H_MAIN] = main
-	dec = render_decisions(cards)
+	if rehydration is not None and rehydration.nodes:
+		out[H_REHYDRATED] = render_rehydrated_nodes(graph, rehydration)
+	dec = render_decisions(cards, handles=handles)
 	if dec:
 		out[H_DECISIONS] = dec
-	pruned = render_pruned(cards)
+	pruned = render_pruned(cards, handles=handles)
 	if pruned:
 		out[H_PRUNED] = pruned
 	req = render_requests_compact(
@@ -332,6 +413,7 @@ def _segment_groups(
 		params,
 		skip=request_skip(seeds),
 		user_nodes=seeds.user_nodes,
+		handles=handles,
 	)
 	if req:
 		out[H_REQUESTS] = req
@@ -453,6 +535,9 @@ def assemble(
 	*,
 	prev: AssemblyState | None = None,
 	region_end: int = 0,
+	handles: Any = None,
+	old_head_handle: str = "",
+	rehydration: RehydrationPlan | None = None,
 ) -> tuple[str, bool, AssemblyState, list[dict[str, str]]]:
 	"""组装热层。返回 (文本, 是否发生前缀失效, 新状态, 审计留痕)。"""
 	trace: list[dict[str, str]] = []
@@ -461,7 +546,16 @@ def assemble(
 	# 定序只用**上一轮已观测**的统计：拿本轮的果去定本轮的序是因果倒置
 	# （旧实现如此，且会在同一轮里让「刚观察到的失稳」立刻改写次序）。
 	groups = _segment_groups(
-		graph, seeds, pins, fs, cards, kept, params, region_end=region_end
+		graph,
+		seeds,
+		pins,
+		fs,
+		cards,
+		kept,
+		params,
+		region_end=region_end,
+		handles=handles,
+		rehydration=rehydration,
 	)
 	request_skip = frozenset({seeds.pin_nodes[0]}) if seeds.pin_nodes else frozenset()
 	groups, budget_audit = apply_hot_budgets(
@@ -473,7 +567,8 @@ def assemble(
 		request_skip=request_skip,
 		user_nodes=seeds.user_nodes,
 		fixed_headers=(H_CONSTRAINTS, H_UNRESOLVED, H_TODO, H_WORKING, H_PATHS, H_REQUESTS, H_NEXT),
-		main_headers=(H_MAIN, H_DECISIONS, H_PRUNED),
+		main_headers=(H_MAIN, H_REHYDRATED, H_DECISIONS, H_PRUNED),
+		handles=handles,
 	)
 	trace.append({"mode": params.mode, "action": "budget", "why": budget_audit.describe()})
 	stats: dict[str, SegStat] = {
@@ -498,7 +593,12 @@ def assemble(
 	req_total = len(request_nodes)
 	# 去重后的 REQUESTS 一行可能携带 node://i,j,... 组句柄；必须按句柄展开后的
 	# **节点数**计数，不能数行数，否则分子逐行、分母逐节点，报出假缺口。
-	req_visible = rendered_request_nodes(groups.get(H_REQUESTS, ())) & request_nodes
+	# 渲染器必须与渲染同源传进来：`read` 档下 [REQUESTS] 行里是
+	# `Read(file_path=…, offset=…, limit=…)`，解析器不认这个形态就会把**实际渲染出来的**
+	# 用户节点全判成漏渲染（实测 24 条用户消息只剩 1 条被数进来 = 覆盖率 0.04 的假缺口）。
+	req_visible = (
+		rendered_request_nodes(groups.get(H_REQUESTS, ()), handles=handles) & request_nodes
+	)
 	if seeds.pin_nodes and seeds.pin_nodes[0] in request_nodes:
 		# 首个用户节点渲染成 [CONSTRAINTS] 的「目标」pin，不占 [REQUESTS] 行，
 		# 但它在热层里可见 ⇒ 覆盖率要把它算进去。
@@ -516,6 +616,7 @@ def assemble(
 		since_freeze: int = 0,
 		rebuilt: bool = False,
 		appends: int = 0,
+		journal_refroze: bool = False,
 	) -> tuple[str, bool, AssemblyState, list[dict[str, str]]]:
 		"""公共收尾：**先定稿文本，再据定稿文本算自检**（规则 3 口径修正）。
 
@@ -572,6 +673,7 @@ def assemble(
 				req_rendered=req_rendered,
 				req_total=req_total,
 				journal_appends=appends,
+				journal_refroze=journal_refroze,
 				budget=budget_audit.as_dict(),
 			),
 			trace,
@@ -594,23 +696,29 @@ def assemble(
 		since = prev.journal_since_freeze + add_tok
 		journal = prev_journal + new
 		rebuilt = False
+		journal_refroze = False
 		if since > params.journal_growth_tokens:
-			# 重冻结：日志胖到阈值 → 压回本轮的紧凑渲染。这是**唯一**的前缀失效来源，
-			# 且它换来的是此后若干轮的零损失（摊薄）。
+			# 换头只追加：本轮新增事实作为新头，旧头用快照句柄追加在其后。
+			# 旧实现直接 journal=fresh，会把前缀改写成另一份布局，命中率随即归零。
+			# 这里 rebuilt 保持 False：逻辑换头不等于 KV 前缀失效。
+			rollover = new
+			if old_head_handle:
+				hr = renderer_or_default(handles)
+				rollover += (("[HEAD]", f"previous={hr.expression(old_head_handle)}"),)
 			trace.append(
 				{
 					"mode": params.mode,
 					"action": "refreeze",
 					"why": (
 						f"日志累计追加 {since} tok > 预算 {params.journal_growth_tokens} tok "
-						f"→ 压回紧凑渲染（一次前缀 miss）"
+						f"→ 追加新头与旧头句柄"
 					),
 				}
 			)
-			journal = fresh
+			journal = prev_journal + rollover
 			since = 0
-			rebuilt = True
-			appends = 0
+			journal_refroze = True
+			appends = len(rollover)
 		else:
 			appends = len(new)
 		text = _journal_text(journal)
@@ -624,6 +732,7 @@ def assemble(
 			since_freeze=since,
 			rebuilt=rebuilt,
 			appends=appends,
+			journal_refroze=journal_refroze,
 		)
 
 	if params.mode == MODE_CLOSURE or prev is None or prev.mode != params.mode:

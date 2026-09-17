@@ -1,0 +1,15 @@
+{
+  "agent_id": "agent-ro",
+  "main_session_id": "sess-ro",
+  "task_id": "",
+  "task_desc": "read stuff",
+  "status": "running",
+  "result_preview": "",
+  "has_transcript": false,
+  "write_scope": [],
+  "read_only": true,
+  "started_at": 1789527210.5383055,
+  "finished_at": 0.0,
+  "pending_followups": [],
+  "tokens_used": 0
+}

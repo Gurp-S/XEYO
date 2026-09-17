@@ -54,7 +54,7 @@ STRATEGY_PREFILL = "prefill"
 #: 不能靠劝阻文本**（那会违反引擎铁律：注意力里只出现信息，不出现导演）。
 #:
 #: 说话人隔离的原始动机（env_channel 的目的）同样满足：system ≠ 用户意图。
-#: 默认仍为 env_channel——新行为按「新功能准入」先以旁路形态验证收益。
+#: 默认已切到 system_channel；env_channel 保留为回退/对照档。
 STRATEGY_SYSTEM_CHANNEL = "system_channel"
 
 _VALID_STRATEGIES = (

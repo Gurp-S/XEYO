@@ -1184,7 +1184,7 @@ def _finalize_mcp_result(
 				except Exception:  # noqa: BLE001 — spill 失败：路径引用降级
 					path = None
 			if path:
-				content += f"\n[resource {uri} spilled: {path} — use Read to continue]"
+				content += f'\n[resource {uri} spilled: {path}; Read(file_path="{path}") returns it]'
 			else:
 				content += f"\n[resource {uri}]"
 	final_meta = dict(meta)

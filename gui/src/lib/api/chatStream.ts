@@ -141,7 +141,13 @@ export async function streamChat(
 					// 而非 409 丢消息；side- 会话保持 409。
 					...(sessionId.startsWith('side-')
 						? {}
-						: {queue_if_busy: true}),
+						: {
+							queue_if_busy: true,
+							// 引导（steer）：忙时改走**边界**投递（下一轮采样前），
+							// 作为真 user 消息进历史，不打断正在进行的工具批次。
+							// 默认关——保持"排队等 settle"的既有语义，调用方显式开启。
+							...(options?.steerIfBusy ? {steer_if_busy: true} : {}),
+						}),
 					// 侧聊（side- 前缀会话）：复用同一回合链路，body.side 让后端
 					// 收紧到只读工具白名单并跳过 workspace 内容注入；也不绑定
 					// workspace（engine 回落 UI 启动目录，避免钉死到某个工程）。
@@ -425,6 +431,8 @@ export type SessionAgentMeta = {
 	readOnly?: boolean;
 	scope?: string[];
 	inboxCount?: number;
+	/** 累计 token（meta 持久化带来；历史批卡片角标）。 */
+	tokensUsed?: number;
 };
 
 /** 列出会话跑过的子 agent（多 Agent 卡片 / 历史回放入口）。 */

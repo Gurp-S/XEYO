@@ -45,6 +45,7 @@ import {
 	triggerTokenAt,
 } from '@/lib/slash';
 import {arbitrateSlashMenuKey, type SlashMenuKey} from '@/lib/slashMenuKeys';
+import {resolveSendMode, type SendMode} from '@/lib/composerSendMode';
 import {handleComposerSlash, lastUserText} from '@/lib/slashCommands';
 import {useHasComposerPendingDock} from '@/hooks/usePendingForActiveSession';
 import {popEscLayer, pushEscLayer} from '@/lib/escStack';
@@ -118,7 +119,7 @@ function SendStopButton({
 		return (
 			<button
 				type="button"
-					onClick={onSend}
+					onClick={() => onSend()}
 aria-label="发送"
 									title="发送"
 									disabled={!canSend}
@@ -137,7 +138,7 @@ aria-label="发送"
 	return (
 		<button
 			type="button"
-			onClick={showStop ? onStop : onSend}
+			onClick={showStop ? onStop : () => onSend()}
 			disabled={!streaming && !canSend}
 			className={cn(
 				'xy-press relative flex h-8 w-8 items-center justify-center rounded-full',
@@ -1027,7 +1028,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 	const canSend =
 		!remoteLoggedIn && !uploading && (Boolean(value.trim()) || attachments.length > 0);
 
-	const onSend = () => {
+	const onSend = (mode: SendMode = 'send') => {
 		// 斜杠命令网关：/xxx 先在本机（本地命令/技能直呼/未知命令提示）或
 		// POST /v1/slash（server 命令）执行。命中则拦截，不当作普通消息发给模型
 		// （修复 /export、/map、/run、/mode 等在 GUI 主输入框被当作普通文本发送）。
@@ -1120,7 +1121,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 				agentMode,
 				clearAfterAccept,
 				multiAgent,
-				{reasoningEffort},
+				{reasoningEffort, steerIfBusy: mode === 'steer'},
 			);
 			const stillHere =
 				sessionId != null &&
@@ -1208,7 +1209,15 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 		}
 		if (e.key === 'Enter' && !e.shiftKey) {
 			e.preventDefault();
-			onSend();
+			// 忙时 Ctrl/Cmd+Enter = 引导（本轮下一个边界就投给模型）；
+			// 裸 Enter 保持排队语义（既有行为不变）。
+			onSend(
+				resolveSendMode({
+					streaming: currentSessionStreaming,
+					modifier: e.ctrlKey || e.metaKey,
+					enter: true,
+				}),
+			);
 		}
 	};
 

@@ -104,6 +104,15 @@ def test_oserror_connect_network() -> None:
 	assert f.retryable is True
 
 
+def test_http_transport_error_is_retryable() -> None:
+	class ConnectError(Exception):
+		__module__ = "httpx"
+
+	f = classify_llm_failure(ConnectError("All connection attempts failed"))
+	assert f.code == "network"
+	assert f.retryable is True
+
+
 def test_empty_response_failure() -> None:
 	f = empty_response_failure()
 	assert isinstance(f, LlmFailure)

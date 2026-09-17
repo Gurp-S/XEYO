@@ -21,6 +21,8 @@ from __future__ import annotations
 import asyncio
 import difflib
 import os
+from tools.fileio import fsprobe as _fsprobe
+from tools.container_fs import display_cwd as _cfs_display_cwd
 import subprocess
 import threading
 import time
@@ -33,7 +35,11 @@ from engine.abort import AbortController
 from permissions import filesystem
 from tools.base_tool import ToolResult
 from tools.fileio.excludes import agentignore_args, excluded_dir_globs
-from tools.fileio.rg_subprocess import RipgrepRunnerError, run_ripgrep_lines
+from tools.fileio.rg_subprocess import (
+	RG_MISSING_IN_CONTAINER,
+	RipgrepRunnerError,
+	run_ripgrep_lines,
+)
 from tools.glob_tool.prompt import DESCRIPTION, GLOB_TOOL_NAME
 
 FILE_NOT_FOUND_CWD_NOTE = "Current working directory:"
@@ -66,23 +72,18 @@ _glob_stats: dict[str, int] = {
 
 # 空结果处置：禁止暗示去 list 全库
 _NO_FILES_TIP = (
-	"\n\nNo matches. Next steps (do NOT glob `**/*` to explore the repo):\n"
-	"- Widen the *name* pattern (e.g. `*Map*` / `*map*.tsx`), not the tree;\n"
-	"- Set path to a known subtree (e.g. path=\"gui\");\n"
-	"- node_modules/.git/dist and other heavy dirs are already excluded; "
-	".gitignore/.ignore and a workspace `.agentignore` are respected;\n"
-	"- Do NOT fall back to Bash find/ls to enumerate files — narrow this Glob instead;\n"
-	"- Check spelling; case is retried automatically when the first pass is empty."
+	"\n\nNo matches. The first pass is case-sensitive; patterns with letters also "
+	"have a case-insensitive retry. path and name fragments restrict the search. "
+	"node_modules/.git/dist and other heavy directories are excluded; "
+	".gitignore/.ignore and a workspace .agentignore are respected."
 )
 
 
 def _truncation_note(shown: int, limit: int, total: int, next_off: int) -> str:
 	return (
-		f"\nToo many matches (匹配过多，请缩小 glob 表达式): showing {shown} of "
-		f"{total} — narrow the glob pattern (add a name/extension fragment, "
-		"e.g. `*Map*.tsx`) or set `path` to a subtree instead of paging. "
-		f"head_limit is hard-capped at {limit}; next offset={next_off} only if "
-		"you truly need the next slice."
+		f"\nToo many matches (匹配过多): showing {shown} of {total}. "
+		f"head_limit is hard-capped at {limit}; offset={next_off} identifies "
+		"the next slice."
 	)
 
 def clear_glob_cache() -> None:
@@ -181,7 +182,7 @@ def suggest_path_under_cwd(target_path: str, *, cwd: str | None = None) -> Optio
 	try:
 		for name in os.listdir(cwd):
 			full = os.path.join(cwd, name)
-			if os.path.isdir(full) and name.lower() == want_name:
+			if _fsprobe.isdir(full) and name.lower() == want_name:
 				return full
 	except OSError:
 		pass
@@ -424,9 +425,8 @@ def summarize_root_dirs(
 	lines = [
 		"Pattern too broad (no file-name fragment, e.g. `*` / `**/*` / "
 		"`gui/**/*`) — showing one-level directory summary instead of listing files.",
-		"Set path or a name pattern (e.g. `*Map*.tsx`, path=\"gui\").",
-		"[STOP] Do NOT use Bash (find/ls/dir) to enumerate files instead — "
-		"retry Glob with a name fragment or path.",
+		"The pattern has no file-name fragment; path or a name pattern such as "
+		"`*Map*.tsx` selects a narrower result.",
 		"",
 		f"root: {root_dir}",
 		f"total files scanned: {len(all_files)}",
@@ -452,7 +452,7 @@ def fold_filenames(filenames: list[str], *, max_dirs: int = _MAX_FOLD_DIRS) -> s
 
 	lines: list[str] = [
 		f"Folded view: {len(filenames)} files in {len(by_dir)} directories "
-		"(use detail=\"paths\" for a flat list, or narrow path/pattern)."
+		"(detail=\"paths\" returns a flat list; detail=\"folded\" groups by parent)."
 	]
 	items = sorted(by_dir.items(), key=lambda kv: (-len(kv[1]), kv[0]))
 	for i, (parent, files) in enumerate(items):
@@ -498,7 +498,7 @@ def _near_miss_directory(abs_path: str, cwd: str) -> Optional[str]:
 	probe = os.path.abspath(abs_path)
 	existing = probe
 	missing_seg = ""
-	while not os.path.exists(existing):
+	while not _fsprobe.exists(existing):
 		parent = os.path.dirname(existing)
 		if parent == existing:
 			break
@@ -510,7 +510,7 @@ def _near_miss_directory(abs_path: str, cwd: str) -> Optional[str]:
 		names = [
 			name
 			for name in os.listdir(existing)
-			if os.path.isdir(os.path.join(existing, name))
+			if _fsprobe.isdir(os.path.join(existing, name))
 		]
 	except OSError:
 		return None
@@ -543,7 +543,7 @@ def _relaxed_glob_suggestion(
 		return None
 	fuzzy_last = last.replace("_", "*").replace("-", "*")
 	prefix, _rest = split_pattern_prefix(norm)
-	if prefix and os.path.isdir(os.path.join(root, prefix)):
+	if prefix and _fsprobe.isdir(os.path.join(root, prefix)):
 		relaxed = f"{prefix}/**/{fuzzy_last}"
 	else:
 		relaxed = f"**/{fuzzy_last}"
@@ -563,12 +563,12 @@ def _relaxed_glob_suggestion(
 		return None
 	rel_hits = [to_relative_path(os.path.join(root, h), root) for h in hits][:limit]
 	dirs = sorted({os.path.dirname(h).replace("\\", "/") or "." for h in rel_hits})
-	lines = ["Did you mean:"]
+	lines = ["Nearest matching paths:"]
 	lines.extend(f"  {h}" for h in rel_hits)
 	if prefix and dirs and not any(
 		(d == prefix) or d.endswith("/" + prefix) for d in dirs
 	):
-		lines.append(f"  (searched `{prefix}/`; closest match is under `{dirs[0]}/`)")
+		lines.append(f"  (searched `{prefix}/`; nearest match is under `{dirs[0]}/`)")
 	_bump_stat("miss_suggestions")
 	return "\n".join(lines)
 
@@ -651,7 +651,20 @@ def perform_glob(
 			),
 		)
 	except RipgrepRunnerError as e:
-		raise RuntimeError(str(e)) from e
+		# 容器路由已在 run_ripgrep_lines 汇聚点接线；这里只处理"容器里没有 rg"
+		# （LaTeX/COBOL/QEMU 等任务镜像常年不带）→ 回退容器内 find。两条路都
+		# **不静默**：回退也不可用时照原样抛错，绝不返回空结果当"无命中"。
+		if RG_MISSING_IN_CONTAINER not in str(e):
+			raise RuntimeError(str(e)) from e
+		from tools.container_fs import active_container as _ac
+		from tools.container_fs import glob_paths as _cfs_glob
+
+		if not _ac():
+			raise RuntimeError(str(e)) from e
+		found = _cfs_glob(os.path.join(root_dir, pattern))
+		if found is None:
+			raise RuntimeError("Glob: container find fallback unavailable") from e
+		all_files = found
 
 	all_files.reverse()
 	total = len(all_files)
@@ -695,26 +708,23 @@ class GlobTool:
 						"type": "string",
 						"description": (
 							'Glob by name, e.g. "*Map*.tsx" or "src/**/*Button*.ts". '
-							"Do NOT use `**/*` or directory-scoped `gui/**/*` to "
-							"explore — any pattern without a file-name fragment "
-							"returns a directory summary only. Always include a "
-							"name/extension fragment + optional path."
+							"Patterns without a file-name fragment, including `**/*` and "
+							"directory-scoped `gui/**/*`, return a directory summary."
 						),
 					},
 					"path": {
 						"type": "string",
 						"description": (
 							"Search root (any allowed directory; default cwd). "
-							"Set when the subtree is known—does not lock you to src/."
-							' Do not pass "undefined" or "null".'
+							"The value is a path string; omitted values use cwd."
 						),
 					},
 					"head_limit": {
 						"type": "integer",
 						"description": (
 							f"Max files to return. Default {HARD_MAX_LIMIT}, hard cap "
-							f"{HARD_MAX_LIMIT} (larger values are clamped). If truncated, "
-							"narrow the pattern/path; offset pages a specific slice."
+							f"{HARD_MAX_LIMIT} (larger values are clamped). Truncated output "
+							"contains the total and the next offset."
 						),
 						"default": DEFAULT_LIMIT,
 						"minimum": 1,
@@ -723,8 +733,7 @@ class GlobTool:
 					"offset": {
 						"type": "integer",
 						"description": (
-							"Skip this many matches before returning (default 0). "
-							"Use after a truncated page."
+							"Number of matches skipped before returning (default 0)."
 						),
 						"default": 0,
 						"minimum": 0,
@@ -776,18 +785,18 @@ class GlobTool:
 		if abs_path.startswith("\\\\") or abs_path.startswith("//"):
 			return {"result": True}
 
-		if not os.path.exists(abs_path):
+		if not _fsprobe.exists(abs_path):
 			suggestion = _near_miss_directory(abs_path, cwd=self._cwd)
 			message = (
 				f"Directory does not exist: {raw}. "
-				f"{FILE_NOT_FOUND_CWD_NOTE} {self._cwd}."
+				f"{FILE_NOT_FOUND_CWD_NOTE} {_cfs_display_cwd(self._cwd)}."
 			)
 			if suggestion:
 				rel = to_relative_path(suggestion, self._cwd)
-				message += f" Did you mean {rel}?"
+				message += f" Nearest existing directory: {rel}."
 			return {"result": False, "message": message, "errorCode": 1}
 
-		if not os.path.isdir(abs_path):
+		if not _fsprobe.isdir(abs_path):
 			return {
 				"result": False,
 				"message": f"Path is not a directory: {raw}",
@@ -826,7 +835,7 @@ class GlobTool:
 			scope_note = ""
 			if prefix:
 				candidate = os.path.join(root, prefix)
-				if os.path.isdir(candidate):
+				if _fsprobe.isdir(candidate):
 					summary_root = candidate
 					scope_note = (
 						f"\nPattern scope: `{prefix}/` — the summary covers only "
@@ -985,13 +994,13 @@ class GlobTool:
 						output.total_matches or len(output.filenames),
 						output.offset + output.head_limit,
 					).lstrip("\n")
-					+ " Do not fall back to `**/*`."
+					+ " The next offset identifies the following slice."
 				)
 			text = "\n".join(lines)
 		if output.spill_path and output.total_matches:
 			text += (
 				f"\n\nComplete match list ({output.total_matches} paths) saved to: "
-				f"{output.spill_path} — use Read to open."
+				f'{output.spill_path}; Read(file_path="{output.spill_path}") returns it.'
 			)
 		return text
 

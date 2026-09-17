@@ -43,7 +43,7 @@
     },
     {
       "id": "info-multi",
-      "task": "一次回答两个值：T_NOW_TOTAL_BUDGET 和 T_NOW_INVENTORY_MAX 的数值。",
+      "task": "一次回答两个值：T_NOW_TOTAL_BUDGET 和 T_NOW_QUOTA_MAX 的数值。",
       "check": {"contains_any": ["6000", "6_000", "2500", "2_500"]}
     },
     {

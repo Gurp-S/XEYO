@@ -21,9 +21,11 @@ from engine.resume_directive import (
 	set_resume_directive,
 )
 from prompt.pre_llm_inject import InjectContext, run_pre_llm_inject
+from prompt.t_now_strategy import STRATEGY_ENV_CHANNEL
 
 _DIRECTIVE = (
-	"[Resume] The user asked to continue an interrupted turn.\n"
+	"# Resume state（background only）\n"
+	"resume_cue=继续；interrupted_turn=true\n"
 	"Original goal:\n修复登录 bug"
 )
 
@@ -63,17 +65,19 @@ def test_directive_injected_via_env_channel_and_cleared():
 	# 有指令 → 事件类注入（env_channel 伪对内），预算不裁
 	set_resume_directive(_DIRECTIVE)
 	out1 = run_pre_llm_inject(
-		[{"role": "user", "content": "继续"}], InjectContext(cwd="")
+		[{"role": "user", "content": "继续"}],
+		InjectContext(cwd="", strategy=STRATEGY_ENV_CHANNEL),
 	)
 	blob = _env_blob(out1)
-	assert "# Resume（续跑指令 — background only）" in blob
+	assert "# Resume state（background only）" in blob
 	assert "Original goal" in blob
 	assert "修复登录 bug" in blob
 	# 用户消息原样，不被夹持
 	assert out1[0]["content"] == "继续"
 	clear_resume_directive()
 	out2 = run_pre_llm_inject(
-		[{"role": "user", "content": "继续"}], InjectContext(cwd="")
+		[{"role": "user", "content": "继续"}],
+		InjectContext(cwd="", strategy=STRATEGY_ENV_CHANNEL),
 	)
 	assert "Original goal" not in _env_blob(out2)
 
@@ -91,7 +95,7 @@ def test_directive_injected_via_legacy_channel_too():
 			for b in out[-1]["content"]
 			if isinstance(b, dict)
 		)
-		assert "# Resume（续跑指令 — background only）" in joined
+		assert "# Resume state（background only）" in joined
 	finally:
 		clear_resume_directive()
 

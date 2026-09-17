@@ -36,7 +36,7 @@ from tools.bash_tool.background import start_background
 from tools.bash_tool.cmd_compact import compact_command_output
 from tools.container_routing import current_container as _routed_container
 from tools.bash_tool.jobs_bridge import adopt_registry_job, start_registry_job
-from tools.bash_tool.prompt import BASH_TOOL_NAME, DESCRIPTION
+from tools.bash_tool.prompt import BASH_TOOL_NAME, DESCRIPTION, describe
 from tools.bash_tool.runner import (
 	finish_streaming,
 	shell_display_name,
@@ -117,8 +117,8 @@ def fast_fail_message(failure_reason: str) -> str:
 	return (
 		"Command blocked by precheck (would hang waiting for a TTY/editor).\n"
 		f"Reason: {failure_reason}\n"
-		"Fix the command per the reason and retry; if it truly needs a human "
-		"in a real terminal, tell the user to run it themselves."
+		"The command requires an interactive terminal; this execution surface "
+		"does not provide one."
 	)
 
 DEFAULT_TIMEOUT_MS = 120_000
@@ -127,10 +127,24 @@ MAX_RESULT_CHARS = 30_000
 MAX_COMMAND_CHARS = 100_000
 #: 前台命令运行超过该阈值仍未结束 → 自动晋升为后台 job（0=关闭）。
 #: 进程不重启、已累积输出随晋升返回；env XEYO_BASH_PROMOTE_MS 可调。
-BASH_PROMOTE_DEFAULT_MS = 45_000
+#:
+#: 2026-09-16 由 45s 抬到 300s：45s 一刀切会让**任何稍长的命令**都被过早抽走，
+#: 模型只能拿 job_id 去轮询——9/14 实测 job 管理类调用 198 次（job_output 160 +
+#: job_list 22 + job_kill 16），占全部工具调用的 ~12%，每次轮询都是一整轮 LLM
+#: 往返；而 timeout_map 给 make/pip/apt 的是 300s、cargo 420s，45s 的晋升阈值
+#: 让那套分级在前台**根本用不到**（设计意图被自己的晋升闸截断）。
+BASH_PROMOTE_DEFAULT_MS = 300_000
+
+#: 晋升阈值相对命令自身超时的比例。**必须 <1**：晋升只能发生在命令仍在运行时，
+#: 阈值若 ≥ 该命令的前台超时，命令会先被超时杀掉、永远进不了后台——模型拿到的是
+#: 超时错误而不是可领取的 job。故实际阈值 = min(默认上限, 超时×比例)。
+PROMOTE_BEFORE_TIMEOUT_RATIO = 0.8
+#: 晋升阈值下限（防短路命令被反复晋升）。
+PROMOTE_MIN_MS = 5_000
 
 
 def promote_threshold_ms() -> int:
+	"""env 显式覆盖或默认上限（0=关闭）。与命令无关的粗口径，供兼容调用。"""
 	raw = os.environ.get("XEYO_BASH_PROMOTE_MS", "").strip()
 	if not raw:
 		return BASH_PROMOTE_DEFAULT_MS
@@ -138,6 +152,24 @@ def promote_threshold_ms() -> int:
 		return max(0, int(raw))
 	except ValueError:
 		return BASH_PROMOTE_DEFAULT_MS
+
+
+def promote_threshold_for(command: str, timeout_ms: int) -> int:
+	"""本命令的实际晋升阈值 = ``min(promote_threshold_ms(), 超时×0.8)``。
+
+	env 显式设为 0 → 关闭晋升（返回 0）。
+	"""
+	base = promote_threshold_ms()
+	if base <= 0:
+		return 0
+	try:
+		budget = int(timeout_ms)
+	except (TypeError, ValueError):
+		budget = DEFAULT_TIMEOUT_MS
+	if budget <= 0:
+		return 0
+	scaled = max(PROMOTE_MIN_MS, int(budget * PROMOTE_BEFORE_TIMEOUT_RATIO))
+	return max(0, min(base, scaled))
 
 
 #: 收尾窗内"立即后台化长命令"的剩余时间闸门（秒）。窗口还剩很多时不动——让
@@ -184,7 +216,8 @@ SILENT_COMMANDS = frozenset({
 
 
 def prompt() -> str:
-	return DESCRIPTION.strip()
+	"""Bash 工具描述：按活动路由给与环境一致的**事实**（宿主 PowerShell / 容器 bash）。"""
+	return describe()
 
 
 def expect_no_output(command: str) -> bool:
@@ -199,11 +232,11 @@ def _docker_exec_with_timeout(
 ) -> tuple[int, str]:
 	"""经 docker SDK 在容器内执行命令（named pipe 直连，零宿主 shell 依赖）。
 
-	promote 等价物（评测路由分支）：promote 阈值（默认 45s，XEYO_BASH_PROMOTE_MS
-	可覆盖）内完成 → 直接返回；超时 → 命令转「docker 后台 job」（worker 线程继续
+	promote 等价物（评测路由分支）：promote 阈值 = min(默认 300s, 本命令超时×0.8)
+	（XEYO_BASH_PROMOTE_MS 显式覆盖；0=关闭）。 → 直接返回；超时 → 命令转「docker 后台 job」（worker 线程继续
 	跑完写入 `_DOCKER_BG_JOBS`），立即把控制权还给模型并告知 job_id——长命令不再
-	阻塞回合（复现：p90 间隔 77-407s 的长命令曾把 15 分钟预算吃光）。完成状态经
-	`job_list` / `pending_jobs_block` 镜像给模型，输出用 `job_output` 领取。
+	阻塞回合。完成状态经 `job_list` / `pending_jobs_block` 镜像给模型，输出用
+	`job_output` 领取。阈值与命令超时联动（见 `promote_threshold_for`）。
 	"""
 	import queue
 	import threading
@@ -234,9 +267,11 @@ def _docker_exec_with_timeout(
 					job["output"] = text
 					job["exit_code"] = code
 
-	promote_s = _docker_promote_seconds()
+	promote_s = _docker_promote_seconds(command, timeout_ms)
 	try:
-		promote_s = max(1.0, min(promote_s, timeout_ms / 1000))
+		# 与宿主分支同一条纪律：阈值必须**小于**命令超时，否则命令先被杀、
+		# 永远进不了后台（旧值 min(promote, timeout) 在 300s 档下会退化成相等）。
+		promote_s = max(1.0, min(promote_s, timeout_ms / 1000 * PROMOTE_BEFORE_TIMEOUT_RATIO))
 	except Exception:  # noqa: BLE001
 		promote_s = 45.0
 
@@ -270,17 +305,18 @@ def _docker_exec_with_timeout(
 	job_box["id"] = job_id
 	return (
 		0,
-		f"[命令仍在运行，已自动转入后台 job {job_id}。**不要等待它完成**——立即继续"
-		f"其他工作；完成通知会在下一回合自动出现，届时用 job_output(job_id=\"{job_id}\")"
-		f"（不要传 wait=true，会白等）领取输出]\n已累积输出：\n",
+		f"[命令仍在运行，已自动转入后台 job {job_id}。完成通知会在下一回合自动出现；"
+		f"job_output(job_id=\"{job_id}\") 返回输出。]\n已累积输出：\n",
 	)
 
 
-def _docker_promote_seconds() -> float:
-	try:
-		return float(os.environ.get("XEYO_BASH_PROMOTE_MS", "45000")) / 1000
-	except Exception:  # noqa: BLE001
-		return 45.0
+def _docker_promote_seconds(command: str = "", timeout_ms: int = DEFAULT_TIMEOUT_MS) -> float:
+	"""容器分支的晋升秒数 = ``promote_threshold_for`` 的同一口径（见其注释）。"""
+	ms = promote_threshold_for(command, timeout_ms)
+	if ms <= 0:
+		# 显式关闭晋升 → 用命令超时兜底，行为等价于"前台等到超时"。
+		return max(1.0, timeout_ms / 1000.0)
+	return max(0.001, ms / 1000.0)
 
 
 def docker_bg_snapshot() -> list[dict]:
@@ -297,6 +333,34 @@ def docker_bg_mark_delivered(job_id: str) -> None:
 		job = _DOCKER_BG_JOBS.get(job_id)
 		if job is not None:
 			job["delivered"] = True
+
+
+def cancel_docker_bg(job_id: str, reason: str = "") -> str | None:
+	"""请求取消**容器后台 job**；未知 job 返回 ``None``。
+
+	2026-09-16 补：此前 ``job_list`` / ``job_output`` 能看到容器 job（走
+	``docker_bg_snapshot``），而 ``job_kill`` 只查 registry —— 模型看得见一个
+	它**杀不掉**的 job，每次 kill 白烧一轮（9/14 那批 job_kill 被调 16 次）。
+
+	能力边界（诚实标注，不假装能做到）：``exec_run`` 已在 docker daemon 侧跑起来，
+	SDK 无法取消它。所以这里做的是**标记终态**：``job_output`` 立刻返回 killed
+	与已累积输出，模型不必再空轮询。命令可能仍在容器里跑完——按进程名 pkill
+	会误伤同容器内的其它工作，不做。
+	"""
+	with _DOCKER_BG_LOCK:
+		job = _DOCKER_BG_JOBS.get(job_id)
+		if job is None:
+			return None
+		status = str(job.get("status") or "")
+		if status in ("done", "killed"):
+			return f"job {job_id} already {status}"
+		job["status"] = "killed"
+		job["reason"] = (reason or "").strip()
+		job["cancelled_at"] = time.time()
+	return (
+		f"job {job_id} marked killed — poll it once with job_output to collect the "
+		f"output so far; the command may still be finishing inside the container"
+	)
 
 
 def _worker_bash_active() -> bool:
@@ -465,11 +529,38 @@ def resolve_working_directory(
 	*,
 	cwd: str,
 ) -> dict[str, Any]:
-	"""Resolve optional working_directory under session cwd; reject escapes."""
+	"""Resolve optional working_directory under session cwd; reject escapes.
+
+	容器路由（2026-09-16）：工作面在容器里时，**两处判定都必须问容器**：
+	``path_in_allowed_working_path`` 按宿主工作区判 ``/app/src`` 会得出
+	"escapes workspace"，``os.path.isdir`` 按宿主判会得出"not a directory"
+	——两条都会把一次合法调用变成白烧一轮的错误结果。
+	"""
 	if not inp.working_directory:
 		return {"result": True, "cwd": cwd, "message": "", "errorCode": 0}
 
 	raw = inp.working_directory.strip()
+	try:
+		from tools.container_fs import active_container as _ac
+
+		_routed = bool(_ac())
+	except Exception:  # noqa: BLE001 — 路由模块不可用视为宿主
+		_routed = False
+	if _routed:
+		from tools.fileio import fsprobe as _fsprobe
+
+		# 容器内路径不走宿主工作区狱（Bash 已被策略层裁决）；只要求确实是目录。
+		if not _fsprobe.isdir(raw):
+			return {
+				"result": False,
+				"cwd": cwd,
+				"message": f"working_directory is not a directory (container): {raw}",
+				"errorCode": 4,
+			}
+		# BashInput.cwd 在容器分支不再用于路径解析（命令经 docker exec，cwd 由
+		# `cd` 前缀承担），原样回传容器路径即可。
+		return {"result": True, "cwd": raw, "message": "", "errorCode": 0}
+
 	if not path_in_allowed_working_path(raw, cwd=cwd):
 		return {
 			"result": False,
@@ -567,8 +658,17 @@ class BashTool:
 		# harbor 多 trial 共进程时后者会被互相覆盖（p4 冒烟实测串线事故）。
 		cid = _routed_container() or os.environ.get("XEYO_DOCKER_CONTAINER", "").strip()
 		if cid:
+			# working_directory 在容器分支此前被**静默忽略**（命令一律跑在默认
+			# WORKDIR）——模型以为自己在 /app/src，实际不是，且它无从察觉。
+			# 这里显式加 cd 前缀，让模型表达的工作目录真正生效。
+			routed_command = inp.command
+			wd = (inp.working_directory or "").strip()
+			if wd:
+				from tools.container_fs import to_container_path as _tcp
+
+				routed_command = f"cd {shlex.quote(_tcp(wd))} && {{ {inp.command}; }}"
 			out_code, out_text = _docker_exec_with_timeout(
-				cid, inp.command, timeout_ms
+				cid, routed_command, timeout_ms
 			)
 			return BashOutput(code=out_code, stdout=out_text)
 
@@ -632,9 +732,10 @@ class BashTool:
 
 		# 前台两阶段：先等 promote 阈值，仍未结束 → 活进程晋升为后台 job
 		#（进程不重启、已累积输出随晋升返回）。worker 模式禁晋升。
-		promote_ms = 0 if _worker_bash_active() else promote_threshold_ms()
+		# 阈值与**本命令的超时**联动（见 promote_threshold_for）：少于命令超时才
+		# 可能真正晋升，否则命令先被超时杀掉。
+		promote_ms = 0 if _worker_bash_active() else promote_threshold_for(cmd, timeout_ms)
 		if promote_ms > 0:
-			promote_ms = min(promote_ms, timeout_ms)
 			# 收尾窗内长命令族立即后台化（见 effective_promote_ms 注释）。
 			promote_ms = effective_promote_ms(cmd, promote_ms)
 		h = spawn_streaming(cmd, cwd=run_cwd, abort=abort)
@@ -821,7 +922,7 @@ class BashTool:
 				lines.append(
 					f"Command still running — auto-moved to background task "
 					f"{out.background_task_id} after {out.promoted_after_ms}ms; "
-					f"streaming log: {out.background_log_path} (Read it later; "
+					f"streaming log: {out.background_log_path} (job_output exposes it; "
 					f"session abort cancels it)."
 				)
 			return "\n\n".join(lines) or "Command auto-moved to background."
@@ -831,14 +932,14 @@ class BashTool:
 				# 42 号文案：完成会自动通知；job_output 收结果。
 				return (
 					f"Started background job {out.background_task_id}. "
-					f"It will notify on completion automatically. "
-					f"Read its output with job_output (list with job_list, "
-					f"stop with job_kill)."
+					f"Completion notification is automatic. "
+					f"job_output returns its output; job_list returns jobs; "
+					f"job_kill stops it."
 				)
 			return (
 				f"Command running in background with ID: {out.background_task_id}. "
 				f"Output is being written to: {out.background_log_path}. "
-				f"Use the Read tool to view it later. "
+				f"The Read tool exposes the saved output. "
 				f"Session abort cancels this task."
 			)
 
@@ -880,7 +981,7 @@ class BashTool:
 						"type": "boolean",
 						"description": (
 							"Run in a clean temporary directory containing ONLY "
-							"isolation_inputs. Use to verify a deliverable works "
+							"isolation_inputs. The isolated result shows whether a deliverable works "
 							"outside your session context (missing files will "
 							"surface as normal errors)"
 						),
@@ -899,7 +1000,7 @@ class BashTool:
 							f"Optional timeout in milliseconds "
 							f"(max {MAX_TIMEOUT_MS}); a foreground command "
 							f"still running after ~45s is auto-moved to a "
-							f"background job instead of blocking"
+							f"background job while the foreground request is pending"
 						),
 					},
 					"description": {
@@ -911,16 +1012,15 @@ class BashTool:
 					"run_in_background": {
 						"type": "boolean",
 						"description": (
-							"Set true to run in background: returns a job id "
-							"immediately, notifies on completion; read output "
-							"with job_output."
+							"true starts a background job and returns its id immediately; "
+							"completion emits a notification and job_output exposes output."
 						),
 					},
 					"working_directory": {
 						"type": "string",
 						"description": (
-							"Optional cwd for this command (relative to session cwd). "
-							"Must stay under the allowed workspace."
+							"Optional cwd for this command (relative to session cwd); "
+							"the path is constrained to the allowed workspace."
 						),
 					},
 				},

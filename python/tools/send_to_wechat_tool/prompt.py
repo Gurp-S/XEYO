@@ -2,6 +2,6 @@
 
 DESCRIPTION = (
 	"Send a local file or image to the user's WeChat. "
-	"Use after Write when they asked to deliver to the phone. "
-	"Screenshot already auto-sends when WeChat is logged in."
+	"The destination is the user's WeChat account. Screenshots are also sent "
+	"automatically when WeChat is logged in."
 )

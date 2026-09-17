@@ -1032,7 +1032,7 @@ def _peer_bash_conflict(command: str, *, cwd: str) -> PolicyDecision | None:
 		prompt = (
 			f"{summary}\n"
 			f"命令: {command[:240]}\n"
-			"请选择：硬拦 / 提醒双方后取消 / 继续执行原文。"
+			"冲突决策枚举：deny / remind / allow。"
 		)
 		return PolicyDecision(
 			decision=PermissionDecision.ASK,

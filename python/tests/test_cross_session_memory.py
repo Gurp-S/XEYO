@@ -200,12 +200,16 @@ def test_memory_tool_peers_excludes_same_tree(
     assert result.content == "(no peers)"
 
 
-def test_peer_activity_block_no_longer_carries_topic(
+def test_peer_notice_block_carries_neither_topic_nor_beacon(
     sessions_env: Path, tmp_path: Path
 ) -> None:
-    """推送面收敛：块里不再有「正在聊:」话题行（明细改走 Memory 工具）。"""
+    """收窄后（2026-09-15）：有 peer 无 notice ⇒ 零注入；话题/明细从不进块。
+
+    原常驻 beacon「另有 N 个会话运行中」已删——它是每轮恒定、却不改变任何
+    动作的无对象告知。明细仍走 Memory 工具。
+    """
     from engine.session_presence import (
-        peer_activity_block,
+        peer_notice_block,
         reset_session_presence_for_tests,
     )
 
@@ -215,9 +219,10 @@ def test_peer_activity_block_no_longer_carries_topic(
     reg.touch_busy(str(ws), "sess-peer", busy=True, title="邻居对话")
     _write_session_note("sess-peer", "重构滚动条跟尾逻辑")
 
-    block = peer_activity_block(str(ws), "sess-self")
-    assert "另有 1 个会话运行中" in block
-    assert "Memory(action=peers / search)" in block
+    block = peer_notice_block(str(ws), "sess-self")
+    assert block == ""  # beacon 删除后：无 notice ⇒ 整块静默
+    assert "另有" not in block
+    assert "Memory(action=peers" not in block
     assert "正在聊:" not in block
     assert "重构滚动条跟尾逻辑" not in block
     assert "邻居对话" not in block

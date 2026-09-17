@@ -203,7 +203,7 @@ def _user_turn_indices(api_msgs: list[dict[str, Any]]) -> list[int]:
 
 
 def _summary_msg(text: str) -> dict[str, Any]:
-	return {"role": "system", "content": text, "name": "session_summary"}
+	return {"role": "assistant", "content": text, "name": "session_summary"}
 
 
 def _region_chars(msgs: list[dict[str, Any]]) -> int:

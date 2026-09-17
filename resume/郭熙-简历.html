@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>郭熙 · 简历</title>
+<style>
+/* ============================================================
+   A4 一页版 · 头像右置 + 标签式章节
+   整体字号：只改 --fs 一处
+   ============================================================ */
+:root{
+  --fs: 8.4pt;
+  --lh: 1.39;
+  --ink: #171717;
+  --ink-2: #3a3a3a;
+  --muted: #6a6a6a;
+  --accent: #12518f;
+  --accent-bg: #f2f7fc;
+  --badge: #1d1d1f;
+  --photo-w: 88px;
+}
+
+*{ box-sizing: border-box; }
+
+html,body{
+  margin:0; padding:0; background:#e9ecef;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact;
+}
+
+.page{
+  width: 210mm; min-height: 297mm;
+  margin: 8mm auto; padding: 7mm 12mm 5mm;
+  background:#fff; box-shadow: 0 2px 14px rgba(0,0,0,.14);
+  font-family: "Source Han Sans SC","Noto Sans SC","PingFang SC",
+               "Microsoft YaHei","Hiragino Sans GB",sans-serif;
+  font-size: var(--fs); line-height: var(--lh); color: var(--ink);
+}
+
+/* ================= 头部：左信息 / 右头像 ================= */
+.head{ display:flex; align-items:flex-start; gap:16px; }
+.head .info{ flex:1; min-width:0; padding-top:1px; }
+.head .name{
+  font-size: 21pt; font-weight: 800; letter-spacing:.08em;
+  line-height:1.15; margin:0 0 1px;
+}
+.head .role-line{
+  font-size: 9.6pt; font-weight:700; color: var(--accent);
+  letter-spacing:.04em; margin-bottom:5px;
+}
+.head .contact{ font-size:8.6pt; color:var(--ink-2); }
+.head .contact .item{ display:flex; align-items:center; gap:5px; margin-top:4px; }
+.head .contact svg{
+  width:11px; height:11px; flex:none;
+  fill:none; stroke:var(--accent); stroke-width:2;
+  stroke-linecap:round; stroke-linejoin:round;
+}
+.head .contact .split{ color:#c4c4c4; margin:0 4px; }
+.head .photo{
+  flex:none; width:var(--photo-w); height:calc(var(--photo-w) * 1.27);
+  object-fit:cover; border-radius:4px; border:1px solid #dcdcdc;
+}
+
+/* ================= 章节标签 ================= */
+.sec{
+  display:inline-block;
+  background: var(--badge); color:#fff;
+  font-size:9.5pt; font-weight:700; letter-spacing:.14em;
+  padding: 2.6px 13px 2.6px 15px;
+  border-radius: 4px;
+  margin: 11px 0 0;
+}
+
+/* ================= 条目首行 ================= */
+.row{ display:flex; align-items:baseline; gap:7px; margin:7px 0 1px; }
+.row .date{
+  font-size:8.6pt; color:var(--muted);
+  font-variant-numeric: tabular-nums; white-space:nowrap;
+}
+.row .org{ font-size:10pt; font-weight:700; }
+.row .role{
+  margin-left:auto; font-size:8.6pt; font-weight:700;
+  color:var(--accent); white-space:nowrap;
+}
+
+.edu{ display:flex; align-items:baseline; gap:7px; margin:7px 0 0; }
+.edu .school{ font-weight:700; font-size:10pt; }
+.edu .degree{ margin-left:auto; color:var(--ink-2); white-space:nowrap; }
+
+/* ================= 简介 / 实测 ================= */
+.lede{ margin:0; color:var(--ink-2); }
+
+.fact{
+  margin:5px 0 3px; padding:4px 9px;
+  background:var(--accent-bg);
+  border-left:2.5px solid var(--accent);
+  color:var(--ink-2); line-height:1.45;
+}
+.fact .tag{ font-weight:700; color:var(--accent); margin-right:4px; }
+.fact .split{ color:#c2c2c2; margin:0 5px; }
+
+/* ================= 条目 ================= */
+ul.bul{ margin:0; padding:0; list-style:none; }
+ul.bul > li{
+  position:relative; padding-left:12px;
+  margin:5px 0 0;
+}
+ul.bul > li::before{
+  content:""; position:absolute; left:1.5px; top:.6em;
+  width:4px; height:4px; border-radius:50%; background:var(--accent);
+}
+ul.bul > li > b.lb{ font-weight:700; }
+b.hl{ font-weight:700; color:var(--accent); font-variant-numeric:tabular-nums; }
+b.kw{ font-weight:600; color:var(--ink); }
+
+.lede, .fact, ul.bul > li{ text-align:justify; text-justify:inter-ideograph; }
+.lede, .fact{ text-align-last:left; }
+.proj + .proj{ margin-top:4px; }
+
+/* ================= 打印 ================= */
+@page{ size:A4; margin:0; }
+@media print{
+  html,body{ background:#fff; }
+  .page{ margin:0; box-shadow:none; width:210mm; min-height:0; padding:7mm 12mm 5mm; }
+}
+</style>
+</head>
+<body>
+
+<div class="page">
+
+  <!-- ===================== 头部 ===================== -->
+  <div class="head">
+    <div class="info">
+      <div class="name">郭熙</div>
+      <div class="role-line">Agent 后端应用开发</div>
+      <div class="contact">
+        <div class="item">
+          <svg viewBox="0 0 24 24"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/></svg>
+          <span>14727656774</span>
+          <span class="split">|</span>
+          <svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 6-10 7L2 6"/></svg>
+          <span>485222758@qq.com</span>
+        </div>
+        <div class="item">
+          <svg viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
+          <span>求职方向：Agent 应用 / LLM 工程</span>
+          <span class="split">|</span>
+          <svg viewBox="0 0 24 24"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.9a3.4 3.4 0 0 0-1-2.6c3.1-.3 6.4-1.5 6.4-7A5.4 5.4 0 0 0 20 4.8 5 5 0 0 0 19.9 1S18.7.6 16 2.5a13.4 13.4 0 0 0-7 0C6.3.6 5.1 1 5.1 1A5 5 0 0 0 5 4.8a5.4 5.4 0 0 0-1.5 3.7c0 5.4 3.3 6.7 6.4 7a3.4 3.4 0 0 0-1 2.6V22"/></svg>
+          <span>github.com/Gurp-S</span>
+        </div>
+      </div>
+    </div>
+    <img class="photo" src="photo.png" alt="">
+  </div>
+
+  <!-- ===================== 教育背景 ===================== -->
+  <div class="sec">教育背景</div>
+  <div class="edu">
+    <span class="date">2023.09–2027.06</span>
+    <span class="school">上海海洋大学（双一流）</span>
+    <span class="degree">计算机类 / 空间信息与数字技术（本科）</span>
+  </div>
+
+  <!-- ===================== 项目经历 ===================== -->
+  <div class="sec">项目经历</div>
+
+  <!-- ---------- XEYO ---------- -->
+  <div class="proj">
+    <div class="row">
+      <span class="org">XEYO — 自研桌面 Agent 引擎</span>
+      <span class="role">独立完成</span>
+      <span class="date">2026.05–2026.07</span>
+    </div>
+    <div class="lede">
+      用 Python 从零实现的桌面 AI Agent 引擎（<b class="hl">339</b> 个测试文件），涵盖主循环、工具系统、上下文工程、记忆与权限安全，并配有独立桌面端与终端界面。
+    </div>
+    <div class="fact">
+      <span class="tag">实测</span>编码 Agent 公开基准 Terminal-Bench 2.1，deepseek-v4-flash 同模型：官方中立 scaffold 全量 <b class="hl">157</b> 次 trial 都打不下的 <b class="hl">32</b> 道硬题，自研引擎攻下 <b class="hl">13</b> 道（<b class="hl">40.6%</b>，官方 <b class="hl">0%</b>）
+    </div>
+
+    <ul class="bul">
+      <li>
+        <b class="lb">动态上下文注入管线</b>：Agent 每轮要注入的状态差异极大 —— 用户指令 / 引擎当前态 / 引擎事件，三类语义分开：<b class="kw">用户输入进历史</b>、<b class="kw">状态幂等重注</b>（值不变不发）、<b class="kw">事件 drain</b>（永不裁剪、门控、去重 —— <b class="kw">去重即静默丢事件</b>）。全部注入作为<b class="kw">一条原生 system 消息追加于投影末尾</b>，<b class="kw">KV 前缀逐字节不变</b> —— <b class="hl">5.31 亿 token 真实账本：长上下文缓存命中中位 98.54%、P90 99.58%</b>。
+      </li>
+      <li>
+        <b class="lb">自研压缩方法 WSC</b>：把执行历史当<b class="kw">工作流图</b>压缩 —— 按<b class="kw">依赖可达性</b>决定保留什么（对比引擎既有的「位置 + KV 经济」口径），剪枝不删除而是降级为「缺口 + 可展开句柄」，<b class="kw">零 LLM、两跑逐字节一致</b>。在 <b class="hl">317 个真实会话（119 MB）</b>离线回放：压缩率中位 <b class="hl">82.3%</b>、长会话 <b class="hl">87.6%</b>，热层 <b class="hl">24,983 → 1,571 token</b>；<b class="hl">22,472 个被剪节点句柄覆盖 100%</b>、往返无损 <b class="hl">35,413/35,413</b>；LCP 探针定位到命中率崩塌根因 —— <b class="kw">据此判定暂不并入主链</b>。
+      </li>
+      <li>
+        <b class="lb">断点续跑与可逆回滚</b>：解决"Agent 跑到第 30 轮崩了、改错文件撤不回来" —— 文件快照走<b class="kw">内容寻址</b>（日志只存哈希、不存正文）；回滚不是重放而是<b class="kw">条件写</b>：先校验当前文件哈希与预期一致，不符即<b class="kw">抛冲突、绝不 force</b>，并要求同一计划哈希 + 未过期 + 同一版本号才放行，执行前再拍检查点保证<b class="kw">幂等重试</b>。
+      </li>
+      <li>
+        <b class="lb">工程配套</b>：把 <b class="hl">45 个模型可见文本面</b>逐字节钉成 golden 基线（<b class="hl">1 字符</b>改动即被检出，并自带"注入变异断言 100% 检出"的元测试）；输出<b class="kw">按形态压缩而非截断</b>（pytest <b class="hl">1126 → 78 token</b>），<b class="kw">AST 符号索引</b>让读一个函数从 <b class="hl">20,523 → 206 token</b>、符号召回 <b class="hl">100%</b> vs 正则 <b class="hl">51%</b>。
+      </li>
+      <li>
+        <b class="lb">子代理运行时</b>：多智能体最容易在三个地方翻车 —— 停止时子代理还在跑（<b class="kw">资源泄漏</b>）、工人的中间过程污染主会话（<b class="kw">越跑越贵</b>）、并发结算竞态（<b class="kw">状态错乱</b>）。解法是一句可复述的判断：<b class="hl">共享取消、不共享历史</b>——取消是全局意志，历史是局部记录。据此：子代理跑独立循环与独立存储，中间过程写侧链、不回主上下文；但<b class="kw">复用父级取消</b>，停止能取消全部；主 → 子消息<b class="kw">只暂存不打断</b>（往正在执行的计划里插消息会破坏它）；结算汇聚到<b class="kw">单一槽位后按三个租户分发</b>，<b class="kw">租户异常互相隔离</b>；工具面由引擎<b class="kw">裁剪后下发</b>。
+      </li>
+    </ul>
+  </div>
+
+  <!-- ---------- RXY ---------- -->
+  <div class="proj">
+    <div class="row">
+      <span class="org">RXY-Agent — Java 企业级 RAG 系统</span>
+      <span class="role">独立完成</span>
+      <span class="date">2026.04–2026.05</span>
+    </div>
+    <div class="lede">
+      用 Java 从零实现的企业级 RAG 系统，覆盖 ETL 管道、多通道召回、评估闭环与万级并发，每个环节多层降级、全链路可追踪。
+    </div>
+    <div class="fact">
+      <span class="tag">实测</span>CRAG（Meta KDD 2024）60 题 5 域：Evidence Hit@8 <b class="hl">0.967（58/60）</b> / MRR <b class="hl">0.958</b>，多跳 comparison 类 <b class="hl">1.000</b>
+      <span class="split">‖</span>并发压测（单机）：<b class="hl">10,000 并发连接 0 服务端错误</b>、聚合 <b class="hl">~4,951 RPS</b>（p50 1.3s）；峰值 <b class="hl">11,200 连接 / ~6,028 RPS</b>
+    </div>
+
+    <ul class="bul">
+      <li>
+        <b class="lb">检索质量工程</b>：解决同主题双文档的文件级混淆与召回不准 —— 重排输入改为「本文档《文档名》章节「章节路径」+ 原文」（两字段均为<b class="kw">入库期元数据，运行时零成本</b>）；按文档分组做置信度门控，<b class="kw">非最优文档候选须 ≥ 最优文档分 × 0.9</b>（阈值经 0.8/0.9/0.95 三点扫描取优），否则整组剔除、最优文档全留；最终分按 <b class="kw">0.2×向量 + 0.6×重排 + 0.2×BM25</b> —— 黄金集 20 例平均精度 <b class="hl">0.769 → 0.954</b>（含一次 embedding 升级），混淆残余降至 <b class="hl">2 例</b>。
+      </li>
+      <li>
+        <b class="lb">确定性证据门控与记忆分流</b>：解决"库外问题硬答幻觉"与"拒答一刀切误伤" —— 证据充分性为<b class="kw">纯数值判定、全程不调 LLM</b>：<b class="kw">证据分 = 融合最高分 × (0.7 + 0.3 × min(1, 支撑块数 / 3))</b>，阈值 <b class="hl">0.45</b>；不足则<b class="kw">触发一次免 LLM 重检索</b>，仍不足再按长期记忆召回分分流。长期记忆同属<b class="kw">零 LLM 依赖</b>：11 条正则抽取 + 重要度打分，<b class="kw">bigram Jaccard ≥ 0.8</b> 去重，超 300 条按 <b class="kw">重要度 × (1 + log₂命中次数)</b> 淘汰；召回按 <b class="kw">0.45×相关度 + 0.35×重要度 + 0.20×时间衰减</b>（阈值 <b class="hl">0.22</b>）。
+      </li>
+      <li>
+        <b class="lb">并发与性能</b>：解决高并发下的尾延迟尖刺 —— Tomcat 与业务 IO 统一切到虚拟线程；Kafka 拆双 producer（ETL 走 <b class="kw">acks=all + 幂等 + 重试 10 次</b>，trace 走 <b class="kw">acks=1 + linger 20ms + batch 128KB</b>）；4000 并发首测暴露<b class="hl">服务端 7900 次 Neo4j 连接池排队满</b>，定位到实体识别<b class="kw">每请求打两次图库</b>，改为启动时全量载入实体缓存、池容量 100→300、获取超时 60s→5s —— <b class="hl">排队归零</b>；外部 rerank 加 <b class="kw">5 万条 / 10 分钟结果缓存</b>与三级降级 —— <b class="hl">200 并发服务端检索步 p95 由 2,222ms 降至 404ms</b>。
+      </li>
+    </ul>
+  </div>
+
+  <!-- ===================== 专业技能 ===================== -->
+  <div class="sec">专业技能</div>
+  <ul class="bul">
+    <li><b class="lb">AI Agent 系统开发</b>：深入理解 Agentic 循环与状态机设计，具备从 0 到 1 构建高稳定 Agent 引擎的经验；熟悉 LangChain、LangGraph，掌握 ReAct 推理、工具调用与任务规划；对多智能体协作、MCP 协议及 Human-in-the-Loop 有工程实践。</li>
+    <li><b class="lb">RAG 与知识工程</b>：掌握 RAG 全流程设计与优化：文档 ETL（Tika / 语义分块）、向量数据库（Milvus）、混合检索（向量 + BM25 + 知识图谱）、重排序（Cross-Encoder）与 Query 改写；具备多级记忆管理与上下文工程实战经验。</li>
+    <li><b class="lb">大模型工程化</b>：熟练对接 DeepSeek、OpenAI 等 LLM API 与 Function Calling、提示词工程、流式输出；掌握多模型路由、熔断降级、异步预取，擅长调用成本优化与输出确定性提升。</li>
+    <li><b class="lb">后端开发与工程化</b>：以 Java 为主力语言、Python 用于 AI 原型开发；用 Spring Boot 3 构建高可用服务，掌握 MySQL（索引优化 / 事务）、Redis（缓存策略 / ZSet）、Kafka（异步解耦）；具备熔断降级、链路追踪与 Docker 容器化部署能力。</li>
+    <li><b class="lb">安全与可靠性</b>：具备 Deny-first 权限裁决与提示注入防御经验；注重系统的确定性与可观测性，强于失败案例归因与系统韧性设计。</li>
+  </ul>
+
+</div>
+</body>
+</html>

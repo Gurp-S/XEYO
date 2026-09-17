@@ -376,7 +376,7 @@ describe('streamChat SSE — normal / extreme', () => {
 				it('parses structured questions[] on ask_user_pending (multi-question form)', async () => {
 					fetchMock.mockResolvedValue(
 						sseResponse([
-							'data: {"xy":{"type":"ask_user_pending","request_id":"a2","session_id":"s1","turn_id":"t1","question":"1. A?\\n2. B?","options":["x","y","z"],"default":"x","questions":[{"question":"A?","options":[{"label":"x","description":"xx"},{"label":"y"}],"multiSelect":false,"default":"x"},{"question":"B?","options":["z"],"multiSelect":true,"default":null}],"expires_at":null}}\n\n',
+							'data: {"xy":{"type":"ask_user_pending","request_id":"a2","session_id":"s1","turn_id":"t1","question":"1. A?\\n2. B?","options":["x","y","z"],"default":"x","questions":[{"question":"A?","options":[{"label":"x","description":"xx"},{"label":"y"}],"multiSelect":false,"default":"x"},{"question":"B?","options":["z"],"multiSelect":true,"default":null}]}}\n\n',
 							'data: [DONE]\n\n',
 						]),
 					);

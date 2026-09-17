@@ -7,7 +7,7 @@
 - 纯函数型（pollution/reporting/strict_env/blind_audit）无挂钩面，其升格 = `enabled()` 回退到
   `side_enabled()`（见各自模块），不属于本聚合器。
 
-## 挂的模块（挂钩型，均默认关、可卸载）
+## 挂的模块（挂钩型，受总升格开关控制、可卸载）
 - memory.memindex_sig_shadow          （⑧.5 memindex 内容哈希签名）
 - tools.fileio.content_index_cache_shadow（⑧ content_index trigram 缓存）
 - memory.eval_cold_memory_shadow      （① 冷记忆评测）
@@ -44,7 +44,7 @@ _HOOKED = [
 def apply() -> bool:
     """升格：对挂钩型侧挂模块统一 install()。返回是否真的执行（受 promote 门控）。
 
-    - `XEYO_SIDEMOD_PROMOTE=0` 时返回 False（未执行，模块保持默认关 = 现状）。
+    - `XEYO_SIDEMOD_PROMOTE=0` 时返回 False（未执行，模块保持未挂钩状态）。
     - 单个模块失败 → 录制日志并继续其余（fail-open），不抛。
     """
     if not sidemod_promote():

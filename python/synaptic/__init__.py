@@ -13,6 +13,16 @@ from synaptic.assemble import AssemblyState, build_pins, pick_level
 from synaptic.coldstore import ColdStore, branch_handle, node_handle, parse_handle
 from synaptic.graph import Graph, build_graph, graph_digest
 from synaptic.project import Projection, default_params, project
+from synaptic.rehydrate import (
+	LeaseBook,
+	RehydrationPlan,
+	decay_leases,
+	leased_paths,
+	plan_working_set_rehydration,
+	render_rehydrated_nodes,
+	renew_leases,
+	working_set_paths,
+)
 from synaptic.types import (
 	LEVEL_WATERMARK,
 	LEVELS,
@@ -43,6 +53,8 @@ __all__ = [
 	"Node",
 	"Pin",
 	"Projection",
+	"LeaseBook",
+	"RehydrationPlan",
 	"PruneCard",
 	"WscParams",
 	"WscResult",
@@ -55,6 +67,12 @@ __all__ = [
 	"parse_handle",
 	"pick_level",
 	"project",
+	"decay_leases",
+	"leased_paths",
+	"plan_working_set_rehydration",
+	"render_rehydrated_nodes",
+	"renew_leases",
+	"working_set_paths",
 ]
 
 GRAPH_EXPORTS = ("build_graph", "graph_digest", "project", "default_params")

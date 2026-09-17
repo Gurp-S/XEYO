@@ -29,6 +29,7 @@ from msgtypes.events import (
 	ToolResultEvent,
 	UsageEvent,
 	ContextCompressionEvent,
+	SteerDeliveredEvent,
 	ResultEvent,
 	AskUserPendingEvent,
 	AskUserResolvedEvent,
@@ -139,6 +140,10 @@ class ChatCompletionRequest(BaseModel):
 	# P1 mid-turn inbox：会话忙时把消息排进 FIFO（settle 后自动投递），返回 202
 	# 而非 409。默认 False 保持 CLI/旧客户端 409 兼容；GUI 置 True；side 会话强制忽略。
 	queue_if_busy: bool = False
+	# 引导（steer）：忙时消息不排队等 settle，而是到**边界**投递——作为真 user
+	# 消息进历史，模型在下一步行动前看到它（不打断正在进行的工具批次）。
+	# 仅在 queue_if_busy 同时为 True 时生效；side 会话强制忽略；入队失败回落排队。
+	steer_if_busy: bool = False
 	# 遗留字段：旧批量 API 的显式 tasks；工具化后忽略（主模型自行 tool call）。
 	tasks: list[dict[str, Any]] | None = None
 
@@ -189,8 +194,35 @@ def _busy_or_queue(
 
 	- 排队：把真实用户消息入 FIFO（只存文本/媒体/客户端 id），settle 后由
 	  inbox 租户自动投递；绝不触碰 T_now / MessageStore（KV 前缀零破坏）。
+	- 引导（steer）：同一个 FIFO 里的消息改由**边界**投递（下一轮采样前），
+	  作为真 user 消息进历史——工具批次不被打断，模型立刻看到。
 	- 409：维持 CLI/旧客户端行为（GUI 在 queue_if_busy=True 时走排队路径）。
 	"""
+	if body.steer_if_busy and body.side:
+		# 引导在 side 会话不支持：明确告知（不静默降级成排队）
+		raise api_error(
+			409, "side 会话不支持引导；请等本轮结束后再发", "steer_unsupported_side"
+		)
+	if body.steer_if_busy and body.queue_if_busy and not body.side:
+		from engine.t_now_steer import push as _steer_push
+
+		if _steer_push(
+			session_id,
+			user_text,
+			images=media_refs,
+			message_id=message_id or "",
+		):
+			return JSONResponse(
+				status_code=202,
+				content={
+					"queued": True,
+					"steered": True,
+					# 投递口径显式化：boundary = 本轮下一个边界就送到模型；
+					# after_turn = 回落 settle 后排（下一轮才送达）。
+					"delivery": "boundary",
+				},
+			)
+		# 引导入队失败（队列满 / 内部异常）→ 回落既有 settle 排队语义
 	if body.queue_if_busy and not body.side:
 		from server.inbox_registry import (
 			InboxQueueFull,
@@ -219,6 +251,7 @@ def _busy_or_queue(
 			status_code=202,
 			content={
 				"queued": True,
+				"delivery": "after_turn",
 				"queue_id": item.queue_id,
 				"position": position,
 			},
@@ -366,10 +399,8 @@ def _build_enriched_resume_prompt(
 	追加轮次行与完成判定权威声明（``<goal_round>`` 的证据要求）。
 	"""
 	lines = [
-		"[Resume] The user asked to continue an interrupted turn.",
-		"Continue the unfinished work from where it stopped.",
-		"Do not re-ask what to do unless the original goal is truly missing.",
-		"Prefer resuming incomplete todos/tools over re-planning from scratch.",
+		"# Resume state（background only）",
+		f"resume_cue={((user_cue or '继续').strip() or '继续')}；interrupted_turn=true",
 	]
 	goal_s = (goal or "").strip()
 	if goal_s:
@@ -389,21 +420,15 @@ def _build_enriched_resume_prompt(
 		lines.extend(incomplete[:24])
 	agents = [a for a in (active_agents or []) if a]
 	if agents:
-		lines.append("Interrupted / unfinished subagents: " + ", ".join(agents[:16]))
+		lines.append("Interrupted subagents: " + ", ".join(agents[:16]))
 	if stop_reason:
 		lines.append(f"Last stop reason: {stop_reason}")
 	if round_info:
 		_gid, _rnd, _cap = round_info
 		lines.append(
-			f"Goal round: {_rnd}/{_cap} (auto-continuation of the bound goal {_gid})."
+			f"Goal round: {_rnd}/{_cap}；bound_goal={_gid}；continuation=automatic。"
 		)
-		lines.append(
-			"Judge completion only from workspace state and tool results "
-			"(evidence required). If the goal is not fully met, keep working — "
-			"this is an automatic continuation, not a new task."
-		)
-	cue = (user_cue or "继续").strip()
-	lines.append(f"User cue: {cue}")
+		lines.append("completion_basis=workspace_state_and_tool_results")
 	return "\n".join(lines)
 
 
@@ -1365,6 +1390,17 @@ async def chat_completions(
 							int(xy["event_id"]),
 							_xy_chunk(xy, model=body.model).encode("utf-8"),
 							"task_state_changed",
+						))
+					elif isinstance(ev, SteerDeliveredEvent):
+						xy = _id({
+							"type": "steer_delivered",
+							"count": int(ev.count or 0),
+							"message_ids": list(ev.message_ids or ()),
+						})
+						frames.append((
+							int(xy["event_id"]),
+							_xy_chunk(xy, model=body.model).encode("utf-8"),
+							"steer_delivered",
 						))
 					elif isinstance(ev, ContextCompressionEvent):
 						xy = {

@@ -22,8 +22,8 @@ def test_code_compact_on_has_rules_and_mode() -> None:
 	set_code_compact(True)
 	set_code_mode("full")
 	block = code_compact_block()
-	assert "写代码压缩铁律" in block
-	assert "# 写代码精简：full" in block
+	assert "写代码精简状态" in block
+	assert "mode=full" in block
 	assert CODE_COMPACT_RULES.split("\n", 1)[0] in block
 	set_code_compact(False)
 	set_code_mode(None)
@@ -38,9 +38,9 @@ def test_code_compact_in_tnnow_not_system() -> None:
 	last = out[-1]
 	content = last.get("content") if isinstance(last, dict) else ""
 	text = content if isinstance(content, str) else str(content)
-	assert "写代码压缩铁律" in text
-	assert "写代码精简：lite" in text
+	assert "写代码精简状态" in text
+	assert "mode=lite" in text
 	# system 左段身份不含写代码精简
-	assert "写代码压缩铁律" not in IDENTITY
+	assert "写代码精简状态" not in IDENTITY
 	set_code_compact(False)
 	set_code_mode(None)
