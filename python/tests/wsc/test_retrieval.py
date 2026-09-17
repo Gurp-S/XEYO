@@ -6,6 +6,7 @@ from synaptic.retrieval import (
 	build_current_state,
 	build_history_query,
 	discover_history,
+	render_history_hints,
 )
 from synaptic.seeds import Seeds
 from synaptic.types import FileState
@@ -92,3 +93,17 @@ def test_explicit_working_paths_do_not_expand_to_all_file_states():
 		working_paths=("src/a.py",),
 	)
 	assert state.working_paths == ("src/a.py",)
+
+
+def test_history_hints_are_fact_only_bounded_and_readable():
+	graph = build_graph(_messages())
+	items = discover_history(graph, _query(graph))
+	lines = render_history_hints(graph, items, budget_tokens=2000, max_items=3)
+	assert lines
+	text = "\n".join(line for _key, line in lines)
+	assert "event=" in text
+	assert "match=path:src/auth.py" in text
+	assert "detail=expand(node://" in text
+	assert "建议" not in text
+	assert "应该" not in text
+	assert len(lines) <= 3

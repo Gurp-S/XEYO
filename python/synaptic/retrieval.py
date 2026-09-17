@@ -21,7 +21,9 @@ from dataclasses import dataclass
 
 from synaptic.coldstore import node_handle
 from synaptic.graph import Graph
+from synaptic.handles import renderer_or_default
 from synaptic.seeds import Seeds
+from synaptic.textutil import node_token_len
 from synaptic.types import EDGE_USE, FileState
 
 
@@ -119,6 +121,73 @@ class HistoryCandidate:
 	matched_keys: tuple[str, ...] = ()
 	source_nodes: tuple[int, ...] = ()
 	handle: str = ""
+
+
+def _one_line(text: str, limit: int) -> str:
+	value = " ".join(str(text or "").split())
+	if len(value) <= limit:
+		return value
+	return value[: max(1, limit - 1)] + "…"
+
+
+def render_history_hints(
+	graph: Graph,
+	candidates: tuple[HistoryCandidate, ...] | list[HistoryCandidate],
+	*,
+	handles=None,
+	budget_tokens: int = 240,
+	max_items: int = 8,
+	excerpt_chars: int = 120,
+) -> tuple[tuple[str, str], ...]:
+	"""Render bounded, fact-only history entrances.
+
+	The output is intentionally only an index: it tells the model what the event
+	was, which explicit key matched it, and where the original text can be read.
+	It does not say that the event caused the current problem or instruct the
+	model to read it.  The caller decides whether to expose these lines.
+
+	Each item is kept whole.  If the budget cannot fit the next item, that item
+	is omitted rather than partially edited.  ``handles`` should be the same
+	``HandleRenderer`` used by the projection so the displayed reference has the
+	same production shape as the rest of the hot layer.
+	"""
+	if budget_tokens <= 0 or max_items <= 0:
+		return ()
+	renderer = renderer_or_default(handles)
+	out: list[tuple[str, str]] = []
+	used = 0
+	for candidate in list(candidates)[: max(0, int(max_items))]:
+		node = graph.node(candidate.idx)
+		if node is None or not node.text.strip():
+			continue
+		parts = [f"event={node.idx}", f"kind={node.kind}"]
+		if node.tool_name:
+			parts.append(f"tool={node.tool_name}")
+		if node.refs:
+			parts.append("path=" + ",".join(node.refs[:4]))
+		if node.error_sig:
+			parts.append(f"status=error:{node.error_sig}")
+		elif node.is_write:
+			parts.append("status=write")
+		elif node.read_only:
+			parts.append("status=read_only")
+		else:
+			parts.append("status=observed")
+		keys = tuple(candidate.matched_keys)
+		if keys:
+			parts.append("match=" + ",".join(keys[:3]))
+		if candidate.source_nodes:
+			parts.append("source=" + ",".join(str(i) for i in candidate.source_nodes[:3]))
+		parts.append("text=" + _one_line(node.text, max(1, int(excerpt_chars))))
+		if candidate.handle:
+			parts.append("detail=" + renderer.expression(candidate.handle))
+		line = " | ".join(parts)
+		cost = node_token_len(line) + 1
+		if used + cost > int(budget_tokens):
+			continue
+		out.append((f"history:{candidate.idx}", line))
+		used += cost
+	return tuple(out)
 
 
 _REASON_RANK = {
@@ -227,4 +296,5 @@ __all__ = [
 	"build_current_state",
 	"build_history_query",
 	"discover_history",
+	"render_history_hints",
 ]
