@@ -85,7 +85,7 @@ html[data-scheme="dark"] .xy-seg {
   background: rgb(255 255 255 / 0.06);
 }
 .xy-seg-btn {
-  border-radius: 7px;
+  border-radius: var(--xy-radius-tight);
   padding: 5px 6px;
   font-size: 11px;
   color: var(--xy-mute);
