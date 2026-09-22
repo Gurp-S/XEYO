@@ -2113,6 +2113,14 @@ t199  hot=2734 | fixed 1156/1200 over=0 | main 1426/1800 over=0 | requests=dedup
    | GUI qawa1w | 29 → 7 | 0.0089 → 0.0055 | **0.63** |
    | GUI tgbg36 | 122 → 33 | 0.0299 → 0.0137 | **0.46** |
 
+   ⚠️ **上表的"基线"是重放里"切点能前移就折"那一臂，不全是实跑**。拿 `c2_events.jsonl`
+   真记下的游标当基线（`_wsc_out/_b_plan_real.py`）才是可对外的口径：
+   attempt2 实跑 45 折 → θ=1 **0.59（−41%）**；attempt1 实跑只有 16 折（重放基线 28 折，
+   比现实更折腾）→ θ=1 **0.65（−35%）**。GUI 两行只能当**同口径下策略排序**用：qawa1w 真跑
+   只折 1 次且跑在 1M 窗口上，而重放把四份都钉在 64k。
+   同一条实跑游标下，建模 ¥1.5211 / ¥0.7200 对厂商账单 **¥1.6779 / ¥0.7779**
+   ⇒ **建模乐观 8~9%**：比值可信，绝对¥要 ×1.09 才是账单口径。
+
    守卫：`tests/test_runtime_c2.py::test_extend_gate_*`（判据本身 + 反证 θ 是唯一变量）、
    `tests/wsc/test_cadence.py::test_production_extend_gate_shares_the_theta_implementation`
    （不许在两处各拼一份代数）、`test_hardtop_forces_extension_despite_gates`（兜底不受 θ 约束）。
@@ -2120,3 +2128,18 @@ t199  hot=2734 | fixed 1156/1200 over=0 | main 1426/1800 over=0 | requests=dedup
    字段 `arm=wsc|c2` / `fold` / `reason` / `saved_net` / `transition` / `theta` / `forced`。
    这是事后唯一能区分「WSC 折的 / C2 折的 / 被 θ 挡住的」的凭据——`c2_summary_text` 不是判据
    （它只是触发侧记账），`last_action` 也只有 `C2` 一个值。离线重放台不传 `account` ⇒ 结构上写不进本账本。
+   ⚠️ 同日实测：`calibration_events.action` 的折叠标签**召回率只有 ~2%**（attempt2 真折 45 次、
+   59 行校准账里只有 1 行 `action=C2`，其余 `keep`）⇒ 任何按 `action` 分组的旧数字（含"折叠当枪
+   重填面 71.1%，n=38"）都要按"精度可用、样本小且有偏"来看；分母一律走 `c2_events` / `fold_events`。
+
+10. **改折叠时机没有引入坏形状，也没有把 prompt 顶到水位**（09-22，零成本，
+    `_wsc_out/_b_plan_safety.py`：只在真实请求边界上查，生产结构检查器
+    `engine/projection_manifest.build_manifest`）：
+    - 形状：四份里没有"新臂独有"的 kind；`orphan_tool_results` 在 attempt2 基线 9 → 新臂 10
+      （+1/51 枪），而该条件本来就存在，且 **wire 出口 `model/_openai_common.prune_orphan_tool_rows`
+      会 fail-open 丢弃无主 tool 行**（09-20 事故装的）⇒ 最坏是"一条结果没进上下文"，不是会话报废。
+      真跑 attempt2 的 `trial.log` 里 `wire boundary dropped` 出现 **0** 次、无 400。
+    - 尺寸：TB 两臂 p90 17.3k→21.7k、最大 22.6k→38.4k（attempt2），仍留 14k 以上余量，
+      **超过 40k 的枪数 0**；最长的 tgbg36 反而更小（最大 64,278→52,167，越过 0.8×64k 水位的
+      枪数 31→0）。⇒ 推迟折叠的延迟代价在这四份上看不出来（真跑 900.3s / 99 枪 = 9.1s/枪）。
+      折叠枪到底慢几秒，等 `fold_events.jsonl` 攒够样本再算（`action` 标签不可用，见第 9 条）。
