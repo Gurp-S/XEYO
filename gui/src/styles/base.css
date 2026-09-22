@@ -64,3 +64,15 @@ code {
     outline-color: color-mix(in oklch, var(--xy-accent) 72%, transparent);
   }
 }
+
+/* 小控件圆角统一。实测同类控件此前散在 6px / 7px / 8px 三档：
+   行、图标按钮、菜单项、面板筛选片、轮次导轨行——肉眼能比出来的不一致。
+   写在这里而不是各组件文件：这些类跨 6 个领域样式复用，一处收口。 */
+.xy-icon-btn,
+.xy-pressable,
+.xy-menu-row,
+.xy-palette-filter,
+.xy-turn-rail-row,
+.xy-ctx-row {
+  border-radius: var(--xy-radius-tight);
+}
