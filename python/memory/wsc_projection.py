@@ -301,8 +301,15 @@ def _note_head_usage(session: str, st: "_Live") -> None:
     """头被替换时补一条账：这份头活了几枪、句柄面多大、期间被取回几次。
 
     只记账，不改任何发射形状；写失败必须静默（投影永远不能被观测拖住）。
+
+    ⚠️ 离线台（重放/扫描）默认会直接调本模块的投影 ⇒ 必须能被挡在外面，
+    否则生产分母被探针淹没（实测发生过：3,668 行里 3,605 行是扫描脚本写的，
+    于是"头存活枪数 p50=1"这种话说的其实是探针自己）。离线台设
+    ``XEYO_WSC_OFFLINE=1`` 即可，生产不设 ⇒ 行为不变。
     """
     if st is None or not st.head:
+        return
+    if os.environ.get("XEYO_WSC_OFFLINE", "").strip() in ("1", "true", "yes", "on"):
         return
     try:
         import json

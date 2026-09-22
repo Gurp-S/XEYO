@@ -257,3 +257,25 @@ def test_handle_usage_is_counted_and_ledgered(live, monkeypatch, tmp_path) -> No
 	assert rows, "账没落盘 ⇒ 进程一死这个量就没了"
 	assert rows[-1]["handle_refs"] == 1 and rows[-1]["handle_tokens"] > 0
 	assert rows[-1]["head_shots"] >= 2
+
+
+def test_offline_projections_do_not_pollute_the_head_ledger(live, monkeypatch, tmp_path) -> None:
+	"""离线重放/扫描台必须能把自己从生产分母里摘出去。
+
+	真实事故（09-23）：`wsc_index_usage.jsonl` 3,668 行里 3,605 行是我自己的扫描脚本写的，
+	于是"头存活枪数 p50=1"说的是探针的行为，不是生产的。同一个原则已经用在
+	`fold_events`（不传 account 就不写）——这里补齐。
+	"""
+	WP, _n = live
+	monkeypatch.setenv("XEYO_HOME", str(tmp_path / "home"))
+	monkeypatch.setenv("XEYO_WSC_CADENCE_ABSORB", "0")
+	monkeypatch.setenv("XEYO_WSC_OFFLINE", "1")
+	from engine.compact import keep_tail_cut
+
+	msgs = synth_session(turns=40, error_turn=4)
+	cut = int(keep_tail_cut(msgs))
+	assert WP.project_c2_messages(msgs, _W(cut), cwd=None) is not None
+	assert WP.project_c2_messages(msgs + [msg_asst_text("又长了 " * 400)],
+	                              _W(cut + 2), cwd=None) is not None
+	path = tmp_path / "home" / "wsc_index_usage.jsonl"
+	assert not path.exists(), "离线台把生产账本写脏了（分母一旦污染，之前所有率都作废）"
