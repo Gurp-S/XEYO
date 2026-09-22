@@ -714,3 +714,12 @@ html[data-scheme="dark"] body {
     animation: none;
   }
 }
+
+/* ===== 产品化收口（2026-09-22 样式轮）=====
+   用户气泡原本内距偏大（Tailwind px-4 pt-3.5 pb-2.5），连续两条时像堆叠的石板。
+   收紧一档并统一走面板圆角；未命中态加一点抬升，让它读起来是"一张卡"而不是一块底色。 */
+.xy-user-prompt {
+  padding: 10px 14px;
+  font-size: 14px;
+  line-height: 1.65;
+}

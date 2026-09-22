@@ -301,3 +301,49 @@
   color: var(--xy-danger);
 }
 
+
+/* ===== 产品化收口（2026-09-22 样式轮）=====
+   收尾轮的活动摘要原本是一行裸文字 + 下边框：状态在左、步数与 diff 在右，中间整条空着，
+   读起来不像一个整体。这三项是同一组事实，所以给它们同一个容器。
+   冻结口径（文案与 typography contract）不动，只动容器与视觉权重。
+   两种渲染路径都要覆盖：收尾轮用 .xy-done-on-wrap，进行中/投影视图用 .xy-activity-split。 */
+.xy-done-on-wrap,
+.xy-activity-split:not([data-headless]) {
+  border: 1px solid var(--xy-line);
+  border-radius: var(--xy-radius-control);
+  background: var(--xy-glass-strong);
+  box-shadow: var(--xy-elev-1);
+  overflow: hidden;
+  /* 容器自己不再留内距：外距由轮次间距给，内距交给头部，否则描边到内容会空一大段 */
+  padding: 0;
+}
+
+.xy-done-on-wrap .xy-done-on-head,
+.xy-activity-split:not([data-headless]) .xy-split-head {
+  padding: 7px 11px;
+  margin-bottom: 0;
+  border-bottom: 0;
+}
+
+.xy-done-on-wrap .xy-done-on-head:hover,
+.xy-activity-split:not([data-headless]) .xy-split-head:hover {
+  background: color-mix(in oklch, var(--xy-ink) 4%, transparent);
+}
+
+.xy-done-on-wrap .xy-done-on-head:focus-visible,
+.xy-activity-split:not([data-headless]) .xy-split-head:focus-visible {
+  color: var(--xy-ink);
+  box-shadow: var(--xy-ring);
+}
+
+/* 展开明细时与头部之间补一条分隔；折叠时不留多余边线 */
+.xy-done-on-wrap .xy-activity-detail-inner,
+.xy-activity-split:not([data-headless]) .xy-activity-detail-inner {
+  border-top: 1px solid var(--xy-rule-weak);
+}
+
+.xy-split-head-meta {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--xy-text-tertiary);
+}
