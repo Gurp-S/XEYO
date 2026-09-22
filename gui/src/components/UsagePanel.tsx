@@ -89,13 +89,13 @@ function fmtBalance(raw: string, currency?: string): string {
 /** v4：无金额 —— 来源提示只说明「厂商官方 / 本机记账」。 */
 function usageSourceHint(source?: string): string {
 	if (source === 'vendor') {
-		return '用量来自厂商官方接口（权威）';
+		return '来自厂商官方用量接口';
 	}
 	if (source === 'mixed') {
-		return '多来源合并：厂商官方优先，缺口由本机记账补足';
+		return '厂商官方数据优先，缺口由本机记录补足';
 	}
 	if (source === 'local') {
-		return '厂商未提供历史用量，以下为本机根据对话官方 usage 记账';
+		return '厂商未提供历史用量，按本机记录统计';
 	}
 	return '正在拉取用量';
 }
@@ -605,14 +605,12 @@ export function UsagePanel({active = true}: Props) {
 					) : null}
 					{!error && report && report.source === 'local' ? (
 						<p className="mb-3 rounded-xl border border-line bg-glass-hover px-3 py-2 text-[12px] text-ink-soft">
-							厂商未提供可用的历史用量，已改用本机根据对话官方 usage
-							记的账。余额仍来自官方接口。
+							厂商未提供历史用量，这里按本机记录的对话用量统计；余额仍取自厂商账户。
 						</p>
 					) : null}
 					{!error && report && report.source === 'mixed' ? (
 						<p className="mb-3 rounded-xl border border-line bg-glass-hover px-3 py-2 text-[12px] text-ink-soft">
-							多来源合并：厂商官方数据优先采用，缺口由本机按对话官方 usage
-							记账补足（余额仍来自官方 /user/balance）。
+							厂商数据与本机记录合并统计：优先采用厂商数据，缺口由本机记录补足。
 						</p>
 					) : null}
 					{!error &&
@@ -641,7 +639,7 @@ export function UsagePanel({active = true}: Props) {
 								// P2-⑨：明确余额归属账号，避免「全部」跨厂商合计却单账号余额的歧义。
 								balanceOwner
 									? `仅 ${balanceOwner.label}（非全部厂商合计）`
-									: '仅 DeepSeek 账号 /user/balance'
+									: '仅 DeepSeek 账号'
 							}
 						/>
 						<SummaryCard
@@ -652,7 +650,7 @@ export function UsagePanel({active = true}: Props) {
 									? fmtBalance(balance.granted_balance, balance.currency)
 									: '—'
 							}
-							hint="官方 granted_balance"
+							hint="厂商赠送部分"
 						/>
 						<SummaryCard
 							label="充值余额"
@@ -662,7 +660,7 @@ export function UsagePanel({active = true}: Props) {
 									? fmtBalance(balance.topped_up_balance, balance.currency)
 									: '—'
 							}
-							hint="官方 topped_up_balance"
+							hint="自行充值部分"
 						/>
 					</div>
 
@@ -670,7 +668,7 @@ export function UsagePanel({active = true}: Props) {
 						<div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
 							<div>
 								<h3 className="text-[14px] font-medium text-ink">
-									用量（三分类）
+									Token 用量
 								</h3>
 								<p className="text-[11px] text-mute">
 									{usageSourceHint(report?.source)}
@@ -699,7 +697,7 @@ export function UsagePanel({active = true}: Props) {
 							<span className="font-mono tabular-nums text-ink-soft">
 								{fmtInt(totals.input_total)}
 							</span>
-							（= 命中 + 未命中，官方 prompt_tokens 语义）；输出与输入分列、禁止加总。
+							（命中 + 未命中）；输入与输出分开统计，不相加。
 						</div>
 						<UsageChart
 							rows={toRows(series, p => ({
@@ -835,7 +833,7 @@ className={cn(
 				</div>
 				<div className="rounded-xl border border-line bg-glass-hover px-3 pb-1 pt-2.5">
 					<div className="mb-0.5 flex items-baseline justify-between">
-						<span className="text-[13px] font-medium text-ink">Token 三分类</span>
+						<span className="text-[13px] font-medium text-ink">Token 构成</span>
 						<span className="text-[12px] tabular-nums text-mute">
 							输入 <span className="text-ink-soft">{fmtCompact(block.input_total)}</span>
 							{' · '}输出 <span className="text-ink-soft">{fmtCompact(block.output)}</span>
