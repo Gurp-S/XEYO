@@ -1506,7 +1506,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 											className="max-h-[320px] overflow-y-auto px-1.5 py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
 										>
 									{filteredSkills.length > 0 ? (
-										<div className="flex items-center gap-1.5 px-2 pb-1 pt-2 text-[10px] font-medium uppercase tracking-[0.08em] text-mute">
+										<div className="flex items-center gap-1.5 px-2 pb-1 pt-2 xy-section-label">
 											<span aria-hidden className="h-1.5 w-1.5 rounded-full bg-accent" />
 											技能
 										</div>
@@ -1542,7 +1542,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 										<div aria-hidden className="mx-2 my-1.5 h-px bg-line/50" />
 									) : null}
 									{slashSuggest.length > 0 ? (
-										<div className="flex items-center gap-1.5 px-2 pb-1 pt-2 text-[10px] font-medium uppercase tracking-[0.08em] text-mute">
+										<div className="flex items-center gap-1.5 px-2 pb-1 pt-2 xy-section-label">
 											<span aria-hidden className="h-1.5 w-1.5 rounded-full bg-mute" />
 											命令
 										</div>
@@ -1595,7 +1595,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 										aria-label="文件引用建议"
 										className="xy-menu-flyout absolute bottom-full left-0 z-50 mb-1.5 max-h-[280px] w-[min(440px,100%)] overflow-y-auto rounded-xl border border-line/50 p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
 									>
-										<div className="px-1 pb-0.5 pt-1 text-[10px] font-medium uppercase tracking-[0.08em] text-mute">
+										<div className="px-1 pb-0.5 pt-1 xy-section-label">
 											文件引用
 										</div>
 										{atFiles.map((f, i) => (

@@ -76,3 +76,12 @@ code {
 .xy-ctx-row {
   border-radius: var(--xy-radius-tight);
 }
+
+/* 段落小标题统一一档。此前散在 20 多处 Tailwind 里写成 mono + uppercase + 宽字距：
+   中文既不变形也不加粗，只被 letter-spacing 把汉字拉开，是最重的模板味来源。 */
+.xy-section-label {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--xy-mute);
+}

@@ -576,7 +576,7 @@ export function SettingsModal({open, onClose}: Props) {
 					<div className="min-w-0 flex-1 overflow-y-auto pr-1">
 
 				<section className={cn('mb-5 space-y-3', activeTab !== 'appearance' && 'hidden')}>
-					<h3 className="font-mono text-[10px] uppercase tracking-wider text-mute">
+					<h3 className="xy-section-label">
 						外观
 					</h3>
 					<ThemePicker
@@ -855,7 +855,7 @@ export function SettingsModal({open, onClose}: Props) {
 							</section>
 
 							<section className={cn('mb-5 space-y-3', activeTab !== 'pet' && 'hidden')}>
-								<h3 className="font-mono text-[10px] uppercase tracking-wider text-mute">
+								<h3 className="xy-section-label">
 									桌宠加载器
 								</h3>
 								<div className="overflow-hidden rounded-xl border border-line/70 bg-glass-strong">
@@ -927,7 +927,7 @@ export function SettingsModal({open, onClose}: Props) {
 
 						<section className={cn('mb-5 space-y-3', activeTab !== 'accounts' && 'hidden')}>
 						<div className="flex items-center justify-between gap-2">
-						<h3 className="font-mono text-[10px] uppercase tracking-wider text-mute">
+						<h3 className="xy-section-label">
 							模型与密钥
 						</h3>
 						<button
@@ -1465,7 +1465,7 @@ export function SettingsModal({open, onClose}: Props) {
 					<LocalModelSetting />
 
 					<div className="border-t border-line/60 pt-4">
-						<h3 className="font-mono text-[10px] uppercase tracking-wider text-mute">
+						<h3 className="xy-section-label">
 							网络工具
 						</h3>
 					</div>
@@ -1487,7 +1487,7 @@ export function SettingsModal({open, onClose}: Props) {
 					</label>
 
 					<div className="border-t border-line/60 pt-4">
-						<h3 className="font-mono text-[10px] uppercase tracking-wider text-mute">
+						<h3 className="xy-section-label">
 							输出精简
 						</h3>
 					</div>
@@ -1569,7 +1569,7 @@ export function SettingsModal({open, onClose}: Props) {
 					) : null}
 
 					<div className="border-t border-line/60 pt-4">
-						<h3 className="font-mono text-[10px] uppercase tracking-wider text-mute">
+						<h3 className="xy-section-label">
 							写代码精简
 						</h3>
 					</div>
@@ -1653,7 +1653,7 @@ export function SettingsModal({open, onClose}: Props) {
 
 				<section className={cn('mb-5 space-y-3', activeTab !== 'appearance' && 'hidden')}>
 					<div className="border-t border-line/60 pt-4">
-						<h3 className="font-mono text-[10px] uppercase tracking-wider text-mute">
+						<h3 className="xy-section-label">
 							记忆系统开关
 						</h3>
 					</div>
@@ -1665,7 +1665,7 @@ export function SettingsModal({open, onClose}: Props) {
 
 				<section className={cn('mb-5 space-y-3', activeTab !== 'appearance' && 'hidden')}>
 					<div className="border-t border-line/60 pt-4">
-						<h3 className="font-mono text-[10px] uppercase tracking-wider text-mute">
+						<h3 className="xy-section-label">
 							桌面壁纸
 						</h3>
 					</div>
@@ -1756,7 +1756,7 @@ export function SettingsModal({open, onClose}: Props) {
 				</section>
 
 				<section className={cn('mb-5 space-y-3', activeTab !== 'perms' && 'hidden')}>
-					<h3 className="font-mono text-[10px] uppercase tracking-wider text-mute">
+					<h3 className="xy-section-label">
 						权限
 					</h3>
 					<p className="text-[12px] leading-relaxed text-mute">
@@ -1778,7 +1778,7 @@ export function SettingsModal({open, onClose}: Props) {
 				</section>
 
 				<section className={cn('mb-5 space-y-3', activeTab !== 'rewind' && 'hidden')}>
-					<h3 className="font-mono text-[10px] uppercase tracking-wider text-mute">
+					<h3 className="xy-section-label">
 						回溯
 					</h3>
 					<p className="text-[12px] leading-relaxed text-mute">
@@ -1868,7 +1868,7 @@ export function SettingsModal({open, onClose}: Props) {
 				</section>
 
 				<section className={cn('mb-5 space-y-3', activeTab !== 'remote' && 'hidden')}>
-					<h3 className="font-mono text-[10px] uppercase tracking-wider text-mute">
+					<h3 className="xy-section-label">
 						远程 · 微信
 					</h3>
 					<p className="text-[12px] leading-relaxed text-mute">

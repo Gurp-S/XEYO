@@ -266,7 +266,7 @@ export function ModelPicker({
 						</div>
 						{onReasoningEffortChange ? (
 							<div className="border-t border-line/40 px-2.5 pb-2 pt-2">
-								<div className="mb-1.5 text-[10px] font-medium uppercase tracking-[0.08em] text-mute">
+								<div className="mb-1.5 xy-section-label">
 									思考等级
 								</div>
 								<div className="grid grid-cols-3 gap-1.5">
@@ -298,7 +298,7 @@ export function ModelPicker({
 							</div>
 						) : null}
 						<div className="border-t border-line/40 px-2.5 py-2.5">
-							<div className="text-[10px] uppercase tracking-[0.08em] text-mute">
+							<div className="xy-section-label">
 								{models.length} 个已登记模型
 							</div>
 						</div>
@@ -316,7 +316,7 @@ export function ModelPicker({
 					onReasoningEffortChange ? 'h-[21rem]' : 'h-[16.5rem]',
 				)}
 			>
-				<div className="px-3 pb-1 pt-2.5 text-[10px] font-medium uppercase tracking-[0.08em] text-mute">
+				<div className="px-3 pb-1 pt-2.5 xy-section-label">
 					已添加厂商
 				</div>
 				<div className="min-h-0 flex-1 overflow-y-auto px-1.5">

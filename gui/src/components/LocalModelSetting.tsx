@@ -302,7 +302,7 @@ export function LocalModelSetting({workspace}: {workspace?: string}) {
 
 			{/* 模型选择（单实例） */}
 			<div className="space-y-1.5">
-				<span className="block text-[10px] uppercase tracking-wider text-mute">模型</span>
+				<span className="block xy-section-label">模型</span>
 				{models.map(m => {
 					const selected = m.id === activeModel;
 					return (

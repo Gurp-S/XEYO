@@ -695,7 +695,7 @@ export function UsagePanel({active = true}: Props) {
 						<div className="mb-2 border-t border-line/60 pt-1.5 text-[11px] text-mute">
 							输入合计{' '}
 							<span className="font-mono tabular-nums text-ink-soft">
-								{fmtInt(totals.input_total)}
+								{fmtCompact(totals.input_total)}
 							</span>
 							（命中 + 未命中）；输入与输出分开统计，不相加。
 						</div>
@@ -766,7 +766,7 @@ function SummaryCard({
 				<Icon className="h-5 w-5" style={{color: 'var(--xy-chart-icon)'}} />
 			</div>
 			<div className="min-w-0">
-				<div className="text-[11px] uppercase tracking-wide text-mute">
+				<div className="xy-section-label">
 					{label}
 				</div>
 				<div
