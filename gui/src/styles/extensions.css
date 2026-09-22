@@ -164,3 +164,31 @@
     transition-duration: 0ms;
   }
 }
+
+/* ===== 扩展中心收口（2026-09-22 样式轮）=====
+   标签组原本只是三个裸胶囊排一行，而用量页的同类控件（柱状/折线）是装在分段容器里的
+   ——同一个语义在两页长得不一样。这里统一到分段容器。 */
+.xy-ext-panel [role="tablist"] {
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--xy-line);
+  border-radius: var(--xy-radius-control);
+  background: color-mix(in oklch, var(--xy-ink) 4%, transparent);
+}
+
+.xy-ext-panel [role="tablist"] [role="tab"] {
+  border-radius: calc(var(--xy-radius-control) - 3px);
+}
+
+/* 搜索框：原本 w-56/sm:w-72 的大圆胶囊，比同页其它控件重一档；
+   收到与芯片同一套圆角与描边，宽度也让给标签组。 */
+.ext-search {
+  width: 13rem;
+  border-radius: var(--xy-radius-control);
+  border-color: var(--xy-line);
+  background: var(--xy-glass-strong);
+}
+
+.ext-search input {
+  border-radius: var(--xy-radius-control);
+}

@@ -37,9 +37,19 @@ export function PageShell({
 			{toolbar ? (
 				<div
 					ref={toolbarRef}
-					className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line/40 px-4 py-2"
+					className="flex shrink-0 border-b border-line/40 px-4 py-2"
 				>
-					{toolbar}
+					{/* 窄版页正文在 768 居中列里，工具栏也必须进同一列，
+					    否则标签行与列表卡左右边缘对不齐（同一页两套对齐）。 */}
+					{wide ? (
+						<div className="flex w-full flex-wrap items-center gap-2">
+							{toolbar}
+						</div>
+					) : (
+						<div className="mx-auto flex w-full max-w-3xl min-w-0 flex-wrap items-center gap-2">
+							{toolbar}
+						</div>
+					)}
 				</div>
 			) : null}
 			<div
