@@ -358,6 +358,38 @@ def record_c2_event(*, session_id: str = "", cursor: int = 0) -> None:
 			f.write(json.dumps(event, ensure_ascii=False) + "\n")
 
 
+def fold_events_path() -> Path:
+	"""折叠判定账本（执行 **和** 被拒都记一行）与 C2 计数文件分开：
+	``c2_events.jsonl`` 只数"真压了几次"，C4 监控按它统计，掺进拒绝会算错。"""
+	return usage_dir() / "fold_events.jsonl"
+
+
+def record_fold_event(*, session_id: str = "", arm: str = "", **account: Any) -> None:
+	"""记录一次「游标能不能前推」的判定（``memory.runtime.try_extend_c2``）。
+
+	旧口径的缺口：折叠被经济门拒掉时账本上什么都不留，于是"这道门挡了多少次、
+	每次差多少"只能靠重放转录倒推。这里把判据数字（saved_net / transition / theta）
+	连同 **哪一臂折的**（arm=wsc|c2）一起落盘；`c2_summary_text` 不是判据（它是触发侧
+	记账，WSC 接管与否要看发射面），所以留痕必须在这里。
+	"""
+	now = datetime.now(tz=BJ).timestamp()
+	event: dict[str, Any] = {
+		"ts": now,
+		"day": datetime.fromtimestamp(now, tz=BJ).date().isoformat(),
+		"type": "fold",
+		"session_id": str(session_id or ""),
+		"arm": str(arm or ""),
+	}
+	for key, value in account.items():
+		# 不做数值强转：`fold` 是 bool，`_as_int` 会把它压成 0/1 而读侧看不出区别。
+		event[key] = value
+	path = fold_events_path()
+	with _lock:
+		path.parent.mkdir(parents=True, exist_ok=True)
+		with path.open("a", encoding="utf-8") as f:
+			f.write(json.dumps(event, ensure_ascii=False, default=str) + "\n")
+
+
 def read_c2_events() -> list[dict[str, Any]]:
 	"""读取全部 C2 触发事件。"""
 	path = c2_events_path()

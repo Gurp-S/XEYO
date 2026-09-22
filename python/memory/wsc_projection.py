@@ -17,6 +17,11 @@ Two caller-side policies live here because WSC's algorithm layer never reads the
   folds shallow regions (15~65% of the emission) whose measured payback is 12~238 shots,
   so the gate only ever vetoes.  Total modelled cost vs the frozen-head default: 1.036x.
   It stays opt-in until a live smoke run decides it.
+  2026-09-22 update: ``PAYBACK_SHOTS`` moved 8 -> 30 (= "this shot's net saving must cover
+  this shot's resend face"), and ``memory.runtime.try_extend_c2`` now enforces that same
+  criterion on the cursor push for **both** arms.  So this flag would be re-tuning a gate
+  that already fires on the identical rule -- its 1.036x measurement predates the change
+  and has to be re-run before the flag can be considered again.
 """
 
 from __future__ import annotations

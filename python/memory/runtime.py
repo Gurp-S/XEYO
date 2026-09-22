@@ -1133,72 +1133,89 @@ def try_extend_c2(
 	messages: list[dict],
 	new_cursor: int,
 	params,
-	remaining_turns: int,
 	force: bool = False,
+	account: dict | None = None,
 ) -> bool:
 	"""已压缩态下追加式扩展冻结摘要（append-only），返回是否执行。
 
 	旧摘要文本保持为前缀字节不变 → 后续请求仍命中 KV 缓存；扩展只把新区间的
-	确定性摘要追加到旧文本尾部。不满足收益/稀发/摊薄条件时返回 False，调用方
+	确定性摘要追加到旧文本尾部。不满足收益/稀发/经济条件时返回 False，调用方
 	保持现有紧凑投影（字节稳定），绝不重写摘要。
 
 	force=True（HardTop 必要性，缺口①）：绕过上述经济闸门，只保证 append-only
 	与新摘要可代换旧段，强制把 cursor 前推，防止尾部增长越过窗口硬顶。
+
+	``account`` 是**只读出口**（默认 None ⇒ 零开销）：调用方传一个空 dict，本函数
+	把这次判定的 ``fold/reason/forced`` 和判据数字写进去。数字不落到 working 上 ⇒
+	离线重放不传 account 就不会往生产账本里留痕。
 	"""
+
+	def _exit(approve: bool, reason: str = "", **numbers) -> bool:
+		if account is not None:
+			account["fold"] = approve
+			account["reason"] = reason
+			account["forced"] = bool(force)
+			account.update(numbers)
+		return approve
+
 	if working.compact_cursor <= 0 or new_cursor <= working.compact_cursor:
-		return False
+		return _exit(False, "no_advance")
 	region = messages[working.compact_cursor:new_cursor]
 	if not region:
-		return False
+		return _exit(False, "empty_region")
 	ext = c2_summary_extension(region, start_index=working.compact_cursor)
+	head_tokens = token_len(ext)
+	region_tokens_ = _region_tokens(region)
+	tail_tokens = _region_tokens(messages[new_cursor:])
+	numbers: dict = {
+		"region_tokens": region_tokens_,
+		"head_tokens": head_tokens,
+		"tail_tokens": tail_tokens,
+		# 净省 = 离场的原样区域 − 新增的头；重发面 = 头 + 仍逐字保留的尾部
+		"saved_net": max(0, region_tokens_ - head_tokens),
+		"transition": head_tokens + tail_tokens,
+	}
 	if not force:
 		region_chars = _region_chars(region)
 		min_gain = int(getattr(params, "c2_min_gain_chars", 4000))
-		ext_formula = _c2_formula_enabled("XEYO_C2_EXTEND_FORMULA")
-		# Path A（XEYO_C2_EXTEND_FORMULA=1）：扩展闸同用经济公式，并允许 env 覆盖
-		# margin / price_ratio / min_remain（闭环定参），不改 params 冻结常量。
-		margin = float(getattr(params, "c2_extend_safety_margin", 2.0))
-		price_ratio = float(getattr(params, "c2_extend_price_ratio", 30.0))
-		min_remain = int(getattr(params, "c2_extend_min_remaining_turns", 5))
-		if ext_formula:
-			env_margin = os.environ.get("XEYO_C2_MARGIN", "").strip()
-			if env_margin:
-				try:
-					margin = max(0.0, float(env_margin))
-				except ValueError:
-					pass
-			env_pr = os.environ.get("XEYO_C2_PRICE_RATIO", "").strip()
-			if env_pr:
-				try:
-					price_ratio = max(0.0, float(env_pr))
-				except ValueError:
-					pass
-			env_remain = os.environ.get("XEYO_C2_MIN_REMAIN", "").strip()
-			if env_remain:
-				try:
-					min_remain = max(0, int(env_remain))
-				except ValueError:
-					pass
+		# θ 的两个因子默认取自 synaptic.cadence，与活路径吸收判据（同一价目常数）同源。
+		# env 是这两个因子**唯一**的覆盖面（params 的 c2_extend_* 只喂首压收益门）：
+		# 闭环定参脚本用它扫阈值，v61 / project 两条通道都读，不再有公式开关。
+		from synaptic.cadence import DEFAULT_MARGIN, PRICE_RATIO_HIT_MISS, theta_required
+
+		margin = DEFAULT_MARGIN
+		price_ratio = PRICE_RATIO_HIT_MISS
+		env_margin = os.environ.get("XEYO_C2_MARGIN", "").strip()
+		if env_margin:
+			try:
+				margin = max(0.0, float(env_margin))
+			except ValueError:
+				pass
+		env_pr = os.environ.get("XEYO_C2_PRICE_RATIO", "").strip()
+		if env_pr:
+			try:
+				price_ratio = max(0.0, float(env_pr))
+			except ValueError:
+				pass
 		# 1) 收益：新区明显大于摘要增量（否则扩展只会增加 miss 面）
 		if region_chars - len(ext) < min_gain:
-			return False
+			return _exit(False, "gain_below_floor", region_chars=region_chars, **numbers)
 		# 2) 稀发性：新区至少达到已冻结区的一半，避免频繁扩展破坏前缀
 		frozen_chars = _region_chars(messages[:working.compact_cursor]) or 1
 		ratio = float(getattr(params, "c2_extend_ratio", 0.5))
 		if region_chars < max(min_gain, ratio * frozen_chars):
-			return False
-		# 3) 摊薄：剩余轮次必须够多，扩展当轮的一次性 miss 才划算
-		if remaining_turns < min_remain:
-			return False
-		# 4) 经济门：miss 价是 hit 的约 30 倍，扩展当轮的一次性 miss 必须可被后续省 token 摊平
-		#    再加 2x 安全边际：预计收益至少 2 倍于过渡成本才扩展（否则保持冻结、字节稳定）
-		#    G66: token 计量统一走 memory.token.token_len(utf-8 字节/4),弃 字符/4 双口径
-		#    (中文场景原先系统性低估约 3 倍)
-		tail_tokens = _region_tokens(messages[new_cursor:])
-		transition_miss_tok = token_len(ext) + tail_tokens
-		saved_per_turn_tok = _region_tokens(region)
-		if transition_miss_tok > 0 and remaining_turns * saved_per_turn_tok < margin * price_ratio * transition_miss_tok:
-			return False
+			return _exit(False, "region_thin_vs_frozen", region_chars=region_chars, **numbers)
+		# 3) 经济门：**本次净省 ≥ θ × 本次重发面**（θ 默认 1.0 ⇒ 折叠当枪就不亏，
+		#    不必相信未来任何一枪）。旧第 3/4 闸乘的是 `remaining_turns`——那是**本轮
+		#    预算的剩余轮数**（`max_turns − turn_count`，docs §17.6），不是"还会重用前缀
+		#    几枪"：会话提前收尾它就高估，而门槛随预算档位数漂移（同一份代码在 TB
+		#    预算 256 下有效门槛 0.25 倍、在评测台 remaining=8 下 7.5 倍，差 30 倍）。
+		#    ⇒ 未来项整体删除，`c2_extend_min_remaining_turns` 一起删。
+		#    G66: token 计量统一走 memory.token.token_len(utf-8 字节/4)，弃 字符/4 双口径。
+		theta = theta_required(margin=margin, price_ratio=price_ratio)
+		numbers["theta"] = theta
+		if float(numbers["saved_net"]) < theta * float(numbers["transition"]):
+			return _exit(False, "pays_back_too_slow", **numbers)
 	old_text = working.c2_summary_text or ""
 	working.c2_summary_text = (old_text.rstrip() + "\n" + ext) if old_text.strip() else ext
 	working.compact_cursor = new_cursor
@@ -1214,7 +1231,28 @@ def try_extend_c2(
 	)
 	# 与 note_c2 一致：cursor 前进后清空嵌套路径，下一枪按需再发现
 	working.loaded_nested_instruction_paths = []
-	return True
+	return _exit(True, "forced" if force else "worth_fold", **numbers)
+
+
+def _note_fold_attempt(working: WorkingSnapshot, account: dict) -> None:
+	"""把一次折叠判定的账目落到 ``fold_events.jsonl``（观测，失败绝不阻塞热路径）。
+
+	``arm`` 是这次发射到底由哪一臂折的：WSC 活路径开着 ⇒ ``wsc``。这是唯一能事后区分
+	"WSC 折的 / C2 折的 / θ 挡住的"的字段——转录里没有它，历史事故只能靠重放倒推。
+	"""
+	if not account:
+		return
+	try:
+		from memory.wsc_projection import live_enabled as _wsc_live_enabled
+		from usage.ledger import record_fold_event
+
+		record_fold_event(
+			session_id=str(getattr(working, "session_id", "") or ""),
+			arm="wsc" if _wsc_live_enabled() else "c2",
+			**account,
+		)
+	except Exception:
+		logging.getLogger(__name__).debug("record_fold_event failed", exc_info=True)
 
 
 def _branch_x(d: Any, action: str) -> str:
@@ -1486,7 +1524,11 @@ def _c2_gain_enough(messages: list[dict], working: WorkingSnapshot, new_cursor: 
 
 
 def _c2_price_ratio_margin(params) -> tuple[float, float]:
-	"""Path A 经济公式的 (price_ratio, margin)：复用 try_extend_c2 已有常量。"""
+	"""Path A 首压收益门的 (price_ratio, margin)：params 的 c2_extend_* 两个常量。
+
+	注意：扩展闸（`try_extend_c2` 第 3 道）不再读它们——θ 的单点在
+	`synaptic.cadence.theta_required`。
+	"""
 	try:
 		from memory.simulator.c2_gate import price_ratio_margin
 
@@ -1690,7 +1732,13 @@ def project_for_model(
 				# 已压缩态：append-only 扩展冻结摘要，绝不重写旧文本（KV 前缀稳定）
 				# HardTop（缺口①）：必要性高于经济闸——窗口临近/越过时强制扩展，防止尾部
 				# 增长越过硬顶（否则扩展被拒后降级 keep，投影溢出窗口）。
-				if try_extend_c2(working, messages, new_cursor, p, remaining_turns, force=bool(d.hardtop)):
+				acct: dict = {}
+				extended = try_extend_c2(
+					working, messages, new_cursor, p,
+					force=bool(d.hardtop), account=acct,
+				)
+				_note_fold_attempt(working, acct)
+				if extended:
 					try:
 						from usage.ledger import record_c2_event
 
@@ -1705,7 +1753,7 @@ def project_for_model(
 					except Exception:
 						pass
 					return send("C2")
-				# 收益/摊薄不足：保持现有紧凑投影（字节稳定），不破坏缓存
+				# 收益/稀发/经济门不足：保持现有紧凑投影（字节稳定），不破坏缓存
 				return send("keep")
 			if d.hardtop or _c2_gain_enough(messages, working, new_cursor, p, remaining_turns):
 				try:
@@ -1732,11 +1780,16 @@ def project_for_model(
 					pass
 				return send("C2")
 
-	# 可选：压缩态扩展与 θ 门解耦——已压缩后只按 append 四闸门扩展，不再等 decide 返回 C2
+	# 可选：压缩态扩展与 θ 门解耦——已压缩后只按 append 三道闸门扩展，不再等 decide 返回 C2
 	# （C2Q 首压后常低于 θ，θ 门会卡死扩展、让尾部无限增长）。默认关（c2_extend_decouple=False）。
 	if working.compact_cursor > 0 and p.c2_extend_decouple and d.a_star != "C2":
 		new_cursor = max(working.compact_cursor, c2_cut_index(messages, s0))
-		if new_cursor > working.compact_cursor and try_extend_c2(working, messages, new_cursor, p, remaining_turns):
+		dacct: dict = {}
+		_decoupled = False
+		if new_cursor > working.compact_cursor:
+			_decoupled = try_extend_c2(working, messages, new_cursor, p, account=dacct)
+			_note_fold_attempt(working, dacct)
+		if _decoupled:
 			# try_extend_c2 已清 nested paths / proj_cache
 			try:
 				from usage.ledger import record_c2_event
@@ -2050,9 +2103,11 @@ def force_compact(
 		if working.compact_cursor > 0 and working.c2_summary_text:
 			from memory.simulator.params import load_params
 
+			facc: dict = {}
 			try_extend_c2(
-				working, messages, new_cursor, load_params(), remaining_turns, force=True
+				working, messages, new_cursor, load_params(), force=True, account=facc,
 			)
+			_note_fold_attempt(working, facc)
 		else:
 			note_c2(working, new_cursor)
 		try:

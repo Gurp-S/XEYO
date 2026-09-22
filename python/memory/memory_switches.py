@@ -67,7 +67,7 @@ MEMORY_SWITCHES: tuple[tuple[str, str, tuple[str, ...], str, bool, bool, str], .
 	# 所以本表给这两项标 ``authority="env"``：**报的就是运行时真读到的那个值**，不留两套口径。
 	# GUI 仍不暴露（exposed 面由 test_gui_exposed_surface_is_exactly_one 锁死为恒一项）。
 	("XEYO_WSC_FROZEN_HEAD", "WSC 折叠头冻结：无新折叠事件的枪逐字节复用上次的头（默认开；关=回到'每枪重投影'的历史行为，生产实测贵 2.3 倍）", ("0", "1"), "1", False, True, "env"),
-	("XEYO_WSC_CADENCE_ABSORB", "WSC 吸收节奏：右段何时折进头改由 synaptic.cadence 的成本判据决定（默认关。09-22 实测：PAYBACK_SHOTS=8 下 43 次判定 0 次放行 ⇒ 该判据在活路径上只做否决，折叠实际由 journal_growth 尺寸保底线触发；成本 1.036× vs 不折 1.000× ⇒ 不开）", ("0", "1"), "0", False, True, "env"),
+	("XEYO_WSC_CADENCE_ABSORB", "WSC 吸收节奏：右段何时折进头改由 synaptic.cadence 的成本判据决定（默认关。09-22 实测当时 PAYBACK_SHOTS=8 下 43 次判定 0 次放行 ⇒ 只在否决；成本 1.036× vs 不折 1.000×。该常数已改 30，且同一判据现已装在推进游标的 try_extend_c2 上 ⇒ 本旗标要做的事已被主链覆盖，旧数字作废、要开得重测）", ("0", "1"), "0", False, True, "env"),
 	# ---- 固化（2026-09-06 用户决策 "v61 默认开启"）→ 删除的 7 个开关 ----
 	# XEYO_C2_GATE（project 专用闸；v61 下 decide 自主，无读取意义）
 	# XEYO_V61_PARETO / XEYO_V61_SI / XEYO_V61_DYNAMIC_R（B1/B2/B3 证据门未过，恒关）

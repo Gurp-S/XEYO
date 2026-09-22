@@ -301,7 +301,7 @@ def test_try_extend_c2_clears_nested_paths():
 		{"role": "assistant", "content": "d" * 5000},
 		{"role": "user", "content": "e"},
 	]
-	ok = try_extend_c2(snap, msgs, 4, load_params(), remaining_turns=20, force=True)
+	ok = try_extend_c2(snap, msgs, 4, load_params(), force=True)
 	assert ok is True
 	assert snap.loaded_nested_instruction_paths == []
 	assert snap.compact_cursor == 4

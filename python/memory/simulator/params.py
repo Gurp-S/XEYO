@@ -59,9 +59,11 @@ class Params:
 	min_middle_edit_gap: int = 4
 	c2_min_gain_chars: int = 4000  # C2 收益门：待压缩区比摘要文本至少大这么多字符才压缩
 	c2_min_save_ratio: float = 0.25  # C2 收益门：压缩后投影必须比全量至少小这么多比例（否则拒绝压缩）
-	# 扩展闸：新区 ≥ 已冻区的 25%（不再要求整段等量）；剩余轮次 ≥8；2× 安全边际
+	# 扩展闸的稀发性比例：新区 ≥ 已冻区的 25%（不再要求整段等量）
 	c2_extend_ratio: float = 0.25
-	c2_extend_min_remaining_turns: int = 8
+	# 首压收益门（Path A）的价比 / 保守边际。扩展闸不读这两个：θ 的单点在
+	# synaptic.cadence.theta_required —— 两处各算一份代数就是上次分歧的来源
+	# （一边 θ=1、一边有效门槛 0.25 倍）。
 	c2_extend_price_ratio: float = 30.0  # miss/hit 价比（DeepSeek ≈30x）
 	c2_extend_safety_margin: float = 2.0
 	# 压缩态扩展与 θ 门解耦：首压后 Q 常 <θ，不解耦则扩展永不触发、省幅封顶

@@ -382,7 +382,7 @@ def replay_messages(
 					session_id="",
 				)
 				# HardTop（缺口①）：必要性强制扩展，绕过经济闸，防止窗口溢出
-				if try_extend_c2(w, api_msgs, new_cursor, p, estimate_remaining(prefix), force=bool(dec.hardtop)):
+				if try_extend_c2(w, api_msgs, new_cursor, p, force=bool(dec.hardtop)):
 					compact_cursor = w.compact_cursor
 					summary_text = w.c2_summary_text
 					turns_since_c2 = w.turns_since_c2
@@ -434,7 +434,7 @@ def replay_messages(
 				turns_since_c2=turns_since_c2,
 				session_id="",
 			)
-			if new_cursor > compact_cursor and try_extend_c2(w, api_msgs, new_cursor, p, estimate_remaining(prefix)):
+			if new_cursor > compact_cursor and try_extend_c2(w, api_msgs, new_cursor, p):
 				compact_cursor = w.compact_cursor
 				summary_text = w.c2_summary_text
 				turns_since_c2 = w.turns_since_c2

@@ -353,13 +353,9 @@ def test_extend_appends_to_window_chain(monkeypatch, mem_switch):
 	msgs = [{"role": "user", "content": "x" * 5000} for _ in range(12)]
 	w = WorkingSnapshot(compact_cursor=6, c1_frozen_until=6, c2_summary_text="FROZEN")
 	w.c2_summary_text = "FROZEN"
-	relaxed = Params(
-		c2_extend_ratio=0.5,
-		c2_extend_min_remaining_turns=2,
-		c2_extend_safety_margin=1.0,
-		c2_extend_price_ratio=3.0,
-	)
-	ok = try_extend_c2(w, msgs, 8, relaxed, remaining_turns=10, force=True)
+	relaxed = Params(c2_extend_ratio=0.5)
+	# force=True：本测只验 checkpoint 窗口链，经济门被绕过
+	ok = try_extend_c2(w, msgs, 8, relaxed, force=True)
 	assert ok
 	assert w.compact_checkpoint is not None
 	assert len(w.compact_checkpoint.window_chain) >= 1

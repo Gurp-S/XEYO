@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
+import pytest
+
 
 from engine.compact import project
 from memory.runtime import (
@@ -380,7 +382,7 @@ def _big_msgs(n: int, size: int = 5000) -> list[dict]:
 
 
 def test_try_extend_c2_appends_keeps_old_prefix():
-	"""机制：满足收益/稀发/摊薄时，扩展只追加、绝不重写旧摘要（KV 前缀命中）。"""
+	"""机制：满足收益/稀发/经济门时，扩展只追加、绝不重写旧摘要（KV 前缀命中）。"""
 	from memory.runtime import try_extend_c2
 	from memory.simulator.params import Params
 
@@ -388,9 +390,13 @@ def test_try_extend_c2_appends_keeps_old_prefix():
 	w = WorkingSnapshot()
 	w.compact_cursor = 5
 	w.c2_summary_text = "FROZEN_SUMMARY"
-	relaxed = Params(c2_extend_ratio=0.5, c2_extend_min_remaining_turns=2, c2_extend_safety_margin=1.0, c2_extend_price_ratio=3.0)
-	ok = try_extend_c2(w, msgs, 8, relaxed, remaining_turns=10)
+	acct: dict = {}
+	ok = try_extend_c2(w, msgs, 8, Params(c2_extend_ratio=0.5), account=acct)
 	assert ok
+	# 放行判据是经济门本身（净省 3,635 ≥ θ×重发面 2,615），不是被别的闸挡过后残留
+	assert acct["reason"] == "worth_fold"
+	assert acct["theta"] == 1.0
+	assert acct["saved_net"] >= acct["transition"]
 	# 旧摘要作为前缀字节不变（KV 缓存可命中），扩展只追加到尾部
 	assert w.c2_summary_text.startswith("FROZEN_SUMMARY")
 	assert "[C2+EXT]" in w.c2_summary_text
@@ -405,23 +411,134 @@ def test_try_extend_c2_denied_when_region_too_small():
 	w = WorkingSnapshot()
 	w.compact_cursor = 5
 	w.c2_summary_text = "S"
-	relaxed = Params(c2_extend_ratio=0.5, c2_extend_min_remaining_turns=2, c2_extend_safety_margin=1.0, c2_extend_price_ratio=3.0)
-	ok = try_extend_c2(w, msgs, 8, relaxed, remaining_turns=10)
+	acct: dict = {}
+	ok = try_extend_c2(w, msgs, 8, Params(c2_extend_ratio=0.5), account=acct)
 	assert not ok
+	assert acct["reason"] == "gain_below_floor"
 	assert w.compact_cursor == 5 and w.c2_summary_text == "S"
 
 
-def test_try_extend_c2_denied_when_few_remaining_turns():
+def _theta_denied_msg(count: int = 10):
+	"""折一小段、留一长尾的形状：净省 < 重发面 ⇒ θ=1 必拒。"""
+	return _big_msgs(count)
+
+
+def test_extend_gate_denies_when_net_saving_below_resend_face():
+	"""θ=1 的含义：本枪净省必须 ≥ 本枪重发面（不依赖未来任何一枪）。"""
 	from memory.runtime import try_extend_c2
 	from memory.simulator.params import Params
 
-	msgs = _big_msgs(10)
+	msgs = _theta_denied_msg()
 	w = WorkingSnapshot()
 	w.compact_cursor = 5
 	w.c2_summary_text = "FROZEN_SUMMARY"
-	ok = try_extend_c2(w, msgs, 8, Params(), remaining_turns=2)
+	acct: dict = {}
+	ok = try_extend_c2(w, msgs, 6, Params(c2_extend_ratio=0.02), account=acct)
 	assert not ok
+	assert acct["reason"] == "pays_back_too_slow"
+	assert acct["saved_net"] < acct["theta"] * acct["transition"]
 	assert w.compact_cursor == 5 and w.c2_summary_text == "FROZEN_SUMMARY"
+
+
+def test_extend_gate_is_moved_only_by_theta(monkeypatch):
+	"""同一形状：把 θ 调小就放行 ⇒ 挡它的是经济门，不是隐藏的尺寸闸（反证）。"""
+	from memory.runtime import try_extend_c2
+	from memory.simulator.params import Params
+
+	monkeypatch.setenv("XEYO_C2_MARGIN", "0.1")
+	msgs = _theta_denied_msg()
+	w = WorkingSnapshot()
+	w.compact_cursor = 5
+	w.c2_summary_text = "FROZEN_SUMMARY"
+	acct: dict = {}
+	assert try_extend_c2(w, msgs, 6, Params(c2_extend_ratio=0.02), account=acct)
+	assert acct["reason"] == "worth_fold"
+	assert acct["theta"] == pytest.approx(0.1)
+
+
+def test_extend_gate_carries_no_future_prediction():
+	"""判据里不许再出现"还剩几轮"：函数签名与该 params 字段一起删掉了。"""
+	import inspect
+
+	from memory.runtime import try_extend_c2
+	from memory.simulator.params import Params
+
+	params = {p for p in inspect.signature(Params).parameters}
+	assert not [p for p in params if "remaining" in p], params
+	sig = str(inspect.signature(try_extend_c2))
+	assert "remaining" not in sig, sig
+
+
+def _fold_rows(path):
+	import json as _json
+
+	if not path.is_file():
+		return []
+	return [
+		_json.loads(line)
+		for line in path.read_text(encoding="utf-8").splitlines()
+		if line.strip().startswith("{")
+	]
+
+
+def test_every_fold_attempt_is_ledgered_with_the_arm_that_ran(monkeypatch, mem_switch, tmp_path):
+	"""折叠判定的**放行和拒绝**都要落一行，且要能看出是哪一臂折的。
+
+	旧口径的缺口：被经济门拒掉时账本上什么都不留，"θ 挡了几次、每次差多少"只能靠重放
+	转录倒推；而事后唯一能区分「WSC 折的 / C2 折的」的凭据就是这个 `arm` 字段
+	（`c2_summary_text` 不是判据——它是触发侧记账，WSC 是否接管要看发射面）。
+	"""
+	import usage.ledger as L
+	from memory.runtime import project_for_model
+
+	monkeypatch.setattr(L, "usage_dir", lambda: tmp_path)
+	mem_switch(XEYO_L5="v61")
+	monkeypatch.setattr("memory.memdir.load_index_text", lambda wsid: "")
+	fake_c2 = SimpleNamespace(a_star="C2", hardtop=False, branches={
+		"keep": SimpleNamespace(x="K"),
+		"C1": SimpleNamespace(x="C"),
+		"C2": SimpleNamespace(x="C2"),
+	})
+	monkeypatch.setattr("memory.simulator.decision.decide", lambda *a, **k: fake_c2)
+	msgs = _big_msgs(30, 6000)
+
+	def one_shot(margin: str) -> dict:
+		monkeypatch.setenv("XEYO_C2_MARGIN", margin)
+		w = WorkingSnapshot()
+		w.compact_cursor = 8
+		w.c2_summary_text = "FROZEN_SUMMARY"
+		w.turns_since_c2 = 5
+		project_for_model(msgs, w, remaining_turns=30)
+		return w
+
+	one_shot("1000")   # θ 大到没人折得起 ⇒ 拒绝也要留痕
+	monkeypatch.setattr("memory.wsc_projection.live_enabled", lambda: True)
+	one_shot("0.01")    # 放行，且这一枪 WSC 在册
+
+	rows = _fold_rows(tmp_path / "fold_events.jsonl")
+	assert len(rows) == 2, rows
+	denied, allowed = rows
+	assert denied["fold"] is False and denied["reason"] == "pays_back_too_slow"
+	assert allowed["fold"] is True and allowed["reason"] == "worth_fold"
+	assert allowed["arm"] == "wsc" and denied["arm"] == "c2"
+	for row in (denied, allowed):
+		assert row["saved_net"] > 0 and row["transition"] > 0
+		assert row["theta"] > 0 and row["forced"] is False
+
+
+def test_offline_replay_does_not_write_the_production_fold_ledger(monkeypatch, tmp_path):
+	"""离线重放台不传 account ⇒ 结构上写不出折叠账（防止把评测数据混进生产账本）。"""
+	import usage.ledger as L
+	from memory.runtime import c2_cut_index, try_extend_c2
+	from memory.simulator.params import load_params
+
+	monkeypatch.setattr(L, "usage_dir", lambda: tmp_path)
+	w = WorkingSnapshot()
+	w.compact_cursor = 8
+	w.c2_summary_text = "FROZEN_SUMMARY"
+	msgs = _big_msgs(30, 6000)
+	assert try_extend_c2(w, msgs, c2_cut_index(msgs, None), load_params())
+	assert _fold_rows(tmp_path / "fold_events.jsonl") == []
 
 
 def test_c2_compact_state_never_rewrites_summary(monkeypatch, mem_switch):
@@ -487,15 +604,11 @@ def test_c2_decoupled_extension_fires_when_decide_keeps(monkeypatch, mem_switch)
 
 	mem_switch(XEYO_L5="v61")
 	monkeypatch.setattr("memory.memdir.load_index_text", lambda wsid: "")
+	# θ 放到 0.01：本测只验"解耦接线"，经济门另测（test_extend_gate_*）。
+	monkeypatch.setenv("XEYO_C2_MARGIN", "0.01")
 	monkeypatch.setattr(
 		"memory.simulator.params.load_params",
-		lambda: Params(
-			c2_extend_decouple=True,
-			c2_extend_ratio=0.5,
-			c2_extend_min_remaining_turns=2,
-			c2_extend_safety_margin=1.0,
-			c2_extend_price_ratio=3.0,
-		),
+		lambda: Params(c2_extend_decouple=True, c2_extend_ratio=0.5),
 	)
 	fake_keep = SimpleNamespace(a_star="keep", hardtop=False, branches={
 		"keep": SimpleNamespace(x="K"),
@@ -572,12 +685,29 @@ def test_c2_projection_prefix_stable_across_rounds(monkeypatch, mem_switch):
 
 
 def test_hardtop_forces_extension_despite_gates(monkeypatch, mem_switch):
-	"""缺口①：压缩态 HardTop（必要性）绕过四闸门强制扩展——即使剩余轮次远低于
-	c2_extend_min_remaining_turns 且收益不达标，也必须推进 cursor，防止窗口溢出。"""
-	from memory.runtime import project_for_model
+	"""缺口①（兜底不受 θ 约束）：θ 抬到任何值都拦不住超窗必要性——HardTop 仍推进 cursor。
+
+	这条是"推迟过头"的安全网：θ 越大越不肯折，末枪 prompt 就会涨到水位附近（09-22 重放
+	θ=4 时末枪 52,883 ≈ 64k 档水位 52,428），越过去就是 400。所以经济门只管"值不值"，
+	"来不来得及"永远由 force 通道接管。
+	"""
+	from memory.runtime import c2_cut_index, project_for_model, try_extend_c2
+	from memory.simulator.params import load_params
 
 	mem_switch(XEYO_L5="v61")
 	monkeypatch.setattr("memory.memdir.load_index_text", lambda wsid: "")
+	monkeypatch.setenv("XEYO_C2_MARGIN", "1000")  # θ = 1000 ⇒ 没有任何一枪折得起
+	msgs = _big_msgs(30, 6000)
+	# 先证同一形状下非 force 必拒（被 θ 挡，而不是被尺寸挡）
+	probe = WorkingSnapshot()
+	probe.compact_cursor = 8
+	probe.c2_summary_text = "FROZEN_SUMMARY"
+	probe_acct: dict = {}
+	assert not try_extend_c2(probe, msgs, c2_cut_index(msgs, None), load_params(),
+	                         account=probe_acct)
+	assert probe_acct["reason"] == "pays_back_too_slow"
+	assert probe.compact_cursor == 8
+
 	fake_hard = SimpleNamespace(
 		a_star="C2",
 		hardtop=True,
@@ -592,9 +722,6 @@ def test_hardtop_forces_extension_despite_gates(monkeypatch, mem_switch):
 	w.compact_cursor = 8
 	w.c2_summary_text = "FROZEN_SUMMARY"
 	w.turns_since_c2 = 5
-	msgs = _big_msgs(30, 6000)
-	# 剩余轮次=2 远低于默认 min_remaining=20 → 非 force 的 try_extend_c2 必然拒绝；
-	# HardTop 强制扩展必须仍然执行
 	out = project_for_model(msgs, w, remaining_turns=2)
 	assert w.compact_cursor > 8
 	assert w.c2_summary_text.startswith("FROZEN_SUMMARY")
@@ -665,6 +792,9 @@ def test_c2_compressed_right_side_freezes_after_c1(monkeypatch, mem_switch):
 
 	mem_switch(XEYO_L5="v61")
 	monkeypatch.setattr("memory.memdir.load_index_text", lambda wsid: "")
+	# 本测考的是 C1 把右段原地冻结。θ=1 下这一枪的扩展是**划算**的（decouple 通道会先
+	# 折一次并直接返回 C2），所以把 θ 抬到 1000 关死扩展闸，免得测到别的东西。
+	monkeypatch.setenv("XEYO_C2_MARGIN", "1000")
 	fake_c1 = SimpleNamespace(
 		a_star="C1",
 		hardtop=False,

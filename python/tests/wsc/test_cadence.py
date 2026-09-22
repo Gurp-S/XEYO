@@ -125,7 +125,7 @@ def test_default_margin_sits_in_the_evidence_backed_band():
 	from synaptic.types import WscParams
 
 	assert DEFAULT_MARGIN >= 1.0, (
-		"margin < 1 会把门槛压到回本点以下（0.1 ⇒ 允许等 80 枪）。"
+		"margin < 1 会把门槛压到回本点以下（0.1 ⇒ 允许等 300 枪）。"
 		"实测旧 C 档因此每 2~3 枪折一次、三条 transcript 上贵 2.2~2.4 倍。")
 	assert PAYBACK_SHOTS >= MIN_GAP_SHOTS, "回本窗口比冷却还短 ⇒ 冷却形同虚设"
 	assert WscParams().fold_margin == DEFAULT_MARGIN, "types 与 cadence 的默认值必须一致"
@@ -154,6 +154,40 @@ def test_boundary_is_inclusive():
 	assert d.fold is True, "恰好打平必须折"
 	d2 = fold_economics(region_tokens_=need - 1, **base)
 	assert d2.fold is False, "差一点就够也必须拒（边界是 ≤）"
+
+
+def test_payback_constant_buys_exactly_theta_one() -> None:
+	"""对外口径只有一句话：**本次净省 ≥ 1 × 本次重发面**。它的机器锁在这里。
+
+	`PAYBACK_SHOTS` 与 `PRICE_RATIO_HIT_MISS` 相等 ⇒ θ=1 ⇒「折叠当枪就不亏，不必相信
+	未来任何一枪」。09-22 四份转录重放（θ=0 归一）：θ=1 是 0.41~0.70，θ=0 全是 1.00。
+	改这个常数等于改对外承诺，必须同时改 docs §17 与本注释。
+	"""
+	from synaptic.cadence import theta_required
+
+	assert PAYBACK_SHOTS == PRICE_RATIO_HIT_MISS, "θ 不再是 1 ⇒ 对外口径要重写"
+	assert theta_required() == 1.0
+	# 净省恰好等于重发面 ⇒ 折；少 1 token ⇒ 拒
+	edge = _dec(region_tokens_=2_000, head_delta_tokens=0, tail_tokens_=2_000)
+	assert edge.fold is True and edge.reason == "worth_fold"
+	assert _dec(region_tokens_=1_999, head_delta_tokens=0, tail_tokens_=2_000).fold is False
+
+
+def test_production_extend_gate_shares_the_theta_implementation() -> None:
+	"""生产链的扩展闸必须**调用**这里的 θ，而不是自己再算一遍代数。
+
+	上次的事故形状：cadence 与 `try_extend_c2` 各写一份等价公式，一边 θ=1、一边有效
+	门槛 0.25 倍，报出来的收益说的不是同一件事。守卫扫源码：出现本地乘法式子即红。
+	"""
+	import memory.runtime as R
+	import synaptic.cadence as C
+
+	src = pathlib.Path(R.__file__).read_text(encoding="utf-8").replace("\r\n", "\n")
+	body = src.split("def try_extend_c2(", 1)[1].split("\ndef ", 1)[0]
+	assert "theta_required(" in body, "扩展闸不再走 cadence 的 θ 单点"
+	for forbidden in ("margin * price_ratio", "price_ratio * transition", "remaining_turns *"):
+		assert forbidden not in body, f"扩展闸又自己拼判据：{forbidden!r}"
+	assert C.theta_required() == 1.0
 
 # ---------------------------------------------------------------------------
 # 自我校准

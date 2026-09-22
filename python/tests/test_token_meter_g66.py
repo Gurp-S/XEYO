@@ -13,7 +13,11 @@ def test_no_chars_over_4_residue_in_c2_economic_gate() -> None:
     assert "transition_miss_tok = (len(ext) + tail_chars) / 4.0" not in src
     assert "saved_per_turn_tok = region_chars / 4.0" not in src
     assert "_region_tokens" in src
-    assert "transition_miss_tok = token_len(ext) + tail_tokens" in src
+    # 09-22 经济门换成了 θ 判据并把两个量塞进 account,变量名改了 —— 口径不许改:
+    # 重发面 = token_len(摘要) + 尾部 token,净省的基底同样走 _region_tokens。
+    assert "head_tokens = token_len(ext)" in src
+    assert '"transition": head_tokens + tail_tokens' in src
+    assert '"region_tokens": region_tokens_' in src
 
 
 def test_cjk_token_len_is_bigger_than_chars_over_4() -> None:

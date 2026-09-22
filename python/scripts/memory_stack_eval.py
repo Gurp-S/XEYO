@@ -3277,7 +3277,7 @@ def _projection_sequence(
 				new_cursor = max(working.compact_cursor, _c2_cut(api, end))
 				if new_cursor > working.compact_cursor:
 					if working.compact_cursor > 0 and working.c2_summary_text:
-						ext_ok = try_extend_c2(working, prefix, new_cursor, params, estimate_remaining(prefix))
+						ext_ok = try_extend_c2(working, prefix, new_cursor, params)
 						if ext_ok:
 							transition = 1  # append-only：尾部新增、前缀稳定 → 增量 miss
 							turns_since_c2 = 0
@@ -3288,7 +3288,7 @@ def _projection_sequence(
 			if (action != "C2" and working.compact_cursor > 0 and working.c2_summary_text
 					and getattr(params, "c2_extend_decouple", False)):
 				new_cursor = max(working.compact_cursor, _c2_cut(api, end))
-				if new_cursor > working.compact_cursor and try_extend_c2(working, prefix, new_cursor, params, estimate_remaining(prefix)):
+				if new_cursor > working.compact_cursor and try_extend_c2(working, prefix, new_cursor, params):
 					turns_since_c2 = 0
 					transition = 1  # append-only：增量 miss
 			if working.compact_cursor > 0:

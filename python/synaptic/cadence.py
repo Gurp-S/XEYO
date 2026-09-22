@@ -16,13 +16,20 @@
 
 ## 经济学（一行公式，先写清口径再写代码）
 
-- **不折叠**：被折叠区继续留在上下文里，每轮按**命中价**计费 ⇒ 每轮省 `saved × p_hit`；
-- **折叠**：本轮付一次**未命中价** `transition × p_miss`（前缀在头的追加点之后整段失效）；
-- 剩 `R` 轮 ⇒ **折叠 ⟺ `R × saved × p_hit ≥ margin × transition × p_miss`**。
+- **不折叠**：被折叠区继续留在上下文里，每枪按**命中价**计费 ⇒ 每枪省 `saved × p_hit`；
+- **折叠**：本枪付一次**未命中价** `transition × p_miss`（前缀在头的追加点之后整段失效）；
+- 设还剩 `R` 枪，旧判据是 `R × saved × p_hit ≥ margin × transition × p_miss`。**这个 `R` 已删**
+  （生产传进来的是"本轮预算剩余轮数"，不是"还会重用前缀几枪"⇒ 门槛随预算档位漂）。
 
-移项即本模块的判据形式：`R × saved ≥ price_ratio × margin × transition`，
-`price_ratio = p_miss / p_hit = 1.5 / 0.05 = 30`（`usage/pricing.py`，deepseek-v4-flash 空闲档）。
-`margin > 1` 表示要求「预期收益至少是过渡代价的 margin 倍」，是保守边际。
+移项后本模块的判据形式（`theta_required()`，生产链同一份实现）：
+
+```
+本次净省 saved ≥ θ × 本次重发面 transition，  θ = price_ratio × margin / PAYBACK_SHOTS
+price_ratio = p_miss / p_hit = 1.5 / 0.05 = 30（usage/pricing.py，deepseek-v4-flash 空闲档）
+```
+
+默认 `θ = 30 × 1 / 30 = 1.0` ⇒ "这一枪就不亏"。`margin > 1` = 要求净省是重发面的
+margin 倍，是保守边际。
 
 ### 三项量怎么取（都是 O(1)，不需要渲染）
 
@@ -32,15 +39,13 @@
   `DEFAULT_HEAD_RATIO`。这是本模块唯一的经验项，且它自我校准。
 - `tail_tokens`：折叠后仍逐字保留的尾部（= 折叠当轮 miss 的另一半）。
 
-## 与生产 `try_extend_c2` 的关系（同源，但它偏保守两处）
+## 与生产 `try_extend_c2` 的关系（同一个实现，不是"等价公式"）
 
-`memory/runtime.py::try_extend_c2` 的第 4 条闸用的是
-`remaining × saved < margin × price_ratio × transition`（margin=2、price_ratio=30）。
-两处差异都会**抑制折叠**：
-1. 它把 `price_ratio` 直接乘在 transition 上、**再乘 margin=2** ⇒ 有效门槛 60 倍；
-   本模块的门槛是 `30 × margin`（默认 0.25 ⇒ 7.5 倍）；
-2. 它的 transition 只算「新摘要 + **剩余**尾部」，没算「被折叠区整段退出前缀」的那一半。
-两处叠加的后果实测可见：200 回合会话它只扩展 12 次，而成本最优需要 30+ 次。
+`memory/runtime.py::try_extend_c2` 的经济闸**调用** `theta_required()`，不自己拼代数。
+历史事故：两处各写一份"等价"公式——生产那边把 `price_ratio` 乘在 transition 上、再乘
+`margin=2`，却除以一个猜出来的 `remaining_turns`，于是有效门槛随会话预算档位在
+0.25 倍到 7.5 倍之间漂（09-22 实测两处分歧），报出来的收益说的不是同一件事。
+守卫：`tests/wsc/test_cadence.py::test_production_extend_gate_shares_the_theta_implementation`。
 
 ## 零生产依赖
 
@@ -65,16 +70,30 @@ PRICE_RATIO_HIT_MISS = 30.0
 #:
 #: `PAYBACK_SHOTS` —— 最多等几枪回本。一次折叠的重填代价 `price_ratio × transition`
 #: （未命中价），之后每枪省 `saved`（命中价）⇒ 回本枪数 = `price_ratio × transition / saved`，
-#: 要求它 ≤ 本常数。
+#: 要求它 ≤ 本常数。**30 = price_ratio ⇒ θ=1 ⇒「本次净省 ≥ 本次重发面」**，也就是
+#: `margin=1` 时折叠当枪就不亏（不依赖未来任何一枪）。
 #:
-#: ⚠️ **8 是"深折"的门槛，不是活路径浅折的门槛**（09-22 实测，`_wsc_out/_cadence_after.py`）：
-#: 影子账本里单次移出比例 r 中位 89.8% ⇒ 3.4 枪（用户"只贵 2~3 枪"的直觉成立）；但活路径
-#: 的折叠由 `region ≥ journal_growth_tokens(9k)` 的尺寸保底线触发，被折区只占发射的
-#: 15~65%，实测回本需求 **12~238 枪** ⇒ 三条 transcript 的 34 次判定**全部被本门槛拒**
-#: （`_cadence_grid.py`：K=8 与"门常开"差 1.036 vs 1.311 倍）。所以取 8 的含义是
-#: "只允许深折"，不是"折叠通常 8 枪回本"——把它当后者引用会算错一个数量级。
-#: 折叠当枪的重填面实测 **71.1%**（`calibration_events.action=C2`，n=38），平枪 4%。
-PAYBACK_SHOTS = 8
+#: 取值依据（09-22 `_wsc_out/_b_plan.py`，四份转录重放，总成本 ÷ 同转录 θ=0）：
+#:
+#: | θ | TB attempt2 | TB attempt1 | GUI qawa1w | GUI tgbg36 |
+#: |---|---:|---:|---:|---:|
+#: | 0（攒一点就折）| 1.00 | 1.00 | 1.00 | 1.00 |
+#: | 0.5 | 0.63 | 0.57 | 0.59 | 0.45 |
+#: | **1（本常数）** | **0.59** | 0.61 | 0.70 | **0.41** |
+#: | 2 | 0.66 | 0.54 | 0.61 | 0.43 |
+#: | 4（合并折叠）| 0.72 | 0.78 | 0.75 | 0.46 |
+#: | 无判据·每 8 枪 | 0.65 | 0.56 | 0.69 | 0.55 |
+#:
+#: θ=0 四份全最差 ⇒ 旧「攒一点就折」是纯亏；θ 再往上（2/4）不再省钱，且末枪 prompt 随
+#: 推迟上涨（θ=4 在 attempt1 把末枪推到 52,883 ≈ 64k 档水位 52,428）⇒ 取 θ=1：它在
+#: attempt2 / tgbg36 上就是最优，在 attempt1 / qawa1w 上比各自次优贵 13% / 18%，
+#: 但只有它有一句不需要知道会话多长的结构含义——**本枪不亏**。
+#: （装上生产判据后重放 `_b_plan_live.py`：0.57 / 0.54 / 0.63 / 0.46，另加尺寸两道闸。）
+#:
+#: ⚠️ 旧值 8 的含义是「只允许深折」，不是「折叠通常 8 枪回本」：影子账本单次移出比例
+#: r 中位 89.8% ⇒ 3.4 枪，但活路径被折区只占发射面的 15~65%，实测回本需求 **12~238 枪**
+#: ⇒ 8 在 43 次判定里放行 0 次。折叠当枪的重填面实测 **71.1%**（n=38），平枪 4%。
+PAYBACK_SHOTS = 30
 #: `MIN_GAP_SHOTS` —— 距上次折叠至少几枪。低于回本周期的连续折叠是纯亏（付两次重填、
 #: 一次都还没收回）。旧实现靠"猜还剩几轮"表达这件事，猜错了方向就反（见 §22/§25）。
 MIN_GAP_SHOTS = 4
@@ -86,6 +105,20 @@ DEFAULT_MARGIN = 1.0
 #: 首折前对「头增量 / 区域」的保守估计（无观测时的先验）。
 #: 偏大 = 更保守（更不容易折）。实测 Medium+ 长会话的头增量约为区域的 0.10–0.20。
 DEFAULT_HEAD_RATIO = 0.20
+
+
+def theta_required(*, margin: float = DEFAULT_MARGIN,
+                   price_ratio: float = PRICE_RATIO_HIT_MISS) -> float:
+	"""本判据等价于一句话：**本次净省 ≥ θ × 本次重发面**，θ 由这里给。
+
+	`回本枪数 ≤ PAYBACK_SHOTS / margin` 两边同乘 `saved / PAYBACK_SHOTS` 移项即得
+	`θ = price_ratio × margin / PAYBACK_SHOTS`。默认 `30 × 1 / 30 = 1.0`。
+
+	生产链（`memory.runtime.try_extend_c2` 的经济闸）**必须**走这里取阈值，不要在别处
+	重算——两处各写一份代数就是上次「有效门槛 0.25 倍 vs 1 倍」那个分歧的来源。
+	"""
+	return float(price_ratio) * max(0.0, float(margin)) / float(PAYBACK_SHOTS)
+
 
 def region_tokens(texts: list[str]) -> int:
 	"""一段将要离开上下文的区域的 token 数（`node_token_len` 口径）。"""
@@ -148,7 +181,9 @@ def fold_economics(
 	折  ⟺  回本枪数 ≤ PAYBACK_SHOTS / margin   且   shots_since_fold ≥ MIN_GAP_SHOTS
 	```
 
-	`margin` 是**保守边际**（>1 更保守）：0.1 ⇒ 允许等 80 枪，1.0 ⇒ 8 枪，10 ⇒ 0.8 枪。两个量都是**已发生的事实**
+	第二条闸等价于 `saved ≥ theta_required(...) × transition`，即「本次净省 ≥ θ × 本次
+	重发面」。`margin` 是**保守边际**（>1 更保守）：0.1 ⇒ 允许等 300 枪，1.0 ⇒ 30 枪
+	（= θ=1，本枪不亏），10 ⇒ 3 枪。两个量都是**已发生的事实**
 	（尾巴攒了几枪、这次能移出多少）加一个价目常数——旧版的 `remaining_turns` 是猜的，
 	猜错方向时判据整体反向（§22 实测：剩余寿命不随会话深度衰减，旧式却越猜越小）。
 	"""
@@ -175,7 +210,7 @@ def fold_economics(
 		return _with(dec, False, "cooldown")
 	if saved <= 0:
 		return _with(dec, False, "nothing_saved")
-	ok = payback <= PAYBACK_SHOTS / max(0.01, float(margin))
+	ok = float(saved) >= theta_required(margin=margin, price_ratio=price_ratio) * float(dec.transition)
 	return _with(dec, ok, "worth_fold" if ok else "pays_back_too_slow")
 
 

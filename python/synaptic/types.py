@@ -322,9 +322,11 @@ class WscParams:
 	#: `0.1 → ¥4.5877` / `0.25 → ¥4.6654` / `0.5 → ¥4.6716`，且针不退化
 	#: （path 0.874 / 0.868 / 0.858）。全语料确认见 `_wsc_out/_adopted_m01.*`。
 	#: 折叠节奏的保守边际。**09-22 从 0.1 钉到 1.0**：判据现在是
-	#: `回本枪数 ≤ PAYBACK_SHOTS / margin`，0.1 等于允许等 80 枪回本 —— 那就是
+	#: `回本枪数 ≤ PAYBACK_SHOTS / margin`，0.1 等于允许等 300 枪回本 —— 那就是
 	#: 旧 C 档每 2~3 枪折一次、三条 transcript 上实测贵 2.2~2.4 倍的原因。
-	#: 1.0 = 只接受「8 枪内回本」的折叠（PAYBACK_SHOTS 由实测单价与 r=89.8% 推得）。
+	#: 1.0 = θ=1 =「本次净省 ≥ 本次重发面」（`PAYBACK_SHOTS == price_ratio`，机器锁在
+	#: `tests/wsc/test_cadence.py::test_payback_constant_buys_exactly_theta_one`）。
+	#: 同一句话现在也装在生产触发链 `memory.runtime.try_extend_c2` 的经济闸里。
 	fold_margin: float = 1.0
 	#: 价差倍率（未命中价 / 命中价）；契约测试比对 `usage/pricing.py`，勿手改。
 	fold_price_ratio: float = 30.0

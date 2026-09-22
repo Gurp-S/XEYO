@@ -218,7 +218,7 @@ def _mk_c2_candidate(arm: Arm, prefix: list[dict], cut: int, *, session: str) ->
         session_id=session,
     )
     try:
-        ok = bool(rt.try_extend_c2(w, prefix, cut, _ext_params(), 16))
+        ok = bool(rt.try_extend_c2(w, prefix, cut, _ext_params()))
     except Exception:  # noqa: BLE001
         ok = False
     if not ok:

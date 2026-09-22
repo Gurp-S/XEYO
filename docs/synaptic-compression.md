@@ -2095,3 +2095,24 @@ t199  hot=2734 | fixed 1156/1200 over=0 | main 1426/1800 over=0 | requests=dedup
    所以"v61 在 200 回合只扩展 12 次"这类数字**不能**当生产折叠率引用。
 7. **评测台与生产的额度口径分裂**：索引那 1,600 额度在评测台几乎每枪都超、生产一次都没超
    （因为头不重建）。引用"索引超帽"必须先说哪一侧。
+8. **折叠触发已统一到 θ=1**（2026-09-22 落地主链）：`memory.runtime.try_extend_c2` 的经济闸
+   改为「**本次净省 ≥ θ × 本次重发面**」，θ 单点在 `synaptic.cadence.theta_required()`
+   （`PAYBACK_SHOTS=30` 就是"θ=1"这句话的机器锁）；未来项 `remaining_turns` 与
+   `c2_extend_min_remaining_turns` 一并删除 ⇒ 第 6 条那个"预算档位数决定门槛"的分歧在
+   扩展闸上消失（`decide` 仍收 `remaining_turns`，那是另一件事）。
+   收益（**用生产判据重放四份转录**，成本按同一题逐枪账本实测比率建模，非厂商账单）：
+
+   | 转录（64k 档） | 折叠次数 基线→θ=1 | 每枪¥ 基线→θ=1 | 总成本比 |
+   |---|---|---|---|
+   | TB attempt2 | 46 → 15 | 0.0158 → 0.0091 | **0.57** |
+   | TB attempt1 | 28 → 7 | 0.0157 → 0.0084 | **0.54** |
+   | GUI qawa1w | 29 → 7 | 0.0089 → 0.0055 | **0.63** |
+   | GUI tgbg36 | 122 → 33 | 0.0299 → 0.0137 | **0.46** |
+
+   守卫：`tests/test_runtime_c2.py::test_extend_gate_*`（判据本身 + 反证 θ 是唯一变量）、
+   `tests/wsc/test_cadence.py::test_production_extend_gate_shares_the_theta_implementation`
+   （不许在两处各拼一份代数）、`test_hardtop_forces_extension_despite_gates`（兜底不受 θ 约束）。
+9. **折叠留痕 `~/.xeyo/usage/fold_events.jsonl`**（同日新增）：每枪折叠判定**放行和拒绝都记一行**，
+   字段 `arm=wsc|c2` / `fold` / `reason` / `saved_net` / `transition` / `theta` / `forced`。
+   这是事后唯一能区分「WSC 折的 / C2 折的 / 被 θ 挡住的」的凭据——`c2_summary_text` 不是判据
+   （它只是触发侧记账），`last_action` 也只有 `C2` 一个值。离线重放台不传 `account` ⇒ 结构上写不进本账本。
