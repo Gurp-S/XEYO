@@ -140,3 +140,32 @@ html[data-scheme="dark"] .xy-seg-btn.is-on {
   line-height: 14px;
   color: var(--xy-mute);
 }
+
+/* ===== 命令面板收口（2026-09-22 样式轮）===== */
+
+/* 键帽字形：Consolas 没有 ↵  ⇧ 这三个码位，底栏会渲染成豆腐块。
+   换到含符号字形的栈（Segoe UI Symbol 覆盖这三个），并给单字符键帽最小宽度，
+   免得被挤成正方形。 */
+.xy-kbd {
+  font-family: "Segoe UI Symbol", Consolas, "Cascadia Mono", ui-monospace, monospace;
+  min-width: 18px;
+  line-height: 1.35;
+  text-align: center;
+}
+
+/* 搜索框：本文件的飞层通用规则给所有 input 刷了 35% 纸色，
+   在已经是玻璃的面板上叠出一块不透明灰板。命令面板的搜索位要的是"直接写在面板上"。 */
+.xy-palette-search {
+  background: transparent !important;
+  border: 0 !important;
+}
+
+/* 筛选行：原本只有选中项有底色，其余是裸文字——一排里既像标签又像按钮。
+   统一给芯片轮廓，选中才填充。 */
+.xy-palette-filter {
+  border: 1px solid var(--xy-rule-weak);
+}
+
+.xy-palette-filter:hover {
+  border-color: color-mix(in oklch, var(--xy-ink) 18%, transparent);
+}

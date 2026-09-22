@@ -114,7 +114,7 @@ function KbdHint({children}: {children: ReactNode}) {
 
 function Kbd({label}: {label: string}) {
 	return (
-		<kbd className="rounded border border-line/70 bg-glass-strong px-1 py-0.5 font-mono text-[10px] text-ink-soft">
+		<kbd className="xy-kbd rounded border border-line/70 bg-glass-strong px-1 py-0.5 text-[10px] text-ink-soft">
 			{label}
 		</kbd>
 	);
@@ -771,7 +771,7 @@ export function CommandPalette() {
 							setActiveIndex(0);
 						}}
 						placeholder="Search agents, files, actions…"
-						className="min-w-0 flex-1 bg-transparent text-[14px] text-ink outline-none placeholder:text-mute"
+						className="xy-palette-search min-w-0 flex-1 bg-transparent text-[14px] text-ink outline-none placeholder:text-mute"
 						autoComplete="off"
 						spellCheck={false}
 					/>
@@ -788,7 +788,7 @@ export function CommandPalette() {
 								inputRef.current?.focus();
 							}}
 							className={cn(
-								'rounded-lg px-2.5 py-1 text-[12px] transition-colors',
+								'xy-palette-filter rounded-lg px-2.5 py-1 text-[12px] transition-colors',
 								filter === f.id
 									? 'bg-glass-hover text-ink'
 									: 'text-mute hover:bg-glass-hover/60 hover:text-ink-soft',
