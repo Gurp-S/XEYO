@@ -304,9 +304,27 @@ export function ModelPicker({
 						</div>
 					</>
 				) : (
-					<p className="px-4 py-8 text-[12px] text-mute">
-						将鼠标移到右侧厂商上查看模型
-					</p>
+					<div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
+						<p className="text-[12.5px] text-ink-soft">
+							{accounts.length === 0
+								? '还没有添加厂商账号'
+								: '把鼠标移到右侧厂商上查看模型'}
+						</p>
+						{accounts.length === 0 ? (
+							<>
+								<p className="text-[11.5px] leading-relaxed text-mute">
+									添加厂商并填入 API Key 后即可在此选择模型。
+								</p>
+								<button
+									type="button"
+									onClick={() => openSettings('accounts')}
+									className="mt-1 rounded-lg border border-accent/45 bg-accent/8 px-3 py-1.5 text-[12px] text-ink hover:bg-accent/15"
+								>
+									添加厂商账号
+								</button>
+							</>
+						) : null}
+					</div>
 				)}
 			</div>
 
@@ -321,9 +339,7 @@ export function ModelPicker({
 				</div>
 				<div className="min-h-0 flex-1 overflow-y-auto px-1.5">
 					{accounts.length === 0 ? (
-						<p className="px-2 py-3 text-[12px] leading-relaxed text-mute">
-							还没有账号。请先在设置中添加服务商和 API Key。
-						</p>
+						<p className="px-2 py-3 text-[12px] text-mute">暂无厂商</p>
 					) : (
 						accounts.map(acc => {
 							const active = acc.id === hoverAccount?.id;
@@ -368,13 +384,15 @@ export function ModelPicker({
 						})
 					)}
 				</div>
-				<button
-					type="button"
-					onClick={() => openSettings('accounts')}
-					className="xy-menu-row mx-1.5 mb-1.5 px-2.5 py-2 text-left text-[12.5px] text-ink-soft"
-				>
-					添加账号
-				</button>
+				{accounts.length > 0 ? (
+					<button
+						type="button"
+						onClick={() => openSettings('accounts')}
+						className="xy-menu-row mx-1.5 mb-1.5 px-2.5 py-2 text-left text-[12.5px] text-ink-soft"
+					>
+						添加账号
+					</button>
+				) : null}
 			</div>
 		</div>
 		</div>
