@@ -129,52 +129,6 @@ def exposed_handles(proj) -> int:
 	return len(getattr(cold, "handles", {}) or {})
 
 
-@dataclass
-class TurnMetric:
-	turn: int
-	region_end: int
-	level: str
-	mode: str
-	base_tokens: int
-	hot_tokens: int
-	tail_tokens: int
-	projected_tokens: int
-	reduction: float
-	pin_tokens: int
-	file_state_tokens: int
-	card_tokens: int
-	kept_nodes: int
-	pruned_nodes: int
-	cards: int
-	rebuilt: bool
-	lcp_prev: int
-	latency_ms: float
-	needles: dict[str, dict[str, float | int]]
-	recover: dict[str, float | int]
-
-	def as_row(self) -> dict:
-		return {
-			"turn": self.turn,
-			"region_end": self.region_end,
-			"level": self.level,
-			"mode": self.mode,
-			"base_tokens": self.base_tokens,
-			"hot_tokens": self.hot_tokens,
-			"tail_tokens": self.tail_tokens,
-			"projected_tokens": self.projected_tokens,
-			"reduction": round(self.reduction, 4),
-			"pin_tokens": self.pin_tokens,
-			"fs_tokens": self.file_state_tokens,
-			"card_tokens": self.card_tokens,
-			"kept_nodes": self.kept_nodes,
-			"pruned_nodes": self.pruned_nodes,
-			"cards": self.cards,
-			"rebuilt": self.rebuilt,
-			"lcp_prev": self.lcp_prev,
-			"latency_ms": round(self.latency_ms, 3),
-			"needles": self.needles,
-			"recover": self.recover,
-		}
 
 
 def assert_no_llm_dependency(package_dir: Path | None = None) -> list[str]:
@@ -197,6 +151,11 @@ ALGORITHM_MODULES = (
 	"__init__.py",
 	"types.py",
 	"memo.py",
+	"freshness.py",
+	"failure_modes.py",
+	"qa_visibility.py",
+	"qa_grading.py",
+	"eval_stats.py",
 	"textutil.py",
 	"graph.py",
 	"filestate.py",

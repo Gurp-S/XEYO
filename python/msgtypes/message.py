@@ -28,15 +28,23 @@ class Message:
 	narration: str = ""
 	# 44 号：中断锚（「用户看到的必须入史」）——abort 时部分输出以该标记留档。
 	interrupted: bool = False
-	# T_now v2 留痕面（C 阶段）：引擎注入的易变块以 role=system 进历史，
-	# 模型可见、用户不可见。三字段是台账身份，不是内容：
+	# T_now v2 留痕面（C 阶段）：引擎注入的易变块进历史时**独立成一条消息**，
+	# 模型可见、用户不可见。两种形态跟随声道：
+	#   system_channel  → role=system（原生 system 消息）
+	#   notice_fragment → role=user（带 <system-reminder> 信封的通报片段）
+	# 三字段是台账身份，不是内容：
 	#   note_kind 管道标记（见 prompt/pre_llm_inject.PIPE_*）
 	#   note_key  块登记名（去重身份）
 	#   note_fp   正文指纹（值变才重注）
-	# 非空即 hidden：UI 面过滤、投影面照常、压缩面按 key 折叠保留最新。
+	# 非空即 hidden：UI 面过滤、投影面照常（system 形态受 A 闸）、压缩面按 key
+	# 折叠保留最新。
 	note_kind: str = ""
 	note_key: str = ""
 	note_fp: str = ""
+	#: 状态维度已消失（例如退出 Ask 模式后不再有模式合同）：该版留痕**逐出模型投影**，
+	#: 但历史行不删、不改正文（审计与恢复照常）。没有这一步，append-only 台账只会把
+	#: "曾经存在过的状态"永久挂在上下文里——模型据此继续遵守一条已作废的合同。
+	note_retracted: bool = False
 
 	@property
 	def hidden(self) -> bool:
@@ -58,6 +66,29 @@ def system_note(
 	"""
 	return Message(
 		role="system",
+		content=text,
+		note_kind=kind,
+		note_key=key,
+		note_fp=fp,
+	)
+
+
+def notice_note(
+	text: str,
+	*,
+	key: str,
+	fp: str,
+	kind: str = "state",
+) -> Message:
+	"""构造通报留痕条目（notice_fragment 声道下的管道 2 状态块）。
+
+	与 :func:`system_note` 同一身份三字段，差别只在角色：对齐 Codex
+	``ContextualUserFragment``——上下文通报是**带信封的 user 片段**，厂商不必
+	支持中段 system 也能送达，说话人仍由结构保证。``hidden`` 由 note_key 决定，
+	与角色无关（UI 面照样过滤）。
+	"""
+	return Message(
+		role="user",
 		content=text,
 		note_kind=kind,
 		note_key=key,

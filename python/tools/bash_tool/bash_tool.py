@@ -21,6 +21,7 @@ _log = logging.getLogger(__name__)
 # docker 路由的后台 job 表（评测场景自持；registry 依赖 server，headless 不可用）
 _DOCKER_BG_JOBS: dict[str, dict] = {}
 _DOCKER_BG_LOCK = threading.Lock()
+_DOCKER_BG_WAITERS: dict[str, list[tuple[asyncio.AbstractEventLoop, asyncio.Event]]] = {}
 _DOCKER_BG_SEQ = 0
 
 from engine.abort import AbortController
@@ -266,6 +267,7 @@ def _docker_exec_with_timeout(
 					job["status"] = "done"
 					job["output"] = text
 					job["exit_code"] = code
+			_notify_docker_bg(jid)
 
 	promote_s = _docker_promote_seconds(command, timeout_ms)
 	try:
@@ -302,11 +304,12 @@ def _docker_exec_with_timeout(
 			"delivered": False,
 			"started": time.time(),
 		}
+		_DOCKER_BG_WAITERS[job_id] = []
 	job_box["id"] = job_id
 	return (
 		0,
-		f"[命令仍在运行，已自动转入后台 job {job_id}。完成通知会在下一回合自动出现；"
-		f"job_output(job_id=\"{job_id}\") 返回输出。]\n已累积输出：\n",
+		f"[命令仍在运行，已自动转入后台 job {job_id}。"
+		f"完成状态将在后台完成事件中出现。]\n已累积输出：\n",
 	)
 
 
@@ -322,10 +325,60 @@ def _docker_promote_seconds(command: str = "", timeout_ms: int = DEFAULT_TIMEOUT
 def docker_bg_snapshot() -> list[dict]:
 	"""外部只读视图（job_tools 回退 / pending_jobs_block 镜像用）。"""
 	with _DOCKER_BG_LOCK:
+		# 遍历快照：写路径（后台晋升 / 完成回调）若未持锁，遍历中的 dict
+		# 变动会抛 RuntimeError（2026-09-20）。
 		return [
 			{"job_id": k, **{kk: vv for kk, vv in v.items()}}
-			for k, v in _DOCKER_BG_JOBS.items()
+			for k, v in list(_DOCKER_BG_JOBS.items())
 		]
+
+
+def _notify_docker_bg(job_id: str) -> None:
+	"""唤醒等待该 Docker job 的 event loop；不在状态表外维护第二份事实。"""
+	with _DOCKER_BG_LOCK:
+		waiters = list(_DOCKER_BG_WAITERS.get(job_id, ()))
+	for loop, event in waiters:
+		try:
+			if not loop.is_closed():
+				loop.call_soon_threadsafe(event.set)
+		except RuntimeError:
+			continue
+
+
+async def wait_docker_bg_change(
+	job_id: str, timeout_s: float, abort: AbortController | None = None
+) -> bool:
+	"""事件等待 Docker 后台 job 变化；超时返回 False，不固定间隔轮询。"""
+	loop = asyncio.get_running_loop()
+	event = asyncio.Event()
+	waiter = (loop, event)
+	with _DOCKER_BG_LOCK:
+		job = _DOCKER_BG_JOBS.get(job_id)
+		if job is None or str(job.get("status") or "") != "running":
+			return True
+		_DOCKER_BG_WAITERS.setdefault(job_id, []).append(waiter)
+
+	remove_abort = None
+	if abort is not None:
+		remove_abort = abort.on_abort(
+			lambda _reason: loop.call_soon_threadsafe(event.set)
+		)
+	try:
+		try:
+			await asyncio.wait_for(event.wait(), timeout=max(0.0, float(timeout_s)))
+		except asyncio.TimeoutError:
+			return False
+		return True
+	finally:
+		if remove_abort is not None:
+			remove_abort()
+		with _DOCKER_BG_LOCK:
+			waiters = _DOCKER_BG_WAITERS.get(job_id)
+			if waiters is not None:
+				try:
+					waiters.remove(waiter)
+				except ValueError:
+					pass
 
 
 def docker_bg_mark_delivered(job_id: str) -> None:
@@ -357,6 +410,7 @@ def cancel_docker_bg(job_id: str, reason: str = "") -> str | None:
 		job["status"] = "killed"
 		job["reason"] = (reason or "").strip()
 		job["cancelled_at"] = time.time()
+	_notify_docker_bg(job_id)
 	return (
 		f"job {job_id} marked killed — poll it once with job_output to collect the "
 		f"output so far; the command may still be finishing inside the container"
@@ -656,7 +710,7 @@ class BashTool:
 		# SDK 走 API 无 shell/TTY/wsl 依赖，输出与退出码可靠。cwd 语义由 WORKDIR 承担。
 		# 并发 trial 防串线：ContextVar（每 trial 协程上下文）优先于进程级 env——
 		# harbor 多 trial 共进程时后者会被互相覆盖（p4 冒烟实测串线事故）。
-		cid = _routed_container() or os.environ.get("XEYO_DOCKER_CONTAINER", "").strip()
+		cid = _routed_container()
 		if cid:
 			# working_directory 在容器分支此前被**静默忽略**（命令一律跑在默认
 			# WORKDIR）——模型以为自己在 /app/src，实际不是，且它无从察觉。
@@ -915,26 +969,22 @@ class BashTool:
 				lines.append(
 					f"Command still running — auto-moved to background job "
 					f"{out.background_task_id} after {out.promoted_after_ms}ms "
-					f"(process not restarted; it will notify on completion; "
-					f"read with job_output, list with job_list, stop with job_kill)."
+					f"(process not restarted; completion is delivered as a background event)."
 				)
 			elif out.background_task_id:
 				lines.append(
 					f"Command still running — auto-moved to background task "
 					f"{out.background_task_id} after {out.promoted_after_ms}ms; "
-					f"streaming log: {out.background_log_path} (job_output exposes it; "
-					f"session abort cancels it)."
+					f"streaming log: {out.background_log_path}; session abort cancels it."
 				)
 			return "\n\n".join(lines) or "Command auto-moved to background."
 
 		if out.background_task_id:
 			if out.background_job:
-				# 42 号文案：完成会自动通知；job_output 收结果。
+				# 42 号文案：完成输出随完成事件有界交付。
 				return (
 					f"Started background job {out.background_task_id}. "
-					f"Completion notification is automatic. "
-					f"job_output returns its output; job_list returns jobs; "
-					f"job_kill stops it."
+					f"Completion notification and a bounded output tail are automatic."
 				)
 			return (
 				f"Command running in background with ID: {out.background_task_id}. "
@@ -1013,7 +1063,7 @@ class BashTool:
 						"type": "boolean",
 						"description": (
 							"true starts a background job and returns its id immediately; "
-							"completion emits a notification and job_output exposes output."
+							"completion emits a notification with a bounded output tail."
 						),
 					},
 					"working_directory": {

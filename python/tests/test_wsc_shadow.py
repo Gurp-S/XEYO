@@ -79,7 +79,9 @@ def test_enabled_records_one_row_with_expected_fields(shadow_home, monkeypatch):
 		"fold",
 		"saved",
 		"transition",
-		"remaining",
+		# 2026-09-22 节奏判据去预测：旧的 `remaining`（猜还剩几轮）换成两个已发生事实。
+		"shots_since_fold",
+		"payback_shots",
 		"reason",
 		"latency_ms",
 		"n_messages",

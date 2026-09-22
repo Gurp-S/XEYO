@@ -104,11 +104,15 @@ def push(
 
 
 def deliver(session_id: str, store: Any) -> list[Message]:
-	"""边界投递：把队列里的运行中用户消息追加进历史（真 user 消息）。
+	"""边界投递：把队列里的运行中用户消息落进历史（真 user 消息）。
 
-	- 幂等：同 ``message_id`` 已在 store 里 → 跳过（不会重复追加）
+	- 幂等：同 ``message_id`` 已在 store 里 → 不重复追加（``push`` 先写 WAL，
+	  重启 hydrate 就会把它带进历史，边界再投即跳过）
 	- 至少一次：append 失败的项**回队**，下一边界重投
-	- 返回**本次真正追加**的消息（空列表 = 本轮无投递），调用方据此发回执
+	- **返回值 = 本轮"已经进模型输入"的消息**（新追加的 + 幂等跳过的），调用方
+	  据此发 ``steer_delivered`` 回执。曾只返回"新追加"的那批 ⇒ 常态路径（WAL 先
+	  落盘、边界再投被幂等跳过）返回空，回执永不发出，前端的排队/引导卡永远撤不掉。
+	  transcript 仍**只写新追加的**，绝不重复落盘。
 	"""
 	sid = (session_id or "").strip()
 	if not sid:
@@ -130,17 +134,23 @@ def deliver(session_id: str, store: Any) -> list[Message]:
 	except Exception:  # noqa: BLE001
 		existing = set()
 	added: list[Message] = []
+	landed: list[Message] = []
 	failed: list[SteerItem] = []
 	for it in items:
+		msg = _message_for(it)
 		if it.message_id and it.message_id in existing:
-			continue  # 幂等：这条已经在历史里
+			# 幂等：这条已经在历史里（WAL 或上一边界）——不重复追加，
+			# 但它对模型已经可见，回执照样要报。
+			landed.append(msg)
+			continue
 		try:
-			msg = _message_for(it)
 			store.append(msg)
-			added.append(msg)
 		except Exception:  # noqa: BLE001
 			_log.debug("steer append failed", exc_info=True)
 			failed.append(it)
+			continue
+		added.append(msg)
+		landed.append(msg)
 	if failed:
 		_requeue(sid, failed)
 	if added:
@@ -150,7 +160,7 @@ def deliver(session_id: str, store: Any) -> list[Message]:
 			record_transcript_sync(added, session_id=sid)
 		except Exception:  # noqa: BLE001
 			_log.debug("steer transcript write failed", exc_info=True)
-	return added
+	return landed
 
 
 def drain(session_id: str) -> list[Message]:

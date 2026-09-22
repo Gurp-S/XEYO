@@ -7,14 +7,16 @@ token 计量走同一套序列化（``memory.simulator.projection.emit_segment``
 
 from __future__ import annotations
 
+import hashlib
 import json
+import logging
 import time
 from dataclasses import dataclass, field, replace as dc_replace
 from pathlib import Path
 from typing import Any, Iterable
 
 from synaptic.assemble import AssemblyState
-from synaptic.cadence import CadenceState, estimate_remaining
+from synaptic.cadence import CadenceState
 from synaptic.metrics import lcp_tokens, needle_survival, recoverability
 from synaptic.project import project
 from synaptic.seeds import harvest_needles
@@ -25,6 +27,9 @@ from synaptic.types import MODE_CLOSURE, WscParams
 # 会话加载
 # ---------------------------------------------------------------------------
 
+_log = logging.getLogger("xeyo.synaptic.replay")
+
+
 def default_sessions_dir() -> Path:
 	import os
 
@@ -34,7 +39,8 @@ def default_sessions_dir() -> Path:
 	return Path.home() / ".xeyo" / "sessions"
 
 
-def load_jsonl(path: Path) -> list[dict[str, Any]]:
+def load_jsonl(path: Path, *, hydrate: bool = True) -> list[dict[str, Any]]:
+	"""读会话 JSONL；默认把外置正文（``content_ref``）取回（见 ``hydrate_external_rows``）。"""
 	if not path.is_file():
 		return []
 	out: list[dict[str, Any]] = []
@@ -49,17 +55,129 @@ def load_jsonl(path: Path) -> list[dict[str, Any]]:
 				continue
 			if isinstance(obj, dict):
 				out.append(obj)
+	if not hydrate:
+		return out
+	rows, stats = hydrate_external_rows(out, path)
+	if stats["externalized"]:
+		_log.info(
+			"transcript %s: externalized=%d hydrated=%d unresolved=%d",
+			path.name,
+			stats["externalized"],
+			stats["hydrated"],
+			stats["unresolved"],
+		)
+	return rows
+
+
+def hydrate_external_rows(
+	rows: list[dict[str, Any]], anchor: Path
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
+	"""把外置正文行（``content=None`` + ``content_ref``）的正文取回（fail-open）。
+
+	大 content 外置是 transcript 的常态（>32KB 落 ``{stem}.blobs/{message_id}.json``）。
+	加载层不回填时，这一行**既没有正文、也看不出工具配对** ⇒ 保尾边界退化成按条数
+	兜底（可落在一次调用与它的结果之间），信息审计里也只会看到一个空节点。
+
+	**不编造**：blob 缺失 / 读不动 / ``content_hash`` 不符 → 保持 ``content=None`` 并计入
+	``unresolved``。只有 ref 没有正文是事实；填空串会让「外置但拿不到」看起来像
+	「工具真的没输出」，那是假阴。
+	"""
+	stats = {"rows": len(rows), "externalized": 0, "hydrated": 0, "unresolved": 0}
+	if not rows:
+		return rows, stats
+	out: list[dict[str, Any]] = []
+	for row in rows:
+		if not isinstance(row, dict) or row.get("content") is not None or not row.get("content_ref"):
+			out.append(row)
+			continue
+		stats["externalized"] += 1
+		fixed = _hydrate_row(row, anchor)
+		if fixed is None:
+			stats["unresolved"] += 1
+			out.append(row)
+		else:
+			stats["hydrated"] += 1
+			out.append(fixed)
+	return out, stats
+
+
+def _hydrate_row(row: dict[str, Any], anchor: Path) -> dict[str, Any] | None:
+	ref = str(row.get("content_ref") or "").strip()
+	if not ref:
+		return None
+	try:
+		from session.transcript_blobs import blobs_dir  # 生产侧唯一实现
+	except Exception:  # noqa: BLE001  （fail-open：拿不到就不回填）
+		return None
+	try:
+		path = blobs_dir(anchor) / Path(ref).name
+	except Exception:  # noqa: BLE001
+		return None
+	if not path.is_file():
+		return None
+	try:
+		content = json.loads(path.read_text(encoding="utf-8"))
+	except (OSError, json.JSONDecodeError):
+		return None
+	want = str(row.get("content_hash") or "").strip()
+	if want:
+		have = "sha256:" + hashlib.sha256(
+			json.dumps(content, ensure_ascii=False).encode("utf-8")
+		).hexdigest()
+		if have != want:
+			return None
+	out = dict(row)
+	out["content"] = content
 	return out
+
+
+def _has_tool_result_block(content: Any) -> bool:
+	return isinstance(content, list) and any(
+		isinstance(b, dict) and b.get("type") == "tool_result" for b in content
+	)
+
+
+def _tool_row_as_api(row: dict[str, Any], content: Any) -> dict[str, Any]:
+	"""``role="tool"`` 行 → 引擎内 API 形态，**保住配对信号**。
+
+	OpenAI / Codex 形态的行是 ``{"role":"tool","tool_call_id":…,"content":"<字符串>"}``。
+	若只把 role 改写成 ``user`` 并丢掉 ``tool_call_id``，这一行就变成了普通用户文本：
+
+	  - `engine.compact.tool_pair_ranges`（保尾边界）看不见配对 ⇒ 边界退化成
+	    「按条数截断」，可以落在一次调用与它的结果之间（尾部以孤立 tool_result 开头，
+	    调用方只能整体回退）；
+	  - `synaptic.graph` 的 ``tool_use → tool_result`` 边断掉，节点退化成用户文本节点；
+	  - `_is_user_text` 把每条工具结果都算成一个用户回合（轮次对齐随之失真）。
+
+	content 已是 ``tool_result`` 块的行（XEYO 形态）原样输出，语料口径不变。
+	"""
+	tid = str(row.get("tool_call_id") or "")
+	if not tid or _has_tool_result_block(content):
+		return {"role": "user", "content": content, "name": row.get("name")}
+	block: dict[str, Any] = {"type": "tool_result", "tool_use_id": tid, "content": content}
+	if "is_error" in row:
+		block["is_error"] = bool(row.get("is_error"))
+	return {
+		"role": "user",
+		"content": [block],
+		"name": row.get("name"),
+		"tool_call_id": tid,
+	}
 
 
 def _as_api_message(row: dict[str, Any]) -> dict[str, Any]:
 	role = str(row.get("role") or "user")
 	content = row.get("content")
 	if role == "tool":
-		return {"role": "user", "content": content, "name": row.get("name")}
+		return _tool_row_as_api(row, content)
 	msg: dict[str, Any] = {"role": role, "content": content}
 	if row.get("name"):
 		msg["name"] = row.get("name")
+	calls = row.get("tool_calls")
+	if role == "assistant" and isinstance(calls, list) and calls:
+		# 同样不许丢配对信号：OpenAI / Codex 形态的调用在 ``tool_calls`` 里，
+		# 不在 ``content`` 块里（`synaptic.textutil.tool_use_blocks` 认这个键）。
+		msg["tool_calls"] = calls
 	ts = row.get("ts")
 	if isinstance(ts, (int, float)):
 		msg["ts"] = ts
@@ -75,6 +193,12 @@ def iter_session_files(root: Path | None = None) -> list[Path]:
 
 def _is_user_text(msg: dict[str, Any]) -> bool:
 	if msg.get("role") != "user":
+		return False
+	from prompt.notice_channel import is_notice_message
+
+	if is_notice_message(msg):
+		# 通报片段/留痕也是 role=user，与 memory/simulator/replay.py 同口径排除，
+		# 否则离线重放把引擎文本数成用户轮（R 估计与 corrections/reverts 一起失真）。
 		return False
 	c = msg.get("content")
 	if isinstance(c, str):
@@ -329,7 +453,6 @@ def run_session(
 				econ_dec = cadence_state.decide(
 					region_tokens_=region_for_econ,
 					tail_tokens_=_region_raw_tokens(prefix[region_end:]),
-					remaining_turns=estimate_remaining(prefix),
 					margin=pset.fold_margin,
 					price_ratio=pset.fold_price_ratio,
 				)

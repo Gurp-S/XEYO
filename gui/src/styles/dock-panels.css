@@ -401,9 +401,7 @@ html[data-smoothness="off"] .xy-panel-collapse {
 
 .xy-composer-stack:has(:focus-within) {
   border-color: var(--xy-accent);
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--xy-accent) 22%, transparent),
-    var(--xy-composer-shadow);
+  box-shadow: var(--xy-ring), var(--xy-composer-shadow);
 }
 
 .xy-composer-stack.is-drag-over {

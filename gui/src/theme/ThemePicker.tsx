@@ -10,13 +10,13 @@ type Props = {
 	className?: string;
 };
 
-/** 十套主题色卡：纸面底 + 强调色条 + 名称，选中仅细边框。 */
+/** 六套主题色卡：纸面底 + 强调色条 + 名称，选中仅细边框。 */
 export function ThemePicker({value, onChange, compact = false, className}: Props) {
 	return (
 		<div
 			className={cn(
 				'grid gap-2',
-				compact ? 'grid-cols-5 w-[320px]' : 'grid-cols-5',
+				compact ? 'grid-cols-3 w-[236px]' : 'grid-cols-3',
 				className,
 			)}
 			role="listbox"

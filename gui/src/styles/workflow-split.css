@@ -193,11 +193,24 @@
 .xy-split-step {
   position: relative;
   display: grid;
-  grid-template-columns: 88px minmax(0, 1fr);
+  grid-template-columns: 104px minmax(0, 1fr);
   gap: 8px;
-  padding: 3px 0;
+  padding: 3px 0 3px 9px;
   border-radius: 0;
-  border-bottom: 1px dashed color-mix(in srgb, var(--xy-line) 55%, transparent);
+  border-bottom: 1px solid var(--xy-rule-weak);
+}
+
+/* 失败才给左轨：成功是这批步骤的常态，不需要额外标记；
+   失败是唯一需要"扫读时跳出来"的状态。 */
+.xy-split-step.is-failed::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--xy-danger-line);
 }
 
 .xy-split-step:last-child {

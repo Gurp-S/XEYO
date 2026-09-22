@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import sys
 from pathlib import Path
 
@@ -19,6 +20,7 @@ from engine.turn_snapshot import (
 )
 from engine.turn_runner import TurnRunner
 from server.routers.chat import (
+	ChatCompletionRequest,
 	ChatMessage,
 	_build_enriched_resume_prompt,
 	_is_multi_agent_resume_cue,
@@ -107,6 +109,98 @@ async def test_turn_runner_detach_subscribe():
 	pub = runner.get_public("s1")
 	assert pub is not None
 	assert pub.status in {"succeeded", "failed", "stopped"}
+
+
+@pytest.mark.asyncio
+async def test_subscribe_clamps_cursor_belonging_to_earlier_turn():
+	"""event_id 每 turn 从 1 重排，GUI 游标却是会话级 ⇒ 越界游标必须归零重放。
+
+	不钳制时重放为空、端点再补 [DONE] ⇒ 刷新后回复"整条消失且显示已完成"。
+	"""
+
+	class _FakePool:
+		def end(self, session_id: str, lease_id: int | None = None) -> None:
+			_ = (session_id, lease_id)
+
+	runner = TurnRunner(_FakePool())
+
+	async def producer():
+		yield (1, b'data: {"n":1}\n\n', "delta")
+		yield (2, b'data: {"n":2}\n\n', "delta")
+		yield (3, b"data: [DONE]\n\n", "done")
+
+	await runner.start(
+		session_id="s2",
+		lease_id=1,
+		model="m",
+		goal_text="g",
+		user_message_id="u1",
+		producer=producer,
+		turn_id="t2",
+	)
+	await runner.wait_done("s2", timeout=2.0)
+
+	stale: list[bytes] = []
+	async for fr in runner.subscribe("s2", cursor=9_000):
+		stale.append(fr)
+	assert len(stale) == 3, f"越界游标应重放本轮全部帧，实得 {stale}"
+
+	tail: list[bytes] = []
+	async for fr in runner.subscribe("s2", cursor=2):
+		tail.append(fr)
+	assert tail == [b"data: [DONE]\n\n"], "轮内游标仍应精确去重"
+
+
+def test_chat_request_accepts_anthropic_provider():
+	"""GUI 把 anthropic 当一等 provider（settingsStore ProviderId），
+	请求体 Literal 少它 ⇒ 每轮 422，handler 都进不去。"""
+	req = ChatCompletionRequest(model="claude", provider="anthropic")
+	assert req.provider == "anthropic"
+
+
+@pytest.mark.asyncio
+async def test_subscribe_announces_gap_when_ring_evicted_frames(monkeypatch):
+	"""环形缓冲挤掉旧帧后，重放段是不完整的：必须先发 stream_gap，
+	否则前端会把缺段当完整内容提交（正文中间少一截且无人知道）。"""
+	from engine import turn_runner as tr
+
+	monkeypatch.setattr(tr, "_MAX_BUFFERED_FRAMES", 1)
+
+	class _FakePool:
+		def end(self, session_id: str, lease_id: int | None = None) -> None:
+			_ = (session_id, lease_id)
+
+	runner = TurnRunner(_FakePool())
+
+	async def producer():
+		for n in range(1, 4):
+			yield (n, f'data: {{"n":{n}}}\n\n'.encode(), "delta")
+		yield (4, b"data: [DONE]\n\n", "done")
+
+	await runner.start(
+		session_id="s3",
+		lease_id=1,
+		model="m",
+		goal_text="g",
+		user_message_id="u1",
+		producer=producer,
+		turn_id="t3",
+	)
+	await runner.wait_done("s3", timeout=2.0)
+
+	frames: list[bytes] = []
+	async for fr in runner.subscribe("s3", cursor=0):
+		frames.append(fr)
+
+	gap = next(
+		(f for f in frames if b"stream_gap" in f),
+		None,
+	)
+	assert gap is not None, f"丢过程序却没人告知：{frames}"
+	payload = json.loads(gap.decode().removeprefix("data: ").strip())["xy"]
+	assert payload["type"] == "stream_gap"
+	assert payload["dropped_through_event_id"] >= 1
+	assert payload["first_available_event_id"] >= payload["dropped_through_event_id"] + 1
 
 
 @pytest.mark.asyncio

@@ -52,7 +52,7 @@ def active_container() -> str:
 		cid = current_container()
 	except Exception:  # noqa: BLE001 — 路由模块不可用视为宿主
 		cid = ""
-	return (cid or os.environ.get("XEYO_DOCKER_CONTAINER", "") or "").strip()
+	return (cid or "").strip()
 
 
 def _sh_quote(value: str) -> str:

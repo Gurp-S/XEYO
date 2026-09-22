@@ -382,9 +382,20 @@ def _segment_groups(
 		params.request_min_budget_tokens,
 		has_requests=request_possible,
 	)
+	# PIN 三段（CONSTRAINTS / UNRESOLVED / TODO）是**受保护的事实**，不参与 [PATHS] 的
+	# 配额竞争：原先把它们也算进「已占固定预算」，于是 [UNRESOLVED] 变长就直接扣 [PATHS] 的
+	# 额度——实测 P0 之后大会话的 [PATHS] 上限从 800 tok 掉到 172 tok，`path_recent` 针
+	# 99.64% → 94.99%。PIN 超额由固定段审计单独记录（budget._PROTECTED_FIXED_HEADERS）。
+	pin_tokens = sum(
+		segment_tokens(items)
+		for h, items in out.items()
+		if h in (H_CONSTRAINTS, H_UNRESOLVED, H_TODO)
+	)
 	paths_budget = max(
 		0,
-		int(params.fixed_segment_budget_tokens) - fixed_before_paths - request_floor,
+		int(params.fixed_segment_budget_tokens)
+		- (fixed_before_paths - pin_tokens)
+		- request_floor,
 	)
 	paths_lines = render_paths(
 		graph,
@@ -557,17 +568,20 @@ def assemble(
 		handles=handles,
 		rehydration=rehydration,
 	)
-	request_skip = frozenset({seeds.pin_nodes[0]}) if seeds.pin_nodes else frozenset()
+	requests_pinned = frozenset({seeds.pin_nodes[0]}) if seeds.pin_nodes else frozenset()
 	groups, budget_audit = apply_hot_budgets(
 		groups,
 		params,
 		graph=graph,
 		region_end=region_end,
 		request_header=H_REQUESTS,
-		request_skip=request_skip,
+		request_skip=requests_pinned,
 		user_nodes=seeds.user_nodes,
 		fixed_headers=(H_CONSTRAINTS, H_UNRESOLVED, H_TODO, H_WORKING, H_PATHS, H_REQUESTS, H_NEXT),
 		main_headers=(H_MAIN, H_REHYDRATED, H_DECISIONS, H_PRUNED),
+		# 卡面 = 带错误签名的卡 + 其余卡，两者逐行都带句柄 ⇒ 单独按「可恢复性索引」
+		# 记一笔账，不再混进主链超限（见 WscParams.index_segment_budget_tokens）。
+		index_headers=(H_DECISIONS, H_PRUNED),
 		handles=handles,
 	)
 	trace.append({"mode": params.mode, "action": "budget", "why": budget_audit.describe()})

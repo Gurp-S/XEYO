@@ -60,6 +60,20 @@ class RollbackIdempotencyError(RollbackError):
 _ENGINE_ROLES = frozenset({"user", "assistant", "tool", "system"})
 
 
+def _is_user_turn_row(row: Mapping[str, Any]) -> bool:
+    """这条 role=user 记录是"用户开了一轮"吗？
+
+    通报片段声道把引擎状态块落成 role=user 条目（带 ``note_key``）。它们在
+    message_ids 里必须保留（回退时要连带撤销），但绝不能当轮锚点——否则每个
+    边界都凭空多出一个可回退的"轮"，rewind 的粒度就不再等于用户轮。
+    """
+    from prompt.notice_channel import is_notice_message
+
+    if str(row.get("role") or "") != "user":
+        return False
+    return not is_notice_message(row)
+
+
 @dataclass(frozen=True)
 class _FileState:
     exists: bool
@@ -393,7 +407,7 @@ class RollbackService:
         turn_ids = [
             self._chat_turn_id(str(row.get("id")))
             for row in engine_rows
-            if row.get("role") == "user" and row.get("id")
+            if _is_user_turn_row(row) and row.get("id")
         ]
         if not turn_ids:
             return None
@@ -539,7 +553,7 @@ class RollbackService:
         user_ids_from_target: list[str] = []
         seen_target = False
         for row in rows:
-            if str(row.get("role") or "") != "user" or not row.get("id"):
+            if not _is_user_turn_row(row) or not row.get("id"):
                 continue
             mid = str(row["id"])
             if mid == target_message_id:

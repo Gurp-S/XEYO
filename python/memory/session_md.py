@@ -446,10 +446,17 @@ def _tool_paths_and_facts(messages: list[dict[str, Any]]) -> list[str]:
 
 def _extract(messages: list[dict[str, Any]]) -> dict[str, str]:
     """从消息确定性抽取七段；不 fork 摘要模型。"""
+    from prompt.notice_channel import is_notice_message
+
+    # 通报片段声道把状态块落成 role=user：抽"用户说了什么"必须按身份排除，
+    # 否则 goal/current/next_action 会写成引擎自己注入的通报。
     users = [
         _text_of(m)
         for m in messages
-        if m.get("role") == "user" and _text_of(m) and not _is_tool_msg(m)
+        if m.get("role") == "user"
+        and _text_of(m)
+        and not _is_tool_msg(m)
+        and not is_notice_message(m)
     ]
     asst = [
         _text_of(m)

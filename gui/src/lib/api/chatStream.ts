@@ -108,6 +108,9 @@ export async function streamChat(
 
 	let res: Response;
 	const watchdog = createStreamWatchdog(handlers.signal);
+	// event_id 每 turn 从 1 重新编号 ⇒ 本轮起点先把会话级游标归零；否则 reattach
+	// 会拿上一轮的大游标把本轮帧全部滤掉（后端另有同向钳制，两处口径一致）。
+	rememberTurnCursor(sessionId, 0);
 	try {
 		res = await fetch(apiUrl('/v1/chat/completions'), {
 			method: 'POST',
@@ -187,12 +190,26 @@ export async function streamChat(
 		if (res.status === 202) {
 			// P1：后端已把消息排进 FIFO（settle 后自动投递）——保留乐观气泡，
 			// 标记 queued；不触发 onError（不撤回追加）。
-			let q: {queue_id?: string; position?: number} = {};
+			let q: {
+				queue_id?: string;
+				position?: number;
+				steered?: boolean;
+				delivery?: string;
+				message_id?: string;
+			} = {};
 			try {
-				const j = (await res.json()) as {queue_id?: string; position?: number};
-				q = j;
+				q = (await res.json()) as typeof q;
 			} catch {
 				/* 忽略 */
+			}
+			if (q.steered === true) {
+				// 引导路径不入 inbox：没有 queue_id，能对上号的只有客户端消息 id。
+				// 把它当"已排队"会造出一张删不掉的幽灵卡（DELETE 空 queue_id 必 400）。
+				handlers.onSteered?.({
+					messageId: q.message_id ?? '',
+					delivery: q.delivery ?? 'boundary',
+				});
+				return;
 			}
 			console.info('[inbox] 后端接受排队 (202)', {queue_id: q.queue_id, position: q.position});
 			handlers.onQueued?.({queueId: q.queue_id ?? '', position: q.position ?? 0});
@@ -239,6 +256,24 @@ export async function streamChat(
 			}
 			if (ev.kind === 'delta') {
 				handlers.onDelta(ev.text);
+				continue;
+			}
+			if (ev.kind === 'steer_delivered') {
+				handlers.onSteerDelivered?.({
+					count: ev.count,
+					messageIds: ev.messageIds,
+					version: ev.version,
+					sessionId: ev.sessionId,
+					turnId: ev.turnId,
+					eventId: ev.eventId,
+				});
+				continue;
+			}
+			if (ev.kind === 'stream_gap') {
+				handlers.onStreamGap?.({
+					droppedThroughEventId: ev.droppedThroughEventId,
+					firstAvailableEventId: ev.firstAvailableEventId,
+				});
 				continue;
 			}
 			if (ev.kind === 'reasoning_delta') {
@@ -524,6 +559,24 @@ export async function streamTurnEvents(
 			}
 			if (ev.kind === 'delta') {
 				handlers.onDelta(ev.text);
+				continue;
+			}
+			if (ev.kind === 'steer_delivered') {
+				handlers.onSteerDelivered?.({
+					count: ev.count,
+					messageIds: ev.messageIds,
+					version: ev.version,
+					sessionId: ev.sessionId,
+					turnId: ev.turnId,
+					eventId: ev.eventId,
+				});
+				continue;
+			}
+			if (ev.kind === 'stream_gap') {
+				handlers.onStreamGap?.({
+					droppedThroughEventId: ev.droppedThroughEventId,
+					firstAvailableEventId: ev.firstAvailableEventId,
+				});
 				continue;
 			}
 			if (ev.kind === 'reasoning_delta') {

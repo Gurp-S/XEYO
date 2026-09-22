@@ -62,21 +62,41 @@ async def _stream_text(text: str, abort: AbortController) -> AsyncIterator[Model
 		await asyncio.sleep(0.008)
 
 
+def _is_engine_notice(text: object) -> bool:
+	"""引擎注入的通报片段（声道 C）——不是"用户说的话"，桩必须跳过它。
+
+	fake 桩按「最后一条 user 文本」判断用户意图；通报片段是 role=user 的独立
+	item，不跳过的话桩会把嗅探/状态块当成用户输入（`echo:` 触发不了，工具回显
+	扫描也会被它截断）。真实模型读得到片段内容，但不因此改变说话人归属。
+	"""
+	if not isinstance(text, str):
+		return False
+	try:
+		from prompt.notice_channel import is_notice_text
+
+		return is_notice_text(text)
+	except Exception:  # noqa: BLE001 — 桩的判定失败不得影响主流程
+		return False
+
+
 def _last_user_text(messages: list[dict]) -> str | None:
 	from prompt.fence import unwrap_remote_user_text
 
 	for m in reversed(messages):
 		if m.get("role") == "user" and isinstance(m.get("content"), str):
-			return unwrap_remote_user_text(m["content"])
+			text = unwrap_remote_user_text(m["content"])
+			if _is_engine_notice(text):
+				continue
+			return text
 	return None
 
 
 def _find_latest_echo_result(messages: list[dict]) -> str | None:
 	"""仅当「最近一条真实 user 文本之后」存在 **echo 工具**的 tool_result 时触发 echoed。
 
-	env 声道(T_now)尾插的伪造 assistant/tool_result 对不是 echo 调用——
-	其 tool_result 无对应 name=="echo" 的 tool_use id,必须被跳过,否则 fake
-	会把背景块误当 echo 结果回显(导致 HTTP fake 全栈测试断言落空)。
+	引擎注入的通报片段（role=user）不是"最近的真实 user 文本"，不得截断扫描；
+	其余工具（非 echo）的 tool_result 也必须跳过，否则 fake 会把别的工具结果
+	回显成 `echoed:`（导致 HTTP fake 全栈测试断言落空）。
 	"""
 	from prompt.fence import unwrap_tool_output
 
@@ -95,7 +115,11 @@ def _find_latest_echo_result(messages: list[dict]) -> str | None:
 
 	for m in reversed(messages):
 		content = m.get("content")
-		if m.get("role") == "user" and isinstance(content, str):
+		if (
+			m.get("role") == "user"
+			and isinstance(content, str)
+			and not _is_engine_notice(content)
+		):
 			return None  # 已越过最近真实 user → 其后无 echo 待回显
 		if isinstance(content, list):
 			for block in content:

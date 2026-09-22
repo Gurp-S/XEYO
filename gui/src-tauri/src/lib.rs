@@ -84,22 +84,52 @@ fn python_root(app: &AppHandle) -> PathBuf {
 	}
 }
 
-/// T30：后端端口文件路径（与 python/server/portfile.py 同一真相：
-/// <python_root>/../.xeyo/backend_port，可用 XEYO_PORT_FILE 覆盖）。
-fn backend_port_file_path() -> Option<PathBuf> {
-	if let Ok(override_path) = std::env::var("XEYO_PORT_FILE") {
-		let p = PathBuf::from(override_path);
-		if !p.as_os_str().is_empty() {
-			return Some(p);
-		}
+/// T30：后端端口文件路径（与 python/server/portfile.py 同一真相）。
+///
+/// 单一真相由 `init_port_file` 在 setup 时定下并缓存，`spawn_python` 再以
+/// `XEYO_PORT_FILE` 显式传给子进程 ⇒ 读写两侧不可能各算各的。历史实现用
+/// `env!("CARGO_MANIFEST_DIR")`（编译期构建机路径）推导，装机后该路径不存在 ⇒
+/// 守护线程永远读不到端口文件 ⇒ 健康判定恒 false，每 30–40s 杀掉并重开后端。
+static PORT_FILE: OnceLock<PathBuf> = OnceLock::new();
+
+fn init_port_file(app: &AppHandle) -> PathBuf {
+	if let Some(p) = PORT_FILE.get() {
+		return p.clone();
 	}
-	let py_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../python");
-	let base = if py_root.exists() {
-		py_root
-	} else {
-		PathBuf::from("python")
+	let resolved = match std::env::var("XEYO_PORT_FILE") {
+		Ok(v) if !v.trim().is_empty() => PathBuf::from(v.trim()),
+		_ => {
+			// 首选后端源码/资源的上一级 <base>/.xeyo/backend_port（与 portfile.py
+			// 的 parents[2] 同构，且兼容 XEYO.bat 先起后端的复用路径）。
+			let beside = python_root(app)
+				.parent()
+				.map(|base| base.join(".xeyo").join("backend_port"));
+			match beside {
+				Some(p) if ensure_parent_writable(&p) => p,
+				_ => match app.path().app_data_dir() {
+					Ok(dir) => dir.join("backend_port"),
+					Err(_) => PathBuf::from(".xeyo").join("backend_port"),
+				},
+			}
+		}
 	};
-	Some(base.parent()?.join(".xeyo").join("backend_port"))
+	let _ = PORT_FILE.set(resolved.clone());
+	resolved
+}
+
+/// 目录不存在就先建；建不成即视为不可写（Program Files 下的非管理员安装）。
+fn ensure_parent_writable(path: &PathBuf) -> bool {
+	let Some(parent) = path.parent() else {
+		return false;
+	};
+	if parent.as_os_str().is_empty() {
+		return false;
+	}
+	std::fs::create_dir_all(parent).is_ok()
+}
+
+fn backend_port_file_path() -> Option<PathBuf> {
+	PORT_FILE.get().cloned()
 }
 
 /// 极简 JSON 整数提取（避免引 serde）：找 `"key": N`。
@@ -404,6 +434,8 @@ fn spawn_python(app: &AppHandle) -> Result<Child, String> {
 		.env("PYTHONIOENCODING", "utf-8")
 		.env("XEYO_HTTP_HOST", "127.0.0.1")
 		.env("XEYO_HTTP_PORT", "8000")
+		// 端口文件路径由壳决定并下发：后端写、壳读，同一份。
+		.env("XEYO_PORT_FILE", init_port_file(app))
 		.env_remove("XEYO_CWD")
 		.env(
 			"XEYO_REWIND_ENABLED",
@@ -888,6 +920,9 @@ pub fn run() {
 
 			// 幂等启动后端：若 :8000 已有健康后端（例如由 XEYO.bat 先启动），
 			// 就不再拉起第二个 `-m server`，避免双后端抢 8000 端口导致 GUI 间歇性“重启”。
+			// 先定端口文件路径：wait_health 认的是"端口文件登记的 pid 仍存活"，
+			// 路径未定时任何健康探测都会被判成不健康。
+			init_port_file(app.handle());
 			let spawn_mark = Arc::new(Mutex::new(None::<Instant>));
 			if !wait_health(Duration::from_secs(3)) {
 				match spawn_python(app.handle()) {

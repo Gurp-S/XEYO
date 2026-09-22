@@ -7,12 +7,29 @@
  * 这类断裂不会报错、不会告警，只能靠契约测试锁住。
  */
 import {describe, expect, it} from 'vitest';
-import {parseSseBlock} from './core';
+import {parseOpenAiSse, parseSseBlock} from './core';
 
 /** 组装一条 xy 信封帧（与后端 `_xy_chunk` 同形）。 */
 function frame(xy: Record<string, unknown>): string {
 	return `data: ${JSON.stringify({xy: {schema_version: '1', ...xy}})}`;
 }
+
+describe('parseSseBlock · stream_gap 帧（reattach 空洞）', () => {
+	it('解析空洞帧并保留两个事件号', () => {
+		const ev = parseSseBlock(
+			frame({
+				type: 'stream_gap',
+				dropped_through_event_id: 7,
+				first_available_event_id: 8,
+			}),
+		);
+		expect(ev && ev.kind).toBe('stream_gap');
+		if (ev && ev.kind === 'stream_gap') {
+			expect(ev.droppedThroughEventId).toBe(7);
+			expect(ev.firstAvailableEventId).toBe(8);
+		}
+	});
+});
 
 describe('parseSseBlock · title 帧（T5）', () => {
 	it('解析标题帧并保留 pinned / enhanced', () => {
@@ -90,5 +107,56 @@ describe('parseSseBlock · permission_pending.intent（T3）', () => {
 		} else {
 			throw new Error('permission_pending 帧未被解析');
 		}
+	});
+});
+
+/** SSE 分帧的行尾口径（SSE 规范允许 CR / CRLF，网关常转）。 */
+describe('parseOpenAiSse · 行尾与跨块边界', () => {
+	async function collect(chunks: string[]) {
+		const enc = new TextEncoder();
+		let i = 0;
+		const body = new ReadableStream<Uint8Array>({
+			pull(c) {
+				if (i >= chunks.length) {
+					c.close();
+					return;
+				}
+				c.enqueue(enc.encode(chunks[i]));
+				i += 1;
+			},
+		});
+		const out: string[] = [];
+		for await (const ev of parseOpenAiSse(body)) {
+			if (ev.kind === 'delta') out.push(`delta:${ev.text}`);
+			else if (ev.kind === 'done') out.push('done');
+			else out.push(ev.kind);
+		}
+		return out;
+	}
+
+	const a = `data: ${JSON.stringify({choices: [{delta: {content: 'A'}}]})}`;
+	const b = `data: ${JSON.stringify({choices: [{delta: {content: 'B'}}]})}`;
+
+	it('LF 分帧（我们后端自己的形态）', async () => {
+		expect(await collect([`${a}\n\n${b}\n\ndata: [DONE]\n\n`])).toEqual([
+			'delta:A',
+			'delta:B',
+			'done',
+		]);
+	});
+
+	it('CRLF 分帧不得把整条流当成一个块而静默丢帧', async () => {
+		expect(await collect([`${a}\r\n\r\n${b}\r\n\r\ndata: [DONE]\r\n\r\n`])).toEqual([
+			'delta:A',
+			'delta:B',
+			'done',
+		]);
+	});
+
+	it('块边界正好落在 CR 与 LF 之间时也要切开', async () => {
+		// 分包把 CRLF 拆断：'...\r' | '\n\r\n...'。归一化必须在拼接后进行。
+		expect(
+			await collect([`${a}\r`, `\n\r\n${b}\r\n\r\n`, 'data: [DONE]\r\n\r\n']),
+		).toEqual(['delta:A', 'delta:B', 'done']);
 	});
 });

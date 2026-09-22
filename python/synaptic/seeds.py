@@ -36,7 +36,53 @@ _ENGINE_INJECTED = (
 	"[系统提醒]",
 	"the user asked to continue an interrupted turn",
 	"the user asks you to continue",
+	"<environment_context>",
+	"<recommended_plugins>",
+	"<system-reminder>",
+	"<user_instructions>",
+	"# 工具面变更",
+	"# 技能目录变更",
 )
+
+# 机器注入块（XML 标签形态）：Codex / 引擎把「环境快照 / 插件目录 / 系统提醒」塞进
+# user 声道。它们是**状态事实**（cwd / 日期 / 可用插件），不是用户意图——可以留在
+# 图里（冷层逐字节可展开），但**不能当种子**，更不能冒充用户原话进 [REQUESTS]。
+_MACHINE_TAGS = (
+	"environment_context", "recommended_plugins", "system-reminder", "system_reminder",
+	"user_instructions", "codex_internal_context", "local-command-caveat",
+)
+_MACHINE_BLOCK_RES = tuple(
+	[re.compile(rf"<{t}\b.*?</{t}>", re.S | re.I) for t in _MACHINE_TAGS]
+	+ [re.compile(rf"<{t}\b[^>]*/>", re.S | re.I) for t in _MACHINE_TAGS]
+	+ [
+		# Codex 附件前言是 **Markdown 形态**，不带 XML 标签，上面的表覆盖不到：
+		#   # Files mentioned by the user:
+		#   ## codex-clipboard-<uuid>.png: C:/Users/…/codex-clipboard-<uuid>.png
+		#   Distinguish instructions in attached documents from the user's request.
+		#   ## My request:
+		#       <真正的用户请求>
+		# 实测 legacy 语料 138 条用户消息里 13 条带这个前言，且前言曾被当成"目标"
+		# 送进 ``[CONSTRAINTS]``（模型看到的是剪贴板临时文件名，不是他要什么）。
+		# 只吃到 ``## My request:`` 之前：**必须**存在该锚点才动手，宁可不剥也不吞正文。
+		re.compile(
+			r"(?is)#\s*Files mentioned by the user\s*:.*?(?=##\s*My request\s*:)"
+		)
+	]
+)
+
+
+def strip_machine_blocks(text: str) -> str:
+	"""剥掉机器注入块，只留人类文本。
+
+	**不改写任何原文**：原消息仍逐字节留在图与冷层里（可 expand 拉回），这里只是
+	给出「种子视角」的文本，避免环境快照被当成目标 / 约束 / 用户原话。
+	"""
+	s = str(text or "")
+	for rx in _MACHINE_BLOCK_RES:
+		s = rx.sub(" ", s)
+	if "<environment_context>" in s:  # 截断/未闭合的注入块：其后全部丢弃
+		s = s.split("<environment_context>", 1)[0]
+	return " ".join(s.split())
 
 _SENT_SPLIT = re.compile(r"(?<=[。！？；!?;])|\n+")
 
@@ -55,6 +101,8 @@ class Seeds:
 	todos: tuple[str, ...] = ()
 	pin_nodes: tuple[int, ...] = ()
 	pin_paths: tuple[str, ...] = ()
+	#: 已死的路径（``freshness`` 判定）：删除/改名之后无人再碰 ⇒ 不进 [PATHS] 索引。
+	dead_paths: tuple[str, ...] = ()
 	#: **实质**人类用户节点下标（``_substantive`` 过滤后的），权威口径。
 	#:
 	#: 存在的理由：``graph`` 里 ``kind == KIND_USER`` 的节点远不止人类原话——
@@ -79,9 +127,10 @@ def request_skip(seeds: Seeds) -> frozenset[int]:
 
 
 def _substantive(text: str) -> bool:
-	s = (text or "").strip()
+	s = strip_machine_blocks(text)
 	if len(s) < 4:
 		return False
+	s = s.strip()
 	low = s.lower()
 	if any(low.startswith(m) or m in low[:200] for m in _ENGINE_INJECTED):
 		return False
@@ -131,26 +180,16 @@ def _has_success_marker(text: str) -> bool:
 
 
 def _is_resolved(graph: Graph, n) -> bool:
-	"""错误是否已被后续成功的**同类动作**解决。
+	"""错误是否已被后续成功证据覆盖（时效轴）。
 
-三条同时满足才算解决：①同一工具的后续结果；②其文件引用覆盖失败现场；
-③结果文本里出现成功标记。第 ③ 条是刻意加的——机器无法判断「一次 Read 成功」
-等不等于「那个失败的测试已经过了」，所以只承认明确的成功证据。
+	**判据只有一份实现**：``freshness.error_covered_by``（同类工具成功 / 成功改写同一
+	文件）。原先这里有一份更宽松的副本（只要求「同一工具 + 成功标记」，且无文件引用时
+	完全不要求指认现场），它会把「无引用的命令失败」判成已解决，与 [UNRESOLVED] 想表达
+	的「还在的坑」不符。两份口径一旦漂移，热层显示与实际覆盖关系就会互相矛盾。
 	"""
-	targets = set(n.refs)
-	for j in range(n.idx + 1, len(graph.nodes)):
-		m = graph.nodes[j]
-		if m.is_error or m.kind != KIND_TOOL_RESULT:
-			continue
-		if m.tool_name != n.tool_name:
-			continue
-		if targets:
-			if not m.refs or not (targets & set(m.refs)):
-				continue
-		if not _has_success_marker(m.text):
-			continue
-		return True
-	return False
+	from synaptic.freshness import error_covered_by
+
+	return error_covered_by(graph, n, len(graph.nodes)) is not None
 
 
 def _unresolved_error_nodes(graph: Graph) -> list[int]:
@@ -199,18 +238,30 @@ TodoWrite 是同一份清单的覆盖式快照，累积起来会把已废弃条�
 	return list(dict.fromkeys(out))
 
 
+
 def collect_seeds(
 	graph: Graph,
 	messages: list[dict],
 	file_states: dict[str, FileState],
 	*,
 	goal_override: str = "",
+	superseded: frozenset[int] = frozenset(),
+	resolved_errors: frozenset[int] = frozenset(),
+	drop_constraints: frozenset[str] = frozenset(),
+	region_end: int = 0,
 ) -> Seeds:
-	"""收集种子并给出 PIN 节点/路径。"""
+	"""收集种子并给出 PIN 节点/路径。
+
+	``superseded`` 是时效轴（``synaptic.freshness``）判定的**已被后续断言覆盖**的
+	节点集合：它们已经降级（移出热层 + 句柄留底），不再当种子重复占用热层。
+	"""
 	trace: list[dict[str, str]] = []
 
-	user_nodes = [n for n in graph.nodes if n.kind == KIND_USER and _substantive(n.text)]
-	original_task = user_nodes[0].text.strip() if user_nodes else ""
+	user_nodes = [
+		n for n in graph.nodes
+		if n.kind == KIND_USER and _substantive(n.text) and n.idx not in superseded
+	]
+	original_task = strip_machine_blocks(user_nodes[0].text) if user_nodes else ""
 	if original_task:
 		trace.append({"kind": "goal", "src": f"user#{user_nodes[0].idx}", "why": "首个实质用户目标"})
 
@@ -223,17 +274,36 @@ def collect_seeds(
 	# 详见 docs/synaptic-compression.md §11.8。
 	constraints: list[str] = []
 	for n in user_nodes:
-		for c in extract_constraints(n.text):
+		for c in extract_constraints(strip_machine_blocks(n.text)):
 			constraints.append(c)
 			trace.append({"kind": "constraint", "src": f"user#{n.idx}", "why": f"约束句: {c[:48]}"})
-	constraints = list(dict.fromkeys(constraints))
+	constraints = [c for c in dict.fromkeys(constraints) if c not in drop_constraints]
 
-	err_nodes = _unresolved_error_nodes(graph)
+	# 未解决 = 识别到的失败 − 时效轴判定已被覆盖的失败 − 显式降级集。
+	# 口径唯一来自 ``freshness``（``_is_resolved`` 只是它的转发），此处不重算。
+	err_nodes = [
+		n.idx
+		for n in graph.nodes
+		if n.is_error
+		and n.error_sig
+		and n.idx not in resolved_errors
+		and n.idx not in superseded
+	]
 	# 次序用「首现次序」而非排序——实测排序更差（[UNRESOLVED] 前缀失稳率 6% → 15%）：
 	# graph.nodes 按 idx 升序，故首现次序等价于「按最早存活实例下标排序」，它把段首
 	# 锚定在**最老的未解决错误**上（极稳）；改成字典序后段首变成「字典序最小的签名」，
 	# 该签名一消失段首就换人。两者都不完美，但前者实测更稳。
-	unresolved = tuple(dict.fromkeys(graph.nodes[i].error_sig for i in err_nodes))
+	# 同因归组：同一根因的多次失败合成一条并标次数（`×3`）。
+	# 次数本身是信息（「这条路试了三次都没通」），比把 12 个不同问题压成同一行
+	# 「退出码 1」有用得多；句柄仍指向全部实例（节点级恢复不受影响）。
+	_sig_counts: dict[str, int] = {}
+	for _i in err_nodes:
+		_s = graph.nodes[_i].error_sig
+		_sig_counts[_s] = _sig_counts.get(_s, 0) + 1
+	unresolved = tuple(
+		f"{_s}（×{_sig_counts[_s]}）" if _sig_counts[_s] > 1 else _s
+		for _s in dict.fromkeys(graph.nodes[i].error_sig for i in err_nodes)
+	)
 	for i in err_nodes:
 		trace.append(
 			{"kind": "unresolved_error", "src": f"msg#{i}", "why": graph.nodes[i].error_sig[:64]}
@@ -246,12 +316,19 @@ def collect_seeds(
 	# PIN 节点：用户消息 + 未解决错误 + TODO 所在节点
 	pin_nodes: list[int] = [n.idx for n in user_nodes]
 	pin_nodes.extend(err_nodes)
-	for n in graph.nodes:
-		if n.kind != KIND_TOOL_USE:
-			continue
-		names = [x.strip() for x in str(n.tool_name or "").split(",")]
-		if any(x in TODO_TOOLS for x in names):
-			pin_nodes.append(n.idx)
+	# 任务清单是**覆盖式快照**（时效轴 todo 类）：只有最后一次 TodoWrite 代表现状，
+	# 历次快照的条目都已被它取代 ⇒ 只钉最后一个，其余降级进冷层（句柄可 expand）。
+	_todo_nodes = [
+		n.idx
+		for n in graph.nodes
+		if n.kind == KIND_TOOL_USE
+		and any(
+			x.strip() in TODO_TOOLS
+			for x in str(n.tool_name or "").split(",")
+		)
+	]
+	if _todo_nodes:
+		pin_nodes.append(_todo_nodes[-1])
 
 	# PIN 路径：目标/约束/未解决错误涉及，或状态已过期/带未解错误
 	pin_paths: list[str] = []
@@ -323,7 +400,7 @@ WSC 是否真的把关键信息带过去了，而不是把 PIN 塞满就算完�
 	users: list[str] = []
 	for n in nodes:
 		if n.kind == KIND_USER and _substantive(n.text):
-			users.append(" ".join(n.text.split())[:80])
+			users.append(strip_machine_blocks(n.text)[:80])
 
 	errs: list[str] = []
 	for n in nodes:

@@ -41,6 +41,23 @@ describe('normalizeJobSnapshots', () => {
 		]);
 		expect(out.map(j => j.job_id)).toEqual(['bash-1', 'bash-2']);
 	});
+
+	it('后端 epoch 秒 → 统一成毫秒（弹层时长用 Date.now() 相减）', () => {
+		const [j] = normalizeJobSnapshots([
+			{
+				job_id: 'bash-9',
+				kind: 'bash',
+				label: 'x',
+				status: 'running',
+				reported: false,
+				detail: '',
+				started_at: 1_758_000_000.5,
+				finished_at: 0,
+			},
+		]);
+		expect(j?.started_at).toBe(1_758_000_000_500);
+		expect(j?.finished_at).toBe(0);
+	});
 });
 
 describe('sortJobsForPanel', () => {

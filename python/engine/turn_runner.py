@@ -6,6 +6,7 @@ GUI 刷新只断投影流；显式 Stop / interrupt 才杀 turn。
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import threading
 import time
@@ -76,6 +77,9 @@ class _DetachedTurn:
 	incomplete_tools: list[str] = field(default_factory=list)
 	active_agents: list[str] = field(default_factory=list)
 	frames_bytes: int = 0
+	# 已被环形缓冲挤掉的最大事件号（0 = 没挤过）。重放只能给还留着的帧，
+	# 客户端必须知道中间有洞——否则缺段会被当成完整内容提交。
+	dropped_through_id: int = 0
 
 
 _END = object()
@@ -218,6 +222,9 @@ class TurnRunner:
 					):
 						_ev_id, ev_frame, _k = det.frames.pop(0)
 						det.frames_bytes -= len(ev_frame)
+						det.dropped_through_id = max(
+							det.dropped_through_id, int(_ev_id)
+						)
 				# busy 租约心跳：每 ≥30s 刷一次，防止长回合被 stale 回收。
 				# 逐帧节流，避免每 delta 都抢 pool 锁。
 				now = time.monotonic()
@@ -427,10 +434,32 @@ class TurnRunner:
 			t = self._turn_locked(session_id)
 		if t is None:
 			return
+		# event_id 每 turn 从 1 重新编号（chat.py 每请求 new EventIdGenerator），而 GUI
+		# 把游标存在会话级 sessionStorage 里 ⇒ 上一轮的大游标会把本轮重放全部滤空，
+		# 端点再补 [DONE] ⇒ 回复"整条消失且显示已完成"。游标超出本轮最大事件号即判定
+		# "来自更早的 turn"，归零重放本轮全部帧。
+		if cursor > t.last_event_id:
+			cursor = 0
 		q: asyncio.Queue[Any] = asyncio.Queue(maxsize=512)
 		# 先挂订阅再重放，避免窗口丢帧；用 cursor 去重。
 		t.subscribers.append(q)
 		try:
+			if t.dropped_through_id and cursor < t.dropped_through_id:
+				# 客户端要的起点已被环形缓冲挤掉：只重放"还留着的那一段"是不完整的，
+				# 必须把洞告诉它，由它去拉全量 transcript 对账（否则缺段会被当完整提交）。
+				gap = json.dumps(
+					{
+						"xy": {
+							"type": "stream_gap",
+							"dropped_through_event_id": int(t.dropped_through_id),
+							"first_available_event_id": (
+								int(t.frames[0][0]) if t.frames else 0
+							),
+						}
+					},
+					ensure_ascii=False,
+				)
+				yield f"data: {gap}\n\n".encode("utf-8")
 			for event_id, frame, _kind in list(t.frames):
 				if event_id > cursor:
 					yield frame

@@ -37,7 +37,7 @@ WSC 是旁路包（`python/synaptic/`，算法层对生产链零 import）。并
 {"ts": 1757..., "session": "sess_x", "turn": 12, "n_messages": 812,
  "actual_tokens": 41233, "wsc_hot_tokens": 3111, "wsc_tokens": 8902,
  "cut": 800, "region_raw_tokens": 39411, "fold": true, "saved": 36300,
- "transition": 4100, "remaining": 16, "reason": "worth_fold",
+ "transition": 4100, "shots_since_fold": 9, "payback_shots": 3.4, "reason": "pays_back_too_slow",
  "needles": {"user": {"n": 3, "hit": 3, "rate": 1.0}, ...},
  "recover": {"coverage": 1.0, "lossless_rate": 1.0},
  "latency_ms": 41.2, "error": ""}
@@ -236,7 +236,7 @@ def _observe_inner(
     from engine.compact import keep_tail_cut
     from memory.offload import is_externalized_path, ref_path_for
     from memory.runtime import c2_cut_index
-    from synaptic.cadence import CadenceState, estimate_remaining
+    from synaptic.cadence import CadenceState
     from synaptic.metrics import exposed_handles, needle_survival, recoverability
     from synaptic.project import project as wsc_project
     from synaptic.replay import _region_raw_tokens
@@ -287,7 +287,6 @@ def _observe_inner(
     dec = cadence.decide(
         region_tokens_=region_tok,
         tail_tokens_=tail_tok,
-        remaining_turns=estimate_remaining(messages),
         margin=pset.fold_margin,
         price_ratio=pset.fold_price_ratio,
     )
@@ -346,7 +345,11 @@ def _observe_inner(
         "saved": dec.saved,
         "head_delta": dec.head_delta,
         "transition": dec.transition,
-        "remaining": dec.remaining,
+        # 09-22 节奏判据去预测后，这两项取代了旧的 `remaining`（猜还剩几轮）。
+        # ⚠️ 改 `FoldDecision` 的字段必须同时改这里：影子层把异常吞在
+        # 「绝不挡主链」的 except 里 ⇒ 少一个字段就是**账本静默不写**（今天就这么红的 5 个测试）。
+        "shots_since_fold": dec.shots_since_fold,
+        "payback_shots": round(dec.payback_shots, 2),
         "reason": dec.reason,
         "context_limit": int(context_limit or 0),
         # 阶段 C 准入条件之一「shadow 里 PIN 超预算率 < 5%」靠这两项算：

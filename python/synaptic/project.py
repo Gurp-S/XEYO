@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from synaptic.assemble import (
@@ -27,6 +27,7 @@ from synaptic.coldstore import (
 )
 from synaptic.filestate import build_file_states, file_state_tokens, working_set
 from synaptic.freeze import freeze_working_set, phase_signature
+from synaptic.freshness import analyze as analyze_freshness
 from synaptic.graph import Graph, build_graph, graph_digest
 from synaptic.handles import HandleRenderer
 from synaptic.prune import build_cards, cards_handle, cards_tokens, group_cards
@@ -71,6 +72,8 @@ class Projection:
 	audit: list[dict] = field(default_factory=list)
 	#: 冷层取回视图路径（`handle_style=read` 时非空）。
 	view_path: str = ""
+	#: 时效轴（去噪）审计：错误识别数 / 按类降级数 / 误降级复检 / 死路径。
+	denoise: dict = field(default_factory=dict)
 	#: 当前状态与历史候选（仅审计/旁路；不改变当前热层文本）。
 	current_state: CurrentState | None = None
 	history_query: HistoryQuery | None = None
@@ -119,9 +122,23 @@ def project(
 
 	graph = build_graph(messages, include_soft_edges=p.soft_dag)
 	timer.mark("graph")
+	# 时效轴：判定「同实体的旧断言是否已被后续断言覆盖」。这一步必须先于种子收集——
+	# 降级集要参与「谁当种子 / 谁进热层」的决策，但它**只降级不删除**（冷层句柄可 expand）。
+	fresh = analyze_freshness(graph, region_end=region_end)
+	timer.mark("freshness")
 	file_states = build_file_states(graph, messages)
 	timer.mark("file_state")
-	seeds = collect_seeds(graph, messages, file_states, goal_override=goal_override)
+	seeds = collect_seeds(
+		graph,
+		messages,
+		file_states,
+		goal_override=goal_override,
+		superseded=fresh.superseded,
+		resolved_errors=fresh.resolved_idx,
+		drop_constraints=fresh.superseded_constraints,
+		region_end=region_end,
+	)
+	seeds = replace(seeds, dead_paths=fresh.dead_paths)
 	timer.mark("seeds")
 
 	pins = build_pins(seeds)
@@ -143,7 +160,9 @@ def project(
 	history_query = build_history_query(current_state, region_end=region_end)
 	history_candidates = discover_history(graph, history_query)
 
-	unresolved_set = _unresolved_idx(graph)
+	# 已被后续成功覆盖的失败不再是「未解决」——它降级进冷层，不再占热层席位。
+	# 口径直接取时效轴的结果，避免与 ``seeds`` 各算一份。
+	unresolved_set = set(fresh.unresolved_idx) - set(fresh.superseded)
 
 	overhead = pin_tokens + ws_tokens
 	# 主链预算独立于固定段：REQUESTS 不再与 kept 抢同一个未分账水位。
@@ -189,9 +208,13 @@ def project(
 					region_end=region_end,
 					budget_tokens=budget,
 					unresolved_set=unresolved_set,
+					superseded=fresh.superseded,
 				)
 			with timer.measure("select_cards"):
-				cards = build_cards(graph, selection.pruned, p, region_end=region_end)
+				cards = build_cards(
+					graph, selection.pruned, p, region_end=region_end,
+					superseded=fresh.superseded,
+				)
 			used = selection.used_tokens + cards_tokens(cards)
 			overflow = used - p.main_segment_budget_tokens
 			if overflow <= 0:
@@ -482,8 +505,37 @@ def project(
 		current_state=current_state,
 		history_query=history_query,
 		history_candidates=history_candidates,
-		audit=audit_rows(graph, selection),
+		audit=_audit_with_freshness(graph, selection, fresh),
+		denoise=_denoise_report(graph, fresh),
 	)
+
+
+def _audit_with_freshness(graph: Graph, selection: Selection, fresh) -> list[dict]:
+	"""选择审计 + 时效轴降级行（同一张表，便于逐条核对「谁因为什么离开热层」）。"""
+	rows = audit_rows(graph, selection)
+	for d in fresh.downgrades:
+		rows.append(
+			{
+				"idx": d.idx,
+				"action": "降级",
+				"cls": d.cls,
+				"by": d.by,
+				"why": f"被 #{d.by} 覆盖：{d.why}",
+			}
+		)
+	return rows
+
+
+def _denoise_report(graph: Graph, fresh) -> dict:
+	"""去噪审计（进 Projection，供回放/报告聚合）。"""
+	out = fresh.audit()
+	out["path_variants"] = {
+		"merged_pairs": len(graph.refs_merged),
+		"examples": [list(x) for x in graph.refs_merged[:12]],
+	}
+	out["noise_refs_dropped"] = len(graph.noise_refs)
+	out["noise_refs_examples"] = list(graph.noise_refs[:12])
+	return out
 
 
 def _unresolved_idx(graph: Graph) -> set[int]:

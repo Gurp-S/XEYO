@@ -39,6 +39,25 @@ jobs:
       - name: Slash manifest drift
         run: python -m slash.export_manifest --check
 
+      - name: Stream contract drift
+        # 后端帧名 / 请求体枚举改了却没重导出 gui/src/generated/streamContract.ts
+        run: python -m server.export_stream_contract --check
+
+  shell:
+    name: Tauri shell (cargo check)
+    # Windows runner：Tauri 在 Linux 上 cargo check 还要额外装 webkit2gtk 系列，
+    # 而本项目只发 Windows 包 —— 装系统依赖的活儿不该让 CI 猜。
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: gui/src-tauri
+      - name: cargo check
+        run: cargo check --message-format=short
+        working-directory: gui/src-tauri
+
   gui:
     name: GUI typecheck + vitest
     runs-on: ubuntu-latest

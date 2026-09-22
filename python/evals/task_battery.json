@@ -14,7 +14,12 @@
     {
       "id": "info-strategy",
       "task": "python/prompt/t_now_strategy.py 的默认注入声道策略名是什么？只回这个名字。",
-      "check": {"contains_any": ["env_channel"]}
+      "check": {"contains_any": ["notice_fragment"]}
+    },
+    {
+      "id": "info-fallback-ladder",
+      "task": "厂商连 user 包封片段都拒绝时，T_now 通报走哪一档？只回档位名。",
+      "check": {"contains_any": ["skip"]}
     },
     {
       "id": "info-envtool",

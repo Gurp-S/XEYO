@@ -18,6 +18,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+_PATH = Path(__file__).resolve().parents[1]
+
 from msgtypes.message import Message, system_note
 from prompt import inject_store
 from prompt.pre_llm_inject import _dedup_round
@@ -266,5 +268,142 @@ def test_allow_notes_false_discards_and_disarms():
 	assert [n for n, _ in _round("s9", [("goal", "# Goal\n目标：发布")])] == ["goal"]
 
 
+# ------------------------------------------- 留痕形态跟随声道（通报片段档）
+
+
+def test_notice_fragment_carrier_writes_wrapped_user_note():
+	"""片段档的留痕 = 带信封的 user 片段（对齐 Codex ContextualUserFragment）。"""
+	from engine.t_now_notes import persist_pending
+	from prompt.notice_channel import notice_key_of
+	from prompt.t_now_strategy import STRATEGY_NOTICE_FRAGMENT
+
+	text = "# Goal\n目标：发布"
+	_round("f1", [("goal", text)])
+	store = MessageStore()
+	assert (
+		persist_pending(store, session_id="f1", carrier=STRATEGY_NOTICE_FRAGMENT) == 1
+	)
+	msg = store.items[0]
+	assert msg.role == "user"
+	# 身份仍由 note_key 决定：UI 面照样过滤，与形态无关
+	assert msg.hidden is True
+	assert msg.note_key == "goal"
+	assert msg.note_fp == inject_store.fingerprint(text)
+	# 信封自述维度 ⇒ 落库后仍能被认出、被替换、被单独计预算
+	assert notice_key_of(msg.content) == "goal"
+	assert text in msg.content
+
+
+def test_notice_fragment_carrier_keeps_dedup_alive():
+	"""「值不变不重注」在片段档同样成立（2026-09-21 事故：默认档换成片段后，
+	A 闸仍按"只有 system 声道才落留痕"判定 ⇒ 留痕每轮被丢弃并清账，7 个状态块
+	退化成每个边界重发一次）。"""
+	from engine.t_now_notes import persist_pending
+	from prompt.t_now_strategy import STRATEGY_NOTICE_FRAGMENT
+
+	text = "# Goal\n目标：发布"
+	store = MessageStore()
+	_round("f2", [("goal", text)])
+	assert (
+		persist_pending(store, session_id="f2", carrier=STRATEGY_NOTICE_FRAGMENT) == 1
+	)
+	visible = frozenset(store.note_fingerprints())
+	assert ("goal", inject_store.fingerprint(text)) in visible
+	assert _round("f2", [("goal", text)], visible=visible) == []
+	# 值变了 ⇒ 重新注入（并按 key 折叠掉旧版，见 test_per_block_keys_are_independent）
+	assert [
+		n for n, _ in _round("f2", [("goal", "# Goal\n目标：改口径")], visible=visible)
+	] == ["goal"]
+
+
+def test_a_gate_hides_only_system_shaped_notes():
+	"""A 闸只管 system 形态：降到片段档后，降级前落库的 system 留痕必须继续逐出
+	（否则厂商每次请求又吃中段 system ⇒ 逐枪 4xx），而 user 形态照常携带。"""
+	from engine.t_now_notes import persist_pending
+	from prompt.t_now_strategy import (
+		STRATEGY_NOTICE_FRAGMENT,
+		STRATEGY_SYSTEM_CHANNEL,
+	)
+
+	system_text = "# Goal\n甲"
+	fragment_text = "输出精简：开"
+	store = MessageStore()
+	_round("f3", [("goal", system_text)])
+	assert (
+		persist_pending(store, session_id="f3", carrier=STRATEGY_SYSTEM_CHANNEL) == 1
+	)
+	_round("f3", [("compact", fragment_text)])
+	assert (
+		persist_pending(store, session_id="f3", carrier=STRATEGY_NOTICE_FRAGMENT) == 1
+	)
+	assert [m.role for m in store.items] == ["system", "user"]
+	store.set_note_policy(False)
+	projected = store.as_api_messages()
+	assert [m["role"] for m in projected] == ["user"]
+	assert fragment_text in projected[0]["content"]
+	assert system_text not in projected[0]["content"]
+	# 可见面口径与投影一致：被逐出的 system 留痕不得算"还在模型面前"
+	assert store.note_fingerprints() == {
+		("compact", inject_store.fingerprint(fragment_text))
+	}
+
+
+def test_note_carriers_cover_both_shaped_arms():
+	from engine.t_now_notes import NOTE_CARRIERS
+	from prompt.t_now_strategy import (
+		STRATEGY_NOTICE_FRAGMENT,
+		STRATEGY_SYSTEM_CHANNEL,
+	)
+
+	assert NOTE_CARRIERS == frozenset({STRATEGY_SYSTEM_CHANNEL, STRATEGY_NOTICE_FRAGMENT})
+
+
+def test_query_loop_passes_resolved_carrier_to_persist():
+	"""接线门：留痕形态必须由解析出的声道决定，不得在调用点写死。"""
+	src = (
+		_PATH / "engine" / "query_loop.py"
+	).read_text(encoding="utf-8")
+	assert "carrier=_note_carrier" in src
+	assert "allow_notes=_notes_ok" in src
+	assert "_notes_ok = _note_carrier in NOTE_CARRIERS" in src
+
+
 def test_fingerprint_is_128bit():
 	assert len(inject_store.fingerprint("任意文本")) == 32
+
+
+def test_retract_marks_only_that_dimension_and_keeps_the_row():
+	"""撤回 = 逐出模型投影，不删历史行（审计/恢复仍要能取出那一版）。"""
+	from engine.t_now_notes import persist_pending
+	from prompt.pre_llm_inject import _aggregate_state_sections
+	from prompt.t_now_strategy import STRATEGY_NOTICE_FRAGMENT
+
+	# 台账默认 on（autouse 夹具已清 env），这里不再自己写环境变量
+	tagged = _aggregate_state_sections([("goal", "# Goal\n甲"), ("compact", "输出精简：开")])
+	assert [n for n, _ in tagged] == ["world_state"]
+	_round("r1", tagged)
+	store = MessageStore()
+	assert persist_pending(store, session_id="r1", carrier=STRATEGY_NOTICE_FRAGMENT) == 1
+	key = store.items[0].note_key
+	assert key == "world_state"
+	assert store.retract_note("goal") == 0, "没有这个维度就什么都不动"
+	assert store.retract_note(key) == 1
+	assert "输出精简" not in str(store.as_api_messages())
+	assert store.items[0].hidden is True  # 历史面原样保留
+	# 投影可见面也不该再报它"还在模型面前"
+	assert store.note_fingerprints() == set()
+
+
+def test_retraction_is_cancelled_when_the_state_comes_back():
+	"""撤回还挂着、同维度又产出正文 ⇒ 撤回作废：状态回来了就不该把它逐出投影。"""
+	assert inject_store.mode() == inject_store.MODE_ON
+	store = inject_store.get_store()
+	_round("r2", [("goal", "# Goal\n甲")])
+	assert store.drain_notes("r2"), "前置：上一轮的留痕已落库（待撤回只看台账）"
+	assert store.retract("r2", "goal") is True
+	_round("r2", [("goal", "# Goal\n乙")])  # 状态又回来 ⇒ note() 撤销待撤回
+	assert store.take_retractions("r2") == []
+	# 反向：本轮没有任何正文 ⇒ 撤回登记成功
+	store.drain_notes("r2")
+	assert store.retract("r2", "goal") is True
+	assert store.take_retractions("r2") == ["goal"]

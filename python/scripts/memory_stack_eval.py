@@ -2381,11 +2381,22 @@ def _session_info(path: Path) -> dict:
 	from memory.simulator.replay import load_jsonl
 
 	rows = load_jsonl(path)
-	users = sum(1 for r in rows if isinstance(r, dict) and r.get("role") == "user")
+	from prompt.notice_channel import is_notice_message
+
+	# 通报留痕/片段是 role=user：算进轮数与"循环副本"会把引擎文本当用户重复提问。
+	users = sum(
+		1
+		for r in rows
+		if isinstance(r, dict) and r.get("role") == "user" and not is_notice_message(r)
+	)
 	ts_unique = len({float(r["ts"]) for r in rows if isinstance(r, dict) and r.get("ts") is not None})
 	heads: dict[str, int] = {}
 	for r in rows:
-		if isinstance(r, dict) and r.get("role") == "user":
+		if (
+			isinstance(r, dict)
+			and r.get("role") == "user"
+			and not is_notice_message(r)
+		):
 			c = r.get("content")
 			s = c if isinstance(c, str) else json.dumps(c, ensure_ascii=False)[:200]
 			k = str(s)[:120]
@@ -2555,6 +2566,10 @@ def _phase1_corpus(msgs: list[dict]) -> str:
 	total_lines = 0
 	for m in msgs:
 		if m.get("role") == "user":
+			from prompt.notice_channel import is_notice_message
+
+			if is_notice_message(m):
+				continue  # 引擎通报不进语料：它是状态文本，不是用户表达
 			c = m.get("content")
 			if isinstance(c, str) and c.strip():
 				parts.append(f"[用户] {c.strip()[:240]}")
@@ -3654,6 +3669,7 @@ _INJECTED_PREFIXES = (
 	"<user_message",
 	"<tool_output",
 	"[Reminder]",
+	"<system-reminder",  # 通报片段声道：引擎留痕/整段状态也是 role=user
 )
 
 

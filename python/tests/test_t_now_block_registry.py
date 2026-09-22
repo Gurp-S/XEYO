@@ -18,6 +18,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from prompt.notice_channel import WORLD_STATE_KEY
 from prompt.pre_llm_inject import (
 	PIPE_EVENT,
 	PIPE_STATE,
@@ -61,10 +62,41 @@ def test_every_append_site_is_marked_and_registered():
 	assert not dupes, f"标记重复：{sorted(dupes)}"
 
 
+#: **派生维度**：不是装配点，而是由 ``_aggregate_state_sections`` 从已有状态段
+#: 合成出来的整段（对齐 Codex world_state）。它没有 `# block:` 可标，因此不能靠
+#: 装配点扫描证明"有人在产"——那条证据由下面的行为测试给。
+_DERIVED_DIMENSIONS = {WORLD_STATE_KEY: "状态段聚合维度（合成，非装配点）"}
+
+
 def test_registry_has_no_dead_entries():
 	marked = set(_marked_names())
-	dead = set(T_NOW_BLOCK_REGISTRY) - marked
+	dead = set(T_NOW_BLOCK_REGISTRY) - marked - set(_DERIVED_DIMENSIONS)
 	assert not dead, f"登记表存在无装配点的死条目：{sorted(dead)}"
+
+
+def test_derived_dimension_is_actually_produced():
+	"""派生维度不得只在登记表里挂着：聚合函数必须真的产出它、且把状态段收进去。"""
+	from prompt.pre_llm_inject import _aggregate_state_sections
+
+	out = _aggregate_state_sections(
+		[
+			("continue", "CONT"),
+			("compact", "A"),
+			("reconcile_events", "E"),
+			("goal", "B"),
+		]
+	)
+	names = [n for n, _ in out]
+	assert names == ["continue", WORLD_STATE_KEY, "reconcile_events"], names
+	bodies = dict(out)
+	# 聚合落在第一个状态段原来的位置上（"Continue 在前"的尾插合同不变）
+	assert bodies[WORLD_STATE_KEY] == "A\n\nB"
+	# 事件与刻意常驻的状态块各自独立，绝不进聚合
+	assert bodies["reconcile_events"] == "E" and bodies["continue"] == "CONT"
+	# 全是事件/常驻时不凭空造维度
+	assert _aggregate_state_sections([("reconcile_events", "E")]) == [
+		("reconcile_events", "E")
+	]
 
 
 def test_registry_entries_are_complete():

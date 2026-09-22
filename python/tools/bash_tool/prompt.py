@@ -26,7 +26,7 @@ Shell is PowerShell (7 when available, else Windows PowerShell 5.1). No bash-ism
 command required; timeout ms (default 120000, max 600000). A foreground command
 still running near its own timeout (min(300s, timeout×0.8)) is auto-moved to a
 background job: you get the job id plus partial output immediately, and a
-completion notification later; job_output exposes the completed output.
+completion notification later with a bounded output tail.
 run_in_background=true starts a background job immediately.
 Optional working_directory (relative to session cwd; path is constrained to the workspace).
 Noisy test/build/git stdout is compacted for the model; failures are kept.
@@ -47,7 +47,7 @@ container filesystem.
 command required; timeout ms (default 120000, max 600000). A foreground command
 still running near its own timeout (min(300s, timeout×0.8)) is auto-moved to a
 background job: you get the job id plus partial output immediately, and a
-completion notification later; job_output exposes the completed output.
+completion notification later with a bounded output tail.
 run_in_background=true starts a background job immediately.
 Optional working_directory (absolute container path, or relative to the session cwd).
 Noisy test/build/git stdout is compacted for the model; failures are kept.

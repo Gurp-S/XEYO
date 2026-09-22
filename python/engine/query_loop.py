@@ -32,7 +32,9 @@ from engine.repeat_fold import IdenticalResultFold
 from engine.loop_breaker import LoopBreaker
 from engine.loop_ledger import LoopLedger, params_digest
 from engine.observe_safety import safe_observe
-from memory.l5_flag import c2_gate, l5_mode
+from engine.tool_coordinator import ToolCoordinator
+from engine.turn_runtime import TurnRuntime
+from memory.l5_flag import l5_mode
 from memory.runtime import (
 	c2_llm_summary_enabled,
 	maybe_force_compact_on_pressure,
@@ -53,11 +55,7 @@ from permissions.policy import (
 )
 from session.message_store import MessageStore
 from tools.base_tool import ToolResult, tool_flag
-from tools.orchestration import (
-	_run_one_tool,
-	is_concurrency_safe,
-	run_tools_partitioned,
-)
+from tools.orchestration import is_concurrency_safe
 from tools.tool_registry import ToolRegistry
 
 from msgtypes.events import (
@@ -301,6 +299,37 @@ def _llm_retry_delay_ms(attempt: int, retry_after_ms: int | None) -> int:
     return delay_ms
 
 
+def _is_tool_pairing_400(exc: object) -> bool:
+	"""4xx 是否属于「tool 结果/调用配对」结构错误（与 T_now 声道无关）。
+
+	2026-09-20 事故：无主 tool 结果（投影多一条没有 assistant tool_calls 应答的
+	role=tool 行）导致的 400，被下面两处声道回退判据当成"厂商不接受 system/env
+	声道"⇒ 白打一次模型、并把失败记成 ``protocol_fallback``（误导归因）。
+	这类错误与声道无关，回退不解决，直接按普通失败上报。
+	"""
+	if int(getattr(exc, "status_code", 0) or 0) != 400:
+		return False
+	parts = (
+		getattr(exc, "detail", ""),
+		getattr(exc, "message", ""),
+		str(exc),
+	)
+	text = " ".join(str(p) for p in parts if p).lower()
+	if "tool" not in text:
+		return False
+	return any(
+		marker in text
+		for marker in (
+			"preceding message with 'tool_calls'",
+			'preceding message with "tool_calls"',
+			"must be followed by tool messages",
+			"tool_call_id",
+			"role 'tool'",
+			'role "tool"',
+		)
+	)
+
+
 def _llm_provider_name(model: object) -> str:
     return str(getattr(model, "provider", "") or "")
 
@@ -326,6 +355,55 @@ def _audit_llm_failure(
         )
     except Exception:  # noqa: BLE001
         logging.getLogger(__name__).debug("llm failure audit failed", exc_info=True)
+
+
+def _audit_model_event(
+    kind: str,
+    *,
+    session_id: str,
+    turn_id: str,
+    request_id: str,
+    attempt: int,
+    model: object,
+    status: str = "",
+    error_code: str = "",
+) -> None:
+    """记录模型调用边界；不记录 prompt、工具参数或输出正文。"""
+    try:
+        from audit.log import default_audit_log
+
+        fields: dict[str, Any] = {
+            "session_id": session_id,
+            "turn_id": turn_id,
+            "model_request_id": request_id,
+            "attempt": attempt,
+            "provider": _llm_provider_name(model),
+            "model": _llm_model_name(model),
+            "status": status,
+            "error_code": error_code,
+        }
+        try:
+            from engine.workspace_context import get_execution_context
+
+            ctx = get_execution_context()
+            if ctx is not None:
+                for name in (
+                    "trace_id",
+                    "projection_id",
+					"permission_snapshot_id",
+					"workspace_revision",
+					"tool_surface_id",
+					"tool_schema_hash",
+                    "capability_id",
+                ):
+                    value = getattr(ctx, name, "")
+                    if value:
+                        fields[name] = value
+        except Exception:  # noqa: BLE001 —上下文观测失败不挡模型调用
+            pass
+        default_audit_log().record(kind, **fields)
+    except Exception:  # noqa: BLE001 —审计故障不挡模型调用
+        logging.getLogger(__name__).debug("model audit failed", exc_info=True)
 
 
 def _persist_interrupted_anchor(
@@ -804,33 +882,37 @@ async def query_loop(
     zero_hit_tracker = ZeroHitTracker()
     # tu.id → 该调用结果上要追加的零命中提示文本。
     zero_hit_advice: dict[str, str] = {}
-    # max_turns / max_tool_calling 硬停前的一次性收尾放行：配额内工具仍可用
-    # （R3'：不再"一开闸全禁"——收尾恰好最需要落盘；配额尽才禁，文本引导
-    # 收敛）。forced_wrap_up=True 表示已进入收尾窗；wrap_quota_left 是剩余
-    # 可调用次数（XEYO_WRAP_QUOTA 覆盖，默认 3；0=维持旧的全禁语义）。
-    forced_wrap_up = False
-    wrap_quota_left = wrap_quota_from_env()
+    # 回合预算、收尾窗口和收尾工具配额由 TurnRuntime 统一拥有；模型流只消费
+    # 这个状态机的结果，不再在 query_loop 内维护第二套隐式终止状态。
+    turn_runtime = TurnRuntime(
+        budget=budget,
+        abort=abort,
+        wrap_quota_left=wrap_quota_from_env(),
+    )
     turn_reasoning_parts: list[str] = []
     # 配对修复只在 submit 入口（及 abort 路径的 _fill_missing）做一次，
     # 不在每轮模型请求前全量扫 store。
     _repair_unpaired_tool_calls(store, "aborted")
     while True:
-        if abort.aborted:
+        turn_decision = turn_runtime.prepare_next_turn()
+        if turn_decision == "stop_aborted":
             yield StoppedEvent(reason="aborted")
             return
-        if not budget.prepare_next_turn():
-            if forced_wrap_up:
-                # 收尾调用也已消耗，仍无文本可交付 → 维持原硬停语义。
-                yield StoppedEvent(reason=budget.hard_stop_reason or "max_turns")
-                return
-            forced_wrap_up = True
+        if turn_decision == "stop_budget":
+            # 收尾调用也已消耗，仍无文本可交付 → 维持原硬停语义。
+            yield StoppedEvent(reason=budget.hard_stop_reason or "max_turns")
+            return
+        forced_wrap_up = turn_runtime.forced_wrap_up
+        if turn_decision == "wrap_up":
             # R3'：进收尾窗时发布缺口清单 + 剩余配额。
             # 2026-09-15 起模型可见承载（T_now wrap_up 块）已撤销 ⇒ 本发布目前
             # 无消费者（见 _publish_wrap_guide docstring）；引擎侧事实保留，
             # 收尾窗本身与配额闸不受影响。
             try:
                 _publish_wrap_guide(
-                    tools, _workspace_cwd_for_turn(tools), wrap_quota_left
+                    tools,
+                    _workspace_cwd_for_turn(tools),
+                    turn_runtime.wrap_quota_left,
                 )
             except Exception:  # noqa: BLE001 — 引导增强失败不影响 wrap 主路径
                 pass
@@ -844,7 +926,7 @@ async def query_loop(
         except Exception:  # noqa: BLE001 — 广播失败不影响主路径
             pass
         # system 左段保持稳定；Ask/Plan/计划/预算/wrap-up/MEMORY index 挂 T_now。
-        budget.begin_turn()
+        turn_runtime.begin_turn()
 
         remaining = max(
             1,
@@ -852,28 +934,27 @@ async def query_loop(
         )
 
         # T_now v2 边界（唯一注入时机）三件事，同刻完成、顺序固定：
-        # ① 声道闸（A）：只有 system 声道才允许留痕出现在模型输入里——厂商
-        #    不吃中段 system 时（env/skip 档）留痕既不写新、也不进投影，状态块
-        #    改由 notice 声道送达（否则历史里的 system 会让请求持续 4xx）。
+        # ① 声道闸（A）：只有"状态块能独立成一条消息进历史"的声道才允许留痕
+        #    ——system 声道写原生 system，通报片段声道写带信封的 user 片段。
+        #    env / legacy / skip 档既不写新留痕、也不进投影（否则历史里的 system
+        #    会让请求持续 4xx，或留痕根本没有承载形态）。
         # ② 管道 2 留痕落库：上一轮登记的条目此刻追加进历史 ⇒ 本轮投影已含
         #    这一版，台账判「值没变」成立，尾部不再重发。
         # ③ 管道 1 引导（steer）：运行中用户消息此刻取出，作为真 user 消息
         #    进历史——不打断工具批次、不伪装角色，模型下一次采样前看到它。
-        _notes_ok = True
-        try:
-            from prompt.t_now_strategy import (
-                STRATEGY_SYSTEM_CHANNEL,
-                resolve_t_now_strategy,
-            )
+        from engine.t_now_notes import NOTE_CARRIERS
+        from prompt.t_now_strategy import STRATEGY_SYSTEM_CHANNEL
 
-            _notes_ok = (
-                resolve_t_now_strategy(
-                    _llm_provider_name(model), _llm_model_name(model)
-                )
-                == STRATEGY_SYSTEM_CHANNEL
+        _note_carrier = STRATEGY_SYSTEM_CHANNEL
+        try:
+            from prompt.t_now_strategy import resolve_t_now_strategy
+
+            _note_carrier = resolve_t_now_strategy(
+                _llm_provider_name(model), _llm_model_name(model)
             )
         except Exception:  # noqa: BLE001 — 解析失败按设计行为（允许留痕）
-            _notes_ok = True
+            pass
+        _notes_ok = _note_carrier in NOTE_CARRIERS
         try:
             store.set_note_policy(_notes_ok)
         except Exception:  # noqa: BLE001
@@ -884,13 +965,33 @@ async def query_loop(
             from engine.t_now_notes import current_session_id, persist_pending
             from engine.t_now_steer import deliver as _deliver_steer
 
-            _sid = current_session_id()
+            # sid 解析：ContextVar 是主源；取不到时按 snapshot / coordinator
+            # 兜底——取不到就整段投递静默作废（事件只写在 transcript 里）。
+            _sid = (
+                current_session_id()
+                or str(getattr(snap, "session_id", "") or "").strip()
+                or (
+                    str(getattr(coordinator, "session_id", "") or "").strip()
+                    if coordinator is not None
+                    else ""
+                )
+                or _self_session_id()
+            )
             persist_pending(
-                store, session_id=_sid, snapshot=snap, allow_notes=_notes_ok
+                store,
+                session_id=_sid,
+                snapshot=snap,
+                allow_notes=_notes_ok,
+                carrier=_note_carrier,
             )
             # 引导投递：幂等（同 message_id 已在历史里即跳过）+ 至少一次
             # （append 失败的项回队，下一边界重投）。
             _delivered_steer = _deliver_steer(_sid, store)
+            # 忙时排队的用户消息（inbox）同样在边界投递：inbox 只在 settle 投递，
+            # 长回合不 settle ⇒ 用户消息整轮进不了模型输入（2026-09-20 事故）。
+            from engine.t_now_inbox import deliver_queued_users
+
+            _delivered_steer = _delivered_steer + deliver_queued_users(_sid, store)
             if _delivered_steer:
                 snap.proj_cache = None
         except Exception:  # noqa: BLE001 — 留痕/引导失败不影响主路径
@@ -950,9 +1051,12 @@ async def query_loop(
         from prompt.fence import apply_tool_output_fences
         from prompt.tool_result_diff_digest import apply_tool_result_digest
 
-        use_proj_cache = l5_mode() == "project" and (
-            (not c2_gate()) or int(snap.compact_cursor or 0) > 0
-        )
+        # ``XEYO_C2_GATE`` 已在 2026-09-06 固化移除，``c2_gate()`` 恒为
+        # True。project 模式仍然可以安全复用投影：压力触发 C2 会在上方
+        # 先清空缓存，未触发 C2 时历史只追加，正是增量缓存的前置条件。
+        # 继续把 ``compact_cursor > 0`` 当成必要条件会让缓存永远不建立，
+        # 也会破坏跨 submit 的既有契约。
+        use_proj_cache = l5_mode() == "project"
         # 缓存命中路径会跳过 project_for_model（其内部才推进 aging/C1）；
         # 在走缓存前显式跑一次老化决策。推进时 note_c1 会把 proj_cache 置
         # None，下面的命中检查自然失败、回落全量投影——不会投影错位。
@@ -964,6 +1068,8 @@ async def query_loop(
                 frozen = snap.c1_frozen_until
             except Exception:
                 pass
+        # 无论是否命中增量缓存，manifest 都需要同一份 canonical projection 输入。
+        api_all = store.as_api_messages()
         proj_cache = snap.proj_cache
         if (
             use_proj_cache
@@ -1061,11 +1167,14 @@ async def query_loop(
 
         _is_side = _side_mode()
         # T_now 声道：system_channel 默认（声道 B，原生 system 消息）；被厂商
-        # 以结构类 4xx 拒绝时进程内退回 env_channel（保功能），env_channel 再被
-        # 拒绝才 skip（L2：宁缺毋滥，不落 legacy 用户尾插）。
+        # 以结构类 4xx 拒绝时进程内退回 notice_fragment（声道 C：user 消息 +
+        # 包封），notice_fragment 再被拒绝才 skip（L2：宁缺毋滥，不落 legacy
+        # 用户尾插）。**不再退回 env_channel**：伪对与「模型自己的工具调用」
+        # 同形，降级等于把 affordance/无主 tool_result/reasoning_content 三笔
+        # 债一次请回来。env_channel 仅保留为显式评测对照档。
         from prompt.t_now_strategy import (
             ENV_FALLBACK_STATUS,
-            STRATEGY_ENV_CHANNEL,
+            STRATEGY_NOTICE_FRAGMENT,
             STRATEGY_SKIP,
             STRATEGY_SYSTEM_CHANNEL,
             env_unsupported_key,
@@ -1132,18 +1241,17 @@ async def query_loop(
                     side=_is_side,
                 )
                 if sniff_text:
-                    # 与 T_now 同源：按当前声道策略选承载形态。2026-09-15 前这里
-                    # **硬编码伪对**——默认档切到声道 B 后它成了漏网路径：首轮投影里
-                    # 仍出现 `assistant(tool_use: xeyo_env_notice)`，模型据此认定自己
-                    # 拥有该工具并真的去调（伪对缺陷只修了一半）。
-                    if t_now_strat == STRATEGY_SYSTEM_CHANNEL:
-                        from prompt.turn_context import append_system_notice
+                    # 与 T_now 同源：形态选择**不在这里做**——统一走 render_notice
+                    # （唯一出口 + 档位归因）。2026-09-15 前这里硬编码伪对，默认档
+                    # 切到声道 B 后它成了漏网路径；现在两条注入路径共用一个出口。
+                    from prompt.notice_channel import render_notice
 
-                        projected = append_system_notice(projected, sniff_text)
-                    else:
-                        from prompt.turn_context import append_env_notice_pair
-
-                        projected = append_env_notice_pair(projected, sniff_text)
+                    projected = render_notice(
+                        projected,
+                        sniff_text,
+                        strategy=t_now_strat,
+                        session_id=_sid,
+                    )
             except Exception:  # noqa: BLE001 — 嗅探失败绝不影响主请求
                 pass
         projected = _attach_turn_context(
@@ -1152,6 +1260,33 @@ async def query_loop(
             **_inject_kwargs,
         )
         api_messages = prompt.build(system_prompt, projected)
+        # Projection manifest：只留在 WorkingSnapshot，绝不进入模型请求。
+        # 它把 compact/spill/tool-pair/cwd 的事实固化，避免失败后靠轨迹猜测。
+        try:
+            from engine.projection_manifest import build_manifest
+
+            _snap_manifest = build_manifest(
+                canonical=api_all,
+                projected=api_messages,
+                compact_cursor=int(snap.compact_cursor or 0),
+                context_limit=_positive_int(getattr(model, "context_limit", None)) or None,
+                pressure_reason=(
+                    "compact_cursor_advanced"
+                    if snap.compact_cursor > compact_cursor_before
+                    else ""
+                ),
+            )
+            snap.last_projection_manifest = _snap_manifest.to_dict()
+            try:
+                from engine.workspace_context import update_execution_context
+
+                update_execution_context(projection_id=_snap_manifest.projection_id)
+            except Exception:  # noqa: BLE001 — trace 旁路不得阻断采样
+                pass
+        except Exception:  # noqa: BLE001 — manifest 是观测旁路，不阻断采样
+            logging.getLogger(__name__).debug(
+                "projection manifest failed", exc_info=True
+            )
 
         tool_schemas = _plan_tool_schemas(tools, tools.schemas())
         # 收尾请求（forced_wrap_up）同样保留 tools 数组：DeepSeek 把工具定义渲染在
@@ -1195,6 +1330,7 @@ async def query_loop(
 
         progress_q: asyncio.Queue[ToolProgressEvent] = _NotifyQueue()
         result_q: asyncio.Queue[tuple[ToolUse, ToolResult]] = _NotifyQueue()
+        tool_coordinator = ToolCoordinator(tools, coordinator)
         results_by_id: dict[str, ToolResult] = {}
         quota_held: set[str] = set()
         emitted_calls: set[str] = set()
@@ -1205,15 +1341,29 @@ async def query_loop(
 
         def _admit_tool_use(tu: ToolUse) -> list[EngineEvent]:
             """占配额 + yield ToolCall；只读可 early。返回待 yield 事件。"""
-            nonlocal wrap_quota_left
             events: list[EngineEvent] = []
             if tu.id in seen_tool_ids:
                 return events
             seen_tool_ids.add(tu.id)
             narration_gate.on_tool_use()
             tool_uses.append(tu)
+            # 生命周期闸：预算进入收尾阶段后，不再扩张新的 Agent 子任务。
+            # 读/写/编辑仍由原有权限和 wrap 配额决定，收尾输出可以落盘。
+            try:
+                if not turn_runtime.permits_tool(tu.name):
+                    results_by_id[tu.id] = ToolResult(
+                        content="tool not started during finalization: Agent",
+                        is_error=True,
+                        status="error",
+                        error_kind="FINALIZATION_RESTRICTED",
+                        retryable=False,
+                        metadata={"lifecycle": "finalizing"},
+                    )
+                    return events
+            except Exception:  # noqa: BLE001 — 生命周期旁路故障不阻断旧闸
+                pass
             if forced_wrap_up:
-                if wrap_quota_left <= 0:
+                if not turn_runtime.consume_wrap_quota():
                     results_by_id[tu.id] = ToolResult(
                         content="[wrap_up] wrap quota exhausted; "
                         "tools are disabled for this final answer",
@@ -1224,7 +1374,6 @@ async def query_loop(
                 # R3'：收尾窗配额内放行——不再一开闸全禁。配额内的调用仍按
                 # 只读/并发规则评估执行，但绕过 budget 的 tool-cap 拒绝（该闸
                 # 的用途是防失控循环，收尾配额由引擎计数封顶，双闸语义重叠）。
-                wrap_quota_left -= 1
             guard_action = safe_observe(
                 repeat_guard.observe, tu.name, tu.input,
                 label="RepeatCallGuard.observe",
@@ -1280,13 +1429,12 @@ async def query_loop(
                 forced_wrap_up=forced_wrap_up,
             ):
                 early[tu.id] = asyncio.create_task(
-                    _run_one_tool(
-                        tools,
+                    tool_coordinator.run_one(
                         tu,
                         abort,
-                        coordinator=None,
                         progress_q=progress_q,
                         result_q=result_q,
+                        coordinator=None,
                     )
                 )
             return events
@@ -1311,14 +1459,38 @@ async def query_loop(
             model._meta_request_id = call_request_id
             model._meta_attempt = attempt
             model._meta_kind = "turn"
+            try:
+                from engine.workspace_context import update_execution_context
+
+                update_execution_context(model_request_id=call_request_id)
+            except Exception:  # noqa: BLE001 — trace 旁路不得阻断采样
+                pass
             saw_any = False
             failure: Any = None
             failure_message = ""
             failure_status: int | None = None
             pending_exc: BaseException | None = None
+            _model_session_id = (
+                coordinator.session_id if coordinator is not None else _sid
+            )
+            _model_turn_id = (
+                coordinator.turn_id if coordinator is not None else str(budget.turn_count)
+            )
+            _audit_model_event(
+                "model.started",
+                session_id=_model_session_id,
+                turn_id=_model_turn_id,
+                request_id=call_request_id,
+                attempt=attempt,
+                model=model,
+                status="started",
+            )
             try:
                 async for chunk in model.stream(api_messages, tool_schemas, abort):
                     abort.raise_if_aborted()
+                    from engine.model_events import normalize_model_event
+
+                    chunk = normalize_model_event(chunk)
                     saw_any = True
                     # skip 不携带 T_now；它不能确认此前因请求失败而暂存的事件。
                     # system/env/legacy 请求才可能真正把暂存事件送到模型。
@@ -1345,11 +1517,30 @@ async def query_loop(
                         for ev in _admit_tool_use(chunk.tool_use):
                             yield ev
                 if saw_any:
+                    _audit_model_event(
+                        "model.finished",
+                        session_id=_model_session_id,
+                        turn_id=_model_turn_id,
+                        request_id=call_request_id,
+                        attempt=attempt,
+                        model=model,
+                        status="ok",
+                    )
                     break
                 # 44 号：流正常结束但零 chunk = EMPTY_RESPONSE（默认可重试）。
                 failure = empty_response_failure()
                 failure_message = "模型返回了空响应"
             except Aborted:
+                _audit_model_event(
+                    "model.finished",
+                    session_id=_model_session_id,
+                    turn_id=_model_turn_id,
+                    request_id=call_request_id,
+                    attempt=attempt,
+                    model=model,
+                    status="aborted",
+                    error_code="aborted",
+                )
                 await _cancel_early_tasks(early)
                 # smoke-test #4：用户停止/中断时若厂商 usage 尾帧(include_usage)已
                 # 在中断前到达,补发用量事件——否则该回合的 token/缓存命中在
@@ -1401,6 +1592,7 @@ async def query_loop(
                     t_now_strat == "env_channel"
                     and not saw_any
                     and exc.status_code in ENV_FALLBACK_STATUS
+                    and not _is_tool_pairing_400(exc)
                 ):
                     _fb_prov = _llm_provider_name(model)
                     _fb_model = _llm_model_name(model)
@@ -1419,22 +1611,34 @@ async def query_loop(
                         _fb_prov,
                         _fb_model,
                     )
+                    _audit_model_event(
+                        "model.finished",
+                        session_id=_model_session_id,
+                        turn_id=_model_turn_id,
+                        request_id=call_request_id,
+                        attempt=attempt,
+                        model=model,
+                        status="protocol_fallback",
+                        error_code=f"HTTP_{exc.status_code}",
+                    )
                     continue
                 # 声道 B：厂商不接受 messages 里的 system 角色（结构类 4xx）
-                # ⇒ 进程内退回伪对档（保功能）。已知代价：会重新引入
-                # xeyo_env_notice affordance，故仅在厂商确实拒绝时发生；
-                # 若该档随后也 4xx，上面的 env_channel 分支会进一步降为 skip。
+                # ⇒ 本枪降到通报片段档（真 user 片段，厂商必收），并把**已落库的
+                # system 留痕**暂时逐出投影（`_notes_visible` 只管 system 形态；
+                # user 形态的通报片段是普通 user 消息，照常携带）。若片段档也
+                # 4xx，上面的 env_channel 分支会进一步降为 skip。
                 if (
                     t_now_strat == "system_channel"
                     and not saw_any
                     and exc.status_code in ENV_FALLBACK_STATUS
+                    and not _is_tool_pairing_400(exc)
                 ):
                     _fb_prov = _llm_provider_name(model)
                     _fb_model = _llm_model_name(model)
                     mark_system_channel_unsupported(
                         env_unsupported_key(_fb_prov, _fb_model)
                     )
-                    t_now_strat = STRATEGY_ENV_CHANNEL
+                    t_now_strat = STRATEGY_NOTICE_FRAGMENT
                     projected_pre_inject = _rebuild_projection_without_t_now_notes()
                     projected = _attach_turn_context(
                         projected_pre_inject,
@@ -1444,10 +1648,20 @@ async def query_loop(
                     api_messages = prompt.build(system_prompt, projected)
                     logging.getLogger(__name__).warning(
                         "T_now system_channel rejected (status=%s, provider=%s, "
-                        "model=%s)；本进程内退回 env_channel 档。",
+                        "model=%s)；本进程内退回 notice_fragment 档。",
                         exc.status_code,
                         _fb_prov,
                         _fb_model,
+                    )
+                    _audit_model_event(
+                        "model.finished",
+                        session_id=_model_session_id,
+                        turn_id=_model_turn_id,
+                        request_id=call_request_id,
+                        attempt=attempt,
+                        model=model,
+                        status="protocol_fallback",
+                        error_code=f"HTTP_{exc.status_code}",
                     )
                     continue
                 pending_exc = exc
@@ -1471,6 +1685,16 @@ async def query_loop(
                 failure_message = friendly_error(exc)
                 failure_status = None
             if not (failure.retryable and not saw_any and attempt < _llm_max_attempts()):
+                _audit_model_event(
+                    "model.finished",
+                    session_id=_model_session_id,
+                    turn_id=_model_turn_id,
+                    request_id=call_request_id,
+                    attempt=attempt,
+                    model=model,
+                    status="failed",
+                    error_code=str(failure.code or "model_failure"),
+                )
                 if failure.code == "empty_response":
                     raise EmptyResponseError() from None
                 raise pending_exc
@@ -1481,6 +1705,16 @@ async def query_loop(
                 status=failure_status,
                 provider=_llm_provider_name(model),
                 model_name=_llm_model_name(model),
+            )
+            _audit_model_event(
+                "model.finished",
+                session_id=_model_session_id,
+                turn_id=_model_turn_id,
+                request_id=call_request_id,
+                attempt=attempt,
+                model=model,
+                status="retry",
+                error_code=str(failure.code or "retryable_failure"),
             )
             yield LlmRetryEvent(
                 attempt=attempt,
@@ -1968,11 +2202,9 @@ async def query_loop(
         try:
             if late_uses:
                 late_task = asyncio.create_task(
-                    run_tools_partitioned(
-                        tools,
+                    tool_coordinator.run_batch(
                         late_uses,
                         abort,
-                        coordinator=coordinator,
                         progress_q=progress_q,
                         result_q=result_q,
                     )
@@ -2136,9 +2368,7 @@ async def query_loop(
             )
             if approved:
                 try:
-                    results_by_id[tu_id] = await tools.run(
-                        tu, abort, coordinator=coordinator, skip_ask=True
-                    )
+                    results_by_id[tu_id] = await tool_coordinator.run_authorized(tu, abort)
                 except Aborted:
                     results_by_id[tu_id] = ToolResult(
                         content="[tool aborted]",
@@ -2201,6 +2431,11 @@ async def query_loop(
                     else None
                 ),
                 ui=getattr(result, "ui", None),
+                status=str(getattr(result, "status", None) or ("error" if result.is_error else "ok")),
+                error_kind=getattr(result, "error_kind", None),
+                retryable=bool(getattr(result, "retryable", False)),
+                side_effect=str(getattr(result, "side_effect", "none") or "none"),
+                action_id=getattr(result, "action_id", None),
             )
             # R2'：同签名 · 输出字节级相同 → 历史/模型视图折叠为一行 [fold] 事实，
             # 保留 tool_use↔result 配对且首次完整输出仍在历史（信息无损）。
@@ -2232,7 +2467,16 @@ async def query_loop(
             try:
                 if not getattr(result, "images", None):
                     stored_content, _folded = result_fold.process(
-                        tu.name, tu.input, out_content
+                        tu.name,
+                        tu.input,
+                        out_content,
+                        # 折叠前提：被折内容的旧副本仍在投影可见面内（压缩游标 /
+                        # C1 冻结边界之前的内容已被摘要或存根替换）。
+                        msg_index=len(store),
+                        visible_from=max(
+                            int(snap.compact_cursor or 0),
+                            int(snap.c1_frozen_until or 0),
+                        ),
                     )
             except Exception:  # noqa: BLE001 — 折叠失败 fail-open 保留原文
                 logging.getLogger(__name__).debug(

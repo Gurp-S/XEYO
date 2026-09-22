@@ -67,16 +67,36 @@ def _tool_result_ids(msg: dict[str, Any]) -> list[str]:
 
 
 def tool_pair_ranges(messages: list[dict[str, Any]]) -> list[tuple[int, int]]:
-	"""assistant(tool_calls) → 连续 tool 结果的半开区间列表。"""
+	"""assistant(tool_calls) → 结果 的半开区间列表——**以整批为单位，不以单条 assistant 为单位**。
+
+	配对单位是「一整批调用」：并行批次在不同转写形态下写法不同——XEYO 把 N 个
+	tool_use 放进同一条 assistant 消息；Codex / OpenAI 形态则是 **N 条连续 assistant
+	消息各带一个调用**，结果消息跟在整批之后。
+
+	只按「一条 assistant + 紧随结果」配对时，后者会得到 ``(A1, A2)`` 这种**不含任何
+	结果**的退化区间，保尾边界于是可能落在 ``A1`` 与 ``A2`` 之间：``A2`` 的调用留在尾部、
+	``A1`` 的结果也留在尾部，而 ``A1`` 的声明已被压进区域 ⇒ 候选序列首个结果指向
+	「已被压缩掉的调用」（``orphan_tool_result``）⇒ 调用方只能整体回退。
+	实测（codex_holdout 6 任务 / 838 回合）：9 次回退全部由这一形态产生，且逐条可复现。
+
+	XEYO 形态（一条 assistant 带全部调用）下区间与原实现**逐字节一致**。
+	"""
 	ranges: list[tuple[int, int]] = []
 	i = 0
 	n = len(messages)
 	while i < n:
-		ids = _assistant_tool_ids(messages[i])
-		if not ids:
+		if not _assistant_tool_ids(messages[i]):
 			i += 1
 			continue
 		j = i + 1
+		# ① 声明期：连续多条「各自带调用、且自身不含结果」的 assistant（并行批次被拆写）
+		while (
+			j < n
+			and _assistant_tool_ids(messages[j])
+			and not _tool_result_ids(messages[j])
+		):
+			j += 1
+		# ② 结果期：整批之后连续的结果消息
 		while j < n and _tool_result_ids(messages[j]):
 			j += 1
 		ranges.append((i, j))

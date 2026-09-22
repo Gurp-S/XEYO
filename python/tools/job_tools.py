@@ -5,7 +5,8 @@
 安全边界），默认 allow + 日志（冻结口径 7）。
 
 - ``job_output``：单游标增量消费（registry 持有唯一游标）；``wait=true`` 阻塞
-  至终态或超时；响应以 ``[status: ...]`` 收尾。
+	至终态或超时；server registry / Docker 后台表均由完成事件唤醒；响应以
+	``[status: ...]`` 收尾。
 - ``job_list``：owner 快照一行一任务；空会话返回 ``(no background jobs)``。
 - ``job_kill``：请求取消（stopping → killed）；终态任务返回幂等提示。
 - registry 不可用（无 server 运行时）全部降级为空态文案，不报错。
@@ -14,12 +15,11 @@
 from __future__ import annotations
 
 import asyncio
-import os
 from typing import Any
 
 from engine.abort import AbortController
 from tools.base_tool import ToolResult
-from tools.container_routing import current_container as _routed_container
+from tools.error_taxonomy import INVALID_ARGUMENT, NOT_FOUND, TRANSIENT_INFRA
 
 JOB_OUTPUT_TOOL_NAME = "job_output"
 JOB_LIST_TOOL_NAME = "job_list"
@@ -27,7 +27,6 @@ JOB_KILL_TOOL_NAME = "job_kill"
 
 _OUTPUT_WAIT_DEFAULT_MS = 30_000
 _OUTPUT_WAIT_MAX_MS = 600_000
-_POLL_INTERVAL_S = 0.25
 
 
 def _registry() -> Any:
@@ -102,15 +101,16 @@ class JobOutputTool:
 	) -> ToolResult:
 		job_id = str(input.get("job_id") or "").strip()
 		if not job_id:
-			return ToolResult(content="job_id is required", is_error=True)
-		# docker 评测路由下禁用阻塞等待：同步工具调用期间模型无法做任何其他
-		# 工作，wait 最多烧 60s×N 次（实测 gpt2/pipeline 的 p90 间隔黑洞）。
-		# 完成通知由 pending_jobs_block 每回合自动镜像——模型根本不需要 wait。
-		# 并发 trial 防串线：ContextVar 优先于进程级 env（同 bash_tool）。
-		if _routed_container() or os.environ.get("XEYO_DOCKER_CONTAINER", "").strip():
-			wait = False
-		else:
-			wait = bool(input.get("wait"))
+			return ToolResult(
+				content="job_id is required",
+				is_error=True,
+				status="error",
+				error_kind=INVALID_ARGUMENT,
+				retryable=False,
+			)
+		# server registry 与 Docker 直连后台表都支持事件唤醒；不再按容器
+		# 路由强制关闭 wait=true。ContextVar 仍只用于选择哪条后台事实源。
+		wait = bool(input.get("wait"))
 		try:
 			timeout_ms = int(float(input.get("timeout_ms") or _OUTPUT_WAIT_DEFAULT_MS))
 		except (TypeError, ValueError):
@@ -119,6 +119,7 @@ class JobOutputTool:
 		# docker 后台 job 回退（评测 headless：registry 依赖 server，不可用）
 		try:
 			from tools.bash_tool.bash_tool import docker_bg_snapshot
+			from tools.bash_tool.bash_tool import wait_docker_bg_change
 
 			bg = {j["job_id"]: j for j in docker_bg_snapshot()}
 			if job_id in bg:
@@ -127,7 +128,10 @@ class JobOutputTool:
 				while wait and j["status"] == "running":
 					if abort.aborted or asyncio.get_running_loop().time() >= deadline:
 						break
-					await asyncio.sleep(_POLL_INTERVAL_S)
+					remaining = deadline - asyncio.get_running_loop().time()
+					await wait_docker_bg_change(job_id, remaining, abort)
+					if abort.aborted:
+						break
 					bg = {x["job_id"]: x for x in docker_bg_snapshot()}
 					j = bg.get(job_id, j)
 				text = (j.get("output") or "").strip()
@@ -137,23 +141,40 @@ class JobOutputTool:
 				elif j["status"] == "running":
 					parts.append("(no output yet)")
 				parts.append(_format_status_line(j["status"]))
-				return ToolResult(content="\n".join(parts))
+				return ToolResult(
+					content="\n".join(parts),
+					status="running" if j["status"] == "running" else "ok",
+				)
 		except Exception:  # noqa: BLE001
 			pass
 		try:
 			reg = _registry()
 			sid = _owner_only(_session_id())
+			# 先拿变更序号再读：若生产线程在 read 后、注册 waiter 前
+			# 写入输出，wait_for_change 会用序号补上这个窗口，避免丢唤醒。
+			token = reg.change_token(job_id, sid)
 			res = reg.read(job_id, sid)
 			if res is None:
-				return ToolResult(content=f"unknown job: {job_id}", is_error=True)
+				return ToolResult(
+					content=f"unknown job: {job_id}",
+					is_error=True,
+					status="error",
+					error_kind=NOT_FOUND,
+					retryable=False,
+				)
 			text, _cursor, status, truncated = res
 			deadline = asyncio.get_running_loop().time() + timeout_ms / 1000.0
 			while wait and status == "running":
 				if abort.aborted:
 					break
-				if asyncio.get_running_loop().time() >= deadline:
+				remaining = deadline - asyncio.get_running_loop().time()
+				if remaining <= 0 or token is None:
 					break
-				await asyncio.sleep(_POLL_INTERVAL_S)
+				token = await reg.wait_for_change(
+					job_id, sid, token, timeout_s=remaining
+				)
+				if token is None:
+					break
 				res = reg.read(job_id, sid)
 				if res is None:
 					break
@@ -166,9 +187,18 @@ class JobOutputTool:
 			elif status == "running":
 				parts.append("(no new output)")
 			parts.append(_format_status_line(status))
-			return ToolResult(content="\n".join(parts))
+			return ToolResult(
+				content="\n".join(parts),
+				status="running" if status == "running" else "ok",
+			)
 		except Exception:  # noqa: BLE001 — registry 不可用降级空态
-			return ToolResult(content=f"(no background jobs)\n{_format_status_line('unknown')}")
+			return ToolResult(
+				content=f"(no background jobs)\n{_format_status_line('unknown')}",
+				is_error=True,
+				status="error",
+				error_kind=TRANSIENT_INFRA,
+				retryable=True,
+			)
 
 
 class JobListTool:
@@ -264,7 +294,13 @@ class JobKillTool:
 	) -> ToolResult:
 		job_id = str(input.get("job_id") or "").strip()
 		if not job_id:
-			return ToolResult(content="job_id is required", is_error=True)
+			return ToolResult(
+				content="job_id is required",
+				is_error=True,
+				status="error",
+				error_kind=INVALID_ARGUMENT,
+				retryable=False,
+			)
 		reason = str(input.get("reason") or "").strip()
 		# 容器后台 job 优先（与 job_output/job_list 同一可见面，2026-09-16 对齐）：
 		# 此前 kill 只查 registry ⇒ 模型能看见容器 job 却杀不掉，每次白烧一轮。
@@ -274,13 +310,31 @@ class JobKillTool:
 			if any(j["job_id"] == job_id for j in docker_bg_snapshot()):
 				msg = cancel_docker_bg(job_id, reason)
 				if msg is None:
-					return ToolResult(content=f"unknown job: {job_id}", is_error=True)
+					return ToolResult(
+						content=f"unknown job: {job_id}",
+						is_error=True,
+						status="error",
+						error_kind=NOT_FOUND,
+						retryable=False,
+					)
 				return ToolResult(content=msg)
 		except Exception:  # noqa: BLE001 — 回退 registry 路径
 			pass
 		try:
 			msg = _registry().kill(job_id, _owner_only(_session_id()), reason)
 			unknown = msg.startswith("unknown job")
-			return ToolResult(content=msg, is_error=unknown)
+			return ToolResult(
+				content=msg,
+				is_error=unknown,
+				status="error" if unknown else "ok",
+				error_kind=NOT_FOUND if unknown else None,
+				retryable=False,
+			)
 		except Exception:  # noqa: BLE001
-			return ToolResult(content=f"unknown job: {job_id}", is_error=True)
+			return ToolResult(
+				content=f"unknown job: {job_id}",
+				is_error=True,
+				status="error",
+				error_kind=NOT_FOUND,
+				retryable=False,
+			)

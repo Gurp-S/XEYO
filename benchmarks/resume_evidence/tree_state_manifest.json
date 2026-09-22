@@ -1,0 +1,1667 @@
+{
+ "captured_at": "2026-09-21T21:23:39+08:00",
+ "head_sha": "19f82059a30b1b29f7ec893dde7d85c517aca78c",
+ "branch": "main",
+ "last_commit_at": "2026-09-17T19:56:00+08:00",
+ "counts": {
+  "total": 185,
+  "modified_tracked": 115,
+  "untracked": 70
+ },
+ "drift": {
+  "tracked_files_changed_last_60min": 12,
+  "median_age_min_of_recent": 4.8
+ },
+ "conclusion": "FROZEN=FALSE —— 树正被并发写入（中位改动年龄 <10 分钟），此刻无法给出可复现基线",
+ "entries": [
+  {
+   "path": "python/server/routers/chat.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "f720774032d6f3a7",
+   "bytes": 56597,
+   "mtime": "2026-09-21T21:23:38",
+   "age_min": 0.0
+  },
+  {
+   "path": "gui/src/lib/api/chatStream.ts",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "d72fb4a3ec1186a9",
+   "bytes": 20862,
+   "mtime": "2026-09-21T21:23:05",
+   "age_min": 0.6
+  },
+  {
+   "path": "python/synaptic/prune.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "2aa32d189f77bd34",
+   "bytes": 17244,
+   "mtime": "2026-09-21T21:22:40",
+   "age_min": 1.0
+  },
+  {
+   "path": "python/engine/turn_runner.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "d7aaf99e240d1bde",
+   "bytes": 16329,
+   "mtime": "2026-09-21T21:22:26",
+   "age_min": 1.2
+  },
+  {
+   "path": "gui/src/lib/api/jobs.ts",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "9810ed86a566bc1e",
+   "bytes": 5140,
+   "mtime": "2026-09-21T21:20:49",
+   "age_min": 2.8
+  },
+  {
+   "path": "python/server/routers/sessions.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "ae0ffdd5fb729f02",
+   "bytes": 59289,
+   "mtime": "2026-09-21T21:20:12",
+   "age_min": 3.5
+  },
+  {
+   "path": "gui/src/lib/api/mcp.ts",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "bcc4148b4adb9ee4",
+   "bytes": 3696,
+   "mtime": "2026-09-21T21:18:52",
+   "age_min": 4.8
+  },
+  {
+   "path": "python/server/routers/extensions.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "d446bc882ff682fc",
+   "bytes": 5311,
+   "mtime": "2026-09-21T21:18:18",
+   "age_min": 5.4
+  },
+  {
+   "path": "gui/src/lib/api/goals.ts",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "f97f89bece8e2971",
+   "bytes": 6417,
+   "mtime": "2026-09-21T21:18:03",
+   "age_min": 5.6
+  },
+  {
+   "path": "gui/src/stores/explorerStore.ts",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "f46eb25f568b48f5",
+   "bytes": 9471,
+   "mtime": "2026-09-21T21:17:41",
+   "age_min": 6.0
+  },
+  {
+   "path": "gui/src/lib/api/core.ts",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "b71d60543f8a7c1e",
+   "bytes": 37506,
+   "mtime": "2026-09-21T21:17:07",
+   "age_min": 6.5
+  },
+  {
+   "path": "python/synaptic/types.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "e14caafeeb020709",
+   "bytes": 23784,
+   "mtime": "2026-09-21T20:56:54",
+   "age_min": 26.7
+  },
+  {
+   "path": "python/tests/test_multi_agent_p0.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "70b6acfe9bdfeb46",
+   "bytes": 3809,
+   "mtime": "2026-09-21T20:06:06",
+   "age_min": 77.6
+  },
+  {
+   "path": "python/tests/test_opt_mechanism_benefit.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "ef0c181f2e0f1980",
+   "bytes": 5171,
+   "mtime": "2026-09-21T20:06:06",
+   "age_min": 77.6
+  },
+  {
+   "path": "python/tests/test_reserved_tool_prefix.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "6f5e7aae08730b5d",
+   "bytes": 3616,
+   "mtime": "2026-09-21T20:06:06",
+   "age_min": 77.6
+  },
+  {
+   "path": "python/tests/wsc/test_freeze.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "e8033215af6aa655",
+   "bytes": 2801,
+   "mtime": "2026-09-21T20:06:06",
+   "age_min": 77.6
+  },
+  {
+   "path": "python/tests/test_ilink_channel.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "4fb3806b3d5a48e3",
+   "bytes": 37801,
+   "mtime": "2026-09-21T20:03:50",
+   "age_min": 79.8
+  },
+  {
+   "path": "python/tests/test_usage_attribution.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "c158134eefb63330",
+   "bytes": 16907,
+   "mtime": "2026-09-21T20:03:50",
+   "age_min": 79.8
+  },
+  {
+   "path": "python/tests/test_agent_enhancements.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "c31b62828f03b509",
+   "bytes": 7378,
+   "mtime": "2026-09-21T20:02:27",
+   "age_min": 81.2
+  },
+  {
+   "path": "python/tests/test_changedetect_canon.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "37d127c260e6510e",
+   "bytes": 4313,
+   "mtime": "2026-09-21T20:02:27",
+   "age_min": 81.2
+  },
+  {
+   "path": "python/tests/test_changedetect_trace.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "90015ffc18dcd519",
+   "bytes": 3295,
+   "mtime": "2026-09-21T20:02:27",
+   "age_min": 81.2
+  },
+  {
+   "path": "python/tests/test_max_turns.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "56f75ff1e526ce13",
+   "bytes": 5369,
+   "mtime": "2026-09-21T20:02:27",
+   "age_min": 81.2
+  },
+  {
+   "path": "python/tests/test_p1_block_placement.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "00710b2c0b93e710",
+   "bytes": 14235,
+   "mtime": "2026-09-21T20:02:27",
+   "age_min": 81.2
+  },
+  {
+   "path": "python/tests/test_permission_grants.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "d4a06da1dbe72f29",
+   "bytes": 9414,
+   "mtime": "2026-09-21T20:02:27",
+   "age_min": 81.2
+  },
+  {
+   "path": "python/tests/test_power_hierarchy_hardening.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "b6cab90f77e9e15e",
+   "bytes": 5083,
+   "mtime": "2026-09-21T20:02:27",
+   "age_min": 81.2
+  },
+  {
+   "path": "python/tests/test_serve_cmd_g106.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "5be15331c68aef0a",
+   "bytes": 1529,
+   "mtime": "2026-09-21T20:02:27",
+   "age_min": 81.2
+  },
+  {
+   "path": "python/tests/test_server_api.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "f07556f66704875a",
+   "bytes": 13133,
+   "mtime": "2026-09-21T20:02:27",
+   "age_min": 81.2
+  },
+  {
+   "path": "python/tests/test_todo_restore.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "d733494edee17005",
+   "bytes": 4014,
+   "mtime": "2026-09-21T20:02:27",
+   "age_min": 81.2
+  },
+  {
+   "path": "python/coord/worker_session.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "5ee673fbce612a22",
+   "bytes": 7804,
+   "mtime": "2026-09-21T19:43:48",
+   "age_min": 99.8
+  },
+  {
+   "path": "python/tests/conftest.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "9f72542c08c805b3",
+   "bytes": 6228,
+   "mtime": "2026-09-21T19:42:22",
+   "age_min": 101.3
+  },
+  {
+   "path": "python/tests/coord/test_worker_session.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "7eb932ad9dff43e2",
+   "bytes": 8093,
+   "mtime": "2026-09-21T19:24:54",
+   "age_min": 118.7
+  },
+  {
+   "path": "python/synaptic/report.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "0b3ace69ffd90255",
+   "bytes": 35008,
+   "mtime": "2026-09-21T19:10:53",
+   "age_min": 132.8
+  },
+  {
+   "path": "python/synaptic/assemble.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "eb05e5da3d0c22f2",
+   "bytes": 30176,
+   "mtime": "2026-09-21T19:03:23",
+   "age_min": 140.3
+  },
+  {
+   "path": "python/synaptic/budget.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "a55325c407251148",
+   "bytes": 24607,
+   "mtime": "2026-09-21T19:02:25",
+   "age_min": 141.2
+  },
+  {
+   "path": "python/tests/test_compact.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "ddc0e9b221b3219e",
+   "bytes": 7382,
+   "mtime": "2026-09-21T18:40:18",
+   "age_min": 163.4
+  },
+  {
+   "path": "python/tests/test_calibration_usage.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "5508c8ab3994f17c",
+   "bytes": 4785,
+   "mtime": "2026-09-21T18:39:14",
+   "age_min": 164.4
+  },
+  {
+   "path": "python/tests/test_c2_path_a.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "bf18eeddd9912c79",
+   "bytes": 8293,
+   "mtime": "2026-09-21T18:21:30",
+   "age_min": 182.2
+  },
+  {
+   "path": "python/tests/test_memory_switches.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "aff5cb59096a32c2",
+   "bytes": 11969,
+   "mtime": "2026-09-21T18:18:28",
+   "age_min": 185.2
+  },
+  {
+   "path": "python/memory/memory_switches.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "657861164e3d3835",
+   "bytes": 14138,
+   "mtime": "2026-09-21T18:16:34",
+   "age_min": 187.1
+  },
+  {
+   "path": "python/localmodels/config.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "d0ebc127fc6adf3b",
+   "bytes": 7588,
+   "mtime": "2026-09-21T17:28:24",
+   "age_min": 235.2
+  },
+  {
+   "path": "python/cli/cwdutil.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "f0cee21bbc609c71",
+   "bytes": 4057,
+   "mtime": "2026-09-21T17:28:02",
+   "age_min": 235.6
+  },
+  {
+   "path": "python/extension/config.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "3c3d626bef60c812",
+   "bytes": 13407,
+   "mtime": "2026-09-21T17:27:06",
+   "age_min": 236.6
+  },
+  {
+   "path": "python/synaptic/project.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "d14d0a8471e50a9e",
+   "bytes": 19720,
+   "mtime": "2026-09-21T16:49:45",
+   "age_min": 273.9
+  },
+  {
+   "path": "python/synaptic/seeds.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "240ba6d0b554d39a",
+   "bytes": 17697,
+   "mtime": "2026-09-21T16:49:40",
+   "age_min": 274.0
+  },
+  {
+   "path": "python/synaptic/textutil.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "9cd27e2f88d251b0",
+   "bytes": 24494,
+   "mtime": "2026-09-21T16:14:55",
+   "age_min": 308.7
+  },
+  {
+   "path": "python/model/anthropic.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "eaace69334dff801",
+   "bytes": 31732,
+   "mtime": "2026-09-21T16:11:29",
+   "age_min": 312.2
+  },
+  {
+   "path": "python/synaptic/filestate.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "86404ea60d4cf639",
+   "bytes": 9213,
+   "mtime": "2026-09-21T15:31:04",
+   "age_min": 352.6
+  },
+  {
+   "path": "python/synaptic/graph.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "fc8409ec0f039d74",
+   "bytes": 20912,
+   "mtime": "2026-09-21T15:19:37",
+   "age_min": 364.0
+  },
+  {
+   "path": "python/synaptic/metrics.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "38c0d3f7601a7abe",
+   "bytes": 8526,
+   "mtime": "2026-09-21T13:30:02",
+   "age_min": 473.6
+  },
+  {
+   "path": "python/synaptic/closure.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "62b2375ec01f9a47",
+   "bytes": 10064,
+   "mtime": "2026-09-21T01:09:26",
+   "age_min": 1214.2
+  },
+  {
+   "path": "python/synaptic/paths.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "55efbcf5d5e317b8",
+   "bytes": 5857,
+   "mtime": "2026-09-21T01:09:26",
+   "age_min": 1214.2
+  },
+  {
+   "path": "docs/synaptic-compression.md",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "25bc4fbb43873b4d",
+   "bytes": 137065,
+   "mtime": "2026-09-20T23:56:30",
+   "age_min": 1287.2
+  },
+  {
+   "path": "python/memory/runtime.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "8265d7a451f3b32d",
+   "bytes": 82304,
+   "mtime": "2026-09-20T23:56:30",
+   "age_min": 1287.2
+  },
+  {
+   "path": "python/engine/write_store.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "3fc85c1e8796331a",
+   "bytes": 18630,
+   "mtime": "2026-09-20T23:54:16",
+   "age_min": 1289.4
+  },
+  {
+   "path": "python/tools/file_edit_tool/file_edit_tool.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "c696a3d8d0c2bbed",
+   "bytes": 19970,
+   "mtime": "2026-09-20T23:54:16",
+   "age_min": 1289.4
+  },
+  {
+   "path": "python/tools/file_write_tool/file_write_tool.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "9ce14f4e3ec96f0a",
+   "bytes": 15962,
+   "mtime": "2026-09-20T23:54:16",
+   "age_min": 1289.4
+  },
+  {
+   "path": "python/tools/fileio/conflict.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "93958aafa9e35030",
+   "bytes": 2823,
+   "mtime": "2026-09-20T23:54:16",
+   "age_min": 1289.4
+  },
+  {
+   "path": "python/tools/fileio/read_state.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "9bc018cb046aaed5",
+   "bytes": 6290,
+   "mtime": "2026-09-20T23:54:16",
+   "age_min": 1289.4
+  },
+  {
+   "path": "python/server/inbox_registry.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "8c2635d6cb5b0c14",
+   "bytes": 19806,
+   "mtime": "2026-09-20T23:38:03",
+   "age_min": 1305.6
+  },
+  {
+   "path": "python/engine/query_loop.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "033dcb1183a98858",
+   "bytes": 108559,
+   "mtime": "2026-09-20T23:37:46",
+   "age_min": 1305.9
+  },
+  {
+   "path": "python/prompt/turn_context.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "616be3703bce74b9",
+   "bytes": 13238,
+   "mtime": "2026-09-20T23:07:47",
+   "age_min": 1335.9
+  },
+  {
+   "path": "python/engine/compact.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "0be9f1a57a9ae39e",
+   "bytes": 13848,
+   "mtime": "2026-09-20T22:42:57",
+   "age_min": 1360.7
+  },
+  {
+   "path": "python/tests/test_repeat_guard.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "c530de4baecf308b",
+   "bytes": 22774,
+   "mtime": "2026-09-20T22:26:01",
+   "age_min": 1377.6
+  },
+  {
+   "path": "python/tests/test_loop_ledger.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "66710ccd60eb9a25",
+   "bytes": 13645,
+   "mtime": "2026-09-20T22:25:42",
+   "age_min": 1377.9
+  },
+  {
+   "path": "python/engine/repeat_fold.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "1f2ceef540f4e92a",
+   "bytes": 9410,
+   "mtime": "2026-09-20T22:23:58",
+   "age_min": 1379.7
+  },
+  {
+   "path": "python/tools/bash_tool/bash_tool.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "a6b546c383ecfc34",
+   "bytes": 42956,
+   "mtime": "2026-09-20T22:22:12",
+   "age_min": 1381.5
+  },
+  {
+   "path": "python/tools/tool_registry.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "879e6de8037361c2",
+   "bytes": 33040,
+   "mtime": "2026-09-20T22:22:12",
+   "age_min": 1381.5
+  },
+  {
+   "path": "python/tools/orchestration.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "de7a245f39d1f94d",
+   "bytes": 12732,
+   "mtime": "2026-09-20T22:22:00",
+   "age_min": 1381.7
+  },
+  {
+   "path": "python/tests/test_reasoning_replay_contract.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "baa1ac951afbbee3",
+   "bytes": 16761,
+   "mtime": "2026-09-20T22:12:47",
+   "age_min": 1390.9
+  },
+  {
+   "path": "python/model/_openai_common.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "c1ac5c55af8a9ab2",
+   "bytes": 13965,
+   "mtime": "2026-09-20T22:12:06",
+   "age_min": 1391.6
+  },
+  {
+   "path": "python/permissions/policy.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "5672ea7e4993091f",
+   "bytes": 61083,
+   "mtime": "2026-09-20T20:10:35",
+   "age_min": 1513.1
+  },
+  {
+   "path": "python/tests/test_bash_grant_composite_g29.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "80ac9677042d4076",
+   "bytes": 3409,
+   "mtime": "2026-09-20T20:10:27",
+   "age_min": 1513.2
+  },
+  {
+   "path": "python/permissions/bash_policy.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "e0349365935873a3",
+   "bytes": 22440,
+   "mtime": "2026-09-20T20:10:15",
+   "age_min": 1513.4
+  },
+  {
+   "path": "python/tests/test_file_worker_hardening.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "a275298ca958b424",
+   "bytes": 5844,
+   "mtime": "2026-09-20T20:09:31",
+   "age_min": 1514.1
+  },
+  {
+   "path": "python/tests/test_permission_policy.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "45264630860b9b03",
+   "bytes": 13274,
+   "mtime": "2026-09-20T20:09:26",
+   "age_min": 1514.2
+  },
+  {
+   "path": "python/tests/test_sandbox_hardening.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "efc3f3accf97dd2e",
+   "bytes": 9200,
+   "mtime": "2026-09-20T20:09:16",
+   "age_min": 1514.4
+  },
+  {
+   "path": "python/permissions/store.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "301703da55ec17d2",
+   "bytes": 20318,
+   "mtime": "2026-09-20T20:08:33",
+   "age_min": 1515.1
+  },
+  {
+   "path": "python/synaptic/replay.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "cfdabd1963371276",
+   "bytes": 32578,
+   "mtime": "2026-09-20T19:03:56",
+   "age_min": 1579.7
+  },
+  {
+   "path": "python/tools/job_tools.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "ae3c2cf3ce6c40d0",
+   "bytes": 9852,
+   "mtime": "2026-09-18T13:03:54",
+   "age_min": 4819.7
+  },
+  {
+   "path": "python/tests/test_job_registry_t42.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "bf040cd0be4d580a",
+   "bytes": 29622,
+   "mtime": "2026-09-18T12:59:39",
+   "age_min": 4824.0
+  },
+  {
+   "path": "python/tests/test_bench_tool_surface.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "95add024a5b592eb",
+   "bytes": 3060,
+   "mtime": "2026-09-18T12:57:17",
+   "age_min": 4826.4
+  },
+  {
+   "path": "python/engine/query_engine.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "49848e327ca1ee71",
+   "bytes": 77345,
+   "mtime": "2026-09-18T12:56:46",
+   "age_min": 4826.9
+  },
+  {
+   "path": "python/tools/catalog.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "2dbb7f19a2c754e4",
+   "bytes": 17602,
+   "mtime": "2026-09-18T12:56:18",
+   "age_min": 4827.3
+  },
+  {
+   "path": "python/tools/container_fs.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "9fe05bda1591dd5b",
+   "bytes": 13379,
+   "mtime": "2026-09-18T12:45:33",
+   "age_min": 4838.1
+  },
+  {
+   "path": "python/tools/exec_channel.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "65f6148ec5e7c8ea",
+   "bytes": 7811,
+   "mtime": "2026-09-18T12:45:33",
+   "age_min": 4838.1
+  },
+  {
+   "path": "python/tests/test_container_workface.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "314c6b46622b18fc",
+   "bytes": 7118,
+   "mtime": "2026-09-18T12:44:32",
+   "age_min": 4839.1
+  },
+  {
+   "path": "python/tools/glob_tool/glob_tool.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "2a2e4f323e578fb2",
+   "bytes": 36570,
+   "mtime": "2026-09-18T12:44:32",
+   "age_min": 4839.1
+  },
+  {
+   "path": "python/engine/permission_coordinator.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "3e100cbe617c138f",
+   "bytes": 6004,
+   "mtime": "2026-09-18T12:29:13",
+   "age_min": 4854.4
+  },
+  {
+   "path": "python/tests/test_audit_api.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "2a6a34d2508c2c71",
+   "bytes": 5033,
+   "mtime": "2026-09-18T12:27:26",
+   "age_min": 4856.2
+  },
+  {
+   "path": "python/audit/log.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "5d2ad6d3fd19b567",
+   "bytes": 3858,
+   "mtime": "2026-09-18T12:26:53",
+   "age_min": 4856.8
+  },
+  {
+   "path": "python/server/routers/audit.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "bf4cb507992cbab8",
+   "bytes": 1639,
+   "mtime": "2026-09-18T12:20:03",
+   "age_min": 4863.6
+  },
+  {
+   "path": "python/server/job_registry.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "9b942e20afa46292",
+   "bytes": 29018,
+   "mtime": "2026-09-18T11:19:13",
+   "age_min": 4924.4
+  },
+  {
+   "path": "python/model/chunks.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "d406f66ba0135fba",
+   "bytes": 500,
+   "mtime": "2026-09-18T11:09:13",
+   "age_min": 4934.4
+  },
+  {
+   "path": "python/permissions/runtime_mode.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "31c6f54d39da42d1",
+   "bytes": 5999,
+   "mtime": "2026-09-18T10:51:45",
+   "age_min": 4951.9
+  },
+  {
+   "path": "python/engine/workspace_context.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "d97f9b77d31076f8",
+   "bytes": 2085,
+   "mtime": "2026-09-18T10:49:34",
+   "age_min": 4954.1
+  },
+  {
+   "path": "python/server/session_pool.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "a9d9a2c4dfedd545",
+   "bytes": 36391,
+   "mtime": "2026-09-18T09:52:29",
+   "age_min": 5011.2
+  },
+  {
+   "path": "python/tools/bash_tool/jobs_bridge.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "9af27b5f4ed828ec",
+   "bytes": 3031,
+   "mtime": "2026-09-18T09:52:23",
+   "age_min": 5011.3
+  },
+  {
+   "path": "python/engine/scheduler.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "aec4c85fa5632dc0",
+   "bytes": 43479,
+   "mtime": "2026-09-18T02:11:28",
+   "age_min": 5472.2
+  },
+  {
+   "path": "python/engine/abort.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "9e9b27bf4162870f",
+   "bytes": 5500,
+   "mtime": "2026-09-18T02:07:08",
+   "age_min": 5476.5
+  },
+  {
+   "path": "python/tools/bash_tool/prompt.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "2754b24d1280602a",
+   "bytes": 3721,
+   "mtime": "2026-09-18T01:51:22",
+   "age_min": 5492.3
+  },
+  {
+   "path": "python/prompt/pre_llm_inject.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "38918a77aeecbcaa",
+   "bytes": 54697,
+   "mtime": "2026-09-18T01:46:55",
+   "age_min": 5496.7
+  },
+  {
+   "path": "python/engine/budget.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "dbcd7965d5ee09ee",
+   "bytes": 20024,
+   "mtime": "2026-09-18T01:44:06",
+   "age_min": 5499.6
+  },
+  {
+   "path": "python/tools/base_tool.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "d7d43899bc7f26a9",
+   "bytes": 3741,
+   "mtime": "2026-09-18T01:43:04",
+   "age_min": 5500.6
+  },
+  {
+   "path": "python/tests/test_tool_orchestration.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "f3535c902ab7b89c",
+   "bytes": 5050,
+   "mtime": "2026-09-18T01:40:55",
+   "age_min": 5502.7
+  },
+  {
+   "path": "python/memory/working.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "076e9a6eb9c568ac",
+   "bytes": 29831,
+   "mtime": "2026-09-18T01:34:08",
+   "age_min": 5509.5
+  },
+  {
+   "path": "python/msgtypes/events.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "06acd025cbd3009a",
+   "bytes": 9709,
+   "mtime": "2026-09-18T01:28:05",
+   "age_min": 5515.6
+  },
+  {
+   "path": "python/tools/container_routing.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "dba1485b96ceda76",
+   "bytes": 1894,
+   "mtime": "2026-09-18T01:26:06",
+   "age_min": 5517.6
+  },
+  {
+   "path": "python/tools/grep_tool/grep_tool.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "ac4327e5599ff749",
+   "bytes": 31405,
+   "mtime": "2026-09-17T17:59:53",
+   "age_min": 5963.8
+  },
+  {
+   "path": "python/tools/fileio/paths.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "eb77aed786aa84e4",
+   "bytes": 2942,
+   "mtime": "2026-09-17T17:59:30",
+   "age_min": 5964.1
+  },
+  {
+   "path": "python/tests/test_web_tools.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "615ba4140f555208",
+   "bytes": 13998,
+   "mtime": "2026-09-17T17:55:45",
+   "age_min": 5967.9
+  },
+  {
+   "path": "python/tools/memory_tool/prompt.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "9ce1d39a285c98f9",
+   "bytes": 1394,
+   "mtime": "2026-09-17T17:55:28",
+   "age_min": 5968.2
+  },
+  {
+   "path": "gui/src/components/MemorySwitchesSetting.tsx",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "fbb89cb8681c139f",
+   "bytes": 10770,
+   "mtime": "2026-09-17T14:13:31",
+   "age_min": 6190.1
+  },
+  {
+   "path": "gui/src/lib/api.ts",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "cbb0ac3204d69e30",
+   "bytes": 44925,
+   "mtime": "2026-09-17T14:13:20",
+   "age_min": 6190.3
+  },
+  {
+   "path": "python/server/routers/control.py",
+   "git_state": "M",
+   "exists": true,
+   "sha256_16": "7f7207c1c1c1699d",
+   "bytes": 13001,
+   "mtime": "2026-09-17T14:13:13",
+   "age_min": 6190.4
+  },
+  {
+   "path": "GENTS.md",
+   "git_state": "M",
+   "exists": false
+  },
+  {
+   "path": "python/evals/wsc_failure_judge.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "803614b6fd0488d7",
+   "bytes": 22821,
+   "mtime": "2026-09-21T20:57:59",
+   "age_min": 25.7
+  },
+  {
+   "path": "python/scripts/dump_engine_profile.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "843cb88349d3bbc5",
+   "bytes": 8487,
+   "mtime": "2026-09-21T19:47:15",
+   "age_min": 96.4
+  },
+  {
+   "path": "python/tests/test_judge_matches_production.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "2b741b847732d0ec",
+   "bytes": 3380,
+   "mtime": "2026-09-21T19:41:06",
+   "age_min": 102.5
+  },
+  {
+   "path": "python/memory/wsc_projection.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "e36508b2f355ba6e",
+   "bytes": 4199,
+   "mtime": "2026-09-21T19:30:11",
+   "age_min": 113.5
+  },
+  {
+   "path": "python/tests/wsc/test_main_budget_headroom.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "082dbd1ecde320bc",
+   "bytes": 6306,
+   "mtime": "2026-09-21T19:05:53",
+   "age_min": 137.8
+  },
+  {
+   "path": "python/tests/test_workspace_settings_plumbing.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "6074eb203556f0b5",
+   "bytes": 3900,
+   "mtime": "2026-09-21T17:30:52",
+   "age_min": 232.8
+  },
+  {
+   "path": "python/tests/test_bash_write_probe.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "8ee515a6a04faa70",
+   "bytes": 2836,
+   "mtime": "2026-09-21T16:25:43",
+   "age_min": 297.9
+  },
+  {
+   "path": "python/evals/bash_write_probe.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "ac13df66328cbed6",
+   "bytes": 5991,
+   "mtime": "2026-09-21T16:21:02",
+   "age_min": 302.6
+  },
+  {
+   "path": "python/tests/wsc/test_batch_boundary.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "f4ede85492fad9f7",
+   "bytes": 8003,
+   "mtime": "2026-09-21T15:39:37",
+   "age_min": 344.0
+  },
+  {
+   "path": "python/synaptic/freshness.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "259e43d51c052a6e",
+   "bytes": 24798,
+   "mtime": "2026-09-21T15:36:25",
+   "age_min": 347.2
+  },
+  {
+   "path": "python/tests/wsc/test_error_shape_channels.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "396183a4338c17d5",
+   "bytes": 5962,
+   "mtime": "2026-09-21T15:22:53",
+   "age_min": 360.8
+  },
+  {
+   "path": "python/synaptic/qa_grading.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "dd50a1957ee74ac0",
+   "bytes": 8845,
+   "mtime": "2026-09-21T13:44:07",
+   "age_min": 459.5
+  },
+  {
+   "path": "python/tests/wsc/test_failure_modes_judge.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "7c621bdaebeafb14",
+   "bytes": 23593,
+   "mtime": "2026-09-21T13:42:47",
+   "age_min": 460.9
+  },
+  {
+   "path": "python/synaptic/qa_visibility.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "cb046988954bfc5c",
+   "bytes": 10227,
+   "mtime": "2026-09-21T13:42:10",
+   "age_min": 461.5
+  },
+  {
+   "path": "python/synaptic/failure_modes.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "c6d6082c81d5eb6e",
+   "bytes": 26384,
+   "mtime": "2026-09-21T13:41:43",
+   "age_min": 461.9
+  },
+  {
+   "path": "python/evals/wsc_qa_corpus.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "b1e9b14a0220136d",
+   "bytes": 7286,
+   "mtime": "2026-09-21T13:30:32",
+   "age_min": 473.1
+  },
+  {
+   "path": "python/synaptic/eval_stats.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "e7e44c6185048e78",
+   "bytes": 1755,
+   "mtime": "2026-09-21T12:37:32",
+   "age_min": 526.1
+  },
+  {
+   "path": "python/tests/test_eval_stats.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "b8f835c21ed69154",
+   "bytes": 573,
+   "mtime": "2026-09-21T12:34:38",
+   "age_min": 529.0
+  },
+  {
+   "path": "python/tests/test_failure_modes_contract.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "3ddc06a10222b720",
+   "bytes": 487,
+   "mtime": "2026-09-21T12:34:39",
+   "age_min": 529.0
+  },
+  {
+   "path": "python/tests/test_inbox_boundary_delivery.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "cef5239b92491b0f",
+   "bytes": 3092,
+   "mtime": "2026-09-20T23:37:52",
+   "age_min": 1305.8
+  },
+  {
+   "path": "python/engine/t_now_inbox.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "758a1bd6a8b4bdfe",
+   "bytes": 3027,
+   "mtime": "2026-09-20T23:37:35",
+   "age_min": 1306.1
+  },
+  {
+   "path": "python/tests/test_tool_batch_boundary.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "12d81425da3ab054",
+   "bytes": 7584,
+   "mtime": "2026-09-20T22:44:04",
+   "age_min": 1359.6
+  },
+  {
+   "path": "python/engine/projection_manifest.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "de89763514d9c6ee",
+   "bytes": 5587,
+   "mtime": "2026-09-20T22:37:27",
+   "age_min": 1366.2
+  },
+  {
+   "path": "python/tests/test_repeat_fold_granularity.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "bb61495be5e5fe1c",
+   "bytes": 5416,
+   "mtime": "2026-09-20T22:24:08",
+   "age_min": 1379.5
+  },
+  {
+   "path": "python/tests/test_tool_state_race.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "44a1ff6fbff1c3ea",
+   "bytes": 2365,
+   "mtime": "2026-09-20T22:22:29",
+   "age_min": 1381.2
+  },
+  {
+   "path": "python/tests/test_projection_manifest.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "128e3f0d2dc485dd",
+   "bytes": 2512,
+   "mtime": "2026-09-20T22:12:23",
+   "age_min": 1391.3
+  },
+  {
+   "path": "python/tests/test_wire_orphan_tool_guard.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "34106950e93fad19",
+   "bytes": 5693,
+   "mtime": "2026-09-20T22:12:20",
+   "age_min": 1391.3
+  },
+  {
+   "path": "python/permissions/bash_readonly.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "5a5842bb7c2b6ef3",
+   "bytes": 24134,
+   "mtime": "2026-09-20T20:12:03",
+   "age_min": 1511.6
+  },
+  {
+   "path": "python/tests/test_grant_persistence.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "e61f147a8f2e50dd",
+   "bytes": 4990,
+   "mtime": "2026-09-20T20:11:23",
+   "age_min": 1512.3
+  },
+  {
+   "path": "python/tests/test_bash_readonly_broad.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "e5770e48a3343816",
+   "bytes": 12289,
+   "mtime": "2026-09-20T20:11:13",
+   "age_min": 1512.4
+  },
+  {
+   "path": "python/tests/wsc/test_external_body.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "86b78debcd8e33e3",
+   "bytes": 5880,
+   "mtime": "2026-09-20T19:04:04",
+   "age_min": 1579.6
+  },
+  {
+   "path": "python/tests/wsc/test_transcript_shapes.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "cd003226df31c18e",
+   "bytes": 7995,
+   "mtime": "2026-09-20T18:55:03",
+   "age_min": 1588.6
+  },
+  {
+   "path": "gui/scripts/chatgpt-readonly-cdp.mjs",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "f7b5599363a3632d",
+   "bytes": 11494,
+   "mtime": "2026-09-19T18:32:06",
+   "age_min": 3051.5
+  },
+  {
+   "path": "python/engine/execution_context.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "ee00e00df0cfe8e0",
+   "bytes": 3119,
+   "mtime": "2026-09-18T12:56:18",
+   "age_min": 4827.3
+  },
+  {
+   "path": "python/tests/test_runtime_profile.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "9c08cc58027e8670",
+   "bytes": 1723,
+   "mtime": "2026-09-18T12:56:18",
+   "age_min": 4827.3
+  },
+  {
+   "path": "python/tests/test_tool_schema_fingerprint.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "0caf1c4366802361",
+   "bytes": 1506,
+   "mtime": "2026-09-18T12:56:18",
+   "age_min": 4827.3
+  },
+  {
+   "path": "python/tests/test_execution_context.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "38e5c2df0de41580",
+   "bytes": 4302,
+   "mtime": "2026-09-18T12:47:41",
+   "age_min": 4836.0
+  },
+  {
+   "path": "python/tests/test_permission_trace.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "69d9850b63d35d69",
+   "bytes": 1500,
+   "mtime": "2026-09-18T12:29:33",
+   "age_min": 4854.1
+  },
+  {
+   "path": "docs/resume-evidence-audit.md",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "8fce075d90b43648",
+   "bytes": 17634,
+   "mtime": "2026-09-18T12:29:08",
+   "age_min": 4854.5
+  },
+  {
+   "path": "python/permissions/trace.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "7aa1b18165b4f655",
+   "bytes": 2712,
+   "mtime": "2026-09-18T12:28:43",
+   "age_min": 4854.9
+  },
+  {
+   "path": "python/engine/trace_graph.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "6713e1f6ace94c7d",
+   "bytes": 5812,
+   "mtime": "2026-09-18T12:21:18",
+   "age_min": 4862.3
+  },
+  {
+   "path": "python/tests/test_trace_graph.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "5dde058036e90dce",
+   "bytes": 1762,
+   "mtime": "2026-09-18T12:19:41",
+   "age_min": 4864.0
+  },
+  {
+   "path": "python/engine/turn_runtime.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "105160e4dfcb765f",
+   "bytes": 2256,
+   "mtime": "2026-09-18T12:12:48",
+   "age_min": 4870.8
+  },
+  {
+   "path": "python/tests/test_turn_runtime.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "a187018f3e08c3b4",
+   "bytes": 1412,
+   "mtime": "2026-09-18T12:11:59",
+   "age_min": 4871.7
+  },
+  {
+   "path": "python/tests/test_runtime_checkpoint.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "1ab04ff036002ad3",
+   "bytes": 2555,
+   "mtime": "2026-09-18T11:31:10",
+   "age_min": 4912.5
+  },
+  {
+   "path": "python/engine/model_events.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "a7a0ee9ebe929a01",
+   "bytes": 1717,
+   "mtime": "2026-09-18T11:09:13",
+   "age_min": 4934.4
+  },
+  {
+   "path": "python/tests/test_model_events.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "bd55b3e791e41b7f",
+   "bytes": 1030,
+   "mtime": "2026-09-18T11:09:13",
+   "age_min": 4934.4
+  },
+  {
+   "path": "python/engine/runtime_profile.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "11b0d599760064e2",
+   "bytes": 4582,
+   "mtime": "2026-09-18T11:01:28",
+   "age_min": 4942.2
+  },
+  {
+   "path": "python/engine/runtime_recovery.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "14d44c445c97d190",
+   "bytes": 2477,
+   "mtime": "2026-09-18T10:57:34",
+   "age_min": 4946.1
+  },
+  {
+   "path": "python/engine/state_authority.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "d58a2894890e692d",
+   "bytes": 1252,
+   "mtime": "2026-09-18T10:53:15",
+   "age_min": 4950.4
+  },
+  {
+   "path": "python/tests/test_state_authority.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "91cdd4b5112807ae",
+   "bytes": 590,
+   "mtime": "2026-09-18T10:53:15",
+   "age_min": 4950.4
+  },
+  {
+   "path": "python/tests/test_runtime_verification.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "baaa76d5d06d50ce",
+   "bytes": 1901,
+   "mtime": "2026-09-18T10:52:27",
+   "age_min": 4951.2
+  },
+  {
+   "path": "python/engine/action_journal.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "19601293feea9c41",
+   "bytes": 6536,
+   "mtime": "2026-09-18T10:45:43",
+   "age_min": 4957.9
+  },
+  {
+   "path": "python/engine/lifecycle.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "681deff7dfd371d7",
+   "bytes": 3105,
+   "mtime": "2026-09-18T10:45:43",
+   "age_min": 4957.9
+  },
+  {
+   "path": "python/engine/runtime_verification.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "4d1346eac7a0da82",
+   "bytes": 3646,
+   "mtime": "2026-09-18T10:45:43",
+   "age_min": 4957.9
+  },
+  {
+   "path": "python/tests/test_lifecycle.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "407163bf3c614786",
+   "bytes": 1458,
+   "mtime": "2026-09-18T10:45:43",
+   "age_min": 4957.9
+  },
+  {
+   "path": "python/engine/tool_coordinator.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "9d034bc82d909542",
+   "bytes": 1953,
+   "mtime": "2026-09-18T10:21:32",
+   "age_min": 4982.1
+  },
+  {
+   "path": "python/engine/runtime_checkpoint.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "a1e49f711e1aa4c8",
+   "bytes": 2530,
+   "mtime": "2026-09-18T10:20:05",
+   "age_min": 4983.6
+  },
+  {
+   "path": "python/tests/test_tool_call_state.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "fbe7b01a41d64558",
+   "bytes": 1334,
+   "mtime": "2026-09-18T10:14:39",
+   "age_min": 4989.0
+  },
+  {
+   "path": "python/engine/tool_call_state.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "b713d001b55b8b84",
+   "bytes": 2122,
+   "mtime": "2026-09-18T10:13:40",
+   "age_min": 4990.0
+  },
+  {
+   "path": "python/tests/test_runtime_capabilities.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "6c3dc6f0c321b49e",
+   "bytes": 1165,
+   "mtime": "2026-09-18T10:02:19",
+   "age_min": 5001.3
+  },
+  {
+   "path": "python/engine/runtime_capabilities.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "824f5288b7750c9b",
+   "bytes": 3116,
+   "mtime": "2026-09-18T10:01:20",
+   "age_min": 5002.3
+  },
+  {
+   "path": "python/tests/test_cancellation.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "7b43a9e4d7e2f49f",
+   "bytes": 3143,
+   "mtime": "2026-09-18T09:52:49",
+   "age_min": 5010.8
+  },
+  {
+   "path": "python/engine/cancellation.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "60ab8fcadd828405",
+   "bytes": 1507,
+   "mtime": "2026-09-18T09:52:41",
+   "age_min": 5011.0
+  },
+  {
+   "path": "python/tools/error_taxonomy.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "f2e3fb8bfe9c0f73",
+   "bytes": 2129,
+   "mtime": "2026-09-18T01:44:35",
+   "age_min": 5499.1
+  },
+  {
+   "path": "python/tests/test_action_journal.py",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "9b20030c725b1f9e",
+   "bytes": 3068,
+   "mtime": "2026-09-18T01:31:26",
+   "age_min": 5512.2
+  },
+  {
+   "path": "gui/src/lib/openExternal.ts",
+   "git_state": "??",
+   "exists": true,
+   "sha256_16": "088b530287325280",
+   "bytes": 1006,
+   "mtime": "2026-09-17T14:13:32",
+   "age_min": 6190.1
+  },
+  {
+   "path": "\"XEYO-\\345\\256\\214\\346\\225\\264\\351\\241\\271\\347\\233\\256\\350\\257\\264\\346\\230\\216\\344\\270\\216TB2.1\\344\\275\\216\\345\\210\\206\\346\\240\\271\\345\\233\\240.md\"",
+   "git_state": "??",
+   "exists": false
+  },
+  {
+   "path": "benchmarks/",
+   "git_state": "??",
+   "exists": true
+  },
+  {
+   "path": "reports/",
+   "git_state": "??",
+   "exists": true
+  }
+ ]
+}

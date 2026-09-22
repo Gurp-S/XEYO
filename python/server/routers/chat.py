@@ -69,6 +69,7 @@ from server.deps import (
 )
 from server.session_pool import CwdConflictError, ModelConfig
 from server.local_gate import require_loopback
+from server.stream_contract import accepted_payload, assert_stream_type
 
 _stream_log = logging.getLogger("xeyo.chat.stream")
 
@@ -99,7 +100,7 @@ class ChatCompletionRequest(BaseModel):
 	session_id: str | None = None
 	# "local"（本地推理）需 XEYO_ALLOW_LOCAL_MODEL=1 门禁开启，默认拒绝；
 	# "fake"（HTTP 全栈测试假模型）需 XEYO_ALLOW_FAKE_MODEL=1。
-	provider: Literal["deepseek", "openai", "local", "fake"] | None = None
+	provider: Literal["deepseek", "openai", "anthropic", "local", "fake"] | None = None
 	base_url: str | None = None
 	thinking: str | None = None
 	reasoning_effort: str | None = None
@@ -214,13 +215,17 @@ def _busy_or_queue(
 		):
 			return JSONResponse(
 				status_code=202,
-				content={
-					"queued": True,
-					"steered": True,
+				content=accepted_payload(
+					"steered",
+					queued=True,
+					steered=True,
 					# 投递口径显式化：boundary = 本轮下一个边界就送到模型；
 					# after_turn = 回落 settle 后排（下一轮才送达）。
-					"delivery": "boundary",
-				},
+					delivery="boundary",
+					# 引导路径没有 queue_id（不入 inbox），客户端消息 id 就是它唯一的
+					# 身份；边界投递帧 steer_delivered 会带同一批 id + turn_id。
+					message_id=message_id or "",
+				),
 			)
 		# 引导入队失败（队列满 / 内部异常）→ 回落既有 settle 排队语义
 	if body.queue_if_busy and not body.side:
@@ -249,12 +254,13 @@ def _busy_or_queue(
 		# → 忙时排队路径必然 TypeError 500（202 从未真正返回过）。
 		return JSONResponse(
 			status_code=202,
-			content={
-				"queued": True,
-				"delivery": "after_turn",
-				"queue_id": item.queue_id,
-				"position": position,
-			},
+			content=accepted_payload(
+				"queued",
+				queued=True,
+				delivery="after_turn",
+				queue_id=item.queue_id,
+				position=position,
+			),
 		)
 	raise api_error(409, "会话正忙，请稍候或点停止后重试", "session_busy")
 
@@ -518,7 +524,13 @@ def _split_prior_and_user(
 	return prior, user_text, last_user_id
 
 
-def _openai_chunk(content: str, *, model: str, finish: str | None = None) -> str:
+def _openai_chunk(
+	content: str,
+	*,
+	model: str,
+	finish: str | None = None,
+	event_id: int | None = None,
+) -> str:
 	payload = {
 		"id": f"chatcmpl-{uuid.uuid4().hex[:12]}",
 		"object": "chat.completion.chunk",
@@ -532,6 +544,10 @@ def _openai_chunk(content: str, *, model: str, finish: str | None = None) -> str
 			}
 		],
 	}
+	# 正文帧自带事件号：GUI 据此推进会话游标，重连时只补真正没收到的帧
+	# （不带则游标只能停在最后一个结构化帧上，重放会把已渲染的尾巴再放一遍）。
+	if event_id is not None:
+		payload["xeyo_event_id"] = int(event_id)
 	return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
@@ -726,8 +742,10 @@ async def chat_completions(
 					"id": payload["id"],
 					"object": "chat.completion.chunk",
 					"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
-					"xeyo": {
-						"type": "context_compression",
+					# 信封键与主链路同源（前端只读 obj.xy），帧名也按 phase 口径：
+					# 用 "xeyo" + 裸 "context_compression" 时该帧被静默丢弃。
+					"xy": {
+						"type": "context_compression_complete",
 						"source": "manual",
 						"compact_cursor": after,
 						"c2_summary_chars": chars,
@@ -1013,13 +1031,13 @@ async def chat_completions(
 			submit_options["user_message_id"] = user_message_id
 
 		def _id(xy: dict[str, Any]) -> dict[str, Any]:
-			return {
+			return assert_stream_type({
 				**xy,
 				"schema_version": "1.0",
 				"session_id": session_id,
 				"turn_id": turn_id,
 				"event_id": envelope_gen.next(),
-			}
+			})
 
 		async def _producer() -> AsyncIterator[tuple[int, bytes, str]]:
 			"""Detached producer：与 HTTP 连接无关；转换 engine 事件为 SSE 帧。"""
@@ -1117,7 +1135,9 @@ async def chat_completions(
 						eid = envelope_gen.next()
 						frames.append((
 							eid,
-							_openai_chunk(ev.text, model=body.model).encode("utf-8"),
+							_openai_chunk(
+								ev.text, model=body.model, event_id=eid
+							).encode("utf-8"),
 							"delta",
 						))
 					elif isinstance(ev, ReasoningDelta):
@@ -1218,7 +1238,9 @@ async def chat_completions(
 							eid = envelope_gen.next()
 							frames.append((
 								eid,
-								_openai_chunk(ev.text, model=body.model).encode("utf-8"),
+								_openai_chunk(
+									ev.text, model=body.model, event_id=eid
+								).encode("utf-8"),
 								"final_text",
 							))
 						eid = envelope_gen.next()
@@ -1243,7 +1265,9 @@ async def chat_completions(
 						eid = envelope_gen.next()
 						frames.append((
 							eid,
-							_openai_chunk(note, model=body.model).encode("utf-8"),
+							_openai_chunk(
+								note, model=body.model, event_id=eid
+							).encode("utf-8"),
 							"stopped",
 						))
 						eid = envelope_gen.next()

@@ -308,7 +308,11 @@ def _scan_session_meta(p: Path) -> tuple[str, int]:
 						if isinstance(ts, (int, float)):
 							created_at = int(float(ts) * 1000)
 							found_ts = True
-					if obj.get("role") == "user":
+					if obj.get("role") == "user" and not str(
+						obj.get("note_key") or ""
+					).strip():
+						# 通报留痕也是 role=user（world_state 片段）：拿它当"第一句
+						# 用户话"就会把引擎文本写成会话标题。
 						content = obj.get("content")
 						if isinstance(content, str) and content.strip():
 							title = content.strip()[:40]
@@ -619,9 +623,9 @@ async def session_messages(session_id: str, include_notes: bool = False):
 	from session.surface import fold_surface_rows
 
 	surface_rows = resolve_transcript_rows(fold_surface_rows(raw_rows), p)
-	# T_now v2 留痕条目（hidden system note）：模型可见 / 用户不可见——它们是
-	# 引擎的当前态与事件留痕，不是对话内容，默认不进 UI 流（``include_notes=1``
-	# 可显式取出，供调试与自查）。身份由 note_key 决定，缺 kind/fp 也照样过滤。
+	# T_now v2 留痕条目（引擎注入，模型可见 / 用户不可见）：两种形态都算——
+	# system 声道写 role=system，通报片段声道写带信封的 role=user。身份只看
+	# note_key，缺 kind/fp 也照样过滤；默认不进 UI 流（``include_notes=1`` 显式取出）。
 	if not include_notes:
 		surface_rows = [
 			r for r in surface_rows if not str(r.get("note_key") or "").strip()
@@ -761,6 +765,7 @@ def _side_row_to_ui(
                     texts.append(block["text"])
                 elif btype == "tool_use":
                     pending_calls.append({
+                        "id": str(block.get("id") or ""),
                         "name": str(block.get("name") or ""),
                         "input": block.get("input"),
                         "ts": created,
@@ -776,6 +781,7 @@ def _side_row_to_ui(
         result_text = ""
         is_error = False
         media_urls: list[str] = []
+        tool_use_id = str(row.get("tool_call_id") or "").strip()
         if isinstance(content, str):
             result_text = content
         elif isinstance(content, list):
@@ -804,13 +810,28 @@ def _side_row_to_ui(
                     if isinstance(url, str) and url.strip():
                         media_urls.append(url)
 
-        # 配对 tool_use：优先同名，否则 FIFO（跨行喂给前端 Args 展示）。
+        # 配对 tool_use：先按结果自带的 id 精确配（并行批次里结果乱序回写时，
+        # 队头/FIFO 都会把参数张冠李戴），其次同名，最后 FIFO 兜底。
+        if not tool_use_id and isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict) and str(block.get("tool_use_id") or "").strip():
+                    tool_use_id = str(block["tool_use_id"]).strip()
+                    break
         call: dict[str, Any] | None = None
-        for i, pend in enumerate(pending_calls):
-            same_name = (pend.get("name") or "") == msg_name
-            if same_name or (i == 0 and not any(p.get("name") == msg_name for p in pending_calls)):
-                call = pending_calls.popleft() if same_name else pending_calls.popleft()
-                break
+        if tool_use_id:
+            for i, pend in enumerate(pending_calls):
+                if str(pend.get("id") or "") == tool_use_id:
+                    call = pend
+                    del pending_calls[i]
+                    break
+        if call is None:
+            for i, pend in enumerate(pending_calls):
+                if (pend.get("name") or "") == msg_name:
+                    call = pend
+                    del pending_calls[i]
+                    break
+        if call is None and pending_calls:
+            call = pending_calls.popleft()
         try:
             call_input = (
                 json.dumps(call.get("input"), ensure_ascii=False)
@@ -830,6 +851,11 @@ def _side_row_to_ui(
             "toolStatus": ("error" if (is_error or result_text.startswith("[error]")) else "done"),
             "createdAt": created,
         }
+        # 前端按 toolUseId 精确结算「仍在运行/等待批准」的工具卡（mergeToolResultsFromServer）；
+        # 缺这个键时该分支恒不命中，重开会话后工具卡永久停在运行中。
+        paired_id = tool_use_id or str((call or {}).get("id") or "")
+        if paired_id:
+            out_tool["toolUseId"] = paired_id
         if media_urls:
             out_tool["mediaRefs"] = media_urls
         return [out_tool]

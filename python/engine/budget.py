@@ -14,6 +14,7 @@ from typing import Any
 
 from usage import pricing as pricing_mod
 from usage.pricing import estimate_cny, official_cost_cny
+from engine.lifecycle import AgentLifecycle
 
 
 DEFAULT_MAX_TURNS = 256
@@ -144,6 +145,8 @@ class BudgetTracker:
 	# R1'：墙钟硬停是否武装。默认 False（产品零变化）；宿主显式置 True 后，
 	# 墙钟走尽 → 进入共享收尾窗口（与 max_turns 同一条 grace → wrap-up 链路）。
 	wall_hard_stop: bool = field(default=False, init=False, repr=False)
+	# submit 内部生命周期；执行层读取，模型不可见。
+	lifecycle: AgentLifecycle = field(default_factory=AgentLifecycle, repr=False)
 
 	def set_wall_deadline(self, deadline_ts: float | None, *, started_ts: float | None = None) -> None:
 		"""设置墙钟死线与（可选）起始时刻；None 清除。reset_for_new_submit 不清除。"""
@@ -199,6 +202,13 @@ class BudgetTracker:
 		# R1'：100% 走尽且武装 → 进入共享收尾窗口（grace → forced_wrap_up）。
 		if self.wall_hard_stop and elapsed >= total and not self.grace_started:
 			self._start_grace("wall")
+		try:
+			self.lifecycle.observe_wall(
+				max(0.0, self.wall_deadline_ts - now),
+				armed=self.wall_hard_stop,
+			)
+		except Exception:  # noqa: BLE001 — 生命周期只做旁路观测
+			pass
 		return pending_notice
 
 	def _start_grace(self, reason: str) -> None:
@@ -207,6 +217,10 @@ class BudgetTracker:
 			return
 		self.grace_started = True
 		self.grace_reason = reason
+		try:
+			self.lifecycle.enter_finalizing(reason)
+		except Exception:  # noqa: BLE001 — 生命周期旁路不能阻断预算闸
+			pass
 		self._queue_notice(reason)
 
 	def _queue_notice(self, reason: str) -> None:
@@ -471,6 +485,7 @@ class BudgetTracker:
 		self._pending_notices.clear()
 		self._notified_reasons.clear()
 		self._hard_stop_reason = None
+		self.lifecycle.reset()
 		self.used_tokens = 0
 		self.used_usd = 0.0
 		self.last_usage = None
@@ -490,3 +505,19 @@ class BudgetTracker:
 			self.model = model
 		if prices is not None:
 			self.prices = prices
+
+	def lifecycle_snapshot(self) -> dict[str, object]:
+		"""返回 submit 生命周期的机器快照，不进入模型上下文。"""
+		try:
+			return self.lifecycle.snapshot().to_dict()
+		except Exception:  # noqa: BLE001
+			return {"phase": "running", "reason": "", "revision": 0}
+
+	def mark_terminal(self, outcome: str, reason: str = "") -> None:
+		"""在 QueryEngine 收尾时写入一次 submit 终态。"""
+		if outcome not in {"succeeded", "failed", "stopped"}:
+			outcome = "failed"
+		try:
+			self.lifecycle.finish(outcome, reason)
+		except Exception:  # noqa: BLE001
+			pass

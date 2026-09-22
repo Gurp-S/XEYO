@@ -824,6 +824,14 @@ class SessionPool:
 				except Exception:
 					pass
 		try:
+			from engine.cancellation import cancel_session_scope
+
+			cancel_session_scope(session_id, "session_deleted")
+		except Exception:
+			logging.getLogger(__name__).debug(
+				"session cancellation scope drop failed", exc_info=True
+			)
+		try:
 			from engine.session_presence import default_session_presence
 
 			default_session_presence().drop(session_id)
@@ -904,13 +912,13 @@ class SessionPool:
 
 		若该 session 已有未中止的 batch abort，复用它（禁止叠跑覆盖）。
 		"""
-		from engine.abort import AbortController
+		from engine.abort import CancellationScope
 
 		with self._lock:
 			existing = self._batch_aborts.get(session_id)
 			if existing is not None and not getattr(existing, "aborted", False):
 				return existing
-			abort = AbortController()
+			abort = CancellationScope(label=f"batch:{session_id}")
 			self._batch_aborts[session_id] = abort
 			if session_id in self._pending_interrupt:
 				abort.abort()

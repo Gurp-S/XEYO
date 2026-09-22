@@ -302,16 +302,28 @@ def _tool_result_ids(msg: dict[str, Any]) -> list[str]:
 
 
 def _pair_ranges(messages: list[dict[str, Any]]) -> list[tuple[int, int]]:
-	"""assistant(tool_calls) 到其连续 tool 结果的半开区间。"""
+	"""assistant(tool_calls) 到其结果消息的半开区间——**以整批为单位**。
+
+	并行批次的写法随转写形态变化：XEYO 把 N 个 tool_use 放进同一条 assistant
+	消息；Codex / OpenAI 形态是 **N 条连续 assistant 消息各带一个调用**，结果在整批之后。
+	只认「一条 assistant + 紧随结果」时，后者得到 ``(A1, A2)`` 这种零结果的退化区间，
+	``pair_safe_cut`` 于是允许 cut 落在 ``A1``/``A2`` 之间 ⇒ 尾部带着 ``A1`` 的结果、
+	而 ``A1`` 的声明已被压进区域 ⇒ ``orphan_tool_result``（实测 codex_holdout 9 次）。
+	"""
 	ranges: list[tuple[int, int]] = []
 	i = 0
 	n = len(messages)
 	while i < n:
-		ids = _assistant_tool_ids(messages[i])
-		if not ids:
+		if not _assistant_tool_ids(messages[i]):
 			i += 1
 			continue
 		j = i + 1
+		while (
+			j < n
+			and _assistant_tool_ids(messages[j])
+			and not _tool_result_ids(messages[j])
+		):
+			j += 1
 		while j < n and _tool_result_ids(messages[j]):
 			j += 1
 		ranges.append((i, j))
@@ -320,7 +332,7 @@ def _pair_ranges(messages: list[dict[str, Any]]) -> list[tuple[int, int]]:
 
 
 def pair_safe_cut(messages: list[dict[str, Any]], cut: int) -> int:
-	"""把切点移到成对边界：不得落在 assistant.tool_calls 与 role=tool 之间。"""
+	"""把切点移到成对边界：不得落在一次调用与它的结果之间（含并行整批内部）。"""
 	cut = max(0, min(int(cut), len(messages)))
 	for start, end in _pair_ranges(messages):
 		if start < cut < end:
@@ -337,10 +349,17 @@ def c2_cut_index(messages: list[dict], s0) -> int:
 
 def _msg_kind(msg: dict[str, Any]) -> str:
 	"""确定性摘要用的消息种类。"""
+	from prompt.notice_channel import is_notice_message
+
 	if _assistant_tool_ids(msg):
 		return "tool_use"
 	if _tool_result_ids(msg):
 		return "tool_result"
+	if is_notice_message(msg):
+		# 引擎通报（world_state 留痕/片段）不是"用户说的话"。它曾被算成 user，
+		# 于是每边界一条状态块都在抢 C2 摘要的**用户子池**配额，把真实用户轮挤成
+		# metadata 行。归到"其它"组（_role_group 2 + 默认配额）。
+		return "notice"
 	role = str(msg.get("role") or "unknown")
 	return role
 
@@ -1062,6 +1081,14 @@ def apply_c2_messages(
 	T8：首压摘要经 ``_resolve_c2_summary`` 生成——LLM 旁路（注入 provider / 预取）优先，
 	失败/未开启回退确定性摘要；同时写入 ``compact_checkpoint``（投影锚点 + 窗口链 + 首压摘要）。
 	"""
+	# Stage C: C2 is the trigger, WSC is the execution projection. Disabled or
+	# failed WSC returns None and the existing C2 body below remains the fallback.
+	from memory.wsc_projection import project_c2_messages
+
+	wsc = project_c2_messages(messages, working, cwd=cwd)
+	if wsc is not None:
+		return wsc
+
 	left, right = split_at_cursor(messages, working.compact_cursor)
 	# P1 缺失1：把 C2 左段（M 区）的原子分段记入 working，供按原子计权与审计。
 	try:

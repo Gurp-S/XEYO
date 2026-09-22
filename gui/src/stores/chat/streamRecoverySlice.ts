@@ -329,8 +329,37 @@ export function createStreamRecoverySlice(
 		// T29：重连流自身的断流也走有界重试；恢复期间挂起权限/提问/计划弹窗照常接住。
 		const pending = createPendingStreamHandlers({get, sessionId});
 		let connectionLost = false;
+		// 本次订阅是否收到过后端重放空洞帧（环形缓冲已挤掉一段）。
+		let sawGap = false;
+		/** 无洞时的收尾：把本地累积的尾巴作为正文提交（带末行同文去重）。 */
+		const commitLocalTail = () => {
+			set(s => {
+				const st = getSessionStream(s, sessionId);
+				const text = st.streamingText;
+				let msgs = [...(s.messagesById[sessionId] ?? [])];
+				if (text.trim()) {
+					// appendAssistantProse 带末行同文去重：重放(cursor 落后)
+					// 会把已提交的尾巴再放一遍，裸 push 会产生重复气泡。
+					msgs = appendAssistantProse(msgs, text);
+					void replaceMessages(sessionId, msgs);
+				}
+				return {
+					messagesById: {...s.messagesById, [sessionId]: msgs},
+					sessionStreams: patchSessionStream(s.sessionStreams, sessionId, {
+						isLoading: false,
+						streamingText: '',
+						streamingShown: '',
+						statusText: '',
+						abortRef: null,
+						turnDetached: false,
+						draining: false,
+					}),
+				};
+			});
+		};
 		for (let attempt = 0; attempt < REATTACH_MAX_ATTEMPTS; attempt++) {
 			connectionLost = false;
+			sawGap = false;
 			// cursor 每次重取：上一次断流前已收到的事件不重放
 			const cursorNow = Math.max(cursor, readTurnCursor(backendSessionId));
 			try {
@@ -471,31 +500,24 @@ export function createStreamRecoverySlice(
 						};
 					});
 				},
+				onStreamGap() {
+					sawGap = true;
+				},
 				onDone() {
 					flushDelta();
-					set(s => {
-						const st = getSessionStream(s, sessionId);
-						const text = st.streamingText;
-						let msgs = [...(s.messagesById[sessionId] ?? [])];
-						if (text.trim()) {
-							// appendAssistantProse 带末行同文去重：重放(cursor 落后)
-							// 会把已提交的尾巴再放一遍，裸 push 会产生重复气泡。
-							msgs = appendAssistantProse(msgs, text);
-							void replaceMessages(sessionId, msgs);
-						}
-						return {
-							messagesById: {...s.messagesById, [sessionId]: msgs},
-							sessionStreams: patchSessionStream(s.sessionStreams, sessionId, {
-								isLoading: false,
-								streamingText: '',
-								streamingShown: '',
-								statusText: '',
-								abortRef: null,
-								turnDetached: false,
-								draining: false,
-							}),
-						};
-					});
+					if (sawGap) {
+						// 重放有洞：本地尾巴是缺段，绝不能当完整内容提交 ⇒ 用服务端
+						// transcript 收尾；拉不到（网络/空集）再退回本地提交，不静默卡住。
+						void loadServerSessionMessages(backendSessionId).then(server => {
+							if (server.length > 0) {
+								finalizeFinishedTurn(set, sessionId, server);
+								return;
+							}
+							commitLocalTail();
+						});
+						return;
+					}
+					commitLocalTail();
 				},
 				onError(message, opts) {
 					flushDelta();

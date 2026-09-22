@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from engine.abort import AbortController
+from engine.abort import AbortController, LinkedAbortController
 from engine.write_store import WriteStore
 from tools.meta import FORBIDDEN_SUB_TOOLS, SUBSET_TOOL_BASELINE, WRITE_PATH_TOOLS
 
@@ -474,7 +474,17 @@ class Scheduler:
 
     async def _dispatch(self, t: Task) -> None:
         agent_id_resolved = self._resolved_agent_id(t)
-        abort = AbortController()
+        # 取消树：batch → task。task 自己超时/失败时只收口本 task，
+        # batch abort 则同步传播到所有正在运行的子任务。
+        if self._batch_abort is not None:
+            child = getattr(self._batch_abort, "child", None)
+            abort = (
+                child(label=f"task:{t.id}")
+                if callable(child)
+                else LinkedAbortController(self._batch_abort, label=f"task:{t.id}")
+            )
+        else:
+            abort = AbortController(label=f"task:{t.id}")
         self._task_aborts[t.id] = abort
         if self._batch_aborted():
             abort.abort()

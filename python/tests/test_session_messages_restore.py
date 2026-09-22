@@ -1,3 +1,4 @@
+import json
 from collections import deque
 
 from server.routers.sessions import _persisted_thought_keys, _side_row_to_ui
@@ -39,7 +40,46 @@ def test_side_row_to_ui_expands_tool_rows() -> None:
 	assert messages[1]["text"] == "searching"
 	assert messages[2]["toolName"] == "Grep"
 	assert messages[2]["text"] == "match"
+	# 前端 mergeToolResultsFromServer 按 toolUseId 结算工具卡；缺键时重开会话
+	# 后「运行中/等待批准」永不落定。行无 tool_call_id 时由配对到的 tool_use 兜底。
+	assert messages[2]["toolUseId"] == "call-1"
 	assert messages[3]["text"] == "done"
+
+
+def test_side_row_to_ui_pairs_same_name_call_and_prefers_row_tool_call_id() -> None:
+	"""并行批次里结果乱序回写：同名优先配对，且行自带 id 时以行为准。"""
+	rows = [
+		{
+			"role": "assistant",
+			"content": [
+				{"type": "tool_use", "id": "call-read", "name": "Read", "input": {"path": "a"}},
+				{"type": "tool_use", "id": "call-bash", "name": "Bash", "input": {"command": "ls"}},
+				{"type": "tool_use", "id": "call-read-2", "name": "Read", "input": {"path": "b"}},
+			],
+			"id": "a1",
+			"ts": 1.0,
+		},
+		# 结果顺序与调用顺序不同，且行自带权威 tool_call_id。
+		{
+			"role": "tool",
+			"name": "Read",
+			"tool_call_id": "call-read-2",
+			"content": [{"type": "tool_result", "tool_use_id": "call-read-2", "content": "b ok"}],
+			"id": "t1",
+			"ts": 2.0,
+		},
+	]
+	messages: list[dict] = []
+	pending: deque[dict] = deque()
+	for i, row in enumerate(rows):
+		messages.extend(_side_row_to_ui(row, i, pending))
+
+	tool_rows = [m for m in messages if m["role"] == "tool"]
+	assert len(tool_rows) == 1
+	assert tool_rows[0]["toolName"] == "Read"
+	assert tool_rows[0]["toolUseId"] == "call-read-2"
+	# 不是队头的第一个 Read：参数必须来自同名配到的那一次调用。
+	assert json.loads(tool_rows[0]["toolInput"]) == {"path": "b"}
 
 
 def test_side_row_to_ui_restores_ui_thought() -> None:

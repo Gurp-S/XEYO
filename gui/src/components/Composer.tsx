@@ -45,7 +45,7 @@ import {
 	triggerTokenAt,
 } from '@/lib/slash';
 import {arbitrateSlashMenuKey, type SlashMenuKey} from '@/lib/slashMenuKeys';
-import {resolveSendMode, type SendMode} from '@/lib/composerSendMode';
+import {resolveSendMode, steerHintVisible, type SendMode} from '@/lib/composerSendMode';
 import {handleComposerSlash, lastUserText} from '@/lib/slashCommands';
 import {useHasComposerPendingDock} from '@/hooks/usePendingForActiveSession';
 import {popEscLayer, pushEscLayer} from '@/lib/escStack';
@@ -1245,6 +1245,12 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 						</span>
 						<span className="mx-2 text-line">·</span>
 						Esc 中断
+						{steerHintVisible(currentSessionStreaming) ? (
+							<>
+								<span className="mx-2 text-line">·</span>
+								Ctrl+Enter 引导本回合
+							</>
+						) : null}
 					</p>
 				)}
 				{!currentSessionStreaming &&

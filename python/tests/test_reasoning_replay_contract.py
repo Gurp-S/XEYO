@@ -205,15 +205,34 @@ def test_user_and_tool_rows_unaffected() -> None:
 
 	注：tool 分支原本就不透传 `name`（既有行为，本次未改动），此处锁定
 	改动后的实际产出，任何意外漂移都会红。
+	注（2026-09-20）：wire 出口新增「丢弃无主 tool 行」守卫（厂商对无前置
+	tool_calls 的 tool 行直接 400），故 fixture 补上前置 assistant
+	tool_calls——裸 tool 行在本测试之外另有专测
+	（tests/test_wire_orphan_tool_guard.py）。
 	"""
 	msgs = [
 		{"role": "system", "content": "sys"},
 		{"role": "user", "content": "你好"},
+		{
+			"role": "assistant",
+			"content": [{"type": "tool_use", "id": "c1", "name": "Bash", "input": {}}],
+		},
 		{"role": "tool", "tool_call_id": "c1", "name": "Bash", "content": "out"},
 	]
 	assert _norm(msgs) == [
 		{"role": "system", "content": "sys"},
 		{"role": "user", "content": "你好"},
+		{
+			"role": "assistant",
+			"content": "",
+			"tool_calls": [
+				{
+					"id": "c1",
+					"type": "function",
+					"function": {"name": "Bash", "arguments": "{}"},
+				}
+			],
+		},
 		{"role": "tool", "tool_call_id": "c1", "content": "out"},
 	]
 
@@ -326,8 +345,19 @@ def test_reasoning_only_turn_content_empty_string_with_reasoning() -> None:
 def test_empty_tool_result_gets_no_output_sentinel() -> None:
 	"""dsh R3（serialize.ts:269-271）：空 tool 输出在 wire 上也要有内容，
 	统一补结构性哨兵 `(no output)`（部分网关拒收空串 tool 消息）。
+
+	fixture 的前置 assistant tool_calls 是 wire 合法性前提：无主 tool 行会被
+	出口守卫丢弃（tests/test_wire_orphan_tool_guard.py）。
 	"""
 	msgs = [
+		{
+			"role": "assistant",
+			"content": [
+				{"type": "tool_use", "id": "c1", "name": "Read", "input": {}},
+				{"type": "tool_use", "id": "c2", "name": "Read", "input": {}},
+				{"type": "tool_use", "id": "c3", "name": "Read", "input": {}},
+			],
+		},
 		{"role": "tool", "tool_call_id": "c1", "content": ""},
 		{"role": "tool", "tool_call_id": "c2", "content": [
 			{"type": "tool_result", "tool_use_id": "c2", "content": ""}
@@ -335,7 +365,9 @@ def test_empty_tool_result_gets_no_output_sentinel() -> None:
 		{"role": "tool", "tool_call_id": "c3", "content": "正常输出"},
 	]
 	out = _norm(msgs)
-	by_id = {m["tool_call_id"]: m["content"] for m in out}
+	by_id = {
+		m["tool_call_id"]: m["content"] for m in out if m.get("role") == "tool"
+	}
 	assert by_id["c1"] == "(no output)"
 	assert by_id["c2"] == "(no output)"
 	assert by_id["c3"] == "正常输出"
@@ -365,15 +397,23 @@ def test_message_reasoning_kept_without_text() -> None:
 
 
 def test_tool_result_and_image_blocks_unaffected_by_reasoning_support() -> None:
-	"""回归：user 带 tool_result/图片 的路径不受 assistant 分支改动影响。"""
+	"""回归：user 带 tool_result/图片 的路径不受 assistant 分支改动影响。
+
+	fixture 补前置 assistant tool_calls：无主 tool_result 在 wire 上会被出口
+	守卫丢弃（厂商对无前置 tool_calls 的 tool 行直接 400）。
+	"""
 	msgs = [
+		{
+			"role": "assistant",
+			"content": [{"type": "tool_use", "id": "c1", "name": "Read", "input": {}}],
+		},
 		{
 			"role": "user",
 			"content": [
 				{"type": "tool_result", "tool_use_id": "c1", "content": "out"},
 				{"type": "text", "text": "继续"},
 			],
-		}
+		},
 	]
 	out = _norm(msgs)
 	assert {"role": "tool", "tool_call_id": "c1", "content": "out"} in out

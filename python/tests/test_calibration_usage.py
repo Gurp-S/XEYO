@@ -102,7 +102,10 @@ async def test_query_loop_records_calibration_events(tmp_path, monkeypatch, mem_
 	monkeypatch.setenv("XEYO_USAGE_DIR", str(tmp_path))
 	# gate 默认开（2026-09）会让投影走 decide（action=keep）；本测试验证
 	# 「默认通道记录 project 观测」→ 显式关 gate。
-	mem_switch(XEYO_C2_GATE="0")
+	# 原先用 `XEYO_C2_GATE="0"` 把投影按回 project，但 **C2_GATE 已在 2026-09-06 固化时
+	# 删键**（未注册键 get_value 直接忽略）⇒ 那个钉法早就成了空操作，守护静默失效，
+	# 直到 L5 默认改成 v61 才暴露。改成直接钉模式。
+	mem_switch(XEYO_L5="project")
 	from engine.abort import AbortController
 	from engine.budget import BudgetTracker
 	from engine.query_loop import query_loop

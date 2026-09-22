@@ -1,26 +1,16 @@
-/** 二十套黑白基调主题目录：语义色 ID + 明暗 scheme + 默认强调色。 */
+/** 六套黑白基调主题目录：语义色 ID + 明暗 scheme + 默认强调色。
+ *
+ *  2026-09-21 收敛：20 套 → 6 套。每套单独调校（灰阶可读性 + 强调色对比），
+ *  而不是同一套灰阶换个色相。配色值与 styles/tokens.css 的 data-theme 块一一对应。
+ */
 
 export const THEME_IDS = [
 	'paper',
-	'pure',
-	'platinum',
-	'pearl',
-	'letterpress',
-	'sketch',
-	'moon',
-	'mist',
-	'steel',
 	'ivory',
-	'void',
+	'mist',
+	'basalt',
 	'graphite',
 	'darkroom',
-	'woodcut',
-	'grayscale',
-	'basalt',
-	'soot',
-	'selenium',
-	'velvet',
-	'lead',
 ] as const;
 
 export type ThemeId = (typeof THEME_IDS)[number];
@@ -37,147 +27,72 @@ export type ThemeMeta = {
 };
 
 export const THEME_CATALOG: readonly ThemeMeta[] = [
+	/* —— 浅色 —— */
 	{
 		id: 'paper',
-		label: '宣纸',
+		label: '霜白',
 		scheme: 'light',
-		defaultAccent: '#1c1b18',
-		swatches: {paper: '#faf9f6', ink: '#1c1b18', accent: '#1c1b18'},
-	},
-	{
-		id: 'pure',
-		label: '极简白',
-		scheme: 'light',
-		defaultAccent: '#0a0a0a',
-		swatches: {paper: '#ffffff', ink: '#0a0a0a', accent: '#0a0a0a'},
-	},
-	{
-		id: 'platinum',
-		label: '铂银',
-		scheme: 'light',
-		defaultAccent: '#2f353b',
-		swatches: {paper: '#f6f7f8', ink: '#17191c', accent: '#2f353b'},
-	},
-	{
-		id: 'pearl',
-		label: '珍珠',
-		scheme: 'light',
-		defaultAccent: '#4a4a52',
-		swatches: {paper: '#f5f5f6', ink: '#232326', accent: '#4a4a52'},
-	},
-	{
-		id: 'letterpress',
-		label: '铅印',
-		scheme: 'light',
-		defaultAccent: '#161513',
-		swatches: {paper: '#f3f1ec', ink: '#161513', accent: '#161513'},
-	},
-	{
-		id: 'sketch',
-		label: '素描',
-		scheme: 'light',
-		defaultAccent: '#a83a32',
-		swatches: {paper: '#f5f4f2', ink: '#1f1f1f', accent: '#a83a32'},
-	},
-	{
-		id: 'moon',
-		label: '月白',
-		scheme: 'light',
-		defaultAccent: '#3d4f5e',
-		swatches: {paper: '#f5f7f8', ink: '#1b2026', accent: '#3d4f5e'},
-	},
-	{
-		id: 'mist',
-		label: '晨雾',
-		scheme: 'light',
-		defaultAccent: '#5a6167',
-		swatches: {paper: '#f2f3f4', ink: '#2e3236', accent: '#5a6167'},
-	},
-	{
-		id: 'steel',
-		label: '青钢',
-		scheme: 'light',
-		defaultAccent: '#2e3d47',
-		swatches: {paper: '#f3f5f6', ink: '#1a2126', accent: '#2e3d47'},
+		defaultAccent: '#4f5dd8',
+		swatches: {paper: '#f7f8fc', ink: '#1e2130', accent: '#4f5dd8'},
 	},
 	{
 		id: 'ivory',
-		label: '象牙',
+		label: '暖霜',
 		scheme: 'light',
-		defaultAccent: '#2a2723',
-		swatches: {paper: '#f7f5f0', ink: '#1e1c18', accent: '#2a2723'},
+		defaultAccent: '#0f7d72',
+		swatches: {paper: '#faf8f4', ink: '#23201a', accent: '#0f7d72'},
 	},
 	{
-		id: 'void',
-		label: '纯黑',
+		id: 'mist',
+		label: '雾蓝',
+		scheme: 'light',
+		defaultAccent: '#3f6fa8',
+		swatches: {paper: '#f1f4f7', ink: '#1c2430', accent: '#3f6fa8'},
+	},
+	/* —— 深色 —— */
+	{
+		id: 'basalt',
+		label: '墨紫',
 		scheme: 'dark',
-		defaultAccent: '#f3f3f4',
-		swatches: {paper: '#050506', ink: '#f3f3f4', accent: '#f3f3f4'},
+		defaultAccent: '#b79bff',
+		swatches: {paper: '#100e18', ink: '#ece9f0', accent: '#b79bff'},
 	},
 	{
 		id: 'graphite',
-		label: '石墨',
+		label: '深空',
 		scheme: 'dark',
-		defaultAccent: '#d5d8dd',
-		swatches: {paper: '#141518', ink: '#e9eaec', accent: '#d5d8dd'},
+		defaultAccent: '#9db0ff',
+		swatches: {paper: '#0f1220', ink: '#e8ebf6', accent: '#9db0ff'},
 	},
 	{
 		id: 'darkroom',
 		label: '暗房',
 		scheme: 'dark',
-		defaultAccent: '#c94f43',
-		swatches: {paper: '#09090a', ink: '#ebebeb', accent: '#c94f43'},
-	},
-	{
-		id: 'woodcut',
-		label: '版画',
-		scheme: 'dark',
-		defaultAccent: '#ffffff',
-		swatches: {paper: '#000000', ink: '#ffffff', accent: '#ffffff'},
-	},
-	{
-		id: 'grayscale',
-		label: '灰阶',
-		scheme: 'dark',
-		defaultAccent: '#b0b0b0',
-		swatches: {paper: '#1a1a1a', ink: '#dcdcdc', accent: '#b0b0b0'},
-	},
-	{
-		id: 'basalt',
-		label: '玄岩',
-		scheme: 'dark',
-		defaultAccent: '#ccd2d9',
-		swatches: {paper: '#0b0c0e', ink: '#e9ebee', accent: '#ccd2d9'},
-	},
-	{
-		id: 'soot',
-		label: '煤烟',
-		scheme: 'dark',
-		defaultAccent: '#e6e2d9',
-		swatches: {paper: '#121110', ink: '#ecebe8', accent: '#e6e2d9'},
-	},
-	{
-		id: 'selenium',
-		label: '硒盐',
-		scheme: 'dark',
-		defaultAccent: '#ded2bd',
-		swatches: {paper: '#141210', ink: '#eae6df', accent: '#ded2bd'},
-	},
-	{
-		id: 'velvet',
-		label: '黑绒',
-		scheme: 'dark',
-		defaultAccent: '#d6cfe0',
-		swatches: {paper: '#0e0c10', ink: '#ece9f0', accent: '#d6cfe0'},
-	},
-	{
-		id: 'lead',
-		label: '铅灰',
-		scheme: 'dark',
-		defaultAccent: '#a9a9b0',
-		swatches: {paper: '#212124', ink: '#e4e4e6', accent: '#a9a9b0'},
+		defaultAccent: '#ff7a63',
+		swatches: {paper: '#0a0a0b', ink: '#ededed', accent: '#ff7a63'},
 	},
 ] as const;
+
+/** 已下线主题 → 就近保留套。存档/斜杠命令/备份里出现的旧 ID 一律走这张表，
+ *  而不是直接掉回默认档——用户选过的明暗与冷暖倾向要保住。 */
+export const THEME_MIGRATION: Readonly<Record<string, ThemeId>> = {
+	// 浅色：正白/暖白 → 宣纸或象牙；冷灰系 → 晨雾
+	pure: 'paper',
+	letterpress: 'ivory',
+	sketch: 'ivory',
+	platinum: 'mist',
+	pearl: 'mist',
+	moon: 'mist',
+	steel: 'mist',
+	// 深色：近黑 → 玄岩；中性/暖黑 → 石墨；红调 → 暗房
+	void: 'basalt',
+	woodcut: 'basalt',
+	grayscale: 'graphite',
+	lead: 'graphite',
+	soot: 'graphite',
+	selenium: 'graphite',
+	velvet: 'graphite',
+};
 
 const THEME_BY_ID = Object.fromEntries(
 	THEME_CATALOG.map(t => [t.id, t]),
@@ -192,7 +107,9 @@ export function isThemeId(v: unknown): v is ThemeId {
 }
 
 export function normalizeThemeId(v: unknown): ThemeId {
-	return isThemeId(v) ? v : 'paper';
+	if (isThemeId(v)) return v;
+	if (typeof v === 'string' && v in THEME_MIGRATION) return THEME_MIGRATION[v];
+	return 'paper';
 }
 
 export function themeScheme(id: ThemeId): ThemeScheme {

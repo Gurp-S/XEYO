@@ -57,13 +57,13 @@ describe('settingsStore 滚动备份', () => {
 	});
 
 	it('主键缺失时用备份自愈，并写回主键', async () => {
-		window.localStorage.setItem(BACKUP, settingsJson(4, 'platinum'));
+		window.localStorage.setItem(BACKUP, settingsJson(4, 'ivory'));
 		const mod = await realStore();
 		mod.useSettingsStore.getState().hydrate();
 		await settle();
 		const s = mod.useSettingsStore.getState();
 		expect(s.profiles).toHaveLength(4);
-		expect(s.theme).toBe('platinum');
+		expect(s.theme).toBe('ivory');
 		// 自愈 = 备份值被写回主键（hydrateAsync 会顺带补齐默认字段，故按语义断言）。
 		const restored = window.localStorage.getItem(KEY);
 		expect(profileCountIn(restored)).toBe(4);

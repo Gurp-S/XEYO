@@ -1,5 +1,15 @@
 import {useEffect, useState} from 'react';
-import {getMemorySwitches, runMemorySnapshot, setMemorySwitches, type MemorySwitch} from '@/lib/api';
+import {ExternalLink, FileText} from 'lucide-react';
+import {
+	getMemoryReport,
+	getMemorySwitches,
+	memoryReportViewUrl,
+	runMemorySnapshot,
+	setMemorySwitches,
+	type MemoryReportInfo,
+	type MemorySwitch,
+} from '@/lib/api';
+import {openExternalUrl} from '@/lib/openExternal';
 import {cn} from '@/lib/utils';
 import {toast} from '@/lib/toast';
 
@@ -154,10 +164,40 @@ export function MemorySwitchesSetting() {
 	);
 }
 
-/** A3 日常监控：手动立即快照（按天 upsert；auto 会补齐上次快照日之后被跳过的天）。 */
+/** 字节数 → 人类可读；无效值返回 null（不显示）。 */
+function bytesLabel(n?: number): string | null {
+	if (!n || n <= 0) return null;
+	if (n >= 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
+	if (n >= 1024) return `${Math.round(n / 1024)} KB`;
+	return `${n} B`;
+}
+
+/** ISO 时刻 → 本地 HH:MM；解析失败原样回显。 */
+function clockLabel(iso?: string | null): string | null {
+	if (!iso) return null;
+	const d = new Date(iso);
+	if (Number.isNaN(d.getTime())) return iso;
+	const pad = (v: number) => String(v).padStart(2, '0');
+	return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/** A3 日常监控：手动立即快照（按天 upsert；auto 会补齐上次快照日之后被跳过的天）+ 一键打开报告。 */
 function A3SnapshotRow() {
 	const [running, setRunning] = useState(false);
 	const [result, setResult] = useState<string | null>(null);
+	const [report, setReport] = useState<MemoryReportInfo | null>(null);
+	const [opening, setOpening] = useState(false);
+
+	/** 读报告元信息（落点 / 体积 / 天数 / 生成时刻）；后端不可达时为 null。 */
+	const loadReport = async (): Promise<MemoryReportInfo | null> => {
+		const info = await getMemoryReport();
+		setReport(info);
+		return info;
+	};
+
+	useEffect(() => {
+		void loadReport();
+	}, []);
 
 	const onRun = async () => {
 		setRunning(true);
@@ -171,32 +211,86 @@ function A3SnapshotRow() {
 					? `快照完成 · 补齐 ${days.length} 天（${days[0]} → ${days[days.length - 1]}）`
 					: `快照完成 · ${r.day ?? ''}（同日重复点只覆盖不新增）`,
 			);
+			await loadReport(); // 报告刚被重渲染 → 刷新元信息，按钮立即可点
 		} else {
 			toast.error(r?.error || 'A3 快照失败');
 		}
 	};
 
+	const onOpen = async () => {
+		const info = report ?? (await loadReport());
+		if (!info?.exists) {
+			toast.error('报告还没生成，先点「立即快照」');
+			return;
+		}
+		setOpening(true);
+		try {
+			// 走后端 http 入口（text/html）：file:// 会被桌面壳 shell:allow-open 的 scope 拒掉
+			await openExternalUrl(memoryReportViewUrl());
+		} catch (err) {
+			toast.error(
+				`打开失败：${err instanceof Error ? err.message : String(err)}（文件 ${info.path ?? ''}）`,
+			);
+		} finally {
+			setOpening(false);
+		}
+	};
+
+	const canOpen = report?.exists === true;
+	const generated = clockLabel(report?.generated_at);
+	const meta = report
+		? [
+				report.path?.split(/[\\/]/).pop() ?? '报告',
+				report.exists && report.days?.length ? `${report.days.length} 天` : null,
+				bytesLabel(report.bytes),
+				generated ? `生成 ${generated}` : null,
+			]
+				.filter(Boolean)
+				.join(' · ')
+		: '读取报告信息…';
+
 	return (
 		<div className="rounded-xl border border-line/70 bg-glass-strong px-3 py-2.5">
-			<div className="flex items-center justify-between gap-3">
-				<span>
+			<div className="flex items-start justify-between gap-3">
+				<span className="min-w-0">
 					<span className="block text-sm text-ink">A3 日常监控快照</span>
 					<span className="mt-0.5 block text-[11px] leading-snug text-mute">
 						点按立即快照（读生产 ledger，写 docs/12 表D，无模型调用）。
 						默认每天 09:30 由本地计划任务自动执行；隔多天再点会补齐中间被跳过的天。
 					</span>
+					<span className="mt-1 flex items-center gap-1 text-[10px] leading-snug text-mute">
+						<FileText className="h-3 w-3 shrink-0 opacity-70" aria-hidden />
+						<span className="truncate font-mono">{meta}</span>
+					</span>
 				</span>
-				<button
-					type="button"
-					disabled={running}
-					onClick={() => void onRun()}
-					className={cn(
-						'xy-press shrink-0 rounded-lg border px-3 py-1.5 text-xs transition-colors disabled:opacity-50',
-						running ? 'opacity-60' : 'border-accent/50 bg-accent-soft text-accent',
-					)}
-				>
-					{running ? '快照中…' : '立即快照'}
-				</button>
+				<span className="flex shrink-0 items-center gap-1.5">
+					<button
+						type="button"
+						disabled={!canOpen || opening}
+						onClick={() => void onOpen()}
+						title={canOpen ? `在系统浏览器打开：${report?.path ?? ''}` : '报告尚未生成'}
+						className={cn(
+							'xy-press inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs transition-colors disabled:opacity-50',
+							canOpen
+								? 'border-line/70 text-ink hover:border-accent/50 hover:bg-accent-soft hover:text-accent'
+								: 'border-line/50 text-mute',
+						)}
+					>
+						<ExternalLink className="h-3.5 w-3.5" aria-hidden />
+						{opening ? '打开中…' : '打开报告'}
+					</button>
+					<button
+						type="button"
+						disabled={running}
+						onClick={() => void onRun()}
+						className={cn(
+							'xy-press shrink-0 rounded-lg border px-3 py-1.5 text-xs transition-colors disabled:opacity-50',
+							running ? 'opacity-60' : 'border-accent/50 bg-accent-soft text-accent',
+						)}
+					>
+						{running ? '快照中…' : '立即快照'}
+					</button>
+				</span>
 			</div>
 			{result ? <p className="mt-1.5 text-[10px] text-mute">{result}</p> : null}
 		</div>

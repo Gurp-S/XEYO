@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 
 
 def start_registry_job(
@@ -18,6 +19,7 @@ def start_registry_job(
 	description: str | None,
 	session_id: str,
 	loop: asyncio.AbstractEventLoop | None = None,
+	parent_abort: Any | None = None,
 ) -> tuple[str, str] | None:
 	"""尝试把命令登记为 42 号后台 job。
 
@@ -36,12 +38,17 @@ def start_registry_job(
 	try:
 		first_line = command.strip().splitlines()[0] if command.strip() else ""
 		label = (description or first_line).strip()[:120]
+		if parent_abort is None:
+			from engine.cancellation import get_session_scope
+
+			parent_abort = get_session_scope(sid)
 		job_id, err = get_job_registry().start_bash(
 			command=command,
 			cwd=cwd,
 			label=label,
 			owner_session_id=sid,
 			loop=loop,
+			parent_abort=parent_abort,
 		)
 		if job_id is None:
 			return ("", err)
@@ -58,6 +65,7 @@ def adopt_registry_job(
 	description: str | None,
 	session_id: str,
 	loop: asyncio.AbstractEventLoop | None = None,
+	parent_abort: Any | None = None,
 ) -> tuple[str, str] | None:
 	"""前台超时晋升：把运行中的活进程收编为 42 号 job。
 
@@ -74,6 +82,10 @@ def adopt_registry_job(
 	try:
 		first_line = command.strip().splitlines()[0] if command.strip() else ""
 		label = (description or first_line).strip()[:120]
+		if parent_abort is None:
+			from engine.cancellation import get_session_scope
+
+			parent_abort = get_session_scope(sid)
 		job_id, err = get_job_registry().adopt_bash(
 			handle=handle,
 			command=command,
@@ -81,6 +93,7 @@ def adopt_registry_job(
 			label=label,
 			owner_session_id=sid,
 			loop=loop,
+			parent_abort=parent_abort,
 		)
 		if job_id is None:
 			return ("", err)

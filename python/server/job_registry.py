@@ -35,6 +35,9 @@ MAX_CONSECUTIVE_WAKES = 3
 MAX_CONCURRENT_JOBS_PER_OWNER = 10
 #: ring 缓冲 cap（字符，保尾）。开放问题 #3：先取 12 号 spill 同量级的常数。
 RING_CAP_CHARS = 16_000
+# 完成事件随附的输出上限；完整输出仍保留在 ring，job_output 继续提供人工补读。
+COMPLETION_OUTPUT_CAP = 8_000
+COMPLETION_BATCH_CAP = 24_000
 #: 后台命令不适用"短超时"（冻结口径：后台语义允许长跑）。
 #: 但必须有**物理上限**：此前取 24h，而 `_produce` 的 `while proc.poll()` 循环
 #: 根本不检查它——等于事实上无上限。runaway job（例如卡在等 stdin）会让该
@@ -154,6 +157,10 @@ class JobRegistry:
 		self._jobs: dict[str, JobRecord] = {}
 		self._rings: dict[str, _Ring] = {}
 		self._cursors: dict[str, int] = {}
+		# 单 job 变更序号 + asyncio 等待者。job_output(wait=true) 用它等待
+		# 输出/终态事件，不再固定 250ms 轮询 registry。
+		self._change_seq: dict[str, int] = {}
+		self._waiters: dict[str, list[tuple[asyncio.AbstractEventLoop, asyncio.Event]]] = {}
 		self._aborts: dict[str, Any] = {}
 		self._counter = 0
 		self._lock = threading.RLock()
@@ -165,6 +172,24 @@ class JobRegistry:
 		# 监听：on_done(快照) / on_changed()——hub 与 SSE 广播各挂一个，异常隔离。
 		self.on_done: list[Callable[[JobRecord], None]] = []
 		self.on_changed: list[Callable[[], None]] = []
+
+	def _job_abort(
+		self, job_id: str, parent_abort: Any | None = None
+	) -> Any:
+		"""为 job 建立取消树节点。
+
+		未传父节点时 job 是 detached 根节点，保持后台任务不会因普通 turn
+		结束而被误杀；显式传入父节点时才加入该 turn/agent 的取消树。
+		"""
+		from engine.abort import CancellationScope, LinkedAbortController
+
+		label = f"job:{job_id}"
+		if parent_abort is not None:
+			child = getattr(parent_abort, "child", None)
+			if callable(child):
+				return child(label=label)
+			return LinkedAbortController(parent_abort, label=label)
+		return CancellationScope(label=label)
 
 	# ------------------------------------------------------------------
 	# 监听广播（异常隔离、不等待）
@@ -212,7 +237,68 @@ class JobRegistry:
 			)
 			self._rings[job_id] = _Ring()
 			self._cursors[job_id] = 0
+			self._change_seq[job_id] = 0
+			self._waiters[job_id] = []
 		return job_id, ""
+
+	def _notify_job_change(self, job_id: str) -> None:
+		"""唤醒等待该 job 的 event loop；调用方不要求持有锁。"""
+		with self._lock:
+			self._change_seq[job_id] = self._change_seq.get(job_id, 0) + 1
+			waiters = list(self._waiters.get(job_id, ()))
+		for loop, event in waiters:
+			try:
+				if not loop.is_closed():
+					loop.call_soon_threadsafe(event.set)
+			except RuntimeError:
+				continue
+
+	def change_token(self, job_id: str, caller_session_id: str) -> int | None:
+		"""返回 owner 可见的 job 变更序号；未知/越权返回 None。"""
+		with self._lock:
+			rec = self._jobs.get(job_id)
+			if rec is None or rec.owner_session_id != (caller_session_id or "").strip():
+				return None
+			return self._change_seq.get(job_id, 0)
+
+	async def wait_for_change(
+		self,
+		job_id: str,
+		caller_session_id: str,
+		seen: int,
+		*,
+		timeout_s: float,
+	) -> int | None:
+		"""等待 job 输出/状态变化，返回最新序号；超时则返回原序号。"""
+		loop = asyncio.get_running_loop()
+		event = asyncio.Event()
+		waiter = (loop, event)
+		with self._lock:
+			rec = self._jobs.get(job_id)
+			if rec is None or rec.owner_session_id != (caller_session_id or "").strip():
+				return None
+			current = self._change_seq.get(job_id, 0)
+			if current != int(seen):
+				return current
+			self._waiters.setdefault(job_id, []).append(waiter)
+		try:
+			try:
+				await asyncio.wait_for(event.wait(), timeout=max(0.0, float(timeout_s)))
+			except asyncio.TimeoutError:
+				pass
+		finally:
+			with self._lock:
+				waiters = self._waiters.get(job_id)
+				if waiters is not None:
+					try:
+						waiters.remove(waiter)
+					except ValueError:
+						pass
+		with self._lock:
+			rec = self._jobs.get(job_id)
+			if rec is None or rec.owner_session_id != (caller_session_id or "").strip():
+				return None
+			return self._change_seq.get(job_id, 0)
 
 	def _spawn(self, job_id: str, producer: ProducerFn) -> None:
 		def _worker() -> None:
@@ -233,6 +319,7 @@ class JobRegistry:
 		owner_session_id: str,
 		producer: ProducerFn,
 		loop: asyncio.AbstractEventLoop | None = None,
+		parent_abort: Any | None = None,
 	) -> tuple[str | None, str]:
 		"""登记并启动后台任务。返回 (job_id, "") 或 (None, 教科书式错误)。"""
 		job_id, err = self._register(
@@ -240,6 +327,9 @@ class JobRegistry:
 		)
 		if job_id is None:
 			return None, err
+		job_abort = self._job_abort(job_id, parent_abort)
+		with self._lock:
+			self._aborts[job_id] = job_abort
 		if loop is not None:
 			self._loops[owner_session_id] = loop
 		self._fire_changed()
@@ -255,16 +345,16 @@ class JobRegistry:
 		label: str,
 		owner_session_id: str,
 		loop: asyncio.AbstractEventLoop | None = None,
+		parent_abort: Any | None = None,
 	) -> tuple[str | None, str]:
-		"""Bash 生产方：独立本地 abort（kill 走 job_kill；会话 abort 不杀 job）。"""
-		from engine.abort import AbortController
+		"""Bash 生产方：job scope 负责 kill；可选继承显式父 scope。"""
 
 		job_id, err = self._register(
 			kind="bash", label=label, owner_session_id=owner_session_id
 		)
 		if job_id is None:
 			return None, err
-		ctl = AbortController()
+		ctl = self._job_abort(job_id, parent_abort)
 		with self._lock:
 			self._aborts[job_id] = ctl
 		if loop is not None:
@@ -281,7 +371,10 @@ class JobRegistry:
 				on_output=push,
 			)
 			if result.interrupted:
-				return STATUS_KILLED, "killed by job_kill"
+				reason = str(getattr(ctl, "reason", "job_kill") or "job_kill")
+				return STATUS_KILLED, (
+					"killed by job_kill" if reason == "job_kill" else f"killed by {reason}"
+				)
 			if result.timed_out:
 				return STATUS_FAILED, "timed out"
 			if result.code == 0:
@@ -304,23 +397,22 @@ class JobRegistry:
 		label: str,
 		owner_session_id: str,
 		loop: asyncio.AbstractEventLoop | None = None,
+		parent_abort: Any | None = None,
 	) -> tuple[str | None, str]:
 		"""收编一个前台运行中的活进程为 bash job（前台超时自动晋升通道）。
 
 		- handle 是 ``tools.bash_tool.runner.StreamHandle``（活进程 + 泵线程）；
 		  已缓冲输出 replay 进 ring，后续增量经 attach 的 sink 持续推送。
-		- abort 换绑：会话 abort 槽清空，本 job 的 ctl 接管（job_kill 可杀；
-		  会话 abort 不杀 job——42 号冻结口径）。
+		- abort 换绑：本 job 的 scope 接管（job_kill 可杀）；未显式传父节点时
+		  job 保持 detached，不受普通 turn abort 影响。
 		- 不适用超时（后台语义）；晋升只此一次，job 不再晋升。
 		"""
-		from engine.abort import AbortController
-
 		job_id, err = self._register(
 			kind="bash", label=label, owner_session_id=owner_session_id
 		)
 		if job_id is None:
 			return None, err
-		ctl = AbortController()
+		ctl = self._job_abort(job_id, parent_abort)
 		with self._lock:
 			self._aborts[job_id] = ctl
 		# 同步换绑（在 spawn worker 前）：此刻起 job_kill 通道生效、
@@ -356,7 +448,10 @@ class JobRegistry:
 					f"job exceeded max runtime ({_job_max_timeout_ms()}ms)",
 				)
 			if handle.killed_by_abort:
-				return STATUS_KILLED, "killed by job_kill"
+				reason = str(getattr(ctl, "reason", "job_kill") or "job_kill")
+				return STATUS_KILLED, (
+					"killed by job_kill" if reason == "job_kill" else f"killed by {reason}"
+				)
 			code = proc.returncode if proc.returncode is not None else 1
 			if code == 0:
 				return STATUS_SUCCEEDED, ""
@@ -384,6 +479,7 @@ class JobRegistry:
 			ring = self._rings.get(job_id)
 			if ring is not None:
 				ring.push(chunk)
+		self._notify_job_change(job_id)
 
 	def read(
 		self, job_id: str, caller_session_id: str
@@ -458,6 +554,7 @@ class JobRegistry:
 			rec.finished_at = time.time()
 			sid = rec.owner_session_id
 			fired_done = rec
+		self._notify_job_change(job_id)
 		if fired_done is not None:
 			self._fire_done(fired_done)
 		self._fire_changed()
@@ -485,9 +582,10 @@ class JobRegistry:
 			rec.reported = True
 			rec.detail = (reason or "").strip()[:400]
 			ctl = self._aborts.get(job_id)
+		self._notify_job_change(job_id)
 		if ctl is not None:
 			try:
-				ctl.abort()
+				ctl.abort(reason=(reason or "job_kill").strip()[:120])
 			except Exception:  # noqa: BLE001 — 取消异常 → 任务保持 running/stopping
 				_logger.debug("job kill abort failed %s", job_id, exc_info=True)
 		self._fire_changed()
@@ -584,24 +682,46 @@ class JobRegistry:
 	def _build_digest(self, sid: str, ids: list[str]) -> str:
 		with self._lock:
 			rows = []
+			output_budget = COMPLETION_BATCH_CAP
 			for jid in ids:
 				rec = self._jobs.get(jid)
 				if rec is None:
 					continue
 				rec.reported = True  # 消费即置位（§6.4 抑制重复）
-				rows.append(
+				row = (
 					f"background job {rec.job_id} ({rec.kind}: {rec.label}) "
 					f"finished [status: {rec.status}]."
 					+ (f" Detail: {rec.detail}." if rec.detail else "")
 				)
+				output = self._completion_output_locked(
+					jid, cap=min(COMPLETION_OUTPUT_CAP, output_budget)
+				)
+				if output:
+					row += "\n[job output]\n" + output
+					output_budget = max(0, output_budget - len(output))
+				rows.append(row)
 		if not rows:
 			return ""
 		body = "\n".join(rows)
-		return (
-			"[Background jobs] The following background jobs finished. "
-			"Read their output with job_output, then continue or wrap up. "
-			"This is a completion notification, not a new task.\n" + body
-		)
+		return "[Background jobs]\n" + body
+
+	def _completion_output_locked(self, job_id: str, *, cap: int = COMPLETION_OUTPUT_CAP) -> str:
+		"""返回完成事件附带的有限输出；调用方必须持有 ``self._lock``。"""
+		ring = self._rings.get(job_id)
+		if ring is None:
+			return ""
+		text, truncated = ring.read_all()
+		text = str(text or "")
+		cap = max(0, int(cap))
+		if cap <= 0:
+			return ""
+		if len(text) > cap:
+			text = text[-cap:]
+			truncated = True
+		if not text:
+			return ""
+		prefix = "[tail; earlier output truncated]\n" if truncated else ""
+		return prefix + text.rstrip()
 
 	# hub 在 turn settlement 时调用：把 turn 期间挂起的 pending 并入决策。
 	async def on_turn_settled(
@@ -663,6 +783,7 @@ class JobRegistry:
 			if not ids:
 				return ""
 			rows = []
+			output_budget = COMPLETION_BATCH_CAP
 			for jid in ids:
 				rec = self._jobs.get(jid)
 				if rec is None:
@@ -673,6 +794,12 @@ class JobRegistry:
 					+ (f" — {rec.detail}" if rec.detail else "")
 					+ f" — {rec.label}"
 				)
+				output = self._completion_output_locked(
+					jid, cap=min(COMPLETION_OUTPUT_CAP, output_budget)
+				)
+				if output:
+					rows[-1] += "\n  [job output]\n" + output
+					output_budget = max(0, output_budget - len(output))
 		if not rows:
 			return ""
 		return "\n".join(rows)

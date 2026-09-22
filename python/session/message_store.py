@@ -17,12 +17,52 @@ class MessageStore:
 		self._notes_visible: bool = True
 
 	def set_note_policy(self, include: bool) -> None:
-		"""设置投影是否包含留痕条目（变更即失效投影缓存）。"""
+		"""设置投影是否携带 **system 形态**留痕（变更即失效投影缓存）。
+
+		口径（对齐 Codex：上下文片段是独立 item，不是厂商特例）：A 闸只约束
+		role=system 的留痕——不吃中段 system 的厂商必须逐出它。user 形态的通报
+		片段是普通 user 消息，任何厂商都收，因此**不受本闸影响**。否则一次
+		system→片段的降档会把降级前已落库的 system 留痕又送回请求里，逐枪 4xx。
+		"""
 		flag = bool(include)
 		if flag == self._notes_visible:
 			return
 		self._notes_visible = flag
 		self._api_cache = None
+
+	def _note_hidden(self, item: Message) -> bool:
+		"""该条留痕是否应被逐出模型投影（身份由 note_key 决定，与形态无关）。
+
+		两种逐出理由：A 闸关闭时的 system 形态（厂商不吃中段 system）；已撤回的
+		维度（状态不再存在 ⇒ 那一版不能再冒充当前事实）。
+		"""
+		key = getattr(item, "note_key", "")
+		if not key:
+			return False
+		if getattr(item, "note_retracted", False):
+			return True
+		return not self._notes_visible and item.role == "system"
+
+	def retract_note(self, key: str) -> int:
+		"""把某维度的留痕逐出模型投影（就地标记；历史行不删、正文不改）。
+
+		返回被标记的条数。撤回只影响模型所见：审计面与用户面照常能取出那一版
+		（``include_notes=1``），因为它是发生过的事实。
+		"""
+		k = (key or "").strip()
+		if not k:
+			return 0
+		n = 0
+		for item in self._items:
+			if (
+				getattr(item, "note_key", "") == k
+				and not getattr(item, "note_retracted", False)
+			):
+				item.note_retracted = True
+				n += 1
+		if n:
+			self._api_cache = None
+		return n
 
 	def note_fingerprints(self, *, start: int = 0) -> set[tuple[str, str]]:
 		"""管道 2 去重的**真相源**：``start`` 之后仍在可见面的留痕身份。
@@ -31,10 +71,8 @@ class MessageStore:
 		``[0, compact_cursor)`` ⇒ 左段里的留痕不再可见，故调用方传压缩游标。
 		``start`` 使用模型投影的消息下标，而不是内部 append-only 历史下标；
 		旧版本留痕在模型面折叠后不会造成下标漂移。
-		留痕被 A 闸排除（``_notes_visible=False``）时返回空集。
+		被 A 闸排除的留痕（system 形态 + 闸门关闭）不计入可见面。
 		"""
-		if not self._notes_visible:
-			return set()
 		out: set[tuple[str, str]] = set()
 		items = self._items
 		projection_index = 0
@@ -42,11 +80,11 @@ class MessageStore:
 		latest: dict[str, int] = {}
 		for index, item in enumerate(items):
 			key = getattr(item, "note_key", "")
-			if key:
+			if key and not self._note_hidden(item):
 				latest[key] = index
 		for index, item in enumerate(items):
 			key = getattr(item, "note_key", "")
-			if key and latest.get(key) != index:
+			if key and (self._note_hidden(item) or latest.get(key) != index):
 				continue
 			if key and projection_index >= start_index:
 				out.add((key, getattr(item, "note_fp", "") or ""))
@@ -93,12 +131,12 @@ class MessageStore:
 		latest_note_index: dict[str, int] = {}
 		for index, item in enumerate(self._items):
 			key = getattr(item, "note_key", "")
-			if key:
+			if key and not self._note_hidden(item):
 				latest_note_index[key] = index
 		for index, m in enumerate(self._items):
 			note_key = getattr(m, "note_key", "")
 			if note_key and (
-				not self._notes_visible or latest_note_index.get(note_key) != index
+				self._note_hidden(m) or latest_note_index.get(note_key) != index
 			):
 				# 历史保留所有版本供审计/恢复；模型只看到每个状态键的最新版本。
 				continue

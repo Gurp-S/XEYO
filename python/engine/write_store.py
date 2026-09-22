@@ -59,7 +59,7 @@ class ApplyResult:
     """一次提交的结果（供调度器判断）。"""
     ok: bool
     version: str = ""                       # 新版本（rev_...，供审计）
-    reason: str = "ok"                      # ok | stale | conflict | syntax_invalid
+    reason: str = "ok"                      # ok | stale | missing_read | conflict | syntax_invalid
     detail: str = ""
     base_stale: bool = False
     syntax_valid: bool = True

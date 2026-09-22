@@ -262,7 +262,9 @@ def _ensure_user_message(
         return
     if items:
         last = items[-1]
-        if last.role == "user":
+        if last.role == "user" and not getattr(last, "hidden", False):
+            # 引擎留痕/通报片段也是 role=user：拿它做"同文本已落库"的判据，
+            # 一旦状态段里含用户原话就会把真实用户轮判成重复而漏存。
             last_text = last.content if isinstance(last.content, str) else str(last.content)
             if text in last_text or last_text.strip() == text:
                 return

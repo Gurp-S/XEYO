@@ -93,7 +93,7 @@ def test_fixed_on_switches_ignore_settings_and_env(isolated, monkeypatch):
 	assert not fixed & keys
 
 
-def test_side_enabled_unregistered_key_keeps_env_and_promote(monkeypatch):
+def test_side_enabled_unregistered_key_explicit_env_wins(monkeypatch):
 	"""未注册键保持原语义：专用 env > 全局 promote 回退。
 
 	2026-09-06：XEYO_C2_PRESSURE_FORMULA 等 Path A 键已删除（v61 默认开启后冗余），
@@ -143,3 +143,51 @@ def test_gui_exposed_surface_is_exactly_one():
 	cur = memory_switches.current(None)
 	assert {k for k, v in cur.items() if v["exposed"]} == {"XEYO_C2_LLM_SUMMARY"}
 	assert all(v["exposed"] is False for k, v in cur.items() if k != "XEYO_C2_LLM_SUMMARY")
+
+
+def test_wsc_flags_report_the_value_the_runtime_actually_reads():
+	"""WSC 三个旗标：注册表报的必须等于运行时真读到的那个值（env 权威）。
+
+	收编理由：`XEYO_WSC_FROZEN_HEAD` / `XEYO_WSC_CADENCE_ABSORB` 决定 WSC 到底怎么发头，
+	此前只认裸 env ⇒ "哪些记忆机制在跑"必须读源码才答得出。`on` 那一档是这次真正修掉的
+	形状：以前 `XEYO_WSC=on` 运行时算开、按注册表 allowed 校验算关。
+	"""
+	import importlib
+	import os
+
+	WP = importlib.import_module("memory.wsc_projection")
+	keys = {k for k, *_ in memory_switches.MEMORY_SWITCHES}
+	assert {"XEYO_WSC_FROZEN_HEAD", "XEYO_WSC_CADENCE_ABSORB", "XEYO_WSC"} <= keys
+	defaults = {k: d for (k, _, _, d, *_rest) in memory_switches.MEMORY_SWITCHES}
+	for name, reader in (("XEYO_WSC", WP.live_enabled),
+	                     ("XEYO_WSC_FROZEN_HEAD", WP.freeze_enabled),
+	                     ("XEYO_WSC_CADENCE_ABSORB", WP.absorb_gated_enabled)):
+		for raw, want in ((None, defaults[name]), ("on", "1"), ("0", "0")):
+			if raw is None:
+				os.environ.pop(name, None)
+			else:
+				os.environ[name] = raw
+			item = memory_switches.current(None)[name]
+			assert item["effective"] == want, f"{name}={raw!r} 账面报 {item['effective']}"
+			assert (reader() is True) == (want == "1"), f"{name}={raw!r} 账面与运行时反向"
+		os.environ.pop(name, None)
+
+
+def test_no_unregistered_flag_can_appear_in_the_wsc_live_path():
+	"""守卫：活路径里每一个旗标常量都必须入册 —— 第四个旗标不许悄悄出现。
+
+	形状来自本轮两次事故：旗标存在但 `current()` 看不见 ⇒ 汇报时把默认关说成开。
+	"""
+	import pathlib
+	import re
+
+	import memory.wsc_projection as WP
+
+	# ⚠️ 必须从**模块对象**取路径：全量跑时前面有测试会 chdir 到 tmp，
+	# 相对路径 "memory/wsc_projection.py" 于是读不到文件、守卫静默失效
+	# （第一次就是这样在单文件跑绿、全量跑红的）。
+	src = pathlib.Path(WP.__file__).read_text(encoding="utf-8")
+	declared = set(re.findall(r'^_[A-Z_]*ENV\w* = "(XEYO_[A-Z0-9_]+)"', src, re.M))
+	keys = {k for k, *_ in memory_switches.MEMORY_SWITCHES}
+	assert declared, "守卫自身失效：一个旗标常量都没抓到"
+	assert declared <= keys, f"未入册的 WSC 旗标: {sorted(declared - keys)}"

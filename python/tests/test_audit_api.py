@@ -131,3 +131,34 @@ def test_audit_events_bootstrap_after_permission_and_tool(tmp_path) -> None:
 		"permission.resolved",
 		"permission.pending",
 	]
+
+
+def test_audit_trace_returns_redacted_runtime_chain(tmp_path) -> None:
+	log = _inject_audit(tmp_path)
+	log.record(
+		"model.started",
+		session_id="trace-session",
+		turn_id="turn-1",
+		model_request_id="model-1",
+		projection_id="projection-1",
+	)
+	log.record(
+		"tool.finished",
+		session_id="trace-session",
+		turn_id="turn-1",
+		request_id="call-1",
+		tool_name="Bash",
+		model_request_id="model-1",
+		projection_id="projection-1",
+		action_id="action-1",
+		command_summary="private command",
+		content="private result",
+	)
+
+	r = _client().get("/v1/audit/trace", params={"session_id": "trace-session"})
+	assert r.status_code == 200
+	body = r.json()
+	ids = {node["id"] for node in body["nodes"]}
+	assert {"projection:projection-1", "model:model-1", "tool:call-1", "action:action-1"} <= ids
+	assert all("content" not in node["fields"] for node in body["nodes"])
+	assert all("command_summary" not in node["fields"] for node in body["nodes"])

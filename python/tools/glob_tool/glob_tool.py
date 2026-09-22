@@ -495,6 +495,30 @@ def _near_miss_directory(abs_path: str, cwd: str) -> Optional[str]:
 	覆盖 workspace 内常见的 ``path="doc"``（实际为 ``docs/``）这类拼写偏差。
 	只做本地 os.listdir（无子进程），成本极低。
 	"""
+	if _fsprobe.routed():
+		import posixpath
+
+		from tools.container_fs import listdir, to_container_path
+
+		probe = posixpath.normpath(to_container_path(abs_path))
+		existing = probe
+		missing_seg = ""
+		while not _fsprobe.exists(existing):
+			parent = posixpath.dirname(existing)
+			if parent == existing:
+				break
+			missing_seg = posixpath.basename(existing)
+			existing = parent
+		if not missing_seg:
+			return None
+		names = [
+			name
+			for name in (listdir(existing) or [])
+			if _fsprobe.isdir(posixpath.join(existing, name))
+		]
+		best = _fuzzy_dir_name(missing_seg, names)
+		return posixpath.join(existing, best) if best is not None else None
+
 	probe = os.path.abspath(abs_path)
 	existing = probe
 	missing_seg = ""

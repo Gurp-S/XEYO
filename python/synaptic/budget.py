@@ -38,6 +38,20 @@ _PROTECTED_FIXED_HEADERS = frozenset(
 	{"[CONSTRAINTS]", "[UNRESOLVED]", "[TODO]", "[WORKING SET]"}
 )
 
+#: PIN 三段：**受保护事实**，不参与固定段配额竞争。
+#:
+#: 存在理由（实测）：原实现把它们算进固定段上限，于是「[UNRESOLVED] 变长」直接扣
+#: [PATHS] 的额度——P0（错误签名升级）之后大会话的 [PATHS] 上限从 800 tok 掉到 172 tok，
+#: `path_recent` 针 99.64% → 94.99%、`user` 针 99.57% → 97.93%。把 PIN 的实际占用从
+#: 上限里扣除（等价于「PIN 不参与竞争」）后，[PATHS]/[REQUESTS] 恢复各自应有的额度；
+#: PIN 自身超额仍由固定段审计单独记录（见本模块 ``HotBudgetAudit``）。
+_PIN_HEADERS = frozenset({"[CONSTRAINTS]", "[UNRESOLVED]", "[TODO]"})
+#: 索引桶里的两半**性质不同**，必须分开看：
+#: ``[DECISIONS]`` 是信息（带错误签名的剪枝结论），``[PRUNED]`` 是可恢复性出口（句柄面）。
+#: 要给它加上限，只可能对后者动（删前者=删信息，违反规则 1）；混成一桶就没法谈。
+_DECISION_HEADERS = frozenset({"[DECISIONS]"})
+_HANDLE_HEADERS = frozenset({"[PRUNED]"})
+
 
 def one_line(text: str, limit: int = 0) -> str:
 	"""单行化；``limit`` 为正时保留尾部省略号。"""
@@ -243,6 +257,23 @@ class HotBudgetAudit:
 	#: 可通过可降级固定段消除的超额。
 	fixed_avoidable_overflow_tokens: int
 	main_overflow_tokens: int
+	#: 本轮固定段**没用完**、因而可让给主链的额度（``main_effective_cap`` 的浮动部分）。
+	main_headroom_from_fixed_tokens: int = 0
+	#: 主链的**生效**上限 = 声明值 + 上述浮动（声明值本身保持不动，便于跨轮对账）。
+	main_effective_cap_tokens: int = 0
+	#: 可恢复性索引（剪枝卡面）的独立额度与实际占用。
+	index_budget_tokens: int = 0
+	index_tokens: int = 0
+	#: 高于观测线的量。**历史上就是纯观测**（一个字节都不裁），改名前它已被两侧口径
+	#: 误读过一次：评测台几乎每枪"超"、生产一次不超（头不重建）——那量的是口径不是问题。
+	index_overflow_tokens: int = 0
+	#: 索引桶的两半分开计量（见 ``_DECISION_HEADERS`` / ``_HANDLE_HEADERS``）。
+	#: 真正的事故信号不在这儿，而在报告的 ``recoverability.coverage < 1``：
+	#: 有节点被剪却没有活句柄。
+	decisions_tokens: int = 0
+	handle_tokens: int = 0
+	#: 送模型的真实总 tok = fixed + main + index。
+	hot_total_tokens: int = 0
 
 	def as_dict(self) -> dict[str, int | str]:
 		return {
@@ -258,15 +289,30 @@ class HotBudgetAudit:
 			"fixed_unavoidable_overflow_tokens": self.fixed_unavoidable_overflow_tokens,
 			"fixed_avoidable_overflow_tokens": self.fixed_avoidable_overflow_tokens,
 			"main_overflow_tokens": self.main_overflow_tokens,
+			"main_headroom_from_fixed_tokens": self.main_headroom_from_fixed_tokens,
+			"main_effective_cap_tokens": self.main_effective_cap_tokens,
+			"index_budget_tokens": self.index_budget_tokens,
+			"index_tokens": self.index_tokens,
+			"index_overflow_tokens": self.index_overflow_tokens,
+			"decisions_tokens": self.decisions_tokens,
+			"handle_tokens": self.handle_tokens,
+			"hot_total_tokens": self.hot_total_tokens,
 		}
 
 	def describe(self) -> str:
 		return (
 			f"fixed {self.fixed_tokens}/{self.fixed_budget_tokens} tok, "
-			f"main {self.main_tokens}/{self.main_budget_tokens} tok, "
+			f"main {self.main_tokens}/{self.main_effective_cap_tokens or self.main_budget_tokens} tok"
+			# 生效上限里浮动来的那笔写进括号，避免读数的人以为主链配额被改大了。
+			f"{'(含固定段让渡 ' + str(self.main_headroom_from_fixed_tokens) + ')' if self.main_headroom_from_fixed_tokens else ''}, "
+			f"index {self.index_tokens} tok（内 决策卡 {self.decisions_tokens}"
+			f" / 句柄面 {self.handle_tokens}；观测线 {self.index_budget_tokens}，不裁剪）, "
+			f"total {self.hot_total_tokens} tok, "
 			f"requests={self.request_mode}@{self.request_excerpt_chars}"
 			+ (f", fixed_over={self.fixed_overflow_tokens}" if self.fixed_overflow_tokens else "")
 			+ (f", main_over={self.main_overflow_tokens}" if self.main_overflow_tokens else "")
+			+ (f", index_above_observation_line={self.index_overflow_tokens}"
+			   if self.index_overflow_tokens else "")
 		)
 
 
@@ -292,6 +338,7 @@ def apply_hot_budgets(
 	user_nodes: tuple[int, ...],
 	fixed_headers: tuple[str, ...],
 	main_headers: tuple[str, ...],
+	index_headers: tuple[str, ...] = (),
 	handles: Any = None,
 ) -> tuple[dict[str, list[Line]], HotBudgetAudit]:
 	"""对已渲染的 ``groups`` 应用固定段/主链预算并返回副本与审计。
@@ -301,17 +348,22 @@ def apply_hot_budgets(
 	预算后的紧凑版本。
 	"""
 	out = {h: list(items) for h, items in groups.items()}
+	# PIN 豁免：把 PIN 的实际占用加回上限 ⇒ 它们不再挤占 [PATHS]/[REQUESTS] 的额度。
+	# 渲染侧（assemble._segment_groups 的 paths_budget）必须同口径，否则先渲染就被截了。
+	pin_tokens = sum(segment_tokens(out.get(h, ())) for h in _PIN_HEADERS)
+	exempt = pin_tokens
+	fixed_cap = int(params.fixed_segment_budget_tokens) + exempt
 	out, _request_floor = trim_fixed_for_request_floor(
 		out,
 		fixed_headers=fixed_headers,
 		request_header=request_header,
-		fixed_budget_tokens=params.fixed_segment_budget_tokens,
+		fixed_budget_tokens=fixed_cap,
 		request_floor_tokens_=params.request_min_budget_tokens,
 	)
 	fixed_other = sum(
 		segment_tokens(out.get(h, ())) for h in fixed_headers if h != request_header
 	)
-	request_available = max(0, int(params.fixed_segment_budget_tokens) - fixed_other)
+	request_available = max(0, fixed_cap - fixed_other)
 	req = out.get(request_header, [])
 	mode = "none" if not req else "full"
 	excerpt = int(params.request_excerpt_chars)
@@ -398,7 +450,26 @@ def apply_hot_budgets(
 	)
 	fixed_overflow = max(0, fixed_tokens - int(params.fixed_segment_budget_tokens))
 	fixed_unavoidable = max(0, protected_tokens - int(params.fixed_segment_budget_tokens))
-	main_tokens = sum(segment_tokens(out.get(h, ())) for h in main_headers)
+	# **可恢复性索引（剪枝卡面）单列一桶**，不再算进主链超限。
+	# 依据（实测两批语料 51 会话，末轮投影）：卡面 = ``[DECISIONS]``(带错误签名的卡)
+	# + ``[PRUNED]``(其余卡)，两者都逐行走 ``handles.expression(...)`` ⇒ **卡片就是句柄
+	# 的唯一出口**。它的规模 median 0 / p90 1189 / p95 1348 / max 2113 tok，p90 时占热层
+	# **64%**，而它是「剪掉了多少」的函数，不是注意力稀缺性的旋钮 —— 拿 1200 的主链额度
+	# 去装它，报出来的"主链超限"是记账错配；而真要压它只有一条路：删句柄，那等于削掉
+	# 「被剪节点必可 expand 拉回」这条对外承诺。故此处只**分桶 + 报账**，一个字节都不删。
+	index_tokens = sum(segment_tokens(out.get(h, ())) for h in index_headers)
+	_index_set = frozenset(index_headers)
+	main_tokens = sum(
+		segment_tokens(out.get(h, ())) for h in main_headers if h not in _index_set
+	)
+	# **主链上限按固定段的实际未用量浮动**（不是再给主链一笔新预算）。
+	# 静态 1800/1200 拆分的后果是实测 19/51 会话「主链超限」而固定段**一个都没超**
+	# （0/51），且**总热层 50/51 都在 ``hot_budget_tokens`` 以内** ⇒ 那些超限是
+	# 记账口径造成的假超支，不是真花超。按 (B) 的第一反应给主链装裁剪器会删掉
+	# ``[DECISIONS]``（带错误签名的剪枝卡）与 ``[PRUNED]``（句柄索引）——那正是
+	# WSC 招牌信息与可恢复性的载体，用假超限去换它属于自己削卖点。
+	main_headroom = max(0, int(params.fixed_segment_budget_tokens) - fixed_tokens)
+	main_cap = int(params.main_segment_budget_tokens) + main_headroom
 	request_tokens = segment_tokens(out.get(request_header, ()))
 	audit = HotBudgetAudit(
 		fixed_budget_tokens=int(params.fixed_segment_budget_tokens),
@@ -412,7 +483,19 @@ def apply_hot_budgets(
 		fixed_overflow_tokens=fixed_overflow,
 		fixed_unavoidable_overflow_tokens=fixed_unavoidable,
 		fixed_avoidable_overflow_tokens=max(0, fixed_overflow - fixed_unavoidable),
-		main_overflow_tokens=max(0, main_tokens - int(params.main_segment_budget_tokens)),
+		main_overflow_tokens=max(0, main_tokens - main_cap),
+		main_headroom_from_fixed_tokens=main_headroom,
+		main_effective_cap_tokens=main_cap,
+		index_budget_tokens=int(params.index_segment_budget_tokens),
+		index_tokens=index_tokens,
+		decisions_tokens=sum(segment_tokens(out.get(h, ())) for h in _DECISION_HEADERS),
+		handle_tokens=sum(segment_tokens(out.get(h, ())) for h in _HANDLE_HEADERS),
+		index_overflow_tokens=max(
+			0, index_tokens - int(params.index_segment_budget_tokens)
+		),
+		#: 送模型的**真实总 tok**（三桶相加）。成本按这个算——分桶只是把"哪些额度属于
+		#: 注意力内容、哪些属于可恢复性结构"说清楚，**不是**把超出的部分藏起来。
+		hot_total_tokens=fixed_tokens + main_tokens + index_tokens,
 	)
 	return out, audit
 

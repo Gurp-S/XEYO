@@ -67,3 +67,13 @@ def test_bench_surface_diff_is_only_headless_useless() -> None:
 	bench = set(_surface(bench=True))
 	assert native - bench == BENCH_EXCLUDED, f"评测档多裁了：{sorted(native - bench)}"
 	assert bench - native == set(), f"评测档多出了：{sorted(bench - native)}"
+
+
+def test_surface_id_records_selected_policy(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+	monkeypatch.setenv("XEYO_BENCH_MINIMAL", "1")
+	monkeypatch.setenv("XEYO_TOOL_SURFACE", "minimal")
+
+	registry = build_default_registry(cwd=".")
+
+	assert registry.tool_surface_id == "minimal@1"
+	assert registry.schema_snapshot()["surface_id"] == "minimal@1"

@@ -34,6 +34,23 @@ def test_deepseek_window_is_not_64k_anymore() -> None:
         assert got is not None and got > 65_536
 
 
+def test_in_service_dated_vendor_names_are_registered() -> None:
+    """带日期后缀的在服型号必须被前缀表接住，否则白拿 128k 兜底 ⇒ 提前开始压上下文。
+
+    事故形状（2026-09-22 取证）：账本里跑了 2,662 枪的 `deepseek-v4.1-flash-expires-on-0910`
+    实测 prompt 到过 693,894，却因为表里没有 `deepseek-v4.1-` 而按 128k 算 ⇒ 压力门在
+    ~105k 就开始取舍上下文。
+    """
+    from engine.query_engine import KNOWN_CONTEXT_WINDOWS, _known_context_window
+
+    assert _known_context_window("deepseek-v4.1-flash-expires-on-0910") == 1_000_000
+    # 表自身不许出现"更长前缀被更短前缀挡在外面"的形状
+    for prefix, window in KNOWN_CONTEXT_WINDOWS:
+        assert _known_context_window(prefix) == window, f"{prefix} 被别的前缀抢走"
+        assert window > CONSERVATIVE_CONTEXT_WINDOW, (
+            f"{prefix} 登记的窗口比兜底还小 ⇒ 登记反而让引擎更早做取舍")
+
+
 def test_env_override(monkeypatch) -> None:
     monkeypatch.setenv("XEYO_CONTEXT_LIMIT", "90000")
     assert _default_context_limit("deepseek", "m") == 90000

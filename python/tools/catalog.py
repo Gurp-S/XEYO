@@ -380,7 +380,9 @@ def _register_factories(
 
 def build_default_registry(*, cwd: str = ".") -> ToolRegistry:
 	work = os.path.abspath(os.path.expanduser(cwd or "."))
-	reg = ToolRegistry(cwd=work)
+	# The surface label identifies the selected policy; the schema hash below
+	# still detects changes to the concrete model-visible definitions.
+	surface_id = "full@1"
 	entries = ENABLED_TOOL_ENTRIES
 	if os.environ.get("XEYO_BENCH_MINIMAL") == "1":
 		# 评测档工具面（红线：只允许影响工具集，不得影响信息正确性）——见下方 excluded。
@@ -403,6 +405,10 @@ def build_default_registry(*, cwd: str = ".") -> ToolRegistry:
 	# 最小工作面（显式命名，与 XEYO_BENCH_MINIMAL 正交）：只留模型真正在用的那几个。
 	if _minimal_surface_requested():
 		entries = [e for e in entries if e[0] in MINIMAL_SURFACE_TOOLS]
+		surface_id = "minimal@1"
+	elif os.environ.get("XEYO_BENCH_MINIMAL") == "1":
+		surface_id = "benchmark@1"
+	reg = ToolRegistry(cwd=work, tool_surface_id=surface_id)
 	_register_factories(
 		reg, entries, cwd=work, read_state=ReadFileState()
 	)

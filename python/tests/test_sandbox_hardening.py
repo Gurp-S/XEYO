@@ -51,14 +51,22 @@ def test_bash_readonly_echo_and_git_status() -> None:
 
 
 def test_bash_shipping_default_readonly_autopass(tmp_path: Path) -> None:
-	"""无策略文件：bash=default，只读白名单自动放行；非只读仍 ASK。"""
+	"""无策略文件：bash=default，只读/开发工具自动放行；内联任意代码仍 ASK。
+
+	2026-09-20 放宽后「非只读仍 ASK」不再成立：本地开发工具（跑工作区脚本、
+	构建测试）与只读管道同属放行面，见 bash_auto_allow_reason。
+	"""
 	cwd = str(tmp_path)
 	r = evaluate_policy("Bash", {"command": "echo hi"}, cwd=cwd)
 	assert r.decision == PermissionDecision.ALLOW
 	assert r.matched_rule == "bash_readonly_allow"
 	r2 = evaluate_policy("Bash", {"command": "python app.py"}, cwd=cwd)
-	assert r2.decision == PermissionDecision.ASK
-	assert r2.matched_rule == "bash_default_ask"
+	assert r2.decision == PermissionDecision.ALLOW
+	assert r2.matched_rule == "bash_dev_tool_allow"
+	# 内联任意代码（-c）不在放行面内：命令里看不见可审计的脚本来源。
+	asked = evaluate_policy("Bash", {"command": 'python -c "print(1)"'}, cwd=cwd)
+	assert asked.decision == PermissionDecision.ASK
+	assert asked.matched_rule == "bash_default_ask"
 
 
 def test_bash_default_mode_readonly_and_ask(tmp_path: Path) -> None:
@@ -67,7 +75,10 @@ def test_bash_default_mode_readonly_and_ask(tmp_path: Path) -> None:
 	ok = evaluate_policy("Bash", {"command": "echo hi"}, cwd=cwd)
 	assert ok.decision == PermissionDecision.ALLOW
 	assert ok.matched_rule == "bash_readonly_allow"
-	asked = evaluate_policy("Bash", {"command": "python app.py"}, cwd=cwd)
+	dev = evaluate_policy("Bash", {"command": "python app.py"}, cwd=cwd)
+	assert dev.decision == PermissionDecision.ALLOW
+	assert dev.matched_rule == "bash_dev_tool_allow"
+	asked = evaluate_policy("Bash", {"command": 'python -c "print(1)"'}, cwd=cwd)
 	assert asked.decision == PermissionDecision.ASK
 	assert asked.matched_rule == "bash_default_ask"
 
@@ -191,12 +202,20 @@ def test_write_default_allows(tmp_path: Path) -> None:
 
 
 def test_remote_session_bash_asks(tmp_path: Path) -> None:
+	"""远程（微信/文件助手）2026-09-20 放宽一半：只读放行，dev/未知仍 ASK。
+
+	远程输入是不可信渠道，静默执行工作区代码（dev 类）等于把远端消息变成 RCE
+	入口 ⇒ 只有**只读**类享受自动放行（bash_remote_readonly_allow）。
+	"""
 	set_workspace_context(
 		WorkspaceContext(session_id="ilink:user1", cwd=str(tmp_path))
 	)
 	r = evaluate_policy("Bash", {"command": "echo hi"}, cwd=str(tmp_path))
-	assert r.decision == PermissionDecision.ASK
-	assert r.matched_rule == "bash_remote_ask"
+	assert r.decision == PermissionDecision.ALLOW
+	assert r.matched_rule == "bash_remote_readonly_allow"
+	dev = evaluate_policy("Bash", {"command": "npm run build"}, cwd=str(tmp_path))
+	assert dev.decision == PermissionDecision.ASK
+	assert dev.matched_rule == "bash_remote_ask"
 
 
 def test_secret_globs_include_env() -> None:

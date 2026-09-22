@@ -315,3 +315,19 @@ html[data-smoothness="off"] .xy-tool-detail-wrap {
   transition: none;
 }
 
+/* 当前会话行：底色只说"在这一组里"，2px 左轨才说"就是这一条"。 */
+.xy-session-on {
+  position: relative;
+}
+
+.xy-session-on::before {
+  content: "";
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  left: 0;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--xy-accent);
+}
+

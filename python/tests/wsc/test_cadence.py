@@ -1,20 +1,26 @@
 """折叠节奏（`synaptic.cadence`）回归：判据单调性 + 生产口径契约。
 
 两条纪律：
-1. **零生产依赖，但口径必须同源**——剩余轮次启发式与价差倍率都在算法层**内联**实现
-   （`tests/wsc/test_isolation.py` 静态执法算法层不许 import 生产链），
-   所以必须有**契约测试**把它们钉在生产链的真值上（同 `node_token_len` 的做法）。
+1. **判据里不许出现"预测未来"**（2026-09-22 裁定并落地）：旧判据 `R × saved ≥ 30 × margin × transition`
+   里的 `R` 是猜的，而实测**剩余寿命不随会话深度衰减**（猜值在深处给 4、真值 49）⇒ 猜错时判据方向整个反。
+   现在换成两个只依赖已发生事实的量：`回本枪数 ≤ PAYBACK_SHOTS / margin` 与
+   `shots_since_fold ≥ MIN_GAP_SHOTS`。下面的 `test_cadence_carries_no_future_prediction` 是这条的守卫。
+   价差倍率仍在算法层内联，由契约测试钉在 `usage/pricing.py` 上（不许 import 生产链）。
 2. **判据的单调性要机器锁**——它是「节奏」这个已实测值 2.6 倍成本的主杠杆，
    一旦哪个参数方向反了，报告会给出方向错误的结论而看不出来。
 """
 
 from __future__ import annotations
 
+import inspect
+import pathlib
+
 from synaptic.cadence import (
 	DEFAULT_MARGIN,
+	MIN_GAP_SHOTS,
+	PAYBACK_SHOTS,
 	PRICE_RATIO_HIT_MISS,
 	CadenceState,
-	estimate_remaining,
 	fold_economics,
 )
 
@@ -23,26 +29,47 @@ from synaptic.cadence import (
 # 契约：内联口径 == 生产口径
 # ---------------------------------------------------------------------------
 
-def test_remaining_estimator_matches_production_caliber():
-	"""剩余轮次启发式必须与 `memory/simulator/replay.py` 逐值一致。"""
-	from memory.simulator.replay import estimate_remaining as prod
+def test_cadence_carries_no_future_prediction() -> None:
+	"""判据里不许再有"还剩几轮"这类预测（用户裁定：引擎猜不到，删）。
 
-	def user(text: str) -> dict:
-		return {"role": "user", "content": text}
+	扫的是**代码**不是措辞 —— 模块文档要解释旧版为什么被删，必然提到旧名字。
+	"""
+	import synaptic.cadence as C
 
-	def tool(text: str) -> dict:
-		return {"role": "user", "content": [{"type": "tool_result", "content": text}]}
+	names = {n for n in dir(C) if not n.startswith("__")}
+	for n in list(names):
+		assert "remaining" not in n and "residual" not in n, f"cadence 又导出预测量 {n!r}"
+	for fn in (fold_economics, CadenceState.decide):
+		params = inspect.signature(fn).parameters
+		for p in params:
+			assert "remaining" not in p and "residual" not in p, f"{fn.__name__} 又收预测参数 {p!r}"
+	# 判据的两个常数必须是"已发生的事实 + 价目"，不是对未来的估计
+	assert PAYBACK_SHOTS > 0 and MIN_GAP_SHOTS > 0
 
-	for n_user in (1, 4, 8, 16, 32, 64, 200):
-		msgs = [user(f"q{i}") for i in range(n_user)]
-		assert estimate_remaining(msgs) == prod(msgs), f"n_user={n_user} 口径漂移"
-	# 收尾语
-	for word in ("就这样", "谢谢", "够了", "可以了", "结束"):
-		msgs = [user("q0"), user(f"{word}吧")]
-		assert estimate_remaining(msgs) == 1 == prod(msgs), f"{word} 未被识别为收尾"
-	# tool_result 不算用户轮次
-	mixed = [user("q0"), tool("x" * 100), user("q1")]
-	assert estimate_remaining(mixed) == prod(mixed)
+
+def test_cooldown_blocks_an_otherwise_profitable_fold() -> None:
+	"""刚折过就再折 = 付两次重填、一次都没收回 ⇒ 冷却优先于强度。"""
+	d = _dec(region_tokens_=1_000_000, shots_since_fold=MIN_GAP_SHOTS - 1)
+	assert not d.fold and d.reason == "cooldown"
+	assert _dec(region_tokens_=1_000_000, shots_since_fold=MIN_GAP_SHOTS).fold
+
+
+def test_state_counts_the_gap_itself() -> None:
+	"""冷却量由 `CadenceState` 自己数：调用方不必（也不该）各自维护计数器。"""
+	st = CadenceState()
+	st.decide(region_tokens_=100, tail_tokens_=10 ** 6, shots_since_fold=None)
+	st.decide(region_tokens_=100, tail_tokens_=10 ** 6, shots_since_fold=None)
+	assert st.since_fold == 2, "未折叠时冷却计数不推进 ⇒ 永远等不到折叠"
+	st2 = CadenceState()
+	d = st2.decide(region_tokens_=10 ** 6, tail_tokens_=1_000, shots_since_fold=MIN_GAP_SHOTS)
+	assert d.fold and st2.since_fold == 0, "折过之后没归零 ⇒ 下一枪立刻又能折，冷却形同虚设"
+
+
+def test_price_ratio_loosens_or_tightens_the_gate() -> None:
+	"""价目变了判据要自动跟上（这是保留判据而不是删掉它的唯一理由）。"""
+	# 命中价相对未命中价越贵（price_ratio 越小）⇒ 越该折
+	assert _dec(price_ratio=PRICE_RATIO_HIT_MISS).fold
+	assert not _dec(price_ratio=PRICE_RATIO_HIT_MISS * 40).fold
 
 
 def test_price_ratio_matches_production_pricing():
@@ -68,7 +95,7 @@ def _dec(**kw):
 		region_tokens_=10_000,
 		head_delta_tokens=1_000,
 		tail_tokens_=1_000,
-		remaining_turns=16,
+		shots_since_fold=MIN_GAP_SHOTS,
 		margin=1.0,
 	)
 	base.update(kw)
@@ -79,9 +106,9 @@ def test_decision_is_monotone_in_every_argument():
 	# 区域越大越该折
 	assert not _dec(region_tokens_=200).fold
 	assert _dec(region_tokens_=100_000).fold
-	# 剩余轮次越多越该折（margin=1.0 下 16 轮够、1 轮不够）
-	assert not _dec(remaining_turns=1).fold
-	assert _dec(remaining_turns=24).fold
+	# 等得越久越该折（冷却）
+	assert not _dec(shots_since_fold=1).fold
+	assert _dec(shots_since_fold=MIN_GAP_SHOTS).fold
 	# 过渡代价（尾部）越大越不该折
 	assert _dec(tail_tokens_=0).fold
 	assert not _dec(tail_tokens_=200_000).fold
@@ -91,13 +118,16 @@ def test_decision_is_monotone_in_every_argument():
 
 
 def test_default_margin_sits_in_the_evidence_backed_band():
-	"""默认 margin 必须落在有实测支撑的区间（第十二轮：长会话子集 0.1–0.5 单调偏好小值）。
+	"""默认 margin 与两个策略常数必须落在有实测支撑的区间。
 
 	这条断言的作用不是「锁死数值」，而是**挡住无声改动**：默认值换了必须有人来解释。
 	"""
 	from synaptic.types import WscParams
 
-	assert 0.0 < DEFAULT_MARGIN <= 0.5, "默认 margin 超出实测支撑区间"
+	assert DEFAULT_MARGIN >= 1.0, (
+		"margin < 1 会把门槛压到回本点以下（0.1 ⇒ 允许等 80 枪）。"
+		"实测旧 C 档因此每 2~3 枪折一次、三条 transcript 上贵 2.2~2.4 倍。")
+	assert PAYBACK_SHOTS >= MIN_GAP_SHOTS, "回本窗口比冷却还短 ⇒ 冷却形同虚设"
 	assert WscParams().fold_margin == DEFAULT_MARGIN, "types 与 cadence 的默认值必须一致"
 
 
@@ -116,15 +146,14 @@ def test_empty_region_never_folds():
 
 def test_boundary_is_inclusive():
 	"""边界取「≥」：恰好打平时折（否则 U 形的最优点会被判据自身挪走）。"""
-	base = dict(head_delta_tokens=0, tail_tokens_=1_000, remaining_turns=10, margin=1.0)
-	# 打平条件：R × saved == price_ratio × margin × transition（transition = 尾部 1000）
-	need = int(PRICE_RATIO_HIT_MISS * 1.0 * 1_000 / 10)
+	base = dict(head_delta_tokens=0, tail_tokens_=1_000, shots_since_fold=MIN_GAP_SHOTS,
+	           margin=1.0)
+	# 打平条件：price_ratio × transition / saved == PAYBACK_SHOTS / margin
+	need = int(PRICE_RATIO_HIT_MISS * 1_000 * 1.0 / PAYBACK_SHOTS)
 	d = fold_economics(region_tokens_=need, **base)
 	assert d.fold is True, "恰好打平必须折"
-	assert d.lhs == d.rhs
 	d2 = fold_economics(region_tokens_=need - 1, **base)
-	assert d2.fold is False
-
+	assert d2.fold is False, "差一点就够也必须拒（边界是 ≤）"
 
 # ---------------------------------------------------------------------------
 # 自我校准
@@ -174,8 +203,10 @@ def test_head_delta_estimate_is_capped_by_structure():
 	big_region, tail = 109_857, 2_758
 	uncapped = CadenceState(observed_ratio=0.69)
 	capped = CadenceState(observed_ratio=0.69, head_delta_cap=cap)
-	d_bad = uncapped.decide(region_tokens_=big_region, tail_tokens_=tail, remaining_turns=4)
-	d_ok = capped.decide(region_tokens_=big_region, tail_tokens_=tail, remaining_turns=4)
+	d_bad = uncapped.decide(region_tokens_=big_region, tail_tokens_=tail,
+	                     shots_since_fold=MIN_GAP_SHOTS)
+	d_ok = capped.decide(region_tokens_=big_region, tail_tokens_=tail,
+	                    shots_since_fold=MIN_GAP_SHOTS)
 	assert d_bad.fold is False, "无封顶时这正是那条自锁（留作反例，防回归）"
 	assert d_ok.fold is True, "封顶后同一个回合必须折"
 
@@ -189,8 +220,21 @@ def test_implausible_ratio_is_rejected():
 
 
 def test_cadence_state_counts_and_reasons():
-	st = CadenceState()
-	st.decide(region_tokens_=0, tail_tokens_=0, remaining_turns=16)
+	"""状态自己数冷却，并给出可审计的 reason —— 三条 reason 都要被走到。"""
+	st = CadenceState(observed_ratio=0.05)
+	st.decide(region_tokens_=0, tail_tokens_=0)
 	assert st.skips == 1 and st.folds == 0 and st.last_reason == "empty_region"
-	st.decide(region_tokens_=10**6, tail_tokens_=10, remaining_turns=16)
-	assert st.folds == 1 and st.last_reason == "worth_fold"
+
+	st.decide(region_tokens_=10 ** 6, tail_tokens_=10)
+	assert st.folds == 0 and st.last_reason == "cooldown", "冷却没攒够就折 ⇒ 计数白搭"
+	assert st.since_fold == 2
+
+	for _ in range(MIN_GAP_SHOTS - 2):  # 补满冷却
+		st.decide(region_tokens_=0, tail_tokens_=0)
+	st.decide(region_tokens_=10 ** 6, tail_tokens_=10)
+	assert st.folds == 1 and st.last_reason == "worth_fold" and st.since_fold == 0
+
+	st.decide(region_tokens_=10 ** 6, tail_tokens_=10 ** 7)
+	assert st.last_reason == "cooldown"
+	st.decide(region_tokens_=200, tail_tokens_=10 ** 5, shots_since_fold=MIN_GAP_SHOTS)
+	assert st.last_reason == "pays_back_too_slow", "攒不够回本也必须给出可审计的理由"

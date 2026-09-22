@@ -15,6 +15,7 @@ os.environ 写 XEYO_DOCKER_CONTAINER，后写覆盖先写 → 两个 agent 的 b
 from __future__ import annotations
 
 from contextvars import ContextVar
+import os
 
 _container_override: ContextVar[str] = ContextVar(
 	"xeyo_docker_container_override", default=""
@@ -27,5 +28,22 @@ def set_container_override(cid: str) -> None:
 
 
 def current_container() -> str:
-	"""当前上下文的容器覆盖值；未设置返回空串。"""
-	return _container_override.get()
+	"""返回当前执行上下文的容器事实。
+
+	显式的 ExecutionContext.runtime=local 会屏蔽遗留的进程环境变量，避免
+	上一个 Harbor trial 的 ``XEYO_DOCKER_CONTAINER`` 污染本地/下一题；没有
+	执行上下文时才保留旧的 ContextVar → env 回退链。
+	"""
+	try:
+		from engine.workspace_context import get_execution_context
+
+		ctx = get_execution_context()
+		if ctx is not None:
+			if ctx.runtime == "local":
+				return ""
+			if ctx.container_id:
+				return ctx.container_id.strip()
+	except Exception:  # noqa: BLE001 — 路由查询失败走兼容路径
+		pass
+	value = _container_override.get().strip()
+	return value or os.environ.get("XEYO_DOCKER_CONTAINER", "").strip()

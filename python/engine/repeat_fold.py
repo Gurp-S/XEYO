@@ -78,6 +78,50 @@ def _digest(content: Any) -> str:
 		return ""
 
 
+#: 折叠行尾部事实头的首行长度上限（超长即截断）。
+_FACT_HEAD_CHARS = 80
+
+#: **不计入折叠**的模板回执前缀：这些是引擎/宿主写给模型的"当下事实"
+#: （审批超时、权限拒绝、工具异常、被中止），不是工具观测到的证据。
+#: 折叠它们 = 把"这次审批又超时了"藏起来，模型会把"环境在拒"误读成"工具坏了"
+#: ——2026-09-20 实测：本会话 6 次折叠全部落在 `Approval unavailable…` 上，
+#: 且折叠提示不含被折内容 ⇒ 完全看不出命令到底跑没跑。
+_NO_FOLD_RECEIPTS = (
+	"Approval unavailable",
+	"Permission denied",
+	"tool error:",
+	"[loop_break]",
+	"aborted by user",
+	"missing_read:",
+)
+
+
+def _is_receipt(text: str) -> bool:
+	"""是否为引擎/宿主模板回执（不参与折叠计数，每次都必须可见）。"""
+	body = str(text or "").lstrip()
+	return any(body.startswith(prefix) for prefix in _NO_FOLD_RECEIPTS)
+
+
+def _facts_line(original: str) -> str:
+	"""被折内容的**结构性事实**头：首行 + 行数 + 字节数。
+
+	折叠后信息必须无损：纯替换成一行提示会让模型连「这条到底是不是同一个
+	结果」都要靠再跑一次确认（折叠行本身不携带被折内容的任何痕迹）。
+	"""
+	body = str(original or "").strip()
+	if not body:
+		return "（内容：空输出）"
+	lines = body.splitlines()
+	head = lines[0][:_FACT_HEAD_CHARS]
+	if len(lines[0]) > _FACT_HEAD_CHARS:
+		head += "…"
+	return f"（内容：{head} · {len(lines)} 行 · {len(body)} 字节）"
+
+
+def _with_facts(fold_text: str, original: str) -> str:
+	return fold_text + _facts_line(original)
+
+
 class IdenticalResultFold:
 	"""跟踪 submit 内每个 (tool, semantic_key) 相邻输出的字节级一致性。
 
@@ -93,48 +137,97 @@ class IdenticalResultFold:
 		self._equi_seen: dict[str, set[str]] = {}
 		#: tool → 等价重复连续计数（新内容出现即清零）。
 		self._equi_seq: dict[str, int] = {}
+		#: (tool, 摘要) → 首次出现时的消息下标（折叠前提：该副本仍可见）。
+		self._equi_first: dict[tuple[str, str], int] = {}
 
 	def process(
 		self,
 		tool_name: str,
 		input_data: Any,
 		content: Any,
+		*,
+		msg_index: int | None = None,
+		visible_from: int = 0,
 	) -> tuple[str, bool]:
 		"""决定写入 store 的文本。返回 (text, folded)。未命中返回原文 + False。
 
 		两档判定独立计数，逐字节档（同签名相邻相同）优先于等价档
 		（同工具跨签名同内容）——前者文案更具体。均为纯替换：调用照常执行。
+
+		三条准入（2026-09-20 事故后收窄，逐条对应实测）：
+		1. **模板回执不折**：审批超时 / 权限拒绝 / 工具异常 / 被中止是引擎与宿主
+		   写给模型的"当下事实"，不是工具观测到的证据——折掉它等于把"环境在拒"
+		   藏起来（本会话 6 次折叠全部落在 `Approval unavailable…` 上）；
+		2. **收益门**：折叠行（含事实头）必须真的比原文短，否则保持原文——
+		   把 `ok` 换成一行提示是"更长且更少信息"；
+		3. **可见性前提**：同内容旧副本必须仍在投影可见面内（``msg_index`` /
+		   ``visible_from``：压缩游标、C1 冻结边界），否则折掉的是唯一一份。
 		"""
 		d = _digest(content)
 		text = str(content or "")
+		foldable = bool(d) and not _is_receipt(text)
+		key = f"{tool_name}\x00{semantic_key(tool_name, input_data)}"
 
 		# 等价档状态推进（先于逐字节档：seen 集合需登记本次摘要）。
 		equi_n = 0
-		if _equiv_enabled() and d:
+		if _equiv_enabled() and foldable:
 			seen = self._equi_seen.setdefault(tool_name, set())
 			if d in seen:
 				self._equi_seq[tool_name] = self._equi_seq.get(tool_name, 0) + 1
 			else:
 				self._equi_seq[tool_name] = 0
 				seen.add(d)
-			equi_n = self._equi_seq[tool_name] + 1  # 该内容第 N 次出现（N≥2 为等价重复）
+			# 该内容第 N 次出现（N≥2 为等价重复）
+			equi_n = self._equi_seq[tool_name] + 1
+			self._equi_first.setdefault(
+				(tool_name, d), int(msg_index) if msg_index is not None else 0
+			)
 
-		key = f"{tool_name}\x00{semantic_key(tool_name, input_data)}"
+		if not foldable:
+			# 模板回执 / 空输出：不进"同签名相邻"档，每次原文可见。
+			self._state.pop(key, None)
+			return text, False
+
 		last_digest, seq = self._state.get(key, ("", 0))
-		if d and d == last_digest:
+		if d == last_digest:
 			seq += 1
 		else:
 			seq = 1
 		self._state[key] = (d, seq)
 		if seq >= self.fold_after:
-			if seq == self.fold_after:
-				return _FOLD_EXPLAIN.format(n=seq), True
-			return _REPEAT_SHORT.format(n=seq), True
-		if _equiv_enabled() and equi_n >= _fold_equiv_at():
-			return _FOLD_EQUIV.format(n=equi_n), True
+			candidate = (
+				_FOLD_EXPLAIN.format(n=seq)
+				if seq == self.fold_after
+				else _REPEAT_SHORT.format(n=seq)
+			)
+			return self._maybe_fold(candidate, text)
+		if (
+			_equiv_enabled()
+			and equi_n >= _fold_equiv_at()
+			and self._still_visible(tool_name, d, visible_from)
+		):
+			return self._maybe_fold(_FOLD_EQUIV.format(n=equi_n), text)
 		return text, False
+
+	def _maybe_fold(self, fold_text: str, original: str) -> tuple[str, bool]:
+		"""收益门：折叠行（含事实头）必须真的比原文短，否则保持原文。"""
+		candidate = _with_facts(fold_text, original)
+		if len(candidate) >= len(original):
+			return original, False
+		return candidate, True
+
+	def _still_visible(self, tool_name: str, digest: str, visible_from: int) -> bool:
+		"""同工具同内容的首次出现是否仍在当前投影可见面内。
+
+		``visible_from<=0``（无压缩 / 调用方未提供）→ 视为可见（保持既有行为）。
+		"""
+		if int(visible_from or 0) <= 0:
+			return True
+		first = self._equi_first.get((tool_name, digest))
+		return first is None or int(first) >= int(visible_from)
 
 	def reset(self) -> None:
 		self._state.clear()
 		self._equi_seen.clear()
 		self._equi_seq.clear()
+		self._equi_first.clear()

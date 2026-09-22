@@ -70,6 +70,12 @@ def _as_api_message(row: dict[str, Any]) -> dict[str, Any]:
 def _is_user_text(msg: dict[str, Any]) -> bool:
 	if msg.get("role") != "user":
 		return False
+	from prompt.notice_channel import is_notice_message
+
+	if is_notice_message(msg):
+		# world_state 留痕/通报片段也是 role=user：算进用户轮会虚增轮次与
+		# corrections/reverts，并把 R 估计（residual_shots）推向高估。
+		return False
 	c = msg.get("content")
 	if isinstance(c, str):
 		return True
@@ -109,7 +115,9 @@ def count_corrections(messages: list[dict[str, Any]]) -> int:
 def count_reverts(messages: list[dict[str, Any]]) -> int:
 	n = 0
 	for m in messages:
-		text = user_text(m) if m.get("role") == "user" else str(m.get("content") or "")
+		if not _is_user_text(m):
+			continue
+		text = user_text(m)
 		low = text.lower()
 		if any(p in text or p in low for p in REVERT_PHRASES):
 			n += 1
@@ -142,8 +150,36 @@ def tool_loop_flags(messages: list[dict[str, Any]]) -> dict[str, int]:
 	}
 
 
+#: 实测残余寿命（2026-09-22 聚合 `~/.xeyo/usage/calibration_events.jsonl`，
+#: 450 个 ≥3 枪会话；单位 = 会话内请求数，实测 请求数/用户轮 ≈ 1:1）：
+#: 已过 1/3/8/12/24/48/96/192 枪 ⇒ 中位剩余 15/16/21/26/28/19/49/73。
+#: 关键事实：**剩余寿命不随深度衰减**（旧线性式 `16 − n_user//8` 在 n_user=96 只给 4）。
+#: 这张表只服务 v61 的经济门；WSC 的 cadence 判据已改成**不含任何预测**的
+#: 「回本枪数 + 冷却」（`synaptic/cadence.py`），不再从这里取值。
+_RESIDUAL_BY_ELAPSED: tuple[tuple[int, int], ...] = (
+	(0, 15), (3, 16), (8, 21), (12, 26), (24, 28), (48, 19), (96, 49), (192, 73),
+)
+RESIDUAL_FLOOR = 12
+RESIDUAL_CAP = 96
+
+
+def residual_shots(elapsed: int) -> int:
+	"""按"已经过了多少枪"查实测中位剩余寿命（阶梯函数，不做平滑）。"""
+	n = max(1, int(elapsed))
+	out = _RESIDUAL_BY_ELAPSED[0][1]
+	for at, med in _RESIDUAL_BY_ELAPSED:
+		if n >= at:
+			out = med
+		else:
+			break
+	return min(RESIDUAL_CAP, max(RESIDUAL_FLOOR, out))
+
+
 def estimate_remaining(messages: list[dict[str, Any]], params: Params | None = None) -> int:
-	"""R 估计：收尾=1；否则按会话深度衰减、封顶 params.r_cap（默认 24，不再硬编码）。"""
+	"""R 估计：收尾=1；否则查实测残余寿命表，再按 `params.r_cap` 封顶。
+
+	`r_cap` 默认已从 24 抬到 96（2026-09-22）——24 会在长会话上把收益削掉。
+	"""
 	p = params or load_params()
 	texts = [user_text(m) for m in messages if _is_user_text(m)]
 	if texts:
@@ -151,8 +187,8 @@ def estimate_remaining(messages: list[dict[str, Any]], params: Params | None = N
 		if any(x in last for x in ("就这样", "谢谢", "够了", "可以了", "结束")):
 			return 1
 	n_user = max(1, len(texts))
-	cap = max(4, int(getattr(p, "r_cap", 24) or 24))
-	return min(cap, max(4, 16 - n_user // 8))
+	cap = max(4, int(getattr(p, "r_cap", 96) or 96))
+	return min(cap, max(RESIDUAL_FLOOR, residual_shots(n_user)))
 
 
 def baseline_tokens(messages: list[dict[str, Any]]) -> int:

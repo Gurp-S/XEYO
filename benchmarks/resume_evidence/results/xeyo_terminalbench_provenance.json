@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "benchmark": "xeyo_terminalbench_provenance",
+  "timestamp_utc": "2026-09-18T04:26:22.960382+00:00",
+  "git_head": "19f82059a30b1b29f7ec893dde7d85c517aca78c",
+  "sources": {
+    "result_root": "D:\\lea\\XenYon code\\TerminalBench\\run",
+    "result_root_exists": true,
+    "result_json_count": 89,
+    "tracked_metric_doc": {
+      "path": "D:\\lea\\XenYon code\\docs\\BENCH-口径.md",
+      "exists": true,
+      "sha256": "f9a9358126a8b14cc2311231dee720a0cf419f67e85a0c0fd957a9f381e48bd2"
+    },
+    "ignored_report": {
+      "path": "D:\\lea\\XenYon code\\TerminalBench\\REPORT.md",
+      "exists": true,
+      "sha256": "fe99b7ff6df11a0dcba7ecb3224f41b931e3550f5eef996a4272d77794dd6a69"
+    },
+    "ignored_resume_note": {
+      "path": "D:\\lea\\XenYon code\\TerminalBench\\秋招项目说明.md",
+      "exists": true,
+      "sha256": "9c75ae96f20d65151be308c8e94492ff65996f26b62fd37e542c21a553717e03"
+    }
+  },
+  "raw_reward_distribution": {
+    "1.0": 63,
+    "0.0": 25,
+    "missing": 1
+  },
+  "tracked_doc_markers": {
+    "relay_union_70_8": true,
+    "xeyo_increment_6_of_29": true,
+    "lower_bound_67_4": true
+  },
+  "ignored_report_markers": {
+    "claims_single_engine_63_of_89": true,
+    "claims_n_attempts_one": true
+  },
+  "conclusion": "Raw files exist locally, but tracked provenance defines 70.8% as relay union; do not write it as single-engine XEYO full-score evidence."
+}

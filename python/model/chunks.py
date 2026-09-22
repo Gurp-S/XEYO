@@ -12,3 +12,10 @@ class ModelChunk:
 	kind: Literal["text_delta", "reasoning_delta", "tool_use"] # 块类型
 	text: str = "" # 文本
 	tool_use: ToolUse | None = None # 使用的工具
+
+
+# provider adapter 的兼容名称；核心 runtime 只把它当作统一 ModelEvent。
+ModelEvent = ModelChunk
+
+
+__all__ = ["ModelChunk", "ModelEvent"]

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import threading
 from dataclasses import dataclass
 from typing import Optional
 
@@ -24,6 +25,27 @@ class FileStateEntry:
 	writer_session_id: str = ""
 	#: 写入时刻的 unix 秒（供归因展示"于 HH:MM"）。
 	writer_ts: float = 0.0
+	#: 本会话见过的该路径正文哈希（与 engine.write_store 同口径）。
+	#: sidecar 恢复时正文不入 json，但**哈希必须留下**（2026-09-20）：否则重启后
+	#: 没有可比对的基线，写入要么被 missing_read 拒绝，要么退化成"拿盘上内容当
+	#: 基线"（等于不校验）。有了它，重启后仍能判定"盘上内容是否还是我读过的那版"。
+	content_hash: str = ""
+
+
+def _content_hash_text(content: str) -> str:
+	"""与 ``engine.write_store._content_hash_text`` 同口径的哈希（lazy import）。
+
+	tools 层不在模块级反向依赖 engine；导入失败退化为同口径本地实现，保证
+	base_hashes 比较不会因两处实现漂移而误报。
+	"""
+	try:
+		from engine.write_store import _content_hash_text as _h
+
+		return _h(content)
+	except Exception:  # noqa: BLE001 — 导入失败不阻断读登记
+		import hashlib
+
+		return f"sha256:{hashlib.sha256(content.encode('utf-8')).hexdigest()}"
 
 
 def _max_entries_from_env(default: int = 128) -> int:
@@ -47,6 +69,11 @@ class ReadFileState:
 		self, *, max_entries: int | None = None, conversation_id: str = ""
 	) -> None:
 		self._entries: dict[str, FileStateEntry] = {}
+		# 并发保护（2026-09-20）：同一批 tool_use 会并发执行（Read/Glob/Grep/
+		# Bash 路由都可能登记），而本册是进程级共享；无锁时遍历
+		# （snapshot_meta）与写入并发 ⇒ RuntimeError: dictionary changed size
+		# during iteration，整次工具调用 fail-closed 丢结果。
+		self._lock = threading.RLock()
 		self._max_entries = max(8, int(max_entries or _max_entries_from_env()))
 		#: 本册所属会话树根（主会话 id，或子 agent 会话去掉 __agent__ 后缀）。
 		#: 用于把"被另一聊天会话写入"与"本会话树内部写入"区分开。
@@ -82,6 +109,7 @@ class ReadFileState:
 				content_known=True,
 				writer_session_id=(session_id or "").strip(),
 				writer_ts=_time.time(),
+				content_hash=_content_hash_text(content),
 			),
 		)
 
@@ -94,31 +122,37 @@ class ReadFileState:
 
 	def get(self, path: str) -> FileStateEntry | None:
 		key = self._key(path)
-		entry = self._entries.get(key)
-		if entry is not None:
-			self._entries.pop(key, None)
-			self._entries[key] = entry  # 触碰即刷新新鲜度
-		return entry
+		with self._lock:
+			entry = self._entries.get(key)
+			if entry is not None:
+				self._entries.pop(key, None)
+				self._entries[key] = entry  # 触碰即刷新新鲜度
+			return entry
 
 	def set(self, path: str, entry: FileStateEntry) -> None:
 		key = self._key(path)
-		self._entries.pop(key, None)
-		self._entries[key] = entry
-		while len(self._entries) > self._max_entries:
-			self._entries.pop(next(iter(self._entries)))
+		with self._lock:
+			self._entries.pop(key, None)
+			self._entries[key] = entry
+			while len(self._entries) > self._max_entries:
+				self._entries.pop(next(iter(self._entries)))
 
 	def clear(self) -> None:
-		self._entries.clear()
+		with self._lock:
+			self._entries.clear()
 
 	def snapshot_meta(self) -> dict[str, dict]:
 		"""序列化 mtime/offset，不含文件正文（给 WorkingSnapshot sidecar）。"""
 		out: dict[str, dict] = {}
-		for path, entry in self._entries.items():
+		with self._lock:
+			rows = list(self._entries.items())
+		for path, entry in rows:
 			out[path] = {
 				"timestamp": entry.timestamp,
 				"offset": entry.offset,
 				"limit": entry.limit,
 				"is_partial_view": entry.is_partial_view,
+				"content_hash": entry.content_hash,
 			}
 		return out
 
@@ -138,6 +172,7 @@ class ReadFileState:
 					limit=row.get("limit"),
 					is_partial_view=bool(row.get("is_partial_view")),
 					content_known=bool(existing and existing.content),
+					content_hash=str(row.get("content_hash") or ""),
 				),
 			)
 

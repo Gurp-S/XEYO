@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import weakref
 from typing import Any
 
@@ -27,16 +28,6 @@ try:
 	import httpx
 except ImportError:  # pragma: no cover
 	httpx = None  # type: ignore
-
-
-#: 环境声道伪造对的 tool_call id 前缀。与 ``prompt.t_now_strategy.ENV_ID_PREFIX``
-#: 同源；此处保留本地常量，避免 model 层反向依赖 prompt 层。
-ENV_TOOL_CALL_ID_PREFIX = "xeyo_env_"
-
-#: 伪造对补的**结构性占位**思考态（信息：声明该条 assistant 是引擎的环境通知
-#: 中继，而非模型自己的思考产出）。存在的唯一原因是协议合规——见
-#: ``normalize_messages_for_openai`` assistant 分支的注释。
-ENV_RELAY_REASONING_PLACEHOLDER = "[xeyo] environment notice relay"
 
 
 # 事件循环 → 共享 AsyncClient。httpx 连接池绑定创建它的 loop，不能跨 loop 复用；
@@ -169,6 +160,51 @@ def finish_tool_bufs(tool_bufs: dict[int, dict[str, Any]]) -> list[ModelChunk]:
 	return out
 
 
+def prune_orphan_tool_rows(
+	messages: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[str]]:
+	"""丢弃没有前置 assistant tool_calls 应答的 ``role="tool"`` 行（fail-open）。
+
+	厂商按「工具结果必须是某条 assistant tool_calls 的应答」校验请求体：投影链
+	（压缩 / T_now 注入 / 任何上游改写）一旦多出一条无主的 tool 行，该会话就会
+	对**之后每一条消息**都以 400 失败——结构性卡死，改消息内容无效。**实测
+	2026-09-20**（sess_mu9oqy8m_63ljiu）：投影 manifest 137 calls / 138 results，
+	厂商回 ``Messages with role 'tool' must be a response to a preceding message
+	with 'tool_calls'``。``session.tool_sequence.discard_unpaired_tool_results``
+	只覆盖 MessageStore 投影之前的内部形状；这里是**最后一公里**（wire 出口），
+	覆盖它之后的一切改写。
+
+	宁可这一条结果不进上下文（信息缺失，模型仍可重读），也不能让整个会话报废。
+	返回 (行, 被丢弃的 tool_call_id 列表)；无丢弃时行对象原样返回。
+	"""
+	out: list[dict[str, Any]] = []
+	outstanding: set[str] = set()
+	dropped: list[str] = []
+	for m in messages:
+		role = m.get("role")
+		if role == "assistant":
+			outstanding = {
+				str(c.get("id"))
+				for c in (m.get("tool_calls") or [])
+				if isinstance(c, dict) and c.get("id")
+			}
+			out.append(m)
+			continue
+		if role == "tool":
+			tid = str(m.get("tool_call_id") or "")
+			if tid and tid in outstanding:
+				outstanding.discard(tid)
+				out.append(m)
+			else:
+				dropped.append(tid)
+			continue
+		outstanding = set()
+		out.append(m)
+	if not dropped:
+		return messages, []
+	return out, dropped
+
+
 def normalize_messages_for_openai(
 	messages: list[dict[str, Any]],
 	*,
@@ -285,21 +321,17 @@ def normalize_messages_for_openai(
 				# 思考态原样回传：厂商要求参与拼接的正是历史里这条 assistant
 				# 消息自己的思考，故按原文（未清洗/未截断/未重排）贴回。无思考
 				# 则不发该字段。
+				#
+				# 这里**曾经**还有一条"给引擎伪造的 tool_call id 补一段占位思考"
+				# 的分支（2026-09-14 实测：DeepSeek thinking 模式对没签发过的 id
+				# 强制要求 reasoning_content，缺则 400）。它是在替 T_now 旧档
+				# ``env_channel`` 的伪对擦屁股。自 2026-09-22 起降级阶梯改为
+				# 包封片段（见 prompt/notice_channel.py），生产路径不再产伪对，
+				# 故不再往历史里编造模型从未产出的思考——真要用那档做对照，
+				# 就该看见它原本的 400，而不是被补丁掩盖。
 				reasoning_text = "".join(reasoning_parts)
 				if reasoning_text:
 					msg["reasoning_content"] = reasoning_text
-				elif tool_calls and any(
-					str(tc.get("id") or "").startswith(ENV_TOOL_CALL_ID_PREFIX)
-					for tc in tool_calls
-				):
-					# 环境声道伪造对（T_now env_channel）：这条 assistant 与其
-					# tool_call id 都是引擎造的，厂商从未签发过该 id。**实测
-					# 2026-09-14**（`TerminalBench/zero/probe_envpair_400.py` /
-					# `probe_reasoning_400.py`）：DeepSeek 在 thinking 模式下对
-					# 「自己没签发过的 tool_call」强制要求 reasoning_content，
-					# 缺则 400 `must be passed back to the API`（真 id 则不要求）。
-					# 故补一段**结构性占位**（只声明来源，不含任何指令/评价）。
-					msg["reasoning_content"] = ENV_RELAY_REASONING_PLACEHOLDER
 				if tool_calls:
 					msg["tool_calls"] = tool_calls
 				out.append(msg)
@@ -327,6 +359,16 @@ def normalize_messages_for_openai(
 						"content": str(content or "") or "(no output)",
 					}
 				)
+	pruned, dropped = prune_orphan_tool_rows(out)
+	if dropped:
+		# 只记数量与前几个 id（工具调用 id 非内容），便于定位投影链上的改写点。
+		logging.getLogger(__name__).warning(
+			"wire boundary dropped %d orphan tool result row(s) "
+			"(no preceding assistant tool_calls): %s",
+			len(dropped),
+			", ".join(dropped[:5]),
+		)
+		return pruned
 	return out
 
 

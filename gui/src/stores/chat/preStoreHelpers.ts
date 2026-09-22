@@ -47,6 +47,27 @@ import {
 	shouldPreferServerMessages,
 } from './streamHelpers';
 
+/**
+ * 边界投递回执：把这些消息号对应的排队卡撤掉（已作为真 user 消息进历史，不再是
+ * "排队中"）。引导路径没有 queue_id，客户端消息号是唯一能对上回执的身份。
+ */
+export function dropDeliveredInboxChips(
+	inbox: Record<string, InboxQueuedItem[]>,
+	sessionId: string,
+	messageIds: string[],
+): Record<string, InboxQueuedItem[]> {
+	const ids = new Set(messageIds.map(id => String(id ?? '')).filter(Boolean));
+	const prev = inbox[sessionId] ?? [];
+	if (ids.size === 0 || prev.length === 0) {
+		return inbox;
+	}
+	const kept = prev.filter(it => !it.message_id || !ids.has(String(it.message_id)));
+	if (kept.length === prev.length) {
+		return inbox;
+	}
+	return {...inbox, [sessionId]: kept};
+}
+
 /** 清除指定 session 的流状态（HMR / 崩溃 / stop / 刷新遗留）。 */
 function clearSessionStreamState(
 	sessionStreams: Record<string, SessionStreamState>,

@@ -270,6 +270,7 @@ def plan_selection(
 	region_end: int,
 	budget_tokens: int,
 	unresolved_set: set[int],
+	superseded: frozenset[int] = frozenset(),
 ) -> Selection:
 	"""从种子出发的完整选择流程（闭包 → 评分 → 背包）。"""
 	from synaptic.assemble import emitted_tokens
@@ -287,8 +288,13 @@ def plan_selection(
 		edge_kinds=edge_kinds,
 	)
 	# 候选 = 可达集 ∪ 闭包外全体（闭包外节点仍参与竞争，只是没有可达加成）
-	candidates = {n.idx for n in graph.nodes if n.idx < region_end}
-	must_keep = set(seed_nodes) | {i for i in reachable if graph.nodes[i].is_error}
+	# 已被后续断言覆盖的节点（时效轴降级）不参与竞争：它们移出热层，改由冷层句柄承载。
+	candidates = {
+		n.idx for n in graph.nodes if n.idx < region_end and n.idx not in superseded
+	}
+	must_keep = set(seed_nodes) | {
+		i for i in reachable if graph.nodes[i].is_error and i not in superseded
+	}
 	scores = score_nodes(
 		graph,
 		seeds,

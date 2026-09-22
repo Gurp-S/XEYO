@@ -254,6 +254,144 @@ def _coalesce(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
 	return out
 
 
+def _prune_orphan_tool_rows(
+	messages: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+	"""编码前一遍：丢弃没有前置 assistant tool_use 应答的内部行（fail-open）。
+
+	作用在**内部形状**（``role="tool"`` + ``tool_call_id``）上，与编码后的
+	``_prune_orphan_tool_results``（作用在 Anthropic content block 上）分属序列化
+	的两个阶段，判定同 ``model._openai_common.prune_orphan_tool_rows``：投影链
+	（压缩 / T_now 注入 / 上游改写）一旦多出一条无主结果，厂商就以 400 拒收整次
+	请求（Anthropic 同样要求 tool_result 必须对应某个 tool_use）。丢掉的是
+	"没人在等的那份结果"——信息缺失可重读，会话不会砖。
+	"""
+	out: list[dict[str, Any]] = []
+	outstanding: set[str] = set()
+	for message in messages:
+		role = message.get("role")
+		if role == "assistant":
+			outstanding = set()
+			content = message.get("content")
+			if isinstance(content, list):
+				for block in content:
+					if isinstance(block, dict) and block.get("type") == "tool_use":
+						uid = str(block.get("id") or "")
+						if uid:
+							outstanding.add(uid)
+			out.append(message)
+			continue
+		if role == "tool":
+			uid = str(message.get("tool_call_id") or "")
+			content = message.get("content")
+			ids: list[str] = []
+			if isinstance(content, list):
+				ids = [
+					str(block.get("tool_use_id") or uid)
+					for block in content
+					if isinstance(block, dict) and block.get("type") == "tool_result"
+				]
+			if not ids:
+				ids = [uid]
+			if any(one and one in outstanding for one in ids):
+				for one in ids:
+					outstanding.discard(one)
+				out.append(message)
+			continue
+		content = message.get("content")
+		if isinstance(content, list) and any(
+			isinstance(block, dict) and block.get("type") == "tool_result"
+			for block in content
+		):
+			kept: list[Any] = []
+			for block in content:
+				if isinstance(block, dict) and block.get("type") == "tool_result":
+					uid = str(block.get("tool_use_id") or "")
+					if uid and uid in outstanding:
+						outstanding.discard(uid)
+						kept.append(block)
+					continue
+				kept.append(block)
+			if not kept:
+				continue
+			out.append({**message, "content": kept} if len(kept) != len(content) else message)
+			continue
+		outstanding = set()
+		out.append(message)
+	return out
+
+
+def _prune_orphan_tool_results(
+	messages: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[str]]:
+	"""编码后一遍（wire 出口）：丢弃没有前置 tool_use 应答的 tool_result 块（fail-open）。
+
+	作用在**已序列化的 Anthropic 形状**（user 消息 content block）上，与编码前的
+	``_prune_orphan_tool_rows`` 分属序列化的两个阶段。判定同 OpenAI 侧
+	``model._openai_common.prune_orphan_tool_rows``：
+	tool_result 必须对应某条 assistant 的 tool_use。投影链（压缩 / T_now 注入 /
+	上游改写）一旦多出一条无主结果，该会话对**之后每条消息**都 400——结构性
+	卡死，改消息内容无效（2026-09-20 实测）。宁可这一条结果不进上下文。
+	"""
+	out: list[dict[str, Any]] = []
+	pending: set[str] = set()
+	dropped: list[str] = []
+	for m in messages:
+		role = m.get("role")
+		content = m.get("content")
+		if role == "assistant":
+			pending = {
+				str(b.get("id"))
+				for b in (content if isinstance(content, list) else [])
+				if isinstance(b, dict) and b.get("type") == "tool_use" and b.get("id")
+			}
+			out.append(m)
+			continue
+		if isinstance(content, list) and any(
+			isinstance(b, dict) and b.get("type") == "tool_result" for b in content
+		):
+			kept: list[dict[str, Any]] = []
+			for block in content:
+				if isinstance(block, dict) and block.get("type") == "tool_result":
+					uid = str(block.get("tool_use_id") or "")
+					if uid and uid in pending:
+						pending.discard(uid)
+						kept.append(block)
+					else:
+						dropped.append(uid)
+					continue
+				kept.append(block)
+			if kept:
+				out.append({**m, "content": kept})
+			continue
+		pending = set()
+		out.append(m)
+	if not dropped:
+		return messages, []
+	return out, dropped
+
+
+def _drop_orphan_tool_result_blocks(
+	blocks: list[dict[str, Any]], outstanding: set[str]
+) -> list[dict[str, Any]]:
+	"""剔除没有前置 tool_use 应答的 tool_result 块（fail-open）。
+
+	``outstanding`` 是紧邻前一条 assistant 消息声明的 tool_use id 集合：命中即
+	消费该 id，未命中的结果块被丢弃——Anthropic 对"无主 tool_result"与 OpenAI
+	同判定（请求体结构非法），留一条就足够让后续每条消息都失败。
+	"""
+	kept: list[dict[str, Any]] = []
+	for block in blocks:
+		if isinstance(block, dict) and block.get("type") == "tool_result":
+			uid = str(block.get("tool_use_id") or "")
+			if uid and uid in outstanding:
+				outstanding.discard(uid)
+				kept.append(block)
+			continue
+		kept.append(block)
+	return kept
+
+
 def normalize_messages_for_anthropic(
 	messages: list[dict[str, Any]],
 ) -> tuple[str, list[dict[str, Any]]]:
@@ -263,6 +401,7 @@ def normalize_messages_for_anthropic(
 	是唯一的序列化入口。
 	"""
 	system_text, rest = _split_system(messages)
+	rest = _prune_orphan_tool_rows(rest)
 	norm: list[dict[str, Any]] = []
 	for m in rest:
 		role = m.get("role")
@@ -303,6 +442,13 @@ def normalize_messages_for_anthropic(
 				norm.append({"role": "user", "content": blocks})
 			continue
 	norm = _coalesce(norm)
+	norm, _dropped = _prune_orphan_tool_results(norm)
+	if _dropped:
+		logging.getLogger(__name__).warning(
+			"wire boundary dropped %d orphan tool_result block(s) "
+			"(no preceding assistant tool_use)",
+			_dropped,
+		)
 	return system_text, norm
 
 

@@ -17,6 +17,7 @@ import os
 import time
 import uuid
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from permissions.pending_ttl import ttl_for_request
@@ -57,6 +58,8 @@ class PendingPermission:
 	#: P0b 指纹 v2：网关调用解析出的目标注册名（mcp__server__raw__hex）；
 	#: 原生 mcp__ 工具留空（tool_name 即注册名，指纹函数自行识别）。
 	mcp_target: str = ""
+	#: 发起裁决时的权限状态快照身份。
+	permission_snapshot_id: str = ""
 
 
 class PendingPermissionStore:
@@ -84,6 +87,7 @@ class PendingPermissionStore:
 		choices: tuple[str, ...] | list[str] | None = None,
 		peer_summary: str = "",
 		mcp_target: str = "",
+		permission_snapshot_id: str = "",
 	) -> PendingPermission:
 		self._prune()
 		rid = request_id or uuid.uuid4().hex
@@ -114,6 +118,7 @@ class PendingPermissionStore:
 			peer_summary=peer_summary or "",
 			workspace=_current_workspace(),
 			mcp_target=(mcp_target or "").strip(),
+			permission_snapshot_id=(permission_snapshot_id or "").strip(),
 		)
 		self._items[rid] = item
 		self._events[rid] = asyncio.Event()
@@ -171,6 +176,7 @@ class PendingPermissionStore:
 				"tool_name": item.tool_name,
 				"reason": item.reason,
 				"matched_rule": item.matched_rule,
+				"permission_snapshot_id": item.permission_snapshot_id,
 				"approved": bool(item.approved),
 				"user_choice": item.user_choice,
 				"actor": actor,
@@ -264,12 +270,35 @@ def _current_workspace() -> str:
 
 # ---------------------------------------------------------------------------
 # T10：grant store —— per-(tool, 规则指纹) always-allow（"don't ask again"）。
-# 生命周期：TTL + workspace 维度；增删均写事件化审计；进程内存储。
+# 生命周期：TTL + workspace 维度；增删均写事件化审计；**进程内 + 落盘**。
 # 红线：grant 只能把 ASK 放行为 ALLOW，永不触碰 DENY（policy 侧守卫）。
 # ---------------------------------------------------------------------------
 
 #: 默认 TTL：24h；XEYO_GRANT_TTL_SEC 覆盖（<=0 = 不过期）。
 DEFAULT_GRANT_TTL_SEC = 24 * 3600.0
+
+#: 落盘位置：`~/.xeyo/permission_grants.json`（XEYO_GRANT_STORE 覆盖；
+#: XEYO_GRANT_PERSIST=off 关闭落盘，回到纯进程内）。
+GRANT_STORE_FILENAME = "permission_grants.json"
+
+
+def grant_store_path() -> str:
+	"""grant 落盘文件路径（测试可用 XEYO_GRANT_STORE 指定）。"""
+	override = (os.environ.get("XEYO_GRANT_STORE") or "").strip()
+	if override:
+		return os.path.abspath(os.path.expanduser(override))
+	home = (os.environ.get("XEYO_HOME") or "").strip()
+	root = os.path.abspath(os.path.expanduser(home)) if home else str(Path.home() / ".xeyo")
+	return os.path.join(root, GRANT_STORE_FILENAME)
+
+
+def _grant_persist_enabled() -> bool:
+	return (os.environ.get("XEYO_GRANT_PERSIST") or "").strip().lower() not in (
+		"off",
+		"0",
+		"false",
+		"no",
+	)
 
 
 @dataclass
@@ -296,7 +325,7 @@ def _grant_workspace_scope() -> str:
 class PermissionGrantStore:
 	"""进程内 always-allow 授权存储。"""
 
-	def __init__(self, default_ttl: float | None = None) -> None:
+	def __init__(self, default_ttl: float | None = None, *, persist: bool | None = None) -> None:
 		if default_ttl is None:
 			raw = (os.environ.get("XEYO_GRANT_TTL_SEC") or "").strip()
 			try:
@@ -305,15 +334,109 @@ class PermissionGrantStore:
 				default_ttl = DEFAULT_GRANT_TTL_SEC
 		self._ttl = default_ttl
 		self._grants: dict[str, PermissionGrant] = {}
+		self._persist = _grant_persist_enabled() if persist is None else bool(persist)
+		if self._persist:
+			self._load()
+
+	def _load(self) -> None:
+		"""从落盘文件恢复（fail-open：坏文件/读失败 → 空存储 + 审计，绝不抛出）。"""
+		path = grant_store_path()
+		try:
+			with open(path, encoding="utf-8") as fh:
+				raw = json.load(fh)
+		except FileNotFoundError:
+			return
+		except (OSError, UnicodeError, ValueError) as e:
+			logging.getLogger(__name__).warning(
+				"grant store unreadable at %s: %s", path, e
+			)
+			self._audit("permission.grant.load_failed", path=path, error=str(e))
+			return
+		items = raw.get("grants") if isinstance(raw, dict) else None
+		if not isinstance(items, list):
+			self._audit("permission.grant.load_failed", path=path, error="no grants array")
+			return
+		now = time.time()
+		for item in items:
+			if not isinstance(item, dict):
+				continue
+			tool = str(item.get("tool_name") or "").strip()
+			fp = str(item.get("fingerprint") or "").strip()
+			if not tool or not fp:
+				continue
+			try:
+				expires = item.get("expires_at")
+				expires_f = float(expires) if expires is not None else None
+			except (TypeError, ValueError):
+				continue
+			if expires_f is not None and expires_f < now:
+				continue  # 过期条目丢弃（TTL 语义跨进程一致）
+			scope = str(item.get("scope") or "")
+			grant = PermissionGrant(
+				tool_name=tool,
+				fingerprint=fp,
+				scope=scope,
+				created_at=float(item.get("created_at") or now),
+				expires_at=expires_f,
+				actor=str(item.get("actor") or ""),
+				grant_id=hashlib.sha1(
+					f"{tool}\x00{fp}\x00{scope}".encode("utf-8")
+				).hexdigest()[:12],
+			)
+			self._grants[grant.grant_id] = grant
+
+	def _save(self) -> None:
+		"""落盘（原子替换；失败只记日志，不影响本次授权生效）。"""
+		if not self._persist:
+			return
+		path = grant_store_path()
+		payload = {
+			"version": 1,
+			"grants": [
+				{
+					"tool_name": g.tool_name,
+					"fingerprint": g.fingerprint,
+					"scope": g.scope,
+					"created_at": g.created_at,
+					"expires_at": g.expires_at,
+					"actor": g.actor,
+				}
+				for g in self._grants.values()
+			],
+		}
+		tmp = f"{path}.tmp"
+		try:
+			os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+			with open(tmp, "w", encoding="utf-8") as fh:
+				json.dump(payload, fh, ensure_ascii=False, indent=2)
+			os.replace(tmp, path)
+		except OSError as e:
+			logging.getLogger(__name__).warning("grant store write failed at %s: %s", path, e)
+			try:
+				os.unlink(tmp)
+			except OSError:
+				pass
+
+	@staticmethod
+	def _audit(event: str, **fields: object) -> None:
+		try:
+			from audit.log import default_audit_log
+
+			default_audit_log().record(event, **fields)
+		except Exception:
+			logging.getLogger(__name__).debug("grant audit %s failed", event, exc_info=True)
 
 	def _prune(self) -> None:
 		now = time.time()
-		for gid in [
+		dropped = [
 			gid
 			for gid, g in self._grants.items()
 			if g.expires_at is not None and g.expires_at < now
-		]:
+		]
+		for gid in dropped:
 			self._grants.pop(gid, None)
+		if dropped:
+			self._save()
 
 	def add(
 		self,
@@ -346,6 +469,7 @@ class PermissionGrantStore:
 			).hexdigest()[:12],
 		)
 		self._grants[grant.grant_id] = grant
+		self._save()
 		try:
 			from audit.log import default_audit_log
 
@@ -393,6 +517,7 @@ class PermissionGrantStore:
 		grant = self._grants.pop((grant_id or "").strip(), None)
 		if grant is None:
 			return False
+		self._save()
 		try:
 			from audit.log import default_audit_log
 

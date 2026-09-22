@@ -77,6 +77,12 @@ class ToolResultEvent:
 	# T13：tool_call.end 元数据——执行耗时（ms）+ 是否发生 spill（tool-results 截断）。
 	duration_ms: int = 0
 	spilled: bool = False
+	# 执行层结构化结果（文本之外的稳定判定字段）。
+	status: str = "ok"
+	error_kind: str | None = None
+	retryable: bool = False
+	side_effect: str = "none"
+	action_id: str | None = None
 	type: str = "tool_result"
 
 

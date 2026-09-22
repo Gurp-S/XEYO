@@ -57,10 +57,14 @@ class PermissionCoordinator:
 		prompt: str,
 		turn_id: str | None = None,
 		matched_rule: str = "",
+		rule_id: str = "",
+		reason_code: str = "",
+		resource: str = "",
 		command_summary: str = "",
 		choices: tuple[str, ...] | list[str] | None = None,
 		peer_summary: str = "",
 		mcp_target: str = "",
+		permission_snapshot_id: str = "",
 	) -> str:
 		tid = turn_id or self.turn_id
 		item = self.store.create(
@@ -75,6 +79,7 @@ class PermissionCoordinator:
 			choices=choices,
 			peer_summary=peer_summary,
 			mcp_target=mcp_target,
+			permission_snapshot_id=permission_snapshot_id,
 		)
 		self.task_state.set_status(
 			"waiting_permission", turn_id=tid, current_tool=tool_name, interruptible=False
@@ -86,6 +91,10 @@ class PermissionCoordinator:
 			"tool_name": tool_name,
 			"reason": reason,
 			"matched_rule": matched_rule or "",
+			"rule_id": rule_id or matched_rule or "",
+			"reason_code": reason_code or "",
+			"resource": resource or "",
+			"permission_snapshot_id": permission_snapshot_id or "",
 			"expires_at": item.expires_at,
 		}
 		if command_summary:

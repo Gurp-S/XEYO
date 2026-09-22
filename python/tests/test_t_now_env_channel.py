@@ -16,10 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from model._openai_common import (
-	ENV_RELAY_REASONING_PLACEHOLDER,
-	normalize_messages_for_openai,
-)
+from model._openai_common import normalize_messages_for_openai
 from prompt.pre_llm_inject import (
 	InjectContext,
 	acknowledge_prepared_events,
@@ -30,6 +27,7 @@ from prompt.t_now_strategy import (
 	ENV_NOTICE_HEADER,
 	ENV_TOOL_NAME,
 	STRATEGY_ENV_CHANNEL,
+	STRATEGY_NOTICE_FRAGMENT,
 	STRATEGY_LEGACY,
 	STRATEGY_SKIP,
 	env_unsupported_key,
@@ -121,14 +119,16 @@ def test_normalize_env_pair_to_openai_tool_messages():
 	assert "Multi-Agent" in norm[2]["content"]
 
 
-def test_normalize_env_pair_gets_relay_reasoning_placeholder():
-	"""伪造对 assistant 无思考时，normalize 补结构性占位 reasoning_content。
+def test_wire_never_fabricates_reasoning_for_engine_ids():
+	"""wire 层不再替伪造对编造 ``reasoning_content``。
 
-	实测口径（2026-09-14，`TerminalBench/zero/probe_envpair_400.py`）：
-	DeepSeek thinking 模式对「自己没签发过的 tool_call id」强制要求回传
-	reasoning_content，缺则 400 `must be passed back to the API`。伪造对
-	的 id 是引擎造的（xeyo_env_ 前缀），必须带占位（只声明来源，不含
-	指令/评价——引擎铁律：注意力里只出现信息）。
+	2026-09-14 实测（``TerminalBench/zero/probe_envpair_400.py``）：DeepSeek
+	thinking 模式对没签发过的 tool_call id 强制要求回传 reasoning_content，缺则
+	400。旧做法是在 ``normalize_messages_for_openai`` 里补一段占位思考，代价是
+	往历史里塞模型从未产出的内容。2026-09-22 起降级阶梯改为包封片段
+	（见 ``prompt/notice_channel.py``），生产路径不再产伪对，于是这里反向钉住：
+	显式拿旧档做对照时请求体**不带**编造的 reasoning_content——该 400 就让它
+	400，对照档必须能看见原缺陷，而不是被补丁掩盖。
 	"""
 	set_t_now_strategy(STRATEGY_ENV_CHANNEL)
 	projected = [{"role": "user", "content": "hi"}]
@@ -137,7 +137,7 @@ def test_normalize_env_pair_gets_relay_reasoning_placeholder():
 	msg = norm[1]
 	assert msg["role"] == "assistant"
 	assert msg["tool_calls"][0]["id"].startswith(ENV_ID_PREFIX)
-	assert msg["reasoning_content"] == ENV_RELAY_REASONING_PLACEHOLDER
+	assert "reasoning_content" not in msg
 
 
 def test_env_notice_header_declares_not_user():
@@ -171,9 +171,9 @@ def test_strategy_resolution_and_unsupported_fallback(monkeypatch):
 	set_t_now_strategy(STRATEGY_ENV_CHANNEL)
 	monkeypatch.delenv("XEYO_T_NOW_STRATEGY", raising=False)
 	assert resolve_t_now_strategy("openai", "gpt-x") == STRATEGY_ENV_CHANNEL
-	# prefill 预留档回落 env_channel（实测通过前不开放）
+	# prefill 预留档回落 notice_fragment（声道 C；不再回落伪对）
 	set_t_now_strategy("prefill")
-	assert resolve_t_now_strategy() == STRATEGY_ENV_CHANNEL
+	assert resolve_t_now_strategy() == STRATEGY_NOTICE_FRAGMENT
 	set_t_now_strategy(STRATEGY_ENV_CHANNEL)
 	# 备忘仅影响被标记的 provider:model 组合 → 回落 skip（L2：不落 legacy 用户尾插）
 	mark_env_channel_unsupported(env_unsupported_key("openai", "gpt-x"))

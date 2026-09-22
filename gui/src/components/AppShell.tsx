@@ -166,7 +166,7 @@ export function AppShell({children}: Props) {
 	return (
 		<div className="relative h-full w-full min-h-0 min-w-0">
 			<div
-				className="relative z-0 flex h-full w-full min-h-0 min-w-0 flex-col overflow-hidden bg-paper"
+				className="xy-app-surface relative z-0 flex h-full w-full min-h-0 min-w-0 flex-col overflow-hidden"
 				style={
 					{
 						['--xy-bg-image' as string]: showWallpaper

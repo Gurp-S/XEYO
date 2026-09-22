@@ -179,7 +179,12 @@ def scan_session(path: Path) -> list[DriftVerdict]:
 		else:
 			continue
 		if role == "user" and text.strip():
-			last_user = text
+			from prompt.notice_channel import is_notice_message
+
+			# 通报片段/留痕不是用户说的话：当成 last_user 会把引擎文本当成"用户问"，
+			# 下一对 (user, assistant) 就是引擎文本↔模型回复——漂移判据被污染。
+			if not is_notice_message(o):
+				last_user = text
 		elif role == "assistant" and text.strip() and not has_tool:
 			pairs.append((last_user, text))
 		# 工具轮跳过：漂移发生在文本回复。

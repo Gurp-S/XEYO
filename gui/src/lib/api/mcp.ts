@@ -88,6 +88,8 @@ export type PatchExtensionsBody = {
 export type PatchExtensionsResult = {
 	ok: boolean;
 	message?: string;
+	/** 后端逐项失败清单（`plugins/x`、`skills/x`、`mcp_servers/x`）；非空即有项没落地。 */
+	errors?: string[];
 	applied?: {
 		mcp_servers?: {id: string; enabled: boolean}[];
 		skills?: {name: string; enabled: boolean}[];
@@ -96,7 +98,7 @@ export type PatchExtensionsResult = {
 	};
 };
 
-/** 扩展层逐项启停（plugins/mcp_servers/skills/master 可任选组合）。 */
+/** 扩展层启停：整体 200 但逐项失败（后端吞异常进 errors）要显式判，否则面板假成功。 */
 export async function patchExtensions(
 	body: PatchExtensionsBody,
 ): Promise<PatchExtensionsResult> {
@@ -107,7 +109,16 @@ export async function patchExtensions(
 			body: JSON.stringify(body),
 		});
 		const payload = (await res.json()) as PatchExtensionsResult & {message?: string};
-		return {ok: payload.ok === true, message: payload.message, applied: payload.applied};
+		const errors = Array.isArray(payload.errors)
+			? payload.errors.filter((e): e is string => typeof e === 'string')
+			: [];
+		const ok = res.ok && payload.ok === true && errors.length === 0;
+		return {
+			ok,
+			message: payload.message || (errors.length ? errors.join('；') : undefined),
+			errors,
+			applied: payload.applied,
+		};
 	} catch (err) {
 		return {
 			ok: false,

@@ -335,6 +335,91 @@ describe('chatStore dialogue — errors & busy', () => {
 		expect(users).toEqual(['two']);
 	});
 
+	it('rejecting queue hands the draft back (busy path returns false)', async () => {
+		streamChat.mockImplementation(
+			async (
+				_sid: string,
+				_text: string,
+				handlers: ChatStreamHandlers,
+			) => {
+				// 429 队列满 / 413 正文超长 / 409 side 不支持引导，都落在这里。
+				handlers.onError('排队已满（16 条），请稍后再发');
+			},
+		);
+		useChatStore.setState(s => ({
+			sessionStreams: patchSessionStream(s.sessionStreams, 'sess_test', {
+				isLoading: true,
+				streamingText: '',
+				streamingShown: '',
+				abortRef: new AbortController(),
+				remoteStreaming: false,
+				turnDetached: false,
+				draining: false,
+			}),
+		}));
+		// false ⇒ Composer 把草稿退回输入框：被拒的消息绝不消失在
+		// 「撤回乐观气泡」与「清空输入框」之间（对齐 Codex rejected_steers）。
+		expect(await useChatStore.getState().sendMessage('two')).toBe(false);
+		const users = (useChatStore.getState().messagesById.sess_test ?? []).filter(
+			m => m.role === 'user',
+		);
+		expect(users).toEqual([]);
+		expect(useChatStore.getState().errorBanner).toMatch(/排队已满/);
+	});
+
+	it('busy-path race (backend streams anyway) still surfaces permission prompts', async () => {
+		streamChat.mockImplementation(
+			async (
+				_sid: string,
+				_text: string,
+				handlers: ChatStreamHandlers,
+			) => {
+				handlers.onPermissionPending?.({
+					kind: 'permission_pending',
+					requestId: 'req-9',
+					toolName: 'Bash',
+					input: {command: 'rm -rf build'},
+					prompt: '执行 rm -rf build？',
+					reason: 'destructive',
+				});
+			},
+		);
+		useChatStore.setState(s => ({
+			sessionStreams: patchSessionStream(s.sessionStreams, 'sess_test', {
+				isLoading: true,
+				streamingText: '',
+				streamingShown: '',
+				abortRef: new AbortController(),
+				remoteStreaming: false,
+				turnDetached: false,
+				draining: false,
+			}),
+		}));
+		await useChatStore.getState().sendMessage('two');
+		// 不接这个帧 = 引擎卡在等一个永不出现的弹窗（排队路径曾漏整套审批槽位）
+		expect(useChatStore.getState().pendingPermission?.requestId).toBe('req-9');
+	});
+
+	it('turn never started returns false and drops the optimistic bubble', async () => {
+		streamChat.mockImplementation(
+			async (
+				_sid: string,
+				_text: string,
+				handlers: ChatStreamHandlers,
+			) => {
+				handlers.onError('会话正忙，请稍候或点停止后重试', {
+					kind: 'turn_not_started',
+				});
+			},
+		);
+		expect(await useChatStore.getState().sendMessage('x')).toBe(false);
+		expect(
+			(useChatStore.getState().messagesById.sess_test ?? []).some(
+				m => m.role === 'user' && m.text === 'x',
+			),
+		).toBe(false);
+	});
+
 	it('updates tool row in place on result (no call/result remount pair)', async () => {
 		streamChat.mockImplementation(
 			async (

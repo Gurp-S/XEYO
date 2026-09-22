@@ -151,7 +151,7 @@ describe('Composer send UX', () => {
 			expect.any(Function),
 			false,
 			// Composer 始终传会话级思考等级 opts（空 = 自动/模型默认）。
-			{reasoningEffort: ''},
+			{reasoningEffort: '', steerIfBusy: false},
 		);
 	});
 
@@ -293,6 +293,35 @@ describe('Composer send UX', () => {
 		expect(sendMessage).not.toHaveBeenCalled();
 	});
 
+	it('steers on Ctrl+Enter while streaming, and says so', async () => {
+		chatState.sessionStreams = patchSessionStream({}, 'sess_1', {
+			isLoading: true,
+			statusText: 'thinking…',
+		});
+		const user = userEvent.setup();
+		render(<Composer />);
+		// 手势必须可见：Ctrl+Enter 引导是隐藏键位，不写出来用户永远不知道能插话
+		expect(screen.getByText(/Ctrl\+Enter 引导本回合/)).toBeInTheDocument();
+		const ta = screen.getByPlaceholderText(/描述任务/);
+		await user.type(ta, '先看测试再改');
+		await user.keyboard('{Control>}{Enter}{/Control}');
+		const call = sendMessage.mock.calls.at(-1) as unknown[];
+		expect(call?.[6]).toEqual(expect.objectContaining({steerIfBusy: true}));
+	});
+
+	it('plain Enter while streaming queues instead of steering', async () => {
+		chatState.sessionStreams = patchSessionStream({}, 'sess_1', {
+			isLoading: true,
+		});
+		const user = userEvent.setup();
+		render(<Composer />);
+		const ta = screen.getByPlaceholderText(/描述任务/);
+		await user.type(ta, '排到回合结束');
+		await user.keyboard('{Enter}');
+		const call = sendMessage.mock.calls.at(-1) as unknown[];
+		expect(call?.[6]).toEqual(expect.objectContaining({steerIfBusy: false}));
+	});
+
 	it('stop control calls stopGeneration', async () => {
 		chatState.sessionStreams = patchSessionStream({}, 'sess_1', {
 			isLoading: true,
@@ -430,7 +459,7 @@ describe('Composer send UX', () => {
 				expect.any(Function),
 				false,
 				// Composer 始终传会话级思考等级 opts（空 = 自动/模型默认）。
-				{reasoningEffort: ''},
+				{reasoningEffort: '', steerIfBusy: false},
 			);
 		});
 
@@ -460,7 +489,7 @@ describe('Composer send UX', () => {
 				expect.any(Function),
 				true,
 				// Composer 始终传会话级思考等级 opts（空 = 自动/模型默认）。
-				{reasoningEffort: ''},
+				{reasoningEffort: '', steerIfBusy: false},
 			);
 		});
 
@@ -484,7 +513,7 @@ describe('Composer send UX', () => {
 				expect.any(Function),
 				false,
 				// Composer 始终传会话级思考等级 opts（空 = 自动/模型默认）。
-				{reasoningEffort: ''},
+				{reasoningEffort: '', steerIfBusy: false},
 			);
 		});
 	});

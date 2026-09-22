@@ -559,6 +559,13 @@ html[data-scheme="dark"] .xy-prism-html .token.boolean {
 }
 
 .xy-modal-panel {
+  /* 弹窗属于静态浮层，允许真 blur；会动/会 resize 的层（侧栏、文件预览）不给，
+     见下方 .xy-file-preview 的 backdrop-filter:none。 */
+  background: var(--xy-glass-strong);
+  -webkit-backdrop-filter: var(--xy-blur);
+  backdrop-filter: var(--xy-blur);
+  border-radius: var(--xy-radius-pane);
+  border-color: var(--xy-frame);
   transition:
     opacity var(--duration-base) var(--ease-out-soft),
     transform var(--duration-base) var(--ease-out-soft);
@@ -608,7 +615,7 @@ html[data-scheme="dark"] .xy-prism-html .token.boolean {
 }
 
 .xy-modal-elevated {
-  box-shadow: var(--xy-modal-shadow);
+  box-shadow: var(--xy-modal-shadow), var(--xy-edge-hi);
 }
 
 .xy-rewind-dialog {

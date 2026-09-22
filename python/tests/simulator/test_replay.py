@@ -75,9 +75,9 @@ def test_estimate_remaining_respects_r_cap():
 	from memory.simulator.replay import estimate_remaining
 
 	msgs = [{"role": "user", "content": f"q{i}"} for i in range(30)]
-	# 30 轮 ⇒ 深度估计 = max(4, 16-30//8) = 13；默认 r_cap=24 不干预（行为保持不变）
-	assert estimate_remaining(msgs) == 13
-	assert estimate_remaining(msgs, Params(r_cap=24)) == 13
+	# 30 轮 ⇒ 实测残余寿命表中位剩 28 枪（旧线性式在这里给 13，正是它把长会话的折叠收益削掉）
+	assert estimate_remaining(msgs) == 28
+	assert estimate_remaining(msgs, Params(r_cap=24)) == 24
 	assert estimate_remaining(msgs, Params(r_cap=9)) == 9
 	assert estimate_remaining(msgs, Params(r_cap=5)) == 5
 	assert estimate_remaining([{"role": "user", "content": "就这样"}], Params(r_cap=9)) == 1

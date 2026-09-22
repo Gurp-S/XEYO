@@ -78,28 +78,9 @@ def to_relative_path(path: str, base: Optional[str] = None) -> str:
 
 def suggest_path_under_cwd(target_path: str, *, cwd: str | None = None) -> Optional[str]:
 	"""用户访问 cwd 父目录越界时，尝试在 cwd 下找同名目录/文件作为提示。"""
-	cwd = cwd or get_cwd()
-	cwd_parent = os.path.dirname(os.path.realpath(cwd))
-	try:
-		rp = os.path.realpath(target_path)
-	except OSError:
-		rp = os.path.abspath(target_path)
-	sep = os.sep
-	if cwd_parent == sep:
-		parent_prefix = sep
-	else:
-		parent_prefix = cwd_parent + sep
-	if (not rp.startswith(parent_prefix)) or rp.startswith(cwd + sep) or rp == cwd:
-		return None
-	want_name = os.path.basename(rp).lower()
-	try:
-		for name in os.listdir(cwd):
-			full = os.path.join(cwd, name)
-			if name.lower() == want_name:
-				return full
-	except OSError:
-		pass
-	return None
+	from tools.fileio.paths import suggest_path_under_cwd as _shared_suggest
+
+	return _shared_suggest(target_path, cwd=cwd)
 
 
 def check_read_permission_for_tool(*args: Any, **kwargs: Any) -> bool:
@@ -827,7 +808,7 @@ class GrepTool:
 		if any_folded and applied_limit is None:
 			# 折叠模式尾部提示如何展开（仅在实际折叠过且未被分页截断时）
 			limited = limited + [
-				"\n[folded view: methods hidden inside containers; "
+				"\n[folded view; expanded method view: methods hidden inside containers; "
 				'path and output_mode="symbols" address individual files; '
 				'Read symbol="Class.method" returns a symbol body]'
 			]

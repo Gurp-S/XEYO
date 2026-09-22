@@ -432,8 +432,11 @@ def _cmd_transcript(ctx: DispatchContext, arg: str) -> CommandResult:
 	msgs = session.messages.as_api_messages()
 	tail = msgs[-n:]
 	role_zh = {"user": "你", "assistant": "XEYO", "tool": "工具", "system": "系统"}
+	from msgtypes.notice_markers import is_notice_message
+
 	lines = [
-		f"[{role_zh.get(str(m.get('role')), m.get('role'))}] {_flatten_content(m.get('content'))}"
+		f"[{'引擎' if is_notice_message(m) else role_zh.get(str(m.get('role')), m.get('role'))}] "
+		f"{_flatten_content(m.get('content'))}"
 		for m in tail
 	]
 	msg = "\n".join(lines) if lines else "(空会话)"

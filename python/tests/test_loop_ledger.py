@@ -25,6 +25,10 @@ from engine.loop_ledger import (
 
 _FORBIDDEN = ("应该", "建议", "请", "勿", "优先", "推荐")
 
+#: 折叠需"折了真省"（收益门）：等价档用例的正文必须长于折叠行，否则被收益门
+#: 挡下（见 tests/test_repeat_fold_granularity.py）。
+_FOLD_BODY = "Found 1 file\n" + "\n".join(f"x{i}.py:12:match" for i in range(30))
+
 
 def test_render_wording_compliance():
 	"""账本渲染文本命中任何导演词 = 红（理念红线机器执法）。"""
@@ -263,11 +267,12 @@ class TestFoldEquivalent:
 		"""默认档与 R2' 契约同底线：前两次原文保留，第 3 次出现才折叠。"""
 		monkeypatch.delenv("XEYO_LOOP_LEDGER", raising=False)
 		f = self._fold()
-		t1, _ = f.process("Grep", {"pattern": "a"}, "Found 1 file\nx.py")
-		assert t1 == "Found 1 file\nx.py"  # 首次完整
-		t2, folded2 = f.process("Grep", {"pattern": "b"}, "Found 1 file\nx.py")
-		assert not folded2 and t2 == "Found 1 file\nx.py"  # 第 2 次仍原文
-		t3, folded3 = f.process("Grep", {"pattern": "c"}, "Found 1 file\nx.py")
+		body = _FOLD_BODY
+		t1, _ = f.process("Grep", {"pattern": "a"}, body)
+		assert t1 == body  # 首次完整
+		t2, folded2 = f.process("Grep", {"pattern": "b"}, body)
+		assert not folded2 and t2 == body  # 第 2 次仍原文
+		t3, folded3 = f.process("Grep", {"pattern": "c"}, body)
 		assert folded3 and "完全相同" in t3 and "[fold]" in t3
 
 	def test_env_equiv_at_aggressive(self, monkeypatch):
@@ -275,8 +280,8 @@ class TestFoldEquivalent:
 		monkeypatch.delenv("XEYO_LOOP_LEDGER", raising=False)
 		monkeypatch.setenv("XEYO_FOLD_EQUIV_AT", "2")
 		f = self._fold()
-		f.process("Grep", {"pattern": "a"}, "same-out")
-		t2, folded = f.process("Grep", {"pattern": "b"}, "same-out")
+		f.process("Grep", {"pattern": "a"}, _FOLD_BODY)
+		t2, folded = f.process("Grep", {"pattern": "b"}, _FOLD_BODY)
 		assert folded and "等价结果" in t2
 
 	def test_new_content_never_folds(self, monkeypatch):
@@ -297,8 +302,8 @@ class TestFoldEquivalent:
 		monkeypatch.delenv("XEYO_LOOP_LEDGER", raising=False)
 		monkeypatch.setenv("XEYO_FOLD_EQUIV_AT", "2")
 		f = self._fold()
-		f.process("Grep", {"pattern": "a"}, "same-out")
-		t2, _ = f.process("Grep", {"pattern": "b"}, "same-out")
+		f.process("Grep", {"pattern": "a"}, _FOLD_BODY)
+		t2, _ = f.process("Grep", {"pattern": "b"}, _FOLD_BODY)
 		for w in _FORBIDDEN:
 			assert w not in t2
 
@@ -306,7 +311,7 @@ class TestFoldEquivalent:
 		monkeypatch.delenv("XEYO_LOOP_LEDGER", raising=False)
 		f = self._fold()
 		for _ in range(3):
-			t, folded = f.process("Grep", {"pattern": "a"}, "same-out")
+			t, folded = f.process("Grep", {"pattern": "a"}, _FOLD_BODY)
 		assert folded and "同一签名" in t  # 逐字节档文案（更具体）
 
 

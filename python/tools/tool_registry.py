@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import hashlib
+import json
 import os
 import time
 from typing import TYPE_CHECKING
@@ -17,13 +19,31 @@ from permissions.filesystem import (
 from permissions.policy import agent_mode, evaluate_policy, readonly_gate
 from permissions.workspace_policy import load_workspace_policy
 from tools.ask_user_question_tool import ASK_USER_TOOL_NAME
-from tools.base_tool import Tool, ToolResult
+from tools.base_tool import Tool, ToolResult, tool_flag
+from tools.error_taxonomy import (
+	INVALID_ARGUMENT,
+	PERMISSION_DENIED,
+	RESERVED_CHANNEL,
+	UNKNOWN_TOOL,
+	USER_INPUT_REQUIRED,
+)
 from tools.ask_user_question_tool import ASK_USER_TOOL_NAME
 
 if TYPE_CHECKING:
 	from engine.permission_coordinator import PermissionCoordinator
 
 _log = logging.getLogger(__name__)
+
+
+def _side_effect_class(tool_name: str, tool: Tool) -> str:
+	"""把工具的副作用归类；具体工具不需要知道 journal。"""
+	if tool_flag(tool, "is_read_only", default=False):
+		return "none"
+	if tool_name in {"Write", "Edit", "NotebookEdit"}:
+		return "write"
+	if tool_name in {"Bash", "job_kill", "Agent"}:
+		return "process"
+	return "external"
 
 
 def _observe_bash_route(
@@ -80,6 +100,31 @@ def _bash_shape_key(plan: BashRoutePlan) -> str:
 	return f"{plan.tier}|{plan.tool_name}|{str(arg) if arg is not None else ''}"
 
 
+def _runtime_audit_fields() -> dict[str, object]:
+	"""读取当前执行上下文的机器字段；失败时返回空，不阻断工具。"""
+	try:
+		from engine.workspace_context import get_execution_context
+
+		ctx = get_execution_context()
+		if ctx is None:
+			return {}
+		return {
+			"trace_id": ctx.trace_id,
+			"runtime": ctx.runtime,
+			"container_id": ctx.container_id,
+			"runtime_profile_id": getattr(ctx, "runtime_profile_id", ""),
+			"model_request_id": getattr(ctx, "model_request_id", ""),
+			"projection_id": getattr(ctx, "projection_id", ""),
+			"permission_snapshot_id": getattr(ctx, "permission_snapshot_id", ""),
+			"workspace_revision": getattr(ctx, "workspace_revision", ""),
+			"tool_surface_id": getattr(ctx, "tool_surface_id", ""),
+			"tool_schema_hash": getattr(ctx, "tool_schema_hash", ""),
+			"capability_id": getattr(ctx, "capability_id", ""),
+		}
+	except Exception:  # noqa: BLE001 — 观测字段不可阻断执行
+		return {}
+
+
 #: 引擎保留的工具名前缀（环境声道伪对 `assistant(xeyo_env_notice) → tool_result`）。
 #:
 #: 为什么执行层要显式拒：该伪对**只存在于投影**（`prompt/turn_context.py::append_env_notice_pair`），
@@ -101,10 +146,14 @@ class ToolRegistry:
 	PREVIEW_HEAD = 6_000
 	PREVIEW_TAIL = 2_000
 
-	def __init__(self, *, cwd: str | None = None) -> None:
+	def __init__(self, *, cwd: str | None = None, tool_surface_id: str = "custom@1") -> None:
 		self._tools: dict[str, Tool] = {}
 		self._cwd = os.path.abspath(os.path.expanduser(cwd)) if cwd else ""
+		# Policy identity is separate from the exact schema hash so diagnostics can
+		# distinguish an intentional surface from an accidental schema drift.
+		self._tool_surface_id = str(tool_surface_id or "custom@1").strip() or "custom@1"
 		self._schemas_cache: list[dict] | None = None
+		self._schema_revision = 0
 		#: 43 号 Phase 2：会话内（registry 生命周期）同命令形状重复命中计数，用于渐进强制。
 		self._bash_repeats: dict[str, int] = {}
 
@@ -115,9 +164,43 @@ class ToolRegistry:
 	def set_cwd(self, cwd: str) -> None:
 		self._cwd = os.path.abspath(os.path.expanduser(cwd or "."))
 
+	@property
+	def tool_surface_id(self) -> str:
+		"""Stable policy identity for the model-visible tool surface."""
+		return self._tool_surface_id
+
 	def register(self, tool: Tool) -> None:
 		self._tools[tool.name] = tool
 		self._schemas_cache = None
+		self._schema_revision += 1
+
+	def schema_fingerprint(self) -> str:
+		"""返回当前暴露给模型的工具 schema 稳定指纹。
+
+		指纹只用于执行上下文、审计和恢复归因，不进入 prompt；隐藏工具不计入
+		指纹，因为它们不属于模型本轮实际可见的 tool surface。
+		"""
+		try:
+			payload = json.dumps(
+				self.schemas(),
+				ensure_ascii=False,
+				sort_keys=True,
+				separators=(",", ":"),
+			)
+		except (TypeError, ValueError):
+			payload = repr(self.schemas())
+		return "sha256:" + hashlib.sha256(payload.encode("utf-8", "replace")).hexdigest()
+
+	def schema_snapshot(self) -> dict[str, object]:
+		"""机器可读的工具协议摘要；不包含工具参数值或秘密。"""
+		visible = self.schemas()
+		return {
+			"revision": self._schema_revision,
+			"surface_id": self.tool_surface_id,
+			"hash": self.schema_fingerprint(),
+			"tool_names": [str(row.get("name") or "") for row in visible],
+			"count": len(visible),
+		}
 
 	def get(self, name: str) -> Tool | None:
 		return self._tools.get(name)
@@ -134,7 +217,9 @@ class ToolRegistry:
 		if self._schemas_cache is None:
 			self._schemas_cache = [
 				apply_schema_budget(t.schema())
-				for t in self._tools.values()
+				# 遍历快照：并行 tool_use 批次下注册表可能被并发变更，
+				# dict 变动中遍历会抛 RuntimeError（2026-09-20）。
+				for t in list(self._tools.values())
 				if exposure_of(t) != "hidden"
 			]
 		return list(self._schemas_cache)
@@ -151,31 +236,96 @@ class ToolRegistry:
 		"""真实执行并写入 tool.started / tool.finished 审计事件。"""
 		audit = default_audit_log()
 		started = time.monotonic()
+		action_journal = None
+		action_id: str | None = None
+		side_effect = _side_effect_class(tool.name, tool)
+		if side_effect != "none" and session_id:
+			try:
+				from engine.action_journal import ActionJournal, action_identity
+
+				action_id, idempotency_key = action_identity(
+					session_id=session_id,
+					turn_id=turn_id,
+					tool_use_id=tool_use.id,
+					tool_name=tool.name,
+					tool_input=tool_use.input if isinstance(tool_use.input, dict) else {},
+				)
+				action_journal = ActionJournal(session_id)
+				decision = action_journal.begin(
+					action_id=action_id,
+					idempotency_key=idempotency_key,
+					turn_id=turn_id,
+					tool_use_id=tool_use.id,
+					tool_name=tool.name,
+					side_effect=side_effect,
+				)
+				if decision.action == "replay" and decision.record is not None:
+					record = decision.record
+					return ToolResult(
+						content=str(record.get("result_content") or ""),
+						is_error=bool(record.get("result_is_error", False)),
+						status=str(record.get("result_status") or "ok"),
+						error_kind=record.get("error_kind"),
+						retryable=bool(record.get("retryable", False)),
+						side_effect=str(record.get("side_effect") or side_effect),
+						action_id=action_id,
+						metadata={"action_replayed": True},
+					)
+				if decision.action == "recovery_required":
+					return ToolResult(
+						content="action outcome unknown; execution was not repeated",
+						is_error=True,
+						error_kind="ACTION_OUTCOME_UNKNOWN",
+						retryable=False,
+						side_effect=side_effect,
+						action_id=action_id,
+						metadata={"action_recovery_required": True},
+					)
+			except Exception:  # noqa: BLE001 — journal 不可用不阻断旧执行路径
+				action_journal = None
+				action_id = None
+				_log.debug("action journal prepare failed", exc_info=True)
 		audit.record(
 			"tool.started",
 			session_id=session_id,
 			turn_id=turn_id,
 			request_id=tool_use.id,
 			tool_name=tool.name,
+			**_runtime_audit_fields(),
 		)
 		try:
 			# 策略层已 ALLOW / skip_ask：工具内 check_permissions 不得再把 ASK 降成 DENY。
 			with mark_permission_preapproved(True):
 				result = await tool.execute(tool_use.input, abort)
 		except BaseException as exc:
-			audit.record(
-				"tool.finished",
-				session_id=session_id,
-				turn_id=turn_id,
-				request_id=tool_use.id,
-				tool_name=tool.name,
-				duration_ms=int((time.monotonic() - started) * 1000),
-				is_error=True,
-				error=str(exc)[:500],
-			)
+			if action_journal is not None and action_id:
+				try:
+					action_journal.unknown(action_id, f"{type(exc).__name__}: {exc}")
+				except Exception:  # noqa: BLE001
+					_log.debug("action journal unknown transition failed", exc_info=True)
+				audit.record(
+					"tool.finished",
+					session_id=session_id,
+					turn_id=turn_id,
+					request_id=tool_use.id,
+					tool_name=tool.name,
+					duration_ms=int((time.monotonic() - started) * 1000),
+					is_error=True,
+					error=str(exc)[:500],
+					**_runtime_audit_fields(),
+				)
 			raise
 		# T1：原始输出先落盘（raw → spill），再替换为「预览 + 全文路径」。
 		result = self._apply_output_budget(tool, result, session_id=session_id)
+		if result.side_effect == "none":
+			result.side_effect = side_effect
+		if action_id and result.action_id is None:
+			result.action_id = action_id
+		if action_journal is not None and action_id:
+			try:
+				action_journal.complete(action_id, result)
+			except Exception:  # noqa: BLE001 — 结果已执行，journal 失败只留审计
+				_log.debug("action journal complete failed", exc_info=True)
 
 		# PostToolUse 观测钩子：只注入上下文，绝不改结果（hooks 开才执行）。
 		await self._post_tool_hooks(self._cwd, tool.name, result)
@@ -188,6 +338,10 @@ class ToolRegistry:
 			tool_name=tool.name,
 			duration_ms=int((time.monotonic() - started) * 1000),
 			is_error=bool(result.is_error),
+			status=result.status,
+			error_kind=result.error_kind,
+			action_id=result.action_id,
+			**_runtime_audit_fields(),
 		)
 		return result
 
@@ -246,7 +400,16 @@ class ToolRegistry:
 				"truncation": "output_budget",
 			}
 		)
-		return ToolResult(content=preview, is_error=False, metadata=metadata)
+		return ToolResult(
+			content=preview,
+			is_error=False,
+			metadata=metadata,
+			status=result.status,
+			error_kind=result.error_kind,
+			retryable=result.retryable,
+			side_effect=result.side_effect,
+			action_id=result.action_id,
+		)
 
 	async def _hook_blocker(
 		self,
@@ -276,6 +439,9 @@ class ToolRegistry:
 				return ToolResult(
 					content=f"aborted by plugin hook on {abort_label}",
 					is_error=True,
+					status="error",
+					error_kind="ABORTED",
+					retryable=False,
 					metadata={"hook_abort": True, "event": event},
 				)
 		except Exception:  # noqa: BLE001 — 钩子故障不阻断主路径（fail-open 观测侧）。
@@ -322,11 +488,21 @@ class ToolRegistry:
 			# 的注释）。所以这里是**模型发起**的同名调用，一律中性拒绝、不派发、不产生副作用。
 			# 措辞只陈述结果，不带劝导。
 			return ToolResult(
-				content=f"reserved environment channel: {name}", is_error=True
+				content=f"reserved environment channel: {name}",
+				is_error=True,
+				status="error",
+				error_kind=RESERVED_CHANNEL,
+				retryable=False,
 			)
 		tool = self._tools.get(name)
 		if tool is None:
-			return ToolResult(content=f"unknown tool: {name}", is_error=True)
+			return ToolResult(
+				content=f"unknown tool: {name}",
+				is_error=True,
+				status="error",
+				error_kind=UNKNOWN_TOOL,
+				retryable=False,
+			)
 
 		readonly_reason = readonly_gate(tool_use.name, tool=tool)
 		if readonly_reason:
@@ -337,13 +513,24 @@ class ToolRegistry:
 				request_id=tool_use.id,
 				tool_name=tool_use.name,
 				reason=readonly_reason,
+				permission_action="deny",
+				permission_rule_id="agent_mode.readonly",
+				permission_reason_code="READONLY_MODE",
 				agent_mode=agent_mode(),
 				agent_id=str(getattr(tool, "_agent_id", "") or ""),
 			)
 			return ToolResult(
 				content=f"{tool_use.name} is not available in read-only mode",
 				is_error=True,
-				metadata={"permission_reason": readonly_reason},
+				status="error",
+				error_kind=PERMISSION_DENIED,
+				retryable=False,
+				metadata={
+					"permission_reason": readonly_reason,
+					"permission_action": "deny",
+					"permission_rule_id": "agent_mode.readonly",
+					"permission_reason_code": "READONLY_MODE",
+				},
 			)
 
 		# 优先使用工具绑定的 cwd（与会话工作区一致）。
@@ -395,6 +582,7 @@ class ToolRegistry:
 				return ToolResult(
 					content="AskUserQuestion requires a session to suspend into",
 					is_error=True,
+					error_kind="USER_INPUT_REQUIRED",
 				)
 			from tools.ask_user_question_tool.ask_user_question_tool import (
 				format_questions_payload,
@@ -407,7 +595,11 @@ class ToolRegistry:
 			questions = list(payload.get("questions") or [])
 			if not question:
 				return ToolResult(
-					content="AskUserQuestion requires a question", is_error=True
+					content="AskUserQuestion requires a question",
+					is_error=True,
+					status="error",
+					error_kind=INVALID_ARGUMENT,
+					retryable=False,
 				)
 			from permissions.ask_store import default_ask_store  # 惰性:仅提问分支
 
@@ -422,6 +614,8 @@ class ToolRegistry:
 			return ToolResult(
 				content="",
 				is_error=False,
+				status="pending",
+				side_effect="none",
 				metadata={
 					"ask_pending": item.request_id,
 					"question": question,
@@ -443,6 +637,35 @@ class ToolRegistry:
 		decision = evaluate_policy(
 			tool_use.name, raw_input, cwd=cwd, allowed_paths=allowed_paths, tool=tool
 		)
+		permission_snapshot_id = ""
+		try:
+			from permissions.trace import current_permission_snapshot
+			from engine.workspace_context import update_execution_context
+
+			permission_snapshot_id = str(
+				current_permission_snapshot(
+					session_id=coordinator.session_id if coordinator else "",
+					cwd=cwd,
+				)["snapshot_id"]
+			)
+			update_execution_context(permission_snapshot_id=permission_snapshot_id)
+		except Exception:  # noqa: BLE001 — permission trace 不得阻断执行
+			pass
+		permission_fields: dict[str, str] = {}
+		try:
+			from permissions.trace import permission_decision_metadata
+
+			permission_fields = permission_decision_metadata(
+				decision,
+				snapshot_id=permission_snapshot_id,
+				resource=str(getattr(decision, "path", "") or ""),
+			)
+		except Exception:  # noqa: BLE001 — permission trace 不得阻断执行
+			permission_fields = {
+				"permission_action": str(decision.decision),
+				"permission_reason_code": "UNKNOWN",
+				"permission_snapshot_id": permission_snapshot_id,
+			}
 		if decision.decision == PermissionDecision.ALLOW:
 			if tool_use.name == "Bash":
 				handled = await self._bash_routing(
@@ -473,6 +696,7 @@ class ToolRegistry:
 				reason=decision.reason,
 				agent_id=str(getattr(tool, "_agent_id", "") or ""),
 				matched_rule=str(getattr(decision, "matched_rule", "") or ""),
+				**permission_fields,
 			)
 			# F1 裁决：DENY 一律中性结果型（reason 已含机器可读原因）。
 			# decision.prompt 是给用户的 ASK 问句文案（如 "Allow executing: …"），
@@ -480,7 +704,13 @@ class ToolRegistry:
 			return ToolResult(
 				content=f"Permission denied: {decision.reason}",
 				is_error=True,
-				metadata={"permission_reason": decision.reason},
+				status="error",
+				error_kind=PERMISSION_DENIED,
+				retryable=False,
+				metadata={
+					"permission_reason": decision.reason,
+					**permission_fields,
+				},
 			)
 		# ASK（询问用户）
 		if skip_ask:
@@ -498,7 +728,13 @@ class ToolRegistry:
 			return ToolResult(
 				content=f"{UNAVAILABLE_COPY} (no resolver: {decision.reason})",
 				is_error=True,
-				metadata={"permission_reason": decision.reason or "needs_confirmation"},
+				status="error",
+				error_kind=USER_INPUT_REQUIRED,
+				retryable=False,
+				metadata={
+					"permission_reason": decision.reason or "needs_confirmation",
+					**permission_fields,
+				},
 			)
 		prompt = decision.prompt or f"Allow {tool_use.name}?"
 		cmd_summary = ""
@@ -522,7 +758,11 @@ class ToolRegistry:
 			reason=decision.reason,
 			prompt=prompt,
 			matched_rule=str(getattr(decision, "matched_rule", "") or ""),
+			rule_id=permission_fields.get("permission_rule_id", ""),
+			reason_code=permission_fields.get("permission_reason_code", ""),
+			resource=permission_fields.get("permission_resource", ""),
 			mcp_target=str(getattr(decision, "mcp_target", "") or ""),
+			permission_snapshot_id=permission_snapshot_id,
 			command_summary=cmd_summary,
 			choices=choices,
 			peer_summary=peer_summary,
@@ -530,6 +770,8 @@ class ToolRegistry:
 		return ToolResult(
 			content="",
 			is_error=False,
+			status="pending",
+			error_kind="USER_INPUT_REQUIRED",
 			metadata={
 				"permission_pending": request_id,
 				"tool_name": tool_use.name,
@@ -537,6 +779,7 @@ class ToolRegistry:
 				"reason": decision.reason,
 				"prompt": prompt,
 				"matched_rule": str(getattr(decision, "matched_rule", "") or ""),
+				"permission_snapshot_id": permission_snapshot_id,
 				"choices": list(choices),
 				"peer_summary": peer_summary,
 				"path": decision.path,
@@ -671,4 +914,9 @@ class ToolRegistry:
 			content=f"{routed.note}\n{result.content or ''}".rstrip("\n"),
 			is_error=bool(result.is_error),
 			metadata=metadata,
+			status=result.status,
+			error_kind=result.error_kind,
+			retryable=result.retryable,
+			side_effect=result.side_effect,
+			action_id=result.action_id,
 		)

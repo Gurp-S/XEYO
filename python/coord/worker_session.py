@@ -24,6 +24,7 @@ CLI 侧决定，本模块保持纯同步入口。
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import logging
 from collections.abc import Callable
 from pathlib import Path
@@ -130,16 +131,18 @@ def run_worker_session(worktree: Path, task: Any, *,
 
     inject_write_store(engine._tools, WriteStore(str(worktree)), sid)
 
-    set_permission_mode("never")
-    set_agent_mode("agent")
-    set_surface("cli")
-    set_in_subagent(True)  # T_now 易变块净化 + worker 语义（与 subagent_runner 同轨）
-    try:
+    # WorkerPool.run_task 同步内联调 work_fn：ambient set 必须封在复制 context 里，
+    # 否则调用方被留在 never 免确认档且不恢复（新增任何 contextvar 也一并兜住）。
+    def _session_in_isolated_context() -> dict[str, Any]:
+        set_permission_mode("never")
+        set_agent_mode("agent")
+        set_surface("cli")
+        set_in_subagent(True)  # T_now 易变块净化 + worker 语义（与 subagent_runner 同轨）
         with write_scope_cm(list(getattr(task, "scope", None) or [])):
             return asyncio.run(_drain_session(
                 engine, task_card_text(task), timeout_sec=timeout_sec))
-    finally:
-        set_in_subagent(None)
+
+    return contextvars.copy_context().run(_session_in_isolated_context)
 
 
 def session_work_fn(task: Any, *, provider: str | None = None,

@@ -3,6 +3,11 @@
 T7：内置只读白名单迁移为默认前缀规则；工作区可加 `.xeyo/bash_rules.(json|toml)`
 规则（allow 追加只读放行面、ask/deny 全模式收紧），多规则命中最严胜出；
 示例自校验矛盾规则拒载并报错。
+
+2026-09-20（用户裁定「bash 策略太过了」）新增**默认档放宽面**：结构化分类器
+``permissions.bash_readonly`` 把「只读管道 / PSh 只读 cmdlet / 本地构建测试类」
+纳入自动放行，见 ``bash_auto_allow_reason``。``bash_readonly_allow`` 保留为
+**严格档**（单段、无管道、规则引擎 allow），worker 只读沙箱继续走它。
 """
 
 from __future__ import annotations
@@ -15,6 +20,19 @@ import tomllib
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
+
+from permissions.bash_readonly import (
+	DEV as _BROAD_DEV,
+	READONLY as _BROAD_READONLY,
+	git_write_form,
+	program_of_token,
+	starts_with_all,
+	verdict_kind as _broad_verdict_kind,
+)
+
+#: 默认档放宽后的 matched_rule（与旧只读白名单区分，便于审计/收紧）。
+BASH_READONLY_BROAD = "bash_readonly_broad"
+BASH_DEV_TOOL_ALLOW = "bash_dev_tool_allow"
 
 # (pattern, reason) — 命中即 deny。保持短、可讲、可测。
 _DENY_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
@@ -275,14 +293,8 @@ def _build_default_rule_dicts() -> tuple[dict, ...]:
 
 
 def _program_of_token(tok: str) -> str:
-	"""命令首 token → 程序 basename（去引号/路径/.exe，小写）。"""
-	t = (tok or "").strip().strip("\"'")
-	t = t.lower()
-	if t.endswith(".exe"):
-		t = t[:-4]
-	if "/" in t or "\\" in t:
-		t = re.split(r"[\\/]+", t)[-1]
-	return t
+	"""命令首 token → 程序 basename（规范实现见 bash_readonly.program_of_token）。"""
+	return program_of_token(tok)
 
 
 def _token_matches(rule_tok: str, cmd_tok: str) -> bool:
@@ -629,11 +641,13 @@ def bash_command_is_composite(command: str | None) -> bool:
 
 
 def bash_readonly_allow(command: str | None, *, cwd: str | None = None) -> bool:
-	"""短只读命令才自动放行；管道/复合/解释器任意脚本一律 False。
+	"""**严格档**只读判定：单段 + 无管道/重定向/命令替换 + 命中前缀规则 allow。
 
 	T7：放行面由前缀规则驱动（默认规则=原只读白名单迁移），工作区
-	`.xeyo/bash_rules.(json|toml)` 可追加 allow 规则；生效范围不变
-	（仅 bash_mode=default / worker 只读沙箱，T26）。
+	`.xeyo/bash_rules.(json|toml)` 可追加 allow 规则；生效范围 = worker 只读沙箱
+	（T26）与默认档的保守基线。
+	默认档更宽的放行面（只读管道 / PSh 只读 cmdlet / 本地构建测试类）在
+	``bash_auto_allow_reason``——worker 沙箱**不得**使用宽判定。
 	"""
 	if not isinstance(command, str):
 		return False
@@ -645,7 +659,55 @@ def bash_readonly_allow(command: str | None, *, cwd: str | None = None) -> bool:
 		return False
 	if bash_secret_read_reason(text):
 		return False
+	# 同名子命令的写形态（`git remote add` / `git branch -D` / `git tag -d`）：
+	# 前缀规则只看首 token，挡不住写形态，这里补一道（只收紧，不放松）。
+	if git_write_form(text):
+		return False
 	return bash_rule_decision(text, cwd=cwd) == "allow"
+
+
+def bash_auto_allow_reason(command: str | None, *, cwd: str | None = None) -> str | None:
+	"""默认档自动放行的理由（2026-09-20 用户裁定放宽）：matched_rule 或 None。
+
+	两个类别（判定在 ``permissions.bash_readonly``，结构化、fail-closed）：
+	- ``bash_readonly_broad``：每一段都是只读程序（含只读 ``|``/``&&``/``;``/换行
+	  链），例如 ``Get-ChildItem | Select-Object Name`` / ``rg foo | head -20``。
+	- ``bash_dev_tool_allow``：每段只读或本地开发工具（构建 / 测试 / 依赖 / 格式化 /
+	  本地 git 变更），例如 ``npm run build`` / ``py -3.11 -m pytest``。
+
+	仍然最严的：密钥路径读（``bash_secret_read_reason``）、工作区 ``.xeyo/bash_rules``
+	的 ask/deny 规则。DENY 黑名单 / 策略文件 / 写目标证明 / worker 沙箱不经过这里
+	（在 ``permissions.policy`` 更早的分支已终态返回或更晚兜底）。
+	"""
+	if not isinstance(command, str):
+		return None
+	text = _normalize_command(command)
+	if not text:
+		return None
+	if bash_secret_read_reason(text):
+		return None
+	if bash_rule_ask_deny(text, cwd=cwd):
+		return None
+	kind = _broad_verdict_kind(text)
+	if kind == _BROAD_READONLY:
+		return BASH_READONLY_BROAD
+	if kind == _BROAD_DEV:
+		return BASH_DEV_TOOL_ALLOW
+	return None
+
+
+def bash_grant_admissible(command: str | None, fingerprint: str) -> bool:
+	"""grant（always-allow 前缀指纹）可否作用于该命令 —— G29 放宽口径。
+
+	旧口径：任何组合命令一律不吃 grant（``git status && curl x|sh`` 不能蹭
+	``git status`` 的授权，但 ``npm install a && npm install b`` 也永远记不住）。
+	新口径：**逐段前缀匹配** —— 每一段都必须以该指纹的 token 序列开头，
+	结构不可判（重定向 / ``$()`` / 后台 & / 未闭合引号）一律不吃。
+	"""
+	fp = (fingerprint or "").strip()
+	if not fp:
+		return False
+	return starts_with_all(command, tuple(fp.split()))
 
 
 def is_remote_session(session_id: str | None) -> bool:

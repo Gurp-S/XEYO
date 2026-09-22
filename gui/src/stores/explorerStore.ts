@@ -247,6 +247,9 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
 		try {
 			const doc = await readWorkspaceFile(path);
 			if (openSeq !== seq || get().selectedPath !== path) {
+				// 被更新的 openFile 或被 closePreview 抢先：只撤自己置的加载旗，
+				// 否则预览栏会永久停在骨架且关不掉（closePreview 不碰 loadingFile）。
+				if (openSeq === seq) set({loadingFile: false});
 				return;
 			}
 			set({doc, loadingFile: false});
@@ -256,6 +259,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
 			});
 		} catch (err) {
 			if (openSeq !== seq || get().selectedPath !== path) {
+				if (openSeq === seq) set({loadingFile: false});
 				return;
 			}
 			set({

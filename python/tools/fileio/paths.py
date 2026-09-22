@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 from typing import Optional
 
+from tools.fileio import fsprobe as _fsprobe
+
 FILE_NOT_FOUND_CWD_NOTE = "Current working directory:"
 
 
@@ -33,6 +35,8 @@ def to_relative_path(path: str, base: Optional[str] = None) -> str:
 
 
 def suggest_path_under_cwd(target_path: str, *, cwd: str | None = None) -> Optional[str]:
+	if _fsprobe.routed():
+		return _suggest_path_in_container(target_path, cwd or get_cwd())
 	cwd = cwd or get_cwd()
 	cwd_parent = os.path.dirname(os.path.realpath(cwd))
 	try:
@@ -51,6 +55,29 @@ def suggest_path_under_cwd(target_path: str, *, cwd: str | None = None) -> Optio
 				return full
 	except OSError:
 		pass
+	return None
+
+
+def _suggest_path_in_container(target_path: str, cwd: str) -> Optional[str]:
+	"""同名路径提示的容器工作面实现。"""
+	import posixpath
+
+	from tools.container_fs import listdir, to_container_path
+
+	container_cwd = posixpath.normpath(to_container_path(cwd))
+	container_target = posixpath.normpath(to_container_path(target_path))
+	parent = posixpath.dirname(posixpath.realpath(container_cwd))
+	parent_prefix = "/" if parent == "/" else parent + "/"
+	if (
+		(not container_target.startswith(parent_prefix))
+		or container_target == container_cwd
+		or container_target.startswith(container_cwd + "/")
+	):
+		return None
+	want_name = posixpath.basename(container_target).lower()
+	for name in listdir(container_cwd) or []:
+		if name.lower() == want_name:
+			return posixpath.join(container_cwd, name)
 	return None
 
 

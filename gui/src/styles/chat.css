@@ -13,7 +13,7 @@
 
 .xy-composer-surface:focus-within {
   border-color: var(--xy-accent) !important;
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--xy-accent) 22%, transparent);
+  box-shadow: var(--xy-ring);
 }
 
 /*
@@ -85,16 +85,22 @@ html[data-scheme="dark"] .xy-composer-shell textarea::placeholder {
   align-items: flex-start;
   gap: 0.75rem;
   font-size: 15px;
-  line-height: 1.625;
+  line-height: 1.72;
 }
 
+/* 正文左缘导轨：承载"这是同一段正文"，不承载评价。默认静默一档灰，
+   悬停时加重到强调档——只换颜色，不改宽度、不推布局。 */
 .xy-prose-mark > .xy-prose-dot {
   flex-shrink: 0;
-  width: 5px;
-  height: 5px;
-  margin-top: calc((1.625em - 5px) / 2);
-  border-radius: 9999px;
-  background: var(--xy-ink);
+  width: 2px;
+  align-self: stretch;
+  border-radius: 2px;
+  background: var(--xy-guide);
+  transition: background-color 180ms var(--ease-out-soft);
+}
+
+.xy-prose-mark:hover > .xy-prose-dot {
+  background: var(--xy-guide-strong);
 }
 
 /* Light surface for long markdown blocks (tables / code) —— not a chat bubble */
@@ -292,8 +298,10 @@ html[data-scheme="dark"] .xy-code-fade {
   position: relative;
   background: var(--xy-user-bubble);
   border: 1px solid var(--xy-user-bubble-border);
+  border-radius: var(--xy-radius-pane);
   color: var(--xy-ink);
-  box-shadow: none;
+  /* 玻璃感靠"抬一层 + 上缘内高光"，不上 blur（吸顶 pin 会随滚动重绘） */
+  box-shadow: var(--xy-elev-1), var(--xy-edge-hi);
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
   /* 统一查看上限（96px）：流内/吸顶 pin/编辑气泡共用 —— 长 prompt 一律塌成紧凑卡，

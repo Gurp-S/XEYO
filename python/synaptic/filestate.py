@@ -12,6 +12,7 @@ from synaptic.graph import Graph
 from synaptic.textutil import (
 	classify_tool,
 	content_hash,
+	is_full_file_read,
 	node_token_len,
 	read_range,
 	tool_input_paths,
@@ -92,7 +93,7 @@ def collect_reads_writes(
 		uid = node.tool_use_id
 		name = name_by_uid.get(uid, node.tool_name)
 		inp = inp_by_uid.get(uid, {})
-		is_write, read_only, _ = classify_tool(name, inp)
+		is_write, read_only, replay = classify_tool(name, inp)
 		paths = list(tool_input_paths(inp))
 		if not paths:
 			paths = [p for p in node.refs]
@@ -105,8 +106,19 @@ def collect_reads_writes(
 		if is_write:
 			for p in paths:
 				writes.append(_Write(idx=idx, path=p, summary=_write_summary(name, inp)))
-		elif read_only and name in ("Read", "NotebookRead"):
-			rng = read_range(inp, text)
+		elif read_only:
+			# 观测来源**按覆盖面判定，不按工具名**：`cat` / `Get-Content` / `type` 读的是
+			# 整个文件，和 `Read` 同样有效。原先这里写死 `name in ("Read","NotebookRead")`，
+			# 于是 Bash 驱动的会话（容器内任务、Codex 形态）**一条读观测都收不到** ⇒ 时效轴
+			# 的 stale 恒为 0。反过来，片段型命令（grep/rg/head/sed/ls）刻意**不收**：让它们
+			# 参与会凭空归零写后过期时钟（实测 `synth_session` 末轮的 grep 就会抹掉 STALE，
+			# 破了规则 5 的契约测试）。
+			precise_source = name in ("Read", "NotebookRead")
+			if not precise_source and not is_full_file_read(replay):
+				continue
+			# `read_range` 只认 Read 的 offset/limit；喂给它 bash 的 input 会**凭空造出**
+			# 「1..输出行数」这种假区间（无 offset/limit ⇒ 按整段输出算），故非 Read 一律 None。
+			rng = read_range(inp, text) if precise_source else None
 			for p in paths:
 				reads.append(_Read(idx=idx, path=p, text=text, rng=rng))
 	return reads, writes
@@ -130,7 +142,14 @@ def build_file_states(graph: Graph, messages: list[dict]) -> dict[str, FileState
 		by_path.setdefault(r.path, []).append(r)
 	for path, rs in by_path.items():
 		last = rs[-1]
-		ranges = [r.rng for r in rs if r.rng is not None]
+		# **只有区间已知的观测**（= Read 系）才配当 hash / 已读区间的源：`observed_hash` 进
+		# `freeze.file_version`，若让 `cat` 的回执文本（含头部包装噪声）也参与，一次
+		# Read→bash 切换会让 hash 凭空跳变 ⇒ 白付一次前缀 churn。所以：hash 与区间取
+		# 最后一次**精确读**，而过期时钟 / 错误关联取最后一次**有效观测**（精确读或整文件读）。
+		# 原生（Read 驱动）会话里两者恒等 ⇒ 行为逐字节不变。
+		precise = [r for r in rs if r.rng is not None]
+		last_precise = precise[-1] if precise else None
+		ranges = [r.rng for r in precise]
 		# 合并连续区间（去重后按起点排序）
 		merged: list[tuple[int, int]] = []
 		for s, e in sorted(set(ranges)):
@@ -149,8 +168,8 @@ def build_file_states(graph: Graph, messages: list[dict]) -> dict[str, FileState
 		)
 		states[path] = FileState(
 			path=path,
-			observed_hash=content_hash(last.text),
-			last_read_idx=last.idx,
+			observed_hash=content_hash(last_precise.text) if last_precise else "",
+			last_read_idx=last_precise.idx if last_precise else last.idx,
 			read_ranges=tuple(merged),
 			stale=stale,
 			stale_at=ws[0].idx if ws else -1,

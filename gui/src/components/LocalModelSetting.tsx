@@ -91,7 +91,7 @@ export function LocalModelSetting({workspace}: {workspace?: string}) {
 
 	// 加载态需要密集轮询（模型加载十秒级起步），稳定后降到 10s。
 	// 面板关闭即卸载，所以这里的常驻轮询有明确边界。
-	const state = snap?.status.state;
+	const state = snap?.status?.state;
 	useEffect(() => {
 		const period = state === 'starting' ? 2000 : 10000;
 		const id = window.setInterval(() => {

@@ -19,9 +19,11 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from engine.abort import Aborted, AbortController, LinkedAbortController
+from engine.tool_call_state import ToolCallState
 from common.rwlock import RWLock
 from msgtypes.message import ToolUse
 from tools.base_tool import ToolResult, tool_flag
+from tools.error_taxonomy import ABORTED, INTERNAL, TIMEOUT, classify_exception
 
 if TYPE_CHECKING:
 	from tools.tool_registry import ToolRegistry
@@ -138,6 +140,18 @@ async def _run_one_tool(
 	from msgtypes.events import ToolProgressEvent
 	from tools.progress_sink import reset_progress_sink, set_progress_sink
 
+	state = ToolCallState(tu.id)
+	state.transition("validated")
+	state.transition("running")
+
+	def _finish_state(result: ToolResult, phase: str, *, reason: str = "") -> ToolResult:
+		if state.phase != phase:
+			state.transition(phase, reason=reason)
+		metadata = dict(result.metadata or {})
+		metadata.update(state.metadata())
+		result.metadata = metadata
+		return result
+
 	local = LinkedAbortController(abort)
 	timeout = _tool_timeout_s()
 	interval = _progress_interval_s()
@@ -184,6 +198,25 @@ async def _run_one_tool(
 	if progress_q is not None and interval > 0:
 		heartbeat = asyncio.create_task(_beat())
 
+	def _error_result(
+		*,
+		content: str,
+		kind: str,
+		retryable: bool,
+		status: str = "error",
+		is_error: bool = True,
+		**metadata: Any,
+	) -> ToolResult:
+		"""统一编排层异常结果，避免把错误分类丢在自然语言里。"""
+		return ToolResult(
+			content=content,
+			is_error=is_error,
+			status=status,
+			error_kind=kind,
+			retryable=retryable,
+			metadata={"tool_name": tu.name, **metadata},
+		)
+
 	try:
 		coro = registry.run(tu, local, coordinator=coordinator)
 		if lock is not None:
@@ -202,36 +235,76 @@ async def _run_one_tool(
 				result = await coro
 			else:
 				result = await asyncio.wait_for(coro, timeout=timeout)
+		pending = bool(
+			(result.metadata or {}).get("ask_pending")
+			or (result.metadata or {}).get("permission_pending")
+		)
+		result = _finish_state(
+			result,
+			"pending"
+			if pending
+			else (
+				"cancelled"
+				if str(result.status or "") == "cancelled"
+				else ("failed" if result.is_error else "completed")
+			),
+		)
 		_emit_result(result_q, tu, result)
 		return result
 	except asyncio.TimeoutError:
 		local.abort()
-		result = ToolResult(
+		result = _error_result(
 			content=f"tool timed out after {timeout:g}s: {tu.name}",
-			is_error=True,
-			metadata={"timeout_s": timeout, "tool_name": tu.name},
+			kind=TIMEOUT,
+			retryable=True,
+			timeout_s=timeout,
 		)
+		result = _finish_state(result, "failed", reason="timeout")
 		_emit_result(result_q, tu, result)
 		return result
 	except asyncio.CancelledError:
 		# T2：用户中止（turn 被取消）→ 确定性结果，非 error；不再落
 		# "missing result" 错误占位。
 		elapsed = time.monotonic() - started
-		result = ToolResult(
+		result = _error_result(
 			content=f"aborted by user after {elapsed:.1f}s",
+			kind=ABORTED,
+			retryable=False,
+			status="cancelled",
 			is_error=False,
-			metadata={"cancelled": True, "tool_name": tu.name},
+			cancelled=True,
 		)
+		result = _finish_state(result, "cancelled", reason="task_cancelled")
 		_emit_result(result_q, tu, result)
 		return result
-	except Aborted:
+	except Aborted as exc:
+		if not state.terminal:
+			state.transition("unknown", reason=str(exc) or "aborted")
 		raise
 	except Exception as exc:
-		result = ToolResult(
+		# 异常栈只进服务侧日志（模型可见面仍是中性一行）：2026-09-20 实测
+		# 整次工具调用 fail-closed 时只有 `tool error: <类型>: <消息>`，
+		# 无 traceback ⇒ 并发竞态（如 RuntimeError: dictionary changed size
+		# during iteration）无法归因到具体行号。
+		try:
+			import logging as _logging
+
+			_logging.getLogger(__name__).error(
+				"tool %s raised %s",
+				getattr(tu, "name", "?"),
+				type(exc).__name__,
+				exc_info=True,
+			)
+		except Exception:  # noqa: BLE001 — 日志失败不影响工具结果
+			pass
+		kind, retryable = classify_exception(exc)
+		result = _error_result(
 			content=f"tool error: {type(exc).__name__}: {exc}",
-			is_error=True,
-			metadata={"tool_name": tu.name},
+			kind=kind,
+			retryable=retryable,
+			exception_type=type(exc).__name__,
 		)
+		result = _finish_state(result, "failed", reason=type(exc).__name__)
 		_emit_result(result_q, tu, result)
 		return result
 	finally:
@@ -324,6 +397,14 @@ async def run_tools_partitioned(
 
 	# 确保所有位置都有结果，若因异常未能填充则用错误占位
 	return [
-		r if r is not None else ToolResult(content="missing result", is_error=True)
+		r
+		if r is not None
+		else ToolResult(
+			content="missing result",
+			is_error=True,
+			status="error",
+			error_kind=INTERNAL,
+			retryable=False,
+		)
 		for r in out
 	]

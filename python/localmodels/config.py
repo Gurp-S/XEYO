@@ -65,10 +65,10 @@ def home_root() -> Path:
 
 
 def _resolve_cwd(cwd: str | None) -> str | None:
-	"""无显式 cwd 时用服务器管理的 ``XEYO_CWD`` 解析工作区设置。"""
-	if cwd:
-		return cwd
-	return (os.environ.get("XEYO_CWD") or "").strip() or None
+	"""转发到 ``extension.config`` 的唯一工作区口径（原先是本文件的私有副本）。"""
+	from extension import config as _ext_cfg
+
+	return _ext_cfg.resolve_workspace_cwd(cwd)
 
 
 def models_dir() -> Path:

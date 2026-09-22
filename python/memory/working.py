@@ -110,6 +110,10 @@ class WorkingSnapshot:
     last_projection: ProjectionDigest | None = field(
         default=None, repr=False, compare=False
     )
+    # 当前发送投影的机器 manifest；不进模型上下文，供恢复/诊断核对。
+    last_projection_manifest: dict[str, Any] | None = field(
+        default=None, repr=False, compare=False
+    )
 
 def _sessions_dir() -> Path:
     """会话 sidecar 目录（与 JSONL 相同，可用 XEYO_SESSIONS_DIR 覆盖）。"""
@@ -271,6 +275,9 @@ def _to_dict(snap: WorkingSnapshot) -> dict[str, Any]:
         "code_mode": str(snap.code_mode or ""),
         "current_atoms": list(getattr(snap, "current_atoms", []) or []),
         "last_projection": _projection_to_dict(getattr(snap, "last_projection", None)),
+        "last_projection_manifest": dict(
+            getattr(snap, "last_projection_manifest", None) or {}
+        ) or None,
     }
 
 
@@ -419,6 +426,11 @@ def _from_dict(raw: dict[str, Any], session_id: str) -> WorkingSnapshot:
         if isinstance(raw.get("current_atoms"), list)
         else [],
         last_projection=_parse_projection(raw.get("last_projection")),
+        last_projection_manifest=(
+            dict(raw.get("last_projection_manifest"))
+            if isinstance(raw.get("last_projection_manifest"), dict)
+            else None
+        ),
     )
 
 
@@ -502,6 +514,7 @@ def reset_after_rollback(session_id: str) -> None:
     snap.compact_checkpoint = None
     snap._pending_c2_summary = None
     snap.last_projection = None
+    snap.last_projection_manifest = None
     snap.current_atoms = []
     flush(sid, snap)
 

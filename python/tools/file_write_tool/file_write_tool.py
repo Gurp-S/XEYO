@@ -140,16 +140,12 @@ class FileWriteTool:
 		base_hash = ""
 		if entry is not None and entry.content:
 			base_hash = _content_hash_text(entry.content)
+		elif entry is not None and entry.content_hash:
+			# sidecar 恢复只保留内容哈希：用它比对基线，磁盘变了走 stale，
+			# 不再把"重启/新进程"误报成 missing_read。
+			base_hash = entry.content_hash
 		elif entry is not None:
-			# sidecar 恢复的条目只有 mtime 没有正文（content_known=False）。
-			# 交空 base 会被 store 以 missing_read 拒绝（恢复后首写必败）；
-			# 现读现比对：本调用已在 to_thread 中，store 锁仍串行写者。
-			from tools.fileio.text import read_text_file as _rtf
-
-			try:
-				base_hash = _content_hash_text(_rtf(full)[0])
-			except OSError:
-				base_hash = ""
+			base_hash = ""
 		# 与直通路径 write_text_file 等价：按 line_endings 还原换行、保留
 		# encoding。store 的原子写用 newline=''，不再做平台翻译。
 		content_out = (
@@ -167,7 +163,12 @@ class FileWriteTool:
 		)
 		if not result.ok:
 			reason = str(result.reason or "")
-			if result.base_stale or reason in ("stale", "missing_read"):
+			if reason == "missing_read":
+				raise RuntimeError(
+					"write conflict (missing_read): no prior Read baseline for this "
+					"path in this process/session"
+				)
+			if result.base_stale or reason == "stale":
 				snapshot = entry.content if entry is not None else ""
 				try:
 					disk_content, _, _ = read_text_file(full)
@@ -182,6 +183,7 @@ class FileWriteTool:
 					self._session_id,
 					snapshot,
 					disk_content,
+					snapshot_known=bool(entry is not None and entry.content_known),
 				)
 				if extra and "session" not in detail:
 					detail += "\n" + extra

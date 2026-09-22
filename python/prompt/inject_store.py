@@ -83,6 +83,10 @@ class InjectStore:
 		self._ledger: dict[str, dict[str, str]] = {}
 		#: 待落库的留痕条目：session → {key: Note}（同 key 只留最新版本）
 		self._pending: dict[str, dict[str, "Note"]] = {}
+		#: 待撤回的维度：session → {key}（本轮该状态不再存在 ⇒ 下一边界逐出投影）
+		self._retracting: dict[str, set[str]] = {}
+		self._retracted_total = 0
+		self._retracted_keys: dict[str, int] = {}
 		self._lock = threading.Lock()
 		self._hits = 0  # 判定为「值未变」（on 档＝跳过；shadow 档＝本可跳过）
 		self._misses = 0  # 判定为「新值」（注入）
@@ -185,6 +189,7 @@ class InjectStore:
 		"""登记留痕条目（同 key 只留最新版本 → 落库即"值变才追加一条"）。
 
 		只在 ``on`` 档登记：``off``/``shadow`` 不写历史（逐字节等价旧行为）。
+		同一 key 又出现正文 ⇒ 撤销待撤回（状态"回来了"，不该被逐出投影）。
 		"""
 		if mode() != MODE_ON:
 			return None
@@ -200,9 +205,64 @@ class InjectStore:
 				if len(table) >= MAX_KEYS_PER_SESSION and name not in table:
 					table.pop(next(iter(table)), None)
 				table[name] = item
+				retracting = self._retracting.get(sid)
+				if retracting and name in retracting:
+					retracting.discard(name)
+					if not retracting:
+						self._retracting.pop(sid, None)
 		except Exception:  # noqa: BLE001
 			return None
 		return item
+
+	def retract(self, session_id: str, key: str) -> bool:
+		"""该维度的状态本轮**不再存在** ⇒ 登记一次撤回，下一边界把那一版逐出投影。
+
+		**不看台账有没有这一版**：重启后账本是空的，但历史里那条陈旧留痕还活着
+		（标记只在进程内），第一个边界必须能重新逐出它。唯一的排除条件是"本轮该
+		key 又产出了新正文"（状态回来了 ⇒ 撤回作废，见 :meth:`note`）。
+		"""
+		if mode() != MODE_ON:
+			return False
+		sid = (session_id or "").strip()
+		name = (key or "").strip()
+		if not sid or not name:
+			return False
+		try:
+			with self._lock:
+				if name in (self._pending.get(sid) or {}):
+					return False
+				if name in (self._retracting.get(sid) or set()):
+					return True  # 本轮已登记过（同名多段只记一次）
+				self._retracting.setdefault(sid, set()).add(name)
+				self._retracted_total += 1
+				self._retracted_keys[name] = self._retracted_keys.get(name, 0) + 1
+				return True
+		except Exception:  # noqa: BLE001
+			return False
+
+	def take_retractions(self, session_id: str) -> list[str]:
+		"""落库侧调用：取走该会话待撤回的维度（取走即清）。"""
+		sid = (session_id or "").strip()
+		if not sid:
+			return []
+		try:
+			with self._lock:
+				keys = self._retracting.pop(sid, None) or set()
+				return sorted(keys)
+		except Exception:  # noqa: BLE001
+			return []
+
+	def forget_key(self, session_id: str, key: str) -> None:
+		"""撤回生效后清掉该 key 的账 ⇒ 这一维下次再出现必按新值重注。"""
+		sid = (session_id or "").strip()
+		name = (key or "").strip()
+		if not sid or not name:
+			return
+		try:
+			with self._lock:
+				(self._ledger.get(sid) or {}).pop(name, None)
+		except Exception:  # noqa: BLE001
+			pass
 
 	def drain_notes(self, session_id: str) -> list[Note]:
 		"""取走待落库条目（取走即清：落库失败也不会重复追加）。"""
@@ -260,6 +320,9 @@ class InjectStore:
 			self._would_skip.clear()
 			self._stale_keys.clear()
 			self._disarmed.clear()
+			self._retracting.clear()
+			self._retracted_keys.clear()
+			self._retracted_total = 0
 			self._hits = 0
 			self._misses = 0
 			self._stale = 0
@@ -280,6 +343,8 @@ class InjectStore:
 				"stale_keys": dict(self._stale_keys),
 				"disarmed": dict(self._disarmed),
 				"would_skip": dict(self._would_skip),
+				"retracted": self._retracted_total,
+				"retracted_keys": dict(self._retracted_keys),
 			}
 
 	def _evict_if_needed(self) -> None:
@@ -336,6 +401,21 @@ def current_session() -> str:
 	return _CURRENT.get()
 
 
+def retract(key: str) -> bool:
+	"""装配点调用：本轮该维度的状态**不再存在** ⇒ 登记一次撤回（下一边界逐出投影）。"""
+	return _STORE.retract(_CURRENT.get(), key)
+
+
+def take_retractions(session_id: str) -> list[str]:
+	"""落库侧调用：取走该会话待撤回的维度（取走即清）。"""
+	return _STORE.take_retractions(session_id)
+
+
+def forget_key(session_id: str, key: str) -> None:
+	"""落库侧调用：撤回生效后清掉该维度的账 ⇒ 下次出现必按新值重注。"""
+	_STORE.forget_key(session_id, key)
+
+
 __all__ = [
 	"FLAG_ENV",
 	"MODE_OFF",
@@ -350,11 +430,14 @@ __all__ = [
 	"drain_notes",
 	"end_round",
 	"fingerprint",
+	"forget_key",
 	"get_store",
 	"invalidate",
 	"mode",
 	"note",
 	"note_disarmed",
+	"retract",
+	"take_retractions",
 ]
 
 

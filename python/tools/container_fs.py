@@ -42,6 +42,7 @@ __all__ = [
 	"container_exec",
 	"exists",
 	"glob_paths",
+	"listdir",
 	"mtime_ms",
 	"read_bytes",
 	"read_text",
@@ -97,7 +98,7 @@ def active_container() -> str:
 		cid = current_container()
 	except Exception:  # noqa: BLE001 — 路由模块不可用视为宿主
 		cid = ""
-	return (cid or os.environ.get("XEYO_DOCKER_CONTAINER", "") or "").strip()
+	return (cid or "").strip()
 
 
 def container_exec(
@@ -327,6 +328,23 @@ def exists(path: str) -> bool | None:
 	if probed is None or probed[0] != 0:
 		return None
 	return probed[1].strip().endswith("Y")
+
+
+def listdir(path: str) -> list[str] | None:
+	"""列出目录的直接子项（容器路由 → 容器内；不可观测 → ``None``）。"""
+	cid = active_container()
+	if not cid:
+		try:
+			return os.listdir(os.path.expanduser(path))
+		except OSError:
+			return None
+	probed = container_exec(
+		f"find {_sq(to_container_path(path))} -mindepth 1 -maxdepth 1 "
+		"-printf '%f\\n' 2>/dev/null"
+	)
+	if probed is None or probed[0] != 0:
+		return None
+	return [line for line in probed[1].splitlines() if line]
 
 
 def _split_glob(pattern: str) -> tuple[str, str]:

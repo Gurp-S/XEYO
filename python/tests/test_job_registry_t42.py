@@ -64,6 +64,120 @@ def test_ring_keeps_tail_and_offsets() -> None:
 	assert text == "" and trunc is False
 
 
+@pytest.mark.asyncio
+async def test_wait_for_change_wakes_on_output_without_polling() -> None:
+	"""job_output(wait=true) 的等待由生产事件唤醒，不依赖固定 sleep 间隔。"""
+	import threading
+	import time
+
+	reg = JobRegistry()
+	box: dict[str, Any] = {}
+	stop = threading.Event()
+
+	def producer(push) -> tuple[str, str]:  # type: ignore[no-untyped-def]
+		box["push"] = push
+		stop.wait(2.0)
+		return STATUS_SUCCEEDED, ""
+
+	job_id, err = reg.start(
+		kind="bash", label="event-wait", owner_session_id=SID, producer=producer
+	)
+	assert err == "" and job_id
+	seen = reg.change_token(job_id, SID)
+	assert seen is not None
+	waiter = asyncio.create_task(
+		reg.wait_for_change(job_id, SID, seen, timeout_s=1.0)
+	)
+	for _ in range(100):
+		if "push" in box:
+			break
+		await asyncio.sleep(0.005)
+	assert "push" in box
+	box["push"]("event\n")
+	changed = await waiter
+	assert changed is not None and changed > seen
+	stop.set()
+	for _ in range(100):
+		if reg._jobs[job_id].status in (STATUS_SUCCEEDED, STATUS_FAILED, STATUS_KILLED):
+			break
+		time.sleep(0.01)
+
+
+@pytest.mark.asyncio
+async def test_docker_background_wait_wakes_on_completion_without_polling() -> None:
+	"""Docker 直连后台表与 server registry 使用同一事件等待语义。"""
+	import tools.bash_tool.bash_tool as bash_module
+
+	job_id = "bash-event-test"
+	with bash_module._DOCKER_BG_LOCK:
+		bash_module._DOCKER_BG_JOBS[job_id] = {"status": "running"}
+		bash_module._DOCKER_BG_WAITERS[job_id] = []
+	try:
+		waiter = asyncio.create_task(
+			bash_module.wait_docker_bg_change(job_id, 1.0)
+		)
+		for _ in range(100):
+			with bash_module._DOCKER_BG_LOCK:
+				registered = bool(bash_module._DOCKER_BG_WAITERS[job_id])
+			if registered:
+				break
+			await asyncio.sleep(0.005)
+		assert registered
+
+		with bash_module._DOCKER_BG_LOCK:
+			bash_module._DOCKER_BG_JOBS[job_id]["status"] = "done"
+		bash_module._notify_docker_bg(job_id)
+
+		assert await waiter is True
+	finally:
+		with bash_module._DOCKER_BG_LOCK:
+			bash_module._DOCKER_BG_JOBS.pop(job_id, None)
+			bash_module._DOCKER_BG_WAITERS.pop(job_id, None)
+
+
+@pytest.mark.asyncio
+async def test_job_output_local_context_ignores_stale_container_env(
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""local runtime 不应被上一容器 trial 的 env 遗留值关闭 wait=true。"""
+	import time
+
+	from engine.execution_context import ExecutionContext
+	from engine.workspace_context import set_workspace_context
+	import tools.bash_tool.bash_tool as bash_module
+
+	reg = JobRegistry()
+	monkeypatch.setattr("tools.job_tools._registry", lambda: reg)
+	monkeypatch.setattr(bash_module, "docker_bg_snapshot", lambda: [])
+	monkeypatch.setenv("XEYO_DOCKER_CONTAINER", "stale-container")
+
+	def producer(push) -> tuple[str, str]:  # type: ignore[no-untyped-def]
+		time.sleep(0.05)
+		push("local-output\n")
+		return STATUS_SUCCEEDED, ""
+
+	job_id, err = reg.start(
+		kind="bash", label="local-wait", owner_session_id=SID, producer=producer
+	)
+	assert err == "" and job_id
+	set_workspace_context(
+		ExecutionContext(session_id=SID, cwd=".", runtime="local")
+	)
+	try:
+		from engine.abort import AbortController
+		from tools.job_tools import JobOutputTool
+
+		out = await JobOutputTool().execute(
+			{"job_id": job_id, "wait": True, "timeout_ms": 1_000},
+			AbortController(),
+		)
+	finally:
+		set_workspace_context(None)
+	assert out.is_error is False
+	assert "local-output" in out.content
+	assert "[status: succeeded]" in out.content
+
+
 # ---------------------------------------------------------------------------
 # registry：start / settle / owner / 容量 / kill
 # ---------------------------------------------------------------------------
@@ -232,7 +346,8 @@ async def test_busy_owner_parks_notification_then_merges_on_settlement(
 	await asyncio.sleep(0.05)
 	await _wait_idle(reg)
 	assert len(submits) == 1, "单 job 一次唤醒"
-	assert "background job" in submits[0] and "job_output" in submits[0]
+	assert "background job" in submits[0]
+	assert "hello" in submits[0] and "job_output" not in submits[0]
 	assert reg._jobs[j1].reported is True
 	assert reg.wake_budget_left(SID) == MAX_CONSECUTIVE_WAKES - 1
 
@@ -273,6 +388,7 @@ async def test_budget_exhausted_keeps_pending_and_tnow_digest_pops(
 
 	def hang(push) -> tuple[str, str]:  # type: ignore[no-untyped-def]
 		box["push"] = push
+		push("pending-output\n")
 		for _ in range(600):
 			import time
 
@@ -290,6 +406,7 @@ async def test_budget_exhausted_keeps_pending_and_tnow_digest_pops(
 	jid1 = reg._jobs[j1].job_id
 	digest = reg.pending_digest(SID)
 	assert jid1 in digest and "exit code 1" in digest, "T_now 补投摘要"
+	assert "pending-output" in digest, "pending digest carries bounded completion output"
 	assert reg._jobs[j1].reported is True
 	assert reg.pending_digest(SID) == "", "一次性消费"
 
@@ -450,7 +567,8 @@ async def test_bash_bridge_registry_backed(monkeypatch: pytest.MonkeyPatch) -> N
 		{**_bash_input(), "description": "全量回归"}, AbortController()
 	)
 	assert out.content.startswith("Started background job bash-"), out.content
-	assert "job_output" in out.content
+	assert "bounded output tail" in out.content
+	assert "job_output" not in out.content
 	assert reg.snapshot_list(SID), "命令已登记为 job"
 
 
@@ -551,6 +669,7 @@ async def test_job_tools_with_fake_registry(monkeypatch: pytest.MonkeyPatch) -> 
 	assert "already succeeded" in kill.content or "requested" in kill.content
 	kill_unknown = await JobKillTool().execute({"job_id": "bash-999"}, abort)
 	assert kill_unknown.is_error is True and "unknown job" in kill_unknown.content
+	assert kill_unknown.error_kind == "NOT_FOUND"
 
 
 @pytest.mark.asyncio
@@ -589,8 +708,7 @@ def _joined_user_texts(msgs: list[dict]) -> str:
 def test_pending_jobs_block_strong_hung(monkeypatch: pytest.MonkeyPatch) -> None:
 	"""非 docker 路径：块 = 块头 + digest 事实（id/exit_code/命令）。
 
-	2026-09-09 起刻意去掉 `job_output(...)` 收取提示（叙事/编排非状态，见
-	pre_llm_inject.py:330-336）；该提示仅在 docker 分支保留。
+	完成通知只携带 job 事实；输出由完成事件有界附带，避免再把模型导向轮询。
 	"""
 	from permissions.policy import set_pending_jobs_digest
 
@@ -616,6 +734,36 @@ def test_pending_jobs_block_absent_without_digest() -> None:
 		projected, InjectContext(cwd="", include_memory_index=False)
 	)
 	assert "# Background jobs" not in _joined_user_texts(out)
+
+
+def test_docker_completion_is_inline_and_not_a_polling_instruction(
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	from prompt.pre_llm_inject import pending_jobs_block
+
+	monkeypatch.setattr("permissions.policy.pending_jobs_digest", lambda: "")
+	seen: list[str] = []
+	monkeypatch.setattr(
+		"tools.bash_tool.bash_tool.docker_bg_snapshot",
+		lambda: [
+			{
+				"job_id": "bash-9",
+				"status": "done",
+				"exit_code": 0,
+				"command": "pytest -q",
+				"output": "all good\n",
+				"delivered": False,
+			}
+		],
+	)
+	monkeypatch.setattr(
+		"tools.bash_tool.bash_tool.docker_bg_mark_delivered",
+		lambda job_id: seen.append(job_id),
+	)
+	block = pending_jobs_block()
+	assert "bash-9" in block and "all good" in block
+	assert "job_output(" not in block
+	assert seen == ["bash-9"]
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,130 @@
+{
+  "schema_version": 1,
+  "benchmark": "xeyo_long_task_control",
+  "timestamp_utc": "2026-09-18T04:19:41.838933+00:00",
+  "git_head": "19f82059a30b1b29f7ec893dde7d85c517aca78c",
+  "conditions": {
+    "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+    "workspace": "temporary isolated workspace",
+    "model": "deterministic fake model; no network",
+    "pricing": {
+      "input_miss": 2.0,
+      "input_hit": 0.2,
+      "output": 8.0
+    },
+    "usd_timestamp": 1786906800.0,
+    "probe_after": 1000000
+  },
+  "engine_scenarios": [
+    {
+      "termination_reason": "end_turn",
+      "stopped_event": false,
+      "result_stop_reason": "end_turn",
+      "model_turns": 0,
+      "tool_calls_started": 0,
+      "tool_results": 0,
+      "usage_events": 0,
+      "elapsed_ms": 301.267,
+      "scenario": "normal_short_task",
+      "budget": {
+        "turn_count": 1,
+        "max_turns": 3,
+        "max_tool_calling": 8,
+        "grace_turns_used": 0,
+        "used_tokens": 0,
+        "used_usd": 0.0,
+        "usd_limit": null,
+        "hard_stop_reason": null
+      }
+    },
+    {
+      "termination_reason": "end_turn",
+      "stopped_event": false,
+      "result_stop_reason": "end_turn",
+      "model_turns": 2,
+      "tool_calls_started": 2,
+      "tool_results": 2,
+      "usage_events": 0,
+      "elapsed_ms": 108.515,
+      "scenario": "normal_multi_tool_task",
+      "budget": {
+        "turn_count": 2,
+        "max_turns": 3,
+        "max_tool_calling": 8,
+        "grace_turns_used": 0,
+        "used_tokens": 0,
+        "used_usd": 0.0,
+        "usd_limit": null,
+        "hard_stop_reason": null
+      }
+    },
+    {
+      "termination_reason": "max_turns",
+      "stopped_event": true,
+      "result_stop_reason": "max_turns",
+      "model_turns": 7,
+      "tool_calls_started": 4,
+      "tool_results": 6,
+      "usage_events": 0,
+      "elapsed_ms": 149.597,
+      "scenario": "runaway_turn_budget",
+      "budget": {
+        "turn_count": 7,
+        "max_turns": 3,
+        "max_tool_calling": 16,
+        "grace_turns_used": 4,
+        "used_tokens": 0,
+        "used_usd": 0.0,
+        "usd_limit": null,
+        "hard_stop_reason": "max_turns"
+      }
+    },
+    {
+      "termination_reason": "budget_usd",
+      "stopped_event": true,
+      "result_stop_reason": "budget_usd",
+      "model_turns": 2,
+      "tool_calls_started": 2,
+      "tool_results": 1,
+      "usage_events": 2,
+      "elapsed_ms": 107.115,
+      "scenario": "runaway_usd_budget",
+      "budget": {
+        "turn_count": 2,
+        "max_turns": 256,
+        "max_tool_calling": 16,
+        "grace_turns_used": 0,
+        "used_tokens": 2200,
+        "used_usd": 0.0116,
+        "usd_limit": 0.01,
+        "hard_stop_reason": null
+      }
+    }
+  ],
+  "loop_breaker_scenarios": [
+    {
+      "scenario": "duplicate_tool_call",
+      "attempts": 53,
+      "allowed": 2,
+      "blocked": 51,
+      "first_block_kind": "L1",
+      "last_block_kind": "L1",
+      "bounded": true
+    },
+    {
+      "scenario": "periodic_tool_call",
+      "attempts": 6,
+      "allowed": 5,
+      "blocked": 1,
+      "first_block_kind": "L2",
+      "bounded": true
+    },
+    {
+      "scenario": "normal_distinct_tool_calls",
+      "attempts": 20,
+      "allowed": 20,
+      "blocked": 0,
+      "false_positive": false
+    }
+  ]
+}

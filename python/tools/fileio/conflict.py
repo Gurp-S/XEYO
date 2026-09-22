@@ -19,38 +19,22 @@ from engine.session_presence import (
 
 
 def line_range_summary(snapshot: str, current: str) -> str:
-	"""返回快照 vs 磁盘的差异行范围摘要；无差异返回 ""。"""
+	"""返回快照 vs 磁盘的行数与首个差异行；无差异返回 ""。"""
 	a = (snapshot or "").splitlines()
 	b = (current or "").splitlines()
 	matcher = difflib.SequenceMatcher(None, a, b)
-	spans: list[str] = []
+	first: tuple[int, int] | None = None
 	for tag, i1, i2, j1, j2 in matcher.get_opcodes():
 		if tag == "equal":
 			continue
-		# 用行号区间描述差异所在的"磁盘版本"行（模型将要 read 到的行）。
-		if j1 == j2:
-			span = f"line {j1 + 1}"
-		else:
-			span = f"lines {j1 + 1}-{j2}"
-		if tag == "replace":
-			spans.append(f"{span} (changed)")
-		elif tag == "delete":
-			spans.append(f"{span} (removed in disk)")
-		else:  # insert
-			spans.append(f"{span} (added on disk)")
-	if not spans:
+		first = (i1 + 1, j1 + 1)
+		break
+	if first is None:
 		return ""
-	# 合并相邻并限幅，避免长 diff 刷屏。
-	merged: list[str] = []
-	for s in spans:
-		if merged and merged[-1].split()[0] == s.split()[0]:
-			merged[-1] = s
-		else:
-			merged.append(s)
-	shown = merged[:6]
-	suffix = "" if len(merged) <= 6 else f" (+{len(merged) - 6} more sections)"
-	return "Your snapshot differs from disk at " + ", ".join(shown) + suffix + "."
-
+	return (
+		f"Your snapshot {len(a)} lines / disk {len(b)} lines / "
+		f"first differing line: snapshot {first[0]}, disk {first[1]}."
+	)
 
 def _time_hhmm(ts: float) -> str:
 	try:
@@ -96,16 +80,17 @@ def build_stale_message(
 	self_session_id: str,
 	snapshot: str,
 	current: str,
+	*,
+	snapshot_known: bool = True,
 ) -> str:
-	"""组装完整拒绝消息：base + 行范围摘要 + 外部归因 + 重放指令。"""
+	"""组装拒绝消息：base + 行范围事实 + 外部写入归因。"""
 	parts = [base]
-	line_hint = line_range_summary(snapshot, current)
+	line_hint = line_range_summary(snapshot, current) if snapshot_known else ""
 	if line_hint:
 		parts.append(line_hint)
 	attr = external_attribution(cwd, abs_path, self_session_id)
 	if attr:
 		parts.append(attr.strip())
-	parts.append("Read the file again, then re-apply your intended change onto the current content.")
 	return "\n".join(parts)
 
 

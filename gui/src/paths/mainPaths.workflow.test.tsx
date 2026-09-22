@@ -129,6 +129,10 @@ const settingsState = {
 	apiKey: 'test-key',
 	model: 'test-model',
 	smoothness: true,
+	// ModelPicker/Composer 以 s.profiles.find(...) 取当前 profile 的模型清单，
+	// 替身缺这个键会让整棵树在渲染期抛 undefined.find。
+	profiles: [],
+	activeProfileId: '',
 	openSettings,
 	closeSettings: vi.fn(),
 	settingsModalOpen: false,

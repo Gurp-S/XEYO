@@ -1,5 +1,10 @@
 """声道 B（``system_channel``）回归：易变块走**原生 system 消息**，不再伪造 tool 对。
 
+**档位现状（2026-09-22）**：默认档已再换一次，改为声道 C ``notice_fragment``
+（独立一条 user 消息 + ``<system-reminder>`` 包封，对齐 Codex 的
+``context-fragments``）。本文件因此变成**对照档回归**：它钉的是"这一档不出现
+可模仿的工具形状、投影-only、前缀逐字节不动"这几条不变量，与谁是默认无关。
+
 ## 目的（缺陷修复，不是优化）
 
 ``env_channel`` 的伪对 ``assistant(tool_use: xeyo_env_notice) → tool_result``
@@ -45,12 +50,15 @@ from permissions.policy import set_agent_mode
 from prompt.pre_llm_inject import InjectContext, run_pre_llm_inject
 from prompt.t_now_strategy import (
 	STRATEGY_ENV_CHANNEL,
+	STRATEGY_NOTICE_FRAGMENT,
 	STRATEGY_SKIP,
 	STRATEGY_SYSTEM_CHANNEL,
 	env_unsupported_key,
 	mark_env_channel_unsupported,
+	mark_notice_fragment_unsupported,
 	mark_system_channel_unsupported,
 	reset_env_unsupported_for_test,
+	reset_fragment_unsupported_for_test,
 	reset_system_unsupported_for_test,
 	resolve_t_now_strategy,
 	set_t_now_strategy,
@@ -80,11 +88,13 @@ def _clean_state():
 	set_t_now_strategy(None)
 	reset_env_unsupported_for_test()
 	reset_system_unsupported_for_test()
+	reset_fragment_unsupported_for_test()
 	set_agent_mode("agent")
 	yield
 	set_t_now_strategy(None)
 	reset_env_unsupported_for_test()
 	reset_system_unsupported_for_test()
+	reset_fragment_unsupported_for_test()
 	set_agent_mode("agent")
 
 
@@ -164,15 +174,17 @@ def test_no_tool_use_carrier_in_projection() -> None:
 
 
 # ---------------------------------------------------------------------------
-# ⑤ env_channel 档不受影响（旁路期两档并存；默认未切）
+# ⑤ env_channel 档不受影响（对照档常驻；默认已两度换档，见下）
 # ---------------------------------------------------------------------------
 
 
-def test_default_is_system_channel_and_env_still_available() -> None:
-	"""默认已切声道 B（2026-09-15）；env_channel 保留为对照/回退档，行为不变。"""
+def test_default_is_notice_fragment_and_env_still_available() -> None:
+	"""默认已切声道 C（2026-09-22，对齐 Codex：独立一条 user 片段 + 共训练包封标签，
+	见 codex-rs/context-fragments/src/fragment.rs 的 ``into() -> ResponseItem``）；
+	env_channel 保留为显式对照档，行为不变。"""
 	set_t_now_strategy(None)
-	assert resolve_t_now_strategy() == STRATEGY_SYSTEM_CHANNEL
-	# 显式回到伪对档 ⇒ 行为与切换前逐字一致（回退路径可用）
+	assert resolve_t_now_strategy() == STRATEGY_NOTICE_FRAGMENT
+	# 显式回到伪对档 ⇒ 行为与切换前逐字一致（对照路径可用）
 	set_t_now_strategy(STRATEGY_ENV_CHANNEL)
 	out = run_pre_llm_inject([dict(m) for m in _BASE], _activate())
 	assert out[-2]["role"] == "assistant"
@@ -180,19 +192,33 @@ def test_default_is_system_channel_and_env_still_available() -> None:
 	assert "xeyo_env_notice" in _bytes(out)
 
 
-def test_fallback_ladder_system_then_env_then_skip() -> None:
-	"""回退阶梯：system_channel --4xx--> env_channel --4xx--> skip。
+def test_fallback_ladder_default_fragment_then_skip() -> None:
+	"""回退阶梯：默认 notice_fragment --4xx--> skip；显式 system_channel --4xx--> 默认档。
 
+	**降级目标永远不是 env_channel**：伪对与「模型自己的工具调用」同形，一次降级
+	会同时请回 affordance 模仿、无主 tool_result、以及已退役的假 id reasoning_content
+	校验（那条 400 会直接暴露）。包封片段是 user 角色 + 共训练标签，形态上不可调用。
 	备忘是 provider:model 粒度的，只影响被标记的组合。
 	"""
 	set_t_now_strategy(None)
 	key = env_unsupported_key("openai", "gpt-x")
+	assert resolve_t_now_strategy("openai", "gpt-x") == STRATEGY_NOTICE_FRAGMENT
+	set_t_now_strategy(STRATEGY_SYSTEM_CHANNEL)
 	assert resolve_t_now_strategy("openai", "gpt-x") == STRATEGY_SYSTEM_CHANNEL
+	set_t_now_strategy(None)
 	mark_system_channel_unsupported(key)
-	assert resolve_t_now_strategy("openai", "gpt-x") == STRATEGY_ENV_CHANNEL
-	assert resolve_t_now_strategy("openai", "other") == STRATEGY_SYSTEM_CHANNEL
-	mark_env_channel_unsupported(key)
+	# 默认档就是包封片段，system 的备忘牵连不到它
+	assert resolve_t_now_strategy("openai", "gpt-x") == STRATEGY_NOTICE_FRAGMENT
+	assert resolve_t_now_strategy("openai", "other") == STRATEGY_NOTICE_FRAGMENT
+	# 显式拿 system 做对照、而该厂商拒它 ⇒ 落到默认档，不是伪对
+	set_t_now_strategy(STRATEGY_SYSTEM_CHANNEL)
+	assert resolve_t_now_strategy("openai", "gpt-x") == STRATEGY_NOTICE_FRAGMENT
+	set_t_now_strategy(None)
+	mark_notice_fragment_unsupported(key)
 	assert resolve_t_now_strategy("openai", "gpt-x") == STRATEGY_SKIP
+	# 生产阶梯永不产出伪对；env_channel 只能被显式选中（评测/审计对照档）
+	set_t_now_strategy(STRATEGY_ENV_CHANNEL)
+	assert resolve_t_now_strategy("openai", "gpt-x") == STRATEGY_ENV_CHANNEL
 	# 显式 legacy 不受任何备忘影响（评测/审计对照档）
 	set_t_now_strategy("legacy")
 	assert resolve_t_now_strategy("openai", "gpt-x") == "legacy"
@@ -310,11 +336,11 @@ def _has_pseudo_pair(blob: str) -> bool:
 
 
 @pytest.mark.asyncio
-async def test_query_loop_falls_back_to_env_channel_on_structural_4xx() -> None:
+async def test_query_loop_falls_back_to_notice_fragment_on_structural_4xx() -> None:
 	"""声道 B 被厂商以结构类 4xx 拒绝（且未吐 chunk）⇒ 记备忘并**当场重建重试**。
 
 	回退是「进程级备忘 + 不向上抛错」；断言落在**契约**上而不是表象上：
-	降级后的请求里有没有伪对，取决于该轮恰好有没有块可注入，不能当契约。
+	降级后的请求里有没有注入承载，取决于该轮恰好有没有块可注入，不能当契约。
 	"""
 	from common.errors import ProviderError
 
@@ -325,10 +351,12 @@ async def test_query_loop_falls_back_to_env_channel_on_structural_4xx() -> None:
 	assert len(client.seen) >= 2, "结构类 4xx 后未重建重试"
 	# 第 1 次：声道 B —— 投影里绝无伪对（本改动的全部目的）
 	assert not _has_pseudo_pair(client.seen[0])
-	# 备忘落盘，且阶梯已降级为 env_channel
+	# 备忘落盘，且阶梯降级为包封片段（**不再**是伪对档）
 	key = env_unsupported_key("openai", "gpt-x")
 	assert system_channel_unsupported(key) is True
-	assert resolve_t_now_strategy("openai", "gpt-x") == STRATEGY_ENV_CHANNEL
+	assert resolve_t_now_strategy("openai", "gpt-x") == STRATEGY_NOTICE_FRAGMENT
+	# 回退后的重试同样不得出现可调用形状
+	assert not _has_pseudo_pair(client.seen[1])
 	# 其他 provider:model 不受牵连
 	assert resolve_t_now_strategy("openai", "other") == STRATEGY_SYSTEM_CHANNEL
 	assert events, "回退后未产出任何事件"

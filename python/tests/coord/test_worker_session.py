@@ -153,3 +153,36 @@ def test_worker_session_write_scope_hard_deny(tmp_path, monkeypatch):
     # 阳性对照见 test_worker_session_offline_e2e（scope 内写成功落盘并收敛）。
     assert not (handle.path / "out_of_scope.txt").exists(), \
         "write_scope bypassed — worker wrote outside task scope"
+
+
+@pytest.mark.timeout(120)
+def test_worker_session_restores_caller_ambient_state(tmp_path, monkeypatch):
+    """ambient 权限面不得残留给调用方：WorkerPool.run_task 同步内联调 work_fn，
+    曾只复原 set_in_subagent，调用方被留在 never（免确认＝放宽工作区外访问）档。
+    断言"跑完回到跑前"，而不是断言"某个变量被显式清过"——后者挡不住将来新增 set。"""
+    from permissions import policy
+
+    monkeypatch.setenv("XEYO_HOME", str(tmp_path / "home"))
+    repo = _mk_repo(tmp_path)
+    from coord.worktree import WorktreeManager
+
+    wm = WorktreeManager(repo)
+    handle = wm.create("task_ambient1", git(repo, "rev-parse", "main").stdout.strip())
+    from coord.store import Task
+
+    def ambient() -> tuple:
+        return (policy.permission_mode(), policy.is_max_permission_mode(),
+                policy.current_surface(), policy.in_subagent())
+
+    policy.set_permission_mode("always")   # 逐条确认档：必须是非免确认档
+    policy.set_surface("gui")
+    before = ambient()
+    assert before[1] is False, "前置不成立：always 档被当成免确认档"
+
+    t = Task(task_id="task_ambient1", goal_id="g", title="ambient 回归",
+             scope=["a.txt"], claimed_by="w4", max_turns=6)
+    out = run_worker_session(handle.path, t,
+                             model_client=WriteScriptedClient("a.txt", "ambient\n"))
+    assert out.get("ok"), out  # worker 自身仍需正常跑完（隔离≠把 set 删掉）
+
+    assert ambient() == before, f"worker 把 ambient 权限面残留给了调用方：{before} -> {ambient()}"

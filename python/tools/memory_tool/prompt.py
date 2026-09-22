@@ -24,5 +24,6 @@ def build_description(mem: str = "", sess: str = "") -> str:
 		"citation anchors. "
 		"Durable memory records facts and decisions; directory trees and one-off "
 		"plans are not durable memory records. "
-		"MEMORY.md is an index; details are in topics/*.md."
+		"Memory files are readable through Grep; MEMORY.md is an index and "
+		"details are in topics/*.md."
 	)

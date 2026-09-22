@@ -20,6 +20,7 @@ from engine.repeat_guard import (
 )
 from msgtypes.events import FinalEvent, StoppedEvent
 from msgtypes.message import ToolUse, user_message
+from model.chunks import ModelChunk
 from prompt.assembler import DEFAULT_SYSTEM, PromptAssembler
 from session.message_store import MessageStore
 from tools.echo import EchoTool
@@ -193,7 +194,9 @@ def test_fold_silent_before_threshold_and_folds_third():
 	from engine.repeat_fold import IdenticalResultFold, _FOLD_EXPLAIN, _REPEAT_SHORT
 
 	fold = IdenticalResultFold()
-	text = "progress line 1\n"
+	# 正文必须长于折叠行（含事实头），否则收益门接管（见
+	# tests/test_repeat_fold_granularity.py::test_fold_line_never_grows_the_result）。
+	text = "progress line 1\n" * 20
 	# 前两次输出字节级相同 → 原样保留（前两次给足模型看清的机会）。
 	assert fold.process("Bash", {"cmd": "poll"}, text) == (text, False)
 	assert fold.process("Bash", {"cmd": "poll"}, text) == (text, False)
@@ -203,7 +206,8 @@ def test_fold_silent_before_threshold_and_folds_third():
 	# 第 4+ 次持续相同 → 超短占位,不再重复长文。
 	out2, folded2 = fold.process("Bash", {"cmd": "poll"}, text)
 	assert folded2 is True and "[fold]" in out2 and "第 4 次" in out2
-	assert len(out2) < len(_FOLD_EXPLAIN)
+	assert len(out2) < len(out)
+	assert len(out2) < len(_REPEAT_SHORT) + 60
 
 
 def test_fold_resets_when_output_changes():
@@ -229,7 +233,9 @@ def test_fold_signature_and_tool_separation():
 	from engine.repeat_fold import IdenticalResultFold
 
 	fold = IdenticalResultFold()
-	text = "same"
+	# 长正文：折叠行（含事实头）必须真的更短——收益门，见
+	# tests/test_repeat_fold_granularity.py。
+	text = "same\n" * 30
 	# 前 2 次出现（无论签名）原文保留——R2' 契约不变。
 	assert fold.process("Bash", {"cmd": "a"}, text) == (text, False)
 	assert fold.process("Bash", {"cmd": "b"}, text) == (text, False)
@@ -324,11 +330,20 @@ class _AlwaysSameToolClient:
 		)
 
 
-class _Chunk:
+#: 折叠需要"折了真省"（收益门），故集成用例的假工具输出用长正文。
+_FOLD_PAYLOAD = "same\n" * 30
+
+
+class _Chunk(ModelChunk):
+	"""与生产适配器同形：``normalize_model_event`` 只接受 ``ModelChunk``。
+
+	（2026-09-20：原先的普通类会被新增的模型事件归一化层判为
+	``ModelProtocolError: provider emitted a non-ModelEvent``，三个走真实
+	query_loop 的用例因此整片红。）
+	"""
+
 	def __init__(self, *, kind, text=None, tool_use=None):
-		self.kind = kind
-		self.text = text or ""
-		self.tool_use = tool_use
+		super().__init__(kind=kind, text=text or "", tool_use=tool_use)
 
 
 async def _collect(store, reg, model, budget):
@@ -473,13 +488,13 @@ async def test_fold_actually_fires_inside_query_loop():
 	reg.register(EchoTool())
 	store = MessageStore([user_message("go")])
 	events = await _collect(
-		store, reg, _AlwaysSameToolClient(), BudgetTracker(max_turns=6)
+		store, reg, _AlwaysSameToolClient(payload=_FOLD_PAYLOAD), BudgetTracker(max_turns=6)
 	)
 
 	texts = _tool_texts(store)
 	assert len(texts) >= 4, texts
 	# 前两次：原文完整保留（给足模型看清的机会）。
-	assert texts[0] == "same" and texts[1] == "same"
+	assert texts[0] == _FOLD_PAYLOAD and texts[1] == _FOLD_PAYLOAD
 	# 第 3 次起：折叠（首次为解释行，其后为极短占位）。
 	assert "[fold]" in texts[2], texts
 	assert any("[fold]" in t for t in texts), texts
@@ -503,7 +518,12 @@ async def test_broken_diagnostics_cannot_kill_fold_wiring(monkeypatch):
 	reg = ToolRegistry()
 	reg.register(EchoTool())
 	store = MessageStore([user_message("go")])
-	await _collect(store, reg, _AlwaysSameToolClient(), BudgetTracker(max_turns=6))
+	await _collect(
+		store,
+		reg,
+		_AlwaysSameToolClient(payload=_FOLD_PAYLOAD),
+		BudgetTracker(max_turns=6),
+	)
 
 	texts = _tool_texts(store)
 	assert any("[fold]" in t for t in texts), texts

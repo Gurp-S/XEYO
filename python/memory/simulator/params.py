@@ -40,7 +40,9 @@ class Params:
 	r_orig: float = 1.0
 	r_stub: float = 0.25
 	r_summary: float = 0.6
-	r_cap: int = 24
+	# 2026-09-22：默认从 24 抬到 96 —— 实测残余寿命（`synaptic/cadence.py::
+	# _RESIDUAL_BY_ELAPSED`）最深一档中位是 73 枪，24 会在长会话上系统性削掉折叠收益。
+	r_cap: int = 96
 	horizons: tuple[int, ...] = (4, 8, 16)
 	window_tokens: int = 128_000
 	reserve_tokens: int = 2_048

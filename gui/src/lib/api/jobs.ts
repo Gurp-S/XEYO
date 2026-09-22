@@ -48,9 +48,22 @@ export function normalizeJobSnapshots(raw: unknown): JobSnapshot[] {
 	if (!Array.isArray(raw)) return [];
 	const out: JobSnapshot[] = [];
 	for (const item of raw) {
-		if (isJobLike(item)) out.push(item);
+		if (!isJobLike(item)) continue;
+		// 后端 job_registry 落的是 time.time() 秒；GUI 全仓时间戳按毫秒算差值
+		// （会话 createdAt / inbox queued_at 都是毫秒），在此统一到毫秒。
+		out.push({
+			...item,
+			started_at: toEpochMs(item.started_at),
+			finished_at: toEpochMs(item.finished_at),
+		});
 	}
 	return out;
+}
+
+/** epoch 秒 → epoch 毫秒；非法值归 0（排序与差值都不能吃到 NaN）。 */
+function toEpochMs(v: unknown): number {
+	const n = Number(v);
+	return Number.isFinite(n) && n > 0 ? Math.round(n * 1000) : 0;
 }
 
 const ACTIVE_RANK: Record<string, number> = {running: 0, stopping: 1};

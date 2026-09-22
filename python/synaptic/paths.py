@@ -93,6 +93,10 @@ def render_paths(
 	因此不可能破坏可恢复性（被裁掉的路径仍在冷层可达）。
 	"""
 	span = _touch_span(graph, region_end)
+	# 时效轴 path_dead 类：删除/改名之后无人再碰的路径不进索引（仍可从冷层 expand 拉回）。
+	dead = set(getattr(seeds, "dead_paths", ()) or ())
+	if dead:
+		span = {p: v for p, v in span.items() if p not in dead}
 	if not span:
 		return []
 

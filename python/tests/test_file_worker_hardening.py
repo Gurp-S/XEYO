@@ -149,14 +149,19 @@ def test_worker_bash_readonly_allow_else_deny(tmp_path: Path):
 def test_main_bash_still_asks_without_write_scope(tmp_path: Path):
 	from permissions.policy import PermissionDecision
 
-	# 主会话（无 write_scope）：非只读仍 ASK，不被工人沙箱误伤
+	# 主会话（无 write_scope）：不被工人沙箱（ALLOW/ DENY，永不 ASK）误伤 ——
+	# 工人沙箱里 python app.py 是 DENY，主会话里是 dev 放行面（2026-09-20）。
 	r = evaluate_policy(
 		"Bash", {"command": "python app.py"}, cwd=str(tmp_path)
 	)
-	assert r.decision == PermissionDecision.ASK
-	# 出厂缺省 bash=default：非只读（python app.py）走 default-ask，
-	# matched_rule=bash_default_ask（与 T26 只读白名单仅 default 生效一致）。
-	assert r.matched_rule == "bash_default_ask"
+	assert r.decision == PermissionDecision.ALLOW
+	assert r.matched_rule == "bash_dev_tool_allow"
+	# 主会话仍有 ASK 面：内联任意代码（-c）不在放行面内。
+	ask = evaluate_policy(
+		"Bash", {"command": 'python -c "print(1)"'}, cwd=str(tmp_path)
+	)
+	assert ask.decision == PermissionDecision.ASK
+	assert ask.matched_rule == "bash_default_ask"
 
 
 def test_worker_bash_timeout_clamped():

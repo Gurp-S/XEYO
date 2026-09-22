@@ -26,7 +26,7 @@ from typing import (
 )
 
 # 内部依赖
-from engine.abort import AbortController          # 中止控制器
+from engine.abort import AbortController, CancellationScope          # 中止控制器
 from engine.budget import (
     DEFAULT_MAX_TOOL_CALLING,
     DEFAULT_MAX_TURNS,
@@ -35,6 +35,7 @@ from engine.budget import (
 
 from engine.query_loop import query_loop           # 核心对话循环
 from engine.permission_coordinator import PermissionCoordinator
+from engine.runtime_profile import RuntimeProfile, resolve_runtime_profile
 from engine.task_state import SessionTaskState     # 会话级任务状态机
 from engine.workspace_context import (
     WorkspaceContext,
@@ -91,6 +92,12 @@ class QueryEngineConfig(TypedDict):
 
     #: 工作目录；submit_message 开始时会调用 set_cwd(cwd)，所有相对路径以此为准。
     cwd: str
+    #: 执行后端类型；未提供时由当前容器路由事实推导（local/docker）。
+    runtime: NotRequired[str]
+    #: 执行后端的稳定身份；Docker 模式下优先于进程级环境变量。
+    container_id: NotRequired[Optional[str]]
+    #: 可选的稳定工作区 id，供 journal / telemetry 对齐。
+    workspace_id: NotRequired[Optional[str]]
     #: 本会话可用的工具注册表，包含所有已注册的工具实例。
     tools: ToolRegistry
     #: 恢复会话时注入的历史消息（通常来自持久化存储）。
@@ -140,6 +147,12 @@ class QueryEngineConfig(TypedDict):
     session_id: NotRequired[str]
     #: 是否启用企业级 rewind 记录；默认开启，可用 XEYO_REWIND_ENABLED=0 关闭。
     rewind_enabled: NotRequired[Optional[bool]]
+    #: 是否保存 runtime.json checkpoint；旁路默认关闭，可用 XEYO_RUNTIME_CHECKPOINT=1 开启。
+    runtime_checkpoint: NotRequired[Optional[bool]]
+    #: 显式运行档案（如 product-local / terminal-bench-2.1）。
+    runtime_profile: NotRequired[Optional[Any]]
+    #: 是否执行完成前 runtime 一致性检查；旁路默认关闭，评测适配器显式开启。
+    runtime_verify: NotRequired[Optional[bool]]
 
 
 class QueryEngine:
@@ -186,6 +199,12 @@ class QueryEngine:
 
         self._provider = str(config.get("provider") or "deepseek")
         self._model_name = str(config.get("model") or "deepseek-v4-flash")
+        self._runtime_profile: RuntimeProfile = resolve_runtime_profile(
+            config.get("runtime_profile"), runtime=config.get("runtime")
+        )
+        self._runtime_verify = bool(config.get("runtime_verify", False))
+        self._verification_report: dict[str, Any] | None = None
+        self._runtime_recovery: dict[str, Any] | None = None
         self._session = SessionState(
             cwd=config["cwd"],
             budget=BudgetTracker(
@@ -195,6 +214,12 @@ class QueryEngine:
                 model=self._model_name,
             ),
             session_id=sid,
+        )
+        from engine.runtime_checkpoint import RuntimeCheckpointStore
+
+        self._runtime_checkpoint = RuntimeCheckpointStore(
+            self._session.session_id,
+            enabled=config.get("runtime_checkpoint"),
         )
         self._task_state = SessionTaskState(session_id=self._session.session_id)
         # T10：会话权限 preset（readonly/workspace-write/full），SessionPool 创建时 pin。
@@ -255,6 +280,7 @@ class QueryEngine:
         # T39：引擎内互斥标记。同一事件循环内由 submit_message 入口/finally
         # 维护；engine 并发属于编程错误（外层闸门失效的兜底）。
         self._turn_active: bool = False
+        self._runtime_context: WorkspaceContext | None = None
 
     @property
     def config(self) -> QueryEngineConfig:
@@ -333,6 +359,7 @@ class QueryEngine:
         snap.compact_checkpoint = None
         snap._pending_c2_summary = None
         snap.last_projection = None
+        snap.last_projection_manifest = None
         snap.current_atoms = []
         apply_to_tools(snap, self._tools)
         flush(self._session.session_id, snap)
@@ -369,13 +396,133 @@ class QueryEngine:
             "usd_limit": b.usd_limit,
             "last_usage_tokens": b.last_usage_tokens,
             "last_usage_usd": round(b.last_usage_usd, 8),
-            "last_cache_hit_tokens": int(_hit or 0),
-            "last_cache_miss_tokens": int(_miss or 0),
-        }
+			"last_cache_hit_tokens": int(_hit or 0),
+			"last_cache_miss_tokens": int(_miss or 0),
+			"lifecycle": b.lifecycle_snapshot(),
+		}
 
     def task_state_snapshot(self) -> dict[str, object]:
         """会话级任务状态快照，供 /health 与外部查询。"""
         return self._task_state.snapshot()
+
+    def runtime_snapshot(self, *, include_trace: bool = False) -> dict[str, Any]:
+        """返回一次运行时的只读聚合快照。
+
+        这是诊断/恢复的读取面，不替代各状态的写入权威：历史仍由
+        MessageStore、job 仍由 JobRegistry、预算仍由 BudgetTracker 持有。
+        聚合层只复制快照，避免调用方重新从环境变量或多个对象猜当前状态。
+        """
+        context = (
+            self._runtime_context.snapshot()
+            if self._runtime_context is not None
+			else {
+				"session_id": self._session.session_id,
+				"cwd": self._session.cwd,
+				"runtime_profile_id": self._runtime_profile.profile_id,
+				"tool_surface_id": self._tools.tool_surface_id,
+				"tool_schema_hash": self._tools.schema_fingerprint(),
+			}
+        )
+        jobs: list[dict[str, Any]] = []
+        try:
+            from server.job_registry import get_job_registry
+
+            jobs = get_job_registry().snapshot_list(self._session.session_id)
+        except Exception:  # noqa: BLE001 — CLI/in-process 无 server 时为空
+            jobs = []
+        from engine.state_authority import authority_manifest
+
+        snapshot = {
+            "session_id": self._session.session_id,
+            "turn_active": bool(self._turn_active),
+            "context": context,
+            "task": self.task_state_snapshot(),
+            "budget": self.budget_snapshot(),
+            "abort": {
+                "aborted": bool(self._abort_controller.aborted),
+                "reason": str(getattr(self._abort_controller, "reason", "") or ""),
+            },
+            "runtime_profile": self._runtime_profile.to_dict(),
+            "verification": dict(self._verification_report or {"checked": False}),
+            "authorities": authority_manifest(),
+            "recovery": dict(self._runtime_recovery or {"checked": False}),
+            "jobs": jobs,
+        }
+        if include_trace:
+            snapshot["trace"] = self.runtime_trace()
+        return snapshot
+
+    def runtime_trace(self, *, limit: int = 200) -> dict[str, Any]:
+        """返回当前 session 的脱敏审计证据链；不参与运行时决策。"""
+        try:
+            from audit.log import default_audit_log
+            from engine.trace_graph import TraceGraph
+
+            rows = default_audit_log().query(
+                session_id=self._session.session_id,
+                limit=limit,
+            )
+            return TraceGraph.from_audit_rows(
+                rows,
+                session_id=self._session.session_id,
+                max_events=limit,
+            ).snapshot()
+        except Exception as exc:  # noqa: BLE001 —诊断面故障不阻断主路径
+            return {
+                "schema_version": 1,
+                "session_id": self._session.session_id,
+                "node_counts": {},
+                "nodes": [],
+                "edges": [],
+                "error": f"{type(exc).__name__}: {exc}"[:200],
+            }
+
+    def load_runtime_checkpoint(self) -> dict[str, Any] | None:
+        """读取最近 checkpoint；仅返回摘要，不执行任何恢复/重放动作。"""
+        try:
+            return self._runtime_checkpoint.load()
+        except Exception:  # noqa: BLE001 — checkpoint 损坏不阻断会话
+            logging.getLogger(__name__).debug(
+                "runtime checkpoint load failed", exc_info=True
+            )
+            return None
+
+    def runtime_recovery(self) -> dict[str, Any]:
+        """比较 checkpoint 与当前 runtime；只读，不重放任何动作。"""
+        if not self._runtime_checkpoint.enabled:
+            return {"checked": False, "state": "disabled"}
+        try:
+            from engine.runtime_recovery import compare_runtime_checkpoint
+
+            context = (
+                self._runtime_context.snapshot()
+                if self._runtime_context is not None
+                else {
+                    "session_id": self._session.session_id,
+                    "cwd": self._session.cwd,
+                    "runtime": str(self._config.get("runtime") or "local"),
+					"container_id": str(self._config.get("container_id") or ""),
+					"runtime_profile_id": self._runtime_profile.profile_id,
+					"tool_surface_id": self._tools.tool_surface_id,
+					"tool_schema_hash": self._tools.schema_fingerprint(),
+				}
+            )
+            from server.job_registry import get_job_registry
+
+            current = {
+                "context": context,
+                "jobs": get_job_registry().snapshot_list(self._session.session_id),
+            }
+            report = compare_runtime_checkpoint(self.load_runtime_checkpoint(), current)
+            self._runtime_recovery = report.to_dict()
+            return dict(self._runtime_recovery)
+        except Exception as exc:  # noqa: BLE001 — recovery audit cannot block session
+            self._runtime_recovery = {
+                "checked": False,
+                "state": "unavailable",
+                "error": f"{type(exc).__name__}: {exc}"[:200],
+            }
+            return dict(self._runtime_recovery)
 
     def _should_persist(self) -> bool:
         """判断当前会话是否应进行持久化（全局未禁用且会话自身未禁用）。"""
@@ -512,6 +659,12 @@ class QueryEngine:
             from engine.resume_directive import clear_resume_directive
 
             clear_resume_directive()
+            try:
+                self._runtime_checkpoint.save(self.runtime_snapshot())
+            except Exception:  # noqa: BLE001 — checkpoint 不得改变 turn 终态
+                logging.getLogger(__name__).debug(
+                    "runtime checkpoint save failed", exc_info=True
+                )
 
     async def _submit_message_inner(
         self,
@@ -568,15 +721,32 @@ class QueryEngine:
         persist_session = not is_session_persistence_disabled()
         cwd = resolve_physical_cwd(cwd)
         self._session.cwd = cwd
-        # M2：会话级工作区上下文随 async 上下文隔离；任务状态进入 running。
+        # M2：会话级执行上下文随 async 上下文隔离；runtime/container/cwd
+        # 在 submit 边界一次确定，工具层不再各自猜当前工作面。
         turn_id = uuid.uuid4().hex[:12]
-        set_workspace_context(
-            WorkspaceContext(
-                session_id=self._session.session_id,
-                cwd=cwd,
-                permission_profile=self._permission_profile,
-            )
-        )
+        configured_runtime = str(cfg.get("runtime") or "").strip().lower()
+        if configured_runtime not in {"local", "docker", "ssh", "unknown"}:
+            configured_runtime = ""
+        configured_container = str(cfg.get("container_id") or "").strip()
+        # 显式 runtime=local 是强事实：不能再读取遗留的进程环境变量。
+        # 未显式指定 runtime 时，才兼容旧入口的 ContextVar/env 推导。
+        if not configured_runtime and not configured_container:
+            try:
+                from tools.container_routing import current_container
+
+                configured_container = current_container()
+            except Exception:  # noqa: BLE001 — 无容器依赖时按 local
+                configured_container = ""
+        if not configured_runtime:
+            configured_runtime = "docker" if configured_container else "local"
+        workspace_id = str(cfg.get("workspace_id") or "").strip()
+        if not workspace_id:
+            try:
+                from memory.memdir import workspace_id as _workspace_id
+
+                workspace_id = str(_workspace_id(cwd) or "")
+            except Exception:  # noqa: BLE001 — telemetry 字段不可阻断 turn
+                workspace_id = ""
         agent_mode = normalize_agent_mode(options_dict.get("agent_mode"))
         set_agent_mode(agent_mode)
         self._task_state.set_status("running", turn_id=turn_id, agent_mode=agent_mode)
@@ -598,14 +768,53 @@ class QueryEngine:
             provider=self._provider,
             model=self._model_name,
         )
+        from engine.runtime_capabilities import probe_runtime_capabilities
+
+        runtime_caps = probe_runtime_capabilities(
+            cwd,
+            runtime=configured_runtime,  # type: ignore[arg-type]
+            container_id=configured_container,
+        )
+        self._runtime_context = WorkspaceContext(
+            session_id=self._session.session_id,
+            cwd=cwd,
+            permission_profile=self._permission_profile,
+            runtime=configured_runtime,  # type: ignore[arg-type]
+            container_id=configured_container,
+            workspace_id=workspace_id,
+            trace_id=turn_id,
+			runtime_profile_id=self._runtime_profile.profile_id,
+			deadline_ts=self._session.budget.wall_deadline_ts,
+			tool_surface_id=self._tools.tool_surface_id,
+			tool_schema_hash=self._tools.schema_fingerprint(),
+            capability_id=runtime_caps.capability_id,
+            capabilities=runtime_caps.to_dict(),
+        )
+        self._verification_report = None
+        set_workspace_context(self._runtime_context)
+        # Check the previous checkpoint before the turn-start save overwrites it.
+        # This is read-only and feature-flagged; drift never replays a job/action,
+        # it only becomes a machine-visible recovery report.
+        try:
+            self.runtime_recovery()
+        except Exception:  # noqa: BLE001 — recovery diagnostics cannot block a turn
+            logging.getLogger(__name__).debug(
+                "runtime recovery check failed at turn start", exc_info=True
+            )
         # 重置本回合 AbortController。
         # 注意：不要继承「上一控制器已 abort」——那是 interrupt-then-new-submit 的正常清场
         # （见 test_interrupt_then_submit）。Stop 打在 try_begin→submit 窗口时，由
         # options.stop_requested 显式传入，避免信号丢失。
-        self._session.abort = AbortController()
+        self._session.abort = CancellationScope(label=f"turn:{turn_id}")
         self._abort_controller = self._session.abort
         if options_dict.get("stop_requested"):
             self._abort_controller.abort()
+        try:
+            self._runtime_checkpoint.save(self.runtime_snapshot())
+        except Exception:  # noqa: BLE001 — checkpoint 不得改变 turn 启动
+            logging.getLogger(__name__).debug(
+                "runtime checkpoint start save failed", exc_info=True
+            )
 
         # 写入本轮用户消息到历史（query_loop 会依赖 session.messages 中的最新消息）
         # 必须在首个 yield 之前完成落盘：客户端若在 TaskStateEvent 后断开，
@@ -821,6 +1030,30 @@ class QueryEngine:
             if should_persist:
                 await self._persist_transcript_delta()
                 flush_transcript()   # 强制刷新缓冲区
+
+            # 8.1 runtime 事实核验。只记录执行层报告，不改变模型回答文本。
+            if self._runtime_verify:
+                self._session.budget.lifecycle.begin_verifying()
+                try:
+                    from engine.action_journal import ActionJournal
+                    from engine.runtime_verification import verify_runtime
+                    from server.job_registry import get_job_registry
+
+                    job_rows = get_job_registry().snapshot_list(self._session.session_id)
+                    action_summary = ActionJournal(self._session.session_id).summary()
+                    report = verify_runtime(
+                        store=self._session.messages,
+                        cwd=self._session.cwd,
+                        jobs=job_rows,
+                        action_summary=action_summary,
+                    )
+                    self._verification_report = report.to_dict()
+                except Exception as exc:  # noqa: BLE001 — 观测不得改变 turn 终态
+                    self._verification_report = {
+                        "checked": False,
+                        "ok": False,
+                        "error": f"{type(exc).__name__}: {exc}"[:200],
+                    }
 
             # 8. 从历史中提取最终回答（取最后一条 assistant 消息的内容）
             text_result = ""
@@ -1135,8 +1368,9 @@ class QueryEngine:
                 if self._session.abort.aborted
                 else "failed"
                 if turn_terminal_error
-                else "succeeded"
-            )
+				else "succeeded"
+			)
+            self._session.budget.mark_terminal(terminal_status, turn_error or "")
             self._task_state.set_status(terminal_status, error=turn_error)
             set_agent_mode(None)
             # 释放会话级工作区上下文，避免同一 asyncio 任务内跨次提交泄漏 cwd。
@@ -1173,6 +1407,10 @@ KNOWN_CONTEXT_WINDOWS: tuple[tuple[str, int], ...] = (
 	# deepseek-flash 与 deepseek-v4-pro，实测见 TerminalBench/zero/step0_evidence.json）
 	("deepseek-flash", 1_000_000),
 	("deepseek-v4-flash", 1_000_000),
+	# 带日期后缀的在服型号（`…-expires-on-0910`）。窗口不是猜的：厂商用量账本里
+	# 该型号的 prompt_tokens 实测到过 **693,894**（n=2,662 次请求）⇒ 只能是 1M 档。
+	# 少这一行 ⇒ 前缀匹配落 128k 兜底，压力门在 105k 就开始对上下文做取舍。
+	("deepseek-v4.1-flash", 1_000_000),
 )
 
 #: 未登记型号的保守兜底：取"当前主流模型的最小窗口"档。
@@ -1236,6 +1474,12 @@ def build_default_engine(
     provider: str | None = None,
     model: str | None = None,
     base_url: str | None = None,
+    runtime: str | None = None,
+    container_id: str | None = None,
+    workspace_id: str | None = None,
+    runtime_checkpoint: bool | None = None,
+    runtime_profile: Any | None = None,
+    runtime_verify: bool | None = None,
     initial_messages: list[Message] | None = None,
     thinking: str = "disabled",
     reasoning_effort: str = "",
@@ -1252,6 +1496,10 @@ def build_default_engine(
                       也可通过环境变量 XEYO_MODEL 覆盖。
         session_id: 与磁盘 transcript 共用的会话键。
         api_key / provider / model / base_url: CLI/配置文件注入的连接信息。
+        runtime / container_id / workspace_id: 显式执行面事实；不传时兼容旧推导。
+        runtime_checkpoint: 是否开启 runtime.json 旁路 checkpoint。
+        runtime_profile: 显式运行档案；评测适配器应传 terminal-bench-2.1。
+		runtime_verify: 是否启用完成前 runtime 一致性检查旁路。
         initial_messages: 冷启动 hydrate 的历史消息。
 
     返回：
@@ -1452,6 +1700,18 @@ def build_default_engine(
         "max_turns": max_turns,
         "max_tool_calling": max_tool_calling,
     }
+    if runtime is not None:
+        config["runtime"] = runtime
+    if container_id is not None:
+        config["container_id"] = container_id
+    if workspace_id is not None:
+        config["workspace_id"] = workspace_id
+    if runtime_checkpoint is not None:
+        config["runtime_checkpoint"] = runtime_checkpoint
+    if runtime_profile is not None:
+        config["runtime_profile"] = runtime_profile
+    if runtime_verify is not None:
+        config["runtime_verify"] = runtime_verify
     sid = (session_id or "").strip()
     if sid:
         config["session_id"] = sid

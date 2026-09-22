@@ -95,12 +95,20 @@ def test_gain_gate_rejects_when_save_ratio_not_met():
 	)
 
 
-def test_default_path_keeps_frozen_behavior():
+def test_default_path_keeps_frozen_behavior(monkeypatch, mem_switch):
+	"""Path A 公式门的行为定稿：**project 模式下三个公式恒开**。
+
+	刻意显式钉 ``XEYO_L5="project"``：本测试原先靠"环境里的默认档"来得到 project，
+	而 2026-09-06 决策把默认改成 v61 后，这条隐含依赖就让测试挂了——被测的从来不是
+	"默认档"，是 project 快路径。Path A 在 v61 下恒关（decide 自主接管 C2），
+	那是另一条语义、由本文件其他用例覆盖。
+	"""
+	mem_switch(XEYO_L5="project")
 
 	import memory.runtime as rt
 	from memory.working import WorkingSnapshot
 
-	# Path A 公式开关**默认启用**（定稿）；要验证「冻结=关」时行为不变。
+	# Path A 公式开关**默认启用**（project 档定稿）；要验证「冻结=关」时行为不变。
 	assert rt._c2_formula_enabled("XEYO_C2_GAIN_FORMULA") is True
 	assert rt._c2_formula_enabled("XEYO_C2_PRESSURE_FORMULA") is True
 	# 压力门**必须**用真实模型窗口（用户添加模型时必填的上下文窗口）；无窗口 → None（不触发），

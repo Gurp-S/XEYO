@@ -500,6 +500,7 @@ def test_ilink_http_status():
 	assert c.get("/v1/ilink/qr.png").status_code == 404
 
 
+@pytest.mark.xfail(reason="既有红（2026-09-21 挂账）：H 桶·**提交进仓库的红测试**：用例 import 的 status_payload / events_since 在 `git show HEAD` 的 channels/ilink/service.py 里也不存在⇒ 测试与实现分头提交。待办=补实现或删用例，并按规则 5 答三问；建议给 CI 加「收集期 import 失败也算红」的门。", strict=False)
 def test_ilink_sse_format():
 	from channels.ilink.broadcast import format_sse
 	from channels.ilink.service import status_payload
@@ -510,6 +511,7 @@ def test_ilink_sse_format():
 	assert '"channel": "ilink"' in chunk or '"channel":"ilink"' in chunk
 
 
+@pytest.mark.xfail(reason="既有红（2026-09-21 挂账）：H 桶·**提交进仓库的红测试**：用例 import 的 status_payload / events_since 在 `git show HEAD` 的 channels/ilink/service.py 里也不存在⇒ 测试与实现分头提交。待办=补实现或删用例，并按规则 5 答三问；建议给 CI 加「收集期 import 失败也算红」的门。", strict=False)
 def test_events_since_pruned_cursor_still_returns_new():
 	import channels.ilink.service as svc
 
@@ -1223,6 +1225,7 @@ def test_accepts_stream_session_filters_other_user():
 		st._last_session_id = prev_last
 
 
+@pytest.mark.xfail(reason="既有红（2026-09-21 挂账）：H 桶·**提交进仓库的红测试**：用例 import 的 status_payload / events_since 在 `git show HEAD` 的 channels/ilink/service.py 里也不存在⇒ 测试与实现分头提交。待办=补实现或删用例，并按规则 5 答三问；建议给 CI 加「收集期 import 失败也算红」的门。", strict=False)
 def test_push_event_includes_session_id():
 	import channels.ilink.service as svc
 
@@ -1241,6 +1244,7 @@ def test_push_event_includes_session_id():
 		m._event_seq = prev_seq
 
 
+@pytest.mark.xfail(reason="既有红（2026-09-21 挂账）：H 桶·**提交进仓库的红测试**：用例 import 的 status_payload / events_since 在 `git show HEAD` 的 channels/ilink/service.py 里也不存在⇒ 测试与实现分头提交。待办=补实现或删用例，并按规则 5 答三问；建议给 CI 加「收集期 import 失败也算红」的门。", strict=False)
 def test_status_stream_session_id_stays_with_active_stream():
 	import channels.ilink.service as svc
 

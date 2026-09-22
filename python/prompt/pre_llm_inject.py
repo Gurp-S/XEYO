@@ -32,18 +32,17 @@ from permissions.policy import (
 	output_mode as current_output_mode,
 	side_mode,
 )
+from prompt.notice_channel import WORLD_STATE_KEY, render_notices
 from prompt.t_now_strategy import (
 	STRATEGY_ENV_CHANNEL,
+	STRATEGY_NOTICE_FRAGMENT,
 	STRATEGY_PREFILL,
 	STRATEGY_SKIP,
 	STRATEGY_SYSTEM_CHANNEL,
-	format_env_notice,
 	t_now_strategy,
 )
 from prompt.turn_context import (
 	CONTINUE_AFTER_TOOLS,
-	append_env_notice_pair,
-	append_system_notice,
 	append_text_blocks_to_last_user,
 	build_mode_context_blocks,
 	ends_with_tool_result,
@@ -257,17 +256,23 @@ def pending_jobs_block() -> str:
 				if j.get("status") == "done" and not j.get("delivered")
 			]
 			if done:
-				rows = "\n".join(
-					f"- {j['job_id']}（exit_code={j.get('exit_code')}）："
-					f"{(j.get('command') or '').strip().splitlines()[0][:100]}"
-					for j in done
-				)
+				rows: list[str] = []
+				for j in done:
+					command = (j.get("command") or "").strip().splitlines()[0][:100]
+					row = (
+						f"- {j['job_id']}（exit_code={j.get('exit_code')}）：{command}"
+					)
+					output = str(j.get("output") or "").strip()
+					if output:
+						if len(output) > 8_000:
+							output = "[tail; earlier output truncated]\n" + output[-8_000:]
+						row += "\n[job output]\n" + output
+					rows.append(row)
 				for j in done:
 					docker_bg_mark_delivered(j["job_id"])
 				return (
 					"# Background jobs（background only）\n"
-					"以下后台任务已完成，输出尚未领取。"
-					"job_output(job_id=…) 可收取输出。\n" + rows
+					+ "\n".join(rows)
 				)
 		except Exception:  # noqa: BLE001
 			return ""
@@ -720,6 +725,18 @@ def approved_plan_decays_on(name: str, is_error: bool) -> bool:
 PIPE_STATE = "state"
 PIPE_EVENT = "event"
 
+#: 走 ``render_notices`` 唯一出口的档位（其余 = legacy 分仓形态）。
+#: 装配尾部的"聚合成 world_state"与"渲染出口"必须认同一个名单，
+#: 否则两处各写一份枚举就会漂移（改一处漏一处）。
+_NOTICE_RENDER_STRATEGIES: frozenset[str] = frozenset(
+	{
+		STRATEGY_SKIP,
+		STRATEGY_ENV_CHANNEL,
+		STRATEGY_SYSTEM_CHANNEL,
+		STRATEGY_NOTICE_FRAGMENT,
+	}
+)
+
 # F1 真硬顶：覆盖**全部**块（原 bypass 组取消）。
 # PIPE_EVENT 由构造处各自有界（drain 一次），全保；
 # quota 类受双闸：自身配额 与 (总预算 - 已用) 取小。
@@ -740,7 +757,7 @@ T_NOW_EVENT_WARN_CHARS = 6_000
 #      「能不能不进上下文」（引擎能强制的，一律不给模型看）。
 # 执法：tests/test_t_now_block_registry.py。
 # ---------------------------------------------------------------------------
-T_NOW_BLOCK_HARD_CAP = 16  # =现存量：23→21（删 stale_xeyo_md / nested_change）→18→16（2026-09-15 删 budget_mirror / runtime_mode_snapshot，peer_presence 收窄为 peer_notices）
+T_NOW_BLOCK_HARD_CAP = 17  # =现存量：23→21（删 stale_xeyo_md / nested_change）→18→16→17（2026-09-22 加 world_state 聚合维度：10 个状态块的留痕由"每块一条"合成"整段一条"，占用只降不升）
 
 T_NOW_BLOCK_REGISTRY: dict[str, dict[str, Any]] = {
 	"continue": {
@@ -793,9 +810,11 @@ T_NOW_BLOCK_REGISTRY: dict[str, dict[str, Any]] = {
 		"why": "输出/写码压缩开关生效的统一行为规则（任一开关开启即注入；③合并两块减一）",
 	},
 	"mcp_required_warn": {
-		"pipe": PIPE_EVENT,
+		"pipe": PIPE_STATE,
 		"quota": False,
-		"dedup": False,
+		# 2026-09-22 改判：它是"当前态"不是事件——文本只由 _required_failed 决定，
+		# 进程内只增不减，登记成事件等于同一个坏消息每个边界重发一遍。
+		"dedup": True,
 		"why": "required MCP server 启动失败的可见警告（fail-visible）",
 	},
 	"reconcile_events": {
@@ -811,9 +830,11 @@ T_NOW_BLOCK_REGISTRY: dict[str, dict[str, Any]] = {
 		"why": "跨会话事件通知的唯一投递口，drain 语义——静默即永久丢失（原 peer_presence 收窄而来，常驻 beacon 已删）",
 	},
 	"file_conflict": {
-		"pipe": PIPE_EVENT,
+		"pipe": PIPE_STATE,
 		"quota": False,
-		"dedup": False,
+		# 2026-09-22 改判：冲突集每边界由 mtime 重算，登记成事件 ⇒ 同一冲突每
+		# 边界重说一遍。进聚合后，冲突解除会让整段文本变化 ⇒ 旧版被折叠，不留过期警告。
+		"dedup": True,
 		"why": "触碰文件被其他会话写入——静默即丢，覆盖风险",
 	},
 	"browser_preview": {
@@ -841,10 +862,22 @@ T_NOW_BLOCK_REGISTRY: dict[str, dict[str, Any]] = {
 		"why": "续跑富化指令投影-only 送达（修订2）：落库只存用户真实文本",
 	},
 	"pending_jobs": {
-		"pipe": PIPE_EVENT,
+		"pipe": PIPE_STATE,
 		"quota": False,
-		"dedup": False,
+		# 2026-09-22 改判：正文是请求入口 snapshot 的 digest，一个 submit 内每个
+		# 边界都是同一份——登记成事件 ⇒ 同一批待领 job 每边界重发。
+		"dedup": True,
 		"why": "job 完成补投：一次性待领信息（chat 入口已 drain），模型不读则任务结果不可见",
+	},
+	# 聚合维度本身也要登记：``_block_meta`` 未登记名会按最保守处理并告警，
+	# 而 ``_dedup_round`` 只认 pipe=state + dedup=True —— 不登记整段聚合就白做。
+	# 16→17 的理由（AGENTS.md 硬规矩 2 要求写明）：这不是新增信息位，而是把
+	# 10 个状态块的"每块一条留痕"换成"整段一条留痕"，上下文占用只降不升。
+	"world_state": {
+		"pipe": PIPE_STATE,
+		"quota": False,
+		"dedup": True,
+		"why": "引擎当前态的聚合段（对齐 Codex world_state）：出现/消失/变化都改整段文本，撤回由差分完成",
 	},
 	"skill_preinvoke": {
 		"pipe": PIPE_STATE,
@@ -896,6 +929,41 @@ def _tag_block(
 	if not body:
 		return
 	tagged.append((name, body))
+
+
+def _aggregate_state_sections(
+	tagged: list[tuple[str, str]],
+) -> list[tuple[str, str]]:
+	"""把"引擎当前态"里纳入台账的块合成**一条** ``world_state`` 段。
+
+	为什么整段聚合，而不是逐块各记一条：留痕面是 append-only + 投影按 key 只留
+	最新版，它只会说"值变了"，说不出"这个状态不再存在"。逐块记账时，用户退出
+	Ask 模式之后，历史上那一版"Ask 只读"仍然挂在投影里当真。合成整段之后，
+	任何组件出现 / 消失 / 变化都会改掉整段文本，撤回由差分本身完成——这正是
+	Codex ``world_state`` 的口径（整段重渲染，变了两端才重发）。
+
+	不进聚合的两类：事件（drain 语义，"第二次发生"必须是第二次注入），以及
+	刻意每边界常驻的状态块（``continue`` / ``skill_preinvoke``：文本恒定但语境
+	每轮不同，聚合后会被整段差分静默掉）。
+	"""
+	out: list[tuple[str, str]] = []
+	sections: list[str] = []
+	at: int | None = None
+	for name, text in tagged:
+		meta = _block_meta(name)
+		if meta.get("pipe") != PIPE_STATE or not meta.get("dedup"):
+			out.append((name, text))
+			continue
+		body = (text or "").strip()
+		if not body:
+			continue
+		if at is None:
+			at = len(out)
+		sections.append(body)
+	if not sections:
+		return out
+	out.insert(at if at is not None else len(out), (WORLD_STATE_KEY, "\n\n".join(sections)))
+	return out
 
 
 def _dedup_round(
@@ -950,15 +1018,24 @@ def _dedup_round(
 # 按铁律 1/5：注意力里只出现信息；模型强弱不改变口径，护栏只在执行层。
 
 def _last_user_text(projected: list[dict[str, Any]]) -> str:
-	"""取末条 user 的首个文本块（无则空串）。"""
-	last = projected[-1]
-	content = last.get("content")
-	if isinstance(content, str):
-		return content
-	if isinstance(content, list):
-		for b in content:
-			if isinstance(b, dict) and b.get("type") == "text":
-				return str(b.get("text") or "")
+	"""取末条**用户**消息的首个文本块（引擎通报留痕不算，无则空串）。
+
+	通报片段/留痕都落在序列尾部（上一边界的留痕此刻已在投影里），直接读
+	``projected[-1]`` 会把引擎文本当作用户原话——技能直呼（``/name``）于是静默失效。
+	"""
+	from prompt.notice_channel import is_notice_message
+
+	for m in reversed(projected):
+		if m.get("role") != "user" or is_notice_message(m):
+			continue
+		content = m.get("content")
+		if isinstance(content, str):
+			return content
+		if isinstance(content, list):
+			for b in content:
+				if isinstance(b, dict) and b.get("type") == "text":
+					return str(b.get("text") or "")
+		return ""
 	return ""
 
 
@@ -1027,8 +1104,9 @@ def run_pre_llm_inject(
 	out = projected
 	strategy = (ctx.strategy or "").strip() or t_now_strategy()
 	if strategy == STRATEGY_PREFILL:
-		# 预留档：prefill 厂商容忍度实测通过前回落环境声道。
-		strategy = STRATEGY_ENV_CHANNEL
+		# 预留档：prefill 厂商容忍度实测通过前回落包封片段（不再回落伪对——
+		# 伪对与「模型自己的工具调用」同形，见 prompt/notice_channel.py）。
+		strategy = STRATEGY_NOTICE_FRAGMENT
 	prepared_events = (
 		_prepared_events_for(ctx.session_id)
 		if strategy != STRATEGY_SKIP
@@ -1309,10 +1387,22 @@ def run_pre_llm_inject(
 		)
 
 	# ---- 管道 2 纪律：值不变不重注（台账 prompt/inject_store，默认 on）----
-	# 只作用于登记表 ``dedup=True`` 的块；事件类永不过此处（drain 语义下
-	# "第二次发生"必须是第二次注入）。台账关档时逐字节零影响。
+	# 当前态先聚合成一条 world_state 段，再进台账：台账只会"值变了才追加"，
+	# 说不出"这个状态不再存在"，逐块记账会把已失效的状态永久留在投影里。
+	# 事件类永不过此处（drain 语义下"第二次发生"必须是第二次注入）。
+	# 台账关档时逐字节零影响。
+	# legacy 臂**不聚合**：它靠"quota 块前插到用户原文之前 / 其余尾插"的分仓语义，
+	# 合成一条后一个维度只能整体落一头，分仓合同会塌（该臂是淘汰中的兼容形态，
+	# 保持逐字节旧行为，不吃聚合的收益也不踩它的副作用）。
 	token = inject_store.begin_round((ctx.session_id or "").strip())
 	try:
+		if strategy in _NOTICE_RENDER_STRATEGIES:
+			tagged = _aggregate_state_sections(tagged)
+			if not any(name == WORLD_STATE_KEY for name, _ in tagged):
+				# 本轮一个状态段都没产出 ⇒ 上一版整段必须离开投影（否则退出模式后
+				# "Ask 只读"那条已作废的合同会一直挂着）。撤回在下一边界由
+				# engine/t_now_notes.persist_pending 落地。
+				inject_store.retract(WORLD_STATE_KEY)
 		tagged = _dedup_round(tagged, visible=ctx.visible_notes)
 	finally:
 		inject_store.end_round(token)
@@ -1330,26 +1420,16 @@ def run_pre_llm_inject(
 	# legacy：fresh-user 轮 quota 类（nested 正文 / 浏览器预览）前插到用户
 	# 文本之前（生成点紧邻用户请求，recency 为用户服务）；其余尾插贴近生成点。
 	# after_tools 轮维持原尾插合同（Continue 在前）。
-	if strategy == STRATEGY_SKIP:
-		# L2（2026-09-09）：厂商拒绝伪造 tool 对时本轮不注入，绝不落回
-		# legacy 用户尾插（引擎文本进用户角色=说话人混淆源）。执行层
-		# 硬约束（预算/回合/wrap 门）不依赖提示文本。
-		return out
-	if strategy == STRATEGY_ENV_CHANNEL:
-		env_text = format_env_notice([t for _k, t in kept])
-		if env_text:
-			return append_env_notice_pair(out, env_text)
-		return out
-	if strategy == STRATEGY_SYSTEM_CHANNEL:
-		# 声道 B（治本档）：同一份正文（复用 ENV_NOTICE_HEADER / format_env_notice），
-		# 但承载形态是**原生 system 消息**而非伪造 tool 对 —— 伪对在结构上与
-		# "模型自己的工具调用"同形，模型因此认定自己拥有 xeyo_env_notice 并真的
-		# 去调它（第六轮 70+ 次；第七轮单会话 60+ 次，且被 host 转成工具轮回灌
-		# Continue 形成自催化闭环）。不可调用性必须来自形态，不靠劝阻文本。
-		env_text = format_env_notice([t for _k, t in kept])
-		if env_text:
-			return append_system_notice(out, env_text)
-		return out
+	if strategy in _NOTICE_RENDER_STRATEGIES:
+		# 形态选择不在这里做——统一交给 render_notices（唯一出口 + 档位归因）。
+		# 默认档：当前态合成一条 world_state 段（对齐 Codex），事件逐条成片段；
+		# 对照档仍整体一条；来源声明由包封承担，不再重复拼 ENV_NOTICE_HEADER。
+		return render_notices(
+			out,
+			[(name, text) for name, text in kept],
+			strategy=strategy,
+			session_id=getattr(ctx, "session_id", "") or "",
+		)
 	if after_tools:
 		return append_text_blocks_to_last_user(out, [t for _k, t in kept])
 	head = [t for n, t in kept if _block_meta(n).get("quota")]

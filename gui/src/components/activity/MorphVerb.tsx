@@ -337,6 +337,10 @@ export const ThoughtTicker = memo(function ThoughtTicker({
 
 	// live / 静态共用同一轨道节点：内容全部由 effect 命令式写入
 	// （与预览 pump 相同），避免 React children 与 innerHTML 打架。
+	//
+	// 轨道是**视觉层**：泵每拍只铺 2-5 字，且 shown 有 130 字尾窗 ⇒ 长思考的
+	// 全文在 live 期间从不完整进 DOM（读屏、页内搜索、以及任何"思考正文必须
+	// 可见"的依赖都会拿到残句）。所以这里常驻一份全文，轨道对 AT 隐藏。
 	return (
 		<div
 			ref={tickerRef}
@@ -348,7 +352,10 @@ export const ThoughtTicker = memo(function ThoughtTicker({
 				hoveredRef.current = false;
 			}}
 		>
-			<div ref={trackRef} className="xy-thought-ticker-track" />
+			<div ref={trackRef} className="xy-thought-ticker-track" aria-hidden />
+			{content.trim() ? (
+				<span className="sr-only">{content.trim().replace(/\s+/g, ' ')}</span>
+			) : null}
 		</div>
 	);
 });

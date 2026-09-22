@@ -105,6 +105,12 @@ async def test_webfetch_success_html(monkeypatch: pytest.MonkeyPatch) -> None:
 
 	transport = httpx.MockTransport(handler)
 	real_client = httpx.AsyncClient
+	# The HTTP transport is mocked; keep this test independent of the host DNS
+	# resolver, which may resolve example.com through a private test network.
+	monkeypatch.setattr(
+		"tools.web_fetch_tool.web_fetch_tool.is_blocked_url",
+		lambda _url: None,
+	)
 
 	def fake_client(*args, **kwargs):
 		kwargs["transport"] = transport
@@ -140,6 +146,12 @@ async def test_webfetch_prompt_focus(monkeypatch: pytest.MonkeyPatch) -> None:
 
 	transport = httpx.MockTransport(handler)
 	real_client = httpx.AsyncClient
+	# The HTTP transport is mocked; keep this test independent of the host DNS
+	# resolver, which may resolve example.com through a private test network.
+	monkeypatch.setattr(
+		"tools.web_fetch_tool.web_fetch_tool.is_blocked_url",
+		lambda _url: None,
+	)
 
 	def fake_client(*args, **kwargs):
 		kwargs["transport"] = transport

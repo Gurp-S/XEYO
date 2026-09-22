@@ -62,6 +62,7 @@ class RuntimeModeStore:
         self._requested: dict[str, str] = {}
         #: 本 turn 基线（begin_turn 拍定）；轮内不因放宽而变。
         self._baseline: dict[str, str] = {}
+        self._revision: dict[str, int] = {}
 
     def set(self, session_id: str, mode: object) -> str | None:
         """写入活审批模式；非法返回 None（不写入）。
@@ -75,6 +76,7 @@ class RuntimeModeStore:
             return None
         with self._lock:
             self._requested[session_id] = normalized
+            self._revision[session_id] = self._revision.get(session_id, 0) + 1
             baseline = self._baseline.get(session_id)
             if baseline is not None and strictness(normalized) > strictness(baseline):
                 self._baseline[session_id] = normalized
@@ -89,7 +91,18 @@ class RuntimeModeStore:
             requested = self._requested.get(session_id)
             baseline = requested or normalize_mode(default) or "risk"
             self._baseline[session_id] = baseline
+            self._revision[session_id] = self._revision.get(session_id, 0) + 1
             return baseline
+
+    def snapshot(self, session_id: str) -> dict[str, object]:
+        """返回当前审批状态身份，不暴露任何用户内容。"""
+        sid = str(session_id or "")
+        with self._lock:
+            return {
+                "requested": self._requested.get(sid),
+                "baseline": self._baseline.get(sid),
+                "revision": self._revision.get(sid, 0),
+            }
 
     def effective(self, session_id: str) -> str | None:
         """轮内实效模式：活值取严后返回；无活值返回 None（回退 body/config）。"""
@@ -104,6 +117,7 @@ class RuntimeModeStore:
         with self._lock:
             self._requested.pop(session_id, None)
             self._baseline.pop(session_id, None)
+            self._revision.pop(session_id, None)
 
 
 #: 模块级单例（懒加载由 get_runtime_mode_store 返回）；不随 import 显式实例化，

@@ -43,6 +43,21 @@ def test_host_shaped_to_container_never_mangles_regex() -> None:
 	assert fix("a\\b") == "a\\b"
 
 
+def test_container_listdir_uses_container_exec(monkeypatch) -> None:
+	import tools.container_fs as cfs
+
+	monkeypatch.setattr(cfs, "active_container", lambda: "cid")
+	seen: list[str] = []
+
+	def fake_exec(command: str, **_kwargs):
+		seen.append(command)
+		return (0, "docs\nsrc\n", "")
+
+	monkeypatch.setattr(cfs, "container_exec", fake_exec)
+	assert cfs.listdir(r"D:\app") == ["docs", "src"]
+	assert "find '/app'" in seen[0]
+
+
 # ---- rg → grep 映射 --------------------------------------------------------
 
 def _flags(**kw):

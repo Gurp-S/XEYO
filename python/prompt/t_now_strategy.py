@@ -57,12 +57,26 @@ STRATEGY_PREFILL = "prefill"
 #: 默认已切到 system_channel；env_channel 保留为回退/对照档。
 STRATEGY_SYSTEM_CHANNEL = "system_channel"
 
+#: 声道 C（包封片段档）：易变块以**一条 user 消息**投递，正文用 ``<system-reminder>``
+#: 包封 + 定义式来源声明。存在的唯一理由：``system_channel`` 在部分厂商被拒
+#: （messages 里的 system 角色 ⇒ 结构类 4xx）时，旧阶梯降级到 ``env_channel``
+#: （伪造 tool 对），一次降级同时欠下四条债——假 id 触发厂商 ``reasoning_content``
+#: 校验、无主 tool 结果、模型模仿 ``xeyo_env_notice`` 的 affordance、以及清扫逻辑。
+#: user 角色所有厂商都收，且**不含任何 tool_use 形状** ⇒ 不可调用性仍来自形态。
+#: 代价（必须知道）：注入文本落在 user 角色，说话人隔离弱于 system，靠包封承载
+#: 语义；因此它排在 system 之后、伪对之前，且生产阶梯不再产出伪对。
+STRATEGY_NOTICE_FRAGMENT = "notice_fragment"
+
+#: 包封标签与来源声明的**唯一**定义处在 ``prompt.notice_sections``（词法身份三件套
+#: wrap/is/strip 同处）；本模块只管档位，不持有文本形态。
+
 _VALID_STRATEGIES = (
     STRATEGY_ENV_CHANNEL,
     STRATEGY_LEGACY,
     STRATEGY_SKIP,
     STRATEGY_PREFILL,
     STRATEGY_SYSTEM_CHANNEL,
+    STRATEGY_NOTICE_FRAGMENT,
 )
 _STRATEGY_ENV = "XEYO_T_NOW_STRATEGY"
 
@@ -78,31 +92,42 @@ def set_t_now_strategy(strategy: str | None) -> None:
 
 
 def t_now_strategy() -> str:
-    """解析当前策略：显式 > 环境变量 > 默认 system_channel（声道 B）。"""
+    """解析当前策略：显式 > 环境变量 > 默认 notice_fragment（声道 C）。
+
+    2026-09-22 默认档从 system_channel 换成 notice_fragment，与 Codex / Claude Code
+    对齐：两家都把引擎注入的状态放在 **user 侧 + 共训练包封标签**
+    （``<system-reminder>``）里，没有一家往 messages 中段塞 system 角色——那恰好是
+    各家网关兼容性最不确定的一环，摆在默认位等于指望厂商配合。system_channel
+    保留为显式对照档（厂商拒它时阶梯仍落到默认档）。
+    """
     v = _strategy_ctx.get()
     if v:
         return v
     env = os.environ.get(_STRATEGY_ENV, "").strip().lower()
     if env in _VALID_STRATEGIES:
         return env
-    return STRATEGY_SYSTEM_CHANNEL
+    return STRATEGY_NOTICE_FRAGMENT
 
 
 def resolve_t_now_strategy(provider: str = "", model: str = "") -> str:
     """按模型解析最终策略（回退阶梯见模块 docstring）。
 
     ``system_channel`` 被标记不支持（厂商不接受 messages 里的 system 角色，
-    结构类 4xx）→ 进程内退回 ``env_channel``（保功能；已知会重新引入伪对
-    affordance，故仅在厂商确实拒绝时发生）。``env_channel`` 再被标记 →
-    ``skip``（L2：宁缺毋滥，绝不落回 legacy 用户尾插）。显式 legacy
-    （评测/审计对照）保持可用。prefill 暂回落 env_channel。
+    结构类 4xx）→ 降级到 ``notice_fragment``（声道 C：user 消息 + 包封）。
+    **不再降级到 ``env_channel``**：伪对与「模型自己的工具调用」同形，一次降级
+    同时引入假 id 的 ``reasoning_content`` 校验、无主 tool_result、以及模型模仿
+    ``xeyo_env_notice`` 的 affordance（实测单会话 60-70+ 次）。``env_channel``
+    仅保留为**显式**评测/对照档。``notice_fragment`` 再被标记 → ``skip``
+    （L2：宁缺毋滥，绝不落回 legacy 用户尾插）。prefill 回落 notice_fragment。
     """
     s = t_now_strategy()
     if s == STRATEGY_PREFILL:
-        s = STRATEGY_ENV_CHANNEL
+        s = STRATEGY_NOTICE_FRAGMENT
     key = env_unsupported_key(provider, model)
     if s == STRATEGY_SYSTEM_CHANNEL and system_channel_unsupported(key):
-        s = STRATEGY_ENV_CHANNEL
+        s = STRATEGY_NOTICE_FRAGMENT
+    if s == STRATEGY_NOTICE_FRAGMENT and notice_fragment_unsupported(key):
+        return STRATEGY_SKIP
     if s == STRATEGY_ENV_CHANNEL and env_channel_unsupported(key):
         return STRATEGY_SKIP
     return s
@@ -148,6 +173,23 @@ def system_channel_unsupported(key: str) -> bool:
 
 def reset_system_unsupported_for_test() -> None:
 	_system_unsupported.clear()
+
+
+# ── 声道 C 备忘：厂商连 user 包封片段也拒（理论上不该发生，留降级出口）──
+_fragment_unsupported: set[str] = set()
+
+
+def mark_notice_fragment_unsupported(key: str) -> None:
+	if key and key.strip():
+		_fragment_unsupported.add(key)
+
+
+def notice_fragment_unsupported(key: str) -> bool:
+	return key in _fragment_unsupported
+
+
+def reset_fragment_unsupported_for_test() -> None:
+	_fragment_unsupported.clear()
 
 
 # ── 伪造对身份 ──

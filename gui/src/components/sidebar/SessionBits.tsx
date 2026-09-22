@@ -57,7 +57,7 @@ export function SessionRow({
 				className={cn(
 					'xy-pressable flex w-full items-center gap-2 rounded-md py-1 pr-2 pl-4 text-left text-[13px]',
 					active
-						? 'bg-glass-strong font-medium text-accent'
+						? 'xy-session-on bg-glass-strong font-medium text-accent'
 						: session.archived
 							? 'text-ink-soft/80 hover:bg-glass-hover'
 							: 'text-ink-soft hover:bg-glass-hover',

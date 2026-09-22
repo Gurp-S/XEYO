@@ -26,13 +26,15 @@ if not defined XEYO_HTTP_HOST set "XEYO_HTTP_HOST=127.0.0.1"
 if not defined XEYO_HTTP_PORT set "XEYO_HTTP_PORT=8000"
 if not defined XEYO_FRONTEND_PORT set "XEYO_FRONTEND_PORT=5173"
 if not defined XEYO_CORS_ORIGIN set "XEYO_CORS_ORIGIN=http://localhost:%XEYO_FRONTEND_PORT%"
-REM Per-run log path (unique name so a stale holder from a previous run can never
-REM lock the same file and block a new launch with a file-sharing violation).
+REM Per-run log path: a unique name so a stale holder from a previous run can never
+REM lock the same file and block a new launch with a file-sharing violation.
 if not defined XEYO_PY_LOG_TAG set "XEYO_PY_LOG_TAG=%RANDOM%"
 set "XEYO_PY_LOG=%TEMP%\xeyo-python_%XEYO_PY_LOG_TAG%.log"
-REM 本地模型（llama.cpp）不再由本脚本拉起：进程归后端所有，是否启用看
-REM 设置 → 模型与账号 → 本地模型（持久在 ~/.xeyo/settings.json）。本脚本只做
-REM 两件事：启动前收掉上次遗留、退出后收掉本次残留（硬杀兜底）。
+REM Local models are not started by this script: the backend owns those processes, and
+REM enabling one is a setting under Settings - Models and Accounts - Local model,
+REM persisted in ~/.xeyo/settings.json. This script only does two things: scavenge
+REM leftovers from the previous run before start, and scavenge this run's leftovers
+REM after exit as a hard-kill fallback.
 
 echo.
 echo   XEYO - launcher (dev / hot-reload)
@@ -81,7 +83,7 @@ popd
 REM Free stale listeners on both the backend and frontend port first (port-occupied fix).
 call :FREE_PORT
 
-REM 收掉上一次遗留的本地模型进程（崩溃残留会一直占着显存与端口）
+REM Scavenge local-model processes left over from a crash (they keep holding VRAM and the port)
 call :SCAVENGE_LOCAL_MODEL
 
 REM ---------- start backend (background) + wait for /health ----------
@@ -118,7 +120,8 @@ call npm run tauri:dev
 set "EXITCODE=%ERRORLEVEL%"
 popd
 call :FREE_PORT
-REM 关闭 XEYO = 关闭本地模型。正常路径由后端 shutdown 钩子完成，这里兜住硬杀/崩溃。
+REM Closing XEYO closes the local model too. The backend's shutdown hook handles the
+REM normal path; this call covers hard-kill and crash.
 call :STOP_LOCAL_MODEL
 if not "%EXITCODE%"=="0" goto ERR_TAURI
 goto DONE
@@ -138,9 +141,9 @@ if defined XEYO_FRONTEND_PORT (
 )
 exit /b 0
 
-REM ===== 本地模型（llama.cpp）生命周期兜底；进程归后端所有，这里只做清理 =====
-REM 凭 ~/.xeyo/local-models/run/run.json 里的 pid 收掉整棵进程树。
-REM 后端正常退出时自己就会收；这两个钩子专门覆盖"Python 被硬杀"的路径。
+REM ===== Local model (llama.cpp) lifecycle fallback; the backend owns the processes, this only cleans up =====
+REM Kills the whole process tree via the pid in ~/.xeyo/local-models/run/run.json.
+REM The backend does this itself on a normal exit; these two hooks cover "Python was hard-killed".
 :SCAVENGE_LOCAL_MODEL
 py -3.11 "%~dp0python\scripts\local_model_ctl.py" --stop >nul 2>&1
 exit /b 0

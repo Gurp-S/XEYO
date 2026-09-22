@@ -14,7 +14,7 @@ from typing import Any, Sequence
 
 from synaptic.metrics import assert_no_llm_dependency
 from synaptic.replay import SessionRecord, TurnRecord, iter_session_files, run_session
-from synaptic.types import MODE_APPEND_ONLY, MODE_CLOSURE
+from synaptic.types import MODE_APPEND_ONLY, MODE_CLOSURE, WscParams
 
 NEEDLE_CATS = ("user", "error_sig", "path", "path_recent", "failure_site")
 
@@ -341,6 +341,30 @@ COHORTS: tuple[tuple[str, int, int], ...] = (
 )
 
 
+def recoverability_warnings(rc: dict[str, Any]) -> list[str]:
+	"""可恢复性的**唯一报警判据**：句柄覆盖率与 expand 往返无损率。
+
+	为什么不是"索引超额度"：索引桶规模是「这轮剪掉多少」的函数（实测 median 0 / p90 1189 /
+	p95 1348），且那笔 1,600 从来只报账不裁剪。拿它当报警会得到一个纯粹的口径假象 ——
+	评测台几乎每枪"超"、生产一次不超（因为头不重建）。真事故只有一个形状：
+	**节点被剪了，却没有活句柄能把它拉回来**。
+	"""
+	out: list[str] = []
+	missing = int(rc.get("pruned_nodes") or 0) - int(rc.get("bound_nodes") or 0)
+	if rc.get("pruned_nodes") and missing > 0:
+		out.append(
+			f"⚠ {missing} 个被剪节点没有活句柄（覆盖率 {rc['coverage']:.2%}）"
+			"：expand 拉不回来 = 对外承诺破了"
+		)
+	lossy = int(rc.get("roundtrip_checked") or 0) - int(rc.get("roundtrip_lossless") or 0)
+	if rc.get("roundtrip_checked") and lossy > 0:
+		out.append(
+			f"⚠ expand 往返 {lossy}/{rc['roundtrip_checked']} 条不无损"
+			"：取回的不是当初剪掉的那份"
+		)
+	return out
+
+
 def cohort_of(n_messages: int) -> str:
 	for name, lo, hi in COHORTS:
 		if lo <= n_messages < hi:
@@ -441,6 +465,15 @@ DEVIATIONS = [
 	"REQUESTS 固定在 1200 内按 full→dedup→dedup_short→handles 降级；"
 	"若固定段和主链仍超限，审计字段 fixed_overflow_tokens / main_overflow_tokens "
 	"如实记账，不伪装成未超预算。",
+	"**索引的报警判据是覆盖率，不是额度**：``recoverability_warnings()`` 只在「有被剪节点没有活句柄」"
+	"或「expand 往返不无损」时报警；``index_overflow_tokens`` 是纯观测线（见下条）。",
+	"**热层三桶：可恢复性索引单列**：剪枝卡面（``[DECISIONS]`` + ``[PRUNED]``）不再算进 "
+	"main_overflow——它逐行都是句柄的唯一出口，规模是「剪掉多少」的函数而非注意力旋钮。 "
+	"它按 ``index_segment_budget_tokens``（Medium+ 1600，取自实测 p95=1348 之上）单独 "
+	"报一笔 ``index_tokens`` / ``index_overflow_tokens``，**只报账不删内容**；真实成本看 "
+	"``hot_total_tokens`` = fixed + main + index。依据：两批语料 51 会话末轮投影，卡面 "
+	"p90 占热层 64%，旧口径下 19/51 报「主链超限」而固定段 0/51 超、总热层 50/51 在 "
+	"hot_budget 以内——那是记账错配；新口径下主链超限 0 个、索引点名 2 个。",
 	"**固定段硬闸**：当固定段预算连 dedup@80 都装不下时，``[REQUESTS]`` 只尝试句柄；"
 	"连句柄也装不下则记录 ``request_mode=dropped`` 并关闭该段，``[PATHS]`` 同样受子段额度限制。",
 	"**path 针口径放宽**：path/path_recent 的存活判定改为路径 basename 级宽松匹配，"
@@ -528,8 +561,13 @@ def render_markdown(rep: dict[str, Any]) -> str:
 				f"median {r['reduction_vs_v61']['median']:.1%}"
 				f"（可比回合 {r['compared_turns']}，基线缺失 {r['baseline_missing_turns']}）"
 			)
+		# 名义预算取自本档的 hot_budget_tokens —— 它是"注意力预算"，不是"实发大小"：
+		# 实发头里还有可恢复性索引与 [REQUESTS]，两者按裁定都不算进这个数。
+		_hot_budget = WscParams(mode=r["mode"]).for_level(r["level"]).hot_budget_tokens
 		L.append(
-			f"- 热层 token：median {r['hot_tokens']['median']:.0f} / p90 {r['hot_tokens']['p90']:.0f}"
+			f"- 实发头 token（注意力+索引+原话，**不等于**名义注意力预算 "
+			f"{_hot_budget}）：median {r['hot_tokens']['median']:.0f} / "
+			f"p90 {r['hot_tokens']['p90']:.0f}"
 		)
 		if r.get("compared_turns"):
 			# 主指标先行（2026-09-15，用户裁定）：steady + mean。
@@ -605,6 +643,8 @@ def render_markdown(rep: dict[str, Any]) -> str:
 		L.append(
 			f"- expand 往返逐字节比对：{rc['roundtrip_lossless']}/{rc['roundtrip_checked']} 无损（{rc['lossless_rate']:.2%}）"
 		)
+		for w in recoverability_warnings(rc):
+			L.append(f"- {w}")
 		L.append("")
 		ch = r.get("churn", {})
 		if ch:

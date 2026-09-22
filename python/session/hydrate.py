@@ -59,6 +59,8 @@ def message_from_row(row: dict[str, Any]) -> Message | None:
 		kwargs["note_kind"] = kind.strip() if isinstance(kind, str) else ""
 		fp = row.get("note_fp")
 		kwargs["note_fp"] = fp.strip() if isinstance(fp, str) else ""
+		if row.get("note_retracted") is True:
+			kwargs["note_retracted"] = True
 	return Message(role=role, content=content, **kwargs)  # type: ignore[arg-type]
 
 

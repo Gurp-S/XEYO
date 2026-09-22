@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import APIRouter, Query
 
 from audit.log import default_audit_log
+from engine.trace_graph import TraceGraph
 
 router = APIRouter(tags=["audit"])
 
@@ -38,3 +39,24 @@ def list_audit_events(
 		"limit": limit,
 		"offset": offset,
 	}
+
+
+@router.get("/v1/audit/trace")
+def get_audit_trace(
+	session_id: str = Query(..., min_length=1),
+	since_ts: float | None = Query(default=None, ge=0),
+	until_ts: float | None = Query(default=None, ge=0),
+	limit: int = Query(default=200, ge=1, le=1000),
+) -> dict[str, Any]:
+	"""返回指定 session 的脱敏运行证据链。"""
+	rows = default_audit_log().query(
+		session_id=session_id,
+		since_ts=since_ts,
+		until_ts=until_ts,
+		limit=limit,
+	)
+	return TraceGraph.from_audit_rows(
+		rows,
+		session_id=session_id,
+		max_events=limit,
+	).snapshot()

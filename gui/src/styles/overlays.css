@@ -1,14 +1,15 @@
 /* auto-split from index.css L2706-2790 — menu-flyout / ctx-menu / seg; do not edit order relative to styles/entry.css */
 
-/* 全 GUI 菜单统一毛玻璃：半透明底 + 真实 backdrop blur */
+/* 全 GUI 菜单统一毛玻璃：半透明底 + 真实 backdrop blur（blur 量由 tokens.css 的 --xy-blur 统一给） */
 .xy-menu-flyout,
 .xy-ctx-menu,
 .xy-menu-frosted {
   background: color-mix(in oklch, var(--xy-paper) 48%, transparent);
-  -webkit-backdrop-filter: blur(32px) saturate(1.45);
-  backdrop-filter: blur(32px) saturate(1.45);
+  -webkit-backdrop-filter: var(--xy-blur);
+  backdrop-filter: var(--xy-blur);
   box-shadow:
     var(--xy-modal-shadow),
+    var(--xy-edge-hi),
     0 0 0 0.5px color-mix(in srgb, var(--xy-ink) 8%, transparent);
 }
 html[data-scheme="dark"] .xy-menu-flyout,

@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "benchmark": "xeyo_mcp_adversarial",
+  "timestamp_utc": "2026-09-18T04:21:13.229273+00:00",
+  "git_head": "19f82059a30b1b29f7ec893dde7d85c517aca78c",
+  "conditions": {
+    "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+    "transport": "no real MCP process; deterministic known-tool resolver",
+    "security_oracle": "policy decision plus grant lifecycle state"
+  },
+  "summary": {
+    "passed": 9,
+    "total": 10,
+    "failed": 1
+  },
+  "cases": [
+    {
+      "case": "default_policy_is_confirmation_not_implicit_allow",
+      "expected": "ask",
+      "observed": "ask",
+      "passed": true,
+      "detail": "Dynamic MCP default is outbound_ask; no coordinator execution is fail-safe denied by existing e2e tests."
+    },
+    {
+      "case": "unknown_mcp_server_or_tool",
+      "expected": "deny",
+      "observed": "deny",
+      "passed": true,
+      "detail": "mcp_gateway_unknown_tool"
+    },
+    {
+      "case": "model_argument_identity_spoof",
+      "expected": "deny",
+      "observed": "deny",
+      "passed": true,
+      "detail": "Target identity is resolved from the known tool set, not from nested args."
+    },
+    {
+      "case": "enterprise_deny_over_saved_allow",
+      "expected": "deny",
+      "observed": "deny",
+      "passed": true,
+      "detail": "Enterprise deny is evaluated before grant matching."
+    },
+    {
+      "case": "disabled_server_over_saved_allow",
+      "expected": "deny",
+      "observed": "deny",
+      "passed": true,
+      "detail": "The enabled probe is a DENY gate before grant lookup."
+    },
+    {
+      "case": "expired_grant",
+      "expected": "ask",
+      "observed": "ask",
+      "passed": true,
+      "detail": "Expired grants are not returned by PermissionGrantStore.match."
+    },
+    {
+      "case": "workspace_scope_escape",
+      "expected": "ask",
+      "observed": "ask",
+      "passed": true,
+      "detail": "A grant bound to workspace A does not match workspace B."
+    },
+    {
+      "case": "permission_revoke_immediate",
+      "expected": "allow_then_ask",
+      "observed": "allow_then_ask",
+      "passed": true,
+      "detail": "Revoke removes the matching grant immediately in the current process."
+    },
+    {
+      "case": "mcp_argument_change_rechecks_permission",
+      "expected": "allow_then_ask_or_deny",
+      "observed": "allow_then_allow",
+      "passed": false,
+      "detail": "Current v2 MCP grant fingerprint is tool-identity based and excludes args; this case detects that limitation."
+    },
+    {
+      "case": "retry_does_not_silently_inherit_expired_or_revoked_auth",
+      "expected": "allow_then_ask_or_deny_after_lifecycle_change",
+      "observed": "allow_then_allow",
+      "passed": true,
+      "detail": "A normal retry intentionally reuses a live saved grant; TTL/revoke are the lifecycle controls. No implicit per-retry re-prompt exists."
+    }
+  ]
+}

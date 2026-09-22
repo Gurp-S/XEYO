@@ -160,6 +160,16 @@ export type SteerDeliveredStreamEvent = {
 	messageIds: string[];
 } & EventIdentity;
 
+/**
+ * 重放空洞（reattach）：客户端要的起点已被后端环形缓冲挤掉，重放段不完整。
+ * 只带事实（丢了到哪、还剩从哪起）——由调用方去拉全量 transcript 对账。
+ */
+export type StreamGapStreamEvent = {
+	kind: 'stream_gap';
+	droppedThroughEventId: number;
+	firstAvailableEventId: number;
+} & EventIdentity;
+
 export type PermissionPendingStreamEvent = {
 	kind: 'permission_pending';
 	requestId: string;
@@ -202,17 +212,22 @@ export type AskQuestionOption = {
 
 /** 结构化分题（多问题表单）；GUI 按题渲染选项组，替代旧的拍平口径。 */
 export type AskQuestion = {
+	/** 答案按 id 回显对号（后端缺省时按有效序合成 q{n}）。 */
+	id: string;
 	question: string;
 	options: AskQuestionOption[];
 	multiSelect: boolean;
 	default?: string | null;
+	header?: string;
+	detail?: string;
 };
 
-function normalizeAskQuestion(raw: unknown): AskQuestion | null {
+function normalizeAskQuestion(raw: unknown, index: number): AskQuestion | null {
 	if (typeof raw !== 'object' || raw === null) return null;
 	const q = raw as Record<string, unknown>;
 	const question = typeof q.question === 'string' ? q.question.trim() : '';
 	if (!question) return null;
+	const rawId = typeof q.id === 'string' ? q.id.trim() : '';
 	const rawOpts = Array.isArray(q.options) ? q.options : [];
 	const options = rawOpts
 		.map((o): AskQuestionOption | null => {
@@ -233,11 +248,16 @@ function normalizeAskQuestion(raw: unknown): AskQuestion | null {
 			return null;
 		})
 		.filter((o): o is AskQuestionOption => o !== null);
+	const header = typeof q.header === 'string' && q.header.trim() ? q.header.trim() : undefined;
+	const detail = typeof q.detail === 'string' && q.detail.trim() ? q.detail.trim() : undefined;
 	return {
+		id: rawId || `q${index + 1}`,
 		question,
 		options,
 		multiSelect: Boolean(q.multiSelect),
 		default: typeof q.default === 'string' && q.default.trim() ? q.default.trim() : null,
+		...(header ? {header} : {}),
+		...(detail ? {detail} : {}),
 	};
 }
 
@@ -430,6 +450,8 @@ export type ChatStreamHandlers = {
 	/** 42 号：后台任务 whole-value 快照帧（空集 = 删除键）。 */
 	onJobs?: (ev: Omit<JobsStreamEvent, 'kind'>) => void;
 	onTaskState?: (ev: TaskStateStreamEvent) => void;
+	/** reattach 重放有洞（后端环形缓冲已挤掉一段）：调用方须拉全量 transcript 对账。 */
+	onStreamGap?: (ev: Omit<StreamGapStreamEvent, 'kind'>) => void;
 	/** 多 Agent：子任务开始（FE 展示「正在运行」卡片）。 */
 	onMultiAgentTask?: (ev: Omit<MultiAgentTaskStreamEvent, 'kind'>) => void;
 	/** 多 Agent：批量结果汇总（FE 卡片落定 done/failed）。 */
@@ -448,6 +470,10 @@ export type ChatStreamHandlers = {
 	onDone: () => void;
 	/** P1 mid-turn inbox：会话忙时后端排队并返回 202（乐观气泡保留并标记 queued）。 */
 	onQueued?: (ev: {queueId: string; position: number}) => void;
+	/** 引导已被后端接受（边界投递）：与 onQueued 互斥，按 messageId 对回执。 */
+	onSteered?: (ev: {messageId: string; delivery: string}) => void;
+	/** 边界投递回执：这批客户端消息号已作为真 user 消息进历史。 */
+	onSteerDelivered?: (ev: Omit<SteerDeliveredStreamEvent, 'kind'>) => void;
 	/**
 	 * opts.kind 区分回合是否已启动：
 	 * - 'session_busy'：409 租约占用，回合未启动；
@@ -466,7 +492,7 @@ export type ChatStreamHandlers = {
 };
 
 export type ParsedSse =
-	| {kind: 'delta'; text: string}
+	| {kind: 'delta'; text: string; eventId?: number}
 	| ReasoningStreamEvent
 	| ToolCallStreamEvent
 	| ToolResultStreamEvent
@@ -474,6 +500,7 @@ export type ParsedSse =
 	| UsageStreamEvent
 	| CompressionStreamEvent
 	| SteerDeliveredStreamEvent
+	| StreamGapStreamEvent
 	| PermissionPendingStreamEvent
 	| PermissionResolvedStreamEvent
 	| AskUserPendingStreamEvent
@@ -594,6 +621,7 @@ export function parseSseBlock(part: string): ParsedSse | null {
 		const obj = JSON.parse(data) as {
 			choices?: {delta?: {content?: string}}[];
 			error?: {message?: string};
+			xeyo_event_id?: number;
 			xy?: {
 				type?: string;
 				name?: string;
@@ -624,6 +652,8 @@ export function parseSseBlock(part: string): ParsedSse | null {
 					session_id?: string;
 					turn_id?: string;
 					event_id?: number;
+					dropped_through_event_id?: number;
+					first_available_event_id?: number;
 					request_id?: string;
 					tool_name?: string;
 					reason?: string;
@@ -762,6 +792,18 @@ export function parseSseBlock(part: string): ParsedSse | null {
 						messageIds: Array.isArray(xy.message_ids)
 							? xy.message_ids.map(String)
 							: [],
+						...readIdentity(xy),
+					};
+				}
+				if (xy.type === 'stream_gap') {
+					return {
+						kind: 'stream_gap',
+						droppedThroughEventId: Number.isFinite(Number(xy.dropped_through_event_id))
+							? Number(xy.dropped_through_event_id)
+							: 0,
+						firstAvailableEventId: Number.isFinite(Number(xy.first_available_event_id))
+							? Number(xy.first_available_event_id)
+							: 0,
 						...readIdentity(xy),
 					};
 				}
@@ -1023,7 +1065,13 @@ export function parseSseBlock(part: string): ParsedSse | null {
 		}
 		const content = obj.choices?.[0]?.delta?.content;
 		if (typeof content === 'string' && content.length > 0) {
-			return {kind: 'delta', text: content};
+			return {
+				kind: 'delta',
+				text: content,
+				...(Number.isFinite(Number(obj.xeyo_event_id))
+					? {eventId: Number(obj.xeyo_event_id)}
+					: {}),
+			};
 		}
 		return null;
 	} catch (err) {
@@ -1051,7 +1099,10 @@ export async function* parseOpenAiSse(
 		// read() 收到的既可能是数据帧，也可能只是 SSE 注释/保活帧。
 		// 二者都证明本地后端连接仍然存活。
 		onActivity?.();
-		buffer += decoder.decode(value, {stream: true});
+		// SSE 允许 CR / CRLF 当行尾（不少网关会转）：先归一成 LF 再按空行切块。
+		// 直接 split('\n\n') 在 CRLF 流上永远切不开 ⇒ 整条流被当成一个块、
+		// JSON.parse 失败 ⇒ 每一帧都被静默丢弃（不报错、界面空白）。
+		buffer += decoder.decode(value, {stream: true}).replace(/\r\n?/g, '\n');
 		const parts = buffer.split('\n\n');
 		buffer = parts.pop() ?? '';
 		for (const part of parts) {

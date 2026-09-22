@@ -38,23 +38,36 @@ from extension import config as _cfg
 # ``运行时读该键``：该键是否真被运行时读取。False = 已下线 / 恒关占位（authority 面
 #   仍保留注册，以免"已裁决键"凭空消失）。GUI 若展示这类键必须按 ``effective`` 显示
 #   并标注已忽略，禁止出现「显示开、实际关」。
-MEMORY_SWITCHES: tuple[tuple[str, str, tuple[str, ...], str, bool, bool], ...] = (
+MEMORY_SWITCHES: tuple[tuple[str, str, tuple[str, ...], str, bool, bool, str], ...] = (
 	# ---- GUI 暴露（当前唯一一项）----
-	("XEYO_C2_LLM_SUMMARY", "C2 摘要 LLM 旁路：压缩摘要改由模型生成（强保真要点列表，多一次模型调用；实测吸收潜力高但输出不稳定，默认关=确定性摘要）", ("0", "1"), "0", True, True),
-	# WSC 影子档（docs/synaptic-compression.md 阶段 B）：**只观察、不改变发送的投影**。
-	# 开=每个长会话最多记 6 轮「若改用突触压缩会长什么样」到 ~/.xeyo/wsc_shadow.jsonl。
-	# 注册进本表的两个理由：①settings.memory 可切换（`apply_to_environ` 启动时与
-	# 切换时把它桥接进 os.environ，影子档读 env）；②注册键在 `side_enabled` 语义下
-	# **不再回退全局升格默认**，不会出现「用户没开、影子自己在跑」（该事故形态见
-	# memory/wsc_shadow.py 的开关说明）。
+	("XEYO_C2_LLM_SUMMARY", "C2 摘要 LLM 旁路：压缩摘要改由模型生成（强保真要点列表，多一次模型调用；实测吸收潜力高但输出不稳定，默认关=确定性摘要）", ("0", "1"), "0", True, True, "settings"),
+	# WSC 生产档（docs/synaptic-compression.md 阶段 C）：**C2 触发、WSC 执行压缩投影**。
+	# 开=C2 路径改由 memory/wsc_projection.py 生成；关闭即回退原 C2。
+	# 仍注册进本表：settings.memory 可切换，`apply_to_environ` 在启动/切换时桥接 env。
 	# `exposed=False`：**刻意不占 GUI 暴露面**——该面由
 	# `tests/test_memory_switch_authority.py::test_gui_exposed_surface_is_exactly_one`
 	# 锁死为「恒一项」，扩大它属产品决策，不由本模块顺手改。切换走 settings.json：
 	# `memory_switches.save({"XEYO_WSC": "1"}, cwd=<工作区>)`。
-	("XEYO_WSC", "WSC 影子档（阶段 B：只观察不生效）——记「若改用突触压缩会长什么样」，不改发送；每会话采样 6 轮", ("0", "1"), "0", False, True),
+	# authority=**env**：运行时 `live_enabled()` 读的就是 env（settings 经 `apply_to_environ`
+	# 桥进 env 才生效）。标成 settings 会让 `current()` 按注册表报"关"、而进程里一条残留
+	# `export XEYO_WSC=1` 把 WSC 点亮 —— 正是本模块红线要堵的"账面一套、运行一套"。
+	("XEYO_WSC", "WSC 生产档（阶段 C：C2 触发、WSC 执行）——压缩投影改走突触压缩；关闭即回退原 C2", ("0", "1"), "0", False, True, "env"),
 	# ---- 非 GUI 暴露（测试 / 评测便捷开关）----
-	("XEYO_L5", "L5 模式：project=默认链(不跑每轮 decide)；v61=实验通道(每轮 decide)", ("project", "v61"), "project", False, True),
-	("XEYO_TOOL_AGING", "工具结果老化：压缩后冻结区仍可按窗口紧追推进（默认关）", ("0", "1"), "0", False, True),
+	# 默认值以 ``l5_flag.DEFAULT_MODE`` 为准（2026-09-06 用户决策「v61 默认开启」，
+	# 见本文件下方"固化的开关"注释）。原先这里写的是 "project"，而 ``l5_mode()`` 把权威
+	# 交给 get_value ⇒ 那份 v61 兜底成了**永远走不到的死代码**，两个默认源互相矛盾。
+	("XEYO_L5", "L5 模式：v61=默认链(每轮 decide，记忆压缩决策引擎自主)；project=快路径回退(不跑每轮 decide)", ("project", "v61"), "v61", False, True, "settings"),
+	("XEYO_TOOL_AGING", "工具结果老化：压缩后冻结区仍可按窗口紧追推进（默认关）", ("0", "1"), "0", False, True, "settings"),
+	# ---- WSC 内部两个策略旗标（权威=env；2026-09-22 收编）----
+	# 收编理由：它们决定"WSC 到底怎么发头"，但此前只认裸 env —— `current()` 看不见，
+	# 于是"哪些记忆机制在跑"必须读源码才答得出（本轮已被这个形状咬过两次）。
+	# 不收进 settings 权威的原因：整条离线评测链（`tests/wsc/*`、`_wsc_out/*` 探针）
+	# 靠 env 逐臂切换；若改走 ``get_value``（settings 唯一权威、env 不参与），
+	# 那些 ``monkeypatch.setenv`` 会静默失效 —— 正是本轮反复抓出的"空洞测试"形状。
+	# 所以本表给这两项标 ``authority="env"``：**报的就是运行时真读到的那个值**，不留两套口径。
+	# GUI 仍不暴露（exposed 面由 test_gui_exposed_surface_is_exactly_one 锁死为恒一项）。
+	("XEYO_WSC_FROZEN_HEAD", "WSC 折叠头冻结：无新折叠事件的枪逐字节复用上次的头（默认开；关=回到'每枪重投影'的历史行为，生产实测贵 2.3 倍）", ("0", "1"), "1", False, True, "env"),
+	("XEYO_WSC_CADENCE_ABSORB", "WSC 吸收节奏：右段何时折进头改由 synaptic.cadence 的成本判据决定（默认关。09-22 实测：PAYBACK_SHOTS=8 下 43 次判定 0 次放行 ⇒ 该判据在活路径上只做否决，折叠实际由 journal_growth 尺寸保底线触发；成本 1.036× vs 不折 1.000× ⇒ 不开）", ("0", "1"), "0", False, True, "env"),
 	# ---- 固化（2026-09-06 用户决策 "v61 默认开启"）→ 删除的 7 个开关 ----
 	# XEYO_C2_GATE（project 专用闸；v61 下 decide 自主，无读取意义）
 	# XEYO_V61_PARETO / XEYO_V61_SI / XEYO_V61_DYNAMIC_R（B1/B2/B3 证据门未过，恒关）
@@ -75,14 +88,44 @@ MEMORY_SWITCHES: tuple[tuple[str, str, tuple[str, ...], str, bool, bool], ...] =
 	# 旧 settings 残留值被忽略；受控重开须源码级 + A1（200+ 轮 live）+ A3 过门证据。
 	# 本条目仅保留注册占位（authority 面不因下线而少一个已裁决键）；
 	# 运行时读该键 = False → ``current()`` 的 effective 恒为默认、source 报 "ignored"。
-	("XEYO_MEMORY_INDEX_LIVE", "Memory 索引常驻注入：已下线恒关（2026-09-09 裁决维持下线；事故 sess_mtiche8l 后退役；重开须源码级+A1/A3 证据门）", ("0", "1"), "0", False, False),
+	("XEYO_MEMORY_INDEX_LIVE", "Memory 索引常驻注入：已下线恒关（2026-09-09 裁决维持下线；事故 sess_mtiche8l 后退役；重开须源码级+A1/A3 证据门）", ("0", "1"), "0", False, False, "settings"),
 )
 
 _ALLOWED = {k: v for (k, _, v, *_) in MEMORY_SWITCHES}
 _LABELS = {k: v for (k, v, *_) in MEMORY_SWITCHES}
 _DEFAULTS = {k: v for (k, _, _, v, *_) in MEMORY_SWITCHES}
-_EXPOSED = {k: e for (k, _, _, _, e, _) in MEMORY_SWITCHES}
-_RUNTIME_READS = {k: r for (k, _, _, _, _, r) in MEMORY_SWITCHES}
+_EXPOSED = {k: e for (k, _, _, _, e, _, _) in MEMORY_SWITCHES}
+_RUNTIME_READS = {k: r for (k, _, _, _, _, r, _) in MEMORY_SWITCHES}
+#: 每个键的**权威来源**："settings" = GUI/settings.memory（env 不参与）；
+#: "env" = 运行时直接读 env（settings 经 ``apply_to_environ`` 桥进 env 后才生效）。
+#: 报账时必须按各自权威读，否则又造出"显示一套、运行一套"。
+_AUTHORITY = {k: a for (k, _, _, _, _, _, a) in MEMORY_SWITCHES}
+
+
+#: 布尔旗标的"开"字面量 —— 与 ``memory.wsc_projection._flag_on`` 同一份，不留两套。
+_ON_VALUES = ("1", "true", "on", "yes")
+_OFF_VALUES = ("0", "false", "off", "no")
+
+
+def env_flag(key: str) -> bool:
+	"""``authority="env"`` 键的**运行时真值**：认得的字面量按字面量，认不得的按默认。
+
+	单一口径的意义：以前 ``XEYO_WSC=on`` 这类写法运行时算开、报账按 allowed 校验算关，
+	又造出"显示一套、运行一套"。这里把两侧收到同一个函数上。
+
+	"认不得 ⇒ 回落注册表默认"是刻意的：`FROZEN_HEAD` 的历史判据是"不在关字面量里就算开"，
+	若这里把垃圾值判成关，就等于用一次收编悄悄改了默认行为（18×3 个字面量逐一比对过，
+	只有这一档会分歧）。
+	"""
+	raw = (os.environ.get(key) or "").strip().lower()
+	dflt = (_DEFAULTS.get(key) or "0") in _ON_VALUES
+	if not raw:
+		return dflt
+	if raw in _ON_VALUES:
+		return True
+	if raw in _OFF_VALUES:
+		return False
+	return dflt
 
 
 def _memory_store(cwd: str | None) -> dict[str, Any]:
@@ -114,10 +157,13 @@ def _coerce(key: str, raw: Any) -> str | None:
 
 
 def _resolve_cwd(cwd: str | None) -> str | None:
-	"""运行时无显式 cwd 时，用服务器管理的 XEYO_CWD（非记忆开关）解析工作区设置。"""
-	if cwd:
-		return cwd
-	return os.environ.get("XEYO_CWD", "").strip() or None
+	"""工作区解析**转发给 ``extension.config`` 的唯一口径**。
+
+	这里原先自己抄了一份「显式 cwd > ``XEYO_CWD``」，与 ``localmodels.config`` /
+	``extension.mcp_manager`` 里的另两份同形副本各自漂移过：同一键在不同子系统读到
+	不同值。发布 ``XEYO_CWD`` 的责任在入口层（``cli.cwdutil.resolve_cwd``）。
+	"""
+	return _cfg.resolve_workspace_cwd(cwd)
 
 
 def stale_keys(cwd: str | None = None) -> list[str]:
@@ -186,7 +232,11 @@ def get_value(key: str, cwd: str | None = None) -> str:
 
 
 def current(cwd: str | None = None) -> dict[str, Any]:
-	"""返回每个开关的生效值（settings.memory > 默认；环境变量不再参与）。
+	"""返回每个开关的生效值，**按各自权威**：
+
+	- ``authority="settings"``（默认）：settings.memory > 注册表默认，环境变量一律不参与；
+	- ``authority="env"``（WSC 两个旗标）：运行时读的就是 env ⇒ 这里也读 env，
+	  并报 ``source="env"``。settings 想改它得经 ``apply_to_environ`` 桥进 env。
 
 	每项额外带 ``exposed`` / ``ignored`` / ``effective``：消费者（GUI）一律按
 	``exposed`` 过滤、按 ``effective`` 显示开关态。恒关键（``runtime_reads=False``）
@@ -194,12 +244,18 @@ def current(cwd: str | None = None) -> dict[str, Any]:
 	"""
 	store = _memory_store(_resolve_cwd(cwd))
 	out: dict[str, Any] = {}
-	for key, label, allowed, default, exposed, runtime_reads in MEMORY_SWITCHES:
+	for key, label, allowed, default, exposed, runtime_reads, authority in MEMORY_SWITCHES:
 		val: Any = store.get(key)
 		coerced = _coerce(key, val) if val is not None else None
 		if coerced is None:
 			coerced = default
-		if runtime_reads:
+		if authority == "env":
+			# 报的就是运行时真读到的那个值（同一个 ``env_flag``，不留两套口径）。
+			raw_env = (os.environ.get(key) or "").strip()
+			effective = "1" if env_flag(key) else "0"
+			coerced = effective
+			source = "env" if raw_env else "default"
+		elif runtime_reads:
 			effective = coerced
 			source = "settings" if (key in store) else "default"
 		else:
@@ -215,6 +271,7 @@ def current(cwd: str | None = None) -> dict[str, Any]:
 			"default": default,
 			"exposed": exposed,
 			"ignored": not runtime_reads,
+			"authority": authority,
 			"effective": effective,
 		}
 	return out

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Literal, Protocol, runtime_checkable
 
 from engine.abort import AbortController
+
+
+ToolStatus = Literal["ok", "error", "pending", "running", "cancelled"]
 
 
 @dataclass
@@ -18,6 +21,36 @@ class ToolResult:
 	metadata: dict[str, Any] | None = None
 	"""桌面 UI 旁路载荷（XeyoUI → SSE xy.ui → 前端分发）。"""
 	ui: dict[str, Any] | None = None
+	"""引擎可判定的执行状态；为空时由 is_error 推导，兼容旧构造方式。"""
+	status: ToolStatus | str | None = None
+	"""稳定错误分类；模型文本仍由 content 承载，调度逻辑读取此字段。"""
+	error_kind: str | None = None
+	"""是否适合由执行层重试；默认 False，避免错误地重复副作用。"""
+	retryable: bool = False
+	"""副作用类别：none / write / process / external / unknown。"""
+	side_effect: str = "none"
+	"""与 ActionJournal 关联的稳定动作 id。"""
+	action_id: str | None = None
+
+	def __post_init__(self) -> None:
+		if self.status is None:
+			self.status = "error" if self.is_error else "ok"
+		if self.status == "error":
+			self.is_error = True
+		if self.is_error and not self.error_kind:
+			# 旧工具仍可能只返回 is_error + 文本；至少给执行层一个稳定的
+			# “未细分内部错误”类别，避免下游再次解析自然语言或得到 None。
+			self.error_kind = "INTERNAL"
+
+	def execution_metadata(self) -> dict[str, Any]:
+		"""供事件/审计使用的机器字段；不包含原始参数或秘密。"""
+		return {
+			"status": self.status or ("error" if self.is_error else "ok"),
+			"error_kind": self.error_kind,
+			"retryable": bool(self.retryable),
+			"side_effect": self.side_effect,
+			"action_id": self.action_id,
+		}
 
 
 @runtime_checkable

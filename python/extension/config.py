@@ -52,6 +52,38 @@ def home_settings_path() -> Path:
 	return _home_root() / "settings.json"
 
 
+#: 入口层发布「本进程的工作区是哪个」的**唯一信道**。
+WORKSPACE_ENV = "XEYO_CWD"
+
+
+def publish_workspace_cwd(cwd: str | Path | None) -> None:
+	"""入口层确定工作区后**必须**调用它，把工作区广播给下游。
+
+	为什么需要：``settings.json`` 是 home + workspace 两处分层合并的，但下游模块
+	（memory 开关 / localmodels / mcp_manager）拿不到入口的 ``--cwd``——它们只能读
+	这个信道。信道空 ⇒ 工作区那一半**静默不生效**（回落到 home 或默认），界面却仍
+	显示"已设置"。原先只有 ``cli serve`` 会设它，于是 ``chat`` / ``attach`` /
+	``coord`` / 脚本 / 评测 全部读到半个配置面。
+	"""
+	text = str(cwd or "").strip()
+	if not text:
+		return
+	os.environ[WORKSPACE_ENV] = str(Path(text).expanduser())
+
+
+def resolve_workspace_cwd(cwd: str | None = None) -> str | None:
+	"""工作区解析的**唯一口径**：显式 ``cwd`` > 入口发布的 ``XEYO_CWD`` > ``None``。
+
+	返回 ``None`` = 本进程没有工作区语境，调用方只能读 home 级。原先这句话在
+	``memory.memory_switches`` / ``localmodels.config`` / ``extension.mcp_manager``
+	里各抄了一遍（三份私有 ``_resolve_cwd``），任何一份改了规则就会出现
+	「同一键在不同子系统读到不同值」——那是配置系统最难查的那类 bug。
+	"""
+	if cwd and str(cwd).strip():
+		return str(cwd).strip()
+	return (os.environ.get(WORKSPACE_ENV) or "").strip() or None
+
+
 def _merge(base: dict[str, Any], extra: dict[str, Any]) -> dict[str, Any]:
 	"""两层浅合并：插件/技能/MCP 的 enabled 用 extra（workspace）覆盖 base（home）。"""
 	out = dict(base)

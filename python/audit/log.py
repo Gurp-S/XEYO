@@ -2,6 +2,7 @@
 
 只记录最小事件集：
 - permission.pending / permission.resolved / permission.denied
+- model.started / model.finished
 - tool.started / tool.finished
 
 设计约束：append-only、每行一条 JSON、无内存索引；读取方（前端 ActivityLog

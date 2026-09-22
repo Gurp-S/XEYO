@@ -61,6 +61,12 @@ def discard_unpaired_tool_results(messages: list[Message]) -> list[Message]:
 			else:
 				changed = True
 			continue
+		if message.hidden:
+			# 引擎注入的留痕（system 形态 / 通报片段形态）不是真实轮边界：
+			# 它不得截断 assistant tool_use ↔ tool_result 的配对，否则一旦落在
+			# 批次中间，整批工具结果会被判"无对应调用"而静默丢掉。
+			out.append(message)
+			continue
 		pending = set()
 		out.append(message)
 	return out if changed else messages
@@ -69,13 +75,17 @@ def discard_unpaired_tool_results(messages: list[Message]) -> list[Message]:
 def reorder_system_messages_around_tool_results(
 	messages: list[Message],
 ) -> list[Message]:
-	"""Move system rows out of an assistant tool-result batch.
+	"""Move engine-injected rows out of an assistant tool-result batch.
 
 	A transcript writer race can persist a system row between results belonging to
 	the same assistant tool call. Providers then reject the later ``role=tool``
 	row because it no longer follows the assistant ``tool_calls`` row. System
 	rows are retained and moved after the complete batch; no message content is
 	changed.
+
+	通报片段形态的留痕（role=user + ``note_key``）同罪同罚：它对厂商合法，但对
+	"tool 必须紧跟 tool_calls"这条配对规则同样是打断，且逐出时不得只认 system
+	角色——那样会让整批结果被 :func:`discard_unpaired_tool_results` 吃掉。
 	"""
 	out: list[Message] = []
 	changed = False
@@ -96,7 +106,7 @@ def reorder_system_messages_around_tool_results(
 				tool_rows.append(next_message)
 				j += 1
 				continue
-			if next_message.role == "system":
+			if next_message.role == "system" or next_message.hidden:
 				system_rows.append(next_message)
 				j += 1
 				continue

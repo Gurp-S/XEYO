@@ -70,6 +70,7 @@ class Node:
 	symbols: tuple[str, ...] = ()  # 触碰的符号（用于语义邻接的弱启发式）
 	error_sig: str = ""  # 错误签名（异常类 / 首行关键片段）
 	replay_cmd: str = ""  # 可重放命令（只读工具才有）
+	command: str = ""  # 本次工具调用携带的 shell 命令原文（非 shell 工具为空）
 	weights: dict[str, float] = field(default_factory=dict)
 
 	def weight(self, name: str) -> float:
@@ -320,9 +321,29 @@ class WscParams:
 	#: 修掉自锁后，长会话子集（25 个最长会话 / 405 回合）单调偏好小 margin：
 	#: `0.1 → ¥4.5877` / `0.25 → ¥4.6654` / `0.5 → ¥4.6716`，且针不退化
 	#: （path 0.874 / 0.868 / 0.858）。全语料确认见 `_wsc_out/_adopted_m01.*`。
-	fold_margin: float = 0.1
+	#: 折叠节奏的保守边际。**09-22 从 0.1 钉到 1.0**：判据现在是
+	#: `回本枪数 ≤ PAYBACK_SHOTS / margin`，0.1 等于允许等 80 枪回本 —— 那就是
+	#: 旧 C 档每 2~3 枪折一次、三条 transcript 上实测贵 2.2~2.4 倍的原因。
+	#: 1.0 = 只接受「8 枪内回本」的折叠（PAYBACK_SHOTS 由实测单价与 r=89.8% 推得）。
+	fold_margin: float = 1.0
 	#: 价差倍率（未命中价 / 命中价）；契约测试比对 `usage/pricing.py`，勿手改。
 	fold_price_ratio: float = 30.0
+	#: 可恢复性索引（剪枝卡面 = ``[DECISIONS]`` + ``[PRUNED]``）的**独立额度**。
+	#:
+	#: 为什么单列一桶：卡面逐行都带 ``handles.expression(...)`` ⇒ 它就是句柄的唯一出口，
+	#: 它的规模是「剪掉了多少」的函数，不是注意力稀缺性的旋钮。实测两批语料 51 会话
+	#: （末轮投影）卡面 median 0 / p90 1189 / p95 1348 / max 2113 tok，p90 时占热层
+	#: **64%**；塞进 ``main_segment_budget_tokens=1200`` 只会报出假超限，而真要压它只有
+	#: 一条路叫删句柄 —— 那等于削掉「被剪节点必可 expand 拉回」这条承诺。
+	#: 故本桶**只报账不删内容**，取值定在实测 p95(1348) 之上留头部空间。
+	#:
+	#: ⚠️ 名字里有 budget，但它**不是闸**：报警判据在 ``report.recoverability_warnings``
+	#: （覆盖率 <1 或 expand 往返不无损）。拿本数当报警会得到口径假象 —— 评测台几乎每枪
+	#: "超"、生产一次不超（头不重建）。2026-09-22 实测拆分：中位 1,561 tok 里
+	#: 句柄面 1,271 / 决策卡 343 ⇒ 真要加上限只能对句柄面动（删决策卡=删信息，违反规则 1），
+	#: 而砍句柄面的前提是先有取回率数据（``memory.wsc_projection._note_head_usage`` 正在记）。
+	#: 成本口径不变：真实总量由审计 ``hot_total_tokens`` = fixed + main + index 给出。
+	index_segment_budget_tokens: int = 1_600
 
 	def for_level(self, level: str) -> "WscParams":
 		"""按级别派生参数（水位 → 预算/跳数），保持其它权重不变。"""

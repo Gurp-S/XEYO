@@ -18,10 +18,20 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from msgtypes.message import Message, system_note
+from msgtypes.message import Message, notice_note, system_note
 from prompt import inject_store
+from prompt.t_now_strategy import (
+	STRATEGY_NOTICE_FRAGMENT,
+	STRATEGY_SYSTEM_CHANNEL,
+)
 
 _log = logging.getLogger(__name__)
+
+#: 留痕可落库的声道：这两档都把状态块**独立成一条消息**送进历史，角色本身
+#: 即说话人身份；其余档（env / legacy / skip）不写留痕（见 ``allow_notes``）。
+NOTE_CARRIERS: frozenset[str] = frozenset(
+	{STRATEGY_SYSTEM_CHANNEL, STRATEGY_NOTICE_FRAGMENT}
+)
 
 
 def current_session_id() -> str:
@@ -41,19 +51,36 @@ def persist_pending(
 	session_id: str = "",
 	snapshot: Any = None,
 	allow_notes: bool = True,
+	carrier: str = STRATEGY_SYSTEM_CHANNEL,
 ) -> int:
 	"""把待落库留痕条目写进历史（append-only，绝不 insert/改中间）。
 
 	返回落库条数。``store`` 是 MessageStore；``snapshot`` 给出时会顺手清掉
 	投影缓存（追加了新历史，缓存前缀不再有效）。
 
-	``allow_notes=False``（A 闸：本轮声道不是 system_channel ⇒ 厂商不吃中段
-	system）：**不写新留痕**，把待落库条目丢弃并清账 —— 状态块改由 notice
-	声道送达，避免"历史里塞 system 导致每次请求都 4xx"。
+	``carrier`` = 本轮解析出的声道，决定留痕条目的形态：
+	``system_channel`` 写原生 system，``notice_fragment`` 写成带 ``<system-reminder>``
+	信封的 user 片段（对齐 Codex ``ContextualUserFragment``）。**声道变了必须
+	跟着变**——历史上曾把它写死成 system，于是默认档换成通报片段后，A 闸把
+	留痕整个丢弃、台账每轮被清，7 个"值不变不重注"的状态块退化成每边界重发。
+
+	``allow_notes=False``（A 闸：声道不带留痕 ⇒ 厂商不吃中段 system，或通报只走
+	投影）：**不写新留痕**，把待落库条目丢弃并清账 —— 状态块改由 notice 声道
+	送达，避免"历史里塞 system 导致每次请求都 4xx"。
 	"""
 	sid = (session_id or "").strip() or current_session_id()
 	if not sid:
 		return 0
+	# 撤回先落地：状态"不再存在"的那一版必须离开模型投影，哪怕本轮没有新正文要写。
+	# 没有这一步，append-only 台账会把已作废的状态（例：退出 Ask 模式的"只读"合同）
+	# 永久挂在上下文里，模型据此继续遵守一条已经不存在的约束。
+	for key in inject_store.take_retractions(sid):
+		try:
+			if store.retract_note(key):
+				inject_store.forget_key(sid, key)
+		except Exception:  # noqa: BLE001 — 逐出失败不阻断主循环，下一边界再试
+			_log.debug("t_now retract failed: %s", key, exc_info=True)
+			continue
 	try:
 		notes = inject_store.drain_notes(sid)
 	except Exception:  # noqa: BLE001
@@ -71,7 +98,17 @@ def persist_pending(
 	msgs: list[Message] = []
 	for n in notes:
 		try:
-			msg = system_note(n.text, key=n.key, fp=n.fp, kind=n.kind)
+			if carrier == STRATEGY_NOTICE_FRAGMENT:
+				from prompt.notice_channel import wrap_notice
+
+				msg = notice_note(
+					wrap_notice(n.text, key=n.key),
+					key=n.key,
+					fp=n.fp,
+					kind=n.kind,
+				)
+			else:
+				msg = system_note(n.text, key=n.key, fp=n.fp, kind=n.kind)
 			store.append(msg)
 		except Exception:  # noqa: BLE001
 			_log.debug("t_now note append failed: %s", n.key, exc_info=True)
@@ -111,6 +148,7 @@ def invalidate_after_compaction(session_id: str = "") -> None:
 
 
 __all__ = [
+	"NOTE_CARRIERS",
 	"current_session_id",
 	"invalidate_after_compaction",
 	"persist_pending",

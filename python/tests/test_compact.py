@@ -156,14 +156,19 @@ async def test_query_loop_echo_still_works():
 	)
 
 
-def test_should_force_compact_on_pressure_threshold(monkeypatch):
+def test_should_force_compact_on_pressure_threshold(monkeypatch, mem_switch):
 	"""压力门阈值**按窗口推导**：触发点 = 窗口 − 固定预留（实测 54,199）。
 
 	历史：本用例原先断言冻结的 0.80 口径（阈值 0.95），在压力门改为窗口几何
 	推导后失效（既有红）。现按当前语义重写，并把"小窗口下触发点塌缩"这一
 	缺陷形态钉成回归守卫——2026-09-16 实测：窗口 65536 时触发点只有 11,337
 	token，等于每道长任务从开头就在压缩上下文。
+
+	刻意钉 ``XEYO_L5="project"``：窗口几何推导属 **Path A**，而 Path A 只在 project
+	模式开启（v61 下 decide 自主、公式恒 False）。原先这条靠"环境默认恰好是
+	project"才成立，L5 默认改成 v61（2026-09-06 决策）后隐含依赖就断了。
 	"""
+	mem_switch(XEYO_L5="project")
 	from memory.runtime import should_force_compact_on_pressure
 
 	monkeypatch.delenv("XEYO_CONTEXT_COMPACT_RATIO", raising=False)
@@ -184,13 +189,16 @@ def test_should_force_compact_on_pressure_threshold(monkeypatch):
 	assert context_compact_ratio() == 0.8
 
 
-def test_pressure_cliff_collapses_on_small_window() -> None:
+def test_pressure_cliff_collapses_on_small_window(mem_switch) -> None:
 	"""回归守卫：小窗口下触发点塌缩 ⇒ 引擎会从头压缩上下文。
 
 	65536（2026-09-16 之前的 deepseek 硬编码值）触发点仅 11,337 token；真实窗口
 	1M 时触发点 945,801（单题内不可能达到）。这条守卫存在的意义是：任何把窗口
 	默认值调回 64k 量级的改动，都会在 CI 里立刻变红。
+
+	同上一条：窗口几何推导只在 project 档生效，必须显式钉模式，不能靠默认值。
 	"""
+	mem_switch(XEYO_L5="project")
 	from memory.runtime import should_force_compact_on_pressure as S
 
 	def cliff(window: int) -> int:

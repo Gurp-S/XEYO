@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "benchmark": "xeyo_usage_ledger_audit",
+  "timestamp_utc": "2026-09-18T04:25:15.686102+00:00",
+  "git_head": "19f82059a30b1b29f7ec893dde7d85c517aca78c",
+  "source": {
+    "path": "C:\\Users\\48522\\.xeyo\\usage\\events.jsonl",
+    "exists": true,
+    "line_count_valid_json_objects": 14055,
+    "invalid_lines": 0,
+    "first_utc": "2026-08-17T03:02:31.161984+00:00",
+    "last_utc": "2026-09-18T04:24:52.859852+00:00"
+  },
+  "definition": {
+    "prompt_tokens": "sum(row.prompt_tokens)",
+    "cache_hit": "sum(row.cache_hit)",
+    "cache_miss": "sum(row.cache_miss)",
+    "cache_hit_rate": "cache_hit / (cache_hit + cache_miss)"
+  },
+  "aggregate": {
+    "prompt_tokens": 732732561,
+    "cache_hit": 698781626,
+    "cache_miss": 33950935,
+    "cache_input_total": 732732561,
+    "cache_hit_rate": 0.9536653114559761,
+    "cache_hit_rate_percent": 95.366531,
+    "models": {
+      "DeepSeek-R1-Distill-Qwen-7B-Q4_K_M.gguf": 28,
+      "deepseek-v4-flash-vision-exp": 1383,
+      "deepseek-v4-flash": 2486,
+      "probe-vision": 2,
+      "glm-5.3-flash": 229,
+      "glm-4.5-air": 2395,
+      "glm-5": 185,
+      "mock": 320,
+      "glm-4.6": 9,
+      "deepseek-v4.1-flash-expires-on-0910": 1606,
+      "qwen3.8-flash": 599,
+      "lfm25-8b-a1b": 25,
+      "deepseek-flash": 4671,
+      "glm-4.6v": 117
+    }
+  }
+}

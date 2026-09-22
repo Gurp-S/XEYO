@@ -376,7 +376,7 @@ describe('streamChat SSE — normal / extreme', () => {
 				it('parses structured questions[] on ask_user_pending (multi-question form)', async () => {
 					fetchMock.mockResolvedValue(
 						sseResponse([
-							'data: {"xy":{"type":"ask_user_pending","request_id":"a2","session_id":"s1","turn_id":"t1","question":"1. A?\\n2. B?","options":["x","y","z"],"default":"x","questions":[{"question":"A?","options":[{"label":"x","description":"xx"},{"label":"y"}],"multiSelect":false,"default":"x"},{"question":"B?","options":["z"],"multiSelect":true,"default":null}]}}\n\n',
+							'data: {"xy":{"type":"ask_user_pending","request_id":"a2","session_id":"s1","turn_id":"t1","question":"1. A?\\n2. B?","options":["x","y","z"],"default":"x","questions":[{"id":"pick-mode","header":"模式","detail":"选一个","question":"A?","options":[{"label":"x","description":"xx"},{"label":"y"}],"multiSelect":false,"default":"x"},{"question":"B?","options":["z"],"multiSelect":true,"default":null}]}}\n\n',
 							'data: [DONE]\n\n',
 						]),
 					);
@@ -396,6 +396,10 @@ describe('streamChat SSE — normal / extreme', () => {
 							default: 'x',
 							questions: [
 								{
+									// 后端下发 id/header/detail ⇒ 必须原样透传（答案按 id 对号）。
+									id: 'pick-mode',
+									header: '模式',
+									detail: '选一个',
 									question: 'A?',
 									options: [
 										{label: 'x', description: 'xx'},
@@ -405,6 +409,8 @@ describe('streamChat SSE — normal / extreme', () => {
 									default: 'x',
 								},
 								{
+									// 缺 id 时按有效序合成，与后端 q{n} 口径一致。
+									id: 'q2',
 									question: 'B?',
 									options: [{label: 'z'}],
 									multiSelect: true,
@@ -530,5 +536,94 @@ describe('streamChat 思考开关与等级成对（缺口① 契约）', () => {
 		const body = await bodyOf({thinking: 'disabled'});
 		expect(body.thinking).toBe('disabled');
 		expect(body.reasoning_effort).toBeUndefined();
+	});
+});
+
+/**
+ * 忙时受理的两条口径（对齐 Codex：queued_messages vs TurnSteer 两种回执）。
+ * 事故原型：引导回执也当排队处理 ⇒ 生成一张 queue_id 为空、DELETE 必 400 的
+ * 删不掉幽灵卡；反过来把排队当引导 ⇒ 用户以为本轮就能看到，实际等回合结束。
+ */
+describe('streamChat — 忙时 202 受理分流', () => {
+	const fetchMock = vi.fn();
+
+	beforeEach(() => {
+		fetchMock.mockReset();
+		vi.stubGlobal('fetch', fetchMock);
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	function jsonResponse(payload: unknown, status = 202) {
+		return new Response(JSON.stringify(payload), {
+			status,
+			headers: {'Content-Type': 'application/json'},
+		});
+	}
+
+	it('steered=true 走引导回执，绝不记入 inbox 队列', async () => {
+		fetchMock.mockResolvedValue(
+			jsonResponse({
+				queued: true,
+				steered: true,
+				delivery: 'boundary',
+				message_id: 'm-77',
+			}),
+		);
+		const seen: string[] = [];
+		await streamChat('s1', 'hi', {
+			onDelta: () => undefined,
+			onDone: () => undefined,
+			onSteered: ev => {
+				seen.push(`steered:${ev.messageId}:${ev.delivery}`);
+			},
+			onQueued: ev => {
+				seen.push(`queued:${ev.queueId}`);
+			},
+			onError: m => seen.push(`ERR:${m}`),
+		});
+		expect(seen).toEqual(['steered:m-77:boundary']);
+	});
+
+	it('普通排队仍记 queue_id 与位次', async () => {
+		fetchMock.mockResolvedValue(
+			jsonResponse({
+				queued: true,
+				delivery: 'after_turn',
+				queue_id: 'q-9',
+				position: 2,
+			}),
+		);
+		const seen: string[] = [];
+		await streamChat('s1', 'hi', {
+			onDelta: () => undefined,
+			onDone: () => undefined,
+			onSteered: () => seen.push('steered'),
+			onQueued: ev => seen.push(`queued:${ev.queueId}:${ev.position}`),
+			onError: m => seen.push(`ERR:${m}`),
+		});
+		expect(seen).toEqual(['queued:q-9:2']);
+	});
+
+	it('边界投递回执把消息 id 交给 store 撤卡', async () => {
+		fetchMock.mockResolvedValue(
+			sseResponse([
+				'data: {"choices":[{"delta":{"content":"x"}}]}\n\n',
+				'data: {"xy":{"type":"steer_delivered","count":2,"message_ids":["m-1","m-2"]}}\n\n',
+				'data: [DONE]\n\n',
+			]),
+		);
+		let ids: string[] = [];
+		await streamChat('s1', 'hi', {
+			onDelta: () => undefined,
+			onSteerDelivered: ev => {
+				ids = ev.messageIds;
+			},
+			onDone: () => undefined,
+			onError: () => undefined,
+		});
+		expect(ids).toEqual(['m-1', 'm-2']);
 	});
 });

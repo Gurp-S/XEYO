@@ -190,8 +190,14 @@ def _previous_user_goal(messages: list[dict]) -> str:
 	避免跨模块循环依赖）。
 	"""
 	seen_latest = False
+	from msgtypes.notice_markers import is_notice_message
+
 	for m in reversed(messages):
 		if (m.get("role") or m.get("type")) != "user":
+			continue
+		if is_notice_message(m):
+			# 通报留痕/世界状态段也是 role=user：当"用户目标"就会把引擎文本
+			# 写成 resume 的 derived goal。
 			continue
 		content = m.get("content")
 		if isinstance(content, list):

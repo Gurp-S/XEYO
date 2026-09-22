@@ -56,7 +56,11 @@ def test_bash_allow_and_deny(tmp_path: Path) -> None:
 	denied = evaluate_policy("Bash", {"command": "rm -rf /"}, cwd=cwd)
 	assert denied.decision == PermissionDecision.DENY
 	assert denied.reason == "destructive_root_delete"
-	asked = evaluate_policy("Bash", {"command": "python app.py"}, cwd=cwd)
+	# 2026-09-20 放宽：跑工作区脚本属 dev 放行面（与既有 pytest 同档）。
+	dev = evaluate_policy("Bash", {"command": "python app.py"}, cwd=cwd)
+	assert dev.decision == PermissionDecision.ALLOW
+	assert dev.matched_rule == "bash_dev_tool_allow"
+	asked = evaluate_policy("Bash", {"command": 'python -c "print(1)"'}, cwd=cwd)
 	assert asked.decision == PermissionDecision.ASK
 	assert asked.matched_rule == "bash_default_ask"
 
@@ -321,21 +325,29 @@ def test_bash_exec_fallthrough_max_allows(
 	tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
 	# max 档：既非只读、又非已识别写文件的命令（git push / install / 跑脚本）自动放行。
+	# 2026-09-20 起 dev 类（install / 跑脚本）在**默认档**也已自动放行，
+	# 于是这里 matched_rule 可能是 bash_dev_tool_allow（更早）或 bash_max_allow。
 	monkeypatch.setenv("XEYO_PERMISSION_MODE", "never")
 	cwd = str(_work(tmp_path))
 	for cmd in ("git push", "npm install", "python app.py", "pip install requests"):
 		r = evaluate_policy("Bash", {"command": cmd}, cwd=cwd)
 		assert r.decision == PermissionDecision.ALLOW, cmd
-		assert r.matched_rule == "bash_max_allow", cmd
+		assert r.matched_rule in ("bash_max_allow", "bash_dev_tool_allow"), cmd
 
 
 def test_bash_exec_fallthrough_nonmax_asks(tmp_path: Path) -> None:
-	# 非 max 档（默认 risk）：同样的命令仍要确认。
+	# 非 max 档（默认 risk）：2026-09-20 放宽后只有**未放行轴**仍需确认 ——
+	# 网络外发（git push）/ 内联任意代码（-c）/ 未知程序。
 	cwd = str(_work(tmp_path))
-	for cmd in ("git push", "npm install", "python app.py"):
+	for cmd in ("git push", 'python -c "print(1)"', "mimikatz"):
 		r = evaluate_policy("Bash", {"command": cmd}, cwd=cwd)
 		assert r.decision == PermissionDecision.ASK, cmd
 		assert r.matched_rule == "bash_default_ask", cmd
+	# dev 放行面内的同类命令不再确认。
+	for cmd in ("npm install", "python app.py"):
+		r = evaluate_policy("Bash", {"command": cmd}, cwd=cwd)
+		assert r.decision == PermissionDecision.ALLOW, cmd
+		assert r.matched_rule == "bash_dev_tool_allow", cmd
 
 
 def test_bash_max_still_denies_hard_boundaries(

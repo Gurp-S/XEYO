@@ -1,8 +1,15 @@
 """主会话 Mid-Turn Inbox 注册表（P1）：把「回合进行中再发消息」从 409 变成排队投递。
 
 mid-turn inbox 语义：
-- **消息只在回合边界投递**：``on_turn_settled``（turn_runner `finally` 之后的 settlement
-  检查点）是唯一投递点；绝不改道已在进行的回合。
+- **两条投递声道**：
+  (a) **边界投递（默认，2026-09-20 起）**：``engine.t_now_inbox`` 在每个采样前的
+      T_now 边界把排队消息取走、作为**真 user 消息**追加进历史（与 steer 共用
+      队列/WAL/幂等/回队），工具批次不被打断、模型下一个采样前就看到；
+  (b) **settle 排水（兜底）**：``on_turn_settled``（turn_runner `finally` 之后的
+      settlement 检查点）把**仍留在队里**的消息合成一轮投递。长回合不 settle ⇒
+      曾经只有 (b) ⇒ 用户消息整轮进不了模型输入（2026-09-20 事故）。
+  两条声道共用同一队列：谁先取走谁投，取走即离开队列 ⇒ 不会重复投递。
+- **不打断回合**：边界投递只发生在工具批次完成、下一次采样之前。
 - **park 而非注入**：只入 FIFO，不打断当前 turn，不改 MessageStore / JSONL（不碰 T_now）。
 - **投递与结果分离**：投递即 ``submit_synthetic(surface="inbox")``（复用 41/42 自调用通道），
   结果待下一轮 settlement 后另行排水。
@@ -216,6 +223,40 @@ class InboxRegistry:
 				it.state = "delivering"
 			return active
 
+	def consume_for_boundary(self, session_id: str) -> list[InboxItem]:
+		"""取走全部**非 stuck** 项（边界投递用；stuck 项留在队内）。
+
+		与 ``pop_active`` 的区别：本方法**不**把条目置 ``delivering``——条目立刻
+		改由 ``engine.t_now_steer`` 承担「至少一次 + 幂等 + WAL」，失败时用
+		:meth:`restore_front` 原样放回，不计 attempts（不算本队列的投递失败）。
+		"""
+		sid = (session_id or "").strip()
+		if not sid:
+			return []
+		with self._lock:
+			q = self._queues.get(sid)
+			if not q:
+				return []
+			active = [it for it in q if it.state != "stuck"]
+			if not active:
+				return []
+			stuck = [it for it in q if it.state == "stuck"]
+			if stuck:
+				self._queues[sid] = stuck
+			else:
+				self._queues.pop(sid, None)
+			return active
+
+	def restore_front(self, session_id: str, items: list[InboxItem]) -> None:
+		"""把 :meth:`consume_for_boundary` 取走的条目原样放回队首（不计 attempts）。"""
+		sid = (session_id or "").strip()
+		if not sid or not items:
+			return
+		with self._lock:
+			q = self._queues.setdefault(sid, [])
+			for it in reversed(items):
+				it.state = "queued"
+				q.insert(0, it)
 	def _pop_first_active(self, session_id: str) -> InboxItem | None:
 		"""取走首条**非 stuck** 项并标记 delivering（逐条模式）。
 

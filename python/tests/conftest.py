@@ -1,3 +1,5 @@
+import os
+
 import bootstrap  # noqa: F401
 import pytest
 
@@ -23,6 +25,36 @@ def _isolate_xeyo_sessions(tmp_path, monkeypatch):
 	# 兜底，防止机器级 env 泄漏影响 project 不变量单测。
 	# test_memory_aging 等需自行 setenv("XEYO_TOOL_AGING", "1").
 	monkeypatch.setenv("XEYO_TOOL_AGING", "0")
+	# 审计单例按**首次调用**memoize 路径（audit/log.py::default_audit_log），只改
+	# XEYO_HOME 不够：先建好的单例仍指向真实主目录 ⇒ 测试事件写进生产审计账本
+	# （实测污染 34 条 notice.channel，正是往后要用来取发生率的那张表）。
+	from audit.log import reset_default_audit_log
+
+	reset_default_audit_log()
+	yield
+	reset_default_audit_log()
+
+
+@pytest.fixture(autouse=True)
+def _restore_os_environ():
+	"""整份 ``os.environ`` 逐用例进出快照（与上面 contextvar 复位同一形状）。
+
+	为什么必须整份、而不是逐个键：入口 ``cli.cwdutil.resolve_cwd()`` 现在会把
+	settings 里的开关注射进 ``os.environ``（``memory_switches.apply_to_environ``，
+	09-22 加的桥——GUI 之外的入口原先读不到工作区开关）。仓库自己的
+	``.xeyo/settings.json`` 里写着 ``XEYO_WSC=1``，于是**任何**碰到 ``resolve_cwd`` 的用例
+	都会把活路径开关点亮并留在进程里，后面的用例在没人申请的情况下换了执行链：
+	实测 ``XEYO_WSC=1`` 下 ``tests/test_runtime_c2.py`` 恰好 3 条红（C2 被 WSC 接管，
+	``c2_summary_text`` 变空），而单跑全绿——这种"红名单随跑序漂移"就是套件不可信的来源。
+	``monkeypatch`` 只还原它自己 set 过的键，兜不住这种**被测代码自己写 env**。
+	"""
+	snapshot = dict(os.environ)
+	try:
+		yield
+	finally:
+		if os.environ != snapshot:
+			os.environ.clear()
+			os.environ.update(snapshot)
 
 
 @pytest.fixture(autouse=True)
@@ -37,6 +69,28 @@ def _reset_permission_mode_ctx():
 	set_permission_mode(None)
 	yield
 	set_permission_mode(None)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_policy_contextvars():
+	"""权限面全量隔离：permissions.policy 里**每一个** ContextVar 测后归位。
+	只复位 permission_mode 会漏掉 surface / in_subagent / agent_mode 等同类
+	ambient 变量——worker 泄漏事故里最危险的那个恰好不是被测出来的那个。
+
+	「不传染后续测试」由这里兜；「检测泄漏」交给专门用例
+	（tests/coord/test_worker_session.py::test_worker_session_restores_caller_ambient_state）。
+	"""
+	import contextvars
+
+	from permissions import policy
+
+	vars_ = [v for v in vars(policy).values() if isinstance(v, contextvars.ContextVar)]
+	saved = {v: v.get() for v in vars_}
+	try:
+		yield
+	finally:
+		for v, value in saved.items():
+			v.set(value)
 
 
 @pytest.fixture

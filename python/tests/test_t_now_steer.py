@@ -144,10 +144,12 @@ def test_deliver_appends_real_user_message_and_is_idempotent():
 	assert len(deliver("s1", store)) == 1
 	assert store.items[0].role == "user"
 	assert store.items[0].id == "m-1"
-	# 幂等：同 message_id 已在历史里 → 重投不重复追加
+	# 幂等：同 message_id 已在历史里 → 重投不重复追加；但返回值要报"已进模型输入"，
+	# 否则边界回执发不出去（前端那张卡就永远撤不掉）。
 	push("s1", "先只读，别改文件", message_id="m-1")
-	assert deliver("s1", store) == []
-	assert len(store) == 1
+	landed = deliver("s1", store)
+	assert [m.id for m in landed] == ["m-1"]
+	assert len(store) == 1, "已在历史里的条目绝不二次追加"
 
 
 def test_deliver_requeues_on_append_failure():

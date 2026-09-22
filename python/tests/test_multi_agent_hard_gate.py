@@ -33,6 +33,30 @@ def test_multi_agent_keeps_full_tool_schemas(registry):
 	assert "Read" in names
 
 
+def _injected_blob(out: list[dict]) -> str:
+	"""本轮投影里引擎注入的全部文本，声道无关。
+
+	2026-09-22 起默认档是"逐维各成一条 user 片段"，`out[-1]` 只剩最后一个维度
+	——按尾条断言会随装配顺序假红/假绿。这里覆盖片段（含包封）、伪对 tool_result
+	正文与 legacy 文本块三态。
+	"""
+	from prompt.notice_channel import notice_texts
+
+	parts: list[str] = [t for t in notice_texts(out) if t]
+	for m in out:
+		c = m.get("content")
+		if isinstance(c, str):
+			parts.append(c)
+		elif isinstance(c, list):
+			for b in c:
+				if not isinstance(b, dict):
+					continue
+				parts.append(str(b.get("text") or ""))
+				if b.get("type") == "tool_result":
+					parts.append(str(b.get("content") or ""))
+	return "\n".join(p for p in parts if p)
+
+
 def test_attach_turn_context_injects_soft_hint():
 	msgs = [{"role": "user", "content": "分别总结 a 与 b"}]
 	out = _attach_turn_context(
@@ -43,10 +67,7 @@ def test_attach_turn_context_injects_soft_hint():
 		include_memory_index=False,
 		multi_agent=True,
 	)
-	last = out[-1]
-	content = last.get("content")
-	blob = content if isinstance(content, str) else str(content)
-	assert "用户开启了 multi-agent" in blob
+	assert "用户开启了 multi-agent" in _injected_blob(out)
 
 	plain = _attach_turn_context(
 		msgs,
@@ -56,8 +77,7 @@ def test_attach_turn_context_injects_soft_hint():
 		include_memory_index=False,
 		multi_agent=False,
 	)
-	plain_blob = str(plain[-1].get("content"))
-	assert "Multi-Agent preference" not in plain_blob
+	assert "Multi-Agent preference" not in _injected_blob(plain)
 
 
 def test_attach_after_tool_skips_memory_index(monkeypatch):
@@ -88,17 +108,8 @@ def test_attach_after_tool_skips_memory_index(monkeypatch):
 		multi_agent=False,
 	)
 	assert out[-1]["role"] in {"user", "system"}
-	# 声道无关：legacy=text 块（Continue 首块）；env_channel（方案A）=伪对
-	# tool_result 正文；system_channel（默认档，2026-09-15 起）=原生 system 消息。
-	content = out[-1]["content"]
-	parts = content if isinstance(content, list) else [{"type": "text", "text": str(content)}]
-	texts = [str(p.get("text") or "") for p in parts if isinstance(p, dict)]
-	res = [
-		str(p.get("content") or "")
-		for p in parts
-		if isinstance(p, dict) and p.get("type") == "tool_result"
-	]
-	blob = "\n".join([*texts, *res])
+	# 声道无关：逐维 user 片段（默认档）/ 伪对 tool_result 正文 / legacy 尾插块。
+	blob = _injected_blob(out)
 	assert blob.strip(), blob
 	assert "# Continue" in blob
 	assert CONTINUE_AFTER_TOOLS[:20] in blob
@@ -121,7 +132,7 @@ def test_attach_on_user_turn_no_longer_pushes_memory(monkeypatch):
 		include_memory_index=True,
 		multi_agent=False,
 	)
-	blob = str(out[-1].get("content"))
+	blob = _injected_blob(out)
 	assert "Memory index" not in blob
 	assert "note" not in blob
 

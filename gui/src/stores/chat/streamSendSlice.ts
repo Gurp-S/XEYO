@@ -7,6 +7,7 @@
  * multiAgentSlice.ts 与 uiChromeSlice.ts。行为不变。
  */
 import type {StoreApi} from 'zustand';
+import type {ChatStreamHandlers} from '@/lib/api';
 import {
 	interruptChat,
 	streamChat,
@@ -82,6 +83,7 @@ import {
 	commitDrainForSession,
 	syncWorkspaceRoot,
 	type ChatState,
+	dropDeliveredInboxChips,
 } from './preStoreHelpers';
 import {
 	DRAIN_MIN_BACKLOG,
@@ -211,11 +213,17 @@ export function createStreamSendSlice(
 				const qApi = toApiMessages(qNext);
 				const qBackend = activeBackendSessionId(get().historyById, sessionId);
 				let queuedProse = '';
-				const queueHandlers = {
+				// 后端是否真的受理了这条（排队 / 引导 / 竞态下直接开跑）。未受理 ⇒
+				// sendMessage 返回 false，Composer 把草稿退回输入框——对齐 Codex
+				// rejected_steers：被拒的消息绝不消失在气泡撤回与清空输入框之间。
+				let queueAccepted = false;
+				const qPending = createPendingStreamHandlers({get, sessionId});
+				const queueHandlers: ChatStreamHandlers = {
 					// 竞态防御：live 判定为 true 但后端实际未排队、直接开跑时（SSE 200 而非
 					// 202），onDelta/onDone 不能空置（否则回复被吞、用户看到「无 chip 无回复」）。
 					// 用闭包累积文本，onDone 时用 appendAssistantProse 把 assistant 回复落地。
 					onDelta(text: string) {
+						queueAccepted = true;
 						queuedProse += text;
 					},
 					onDone() {
@@ -239,7 +247,44 @@ export function createStreamSendSlice(
 							...sessionErrorBannerPatch(sessionId, message),
 						}));
 					},
+					// 竞态（本地判定 busy，后端其实直接开跑 = SSE 200）时这条流会真的
+					// 送来审批/追问/计划帧：不接就等于引擎卡在等一个永不出现的弹窗。
+					onPermissionPending(ev) {
+						qPending.onPermissionPending(ev);
+					},
+					onPermissionResolved(ev) {
+						qPending.onPermissionResolved(ev);
+					},
+					onAskUserPending(ev) {
+						qPending.onAskUserPending(ev);
+					},
+					onAskUserResolved(ev) {
+						qPending.onAskUserResolved(ev);
+					},
+					onPlanPending(ev) {
+						qPending.onPlanPending(ev);
+					},
+					onPlanResolved(ev) {
+						qPending.onPlanResolved(ev);
+					},
+					onSteered() {
+						queueAccepted = true;
+						// 与"已排队（回合结束后投）"区别开：这条在本轮边界送达。
+						// 不建 inbox 卡——引导路径没有 queue_id，卡删不掉；乐观气泡
+						// 本身就是指示物。
+						toast.info('已排到本轮边界，模型下一步就能看到');
+					},
+				onSteerDelivered({messageIds}: {messageIds: string[]}) {
+						set(s => ({
+							inboxBySession: dropDeliveredInboxChips(
+								s.inboxBySession,
+								sessionId,
+								messageIds,
+							),
+						}));
+					},
 					onQueued({queueId, position}: {queueId: string; position: number}) {
+						queueAccepted = true;
 						console.info('[inbox] 已排队', {sessionId, queueId, position});
 						toast.info(`已排队（第 ${position} 条），当前回合结束后自动投递`);
 						set(s => {
@@ -266,8 +311,9 @@ export function createStreamSendSlice(
 					},
 				};
 				await streamChat(qBackend, qApi, queueHandlers);
-				// 返回 true：Composer 据以清空输入框（消息已入队）。
-				return true;
+				// 受理了才让 Composer 清空输入框；被拒（429 队列满 / 413 超长 /
+				// 409 side 不支持引导）时返回 false，草稿原样退回。
+				return queueAccepted;
 			}
 			// 残留的僵尸流：清状态，不再拦截。
 			set(s => ({
@@ -337,6 +383,10 @@ export function createStreamSendSlice(
 
 		const abort = new AbortController();
 		let settled = false;
+		// 乐观气泡被撤回 = 这条消息后端从未受理。此时 sendMessage 必须返回
+		// false，Composer 才会把草稿退回输入框（否则输入框已清空、气泡已撤回，
+		// 用户整条消息只剩一行横幅）。
+		let sendRolledBack = false;
 		const smoothStream = () =>
 			isSmoothnessOn(useSettingsStore.getState().smoothness);
 		/** token + tool 共用一条 rAF 队列；每帧最多一次 Zustand set。 */
@@ -1256,6 +1306,21 @@ export function createStreamSendSlice(
 					}
 					multi.onMultiAgentStatus(ev);
 				},
+				onSteered() {
+					toast.info('已排到本轮边界，模型下一步就能看到');
+				},
+				onSteerDelivered({messageIds}) {
+					if (!sessionStillAlive()) {
+						return;
+					}
+					set(s => ({
+						inboxBySession: dropDeliveredInboxChips(
+							s.inboxBySession,
+							sessionId,
+							messageIds,
+						),
+					}));
+				},
 				onQueued({queueId, position}) {
 					// P1：后端已把消息排进 FIFO（settle 后自动投递）。保留乐观气泡
 					// （不撤回），记入 inboxBySession 供 Composer chip 渲染。
@@ -1337,6 +1402,7 @@ export function createStreamSendSlice(
 						const kept = (cur.messagesById[sessionId] ?? []).filter(
 							m => m.id !== userMsg.id,
 						);
+						sendRolledBack = true;
 						clearStream({
 							messagesById: {...cur.messagesById, [sessionId]: kept},
 							...sessionErrorBannerPatch(sessionId, message),
@@ -1473,7 +1539,8 @@ export function createStreamSendSlice(
 				commitAssistant();
 			}
 		}
-		return true;
+		// 消息没被后端受理 ⇒ false（Composer 退稿），绝不静默吞掉用户输入。
+		return !sendRolledBack;
 	},
 	};
 }

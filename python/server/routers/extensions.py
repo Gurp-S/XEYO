@@ -92,12 +92,18 @@ def post_extensions_settings(
     from extension.config import (
         set_extensions_enabled,
         set_mcp_enabled,
+        set_plugin_enabled,
         set_skill_enabled,
     )
     from server.deps import CWD
 
     ws = (workspace or body.workspace or "").strip() or (CWD or "")
-    applied: dict[str, Any] = {"mcp_servers": [], "skills": [], "master": None}
+    applied: dict[str, Any] = {
+        "mcp_servers": [],
+        "plugins": [],
+        "skills": [],
+        "master": None,
+    }
     errors: list[str] = []
     try:
         if body.enabled_extensions is not None:

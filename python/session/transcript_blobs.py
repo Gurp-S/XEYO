@@ -99,6 +99,9 @@ def row_from_message(message: Message, *, anchor: Path) -> dict[str, Any]:
 		row["note_kind"] = message.note_kind
 		row["note_key"] = message.note_key
 		row["note_fp"] = message.note_fp
+		if getattr(message, "note_retracted", False):
+			# 撤回标记随行留档：重启后那条已作废状态仍不得回到模型投影。
+			row["note_retracted"] = True
 
 	content = message.content
 	payload = _content_json_bytes(content)

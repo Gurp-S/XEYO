@@ -132,6 +132,74 @@ def run_memory_snapshot(request: Request) -> dict[str, Any]:
 	}
 
 
+@router.get("/v1/settings/memory/report")
+def memory_report(request: Request) -> dict[str, Any]:
+	"""A3 监控报告（``docs/A3-monitor.html``）的落点与元信息，供设置页「打开报告」按钮用。
+
+	路径取生成器里的同一常量（``scripts.memory_stack_eval.A3_HTML``），不在此复制路径字面量，
+	避免报告换位置后两端漂移；``url`` 是可直接交给系统浏览器的 ``file://`` 链接。
+	报告不存在时返回 ``ok=false/exists=false``（按钮据此禁用），不报错。
+	"""
+	require_loopback(request)
+	import re
+	from pathlib import Path
+
+	from scripts.memory_stack_eval import A3_HTML
+
+	path = Path(A3_HTML)
+	try:
+		url = path.as_uri()
+	except ValueError:  # 非绝对路径等异常形态
+		url = ""
+	info: dict[str, Any] = {"ok": False, "exists": False, "path": str(path), "url": url}
+	if not path.is_file():
+		return info
+	try:
+		text = path.read_text(encoding="utf-8", errors="replace")
+		st = path.stat()
+	except OSError as exc:  # noqa: BLE001 — 内部痕迹不外漏
+		return {**info, "error": safe_error_detail(exc)}
+	m = re.search(r'"generated_at":\s*"([^"]+)"', text)
+	return {
+		**info,
+		"ok": True,
+		"exists": True,
+		"bytes": st.st_size,
+		"mtime": round(st.st_mtime, 3),
+		"generated_at": m.group(1) if m else None,
+		# 日期集合：payload 里每天出现两次（day 行 + total.detail），set 去重即天数清单。
+		"days": sorted(set(re.findall(r'"day": "(\d{4}-\d{2}-\d{2})"', text))),
+	}
+
+
+@router.get("/v1/settings/memory/report/view")
+def memory_report_view(request: Request) -> Any:
+	"""把 A3 报告当网页交给浏览器（系统默认浏览器 / 工作区预览面板）。
+
+	为什么要多这一跳：桌面壳的 ``shell:allow-open`` scope 只放行 ``mailto:`` / ``tel:`` /
+	``http(s)://`` —— ``file://`` 被插件**默认拒绝**（见其 scope 正则），故按钮直接开
+	``file://`` 会报 Scoped command argument failed regex validation。这里用 loopback http
+	出一个只读入口：既不用放宽壳的 scope，也不用把 ``file:`` 引进预览面板（面板同样明令禁
+	``file:``）。只服务生成器写的那一个路径，不接受调用方传入路径。
+	"""
+	require_loopback(request)
+	from pathlib import Path
+
+	from fastapi.responses import FileResponse
+
+	from scripts.memory_stack_eval import A3_HTML
+	from server.deps import api_error
+
+	path = Path(A3_HTML)
+	if not path.is_file():
+		raise api_error(404, "A3 report not generated yet", "not_found")
+	return FileResponse(
+		path,
+		media_type="text/html; charset=utf-8",
+		headers={"Cache-Control": "no-store"},
+	)
+
+
 class InterruptRequest(BaseModel):
 	session_id: str
 

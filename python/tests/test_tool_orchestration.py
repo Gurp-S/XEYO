@@ -149,6 +149,9 @@ async def test_safe_batch_isolates_sibling_on_exception(tmp_path, monkeypatch):
 	assert len(results) == 2
 	assert results[0].is_error
 	assert "boom" in results[0].content.lower()
+	assert results[0].status == "error"
+	assert results[0].error_kind == "INTERNAL"
+	assert results[0].retryable is False
 	assert not results[1].is_error
 	assert results[1].content == "ok"
 
@@ -178,5 +181,7 @@ async def test_tool_timeout_returns_error(tmp_path, monkeypatch):
 	assert len(results) == 1
 	assert results[0].is_error
 	assert "timed out" in results[0].content
+	assert results[0].error_kind == "TIMEOUT"
+	assert results[0].retryable is True
 	# 局部 abort 不应污染父控制器
 	assert not abort.aborted

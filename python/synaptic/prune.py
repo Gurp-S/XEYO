@@ -6,12 +6,15 @@
 
 from __future__ import annotations
 
+import re
+
 from dataclasses import dataclass
 from typing import Any
 
 from synaptic.coldstore import BRANCH_PREFIX
-from synaptic.graph import Graph
+from synaptic.graph import Graph, _ERROR_RECORD_RE, _output_body  # noqa: SLF001  （回执头剥离/错误形状判定与建图层同源，不重抄第二份）
 from synaptic.handles import renderer_or_default
+from synaptic.seeds import strip_machine_blocks
 from synaptic.textutil import node_token_len
 from synaptic.types import EDGE_USE, KIND_TOOL_RESULT, KIND_TOOL_USE, PruneCard, WscParams
 
@@ -108,12 +111,15 @@ def _first_meaningful_line(text: str, limit: int = 90) -> str:
 	return ""
 
 
-def _conclusion(graph: Graph, unit: _Unit, limit: int) -> str:
+def _conclusion(
+	graph: Graph, unit: _Unit, limit: int
+) -> str:
 	"""把单元压缩成一句结论（删过程留结论）。"""
 	target = unit.files[0] if unit.files else ""
 	if unit.error_sig:
 		head = f"{unit.tool} 对 {target} 失败：{unit.error_sig}" if target else f"{unit.tool} 失败：{unit.error_sig}"
-		return head[:limit]
+		head = head[:limit]
+		return head
 	if unit.tool == KIND_TOOL_RESULT:
 		# 孤儿结果：只留首行实质内容
 		m = graph.node(unit.root)
@@ -121,12 +127,14 @@ def _conclusion(graph: Graph, unit: _Unit, limit: int) -> str:
 		return (f"结果: {line}" if line else "结果（内容已冷存）")[:limit]
 	if unit.tool == "user_text":
 		m = graph.node(unit.root)
-		s = " ".join((m.text if m else "").split())
-		return f"用户输入: {s[: limit - 6]}" if s else "用户输入"
+		# 机器注入块（环境快照 / 插件目录 / 系统提醒）不是用户结论：**不给结论位**
+		# （实测 `<recommended_plugins>` 整段曾占 191 tok 的结论位、占该轮热层 6%）。
+		s = " ".join(strip_machine_blocks(m.text if m else "").split())
+		return f"用户输入: {s[: limit - 6]}" if s else ""
 	if unit.tool == "assistant_text":
 		m = graph.node(unit.root)
 		line = _first_meaningful_line(m.text if m else "")
-		return (f"助手结论: {line}" if line else "助手结论（已冷存）")[:limit]
+		return (f"助手结论: {line}" if line else "")[:limit]
 	m = graph.node(unit.root)
 	line = _first_meaningful_line(m.text if m else "")
 	suffix = f" → {line}" if line else ""
@@ -144,6 +152,7 @@ def build_cards(
 	params: WscParams,
 	*,
 	region_end: int,
+	superseded: frozenset[int] = frozenset(),
 ) -> tuple[PruneCard, ...]:
 	"""把剪掉的节点归并成剪枝卡。"""
 	pruned_set = set(pruned)
@@ -154,6 +163,15 @@ def build_cards(
 		elif any(i in pruned_set for i in u.nodes):
 			# 部分剪掉：只把被剪的成员缩成一个卡（避免丢信息）
 			sub = tuple(i for i in u.nodes if i in pruned_set)
+			# **错误卡的句柄必须能取回失败输出本身。** 部分被剪的典型形状就是"调用被剪、
+			# 结果没剪"（实测卡 B29 nodes=(29,)，失败文本在 30 上）：只认领被剪成员，指针
+			# 指向的是调用行，而卡片摘要讲的却是失败 —— expand 回来拿不到原文。
+			# 结果节点本来就不在热层（已被降级），多绑它只有收益、不占热层一个字节。
+			if u.error_sig:
+				sub = tuple(dict.fromkeys(
+					(*sub, *(i for i in u.nodes
+					          if (m := graph.node(i)) is not None and m.is_error))
+				))
 			kept_units.append(
 				_Unit(
 					root=sub[0],
@@ -172,7 +190,9 @@ def build_cards(
 	# 导致 append_only 模式下每轮都判定「内容变了」而被迫整层重建。
 	raw: list[PruneCard] = []
 	for u in kept_units:
-		concl = _conclusion(graph, u, params.card_conclusion_chars)
+		concl = _conclusion(
+			graph, u, params.card_conclusion_chars,
+		)
 		tokens = node_token_len(concl) + 6  # 卡片自身的固定开销（id/files/句柄）
 		raw.append(
 			PruneCard(
@@ -190,7 +210,7 @@ def build_cards(
 	merged: list[PruneCard] = []
 	by_concl: dict[tuple[str, str], int] = {}
 	for c in raw:
-		key = (c.conclusion, c.error_sig)
+		key = _merge_key(c)
 		if key in by_concl:
 			i = by_concl[key]
 			prev = merged[i]
@@ -209,15 +229,18 @@ def build_cards(
 
 	# 卡上限：只合并「无错误签名」的纯信息卡，带错误的卡永不丢弃（防重复犯错）
 	while len(merged) > params.max_cards:
-		idx = _weakest_mergeable(merged)
+		idx = _weakest_mergeable(merged, superseded)
 		if idx is None:
 			break
-		j = _nearest_mergeable(merged, idx)
+		j = _nearest_mergeable(merged, idx, superseded)
 		if j is None:
 			break
 		a, b = merged[idx], merged[j]
 		new_nodes = tuple(dict.fromkeys(a.nodes + b.nodes))
-		concl = f"{a.conclusion}；另 {len(b.nodes)} 条同类记录"[: params.card_conclusion_chars]
+		# 结论可能被去噪成空串（机器注入块 / 纯占位）——此时不要渲染出「；另 N 条」这种
+		# 以分隔符开头的行。
+		_more = f"另 {len(b.nodes)} 条同类记录"
+		concl = (f"{a.conclusion}；{_more}" if a.conclusion else _more)[: params.card_conclusion_chars]
 		merged[idx] = PruneCard(
 			card_id=a.card_id,
 			conclusion=concl,
@@ -232,18 +255,34 @@ def build_cards(
 	return tuple(merged)
 
 
-def _weakest_mergeable(cards: list[PruneCard]) -> int | None:
-	"""最弱的可合并卡：无错误签名、节点数最少、编号最大。"""
-	cands = [i for i, c in enumerate(cards) if not c.error_sig and len(c.nodes) <= 2]
+def _mergeable(c: PruneCard, superseded: frozenset[int]) -> bool:
+	"""该卡能否被合并。
+
+	原实现是「带错误签名的卡永不合并」（防重复犯错）。时效轴上线后这条改成**条件**豁免：
+	卡里所有节点都已被后续断言覆盖（``superseded``）时，这张卡不再承载「未解的坑」，
+	可以参与合并；只要还有一个节点未被覆盖，就仍然豁免——保守方向不变。
+	"""
+	if not c.error_sig:
+		return True
+	return bool(c.nodes) and all(i in superseded for i in c.nodes)
+
+
+def _weakest_mergeable(cards: list[PruneCard], superseded: frozenset[int] = frozenset()) -> int | None:
+	"""最弱的可合并卡：优先节点数最少、编号最大。"""
+	cands = [i for i, c in enumerate(cards) if _mergeable(c, superseded) and len(c.nodes) <= 2]
 	if not cands:
-		cands = [i for i, c in enumerate(cards) if not c.error_sig]
+		cands = [i for i, c in enumerate(cards) if _mergeable(c, superseded)]
 	if not cands:
 		return None
 	return min(cands, key=lambda i: (len(cards[i].nodes), -i))
 
 
-def _nearest_mergeable(cards: list[PruneCard], avoid: int) -> int | None:
-	cands = [i for i, c in enumerate(cards) if i != avoid and not c.error_sig]
+def _nearest_mergeable(
+	cards: list[PruneCard], avoid: int, superseded: frozenset[int] = frozenset()
+) -> int | None:
+	cands = [
+		i for i, c in enumerate(cards) if i != avoid and _mergeable(c, superseded)
+	]
 	if not cands:
 		return None
 	return min(cands, key=lambda i: (abs(i - avoid), -i))
@@ -257,7 +296,8 @@ def render_card(c: PruneCard, *, handles: Any = None) -> str:
 	"""
 	hr = renderer_or_default(handles)
 	bits = [f"{c.card_id}:"]
-	bits.append(c.conclusion)
+	if c.conclusion:  # 空结论不占位（去噪后「只剩 files + 句柄」是合法形态）
+		bits.append(c.conclusion)
 	if c.files:
 		bits.append(f"files={','.join(c.files)}")
 	if c.error_sig:
@@ -275,6 +315,37 @@ def cards_tokens(cards: tuple[PruneCard, ...], *, handles: Any = None) -> int:
 #: 卡组内多条结论的分隔符（与 ``budget._EXCERPT_SEP`` 同款理由：可见、不歧义、
 #: 不破坏「关键信息针按连续子串判定」）。
 _CARD_SEP = " ⏐ "
+
+
+def _merge_key(c: PruneCard) -> tuple[str, tuple[str, ...]]:
+	"""构建层卡片去重键 = **渲染层卡组键**（``card_group_key``）。两处必须同源。
+
+	原先构建层用 ``(conclusion, error_sig)``：结论里只要含噪音就"恰好相同"从而合并；
+	噪音一旦被去掉（P0 换真实签名 / P3a 去机器注入块）卡片立刻分叉，热层 +3.8%——
+	**去噪反而更贵**。渲染层本来就是按 ``(error_sig, files)`` 合并行并把组内结论用
+	``␣␣`` 串起来的，构建层与它对齐后，「同一目标 + 同一错误类」始终是一类记录，
+	去噪不再与合并互相抵消。
+
+	代价（明确记账）：同组内**只有首条结论**内联，其余落到 ``另 N 条同类记录``，
+	原文仍逐字节在冷层、由组句柄展开 ⇒ 属于「降级」而不是「删除」。
+	"""
+	return card_group_key(c) + (conclusion_kind(c.conclusion),)
+
+
+#: 结论开头的**种类标签**（工具名 / 段落标签），用于合并键的第三段：
+#: 同目标 + 同错误类 + 同种类的卡才合并，避免把「读了 3 次 / 改了 2 次 / 跑过 4 条命令」
+#: 这类不同性质的记录压成一行。
+_KIND_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_.\-]{1,24})")
+
+
+def conclusion_kind(text: str) -> str:
+	s = str(text or "").strip()
+	if not s:
+		return ""
+	m = _KIND_RE.match(s)
+	if m:
+		return m.group(1).lower()
+	return s.split(":", 1)[0][:8]
 
 
 def card_group_key(c: PruneCard) -> tuple[str, tuple[str, ...]]:

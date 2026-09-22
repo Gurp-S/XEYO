@@ -47,11 +47,27 @@ def test_defaults_when_unset(monkeypatch) -> None:
 	for key, *_ in MEMORY_SWITCHES:
 		monkeypatch.delenv(key, raising=False)
 	cur = current(None)
-	assert cur["XEYO_L5"]["value"] == "project"
+	# 2026-09-06 用户决策「v61 默认开启」。原先这里断言的是 "project"，与紧邻下一行
+	# 注释、以及 `l5_flag.DEFAULT_MODE` 互相矛盾（那三个陈诉都对，只有断言是错的）。
+	assert cur["XEYO_L5"]["value"] == "v61"
 	# 2026-09-06 固化：C2_GATE / V61_PARETO/SI/DYNAMIC_R / Path A 三公式已删除（v61 默认开启后冗余）
 	assert "XEYO_C2_GATE" not in cur
 	assert "XEYO_V61_PARETO" not in cur
 	assert cur["XEYO_TOOL_AGING"]["value"] == "0"
+
+
+def test_l5_has_exactly_one_default_authority(monkeypatch) -> None:
+	"""L5 只能有一个默认源。
+
+	事故形态：``l5_flag.DEFAULT_MODE = "v61"`` 而注册表默认曾写成 ``"project"``，且
+	``l5_mode()`` 先问 ``get_value``（返回合法非空的注册表默认）⇒ 那段 v61 兜底
+	**永远走不到**。读代码的人以为默认是 v61、运行时却是 project，于是消融实验在
+	"我以为开着 v61"的前提下跑出 project 的数字。
+	"""
+	from memory.l5_flag import DEFAULT_MODE, l5_mode
+
+	monkeypatch.delenv("XEYO_L5", raising=False)
+	assert l5_mode() == DEFAULT_MODE, "l5_flag 的兜底与注册表默认分叉了"
 
 
 def test_env_ignored_when_settings_absent(monkeypatch) -> None:
@@ -129,6 +145,64 @@ def test_memory_rejected_from_lan() -> None:
 		assert c.get("/v1/settings/memory").status_code == 403
 		assert c.post("/v1/settings/memory", json={}).status_code == 403
 		assert c.post("/v1/settings/memory/snapshot").status_code == 403
+		assert c.get("/v1/settings/memory/report").status_code == 403
+		assert c.get("/v1/settings/memory/report/view").status_code == 403
+
+
+def test_memory_report_view_serves_html(monkeypatch, tmp_path: Path) -> None:
+	"""「打开报告」的 http 入口：有报告 = text/html 可直接渲染；没报告 = 404（不 500）。
+
+	桌面壳的 shell:allow-open 只放行 http(s)（file:// 被其 scope 正则拒绝），
+	故按钮走这个只读入口，而不是 file://。
+	"""
+	import scripts.memory_stack_eval as M
+
+	report = tmp_path / "A3-monitor.html"
+	monkeypatch.setattr(M, "A3_HTML", report)
+
+	with TestClient(app) as c:
+		assert c.get("/v1/settings/memory/report/view").status_code == 404
+		report.write_text("<!doctype html><title>A3-monitor</title><p>ok</p>", encoding="utf-8")
+		r = c.get("/v1/settings/memory/report/view")
+
+	assert r.status_code == 200, r.text
+	assert r.headers["content-type"].startswith("text/html")
+	assert "A3-monitor" in r.text
+	assert r.headers.get("cache-control") == "no-store"
+
+
+def test_memory_report_info_shape(monkeypatch, tmp_path: Path) -> None:
+	"""设置页「打开报告」的元信息：报告在/不在都返回确定形状（不 500）；路径取生成器常量。"""
+	import scripts.memory_stack_eval as M
+
+	report = tmp_path / "A3-monitor.html"
+	monkeypatch.setattr(M, "A3_HTML", report)
+
+	with TestClient(app) as c:
+		missing = c.get("/v1/settings/memory/report")
+		assert missing.status_code == 200, missing.text
+		body = missing.json()
+		assert body["ok"] is False and body["exists"] is False
+		assert body["path"] == str(report)
+
+		report.write_text(
+			# 前缀 >4KB 的样式块：真实报告前 16KB 是 CSS，payload 在后面；
+			# 只扫头部会取不到 generated_at（曾漏，故这里固定按真实形态构造）。
+			'<!doctype html><style>'
+			+ ('.a{color:#123456}'
+				* 400)
+			+ '</style><script>window.__A3__={"generated_at": "2026-09-17T04:39:52.912519+00:00",'
+			' "days": [{"day": "2026-09-16", "total": {"day": "2026-09-16", "requests": 1}}]}</script>',
+			encoding="utf-8",
+		)
+		found = c.get("/v1/settings/memory/report").json()
+
+	assert found["ok"] is True and found["exists"] is True
+	assert found["bytes"] == report.stat().st_size
+	assert found["generated_at"] == "2026-09-17T04:39:52.912519+00:00"
+	# 同一天在 payload 里出现两次（day 行 + total.detail）也只算一天
+	assert found["days"] == ["2026-09-16"]
+	assert found["url"].startswith("file://")
 
 
 # ---- GUI 暴露面与「显示 == 生效」契约 ----

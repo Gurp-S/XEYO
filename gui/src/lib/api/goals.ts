@@ -192,15 +192,12 @@ async function goalMutate(
 				payload && isDriverLike(payload.driver) ? payload.driver : null;
 			return {ok: true, goal, driver};
 		}
-		// 409 goal_revision_conflict：detail 附当前 goal（客户端刷新再提交，禁盲写）。
-		const detail =
-			payload && typeof payload.detail === 'object' && payload.detail !== null
-				? (payload.detail as Record<string, unknown>)
-				: null;
-		if (res.status === 409 && detail && isGoalLike(detail.goal)) {
+		// 409 goal_revision_conflict：后端 handler 对含 error 的 dict detail 原样上抛
+		// （app.py::_http_error），故 goal 在顶层、不在 detail 下。
+		if (res.status === 409 && payload && isGoalLike(payload.goal)) {
 			return {
 				ok: false,
-				conflict: detail.goal as GoalSnapshot,
+				conflict: payload.goal as GoalSnapshot,
 				message: 'goal_revision_conflict',
 			};
 		}
