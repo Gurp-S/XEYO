@@ -2,6 +2,17 @@ import {Check} from 'lucide-react';
 import {cn} from '@/lib/utils';
 import {THEME_CATALOG, type ThemeId} from '@/theme/catalog';
 
+/** 微缩预览的三行内容线：标题 / 正文 / 强调色短条。 */
+const PREVIEW_LINES: ReadonlyArray<{
+	width: string;
+	opacity?: number;
+	accent?: boolean;
+}> = [
+	{width: '52%', opacity: 0.62},
+	{width: '74%', opacity: 0.22},
+	{width: '30%', accent: true},
+];
+
 type Props = {
 	value: ThemeId;
 	onChange: (id: ThemeId) => void;
@@ -10,7 +21,7 @@ type Props = {
 	className?: string;
 };
 
-/** 六套主题色卡：纸面底 + 强调色条 + 名称，选中仅细边框。 */
+/** 六套主题色卡：微缩窗口预览（表面 + 三行内容线，末行为强调色）+ 名称，选中仅细边框。 */
 export function ThemePicker({value, onChange, compact = false, className}: Props) {
 	return (
 		<div
@@ -44,14 +55,30 @@ export function ThemePicker({value, onChange, compact = false, className}: Props
 					>
 						<span
 							className={cn(
-								'block w-full rounded-md',
-								compact ? 'h-5' : 'h-7',
+								'flex w-full flex-col justify-center gap-1 overflow-hidden rounded-md border border-line/50',
+								compact ? 'h-9 px-1.5' : 'h-12 px-2',
 							)}
 							style={{
-								background: `linear-gradient(90deg, ${meta.swatches.ink} 0%, ${meta.swatches.ink} 28%, ${meta.swatches.accent} 28%, ${meta.swatches.accent} 100%)`,
-								opacity: 0.85,
+								background: `color-mix(in oklab, ${meta.swatches.paper} 92%, ${meta.swatches.ink})`,
 							}}
-						/>
+						>
+							{PREVIEW_LINES.map(line => (
+								<span
+									key={line.width}
+									className={cn(
+										'rounded-full',
+										compact ? 'h-[2px]' : 'h-[3px]',
+									)}
+									style={{
+										width: line.width,
+										background: line.accent
+											? meta.swatches.accent
+											: meta.swatches.ink,
+										opacity: line.accent ? 0.9 : line.opacity,
+									}}
+								/>
+							))}
+						</span>
 						<span
 							className={cn(
 								'mt-1.5 truncate font-medium',

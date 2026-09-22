@@ -30,10 +30,10 @@ export type OutputMode = 'lite' | 'full' | 'ultra';
 export type PaneLayout = 'classic' | 'wireless' | 'islands' | 'dotted';
 
 export const PANE_LAYOUTS: readonly {id: PaneLayout; label: string; hint: string}[] = [
-	{id: 'islands', label: '圆角分岛', hint: '三栏各自成卡，结构感最强（原方案4）'},
-	{id: 'wireless', label: '无线化', hint: '无分割线，会话区变圆角岛（原方案1）'},
-	{id: 'dotted', label: '虚点线', hint: '1px 点状虚线，视觉重量最低（原方案6）'},
-	{id: 'classic', label: '经典', hint: '当前默认：圆角胶囊缝'},
+	{id: 'islands', label: '圆角分岛', hint: '三栏各自成卡，分界靠留白'},
+	{id: 'wireless', label: '无线化', hint: '去掉描边与分割，只靠留白分区'},
+	{id: 'dotted', label: '虚点线', hint: '1px 点状虚线分界，视觉最轻'},
+	{id: 'classic', label: '经典', hint: '实线分界，中段圆角胶囊缝'},
 ];
 
 export function normalizePaneLayout(v: unknown): PaneLayout {
