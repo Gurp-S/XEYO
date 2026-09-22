@@ -874,7 +874,7 @@ export const WorkspacePanel = memo(function WorkspacePanel() {
 			{(open || mounted) && !navEff ? (
 				/* 头部：展开时显示；收起（退出动画）期间保持挂载随面板滑出 */
 				<div className="xy-soft-rule-b flex h-10 shrink-0 items-center justify-between gap-1 px-2">
-					<span className="min-w-0 truncate px-1 text-[11px] font-medium tracking-wide text-mute">XEYO 工作区</span>
+					<span className="min-w-0 truncate px-1 text-[11px] font-medium text-mute">工作区</span>
 					<div className="flex items-center gap-0.5">
 						<button
 							type="button"

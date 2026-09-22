@@ -192,7 +192,7 @@ export function FileMenu() {
 		<div ref={rootRef} className="relative">
 			<button
 				type="button"
-				aria-label="File"
+				aria-label="应用菜单"
 				aria-haspopup="menu"
 				aria-expanded={open}
 				aria-controls={menuId}
@@ -204,8 +204,7 @@ export function FileMenu() {
 				)}
 			>
 				<span className="pointer-events-none select-none whitespace-nowrap leading-none">
-					<span className="text-[12px] text-mute">XEYO</span>
-					<span className="ml-1 text-[12.5px] font-semibold text-ink-soft">Chat</span>
+					<span className="text-[12.5px] font-semibold text-ink-soft">XEYO</span>
 				</span>
 			</button>
 			{open ? (
