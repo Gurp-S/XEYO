@@ -648,3 +648,11 @@ html[data-scheme="dark"] .xy-prism-html .token.boolean {
 .xy-filter-menu:hover {
   border-color: color-mix(in oklch, var(--xy-ink) 22%, transparent);
 }
+
+/* 无数据的账户卡：占位符「—」原本沿用真实大数的 20px 半粗，整张卡看着像塌了。
+   占位符降到说明级字号与禁用色——它表达的是"没有数",不是"一个很大的数"。 */
+.xy-usage-value-empty {
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--xy-text-disabled);
+}

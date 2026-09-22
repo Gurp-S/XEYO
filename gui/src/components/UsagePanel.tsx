@@ -771,7 +771,12 @@ function SummaryCard({
 				<div className="text-[11px] uppercase tracking-wide text-mute">
 					{label}
 				</div>
-				<div className="mt-0.5 truncate text-[20px] font-semibold tabular-nums leading-tight text-ink">
+				<div
+					className={cn(
+						'mt-0.5 truncate text-[20px] font-semibold tabular-nums leading-tight text-ink',
+						/^[-—–\s]+$/.test(value) && 'xy-usage-value-empty',
+					)}
+				>
 					{value}
 				</div>
 				<div className="mt-0.5 text-[10px] text-mute">{hint}</div>
