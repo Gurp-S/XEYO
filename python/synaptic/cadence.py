@@ -43,8 +43,9 @@ margin 倍，是保守边际。
 
 `memory/runtime.py::try_extend_c2` 的经济闸**调用** `theta_required()`，不自己拼代数。
 历史事故：两处各写一份"等价"公式——生产那边把 `price_ratio` 乘在 transition 上、再乘
-`margin=2`，却除以一个猜出来的 `remaining_turns`，于是有效门槛随会话预算档位在
-0.25 倍到 7.5 倍之间漂（09-22 实测两处分歧），报出来的收益说的不是同一件事。
+`margin=2`，却除以一个来自会话预算的 `remaining_turns`，于是有效门槛 = `60 / remaining`
+在生产（`r_cap=96` ⇒ 0.625 倍）与评测台（remaining=8 ⇒ 7.5 倍）之间漂 12 倍，
+报出来的收益说的不是同一件事。
 守卫：`tests/wsc/test_cadence.py::test_production_extend_gate_shares_the_theta_implementation`。
 
 ## 零生产依赖
@@ -115,7 +116,7 @@ def theta_required(*, margin: float = DEFAULT_MARGIN,
 	`θ = price_ratio × margin / PAYBACK_SHOTS`。默认 `30 × 1 / 30 = 1.0`。
 
 	生产链（`memory.runtime.try_extend_c2` 的经济闸）**必须**走这里取阈值，不要在别处
-	重算——两处各写一份代数就是上次「有效门槛 0.25 倍 vs 1 倍」那个分歧的来源。
+	重算——两处各写一份代数，就是上次「θ=1 vs 60/remaining（0.625~7.5 倍）」那个分歧的来源。
 	"""
 	return float(price_ratio) * max(0.0, float(margin)) / float(PAYBACK_SHOTS)
 

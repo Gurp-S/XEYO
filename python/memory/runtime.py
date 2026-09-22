@@ -1208,8 +1208,9 @@ def try_extend_c2(
 		# 3) 经济门：**本次净省 ≥ θ × 本次重发面**（θ 默认 1.0 ⇒ 折叠当枪就不亏，
 		#    不必相信未来任何一枪）。旧第 3/4 闸乘的是 `remaining_turns`——那是**本轮
 		#    预算的剩余轮数**（`max_turns − turn_count`，docs §17.6），不是"还会重用前缀
-		#    几枪"：会话提前收尾它就高估，而门槛随预算档位数漂移（同一份代码在 TB
-		#    预算 256 下有效门槛 0.25 倍、在评测台 remaining=8 下 7.5 倍，差 30 倍）。
+		#    几枪"：会话提前收尾它就高估，而门槛随预算档位漂移（旧式 = `60 /
+		#    remaining_turns`，生产被 `r_cap=96` 封顶 ⇒ 0.625 倍，评测台传 8 ⇒ 7.5 倍，
+		#    同一份代码差 12 倍）。
 		#    ⇒ 未来项整体删除，`c2_extend_min_remaining_turns` 一起删。
 		#    G66: token 计量统一走 memory.token.token_len(utf-8 字节/4)，弃 字符/4 双口径。
 		theta = theta_required(margin=margin, price_ratio=price_ratio)

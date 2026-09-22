@@ -63,7 +63,7 @@ class Params:
 	c2_extend_ratio: float = 0.25
 	# 首压收益门（Path A）的价比 / 保守边际。扩展闸不读这两个：θ 的单点在
 	# synaptic.cadence.theta_required —— 两处各算一份代数就是上次分歧的来源
-	# （一边 θ=1、一边有效门槛 0.25 倍）。
+	# （一边 θ=1、一边 `60 / remaining_turns`）。
 	c2_extend_price_ratio: float = 30.0  # miss/hit 价比（DeepSeek ≈30x）
 	c2_extend_safety_margin: float = 2.0
 	# 压缩态扩展与 θ 门解耦：首压后 Q 常 <θ，不解耦则扩展永不触发、省幅封顶

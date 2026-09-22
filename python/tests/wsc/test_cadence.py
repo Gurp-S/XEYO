@@ -177,7 +177,7 @@ def test_production_extend_gate_shares_the_theta_implementation() -> None:
 	"""生产链的扩展闸必须**调用**这里的 θ，而不是自己再算一遍代数。
 
 	上次的事故形状：cadence 与 `try_extend_c2` 各写一份等价公式，一边 θ=1、一边有效
-	门槛 0.25 倍，报出来的收益说的不是同一件事。守卫扫源码：出现本地乘法式子即红。
+	门槛 60/remaining（0.625~7.5 倍），报出来的收益说的不是同一件事。守卫扫源码：出现本地乘法式子即红。
 	"""
 	import memory.runtime as R
 	import synaptic.cadence as C

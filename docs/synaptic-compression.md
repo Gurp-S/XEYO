@@ -2090,9 +2090,13 @@ t199  hot=2734 | fixed 1156/1200 over=0 | main 1426/1800 over=0 | requests=dedup
    **68.9% 的枪跑在假水位下**（压力门在 102.4k 就开始取舍上下文）。守卫：
    `tests/test_context_limit_inject_g67.py::test_in_service_dated_vendor_names_are_registered`。
 6. **`remaining_turns=8` 不是泄漏进生产的猜测**：生产两条调用（`engine/query_loop.py`）传的是
-   **本轮预算剩余**（`max_turns 256 − turn_count`，是事实不是预测）；`= 8` 只作用于评测脚本。
-   ⚠️ 连带口径：评测脚本用 8 ⇒ v61 的经济门槛比生产紧约 **30 倍**，
-   所以"v61 在 200 回合只扩展 12 次"这类数字**不能**当生产折叠率引用。
+   **本轮预算剩余**（`max_turns − turn_count`，是事实不是预测）；`= 8` 只作用于评测脚本。
+   ⚠️ 连带口径：旧扩展闸的有效门槛 = `margin×price_ratio / remaining = 60 / remaining`，
+   而 `remaining` 被 `params.r_cap=96` 封顶 ⇒ 生产端最松 **0.625 倍**、评测台 **7.5 倍**
+   （差 **12 倍**，本节先前写的"约 30 倍"是按未封顶的 remaining=236 算的，作废）。
+   09-22 之后：**扩展闸已不读 `remaining_turns`**（见第 8 条），这条漂移只剩在
+   `decide` 与首压收益门（`_c2_gain_enough` → `simulator/c2_gate.economic_gain_ok`）里，
+   所以"v61 在 200 回合只扩展 12 次"这类历史数字仍**不能**当生产折叠率引用。
 7. **评测台与生产的额度口径分裂**：索引那 1,600 额度在评测台几乎每枪都超、生产一次都没超
    （因为头不重建）。引用"索引超帽"必须先说哪一侧。
 8. **折叠触发已统一到 θ=1**（2026-09-22 落地主链）：`memory.runtime.try_extend_c2` 的经济闸
