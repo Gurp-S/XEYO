@@ -151,6 +151,8 @@ html[data-theme="paper"] {
 :root {
   --xy-radius-pane: 18px;
   --xy-radius-control: 12px;
+  /* 浮层专用一档：菜单/下拉/右键面板共用，介于控件与面板之间 */
+  --xy-radius-float: 14px;
 }
 
 /* ============ 深色通用默认:深空(中性蓝黑玻璃 × 靛白强调) ============

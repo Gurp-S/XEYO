@@ -169,3 +169,20 @@ html[data-scheme="dark"] .xy-seg-btn.is-on {
 .xy-palette-filter:hover {
   border-color: color-mix(in oklch, var(--xy-ink) 18%, transparent);
 }
+
+/* 右键菜单圆角原本写死 rounded-md(6px)，而这一版体系的控件圆角是 12px、
+   弹层 16-18px——6px 在新体系里读起来像没跟着改。描边也归到统一的 --xy-line。 */
+.xy-ctx-menu {
+  border-radius: var(--xy-radius-float);
+  border-color: var(--xy-line);
+}
+
+/* 下拉/飞层此前各自写死 rounded-lg(8px) 或 rounded-2xl(16px)——
+   同一类浮层三种圆角。统一走 --xy-radius-float。 */
+.xy-menu-flyout {
+  border-radius: var(--xy-radius-float);
+}
+
+.xy-ctx-menu .xy-ctx-row {
+  border-radius: calc(var(--xy-radius-float) - 6px);
+}
