@@ -433,7 +433,7 @@ function WorkspaceAddMenu({
 						/>
 						<ActionRow
 							icon={<FolderPlus className="h-3.5 w-3.5" />}
-							label="New Folder"
+							label="新建文件夹"
 							disabled={busy}
 							onSelect={onNewFolder}
 						/>

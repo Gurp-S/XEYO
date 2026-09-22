@@ -48,7 +48,7 @@ describe('WorkspaceAddButton', () => {
 		expect(screen.getByRole('button', {name: 'Cloud'})).toBeTruthy();
 		expect(screen.getByRole('button', {name: 'Start from scratch'})).toBeTruthy();
 		expect(screen.getByRole('button', {name: 'Use Existing...'})).toBeTruthy();
-		expect(screen.getByRole('button', {name: 'New Folder'})).toBeTruthy();
+		expect(screen.getByRole('button', {name: '新建文件夹'})).toBeTruthy();
 	});
 
 	it('filters recents from the search box', async () => {

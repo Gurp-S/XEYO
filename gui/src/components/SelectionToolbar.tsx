@@ -128,15 +128,15 @@ export function SelectionToolbar({
 						className="inline-flex h-7 shrink-0 items-center whitespace-nowrap rounded-md px-2.5 text-[12px] text-white/90 hover:bg-white/10"
 						onClick={onAskSide}
 					>
-						Add to Side Chat
+						加入侧链对话
 					</button>
 				</>
 			) : (
 				<>
-					<ToolBtn title="Ask Agent" onClick={onAskAgent}>
+					<ToolBtn title="问主对话" onClick={onAskAgent}>
 						<CirclePlay className="h-3.5 w-3.5" strokeWidth={1.75} />
 					</ToolBtn>
-					<ToolBtn title="Ask Side Chat" onClick={onAskSide}>
+					<ToolBtn title="加入侧链对话" onClick={onAskSide}>
 						<MessageCircle className="h-3.5 w-3.5" strokeWidth={1.75} />
 					</ToolBtn>
 					<span className="mx-0.5 h-4 w-px shrink-0 bg-white/15" />

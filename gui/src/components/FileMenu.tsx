@@ -140,7 +140,7 @@ export function FileMenu() {
 		{
 			kind: 'action',
 			id: 'exit',
-			label: 'Exit',
+			label: '退出应用',
 			onSelect: () => void onExit(),
 		},
 	];

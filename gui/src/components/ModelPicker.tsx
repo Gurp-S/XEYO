@@ -218,7 +218,7 @@ export function ModelPicker({
 								<input
 									value={query}
 									onChange={e => setQuery(e.target.value)}
-									placeholder="Search models"
+									placeholder="搜索模型"
 									className="min-w-0 flex-1 bg-transparent text-[12.5px] text-ink outline-none placeholder:text-mute"
 								/>
 							</label>

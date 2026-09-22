@@ -429,7 +429,7 @@ export function CommandPalette() {
 			},
 				{
 					id: 'action:terminal',
-					label: 'Open Terminal',
+					label: '打开终端',
 					detail: '右侧工作区终端',
 					icon: (
 						<Terminal className="h-4 w-4 shrink-0 text-mute" strokeWidth={1.75} />
