@@ -140,8 +140,8 @@ html[data-theme="paper"] {
   --xy-rail-idle: color-mix(in oklch, var(--xy-mute) 42%, transparent);
   --xy-rail-panel: color-mix(in oklch, var(--xy-glass-strong) 72%, transparent);
   --xy-chart: var(--xy-accent);
-  --xy-chart-mid: color-mix(in oklch, var(--xy-accent) 55%, var(--xy-paper));
-  --xy-chart-soft: color-mix(in oklch, var(--xy-accent) 26%, var(--xy-paper));
+  --xy-chart-mid: color-mix(in oklch, var(--xy-accent) 72%, var(--xy-paper));
+  --xy-chart-soft: color-mix(in oklch, var(--xy-accent) 44%, var(--xy-paper));
   --xy-chart-fill: color-mix(in oklch, var(--xy-accent) 16%, transparent);
   --xy-chart-icon: var(--xy-accent);
   --xy-chart-icon-bg: color-mix(in oklch, var(--xy-accent) 12%, transparent);
@@ -190,8 +190,8 @@ html[data-scheme="dark"] {
   --xy-rail-idle: color-mix(in oklch, var(--xy-mute) 30%, transparent);
   --xy-rail-panel: color-mix(in oklch, var(--xy-glass-strong) 70%, transparent);
   --xy-chart: var(--xy-accent);
-  --xy-chart-mid: color-mix(in oklch, var(--xy-accent) 55%, var(--xy-paper));
-  --xy-chart-soft: color-mix(in oklch, var(--xy-accent) 26%, var(--xy-paper));
+  --xy-chart-mid: color-mix(in oklch, var(--xy-accent) 72%, var(--xy-paper));
+  --xy-chart-soft: color-mix(in oklch, var(--xy-accent) 44%, var(--xy-paper));
   --xy-chart-fill: color-mix(in oklch, var(--xy-accent) 16%, transparent);
   --xy-chart-icon: var(--xy-accent);
   --xy-chart-icon-bg: color-mix(in oklch, var(--xy-accent) 12%, transparent);

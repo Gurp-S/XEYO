@@ -635,3 +635,16 @@ html[data-scheme="dark"] .xy-prism-html .token.boolean {
   transition: opacity var(--duration-base) ease;
 }
 
+
+/* 筛选器触发器（用量页等）：原本静态下无边框无底色，只有 hover 才出现底色，
+   看成一排文字、看不出是可点的控件。给它一枚安静的芯片——1px 描边 + 与卡片同底，
+   hover / 展开时才加重。不加阴影、不做位移。 */
+.xy-filter-menu {
+  border: 1px solid var(--xy-line);
+  background: var(--xy-glass-strong);
+  box-shadow: var(--xy-edge-hi);
+}
+
+.xy-filter-menu:hover {
+  border-color: color-mix(in oklch, var(--xy-ink) 22%, transparent);
+}

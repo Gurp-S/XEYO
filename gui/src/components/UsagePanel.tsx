@@ -891,7 +891,7 @@ function FilterMenu({
 					aria-controls={menuId}
 					onClick={onToggle}
 					className={cn(
-						'inline-flex h-8 max-w-[14rem] items-center gap-1 rounded-lg px-2 text-[12px] text-ink-soft',
+						'xy-filter-menu inline-flex h-8 max-w-[14rem] items-center gap-1 rounded-lg px-2 text-[12px] text-ink-soft',
 						mono && 'font-mono',
 						'hover:bg-glass-hover hover:text-ink',
 						open && 'bg-glass-hover text-ink',
