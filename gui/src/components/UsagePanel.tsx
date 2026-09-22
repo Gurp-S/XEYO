@@ -603,16 +603,6 @@ export function UsagePanel({active = true}: Props) {
 							</span>
 						</p>
 					) : null}
-					{!error && report && report.source === 'local' ? (
-						<p className="mb-3 rounded-xl border border-line bg-glass-hover px-3 py-2 text-[12px] text-ink-soft">
-							厂商未提供历史用量，这里按本机记录的对话用量统计；余额仍取自厂商账户。
-						</p>
-					) : null}
-					{!error && report && report.source === 'mixed' ? (
-						<p className="mb-3 rounded-xl border border-line bg-glass-hover px-3 py-2 text-[12px] text-ink-soft">
-							厂商数据与本机记录合并统计：优先采用厂商数据，缺口由本机记录补足。
-						</p>
-					) : null}
 					{!error &&
 					report &&
 					report.source === 'vendor' &&
@@ -626,6 +616,7 @@ export function UsagePanel({active = true}: Props) {
 					) : null}
 
 					{/* 账户区：余额为官方真实数据，留在账户区；不做金额统计（v4）。 */}
+					{balance?.available ? (
 					<div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 xy-usage-section">
 						<SummaryCard
 							label="余额"
@@ -663,6 +654,11 @@ export function UsagePanel({active = true}: Props) {
 							hint="自行充值部分"
 						/>
 					</div>
+					) : (
+						<p className="xy-usage-section mb-4 px-1 text-[12px] text-mute">
+							未读取到厂商账户余额，在设置中填入可用的 API Key 后显示。
+						</p>
+					)}
 
 					<section className="xy-usage-section mb-4 rounded-xl border border-line bg-glass-hover px-4 pb-2 pt-3">
 						<div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
