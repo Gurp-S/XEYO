@@ -50,19 +50,16 @@ export function PaneResizeHandle({edge, dragging, label, onMouseDown}: Props) {
 			}}
 			className={cn(
 				'xy-pane-resize-handle absolute top-0 z-20 h-full w-3 cursor-col-resize',
+				edge === 'right' ? 'is-edge-right right-0' : 'is-edge-left left-0',
 				lit && 'is-lit',
 				dragging && 'is-dragging',
-				edge === 'right'
-					? 'right-0 translate-x-1/2'
-					: 'left-0 -translate-x-1/2',
 			)}
 		>
 			<span aria-hidden className="xy-pane-resize-seam" />
 			<span
 				aria-hidden
 				className={cn(
-					'xy-pane-resize-grip pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2',
-					'rounded-full transition-[height,width,background-color,opacity] duration-150 ease-out',
+					'xy-pane-resize-grip rounded-full transition-[height,width,background-color,opacity] duration-150 ease-out',
 					'motion-reduce:transition-none',
 					lit ? 'opacity-100' : 'opacity-0',
 					dragging ? 'h-16 w-1.5 bg-accent/55' : 'h-12 w-1 bg-accent/35',

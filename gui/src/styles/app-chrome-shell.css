@@ -340,6 +340,27 @@ html[data-smoothness="on"] .xy-hdr-title {
   touch-action: none;
 }
 
+/* 命中区整体落在面板内侧：面板是 overflow:hidden 的，跨界的半条既点不到，
+   又把 scrollWidth 撑出容器（审计里的 H_OVERFLOW）。缝/握把改为贴边锚定。 */
+.xy-pane-resize-grip {
+  position: absolute;
+  top: 50%;
+  translate: 0 -50%;
+  pointer-events: none;
+}
+.xy-pane-resize-handle.is-edge-right .xy-pane-resize-seam,
+.xy-pane-resize-handle.is-edge-right .xy-pane-resize-grip {
+  left: auto;
+  right: 0;
+  translate: 0 -50%;
+}
+.xy-pane-resize-handle.is-edge-left .xy-pane-resize-seam,
+.xy-pane-resize-handle.is-edge-left .xy-pane-resize-grip {
+  left: 0;
+  right: auto;
+  translate: 0 -50%;
+}
+
 /* 常显中缝：圆角胶囊 + 上下 mask 淡出，不顶到窗沿，避免「切开」感 */
 .xy-pane-resize-seam {
   pointer-events: none;
