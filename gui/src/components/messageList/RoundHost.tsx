@@ -428,7 +428,7 @@ promptEditRef,
 								</span>
 								<span className="xy-split-head-meta">
 									<span className="xy-done-extra">
-										{mergedActivity.steps.length} steps
+										{mergedActivity.steps.length} 步
 										{mergedActivity.diffs.add > 0 ||
 										mergedActivity.diffs.del > 0 ? (
 											<>
@@ -455,7 +455,7 @@ promptEditRef,
 								innerClassName="xy-activity-detail-inner"
 							>
 								<ActivityLog
-									summary={`${mergedActivity.steps.length} steps`}
+									summary={`${mergedActivity.steps.length} 步`}
 									diffs={mergedActivity.diffs}
 									steps={mergedActivity.steps}
 									expanded

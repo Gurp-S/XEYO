@@ -158,23 +158,15 @@ export type ChangedFile = {
 
 export const FILE_CHANGE_VERBS = new Set(['Edited', 'Wrote', 'Created']);
 
-/** 折叠顶栏：done on Aug 28, 2026 · 2:05 PM（段级可选） */
+/** 折叠顶栏：已完成 · 2026年9月3日 23:34（段级可选） */
 export function formatDoneOn(atMs: number = Date.now()): string {
 	const d = new Date(atMs);
-	const date = d.toLocaleString('en-US', {
-		month: 'short',
-		day: 'numeric',
-		year: 'numeric',
-	});
-	const time = d.toLocaleString('en-US', {
-		hour: 'numeric',
-		minute: '2-digit',
-		hour12: true,
-	});
-	return `done on ${date} · ${time}`;
+	const pad = (n: number) => String(n).padStart(2, '0');
+	const date = `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
+	return `已完成 · ${date} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-/** 整轮收尾顶栏：done on {timestamp}（冻结口径） */
+/** 整轮收尾顶栏：与段级同一口径（冻结） */
 export function formatCollapsedRoundSummary(
 	_durationMs: number,
 	endedAt: number = Date.now(),

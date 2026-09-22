@@ -1112,7 +1112,7 @@ describe('buildRoundActivityView', () => {
 			},
 		);
 		expect(view?.active).toBe(false);
-		expect(view?.summary.startsWith('done on ')).toBe(true);
+		expect(view?.summary.startsWith('已完成')).toBe(true);
 	});
 
 	it('appends live thought when idle between tools', () => {
@@ -1201,7 +1201,7 @@ describe('mergeTurnActivity — 任务收尾单层聚合', () => {
 		], {startedAt: 0, endedAt: 1_725_000_000_000});
 		expect(merged).not.toBeNull();
 		expect(merged!.steps.map(s => s.detail)).toEqual(['foo', 'bar', 'a.ts']);
-		expect(merged!.summary.startsWith('done on ')).toBe(true);
+		expect(merged!.summary.startsWith('已完成')).toBe(true);
 		expect(merged!.diffs).toEqual({add: 0, del: 0});
 	});
 

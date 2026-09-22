@@ -225,7 +225,7 @@ describe('tool workflow display — done on merge', () => {
 			endedAt: WORKFLOW_T0 + 60_000,
 		});
 		expect(merged).not.toBeNull();
-		expect(merged!.summary.startsWith('done on ')).toBe(true);
+		expect(merged!.summary.startsWith('已完成')).toBe(true);
 
 		const tools = toolStepsOnly(merged!.steps);
 		const verbs = new Set(tools.map(s => s.verb));
