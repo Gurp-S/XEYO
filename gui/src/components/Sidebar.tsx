@@ -578,7 +578,7 @@ className="xy-icon-btn rounded-md p-1.5 text-mute hover:bg-glass-hover hover:tex
 					>
 						<Plus className="h-3.5 w-3.5 shrink-0" />
 						<span className="min-w-0 flex-1 truncate text-[13px]">
-							New Chat
+							新对话
 						</span>
 						<span className="shrink-0 font-mono text-[10px] text-mute/70">
 							Ctrl+N
@@ -592,7 +592,7 @@ className="xy-icon-btn rounded-md p-1.5 text-mute hover:bg-glass-hover hover:tex
 					>
 						<Search className="h-3.5 w-3.5 shrink-0" />
 						<span className="min-w-0 flex-1 truncate text-[13px]">
-							Search
+							搜索
 						</span>
 						<span className="shrink-0 font-mono text-[10px] text-mute/70">
 							Ctrl+K

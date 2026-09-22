@@ -94,7 +94,7 @@ export function FileMenu() {
 		{
 			kind: 'action',
 			id: 'open-folder',
-			label: busy ? '正在打开…' : 'Open Folder',
+			label: busy ? '正在打开…' : '打开文件夹',
 			shortcut: 'Ctrl+O',
 			disabled: busy,
 			onSelect: () => void onOpenFolder(),

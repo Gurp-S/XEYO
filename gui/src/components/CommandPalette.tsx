@@ -47,12 +47,12 @@ import {useWorkspaceStore} from '@/stores/workspaceStore';
 type FilterId = 'all' | 'agents' | 'files' | 'actions' | 'commands' | 'settings';
 
 const FILTERS: {id: FilterId; label: string}[] = [
-	{id: 'all', label: 'All'},
-	{id: 'agents', label: 'Agents'},
-	{id: 'files', label: 'Files'},
-	{id: 'actions', label: 'Actions'},
-	{id: 'commands', label: 'Commands'},
-	{id: 'settings', label: 'Settings'},
+	{id: 'all', label: '全部'},
+	{id: 'agents', label: '工作区'},
+	{id: 'files', label: '文件'},
+	{id: 'actions', label: '操作'},
+	{id: 'commands', label: '命令'},
+	{id: 'settings', label: '设置项'},
 ];
 
 type PaletteItem = {
@@ -352,10 +352,10 @@ export function CommandPalette() {
 					.filter(s => !recentIds.has(s.id))
 					.slice(0, 8);
 				const merged = [...fromRecent, ...fallback].slice(0, 8);
-				pushAgents('Recent Agents', merged);
+				pushAgents('最近的工作区', merged);
 			} else {
 				pushAgents(
-					'Agents',
+					'工作区',
 					[...sessions].sort((a, b) => b.updatedAt - a.updatedAt),
 					20,
 				);
@@ -368,7 +368,7 @@ export function CommandPalette() {
 					out.push({
 						id: `file:${f.path}`,
 						filter: 'files',
-						section: 'Recent Files',
+						section: '最近的文件',
 						label: f.name,
 						detail: fileDirLabel(f.path),
 						meta: formatRelativeShort(f.touchedAt, now),
@@ -381,7 +381,7 @@ export function CommandPalette() {
 					out.push({
 						id: `file:${hit.path}`,
 						filter: 'files',
-						section: filesLoading ? 'Files…' : 'Files',
+						section: filesLoading ? '搜索文件中…' : '文件',
 						label: hit.name,
 						detail: fileDirLabel(hit.path),
 						icon: <FileRowIcon name={hit.name} kind={hit.kind} />,
@@ -396,7 +396,6 @@ export function CommandPalette() {
 				{
 					id: 'action:new-agent',
 					label: '新建对话',
-					detail: '创建新对话',
 					meta: 'Ctrl+N',
 					icon: (
 						<MessageSquarePlus
@@ -412,8 +411,7 @@ export function CommandPalette() {
 			},
 			{
 				id: 'action:open-folder',
-				label: 'Open Folder',
-				detail: '打开工作区文件夹',
+				label: '打开文件夹',
 				meta: 'Ctrl+O',
 				icon: (
 					<FolderOpen className="h-4 w-4 shrink-0 text-mute" strokeWidth={1.75} />
@@ -532,7 +530,6 @@ export function CommandPalette() {
 				{
 					id: 'action:settings',
 					label: '设置',
-					detail: '打开设置',
 					icon: (
 						<Settings className="h-4 w-4 shrink-0 text-mute" strokeWidth={1.75} />
 					),
@@ -556,7 +553,7 @@ export function CommandPalette() {
 				out.push({
 					...a,
 					filter: 'actions',
-					section: 'Actions',
+					section: '操作',
 				});
 			}
 		}
@@ -572,7 +569,7 @@ export function CommandPalette() {
 				out.push({
 					id: `settings:${s.tab}`,
 					filter: 'settings',
-					section: 'Settings',
+					section: '设置项',
 					label: s.label,
 					detail: s.detail,
 					icon: (
@@ -605,7 +602,7 @@ export function CommandPalette() {
 					out.push({
 						id: `slash:${c.name}`,
 						filter: 'commands',
-						section: 'Commands',
+						section: '命令',
 						label: c.usage,
 						detail: c.summary,
 						icon: (
@@ -770,7 +767,7 @@ export function CommandPalette() {
 							setQuery(e.target.value);
 							setActiveIndex(0);
 						}}
-						placeholder="Search agents, files, actions…"
+						placeholder="搜索工作区、文件、命令…"
 						className="xy-palette-search min-w-0 flex-1 bg-transparent text-[14px] text-ink outline-none placeholder:text-mute"
 						autoComplete="off"
 						spellCheck={false}
@@ -816,7 +813,7 @@ export function CommandPalette() {
 							return (
 								<div key={item.id}>
 									{showSection ? (
-										<div className="px-2.5 pb-1 pt-2 font-mono text-[10px] uppercase tracking-wider text-mute">
+										<div className="px-2.5 pb-1 pt-2 text-[11px] font-medium tracking-[0.06em] text-mute">
 											{item.section}
 										</div>
 									) : null}
@@ -857,16 +854,16 @@ export function CommandPalette() {
 
 				<div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-line/50 px-4 py-2">
 					<KbdHint>
-						<Kbd label="↑↓" /> Select
+						<Kbd label="↑↓" /> 选择
 					</KbdHint>
 					<KbdHint>
-						<Kbd label="↵" /> Open
+						<Kbd label="↵" /> 打开
 					</KbdHint>
 					<KbdHint>
-						<Kbd label="⇥" /> or <Kbd label="⇧⇥" /> Change Filter
+						<Kbd label="⇥" /> / <Kbd label="⇧⇥" /> 切换筛选
 					</KbdHint>
 					<KbdHint>
-						<Kbd label="Esc" /> Close
+						<Kbd label="Esc" /> 关闭
 					</KbdHint>
 				</div>
 			</div>

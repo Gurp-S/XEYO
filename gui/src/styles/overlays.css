@@ -4,7 +4,9 @@
 .xy-menu-flyout,
 .xy-ctx-menu,
 .xy-menu-frosted {
-  background: color-mix(in oklch, var(--xy-paper) 48%, transparent);
+  /* 48% 纸色压在黑色遮罩上会糊成中灰，页面文字从面板里透出来。
+     玻璃感靠 blur + 内高光 + 描边读，不靠让背景透过来。 */
+  background: color-mix(in oklch, var(--xy-paper) 88%, transparent);
   -webkit-backdrop-filter: var(--xy-blur);
   backdrop-filter: var(--xy-blur);
   box-shadow:
@@ -15,7 +17,7 @@
 html[data-scheme="dark"] .xy-menu-flyout,
 html[data-scheme="dark"] .xy-ctx-menu,
 html[data-scheme="dark"] .xy-menu-frosted {
-  background: rgb(22 22 24 / 0.66);
+  /* 底色沿用上面的 88% 纸色（各档 --xy-paper 自带明暗），深色只换描边与内高光 */
   box-shadow:
     var(--xy-modal-shadow),
     0 0 0 0.5px rgb(255 255 255 / 0.08),
