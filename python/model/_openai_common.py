@@ -368,6 +368,12 @@ def normalize_messages_for_openai(
 			len(dropped),
 			", ".join(dropped[:5]),
 		)
+		try:  # 观测：丢了几行进账本（失败绝不影响发射）
+			from usage.ledger import record_wire_drop
+
+			record_wire_drop(dropped_ids=dropped, target="openai_compat")
+		except Exception:  # noqa: BLE001
+			logging.getLogger(__name__).debug("record_wire_drop failed", exc_info=True)
 		return pruned
 	return out
 

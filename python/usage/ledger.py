@@ -358,6 +358,38 @@ def record_c2_event(*, session_id: str = "", cursor: int = 0) -> None:
 			f.write(json.dumps(event, ensure_ascii=False) + "\n")
 
 
+def wire_drops_path() -> Path:
+	"""wire 出口丢弃行的账本（与 token 账、C2 计数分开：这三处的读者各不相同）。"""
+	return usage_dir() / "wire_drops.jsonl"
+
+
+def record_wire_drop(*, dropped_ids: list[str], target: str = "") -> None:
+	"""记录一次「最后一公里丢掉了几行工具结果」。
+
+	为什么必须有账：09-20 那次孤儿 tool_result 事故是**厂商回 400 才发现**的，
+	我们的护栏（丢弃而非发送）只在 logging 里留一行 warning，事后无法统计发生率
+	—— 于是"要不要再加一层合成回执"这种决策根本没有分母。这里只补观测，
+	**不改变任何发射形状**：丢弃照旧，只是留得下证据。
+	"""
+	ids = [str(i) for i in (dropped_ids or []) if str(i)]
+	if not ids:
+		return
+	now = datetime.now(tz=BJ).timestamp()
+	event = {
+		"ts": now,
+		"day": datetime.fromtimestamp(now, tz=BJ).date().isoformat(),
+		"type": "wire_drop",
+		"target": str(target or ""),
+		"dropped": len(ids),
+		"ids": ids[:10],
+	}
+	path = wire_drops_path()
+	with _lock:
+		path.parent.mkdir(parents=True, exist_ok=True)
+		with path.open("a", encoding="utf-8") as f:
+			f.write(json.dumps(event, ensure_ascii=False) + "\n")
+
+
 def fold_events_path() -> Path:
 	"""折叠判定账本（执行 **和** 被拒都记一行）与 C2 计数文件分开：
 	``c2_events.jsonl`` 只数"真压了几次"，C4 监控按它统计，掺进拒绝会算错。"""
