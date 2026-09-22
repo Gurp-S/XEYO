@@ -266,7 +266,13 @@ function FilesTree() {
 
 	return (
 		<>
-			{error && !rootLoaded ? (
+			{/* 「没有打开文件夹」是正常空状态，不是加载失败：按真实原因判（rootPath 为空），
+			    而不是按 store 的文案匹配。只有真的请求失败才用危险色。 */}
+			{!rootPath ? (
+				<li className="px-7 py-1 text-[11.5px] text-mute">
+					还没有打开文件夹，先在左侧打开一个工作区。
+				</li>
+			) : error && !rootLoaded ? (
 				<li className="px-7 py-1 font-mono text-[11px] text-danger">
 					文件树加载失败：{error}
 				</li>
