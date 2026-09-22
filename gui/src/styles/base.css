@@ -47,3 +47,20 @@ code {
   Accents stay untouched (original teal/blue system).
 */
 
+
+
+/* 全站键盘焦点基线。此前没有全局规则，只有十余处各自实现，而一些控件写了
+   outline:none —— 键盘导航到这些控件时完全看不到焦点落点。
+   放进 @layer base 而不是裸写：Tailwind 的 outline-none 属于 utilities 层，
+   优先级高于 base，所以刻意去掉描边的控件（输入框等）不会被这条重新套上环；
+   而自带 focus-visible 规则的组件也照常覆盖。这条只兜底。 */
+@layer base {
+  :focus-visible {
+    outline: 2px solid color-mix(in oklch, var(--xy-accent) 60%, transparent);
+    outline-offset: 2px;
+  }
+
+  html[data-scheme="dark"] :focus-visible {
+    outline-color: color-mix(in oklch, var(--xy-accent) 72%, transparent);
+  }
+}
