@@ -165,8 +165,8 @@ export function ImmersiveSidePanel({onCollapse}: {onCollapse: () => void}) {
 					</button>
 					<button
 						type="button"
-						aria-label="插件 / MCP"
-						title="插件 / MCP"
+						aria-label="扩展"
+						title="扩展"
 						className={iconBtn}
 						onClick={() => goPageView('plugins')}
 					>

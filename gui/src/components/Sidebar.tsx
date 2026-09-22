@@ -621,7 +621,7 @@ className="xy-icon-btn rounded-md p-1.5 text-mute hover:bg-glass-hover hover:tex
 						</span>
 					</button>
 
-					{/* P3-⑪：插件 / MCP 管理面板（侧边栏「用量」下方入口）。 */}
+					{/* P3-⑪：扩展中心（插件 / MCP / 技能）面板，侧边栏「用量」下方入口。 */}
 					<button
 						type="button"
 						onClick={() => {
@@ -640,7 +640,7 @@ className="xy-icon-btn rounded-md p-1.5 text-mute hover:bg-glass-hover hover:tex
 					>
 						<Blocks className="h-3.5 w-3.5 shrink-0" />
 						<span className="min-w-0 flex-1 truncate text-[13px]">
-							插件 / MCP
+							扩展
 						</span>
 					</button>
 				</div>
@@ -1218,7 +1218,7 @@ const SideChatSection = memo(function SideChatSection({
 					aria-expanded={expanded}
 					className="flex min-w-0 flex-1 items-center gap-1 rounded-md px-1.5 py-1 text-left text-[11px] font-medium tracking-wide text-current focus:outline-none focus-visible:outline-none"
 				>
-							<span className="min-w-0 truncate">Chat</span>
+							<span className="min-w-0 truncate">对话</span>
 							<ChevronRight
 								className={cn(
 									'h-3.5 w-3.5 shrink-0 opacity-0 transition-[transform,opacity] duration-150 group-hover/section:opacity-100',
@@ -1229,7 +1229,7 @@ const SideChatSection = memo(function SideChatSection({
 				<button
 
 				type="button"
-				aria-label="新建 Chat 对话"
+				aria-label="新建对话"
 				onClick={event => {
 					event.stopPropagation();
 					onAdd();
@@ -1241,13 +1241,13 @@ const SideChatSection = memo(function SideChatSection({
 		</div>
 		<SessionTree open={expanded}>
 				{activeSessions.length === 0 && archivedSessions.length === 0 ? (
-					<li className="px-7 py-1 font-mono text-[11px] text-mute/70">暂无 Chat 对话</li>
+					<li className="px-7 py-1 text-[11px] text-mute/70">暂无对话</li>
 				) : (
 					activeSessions.map(session => renderSideRow(session))
 				)}
 				{archivedSessions.length > 0 ? (
 					<>
-						<li className="flex items-center gap-1 px-7 py-0.5 font-mono text-[10px] tracking-wider text-mute/70">
+						<li className="flex items-center gap-1 px-7 py-0.5 text-[11px] text-mute/70">
 							<Archive className="h-3 w-3 shrink-0" aria-hidden />
 							<span>已归档 {archivedSessions.length}</span>
 						</li>

@@ -49,7 +49,7 @@ import {Switch} from '@/components/ui/Switch';
 /**
  * 扩展中心（插件 / MCP / Skill 三页）。
  *
- * 入口：左侧侧边栏「插件 / MCP」（ChatPage 覆盖层）。三 tab 共享搜索框，
+ * 入口：左侧侧边栏「扩展」（ChatPage 覆盖层）。三 tab 共享搜索框，
  * 每类条目带状态指示（启用 / 未启用 / 错误 / 待批准…）与快速启用开关；
  * 顶部为扩展层总开关。数据面：
  * - 插件：GET /v1/plugins（发现 + lockfile 登记 + 坏清单）

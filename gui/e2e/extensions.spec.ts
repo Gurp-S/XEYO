@@ -30,7 +30,7 @@ test('扩展中心:打开 → 三 tab → MCP 搜索 → 技能 → 互斥 → �
 	await page.waitForTimeout(600);
 
 	// 1. 侧边栏入口打开面板;页头标题随视图切换;会话操作按钮让位
-	await page.getByRole('button', {name: '插件 / MCP'}).click();
+	await page.getByRole('button', {name: '扩展'}).click();
 	const panel = page.getByTestId('extensions-panel');
 	await expect(
 		page.locator('header').getByText('扩展中心', {exact: true}),
@@ -67,18 +67,18 @@ test('扩展中心:打开 → 三 tab → MCP 搜索 → 技能 → 互斥 → �
 	await page.getByRole('button', {name: '用量', exact: true}).click();
 	await expect(panel).toHaveCount(0);
 	await expect(page.locator('header').getByText('用量', {exact: true})).toBeVisible();
-	await page.getByRole('button', {name: '插件 / MCP'}).click();
+	await page.getByRole('button', {name: '扩展'}).click();
 	await expect(page.getByTestId('extensions-panel')).toBeVisible();
 
 	// 7. 侧边栏 toggle 关闭面板,切回聊天界面
-	await page.getByRole('button', {name: '插件 / MCP'}).click();
+	await page.getByRole('button', {name: '扩展'}).click();
 	await expect(page.getByTestId('extensions-panel')).toHaveCount(0);
 	await expect(page.locator('header').getByText('新对话')).toBeVisible();
 
 	// 7b. 侧边栏 toggle 二次点击:再开 → 再关,回聊天界面(回归:2026-09-05 用户实测点不回)
-	await page.getByRole('button', {name: '插件 / MCP'}).click();
+	await page.getByRole('button', {name: '扩展'}).click();
 	await expect(page.getByTestId('extensions-panel')).toBeVisible();
-	await page.getByRole('button', {name: '插件 / MCP'}).click();
+	await page.getByRole('button', {name: '扩展'}).click();
 	await expect(page.getByTestId('extensions-panel')).toHaveCount(0);
 	await expect(page.locator('header').getByText('新对话')).toBeVisible();
 
@@ -132,7 +132,7 @@ test('扩展中心:打开 → 三 tab → MCP 搜索 → 技能 → 互斥 → �
 	}
 
 	// 9. 留档截图:重开面板,切到技能 tab(有行数据,验收工具栏/行容器/居中布局)
-	await page.getByRole('button', {name: '插件 / MCP'}).click();
+	await page.getByRole('button', {name: '扩展'}).click();
 	await page.getByTestId('extensions-panel').getByRole('tab', {name: /技能/}).click();
 	await page.waitForTimeout(400); // stagger 入场 + 过渡余量
 	await page.screenshot({
