@@ -26,8 +26,15 @@ Phase 1 只验证一件事：**能不能用 deterministic reducer 从事件流�
      · user 文本行 / assistant 行内 tool_use 块(或 OpenAI tool_calls) / role=tool 行 / user 行内 tool_result 块
      · ToolUse.id ↔ tool_call_id ↔ tool_use_id 是同一枚硬配对键         【源码】engine/query_loop.py, session/tool_sequence.py
      · 工具是否失败：tool_result 块的 is_error                          【源码】model/_openai_common.py
-     · 文件版本：ApplyResult.version(=sha256) 只落到 journal.ChangeRecord.file_hash_after
-       —— ActionJournal 默认关 ⇒ 事后从 jsonl 恢复不出文件哈希           【源码】memory/journal.py
+     · 文件版本证据有**两处**，且默认链路上就有：
+       (a) **读时哈希** `observed_hash = content_hash(最后一次精确 Read 的回执)`
+           —— 由 `synaptic/filestate.py:171` 从转录算，**不依赖 ActionJournal，一直在**；
+           同一模块还维护 `read_ranges`（覆盖面）、`stale/stale_at`（写后过期时钟）、
+           `related_errors`、`diff_summary`，以及 `working_set(limit=12, pin, recent)` 选边。
+       (b) **写后哈希** 才只在 `memory/journal.py:38 ChangeRecord.file_hash_after`，
+           而 ActionJournal 默认关 ⇒ "我这次写之后文件是什么内容"事后不可恢复。
+       ⇒ v0 的 `hash_verified=False` 只对 (b) 成立；**先前写"文件哈希只在默认关闭的
+       ActionJournal 里"是错的**（顾问抓到，已按源码改）。
      · error_kind 只在 SSE 事件里，未进 jsonl ⇒ 事后不可恢复             【源码】server/*, engine/*
         │
         ├─(V1 现状) engine/compact.keep_tail_cut / pair_safe_cut ──► C2 游标
@@ -195,3 +202,75 @@ Phase 1 只验证一件事：**能不能用 deterministic reducer 从事件流�
 否则 V2 永远只能接管会话状态的四分之一，"新核心"名不副实。
 
 Stop Condition（§二十三）：**未触发** —— deterministic reducer 下 Active State 是可靠的。
+
+
+---
+
+## 11. Phase 1.5（顾问评审后的语义收口，零 API，仍 shadow-only）
+
+评审给的 4 问，逐问的结果——**其中一问把 Phase 1 自己的结论改掉了**。
+
+### 11.1 先接受三条纠正（都是我说过头）
+
+| 我说过的 | 状态 | 改成 |
+|---|---|---|
+| "尺寸只有 V1 的 1/14" | **不作结论** | 只说"同尾部 **0.28**"（536 是纯状态段、7,530 是整份投影，不同口径） |
+| "reducer 7.8ms vs V1 187ms" | **不作结论** | 只说"reducer 自身增量成本 µs 级不随历史升"；**Full Projection vs Full Projection 未测**，那是 Phase 2 |
+| "126/126 状态哈希都变" 记在 Regressions | **移出** | Current State 本就该可重写 ⇒ 它是 Transport 的输入项，不是退化 |
+| "判死：尾部 token 上限 / 工作集原地刷新" | **改词** | 尾部 token 上限 = **DEFER**（Phase 1.5 没产生反对它的证据；`_tail_cap_scan` 只证明"当时没收益"）；"工作集原地刷新"要说清是哪一层：**V2 对 `files[path]` 的 supersede 是正在做的、不判死**；判死的只是"V1 那种在 prompt 段里原地改写文本" |
+
+### 11.2 第 1 问：file stale=0.75 的真面目 —— **不是 auditor 太严，是 V2 几乎不去噪**
+
+按类别 pooled（126 点，`gold ∩ active / active` 当 Active Precision）：
+
+| fact class | Recall | **Precision** | active | gold |
+|---|---:|---:|---:|---:|
+| failure（未解决错误） | 1.000 | **1.000** | 643 | 643 |
+| todo（未闭合项） | 1.000 | **1.000** | 308 | 308 |
+| current request | 0.936 | **0.929** | 126 | 125 |
+| file | 1.000 | **0.243** | 1,767 | 430 |
+
+⇒ 结论明确：**failure / todo 两类"高 Recall + 高 Precision"同时成立；file 类只成立一半——什么都没丢，但基本没去噪**。顾问的 P0.5 判断是对的，`536 tok` 短 ≠ 干净。
+`request` 的 0.936/0.929 与 Phase 1 的 1.000（逐点中位）差在 pooled vs median，且 **8/126 点当前请求判错，未定位**，列开放项。
+
+6 类归因**未收口**，原因查清了是我审计台自己的两个缺陷，不是 V2 的问题：
+
+1. V1 的 `FileState` 键是**原始路径串**、V2 是归一化串 ⇒ join 对绝对路径系统性失配；改成两边同归一化后 **仍 1,183/1,337 落 FP 桶**；
+2. 剩下的主因是**建事实的时机不同**：V2 在 `tool_use` 建行，V1 在 `tool_result` 建表，而我的状态点恰好取在"刚发出一次工具调用之后一行" ⇒ 边界系统性地对不齐。
+   ⇒ 归因桶要先修这两处才有意义；**在此之前不要引用 6 类分布的任何一个数**（含 140 条 TRUE_STALE）。
+
+### 11.3 第 3 问：V2 的 file 事实比 V1 的 FileState **少三样语义**（本轮最该记住的负结果）
+
+在 227 条 V1 有 `FileState` 的 ACTIVE 文件事实上：
+
+| V1 有 | V2 v0 有 |
+|---|---|
+| `observed_hash`（读时哈希） | 无 —— **218/227** |
+| `read_ranges`（读过哪些区间，防"读一半当读全"） | 无 —— **218/227** |
+| `diff_summary`（写后变更摘要） | 无 —— 28/227 |
+| `related_errors` | 无 —— 0/227（V1 也没挂上） |
+
+⇒ 直接推翻"V2 的文件状态更自然"：**在文件这一类上 V2 v0 是 V1 的降级版**，它只是"路径 + 版本号 + 事件号"。
+⇒ 也给出下一步的正确答案：V2 该**复用 `synaptic/filestate.build_file_states` 的语义**（覆盖面/写后过期/错误关联），而不是重造一个更薄的文件事实。
+
+### 11.4 第 2+4 问：StateSourceAdapter 与"派生事实"的可行性（源码已定位）
+
+顾问说的对：**不该把所有事实都先降级成转录事件**。仓库里确实有权威件可直接读：
+
+- `engine/goal_state.py:274 GoalStore`（+ `:70 Goal`）
+- `tools/todo_write_tool/todo_write_tool.py:128 set_todo_store` / `TodoStore`（server 侧按会话注入：`server/session_pool.py:597`）
+- 工具注册表上的 `read_state`（`tools/catalog.shared_read_state`，经 `engine/query_engine.py:1685` 传入 scheduler）
+- `memory/journal.py:417` 的 ChangeRecord（ActionJournal 开时才有）
+
+⇒ Phase 1.5 的接线做法：`StateSourceAdapter` 输出带 `authority ∈ AUTHORITATIVE / DERIVED / LITERAL / UNKNOWN` 的信号，
+`Constraint/Decision` 走 `DERIVED`（V1 分类器 verdict + 原话 + provenance + 生命周期 UNKNOWN/ACTIVE_BY_DEFAULT，只有明确证据才 SUPERSEDE/RESOLVE/CANCEL）。
+
+**但这一条被实测卡住了一半**：在 dev 语料的 126 个状态点上，V1 投影的 `[CONSTRAINTS] + [DECISIONS]` 行数 = **0**，
+⇒ "约束/决定的事后复用金标"分母为 0，**这批语料根本测不出约束类的 Recall/Precision**。要么换 TB 题面语料（题面自带验收约束），要么先从 user 文本直接抽 `key=value` 再判 —— 都还没做。
+
+### 11.5 Phase 1.5 判定
+
+`REWORK`，不是 `KEEP`，也不是 `REVERT`：
+
+- 已经拿到顾问要的 Active Precision（分 4 类），且**它改变了结论**（file 类只成立一半、V2 文件事实是 V1 的降级版）；
+- 归因桶与约束类金标各有一处未收口的度量缺陷 ⇒ **先修审计台，再谈 Phase 2 的 A/B**，否则 Phase 2 会把这两个缺陷带进 V1-vs-V2 的对比里。
