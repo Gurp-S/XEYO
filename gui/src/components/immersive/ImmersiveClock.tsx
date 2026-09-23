@@ -20,11 +20,11 @@ export function ImmersiveClock() {
 
 	return (
 		<div>
-			<div className="font-mono text-6xl font-light tracking-wider text-white/95">
+			<div className="font-mono text-6xl font-light tracking-wider text-[var(--xy-imm-fg-strong)]">
 				{hh}:{mm}
-				<span className="text-2xl text-white/55">:{ss}</span>
+				<span className="text-2xl text-[var(--xy-imm-fg-faint)]">:{ss}</span>
 			</div>
-			<div className="mt-2 font-mono text-[11px] tracking-[0.2em] text-white/45">
+			<div className="mt-2 font-mono text-[11px] tracking-[0.2em] text-[var(--xy-imm-fg-faint)]">
 				{date}
 			</div>
 		</div>

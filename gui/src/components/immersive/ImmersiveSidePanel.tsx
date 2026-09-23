@@ -76,7 +76,7 @@ export function ImmersiveSidePanel({onCollapse}: {onCollapse: () => void}) {
 	};
 
 	const iconBtn =
-		'xy-press flex h-9 flex-1 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-white/85 hover:bg-white/10';
+		'xy-press flex h-9 flex-1 items-center justify-center rounded-lg border border-[var(--xy-imm-chip-line)] bg-[var(--xy-imm-chip-bg)] text-[var(--xy-imm-fg-mid)] hover:bg-[var(--xy-imm-chip-bg-hover)]';
 
 	return (
 		<aside
@@ -85,7 +85,7 @@ export function ImmersiveSidePanel({onCollapse}: {onCollapse: () => void}) {
 		>
 			<header className="flex items-center gap-2 px-3 pt-3 pb-2">
 				<Sparkles className="size-3.5 text-accent" />
-				<span className="text-[12px] font-medium tracking-wide text-white/85">
+				<span className="text-[12px] font-medium tracking-wide text-[var(--xy-imm-fg-mid)]">
 					沉浸
 				</span>
 				<button
@@ -93,7 +93,7 @@ export function ImmersiveSidePanel({onCollapse}: {onCollapse: () => void}) {
 					aria-label="折叠右板"
 					title="折叠右板（Ctrl/Cmd+B）"
 					onClick={onCollapse}
-					className="ml-auto rounded-md p-1 text-white/65 hover:bg-white/10 hover:text-white"
+					className="ml-auto rounded-md p-1 text-[var(--xy-imm-fg-soft)] hover:bg-[var(--xy-imm-chip-bg-hover)] hover:text-[var(--xy-imm-fg-strong)]"
 				>
 					<ChevronsRight className="size-4" />
 				</button>
@@ -110,7 +110,7 @@ export function ImmersiveSidePanel({onCollapse}: {onCollapse: () => void}) {
 						setTitleOpen(v => !v);
 						setWsOpen(false);
 					}}
-					className="flex w-full items-center gap-2 rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-left text-[13px] text-white/90 hover:bg-white/10"
+					className="flex w-full items-center gap-2 rounded-lg border border-[var(--xy-imm-chip-line)] bg-[var(--xy-imm-chip-bg)] px-3 py-2 text-left text-[13px] text-[var(--xy-imm-fg-strong)] hover:bg-[var(--xy-imm-chip-bg-hover)]"
 				>
 					<span aria-hidden className="text-ok">●</span>
 					<span className="min-w-0 flex-1 truncate">{activeTitle}</span>
@@ -182,7 +182,7 @@ export function ImmersiveSidePanel({onCollapse}: {onCollapse: () => void}) {
 							setWsOpen(v => !v);
 							setTitleOpen(false);
 						}}
-						className="flex w-full items-center gap-2 rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-left text-[12.5px] text-white/85 hover:bg-white/10"
+						className="flex w-full items-center gap-2 rounded-lg border border-[var(--xy-imm-chip-line)] bg-[var(--xy-imm-chip-bg)] px-3 py-2 text-left text-[12.5px] text-[var(--xy-imm-fg-mid)] hover:bg-[var(--xy-imm-chip-bg-hover)]"
 					>
 						<FolderGit2 className="size-4 shrink-0" />
 						<span className="min-w-0 flex-1 truncate">
@@ -232,7 +232,7 @@ export function ImmersiveSidePanel({onCollapse}: {onCollapse: () => void}) {
 				<button
 					type="button"
 					onClick={exitImmersive}
-					className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-[12.5px] text-white/90 hover:bg-white/10"
+					className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-[var(--xy-imm-chip-line)] bg-[var(--xy-imm-chip-bg)] px-3 py-2 text-[12.5px] text-[var(--xy-imm-fg-strong)] hover:bg-[var(--xy-imm-chip-bg-hover)]"
 				>
 					<X className="size-3.5" />
 					退出沉浸模式
@@ -250,7 +250,7 @@ export function ImmersiveSidePanelHandle({onExpand}: {onExpand: () => void}) {
 			aria-label="展开沉浸右板"
 			title="展开右板（Ctrl/Cmd+B）"
 			onClick={onExpand}
-			className="xy-press pointer-events-auto absolute right-2 top-1/2 z-30 -translate-y-1/2 flex items-center gap-1 rounded-full border border-white/15 bg-white/5 px-2.5 py-2 text-white/80 backdrop-blur hover:bg-white/10"
+			className="xy-press pointer-events-auto absolute right-2 top-1/2 z-30 -translate-y-1/2 flex items-center gap-1 rounded-full border border-[var(--xy-imm-chip-line)] bg-[var(--xy-imm-chip-bg)] px-2.5 py-2 text-[var(--xy-imm-fg-mid)] backdrop-blur hover:bg-[var(--xy-imm-chip-bg-hover)]"
 		>
 			<ChevronsRight className="size-4 rotate-180" />
 			<span className="text-[11px]">右板</span>

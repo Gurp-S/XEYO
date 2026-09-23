@@ -87,7 +87,7 @@ function ImmersiveModelPicker() {
 			<button
 				ref={btnRef}
 				type="button"
-				className="xy-press flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-[13px] text-white/90 backdrop-blur hover:bg-white/10"
+				className="xy-press flex items-center gap-2 rounded-full border border-[var(--xy-imm-chip-line)] bg-[var(--xy-imm-chip-bg)] px-3 py-1.5 text-[13px] text-[var(--xy-imm-fg-strong)] backdrop-blur hover:bg-[var(--xy-imm-chip-bg-hover)]"
 				aria-haspopup="menu"
 				aria-expanded={open}
 				onClick={() => setOpen(v => !v)}

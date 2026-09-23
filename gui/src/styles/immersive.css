@@ -9,6 +9,35 @@
 .xy-immersive-veil {
 	background: linear-gradient(180deg, rgba(6, 10, 20, 0.55), rgba(6, 10, 20, 0.72));
 }
+/* 沉浸层的前台色：原本组件里到处写死 text-white/NN + bg-white/NN，
+   那只成立在暗台上。改成一组变量，浅色舞台自动换成主题墨色。 */
+.xy-immersive {
+	--xy-imm-fg-strong: rgb(255 255 255 / 0.93);
+	--xy-imm-fg-mid: rgb(255 255 255 / 0.84);
+	--xy-imm-fg-soft: rgb(255 255 255 / 0.66);
+	--xy-imm-fg-faint: rgb(255 255 255 / 0.5);
+	--xy-imm-chip-bg: rgb(255 255 255 / 0.05);
+	--xy-imm-chip-bg-hover: rgb(255 255 255 / 0.1);
+	--xy-imm-chip-line: rgb(255 255 255 / 0.15);
+}
+html[data-scheme="light"] .xy-immersive {
+	/* 原来 #0b0e14 是硬编码近黑，浅色下正文字色（--xy-ink 近黑）压在暗台上几乎读不出来 */
+	background: color-mix(in oklch, var(--xy-paper) 64%, var(--xy-ink));
+	--xy-imm-fg-strong: color-mix(in oklch, var(--xy-ink) 92%, transparent);
+	--xy-imm-fg-mid: color-mix(in oklch, var(--xy-ink) 80%, transparent);
+	--xy-imm-fg-soft: color-mix(in oklch, var(--xy-ink) 62%, transparent);
+	--xy-imm-fg-faint: color-mix(in oklch, var(--xy-ink) 46%, transparent);
+	--xy-imm-chip-bg: color-mix(in oklch, var(--xy-ink) 5%, transparent);
+	--xy-imm-chip-bg-hover: color-mix(in oklch, var(--xy-ink) 10%, transparent);
+	--xy-imm-chip-line: color-mix(in oklch, var(--xy-ink) 16%, transparent);
+}
+html[data-scheme="light"] .xy-immersive-veil {
+	background: linear-gradient(
+		180deg,
+		color-mix(in oklch, var(--xy-paper) 58%, transparent),
+		color-mix(in oklch, var(--xy-paper) 74%, transparent)
+	);
+}
 .xy-immersive-msg {
 	-webkit-mask-image: linear-gradient(180deg, transparent, #000 12%);
 	mask-image: linear-gradient(180deg, transparent, #000 12%);
