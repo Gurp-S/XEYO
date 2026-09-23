@@ -138,13 +138,30 @@
 /* Idea 5 peek 样式见下方「Idea 5 peek」完整块 */
 
 .xy-split-row-main {
-  display: inline-flex;
+  display: flex;
   max-width: 100%;
-  width: auto;
   min-width: 0;
-  align-items: center;
-  gap: 2px;
+  align-items: baseline;
+  gap: 6px;
   text-align: left;
+}
+
+/* Codex 的一行是终端口吻：动词 + 对象同排，命令带 $ 前缀 */
+.xy-split-step .xy-split-right {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--xy-ink);
+}
+.xy-split-preview {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.xy-split-preview.is-cmd::before {
+  content: "$ ";
+  color: var(--xy-mute);
 }
 
 .xy-split-chevron {
@@ -193,11 +210,70 @@
 .xy-split-step {
   position: relative;
   display: grid;
-  grid-template-columns: 104px minmax(0, 1fr);
-  gap: 8px;
-  padding: 3px 0 3px 9px;
+  /* Codex 骨架：悬挂符号列 + 一条流式内容列，不再有 104px 的动词栏 */
+  grid-template-columns: 15px minmax(0, 1fr);
+  gap: 0;
+  padding: 1px 0 1px 9px;
   border-radius: 0;
-  border-bottom: 1px solid var(--xy-rule-weak);
+  border-bottom: 0;
+}
+
+/* 思考行：思考是成段的散文，不是「动词 + 对象」，所以保留独立的动词栏，
+   但仍共用同一条悬挂列，两种行左边缘对得齐。 */
+.xy-split-step.thought-step {
+  grid-template-columns: 15px 89px minmax(0, 1fr);
+  gap: 0 8px;
+}
+
+/* 行首状态符：• 完成 / ✕ 失败 / 脉冲点 进行中 */
+.xy-split-bullet {
+  grid-column: 1;
+  text-align: center;
+  color: var(--xy-accent);
+  font-size: 12px;
+  line-height: 1.7;
+  user-select: none;
+}
+.xy-split-step.is-failed .xy-split-bullet {
+  color: var(--xy-danger);
+}
+.xy-split-pulse {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--xy-accent);
+  vertical-align: 1px;
+  animation: xy-split-pulse 1.1s ease-in-out infinite;
+}
+@keyframes xy-split-pulse {
+  50% {
+    opacity: 0.2;
+    transform: scale(0.7);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .xy-split-pulse {
+    animation: none;
+  }
+}
+
+/* 结果弱显行：第一行 + 「+N 行」，展开后由详情体接管 */
+.xy-split-result {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--xy-mute);
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+.xy-split-step.is-failed .xy-split-result {
+  color: var(--xy-danger);
+}
+.xy-split-more {
+  color: var(--xy-mute);
+  font-size: 10.5px;
 }
 
 .xy-split-step:last-child {

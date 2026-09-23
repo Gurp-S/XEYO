@@ -128,6 +128,27 @@ export function oneLinePreview(step: ActivityStep): string {
 	return '';
 }
 
+/** Codex 式结果行：只显示第一行，其余折成「+N 行」；路由标注不进摘要。 */
+function resultPeek(
+	result?: string,
+): {text: string; extra: number} | null {
+	if (!result) {
+		return null;
+	}
+	const lines = result
+		.split('\n')
+		.map(l => l.trim())
+		.filter(l => l.length > 0 && !l.startsWith('[routed:'));
+	if (lines.length === 0) {
+		return null;
+	}
+	const first = lines[0];
+	return {
+		text: first.length > 160 ? `${first.slice(0, 160)}…` : first,
+		extra: lines.length - 1,
+	};
+}
+
 function StepDetailBody({
 	args,
 	result,
@@ -284,6 +305,9 @@ function ThoughtStepRow({
 				Boolean(peek) && smoothness && 'group/thought',
 			)}
 		>
+			<span className="xy-split-bullet" aria-hidden>
+				{running ? <i className="xy-split-pulse" /> : '•'}
+			</span>
 			<button
 				type="button"
 				className="xy-split-left"
@@ -364,6 +388,15 @@ function ToolStepRow({
 }) {
 	const {open, mounted, toggle} = useExpandReveal();
 	const preview = oneLinePreview(step);
+	const peek = resultPeek(step.result);
+	// Codex 式：命令类动作的对象带 $ 前缀，一眼区分「跑了什么」与「读了什么」
+	const isCommand = step.verb === 'Ran' || step.verb === 'Running';
+	// 写类动作的成功回执只是「The file … has been updated」+ 又一遍 diff，
+	// diff 徽章已经带过，再排一行就是把每步撑成两行。失败时仍要显示原因。
+	const redundantWrite =
+		!step.error &&
+		Boolean(step.diff) &&
+		(step.verb === 'Edited' || step.verb === 'Wrote' || step.verb === 'Created');
 
 	return (
 		<div
@@ -386,30 +419,43 @@ function ToolStepRow({
 				);
 			}}
 		>
-			<button
-				type="button"
-				onClick={toggle}
-				aria-expanded={open}
-				className="xy-split-left"
-			>
-				{/* 动词态由 toolToStep 给出；settle 时 Editing→Edited 走 A8，不连转 */}
-				<MorphVerb
-					verb={step.verb}
-					error={Boolean(step.error) || step.verb === 'Failed'}
-				/>
-			</button>
+			<span className="xy-split-bullet" aria-hidden>
+				{step.running ? (
+					<i className="xy-split-pulse" />
+				) : step.error ? (
+					'✕'
+				) : (
+					'•'
+				)}
+			</span>
 			<div className="xy-split-right group/step min-w-0">
 				<button
 					type="button"
 					onClick={toggle}
+					aria-expanded={open}
 					className="xy-split-row-main"
 				>
-					<span className="xy-split-preview" title={preview}>
-						{preview}
+					<MorphVerb
+						verb={step.verb}
+						error={Boolean(step.error) || step.verb === 'Failed'}
+					/>
+					<span
+						className={cn('xy-split-preview', isCommand && 'is-cmd')}
+						title={preview}
+					>
+						{step.detail}
 					</span>
 					{step.diff ? <DiffBadgeMemo diff={step.diff} /> : null}
 					<SplitChevron open={open} />
 				</button>
+				{peek && !open && !redundantWrite ? (
+					<div className="xy-split-result">
+						{peek.text}
+						{peek.extra > 0 ? (
+							<span className="xy-split-more"> +{peek.extra} 行</span>
+						) : null}
+					</div>
+				) : null}
 				{mounted ? (
 					<ExpandPanel open={open} innerClassName="xy-tool-step-body">
 						<StepDetailBody
