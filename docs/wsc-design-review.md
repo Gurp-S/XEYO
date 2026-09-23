@@ -284,9 +284,11 @@ forced              2 次   0.52 / 0.45                          （本枪是亏
 ### 8.4 D 组：质量与历史
 
 - 【评测】M1（"压缩会不会让模型崩掉/丢目标"）在 8k 等长口径下**判死**（测不出差异）。
-- 【待复核】M2（信息在场率）：曾测得 WSC 相对 C2 原生摘要 **10.9% vs 2.0%（5.4×）**，
-  出自当时问答集裁定器的付费跑（证据目录 `_wsc_out/qa_judge_*`）；**本轮没能定位到可复现的输出文件**
-  ⇒ 引用前先零成本复算（`_offline_judge.py`），别拿它当"质量已证明"的支点。
+- 【撤回】M2（信息在场率 "WSC 10.9% vs C2 2.0%（5.4×）"）**作废**：查到 10.9% 的原始出处是
+  `_locator_rows.out` 里某会话某点的 **R2 重复行占热层比例**，不是在栏率——引用错字段。
+  替代证据：`_wsc_out/qa_judge_evidence_final/wsc_qa_report.json`（47 会话、29 段带外部真值、四臂
+  wsc/不压/空/hostile、Wilson CI + `gate_eligible` + 单会话占比防偏置），已抄进
+  [`docs/wsc-ab-2026-09-23.md`](wsc-ab-2026-09-23.md) §2。仍缺 "WSC vs C2 原生摘要" 那一臂。
 - 【账本】价格倍率与命中：折叠当枪重填面 **71.1%**（n=38）——⚠️ 该样本按 `action` 标签分组，
   标签召回率已证 ~2% ⇒ 精度尚可用、**样本小且有偏**，不作为结论支点。
 - 【账单】结构性事故：在服型号 `deepseek-v4.1-flash-expires-on-0910` 的 prompt 实测到过 **693,894**
@@ -416,7 +418,11 @@ forced              2 次   0.52 / 0.45                          （本枪是亏
 - `~/.xeyo/usage/c2_events.jsonl` —— 真执行了的折叠（游标推进），**折叠次数的权威分母**
 - `~/.xeyo/usage/fold_events.jsonl` —— 每次折叠判定（含被拒），带判据数字与 `arm`
 - `~/.xeyo/usage/calibration_events.jsonl` —— 逐枪 prompt/命中/**不可靠的** action 标签
-- `~/.xeyo/usage/wsc_index_usage.jsonl` —— 每份头的寿命与句柄使用
+- `~/.xeyo/wsc_index_usage.jsonl` —— 每份头的寿命与句柄使用。
+  ⚠️ **实际落在 `~/.xeyo/` 根下，不在 `usage/`**（本文件旧版写错过路径）。
+  ⚠️ 现 3,668 行里 **3,605 行是 09-22 加 `XEYO_WSC_OFFLINE` 闸门之前探针自己写的**，
+  `handle_refs>0` 只有 120 行（合计 242 次）。⇒ 这张账**过滤前不可用于对外结论**，
+  旧"头寿命 p50=1""句柄取回率"一类数一律算【待复核】。
 - `~/.xeyo/sessions/<sid>.working.json` —— 游标、投影摘要、检查点窗口链
 
 TB 真跑（**必须 `PYTHONUTF8=1`**，否则 harbor 用 GBK 读带中文注释的 yaml 会崩）：
