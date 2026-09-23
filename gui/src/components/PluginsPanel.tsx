@@ -175,7 +175,7 @@ function PluginRow({
 						{plugin.name}
 					</span>
 					{plugin.source_scope ? (
-						<span className="shrink-0 rounded bg-paper px-1 py-px text-[9px] text-mute">
+						<span className="shrink-0 rounded bg-paper px-1 py-px text-[10px] text-mute">
 							{plugin.source_scope}
 						</span>
 					) : null}
@@ -272,7 +272,7 @@ function McpRow({
 							{server.id}
 						</span>
 						{server.scope ? (
-							<span className="shrink-0 rounded bg-paper px-1 py-px text-[9px] text-mute">
+							<span className="shrink-0 rounded bg-paper px-1 py-px text-[10px] text-mute">
 								{server.scope}
 							</span>
 						) : null}
@@ -392,11 +392,11 @@ function SkillRow({
 						{name}
 					</span>
 					{info ? (
-						<span className="shrink-0 rounded bg-paper px-1 py-px text-[9px] text-mute">
+						<span className="shrink-0 rounded bg-paper px-1 py-px text-[10px] text-mute">
 							{SOURCE_LABEL[info.source] ?? info.source}
 						</span>
 					) : (
-						<span className="shrink-0 rounded bg-paper px-1 py-px text-[9px] text-mute">
+						<span className="shrink-0 rounded bg-paper px-1 py-px text-[10px] text-mute">
 							配置
 						</span>
 					)}

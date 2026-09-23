@@ -730,7 +730,7 @@ export function AgentMapPanel() {
 										{cardId.split('/').pop() ?? cardId}
 									</span>
 									{cardHit ? (
-										<span className="shrink-0 text-[9px] text-mute">
+										<span className="shrink-0 text-[10px] text-mute">
 											{cardHit.verb}
 										</span>
 									) : null}

@@ -748,7 +748,7 @@ function GitTree() {
 									{b}
 								</span>
 								{b === state.branches?.current ? (
-									<span className="rounded bg-accent/15 px-1 py-0.5 text-[10px] leading-none text-accent">当前</span>
+									<span className="rounded bg-accent/15 px-1 py-0.5 text-[11px] leading-none text-accent">当前</span>
 								) : null}
 							</Row>
 						))

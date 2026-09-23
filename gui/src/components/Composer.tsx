@@ -1612,7 +1612,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 													slashHighlight === i && 'bg-paper-deep/70',
 												)}
 											>
-												<span className="h-4 w-4 shrink-0 rounded-sm border border-line/70 text-center font-mono text-[9px] leading-4 text-mute">
+												<span className="h-4 w-4 shrink-0 rounded-sm border border-line/70 text-center font-mono text-[10px] leading-4 text-mute">
 													@
 												</span>
 												<span className="min-w-0 flex-1 truncate font-mono text-[12px] text-ink-soft">

@@ -79,7 +79,7 @@ function ServerCard({
 					</span>
 				</button>
 				{server.scope ? (
-					<span className="shrink-0 rounded bg-paper-deep px-1 py-0.5 text-[9px] text-mute">
+					<span className="shrink-0 rounded bg-paper-deep px-1 py-0.5 text-[10px] text-mute">
 						{server.scope}
 					</span>
 				) : null}
@@ -155,7 +155,7 @@ function ServerCard({
 									{name}
 								</span>
 								{hidden ? (
-									<span className="shrink-0 rounded bg-paper-deep px-1 text-[9px] text-mute">
+									<span className="shrink-0 rounded bg-paper-deep px-1 text-[10px] text-mute">
 										隐藏
 									</span>
 								) : null}
