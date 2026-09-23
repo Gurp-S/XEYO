@@ -111,7 +111,7 @@ html[data-theme="paper"] {
   --xy-paper: #f7f8fc;
   --xy-paper-deep: #eef1f8;
   --xy-line: #dfe3ef;
-  --xy-mute: #7d8598;
+  --xy-mute: #6a7183;
   --xy-text-tertiary: #949cb0;
   --xy-text-disabled: #bfc5d3;
   --xy-accent: #4f5dd8;
@@ -212,7 +212,7 @@ html[data-theme="ivory"] {
   --xy-paper: #faf8f4;
   --xy-paper-deep: #f2eee6;
   --xy-line: #e4ded1;
-  --xy-mute: #7f7869;
+  --xy-mute: #6d6656;
   --xy-text-tertiary: #97907f;
   --xy-text-disabled: #c0b9a8;
   --xy-accent: #0f7d72;
@@ -241,7 +241,7 @@ html[data-theme="mist"] {
   --xy-paper: #f1f4f7;
   --xy-paper-deep: #e7ecf1;
   --xy-line: #d5dde6;
-  --xy-mute: #6f7c8b;
+  --xy-mute: #5f6c7c;
   --xy-text-tertiary: #8b98a6;
   --xy-text-disabled: #b4bfca;
   --xy-accent: #3f6fa8;

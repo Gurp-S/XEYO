@@ -351,7 +351,7 @@ className="xy-icon-btn shrink-0 rounded-md p-1.5 text-mute hover:bg-glass-hover 
 							key={sidebarOpen ? 'side-open' : 'side-closed'}
 						data-xy-usage-anchor
 							ref={usagePreviewRef}
-						className="group relative shrink-0 whitespace-nowrap font-mono text-[10px] text-mute"
+						className="group relative shrink-0 whitespace-nowrap font-mono text-[11px] text-mute"
 					>
 					<button
 							type="button"
@@ -450,7 +450,7 @@ className="xy-icon-btn shrink-0 rounded-md p-1.5 text-mute hover:bg-glass-hover 
 													<div className="font-semibold text-ink">C2 压缩</div>
 													<span
 														className={cn(
-															'rounded-full px-1.5 py-0.5 font-mono text-[10px]',
+															'rounded-full px-1.5 py-0.5 font-mono text-[11px]',
 															active
 																? 'bg-ink/10 text-ink'
 																: 'bg-glass text-mute',
@@ -459,7 +459,7 @@ className="xy-icon-btn shrink-0 rounded-md p-1.5 text-mute hover:bg-glass-hover 
 														{active ? '已压缩' : '未触发'}
 													</span>
 												</div>
-												<div className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-1 text-[10px]">
+												<div className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
 													<div className="text-mute">游标</div>
 													<div className="font-mono text-ink text-right">
 														{cursor > 0 ? cursor : '—'}
@@ -479,19 +479,19 @@ className="xy-icon-btn shrink-0 rounded-md p-1.5 text-mute hover:bg-glass-hover 
 															type="button"
 															disabled={compactBusy || !backendSessionId}
 															onClick={() => void onManualCompact()}
-															className="rounded-md border border-line/80 bg-glass px-2 py-1 text-[10px] font-medium text-ink hover:bg-glass-hover disabled:opacity-50"
+															className="rounded-md border border-line/80 bg-glass px-2 py-1 text-[11px] font-medium text-ink hover:bg-glass-hover disabled:opacity-50"
 														>
 															{compactBusy ? '压缩中…' : '立即压缩 /compact'}
 														</button>
 													) : null}
-													<span className="text-[10px] text-mute">不改历史 JSONL</span>
+													<span className="text-[11px] text-mute">不改历史 JSONL</span>
 												</div>
 												{compression?.c2_summary_preview ? (
-													<p className="mt-2 mb-0 max-h-24 overflow-y-auto whitespace-pre-wrap break-words text-[10px] leading-4 text-ink-soft">
+													<p className="mt-2 mb-0 max-h-24 overflow-y-auto whitespace-pre-wrap break-words text-[11px] leading-4 text-ink-soft">
 														{compression.c2_summary_preview}
 													</p>
 												) : (
-													<p className="mt-2 mb-0 text-[10px] text-mute">
+													<p className="mt-2 mb-0 text-[11px] text-mute">
 														{active
 															? '本会话已进入 C2 压缩态；继续对话可保持前缀缓存。'
 															: ''}
@@ -501,8 +501,8 @@ className="xy-icon-btn shrink-0 rounded-md p-1.5 text-mute hover:bg-glass-hover 
 										);
 									})()}
 									<div className="mt-2.5 flex items-baseline justify-between">
-										<span className="text-[10px] text-mute">最近一枪上下文构成</span>
-										<span className="text-[10px] text-mute">{measuredContext ? '占模型窗口' : '占本轮已用量'}</span>
+										<span className="text-[11px] text-mute">最近一枪上下文构成</span>
+										<span className="text-[11px] text-mute">{measuredContext ? '占模型窗口' : '占本轮已用量'}</span>
 									</div>
 									<div
 										ref={barRef}
