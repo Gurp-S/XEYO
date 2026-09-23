@@ -10,7 +10,7 @@ from typing import Any, Mapping
 
 from .events import (KIND_TOOL_RESULT, KIND_TOOL_USE, KIND_USER_TEXT, Event,
                      fingerprint)
-from .sources import FileObserver, constraint_signals
+from .sources import FileObserver, constraint_signals, error_sig
 from .state import (ACTIVE, CANCELLED, RESOLVED, SUPERSEDED, Delta, Fact,
                     WorkingState)
 
@@ -268,6 +268,7 @@ class StateReducer:
             d.touched.append(prev.fact_id)
             return
         f = state.add("failure", key, {"tool": tool, "turn": e.turn, "signature": sig,
+                                       "error_sig": error_sig(e.text),
                                        "paths": list(call.value.get("paths") or [])
                                        if call else [],
                                        "detail": e.text.strip()[:400]},

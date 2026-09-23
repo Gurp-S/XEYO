@@ -21,8 +21,8 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
 from .events import KIND_TOOL_RESULT, KIND_TOOL_USE, KIND_USER_TEXT, Event, fingerprint
-from .state import (AUTHORITATIVE, DERIVED, LITERAL, UNKNOWN, AUTHORITY_TIERS,
-                    Observation)
+from .state import (AUTHORITATIVE, DERIVED, LITERAL, RESOLVED, SUPERSEDED, UNKNOWN,
+                    AUTHORITY_TIERS, Observation)
 
 __all__ = ["AUTHORITATIVE", "DERIVED", "LITERAL", "UNKNOWN", "AUTHORITY_TIERS",
            "Observation", "Signal", "FileObserver", "constraint_signals",
@@ -275,3 +275,100 @@ def constraint_signals(events: Sequence[Event], *, limit: int = 12) -> list[Sign
                               {"literal": c}, DERIVED, "extract_constraints",
                               (e.event_id,)))
     return out
+
+
+# -- 分支结论：复用 V1 的剪枝卡，但给它 V1 没有的"退场" ------------------------
+
+def error_sig(text: str) -> str:
+    """V1 的错误签名原语（`textutil.extract_error_sig`）。
+
+    退场规则要靠它把"卡片记的那次失败"和"V2 记的那条失败事实"对上，
+    所以两边必须是**同一个函数**——自造一份就会像 #32 那样键域错位。
+    """
+    try:
+        from synaptic.textutil import extract_error_sig as v1
+
+        return str(v1(text or "") or "")
+    except Exception:
+        return " ".join(str(text or "").split())[:120]
+
+
+def _card_get(card: Any, name: str, default: Any = None) -> Any:
+    if isinstance(card, Mapping):
+        return card.get(name, default)
+    return getattr(card, name, default)
+
+
+def decision_signals(cards: Sequence[Any]) -> list[Signal]:
+    """V1 剪枝卡 → 分支结论事实。
+
+    key 用 `(error_sig, files)` 而不是 `card_id`：V1 的渲染层本来就按这个键合组
+    （`prune._merge_key` 的注释记录了为什么），换 id 会让同一件事在不同点生成两条事实。
+    `nodes` 折成**行区间**存着 ⇒ 取回靠 Event Store 的行号，不靠 V1 的 `branch://` 句柄。
+    """
+    out: list[Signal] = []
+    for c in cards:
+        nodes = tuple(int(i) for i in (_card_get(c, "nodes", ()) or ()))
+        files = tuple(str(f) for f in (_card_get(c, "files", ()) or ()))
+        sig = str(_card_get(c, "error_sig", "") or "")
+        key = fingerprint(f"{sig}|{','.join(sorted(files))}", width=16)
+        out.append(Signal(
+            "decision", key,
+            {"conclusion": str(_card_get(c, "conclusion", "") or ""),
+             "files": list(files), "error_sig": sig,
+             "replay": str(_card_get(c, "replay", "") or ""),
+             "rows": [min(nodes), max(nodes)] if nodes else [],
+             "n_nodes": len(nodes),
+             "card_ids": [str(_card_get(c, "card_id", ""))]},
+            DERIVED, "prune_card",
+            tuple(f"node:{i}" for i in nodes)))
+    return out
+
+
+def attach_decisions(state: WorkingState, signals: Sequence[Signal]) -> int:
+    """把分支结论登记进状态（幂等：同一 key 不重复建事实）。返回新建条数。"""
+    made = 0
+    for sig in signals:
+        if state.latest(sig.kind, sig.key) is not None:
+            continue
+        state.add(sig.kind, sig.key, dict(sig.value),
+                  event_id=sig.provenance[0] if sig.provenance else "prune",
+                  event_index=int(sig.value["rows"][0]) if sig.value.get("rows") else 0,
+                  evidence=sig.evidence, provenance=sig.provenance,
+                  authority=sig.authority)
+        made += 1
+    retire_decisions(state)
+    return made
+
+
+def retire_decisions(state: WorkingState) -> int:
+    """V1 做不到的那一步：错误已被"同参数重试成功"解决 ⇒ 那次被排除的分支作废。
+
+    V1 的剪枝卡永不退场，只是被预算挤出去（信息还在，但没人告诉你它已经不相关了）。
+    这里只认一种证据：卡片的 `error_sig` 与某条**已解决**失败的 `error_sig` 完全相等。
+
+    还要反过来查一遍：**同一签名若仍有未解决的失败，就不许退场**。缺这道闸时状态自相
+    矛盾——一边说"这个错误已经解决了"，一边 `[UNRESOLVED]` 里挂着同签名的失败。
+    实测（`docs/wsc2-v2-parity.md` §5）也证明它对应得上：126 点里 26 次退场有 8 次
+    之后同签名错误又出现，其中先于 t 出现的那批就是这道闸能拦的。
+    """
+    resolved = {str(f.value.get("error_sig") or "")
+                for f in state.facts.values()
+                if f.kind == "failure" and f.status == RESOLVED
+                and f.evidence == "identical_retry_succeeded"}
+    resolved.discard("")
+    if not resolved:
+        return 0
+    still_open = {str(f.value.get("error_sig") or "")
+                  for f in state.active_facts(("failure",))}
+    still_open.discard("")
+    resolved -= still_open
+    if not resolved:
+        return 0
+    n = 0
+    for f in state.active_facts(("decision",)):
+        if str(f.value.get("error_sig") or "") in resolved:
+            state.transition(f, SUPERSEDED, event_id=f.fact_id, event_index=f.last_index,
+                             evidence="same_error_resolved")
+            n += 1
+    return n

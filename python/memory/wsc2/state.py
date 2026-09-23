@@ -26,9 +26,10 @@ KIND_TOOL_CALL = "tool_call"
 KIND_FAILURE = "failure"
 KIND_TODO = "todo"
 KIND_CONSTRAINT = "constraint"
+KIND_DECISION = "decision"
 
 FACT_KINDS = (KIND_REQUEST, KIND_FILE, KIND_TOOL_CALL, KIND_FAILURE, KIND_TODO,
-              KIND_CONSTRAINT)
+              KIND_CONSTRAINT, KIND_DECISION)
 
 #: 事实的来源档位 —— 决定"谁有资格让它退场"，不影响渲染措辞（详见 sources 的模块说明）。
 AUTHORITATIVE = "authoritative"  # 运行时状态件直接持有（TodoStore / GoalStore）
