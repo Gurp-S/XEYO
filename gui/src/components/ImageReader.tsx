@@ -101,7 +101,7 @@ export function ImageReaderDialog({image, onClose}: ImageReaderDialogProps) {
 						<p id={titleId} className="truncate font-sans text-[13px] font-medium text-ink">
 							{title}
 						</p>
-						<p className="mt-0.5 font-mono text-[10px] tracking-wide text-mute">
+						<p className="mt-0.5 font-mono text-[10px] text-mute">
 							{Math.round(zoom * 100)}% · 滚轮或 +/- 调整
 						</p>
 					</div>

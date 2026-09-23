@@ -657,7 +657,7 @@ className="xy-icon-btn rounded-md p-1.5 text-mute hover:bg-glass-hover hover:tex
 									type="button"
 									onClick={() => setWorkspaceExpanded(value => !value)}
 									aria-expanded={workspaceExpanded}
-									className="flex min-w-0 flex-1 items-center gap-1 rounded-md px-1.5 py-1 text-left text-[11px] font-medium tracking-wide text-current focus:outline-none focus-visible:outline-none"
+									className="flex min-w-0 flex-1 items-center gap-1 rounded-md px-1.5 py-1 text-left text-[11px] font-medium text-current focus:outline-none focus-visible:outline-none"
 								>
 										<span className="min-w-0 truncate pl-0.125">工作区</span>
 										<ChevronRight
@@ -1216,7 +1216,7 @@ const SideChatSection = memo(function SideChatSection({
 					type="button"
 					onClick={onToggle}
 					aria-expanded={expanded}
-					className="flex min-w-0 flex-1 items-center gap-1 rounded-md px-1.5 py-1 text-left text-[11px] font-medium tracking-wide text-current focus:outline-none focus-visible:outline-none"
+					className="flex min-w-0 flex-1 items-center gap-1 rounded-md px-1.5 py-1 text-left text-[11px] font-medium text-current focus:outline-none focus-visible:outline-none"
 				>
 							<span className="min-w-0 truncate">对话</span>
 							<ChevronRight

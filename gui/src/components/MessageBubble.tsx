@@ -60,7 +60,7 @@ function MessageBubbleInner({message, streaming, thinking}: Props) {
 			>
 				<div className="xy-user-prompt xy-surface xy-user-bubble mx-auto max-w-3xl rounded-2xl px-4 pt-3.5 pb-2.5">
 						{remote ? (
-							<p className="mb-1 font-mono text-[10px] tracking-wide text-accent">
+							<p className="mb-1 font-mono text-[10px] text-accent">
 								[远程]
 							</p>
 						) : null}

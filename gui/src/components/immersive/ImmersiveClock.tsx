@@ -24,7 +24,7 @@ export function ImmersiveClock() {
 				{hh}:{mm}
 				<span className="text-2xl text-[var(--xy-imm-fg-faint)]">:{ss}</span>
 			</div>
-			<div className="mt-2 font-mono text-[11px] tracking-[0.2em] text-[var(--xy-imm-fg-faint)]">
+			<div className="mt-2 text-[11px] tracking-[0.06em] text-[var(--xy-imm-fg-faint)]">
 				{date}
 			</div>
 		</div>

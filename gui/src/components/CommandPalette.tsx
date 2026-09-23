@@ -813,7 +813,7 @@ export function CommandPalette() {
 							return (
 								<div key={item.id}>
 									{showSection ? (
-										<div className="px-2.5 pb-1 pt-2 text-[11px] font-medium tracking-[0.06em] text-mute">
+										<div className="xy-section-label px-2.5 pb-1 pt-2">
 											{item.section}
 										</div>
 									) : null}

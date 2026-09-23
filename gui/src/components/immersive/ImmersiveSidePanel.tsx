@@ -85,7 +85,7 @@ export function ImmersiveSidePanel({onCollapse}: {onCollapse: () => void}) {
 		>
 			<header className="flex items-center gap-2 px-3 pt-3 pb-2">
 				<Sparkles className="size-3.5 text-accent" />
-				<span className="text-[12px] font-medium tracking-wide text-[var(--xy-imm-fg-mid)]">
+				<span className="text-[12px] font-medium text-[var(--xy-imm-fg-mid)]">
 					沉浸
 				</span>
 				<button
