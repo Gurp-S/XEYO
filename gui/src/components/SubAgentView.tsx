@@ -174,7 +174,7 @@ const SubAgentTranscript = memo(function SubAgentTranscript({
 					agentTasks={NO_AGENT_TASKS}
 				/>
 			</div>
-			<div className="flex items-center gap-2 border-t border-white/5 px-3 py-2">
+			<div className="flex items-center gap-2 border-t border-line/40 px-3 py-2">
 				<input
 					value={followText}
 					onChange={e => setFollowText(e.target.value)}
@@ -185,17 +185,17 @@ const SubAgentTranscript = memo(function SubAgentTranscript({
 						}
 					}}
 					placeholder={`向 ${agentId} 追加信息（回合结束后自动续跑）`}
-					className="min-w-0 flex-1 rounded-md border border-white/10 bg-black/20 px-2 py-1 text-xs text-zinc-200 outline-none focus:border-amber-300/40"
+					className="min-w-0 flex-1 rounded-md border border-line/70 bg-glass-strong px-2 py-1 text-xs text-ink outline-none placeholder:text-mute focus:border-accent"
 				/>
 				<button
 					onClick={() => void sendFollow()}
 					disabled={!followText.trim()}
-					className="rounded-md border border-white/10 bg-white/5 px-2 py-1 text-xs text-zinc-300 hover:bg-white/10 disabled:opacity-40"
+					className="rounded-md border border-line/70 bg-glass px-2 py-1 text-xs text-ink-soft hover:bg-glass-hover disabled:opacity-40"
 				>
 					发送
 				</button>
 			</div>
-			{sentNote ? <div className="px-3 pb-1 text-[11px] text-zinc-500">{sentNote}</div> : null}
+			{sentNote ? <div className="px-3 pb-1 text-[11px] text-mute">{sentNote}</div> : null}
 		</div>
 	);
 });
