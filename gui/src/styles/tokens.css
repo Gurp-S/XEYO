@@ -36,6 +36,13 @@
   --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
   --duration-fast: 140ms;
   --duration-base: 200ms;
+  /* 圆角只留一把尺子：让 Tailwind 的档位直接等于 --xy-radius-*。
+     之前同一个 rounded-md 会因为元素有没有叠 xy- 类而落成 6px / 8px 两档，
+     rounded-2xl 落成 16 / 18 两档——逐文件改永远改不完，这里一次收口。 */
+  --radius-md: var(--xy-radius-tight);
+  --radius-lg: var(--xy-radius-tight);
+  --radius-xl: var(--xy-radius-control);
+  --radius-2xl: var(--xy-radius-pane);
 }
 
 /* ============ 分割线强度 token（同一语义统一取值；暗色只在这里翻强度） ============ */
