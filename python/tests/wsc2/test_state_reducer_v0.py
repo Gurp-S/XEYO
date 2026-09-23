@@ -185,6 +185,22 @@ def test_a_different_retry_does_not_resolve_the_failure() -> None:
     assert len(active(st, "failure")) == 1, "不同入参的成功不许顺手关掉旧失败"
 
 
+def test_a_duplicate_result_for_the_same_call_does_not_resolve_the_failure() -> None:
+    """真实转录里见过同一 `call_id` 在同一行出现两次回执（一次 is_error、一次不是）。
+
+    那是**同一次调用**的两份记录，不是"重跑成功了"。放行它等于让失败自己把自己撤销
+    ——实测 dev 语料因此把 failure 召回从 1.000 打到 0.000。
+    """
+    dup = {"role": "user", "content": [
+        {"type": "tool_result", "tool_use_id": "c1", "content": "FAILED",
+         "is_error": True},
+        {"type": "tool_result", "tool_use_id": "c1", "content": "1 passed"}]}
+    st = one([user("go"), use("c1", "Bash", command="pytest -q"), dup])
+    fails = facts_of(st, "failure")
+    assert len(fails) == 1 and fails[0].status == ACTIVE, \
+        "同行重复回执不许当成重跑证据"
+
+
 def test_unresolved_failure_stays_active() -> None:
     st = one([user("go"), use("c1", "Bash", command="make"),
               result("c1", "boom", is_error=True)])
@@ -263,7 +279,8 @@ TRANSPORT_WORDS = ("theta", "price_ratio", "prefix_hit", "cache_hit", "journal",
 
 
 @pytest.mark.parametrize("name", ["state.py", "reducer.py", "events.py",
-                                  "projector.py", "audit.py"])
+                                  "projector.py", "audit.py", "sources.py",
+                                  "history.py"])
 def test_working_state_layer_does_not_know_transport(name: str) -> None:
     src = (Path(__file__).resolve().parents[2] / "memory" / "wsc2" / name).read_text(
         encoding="utf-8")

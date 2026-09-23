@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict, dataclass, field
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 ACTIVE = "ACTIVE"
 SUPERSEDED = "SUPERSEDED"
@@ -25,8 +25,52 @@ KIND_FILE = "file"
 KIND_TOOL_CALL = "tool_call"
 KIND_FAILURE = "failure"
 KIND_TODO = "todo"
+KIND_CONSTRAINT = "constraint"
 
-FACT_KINDS = (KIND_REQUEST, KIND_FILE, KIND_TOOL_CALL, KIND_FAILURE, KIND_TODO)
+FACT_KINDS = (KIND_REQUEST, KIND_FILE, KIND_TOOL_CALL, KIND_FAILURE, KIND_TODO,
+              KIND_CONSTRAINT)
+
+#: 事实的来源档位 —— 决定"谁有资格让它退场"，不影响渲染措辞（详见 sources 的模块说明）。
+AUTHORITATIVE = "authoritative"  # 运行时状态件直接持有（TodoStore / GoalStore）
+DERIVED = "derived"              # 确定性推导层从转录算出
+LITERAL = "literal"              # 事件原文
+UNKNOWN = "unknown"              # 生命周期判不出来 ⇒ 必须渲染，永不静默丢弃
+AUTHORITY_TIERS = (AUTHORITATIVE, DERIVED, LITERAL, UNKNOWN)
+
+
+@dataclass
+class Observation:
+    """一个**路径**的读/写观测（与 V1 `FileState` 同义字段；路径级，不是版本级）。
+
+    单独一张表而不是塞进 `Fact.value`：V1 的观测本来就是路径级的（hash 取最后一次精确读、
+    stale 看最后一次观测之后有没有写），而 V2 的 file 事实是**版本级**的。把路径级观测写进
+    版本级事实会造成"新版本继承旧观测"这种说不清的继承。
+    """
+
+    path: str
+    observed_hash: str = ""
+    last_read_index: int = -1
+    read_ranges: tuple[tuple[int, int], ...] = ()
+    stale: bool = False
+    stale_at: int = -1
+    diff_summary: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"path": self.path, "observed_hash": self.observed_hash,
+                "last_read_index": self.last_read_index,
+                "read_ranges": [list(r) for r in self.read_ranges],
+                "stale": self.stale, "stale_at": self.stale_at,
+                "diff_summary": self.diff_summary}
+
+    @staticmethod
+    def from_dict(d: Mapping[str, Any]) -> "Observation":
+        return Observation(
+            path=str(d.get("path") or ""),
+            observed_hash=str(d.get("observed_hash") or ""),
+            last_read_index=int(d.get("last_read_index") or -1),
+            read_ranges=tuple((int(a), int(b)) for a, b in d.get("read_ranges") or ()),
+            stale=bool(d.get("stale")), stale_at=int(d.get("stale_at") or -1),
+            diff_summary=str(d.get("diff_summary") or ""))
 
 
 @dataclass
@@ -45,6 +89,7 @@ class Fact:
     version: int = 1
     provenance: list[str] = field(default_factory=list)
     evidence: str = "created"
+    authority: str = LITERAL
 
     def active(self) -> bool:
         return self.status == ACTIVE
@@ -87,6 +132,9 @@ class WorkingState:
     order: list[str] = field(default_factory=list)
     index: dict[str, list[str]] = field(default_factory=dict)
     sig_index: dict[str, list[str]] = field(default_factory=dict)
+    #: 路径级读/写观测（`Observation.to_dict()` 形态，键 = 归一化路径）。由 reducer 的
+    #: FileObserver 增量维护，projector 渲染时 join。
+    obs: dict[str, dict[str, Any]] = field(default_factory=dict)
     events_seen: int = 0
     last_event_id: str = ""
     last_event_index: int = -1
@@ -104,14 +152,22 @@ class WorkingState:
     def history(self, kind: str, key: str) -> list[Fact]:
         return [self.facts[i] for i in self.bucket(kind, key)]
 
+    def observation(self, path: str) -> Observation | None:
+        d = self.obs.get(path)
+        return Observation.from_dict(d) if d else None
+
+    def set_observation(self, o: Observation) -> None:
+        self.obs[o.path] = o.to_dict()
+
     def add(self, kind: str, key: str, value: dict[str, Any], *, event_id: str,
-            event_index: int, evidence: str, provenance: Iterable[str] = ()) -> Fact:
+            event_index: int, evidence: str, provenance: Iterable[str] = (),
+            authority: str = LITERAL) -> Fact:
         prev = self.latest(kind, key)
         version = 1 if prev is None else int(prev.version) + 1
         fact = Fact(f"f{len(self.order):05d}", kind, key, dict(value), ACTIVE,
                     event_id, event_index, event_id, event_index,
                     None, None, version, list(dict.fromkeys(provenance)) or [event_id],
-                    evidence)
+                    evidence, authority)
         self.facts[fact.fact_id] = fact
         self.order.append(fact.fact_id)
         self.index.setdefault(self._slot(kind, key), []).append(fact.fact_id)
@@ -154,9 +210,14 @@ class WorkingState:
 
     def snapshot(self) -> dict[str, Any]:
         return {"events_seen": self.events_seen, "last_event": self.last_event_id,
-                "stats": self.stats(),
+                "stats": self.stats(), "observations": len(self.obs),
                 "active": [f.to_dict() for f in self.active_facts()]}
 
     def to_jsonl_lines(self) -> list[str]:
         return [json.dumps(self.facts[i], ensure_ascii=False, default=str)
                 for i in self.order]
+
+    def obs_jsonl_lines(self) -> list[str]:
+        """观测表单独一行一份：它是路径级 side-table，不是事实日志的一部分。"""
+        return [json.dumps(self.obs[k], ensure_ascii=False, sort_keys=True,
+                           default=str) for k in sorted(self.obs)]

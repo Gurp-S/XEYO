@@ -10,6 +10,7 @@ from typing import Any, Mapping
 
 from .events import (KIND_TOOL_RESULT, KIND_TOOL_USE, KIND_USER_TEXT, Event,
                      fingerprint)
+from .sources import FileObserver, constraint_signals
 from .state import (ACTIVE, CANCELLED, RESOLVED, SUPERSEDED, Delta, Fact,
                     WorkingState)
 
@@ -78,6 +79,9 @@ def _todo_status(item: Mapping[str, Any]) -> str:
 class StateReducer:
     """state + event -> state'。增量：每条事件的工作量与该事件本身有关，与历史长度无关。"""
 
+    def __init__(self) -> None:
+        self._files = FileObserver()
+
     def apply(self, state: WorkingState, e: Event) -> Delta:
         d = Delta(e.event_id, e.index, e.kind)
         if e.kind == KIND_USER_TEXT:
@@ -86,6 +90,10 @@ class StateReducer:
             self._on_tool_use(state, e, d)
         elif e.kind == KIND_TOOL_RESULT:
             self._on_tool_result(state, e, d)
+        for p in self._files.on_event(e):
+            o = self._files.observe(p)
+            if o is not None:
+                state.set_observation(o)
         state.events_seen += 1
         state.last_event_id = e.event_id
         state.last_event_index = e.index
@@ -101,11 +109,33 @@ class StateReducer:
             state.mark_used(prev, event_id=e.event_id, event_index=e.index)
             prev.value["repeat"] = int(prev.value.get("repeat", 1)) + 1
             d.touched.append(prev.fact_id)
-            return
-        f = state.add("request", key, {"literal": e.text.strip()[:4000], "turn": e.turn},
-                      event_id=e.event_id, event_index=e.index, evidence="user_text")
-        d.created.append(f.fact_id)
+        else:
+            f = state.add("request", key, {"literal": e.text.strip()[:4000], "turn": e.turn},
+                          event_id=e.event_id, event_index=e.index, evidence="user_text")
+            d.created.append(f.fact_id)
         # 新请求**不** supersede 旧请求：完成与否没有 deterministic 证据。
+        self._on_constraints(state, e, d)
+
+    def _on_constraints(self, state: WorkingState, e: Event, d: Delta) -> None:
+        """约束走 V1 的确定性抽取器；生命周期 UNKNOWN ⇒ **只登记不淘汰**。
+
+        没有一条规则会把 constraint 转成 SUPERSEDED/RESOLVED：一句话有没有作废判不出来
+        （§十一.4），误判"已作废"会让约束从上下文里消失，代价远大于留在里面多占几行。
+        """
+        for sig in constraint_signals([e]):
+            cur = state.latest(sig.kind, sig.key)
+            if cur is not None:
+                if e.event_id not in cur.provenance:
+                    cur.provenance.append(e.event_id)
+                state.mark_used(cur, event_id=e.event_id, event_index=e.index)
+                cur.value["repeat"] = int(cur.value.get("repeat", 1)) + 1
+                d.touched.append(cur.fact_id)
+                continue
+            f = state.add(sig.kind, sig.key, dict(sig.value),
+                          event_id=e.event_id, event_index=e.index,
+                          evidence=sig.evidence, provenance=sig.provenance,
+                          authority=sig.authority)
+            d.created.append(f.fact_id)
 
     def _on_tool_use(self, state: WorkingState, e: Event, d: Delta) -> None:
         if e.call_id:
@@ -188,15 +218,25 @@ class StateReducer:
                 d.transitioned.append((f.fact_id, ACTIVE, f.status,
                                        "todo_status_literal"))
 
-    def _resolve_retried_failure(self, state: WorkingState, sig: str, *,
+    def _resolve_retried_failure(self, state: WorkingState, sig: str, *, call_id: str,
                                  event_id: str, event_index: int,
                                  d: Delta) -> None:
-        """同工具+同入参的成功回执 ⇒ 旧 failure RESOLVED。唯一的 failure 退场证据。"""
+        """同工具+同入参的**另一次调用**成功 ⇒ 旧 failure RESOLVED。唯一的 failure 退场证据。
+
+        两道闸都是必须的：① `f.key == call_id` 排除"同一次调用的另一条回执"——真实转录里
+        见过同一 `call_id` 在同一行出现两次（一次 is_error、一次不是），放行它等于让失败
+        自己把自己撤销；② `f.created_index < event_index` 要求成功回执发生在失败**之后**，
+        与审计金标同一条判据。
+        """
         if not sig:
             return
         for fid in state.sig_index.get(sig, []):
             f = state.facts.get(fid)
             if f is None or f.kind != "failure" or f.status != ACTIVE:
+                continue
+            if call_id and f.key == call_id:
+                continue
+            if f.created_index >= event_index:
                 continue
             state.transition(f, RESOLVED, event_id=event_id, event_index=event_index,
                              evidence="identical_retry_succeeded", successor=fid)
@@ -216,7 +256,7 @@ class StateReducer:
             if call is not None:
                 self._resolve_retried_failure(
                     state, str(call.value.get("signature") or ""),
-                    event_id=e.event_id, event_index=e.index, d=d)
+                    call_id=e.call_id, event_id=e.event_id, event_index=e.index, d=d)
             return
         tool = (str(call.value.get("tool")) if call else e.tool) or ""
         # 签名必须与 tool_use 侧同源：从 call 事实取，不重新从（未存的）入参算。

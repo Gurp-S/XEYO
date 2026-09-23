@@ -57,6 +57,9 @@ class Event:
     inputs: Mapping[str, Any] = field(default_factory=dict)
     result_for: str = ""
     paths: tuple[str, ...] = ()
+    #: 该回执是不是这条消息里的**第一个** tool_result。V1 的 `collect_reads_writes` 在第一个
+    #: 块就 `break`，所以只有它算一次"读观测"；多算会让 V2 的写后过期时钟比 V1 判定得更晚。
+    first_in_message: bool = True
 
     def brief(self) -> str:
         return self.text if len(self.text) <= 240 else self.text[:240] + "…"
@@ -133,10 +136,25 @@ def _tool_rows(msg: Mapping[str, Any]) -> list[tuple[str, str, Mapping[str, Any]
 
 
 def _result_rows(msg: Mapping[str, Any]) -> list[tuple[str, bool, str]]:
-    """(call_id, is_error, text)。role=="tool" 行与 user 行里的 tool_result 块都算。"""
-    role = str(msg.get("role") or "")
-    out: list[tuple[str, bool, str]] = []
-    if role == "tool":
+    """(call_id, is_error, 该块自己的文本)，**顺序与口径都跟 V1 一致**。
+
+    直接走 V1 的 `tool_result_blocks` / `tool_result_text`：前者定义了"这条消息里的回执
+    按什么顺序排"（块在前、`role=="tool"` 合成的那条在后）与 `first_in_message` 的判据，
+    后者定义了 V1 文件状态表拿去算 `observed_hash` 的那段文本。自己另写一遍会让两臂的
+    哈希对不上——那正是 #31 要消除的那类降级。
+    """
+    try:
+        from synaptic.textutil import tool_result_blocks, tool_result_text
+
+        out: list[tuple[str, bool, str]] = []
+        for blk in tool_result_blocks(dict(msg)):
+            out.append((str(blk.get("tool_use_id") or ""), bool(blk.get("is_error")),
+                        tool_result_text(blk)))
+        return out
+    except Exception:
+        pass
+    out = []
+    if str(msg.get("role") or "") == "tool":
         out.append((str(msg.get("tool_call_id") or ""), bool(msg.get("is_error")),
                     _text_of(msg.get("content"))))
     for blk in _blocks(msg.get("content")):
@@ -161,10 +179,12 @@ def build_events(msgs: list[Mapping[str, Any]]) -> list[Event]:
             events.append(Event(f"E{idx:05d}u{len(events):04d}", idx, turn,
                                 KIND_TOOL_USE, tool=name, call_id=cid, inputs=inputs,
                                 paths=_event_paths(inputs)))
-        for cid, is_err, text in _result_rows(msg):
+        result_rows = _result_rows(msg)
+        for pos, (cid, is_err, text) in enumerate(result_rows):
             events.append(Event(f"E{idx:05d}r{len(events):04d}", idx, turn,
                                 KIND_TOOL_RESULT, tool=tool_of_call.get(cid, ""),
-                                call_id=cid, is_error=is_err, text=text, result_for=cid))
+                                call_id=cid, is_error=is_err, text=text, result_for=cid,
+                                first_in_message=pos == 0))
         if role == "assistant":
             txt = _text_of(msg.get("content"))
             if txt.strip():
@@ -173,9 +193,8 @@ def build_events(msgs: list[Mapping[str, Any]]) -> list[Event]:
             continue
         if role != "user":
             continue
-        results = _result_rows(msg)
         used = _tool_rows(msg)
-        if not results and not used:
+        if not result_rows and not used:
             txt = _text_of(msg.get("content"))
             if txt.strip():
                 turn += 1
