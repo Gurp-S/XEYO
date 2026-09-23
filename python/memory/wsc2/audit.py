@@ -169,20 +169,28 @@ def score(events: list[Event], t: int, state: WorkingState,
     return out
 
 
-_SEC_RE = re.compile(r"^\[([A-Z][A-Z /()_-]{2,30})\]\s*$")
+_SEC_RE = re.compile(r"^\[([A-Z][A-Z /()·_-]{2,30})\]\s*(.*)$")
 
 
 def v1_sections(text: str) -> dict[str, list[str]]:
+    """生产热层的段头是**行内**的（`[CONSTRAINTS] 目标: …`），不是独占一行。
+
+    按独占行解析会把整份头灌进 _TOP ⇒ V1 侧全部指标假零（Phase 2 第一版就是这么错的）。
+    """
     out: dict[str, list[str]] = {}
     cur = "_TOP"
     for line in str(text).splitlines():
-        m = _SEC_RE.match(line.strip())
+        s = line.strip()
+        if not s:
+            continue
+        m = _SEC_RE.match(s)
         if m:
             cur = m.group(1).strip()
             out.setdefault(cur, [])
+            if m.group(2).strip():
+                out[cur].append(m.group(2).strip())
             continue
-        if line.strip():
-            out.setdefault(cur, []).append(line.strip())
+        out.setdefault(cur, []).append(s)
     return out
 
 

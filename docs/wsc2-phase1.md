@@ -274,3 +274,52 @@ Stop Condition（§二十三）：**未触发** —— deterministic reducer 下
 
 - 已经拿到顾问要的 Active Precision（分 4 类），且**它改变了结论**（file 类只成立一半、V2 文件事实是 V1 的降级版）；
 - 归因桶与约束类金标各有一处未收口的度量缺陷 ⇒ **先修审计台，再谈 Phase 2 的 A/B**，否则 Phase 2 会把这两个缺陷带进 V1-vs-V2 的对比里。
+
+
+---
+
+## 12. Phase 2 —— V1 Full Projection vs V2 Full Projection（同点、同尾部、同尺，112 点）
+
+前置：本轮第一版把 V1 臂算成 0，原因是**审计库的解析 bug**——生产热层段头是行内的
+（`[CONSTRAINTS] 目标: …`），`v1_sections` 原先只认整行段头 ⇒ 整份头被灌进 `_TOP`。
+已修 `memory/wsc2/audit.py` 并加回归（`test_v1_section_parser_handles_inline_headers`）。
+**因此 §6 里所有 V1 侧数字（`v1_duplicate_ratio 0`、`v1_file_recall 1.0`、`v1_multi_section_paths 0`）一律作废。**
+
+| 逐点中位 | V1（生产整条链） | V2（每枪从头重放 + 渲染，不给增量便宜） |
+|---|---:|---:|
+| 状态段 token | **10,085** | **485** ｜比值 **0.0694** |
+| 整份（状态段 + 尾部）token | 10,683 | 4,516 ｜比值 **0.5405** |
+| 尾部 token | ~600（V1 把 4,092 的尾**骨架化**了） | 4,092（原样保留） |
+| 原始全文 | 99,956 | 99,956 |
+| Full projection 延迟 | 40.4 ms（p95 **172**） | 1.74 ms（p95 **6.6**） |
+| 句柄 / 被剪行数 | **44** / 151.5 | **0** / 151.5 |
+| 状态段内重复行 | 6.57% | 同 key 多 ACTIVE **0** |
+
+同金标下的质量对照：
+
+| 类别 | V1 Recall | V2 Recall | V2 Precision | V1 侧同判据 |
+|---|---:|---:|---:|---|
+| file | **0.751** | **1.000** | 0.353 | 头内行被金标支撑占比 **0.329**（宽口径，只作下限） |
+| current request | 0.902 | 0.920 | 0.920 | — |
+| failure / todo | 不可测（无事实概念） | 1.000 | **1.000** | — |
+
+### 三件被这轮改掉的事
+
+1. **"V2 更小"是真的，但比 0.28 更复杂**：状态段确实只有 V1 的 6.9%；可 V1 同时还把尾部骨架化（4,092→~600 tok），而 V2 现在**没有冷层/句柄那一半机制** ⇒ 整份只降到 54%。**拿"小"当卖点必须先补齐可找回性，否则是拿我们的半成品比人家的成品。**
+2. **去噪不是换核心白送的**：V2 的 file precision 0.353，V1 头被支撑占比 0.329——**两臂同量级地脏**。顾问担心的"Recall 高 Precision 低"成立，但它是 V1/V2 **共同**的缺口，需要一个独立的 relevance 策略（#31），不是 V2 独有的病。
+3. **V2 的实质增量在 recall 与结构不变量上**：V1 会把 24.9% 的事后仍要用的路径挤出上下文（working_set limit=12 + budget 挤掉），V2 全留；wrong-version 0、同 key 双 ACTIVE 0、协议配对 0 leak/lost。
+
+### Phase 2 判定：**REWORK，V2 不可上线，V1 一个机制都不删**
+
+按 Gate 逐条：
+
+| Gate | 结果 |
+|---|---|
+| wrong-version = 0 / tool corruption = 0 | ✅ |
+| history discoverability / Read correctness = 100% | ❌ **V2 句柄数 0，被剪 151.5 行无处可寻** ⇒ 硬不变量不过 |
+| 三项里赢两项（Precision↑ / Stale·Dup↓ / Tokens↓） | Tokens ✅；Stale·Dup ✅（V2 0 同key双 ACTIVE，V1 行重复 6.6%）；Precision ➖ 平手 ⇒ **2/3 勉强达成，但输在硬闸** |
+| recall 不实质下降 | ✅（file 1.000 > V1 0.751） |
+| cost / latency | ✅ 方向性成立（Full projection p95 6.6ms vs 172ms） |
+
+⇒ 下一步按依赖顺序只能是 **Phase 3（History Index：让被剪内容重新可寻）**，不是 Phase 4/5 的 transport 或成本优化。
+⇒ 顺带一句口径：`126/126 状态哈希变化` 在整份比 0.54 面前不是问题——真正贵的是 V1 那套"为了稳而保 10k tok 头"的机制；等 Phase 3 补齐后再算重填成本才有意义。

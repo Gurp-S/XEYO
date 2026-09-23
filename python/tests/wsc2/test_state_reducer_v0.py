@@ -275,3 +275,18 @@ def test_reducer_is_deterministic_and_serialisable() -> None:
     a = json.dumps(one(msgs).to_jsonl_lines(), ensure_ascii=False)
     b = json.dumps(one(msgs).to_jsonl_lines(), ensure_ascii=False)
     assert a == b, "同输入必须同输出（否则缓存/回归全废）"
+
+def test_v1_section_parser_handles_inline_headers() -> None:
+    """生产热层段头是**行内**的（`[CONSTRAINTS] 目标: …`）。按独占整行解析会把整份头
+    灌进 _TOP ⇒ V1 侧指标全假零（Phase 2 第一版就是这么算错的）。"""
+    from memory.wsc2.audit import v1_sections
+
+    secs = v1_sections(chr(10).join([
+        "[CONSTRAINTS] 目标: 测试所有工具",
+        "[UNRESOLVED] 未解决: 退出码 1（×5）",
+        "[UNRESOLVED] 未解决: 退出码 2（×3）",
+        "无段头的裸行"]))
+    assert secs["CONSTRAINTS"] == ["目标: 测试所有工具"]
+    assert len(secs["UNRESOLVED"]) == 3, "同段头续写 + 段头后的裸行归给上一段"
+    # 已知局限：段头之后的裸行归给上一段（生产里它们本就是该段的内容行）。
+    assert secs["UNRESOLVED"][-1] == "无段头的裸行"
