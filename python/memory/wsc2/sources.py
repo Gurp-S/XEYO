@@ -26,7 +26,8 @@ from .state import (AUTHORITATIVE, DERIVED, LITERAL, RESOLVED, SUPERSEDED, UNKNO
 
 __all__ = ["AUTHORITATIVE", "DERIVED", "LITERAL", "UNKNOWN", "AUTHORITY_TIERS",
            "Observation", "Signal", "FileObserver", "constraint_signals",
-           "v1_file_oracle", "PRECISE_READ_TOOLS"]
+           "v1_file_oracle", "PRECISE_READ_TOOLS", "error_sig",
+           "decision_signals", "attach_decisions", "retire_decisions"]
 
 #: V1 里"精确读"的判定（只有这两种工具能给出 offset/limit 区间，也才配当 hash 的源）
 PRECISE_READ_TOOLS = ("Read", "NotebookRead")
