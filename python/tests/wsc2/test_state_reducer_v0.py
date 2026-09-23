@@ -87,6 +87,28 @@ def test_read_of_a_written_file_does_not_bump_its_version() -> None:
     assert cur is not None and cur.status == ACTIVE and cur.version == 1
 
 
+def test_file_fact_keys_live_in_v1_path_key_domain() -> None:
+    """V2 的文件事实键必须落在 V1 `tool_input_paths` 的键域里（Windows 盘符被抹掉）。
+
+    事故：V2 早期自造归一化产出 `d:/lea/a.py`，V1 的 `FileState` 键是 `/lea/a.py` ⇒ 同一文件
+    两个键，跨臂 join 系统性失配，把 1,279 条 ACTIVE 文件事实里 87.9% 误判成"V1 没跟踪过"，
+    并据此得出"V2 几乎不去噪"的错误结论（见 docs/wsc2-phase1.md §14）。"""
+    from synaptic.textutil import tool_input_paths
+
+    win = r"D:\lea\XenYon code\python\memory\a.py"
+    st = one([user("go"),
+              use("c1", "Write", file_path=win, content="x"), result("c1"),
+              use("c2", "Edit", file_path=win, old_string="x", new_string="y"),
+              result("c2")])
+    keys = [f.key for f in facts_of(st, "file")]
+    assert len(keys) == 2, "两次写各留一条事实（旧的转 SUPERSEDED）"
+    assert len(set(keys)) == 1, "同一文件的两次写必须归到同一个键"
+    key = keys[0]
+    assert ":" not in key and "\\" not in key
+    assert [key] == list(tool_input_paths({"file_path": win})), "键必须与 V1 归一化同源"
+    assert list(tool_input_paths({"file_path": key})) == [key], "键必须是 V1 的不动点"
+
+
 # --- 保守闸（不明确 ⇒ KEEP）-------------------------------------------------
 
 def test_a_new_user_request_never_supersedes_the_previous_one() -> None:

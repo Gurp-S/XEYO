@@ -63,6 +63,23 @@ class Event:
 
 
 def _norm_path(raw: Any) -> str:
+    """路径键**必须与 V1 同源**：`synaptic.textutil.tool_input_paths` 会把盘符抹掉
+    （`D:\\lea\\a.py` → `/lea/a.py`），而本模块早期自造了一套归一化（`d:/lea/a.py`）⇒
+    同一个文件在 V1 的 FileState 与 V2 的事实键里变成两个键，键域不一致会让
+    "谁覆盖了谁 / 谁还活着"这类判断整体失真。V1 不可用时才退回本地归一化。"""
+    s = _local_norm(raw)
+    try:
+        from synaptic.textutil import tool_input_paths
+
+        got = list(tool_input_paths({"file_path": s}))
+        if got:
+            return got[0]
+    except Exception:
+        pass
+    return s
+
+
+def _local_norm(raw: Any) -> str:
     s = str(raw or "").strip().strip('"').strip("'")
     if not s:
         return ""
