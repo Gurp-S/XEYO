@@ -239,7 +239,7 @@ export function CommandPalette() {
 					onRetryLast: async () => {
 						const last = lastUserMessage(sid0);
 						if (last) {
-							await st.sendMessage(
+							const accepted = await st.sendMessage(
 								last.text,
 								last.mediaRefs,
 								[],
@@ -251,8 +251,11 @@ export function CommandPalette() {
 									background: useChatStore.getState().activeId !== sid0,
 								},
 							);
+							if (!accepted) toast.error('上一条消息未能重试');
+							return accepted;
 						} else {
 							toast.info('还没有可重试的消息');
+							return true;
 						}
 					},
 					onSend: async text => {

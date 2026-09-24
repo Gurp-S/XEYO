@@ -20,6 +20,8 @@ import {toast} from '@/lib/toast';
 export type SlashRunOutcome =
 	| {status: 'not-slash'}
 	| {status: 'unknown'; name: string}
+	/** 命令已识别，但目标消息未被发送链路接受；Composer 应保留输入。 */
+	| {status: 'rejected'}
 	/** 已本地处理；text 非空则回显系统行 */
 	| {status: 'local'; text: string}
 	/** server 命令已执行；text 为结果（可能为空） */
@@ -37,7 +39,7 @@ export type SlashRunOptions = {
 	/** /clear：新建会话 */
 	onNewSession: () => void | Promise<unknown>;
 	/** /retry：重发上一条用户消息 */
-	onRetryLast: () => void | Promise<void>;
+	onRetryLast: () => boolean | void | Promise<boolean | void>;
 	/** 将技能或改写命令送入常规聊天发送链路；返回值表示消息已被接受。 */
 	onSend?: (text: string) => Promise<boolean> | boolean;
 };
@@ -172,7 +174,9 @@ export async function runSlashCommand(
 			await opts.onNewSession();
 			return {status: 'local', text: '已新建会话。'};
 		case 'retry':
-			await opts.onRetryLast();
+			if ((await opts.onRetryLast()) === false) {
+				return {status: 'rejected'};
+			}
 			return {status: 'local', text: ''};
 		case 'run': {
 			const cmdText = arg.trim();
@@ -285,6 +289,8 @@ export async function handleComposerSlash(
 				sessionId: opts.sessionId,
 			});
 			return true;
+		case 'rejected':
+			return false;
 		case 'send':
 			// /run 等提示词改写命令：直接发提示词（用户气泡由 sendMessage 负责）。
 			if (opts.onSend) {
@@ -303,7 +309,7 @@ export async function handleComposerSlash(
 				},
 			);
 			if (!accepted) toast.error('目标会话未接受该命令消息');
-			return true;
+			return accepted;
 		case 'local':
 		case 'server':
 			if (outcome.text) {

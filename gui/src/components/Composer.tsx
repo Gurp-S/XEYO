@@ -1120,7 +1120,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 						onRetryLast: async () => {
 							const last = lastUserMessage(sessId);
 							if (last) {
-								await st.sendMessage(
+								const accepted = await st.sendMessage(
 									last.text,
 									last.mediaRefs,
 									[],
@@ -1132,9 +1132,14 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 										background: activeIdRef.current !== sessId,
 										reasoningEffort: submittedReasoningEffort,
 									},
-							);
+								);
+								if (!accepted) {
+									toast.error('重试未被接受，/retry 已保留在输入框');
+								}
+								return accepted;
 							} else {
 								toast.info('还没有可重试的消息');
+								return true;
 							}
 						},
 						onSend: async commandText => {
