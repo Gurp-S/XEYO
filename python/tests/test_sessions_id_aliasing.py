@@ -9,6 +9,7 @@ id，所以身份有歧义在边缘就 422，绝不静默清洗后继续执行�
 from __future__ import annotations
 
 import urllib.parse as up
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -111,3 +112,58 @@ def test_non_filename_keys_keep_their_own_charset() -> None:
 	with pytest.raises(Exception) as exc:
 		_require_stable_id("job:abc", field="session_id", filename_bearing=True)
 	assert "collide" in str(exc.value)
+
+
+# --------------------------------------------------------------------------- #
+# 清洗器的**包含性**（containment）——不动点规则管的是别名，这一条管的是越界
+# --------------------------------------------------------------------------- #
+
+_TRAVERSAL_INPUTS = [
+	"../x",
+	"..",
+	"../../etc/passwd",
+	"a/../../b",
+	"a\\..\\b",
+	"....",
+	".",
+	"",
+	" ",
+	"x" * 300,
+	"..%2f..",
+	"C:/Windows",
+	"a/../b",
+	"\x00evil",
+	"..\n",
+	"/absolute/path",
+]
+
+
+def test_sanitizer_output_is_always_a_single_contained_segment() -> None:
+	"""任何输入清洗后都必须是一个不含分隔符、不逃逸根目录、且非空的文件名段。
+
+	这条性质是"14 处 ``root / safe_session_filename(...)`` 只靠边缘校验"够用
+	的真正理由：包含性是**结构性**的，不需要每处再加一个 containment assert。
+	如果哪天有人放宽 ``_SAFE_CHAR`` 放进了分隔符，这条用例会立刻红。
+	"""
+	from session.persistence import safe_session_filename
+
+	root = (Path.cwd() / "SESSION_ID_PROBE_ROOT").resolve()
+	for raw in _TRAVERSAL_INPUTS:
+		name = safe_session_filename(raw)
+		assert name, f"清洗成空串会让 join 指向根目录本身：{raw!r}"
+		assert "/" not in name and "\\" not in name, f"产出含路径分隔符：{raw!r} -> {name!r}"
+		assert name not in (".", ".."), f"产出目录指针：{raw!r} -> {name!r}"
+		assert not name.startswith(".") and not name.endswith("."), (
+			f"首尾点会被 strip 掉，说明产出与输入已不同名：{raw!r} -> {name!r}"
+		)
+		joined = (root / name).resolve()
+		assert joined.parent == root, f"join 后逃逸根目录：{raw!r} -> {name!r}"
+
+
+def test_fixed_point_inputs_pass_through_unchanged() -> None:
+	"""不动点的输入必须逐字穿过清洗器 —— 边缘校验与磁盘布局说的是同一件事。"""
+	from session.persistence import safe_session_filename
+
+	for raw in ("sess_1", "task-7", "a.b_c-d", "x" * 180, "agent__r1"):
+		assert safe_session_filename(raw) == raw, raw
+
