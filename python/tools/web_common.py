@@ -52,7 +52,9 @@ def is_blocked_url(url: str) -> str | None:
 		# 主机名——解析后检查；DNS 失败 = 拒绝（不许放行）
 		try:
 			infos = socket.getaddrinfo(host, None)
-		except socket.gaierror:
+		except OSError:
+			# 不只 gaierror：Windows 在网络栈抖动时会抛带 winerror 的 OSError，
+			# 原来只捕 gaierror 会让"拒绝"这条路径本身以 500 逃出路由。
 			return "dns_failed"
 		for info in infos:
 			addr = info[4][0]
@@ -90,6 +92,57 @@ _TAG_RE = re.compile(r"<[^>]+>")
 _WS_RE = re.compile(r"[ \t]+\n")
 _MULTI_NL = re.compile(r"\n{3,}")
 _TOKEN_RE = re.compile(r"[a-zA-Z0-9_]{2,}|[\u4e00-\u9fff]{1,}")
+
+
+def is_local_inference_url(url: str) -> bool:
+	"""是否为"本机/内网推理服务"可接受的地址：http(s) 且主机落在环回或私网单播。
+
+	给 ``provider=local`` 用。本地 llama.cpp 确实要连 ``127.0.0.1`` 或局域网里的
+	一台机器，通用 SSRF 门会把这些一起挡掉，所以那条分支需要一条更宽但**有边界**的
+	判据。边界是刻意挑明的：放宽只到环回 / RFC1918 / 站点本地单播这一族 ——
+	云元数据（169.254.0.0/16 是 link-local，``is_private`` 也把它算作私有，所以
+	必须显式排除）、reserved、multicast、unspecified、非 http(s) scheme、以及解析
+	不出来的主机名，一概不放行。
+
+	URL 策略只在本模块有一份：调用方不要再自己解析一次 IP。
+	"""
+	raw = (url or "").strip()
+	if not raw:
+		return False
+	try:
+		parsed = urlparse(raw)
+	except Exception:  # noqa: BLE001 — 解不出来就不是本机地址
+		return False
+	if (parsed.scheme or "").lower() not in ("http", "https"):
+		return False
+	host = (parsed.hostname or "").strip().lower()
+	if not host:
+		return False
+	if host in _PRIVATE_HOSTS or host == "localhost" or host.endswith(".localhost"):
+		return True
+
+	def _ok(ip_text: str) -> bool:
+		try:
+			ip = ipaddress.ip_address(ip_text)
+		except ValueError:
+			return False
+		# 环回先判：Python 把 ``::1`` 也算进 is_reserved，放在后面会被误拒。
+		if ip.is_loopback:
+			return True
+		if ip.is_link_local or ip.is_reserved or ip.is_multicast or ip.is_unspecified:
+			return False
+		return bool(ip.is_private)
+
+	try:
+		return _ok(host)
+	except Exception:  # noqa: BLE001 — 不是字面 IP 就走解析分支
+		pass
+	# 主机名：解析后逐条检查；解析失败＝拒绝，不因"查不到"而放行。
+	try:
+		infos = socket.getaddrinfo(host, None)
+	except OSError:
+		return False
+	return bool(infos) and all(_ok(info[4][0]) for info in infos)
 
 
 def html_to_text(html: str, *, max_chars: int = 1_000_000) -> str:

@@ -98,9 +98,22 @@ def _resolve_base_url(provider: str, base_url: str | None) -> str:
 	if _is_user_configured_base_url(provider, candidate):
 		return candidate
 
-	# provider=local 且本地模型已授权：允许环回/私网（本地 llama.cpp 等）。
+	# provider=local 且本地模型已授权：只放宽到"本机/内网的推理服务"这一族。
+	# 以前这条分支整体跳过校验，等于把"开了本地模型"当任意地址的通行证——
+	# file:// / ftp://、云元数据 169.254.169.254、reserved/multicast、以及 DNS
+	# 查不到的主机名都会照发。真正需要放宽的只是环回与私网单播，判据放在
+	# tools.web_common（URL 策略的唯一权威），这里不另写一份 IP 分类。
 	if provider == "local" and local_model_allowed():
-		return candidate
+		from tools.web_common import is_blocked_url, is_local_inference_url
+
+		if is_local_inference_url(candidate):
+			return candidate
+		blocked = is_blocked_url(candidate) or "local_provider_scope"
+		raise api_error(
+			403,
+			f"base_url rejected by SSRF guard: {blocked}",
+			"permission_error",
+		)
 
 	from tools.web_common import is_blocked_url
 
