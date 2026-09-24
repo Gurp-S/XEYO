@@ -520,6 +520,13 @@ export async function loadMessages(sessionId: string): Promise<ChatMessage[]> {
 		.sort((a, b) => a.createdAt - b.createdAt);
 }
 
+/** 去掉运行期 inbox 状态，避免整会话替换时把暂态投递标签写入 IndexedDB。 */
+function persistableMessage(message: ChatMessage): ChatMessage {
+	const copy = {...message};
+	delete copy.queueState;
+	return copy;
+}
+
 export async function upsertMessages(
 	sessionId: string,
 	messages: ChatMessage[],
@@ -530,7 +537,7 @@ export async function upsertMessages(
 	}
 	const tx = database.transaction('messages', 'readwrite');
 	for (const m of messages) {
-		await tx.store.put({...m, sessionId});
+		await tx.store.put({...persistableMessage(m), sessionId});
 	}
 	await tx.done;
 }
@@ -546,7 +553,7 @@ export async function patchMessages(
 	const database = await openXEYODb();
 	const tx = database.transaction('messages', 'readwrite');
 	for (const m of messages) {
-		await tx.store.put({...m, sessionId});
+		await tx.store.put({...persistableMessage(m), sessionId});
 	}
 	await tx.done;
 }
@@ -565,7 +572,7 @@ export async function replaceMessages(
 		cursor = await cursor.continue();
 	}
 	for (const m of messages) {
-		await store.put({...m, sessionId});
+		await store.put({...persistableMessage(m), sessionId});
 	}
 	await tx.done;
 }

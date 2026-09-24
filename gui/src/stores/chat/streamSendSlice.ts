@@ -488,6 +488,12 @@ export function createStreamSendSlice(
 						toast.info(`已排队（第 ${position} 条），当前回合结束后自动投递`);
 						set(s => {
 							const prev = s.inboxBySession[sessionId] ?? [];
+							const messages = s.messagesById[sessionId] ?? [];
+							const nextMessages = messages.map(message =>
+								message.id === qUserMsg.id && message.role === 'user'
+									? {...message, queueState: 'queued' as const}
+									: message,
+							);
 							return {
 								inboxBySession: {
 									...s.inboxBySession,
@@ -505,6 +511,7 @@ export function createStreamSendSlice(
 										},
 									],
 								},
+								messagesById: {...s.messagesById, [sessionId]: nextMessages},
 							};
 						});
 						void get().refreshInbox(sessionId);
@@ -1580,6 +1587,12 @@ export function createStreamSendSlice(
 					toast.info(`已排队（第 ${position} 条），当前回合结束后自动投递`);
 					set(s => {
 						const prev = s.inboxBySession[sessionId] ?? [];
+						const messages = s.messagesById[sessionId] ?? [];
+						const nextMessages = messages.map(message =>
+							message.id === userMsg.id && message.role === 'user'
+								? {...message, queueState: 'queued' as const}
+								: message,
+						);
 						return {
 							inboxBySession: {
 								...s.inboxBySession,
@@ -1597,6 +1610,7 @@ export function createStreamSendSlice(
 									},
 								],
 							},
+							messagesById: {...s.messagesById, [sessionId]: nextMessages},
 						};
 					});
 					void get().refreshInbox(sessionId);

@@ -258,9 +258,8 @@ export const MessageBubble = memo(MessageBubbleInner, (prev, next) => {
 			a.id === b.id &&
 			a.text === b.text &&
 			a.role === b.role &&
-			a.mediaRefs === b.mediaRefs &&
-		a.toolName === b.toolName &&
-		a.toolInput === b.toolInput &&
-		a.toolStatus === b.toolStatus
+			a.createdAt === b.createdAt &&
+			a.noteKind === b.noteKind &&
+			a.noteTitle === b.noteTitle
 	);
 });

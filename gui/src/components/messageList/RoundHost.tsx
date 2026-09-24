@@ -362,7 +362,8 @@ promptEditRef,
 							<PromptBubble
 								text={round.user.text}
 								mediaRefs={round.user.mediaRefs}
-								editable={round.user.source !== 'remote'}
+								queueState={round.user.queueState}
+								editable={round.user.source !== 'remote' && !round.user.queueState}
 								isEditing={editingMessageId === round.user.id}
 								onEdit={editPrompt}
 								rise={

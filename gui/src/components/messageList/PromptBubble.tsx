@@ -111,6 +111,7 @@ export function PromptTextClamp({children}: {children: ReactNode}) {
 export type PromptBubbleProps = {
 	text: string;
 	mediaRefs?: string[];
+	queueState?: 'queued' | 'delivering' | 'stuck';
 	rise?: boolean;
 	editable?: boolean;
 	isEditing?: boolean;
@@ -172,6 +173,7 @@ export function promptBubblePropsAreEqual(
 	return (
 		prev.text === next.text &&
 		shallowArrayEqual(prev.mediaRefs, next.mediaRefs) &&
+		prev.queueState === next.queueState &&
 		prev.rise === next.rise &&
 		prev.editable === next.editable &&
 		prev.isEditing === next.isEditing &&
@@ -211,6 +213,7 @@ export function promptBubblePropsAreEqual(
 export const PromptBubble = memo(function PromptBubble({
 	text,
 	mediaRefs = [],
+	queueState,
 	rise,
 	editable = false,
 	isEditing = false,
@@ -514,13 +517,40 @@ ref={editing ? promptEditRef : undefined}
 									</div>
 								) : null}
 
-								<PromptTextClamp>
-								<UserMarkdownText
-									text={body}
-									className="xy-chat-text min-w-0 font-sans text-[15px] leading-relaxed"
-								/>
-							</PromptTextClamp>
-						</>
+					<PromptTextClamp>
+						<UserMarkdownText
+							text={body}
+							className="xy-chat-text min-w-0 font-sans text-[15px] leading-relaxed"
+						/>
+					</PromptTextClamp>
+					{queueState ? (
+						<div
+							role="status"
+							aria-live="polite"
+							className={cn(
+								'mt-2 flex items-center gap-1.5 font-mono text-[10px]',
+								queueState === 'stuck' ? 'text-danger' : 'text-mute',
+							)}
+						>
+							<span
+								aria-hidden
+								className={cn(
+									'h-1.5 w-1.5 rounded-full',
+									queueState === 'queued'
+										? 'bg-amber-400'
+										: queueState === 'delivering'
+											? 'animate-pulse bg-accent'
+											: 'bg-danger',
+								)}
+							/>
+							{queueState === 'queued'
+								? '排队中 · 当前回合结束后发送'
+								: queueState === 'delivering'
+									? '正在投递'
+									: '投递失败 · 请在输入框的排队项中重试'}
+						</div>
+					) : null}
+					</>
 					)}
 							<ImageReaderDialog image={previewImage} onClose={() => setPreviewImage(null)} />
 				{canEdit ? (

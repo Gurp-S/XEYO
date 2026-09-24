@@ -41,6 +41,35 @@ function normalizeItems(payload: InboxSnapshot | null): InboxQueuedItem[] {
 		}));
 }
 
+/** 把权威 inbox 快照投影到相应的用户气泡，不把本地状态写进后端消息。 */
+function projectQueueStates(
+	messages: ChatMessage[],
+	items: InboxQueuedItem[],
+): ChatMessage[] {
+	const stateByMessageId = new Map<string, ChatMessage['queueState']>();
+	for (const item of items) {
+		if (item.message_id) {
+			stateByMessageId.set(item.message_id, item.state);
+		}
+	}
+	let changed = false;
+	const next = messages.map(message => {
+		if (message.role !== 'user') return message;
+		const queueState = stateByMessageId.get(message.id);
+		if (queueState) {
+			if (message.queueState === queueState) return message;
+			changed = true;
+			return {...message, queueState};
+		}
+		if (!message.queueState) return message;
+		changed = true;
+		const copy = {...message};
+		delete copy.queueState;
+		return copy;
+	});
+	return changed ? next : messages;
+}
+
 export function createInboxSlice(
 	set: SetState,
 	get: GetState,
@@ -71,9 +100,16 @@ export function createInboxSlice(
 				return false;
 			}
 			const items = normalizeItems(payload);
-			set(s => ({
-				inboxBySession: {...s.inboxBySession, [sessionId]: items},
-			}));
+			set(s => {
+				const messages = s.messagesById[sessionId] ?? [];
+				const projected = projectQueueStates(messages, items);
+				return {
+					inboxBySession: {...s.inboxBySession, [sessionId]: items},
+					...(projected !== messages
+						? {messagesById: {...s.messagesById, [sessionId]: projected}}
+						: {}),
+				};
+			});
 			return true;
 		},
 		async cancelInboxItem(sessionId: string, queue_id: string) {
@@ -107,7 +143,7 @@ export function createInboxSlice(
 					persistedMessages = nextMessages;
 				}
 				return {
-					inboxBySession: {...s.inboxBySession, [sessionId]: next},
+				inboxBySession: {...s.inboxBySession, [sessionId]: next},
 					...(persistedMessages
 						? {messagesById: {...s.messagesById, [sessionId]: persistedMessages}}
 						: {}),

@@ -19,6 +19,8 @@ export type ChatMessage = {
 	source?: 'remote';
 	/** 当前 user 消息关联的后端媒体引用；不保存 Base64。 */
 	mediaRefs?: string[];
+	/** 繁忙期间已接受的用户消息在 inbox 中的投递状态（仅 GUI 投影）。 */
+	queueState?: 'queued' | 'delivering' | 'stuck';
 	/** tool 调用前累积的 reasoning 快照（role=tool）。 */
 	reasoningBefore?: string;
 	/** reasoning 阶段耗时 ms（role=tool）。 */
