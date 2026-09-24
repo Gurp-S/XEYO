@@ -142,6 +142,26 @@ def test_folded_out_gets_its_own_cause_and_a_different_next_step(monkeypatch) ->
 	assert any("是否该被保留" in m for m in verdict["missing_evidence"])
 
 
+def test_engine_finished_but_gui_missing_gets_its_own_cause() -> None:
+	"""原始诉求里的第四类：引擎已完成而界面没收到，既不是模型错也不是任务失败。"""
+	verdict = attribute_fault(
+		_run(),
+		[Finding(
+			rule_id="wire_gap", rule_version=1, phenomenon="事件流出现缺口通知",
+			boundary="sse_gui", component="SSE 传输 / 界面", status=CONFIRMED_FAULT,
+			evidence=[EvidenceRef(source="audit", locator="audit.jsonl", ref_id="L21", detail="stream_gap")],
+			impact="界面缺尾部而服务端可能已完成。", coverage_gap="客户端 ack 游标不持久化。",
+			allowed_conclusion="可确认传输或显示边界存在缺口。",
+		)],
+	)
+	codes = _codes(verdict)
+	assert "display_transport_gap" in codes
+	item = next(c for c in verdict["causes"] if c["code"] == "display_transport_gap")
+	assert item["party"] == "engine"
+	assert "不能证明引擎未完成" in item["does_not_prove"]
+	assert verdict["responsibility"] == "engine"
+
+
 def test_causes_are_listed_not_merged(monkeypatch) -> None:
 	_user_turn("改完必须跑 pytest", "别的内容", monkeypatch)
 	run = _run(
