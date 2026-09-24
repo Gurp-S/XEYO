@@ -7,6 +7,7 @@ import {
 } from '@/lib/apiBase';
 import {
 	fetchWithTimeout,
+	formatErrorDetail,
 } from './core';
 
 export async function resolvePermission(
@@ -48,17 +49,39 @@ export type PermissionGrantInfo = {
 };
 
 /** T10：列出 always-allow 授权（空 scope = 全部）。 */
+export type GrantsReport = {
+	ok: boolean;
+	grants: PermissionGrantInfo[];
+	message: string;
+};
+
+/**
+ * 授权台账是安全面：读不出绝不能画成"一条授权都没有"。
+ * 所以 `ok:false` 与"空列表"是两种结果，`message` 带后端原话。
+ */
 export async function listPermissionGrants(
 	scope?: string,
-): Promise<PermissionGrantInfo[]> {
+): Promise<GrantsReport> {
+	const q = scope ? `?scope=${encodeURIComponent(scope)}` : '';
 	try {
-		const q = scope ? `?scope=${encodeURIComponent(scope)}` : '';
 		const res = await fetchWithTimeout(apiUrl(`/v1/permissions/grants${q}`));
-		if (!res.ok) return [];
-		const payload = (await res.json()) as {grants?: PermissionGrantInfo[]};
-		return Array.isArray(payload.grants) ? payload.grants : [];
-	} catch {
-		return [];
+		const payload = await res.json().catch(() => null);
+		if (!res.ok) {
+			return {ok: false, grants: [], message: formatErrorDetail(payload, res.status)};
+		}
+		if (!payload || !Array.isArray((payload as GrantsReport).grants)) {
+			return {ok: false, grants: [], message: '后端回执缺少 grants 字段'};
+		}
+		if ((payload as {ok?: boolean}).ok === false) {
+			return {
+				ok: false,
+				grants: [],
+				message: formatErrorDetail(payload, res.status),
+			};
+		}
+		return {ok: true, grants: (payload as GrantsReport).grants, message: ''};
+	} catch (err) {
+		return {ok: false, grants: [], message: (err as Error).message || '请求未送达后端'};
 	}
 }
 

@@ -31,11 +31,19 @@ function shortScope(scope: string): string {
 export function GrantsPanel() {
 	const [grants, setGrants] = useState<PermissionGrantInfo[]>([]);
 	const [loading, setLoading] = useState(false);
+	const [error, setError] = useState('');
 
 	const reload = useCallback(async () => {
 		setLoading(true);
 		try {
-			setGrants(await listPermissionGrants());
+			const report = await listPermissionGrants();
+			if (report.ok) {
+				setGrants(report.grants);
+				setError('');
+			} else {
+				// 读不出就不动列表：安全台账宁可显示旧值 + 原因，也不能显示"没有授权"。
+				setError(report.message || '后端未就绪或接口不可达');
+			}
 		} finally {
 			setLoading(false);
 		}
@@ -76,7 +84,12 @@ export function GrantsPanel() {
 					<RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} />
 				</button>
 			</div>
-			{!loading && grants.length === 0 ? (
+			{error ? (
+				<div className="rounded-xl border border-danger/40 bg-glass-strong px-3 py-2 text-[11px] leading-relaxed text-danger">
+					{`读取授权列表失败：${error}。${grants.length ? '下面的列表可能不是最新。' : '现在显示的不代表真实授权。'}`}
+				</div>
+			) : null}
+			{!loading && !error && grants.length === 0 ? (
 				<div className="rounded-xl border border-line/70 bg-glass-strong px-3 py-4 text-center text-[12px] text-mute">
 					暂无授权。审批时勾选「不再询问此类命令」即可保存到这里。
 				</div>
