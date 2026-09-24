@@ -1503,7 +1503,11 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 							type="button"
 							className="xy-press rounded-md border border-line/70 bg-paper px-2.5 py-1 font-sans text-[12px] text-ink hover:bg-paper-deep/50"
 							onClick={() => {
-								void sendMessage('继续');
+								void sendMessage('继续').then(accepted => {
+									if (!accepted) toast.info('继续请求未被接受，请查看会话提示');
+								}).catch(error => {
+									toast.error(error instanceof Error ? error.message : String(error));
+								});
 							}}
 						>
 							继续未完成任务
