@@ -151,7 +151,9 @@ describe('Composer send UX', () => {
 			expect.any(Function),
 			false,
 			// Composer 始终传会话级思考等级 opts（空 = 自动/模型默认）。
-			{reasoningEffort: '', steerIfBusy: false},
+			// sessionId / background 是 6967123 起的必带项：发送要归到**这个**会话，
+			// 且当前会话就是活动会话时不得标成后台（否则清草稿会落到别的会话上）。
+			{reasoningEffort: '', steerIfBusy: false, sessionId: 'sess_1', background: false},
 		);
 	});
 
@@ -459,7 +461,7 @@ describe('Composer send UX', () => {
 				expect.any(Function),
 				false,
 				// Composer 始终传会话级思考等级 opts（空 = 自动/模型默认）。
-				{reasoningEffort: '', steerIfBusy: false},
+				{reasoningEffort: '', steerIfBusy: false, sessionId: 'sess_1', background: false},
 			);
 		});
 
@@ -489,7 +491,7 @@ describe('Composer send UX', () => {
 				expect.any(Function),
 				true,
 				// Composer 始终传会话级思考等级 opts（空 = 自动/模型默认）。
-				{reasoningEffort: '', steerIfBusy: false},
+				{reasoningEffort: '', steerIfBusy: false, sessionId: 'sess_1', background: false},
 			);
 		});
 
@@ -513,7 +515,7 @@ describe('Composer send UX', () => {
 				expect.any(Function),
 				false,
 				// Composer 始终传会话级思考等级 opts（空 = 自动/模型默认）。
-				{reasoningEffort: '', steerIfBusy: false},
+				{reasoningEffort: '', steerIfBusy: false, sessionId: 'sess_1', background: false},
 			);
 		});
 	});

@@ -179,10 +179,7 @@ import RECOVERY_SRC from '../../stores/chat/streamRecoverySlice?raw';
 import SEND_SRC from '../../stores/chat/streamSendSlice?raw';
 
 const NOT_IMPLEMENTED: Record<string, string> = {
-	onToolProgress: '状态条文案未接：2026-09-21 联调审计 B 组待办',
-	onTaskState: '任务态靠轻量轮询兜：同上',
-	onLlmRetry: '重试倒计时未渲染：同上',
-	onLlmRetryStarted: '同上',
+	onTaskState: '任务态靠轻量轮询兜：2026-09-21 联调审计 B 组待办',
 };
 
 describe('handler 实现对账 · 派发了必须有人接', () => {
