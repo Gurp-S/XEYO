@@ -218,6 +218,10 @@ class SessionPool:
 			except Exception:  # noqa: BLE001
 				msgs = []
 			if msgs:
+				# dict 的插入顺序不会因为重新赋值而刷新（``d[k]=v`` 对已存在的键
+				# 保持原位）。要兑现上面"重新入队即刷新"就得先摘掉再写回，
+				# 否则最常被访问的那份历史反而排在最老、第一个被限幅挤掉。
+				self._history_stash.pop(sid, None)
 				self._history_stash[sid] = msgs
 			self._pending_interrupt.discard(sid)
 			try:
