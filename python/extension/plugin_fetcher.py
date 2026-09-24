@@ -31,7 +31,11 @@ from typing import Any
 from extension.errors import ManifestError, PluginConflictError, PluginError
 from extension.manifest import version_at_least
 from extension import plugin_store as plugin_store_module
-from extension.plugin_store import default_lock_path, install as lock_install
+from extension.plugin_store import (
+	default_lock_path,
+	install as lock_install,
+	update as lock_update,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -164,6 +168,30 @@ def _check_min_xeyo(plugin: Any) -> None:
 		)
 
 
+def _confined_plugin_dir(root: Path, name: str) -> Path:
+	"""``root/<name>``，并确认它确实是指向插件根下的那一个目录。
+
+	名字来自 manifest（安装源可控），而调用方会先对目标整目录 ``shutil.rmtree``。
+	字符集 ``[a-zA-Z0-9_.-]`` 放行 ``..``，``plugins_root/..`` 正是工作区的 ``.xeyo``
+	整体 —— 不校验落点就有一个任意目录删除原语。与 ``remove_plugin`` 同一条判据。
+	"""
+	target = root / name
+	resolved_root = root.resolve()
+	resolved = target.resolve()
+	if (
+		not name
+		or Path(name).name != name
+		or not name.strip(".")
+		or resolved == resolved_root
+		or resolved.parent != resolved_root
+	):
+		raise PluginError(
+			f"unsafe plugin install destination: {name!r} is not a direct child of "
+			f"{resolved_root.as_posix()}"
+		)
+	return target
+
+
 def _copy_install(
 	cwd: str,
 	src_dir: Path,
@@ -183,7 +211,7 @@ def _copy_install(
 	root = plugins_root(cwd)
 	_ensure_dir(root)
 	lock = default_lock_path(cwd)
-	final = root / plugin.name
+	final = _confined_plugin_dir(root, plugin.name)
 	if final.exists():
 		if not allow_update:
 			raise PluginConflictError(
@@ -192,7 +220,10 @@ def _copy_install(
 			)
 		shutil.rmtree(final)
 	shutil.copytree(src_dir, final, ignore=shutil.ignore_patterns(".git"))
-	entry = lock_install(
+	# allow_update 已经删旧-copy 新，账本必须跟着换体；这里若仍走 install，
+	# 同名冲突会在文件已落地之后才抛出，磁盘与 lockfile 从此不一致（detect_drift 常亮）。
+	register = lock_update if allow_update else lock_install
+	entry = register(
 		lock,
 		name=plugin.name,
 		source=source,

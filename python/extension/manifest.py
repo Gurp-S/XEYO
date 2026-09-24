@@ -146,6 +146,10 @@ class PluginManifest(BaseModel):
 		v = (v or "").strip()
 		if not v or re.search(r"[^a-zA-Z0-9_.-]", v):
 			raise ValueError("plugin name must be [a-zA-Z0-9_.-]+")
+		# 字符集本身放行 `.`/`..`，而安装流程会把名字拼成目录并整目录删除；
+		# 全是点的名字因此不是插件名，而是"删掉父目录"。
+		if not v.strip("."):
+			raise ValueError("plugin name must contain a non-dot character")
 		return v
 
 	@field_validator("skills", "prompts")
