@@ -132,6 +132,12 @@ export function CommandPalette() {
 
 	const sessions = useChatStore(s => s.sessions);
 	const spaces = useChatStore(s => s.spaces);
+	const activeSpaceId = useChatStore(s => {
+		const activeSession = s.sessions.find(session => session.id === s.activeId);
+		return activeSession?.spaceId ?? s.activeSpaceId;
+	});
+	const activeWorkspaceRoot =
+		spaces.find(space => space.id === activeSpaceId)?.rootPath.trim() ?? '';
 	const openFolder = useChatStore(s => s.openFolder);
 	const enterSpace = useChatStore(s => s.enterSpace);
 	const setAgentMode = useChatStore(s => s.setAgentMode);
@@ -309,7 +315,7 @@ export function CommandPalette() {
 		const q = query.trim();
 		const wantsFiles = filter === 'all' || filter === 'files';
 		const isSlashQuery = q.startsWith('/');
-		if (isSlashQuery || !wantsFiles || !q) {
+		if (isSlashQuery || !wantsFiles || !q || !activeWorkspaceRoot) {
 			setFileHits([]);
 			setFilesLoading(false);
 			return;
@@ -319,13 +325,7 @@ export function CommandPalette() {
 		const timer = window.setTimeout(() => {
 			void (async () => {
 				try {
-					const st = useChatStore.getState();
-					const root =
-						st.spaces.find(s => s.id === st.activeSpaceId)?.rootPath?.trim() ||
-						'';
-					if (root) {
-						await setWorkspace(root);
-					}
+					await setWorkspace(activeWorkspaceRoot);
 					const res = await searchWorkspace(q);
 					if (!cancelled) {
 						setFileHits(res.hits.filter(h => h.kind === 'file').slice(0, 24));
@@ -345,7 +345,7 @@ export function CommandPalette() {
 			cancelled = true;
 			window.clearTimeout(timer);
 		};
-	}, [open, query, filter]);
+	}, [open, query, filter, activeWorkspaceRoot]);
 
 	const items = useMemo(() => {
 		const q = query.trim();
