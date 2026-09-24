@@ -92,9 +92,13 @@ function CodeBlockInner({
 	    Prism 在主线程同步高亮造成卡顿（worker 完成前先显示纯文本）。 */
 	const skipPrism = smoothness && !autoCollapse && !file;
 	const useWorker = (smoothness || file) && !skipPrism;
-	const [workerHtml, setWorkerHtml] = useState<string | null>(null);
+	const [workerResult, setWorkerResult] = useState<{
+		key: string;
+		html: string;
+	} | null>(null);
 	const [workerFailed, setWorkerFailed] = useState(false);
-	const lastGoodHtml = useRef<string | null>(null);
+	const highlightKey = `${lang}\n${value}`;
+	const workerHtml = workerResult?.key === highlightKey ? workerResult.html : null;
 
 	const lastPosted = useRef('');
 
@@ -102,7 +106,7 @@ function CodeBlockInner({
 		if (!useWorker) {
 			return;
 		}
-		const key = `${lang}\n${value}`;
+		const key = highlightKey;
 		if (key === lastPosted.current) {
 			return;
 		}
@@ -113,14 +117,8 @@ function CodeBlockInner({
 			}
 			lastPosted.current = key;
 			if (html != null) {
-				lastGoodHtml.current = html;
 				setWorkerFailed(false);
-				setWorkerHtml(html);
-				return;
-			}
-			if (lastGoodHtml.current != null) {
-				setWorkerHtml(lastGoodHtml.current);
-				setWorkerFailed(false);
+				setWorkerResult({key, html});
 				return;
 			}
 			setWorkerFailed(true);
@@ -207,8 +205,10 @@ function CodeBlockInner({
 			className="xy-prism-html m-0"
 			dangerouslySetInnerHTML={{__html: workerHtml}}
 		/>
-	) : (
+	) : file ? (
 		filePlain
+	) : (
+		plainPre
 	);
 
 	return (

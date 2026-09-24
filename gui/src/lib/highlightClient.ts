@@ -100,7 +100,7 @@ subscribeLayoutBusy(busy => {
 	}
 });
 
-/** 在 worker 中运行 Prism。失败 → null，调用方可继续使用上一次的有效 HTML。 */
+/** 在 worker 中运行 Prism。失败 → null，调用方改用当前源码的主线程兜底。 */
 export function highlightCode(lang: string, code: string): Promise<string | null> {
 	if (isLayoutBusy()) {
 		return new Promise(resolve => {
