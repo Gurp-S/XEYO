@@ -184,6 +184,10 @@ export function createStreamSendSlice(
 			}
 			sessionId = await get().createSession();
 		}
+		if (get().sessions.find(s => s.id === sessionId)?.archived) {
+			toast.info('该对话已归档，请先恢复后发送');
+			return false;
+		}
 
 		commitDrainForSession(sessionId);
 

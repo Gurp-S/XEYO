@@ -68,6 +68,7 @@ export type RoundHostProps = {
 	round: Round;
 	roundIndex: number;
 	roundsLength: number;
+	sessionArchived: boolean;
 	smoothness: boolean;
 	forced: boolean;
 	ioAvailable: boolean;
@@ -120,6 +121,7 @@ export function roundHostPropsAreEqual(prev: RoundHostProps, next: RoundHostProp
 		prev.round === next.round &&
 		prev.roundIndex === next.roundIndex &&
 		prev.roundsLength === next.roundsLength &&
+		prev.sessionArchived === next.sessionArchived &&
 		prev.smoothness === next.smoothness &&
 		prev.forced === next.forced &&
 		prev.ioAvailable === next.ioAvailable &&
@@ -179,6 +181,7 @@ export const RoundHost = memo(function RoundHost({
 	round,
 	roundIndex,
 	roundsLength,
+	sessionArchived,
 	smoothness,
 	forced,
 	ioAvailable,
@@ -232,10 +235,16 @@ promptEditRef,
 	const stickyRef = useCallback(
 		(node: HTMLElement | null) => {
 			if (round.user) {
-				registerSticky(round.user.id, node, round.user.source !== 'remote');
+				registerSticky(
+					round.user.id,
+					node,
+					round.user.source !== 'remote' &&
+						!round.user.queueState &&
+						!sessionArchived,
+				);
 			}
 		},
-		[registerSticky, round.user?.id, round.user?.source],
+		[registerSticky, round.user?.id, round.user?.source, round.user?.queueState, sessionArchived],
 	);
 	const editPrompt = useCallback(
 		(event?: MouseEvent<HTMLDivElement>) => {
@@ -363,7 +372,11 @@ promptEditRef,
 								text={round.user.text}
 								mediaRefs={round.user.mediaRefs}
 								queueState={round.user.queueState}
-								editable={round.user.source !== 'remote' && !round.user.queueState}
+								editable={
+									round.user.source !== 'remote' &&
+									!round.user.queueState &&
+									!sessionArchived
+								}
 								isEditing={editingMessageId === round.user.id}
 								onEdit={editPrompt}
 								rise={

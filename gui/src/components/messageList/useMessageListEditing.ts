@@ -22,6 +22,7 @@ import {
 	useMessageListRollbackStore,
 } from '@/hooks/useMessageListStore';
 import {useRewindV3Store} from '@/stores/rewindV3Store';
+import {useChatStore} from '@/stores/chatStore';
 import {toast} from '@/lib/toast';
 import {uid} from '@/lib/utils';
 import {uploadFile} from '@/lib/api';
@@ -179,6 +180,12 @@ export function useMessageListEditing(
 	const editModelMenuRef = useRef<HTMLDivElement | null>(null);
 
 	const {activeSessionId} = useMessageListRollbackStore();
+	const activeSessionArchived = useChatStore(s =>
+		Boolean(
+			activeSessionId &&
+				s.sessions.some(session => session.id === activeSessionId && session.archived),
+		),
+	);
 
 	const syncEditFlowHeightFromVisible = useCallback(() => {
 		/* 占位跟可视编辑气泡：底栏展开时 transcript 被顶开，避免取消时高度塌陷抖动 */
@@ -481,6 +488,10 @@ export function useMessageListEditing(
 			message: Pick<ChatMessage, 'id' | 'text' | 'mediaRefs'>,
 			event?: MouseEvent<HTMLDivElement>,
 		) => {
+			if (activeSessionArchived) {
+				toast.info('归档对话为只读，请先恢复后编辑');
+				return;
+			}
 			let caret: number | null = null;
 
 			cancelDeferredEditingFollowTailRestore();
@@ -571,6 +582,7 @@ export function useMessageListEditing(
 			}
 		},
 		[
+			activeSessionArchived,
 			beginStickyEdit,
 			clearEditingAttachments,
 			disableEditingScrollAnchor,
@@ -803,6 +815,12 @@ export function useMessageListEditing(
 	]);
 
 	useEffect(() => {
+		if (activeSessionArchived && editingMessageId) {
+			cancelEdit();
+		}
+	}, [activeSessionArchived, cancelEdit, editingMessageId]);
+
+	useEffect(() => {
 		if (!editingMessageId) {
 			return;
 		}
@@ -853,6 +871,10 @@ export function useMessageListEditing(
 	}, [editingMessageId]);
 
 	const submitEdit = useCallback(async () => {
+		if (activeSessionArchived) {
+			toast.error('归档对话为只读，请先恢复后编辑');
+			return;
+		}
 		if (!editingMessageId || !buildEditingText() || editingSubmitting || editingUploading || !activeSessionId) {
 			return;
 		}
@@ -873,6 +895,7 @@ export function useMessageListEditing(
 		}
 	}, [
 		activeSessionId,
+		activeSessionArchived,
 		buildEditingText,
 		clearEditingAttachments,
 		deferEditingFollowTailRestore,

@@ -114,6 +114,7 @@ export function MessageList({
 		messagesPending,
 		agentTasks,
 		activeId,
+		activeSessionArchived,
 		isLoading,
 		streamingSignal,
 		streamingText,
@@ -578,6 +579,7 @@ export function MessageList({
 									round={round}
 									roundIndex={roundIndex}
 									roundsLength={rounds.length}
+									sessionArchived={activeSessionArchived}
 									smoothness={smoothness}
 									forced={
 										Boolean(forceMount[round.id]) || bypassRoundMountIo

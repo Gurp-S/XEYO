@@ -216,6 +216,10 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 	const activeSessionIsSide = useChatUiStore(
 		s => s.sessions.find(session => session.id === activeId)?.spaceId === SIDE_SPACE_ID,
 	);
+	const activeSessionArchived = useChatUiStore(
+		s => Boolean(activeId && s.sessions.find(session => session.id === activeId)?.archived),
+	);
+	const restoreSession = useChatUiStore(s => s.restoreSession);
 	const activeInboxBackendId = useChatUiStore(s =>
 		activeId ? activeBackendSessionId(s.historyById, activeId) : '',
 	);
@@ -1134,9 +1138,17 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 	};
 
 	const canSend =
-		!remoteLoggedIn && !uploading && !slashExecuting && (Boolean(value.trim()) || attachments.length > 0);
+		!remoteLoggedIn &&
+		!activeSessionArchived &&
+		!uploading &&
+		!slashExecuting &&
+		(Boolean(value.trim()) || attachments.length > 0);
 
 	const onSend = (mode: SendMode = 'send') => {
+		if (activeSessionArchived) {
+			toast.info('该对话已归档，请先恢复后发送');
+			return;
+		}
 		// 斜杠命令网关：/xxx 先在本机（本地命令/技能直呼/未知命令提示）或
 		// POST /v1/slash（server 命令）执行。命中则拦截，不当作普通消息发给模型
 		// （修复 /export、/map、/run、/mode 等在 GUI 主输入框被当作普通文本发送）。
@@ -1539,6 +1551,26 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 				</div>
 
 				<div className="xy-composer-dock">
+				{activeSessionArchived ? (
+					<div
+						role="status"
+						className="flex items-center justify-between gap-3 border-b border-line/40 px-3 py-2 text-xs text-mute"
+					>
+						<span>此对话已归档，恢复后才能发送或编辑。</span>
+						<button
+							type="button"
+							className="shrink-0 rounded-md px-2 py-1 font-medium text-accent hover:bg-accent/10"
+							onClick={() => {
+								if (!activeId) return;
+								void restoreSession(activeId).catch(error =>
+									toast.error(error instanceof Error ? error.message : '恢复失败'),
+								);
+							}}
+						>
+							恢复对话
+						</button>
+					</div>
+				) : null}
 				<div
 					className={cn(
 						isComposerFused && 'xy-composer-stack',

@@ -21,6 +21,7 @@ export type MessageListStoreInputs = {
 	messagesPending: boolean;
 	agentTasks: MultiAgentTaskView[];
 	activeId: string | null;
+	activeSessionArchived: boolean;
 	viewingStream: boolean;
 	isLoading: boolean;
 	streamingSignal: boolean;
@@ -53,6 +54,7 @@ export function useMessageListStore(
 	// 调用产生新引用 → React useSyncExternalStore 死循环）。
 	const {
 		activeId,
+		activeSessionArchived,
 		storeMessages,
 		storeMessagesPending,
 		storeAgentTasks,
@@ -75,6 +77,9 @@ export function useMessageListStore(
 			const viewing = Boolean(id && sessionStreamActive(s, id));
 			return {
 				activeId: id,
+				activeSessionArchived: Boolean(
+					id && s.sessions.some(session => session.id === id && session.archived),
+				),
 				storeMessages: id
 					? (s.messagesById?.[id] ?? EMPTY_MESSAGES)
 					: EMPTY_MESSAGES,
@@ -126,6 +131,7 @@ export function useMessageListStore(
 		messagesPending,
 		agentTasks,
 		activeId,
+		activeSessionArchived,
 		viewingStream,
 		isLoading,
 		streamingSignal,
