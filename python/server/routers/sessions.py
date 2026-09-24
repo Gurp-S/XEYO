@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
+import re
 import shutil
+import threading
 import uuid
 from collections import deque
 from pathlib import Path
@@ -33,6 +36,7 @@ from session.persistence import (
 from session.record_transcript import (
     record_ui_thoughts,
     rotated_transcript_path,
+    rotated_transcript_paths,
     transcript_read_paths,
 )
 from session.transcript_blobs import remove_blobs_dir, resolve_transcript_rows
@@ -41,6 +45,91 @@ from server.local_gate import require_loopback
 
 # T33：会话面（含删除/回滚/恢复等破坏性操作）仅 loopback。
 router = APIRouter(tags=["sessions"], dependencies=[Depends(require_loopback)])
+
+_logger = logging.getLogger("xeyo.server.sessions")
+
+#: 会话 / 子 agent 身份的合法字符集。``session.persistence.safe_session_filename``
+#: 会把 ':' 写成 '__'、把其余非法字符写成 '_'、再剥掉首尾 '._'——于是
+#: ``"victim "`` 与 ``"victim"``、``".."`` 与 ``"  "`` 与 ``"."`` 全部落到同一个
+#: 磁盘文件名。读错会话 / 改错标题 / 删错数据都只需要一次带空白或点号的 id。
+#: 身份有歧义一律在边缘 422，绝不静默清洗后继续执行。
+_ID_ALLOWED_RE = re.compile(r"[A-Za-z0-9._:\-]+\Z")
+_MAX_ID_CHARS = 128
+
+
+def _require_stable_id(
+	raw: Any, *, field: str, filename_bearing: bool = False
+) -> str:
+	"""校验身份键并**原样**返回；一切歧义形态 422（不清洗、不裁剪、不替换）。"""
+	value = "" if raw is None else str(raw)
+	if not value.strip():
+		raise api_error(422, f"{field} is blank", "invalid_request")
+	if value != value.strip():
+		raise api_error(
+			422,
+			f"{field} has leading or trailing whitespace",
+			"invalid_request",
+		)
+	if len(value) > _MAX_ID_CHARS:
+		raise api_error(
+			422, f"{field} exceeds {_MAX_ID_CHARS} characters", "invalid_request"
+		)
+	if not _ID_ALLOWED_RE.match(value):
+		raise api_error(
+			422,
+			f"{field} contains characters outside [A-Za-z0-9._:-]",
+			"invalid_request",
+		)
+	if safe_session_filename(value) == "session" and value != "session":
+		# "." / ".." / ":" / "__" 一类：文件名归一化后会 collapse 成 session.*。
+		raise api_error(
+			422,
+			f"{field} has no identity-bearing characters",
+			"invalid_request",
+		)
+	if filename_bearing and safe_session_filename(value) != value:
+		# 会落到别人文件名上的写法：``victim.`` 与 ``victim``、``vi:ctim`` 与
+		# ``vi__ctim`` 在磁盘上是同一个会话——读错 / 改错 / 删错都不需要第二次请求。
+		raise api_error(
+			422,
+			f"{field} would collide with another id on disk",
+			"invalid_request",
+		)
+	return value
+
+
+def require_session_id(raw: Any) -> str:
+	"""会话 id 边缘校验。当前只有本模块在用：jobs / goals / control / rewind
+	 尚未接入（它们现在也不按会话 id 拼路径），别把这句话当成"那边也有守卫"。"""
+	return _require_stable_id(raw, field="session_id", filename_bearing=True)
+
+
+def require_agent_id(raw: Any) -> str:
+	return _require_stable_id(raw, field="agent_id", filename_bearing=True)
+
+
+class _KeyedLocks:
+	"""按 key 取的全局锁表：同一资源的读-改-写串行，不同资源不互斥。
+
+	子 agent meta（``pending_followups``）是「读文件 → 改列表 → 整表写回」，
+	两个并发请求会各自读到同一份旧表、后写的把先写的静默覆盖掉。
+	"""
+
+	def __init__(self) -> None:
+		self._lock = threading.Lock()
+		self._keys: dict[str, threading.Lock] = {}
+
+	def acquire(self, key: str) -> threading.Lock:
+		with self._lock:
+			handle = self._keys.get(key)
+			if handle is None:
+				handle = threading.Lock()
+				self._keys[key] = handle
+			return handle
+
+
+_meta_locks = _KeyedLocks()
+
 
 class NewSessionRequest(BaseModel):
 	"""创建新会话：客户端只发 workspace（id 或路径），服务端解析权威路径。"""
@@ -81,9 +170,7 @@ def set_session_runtime_mode(
 　尚未执行的下一工具调用即按新模式判定（收紧即时；放宽经 T26 单向性延后
 　到下一 turn）。非法模式值回 400、不写入。
 　"""
-	sid = (session_id or "").strip()
-	if not sid:
-		raise api_error(400, "session_id is empty")
+	sid = require_session_id(session_id)
 	from permissions.runtime_mode import get_runtime_mode_store
 
 	store = get_runtime_mode_store()
@@ -112,9 +199,7 @@ class RuntimePresetRequest(BaseModel):
 @router.get("/v1/sessions/{session_id}/runtime-preset")
 def get_session_runtime_preset(session_id: str) -> dict[str, Any]:
 	"""读取会话的运行时权限 preset 活值（未显式切换为 null）。"""
-	sid = (session_id or "").strip()
-	if not sid:
-		raise api_error(400, "session_id is empty")
+	sid = require_session_id(session_id)
 	from permissions.runtime_preset import get_runtime_preset_store
 
 	live = get_runtime_preset_store().live(sid)
@@ -133,9 +218,7 @@ def set_session_runtime_preset(
 	后续轮次/工具调用立即按新 preset 判定（收紧/放宽都即时,不溯及已执行轮）。
 	非法值回 400、不写入。
 	"""
-	sid = (session_id or "").strip()
-	if not sid:
-		raise api_error(400, "session_id is empty")
+	sid = require_session_id(session_id)
 	from permissions.presets import PERMISSION_PRESETS
 	from permissions.runtime_preset import get_runtime_preset_store
 
@@ -196,9 +279,7 @@ def delete_session(session_id: str) -> dict[str, Any]:
 	归档门槛（2026-09-05）：常态会话一律拒绝删除——必须先归档再删，
 	删除是不可逆破坏性操作，归档作为缓冲层（防误删单点）。
 	"""
-	sid = (session_id or "").strip()
-	if not sid:
-		raise api_error(400, "session_id is empty")
+	sid = require_session_id(session_id)
 	from engine.title import read_archive
 
 	root0 = default_sessions_dir()
@@ -210,29 +291,42 @@ def delete_session(session_id: str) -> dict[str, Any]:
 		)
 	dropped = _pool.drop(sid)
 	removed: list[str] = []
+	removal_errors: list[dict[str, str]] = []
 
-	# 磁盘 transcript（.jsonl + .old 轮转归档）：不删的话重启后 list_sessions 会把已删除会话重新导入。
+	# 磁盘 transcript（当前 + 全部轮转归档 .old1/.old2）：不删的话重启后
+	# list_sessions 会把已删除会话重新导入；只删 .old1 会把 .old2 的对话原文
+	# 留在「已删除」会话名下（用户要的删除是隐私动作，不是改名）。
 	root = default_sessions_dir()
-	try:
-		tp = transcript_path(sid, sessions_dir=root)
-		for f in (tp, rotated_transcript_path(tp)):
+	tp = transcript_path(sid, sessions_dir=root)
+	targets = [tp, *rotated_transcript_paths(tp)]
+	for f in targets:
+		try:
 			if f.is_file():
 				f.unlink()
 				removed.append(str(f))
+		except OSError as exc:
+			removal_errors.append({"path": str(f), "error": safe_error_detail(exc)})
+	try:
 		remove_blobs_dir(tp)
-		# 归档 sidecar 一并清理（删除即彻底移除，不留孤儿标记）。
-		ap = root / f"{safe_session_filename(sid)}.archive.json"
+	except OSError as exc:  # remove_blobs_dir 内部 ignore_errors，这里只兜意外
+		removal_errors.append({"path": str(tp) + ".blobs", "error": safe_error_detail(exc)})
+	# 归档 sidecar 一并清理（删除即彻底移除，不留孤儿标记）。
+	ap = root / f"{safe_session_filename(sid)}.archive.json"
+	try:
 		if ap.is_file():
 			ap.unlink()
 			removed.append(str(ap))
-	except OSError:
-		pass
+	except OSError as exc:
+		removal_errors.append({"path": str(ap), "error": safe_error_detail(exc)})
 
 	# 会话子目录（rewind revisions/journal、rollback plans/approvals、recovery jobs）。
 	sdir = root / safe_session_filename(sid)
 	if sdir.is_dir():
-		shutil.rmtree(sdir, ignore_errors=True)
-		removed.append(str(sdir))
+		try:
+			shutil.rmtree(sdir)
+			removed.append(str(sdir))
+		except OSError as exc:
+			removal_errors.append({"path": str(sdir), "error": safe_error_detail(exc)})
 
 	# 会话索引白名单同步移除，避免残留索引在下次重启时重新导入。
 	index_file = Path(__file__).resolve().parent.parent.parent / ".xeyo_session_index.json"
@@ -248,26 +342,48 @@ def delete_session(session_id: str) -> dict[str, Any]:
 						json.dumps(idx, ensure_ascii=False, indent=2) + "\n",
 						encoding="utf-8",
 					)
-	except Exception:
-		pass
+	except Exception as exc:  # noqa: BLE001 — 白名单没清 ⇒ 重启会重新导入，必须留痕
+		_logger.warning("session index cleanup failed sid=%s", sid, exc_info=True)
+		removal_errors.append({"path": str(index_file), "error": safe_error_detail(exc)})
 
 	# 活审批模式（RuntimeModeStore）按会话清理，防残留。
 	try:
 		from permissions.runtime_mode import get_runtime_mode_store
 
 		get_runtime_mode_store().clear(sid)
-	except Exception:
-		pass
+	except Exception:  # noqa: BLE001 — 内存态清理失败不影响删除结果，留痕即可
+		_logger.debug("runtime mode cleanup failed sid=%s", sid, exc_info=True)
 
 	# 运行时权限 preset 活值同样按会话清理（smoke-test #6）。
 	try:
 		from permissions.runtime_preset import get_runtime_preset_store
 
 		get_runtime_preset_store().clear(sid)
-	except Exception:
-		pass
+	except Exception:  # noqa: BLE001 — 内存态清理失败不影响删除结果，留痕即可
+		_logger.debug("runtime preset cleanup failed sid=%s", sid, exc_info=True)
 
-	return {"ok": True, "dropped": dropped, "removed": removed}
+	# 删除动作的完成定义是「磁盘上不再有这个会话」。任何一件没删掉都必须说：
+	# 否则前端把卡片摘了，下次重启 list_sessions 又把残留 transcript 导回来，
+	# 用户看到「删掉的会话复活」——静默失败比报错贵得多。
+	survivors: list[str] = []
+	for f in (tp, *rotated_transcript_paths(tp)):
+		if f.is_file():
+			survivors.append(str(f))
+	if survivors:
+		_logger.error(
+			"delete incomplete sid=%s survivors=%s errors=%s", sid, survivors, removal_errors
+		)
+		raise api_error(
+			500,
+			"session transcript could not be removed: " + "; ".join(survivors),
+			"delete_incomplete",
+		)
+	return {
+		"ok": True,
+		"dropped": dropped,
+		"removed": removed,
+		"removal_errors": removal_errors,
+	}
 
 
 # (path) -> ((mtime_ns, size), title, created_at_ms)：文件未变时直接复用标题。
@@ -477,17 +593,39 @@ class RenameRequest(BaseModel):
 
 @router.post("/v1/sessions/{session_id}/rename")
 def rename_session(session_id: str, body: RenameRequest) -> dict[str, Any]:
-	"""T5：用户显式改名——写 pinned sidecar，永不被自动标题覆盖。"""
+	"""T5：用户显式改名——写 pinned sidecar，永不被自动标题覆盖。
+
+	边缘校验两件事：① 身份（``"victim "`` 会被文件名归一化成 ``victim``，等于给
+	别人的会话改名）；② 落盘结果（``engine.title.write_title`` 对 OSError 是
+	「返回内存里的 entry、不抛异常」，只看返回值会把没写进去的标题当成改成功）。
+	"""
+	from engine.title import read_title, write_title
+
+	sid = require_session_id(session_id)
 	title = str(body.title or "").strip()
 	if not title:
 		raise api_error(400, "title must not be empty", "invalid_request")
+	if len(title) > 200:
+		raise api_error(422, "title exceeds 200 characters", "invalid_request")
 	try:
-		from engine.title import write_title
-
-		entry = write_title(session_id, title, pinned=True)
+		entry = write_title(sid, title, pinned=True)
 	except Exception as e:  # noqa: BLE001
 		raise api_error(500, friendly_error(e), "server_error") from e
-	return {"id": session_id, "title": entry["title"], "pinned": True}
+	persisted = read_title(sid)
+	if not persisted or str(persisted.get("title") or "") != str(entry.get("title") or ""):
+		_logger.warning(
+			"rename not persisted for session=%s (wanted=%r got=%r)",
+			sid,
+			entry.get("title"),
+			(persisted or {}).get("title"),
+		)
+		raise api_error(
+			500,
+			"title sidecar could not be persisted; rename did not take effect",
+			"server_error",
+		)
+	return {"id": sid, "title": persisted["title"], "pinned": bool(persisted.get("pinned"))}
+
 
 
 class ForkRequest(BaseModel):
@@ -503,45 +641,47 @@ def fork_session(session_id: str, body: ForkRequest | None = None) -> dict[str, 
 	"""
 	from engine.title import read_title, write_title
 
-	sid = (session_id or "").strip()
-	if not sid:
-		raise api_error(400, "session_id is empty")
+	sid = require_session_id(session_id)
 	if sid.startswith("side-"):
 		raise api_error(400, "side-chat sessions cannot be forked", "side_chat_unsupported")
 	root = default_sessions_dir()
 	src_tp = transcript_path(sid, sessions_dir=root)
-	src_old = rotated_transcript_path(src_tp)
-	if not src_tp.is_file() and not src_old.is_file():
+	src_archives = [p for p in rotated_transcript_paths(src_tp) if p.is_file()]
+	if not src_tp.is_file() and not src_archives:
 		raise api_error(404, "source session has no transcript", "source_missing")
 
 	new_sid = f"xeyo-{uuid.uuid4().hex[:12]}"
 	dst_tp = transcript_path(new_sid, sessions_dir=root)
 	dst_tp.parent.mkdir(parents=True, exist_ok=True)
 
-	# 复制 current transcript；若有 .old 轮转归档也一并复制（顺序保留）。
+	# 复制 current transcript 与**全部**轮转归档（.old1/.old2，顺序保留）。
+	# 早先只带 .old1：轮转一旦开始，fork 出来的会话会静默丢掉最老一代历史。
 	copied: list[str] = []
+	warnings: list[str] = []
 	if src_tp.is_file():
 		try:
 			shutil.copy2(src_tp, dst_tp)
 			copied.append(str(dst_tp))
 		except OSError as e:
-			raise api_error(500, f"copy transcript failed: {e}", "server_error") from e
-	if src_old.is_file():
-		dst_old = rotated_transcript_path(dst_tp)
+			raise api_error(
+				500, safe_error_detail(e, fallback="copy transcript failed"), "server_error"
+			) from e
+	for src_old in src_archives:
+		dst_old = dst_tp.with_name(dst_tp.name + src_old.name[len(src_tp.name) :])
 		try:
 			shutil.copy2(src_old, dst_old)
 			copied.append(str(dst_old))
 		except OSError as e:
-			# .old 复制失败不影响主 fork，保留 warn
-			copied.append(f"WARN old-copy-failed: {e}")
+			# 归档复制失败不影响主 fork，但必须说出口：分叉体少了历史。
+			warnings.append(f"old-copy-failed: {safe_error_detail(e)}")
 
 	# 复制 title sidecar（如有）并加 (分叉) 标签，避免直接覆盖原 pinned。
 	src_title = read_title(sid, sessions_dir=root)
 	fork_title = (src_title["title"] + " (分叉)") if src_title else "新对话 (分叉)"
 	try:
 		write_title(new_sid, fork_title, pinned=True, sessions_dir=root)
-	except Exception:
-		pass
+	except Exception:  # noqa: BLE001 — 标题失败回落即时推导，fork 本体已成功
+		_logger.debug("fork title copy failed sid=%s", sid, exc_info=True)
 
 	# 索引白名单同步加入新 sid（与 create_session 行为一致）。
 	index_file = Path(__file__).resolve().parent.parent.parent / ".xeyo_session_index.json"
@@ -555,8 +695,9 @@ def fork_session(session_id: str, body: ForkRequest | None = None) -> dict[str, 
 					json.dumps(idx, ensure_ascii=False, indent=2) + "\n",
 					encoding="utf-8",
 				)
-	except Exception:
-		pass
+	except Exception as exc:  # noqa: BLE001 — 白名单没写进去 ⇒ 重启后 fork 体消失，必须留痕
+		_logger.warning("fork index update failed sid=%s", new_sid, exc_info=True)
+		warnings.append(f"index-update-failed: {safe_error_detail(exc)}")
 
 	cwd = _pool.session_cwd(sid) or _pool.cwd or ""
 	return {
@@ -566,6 +707,7 @@ def fork_session(session_id: str, body: ForkRequest | None = None) -> dict[str, 
 		"title": fork_title,
 		"cwd": cwd,
 		"copied": copied,
+		"warnings": warnings,
 	}
 
 
@@ -577,9 +719,7 @@ def archive_session(session_id: str) -> dict[str, Any]:
 	"""
 	from engine.title import write_archive
 
-	sid = (session_id or "").strip()
-	if not sid:
-		raise api_error(400, "session_id is empty")
+	sid = require_session_id(session_id)
 	root = default_sessions_dir()
 	# 没有 transcript 的会话也允许归档（占位）
 	entry = write_archive(sid, sessions_dir=root)
@@ -591,9 +731,7 @@ def restore_session(session_id: str) -> dict[str, Any]:
 	"""smoke-test #3：找回已归档会话——删 archive sidecar。"""
 	from engine.title import clear_archive
 
-	sid = (session_id or "").strip()
-	if not sid:
-		raise api_error(400, "session_id is empty")
+	sid = require_session_id(session_id)
 	removed = clear_archive(sid)
 	return {"ok": True, "id": sid, "restored": removed}
 
@@ -606,12 +744,28 @@ async def session_messages(session_id: str, include_notes: bool = False):
 	工具行与 list 形 assistant 块通过 ``_side_row_to_ui`` 展开为前端 ChatMessage 形状。
 	``include_notes=True``：连 T_now 留痕条目（hidden system note）一起返回——
 	供调试与用户自查（默认过滤：它们是引擎状态，不是对话内容）。
+
+	诚实性（2026-09-25 加固）：
+	- 一个文件都读不到 ⇒ 404 ``transcript_not_found``。此前对不存在的会话返回
+	  ``200 messages: []``，客户端无法区分「空会话」与「查无此会话」。
+	- 单个归档文件读失败（权限 / 编码 / 中途断开）不再 ``except: continue`` 静默
+	  丢掉整个文件的历史：失败进 ``read_errors``、坏行进 ``skipped_lines``，并置
+	  ``degraded: true``——半截历史必须自称半截。
 	"""
+	sid = require_session_id(session_id)
 	raw_rows: list[dict[str, Any]] = []
-	p = transcript_path(session_id)
+	p = transcript_path(sid)
+	read_errors: list[dict[str, str]] = []
+	skipped_lines = 0
+	found = False
 	for f in transcript_read_paths(p):
-		if not f.exists():
+		try:
+			if not f.is_file():
+				continue
+		except OSError as exc:
+			read_errors.append({"path": str(f), "error": safe_error_detail(exc)})
 			continue
+		found = True
 		try:
 			with f.open("r", encoding="utf-8") as fh:
 				for line in fh:
@@ -620,12 +774,21 @@ async def session_messages(session_id: str, include_notes: bool = False):
 						continue
 					try:
 						row = json.loads(line)
-					except Exception:
+					except Exception:  # noqa: BLE001 — 坏行容忍，但必须计数
+						skipped_lines += 1
 						continue
 					if isinstance(row, dict):
 						raw_rows.append(row)
-		except Exception:
+		except (OSError, UnicodeDecodeError) as exc:
+			# 整个文件（含其后所有行）丢了：半截历史必须自称半截。
+			read_errors.append({"path": str(f), "error": safe_error_detail(exc)})
 			continue
+	if not found and _pool.get_if_present(sid) is None:
+		raise api_error(
+			404,
+			f"no transcript for session: {sid}",
+			"transcript_not_found",
+		)
 
 	messages: list[dict[str, Any]] = []
 	pending_calls: deque[dict[str, Any]] = deque()
@@ -648,9 +811,13 @@ async def session_messages(session_id: str, include_notes: bool = False):
 		)
 	# T31：随消息返回服务端权威 cwd（供 tui 等薄客户端恢复会话时不自定工作区）。
 	return {
-		"session_id": session_id,
+		"session_id": sid,
 		"messages": messages,
-		"cwd": _pool.session_cwd(session_id) or _pool.cwd or "",
+		"cwd": _pool.session_cwd(sid) or _pool.cwd or "",
+		"transcript_found": found,
+		"degraded": bool(read_errors),
+		"read_errors": read_errors,
+		"skipped_lines": skipped_lines,
 	}
 
 
@@ -895,9 +1062,7 @@ async def sync_ui_thoughts(
     body: UiThoughtsSyncRequest,
 ) -> dict[str, Any]:
     """持久化前端 reasoning 块（ui_thought 行），供刷新后恢复 Activity 中的 Thought。"""
-    sid = (session_id or "").strip()
-    if not sid:
-        raise api_error(400, "session_id is empty")
+    sid = require_session_id(session_id)
     rows = [
         {
             "id": t.id,
@@ -922,9 +1087,7 @@ def session_compression(session_id: str) -> dict[str, Any]:
     from memory.l5_flag import c2_gate, l5_mode
     from memory.working import hydrate as hydrate_working
 
-    sid = (session_id or "").strip()
-    if not sid:
-        raise api_error(400, "session_id is empty")
+    sid = require_session_id(session_id)
     snap = hydrate_working(sid)
     summary = str(snap.c2_summary_text or "")
     preview = summary[:280] + ("…" if len(summary) > 280 else "")
@@ -947,9 +1110,7 @@ def session_agents(session_id: str) -> dict[str, Any]:
     """列出该会话跑过的全部子 agent 元数据（FE 卡片列表 / 历史回放入口）。"""
     from engine.subagent_runner import list_subagent_metas
 
-    sid = (session_id or "").strip()
-    if not sid:
-        raise api_error(400, "session_id is empty")
+    sid = require_session_id(session_id)
     agents: list[dict[str, Any]] = []
     from engine.live_agents import inbox_count as live_inbox_count
 
@@ -988,10 +1149,8 @@ def session_agent_detail(session_id: str, agent_id: str) -> dict[str, Any]:
         load_sidechain_messages,
     )
 
-    sid = (session_id or "").strip()
-    aid = (agent_id or "").strip()
-    if not sid or not aid:
-        raise api_error(400, "session_id and agent_id are required")
+    sid = require_session_id(session_id)
+    aid = require_agent_id(agent_id)
 
     meta: dict[str, Any] | None = None
     try:
@@ -1035,10 +1194,8 @@ def session_agent_cancel(session_id: str, agent_id: str) -> dict[str, Any]:
     """取消正在运行的单个子 Agent（不影响主会话 abort）。"""
     from engine.live_agents import abort_live_agent, is_live_agent
 
-    sid = (session_id or "").strip()
-    aid = (agent_id or "").strip()
-    if not sid or not aid:
-        raise api_error(400, "session_id and agent_id are required")
+    sid = require_session_id(session_id)
+    aid = require_agent_id(agent_id)
     if not is_live_agent(sid, aid):
         raise api_error(404, "subagent is not running", "agent_not_live")
     ok = abort_live_agent(sid, aid)
@@ -1069,15 +1226,16 @@ def session_agent_followup(
     )
     from engine.subagent_runner import _meta_path, upsert_subagent_meta
 
-    sid = (session_id or "").strip()
-    aid = (agent_id or "").strip()
+    sid = require_session_id(session_id)
+    aid = require_agent_id(agent_id)
     text = (body.text or "").strip()
-    if not sid or not aid:
-        raise api_error(400, "session_id and agent_id are required")
     if not text:
         raise api_error(400, "follow-up text is empty", "empty_followup")
     if len(text) > 2000:
-        text = text[:2000]
+        # 静默截断会让模型收到一条被切掉尾巴的话；超长直接拒，由界面重投。
+        raise api_error(
+            422, "follow-up text exceeds 2000 characters", "invalid_request"
+        )
 
     if is_live_agent(sid, aid):
         post_to_agent(sid, aid, text, message_id=str(body.message_id or ""))
@@ -1087,34 +1245,63 @@ def session_agent_followup(
             "inboxCount": live_inbox_count(sid, aid),
         }
 
-    # 已结束：落 meta.pending_followups（先读后写，锁内原子）。
-    meta: dict[str, Any] = {}
-    try:
-        mp = _meta_path(sid, aid)
-        if mp.is_file():
-            import json as _json
-
-            obj = _json.loads(mp.read_text(encoding="utf-8"))
-            if isinstance(obj, dict):
-                meta = obj
-    except Exception:  # noqa: BLE001
-        meta = {}
-    pending = [str(x) for x in (meta.get("pending_followups") or []) if str(x).strip()]
-    pending.append(text)
-    upsert_subagent_meta(
-        sid,
-        agent_id=aid,
-        task_desc=str(meta.get("task_desc") or ""),
-        status=str(meta.get("status") or "done"),
-        task_id=str(meta.get("task_id") or ""),
-        result_preview=str(meta.get("result_preview") or ""),
-        pending_followups=pending,
-    )
+    # 已结束：落 meta.pending_followups。这是「读整表 → 追加 → 写整表」的
+    # 读-改-写，必须按 (会话, agent) 串行：两个并发投递会各自读到同一份旧表，
+    # 后写的把先写的整表覆盖掉——一条 follow-up 静默消失。
+    with _meta_locks.acquire(f"{sid}\x00{aid}"):
+        meta: dict[str, Any] = {}
+        read_failed = False
+        try:
+            mp = _meta_path(sid, aid)
+            if mp.is_file():
+                obj = json.loads(mp.read_text(encoding="utf-8"))
+                if isinstance(obj, dict):
+                    meta = obj
+        except Exception:  # noqa: BLE001 — meta 读不到时按空表续写，但要留痕
+            _logger.debug("agent meta read failed sid=%s aid=%s", sid, aid, exc_info=True)
+            meta = {}
+            read_failed = True
+        pending = [str(x) for x in (meta.get("pending_followups") or []) if str(x).strip()]
+        pending.append(text)
+        upsert_subagent_meta(
+            sid,
+            agent_id=aid,
+            task_desc=str(meta.get("task_desc") or ""),
+            status=str(meta.get("status") or "done"),
+            task_id=str(meta.get("task_id") or ""),
+            result_preview=str(meta.get("result_preview") or ""),
+            pending_followups=pending,
+        )
+        # upsert 对 OSError 是「静默 pass」：不回读确认就等于把没落盘的排队
+        # 报成已排队（卡片计数 +1，retry 时消息却不存在）。
+        persisted = _read_pending_followups(_meta_path, sid, aid)
+        if text not in persisted:
+            raise api_error(
+                500,
+                "follow-up could not be persisted to agent meta",
+                "agent_inbox_persist_failed",
+            )
     return {
         "ok": True,
         "deliver": "pending",
-        "inboxCount": len(pending),
+        "inboxCount": len(persisted),
+        "meta_read_failed": read_failed,
     }
+
+
+def _read_pending_followups(meta_path_fn, sid: str, aid: str) -> list[str]:
+    """回读 meta.pending_followups（落盘确认与删除路径共用）。"""
+    try:
+        mp = meta_path_fn(sid, aid)
+        if not mp.is_file():
+            return []
+        obj = json.loads(mp.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        _logger.debug("agent meta reread failed sid=%s aid=%s", sid, aid, exc_info=True)
+        return []
+    if not isinstance(obj, dict):
+        return []
+    return [str(x) for x in (obj.get("pending_followups") or []) if str(x).strip()]
 
 
 @router.delete("/v1/sessions/{session_id}/agents/{agent_id}/inbox/{item_id}")
@@ -1127,48 +1314,59 @@ def session_agent_followup_remove(
         remove_agent_inbox_item,
     )
 
-    sid = (session_id or "").strip()
-    aid = (agent_id or "").strip()
-    if not sid or not aid:
-        raise api_error(400, "session_id and agent_id are required")
+    sid = require_session_id(session_id)
+    aid = require_agent_id(agent_id)
+    target = _require_stable_id(item_id, field="item_id")
 
     if is_live_agent(sid, aid):
-        removed = remove_agent_inbox_item(sid, aid, item_id)
+        removed = remove_agent_inbox_item(sid, aid, target)
         return {"ok": True, "deliver": "running", "removed": removed}
 
-    # meta.pending_followups：按 item_id == 文本 精确定位（无匹配则取首条）。
+    # meta.pending_followups 以「文本即身份」存储：只按精确定位删。
+    # 早先的兜底是「匹配不上就 pop() 最后一条」——调用方给错 id 时会删掉
+    # 另一条排队消息，且回执 still 说 removed=true（错删 + 谎报）。
     from engine.subagent_runner import _meta_path, upsert_subagent_meta
 
-    meta: dict[str, Any] = {}
-    try:
-        mp = _meta_path(sid, aid)
-        if mp.is_file():
-            import json as _json
-
-            obj = _json.loads(mp.read_text(encoding="utf-8"))
-            if isinstance(obj, dict):
-                meta = obj
-    except Exception:  # noqa: BLE001
-        meta = {}
-    pending = [str(x) for x in (meta.get("pending_followups") or []) if str(x).strip()]
-    removed = False
-    idx = next((i for i, x in enumerate(pending) if x == item_id), None)
-    if idx is not None:
+    with _meta_locks.acquire(f"{sid}\x00{aid}"):
+        meta: dict[str, Any] = {}
+        try:
+            mp = _meta_path(sid, aid)
+            if mp.is_file():
+                obj = json.loads(mp.read_text(encoding="utf-8"))
+                if isinstance(obj, dict):
+                    meta = obj
+        except Exception:  # noqa: BLE001 — 读不到就当没有，下面按空表回执
+            _logger.debug("agent meta read failed sid=%s aid=%s", sid, aid, exc_info=True)
+            meta = {}
+        pending = [
+            str(x) for x in (meta.get("pending_followups") or []) if str(x).strip()
+        ]
+        idx = next((i for i, x in enumerate(pending) if x == target), None)
+        if idx is None:
+            return {
+                "ok": True,
+                "deliver": "pending",
+                "removed": False,
+                "inboxCount": len(pending),
+            }
         pending.pop(idx)
-        removed = True
-    elif pending:
-        pending.pop()
-        removed = True
-    upsert_subagent_meta(
-        sid,
-        agent_id=aid,
-        task_desc=str(meta.get("task_desc") or ""),
-        status=str(meta.get("status") or "done"),
-        task_id=str(meta.get("task_id") or ""),
-        result_preview=str(meta.get("result_preview") or ""),
-        pending_followups=pending,
-    )
-    return {"ok": True, "deliver": "pending", "removed": removed}
+        upsert_subagent_meta(
+            sid,
+            agent_id=aid,
+            task_desc=str(meta.get("task_desc") or ""),
+            status=str(meta.get("status") or "done"),
+            task_id=str(meta.get("task_id") or ""),
+            result_preview=str(meta.get("result_preview") or ""),
+            pending_followups=pending,
+        )
+        persisted = _read_pending_followups(_meta_path, sid, aid)
+        if target in persisted:
+            raise api_error(
+                500,
+                "follow-up removal could not be persisted to agent meta",
+                "agent_inbox_persist_failed",
+            )
+    return {"ok": True, "deliver": "pending", "removed": True, "inboxCount": len(persisted)}
 
 
 class AgentRetryRequest(BaseModel):
@@ -1207,10 +1405,8 @@ async def session_agent_retry(
     from server.session_pool import ModelConfig
     from tools.agent_tool import AgentTool
 
-    sid = (session_id or "").strip()
-    aid = (agent_id or "").strip()
-    if not sid or not aid:
-        raise api_error(400, "session_id and agent_id are required")
+    sid = require_session_id(session_id)
+    aid = require_agent_id(agent_id)
     # 双闸：主回合 detached turn 在跑 / busy 租约被占时不允许重试子 agent——
     # 重试会写工作区与侧链，与主回合并发会互相踩（曾无任何互斥直接放行）。
     from engine.turn_runner import get_turn_runner
@@ -1317,9 +1513,7 @@ async def session_agent_retry(
 
 
 def _rollback_service(session_id: str) -> RollbackService:
-	sid = (session_id or "").strip()
-	if not sid:
-		raise api_error(400, "session_id is empty")
+	sid = require_session_id(session_id)
 	cwd = _pool.session_cwd(sid) or _pool.cwd
 	if not (cwd or "").strip():
 		raise api_error(400, "session has no workspace")
@@ -1338,6 +1532,10 @@ def _rollback_service(session_id: str) -> RollbackService:
 
 
 def _raise_rollback_api_error(exc: Exception) -> None:
+	# 路由自己抛的 HTTPException（422 身份校验 / 400 无工作区）必须先原样上抛：
+	# 否则会被下面的 catch-all 翻成 500「请求参数有误（400）」，客户端拿不到真因。
+	if isinstance(exc, HTTPException):
+		raise exc
 	# T34：detail 经 safe_error_detail 过滤，内部异常痕迹不出 API。
 	if isinstance(exc, RollbackDisabledError):
 		raise api_error(404, safe_error_detail(exc), "rewind_disabled") from exc
@@ -1394,9 +1592,10 @@ def rollback_recover(
 	session_id: str, job_id: str, body: RollbackRecoveryRequest
 ) -> dict[str, Any]:
 	"""Retry checkpoint restore or abandon a recovery_required job."""
+	jid = _require_stable_id(job_id, field="job_id")
 	try:
 		result = _rollback_service(session_id).resolve_recovery(
-			job_id=job_id,
+			job_id=jid,
 			action=body.action,
 		)
 		return {"ok": True, **result}
@@ -1406,8 +1605,9 @@ def rollback_recover(
 
 @router.get("/v1/sessions/{session_id}/rollback/status/{job_id}")
 def rollback_status(session_id: str, job_id: str) -> dict[str, Any]:
+	jid = _require_stable_id(job_id, field="job_id")
 	try:
-		job = _rollback_service(session_id).get_job(job_id)
+		job = _rollback_service(session_id).get_job(jid)
 		if job is None:
 			raise api_error(404, "rollback job not found", "not_found")
 		return {"ok": True, "job": job.to_dict()}
@@ -1420,9 +1620,7 @@ def rollback_status(session_id: str, job_id: str) -> dict[str, Any]:
 @router.get("/v1/sessions/{session_id}/task")
 def session_task(session_id: str) -> dict[str, Any]:
 	"""当前会话任务快照（刷新 reattach / 重启 recovery 用）。"""
-	sid = (session_id or "").strip()
-	if not sid:
-		raise api_error(400, "session_id required", "invalid_request")
+	sid = require_session_id(session_id)
 	from engine.turn_runner import get_turn_runner
 	from engine.turn_snapshot import hydrate as hydrate_turn
 
@@ -1475,9 +1673,7 @@ async def session_turn_events(
 	cursor: int = Query(default=0, ge=0),
 ) -> StreamingResponse:
 	"""从 cursor 重放 + live 订阅（GUI 刷新 reattach）。"""
-	sid = (session_id or "").strip()
-	if not sid:
-		raise api_error(400, "session_id required", "invalid_request")
+	sid = require_session_id(session_id)
 	from engine.turn_runner import get_turn_runner
 
 	runner = get_turn_runner()
@@ -1525,7 +1721,7 @@ def session_recovery_abandon(session_id: str) -> dict[str, Any]:
 	"""放弃 recovery_required 快照。"""
 	from engine.turn_snapshot import flush as flush_turn, hydrate as hydrate_turn
 
-	sid = (session_id or "").strip()
+	sid = require_session_id(session_id)
 	snap = hydrate_turn(sid)
 	if snap is None:
 		return {"ok": True, "status": "idle"}
@@ -1543,9 +1739,7 @@ def session_inbox_list(session_id: str) -> dict[str, Any]:
 	"""主会话 inbox 快照（GUI 轮询驱动 chip，多端可见）。"""
 	from server.inbox_registry import get_inbox_registry
 
-	sid = (session_id or "").strip()
-	if not sid:
-		raise api_error(400, "session_id required", "invalid_request")
+	sid = require_session_id(session_id)
 	return get_inbox_registry().snapshot(sid)
 
 
@@ -1558,10 +1752,8 @@ def session_inbox_remove(session_id: str, queue_id: str) -> dict[str, Any]:
 	"""取消单条排队消息。delivering 态返回 409。"""
 	from server.inbox_registry import get_inbox_registry
 
-	sid = (session_id or "").strip()
-	qid = (queue_id or "").strip()
-	if not sid or not qid:
-		raise api_error(400, "session_id and queue_id required", "invalid_request")
+	sid = require_session_id(session_id)
+	qid = _require_stable_id(queue_id, field="queue_id")
 	ok = get_inbox_registry().remove(sid, qid)
 	if not ok:
 		raise api_error(409, "inbox item not found or already delivering", "inbox_delivering")
@@ -1578,10 +1770,8 @@ def session_inbox_edit(
 	"""
 	from server.inbox_registry import InboxTextTooLong, get_inbox_registry
 
-	sid = (session_id or "").strip()
-	qid = (queue_id or "").strip()
-	if not sid or not qid:
-		raise api_error(400, "session_id and queue_id required", "invalid_request")
+	sid = require_session_id(session_id)
+	qid = _require_stable_id(queue_id, field="queue_id")
 	try:
 		item = get_inbox_registry().edit(sid, qid, body.text)
 	except InboxTextTooLong as e:
@@ -1600,9 +1790,7 @@ async def session_inbox_resume(session_id: str) -> dict[str, Any]:
 	"""
 	from server.inbox_registry import get_inbox_registry
 
-	sid = (session_id or "").strip()
-	if not sid:
-		raise api_error(400, "session_id required", "invalid_request")
+	sid = require_session_id(session_id)
 	return get_inbox_registry().resume(sid)
 
 
