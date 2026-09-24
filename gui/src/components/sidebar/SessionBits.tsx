@@ -113,6 +113,7 @@ export function SessionTree({
 		<div
 			className={cn('xy-sidebar-tree grid', open ? 'is-open' : 'is-closed')}
 			aria-hidden={!open}
+			inert={!open}
 		>
 			<ul className='min-h-0 overflow-hidden pb-1'>{children}</ul>
 		</div>
