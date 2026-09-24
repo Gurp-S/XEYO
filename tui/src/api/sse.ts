@@ -136,7 +136,7 @@ export async function resolvePermission(
 ): Promise<void> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
-  await fetch(`${baseUrl.replace(/\/$/, "")}/v1/permission/resolve`, {
+  const res = await fetch(`${baseUrl.replace(/\/$/, "")}/v1/permission/resolve`, {
     method: "POST",
     headers,
     body: JSON.stringify({
@@ -146,6 +146,9 @@ export async function resolvePermission(
       actor: "tui",
     }),
   });
+  // 决议必须确认送达：本文件其余 5 个 helper 都查 res.ok，只有这两个不查，
+  // 于是 403/404/422 会被吞掉、界面照常写下 "✓ allowed"。
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
 }
 
 export async function interruptSession(
@@ -155,11 +158,13 @@ export async function interruptSession(
 ): Promise<void> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
-  await fetch(`${baseUrl.replace(/\/$/, "")}/v1/interrupt`, {
+  const res = await fetch(`${baseUrl.replace(/\/$/, "")}/v1/interrupt`, {
     method: "POST",
     headers,
     body: JSON.stringify({ session_id: sessionId }),
   });
+  // 同上：本地 abort() 只保证"不再接收"，服务端有没有停要靠这个响应。
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
 }
 
 export type SlashResponse = {

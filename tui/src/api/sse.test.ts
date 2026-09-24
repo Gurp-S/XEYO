@@ -6,7 +6,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { applyXy, deltaText, streamChat, type ChatBody, type SseHandlers } from "./sse.js";
+import {
+  applyXy,
+  deltaText,
+  interruptSession,
+  resolvePermission,
+  streamChat,
+  type ChatBody,
+  type SseHandlers,
+} from "./sse.js";
 import type { TimelineItem } from "../types.js";
 
 let seq = 0;
@@ -175,4 +183,58 @@ test("deltaText 忽略没有正文的帧", () => {
   assert.equal(deltaText({ choices: [] }), "");
   assert.equal(deltaText({}), "");
   assert.equal(deltaText({ choices: [{ delta: { content: 1 } }] }), "");
+});
+
+// --------------------------------------------------------------------------- //
+// 送达回执：resolvePermission / interruptSession 必须把非 2xx 变成 reject。
+// 这两个 helper 曾经是文件里唯二不查 res.ok 的 —— await 完就把 Response 丢掉，
+// 于是 403/404/422 一律"成功"，App 照常写下 ✓ allowed（授权面上的假回执）。
+// --------------------------------------------------------------------------- //
+
+function fetchReturning(status: number) {
+  const calls: { url: string; init?: RequestInit }[] = [];
+  const fake = (async (input: unknown, init?: RequestInit) => {
+    calls.push({ url: String(input), init });
+    return { ok: status >= 200 && status < 300, status, json: async () => ({}) } as never;
+  }) as never;
+  return { fake, calls };
+}
+
+async function withFetch<T>(fake: never, body: () => Promise<T>): Promise<T> {
+  const original = globalThis.fetch;
+  globalThis.fetch = fake;
+  try {
+    return await body();
+  } finally {
+    globalThis.fetch = original;
+  }
+}
+
+test("决议被服务端拒绝时必须 reject，而不是静默算成功", async () => {
+  const { fake, calls } = fetchReturning(403);
+  await assert.rejects(
+    withFetch(fake, () => resolvePermission("http://127.0.0.1:1", "k", "req_1", "allow")),
+    /403/,
+  );
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].url, /\/v1\/permission\/resolve$/);
+});
+
+test("决议成功时 resolve，并把 choice 映射成 approved + outcome", async () => {
+  const { fake, calls } = fetchReturning(200);
+  await withFetch(fake, () => resolvePermission("http://x/", "k", "req_1", "deny"));
+  const sent = JSON.parse(String(calls[0].init?.body));
+  assert.equal(sent.request_id, "req_1");
+  assert.equal(sent.approved, false);
+  assert.equal(sent.outcome, "deny");
+  // 尾斜杠必须被剥掉，否则会打到 /v1//permission… 这种双斜杠路径。
+  assert.ok(!calls[0].url.includes("x//"));
+});
+
+test("中断请求失败时必须 reject，调用方才能说「服务端未确认」", async () => {
+  const { fake } = fetchReturning(500);
+  await assert.rejects(
+    withFetch(fake, () => interruptSession("http://127.0.0.1:1", "", "sess_1")),
+    /500/,
+  );
 });

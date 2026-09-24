@@ -28,6 +28,7 @@ import { useElapsed } from "../hooks/useElapsed.js";
 import { useEngineHealth } from "../hooks/useEngineHealth.js";
 import { useInputHistory } from "../hooks/useInputHistory.js";
 import { routeKey } from "../lib/keyRouter.js";
+import { parsePermissionPending } from "../lib/permissionPrompt.js";
 import { parseSlashInput } from "../lib/slash.js";
 import { g } from "../theme.js";
 import type { CliConfig, PermissionPrompt, TimelineItem } from "../types.js";
@@ -187,7 +188,20 @@ export function App({ config: initial }: Props) {
   const interruptTurn = useCallback(() => {
     if (!busy) return;
     abortRef.current?.abort();
-    void interruptSession(config.baseUrl, config.apiKey, config.sessionId);
+    // 先做完本地能确定的事（停接收、收尾时间线），再异步确认服务端。
+    // 回执分两段：本地 abort 是事实，"服务端已中断"必须等 POST 成功才敢说。
+    void interruptSession(config.baseUrl, config.apiKey, config.sessionId).catch(
+      (e: unknown) => {
+        setItems((prev) => [
+          ...prev,
+          {
+            id: nextId(),
+            kind: "system",
+            text: `${gly.warn} 服务端未确认中断：${String(e)}`,
+          },
+        ]);
+      },
+    );
     setBusy(false);
     setPending(null);
     setItems((prev) => [
@@ -205,7 +219,7 @@ export function App({ config: initial }: Props) {
       ),
       { id: nextId(), kind: "system", text: `${gly.fail} interrupted` },
     ]);
-  }, [busy, config.apiKey, config.baseUrl, config.sessionId, gly.fail, nextId]);
+  }, [busy, config.apiKey, config.baseUrl, config.sessionId, gly.fail, gly.warn, nextId]);
 
   /** 关掉一个已经没人等的弹窗：流都结束了还没收到 permission_resolved，
    *  再往服务端发决议只会多余地报错；但弹窗留着会把用户锁死在终端里。 */
@@ -285,6 +299,24 @@ export function App({ config: initial }: Props) {
     if (!pending) return;
     const req = pending;
     setPending(null);
+    const verb =
+      choice === "allow" ? "allowed" : choice === "remind" ? "remind" : "denied";
+    try {
+      await resolvePermission(config.baseUrl, config.apiKey, req.requestId, choice);
+    } catch (e) {
+      // 决议没送达服务端：不能写"已允许"。工具会一直卡在等授权，用户需要知道
+      // 自己没有批准过它，而不是以为批过了。
+      setItems((prev) => [
+        ...prev,
+        {
+          id: nextId(),
+          kind: "system",
+          text: `${gly.fail} 决议未送达服务端（${req.tool} / ${verb}）：${String(e)}`,
+        },
+      ]);
+      setError(String(e));
+      return;
+    }
     const label =
       choice === "allow"
         ? `${gly.ok} allowed ${req.tool}`
@@ -295,11 +327,6 @@ export function App({ config: initial }: Props) {
       ...prev,
       { id: nextId(), kind: "system", text: label },
     ]);
-    try {
-      await resolvePermission(config.baseUrl, config.apiKey, req.requestId, choice);
-    } catch (e) {
-      setError(String(e));
-    }
   }
 
   async function submit(raw: string) {
@@ -606,11 +633,17 @@ export function App({ config: initial }: Props) {
           onXy: (xy: Record<string, unknown>) => {
             const kind = String(xy.type ?? "");
             if (kind === "permission_pending") {
-              setPending({
-                requestId: String(xy.request_id ?? ""),
-                tool: String(xy.tool_name ?? ""),
-                prompt: String(xy.prompt ?? xy.reason ?? ""),
-              });
+              const frame = parsePermissionPending(xy);
+              if (frame.kind === "open") {
+                setPending(frame.prompt);
+                return;
+              }
+              // 缺 request_id 的帧开不了可决议的弹窗：不写 requestId:"" 去骗过后端，
+              // 也不把用户锁在一个按什么都发不出决定的面板上。
+              setItems((prev) => [
+                ...prev,
+                { id: nextId(), kind: "system", text: `${gly.warn} ${frame.detail}` },
+              ]);
               return;
             }
             setItems((prev) => applyXy(prev, xy, nextId));
