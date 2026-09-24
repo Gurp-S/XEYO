@@ -7,6 +7,7 @@ import {
 } from '@/lib/apiBase';
 import {
 	fetchWithTimeout,
+	formatErrorDetail,
 } from './core';
 import {MemoryNoteRow} from '../api';
 
@@ -41,7 +42,13 @@ export async function requestManualCompact(
 		body: JSON.stringify({session_id: sid}),
 	});
 	if (!res.ok) {
-		return {ok: false, compact_cursor: 0, reason: `http_${res.status}`};
+		// 后端原话（"会话正在生成中"之类）比 http_502 可操作得多；解不出才退回状态码。
+		const payload = await res.json().catch(() => null);
+		return {
+			ok: false,
+			compact_cursor: 0,
+			reason: formatErrorDetail(payload, res.status),
+		};
 	}
 	return (await res.json()) as {
 		ok: boolean;
