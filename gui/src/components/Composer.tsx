@@ -296,6 +296,30 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 	const [editingId, setEditingId] = useState<string | null>(null);
 	const [queueDraft, setQueueDraft] = useState('');
 	const queueEscRef = useRef(false);
+	const [queueActionsInFlight, setQueueActionsInFlight] = useState<Set<string>>(
+		() => new Set(),
+	);
+	const queueActionsInFlightRef = useRef(new Set<string>());
+	const runQueueAction = async (
+		queueId: string,
+		action: () => Promise<boolean>,
+		failureText: string,
+	): Promise<boolean> => {
+		if (queueActionsInFlightRef.current.has(queueId)) return false;
+		queueActionsInFlightRef.current.add(queueId);
+		setQueueActionsInFlight(new Set(queueActionsInFlightRef.current));
+		try {
+			const ok = await action();
+			if (!ok) toast.error(failureText);
+			return ok;
+		} catch (error) {
+			toast.error(error instanceof Error ? error.message : failureText);
+			return false;
+		} finally {
+			queueActionsInFlightRef.current.delete(queueId);
+			setQueueActionsInFlight(new Set(queueActionsInFlightRef.current));
+		}
+	};
 	const editingTargetRef = useRef<{
 		sessionId: string;
 		item: InboxQueuedItem;
@@ -332,15 +356,21 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 			toast.error('该消息已开始投递，无法编辑');
 			return;
 		}
-		void editInboxItem(target.sessionId, target.item.queue_id, t).then(ok => {
-			if (!ok) toast.error('编辑失败（消息可能已开始投递）');
-		});
+		void runQueueAction(
+			target.item.queue_id,
+			() => editInboxItem(target.sessionId, target.item.queue_id, t),
+			'编辑失败（消息可能已开始投递）',
+		);
 	};
 	const cancelQueueItem = (it: InboxQueuedItem) => {
 		if (it.queue_id === editingId) closeQueueEdit();
-		void cancelInboxItem(activeId ?? '', it.queue_id).then(ok => {
-			if (!ok) toast.error('取消失败（消息可能已开始投递）');
-		});
+		const sessionId = activeId;
+		if (!sessionId) return;
+		void runQueueAction(
+			it.queue_id,
+			() => cancelInboxItem(sessionId, it.queue_id),
+			'取消失败（消息可能已开始投递）',
+		);
 	};
 	// 会话切换时先取快照；运行中快速轮询，空闲时低频同步其它客户端入队。
 	useEffect(() => {
@@ -1536,8 +1566,9 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 										{it.state !== 'delivering' ? (
 											<button
 												type="button"
-												className="xy-queue-action"
+												className="xy-queue-action disabled:pointer-events-none disabled:opacity-40"
 												title="编辑消息"
+												disabled={queueActionsInFlight.has(it.queue_id)}
 												onClick={() => openQueueEdit(it)}
 											>
 												<Pencil className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden />
@@ -1546,8 +1577,13 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 										{it.state === 'stuck' ? (
 											<button
 												type="button"
-												className="xy-queue-action"
-												title="重新投递"
+												className="xy-queue-action disabled:pointer-events-none disabled:opacity-40"
+												title={
+													queueActionsInFlight.has(it.queue_id)
+														? '正在重新投递…'
+														: '重新投递'
+												}
+												disabled={queueActionsInFlight.has(it.queue_id)}
 												onClick={() => {
 													const sessionId = activeId;
 													if (!sessionId) return;
@@ -1555,10 +1591,11 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 														chatUiStoreApi.getState().historyById,
 														sessionId,
 													);
-									void resumeInbox(backendId, it.queue_id).then(ok => {
-														if (!ok) toast.error('重新投递失败');
-														void refreshInbox(sessionId);
-													});
+													void runQueueAction(
+														it.queue_id,
+														() => resumeInbox(backendId, it.queue_id),
+														'重新投递失败',
+													).then(() => refreshInbox(sessionId));
 												}}
 											>
 												<Send className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden />
@@ -1566,11 +1603,17 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 										) : null}
 										<button
 											type="button"
-											className="xy-queue-action"
+											className="xy-queue-action disabled:pointer-events-none disabled:opacity-40"
 											title={
-												it.state === 'delivering' ? '已开始投递，无法取消' : '取消排队'
+												it.state === 'delivering'
+													? '已开始投递，无法取消'
+													: queueActionsInFlight.has(it.queue_id)
+														? '正在处理…'
+														: '取消排队'
 											}
-											disabled={it.state === 'delivering'}
+											disabled={
+												it.state === 'delivering' || queueActionsInFlight.has(it.queue_id)
+											}
 											onClick={() => cancelQueueItem(it)}
 										>
 											<X className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden />
