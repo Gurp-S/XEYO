@@ -17,6 +17,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # python/
 
+# stdout 是**机器可读的 JSON 通道**，父进程按 utf-8 解码；而 Windows 上重定向到管道时
+# sys.stdout 用的是本地代码页（这台机器是 cp936），于是 title 里的中文会被写成 GBK 字节，
+# 父进程 json.loads 直接炸。契约必须显式声明编码，不能依赖运行机器的 locale。
+sys.stdout.reconfigure(encoding="utf-8", errors="strict")
+
 
 def main(argv: list[str]) -> int:
     mode = argv[1]
