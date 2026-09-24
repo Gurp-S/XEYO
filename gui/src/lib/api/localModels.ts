@@ -1,5 +1,9 @@
 import {apiUrl} from '@/lib/apiBase';
-import {authHeaders, fetchWithTimeout} from '@/lib/api/core';
+import {
+	authHeaders,
+	fetchWithTimeout,
+	formatErrorDetail,
+} from '@/lib/api/core';
 
 /**
  * 本地模型（llama.cpp）控制面。
@@ -80,13 +84,71 @@ function qs(workspace?: string): string {
 	return ws ? `?workspace=${encodeURIComponent(ws)}` : '';
 }
 
-async function readSnapshot(res: Response): Promise<LocalModelsSnapshot | null> {
+function emptySnapshot(error: string): LocalModelsSnapshot {
+	return {
+		ok: false,
+		error,
+		settings: {
+			enabled: false,
+			active_model: '',
+			models_dir: '',
+			binary: '',
+			host: '',
+			port: 0,
+			ctx: 0,
+			gpu_layers: 0,
+			extra_args: '',
+		},
+		status: {
+			state: 'error',
+			model: '',
+			pid: null,
+			host: '',
+			port: 0,
+			base_url: '',
+			started_at: 0,
+			uptime_s: 0,
+			error,
+			log_path: '',
+			healthy: false,
+		},
+		models: [],
+		binary: {path: '', found: false},
+		models_dir: '',
+		base_url: '',
+		gate: {env: false, settings: false, allowed: false},
+	};
+}
+
+/**
+ * 后端承诺"快照字段齐全"，实际有三种回执：
+ * - 成功：完整快照，`ok:true`；
+ * - 业务失败：`{ok:false, error:...}`，**不带** settings/status；
+ * - HTTP 层失败（400/422）：FastAPI 的 `{detail:...}`，连 `ok` 都没有。
+ * 原样返回后两种会让调用方读 `snap.binary.found` 就崩、且 `ok===false` 判不出来
+ * （失败被当成成功）。这里统一补齐成结构完整的失败快照，原因走 `formatErrorDetail`
+ * （它解得出 422 的数组 detail），调用方只需看 `ok`。
+ */
+async function readSnapshot(res: Response): Promise<LocalModelsSnapshot> {
+	let body: unknown;
 	try {
-		const body = (await res.json()) as LocalModelsSnapshot;
-		return body;
+		body = await res.json();
 	} catch {
-		return null;
+		return emptySnapshot(
+			res.ok ? '后端回执不是合法 JSON' : `HTTP ${res.status}：回执不是合法 JSON`,
+		);
 	}
+	const b = (body ?? {}) as Partial<LocalModelsSnapshot>;
+	if (b.ok === true && b.settings && b.status && b.binary && Array.isArray(b.models)) {
+		return b as LocalModelsSnapshot;
+	}
+	if (b.ok === true) {
+		return emptySnapshot('后端回执缺少 settings/status/models 字段');
+	}
+	const reason = formatErrorDetail(body, res.status);
+	return emptySnapshot(
+		res.ok || !reason.startsWith('HTTP') ? reason : '后端拒绝该请求（未给出原因）',
+	);
 }
 
 /** 拉取全景快照（设置 + 运行态 + 可用模型 + 二进制探测）。 */

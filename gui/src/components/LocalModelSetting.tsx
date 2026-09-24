@@ -68,13 +68,22 @@ export function LocalModelSetting({workspace}: {workspace?: string}) {
 	const selectProfile = useSettingsStore(s => s.selectProfile);
 
 	const [snap, setSnap] = useState<LocalModelsSnapshot | null>(null);
+	const [loadError, setLoadError] = useState('');
 	const [loaded, setLoaded] = useState(false);
 	const [busy, setBusy] = useState<string | null>(null);
 	const alive = useRef(true);
 
 	const refresh = useCallback(async () => {
 		const next = await getLocalModels(workspace);
-		if (alive.current && next) setSnap(next);
+		if (alive.current) {
+			if (next?.ok) {
+				setSnap(next);
+				setLoadError('');
+			} else {
+				// 轮询失败保留上一份可读快照；原因只在还没有任何快照时占位显示。
+				setLoadError(next?.error || '后端未就绪或接口不可达');
+			}
+		}
 		return next;
 	}, [workspace]);
 
@@ -115,14 +124,8 @@ export function LocalModelSetting({workspace}: {workspace?: string}) {
 		setBusy(key);
 		const next = await action();
 		setBusy(null);
-		if (next) {
-			setSnap(next);
-			if (next.ok === false) {
-				toast.error(next.error || fallbackError);
-			}
-		} else {
-			toast.error(fallbackError);
-		}
+		if (next?.ok) setSnap(next);
+		else toast.error(next?.error || fallbackError);
 		return next;
 	};
 
@@ -199,7 +202,7 @@ export function LocalModelSetting({workspace}: {workspace?: string}) {
 		return (
 			<div className="rounded-xl border border-line/70 bg-glass-strong px-3 py-2.5">
 				<p className="text-[11px] text-mute">
-					读取本地模型设置失败：后端未就绪或接口不可达。
+					{`读取本地模型设置失败：${loadError || '后端未就绪或接口不可达'}`}
 				</p>
 			</div>
 		);
