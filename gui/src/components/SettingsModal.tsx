@@ -107,6 +107,30 @@ const draftRowsToModels = (rows: DraftModelRow[]): ModelInput[] =>
 		})
 		.filter((m): m is ModelInput => m !== null);
 
+type GcFieldParse = {ok: true; value: number | null} | {ok: false; message: string};
+
+/**
+ * 单个 GC 输入框的解析。**留空**与**写错了**必须分开：旧实现把两者都折成 null，
+ * 而 null 在这套接口里的语义是"这条不设上限"——`max_bytes` 里打错一个字，上限就被
+ * 悄悄取消了，后端回 200、界面弹"已保存"。旧实现还用 Math.max 静默改写用户输入
+ * （0 变 1），用户永远不知道自己按下的值被换掉；这里改为直接拒收并说明原因。
+ */
+export function parseGcField(
+	raw: string,
+	opts: {field: string; min: number},
+): GcFieldParse {
+	const t = String(raw ?? '').trim();
+	if (!t) return {ok: true, value: null};
+	const n = Number(t);
+	if (!Number.isFinite(n)) {
+		return {ok: false, message: `${opts.field}必须是数字（当前：${t}）`};
+	}
+	if (n < opts.min) {
+		return {ok: false, message: `${opts.field}不能小于 ${opts.min}（当前：${n}）`};
+	}
+	return {ok: true, value: Math.trunc(n)};
+}
+
 export function SettingsModal({open, onClose}: Props) {
 	const profiles = useSettingsStore(s => s.profiles) ?? [];
 	const activeProfileId = useSettingsStore(s => s.activeProfileId);
@@ -189,26 +213,23 @@ export function SettingsModal({open, onClose}: Props) {
 		return () => window.removeEventListener('keydown', onKeyDown, true);
 	}, [open, onClose]);
 	const applyGcSettings = async () => {
-		const keepRaw = Number(gcKeepRecentDraft);
-		const keepInt =
-			gcKeepRecentDraft.trim() === ''
-				? null
-				: Number.isFinite(keepRaw)
-					? Math.max(1, Math.trunc(keepRaw))
-					: null;
-		const bytesRaw = Number(gcMaxBytesDraft);
-		const bytesInt =
-			gcMaxBytesDraft.trim() === ''
-				? null
-				: Number.isFinite(bytesRaw)
-					? Math.max(0, Math.trunc(bytesRaw))
-					: null;
-		const ok = await setRewindGcSettings(keepInt, bytesInt);
+		const keep = parseGcField(gcKeepRecentDraft, {field: '保留最近份数', min: 1});
+		if (!keep.ok) {
+			toast.error(keep.message);
+			return;
+		}
+		const bytes = parseGcField(gcMaxBytesDraft, {field: '体积上限（字节）', min: 0});
+		if (!bytes.ok) {
+			toast.error(bytes.message);
+			return;
+		}
+		const ok = await setRewindGcSettings(keep.value, bytes.value);
 		if (ok) {
-			update({rewindGcKeepRecent: keepInt, rewindGcMaxBytes: bytesInt});
+			update({rewindGcKeepRecent: keep.value, rewindGcMaxBytes: bytes.value});
 			toast.success('已保存回溯清理设置');
 		} else {
-			toast.error('保存失败，请检查后端可达');
+			// 不写"请检查后端可达"：最常见的原因是后端 422 拒收，那句会把人引向网络。
+			toast.error('保存失败，设置未确认生效');
 		}
 	};
 	const fileRef = useRef<HTMLInputElement>(null);
