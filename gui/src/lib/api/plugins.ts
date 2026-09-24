@@ -1,5 +1,5 @@
 import {apiUrl} from '@/lib/apiBase';
-import {authHeaders, fetchWithTimeout} from '@/lib/api/core';
+import {authHeaders, fetchWithTimeout, formatErrorDetail} from '@/lib/api/core';
 
 /**
  * 插件管理面板数据源（扩展中心「插件」页）。
@@ -56,7 +56,8 @@ export async function fetchExtensionSettings(): Promise<ExtensionSettingsView> {
 			cache: 'no-store',
 		});
 		if (!res.ok) {
-			return {ok: false, message: `HTTP ${res.status}`, enabled_extensions: false, plugins: {}, skills: {}, mcp_servers: {}};
+			const payload: unknown = await res.json().catch(() => null);
+			return {ok: false, message: formatErrorDetail(payload, res.status), enabled_extensions: false, plugins: {}, skills: {}, mcp_servers: {}};
 		}
 		const body = (await res.json()) as Partial<ExtensionSettingsView>;
 		return {
@@ -87,9 +88,10 @@ export async function fetchPlugins(): Promise<PluginsReport> {
 			cache: 'no-store',
 		});
 		if (!res.ok) {
+			const payload: unknown = await res.json().catch(() => null);
 			return {
 				ok: false,
-				message: `HTTP ${res.status}`,
+				message: formatErrorDetail(payload, res.status),
 				enabled_extensions: false,
 				plugin_market: false,
 				workspace_settings: '',

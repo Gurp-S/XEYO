@@ -8,7 +8,7 @@
  * - 后端挂了 / 响应体不是 JSON 时要有可读文案，不能把 `undefined` 投给界面。
  */
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
-import {mcpOp} from '@/lib/api/mcp';
+import {mcpOp, patchExtensions} from '@/lib/api/mcp';
 
 type FakeResponse = {
 	ok: boolean;
@@ -80,5 +80,29 @@ describe('mcpOp', () => {
 		const res = await mcpOp('demo', 'enable');
 
 		expect(res.ok).toBe(true);
+	});
+
+	it('patchExtensions 在 422 时给出原因而不是空白失败', async () => {
+		fetchMock.mockResolvedValue(
+			fakeResponse({detail: {message: 'workspace must be an absolute path', type: 'invalid_request'}}, 422),
+		);
+
+		const res = await patchExtensions({plugins: [{name: 'demo', enabled: true}]});
+
+		expect(res.ok).toBe(false);
+		expect(res.message).toContain('absolute path');
+		// 面板把 errors 当逐项失败渲染：整体拒绝也必须有条目，否则又是一屏"静默没生效"。
+		expect(res.errors).toHaveLength(1);
+	});
+
+	it('patchExtensions 保留"整体 200 但逐项 errors"的失败判定', async () => {
+		fetchMock.mockResolvedValue(
+			fakeResponse({ok: true, errors: ['plugin demo 启用失败'], applied: {}}),
+		);
+
+		const res = await patchExtensions({plugins: [{name: 'demo', enabled: true}]});
+
+		expect(res.ok).toBe(false);
+		expect(res.message).toContain('demo');
 	});
 });

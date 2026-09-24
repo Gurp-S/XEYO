@@ -35,7 +35,8 @@ export async function fetchMcpStatus(): Promise<McpStatusReport> {
 	try {
 		const res = await fetch(apiUrl('/v1/mcp'), {headers: authHeaders()});
 		if (!res.ok) {
-			return {ok: false, message: `HTTP ${res.status}`, enabled_extensions: false, workspace: '', servers: []};
+			const payload: unknown = await res.json().catch(() => null);
+			return {ok: false, message: formatErrorDetail(payload, res.status), enabled_extensions: false, workspace: '', servers: []};
 		}
 		const body = (await res.json()) as McpStatusReport;
 		if (!Array.isArray(body.servers)) {
@@ -113,16 +114,25 @@ export async function patchExtensions(
 			headers: {...authHeaders(), 'Content-Type': 'application/json'},
 			body: JSON.stringify(body),
 		});
-		const payload = (await res.json()) as PatchExtensionsResult & {message?: string};
-		const errors = Array.isArray(payload.errors)
-			? payload.errors.filter((e): e is string => typeof e === 'string')
+		const payload = (await res.json().catch(() => null)) as
+			| (PatchExtensionsResult & {message?: string})
+			| null;
+		if (!res.ok) {
+			// 4xx 的原因在 detail 里；不接就会变成 "ok:false, message:undefined"
+			// 的空白失败（面板只看见没生效，不知道为什么）。
+			const reason = formatErrorDetail(payload, res.status);
+			return {ok: false, message: reason, errors: [reason]};
+		}
+		const view: PatchExtensionsResult & {message?: string} = payload ?? {ok: false};
+		const errors = Array.isArray(view.errors)
+			? view.errors.filter((e: unknown): e is string => typeof e === 'string')
 			: [];
-		const ok = res.ok && payload.ok === true && errors.length === 0;
+		const ok = res.ok && view.ok === true && errors.length === 0;
 		return {
 			ok,
-			message: payload.message || (errors.length ? errors.join('；') : undefined),
+			message: view.message || (errors.length ? errors.join('；') : undefined),
 			errors,
-			applied: payload.applied,
+			applied: view.applied,
 		};
 	} catch (err) {
 		return {
