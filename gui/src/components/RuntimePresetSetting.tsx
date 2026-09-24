@@ -1,10 +1,11 @@
-import {useEffect, useState} from 'react';
+import {useEffect, useRef, useState} from 'react';
 
 import {
 	fetchSessionRuntimePreset,
 	setSessionRuntimePreset,
 } from '@/lib/api/runtimePreset';
 import {cn} from '@/lib/utils';
+import {toast} from '@/lib/toast';
 import {useChatUiStore} from '@/stores/chatUiStore';
 
 const PRESETS: Array<{
@@ -38,6 +39,8 @@ export function RuntimePresetSetting() {
 	const activeId = useChatUiStore(s => s.activeId);
 	const [live, setLive] = useState<string | null>(null);
 	const [saved, setSaved] = useState(false);
+	// 连点时只有最新一次切换的回执能改选中态，旧回执不得把它回滚掉。
+	const seq = useRef(0);
 
 	useEffect(() => {
 		let alive = true;
@@ -56,13 +59,27 @@ export function RuntimePresetSetting() {
 	}, [activeId]);
 
 	const select = (id: (typeof PRESETS)[number]['id']) => {
+		const prev = live;
+		const mySeq = ++seq.current;
 		setLive(id);
 		setSaved(false);
-		if (activeId) {
-			setSessionRuntimePreset(activeId, id);
+		if (!activeId) {
+			return;
 		}
-		setSaved(true);
-		window.setTimeout(() => setSaved(false), 1500);
+		void setSessionRuntimePreset(activeId, id).then(res => {
+			if (seq.current !== mySeq) {
+				return; // 更新的切换已接管，旧回执不得回滚它
+			}
+			if (!res.ok) {
+				// 权限面的"已生效"只能来自后端回执：403/422 时引擎仍按旧 preset 判定，
+				// 留一个假的安全姿态比不切换更危险。
+				setLive(prev);
+				toast.error(`切换未生效：${res.message}`);
+				return;
+			}
+			setSaved(true);
+			window.setTimeout(() => setSaved(false), 1500);
+		});
 	};
 
 	return (
