@@ -46,7 +46,11 @@ export async function streamChat(
 	options?: ChatRequestOptions,
 ): Promise<void> {
 	const s = useSettingsStore.getState();
-	const sideSession = options?.side === true;
+	// 侧聊判定以 **会话 id 前缀** 为准，`options.side` 只是同义重申：后端
+	// `chat.py` 用 body.side 把工具面收紧到只读白名单并跳过 workspace 注入，
+	// 漏传一个 `side-` 会话就等于给侧聊开了写工具。不变量放在这里，调用方就
+	// 不可能忘记（两个现有调用方本来就传 true，行为不变）。
+	const sideSession = options?.side === true || sessionId.startsWith('side-');
 	// 上下文窗口：与聊天顶部用量面板同一口径（@/lib/modelWindow）——**设置里为
 	// 该模型登记的窗口优先**（用户在账号里显式填的值就是他的意图，也是设置页承诺
 	// 的「窗口分母 + 后端压力压缩上限」），厂商 /models 缓存只在未登记时兜底。
