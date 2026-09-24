@@ -9,7 +9,7 @@
  */
 import {slashCommands, type SlashCommand} from '@/generated/slashManifest';
 import {apiUrl} from '@/lib/apiBase';
-import {fetchSkills, fetchWithTimeout, type SkillInfo} from '@/lib/api';
+import {fetchSkills, fetchWithTimeout, type SkillInfo, type SkillsReport} from '@/lib/api';
 import {formatSlashHelp, parseSlashInput} from '@/lib/slash';
 import {syncGoalAfterCommand} from '@/lib/goalSync';
 import {useSettingsStore, type OutputMode, type PermissionMode} from '@/stores/settingsStore';
@@ -20,8 +20,8 @@ import {toast} from '@/lib/toast';
 export type SlashRunOutcome =
 	| {status: 'not-slash'}
 	| {status: 'unknown'; name: string}
-	/** 命令已识别，但目标消息未被发送链路接受；Composer 应保留输入。 */
-	| {status: 'rejected'}
+	/** 命令已识别但未成功执行；Composer 显示原因并保留输入。 */
+	| {status: 'rejected'; text?: string}
 	/** 已本地处理；text 非空则回显系统行 */
 	| {status: 'local'; text: string}
 	/** server 命令已执行；text 为结果（可能为空） */
@@ -36,6 +36,8 @@ export type SlashRunOptions = {
 	backendSessionId?: string;
 	/** 工作区根（用于 /v1/slash） */
 	workspace: string;
+	/** 当前会话是否有未结束的生成；遵守 manifest 的 when 门禁。 */
+	sessionBusy?: boolean;
 	/** /clear：新建会话 */
 	onNewSession: () => void | Promise<unknown>;
 	/** /retry：重发上一条用户消息 */
@@ -47,32 +49,74 @@ export type SlashRunOptions = {
 const OUTPUT_LEVELS = new Set(['lite', 'full', 'ultra']);
 const PERMISSION_MODES = new Set<PermissionMode>(['always', 'risk', 'never']);
 
-/** 技能清单缓存（按 workspace），供「/技能名」直呼解析，避免每次发送都拉取。 */
-const skillListCache = new Map<string, SkillInfo[]>();
+/** 技能候选与提交解析共用同一份短时缓存，避免 UI 命中后提交时重复拉取。 */
+const SKILL_CACHE_TTL_MS = 15_000;
+const EMPTY_SKILL_CACHE_TTL_MS = 2_000;
+const skillListCache = new Map<
+	string,
+	{report: SkillsReport; expiresAt: number}
+>();
+const skillListRequests = new Map<string, Promise<SkillsReport>>();
+
+export function cachedSlashSkills(workspace: string): SkillsReport | null {
+	const key = workspace.trim();
+	const entry = skillListCache.get(key);
+	if (!entry) return null;
+	if (entry.expiresAt <= Date.now()) {
+		skillListCache.delete(key);
+		return null;
+	}
+	return entry.report;
+}
+
+export function loadSlashSkills(workspace: string): Promise<SkillsReport> {
+	const key = workspace.trim();
+	const cached = cachedSlashSkills(key);
+	if (cached) return Promise.resolve(cached);
+	const pending = skillListRequests.get(key);
+	if (pending) return pending;
+	const request = fetchSkills(key)
+		.catch(err => ({
+			ok: false,
+			enabled_extensions: false,
+			skills: [],
+			message: err instanceof Error ? err.message : String(err),
+		}))
+		.then(report => {
+			if (report.ok) {
+				skillListCache.set(key, {
+					report,
+					expiresAt:
+						Date.now() +
+						(report.skills.length > 0
+							? SKILL_CACHE_TTL_MS
+							: EMPTY_SKILL_CACHE_TTL_MS),
+				});
+			}
+			return report;
+		})
+		.finally(() => {
+			if (skillListRequests.get(key) === request) {
+				skillListRequests.delete(key);
+			}
+		});
+	skillListRequests.set(key, request);
+	return request;
+}
 
 async function findSkillByName(
 	head: string,
 	workspace: string,
-): Promise<SkillInfo | null> {
+): Promise<{skill: SkillInfo | null; error?: string}> {
 	const want = head.trim().toLowerCase();
 	if (!want) {
-		return null;
+		return {skill: null};
 	}
-	const key = workspace || '';
-	let skills = skillListCache.get(key);
-	if (!skills) {
-		try {
-			const report = await fetchSkills(key);
-			if (!report || report.ok === false) {
-				return null;
-			}
-			skills = report.skills;
-		} catch {
-			return null;
-		}
-		skillListCache.set(key, skills);
+	const report = await loadSlashSkills(workspace);
+	if (!report.ok) {
+		return {skill: null, error: report.message || '技能清单暂不可用'};
 	}
-	return skills.find(s => s.name.toLowerCase() === want) ?? null;
+	return {skill: report.skills.find(s => s.name.toLowerCase() === want) ?? null};
 }
 
 async function postSlash(
@@ -99,13 +143,26 @@ async function postSlash(
 		}),
 	});
 	if (!res.ok) {
-		throw new Error(`HTTP ${res.status}`);
+		const payload = (await res.json().catch(() => null)) as {
+			detail?: unknown;
+			message?: unknown;
+		} | null;
+		const detail =
+			typeof payload?.detail === 'string'
+				? payload.detail
+				: typeof payload?.message === 'string'
+					? payload.message
+					: '';
+		throw new Error(detail || `HTTP ${res.status}`);
 	}
 	const data = (await res.json()) as {
-		handled: boolean;
+		handled?: boolean;
 		message?: string;
 		result?: {message?: string} | null;
 	};
+	if (data.handled !== true) {
+		throw new Error(data.message?.trim() || `/${command.name} 未执行`);
+	}
 	if (data.result && typeof data.result.message === 'string' && data.result.message) {
 		return data.result.message;
 	}
@@ -131,13 +188,35 @@ export async function runSlashCommand(
 	if (!parsed.isSlash) {
 		return {status: 'not-slash'};
 	}
+	if (!parsed.name) {
+		return {status: 'rejected', text: '命令名不能为空，输入 /help 查看可用命令。'};
+	}
 	if (parsed.unknown || !parsed.command) {
+		const knownOnAnotherSurface = slashCommands.find(
+			command =>
+				(command.name === parsed.name.toLowerCase() ||
+					command.aliases.some(alias => alias.toLowerCase() === parsed.name.toLowerCase())) &&
+				!command.surfaces.includes('gui'),
+		);
+		if (knownOnAnotherSurface) {
+			const detail =
+				knownOnAnotherSurface.name === 'load'
+					? 'GUI 请用侧栏切换会话。'
+					: '该命令仅 CLI / TUI 提供。';
+			return {status: 'local', text: `/${knownOnAnotherSurface.name}：${detail}`};
+		}
 		// 技能直呼（Composer 技能候选插入的就是 /<skill_name>）：
 		// - /name        → /skills show <name>（回显技能卡片）
 		// - /name 任务…  → 发送即原文（plain-text 决策）：原样进模型，
 		//   由宿主 skill_preinvoke（engine/skill_preinvoke.py）识别首行 /name
 		//   并确定性注入 SKILL.md 正文——不再赌模型自觉调 Skill 工具。
-		const skill = await findSkillByName(parsed.name, opts.workspace);
+		const {skill, error} = await findSkillByName(parsed.name, opts.workspace);
+		if (error) {
+			return {
+				status: 'rejected',
+				text: `技能清单读取失败：${error}`,
+			};
+		}
 		if (skill) {
 			const rest = parsed.arg.trim();
 			if (!rest) {
@@ -148,7 +227,7 @@ export async function runSlashCommand(
 						return {status: 'server', text};
 					} catch (err) {
 						return {
-							status: 'server',
+							status: 'rejected',
 							text: `/skills 执行失败：${err instanceof Error ? err.message : String(err)}`,
 						};
 					}
@@ -161,6 +240,12 @@ export async function runSlashCommand(
 	}
 	const command = parsed.command;
 	const arg = parsed.arg;
+	if (command.when === 'idle' && opts.sessionBusy) {
+		return {
+			status: 'rejected',
+			text: `会话仍在运行，/${command.name} 暂不可执行；可用 /stop 中断当前回合。`,
+		};
+	}
 
 	switch (command.name) {
 		// ---------------- client：本地完成 ----------------
@@ -260,7 +345,7 @@ export async function runSlashCommand(
 				return {status: 'server', text};
 			} catch (err) {
 				return {
-					status: 'server',
+					status: 'rejected',
 					text: `/${command.name} 执行失败：${err instanceof Error ? err.message : String(err)}`,
 				};
 			}
@@ -290,6 +375,13 @@ export async function handleComposerSlash(
 			});
 			return true;
 		case 'rejected':
+			if (outcome.text) {
+				chat.appendLocalNote?.(outcome.text, {
+					kind: 'cmd',
+					title: value.trim(),
+					sessionId: opts.sessionId,
+				});
+			}
 			return false;
 		case 'send':
 			// /run 等提示词改写命令：直接发提示词（用户气泡由 sendMessage 负责）。

@@ -20,7 +20,7 @@ import {
 	type KeyboardEvent,
 	type MouseEvent as ReactMouseEvent,
 } from 'react';
-import {fetchFileReferences, fetchSkills, uploadFile, uploadMedia, resumeInbox, type SkillInfo} from '@/lib/api';
+import {fetchFileReferences, uploadFile, uploadMedia, resumeInbox, type SkillInfo} from '@/lib/api';
 import {createTaAutoResize} from '@/lib/taAutoResize';
 import {TypingCaret, type CaretColorRange, type TypingCaretApi} from '@/components/composer/TypingCaret';
 import {
@@ -46,7 +46,12 @@ import {
 } from '@/lib/slash';
 import {arbitrateSlashMenuKey, type SlashMenuKey} from '@/lib/slashMenuKeys';
 import {resolveSendMode, steerHintVisible, type SendMode} from '@/lib/composerSendMode';
-import {handleComposerSlash, lastUserMessage} from '@/lib/slashCommands';
+import {
+	cachedSlashSkills,
+	handleComposerSlash,
+	lastUserMessage,
+	loadSlashSkills,
+} from '@/lib/slashCommands';
 import {newSession} from '@/lib/appNav';
 import {useHasComposerPendingDock} from '@/hooks/usePendingForActiveSession';
 import {popEscLayer, pushEscLayer} from '@/lib/escStack';
@@ -78,6 +83,7 @@ import {SIDE_SPACE_ID} from '@/lib/db';
 type FileAttachment = DraftFileAttachment;
 type ImageAttachment = DraftImageAttachment;
 type Attachment = DraftAttachment;
+const EMPTY_SLASH_SKILLS: SkillInfo[] = [];
 
 function removeSubmittedAttachments(current: Attachment[], submitted: Attachment[]) {
 	const submittedIds = new Set(submitted.map(attachment => attachment.id));
@@ -435,6 +441,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 	const [imeComposing, setImeComposing] = useState(false);
 	/** 当前工作区技能清单（/ 弹层与着色候选；按 workspace 缓存）。 */
 	const [slashSkills, setSlashSkills] = useState<SkillInfo[]>([]);
+	const [slashSkillsWorkspace, setSlashSkillsWorkspace] = useState('');
 	const taExpandedRef = useRef(false);
 	/** 自动高度调度器(rAF 批处理 + 写保护,契约见 lib/taAutoResize.ts)。 */
 	const taAutoResizeRef = useRef<ReturnType<typeof createTaAutoResize> | null>(null);
@@ -454,8 +461,6 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 	const pendingCaretRef = useRef<number | null>(null);
 	/** 自绘光标重测出口(TypingCaret):textarea 滚动后视觉坐标重算。 */
 	const caretApiRef = useRef<TypingCaretApi | null>(null);
-	/** 技能清单缓存：workspace → skills。 */
-	const slashSkillsRef = useRef<Record<string, SkillInfo[]>>({});
 	const activeIdRef = useRef(activeId);
 	const valueRef = useRef(value);
 	valueRef.current = value;
@@ -731,22 +736,18 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 		if (!slashZone) {
 			return;
 		}
-		const cached = slashSkillsRef.current[activeWorkspace];
-		if (cached && cached.length > 0) {
-			// 仅非空缓存可短路：写入端已不缓存空结果，这里再设读取端防线，
-			// 兜住 HMR/热更新残留的陈旧空数组（react-refresh 保留 useRef 状态）。
-			setSlashSkills(cached);
+		const cached = cachedSlashSkills(activeWorkspace);
+		if (cached) {
+			setSlashSkillsWorkspace(activeWorkspace);
+			setSlashSkills(cached.skills);
 			return;
 		}
+		setSlashSkillsWorkspace(activeWorkspace);
+		setSlashSkills([]);
 		let cancelled = false;
-		void fetchSkills(activeWorkspace).then(report => {
-			if (cancelled || !report || report.ok === false) {
+		void loadSlashSkills(activeWorkspace).then(report => {
+			if (cancelled || report.ok === false) {
 				return; // 失败不缓存：下次唤起弹层重试。
-			}
-			// 仅非空结果写缓存：空结果（server 首启/工作区切换瞬间）不上缓存位，
-			// 否则 truthy 空数组会让后续 slashZone 永久短路，技能从此消失。
-			if (report.skills.length > 0) {
-				slashSkillsRef.current[activeWorkspace] = report.skills;
 			}
 			setSlashSkills(report.skills);
 		});
@@ -754,14 +755,18 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 			cancelled = true;
 		};
 	}, [slashZone, activeWorkspace]);
+	const activeSlashSkills =
+		slashSkillsWorkspace === activeWorkspace
+			? slashSkills
+			: EMPTY_SLASH_SKILLS;
 
 	// 技能候选按词元关键词过滤（名称包含即可），空词元展示全部。
 	const filteredSkills = useMemo(() => {
 		if (!slashQuery) {
-			return slashSkills;
+			return activeSlashSkills;
 		}
-		return slashSkills.filter(s => s.name.toLowerCase().includes(slashQuery));
-	}, [slashSkills, slashQuery]);
+		return activeSlashSkills.filter(s => s.name.toLowerCase().includes(slashQuery));
+	}, [activeSlashSkills, slashQuery]);
 
 	// 弹层只在光标位于 slash 词元时出现；此前 slashSkills 残留导致删除 / 后关不掉。
 	const slashMenuOpen =
@@ -866,7 +871,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 		let colored = false;
 		for (const part of parts) {
 			if (part && part.startsWith('/') && part.length > 1) {
-				const color = slashLeadingColor(part.slice(1), slashSkills);
+				const color = slashLeadingColor(part.slice(1), activeSlashSkills);
 				if (color) {
 					colored = true;
 					ranges.push({start: off, end: off + part.length});
@@ -876,9 +881,9 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 		}
 		// ghost hint(claim hint 语义):首词元精确命中命令/技能且参数空白时,
 		// 在词元后展示灰字提示(零 DOM 侵入草稿,仅覆盖层显示,不参与提交)。
-		const hint = slashGhostHint(value, slashSkills) ?? '';
+		const hint = slashGhostHint(value, activeSlashSkills) ?? '';
 		return colored || hint ? {ranges, hint} : {ranges: [] as CaretColorRange[], hint: ''};
-	}, [value, slashSkills, imeComposing]);
+	}, [value, activeSlashSkills, imeComposing]);
 
 	// 自绘光标接管条件:非 IME 且文本量在阈值内(超大文本退回原生,保编辑流畅)。
 	// 接管时 textarea 文字隐藏(text-transparent),原生光标 caret-color: transparent。
@@ -1158,6 +1163,8 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 			if (slashExecutingRef.current) return;
 			const sessId = activeId ?? '';
 			const st = useChatStore.getState();
+			const sessionBusyAtSubmit =
+				sessId !== '' && sessionStreamActive(chatUiStoreApi.getState(), sessId);
 			const submittedDraft = value;
 			const submittedAttachments = attachmentsRef.current;
 			const submittedAgentMode = agentModeRef.current;
@@ -1174,6 +1181,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 						backendSessionId:
 							activeBackendSessionId(st.historyById, sessId) || undefined,
 						workspace: activeWorkspace,
+						sessionBusy: sessionBusyAtSubmit,
 						onNewSession: () =>
 							newSession(
 								st.sessions.find(session => session.id === sessId)?.spaceId === SIDE_SPACE_ID
