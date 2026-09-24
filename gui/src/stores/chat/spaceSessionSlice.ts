@@ -88,7 +88,6 @@ import {
 	migrateSideChatSessions,
 	openInFlight,
 	persistCollapsed,
-	selectSeqBox,
 	tombstoneAndDeleteOnServer,
 } from './spaceHelpers';
 import {
@@ -109,6 +108,7 @@ export function createSpaceSessionSlice(
 	set: SetState,
 	get: GetState,
 ): Pick<ChatState, (typeof SLICE_KEYS)[number]> {
+	const sessionLoadTokens = new Map<string, symbol>();
 	return {
 	async hydrate() {
 		// 先把旧侧聊 KV 会话并入 IDB，再做 tombstone 清理与会话装载。
@@ -677,7 +677,6 @@ async selectSession(id) {
 		}
 		void get().loadAgentsFor(id);
 
-		const seq = ++selectSeqBox.value;
 		// 乐观切换：同步先落 activeId（含空间绑定），调用方的路由立刻完成；
 		// 冷会话消息走后台「本地 IDB 先行 → 服务端回填」，绝不阻塞切换。
 		const cold = state.messagesById[id] === undefined;
@@ -689,18 +688,23 @@ async selectSession(id) {
 
 		if (cold) {
 			// detach 的装载管线：本地 IDB（几 ms）先给 UI，网络回填随后替换。
-			// selectSeqBox 失序保护：期间用户又点了别的会话时，丢弃过期写入。
+			// 缓存按会话写入，切走后仍可完成；消息引用校验保护并发新发送。
+			// 同一会话重复启动装载时，仅最新请求能结束 loading 标记。
+			const loadToken = Symbol(id);
+			sessionLoadTokens.set(id, loadToken);
 			void (async () => {
 				let localRef: ChatMessage[] | undefined;
 				try {
 					const local = await loadLocalSessionMessages(id);
-					if (seq !== selectSeqBox.value) {
-						return;
-					}
 					// 仅在本地确有内容时先行写入：空数组不能提前落 —— 否则
 					// createSession 的 empties 复用逻辑会把仍在回填的会话
 					// 误判为「空对话」而复用/删除。本地为空时等服务端回填定夺。
-					if (local.length > 0 && get().messagesById[id] === undefined) {
+					const current = get();
+					if (
+						local.length > 0 &&
+						current.sessions.some(session => session.id === id) &&
+						current.messagesById[id] === undefined
+					) {
 						localRef = local;
 						set(s => ({messagesById: {...s.messagesById, [id]: local}}));
 					}
@@ -713,9 +717,6 @@ async selectSession(id) {
 					const chosen = await loadSessionMessagesWithBackfill(id, {
 						[id]: hist,
 					});
-					if (seq !== selectSeqBox.value) {
-						return;
-					}
 					set(s => {
 						const cur = s.messagesById[id];
 						// 覆盖条件：仍是我们本地先行写入的引用，或仍无人填充
@@ -731,14 +732,17 @@ async selectSession(id) {
 					});
 				} catch {}
 				finally {
-					set(s => {
-						if (!s.messagesLoadingIds[id]) {
-							return s;
-						}
-						const messagesLoadingIds = {...s.messagesLoadingIds};
-						delete messagesLoadingIds[id];
-						return {messagesLoadingIds};
-					});
+					if (sessionLoadTokens.get(id) === loadToken) {
+						sessionLoadTokens.delete(id);
+						set(s => {
+							if (!s.messagesLoadingIds[id]) {
+								return s;
+							}
+							const messagesLoadingIds = {...s.messagesLoadingIds};
+							delete messagesLoadingIds[id];
+							return {messagesLoadingIds};
+						});
+					}
 				}
 			})();
 		}

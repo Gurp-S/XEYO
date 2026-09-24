@@ -8,7 +8,7 @@ import {
 	inboxSnapshot,
 	type InboxSnapshot,
 } from '@/lib/api';
-import {replaceMessages} from '@/lib/db';
+import {deleteMessageForSession, updateMessageText} from '@/lib/db';
 import type {ChatMessage} from '@/lib/types';
 import {
 	activeBackendSessionId,
@@ -129,28 +129,25 @@ export function createInboxSlice(
 			if (!ok) {
 				return false;
 			}
-			let persistedMessages: ChatMessage[] | null = null;
+			const initialInbox = get().inboxBySession[sessionId] ?? [];
+			const item = initialInbox.find(it => it.queue_id === queue_id) ?? originalItem;
+			const messageId = item?.message_id ?? null;
 			set(s => {
 				const prev = s.inboxBySession[sessionId] ?? [];
 				const next = prev.filter(it => it.queue_id !== queue_id);
-				const item = prev.find(it => it.queue_id === queue_id) ?? originalItem;
-				const messageId = item?.message_id;
 				const messages = s.messagesById[sessionId] ?? [];
 				const nextMessages = messageId
 					? messages.filter(message => message.id !== messageId)
 					: messages;
-				if (nextMessages !== messages && nextMessages.length !== messages.length) {
-					persistedMessages = nextMessages;
-				}
 				return {
-				inboxBySession: {...s.inboxBySession, [sessionId]: next},
-					...(persistedMessages
-						? {messagesById: {...s.messagesById, [sessionId]: persistedMessages}}
+					inboxBySession: {...s.inboxBySession, [sessionId]: next},
+					...(nextMessages !== messages && nextMessages.length !== messages.length
+						? {messagesById: {...s.messagesById, [sessionId]: nextMessages}}
 						: {}),
 				};
 			});
-			if (persistedMessages) {
-				void replaceMessages(sessionId, persistedMessages).catch(() => undefined);
+			if (messageId) {
+				void deleteMessageForSession(sessionId, messageId).catch(() => undefined);
 			}
 			return true;
 		},
@@ -171,31 +168,29 @@ export function createInboxSlice(
 			if (!ok) {
 				return false;
 			}
-			let persistedMessages: ChatMessage[] | null = null;
+			const initialInbox = get().inboxBySession[sessionId] ?? [];
+			const item = initialInbox.find(it => it.queue_id === queue_id) ?? originalItem;
+			const messageId = item?.message_id ?? null;
 			set(s => {
 				const prev = s.inboxBySession[sessionId] ?? [];
-				const item = prev.find(it => it.queue_id === queue_id) ?? originalItem;
 				const next = prev.map(it =>
 					it.queue_id === queue_id ? {...it, text} : it,
 				);
 				const messages = s.messagesById[sessionId] ?? [];
-				const nextMessages = item?.message_id
+				const nextMessages = messageId
 					? messages.map(message =>
-							message.id === item.message_id ? {...message, text} : message,
+							message.id === messageId ? {...message, text} : message,
 						)
 					: messages;
-				if (nextMessages !== messages && nextMessages.some((m, i) => m !== messages[i])) {
-					persistedMessages = nextMessages;
-				}
 				return {
 					inboxBySession: {...s.inboxBySession, [sessionId]: next},
-					...(persistedMessages
-						? {messagesById: {...s.messagesById, [sessionId]: persistedMessages}}
+					...(nextMessages !== messages && nextMessages.some((m, i) => m !== messages[i])
+						? {messagesById: {...s.messagesById, [sessionId]: nextMessages}}
 						: {}),
 				};
 			});
-			if (persistedMessages) {
-				void replaceMessages(sessionId, persistedMessages).catch(() => undefined);
+			if (messageId) {
+				void updateMessageText(sessionId, messageId, text).catch(() => undefined);
 			}
 			return true;
 		},

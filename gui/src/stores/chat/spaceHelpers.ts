@@ -64,9 +64,6 @@ const createInFlight = new Map<string, Promise<string>>();
 /** 去重相同规范化路径的并发打开文件夹。 */
 const openInFlight = new Map<string, Promise<string>>();
 
-/** 防止 selectSession 被乱序 loadMessages 完成影响。 */
-export const selectSeqBox = { value: 0 };
-
 /**
  * 把后端磁盘上的用户会话导入本地 IndexedDB，用于本地索引丢失时恢复历史。
  * 仅导入本地没有的 session；幂等，不影响已有数据。已 tombstone 的会话永不导入。

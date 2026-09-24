@@ -558,6 +558,39 @@ export async function patchMessages(
 	await tx.done;
 }
 
+/** 更新单条消息的正文，保留其余运行状态并避免整份转录快照覆盖并发写入。 */
+export async function updateMessageText(
+	sessionId: string,
+	messageId: string,
+	text: string,
+): Promise<void> {
+	const database = await openXEYODb();
+	const tx = database.transaction('messages', 'readwrite');
+	const row = await tx.store.get(messageId);
+	if (row?.sessionId === sessionId) {
+		const {sessionId: storedSessionId, ...message} = row;
+		await tx.store.put({
+			...persistableMessage({...message, text}),
+			sessionId: storedSessionId,
+		});
+	}
+	await tx.done;
+}
+
+/** 删除单条消息；session 检查避免异常 ID 误删其他会话的记录。 */
+export async function deleteMessageForSession(
+	sessionId: string,
+	messageId: string,
+): Promise<void> {
+	const database = await openXEYODb();
+	const tx = database.transaction('messages', 'readwrite');
+	const row = await tx.store.get(messageId);
+	if (row?.sessionId === sessionId) {
+		await tx.store.delete(messageId);
+	}
+	await tx.done;
+}
+
 export async function replaceMessages(
 	sessionId: string,
 	messages: ChatMessage[],
