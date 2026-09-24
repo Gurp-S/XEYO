@@ -109,7 +109,9 @@ def run_setup_wizard(
 		elif not force:
 			ui.err.print(
 				"[bold yellow]No API key yet[/bold yellow] — "
-				"set later: [bold]xeyo config set api_key …[/bold]"
+				"the key is never stored in config.toml; point the config at an "
+				"env var instead: [bold]xeyo config set api_key_env "
+				"XEYO_MODEL_API_KEY[/bold]"
 			)
 
 	model = _ask("Model (optional)", default=(cfg.model or "").strip())

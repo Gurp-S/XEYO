@@ -25,6 +25,34 @@ app.add_typer(config_app, name="config")
 app.add_typer(coord_app, name="coord")
 
 
+def _require_choice(flag: str, value: Optional[str], allowed: tuple[str, ...]) -> None:
+	"""用户手打的枚举参数：合法集合外的值就地退出 2。
+
+	下游（``permissions.policy``）对未知值是**静默归一**（``--agent-mode pna`` →
+	agent），于是脚本作者拿到的是他没要的行为而不是一个错误。这里不新造判据，只把
+	下游已有的允许集合搬到边缘。
+	"""
+	if value is None:
+		return
+	v = value.strip().lower()
+	if v not in allowed:
+		typer.echo(f"{flag} must be one of: {', '.join(allowed)}; got {value!r}", err=True)
+		raise typer.Exit(2)
+
+
+def _require_int_range(flag: str, value: int, *, lo: int, hi: Optional[int] = None) -> None:
+	if value < lo or (hi is not None and value > hi):
+		bound = f">= {lo}" if hi is None else f"in [{lo}, {hi}]"
+		typer.echo(f"{flag} must be {bound}; got {value}", err=True)
+		raise typer.Exit(2)
+
+
+def _require_float_range(flag: str, value: float, *, lo: float) -> None:
+	if value < lo:
+		typer.echo(f"{flag} must be >= {lo}; got {value}", err=True)
+		raise typer.Exit(2)
+
+
 def _run_chat(
 	*,
 	prompt: Optional[list[str]],
@@ -40,6 +68,10 @@ def _run_chat(
 	json_mode: bool,
 	profile: Optional[str],
 ) -> None:
+	_require_choice(
+		"--permission-mode", permission_mode, ("always", "risk", "never", "allow")
+	)
+	_require_choice("--agent-mode", agent_mode, ("agent", "plan", "ask"))
 	from cli.chat_cmd import run_chat
 	from cli.config_store import (
 		load_config,
@@ -102,6 +134,12 @@ def root(
 	),
 ) -> None:
 	"""Bare `xeyo` opens an in-process chat REPL (same as `xeyo chat`)."""
+	# 所有子命令都经过这个 callback：把 stdio 归一成 UTF-8 放在这里，任何命令
+	# （含以后新增的）都不可能再因为在 GBK/cp437 控制台上打印中文或 ✓/… 而抛
+	# UnicodeEncodeError。逐个命令各自调用正是漏调的根源。
+	from cli.cwdutil import ensure_utf8_stdio
+
+	ensure_utf8_stdio()
 	if ctx.invoked_subcommand is not None:
 		return
 	_run_chat(
@@ -181,6 +219,10 @@ def attach_cmd(
 ) -> None:
 	from cli.attach_cmd import attach_repl
 
+	_require_choice(
+		"--permission-mode", permission_mode, ("always", "risk", "never", "allow")
+	)
+	_require_choice("--agent-mode", agent_mode, ("agent", "plan", "ask"))
 	raise typer.Exit(
 		attach_repl(
 			session_id,
@@ -204,6 +246,8 @@ def serve_cmd(
 ) -> None:
 	from cli.serve_cmd import run_serve
 
+	if port is not None:
+		_require_int_range("--port", port, lo=1, hi=65535)
 	run_serve(host=host, port=port, cwd=cwd)
 
 
@@ -220,6 +264,10 @@ def coord_run(
 ) -> None:
 	from cli.coord_cmd import run_coord_run
 
+	# 0=不限（coord 的既有约定），负数是打字错误：--tasks -3 会在跑完 1 张卡后
+	# 自称「reached --tasks -3」，--idle-poll -1 会让 time.sleep 直接抛异常。
+	_require_int_range("--tasks", max_tasks, lo=0)
+	_require_float_range("--idle-poll", idle_poll_sec, lo=0.0)
 	run_coord_run(
 		cwd=cwd, provider=provider, model=model, api_key=api_key,
 		idle_poll_sec=idle_poll_sec, max_tasks=max_tasks, once=once,
@@ -318,6 +366,16 @@ def config_set_cmd(
 		typer.echo(str(exc), err=True)
 		raise typer.Exit(2) from exc
 	setattr(cfg, key, normalized)
+	if key == "api_key":
+		# save_config 永不明文落盘密钥：它只写 api_key_env 引用。收据必须说清
+		# 「你给的那串没有进文件」，否则用户以为配置好了，下一枪才 401。
+		typer.echo(
+			f"wrote {save_config(cfg)}\n"
+			f"note: the key itself is NOT stored in config.toml; it now reads from "
+			f"environment variable '{cfg.api_key_env or 'XEYO_MODEL_API_KEY'}' "
+			f"(set that, or run: xeyo config set api_key_env MY_VAR)"
+		)
+		return
 	typer.echo(f"wrote {save_config(cfg)}")
 
 

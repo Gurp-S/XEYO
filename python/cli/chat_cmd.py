@@ -6,6 +6,8 @@ import asyncio
 import uuid
 from typing import Any, AsyncIterator
 
+from rich.markup import escape
+from rich.markup import escape
 from rich.text import Text
 
 from cli import ui
@@ -268,8 +270,18 @@ async def chat_async(
 		await _run_turn_text(text)
 
 	if prompt is not None and prompt.strip():
-		await _one(prompt.strip())
-		return 0
+		# 一次性 / 脚本路径：退出码就是收据。引擎把一轮判为 error result，或本轮
+		# 直接抛异常，都必须以非 0 退出——否则管道上游看到 0 就当这轮成功了。
+		try:
+			await _one(prompt.strip())
+		except Exception as exc:  # noqa: BLE001 — SystemExit/KeyboardInterrupt 不在内
+			renderer.stop_status()
+			console.print(
+				f"[bold red]✗ turn failed[/bold red]: "
+				f"{type(exc).__name__}: {escape(str(exc))}"
+			)
+			return 1
+		return 1 if renderer.last_turn_errored else 0
 	if print_mode:
 		console.print("[bold red]--print requires a prompt[/bold red]")
 		return 2

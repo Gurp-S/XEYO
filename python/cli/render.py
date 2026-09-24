@@ -43,12 +43,15 @@ class EventRenderer:
 		self._saw_assistant_delta = False
 		self._status = None
 		self._last_usage: UsageEvent | None = None
+		# 本轮是否以 error result 收尾——一次性/--print 路径据此决定退出码。
+		self.last_turn_errored = False
 
 	def reset_turn(self) -> None:
 		self.stop_status()
 		self.newline()
 		self._saw_assistant_delta = False
 		self._last_usage = None
+		self.last_turn_errored = False
 		if not self.json_mode:
 			self._status = console.status(
 				"[dim]thinking…[/dim]", spinner="dots", spinner_style=ui.ACCENT
@@ -64,6 +67,11 @@ class EventRenderer:
 			self._status = None
 
 	def emit(self, ev: Any) -> None:
+		if isinstance(ev, ResultEvent) and getattr(ev, "is_error", False):
+			self.last_turn_errored = True
+		elif isinstance(ev, dict) and ev.get("type") == "result" and ev.get("is_error"):
+			# 有些链路（attach/回放）递的是 dict 而非 dataclass：退出码不能因此漏判。
+			self.last_turn_errored = True
 		if self.json_mode:
 			sys.stdout.write(json.dumps(event_to_dict(ev), ensure_ascii=False) + "\n")
 			sys.stdout.flush()
