@@ -630,16 +630,31 @@ class SessionPool:
 			if callable(sid_setter):
 				sid_setter(session_id)
 
-	def _reclaim_stale(self, now: float) -> None:
-		"""调用方必须已持有 _lock。有活跃 multi-agent batch 的 session 绝不回收。"""
+	def _reclaim_stale(self, now: float) -> list[tuple[str, str | None]]:
+		"""调用方必须已持有 _lock。有活跃 multi-agent batch 的 session 绝不回收。
+
+		返回被回收的 ``(session_id, cwd)``：**调用方必须在放锁之后**把它们的存在
+		状态落成 idle。presence 的 ``busy`` 没有 TTL（只有 ``owned_files`` 有），
+		而清 busy 顺带清 ``git_op`` / ``current_tool`` —— 不清就是让一个已死的会话
+		继续以"对端正在跑 git rebase"的名义去拦别的会话
+		（``permissions/policy.py`` 的 ``peer_git_conflict``）。
+		"""
 		stale = [
 			sid
 			for sid, lease in self._busy.items()
 			if now - lease.started_at >= self._busy_stale_sec
 			and sid not in self._batch_aborts
 		]
+		reclaimed: list[tuple[str, str | None]] = []
 		for sid in stale:
 			del self._busy[sid]
+			reclaimed.append((sid, self._session_cwd.get(sid) or self._ui_cwd))
+		return reclaimed
+
+	def _emit_idle(self, reclaimed: list[tuple[str, str | None]]) -> None:
+		"""放锁之后调用：把回收掉的会话逐个落成 presence idle。"""
+		for sid, cwd in reclaimed:
+			self._presence_busy(sid, cwd, busy=False)
 
 	def try_begin(self, session_id: str) -> int | None:
 		"""标记 session 为 busy。返回 lease id，若仍 busy 则返回 None。
@@ -649,19 +664,25 @@ class SessionPool:
 		"""
 		now = time.monotonic()
 		cwd_for_presence: str | None = None
+		lease_id = 0
 		with self._lock:
-			self._reclaim_stale(now)
-			if session_id in self._busy:
-				return None
-			if session_id in self._batch_aborts:
-				return None
-			self._lease_seq += 1
-			lease_id = self._lease_seq
-			self._busy[session_id] = _BusyLease(lease_id, now)
-			cwd_for_presence = self._session_cwd.get(session_id) or self._ui_cwd
-			resync_due = session_id in self._pending_resync
+			reclaimed = self._reclaim_stale(now)
+			blocked = session_id in self._busy or session_id in self._batch_aborts
+			if not blocked:
+				self._lease_seq += 1
+				lease_id = self._lease_seq
+				self._busy[session_id] = _BusyLease(lease_id, now)
+				cwd_for_presence = self._session_cwd.get(session_id) or self._ui_cwd
+			resync_due = (not blocked) and session_id in self._pending_resync
 			if resync_due:
 				self._pending_resync.discard(session_id)
+		# 放锁之后再动 presence（它有自己的锁）。回收掉的会话必须落 idle；被回收的
+		# 恰好又是本次要起的这个会话时跳过，否则会把自己的 busy 抹掉。
+		for sid, cwd in reclaimed:
+			if sid != session_id:
+				self._presence_busy(sid, cwd, busy=False)
+		if blocked:
+			return None
 		self._presence_busy(session_id, cwd_for_presence, busy=True)
 		if resync_due:
 			# 回溯提交曾撞上 busy：在新 turn 开始前把内存历史对齐磁盘。
@@ -709,14 +730,19 @@ class SessionPool:
 	def is_busy(self, session_id: str) -> bool:
 		now = time.monotonic()
 		with self._lock:
-			self._reclaim_stale(now)
-			return session_id in self._busy
+			reclaimed = self._reclaim_stale(now)
+			busy_now = session_id in self._busy
+		# 读操作也是恢复点：回收掉的租约必须在这里落 idle，否则 presence 永远说它还在跑。
+		self._emit_idle(reclaimed)
+		return busy_now
 
 	def force_idle(self, session_id: str) -> None:
 		"""Interrupt engine and release a stale busy lease (rewind / stop recovery)."""
+		target_cwd: str | None = None
 		with self._lock:
-			self._reclaim_stale(time.monotonic())
+			reclaimed = self._reclaim_stale(time.monotonic())
 			item = self._engines.get(session_id)
+			target_cwd = self._session_cwd.get(session_id) or self._ui_cwd
 			if item is not None:
 				try:
 					item[1].interrupt()
@@ -727,6 +753,10 @@ class SessionPool:
 			self._busy.pop(session_id, None)
 			self._pending_interrupt.discard(session_id)
 			self._abort_batch_locked(session_id)
+		self._emit_idle(reclaimed)
+		# 本会话自己也要落 idle：presence 的 busy 没有 TTL，只 pop 池子的话
+		# 别的会话会一直看到这个已停的会话"在跑 git / 在跑某工具"。
+		self._presence_busy(session_id, target_cwd, busy=False)
 
 	def interrupt(self, session_id: str) -> bool:
 		"""请求取消。
