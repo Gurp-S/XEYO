@@ -13,10 +13,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 from pydantic import BaseModel, Field
 
 from server.local_gate import require_loopback
+from server.routers.extensions import require_workspace_arg
 
 router = APIRouter(tags=["local-models"])
 
@@ -95,7 +96,7 @@ def get_local_models(
 ) -> dict[str, Any]:
 	"""本地模型全景快照（设置 + 运行态 + 可用模型 + 二进制探测）。"""
 	require_loopback(request)
-	return _snapshot(workspace)
+	return _snapshot(require_workspace_arg(workspace))
 
 
 @router.post("/v1/local-models")
@@ -110,13 +111,16 @@ def post_local_models(body: LocalModelSettingsBody, request: Request) -> dict[st
 
 	from localmodels import config
 
+	# 写盘目标就是这里的 workspace：相对值会按服务端进程 cwd 解析，等于让调用者
+	# 把 settings.json（连同 local-model 的 base_url 白名单键）写到任选目录。
+	ws = require_workspace_arg(body.workspace)
 	try:
-		config.save(body.settings, body.workspace or None)
+		config.save(body.settings, ws or None)
 	except ValueError as exc:
 		raise HTTPException(status_code=400, detail=str(exc)) from exc
 	except Exception as exc:  # noqa: BLE001 — 写盘失败（权限/磁盘）
 		return {"ok": False, "error": f"设置写入失败: {exc}"}
-	return _snapshot(body.workspace)
+	return _snapshot(ws)
 
 
 @router.post("/v1/local-models/start")
@@ -125,8 +129,11 @@ def start_local_model(body: LocalModelActionBody, request: Request) -> dict[str,
 	require_loopback(request)
 	from localmodels.manager import default_manager
 
+	# 先校验再动手：回读视图在工作时才校验，等于让调用者拿一个非法 workspace
+	# 也能把 llama-server 拉起来，只是最后收不到状态。
+	ws = require_workspace_arg(body.workspace)
 	res = default_manager().start(body.model)
-	return {**res, **(_snapshot(body.workspace) if res.get("ok") else {})}
+	return {**res, **(_snapshot(ws) if res.get("ok") else {})}
 
 
 @router.post("/v1/local-models/stop")
@@ -145,13 +152,21 @@ def switch_local_model(body: LocalModelActionBody, request: Request) -> dict[str
 	require_loopback(request)
 	from localmodels.manager import default_manager
 
+	ws = require_workspace_arg(body.workspace)
 	res = default_manager().switch_to(body.model or "")
-	return {**res, **(_snapshot(body.workspace) if res.get("ok") else {})}
+	return {**res, **(_snapshot(ws) if res.get("ok") else {})}
 
 
 @router.get("/v1/local-models/log")
-def get_local_model_log(request: Request, lines: int = 40) -> dict[str, Any]:
-	"""llama-server 日志末若干行（加载失败时的唯一现场）。"""
+def get_local_model_log(
+	request: Request,
+	lines: int = Query(default=40, ge=1, le=500),
+) -> dict[str, Any]:
+	"""llama-server 日志末若干行（加载失败时的唯一现场）。
+
+	``lines`` 必须有上界：``tail_log`` 的实现是整文件读进来再切片，端点契约却是
+	"末 N 行"，不设界就等于让调用方把整份日志搬进一次响应。
+	"""
 	require_loopback(request)
 	from localmodels import config
 	from localmodels.manager import default_manager

@@ -65,10 +65,34 @@ def require_entry_name(raw: Any, *, field: str) -> str:
     键会进 settings.json、活页块句柄（``skill:<name>``）以及磁盘文件名，
     ``victim.`` / ``vi:ctim`` / 空白 / 300 字符都会与别的键撞在同一份状态上——
     一律 422，不静默清洗。
+
+    注意适用边界：这条判据的前提是**名字会被清洗成文件名**。MCP server id 不走
+    这条路（它只做 JSON 字典键与活页块句柄 ``mcp:<id>``），对它套 fixed-point
+    会把 ``weird name`` / ``a.b`` 这类合法声明一并挡掉；那种输入真正要防的是下面
+    那条：文字注入。
     """
     from server.routers.sessions import _require_stable_id
 
     return _require_stable_id(raw, field=field, filename_bearing=True)
+
+
+def require_visible_ident(raw: Any, *, field: str) -> str:
+    """要出现在**模型可见文本**里的标识符：挡掉换行与控制字符、以及反引号。
+
+    ``extension.config.set_mcp_enabled`` 把调用方给的 server id 原样插进
+    ``MCP 服务 \`{id}\``` 并作为 T_now 活页块发布 —— 带换行的 id 就能在模型注意力里
+    凭空造出一行（甚至一个 ``#`` 头），那是引擎铁律「注意力里只出现信息，不出现
+    导演」的反面，且入口是 HTTP 参数。这里只挡结构性字符：合法 id 里少见
+    的空格/点号照常放行，不做清洗。
+    """
+    value = str(raw if raw is not None else "").strip()
+    if not value:
+        raise api_error(422, f"{field} is required", "invalid_request")
+    if _CONTROL_RE.search(value):
+        raise api_error(422, f"{field} contains control characters", "invalid_request")
+    if "`" in value:
+        raise api_error(422, f"{field} must not contain a backtick", "invalid_request")
+    return value
 
 
 class _EntryToggle(BaseModel):

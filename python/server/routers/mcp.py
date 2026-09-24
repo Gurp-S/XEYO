@@ -18,6 +18,10 @@ from fastapi import APIRouter, Header, Query, Request
 from pydantic import BaseModel, Field
 
 from server.local_gate import require_loopback
+from server.routers.extensions import (
+    require_visible_ident,
+    require_workspace_arg,
+)
 
 router = APIRouter(tags=["mcp"])
 
@@ -36,7 +40,10 @@ class McpOpBody(BaseModel):
 def _ws_of(request: Request, workspace: str | None) -> str | None:
     from server.deps import CWD
 
-    return (workspace or "").strip() or (CWD or "") or None
+    # 空白照旧回退到已登记 cwd；相对值（`..` / `a/b`）一律 422 —— 它们会按服务端
+    # 进程 cwd 解析，而这条路径既读 settings/mcp 声明，也写 mcp-trust.json。
+    ws = require_workspace_arg(workspace)
+    return ws or (CWD or "") or None
 
 
 def _write_trust_entry(ws: str | None, spec: dict[str, Any]) -> None:
@@ -45,13 +52,21 @@ def _write_trust_entry(ws: str | None, spec: dict[str, Any]) -> None:
 
     path = trust_path(ws)
     trust: dict[str, Any] = {}
-    try:
-        if path.is_file():
+    if path.is_file():
+        # 读不出/解不动/不是对象都**必须停下来**，不能当成"本来就没批准过"。
+        # 下面整份重写：把失败吞成 trust={} 会连带抹掉此前所有 server 的信任记录，
+        # 于是"临时读不到"变成一次静默的授权清空。
+        try:
             raw = json.loads(path.read_text(encoding="utf-8"))
-            if isinstance(raw, dict):
-                trust = raw
-    except (OSError, json.JSONDecodeError):
-        trust = {}
+        except (OSError, ValueError) as exc:
+            raise RuntimeError(
+                f"mcp-trust.json 读不出，已停止批准（避免覆盖既有信任记录）: {type(exc).__name__}"
+            ) from exc
+        if not isinstance(raw, dict):
+            raise RuntimeError(
+                "mcp-trust.json 顶层不是对象，已停止批准（避免覆盖既有信任记录）"
+            )
+        trust = raw
     trust[declaration_hash(spec)] = {"approved": True}
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f"{path.name}.tmp")
@@ -145,10 +160,11 @@ def post_mcp_op(
     _ = authorization
     require_loopback(request)
     ws = _ws_of(request, body.workspace)
-    sid = (body.server or "").strip()
+    # server 会被插进模型可见的活页块文本（见 require_visible_ident），先挡结构字符；
+    # raw_tool 只写进 mcp.json 的 enabled_tools 名单，既不落文件名也不进注意力文本，
+    # 因此刻意不套同一判据——合法工具名可以带点号，挡了只是让面板失灵。
+    sid = require_visible_ident(body.server, field="server")
     op = (body.op or "").strip().lower()
-    if not sid:
-        return {"ok": False, "message": "server is required"}
     if op not in ("approve", "enable", "disable", "reload", "tool"):
         return {"ok": False, "message": "op must be one of: approve / enable / disable / reload / tool"}
     try:
