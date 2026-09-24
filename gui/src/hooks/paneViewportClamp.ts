@@ -14,6 +14,7 @@
 import {useChatStore} from '@/stores/chatStore';
 import {
 	PANE_WIDTH_MIN,
+	isSmoothnessOn,
 	useSettingsStore,
 } from '@/stores/settingsStore';
 import {useWorkspaceStore} from '@/stores/workspaceStore';
@@ -83,13 +84,18 @@ export function usePaneViewportClamp(): PaneClamp {
 	const vp = useViewport();
 	const sidebarWidth = useSettingsStore(s => s.sidebarWidth);
 	const explorerWidth = useSettingsStore(s => s.explorerWidth);
+	const smoothness = useSettingsStore(s => isSmoothnessOn(s.smoothness));
 	const sidebarOpen = useChatStore(s => s.sidebarOpen);
 	const paneLayout = useSettingsStore(s => s.paneLayout);
 	// 工作区开合在独立 workspaceStore（TitleBar 开关同一来源）。
+	const workspaceOpen = useWorkspaceStore(s => s.open);
 	const workspaceVisible = useWorkspaceStore(s => s.open && !s.navHidden);
+	// islands 的 row gap 作用于实际 flex 子项，宽度为 0 的过渡槽也占一道 gap。
+	// 平滑模式始终保留左右槽；关闭平滑模式时槽随面板卸载，只计仍打开的槽。
 	const layoutGap =
 		paneLayout === 'islands'
-			? 8 * (Number(sidebarOpen) + Number(workspaceVisible))
+			? 8 *
+					(Number(smoothness || sidebarOpen) + Number(smoothness || workspaceOpen))
 			: 0;
 	return computePaneViewportClamp(
 		vp.width,
