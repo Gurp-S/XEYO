@@ -539,12 +539,13 @@ footer.legal{padding:0 26px 30px;font-size:11.5px;color:var(--mute)}
             </table>
             <div class="tot">
               <div class="kpi"><b class="num">3</b><span>已结束尝试</span></div>
-              <div class="kpi"><b class="num">2</b><span>有用量账</span></div>
-              <div class="kpi unk"><b class="num">1</b><span>费用未知</span></div>
-              <div class="kpi"><b class="num">¥0.0159</b><span>估算合计</span></div>
+              <div class="kpi"><b class="num">1</b><span>有价</span></div>
+              <div class="kpi unk"><b class="num">1</b><span>无用量账</span></div>
+              <div class="kpi unk"><b class="num">1</b><span>有账无价</span></div>
+              <div class="kpi"><b class="num">¥0.0104</b><span>估算合计（仅 1 次）</span></div>
               <div class="kpi"><b class="num">0.99</b><span>前缀命中率</span></div>
             </div>
-            <div class="note">2 次尝试在用量账本里没有对应记录时按「未知」呈现：账本在 usage 缺失时整行不写，所以「没有行」既可能是没计费也可能是没落账。</div>
+            <div class="note">三种「没有钱」要分开说：账本里没有这一枪的行（无用量账）、有行但行内没有可用价格（有账无价）、以及账本本身按尾窗读取没覆盖到更早的行。三者都计为费用未知，一律不进合计、不写成 0；合计旁必须注明它只依据几次尝试。</div>
           </div>
         </div>
       </section>

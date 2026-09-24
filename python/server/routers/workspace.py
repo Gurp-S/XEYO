@@ -34,6 +34,27 @@ class BashPolicyBody(BaseModel):
 	bash_routing: str | None = None
 
 
+def checked_path(value: Any, *, field: str = "path") -> str:
+	"""路径类请求参数的结构门：**只拒绝**，不清洗、不裁剪。
+
+	绝对路径 / ``..`` / ``vic/tim`` / UNC 这些形态由
+	``server.workspace_fs.resolve_in_workspace`` 的 realpath 包含检查裁决（403
+	「path outside workspace」），本函数不重复那一层。这里只兜住它兜不住的一类：
+	NUL 与其余控制字符会走到 ``Path.resolve()`` 里抛 ``ValueError``，一路冒到
+	HTTP 层表现为 **500**（server_error），既不体面也不可判别。请求参数在边缘
+	就该将这种结构上不可能落在工作区内的写法收敛成 422。
+	"""
+	text = "" if value is None else str(value)
+	bad = next((ch for ch in text if ord(ch) < 0x20 or ord(ch) == 0x7F), None)
+	if bad is not None:
+		raise api_error(
+			422,
+			f"{field} contains control character U+{ord(bad):04X}",
+			"invalid_request",
+		)
+	return text
+
+
 @router.get("/v1/workspace/policy-bash")
 def get_policy_bash() -> dict[str, Any]:
 	"""43 号：读 bash 路由/渐进强制策略 + 推荐/上限（供 UI 设置展示）。"""
@@ -107,6 +128,7 @@ def set_workspace(body: WorkspaceRequest) -> dict[str, Any]:
 def workspace_entries(path: str = Query(default="")) -> dict[str, Any]:
 	from server.workspace_fs import list_entries
 
+	checked_path(path)
 	try:
 		return list_entries(_pool.cwd, path)
 	except FileNotFoundError as e:
@@ -121,6 +143,7 @@ def workspace_entries(path: str = Query(default="")) -> dict[str, Any]:
 def workspace_file(path: str = Query(default="")) -> dict[str, Any]:
 	from server.workspace_fs import read_file
 
+	checked_path(path)
 	if not (path or "").strip():
 		raise api_error(400, "path is empty")
 	try:
@@ -138,6 +161,7 @@ def workspace_file_stat(path: str = Query(default="")) -> dict[str, Any]:
 	"""轻量 stat：不读正文，供文件预览 Agent 忙碌期轮询。"""
 	from server.workspace_fs import stat_file
 
+	checked_path(path)
 	if not (path or "").strip():
 		raise api_error(400, "path is empty")
 	try:
@@ -154,6 +178,7 @@ def workspace_file_stat(path: str = Query(default="")) -> dict[str, Any]:
 def workspace_write(body: WorkspaceWriteBody) -> dict[str, Any]:
 	from server.workspace_fs import write_file
 
+	checked_path(body.path)
 	if not (body.path or "").strip():
 		raise api_error(400, "path is empty")
 	try:
@@ -175,6 +200,7 @@ def workspace_delete_file(
 ) -> dict[str, Any]:
 	from server.workspace_fs import delete_path
 
+	checked_path(path)
 	if not (path or "").strip():
 		raise api_error(400, "path is empty")
 	try:
@@ -209,6 +235,7 @@ def workspace_outline(path: str = Query(default="")) -> dict[str, Any]:
 	from codeindex.symbols import outline
 	from server.workspace_fs import resolve_in_workspace
 
+	checked_path(path)
 	raw = (path or "").strip()
 	if not raw:
 		raise api_error(400, "path is empty")
@@ -260,6 +287,7 @@ def workspace_map_explain(body: MapExplainBody) -> dict[str, Any]:
 	kind = (body.kind or "file").strip().lower()
 	if not node_id:
 		raise api_error(400, "id is empty")
+	checked_path(body.id, field="id")
 
 	graph = build_workspace_graph(_pool.cwd)
 	lines: list[str] = []
@@ -427,6 +455,7 @@ def workspace_git_branches() -> dict[str, Any]:
 def workspace_file_diff(path: str = Query(default="")) -> dict[str, Any]:
 	from server.workspace_git import GitBinaryMissing, GitError, read_file_diff
 
+	checked_path(path)
 	if not (path or "").strip():
 		raise api_error(400, "path is empty")
 	try:

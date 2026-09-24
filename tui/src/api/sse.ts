@@ -107,6 +107,8 @@ export async function streamChat(
         if (xy) handlers.onXy(xy);
       }
     }
+    // 冲刷解码器：一个多字节字符（中文）正好被切在流末尾时，不 flush 就少一个字。
+    carry += decoder.decode();
     if (carry.trim()) {
       const obj = parseDataLine(carry);
       if (obj) {
@@ -275,16 +277,23 @@ function fnum(v: unknown): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
-/** usage 事件 → 结构化用量（字段名对齐 GUI core.ts 的 parseSseBlock）。 */
+/** usage 事件 → 结构化用量（字段名对齐 GUI core.ts 的 parseSseBlock）。
+ *  缺字段留 undefined：把「没有这项账」渲染成 0 会让终端头部谎报消耗。 */
 function usageFrom(xy: Record<string, unknown>): UsageInfo {
   return {
-    promptTokens: fnum(xy.prompt_tokens) ?? 0,
-    completionTokens: fnum(xy.completion_tokens) ?? 0,
+    promptTokens: fnum(xy.prompt_tokens),
+    completionTokens: fnum(xy.completion_tokens),
     cacheHitTokens: fnum(xy.cache_hit_tokens),
     cacheMissTokens: fnum(xy.cache_miss_tokens),
     cny: fnum(xy.cny),
     contextLimit: fnum(xy.context_limit),
   };
+}
+
+/** 服务端在 tool_call / tool_result 两边都带 tool_use_id；旧流可能没有。 */
+function toolUseIdOf(xy: Record<string, unknown>): string {
+  const raw = xy.tool_use_id ?? xy.toolUseId;
+  return typeof raw === "string" ? raw : "";
 }
 
 /** 归一化 TodoWrite todos 数组为 `{content,status}[]`（对齐 GUI normalizeTodoRows 的宽松解析）。 */
@@ -337,6 +346,25 @@ function mapLastTool(
   return items;
 }
 
+/** 该收这条事件/结果的卡片：先按 tool_use_id 认；没有身份时才退回「最早一条
+ *  同名且仍在跑」的先进先出猜测——同轮并行同名工具（一次批量读三个文件）按
+ *  最后一条匹配会把结果贴到别的卡片上。 */
+function findToolIndex(items: TimelineItem[], wantId: string, name: string): number {
+  if (wantId) {
+    for (let i = items.length - 1; i >= 0; i--) {
+      const it = items[i];
+      if (it && it.kind === "tool" && it.toolUseId === wantId) return i;
+    }
+  }
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i];
+    if (it && it.kind === "tool" && it.name === name && it.status === "running") {
+      return i;
+    }
+  }
+  return -1;
+}
+
 /** 将 xy 事件映射为时间线补丁。 */
 export function applyXy(
   items: TimelineItem[],
@@ -367,10 +395,12 @@ export function applyXy(
       typeof xy.message === "string" && xy.message.trim()
         ? xy.message.trim()
         : "";
-    if (!name) return items;
-    return mapLastTool(items, (it) => it.name === name, (it) =>
-      it.status === "running" && message ? { ...it, progress: message } : it,
-    );
+    if (!name || !message) return items;
+    const idx = findToolIndex(items, toolUseIdOf(xy), name);
+    if (idx < 0) return items;
+    const withProgress = [...items];
+    withProgress[idx] = { ...(withProgress[idx] as ToolItem), progress: message };
+    return withProgress;
   }
 
   // ---- 独立 todos / todo 事件（防御；权威路径为 tool_result.todos）----
@@ -385,6 +415,7 @@ export function applyXy(
 
   if (kind === "tool_call") {
     const name = String(xy.name ?? xy.tool_name ?? "tool");
+    const callId = toolUseIdOf(xy);
     const inp = (xy.input ?? xy.tool_input ?? {}) as Record<string, unknown>;
     let summary = "";
     for (const key of ["path", "file_path", "command", "pattern", "query", "url"]) {
@@ -402,6 +433,7 @@ export function applyXy(
         name,
         summary,
         status: "running",
+        ...(callId ? { toolUseId: callId } : {}),
       },
     ];
   }
@@ -410,33 +442,19 @@ export function applyXy(
     const out = String(xy.output ?? "");
     const isError = Boolean(xy.is_error);
     const todos = normalizeTodos(xy.todos);
-    const copy = [...items];
-    for (let i = copy.length - 1; i >= 0; i--) {
-      const it = copy[i];
-      if (it && it.kind === "tool" && it.name === name && it.status === "running") {
-        copy[i] = {
-          ...it,
-          status: isError ? "error" : "completed",
-          result: out,
-          isError,
-          ...(todos.length > 0 ? { todos } : {}),
-        };
-        return copy;
-      }
+    const settled = {
+      status: isError ? ("error" as const) : ("completed" as const),
+      result: out,
+      isError,
+      ...(todos.length > 0 ? { todos } : {}),
+    };
+    const idx = findToolIndex(items, toolUseIdOf(xy), name);
+    if (idx >= 0) {
+      const copy = [...items];
+      copy[idx] = { ...(copy[idx] as ToolItem), ...settled };
+      return copy;
     }
-    return [
-      ...copy,
-      {
-        id: nextId(),
-        kind: "tool",
-        name,
-        summary: "",
-        status: isError ? "error" : "completed",
-        result: out,
-        isError,
-        ...(todos.length > 0 ? { todos } : {}),
-      },
-    ];
+    return [...items, { id: nextId(), kind: "tool", name, summary: "", ...settled }];
   }
   if (kind === "stopped") {
     return [...items, { id: nextId(), kind: "system", text: "■ stopped" }];

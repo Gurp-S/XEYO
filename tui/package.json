@@ -12,6 +12,7 @@
     "start": "tsx src/index.tsx",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --import tsx --test \"src/**/*.test.ts\"",
     "demo": "tsx src/index.tsx --demo",
     "json": "tsx src/index.tsx --json"
   },

@@ -8,10 +8,11 @@ export type TodoRow = {
   status: TodoStatus;
 };
 
-/** usage 事件：本轮模型 token 用量（字段以 GUI core.ts 为准）。 */
+/** usage 事件：本轮模型 token 用量（字段以 GUI core.ts 为准）。
+ *  缺字段就是「没有这项账」，不得当成 0：终端头部会把 0 读成一次真消耗。 */
 export type UsageInfo = {
-  promptTokens: number;
-  completionTokens: number;
+  promptTokens?: number;
+  completionTokens?: number;
   cacheHitTokens?: number;
   cacheMissTokens?: number;
   cny?: number;
@@ -35,6 +36,8 @@ export type TimelineItem =
       name: string;
       summary: string;
       status: ToolStatus;
+      /** 服务端签发的 tool_use 身份：同轮并行同名工具只能靠它配对结果。 */
+      toolUseId?: string;
       result?: string;
       isError?: boolean;
       /** tool_progress 的实时进度文案。 */

@@ -17,9 +17,27 @@ from typing import Any
 
 from fastapi import APIRouter, Header, Query, Request
 
+from server.deps import api_error
 from server.local_gate import require_loopback
 
 router = APIRouter(tags=["references"])
+
+
+def _checked_workspace(value: str) -> str:
+    """工作区根目录**允许**是任意绝对路径（桌面 app 的 space 由用户自己选，
+    与 ``POST /v1/workspace`` 同一口径），本函数不裁决位置。
+
+    要裁决的是两类「看起来合法、但落点不是客户端要的那个」的写法：
+    - 空 / 纯空白：``os.path.realpath(" ")`` 归一成**服务端进程当前目录**，
+      于是「列 A 空间」静默变成「列 CWD」——这是静默清洗，必须 422；
+    - 含控制字符：``os.path.isdir`` 一类会以「目录不存在」的形式把它吞掉。
+    """
+    text = "" if value is None else str(value)
+    if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in text):
+        raise api_error(422, "workspace 含控制字符", "invalid_request")
+    if not text.strip():
+        raise api_error(422, "workspace 不能为空", "invalid_request")
+    return text.strip()
 
 # 命中即整棵剪枝的重目录名（不进递归）。
 SKIP_DIRS = frozenset(
@@ -81,8 +99,9 @@ def list_file_references(
     """返回工作区内匹配 ``q`` 的文件相对路径（``/`` 分隔），供 @ 引用弹层。"""
     _ = authorization  # 门禁放行本机；保留 Bearer 语义位，与 /v1/skills 一致。
     require_loopback(request)
+    root_arg = _checked_workspace(workspace)
 
-    root = os.path.realpath(workspace)
+    root = os.path.realpath(root_arg)
     if not os.path.isdir(root):
         return {"ok": False, "files": [], "message": "workspace 不存在"}
 
