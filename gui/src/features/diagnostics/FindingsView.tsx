@@ -125,13 +125,37 @@ export function FindingsView({detail}: {detail: DiagRunDetail}) {
 								约束：{SHOWN_LABEL[detail.fault.shown_to_model] || detail.fault.shown_to_model || DASH}
 							</Badge>
 						</div>
+						{detail.fault.causes.length ? (
+							<ul className="xy-dig-causes">
+								{detail.fault.causes.map(c => (
+									<li key={`${c.code}-${c.detail_kind ?? ''}`}>
+										<Badge tone={PARTY_TONE[c.party] ?? 'unknown'}>
+											{PARTY_LABEL[c.party] ?? c.party}
+										</Badge>
+										<span className="xy-dig-cause-label">
+											{c.label}
+											{c.detail_kind ? <span className="mono"> · {c.detail_kind}</span> : null}
+										</span>
+										<span className="xy-dig-cause-mono mono">{c.code}</span>
+										<span className="xy-dig-cause-limits">
+											能证明：{c.proves}；不能证明：{c.does_not_prove}
+										</span>
+									</li>
+								))}
+							</ul>
+						) : null}
 						<p className="xy-dig-fault-why">{detail.fault.why}</p>
 						{detail.fault.obligation.excerpt ? (
 							<KeyValue
 								rows={[
 									{
 										k: '约束来源',
-										v: detail.fault.obligation.source === 'pin' ? '用户固定的预期' : '最后一条用户消息',
+										v:
+											detail.fault.obligation.source === 'pin'
+												? '事后固定的预期（不能据此判上下文丢了它）'
+												: detail.fault.obligation.source === 'turn_user_message'
+													? '本轮用户原话（当场在场）'
+													: (detail.fault.obligation.source || DASH),
 									},
 									{k: '约束内容', v: detail.fault.obligation.excerpt},
 									{k: '送达判据', v: detail.fault.shown_to_model_note},

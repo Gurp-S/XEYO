@@ -135,6 +135,8 @@ def test_list_runs_groups_by_turn_and_exposes_coverage(write_audit) -> None:
 	runs = list_runs("s1", audit_path=path)
 	assert [r["turn_id"] for r in runs] == ["t2", "t1"]
 	assert runs[0]["boundaries"] == ["tool_permission"]
+	assert runs[0]["tool_use_ids"] == ["c2"], "按工具调用反查轮次要靠这个字段"
+	assert runs[1]["tool_use_ids"] == []
 	assert runs[1]["boundaries"] == ["model_request"]
 
 

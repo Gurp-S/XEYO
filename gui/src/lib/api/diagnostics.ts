@@ -86,6 +86,8 @@ export type DiagRunListItem = {
 	boundaries: string[];
 	model_request_count: number;
 	tool_call_count: number;
+	/** 本轮出现过的 tool_use.id；失败步骤「查看诊断」靠它反查轮次。 */
+	tool_use_ids: string[];
 	audit_lines: [number, number];
 	coverage_note: string;
 };
@@ -344,14 +346,29 @@ export type DiagFaultStep = {
 	evidence: DiagEvidenceRef[];
 };
 
+/** 一条失败原因：与归属分开——原因可以不属于任何一方。 */
+export type DiagCause = {
+	code: string;
+	label: string;
+	party: string;
+	proves: string;
+	does_not_prove: string;
+	detail_kind?: string;
+	evidence: DiagEvidenceRef[];
+};
+
 /** 责任划分：后端判据不对称——判"模型的错"必须有约束送达证据。 */
 export type DiagFault = {
 	responsibility: string;
 	responsibility_label: string;
 	why: string;
+	primary_cause: string;
+	primary_cause_label: string;
+	cause_statement: string;
+	causes: DiagCause[];
 	task_outcome: string;
 	task_outcome_label: string;
-	obligation: {text: string; source: string; locator: string; ref_id: string; excerpt: string};
+	obligation: {source: string; locator: string; ref_id: string; excerpt: string};
 	shown_to_model: string;
 	shown_to_model_note: string;
 	engine_confirmed: number;
@@ -566,10 +583,24 @@ function parseFault(v: unknown): DiagFault | null {
 		responsibility: s(o.responsibility),
 		responsibility_label: s(o.responsibility_label),
 		why: s(o.why),
+		primary_cause: s(o.primary_cause),
+		primary_cause_label: s(o.primary_cause_label),
+		cause_statement: s(o.cause_statement),
+		causes: arr(o.causes).map(c => {
+			const c1 = rec(c);
+			return {
+				code: s(c1.code),
+				label: s(c1.label),
+				party: s(c1.party),
+				proves: s(c1.proves),
+				does_not_prove: s(c1.does_not_prove),
+				detail_kind: c1.detail_kind ? s(c1.detail_kind) : undefined,
+				evidence: arr(c1.evidence).map(parseEvidence),
+			};
+		}),
 		task_outcome: s(o.task_outcome),
 		task_outcome_label: s(o.task_outcome_label),
 		obligation: {
-			text: s(ob.text),
 			source: s(ob.source),
 			locator: s(ob.locator),
 			ref_id: s(ob.ref_id),
@@ -734,6 +765,7 @@ export function parseRunsResult(raw: unknown): DiagRunsResult {
 				boundaries: arr(r.boundaries).map(s),
 				model_request_count: n(r.model_request_count) ?? 0,
 				tool_call_count: n(r.tool_call_count) ?? 0,
+				tool_use_ids: arr(r.tool_use_ids).map(s),
 				audit_lines: [lines[0] ?? 0, lines[1] ?? 0],
 				coverage_note: s(r.coverage_note),
 			};

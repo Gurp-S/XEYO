@@ -1166,6 +1166,69 @@
   font-size: 11.5px;
 }
 
+.xy-dig-causes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.xy-dig-causes > li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 2px 9px;
+  padding: 8px 0;
+  border-top: 1px solid var(--color-rule-weak, var(--color-line));
+}
+
+.xy-dig-causes > li:first-child {
+  border-top: 0;
+}
+
+.xy-dig-cause-label {
+  font-size: 12.5px;
+  color: var(--color-ink);
+}
+
+.xy-dig-cause-mono {
+  font-size: 11px;
+  color: var(--color-mute);
+}
+
+.xy-dig-cause-limits {
+  grid-column: 1 / -1;
+  font-size: 11.5px;
+  color: var(--color-mute);
+  overflow-wrap: anywhere;
+}
+
+/* 失败步骤上的「查看诊断」入口（ActivityLog 的行右侧，非动画面板，不上 blur） */
+.xy-dig-step-link {
+  appearance: none;
+  border: 1px solid var(--color-rule, var(--color-line));
+  background: transparent;
+  color: var(--color-mute);
+  border-radius: 999px;
+  padding: 1px 8px;
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.7;
+  cursor: pointer;
+  transition: color var(--duration-fast) var(--ease-out-soft),
+    border-color var(--duration-fast) var(--ease-out-soft);
+}
+
+.xy-dig-step-link:hover {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.xy-dig-step-link:focus-visible {
+  outline: none;
+  box-shadow: var(--xy-ring, none);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .xy-dig-step.is-active .xy-dig-step-dot {
     animation: none;

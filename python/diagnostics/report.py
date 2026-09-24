@@ -203,7 +203,14 @@ def to_markdown(doc: dict[str, Any]) -> str:
 	lines.append(f"- 归属：{fault.get('responsibility_label') or PARTY_LABEL.get('undetermined')}")
 	lines.append(f"- 任务结局：{fault.get('task_outcome_label') or OUTCOME_LABEL.get('not_accepted')}")
 	lines.append(f"- 约束是否进入模型实际收到的内容：{fault.get('shown_to_model')}（{fault.get('shown_to_model_note')}）")
+	lines.append(f"- 主原因：{fault.get('primary_cause_label') or '未定'}（`{fault.get('primary_cause')}`）")
 	lines.append(f"- 为什么：{fault.get('why')}")
+	for cause in fault.get("causes") or []:
+		lines.append(
+			"  - [{}] {} —— 能证明：{}；不能证明：{}".format(
+				cause.get("party"), cause.get("label"), cause.get("proves"), cause.get("does_not_prove")
+			)
+		)
 	for step in fault.get("chain") or []:
 		lines.append(f"  {step.get('order')}. [{step.get('party_label')}] {step.get('fact')}")
 	for item in fault.get("missing_evidence") or []:

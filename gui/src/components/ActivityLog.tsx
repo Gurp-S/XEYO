@@ -19,6 +19,9 @@ import {cn} from '@/lib/utils';
 import {isSmoothnessOn, useSettingsStore} from '@/stores/settingsStore';
 import type {MultiAgentTaskView} from '@/lib/api';
 import {showContextMenu} from '@/components/ui/ContextMenu';
+import {openPageView} from '@/lib/appNav';
+import {activeBackendSessionId} from '@/stores/chat/preStoreHelpers';
+import {useChatStore} from '@/stores/chatStore';
 import {MorphVerb, ThoughtTicker} from './activity/MorphVerb';
 import {SplitChevron} from './activity/SplitChevron';
 import {useExpandReveal} from './activity/useExpandReveal';
@@ -382,6 +385,25 @@ function ThoughtStepRow({
 	);
 }
 
+/** 失败步骤 → 诊断中心：只带后端 tool_use.id，UI 自己合成的 id 对上不了审计。 */
+function DiagnoseStepButton({toolUseId}: {toolUseId: string}) {
+	const activeId = useChatStore(s => s.activeId);
+	const historyById = useChatStore(s => s.historyById);
+	const sessionId = activeId ? activeBackendSessionId(historyById, activeId) : '';
+	return (
+		<button
+			type="button"
+			className="xy-dig-step-link"
+			title="到诊断中心查看这一步的原始证据与结论"
+			onClick={() => {
+				openPageView('diagnostics', {session: sessionId, tool: toolUseId});
+			}}
+		>
+			查看诊断
+		</button>
+	);
+}
+
 function ToolStepRow({
 	step,
 	handoff,
@@ -454,6 +476,7 @@ function ToolStepRow({
 					{step.diff ? <DiffBadgeMemo diff={step.diff} /> : null}
 					<SplitChevron open={open} />
 				</button>
+				{step.error && step.toolUseId ? <DiagnoseStepButton toolUseId={step.toolUseId} /> : null}
 				{peek && !open && !redundantWrite ? (
 					<div className="xy-split-result">
 						{peek.text}

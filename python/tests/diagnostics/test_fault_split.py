@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from diagnostics.collect import RunEvidence
+from diagnostics.collect import ModelRequest, RunEvidence, ToolCall
 from diagnostics.fault_split import (
 	ENGINE,
 	ENVIRONMENT,
@@ -113,6 +113,77 @@ def test_model_fault_requires_constraint_shown(monkeypatch) -> None:
 	assert "self_report" in verdict
 
 
+def test_post_hoc_pin_cannot_claim_context_loss_but_can_name_requirement(monkeypatch) -> None:
+	"""两条判据分开：当场在场的原话才判"上下文丢了它"；事后声明只当要求来源。"""
+	constraint = "改完必须跑 pytest"
+	_write_transcript("s1", [{"id": "m1", "role": "user", "ts": 1.0, "content": constraint}])
+	import diagnostics.loss_chain as lc
+
+	# 投影里带着该约束 ⇒ 不成立"引擎丢了约束"
+	monkeypatch.setattr(lc, "_last_sent_projection", lambda sid: (json.dumps([{"content": constraint}]), "w.json"))
+	run = _run(
+		pins=[
+			{"kind": "run_mark", "pin_id": "p0", "expected": constraint, "created_at": 999.0, "locator": "p0.json"},
+			{"kind": "verifier", "pin_id": "p1", "name": "pytest", "exit_code": 1, "locator": "p1.json"},
+		],
+		events=[_ev(1.0, "model.started"), _ev(2.0, "model.finished")],
+	)
+	verdict = attribute_fault(run, [])
+	assert not any("源历史里存在，但不在最后发射的投影里" in s["fact"] for s in verdict["chain"])
+	assert verdict["task_outcome"] == "accepted_fail"
+
+
+def test_required_test_skipped_is_a_model_fault_without_a_verifier(monkeypatch) -> None:
+	"""没有验收记录也能判：约束送达 + 要求跑测试 + 本轮没跑 + 没被挡 + 自述完成。"""
+	constraint = "改完必须跑 pytest 再说完成"
+	_write_transcript("s1", [{"id": "m1", "role": "user", "ts": 1.0, "content": constraint}])
+	import diagnostics.loss_chain as lc
+
+	monkeypatch.setattr(lc, "_last_sent_projection", lambda sid: (json.dumps([{"content": constraint}]), "w.json"))
+	run = _run(
+		transcript_rows=[
+			{"id": "m1", "role": "user", "content": constraint, "locator": "t.jsonl", "line_no": 1},
+			{"id": "m2", "role": "assistant", "content": "已完成，测试通过", "locator": "t.jsonl", "line_no": 2},
+		],
+		model_requests=[ModelRequest(model_request_id="r1", attempts=[{"attempt": 1, "kind": "model.finished", "status": "ok"}])],
+		tool_calls=[
+			ToolCall(
+				tool_use_id="c1",
+				tool_name="Read",
+				started={"line_no": 3},
+				finished={"line_no": 4, "command_summary": "read config"},
+			)
+		],
+	)
+	verdict = attribute_fault(run, [])
+	assert verdict["shown_to_model"] == "shown"
+	assert verdict["responsibility"] == MODEL
+	assert any("要求动作" in s["fact"] and s["party"] == "model" for s in verdict["chain"])
+
+
+def test_blocked_action_is_not_a_model_fault(monkeypatch) -> None:
+	"""同样要求跑测试，但被权限挡下：归引擎，不归模型。"""
+	constraint = "改完必须跑 pytest 再说完成"
+	_write_transcript("s1", [{"id": "m1", "role": "user", "ts": 1.0, "content": constraint}])
+	import diagnostics.loss_chain as lc
+
+	monkeypatch.setattr(lc, "_last_sent_projection", lambda sid: (json.dumps([{"content": constraint}]), "w.json"))
+	run = _run(
+		permissions=[
+			{"request_id": "apr1", "kind": "permission.resolved", "tool_name": "Bash", "approved": False, "outcome": "user_decided", "line_no": 9}
+		],
+	)
+	verdict = attribute_fault(run, [])
+	assert verdict["responsibility"] == ENGINE
+	assert any(s["party"] == "engine" and "执行层" in s["fact"] for s in verdict["chain"])
+
+
+def _ev(ts: float, kind: str):
+	from diagnostics.identity import normalize_event
+
+	return normalize_event(0, 1, {"ts": ts, "kind": kind, "session_id": "s1", "turn_id": "t1", "model_request_id": "r1"})
+
+
 def test_no_capture_and_no_projection_cannot_blame_model(monkeypatch) -> None:
 	constraint = "改完必须跑测试"
 	_write_transcript("s1", [{"id": "m1", "role": "user", "ts": 1.0, "content": constraint}])
@@ -168,6 +239,23 @@ def test_no_verifier_means_outcome_undetermined() -> None:
 	assert verdict["task_outcome"] == OUTCOME_NOT_ACCEPTED
 	assert "无法判定" in verdict["task_outcome_label"]
 	assert any("verifier" in m for m in verdict["missing_evidence"])
+
+
+def test_bare_acceptance_failure_does_not_blame_model(monkeypatch) -> None:
+	"""验收失败单独一条不够判模型：本轮开始前的红测长得一样。"""
+	constraint = "改完必须跑 pytest 再说完成"
+	_write_transcript("s1", [{"id": "m1", "role": "user", "ts": 1.0, "content": constraint}])
+	import diagnostics.loss_chain as lc
+
+	monkeypatch.setattr(lc, "_last_sent_projection", lambda sid: (json.dumps([{"content": constraint}]), "w.json"))
+	run = _run(pins=[{"kind": "verifier", "pin_id": "p1", "name": "pytest", "exit_code": 1, "locator": "p1.json"}])
+	verdict = attribute_fault(run, [])
+	assert verdict["shown_to_model"] == "shown"
+	assert verdict["task_outcome"] == "accepted_fail"
+	assert verdict["responsibility"] == UNDETERMINED
+	assert any("先于本轮存在" in m for m in verdict["missing_evidence"])
+	# 原因照实列出：责任未定不等于原因没有
+	assert "acceptance_failed" in [c["code"] for c in verdict["causes"]]
 
 
 def test_green_verifier_does_not_become_model_fault() -> None:

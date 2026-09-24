@@ -12,7 +12,7 @@
 import {cleanup, render, screen} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {afterEach, describe, expect, it} from 'vitest';
-import {parseRunDetail} from '@/lib/api/diagnostics';
+import {parseRunDetail, parseRunsResult} from '@/lib/api/diagnostics';
 import {FindingsView} from './FindingsView';
 import {StepsView} from './StepsView';
 import {UsageView} from './UsageView';
@@ -174,9 +174,30 @@ describe('责任划分', () => {
 				responsibility: 'engine',
 				responsibility_label: '引擎侧',
 				why: '失败发生在执行层：Bash 被 bash_danger_ask 挡下。',
+				primary_cause: 'permission_blocked_action',
+				primary_cause_label: '被要求的动作由权限执行层挡下',
+				cause_statement: '主原因：被要求的动作由权限执行层挡下。',
+				causes: [
+					{
+						code: 'permission_blocked_action',
+						label: '被要求的动作由权限执行层挡下',
+						party: 'engine',
+						proves: '动作是被执行层挡下的',
+						does_not_prove: '不能把「没做」记到模型头上',
+						evidence: EVIDENCE,
+					},
+					{
+						code: 'acceptance_missing',
+						label: '没跑验收，任务是否完成未知',
+						party: 'undetermined',
+						proves: '没有任何验收记录',
+						does_not_prove: '既不能判完成也不能判失败',
+						evidence: [],
+					},
+				],
 				task_outcome: 'not_accepted',
 				task_outcome_label: '未执行验收：无法判定任务是否完成',
-				obligation: {text: 'x', source: 'pin', locator: 'p.json', ref_id: 'p0', excerpt: '改完必须跑测试'},
+				obligation: {source: 'pin', locator: 'p.json', ref_id: 'p0', excerpt: '改完必须跑测试'},
 				shown_to_model: 'not_shown',
 				shown_to_model_note: '发送投影里没有这段约束',
 				engine_confirmed: 2,
@@ -195,6 +216,12 @@ describe('责任划分', () => {
 		expect(text).toContain('引擎侧');
 		expect(text).toContain('未执行验收');
 		expect(text).toContain('改完必须跑测试');
+		expect(text).toContain('事后固定的预期');
+		// 失败原因逐条列出，且每条都带"能证明/不能证明"
+		expect(text).toContain('被要求的动作由权限执行层挡下');
+		expect(text).toContain('permission_blocked_action');
+		expect(text).toContain('不能把「没做」记到模型头上');
+		expect(text).toContain('既不能判完成也不能判失败');
 		expect(text).toContain('约束未进入发射投影');
 		expect(text).toContain('缺适配器最终请求体');
 		expect(text).toContain('本报告不宣称');
@@ -261,6 +288,22 @@ describe('步骤时间线', () => {
 		const text = document.body.textContent ?? '';
 		expect(text).toMatch(/等待权限授权|工具等待授权/);
 		expect(/权限.{0,6}失败/.test(text)).toBe(false);
+	});
+});
+
+describe('运行列表解析', () => {
+	it('tool_use_ids 原样带出，缺失时是空数组', () => {
+		const parsed = parseRunsResult({
+			schema_version: 1,
+			session_id: 's1',
+			runs: [
+				{turn_id: 't1', tool_call_count: 2, tool_use_ids: ['call_a', 'call_b']},
+				{turn_id: 't2', tool_call_count: 0},
+			],
+		});
+		expect(parsed.runs[0].tool_use_ids).toEqual(['call_a', 'call_b']);
+		expect(parsed.runs[1].tool_use_ids).toEqual([]);
+		expect(parsed.runs[0].turn_id).toBe('t1');
 	});
 });
 

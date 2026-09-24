@@ -888,6 +888,7 @@ def list_runs(session_id: str, *, limit: int = 50, audit_path: str | os.PathLike
 				"boundaries": sorted(item["boundaries"]),
 				"model_request_count": len(item["model_request_ids"]),
 				"tool_call_count": len(item["tool_use_ids"]),
+				"tool_use_ids": sorted(item["tool_use_ids"]),
 				"audit_lines": [item["line_min"], item["line_max"]],
 				"coverage_note": (
 					"审计尾窗截断，更早的 turn 可能未列出" if truncated else ""

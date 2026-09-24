@@ -112,11 +112,14 @@ def main(argv: list[str] | None = None) -> int:
 		else:
 			fault = doc.get("fault") or {}
 			_emit(
-				"归属：{}｜任务结局：{}".format(
+				"归属：{}｜主原因：{}｜任务结局：{}".format(
 					fault.get("responsibility_label", "无法归因"),
+					fault.get("primary_cause_label", "未定"),
 					fault.get("task_outcome_label", "无法判定"),
 				)
 			)
+			for cause in (fault.get("causes") or [])[:6]:
+				_emit("  [{}] {} ← {}".format(cause.get("party"), cause.get("label"), cause.get("code")))
 			_emit(f"为什么：{fault.get('why', '')}")
 			_emit(doc["attribution"]["statement"])
 			for line in _findings_rows(evaluate_run(run)):

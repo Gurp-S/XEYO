@@ -226,6 +226,28 @@ td.u{color:var(--warn)}
 .kpi span{font-size:11px;color:var(--mute);letter-spacing:.06em}
 .kpi.unk b{color:var(--warn)}
 
+/* 归属对照 + 实验 */
+.lim{font-size:11px;color:var(--mute);margin-top:2px;line-height:1.55}
+.partygrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px}
+.pcard{border:1px solid var(--rule);border-radius:var(--r-control);padding:12px 13px;background:var(--pane)}
+.pcard h4{margin:0 0 2px;font-size:12.5px;display:flex;align-items:center;gap:7px}
+.pcard p{margin:6px 0 0;font-size:11.5px;color:var(--mute);line-height:1.6}
+.pcard code{font-size:11px;color:var(--ink-soft)}
+.dotmark{width:7px;height:7px;border-radius:50%;flex:none}
+.dotmark[data-p="engine"]{background:var(--danger)}
+.dotmark[data-p="model"]{background:var(--warn)}
+.dotmark[data-p="environment"]{background:var(--ink-soft)}
+.dotmark[data-p="undetermined"]{background:var(--mute)}
+.modes{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px}
+.mode{border:1px solid var(--rule);border-radius:var(--r-control);padding:12px 13px}
+.mode.is-armed{border-color:color-mix(in oklab,var(--accent) 46%,transparent)}
+.mode .mt{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13px;font-weight:600}
+.mode .price{font-size:11px;color:var(--mute);font-weight:400}
+.mode ul{margin:8px 0 0;padding-left:16px;font-size:11.5px;color:var(--ink-soft);display:flex;flex-direction:column;gap:3px}
+.mode .no{color:var(--mute);font-size:11.5px;margin-top:7px;padding-top:6px;border-top:1px dashed var(--rule)}
+.refuse{color:var(--danger)}
+.ledger{margin-top:11px;font-size:11.5px;color:var(--mute)}
+
 .empty{padding:26px;text-align:center;color:var(--mute);font-size:13px;border:1px dashed var(--rule);border-radius:var(--r-control)}
 footer.legal{padding:0 26px 30px;font-size:11.5px;color:var(--mute)}
 @media (max-width:980px){
@@ -297,6 +319,7 @@ footer.legal{padding:0 26px 30px;font-size:11.5px;color:var(--mute)}
           <button class="tab" role="tab" aria-selected="false" data-t="steps">步骤<span class="n">11</span></button>
           <button class="tab" role="tab" aria-selected="false" data-t="context">上下文</button>
           <button class="tab" role="tab" aria-selected="false" data-t="usage">用量</button>
+          <button class="tab" role="tab" aria-selected="false" data-t="exp">实验</button>
         </div>
 
         <!-- 责任划分 -->
@@ -317,6 +340,13 @@ footer.legal{padding:0 26px 30px;font-size:11.5px;color:var(--mute)}
               </div>
             </div>
             <div class="hr"></div>
+            <div class="sub" style="margin:0 0 6px">失败原因（与归属分开：原因可以不属于任何一方）</div>
+            <ul class="chain">
+              <li><span class="tag" data-p="engine">引擎</span><div><b>被要求的动作由权限执行层挡下</b> <span class="mono">permission_blocked_action</span><div class="lim">能证明：动作是被执行层挡下的；不能证明：不能把「没做」记到模型头上</div></div></li>
+              <li><span class="tag" data-p="engine">引擎</span><div><b>该在场的约束没进最后发射的内容</b> <span class="mono">context_dropped_constraint</span><div class="lim">能证明：当场在场的约束在源历史查得到、发射内容里查不到；不能证明：模型因此失败，也不能定位到候选/选择哪一级</div></div></li>
+              <li><span class="tag" data-p="undetermined">未定</span><div><b>没跑验收，任务是否完成未知</b> <span class="mono">acceptance_missing</span><div class="lim">能证明：没有任何验收记录；不能证明：既不能判完成也不能判失败</div></div></li>
+            </ul>
+            <div class="hr"></div>
             <div class="sub" style="margin:0 0 6px">因果链 · 每一步都能回到原始记录</div>
             <ul class="chain">
               <li><span class="tag" data-p="engine">引擎</span><div>发射投影里没有「改完必须跑测试」这条约束 <span class="mono">working.json#last_x_sent</span></div></li>
@@ -331,6 +361,29 @@ footer.legal{padding:0 26px 30px;font-size:11.5px;color:var(--mute)}
               <li>缺 verifier 记录：任务是否完成无法判定</li>
             </ul>
             <div class="note">本报告不宣称：不宣称这是任务失败的全部原因 · 不把「没发现引擎异常」当成模型有错 · 不给概率或加权总分</div>
+          </div>
+
+          <div class="card">
+            <h3>四类失败，落到三个归属</h3>
+            <div class="sub">同一套判据，不对称门槛：引擎侧由不变量破坏直接证明，模型侧必须同时有送达证据与可机器判定的矛盾</div>
+            <div class="partygrid">
+              <div class="pcard">
+                <h4><span class="dotmark" data-p="engine"></span>权限挡了调用</h4>
+                <p>ASK 超时或 DENY ⇒ <code>engine</code>。执行层结果，模型看到的是拒绝，不是它没做。</p>
+              </div>
+              <div class="pcard">
+                <h4><span class="dotmark" data-p="environment"></span>工具外部失败</h4>
+                <p><code>COMMAND_NOT_FOUND</code> / <code>TIMEOUT</code> / 429 ⇒ <code>environment</code>。限流不等于提示词错。</p>
+              </div>
+              <div class="pcard">
+                <h4><span class="dotmark" data-p="engine"></span>引擎完成界面没收到</h4>
+                <p>wire 丢行或事件流缺口 ⇒ <code>engine</code>（传输/显示边界），与模型和任务对错无关。</p>
+              </div>
+              <div class="pcard">
+                <h4><span class="dotmark" data-p="model"></span>模型没调用工具</h4>
+                <p>约束已送达 + 本轮无对应调用 + 未被权限挡 + 自述完成 ⇒ <code>model</code>。缺任一条退回 <code>undetermined</code>。</p>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -419,6 +472,51 @@ footer.legal{padding:0 26px 30px;font-size:11.5px;color:var(--mute)}
               <div class="stage"><div><div class="nm">冷层句柄可回读</div><div class="nt">句柄可读；账本按会话聚合，不能证明为这一条发起过取回</div></div><span class="st" data-v="found">找到</span></div>
             </div>
             <div class="note">结论：lost_before:emitted —— 该事实在源历史里查得到、在最后发射的投影里查不到；中间的候选 / 选择两级没有落盘账本，不能再往下定位。</div>
+          </div>
+        </div>
+
+        <!-- 实验 -->
+        <div class="panel" id="p-exp">
+          <div class="card">
+            <h3>三档实验，只有第三档会花钱</h3>
+            <div class="sub">experiment 预算两臂共享 · 未知费用保留预留不释放 · 中断不盲目重发</div>
+            <div class="modes">
+              <div class="mode">
+                <div class="mt">A0 静态差异<span class="price">¥0 · 零模型调用</span></div>
+                <ul>
+                  <li>system / 工具描述 / T_now 变了哪几块</li>
+                  <li>结构约束受影响项：tool pair、spill 引用、冻结前缀</li>
+                  <li>提示词文件保存后合并去抖，自动出差异</li>
+                </ul>
+                <div class="no">不给结论：不输出「模型表现提高」</div>
+              </div>
+              <div class="mode is-armed">
+                <div class="mt">A1 同检查点单请求配对<span class="price">估算 ¥0.06 / 对</span></div>
+                <ul>
+                  <li>冻结历史、工具 schema、模型与生成参数，只换指定提示词块</li>
+                  <li>两臂回答与工具调用选择并排；<b>不执行</b>模型建议的调用</li>
+                  <li>可比性检查：只允许声明的那一个变量不同</li>
+                </ul>
+                <div class="no">测的是检查点之后的替换效果，不等于从任务开始就换提示词</div>
+              </div>
+              <div class="mode">
+                <div class="mt">A2 隔离任务配对<span class="price">估算 ¥1.8 / 对</span></div>
+                <ul>
+                  <li>同一快照导出两份工作区，起始清单 hash 必须一致</li>
+                  <li>两个独立进程各自跑真工具，最后跑同一个 verifier</li>
+                  <li>逐维度报告：任务 / 变更 / 行为 / 上下文 / 性能 / 费用</li>
+                </ul>
+                <div class="no refuse">本会话不满足 A2：external_side_effects_not_proven · 原工作区不可当作任一臂</div>
+              </div>
+            </div>
+            <div class="hr"></div>
+            <dl class="kv">
+              <dt>实验级上限</dt><dd>¥4.00（两臂 + 重试 + 重复共享同一个上限，不按臂各给一份）</dd>
+              <dt>已预留</dt><dd>¥0.12（其中 ¥0.06 状态未知，未释放）</dd>
+              <dt>价格依据</dt><dd>按 usage 估算 · 价格版本 v12 · 非账单实付</dd>
+              <dt>验收方式</dt><dd>verifier <span class="mono">pytest tests/diagnostics</span> · 两臂同一版本</dd>
+            </dl>
+            <div class="ledger">无效运行同样占用预算，不从费用或失败记录里删除；缺价格或缺可信输入上界时保留最坏预留，不按 0 释放。</div>
           </div>
         </div>
 

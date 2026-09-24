@@ -263,22 +263,24 @@ class ToolRegistry:
 		action_journal = None
 		action_id: str | None = None
 		side_effect = _side_effect_class(tool.name, tool)
-		if side_effect != "none" and session_id:
+		# 空 session_id 曾让整段幂等保护静默跳过：coordinator=None 是合法的
+		# 早期执行路径，身份从执行上下文补齐后，副作用工具照样入 journal。
+		if side_effect != "none" and audit_session_id:
 			try:
 				from engine.action_journal import ActionJournal, action_identity
 
 				action_id, idempotency_key = action_identity(
-					session_id=session_id,
-					turn_id=turn_id,
+					session_id=audit_session_id,
+					turn_id=audit_turn_id,
 					tool_use_id=tool_use.id,
 					tool_name=tool.name,
 					tool_input=tool_use.input if isinstance(tool_use.input, dict) else {},
 				)
-				action_journal = ActionJournal(session_id)
+				action_journal = ActionJournal(audit_session_id)
 				decision = action_journal.begin(
 					action_id=action_id,
 					idempotency_key=idempotency_key,
-					turn_id=turn_id,
+					turn_id=audit_turn_id,
 					tool_use_id=tool_use.id,
 					tool_name=tool.name,
 					side_effect=side_effect,

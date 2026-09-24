@@ -18,6 +18,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from diagnostics import causes as _causes
 from diagnostics.collect import RunEvidence
 from diagnostics.identity import CONFIRMED_FAULT, SUSPECTED_CAUSE, EvidenceRef, Finding, _s
 
@@ -188,19 +189,8 @@ def _task_outcome(run: RunEvidence) -> tuple[str, list[EvidenceRef], str]:
 	return OUTCOME_PASS, ref, "全部 verifier 退出码 0（只证明这些检查通过）。"
 
 
-def _obligation(run: RunEvidence) -> dict[str, Any]:
-	"""被判"模型的错"所依据的约束：优先用户固定下来的预期，其次最后一条用户消息。"""
-	for pin in run.pins:
-		if _s(pin.get("kind")) != "run_mark":
-			continue
-		text = _s(pin.get("expected")) or _s(pin.get("note"))
-		if text:
-			return {
-				"text": text,
-				"source": "pin",
-				"locator": _s(pin.get("locator")),
-				"ref_id": _s(pin.get("pin_id")),
-			}
+def _last_user_obligation(run: RunEvidence) -> dict[str, Any]:
+	"""本轮用户消息里的原话约束：它在场，所以有资格作为判据。"""
 	try:
 		from diagnostics.loss_chain import _iter_transcript, _resolve_body
 
@@ -211,13 +201,49 @@ def _obligation(run: RunEvidence) -> dict[str, Any]:
 			if body.strip():
 				return {
 					"text": body.strip()[:500],
-					"source": "last_user_message",
+					"source": "turn_user_message",
 					"locator": _s(row.get("_path")),
 					"ref_id": _s(row.get("id")),
+					"created_at": row.get("ts"),
 				}
 	except Exception:  # noqa: BLE001 — 取不到约束就悬空，不猜
 		pass
-	return {"text": "", "source": "", "locator": "", "ref_id": ""}
+	return {}
+
+
+def _pin_obligation(run: RunEvidence) -> dict[str, Any]:
+	for pin in run.pins:
+		if _s(pin.get("kind")) != "run_mark":
+			continue
+		text = _s(pin.get("expected")) or _s(pin.get("note"))
+		if text:
+			return {
+				"text": text,
+				"source": "pin",
+				"locator": _s(pin.get("locator")),
+				"ref_id": _s(pin.get("pin_id")),
+				"created_at": pin.get("created_at"),
+			}
+	return {}
+
+
+def _obligation(run: RunEvidence) -> dict[str, Any]:
+	"""选哪句话当约束：当场在场的原话优先。
+
+	事后钉的预期（pin 的时间晚于本轮最后事件）只能用于比对自述，不能反推
+	"这一枪把约束弄丢了"——它当时压根不在场。
+	"""
+	turn_events = [e for e in run.events_for_turn() if e.ts is not None]
+	turn_last_ts = max((e.ts or 0.0 for e in turn_events), default=0.0)
+	in_turn = _last_user_obligation(run)
+	pinned = _pin_obligation(run)
+	if in_turn:
+		in_turn["expected_note"] = _s(pinned.get("text"))
+		return in_turn
+	if pinned:
+		pinned["in_turn"] = False
+		return pinned
+	return {"text": "", "source": "", "locator": "", "ref_id": "", "created_at": None}
 
 
 def _shown_to_model(run: RunEvidence, needle: str) -> dict[str, Any]:
@@ -240,21 +266,25 @@ def _shown_to_model(run: RunEvidence, needle: str) -> dict[str, Any]:
 		return {"state": "unprovable", "evidence": [], "note": f"定位链不可用：{type(exc).__name__}"}
 
 
+_CLAIM_WORDS = ("测试通过", "已通过", "已完成", "全部通过", "验收通过", "done", "all tests pass")
+
+
+def _assistant_text(run: RunEvidence) -> str:
+	parts: list[str] = []
+	for row in run.transcript_rows:
+		if _s(row.get("role")) == "assistant" and isinstance(row.get("content"), str):
+			parts.append(row["content"])
+	return " ".join(parts)
+
+
 def _self_report_contradiction(run: RunEvidence, outcome: str) -> Finding | None:
 	"""模型自述与验收不符：措辞按事实比对，不评价。"""
 	if outcome not in {OUTCOME_FAIL, OUTCOME_VERIFIER_ERROR, OUTCOME_NOT_ACCEPTED}:
 		return None
-	texts: list[str] = []
-	for row in run.transcript_rows:
-		if _s(row.get("role")) != "assistant":
-			continue
-		content = _s(row.get("content"))
-		if content:
-			texts.append(content)
-	joined = " ".join(texts)
+	joined = _assistant_text(run)
 	if not joined:
 		return None
-	hits = [w for w in ("测试通过", "已通过", "已完成", "全部通过", "验收通过") if w in joined]
+	hits = [w for w in _CLAIM_WORDS if w in joined]
 	if not hits:
 		return None
 	return Finding(
@@ -293,6 +323,70 @@ def _as_ref(item: Any) -> EvidenceRef | None:
 	)
 
 
+_ACTION_MARKERS = (
+	"pytest", "vitest", "npm test", "npm run test", "npx vitest", "tsc", "jest",
+	"go test", "cargo test", "测试", "验收", "跑一遍",
+)
+
+
+def _required_action_unmet(run: RunEvidence, obligation_text: str) -> dict[str, Any]:
+	"""「被要求跑测试/调用工具，本轮没做，也没被权限挡住」——可机器核对的那一条。
+
+	判据全部来自既有记录：约束正文的关键词、本轮工具调用参数与 command_summary、
+	权限结果、以及回答里的自述完成词。任何一环缺记录都退回 unknown。
+	"""
+	text = _s(obligation_text)
+	low = text.lower()
+	markers = [m for m in _ACTION_MARKERS if m in low or m in text]
+	if not markers:
+		return {"state": "no_action_required", "evidence": [], "note": "约束里没有可核对的动作要求"}
+	blocked = [
+		x for x in run.permissions
+		if x.get("approved") is False or _s(x.get("outcome")) in {"timeout", "denied"}
+	]
+	seen_cmds: list[str] = []
+	for tool in run.tool_calls:
+		for source in (tool.started, tool.finished):
+			if isinstance(source, dict):
+				cmd = _s(source.get("command_summary")) or _s(source.get("command"))
+				if cmd:
+					seen_cmds.append(cmd)
+		for row in run.transcript_rows:
+			if row.get("tool_call_id") == tool.tool_use_id and isinstance(row.get("content"), str):
+				seen_cmds.append(row["content"])
+		if tool.tool_name in {"Bash", "job_run"}:
+			seen_cmds.append(tool.tool_name)
+	joined = " ".join(seen_cmds).lower()
+	done = [m for m in markers if m in joined]
+	if done:
+		return {"state": "action_present", "evidence": [], "note": f"本轮已见动作标记：{', '.join(done)}"}
+	blocked = [
+		p for p in run.permissions
+		if p.get("approved") is False or _s(p.get("outcome")) in {"timeout", "denied"}
+	]
+	if blocked:
+		return {
+			"state": "blocked_by_permission",
+			"evidence": [
+				EvidenceRef(source="audit", locator="audit", ref_id=f"L{_s(p.get('line_no'))}", detail="permission 拒绝/超时")
+				for p in blocked[:3]
+			],
+			"note": "该动作被执行层挡下：不能算模型没做",
+		}
+	if not run.tool_calls and not seen_cmds:
+		return {"state": "no_tool_records", "evidence": [], "note": "本轮没有任何工具记录：分不清是没调用还是没采集"}
+	claims = [w for w in _CLAIM_WORDS if w in _assistant_text(run)]
+	if not claims:
+		return {"state": "not_claimed_done", "evidence": [], "note": "回答没有自述完成：动作没做也不能据此判模型的错"}
+	return {
+		"state": "action_missing",
+		"evidence": [
+			EvidenceRef(source="transcript", locator="transcript", ref_id="", detail=f"要求动作标记：{', '.join(markers[:3])}")
+		],
+		"note": f"约束要求 {', '.join(markers[:3])}，本轮 {len(run.tool_calls)} 次工具调用里没有一项含该标记，且未被权限挡住",
+	}
+
+
 def _obligation_step_evidence(obligation: dict[str, Any], shown: dict[str, Any]) -> list[EvidenceRef]:
 	refs: list[EvidenceRef] = [
 		EvidenceRef(
@@ -326,7 +420,16 @@ def attribute_fault(run: RunEvidence, findings: list[Finding]) -> dict[str, Any]
 	obligation = _obligation(run)
 	shown = _shown_to_model(run, _s(obligation.get("text"))[:120])
 	self_report = _self_report_contradiction(run, outcome)
+	# 要求来源可以是当场原话，也可以是事后钉上的预期（人证）；
+	# 但"引擎把约束弄丢了"这一条只认当场原话。
+	requirement_text = " ".join(
+		x for x in (_s(obligation.get("text")), _s(obligation.get("expected_note"))) if x
+	)
+	unmet = _required_action_unmet(run, requirement_text)
 
+	# 事后才钉的预期没有资格指控"这一枪把约束弄丢了"：它当时压根不在场。
+	# 只有"当场在场"的约束才有资格指控上下文丢了它。
+	after_the_fact = bool(obligation.get("text")) and obligation.get("in_turn") is False
 	steps: list[Step] = []
 	order = 0
 
@@ -348,7 +451,17 @@ def attribute_fault(run: RunEvidence, findings: list[Finding]) -> dict[str, Any]
 		_step("sse_gui", f.phenomenon, UNDETERMINED, f.evidence)
 	if self_report is not None:
 		_step(self_report.boundary, self_report.phenomenon, MODEL, self_report.evidence)
-	if obligation.get("text"):
+	if unmet["state"] == "action_missing":
+		_step(
+			"tool_permission",
+			f"要求动作 {'、'.join(sorted({m for m in _ACTION_MARKERS if m in requirement_text.lower() or m in requirement_text}))}，"
+			f"本轮 {len(run.tool_calls)} 次工具调用里没有一项对应，且未被权限挡住；回答仍自述完成",
+			MODEL,
+			unmet["evidence"],
+		)
+	elif unmet["state"] == "blocked_by_permission":
+		_step("tool_permission", "被要求的动作由执行层挡下", ENGINE, unmet["evidence"])
+	if obligation.get("text") and not after_the_fact:
 		_step(
 			"instruction_context",
 			"约束来源={}（{}）；是否进入模型实际收到的内容={}".format(
@@ -357,7 +470,7 @@ def attribute_fault(run: RunEvidence, findings: list[Finding]) -> dict[str, Any]
 			MODEL if shown["state"] == "shown" else UNDETERMINED,
 			_obligation_step_evidence(obligation, shown),
 		)
-	constraint_lost = shown["state"] == "not_shown"
+	constraint_lost = shown["state"] == "not_shown" and not after_the_fact
 	if constraint_lost:
 		_step(
 			"wsc_fold",
@@ -373,14 +486,46 @@ def attribute_fault(run: RunEvidence, findings: list[Finding]) -> dict[str, Any]
 			],
 		)
 	if outcome_refs:
-		_step("file_verifier", outcome_note, MODEL if outcome == OUTCOME_FAIL else UNDETERMINED, outcome_refs)
+		# 验收只说明"任务没完成"，不指责任何一方：归责要靠送达证据或自述矛盾。
+		_step("file_verifier", outcome_note, UNDETERMINED, outcome_refs)
+
+	# --- 失败原因（机器可读；与归属分开，一个原因可以不属于任何一方）---
+	tool_error_kinds: dict[str, list[dict[str, Any]]] = {}
+	for f_item in findings:
+		if f_item.rule_id != "tool_failure" or f_item.status != CONFIRMED_FAULT:
+			continue
+		for ev in f_item.evidence:
+			import re as _re
+
+			match = _re.search(r"error_kind=([A-Z_]+)", ev.detail)
+			kind = match.group(1) if match else "UNCLASSIFIED"
+			tool_error_kinds.setdefault(kind, []).append(ev.to_dict())
+	cause_list = _causes.derive(
+		findings=findings,
+		constraint_lost=constraint_lost,
+		permission_blocked=(
+			unmet["state"] == "blocked_by_permission"
+			or any(f_item.rule_id == "permission_block" and f_item.status == CONFIRMED_FAULT for f_item in findings)
+		),
+		action_skipped=unmet["state"] == "action_missing",
+		self_report=self_report,
+		outcome=outcome,
+		tool_error_kinds=tool_error_kinds,
+		display_gap=bool(transport or transport_suspect),
+	)
+	cause_head = _causes.primary(cause_list)
 
 	# --- 归属判定 ---
-	engine_bound = bool(engine or transport or constraint_lost or ENGINE in tool_parties)
-	environment_bound = bool(environment or ENVIRONMENT in tool_parties)
-	model_provable = shown["state"] == "shown" and (
-		self_report is not None or outcome == OUTCOME_FAIL
+	# 被要求的动作由执行层挡下，本身就是引擎侧事实，不依赖调用方传没传 findings。
+	engine_bound = bool(
+		engine or transport or constraint_lost or ENGINE in tool_parties
+		or unmet["state"] == "blocked_by_permission"
 	)
+	environment_bound = bool(environment or ENVIRONMENT in tool_parties)
+	# 光"验收失败"不足以判模型的错：本轮开始前的红测看起来一模一样。
+	# 只有能归到本轮行为上的矛盾才算：自述与验收不符，或被要求的动作确实没做。
+	contradiction = self_report is not None or unmet["state"] == "action_missing"
+	model_provable = shown["state"] == "shown" and bool(contradiction)
 
 	if model_provable and engine_bound:
 		party = MIXED
@@ -402,17 +547,46 @@ def attribute_fault(run: RunEvidence, findings: list[Finding]) -> dict[str, Any]
 		why = "验收通过且没有已确认异常；这不构成" + PARTY_LABEL[MODEL] + "判定，也不构成任务正确判定。"
 	else:
 		party = UNDETERMINED
-		why = "没有任何一级记录能证明约束送到了模型，或矛盾不可机器判定。"
+		if after_the_fact:
+			why = (
+				"预期是在这一枪之后才钉上的，无法证明它当时送到了模型；"
+				"验收失败只说明任务没完成，不足以指责任何一方。"
+			)
+		elif not obligation.get("text"):
+			why = "没有可核对的约束声明：只能报任务结局，不能判是谁的错。"
+		elif shown["state"] == "shown":
+			if outcome == OUTCOME_FAIL:
+				why = (
+					"约束确实送到了模型，验收也失败了，但本轮没有可归到模型行为上的矛盾"
+					"（既没抓到「自述完成 vs 验收不符」，也没抓到「要求的动作没做」）："
+					"本轮之前的红测会呈现完全一样的形状，所以只能报任务结局，不指责任何一方。"
+				)
+			else:
+				why = (
+					"约束确实送到了模型，但没有可机器判定的矛盾"
+					"（没有验收记录，也没抓到「自述完成 vs 要求动作缺失」）："
+					"只能报任务结局，不指责任何一方。"
+				)
+		else:
+			why = "没有任何一级记录能证明约束送到了模型，或矛盾不可机器判定。"
 
 	missing: list[str] = []
 	if shown["state"] == "no_obligation":
 		missing.append("没有声明的预期：用「标记这轮结果不对」写下预期结果，才能判模型侧")
 	if shown["state"] == "unprovable":
 		missing.append("未开启可复现记录且无上一枪投影：开 capture 后重跑才能得到最终请求体正文")
-	if shown["state"] == "not_shown":
+	if outcome == OUTCOME_NOT_ACCEPTED and shown["state"] == "shown":
+		missing.append("没有验收记录：补一条 verifier（或让模型跑被要求的测试）才能判完没完成")
+	if shown["state"] == "not_shown" and not after_the_fact:
 		missing.append("约束未进入发送内容：这是引擎侧丢失，需定位到具体边界")
+	if after_the_fact:
+		missing.append("预期是事后钉上的：不能据此判这一枪丢了约束；要判需在下一枪前就固定预期")
 	if outcome == OUTCOME_NOT_ACCEPTED:
 		missing.append("没有 verifier 记录：任务是否完成无法判定")
+	if outcome == OUTCOME_FAIL and contradiction is False:
+		missing.append(
+			"只有「验收失败」这一条：需要本轮的自述或动作证据，否则红测可能先于本轮存在"
+		)
 	if not run.captures:
 		missing.append("缺适配器最终请求体：投影之后的变换不可见")
 
@@ -420,6 +594,10 @@ def attribute_fault(run: RunEvidence, findings: list[Finding]) -> dict[str, Any]
 		"responsibility": party,
 		"responsibility_label": PARTY_LABEL[party],
 		"why": why,
+		"primary_cause": cause_head["code"],
+		"primary_cause_label": cause_head["label"],
+		"cause_statement": _causes.statement(cause_list, run),
+		"causes": cause_list,
 		"task_outcome": outcome,
 		"task_outcome_label": OUTCOME_LABEL.get(outcome, outcome),
 		"obligation": {k: v for k, v in obligation.items() if k != "text"} | {"excerpt": _s(obligation.get("text"))[:160]},

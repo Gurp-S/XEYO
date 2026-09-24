@@ -50,7 +50,6 @@ def test_one_char_change_in_block_text_is_detected(tmp_path):
         inj.browser_preview_block = original  # type: ignore[assignment]
 
 
-@pytest.mark.xfail(reason="既有红（2026-09-21 挂账）：C 桶·L1 golden 漂移 **13 条注入轨迹**（含 inject/channel_env、channel_legacy、wrap_up_after_tools）。待办=重生成 golden。", strict=False)
 def test_trace_check_against_committed_golden_passes():
     tr = trace.collect()
     changes = trace.compare(tr)

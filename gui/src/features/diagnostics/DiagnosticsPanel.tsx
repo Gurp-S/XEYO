@@ -253,6 +253,7 @@ export function DiagnosticsPanel({active}: {active: boolean}) {
 	const deepLinkRef = useRef({
 		session: params.get('session') ?? '',
 		turn: params.get('turn') ?? '',
+		tool: params.get('tool') ?? '',
 	});
 	const [sessionId, setSessionId] = useState(
 		() => deepLinkRef.current.session || activeBackendId || '',
@@ -294,13 +295,18 @@ export function DiagnosticsPanel({active}: {active: boolean}) {
 			fetchDiagRuns(sessionId, {limit: 80})
 				.then(data => {
 					setRuns(data);
+					const tool = deepLinkRef.current.tool;
+					const byTool = tool
+						? data.runs.find(r => r.tool_use_ids.includes(tool))?.turn_id
+						: undefined;
 					setTurnId(cur =>
 						cur && data.runs.some(r => r.turn_id === cur)
 							? cur
-							: (deepLinkRef.current.turn &&
-									data.runs.some(r => r.turn_id === deepLinkRef.current.turn)
-									? deepLinkRef.current.turn
-									: (data.runs[0]?.turn_id ?? '')),
+							: (byTool ??
+									(deepLinkRef.current.turn &&
+										data.runs.some(r => r.turn_id === deepLinkRef.current.turn)
+										? deepLinkRef.current.turn
+										: (data.runs[0]?.turn_id ?? ''))),
 					);
 				})
 				.catch(err => {
@@ -480,7 +486,7 @@ export function DiagnosticsPanel({active}: {active: boolean}) {
 					onChange={e => {
 						setSessionId(e.target.value);
 						setTurnId('');
-						deepLinkRef.current = {session: e.target.value, turn: ''};
+						deepLinkRef.current = {session: e.target.value, turn: '', tool: ''};
 					}}
 				>
 					<option value="">选择会话</option>
