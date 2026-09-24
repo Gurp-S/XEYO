@@ -1029,7 +1029,6 @@ export function createStreamSendSlice(
 		if (streamSignalsEnabled && get().activeId === sessionId) {
 			setStreamingTextSignal('');
 		}
-		onAccepted?.();
 
 		void saveSession(session).catch(() => {
 			/* 尽力而为；消息已在 UI 中可见 */
@@ -1254,6 +1253,7 @@ export function createStreamSendSlice(
 			window.addEventListener('pagehide', flushPersistOnExit);
 			const apiMessages = toApiMessages(nextMessages);
 			await streamChat(backendSessionId, apiMessages, {
+				onAccepted: () => onAccepted?.(),
 				signal: abort.signal,
 				onDelta(chunk) {
 					clearRetryStatus();

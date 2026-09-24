@@ -189,6 +189,7 @@ export async function streamChat(
 	if (!res.ok || res.status === 202) {
 		watchdog.dispose();
 		if (res.status === 202) {
+			handlers.onAccepted?.();
 			// P1：后端已把消息排进 FIFO（settle 后自动投递）——保留乐观气泡，
 			// 标记 queued；不触发 onError（不撤回追加）。
 			let q: {
@@ -231,6 +232,7 @@ export async function streamChat(
 		handlers.onError(formatStreamHttpError(payload, res.status), busyKind);
 		return;
 	}
+	handlers.onAccepted?.();
 
 	if (!res.body) {
 		watchdog.dispose();

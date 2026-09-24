@@ -1294,7 +1294,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 		const sessionId = activeId;
 		const draftText = value;
 		const draftAttachments = attachments;
-		// 仅在 store 接受消息后清除（乐观 UI 已落地）。
+		// 仅在服务端明确受理后清除；HTTP 拒绝时保留原草稿。
 		void (async () => {
 			let mediaRefs: string[];
 			try {

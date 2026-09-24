@@ -432,6 +432,8 @@ export type TitleStreamEvent = {
 } & EventIdentity;
 
 export type ChatStreamHandlers = {
+	/** 服务端已接受本条消息（HTTP 2xx/202）；HTTP 拒绝时不触发。 */
+	onAccepted?: () => void;
 	onDelta: (text: string) => void;
 	onReasoningDelta?: (text: string) => void;
 	onToolCall?: (ev: Omit<ToolCallStreamEvent, 'kind'>) => void;
