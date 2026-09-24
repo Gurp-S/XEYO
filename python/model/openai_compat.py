@@ -20,6 +20,10 @@ from common.errors import (
 )
 
 from engine.abort import AbortController
+from model._capture_hook import (
+	capture_body as _capture_body,
+	capture_response as _capture_response,
+)
 from model.chunks import ModelChunk
 
 try:
@@ -268,6 +272,10 @@ class OpenAICompatClient:
 		self._usage_recorded_this_stream = False
 		body = self._build_body(messages, tools, stream=True)
 		url = f"{self._base_url}/chat/completions"
+		# 两条发送分支用的就是这一个 body，故捕获只在此处一次（一次发送一行捕获）。
+		captured = _capture_body(
+			self, provider=self._provider, model=self._model, body=body
+		)
 
 		if httpx is not None:
 			tool_bufs: dict[int, dict[str, str]] = {}
@@ -276,6 +284,9 @@ class OpenAICompatClient:
 			async with client.stream(
 				"POST", url, headers=self._headers(), json=body, timeout=180.0
 			) as resp:
+				_capture_response(
+					captured, http_status=resp.status_code, headers=resp.headers
+				)
 				if resp.status_code >= 400:
 					err = await resp.aread()
 					raw = err.decode("utf-8", errors="replace")
@@ -323,6 +334,9 @@ class OpenAICompatClient:
 			try:
 				req = Request(url, data=data, headers=self._headers(), method="POST")
 				with urlopen(req, timeout=180) as resp:
+					_capture_response(
+						captured, http_status=resp.status, headers=resp.headers
+					)
 					while True:
 						raw = resp.readline()
 						if not raw:
@@ -339,6 +353,8 @@ class OpenAICompatClient:
 					loop.call_soon_threadsafe(queue.put_nowait, ("usage", last_usage))
 				loop.call_soon_threadsafe(queue.put_nowait, ("done", None))
 			except HTTPError as e:
+				# 失败尝试同样有响应身份：状态码 + 厂商请求 id 是定位 429/500 的事实。
+				_capture_response(captured, http_status=e.code, headers=e.headers)
 				detail = sanitize_http_body(e.read().decode("utf-8", errors="replace"))
 				loop.call_soon_threadsafe(
 					queue.put_nowait,

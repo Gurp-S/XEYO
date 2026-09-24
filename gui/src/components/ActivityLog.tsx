@@ -138,7 +138,13 @@ function resultPeek(
 	const lines = result
 		.split('\n')
 		.map(l => l.trim())
-		.filter(l => l.length > 0 && !l.startsWith('[routed:'));
+		.filter(
+			l =>
+				l.length > 0 &&
+				!l.startsWith('[routed:') &&
+				// 工具输出常以 `--`、`===` 之类的分隔行开头，摘要里它不承载信息
+				!/^[+\-*=#·.\s]{1,12}$/.test(l),
+		);
 	if (lines.length === 0) {
 		return null;
 	}

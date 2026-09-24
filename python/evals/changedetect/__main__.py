@@ -13,7 +13,7 @@
   ab plan                跑前报价（不发请求）
   ab dry-run             干跑（fake 模型，验管道 + 出统计）
   ab live                实跑（必须 --budget）
-  ab replay              复盘已有 ab 报告
+  ab replay              复盘已写出的报告（加载 + 重算 + 重渲染，不执行任何东西）
 
   compliance             扫当前 git diff 的新增行
 
@@ -221,6 +221,37 @@ def cmd_ab_run(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_ab_replay(args: argparse.Namespace) -> int:
+    """复盘已有报告：**不构造引擎、不发请求**，只加载 + 重算 + 重渲染（可对比另一份）。"""
+    if not args.report:
+        print("❌ ab replay 需要 --report <已写出的 ab-*.json>", file=sys.stderr)
+        return 2
+    try:
+        out = ab_mod.replay_report(
+            Path(args.report),
+            out_dir=args.out or None,
+            compare_with=args.compare or None,
+        )
+    except (OSError, ValueError, KeyError) as exc:
+        print(f"❌ 报告不可复盘：{type(exc).__name__}: {exc}", file=sys.stderr)
+        return 2
+    rep = out["report"]
+    st = (rep.get("statistical") or {}).get("pass_pair") or {}
+    print(f"[replay] {args.report} → 未执行任何请求")
+    print(
+        f"  配对 {st.get('n_pairs', 0)} · A {st.get('pass_rate_a', 0):.0%} / "
+        f"B {st.get('pass_rate_b', 0):.0%} · 裁决 {st.get('verdict', '?')}"
+    )
+    print(
+        f"  估算 ¥{rep.get('estimated_total_cny', 0):.4f} · 按 usage 估算 "
+        f"¥{rep.get('actual_total_cny', 0):.4f}（非账单实付）"
+    )
+    if out.get("comparison"):
+        print("  与对照报告的差值见 markdown")
+    print(f"\n报告：{out['json_path']}\n  {out['md_path']}")
+    return 0
+
+
 def cmd_compliance(args: argparse.Namespace) -> int:
     rep = compliance.scan_git_diff(args.paths)
     print(json.dumps(rep, ensure_ascii=False, indent=2))
@@ -405,7 +436,7 @@ def build_parser() -> argparse.ArgumentParser:
         ("plan", cmd_ab_plan),
         ("dry-run", cmd_ab_run),
         ("live", cmd_ab_run),
-        ("replay", cmd_ab_run),
+        ("replay", cmd_ab_replay),
     ):
         sp = asub.add_parser(name, help=fn.__doc__ or "")
         sp.add_argument("--repeats", type=int, default=1)
@@ -420,6 +451,9 @@ def build_parser() -> argparse.ArgumentParser:
         sp.add_argument("--base-url", default="")
         sp.add_argument("--model", default="")
         sp.add_argument("--out", default="")
+        if name == "replay":
+            sp.add_argument("--report", default="", help="要复盘的 ab-*.json 报告")
+            sp.add_argument("--compare", default="", help="可选：另一份报告，出逐维差值")
         if name in ("live",):
             sp.set_defaults(live=True)
         else:
@@ -460,7 +494,7 @@ def main(argv: list[str] | None = None) -> int:
             "plan": cmd_ab_plan,
             "dry-run": cmd_ab_run,
             "live": cmd_ab_run,
-            "replay": cmd_ab_run,
+            "replay": cmd_ab_replay,
         }[args.sub](args)
     if args.cmd == "compliance":
         return cmd_compliance(args)

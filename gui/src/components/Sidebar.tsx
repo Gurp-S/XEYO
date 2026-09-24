@@ -12,6 +12,7 @@ import {
 	PanelLeftClose,
 	Plus,
 	Search,
+	Stethoscope,
 	X,
 } from 'lucide-react';
 import {
@@ -41,6 +42,7 @@ import {
 	openPageView,
 	openSession,
 	pageViewFromPath,
+	type PageViewKind,
 } from '@/lib/appNav';
 import {pickFolder} from '@/lib/openFolder';
 import {formatRelativeShort} from '@/lib/time';
@@ -126,6 +128,7 @@ export const Sidebar = memo(function Sidebar() {
 	const pageView = pageViewFromPath(location.pathname);
 	const usageOpen = pageView === 'usage';
 	const pluginsOpen = pageView === 'plugins';
+	const diagnosticsOpen = pageView === 'diagnostics';
 	// 侧聊会话并入 chatStore：虚拟 space（side-chat-space）标记，按需派生。
 	const sideChatSessions = useMemo(
 		() =>
@@ -294,11 +297,11 @@ export const Sidebar = memo(function Sidebar() {
 		s => s.index >= 0 && s.index < s.entries.length - 1,
 	);
 	const goToNavEntry = useCallback(
-		(target: {path: string; usageOpen: boolean} | null) => {
+		(target: {path: string; pageView: PageViewKind | null} | null) => {
 			if (!target) {
 				return;
 			}
-			// 页面视图状态已并入路由（/usage、/plugins）——导航即恢复。
+			// 页面视图状态已并入路由（/usage、/plugins、/diagnostics）——导航即恢复。
 			navigate(target.path);
 		},
 		[navigate],
@@ -641,6 +644,29 @@ className="xy-icon-btn rounded-md p-1.5 text-mute hover:bg-glass-hover hover:tex
 						<Blocks className="h-3.5 w-3.5 shrink-0" />
 						<span className="min-w-0 flex-1 truncate text-[13px]">
 							扩展
+						</span>
+					</button>
+
+					{/* 诊断中心（运行追查 / 自动检测 / 受控实验）：与用量同级的页面视图。 */}
+					<button
+						type="button"
+						onClick={() => {
+							if (diagnosticsOpen) {
+								closePageView();
+							} else {
+								openPageView('diagnostics');
+							}
+						}}
+						className={cn(
+							'xy-pressable flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left',
+							diagnosticsOpen
+								? 'bg-glass-hover text-ink'
+								: 'text-ink-soft hover:bg-glass-hover hover:text-ink',
+						)}
+					>
+						<Stethoscope className="h-3.5 w-3.5 shrink-0" />
+						<span className="min-w-0 flex-1 truncate text-[13px]">
+							诊断
 						</span>
 					</button>
 				</div>

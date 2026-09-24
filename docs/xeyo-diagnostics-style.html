@@ -1,0 +1,478 @@
+<!doctype html>
+<html lang="zh-CN" data-scheme="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>XEYO 诊断中心 · 样式站点</title>
+<!--
+  诊断中心样式站点（单文件，双击可打开，不部署）。
+
+  颜色/圆角/字体全部取 gui/src/styles/tokens.css 的真实值，动画面板不上 blur
+  （该文件顶部的硬约束），状态用左侧色轨 + 徽章而不是整块底色——避免把「未定」
+  读成绿色通过。字段名与 /v1/diagnostics/runs/{turn_id} 的返回一致，
+  方便直接对照实现：findings / attribution / fault / usage_summary / gaps / windows。
+-->
+<style>
+:root{
+  --ink:#1e2130; --ink-soft:#454b60; --mute:#6a7183;
+  --paper:#f7f8fc; --paper-deep:#eef1f8; --line:#dfe3ef;
+  --rule-weak:color-mix(in oklab,var(--line) 46%,transparent);
+  --rule:color-mix(in oklab,var(--line) 76%,transparent);
+  --rule-strong:color-mix(in oklab,var(--line) 86%,transparent);
+  --accent:#4f5dd8; --accent-soft:color-mix(in oklab,var(--accent) 12%,transparent);
+  --danger:oklch(.56 .15 25); --warn:oklch(.62 .11 70); --ok:oklch(.56 .11 160);
+  --glass:color-mix(in oklab,var(--paper) 72%,transparent);
+  --pane:#fff; --pane-2:#fbfbfe;
+  --elev-1:0 1px 2px rgb(40 50 90/.06);
+  --elev-2:0 4px 16px rgb(40 50 90/.08);
+  --ring:0 0 0 3px color-mix(in oklab,var(--accent) 20%,transparent);
+  --r-tight:8px; --r-control:12px; --r-pane:18px;
+  --ease:cubic-bezier(.22,1,.36,1); --fast:140ms; --base:200ms;
+}
+html[data-scheme="dark"]{
+  --ink:#e8ebf6; --ink-soft:#a3abc4; --mute:#7f88a4;
+  --paper:#0f1220; --paper-deep:#171a2b; --line:#262c44;
+  --accent:#9db0ff; --danger:oklch(.74 .13 25); --warn:oklch(.78 .11 78); --ok:oklch(.76 .11 160);
+  --pane:#151929; --pane-2:#121624; --glass:color-mix(in oklab,var(--paper) 62%,transparent);
+  --elev-1:0 1px 2px rgb(0 0 0/.35); --elev-2:0 4px 16px rgb(0 0 0/.38);
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"Microsoft YaHei UI","Microsoft YaHei","微软雅黑","PingFang SC","Noto Sans SC",sans-serif;
+  font-size:14px; line-height:1.6; -webkit-font-smoothing:antialiased;
+}
+.mono{font-family:Consolas,"Cascadia Mono","Sarasa Mono SC",ui-monospace,monospace;font-variant-numeric:tabular-nums}
+.num{font-variant-numeric:tabular-nums}
+.shell{display:grid;grid-template-columns:232px minmax(0,1fr);min-height:100vh}
+
+/* ---------- 侧栏 ---------- */
+.side{
+  background:var(--paper-deep); border-right:1px solid var(--rule);
+  padding:18px 14px; display:flex; flex-direction:column; gap:22px;
+}
+.brand{display:flex;align-items:center;gap:9px;font-weight:700;letter-spacing:.02em}
+.mark{width:22px;height:22px;border-radius:7px;background:var(--accent);display:grid;place-items:center;color:#fff;font-size:11px;font-weight:800}
+html[data-scheme="dark"] .mark{color:#0f1220}
+.nav{display:flex;flex-direction:column;gap:2px}
+.nav-title{font-size:11px;color:var(--mute);letter-spacing:.14em;text-transform:uppercase;padding:0 10px 6px}
+.nav a{
+  display:flex;align-items:center;justify-content:space-between;gap:8px;
+  padding:8px 10px;border-radius:var(--r-tight);color:var(--ink-soft);
+  text-decoration:none;font-size:13.5px;transition:background var(--fast) var(--ease),color var(--fast) var(--ease);
+}
+.nav a:hover{background:color-mix(in oklab,var(--ink) 6%,transparent)}
+.nav a[aria-current="page"]{background:var(--pane);color:var(--ink);font-weight:600;box-shadow:var(--elev-1)}
+.pill{font-size:11px;color:var(--mute);background:color-mix(in oklab,var(--ink) 6%,transparent);border-radius:999px;padding:1px 7px}
+.nav a[aria-current="page"] .pill{color:var(--accent);background:var(--accent-soft)}
+.side-foot{margin-top:auto;display:flex;flex-direction:column;gap:10px;font-size:12px;color:var(--mute)}
+.btn{
+  appearance:none;border:1px solid var(--rule-strong);background:var(--pane);color:var(--ink);
+  border-radius:var(--r-control);padding:7px 11px;font:inherit;font-size:13px;cursor:pointer;
+  transition:transform var(--fast) var(--ease),box-shadow var(--fast) var(--ease);
+}
+.btn:hover{box-shadow:var(--elev-2);transform:translateY(-1px)}
+.btn:focus-visible{outline:none;box-shadow:var(--ring)}
+.btn.ghost{background:transparent;border-color:var(--rule)}
+
+/* ---------- 主区 ---------- */
+main{display:flex;flex-direction:column;min-width:0}
+header.top{
+  display:flex;align-items:center;gap:14px;padding:16px 26px;
+  border-bottom:1px solid var(--rule-weak);background:var(--glass);
+  position:sticky;top:0;z-index:5;
+}
+.crumb{display:flex;align-items:baseline;gap:10px;min-width:0}
+.crumb h1{margin:0;font-size:17px;font-weight:700;letter-spacing:.01em}
+.crumb .sid{font-size:12px;color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.spacer{flex:1}
+.wrap{padding:22px 26px 46px;display:grid;grid-template-columns:262px minmax(0,1fr);gap:18px;align-items:start}
+
+/* 左：运行列表 */
+.runs{background:var(--pane);border:1px solid var(--rule);border-radius:var(--r-pane);box-shadow:var(--elev-1);overflow:hidden;position:sticky;top:78px}
+.runs h2{margin:0;padding:13px 15px;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--mute);border-bottom:1px solid var(--rule-weak)}
+.run{padding:11px 15px;border-bottom:1px solid var(--rule-weak);cursor:pointer;transition:background var(--fast) var(--ease)}
+.run:hover{background:var(--pane-2)}
+.run[aria-selected="true"]{background:var(--accent-soft);box-shadow:inset 3px 0 0 var(--accent)}
+.run .t{display:flex;justify-content:space-between;align-items:baseline;gap:8px;font-size:12.5px}
+.run .t b{font-weight:600}
+.run .meta{color:var(--mute);font-size:11.5px;margin-top:3px}
+.chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:7px}
+.chip{font-size:10.5px;color:var(--ink-soft);border:1px solid var(--rule);border-radius:5px;padding:0 5px;line-height:17px}
+.chip.off{color:var(--mute);border-style:dashed}
+.warn-line{font-size:11.5px;color:var(--warn);margin-top:6px}
+
+/* 右：详情 */
+.detail{min-width:0;display:flex;flex-direction:column;gap:14px}
+.tabs{display:flex;gap:3px;background:var(--paper-deep);padding:4px;border-radius:var(--r-control);border:1px solid var(--rule)}
+.tab{
+  appearance:none;border:0;background:transparent;color:var(--ink-soft);font:inherit;font-size:13px;
+  padding:7px 13px;border-radius:var(--r-tight);cursor:pointer;white-space:nowrap;
+  transition:background var(--fast) var(--ease),color var(--fast) var(--ease);
+}
+.tab:hover{color:var(--ink)}
+.tab[aria-selected="true"]{background:var(--pane);color:var(--ink);font-weight:600;box-shadow:var(--elev-1)}
+.tab .n{color:var(--mute);font-size:11.5px;margin-left:5px}
+.tab[aria-selected="true"] .n{color:var(--accent)}
+.panel{display:none;flex-direction:column;gap:14px}
+.panel.on{display:flex;animation:in var(--base) var(--ease)}
+@keyframes in{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+
+.card{background:var(--pane);border:1px solid var(--rule);border-radius:var(--r-pane);box-shadow:var(--elev-1);padding:16px 18px}
+.card>h3{margin:0 0 3px;font-size:14.5px;font-weight:700;letter-spacing:.01em}
+.card>.sub{color:var(--mute);font-size:12px;margin-bottom:13px}
+.hr{height:1px;background:var(--rule-weak);margin:13px 0}
+
+/* 责任划分 */
+.verdict{display:grid;grid-template-columns:auto minmax(0,1fr);gap:16px;align-items:start}
+.party{
+  min-width:118px;text-align:center;padding:13px 16px;border-radius:var(--r-control);
+  border:1px solid var(--rule-strong);background:var(--pane-2);
+}
+.party b{display:block;font-size:19px;font-weight:800;letter-spacing:.04em}
+.party span{font-size:11px;color:var(--mute);letter-spacing:.1em;text-transform:uppercase}
+.party[data-p="engine"] b{color:var(--danger)}
+.party[data-p="model"] b{color:var(--warn)}
+.party[data-p="environment"] b{color:var(--ink-soft)}
+.party[data-p="mixed"] b{color:var(--danger)}
+.party[data-p="undetermined"] b{color:var(--mute)}
+.why{font-size:13.5px;color:var(--ink-soft)}
+.why b{color:var(--ink)}
+.kv{display:grid;grid-template-columns:132px minmax(0,1fr);gap:5px 12px;font-size:12.5px;margin-top:11px}
+.kv dt{color:var(--mute)}
+.kv dd{margin:0;overflow-wrap:anywhere}
+.chain{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:0}
+.chain li{
+  display:grid;grid-template-columns:44px minmax(0,1fr);gap:10px;padding:9px 0;
+  border-top:1px solid var(--rule-weak);font-size:12.5px;
+}
+.chain li:first-child{border-top:0}
+.tag{font-size:10.5px;letter-spacing:.06em;padding:1px 6px;border-radius:5px;white-space:nowrap;justify-self:start;align-self:start;border:1px solid var(--rule)}
+.tag[data-p="engine"]{color:var(--danger);border-color:color-mix(in oklab,var(--danger) 40%,transparent)}
+.tag[data-p="model"]{color:var(--warn);border-color:color-mix(in oklab,var(--warn) 40%,transparent)}
+.tag[data-p="environment"]{color:var(--ink-soft)}
+.tag[data-p="undetermined"]{color:var(--mute)}
+.facts{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;font-size:12.5px;color:var(--ink-soft)}
+.facts li{padding-left:15px;position:relative}
+.facts li::before{content:"";position:absolute;left:0;top:.62em;width:5px;height:5px;border-radius:50%;background:var(--mute)}
+.facts.lack li::before{background:var(--warn)}
+.note{font-size:11.5px;color:var(--mute);margin-top:11px;padding-top:10px;border-top:1px dashed var(--rule)}
+
+/* findings */
+.finding{display:grid;grid-template-columns:4px minmax(0,1fr);gap:13px;border:1px solid var(--rule);border-radius:var(--r-control);background:var(--pane);margin-bottom:9px;overflow:hidden}
+.rail{border-radius:4px 0 0 4px}
+.finding[data-s="confirmed_fault"] .rail{background:var(--danger)}
+.finding[data-s="suspected_cause"] .rail{background:var(--warn)}
+.finding[data-s="unknown"] .rail{background:var(--line)}
+.fbody{padding:12px 14px 12px 0;min-width:0}
+.fhead{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.badge{font-size:10.5px;letter-spacing:.08em;padding:1px 7px;border-radius:999px;border:1px solid var(--rule)}
+.finding[data-s="confirmed_fault"] .badge{color:var(--danger);border-color:color-mix(in oklab,var(--danger) 40%,transparent)}
+.finding[data-s="suspected_cause"] .badge{color:var(--warn);border-color:color-mix(in oklab,var(--warn) 40%,transparent)}
+.finding[data-s="unknown"] .badge{color:var(--mute)}
+.ftitle{font-size:13.5px;font-weight:600}
+.fmeta{font-size:11.5px;color:var(--mute);margin-top:3px}
+.ev{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
+.ref{
+  font-size:11px;color:var(--ink-soft);background:var(--pane-2);border:1px solid var(--rule);
+  border-radius:6px;padding:2px 7px;cursor:copy;transition:border-color var(--fast) var(--ease)
+}
+.ref:hover{border-color:var(--accent);color:var(--accent)}
+.gapline{font-size:11.5px;color:var(--mute);margin-top:8px}
+
+/* 时间线 */
+.tl{display:flex;flex-direction:column}
+.row{display:grid;grid-template-columns:62px 21px minmax(0,1fr);gap:10px;align-items:start;padding:8px 0;border-top:1px solid var(--rule-weak)}
+.row:first-child{border-top:0}
+.ts{font-size:11.5px;color:var(--mute);text-align:right;padding-top:2px}
+.dot{width:9px;height:9px;border-radius:50%;margin:6px auto 0;background:var(--line);box-shadow:0 0 0 3px var(--pane)}
+.row[data-k="ok"] .dot{background:var(--ok)}
+.row[data-k="fail"] .dot{background:var(--danger)}
+.row[data-k="wait"] .dot{background:var(--warn)}
+.row[data-k="retry"] .dot{background:var(--accent)}
+.rmain{min-width:0}
+.rtitle{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px}
+.rtitle code{font-size:11.5px;color:var(--ink-soft);background:var(--pane-2);border-radius:5px;padding:0 5px}
+.rsub{font-size:11.5px;color:var(--mute);margin-top:2px}
+.attempt{font-size:10.5px;color:var(--accent);background:var(--accent-soft);border-radius:999px;padding:1px 7px}
+
+/* 上下文 */
+.stages{display:flex;flex-direction:column;gap:7px}
+.stage{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;border:1px solid var(--rule);border-radius:var(--r-control);padding:9px 12px;background:var(--pane)}
+.stage .nm{font-size:12.5px;font-weight:600}
+.stage .nt{font-size:11.5px;color:var(--mute);margin-top:2px}
+.st{font-size:10.5px;letter-spacing:.06em;padding:2px 8px;border-radius:999px;border:1px solid var(--rule);white-space:nowrap}
+.st[data-v="found"]{color:var(--ok);border-color:color-mix(in oklab,var(--ok) 40%,transparent)}
+.st[data-v="absent"]{color:var(--danger);border-color:color-mix(in oklab,var(--danger) 40%,transparent)}
+.st[data-v="not_recorded"],.st[data-v="not_captured"],.st[data-v="unreadable"]{color:var(--mute);border-style:dashed}
+.bstrip{display:flex;flex-direction:column;gap:6px}
+.b{display:grid;grid-template-columns:150px minmax(0,1fr) auto;gap:10px;font-size:12px;align-items:center;padding:6px 0;border-top:1px solid var(--rule-weak)}
+.b:first-child{border-top:0}
+.b .bn{color:var(--ink-soft)}
+.bar{height:5px;border-radius:999px;background:var(--line)}
+.bar>i{display:block;height:100%;border-radius:999px;background:var(--accent)}
+.b .cnt{font-size:11px;color:var(--mute);white-space:nowrap}
+.b[data-present="0"] .bar>i{background:transparent}
+.b[data-present="0"] .bn{color:var(--mute)}
+
+/* 用量 */
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th,td{text-align:right;padding:8px 10px;border-top:1px solid var(--rule-weak);white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+thead th{border-top:0;color:var(--mute);font-weight:600;font-size:11px;letter-spacing:.08em;text-transform:uppercase;padding-bottom:6px}
+td.u{color:var(--warn)}
+.tot{display:flex;gap:26px;flex-wrap:wrap;margin-top:13px;padding-top:12px;border-top:1px solid var(--rule)}
+.kpi b{display:block;font-size:18px;font-weight:800;letter-spacing:.01em}
+.kpi span{font-size:11px;color:var(--mute);letter-spacing:.06em}
+.kpi.unk b{color:var(--warn)}
+
+.empty{padding:26px;text-align:center;color:var(--mute);font-size:13px;border:1px dashed var(--rule);border-radius:var(--r-control)}
+footer.legal{padding:0 26px 30px;font-size:11.5px;color:var(--mute)}
+@media (max-width:980px){
+  .shell{grid-template-columns:1fr}
+  .side{flex-direction:row;flex-wrap:wrap;border-right:0;border-bottom:1px solid var(--rule)}
+  .side-foot,.nav-title{display:none}
+  .wrap{grid-template-columns:minmax(0,1fr)}
+  .runs{position:static}
+}
+@media (prefers-reduced-motion:reduce){
+  *{animation:none!important;transition:none!important}
+}
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside class="side">
+    <div class="brand"><span class="mark">X</span> XEYO</div>
+    <nav class="nav">
+      <div class="nav-title">工作区</div>
+      <a href="#">会话</a>
+      <a href="#">用量<span class="pill">¥0.42</span></a>
+      <a href="#" aria-current="page">诊断<span class="pill">3</span></a>
+      <a href="#">扩展</a>
+    </nav>
+    <div class="side-foot">
+      <div>提交 <span class="mono">c991be6</span> · 工作树 dirty</div>
+      <button class="btn ghost" id="scheme">切换到暗色</button>
+    </div>
+  </aside>
+
+  <main>
+    <header class="top">
+      <div class="crumb">
+        <h1>诊断中心</h1>
+        <span class="sid mono">session 8f2c41…d7 · turn 41b90c</span>
+      </div>
+      <div class="spacer"></div>
+      <button class="btn ghost">标记这轮结果不对</button>
+      <button class="btn ghost">导出 Markdown</button>
+      <button class="btn">生成免费复现</button>
+    </header>
+
+    <div class="wrap">
+      <section class="runs" aria-label="运行列表">
+        <h2>本会话运行</h2>
+        <div class="run" role="option" aria-selected="false">
+          <div class="t"><b>turn 9e12aa</b><span class="num">16:04</span></div>
+          <div class="meta">模型 2 次 · 工具 5 次</div>
+          <div class="chips"><span class="chip">模型请求</span><span class="chip">工具与权限</span><span class="chip off">适配器</span></div>
+        </div>
+        <div class="run" role="option" aria-selected="true">
+          <div class="t"><b>turn 41b90c</b><span class="num">16:11</span></div>
+          <div class="meta">模型 4 次（含重试 2）· 工具 3 次</div>
+          <div class="chips"><span class="chip">指令与上下文</span><span class="chip">模型请求</span><span class="chip">工具与权限</span><span class="chip off">后台任务</span><span class="chip off">文件与验收</span></div>
+          <div class="warn-line">尾窗 4 MiB 截断：更早事件未覆盖</div>
+        </div>
+        <div class="run" role="option" aria-selected="false">
+          <div class="t"><b>turn 77c0f1</b><span class="num">16:19</span></div>
+          <div class="meta">模型 1 次 · 工具 0 次</div>
+          <div class="chips"><span class="chip">模型请求</span></div>
+        </div>
+      </section>
+
+      <section class="detail">
+        <div class="tabs" role="tablist">
+          <button class="tab" role="tab" aria-selected="true" data-t="verdict">责任划分</button>
+          <button class="tab" role="tab" aria-selected="false" data-t="problems">问题<span class="n">6</span></button>
+          <button class="tab" role="tab" aria-selected="false" data-t="steps">步骤<span class="n">11</span></button>
+          <button class="tab" role="tab" aria-selected="false" data-t="context">上下文</button>
+          <button class="tab" role="tab" aria-selected="false" data-t="usage">用量</button>
+        </div>
+
+        <!-- 责任划分 -->
+        <div class="panel on" id="p-verdict">
+          <div class="card">
+            <h3>引擎把这一步挡下来了，不是模型没干活</h3>
+            <div class="sub">responsibility = engine · task_outcome = not_accepted · 判据是不对称的：没有发现引擎异常 ≠ 模型有错</div>
+            <div class="verdict">
+              <div class="party" data-p="engine"><b>引擎侧</b><span>responsibility</span></div>
+              <div>
+                <div class="why">失败发生在<b>执行层</b>：工具 <b>Bash</b> 的调用被权限规则 <b>bash_danger_ask</b> 挡下（结果 = denied），模型看到的是执行层的拒绝结果，而不是它自己的调用失败了。<b>该步之前还有 1 处引擎侧已确认异常</b>，因此不评价模型输出。</div>
+                <dl class="kv">
+                  <dt>首个已确认异常边界</dt><dd>工具与权限（tool_permission）</dd>
+                  <dt>最后已确认正常边界</dt><dd>模型请求与响应（model_request）</dd>
+                  <dt>约束是否送到模型</dt><dd>not_shown —— 用户声明「改完必须跑测试」未出现在最后发射的投影里</dd>
+                  <dt>任务结局</dt><dd>未执行验收：无法判定任务是否完成</dd>
+                </dl>
+              </div>
+            </div>
+            <div class="hr"></div>
+            <div class="sub" style="margin:0 0 6px">因果链 · 每一步都能回到原始记录</div>
+            <ul class="chain">
+              <li><span class="tag" data-p="engine">引擎</span><div>发射投影里没有「改完必须跑测试」这条约束 <span class="mono">working.json#last_x_sent</span></div></li>
+              <li><span class="tag" data-p="engine">引擎</span><div>Bash 被权限层挡下：matched_rule = bash_danger_ask，outcome = denied <span class="mono">audit:L18</span></div></li>
+              <li><span class="tag" data-p="undetermined">未定</span><div>没有 verifier 记录：既不能说通过，也不能说失败</div></li>
+            </ul>
+            <div class="hr"></div>
+            <div class="sub" style="margin:0 0 6px">改判还缺的证据</div>
+            <ul class="facts lack">
+              <li>未开启可复现记录：开 capture 后重跑才能看到适配器最终请求体</li>
+              <li>没有声明的预期结果：用「标记这轮结果不对」写下预期，才能进入模型侧判据</li>
+              <li>缺 verifier 记录：任务是否完成无法判定</li>
+            </ul>
+            <div class="note">本报告不宣称：不宣称这是任务失败的全部原因 · 不把「没发现引擎异常」当成模型有错 · 不给概率或加权总分</div>
+          </div>
+        </div>
+
+        <!-- 问题 -->
+        <div class="panel" id="p-problems">
+          <div class="finding" data-s="confirmed_fault">
+            <div class="rail"></div>
+            <div class="fbody">
+              <div class="fhead"><span class="badge">已确认</span><span class="ftitle">工具 Bash 被权限层挡住（结果 = denied，规则 = bash_danger_ask）</span></div>
+              <div class="fmeta">边界 tool_permission · 功能归属 权限执行层（DENY / 超时） · 规则 <span class="mono">permission_block</span> v1</div>
+              <div class="ev"><span class="ref">audit:L18 permission.pending</span><span class="ref">audit:L19 permission.resolved</span></div>
+              <div class="gapline">覆盖缺口：预期内的 DENY 与意外 DENY 在账面上同形，本规则不区分。允许结论：可确认执行被哪条实际权限结果阻断；不得把预期拒绝计成产品故障。</div>
+            </div>
+          </div>
+          <div class="finding" data-s="confirmed_fault">
+            <div class="rail"></div>
+            <div class="fbody">
+              <div class="fhead"><span class="badge">已确认</span><span class="ftitle">用户声明的约束在最后发射的投影里查不到</span></div>
+              <div class="fmeta">边界 wsc_fold · 功能归属 前缀冻结 / 折叠 · 规则 <span class="mono">loss_chain</span> v1</div>
+              <div class="ev"><span class="ref">working:L41 last_x_sent</span></div>
+              <div class="gapline">覆盖缺口：候选与选择两级没有落盘账本，不能再往下定位到具体一级。允许结论：可确认「不是这次压缩丢的」之外的信息丢失。</div>
+            </div>
+          </div>
+          <div class="finding" data-s="suspected_cause">
+            <div class="rail"></div>
+            <div class="fbody">
+              <div class="fhead"><span class="badge">疑似</span><span class="ftitle">工具 Bash 以同一 error_kind 重复失败 3 次</span></div>
+              <div class="fmeta">边界 tool_permission · 规则 <span class="mono">repeated_failure</span> v1</div>
+              <div class="ev"><span class="ref">audit:L21</span><span class="ref">audit:L24</span><span class="ref">audit:L27</span><span class="ref">…另 1 条</span></div>
+              <div class="gapline">覆盖缺口：审计不含完整参数，签名相同不等于参数相同。允许结论：不得据此断言死循环。</div>
+            </div>
+          </div>
+          <div class="finding" data-s="unknown">
+            <div class="rail"></div>
+            <div class="fbody">
+              <div class="fhead"><span class="badge">未定</span><span class="ftitle">本运行没有验收记录（未固定 verifier，或测试未运行）</span></div>
+              <div class="fmeta">边界 file_verifier · 规则 <span class="mono">verifier</span> v1</div>
+              <div class="gapline">覆盖缺口：模型说「通过」不等于已通过。允许结论：验收状态未知。</div>
+            </div>
+          </div>
+          <div class="empty">没有已确认异常时，这里仍然显示：本次规则集未发现已确认异常，这不等于任务正确。</div>
+        </div>
+
+        <!-- 步骤 -->
+        <div class="panel" id="p-steps">
+          <div class="card">
+            <h3>一次逻辑调用 4 次尝试，逐次成行</h3>
+            <div class="sub">model_request_id 1 个 · 实际尝试 3 次 · 等待授权 ≠ 卡死 ≠ 失败</div>
+            <div class="tl">
+              <div class="row" data-k="ok"><div class="ts mono">16:11:02</div><div class="dot"></div><div class="rmain"><div class="rtitle">模型请求 <code>r1</code><span class="attempt">第 1 次尝试</span></div><div class="rsub">started → failed · HTTP 429 · 限流是传输层结果，不判提示词错误 <span class="mono">audit:L12</span></div></div></div>
+              <div class="row" data-k="retry"><div class="ts mono">16:11:09</div><div class="dot"></div><div class="rmain"><div class="rtitle">模型请求 <code>r1</code><span class="attempt">第 2 次尝试</span></div><div class="rsub">started → ok · 首事件 480ms · 1,204 tok <span class="mono">audit:L14</span></div></div></div>
+              <div class="row" data-k="ok"><div class="ts mono">16:11:14</div><div class="dot"></div><div class="rmain"><div class="rtitle">工具调用 <code>Bash</code> · <span class="mono">call_7f3a</span></div><div class="rsub">dispatches → action_2b7 · 118ms <span class="mono">audit:L16</span></div></div></div>
+              <div class="row" data-k="wait"><div class="ts mono">16:11:14</div><div class="dot"></div><div class="rmain"><div class="rtitle">等待权限授权 · <code>Bash</code></div><div class="rsub">approval <span class="mono">apr_9c1d</span> → 关联原始调用 <span class="mono">call_7f3a</span> · 规则 bash_danger_ask</div></div></div>
+              <div class="row" data-k="fail"><div class="ts mono">16:11:52</div><div class="dot"></div><div class="rmain"><div class="rtitle">权限结果：denied（用户拒绝）</div><div class="rsub">该工具的调用未执行，模型看到的是执行层拒绝 <span class="mono">audit:L19</span></div></div></div>
+              <div class="row" data-k="ok"><div class="ts mono">16:11:53</div><div class="dot"></div><div class="rmain"><div class="rtitle">模型请求 <code>r1</code><span class="attempt">第 3 次尝试</span></div><div class="rsub">started → ok · 收尾回答 132 字</div></div></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 上下文 -->
+        <div class="panel" id="p-context">
+          <div class="card">
+            <h3>十个边界，五个没有记录</h3>
+            <div class="sub">present = 有可回读证据；缺项按 reason 说明，不用默认值填补</div>
+            <div class="bstrip">
+              <div class="b" data-present="0"><span class="bn">用户请求 / 接收</span><span class="bar"><i style="width:0%"></i></span><span class="cnt">无记录</span></div>
+              <div class="b" data-present="1"><span class="bn">指令与上下文</span><span class="bar"><i style="width:22%"></i></span><span class="cnt">3 条</span></div>
+              <div class="b" data-present="1"><span class="bn">WSC 折叠</span><span class="bar"><i style="width:8%"></i></span><span class="cnt">1 条</span></div>
+              <div class="b" data-present="0"><span class="bn">适配器最终请求</span><span class="bar"><i style="width:0%"></i></span><span class="cnt">未开启采集</span></div>
+              <div class="b" data-present="1"><span class="bn">模型请求与响应</span><span class="bar"><i style="width:70%"></i></span><span class="cnt">9 条</span></div>
+              <div class="b" data-present="1"><span class="bn">工具与权限</span><span class="bar"><i style="width:52%"></i></span><span class="cnt">7 条</span></div>
+              <div class="b" data-present="0"><span class="bn">后台任务</span><span class="bar"><i style="width:0%"></i></span><span class="cnt">未注入</span></div>
+              <div class="b" data-present="0"><span class="bn">文件与验收</span><span class="bar"><i style="width:0%"></i></span><span class="cnt">未采集</span></div>
+            </div>
+          </div>
+          <div class="card">
+            <h3>这条约束到底在哪一级消失</h3>
+            <div class="sub">needle = 「改完必须跑测试」· 匹配是字符串级的：出现某个词不等于模型理解了它</div>
+            <div class="stages">
+              <div class="stage"><div><div class="nm">源历史（transcript）</div><div class="nt">命中 1 条消息 · <span class="mono">transcript:L4</span></div></div><span class="st" data-v="found">找到</span></div>
+              <div class="stage"><div><div class="nm">结构化事件与状态</div><div class="nt">todos / 原子 / 指令路径未命中</div></div><span class="st" data-v="absent">未命中</span></div>
+              <div class="stage"><div><div class="nm">进入候选</div><div class="nt">活路径没有落盘候选账本：这一级无法判定</div></div><span class="st" data-v="not_recorded">未记账</span></div>
+              <div class="stage"><div><div class="nm">被选择</div><div class="nt">manifest 只给计数与结构，不给逐条选择理由</div></div><span class="st" data-v="not_recorded">未记账</span></div>
+              <div class="stage"><div><div class="nm">已发射（投影）</div><div class="nt">发送投影 4,182 字符，未命中该约束</div></div><span class="st" data-v="absent">未命中</span></div>
+              <div class="stage"><div><div class="nm">最终请求体</div><div class="nt">该会话未开启可复现记录：只能定位到投影边界</div></div><span class="st" data-v="not_captured">未采集</span></div>
+              <div class="stage"><div><div class="nm">冷层句柄可回读</div><div class="nt">句柄可读；账本按会话聚合，不能证明为这一条发起过取回</div></div><span class="st" data-v="found">找到</span></div>
+            </div>
+            <div class="note">结论：lost_before:emitted —— 该事实在源历史里查得到、在最后发射的投影里查不到；中间的候选 / 选择两级没有落盘账本，不能再往下定位。</div>
+          </div>
+        </div>
+
+        <!-- 用量 -->
+        <div class="panel" id="p-usage">
+          <div class="card">
+            <h3>3 次已结束的尝试，1 次费用未知</h3>
+            <div class="sub">cost_basis = 按 usage 估算（非账单实付）· 缺账不并入合计，也不释放预算预留</div>
+            <table>
+              <thead><tr><th>尝试</th><th>状态</th><th>cache hit</th><th>cache miss</th><th>output</th><th>费用</th><th>口径</th></tr></thead>
+              <tbody>
+                <tr><td class="mono">r1#1</td><td>failed 429</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="u">费用未知</td><td>无账</td></tr>
+                <tr><td class="mono">r1#2</td><td>ok</td><td class="num">18,432</td><td class="num">1,204</td><td class="num">317</td><td class="num">¥0.0091</td><td>estimate</td></tr>
+                <tr><td class="mono">r1#3</td><td>ok</td><td class="num">19,636</td><td class="num">286</td><td class="num">132</td><td class="num">¥0.0068</td><td>estimate</td></tr>
+              </tbody>
+            </table>
+            <div class="tot">
+              <div class="kpi"><b class="num">3</b><span>已结束尝试</span></div>
+              <div class="kpi"><b class="num">2</b><span>有用量账</span></div>
+              <div class="kpi unk"><b class="num">1</b><span>费用未知</span></div>
+              <div class="kpi"><b class="num">¥0.0159</b><span>估算合计</span></div>
+              <div class="kpi"><b class="num">0.99</b><span>前缀命中率</span></div>
+            </div>
+            <div class="note">2 次尝试在用量账本里没有对应记录时按「未知」呈现：账本在 usage 缺失时整行不写，所以「没有行」既可能是没计费也可能是没落账。</div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <footer class="legal">
+      样式站点与实现同源字段：<span class="mono">fault.responsibility</span> · <span class="mono">fault.task_outcome</span> · <span class="mono">fault.shown_to_model</span> · <span class="mono">fault.missing_evidence</span> · <span class="mono">attribution.first_anomaly_boundary</span> · <span class="mono">findings[].status</span> · <span class="mono">windows[].complete</span> · <span class="mono">usage_summary.unknown_cost_attempts</span>
+    </footer>
+  </main>
+</div>
+
+<script>
+// 标签切换：纯 DOM，数据全部写死在 HTML 里（不引入图表库，避免把样式站点做成报告页）
+const tabs=[...document.querySelectorAll('.tab')];
+tabs.forEach(t=>t.addEventListener('click',()=>{
+  tabs.forEach(x=>x.setAttribute('aria-selected',String(x===t)));
+  document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('on',p.id==='p-'+t.dataset.t));
+}));
+document.querySelectorAll('.run').forEach(r=>r.addEventListener('click',()=>{
+  document.querySelectorAll('.run').forEach(x=>x.setAttribute('aria-selected',String(x===r)));
+}));
+document.querySelectorAll('.ref').forEach(el=>el.addEventListener('click',async()=>{
+  try{await navigator.clipboard.writeText(el.textContent.trim());el.style.borderColor='var(--accent)'}catch{}
+}));
+const btn=document.getElementById('scheme');
+btn.addEventListener('click',()=>{
+  const dark=document.documentElement.dataset.scheme==='dark';
+  document.documentElement.dataset.scheme=dark?'light':'dark';
+  btn.textContent=dark?'切换到暗色':'切换到浅色';
+});
+</script>
+</body>
+</html>

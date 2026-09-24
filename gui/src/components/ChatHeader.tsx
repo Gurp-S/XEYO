@@ -77,8 +77,9 @@ export const ChatHeader = memo(function ChatHeader({
 	const location = useLocation();
 	const pageView = pageViewFromPath(location.pathname);
 	const usageOpen = pageView === 'usage';
-	// 扩展中心与用量同为页面级视图:打开时标题切换、用量预览让位(2026-09-05)。
+	// 扩展中心 / 诊断中心与用量同为页面级视图:打开时标题切换、用量预览让位(2026-09-05)。
 	const pluginsOpen = pageView === 'plugins';
+	const diagnosticsOpen = pageView === 'diagnostics';
 	const pageViewOpen = pageView !== null;
 	const historyById = useChatStore(s => s.historyById);
 	const backendSessionId = activeId
@@ -106,9 +107,11 @@ export const ChatHeader = memo(function ChatHeader({
 		? '用量'
 		: pluginsOpen
 			? '扩展中心'
-			: shortAgent
-				? `${sessionTitle} / ${shortAgent}`
-				: sessionTitle;
+			: diagnosticsOpen
+				? '诊断中心'
+				: shortAgent
+					? `${sessionTitle} / ${shortAgent}`
+					: sessionTitle;
 	const workspace = spaces.find(s => s.id === activeSpaceId);
 	const workspaceLabel = mode === 'main' && !pageViewOpen && workspace?.rootPath
 		? workspace.name

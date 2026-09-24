@@ -136,9 +136,25 @@ class WorkingState:
     #: 路径级读/写观测（`Observation.to_dict()` 形态，键 = 归一化路径）。由 reducer 的
     #: FileObserver 增量维护，projector 渲染时 join。
     obs: dict[str, dict[str, Any]] = field(default_factory=dict)
+    #: 路径触碰账：`path -> {"first": 首次事件下标, "last": 最后触碰下标, "fail": 是否失败现场}`。
+    #: 与 `obs` 同类，**不是事实**：它不声称"这个文件是什么状态"，只记"这份前缀里碰过它"。
+    #: 所以它不需要退场证据（V1 的解法也一样：配额 + 时效排序，见 `synaptic/paths.py`），
+    #: 也就不会掉进"给事实加保质期 ⇒ 误删"那个已被实测判死的形状。
+    paths: dict[str, dict[str, int]] = field(default_factory=dict)
     events_seen: int = 0
     last_event_id: str = ""
     last_event_index: int = -1
+
+    def touch_path(self, path: str, index: int, *, failed: bool = False) -> None:
+        """记一次触碰。首/末下标单调，重复触碰不产生新条目。"""
+        cur = self.paths.get(path)
+        if cur is None:
+            self.paths[path] = {"first": int(index), "last": int(index),
+                                "fail": 1 if failed else 0}
+            return
+        cur["last"] = max(int(cur["last"]), int(index))
+        cur["first"] = min(int(cur["first"]), int(index))
+        cur["fail"] = int(cur.get("fail", 0)) or (1 if failed else 0)
 
     def _slot(self, kind: str, key: str) -> str:
         return f"{kind}:{key}"

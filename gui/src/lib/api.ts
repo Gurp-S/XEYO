@@ -30,6 +30,51 @@ export {setSessionRuntimeMode} from './api/runtimeMode';
 export {fetchSkills} from './api/skills';export type {SkillInfo, SkillSource, SkillsReport} from './api/skills';
 export {fetchFileReferences} from './api/references';
 export type {FileReferencesReport} from './api/references';
+export {
+	cancelDiagExperiment,
+	deleteDiagPin,
+	fetchDiagCapture,
+	fetchDiagMessage,
+	fetchDiagPins,
+	fetchDiagReportMarkdown,
+	fetchDiagRun,
+	fetchDiagRunEvents,
+	fetchDiagRuns,
+	listDiagExperiments,
+	parseRunDetail,
+	parseRunsResult,
+	pinDiagRun,
+	planDiagExperiment,
+	recordDiagVerifier,
+	setDiagCapture,
+	startDiagExperiment,
+	traceDiagFact,
+} from './api/diagnostics';
+export type {
+	DiagAttempt,
+	DiagAttribution,
+	DiagBoundary,
+	DiagCaptureState,
+	DiagCoverageEntry,
+	DiagEvent,
+	DiagEvidenceRef,
+	DiagFactStage,
+	DiagFactTrace,
+	DiagFinding,
+	DiagModelRequest,
+	DiagPermission,
+	DiagPin,
+	DiagPinInput,
+	DiagRawResult,
+	DiagRunDetail,
+	DiagRunListItem,
+	DiagRunsResult,
+	DiagToolCall,
+	DiagUsageRow,
+	DiagUsageSummary,
+	DiagWindow,
+	DiagGap,
+} from './api/diagnostics';
 export {readTurnCursor, rememberTurnCursor, streamChat, streamTurnEvents} from './api/chatStream';
 export type {ServerSession, SessionAgentMeta} from './api/chatStream';
 export {MEDIA_REF_RE, REQUEST_TIMEOUT_MS, STREAM_IDLE_TIMEOUT_MS, authHeaders, createStreamWatchdog, fetchWithTimeout, formatErrorDetail, mediaUrl, parseOpenAiSse, parseSseBlock, readIdentity} from './api/core';

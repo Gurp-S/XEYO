@@ -221,8 +221,8 @@
 /* 思考行：思考是成段的散文，不是「动词 + 对象」，所以保留独立的动词栏，
    但仍共用同一条悬挂列，两种行左边缘对得齐。 */
 .xy-split-step.thought-step {
-  grid-template-columns: 15px 89px minmax(0, 1fr);
-  gap: 0 8px;
+  grid-template-columns: 15px auto minmax(0, 1fr);
+  gap: 0 6px;
 }
 
 /* 行首状态符：• 完成 / ✕ 失败 / 脉冲点 进行中 */

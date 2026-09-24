@@ -1,0 +1,676 @@
+/**
+ * features/diagnostics/model.ts — 诊断页的纯函数层（无 React、无 fetch）。
+ *
+ * 这里放的是**措辞纪律**的落点，因此单独成模块以便直接单测：
+ * - 缺用量 → null → 「费用未知」，永不显示 ¥0；
+ * - 每次重试各成一行（按 (model_request_id, attempt) 分组，绝不折叠成最后一次）；
+ * - 等待授权 / 长任务 ≠ 失败：tone 用 waiting / active，不用 fail；
+ * - 不合成概率、不加权总分：只有后端字段与固定措辞。
+ */
+import type {
+	DiagAttempt,
+	DiagEvidenceRef,
+	DiagFinding,
+	DiagModelRequest,
+	DiagPermission,
+	DiagRunDetail,
+	DiagUsageRow,
+} from '@/lib/api/diagnostics';
+
+export type TimelineTone =
+	| 'neutral'
+	| 'active'
+	| 'waiting'
+	| 'ok'
+	| 'warn'
+	| 'fail';
+
+export type TimelineRow = {
+	key: string;
+	ts: number | null;
+	source: 'model' | 'tool' | 'permission' | 'job' | 'event';
+	kind: string;
+	/** 中文动作词（事实型措辞，不含评价）。 */
+	title: string;
+	/** 关联身份（model_request_id / tool_use_id / approval_id / job_id）。 */
+	subject: string;
+	statusText: string;
+	tone: TimelineTone;
+	/** 「第 N 次尝试」；非模型行为空串。 */
+	attemptText: string;
+	durationMs: number | null;
+	/** null = 该尝试没有用量账 → 费用未知（不是 0）。 */
+	costCny: number | null;
+	hasUsage: boolean;
+	boundary: string;
+	lineNo: number | null;
+	evidence: DiagEvidenceRef[];
+};
+
+// ---------------------------------------------------------------------------
+// 格式化（null 一律 '—'）
+// ---------------------------------------------------------------------------
+
+export const DASH = '—';
+
+export function fmtDash(v: string | number | null | undefined): string {
+	if (v === null || v === undefined) return DASH;
+	if (typeof v === 'string') return v.trim() ? v : DASH;
+	return String(v);
+}
+
+/** 审计 ts 是 epoch 秒；缺值不猜。 */
+export function fmtClock(ts: number | null | undefined): string {
+	const raw = ts == null ? null : ts;
+	if (raw == null) return DASH;
+	const ms = raw < 1e12 ? raw * 1000 : raw;
+	const d = new Date(ms);
+	if (Number.isNaN(d.getTime())) return DASH;
+	const p = (x: number) => String(x).padStart(2, '0');
+	return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+export function fmtDuration(ms: number | null | undefined): string {
+	if (ms == null || !Number.isFinite(ms) || ms < 0) return DASH;
+	if (ms < 1000) return `${Math.round(ms)}ms`;
+	if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
+	const total = Math.floor(ms / 1000);
+	const m = Math.floor(total / 60);
+	const sec = total % 60;
+	return `${m}:${String(sec).padStart(2, '0')}`;
+}
+
+/** 费用：null = 费用未知；有账才出金额（¥0 也只可能来自真实账目）。 */
+export function fmtCostCny(v: number | null | undefined): string {
+	if (v == null || !Number.isFinite(v)) return '费用未知';
+	return `¥${Math.abs(v) < 1 ? v.toFixed(4) : v.toFixed(2)}`;
+}
+
+export function fmtInt(v: number | null | undefined): string {
+	if (v == null || !Number.isFinite(v)) return DASH;
+	return Math.round(v).toLocaleString('en-US');
+}
+
+/** 字节 → 人类可读（采集配额用）；null = 未知。 */
+export function fmtBytes(v: number | null | undefined): string {
+	if (v == null || !Number.isFinite(v)) return DASH;
+	if (v < 1024) return `${v} B`;
+	const units = ['KB', 'MB', 'GB', 'TB'];
+	let out = v;
+	let i = -1;
+	do {
+		out = out / 1024;
+		i += 1;
+	} while (out >= 1024 && i < units.length - 1);
+	return `${out.toFixed(out >= 10 ? 0 : 1)} ${units[i]}`;
+}
+
+// ---------------------------------------------------------------------------
+// 结论分组 / 措辞
+// ---------------------------------------------------------------------------
+
+export type FindingStatus = 'confirmed_fault' | 'suspected_cause' | 'unknown';
+
+export const FINDING_STATUS_LABEL: Record<FindingStatus, string> = {
+	confirmed_fault: '已确认',
+	suspected_cause: '疑似',
+	unknown: '未定',
+};
+
+export function findingStatusOf(f: DiagFinding): FindingStatus {
+	if (f.status === 'confirmed_fault') return 'confirmed_fault';
+	if (f.status === 'suspected_cause') return 'suspected_cause';
+	return 'unknown';
+}
+
+/** 无已确认异常时的固定免责措辞（不得渲染成绿色"通过"）。 */
+export const NO_CONFIRMED_FAULT_TEXT =
+	'本次规则集未发现已确认异常，这不等于任务正确';
+
+/** 未归因时的固定措辞。 */
+export const NOT_ATTRIBUTED_TEXT = '无法归因';
+
+export function groupFindingsByStatus(
+	findings: DiagFinding[],
+): Record<FindingStatus, DiagFinding[]> {
+	const out: Record<FindingStatus, DiagFinding[]> = {
+		confirmed_fault: [],
+		suspected_cause: [],
+		unknown: [],
+	};
+	for (const f of findings) out[findingStatusOf(f)].push(f);
+	return out;
+}
+
+export function hasConfirmedFault(findings: DiagFinding[]): boolean {
+	return findings.some(f => findingStatusOf(f) === 'confirmed_fault');
+}
+
+/**
+ * 归因块措辞：后端 statement 优先；缺字段时按同一纪律给保守文案，
+ * 永不产出「没有异常 / 通过」。
+ */
+export function attributionLines(detail: DiagRunDetail): string[] {
+	const att = detail.attribution;
+	const lines: string[] = [];
+	if (!att) {
+		lines.push(NOT_ATTRIBUTED_TEXT + '：本轮未取回归因块（报告未生成或来源不可读）。');
+		return lines;
+	}
+	lines.push(
+		att.attributed
+			? `首个已确认异常边界：${att.first_anomaly_label || DASH}`
+			: `${NOT_ATTRIBUTED_TEXT}：没有已确认异常的边界记录。`,
+	);
+	lines.push(
+		`最后一个已确认正常边界：${att.last_normal_label || '无（该边界之前的记录本身缺失）'}`,
+	);
+	if (att.statement) lines.push(att.statement);
+	return lines;
+}
+
+/** 采集/记录完整性措辞：absent ≠ 没发生。 */
+export const COVERAGE_STATE_LABEL: Record<string, string> = {
+	full: '完整',
+	partial: '部分',
+	absent: '无记录',
+	redacted: '已脱敏',
+	expired: '已过期',
+	not_captured: '未采集',
+};
+
+export function coverageStateLabel(state: string): string {
+	return COVERAGE_STATE_LABEL[state] ?? (state || DASH);
+}
+
+export const FACT_STATE_LABEL: Record<string, string> = {
+	found: '找到',
+	absent: '未命中',
+	not_recorded: '该级未记账',
+	not_captured: '该级未采集',
+	unreadable: '不可读',
+};
+
+export function factStateLabel(state: string): string {
+	return FACT_STATE_LABEL[state] ?? (state || DASH);
+}
+
+// ---------------------------------------------------------------------------
+// 时间线
+// ---------------------------------------------------------------------------
+
+/** 时间戳统一到毫秒：审计/job 用 epoch 秒，GUI 差值按毫秒算。 */
+function toMs(v: unknown): number | null {
+	if (typeof v !== 'number' || !Number.isFinite(v)) return null;
+	if (v <= 0) return null;
+	return v < 1e12 ? Math.round(v * 1000) : Math.round(v);
+}
+
+function num(v: unknown): number | null {
+	if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+	if (typeof v === 'string' && v.trim()) {
+		const f = Number(v);
+		return Number.isFinite(f) ? f : null;
+	}
+	return null;
+}
+
+function str(v: unknown): string {
+	if (typeof v === 'string') return v;
+	if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+	return '';
+}
+
+const KIND_LABEL: Record<string, string> = {
+	'model.started': '模型请求发出',
+	'llm.failure': '模型请求失败',
+	'tool.started': '工具开始执行',
+	'tool.finished': '工具结束',
+	'permission.pending': '等待权限授权',
+	'permission.resolved': '权限已处理',
+	'permission.denied': '权限被拒绝',
+};
+
+function modelAttemptLabel(a: DiagAttempt): string {
+	if (a.kind === 'llm.failure') return '模型请求失败';
+	if (a.kind === 'model.finished') return '模型响应结束';
+	if (a.kind === 'model.started') return '模型请求发出';
+	return a.kind || DASH;
+}
+
+function attemptFailed(a: DiagAttempt): boolean {
+	if (a.kind === 'llm.failure') return true;
+	if (a.error_code || a.error_kind) return true;
+	const st = a.status.toLowerCase();
+	return st.includes('error') || st.includes('fail') || st === 'timeout';
+}
+
+/**
+ * 一次逻辑调用内的多次尝试按 attempt 号分组：同一 attempt 的 started/finished
+ * 合成一行，但不同 attempt 绝不合并（设计 §5.1：不能只显示最后一次尝试）。
+ */
+function groupAttempts(mr: DiagModelRequest): DiagAttempt[][] {
+	const order: string[] = [];
+	const map = new Map<string, DiagAttempt[]>();
+	for (const a of mr.attempts) {
+		const k = a.attempt == null ? `_无尝试号_${order.length}` : `#${a.attempt}`;
+		if (!map.has(k)) {
+			map.set(k, []);
+			order.push(k);
+		}
+		map.get(k)!.push(a);
+	}
+	return order.map(k => map.get(k)!);
+}
+
+function usageOf(mr: DiagModelRequest, attempt: number | null): DiagUsageRow | null {
+	const key = mr.model_request_id && attempt != null ? `${mr.model_request_id}#${attempt}` : '';
+	if (key && mr.usage_by_attempt[key]) return mr.usage_by_attempt[key];
+	const hit = Object.values(mr.usage_by_attempt).find(
+		r => r.attempt === attempt && (attempt == null || r.request_id === mr.model_request_id),
+	);
+	return hit ?? null;
+}
+
+function permissionState(perms: DiagPermission[]): Map<string, {pending: DiagPermission[]; resolved: DiagPermission[]}> {
+	const map = new Map<string, {pending: DiagPermission[]; resolved: DiagPermission[]}>();
+	for (const p of perms) {
+		const key = p.request_id || p.tool_use_id;
+		if (!key) continue;
+		const cur = map.get(key) ?? {pending: [], resolved: []};
+		if (p.kind.startsWith('permission.pending')) cur.pending.push(p);
+		else cur.resolved.push(p);
+		map.set(key, cur);
+	}
+	return map;
+}
+
+/** 一次工具调用是否有尚未结束的授权等待。 */
+function waitingApprovalIds(detail: DiagRunDetail): Set<string> {
+	const out = new Set<string>();
+	const states = permissionState(detail.permissions);
+	for (const [key, st] of states) {
+		if (st.pending.length && !st.resolved.length) out.add(key);
+	}
+	return out;
+}
+
+export function buildTimeline(detail: DiagRunDetail): TimelineRow[] {
+	const rows: TimelineRow[] = [];
+	const waiting = waitingApprovalIds(detail);
+
+	// 1) 模型请求：逐 attempt 成行。
+	for (const mr of detail.model_requests) {
+		for (const group of groupAttempts(mr)) {
+			const first = group[0]!;
+			const last = group[group.length - 1]!;
+			const attemptNo = first.attempt;
+			const failed = group.some(attemptFailed);
+			const finished = group.some(a => a.kind === 'model.finished' && !attemptFailed(a));
+			const usage = usageOf(mr, attemptNo);
+			const startMs = toMs(first.ts);
+			const endMs = toMs(last.ts);
+			const dur =
+				num(last.duration_ms) ??
+				(startMs != null && endMs != null && endMs >= startMs ? endMs - startMs : null);
+			const errText = [last.error_code, last.error_kind, last.status && !finished && !failed ? last.status : '']
+				.filter(Boolean)
+				.join(' · ');
+			rows.push({
+				key: `model:${mr.model_request_id}:${attemptNo ?? 'x'}:${first.line_no ?? 0}`,
+				ts: last.ts ?? first.ts,
+				source: 'model',
+				kind: group.map(a => a.kind).filter(Boolean).join(' → ') || DASH,
+				title: failed ? '模型请求失败' : finished ? '模型响应结束' : modelAttemptLabel(first),
+				subject: mr.model_request_id,
+				statusText: [
+					`第 ${attemptNo == null ? '?' : attemptNo} 次尝试`,
+					mr.model || DASH,
+					errText || (finished ? '正常结束' : failed ? '未产出正常结果' : '未见结束记录'),
+				]
+					.filter(Boolean)
+					.join(' · '),
+				tone: failed ? 'fail' : finished ? 'ok' : 'active',
+				attemptText: `第 ${attemptNo == null ? '?' : attemptNo} 次尝试`,
+				durationMs: dur,
+				costCny: usage ? usage.cost_cny : null,
+				hasUsage: usage != null,
+				boundary: 'model_request',
+				lineNo: last.line_no ?? first.line_no,
+				evidence: mr.evidence,
+			});
+		}
+	}
+
+	// 2) 工具调用：一次调用一行（未结束 = 执行中，不是失败）。
+	for (const tc of detail.tool_calls) {
+		const startedMs = toMs(num(tc.started?.ts));
+		const finishedMs = toMs(num(tc.finished?.ts));
+		const dur =
+			num(tc.finished?.duration_ms) ??
+			(startedMs != null && finishedMs != null && finishedMs >= startedMs
+				? finishedMs - startedMs
+				: null);
+		const waitingHere = tc.approval_ids.some(id => waiting.has(id)) || waiting.has(tc.tool_use_id);
+		const isError = tc.is_error === true;
+		const parts: string[] = [];
+		if (tc.error_kind) parts.push(tc.error_kind);
+		if (tc.model_request_id) parts.push(`请求 ${tc.model_request_id}`);
+		if (tc.approval_ids.length) parts.push(`授权 ${tc.approval_ids.join(' / ')}`);
+		if (!tc.paired) parts.push(tc.started ? '未见结束记录' : '未见开始记录');
+		rows.push({
+			key: `tool:${tc.tool_use_id}`,
+			ts: num(tc.finished?.ts) ?? num(tc.started?.ts),
+			source: 'tool',
+			kind: tc.paired ? 'tool.started → tool.finished' : tc.started ? 'tool.started' : 'tool.finished',
+			title: waitingHere
+				? '工具等待授权'
+				: isError
+					? '工具返回错误'
+					: tc.paired
+						? '工具执行完成'
+						: '工具执行中',
+			subject: tc.tool_use_id,
+			statusText: [tc.tool_name || DASH, parts.join(' · ')].filter(Boolean).join(' · '),
+			tone: waitingHere ? 'waiting' : isError ? 'fail' : tc.paired ? 'ok' : 'active',
+			attemptText: '',
+			durationMs: dur,
+			costCny: null,
+			hasUsage: false,
+			boundary: 'tool_permission',
+			lineNo: num(tc.finished?.line_no) ?? num(tc.started?.line_no),
+			evidence: tc.evidence,
+		});
+	}
+
+	// 3) 权限审批：等待与结果分别成行（等待 ≠ 卡死 ≠ 失败）。
+	for (const [key, st] of permissionState(detail.permissions)) {
+		const pendingOnly = st.pending.length > 0 && st.resolved.length === 0;
+		const last = st.resolved[st.resolved.length - 1];
+		const outcome = last
+			? str(last.outcome) || (last.approved === false ? 'denied' : last.approved ? 'allowed' : '')
+			: '';
+		const blocked = outcome === 'denied' || outcome === 'timeout';
+		const toolName =
+			str(st.pending[0]?.tool_name) || str(last?.tool_name) || DASH;
+		rows.push({
+			key: `permission:${key}:${st.pending[0]?.line_no ?? last?.line_no ?? 0}`,
+			ts: num(last?.ts) ?? num(st.pending[0]?.ts),
+			source: 'permission',
+			kind: pendingOnly
+				? 'permission.pending'
+				: str(last?.kind) || 'permission.resolved',
+			title: pendingOnly
+				? '等待用户授权'
+				: blocked
+					? '权限层挡住该工具'
+					: '授权已通过',
+			subject: key,
+			statusText: [
+				`工具 ${toolName}`,
+				str(last?.matched_rule) || str(st.pending[0]?.matched_rule)
+					? `规则 ${str(last?.matched_rule) || str(st.pending[0]?.matched_rule)}`
+					: '',
+				outcome ? `结果 ${outcome}` : pendingOnly ? '未结束：仍在等待，不代表卡死' : '',
+			]
+				.filter(Boolean)
+				.join(' · '),
+			tone: pendingOnly ? 'waiting' : blocked ? 'warn' : 'ok',
+			attemptText: '',
+			durationMs:
+				st.pending[0]?.ts != null && last?.ts != null
+					? (toMs(last.ts) ?? 0) - (toMs(st.pending[0].ts) ?? 0)
+					: null,
+			costCny: null,
+			hasUsage: false,
+			boundary: 'tool_permission',
+			lineNo: last?.line_no ?? st.pending[0]?.line_no ?? null,
+			evidence: [
+				...st.pending.map(p => ({source: 'audit', locator: '', ref_id: p.line_no ? `L${p.line_no}` : '', detail: p.kind})),
+				...st.resolved.map(p => ({source: 'audit', locator: '', ref_id: p.line_no ? `L${p.line_no}` : '', detail: p.kind})),
+			],
+		});
+	}
+
+	// 4) 后台任务：合法长任务与失败分开显示。
+	for (const job of detail.jobs) {
+		const status = str(job.status);
+		const active = status === 'running' || status === 'stopping';
+		const failedJob = status === 'failed' || status === 'killed';
+		const startedMs = toMs(num(job.started_at));
+		const finishedMs = toMs(num(job.finished_at));
+		rows.push({
+			key: `job:${str(job.job_id) || String(rows.length)}`,
+			ts: num(job.finished_at) ?? num(job.started_at),
+			source: 'job',
+			kind: 'job',
+			title: active
+				? '后台任务运行中'
+				: status === 'succeeded'
+					? '后台任务已完成'
+					: failedJob
+						? '后台任务终止于错误'
+						: `后台任务 ${status || DASH}`,
+			subject: str(job.job_id),
+			statusText: [str(job.label) || str(job.kind) || DASH, str(job.detail)]
+				.filter(Boolean)
+				.join(' · '),
+			tone: active ? 'active' : failedJob ? 'fail' : 'neutral',
+			attemptText: '',
+			durationMs:
+				startedMs != null && finishedMs != null && finishedMs >= startedMs
+					? finishedMs - startedMs
+					: null,
+			costCny: null,
+			hasUsage: false,
+			boundary: 'background_job',
+			lineNo: null,
+			evidence: [],
+		});
+	}
+
+	// 5) 其余审计事件：只补前三类没覆盖的（按 line_no 去重，不重复记账）。
+	const coveredLines = new Set<number>();
+	for (const r of rows) if (r.lineNo != null) coveredLines.add(r.lineNo);
+	for (const e of detail.events) {
+		if (coveredLines.has(e.line_no)) continue;
+		if (
+			e.kind.startsWith('model.') ||
+			e.kind === 'llm.failure' ||
+			e.kind.startsWith('tool.') ||
+			e.kind.startsWith('permission.')
+		) {
+			continue;
+		}
+		rows.push({
+			key: `event:${e.seq}:${e.line_no}`,
+			ts: e.ts,
+			source: 'event',
+			kind: e.kind,
+			title: KIND_LABEL[e.kind] ?? e.kind,
+			subject: e.turn_id || e.session_id,
+			statusText: Object.entries(e.row)
+				.filter(([k]) => !['ts', 'kind', 'session_id', 'turn_id', 'trace_id'].includes(k))
+				.slice(0, 4)
+				.map(([k, v]) => `${k}=${str(v)}`)
+				.join(' · '),
+			tone: 'neutral',
+			attemptText: '',
+			durationMs: null,
+			costCny: null,
+			hasUsage: false,
+			boundary: '',
+			lineNo: e.line_no,
+			evidence: [e.evidence],
+		});
+	}
+
+	rows.sort((a, b) => {
+		const ta = a.ts ?? 0;
+		const tb = b.ts ?? 0;
+		if (ta !== tb) return ta - tb;
+		return (a.lineNo ?? 0) - (b.lineNo ?? 0);
+	});
+	return rows;
+}
+
+// ---------------------------------------------------------------------------
+// 用量表（逐 attempt）
+// ---------------------------------------------------------------------------
+
+export type AttemptUsageRow = {
+	key: string;
+	requestId: string;
+	attempt: number | null;
+	model: string;
+	provider: string;
+	finished: boolean;
+	failed: boolean;
+	/** 该尝试的时间（优先用量账，其次审计事件）。 */
+	ts: number | null;
+	inputHit: number | null;
+	inputMiss: number | null;
+	output: number | null;
+	costCny: number | null;
+	costSource: string;
+	/** 该尝试有没有用量账（false → 费用未知）。 */
+	hasUsage: boolean;
+	lineNo: number | null;
+};
+
+export function buildAttemptUsage(detail: DiagRunDetail): AttemptUsageRow[] {
+	const out: AttemptUsageRow[] = [];
+	for (const mr of detail.model_requests) {
+		for (const group of groupAttempts(mr)) {
+			const first = group[0]!;
+			const last = group[group.length - 1]!;
+			const finished = group.some(a => a.kind === 'model.finished' && !attemptFailed(a));
+			const failed = group.some(attemptFailed);
+			const usage = usageOf(mr, first.attempt);
+			out.push({
+				key: `${mr.model_request_id}#${first.attempt ?? 'x'}`,
+				requestId: mr.model_request_id,
+				attempt: first.attempt,
+				model: mr.model || (usage?.model ?? ''),
+				provider: mr.provider || (usage?.vendor ?? ''),
+				finished,
+				failed,
+				ts: usage?.ts ?? last.ts ?? first.ts,
+				inputHit: usage ? usage.cache_hit : null,
+				inputMiss: usage ? usage.cache_miss : null,
+				output: usage ? usage.output : null,
+				costCny: usage ? usage.cost_cny : null,
+				costSource: usage?.cost_source ?? '',
+				hasUsage: usage != null,
+				lineNo: last.line_no ?? first.line_no,
+			});
+		}
+	}
+	return out;
+}
+
+/**
+ * 估算合计措辞：无依据 / 有未知尝试时绝不给出一个看起来确定的 ¥ 数字。
+ */
+export function estimatedTotalLabel(
+	summary: DiagRunDetail['usage_summary'],
+): string {
+	if (!summary) return '费用未知：未取回用量汇总';
+	const unknown = summary.unknown_cost_attempts;
+	if (summary.cost_basis === '无可依据的用量' || summary.estimated_total_cny == null) {
+		return unknown > 0
+			? `费用未知（${unknown} 次已结束尝试没有用量账，未按 0 计入）`
+			: '费用未知：无可依据的用量';
+	}
+	const total = fmtCostCny(summary.estimated_total_cny);
+	return unknown > 0
+		? `${total}（另有 ${unknown} 次已结束尝试费用未知，未按 0 计入）`
+		: total;
+}
+
+/** 责任方标签：判"模型的错"的门槛比引擎高，措辞必须能体现这种不对称。 */
+export const PARTY_LABEL: Record<string, string> = {
+	engine: '引擎侧',
+	model: '模型侧',
+	environment: '外部环境',
+	mixed: '混合',
+	undetermined: '无法归因',
+};
+
+export const PARTY_TONE: Record<string, 'fail' | 'warn' | 'neutral' | 'unknown'> = {
+	engine: 'fail',
+	model: 'warn',
+	environment: 'neutral',
+	mixed: 'fail',
+	undetermined: 'unknown',
+};
+
+/** 约束是否进入模型实际收到的内容。 */
+export const SHOWN_LABEL: Record<string, string> = {
+	shown: '已送达模型',
+	not_shown: '未送达',
+	unprovable: '无法证明是否送达',
+	no_obligation: '没有声明的约束',
+};
+
+export const COST_BASIS_LABEL = '按 usage 估算（非账单实付）';
+
+/** 采集开关的产品措辞：只写文件，不改变模型可见内容。 */
+export const CAPTURE_NOTE =
+	'开启后只把适配器最终请求体落盘到本机，不改变模型可见的消息、工具执行结果或本轮任何输出。';
+
+/** 证据引用 → 可复制文本（source + ref_id + locator）。 */
+export function evidenceText(e: DiagEvidenceRef): string {
+	return [e.source, e.ref_id, e.locator, e.detail].filter(Boolean).join(' | ');
+}
+
+// ---------------------------------------------------------------------------
+// 运行列表的边界覆盖
+// ---------------------------------------------------------------------------
+
+/** 与 python/diagnostics/collect.py::BOUNDARIES 同序同名的展示表（未知名字回落原名）。 */
+export const BOUNDARY_ORDER: ReadonlyArray<{name: string; label: string}> = [
+	{name: 'user_request', label: '用户请求 / 接收'},
+	{name: 'resume_schedule', label: '会话恢复与调度'},
+	{name: 'instruction_context', label: '指令与上下文'},
+	{name: 'wsc_fold', label: 'WSC 折叠'},
+	{name: 'adapter', label: '适配器最终请求'},
+	{name: 'model_request', label: '模型请求与响应'},
+	{name: 'tool_permission', label: '工具与权限'},
+	{name: 'background_job', label: '后台任务'},
+	{name: 'file_verifier', label: '文件与验收'},
+	{name: 'sse_gui', label: 'SSE / 界面'},
+];
+
+export type RunBoundaryCoverage = {
+	name: string;
+	label: string;
+	present: boolean;
+};
+
+export function boundaryCoverageOfRun(run: {boundaries: string[]}): RunBoundaryCoverage[] {
+	const known = new Set<string>(run.boundaries ?? []);
+	const out: RunBoundaryCoverage[] = BOUNDARY_ORDER.map(b => ({
+		name: b.name,
+		label: b.label,
+		present: known.has(b.name),
+	}));
+	// 后端若新增边界名，原样追加，不静默丢弃。
+	for (const extra of known) {
+		if (!BOUNDARY_ORDER.some(b => b.name === extra)) {
+			out.push({name: extra, label: extra, present: true});
+		}
+	}
+	return out;
+}
+
+/** 边界名 → 中文标签：优先用后端本轮返回的 label，其次展示表，最后回落原名。 */
+export function boundaryLabelOf(
+	detail: Pick<DiagRunDetail, 'boundaries'>,
+	name: string,
+): string {
+	if (!name) return DASH;
+	const fromRun = detail.boundaries.find(b => b.name === name)?.label;
+	if (fromRun) return fromRun;
+	return BOUNDARY_ORDER.find(b => b.name === name)?.label ?? name;
+}

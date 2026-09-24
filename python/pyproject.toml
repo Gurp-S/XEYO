@@ -39,6 +39,7 @@ include = [
 	"cli*",
 	"codeindex*",
 	"common*",
+	"diagnostics*",
 	"engine*",
 	"evals*",
 	"extension*",

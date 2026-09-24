@@ -339,20 +339,46 @@ def _llm_model_name(model: object) -> str:
 
 
 def _audit_llm_failure(
-    code: str, *, attempt: int, status: int | None, provider: str, model_name: str
+    code: str,
+    *,
+    attempt: int,
+    status: int | None,
+    provider: str,
+    model_name: str,
+    session_id: str = "",
+    turn_id: str = "",
+    request_id: str = "",
 ) -> None:
     """44 号：LLM 失败审计（best-effort，审计故障不挡主路径）。"""
     try:
         from audit.log import default_audit_log
 
-        default_audit_log().record(
-            "llm.failure",
-            code=code,
-            attempt=attempt,
-            status=status,
-            provider=provider,
-            model=model_name,
-        )
+        fields: dict[str, Any] = {
+            "code": code,
+            "attempt": attempt,
+            "status": status,
+            "provider": provider,
+            "model": model_name,
+        }
+        # 缺 session_id 的失败行对 AuditLog.query(session_id=...) 永久不可见。
+        if session_id:
+            fields["session_id"] = session_id
+        if turn_id:
+            fields["turn_id"] = turn_id
+        if request_id:
+            fields["model_request_id"] = request_id
+        try:
+            from engine.workspace_context import get_execution_context
+
+            ctx = get_execution_context()
+            if ctx is not None:
+                for name in ("trace_id", "projection_id"):
+                    value = getattr(ctx, name, "")
+                    if value:
+                        fields[name] = value
+        except Exception:  # noqa: BLE001
+            pass
+        default_audit_log().record("llm.failure", **fields)
     except Exception:  # noqa: BLE001
         logging.getLogger(__name__).debug("llm failure audit failed", exc_info=True)
 
@@ -1705,6 +1731,9 @@ async def query_loop(
                 status=failure_status,
                 provider=_llm_provider_name(model),
                 model_name=_llm_model_name(model),
+                session_id=_model_session_id,
+                turn_id=_model_turn_id,
+                request_id=call_request_id,
             )
             _audit_model_event(
                 "model.finished",

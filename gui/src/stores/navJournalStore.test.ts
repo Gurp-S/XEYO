@@ -1,7 +1,11 @@
 import {beforeEach, describe, expect, it} from 'vitest';
+import type {PageViewKind} from '@/lib/appNav';
 import {useNavJournalStore, type NavEntry} from './navJournalStore';
 
-const e = (path: string, usageOpen = false): NavEntry => ({path, usageOpen});
+const e = (path: string, pageView: PageViewKind | null = null): NavEntry => ({
+	path,
+	pageView,
+});
 
 function reset() {
 	useNavJournalStore.setState({entries: [], index: -1});
@@ -25,8 +29,8 @@ describe('navJournalStore', () => {
 
 	it('same entry is idempotent', () => {
 		const s = useNavJournalStore.getState();
-		s.record(e('/c/a', true));
-		s.record(e('/c/a', true));
+		s.record(e('/c/a', 'usage'));
+		s.record(e('/c/a', 'usage'));
 		expect(useNavJournalStore.getState().entries.length).toBe(1);
 		expect(useNavJournalStore.getState().index).toBe(0);
 	});
@@ -59,12 +63,12 @@ describe('navJournalStore', () => {
 
 	it('usage toggle creates a distinct screen and restores via neighbor match', () => {
 		const s = useNavJournalStore.getState();
-		s.record(e('/c/a', false));
-		s.record(e('/c/a', true)); // 开用量面板 = 新界面
+		s.record(e('/c/a'));
+		s.record(e('/c/a', 'usage')); // 开用量面板 = 新界面
 		let st = useNavJournalStore.getState();
 		expect(st.entries.length).toBe(2);
 		expect(st.index).toBe(1);
-		st.record(e('/c/a', false)); // 关闭 → 邻居匹配后退
+		st.record(e('/c/a')); // 关闭 → 邻居匹配后退
 		st = useNavJournalStore.getState();
 		expect(st.index).toBe(0);
 		expect(st.entries.length).toBe(2);

@@ -1,1 +1,1 @@
-[{"content":"把这个仓库的结构讲一下。","role":"user"},{"content":"[system-environment]（XEYO 运行环境注入 — background only，非用户消息）\n以下是引擎注入的状态通知与背景信息。\n\n---\n\n# Multi-Agent（background only）\n用户开启了 multi-agent（多代理）模式。","role":"system"}]
+[{"content":"把这个仓库的结构讲一下。","role":"user"},{"content":"<system-reminder key=\"world_state\">\n[引擎实测] 本节由 XEYO 运行时在本地执行环境采集，非用户消息；其中的路径、任务号、时间戳均为本机可核对值。\n# Multi-Agent（background only）\n用户开启了 multi-agent（多代理）模式。\n</system-reminder>","role":"user"}]

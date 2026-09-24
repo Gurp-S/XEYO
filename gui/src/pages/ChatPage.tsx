@@ -22,6 +22,7 @@ import {useLocation, useNavigate, useParams} from 'react-router-dom';
 import {ImmersiveLayer} from '@/components/immersive/ImmersiveLayer';
 import {UsagePanel} from '@/components/UsagePanel';
 import {PluginsPanel} from '@/components/PluginsPanel';
+import {DiagnosticsPanel} from '@/features/diagnostics/DiagnosticsPanel';
 import {PageViewPane} from '@/components/PageViewPane';
 import {usePresence} from '@/hooks/usePresence';
 import {closePageView, pageViewFromPath} from '@/lib/appNav';
@@ -75,14 +76,16 @@ export function ChatPage() {
 	const hydrated = useChatStore(s => s.hydrated);
 	const hydrate = useChatStore(s => s.hydrate);
 	const hydrateSettings = useSettingsStore(s => s.hydrate);
-	// 页面视图（用量/扩展中心）→ 真路由派生（/usage、/plugins），无独立状态。
+	// 页面视图（用量/扩展中心/诊断中心）→ 真路由派生（/usage、/plugins、/diagnostics），无独立状态。
 	const location = useLocation();
 	const pageView = pageViewFromPath(location.pathname);
 	const pageViewOpen = pageView !== null;
 	const usageActive = pageView === 'usage';
 	const pluginsActive = pageView === 'plugins';
+	const diagnosticsActive = pageView === 'diagnostics';
 	const {mounted: usageMounted} = usePresence(usageActive, 200, 1);
 	const {mounted: pluginsMounted} = usePresence(pluginsActive, 200, 1);
+	const {mounted: diagnosticsMounted} = usePresence(diagnosticsActive, 200, 1);
 	const recoverStuckStream = useChatStore(s => s.recoverStuckStream);
 	const activeId = useChatStore(s => s.activeId);
 	const selectSession = useChatStore(s => s.selectSession);
@@ -239,6 +242,9 @@ export function ChatPage() {
 						</PageViewPane>
 						<PageViewPane active={pluginsActive} mounted={pluginsMounted}>
 							<PluginsPanel active={pluginsActive} />
+						</PageViewPane>
+						<PageViewPane active={diagnosticsActive} mounted={diagnosticsMounted}>
+							<DiagnosticsPanel active={diagnosticsActive} />
 						</PageViewPane>
 								</div>
 							</main>

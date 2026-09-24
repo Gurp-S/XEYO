@@ -9,6 +9,7 @@ import {
 	QrCode,
 	Search,
 	Settings,
+	Stethoscope,
 	Terminal,
 } from 'lucide-react';
 import {
@@ -486,6 +487,21 @@ export function CommandPalette() {
 				run: () =>
 					void runAndClose(() => {
 						openPageView('usage');
+					}),
+			},
+			{
+				id: 'action:diagnostics',
+				label: '诊断中心',
+				detail: '按轮次追查步骤、证据与用量',
+				icon: (
+					<Stethoscope
+						className="h-4 w-4 shrink-0 text-mute"
+						strokeWidth={1.75}
+					/>
+				),
+				run: () =>
+					void runAndClose(() => {
+						openPageView('diagnostics');
 					}),
 			},
 			{

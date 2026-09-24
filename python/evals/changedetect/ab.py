@@ -21,7 +21,7 @@ import subprocess
 import tempfile
 import time
 from contextlib import aclosing, suppress
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
@@ -107,6 +107,46 @@ def _extract_usage(ev: Any) -> dict[str, int]:
     return {}
 
 
+def price_case_cny(
+    *,
+    hit_tokens: int,
+    miss_tokens: int,
+    out_tokens: int,
+    provider: str = "",
+    model: str = "",
+    base_url: str = "",
+    ts: float | None = None,
+) -> float:
+    """把一臂的 token 计数折成人民币——口径是**按 usage 估算**，不是账单实付。
+
+    单价一律取自 ``usage.pricing``（厂商金额优先链路的本地档），harness 不抄价；
+    厂商身份用 ``canonical_vendor`` 按 base_url / 模型名还原，避免 provider 字段
+    写死成 openai 就把 DeepSeek 按 OpenAI 价算。
+    """
+    from usage.attribution import canonical_vendor
+    from usage.pricing import estimate_cny
+
+    vendor = canonical_vendor(
+        model=model or "fake",
+        provider=provider or "unknown",
+        base_url=base_url or None,
+    )
+    usage = {
+        "prompt_cache_hit_tokens": int(hit_tokens or 0),
+        "prompt_cache_miss_tokens": int(miss_tokens or 0),
+        "completion_tokens": int(out_tokens or 0),
+    }
+    return float(
+        estimate_cny(
+            provider=vendor,
+            model=model or vendor,
+            usage=usage,
+            ts=time.time() if ts is None else float(ts),
+            local_only=True,
+        )
+    )
+
+
 # --------------------------------------------------------------------------
 # 单次跑（复用 evals/block_ablation 的契约）
 # --------------------------------------------------------------------------
@@ -148,7 +188,6 @@ async def _run_case(
             os.environ[k] = v
 
     text_parts: list[str] = []
-    cost = 0.0
     hit = miss = outt = 0
     err = ""
     t0 = time.time()
@@ -182,6 +221,14 @@ async def _run_case(
     wall_ms = int((time.time() - t0) * 1000)
     reply = "".join(text_parts)
     passed, _how = _check(case, reply, cwd)
+    cost = price_case_cny(
+        hit_tokens=hit,
+        miss_tokens=miss,
+        out_tokens=outt,
+        provider="openai" if live else "fake",
+        model=model,
+        base_url=base_url,
+    )
     return CaseResult(
         task_id=case["id"],
         arm=arm,
@@ -348,6 +395,97 @@ def write_report(report: ABReport, out_dir: Path) -> tuple[Path, Path]:
     return json_path, md_path
 
 
+# --------------------------------------------------------------------------
+# 真实复盘：加载既有报告并重算/比对，不执行任何东西
+# --------------------------------------------------------------------------
+
+
+def load_report(path: str | Path) -> ABReport:
+    """读回一份已写出的 A/B 报告。
+
+    统计与合计都在这里**从逐臂行重算**（``_summarize`` / token 计价是确定性的），
+    所以旧报告里的裁决口径升级后能立刻复现，不需要重跑模型。
+    """
+    raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    case_fields = {f.name for f in fields(CaseResult)}
+    cases = [
+        CaseResult(**{k: v for k, v in row.items() if k in case_fields})
+        for row in (raw.get("cases") or [])
+        if isinstance(row, dict)
+    ]
+    top = {k: v for k, v in raw.items() if k in {f.name for f in fields(ABReport)}}
+    top.pop("cases", None)
+    top.setdefault("started_at", float(raw.get("started_at") or 0.0))
+    top.setdefault("finished_at", float(raw.get("finished_at") or raw.get("started_at") or 0.0))
+    report = ABReport(**top)  # type: ignore[arg-type]
+    report.cases = cases
+    report.actual_total_cny = sum(r.cost_cny for r in cases)
+    report.statistical = _summarize(cases) if cases else {"verdict": "no_cases"}
+    report.notes = f"{raw.get('notes', '')}（复盘重算，未执行任何请求）".strip()
+    return report
+
+
+def compare_reports(a: ABReport, b: ABReport) -> dict[str, Any]:
+    """两份报告的逐维差值：通过率 / 字符 / 耗时 / 费用。不给合成分数。"""
+    ps_a = (a.statistical or {}).get("pass_pair") or {}
+    ps_b = (b.statistical or {}).get("pass_pair") or {}
+    return {
+        "left": {"pairs": ps_a.get("n_pairs", 0), "verdict": ps_a.get("verdict", "?")},
+        "right": {"pairs": ps_b.get("n_pairs", 0), "verdict": ps_b.get("verdict", "?")},
+        "pass_rate_a_delta": round(float(ps_b.get("pass_rate_a", 0)) - float(ps_a.get("pass_rate_a", 0)), 6),
+        "pass_rate_b_delta": round(float(ps_b.get("pass_rate_b", 0)) - float(ps_a.get("pass_rate_b", 0)), 6),
+        "estimated_total_cny_delta": round(b.estimated_total_cny - a.estimated_total_cny, 6),
+        "actual_total_cny_delta": round(b.actual_total_cny - a.actual_total_cny, 6),
+        "cost_basis": "按 usage 估算（非账单实付）",
+        "cases_left": len(a.cases),
+        "cases_right": len(b.cases),
+        "blended_score": None,
+    }
+
+
+def replay_report(
+    path: str | Path,
+    *,
+    out_dir: str | Path | None = None,
+    compare_with: str | Path | None = None,
+) -> dict[str, Any]:
+    """复盘一份已写出的报告：重算统计、重出 markdown，可选与另一份对比。
+
+    这个入口**不构造引擎、不发请求**——它与 ``ab run`` 的区别就是全部意义所在。
+    """
+    report = load_report(path)
+    target = Path(out_dir) if out_dir else Path(path).parent
+    target.mkdir(parents=True, exist_ok=True)
+    stamp = time.strftime("%Y%m%d-%H%M%S", time.localtime(report.started_at or time.time()))
+    json_path = target / f"ab-replay-{stamp}.json"
+    md_path = target / f"ab-replay-{stamp}.md"
+    comparison: dict[str, Any] = {}
+    if compare_with:
+        comparison = compare_reports(report, load_report(compare_with))
+        report.notes = f"{report.notes}（与 {Path(compare_with).name} 对比）".strip()
+    payload = report.to_dict()
+    payload["replay_of"] = str(path)
+    payload["executed"] = False
+    if comparison:
+        payload["comparison"] = comparison
+    json_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    md = render_markdown(report)
+    if comparison:
+        md += "\n## 与另一份报告的差值\n\n" + "\n".join(
+            f"- {k}：{v}" for k, v in comparison.items()
+        ) + "\n"
+    md_path.write_text(md, encoding="utf-8", newline="\n")
+    return {
+        "report": payload,
+        "json_path": json_path,
+        "md_path": md_path,
+        "comparison": comparison,
+        "executed": False,
+    }
+
+
 def render_markdown(rep: ABReport) -> str:
     s = rep.statistical.get("pass_pair", {})
     p = rep.statistical.get("char_delta_b_minus_a", {})
@@ -357,7 +495,8 @@ def render_markdown(rep: ABReport) -> str:
         "",
         f"- 任务数 **{rep.n_tasks}** · 重复 **{rep.repeats}** · variant 环境: `{rep.variant_env or '∅'}`",
         f"- 价表：{rep.price_preset}（标定：{rep.calibration}）",
-        f"- 估算 ¥{rep.estimated_total_cny:.2f} · 实算 ¥{rep.actual_total_cny:.2f}",
+        f"- 估算 ¥{rep.estimated_total_cny:.2f} · 按 usage 估算 ¥{rep.actual_total_cny:.2f}"
+        "（逐臂 hit/miss/out 折算，**非账单实付**）",
         f"- 配对样本 **{s.get('n_pairs', 0)}** · 通过率 A {s.get('pass_rate_a', 0):.0%} / B {s.get('pass_rate_b', 0):.0%}",
         f"- 差值 Δ {s.get('delta', 0):+.1%} · p={s.get('p_value', 1):.4f} · 裁决 **{s.get('verdict', '?')}**",
         f"- 不一致率 ψ {s.get('discordant_rate', 0):.1%} · 本次 MDE {s.get('mde', 0):.1%}",

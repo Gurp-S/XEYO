@@ -75,6 +75,23 @@ class TraceGraph:
 		if source and target and source != target:
 			self._edges.add((_text(source), _text(target), _text(kind)))
 
+	def record_attempt(self, node_id: str, entry: dict[str, Any]) -> None:
+		"""把一次实际尝试挂到节点上；重试不得被"最后一次"覆盖掉。"""
+		node = self._nodes.get(_text(node_id))
+		if node is None:
+			return
+		attempts = list(node.fields.get("attempts") or [])
+		signature = (entry.get("attempt"), entry.get("kind"), entry.get("ts"))
+		if any(
+			(a.get("attempt"), a.get("kind"), a.get("ts")) == signature for a in attempts
+		):
+			return
+		attempts.append({k: v for k, v in entry.items() if v not in (None, "")})
+		fields = dict(node.fields)
+		fields["attempts"] = attempts
+		fields["attempt_count"] = len(attempts)
+		self._nodes[node.node_id] = TraceNode(node.node_id, node.kind, fields)
+
 	@classmethod
 	def from_audit_rows(
 		cls,
@@ -147,6 +164,17 @@ class TraceGraph:
 					attempt=row.get("attempt"),
 					provider=_text(row.get("provider")),
 					model=_text(row.get("model")),
+				)
+				graph.record_attempt(
+					model_node,
+					{
+						"attempt": row.get("attempt"),
+						"kind": kind,
+						"ts": row.get("ts"),
+						"status": _text(row.get("status")),
+						"error_code": _text(row.get("error_code")),
+						"error_kind": _text(row.get("error_kind")),
+					},
 				)
 				if sid:
 					graph.add_edge(f"session:{sid}", model_node, "owns")

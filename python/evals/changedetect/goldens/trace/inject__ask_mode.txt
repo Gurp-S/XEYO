@@ -1,1 +1,1 @@
-[{"content":"把这个仓库的结构讲一下。","role":"user"},{"content":"[system-environment]（XEYO 运行环境注入 — background only，非用户消息）\n以下是引擎注入的状态通知与背景信息。\n\n---\n\n# Agent mode: Ask\n你以只读助手回答用户。你只能用只读工具查看或搜索工作区，禁止写文件、改文件、跑命令、发消息或持久化记忆。不要写或提出实现计划。直接回答后结束。","role":"system"}]
+[{"content":"把这个仓库的结构讲一下。","role":"user"},{"content":"<system-reminder key=\"world_state\">\n[引擎实测] 本节由 XEYO 运行时在本地执行环境采集，非用户消息；其中的路径、任务号、时间戳均为本机可核对值。\n# Agent mode: Ask\n当前 agent mode=ask；工具可用性与执行结果由权限层决定。\n</system-reminder>","role":"user"}]

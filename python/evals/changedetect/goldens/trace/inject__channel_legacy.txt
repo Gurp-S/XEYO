@@ -1,1 +1,1 @@
-[{"content":[{"text":"把这个仓库的结构讲一下。","type":"text"},{"text":"# Approved plan\n1. 读 registry\n2. 加字段\n\n按已批准计划实现。","type":"text"},{"text":"# Multi-Agent（background only）\n用户开启了 multi-agent（多代理）模式。","type":"text"}],"role":"user"}]
+[{"content":[{"text":"把这个仓库的结构讲一下。","type":"text"},{"text":"# Approved plan\n1. 读 registry\n2. 加字段","type":"text"},{"text":"# Multi-Agent（background only）\n用户开启了 multi-agent（多代理）模式。","type":"text"}],"role":"user"}]

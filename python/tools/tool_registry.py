@@ -100,6 +100,29 @@ def _bash_shape_key(plan: BashRoutePlan) -> str:
 	return f"{plan.tier}|{plan.tool_name}|{str(arg) if arg is not None else ''}"
 
 
+def _audit_identity(session_id: str, turn_id: str) -> tuple[str, str]:
+	"""补齐审计身份：缺项时回落到执行上下文。
+
+	``coordinator=None`` 是合法的早期执行路径（只读 + 并发安全 + ALLOW，见
+	``query_loop._eligible_for_early``），但原先只有 coordinator 一处能给出
+	session_id ⇒ 空值把 ``tool.*`` 行变成任何按会话查询都看不见的孤儿记录。
+	"""
+	sid = str(session_id or "").strip()
+	tid = str(turn_id or "").strip()
+	if sid and tid:
+		return sid, tid
+	try:
+		from engine.workspace_context import get_execution_context
+
+		ctx = get_execution_context()
+	except Exception:  # noqa: BLE001 — 身份观测不阻断执行
+		ctx = None
+	if ctx is not None:
+		sid = sid or str(getattr(ctx, "session_id", "") or "")
+		tid = tid or str(getattr(ctx, "trace_id", "") or "")
+	return sid, tid
+
+
 def _runtime_audit_fields() -> dict[str, object]:
 	"""读取当前执行上下文的机器字段；失败时返回空，不阻断工具。"""
 	try:
@@ -235,6 +258,7 @@ class ToolRegistry:
 	) -> ToolResult:
 		"""真实执行并写入 tool.started / tool.finished 审计事件。"""
 		audit = default_audit_log()
+		audit_session_id, audit_turn_id = _audit_identity(session_id, turn_id)
 		started = time.monotonic()
 		action_journal = None
 		action_id: str | None = None
@@ -287,8 +311,8 @@ class ToolRegistry:
 				_log.debug("action journal prepare failed", exc_info=True)
 		audit.record(
 			"tool.started",
-			session_id=session_id,
-			turn_id=turn_id,
+			session_id=audit_session_id,
+			turn_id=audit_turn_id,
 			request_id=tool_use.id,
 			tool_name=tool.name,
 			**_runtime_audit_fields(),
@@ -305,8 +329,8 @@ class ToolRegistry:
 					_log.debug("action journal unknown transition failed", exc_info=True)
 				audit.record(
 					"tool.finished",
-					session_id=session_id,
-					turn_id=turn_id,
+					session_id=audit_session_id,
+					turn_id=audit_turn_id,
 					request_id=tool_use.id,
 					tool_name=tool.name,
 					duration_ms=int((time.monotonic() - started) * 1000),
@@ -332,8 +356,8 @@ class ToolRegistry:
 
 		audit.record(
 			"tool.finished",
-			session_id=session_id,
-			turn_id=turn_id,
+			session_id=audit_session_id,
+			turn_id=audit_turn_id,
 			request_id=tool_use.id,
 			tool_name=tool.name,
 			duration_ms=int((time.monotonic() - started) * 1000),
@@ -752,6 +776,7 @@ class ToolRegistry:
 		)
 		if _perm_blocker is not None:
 			return _perm_blocker
+		_perm_runtime = _runtime_audit_fields()
 		request_id = coordinator.request(
 			tool_name=tool_use.name,
 			tool_input=raw_input,
@@ -766,6 +791,9 @@ class ToolRegistry:
 			command_summary=cmd_summary,
 			choices=choices,
 			peer_summary=peer_summary,
+			tool_use_id=tool_use.id,
+			model_request_id=str(_perm_runtime.get("model_request_id") or ""),
+			projection_id=str(_perm_runtime.get("projection_id") or ""),
 		)
 		return ToolResult(
 			content="",

@@ -1,0 +1,1184 @@
+/* 诊断中心（xy-dig-*）专属样式 —— 由 styles/entry.css 引入。
+ *
+ * 通用页面壳（.xy-usage-page / -skeleton / -loading / -content-switch）沿用
+ * app-chrome-shell.css，这里不重复定义；本页只补诊断特有的结构。
+ *
+ * 纪律：
+ * - 颜色只取 @theme 令牌（--color-ink / --color-ink-soft / --color-mute /
+ *   --color-line / --color-glass-hover / --color-danger / --color-ok / --color-warn），
+ *   不写字面色值。
+ * - 状态一律 is-* 类。
+ * - 动画面板禁止 blur（tokens.css 顶部硬约束）：这里只用 opacity / transform /
+ *   box-shadow，且都在 prefers-reduced-motion 下降级。
+ * - 结论状态（已确认 / 疑似 / 未定）用左侧色轨 + 徽章表达，不用整块底色，
+ *   避免把"未定"读成绿色通过。
+ */
+
+/* ============ 页面骨架：左选择 + 右详情 ============ */
+.xy-dig-layout {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 16px;
+  min-height: 100%;
+}
+
+@media (max-width: 900px) {
+  .xy-dig-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.xy-dig-side {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  max-height: calc(100vh - 150px);
+  overflow-y: auto;
+  border: 1px solid var(--color-line);
+  border-radius: 12px;
+  background: var(--color-glass-hover);
+  padding: 10px;
+  position: sticky;
+  top: 0;
+}
+
+.xy-dig-side-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--color-ink-soft);
+}
+
+.xy-dig-main {
+  position: relative;
+  min-width: 0;
+}
+
+.xy-dig-view {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.xy-dig-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+/* ============ 分节 ============ */
+.xy-dig-section {
+  border: 1px solid var(--color-line);
+  border-radius: 12px;
+  background: var(--color-glass-soft);
+  padding: 10px 12px;
+}
+
+.xy-dig-section.is-dense {
+  padding: 8px 10px;
+}
+
+.xy-dig-section-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-ink);
+}
+
+.xy-dig-section-hint {
+  font-weight: 400;
+  font-size: 10.5px;
+  color: var(--color-mute);
+}
+
+.xy-dig-empty {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--color-mute);
+}
+
+.xy-dig-sub {
+  margin: 8px 0 0;
+  font-size: 10.5px;
+  color: var(--color-mute);
+}
+
+.xy-dig-error {
+  margin: 0;
+  border: 1px solid color-mix(in oklch, var(--color-danger) 32%, transparent);
+  background: color-mix(in oklch, var(--color-danger) 6%, transparent);
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--color-danger);
+}
+
+.xy-dig-list {
+  margin: 0;
+  padding: 0 0 0 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--color-ink-soft);
+}
+
+/* ============ 徽章 / 提示 ============ */
+.xy-dig-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  border: 1px solid var(--color-line);
+  padding: 0 6px;
+  font-size: 10.5px;
+  line-height: 1.55;
+  color: var(--color-mute);
+  white-space: nowrap;
+}
+
+.xy-dig-badge.is-confirmed {
+  border-color: color-mix(in oklch, var(--color-danger) 40%, transparent);
+  color: var(--color-danger);
+}
+
+.xy-dig-badge.is-suspect {
+  border-color: color-mix(in oklch, var(--color-warn) 45%, transparent);
+  color: var(--color-warn);
+}
+
+.xy-dig-badge.is-unknown,
+.xy-dig-badge.is-neutral {
+  color: var(--color-mute);
+}
+
+.xy-dig-badge.is-ok {
+  border-color: color-mix(in oklch, var(--color-ok) 40%, transparent);
+  color: var(--color-ok);
+}
+
+.xy-dig-badge.is-warn {
+  border-color: color-mix(in oklch, var(--color-warn) 45%, transparent);
+  color: var(--color-warn);
+}
+
+.xy-dig-badge.is-fail {
+  border-color: color-mix(in oklch, var(--color-danger) 40%, transparent);
+  color: var(--color-danger);
+}
+
+/* 等待授权：与 ok/fail 都不同一档，避免读成"卡死"或"失败"。 */
+.xy-dig-badge.is-waiting {
+  border-style: dashed;
+  color: var(--color-ink-soft);
+}
+
+.xy-dig-badge.is-active {
+  border-style: dashed;
+  color: var(--color-ink-soft);
+}
+
+.xy-dig-notice {
+  margin: 0;
+  border: 1px solid var(--color-line);
+  border-radius: 10px;
+  padding: 7px 10px;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--color-ink-soft);
+}
+
+.xy-dig-notice.is-info {
+  color: var(--color-mute);
+}
+
+.xy-dig-notice.is-warn {
+  border-color: color-mix(in oklch, var(--color-warn) 38%, transparent);
+  color: var(--color-warn);
+}
+
+.xy-dig-notice.is-fail {
+  border-color: color-mix(in oklch, var(--color-danger) 38%, transparent);
+  color: var(--color-danger);
+}
+
+.xy-dig-caveat {
+  margin: 6px 0 0;
+  border-left: 2px solid color-mix(in oklch, var(--color-warn) 50%, transparent);
+  padding-left: 8px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--color-warn);
+}
+
+/* ============ 键值 / 表格 ============ */
+.xy-dig-kv {
+  margin: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.xy-dig-kv-row {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr);
+  gap: 8px;
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+
+.xy-dig-kv-row dt {
+  color: var(--color-mute);
+}
+
+.xy-dig-kv-row dd {
+  margin: 0;
+  color: var(--color-ink-soft);
+  overflow-wrap: anywhere;
+}
+
+.xy-dig-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11.5px;
+}
+
+.xy-dig-table th,
+.xy-dig-table td {
+  text-align: left;
+  border-bottom: 1px solid var(--color-line);
+  padding: 4px 6px;
+  color: var(--color-ink-soft);
+  overflow-wrap: anywhere;
+}
+
+.xy-dig-table th {
+  color: var(--color-mute);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.xy-dig-table th.is-num,
+.xy-dig-table td.is-num {
+  text-align: right;
+}
+
+.xy-dig-table tr.is-unknown td {
+  color: var(--color-mute);
+}
+
+.xy-dig-attempt {
+  color: var(--color-ink);
+}
+
+/* ============ 证据指针 ============ */
+.xy-dig-evidence-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.xy-dig-evidence {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  border: 1px solid var(--color-line);
+  border-radius: 6px;
+  background: var(--color-glass-hover);
+  padding: 2px 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-mute);
+  transition: background-color var(--duration-fast) ease;
+}
+
+.xy-dig-evidence:hover {
+  background: color-mix(in oklch, var(--color-ink) 6%, transparent);
+  color: var(--color-ink-soft);
+}
+
+.xy-dig-evidence-source {
+  color: var(--color-ink-soft);
+}
+
+.xy-dig-evidence-ref {
+  color: var(--color-ink);
+}
+
+.xy-dig-evidence-detail {
+  color: var(--color-mute);
+}
+
+.xy-dig-evidence-locator {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ============ 结论卡 ============ */
+.xy-dig-attr {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.xy-dig-attr-line {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--color-ink-soft);
+}
+
+.xy-dig-attr-line.is-lead {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-ink);
+}
+
+.xy-dig-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.xy-dig-attr-counts {
+  display: flex;
+  gap: 10px;
+  margin-top: 2px;
+  font-size: 10.5px;
+  color: var(--color-mute);
+}
+
+.xy-dig-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.xy-dig-group-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--color-mute);
+}
+
+.xy-dig-count {
+  font-size: 10.5px;
+}
+
+.xy-dig-findings {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.xy-dig-finding {
+  border: 1px solid var(--color-line);
+  border-radius: 10px;
+  background: var(--color-glass-hover);
+}
+
+.xy-dig-finding.is-confirmed_fault {
+  box-shadow: inset 3px 0 0 var(--color-danger);
+}
+
+.xy-dig-finding.is-suspected_cause {
+  box-shadow: inset 3px 0 0 var(--color-warn);
+}
+
+.xy-dig-finding.is-unknown {
+  box-shadow: inset 3px 0 0 color-mix(in oklch, var(--color-mute) 55%, transparent);
+}
+
+.xy-dig-finding-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 7px 10px;
+  cursor: pointer;
+}
+
+.xy-dig-finding-what {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.xy-dig-finding-phenomenon {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-ink);
+}
+
+.xy-dig-finding-meta {
+  font-size: 10.5px;
+  color: var(--color-mute);
+}
+
+.xy-dig-finding-body {
+  border-top: 1px solid var(--color-line);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.xy-dig-chevron {
+  margin-top: 2px;
+  color: var(--color-mute);
+  transition: transform var(--duration-fast) ease;
+}
+
+.xy-dig-chevron.is-open {
+  transform: rotate(90deg);
+}
+
+/* ============ 步骤时间线 ============ */
+.xy-dig-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  position: relative;
+}
+
+.xy-dig-step {
+  display: flex;
+  gap: 8px;
+  position: relative;
+}
+
+.xy-dig-step-rail {
+  position: relative;
+  flex: 0 0 12px;
+  width: 12px;
+}
+
+.xy-dig-step-rail::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 5px;
+  width: 1px;
+  background: var(--color-line);
+}
+
+.xy-dig-step-dot {
+  position: absolute;
+  top: 7px;
+  left: 2px;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--color-mute);
+}
+
+.xy-dig-step.is-ok .xy-dig-step-dot {
+  background: var(--color-ok);
+}
+
+.xy-dig-step.is-warn .xy-dig-step-dot {
+  background: var(--color-warn);
+}
+
+.xy-dig-step.is-fail .xy-dig-step-dot {
+  background: var(--color-danger);
+}
+
+/* 等待 / 进行中：空心，明确不是"结束"。 */
+.xy-dig-step.is-waiting .xy-dig-step-dot,
+.xy-dig-step.is-active .xy-dig-step-dot {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--color-mute);
+}
+
+.xy-dig-step.is-active .xy-dig-step-dot {
+  animation: xy-dig-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes xy-dig-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.xy-dig-step-main {
+  flex: 1;
+  min-width: 0;
+  padding-bottom: 4px;
+}
+
+.xy-dig-step-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  border-radius: 8px;
+  padding: 3px 6px;
+  color: var(--color-ink-soft);
+  transition: background-color var(--duration-fast) ease;
+}
+
+.xy-dig-step-head:hover {
+  background: color-mix(in oklch, var(--color-ink) 5%, transparent);
+}
+
+.xy-dig-step-time {
+  flex: 0 0 62px;
+  font-size: 10.5px;
+  color: var(--color-mute);
+}
+
+.xy-dig-step-tone {
+  flex: 0 0 40px;
+  font-size: 10.5px;
+  color: var(--color-mute);
+}
+
+.xy-dig-step.is-fail .xy-dig-step-tone {
+  color: var(--color-danger);
+}
+
+.xy-dig-step.is-warn .xy-dig-step-tone {
+  color: var(--color-warn);
+}
+
+.xy-dig-step.is-waiting .xy-dig-step-tone,
+.xy-dig-step.is-active .xy-dig-step-tone {
+  color: var(--color-ink-soft);
+}
+
+.xy-dig-step-title {
+  flex: 0 0 auto;
+  font-size: 11.5px;
+  color: var(--color-ink);
+}
+
+.xy-dig-step-attempt {
+  flex: 0 0 auto;
+  border: 1px solid var(--color-line);
+  border-radius: 999px;
+  padding: 0 5px;
+  font-size: 10px;
+  color: var(--color-mute);
+}
+
+.xy-dig-step-status {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 10.5px;
+  color: var(--color-mute);
+  overflow-wrap: anywhere;
+}
+
+.xy-dig-step-dur,
+.xy-dig-step-cost {
+  flex: 0 0 auto;
+  font-size: 10.5px;
+  color: var(--color-ink-soft);
+}
+
+.xy-dig-step-cost {
+  min-width: 58px;
+  text-align: right;
+}
+
+.xy-dig-step-body {
+  border-top: 1px solid var(--color-line);
+  margin: 2px 6px 0;
+  padding: 6px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.xy-dig-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.xy-dig-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--color-line);
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 10.5px;
+  color: var(--color-mute);
+  transition: background-color var(--duration-fast) ease;
+}
+
+.xy-dig-chip.is-on {
+  border-color: color-mix(in oklch, var(--color-ink) 22%, transparent);
+  background: var(--color-glass-hover);
+  color: var(--color-ink);
+}
+
+.xy-dig-more {
+  align-self: flex-start;
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  padding: 4px 10px;
+  font-size: 11px;
+  color: var(--color-ink-soft);
+}
+
+/* ============ 边界 / 事实定位 ============ */
+.xy-dig-boundaries {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.xy-dig-boundary {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 148px;
+  flex: 1 1 210px;
+  border: 1px solid var(--color-line);
+  border-radius: 10px;
+  padding: 6px 8px;
+}
+
+.xy-dig-boundary.is-present {
+  box-shadow: inset 3px 0 0 color-mix(in oklch, var(--color-ok) 70%, transparent);
+}
+
+.xy-dig-boundary.is-absent {
+  box-shadow: inset 3px 0 0 color-mix(in oklch, var(--color-mute) 40%, transparent);
+}
+
+.xy-dig-boundary-label {
+  font-size: 11.5px;
+  color: var(--color-ink);
+}
+
+.xy-dig-boundary-count,
+.xy-dig-boundary-notes {
+  font-size: 10.5px;
+  color: var(--color-mute);
+}
+
+.xy-dig-boundary-notes {
+  overflow-wrap: anywhere;
+}
+
+.xy-dig-stages {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.xy-dig-stage {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  padding: 5px 8px;
+}
+
+.xy-dig-stage.is-found {
+  box-shadow: inset 3px 0 0 color-mix(in oklch, var(--color-ok) 70%, transparent);
+}
+
+.xy-dig-stage.is-absent {
+  box-shadow: inset 3px 0 0 color-mix(in oklch, var(--color-warn) 70%, transparent);
+}
+
+.xy-dig-stage.is-unreadable {
+  box-shadow: inset 3px 0 0 var(--color-danger);
+}
+
+.xy-dig-stage-no {
+  font-size: 10.5px;
+  color: var(--color-mute);
+}
+
+.xy-dig-stage-label {
+  font-size: 11.5px;
+  color: var(--color-ink);
+}
+
+.xy-dig-stage-note {
+  flex: 1 1 240px;
+  min-width: 0;
+  font-size: 10.5px;
+  color: var(--color-mute);
+}
+
+.xy-dig-factbar {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.xy-dig-fact {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.xy-dig-gap-boundary {
+  color: var(--color-ink);
+}
+
+.xy-dig-gap-reason {
+  color: var(--color-warn);
+}
+
+/* ============ 用量 ============ */
+.xy-dig-cost {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.xy-dig-cost-total {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--color-ink);
+}
+
+.xy-dig-cost-basis {
+  font-size: 10.5px;
+  color: var(--color-mute);
+}
+
+/* ============ 运行选择 ============ */
+.xy-dig-runs {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.xy-dig-run {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  padding: 6px 8px;
+  color: var(--color-ink-soft);
+  transition: background-color var(--duration-fast) ease;
+}
+
+.xy-dig-run:hover {
+  background: color-mix(in oklch, var(--color-ink) 5%, transparent);
+}
+
+.xy-dig-run.is-on {
+  border-color: color-mix(in oklch, var(--color-ink) 24%, transparent);
+  background: var(--color-glass-hover);
+  color: var(--color-ink);
+}
+
+.xy-dig-run-top {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.xy-dig-run-id {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
+
+.xy-dig-run-ts,
+.xy-dig-run-counts,
+.xy-dig-run-cov {
+  font-size: 10px;
+  color: var(--color-mute);
+}
+
+.xy-dig-run-bar {
+  display: flex;
+  gap: 2px;
+}
+
+.xy-dig-run-cell {
+  flex: 1 1 0;
+  height: 3px;
+  border-radius: 2px;
+  background: color-mix(in oklch, var(--color-mute) 32%, transparent);
+}
+
+.xy-dig-run-cell.is-on {
+  background: color-mix(in oklch, var(--color-ink) 55%, transparent);
+}
+
+.xy-dig-run-note {
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--color-warn);
+}
+
+/* ============ 控件 ============ */
+.xy-dig-tabs {
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--color-line);
+  border-radius: 999px;
+  background: var(--color-glass-hover);
+  padding: 2px;
+}
+
+.xy-dig-tab {
+  border-radius: 999px;
+  padding: 2px 12px;
+  font-size: 11.5px;
+  color: var(--color-mute);
+  transition: background-color var(--duration-fast) ease, color var(--duration-fast) ease;
+}
+
+.xy-dig-tab.is-on {
+  background: color-mix(in oklch, var(--color-ink) 9%, transparent);
+  color: var(--color-ink);
+}
+
+.xy-dig-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  background: var(--color-glass-hover);
+  padding: 3px 10px;
+  font-size: 11.5px;
+  color: var(--color-ink-soft);
+  transition: background-color var(--duration-fast) ease, color var(--duration-fast) ease;
+}
+
+.xy-dig-btn:hover {
+  background: color-mix(in oklch, var(--color-ink) 7%, transparent);
+  color: var(--color-ink);
+}
+
+.xy-dig-btn.is-primary {
+  border-color: color-mix(in oklch, var(--color-ink) 26%, transparent);
+  color: var(--color-ink);
+}
+
+.xy-dig-btn:disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.xy-dig-session select {
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  background: var(--color-glass-hover);
+  padding: 3px 8px;
+  font-size: 11.5px;
+  color: var(--color-ink-soft);
+  max-width: 220px;
+}
+
+.xy-dig-input,
+.xy-dig-textarea {
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  background: transparent;
+  padding: 4px 8px;
+  font-size: 11.5px;
+  color: var(--color-ink);
+  min-width: 0;
+  width: 100%;
+}
+
+.xy-dig-textarea {
+  resize: vertical;
+  min-height: 56px;
+  line-height: 1.5;
+}
+
+.xy-dig-form,
+.xy-dig-pin {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.xy-dig-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 10.5px;
+  color: var(--color-mute);
+  min-width: 0;
+}
+
+.xy-dig-field-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.xy-dig-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--color-ink-soft);
+}
+
+.xy-dig-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.xy-dig-modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.xy-dig-mode {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 150px;
+  flex: 1 1 170px;
+  border: 1px solid var(--color-line);
+  border-radius: 10px;
+  padding: 6px 8px;
+  text-align: left;
+}
+
+.xy-dig-mode.is-on {
+  border-color: color-mix(in oklch, var(--color-ink) 24%, transparent);
+  background: var(--color-glass-hover);
+}
+
+.xy-dig-mode-key {
+  font-size: 10px;
+  color: var(--color-mute);
+}
+
+.xy-dig-mode-label {
+  font-size: 11.5px;
+  color: var(--color-ink);
+}
+
+.xy-dig-mode-hint {
+  font-size: 10px;
+  color: var(--color-mute);
+}
+
+.xy-dig-capture {
+  border-top: 1px solid var(--color-line);
+  padding-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.xy-dig-capture-note {
+  margin: 0;
+  font-size: 10px;
+  line-height: 1.55;
+  color: var(--color-mute);
+}
+
+.xy-dig-capture-bytes {
+  font-size: 10px;
+  color: var(--color-mute);
+}
+
+.xy-dig-pin-exp {
+  color: var(--color-mute);
+}
+
+.xy-dig-loading {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.xy-dig-skeleton {
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  min-height: 56px;
+  background: var(--color-glass-hover);
+}
+
+/* ============ 实验层原始 JSON ============ */
+.xy-dig-json-list {
+  margin: 0;
+  padding: 0 0 0 14px;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.xy-dig-json-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.xy-dig-json-key {
+  font-size: 10.5px;
+  color: var(--color-mute);
+}
+
+.xy-dig-json-leaf {
+  font-size: 11px;
+  color: var(--color-ink-soft);
+  overflow-wrap: anywhere;
+}
+
+.xy-dig-json-null {
+  color: var(--color-mute);
+}
+
+/* ============ 责任划分（fault） ============ */
+.xy-dig-fault {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.xy-dig-fault-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.xy-dig-fault-why {
+  margin: 0;
+  color: var(--color-ink-soft);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.xy-dig-subtitle {
+  margin: 2px 0 0;
+  color: var(--color-mute);
+  font-size: 11.5px;
+  letter-spacing: 0.02em;
+}
+
+.xy-dig-chain {
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.xy-dig-chain > li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 2px 9px;
+  align-items: start;
+  padding: 8px 0;
+  border-top: 1px solid var(--color-rule-weak, var(--color-line));
+}
+
+.xy-dig-chain > li:first-child {
+  border-top: 0;
+}
+
+.xy-dig-chain-fact {
+  font-size: 12.5px;
+  color: var(--color-ink);
+  overflow-wrap: anywhere;
+}
+
+.xy-dig-chain > li .xy-dig-evidence-list {
+  grid-column: 2;
+}
+
+.xy-dig-facts {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--color-ink-soft);
+  font-size: 12.5px;
+}
+
+.xy-dig-facts li::marker {
+  color: var(--color-warn);
+}
+
+.xy-dig-foot {
+  margin: 0;
+  padding-top: 9px;
+  border-top: 1px dashed var(--color-line);
+  color: var(--color-mute);
+  font-size: 11.5px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .xy-dig-step.is-active .xy-dig-step-dot {
+    animation: none;
+    opacity: 1;
+  }
+
+  .xy-dig-step-head,
+  .xy-dig-run,
+  .xy-dig-tab,
+  .xy-dig-btn,
+  .xy-dig-chip,
+  .xy-dig-evidence,
+  .xy-dig-chevron {
+    transition: none;
+  }
+}

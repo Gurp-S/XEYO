@@ -65,6 +65,9 @@ class PermissionCoordinator:
 		peer_summary: str = "",
 		mcp_target: str = "",
 		permission_snapshot_id: str = "",
+		tool_use_id: str = "",
+		model_request_id: str = "",
+		projection_id: str = "",
 	) -> str:
 		tid = turn_id or self.turn_id
 		item = self.store.create(
@@ -80,6 +83,9 @@ class PermissionCoordinator:
 			peer_summary=peer_summary,
 			mcp_target=mcp_target,
 			permission_snapshot_id=permission_snapshot_id,
+			tool_use_id=tool_use_id,
+			model_request_id=model_request_id,
+			projection_id=projection_id,
 		)
 		self.task_state.set_status(
 			"waiting_permission", turn_id=tid, current_tool=tool_name, interruptible=False
@@ -99,6 +105,13 @@ class PermissionCoordinator:
 		}
 		if command_summary:
 			fields["command_summary"] = command_summary
+		for name, value in (
+			("tool_use_id", tool_use_id),
+			("model_request_id", model_request_id),
+			("projection_id", projection_id),
+		):
+			if value:
+				fields[name] = value
 		if item.choices:
 			fields["choices"] = list(item.choices)
 		default_audit_log().record("permission.pending", **fields)
@@ -138,6 +151,10 @@ class PermissionCoordinator:
 			}
 			if item.command_summary:
 				fields["command_summary"] = item.command_summary
+			for name in ("tool_use_id", "model_request_id", "projection_id"):
+				value = getattr(item, name, "")
+				if value:
+					fields[name] = value
 			default_audit_log().record("permission.resolved", **fields)
 			choice = "timeout"
 			approved = False

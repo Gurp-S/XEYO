@@ -60,6 +60,11 @@ class PendingPermission:
 	mcp_target: str = ""
 	#: 发起裁决时的权限状态快照身份。
 	permission_snapshot_id: str = ""
+	#: 关联原始调用：审批 ID 与 tool_use.id 本就无关，缺这三项时权限事件
+	#: 只能按时间顺序与工具调用近似对应（诊断关联缺口，2026-09-24）。
+	tool_use_id: str = ""
+	model_request_id: str = ""
+	projection_id: str = ""
 
 
 class PendingPermissionStore:
@@ -88,6 +93,9 @@ class PendingPermissionStore:
 		peer_summary: str = "",
 		mcp_target: str = "",
 		permission_snapshot_id: str = "",
+		tool_use_id: str = "",
+		model_request_id: str = "",
+		projection_id: str = "",
 	) -> PendingPermission:
 		self._prune()
 		rid = request_id or uuid.uuid4().hex
@@ -119,6 +127,9 @@ class PendingPermissionStore:
 			workspace=_current_workspace(),
 			mcp_target=(mcp_target or "").strip(),
 			permission_snapshot_id=(permission_snapshot_id or "").strip(),
+			tool_use_id=(tool_use_id or "").strip(),
+			model_request_id=(model_request_id or "").strip(),
+			projection_id=(projection_id or "").strip(),
 		)
 		self._items[rid] = item
 		self._events[rid] = asyncio.Event()
@@ -184,6 +195,10 @@ class PendingPermissionStore:
 			}
 			if item.command_summary:
 				fields["command_summary"] = item.command_summary
+			for name in ("tool_use_id", "model_request_id", "projection_id"):
+				value = getattr(item, name, "")
+				if value:
+					fields[name] = value
 			default_audit_log().record("permission.resolved", **fields)
 		except Exception:
 			logging.getLogger(__name__).debug("permission.resolved audit failed", exc_info=True)

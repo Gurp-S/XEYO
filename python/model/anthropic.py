@@ -46,6 +46,10 @@ from common.errors import (
 )
 
 from engine.abort import AbortController
+from model._capture_hook import (
+	capture_body as _capture_body,
+	capture_response as _capture_response,
+)
 from model.chunks import ModelChunk
 from msgtypes.message import ToolUse
 
@@ -769,6 +773,9 @@ class AnthropicModelClient:
 	) -> AsyncIterator[ModelChunk]:
 		body = self._build_body(messages, tools, stream=True)
 		url = f"{self._base_url}/v1/messages"
+		captured = _capture_body(
+			self, provider=self.provider, model=self._model, body=body
+		)
 		state: dict[str, Any] = {}
 		self.last_usage = None
 		self.last_context_tokens = None
@@ -778,6 +785,9 @@ class AnthropicModelClient:
 		async with client.stream(
 			"POST", url, headers=self._headers(), json=body, timeout=120.0
 		) as resp:
+			_capture_response(
+				captured, http_status=resp.status_code, headers=resp.headers
+			)
 			if resp.status_code >= 400:
 				err = await resp.aread()
 				raw = err.decode("utf-8", errors="replace")
@@ -826,6 +836,9 @@ class AnthropicModelClient:
 		"""httpx 缺失时的 urllib 回退（与 DeepSeek 客户端同构的线程 + 队列）。"""
 		body = self._build_body(messages, tools, stream=True)
 		url = f"{self._base_url}/v1/messages"
+		captured = _capture_body(
+			self, provider=self.provider, model=self._model, body=body
+		)
 		data = json.dumps(body).encode("utf-8")
 		loop = asyncio.get_running_loop()
 		queue: asyncio.Queue[tuple[str, Any]] = asyncio.Queue()
@@ -839,6 +852,9 @@ class AnthropicModelClient:
 			try:
 				req = Request(url, data=data, headers=self._headers(), method="POST")
 				with urlopen(req, timeout=120) as resp:
+					_capture_response(
+						captured, http_status=resp.status, headers=resp.headers
+					)
 					event_name = ""
 					while True:
 						raw = resp.readline()
@@ -866,6 +882,8 @@ class AnthropicModelClient:
 					)
 					loop.call_soon_threadsafe(queue.put_nowait, ("done", None))
 			except HTTPError as e:
+				# 失败尝试也有响应身份：状态码 + 厂商请求 id 是定位 429/500 的事实。
+				_capture_response(captured, http_status=e.code, headers=e.headers)
 				detail = sanitize_http_body(e.read().decode("utf-8", errors="replace"))
 				loop.call_soon_threadsafe(
 					queue.put_nowait,

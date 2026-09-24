@@ -42,6 +42,28 @@ class Price:
         ) / 1_000_000.0
 
 
+class BudgetExceeded(RuntimeError):
+    """预算门触发（中性事实：这一批不发放行，不是警告）。"""
+
+
+def parse_price(spec: str) -> Price:
+    """解析 ``--price hit,miss,out``（元 / 百万 token）成显式价目。
+
+    显式价目必须留下来源标记：它由用户输入，未经官方表核对，报告里不能与预设价
+    混为一谈。三段缺一、非数字、负数都直接拒绝——按 0 计价等于把预算门关掉。
+    """
+    parts = [p.strip() for p in str(spec or "").split(",")]
+    if len(parts) != 3 or any(not p for p in parts):
+        raise ValueError(f"--price 需要三段 hit,miss,out（元/百万 token）：{spec!r}")
+    try:
+        hit, miss, out = (float(p) for p in parts)
+    except ValueError as exc:
+        raise ValueError(f"--price 三段必须是数字：{spec!r}") from exc
+    if min(hit, miss, out) < 0:
+        raise ValueError(f"--price 不得为负：{spec!r}")
+    return Price(hit=hit, miss=miss, out=out, source=f"显式价目 hit={hit} miss={miss} out={out}（用户输入，未对官方表核对）")
+
+
 def preset(name: str = "official-new") -> Price:
     if name in ("official-new", "official", "new"):
         return Price(**PRESET_OFFICIAL_NEW, source="2026-09-10 官方新价")

@@ -42,7 +42,7 @@ export function AppNavBridge(): null {
 	return null;
 }
 
-export type PageViewKind = 'usage' | 'plugins';
+export type PageViewKind = 'usage' | 'plugins' | 'diagnostics';
 
 /** 路径 → 页面视图；非页面视图路径返回 null。 */
 export function pageViewFromPath(pathname: string): PageViewKind | null {
@@ -52,12 +52,23 @@ export function pageViewFromPath(pathname: string): PageViewKind | null {
 	if (pathname === '/plugins') {
 		return 'plugins';
 	}
+	if (pathname === '/diagnostics') {
+		return 'diagnostics';
+	}
 	return null;
 }
 
-/** 打开页面视图（真路由导航；互斥天然成立）。 */
-export function openPageView(kind: PageViewKind): void {
-	go(`/${kind}`);
+/** 打开页面视图（真路由导航；互斥天然成立）。`query` 用于可深链的页面（诊断）。 */
+export function openPageView(
+	kind: PageViewKind,
+	query?: Record<string, string | undefined>,
+): void {
+	const q = new URLSearchParams();
+	for (const [k, v] of Object.entries(query ?? {})) {
+		if (v) q.set(k, v);
+	}
+	const qs = q.toString();
+	go(`/${kind}${qs ? `?${qs}` : ''}`);
 }
 
 /** 关闭页面视图：回到当前会话（主会话 /c/:id，侧聊 /side/:id），无会话则回 '/'。 */

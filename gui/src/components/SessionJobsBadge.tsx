@@ -13,8 +13,10 @@
  * - 只读纪律：无流直读、无人类中断行（冻结口径 6）。
  */
 import {useEffect, useRef, useState} from 'react';
-import {ChevronDown, Loader2, ListTree, Terminal} from 'lucide-react';
+import {ChevronDown, Loader2, ListTree, Stethoscope, Terminal} from 'lucide-react';
 import {useChatStore} from '@/stores/chatStore';
+import {activeBackendSessionId} from '@/stores/chat/preStoreHelpers';
+import {openPageView} from '@/lib/appNav';
 import {cn} from '@/lib/utils';
 import {
 	activeJobsCount,
@@ -121,6 +123,7 @@ export function SessionJobsBadge({
 }) {
 	// 订阅整个 map（store 不变时引用稳定），键缺失回退模块级常量。
 	const jobsRecord = useChatStore(s => s.sessionJobsById);
+	const historyById = useChatStore(s => s.historyById);
 	const jobs = sessionId ? (jobsRecord[sessionId] ?? EMPTY_JOBS) : EMPTY_JOBS;
 	const [open, setOpen] = useState(false);
 	const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
@@ -285,6 +288,28 @@ export function SessionJobsBadge({
 							);
 						})}
 					</ul>
+					{expandedJobId ? null : (
+						<p className="px-1.5 pb-0.5 pt-1 text-[9.5px] text-mute/80">
+							运行中每秒推进耗时；终态行保留并显示冻结耗时。
+						</p>
+					)}
+					{/* 诊断入口：job 快照不带 turn 身份（JobRecord.to_dict 无 turn_id），
+					    因此只能定位到会话，具体轮次在诊断页左侧选。 */}
+					<div className="mt-1 border-t border-line/40 pt-1">
+						<button
+							type="button"
+							className="flex w-full items-center gap-1.5 rounded-[5px] px-2 py-1.5 text-left text-[11.5px] text-mute transition-colors duration-75 hover:bg-glass-hover hover:text-ink"
+							onClick={() => {
+								setOpen(false);
+								openPageView('diagnostics', {
+									session: activeBackendSessionId(historyById, sessionId),
+								});
+							}}
+						>
+							<Stethoscope className="size-3 shrink-0" strokeWidth={1.8} aria-hidden />
+							查看诊断
+						</button>
+					</div>
 				</div>
 			) : null}
 		</div>

@@ -10,6 +10,8 @@ export type DiffStat = {add: number; del: number};
 
 export type ActivityStep = {
 	id: string;
+	/** 后端 tool_use.id；用于跳到诊断中心，UI 的 id 不能替代它。 */
+	toolUseId?: string;
 	/** 加粗关键词：Edited / Read / Ran / Grepped … */
 	verb: string;
 	/** 行内其余部分（文件、模式、命令）。 */

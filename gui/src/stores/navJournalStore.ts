@@ -1,10 +1,18 @@
 import {create} from 'zustand';
+import type {PageViewKind} from '@/lib/appNav';
 
 /**
  * 全局导航日志（浏览器式 上一个/下一个界面）。
  *
- * 「界面」= 路由（含 search）+ 用量面板开合。多 Agent 子视图是会话内存态
- * （chatStore.agentViewStack），不进此栈 —— 切回该会话时恢复其自身记忆。
+ * 「界面」= 路由（含 search）+ 页面视图（用量 / 扩展中心 / 诊断中心）。
+ * 多 Agent 子视图是会话内存态（chatStore.agentViewStack），不进此栈 ——
+ * 切回该会话时恢复其自身记忆。
+ *
+ * 字段沿革：原本叫 `usageOpen: boolean`（当时只有用量一个页面视图）。
+ * 页面视图增至三类后布尔表达不了「哪个页面」，改为 `pageView`（派生自路由，
+ * 语义与取值范围与 `lib/appNav::pageViewFromPath` 完全一致）。对 usage /
+ * plugins 的入栈·后退·前进行为与改造前逐条等价：同一 path 的不同 pageView
+ * 仍是不同界面，null 仍是「聊天本体」。
  *
  * 同步算法（record）：不区分 PUSH/POP 事件源，仅按内容就近匹配：
  *   - 与当前条目相同            → 忽略
@@ -14,7 +22,7 @@ import {create} from 'zustand';
  * 这样无论导航来自链接点击、代码 redirect、浏览器按钮还是本组件箭头，
  * 栈都能保持一致的浏览器语义。
  */
-export type NavEntry = {path: string; usageOpen: boolean};
+export type NavEntry = {path: string; pageView: PageViewKind | null};
 
 const MAX_ENTRIES = 200;
 
@@ -30,7 +38,7 @@ type NavJournalState = {
 };
 
 function sameEntry(a: NavEntry | undefined, b: NavEntry): boolean {
-	return Boolean(a && a.path === b.path && a.usageOpen === b.usageOpen);
+	return Boolean(a && a.path === b.path && a.pageView === b.pageView);
 }
 
 export const useNavJournalStore = create<NavJournalState>((set, get) => ({

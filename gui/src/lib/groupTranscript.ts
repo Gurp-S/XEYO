@@ -2,6 +2,8 @@ import type {ChatMessage} from './types';
 
 export type ToolView = {
 	id: string;
+	/** 后端 tool_use.id：诊断定位要用，UI 自身的 id 是会话内合成计数器。 */
+	toolUseId?: string;
 	name: string;
 	input: string;
 	result: string;
@@ -84,6 +86,7 @@ function toolStatusOf(m: ChatMessage): ToolView['status'] {
 function toToolView(m: ChatMessage): ToolView {
 	return {
 		id: m.id,
+		toolUseId: m.toolUseId,
 		name: m.toolName ?? 'tool',
 		input: toolInputOf(m),
 		result: toolResultOf(m),

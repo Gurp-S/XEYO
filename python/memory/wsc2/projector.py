@@ -82,6 +82,72 @@ def _decision_line(f: Fact) -> str:
     return " ".join(bits)
 
 
+def _paths_lines(state: WorkingState) -> list[str]:
+    """`[PATHS]`：碰过的路径要有一条**必然可见**的通道，但只按配额发。
+
+    与 V1 `synaptic/paths.py` 同判据，三处按 V2 的证据降级，降级方向都写在这里：
+    - 形态：调 V1 的 `suffix_chain_canonical` + `shortest_unique_suffix`。归并在**渲染时**
+      按当前池子做一次，不放进增量账里 —— 池子随会话长，增量重算是 O(n²)，而归并只决定
+      "显示成什么"，不决定"碰没碰过"。
+    - 配额：读 V1 的生产参数（条数 + token 两道），再收窄到 V2 离线配对实验选出的
+      48 条 / 384 token 上限。V2 的 WORKING SET 没有 V1 的 12 条上限，路径段不必照搬 V1 配额。
+      配额就是这一类的生命周期：V2 判不出"一条提及有没有作废"，所以**不给它退场规则**，
+      改用"只展示前 N 条"——这与 V1 的做法一致，也不违反"不明确就 KEEP"。
+    - 优先级：先保失败现场，再保近 25% 触碰，其余按最后触碰倒序补位。
+      条数与 token 两道配额都按这一个优先级准入，最后才按首次出现顺序显示。
+    """
+    ledger = state.paths
+    if not ledger:
+        return []
+    try:
+        from synaptic.paths import shortest_unique_suffix
+        from synaptic.textutil import suffix_chain_canonical
+    except Exception:  # pragma: no cover - 没有 V1 原语就宁可不发这一段，也不自造形态
+        return []
+    canon = suffix_chain_canonical(list(ledger))
+    merged: dict[str, dict[str, int]] = {}
+    for p, v in ledger.items():
+        c = canon.get(p, p)
+        cur = merged.get(c)
+        if cur is None:
+            merged[c] = {"first": int(v["first"]), "last": int(v["last"]),
+                         "fail": int(v.get("fail", 0))}
+            continue
+        cur["first"] = min(cur["first"], int(v["first"]))
+        cur["last"] = max(cur["last"], int(v["last"]))
+        cur["fail"] = cur["fail"] or int(v.get("fail", 0))
+
+    limit, budget = _path_caps()
+    horizon = max(v["last"] for v in merged.values())
+    floor = int(horizon * 0.75)
+    rank = {p: (0 if v["fail"] else 1 if v["last"] >= floor else 2, -v["last"], p)
+            for p, v in merged.items()}
+    pool = frozenset(merged)
+    chosen: dict[str, str] = {}
+    used = 0
+    for p in sorted(merged, key=lambda p: rank[p])[:limit]:
+        line = shortest_unique_suffix(p, pool)
+        cost = token_len(line) + 1
+        if used + cost > budget:
+            continue
+        used += cost
+        chosen[p] = line
+    return [chosen[p]
+            for p in sorted(chosen, key=lambda p: (merged[p]["first"], p))]
+
+
+def _path_caps() -> tuple[int, int]:
+    """V2 路径段采用配对实验验证的上限，且不超过 V1 的生产配额。"""
+    try:
+        from memory.wsc_projection import production_params
+
+        p = production_params()
+        return (min(48, max(0, int(p.path_index_limit))),
+                min(384, max(0, int(p.path_index_budget_tokens))))
+    except Exception:  # pragma: no cover
+        return 48, 384
+
+
 def sections(state: WorkingState, current_turn: int | None = None) -> list[tuple[str, list[str]]]:
     act = state.active_facts()
     reqs = [f for f in act if f.kind == "request"]
@@ -117,6 +183,10 @@ def sections(state: WorkingState, current_turn: int | None = None) -> list[tuple
     if decisions:
         out.append(("EXCLUDED BRANCHES", [_decision_line(f) for f in
                                           _by_last_index(decisions)]))
+    if state.paths:
+        paths = _paths_lines(state)
+        if paths:
+            out.append(("PATHS", paths))
     if todos:
         out.append(("TODO", [f"[{f.value.get('todo_status')}] "
                              f"{_clip(f.value.get('literal'))}" for f in

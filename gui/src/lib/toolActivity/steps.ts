@@ -40,6 +40,7 @@ export function toolToStep(tool: ToolView): ActivityStep {
 		}
 		return {
 			id: tool.id,
+			toolUseId: tool.toolUseId,
 			verb: running ? 'Delegating' : err ? 'Failed' : 'Delegated',
 			detail,
 			args: tool.input?.trim() ? tool.input : undefined,
@@ -165,6 +166,7 @@ export function toolToStep(tool: ToolView): ActivityStep {
 
 	return {
 		id: tool.id,
+		toolUseId: tool.toolUseId,
 		verb,
 		detail,
 		args: tool.input?.trim() ? tool.input : undefined,

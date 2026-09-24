@@ -27,7 +27,7 @@ from .state import (AUTHORITATIVE, DERIVED, LITERAL, RESOLVED, SUPERSEDED, UNKNO
 __all__ = ["AUTHORITATIVE", "DERIVED", "LITERAL", "UNKNOWN", "AUTHORITY_TIERS",
            "Observation", "Signal", "FileObserver", "constraint_signals",
            "v1_file_oracle", "PRECISE_READ_TOOLS", "error_sig",
-           "decision_signals", "attach_decisions", "retire_decisions"]
+           "decision_signals", "attach_decisions", "retire_decisions", "path_touches"]
 
 #: V1 里"精确读"的判定（只有这两种工具能给出 offset/limit 区间，也才配当 hash 的源）
 PRECISE_READ_TOOLS = ("Read", "NotebookRead")
@@ -292,6 +292,52 @@ def error_sig(text: str) -> str:
         return str(v1(text or "") or "")
     except Exception:
         return " ".join(str(text or "").split())[:120]
+
+
+def path_touches(e: Event) -> tuple[str, ...]:
+    """一条事件"碰过"哪些路径 —— **照 V1 建图那四步抄**，不自创口径。
+
+    V1 在 `synaptic/graph.py:412-430` 对每个节点做的事：
+      ① tool_use 输入里的路径（`tool_input_paths`）＋命令里的路径（`command_paths`）；
+      ② tool_result 输出文本里扫出的路径（前 8k 字符、最多 12 条）；
+      ③ 前两条都没扫到，才退回节点正文扫描；
+      ④ 过 `is_noise_path`（机器噪音路径根本不进索引）。
+    变体归并（同一文件的长短写法折成最短写法）V1 在建图时全局做一次；这里**不做**，
+    留给渲染时按当前池子做（`projector._paths_lines`）——池子会随会话长，增量地重算
+    归并是 O(n²)，而它只影响"显示成什么"，不影响"碰没碰过"。
+
+    存在的理由：V2 的 `FileObserver` 刻意只认 read/write 工具**输入里**的路径（那才是
+    "文件状态"的证据）。但"结果文本里提到过某个文件"也是信息 —— V1 把它和状态混在同一个
+    `refs` 池里，所以它的 `[PATHS]` 每 100 tok 能值 15.6 根针（§6.6）。V2 要拿回这块覆盖，
+    就得有第二条账，而这条账必须与 V1 同判据，否则两边对不上（#30 那次键域错位的教训）。
+    """
+    try:
+        from synaptic.textutil import (command_paths, extract_paths, is_noise_path,
+                                       tool_input_paths)
+    except Exception:  # pragma: no cover - 没有 V1 就没有同判据，宁可不记也不自造口径
+        return ()
+
+    found: list[str] = []
+    if e.kind == KIND_TOOL_USE:
+        found = list(tool_input_paths(e.inputs)) + list(command_paths(e.inputs))
+    elif e.kind == KIND_TOOL_RESULT:
+        found = list(extract_paths(str(e.text or "")[:8000], limit=12))
+    if not found:
+        found = list(extract_paths(str(e.text or "")[:8000], limit=12))
+    out: list[str] = []
+    for p in found:
+        s = str(p or "")
+        if not s or is_noise_path(s):
+            continue
+        out.append(_norm(s))
+    return tuple(dict.fromkeys(out))
+
+
+def _norm(raw: str) -> str:
+    """路径键归一：与 events 同一套（V1 的 `tool_input_paths` 为权威）。"""
+    from .events import _norm_path
+
+    return _norm_path(raw)
 
 
 def _card_get(card: Any, name: str, default: Any = None) -> Any:

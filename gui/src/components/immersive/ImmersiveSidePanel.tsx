@@ -5,13 +5,14 @@ import {
 	FolderGit2,
 	Puzzle,
 	Sparkles,
+	Stethoscope,
 	Plus,
 	X,
 } from 'lucide-react';
 import {useEffect, useRef, useState} from 'react';
 import {ImmersiveTodo} from './ImmersiveTodo';
 import {useChatUiStore} from '@/stores/chatUiStore';
-import {newSession, openPageView, openSession} from '@/lib/appNav';
+import {newSession, openPageView, openSession, type PageViewKind} from '@/lib/appNav';
 
 /**
  * 沉浸模式右板（smoke-test #5 重做）：
@@ -65,8 +66,9 @@ export function ImmersiveSidePanel({onCollapse}: {onCollapse: () => void}) {
 		// 统一入口（lib/appNav）：新建会话 + 路由。
 		void newSession();
 	};
-	// 页面视图是真路由：先退沉浸态，再导航（导航本身即打开 /usage、/plugins）。
-	const goPageView = (kind: 'usage' | 'plugins') => {
+	// 页面视图是真路由：先退沉浸态，再导航（导航本身即打开 /usage、/plugins、/diagnostics）。
+	// kind 类型直接取 lib/appNav 的 PageViewKind，避免这里再手写一遍联合类型。
+	const goPageView = (kind: PageViewKind) => {
 		exitImmersive();
 		openPageView(kind);
 	};
@@ -171,6 +173,15 @@ export function ImmersiveSidePanel({onCollapse}: {onCollapse: () => void}) {
 						onClick={() => goPageView('plugins')}
 					>
 						<Puzzle className="size-4" />
+					</button>
+					<button
+						type="button"
+						aria-label="诊断"
+						title="诊断中心"
+						className={iconBtn}
+						onClick={() => goPageView('diagnostics')}
+					>
+						<Stethoscope className="size-4" />
 					</button>
 				</div>
 				<div className="relative mt-1.5" ref={wsRef}>

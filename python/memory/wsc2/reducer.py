@@ -10,7 +10,7 @@ from typing import Any, Mapping
 
 from .events import (KIND_TOOL_RESULT, KIND_TOOL_USE, KIND_USER_TEXT, Event,
                      fingerprint)
-from .sources import FileObserver, constraint_signals, error_sig
+from .sources import (FileObserver, constraint_signals, error_sig, path_touches)
 from .state import (ACTIVE, CANCELLED, RESOLVED, SUPERSEDED, Delta, Fact,
                     WorkingState)
 
@@ -94,6 +94,8 @@ class StateReducer:
             o = self._files.observe(p)
             if o is not None:
                 state.set_observation(o)
+        for p in path_touches(e):
+            state.touch_path(p, e.index, failed=bool(e.is_error))
         state.events_seen += 1
         state.last_event_id = e.event_id
         state.last_event_index = e.index

@@ -326,6 +326,10 @@ from server.routers.audit import router as audit_router
 
 app.include_router(audit_router, dependencies=[Depends(require_loopback)])
 
+from server.routers.diagnostics import router as diagnostics_router
+
+app.include_router(diagnostics_router, dependencies=[Depends(require_loopback)])
+
 from server.routers.control import router as control_router
 
 app.include_router(control_router)

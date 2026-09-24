@@ -1,0 +1,204 @@
+"""诊断路由的行为：分页可见、缺项不补值、固定证据能进规则、费用未知不是 0。"""
+
+from __future__ import annotations
+
+import copy
+
+import pytest
+from fastapi.testclient import TestClient
+
+from audit.log import AuditLog, reset_default_audit_log
+from server.app import app
+
+_ROWS = [
+	{"kind": "model.started", "ts": 1.0, "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", "attempt": 1, "projection_id": "p1"},
+	{"kind": "model.finished", "ts": 1.1, "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", "attempt": 1, "status": "ok", "projection_id": "p1"},
+	{"kind": "tool.started", "ts": 1.2, "session_id": "s1", "turn_id": "t1", "request_id": "c1", "tool_name": "Read", "model_request_id": "r1"},
+	{"kind": "tool.finished", "ts": 1.3, "session_id": "s1", "turn_id": "t1", "request_id": "c1", "tool_name": "Read", "is_error": True, "error_kind": "NOT_FOUND", "model_request_id": "r1"},
+]
+
+
+@pytest.fixture
+def client():
+	reset_default_audit_log()
+	yield TestClient(app)
+	reset_default_audit_log()
+
+
+@pytest.fixture
+def seed_audit(tmp_path):
+	def _seed(rows=None) -> AuditLog:
+		reset_default_audit_log()
+		log = AuditLog(tmp_path / "audit.jsonl")
+		import audit.log as mod
+
+		mod._default = log
+		for row in rows if rows is not None else _ROWS:
+			payload = dict(copy.deepcopy(row))
+			log.record(payload.pop("kind"), **payload)
+		return log
+
+	return _seed
+
+
+def test_runs_list_shape(client, seed_audit) -> None:
+	seed_audit()
+	body = client.get("/v1/diagnostics/runs", params={"session_id": "s1"}).json()
+	assert body["count"] == 1
+	run = body["runs"][0]
+	assert run["turn_id"] == "t1"
+	assert set(run["boundaries"]) == {"model_request", "tool_permission"}
+	assert isinstance(body["complete"], bool)
+
+
+def test_run_detail_paginates_events_and_shows_cursor(client, seed_audit) -> None:
+	seed_audit()
+	first = client.get("/v1/diagnostics/runs/t1", params={"session_id": "s1", "event_limit": 2}).json()
+	assert first["event_total"] == 4
+	assert len(first["events"]) == 2
+	assert first["events_complete"] is False
+	assert first["next_event_cursor"] == "2"
+	second = client.get(
+		"/v1/diagnostics/runs/t1", params={"session_id": "s1", "event_limit": 2, "event_offset": 2}
+	).json()
+	assert second["events_complete"] is True
+	assert second["next_event_cursor"] == ""
+	kinds = {e["kind"] for e in first["events"] + second["events"]}
+	assert kinds == {"model.started", "model.finished", "tool.started", "tool.finished"}
+
+
+def test_run_detail_does_not_invent_missing_identity(client, seed_audit) -> None:
+	seed_audit()
+	body = client.get("/v1/diagnostics/runs/t1", params={"session_id": "s1"}).json()
+	tool = body["tool_calls"][0]
+	assert tool["projection_id"] == ""
+	assert body["identity"]["approval_ids"] == []
+	assert body["coverage"]["captures"]["state"] in {"absent", "partial"}
+	assert any(g["reason"] == "not_captured" for g in body["gaps"])
+	assert body["versions"]["commit"] != ""
+
+
+def test_usage_gap_survives_to_report(client, seed_audit) -> None:
+	seed_audit()
+	body = client.get("/v1/diagnostics/runs/t1", params={"session_id": "s1"}).json()
+	usage = body["usage_summary"]
+	assert usage["unknown_cost_attempts"] == 1
+	assert usage["estimated_total_cny"] == 0.0
+	assert "费用未知" in usage["statement"]
+	assert body["attribution"]["first_anomaly_boundary"] == "model_request"
+
+
+def test_every_finding_carries_evidence(client, seed_audit) -> None:
+	seed_audit()
+	body = client.get("/v1/diagnostics/runs/t1", params={"session_id": "s1"}).json()
+	assert body["findings"]
+	for item in body["findings"]:
+		assert item["evidence"] or item["status"] == "unknown", item["rule_id"]
+		assert item["coverage_gap"], item["rule_id"]
+		assert item["allowed_conclusion"], item["rule_id"]
+
+
+def test_pin_and_verifier_reach_the_rules(client, seed_audit) -> None:
+	seed_audit()
+	pinned = client.post(
+		"/v1/diagnostics/runs/t1/pin",
+		params={"session_id": "s1"},
+		json={"note": "结果不对", "expected": "应该先修引用"},
+	).json()
+	assert pinned["ok"] is True
+	assert pinned["pin"]["kind"] == "run_mark"
+	unrun = client.get("/v1/diagnostics/runs/t1", params={"session_id": "s1"}).json()
+	ver = [f for f in unrun["findings"] if f["rule_id"] == "verifier"]
+	assert ver and ver[0]["status"] == "unknown"
+	zero = client.post(
+		"/v1/diagnostics/runs/t1/verifier",
+		params={"session_id": "s1"},
+		json={"name": "pytest tests/diagnostics", "command": "pytest", "exit_code": 0},
+	).json()
+	assert zero["ok"] is True
+	body = client.get("/v1/diagnostics/runs/t1", params={"session_id": "s1"}).json()
+	ver = [f for f in body["findings"] if f["rule_id"] == "verifier"]
+	assert ver and "通过" in ver[0]["phenomenon"]
+	assert all(f["status"] != "confirmed_fault" for f in ver)
+	two = client.post(
+		"/v1/diagnostics/runs/t1/verifier",
+		params={"session_id": "s1"},
+		json={"name": "pytest 全量", "exit_code": 1},
+	).json()
+	assert two["ok"] is True
+	body = client.get("/v1/diagnostics/runs/t1", params={"session_id": "s1"}).json()
+	ver = [f for f in body["findings"] if f["rule_id"] == "verifier"]
+	assert any(f["status"] == "confirmed_fault" for f in ver)
+	assert any("退出码 0 只证明" in f["coverage_gap"] for f in ver)
+	assert client.delete(f"/v1/diagnostics/pins/{pinned['pin']['pin_id']}", params={"session_id": "s1"}).json() == {"ok": True}
+
+
+def test_pin_requires_note(client, seed_audit) -> None:
+	seed_audit()
+	res = client.post("/v1/diagnostics/runs/t1/pin", params={"session_id": "s1"}, json={"note": "  "})
+	assert res.status_code == 200
+	assert res.json()["ok"] is False
+
+
+def test_capture_toggle_and_capture_body(client, seed_audit) -> None:
+	seed_audit()
+	before = client.get("/v1/diagnostics/capture", params={"session_id": "s1"}).json()
+	assert before["enabled"] is False
+	client.post("/v1/diagnostics/capture", json={"session_id": "s1", "enabled": True})
+	after = client.get("/v1/diagnostics/capture", params={"session_id": "s1"}).json()
+	assert after["enabled"] is True
+	assert after["quota_bytes"] > 0
+	body = client.get("/v1/diagnostics/runs/t1", params={"session_id": "s1"}).json()
+	assert body["captures"] == []
+	missing = client.get("/v1/diagnostics/captures/" + "0" * 64).json()
+	assert missing["state"] == "not_captured"
+
+
+def test_fact_chain_over_http(client, seed_audit) -> None:
+	seed_audit()
+	doc = client.get(
+		"/v1/diagnostics/runs/t1/fact", params={"session_id": "s1", "needle": "NOT_FOUND"}
+	).json()
+	assert len(doc["stages"]) == 7
+	assert doc["stages"][0]["state"] in {"absent", "not_captured", "unreadable"}
+	assert "不等于" in doc["caveat"] or "不能排除" in doc["statement"]
+
+
+def test_markdown_export_is_rendered_from_same_structure(client, seed_audit) -> None:
+	seed_audit()
+	md = client.get("/v1/diagnostics/runs/t1/report.md", params={"session_id": "s1"}).json()["markdown"]
+	assert "# XEYO 诊断报告" in md
+	assert "覆盖缺口" in md
+	assert "按 usage 估算" in md or "无可依据的用量" in md
+	saved = client.post("/v1/diagnostics/reports", params={"session_id": "s1", "turn_id": "t1"}).json()
+	assert saved["ok"] is True and saved["report_id"].startswith("rep_")
+	loaded = client.get(f"/v1/diagnostics/reports/{saved['report_id']}").json()
+	assert loaded["ok"] is True
+	assert loaded["report"]["turn_id"] == "t1"
+
+
+def test_message_body_endpoint_reports_missing_transcript(client, seed_audit) -> None:
+	seed_audit()
+	res = client.get("/v1/diagnostics/messages/m1", params={"session_id": "no_such_session"}).json()
+	assert res["ok"] is False
+	assert res["error"] == "no_transcript"
+
+
+def test_a0_plan_is_free_and_reports_no_model_calls(client, seed_audit) -> None:
+	seed_audit()
+	res = client.post("/v1/diagnostics/experiments/plan", json={"mode": "a0"}).json()
+	assert res["ok"] is True
+	plan = res["plan"]
+	assert plan["billable"] is False
+	assert plan["cost_basis"] == "无模型调用"
+	assert plan["model_requests"] == 0
+
+
+def test_unknown_mode_is_rejected_without_starting_anything(client, seed_audit) -> None:
+	seed_audit()
+	res = client.post(
+		"/v1/diagnostics/experiments",
+		json={"mode": "A9", "idempotency_key": "router-test-key"},
+	).json()
+	assert res["ok"] is False
+	assert "a0" in res["error"]
