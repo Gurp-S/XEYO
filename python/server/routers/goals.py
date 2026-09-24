@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -20,6 +21,9 @@ from engine.goal_state import (
 )
 from server.deps import _pool
 from server.local_gate import require_loopback
+from server.routers.sessions import require_session_id
+
+_logger = logging.getLogger(__name__)
 
 # T33：goal 面（含 PATCH 删除/收敛）仅 loopback。
 router = APIRouter(tags=["goal"], dependencies=[Depends(require_loopback)])
@@ -28,6 +32,23 @@ router = APIRouter(tags=["goal"], dependencies=[Depends(require_loopback)])
 def _store_for(session_id: str) -> GoalStore:
 	cwd = _pool.session_cwd(session_id) or _pool.cwd
 	return GoalStore(cwd)
+
+
+def _require_known_session(sid: str) -> None:
+	"""会话须真实存在：pool 钉住了它的工作区，或磁盘上有 transcript（含轮转档）。
+
+	没有这道门时，不存在的 session 会静默回落到 ``_pool.cwd`` 共享工作区：
+	PATCH action=new 实测把幻影会话的 goal + binding 写进了服务器当前
+	workspace 的 ``.xeyo/goals/``，disarm 对幻影 id 返回 200 成功。
+	"""
+	if _pool.session_cwd(sid):
+		return
+	from session.persistence import transcript_path
+	from session.record_transcript import transcript_read_paths
+
+	if any(p.is_file() for p in transcript_read_paths(transcript_path(sid))):
+		return
+	raise HTTPException(404, "session not found")
 
 
 def _current_or_empty(session_id: str) -> dict[str, Any]:
@@ -44,23 +65,29 @@ def get_goal(session_id: str) -> dict[str, Any]:
 
 	bound 时 additive 附 ``driver`` 投影（armed 态——41 号 §9.4，XEYO 有意比
 	默认实现多暴露；无 driver 记录时默认 disarmed）。
+	未绑定且会话存在时返回 {}（41 号契约）；会话不存在是 404
+	session_not_found——「查无此会话」不得伪装成「没有目标」。
 	"""
-	goal = _current_or_empty(session_id)
+	sid = require_session_id(session_id)
+	_require_known_session(sid)
+	goal = _current_or_empty(sid)
 	if goal:
 		try:
 			from server.goal_round_driver import get_goal_round_driver
 
 			goal = {
 				**goal,
-				"driver": get_goal_round_driver().snapshot(session_id)
+				"driver": get_goal_round_driver().snapshot(sid)
 				or {
 					"activation": "disarmed",
 					"pending": False,
 					"active_round": None,
 				},
 			}
-		except Exception:  # noqa: BLE001
-			pass
+		except Exception:  # noqa: BLE001 — driver 投影失败要留痕，不能静默当成无 driver
+			_logger.warning(
+				"goal driver snapshot failed for session %s", sid, exc_info=True
+			)
 	return goal
 
 
@@ -95,16 +122,18 @@ async def patch_goal(session_id: str, body: GoalPatch) -> dict[str, Any]:
 	"""
 	from server.goal_round_driver import get_goal_round_driver
 
-	store = _store_for(session_id)
-	cur = store.current(session_id)
+	sid = require_session_id(session_id)
+	_require_known_session(sid)
+	store = _store_for(sid)
+	cur = store.current(sid)
 	if body.action == "new":
 		if not (body.text or "").strip():
 			raise HTTPException(400, "action=new requires text")
 		goal = await store.create_and_bind_async(
 			title=(body.title or (body.text or "")[:48]),
 			text=body.text or "",
-			session_id=session_id,
-			owner=session_id,
+			session_id=sid,
+			owner=sid,
 			origin="api",
 		)
 		return goal.to_dict()
@@ -164,11 +193,11 @@ async def patch_goal(session_id: str, body: GoalPatch) -> dict[str, Any]:
 		return _conflict_response(exc.goal)
 	if back_to_active:
 		# 2026-09-05 补接线：armed 的 driver 在 goal 回到 active 后能立即续跑，
-		# 不必等下一次 turn settlement。无事件循环（不该发生，async 端点）时静默。
+		# 不必等下一次 turn settlement。poke 失败要留痕（续跑没排上 ≠ 排上了）。
 		try:
-			get_goal_round_driver().poke(session_id)
+			get_goal_round_driver().poke(sid)
 		except Exception:  # noqa: BLE001
-			pass
+			_logger.warning("goal driver poke failed for session %s", sid, exc_info=True)
 	return goal.to_dict()
 
 
@@ -193,10 +222,12 @@ async def post_goal_round_driver(
 	"""
 	from server.goal_round_driver import get_goal_round_driver
 
+	sid = require_session_id(session_id)
+	_require_known_session(sid)
 	driver = get_goal_round_driver()
-	store = _store_for(session_id)
+	store = _store_for(sid)
 	if body.action == "arm":
-		cur = store.current(session_id)
+		cur = store.current(sid)
 		if cur is None:
 			raise HTTPException(404, "no goal bound to this session")
 		if cur.status != STATUS_ACTIVE:
@@ -210,10 +241,10 @@ async def post_goal_round_driver(
 				)
 			except GoalConflict as exc:
 				return _conflict_response(exc.goal)
-		snap = driver.arm(session_id)
+		snap = driver.arm(sid)
 	else:
-		snap = driver.disarm(session_id)
-	goal = store.current(session_id)
+		snap = driver.disarm(sid)
+	goal = store.current(sid)
 	return {
 		"goal": goal.to_dict() if goal is not None else {},
 		"driver": snap,

@@ -22,8 +22,10 @@ from rewind.hotpath import (
     RewindStateError,
     RewindValidationError,
 )
+from session.persistence import transcript_path
 from server.deps import _pool, api_error
 from server.local_gate import require_loopback
+from server.routers.sessions import require_session_id
 from common.errors import safe_error_detail
 
 # T33：回滚面（改写 transcript 与工作区）仅 loopback。
@@ -57,9 +59,17 @@ def _raise_rewind_api_error(exc: Exception) -> None:
 
 
 def _hotpath(session_id: str) -> RewindHotpath:
-    sid = (session_id or "").strip()
-    if not sid:
-        raise api_error(400, "session_id is empty")
+    # 边缘身份校验（sessions.py 同口径固定点判据）：``victim.`` / ``" victim "`` /
+    # ``vi:ctim`` 经 safe_session_filename 会落到别的会话文件上——回溯会原子重写
+    # transcript + 恢复工作区，别名 id 一次请求就能毁掉另一个会话的用户数据。
+    # 此前这里的 ``.strip()`` 本身就是静默清洗（``" victim "``→victim 直接通过），已删。
+    sid = require_session_id(session_id)
+    # 不存在的会话不得进入热路径：以前 ghost id 也能构造 hotpath，读侧 200 + []，
+    # 与「会话存在但没回溯过」不可区分（sessions.py messages 的 transcript_not_found 同口径）。
+    from session.record_transcript import transcript_read_paths
+
+    if not any(p.is_file() for p in transcript_read_paths(transcript_path(sid))):
+        raise api_error(404, f"session has no transcript: {sid}", "session_not_found")
     cwd = _pool.session_cwd(sid) or _pool.cwd
     if not (cwd or "").strip():
         raise api_error(400, "session has no workspace")
@@ -245,9 +255,7 @@ def rewind_checkpoint_lookup(session_id: str, message_id: str) -> dict[str, Any]
     """弹窗打开时查询某条 user 消息的 checkpoint（无则 Restore 禁用）。"""
     from rewind.index import find_checkpoint_for_message
 
-    sid = (session_id or "").strip()
-    if not sid:
-        raise api_error(400, "session_id is empty")
+    sid = require_session_id(session_id)
     cp = find_checkpoint_for_message(sid, message_id)
     if cp is None:
         return {"checkpoint_id": None}
@@ -273,9 +281,9 @@ def rewind_checkpoint_anchor(
     """给某条 user 消息的 checkpoint 打/取消锚点（§9.1 锚点写入方）。"""
     from rewind.index import mark_checkpoint_anchor
 
-    sid = (session_id or "").strip()
-    if not sid:
-        raise api_error(400, "session_id is empty")
+    # 锚点写入直接改写会话的 checkpoints.jsonl——别名 id（``victim.``）已证实会
+    # 写进 victim 的文件，破坏性路由必须拒绝身份有歧义的 id（422）。
+    sid = require_session_id(session_id)
     cp_id = mark_checkpoint_anchor(sid, message_id, anchor=body.anchor)
     if cp_id is None:
         raise api_error(404, f"no checkpoint for message: {message_id}", "rewind_not_found")

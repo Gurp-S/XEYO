@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends
 
 from server.local_gate import require_loopback
 from server.deps import api_error
+from server.routers.sessions import require_session_id
 
 router = APIRouter(tags=["jobs"], dependencies=[Depends(require_loopback)])
 
@@ -23,17 +24,22 @@ def list_jobs(session_id: str) -> dict[str, Any]:
 
 	无任何任务返回空列表（GUI 据此隐藏角标）。附加 ``wake_budget_left`` 供
 	GUI 展示唤醒余量（可选字段，GUI 不消费也不报错）。
+
+	会话 id 在边缘按固定点校验：``snapshot_list`` 会对 caller 传入的 id 做
+	``strip()``，于是 ``"victim "`` 归一化后命中 ``"victim"`` 的真实任务集——
+	一次带尾空白的查询就读走别人的后台任务快照。歧义 id 一律 422。
 	"""
+	sid = require_session_id(session_id)
 	try:
 		from server.job_registry import get_job_registry
 
 		reg = get_job_registry()
 		return {
-			"jobs": reg.snapshot_list(session_id),
+			"jobs": reg.snapshot_list(sid),
 			"version": reg.version(),
-			"wake_budget_left": reg.wake_budget_left(session_id),
+			"wake_budget_left": reg.wake_budget_left(sid),
 		}
-	except Exception:  # noqa: BLE001 — 降级为空集
+	except Exception:  # noqa: BLE001 — 降级为空集（422 已在 try 外抛出，不会被吞）
 		return {"jobs": [], "version": 0, "wake_budget_left": 0}
 
 
@@ -43,13 +49,16 @@ def job_output_peek(session_id: str, job_id: str) -> dict[str, Any]:
 
 	与模型侧 ``job_output``（单游标增量消费 + reported 置位）严格分离：
 	本端点不消费游标、不影响通知管线，可重复轮询。未知/越权 → 404。
+
+	会话 id 同 ``list_jobs``：``peek_output`` 以 ``strip()`` 后的 id 比对 owner，
+	故尾空白会让查询落进他人任务；歧义 id 在边缘 422，绝不静默清洗。
 	"""
 	from server.job_registry import get_job_registry
 
-	sid = (session_id or "").strip()
-	jid = (job_id or "").strip()
-	if not sid or not jid:
-		raise api_error(400, "session_id and job_id required", "invalid_request")
+	sid = require_session_id(session_id)
+	jid = job_id or ""
+	if not jid.strip() or jid != jid.strip():
+		raise api_error(422, "job_id is blank or has surrounding whitespace", "invalid_request")
 	peek = get_job_registry().peek_output(jid, sid)
 	if peek is None:
 		raise api_error(404, "job not found", "job_not_found")

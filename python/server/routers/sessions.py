@@ -99,9 +99,9 @@ def _require_stable_id(
 
 
 def require_session_id(raw: Any) -> str:
-	"""会话 id 边缘校验。调用方：本模块与 audit 路由（按会话取证的两条读路径）。
-	jobs / goals / control / rewind 尚未接入——它们现在也不按会话 id 拼路径，
-	别把这句话当成"那边也有守卫"。"""
+	"""会话 id 边缘校验。调用方：本模块、audit、rewind、goals 的会话取证据路径。
+	jobs / control 只接了自己会读到别人数据的那几条（owner 比对与快照列表）。
+	别把这句话当成"所有路由都有守卫"——按会话 id 拼路径的新入口要自己接。"""
 	return _require_stable_id(raw, field="session_id", filename_bearing=True)
 
 
