@@ -220,9 +220,9 @@ export function createStreamSendSlice(
 				// sendMessage 返回 false，Composer 把草稿退回输入框——对齐 Codex
 				// rejected_steers：被拒的消息绝不消失在气泡撤回与清空输入框之间。
 				let queueAccepted = false;
-				let userMessagePersisted = false;
+				let userMessagePersistence: Promise<void> | null = null;
 				const persistAcceptedMessages = (messages: ChatMessage[]) => {
-					void patchMessages(sessionId, messages).catch(err => {
+					return patchMessages(sessionId, messages).catch(err => {
 						const detail = err instanceof Error ? err.message : String(err);
 						set(
 							sessionErrorBannerPatch(
@@ -233,9 +233,10 @@ export function createStreamSendSlice(
 					});
 				};
 				const persistAcceptedUserMessage = () => {
-					if (userMessagePersisted) return;
-					userMessagePersisted = true;
-					persistAcceptedMessages([qUserMsg]);
+					if (!userMessagePersistence) {
+						userMessagePersistence = persistAcceptedMessages([qUserMsg]);
+					}
+					return userMessagePersistence;
 				};
 				const markQueueAccepted = () => {
 					queueAccepted = true;
@@ -255,6 +256,9 @@ export function createStreamSendSlice(
 				};
 				const qPending = createPendingStreamHandlers({get, sessionId});
 				const queueHandlers: ChatStreamHandlers = {
+					// fetch 收到 HTTP 2xx/202 即代表服务端已受理；SSE 首帧可能
+					// 超时或连接中断，不能把这种已提交的消息当作 HTTP 拒绝撤回。
+					onAccepted: markQueueAccepted,
 					// 竞态防御：live 判定为 true 但后端实际未排队、直接开跑时（SSE 200 而非
 					// 202），onDelta/onDone 不能空置（否则回复被吞、用户看到「无 chip 无回复」）。
 					// 用闭包累积文本，onDone 时用 appendAssistantProse 把 assistant 回复落地。
@@ -388,6 +392,9 @@ export function createStreamSendSlice(
 					workspace: qSide ? '' : qWorkspace,
 					steerIfBusy: opts?.steerIfBusy,
 				});
+				if (queueAccepted) {
+					await persistAcceptedUserMessage();
+				}
 				// 受理了才让 Composer 清空输入框；被拒（429 队列满 / 413 超长 /
 				// 409 side 不支持引导）时返回 false，草稿原样退回。
 				return queueAccepted;
