@@ -11,6 +11,7 @@ from rich.table import Table
 
 from cli import http_api
 from cli.config_store import load_config, resolve_api_key, resolve_server_base_url
+from cli.cwdutil import ensure_utf8_stdio
 
 console = Console()
 
@@ -54,6 +55,7 @@ def format_updated_at(raw: object) -> str:
 
 
 def cmd_list(*, base_url: str | None = None, api_key: str | None = None, as_json: bool = False) -> int:
+	ensure_utf8_stdio()
 	client, url = _client(base_url, api_key)
 	try:
 		sessions = http_api.list_sessions(client)
@@ -97,6 +99,7 @@ def cmd_show(
 	as_json: bool = False,
 	limit: int = 20,
 ) -> int:
+	ensure_utf8_stdio()
 	client, url = _client(base_url, api_key)
 	try:
 		data = http_api.get_messages(client, session_id)
