@@ -497,10 +497,10 @@ export const Sidebar = memo(function Sidebar() {
 		async (id: string) => {
 			const before = useChatStore.getState();
 			const archivedSession = before.sessions.find(session => session.id === id);
+			const wasActiveSession = before.activeId === id;
 			const expectedPath =
 				archivedSession?.spaceId === SIDE_SPACE_ID ? `/side/${id}` : `/c/${id}`;
-			const wasActiveRoute =
-				before.activeId === id && window.location.pathname === expectedPath;
+			const wasActiveRoute = wasActiveSession && window.location.pathname === expectedPath;
 			try {
 				await archiveSession(id);
 			} catch (err) {
@@ -533,6 +533,28 @@ export const Sidebar = memo(function Sidebar() {
 				} else {
 					useChatStore.setState({activeId: null});
 					navigate('/');
+				}
+			} else if (
+				wasActiveSession &&
+				useChatStore.getState().activeId === id &&
+				pageViewFromPath(window.location.pathname)
+			) {
+				// 页面视图（用量 / 扩展 / 诊断）不带会话 id。归档其下方仍激活的
+				// 会话时保留页面视图，但先把隐藏会话切走，关闭页面视图不会回到归档项。
+				const st = useChatStore.getState();
+				const isSide = archivedSession?.spaceId === SIDE_SPACE_ID;
+				const spaceId = archivedSession?.spaceId;
+				const visible = st.sessions.filter(
+					session => session.id !== id && !session.archived,
+				);
+				const next = isSide
+					? visible.find(session => session.spaceId === SIDE_SPACE_ID)
+					: visible.find(session => session.spaceId === spaceId) ??
+						visible.find(session => session.spaceId !== SIDE_SPACE_ID);
+				if (next) {
+					void st.selectSession(next.id);
+				} else {
+					useChatStore.setState({activeId: null});
 				}
 			}
 		},

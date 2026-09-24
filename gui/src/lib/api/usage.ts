@@ -3,7 +3,9 @@
  * 拆分脚本 dismantle-messagelist.cjs 已归档至 [过程]/legacy/，本文件此后为手工维护。
  */
 import {
+	PROVIDER_DEFAULT_URL,
 	useSettingsStore,
+	type ProviderId,
 } from '@/stores/settingsStore';
 import {
 	apiUrl,
@@ -12,6 +14,22 @@ import {
 	fetchWithTimeout,
 	formatErrorDetail,
 } from './core';
+
+function requestBaseUrl(
+	provider: string,
+	explicitBaseUrl: string | undefined,
+	settings: ReturnType<typeof useSettingsStore.getState>,
+): string {
+	if (explicitBaseUrl !== undefined) {
+		return explicitBaseUrl;
+	}
+	if (provider === settings.provider) {
+		return settings.resolvedBaseUrl();
+	}
+	return (
+		PROVIDER_DEFAULT_URL[provider as ProviderId] ?? settings.resolvedBaseUrl()
+	);
+}
 
 export async function healthCheck(): Promise<boolean> {
 	try {
@@ -123,9 +141,10 @@ export async function fetchVendorModels(opts?: {
 	baseUrl?: string;
 }): Promise<VendorModelsReport> {
 	const s = useSettingsStore.getState();
+	const provider = opts?.provider ?? s.provider;
 	const headers: Record<string, string> = {
-		'X-Provider': opts?.provider ?? s.provider,
-		'X-Base-Url': opts?.baseUrl ?? s.resolvedBaseUrl(),
+		'X-Provider': provider,
+		'X-Base-Url': requestBaseUrl(provider, opts?.baseUrl, s),
 	};
 	const key = (opts?.apiKey ?? s.apiKey).trim();
 	if (key) {
@@ -194,6 +213,7 @@ export async function fetchUsage(query: {
 	baseUrl?: string;
 }): Promise<UsageReport> {
 	const s = useSettingsStore.getState();
+	const provider = query.provider ?? s.provider;
 	const qs = new URLSearchParams();
 	qs.set('days', String(query.days));
 	if (query.model) {
@@ -206,8 +226,8 @@ export async function fetchUsage(query: {
 		qs.set('key_fp', query.key_fp);
 	}
 	const headers: Record<string, string> = {
-		'X-Provider': query.provider ?? s.provider,
-		'X-Base-Url': query.baseUrl ?? s.resolvedBaseUrl(),
+		'X-Provider': provider,
+		'X-Base-Url': requestBaseUrl(provider, query.baseUrl, s),
 	};
 	const key = (query.apiKey ?? s.apiKey).trim();
 	if (key) {
@@ -245,9 +265,10 @@ export async function fetchUsageBalance(opts?: {
 	baseUrl?: string;
 }): Promise<UsageBalance> {
 	const s = useSettingsStore.getState();
+	const provider = opts?.provider ?? s.provider;
 	const headers: Record<string, string> = {
-		'X-Provider': opts?.provider ?? s.provider,
-		'X-Base-Url': opts?.baseUrl ?? s.resolvedBaseUrl(),
+		'X-Provider': provider,
+		'X-Base-Url': requestBaseUrl(provider, opts?.baseUrl, s),
 	};
 	const key = (opts?.apiKey ?? s.apiKey).trim();
 	if (key) {

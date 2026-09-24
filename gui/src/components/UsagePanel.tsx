@@ -14,14 +14,43 @@ import {emptyBucket, mergeReports} from '@/lib/usageMerge';
 import {PageShell} from '@/components/PageShell';
 import {A3SnapshotPanel} from '@/components/A3SnapshotPanel';
 import {cn} from '@/lib/utils';
-import {isLocalProvider} from '@/lib/localTestGate';
 import {
 	PROVIDER_LABEL,
+	isProviderId as isSettingsProviderId,
 	keyFingerprint,
 	modelLabel,
 	useSettingsStore,
+	PROVIDER_DEFAULT_URL,
 	type ProviderId,
 } from '@/stores/settingsStore';
+
+type UsageQuerySnapshot = {
+	days: number;
+	modelId: string;
+	modelProvider: string;
+	keyFp: string;
+	provider: ProviderId;
+	apiKey: string;
+	baseUrl: string;
+	profiles: Array<[string, ProviderId, string, string]>;
+};
+
+function sameUsageQuery(a: UsageQuerySnapshot, b: UsageQuerySnapshot): boolean {
+	return (
+		a.days === b.days &&
+		a.modelId === b.modelId &&
+		a.modelProvider === b.modelProvider &&
+		a.keyFp === b.keyFp &&
+		a.provider === b.provider &&
+		a.apiKey === b.apiKey &&
+		a.baseUrl === b.baseUrl &&
+		a.profiles.length === b.profiles.length &&
+		a.profiles.every((profile, index) => {
+			const other = b.profiles[index];
+			return profile.every((value, part) => value === other[part]);
+		})
+	);
+}
 
 // v4 三分类（dsh S1 disjoint）：输入·命中 / 输入·未命中 / 输出 三色分列。
 // 禁止相加成「总消耗」；系列字段对应后端 totals/point 的 input_hit/input_miss/output。
@@ -146,12 +175,7 @@ function providerName(id: string): string {
 	if (vendorName) {
 		return vendorName;
 	}
-	return isProviderId(id) ? PROVIDER_LABEL[id] : id;
-}
-
-function isProviderId(v: string): v is ProviderId {
-	// 'local' 是正式功能（本地模型服务）。
-	return v === 'deepseek' || v === 'openai' || isLocalProvider(v);
+	return isSettingsProviderId(id) ? PROVIDER_LABEL[id] : id;
 }
 
 type Props = {
@@ -161,6 +185,10 @@ type Props = {
 
 export function UsagePanel({active = true}: Props) {
 	const profiles = useSettingsStore(s => s.profiles);
+	const activeProfileId = useSettingsStore(s => s.activeProfileId);
+	const settingsProvider = useSettingsStore(s => s.provider);
+	const settingsApiKey = useSettingsStore(s => s.apiKey);
+	const settingsBaseUrl = useSettingsStore(s => s.baseUrl);
 	const [days, setDays] = useState(30);
 	const [modelId, setModelId] = useState('');
 	const [modelProvider, setModelProvider] = useState('');
@@ -176,13 +204,22 @@ export function UsagePanel({active = true}: Props) {
 	const [balanceLoading, setBalanceLoading] = useState(false);
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState('');
+	const [warning, setWarning] = useState('');
+	const lastQueryRef = useRef<UsageQuerySnapshot | null>(null);
+	const fallbackProfile = useMemo(
+		() =>
+			profiles.find(profile => profile.id === activeProfileId && profile.apiKey.trim()) ??
+			profiles.find(profile => profile.apiKey.trim()) ??
+			null,
+		[activeProfileId, profiles],
+	);
 
 	// P2-⑨：给余额卡标注归属账号，消除「cost 跨厂商合计、余额却只显示单账号」的歧义。
 	// 非 DeepSeek 厂商官方通常不提供 /user/balance，余额卡只对 DeepSeek 有效。
 	const balanceOwner = useMemo(() => {
 		const match = keyFp
 			? profiles.find(p => keyFingerprint(p.apiKey) === keyFp)
-			: profiles.find(p => p.apiKey.trim()) ?? null;
+			: fallbackProfile;
 		const provider = match?.provider || useSettingsStore.getState().provider;
 		const key = match?.apiKey || useSettingsStore.getState().apiKey;
 		if (!key.trim() || provider !== 'deepseek') {
@@ -193,7 +230,7 @@ export function UsagePanel({active = true}: Props) {
 			provider,
 			label: `${PROVIDER_LABEL[provider] ?? provider}${fp ? ` · ${fp.slice(0, 6)}` : ''}`,
 		};
-	}, [keyFp, profiles]);
+	}, [keyFp, profiles, fallbackProfile, settingsProvider, settingsApiKey]);
 	const filtersRef = useRef<HTMLDivElement>(null);
 	const menuId = useId();
 
@@ -218,37 +255,49 @@ export function UsagePanel({active = true}: Props) {
 				timer = undefined;
 			}
 			if (!silent) {
+				const query: UsageQuerySnapshot = {
+					days,
+					modelId,
+					modelProvider,
+					keyFp,
+					provider: settingsProvider,
+					apiKey: settingsApiKey,
+					baseUrl: settingsBaseUrl,
+					profiles: profiles.map(profile => [
+						profile.id,
+						profile.provider,
+						profile.apiKey,
+						profile.baseUrl,
+					]),
+				};
+				const previousQuery = lastQueryRef.current;
+				if (!previousQuery || !sameUsageQuery(previousQuery, query)) {
+					// A report for another account, time range or model is never shown
+					// under the newly selected filters while the request is in flight.
+					setReport(null);
+					setWarning('');
+				}
+				lastQueryRef.current = query;
 				setLoading(true);
 				setError('');
+				setWarning('');
 			}
 			try {
 				const match = keyFp
 					? profiles.find(p => keyFingerprint(p.apiKey) === keyFp)
-					: profiles.find(p => p.apiKey.trim()) ?? null;
-				const modelProfile = !keyFp && modelId && modelProvider
-					? profiles.find(p => p.provider === modelProvider && p.apiKey.trim()) ??
-						profiles.find(p => p.provider === modelProvider)
 					: null;
 				const s = useSettingsStore.getState();
-				const requestProfile = keyFp
-					? match
-					: modelId
-						? modelProfile
-						: match;
-				const requestProvider = keyFp
-					? match?.provider || modelProvider || s.provider
-					: modelId
-						? modelProvider || modelProfile?.provider || s.provider
-						: requestProfile?.provider || s.provider;
+				const requestProfile = keyFp ? match : null;
+				const requestProvider = requestProfile?.provider || s.provider;
 				const requestApiKey =
 					requestProfile?.apiKey ||
 					(requestProvider === s.provider ? s.apiKey : '');
-				const requestBaseUrl =
-					requestProfile?.baseUrl?.trim() ||
-					(requestProvider === s.provider ? s.resolvedBaseUrl() : '');
-				// 「全部」（未选 Key/模型）：按每个已配置的厂商分别拉取再合并，
-				// 让用量页跨厂商展示，而不是只显示一个厂商（smoke-test #11）。
-				if (!keyFp && !modelId) {
+				const requestBaseUrl = requestProfile
+					? requestProfile.baseUrl?.trim() || PROVIDER_DEFAULT_URL[requestProvider]
+					: s.resolvedBaseUrl();
+				// 未选 Key 时按每个已配置厂商查询；模型过滤同时应用到每个厂商，
+				// 因为模型分组的 provider 是真实模型厂商，不一定是 API 接入通道。
+				if (!keyFp) {
 					const providers = [
 						...new Set(
 							profiles
@@ -257,13 +306,24 @@ export function UsagePanel({active = true}: Props) {
 						),
 					];
 					if (providers.length <= 1) {
+						const provider = providers[0] || s.provider;
+						const profile = profiles.find(
+							p => p.provider === provider && p.apiKey.trim(),
+						);
 						const data = await fetchUsage({
 							days,
-							provider: match?.provider || s.provider,
-							apiKey: match?.apiKey || s.apiKey,
-							baseUrl: match?.baseUrl?.trim() || undefined,
+							model: modelId || undefined,
+							provider,
+							apiKey: profile?.apiKey || (provider === s.provider ? s.apiKey : ''),
+							baseUrl: profile
+								? profile.baseUrl?.trim() || PROVIDER_DEFAULT_URL[provider]
+								: s.resolvedBaseUrl(),
 						});
-						if (!cancelled) setReport(data);
+						if (!cancelled) {
+							setReport(data);
+							setError('');
+							setWarning('');
+						}
 					} else {
 						const results = await Promise.all(
 							providers.map(prov => {
@@ -272,9 +332,12 @@ export function UsagePanel({active = true}: Props) {
 								);
 								return fetchUsage({
 									days,
-								provider: prov,
-								apiKey: p?.apiKey || s.apiKey,
-								baseUrl: p?.baseUrl?.trim() || undefined,
+									model: modelId || undefined,
+									provider: prov,
+									apiKey: p?.apiKey || (prov === s.provider ? s.apiKey : ''),
+									baseUrl: p
+										? p.baseUrl?.trim() || PROVIDER_DEFAULT_URL[prov]
+										: s.resolvedBaseUrl(),
 								}).catch(() => null);
 							}),
 						);
@@ -285,9 +348,13 @@ export function UsagePanel({active = true}: Props) {
 							if (ok.length > 0) {
 								setReport(mergeReports(ok));
 								setError('');
+								setWarning(
+									ok.length === results.length
+										? ''
+										: `${results.length - ok.length} 个厂商用量读取失败；当前数据只包含成功返回的厂商。`,
+								);
 							} else if (!silent) {
 								setError('没有可用的用量数据');
-								setReport(null);
 							}
 						}
 					}
@@ -300,12 +367,15 @@ export function UsagePanel({active = true}: Props) {
 						apiKey: requestApiKey,
 						baseUrl: requestBaseUrl,
 					});
-					if (!cancelled) setReport(data);
+					if (!cancelled) {
+						setReport(data);
+						setError('');
+						setWarning('');
+					}
 				}
 			} catch (err) {
 				if (!cancelled && !silent) {
 					setError(err instanceof Error ? err.message : String(err));
-					setReport(null);
 				}
 			} finally {
 				if (!cancelled) {
@@ -330,7 +400,7 @@ export function UsagePanel({active = true}: Props) {
 			window.removeEventListener('focus', onVis);
 			document.removeEventListener('visibilitychange', onVis);
 		};
-	}, [active, days, modelId, modelProvider, keyFp, profiles]);
+	}, [active, days, modelId, modelProvider, keyFp, profiles, settingsProvider, settingsApiKey, settingsBaseUrl]);
 
 	useEffect(() => {
 		if (!active) {
@@ -338,9 +408,9 @@ export function UsagePanel({active = true}: Props) {
 		}
 		const match = keyFp
 			? profiles.find(p => keyFingerprint(p.apiKey) === keyFp)
-			: profiles.find(p => p.apiKey.trim()) ?? null;
-		const key = match?.apiKey || useSettingsStore.getState().apiKey;
-		const provider = match?.provider || useSettingsStore.getState().provider;
+			: fallbackProfile;
+		const key = match?.apiKey || settingsApiKey;
+		const provider = match?.provider || settingsProvider;
 		if (!key.trim() || provider !== 'deepseek') {
 			setBalance(null);
 			setBalanceLoading(false);
@@ -365,10 +435,14 @@ export function UsagePanel({active = true}: Props) {
 				timer = undefined;
 			}
 			try {
+				const baseUrl = match?.baseUrl?.trim() ||
+					(match
+						? PROVIDER_DEFAULT_URL[provider]
+						: useSettingsStore.getState().resolvedBaseUrl());
 				const b = await fetchUsageBalance({
 					apiKey: key,
 					provider,
-					baseUrl: match?.baseUrl,
+					baseUrl,
 				});
 				if (!cancelled) {
 					setBalance(b);
@@ -400,7 +474,7 @@ export function UsagePanel({active = true}: Props) {
 			window.removeEventListener('focus', onVis);
 			document.removeEventListener('visibilitychange', onVis);
 		};
-	}, [active, keyFp, profiles]);
+	}, [active, keyFp, profiles, fallbackProfile, settingsProvider, settingsApiKey, settingsBaseUrl]);
 
 	useEffect(() => {
 		if (openMenu !== 'model') {
@@ -408,22 +482,23 @@ export function UsagePanel({active = true}: Props) {
 		}
 		const match = keyFp
 			? profiles.find(p => keyFingerprint(p.apiKey) === keyFp)
-			: profiles.find(p => p.apiKey.trim()) ?? null;
+			: fallbackProfile;
 		const s = useSettingsStore.getState();
-		const key = match?.apiKey || s.apiKey;
+		const key = match?.apiKey || settingsApiKey;
 		if (!key.trim()) {
 			setVendorModelIds([]);
 			setVendorModelProvider('');
 			return;
 		}
 		let cancelled = false;
-		const provider = match?.provider || s.provider;
+		const provider = match?.provider || settingsProvider;
 		setVendorModelIds([]);
 		setVendorModelProvider(provider);
 		void fetchVendorModels({
 			apiKey: key,
 			provider,
-			baseUrl: match?.baseUrl?.trim() || undefined,
+			baseUrl: match?.baseUrl?.trim() ||
+				(match ? PROVIDER_DEFAULT_URL[provider] : s.resolvedBaseUrl()),
 		}).then(rep => {
 			if (!cancelled) {
 				setVendorModelIds(rep.data.map(m => m.id));
@@ -434,7 +509,7 @@ export function UsagePanel({active = true}: Props) {
 		return () => {
 			cancelled = true;
 		};
-	}, [openMenu, keyFp, profiles]);
+	}, [openMenu, keyFp, profiles, fallbackProfile, settingsProvider, settingsApiKey, settingsBaseUrl]);
 
 	useEffect(() => {
 		if (!openMenu) {
@@ -455,27 +530,51 @@ export function UsagePanel({active = true}: Props) {
 			? profiles.find(profile => keyFingerprint(profile.apiKey) === keyFp)
 			: undefined;
 		const providerFilter = selectedProfile?.provider;
-		const items: {key: string; id: string; provider: string; label: string; hint: string}[] = [
-			{key: '', id: '', provider: '', label: '全部模型', hint: '厂商返回的全部模型'},
+		const items: {
+			key: string;
+			id: string;
+			provider: string;
+			filterProvider: string;
+			label: string;
+			hint: string;
+		}[] = [
+			{key: '', id: '', provider: '', filterProvider: '', label: '全部模型', hint: '厂商返回的全部模型'},
 		];
-		const add = (id: string, provider: string, hint = '') => {
+		const add = (
+			id: string,
+			provider: string,
+			hint = '',
+			channelScoped = false,
+			filterProvider = '',
+		) => {
 			const key = JSON.stringify([provider, id]);
-			if (!id || seen.has(key) || (providerFilter && provider && provider !== providerFilter)) {
+			if (
+				!id ||
+				seen.has(key) ||
+				(channelScoped && providerFilter && provider !== providerFilter)
+			) {
 				return;
 			}
 			seen.add(key);
-			items.push({key, id, provider, label: modelLabel(id), hint: hint || id});
+			items.push({
+				key,
+				id,
+				provider,
+				filterProvider,
+				label: modelLabel(id),
+				hint: hint || id,
+			});
 		};
-		for (const id of vendorModelIds) {
-			add(id, vendorModelProvider, id);
+		for (const m of report?.models ?? []) {
+			add(m.model, m.provider, m.model, false, m.provider);
 		}
 		for (const p of profiles) {
 			if (p.model) {
-				add(p.model, p.provider, p.model);
+				add(p.model, p.provider, p.model, true);
 			}
 		}
-		for (const m of report?.models ?? []) {
-			add(m.model, m.provider, m.model);
+		for (const id of vendorModelIds) {
+			add(id, vendorModelProvider, id, true);
 		}
 		return items;
 	}, [keyFp, profiles, report, vendorModelIds, vendorModelProvider]);
@@ -490,9 +589,10 @@ export function UsagePanel({active = true}: Props) {
 			if (selected) {
 				list = models.filter(m => m.provider === selected.provider);
 			} else {
-				list = models.filter(
-					m => m.model === modelId && (!modelProvider || m.provider === modelProvider),
-				);
+				// The dropdown can identify a model by its API channel while the
+				// report groups it by the model's canonical vendor. Keep the model
+				// visible if those identifiers differ.
+				list = models.filter(m => m.model === modelId);
 			}
 		}
 		const map = new Map<string, UsageModelBlock[]>();
@@ -523,17 +623,6 @@ export function UsagePanel({active = true}: Props) {
 		}
 	}, [keyFp, keys]);
 
-	useEffect(() => {
-		if (!keyFp || !modelId) return;
-		const selectedProfile = profiles.find(
-			profile => keyFingerprint(profile.apiKey) === keyFp,
-		);
-		if (selectedProfile && modelProvider && selectedProfile.provider !== modelProvider) {
-			setModelId('');
-			setModelProvider('');
-		}
-	}, [keyFp, modelId, modelProvider, profiles]);
-
 	const dayChoices = [
 		{id: '1', label: '今日', hint: '今天'},
 		{id: '7', label: '近 7 天', hint: '最近一周'},
@@ -546,8 +635,10 @@ export function UsagePanel({active = true}: Props) {
 	];
 		const activeDay = dayChoices.find(d => d.id === String(days)) ?? dayChoices[2];
 	const activeKey = keyChoices.find(k => k.id === keyFp) ?? keyChoices[0];
-	const activeModelKey = modelId ? JSON.stringify([modelProvider, modelId]) : '';
-	const activeChoice = modelChoices.find(m => m.key === activeModelKey) ?? modelChoices[0];
+	const activeChoice = modelChoices.find(
+		choice => choice.id === modelId && choice.filterProvider === modelProvider,
+	) ?? modelChoices[0];
+	const activeModelKey = modelId ? activeChoice.key : '';
 
 	const series = report?.series ?? [];
 	const totals = report?.totals ?? emptyBucket();
@@ -642,10 +733,10 @@ export function UsagePanel({active = true}: Props) {
 						align="right"
 						mono
 						menuId={`${menuId}-model`}
-						onSelect={key => {
-							const selected = modelChoices.find(choice => choice.key === key);
-							setModelId(selected?.id ?? '');
-							setModelProvider(selected?.provider ?? '');
+			onSelect={key => {
+				const selected = modelChoices.find(choice => choice.key === key);
+				setModelId(selected?.id ?? '');
+				setModelProvider(selected?.filterProvider ?? '');
 							setOpenMenu(null);
 						}}
 					/>
@@ -680,10 +771,17 @@ export function UsagePanel({active = true}: Props) {
 						<p className="mb-3 rounded-xl border border-danger/30 bg-danger/5 px-3 py-2 text-[12px] text-danger">
 							{error}
 							<span className="mt-1 block text-mute">
-								请确认后端已启动，并在设置中填写可用的 API Key。
+								{report
+									? '保留上次成功获取的数据；数据只对应当前筛选条件。'
+									: '请确认后端已启动，并在设置中填写可用的 API Key。'}
 							</span>
 						</p>
-					) : null}
+						) : null}
+						{warning ? (
+						<p className="mb-3 rounded-xl border border-line bg-glass px-3 py-2 text-[12px] text-ink-soft">
+							{warning}
+						</p>
+						) : null}
 					{!error &&
 					report &&
 					report.source === 'vendor' &&
@@ -815,7 +913,14 @@ export function UsagePanel({active = true}: Props) {
 							key={`${block.provider}:${block.model}`}
 							block={block}
 							kind={kind}
-							highlight={modelId === block.model && (!modelProvider || modelProvider === block.provider)}
+							highlight={
+								modelId === block.model &&
+								(!modelProvider ||
+									modelProvider === block.provider ||
+									!report?.models.some(
+										row => row.model === modelId && row.provider === modelProvider,
+									))
+							}
 										/>
 									))}
 								</div>

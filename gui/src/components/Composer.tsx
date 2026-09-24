@@ -360,7 +360,26 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 			target.item.queue_id,
 			() => editInboxItem(target.sessionId, target.item.queue_id, t),
 			'编辑失败（消息可能已开始投递）',
-		);
+		).then(async saved => {
+			if (saved) return;
+			await refreshInbox(target.sessionId);
+			if (
+				chatUiStoreApi.getState().activeId !== target.sessionId ||
+				editingTargetRef.current
+			) {
+				return;
+			}
+			const current =
+				chatUiStoreApi.getState().inboxBySession[target.sessionId]?.find(
+					item => item.queue_id === target.item.queue_id,
+				);
+			if (!current || current.state === 'delivering') return;
+			// 保存失败时保留用户输入；消息若已进入投递态则由刷新结果决定，
+			// 不会把一个已不能编辑的旧队列项重新打开。
+			editingTargetRef.current = {sessionId: target.sessionId, item: current};
+			setEditingId(current.queue_id);
+			setQueueDraft(t);
+		});
 	};
 	const cancelQueueItem = (it: InboxQueuedItem) => {
 		if (it.queue_id === editingId) closeQueueEdit();

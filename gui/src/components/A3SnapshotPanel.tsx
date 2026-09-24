@@ -1,4 +1,4 @@
-import {useEffect, useState} from 'react';
+import {useEffect, useRef, useState} from 'react';
 import {ExternalLink, FileText, RefreshCw} from 'lucide-react';
 import {
 	getMemoryReport,
@@ -33,22 +33,34 @@ export function A3SnapshotPanel({active}: {active: boolean}) {
 	const [snapshotResult, setSnapshotResult] = useState('');
 	const [reportError, setReportError] = useState('');
 	const [reportRevision, setReportRevision] = useState(0);
+	const reportRequestRef = useRef(0);
+	const snapshotInFlightRef = useRef(false);
+	const mountedRef = useRef(true);
+
+	useEffect(() => {
+		mountedRef.current = true;
+		return () => {
+			mountedRef.current = false;
+			reportRequestRef.current += 1;
+		};
+	}, []);
 
 	useEffect(() => {
 		if (!active) return;
 		let disposed = false;
+		const requestId = ++reportRequestRef.current;
 		setLoading(true);
 		void getMemoryReport().then(info => {
-			if (!disposed) {
+			if (!disposed && reportRequestRef.current === requestId) {
 				setReport(info);
 				setReportError(info ? '' : '无法读取 A3 报告状态，请确认 XEYO 服务正在运行。');
 			}
 		}).catch(error => {
-			if (!disposed) {
+			if (!disposed && reportRequestRef.current === requestId) {
 				setReportError(error instanceof Error ? error.message : '读取 A3 报告失败');
 			}
 		}).finally(() => {
-			if (!disposed) setLoading(false);
+			if (!disposed && reportRequestRef.current === requestId) setLoading(false);
 		});
 		return () => {
 			disposed = true;
@@ -56,25 +68,32 @@ export function A3SnapshotPanel({active}: {active: boolean}) {
 	}, [active]);
 
 	const refreshReport = async () => {
+		const requestId = ++reportRequestRef.current;
 		setLoading(true);
 		try {
 			const info = await getMemoryReport();
+			if (!mountedRef.current || reportRequestRef.current !== requestId) return;
 			setReport(info);
 			setReportError(info ? '' : '无法读取 A3 报告状态，请确认 XEYO 服务正在运行。');
 			setReportRevision(revision => revision + 1);
 		} catch (error) {
+			if (!mountedRef.current || reportRequestRef.current !== requestId) return;
 			setReportError(error instanceof Error ? error.message : '读取 A3 报告失败');
 		} finally {
-			setLoading(false);
+			if (mountedRef.current && reportRequestRef.current === requestId) {
+				setLoading(false);
+			}
 		}
 	};
 
 	const runSnapshot = async () => {
-		if (running) return;
+		if (snapshotInFlightRef.current) return;
+		snapshotInFlightRef.current = true;
 		setRunning(true);
 		setSnapshotResult('');
 		try {
 			const result = await runMemorySnapshot();
+			if (!mountedRef.current) return;
 			if (!result?.ok) {
 				toast.error(result?.error || 'A3 快照失败');
 				return;
@@ -85,11 +104,14 @@ export function A3SnapshotPanel({active}: {active: boolean}) {
 					? `补齐 ${days.length} 天（${days[0]} → ${days[days.length - 1]}）`
 					: `已更新 ${result.day ?? '今日'} 快照`,
 			);
-			await refreshReport();
+			if (mountedRef.current) await refreshReport();
 		} catch (error) {
-			toast.error(error instanceof Error ? error.message : 'A3 快照失败');
+			if (mountedRef.current) {
+				toast.error(error instanceof Error ? error.message : 'A3 快照失败');
+			}
 		} finally {
-			setRunning(false);
+			snapshotInFlightRef.current = false;
+			if (mountedRef.current) setRunning(false);
 		}
 	};
 
