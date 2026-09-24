@@ -47,6 +47,9 @@ export function PermissionModal({ pending }: Props) {
           </Text>
           <Text color={t.muted}> allow + remind</Text>
         </Text>
+        <Text color={t.muted}>
+          esc / ctrl-c 取消等待（本轮已结束时只关闭弹窗）
+        </Text>
       </Box>
     </Box>
   );

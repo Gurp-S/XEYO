@@ -27,6 +27,7 @@ import { runDemoTurn } from "../demo.js";
 import { useElapsed } from "../hooks/useElapsed.js";
 import { useEngineHealth } from "../hooks/useEngineHealth.js";
 import { useInputHistory } from "../hooks/useInputHistory.js";
+import { routeKey } from "../lib/keyRouter.js";
 import { parseSlashInput } from "../lib/slash.js";
 import { g } from "../theme.js";
 import type { CliConfig, PermissionPrompt, TimelineItem } from "../types.js";
@@ -206,39 +207,63 @@ export function App({ config: initial }: Props) {
     ]);
   }, [busy, config.apiKey, config.baseUrl, config.sessionId, gly.fail, nextId]);
 
-  useInput((inputKey, key) => {
-    if (pending) {
-      const c = inputKey.toLowerCase();
-      if (c === "a" || c === "y") void decide("allow");
-      else if (c === "r") void decide("remind");
-      else if (c === "d" || c === "n") void decide("deny");
-      return;
-    }
+  /** 关掉一个已经没人等的弹窗：流都结束了还没收到 permission_resolved，
+   *  再往服务端发决议只会多余地报错；但弹窗留着会把用户锁死在终端里。 */
+  const dismissPending = useCallback(() => {
+    if (!pending) return;
+    const req = pending;
+    setPending(null);
+    setItems((prev) => [
+      ...prev,
+      {
+        id: nextId(),
+        kind: "system",
+        text: `${gly.warn} 授权请求已过期（${req.tool}）：本轮已结束，弹窗已关闭`,
+      },
+    ]);
+  }, [gly.warn, nextId, pending]);
 
-    if (key.escape) {
-      if (busy) {
+  useInput((inputKey, key) => {
+    const action = routeKey(inputKey, key, {
+      busy,
+      pending: !!pending,
+      showHelp,
+      hasError: !!error,
+    });
+    switch (action) {
+      case "interrupt":
         interruptTurn();
         return;
-      }
-      if (showHelp || error) {
+      case "dismiss_pending":
+        dismissPending();
+        return;
+      case "clear_panels":
         setShowHelp(false);
         setError(null);
         return;
-      }
-    }
-
-    if (!busy && !pending) {
-      if (key.upArrow) {
+      case "exit":
+        exit();
+        return;
+      case "allow":
+        void decide("allow");
+        return;
+      case "remind":
+        void decide("remind");
+        return;
+      case "deny":
+        void decide("deny");
+        return;
+      case "history_older": {
         const line = history.older(input);
         if (line != null) setInput(line);
         return;
       }
-      if (key.downArrow) {
+      case "history_newer": {
         const line = history.newer(input);
         if (line != null) setInput(line);
         return;
       }
-      if (key.tab) {
+      case "tab_complete": {
         const opts = slashMatches(input);
         if (opts.length > 0) {
           const next = (suggestIndex + 1) % opts.length;
@@ -251,11 +276,8 @@ export function App({ config: initial }: Props) {
         }
         return;
       }
-    }
-
-    if (key.ctrl && inputKey === "c") {
-      if (busy) interruptTurn();
-      else exit();
+      default:
+        return;
     }
   });
 
