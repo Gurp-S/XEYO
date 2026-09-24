@@ -29,10 +29,30 @@ if str(_ROOT) not in sys.path:
 	sys.path.insert(0, str(_ROOT))
 
 _TMP = Path(tempfile.mkdtemp(prefix="rg_edges_"))
-os.environ["XEYO_DATA_DIR"] = str(_TMP / "data")
-os.environ["XEYO_SESSIONS_DIR"] = str(_TMP / "sessions")
-os.environ["XEYO_DIAGNOSTICS_DIR"] = str(_TMP / "diag")
-_SESS = Path(os.environ["XEYO_SESSIONS_DIR"])
+_ENV_OVERRIDES = {
+	"XEYO_DATA_DIR": str(_TMP / "data"),
+	"XEYO_SESSIONS_DIR": str(_TMP / "sessions"),
+	"XEYO_DIAGNOSTICS_DIR": str(_TMP / "diag"),
+}
+_ORIG_ENV = {k: os.environ.get(k) for k in _ENV_OVERRIDES}
+
+
+def _apply_env() -> None:
+	os.environ.update(_ENV_OVERRIDES)
+
+
+def _restore_env() -> None:
+	for key, value in _ORIG_ENV.items():
+		if value is None:
+			os.environ.pop(key, None)
+		else:
+			os.environ[key] = value
+
+
+# 只在下面这批 import 期间生效（server.app / deps 在导入时按环境解析工作根）；
+# 收集阶段就把进程环境留在原样，否则同一次运行里别的测试文件会读到被重定向的根。
+_apply_env()
+_SESS = Path(_ENV_OVERRIDES["XEYO_SESSIONS_DIR"])
 _SESS.mkdir(parents=True, exist_ok=True)
 _WS_V = _TMP / "ws_victim"
 _WS_V.mkdir()
@@ -44,6 +64,17 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from server import deps  # noqa: E402
 from server.app import app  # noqa: E402
+
+_restore_env()
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _redirect_writable_roots():
+	_apply_env()
+	try:
+		yield
+	finally:
+		_restore_env()
 
 
 def _q(s: str) -> str:
