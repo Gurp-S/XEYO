@@ -38,10 +38,13 @@ export async function fetchFileReferences(
 			return null;
 		}
 		const payload = (await res.json()) as Partial<FileReferencesReport>;
-		return {
-			ok: payload.ok !== false,
-			files: Array.isArray(payload.files) ? payload.files : [],
-		};
+		if (payload.ok === false || !Array.isArray(payload.files)) {
+			// 调用方只在拿到非 null 报告时才标「已加载」：后端明确拒绝（如工作区
+			// 未被索引）或回执缺 files 时若返回 {ok:false,files:[]}，@ 弹层会画成
+			// "没有匹配文件"——那是假空态，所以按"读不出"返回 null。
+			return null;
+		}
+		return {ok: true, files: payload.files};
 	} catch {
 		return null;
 	}
