@@ -104,17 +104,21 @@ const {handleComposerSlash} = vi.hoisted(() => ({
 	handleComposerSlash: vi.fn(async () => false),
 }));
 
-vi.mock('@/lib/slashCommands', () => ({
-	handleComposerSlash,
-	lastUserText: vi.fn(() => ''),
-}));
+vi.mock('@/lib/slashCommands', async importOriginal => {
+	// 只替换"命令执行"这一条 seam；cachedSlashSkills / loadSlashSkills 用真实实现，
+	// 这样斜杠弹层的技能候选走真正的缓存与 ok:false 逻辑（其 fetchSkills 已被 mock）。
+	const actual = await importOriginal<typeof import('@/lib/slashCommands')>();
+	return {...actual, handleComposerSlash};
+});
 
+import {resetSlashSkillCacheForTests} from '@/lib/slashCommands';
 import {Composer} from './Composer';
 
 describe('Composer send UX', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		resetComposerDraftsForTests();
+		resetSlashSkillCacheForTests();
 		chatState.activeId = 'sess_1';
 		chatState.sessionStreams = {};
 		sendMessage.mockResolvedValue(true);

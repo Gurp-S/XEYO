@@ -58,6 +58,12 @@ const skillListCache = new Map<
 >();
 const skillListRequests = new Map<string, Promise<SkillsReport>>();
 
+/** 测试专用：技能候选缓存与在途请求是模块级状态，跨用例必须能清空。 */
+export function resetSlashSkillCacheForTests(): void {
+	skillListCache.clear();
+	skillListRequests.clear();
+}
+
 export function cachedSlashSkills(workspace: string): SkillsReport | null {
 	const key = workspace.trim();
 	const entry = skillListCache.get(key);
