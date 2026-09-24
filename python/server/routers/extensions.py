@@ -10,14 +10,65 @@ GUI 完整面板（工具勾选矩阵/日志流）留 P1；本端点只暴露**�
 
 from __future__ import annotations
 
+import os
+import re
 from typing import Any
 
 from fastapi import APIRouter, Header, Query, Request
 from pydantic import BaseModel, Field
 
+from server.deps import api_error
 from server.local_gate import require_loopback
 
 router = APIRouter(tags=["extensions"])
+
+_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+
+
+def require_workspace_arg(raw: Any, *, field: str = "workspace") -> str:
+    """``workspace`` 参数的路由边缘校验（skills / extensions / plugins 三面共用）。
+
+    - 空 / 纯空白 → 返回空串，调用方照旧回退已登记 cwd（行为不变）。
+    - 含控制字符（NUL / ``\\n`` / ``\\x1a`` …）→ **422**。这类字符会让
+      ``Path.resolve()`` 抛 ``ValueError``，此前以 500 逃出路由。
+    - 相对路径（``..`` / ``%2e%2e`` / ``a/b``）→ **422**。此前它们按**服务端进程
+      cwd**解析，等于让调用者把 ``.xeyo/settings.json`` 写到任意目录。
+    - 绝对路径仍要求是现存目录（复用 ``resolve_physical_cwd``），否则 422，
+      避免「工作区不存在」被渲染成「什么都没装」。
+
+    返回 ``realpath``，下游再 ``resolve()`` 即幂等。
+    """
+    value = str(raw if raw is not None else "").strip()
+    if not value:
+        return ""
+    if _CONTROL_RE.search(value):
+        raise api_error(422, f"{field} contains control characters", "invalid_request")
+    expanded = os.path.expanduser(value)
+    if not os.path.isabs(expanded):
+        raise api_error(422, f"{field} must be an absolute path", "invalid_request")
+    from session.workspace_path import resolve_physical_cwd
+
+    try:
+        return resolve_physical_cwd(expanded)
+    except (OSError, ValueError) as exc:
+        raise api_error(
+            422,
+            f"{field} is not a readable directory: {type(exc).__name__}",
+            "invalid_request",
+        ) from exc
+
+
+def require_entry_name(raw: Any, *, field: str) -> str:
+    """启停键 / 插件名的边缘校验：复用 ``sessions._require_stable_id``（与
+    ``require_session_id`` 同一谓词，只换字段名）。
+
+    键会进 settings.json、活页块句柄（``skill:<name>``）以及磁盘文件名，
+    ``victim.`` / ``vi:ctim`` / 空白 / 300 字符都会与别的键撞在同一份状态上——
+    一律 422，不静默清洗。
+    """
+    from server.routers.sessions import _require_stable_id
+
+    return _require_stable_id(raw, field=field, filename_bearing=True)
 
 
 class _EntryToggle(BaseModel):
@@ -31,7 +82,6 @@ class ExtensionsSettingsBody(BaseModel):
     enabled_extensions: bool | None = None
     mcp_servers: dict[str, _EntryToggle] | None = None
     skills: dict[str, _EntryToggle] | None = None
-    plugins: dict[str, _EntryToggle] | None = None
     plugins: dict[str, _EntryToggle] | None = None
 
 
@@ -69,7 +119,7 @@ def get_extensions_settings(
     require_loopback(request)
     from server.deps import CWD
 
-    ws = (workspace or "").strip() or (CWD or "")
+    ws = require_workspace_arg(workspace) or (CWD or "")
     try:
         return _merged_view(ws or None)
     except Exception as exc:  # noqa: BLE001
@@ -97,7 +147,18 @@ def post_extensions_settings(
     )
     from server.deps import CWD
 
-    ws = (workspace or body.workspace or "").strip() or (CWD or "")
+    # 两个来源都校验（query 优先），谁都不允许带着非法值被静默忽略。
+    for candidate in (workspace, body.workspace):
+        require_workspace_arg(candidate)
+    ws = require_workspace_arg(workspace or body.workspace) or (CWD or "")
+    # 先校验所有键再落笔：半途 422 不会留下「一半已生效」的状态。
+    for field, items in (
+        ("mcp_server", body.mcp_servers),
+        ("skill", body.skills),
+        ("plugin", body.plugins),
+    ):
+        for key in (items or {}):
+            require_entry_name(key, field=f"{field} name")
     applied: dict[str, Any] = {
         "mcp_servers": [],
         "plugins": [],
@@ -129,7 +190,17 @@ def post_extensions_settings(
                 errors.append(f"plugins/{name}: {exc}")
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "message": str(exc), "applied": applied, "errors": errors}
-    out = _merged_view(ws or None)
+    try:
+        out = _merged_view(ws or None)
+    except Exception as exc:  # noqa: BLE001
+        # 启停已落盘，但回读视图失败：以 ok=False + applied 如实报告，绝不让
+        # ValueError/OSError 逃出路由（此前是 500，调用方无从知道哪些已生效）。
+        return {
+            "ok": False,
+            "message": f"settings written but view failed: {exc}",
+            "applied": applied,
+            "errors": errors,
+        }
     out["applied"] = applied
     if errors:
         out["errors"] = errors

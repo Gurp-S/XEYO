@@ -37,13 +37,18 @@ def list_skills(
     from extension.config import load_ext_config
     from extension.skill_loader import discover_skills
     from server.deps import CWD
+    from server.routers.extensions import require_workspace_arg
 
-    ws = (workspace or "").strip() or (CWD or "")
+    # 边缘校验：相对 workspace 此前按服务端进程 cwd 解析（``..`` 逃到任意目录），
+    # 控制字符会让 Path.resolve() 抛 ValueError → 500。现在一律 422。
+    ws = require_workspace_arg(workspace) or (CWD or "")
     try:
         cfg = load_ext_config(ws or None)
-        enabled = bool(cfg.enabled_extensions)
-        if not enabled:
-            return {"ok": True, "enabled_extensions": False, "skills": []}
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "enabled_extensions": False, "skills": [], "message": str(exc)}
+    if not cfg.enabled_extensions:
+        return {"ok": True, "enabled_extensions": False, "skills": []}
+    try:
         entries = discover_skills(ws or None, config=cfg)
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "enabled_extensions": False, "skills": [], "message": str(exc)}
