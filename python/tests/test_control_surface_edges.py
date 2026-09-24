@@ -360,6 +360,33 @@ def test_rewind_gc_valid_roundtrip_still_200(sandbox: dict[str, Any]) -> None:
 	assert "defaults" in r.json()
 
 
+def test_rewind_gc_distinguishes_corrupt_config_from_unset(sandbox: dict[str, Any]) -> None:
+	"""损坏的配置文件不许讲成"没设置过"。
+
+	``read_rewind_gc_config`` 对"缺文件 / 解不动 / 顶层不是对象"一律回同一份空默认
+	——GC 继续按默认档跑是刻意的，但控制面必须能把"你的设置其实早就读不出来了"
+	区分开，否则调用方以为自己写过的值仍然生效。
+	"""
+	c = sandbox["client"]
+	gc = sandbox["gc"]
+	gc.parent.mkdir(parents=True, exist_ok=True)
+
+	assert c.get("/v1/settings/rewind-gc").json()["config_state"] == "absent"
+
+	gc.write_text('{"keep_recent": 5}', encoding="utf-8")
+	body = c.get("/v1/settings/rewind-gc").json()
+	assert body["config_state"] == "ok", body
+	assert body["keep_recent"] == 5
+
+	gc.write_text("{oops", encoding="utf-8")
+	body = c.get("/v1/settings/rewind-gc").json()
+	assert body["config_state"] == "unreadable", body
+	assert body["keep_recent"] is None, "读不出时不许继续沿用上一个值"
+
+	gc.write_text('["not", "a", "dict"]', encoding="utf-8")
+	assert c.get("/v1/settings/rewind-gc").json()["config_state"] == "invalid"
+
+
 def test_rewind_gc_write_failure_is_structured_500(
 	sandbox: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:

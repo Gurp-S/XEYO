@@ -14,6 +14,7 @@ from rewind.blob_gc import (
     _flag,
     _int_env,
     read_rewind_gc_config,
+    rewind_gc_config_state,
     write_rewind_gc_config,
 )
 from server.deps import _MAX_USER_CHARS, _pool, api_error
@@ -376,6 +377,9 @@ def get_rewind_gc_settings(request: Request) -> dict[str, Any]:
 	cfg = read_rewind_gc_config()
 	return {
 		**cfg,
+		# 文件坏了与"没设置过"是两件事：read 侧两者返回同一份空默认，控制面必须
+		# 把区别带出来，否则调用方会以为自己写过的值还在生效。
+		"config_state": rewind_gc_config_state(),
 		"defaults": {
 			"enabled": _flag("XEYO_BLOB_GC_ENABLED", default=False),
 			"dry_run": _flag("XEYO_BLOB_GC_DRY_RUN", default=True),

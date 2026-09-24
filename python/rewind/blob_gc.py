@@ -119,6 +119,23 @@ def rewind_gc_config_path() -> Path:
     return Path.home() / ".xeyo" / "rewind_gc.json"
 
 
+def rewind_gc_config_state() -> str:
+    """持久化配置的可信状态：``ok`` / ``absent`` / ``unreadable`` / ``invalid``。
+
+    上面的读取函数对"文件不存在""解不动""顶层不是对象"一律回同一份空默认 —— GC 按
+    默认档继续跑是对的，但控制面不能把"配置文件坏了"讲成"没设置过"：调用方会以为
+    自己写过的值仍然生效，而实际早就没在读了。
+    """
+    path = rewind_gc_config_path()
+    if not path.is_file():
+        return "absent"
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return "unreadable"
+    return "ok" if isinstance(raw, dict) else "invalid"
+
+
 def read_rewind_gc_config() -> dict[str, int | None]:
     """读取持久化的 GC 配置（keep_recent / max_bytes），缺失或损坏返回空默认。"""
     path = rewind_gc_config_path()
@@ -526,6 +543,7 @@ __all__ = [
     "retained_checkpoint_ids",
     "retained_turn_ids",
     "rewind_gc_config_path",
+    "rewind_gc_config_state",
     "snapshot_root",
     "write_rewind_gc_config",
 ]
