@@ -3,7 +3,7 @@
  *
  * 措辞纪律：这里只呈现事实与状态，不做评价性文案；色彩只来自 @theme token。
  */
-import {type ReactNode, useState} from 'react';
+import {type ReactNode, useEffect, useRef, useState} from 'react';
 import {Check, Copy} from 'lucide-react';
 import {cn} from '@/lib/utils';
 import {toast} from '@/lib/toast';
@@ -93,20 +93,48 @@ async function copyText(text: string): Promise<boolean> {
 /** 一条原始证据指针：点击复制 source | ref_id | locator（可复核，不复制正文）。 */
 export function EvidenceChip({e}: {e: DiagEvidenceRef}) {
 	const [copied, setCopied] = useState(false);
+	// 计时器必须复用同一个：连点两条证据时，如果每次点击都留一个自己的计时器，
+	// 第一次那会在 1.2s 时把勾撤掉——而那一刻用户刚在第二次点击后看着它。
+	const resetTimer = useRef<number | null>(null);
+	// 剪贴板是异步的：切会话/换页会先卸载本组件，回调再 setState 或弹
+	// "复制失败" 都成了对已经不存在的按钮说话。
+	const alive = useRef(true);
+	useEffect(
+		() => () => {
+			alive.current = false;
+			if (resetTimer.current !== null) {
+				window.clearTimeout(resetTimer.current);
+				resetTimer.current = null;
+			}
+		},
+		[],
+	);
 	const text = evidenceText(e);
 	return (
 		<button
 			type="button"
 			className="xy-dig-evidence"
 			title={text}
+			// 图标被 className 覆盖了 lucide 自带的类名，光秃的 svg 又 aria-hidden，
+			// 所以"已复制"这个状态此前对读屏器完全不存在。给它一个真的可访问名。
+			aria-label={copied ? '已复制证据定位' : '复制证据定位'}
 			onClick={() => {
 				void copyText(text).then(ok => {
+					if (!alive.current) {
+						return;
+					}
 					if (!ok) {
 						toast.error('复制失败：证据定位未写入剪贴板');
 						return;
 					}
 					setCopied(true);
-					window.setTimeout(() => setCopied(false), 1200);
+					if (resetTimer.current !== null) {
+						window.clearTimeout(resetTimer.current);
+					}
+					resetTimer.current = window.setTimeout(() => {
+						resetTimer.current = null;
+						setCopied(false);
+					}, 1200);
 				});
 			}}
 		>
