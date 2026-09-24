@@ -70,7 +70,13 @@ def resolve_in_workspace(cwd: str, rel: str) -> Path:
 	if raw in ("", ".", "/"):
 		return root
 	candidate = Path(raw)
-	target = candidate.resolve() if candidate.is_absolute() else (root / raw).resolve()
+	try:
+		target = candidate.resolve() if candidate.is_absolute() else (root / raw).resolve()
+	except (OSError, ValueError) as exc:
+		# NUL / \n / \x1a 这类字符会让 resolve() 底层 stat 直接抛 ValueError。
+		# 这里是所有调用方（HTTP 路由、git diff、outline 等）的必经点：向外抛
+		# 出去就是每个入口一个 500，而"这个路径没法解析"本身是个拒绝事实。
+		raise PermissionError("path cannot be resolved") from exc
 	try:
 		target.relative_to(root)
 	except ValueError as e:

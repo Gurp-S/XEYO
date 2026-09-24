@@ -350,3 +350,26 @@ def test_memory_compact_unknown_session_is_404_not_fs_touch(
 	assert r.status_code in (404, 422), (value, r.status_code, r.text[:160])
 	assert victim.is_file()
 	assert sorted(p.name for p in ws.iterdir()) == ["ok.txt"]
+
+
+def test_resolve_in_workspace_never_leaks_a_bare_valueerror(tmp_path: Path) -> None:
+	"""必经点自己吞掉底层异常：控制字符要变成拒绝事实，不是每个入口一个 500。"""
+	from server.workspace_fs import resolve_in_workspace
+
+	ws = tmp_path / "ws"
+	ws.mkdir()
+	for bad in (f"a{NUL}b", f"a{NUL}/b", f"{NUL}"):
+		try:
+			resolve_in_workspace(str(ws), bad)
+		except PermissionError:
+			continue
+		raise AssertionError(f"{bad!r} 未转成 PermissionError")
+	# 越界仍是拒绝，普通路径照常解析——收紧不能把好的那侧一起打死。
+	try:
+		resolve_in_workspace(str(ws), "../outside")
+	except PermissionError:
+		pass
+	else:
+		raise AssertionError("../outside 未被拒绝")
+	assert resolve_in_workspace(str(ws), "notes.txt").name == "notes.txt"
+	assert resolve_in_workspace(str(ws), ".") == ws.resolve()
