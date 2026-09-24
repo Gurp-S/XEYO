@@ -87,7 +87,7 @@ describe('mcpOp', () => {
 			fakeResponse({detail: {message: 'workspace must be an absolute path', type: 'invalid_request'}}, 422),
 		);
 
-		const res = await patchExtensions({plugins: [{name: 'demo', enabled: true}]});
+		const res = await patchExtensions({plugins: {demo: {enabled: true}}});
 
 		expect(res.ok).toBe(false);
 		expect(res.message).toContain('absolute path');
@@ -100,7 +100,7 @@ describe('mcpOp', () => {
 			fakeResponse({ok: true, errors: ['plugin demo 启用失败'], applied: {}}),
 		);
 
-		const res = await patchExtensions({plugins: [{name: 'demo', enabled: true}]});
+		const res = await patchExtensions({plugins: {demo: {enabled: true}}});
 
 		expect(res.ok).toBe(false);
 		expect(res.message).toContain('demo');
