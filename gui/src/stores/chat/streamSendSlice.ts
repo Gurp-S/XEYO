@@ -386,6 +386,7 @@ export function createStreamSendSlice(
 				await streamChat(qBackend, qApi, queueHandlers, {
 					side: qSide,
 					workspace: qSide ? '' : qWorkspace,
+					steerIfBusy: opts?.steerIfBusy,
 				});
 				// 受理了才让 Composer 清空输入框；被拒（429 队列满 / 413 超长 /
 				// 409 side 不支持引导）时返回 false，草稿原样退回。
