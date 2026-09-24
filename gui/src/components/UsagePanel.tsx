@@ -205,6 +205,8 @@ export function UsagePanel({active = true}: Props) {
 		null,
 	);
 	const [report, setReport] = useState<UsageReport | null>(null);
+	const reportRef = useRef(report);
+	reportRef.current = report;
 	const [vendorModelIds, setVendorModelIds] = useState<string[]>([]);
 	const [vendorModelProvider, setVendorModelProvider] = useState('');
 	const [balance, setBalance] = useState<UsageBalance | null>(null);
@@ -220,6 +222,19 @@ export function UsagePanel({active = true}: Props) {
 			null,
 		[activeProfileId, profiles],
 	);
+	const selectedKeyProfile = keyFp
+		? profiles.find(profile => keyFingerprint(profile.apiKey) === keyFp) ?? null
+		: null;
+	const modelFilterScope = keyFp
+		? `${keyFp}:${selectedKeyProfile?.provider ?? 'unknown'}`
+		: 'all';
+	const previousModelFilterScopeRef = useRef(modelFilterScope);
+	useEffect(() => {
+		if (previousModelFilterScopeRef.current === modelFilterScope) return;
+		previousModelFilterScopeRef.current = modelFilterScope;
+		setModelId('');
+		setModelProvider('');
+	}, [modelFilterScope]);
 
 	// P2-⑨：给余额卡标注归属账号，消除「cost 跨厂商合计、余额却只显示单账号」的歧义。
 	// 非 DeepSeek 厂商官方通常不提供 /user/balance，余额卡只对 DeepSeek 有效。
@@ -362,6 +377,8 @@ export function UsagePanel({active = true}: Props) {
 								);
 							} else if (!silent) {
 								setError('没有可用的用量数据');
+							} else if (reportRef.current) {
+								setWarning('自动刷新失败；当前仍显示最近一次成功获取的数据。');
 							}
 						}
 					}
@@ -381,8 +398,13 @@ export function UsagePanel({active = true}: Props) {
 					}
 				}
 			} catch (err) {
-				if (!cancelled && !silent) {
-					setError(err instanceof Error ? err.message : String(err));
+				if (!cancelled) {
+					const message = err instanceof Error ? err.message : String(err);
+					if (!silent) {
+						setError(message);
+					} else if (reportRef.current) {
+						setWarning(`自动刷新失败：${message}；当前仍显示最近一次成功获取的数据。`);
+					}
 				}
 			} finally {
 				if (!cancelled) {
@@ -627,6 +649,8 @@ export function UsagePanel({active = true}: Props) {
 	useEffect(() => {
 		if (keyFp && !keys.includes(keyFp)) {
 			setKeyFp('');
+			setModelId('');
+			setModelProvider('');
 		}
 	}, [keyFp, keys]);
 
@@ -687,6 +711,8 @@ export function UsagePanel({active = true}: Props) {
 					menuId={`${menuId}-key`}
 					onSelect={id => {
 						setKeyFp(id);
+						setModelId('');
+						setModelProvider('');
 						setOpenMenu(null);
 					}}
 				/>
