@@ -1,4 +1,4 @@
-import {memo, useCallback, useMemo, useState, type MouseEvent as ReactMouseEvent} from 'react';
+import {memo, useCallback, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent} from 'react';
 import type {MultiAgentTaskView} from '@/lib/api';
 import type {ChatMessage} from '@/lib/types';
 import {
@@ -6,7 +6,7 @@ import {
 	streamingTextSignal,
 } from '@/lib/streamSignal';
 import {useSignals} from '@preact/signals-react/runtime';
-import type {TurnItem} from '@/lib/groupTranscript';
+import type {ToolView, TurnItem} from '@/lib/groupTranscript';
 import {
 	appendLiveThoughtStep,
 	collectChangedFilesFromItems,
@@ -29,6 +29,7 @@ import {AgentDoneBars} from './AgentDoneBars';
 import {FilesChanged} from './FilesChanged';
 import {StreamingMarkdown} from './StreamingMarkdown';
 import {showContextMenu} from './ui/ContextMenu';
+import {activityStepsEqual, multiAgentTaskViewsEqual} from '@/lib/workflowEquality';
 type Props = {
 	turnId: string;
 	items: TurnItem[];
@@ -69,50 +70,108 @@ function displayProse(text: string): string {
 	return stripAgentAnchor(stripXmlToolCallsForDisplay(text));
 }
 
-/** 廉价签名，使流式 tick 不被误判为 tool 列表变化。 */
+/** 完整的诊断签名；渲染路径使用结构比较，避免拼接超长 tool payload。 */
 export function toolsFingerprint(items: TurnItem[]): string {
-	let out = '';
-	for (const item of items) {
-		if (item.kind !== 'tool') {
-			continue;
-		}
-		const t = item.tool;
-		out += `${t.id}:${t.status}:${t.input.length}:${t.result.length};`;
-	}
-	return out;
+	return JSON.stringify(
+		items.flatMap(item =>
+			item.kind === 'tool'
+				? [[
+						item.tool.id,
+						item.tool.toolUseId,
+						item.tool.name,
+						item.tool.input,
+						item.tool.result,
+						item.tool.status,
+						item.tool.createdAt,
+						item.tool.reasoningBefore,
+						item.tool.thoughtMs,
+					]]
+				: [],
+		),
+	);
 }
 
 export function proseFingerprint(items: TurnItem[]): string {
-	let out = '';
-	for (const item of items) {
-		if (item.kind !== 'assistant') {
-			continue;
-		}
-		const t = item.message.text;
-		out += `${item.message.id}:${t.length}:${t.charCodeAt(0)}:${t.charCodeAt(t.length - 1)};`;
-	}
-	return out;
+	return JSON.stringify(
+		items.flatMap(item =>
+			item.kind === 'assistant'
+				? [[item.message.id, item.message.text, item.message.isThought, item.message.createdAt]]
+				: [],
+		),
+	);
 }
 
-function stepsEqual(a: ActivityStep[], b: ActivityStep[]): boolean {
-	if (a.length !== b.length) {
-		return false;
-	}
-	for (let i = 0; i < a.length; i += 1) {
-		const x = a[i]!;
-		const y = b[i]!;
-		if (
-			x.id !== y.id ||
-			x.verb !== y.verb ||
-			x.detail !== y.detail ||
-			x.error !== y.error ||
-			x.running !== y.running ||
-			x.agent !== y.agent ||
-			(x.args?.length ?? 0) !== (y.args?.length ?? 0) ||
-			(x.result?.length ?? 0) !== (y.result?.length ?? 0) ||
-			(x.thoughtContent?.length ?? 0) !== (y.thoughtContent?.length ?? 0) ||
-			x.diff?.add !== y.diff?.add ||
-			x.diff?.del !== y.diff?.del
+type TurnItemSnapshot =
+	| {
+			kind: 'assistant';
+			id: string;
+			text: string;
+			isThought?: boolean;
+			createdAt: number;
+	  }
+	| {
+			kind: 'tool';
+			id: string;
+			toolUseId?: string;
+			name: string;
+			input: string;
+			result: string;
+			status: ToolView['status'];
+			createdAt: number;
+			reasoningBefore?: string;
+			thoughtMs?: number;
+	  };
+
+function snapshotTurnItems(items: TurnItem[]): TurnItemSnapshot[] {
+	return items.map(item =>
+		item.kind === 'assistant'
+			? {
+					kind: 'assistant',
+					id: item.message.id,
+					text: item.message.text,
+					isThought: item.message.isThought,
+					createdAt: item.message.createdAt,
+				}
+			: {
+					kind: 'tool',
+					id: item.tool.id,
+					toolUseId: item.tool.toolUseId,
+					name: item.tool.name,
+					input: item.tool.input,
+					result: item.tool.result,
+					status: item.tool.status,
+					createdAt: item.tool.createdAt,
+					reasoningBefore: item.tool.reasoningBefore,
+					thoughtMs: item.tool.thoughtMs,
+				},
+	);
+}
+
+function snapshotMatchesItems(snapshot: TurnItemSnapshot[], items: TurnItem[]): boolean {
+	if (snapshot.length !== items.length) return false;
+	for (let i = 0; i < snapshot.length; i += 1) {
+		const saved = snapshot[i]!;
+		const item = items[i]!;
+		if (saved.kind !== item.kind) return false;
+		if (item.kind === 'assistant') {
+			if (
+				saved.kind !== 'assistant' ||
+				saved.id !== item.message.id ||
+				saved.text !== item.message.text ||
+				saved.isThought !== item.message.isThought ||
+				saved.createdAt !== item.message.createdAt
+			) return false;
+		} else if (
+			saved.kind !== 'tool' ||
+			saved.id !== item.tool.id ||
+			saved.toolUseId !== item.tool.toolUseId ||
+			saved.name !== item.tool.name ||
+			saved.input !== item.tool.input ||
+			saved.result !== item.tool.result ||
+			saved.status !== item.tool.status ||
+			saved.createdAt !== item.tool.createdAt ||
+			saved.reasoningBefore !== item.tool.reasoningBefore ||
+			saved.thoughtMs !== item.tool.thoughtMs
 		) {
 			return false;
 		}
@@ -152,7 +211,11 @@ function proseMessagesEqual(a: ChatMessage[], b: ChatMessage[]): boolean {
 		return false;
 	}
 	for (let i = 0; i < a.length; i += 1) {
-		if (a[i]!.id !== b[i]!.id || a[i]!.text !== b[i]!.text) {
+		if (
+			a[i]!.id !== b[i]!.id ||
+			a[i]!.text !== b[i]!.text ||
+			a[i]!.isThought !== b[i]!.isThought
+		) {
 			return false;
 		}
 	}
@@ -258,9 +321,8 @@ export const ActivityBlock = memo(
 		prev.workflowStatusText === next.workflowStatusText &&
 		prev.diffs.add === next.diffs.add &&
 		prev.diffs.del === next.diffs.del &&
-		stepsEqual(prev.steps, next.steps) &&
-		turnTasksFingerprint(prev.inlineAgentTasks) ===
-			turnTasksFingerprint(next.inlineAgentTasks),
+		activityStepsEqual(prev.steps, next.steps) &&
+		multiAgentTaskViewsEqual(prev.inlineAgentTasks, next.inlineAgentTasks),
 );
 
 /**
@@ -284,24 +346,28 @@ function AssistantTurnInner({
 	hideActivityHeader = false,
 }: Props) {
 
-	const toolFp = toolsFingerprint(items);
-	const proseFp = proseFingerprint(items);
-	// Fingerprint 依赖：tool/prose 形状相同 → 跨流式 tick 复用 segments。
-	const segments = useMemo(
-		() => segmentTurn(items),
-		// 有意省略 items — fp 捕获有意义的变化
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-		[toolFp, proseFp],
-	);
+	const segmentsCache = useRef<{
+		snapshot: TurnItemSnapshot[];
+		segments: TurnSegment[];
+	} | null>(null);
+	if (
+		!segmentsCache.current ||
+		!snapshotMatchesItems(segmentsCache.current.snapshot, items)
+	) {
+		segmentsCache.current = {
+			snapshot: snapshotTurnItems(items),
+			segments: segmentTurn(items),
+		};
+	}
+	const itemSnapshot = segmentsCache.current.snapshot;
+	const segments = segmentsCache.current.segments;
 
 	const changedFiles = useMemo(() => {
 		const fromTools = collectChangedFilesFromItems(items);
 		const fromAgents =
 			agentTasks?.flatMap(t => t.filesTouched ?? []) ?? [];
 		return mergeChangedFilesWithPaths(fromTools, fromAgents);
-		// toolFp 捕获工具形状变化；agentTasks 带 filesTouched
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [toolFp, agentTasks, items]);
+	}, [itemSnapshot, agentTasks]);
 
 	const liveThoughtReady =
 		active &&
@@ -523,17 +589,6 @@ function AssistantTurnInner({
 	);
 }
 
-function turnTasksFingerprint(tasks: MultiAgentTaskView[] | undefined): string {
-	if (!tasks || tasks.length === 0) {
-		return '';
-	}
-	let out = '';
-	for (const t of tasks) {
-		out += `${t.uid}:${t.status}:${t.desc.length}:${t.result?.length ?? 0};`;
-	}
-	return out;
-}
-
 function turnEqual(prev: Props, next: Props): boolean {
 	if (prev.turnId !== next.turnId || prev.active !== next.active) {
 		return false;
@@ -566,21 +621,13 @@ function turnEqual(prev: Props, next: Props): boolean {
 	) {
 		return false;
 	}
-	if (prev.agentTasks !== next.agentTasks) {
-		if (turnTasksFingerprint(prev.agentTasks) !== turnTasksFingerprint(next.agentTasks)) {
-			return false;
-		}
+	if (!multiAgentTaskViewsEqual(prev.agentTasks, next.agentTasks)) {
+		return false;
 	}
 	if (prev.items === next.items) {
 		return true;
 	}
-	if (prev.items.length !== next.items.length) {
-		return false;
-	}
-	return (
-		toolsFingerprint(prev.items) === toolsFingerprint(next.items) &&
-		proseFingerprint(prev.items) === proseFingerprint(next.items)
-	);
+	return snapshotMatchesItems(snapshotTurnItems(prev.items), next.items);
 }
 
 export const AssistantTurn = memo(AssistantTurnInner, turnEqual);

@@ -29,6 +29,7 @@ import {ExpandPanel} from './activity/ExpandPanel';
 import {DiffPreview} from './DiffPreview';
 import {AgentDoneBars} from './AgentDoneBars';
 import {planAgentCardMounts} from '@/lib/agentCardLayout';
+import {activityStepEqual, multiAgentTaskViewsEqual} from '@/lib/workflowEquality';
 
 /** 用户展开步骤前不挂载巨大的 tool payload。 */
 const RESULT_PREVIEW_CHARS = 4_000;
@@ -257,15 +258,11 @@ function stepRowEqual(a: StepRowProps, b: StepRowProps): boolean {
 		// 「查看诊断」按 toolUseId 出现：id 晚到（服务端补身份）时必须重渲染，
 		// 否则这一条错误步骤永远没有诊断入口。
 		x.toolUseId === y.toolUseId &&
-		(x.args?.length ?? 0) === (y.args?.length ?? 0) &&
-		(x.result?.length ?? 0) === (y.result?.length ?? 0) &&
-		(x.thoughtContent?.length ?? 0) === (y.thoughtContent?.length ?? 0) &&
-		x.thoughtContent === y.thoughtContent &&
-		x.diff?.add === y.diff?.add &&
-		x.diff?.del === y.diff?.del &&
+		activityStepEqual(x, y) &&
 		a.handoff === b.handoff &&
 		a.appear === b.appear &&
-		a.collapsing === b.collapsing
+		a.collapsing === b.collapsing &&
+		a.onThoughtToken === b.onThoughtToken
 	);
 }
 
@@ -553,17 +550,6 @@ type Props = {
 	workflowStatusText?: string;
 };
 
-function agentTasksFingerprint(tasks: MultiAgentTaskView[] | undefined): string {
-	if (!tasks?.length) {
-		return '';
-	}
-	let out = '';
-	for (const t of tasks) {
-		out += `${t.uid}:${t.status}:${t.desc.length};`;
-	}
-	return out;
-}
-
 function activityEqual(prev: Props, next: Props): boolean {
 	if (
 		prev.summary !== next.summary ||
@@ -571,13 +557,13 @@ function activityEqual(prev: Props, next: Props): boolean {
 		prev.active !== next.active ||
 		prev.startedAt !== next.startedAt ||
 		prev.hideHeader !== next.hideHeader ||
+		prev.onToggle !== next.onToggle ||
 		prev.agentIndexBase !== next.agentIndexBase ||
 		prev.workflowStatusText !== next.workflowStatusText ||
 		prev.diffs.add !== next.diffs.add ||
 		prev.diffs.del !== next.diffs.del ||
 		prev.steps.length !== next.steps.length ||
-		agentTasksFingerprint(prev.inlineAgentTasks) !==
-			agentTasksFingerprint(next.inlineAgentTasks)
+		!multiAgentTaskViewsEqual(prev.inlineAgentTasks, next.inlineAgentTasks)
 	) {
 		return false;
 	}

@@ -434,6 +434,56 @@ function collectChangedFor(
 		.filter(b => b.changed.length > 0 || b.commands.length > 0);
 }
 
+type ReviewToolSnapshot = Pick<
+	ChatMessage,
+	| 'id'
+	| 'toolUseId'
+	| 'toolName'
+	| 'toolInput'
+	| 'toolStatus'
+	| 'text'
+	| 'createdAt'
+	| 'reasoningBefore'
+	| 'thoughtMs'
+>;
+
+const reviewToolSnapshots = new WeakMap<ChatMessage, {revision: number; value: ReviewToolSnapshot}>();
+let nextReviewToolRevision = 0;
+
+function reviewToolRevision(message: ChatMessage): number {
+	const previous = reviewToolSnapshots.get(message);
+	if (
+		previous &&
+		previous.value.id === message.id &&
+		previous.value.toolUseId === message.toolUseId &&
+		previous.value.toolName === message.toolName &&
+		previous.value.toolInput === message.toolInput &&
+		previous.value.toolStatus === message.toolStatus &&
+		previous.value.text === message.text &&
+		previous.value.createdAt === message.createdAt &&
+		previous.value.reasoningBefore === message.reasoningBefore &&
+		previous.value.thoughtMs === message.thoughtMs
+	) {
+		return previous.revision;
+	}
+	const revision = ++nextReviewToolRevision;
+	reviewToolSnapshots.set(message, {
+		revision,
+		value: {
+			id: message.id,
+			toolUseId: message.toolUseId,
+			toolName: message.toolName,
+			toolInput: message.toolInput,
+			toolStatus: message.toolStatus,
+			text: message.text,
+			createdAt: message.createdAt,
+			reasoningBefore: message.reasoningBefore,
+			thoughtMs: message.thoughtMs,
+		},
+	});
+	return revision;
+}
+
 function sessionMessagesKey(sessionId: string, msgs: ChatMessage[] | undefined): string {
 	if (!msgs) {
 		return `${sessionId}:0;`;
@@ -441,8 +491,9 @@ function sessionMessagesKey(sessionId: string, msgs: ChatMessage[] | undefined):
 	let sig = `${sessionId}:${msgs.length}`;
 	for (let i = 0; i < msgs.length; i += 1) {
 		const m = msgs[i];
-		if (m.toolStatus != null) {
-			sig += `,${m.id}${m.toolStatus}${m.text.length}`;
+		if (m.role === 'tool') {
+			// 覆盖现代与旧格式工具消息；revision 会在相同长度的内容变更时递增。
+			sig += `,${reviewToolRevision(m)}`;
 		}
 	}
 	return `${sig};`;

@@ -12,6 +12,7 @@ import {
 import {
 	Round,
 } from './types';
+import {multiAgentTaskViewsEqual} from '@/lib/workflowEquality';
 
 export const NO_AGENT_TASKS: MultiAgentTaskView[] = [];
 
@@ -82,37 +83,19 @@ export function roundsWithAgentTasks(
 				? round
 				: {...round, agentTasks: NO_AGENT_TASKS};
 		}
-		if (agentTasksSame(round.agentTasks, next)) {
+		if (multiAgentTaskViewsEqual(round.agentTasks, next)) {
 			return round;
 		}
 		return {...round, agentTasks: next};
 	});
 }
 
-/** 任务列表浅比较（uid+status+desc+result 足以覆盖卡片展示面）。 */
+/** 任务列表浅比较；覆盖 Agent 卡片展示的所有可变字段。 */
 export function agentTasksSame(
 	a: MultiAgentTaskView[],
 	b: MultiAgentTaskView[],
 ): boolean {
-	if (a === b) {
-		return true;
-	}
-	if (a.length !== b.length) {
-		return false;
-	}
-	for (let i = 0; i < a.length; i += 1) {
-		const x = a[i]!;
-		const y = b[i]!;
-		if (
-			x.uid !== y.uid ||
-			x.status !== y.status ||
-			x.desc !== y.desc ||
-			x.result !== y.result
-		) {
-			return false;
-		}
-	}
-	return true;
+	return multiAgentTaskViewsEqual(a, b);
 }
 
 export const PROMPT_X = 'px-3 sm:px-5 md:px-8';
