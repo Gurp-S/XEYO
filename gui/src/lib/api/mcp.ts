@@ -1,5 +1,5 @@
 import {apiUrl} from '@/lib/apiBase';
-import {authHeaders} from '@/lib/api/core';
+import {authHeaders, formatErrorDetail} from '@/lib/api/core';
 
 export type McpToolView = {
 	name: string;
@@ -64,6 +64,11 @@ export async function mcpOp(
 			headers: {...authHeaders(), 'Content-Type': 'application/json'},
 			body: JSON.stringify({server, op, ...extra}),
 		});
+		if (!res.ok) {
+			// 服务端参数校验一律回 4xx，原因在 detail 里；不接住就会渲染成一条空白失败。
+			const payload: unknown = await res.json().catch(() => null);
+			return {ok: false, message: formatErrorDetail(payload, res.status)};
+		}
 		const body = (await res.json()) as {ok?: boolean; message?: string};
 		return {ok: body.ok === true, message: body.message};
 	} catch (err) {
