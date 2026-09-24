@@ -253,8 +253,12 @@ def _iter_py_files(target: str) -> list[Path]:
 
 
 def _run_py_compile(target: str) -> list[str]:
+	files = _iter_py_files(target)
+	if not files:
+		# 一个文件都没检查过就不能报「干净」——那是两件事。
+		return [f"{target}:0:0: note: no .py file examined; nothing was checked"]
 	out: list[str] = []
-	for f in _iter_py_files(target):
+	for f in files:
 		try:
 			src = f.read_text(encoding="utf-8", errors="replace")
 			ast.parse(src, filename=str(f))
@@ -278,8 +282,12 @@ def _run_ruff(ruff: str, target: str) -> list[str]:
 	raw = (proc.stdout or "").strip()
 	if not raw:
 		err = (proc.stderr or "").strip()
-		if proc.returncode != 0 and err:
-			return [f"{target}:0:0: error: ruff: {err[:500]}"]
+		if proc.returncode != 0:
+			# rc≠0 且没有可读结论：检查没跑成，不能报成「没有诊断」。
+			return [
+				f"{target}:0:0: error: ruff exited {proc.returncode}"
+				f"{' with no output' if not err else ''}{(': ' + err[:500]) if err else ''}"
+			]
 		return []
 	try:
 		items = json.loads(raw)
@@ -336,6 +344,8 @@ def _find_local_tsc(target: str, cwd: str) -> str | None:
 
 
 def _run_tsc(tsc: str, tsconfig: str | None, target: str) -> list[str]:
+	if not tsc:
+		return [f"{target}:0:0: error: tsc not found on PATH or node_modules/.bin"]
 	p = Path(target)
 	# 路径为 TS/JS 文件时优先做单文件检查。
 	if p.is_file() and p.suffix.lower() in _TS_EXTS:
@@ -382,6 +392,12 @@ def _run_tsc(tsc: str, tsconfig: str | None, target: str) -> list[str]:
 			if fp_norm != target_norm and not fp_norm.startswith(target_norm + os.sep):
 				continue
 		out.append(f"{fp}:{row}:{col}: {sev}: {msg}")
+	if not out and proc.returncode != 0:
+		# 整体没跑成（坏 tsconfig、TS18003 等）时，路径过滤后的沉默不等于干净。
+		out.append(
+			f"{target}:0:0: note: tsc exited {proc.returncode}"
+			"; no diagnostic attributed to this path"
+		)
 	return out
 
 

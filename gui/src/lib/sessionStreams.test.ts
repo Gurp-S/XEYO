@@ -84,4 +84,21 @@ describe('sessionStreams', () => {
 			}),
 		).toBe(true);
 	});
+
+	it('keeps the detached marker alive while the visible fields go quiet', () => {
+		// 后端仍在跑、本页 SSE 已断：任何只清文案的 patch 都不能顺手把
+		// turnDetached 抹掉——否则 recoverStuckStream 会把仍在跑的轮次判成中断。
+		let map = patchSessionStream(undefined, 's1', {
+			isLoading: true,
+			statusText: 'thinking…',
+		});
+		map = patchSessionStream(map, 's1', {turnDetached: true, lastEventId: 42});
+		map = patchSessionStream(map, 's1', {isLoading: false, statusText: ''});
+		const detached = map['s1'];
+		expect(detached?.turnDetached).toBe(true);
+		expect(detached?.lastEventId).toBe(42);
+		expect(isSessionStreamLive(detached!)).toBe(true);
+		// 解除标记后条目必须重新可回收，不能留成永久脏记录。
+		expect(patchSessionStream(map, 's1', {turnDetached: false})['s1']).toBeUndefined();
+	});
 });

@@ -48,8 +48,15 @@ def test_ssrf_helpers() -> None:
 
 
 def test_web_concurrency_safe() -> None:
-	assert WebFetchTool.is_concurrency_safe() is True
-	assert WebSearchTool.is_concurrency_safe() is True
+	"""外发 ASK 工具逐条串行、不提前执行；实例 flag 必须与 tools.meta 一致。"""
+	from tools.meta import TOOL_META
+
+	assert WebFetchTool.is_concurrency_safe() is False
+	assert WebFetchTool.is_read_only() is False
+	assert WebSearchTool.is_concurrency_safe() is False
+	assert WebSearchTool.is_read_only() is False
+	assert TOOL_META["WebFetch"].concurrency_safe is False
+	assert TOOL_META["WebSearch"].concurrency_safe is False
 
 
 def test_dns_failed_blocks(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -12,20 +12,27 @@
 import {cleanup, render, screen} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {afterEach, describe, expect, it} from 'vitest';
-import {parseRunDetail, parseRunsResult} from '@/lib/api/diagnostics';
+import {buildExperimentBody, parseRunDetail, parseRunsResult} from '@/lib/api/diagnostics';
+import {ContextView} from './ContextView';
 import {FindingsView} from './FindingsView';
 import {StepsView} from './StepsView';
 import {UsageView} from './UsageView';
+import {selectTurnAfterRunsLoaded} from './useDiagnosticsData';
 import {
 	COST_BASIS_LABEL,
 	DASH,
 	NO_CONFIRMED_FAULT_TEXT,
 	NOT_ATTRIBUTED_TEXT,
+	SHOWN_LABEL,
+	buildTimeline,
+	describeAuditRow,
 	fmtClock,
 	fmtCostCny,
 	fmtDuration,
 	fmtInt,
 	groupFindingsByStatus,
+	mergeDetailPreservingLoadedPages,
+	pinKindLabel,
 } from './model';
 
 function detail(raw: Record<string, unknown>) {
@@ -324,5 +331,338 @@ describe('解析层不补值', () => {
 		expect(fmtClock(null)).toBe(DASH);
 		expect(fmtDuration(null)).toBe(DASH);
 		expect(fmtInt(null)).toBe(DASH);
+	});
+});
+
+describe('缺证据不得渲染成确定的 0（P1 10）', () => {
+	it('没取回归因块时不显示「已确认 0 · 疑似 0 · 未定 0」', () => {
+		render(<FindingsView detail={detail({attribution: null})} />);
+		const text = document.body.textContent ?? '';
+		expect(text).toContain('未取回归因块');
+		expect(text).not.toMatch(/已确认\s*0/);
+		expect(text).not.toMatch(/疑似\s*0/);
+		expect(text).not.toMatch(/未定\s*0/);
+	});
+
+	it('取回归因块时才出三档计数', () => {
+		const d = detail({
+			attribution: {
+				first_anomaly_boundary: 'tool_permission',
+				first_anomaly_label: '工具与权限',
+				last_normal_boundary: 'model_request',
+				last_normal_label: '模型请求与响应',
+				confirmed_count: 2,
+				suspected_count: 1,
+				unknown_count: 0,
+				attributed: true,
+				statement: '',
+			},
+		});
+		render(<FindingsView detail={d} />);
+		expect(document.body.textContent).toContain('未定 0');
+	});
+
+	it('账本窗口没取回时是「未取回」，不是 0 条', () => {
+		const d = detail({folds: [], projections: [], windows: []});
+		render(<ContextView detail={d} sessionId="s1" turnId="t1" storeRoot="/diag" />);
+		const text = document.body.textContent ?? '';
+		expect(text).toContain('未取回（本次响应没有折叠窗口）');
+		expect(text).toContain('未取回（本次响应没有投影窗口）');
+		expect(text).not.toMatch(/折叠记录\s*0 条/);
+		expect(text).not.toMatch(/投影 manifest\s*0 份/);
+	});
+
+	it('窗口读了但不完整时保留截断标记', () => {
+		const d = detail({
+			folds: [{a: 1}],
+			windows: [{source: 'fold_events', complete: false, rows_matched: 1, note: '尾窗截断'}],
+		});
+		render(<ContextView detail={d} sessionId="s1" turnId="t1" storeRoot="/diag" />);
+		expect(document.body.textContent).toContain('1 条（窗口未读全，实际不少于此数）');
+	});
+});
+
+describe('授权结果不得猜（P1 4）', () => {
+	function permDetail(rows: Array<Record<string, unknown>>) {
+		return buildTimeline(detail({permissions: rows})).find(r => r.source === 'permission');
+	}
+
+	it('permission.denied 行没有 outcome / approved 也算被挡住，不渲染成通过', () => {
+		const row = permDetail([
+			{request_id: 'apr1', kind: 'permission.pending', tool_name: 'Bash', ts: 1, line_no: 5, tool_use_id: 'c1'},
+			{
+				request_id: 'apr1',
+				kind: 'permission.denied',
+				tool_name: 'Bash',
+				ts: 2,
+				line_no: 6,
+				tool_use_id: 'c1',
+				matched_rule: 'bash_danger_ask',
+			},
+		]);
+		expect(row?.title).toBe('权限层挡住该工具');
+		expect(row?.tone).toBe('warn');
+		expect(row?.statusText).toContain('结果 已拒绝');
+		expect(row?.statusText).not.toContain('授权已通过');
+	});
+
+	it('真实 DENY 行渲染后正文里没有绿色通过措辞', () => {
+		const d = detail({
+			permissions: [
+				{
+					request_id: 'apr9',
+					kind: 'permission.denied',
+					tool_name: 'Bash',
+					ts: 2,
+					line_no: 6,
+					tool_use_id: 'c9',
+				},
+			],
+		});
+		render(<StepsView detail={d} loadingMore={false} onLoadMore={() => {}} />);
+		const text = document.body.textContent ?? '';
+		expect(text).toContain('权限层挡住该工具');
+		expect(text).not.toContain('授权已通过');
+	});
+
+	it('没有任何结果字段时是「结果未记录」+ 中性色', () => {
+		const row = permDetail([
+			{request_id: 'apr2', kind: 'permission.resolved', tool_name: 'Read', ts: 3, line_no: 8},
+		]);
+		expect(row?.title).toBe('授权结果未记录');
+		expect(row?.tone).toBe('neutral');
+		expect(row?.statusText).toContain('结果未记录');
+	});
+
+	it('approved=false 仍是已拒绝', () => {
+		const row = permDetail([
+			{
+				request_id: 'apr3',
+				kind: 'permission.resolved',
+				tool_name: 'Write',
+				approved: false,
+				ts: 3,
+				line_no: 9,
+			},
+		]);
+		expect(row?.title).toBe('权限层挡住该工具');
+	});
+
+	it('approved=true 才是授权已通过', () => {
+		const row = permDetail([
+			{
+				request_id: 'apr4',
+				kind: 'permission.resolved',
+				tool_name: 'Write',
+				approved: true,
+				ts: 3,
+				line_no: 10,
+			},
+		]);
+		expect(row?.title).toBe('授权已通过');
+		expect(row?.tone).toBe('ok');
+	});
+});
+
+describe('被折叠移出的约束要有中文标签（P1 9）', () => {
+	it('SHOWN_LABEL 覆盖后端 fault_split 发出的 folded_out', () => {
+		expect(SHOWN_LABEL.folded_out).toBe('被折叠移出投影（未送达）');
+	});
+
+	it('责任划分徽章不照抄机器名', () => {
+		const d = detail({
+			fault: {
+				responsibility: 'engine',
+				responsibility_label: '引擎侧',
+				why: '约束在折叠一级被移出投影。',
+				shown_to_model: 'folded_out',
+				shown_to_model_note: '折叠发生在发送之前',
+				causes: [],
+				chain: [],
+				obligation: {source: 'turn_user_message', locator: '', ref_id: '', excerpt: '改完必须跑测试'},
+				missing_evidence: [],
+				not_claimed: [],
+			},
+		});
+		render(<FindingsView detail={d} />);
+		const text = document.body.textContent ?? '';
+		expect(text).toContain('约束：被折叠移出投影（未送达）');
+		expect(text).not.toContain('folded_out');
+	});
+
+	it('固定证据的种类出中文，未知种类原样保留', () => {
+		expect(pinKindLabel('run_mark')).toBe('结果标记');
+		expect(pinKindLabel('verifier')).toBe('验收记录');
+		expect(pinKindLabel('future_kind')).toBe('future_kind');
+	});
+});
+
+describe('审计行字段中文化（P2 17）', () => {
+	it('有中文标签的标量字段进状态行，其余进原文块', () => {
+		const {shown, raw} = describeAuditRow({
+			ts: 1,
+			kind: 'sse.frame',
+			session_id: 's1',
+			turn_id: 't1',
+			model_request_id: 'r1',
+			tool_name: 'Bash',
+			provider: {name: 'deepseek'},
+			attempt: 2,
+			is_error: true,
+		});
+		expect(shown).toEqual(['模型请求 r1', '工具 Bash', '尝试 2', '返回错误 是']);
+		// 嵌套值不产出 `provider=` 这种吊尾标签，而是留在原文块里以 JSON 呈现。
+		expect(raw.map(f => f.key)).toEqual(['provider']);
+		expect(raw[0]!.value).toBe('{"name":"deepseek"}');
+	});
+
+	it('时间线里未收录的审计类型不照抄机器名到标题', () => {
+		const d = detail({
+			events: [
+				{
+					seq: 1,
+					line_no: 42,
+					kind: 'session.resume',
+					ts: 5,
+					session_id: 's1',
+					turn_id: 't1',
+					row: {session_id: 's1', model_request_id: 'r1', provider: 'deepseek'},
+					evidence: {source: 'audit', locator: '/x/audit.jsonl', ref_id: 'L42', detail: ''},
+				},
+			],
+		});
+		render(<StepsView detail={d} loadingMore={false} onLoadMore={() => {}} />);
+		const text = document.body.textContent ?? '';
+		expect(text).toContain('审计记录（未收录类型）');
+		// 折叠前不出现 `session_id=…` / `provider=` 这类英文键值对
+		expect(text).not.toMatch(/session_id=/);
+		expect(text).not.toMatch(/provider=/);
+		expect(text).toContain('模型请求 r1');
+	});
+});
+
+describe('静默轮询不吞掉手工翻页（P1 8）', () => {
+	function eventsOf(prefix: string, from: number, to: number) {
+		const out = [];
+		for (let line = from; line < to; line += 1) {
+			out.push({
+				seq: line,
+				line_no: line,
+				kind: `job.${prefix}`,
+				ts: line,
+				session_id: 's1',
+				turn_id: 't1',
+				row: {},
+				evidence: {source: 'audit', locator: '', ref_id: `L${line}`, detail: ''},
+			});
+		}
+		return out;
+	}
+
+	it('第 0 页回来后保留已手工加载的后续页', () => {
+		const loaded = detail({
+			events: [...eventsOf('a', 0, 600)],
+			event_total: 900,
+			event_offset: 400,
+			event_limit: 200,
+			events_complete: false,
+		});
+		const polled = detail({
+			events: [...eventsOf('b', 0, 200)],
+			event_total: 900,
+			event_offset: 0,
+			event_limit: 200,
+			events_complete: false,
+		});
+		const merged = mergeDetailPreservingLoadedPages(loaded, polled);
+		expect(merged.events).toHaveLength(600);
+		// 游标不倒退：下一次「继续加载」仍从 600 起
+		expect(merged.event_offset).toBe(400);
+		expect(merged.events[0].line_no).toBe(0);
+		expect(merged.events[599].line_no).toBe(599);
+	});
+
+	it('轮询已覆盖全集时以轮询为准，不保留旧行', () => {
+		const loaded = detail({events: eventsOf('a', 0, 600), event_total: 600, event_limit: 200, event_offset: 400});
+		const polled = detail({events: eventsOf('b', 0, 600), event_total: 600, event_limit: 600, event_offset: 0, events_complete: true});
+		const merged = mergeDetailPreservingLoadedPages(loaded, polled);
+		expect(merged.events.map(e => e.kind)).toEqual(polled.events.map(e => e.kind));
+	});
+});
+
+describe('深链选择不得顶替用户那一击（P1 11）', () => {
+	const runs = parseRunsResult({
+		schema_version: 1,
+		session_id: 's1',
+		complete: true,
+		runs: [
+			{turn_id: 't1', tool_use_ids: ['call_1']},
+			{turn_id: 't2', tool_use_ids: ['call_2']},
+		],
+	});
+
+	it('tool 命中时选中的是那一轮', () => {
+		const sel = selectTurnAfterRunsLoaded({runs, currentTurn: '', deepTurn: '', toolHint: 'call_2'});
+		expect(sel).toEqual({turnId: 't2', mismatch: null, toolResolved: true});
+	});
+
+	it('tool 不在尾窗里时保留原选择并报不匹配，绝不默认第一条', () => {
+		const sel = selectTurnAfterRunsLoaded({runs, currentTurn: 't1', deepTurn: '', toolHint: 'call_9'});
+		expect(sel.turnId).toBe('t1');
+		expect(sel.mismatch).toEqual({kind: 'tool', value: 'call_9'});
+		expect(sel.toolResolved).toBe(false);
+	});
+
+	it('深链 turn 不在尾窗里时同样不自动改选', () => {
+		const sel = selectTurnAfterRunsLoaded({runs, currentTurn: '', deepTurn: 't9', toolHint: ''});
+		expect(sel.turnId).toBe('');
+		expect(sel.mismatch).toEqual({kind: 'turn', value: 't9'});
+	});
+
+	it('无深链时保留当前选择，当前选择已消失才回落第一条', () => {
+		expect(
+			selectTurnAfterRunsLoaded({runs, currentTurn: 't2', deepTurn: '', toolHint: ''}).turnId,
+		).toBe('t2');
+		expect(
+			selectTurnAfterRunsLoaded({runs, currentTurn: 'gone', deepTurn: '', toolHint: ''}).turnId,
+		).toBe('t1');
+	});
+});
+
+describe('实验请求体对齐后端契约（P1 3）', () => {
+	it('mode 小写、两臂走 variants、次数走 repeat、不带服务端没有的键', () => {
+		const body = buildExperimentBody({
+			mode: 'a1',
+			sessionId: 's1',
+			turnId: 't1',
+			variantA: {blocks: {system: 'a'}},
+			variantB: {blocks: {system: 'b'}},
+			repeat: 3,
+			budgetCny: 12.5,
+		}) as Record<string, unknown>;
+		expect(body.mode).toBe('a1');
+		expect(body.variants).toEqual({A: {blocks: {system: 'a'}}, B: {blocks: {system: 'b'}}});
+		expect(body.repeat).toBe(3);
+		expect(body.budget_cny).toBe(12.5);
+		expect(body.task_id).toContain('s1');
+		// 服务端 pydantic 是 extra='ignore'：这些键发过去等于静默丢弃，必须根本不发
+		expect(body.baseline).toBeUndefined();
+		expect(body.candidate).toBeUndefined();
+		expect(body.repeats).toBeUndefined();
+		expect(body.session_id).toBeUndefined();
+		expect(body.turn_id).toBeUndefined();
+	});
+
+	it('预算不是有限数字时不发送该字段（NaN 会被序列化成 null，读作"不设上限"）', () => {
+		const body = buildExperimentBody({
+			mode: 'a0',
+			sessionId: 's1',
+			turnId: 't1',
+			variantA: {},
+			variantB: {},
+			repeat: 1,
+			budgetCny: null,
+		}) as Record<string, unknown>;
+		expect('budget_cny' in body).toBe(false);
 	});
 });

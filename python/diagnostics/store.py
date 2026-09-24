@@ -58,6 +58,61 @@ def reservations_path() -> Path:
 	return diagnostics_root() / "reservations.jsonl"
 
 
+_IDENT_MAX_LEN = 128
+
+
+class InvalidIdentifier(ValueError):
+	"""请求参数不像本模块生成的 id——拒绝拼接路径，不做静默清洗。"""
+
+
+def safe_ident(value: object, *, label: str = "标识符") -> str:
+	"""把外部传入的 id 收敛到 ``[A-Za-z0-9_.-]``；其余一律抛错。
+
+	pin / report / experiment id 与 body_hash 都由本包自己生成（``pin_`` +
+	16 hex 等），任何带分隔符、``..``、空白或 NUL 的取值都不可能是合法产物。
+	诊断端点即便只听回环，也不得让请求参数决定文件落在哪里。
+	"""
+	text = str(value if value is not None else "")
+	if not text or len(text) > _IDENT_MAX_LEN or text.strip() != text:
+		raise InvalidIdentifier(f"{label}非法")
+	if ".." in text:
+		raise InvalidIdentifier(f"{label}非法")
+	for ch in text:
+		if (
+			("a" <= ch <= "z")
+			or ("A" <= ch <= "Z")
+			or ("0" <= ch <= "9")
+			or ch in "_-"
+		):
+			continue
+		raise InvalidIdentifier(f"{label}非法")
+	return text
+
+
+def artifact_path(directory: Path, ident: str, *, suffix: str, label: str = "标识符") -> Path:
+	"""``directory/<ident><suffix>`` 的唯一安全拼法。"""
+	clean = safe_ident(ident, label=label)
+	base = Path(directory)
+	target = base / f"{clean}{suffix}"
+	try:
+		inside = target.resolve().is_relative_to(base.resolve())
+	except OSError as exc:  # pragma: no cover — 解析失败按非法处理
+		raise InvalidIdentifier(f"{label}非法") from exc
+	if not inside:
+		raise InvalidIdentifier(f"{label}越界")
+	return target
+
+
+def body_hash_path(directory: Path, body_hash: str) -> Path:
+	"""捕获正文路径：只接受 64 位十六进制 sha256。"""
+	clean = safe_ident(body_hash, label="body_hash")
+	if len(clean) != 64 or any(ch not in "0123456789abcdef" for ch in clean.lower()):
+		raise InvalidIdentifier("body_hash 非法")
+	return artifact_path(
+		Path(directory) / clean[:2], clean, suffix=".json.gz", label="body_hash"
+	)
+
+
 def quota_bytes() -> int:
 	raw = os.environ.get("XEYO_DIAGNOSTICS_MAX_BYTES", "").strip()
 	try:

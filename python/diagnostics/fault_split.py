@@ -20,7 +20,16 @@ from typing import Any
 
 from diagnostics import causes as _causes
 from diagnostics.collect import RunEvidence
-from diagnostics.identity import CONFIRMED_FAULT, SUSPECTED_CAUSE, EvidenceRef, Finding, _s
+from diagnostics.identity import CONFIRMED_FAULT, SUSPECTED_CAUSE, EvidenceRef, Finding, _f, _s
+from diagnostics.rules import (
+	no_turn_records,
+	permission_blocked,
+	permission_outcome,
+	permission_outcome_unrecorded,
+	row_belongs_to_run,
+	source_locator,
+	turn_scoped,
+)
 
 # 责任方
 ENGINE = "engine"
@@ -189,26 +198,72 @@ def _task_outcome(run: RunEvidence) -> tuple[str, list[EvidenceRef], str]:
 	return OUTCOME_PASS, ref, "全部 verifier 退出码 0（只证明这些检查通过）。"
 
 
+# transcript 按会话存，行内不带轮次身份。用户消息落在回合开始的审计行之前
+# （实测早 ~0.9 秒到几十分钟不等，等授权时更久），所以只能按「不晚于本轮最后
+# 一条带轮次身份的记录」来界定，不能要求它落在本轮时间区间内。
+_OBLIGATION_SCAN_ROWS = 2000
+_OBLIGATION_TOLERANCE_SEC = 2.0
+
+
+def _turn_last_ts(run: RunEvidence) -> float | None:
+	ts = [e.ts for e in run.events_for_turn() if e.ts is not None]
+	return max(ts) if ts else None
+
+
 def _last_user_obligation(run: RunEvidence) -> dict[str, Any]:
-	"""本轮用户消息里的原话约束：它在场，所以有资格作为判据。"""
+	"""本轮用户消息里的原话约束：它在场，所以有资格作为判据。
+
+	按轮次界定是必须的：不设上界会让被诊断的历史轮拿到会话里最后一条用户消息
+	（属于好几轮之后），于是「本轮的约束」是凭空借来的。上界取本轮最后一条带
+	轮次身份记录的时刻；本轮没有带时间戳的记录时不设上界（无从界定，如实记
+	``ts_bound=False``）。扫描窗够不到本轮那条消息时如实报 ``outside_scan``，
+	绝不退化成「这轮没提要求」。
+	"""
+	upper = _turn_last_ts(run)
+	found: dict[str, Any] = {}
+	oldest_seen: float | None = None
 	try:
 		from diagnostics.loss_chain import _iter_transcript, _resolve_body
 
-		for row in reversed(list(_iter_transcript(run.session_id, 60))):
+		for row in reversed(list(_iter_transcript(run.session_id, _OBLIGATION_SCAN_ROWS))):
+			row_ts = _f(row.get("ts"))
+			if row_ts is not None and (oldest_seen is None or row_ts < oldest_seen):
+				oldest_seen = row_ts
 			if _s(row.get("role")) != "user":
 				continue
+			if upper is not None:
+				if row_ts is None:
+					continue  # 没时间戳就分不清是不是本轮的消息，不猜
+				if row_ts > upper + _OBLIGATION_TOLERANCE_SEC:
+					continue
 			body = _resolve_body(row)
-			if body.strip():
-				return {
-					"text": body.strip()[:500],
-					"source": "turn_user_message",
-					"locator": _s(row.get("_path")),
-					"ref_id": _s(row.get("id")),
-					"created_at": row.get("ts"),
-				}
+			if not body.strip():
+				continue
+			found = {
+				"text": body.strip()[:500],
+				"source": "turn_user_message",
+				"locator": _s(row.get("_path")),
+				"ref_id": _s(row.get("id")),
+				"created_at": row.get("ts"),
+				"ts_bound": upper is not None,
+				"state": "found",
+			}
+			break
 	except Exception:  # noqa: BLE001 — 取不到约束就悬空，不猜
-		pass
-	return {}
+		return {"text": "", "source": "", "locator": "", "ref_id": "", "created_at": None, "state": "unreadable"}
+	if found:
+		return found
+	if upper is not None and oldest_seen is not None and oldest_seen > upper + _OBLIGATION_TOLERANCE_SEC:
+		return {
+			"text": "",
+			"source": "",
+			"locator": "",
+			"ref_id": "",
+			"created_at": None,
+			"state": "outside_scan",
+			"ts_bound": True,
+		}
+	return {"text": "", "source": "", "locator": "", "ref_id": "", "created_at": None, "state": ""}
 
 
 def _pin_obligation(run: RunEvidence) -> dict[str, Any]:
@@ -233,21 +288,46 @@ def _obligation(run: RunEvidence) -> dict[str, Any]:
 	事后钉的预期（pin 的时间晚于本轮最后事件）只能用于比对自述，不能反推
 	"这一枪把约束弄丢了"——它当时压根不在场。
 	"""
-	turn_events = [e for e in run.events_for_turn() if e.ts is not None]
-	turn_last_ts = max((e.ts or 0.0 for e in turn_events), default=0.0)
 	in_turn = _last_user_obligation(run)
 	pinned = _pin_obligation(run)
-	if in_turn:
+	scan_state = _s(in_turn.get("state"))
+	if _s(in_turn.get("text")):
 		in_turn["expected_note"] = _s(pinned.get("text"))
 		return in_turn
 	if pinned:
 		pinned["in_turn"] = False
+		if scan_state:
+			pinned["in_turn_scan"] = scan_state
 		return pinned
-	return {"text": "", "source": "", "locator": "", "ref_id": "", "created_at": None}
+	out: dict[str, Any] = {"text": "", "source": "", "locator": "", "ref_id": "", "created_at": None}
+	if scan_state:
+		out["in_turn_scan"] = scan_state
+	return out
+
+
+def _emitted_projection_in_turn(run: RunEvidence) -> bool:
+	"""working 里的 last_x_sent 是整会话的最后一份投影，可能出自更晚的一轮。
+
+	拿它判断「本轮的约束没送到模型」会把后面几轮的内容当成这一轮的输入。只有
+	manifest 的创建时刻不晚于本轮最后一条记录时，这份投影才还是这一轮的。
+	判不动就返回 False：宁可不判，也不替引擎凭空认账。
+	"""
+	upper = _turn_last_ts(run)
+	if upper is None:
+		return True  # 本轮没有带时间戳的记录：无从证伪，按原样交给定位链
+	stamps = [_f(p.get("created_at")) for p in run.projections]
+	stamps = [s for s in stamps if s is not None]
+	if not stamps:
+		return False
+	return max(stamps) <= upper + _OBLIGATION_TOLERANCE_SEC
 
 
 def _shown_to_model(run: RunEvidence, needle: str) -> dict[str, Any]:
-	"""约束是否确实进了模型实际收到的内容。捕获正文优先，其次上一枪实际发送的投影。"""
+	"""约束是否确实进了模型实际收到的内容。捕获正文优先，其次上一枪实际发送的投影。
+
+	两级都必须是本轮的记录：captures 按轮次取，投影按 ``_emitted_projection_in_turn``
+	核对。拿更晚一轮的投影命中／落空来判本轮的送达，就是凭空造出引擎侧故障。
+	"""
 	if not needle:
 		return {"state": "no_obligation", "evidence": [], "note": "没有可比对的约束文本"}
 	try:
@@ -256,6 +336,15 @@ def _shown_to_model(run: RunEvidence, needle: str) -> dict[str, Any]:
 		body_stage = _stage_provider_body(run, needle)
 		if body_stage["state"] == "found":
 			return {"state": "shown", "evidence": body_stage["evidence"], "note": "在适配器最终请求体里命中"}
+		if not _emitted_projection_in_turn(run):
+			return {
+				"state": "unprovable",
+				"evidence": [],
+				"note": (
+					"working 里最后一份发射投影不属于本轮（或无从判断它属于本轮）："
+					"既不能据此说约束送到了，也不能据此说本轮把它弄丢了"
+				),
+			}
 		proj_stage = _stage_emitted(run, needle)
 		if proj_stage["state"] == "found":
 			return {"state": "shown", "evidence": proj_stage["evidence"], "note": "在上一枪实际发送的投影里命中"}
@@ -271,10 +360,15 @@ def _shown_to_model(run: RunEvidence, needle: str) -> dict[str, Any]:
 _CLAIM_WORDS = ("测试通过", "已通过", "已完成", "全部通过", "验收通过", "done", "all tests pass")
 
 
+def _assistant_rows(run: RunEvidence) -> list[dict[str, Any]]:
+	"""本轮可归属的 assistant 行：采集器标为「不属于本运行」的行不得算到本轮头上。"""
+	return [row for row in run.transcript_rows if row_belongs_to_run(row) and _s(row.get("role")) == "assistant"]
+
+
 def _assistant_text(run: RunEvidence) -> str:
 	parts: list[str] = []
-	for row in run.transcript_rows:
-		if _s(row.get("role")) == "assistant" and isinstance(row.get("content"), str):
+	for row in _assistant_rows(run):
+		if isinstance(row.get("content"), str):
 			parts.append(row["content"])
 	return " ".join(parts)
 
@@ -289,6 +383,12 @@ def _self_report_contradiction(run: RunEvidence, outcome: str) -> Finding | None
 	hits = [w for w in _CLAIM_WORDS if w in joined]
 	if not hits:
 		return None
+	# 证据指针只指真的写了那句自述的行，且必须是本轮可归属的行。
+	sources = [
+		row
+		for row in _assistant_rows(run)
+		if isinstance(row.get("content"), str) and any(w in row["content"] for w in hits)
+	] or _assistant_rows(run)[:1]
 	return Finding(
 		rule_id="self_report_vs_verifier",
 		rule_version=1,
@@ -303,7 +403,7 @@ def _self_report_contradiction(run: RunEvidence, outcome: str) -> Finding | None
 				ref_id=_s(row.get("id")),
 				detail=f"自述含「{hits[0]}」",
 			)
-			for row in run.transcript_rows[:1]
+			for row in sources[:5]
 		],
 		impact="自述与验收不符：以验收记录为准。",
 		coverage_gap="按关键词比对回答文本，措辞变化会漏判；不评判语义等价性。",
@@ -336,18 +436,22 @@ def _required_action_unmet(run: RunEvidence, obligation_text: str) -> dict[str, 
 
 	判据全部来自既有记录：约束正文的关键词、本轮工具调用参数与 command_summary、
 	权限结果、以及回答里的自述完成词。任何一环缺记录都退回 unknown。
+
+	权限结果按 rules.permission_outcome 的读法判定：真实的 DENY 行（只读门与策略
+	DENY 写的 permission.denied）既不带 approved 也不带 outcome，只有
+	permission_action / permission_reason_code，按「没挡住」读会把执行层的拒绝算到
+	模型头上。
 	"""
 	text = _s(obligation_text)
 	low = text.lower()
 	markers = [m for m in _ACTION_MARKERS if m in low or m in text]
 	if not markers:
 		return {"state": "no_action_required", "evidence": [], "note": "约束里没有可核对的动作要求"}
-	blocked = [
-		x for x in run.permissions
-		if x.get("approved") is False or _s(x.get("outcome")) in {"timeout", "denied"}
-	]
+	own_permissions = turn_scoped(run.permissions, run.turn_id)
+	blocked = [p for p in own_permissions if permission_blocked(p)]
+	own_tools = turn_scoped(run.tool_calls, run.turn_id)
 	seen_cmds: list[str] = []
-	for tool in run.tool_calls:
+	for tool in own_tools:
 		for source in (tool.started, tool.finished):
 			if isinstance(source, dict):
 				cmd = _s(source.get("command_summary")) or _s(source.get("command"))
@@ -362,20 +466,36 @@ def _required_action_unmet(run: RunEvidence, obligation_text: str) -> dict[str, 
 	done = [m for m in markers if m in joined]
 	if done:
 		return {"state": "action_present", "evidence": [], "note": f"本轮已见动作标记：{', '.join(done)}"}
-	blocked = [
-		p for p in run.permissions
-		if p.get("approved") is False or _s(p.get("outcome")) in {"timeout", "denied"}
-	]
 	if blocked:
 		return {
 			"state": "blocked_by_permission",
 			"evidence": [
-				EvidenceRef(source="audit", locator="audit", ref_id=f"L{_s(p.get('line_no'))}", detail="permission 拒绝/超时")
+				EvidenceRef(
+					source="audit",
+					locator=source_locator(run, "audit"),
+					ref_id=f"L{_s(p.get('line_no'))}",
+					detail=f"{_s(p.get('kind'))} 结果={permission_outcome(p)}",
+				)
 				for p in blocked[:3]
 			],
 			"note": "该动作被执行层挡下：不能算模型没做",
 		}
-	if not run.tool_calls and not seen_cmds:
+	unrecorded = [p for p in own_permissions if permission_outcome_unrecorded(p)]
+	if unrecorded:
+		return {
+			"state": "permission_outcome_unrecorded",
+			"evidence": [
+				EvidenceRef(
+					source="audit",
+					locator=source_locator(run, "audit"),
+					ref_id=f"L{_s(p.get('line_no'))}",
+					detail=f"{_s(p.get('kind'))} 未记录 approved / outcome / permission_action",
+				)
+				for p in unrecorded[:3]
+			],
+			"note": "权限行没有落审批结果：分不清是放行了还是根本没记录，不能据此判动作没做",
+		}
+	if not own_tools and not seen_cmds:
 		return {"state": "no_tool_records", "evidence": [], "note": "本轮没有任何工具记录：分不清是没调用还是没采集"}
 	claims = [w for w in _CLAIM_WORDS if w in _assistant_text(run)]
 	if not claims:
@@ -383,9 +503,14 @@ def _required_action_unmet(run: RunEvidence, obligation_text: str) -> dict[str, 
 	return {
 		"state": "action_missing",
 		"evidence": [
-			EvidenceRef(source="transcript", locator="transcript", ref_id="", detail=f"要求动作标记：{', '.join(markers[:3])}")
+			EvidenceRef(
+				source="transcript",
+				locator=source_locator(run, "transcript"),
+				ref_id="",
+				detail=f"要求动作标记：{', '.join(markers[:3])}",
+			)
 		],
-		"note": f"约束要求 {', '.join(markers[:3])}，本轮 {len(run.tool_calls)} 次工具调用里没有一项含该标记，且未被权限挡住",
+		"note": f"约束要求 {', '.join(markers[:3])}，本轮 {len(own_tools)} 次工具调用里没有一项含该标记，且未被权限挡住",
 	}
 
 
@@ -405,8 +530,71 @@ def _obligation_step_evidence(obligation: dict[str, Any], shown: dict[str, Any])
 	return refs
 
 
+def _no_records_verdict(run: RunEvidence) -> dict[str, Any]:
+	"""本轮无记录的裁决：不指责任何一方，也不把会话级 leftovers 当成本轮证据。
+
+	「无记录」不等于「没发生」——采集都是尾窗，窗口可能压根没覆盖这一轮。
+	"""
+	gap = (
+		f"本轮无记录：采集窗口内没有一条带 turn_id={_s(run.turn_id)} 的记录，"
+		"责任划分与因果链都无据可建。"
+	)
+	return {
+		"responsibility": UNDETERMINED,
+		"responsibility_label": PARTY_LABEL[UNDETERMINED],
+		"why": (
+			"本轮无记录：窗口里没有属于这一轮的任何一条记录，因此既不能判引擎有错，"
+			"也不能判模型有错。无记录不等于没发生——审计与各账本都按尾窗采集，"
+			"窗口可能没覆盖到这一轮；不得把同会话别处的记录算给本轮。"
+		),
+		"primary_cause": _causes.NOT_DETERMINED,
+		"primary_cause_label": _causes.CAUSE_LABEL[_causes.NOT_DETERMINED],
+		"cause_statement": "本轮无记录：只能报采集缺口，不能报原因。",
+		"causes": [
+			{
+				"code": _causes.NOT_DETERMINED,
+				"label": _causes.CAUSE_LABEL[_causes.NOT_DETERMINED],
+				"party": UNDETERMINED,
+				"proves": "本轮没有一条带自己身份的记录：这是采集缺口，不是执行结果",
+				"does_not_prove": "不等于没有失败，也不等于成功；无记录只说明记录里没有",
+				"evidence": [],
+			}
+		],
+		"task_outcome": OUTCOME_NOT_ACCEPTED,
+		"task_outcome_label": OUTCOME_LABEL[OUTCOME_NOT_ACCEPTED],
+		"obligation": {
+			"source": "",
+			"locator": "",
+			"ref_id": "",
+			"created_at": None,
+			"excerpt": "",
+		},
+		"shown_to_model": "unprovable",
+		"shown_to_model_note": gap,
+		"engine_confirmed": 0,
+		"environment_confirmed": 0,
+		"transport_gap": False,
+		"chain": [],
+		"missing_evidence": [
+			gap,
+			"本轮无记录不等于没发生：先扩大审计/账本的采集窗口，或给记录补上轮次身份，再谈归因",
+			"没有 verifier 记录：任务是否完成无法判定",
+		],
+		"not_claimed": [
+			"不宣称本轮正常：规则集本轮没有可核对的记录",
+			"不把会话级记录（transcript / working / usage）算给本轮",
+			"不给概率或加权总分",
+		],
+		"no_turn_records": True,
+	}
+
+
 def attribute_fault(run: RunEvidence, findings: list[Finding]) -> dict[str, Any]:
 	"""给出责任方、任务结局、因果链，以及"要改判还缺哪条记录"。"""
+	if no_turn_records(run):
+		return _no_records_verdict(run)
+	# 本轮没有一条属于自己的记录：不指责任何一方，也不得把会话级 leftovers 当证据。
+	own_tools = turn_scoped(run.tool_calls, run.turn_id)
 	engine = _engine_findings(findings)
 	environment = _environment_findings(findings)
 	transport, transport_suspect = _transport_findings(findings)
@@ -457,12 +645,19 @@ def attribute_fault(run: RunEvidence, findings: list[Finding]) -> dict[str, Any]
 		_step(
 			"tool_permission",
 			f"要求动作 {'、'.join(sorted({m for m in _ACTION_MARKERS if m in requirement_text.lower() or m in requirement_text}))}，"
-			f"本轮 {len(run.tool_calls)} 次工具调用里没有一项对应，且未被权限挡住；回答仍自述完成",
+			f"本轮 {len(own_tools)} 次工具调用里没有一项对应，且未被权限挡住；回答仍自述完成",
 			MODEL,
 			unmet["evidence"],
 		)
 	elif unmet["state"] == "blocked_by_permission":
 		_step("tool_permission", "被要求的动作由执行层挡下", ENGINE, unmet["evidence"])
+	elif unmet["state"] == "permission_outcome_unrecorded":
+		_step(
+			"tool_permission",
+			"权限行未落审批结果：这一枪到底放没放行没有记录，动作没做的归属判不了",
+			UNDETERMINED,
+			unmet["evidence"],
+		)
 	if obligation.get("text") and not after_the_fact:
 		_step(
 			"instruction_context",
@@ -479,14 +674,9 @@ def attribute_fault(run: RunEvidence, findings: list[Finding]) -> dict[str, Any]
 			"wsc_fold",
 			"用户声明的约束在源历史里存在，但不在最后发射的投影里",
 			ENGINE,
-			[
-				EvidenceRef(
-					source="working",
-					locator=_s(obligation.get("locator")),
-					ref_id="last_x_sent",
-					detail="发射投影未命中该约束",
-				)
-			],
+			# 指针指约束自己的那条记录（transcript / pin）与发射级证据，
+			# 不把 transcript 路径标成 working：每个来源都得说清自己是谁。
+			_obligation_step_evidence(obligation, shown),
 		)
 	if outcome_refs:
 		# 验收只说明"任务没完成"，不指责任何一方：归责要靠送达证据或自述矛盾。
@@ -575,10 +765,34 @@ def attribute_fault(run: RunEvidence, findings: list[Finding]) -> dict[str, Any]
 			why = "没有任何一级记录能证明约束送到了模型，或矛盾不可机器判定。"
 
 	missing: list[str] = []
+	# 审批结果没落账这件事本身要可见——即使本轮没有可核对的动作要求，
+	# 「这一枪放没放行」未知也是取证缺口，不是没有问题。
+	silent_permissions = [
+		p for p in turn_scoped(run.permissions, run.turn_id) if permission_outcome_unrecorded(p)
+	]
 	if shown["state"] == "no_obligation":
-		missing.append("没有声明的预期：用「标记这轮结果不对」写下预期结果，才能判模型侧")
+		if _s(obligation.get("in_turn_scan")) == "outside_scan":
+			missing.append(
+				f"本轮的用户原话在 transcript 扫描窗（最近 {_OBLIGATION_SCAN_ROWS} 行）之外：没有约束正文可比对，"
+				"不能据此说这轮没提要求"
+			)
+		else:
+			missing.append("没有声明的预期：用「标记这轮结果不对」写下预期结果，才能判模型侧")
+	if obligation.get("text") and not obligation.get("ts_bound"):
+		missing.append("本轮没有带时间戳的记录：无法界定这条用户原话属不属于本轮")
+	if unmet["state"] == "permission_outcome_unrecorded" or silent_permissions:
+		missing.append(
+			f"{len(silent_permissions)} 条权限结束行未记录 approved / outcome / permission_action："
+			"这一枪放行还是拦下没有记录，不能据此判动作没做"
+		)
 	if shown["state"] == "unprovable":
-		missing.append("未开启可复现记录且无上一枪投影：开 capture 后重跑才能得到最终请求体正文")
+		if not _emitted_projection_in_turn(run):
+			missing.append(
+				"working 只留整会话最后一份发射投影，且它不属于本轮：要判本轮送没送到，"
+				"需要开 capture 按轮留住适配器最终请求体"
+			)
+		else:
+			missing.append("未开启可复现记录且无上一枪投影：开 capture 后重跑才能得到最终请求体正文")
 	if outcome == OUTCOME_NOT_ACCEPTED and shown["state"] == "shown":
 		missing.append("没有验收记录：补一条 verifier（或让模型跑被要求的测试）才能判完没完成")
 	if constraint_lost and shown["state"] == "not_shown":
@@ -612,6 +826,7 @@ def attribute_fault(run: RunEvidence, findings: list[Finding]) -> dict[str, Any]
 		"engine_confirmed": len(engine),
 		"environment_confirmed": len(environment),
 		"transport_gap": bool(transport),
+		"no_turn_records": False,
 		"chain": [s.to_dict() for s in steps],
 		"missing_evidence": missing,
 		"not_claimed": [

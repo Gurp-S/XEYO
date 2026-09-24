@@ -15,6 +15,7 @@ import type {
 	DiagPermission,
 	DiagRunDetail,
 	DiagUsageRow,
+	DiagWindow,
 } from '@/lib/api/diagnostics';
 
 export type TimelineTone =
@@ -45,6 +46,8 @@ export type TimelineRow = {
 	boundary: string;
 	lineNo: number | null;
 	evidence: DiagEvidenceRef[];
+	/** 审计行里没中文名 / 值为嵌套结构的原文字段：只在展开后出现，不进状态行。 */
+	rawFields: RawAuditField[];
 };
 
 // ---------------------------------------------------------------------------
@@ -186,7 +189,7 @@ export function coverageStateLabel(state: string): string {
 export const FACT_STATE_LABEL: Record<string, string> = {
 	found: '找到',
 	absent: '未命中',
-	folded_out: '被折叠移出',
+	folded_out: '被折叠移出投影（未送达）',
 	not_recorded: '该级未记账',
 	not_captured: '该级未采集',
 	unreadable: '不可读',
@@ -194,6 +197,105 @@ export const FACT_STATE_LABEL: Record<string, string> = {
 
 export function factStateLabel(state: string): string {
 	return FACT_STATE_LABEL[state] ?? (state || DASH);
+}
+
+/** 固定证据的种类：后端存的是 snake_case id，界面只出中文（未知种类原样带出，不静默丢）。 */
+export const PIN_KIND_LABEL: Record<string, string> = {
+	run_mark: '结果标记',
+	verifier: '验收记录',
+};
+
+export function pinKindLabel(kind: string): string {
+	if (!kind) return '标记';
+	return PIN_KIND_LABEL[kind] ?? kind;
+}
+
+// ---------------------------------------------------------------------------
+// 审计行字段 → 中文（界面不得出现 `session_id=…` 这类原文标签）
+// ---------------------------------------------------------------------------
+
+/** 值得直接展示的审计字段：其余进折叠的「审计行原文」块。 */
+export const AUDIT_FIELD_LABEL: Record<string, string> = {
+	model_request_id: '模型请求',
+	attempt: '尝试',
+	tool_use_id: '工具调用',
+	tool_name: '工具',
+	approval_id: '审批请求',
+	request_id: '审批请求',
+	projection_id: '投影',
+	action_id: '动作',
+	message_id: '消息',
+	job_id: '后台任务',
+	matched_rule: '命中规则',
+	reason: '原因',
+	status: '状态',
+	is_error: '返回错误',
+	error_kind: '错误类别',
+	duration_ms: '耗时毫秒',
+	exit_code: '退出码',
+	agent_id: '子代理',
+	agent_mode: '代理模式',
+	command_summary: '命令摘要',
+};
+
+/** 结构身份已经单独呈现、不必重复出现在状态行里的键。 */
+const AUDIT_FIELD_HIDDEN = new Set([
+	'ts',
+	'kind',
+	'session_id',
+	'turn_id',
+	'trace_id',
+	'line_no',
+	'seq',
+	'event_id',
+	'correlation_id',
+]);
+
+export type RawAuditField = {key: string; value: string};
+
+/** 只有标量能进状态行：对象/数组经 `String()` 会变成 `[object Object]`，
+ *  经既有 `str()` 会变成空串，于是渲染出 `provider=` 这种吊尾标签。 */
+function scalarText(v: unknown): string | null {
+	if (typeof v === 'string') return v.trim() ? v : null;
+	if (typeof v === 'number') return Number.isFinite(v) ? String(v) : null;
+	if (typeof v === 'boolean') return v ? '是' : '否';
+	return null;
+}
+
+function rawTextOf(v: unknown): string {
+	if (v === null || v === undefined) return DASH;
+	if (typeof v === 'object') {
+		try {
+			return JSON.stringify(v) ?? DASH;
+		} catch {
+			return '[不可序列化]';
+		}
+	}
+	return String(v);
+}
+
+/**
+ * 审计行拆成「中文可展示字段」与「原文字段」两组：前者进状态行（有中文名才展示，
+ * 且值必须是标量），后者进折叠块，保证既不丢信息也不把英文键名当标签。
+ */
+export function describeAuditRow(row: Record<string, unknown>): {
+	shown: string[];
+	raw: RawAuditField[];
+} {
+	const shown: string[] = [];
+	const raw: RawAuditField[] = [];
+	for (const [k, v] of Object.entries(row ?? {})) {
+		if (AUDIT_FIELD_HIDDEN.has(k)) continue;
+		const scalar = scalarText(v);
+		const label = AUDIT_FIELD_LABEL[k];
+		if (label && scalar) {
+			if (shown.length < 4) shown.push(`${label} ${scalar}`);
+			else raw.push({key: k, value: scalar});
+			continue;
+		}
+		raw.push({key: k, value: rawTextOf(v)});
+	}
+	return {shown, raw};
 }
 
 // ---------------------------------------------------------------------------
@@ -237,6 +339,29 @@ function modelAttemptLabel(a: DiagAttempt): string {
 	if (a.kind === 'model.finished') return '模型响应结束';
 	if (a.kind === 'model.started') return '模型请求发出';
 	return a.kind || DASH;
+}
+
+/** 授权结果的中文措辞：后端写的是 allow/deny/timeout 一类的机器值。 */
+export const PERMISSION_OUTCOME_LABEL: Record<string, string> = {
+	allow: '已允许',
+	allowed: '已允许',
+	approved: '已允许',
+	deny: '已拒绝',
+	denied: '已拒绝',
+	reject: '已拒绝',
+	rejected: '已拒绝',
+	remind: '本次提醒（未放行）',
+	timeout: '超时未答',
+	cancel: '已取消',
+	cancelled: '已取消',
+};
+
+/** 没有任何结果字段时的固定措辞——绝不猜成通过或拒绝。 */
+export const NO_OUTCOME_TEXT = '结果未记录';
+
+export function permissionOutcomeLabel(outcome: string): string {
+	const k = (outcome || '').trim().toLowerCase();
+	return PERMISSION_OUTCOME_LABEL[k] ?? (k || NO_OUTCOME_TEXT);
 }
 
 function attemptFailed(a: DiagAttempt): boolean {
@@ -339,6 +464,7 @@ export function buildTimeline(detail: DiagRunDetail): TimelineRow[] {
 				boundary: 'model_request',
 				lineNo: last.line_no ?? first.line_no,
 				evidence: mr.evidence,
+				rawFields: [],
 			});
 		}
 	}
@@ -381,19 +507,26 @@ export function buildTimeline(detail: DiagRunDetail): TimelineRow[] {
 			boundary: 'tool_permission',
 			lineNo: num(tc.finished?.line_no) ?? num(tc.started?.line_no),
 			evidence: tc.evidence,
+			rawFields: [],
 		});
 	}
 
-	// 3) 权限审批：等待与结果分别成行（等待 ≠ 卡死 ≠ 失败）。
+	// 3) 权限审批：等待与结果分别成行（等待 ≠ 卡死 ≠ 失败；没记账 ≠ 通过）。
 	for (const [key, st] of permissionState(detail.permissions)) {
 		const pendingOnly = st.pending.length > 0 && st.resolved.length === 0;
 		const last = st.resolved[st.resolved.length - 1];
-		const outcome = last
-			? str(last.outcome) || (last.approved === false ? 'denied' : last.approved ? 'allowed' : '')
-			: '';
-		const blocked = outcome === 'denied' || outcome === 'timeout';
+		// 真实 DENY 审计行由 tools/tool_registry.py 直接落 `permission.denied`，
+		// 既没有 outcome 也没有 approved：只看这两个字段会把被挡下的动作读成绿色通过。
+		const deniedByKind = st.resolved.some(p => p.kind.startsWith('permission.denied'));
+		const rawOutcome = str(last?.outcome) ||
+			(last?.approved === false ? 'denied' : last?.approved === true ? 'allowed' : '');
+		const outcome = rawOutcome || (deniedByKind ? 'denied' : '');
+		const allowed = !deniedByKind && outcome === 'allowed';
+		const blocked = deniedByKind || outcome === 'denied' || outcome === 'timeout';
+		const recorded = outcome !== '' || deniedByKind;
 		const toolName =
 			str(st.pending[0]?.tool_name) || str(last?.tool_name) || DASH;
+		const rawFields = st.resolved.flatMap(p => describeAuditRow(p as unknown as Record<string, unknown>).raw);
 		rows.push({
 			key: `permission:${key}:${st.pending[0]?.line_no ?? last?.line_no ?? 0}`,
 			ts: num(last?.ts) ?? num(st.pending[0]?.ts),
@@ -405,18 +538,24 @@ export function buildTimeline(detail: DiagRunDetail): TimelineRow[] {
 				? '等待用户授权'
 				: blocked
 					? '权限层挡住该工具'
-					: '授权已通过',
+					: allowed
+						? '授权已通过'
+						: '授权结果未记录',
 			subject: key,
 			statusText: [
 				`工具 ${toolName}`,
 				str(last?.matched_rule) || str(st.pending[0]?.matched_rule)
 					? `规则 ${str(last?.matched_rule) || str(st.pending[0]?.matched_rule)}`
 					: '',
-				outcome ? `结果 ${outcome}` : pendingOnly ? '未结束：仍在等待，不代表卡死' : '',
+				outcome
+					? `结果 ${permissionOutcomeLabel(outcome)}`
+					: pendingOnly
+						? '未结束：仍在等待，不代表卡死'
+						: NO_OUTCOME_TEXT,
 			]
 				.filter(Boolean)
 				.join(' · '),
-			tone: pendingOnly ? 'waiting' : blocked ? 'warn' : 'ok',
+			tone: pendingOnly ? 'waiting' : blocked ? 'warn' : recorded ? 'ok' : 'neutral',
 			attemptText: '',
 			durationMs:
 				st.pending[0]?.ts != null && last?.ts != null
@@ -430,6 +569,7 @@ export function buildTimeline(detail: DiagRunDetail): TimelineRow[] {
 				...st.pending.map(p => ({source: 'audit', locator: '', ref_id: p.line_no ? `L${p.line_no}` : '', detail: p.kind})),
 				...st.resolved.map(p => ({source: 'audit', locator: '', ref_id: p.line_no ? `L${p.line_no}` : '', detail: p.kind})),
 			],
+			rawFields,
 		});
 	}
 
@@ -467,6 +607,7 @@ export function buildTimeline(detail: DiagRunDetail): TimelineRow[] {
 			boundary: 'background_job',
 			lineNo: null,
 			evidence: [],
+			rawFields: [],
 		});
 	}
 
@@ -483,18 +624,16 @@ export function buildTimeline(detail: DiagRunDetail): TimelineRow[] {
 		) {
 			continue;
 		}
+		const described = describeAuditRow(e.row);
 		rows.push({
 			key: `event:${e.seq}:${e.line_no}`,
 			ts: e.ts,
 			source: 'event',
 			kind: e.kind,
-			title: KIND_LABEL[e.kind] ?? e.kind,
+			// 没有中文动作词的审计类型不照抄机器名，原文在展开区的「事件类型」里仍可见。
+			title: KIND_LABEL[e.kind] ?? '审计记录（未收录类型）',
 			subject: e.turn_id || e.session_id,
-			statusText: Object.entries(e.row)
-				.filter(([k]) => !['ts', 'kind', 'session_id', 'turn_id', 'trace_id'].includes(k))
-				.slice(0, 4)
-				.map(([k, v]) => `${k}=${str(v)}`)
-				.join(' · '),
+			statusText: described.shown.join(' · '),
 			tone: 'neutral',
 			attemptText: '',
 			durationMs: null,
@@ -503,6 +642,7 @@ export function buildTimeline(detail: DiagRunDetail): TimelineRow[] {
 			boundary: '',
 			lineNo: e.line_no,
 			evidence: [e.evidence],
+			rawFields: described.raw,
 		});
 	}
 
@@ -610,6 +750,9 @@ export const PARTY_TONE: Record<string, 'fail' | 'warn' | 'neutral' | 'unknown'>
 export const SHOWN_LABEL: Record<string, string> = {
 	shown: '已送达模型',
 	not_shown: '未送达',
+	// 后端 fault_split.py 在这条路上发的是 folded_out：丢了哪一级已定位到折叠，
+	// 缺这一条时徽章会照抄机器名（约束：folded_out）。
+	folded_out: '被折叠移出投影（未送达）',
 	unprovable: '无法证明是否送达',
 	no_obligation: '没有声明的约束',
 };
@@ -619,6 +762,35 @@ export const COST_BASIS_LABEL = '按 usage 估算（非账单实付）';
 /** 采集开关的产品措辞：只写文件，不改变模型可见内容。 */
 export const CAPTURE_NOTE =
 	'开启后只把适配器最终请求体落盘到本机，不改变模型可见的消息、工具执行结果或本轮任何输出。';
+
+/** 列表为空的单一措辞：与「尾窗截断」徽章不能同时出现，两句必须同口径。 */
+export const NO_RUNS_IN_TAIL_TEXT =
+	'该会话在审计尾窗内没有轮次记录。这不代表没有运行过轮次——尾窗之外的轮次不在本页范围内。';
+
+/**
+ * 计数措辞：账本窗口根本没出现在本次响应里时，0 条是"没看"，不是"没有"。
+ * 窗口读了但不完整时必须继续带截断标记，不得伪装成确切计数。
+ */
+export function ledgerCountText(
+	window: DiagWindow | undefined,
+	count: number,
+	unit: string,
+	windowLabel: string,
+): string {
+	if (!window) return `未取回（本次响应没有${windowLabel}窗口）`;
+	const base = `${count} ${unit}`;
+	return window.complete ? base : `${base}（窗口未读全，实际不少于此数）`;
+}
+
+/** 深链没落进审计尾窗时的措辞：说清"没有顶替"，不假装这是用户点的那一击的结论。 */
+export function linkMismatchText(kind: 'tool' | 'turn', value: string): string {
+	return kind === 'tool'
+		? `工具调用 ${value || DASH} 不在当前审计尾窗里：本页没有自动改选其他轮次，下方结论不对应这一次点击。`
+		: `轮次 ${value || DASH} 不在当前审计尾窗里：本页没有自动改选其他轮次。`;
+}
+
+/** 刷新失败但底下仍有数据时的措辞：错误不遮数据。 */
+export const STALE_REFRESH_SUFFIX = '以下为上一次成功取回的内容，可能已不是最新状态。';
 
 /** 证据引用 → 可复制文本（source + ref_id + locator）。 */
 export function evidenceText(e: DiagEvidenceRef): string {
@@ -674,4 +846,33 @@ export function boundaryLabelOf(
 	const fromRun = detail.boundaries.find(b => b.name === name)?.label;
 	if (fromRun) return fromRun;
 	return BOUNDARY_ORDER.find(b => b.name === name)?.label ?? name;
+}
+
+// ---------------------------------------------------------------------------
+// 静默刷新与手工翻页的合并
+// ---------------------------------------------------------------------------
+
+/**
+ * 20 秒静默轮询拿回来的永远是第 0 页；用户手工「继续加载」翻出来的后续页不能被
+ * 它换掉（否则读到 600 条时时间线会突然退回 200 条，游标也倒回去）。
+ * 首页与后续页按审计行号合并，行号是审计文件内的唯一键。
+ */
+export function mergeDetailPreservingLoadedPages(
+	cur: DiagRunDetail,
+	fresh: DiagRunDetail,
+): DiagRunDetail {
+	// 本轮响应已经覆盖全部事件时，它就是权威全集，不需要保留旧页。
+	if (fresh.events_complete || fresh.event_total <= fresh.events.length) return fresh;
+	// 只有"本地比这一页长"才需要合并，其余情况直接用新页。
+	if (cur.events.length <= fresh.events.length) return fresh;
+	const seen = new Set<number>();
+	for (const e of fresh.events) seen.add(e.line_no);
+	const extras = cur.events.filter(e => !seen.has(e.line_no));
+	if (!extras.length) return fresh;
+	return {
+		...fresh,
+		events: [...fresh.events, ...extras].sort((a, b) => a.line_no - b.line_no),
+		event_offset: Math.max(cur.event_offset, fresh.event_offset),
+		event_limit: fresh.event_limit || cur.event_limit,
+	};
 }

@@ -37,7 +37,12 @@ def _pin_id(session_id: str, turn_id: str, kind: str, ts: float) -> str:
 
 def _write(doc: dict[str, Any]) -> dict[str, Any]:
 	store.ensure_dirs()
-	path = _dir(_s(doc.get("session_id"))) / f"{_s(doc.get('pin_id'))}.json"
+	path = store.artifact_path(
+		_dir(_s(doc.get("session_id"))),
+		_s(doc.get("pin_id")),
+		suffix=".json",
+		label="pin_id",
+	)
 	store.write_json(path, doc)
 	record = dict(doc)
 	record["locator"] = str(path)
@@ -118,7 +123,9 @@ def pins_for_run(session_id: str, turn_id: str = "") -> list[dict[str, Any]]:
 
 
 def delete_pin(pin_id: str, session_id: str) -> bool:
-	path = _dir(session_id) / f"{_s(pin_id)}.json"
+	path = store.artifact_path(
+		_dir(session_id), _s(pin_id), suffix=".json", label="pin_id"
+	)
 	if not path.is_file():
 		return False
 	try:

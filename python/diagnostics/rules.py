@@ -49,6 +49,135 @@ def _sig(text: str) -> str:
 	return hashlib.sha256(text.encode("utf-8", "replace")).hexdigest()[:16]
 
 
+# ---------- 权限结果的唯一读法（rules 与 fault_split 共用）----------
+#
+# 真实审计里权限行有三类写法（写入方：engine/permission_coordinator.py、
+# permissions/store.py、tools/tool_registry.py）：
+#
+# * ``permission.resolved``：带 ``approved``（bool）与 ``outcome``
+#   （``user_decided`` / ``timeout`` / ``aborted``）。
+# * 只读门与策略 DENY 写的 ``permission.denied``：既没有 ``approved`` 也没有
+#   ``outcome``，只有 ``permission_action``（``allow`` / ``deny`` / ``ask``，取自
+#   ``PermissionDecision`` 的值）、``permission_rule_id``、``permission_reason_code``。
+# * 旧记录：两个结果字段都没有。
+#
+# 把「没有 approved」读成「没被挡住」会让真实 DENY 行被判成放行；把它读成
+# 「被挡住」又会把「没记录结果」判成故障。所以两侧共用下面这一个函数。
+
+_DENY_ACTIONS = {"deny", "denied"}
+_BLOCKED_OUTCOMES = {"denied", "timeout", "aborted"}
+
+OUTCOME_DENIED = "denied"
+OUTCOME_ALLOWED = "allowed"
+OUTCOME_UNRECORDED = "unrecorded"
+
+
+def permission_outcome(row: dict[str, Any]) -> str:
+	"""一条权限审计行的读数：``denied`` / ``allowed`` / ``timeout`` / ``aborted`` / ``unrecorded``。"""
+	kind = _s(row.get("kind"))
+	if kind.startswith("permission.denied"):
+		return OUTCOME_DENIED
+	if _s(row.get("permission_action")).strip().lower() in _DENY_ACTIONS:
+		return OUTCOME_DENIED
+	outcome = _s(row.get("outcome")).strip().lower()
+	if outcome in _BLOCKED_OUTCOMES:
+		return outcome
+	approved = row.get("approved")
+	if approved is True:
+		return OUTCOME_ALLOWED
+	if approved is False:
+		return OUTCOME_DENIED
+	return OUTCOME_UNRECORDED
+
+
+def permission_blocked(row: dict[str, Any]) -> bool:
+	"""执行层把动作挡住了吗（拒绝 / 超时 / 中止都算）。"""
+	return permission_outcome(row) in _BLOCKED_OUTCOMES
+
+
+def permission_outcome_unrecorded(row: dict[str, Any]) -> bool:
+	"""只在「这应当是一条结果行、却没记下任何结果」时为真。
+
+	``permission.pending`` 与 ``permission.grant.*`` 本来就不带审批结果，
+	把它们算成未记录会造出满屏假缺口。
+	"""
+	kind = _s(row.get("kind"))
+	if kind.startswith(("permission.pending", "permission.grant.")):
+		return False
+	return permission_outcome(row) == OUTCOME_UNRECORDED
+
+
+# ---------- 轮次界定：会话级记录不得算到本轮头上 ----------
+
+
+def row_belongs_to_run(row: dict[str, Any]) -> bool:
+	"""transcript 行的轮次归属。
+
+	transcript 行本身不带轮次身份，采集器按本运行的 tool_use_id 锚定：锚不上的
+	显式标 ``in_run=False``（那是同会话别的轮次的记录），没标的采集器没判定过。
+	只有 ``in_run=False`` 是确定的反证，必须排除；其余按原样交给规则。
+	"""
+	return row.get("in_run") is not False
+
+
+def collection_attempted(run: RunEvidence) -> bool:
+	"""windows 非空说明采集真的跑过并看过这个会话；手工构造的视图不适用「本轮无记录」。"""
+	return bool(run.windows)
+
+
+def turn_has_records(run: RunEvidence) -> bool:
+	"""本轮有没有属于自己的一条记录（只看带轮次身份的东西）。"""
+	if not run.turn_id:
+		return True
+	if run.events_for_turn():
+		return True
+	tid = run.turn_id
+	for mr in run.model_requests:
+		if _s(mr.turn_id) == tid:
+			return True
+	for tc in run.tool_calls:
+		if _s(tc.turn_id) == tid:
+			return True
+	for bucket in (run.permissions, run.pins, run.captures, run.fold_rows, run.jobs, run.usage_rows):
+		for row in bucket:
+			if _s(row.get("turn_id")) == tid:
+				return True
+	for row in run.transcript_rows:
+		if row.get("in_run") is True:
+			return True
+	return False
+
+
+def no_turn_records(run: RunEvidence) -> bool:
+	"""「采集确实跑过，但这个轮子没有任何属于自己的记录」。"""
+	return bool(run.turn_id) and collection_attempted(run) and not turn_has_records(run)
+
+
+def source_locator(run: RunEvidence, source: str) -> str:
+	"""按来源名取窗口定位符；取不到就返回空串，绝不拿别的来源凑数。"""
+	window = run.window(source)
+	return _s(window.locator) if window else ""
+
+
+def turn_scoped(rows: list[Any], turn_id: str, *, key: str = "turn_id") -> list[Any]:
+	"""排除带 *别的* 轮次身份的记录；不带轮次身份的行保留。
+
+	审计按会话采集，跨轮落账的 permission 行与不带 turn_id 的旧行会混进合并结果。
+	把它们算给本轮就是误归因；没有身份信息时无从排除，只能保留并由规则的
+	coverage_gap 说清这一步判不了。
+	"""
+	tid = _s(turn_id)
+	if not tid:
+		return list(rows)
+	out: list[Any] = []
+	for row in rows:
+		value = _s(row.get(key)) if isinstance(row, dict) else _s(getattr(row, key, ""))
+		if value and value != tid:
+			continue
+		out.append(row)
+	return out
+
+
 # ---------- R1 工具调用 / 结果不成对 ----------
 
 
@@ -86,7 +215,7 @@ def check_tool_pair_integrity(run: RunEvidence) -> list[Finding]:
 
 	# 审计侧：有 started 无 finished 的工具调用。
 	scoped = run.events_for_turn()
-	started_only = [t for t in run.tool_calls if t.started and not t.finished]
+	started_only = [t for t in turn_scoped(run.tool_calls, run.turn_id) if t.started and not t.finished]
 	if started_only and not _run_has_later_activity(scoped):
 		# 没有更晚的活动可参照，无法区分"还在跑"和"没了结束记录"。
 		findings.append(
@@ -121,13 +250,32 @@ def _run_has_later_activity(events: list[Any]) -> bool:
 
 # ---------- R2 指令 / 配置漂移 ----------
 
+# 快照 id 是 (session_id, cwd, mode, revision, runtime_profile_id) 的哈希（见
+# permissions/trace.py）：授权的增删会让它合法变化，所以「一个轮里出现多个值」
+# 本身不是不变量破坏。只有窗口里找不到这些增删行时，才需要说"判不了"。
+_SNAPSHOT_EXPLAINING_KINDS = ("permission.grant.added", "permission.grant.revoked")
+
+
+def _snapshot_explainers(run: RunEvidence) -> list[dict[str, Any]]:
+	"""本轮采集窗口里的授权增删行：它们在场，快照 id 变化就有账可查。"""
+	seen: set[str] = set()
+	out: list[dict[str, Any]] = []
+	candidates: list[dict[str, Any]] = [row for row in run.permissions if _s(row.get("kind")).startswith(_SNAPSHOT_EXPLAINING_KINDS)]
+	candidates += [e.row for e in run.events if _s(e.kind).startswith(_SNAPSHOT_EXPLAINING_KINDS)]
+	for row in candidates:
+		key = f"{_s(row.get('kind'))}|{_s(row.get('line_no'))}|{_s(row.get('grant_id'))}"
+		if key in seen:
+			continue
+		seen.add(key)
+		out.append(row)
+	return out
+
 
 def check_instruction_drift(run: RunEvidence) -> list[Finding]:
 	findings: list[Finding] = []
+	scoped = [e for e in run.events_for_turn() if e.kind.startswith(("model.", "tool."))]
 	hashes: dict[str, list[str]] = {}
-	for event in run.events_for_turn():
-		if not event.kind.startswith(("model.", "tool.")):
-			continue
+	for event in scoped:
 		for field in ("tool_schema_hash", "tool_surface_id", "permission_snapshot_id", "runtime_profile_id"):
 			value = _kv(event, field)
 			if value:
@@ -136,6 +284,21 @@ def check_instruction_drift(run: RunEvidence) -> list[Finding]:
 		uniq = sorted(set(values))
 		if len(uniq) <= 1:
 			continue
+		is_snapshot = field == "permission_snapshot_id"
+		if is_snapshot and _snapshot_explainers(run):
+			# 窗口里有授权增删行：变化有账可查，不作为故障上报。
+			continue
+		status = UNKNOWN if is_snapshot else SUSPECTED_CAUSE
+		if is_snapshot:
+			gap = (
+				"授权增删行（permission.grant.added / permission.grant.revoked）不带 session_id / turn_id，"
+				"不会进入按会话过滤的审计窗口，因此本轮无法判断快照变化是否有账可查；"
+				"快照 id 也由 cwd 与 mode 参与计算，这两项不在审计行里。"
+			)
+			allowed = "只能说这一轮里快照标识不止一个且窗口内没有解释它的记录；不能据此判定权限层出了故障。"
+		else:
+			gap = "轮内可见；跨轮的指令正文变化不在本规则范围，由 A0 静态差异负责。"
+			allowed = "可确认哪一段标识变了；不能据此判定变好或变坏。"
 		findings.append(
 			Finding(
 				rule_id="instruction_drift",
@@ -143,15 +306,15 @@ def check_instruction_drift(run: RunEvidence) -> list[Finding]:
 				phenomenon=f"同一轮内 {field} 出现 {len(uniq)} 个不同取值",
 				boundary="instruction_context",
 				component=f"上下文组装（{field}）",
-				status=CONFIRMED_FAULT if field == "permission_snapshot_id" else SUSPECTED_CAUSE,
+				status=status,
 				evidence=[
 					_event_ref(run, e, f"{field}={_kv(e, field)}")
-					for e in run.events_for_turn()
+					for e in scoped
 					if _kv(e, field)
 				][:20],
 				impact=f"变化值：{', '.join(v[:12] for v in uniq)}（只报事实，不评价哪一版更好）。",
-				coverage_gap="轮内可见；跨轮的指令正文变化不在本规则范围，由 A0 静态差异负责。",
-				allowed_conclusion="可确认哪一段标识变了；不能据此判定变好或变坏。",
+				coverage_gap=gap,
+				allowed_conclusion=allowed,
 			)
 		)
 	return findings
@@ -162,11 +325,14 @@ def check_instruction_drift(run: RunEvidence) -> list[Finding]:
 
 def check_cold_references(run: RunEvidence) -> list[Finding]:
 	findings: list[Finding] = []
-	broken = [
+	broken_all = [
 		row
 		for row in run.transcript_rows
 		if row.get("body_state") in {"missing_blob", "resolve_failed", "absent"} and row.get("content_ref")
 	]
+	# 只把本轮的记录算成本轮的证据：transcript 按会话采集，锚不到本运行的行属于别的轮次。
+	broken = [row for row in broken_all if row_belongs_to_run(row)]
+	foreign = [row for row in broken_all if not row_belongs_to_run(row)]
 	refs = [
 		EvidenceRef(
 			source="transcript",
@@ -197,6 +363,29 @@ def check_cold_references(run: RunEvidence) -> list[Finding]:
 				impact="进冷层的内容声称可回读但实际读不到；原文已不可恢复。",
 				coverage_gap="只能验证句柄存在与可解引用，无法验证模型是否真的尝试回读。",
 				allowed_conclusion="可确认恢复性故障；定位到生成该句柄的步骤。",
+			)
+		)
+	elif foreign:
+		findings.append(
+			Finding(
+				rule_id="cold_reference",
+				rule_version=RULESET_VERSION,
+				phenomenon=f"本会话窗口里有 {len(foreign)} 处不可回读的冷层引用，但都不带本轮身份",
+				boundary="wsc_fold",
+				component="可恢复性（transcript blob / 输出预算 spill）",
+				status=UNKNOWN,
+				evidence=[
+					EvidenceRef(
+						source="transcript",
+						locator=_s(row.get("locator")),
+						ref_id=_s(row.get("id")) or f"L{_s(row.get('line_no'))}",
+						detail=f"body_state={_s(row.get('body_state'))} 不属于本运行的工具调用",
+					)
+					for row in foreign[:10]
+				],
+				impact="这些引用属于同会话的别处：既不能记到本轮，也不能据此说本轮干净。",
+				coverage_gap="transcript 行不带轮次身份，采集器只按本运行的 tool_use_id 锚定；锚不上的行无法归轮。",
+				allowed_conclusion="只能说本轮没有可归属的冷引用，不能说本轮的恢复性没问题。",
 			)
 		)
 	for manifest in run.projections:
@@ -262,36 +451,84 @@ def check_frozen_head(run: RunEvidence) -> list[Finding]:
 					)
 				)
 		prev = entry
-	# 折叠账本里没有合法折叠事件却出现 projection_id 变化 ⇒ 头意外变化
-	if run.fold_rows:
-		return findings
-	proj_ids = []
+	# 折叠账本里没有合法折叠事件却出现 projection_id 变化 ⇒ 头意外变化。
+	#
+	# 前提必须能证明才行：fold_events 按会话写入、不带轮次身份（见
+	# usage/ledger.py::record_fold_event），所以「本轮没拿到折叠行」既可能是
+	# 真没折叠、也可能是折叠没落账 / 账本窗口没覆盖 —— 两者在账面上同形。
+	proj_ids: list[str] = []
 	for event in run.events_for_turn():
 		if event.kind.startswith("model.") and event.projection_id:
 			if not proj_ids or proj_ids[-1] != event.projection_id:
 				proj_ids.append(event.projection_id)
-	if len(proj_ids) > 1:
+	if len(proj_ids) <= 1:
+		return findings
+	fold_window = run.window("fold_events")
+	ledger_covered = bool(fold_window and fold_window.complete and run.fold_rows)
+	fold_locator = source_locator(run, "fold_events")
+	if run.fold_rows:
+		fold_refs = [
+			EvidenceRef(
+				source="usage",
+				locator=_s(fold.get("locator")) or fold_locator,
+				ref_id=f"L{_s(fold.get('line_no'))}",
+				detail=f"fold={_s(fold.get('fold'))} reason={_s(fold.get('reason'))}",
+			)
+			for fold in run.fold_rows[:5]
+		]
+	elif fold_window is not None:
+		fold_refs = [
+			EvidenceRef(
+				source="usage",
+				locator=fold_locator,
+				ref_id="",
+				detail="fold_events 对本会话没有记录行" if not fold_window.rows_matched else "fold_events 窗口已截断",
+			)
+		]
+	else:
+		# 拿不到折叠账本窗口就不给定位符：绝不借别的来源的路径来填。
+		fold_refs = [EvidenceRef(source="usage", locator="", ref_id="", detail="无 fold_events 采集窗口：折叠账本位置未记录")]
+	if ledger_covered:
 		findings.append(
 			Finding(
 				rule_id="frozen_head",
 				rule_version=RULESET_VERSION,
-				phenomenon=f"本运行无折叠账本，却出现 {len(proj_ids)} 个不同投影",
+				phenomenon=f"折叠账本完整且有 {len(run.fold_rows)} 条记录，本轮却出现 {len(proj_ids)} 个不同投影而无对应折叠事件",
 				boundary="wsc_fold",
 				component="前缀冻结不变量",
 				status=SUSPECTED_CAUSE,
-				evidence=[
-					EvidenceRef(
-						source="usage",
-						locator=_s((run.windows[0].locator if run.windows else "")),
-						ref_id="fold_events",
-						detail="fold 账本为空",
-					)
-				],
+				evidence=fold_refs,
 				impact=f"投影序列：{', '.join(p[:10] for p in proj_ids[:6])}",
-				coverage_gap="fold_events 按会话写入、不带轮次身份，跨轮混在一起时会误判。",
-				allowed_conclusion="可疑：需核对是否存在未落账的折叠。",
+				coverage_gap="fold_events 按会话写入、不带轮次身份，与本轮投影的先后关系只能按时间近似。",
+				allowed_conclusion="可疑：账本在场且完整，却没有解释这些投影变化的折叠事件。",
 			)
 		)
+		return findings
+	if fold_window is None:
+		gap_detail = "没有 fold_events 采集窗口：折叠账本位置未记录"
+	elif not fold_window.present:
+		gap_detail = "折叠账本文件不存在"
+	elif fold_window.complete:
+		gap_detail = "本会话在折叠账本里没有一行记录"
+	else:
+		gap_detail = f"折叠账本窗口没读完（{fold_window.note or '尾窗截断'}）"
+	findings.append(
+		Finding(
+			rule_id="frozen_head",
+			rule_version=RULESET_VERSION,
+			phenomenon=f"本轮出现 {len(proj_ids)} 个不同投影，折叠账本无法核对（{gap_detail}）",
+			boundary="wsc_fold",
+			component="前缀冻结不变量",
+			status=UNKNOWN,
+			evidence=fold_refs,
+			impact=f"投影序列：{', '.join(p[:10] for p in proj_ids[:6])}",
+			coverage_gap=(
+				"折叠账本按会话写入、行内不带轮次身份，所以空的折叠集合证明不了「没发生过折叠」，"
+				"也证明不了「发生过」：这一级没有可核对的记录。"
+			),
+			allowed_conclusion="只能说折叠账本不足以判断这些投影变化是否合法，不能判前缀冻结失败，也不能判它正常。",
+		)
+	)
 	return findings
 
 
@@ -300,7 +537,7 @@ def check_frozen_head(run: RunEvidence) -> list[Finding]:
 
 def check_provider_stream(run: RunEvidence) -> list[Finding]:
 	findings: list[Finding] = []
-	for mr in run.model_requests:
+	for mr in turn_scoped(run.model_requests, run.turn_id):
 		for att in mr.attempts:
 			status = _s(att.get("status"))
 			kind = _s(att.get("kind"))
@@ -342,7 +579,7 @@ def check_provider_stream(run: RunEvidence) -> list[Finding]:
 def check_permission_block(run: RunEvidence) -> list[Finding]:
 	findings: list[Finding] = []
 	by_approval: dict[str, list[dict[str, Any]]] = {}
-	for row in run.permissions:
+	for row in turn_scoped(run.permissions, run.turn_id):
 		by_approval.setdefault(_s(row.get("request_id")), []).append(row)
 	scoped_kinds = {e.kind for e in run.events_for_turn()}
 	for approval_id, rows in by_approval.items():
@@ -370,8 +607,8 @@ def check_permission_block(run: RunEvidence) -> list[Finding]:
 			)
 			continue
 		last = resolved[-1]
-		outcome = _s(last.get("outcome")) or ("denied" if not last.get("approved") else "allowed")
-		if outcome in {"timeout", "denied"} or last.get("approved") is False:
+		outcome = permission_outcome(last)
+		if outcome in _BLOCKED_OUTCOMES:
 			findings.append(
 				Finding(
 					rule_id="permission_block",
@@ -389,7 +626,33 @@ def check_permission_block(run: RunEvidence) -> list[Finding]:
 					allowed_conclusion="可确认执行被哪条实际权限结果阻断；不得把预期拒绝计成产品故障。",
 				)
 			)
-	if run.permissions and not any(_s(r.get("tool_use_id")) for r in run.permissions):
+		elif outcome == OUTCOME_UNRECORDED:
+			findings.append(
+				Finding(
+					rule_id="permission_block",
+					rule_version=RULESET_VERSION,
+					phenomenon=f"权限请求 {approval_id} 的结束行既无 approved 也无 outcome / permission_action：审批结果未记录",
+					boundary="tool_permission",
+					component="权限协调器（结果落账）",
+					status=UNKNOWN,
+					evidence=[
+						EvidenceRef(source="audit", locator=_loc(run), ref_id=f"L{_s(r.get('line_no'))}", detail=str(r.get("kind")))
+						for r in rows
+					],
+					impact="这一行说不上放行还是拦下：把「没记结果」读成「已通过」或「已拒绝」都会造出假结论。",
+					coverage_gap="permission.resolved 的三个结果字段（approved / outcome / permission_action）任缺其一就无法核对；旧审计不补写。",
+					allowed_conclusion="只能报审批结果未记录，不能报这一枪通过或失败。",
+				)
+			)
+	own_permissions = turn_scoped(run.permissions, run.turn_id)
+	if own_permissions and not any(
+		_s(r.get("tool_use_id"))
+		or _s(r.get("model_request_id"))
+		# 只读门与策略 DENY 写的 permission.denied 不落 tool_use_id，但 request_id 就是
+		# tool_use id（见 identity.normalize_event 与 tools/tool_registry.py 的 DENY 分支）。
+		or (_s(r.get("kind")).startswith("permission.denied") and _s(r.get("request_id")))
+		for r in own_permissions
+	):
 		findings.append(
 			Finding(
 				rule_id="permission_block",
@@ -400,7 +663,7 @@ def check_permission_block(run: RunEvidence) -> list[Finding]:
 				status=UNKNOWN,
 				evidence=[
 					EvidenceRef(source="audit", locator=_loc(run), ref_id=f"L{_s(r.get('line_no'))}", detail="缺关联字段")
-					for r in run.permissions[:10]
+					for r in own_permissions[:10]
 				],
 				impact="审批只能按时间顺序与工具调用近似对应。",
 				coverage_gap="旧记录无法补出关联字段；补口只对新事件生效。",
@@ -416,7 +679,7 @@ def check_permission_block(run: RunEvidence) -> list[Finding]:
 
 def check_tool_failure(run: RunEvidence) -> list[Finding]:
 	findings: list[Finding] = []
-	failed = [t for t in run.tool_calls if t.finished and t.is_error]
+	failed = [t for t in turn_scoped(run.tool_calls, run.turn_id) if t.finished and t.is_error]
 	if not failed:
 		return findings
 	grouped: dict[tuple[str, str], list[Any]] = {}
@@ -502,7 +765,7 @@ def check_wire_gap(run: RunEvidence) -> list[Finding]:
 
 def check_incomplete_run(run: RunEvidence) -> list[Finding]:
 	findings: list[Finding] = []
-	for mr in run.model_requests:
+	for mr in turn_scoped(run.model_requests, run.turn_id):
 		starts = [a for a in mr.attempts if _s(a.get("kind")) == "model.started"]
 		finishes = [a for a in mr.attempts if _s(a.get("kind")) == "model.finished"]
 		if len(starts) > len(finishes):
@@ -616,7 +879,7 @@ def check_usage_accounting(run: RunEvidence) -> list[Finding]:
 	missing: list[EvidenceRef] = []
 	duplicated: list[EvidenceRef] = []
 	bad_source: list[EvidenceRef] = []
-	for mr in run.model_requests:
+	for mr in turn_scoped(run.model_requests, run.turn_id):
 		for att in mr.attempts:
 			if _s(att.get("kind")) != "model.finished":
 				continue
@@ -734,8 +997,14 @@ def check_verifier(run: RunEvidence) -> list[Finding]:
 				boundary="file_verifier",
 				component="结果验收",
 				status=UNKNOWN,
+				# 没有 pin 就没有 pin 可指：留空定位符，绝不拿 working.json 的路径冒充。
 				evidence=[
-					EvidenceRef(source="pin", locator=_s(run.working.get("locator")), ref_id="", detail="无 verifier 固定记录")
+					EvidenceRef(
+						source="pin",
+						locator="",
+						ref_id="",
+						detail="absent：本会话的固定记录里没有 kind=verifier 的条目",
+					)
 				],
 				impact="无法判定任务是否成功：模型说「通过」不等于已通过。",
 				coverage_gap="没有固定 verifier 时，本规则只能报「未执行/未记录」，不能推断结果。",
@@ -790,8 +1059,47 @@ RULES: tuple[Rule, ...] = tuple(
 )
 
 
+def no_turn_records_finding(run: RunEvidence) -> Finding:
+	"""「本轮无记录」：采集跑过，但这个轮子没有任何带自己身份的记录。
+
+	它必须是 unknown 加写明缺什么，不能是一个干净通过：会话级的 transcript /
+	working / usage 记录并不属于本轮，拿它们给本轮下结论就是误归因。
+	"""
+	window = run.window("audit")
+	if window is not None:
+		evidence = [
+			EvidenceRef(
+				source="audit",
+				locator=_s(window.locator),
+				ref_id="",
+				detail=f"扫描 {window.rows_scanned} 行、匹配 {window.rows_matched} 行，无 turn_id={run.turn_id} 的事件",
+			)
+		]
+	else:
+		evidence = [
+			EvidenceRef(source="config", locator="diagnostics/rules.py", ref_id="no_turn_records", detail="无审计采集窗口")
+		]
+	return Finding(
+		rule_id="no_turn_records",
+		rule_version=RULESET_VERSION,
+		phenomenon=f"本轮无记录：采集窗口里没有一条带 turn_id={run.turn_id} 的记录",
+		boundary="user_request",
+		component="证据采集（轮次身份）",
+		status=UNKNOWN,
+		evidence=evidence,
+		impact="会话级记录（transcript / working / usage）不属于本轮：本轮没有任何可核对的自身记录，规则集本轮未运行。",
+		coverage_gap=(
+			"无记录不等于没发生：审计与账本都按尾窗采集，窗口可能没覆盖这一轮；"
+			"不带 turn_id 的旧审计行也不参与轮次归因。扩大窗口或补轮次身份前，本轮既不能判正常也不能判异常。"
+		),
+		allowed_conclusion="只能报本轮无记录；同会话别处的记录不得算给本轮。",
+	)
+
+
 def evaluate_run(run: RunEvidence) -> list[Finding]:
 	"""跑完整规则集。单条规则异常不吞掉：它自己变成一条 unknown 结论。"""
+	if no_turn_records(run):
+		return [no_turn_records_finding(run)]
 	findings: list[Finding] = []
 	for rule in RULES:
 		try:
@@ -823,6 +1131,9 @@ def earliest_anomaly(findings: list[Finding]) -> Finding | None:
 
 
 __all__ = [
+	"OUTCOME_ALLOWED",
+	"OUTCOME_DENIED",
+	"OUTCOME_UNRECORDED",
 	"RULESET_VERSION",
 	"RULES",
 	"check_cold_references",
@@ -837,6 +1148,16 @@ __all__ = [
 	"check_usage_accounting",
 	"check_verifier",
 	"check_wire_gap",
+	"collection_attempted",
 	"earliest_anomaly",
 	"evaluate_run",
+	"no_turn_records",
+	"no_turn_records_finding",
+	"permission_blocked",
+	"permission_outcome",
+	"permission_outcome_unrecorded",
+	"row_belongs_to_run",
+	"source_locator",
+	"turn_has_records",
+	"turn_scoped",
 ]

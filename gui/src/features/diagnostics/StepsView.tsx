@@ -80,6 +80,19 @@ function Row({row}: {row: TimelineRow}) {
 								{k: '耗时', v: row.durationMs == null ? '无耗时记录' : fmtDuration(row.durationMs)},
 							]}
 						/>
+						{row.rawFields.length ? (
+							<>
+								<p className="xy-dig-sub">审计行原文字段（无对应中文标签，值原样保留）</p>
+								<ul className="xy-dig-raw">
+									{row.rawFields.map((f, i) => (
+										<li key={`${f.key}-${i}`}>
+											<span className="xy-dig-raw-key">{f.key}</span>
+											<span>{f.value}</span>
+										</li>
+									))}
+								</ul>
+							</>
+						) : null}
 						<EvidenceList items={row.evidence} />
 					</div>
 				) : null}

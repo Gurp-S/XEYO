@@ -74,7 +74,10 @@ def test_env_channel_input_never_mutated_and_tool_name_not_in_input():
 		{"role": "assistant", "content": "ok"},
 	]
 	frozen = copy.deepcopy(projected)
-	out = run_pre_llm_inject(projected, InjectContext(cwd="", multi_agent=True))
+	out = run_pre_llm_inject(
+		projected,
+		InjectContext(cwd="", multi_agent=True, strategy=STRATEGY_ENV_CHANNEL),
+	)
 	assert projected == frozen
 	assert out is not projected
 	assert ENV_TOOL_NAME not in str(projected)

@@ -37,10 +37,22 @@ def _label(name: str) -> str:
 	return _BOUNDARY_LABEL.get(name, name)
 
 
+def _row_cost(row: dict[str, Any]) -> float | None:
+	"""用量行的价格；缺字段/非数值一律 ``None``，不按 0 计入。"""
+	raw = row.get("cost_cny")
+	if raw is None or isinstance(raw, bool):
+		return None
+	try:
+		return float(raw)
+	except (TypeError, ValueError):
+		return None
+
+
 def usage_summary(run: RunEvidence) -> dict[str, Any]:
 	"""按请求与重试汇总用量；缺账的尝试计入 unknown，不计入 0。"""
 	attempts = 0
 	priced: list[str] = []
+	unpriced: list[str] = []
 	unknown: list[str] = []
 	total = 0.0
 	sources: set[str] = set()
@@ -54,27 +66,51 @@ def usage_summary(run: RunEvidence) -> dict[str, Any]:
 			if not rows:
 				unknown.append(key)
 				continue
+			costs = [cost for cost in (_row_cost(row) for row in rows) if cost is not None]
 			for row in rows:
-				total += float(row.get("cost_cny") or 0.0)
 				source = _s(row.get("cost_source"))
 				if source:
 					sources.add(source)
+			if not costs:
+				# 有用量行却没有可依据的价：这条尝试的费用未知，合计也不含它。
+				unpriced.append(key)
+				continue
+			total += sum(costs)
 			priced.append(key)
+	usage_window = run.window("usage")
+	window_complete = bool(usage_window) and usage_window.complete
+	window_present = bool(usage_window) and getattr(usage_window, "present", True)
 	unlinked = [row for row in run.usage_rows if not _s(row.get("attempt_key"))]
+	notes: list[str] = []
+	if unknown:
+		notes.append(
+			f"{len(unknown)} 次已结束的尝试没有用量账：费用未知，未按 0 计入。"
+		)
+	if unpriced:
+		notes.append(
+			f"{len(unpriced)} 次尝试有用量行但行内没有可用价格：费用未知，未计入合计。"
+		)
+	if not window_present:
+		notes.append("本机没有可用的用量账本文件：费用未知，未按 0 计入。")
+	elif not window_complete:
+		notes.append("用量账本按尾窗读取，更早的账本行未纳入本次统计。")
+	if not notes:
+		notes.append("已结束尝试均有用量账。")
 	return {
 		"finished_attempts": attempts,
 		"priced_attempts": len(priced),
 		"unknown_cost_attempts": len(unknown),
 		"unknown_cost_keys": unknown[:20],
+		"unpriced_attempts": len(unpriced),
+		"unpriced_keys": unpriced[:20],
 		"estimated_total_cny": round(total, 8),
+		"total_is_partial": bool(unknown or unpriced) or not window_complete,
+		"usage_window_complete": window_complete,
+		"usage_window_present": window_present,
 		"cost_basis": "按 usage 估算" if sources else "无可依据的用量",
 		"cost_sources": sorted(sources),
 		"unlinked_usage_rows": len(unlinked),
-		"statement": (
-			f"{len(unknown)} 次已结束的尝试没有用量账：费用未知，未按 0 计入。"
-			if unknown
-			else "已结束尝试均有用量账。"
-		),
+		"statement": "".join(notes),
 	}
 
 
@@ -160,7 +196,22 @@ def save_report(doc: dict[str, Any]) -> str:
 
 
 def load_report(ident: str) -> dict[str, Any] | None:
-	return store.read_json(store.reports_dir() / f"{_s(ident)}.json")
+	return store.read_json(
+		store.artifact_path(
+			store.reports_dir(), _s(ident), suffix=".json", label="report_id"
+		)
+	)
+
+
+def _window_status(window: dict[str, Any]) -> str:
+	"""四种覆盖结局要分开说：读全了 / 根本没有这个来源 / 尾窗截断 / 读了但丢了行。"""
+	if window.get("complete"):
+		return "完整"
+	if not window.get("present", True):
+		return "来源缺失"
+	if window.get("truncated"):
+		return "尾窗截断"
+	return "有行未纳入"
 
 
 def _short(refs: list[dict[str, Any]], cap: int = 3) -> str:
@@ -248,7 +299,7 @@ def to_markdown(doc: dict[str, Any]) -> str:
 		lines.append(
 			"| {} | {} | {} | `{}` | {} |".format(
 				_s(window.get("source")),
-				"完整" if window.get("complete") else "截断/未采集",
+				_window_status(window),
 				window.get("rows_matched", 0),
 				_s(window.get("locator")),
 				_s(window.get("note")),
@@ -262,11 +313,24 @@ def to_markdown(doc: dict[str, Any]) -> str:
 		lines.append(f"- {_s(gap.get('boundary'))}：{_s(gap.get('reason'))} — {_s(gap.get('detail'))}")
 	usage = doc.get("usage_summary") or {}
 	lines += ["", "## 用量", ""]
-	lines.append(f"- 已结束尝试：{usage.get('finished_attempts', 0)}（有用量账 {usage.get('priced_attempts', 0)}）")
-	lines.append(f"- 费用未知尝试：{usage.get('unknown_cost_attempts', 0)}")
 	lines.append(
-		f"- 估算合计：{usage.get('estimated_total_cny', 0)}（{_s(usage.get('cost_basis'))}，非账单实付）"
+		f"- 已结束尝试：{usage.get('finished_attempts', 0)}"
+		f"（有价 {usage.get('priced_attempts', 0)}"
+		f" · 无账 {usage.get('unknown_cost_attempts', 0)}"
+		f" · 有账无价 {usage.get('unpriced_attempts', 0)}）"
 	)
+	priced = int(usage.get("priced_attempts", 0) or 0)
+	if priced:
+		partial = "，不含费用未知的尝试" if usage.get("total_is_partial") else ""
+		lines.append(
+			f"- 估算合计：{usage.get('estimated_total_cny', 0)}（已依据 {priced} 次尝试{partial}）"
+		)
+	else:
+		lines.append(
+			f"- 估算合计：费用未知（{usage.get('finished_attempts', 0)} 次尝试无一可依据，"
+			"未按 0 计入）"
+		)
+	lines.append(f"- 计价口径：{_s(usage.get('cost_basis'))}，非账单实付")
 	lines.append(f"- 说明：{_s(usage.get('statement'))}")
 	return "\n".join(lines) + "\n"
 

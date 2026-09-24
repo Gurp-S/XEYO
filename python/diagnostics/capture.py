@@ -180,7 +180,15 @@ def _scrub(value: Any) -> tuple[Any, bool]:
 
 
 def _capture_locator(body_hash: str) -> Path:
-	return store.captures_dir() / body_hash[:2] / f"{body_hash}.json.gz"
+	return store.body_hash_path(store.captures_dir(), body_hash)
+
+
+def _optional_locator(body_hash: str) -> Path | None:
+	"""索引里的 body_hash 可能是 ``unserializable_…`` 标记（正文从未落盘）。"""
+	try:
+		return store.body_hash_path(store.captures_dir(), body_hash)
+	except store.InvalidIdentifier:
+		return None
 
 
 def index_path() -> Path:
@@ -368,12 +376,13 @@ def captures_for_run(session_id: str, turn_id: str = "") -> list[dict[str, Any]]
 			continue
 		resp = responses.get(f"{_s(row.get('model_request_id'))}|{row.get('attempt')}") or {}
 		hashed = _s(row.get("body_hash"))
-		target = _capture_locator(hashed)
+		target = _optional_locator(hashed)
+		present = bool(target) and target.is_file()
 		out.append(
 			dict(row)
 			| {
-				"locator": str(target) if target.is_file() else "",
-				"blob_present": target.is_file(),
+				"locator": str(target) if present else "",
+				"blob_present": present,
 				"provider_request_id": _s(resp.get("provider_request_id")),
 				"http_status": resp.get("http_status"),
 			}
@@ -388,7 +397,13 @@ def resolve_capture(body_hash: str) -> dict[str, Any]:
 	hashed = _s(body_hash)
 	if not hashed:
 		return {"state": NOT_CAPTURED, "error": "缺 body_hash"}
-	target = _capture_locator(hashed)
+	target = _optional_locator(hashed)
+	if target is None:
+		return {
+			"state": NOT_CAPTURED,
+			"body_hash": hashed,
+			"error": "body_hash 非法：需要 64 位十六进制 sha256",
+		}
 	if not target.is_file():
 		expired = any(r.get("body_hash") == hashed for r in _index_rows())
 		return {

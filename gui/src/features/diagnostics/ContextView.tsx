@@ -4,10 +4,10 @@
  * 措辞纪律：absent 只说明"该来源没有记录"，绝不说明"没有发生"；
  * 定位链任一级未记账时，后端判无法归因，前端必须把 caveat 摆在显眼处。
  */
-import {useEffect, useState} from 'react';
+import {useEffect, useRef, useState} from 'react';
 import {Loader2} from 'lucide-react';
 import {traceDiagFact, type DiagFactTrace, type DiagRunDetail} from '@/lib/api/diagnostics';
-import {DASH, coverageStateLabel, factStateLabel, fmtBytes} from './model';
+import {DASH, coverageStateLabel, factStateLabel, fmtBytes, ledgerCountText} from './model';
 import {Badge, EvidenceList, KeyValue, Notice, Section} from './ui';
 import {cn} from '@/lib/utils';
 
@@ -63,8 +63,21 @@ export function ContextView({
 	const [trace, setTrace] = useState<DiagFactTrace | null>(null);
 	const [busy, setBusy] = useState(false);
 	const [err, setErr] = useState('');
+	// 定位一次要重扫全尾窗（最长 60s）：连点两下不能让先发的慢响应盖掉后发的，
+	// 也不能在组件已卸载后再写 state。
+	const traceReqRef = useRef(0);
+	const mountedRef = useRef(true);
+	useEffect(() => {
+		mountedRef.current = true;
+		return () => {
+			mountedRef.current = false;
+			traceReqRef.current += 1;
+		};
+	}, []);
 
 	useEffect(() => {
+		traceReqRef.current += 1;
+		setBusy(false);
 		setTrace(null);
 		setErr('');
 	}, [turnId, sessionId]);
@@ -75,21 +88,32 @@ export function ContextView({
 			setErr('请输入要定位的事实（原文片段或 ID）。');
 			return;
 		}
+		const id = traceReqRef.current + 1;
+		traceReqRef.current = id;
 		setBusy(true);
 		setErr('');
 		try {
 			const t = await traceDiagFact(sessionId, turnId, q);
+			if (!mountedRef.current || traceReqRef.current !== id) return;
+			// 载荷自证身份：后端回的是哪一轮就对哪一轮，不符就不呈现。
+			if (t.turn_id && turnId && t.turn_id !== turnId) return;
+			setErr('');
 			setTrace(t);
 		} catch (e) {
+			if (!mountedRef.current || traceReqRef.current !== id) return;
 			setErr(e instanceof Error ? e.message : String(e));
 			setTrace(null);
 		} finally {
-			setBusy(false);
+			if (mountedRef.current && traceReqRef.current === id) setBusy(false);
 		}
 	};
 
 	const coverage = Object.entries(detail.coverage);
+	// 每个账本都要先确认"这一路窗口本次到底取回没有"，没取回就不能报 0 条。
 	const captureWindow = detail.windows.find(w => w.source === 'captures');
+	const foldWindow = detail.windows.find(w => w.source === 'fold_events');
+	const projectionWindow = detail.windows.find(w => w.source === 'working');
+	const dropWindow = detail.windows.find(w => w.source === 'wire_drops');
 
 	return (
 		<div className="xy-dig-col">
@@ -170,15 +194,25 @@ export function ContextView({
 									? `已采集（${captureWindow.rows_matched} 条，${fmtBytes(captureWindow.bytes_read || null)}）`
 									: `未采集：${captureWindow.note || '该会话未开启可复现记录'}`
 								: detail.captures.length
-									? `已采集 ${detail.captures.length} 条`
-									: DASH,
+									? `已采集 ${detail.captures.length} 条（无 captures 窗口，不声称条数完整）`
+									: '未取回（本次响应没有 captures 窗口）',
 						},
-						{k: '折叠记录', v: `${detail.folds.length} 条`},
-						{k: '投影 manifest', v: `${detail.projections.length} 份`},
+						{
+							k: '折叠记录',
+							v: ledgerCountText(foldWindow, detail.folds.length, '条', '折叠'),
+						},
+						{
+							k: '投影 manifest',
+							v: ledgerCountText(projectionWindow, detail.projections.length, '份', '投影'),
+						},
 						{k: '诊断目录', v: storeRoot, mono: true},
 						{
 							k: '丢行账本命中',
-							v: detail.wire_drops.length ? `${detail.wire_drops.length} 条交集` : '无交集记录',
+							v: dropWindow
+								? detail.wire_drops.length
+									? `${detail.wire_drops.length} 条交集${dropWindow.complete ? '' : '（窗口未读全，实际不少于此数）'}`
+									: '无交集记录'
+								: '未取回（本次响应没有丢行账本窗口）',
 						},
 					]}
 				/>

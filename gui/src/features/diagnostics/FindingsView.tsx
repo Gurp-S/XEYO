@@ -198,11 +198,14 @@ export function FindingsView({detail}: {detail: DiagRunDetail}) {
 						</p>
 					))}
 					{!attributed ? <Badge tone="unknown">{NOT_ATTRIBUTED_TEXT}</Badge> : null}
-					<div className="xy-dig-attr-counts tabular-nums">
-						<span>已确认 {detail.attribution?.confirmed_count ?? 0}</span>
-						<span>疑似 {detail.attribution?.suspected_count ?? 0}</span>
-						<span>未定 {detail.attribution?.unknown_count ?? 0}</span>
-					</div>
+					{/* 归因块没取回时三档计数一个都没有：0 会被读成"都已确认不是 0"。 */}
+					{detail.attribution ? (
+						<div className="xy-dig-attr-counts tabular-nums">
+							<span>已确认 {detail.attribution.confirmed_count}</span>
+							<span>疑似 {detail.attribution.suspected_count}</span>
+							<span>未定 {detail.attribution.unknown_count}</span>
+						</div>
+					) : null}
 				</div>
 				{!confirmed ? <Notice tone="info">{NO_CONFIRMED_FAULT_TEXT}</Notice> : null}
 			</Section>

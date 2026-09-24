@@ -5,25 +5,20 @@
  * （问题 / 步骤 / 上下文 / 用量）+ 实验。工具条上另有 导出 Markdown、标记这轮结果不对、
  * 采集开关。
  *
+ * 分层：取数与异步纪律全在 useDiagnosticsData.ts（请求身份 / 中止 / 轮询 / 合并），
+ * 措辞与纯函数在 model.ts，本文件只做接线与呈现。
+ *
  * 数据纪律：
  * - 只读为主，写入只有 pin / capture 两类；页面不触发任何付费实验。
  * - 后端未给的字段一律显示破折号或「未取回」，不补默认值。
- * - 轮询沿用用量页口径：载入后 20s 静默刷新 + focus / visibilitychange 补一次。
+ * - 错误不挡数据：刷新失败在正文上方给出中文错误 + 重试，底下的数据照常呈现。
  */
-import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {useCallback, useEffect, useMemo, useState} from 'react';
 import {useSearchParams} from 'react-router-dom';
-import {Download, Loader2, Pin, Stethoscope} from 'lucide-react';
+import {Download, Loader2, Pin, RotateCw, Stethoscope} from 'lucide-react';
 import {PageShell} from '@/components/PageShell';
 import {
-	fetchDiagCapture,
 	fetchDiagReportMarkdown,
-	fetchDiagRun,
-	fetchDiagRunEvents,
-	fetchDiagRuns,
-	pinDiagRun,
-	setDiagCapture,
-	type DiagCaptureState,
-	type DiagRunDetail,
 	type DiagRunsResult,
 } from '@/lib/api/diagnostics';
 import {useChatStore} from '@/stores/chatStore';
@@ -33,15 +28,22 @@ import {cn} from '@/lib/utils';
 import {
 	CAPTURE_NOTE,
 	DASH,
+	NO_RUNS_IN_TAIL_TEXT,
+	STALE_REFRESH_SUFFIX,
 	boundaryCoverageOfRun,
+	fmtBytes,
 	fmtClock,
 	fmtInt,
+	linkMismatchText,
+	pinKindLabel,
 } from './model';
 import {ContextView} from './ContextView';
 import {ExperimentsView} from './ExperimentsView';
 import {FindingsView} from './FindingsView';
+import {PinForm} from './PinForm';
 import {StepsView} from './StepsView';
 import {UsageView} from './UsageView';
+import {useDiagnosticsData} from './useDiagnosticsData';
 import {Badge, Notice, Section} from './ui';
 
 const TABS = [
@@ -54,7 +56,11 @@ const TABS = [
 
 type TabKey = (typeof TABS)[number]['key'];
 
-const REFRESH_MS = 20_000;
+const DEFAULT_TAB: TabKey = 'problems';
+
+function tabFromParam(raw: string | null): TabKey {
+	return TABS.find(t => t.key === raw)?.key ?? DEFAULT_TAB;
+}
 
 /** GUI 会话 → 后端 session_id（复用 chat store 的同一解析口径）。 */
 function useBackendSessions(): Array<{id: string; label: string}> {
@@ -83,12 +89,7 @@ function RunPicker({
 }) {
 	if (!runs) return null;
 	if (runs.runs.length === 0) {
-		return (
-			<p className="xy-dig-empty">
-				该会话在当前审计尾窗里没有可列出的轮次。无记录不等于没有发生过轮次 ——
-				尾窗之外的更早轮次不在列表范围内。
-			</p>
-		);
+		return <p className="xy-dig-empty">{NO_RUNS_IN_TAIL_TEXT}</p>;
 	}
 	return (
 		<ul className="xy-dig-runs">
@@ -133,109 +134,32 @@ function RunPicker({
 	);
 }
 
-function PinForm({
-	sessionId,
-	turnId,
-	detail,
-	onDone,
+/** 中文错误 + 重试；离线态与后端 4xx/5xx 都走这一条路径，不出现浏览器原文。 */
+function ErrorBox({
+	message,
+	hint,
+	onRetry,
+	retrying,
 }: {
-	sessionId: string;
-	turnId: string;
-	detail: DiagRunDetail | null;
-	onDone: () => void;
+	message: string;
+	hint?: string;
+	onRetry: () => void;
+	retrying: boolean;
 }) {
-	const [note, setNote] = useState('');
-	const [expected, setExpected] = useState('');
-	const [pinEvidence, setPinEvidence] = useState(true);
-	const [busy, setBusy] = useState(false);
-	const [err, setErr] = useState('');
-
-	const evidence = useMemo(() => {
-		if (!detail || !pinEvidence) return [];
-		const seen = new Set<string>();
-		const out: DiagRunDetail['findings'][number]['evidence'] = [];
-		for (const f of detail.findings) {
-			for (const e of f.evidence) {
-				const k = `${e.source}|${e.locator}|${e.ref_id}|${e.detail}`;
-				if (seen.has(k)) continue;
-				seen.add(k);
-				out.push(e);
-			}
-		}
-		for (const bd of detail.boundaries) {
-			for (const e of bd.evidence) {
-				const k = `${e.source}|${e.locator}|${e.ref_id}|${e.detail}`;
-				if (seen.has(k)) continue;
-				seen.add(k);
-				if (out.length < 60) out.push(e);
-			}
-		}
-		return out.slice(0, 60);
-	}, [detail, pinEvidence]);
-
 	return (
-		<div className="xy-dig-pin">
-			<label className="xy-dig-field">
-				<span>这轮哪里不对（必填）</span>
-				<textarea
-					className="xy-dig-textarea"
-					value={note}
-					maxLength={4000}
-					placeholder="只写观察到的事实与结果，不写推测"
-					onChange={e => setNote(e.target.value)}
-				/>
-			</label>
-			<label className="xy-dig-field">
-				<span>预期结果</span>
-				<textarea
-					className="xy-dig-textarea"
-					value={expected}
-					maxLength={4000}
-					placeholder="你期望这一轮产出什么"
-					onChange={e => setExpected(e.target.value)}
-				/>
-			</label>
-			<label className="xy-dig-check">
-				<input
-					type="checkbox"
-					checked={pinEvidence}
-					onChange={e => setPinEvidence(e.target.checked)}
-				/>
-				<span>固定证据（含本轮结论与边界证据 {evidence.length ? `${evidence.length} 条` : ''}）</span>
-			</label>
-			<div className="xy-dig-actions">
-				<button
-					type="button"
-					className="xy-dig-btn is-primary"
-					disabled={busy || !note.trim()}
-					onClick={() => {
-						setBusy(true);
-						setErr('');
-						pinDiagRun(sessionId, turnId, {
-							note: note.trim(),
-							expected: expected.trim(),
-							evidence,
-						})
-							.then(r => {
-								if (!r.ok) {
-									setErr(r.error || '固定失败');
-									return;
-								}
-								toast.success('已标记这轮结果并固定证据');
-								setNote('');
-								setExpected('');
-								onDone();
-							})
-							.catch(e => setErr(e instanceof Error ? e.message : String(e)))
-							.finally(() => setBusy(false));
-					}}
-				>
-					{busy ? <Loader2 className="size-3 animate-spin" aria-hidden /> : null}
-					标记并固定
+		<div className="xy-dig-error">
+			<span className="block">{message}</span>
+			{hint ? <span className="mt-1 block opacity-80">{hint}</span> : null}
+			<div className="xy-dig-actions mt-2">
+				<button type="button" className="xy-dig-btn" onClick={onRetry} disabled={retrying}>
+					{retrying ? (
+						<Loader2 className="size-3 animate-spin" aria-hidden />
+					) : (
+						<RotateCw className="size-3" aria-hidden />
+					)}
+					重试
 				</button>
 			</div>
-			{err ? <Notice tone="fail">{err}</Notice> : null}
-			<Notice tone="info">标记只写入诊断目录的固定证据，不触发付费实验，也不修改任务内容。</Notice>
 		</div>
 	);
 }
@@ -249,103 +173,46 @@ export function DiagnosticsPanel({active}: {active: boolean}) {
 		: null;
 
 	const [params, setParams] = useSearchParams();
-	// 深链只在首次挂载读一次（/diagnostics?session=<id>&turn=<id>）。
-	const deepLinkRef = useRef({
-		session: params.get('session') ?? '',
-		turn: params.get('turn') ?? '',
-		tool: params.get('tool') ?? '',
-	});
-	const [sessionId, setSessionId] = useState(
-		() => deepLinkRef.current.session || activeBackendId || '',
+	// 深链只在首次挂载读一次（/diagnostics?session=<id>&turn=<id>&tool=<id>）。
+	const deepLink = useMemo(
+		() => ({
+			session: params.get('session') ?? '',
+			turn: params.get('turn') ?? '',
+			tool: params.get('tool') ?? '',
+			tab: params.get('tab') ?? '',
+		}),
+		// 只在挂载时取一次：后续 URL 由本组件写回，不能让回退/前进反过来改写选择。
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+		[],
 	);
-	const [turnId, setTurnId] = useState(() => deepLinkRef.current.turn);
-	const [tab, setTab] = useState<TabKey>('problems');
-	const [runs, setRuns] = useState<DiagRunsResult | null>(null);
-	const [runsLoading, setRunsLoading] = useState(false);
-	const [runsError, setRunsError] = useState('');
-	const [detail, setDetail] = useState<DiagRunDetail | null>(null);
-	const [detailLoading, setDetailLoading] = useState(false);
-	const [detailError, setDetailError] = useState('');
-	const [moreLoading, setMoreLoading] = useState(false);
-	const [capture, setCapture] = useState<DiagCaptureState | null>(null);
-	const [captureBusy, setCaptureBusy] = useState(false);
+	const [sessionId, setSessionId] = useState(
+		() => deepLink.session || activeBackendId || '',
+	);
+	const [tab, setTab] = useState<TabKey>(() => tabFromParam(deepLink.tab));
 	const [pinOpen, setPinOpen] = useState(false);
 	const [exportBusy, setExportBusy] = useState(false);
+	// 看过的标签保留挂载（隐藏而非销毁）：换标签不该丢掉跑了 60s 的事实定位结果，
+	// 也不该把填了一半的实验配置清空。没看过的标签不挂载，避免白白发一次实验列表请求。
+	const [seenTabs, setSeenTabs] = useState<ReadonlySet<TabKey>>(() => new Set<TabKey>([tab]));
+	useEffect(() => {
+		setSeenTabs(prev => (prev.has(tab) ? prev : new Set<TabKey>([...prev, tab])));
+	}, [tab]);
+
+	const data = useDiagnosticsData({active, sessionId, deepLink});
+	const {turnId} = data;
 
 	// 选择 → URL（保持可分享 / 可回退的深链；replace 不堆历史）。
+	// tab 与未消费的 tool 也进 URL：刷新 / 后退不再回到空白的「问题」页。
 	useEffect(() => {
 		if (!active) return;
 		const next = new URLSearchParams();
 		if (sessionId) next.set('session', sessionId);
 		if (turnId) next.set('turn', turnId);
+		if (tab !== DEFAULT_TAB) next.set('tab', tab);
+		if (data.linkTool) next.set('tool', data.linkTool);
 		const qs = next.toString();
 		if (params.toString() !== qs) setParams(next, {replace: true});
-	}, [active, sessionId, turnId, params, setParams]);
-
-	const loadRuns = useCallback(
-		(silent: boolean) => {
-			if (!sessionId) {
-				setRuns(null);
-				return;
-			}
-			if (!silent) {
-				setRunsLoading(true);
-				setRunsError('');
-			}
-			fetchDiagRuns(sessionId, {limit: 80})
-				.then(data => {
-					setRuns(data);
-					const tool = deepLinkRef.current.tool;
-					const byTool = tool
-						? data.runs.find(r => r.tool_use_ids.includes(tool))?.turn_id
-						: undefined;
-					setTurnId(cur =>
-						cur && data.runs.some(r => r.turn_id === cur)
-							? cur
-							: (byTool ??
-									(deepLinkRef.current.turn &&
-										data.runs.some(r => r.turn_id === deepLinkRef.current.turn)
-										? deepLinkRef.current.turn
-										: (data.runs[0]?.turn_id ?? ''))),
-					);
-				})
-				.catch(err => {
-					if (!silent) {
-						setRunsError(err instanceof Error ? err.message : String(err));
-						setRuns(null);
-					}
-				})
-				.finally(() => {
-					if (!silent) setRunsLoading(false);
-				});
-		},
-		[sessionId],
-	);
-
-	const loadDetail = useCallback(
-		(silent: boolean) => {
-			if (!sessionId || !turnId) {
-				setDetail(null);
-				return;
-			}
-			if (!silent) {
-				setDetailLoading(true);
-				setDetailError('');
-			}
-			fetchDiagRun(sessionId, turnId)
-				.then(data => setDetail(data))
-				.catch(err => {
-					if (!silent) {
-						setDetailError(err instanceof Error ? err.message : String(err));
-						setDetail(null);
-					}
-				})
-				.finally(() => {
-					if (!silent) setDetailLoading(false);
-				});
-		},
-		[sessionId, turnId],
-	);
+	}, [active, sessionId, turnId, tab, data.linkTool, params, setParams]);
 
 	// 会话列表默认选中当前会话（深链优先）。
 	useEffect(() => {
@@ -353,99 +220,26 @@ export function DiagnosticsPanel({active}: {active: boolean}) {
 		setSessionId(activeBackendId);
 	}, [activeBackendId, sessionId]);
 
+	// 换会话与换轮次都不该留着标记表单：它固定的是"当前这一轮"的证据。
 	useEffect(() => {
-		if (!active) return;
-		let cancelled = false;
-		loadRuns(false);
-		const timer = window.setInterval(() => {
-			if (!cancelled && document.visibilityState === 'visible') loadRuns(true);
-		}, REFRESH_MS);
-		const onVis = () => {
-			if (document.visibilityState === 'visible') loadRuns(true);
-		};
-		window.addEventListener('focus', onVis);
-		document.addEventListener('visibilitychange', onVis);
-		return () => {
-			cancelled = true;
-			window.clearInterval(timer);
-			window.removeEventListener('focus', onVis);
-			document.removeEventListener('visibilitychange', onVis);
-		};
-		// loadRuns 随 sessionId 变化；active 只在页面视图打开时启用轮询。
-	}, [active, loadRuns]);
+		setPinOpen(false);
+	}, [sessionId, turnId]);
 
-	useEffect(() => {
-		if (!active) return;
-		let cancelled = false;
-		loadDetail(false);
-		const timer = window.setInterval(() => {
-			if (!cancelled && document.visibilityState === 'visible') loadDetail(true);
-		}, REFRESH_MS);
-		const onVis = () => {
-			if (document.visibilityState === 'visible') loadDetail(true);
-		};
-		window.addEventListener('focus', onVis);
-		document.addEventListener('visibilitychange', onVis);
-		return () => {
-			cancelled = true;
-			window.clearInterval(timer);
-			window.removeEventListener('focus', onVis);
-			document.removeEventListener('visibilitychange', onVis);
-		};
-	}, [active, loadDetail]);
+	const pickTurn = useCallback(
+		(next: string) => {
+			data.selectTurn(next);
+			data.clearLink();
+		},
+		[data],
+	);
 
-	useEffect(() => {
-		if (!active || !sessionId) {
-			setCapture(null);
-			return;
-		}
-		let cancelled = false;
-		fetchDiagCapture(sessionId)
-			.then(c => {
-				if (!cancelled) setCapture(c);
-			})
-			.catch(() => {
-				if (!cancelled) setCapture(null);
-			});
-		return () => {
-			cancelled = true;
-		};
-	}, [active, sessionId]);
-
-	const loadMoreEvents = useCallback(() => {
-		if (!sessionId || !turnId || !detail) return;
-		setMoreLoading(true);
-		const offset = detail.event_offset + detail.event_limit;
-		fetchDiagRunEvents(sessionId, turnId, offset, detail.event_limit || undefined)
-			.then(page => {
-				setDetail(cur =>
-					cur
-						? {
-								...cur,
-								events: [...cur.events, ...page.events],
-								event_total: page.total,
-								events_complete: page.complete,
-								next_event_cursor: page.nextCursor,
-								event_offset: offset,
-							}
-						: cur,
-				);
-			})
-			.catch(err => toast.error(err instanceof Error ? err.message : String(err)))
-			.finally(() => setMoreLoading(false));
-	}, [sessionId, turnId, detail]);
-
-	const toggleCapture = useCallback(() => {
-		if (!sessionId || !capture) return;
-		setCaptureBusy(true);
-		setDiagCapture(sessionId, !capture.enabled)
-			.then(next => {
-				setCapture({...next, disk_bytes: capture.disk_bytes, quota_bytes: capture.quota_bytes});
-				toast.success(next.enabled ? '已开启可复现记录' : '已关闭可复现记录');
-			})
-			.catch(err => toast.error(err instanceof Error ? err.message : String(err)))
-			.finally(() => setCaptureBusy(false));
-	}, [sessionId, capture]);
+	const pickSession = useCallback(
+		(next: string) => {
+			setSessionId(next);
+			setPinOpen(false);
+		},
+		[],
+	);
 
 	const exportMarkdown = useCallback(() => {
 		if (!sessionId || !turnId) return;
@@ -467,7 +261,7 @@ export function DiagnosticsPanel({active}: {active: boolean}) {
 			.finally(() => setExportBusy(false));
 	}, [sessionId, turnId]);
 
-	const contentKey = `${sessionId}:${turnId}:${tab}`;
+	const contentKey = `${sessionId}:${turnId}`;
 	const tabIdx = Math.max(0, TABS.findIndex(t => t.key === tab));
 	const onTabKeyDown = (e: React.KeyboardEvent) => {
 		if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
@@ -477,6 +271,10 @@ export function DiagnosticsPanel({active}: {active: boolean}) {
 		setTab(TABS[next]!.key);
 	};
 
+	const {runs, detail} = data;
+	// 「尾窗截断」只在真的有记录时说截断：没有审计行不等于被截断（见列表空态措辞）。
+	const runsTruncated = !!runs && runs.runs.length > 0 && !runs.complete;
+
 	const toolbar = (
 		<>
 			<label className="xy-dig-session">
@@ -484,9 +282,8 @@ export function DiagnosticsPanel({active}: {active: boolean}) {
 				<select
 					value={sessionId}
 					onChange={e => {
-						setSessionId(e.target.value);
-						setTurnId('');
-						deepLinkRef.current = {session: e.target.value, turn: '', tool: ''};
+						pickSession(e.target.value);
+						data.clearLink();
 					}}
 				>
 					<option value="">选择会话</option>
@@ -545,44 +342,54 @@ export function DiagnosticsPanel({active}: {active: boolean}) {
 			wide
 			toolbar={toolbar}
 			data-testid="diagnostics-panel"
-			aria-busy={runsLoading || detailLoading}
+			aria-busy={data.runsLoading || data.detailLoading}
 		>
 			<div className="xy-dig-layout">
 				<aside className="xy-dig-side" aria-label="运行选择">
 					<div className="xy-dig-side-head">
 						<Stethoscope className="size-3.5 shrink-0 text-mute" aria-hidden />
 						<span>运行</span>
-						{runs && !runs.complete ? <Badge tone="warn">尾窗截断</Badge> : null}
+						{runsTruncated ? <Badge tone="warn">尾窗截断</Badge> : null}
 					</div>
 					{!sessionId ? (
 						<p className="xy-dig-empty">选择一个会话以列出可诊断的轮次。</p>
-					) : runsError ? (
-						<p className="xy-dig-error">{runsError}</p>
-					) : runsLoading && !runs ? (
-						<div className="xy-dig-loading">
-							<div className="xy-dig-skeleton" />
-							<div className="xy-dig-skeleton" />
-							<div className="xy-dig-skeleton" />
-						</div>
 					) : (
-						<RunPicker runs={runs} value={turnId} onPick={setTurnId} />
+						<>
+							{data.runsError ? (
+								<ErrorBox
+									message={data.runsError}
+									onRetry={() => data.reloadRuns(false)}
+									retrying={data.runsLoading}
+								/>
+							) : null}
+							{data.runsLoading && !runs ? (
+								<div className="xy-dig-loading">
+									<div className="xy-dig-skeleton" />
+									<div className="xy-dig-skeleton" />
+									<div className="xy-dig-skeleton" />
+								</div>
+							) : (
+								<RunPicker runs={runs} value={turnId} onPick={pickTurn} />
+							)}
+						</>
 					)}
 					<div className="xy-dig-capture">
 						<label className="xy-dig-check">
 							<input
 								type="checkbox"
-								checked={capture?.enabled === true}
-								disabled={!sessionId || captureBusy}
-								onChange={toggleCapture}
+								checked={captureIsOn(data.capture)}
+								// 采集状态没取回时不给可点但什么都不会发生的勾选框。
+								disabled={!sessionId || data.capture === null || data.captureBusy}
+								onChange={data.toggleCapture}
 							/>
 							<span>可复现记录（本机）</span>
 						</label>
 						<p className="xy-dig-capture-note">{CAPTURE_NOTE}</p>
-						{capture ? (
+						{data.capture ? (
 							<p className="xy-dig-capture-bytes tabular-nums">
-								已占用 {capture.disk_bytes == null ? DASH : `${(capture.disk_bytes / 1024).toFixed(0)} KB`}
-								{capture.quota_bytes != null
-									? ` / 配额 ${(capture.quota_bytes / 1024 / 1024).toFixed(0)} MB`
+								采集目录已占用 {fmtBytes(data.capture.disk_bytes)}
+								{data.capture.quota_bytes != null
+									? ` / 配额 ${fmtBytes(data.capture.quota_bytes)}`
 									: ''}
 							</p>
 						) : (
@@ -591,12 +398,13 @@ export function DiagnosticsPanel({active}: {active: boolean}) {
 					</div>
 					{pinOpen && turnId ? (
 						<PinForm
+							key={contentKey}
 							sessionId={sessionId}
 							turnId={turnId}
 							detail={detail}
 							onDone={() => {
 								setPinOpen(false);
-								loadDetail(true);
+								data.reloadDetail(false);
 							}}
 						/>
 					) : null}
@@ -605,7 +413,7 @@ export function DiagnosticsPanel({active}: {active: boolean}) {
 							<ul className="xy-dig-list">
 								{detail.pins.map(p => (
 									<li key={p.pin_id}>
-										<span className="font-mono">{p.kind || 'pin'}</span>
+										<span>{pinKindLabel(p.kind)}</span>
 										<span>{p.note || p.name || DASH}</span>
 										{p.expected ? <span className="xy-dig-pin-exp">预期：{p.expected}</span> : null}
 									</li>
@@ -616,14 +424,28 @@ export function DiagnosticsPanel({active}: {active: boolean}) {
 				</aside>
 
 				<div className="xy-dig-main">
-					{detailError ? (
-						<p className="xy-dig-error">
-							{detailError}
-							<span className="mt-1 block text-mute">
-								诊断只读取已有记录；后端未启动或该轮次不在审计窗口内都会是这个结果。
-							</span>
-						</p>
-					) : detailLoading && !detail ? (
+					{data.mismatch || data.detailError ? (
+						<div className="xy-dig-notices">
+							{data.mismatch ? (
+								<Notice tone="warn">
+									{linkMismatchText(data.mismatch.kind, data.mismatch.value)}
+								</Notice>
+							) : null}
+							{data.detailError ? (
+								<ErrorBox
+									message={data.detailError}
+									hint={
+										detail
+											? STALE_REFRESH_SUFFIX
+											: '诊断只读取已有记录；后端未启动或该轮次不在审计窗口内都会是这个结果。'
+									}
+									onRetry={() => data.reloadDetail(false)}
+									retrying={data.detailLoading}
+								/>
+							) : null}
+						</div>
+					) : null}
+					{data.detailLoading && !detail ? (
 						<div className="xy-usage-loading pointer-events-none absolute inset-0">
 							<div className="xy-usage-skeleton" />
 							<div className="xy-usage-skeleton min-h-[240px]" />
@@ -633,26 +455,40 @@ export function DiagnosticsPanel({active}: {active: boolean}) {
 							未选择轮次。左侧列表来自审计尾窗；列表为空不等于没有运行过。
 						</p>
 					) : (
-						<div key={contentKey} className="xy-usage-content-switch xy-dig-view">
-							{tab === 'problems' ? <FindingsView detail={detail} /> : null}
-							{tab === 'steps' ? (
-								<StepsView
-									detail={detail}
-									loadingMore={moreLoading}
-									onLoadMore={loadMoreEvents}
-								/>
+						<div key={contentKey} className="xy-usage-content-switch xy-dig-panes">
+							{seenTabs.has('problems') ? (
+								<div className="xy-dig-view" hidden={tab !== 'problems'}>
+									<FindingsView detail={detail} />
+								</div>
 							) : null}
-							{tab === 'context' ? (
-								<ContextView
-									detail={detail}
-									sessionId={sessionId}
-									turnId={turnId}
-									storeRoot={runs?.store_root ?? ''}
-								/>
+							{seenTabs.has('steps') ? (
+								<div className="xy-dig-view" hidden={tab !== 'steps'}>
+									<StepsView
+										detail={detail}
+										loadingMore={data.moreLoading}
+										onLoadMore={data.loadMoreEvents}
+									/>
+								</div>
 							) : null}
-							{tab === 'usage' ? <UsageView detail={detail} /> : null}
-							{tab === 'experiments' ? (
-								<ExperimentsView sessionId={sessionId} turnId={turnId} />
+							{seenTabs.has('context') ? (
+								<div className="xy-dig-view" hidden={tab !== 'context'}>
+									<ContextView
+										detail={detail}
+										sessionId={sessionId}
+										turnId={turnId}
+										storeRoot={runs?.store_root ?? ''}
+									/>
+								</div>
+							) : null}
+							{seenTabs.has('usage') ? (
+								<div className="xy-dig-view" hidden={tab !== 'usage'}>
+									<UsageView detail={detail} />
+								</div>
+							) : null}
+							{seenTabs.has('experiments') ? (
+								<div className="xy-dig-view" hidden={tab !== 'experiments'}>
+									<ExperimentsView sessionId={sessionId} turnId={turnId} />
+								</div>
 							) : null}
 						</div>
 					)}
@@ -660,4 +496,9 @@ export function DiagnosticsPanel({active}: {active: boolean}) {
 			</div>
 		</PageShell>
 	);
+}
+
+/** 未取回采集状态时勾选框是禁用的，勾上与否都不能凭空显示为"已开启"。 */
+function captureIsOn(capture: {enabled: boolean} | null): boolean {
+	return capture?.enabled === true;
 }

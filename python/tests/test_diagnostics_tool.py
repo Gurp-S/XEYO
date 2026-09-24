@@ -44,7 +44,8 @@ async def test_diagnostics_clean_python(tmp_path: Path) -> None:
 		AbortController(),
 	)
 	assert not r.is_error
-	assert "No diagnostics" in r.content or "backends:" in r.content
+	assert "backends:" in r.content
+	assert "No diagnostics." in r.content
 
 
 @pytest.mark.asyncio
@@ -116,3 +117,70 @@ class TestLocalTscResolution:
 		backends, notes = tool._select_backends(str(target), "typescript")
 		assert not backends
 		assert any("tsc not on PATH" in n for n in notes)
+
+
+def test_py_compile_says_nothing_was_examined(tmp_path: Path) -> None:
+	"""一个文件都没看 ≠ 干净：空目录必须报成未检查。"""
+	from tools.diagnostics_tool.diagnostics_tool import _run_py_compile
+
+	(tmp_path / "notes.txt").write_text("hi", encoding="utf-8")
+	out = _run_py_compile(str(tmp_path / "notes.txt"))
+	assert out and "no .py file examined" in out[0]
+	empty = tmp_path / "empty"
+	empty.mkdir()
+	lines = _run_py_compile(str(empty))
+	assert len(lines) == 1 and "nothing was checked" in lines[0]
+
+
+class _Proc:
+	def __init__(self, rc: int, out: str = "", err: str = "") -> None:
+		self.returncode, self.stdout, self.stderr = rc, out, err
+
+
+def test_ruff_failure_without_output_is_not_clean(monkeypatch, tmp_path: Path) -> None:
+	"""ruff 非零退出且无 stdout/stderr：必须成为一条可见的失败事实。"""
+	import subprocess as sp
+
+	from tools.diagnostics_tool import diagnostics_tool as mod
+
+	monkeypatch.setattr(sp, "run", lambda *a, **k: _Proc(2))
+	out = mod._run_ruff("ruff", str(tmp_path))
+	assert out and "ruff exited 2" in out[0] and "no output" in out[0]
+	assert "No diagnostics" not in "\n".join(out)
+
+
+def test_ruff_clean_run_still_reports_nothing(monkeypatch, tmp_path: Path) -> None:
+	import subprocess as sp
+
+	from tools.diagnostics_tool import diagnostics_tool as mod
+
+	monkeypatch.setattr(sp, "run", lambda *a, **k: _Proc(0))
+	assert mod._run_ruff("ruff", str(tmp_path)) == []
+
+
+def test_tsc_nonzero_with_unattributed_output_is_not_clean(monkeypatch, tmp_path: Path) -> None:
+	"""整体没跑成（坏 tsconfig / TS18003）时，路径过滤后的沉默不等于干净。"""
+	import subprocess as sp
+
+	from tools.diagnostics_tool import diagnostics_tool as mod
+
+	target = tmp_path / "a.ts"
+	target.write_text("export const x = 1\n", encoding="utf-8")
+	other = tmp_path / "b.ts"
+	other.write_text("boom\n", encoding="utf-8")
+
+	monkeypatch.setattr(
+		sp,
+		"run",
+		lambda *a, **k: _Proc(2, out=f"{other}:1:1 - error TS2304: Cannot find name 'boom'.\n"),
+	)
+	out = mod._run_tsc("tsc", str(tmp_path / "tsconfig.json"), str(target))
+	assert out and "tsc exited 2" in out[0]
+	assert not any(": error TS" in line for line in out)
+
+
+def test_tsc_missing_binary_is_reported(tmp_path: Path) -> None:
+	from tools.diagnostics_tool.diagnostics_tool import _run_tsc
+
+	out = _run_tsc("", None, str(tmp_path / "a.ts"))
+	assert out and "tsc not found" in out[0]

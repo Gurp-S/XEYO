@@ -10,7 +10,7 @@
  * 因此这里所有解析函数遵循「宁缺勿补」：字段不在就是 null/空串，绝不填默认值。
  */
 import {apiUrl} from '@/lib/apiBase';
-import {fetchWithTimeout, formatErrorDetail} from './core';
+import {formatErrorDetail} from './core';
 
 // ---------------------------------------------------------------------------
 // 防御式读取器（缺字段留 null / 空串，不补 0）
@@ -782,18 +782,130 @@ export function parseRunsResult(raw: unknown): DiagRunsResult {
 // ---------------------------------------------------------------------------
 
 const LONG_TIMEOUT_MS = 60_000;
+const DEFAULT_TIMEOUT_MS = 20_000;
 
-async function getJson(path: string, timeoutMs?: number): Promise<unknown> {
-	const res = await fetchWithTimeout(apiUrl(path), {cache: 'no-store'}, timeoutMs);
-	if (!res.ok) {
-		let payload: unknown = null;
-		try {
-			payload = await res.json();
-		} catch {
-			/* 非 JSON 错误响应由状态码兜底 */
-		}
-		throw new Error(formatErrorDetail(payload, res.status));
+/**
+ * 本地后端不可达时的唯一措辞（产品要求：不得把 `Failed to fetch` 之类的浏览器
+ * 原文投进注意力）。调用方拿到的是 Error.message 已是中文的错误，界面配 重试 按钮。
+ */
+export const OFFLINE_ERROR_MESSAGE = '无法连接本地后端（请确认 server 已启动）';
+
+/** 取消不是故障：调用方按请求身份丢弃即可，不进错误态。 */
+export class DiagRequestCancelled extends Error {
+	constructor() {
+		super('请求已取消');
+		this.name = 'DiagRequestCancelled';
 	}
+}
+
+export function isDiagRequestCancelled(err: unknown): boolean {
+	return err instanceof DiagRequestCancelled;
+}
+
+/** 把 core 层 / 浏览器抛出的未知失败收窄成中文事实。 */
+function describeTransportFailure(err: unknown, timeoutMs?: number): Error {
+	const name =
+		err && typeof err === 'object' ? String((err as {name?: unknown}).name ?? '') : '';
+	const message =
+		err && typeof err === 'object'
+			? String((err as {message?: unknown}).message ?? '')
+			: typeof err === 'string'
+				? err
+				: '';
+	if (err instanceof DiagRequestCancelled) return err;
+	// DOMException 不一定是 Error 子类，因此按 name / message 判定而不是 instanceof。
+	if (name === 'AbortError') {
+		return timeoutMs == null
+			? new DiagRequestCancelled()
+			: new Error(`请求超时：${Math.round(timeoutMs / 1000)} 秒内未收到服务器响应`);
+	}
+	if (message.startsWith('请求超时')) return err as Error;
+	if (
+		name === 'TypeError' ||
+		/failed to fetch|networkerror|load failed|err_connection|err_network/i.test(message)
+	) {
+		return new Error(OFFLINE_ERROR_MESSAGE);
+	}
+	return message ? new Error(message) : new Error(OFFLINE_ERROR_MESSAGE);
+}
+
+/**
+ * 诊断域自己的 fetch：带外部 AbortSignal（core.fetchWithTimeout 会覆盖调用方 signal，
+ * 因此不能借用），并统一把非 Response / 网络失败换成中文错误。
+ * 60 秒的 collect_run 全尾扫描会占住浏览器对同一 host 的连接槽，切轮次时必须能中止。
+ */
+async function send(
+	path: string,
+	init?: RequestInit,
+	timeoutMs?: number,
+	signal?: AbortSignal,
+): Promise<Response> {
+	const limit = timeoutMs ?? DEFAULT_TIMEOUT_MS;
+	const controller = new AbortController();
+	let timedOut = false;
+	const timer = setTimeout(() => {
+		timedOut = true;
+		controller.abort();
+	}, limit);
+	const forward = () => controller.abort();
+	if (signal) {
+		if (signal.aborted) forward();
+		else signal.addEventListener('abort', forward, {once: true});
+	}
+	try {
+		const res = await fetch(apiUrl(path), {
+			cache: 'no-store',
+			...init,
+			signal: controller.signal,
+		});
+		if (!res || typeof (res as {json?: unknown}).json !== 'function') {
+			throw new Error(OFFLINE_ERROR_MESSAGE);
+		}
+		return res;
+	} catch (err) {
+		if (timedOut) {
+			throw new Error(`请求超时：${Math.round(limit / 1000)} 秒内未收到服务器响应`);
+		}
+		if (signal?.aborted) throw new DiagRequestCancelled();
+		throw describeTransportFailure(err);
+	} finally {
+		clearTimeout(timer);
+		signal?.removeEventListener('abort', forward);
+	}
+}
+
+/** HTTP 状态 + 响应体 → 中文 Error（非 2xx 一律进错误态）。 */
+async function failureOf(res: Response): Promise<Error> {
+	let payload: unknown = null;
+	try {
+		payload = await res.json();
+	} catch {
+		/* 非 JSON 错误响应由状态码兜底 */
+	}
+	return new Error(formatErrorDetail(payload, res.status));
+}
+
+/**
+ * 200 信封里的失败：诊断/实验端点大量用 `{ok:false,error}` 表达拒绝
+ * （FastAPI 的校验失败也以 200 回这里的 mode 检查），只看 `res.ok` 会把拒绝读成成功。
+ */
+function envelopeFailure(payload: unknown, status: number): string {
+	if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return '';
+	const o = payload as Record<string, unknown>;
+	if (o.ok !== false) return '';
+	const reason = o.error ?? o.detail ?? o.message;
+	if (typeof reason === 'string' && reason.trim()) return reason.trim();
+	if (reason != null && typeof reason === 'object') return JSON.stringify(reason);
+	return `端点返回 ok:false 且未给出原因（HTTP ${status}）`;
+}
+
+async function getJson(
+	path: string,
+	timeoutMs?: number,
+	signal?: AbortSignal,
+): Promise<unknown> {
+	const res = await send(path, undefined, timeoutMs, signal);
+	if (!res.ok) throw await failureOf(res);
 	return await res.json();
 }
 
@@ -801,25 +913,19 @@ async function postJson(
 	path: string,
 	body: Record<string, unknown>,
 	timeoutMs?: number,
+	signal?: AbortSignal,
 ): Promise<unknown> {
-	const res = await fetchWithTimeout(
-		apiUrl(path),
+	const res = await send(
+		path,
 		{
 			method: 'POST',
 			headers: {'Content-Type': 'application/json'},
 			body: JSON.stringify(body),
 		},
 		timeoutMs,
+		signal,
 	);
-	if (!res.ok) {
-		let payload: unknown = null;
-		try {
-			payload = await res.json();
-		} catch {
-			/* 非 JSON 错误响应由状态码兜底 */
-		}
-		throw new Error(formatErrorDetail(payload, res.status));
-	}
+	if (!res.ok) throw await failureOf(res);
 	return await res.json();
 }
 
@@ -836,10 +942,12 @@ function qs(params: Record<string, string | number | undefined>): string {
 /** 有界运行列表：每个 turn 覆盖到哪些边界。 */
 export async function fetchDiagRuns(
 	sessionId: string,
-	opts?: {limit?: number},
+	opts?: {limit?: number; signal?: AbortSignal},
 ): Promise<DiagRunsResult> {
 	const data = await getJson(
 		`/v1/diagnostics/runs${qs({session_id: sessionId, limit: opts?.limit})}`,
+		undefined,
+		opts?.signal,
 	);
 	return parseRunsResult(data);
 }
@@ -848,7 +956,7 @@ export async function fetchDiagRuns(
 export async function fetchDiagRun(
 	sessionId: string,
 	turnId: string,
-	opts?: {eventLimit?: number; eventOffset?: number},
+	opts?: {eventLimit?: number; eventOffset?: number; signal?: AbortSignal},
 ): Promise<DiagRunDetail> {
 	const data = await getJson(
 		`/v1/diagnostics/runs/${encodeURIComponent(turnId)}${qs({
@@ -857,6 +965,7 @@ export async function fetchDiagRun(
 			event_offset: opts?.eventOffset,
 		})}`,
 		LONG_TIMEOUT_MS,
+		opts?.signal,
 	);
 	return parseRunDetail(data);
 }
@@ -899,8 +1008,13 @@ export async function fetchDiagReportMarkdown(
 			LONG_TIMEOUT_MS,
 		),
 	);
+	const markdown = s(o.markdown);
+	// 空正文不等于"这份报告没有内容"：不导出空文件冒充成功。
+	if (!markdown.trim()) {
+		throw new Error('导出失败：后端未返回报告正文（该轮次可能不在审计尾窗内）');
+	}
 	return {
-		markdown: s(o.markdown),
+		markdown,
 		turn_id: s(o.turn_id),
 		session_id: s(o.session_id),
 	};
@@ -977,8 +1091,8 @@ export async function fetchDiagPins(
 }
 
 export async function deleteDiagPin(pinId: string, sessionId: string): Promise<boolean> {
-	const res = await fetchWithTimeout(
-		apiUrl(`/v1/diagnostics/pins/${encodeURIComponent(pinId)}${qs({session_id: sessionId})}`),
+	const res = await send(
+		`/v1/diagnostics/pins/${encodeURIComponent(pinId)}${qs({session_id: sessionId})}`,
 		{method: 'DELETE'},
 	);
 	return res.ok;
@@ -1089,9 +1203,10 @@ async function rawJson(
 	path: string,
 	init?: {method?: 'GET' | 'POST'; body?: unknown},
 ): Promise<DiagRawResult> {
+	let res: Response;
 	try {
-		const res = await fetchWithTimeout(
-			apiUrl(path),
+		res = await send(
+			path,
 			{
 				method: init?.method ?? 'GET',
 				...(init?.body !== undefined
@@ -1099,15 +1214,10 @@ async function rawJson(
 							headers: {'Content-Type': 'application/json'},
 							body: JSON.stringify(init.body),
 						}
-					: {cache: 'no-store' as RequestCache}),
+					: {}),
 			},
 			LONG_TIMEOUT_MS,
 		);
-		const payload: unknown = await res.json().catch(() => null);
-		if (!res.ok) {
-			return {ok: false, status: res.status, error: formatErrorDetail(payload, res.status)};
-		}
-		return {ok: true, status: res.status, data: payload};
 	} catch (err) {
 		return {
 			ok: false,
@@ -1115,6 +1225,62 @@ async function rawJson(
 			error: err instanceof Error ? err.message : String(err),
 		};
 	}
+	const payload: unknown = await res.json().catch(() => null);
+	if (!res.ok) {
+		return {ok: false, status: res.status, error: formatErrorDetail(payload, res.status)};
+	}
+	// 关键：实验端点用 200 + {ok:false,error} 表达拒绝（mode 非法、配对不成立、
+	// 启动失败都走这里）。只看 res.status 会把拒绝渲染成绿色"端点可访问"。
+	const refused = envelopeFailure(payload, res.status);
+	if (refused) return {ok: false, status: res.status, error: refused};
+	return {ok: true, status: res.status, data: payload};
+}
+
+/** 后端 `diagnostics/experiments/manifest.MODES` 的常量是小写；大写一律被拒。 */
+export const DIAG_EXPERIMENT_MODES = ['a0', 'a1', 'a2'] as const;
+export type DiagExperimentMode = (typeof DIAG_EXPERIMENT_MODES)[number];
+
+/** 一次 A/B 配对的臂身份（后端 manifest.ARMS = ("A","B")）。 */
+export type DiagExperimentArms = {A: Record<string, unknown>; B: Record<string, unknown>};
+
+export type DiagExperimentRequestBody = {
+	mode: DiagExperimentMode;
+	task_id: string;
+	variants: DiagExperimentArms;
+	repeat: number;
+	allowed_differences: string[];
+	budget_cny?: number;
+	idempotency_key?: string;
+};
+
+/**
+ * 实验请求体：只发服务端真实存在的键（`variants` / `repeat` / `task_id`）。
+ * 旧实现发的 `baseline` / `candidate` / `repeats` / `session_id` / `turn_id` 会被
+ * pydantic 的 `extra='ignore'` 静默丢掉，于是两臂永远相同。
+ */
+export function buildExperimentBody(args: {
+	mode: DiagExperimentMode;
+	sessionId: string;
+	turnId: string;
+	variantA: Record<string, unknown>;
+	variantB: Record<string, unknown>;
+	repeat: number;
+	/** 未通过有限性检查就不要带上——`Number('')` 是 NaN，序列化后会变成 null，
+	 *  而 null 在后端读作「不设上限」，与界面上的"计划里会标出"正好相反。 */
+	budgetCny?: number | null;
+	allowedDifferences?: string[];
+}): DiagExperimentRequestBody {
+	const body: DiagExperimentRequestBody = {
+		mode: args.mode,
+		task_id: `xeyo:${args.sessionId}:${args.turnId}`.slice(0, 200),
+		variants: {A: args.variantA, B: args.variantB},
+		repeat: Number.isFinite(args.repeat) ? Math.max(0, Math.min(20, Math.trunc(args.repeat))) : 0,
+		allowed_differences: (args.allowedDifferences ?? []).filter(x => typeof x === 'string' && x.trim()),
+	};
+	if (args.budgetCny != null && Number.isFinite(args.budgetCny) && args.budgetCny >= 0) {
+		body.budget_cny = args.budgetCny;
+	}
+	return body;
 }
 
 export function planDiagExperiment(body: Record<string, unknown>): Promise<DiagRawResult> {

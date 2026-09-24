@@ -57,6 +57,10 @@ function streamInactive(s: SessionStreamState): boolean {
 		!s.isLoading &&
 		!s.draining &&
 		!s.remoteStreaming &&
+		// 分离标记只活在这一条记录里：条目被回收 = 标记丢失，recoverStuckStream
+		// 就把仍在跑的 turn 的工具卡判成 interrupted（重挂游标另有
+		// readTurnCursor 兜底，不需要计入存活条件）。
+		!s.turnDetached &&
 		!s.abortRef &&
 		!s.streamingText &&
 		!s.streamingShown &&

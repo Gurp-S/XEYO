@@ -78,7 +78,12 @@ def boundary_of(kind: str) -> str:
 
 @dataclass
 class Window:
-	"""一次有界扫描的覆盖情况；截断必须显式说出来。"""
+	"""一次有界扫描的覆盖情况。
+
+	「来源不存在」「尾窗截断」「整份读完」是三件不同的事，各自有字段；
+	把前两件混成一件会让报告在根本没有东西可截断时声称窗口太小。
+	读到了却被丢弃的行同样按原因分开计数——任何一类非零都不允许再写「完整」。
+	"""
 
 	source: str
 	locator: str = ""
@@ -87,14 +92,47 @@ class Window:
 	rows_matched: int = 0
 	bytes_read: int = 0
 	note: str = ""
+	# 来源本身是否存在（文件 / 快照拿不到 ≠ 截断）。
+	present: bool = True
+	# 尾窗是否真的把窗口之前的内容排除在外。
+	truncated: bool = False
+	# 窗口之外的物理行数：只有截断时才有值。
+	rows_outside_window: int = 0
+	# 窗口内读到但没能带进载荷的行，按原因分开计数。
+	rows_unparsable: int = 0
+	rows_unattributed: int = 0
+	rows_capped: int = 0
+	# 归因到别处（其他会话 / 其他轮次）的行：属于正常过滤，不算丢证据。
+	rows_other_session: int = 0
+	rows_other_turn: int = 0
+
+	def add_note(self, text: str) -> None:
+		"""把多条事实拼进同一个说明字段；空串不产生分隔符。"""
+		chunk = _s(text)
+		if not chunk:
+			return
+		self.note = f"{self.note}；{chunk}" if self.note else chunk
+
+	@property
+	def rows_dropped(self) -> int:
+		"""确实被丢弃 / 未带进载荷的行数（截断另由 ``truncated`` 表达）。"""
+		return self.rows_unparsable + self.rows_unattributed + self.rows_capped
 
 	def to_dict(self) -> dict[str, Any]:
 		return {
 			"source": self.source,
 			"locator": self.locator,
 			"complete": self.complete,
+			"present": self.present,
+			"truncated": self.truncated,
 			"rows_scanned": self.rows_scanned,
 			"rows_matched": self.rows_matched,
+			"rows_outside_window": self.rows_outside_window,
+			"rows_unparsable": self.rows_unparsable,
+			"rows_unattributed": self.rows_unattributed,
+			"rows_other_session": self.rows_other_session,
+			"rows_other_turn": self.rows_other_turn,
+			"rows_capped": self.rows_capped,
 			"bytes_read": self.bytes_read,
 			"note": self.note,
 		}
@@ -223,12 +261,25 @@ class RunEvidence:
 	# ---------- 序列化 ----------
 
 	def coverage(self) -> dict[str, Any]:
+		"""每个来源的覆盖三态：来源不存在才是 absent，读到东西就谈不上 absent。"""
 		out: dict[str, Any] = {}
 		for w in self.windows:
+			if not w.present:
+				state = ABSENT
+			elif w.complete:
+				state = COMPLETE
+			else:
+				state = PARTIAL
 			out[w.source] = {
-				"state": COMPLETE if w.complete else (PARTIAL if w.rows_matched else ABSENT),
+				"state": state,
 				"complete": w.complete,
+				"present": w.present,
+				"truncated": w.truncated,
 				"rows": w.rows_matched,
+				"rows_scanned": w.rows_scanned,
+				"rows_unparsable": w.rows_unparsable,
+				"rows_unattributed": w.rows_unattributed,
+				"rows_capped": w.rows_capped,
 				"locator": w.locator,
 				"note": w.note,
 			}
@@ -347,38 +398,120 @@ def _audit_locator() -> str:
 		return "audit:unavailable"
 
 
-def _tail_jsonl(path: Path, max_bytes: int) -> tuple[list[tuple[int, dict[str, Any]]], int, bool]:
-	"""从文件尾读至多 ``max_bytes``；返回 ``[(行号, dict)]``、读取字节、是否覆盖全文件。"""
+@dataclass
+class _TailScan:
+	"""一次尾窗扫描的原始事实：拿到哪些行、丢了几行、来源到底存不存在。"""
+
+	rows: list[tuple[int, dict[str, Any]]] = field(default_factory=list)
+	bytes_read: int = 0
+	present: bool = True
+	truncated: bool = False
+	rows_scanned: int = 0
+	rows_outside_window: int = 0
+	rows_unparsable: int = 0
+
+
+def _scan_jsonl_tail(path: Path, max_bytes: int) -> _TailScan:
+	"""从文件尾读至多 ``max_bytes``，给出窗口内的 ``(物理行号, dict)`` 与丢弃计数。
+
+	行号一律是**物理行号**：按 ``b"\\n"`` 切行。绝不能用 ``str.splitlines()``——
+	它连 U+0085、\\x0b、\\x0c、\\x1c-\\x1e 也算换行，而这些字符可以合法地出现在
+	JSON 字符串正文里（实测 transcript 里的 ELF 十六进制转储就带 U+0085），
+	一行被劈成两半后既少一行、又让之后所有证据指针 L<n> 集体错位。
+
+	文件不存在与截断是两件事：这里分开表达（``present`` / ``truncated``）。
+	"""
+	scan = _TailScan()
 	if not path.is_file():
-		return [], 0, True
+		scan.present = False
+		return scan
 	size = path.stat().st_size
+	first_line_no = 1
 	with path.open("rb") as handle:
-		offset = 0
-		truncated = False
 		if size > max_bytes:
 			handle.seek(size - max_bytes)
 			handle.readline()  # 丢弃可能被切断的首行
 			offset = handle.tell()
-			truncated = True
-		raw = handle.read()
-	first_line_no = 1
-	if truncated:
-		# 行号必须和物理行一致，否则证据指针指向别处；只数窗口前的换行。
-		with path.open("rb") as handle:
+			raw = handle.read()
+			scan.truncated = True
+			# 行号必须和物理行一致，否则证据指针指向别处；只数窗口前的换行。
+			handle.seek(0)
 			first_line_no = handle.read(offset).count(b"\n") + 1
-	text = raw.decode("utf-8", "replace")
-	out: list[tuple[int, dict[str, Any]]] = []
-	for index, line in enumerate(text.splitlines()):
-		line = line.strip()
+			scan.rows_outside_window = first_line_no - 1
+		else:
+			raw = handle.read()
+	scan.bytes_read = len(raw)
+	for index, chunk in enumerate(raw.split(b"\n")):
+		line = chunk.strip()
 		if not line:
 			continue
+		scan.rows_scanned += 1
 		try:
-			row = json.loads(line)
+			row = json.loads(line.decode("utf-8", "replace"))
 		except ValueError:
+			scan.rows_unparsable += 1
 			continue
-		if isinstance(row, dict):
-			out.append((first_line_no + index, row))
-	return out, len(raw), truncated
+		if not isinstance(row, dict):
+			scan.rows_unparsable += 1
+			continue
+		scan.rows.append((first_line_no + index, row))
+	return scan
+
+
+def _tail_jsonl(path: Path, max_bytes: int) -> tuple[list[tuple[int, dict[str, Any]]], int, bool]:
+	"""``_scan_jsonl_tail`` 的三值视角：行、字节、**是否真的截断**。
+
+	文件不存在时 truncated 为 False——没有内容可截断；旧实现返回 True，
+	于是每个运行详情都把「本机没有这个文件」说成「尾窗太小、覆盖不全」。
+	"""
+	scan = _scan_jsonl_tail(path, max_bytes)
+	return scan.rows, scan.bytes_read, scan.truncated
+
+
+def _window_from_scan(source: str, locator: str, scan: _TailScan, *, max_bytes: int) -> Window:
+	"""把一次扫描落成 Window：absent / truncated / full 三态各自有措辞与字段。"""
+	window = Window(
+		source=source,
+		locator=locator,
+		bytes_read=scan.bytes_read,
+		present=scan.present,
+		truncated=scan.truncated,
+		rows_scanned=scan.rows_scanned,
+		rows_outside_window=scan.rows_outside_window,
+		rows_unparsable=scan.rows_unparsable,
+	)
+	if not scan.present:
+		window.complete = False
+		window.add_note(f"{locator or source} 不存在：没有可扫描的记录，非尾窗截断")
+	elif scan.truncated:
+		window.complete = False
+		window.add_note(
+			f"尾窗截断：{source} 只读最近 {max_bytes} 字节，覆盖窗口内 {scan.rows_scanned} 行，"
+			f"更早的 {scan.rows_outside_window} 行未覆盖"
+		)
+	else:
+		window.complete = True
+	return window
+
+
+def _seal_window(window: Window) -> Window:
+	"""收尾：丢过证据的来源不得声称完整。
+
+	「没发现异常」只有在证据没被扔掉时才有意义，所以只要 ``rows_dropped``
+	非零就把状态从 full 降级并写明原因，而不是让 complete 继续为真。
+	"""
+	if window.rows_unparsable:
+		window.add_note(f"{window.rows_unparsable} 行读到了却解不出 JSON 对象，已丢弃")
+	if window.rows_dropped:
+		window.complete = False
+	return window
+
+
+def _publish_window(run: RunEvidence, window: Window) -> Window:
+	"""每个来源共用同一道收尾：先按丢行情况降级，再进窗口列表。"""
+	window = _seal_window(window)
+	run.windows.append(window)
+	return window
 
 
 # ---------- 采集 ----------
@@ -386,36 +519,44 @@ def _tail_jsonl(path: Path, max_bytes: int) -> tuple[list[tuple[int, dict[str, A
 
 def _collect_audit(run: RunEvidence, *, session_id: str, turn_id: str, path: Path, max_bytes: int) -> None:
 	locator = str(path)
-	entries, read_bytes, truncated = _tail_jsonl(path, max_bytes)
+	scan = _scan_jsonl_tail(path, max_bytes)
+	window = _window_from_scan("audit", locator, scan, max_bytes=max_bytes)
+	if not scan.present:
+		# 没有审计文件不是「窗口太小」：两者是不同的事实，措辞也必须不同。
+		run.add_gap("instruction_context", "source_absent", f"审计文件不存在：{locator}")
+		_publish_window(run, window)
+		return
 	matched = 0
-	unattributed = 0
-	window = Window(source="audit", locator=locator, bytes_read=read_bytes)
-	for line_no, row in entries:
-		window.rows_scanned += 1
-		if session_id and _s(row.get("session_id")) != session_id:
-			if not _s(row.get("session_id")):
-				unattributed += 1
+	for line_no, row in scan.rows:
+		row_session = _s(row.get("session_id"))
+		if session_id and row_session != session_id:
+			if not row_session:
+				window.rows_unattributed += 1  # 旧格式行：谁也不是，只能记数
+			else:
+				window.rows_other_session += 1
 			continue
-		event = normalize_event(window.rows_matched, line_no, row)
+		event = normalize_event(matched, line_no, row)
 		matched += 1
 		if turn_id and event.turn_id and event.turn_id != turn_id:
 			# 权限/工具事件可能只带 trace_id；turn_id 未知的行保留为上下文，不参与轮次归因。
+			window.rows_other_turn += 1
 			continue
 		run.events.append(event)
 	window.rows_matched = matched
-	window.complete = not truncated
-	notes: list[str] = []
-	if truncated:
-		notes.append("尾窗截断：窗口外的更早事件按不存在处理会误判，已标 complete=false")
-	if unattributed:
-		notes.append(f"{unattributed} 行缺 session_id（旧格式），无法归入本会话，未补值")
-	window.note = "；".join(notes)
+	if window.rows_unattributed:
+		window.add_note(f"{window.rows_unattributed} 行缺 session_id（旧格式），无法归入本会话，未补值")
+	if window.rows_other_session:
+		window.add_note(f"{window.rows_other_session} 行属于其他会话，未并入本运行")
+	if window.rows_other_turn:
+		window.add_note(f"{window.rows_other_turn} 行属于本会话的其他轮次，未并入本运行")
+	_seal_window(window)
 	run.windows.append(window)
-	if truncated:
+	if scan.truncated:
 		run.add_gap(
 			"instruction_context",
 			"out_of_window",
-			f"audit 尾窗 {max_bytes} 字节，仅覆盖最近 {window.rows_scanned} 行",
+			f"audit 尾窗 {max_bytes} 字节，仅覆盖最近 {window.rows_scanned} 行，"
+			f"窗口外更早的 {window.rows_outside_window} 行未读",
 		)
 
 
@@ -426,7 +567,7 @@ def _collect_working(run: RunEvidence, session_id: str) -> None:
 
 		snap = hydrate(session_id)
 	except Exception:  # noqa: BLE001 — 观测不可用只记缺项
-		run.windows.append(Window(source="working", complete=False, note="hydrate 失败"))
+		run.windows.append(Window(source="working", complete=False, present=False, note="hydrate 失败：working 快照读不出来"))
 		run.add_gap("instruction_context", "read_failed", "working 快照不可读")
 		return
 	manifest = getattr(snap, "last_projection_manifest", None)
@@ -484,22 +625,26 @@ def _working_locator(session_id: str) -> Path:
 
 
 def _collect_usage(run: RunEvidence, session_id: str) -> None:
+	"""读用量账本进 ``run.usage_rows``：per-attempt 费用由它喂给挂载步骤。"""
 	try:
 		from usage.ledger import events_path
 	except Exception:  # noqa: BLE001
 		run.add_gap("model_request", "source_absent", "usage 账本不可导入")
 		return
 	path = events_path()
-	entries, read_bytes, truncated = _tail_jsonl(path, _AUDIT_TAIL_BYTES)
-	window = Window(
-		source="usage",
-		locator=str(path),
-		bytes_read=read_bytes,
-		complete=not truncated,
-	)
-	for line_no, row in entries:
-		window.rows_scanned += 1
-		if session_id and _s(row.get("session_id")) != session_id:
+	scan = _scan_jsonl_tail(path, _AUDIT_TAIL_BYTES)
+	window = _window_from_scan("usage", str(path), scan, max_bytes=_AUDIT_TAIL_BYTES)
+	if not scan.present:
+		run.add_gap("model_request", "source_absent", f"usage 账本不存在：{path}，无费用可依据")
+		_publish_window(run, window)
+		return
+	for line_no, row in scan.rows:
+		row_session = _s(row.get("session_id"))
+		if session_id and row_session != session_id:
+			if not row_session:
+				window.rows_unattributed += 1
+			else:
+				window.rows_other_session += 1
 			continue
 		window.rows_matched += 1
 		run.usage_rows.append(
@@ -510,7 +655,18 @@ def _collect_usage(run: RunEvidence, session_id: str) -> None:
 				"attempt_key": request_key(_s(row.get("request_id")), row.get("attempt")),
 			}
 		)
-	run.windows.append(window)
+	if window.rows_unattributed:
+		window.add_note(f"{window.rows_unattributed} 行缺 session_id，无法归入本会话，未补值")
+	if window.rows_other_session:
+		window.add_note(f"{window.rows_other_session} 行属于其他会话，未并入本运行")
+	if scan.truncated:
+		run.add_gap(
+			"model_request",
+			"out_of_window",
+			f"usage 尾窗 {_AUDIT_TAIL_BYTES} 字节，仅覆盖最近 {window.rows_scanned} 行，"
+			f"窗口外更早的 {window.rows_outside_window} 行未读",
+		)
+	_publish_window(run, window)
 
 
 def _collect_folds(run: RunEvidence, session_id: str) -> None:
@@ -519,20 +675,31 @@ def _collect_folds(run: RunEvidence, session_id: str) -> None:
 	except Exception:  # noqa: BLE001
 		return
 	path = fold_events_path()
-	entries, read_bytes, truncated = _tail_jsonl(path, _AUDIT_TAIL_BYTES)
-	window = Window(
-		source="fold_events",
-		locator=str(path),
-		bytes_read=read_bytes,
-		complete=not truncated,
-	)
-	for line_no, row in entries:
-		window.rows_scanned += 1
-		if session_id and _s(row.get("session_id")) != session_id:
+	scan = _scan_jsonl_tail(path, _AUDIT_TAIL_BYTES)
+	window = _window_from_scan("fold_events", str(path), scan, max_bytes=_AUDIT_TAIL_BYTES)
+	if not scan.present:
+		run.add_gap("wsc_fold", "source_absent", f"fold_events 账本不存在：{path}")
+		_publish_window(run, window)
+		return
+	for line_no, row in scan.rows:
+		row_session = _s(row.get("session_id"))
+		if session_id and row_session != session_id:
+			if not row_session:
+				window.rows_unattributed += 1
+			else:
+				window.rows_other_session += 1
 			continue
 		window.rows_matched += 1
 		run.fold_rows.append(row | {"locator": str(path), "line_no": line_no, "event_id": f"L{line_no}"})
-	run.windows.append(window)
+	if window.rows_unattributed:
+		window.add_note(f"{window.rows_unattributed} 行缺 session_id，无法归入本会话，未补值")
+	if scan.truncated:
+		run.add_gap(
+			"wsc_fold",
+			"out_of_window",
+			f"fold_events 尾窗 {_AUDIT_TAIL_BYTES} 字节，仅覆盖最近 {window.rows_scanned} 行",
+		)
+	_publish_window(run, window)
 
 
 def _blob_present(anchor: Path, ref: str) -> bool:
@@ -555,20 +722,22 @@ def _collect_transcript(run: RunEvidence, session_id: str, wanted_tool_ids: set[
 		return
 	path = transcript_path(session_id)
 	if not path.is_file():
-		run.windows.append(Window(source="transcript", locator=str(path), complete=False, note="无 transcript 文件"))
+		run.windows.append(
+			Window(
+				source="transcript",
+				locator=str(path),
+				complete=False,
+				present=False,
+				note=f"{path} 不存在：无 transcript 文件，非尾窗截断",
+			)
+		)
 		run.add_gap("file_verifier", "not_captured", "transcript 不存在，结果正文不可回读")
 		return
-	entries, read_bytes, truncated = _tail_jsonl(path, _AUDIT_TAIL_BYTES * 2)
-	window = Window(
-		source="transcript",
-		locator=str(path),
-		bytes_read=read_bytes,
-		complete=not truncated,
-	)
+	scan = _scan_jsonl_tail(path, _AUDIT_TAIL_BYTES * 2)
+	window = _window_from_scan("transcript", str(path), scan, max_bytes=_AUDIT_TAIL_BYTES * 2)
 	anchor = path
 	linked_ids: set[str] = set()
-	for line_no, row in entries:
-		window.rows_scanned += 1
+	for line_no, row in scan.rows:
 		calls = _s(row.get("tool_call_id"))
 		view = {
 			"id": _s(row.get("id")),
@@ -605,13 +774,32 @@ def _collect_transcript(run: RunEvidence, session_id: str, wanted_tool_ids: set[
 					view["body_state"] = "missing_blob"
 		if row.get("content_ref") and calls and calls not in wanted_tool_ids:
 			view["in_run"] = False
-		window.rows_matched += 1
 		run.transcript_rows.append(view)
-	if len(run.transcript_rows) > _TRANSCRIPT_ROW_CAP:
+	# 行数按载荷实际携带量报：保留上限裁掉的行不得再被 rows_matched 声称在内。
+	scanned_rows = len(run.transcript_rows)
+	if scanned_rows > _TRANSCRIPT_ROW_CAP:
+		window.rows_capped = scanned_rows - _TRANSCRIPT_ROW_CAP
 		del run.transcript_rows[: -_TRANSCRIPT_ROW_CAP]
-		window.complete = False
-		window.note = f"仅保留最近 {_TRANSCRIPT_ROW_CAP} 行"
-	run.windows.append(window)
+		window.add_note(
+			f"transcript 保留上限 {_TRANSCRIPT_ROW_CAP} 行：更早的 {window.rows_capped} 行未带入载荷，"
+			f"本次实际携带 {len(run.transcript_rows)} 行"
+		)
+	window.rows_matched = len(run.transcript_rows)
+	if scan.truncated:
+		run.add_gap(
+			"file_verifier",
+			"out_of_window",
+			f"transcript 尾窗 {_AUDIT_TAIL_BYTES * 2} 字节，窗口外更早的 {window.rows_outside_window} 行未读",
+		)
+	if window.rows_capped:
+		run.add_gap(
+			"file_verifier",
+			"out_of_window",
+			f"transcript 保留上限裁掉更早的 {window.rows_capped} 行，裁掉的行不在载荷里",
+		)
+	_publish_window(run, window)
+	# 锚定关系只能按载荷实际内容算：被裁掉的行不再充当已链接的证据。
+	linked_ids &= {_s(r.get("tool_call_id")) for r in run.transcript_rows}
 	for tool in run.tool_calls:
 		if tool.tool_use_id in linked_ids:
 			for row in run.transcript_rows:
@@ -636,15 +824,13 @@ def _collect_wire_drops(run: RunEvidence, wanted_tool_ids: set[str]) -> None:
 	except Exception:  # noqa: BLE001
 		return
 	path = wire_drops_path()
-	entries, read_bytes, truncated = _tail_jsonl(path, _AUDIT_TAIL_BYTES)
-	window = Window(
-		source="wire_drops",
-		locator=str(path),
-		bytes_read=read_bytes,
-		complete=not truncated,
-	)
-	for line_no, row in entries:
-		window.rows_scanned += 1
+	scan = _scan_jsonl_tail(path, _AUDIT_TAIL_BYTES)
+	window = _window_from_scan("wire_drops", str(path), scan, max_bytes=_AUDIT_TAIL_BYTES)
+	if not scan.present:
+		run.add_gap("tool_permission", "source_absent", f"wire_drops 账本不存在：{path}，无从判断是否丢过行")
+		_publish_window(run, window)
+		return
+	for line_no, row in scan.rows:
 		ids = [str(i) for i in (row.get("ids") or []) if str(i)]
 		hit = sorted(set(ids) & wanted_tool_ids) if wanted_tool_ids else []
 		if not hit:
@@ -653,22 +839,43 @@ def _collect_wire_drops(run: RunEvidence, wanted_tool_ids: set[str]) -> None:
 		run.wire_drops.append(
 			dict(row) | {"locator": str(path), "line_no": line_no, "matched_ids": hit}
 		)
-	if truncated:
-		window.note = "尾窗截断，更早的丢行未覆盖"
-	run.windows.append(window)
+	if scan.truncated:
+		run.add_gap(
+			"tool_permission",
+			"out_of_window",
+			f"wire_drops 尾窗 {_AUDIT_TAIL_BYTES} 字节，仅覆盖最近 {window.rows_scanned} 行",
+		)
+	_publish_window(run, window)
 
 
 def _collect_jobs(run: RunEvidence, jobs: list[dict[str, Any]] | None) -> None:
 	if not jobs:
-		run.windows.append(Window(source="jobs", complete=False, note="未注入 job 快照（进程内状态，需 server 侧提供）"))
+		run.windows.append(
+			Window(
+				source="jobs",
+				complete=False,
+				present=False,
+				note="未注入 job 快照（进程内状态，需 server 侧提供）",
+			)
+		)
 		return
+	unusable = 0
 	for job in jobs:
 		if not isinstance(job, dict):
+			unusable += 1
 			continue
 		run.jobs.append(dict(job))
-	run.windows.append(
-		Window(source="jobs", complete=True, rows_matched=len(run.jobs), note="由调用方注入的 job 快照")
+	window = Window(
+		source="jobs",
+		complete=True,
+		rows_matched=len(run.jobs),
+		rows_scanned=len(jobs),
+		rows_unattributed=unusable,
+		note="由调用方注入的 job 快照",
 	)
+	if unusable:
+		window.add_note(f"{unusable} 条注入的 job 快照不是对象，未带入载荷")
+	_publish_window(run, window)
 
 
 # ---------- 归并 ----------
@@ -734,18 +941,8 @@ def _merge(run: RunEvidence) -> None:
 				}
 			)
 
-	# usage 按 (request_id, attempt) 挂到对应尝试；缺 request_id 的行单独列出不匹配。
-	by_attempt: dict[str, dict[str, Any]] = {}
-	for row in run.usage_rows:
-		key = _s(row.get("attempt_key"))
-		if key:
-			by_attempt[key] = row
-	for mr in models.values():
-		for att in mr.attempts:
-			key = request_key(mr.model_request_id, att.get("attempt"))
-			row = by_attempt.get(key)
-			if row is not None:
-				mr.usage_by_attempt[key] = row
+	# usage 到尝试的挂载不在此处：账本由 _collect_usage 填充，而它在 _merge 之后
+	# 才跑，在这里 join 永远看到空账本。见 _attach_usage_to_attempts。
 
 	run.model_requests = sorted(
 		models.values(),
@@ -768,6 +965,27 @@ def _merge(run: RunEvidence) -> None:
 			if tc.tool_use_id == tid and per.get("request_id") not in tc.approval_ids:
 				tc.approval_ids.append(_s(per.get("request_id")))
 	run.permissions.sort(key=lambda p: float(p.get("ts") or 0))
+
+
+def _attach_usage_to_attempts(run: RunEvidence) -> None:
+	"""把用量账按 ``(model_request_id, attempt)`` 挂到对应尝试。
+
+	必须在所有采集之后跑：join 的左值来自 ``run.usage_rows``（由 ``_collect_usage``
+	填充），提前跑会让每次尝试都拿不到账，界面逐次显示「费用未知」，而用量汇总
+	同时声称这些尝试都有价——两边说的是相反的事实。
+	"""
+	by_attempt: dict[str, dict[str, Any]] = {}
+	for row in run.usage_rows:
+		key = _s(row.get("attempt_key"))
+		if key:
+			by_attempt[key] = row
+	for mr in run.model_requests:
+		mr.usage_by_attempt = {}
+		for att in mr.attempts:
+			key = request_key(mr.model_request_id, att.get("attempt"))
+			row = by_attempt.get(key)
+			if row is not None:
+				mr.usage_by_attempt[key] = row
 
 
 # ---------- 入口 ----------
@@ -799,6 +1017,8 @@ def collect_run(
 	_collect_jobs(run, jobs)
 	_attach_captures(run)
 	_attach_pins(run)
+	# 用量挂载必须在所有采集之后：join 的左操作数是 run.usage_rows，提前跑会永远空表。
+	_attach_usage_to_attempts(run)
 	return run
 
 
@@ -820,6 +1040,7 @@ def _attach_captures(run: RunEvidence) -> None:
 			Window(
 				source="captures",
 				complete=False,
+				present=False,  # 没捕获到任何东西：覆盖态是 absent，不是 partial
 				note="该会话未开启可复现记录",
 			)
 		)
@@ -842,10 +1063,15 @@ def list_runs(session_id: str, *, limit: int = 50, audit_path: str | os.PathLike
 	"""按 turn 聚合的有界运行列表：每个 turn 有哪些边界有记录。"""
 	sid = _s(session_id)
 	path = Path(audit_path) if audit_path else _default_audit_path()
-	entries, _read, truncated = _tail_jsonl(path, _AUDIT_TAIL_BYTES * 2)
+	max_bytes = _AUDIT_TAIL_BYTES * 2
+	scan = _scan_jsonl_tail(path, max_bytes)
 	turns: dict[str, dict[str, Any]] = {}
-	for line_no, row in entries:
-		if sid and _s(row.get("session_id")) != sid:
+	unattributed = 0
+	for line_no, row in scan.rows:
+		row_session = _s(row.get("session_id"))
+		if sid and row_session != sid:
+			if not row_session:
+				unattributed += 1  # 旧格式行：连属于哪个 turn 都无从判断
 			continue
 		event = normalize_event(0, line_no, row)
 		tid = event.turn_id or "(无轮次身份)"
@@ -876,6 +1102,32 @@ def list_runs(session_id: str, *, limit: int = 50, audit_path: str | os.PathLike
 			item["tool_use_ids"].add(event.tool_use_id)
 		item["line_max"] = max(item["line_max"], line_no)
 		item["line_min"] = min(item["line_min"], line_no)
+	# 覆盖说明：缺失 / 截断 / 丢行是三种不同的事实，各自一句话，绝不互相顶替。
+	fragments: list[str] = []
+	if not scan.present:
+		fragments.append(f"审计文件不存在：{path}，无记录可列（非尾窗截断）")
+	else:
+		if scan.truncated:
+			fragments.append(
+				f"审计尾窗截断：{max_bytes} 字节仅覆盖最近 {scan.rows_scanned} 行，"
+				f"更早的 {scan.rows_outside_window} 行里的 turn 未列出"
+			)
+		if scan.rows_unparsable:
+			fragments.append(f"{scan.rows_unparsable} 行解不出 JSON 对象，未计入任何 turn")
+		if unattributed:
+			fragments.append(f"{unattributed} 行缺 session_id，无法归入本会话，未计入任何 turn")
+	coverage_note = "；".join(fragments)
+	coverage = {
+		"source": "audit",
+		"locator": str(path),
+		"present": scan.present,
+		"truncated": scan.truncated,
+		"rows_scanned": scan.rows_scanned,
+		"rows_outside_window": scan.rows_outside_window,
+		"rows_unparsable": scan.rows_unparsable,
+		"rows_unattributed": unattributed,
+		"complete": scan.present and not scan.truncated and not scan.rows_unparsable and not unattributed,
+	}
 	out: list[dict[str, Any]] = []
 	for item in turns.values():
 		out.append(
@@ -890,9 +1142,8 @@ def list_runs(session_id: str, *, limit: int = 50, audit_path: str | os.PathLike
 				"tool_call_count": len(item["tool_use_ids"]),
 				"tool_use_ids": sorted(item["tool_use_ids"]),
 				"audit_lines": [item["line_min"], item["line_max"]],
-				"coverage_note": (
-					"审计尾窗截断，更早的 turn 可能未列出" if truncated else ""
-				),
+				"coverage_note": coverage_note,
+				"coverage": dict(coverage),
 			}
 		)
 	out.sort(key=lambda r: (r["last_ts"] or 0), reverse=True)

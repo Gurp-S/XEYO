@@ -9,19 +9,37 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Path, Query
+from fastapi import APIRouter, HTTPException, Path, Query
 from pydantic import BaseModel, Field
 
 from diagnostics import store
 from diagnostics.capture import capture_enabled, set_capture_enabled
 from diagnostics.collect import collect_run, list_runs
-from diagnostics.identity import SCHEMA_VERSION
+from diagnostics.identity import SCHEMA_VERSION, _s
 from diagnostics.loss_chain import trace_fact
 from diagnostics.pins import delete_pin, pin_run, pins_for_run, record_verifier
 from diagnostics.report import build_report, load_report, report_id, save_report, to_markdown
 from diagnostics.rules import RULESET_VERSION, evaluate_run
 
 router = APIRouter(tags=["diagnostics"])
+
+
+def _key(value: str, label: str) -> str:
+    """身份参数在进入查询前收敛：空白值会被下游当成「不按该字段过滤」。"""
+    text = str(value if value is not None else "").strip()
+    if not text:
+        raise HTTPException(status_code=422, detail=f"{label} 不能为空")
+    if len(text) > 300 or any(ch in text for ch in ("/", "\\", "\x00")):
+        raise HTTPException(status_code=422, detail=f"{label} 非法")
+    return text
+
+
+def _ident(value: str, label: str) -> str:
+    """路径里的 id 必须像本包生成的产物名，越界取值一律 422 而非静默清洗。"""
+    try:
+        return store.safe_ident(value, label=label)
+    except store.InvalidIdentifier as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 def _experiment_modes() -> tuple[str, ...]:
@@ -111,11 +129,12 @@ def get_runs(
     limit: int = Query(default=50, ge=1, le=500),
 ) -> dict[str, Any]:
     """有界运行列表：每个 turn 覆盖到哪些边界。"""
-    runs = list_runs(session_id, limit=limit)
+    sid = _key(session_id, "session_id")
+    runs = list_runs(sid, limit=limit)
     return {
         "schema_version": SCHEMA_VERSION,
         "ruleset_version": RULESET_VERSION,
-        "session_id": session_id,
+        "session_id": sid,
         "runs": runs,
         "count": len(runs),
         "limit": limit,
@@ -133,7 +152,9 @@ def get_run(
     with_report: bool = Query(default=True),
 ) -> dict[str, Any]:
     """一次运行的证据链、结论与缺项；事件按 offset 分页。"""
-    run = collect_run(session_id, turn_id)
+    sid = _key(session_id, "session_id")
+    tid = _key(turn_id, "turn_id")
+    run = collect_run(sid, tid)
     findings = evaluate_run(run)
     doc = run.to_dict(include_rows=False)
     events = [e.to_dict(_audit_locator(run)) for e in run.events_for_turn()]
@@ -156,16 +177,13 @@ def get_run(
     return doc
 
 
-def _audit_locator(run: Any) -> str:
-    window = run.window("audit")
-    return window.locator if window else "audit:unavailable"
-
-
 @router.get("/v1/diagnostics/runs/{turn_id}/report.md")
 def get_run_markdown(turn_id: str = Path(min_length=1), session_id: str = Query(..., min_length=1)) -> dict[str, str]:
     """Markdown 导出：同一结构渲染，不额外加工结论。"""
-    run = collect_run(session_id, turn_id)
-    return {"markdown": to_markdown(build_report(run)), "turn_id": turn_id, "session_id": session_id}
+    sid = _key(session_id, "session_id")
+    tid = _key(turn_id, "turn_id")
+    run = collect_run(sid, tid)
+    return {"markdown": to_markdown(build_report(run)), "turn_id": tid, "session_id": sid}
 
 
 @router.post("/v1/diagnostics/runs/{turn_id}/pin")
@@ -173,9 +191,11 @@ def post_pin(body: PinBody, turn_id: str = Path(min_length=1), session_id: str =
     """标记「这轮结果不对」并固定证据。不触发任何付费实验，也不改任务内容。"""
     if not body.note.strip():
         return {"ok": False, "error": "note 不能为空"}
+    sid = _key(session_id, "session_id")
+    tid = _key(turn_id, "turn_id")
     doc = pin_run(
-        session_id,
-        turn_id,
+        sid,
+        tid,
         note=body.note,
         expected=body.expected,
         evidence=body.evidence,
@@ -189,9 +209,11 @@ def post_verifier(
     body: VerifierBody, turn_id: str = Path(min_length=1), session_id: str = Query(..., min_length=1)
 ) -> dict[str, Any]:
     """固定一次验收结果。``exit_code`` 省略即"未运行"，不会按 0 处理。"""
+    sid = _key(session_id, "session_id")
+    tid = _key(turn_id, "turn_id")
     doc = record_verifier(
-        session_id,
-        turn_id,
+        sid,
+        tid,
         name=body.name,
         command=body.command,
         exit_code=body.exit_code,
@@ -204,12 +226,12 @@ def post_verifier(
 
 @router.get("/v1/diagnostics/pins")
 def get_pins(session_id: str = Query(..., min_length=1), turn_id: str = Query(default="")) -> dict[str, Any]:
-    return {"pins": pins_for_run(session_id, turn_id)}
+    return {"pins": pins_for_run(_key(session_id, "session_id"), _s(turn_id))}
 
 
 @router.delete("/v1/diagnostics/pins/{pin_id}")
 def remove_pin(pin_id: str = Path(min_length=1), session_id: str = Query(..., min_length=1)) -> dict[str, Any]:
-    return {"ok": delete_pin(pin_id, session_id)}
+    return {"ok": delete_pin(_ident(pin_id, "pin_id"), _key(session_id, "session_id"))}
 
 
 @router.get("/v1/diagnostics/runs/{turn_id}/fact")
@@ -219,8 +241,13 @@ def get_fact(
     needle: str = Query(..., min_length=1, max_length=400),
 ) -> dict[str, Any]:
     """信息丢失定位链：这条事实在哪一级消失，或为什么无法归因。"""
-    run = collect_run(session_id, turn_id)
-    return trace_fact(run, needle)
+    sid = _key(session_id, "session_id")
+    tid = _key(turn_id, "turn_id")
+    text = _s(needle).strip()
+    if not text:
+        raise HTTPException(status_code=422, detail="needle 不能为空")
+    run = collect_run(sid, tid)
+    return trace_fact(run, text)
 
 
 @router.get("/v1/diagnostics/messages/{message_id}")
@@ -230,12 +257,16 @@ def get_message_body(
     max_chars: int = Query(default=20000, ge=1, le=200000),
 ) -> dict[str, Any]:
     """按需回读 transcript 正文（含冷层 blob）。缺 blob 必须说明，不返回空正文冒充成功。"""
+    from pathlib import Path as FsPath
+
+    sid = _key(session_id, "session_id")
+    mid = _s(message_id)
     try:
         from session.persistence import transcript_path
-        from session.transcript_blobs import resolve_transcript_row
+        from session.transcript_blobs import blobs_dir, resolve_transcript_row
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": f"transcript 读取器不可用：{type(exc).__name__}"}
-    path = transcript_path(session_id)
+    path = transcript_path(sid)
     if not path.is_file():
         return {"ok": False, "error": "no_transcript", "locator": str(path)}
     with path.open("r", encoding="utf-8", errors="replace") as handle:
@@ -249,33 +280,45 @@ def get_message_body(
                 row = _json.loads(line)
             except ValueError:
                 continue
-            if not isinstance(row, dict) or str(row.get("id") or "") != message_id:
+            if not isinstance(row, dict) or str(row.get("id") or "") != mid:
                 continue
+            ref = _s(row.get("content_ref"))
+            if ref and not (blobs_dir(path) / FsPath(ref).name).is_file():
+                return {
+                    "ok": False,
+                    "error": "missing_blob",
+                    "message_id": mid,
+                    "body_state": "missing_blob",
+                    "content_hash": str(row.get("content_hash") or ""),
+                    "locator": str(path),
+                }
             try:
                 resolved = resolve_transcript_row(row, path)
             except Exception as exc:  # noqa: BLE001
-                return {"ok": False, "error": f"resolve_failed: {type(exc).__name__}", "message_id": message_id}
+                return {"ok": False, "error": f"resolve_failed: {type(exc).__name__}", "message_id": mid}
             content = resolved.get("content")
             text = content if isinstance(content, str) else str(content or "")
             return {
                 "ok": True,
-                "message_id": message_id,
+                "message_id": mid,
                 "role": str(row.get("role") or ""),
                 "content": text[:max_chars],
                 "truncated": len(text) > max_chars,
-                "body_state": "blob" if row.get("content_ref") else "inline",
+                "body_state": "blob" if ref else "inline",
                 "content_hash": str(row.get("content_hash") or ""),
                 "locator": str(path),
             }
-    return {"ok": False, "error": "no_such_message", "message_id": message_id, "locator": str(path)}
+    return {"ok": False, "error": "no_such_message", "message_id": mid, "locator": str(path)}
 
 
 @router.get("/v1/diagnostics/capture")
 def get_capture(session_id: str = Query(..., min_length=1)) -> dict[str, Any]:
+    sid = _key(session_id, "session_id")
     return {
-        "session_id": session_id,
-        "enabled": capture_enabled(session_id),
+        "session_id": sid,
+        "enabled": capture_enabled(sid),
         "disk_bytes": store.dir_size(store.captures_dir()),
+        "disk_scope": "captures_dir",
         "quota_bytes": store.quota_bytes(),
         "locator": str(store.captures_dir()),
     }
@@ -284,15 +327,16 @@ def get_capture(session_id: str = Query(..., min_length=1)) -> dict[str, Any]:
 @router.post("/v1/diagnostics/capture")
 def post_capture(body: CaptureBody) -> dict[str, Any]:
     """按会话开启可复现记录。开启只影响是否落盘，不改变任何发射形状。"""
-    doc = set_capture_enabled(body.session_id, body.enabled, max_bytes=body.max_bytes, note=body.note)
-    return {"ok": True, "session_id": body.session_id, "enabled": capture_enabled(body.session_id), "config": doc}
+    sid = _key(body.session_id, "session_id")
+    doc = set_capture_enabled(sid, body.enabled, max_bytes=body.max_bytes, note=body.note)
+    return {"ok": True, "session_id": sid, "enabled": capture_enabled(sid), "config": doc}
 
 
 @router.get("/v1/diagnostics/captures/{body_hash}")
 def get_capture_body(body_hash: str = Path(min_length=1)) -> dict[str, Any]:
     from diagnostics.capture import resolve_capture
 
-    return resolve_capture(body_hash)
+    return resolve_capture(_ident(body_hash, "body_hash"))
 
 
 @router.post("/v1/diagnostics/experiments/plan")
@@ -346,27 +390,29 @@ def get_experiments(limit: int = Query(default=50, ge=1, le=200)) -> dict[str, A
 def get_experiment(experiment_id: str = Path(min_length=1)) -> dict[str, Any]:
     from diagnostics.experiments import runner
 
-    return runner.progress(experiment_id)
+    return runner.progress(_ident(experiment_id, "experiment_id"))
 
 
 @router.post("/v1/diagnostics/experiments/{experiment_id}/cancel")
 def post_experiment_cancel(experiment_id: str = Path(min_length=1)) -> dict[str, Any]:
     from diagnostics.experiments import runner
 
-    return runner.cancel(experiment_id)
+    return runner.cancel(_ident(experiment_id, "experiment_id"))
 
 
 @router.get("/v1/diagnostics/reports/{report_id}")
 def get_report(report_id: str = Path(min_length=1)) -> dict[str, Any]:
-    doc = load_report(report_id)
+    ident = _ident(report_id, "report_id")
+    doc = load_report(ident)
     if not doc:
-        return {"ok": False, "error": "no_such_report", "report_id": report_id}
+        return {"ok": False, "error": "no_such_report", "report_id": ident}
     return {"ok": True, "report": doc}
 
 
 @router.post("/v1/diagnostics/reports")
 def post_report(session_id: str = Query(..., min_length=1), turn_id: str = Query(default="")) -> dict[str, Any]:
-    run = collect_run(session_id, turn_id)
+    sid = _key(session_id, "session_id")
+    run = collect_run(sid, _s(turn_id))
     doc = build_report(run)
     ident = report_id(doc)
     path = save_report(doc)
