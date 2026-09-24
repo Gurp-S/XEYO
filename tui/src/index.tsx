@@ -5,53 +5,13 @@ import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { readFileSync, existsSync } from "node:fs";
 import { App } from "./app/App.js";
+import { argValue, missingOptionValues, positionalPrompt } from "./lib/cliArgs.js";
 import { runJsonChat } from "./runJson.js";
 import { detectColorMode, initTheme, type ColorMode } from "./theme.js";
 import type { CliConfig } from "./types.js";
 
-function argValue(argv: string[], name: string): string | undefined {
-  const i = argv.indexOf(name);
-  if (i >= 0 && argv[i + 1]) return argv[i + 1];
-  const pref = `${name}=`;
-  const hit = argv.find((a) => a.startsWith(pref));
-  return hit ? hit.slice(pref.length) : undefined;
-}
-
 function hasFlag(argv: string[], name: string): boolean {
   return argv.includes(name);
-}
-
-/** 收集末尾的自由文本提示词（位于各 flag 之后）。 */
-function positionalPrompt(argv: string[]): string {
-  const out: string[] = [];
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i]!;
-    if (a === "--") {
-      out.push(...argv.slice(i + 1));
-      break;
-    }
-    if (a.startsWith("-")) {
-      // 跳过已知带参选项后面的值
-      const takes =
-        a === "--cwd" ||
-        a === "--session" ||
-        a === "--provider" ||
-        a === "--model" ||
-        a === "-m" ||
-        a === "--api-key" ||
-        a === "--base-url" ||
-        a === "--permission-mode" ||
-        a === "--agent-mode" ||
-        a === "--color" ||
-        a.startsWith("--color=");
-      if (takes && !a.includes("=") && argv[i + 1] && !argv[i + 1]!.startsWith("-")) {
-        i += 1;
-      }
-      continue;
-    }
-    out.push(a);
-  }
-  return out.join(" ").trim();
 }
 
 /**
@@ -222,6 +182,16 @@ const argv = process.argv.slice(2);
 if (hasFlag(argv, "--help") || hasFlag(argv, "-h")) {
   printHelp();
   process.exit(0);
+}
+
+// 带值选项漏了值：必须报错退出。静默走默认值会让 --cwd --json hi 这类写法
+// 既不进 JSON 模式、又把 "--json" 之外的目录当成工程（旧行为）。
+const missingValues = missingOptionValues(argv);
+if (missingValues.length > 0) {
+  console.error(
+    `缺少取值：${missingValues.join(", ")}（每个都需要紧跟一个值，或用 --名字=值 的写法）`,
+  );
+  process.exit(2);
 }
 
 const jsonMode =
