@@ -265,12 +265,16 @@ promptEditRef,
 			),
 		[round],
 	);
+	const hasPendingToolResult = turnBlocks.some(block =>
+		block.items.some(item => item.kind === 'tool' && item.tool.waiting),
+	);
+	const roundSettledForDisplay = roundSettled && !hasPendingToolResult;
 	const mergedActivity = useMemo(() => {
-		if (!roundSettled) {
+		if (!roundSettledForDisplay) {
 			return null;
 		}
 		return mergeTurnActivity(turnBlocks);
-	}, [roundSettled, turnBlocks]);
+	}, [roundSettledForDisplay, turnBlocks]);
 	const finalProseIds = useMemo(
 		() =>
 			mergedActivity ? finalRoundProseMessageIds(turnBlocks) : null,
@@ -292,11 +296,11 @@ promptEditRef,
 		'idle',
 	);
 	useEffect(() => {
-		if (!roundSettled) {
+		if (!roundSettledForDisplay) {
 			sawLiveRef.current = true;
 			setSettlePhase('idle');
 		}
-	}, [roundSettled]);
+	}, [roundSettledForDisplay]);
 	useEffect(() => {
 		if (!mergedActivity) {
 			setSettlePhase('idle');
@@ -323,18 +327,29 @@ promptEditRef,
 			visibleProseIds: Set<string> | null;
 			includeAgents: boolean;
 		},
-	) => (
+	) => {
+		const blockWaitingStartedAt = block.items.reduce(
+			(earliest, item) =>
+				item.kind === 'tool' && item.tool.waiting && item.tool.createdAt > 0
+					? Math.min(earliest, item.tool.createdAt)
+					: earliest,
+			Infinity,
+		);
+		const blockWaiting = Number.isFinite(blockWaitingStartedAt) ||
+			block.items.some(item => item.kind === 'tool' && item.tool.waiting);
+		const turnActive = block.active || blockWaiting;
+		return (
 		<div key={`${block.id}-${opts.suppressActivity ? 'final' : 'full'}`}>
 			<AssistantTurn
 				turnId={block.id}
 				items={block.items}
 				streaming={block.streaming}
 				thinking={block.thinking}
-				active={block.active}
-				roundSettled={roundSettled}
+				active={turnActive}
+				roundSettled={roundSettledForDisplay}
 				isLatestTurn={block.id === latestTurnId}
 				hideActivityHeader={
-					!roundSettled &&
+					!roundSettledForDisplay &&
 					!activitySettled &&
 					block.id !== latestTurnId
 				}
@@ -346,18 +361,25 @@ promptEditRef,
 				streamingSignal={streamingSignal && Boolean(block.streaming)}
 				suppressActivity={opts.suppressActivity}
 				visibleProseIds={opts.visibleProseIds}
-				thoughtStartedAt={block.active ? thoughtStartedAt : null}
+				thoughtStartedAt={
+					block.active
+						? thoughtStartedAt
+						: blockWaiting && Number.isFinite(blockWaitingStartedAt)
+							? blockWaitingStartedAt
+							: null
+				}
 				workflowStatusText={block.active ? workflowStatusText : ''}
 			/>
 		</div>
-	);
+		);
+	};
 
 	return (
 		<RoundMount
 			roundId={round.id}
 			always={always}
 			root={root}
-			cacheHeight={roundSettled}
+			cacheHeight={roundSettledForDisplay}
 		>
 				{round.user ? (
 						<div

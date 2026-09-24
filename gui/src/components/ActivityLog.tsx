@@ -606,6 +606,7 @@ function ActivityLogInner({
 	})();
 	const anyRunning =
 		lastRunningIdx >= 0 && steps[lastRunningIdx]?.running === true;
+	const waitingForResult = steps.some(step => step.waiting);
 
 	const [elapsed, setElapsed] = useState(0);
 	const startRef = useRef<number>(startedAt ?? Date.now());
@@ -812,7 +813,9 @@ function ActivityLogInner({
 				{working ? (
 					<>
 						<span className="xy-split-head-lead">
-							<span className="xy-split-head-label">Working</span>
+							<span className="xy-split-head-label">
+								{waitingForResult ? 'Waiting for result' : 'Working'}
+							</span>
 							{workflowStatusText ? (
 								<span
 									className="min-w-0 truncate text-[11px] font-normal text-mute"

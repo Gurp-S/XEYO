@@ -82,6 +82,7 @@ export function toolsFingerprint(items: TurnItem[]): string {
 						item.tool.input,
 						item.tool.result,
 						item.tool.status,
+						item.tool.waiting,
 						item.tool.createdAt,
 						item.tool.reasoningBefore,
 						item.tool.thoughtMs,
@@ -117,6 +118,7 @@ type TurnItemSnapshot =
 			input: string;
 			result: string;
 			status: ToolView['status'];
+			waiting?: boolean;
 			createdAt: number;
 			reasoningBefore?: string;
 			thoughtMs?: number;
@@ -140,6 +142,7 @@ function snapshotTurnItems(items: TurnItem[]): TurnItemSnapshot[] {
 					input: item.tool.input,
 					result: item.tool.result,
 					status: item.tool.status,
+					waiting: item.tool.waiting,
 					createdAt: item.tool.createdAt,
 					reasoningBefore: item.tool.reasoningBefore,
 					thoughtMs: item.tool.thoughtMs,
@@ -169,6 +172,7 @@ function snapshotMatchesItems(snapshot: TurnItemSnapshot[], items: TurnItem[]): 
 			saved.input !== item.tool.input ||
 			saved.result !== item.tool.result ||
 			saved.status !== item.tool.status ||
+			saved.waiting !== item.tool.waiting ||
 			saved.createdAt !== item.tool.createdAt ||
 			saved.reasoningBefore !== item.tool.reasoningBefore ||
 			saved.thoughtMs !== item.tool.thoughtMs

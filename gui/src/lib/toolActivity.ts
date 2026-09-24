@@ -23,6 +23,8 @@ export type ActivityStep = {
 	diff?: DiffStat;
 	error?: boolean;
 	running?: boolean;
+	/** 工具执行流已结束，但尚未收到对应 tool result。 */
+	waiting?: boolean;
 	/** 完整 tool 结果 / stdout（展开 → Output）。 */
 	result?: string;
 	/** Agent 工具步骤（含 Failed），供卡片挂载识别。 */

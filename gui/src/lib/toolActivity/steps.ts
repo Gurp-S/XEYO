@@ -46,6 +46,7 @@ export function toolToStep(tool: ToolView): ActivityStep {
 			args: tool.input?.trim() ? tool.input : undefined,
 			error: err,
 			running,
+			waiting: tool.waiting,
 			result: tool.result,
 			agent: true,
 		};
@@ -173,6 +174,7 @@ export function toolToStep(tool: ToolView): ActivityStep {
 		diff: estimated,
 		error: err,
 		running,
+		waiting: tool.waiting,
 		result: tool.result,
 	};
 }

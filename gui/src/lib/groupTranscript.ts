@@ -8,6 +8,8 @@ export type ToolView = {
 	input: string;
 	result: string;
 	status: 'running' | 'done' | 'error';
+	/** 模型流已结束，但后端仍在等待这个工具的晚到结果。 */
+	waiting?: boolean;
 	createdAt: number;
 	reasoningBefore?: string;
 	thoughtMs?: number;
@@ -91,6 +93,7 @@ function toToolView(m: ChatMessage): ToolView {
 		input: toolInputOf(m),
 		result: toolResultOf(m),
 		status: toolStatusOf(m),
+		waiting: m.toolStatus === 'waiting' && !m.text.trim(),
 		createdAt: m.createdAt,
 		reasoningBefore: m.reasoningBefore,
 		thoughtMs: m.thoughtMs,
@@ -130,6 +133,8 @@ function consumeTools(
 						id: call.id,
 						result: toolResultOf(nextMsg),
 						status: toolStatusOf(nextMsg),
+						waiting:
+							nextMsg.toolStatus === 'waiting' && !nextMsg.text.trim(),
 					},
 				},
 				next: start + 2,
@@ -160,7 +165,11 @@ function settleOrphanRunningInBlocks(
 			if (item?.kind !== 'tool') {
 				continue;
 			}
-			if (item.tool.status === 'running' && !item.tool.result.trim()) {
+			if (
+				item.tool.status === 'running' &&
+				!item.tool.waiting &&
+				!item.tool.result.trim()
+			) {
 				b.items[i] = {
 					kind: 'tool',
 					tool: {...item.tool, status: 'error'},

@@ -56,6 +56,7 @@ export function activityStepEqual(a: ActivityStep, b: ActivityStep): boolean {
 		a.result === b.result &&
 		a.error === b.error &&
 		a.running === b.running &&
+		a.waiting === b.waiting &&
 		a.agent === b.agent &&
 		a.diff?.add === b.diff?.add &&
 		a.diff?.del === b.diff?.del
