@@ -22,6 +22,7 @@ from diagnostics.identity import (
 	Event,
 	EvidenceRef,
 	Gap,
+	gap_reason_text,
 	normalize_event,
 	request_key,
 	_s,
@@ -335,7 +336,7 @@ class RunEvidence:
 				refs = [e.ref("") for e in scoped if boundary_of(e.kind) == name]
 			for g in self.gaps:
 				if g.boundary == name:
-					notes.append(f"{g.reason}: {g.detail}".strip(": "))
+					notes.append(f"{gap_reason_text(g.reason)}：{g.detail}".strip("："))
 			out.append(
 				{
 					"name": name,

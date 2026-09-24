@@ -31,6 +31,27 @@ def _s(value: Any) -> str:
 	return str(value if value is not None else "").strip()
 
 
+#: 缺项原因码 → 中文。机器枚举只留在结构化字段里；把 ``out_of_window`` 这类内部
+#: 状态名拼进正文，界面与导出报告就会把机器名投给人读的那一行。
+GAP_REASON_TEXT = {
+	"absent": "该来源缺失",
+	"out_of_window": "超出采集窗口",
+	"source_absent": "来源文件不存在",
+	"not_captured": "未采集",
+	"not_recorded": "该级未记账",
+	"missing_evidence": "缺原始证据",
+	"missing_blob": "冷层正文已不在盘上",
+	"read_failed": "读取失败",
+}
+
+
+def gap_reason_text(reason: Any) -> str:
+	text = _s(reason)
+	if not text:
+		return "未记录原因"
+	return GAP_REASON_TEXT.get(text, f"未归类原因（{text}）")
+
+
 def _f(value: Any) -> float | None:
 	try:
 		f = float(value)

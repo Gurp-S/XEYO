@@ -12,12 +12,18 @@ from typing import Any
 
 from diagnostics import store
 from diagnostics.collect import BOUNDARIES, RunEvidence
-from diagnostics.fault_split import OUTCOME_LABEL, PARTY_LABEL, attribute_fault
+from diagnostics.fault_split import (
+	OUTCOME_LABEL,
+	PARTY_LABEL,
+	attribute_fault,
+	shown_to_model_label,
+)
 from diagnostics.identity import (
 	CONFIRMED_FAULT,
 	SCHEMA_VERSION,
 	SUSPECTED_CAUSE,
 	UNKNOWN,
+	gap_reason_text,
 	Finding,
 	_s,
 )
@@ -253,7 +259,10 @@ def to_markdown(doc: dict[str, Any]) -> str:
 	fault = doc.get("fault") or {}
 	lines.append(f"- 归属：{fault.get('responsibility_label') or PARTY_LABEL.get('undetermined')}")
 	lines.append(f"- 任务结局：{fault.get('task_outcome_label') or OUTCOME_LABEL.get('not_accepted')}")
-	lines.append(f"- 约束是否进入模型实际收到的内容：{fault.get('shown_to_model')}（{fault.get('shown_to_model_note')}）")
+	lines.append(
+		f"- 约束是否进入模型实际收到的内容：{shown_to_model_label(fault.get('shown_to_model'))}"
+		f"（{fault.get('shown_to_model_note')}）"
+	)
 	lines.append(f"- 主原因：{fault.get('primary_cause_label') or '未定'}（`{fault.get('primary_cause')}`）")
 	lines.append(f"- 为什么：{fault.get('why')}")
 	for cause in fault.get("causes") or []:
@@ -310,7 +319,9 @@ def to_markdown(doc: dict[str, Any]) -> str:
 	if not gaps:
 		lines.append("无记录到的缺项。")
 	for gap in gaps:
-		lines.append(f"- {_s(gap.get('boundary'))}：{_s(gap.get('reason'))} — {_s(gap.get('detail'))}")
+		lines.append(
+			f"- {_s(gap.get('boundary'))}：{gap_reason_text(gap.get('reason'))} — {_s(gap.get('detail'))}"
+		)
 	usage = doc.get("usage_summary") or {}
 	lines += ["", "## 用量", ""]
 	lines.append(

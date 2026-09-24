@@ -81,6 +81,29 @@ _MODEL_KINDS = {"INVALID_ARGUMENT", "ABORTED"}
 
 _ERROR_KIND_RX = re.compile(r"error_kind=([A-Z_]+)")
 
+# 人读正文只用中文；机器枚举留在结构化字段里。把 unprovable / turn_user_message
+# 这类内部状态名写进结论正文，界面就会原样投给用户，读者也无法把正文和字段对上。
+_SHOWN_TEXT = {
+	"shown": "已进入模型实际收到的内容",
+	"not_shown": "从未进入模型实际收到的内容",
+	"folded_out": "被折叠移出投影（未送达）",
+	"unprovable": "无法证明是否送达（缺按轮留存的最终请求体）",
+	"no_obligation": "没有可比对的约束文本",
+}
+
+_OBLIGATION_SOURCE_TEXT = {
+	"turn_user_message": "本轮用户原话",
+	"pin": "事后钉上的预期",
+}
+
+
+def shown_to_model_label(state: str) -> str:
+	return _SHOWN_TEXT.get(_s(state), "无法判定")
+
+
+def obligation_source_label(source: str) -> str:
+	return _OBLIGATION_SOURCE_TEXT.get(_s(source), _s(source) or "未记录")
+
 # 规则 → 归属（引擎侧的确定性缺陷）
 _ENGINE_RULES = {
 	"tool_pair_integrity",
@@ -662,7 +685,9 @@ def attribute_fault(run: RunEvidence, findings: list[Finding]) -> dict[str, Any]
 		_step(
 			"instruction_context",
 			"约束来源={}（{}）；是否进入模型实际收到的内容={}".format(
-				_s(obligation.get("source")), _s(obligation.get("ref_id"))[:16], shown["state"]
+				obligation_source_label(obligation.get("source")),
+				_s(obligation.get("ref_id"))[:16],
+				shown_to_model_label(shown["state"]),
 			),
 			MODEL if shown["state"] == "shown" else UNDETERMINED,
 			_obligation_step_evidence(obligation, shown),

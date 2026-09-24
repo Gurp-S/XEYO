@@ -7,7 +7,7 @@
 import {useEffect, useRef, useState} from 'react';
 import {Loader2} from 'lucide-react';
 import {traceDiagFact, type DiagFactTrace, type DiagRunDetail} from '@/lib/api/diagnostics';
-import {DASH, coverageStateLabel, factStateLabel, fmtBytes, ledgerCountText} from './model';
+import {DASH, coverageStateLabel, factStateLabel, fmtBytes, gapReasonLabel, ledgerCountText} from './model';
 import {Badge, EvidenceList, KeyValue, Notice, Section} from './ui';
 import {cn} from '@/lib/utils';
 
@@ -174,7 +174,7 @@ export function ContextView({
 						{detail.gaps.map((g, i) => (
 							<li key={i}>
 								<span className="xy-dig-gap-boundary">{g.boundary || DASH}</span>
-								<span className="xy-dig-gap-reason">{g.reason || DASH}</span>
+								<span className="xy-dig-gap-reason">{gapReasonLabel(g.reason)}</span>
 								<span>{g.detail || DASH}</span>
 							</li>
 						))}

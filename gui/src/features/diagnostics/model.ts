@@ -182,6 +182,23 @@ export const COVERAGE_STATE_LABEL: Record<string, string> = {
 	not_captured: '未采集',
 };
 
+/** 缺项原因码 → 中文。真实载荷上这些码会直接进界面，原样投出去就是机器名。 */
+export const GAP_REASON_LABEL: Record<string, string> = {
+	absent: '该来源缺失',
+	out_of_window: '超出采集窗口',
+	source_absent: '来源文件不存在',
+	not_captured: '未采集',
+	not_recorded: '该级未记账',
+	missing_evidence: '缺原始证据',
+	missing_blob: '冷层正文已不在盘上',
+	read_failed: '读取失败',
+};
+
+export function gapReasonLabel(reason: string): string {
+	if (!reason) return DASH;
+	return GAP_REASON_LABEL[reason] ?? `未归类原因（${reason}）`;
+}
+
 export function coverageStateLabel(state: string): string {
 	return COVERAGE_STATE_LABEL[state] ?? (state || DASH);
 }
