@@ -478,7 +478,7 @@ activeSpaceId: string;
 	agentTranscriptsById: Record<string, AgentDetail | null>;
 	/**
 	 * 子 agent 运行中的 token 级增量缓冲（key 同上）。
-	 * 渲染时按快照 assistant 文本总长对齐截尾：`buf.slice(snapLen)`；
+	 * 渲染时按当前运行快照的正文前缀对齐截尾；
 	 * 任务落定由 finalizeAgentStream 刷快照后清空，实现无缝续接。
 	 */
 	liveAgentTextById: Record<string, string>;
@@ -503,7 +503,7 @@ activeSpaceId: string;
 		sessionId: string,
 		agentId: string,
 		opts?: {force?: boolean},
-	) => Promise<void>;
+	) => Promise<boolean>;
 	/** 追加子 agent 输出增量（SSE multi_agent_delta；运行中逐字回放用）。 */
 	appendAgentDelta: (sessionId: string, agentId: string, text: string) => void;
 	/**

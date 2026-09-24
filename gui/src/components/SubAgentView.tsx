@@ -16,9 +16,8 @@ const NO_AGENT_TASKS: MultiAgentTaskView[] = [];
  * Composer/侧栏等样式零变化，仅消息内容不同。
  *
  * 实时回放与主 agent 同款：运行中 SSE `multi_agent_delta` 帧把
- * token 级增量写进 chatStore.liveAgentTextById；渲染时按快照
- * assistant 文本总长对齐截尾（`buf.slice(snapLen)`）交给 MessageList
- * 的 streamingText —— 与主界面完全相同的流式逐字输出。任务落定由
+ * token 级增量写进 chatStore.liveAgentTextById；渲染时只与最新运行
+ * 的 assistant 正文前缀对齐，避免历史轮次的长度裁掉新输出。任务落定由
  * finalizeAgentStream 刷终态快照并清空缓冲，无缝续接。
  *
  * 兜底轮询（1500ms）：覆盖不经 SSE 的直连 Agent 工具子任务，以及
@@ -63,7 +62,18 @@ const SubAgentTranscript = memo(function SubAgentTranscript({
 	const ensureAgentTranscript = useChatStore(s => s.ensureAgentTranscript);
 
 	const meta = useMemo(
-		() => tasks?.find(t => t.agentId === agentId),
+		() => {
+			let latest: MultiAgentTaskView | undefined;
+			for (const task of tasks ?? []) {
+				if (
+					task.agentId === agentId &&
+					(!latest || (task.batchAt ?? 0) >= (latest.batchAt ?? 0))
+				) {
+					latest = task;
+				}
+			}
+			return latest;
+		},
 		[tasks, agentId],
 	);
 
@@ -121,31 +131,48 @@ const SubAgentTranscript = memo(function SubAgentTranscript({
 			role: message.role,
 			text: message.text,
 			...(message.toolName !== undefined ? {toolName: message.toolName} : {}),
+			...(message.toolUseId !== undefined ? {toolUseId: message.toolUseId} : {}),
 			...(message.toolInput !== undefined
 				? {toolInput: message.toolInput}
 				: {}),
 			...(message.toolStatus !== undefined
 				? {toolStatus: message.toolStatus}
 				: {}),
+			...(message.isThought !== undefined ? {isThought: message.isThought} : {}),
+			...(message.reasoningBefore !== undefined
+				? {reasoningBefore: message.reasoningBefore}
+				: {}),
+			...(message.thoughtMs !== undefined ? {thoughtMs: message.thoughtMs} : {}),
 			...(message.mediaRefs?.length ? {mediaRefs: message.mediaRefs} : {}),
 			createdAt: message.createdAt,
 		}));
 	}, [detail]);
 
-	// 快照 assistant 文本总长：增量缓冲超出该长度的部分才是「正在生成」的尾巴；
-	// 服务端顺序回放保证 buf 与快照文本逐字一致，因此按长度对齐不会错位。
-	const snapAssistantLen = useMemo(() => {
-		if (!detail) return 0;
-		let n = 0;
-		for (const m of detail.messages) {
-			if (m.role === 'assistant') n += m.text.length;
+	// 增量缓冲只含本次运行；用整份历史的正文总长裁剪会在复用 agent 后把新输出裁空。
+	// 子任务开始时间限定当前轮已经写入快照的 assistant 正文，旧轮正文不参与对齐。
+	const snapshotRunAssistantText = useMemo(() => {
+		const batchAt = meta?.batchAt;
+		if (!detail || batchAt == null) return '';
+		return detail.messages
+			.filter(
+				message =>
+					message.role === 'assistant' &&
+					!message.isThought &&
+					message.createdAt >= batchAt,
+			)
+			.map(message => message.text)
+			.join('');
+	}, [detail, meta?.batchAt]);
+	const streamingTail = useMemo(() => {
+		if (!liveText) return '';
+		if (!snapshotRunAssistantText) return liveText;
+		if (liveText.startsWith(snapshotRunAssistantText)) {
+			return liveText.slice(snapshotRunAssistantText.length);
 		}
-		return n;
-	}, [detail]);
-	const streamingTail =
-		isLive && liveText.length > snapAssistantLen
-			? liveText.slice(snapAssistantLen)
-			: '';
+		if (snapshotRunAssistantText.startsWith(liveText)) return '';
+		// 快照和增量暂时不成前缀时保留增量；隐藏它可能丢掉整段实时输出。
+		return liveText;
+	}, [liveText, snapshotRunAssistantText]);
 
 	if (!messages || messages.length === 0) {
 		// 无提示占位：布局槽位保留；首字一旦到达即走同一条流式渲染路径。

@@ -26,6 +26,7 @@ export function multiAgentTaskViewsEqual(
 			x.agentId !== y.agentId ||
 			x.desc !== y.desc ||
 			x.status !== y.status ||
+			x.cancelRequested !== y.cancelRequested ||
 			x.reason !== y.reason ||
 			x.result !== y.result ||
 			x.readOnly !== y.readOnly ||

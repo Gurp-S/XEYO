@@ -100,8 +100,12 @@ export type AgentDetailMessage = {
 	role: 'user' | 'assistant' | 'tool';
 	text: string;
 	toolName?: string;
+	toolUseId?: string;
 	toolInput?: string;
 	toolStatus?: 'running' | 'done' | 'error';
+	isThought?: boolean;
+	reasoningBefore?: string;
+	thoughtMs?: number;
 	mediaRefs?: string[];
 	createdAt: number;
 };

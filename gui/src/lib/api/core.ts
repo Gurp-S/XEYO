@@ -326,6 +326,8 @@ export type MultiAgentTaskView = {
 	agentId: string;
 	desc: string;
 	status: 'pending' | 'running' | 'done' | 'failed';
+	/** 取消请求已受理，等待后端终态帧确认。 */
+	cancelRequested?: boolean;
 	reason?: string;
 	result?: string;
 	/** 空 scope = 只读工人（无 Write/Edit）。 */

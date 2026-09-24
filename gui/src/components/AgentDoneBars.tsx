@@ -108,6 +108,7 @@ const AgentBar = memo(function AgentBar({
 	onRetry: () => void;
 }) {
 	const running = task.status === 'running';
+	const cancelling = running && task.cancelRequested === true;
 	const pending = task.status === 'pending';
 	const failed = task.status === 'failed';
 	const done = task.status === 'done';
@@ -206,7 +207,11 @@ const AgentBar = memo(function AgentBar({
 			) : null}
 			<span className="xy-agent-bar-out">
 					{running ? (
-						<ThoughtTicker content={tickerSource} running />
+						cancelling ? (
+							<span className="xy-agent-bar-pending">正在取消…</span>
+						) : (
+							<ThoughtTicker content={tickerSource} running />
+						)
 					) : pending ? (
 						<span className="xy-agent-bar-pending">排队中</span>
 					) : (
@@ -229,13 +234,14 @@ const AgentBar = memo(function AgentBar({
 						<button
 							type="button"
 							className="xy-agent-bar-action"
-							aria-label={`取消 ${taskName}`}
+							aria-label={cancelling ? `正在取消 ${taskName}` : `取消 ${taskName}`}
+							disabled={cancelling}
 							onClick={e => {
 								e.stopPropagation();
 								onCancel();
 							}}
 						>
-							取消
+							{cancelling ? '取消中' : '取消'}
 						</button>
 					) : null}
 					{failed ? (
