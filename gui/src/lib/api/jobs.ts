@@ -10,7 +10,7 @@
  * whole-value 快照（SSE 帧 + GET），渲染层零 RPC。
  */
 import {apiUrl} from '@/lib/apiBase';
-import {fetchWithTimeout} from './core';
+import {fetchWithTimeout, formatErrorDetail} from './core';
 
 export type JobStatus = 'running' | 'stopping' | 'succeeded' | 'failed' | 'killed';
 
@@ -28,6 +28,9 @@ export type JobSnapshot = {
 };
 
 export type SessionJobsResult = {
+	/** false = 没读到（HTTP 失败 / 网络异常）；此时 jobs 是空占位，调用方不得覆写。 */
+	ok: boolean;
+	message: string;
 	jobs: JobSnapshot[];
 	version: number;
 	wake_budget_left: number;
@@ -95,7 +98,13 @@ export function activeJobsCount(jobs: JobSnapshot[]): number {
 	);
 }
 
-/** GET /v1/sessions/{sid}/jobs → owner 快照。 */
+/**
+ * GET /v1/sessions/{sid}/jobs → owner 快照。
+ *
+ * 读不出必须是 `ok:false`，不能塌成"这个会话没有在跑的任务"：
+ * 调用方 whole-value 覆写，空集会**删掉** store 键，而轮询只在"还有任务"时继续
+ * ⇒ 一次瞬时失败就让角标永久失明到下次切会话。
+ */
 export async function fetchSessionJobs(
 	sessionId: string,
 ): Promise<SessionJobsResult> {
@@ -104,19 +113,42 @@ export async function fetchSessionJobs(
 			apiUrl(`/v1/sessions/${encodeURIComponent(sessionId)}/jobs`),
 			{method: 'GET'},
 		);
+		const data = (await res.json().catch(() => null)) as Record<string, unknown> | null;
 		if (!res.ok) {
-			return {jobs: [], version: 0, wake_budget_left: 0};
+			return {
+				ok: false,
+				message: formatErrorDetail(data, res.status),
+				jobs: [],
+				version: 0,
+				wake_budget_left: 0,
+			};
 		}
-		const data = (await res.json()) as Record<string, unknown>;
+		if (!data || !Array.isArray(data.jobs)) {
+			return {
+				ok: false,
+				message: '后端回执缺少 jobs 字段',
+				jobs: [],
+				version: 0,
+				wake_budget_left: 0,
+			};
+		}
 		return {
+			ok: true,
+			message: '',
 			jobs: normalizeJobSnapshots(data.jobs),
 			version: Number.isFinite(Number(data.version)) ? Number(data.version) : 0,
 			wake_budget_left: Number.isFinite(Number(data.wake_budget_left))
 				? Number(data.wake_budget_left)
 				: 0,
 		};
-	} catch {
-		return {jobs: [], version: 0, wake_budget_left: 0};
+	} catch (err) {
+		return {
+			ok: false,
+			message: err instanceof Error ? err.message : String(err),
+			jobs: [],
+			version: 0,
+			wake_budget_left: 0,
+		};
 	}
 }
 

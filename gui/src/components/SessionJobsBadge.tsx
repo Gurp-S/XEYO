@@ -64,16 +64,24 @@ export function useSessionJobsLive(sessionId: string | null) {
 	useEffect(() => {
 		if (!sessionId) return;
 		let stopped = false;
+		let retryTimer = 0;
 		const refresh = async () => {
 			if (inflight.current || document.visibilityState !== 'visible') {
 				return;
 			}
 			inflight.current = true;
 			try {
-				const {jobs} = await fetchSessionJobs(sessionId);
-				if (!stopped) {
-					writeJobs(sessionId, jobs);
+				const res = await fetchSessionJobs(sessionId);
+				if (stopped) {
+					return;
 				}
+				if (!res.ok) {
+					// 读不出绝不覆写：空集会删掉 store 键，而轮询只在"还有任务"时继续，
+					// 一次瞬时失败就会让角标失明到下次切会话。定时重试一次。
+					retryTimer = window.setTimeout(() => void refresh(), JOBS_POLL_MS);
+					return;
+				}
+				writeJobs(sessionId, res.jobs);
 			} catch {
 				/* 降级：下个周期再试 */
 			} finally {
@@ -91,6 +99,7 @@ export function useSessionJobsLive(sessionId: string | null) {
 		return () => {
 			stopped = true;
 			window.clearInterval(timer);
+			window.clearTimeout(retryTimer);
 		};
 	}, [sessionId]);
 }

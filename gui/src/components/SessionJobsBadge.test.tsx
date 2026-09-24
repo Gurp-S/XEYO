@@ -62,6 +62,8 @@ let fixtureJobs: JobSnapshot[] | null = null;
 beforeEach(() => {
 	fetchSessionJobsMock.mockReset();
 	fetchSessionJobsMock.mockImplementation(async () => ({
+		ok: true,
+		message: '',
 		jobs: fixtureJobs ?? [],
 		version: 0,
 	}));
@@ -128,9 +130,30 @@ describe('SessionJobsBadge', () => {
 		expect(doneRow?.className).toContain('opacity-60');
 	});
 
+	it('读不出（ok:false）绝不删键：在跑的任务留在面板等下次重试', async () => {
+		seed('s1', [job({job_id: 'bash-1', status: 'running'})]);
+		fetchSessionJobsMock.mockResolvedValue({
+			ok: false,
+			message: 'HTTP 503',
+			jobs: [],
+			version: 0,
+		});
+		const {container} = render(<SessionJobsBadge sessionId="s1" />);
+		expect(container).not.toBeEmptyDOMElement();
+		// 让 mount 的那一次 GET 落地（它若塌成空集就会把 store 键删掉）
+		await new Promise(resolve => setTimeout(resolve, 80));
+		expect(useChatStore.getState().sessionJobsById['s1']).toHaveLength(1);
+		expect(screen.getByText(/后台/)).toBeTruthy();
+	});
+
 	it('空集 = 删除键：GET 返回空后控件消失且 store 无键', async () => {
 		seed('s1', [job({job_id: 'bash-1', status: 'running'})]);
-		fetchSessionJobsMock.mockResolvedValue({jobs: [], version: 0});
+		fetchSessionJobsMock.mockResolvedValue({
+			ok: true,
+			message: '',
+			jobs: [],
+			version: 0,
+		});
 		const {container} = render(<SessionJobsBadge sessionId="s1" />);
 		expect(container).not.toBeEmptyDOMElement();
 		await waitFor(() => {
