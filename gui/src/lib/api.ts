@@ -624,7 +624,18 @@ export type MediaUploadResult = {
 	filename: string;
 };
 
-export async function setWorkspace(path: string): Promise<string> {
+let workspaceOperationTail: Promise<void> = Promise.resolve();
+
+function enqueueWorkspaceOperation<T>(operation: () => Promise<T>): Promise<T> {
+	const result = workspaceOperationTail.then(operation, operation);
+	workspaceOperationTail = result.then(
+		() => undefined,
+		() => undefined,
+	);
+	return result;
+}
+
+async function setWorkspaceNow(path: string): Promise<string> {
 	const res = await fetchWithTimeout(apiUrl('/v1/workspace'), {
 		method: 'POST',
 		headers: {'Content-Type': 'application/json'},
@@ -641,6 +652,26 @@ export async function setWorkspace(path: string): Promise<string> {
 	}
 	const data = (await res.json()) as {cwd?: string};
 	return data.cwd ?? path;
+}
+
+/** Serialize cwd mutations; workspace-relative reads use withWorkspaceRoot below. */
+export function setWorkspace(path: string): Promise<string> {
+	return enqueueWorkspaceOperation(() => setWorkspaceNow(path));
+}
+
+/** Keep a cwd-dependent request paired with the root it belongs to. */
+export function withWorkspaceRoot<T>(
+	path: string,
+	request: () => Promise<T>,
+): Promise<T> {
+	const root = path.trim();
+	if (!root) {
+		return request();
+	}
+	return enqueueWorkspaceOperation(async () => {
+		await setWorkspaceNow(root);
+		return request();
+	});
 }
 
 export type WorkspaceEntry = {

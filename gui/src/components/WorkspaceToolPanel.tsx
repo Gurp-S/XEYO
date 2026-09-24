@@ -7,7 +7,8 @@ import {useHoverScroll} from '@/hooks/useHoverScroll';
 import {usePaneResize} from '@/hooks/usePaneResize';
 import {usePresence} from '@/hooks/usePresence';
 import {cn} from '@/lib/utils';
-import {execWorkspaceTerminal, gitLog, gitStatus, type GitLogResult, type GitStatusEntry, type GitStatusResult} from '@/lib/api';
+import {samePath} from '@/lib/paths';
+import {execWorkspaceTerminal, gitLog, gitStatus, withWorkspaceRoot, type GitLogResult, type GitStatusEntry, type GitStatusResult} from '@/lib/api';
 import {groupTranscript, type TurnItem} from '@/lib/groupTranscript';
 import {useChatStore} from '@/stores/chatStore';
 import {useSettingsStore, PANE_WIDTH_MAX, PANE_WIDTH_MIN, isSmoothnessOn} from '@/stores/settingsStore';
@@ -167,6 +168,11 @@ function StatusGroup({title, entries, tone}: {title: string; entries: GitStatusE
 
 /* ==== 提交记录：全部 git log（终端风格，单条最多两行，与「历史命令」一致） ==== */
 function CommitsBody() {
+	const hydrated = useChatStore(s => s.hydrated);
+	const rootPath = useChatStore(s => {
+		const space = s.spaces.find(item => item.id === s.activeSpaceId);
+		return space?.rootPath ?? '';
+	});
 	const [log, setLog] = useState<GitLogResult | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [copied, setCopied] = useState<string | null>(null);
@@ -175,9 +181,14 @@ function CommitsBody() {
 
 	useEffect(() => {
 		let disposed = false;
-		void gitLog(500)
+		setLog(null);
+		setError(null);
+		void withWorkspaceRoot(rootPath, () => gitLog(500))
 			.then(result => {
 				if (!disposed) {
+					if (rootPath && !samePath(rootPath, result.cwd)) {
+						throw new Error('工作区已切换，请重新加载提交记录');
+					}
 					setLog(result);
 					setError(null);
 				}
@@ -190,7 +201,7 @@ function CommitsBody() {
 		return () => {
 			disposed = true;
 		};
-	}, []);
+	}, [hydrated, rootPath]);
 
 	const onCopy = async (hash: string) => {
 		try {
@@ -279,15 +290,26 @@ function CommitsBody() {
 }
 
 function GitBody() {
+	const hydrated = useChatStore(s => s.hydrated);
+	const rootPath = useChatStore(s => {
+		const space = s.spaces.find(item => item.id === s.activeSpaceId);
+		return space?.rootPath ?? '';
+	});
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
 	const [status, setStatus] = useState<GitStatusResult | null>(null);
 
 	useEffect(() => {
 		let disposed = false;
+		setLoading(true);
+		setError(null);
+		setStatus(null);
 		void (async () => {
 			try {
-				const next = await gitStatus();
+				const next = await withWorkspaceRoot(rootPath, () => gitStatus());
+				if (rootPath && !samePath(rootPath, next.cwd)) {
+					throw new Error('工作区已切换，请重新加载 Git 状态');
+				}
 				if (!disposed) {
 					setStatus(next);
 					setError(null);
@@ -305,7 +327,7 @@ function GitBody() {
 		return () => {
 			disposed = true;
 		};
-	}, []);
+	}, [hydrated, rootPath]);
 	usePanelSubtitle(status?.repo && status.branch ? `${status.branch}${status.head ? ` · ${status.head}` : ''}` : '');
 
 	return (
