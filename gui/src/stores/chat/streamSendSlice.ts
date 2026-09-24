@@ -19,6 +19,7 @@ import {formatLlmRetryStarted, formatLlmRetryWaiting} from '@/lib/llmRetryStatus
 import {allowsEmptyApiKey} from '@/lib/localTestGate';
 import {toast} from '@/lib/toast';
 import {
+	patchMessages,
 	replaceMessages,
 	saveSession,
 	SIDE_SPACE_ID,
@@ -219,28 +220,64 @@ export function createStreamSendSlice(
 				// sendMessage 返回 false，Composer 把草稿退回输入框——对齐 Codex
 				// rejected_steers：被拒的消息绝不消失在气泡撤回与清空输入框之间。
 				let queueAccepted = false;
+				let userMessagePersisted = false;
+				const persistAcceptedMessages = (messages: ChatMessage[]) => {
+					void patchMessages(sessionId, messages).catch(err => {
+						const detail = err instanceof Error ? err.message : String(err);
+						set(
+							sessionErrorBannerPatch(
+								sessionId,
+								`本地保存失败：${detail}`,
+							),
+						);
+					});
+				};
+				const persistAcceptedUserMessage = () => {
+					if (userMessagePersisted) return;
+					userMessagePersisted = true;
+					persistAcceptedMessages([qUserMsg]);
+				};
+				const markQueueAccepted = () => {
+					queueAccepted = true;
+					persistAcceptedUserMessage();
+				};
+				const appendQueuedProse = () => {
+					if (!queuedProse.trim()) return;
+					const prevMsgs = get().messagesById[sessionId] ?? [];
+					const nextMsgs = appendAssistantProse(prevMsgs, queuedProse);
+					if (nextMsgs === prevMsgs) return;
+					set(s => ({
+						messagesById: {...s.messagesById, [sessionId]: nextMsgs},
+					}));
+					persistAcceptedMessages(
+						nextMsgs.filter((message, index) => message !== prevMsgs[index]),
+					);
+				};
 				const qPending = createPendingStreamHandlers({get, sessionId});
 				const queueHandlers: ChatStreamHandlers = {
 					// 竞态防御：live 判定为 true 但后端实际未排队、直接开跑时（SSE 200 而非
 					// 202），onDelta/onDone 不能空置（否则回复被吞、用户看到「无 chip 无回复」）。
 					// 用闭包累积文本，onDone 时用 appendAssistantProse 把 assistant 回复落地。
 					onDelta(text: string) {
-						queueAccepted = true;
+						markQueueAccepted();
 						queuedProse += text;
 					},
 					onDone() {
-						if (queuedProse.trim()) {
-							const prevMsgs = get().messagesById[sessionId] ?? [];
-							set(s => ({
-								messagesById: {
-									...s.messagesById,
-									[sessionId]: appendAssistantProse(prevMsgs, queuedProse),
-								},
-							}));
-						}
+						markQueueAccepted();
+						appendQueuedProse();
 					},
-					onError(message: string) {
-						// 排队失败（后端不支持 / 其它拒绝）：撤回乐观气泡 + 提示。
+					onError(message: string, details) {
+						// HTTP 拒绝（尚未受理）才撤回乐观消息；流中断发生在回合
+						// 已启动之后，保留用户输入并保存已收到的部分回复。
+						if (details?.kind === 'connection_lost') {
+							markQueueAccepted();
+						}
+						if (queueAccepted) {
+							persistAcceptedUserMessage();
+							set(sessionErrorBannerPatch(sessionId, message));
+							appendQueuedProse();
+							return;
+						}
 						const kept = (get().messagesById[sessionId] ?? []).filter(
 							m => m.id !== qUserMsg.id,
 						);
@@ -251,32 +288,57 @@ export function createStreamSendSlice(
 					},
 					// 竞态（本地判定 busy，后端其实直接开跑 = SSE 200）时这条流会真的
 					// 送来审批/追问/计划帧：不接就等于引擎卡在等一个永不出现的弹窗。
+					onReasoningDelta: markQueueAccepted,
+					onToolCall: markQueueAccepted,
+					onToolResult: markQueueAccepted,
+					onToolProgress: markQueueAccepted,
+					onUsage: markQueueAccepted,
+					onCompression: markQueueAccepted,
+					onGoal: markQueueAccepted,
+					onJobs: markQueueAccepted,
+					onTaskState: markQueueAccepted,
+					onStreamGap: markQueueAccepted,
+					onMultiAgentTask: markQueueAccepted,
+					onMultiAgentResult: markQueueAccepted,
+					onMultiAgentProgress: markQueueAccepted,
+					onMultiAgentDelta: markQueueAccepted,
+					onMultiAgentStatus: markQueueAccepted,
+					onLlmRetry: markQueueAccepted,
+					onLlmRetryStarted: markQueueAccepted,
+					onTitle: markQueueAccepted,
 					onPermissionPending(ev) {
+						markQueueAccepted();
 						qPending.onPermissionPending(ev);
 					},
 					onPermissionResolved(ev) {
+						markQueueAccepted();
 						qPending.onPermissionResolved(ev);
 					},
 					onAskUserPending(ev) {
+						markQueueAccepted();
 						qPending.onAskUserPending(ev);
 					},
 					onAskUserResolved(ev) {
+						markQueueAccepted();
 						qPending.onAskUserResolved(ev);
 					},
 					onPlanPending(ev) {
+						markQueueAccepted();
 						qPending.onPlanPending(ev);
 					},
 					onPlanResolved(ev) {
+						markQueueAccepted();
 						qPending.onPlanResolved(ev);
 					},
 					onSteered() {
-						queueAccepted = true;
+						markQueueAccepted();
 						// 与"已排队（回合结束后投）"区别开：这条在本轮边界送达。
 						// 不建 inbox 卡——引导路径没有 queue_id，卡删不掉；乐观气泡
 						// 本身就是指示物。
 						toast.info('已排到本轮边界，模型下一步就能看到');
 					},
 					onSteerDelivered({messageIds}: {messageIds: string[]}) {
+						markQueueAccepted();
 						set(s => ({
 							inboxBySession: dropDeliveredInboxChips(
 								s.inboxBySession,
@@ -287,7 +349,7 @@ export function createStreamSendSlice(
 						void get().refreshInbox(sessionId);
 					},
 					onQueued({queueId, position}: {queueId: string; position: number}) {
-						queueAccepted = true;
+						markQueueAccepted();
 						if (!queueId.trim()) {
 							void get().refreshInbox(sessionId);
 							return;
