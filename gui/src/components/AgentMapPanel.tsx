@@ -96,6 +96,9 @@ export function AgentMapPanel() {
 		const space = s.spaces.find(sp => sp.id === s.activeSpaceId);
 		return space?.rootPath?.trim() || '';
 	});
+	const symbolsRequestRef = useRef(0);
+	const symbolsScopeRef = useRef(spaceRoot);
+	symbolsScopeRef.current = spaceRoot;
 
 	const [symbols, setSymbols] = useState<WorkspaceOutlineSymbol[]>([]);
 	const [symbolsFor, setSymbolsFor] = useState<string | null>(null);
@@ -112,6 +115,19 @@ export function AgentMapPanel() {
 			void load(spaceRoot);
 		}
 	}, [load, spaceRoot, view]);
+
+	useEffect(() => {
+		symbolsRequestRef.current += 1;
+		setSymbols([]);
+		setSymbolsFor(null);
+		setSymbolsLoading(false);
+	}, [spaceRoot]);
+
+	useEffect(() => {
+		return () => {
+			symbolsRequestRef.current += 1;
+		};
+	}, []);
 
 	useEffect(() => {
 		const onKey = (e: KeyboardEvent) => {
@@ -391,6 +407,8 @@ export function AgentMapPanel() {
 		async (id: string, nodeKind: LaidNode['kind']) => {
 			setCard(id, nodeKind);
 			if (nodeKind === 'package') {
+				symbolsRequestRef.current += 1;
+				setSymbolsLoading(false);
 				// 先切视图（会清空 query），再写入包过滤，避免污染架构视图。
 				setView('code');
 				setQuery(id);
@@ -399,19 +417,37 @@ export function AgentMapPanel() {
 				return;
 			}
 			if (nodeKind === 'file') {
+				const requestId = ++symbolsRequestRef.current;
+				const requestRoot = spaceRoot;
 				setSymbolsLoading(true);
 				setSymbolsFor(id);
+				setSymbols([]);
 				try {
 					const out = await fetchWorkspaceOutline(id);
-					setSymbols(out.symbols ?? []);
+					if (
+						symbolsRequestRef.current === requestId &&
+						symbolsScopeRef.current === requestRoot
+					) {
+						setSymbols(out.symbols ?? []);
+					}
 				} catch {
-					setSymbols([]);
+					if (
+						symbolsRequestRef.current === requestId &&
+						symbolsScopeRef.current === requestRoot
+					) {
+						setSymbols([]);
+					}
 				} finally {
-					setSymbolsLoading(false);
+					if (
+						symbolsRequestRef.current === requestId &&
+						symbolsScopeRef.current === requestRoot
+					) {
+						setSymbolsLoading(false);
+					}
 				}
 			}
 		},
-		[setCard, setView, setQuery],
+		[setCard, setView, setQuery, spaceRoot],
 	);
 
 	const cardHit: AgentPresenceHit | null = useMemo(() => {

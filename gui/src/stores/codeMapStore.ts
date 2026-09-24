@@ -94,6 +94,10 @@ export const useCodeMapStore = create<CodeMapState>((set, get) => ({
 	summaryLoading: null,
 	async load(root) {
 		const cwd = (root ?? activeRootPath()).trim();
+		// 每次请求意图都接管当前代次，包括空工作区和命中缓存的路径；否则较早的
+		// 工作区请求可能在切走/切回后落盘，覆盖当前图，或留下错误的 loading 状态。
+		loadSeq += 1;
+		const seq = loadSeq;
 		if (!cwd) {
 			const cur = get();
 			if (
@@ -112,10 +116,11 @@ export const useCodeMapStore = create<CodeMapState>((set, get) => ({
 			return;
 		}
 		if (get().loadedRoot === cwd && get().graph && !get().error) {
+			if (get().loading) {
+				set({loading: false});
+			}
 			return;
 		}
-		loadSeq += 1;
-		const seq = loadSeq;
 		set({loading: true, error: null});
 		try {
 			const graph = await fetchWorkspaceGraph();
