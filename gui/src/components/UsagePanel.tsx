@@ -107,13 +107,20 @@ function fmtHitRate(hr: number | null | undefined): string {
 	return hr == null ? '—' : `${hr}%`;
 }
 
-function fmtBalance(raw: string, currency?: string): string {
-	const n = Number(raw);
-	const unit = (currency || 'CNY').toUpperCase() === 'USD' ? '$' : '¥';
-	if (!Number.isFinite(n)) {
-		return `${unit}${raw}`;
+/**
+ * 余额展示。厂商**没给数**（缺字段 / 空串 / 非数字）一律 `—`，不能画出一个光秃的
+ * 货币符号 —— "没查到" 和 "余额是 0" 是两件事，与后端 money 口径（缺失用量记
+ * 「费用未知」、永不按 0 计入）同一判据。
+ * 旧实现的 `!Number.isFinite(n)` 分支和函数末尾返回值**逐字相同**（死判断），于是
+ * 实测 `fmtBalance('')` 输出 `¥`、`fmtBalance('abc')` 输出 `¥abc`。
+ */
+export function fmtBalance(raw: string, currency?: string): string {
+	const t = String(raw ?? '').trim();
+	if (!t || !Number.isFinite(Number(t))) {
+		return '—';
 	}
-	return `${unit}${raw}`;
+	const unit = (currency || 'CNY').toUpperCase() === 'USD' ? '$' : '¥';
+	return `${unit}${t}`;
 }
 
 /** v4：无金额 —— 来源提示只说明「厂商官方 / 本机记账」。 */
@@ -633,7 +640,7 @@ export function UsagePanel({active = true}: Props) {
 		{id: '', label: '全部', hint: '当前账号全部 Key'},
 		...keys.map(k => ({id: k, label: k, hint: 'API Key'})),
 	];
-		const activeDay = dayChoices.find(d => d.id === String(days)) ?? dayChoices[2];
+	const activeDay = dayChoices.find(d => d.id === String(days)) ?? dayChoices[2];
 	const activeKey = keyChoices.find(k => k.id === keyFp) ?? keyChoices[0];
 	const activeChoice = modelChoices.find(
 		choice => choice.id === modelId && choice.filterProvider === modelProvider,
