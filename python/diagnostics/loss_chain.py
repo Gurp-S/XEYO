@@ -15,6 +15,7 @@ from diagnostics.collect import RunEvidence
 from diagnostics.identity import _s
 
 FOUND = "found"
+FOLDED_OUT = "folded_out"
 ABSENT = "absent"
 NOT_RECORDED = "not_recorded"
 NOT_CAPTURED = "not_captured"
@@ -144,6 +145,7 @@ def _stage_source_history(run: RunEvidence, needle: str, cap: int) -> dict[str, 
 			evidence=hits[:10],
 			note=f"命中 {len(hits)} 条消息" + (f"；另有 {unreadable} 条正文不可解引用" if unreadable else ""),
 		)
+	# ↑ hits 里已带 transcript 行号，折叠判定按第一条命中位置估算
 	if unreadable:
 		return _stage(
 			"source_history",
@@ -286,6 +288,31 @@ def _stage_emitted(run: RunEvidence, needle: str) -> dict[str, Any]:
 			],
 			note="按规范化投影文本匹配；正文不入报告",
 		)
+	# 区分两种"没在投影里"：被折叠移出投影 vs 从未进入投影。用既有游标，不新建账本。
+	cursor = int((run.working or {}).get("compact_cursor") or 0)
+	hit_lines = [
+		int(row.get("line_no") or 0)
+		for row in run.transcript_rows
+		if isinstance(row.get("content"), str) and _hit(needle, row["content"])
+	]
+	folded_out = bool(hit_lines) and any(0 < (ln - 1) < cursor for ln in hit_lines)
+	if folded_out:
+		return _stage(
+			"emitted",
+			FOLDED_OUT,
+			evidence=[
+				{
+					"source": "working",
+					"locator": locator,
+					"ref_id": "compact_cursor",
+					"detail": f"游标 {cursor}：第 {min(hit_lines)} 行落在被折叠区间内",
+				}
+			],
+			note=(
+				"该消息在 compact_cursor 之前：被折叠移出投影，而不是从未进入投影。"
+				"前提是 transcript 行序与游标同为消息序号；游标口径变了这里会误判。"
+			),
+		)
 	return _stage(
 		"emitted",
 		ABSENT,
@@ -419,6 +446,12 @@ def trace_fact(run: RunEvidence, needle: str, *, transcript_cap: int = 400) -> d
 			"该事实在发射级仍然可查（中间级可以合理跳过，跳过不构成丢失）。"
 			"它仍在热层时任务失败，只能排除「这条被直接删掉」，不能排除压缩通过信息顺序或噪声影响模型。"
 		)
+	elif state_at.get("emitted") == FOLDED_OUT:
+		verdict = "folded_out_of_projection"
+		statement = (
+			"该事实在源历史里查得到，但落在 compact_cursor 之前的折叠区间内：是折叠把它移出投影的。"
+			"折叠本身可以是对的，需要复核的是这条是否该被保留。"
+		)
 	elif state_at.get("emitted") == ABSENT:
 		verdict = "lost_before:emitted"
 		statement = (
@@ -444,4 +477,13 @@ def trace_fact(run: RunEvidence, needle: str, *, transcript_cap: int = 400) -> d
 	}
 
 
-__all__ = ["ABSENT", "FOUND", "NOT_CAPTURED", "NOT_RECORDED", "STAGES", "UNREADABLE", "trace_fact"]
+__all__ = [
+	"ABSENT",
+	"FOLDED_OUT",
+	"FOUND",
+	"NOT_CAPTURED",
+	"NOT_RECORDED",
+	"STAGES",
+	"UNREADABLE",
+	"trace_fact",
+]

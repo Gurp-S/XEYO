@@ -259,6 +259,8 @@ def _shown_to_model(run: RunEvidence, needle: str) -> dict[str, Any]:
 		proj_stage = _stage_emitted(run, needle)
 		if proj_stage["state"] == "found":
 			return {"state": "shown", "evidence": proj_stage["evidence"], "note": "在上一枪实际发送的投影里命中"}
+		if proj_stage["state"] == "folded_out":
+			return {"state": "folded_out", "evidence": proj_stage["evidence"], "note": proj_stage["note"]}
 		if proj_stage["state"] == "absent":
 			return {"state": "not_shown", "evidence": proj_stage["evidence"], "note": "发送投影里没有这段约束"}
 		return {"state": "unprovable", "evidence": [], "note": proj_stage["note"]}
@@ -470,7 +472,8 @@ def attribute_fault(run: RunEvidence, findings: list[Finding]) -> dict[str, Any]
 			MODEL if shown["state"] == "shown" else UNDETERMINED,
 			_obligation_step_evidence(obligation, shown),
 		)
-	constraint_lost = shown["state"] == "not_shown" and not after_the_fact
+	# 折叠移出与从未进入都是"该在场却没送到"，只是前者能定位到具体一级。
+	constraint_lost = shown["state"] in {"not_shown", "folded_out"} and not after_the_fact
 	if constraint_lost:
 		_step(
 			"wsc_fold",
@@ -503,6 +506,7 @@ def attribute_fault(run: RunEvidence, findings: list[Finding]) -> dict[str, Any]
 	cause_list = _causes.derive(
 		findings=findings,
 		constraint_lost=constraint_lost,
+		constraint_mode=_s(shown["state"]),
 		permission_blocked=(
 			unmet["state"] == "blocked_by_permission"
 			or any(f_item.rule_id == "permission_block" and f_item.status == CONFIRMED_FAULT for f_item in findings)
@@ -577,8 +581,10 @@ def attribute_fault(run: RunEvidence, findings: list[Finding]) -> dict[str, Any]
 		missing.append("未开启可复现记录且无上一枪投影：开 capture 后重跑才能得到最终请求体正文")
 	if outcome == OUTCOME_NOT_ACCEPTED and shown["state"] == "shown":
 		missing.append("没有验收记录：补一条 verifier（或让模型跑被要求的测试）才能判完没完成")
-	if shown["state"] == "not_shown" and not after_the_fact:
-		missing.append("约束未进入发送内容：这是引擎侧丢失，需定位到具体边界")
+	if constraint_lost and shown["state"] == "not_shown":
+		missing.append("约束未进入发送内容：还需候选/选择两级的账本才能定位到具体一级")
+	if constraint_lost and shown["state"] == "folded_out":
+		missing.append("约束落在折叠区间内：需复核这条是否该被保留，而不是找别的边界")
 	if after_the_fact:
 		missing.append("预期是事后钉上的：不能据此判这一枪丢了约束；要判需在下一枪前就固定预期")
 	if outcome == OUTCOME_NOT_ACCEPTED:

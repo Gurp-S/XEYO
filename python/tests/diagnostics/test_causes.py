@@ -6,6 +6,7 @@ import json
 
 from diagnostics.causes import (
 	ACCEPT_MISSING,
+	CONSTRAINT_FOLDED,
 	SELF_REPORT_MISMATCH,
 	ACTION_SKIPPED,
 	CONTEXT_DROPPED,
@@ -49,6 +50,13 @@ def _user_turn(text: str, shown_text: str, monkeypatch) -> None:
 	import diagnostics.loss_chain as lc
 
 	monkeypatch.setattr(lc, "_last_sent_projection", lambda sid: (json.dumps([{"content": shown_text}]), "w.json"))
+
+
+def _write_transcript(session_id: str, rows: list[dict]) -> None:
+	path = transcript_path(session_id)
+	path.parent.mkdir(parents=True, exist_ok=True)
+	lines = [json.dumps(r, ensure_ascii=False) for r in rows]
+	path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def _codes(verdict: dict) -> list[str]:
@@ -111,6 +119,27 @@ def test_missing_verifier_is_a_cause_but_blames_nobody(monkeypatch) -> None:
 	item = next(c for c in verdict["causes"] if c["code"] == ACCEPT_MISSING)
 	assert item["party"] == "undetermined"
 	assert "既不能判完成也不能判失败" in item["does_not_prove"]
+
+
+def test_folded_out_gets_its_own_cause_and_a_different_next_step(monkeypatch) -> None:
+	"""折叠移出要单独成码：下一步是复核这条该不该保留，不是去找别的边界。"""
+	constraint = "改完必须跑 pytest"
+	_write_transcript("s1", [{"id": "m1", "role": "user", "ts": 1.0, "content": constraint}])
+	import diagnostics.loss_chain as lc
+
+	monkeypatch.setattr(lc, "_last_sent_projection", lambda sid: (json.dumps([{"content": "无关"}]), "w.json"))
+	run = _run(
+		transcript_rows=[{"id": "m1", "role": "user", "line_no": 2, "content": constraint, "locator": "t.jsonl"}],
+		working={"compact_cursor": 5, "locator": "w.json"},
+	)
+	verdict = attribute_fault(run, [])
+	assert verdict["shown_to_model"] == "folded_out"
+	assert verdict["responsibility"] == "engine"
+	codes = _codes(verdict)
+	assert CONSTRAINT_FOLDED in codes and CONTEXT_DROPPED not in codes
+	item = next(c for c in verdict["causes"] if c["code"] == CONSTRAINT_FOLDED)
+	assert "折叠是错的" not in item["proves"] and "复核" in item["does_not_prove"]
+	assert any("是否该被保留" in m for m in verdict["missing_evidence"])
 
 
 def test_causes_are_listed_not_merged(monkeypatch) -> None:

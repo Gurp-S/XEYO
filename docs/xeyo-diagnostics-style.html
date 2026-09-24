@@ -326,7 +326,7 @@ footer.legal{padding:0 26px 30px;font-size:11.5px;color:var(--mute)}
         <div class="panel on" id="p-verdict">
           <div class="card">
             <h3>引擎把这一步挡下来了，不是模型没干活</h3>
-            <div class="sub">responsibility = engine · task_outcome = not_accepted · 判据是不对称的：没有发现引擎异常 ≠ 模型有错</div>
+            <div class="sub">responsibility = engine · primary_cause = constraint_folded_out_of_projection · 判据不对称：没发现引擎异常 ≠ 模型有错</div>
             <div class="verdict">
               <div class="party" data-p="engine"><b>引擎侧</b><span>responsibility</span></div>
               <div>
@@ -334,7 +334,7 @@ footer.legal{padding:0 26px 30px;font-size:11.5px;color:var(--mute)}
                 <dl class="kv">
                   <dt>首个已确认异常边界</dt><dd>工具与权限（tool_permission）</dd>
                   <dt>最后已确认正常边界</dt><dd>模型请求与响应（model_request）</dd>
-                  <dt>约束是否送到模型</dt><dd>not_shown —— 用户声明「改完必须跑测试」未出现在最后发射的投影里</dd>
+                  <dt>约束是否送到模型</dt><dd>folded_out —— 「改完必须跑测试」落在折叠区间内，被移出投影</dd>
                   <dt>任务结局</dt><dd>未执行验收：无法判定任务是否完成</dd>
                 </dl>
               </div>
@@ -367,6 +367,10 @@ footer.legal{padding:0 26px 30px;font-size:11.5px;color:var(--mute)}
             <h3>四类失败，落到三个归属</h3>
             <div class="sub">同一套判据，不对称门槛：引擎侧由不变量破坏直接证明，模型侧必须同时有送达证据与可机器判定的矛盾</div>
             <div class="partygrid">
+              <div class="pcard">
+                <h4><span class="dotmark" data-p="engine"></span>约束被折叠移出</h4>
+                <p>源历史查得到、折叠游标覆盖该行 ⇒ <code>engine</code>。折叠未必错，需复核这条该不该保留。</p>
+              </div>
               <div class="pcard">
                 <h4><span class="dotmark" data-p="engine"></span>权限挡了调用</h4>
                 <p>ASK 超时或 DENY ⇒ <code>engine</code>。执行层结果，模型看到的是拒绝，不是它没做。</p>
@@ -401,10 +405,10 @@ footer.legal{padding:0 26px 30px;font-size:11.5px;color:var(--mute)}
           <div class="finding" data-s="confirmed_fault">
             <div class="rail"></div>
             <div class="fbody">
-              <div class="fhead"><span class="badge">已确认</span><span class="ftitle">用户声明的约束在最后发射的投影里查不到</span></div>
+              <div class="fhead"><span class="badge">已确认</span><span class="ftitle">用户声明的约束被折叠移出投影（落在 compact_cursor 之前）</span></div>
               <div class="fmeta">边界 wsc_fold · 功能归属 前缀冻结 / 折叠 · 规则 <span class="mono">loss_chain</span> v1</div>
               <div class="ev"><span class="ref">working:L41 last_x_sent</span></div>
-              <div class="gapline">覆盖缺口：候选与选择两级没有落盘账本，不能再往下定位到具体一级。允许结论：可确认「不是这次压缩丢的」之外的信息丢失。</div>
+              <div class="gapline">覆盖缺口：游标口径若不再是「消息序号」，这一判定会失准；候选/选择两级仍无账本。允许结论：可确认是折叠把它移出投影，不等于折叠本身错了。</div>
             </div>
           </div>
           <div class="finding" data-s="suspected_cause">
@@ -467,7 +471,7 @@ footer.legal{padding:0 26px 30px;font-size:11.5px;color:var(--mute)}
               <div class="stage"><div><div class="nm">结构化事件与状态</div><div class="nt">todos / 原子 / 指令路径未命中</div></div><span class="st" data-v="absent">未命中</span></div>
               <div class="stage"><div><div class="nm">进入候选</div><div class="nt">活路径没有落盘候选账本：这一级无法判定</div></div><span class="st" data-v="not_recorded">未记账</span></div>
               <div class="stage"><div><div class="nm">被选择</div><div class="nt">manifest 只给计数与结构，不给逐条选择理由</div></div><span class="st" data-v="not_recorded">未记账</span></div>
-              <div class="stage"><div><div class="nm">已发射（投影）</div><div class="nt">发送投影 4,182 字符，未命中该约束</div></div><span class="st" data-v="absent">未命中</span></div>
+              <div class="stage"><div><div class="nm">已发射（投影）</div><div class="nt">命中行落在 compact_cursor 之前的折叠区间：是折叠把它移出投影，不是从未进入</div></div><span class="st" data-v="folded_out">被折叠移出</span></div>
               <div class="stage"><div><div class="nm">最终请求体</div><div class="nt">该会话未开启可复现记录：只能定位到投影边界</div></div><span class="st" data-v="not_captured">未采集</span></div>
               <div class="stage"><div><div class="nm">冷层句柄可回读</div><div class="nt">句柄可读；账本按会话聚合，不能证明为这一条发起过取回</div></div><span class="st" data-v="found">找到</span></div>
             </div>

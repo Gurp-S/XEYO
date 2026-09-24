@@ -726,6 +726,12 @@
   box-shadow: inset 3px 0 0 var(--color-danger);
 }
 
+/* 被折叠移出＝丢失位置已定位到具体一级，与泛泛「未命中」要能一眼分开 */
+.xy-dig-stage.is-folded_out {
+  box-shadow: inset 3px 0 0 color-mix(in oklch, var(--color-danger) 60%, transparent);
+  border-color: color-mix(in oklch, var(--color-danger) 32%, transparent);
+}
+
 .xy-dig-stage-no {
   font-size: 10.5px;
   color: var(--color-mute);

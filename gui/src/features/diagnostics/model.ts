@@ -186,6 +186,7 @@ export function coverageStateLabel(state: string): string {
 export const FACT_STATE_LABEL: Record<string, string> = {
 	found: '找到',
 	absent: '未命中',
+	folded_out: '被折叠移出',
 	not_recorded: '该级未记账',
 	not_captured: '该级未采集',
 	unreadable: '不可读',

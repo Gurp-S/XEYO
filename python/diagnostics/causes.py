@@ -32,6 +32,7 @@ DISPLAY_GAP = "display_transport_gap"
 USAGE_UNACCOUNTED = "usage_unaccounted"
 RUN_INCOMPLETE = "run_incomplete"
 NOT_DETERMINED = "not_determined"
+CONSTRAINT_FOLDED = "constraint_folded_out_of_projection"
 
 CAUSE_LABEL: dict[str, str] = {
 	CONTEXT_DROPPED: "该在场的约束没进最后发射的内容",
@@ -51,6 +52,7 @@ CAUSE_LABEL: dict[str, str] = {
 	DISPLAY_GAP: "引擎已完成而界面/事件流缺尾",
 	USAGE_UNACCOUNTED: "部分请求没有用量账，费用未知",
 	RUN_INCOMPLETE: "运行有开始记录无结束记录",
+	CONSTRAINT_FOLDED: "在场的约束被折叠移出投影",
 	NOT_DETERMINED: "没有可核对的失败原因",
 }
 
@@ -59,6 +61,10 @@ _PROVES: dict[str, tuple[str, str]] = {
 	CONTEXT_DROPPED: (
 		"当场在场的约束在源历史里查得到、在发射内容里查不到",
 		"不能证明模型因此失败，也不能定位到候选/选择哪一级",
+	),
+	CONSTRAINT_FOLDED: (
+		"该约束所在消息落在 compact_cursor 之前的折叠区间内",
+		"不能证明折叠是错的——只能说明是折叠把它移出了投影，是否该保留需人工复核",
 	),
 	PROJECTION_BROKEN: ("发出的投影形状违反厂商约束", "不能解释与形状无关的那部分失败"),
 	OUTPUT_DROPPED: ("这些 tool result 没有进入最终请求体", "不能证明模型本来会用它们做什么"),
@@ -81,6 +87,7 @@ _PROVES: dict[str, tuple[str, str]] = {
 
 _CAUSE_PARTY: dict[str, str] = {
 	CONTEXT_DROPPED: "engine",
+	CONSTRAINT_FOLDED: "engine",
 	PROJECTION_BROKEN: "engine",
 	OUTPUT_DROPPED: "engine",
 	PREFIX_CHANGED: "engine",
@@ -129,6 +136,7 @@ def derive(
 	*,
 	findings: list[Finding],
 	constraint_lost: bool,
+	constraint_mode: str = "",
 	permission_blocked: bool,
 	action_skipped: bool,
 	self_report: Finding | None,
@@ -145,7 +153,12 @@ def derive(
 		status_of[f.rule_id] = f.status
 	out: list[dict[str, Any]] = []
 	if constraint_lost:
-		out.append(_entry(CONTEXT_DROPPED, []))
+		entry = _entry(CONTEXT_DROPPED, [])
+		if constraint_mode == "folded_out":
+			entry["code"] = CONSTRAINT_FOLDED
+			entry["label"] = CAUSE_LABEL[CONSTRAINT_FOLDED]
+			entry["proves"], entry["does_not_prove"] = _PROVES[CONSTRAINT_FOLDED]
+		out.append(entry)
 	for code, rule_id, want_status in _RULE_CAUSES:
 		refs = by_rule.get(rule_id) or []
 		if not refs:

@@ -117,6 +117,47 @@ def test_in_source_but_not_emitted_localizes_to_emission(tmp_path) -> None:
 	assert set(doc["unprovable_stages"]) >= {"candidate", "selected"}
 
 
+def test_folded_out_is_distinguished_from_never_emitted(tmp_path, monkeypatch) -> None:
+	"""折叠游标把"被折掉"和"从未进入投影"分开 —— 用既有记录，不新建账本。"""
+	constraint = "部署前先跑迁移"
+	_transcript("s1", [{"id": f"m{i}", "role": "user", "ts": 0.1 * i, "content": constraint if i == 2 else "无关"} for i in range(1, 8)])
+	_working("s1", {"session_id": "s1", "last_x_sent": json.dumps([{"content": "无关"}], ensure_ascii=False), "compact_cursor": 5})
+	import diagnostics.collect as coll
+
+	run = _run(tmp_path)
+	# collect 只在 in-run 行上留正文，这里直接补一份等价视图
+	run.transcript_rows = [
+		{"id": "m2", "role": "user", "line_no": 2, "content": constraint, "locator": "s1.jsonl"},
+	]
+	run.working["compact_cursor"] = 5
+	assert run.working.get("compact_cursor") == 5
+	doc = trace_fact(run, constraint)
+	stage = next(s for s in doc["stages"] if s["stage"] == "emitted")
+	assert stage["state"] == "folded_out"
+	assert doc["verdict"] == "folded_out_of_projection"
+	assert "折叠" in doc["statement"]
+	# 游标口径变化时必须自我怀疑
+	assert "前提是 transcript 行序与游标同为消息序号" in stage["note"]
+
+
+def test_after_cursor_hit_is_still_never_emitted(tmp_path) -> None:
+	constraint = "部署前先跑迁移"
+	run = _run(tmp_path)
+	run.transcript_rows = [{"id": "m9", "role": "user", "line_no": 9, "content": constraint, "locator": "s1.jsonl"}]
+	run.working["compact_cursor"] = 5
+	import diagnostics.loss_chain as lc
+
+	monkeypatch_last_sent(lc, json.dumps([{"content": "无关"}], ensure_ascii=False))
+	doc = trace_fact(run, constraint)
+	stage = next(s for s in doc["stages"] if s["stage"] == "emitted")
+	assert stage["state"] == "absent"
+	assert doc["verdict"] == "lost_before:emitted"
+
+
+def monkeypatch_last_sent(lc, sent: str) -> None:
+	lc._last_sent_projection = lambda sid: (sent, "working.json")
+
+
 def test_empty_needle_is_rejected(tmp_path) -> None:
 	import pytest
 
