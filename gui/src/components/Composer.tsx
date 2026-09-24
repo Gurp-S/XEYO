@@ -296,11 +296,12 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 	const [editingId, setEditingId] = useState<string | null>(null);
 	const [queueDraft, setQueueDraft] = useState('');
 	const queueEscRef = useRef(false);
-	const editingItem =
-		editingId != null
-			? (inboxItems.find(it => it.queue_id === editingId) ?? null)
-			: null;
+	const editingTargetRef = useRef<{
+		sessionId: string;
+		item: InboxQueuedItem;
+	} | null>(null);
 	const closeQueueEdit = () => {
+		editingTargetRef.current = null;
 		setEditingId(null);
 		setQueueDraft('');
 	};
@@ -309,8 +310,9 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 		setQueueExpanded(false);
 	}, [activeId, activeInboxBackendId]);
 	const openQueueEdit = (it: InboxQueuedItem) => {
-		if (it.state === 'delivering') return;
+		if (it.state === 'delivering' || !activeId) return;
 		queueEscRef.current = false;
+		editingTargetRef.current = {sessionId: activeId, item: it};
 		setEditingId(it.queue_id);
 		setQueueDraft(it.text);
 	};
@@ -321,16 +323,16 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 			closeQueueEdit();
 			return;
 		}
-		const it = editingItem;
+		const target = editingTargetRef.current;
 		const t = queueDraft.trim();
 		closeQueueEdit();
-		if (!it || !t || t === it.text) return;
-		if (it.state === 'delivering') {
+		if (!target || !t || t === target.item.text) return;
+		if (target.item.state === 'delivering') {
 			// 编辑期间被投递：保存必 409，直接提示而不是静默丢改动。
 			toast.error('该消息已开始投递，无法编辑');
 			return;
 		}
-		void editInboxItem(activeId ?? '', it.queue_id, t).then(ok => {
+		void editInboxItem(target.sessionId, target.item.queue_id, t).then(ok => {
 			if (!ok) toast.error('编辑失败（消息可能已开始投递）');
 		});
 	};
@@ -1358,7 +1360,9 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 					}
 				});
 			}
-		})();
+		})().catch(err => {
+			toast.error(err instanceof Error ? err.message : String(err));
+		});
 	};
 
 	const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
