@@ -18,6 +18,7 @@ import time
 from typing import NoReturn
 
 from rich.console import Console
+from rich.markup import escape
 
 from cli.cwdutil import ensure_utf8_stdio, resolve_cwd
 
@@ -68,7 +69,7 @@ def run_coord_run(
     wid = f"cli_{os.getpid()}"
     done = 0
 
-    console.print(f"[dim]coord run: root={root} worker={wid} "
+    console.print(f"[dim]coord run: root={escape(str(root))} worker={escape(str(wid))} "
                   f"max_tasks={max_tasks or '∞'} once={once}[/dim]")
 
     try:
@@ -76,7 +77,7 @@ def run_coord_run(
             # 1) 收敛既有上交（每轮先做，防 reconciler 不在跑时堆积）
             rep = rec.reconcile_ready()
             if rep["merged"] or rep["reopened"] or rep["blocked"]:
-                console.print(f"[dim]reconcile: {json.dumps(rep, ensure_ascii=False)}[/dim]")
+                console.print(f"[dim]reconcile: {escape(json.dumps(rep, ensure_ascii=False))}[/dim]")
 
             if reconcile_only:
                 if once:
@@ -98,8 +99,8 @@ def run_coord_run(
             out = pool.run_task(task.task_id, wid, factory(task))
             done += 1
             console.print(
-                f"[{'green' if out.ok else 'red'}]task {task.task_id} → "
-                f"{'submitted' if out.ok else out.error}[/]")
+                f"[{'green' if out.ok else 'red'}]task {escape(str(task.task_id))} → "
+                f"{escape('submitted' if out.ok else str(out.error))}[/]")
             if max_tasks and done >= max_tasks:
                 console.print(f"[dim]reached --tasks {max_tasks} — exit[/dim]")
                 break
@@ -137,8 +138,10 @@ def run_coord_status(*, cwd: str | None = None, as_json: bool = False) -> NoRetu
     if as_json:
         print(json.dumps(snap, ensure_ascii=False, indent=2))
     else:
-        console.print(f"[bold]coord status[/]  root={root}")
-        console.print(f"  backend={snap['backend']}  workers_enabled={snap['workers_enabled']}")
-        console.print(f"  tasks: {json.dumps(counts, ensure_ascii=False) or '(none)'}")
+        console.print(f"[bold]coord status[/]  root={escape(str(root))}")
+        console.print(
+            f"  backend={escape(str(snap['backend']))}  workers_enabled={snap['workers_enabled']}"
+        )
+        console.print(f"  tasks: {escape(json.dumps(counts, ensure_ascii=False)) or '(none)'}")
         console.print(f"  leases: {len(leases)}  pending_asks: {len(asks)}")
     raise SystemExit(0)
