@@ -121,7 +121,7 @@ export function createSpaceSessionSlice(
 			s => !deletedSessions.has(s.id),
 		);
 		// 本地索引缺失（如桌面/浏览器切换）时，从后端磁盘恢复历史会话。
-		await importServerSessions(new Set(initialSessions.map(s => s.id)));
+		await importServerSessions(initialSessions);
 		let [rawSpaces, rawSessions] = await Promise.all([
 			loadSpaces(),
 			loadSessions(),
@@ -146,7 +146,9 @@ export function createSpaceSessionSlice(
 		);
 		const messagesById: Record<string, ChatMessage[]> = {};
 		// 启动时主视图只认主工作区会话；侧聊会话走 /side/ 路由按需选中。
-		const first = sessions.find(s => s.spaceId !== SIDE_SPACE_ID);
+		const first = sessions.find(
+			s => s.spaceId !== SIDE_SPACE_ID && !s.archived,
+		);
 		const activeSessions = first ? [first] : [];
 					const rollbackRows = await Promise.all(
 				activeSessions.map(async session => {
@@ -913,10 +915,11 @@ async selectSession(id) {
 			return;
 		}
 		const next = {...cur, archived: true, archivedAt: Date.now()};
-		await saveSession(next);
 		set(s => ({
 			sessions: s.sessions.map(x => (x.id === id ? next : x)),
 		}));
+		// 服务端已经确认后立即更新 UI；IDB 故障不能让服务器已归档而当前列表仍显示未归档。
+		await saveSession(next).catch(() => undefined);
 	},
 
 	async restoreSession(id) {
@@ -929,10 +932,11 @@ async selectSession(id) {
 			return;
 		}
 		const next = {...cur, archived: false, archivedAt: undefined};
-		await saveSession(next);
 		set(s => ({
 			sessions: s.sessions.map(x => (x.id === id ? next : x)),
 		}));
+		// hydrate 会从服务端 sidecar 对账，因此本地持久化失败不会回滚已确认的恢复操作。
+		await saveSession(next).catch(() => undefined);
 	},
 	};
 }

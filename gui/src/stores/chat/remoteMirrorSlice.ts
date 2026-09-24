@@ -148,8 +148,9 @@ export function createRemoteMirrorSlice(
 	},
 
 	appendLocalNote(text, opts) {
-		const sessionId = get().activeId;
-		if (!sessionId) {
+		const state = get();
+		const sessionId = opts?.sessionId ?? state.activeId;
+		if (!sessionId || !state.sessions.some(session => session.id === sessionId)) {
 			return;
 		}
 		const trimmed = String(text ?? '').trim();
@@ -159,7 +160,7 @@ export function createRemoteMirrorSlice(
 		// 防崩溃：超长结果不进列表（状态/帮助类输出本身有限）
 		const MAX_NOTE = 8_000;
 		const body = trimmed.length > MAX_NOTE ? trimmed.slice(0, MAX_NOTE) + '…' : trimmed;
-		const prev = get().messagesById[sessionId] ?? [];
+		const prev = state.messagesById[sessionId] ?? [];
 		const msg: ChatMessage = {
 			id: uid('msg'),
 			role: 'system',

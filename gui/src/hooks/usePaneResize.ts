@@ -24,16 +24,34 @@ export function usePaneResize(
 		paneRef?: RefObject<HTMLElement | null>;
 		slotOf?: (base: number) => number;
 		slotMax?: () => number;
+		chatMin?: number;
 	},
 ) {
 	const invert = options?.invert ?? false;
 	const paneRef = options?.paneRef;
 	const slotOf = options?.slotOf;
 	const slotMax = options?.slotMax;
+	const chatMin = options?.chatMin ?? 340;
 	const smoothness = useSettingsStore(s => isSmoothnessOn(s.smoothness));
 	const [dragging, setDragging] = useState(false);
 	const dragRef = useRef<{startX: number; startW: number} | null>(null);
 	const liveRef = useRef(width);
+	const effectiveSlotMax = useCallback(() => {
+		if (slotMax) return slotMax();
+		const pane = paneRef?.current;
+		const row = pane?.parentElement;
+		const chatHost = row?.querySelector<HTMLElement>(':scope > .xy-pane-chat-host');
+		if (!row || !chatHost) return max;
+		const children = Array.from(row.children);
+		const fixedWidth = children
+			.filter(child => child !== pane && child !== chatHost)
+			.reduce((total, child) => total + child.getBoundingClientRect().width, 0);
+		const gap = Number.parseFloat(window.getComputedStyle(row).columnGap) || 0;
+		return Math.max(
+			min,
+			row.clientWidth - fixedWidth - chatMin - gap * Math.max(0, children.length - 1),
+		);
+	}, [chatMin, max, min, paneRef, slotMax]);
 
 	/** 基础宽 → 槽宽 → 按槽宽域钳制 → 反解基础宽。 */
 	const mapBase = useCallback(
@@ -41,20 +59,19 @@ export function usePaneResize(
 			const toSlot = slotOf ?? ((w: number) => w);
 			const lo = Math.max(min, toSlot(min));
 			let hi = Math.max(toSlot(max), lo);
-			if (slotMax) {
-				hi = Math.min(Math.max(slotMax(), lo), hi);
-			}
+			hi = Math.min(Math.max(effectiveSlotMax(), lo), hi);
 			const slot = Math.min(hi, Math.max(lo, toSlot(base)));
 			return {slot, base: slot - toSlot(0)};
 		},
-		[slotOf, slotMax, min, max],
+		[slotOf, effectiveSlotMax, min, max],
 	);
 
 	const onResizeStart = useCallback(
 		(e: React.MouseEvent) => {
 			e.preventDefault();
-			liveRef.current = width;
-			dragRef.current = {startX: e.clientX, startW: width};
+			const initial = mapBase(width);
+			liveRef.current = initial.base;
+			dragRef.current = {startX: e.clientX, startW: initial.base};
 			const pane = paneRef?.current;
 			if (pane && smoothness) {
 				pane.classList.add('xy-pane-dragging');
@@ -62,7 +79,7 @@ export function usePaneResize(
 			}
 			setDragging(true);
 		},
-		[paneRef, smoothness, width],
+		[mapBase, paneRef, smoothness, width],
 	);
 
 	useLayoutEffect(() => {

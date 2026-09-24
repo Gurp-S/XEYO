@@ -3,8 +3,8 @@
  *
  * 结构性根因：侧栏与工作区都是**用户持久化固定宽**（默认各 248，上限 420），
  * 三栏 flex 里聊天列是唯一 flex-1 可压缩项且只有 min-w-[180px] 硬地板——
- * 窗口接近 Tauri minWidth 720 时（700 实测更早），聊天列被压到 ~204px，
- * 欢迎语一字一行、Composer 底行溢出截断。
+ * 窗口接近 Tauri minWidth 720 时，聊天列会被压到窄于可读宽度，欢迎语
+ * 一字一行、Composer 底行溢出截断。聊天列的 180px CSS 下限只防止完全崩塌。
  *
  * 修复规则：**工作区先让位**（辅助面板，让到 PANE_WIDTH_MIN），侧栏后让；
  * 仍不够时双面板等比向 0 收缩，保证聊天列 ≥ CHAT_MIN_READABLE。
@@ -34,6 +34,7 @@ export function computePaneViewportClamp(
 	workspace: {open: boolean; width: number},
 	chatMin = CHAT_MIN_READABLE,
 	paneFloor = PANE_WIDTH_MIN,
+	layoutGap = 0,
 ): PaneClamp {
 	let sEff = sidebar.open ? Math.max(0, sidebar.width) : 0;
 	let wEff = workspace.open ? Math.max(0, workspace.width) : 0;
@@ -42,7 +43,7 @@ export function computePaneViewportClamp(
 		workspaceEff: workspace.open ? Math.round(wEff) : workspace.width,
 	});
 
-	const overflow = sEff + wEff + chatMin - viewportWidth;
+	const overflow = sEff + wEff + chatMin + Math.max(0, layoutGap) - viewportWidth;
 	if (overflow <= 0) {
 		return restore();
 	}
@@ -83,11 +84,19 @@ export function usePaneViewportClamp(): PaneClamp {
 	const sidebarWidth = useSettingsStore(s => s.sidebarWidth);
 	const explorerWidth = useSettingsStore(s => s.explorerWidth);
 	const sidebarOpen = useChatStore(s => s.sidebarOpen);
+	const paneLayout = useSettingsStore(s => s.paneLayout);
 	// 工作区开合在独立 workspaceStore（TitleBar 开关同一来源）。
-	const workspaceOpen = useWorkspaceStore(s => s.open);
+	const workspaceVisible = useWorkspaceStore(s => s.open && !s.navHidden);
+	const layoutGap =
+		paneLayout === 'islands'
+			? 8 * (Number(sidebarOpen) + Number(workspaceVisible))
+			: 0;
 	return computePaneViewportClamp(
 		vp.width,
 		{open: sidebarOpen, width: sidebarWidth},
-		{open: workspaceOpen, width: explorerWidth},
+		{open: workspaceVisible, width: explorerWidth},
+		CHAT_MIN_READABLE,
+		PANE_WIDTH_MIN,
+		layoutGap,
 	);
 }

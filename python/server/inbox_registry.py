@@ -89,7 +89,9 @@ class InboxItem:
 	def to_dict(self, *, position: int = 0) -> dict[str, Any]:
 		return {
 			"queue_id": self.queue_id,
-			"text": self.text[:160] if len(self.text) > 160 else self.text,
+			# The snapshot feeds an editable GUI row. Truncating here silently
+			# turns a refresh followed by edit into a destructive rewrite.
+			"text": self.text,
 			"media_refs": list(self.media_refs),
 			"message_id": self.message_id,
 			"queued_at": int(self.queued_at * 1000),
@@ -329,16 +331,25 @@ class InboxRegistry:
 					return it
 		return None
 
-	def resume(self, session_id: str) -> dict[str, Any]:
-		"""清 stuck 计数并重新 arm（会话空闲则立即排水）。"""
+	def resume(
+		self, session_id: str, queue_id: str | None = None
+	) -> dict[str, Any] | None:
+		"""重试 stuck 项并重新 arm；指定 queue_id 时只重试对应项。"""
 		sid = (session_id or "").strip()
+		qid = (queue_id or "").strip()
+		found = False
 		with self._lock:
 			q = self._queues.get(sid)
 			if q:
 				for it in q:
+					if it.state != "stuck" or (qid and it.queue_id != qid):
+						continue
+					found = True
 					it.state = "queued"
 					# 重试不无限烧：清零 attempts，但靠下次拒绝再计数。
 					it.attempts = 0
+		if qid and not found:
+			return None
 		self._maybe_schedule(sid)
 		return self.snapshot(sid)
 

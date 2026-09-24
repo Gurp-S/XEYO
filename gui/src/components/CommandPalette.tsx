@@ -25,7 +25,8 @@ import {
 import {createPortal} from 'react-dom';
 import {searchWorkspace, setWorkspace, type WorkspaceEntry} from '@/lib/api';
 import {newSession, openPageView, openSession} from '@/lib/appNav';
-import {handleComposerSlash, lastUserText} from '@/lib/slashCommands';
+import {SIDE_SPACE_ID} from '@/lib/db';
+import {handleComposerSlash, lastUserMessage} from '@/lib/slashCommands';
 import {pushEscLayer, popEscLayer} from '@/lib/escStack';
 import {useIconTheme} from '@/lib/iconThemeLoader';
 import {pickFolder} from '@/lib/openFolder';
@@ -229,16 +230,46 @@ export function CommandPalette() {
 					backendSessionId:
 						activeBackendSessionId(st.historyById, sid0) || undefined,
 					workspace: ws0,
-					onNewSession: () => {
-						void st.createSession();
-					},
-					onRetryLast: () => {
-						const last = lastUserText(sid0);
+					onNewSession: () =>
+						newSession(
+							sess0?.spaceId === SIDE_SPACE_ID
+								? {side: true}
+								: {spaceId: sess0?.spaceId},
+						),
+					onRetryLast: async () => {
+						const last = lastUserMessage(sid0);
 						if (last) {
-							void st.sendMessage(last);
+							await st.sendMessage(
+								last.text,
+								last.mediaRefs,
+								[],
+								undefined,
+								undefined,
+								undefined,
+								{
+									sessionId: sid0,
+									background: useChatStore.getState().activeId !== sid0,
+								},
+							);
 						} else {
 							toast.info('还没有可重试的消息');
 						}
+					},
+					onSend: async text => {
+						const accepted = await st.sendMessage(
+							text,
+							[],
+							[],
+							undefined,
+							undefined,
+							undefined,
+							{
+								sessionId: sid0,
+								background: useChatStore.getState().activeId !== sid0,
+							},
+						);
+						if (!accepted) toast.error('命令已转换为消息，但目标会话未接受发送');
+						return accepted;
 					},
 				});
 			});

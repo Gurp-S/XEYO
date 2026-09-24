@@ -415,6 +415,11 @@ export function MessageList({
 			roundSettled: !isLoading && !streamingText,
 			streamingSignal,
 			thoughtStartedAt,
+			workflowStatusText:
+				statusText.startsWith('模型请求暂时失败') ||
+				statusText.startsWith('正在重试模型请求')
+					? statusText
+					: '',
 			latestTurnId,
 		}),
 		[
@@ -422,6 +427,7 @@ export function MessageList({
 			streamingText,
 			streamingSignal,
 			thoughtStartedAt,
+			statusText,
 			latestTurnId,
 		],
 	);
@@ -615,9 +621,10 @@ export function MessageList({
 										}
 										latestTurnId={streamProps.latestTurnId}
 										roundSettled={streamProps.roundSettled}
-										streamingSignal={streamProps.streamingSignal}
-										thoughtStartedAt={streamProps.thoughtStartedAt}
-										registerSticky={registerSticky}
+						streamingSignal={streamProps.streamingSignal}
+						thoughtStartedAt={streamProps.thoughtStartedAt}
+						workflowStatusText={streamProps.workflowStatusText}
+						registerSticky={registerSticky}
 									/>
 								);
 								const pills = findRoundPills(round, cutPills);

@@ -163,10 +163,10 @@ export const FilePreview = memo(function FilePreview() {
 	// 隐藏树导航时，文件预览占满整个工作区（自身宽度 + 工作区侧栏宽度）。
 	const displayWidth = previewWidth + (navEff ? explorerWidth : 0);
 	// 拖拽钳制在“槽宽域”进行：显示宽 = 基础宽 + 隐藏树宽，且不得超出
-	// 聊天宿主留给功能栏的最大可用宽（保留聊天区最小列宽；见
-	// .xy-pane-chat-host > main { min-width: 180px }）。否则窄窗口下把面板拖满
+	// 聊天宿主留给功能栏的最大可用宽（保留 340px 可读聊天列；CSS 另有
+	// 180px 硬下限）。否则窄窗口下把面板拖满
 	// 会把聊天区顶出窗口/面板溢出视口。
-	const CHAT_COL_MIN = 180;
+	const CHAT_COL_MIN = 340;
 	const slotOf = useCallback(
 		(base: number) => base + (navEff ? explorerWidth : 0),
 		[navEff, explorerWidth],

@@ -14,6 +14,7 @@ import {
 	type MultiAgentTaskView,
 } from '@/lib/api';
 import {dispatchXeyoUi} from '@/lib/dispatchXeyoUi';
+import {formatLlmRetryStarted, formatLlmRetryWaiting} from '@/lib/llmRetryStatus';
 import {
 	replaceMessages,
 } from '@/lib/db';
@@ -41,6 +42,8 @@ import {
 	activeBackendSessionId,
 	clearSessionStreamState,
 	commitDrainForSession,
+	loadSessionMessagesWithBackfill,
+	normalizeChatHistoryState,
 	settleAllSessionTools,
 	type ChatState,
 } from './preStoreHelpers';
@@ -60,7 +63,20 @@ import {
 type SetState = StoreApi<ChatState>['setState'];
 type GetState = StoreApi<ChatState>['getState'];
 
+/**
+ * 整表回写（``replaceMessages`` 先按游标删干净再写）只允许用于历史已经加载
+ * 完的会话。冷会话的 ``messagesById`` 是 ``undefined``，此时拿服务端重放出来
+ * 的零星几条工具卡去替换，等于把整个对话从 IndexedDB 抹掉；正在回填的会话同理。
+ */
+function wholeWriteIsSafe(
+	s: Pick<ChatState, 'messagesById' | 'messagesLoadingIds'>,
+	sessionId: string,
+): boolean {
+	return s.messagesById[sessionId] !== undefined && !s.messagesLoadingIds[sessionId];
+}
+
 const REATTACH_MAX_ATTEMPTS = 3;
+const reattachInFlight = new Map<string, Promise<boolean>>();
 const reattachBackoffMs = (attempt: number) => 500 * 2 ** attempt;
 const sleep = (ms: number) =>
 	new Promise<void>(resolve => setTimeout(resolve, ms));
@@ -258,314 +274,400 @@ export function createStreamRecoverySlice(
 	},
 
 	async reattachStream(sessionId: string) {
-		const backendSessionId = activeBackendSessionId(
-			get().historyById,
-			sessionId,
-		);
-		const task = await fetchSessionTask(backendSessionId);
-		if (!task) {
-			return false;
-		}
-		if (task.status === 'recovery_required') {
-			set(s => ({
-				recoveryBySession: {
-					...s.recoveryBySession,
-					[sessionId]: {
-						goalText: task.goal_text || '',
-						turnId: task.turn_id || '',
-						stopReason: task.stop_reason || 'process_restart',
+		const inFlight = reattachInFlight.get(sessionId);
+		if (inFlight) return inFlight;
+		const work = (async () => {
+			const backendSessionId = activeBackendSessionId(
+				get().historyById,
+				sessionId,
+			);
+			const task = await fetchSessionTask(backendSessionId);
+			if (!task) {
+				return false;
+			}
+			if (task.status === 'recovery_required') {
+				set(s => ({
+					recoveryBySession: {
+						...s.recoveryBySession,
+						[sessionId]: {
+							goalText: task.goal_text || '',
+							turnId: task.turn_id || '',
+							stopReason: task.stop_reason || 'process_restart',
+						},
 					},
-				},
-			}));
-			return false;
-		}
-		const running =
-			task.busy ||
-			task.status === 'running' ||
-			task.status === 'waiting_permission' ||
-			task.status === 'stopping';
-		if (!running) {
-			return false;
-		}
-		// 已有活 abort → 已在收流
-		const curStream = getSessionStream(get(), sessionId);
-		if (curStream.abortRef && !isAbortDead(curStream.abortRef) && curStream.isLoading) {
-			return true;
-		}
-		const abort = new AbortController();
-		const cursor = Math.max(
-			readTurnCursor(backendSessionId),
-			curStream.lastEventId ?? 0,
-			0,
-		);
-		set(s => ({
-			sessionStreams: patchSessionStream(s.sessionStreams, sessionId, {
-				isLoading: true,
-				statusText: '重新连接中…',
-				abortRef: abort,
-				turnDetached: true,
-				lastEventId: cursor,
-				draining: false,
-				remoteStreaming: false,
-			}),
-		}));
-		let pendingDelta = '';
-		const flushDelta = () => {
-			if (!pendingDelta) return;
-			const chunk = pendingDelta;
-			pendingDelta = '';
-			set(s => {
-				const st = getSessionStream(s, sessionId);
-				const nextText = st.streamingText + chunk;
-				return {
-					sessionStreams: patchSessionStream(s.sessionStreams, sessionId, {
-						streamingText: nextText,
-						statusText: '生成中',
-						turnDetached: true,
-					}),
-				};
-			});
-		};
-		// T29：重连流自身的断流也走有界重试；恢复期间挂起权限/提问/计划弹窗照常接住。
-		const pending = createPendingStreamHandlers({get, sessionId});
-		let connectionLost = false;
-		// 本次订阅是否收到过后端重放空洞帧（环形缓冲已挤掉一段）。
-		let sawGap = false;
-		/** 无洞时的收尾：把本地累积的尾巴作为正文提交（带末行同文去重）。 */
-		const commitLocalTail = () => {
-			set(s => {
-				const st = getSessionStream(s, sessionId);
-				const text = st.streamingText;
-				let msgs = [...(s.messagesById[sessionId] ?? [])];
-				if (text.trim()) {
-					// appendAssistantProse 带末行同文去重：重放(cursor 落后)
-					// 会把已提交的尾巴再放一遍，裸 push 会产生重复气泡。
-					msgs = appendAssistantProse(msgs, text);
-					void replaceMessages(sessionId, msgs);
+				}));
+				return false;
+			}
+			const running =
+				task.busy ||
+				task.status === 'running' ||
+				task.status === 'waiting_permission' ||
+				task.status === 'stopping';
+			if (!running) {
+				return false;
+			}
+			// 已有活 abort → 已在收流
+			const curStream = getSessionStream(get(), sessionId);
+			if (curStream.abortRef && !isAbortDead(curStream.abortRef) && curStream.isLoading) {
+				return true;
+			}
+			// Reattach writes a complete message list. Join hydrate/selectSession's
+			// deduplicated local + server backfill first, including when it is already
+			// loading; subscribing to a cold list would make later hydration skip its
+			// authoritative rows after the first replay event.
+			const beforeLoad = get();
+			if (
+				beforeLoad.messagesById[sessionId] === undefined ||
+				beforeLoad.messagesLoadingIds[sessionId]
+			) {
+				let loaded: ChatMessage[];
+				try {
+					const history = normalizeChatHistoryState(
+						beforeLoad.historyById[sessionId],
+						sessionId,
+					);
+					loaded = await loadSessionMessagesWithBackfill(sessionId, {
+						[sessionId]: history,
+					});
+				} catch {
+					return false;
 				}
-				return {
-					messagesById: {...s.messagesById, [sessionId]: msgs},
-					sessionStreams: patchSessionStream(s.sessionStreams, sessionId, {
-						isLoading: false,
-						streamingText: '',
-						streamingShown: '',
-						statusText: '',
-						abortRef: null,
-						turnDetached: false,
-						draining: false,
-					}),
-				};
-			});
-		};
-		for (let attempt = 0; attempt < REATTACH_MAX_ATTEMPTS; attempt++) {
-			connectionLost = false;
-			sawGap = false;
-			// cursor 每次重取：上一次断流前已收到的事件不重放
-			const cursorNow = Math.max(cursor, readTurnCursor(backendSessionId));
-			try {
-				await streamTurnEvents(backendSessionId, cursorNow, {
-					...pending,
-					signal: abort.signal,
-				onDelta(text) {
-					pendingDelta += text;
-					flushDelta();
-				},
-				onToolCall({name, input, toolUseId}) {
-					set(s => {
-						const msgs = [...(s.messagesById[sessionId] ?? [])];
-						const id = toolUseId || `tool-${Date.now()}`;
-						const existing = msgs.findIndex(
-							m => m.role === 'tool' && m.toolUseId === id,
-						);
-						const row: ChatMessage = {
-							id: existing >= 0 ? msgs[existing]!.id : id,
-							role: 'tool',
-							text: '',
-							toolName: name,
-							toolInput: formatToolInputForUi(input),
-							toolUseId: id,
-							toolStatus: 'running',
-							createdAt: Date.now(),
-						};
-						if (existing >= 0) {
-							msgs[existing] = {...msgs[existing]!, ...row, id: msgs[existing]!.id};
-						} else {
-							msgs.push(row);
-						}
-						void replaceMessages(sessionId, msgs);
-						return {
-							messagesById: {...s.messagesById, [sessionId]: msgs},
-							sessionStreams: patchSessionStream(s.sessionStreams, sessionId, {
-								statusText: name,
-							}),
-						};
-					});
-				},
-				onToolResult({name, output, is_error, toolUseId, todos, ui}) {
-					dispatchXeyoUi(ui, {
-						toolUseId,
-						isError: Boolean(is_error),
-					});
-					set(s => {
-						let msgs = [...(s.messagesById[sessionId] ?? [])];
-						const id = toolUseId || '';
-						const idx = msgs.findIndex(
-							m =>
-								m.role === 'tool' &&
-								(id
-									? m.toolUseId === id
-									: m.toolName === name && m.toolStatus === 'running'),
-						);
-						if (idx >= 0) {
-							msgs[idx] = {
-								...msgs[idx]!,
-								text: String(output ?? ''),
-								toolStatus: is_error ? 'error' : 'done',
-							};
-						}
-						void replaceMessages(sessionId, msgs);
-						const patch: Partial<ChatState> = {
-							messagesById: {...s.messagesById, [sessionId]: msgs},
-						};
-						if (Array.isArray(todos)) {
-							const snap = snapshotFromTodoTool({
-								id: `todo-reattach-${Date.now()}`,
-								input: '',
-								todos,
-								running: false,
-							});
-							if (snap) {
-								patch.sessionTodosById = {
-									...s.sessionTodosById,
-									[sessionId]: snap,
-								};
-							}
-						}
-						return patch;
-					});
-				},
-				onMultiAgentTask(ev) {
-					set(s => {
-						const list = s.multiAgentTasksBySession[sessionId] ?? [];
-						const uid = String(
-							(ev as {uid?: string; agentId?: string}).uid ||
-								(ev as {agentId?: string}).agentId ||
-								'',
-						);
-						if (!uid || list.some(t => t.uid === uid)) return {};
-						return {
-							multiAgentTasksBySession: {
-								...s.multiAgentTasksBySession,
-								[sessionId]: [
-									...list,
-									{
-										uid,
-										taskId: String((ev as {taskId?: string}).taskId || uid),
-										agentId: String((ev as {agentId?: string}).agentId || ''),
-										desc: String((ev as {desc?: string}).desc || '').slice(0, 120),
-										status: 'running',
-									} as MultiAgentTaskView,
-								],
-							},
-						};
-					});
-				},
-				onMultiAgentProgress(ev) {
-					set(s => {
-						const list = [...(s.multiAgentTasksBySession[sessionId] ?? [])];
-						const agentId = String((ev as {agentId?: string}).agentId || '');
-						const idx = list.findIndex(
-							t => t.agentId === agentId || t.uid === agentId,
-						);
-						if (idx < 0) return {};
-						list[idx] = {
-							...list[idx]!,
-							status: (['pending', 'running', 'done', 'failed'].includes(
-								String((ev as {status?: string}).status || ''),
-							)
-								? String((ev as {status?: string}).status)
-								: list[idx]!.status) as MultiAgentTaskView['status'],
-							result: String(
-								(ev as {result?: string; message?: string}).result ||
-									(ev as {message?: string}).message ||
-									list[idx]!.result ||
-									'',
-							).slice(0, 400),
-						};
-						return {
-							multiAgentTasksBySession: {
-								...s.multiAgentTasksBySession,
-								[sessionId]: list,
-							},
-						};
-					});
-				},
-				onStreamGap() {
-					sawGap = true;
-				},
-				onDone() {
-					flushDelta();
-					if (sawGap) {
-						// 重放有洞：本地尾巴是缺段，绝不能当完整内容提交 ⇒ 用服务端
-						// transcript 收尾；拉不到（网络/空集）再退回本地提交，不静默卡住。
-						void loadServerSessionMessages(backendSessionId).then(server => {
-							if (server.length > 0) {
-								finalizeFinishedTurn(set, sessionId, server);
-								return;
-							}
-							commitLocalTail();
-						});
-						return;
+				set(s => {
+					if (!s.sessions.some(item => item.id === sessionId)) return s;
+					const byId = new Map(loaded.map(message => [message.id, message]));
+					// Preserve current UI-only notes and optimistic messages created while
+					// the shared backfill was in flight. Current rows win on matching ids.
+					for (const message of s.messagesById[sessionId] ?? []) {
+						byId.set(message.id, message);
 					}
-					commitLocalTail();
-				},
-				onError(message, opts) {
-					flushDelta();
-					if (opts?.kind === 'connection_lost') {
-						// T29：回合仍在后端跑——保留流状态由重试循环重连；不 interrupt。
-						connectionLost = true;
-						return;
+					const merged = [...byId.values()].sort(
+						(a, b) => a.createdAt - b.createdAt,
+					);
+					const messagesLoadingIds = {...s.messagesLoadingIds};
+					delete messagesLoadingIds[sessionId];
+					return {
+						messagesById: {...s.messagesById, [sessionId]: merged},
+						messagesLoadingIds,
+					};
+				});
+				const ready = get();
+				if (
+					ready.messagesById[sessionId] === undefined ||
+					ready.messagesLoadingIds[sessionId]
+				) {
+					return false;
+				}
+			}
+			const abort = new AbortController();
+			const cursor = Math.max(
+				readTurnCursor(backendSessionId),
+				curStream.lastEventId ?? 0,
+				0,
+			);
+			set(s => ({
+				sessionStreams: patchSessionStream(s.sessionStreams, sessionId, {
+					isLoading: true,
+					statusText: '重新连接中…',
+					abortRef: abort,
+					turnDetached: true,
+					lastEventId: cursor,
+					draining: false,
+					remoteStreaming: false,
+				}),
+			}));
+			let pendingDelta = '';
+			const flushDelta = () => {
+				if (!pendingDelta) return;
+				const chunk = pendingDelta;
+				pendingDelta = '';
+				set(s => {
+					const st = getSessionStream(s, sessionId);
+					const nextText = st.streamingText + chunk;
+					return {
+						sessionStreams: patchSessionStream(s.sessionStreams, sessionId, {
+							streamingText: nextText,
+							statusText: '生成中',
+							turnDetached: true,
+						}),
+					};
+				});
+			};
+			// T29：重连流自身的断流也走有界重试；恢复期间挂起权限/提问/计划弹窗照常接住。
+			const pending = createPendingStreamHandlers({get, sessionId});
+			let connectionLost = false;
+			// 本次订阅是否收到过后端重放空洞帧（环形缓冲已挤掉一段）。
+			let sawGap = false;
+			/** 无洞时的收尾：把本地累积的尾巴作为正文提交（带末行同文去重）。 */
+			const commitLocalTail = () => {
+				set(s => {
+					const st = getSessionStream(s, sessionId);
+					const text = st.streamingText;
+					let msgs = [...(s.messagesById[sessionId] ?? [])];
+					if (text.trim()) {
+						// appendAssistantProse 带末行同文去重：重放(cursor 落后)
+						// 会把已提交的尾巴再放一遍，裸 push 会产生重复气泡。
+						msgs = appendAssistantProse(msgs, text);
+						if (wholeWriteIsSafe(s, sessionId)) {
+							void replaceMessages(sessionId, msgs);
+						}
 					}
-					set(s => ({
+					return {
+						messagesById: {...s.messagesById, [sessionId]: msgs},
 						sessionStreams: patchSessionStream(s.sessionStreams, sessionId, {
 							isLoading: false,
+							streamingText: '',
+							streamingShown: '',
+							statusText: '',
 							abortRef: null,
 							turnDetached: false,
-							statusText: '',
+							draining: false,
 						}),
-						...sessionErrorBannerPatch(sessionId, message),
-					}));
-				},
+					};
 				});
-			} catch (err) {
-				// streamTurnEvents 自身不抛连接错误（都走 onError）；保守按连接失败重试
-				if ((err as Error).name !== 'AbortError') {
-					connectionLost = true;
+			};
+			for (let attempt = 0; attempt < REATTACH_MAX_ATTEMPTS; attempt++) {
+				connectionLost = false;
+				sawGap = false;
+				// cursor 每次重取：上一次断流前已收到的事件不重放
+				const cursorNow = Math.max(cursor, readTurnCursor(backendSessionId));
+				try {
+					await streamTurnEvents(backendSessionId, cursorNow, {
+						...pending,
+						signal: abort.signal,
+						onLlmRetry(ev) {
+							set(s => ({
+								sessionStreams: patchSessionStream(s.sessionStreams, sessionId, {
+									statusText: formatLlmRetryWaiting(ev.attempt, ev.nextRetryMs),
+								}),
+							}));
+						},
+						onLlmRetryStarted(ev) {
+							set(s => ({
+								sessionStreams: patchSessionStream(s.sessionStreams, sessionId, {
+									statusText: formatLlmRetryStarted(ev.attempt),
+								}),
+							}));
+						},
+						onReasoningDelta() {
+							set(s => ({
+								sessionStreams: patchSessionStream(s.sessionStreams, sessionId, {
+									statusText: '生成中',
+								}),
+							}));
+						},
+						onDelta(text) {
+						pendingDelta += text;
+						flushDelta();
+					},
+					onToolCall({name, input, toolUseId}) {
+						set(s => {
+							const msgs = [...(s.messagesById[sessionId] ?? [])];
+							const id = toolUseId || `tool-${Date.now()}`;
+							const existing = msgs.findIndex(
+								m => m.role === 'tool' && m.toolUseId === id,
+							);
+							const row: ChatMessage = {
+								id: existing >= 0 ? msgs[existing]!.id : id,
+								role: 'tool',
+								text: '',
+								toolName: name,
+								toolInput: formatToolInputForUi(input),
+								toolUseId: id,
+								toolStatus: 'running',
+								createdAt: Date.now(),
+							};
+							if (existing >= 0) {
+								msgs[existing] = {...msgs[existing]!, ...row, id: msgs[existing]!.id};
+							} else {
+								msgs.push(row);
+							}
+							if (wholeWriteIsSafe(s, sessionId)) {
+								void replaceMessages(sessionId, msgs);
+							}
+							return {
+								messagesById: {...s.messagesById, [sessionId]: msgs},
+								sessionStreams: patchSessionStream(s.sessionStreams, sessionId, {
+									statusText: name,
+								}),
+							};
+						});
+					},
+					onToolResult({name, output, is_error, toolUseId, todos, ui}) {
+						dispatchXeyoUi(ui, {
+							toolUseId,
+							isError: Boolean(is_error),
+						});
+						set(s => {
+							let msgs = [...(s.messagesById[sessionId] ?? [])];
+							const id = toolUseId || '';
+							const idx = msgs.findIndex(
+								m =>
+									m.role === 'tool' &&
+									(id
+										? m.toolUseId === id
+										: m.toolName === name && m.toolStatus === 'running'),
+							);
+							if (idx >= 0) {
+								msgs[idx] = {
+									...msgs[idx]!,
+									text: String(output ?? ''),
+									toolStatus: is_error ? 'error' : 'done',
+								};
+							}
+							if (wholeWriteIsSafe(s, sessionId)) {
+								void replaceMessages(sessionId, msgs);
+							}
+							const patch: Partial<ChatState> = {
+								messagesById: {...s.messagesById, [sessionId]: msgs},
+							};
+							if (Array.isArray(todos)) {
+								const snap = snapshotFromTodoTool({
+									id: `todo-reattach-${Date.now()}`,
+									input: '',
+									todos,
+									running: false,
+								});
+								if (snap) {
+									patch.sessionTodosById = {
+										...s.sessionTodosById,
+										[sessionId]: snap,
+									};
+								}
+							}
+							return patch;
+						});
+					},
+					onMultiAgentTask(ev) {
+						set(s => {
+							const list = s.multiAgentTasksBySession[sessionId] ?? [];
+							const uid = String(
+								(ev as {uid?: string; agentId?: string}).uid ||
+									(ev as {agentId?: string}).agentId ||
+									'',
+							);
+							if (!uid || list.some(t => t.uid === uid)) return {};
+							return {
+								multiAgentTasksBySession: {
+									...s.multiAgentTasksBySession,
+									[sessionId]: [
+										...list,
+										{
+											uid,
+											taskId: String((ev as {taskId?: string}).taskId || uid),
+											agentId: String((ev as {agentId?: string}).agentId || ''),
+											desc: String((ev as {desc?: string}).desc || '').slice(0, 120),
+											status: 'running',
+										} as MultiAgentTaskView,
+									],
+								},
+							};
+						});
+					},
+					onMultiAgentProgress(ev) {
+						set(s => {
+							const list = [...(s.multiAgentTasksBySession[sessionId] ?? [])];
+							const agentId = String((ev as {agentId?: string}).agentId || '');
+							const idx = list.findIndex(
+								t => t.agentId === agentId || t.uid === agentId,
+							);
+							if (idx < 0) return {};
+							list[idx] = {
+								...list[idx]!,
+								status: (['pending', 'running', 'done', 'failed'].includes(
+									String((ev as {status?: string}).status || ''),
+								)
+									? String((ev as {status?: string}).status)
+									: list[idx]!.status) as MultiAgentTaskView['status'],
+								result: String(
+									(ev as {result?: string; message?: string}).result ||
+										(ev as {message?: string}).message ||
+										list[idx]!.result ||
+										'',
+								).slice(0, 400),
+							};
+							return {
+								multiAgentTasksBySession: {
+									...s.multiAgentTasksBySession,
+									[sessionId]: list,
+								},
+							};
+						});
+					},
+					onStreamGap() {
+						sawGap = true;
+					},
+					onDone() {
+						flushDelta();
+						if (sawGap) {
+							// 重放有洞：本地尾巴是缺段，绝不能当完整内容提交 ⇒ 用服务端
+							// transcript 收尾；拉不到（网络/空集）再退回本地提交，不静默卡住。
+							void loadServerSessionMessages(backendSessionId).then(server => {
+								if (server.length > 0) {
+									finalizeFinishedTurn(set, sessionId, server);
+									return;
+								}
+								commitLocalTail();
+							});
+							return;
+						}
+						commitLocalTail();
+					},
+					onError(message, opts) {
+						flushDelta();
+						if (opts?.kind === 'connection_lost') {
+							// T29：回合仍在后端跑——保留流状态由重试循环重连；不 interrupt。
+							connectionLost = true;
+							return;
+						}
+						set(s => ({
+							sessionStreams: patchSessionStream(s.sessionStreams, sessionId, {
+								isLoading: false,
+								abortRef: null,
+								turnDetached: false,
+								statusText: '',
+							}),
+							...sessionErrorBannerPatch(sessionId, message),
+						}));
+					},
+					});
+				} catch (err) {
+					// streamTurnEvents 自身不抛连接错误（都走 onError）；保守按连接失败重试
+					if ((err as Error).name !== 'AbortError') {
+						connectionLost = true;
+					}
 				}
+				if (abort.signal.aborted) {
+					// 用户在恢复期间主动停止：不再重试
+					return true;
+				}
+				if (!connectionLost) {
+					return true;
+				}
+				await sleep(reattachBackoffMs(attempt));
 			}
-			if (abort.signal.aborted) {
-				// 用户在恢复期间主动停止：不再重试
-				return true;
+			// T29：重试上限已到——显式呈现断连（不静默、不假装在跑、不 interrupt）。
+			set(s => ({
+				sessionStreams: patchSessionStream(s.sessionStreams, sessionId, {
+					isLoading: false,
+					abortRef: null,
+					turnDetached: false,
+					statusText: '',
+				}),
+				...sessionErrorBannerPatch(
+					sessionId,
+					`后端不可达：重连 ${REATTACH_MAX_ATTEMPTS} 次失败。回合保留在后端，可稍后手动重试。`,
+				),
+			}));
+			return false;
+		})();
+		reattachInFlight.set(sessionId, work);
+		try {
+			return await work;
+		} finally {
+			if (reattachInFlight.get(sessionId) === work) {
+				reattachInFlight.delete(sessionId);
 			}
-			if (!connectionLost) {
-				return true;
-			}
-			await sleep(reattachBackoffMs(attempt));
 		}
-		// T29：重试上限已到——显式呈现断连（不静默、不假装在跑、不 interrupt）。
-		set(s => ({
-			sessionStreams: patchSessionStream(s.sessionStreams, sessionId, {
-				isLoading: false,
-				abortRef: null,
-				turnDetached: false,
-				statusText: '',
-			}),
-			...sessionErrorBannerPatch(
-				sessionId,
-				`后端不可达：重连 ${REATTACH_MAX_ATTEMPTS} 次失败。回合保留在后端，可稍后手动重试。`,
-			),
-		}));
-		return false;
 	},
 
 	async continueRecovery(sessionId: string) {

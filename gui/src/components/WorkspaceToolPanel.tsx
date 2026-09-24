@@ -509,7 +509,7 @@ export const WorkspaceToolPanel = memo(function WorkspaceToolPanel() {
 	const displayWidth = width + (navEff ? explorerWidth : 0);
 	// 拖拽钳制在“槽宽域”进行（见 usePaneResize）：槽宽上限 = 窗口可用宽 -
 	// 聊天区最小列宽，避免窄窗口下拖满后把聊天区顶出视口。
-	const CHAT_COL_MIN = 180;
+	const CHAT_COL_MIN = 340;
 	const slotOf = useCallback(
 		(base: number) => base + (navEff ? explorerWidth : 0),
 		[navEff, explorerWidth],

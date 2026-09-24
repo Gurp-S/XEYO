@@ -1,6 +1,7 @@
 import {useEffect} from 'react';
 import {useNavigate} from 'react-router-dom';
 import {useChatStore} from '@/stores/chatStore';
+import {SIDE_SPACE_ID} from '@/lib/db';
 
 /**
  * 全局导航桥 + 统一会话/页面视图导航入口（2026-09-05 复用审计落地）。
@@ -75,25 +76,29 @@ export function openPageView(
 export function closePageView(opts?: {replace?: boolean}): void {
 	const st = useChatStore.getState();
 	const activeId = st.activeId;
-	if (activeId?.startsWith('side-')) {
-		const sideNext = st.sessions.find(s => s.id.startsWith('side-'));
-		go(sideNext ? `/side/${sideNext.id}` : '/', opts);
+	const active = st.sessions.find(session => session.id === activeId);
+	if (active?.spaceId === SIDE_SPACE_ID) {
+		go(`/side/${active.id}`, opts);
 		return;
 	}
-	go(activeId ? `/c/${activeId}` : '/', opts);
+	go(active ? `/c/${active.id}` : '/', opts);
 }
 
 /**
- * 切换到某个会话（唯一入口）。侧聊会话（side- 前缀）自动走 /side/ 路由。
+ * 切换到某个会话（唯一入口）。侧聊会话按 space 元数据走 /side/ 路由。
  * 页面视图若开着，随路由切换自动退出。
  */
 export async function openSession(
 	id: string,
 	opts?: {replace?: boolean},
 ): Promise<void> {
+	const before = useChatStore.getState().sessions.find(session => session.id === id);
+	if (!before) return;
 	await useChatStore.getState().selectSession(id);
+	const session = useChatStore.getState().sessions.find(item => item.id === id);
+	if (!session) return;
 	go(
-		id.startsWith('side-') ? `/side/${id}` : `/c/${id}`,
+		session.spaceId === SIDE_SPACE_ID ? `/side/${id}` : `/c/${id}`,
 		opts,
 	);
 }

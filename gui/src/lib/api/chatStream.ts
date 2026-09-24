@@ -46,6 +46,7 @@ export async function streamChat(
 	options?: ChatRequestOptions,
 ): Promise<void> {
 	const s = useSettingsStore.getState();
+	const sideSession = options?.side === true;
 	// 上下文窗口：与聊天顶部用量面板同一口径（@/lib/modelWindow）——**设置里为
 	// 该模型登记的窗口优先**（用户在账号里显式填的值就是他的意图，也是设置页承诺
 	// 的「窗口分母 + 后端压力压缩上限」），厂商 /models 缓存只在未登记时兜底。
@@ -142,7 +143,7 @@ export async function streamChat(
 					multi_agent: options?.multiAgent ?? false,
 					// P1 mid-turn inbox：会话忙时排队（settle 后自动投递），
 					// 而非 409 丢消息；side- 会话保持 409。
-					...(sessionId.startsWith('side-')
+					...(sideSession
 						? {}
 						: {
 							queue_if_busy: true,
@@ -154,8 +155,8 @@ export async function streamChat(
 					// 侧聊（side- 前缀会话）：复用同一回合链路，body.side 让后端
 					// 收紧到只读工具白名单并跳过 workspace 内容注入；也不绑定
 					// workspace（engine 回落 UI 启动目录，避免钉死到某个工程）。
-					side: sessionId.startsWith('side-'),
-					...(!sessionId.startsWith('side-') && options?.workspace?.trim()
+					side: sideSession,
+					...(!sideSession && options?.workspace?.trim()
 						? {workspace: options.workspace.trim()}
 						: {}),
 						// 完整 transcript，供 BE 重启后 hydrate（#2）。
@@ -452,6 +453,8 @@ export type ServerSession = {
 	title: string;
 	createdAt: number;
 	updatedAt: number;
+	/** Server archive sidecar; null means active, missing means older server payload. */
+	archivedAt?: number | null;
 };
 
 /** 多 Agent：子 agent 元数据（卡片列表条目）。 */

@@ -388,21 +388,20 @@ def list_sessions() -> dict[str, Any]:
 		except Exception:
 			pass
 		# smoke-test #3：归档标记 sidecar，前端用来过滤默认列表 vs 归档视图。
-		archived_at: float | None = None
+		archive_state: dict[str, float | None] = {}
 		try:
 			from engine.title import read_archive
 
 			ar = read_archive(sid)
-			if ar:
-				archived_at = float(ar["archivedAt"])
+			archive_state["archivedAt"] = float(ar["archivedAt"]) if ar else None
 		except Exception:
-			archived_at = None
+			pass
 		out.append({
 			"id": sid,
 			"title": title,
 			"createdAt": created_at,
 			"updatedAt": int(st.st_mtime * 1000),
-			"archivedAt": archived_at,
+			**archive_state,
 		})
 	return {"sessions": out}
 
@@ -452,11 +451,22 @@ def list_workspace_sessions(
 			updated_at = int(p.stat().st_mtime * 1000)
 		except OSError:
 			continue
+		archive_state: dict[str, float | None] = {}
+		try:
+			from engine.title import read_archive
+
+			archive = read_archive(sid)
+			archive_state["archivedAt"] = (
+				float(archive["archivedAt"]) if archive else None
+			)
+		except Exception:  # noqa: BLE001 — archive sidecar failure does not block workspace listing
+			pass
 		out.append({
 			"id": sid,
 			"title": title,
 			"createdAt": created_at,
 			"updatedAt": updated_at,
+			**archive_state,
 		})
 	return {"sessions": out}
 
@@ -1594,3 +1604,18 @@ async def session_inbox_resume(session_id: str) -> dict[str, Any]:
 	if not sid:
 		raise api_error(400, "session_id required", "invalid_request")
 	return get_inbox_registry().resume(sid)
+
+
+@router.post("/v1/sessions/{session_id}/inbox/{queue_id}/resume")
+async def session_inbox_item_resume(session_id: str, queue_id: str) -> dict[str, Any]:
+	"""重试单条 stuck 消息；其它排队项目保持原状态。"""
+	from server.inbox_registry import get_inbox_registry
+
+	sid = (session_id or "").strip()
+	qid = (queue_id or "").strip()
+	if not sid or not qid:
+		raise api_error(400, "session_id and queue_id are required")
+	snapshot = get_inbox_registry().resume(sid, qid)
+	if snapshot is None:
+		raise api_error(409, "inbox item not found or no longer stuck", "inbox_not_stuck")
+	return {"ok": True, **snapshot}

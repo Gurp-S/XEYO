@@ -1,4 +1,4 @@
-import {memo, useEffect, useMemo, useRef, useState, type ComponentType, type MouseEvent as ReactMouseEvent, type ReactNode} from 'react';
+import {memo, useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type MouseEvent as ReactMouseEvent, type ReactNode} from 'react';
 import {
 	ChevronRight,
 	ChevronsUpDown,
@@ -794,7 +794,10 @@ export const WorkspacePanel = memo(function WorkspacePanel() {
 		: TOP_ENTRIES.filter(e => e.key !== 'map');
 	const hover = useHoverScroll();
 	const paneRef = useRef<HTMLElement | null>(null);
-	const onWidth = (next: number) => updateSettings({explorerWidth: next});
+	const onWidth = useCallback(
+		(next: number) => updateSettings({explorerWidth: next}),
+		[updateSettings],
+	);
 	const {dragging, onResizeStart} = usePaneResize(width, onWidth, PANE_WIDTH_MIN, PANE_WIDTH_MAX, {invert: true, paneRef});
 	const {mounted, shown} = usePresence(open, smoothness ? 200 : 0, 0);
 

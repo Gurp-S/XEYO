@@ -1144,6 +1144,8 @@ export type ChatApiMessage = {
 
 export type ChatRequestOptions = {
 	mediaRefs?: string[];
+	/** 会话是否属于侧聊；主 store 语义优先于后端 ID 的命名。 */
+	side?: boolean;
 	agentMode?: AgentMode;
 	/** 多 Agent：前端 "+" 菜单开启（Multi-Agent）。True 时 BE 若收到 tasks 走批量调度。 */
 	multiAgent?: boolean;

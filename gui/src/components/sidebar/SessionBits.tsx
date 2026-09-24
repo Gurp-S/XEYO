@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import type {ReactNode} from 'react';
 import type {ContextMenuItem} from '@/components/ui/ContextMenu';
-import {confirmDialog, promptDialog} from '@/lib/inlineDialog';
+import {promptDialog} from '@/lib/inlineDialog';
 import {formatRelativeShort} from '@/lib/time';
 import {cn} from '@/lib/utils';
 
@@ -168,19 +168,7 @@ export function buildSessionMenuItems(
 				label: '删除对话',
 				danger: true,
 				icon: <Trash2 className='h-3.5 w-3.5' strokeWidth={1.9} />,
-				onSelect: () => {
-					void (async () => {
-						const ok = await confirmDialog({
-							title: '删除已归档对话？',
-							body: `「${session.title}」将连同全部聊天记录永久删除，不可恢复。`,
-							confirmText: '删除',
-							danger: true,
-						});
-						if (ok) {
-							handlers.onDelete?.();
-						}
-					})();
-				},
+				onSelect: () => handlers.onDelete?.(),
 			});
 		}
 	} else {

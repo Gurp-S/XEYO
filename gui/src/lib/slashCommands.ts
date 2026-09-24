@@ -9,12 +9,13 @@
  */
 import {slashCommands, type SlashCommand} from '@/generated/slashManifest';
 import {apiUrl} from '@/lib/apiBase';
-import {fetchSkills, type SkillInfo} from '@/lib/api';
+import {fetchSkills, fetchWithTimeout, type SkillInfo} from '@/lib/api';
 import {formatSlashHelp, parseSlashInput} from '@/lib/slash';
 import {syncGoalAfterCommand} from '@/lib/goalSync';
 import {useSettingsStore, type OutputMode, type PermissionMode} from '@/stores/settingsStore';
 import {normalizeThemeId} from '@/theme/catalog';
 import {useChatStore} from '@/stores/chatStore';
+import {toast} from '@/lib/toast';
 
 export type SlashRunOutcome =
 	| {status: 'not-slash'}
@@ -34,9 +35,11 @@ export type SlashRunOptions = {
 	/** 工作区根（用于 /v1/slash） */
 	workspace: string;
 	/** /clear：新建会话 */
-	onNewSession: () => void;
+	onNewSession: () => void | Promise<unknown>;
 	/** /retry：重发上一条用户消息 */
-	onRetryLast: () => void;
+	onRetryLast: () => void | Promise<void>;
+	/** 将技能或改写命令送入常规聊天发送链路；返回值表示消息已被接受。 */
+	onSend?: (text: string) => Promise<boolean> | boolean;
 };
 
 const OUTPUT_LEVELS = new Set(['lite', 'full', 'ultra']);
@@ -77,7 +80,7 @@ async function postSlash(
 ): Promise<string> {
 	const s = useSettingsStore.getState();
 	const provider = s.provider === 'local' ? 'deepseek' : s.provider;
-	const res = await fetch(apiUrl('/v1/slash'), {
+	const res = await fetchWithTimeout(apiUrl('/v1/slash'), {
 		method: 'POST',
 		headers: {
 			'Content-Type': 'application/json',
@@ -166,10 +169,10 @@ export async function runSlashCommand(
 		case 'docs':
 			return {status: 'local', text: '文档见仓库 docs/ 目录（架构图与评测结果）。'};
 		case 'clear':
-			opts.onNewSession();
+			await opts.onNewSession();
 			return {status: 'local', text: '已新建会话。'};
 		case 'retry':
-			opts.onRetryLast();
+			await opts.onRetryLast();
 			return {status: 'local', text: ''};
 		case 'run': {
 			const cmdText = arg.trim();
@@ -278,16 +281,41 @@ export async function handleComposerSlash(
 		case 'not-slash':
 			return false;
 		case 'unknown':
-			chat.appendLocalNote?.(`未知命令 /${outcome.name}，试试 /help`);
+			chat.appendLocalNote?.(`未知命令 /${outcome.name}，试试 /help`, {
+				sessionId: opts.sessionId,
+			});
 			return true;
 		case 'send':
 			// /run 等提示词改写命令：直接发提示词（用户气泡由 sendMessage 负责）。
-			void chat.sendMessage(outcome.text, [], [], undefined);
+			if (opts.onSend) {
+				return await opts.onSend(outcome.text);
+			}
+			const accepted = await chat.sendMessage(
+				outcome.text,
+				[],
+				[],
+				undefined,
+				undefined,
+				undefined,
+				{
+					sessionId: opts.sessionId,
+					background: useChatStore.getState().activeId !== opts.sessionId,
+				},
+			);
+			if (!accepted) toast.error('目标会话未接受该命令消息');
 			return true;
 		case 'local':
 		case 'server':
 			if (outcome.text) {
-				chat.appendLocalNote?.(outcome.text, {kind: 'cmd', title: value.trim()});
+				const resultSessionId =
+					probe.command?.name === 'clear'
+						? useChatStore.getState().activeId ?? opts.sessionId
+						: opts.sessionId;
+				chat.appendLocalNote?.(outcome.text, {
+					kind: 'cmd',
+					title: value.trim(),
+					sessionId: resultSessionId,
+				});
 			}
 			return true;
 		default:
@@ -295,14 +323,21 @@ export async function handleComposerSlash(
 	}
 }
 
-/** 供 /retry 找上一条用户消息（Composer 也可直接复用）。 */
-export function lastUserText(sessionId: string): string {
+/** 供 /retry 找上一条完整用户输入（包含已上传的图片引用）。 */
+export function lastUserMessage(
+	sessionId: string,
+): {text: string; mediaRefs: string[]} | null {
 	const msgs = useChatStore.getState().messagesById[sessionId] ?? [];
 	for (let i = msgs.length - 1; i >= 0; i -= 1) {
 		const m = msgs[i];
 		if (m && m.role === 'user' && m.text.trim() && !m.uiOnly) {
-			return m.text;
+			return {text: m.text, mediaRefs: [...(m.mediaRefs ?? [])]};
 		}
 	}
-	return '';
+	return null;
+}
+
+/** 兼容只需要文本预览的调用方。 */
+export function lastUserText(sessionId: string): string {
+	return lastUserMessage(sessionId)?.text ?? '';
 }

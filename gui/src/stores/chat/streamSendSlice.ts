@@ -15,11 +15,13 @@ import {
 import {normalizeSessionGoalState} from '@/lib/api/goals';
 import {normalizeJobSnapshots} from '@/lib/api/jobs';
 import {dispatchXeyoUi} from '@/lib/dispatchXeyoUi';
+import {formatLlmRetryStarted, formatLlmRetryWaiting} from '@/lib/llmRetryStatus';
 import {allowsEmptyApiKey} from '@/lib/localTestGate';
 import {toast} from '@/lib/toast';
 import {
 	replaceMessages,
 	saveSession,
+	SIDE_SPACE_ID,
 } from '@/lib/db';
 import {
 	type AgentMode,
@@ -274,7 +276,7 @@ export function createStreamSendSlice(
 						// 本身就是指示物。
 						toast.info('已排到本轮边界，模型下一步就能看到');
 					},
-				onSteerDelivered({messageIds}: {messageIds: string[]}) {
+					onSteerDelivered({messageIds}: {messageIds: string[]}) {
 						set(s => ({
 							inboxBySession: dropDeliveredInboxChips(
 								s.inboxBySession,
@@ -282,9 +284,14 @@ export function createStreamSendSlice(
 								messageIds,
 							),
 						}));
+						void get().refreshInbox(sessionId);
 					},
 					onQueued({queueId, position}: {queueId: string; position: number}) {
 						queueAccepted = true;
+						if (!queueId.trim()) {
+							void get().refreshInbox(sessionId);
+							return;
+						}
 						console.info('[inbox] 已排队', {sessionId, queueId, position});
 						toast.info(`已排队（第 ${position} 条），当前回合结束后自动投递`);
 						set(s => {
@@ -308,9 +315,16 @@ export function createStreamSendSlice(
 								},
 							};
 						});
+						void get().refreshInbox(sessionId);
 					},
 				};
-				await streamChat(qBackend, qApi, queueHandlers);
+				const qSession = preSend.sessions.find(s => s.id === sessionId);
+				const qSide = qSession?.spaceId === SIDE_SPACE_ID;
+				const qWorkspace = preSend.spaces.find(s => s.id === qSession?.spaceId)?.rootPath?.trim() ?? '';
+				await streamChat(qBackend, qApi, queueHandlers, {
+					side: qSide,
+					workspace: qSide ? '' : qWorkspace,
+				});
 				// 受理了才让 Composer 清空输入框；被拒（429 队列满 / 413 超长 /
 				// 409 side 不支持引导）时返回 false，草稿原样退回。
 				return queueAccepted;
@@ -354,7 +368,7 @@ export function createStreamSendSlice(
 		}
 
 		// 侧聊（side-）不绑定工作区：读工具用服务端启动目录，跳过工作区守卫。
-		const sideSession = sessionId.startsWith('side-');
+		const sideSession = session.spaceId === SIDE_SPACE_ID;
 		const sendSpace = get().spaces.find(s => s.id === session.spaceId);
 		const workspaceRoot = sideSession
 			? ''
@@ -383,6 +397,7 @@ export function createStreamSendSlice(
 
 		const abort = new AbortController();
 		let settled = false;
+		let retryStatusText: string | null = null;
 		// 乐观气泡被撤回 = 这条消息后端从未受理。此时 sendMessage 必须返回
 		// false，Composer 才会把草稿退回输入框（否则输入框已清空、气泡已撤回，
 		// 用户整条消息只剩一行横幅）。
@@ -423,6 +438,27 @@ export function createStreamSendSlice(
 		const usage = createUsageAccumulator(get, set, sessionId);
 		const multi = createMultiAgentStreamHandlers({get, set, sessionId});
 		const pending = createPendingStreamHandlers({get, sessionId});
+		const setRetryStatus = (text: string) => {
+			retryStatusText = text;
+			set(s => ({
+				sessionStreams: patchSessionStream(s.sessionStreams, sessionId, {
+					statusText: text,
+				}),
+			}));
+		};
+		const clearRetryStatus = () => {
+			const expected = retryStatusText;
+			retryStatusText = null;
+			if (!expected) return;
+			set(s => {
+				if (getSessionStream(s, sessionId).statusText !== expected) return s;
+				return {
+					sessionStreams: patchSessionStream(s.sessionStreams, sessionId, {
+						statusText: '',
+					}),
+				};
+			});
+		};
 
 		const formatToolInput = (input: unknown): string =>
 			formatToolInputForUi(input);
@@ -1157,10 +1193,12 @@ export function createStreamSendSlice(
 			await streamChat(backendSessionId, apiMessages, {
 				signal: abort.signal,
 				onDelta(chunk) {
+					clearRetryStatus();
 					pendingDelta += chunk;
 					scheduleFrame();
 				},
 				onReasoningDelta(chunk) {
+					clearRetryStatus();
 					if (settled || !sessionStreamActive(get(), sessionId)) {
 						return;
 					}
@@ -1168,6 +1206,7 @@ export function createStreamSendSlice(
 					scheduleFrame();
 				},
 				onToolCall({name, input, toolUseId}) {
+					clearRetryStatus();
 					if (settled || !sessionStreamActive(get(), sessionId)) {
 						return;
 					}
@@ -1201,6 +1240,16 @@ export function createStreamSendSlice(
 				},
 				onUsage(ev) {
 					usage.onUsage(ev);
+				},
+				onLlmRetry(ev) {
+					if (!settled && sessionStreamActive(get(), sessionId)) {
+						setRetryStatus(formatLlmRetryWaiting(ev.attempt, ev.nextRetryMs));
+					}
+				},
+				onLlmRetryStarted(ev) {
+					if (!settled && sessionStreamActive(get(), sessionId)) {
+						setRetryStatus(formatLlmRetryStarted(ev.attempt));
+					}
 				},
 				onCompression(ev) {
 					usage.onCompression(ev);
@@ -1320,11 +1369,16 @@ export function createStreamSendSlice(
 							messageIds,
 						),
 					}));
+					void get().refreshInbox(sessionId);
 				},
 				onQueued({queueId, position}) {
 					// P1：后端已把消息排进 FIFO（settle 后自动投递）。保留乐观气泡
 					// （不撤回），记入 inboxBySession 供 Composer chip 渲染。
 					if (!sessionStillAlive()) {
+						return;
+					}
+					if (!queueId.trim()) {
+						void get().refreshInbox(sessionId);
 						return;
 					}
 					toast.info(`已排队（第 ${position} 条），当前回合结束后自动投递`);
@@ -1349,6 +1403,7 @@ export function createStreamSendSlice(
 							},
 						};
 					});
+					void get().refreshInbox(sessionId);
 				},
 				onDone() {
 					usage.flush();
@@ -1474,7 +1529,7 @@ export function createStreamSendSlice(
 					persistence.now(msgs);
 				},
 			},
-			{mediaRefs, agentMode: requestedAgentMode, multiAgent: requestedMultiAgent, workspace: workspaceRoot, reasoningEffort: opts?.reasoningEffort, steerIfBusy: opts?.steerIfBusy},
+			{mediaRefs, agentMode: requestedAgentMode, multiAgent: requestedMultiAgent, workspace: workspaceRoot, side: sideSession, reasoningEffort: opts?.reasoningEffort, steerIfBusy: opts?.steerIfBusy},
 			);
 		} catch (err) {
 			flushFrame();
@@ -1544,4 +1599,3 @@ export function createStreamSendSlice(
 	},
 	};
 }
-

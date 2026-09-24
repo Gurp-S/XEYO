@@ -254,6 +254,9 @@ function stepRowEqual(a: StepRowProps, b: StepRowProps): boolean {
 		x.error === y.error &&
 		x.running === y.running &&
 		x.agent === y.agent &&
+		// 「查看诊断」按 toolUseId 出现：id 晚到（服务端补身份）时必须重渲染，
+		// 否则这一条错误步骤永远没有诊断入口。
+		x.toolUseId === y.toolUseId &&
 		(x.args?.length ?? 0) === (y.args?.length ?? 0) &&
 		(x.result?.length ?? 0) === (y.result?.length ?? 0) &&
 		(x.thoughtContent?.length ?? 0) === (y.thoughtContent?.length ?? 0) &&
@@ -546,6 +549,8 @@ type Props = {
 	inlineAgentTasks?: MultiAgentTaskView[];
 	/** 本段任务全局序号起点（跨段串行时 2·/3· 正确） */
 	agentIndexBase?: number;
+	/** 当前模型请求重试状态，仅在 Working 轨迹头显示。 */
+	workflowStatusText?: string;
 };
 
 function agentTasksFingerprint(tasks: MultiAgentTaskView[] | undefined): string {
@@ -567,6 +572,7 @@ function activityEqual(prev: Props, next: Props): boolean {
 		prev.startedAt !== next.startedAt ||
 		prev.hideHeader !== next.hideHeader ||
 		prev.agentIndexBase !== next.agentIndexBase ||
+		prev.workflowStatusText !== next.workflowStatusText ||
 		prev.diffs.add !== next.diffs.add ||
 		prev.diffs.del !== next.diffs.del ||
 		prev.steps.length !== next.steps.length ||
@@ -600,6 +606,7 @@ function ActivityLogInner({
 	hideHeader = false,
 	inlineAgentTasks,
 	agentIndexBase = 0,
+	workflowStatusText = '',
 }: Props) {
 	const smoothness = useSettingsStore(s => isSmoothnessOn(s.smoothness));
 	const showDiff = diffs.add > 0 || diffs.del > 0 ? diffs : undefined;
@@ -820,6 +827,15 @@ function ActivityLogInner({
 					<>
 						<span className="xy-split-head-lead">
 							<span className="xy-split-head-label">Working</span>
+							{workflowStatusText ? (
+								<span
+									className="min-w-0 truncate text-[11px] font-normal text-mute"
+									role="status"
+									title={workflowStatusText}
+								>
+									{workflowStatusText}
+								</span>
+							) : null}
 							<SplitChevron open={expanded} />
 						</span>
 						<span className="xy-split-head-meta xy-activity-timer">

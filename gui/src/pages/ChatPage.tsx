@@ -17,7 +17,7 @@ import {useChatStore} from '@/stores/chatStore';
 import {ChatUiStoreProvider} from '@/stores/chatUiStore';
 import {useRemoteStore} from '@/stores/remoteStore';
 import {useSettingsStore} from '@/stores/settingsStore';
-import {DEFAULT_SPACE_ID} from '@/lib/db';
+import {DEFAULT_SPACE_ID, SIDE_SPACE_ID} from '@/lib/db';
 import {useLocation, useNavigate, useParams} from 'react-router-dom';
 import {ImmersiveLayer} from '@/components/immersive/ImmersiveLayer';
 import {UsagePanel} from '@/components/UsagePanel';
@@ -28,6 +28,7 @@ import {usePresence} from '@/hooks/usePresence';
 import {closePageView, pageViewFromPath} from '@/lib/appNav';
 import {popEscLayer, pushEscLayer} from '@/lib/escStack';
 import {cn} from '@/lib/utils';
+import {toast} from '@/lib/toast';
 
 function RecoveryBanner() {
 	const activeId = useChatStore(s => s.activeId);
@@ -138,32 +139,59 @@ export function ChatPage() {
 			return;
 		}
 		const st = useChatStore.getState();
+		const createAndNavigate = () => {
+			if (creatingRef.current) return;
+			creatingRef.current = true;
+			const routeAtStart = window.location.pathname;
+			void createSession()
+				.then(id => {
+					// 用户可能在 IndexedDB / 服务端创建期间切到别处；旧完成回调不能
+					// 把路由拉回它启动时的会话。
+					if (
+						useChatStore.getState().activeId === id &&
+						window.location.pathname === routeAtStart
+					) {
+						navigate(`/c/${id}`, {replace: true});
+					}
+				})
+				.catch(error => {
+					toast.error(error instanceof Error ? error.message : '创建会话失败');
+				})
+				.finally(() => {
+					creatingRef.current = false;
+				});
+		};
 		if (sessionId) {
 			// URL → store。不要依赖 activeId — 否则 open-folder /
 			// createSession 会在 navigate 前更新 activeId，此 effect
 			// 会重新选中过期的 URL session（发送看似无反应）。
-			// 路由与会话类型必须匹配：/c/ 只接主会话，/side/ 只接 side- 会话。
+			// 路由与会话类型必须匹配：/c/ 只接主会话，/side/ 只接侧聊。
+			const session = st.sessions.find(s => s.id === sessionId);
 			const exists =
-				st.sessions.some(s => s.id === sessionId) &&
-				sessionId.startsWith('side-') === isSideChat;
+				session != null && (session.spaceId === SIDE_SPACE_ID) === isSideChat;
 			if (!exists) {
 				if (isSideChat) {
-					const sideNext = st.sessions.find(s => s.id.startsWith('side-'));
+					const sideNext = st.sessions.find(s => s.spaceId === SIDE_SPACE_ID);
 					navigate(sideNext ? `/side/${sideNext.id}` : '/', {replace: true});
 					return;
 				}
-				if (st.activeId) {
-					navigate(`/c/${st.activeId}`, {replace: true});
+				const active = st.sessions.find(item => item.id === st.activeId);
+				if (active?.spaceId === SIDE_SPACE_ID) {
+					navigate(`/side/${active.id}`, {replace: true});
 					return;
 				}
-				if (creatingRef.current) {
+				if (active) {
+					navigate(`/c/${active.id}`, {replace: true});
 					return;
 				}
-				creatingRef.current = true;
-				void createSession().then(id => {
-					navigate(`/c/${id}`, {replace: true});
-					creatingRef.current = false;
-				});
+				const mainNext = st.sessions.find(
+					item => item.spaceId !== SIDE_SPACE_ID && !item.archived,
+				);
+				if (mainNext) {
+					navigate(`/c/${mainNext.id}`, {replace: true});
+					return;
+				}
+				navigate('/', {replace: true});
 				return;
 			}
 			void selectSession(sessionId);
@@ -171,16 +199,20 @@ export function ChatPage() {
 		}
 		// 路径无 session id：store → URL。
 		if (isSideChat) {
-			const sideNext = st.sessions.find(s => s.id.startsWith('side-'));
+			const sideNext = st.sessions.find(s => s.spaceId === SIDE_SPACE_ID);
 			navigate(sideNext ? `/side/${sideNext.id}` : '/', {replace: true});
 			return;
 		}
 		// 主路由只回主会话；activeId 停在侧聊时新开一个主会话。
-		if (activeId && !activeId.startsWith('side-')) {
-			navigate(`/c/${activeId}`, {replace: true});
+		const activeSession = activeId
+			? st.sessions.find(s => s.id === activeId)
+			: undefined;
+		if (activeSession?.spaceId === SIDE_SPACE_ID) {
+			navigate(`/side/${activeSession.id}`, {replace: true});
 			return;
 		}
-		if (creatingRef.current) {
+		if (activeSession && activeSession.spaceId !== SIDE_SPACE_ID) {
+			navigate(`/c/${activeId}`, {replace: true});
 			return;
 		}
 		// 默认 space（空 IDB 或未开工作区）下自动建 DEFAULT_SPACE_ID 孤儿
@@ -193,11 +225,7 @@ export function ChatPage() {
 		if (!st.activeSpaceId || st.activeSpaceId === DEFAULT_SPACE_ID) {
 			return;
 		}
-		creatingRef.current = true;
-		void createSession().then(id => {
-			navigate(`/c/${id}`, {replace: true});
-			creatingRef.current = false;
-		});
+		createAndNavigate();
 	}, [offlineReplay, hydrated, sessionId, activeId, createSession, navigate, isSideChat, pageViewOpen, selectSession]);
 
 	return (

@@ -55,6 +55,8 @@ type Props = {
 	visibleProseIds?: Set<string> | null;
 	/** 当前思考阶段起始时刻（live Thought 步骤）。 */
 	thoughtStartedAt?: number | null;
+	/** 模型请求重试状态，展示在当前回合的 Working 轨迹中。 */
+	workflowStatusText?: string;
 	/**
 	 * 进行中整轮只保留最新 turn 的 Working 顶栏；
 	 * 更早 turn 的 activity 全部 hideHeader，避免叠多条折叠头。
@@ -200,6 +202,7 @@ type ActivityBlockProps = {
 	inlineAgentTasks?: MultiAgentTaskView[];
 	/** 本段任务在全局 agentTasks 中的序号起点 */
 	agentIndexBase?: number;
+	workflowStatusText?: string;
 };
 
 /** 活动块：进行中强制展开；settle 后默认仍开，仅用户手动折。 */
@@ -216,6 +219,7 @@ export const ActivityBlock = memo(
 		onToggle,
 		inlineAgentTasks,
 		agentIndexBase = 0,
+		workflowStatusText,
 	}: ActivityBlockProps) {
 		const stepLive = steps.some(s => s.running);
 		const inProgress = Boolean(turnActive || stepLive);
@@ -235,9 +239,10 @@ export const ActivityBlock = memo(
 					startedAt={startedAt}
 					hideHeader={hideHeader}
 					onToggle={onToggle}
-					inlineAgentTasks={inlineAgentTasks}
-					agentIndexBase={agentIndexBase}
-				/>
+				inlineAgentTasks={inlineAgentTasks}
+				agentIndexBase={agentIndexBase}
+				workflowStatusText={workflowStatusText}
+			/>
 			</div>
 		);
 	},
@@ -250,6 +255,7 @@ export const ActivityBlock = memo(
 		prev.expanded === next.expanded &&
 		prev.onToggle === next.onToggle &&
 		prev.agentIndexBase === next.agentIndexBase &&
+		prev.workflowStatusText === next.workflowStatusText &&
 		prev.diffs.add === next.diffs.add &&
 		prev.diffs.del === next.diffs.del &&
 		stepsEqual(prev.steps, next.steps) &&
@@ -274,6 +280,7 @@ function AssistantTurnInner({
 	suppressActivity = false,
 	visibleProseIds = null,
 	thoughtStartedAt = null,
+	workflowStatusText = '',
 	hideActivityHeader = false,
 }: Props) {
 
@@ -309,9 +316,13 @@ function AssistantTurnInner({
 
 	const hideNarration = Boolean(roundSettled || !active);
 
-	if (items.length === 0 && !streaming && !thinking && !agentTasks?.length) {
-		return null;
-	}
+	const shouldRender = !(
+		items.length === 0 &&
+		!streaming &&
+		!thinking &&
+		!agentTasks?.length &&
+		!active
+	);
 
 	// 整轮结束后再出 Changes，避免盖住还在流式的正文。
 	const showFilesChanged =
@@ -319,20 +330,23 @@ function AssistantTurnInner({
 
 	const hasActivity = segments.some(seg => seg.kind === 'activity');
 
-	// 无工具时用稳定 synthetic 段承载 Thinking，工具到达后仍用同一 rail key，避免 Working remount
+	// 首个工具/推理到达前也显示当前模型阶段；工具到达后复用同一 rail key。
 	const displaySegments: TurnSegment[] = useMemo(() => {
-		if (suppressActivity || hasActivity || !showLiveThought) {
+		if (suppressActivity || hasActivity || (!showLiveThought && !active)) {
 			return segments;
 		}
+		const liveSteps = showLiveThought
+			? appendLiveThoughtStep([], {
+					active: true,
+					since: thoughtStartedAt,
+					content: thinking,
+				})
+			: [];
 		return [
 			{
 				kind: 'activity',
 				id: 'act-live',
-				steps: appendLiveThoughtStep([], {
-					active: true,
-					since: thoughtStartedAt,
-					content: thinking,
-				}),
+				steps: liveSteps,
 				summary: 'Working…',
 				diffs: {add: 0, del: 0},
 			},
@@ -342,6 +356,7 @@ function AssistantTurnInner({
 		suppressActivity,
 		hasActivity,
 		showLiveThought,
+		active,
 		thoughtStartedAt,
 		thinking,
 	]);
@@ -362,6 +377,9 @@ function AssistantTurnInner({
 		}
 		setRailOpen(v => !v);
 	}, [active]);
+	// Keep every hook above this gate: an empty turn can become active before its
+	// first token, so returning before displaySegments/useState would change hook order.
+	if (!shouldRender) return null;
 
 	const hasAgents = Boolean(agentTasks?.length);
 	/** 结束后：卡片在 Done 下、主回复上；进行中：按段切片挂到对应 Agent 步骤旁。 */
@@ -435,8 +453,13 @@ function AssistantTurnInner({
 								diffs={seg.diffs}
 								steps={steps}
 								active={active}
-								startedAt={thoughtStartedAt}
-								hideHeader={
+						startedAt={thoughtStartedAt}
+						workflowStatusText={
+							segIdx === displayFirstActivityIdx
+								? workflowStatusText
+								: undefined
+						}
+						hideHeader={
 									hideActivityHeader || !isPrimaryRail
 								}
 								expanded={railExpanded}
@@ -525,6 +548,9 @@ function turnEqual(prev: Props, next: Props): boolean {
 		return false;
 	}
 	if (prev.thoughtStartedAt !== next.thoughtStartedAt) {
+		return false;
+	}
+	if (prev.workflowStatusText !== next.workflowStatusText) {
 		return false;
 	}
 	if (prev.isLatestTurn !== next.isLatestTurn) {

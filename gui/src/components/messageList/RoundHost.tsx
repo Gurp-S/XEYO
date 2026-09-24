@@ -111,6 +111,7 @@ promptEditRef: MutableRefObject<HTMLDivElement | null>;
 	roundSettled: boolean;
 	streamingSignal: boolean;
 	thoughtStartedAt: number | null;
+	workflowStatusText: string;
 	registerSticky: (id: string, node: HTMLElement | null, editable: boolean) => void;
 };
 
@@ -127,6 +128,7 @@ export function roundHostPropsAreEqual(prev: RoundHostProps, next: RoundHostProp
 		prev.roundSettled === next.roundSettled &&
 		prev.streamingSignal === next.streamingSignal &&
 		prev.thoughtStartedAt === next.thoughtStartedAt &&
+		prev.workflowStatusText === next.workflowStatusText &&
 		prev.registerSticky === next.registerSticky;
 	if (!staticEqual) {
 		return false;
@@ -214,6 +216,7 @@ promptEditRef,
 	roundSettled,
 	streamingSignal,
 	thoughtStartedAt,
+	workflowStatusText,
 	registerSticky,
 }: RoundHostProps) {
 		// 挂载决策归 VirtualRoundList 的窗口（视口 ± overscan ∪ 最新轮 ∪ 强制轮）。
@@ -335,6 +338,7 @@ promptEditRef,
 				suppressActivity={opts.suppressActivity}
 				visibleProseIds={opts.visibleProseIds}
 				thoughtStartedAt={block.active ? thoughtStartedAt : null}
+				workflowStatusText={block.active ? workflowStatusText : ''}
 			/>
 		</div>
 	);

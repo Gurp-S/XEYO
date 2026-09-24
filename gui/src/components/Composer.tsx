@@ -46,7 +46,8 @@ import {
 } from '@/lib/slash';
 import {arbitrateSlashMenuKey, type SlashMenuKey} from '@/lib/slashMenuKeys';
 import {resolveSendMode, steerHintVisible, type SendMode} from '@/lib/composerSendMode';
-import {handleComposerSlash, lastUserText} from '@/lib/slashCommands';
+import {handleComposerSlash, lastUserMessage} from '@/lib/slashCommands';
+import {newSession} from '@/lib/appNav';
 import {useHasComposerPendingDock} from '@/hooks/usePendingForActiveSession';
 import {popEscLayer, pushEscLayer} from '@/lib/escStack';
 import {textFieldMenuItems} from '@/lib/contextMenus';
@@ -72,10 +73,20 @@ import {McpPanel} from './McpPanel';
 import {SessionGoalDock, useSessionGoalDockLive} from './SessionGoalDock';
 import {ImageReaderDialog} from './ImageReader';
 import {normalizeAgentMode} from '@/lib/agentMode';
+import {SIDE_SPACE_ID} from '@/lib/db';
 
 type FileAttachment = DraftFileAttachment;
 type ImageAttachment = DraftImageAttachment;
 type Attachment = DraftAttachment;
+
+function removeSubmittedAttachments(current: Attachment[], submitted: Attachment[]) {
+	const submittedIds = new Set(submitted.map(attachment => attachment.id));
+	const removed = current.filter(attachment => submittedIds.has(attachment.id));
+	return {
+		removed,
+		remaining: current.filter(attachment => !submittedIds.has(attachment.id)),
+	};
+}
 
 const MAX_IMAGES = 8;
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
@@ -202,6 +213,12 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 	const attachmentsRef = useRef(attachments);
 	attachmentsRef.current = attachments;
 	const activeId = useChatUiStore(s => s.activeId);
+	const activeSessionIsSide = useChatUiStore(
+		s => s.sessions.find(session => session.id === activeId)?.spaceId === SIDE_SPACE_ID,
+	);
+	const activeInboxBackendId = useChatUiStore(s =>
+		activeId ? activeBackendSessionId(s.historyById, activeId) : '',
+	);
 	const statusText = useChatUiStore(
 		s => selectActiveSessionStream(s).statusText,
 	);
@@ -259,6 +276,15 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 	const inboxItems: InboxQueuedItem[] = (activeId ? inboxBySession[activeId] : undefined) ?? [];
 	// 每会话派生：切走再切回时不会因其它会话的轮询结果把本会话 chip 熄灭。
 	const hasInboxChip = inboxItems.length > 0;
+	const inboxPollingActive = useChatUiStore(s => {
+		if (!activeId || s.sessions.find(session => session.id === activeId)?.spaceId === SIDE_SPACE_ID) return false;
+		const stream = selectActiveSessionStream(s);
+		return (
+			hasInboxChip ||
+			sessionStreamActive(s, activeId) ||
+			Boolean(stream.remoteStreaming || stream.turnDetached)
+		);
+	});
 	// 队列列表：全部条目可见（默认最多 3 条，超出折叠）。
 	const [queueExpanded, setQueueExpanded] = useState(false);
 	const visibleInbox = queueExpanded
@@ -278,6 +304,10 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 		setEditingId(null);
 		setQueueDraft('');
 	};
+	useEffect(() => {
+		closeQueueEdit();
+		setQueueExpanded(false);
+	}, [activeId, activeInboxBackendId]);
 	const openQueueEdit = (it: InboxQueuedItem) => {
 		if (it.state === 'delivering') return;
 		queueEscRef.current = false;
@@ -310,18 +340,27 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 			if (!ok) toast.error('取消失败（消息可能已开始投递）');
 		});
 	};
-	// P1：chip 可见时 2s 轮询排队队列（多端一致；队空 = 已投递/取消 → 清 chip）。
+	// 会话切换时先取快照；运行中快速轮询，空闲时低频同步其它客户端入队。
 	useEffect(() => {
-		if (!hasInboxChip || !activeId) {
+		if (!activeId || activeSessionIsSide) {
 			return;
 		}
-		const tick = () => {
-			void refreshInbox(activeId);
+		let disposed = false;
+		let timer: number | undefined;
+		const tick = async () => {
+			const applied = await refreshInbox(activeId);
+			if (disposed) return;
+			// Schedule after completion so a slow server cannot accumulate overlapping
+			// requests. Failed snapshots retry sooner and never clear the current cards.
+			const delay = applied ? (inboxPollingActive ? 2000 : 10000) : 5000;
+			timer = window.setTimeout(() => void tick(), delay);
 		};
-		tick();
-		const t = setInterval(tick, 2000);
-		return () => clearInterval(t);
-	}, [hasInboxChip, activeId, refreshInbox]);
+		void tick();
+		return () => {
+			disposed = true;
+			if (timer !== undefined) window.clearTimeout(timer);
+		};
+	}, [inboxPollingActive, activeId, activeSessionIsSide, activeInboxBackendId, refreshInbox]);
 	const [taCapped, setTaCapped] = useState(false);
 	const [taExpanded, setTaExpanded] = useState(false);
 	/** 光标位置：slash 弹层按「光标处词元」判定，支持消息中途输入 / 唤起。 */
@@ -334,6 +373,9 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 	const [slashDismissed, setSlashDismissed] = useState(false);
 	/** 弹层键盘高亮（扁平列表下标：技能组在前、命令组在后）；hover 与键盘共用。 */
 	const [slashHighlight, setSlashHighlight] = useState<number | null>(null);
+	const [slashExecuting, setSlashExecuting] = useState(false);
+	const [slashExecutingName, setSlashExecutingName] = useState('');
+	const slashExecutingRef = useRef(false);
 	/** IME 组词期间关闭着色覆盖层，避免合成文字被 text-transparent 隐藏。 */
 	const [imeComposing, setImeComposing] = useState(false);
 	/** 当前工作区技能清单（/ 弹层与着色候选；按 workspace 缓存）。 */
@@ -859,17 +901,6 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 		});
 	};
 
-	const clearAttachments = () => {
-		setAttachments(prev => {
-			for (const a of prev) {
-				if (a.kind === 'image') {
-					URL.revokeObjectURL(a.previewUrl);
-				}
-			}
-			return [];
-		});
-	};
-
 	const addImages = (list: File[]) => {
 		const next: ImageAttachment[] = [];
 		for (const file of list) {
@@ -983,9 +1014,13 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 		addImages(imageFiles);
 	};
 
-	const buildPayload = () => {
-		const parts = [value.trim()];
-		for (const a of files) {
+	const buildPayload = (
+		baseText = value,
+		payloadAttachments: Attachment[] = attachments,
+	) => {
+		const parts = [baseText.trim()];
+		for (const a of payloadAttachments) {
+			if (a.kind !== 'file') continue;
 			if (a.path && !a.text) {
 				// @相对路径引用：由 Agent 按需读文件
 				const ref = a.path.replace(/\\/g, '/');
@@ -996,15 +1031,22 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 				parts.push(`\n\n@${a.path.replace(/\\/g, '/')}`);
 			}
 		}
+		const payloadImages = payloadAttachments.filter(
+			(a): a is ImageAttachment => a.kind === 'image',
+		);
 		return {
-			text: parts.join('').trim() || (images.length > 0 ? '请分析这些图片。' : ''),
-			mediaRefs: images.flatMap(image => (image.mediaRef ? [image.mediaRef] : [])),
+			text: parts.join('').trim() || (payloadImages.length > 0 ? '请分析这些图片。' : ''),
+			mediaRefs: payloadImages.flatMap(image => (image.mediaRef ? [image.mediaRef] : [])),
 		};
 	};
 
-	const ensureMediaRefs = async (): Promise<string[]> => {
+	const ensureMediaRefs = async (
+		imagesToUpload: ImageAttachment[] = images,
+		targetSessionId: string | null = activeId,
+		targetText = value,
+	): Promise<string[]> => {
 		const refs: string[] = [];
-		for (const image of images) {
+		for (const image of imagesToUpload) {
 			if (image.mediaRef) {
 				refs.push(image.mediaRef);
 				continue;
@@ -1014,19 +1056,34 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 			}
 			const uploaded = await uploadMedia(image.file);
 			refs.push(uploaded.media_ref);
-			setAttachments(prev =>
-				prev.map(item =>
-					item.id === image.id && item.kind === 'image'
-						? {...item, mediaRef: uploaded.media_ref}
-						: item,
-				),
-			);
+			if (
+				chatUiStoreApi.getState().activeId === targetSessionId &&
+				activeIdRef.current === targetSessionId
+			) {
+				setAttachments(prev =>
+					prev.map(item =>
+						item.id === image.id && item.kind === 'image'
+							? {...item, mediaRef: uploaded.media_ref}
+							: item,
+					),
+				);
+			} else if (targetSessionId) {
+				const draft = getComposerDraft(targetSessionId);
+				setComposerDraft(targetSessionId, {
+					text: draft?.text ?? targetText,
+					attachments: (draft?.attachments ?? imagesToUpload).map(item =>
+						item.id === image.id && item.kind === 'image'
+							? {...item, mediaRef: uploaded.media_ref}
+							: item,
+					),
+				});
+			}
 		}
 		return refs;
 	};
 
 	const canSend =
-		!remoteLoggedIn && !uploading && (Boolean(value.trim()) || attachments.length > 0);
+		!remoteLoggedIn && !uploading && !slashExecuting && (Boolean(value.trim()) || attachments.length > 0);
 
 	const onSend = (mode: SendMode = 'send') => {
 		// 斜杠命令网关：/xxx 先在本机（本地命令/技能直呼/未知命令提示）或
@@ -1035,33 +1092,158 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 		// 非斜杠输入由 parseSlashInput 判 not-slash → consumed=false，走正常发送。
 		const valueTrim = value.trim();
 		if (valueTrim.startsWith('/')) {
+			if (slashExecutingRef.current) return;
 			const sessId = activeId ?? '';
 			const st = useChatStore.getState();
+			const submittedDraft = value;
+			const submittedAttachments = attachmentsRef.current;
+			const submittedAgentMode = agentModeRef.current;
+			const submittedMultiAgent = multiAgentRef.current;
+			const submittedReasoningEffort = reasoningEffortRef.current;
+			let slashSentMessage = false;
+			slashExecutingRef.current = true;
+			setSlashExecuting(true);
+			setSlashExecutingName(valueTrim.split(/\s+/, 1)[0] || '/命令');
 			void (async () => {
-				const consumed = await handleComposerSlash(valueTrim, {
-					sessionId: sessId,
-					backendSessionId:
-						activeBackendSessionId(st.historyById, sessId) || undefined,
-					workspace: activeWorkspace,
-					onNewSession: () => {
-						void st.createSession();
-					},
-					onRetryLast: () => {
-						const last = lastUserText(sessId);
-						if (last) {
-							void st.sendMessage(last);
-						} else {
-							toast.info('还没有可重试的消息');
-						}
-					},
-				});
-				if (consumed) {
-					setValue('');
-					clearAttachments();
-					requestAnimationFrame(() => {
-						applyTaHeight(false);
-						taRef.current?.focus();
+				try {
+					const consumed = await handleComposerSlash(valueTrim, {
+						sessionId: sessId,
+						backendSessionId:
+							activeBackendSessionId(st.historyById, sessId) || undefined,
+						workspace: activeWorkspace,
+						onNewSession: () =>
+							newSession(
+								st.sessions.find(session => session.id === sessId)?.spaceId === SIDE_SPACE_ID
+									? {side: true}
+									: {spaceId: st.sessions.find(session => session.id === sessId)?.spaceId},
+							),
+						onRetryLast: async () => {
+							const last = lastUserMessage(sessId);
+							if (last) {
+								await st.sendMessage(
+									last.text,
+									last.mediaRefs,
+									[],
+									submittedAgentMode,
+									undefined,
+									submittedMultiAgent,
+									{
+										sessionId: sessId,
+										background: activeIdRef.current !== sessId,
+										reasoningEffort: submittedReasoningEffort,
+									},
+							);
+							} else {
+								toast.info('还没有可重试的消息');
+							}
+						},
+						onSend: async commandText => {
+							let mediaRefs: string[];
+							try {
+								setUploading(true);
+								mediaRefs = await ensureMediaRefs(
+									submittedAttachments.filter(
+										(attachment): attachment is ImageAttachment => attachment.kind === 'image',
+									),
+									sessId,
+									submittedDraft,
+								);
+							} catch (err) {
+								toast.error(err instanceof Error ? err.message : String(err));
+								return false;
+							} finally {
+								setUploading(false);
+							}
+							const payload = buildPayload(commandText, submittedAttachments);
+							return await new Promise<boolean>(resolve => {
+								let settled = false;
+								const settle = (accepted: boolean) => {
+									if (settled) return;
+									settled = true;
+									resolve(accepted);
+								};
+								void st
+									.sendMessage(
+										payload.text,
+										mediaRefs,
+										[],
+										submittedAgentMode,
+										() => {
+										slashSentMessage = true;
+										settle(true);
+										},
+										submittedMultiAgent,
+										{
+											sessionId: sessId,
+											background: activeIdRef.current !== sessId,
+											reasoningEffort: submittedReasoningEffort,
+											steerIfBusy: mode === 'steer',
+										},
+									)
+									.then(settle)
+									.catch(err => {
+										if (!settled) {
+											toast.error(err instanceof Error ? err.message : String(err));
+										}
+										settle(false);
+									});
+							});
+						},
 					});
+					if (consumed && sessId) {
+						const originDraft = getComposerDraft(sessId);
+						const originActive =
+							chatUiStoreApi.getState().activeId === sessId &&
+							activeIdRef.current === sessId;
+						const currentOriginText = originActive
+							? valueRef.current
+							: originDraft?.text;
+						const currentOriginAttachments = originActive
+							? attachmentsRef.current
+							: originDraft?.attachments ?? [];
+						if (currentOriginText !== undefined) {
+							const {removed, remaining} = slashSentMessage
+								? removeSubmittedAttachments(currentOriginAttachments, submittedAttachments)
+								: {removed: [], remaining: currentOriginAttachments};
+							const textUnchanged = currentOriginText === submittedDraft;
+							setComposerDraft(sessId, {
+								text: textUnchanged ? '' : currentOriginText,
+								// 普通命令保留附件；技能/改写命令已发送同一组附件时清掉。
+								attachments: remaining,
+							});
+							if (originActive) {
+								if (textUnchanged) {
+								setValue('');
+								}
+								if (removed.length > 0) {
+									for (const attachment of removed) {
+										if (attachment.kind === 'image' && attachment.previewUrl.startsWith('blob:')) {
+											URL.revokeObjectURL(attachment.previewUrl);
+										}
+									}
+									setAttachments(remaining);
+								}
+								if (textUnchanged || removed.length > 0) {
+								requestAnimationFrame(() => {
+									applyTaHeight(false);
+									taRef.current?.focus();
+								});
+								}
+							} else if (removed.length > 0) {
+								for (const attachment of removed) {
+									if (attachment.kind === 'image' && attachment.previewUrl.startsWith('blob:')) {
+										URL.revokeObjectURL(attachment.previewUrl);
+									}
+								}
+							}
+						}
+					}
+				} catch (err) {
+					toast.error(err instanceof Error ? err.message : String(err));
+				} finally {
+					slashExecutingRef.current = false;
+					setSlashExecuting(false);
+					setSlashExecutingName('');
 				}
 			})();
 			return;
@@ -1080,39 +1262,60 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 			let mediaRefs: string[];
 			try {
 				setUploading(true);
-				mediaRefs = await ensureMediaRefs();
+				mediaRefs = await ensureMediaRefs(images, sessionId, draftText);
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : String(err));
 			return;
 		} finally {
 			setUploading(false);
 		}
-			const clearAfterAccept = () => {
-				if (clearedByCallback) {
-					return;
+		const clearAfterAccept = () => {
+			if (clearedByCallback) {
+				return;
 				}
 				clearedByCallback = true;
 				const acceptedSessionId = sessionId ?? chatUiStoreApi.getState().activeId;
-				if (!acceptedSessionId) {
-					return;
+			if (!acceptedSessionId) {
+				return;
+			}
+			const originActive =
+				chatUiStoreApi.getState().activeId === acceptedSessionId &&
+				activeIdRef.current === acceptedSessionId;
+			const acceptedDraft = getComposerDraft(acceptedSessionId);
+			const currentText = originActive ? valueRef.current : acceptedDraft?.text;
+			if (currentText === undefined) return;
+			const currentAttachments = originActive
+				? attachmentsRef.current
+				: acceptedDraft?.attachments ?? [];
+			const {removed, remaining} = removeSubmittedAttachments(
+				currentAttachments,
+				draftAttachments,
+			);
+			const textUnchanged = currentText === draftText;
+			setComposerDraft(acceptedSessionId, {
+				text: textUnchanged ? '' : currentText,
+				attachments: remaining,
+				agentMode: normalizeAgentMode(agentMode),
+				permissionMode: useSettingsStore.getState().permissionMode,
+				multiAgent,
+				reasoningEffort,
+			});
+			if (originActive) {
+				if (textUnchanged) setValue('');
+				if (removed.length > 0) setAttachments(remaining);
+				if (textUnchanged || removed.length > 0) {
+					requestAnimationFrame(() => {
+						applyTaHeight(false);
+						taRef.current?.focus();
+					});
 				}
-				setComposerDraft(acceptedSessionId, {
-					text: '',
-					attachments: [],
-					agentMode: normalizeAgentMode(
-						chatUiStoreApi.getState().agentMode,
-					),
-					permissionMode: useSettingsStore.getState().permissionMode,
-					multiAgent: multiAgentRef.current,
-					reasoningEffort: reasoningEffortRef.current,
-				});
-				setValue('');
-				clearAttachments();
-				requestAnimationFrame(() => {
-					applyTaHeight(false);
-					taRef.current?.focus();
-				});
-			};
+			}
+		for (const attachment of removed) {
+			if (attachment.kind === 'image' && attachment.previewUrl.startsWith('blob:')) {
+				URL.revokeObjectURL(attachment.previewUrl);
+			}
+		}
+		};
 			let clearedByCallback = false;
 			const started = await sendMessage(
 				payload.text,
@@ -1121,24 +1324,19 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 				agentMode,
 				clearAfterAccept,
 				multiAgent,
-				{reasoningEffort, steerIfBusy: mode === 'steer'},
+				{
+					sessionId: sessionId ?? undefined,
+					background: Boolean(sessionId && activeIdRef.current !== sessionId),
+					reasoningEffort,
+					steerIfBusy: mode === 'steer',
+				},
 			);
 			const stillHere =
 				sessionId != null &&
 				chatUiStoreApi.getState().activeId === sessionId;
 			if (!started) {
-				if (sessionId) {
-					setComposerDraft(sessionId, {
-						text: draftText,
-						attachments: draftAttachments,
-					});
-				}
-				if (stillHere) {
-					setValue(draftText);
-					setAttachments(draftAttachments);
-				}
 				const st = chatUiStoreApi.getState();
-				if (st.activeId && sessionStreamActive(st, st.activeId)) {
+				if (sessionId && sessionStreamActive(st, sessionId)) {
 					toast.info('当前会话正在生成，请先停止或稍候再试');
 				}
 				return;
@@ -1224,6 +1422,11 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 	return (
 		<div className="shrink-0 px-3 pb-2.5 pt-1.5 sm:px-5 sm:pb-4">
 			<div className="mx-auto w-full max-w-3xl">
+				{slashExecuting ? (
+					<p className="anim-fade mb-1.5 px-1 font-mono text-[11px] text-mute" role="status">
+						正在执行 {slashExecutingName}… 草稿会保留
+					</p>
+				) : null}
 				{remoteLoggedIn ? null : !apiKey.trim() &&
 				!allowsEmptyApiKey(provider) &&
 				!currentSessionStreaming ? (
@@ -1337,8 +1540,16 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 												className="xy-queue-action"
 												title="重新投递"
 												onClick={() => {
-													void resumeInbox(activeId ?? '');
-													void refreshInbox(activeId ?? '');
+													const sessionId = activeId;
+													if (!sessionId) return;
+													const backendId = activeBackendSessionId(
+														chatUiStoreApi.getState().historyById,
+														sessionId,
+													);
+									void resumeInbox(backendId, it.queue_id).then(ok => {
+														if (!ok) toast.error('重新投递失败');
+														void refreshInbox(sessionId);
+													});
 												}}
 											>
 												<Send className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden />

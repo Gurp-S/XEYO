@@ -12,6 +12,7 @@ import {
 } from '@/lib/api';
 import {emptyBucket, mergeReports} from '@/lib/usageMerge';
 import {PageShell} from '@/components/PageShell';
+import {A3SnapshotPanel} from '@/components/A3SnapshotPanel';
 import {cn} from '@/lib/utils';
 import {isLocalProvider} from '@/lib/localTestGate';
 import {
@@ -162,6 +163,7 @@ export function UsagePanel({active = true}: Props) {
 	const profiles = useSettingsStore(s => s.profiles);
 	const [days, setDays] = useState(30);
 	const [modelId, setModelId] = useState('');
+	const [modelProvider, setModelProvider] = useState('');
 	const [keyFp, setKeyFp] = useState('');
 	const [kind, setKind] = useState<ChartKind>('bar');
 	const [openMenu, setOpenMenu] = useState<null | 'days' | 'key' | 'model'>(
@@ -169,7 +171,9 @@ export function UsagePanel({active = true}: Props) {
 	);
 	const [report, setReport] = useState<UsageReport | null>(null);
 	const [vendorModelIds, setVendorModelIds] = useState<string[]>([]);
+	const [vendorModelProvider, setVendorModelProvider] = useState('');
 	const [balance, setBalance] = useState<UsageBalance | null>(null);
+	const [balanceLoading, setBalanceLoading] = useState(false);
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState('');
 
@@ -198,50 +202,69 @@ export function UsagePanel({active = true}: Props) {
 			return;
 		}
 		let cancelled = false;
-		const load = (silent: boolean) => {
+		let inFlight = false;
+		let timer: number | undefined;
+		let lastWakeAt = 0;
+		const schedule = () => {
+			if (cancelled) return;
+			if (timer != null) window.clearTimeout(timer);
+			timer = window.setTimeout(() => void load(true), 20_000);
+		};
+		const load = async (silent: boolean) => {
+			if (cancelled || inFlight) return;
+			inFlight = true;
+			if (timer != null) {
+				window.clearTimeout(timer);
+				timer = undefined;
+			}
 			if (!silent) {
 				setLoading(true);
 				setError('');
 			}
-			const match = keyFp
-				? profiles.find(p => keyFingerprint(p.apiKey) === keyFp)
-				: profiles.find(p => p.apiKey.trim()) ?? null;
-			const s = useSettingsStore.getState();
-			// 「全部」（未选 Key/模型）：按每个已配置的厂商分别拉取再合并，
-			// 让用量页跨厂商展示，而不是只显示一个厂商（smoke-test #11）。
-			if (!keyFp && !modelId) {
-				const providers = [
-					...new Set(
-						profiles
-							.filter(p => p.apiKey.trim())
-							.map(p => p.provider),
-					),
-				];
-				if (providers.length <= 1) {
-					void fetchUsage({
-						days,
-						provider: match?.provider || s.provider,
-						apiKey: match?.apiKey || s.apiKey,
-						baseUrl: match?.baseUrl?.trim() || undefined,
-					})
-						.then(data => {
-							if (!cancelled) {
-								setReport(data);
-							}
-						})
-						.catch(err => {
-							if (!cancelled && !silent) {
-								setError(err instanceof Error ? err.message : String(err));
-								setReport(null);
-							}
-						})
-						.finally(() => {
-							if (!cancelled) {
-								setLoading(false);
-							}
+			try {
+				const match = keyFp
+					? profiles.find(p => keyFingerprint(p.apiKey) === keyFp)
+					: profiles.find(p => p.apiKey.trim()) ?? null;
+				const modelProfile = !keyFp && modelId && modelProvider
+					? profiles.find(p => p.provider === modelProvider && p.apiKey.trim()) ??
+						profiles.find(p => p.provider === modelProvider)
+					: null;
+				const s = useSettingsStore.getState();
+				const requestProfile = keyFp
+					? match
+					: modelId
+						? modelProfile
+						: match;
+				const requestProvider = keyFp
+					? match?.provider || modelProvider || s.provider
+					: modelId
+						? modelProvider || modelProfile?.provider || s.provider
+						: requestProfile?.provider || s.provider;
+				const requestApiKey =
+					requestProfile?.apiKey ||
+					(requestProvider === s.provider ? s.apiKey : '');
+				const requestBaseUrl =
+					requestProfile?.baseUrl?.trim() ||
+					(requestProvider === s.provider ? s.resolvedBaseUrl() : '');
+				// 「全部」（未选 Key/模型）：按每个已配置的厂商分别拉取再合并，
+				// 让用量页跨厂商展示，而不是只显示一个厂商（smoke-test #11）。
+				if (!keyFp && !modelId) {
+					const providers = [
+						...new Set(
+							profiles
+								.filter(p => p.apiKey.trim())
+								.map(p => p.provider),
+						),
+					];
+					if (providers.length <= 1) {
+						const data = await fetchUsage({
+							days,
+							provider: match?.provider || s.provider,
+							apiKey: match?.apiKey || s.apiKey,
+							baseUrl: match?.baseUrl?.trim() || undefined,
 						});
-				} else {
-					void (async () => {
+						if (!cancelled) setReport(data);
+					} else {
 						const results = await Promise.all(
 							providers.map(prov => {
 								const p = profiles.find(
@@ -249,71 +272,65 @@ export function UsagePanel({active = true}: Props) {
 								);
 								return fetchUsage({
 									days,
-									provider: prov,
-									apiKey: p?.apiKey || s.apiKey,
-									baseUrl: p?.baseUrl?.trim() || undefined,
+								provider: prov,
+								apiKey: p?.apiKey || s.apiKey,
+								baseUrl: p?.baseUrl?.trim() || undefined,
 								}).catch(() => null);
 							}),
 						);
-						if (cancelled) {
-							return;
+						if (!cancelled) {
+							const ok = results.filter(
+								(r): r is UsageReport => Boolean(r),
+							);
+							if (ok.length > 0) {
+								setReport(mergeReports(ok));
+								setError('');
+							} else if (!silent) {
+								setError('没有可用的用量数据');
+								setReport(null);
+							}
 						}
-						const ok = results.filter(
-							(r): r is UsageReport => Boolean(r),
-						);
-						if (ok.length > 0) {
-							setReport(mergeReports(ok));
-							setError('');
-						} else {
-							setError('没有可用的用量数据');
-							setReport(null);
-						}
-						setLoading(false);
-					})();
+					}
+				} else {
+					const data = await fetchUsage({
+						days,
+						model: modelId || undefined,
+						key_fp: keyFp || undefined,
+						provider: requestProvider,
+						apiKey: requestApiKey,
+						baseUrl: requestBaseUrl,
+					});
+					if (!cancelled) setReport(data);
 				}
-				return;
+			} catch (err) {
+				if (!cancelled && !silent) {
+					setError(err instanceof Error ? err.message : String(err));
+					setReport(null);
+				}
+			} finally {
+				if (!cancelled) {
+					inFlight = false;
+					setLoading(false);
+					schedule();
+				}
 			}
-			void fetchUsage({
-				days,
-				model: modelId || undefined,
-				key_fp: keyFp || undefined,
-				provider: match?.provider || s.provider,
-				apiKey: match?.apiKey || s.apiKey,
-				baseUrl: match?.baseUrl?.trim() || undefined,
-			})
-				.then(data => {
-					if (!cancelled) {
-						setReport(data);
-					}
-				})
-				.catch(err => {
-					if (!cancelled && !silent) {
-						setError(err instanceof Error ? err.message : String(err));
-						setReport(null);
-					}
-				})
-				.finally(() => {
-					if (!cancelled) {
-						setLoading(false);
-					}
-				});
 		};
-		load(false);
-		const tick = window.setInterval(() => load(true), 20_000);
+		void load(false);
 		const onVis = () => {
-			if (document.visibilityState === 'visible') {
-				load(true);
+			if (document.visibilityState === 'visible' && Date.now() - lastWakeAt > 1000) {
+				lastWakeAt = Date.now();
+				void load(true);
 			}
 		};
 		window.addEventListener('focus', onVis);
 		document.addEventListener('visibilitychange', onVis);
 		return () => {
 			cancelled = true;
-			window.clearInterval(tick);
+			if (timer != null) window.clearTimeout(timer);
 			window.removeEventListener('focus', onVis);
 			document.removeEventListener('visibilitychange', onVis);
 		};
-	}, [active, days, modelId, keyFp, profiles]);
+	}, [active, days, modelId, modelProvider, keyFp, profiles]);
 
 	useEffect(() => {
 		if (!active) {
@@ -326,32 +343,60 @@ export function UsagePanel({active = true}: Props) {
 		const provider = match?.provider || useSettingsStore.getState().provider;
 		if (!key.trim() || provider !== 'deepseek') {
 			setBalance(null);
+			setBalanceLoading(false);
 			return;
 		}
 		let cancelled = false;
-		const load = () => {
-			void fetchUsageBalance({
-				apiKey: key,
-				provider,
-				baseUrl: match?.baseUrl,
-			}).then(b => {
+		let inFlight = false;
+		let hasLoaded = false;
+		let timer: number | undefined;
+		let lastWakeAt = 0;
+		setBalance(null);
+		setBalanceLoading(true);
+		const schedule = () => {
+			if (cancelled) return;
+			timer = window.setTimeout(() => void load(), 20_000);
+		};
+		const load = async () => {
+			if (cancelled || inFlight) return;
+			inFlight = true;
+			if (timer != null) {
+				window.clearTimeout(timer);
+				timer = undefined;
+			}
+			try {
+				const b = await fetchUsageBalance({
+					apiKey: key,
+					provider,
+					baseUrl: match?.baseUrl,
+				});
 				if (!cancelled) {
 					setBalance(b);
+					hasLoaded = true;
 				}
-			});
+			} catch {
+				if (!cancelled && !hasLoaded) setBalance(null);
+			} finally {
+				if (!cancelled) {
+					hasLoaded = true;
+					setBalanceLoading(false);
+					inFlight = false;
+					schedule();
+				}
+			}
 		};
-		load();
-		const tick = window.setInterval(load, 20_000);
+		void load();
 		const onVis = () => {
-			if (document.visibilityState === 'visible') {
-				load();
+			if (document.visibilityState === 'visible' && Date.now() - lastWakeAt > 1000) {
+				lastWakeAt = Date.now();
+				void load();
 			}
 		};
 		window.addEventListener('focus', onVis);
 		document.addEventListener('visibilitychange', onVis);
 		return () => {
 			cancelled = true;
-			window.clearInterval(tick);
+			if (timer != null) window.clearTimeout(timer);
 			window.removeEventListener('focus', onVis);
 			document.removeEventListener('visibilitychange', onVis);
 		};
@@ -368,17 +413,23 @@ export function UsagePanel({active = true}: Props) {
 		const key = match?.apiKey || s.apiKey;
 		if (!key.trim()) {
 			setVendorModelIds([]);
+			setVendorModelProvider('');
 			return;
 		}
 		let cancelled = false;
+		const provider = match?.provider || s.provider;
+		setVendorModelIds([]);
+		setVendorModelProvider(provider);
 		void fetchVendorModels({
 			apiKey: key,
-			provider: match?.provider || s.provider,
+			provider,
 			baseUrl: match?.baseUrl?.trim() || undefined,
 		}).then(rep => {
 			if (!cancelled) {
 				setVendorModelIds(rep.data.map(m => m.id));
 			}
+		}).catch(() => {
+			if (!cancelled) setVendorModelIds([]);
 		});
 		return () => {
 			cancelled = true;
@@ -400,39 +451,48 @@ export function UsagePanel({active = true}: Props) {
 
 	const modelChoices = useMemo(() => {
 		const seen = new Set<string>();
-		const items: {id: string; label: string; hint: string}[] = [
-			{id: '', label: '全部模型', hint: '厂商返回的全部模型'},
+		const selectedProfile = keyFp
+			? profiles.find(profile => keyFingerprint(profile.apiKey) === keyFp)
+			: undefined;
+		const providerFilter = selectedProfile?.provider;
+		const items: {key: string; id: string; provider: string; label: string; hint: string}[] = [
+			{key: '', id: '', provider: '', label: '全部模型', hint: '厂商返回的全部模型'},
 		];
-		const add = (id: string, hint = '') => {
-			if (!id || seen.has(id)) {
+		const add = (id: string, provider: string, hint = '') => {
+			const key = JSON.stringify([provider, id]);
+			if (!id || seen.has(key) || (providerFilter && provider && provider !== providerFilter)) {
 				return;
 			}
-			seen.add(id);
-			items.push({id, label: modelLabel(id), hint: hint || id});
+			seen.add(key);
+			items.push({key, id, provider, label: modelLabel(id), hint: hint || id});
 		};
 		for (const id of vendorModelIds) {
-			add(id, id);
+			add(id, vendorModelProvider, id);
 		}
 		for (const p of profiles) {
 			if (p.model) {
-				add(p.model, p.model);
+				add(p.model, p.provider, p.model);
 			}
 		}
 		for (const m of report?.models ?? []) {
-			add(m.model, m.model);
+			add(m.model, m.provider, m.model);
 		}
 		return items;
-	}, [profiles, report, vendorModelIds]);
+	}, [keyFp, profiles, report, vendorModelIds, vendorModelProvider]);
 
 	const groups = useMemo(() => {
 		const models = report?.models ?? [];
 		let list = models;
 		if (modelId) {
-			const selected = models.find(m => m.model === modelId);
+			const selected = models.find(
+				m => m.model === modelId && (!modelProvider || m.provider === modelProvider),
+			);
 			if (selected) {
 				list = models.filter(m => m.provider === selected.provider);
 			} else {
-				list = models.filter(m => m.model === modelId);
+				list = models.filter(
+					m => m.model === modelId && (!modelProvider || m.provider === modelProvider),
+				);
 			}
 		}
 		const map = new Map<string, UsageModelBlock[]>();
@@ -442,7 +502,7 @@ export function UsagePanel({active = true}: Props) {
 			map.set(m.provider, arr);
 		}
 		return [...map.entries()];
-	}, [report, modelId]);
+	}, [report, modelId, modelProvider]);
 
 	const keys = useMemo(() => {
 		// 只列设置里已配置的账号（profiles），与「设置 → 模型与账号」保持一致；
@@ -463,6 +523,17 @@ export function UsagePanel({active = true}: Props) {
 		}
 	}, [keyFp, keys]);
 
+	useEffect(() => {
+		if (!keyFp || !modelId) return;
+		const selectedProfile = profiles.find(
+			profile => keyFingerprint(profile.apiKey) === keyFp,
+		);
+		if (selectedProfile && modelProvider && selectedProfile.provider !== modelProvider) {
+			setModelId('');
+			setModelProvider('');
+		}
+	}, [keyFp, modelId, modelProvider, profiles]);
+
 	const dayChoices = [
 		{id: '1', label: '今日', hint: '今天'},
 		{id: '7', label: '近 7 天', hint: '最近一周'},
@@ -475,14 +546,15 @@ export function UsagePanel({active = true}: Props) {
 	];
 		const activeDay = dayChoices.find(d => d.id === String(days)) ?? dayChoices[2];
 	const activeKey = keyChoices.find(k => k.id === keyFp) ?? keyChoices[0];
-	const activeChoice = modelChoices.find(m => m.id === modelId) ?? modelChoices[0];
+	const activeModelKey = modelId ? JSON.stringify([modelProvider, modelId]) : '';
+	const activeChoice = modelChoices.find(m => m.key === activeModelKey) ?? modelChoices[0];
 
 	const series = report?.series ?? [];
 	const totals = report?.totals ?? emptyBucket();
 	// v4 主口径（B1）：三分类分列展示，输入合计 = hit + miss（官方 prompt_tokens 语义）；
 	// 不出现「总消耗」大数。命中率只展示、不设阈值文案。
 	const hitRate = fmtHitRate(totals.hit_rate);
-	const contentKey = `${days}:${keyFp}:${modelId}:${kind}`;
+	const contentKey = `${days}:${keyFp}:${modelProvider}:${modelId}:${kind}`;
 
 	const toolbar = (
 		<>
@@ -554,18 +626,26 @@ export function UsagePanel({active = true}: Props) {
 						onToggle={() =>
 							setOpenMenu(v => (v === 'model' ? null : 'model'))
 						}
-						valueLabel={activeChoice.id ? activeChoice.id : '全部模型'}
+						valueLabel={
+							activeChoice.id
+								? `${activeChoice.provider ? `${providerName(activeChoice.provider)} · ` : ''}${activeChoice.id}`
+								: '全部模型'
+						}
 						options={modelChoices.map(opt => ({
-							id: opt.id,
+							id: opt.key,
 							label: opt.id || '全部模型',
-							hint: opt.label,
+							hint: opt.provider
+								? `${providerName(opt.provider)} · ${opt.label}`
+								: opt.label,
 						}))}
-						selectedId={modelId}
+						selectedId={activeModelKey}
 						align="right"
 						mono
 						menuId={`${menuId}-model`}
-						onSelect={id => {
-							setModelId(id);
+						onSelect={key => {
+							const selected = modelChoices.find(choice => choice.key === key);
+							setModelId(selected?.id ?? '');
+							setModelProvider(selected?.provider ?? '');
 							setOpenMenu(null);
 						}}
 					/>
@@ -581,6 +661,7 @@ export function UsagePanel({active = true}: Props) {
 			toolbarRef={filtersRef}
 			aria-busy={loading}
 		>
+			<A3SnapshotPanel active={active} />
 
 						{loading && !report ? (
 							<div className="xy-usage-loading pointer-events-none absolute inset-4 z-10">
@@ -654,11 +735,15 @@ export function UsagePanel({active = true}: Props) {
 							hint="自行充值部分"
 						/>
 					</div>
-					) : (
+					) : balanceOwner ? (
 						<p className="xy-usage-section mb-4 px-1 text-[12px] text-mute">
-							未读取到厂商账户余额，在设置中填入可用的 API Key 后显示。
+							{balanceLoading
+								? '正在读取账户余额…'
+								: balance?.reason
+									? `暂未获取到余额：${balance.reason}`
+									: '该厂商当前未返回账户余额。'}
 						</p>
-					)}
+					) : null}
 
 					<section className="xy-usage-section mb-4 rounded-xl border border-line bg-glass-hover px-4 pb-2 pt-3">
 						<div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
@@ -727,10 +812,10 @@ export function UsagePanel({active = true}: Props) {
 								<div className="flex flex-col gap-3">
 									{models.map(block => (
 										<ModelUsageRow
-											key={`${block.provider}:${block.model}`}
-											block={block}
-											kind={kind}
-											highlight={modelId === block.model}
+							key={`${block.provider}:${block.model}`}
+							block={block}
+							kind={kind}
+							highlight={modelId === block.model && (!modelProvider || modelProvider === block.provider)}
 										/>
 									))}
 								</div>

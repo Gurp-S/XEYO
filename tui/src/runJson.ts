@@ -6,6 +6,8 @@ import {
   applyXy,
   createSession,
   healthOk,
+  interruptSession,
+  resolvePermission,
   streamChat,
   type ChatBody,
 } from "./api/sse.js";
@@ -82,8 +84,23 @@ export async function runJsonChat(
   let id = 0;
   const nextId = () => `j${++id}`;
   let code = 0;
+  const ac = new AbortController();
 
   await new Promise<void>((resolve) => {
+    // Ctrl+C 必须同时打断服务端：只断本地读流会留下一轮还在跑的引擎作业。
+    const onInt = () => {
+      code = 1;
+      emit({ type: "interrupted", message: "SIGINT: aborting local stream and server turn" });
+      ac.abort();
+      void interruptSession(config.baseUrl, config.apiKey, sessionId).catch(() => {
+        /* 服务端可能已经结束；不掩盖已经发生的中断 */
+      });
+    };
+    process.on("SIGINT", onInt);
+    const finish = () => {
+      process.off("SIGINT", onInt);
+      resolve();
+    };
     void streamChat(
       config.baseUrl,
       config.apiKey,
@@ -97,20 +114,30 @@ export async function runJsonChat(
           const kind = String(xy.type ?? "");
           if (kind === "permission_pending") {
             // 无头 JSON 模式下默认拒绝（无 TTY 交互提示）。
+            const requestId = String(xy.request_id ?? "");
             emit({
               type: "permission_denied",
-              request_id: xy.request_id,
+              request_id: requestId,
               tool: xy.tool_name,
               reason: "no TTY; fail-closed",
               fix: "Use interactive TUI to approve, or permission_mode=never",
             });
             code = 1;
+            // 只在本地宣布拒绝是没用的：服务端还挂在这条请求上等决议，
+            // 于是"fail-closed"变成无限等待。决议必须回给服务端。
+            if (requestId) {
+              void resolvePermission(config.baseUrl, config.apiKey, requestId, "deny").catch(
+                (e: unknown) => {
+                  emit({ type: "error", message: `deny failed: ${String(e)}` });
+                },
+              );
+            }
           }
           items = applyXy(items, xy, nextId);
         },
         onDone: () => {
           emit({ type: "done", ok: code === 0 });
-          resolve();
+          finish();
         },
         onError: (err) => {
           emit({
@@ -119,9 +146,10 @@ export async function runJsonChat(
             fix: "Check engine logs and network; retry with xeyo serve running",
           });
           code = 1;
-          resolve();
+          finish();
         },
       },
+      ac.signal,
     ).catch((err: unknown) => {
       emit({
         type: "error",
@@ -129,7 +157,7 @@ export async function runJsonChat(
         fix: "Check engine logs and network",
       });
       code = 1;
-      resolve();
+      finish();
     });
   });
 

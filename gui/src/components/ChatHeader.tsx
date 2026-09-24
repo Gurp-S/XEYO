@@ -13,13 +13,12 @@ import {
 } from '@/lib/formatUsage';
 import {SessionJobsBadge} from '@/components/SessionJobsBadge';
 import {
-	fetchMemoryNotes,
 	fetchSessionCompression,
 	getCachedModelContextLimit,
 	requestManualCompact,
-	type MemoryNoteRow,
 	type SessionCompression,
 } from '@/lib/api';
+import {toast} from '@/lib/toast';
 import {useSettingsStore} from '@/stores/settingsStore';
 import {
 	registeredWindowFromSettings,
@@ -121,7 +120,6 @@ const usage = pageViewOpen ? null : sessionUsageById[activeId ?? ''] ?? null;
 			const usagePreviewVisible = !pageViewOpen && activeId != null;
 			const [usagePreviewOpen, setUsagePreviewOpen] = useState(false);
 		const [compression, setCompression] = useState<SessionCompression | null>(null);
-		const [, setMemoryNotes] = useState<MemoryNoteRow[]>([]);
 		const [compactBusy, setCompactBusy] = useState(false);
 		const usagePreviewRef = useRef<HTMLDivElement>(null);
 		const usagePreviewId = 'chat-usage-preview';
@@ -143,7 +141,7 @@ const usage = pageViewOpen ? null : sessionUsageById[activeId ?? ''] ?? null;
 		// 厂商自算的百分比（否则会出现「窗口 128K / 占用按 64K 算」两张皮）。
 		const contextPercent =
 			windowUsagePercent({contextTokens, limit: contextLimit}) ??
-			(usage && Number.isFinite(usage.contextPercent)
+			(contextLimit == null && usage && Number.isFinite(usage.contextPercent)
 				? Math.max(0, Math.min(100, usage.contextPercent!))
 				: null);
 		// 「消耗」必须是单调的会话累计值；contextTokens（最近一枪的输入大小）会在
@@ -243,7 +241,6 @@ const usage = pageViewOpen ? null : sessionUsageById[activeId ?? ''] ?? null;
 		useEffect(() => {
 			setUsagePreviewOpen(false);
 			setCompression(null);
-			setMemoryNotes([]);
 		}, [activeId, mode, usageOpen]);
 
 		useEffect(() => {
@@ -256,11 +253,6 @@ const usage = pageViewOpen ? null : sessionUsageById[activeId ?? ''] ?? null;
 					setCompression(data);
 				}
 			});
-			void fetchMemoryNotes('', 12).then(rows => {
-				if (!cancelled) {
-					setMemoryNotes(rows);
-				}
-			});
 			return () => {
 				cancelled = true;
 			};
@@ -268,14 +260,22 @@ const usage = pageViewOpen ? null : sessionUsageById[activeId ?? ''] ?? null;
 
 		const onManualCompact = async () => {
 			if (!backendSessionId || compactBusy) return;
+			const targetSessionId = activeId;
+			const targetBackendId = backendSessionId;
 			setCompactBusy(true);
 			try {
-				const res = await requestManualCompact(backendSessionId);
-				const data = await fetchSessionCompression(backendSessionId);
-				setCompression(data);
+				const res = await requestManualCompact(targetBackendId);
 				if (!res.ok) {
-					console.warn('manual compact', res.reason);
+					toast.error(`压缩失败${res.reason ? `：${res.reason}` : ''}`);
+					return;
 				}
+				const data = await fetchSessionCompression(targetBackendId);
+				if (useChatStore.getState().activeId === targetSessionId) {
+					setCompression(data);
+				}
+				toast.success('已完成 /compact');
+			} catch (error) {
+				toast.error(error instanceof Error ? error.message : '压缩请求失败');
 			} finally {
 				setCompactBusy(false);
 			}

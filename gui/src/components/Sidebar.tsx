@@ -8,7 +8,6 @@ import {
 	Folder,
 	ListFilter,
 	MessageSquare,
-	MoreHorizontal,
 	PanelLeftClose,
 	Plus,
 	Search,
@@ -45,11 +44,10 @@ import {
 	type PageViewKind,
 } from '@/lib/appNav';
 import {pickFolder} from '@/lib/openFolder';
-import {formatRelativeShort} from '@/lib/time';
 import type {ChatSession, ChatSpace} from '@/lib/types';
 import {cn} from '@/lib/utils';
 import {SIDE_SPACE_ID} from '@/lib/db';
-import {selectRunningSessionIds, selectRunningSessionKey} from '@/lib/sessionStreams';
+import {selectRunningSessionIds} from '@/lib/sessionStreams';
 import {copyTextToClipboard} from '@/lib/workspaceOpen';
 import {
 	buildSessionMenuItems,
@@ -143,7 +141,10 @@ export const Sidebar = memo(function Sidebar() {
 				.sort((a, b) => b.updatedAt - a.updatedAt),
 		[sessions],
 	);
-	const sideChatActiveId = activeId?.startsWith('side-') ? activeId : null;
+	const sideChatActiveId =
+		activeId && sessions.some(s => s.id === activeId && s.spaceId === SIDE_SPACE_ID)
+			? activeId
+			: null;
 	const sideChatCollapsed = collapsedSpaces[SIDE_SPACE_ID] === true;
 	const setSideChatCollapsed = useCallback(
 		(collapsed: boolean) => {
@@ -154,10 +155,15 @@ export const Sidebar = memo(function Sidebar() {
 		[collapsedSpaces, toggleSpaceCollapsed],
 	);
 	// 正在运行：只订稳定 running key，避免整份 sessionStreams 每 token 重绘侧栏。
-	const mainRunningKey = useChatStore(selectRunningSessionKey);
+	const mainRunningKey = useChatStore(s =>
+		selectRunningSessionIds(s)
+			.filter(id => s.sessions.some(session => session.id === id && session.spaceId !== SIDE_SPACE_ID))
+			.sort()
+			.join('\0'),
+	);
 	const sideRunningKey = useChatStore(s =>
 		selectRunningSessionIds(s)
-			.filter(id => id.startsWith('side-'))
+			.filter(id => s.sessions.some(session => session.id === id && session.spaceId === SIDE_SPACE_ID))
 			.sort()
 			.join('\0'),
 	);
@@ -198,7 +204,12 @@ export const Sidebar = memo(function Sidebar() {
 		const next = new Set(sideRunningKey ? sideRunningKey.split('\0') : []);
 		prevSideRunningRef.current = next;
 		const activeNow = useChatStore.getState().activeId;
-		const active = activeNow?.startsWith('side-') ? activeNow : null;
+		const active = activeNow &&
+			useChatStore.getState().sessions.some(
+				session => session.id === activeNow && session.spaceId === SIDE_SPACE_ID,
+			)
+			? activeNow
+			: null;
 		for (const id of prev) {
 			if (!next.has(id) && active !== id) {
 				setDoneUnseenIds(cur => new Set(cur).add(id));
@@ -484,7 +495,12 @@ export const Sidebar = memo(function Sidebar() {
 
 	const handleArchiveSession = useCallback(
 		async (id: string) => {
-			const wasActive = useChatStore.getState().activeId === id;
+			const before = useChatStore.getState();
+			const archivedSession = before.sessions.find(session => session.id === id);
+			const expectedPath =
+				archivedSession?.spaceId === SIDE_SPACE_ID ? `/side/${id}` : `/c/${id}`;
+			const wasActiveRoute =
+				before.activeId === id && window.location.pathname === expectedPath;
 			try {
 				await archiveSession(id);
 			} catch (err) {
@@ -493,27 +509,29 @@ export const Sidebar = memo(function Sidebar() {
 				);
 				return;
 			}
-			if (wasActive) {
-				// 归档了当前正打开的会话：切到同空间最近的非归档会话。
+			if (
+				wasActiveRoute &&
+				useChatStore.getState().activeId === id &&
+				window.location.pathname === expectedPath
+			) {
+				// 归档当前会话后只切到可见会话；没有可见项时退出旧路由，
+				// 避免路由镜像把已归档的 activeId 再次选回来。
 				const st = useChatStore.getState();
-				const spaceId = st.sessions.find(x => x.id === id)?.spaceId;
-				const next =
-					st.sessions.find(
-						x =>
-							x.spaceId === spaceId &&
-							x.id !== id &&
-							!x.archived,
-					) ??
-					st.sessions.find(
-						x =>
-							x.spaceId !== SIDE_SPACE_ID &&
-							x.id !== id &&
-							!x.archived,
-					);
+				const isSide = archivedSession?.spaceId === SIDE_SPACE_ID;
+				const spaceId = archivedSession?.spaceId;
+				const visible = st.sessions.filter(
+					session => session.id !== id && !session.archived,
+				);
+				const next = isSide
+					? visible.find(session => session.spaceId === SIDE_SPACE_ID)
+					: visible.find(session => session.spaceId === spaceId) ??
+						visible.find(session => session.spaceId !== SIDE_SPACE_ID);
 				if (next) {
 					void openSession(next.id);
+				} else if (isSide) {
+					void newSession({side: true});
 				} else {
-					closePageView();
+					useChatStore.setState({activeId: null});
 					navigate('/');
 				}
 			}
@@ -733,22 +751,34 @@ className="xy-icon-btn rounded-md p-1.5 text-mute hover:bg-glass-hover hover:tex
 								onSelect={id => void goSession(id)}
 								onRemoveSession={id => {
 								void (async () => {
-									const title = useChatStore
+									const original = useChatStore
 										.getState()
-										.sessions.find(s => s.id === id)?.title;
+										.sessions.find(s => s.id === id);
+									const title = original?.title;
 									// 硬删不可撤销，先二次确认（与 removeSpace 策略对齐）
 									if (!(await confirmSessionDelete(title))) {
 										return;
 									}
-									const wasActive =
-										useChatStore.getState().activeId === id;
+									const wasActiveRoute =
+										useChatStore.getState().activeId === id &&
+										window.location.pathname === `/c/${id}`;
 									await removeSession(id);
-									if (wasActive) {
+									if (
+										wasActiveRoute &&
+										window.location.pathname === `/c/${id}`
+									) {
+										const current = useChatStore.getState();
 										const next =
-											useChatStore.getState().activeId;
+											current.sessions.find(
+												session => session.spaceId === original?.spaceId && !session.archived,
+											) ??
+											current.sessions.find(
+												session => session.spaceId !== SIDE_SPACE_ID && !session.archived,
+											);
 										if (next) {
-											void openSession(next);
+											void openSession(next.id);
 										} else {
+											useChatStore.setState({activeId: null});
 											navigate('/');
 										}
 									}
@@ -821,17 +851,17 @@ className="xy-icon-btn rounded-md p-1.5 text-mute hover:bg-glass-hover hover:tex
 								if (!(await confirmSessionDelete(title))) {
 									return;
 								}
-								const wasActive = sideChatActiveId === id;
-								await removeSession(id);
-								if (wasActive) {
-									const next = useChatStore
-										.getState()
-										.sessions.find(s => s.id.startsWith('side-'));
-									if (next) {
-										void openSession(next.id);
-									} else {
-										navigate('/');
-									}
+				const wasActive = sideChatActiveId === id;
+				await removeSession(id);
+				if (wasActive && window.location.pathname === `/side/${id}`) {
+					const next = useChatStore
+						.getState()
+						.sessions.find(s => s.spaceId === SIDE_SPACE_ID && !s.archived);
+					if (next) {
+						void openSession(next.id);
+					} else {
+						void newSession({side: true});
+					}
 								}
 							}}
 								onArchiveSession={handleArchiveSession}
@@ -926,6 +956,12 @@ const SpaceFolder = memo(function SpaceFolder({
 	// 切换为归档视图（筛选器交互：勾选行切换列表源）。
 	const [viewArchived, setViewArchived] = useState(false);
 	const listSource = viewArchived ? archivedSessions : activeSessions;
+	const activeSession = sessions.find(session => session.id === activeId);
+	useEffect(() => {
+		if (activeSession && !activeSession.archived) {
+			setViewArchived(false);
+		}
+	}, [activeSession?.id, activeSession?.archived]);
 	const hiddenCount = listSource.length - SESSION_VISIBLE_LIMIT;
 	const visibleList = showAll
 		? listSource
@@ -1156,6 +1192,16 @@ const SideChatSection = memo(function SideChatSection({
 	// 归档门槛：常态列表只显示未归档；已归档分组渲染，仅提供恢复/删除。
 	const activeSessions = sessions.filter(s => !s.archived);
 	const archivedSessions = sessions.filter(s => s.archived);
+	const [viewArchived, setViewArchived] = useState(false);
+	const listSource = viewArchived ? archivedSessions : activeSessions;
+	const activeIsArchived = sessions.some(
+		session => session.id === activeId && session.archived,
+	);
+	useEffect(() => {
+		if (activeId && !activeIsArchived) {
+			setViewArchived(false);
+		}
+	}, [activeId, activeIsArchived]);
 
 	const openSideMenu = useCallback(
 		(e: React.MouseEvent, session: {id: string; title: string; archived: boolean}) => {
@@ -1177,111 +1223,75 @@ const SideChatSection = memo(function SideChatSection({
 	const renderSideRow = (
 		session: {id: string; title: string; updatedAt: number; archived: boolean},
 	) => {
-		const active = session.id === activeId;
-		const running = runningIds.has(session.id);
 		return (
-			<li
+			<SessionRow
 				key={session.id}
-				className="group/item relative"
-				style={{
-					contentVisibility: 'auto',
-					containIntrinsicSize: 'auto 32px',
-				}}
-			>
-				<button
-					type="button"
-					onClick={() => onSelect(session.id)}
-					onContextMenu={event => openSideMenu(event, session)}
-					className={cn(
-						'xy-pressable flex w-full items-center gap-2 rounded-md py-1 pr-2 pl-4 text-left text-[13px]',
-						active
-							? 'bg-glass-strong font-medium text-accent'
-							: session.archived
-								? 'text-ink-soft/80 hover:bg-glass-hover'
-								: 'text-ink-soft hover:bg-glass-hover',
-					)}
-				>
-					<span
-						className={cn(
-							'xy-run-dot',
-							running
-								? 'is-running'
-								: doneUnseen?.has(session.id) && 'is-done-unseen',
-						)}
-						aria-hidden="true"
-					/>
-					<span
-						className={cn(
-							'min-w-0 flex-1 truncate',
-							session.archived && 'text-mute',
-						)}
-					>
-						{session.title}
-					</span>
-					<span className="xy-session-meta shrink-0 font-mono text-[10px] text-mute/70 group-hover/item:opacity-0">
-						{formatRelativeShort(session.updatedAt)}
-					</span>
-				</button>
-				<button
-					type="button"
-					aria-label={session.archived ? '已归档对话操作' : '对话操作'}
-					title={session.archived ? '恢复 / 删除' : '归档'}
-					onClick={event => openSideMenu(event, session)}
-					className="xy-icon-btn xy-sidebar-affordance absolute top-1/2 right-1 -translate-y-1/2 translate-x-1 rounded p-1 text-mute opacity-0 invisible pointer-events-none hover:bg-glass-hover hover:text-ink group-hover/item:visible group-hover/item:pointer-events-auto group-hover/item:opacity-100 group-hover/item:translate-x-0"
-				>
-					<MoreHorizontal className="h-3.5 w-3.5" />
-				</button>
-			</li>
+				session={session}
+				active={session.id === activeId}
+				running={runningIds.has(session.id)}
+				doneUnseen={doneUnseen?.has(session.id) ?? false}
+				onSelect={() => onSelect(session.id)}
+				onMenu={event => openSideMenu(event, session)}
+				affordanceTitle={session.archived ? '恢复 / 删除' : '归档'}
+			/>
 		);
 	};
 
 	return (
 		<div className="mb-0.5">
-							<div className="group/section mt-1 flex items-center justify-between gap-3 rounded-md px-1 pb-1 text-mute transition-colors hover:bg-glass-hover hover:text-accent focus-within:text-accent">
+			<div className="group/section mt-1 flex items-center justify-between gap-1 rounded-md px-1 pb-1 text-mute transition-colors hover:bg-glass-hover hover:text-accent focus-within:text-accent">
 				<button
 					type="button"
 					onClick={onToggle}
 					aria-expanded={expanded}
 					className="flex min-w-0 flex-1 items-center gap-1 rounded-md px-1.5 py-1 text-left text-[11px] font-medium text-current focus:outline-none focus-visible:outline-none"
 				>
-							<span className="min-w-0 truncate">对话</span>
-							<ChevronRight
-								className={cn(
-									'h-3.5 w-3.5 shrink-0 opacity-0 transition-[transform,opacity] duration-150 group-hover/section:opacity-100',
-									expanded && 'rotate-90',
-								)}
-							/>
+					<span className="min-w-0 truncate">
+						{viewArchived ? `已归档 ${archivedSessions.length}` : '对话'}
+					</span>
+					<ChevronRight
+						className={cn(
+							'h-3.5 w-3.5 shrink-0 opacity-0 transition-[transform,opacity] duration-150 group-hover/section:opacity-100',
+							expanded && 'rotate-90',
+						)}
+					/>
 				</button>
-				<button
-
-				type="button"
-				aria-label="新建对话"
-				onClick={event => {
-					event.stopPropagation();
-					onAdd();
-				}}
-				className="xy-icon-btn rounded-md p-1 text-current hover:bg-glass-hover hover:text-current"
-			>
-				<Plus className="h-3.5 w-3.5" />
-			</button>
-		</div>
-		<SessionTree open={expanded}>
-				{activeSessions.length === 0 && archivedSessions.length === 0 ? (
-					<li className="px-7 py-1 text-[11px] text-mute/70">暂无对话</li>
+				<div className="flex items-center gap-0.5">
+					<button
+						type="button"
+						aria-label={viewArchived ? '返回当前对话' : '查看归档对话'}
+						title={viewArchived ? '返回当前对话' : `归档对话${archivedSessions.length ? `（${archivedSessions.length}）` : ''}`}
+						onClick={() => setViewArchived(value => !value)}
+						className={cn(
+							'xy-icon-btn rounded-md p-1 hover:bg-glass-hover',
+							viewArchived ? 'text-accent' : 'text-current',
+						)}
+					>
+						{viewArchived ? <MessageSquare className="h-3.5 w-3.5" /> : <Archive className="h-3.5 w-3.5" />}
+					</button>
+					<button
+						type="button"
+						aria-label="新建对话"
+						onClick={event => {
+							event.stopPropagation();
+							setViewArchived(false);
+							onAdd();
+						}}
+						className="xy-icon-btn rounded-md p-1 text-current hover:bg-glass-hover"
+					>
+						<Plus className="h-3.5 w-3.5" />
+					</button>
+				</div>
+			</div>
+			<SessionTree open={expanded}>
+				{listSource.length === 0 ? (
+					<li className="px-7 py-1 text-[11px] text-mute/70">
+						{viewArchived ? '暂无归档对话' : '暂无对话'}
+					</li>
 				) : (
-					activeSessions.map(session => renderSideRow(session))
+					listSource.map(session => renderSideRow(session))
 				)}
-				{archivedSessions.length > 0 ? (
-					<>
-						<li className="flex items-center gap-1 px-7 py-0.5 text-[11px] text-mute/70">
-							<Archive className="h-3 w-3 shrink-0" aria-hidden />
-							<span>已归档 {archivedSessions.length}</span>
-						</li>
-						{archivedSessions.map(session => renderSideRow(session))}
-					</>
-				) : null}
-		</SessionTree>
-	</div>
+			</SessionTree>
+		</div>
 	);
 });
-

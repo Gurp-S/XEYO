@@ -1,5 +1,5 @@
 import {beforeEach, describe, expect, it, vi} from 'vitest';
-import type {ChatStreamHandlers} from '@/lib/api';
+import type {ChatStreamHandlers, InboxSnapshot} from '@/lib/api';
 import {DEFAULT_SPACE_ID, SIDE_SPACE_ID} from '@/lib/db';
 import type {
 	ChatSession,
@@ -18,6 +18,13 @@ const previewRollback = vi.fn();
 const executeRollback = vi.fn();
 const resolveRollbackRecovery = vi.fn();
 const loadServerSessionMessages = vi.fn();
+const inboxSnapshotApi = vi.fn(async (_sessionId: string): Promise<InboxSnapshot | null> => ({
+	autorun: true,
+	coalesce: false,
+	items: [],
+}));
+const cancelInboxItemApi = vi.fn(async (_sessionId: string, _queueId: string) => true);
+const editInboxItemApi = vi.fn(async (_sessionId: string, _queueId: string, _text: string) => true);
 const listServerSessions = vi.fn(
 	async (): Promise<{id: string; title: string; createdAt: number; updatedAt: number}[]> => [],
 );
@@ -28,8 +35,13 @@ vi.mock('@/lib/api', () => ({
 	setWorkspace: (...args: unknown[]) => setWorkspace(...args),
 	previewRollback: (...args: unknown[]) => previewRollback(...args),
 	executeRollback: (...args: unknown[]) => executeRollback(...args),
-	resolveRollbackRecovery: (...args: unknown[]) => resolveRollbackRecovery(...args),
-	loadServerSessionMessages: (...args: unknown[]) => loadServerSessionMessages(...args),
+		resolveRollbackRecovery: (...args: unknown[]) => resolveRollbackRecovery(...args),
+		loadServerSessionMessages: (...args: unknown[]) => loadServerSessionMessages(...args),
+		inboxSnapshot: (sessionId: string) => inboxSnapshotApi(sessionId),
+		cancelInboxItem: (sessionId: string, queueId: string) =>
+			cancelInboxItemApi(sessionId, queueId),
+		editInboxItem: (sessionId: string, queueId: string, text: string) =>
+			editInboxItemApi(sessionId, queueId, text),
 	listServerSessions: () => listServerSessions(),
 	deleteServerSession: vi.fn(async () => true),
 	fetchSessionTask: vi.fn(async () => null),
@@ -165,6 +177,9 @@ async function seedSession(id = 'sess_test') {
 describe('chatStore dialogue — normal', () => {
 	beforeEach(async () => {
 		vi.clearAllMocks();
+		inboxSnapshotApi.mockResolvedValue({autorun: true, coalesce: false, items: []});
+		cancelInboxItemApi.mockResolvedValue(true);
+		editInboxItemApi.mockResolvedValue(true);
 		setWorkspace.mockResolvedValue('/tmp');
 		interruptChat.mockResolvedValue(undefined);
 		streamChat.mockImplementation(
@@ -298,6 +313,20 @@ describe('chatStore dialogue — errors & busy', () => {
 	});
 
 	it('queues second send while streaming (busy) and notifies inbox', async () => {
+		inboxSnapshotApi.mockResolvedValueOnce({
+			autorun: true,
+			coalesce: false,
+			items: [{
+				queue_id: 'q-2',
+				text: 'two',
+				media_refs: [],
+				message_id: null,
+				queued_at: 1,
+				attempts: 0,
+				state: 'queued',
+				position: 1,
+			}],
+		});
 		streamChat.mockImplementation(
 			async (
 				_sid: string,
@@ -333,6 +362,107 @@ describe('chatStore dialogue — errors & busy', () => {
 			.filter(m => m.role === 'user')
 			.map(m => m.text);
 		expect(users).toEqual(['two']);
+	});
+
+	it('keeps the last inbox snapshot when the server fetch fails', async () => {
+		const previous = {
+			queue_id: 'q-old',
+			text: 'pending',
+			media_refs: [],
+			message_id: 'user-old',
+			queued_at: 1,
+			attempts: 0,
+			state: 'queued' as const,
+			position: 1,
+		};
+		useChatStore.setState({inboxBySession: {sess_test: [previous]}});
+		inboxSnapshotApi.mockResolvedValueOnce(null);
+
+		expect(await useChatStore.getState().refreshInbox('sess_test')).toBe(false);
+		expect(useChatStore.getState().inboxBySession.sess_test).toEqual([previous]);
+	});
+
+	it('ignores an older inbox response that arrives after a newer snapshot', async () => {
+		let resolveOld!: (value: InboxSnapshot | null) => void;
+		const oldRequest = new Promise<InboxSnapshot | null>(resolve => {
+			resolveOld = resolve;
+		});
+		const snapshot = (queueId: string): InboxSnapshot => ({
+			autorun: true,
+			coalesce: false,
+			items: [{
+				queue_id: queueId,
+				text: queueId,
+				media_refs: [],
+				message_id: null,
+				queued_at: 1,
+				attempts: 0,
+				state: 'queued',
+				position: 1,
+			}],
+		});
+		inboxSnapshotApi
+			.mockImplementationOnce(() => oldRequest)
+			.mockResolvedValueOnce(snapshot('q-new'));
+
+		const oldRefresh = useChatStore.getState().refreshInbox('sess_test');
+		const newRefresh = useChatStore.getState().refreshInbox('sess_test');
+		expect(await newRefresh).toBe(true);
+		resolveOld(snapshot('q-old'));
+		expect(await oldRefresh).toBe(false);
+		expect(useChatStore.getState().inboxBySession.sess_test?.map(item => item.queue_id))
+			.toEqual(['q-new']);
+	});
+
+	it('maps inbox mutations to the active backend branch and reconciles the transcript', async () => {
+		const queued = {
+			queue_id: 'q-edit',
+			text: 'before edit',
+			media_refs: [],
+			message_id: 'user-queued',
+			queued_at: 1,
+			attempts: 0,
+			state: 'queued' as const,
+			position: 1,
+		};
+		const userMessage = {
+			id: 'user-queued',
+			role: 'user' as const,
+			text: 'before edit',
+			createdAt: 1,
+		};
+		useChatStore.setState({
+			historyById: {
+				sess_test: {
+					activeBranch: {
+						branchId: 'branch-2',
+						backendSessionId: 'backend-2',
+						parentBranchId: null,
+						createdAt: 1,
+						forkMessageId: null,
+						label: 'branch',
+					},
+					archivedBranches: [],
+				},
+			},
+			inboxBySession: {sess_test: [queued]},
+			messagesById: {sess_test: [userMessage]},
+		});
+
+		expect(
+			await useChatStore.getState().editInboxItem('sess_test', 'q-edit', 'after edit'),
+		).toBe(true);
+		expect(editInboxItemApi).toHaveBeenCalledWith('backend-2', 'q-edit', 'after edit');
+		expect(useChatStore.getState().messagesById.sess_test?.[0]?.text).toBe('after edit');
+
+		expect(await useChatStore.getState().cancelInboxItem('sess_test', 'q-edit')).toBe(true);
+		expect(cancelInboxItemApi).toHaveBeenCalledWith('backend-2', 'q-edit');
+		expect(useChatStore.getState().inboxBySession.sess_test).toEqual([]);
+		expect(useChatStore.getState().messagesById.sess_test).toEqual([]);
+		expect(replaceMessages).toHaveBeenCalledWith('sess_test', []);
+		inboxSnapshotApi.mockResolvedValueOnce({autorun: true, coalesce: false, items: []});
+		expect(await useChatStore.getState().refreshInbox('sess_test')).toBe(true);
+		expect(inboxSnapshotApi).toHaveBeenLastCalledWith('backend-2');
 	});
 
 	it('rejecting queue hands the draft back (busy path returns false)', async () => {

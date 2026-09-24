@@ -277,10 +277,17 @@ export async function editInboxItem(
 }
 
 /** 重新 arm（stop 后 / stuck 后手动投递）。 */
-export async function resumeInbox(sessionId: string): Promise<boolean> {
+export async function resumeInbox(
+	sessionId: string,
+	queueId?: string,
+): Promise<boolean> {
 	try {
 		const res = await fetchWithTimeout(
-			apiUrl(`/v1/sessions/${encodeURIComponent(sessionId)}/inbox/resume`),
+			apiUrl(
+				queueId
+					? `/v1/sessions/${encodeURIComponent(sessionId)}/inbox/${encodeURIComponent(queueId)}/resume`
+					: `/v1/sessions/${encodeURIComponent(sessionId)}/inbox/resume`,
+			),
 			{method: 'POST', headers: {...authHeaders()}},
 		);
 		return res.ok;

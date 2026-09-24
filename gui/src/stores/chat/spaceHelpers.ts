@@ -123,12 +123,30 @@ async function clearSideChatMessagesById(sessionId: string): Promise<void> {
 	}
 }
 
-async function importServerSessions(existingIds: Set<string>): Promise<void> {
+async function importServerSessions(existingSessions: ChatSession[]): Promise<void> {
 	try {
 		const deleted = await loadDeletedSessionIds();
 		const list = await listServerSessions();
+		const existingById = new Map(existingSessions.map(session => [session.id, session]));
+		const existingIds = new Set(existingById.keys());
 		for (const s of list) {
-			if (existingIds.has(s.id) || deleted.has(s.id)) {
+			if (deleted.has(s.id)) {
+				continue;
+			}
+			const local = existingById.get(s.id);
+			if (local) {
+				// The archive sidecar is the authority across app instances. Reconcile
+				// local indexes on hydrate so another device's archive/restore takes effect.
+				if (Object.prototype.hasOwnProperty.call(s, 'archivedAt')) {
+					const archivedAt =
+						typeof s.archivedAt === 'number' && Number.isFinite(s.archivedAt)
+							? s.archivedAt
+							: undefined;
+					const archived = archivedAt !== undefined;
+					if (Boolean(local.archived) !== archived || local.archivedAt !== archivedAt) {
+						await saveSession({...local, archived, archivedAt});
+					}
+				}
 				continue;
 			}
 			// 防御：下划线开头为后端内部索引/工作区归属文件（_workspace_index
@@ -139,12 +157,17 @@ async function importServerSessions(existingIds: Set<string>): Promise<void> {
 				continue;
 			}
 			existingIds.add(s.id);
+			const archivedAt =
+				typeof s.archivedAt === 'number' && Number.isFinite(s.archivedAt)
+					? s.archivedAt
+					: undefined;
 			await saveSession({
 				id: s.id,
 				spaceId: DEFAULT_SPACE_ID,
 				title: s.title || s.id,
 				createdAt: s.createdAt,
 				updatedAt: s.updatedAt,
+				...(archivedAt !== undefined ? {archived: true, archivedAt} : {}),
 			});
 			const msgs = await loadServerSessionMessages(s.id);
 			if (msgs.length > 0) {
@@ -194,12 +217,17 @@ export async function adoptWorkspaceSessions(
 			}
 			const local = byId.get(row.id);
 			if (!local) {
+				const archivedAt =
+					typeof row.archivedAt === 'number' && Number.isFinite(row.archivedAt)
+						? row.archivedAt
+						: undefined;
 				const record: ChatSession = {
 					id: row.id,
 					spaceId,
 					title: row.title || row.id,
 					createdAt: row.createdAt ?? now,
 					updatedAt: row.updatedAt ?? now,
+					...(archivedAt !== undefined ? {archived: true, archivedAt} : {}),
 				};
 				await saveSession(record);
 				void loadServerSessionMessages(row.id)
@@ -211,11 +239,22 @@ export async function adoptWorkspaceSessions(
 					})
 					.catch(() => undefined);
 				adopted.push(record);
-			} else if (local.spaceId !== spaceId) {
+			} else if (
+				local.spaceId !== spaceId ||
+				Object.prototype.hasOwnProperty.call(row, 'archivedAt')
+			) {
+				const archivedAt =
+					typeof row.archivedAt === 'number' && Number.isFinite(row.archivedAt)
+						? row.archivedAt
+						: undefined;
 				const patched: ChatSession = {
 					...local,
-					spaceId,
-					updatedAt: Math.max(local.updatedAt, now),
+					...(local.spaceId !== spaceId
+						? {spaceId, updatedAt: Math.max(local.updatedAt, now)}
+						: {}),
+					...(Object.prototype.hasOwnProperty.call(row, 'archivedAt')
+						? {archived: archivedAt !== undefined, archivedAt}
+						: {}),
 				};
 				await saveSession(patched);
 				adopted.push(patched);

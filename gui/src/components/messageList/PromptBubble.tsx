@@ -558,7 +558,7 @@ ref={editing ? promptEditRef : undefined}
 								>
 									<Plus className="h-4 w-4" strokeWidth={2} />
 								</button>
-<div className="flex h-8 shrink-0 items-center gap-1">
+								<div className="flex h-8 shrink-0 items-center gap-1">
 									<div
 									ref={editing ? editModelMenuRef : undefined}
 									className="relative hidden sm:block"
@@ -593,15 +593,24 @@ ref={editing ? promptEditRef : undefined}
 										portal
 										anchorRef={editModelMenuRef}
 										disabled={anyStreaming || editingSubmitting || !editing}
-									/>
+										/>
+									</div>
 								</div>
-							</div>
-							<EditSendStopButton
-								streaming={anyStreaming}
-								canSend={(Boolean(editingText.trim()) || editingExistingMediaRefs.length > 0 || editingAttachments.length > 0) && !editingSubmitting && !editingUploading && editing}
-								onSend={submitEdit ?? (() => undefined)}
-								onStop={stopGeneration ?? (() => undefined)}
-							/>
+								<button
+									type="button"
+									onClick={cancelEdit}
+									disabled={editingSubmitting || editingUploading}
+									className="xy-press h-8 rounded-full px-3 text-[12px] text-mute transition-colors hover:bg-paper-deep hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
+									aria-label="取消编辑"
+								>
+									取消
+								</button>
+								<EditSendStopButton
+									streaming={anyStreaming}
+									canSend={(Boolean(editingText.trim()) || editingExistingMediaRefs.length > 0 || editingAttachments.length > 0) && !editingSubmitting && !editingUploading && editing}
+									onSend={submitEdit ?? (() => undefined)}
+									onStop={stopGeneration ?? (() => undefined)}
+								/>
 </div>
 						</div>
 					</div>

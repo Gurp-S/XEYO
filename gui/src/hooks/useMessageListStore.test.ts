@@ -6,6 +6,7 @@ describe('roundStreamHostProps', () => {
 		roundSettled: false,
 		streamingSignal: true,
 		thoughtStartedAt: 100,
+		workflowStatusText: '',
 		latestTurnId: 'turn-9',
 	};
 
@@ -18,6 +19,7 @@ describe('roundStreamHostProps', () => {
 			roundSettled: true,
 			streamingSignal: false,
 			thoughtStartedAt: null,
+			workflowStatusText: '',
 			latestTurnId: null,
 		});
 	});

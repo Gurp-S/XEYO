@@ -422,8 +422,8 @@ activeSpaceId: string;
 	 * settle 后自动投递）。GUI 据此渲染 Composer chip；轮询刷新、可逐条取消。
 	 */
 	inboxBySession: Record<string, InboxQueuedItem[]>;
-	/** 刷新某会话的排队快照（2s 轮询；队空 = 已投递/取消 → 清 chip）。 */
-	refreshInbox: (sessionId: string) => Promise<void>;
+	/** 刷新某会话的排队快照；返回 true 表示收到并应用了服务端快照。 */
+	refreshInbox: (sessionId: string) => Promise<boolean>;
 	/** 取消一条排队消息（服务端 DELETE 成功后从本地移除）。false = 失败（如已投递）。 */
 	cancelInboxItem: (sessionId: string, queue_id: string) => Promise<boolean>;
 	/** 改写一条排队消息文本。false = 失败（如已投递/超长）。 */
@@ -579,7 +579,10 @@ activeSpaceId: string;
 	/** 镜像微信远程入站/出站到当前对话（不触发新的模型请求） */
 	appendRemoteMessage: (role: 'user' | 'assistant', text: string) => void;
 	/** 追加一条 UI-only 系统行（斜杠命令回执）；不进 toApiMessages、不持久化。 */
-	appendLocalNote: (text: string, opts?: {kind?: 'cmd'; title?: string}) => void;
+	appendLocalNote: (
+		text: string,
+		opts?: {kind?: 'cmd'; title?: string; sessionId?: string},
+	) => void;
 	syncRemoteStream: (text: string, status?: string) => void;
 	applyRemoteToolCall: (name: string, input: unknown) => void;
 	applyRemoteToolResult: (

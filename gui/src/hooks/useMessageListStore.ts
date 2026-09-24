@@ -145,6 +145,7 @@ export type RoundStreamHostProps = {
 	roundSettled: boolean;
 	streamingSignal: boolean;
 	thoughtStartedAt: number | null;
+	workflowStatusText: string;
 	latestTurnId: string | null;
 };
 
@@ -161,6 +162,7 @@ export function roundStreamHostProps(
 		roundSettled: true,
 		streamingSignal: false,
 		thoughtStartedAt: null,
+		workflowStatusText: '',
 		latestTurnId: null,
 	};
 }

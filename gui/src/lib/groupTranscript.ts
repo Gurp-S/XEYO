@@ -263,10 +263,13 @@ export function groupTranscript(
 		}
 	} else if (opts?.isLoading) {
 		// 在 tool 批次之间 / 最终 prose 之前保持 live turn 活跃，
-		// 以便 Files Changed 等 UI 等到整轮回复 settle。
+		// 以便 Files Changed 等 UI 等到整轮回复 settle。首个模型响应前
+		// transcript 还没有 assistant/tool block，也要创建占位回合承载 Working。
 		const last = blocks[blocks.length - 1];
 		if (last?.kind === 'turn') {
 			last.active = true;
+		} else {
+			pushTurn([], {active: true});
 		}
 	}
 
