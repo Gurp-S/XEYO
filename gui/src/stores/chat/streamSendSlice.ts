@@ -108,6 +108,7 @@ import {createStreamDrain} from './streamDrain';
 import {createToolSettleController} from './streamToolSettle';
 import {createMultiAgentStreamHandlers} from './multiAgentSlice';
 import {createPendingStreamHandlers} from './uiChromeSlice';
+import {createBusyStreamProjection} from './busyStreamProjection';
 
 type SetState = StoreApi<ChatState>['setState'];
 type GetState = StoreApi<ChatState>['getState'];
@@ -213,9 +214,26 @@ export function createStreamSendSlice(
 					messagesById: {...s.messagesById, [sessionId]: qNext},
 					...sessionErrorBannerPatch(null, null),
 				}));
-				const qApi = toApiMessages(qNext);
+				const qContext = qNext.slice(0, -1);
+				const previousStreamTail = preStream.streamingText.trim();
+				const lastContextMessage = qContext[qContext.length - 1];
+				if (
+					previousStreamTail &&
+					!(
+						lastContextMessage?.role === 'assistant' &&
+						lastContextMessage.text.trim() === previousStreamTail
+					)
+				) {
+					qContext.push({
+						id: uid('msg'),
+						role: 'assistant',
+						text: preStream.streamingText,
+						createdAt: Date.now(),
+					});
+				}
+				qContext.push(qUserMsg);
+				const qApi = toApiMessages(qContext);
 				const qBackend = activeBackendSessionId(get().historyById, sessionId);
-				let queuedProse = '';
 				// 后端是否真的受理了这条（排队 / 引导 / 竞态下直接开跑）。未受理 ⇒
 				// sendMessage 返回 false，Composer 把草稿退回输入框——对齐 Codex
 				// rejected_steers：被拒的消息绝不消失在气泡撤回与清空输入框之间。
@@ -242,33 +260,40 @@ export function createStreamSendSlice(
 					queueAccepted = true;
 					persistAcceptedUserMessage();
 				};
-				const appendQueuedProse = () => {
-					if (!queuedProse.trim()) return;
-					const prevMsgs = get().messagesById[sessionId] ?? [];
-					const nextMsgs = appendAssistantProse(prevMsgs, queuedProse);
-					if (nextMsgs === prevMsgs) return;
-					set(s => ({
-						messagesById: {...s.messagesById, [sessionId]: nextMsgs},
-					}));
-					persistAcceptedMessages(
-						nextMsgs.filter((message, index) => message !== prevMsgs[index]),
-					);
-				};
+				const queueAbort = new AbortController();
+				const queueProjection = createBusyStreamProjection(
+					get,
+					set,
+					sessionId,
+					preStream,
+					qUserMsg.id,
+				);
+				const queueUsage = createUsageAccumulator(get, set, sessionId);
+				const queueMulti = createMultiAgentStreamHandlers({get, set, sessionId});
 				const qPending = createPendingStreamHandlers({get, sessionId});
 				const queueHandlers: ChatStreamHandlers = {
+					signal: queueAbort.signal,
 					// fetch 收到 HTTP 2xx/202 即代表服务端已受理；SSE 首帧可能
 					// 超时或连接中断，不能把这种已提交的消息当作 HTTP 拒绝撤回。
-					onAccepted: markQueueAccepted,
-					// 竞态防御：live 判定为 true 但后端实际未排队、直接开跑时（SSE 200 而非
-					// 202），onDelta/onDone 不能空置（否则回复被吞、用户看到「无 chip 无回复」）。
-					// 用闭包累积文本，onDone 时用 appendAssistantProse 把 assistant 回复落地。
+					onAccepted(status) {
+						markQueueAccepted();
+						// 本地忙碌、服务端已空闲的窗口会直接启动普通 SSE 流。
+						// 202 只登记排队状态；200 则接管可见流状态与停止控制。
+						if (status !== 202) queueProjection.start(queueAbort);
+					},
+					// 忙闲竞态下后端会直接启动普通流；这些回调把正文、工具活动和
+					// 运行状态投影到常规消息区，不能只保留最后一段 assistant 文本。
 					onDelta(text: string) {
 						markQueueAccepted();
-						queuedProse += text;
+						queueProjection.onDelta(text);
 					},
 					onDone() {
 						markQueueAccepted();
-						appendQueuedProse();
+						queueUsage.flush();
+						// stopGeneration 已在 abort 时提交尾部、把未决工具标成
+						// waiting 并显示“已停止”；不要用流回调覆盖它的收尾状态。
+						if (queueAbort.signal.aborted) queueProjection.onAbort();
+						else queueProjection.onDone();
 					},
 					onError(message: string, details) {
 						// HTTP 拒绝（尚未受理）才撤回乐观消息；流中断发生在回合
@@ -279,7 +304,28 @@ export function createStreamSendSlice(
 						if (queueAccepted) {
 							persistAcceptedUserMessage();
 							set(sessionErrorBannerPatch(sessionId, message));
-							appendQueuedProse();
+							queueUsage.flush();
+							if (details?.kind === 'connection_lost') {
+								queueProjection.onConnectionLost();
+								void recoverAfterDisconnect(set, get, sessionId, qBackend)
+									.catch(() => false)
+									.then(recovered => {
+										if (recovered) return;
+										set(s => ({
+											sessionStreams: patchSessionStream(
+												s.sessionStreams,
+												sessionId,
+												{
+													isLoading: false,
+													abortRef: null,
+													statusText: '连接中断，已保留当前内容',
+												},
+											),
+										}));
+									});
+							} else {
+								queueProjection.onError();
+							}
 							return;
 						}
 						const kept = (get().messagesById[sessionId] ?? []).filter(
@@ -292,24 +338,104 @@ export function createStreamSendSlice(
 					},
 					// 竞态（本地判定 busy，后端其实直接开跑 = SSE 200）时这条流会真的
 					// 送来审批/追问/计划帧：不接就等于引擎卡在等一个永不出现的弹窗。
-					onReasoningDelta: markQueueAccepted,
-					onToolCall: markQueueAccepted,
-					onToolResult: markQueueAccepted,
-					onToolProgress: markQueueAccepted,
-					onUsage: markQueueAccepted,
-					onCompression: markQueueAccepted,
-					onGoal: markQueueAccepted,
-					onJobs: markQueueAccepted,
+					onReasoningDelta(text) {
+						markQueueAccepted();
+						queueProjection.onReasoningDelta(text);
+					},
+					onToolCall(event) {
+						markQueueAccepted();
+						queueProjection.onToolCall(event);
+						queueMulti.handleAgentCard(event.name, event.input);
+					},
+					onToolResult(event) {
+						markQueueAccepted();
+						queueProjection.onToolResult(event);
+					},
+					onToolProgress(event) {
+						markQueueAccepted();
+						queueProjection.onToolProgress(event);
+					},
+					onUsage(event) {
+						markQueueAccepted();
+						queueUsage.onUsage(event);
+						// 忙闲竞态流可能立刻被 Stop 清状态；先结算本次低频用量帧，
+						// 避免 accumulator 因 inactive 守卫丢掉尚未刷新的最后一笔。
+						queueUsage.flush();
+					},
+					onCompression(event) {
+						markQueueAccepted();
+						queueUsage.onCompression(event);
+					},
+					onGoal(event) {
+						markQueueAccepted();
+						const next = normalizeSessionGoalState(event.goal, event.driver);
+						set(s => ({
+							sessionGoalById: {...s.sessionGoalById, [sessionId]: next},
+						}));
+					},
+					onJobs(event) {
+						markQueueAccepted();
+						const jobs = normalizeJobSnapshots(event.jobs);
+						set(s => {
+							const next = {...s.sessionJobsById};
+							if (jobs.length === 0) delete next[sessionId];
+							else next[sessionId] = jobs;
+							return {sessionJobsById: next};
+						});
+					},
 					onTaskState: markQueueAccepted,
 					onStreamGap: markQueueAccepted,
-					onMultiAgentTask: markQueueAccepted,
-					onMultiAgentResult: markQueueAccepted,
-					onMultiAgentProgress: markQueueAccepted,
-					onMultiAgentDelta: markQueueAccepted,
-					onMultiAgentStatus: markQueueAccepted,
-					onLlmRetry: markQueueAccepted,
-					onLlmRetryStarted: markQueueAccepted,
-					onTitle: markQueueAccepted,
+					onMultiAgentTask(event) {
+						markQueueAccepted();
+						queueMulti.onMultiAgentTask(event);
+					},
+					onMultiAgentResult(event) {
+						markQueueAccepted();
+						queueMulti.onMultiAgentResult(event);
+					},
+					onMultiAgentProgress(event) {
+						markQueueAccepted();
+						queueMulti.onMultiAgentProgress(event);
+					},
+					onMultiAgentDelta(event) {
+						markQueueAccepted();
+						queueMulti.onMultiAgentDelta(event);
+					},
+					onMultiAgentStatus(event) {
+						markQueueAccepted();
+						queueMulti.onMultiAgentStatus(event);
+					},
+					onLlmRetry(event) {
+						markQueueAccepted();
+						set(s => ({
+							sessionStreams: patchSessionStream(s.sessionStreams, sessionId, {
+								statusText: formatLlmRetryWaiting(event.attempt, event.nextRetryMs),
+							}),
+						}));
+					},
+					onLlmRetryStarted(event) {
+						markQueueAccepted();
+						set(s => ({
+							sessionStreams: patchSessionStream(s.sessionStreams, sessionId, {
+								statusText: formatLlmRetryStarted(event.attempt),
+							}),
+						}));
+					},
+					onTitle(event) {
+						markQueueAccepted();
+						if (event.pinned) return;
+						const title = event.title.trim();
+						if (!title) return;
+						const current = get().sessions.find(x => x.id === sessionId);
+						if (!current || current.title === title) return;
+						const nextSession = {...current, title};
+						set(s => ({
+							sessions: s.sessions.map(x =>
+								x.id === sessionId ? nextSession : x,
+							),
+						}));
+						void saveSession(nextSession).catch(() => undefined);
+					},
 					onPermissionPending(ev) {
 						markQueueAccepted();
 						qPending.onPermissionPending(ev);
