@@ -77,6 +77,31 @@ test("结果没有对应卡片时补一条，不静默丢弃", () => {
   assert.equal(tools[0]!.isError, true);
 });
 
+test("结果带着一个对不上的 id 时，绝不许贴到同名在跑的卡上", () => {
+  // 身份已知且查无此卡 ⇒ 只能补新卡。以前 findToolIndex 在 id 查不到时会继续
+  // 走"同名 + 最早在跑"的兜底，于是这条结果把别人的卡结掉了，而真正的调用
+  // 永远停在 running —— 名字兜底只该服务于"整条流都没有身份"的旧流。
+  let items = twoReadCalls();
+  items = applyXy(items, { type: "tool_result", name: "Read", tool_use_id: "ghost", output: "ORPHAN" }, nextId);
+
+  const tools = toolItems(items);
+  assert.equal(tools.length, 3, "孤儿结果应另开一条卡");
+  assert.equal(tools[0]!.toolUseId, "c1");
+  assert.equal(tools[0]!.status, "running", "c1 被一个对不上号的结果结掉了");
+  assert.equal(tools[1]!.toolUseId, "c2");
+  assert.equal(tools[1]!.status, "running");
+  assert.equal(tools[2]!.result, "ORPHAN");
+});
+
+test("tool_progress 带着对不上的 id 时只能丢弃，不能改别人的卡", () => {
+  let items = twoReadCalls();
+  items = applyXy(items, { type: "tool_progress", name: "Read", tool_use_id: "ghost", message: "半路" }, nextId);
+  const tools = toolItems(items);
+  assert.equal(tools.length, 2);
+  assert.equal(tools[0]!.progress, undefined);
+  assert.equal(tools[1]!.progress, undefined);
+});
+
 test("缺字段的用量不得变成 0", () => {
   let items: TimelineItem[] = [{ id: nextId(), kind: "assistant", text: "hi" }];
   items = applyXy(items, { type: "usage", completion_tokens: 7 }, nextId);

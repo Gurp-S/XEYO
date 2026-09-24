@@ -356,10 +356,13 @@ function mapLastTool(
  *  最后一条匹配会把结果贴到别的卡片上。 */
 function findToolIndex(items: TimelineItem[], wantId: string, name: string): number {
   if (wantId) {
+    // 身份已知就以此为准：查无此卡时**不许**退回"同名最早在跑"，否则一条对不上号
+    // 的结果会把别人的卡结掉（而真正的调用永远停在 running）。
     for (let i = items.length - 1; i >= 0; i--) {
       const it = items[i];
       if (it && it.kind === "tool" && it.toolUseId === wantId) return i;
     }
+    return -1;
   }
   for (let i = 0; i < items.length; i++) {
     const it = items[i];
