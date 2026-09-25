@@ -207,3 +207,23 @@ def test_unknown_mode_is_rejected_without_starting_anything(client, seed_audit) 
 	).json()
 	assert res["ok"] is False
 	assert "a0" in res["error"]
+
+
+def test_runs_envelope_carries_the_scan_coverage_for_the_empty_case(client, seed_audit) -> None:
+	"""空列表必须自带口径：读完整份没有 ≠ 尾窗没盖到 ≠ 文件不存在。
+
+	runs 的 coverage_note 挂在每一条 run 上，零条时没有承载处 —— 界面就只剩一句
+	"该会话在审计尾窗内没有轮次记录"，而扩窗之后这句话多半是错的。
+	"""
+	seed_audit()
+	body = client.get("/v1/diagnostics/runs", params={"session_id": "s1"}).json()
+	assert body["count"] == 1
+	cov = body["coverage"]
+	assert cov["present"] is True and cov["truncated"] is False
+	assert cov["complete"] is True and cov["widened"] is False
+
+	missing = client.get("/v1/diagnostics/runs", params={"session_id": "s-nope"}).json()
+	assert missing["count"] == 0
+	assert missing["coverage"]["present"] is True, "文件在，就不能推给「审计不存在」"
+	assert missing["coverage"]["truncated"] is False, "已读完整份，就不能推给尾窗"
+	assert missing["coverage"]["rows_scanned"] >= 4

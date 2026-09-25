@@ -130,7 +130,8 @@ def get_runs(
 ) -> dict[str, Any]:
     """有界运行列表：每个 turn 覆盖到哪些边界。"""
     sid = _key(session_id, "session_id")
-    runs = list_runs(sid, limit=limit)
+    coverage: dict[str, Any] = {}
+    runs = list_runs(sid, limit=limit, coverage_sink=coverage)
     return {
         "schema_version": SCHEMA_VERSION,
         "ruleset_version": RULESET_VERSION,
@@ -138,7 +139,10 @@ def get_runs(
         "runs": runs,
         "count": len(runs),
         "limit": limit,
+        # 列表为空时 coverage 仍要说得清："读完整份没有" vs "尾窗没盖到"。
+        # complete 的既有口径不变（每条 run 都无缺项说明），扫描本身的情况另放。
         "complete": bool(runs) and not any(r.get("coverage_note") for r in runs),
+        "coverage": coverage,
         "store_root": str(store.diagnostics_root()),
     }
 

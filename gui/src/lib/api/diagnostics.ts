@@ -100,6 +100,16 @@ export type DiagRunsResult = {
 	count: number;
 	limit: number | null;
 	complete: boolean;
+	/** 列表口径的扫描覆盖情况；runs 为空时它是唯一能说清"为什么是空"的东西。
+	 *  null = 后端没报这个口径（旧版或字段缺失），不得当成"读完了"或"没读完"。 */
+	coverage: {
+		present: boolean;
+		truncated: boolean;
+		complete: boolean;
+		widened: boolean;
+		rows_scanned: number;
+		note: string;
+	} | null;
 	store_root: string;
 };
 
@@ -773,6 +783,21 @@ export function parseRunsResult(raw: unknown): DiagRunsResult {
 		count: n(o.count) ?? 0,
 		limit: n(o.limit),
 		complete: b(o.complete),
+		// 后端没带 coverage 时留 null（= 口径未知），不许塌成"读完了/没读完"两种断言之一。
+		coverage:
+			o.coverage === undefined || o.coverage === null
+				? null
+				: (() => {
+						const cov = rec(o.coverage);
+						return {
+							present: b(cov.present),
+							truncated: b(cov.truncated),
+							complete: b(cov.complete),
+							widened: b(cov.widened),
+							rows_scanned: n(cov.rows_scanned) ?? 0,
+							note: s(cov.note),
+						};
+					})(),
 		store_root: s(o.store_root),
 	};
 }

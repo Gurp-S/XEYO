@@ -684,11 +684,15 @@ def test_session_outside_the_tail_window_is_still_listable(write_audit, monkeypa
 	assert all(str(r.get("session_id") or "") != _SESSION for _, r in tail.rows), "夹具没把本会话推出尾窗"
 
 	monkeypatch.setattr(collect_module, "_AUDIT_TAIL_BYTES", 2048)
-	runs = collect_module.list_runs(_SESSION, audit_path=path)
+	sink: dict = {}
+	runs = collect_module.list_runs(_SESSION, audit_path=path, coverage_sink=sink)
 
 	assert [r["turn_id"] for r in runs] == [_TURN]
 	assert "已扩到" in runs[0]["coverage_note"]
 	assert "读到" in runs[0]["coverage_note"]
+	# 空列表时的承载处：runs 为空就没有行可以挂 note，所以扫描口径单独出口。
+	assert sink["widened"] is True and sink["present"] is True
+	assert sink["rows_scanned"] > 400
 
 
 def test_session_absent_from_the_whole_file_says_so_without_blaming_the_window(write_audit, monkeypatch) -> None:

@@ -1179,8 +1179,18 @@ def _attach_pins(run: RunEvidence) -> None:
 		)
 
 
-def list_runs(session_id: str, *, limit: int = 50, audit_path: str | os.PathLike[str] | None = None) -> list[dict[str, Any]]:
-	"""按 turn 聚合的有界运行列表：每个 turn 有哪些边界有记录。"""
+def list_runs(
+	session_id: str,
+	*,
+	limit: int = 50,
+	audit_path: str | os.PathLike[str] | None = None,
+	coverage_sink: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+	"""按 turn 聚合的有界运行列表：每个 turn 有哪些边界有记录。
+
+	``coverage_sink``：列表为空时，"读完整份没有"与"尾窗没盖到"是两句不同的话，
+	而 coverage_note 挂在每一条 run 上 —— 零条时没有承载处，所以这里给一个出口。
+	"""
 	sid = _s(session_id)
 	path = Path(audit_path) if audit_path else _default_audit_path()
 	max_bytes = _AUDIT_TAIL_BYTES * 2
@@ -1265,7 +1275,12 @@ def list_runs(session_id: str, *, limit: int = 50, audit_path: str | os.PathLike
 		"rows_unparsable": scan.rows_unparsable,
 		"rows_unattributed": unattributed,
 		"complete": scan.present and not scan.truncated and not scan.rows_unparsable and not unattributed,
+		"widened": widened,
+		"note": coverage_note,
 	}
+	if coverage_sink is not None:
+		coverage_sink.clear()
+		coverage_sink.update(coverage)
 	out: list[dict[str, Any]] = []
 	for item in turns.values():
 		out.append(

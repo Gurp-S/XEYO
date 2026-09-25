@@ -790,6 +790,29 @@ export const CAPTURE_NOTE =
 export const NO_RUNS_IN_TAIL_TEXT =
 	'该会话在审计尾窗内没有轮次记录。这不代表没有运行过轮次——尾窗之外的轮次不在本页范围内。';
 
+/** 后端报的列表扫描口径（结构类型，与 api/diagnostics 的 coverage 字段对齐）。 */
+export type DiagRunsCoverage = {
+	present: boolean;
+	truncated: boolean;
+	complete: boolean;
+	widened: boolean;
+	rows_scanned: number;
+	note: string;
+} | null;
+
+/**
+ * 「没有可诊断的运行」这句话有三种完全不同的事实，必须分开说：
+ * 读完整份确实没有 / 尾窗没盖到 / 审计文件根本不存在。
+ * 后端扩窗重读之后第一种才是常态，继续念尾窗那句就是把采集范围说成事实。
+ * 口径缺失（旧后端、字段没带）时保守处理：不冒充"读完了"。
+ */
+export function noRunsText(coverage: DiagRunsCoverage): string {
+	if (!coverage) return NO_RUNS_IN_TAIL_TEXT;
+	if (!coverage.present) return '审计文件不存在：本页列不出任何轮次。这不代表没有运行过轮次。';
+	if (coverage.truncated) return NO_RUNS_IN_TAIL_TEXT;
+	return `已读完审计（${coverage.rows_scanned} 行），该会话没有留下任何轮次记录。`;
+}
+
 /**
  * 计数措辞：账本窗口根本没出现在本次响应里时，0 条是"没看"，不是"没有"。
  * 窗口读了但不完整时必须继续带截断标记，不得伪装成确切计数。

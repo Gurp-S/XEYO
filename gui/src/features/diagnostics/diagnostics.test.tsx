@@ -31,6 +31,7 @@ import {
 	fmtDuration,
 	fmtInt,
 	gapReasonLabel,
+	noRunsText,
 	groupFindingsByStatus,
 	mergeDetailPreservingLoadedPages,
 	pinKindLabel,
@@ -312,6 +313,68 @@ describe('运行列表解析', () => {
 		expect(parsed.runs[0].tool_use_ids).toEqual(['call_a', 'call_b']);
 		expect(parsed.runs[1].tool_use_ids).toEqual([]);
 		expect(parsed.runs[0].turn_id).toBe('t1');
+	});
+
+	it('coverage 带回来；后端没带时是 null 而不是"读完了"', () => {
+		const withCov = parseRunsResult({
+			runs: [],
+			coverage: {
+				present: true,
+				truncated: false,
+				complete: true,
+				widened: true,
+				rows_scanned: 38550,
+				note: 'x',
+			},
+		});
+		expect(withCov.coverage).toMatchObject({present: true, truncated: false, widened: true, rows_scanned: 38550});
+		const without = parseRunsResult({runs: []});
+		expect(without.coverage).toBeNull();
+	});
+});
+
+describe('空列表的那句话说的是实际发生的事', () => {
+	it('读完整份仍然没有：不再推给尾窗', () => {
+		const text = noRunsText({
+			present: true,
+			truncated: false,
+			complete: true,
+			widened: false,
+			rows_scanned: 12000,
+			note: '',
+		});
+		expect(text).toContain('已读完审计');
+		expect(text).toContain('12000');
+		expect(text).not.toContain('尾窗');
+	});
+
+	it('真的被尾窗挡住时，才说尾窗', () => {
+		const text = noRunsText({
+			present: true,
+			truncated: true,
+			complete: false,
+			widened: false,
+			rows_scanned: 7097,
+			note: '',
+		});
+		expect(text).toContain('尾窗');
+		expect(text).not.toContain('已读完');
+	});
+
+	it('审计文件不存在是第三种事实', () => {
+		const text = noRunsText({
+			present: false,
+			truncated: false,
+			complete: false,
+			widened: false,
+			rows_scanned: 0,
+			note: '',
+		});
+		expect(text).toContain('审计文件不存在');
+	});
+
+	it('口径未知时保守：不冒充"读完了"', () => {
+		expect(noRunsText(null)).toContain('尾窗');
 	});
 });
 

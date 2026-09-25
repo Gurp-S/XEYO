@@ -28,8 +28,8 @@ import {cn} from '@/lib/utils';
 import {
 	CAPTURE_NOTE,
 	DASH,
-	NO_RUNS_IN_TAIL_TEXT,
 	STALE_REFRESH_SUFFIX,
+	noRunsText,
 	boundaryCoverageOfRun,
 	fmtBytes,
 	fmtClock,
@@ -95,7 +95,7 @@ function RunPicker({
 }) {
 	if (!runs) return null;
 	if (runs.runs.length === 0) {
-		return <p className="xy-dig-empty">{NO_RUNS_IN_TAIL_TEXT}</p>;
+		return <p className="xy-dig-empty">{noRunsText(runs.coverage)}</p>;
 	}
 	return (
 		<ul className="xy-dig-runs">
