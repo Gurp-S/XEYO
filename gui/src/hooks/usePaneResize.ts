@@ -61,15 +61,26 @@ export function usePaneResize(
 		);
 	}, [chatMin, max, min, paneRef, slotMax]);
 
-	/** 基础宽 → 槽宽 → 按槽宽域钳制 → 反解基础宽。 */
+	/** 基础宽映射到可见槽宽；视口钳制时保留用户设置的基础宽。 */
 	const mapBase = useCallback(
 		(base: number): {slot: number; base: number} => {
 			const toSlot = slotOf ?? ((w: number) => w);
-			const lo = Math.max(min, toSlot(min));
-			let hi = Math.max(toSlot(max), lo);
-			hi = Math.min(Math.max(effectiveSlotMax(), lo), hi);
-			const slot = Math.min(hi, Math.max(lo, toSlot(base)));
-			return {slot, base: slot - toSlot(0)};
+			const baseWidth = Math.min(max, Math.max(min, base));
+			const baseMinSlot = Math.max(min, toSlot(min));
+			const baseMaxSlot = Math.max(baseMinSlot, toSlot(max));
+			const availableSlotMax = Math.max(
+				min,
+				Math.min(effectiveSlotMax(), baseMaxSlot),
+			);
+			// A translated slot can have a nominal minimum larger than the available
+			// width (e.g. hidden tree width + preview minimum). Keep the visible floor
+			// at the pane minimum, while retaining the user's base width under clamping.
+			const slotMin = Math.min(baseMinSlot, availableSlotMax);
+			const slot = Math.min(
+				availableSlotMax,
+				Math.max(slotMin, toSlot(baseWidth)),
+			);
+			return {slot, base: baseWidth};
 		},
 		[slotOf, effectiveSlotMax, min, max],
 	);
