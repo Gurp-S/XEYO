@@ -390,14 +390,22 @@ def check_cold_references(run: RunEvidence) -> list[Finding]:
 		)
 	for manifest in run.projections:
 		if "spill_reference_mismatch" in (manifest.get("invariant_errors") or []):
+			# 这个旗标不能当可疑原因用：上游是
+			# `text.count("full output:") != text.count("output truncated")`，
+			# 而两类标记由不同产生方写出 —— tools/job_tools.py 的
+			# "(earlier output truncated)" 天生不带句柄，任何一次读后台任务输出
+			# 都会让两边对不上；正文里引用这两个字面量同样改变计数。
+			# 所以这里只报"数量不等"这个事实，档位停在未定，并写明已知良性来源。
+			marker_count = manifest.get("spills")
+			count_text = f"（标记侧 {marker_count} 处）" if isinstance(marker_count, int) else ""
 			findings.append(
 				Finding(
 					rule_id="cold_reference",
 					rule_version=RULESET_VERSION,
-					phenomenon="投影内 'full output:' 引用数与 'output truncated' 标记数不一致",
+					phenomenon=f"投影内 'full output:' 句柄数与 'output truncated' 标记数不等{count_text}",
 					boundary="wsc_fold",
 					component="输出预算 / 折叠",
-					status=SUSPECTED_CAUSE,
+					status=UNKNOWN,
 					evidence=[
 						EvidenceRef(
 							source="projection",
@@ -406,9 +414,14 @@ def check_cold_references(run: RunEvidence) -> list[Finding]:
 							detail="spill_reference_mismatch",
 						)
 					],
-					impact="存在被截断却没留句柄、或留了句柄却没截断标记的消息。",
-					coverage_gap="按字符串计数，措辞改动会让该规则失效。",
-					allowed_conclusion="可疑信号，需人工展开原始投影确认。",
+					impact="两个计数不相等；这本身不构成故障。",
+					coverage_gap=(
+						"上游按字面量整串计数：读后台任务输出时写的 (earlier output truncated) 不带句柄，"
+						"任何一次都会让两边对不上；正文引用这两个词同样改变计数。"
+					),
+					allowed_conclusion=(
+						"只能当作人工翻查的线索；不能据此判定折叠或输出预算出了故障。"
+					),
 				)
 			)
 	return findings

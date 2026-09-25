@@ -11,7 +11,9 @@
 4. 真实 DENY 审计行（``tools/tool_registry.py`` 的只读门与策略 DENY）既不带
    ``approved`` 也不带 ``outcome``，被责任划分读成「没挡住」；
 5. 折叠与验收的证据指针指向别的来源的文件（拿审计窗口路径冒充 usage 账本、
-   拿 working.json 路径冒充 pin）。
+   拿 working.json 路径冒充 pin）；
+6. 投影里 ``full output:`` 与 ``output truncated`` 两个字面量的计数不等被写成"可疑原因"，
+   而 ``tools/job_tools.py`` 的 ``(earlier output truncated)`` 天生不带句柄 ⇒ 健康运行也会命中。
 
 纠正的底线：规则要么判对，要么 ``unknown`` 并写明缺哪条记录，不得靠沉默消噪。
 """
@@ -256,6 +258,29 @@ def test_run_scoped_cold_reference_is_still_a_confirmed_fault() -> None:
 		}
 	]
 	assert [f for f in rules.check_cold_references(run) if f.status == CONFIRMED_FAULT]
+
+
+def test_spill_marker_count_mismatch_is_only_a_lead() -> None:
+	"""上游是整串字面量计数：tools/job_tools.py 写的 (earlier output truncated) 天生不带句柄，
+	任何一次读后台任务输出都会让两个计数对不上 ⇒ 这条只能是线索，不能当可疑原因。"""
+	run = _run(
+		[_ev(1, "model.started", 1.0, model_request_id="r1", attempt=1)],
+		projections=[
+			{
+				"projection_id": "p1",
+				"locator": "working:projection",
+				"spills": 3,
+				"invariant_errors": ["spill_reference_mismatch"],
+			}
+		],
+	)
+	findings = [f for f in rules.check_cold_references(run) if "句柄数与" in f.phenomenon]
+	assert findings, "旗标仍要作为线索报出来，不能靠沉默消噪"
+	f = findings[0]
+	assert f.status == UNKNOWN
+	assert "标记侧 3 处" in f.phenomenon
+	assert "(earlier output truncated)" in f.coverage_gap
+	assert "不能据此判定" in f.allowed_conclusion
 
 
 def test_turn_without_records_yields_only_the_no_record_finding(collect) -> None:
