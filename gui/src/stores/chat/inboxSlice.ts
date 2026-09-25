@@ -46,20 +46,20 @@ function projectQueueStates(
 	messages: ChatMessage[],
 	items: InboxQueuedItem[],
 ): ChatMessage[] {
-	const stateByMessageId = new Map<string, ChatMessage['queueState']>();
+	const itemByMessageId = new Map<string, InboxQueuedItem>();
 	for (const item of items) {
 		if (item.message_id) {
-			stateByMessageId.set(item.message_id, item.state);
+			itemByMessageId.set(item.message_id, item);
 		}
 	}
 	let changed = false;
 	const next = messages.map(message => {
 		if (message.role !== 'user') return message;
-		const queueState = stateByMessageId.get(message.id);
-		if (queueState) {
-			if (message.queueState === queueState) return message;
+		const item = itemByMessageId.get(message.id);
+		if (item) {
+			if (message.queueState === item.state && message.text === item.text) return message;
 			changed = true;
-			return {...message, queueState};
+			return {...message, text: item.text, queueState: item.state};
 		}
 		if (!message.queueState) return message;
 		changed = true;
