@@ -8,6 +8,7 @@
  */
 import type {StoreApi} from 'zustand';
 import type {ChatStreamHandlers} from '@/lib/api';
+import {sessionScopedStreamHandlers} from './sessionScopedStreamHandlers';
 import {
 	interruptChat,
 	streamChat,
@@ -245,6 +246,7 @@ export function createStreamSendSlice(
 				let userMessagePersistence: Promise<void> | null = null;
 				const persistAcceptedMessages = (messages: ChatMessage[]) => {
 					return patchMessages(sessionId, messages).catch(err => {
+						if (!get().sessions.some(session => session.id === sessionId)) return;
 						const detail = err instanceof Error ? err.message : String(err);
 						set(
 							sessionErrorBannerPatch(
@@ -255,6 +257,9 @@ export function createStreamSendSlice(
 					});
 				};
 				const persistAcceptedUserMessage = () => {
+					if (!get().sessions.some(session => session.id === sessionId)) {
+						return Promise.resolve();
+					}
 					if (!userMessagePersistence) {
 						userMessagePersistence = persistAcceptedMessages([qUserMsg]);
 					}
@@ -346,7 +351,12 @@ export function createStreamSendSlice(
 								void recoverAfterDisconnect(set, get, sessionId, qBackend)
 									.catch(() => false)
 									.then(recovered => {
-										if (recovered) return;
+										if (
+											recovered ||
+											!get().sessions.some(session => session.id === sessionId)
+										) {
+											return;
+										}
 										set(s => ({
 											sessionStreams: patchSessionStream(
 												s.sessionStreams,
@@ -553,10 +563,17 @@ export function createStreamSendSlice(
 						void get().refreshInbox(sessionId);
 					},
 				};
+				// removeSession only knows the stream abort ref in sessionStreams; this
+				// busy request owns a separate controller until a 200 response starts its
+				// projection. Guard every late callback so it cannot recreate deleted state.
+				const sessionScopedQueueHandlers = sessionScopedStreamHandlers(
+					queueHandlers,
+					() => get().sessions.some(session => session.id === sessionId),
+				);
 				const qSession = preSend.sessions.find(s => s.id === sessionId);
 				const qSide = qSession?.spaceId === SIDE_SPACE_ID;
 				const qWorkspace = preSend.spaces.find(s => s.id === qSession?.spaceId)?.rootPath?.trim() ?? '';
-				await streamChat(qBackend, qApi, queueHandlers, {
+				await streamChat(qBackend, qApi, sessionScopedQueueHandlers, {
 					mediaRefs,
 					agentMode: requestedAgentMode,
 					multiAgent: requestedMultiAgent,
@@ -1752,6 +1769,11 @@ export function createStreamSendSlice(
 						opts?.kind === 'submission_unknown'
 					) {
 						const submissionUnknown = opts?.kind === 'submission_unknown';
+						if (submissionUnknown) {
+							// The POST may have been accepted as a queued message before its
+							// response was lost. Reconcile the inbox without inviting a resend.
+							void get().refreshInbox(sessionId!);
+						}
 						// T29：断流不杀回合、绝不自动 interrupt——带重试恢复，失败才显式呈现。
 						// 旧连接的 AbortController 已死但未 aborted：置空 + 标记 detached，
 						// 否则 reattachStream 会误判「已在收流」而跳过重连。
@@ -1770,12 +1792,13 @@ export function createStreamSendSlice(
 							sessionId,
 							backendSessionId,
 						);
+						if (!sessionStillAlive()) return;
 						if (recovered) {
 							if (submissionUnknown) {
 								set(
 									sessionErrorBannerPatch(
 										sessionId,
-										`连接已恢复，但原消息的提交响应丢失，无法确认服务端是否已接收。输入框仍保留原文；请先检查本会话是否已有该消息，再决定是否重发。`,
+										`连接已恢复，但原消息的提交响应丢失，无法确认服务端是否已接收。原文保留在会话记录中；请先检查排队列表和会话记录，再决定是否重发。`,
 									),
 								);
 							}
