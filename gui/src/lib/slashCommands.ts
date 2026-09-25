@@ -354,7 +354,15 @@ export async function runSlashCommand(
 				// 不发消息 → 没有 chat turn → store 为空 → GoalDock（按 store 挂载）永不显示。
 				// 详见 lib/goalSync.ts 头注释（2026-09-05 调查报告 §10-④）。
 				if (command.name === 'goal' && opts.sessionId) {
-					void syncGoalAfterCommand(opts.sessionId, opts.backendSessionId);
+					const sync = await syncGoalAfterCommand(
+						opts.sessionId,
+						opts.backendSessionId,
+					);
+					if (!sync.ok) {
+						// 后端那句"已创建"是真的，但界面没挂出目标、也没上自动续跑：
+						// 只回前半句就是让用户按一个没验证过的状态行动。
+						return {status: 'server', text: `${text}\n${sync.note}`};
+					}
 				}
 				return {status: 'server', text};
 			} catch (err) {

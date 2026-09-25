@@ -11,7 +11,7 @@
  * arm/disarm 不需要 CAS（armed 不落盘；arm 内部需要改 cap 时后端自取新鲜 revision）。
  */
 import {apiUrl} from '@/lib/apiBase';
-import {fetchWithTimeout} from './core';
+import {fetchWithTimeout, formatErrorDetail} from './core';
 
 export type GoalStatus = 'active' | 'paused' | 'blocked' | 'completed' | 'abandoned';
 
@@ -75,28 +75,46 @@ export function normalizeSessionGoalState(
 }
 
 export type GoalReadResult = {
+	/** false = 这一枪没读到（403/5xx/离线/形状变了）；不得据此判"没有目标"。 */
+	ok: boolean;
 	goal: GoalSnapshot | null;
 	driver: GoalDriverSnapshot | null;
+	message: string;
 };
 
-/** GET /v1/sessions/{sid}/goal → {goal, driver}；未绑定为 {null, driver?}。 */
+/** GET /v1/sessions/{sid}/goal → {goal, driver}；未绑定才是 {ok:true, goal:null}。 */
 export async function fetchGoal(sessionId: string): Promise<GoalReadResult> {
 	try {
 		const res = await fetchWithTimeout(
 			apiUrl(`/v1/sessions/${encodeURIComponent(sessionId)}/goal`),
 		);
-		if (!res.ok) return {goal: null, driver: null};
+		if (!res.ok) {
+			const payload = await res.json().catch(() => null);
+			return {
+				ok: false,
+				goal: null,
+				driver: null,
+				message: formatErrorDetail(payload, res.status),
+			};
+		}
 		const payload = (await res.json().catch(() => null)) as Record<
 			string,
 			unknown
 		> | null;
-		if (!payload) return {goal: null, driver: null};
+		if (!payload) {
+			return {ok: false, goal: null, driver: null, message: 'receipt_not_object'};
+		}
 		const driver = isDriverLike(payload.driver) ? payload.driver : null;
 		// GET 是 goal 字段平铺 + additive driver 键；未绑定返回 {}。
-		if (!isGoalLike(payload)) return {goal: null, driver};
-		return {goal: payload, driver};
-	} catch {
-		return {goal: null, driver: null};
+		if (!isGoalLike(payload)) return {ok: true, goal: null, driver, message: ''};
+		return {ok: true, goal: payload, driver, message: ''};
+	} catch (err) {
+		return {
+			ok: false,
+			goal: null,
+			driver: null,
+			message: err instanceof Error ? err.message : String(err),
+		};
 	}
 }
 

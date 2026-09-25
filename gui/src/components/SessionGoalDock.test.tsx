@@ -72,8 +72,8 @@ function seed(next: SessionGoalState | null) {
 beforeEach(() => {
 	fetchGoalMock.mockImplementation(async () =>
 		fixture
-			? {goal: fixture.goal, driver: fixture.driver}
-			: {goal: null, driver: null},
+			? {ok: true, goal: fixture.goal, driver: fixture.driver, message: ''}
+			: {ok: true, goal: null, driver: null, message: ''},
 	);
 	roundDriverAction.mockReset();
 	patchGoalAction.mockReset();
@@ -325,5 +325,61 @@ describe('goalDockLiveFor', () => {
 		expect(goalDockLiveFor(makeGoal({status: 'blocked'}))).toBe(true);
 		expect(goalDockLiveFor(makeGoal({status: 'completed'}))).toBe(false);
 		expect(goalDockLiveFor(makeGoal({status: 'abandoned'}))).toBe(false);
+	});
+});
+
+/**
+ * 挂载即拉一次投影（useSessionGoalLive）。要害是"读不出"与"确实没有"必须分家：
+ * 轮询撞上后端抖动时把 store 写成 null，dock 就按"没有目标"自己消失了。
+ */
+describe('投影轮询的三种读数', () => {
+	it('读到目标 → 落进 store 并渲染出来', async () => {
+		const seeded = makeGoal();
+		fetchGoalMock.mockResolvedValue({
+			ok: true,
+			goal: seeded.goal,
+			driver: seeded.driver,
+			message: '',
+		});
+		seed(null);
+
+		render(<SessionGoalDock embedded />);
+
+		await waitFor(() =>
+			expect(useChatStore.getState().sessionGoalById.s1).not.toBeNull(),
+		);
+		expect(screen.getByText(/重构登录模块/)).toBeTruthy();
+	});
+
+	it('读不出（403/5xx/离线）→ 保留已有目标，不清空、不消失', async () => {
+		fetchGoalMock.mockResolvedValue({
+			ok: false,
+			goal: null,
+			driver: null,
+			message: 'HTTP 503',
+		});
+		seed(makeGoal());
+
+		const {container} = render(<SessionGoalDock embedded />);
+		await new Promise(r => setTimeout(r, 0));
+
+		expect(useChatStore.getState().sessionGoalById.s1).not.toBeNull();
+		expect(container).not.toBeEmptyDOMElement();
+	});
+
+	it('确认没有目标（ok 且 goal 为空）→ 才允许清空', async () => {
+		fetchGoalMock.mockResolvedValue({
+			ok: true,
+			goal: null,
+			driver: null,
+			message: '',
+		});
+		seed(makeGoal());
+
+		render(<SessionGoalDock embedded />);
+
+		await waitFor(() =>
+			expect(useChatStore.getState().sessionGoalById.s1).toBeNull(),
+		);
 	});
 });

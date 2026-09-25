@@ -19,35 +19,59 @@ export function writeGoalState(
 	}));
 }
 
+export type GoalSyncResult = {ok: boolean; note: string};
+
 /**
  * /goal 发出后：拉投影 → 落 store（dock 立即挂载）→ 显式 arm。
  * arm 口径：/goal 是用户的显式意图命令，由它触发的 arm 不算「自动 armed」
  * （armed 不落盘，重启后自然回到 disarmed，41 号冻结口径不变）。
  * 落库一律写在 GUI 会话 id 上（GoalDock 按 chatStore.activeId 取数）；
  * goal 实际绑定在后端会话 id 时，对后端 id arm，展示仍归 GUI id。
+ *
+ * 返回 note 给调用方贴进斜杠命令的回执：投影读不到时，用户看到的只有
+ * 后端那句"已创建"，dock 却没出现、自动续跑也没挂上——那句沉默必须变成话。
  */
 export async function syncGoalAfterCommand(
 	guiSessionId: string,
 	backendSessionId?: string,
-): Promise<void> {
+): Promise<GoalSyncResult> {
 	const candidates =
 		backendSessionId && backendSessionId !== guiSessionId
 			? [backendSessionId, guiSessionId]
 			: [guiSessionId];
+	let readFailure = '';
 	for (const sid of candidates) {
-		const {goal, driver} = await fetchGoal(sid);
-		if (!goal || goal.status === 'completed' || goal.status === 'abandoned') {
+		const r = await fetchGoal(sid);
+		if (!r.ok) {
+			readFailure = r.message;
 			continue;
 		}
-		writeGoalState(guiSessionId, {goal, driver});
+		if (!r.goal || r.goal.status === 'completed' || r.goal.status === 'abandoned') {
+			continue;
+		}
+		writeGoalState(guiSessionId, {goal: r.goal, driver: r.driver});
 		// 显式 arm：round-driver POST（内存态不落盘）；arm 后端会开轮踢 agent。
 		const res = await roundDriverAction(sid, 'arm');
 		if (res.ok && res.goal) {
 			writeGoalState(guiSessionId, {
 				goal: res.goal,
-				driver: res.driver ?? driver,
+				driver: res.driver ?? r.driver,
 			});
+			return {ok: true, note: ''};
 		}
-		return;
+		if (!res.ok) {
+			return {ok: false, note: `目标已投影，但自动续跑没挂上：${res.message}`};
+		}
+		return {ok: true, note: ''};
 	}
+	if (readFailure) {
+		return {
+			ok: false,
+			note: `目标投影读不到（${readFailure}）：界面没有显示目标，也没挂上自动续跑`,
+		};
+	}
+	return {
+		ok: false,
+		note: '后端已受理 /goal，但投影里没有活跃目标（可能当场已结束）',
+	};
 }

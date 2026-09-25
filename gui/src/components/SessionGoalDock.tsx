@@ -57,9 +57,14 @@ export function useSessionGoalLive(sessionId: string | null) {
 			}
 			inflight.current = true;
 			try {
-				const {goal, driver} = await fetchGoal(sessionId);
+				const r = await fetchGoal(sessionId);
+				if (!r.ok) {
+					// 读不出 ≠ 没有目标：轮询失败时不得把 store 清成 null ——
+					// GoalDock 按 store 挂载，一次后端抖动就会让它自己消失。
+					return;
+				}
 				if (!stopped) {
-					writeGoalState(sessionId, goal ? {goal, driver} : null);
+					writeGoalState(sessionId, r.goal ? {goal: r.goal, driver: r.driver} : null);
 				}
 			} catch {
 				/* 降级：下个周期再试 */
