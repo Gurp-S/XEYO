@@ -214,6 +214,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 	const [attachments, setAttachments] = useState<Attachment[]>([]);
 	const [uploading, setUploading] = useState(false);
 	const uploadCountRef = useRef(0);
+	const sendAcceptPendingRef = useRef(false);
 	const [dragOver, setDragOver] = useState(false);
 	const fileRef = useRef<HTMLInputElement>(null);
 	const taRef = useRef<HTMLTextAreaElement>(null);
@@ -1201,13 +1202,19 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 			toast.info('该对话已归档，请先恢复后发送');
 			return;
 		}
+		if (remoteLoggedIn) return;
+		if (sendAcceptPendingRef.current) return;
+		if (uploadCountRef.current > 0) {
+			toast.info('附件仍在上传，请完成后发送');
+			return;
+		}
+		if (slashExecutingRef.current) return;
 		// 斜杠命令网关：/xxx 先在本机（本地命令/技能直呼/未知命令提示）或
 		// POST /v1/slash（server 命令）执行。命中则拦截，不当作普通消息发给模型
 		// （修复 /export、/map、/run、/mode 等在 GUI 主输入框被当作普通文本发送）。
 		// 非斜杠输入由 parseSlashInput 判 not-slash → consumed=false，走正常发送。
 		const valueTrim = value.trim();
 		if (valueTrim.startsWith('/')) {
-			if (slashExecutingRef.current) return;
 			const sessId = activeId ?? '';
 			const st = useChatStore.getState();
 			const sessionBusyAtSubmit =
@@ -1377,20 +1384,23 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 		const sessionId = activeId;
 		const draftText = value;
 		const draftAttachments = attachments;
+		sendAcceptPendingRef.current = true;
 		// 仅在服务端明确受理后清除；HTTP 拒绝时保留原草稿。
 		void (async () => {
 			let mediaRefs: string[];
 			try {
 				mediaRefs = await ensureMediaRefs(images, sessionId, draftText);
 			} catch (err) {
+				sendAcceptPendingRef.current = false;
 				toast.error(err instanceof Error ? err.message : String(err));
 				return;
 			}
 		const clearAfterAccept = () => {
 			if (clearedByCallback) {
 				return;
-				}
-				clearedByCallback = true;
+			}
+			clearedByCallback = true;
+			sendAcceptPendingRef.current = false;
 				const acceptedSessionId = sessionId ?? chatUiStoreApi.getState().activeId;
 			if (!acceptedSessionId) {
 				return;
@@ -1452,6 +1462,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 				sessionId != null &&
 				chatUiStoreApi.getState().activeId === sessionId;
 			if (!started) {
+				sendAcceptPendingRef.current = false;
 				const st = chatUiStoreApi.getState();
 				if (sessionId && sessionStreamActive(st, sessionId)) {
 					toast.info('当前会话正在生成，请先停止或稍候再试');
@@ -1471,6 +1482,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 				});
 			}
 		})().catch(err => {
+			sendAcceptPendingRef.current = false;
 			toast.error(err instanceof Error ? err.message : String(err));
 		});
 	};
