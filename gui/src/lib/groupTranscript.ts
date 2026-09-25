@@ -95,6 +95,10 @@ function toolResultOf(m: ChatMessage): string {
 	return m.text;
 }
 
+function toolWaitingOf(m: ChatMessage): boolean {
+	return m.toolStatus === 'waiting' && !toolResultOf(m).trim();
+}
+
 function toolStatusOf(m: ChatMessage): ToolView['status'] {
 	const body = m.text.startsWith('call ') ? '' : m.text.trim();
 	// 结果已到达 → 永不视为仍在 running（避免 shimmer 卡住）。
@@ -125,7 +129,7 @@ function toToolView(m: ChatMessage): ToolView {
 		input: toolInputOf(m),
 		result: toolResultOf(m),
 		status: toolStatusOf(m),
-		waiting: m.toolStatus === 'waiting' && !m.text.trim(),
+		waiting: toolWaitingOf(m),
 		createdAt: m.createdAt,
 		reasoningBefore: m.reasoningBefore,
 		thoughtMs: m.thoughtMs,
@@ -177,8 +181,7 @@ function consumeTools(
 						id: call.id,
 						result: toolResultOf(nextMsg),
 						status: toolStatusOf(nextMsg),
-						waiting:
-							nextMsg.toolStatus === 'waiting' && !nextMsg.text.trim(),
+						waiting: toolWaitingOf(nextMsg),
 					},
 				},
 				next: start + 2,
