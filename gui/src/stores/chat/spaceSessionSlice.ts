@@ -380,6 +380,15 @@ messagesById: settled.messagesById,
 					[existing.id]: false,
 				});
 				await syncWorkspaceRoot(existing.rootPath);
+				// An earlier open may have created this space but failed to reattach
+				// its orphaned sessions. Retry adoption whenever the folder is opened.
+				try {
+					mergeAdopted(
+						await adoptWorkspaceSessions(existing.id, existing.rootPath),
+					);
+				} catch {
+					/* Session adoption failure does not prevent opening the workspace. */
+				}
 				return existing.id;
 			}
 
