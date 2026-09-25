@@ -9,7 +9,7 @@
 /// <reference types="node" />
 // 本项目的 tsconfig 不给测试文件带 node 类型，@types/node 是装着的，显式引用即可。
 // 不用 ?raw：Vite 的 CSS 插件会把 `.css?raw` 折进 CSS 管线，测试里拿到的是空串。
-import {readFileSync} from 'node:fs';
+import {readdirSync, readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {describe, expect, it} from 'vitest';
 
@@ -103,7 +103,6 @@ describe('diagnostics.css 设计契约', () => {
 			'xy-dig-step-head',
 			'xy-dig-finding-head',
 			'xy-dig-evidence',
-			'xy-dig-session',
 			'xy-dig-input',
 			'xy-dig-textarea',
 			'xy-dig-step-link',
@@ -128,6 +127,25 @@ describe('diagnostics.css 设计契约', () => {
 		expect(b!.body).toMatch(/flex:\s*0 1 auto/);
 		expect(b!.body).toMatch(/min-width:\s*0/);
 		expect(b!.body).toMatch(/text-overflow:\s*ellipsis/);
+	});
+
+	it('诊断页不再用原生 <select>（系统弹层不吃主题、长标题硬截断）', () => {
+		// 会话选择器曾经是 <select>：弹层走 OS 配色（浅色下白底 + 灰选中带），
+		// 长会话标题被截断且没有省略号/tooltip，占位符还混成一条可选项。
+		// 必须先剥注释：SessionPicker 的文档注释里就写着「替代原生 <select>」。
+		const stripComments = (src: string) =>
+			src
+				.replace(/\/\*[\s\S]*?\*\//g, '')
+				.split('\n')
+				.filter(l => !/^\s*(\/\/|\*)/.test(l))
+				.join('\n');
+		const dir = resolve(process.cwd(), 'src/features/diagnostics');
+		const hits = readdirSync(dir)
+			.filter(f => /\.tsx$/.test(f) && !/\.test\./.test(f))
+			.filter(
+				f => /<select[\s>]/.test(stripComments(readFileSync(resolve(dir, f), 'utf8'))),
+			);
+		expect(hits).toEqual([]);
 	});
 
 	it('每个声明 transition 的类都在 prefers-reduced-motion 里降级', () => {

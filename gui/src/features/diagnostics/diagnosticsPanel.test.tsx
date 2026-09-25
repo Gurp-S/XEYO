@@ -262,7 +262,8 @@ describe('运行列表的会话身份（P0 2）', () => {
 
 		renderPanel();
 		await waitFor(() => expect(api.fetchDiagRuns).toHaveBeenCalledWith(SESSION, expect.anything()));
-		await user.selectOptions(screen.getByRole('combobox'), 'backend-gui-b');
+		await user.click(screen.getByRole('combobox', {name: '会话'}));
+		await user.click(await screen.findByRole('option', {name: '会话乙'}));
 
 		fastB.resolve(runsFixture('backend-gui-b', [{turn_id: 't-b1'}]));
 		expect(await screen.findByText('t-b1')).toBeTruthy();

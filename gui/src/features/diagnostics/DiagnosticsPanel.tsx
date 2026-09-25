@@ -41,6 +41,7 @@ import {ContextView} from './ContextView';
 import {ExperimentsView} from './ExperimentsView';
 import {FindingsView} from './FindingsView';
 import {PinForm} from './PinForm';
+import {SessionPicker} from './SessionPicker';
 import {StepsView} from './StepsView';
 import {UsageView} from './UsageView';
 import {useDiagnosticsData} from './useDiagnosticsData';
@@ -70,10 +71,15 @@ function useBackendSessions(): Array<{id: string; label: string}> {
 		() =>
 			sessions
 				.filter(s => !s.id.startsWith('side-'))
-				.map(s => ({
-					id: activeBackendSessionId(historyById, s.id),
-					label: s.title?.trim() || s.id.slice(0, 8),
-				})),
+				.map(s => {
+					const id = activeBackendSessionId(historyById, s.id);
+					return {
+						id,
+						// 没有标题时退回**完整 id**：原先截到 8 位，而 GUI id 一律以
+						// `sess_` 开头 ⇒ 两条未命名会话在列表里长成同一个名字。
+						label: s.title?.trim() || id,
+					};
+				}),
 		[sessions, historyById],
 	);
 }
@@ -277,23 +283,14 @@ export function DiagnosticsPanel({active}: {active: boolean}) {
 
 	const toolbar = (
 		<>
-			<label className="xy-dig-session">
-				<span className="sr-only">会话</span>
-				<select
-					value={sessionId}
-					onChange={e => {
-						pickSession(e.target.value);
-						data.clearLink();
-					}}
-				>
-					<option value="">选择会话</option>
-					{backendSessions.map(s => (
-						<option key={s.id} value={s.id}>
-							{s.label}
-						</option>
-					))}
-				</select>
-			</label>
+			<SessionPicker
+				sessions={backendSessions}
+				value={sessionId}
+				onPick={id => {
+					pickSession(id);
+					data.clearLink();
+				}}
+			/>
 			<div role="tablist" aria-label="诊断视图" onKeyDown={onTabKeyDown} className="xy-dig-tabs">
 				{TABS.map(t => (
 					<button
