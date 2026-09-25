@@ -247,6 +247,72 @@ def test_canonical_layer_hole_from_other_turn_is_silent(collect) -> None:
 	assert [x for x in evaluate_run(run) if x.rule_id == "tool_pair_integrity"] == []
 
 
+def _routed_rows(kind: str = "tool.routed") -> list[dict[str, object]]:
+	return [
+		{
+			"ts": 2.0,
+			"kind": kind,
+			"session_id": "s1",
+			"turn_id": "t1",
+			"request_id": "call_1",
+			"tool_name": "Bash",
+			"routed_to": "Glob",
+			"command": 'dir "doc/*"',
+			"tier": "T3",
+		}
+	]
+
+
+def test_tool_routing_reports_the_swap_but_blames_nobody(collect) -> None:
+	"""tool.routed 有审计行、带完整轮次身份，此前没有任何一条规则读它。"""
+	run = collect(_routed_rows())
+	findings = evaluate_run(run)
+	f = next(x for x in findings if x.rule_id == "tool_routing")
+	assert f.status == UNKNOWN and f.boundary == "tool_permission"
+	assert "Glob 1 次" in f.phenomenon
+	assert f.evidence[0].detail.startswith("Bash→Glob")
+	assert 'dir "doc/*"' in f.evidence[0].detail
+	assert "不得据此判定分发故障" in f.allowed_conclusion
+
+
+def test_routed_observed_is_not_reported_as_a_swap(collect) -> None:
+	"""Phase 0 观测只说明"计划命中"，执行层没有拦截：报成改道就是说假话。"""
+	run = collect(_routed_rows("tool.routed_observed"))
+	assert [x for x in evaluate_run(run) if x.rule_id == "tool_routing"] == []
+
+
+def test_tool_routing_ignores_other_turns_swaps() -> None:
+	"""规则层自己按轮次筛：采集层今天会丢掉别轮的行，但那层一旦放宽就是越轮归因。"""
+	from diagnostics.collect import RunEvidence
+	from diagnostics.identity import normalize_event
+	from diagnostics.rules import check_tool_routing
+
+	run = RunEvidence(
+		session_id="s1",
+		turn_id="t1",
+		events=[
+			normalize_event(
+				0,
+				7,
+				{"ts": 1.0, "kind": "tool.routed", "session_id": "s1", "turn_id": "t_other", "request_id": "c2", "tool_name": "Bash", "routed_to": "Read"},
+			)
+		],
+	)
+	assert check_tool_routing(run) == []
+	run.events.append(
+		normalize_event(
+			1,
+			8,
+			{"ts": 2.0, "kind": "tool.routed", "session_id": "s1", "turn_id": "t1", "request_id": "c1", "tool_name": "Bash", "routed_to": "Glob"},
+		)
+	)
+	assert [f.phenomenon for f in check_tool_routing(run)] == ["1 次工具调用在执行层换了工具：Glob 1 次"]
+	run.turn_id = ""  # 会话级报告（诊断端点允许空 turn_id）：措辞不得把行数说成"这一轮"
+	session_level = check_tool_routing(run)
+	assert len(session_level) == 1
+	assert "这一轮" not in session_level[0].phenomenon
+
+
 def test_frozen_head_change_inside_same_interval_is_confirmed(collect) -> None:
 	run = collect(
 		[{"ts": 1.0, "kind": "model.started", "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", "attempt": 1, "projection_id": "p1"}]

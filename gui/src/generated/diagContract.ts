@@ -29,6 +29,7 @@ export const DIAG_RULE_IDS: readonly string[] = [
 	'provider_stream_failure',
 	'permission_block',
 	'tool_failure',
+	'tool_routing',
 	'wire_gap',
 	'incomplete_run',
 	'repeated_failure',

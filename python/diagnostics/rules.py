@@ -868,6 +868,59 @@ def check_tool_failure(run: RunEvidence) -> list[Finding]:
 	return findings
 
 
+# ---------- 工具改道（执行层 bash 路由）----------
+
+
+def check_tool_routing(run: RunEvidence) -> list[Finding]:
+	"""``tool.routed`` 行的事实：模型请求执行 A，执行层实际跑了 B。
+
+	改道此前在整个诊断面上是隐形的：审计有行、采集器把它们归到工具边界，
+	但没有任何一条规则读 ``routed_to``（2026-09-25 对照生产者清单时发现，
+	真实语料里 94 行、带完整的会话/轮次/调用身份）。
+	"""
+	# ``tool.routed_observed`` 刻意不读：那是 Phase 0 观测（计划命中但**不拦截**，
+	# 见 tools/tool_registry.py::_observe_bash_route），把它说成"被改道执行"就是假话。
+	routed = [e for e in run.events_for_turn() if e.kind == "tool.routed"]
+	if not routed:
+		return []
+	by_target: dict[str, list[Any]] = {}
+	for event in routed:
+		by_target.setdefault(_kv(event, "routed_to") or "（未记录目标）", []).append(event)
+	targets = "、".join(f"{name} {len(items)} 次" for name, items in sorted(by_target.items()))
+	return [
+		Finding(
+			rule_id="tool_routing",
+			rule_version=RULESET_VERSION,
+			# 措辞里不写"这一轮"：报告端点也接受空 turn_id 的会话级运行（server/routers/diagnostics.py::post_report），
+			# 那种范围下说"这一轮"就是把会话级的行数算给一轮。
+			phenomenon=f"{len(routed)} 次工具调用在执行层换了工具：{targets}",
+			boundary="tool_permission",
+			component="工具分发（bash 路由）",
+			# 未定不是"读不出"，而是与权限层同一裁定：执行层按策略做出的**结果**不计成产品故障
+			# （见 check_permission_block 里 timeout / aborted 那一档的理由）。
+			# 改道是设计行为，归因层因此不拿它定责；但它必须可见 —— 这一步的报错与输出
+			# 来自另一个工具，不先看清它就给上一轮下结论会读错证据。
+			status=UNKNOWN,
+			evidence=[
+				_event_ref(
+					run,
+					event,
+					f"{_kv(event, 'tool_name') or 'Bash'}→{_kv(event, 'routed_to')} {_kv(event, 'command')[:80]}",
+				)
+				for event in routed
+			],
+			impact="模型请求的是左边的工具，实际执行的是右边的：这一步的输出、报错与耗时都来自改写后的工具。",
+			coverage_gap=(
+				"改道发生在执行层、模型侧不回显，transcript 里看不出这一步被改过；"
+				"目标工具被会话路径拒绝时会回退执行原调用且不留 tool.routed 行"
+				"（tools/tool_registry.py 的回退分支），所以这里只能说改道成了什么，"
+				"不能说每次同类请求都会被改道。"
+			),
+			allowed_conclusion="可确认这一步实际执行的是哪个工具；改道本身是执行层策略，不得据此判定分发故障。",
+		)
+	]
+
+
 # ---------- R8 发射链缺口 ----------
 
 
@@ -1183,6 +1236,7 @@ RULES: tuple[Rule, ...] = tuple(
 		("provider_stream_failure", check_provider_stream),
 		("permission_block", check_permission_block),
 		("tool_failure", check_tool_failure),
+		("tool_routing", check_tool_routing),
 		("wire_gap", check_wire_gap),
 		("incomplete_run", check_incomplete_run),
 		("repeated_failure", check_repeated_failure),
@@ -1320,6 +1374,7 @@ __all__ = [
 	"check_repeated_failure",
 	"check_tool_failure",
 	"check_tool_pair_integrity",
+	"check_tool_routing",
 	"check_usage_accounting",
 	"check_verifier",
 	"check_wire_gap",
