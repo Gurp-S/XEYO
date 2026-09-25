@@ -895,14 +895,19 @@ def _collect_transcript(run: RunEvidence, session_id: str, wanted_tool_ids: set[
 					tool.result_message_id = _s(row.get("id"))
 					break
 	if wanted_tool_ids and len(linked_ids) < len(wanted_tool_ids):
-		unlinked = len(wanted_tool_ids) - len(linked_ids)
-		if window.complete:
+		unlinked = [t for t in run.tool_calls if t.tool_use_id not in linked_ids]
+		# 只有"已经结束、却没有结果行"才是配对缺失；从未结束的调用本就不可能有结果行，
+		# 把它算进来会把一件事报成两件（那件事由 tool_pair_integrity 的 started-only 分支说）。
+		finished_missing = [t for t in unlinked if t.finished]
+		open_unlinked = len(unlinked) - len(finished_missing)
+		tail = f"（另有 {open_unlinked} 个调用只有开始记录，不计在这里）" if open_unlinked else ""
+		if finished_missing and window.complete:
 			run.add_gap(
 				"file_verifier",
 				"field_missing",
-				f"{unlinked} 个工具调用在 transcript 无对应结果行",
+				f"{len(finished_missing)} 个已结束的调用在 transcript 无对应结果行{tail}",
 			)
-		else:
+		elif finished_missing:
 			# 载荷本身残缺（尾窗没盖到 / 保留上限裁过行）时"没有结果行"是断不出来的。
 			# 2026-09-25 分层普查 57 轮：这条缺项有 4 轮落在被裁过的 transcript 上，
 			# 计数最高 41 个 —— 那些调用只是排在保留窗（400 行）之前，不是没有结果。
@@ -911,8 +916,10 @@ def _collect_transcript(run: RunEvidence, session_id: str, wanted_tool_ids: set[
 			run.add_gap(
 				"file_verifier",
 				"out_of_window",
-				f"{unlinked} 个工具调用的结果行不在本次读到的 transcript 范围内，配对读不出",
+				f"{len(finished_missing)} 个已结束的调用的结果行不在本次读到的 transcript 范围内，配对读不出{tail}",
 			)
+		elif open_unlinked:
+			window.add_note(f"{open_unlinked} 个工具调用只有开始记录，本次不声称它们缺结果行")
 
 
 def _collect_wire_drops(run: RunEvidence, wanted_tool_ids: set[str]) -> None:
