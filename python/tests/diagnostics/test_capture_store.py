@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import gzip
 import json
+import os
+import time
 
 import pytest
 
@@ -107,10 +109,63 @@ def test_quota_recovers_stale_tmp_files() -> None:
 	store.ensure_dirs()
 	stale = store.captures_dir() / "abc123.json.gz.tmp"
 	stale.write_bytes(b"z" * 2048)
+	# 只有过了宽限期的才算残片：在飞的原子写长得一模一样
+	_old = time.time() - store._TMP_GRACE_S - 10
+	os.utime(stale, (_old, _old))
 	used = store.dir_size(store.diagnostics_root())
 	out = store.enforce_quota(target=max(1, used // 2))
 	assert not stale.exists()
 	assert out["freed_bytes"] >= 2048
+
+
+def test_quota_sweeps_litter_even_when_the_target_is_met_otherwise() -> None:
+	"""残片回收不是"凑够配额才做"的那一步。
+
+	候选清单按 mtime 从旧到新删，够数就 break —— 一块比"够删的那些"更新的 .tmp
+	残片就会永远留下。所以专门的残片回收必须留着，且它的作用可以被测出来。
+	"""
+	store.ensure_dirs()
+	root = store.captures_dir()
+	old_a = root / "a.json.gz"
+	old_b = root / "b.json.gz"
+	litter = root / "c.json.gz.tmp"
+	old_a.write_bytes(b"1" * 5000)
+	old_b.write_bytes(b"2" * 5000)
+	litter.write_bytes(b"3" * 2000)
+	now = time.time()
+	os.utime(old_a, (now - 9000, now - 9000))  # 最旧：够删的那个
+	os.utime(old_b, (now - 8000, now - 8000))
+	# 残片过了宽限期，但仍比 a 新 —— 只靠候选清单会在 a 删完后停下
+	os.utime(litter, (now - store._TMP_GRACE_S - 30, now - store._TMP_GRACE_S - 30))
+
+	used = store.dir_size(store.diagnostics_root())
+	out = store.enforce_quota(target=used - 4000)
+
+	assert not old_a.exists(), "最旧的文件应先被删掉以回到配额内"
+	assert not litter.exists(), "残片回收不该看配额是否已经凑够"
+	assert out["freed_bytes"] >= 7000
+
+
+def test_quota_leaves_an_in_flight_atomic_write_alone() -> None:
+	"""配额清理不得删掉刚建好的 .tmp。
+
+	本模块的 _STORE_LOCK 只锁本进程，而 GUI server 与 CLI 会并发写同一个诊断目录：
+	抢在 os.replace 之前 unlink，对方的原子写就当场失败。宽限期是跨进程唯一还能
+	用的判据。
+	"""
+	store.ensure_dirs()
+	live = store.captures_dir() / "live1.json.gz.tmp"
+	live.write_bytes(b"y" * 2048)
+	used = store.dir_size(store.diagnostics_root())
+	store.enforce_quota(target=max(1, used // 2))
+	assert live.exists(), "在飞的 tmp 被回收了：下一次 os.replace 会 FileNotFoundError"
+
+	# 对照：同一批文件过了宽限期就该被收走（否则这条保护会变成永久豁免）
+	_old = time.time() - store._TMP_GRACE_S - 10
+	os.utime(live, (_old, _old))
+	used = store.dir_size(store.diagnostics_root())
+	store.enforce_quota(target=max(1, used // 2))
+	assert not live.exists()
 
 
 def test_resolve_missing_blob_reports_not_captured() -> None:

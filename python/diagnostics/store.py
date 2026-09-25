@@ -19,6 +19,9 @@ _STORE_LOCK = threading.RLock()
 
 _DEFAULT_QUOTA_BYTES = 64 * 1024 * 1024
 
+#: 回收 ``.tmp`` 残片前要先确认它不再被一次在飞的原子写持有（跨进程没有锁可用）。
+_TMP_GRACE_S = 120.0
+
 
 def diagnostics_root() -> Path:
 	"""诊断产物根目录（可用 XEYO_DIAGNOSTICS_DIR 覆盖，供实验进程独立写入）。"""
@@ -234,10 +237,16 @@ def enforce_quota(*, target: int | None = None) -> dict[str, Any]:
 		return result
 	protected = _pinned_markers()
 	# ``.tmp`` 永远不是权威产物（写入一律 tmp→replace），残片先回收。
+	# 但回收要避开还在写的那一个：本模块的 _STORE_LOCK 只管本进程，GUI server 与
+	# CLI 可以并发写同一目录，抢在 os.replace 之前 unlink 会让对方的原子写直接失败。
+	now = time.time()
 	for stale in root.rglob("*.tmp"):
 		try:
 			if stale.is_file():
-				size = stale.stat().st_size
+				stat = stale.stat()
+				if now - stat.st_mtime < _TMP_GRACE_S:
+					continue
+				size = stat.st_size
 				stale.unlink()
 				used -= size
 				result["removed"] += 1
@@ -259,6 +268,9 @@ def enforce_quota(*, target: int | None = None) -> dict[str, Any]:
 	for _mtime, size, entry in candidates:
 		if used <= cap:
 			break
+		if entry.name.endswith(".tmp") and now - _mtime < _TMP_GRACE_S:
+			# 这里也一样：候选清单会把在飞的 tmp 当普通文件删掉。
+			continue
 		try:
 			entry.unlink()
 		except OSError:
