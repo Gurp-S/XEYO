@@ -1737,16 +1737,70 @@ export type BashPolicy = {
 	escalate_min: number;
 };
 
-export async function loadBashPolicy(workspace?: string): Promise<BashPolicy | null> {
+/**
+ * 读 / 写策略的回执。ok=false 时 policy 一定是 null，message 是能直接上屏的原因。
+ *
+ * 旧签名是 `Promise<BashPolicy | null>` 且 200 直接 `as BashPolicy` 返回：
+ * 后端少回一个键（比如 escalate_max），界面就按客户端自己编的默认值显示
+ * "上限 5 / 推荐 3"——那两个数字本来是工作区策略事实，不是 UI 的猜测。
+ */
+export type BashPolicyRead = {
+	ok: boolean;
+	policy: BashPolicy | null;
+	message: string;
+};
+
+function isFiniteNumber(v: unknown): v is number {
+	return typeof v === 'number' && Number.isFinite(v);
+}
+
+/** 后端固定回这 7 个键；缺任何一个都不算"读到了策略"。 */
+function parseBashPolicy(payload: unknown): BashPolicy | null {
+	if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
+	const b = payload as Record<string, unknown>;
+	if (b.ok !== true || typeof b.cwd !== 'string') return null;
+	if (b.bash_routing !== 'auto' && b.bash_routing !== 'off') return null;
+	if (!isFiniteNumber(b.bash_escalate) || b.bash_escalate < 0) return null;
+	if (
+		!isFiniteNumber(b.escalate_max) ||
+		!isFiniteNumber(b.escalate_min) ||
+		!isFiniteNumber(b.escalate_recommended)
+	) {
+		return null;
+	}
+	return {
+		ok: true,
+		cwd: b.cwd,
+		bash_routing: b.bash_routing,
+		bash_escalate: b.bash_escalate,
+		escalate_recommended: b.escalate_recommended,
+		escalate_max: b.escalate_max,
+		escalate_min: b.escalate_min,
+	};
+}
+
+export async function loadBashPolicy(
+	workspace?: string,
+): Promise<BashPolicyRead> {
 	try {
 		const query = workspace ? `?${new URLSearchParams({workspace})}` : '';
 		const res = await fetchWithTimeout(apiUrl(`/v1/workspace/policy-bash${query}`), {
 			cache: 'no-store',
 		});
-		if (!res.ok) return null;
-		return (await res.json()) as BashPolicy;
-	} catch {
-		return null;
+		const payload = await res.json().catch(() => null);
+		if (!res.ok) {
+			return {ok: false, policy: null, message: formatErrorDetail(payload, res.status)};
+		}
+		const policy = parseBashPolicy(payload);
+		return policy
+			? {ok: true, policy, message: ''}
+			: {ok: false, policy: null, message: 'receipt_bad_policy'};
+	} catch (err) {
+		return {
+			ok: false,
+			policy: null,
+			message: err instanceof Error ? err.message : String(err),
+		};
 	}
 }
 
@@ -1754,16 +1808,26 @@ export async function saveBashPolicy(input: {
 	bash_routing?: 'auto' | 'off';
 	bash_escalate?: number;
 	workspace?: string;
-}): Promise<BashPolicy | null> {
+}): Promise<BashPolicyRead> {
 	try {
 		const res = await fetchWithTimeout(apiUrl('/v1/workspace/policy-bash'), {
 			method: 'POST',
 			headers: {'Content-Type': 'application/json'},
 			body: JSON.stringify(input),
 		});
-		if (!res.ok) return null;
-		return (await res.json()) as BashPolicy;
-	} catch {
-		return null;
+		const payload = await res.json().catch(() => null);
+		if (!res.ok) {
+			return {ok: false, policy: null, message: formatErrorDetail(payload, res.status)};
+		}
+		const policy = parseBashPolicy(payload);
+		return policy
+			? {ok: true, policy, message: ''}
+			: {ok: false, policy: null, message: 'receipt_bad_policy'};
+	} catch (err) {
+		return {
+			ok: false,
+			policy: null,
+			message: err instanceof Error ? err.message : String(err),
+		};
 	}
 }

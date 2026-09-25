@@ -22,23 +22,24 @@ export function BashRoutingSetting() {
 	const [routing, setRouting] = useState<'auto' | 'off'>('off');
 	const [escalate, setEscalate] = useState(0);
 	const [saved, setSaved] = useState(false);
-	const [loadError, setLoadError] = useState(false);
+	// 非空 = 这一份策略没读到，内容就是能上屏的原因。
+	const [loadError, setLoadError] = useState('');
 	const [reloadKey, setReloadKey] = useState(0);
 
 	useEffect(() => {
 		let alive = true;
 		setPol(null);
-		setLoadError(false);
+		setLoadError('');
 		if (!root) return () => { alive = false; };
-		void loadBashPolicy(root).then(p => {
+		void loadBashPolicy(root).then(r => {
 			if (!alive) return;
-			if (!p) {
-				setLoadError(true);
+			if (!r.ok || !r.policy) {
+				setLoadError(r.message || 'unknown');
 				return;
 			}
-			setPol(p);
-			setRouting(p.bash_routing);
-			setEscalate(p.bash_escalate);
+			setPol(r.policy);
+			setRouting(r.policy.bash_routing);
+			setEscalate(r.policy.bash_escalate);
 		});
 		return () => {
 			alive = false;
@@ -49,21 +50,23 @@ export function BashRoutingSetting() {
 		if (!root) return;
 		const savedRoot = root;
 		try {
-			const p = await saveBashPolicy({
+			const r = await saveBashPolicy({
 				bash_routing: routing,
 				bash_escalate: escalate,
 				workspace: savedRoot,
 			});
 			const state = useChatStore.getState();
 			const currentRoot = state.spaces.find(item => item.id === state.activeSpaceId)?.rootPath?.trim() ?? '';
-			if (!p) {
-				if (samePath(savedRoot, currentRoot)) toast.error('Bash 策略保存失败');
+			if (!r.ok || !r.policy) {
+				if (samePath(savedRoot, currentRoot)) {
+					toast.error(`Bash 策略未保存：${r.message || 'unknown'}`);
+				}
 				return;
 			}
 			if (samePath(savedRoot, currentRoot)) {
-				setPol(p);
-				setEscalate(p.bash_escalate);
-				setRouting(p.bash_routing);
+				setPol(r.policy);
+				setEscalate(r.policy.bash_escalate);
+				setRouting(r.policy.bash_routing);
 				setSaved(true);
 				setTimeout(() => setSaved(false), 1500);
 			}
@@ -76,8 +79,11 @@ export function BashRoutingSetting() {
 		}
 	}
 
-	const max = pol?.escalate_max ?? 5;
-	const recommended = pol?.escalate_recommended ?? 3;
+	// 推荐值 / 上限是工作区策略事实，不拿客户端默认值冒充：没读到就写"未取回"。
+	const max = pol?.escalate_max ?? null;
+	const recommended = pol?.escalate_recommended ?? null;
+	const clamp = (n: number) =>
+		max == null ? 0 : Math.max(0, Math.min(max, Math.trunc(n)));
 
 	return (
 		<div className="space-y-2 p-1">
@@ -86,7 +92,7 @@ export function BashRoutingSetting() {
 			{root && !pol && !loadError ? <div className="text-[10px] text-mute">读取中…</div> : null}
 			{root && loadError ? (
 				<div className="flex items-center gap-2 text-[10px] text-mute">
-					<span>读取失败</span>
+					<span>未读到工作区策略（{loadError}）</span>
 					<button type="button" className="text-accent hover:underline" onClick={() => setReloadKey(key => key + 1)}>
 						重试
 					</button>
@@ -96,33 +102,34 @@ export function BashRoutingSetting() {
 				<span className="text-xs text-mute">透明路由</span>
 				<select
 					value={routing}
+					disabled={!pol}
 					onChange={e => setRouting(e.target.value as 'auto' | 'off')}
-					className="xy-surface rounded-lg border border-line bg-glass-strong px-2 py-1 text-xs text-ink outline-none focus:border-accent"
+					className="xy-surface rounded-lg border border-line bg-glass-strong px-2 py-1 text-xs text-ink outline-none focus:border-accent disabled:opacity-50"
 				>
 					<option value="off">off（报错提示）</option>
 					<option value="auto">auto（自动路由）</option>
 				</select>
 			</label>
 			<label className="flex items-center justify-between gap-3">
-				<span className="text-xs text-mute">重复放行次数（0=关；推荐 {recommended}）</span>
+				<span className="text-xs text-mute">
+					重复放行次数（0=关；推荐 {recommended ?? '未取回'}）
+				</span>
 				<input
 					type="number"
 					min={0}
-					max={max}
+					max={max ?? undefined}
 					value={escalate}
+					disabled={!pol}
 					onChange={e => {
 						const n = Number(e.target.value);
-						setEscalate(
-							Number.isFinite(n)
-								? Math.max(0, Math.min(max, Math.trunc(n)))
-								: 0,
-						);
+						setEscalate(Number.isFinite(n) ? clamp(n) : 0);
 					}}
-					className="xy-surface w-20 rounded-lg border border-line bg-glass-strong px-2 py-1 text-right text-xs text-ink outline-none focus:border-accent"
+					className="xy-surface w-20 rounded-lg border border-line bg-glass-strong px-2 py-1 text-right text-xs text-ink outline-none focus:border-accent disabled:opacity-50"
 				/>
 			</label>
 			<div className="text-[10px] text-mute">
-				同一命令与工具重复命中达到该次数后放行 bash 执行（不再报错）；上限 {max}。
+				同一命令与工具重复命中达到该次数后放行 bash 执行（不再报错）；
+				上限 {max ?? '未取回'}。
 			</div>
 			<button
 				onClick={save}
