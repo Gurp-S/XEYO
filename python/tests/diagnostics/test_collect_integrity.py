@@ -488,7 +488,7 @@ def test_transcript_row_count_matches_the_payload(write_audit, monkeypatch) -> N
 
 
 def test_capped_transcript_rows_stop_linking_results(write_audit, monkeypatch) -> None:
-	"""被裁掉的行不能继续充当「已锚定」的证据：缺的就是缺。"""
+	"""被裁掉的行不能继续充当「已锚定」的证据 —— 但也不能反过来说结果不存在。"""
 	monkeypatch.setattr(collect_module, "_TRANSCRIPT_ROW_CAP", 2)
 	_write_jsonl(
 		_transcript_file(),
@@ -502,9 +502,32 @@ def test_capped_transcript_rows_stop_linking_results(write_audit, monkeypatch) -
 	window = run.window("transcript")
 	assert window is not None and window.rows_capped == 4
 	assert run.tool_calls[0].result_message_id == ""
+	gaps = {(g.boundary, g.reason): g.detail for g in run.gaps}
+	assert any("1 个工具调用" in d for (b, _r), d in gaps.items() if b == "file_verifier"), (
+		"锚不上的工具调用必须进缺项，而不是被裁掉的行掩盖"
+	)
+	# 载荷残缺时强度必须降一档：真实数据里这类计数最高 41 个，全部落在保留窗之前，
+	# 说成「无对应结果行」就是把读不出写成没有。
+	assert not any(r == "field_missing" and "无对应结果行" in d for (_b, r), d in gaps.items()), gaps
+	assert ("file_verifier", "out_of_window") in gaps
+	assert "配对读不出" in gaps[("file_verifier", "out_of_window")]
+
+
+def test_complete_transcript_still_says_a_result_row_is_missing(write_audit) -> None:
+	"""窗口完整时才有资格说「无对应结果行」：这一档是文件里真没有那一行。"""
+	_write_jsonl(
+		_transcript_file(),
+		[_transcript_row(0, role="user"), _transcript_row(1, role="assistant")],
+	)
+	path = write_audit(_model_rows("r1", 1) + _tool_rows("c1", "r1"))
+
+	run = collect_run(_SESSION, _TURN, audit_path=path)
+
+	window = run.window("transcript")
+	assert window is not None and window.complete is True and window.rows_capped == 0
 	assert any(
-		g.boundary == "file_verifier" and g.reason == "field_missing" and "1 个工具调用" in g.detail for g in run.gaps
-	), "锚不上的工具调用必须进缺项，而不是被裁掉的行掩盖"
+		g.boundary == "file_verifier" and g.reason == "field_missing" and "无对应结果行" in g.detail for g in run.gaps
+	)
 
 
 def test_default_transcript_cap_is_a_real_window_budget() -> None:

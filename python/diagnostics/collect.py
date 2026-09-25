@@ -895,11 +895,24 @@ def _collect_transcript(run: RunEvidence, session_id: str, wanted_tool_ids: set[
 					tool.result_message_id = _s(row.get("id"))
 					break
 	if wanted_tool_ids and len(linked_ids) < len(wanted_tool_ids):
-		run.add_gap(
-			"file_verifier",
-			"field_missing",
-			f"{len(wanted_tool_ids) - len(linked_ids)} 个工具调用在 transcript 无对应结果行",
-		)
+		unlinked = len(wanted_tool_ids) - len(linked_ids)
+		if window.complete:
+			run.add_gap(
+				"file_verifier",
+				"field_missing",
+				f"{unlinked} 个工具调用在 transcript 无对应结果行",
+			)
+		else:
+			# 载荷本身残缺（尾窗没盖到 / 保留上限裁过行）时"没有结果行"是断不出来的。
+			# 2026-09-25 分层普查 57 轮：这条缺项有 4 轮落在被裁过的 transcript 上，
+			# 计数最高 41 个 —— 那些调用只是排在保留窗（400 行）之前，不是没有结果。
+			# 锚定关系仍然按实际载荷算（上面的 linked_ids 已经不含裁掉的行），
+			# 变的只是这句话的强度：从"没有"改成"读不出"。
+			run.add_gap(
+				"file_verifier",
+				"out_of_window",
+				f"{unlinked} 个工具调用的结果行不在本次读到的 transcript 范围内，配对读不出",
+			)
 
 
 def _collect_wire_drops(run: RunEvidence, wanted_tool_ids: set[str]) -> None:
