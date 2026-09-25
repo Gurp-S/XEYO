@@ -13,6 +13,7 @@ import {groupTranscript, type TurnItem} from '@/lib/groupTranscript';
 import {useChatStore} from '@/stores/chatStore';
 import {useSettingsStore, PANE_WIDTH_MAX, PANE_WIDTH_MIN, isSmoothnessOn} from '@/stores/settingsStore';
 import {useWorkspaceStore, type WorkspaceTool} from '@/stores/workspaceStore';
+import {useTerminalSessionStore, type TerminalLine} from '@/stores/terminalSessionStore';
 import {useExplorerStore} from '@/stores/explorerStore';
 import {AgentMapPanel} from '@/components/AgentMapPanel';
 import {BrowserPreviewPanel} from '@/components/BrowserPreviewPanel';
@@ -350,26 +351,24 @@ function GitBody() {
 	);
 }
 
-type TermLine = {kind: 'in' | 'out' | 'err' | 'info'; text: string};
-
 function TerminalBody() {
 	const root = useExplorerStore(s => s.loadedRoot);
-	const commandSeqRef = useRef(0);
-	const [cmd, setCmd] = useState('');
-	const [lines, setLines] = useState<TermLine[]>([]);
-	const [busy, setBusy] = useState(false);
-	const [history, setHistory] = useState<string[]>([]);
-	const [cursor, setCursor] = useState(-1);
+	const cmd = useTerminalSessionStore(s => s.command);
+	const lines = useTerminalSessionStore(s => s.lines);
+	const busy = useTerminalSessionStore(s => s.busy);
+	const history = useTerminalSessionStore(s => s.history);
+	const cursor = useTerminalSessionStore(s => s.cursor);
+	const ensureRoot = useTerminalSessionStore(s => s.ensureRoot);
+	const setCommand = useTerminalSessionStore(s => s.setCommand);
+	const setCursor = useTerminalSessionStore(s => s.setCursor);
+	const beginCommand = useTerminalSessionStore(s => s.beginCommand);
+	const appendLines = useTerminalSessionStore(s => s.appendLines);
+	const finishCommand = useTerminalSessionStore(s => s.finishCommand);
 	const scrollerRef = useRef<HTMLDivElement | null>(null);
 	usePanelSubtitle(root ? `PS ${root}` : '');
 	useEffect(() => {
-		commandSeqRef.current += 1;
-		setCmd('');
-		setLines([]);
-		setHistory([]);
-		setCursor(-1);
-		setBusy(false);
-	}, [root]);
+		ensureRoot(root);
+	}, [ensureRoot, root]);
 
 	useEffect(() => {
 		scrollerRef.current?.scrollTo({top: scrollerRef.current.scrollHeight});
@@ -378,45 +377,43 @@ function TerminalBody() {
 	const run = async (text?: string) => {
 		const value = (text ?? cmd).trim();
 		const rootAtRun = root;
-		if (!value || busy || !rootAtRun) {
-			return;
-		}
-		const commandSeq = ++commandSeqRef.current;
-		setCmd('');
-		setCursor(-1);
-		setLines(l => [...l, {kind: 'in', text: value}]);
-		setBusy(true);
+		ensureRoot(rootAtRun);
+		const commandSeq = beginCommand(value, rootAtRun);
+		if (commandSeq === null) return;
 		try {
 			const res = await execWorkspaceTerminal(value, 120, rootAtRun);
 			if (
-				commandSeq !== commandSeqRef.current ||
+				commandSeq !== useTerminalSessionStore.getState().sequence ||
 				!samePath(rootAtRun, useExplorerStore.getState().loadedRoot)
 			) {
 				return;
 			}
+			const outputLines: TerminalLine[] = [];
 			if (res.stdout) {
-				setLines(l => [...l, {kind: 'out', text: res.stdout.replace(/\s+$/, '')}]);
+				outputLines.push({kind: 'out', text: res.stdout.replace(/\s+$/, '')});
 			}
 			if (res.stderr) {
-				setLines(l => [...l, {kind: 'err', text: res.stderr.replace(/\s+$/, '')}]);
+				outputLines.push({kind: 'err', text: res.stderr.replace(/\s+$/, '')});
 			}
 			if (res.timed_out) {
-				setLines(l => [...l, {kind: 'info', text: `[命令超时（已执行 ${res.elapsed_ms}ms）]`}]);
+				outputLines.push({kind: 'info', text: `[命令超时（已执行 ${res.elapsed_ms}ms）]`});
 			}
-			setLines(l => [
-				...l,
-				{kind: 'info', text: `[退出码 ${res.exit_code ?? '—'} · ${res.elapsed_ms}ms${res.truncated.stdout || res.truncated.stderr ? ' · 输出已截断' : ''}]`},
-			]);
-			setHistory(h => [value, ...h.filter(x => x !== value)].slice(0, 30));
+			outputLines.push({
+				kind: 'info',
+				text: `[退出码 ${res.exit_code ?? '—'} · ${res.elapsed_ms}ms${res.truncated.stdout || res.truncated.stderr ? ' · 输出已截断' : ''}]`,
+			});
+			appendLines(commandSeq, outputLines);
 		} catch (err) {
 			if (
-				commandSeq === commandSeqRef.current &&
+				commandSeq === useTerminalSessionStore.getState().sequence &&
 				samePath(rootAtRun, useExplorerStore.getState().loadedRoot)
 			) {
-				setLines(l => [...l, {kind: 'err', text: String(err instanceof Error ? err.message : err)}]);
+				appendLines(commandSeq, [
+					{kind: 'err', text: String(err instanceof Error ? err.message : err)},
+				]);
 			}
 		} finally {
-			if (commandSeq === commandSeqRef.current) setBusy(false);
+			finishCommand(commandSeq);
 		}
 	};
 
@@ -433,12 +430,12 @@ function TerminalBody() {
 			e.preventDefault();
 			const next = cursor === -1 ? 0 : Math.min(cursor + 1, history.length - 1);
 			setCursor(next);
-			setCmd(history[next]);
+			setCommand(history[next]!);
 		} else if (e.key === 'ArrowDown') {
 			e.preventDefault();
 			const next = cursor - 1;
 			setCursor(next);
-			setCmd(next === -1 ? '' : history[next]);
+			setCommand(next === -1 ? '' : history[next]!);
 		}
 	};
 
@@ -474,7 +471,7 @@ function TerminalBody() {
 				<input
 					type="text"
 					value={cmd}
-					onChange={e => setCmd(e.target.value)}
+					onChange={e => setCommand(e.target.value)}
 					onKeyDown={onKeyDown}
 					disabled={busy || !root}
 					placeholder="输入命令，回车执行"
