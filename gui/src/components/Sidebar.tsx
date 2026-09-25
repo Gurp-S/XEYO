@@ -121,7 +121,6 @@ export const Sidebar = memo(function Sidebar() {
 	const forkSession = useChatStore(s => s.forkSession);
 	const archiveSession = useChatStore(s => s.archiveSession);
 	const restoreSession = useChatStore(s => s.restoreSession);
-	const sidebarWidth = useSettingsStore(s => s.sidebarWidth);
 	const smoothness = useSettingsStore(s => isSmoothnessOn(s.smoothness));
 	const updateSettings = useSettingsStore(s => s.update);
 	// 页面视图（用量/扩展中心）→ 路由派生；开合走 lib/appNav（真路由导航）。
@@ -353,8 +352,14 @@ export const Sidebar = memo(function Sidebar() {
 		(next: number) => updateSettings({sidebarWidth: next}),
 		[updateSettings],
 	);
+	const {compact} = useViewport();
+	// 窄窗口让位钳制：拖拽也从实际显示宽起算，避免紧凑侧栏出现拖动空程。
+	const {sidebarEff} = usePaneViewportClamp();
+	const width = compact
+		? Math.min(sidebarEff, SIDEBAR_COMPACT_WIDTH_MAX)
+		: sidebarEff;
 	const {dragging, onResizeStart: startPaneResize} = usePaneResize(
-		sidebarWidth,
+		width,
 		onSidebarWidth,
 		SIDEBAR_WIDTH_MIN,
 		SIDEBAR_WIDTH_MAX,
@@ -421,12 +426,6 @@ export const Sidebar = memo(function Sidebar() {
 		[orderedSpaces],
 	);
 
-	const {compact} = useViewport();
-	// 窄窗口让位钳制：与工作区协调收缩，保聊天列可读（paneViewportClamp.ts）。
-	const {sidebarEff} = usePaneViewportClamp();
-	const width = compact
-		? Math.min(sidebarEff, SIDEBAR_COMPACT_WIDTH_MAX)
-		: sidebarEff;
 	const {mounted, shown} = usePresence(
 		sidebarOpen,
 		smoothness ? 200 : 0,
