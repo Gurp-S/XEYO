@@ -42,7 +42,7 @@ type ExplorerState = {
 	openFile: (path: string) => Promise<void>;
 	openReview: (file: ReviewDiff) => Promise<void>;
 	reloadIfOpen: (path: string) => Promise<boolean>;
-	saveFile: (path: string, text: string) => Promise<void>;
+	saveFile: (path: string, text: string, root?: string) => Promise<void>;
 	/** 失效某目录的快照；若该目录当前展开则重列（P1-⑦：删除/新增文件后文件树残留）。 */
 	invalidateDir: (path: string) => Promise<void>;
 };
@@ -454,9 +454,9 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
 			return false;
 		}
 	},
-	async saveFile(path, text) {
-		const root = get().loadedRoot;
-		if (!root || !samePath(root, activeRootPath())) {
+	async saveFile(path, text, requestedRoot) {
+		const root = requestedRoot?.trim() || get().loadedRoot;
+		if (!root || (!requestedRoot && !samePath(root, activeRootPath()))) {
 			throw new Error('工作区已切换，请重新打开文件');
 		}
 		const doc = await writeWorkspaceFile(path, text, root);

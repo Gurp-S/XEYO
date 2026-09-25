@@ -23,7 +23,7 @@ import {applyMdFormat, type MdFormatKind} from '@/lib/mdFormat';
 import {promptDialog} from '@/lib/inlineDialog';
 import {toast} from '@/lib/toast';
 import {cn} from '@/lib/utils';
-import {samePath} from '@/lib/paths';
+import {normalizePath, samePath} from '@/lib/paths';
 import {joinWorkspacePath} from '@/lib/workspaceOpen';
 import {sessionStreamActive} from '@/lib/sessionStreams';
 import {useChatStore} from '@/stores/chatStore';
@@ -39,6 +39,15 @@ import {
 type PickSel = {text: string; rect: DOMRect; bound: DOMRect};
 type MdMode = 'preview' | 'source';
 type PreviewKind = 'diff' | 'file';
+
+// 保存失败或切换文件时保留编辑草稿，直到保存成功或应用退出。
+const unsavedDrafts = new Map<string, string>();
+
+function draftCacheKey(root: string | null, path: string | null): string | null {
+	return root && path
+		? `${normalizePath(root)}\0${normalizePath(path)}`
+		: null;
+}
 
 function activeWorkspaceRoot(): string {
 	const state = useChatStore.getState();
@@ -216,6 +225,11 @@ export const FilePreview = memo(function FilePreview() {
 	const lastSaved = useRef('');
 	const draftRef = useRef('');
 	const draftPathRef = useRef<string | null>(null);
+	const draftRootRef = useRef<string | null>(null);
+	const saveQueueRef = useRef<Promise<boolean>>(Promise.resolve(true));
+	const pendingSavesRef = useRef(
+		new Map<string, {text: string; promise: Promise<boolean>}>(),
+	);
 	const knownStat = useRef<{path: string; mtime: number; size: number} | null>(
 		null,
 	);
@@ -323,6 +337,8 @@ export const FilePreview = memo(function FilePreview() {
 
 	useEffect(() => {
 		if (!selectedPath) {
+			draftPathRef.current = null;
+			draftRootRef.current = null;
 			return;
 		}
 		setPick(null);
@@ -332,6 +348,7 @@ export const FilePreview = memo(function FilePreview() {
 		lastSaved.current = '';
 		draftRef.current = '';
 		draftPathRef.current = selectedPath;
+		draftRootRef.current = loadedRoot || null;
 		knownStat.current = null;
 		// 默认高亮（preview）：markdown 为“预览”，代码文件为“高亮”；
 		// 文件首次打开直接呈现语法高亮，点“编辑”切换回源码编辑器。
@@ -346,7 +363,7 @@ export const FilePreview = memo(function FilePreview() {
 		pickVersionRef.current += 1;
 		setPick(null);
 		setDirty(false);
-	}, [selectedPath]);
+	}, [selectedPath, loadedRoot]);
 
 	useEffect(() => {
 		if (!doc || doc.kind !== 'text' || doc.path !== selectedPath) {
@@ -356,6 +373,21 @@ export const FilePreview = memo(function FilePreview() {
 			return;
 		}
 		const text = doc.text ?? '';
+		const key = draftCacheKey(loadedRoot, selectedPath);
+		const cachedDraft = key ? unsavedDrafts.get(key) : undefined;
+		if (cachedDraft != null && cachedDraft !== text) {
+			setDraft(cachedDraft);
+			draftRef.current = cachedDraft;
+			lastSaved.current = text;
+			setDirty(true);
+			dirtyRef.current = true;
+			draftPathRef.current = selectedPath;
+			draftRootRef.current = loadedRoot || null;
+			return;
+		}
+		if (key && cachedDraft === text) {
+			unsavedDrafts.delete(key);
+		}
 		if (text === draftRef.current) {
 			return;
 		}
@@ -380,7 +412,7 @@ export const FilePreview = memo(function FilePreview() {
 				el.scrollTop = scrollTopRef.current;
 			}
 		});
-	}, [doc, selectedPath]);
+	}, [doc, selectedPath, loadedRoot]);
 
 	// 同步 doc 的 mtime/size 到 knownStat（含图片/二进制）。
 	useEffect(() => {
@@ -471,34 +503,63 @@ export const FilePreview = memo(function FilePreview() {
 	}, [previewExpanded, paneOpen, setPreviewExpanded]);
 
 	const persist = useCallback(
-		async (text: string) => {
-			const path = selectedPath;
-			if (!path || truncated || text === lastSaved.current) {
-				return;
+		(text: string): Promise<boolean> => {
+			const path = draftPathRef.current;
+			const root = draftRootRef.current;
+			const key = draftCacheKey(root, path);
+			if (!path || !root || truncated || text === lastSaved.current) {
+				return Promise.resolve(true);
 			}
-			setSaving(true);
-			try {
-				await saveFile(path, text);
-				lastSaved.current = text;
-				setDirty(false);
-				dirtyRef.current = false;
-			} catch (err) {
-				// 403 通常是 workspace_fs 直写通道未开启（默认关闭，属安全默认值）。
-				// 给出可执行的说明，而不是把后端原文直接抛给用户。
-				const msg = err instanceof Error ? err.message : String(err);
-				// 原生 window.alert 阻塞主线程且与全局浮层语言脱节；改走 ToastHost。
-				toast.error(
-					msg.includes('XEYO_WORKSPACE_FS_WRITABLE')
-						? '当前未开启编辑器直写保存。如需在预览面板直接保存文件，' +
-								'请设置环境变量 XEYO_WORKSPACE_FS_WRITABLE=1 后重启应用；' +
-								'也可以让 XEYO 代为修改该文件（走引擎权限与回滚链）。'
-						: msg,
-				);
-			} finally {
-				setSaving(false);
+			const pending = key ? pendingSavesRef.current.get(key) : undefined;
+			if (pending?.text === text) {
+				return pending.promise;
 			}
+			const task = saveQueueRef.current.catch(() => false).then(async () => {
+				if (
+					text === lastSaved.current &&
+					draftCacheKey(draftRootRef.current, draftPathRef.current) === key
+				) {
+					return true;
+				}
+				setSaving(true);
+				try {
+					await saveFile(path, text, root);
+					if (key && unsavedDrafts.get(key) === text) {
+						unsavedDrafts.delete(key);
+					}
+					if (draftCacheKey(draftRootRef.current, draftPathRef.current) === key) {
+						lastSaved.current = text;
+						const stillDirty = draftRef.current !== text;
+						setDirty(stillDirty);
+						dirtyRef.current = stillDirty;
+					}
+					return true;
+				} catch (err) {
+					const msg = err instanceof Error ? err.message : String(err);
+					toast.error(
+						msg.includes('XEYO_WORKSPACE_FS_WRITABLE')
+							? '当前未开启编辑器直写保存。如需在预览面板直接保存文件，' +
+									'请设置环境变量 XEYO_WORKSPACE_FS_WRITABLE=1 后重启应用；' +
+									'也可以让 XEYO 代为修改该文件（走引擎权限与回滚链）。'
+							: msg,
+					);
+					return false;
+				} finally {
+					setSaving(false);
+				}
+			});
+			saveQueueRef.current = task;
+			if (key) {
+				pendingSavesRef.current.set(key, {text, promise: task});
+				void task.then(() => {
+					if (pendingSavesRef.current.get(key)?.promise === task) {
+						pendingSavesRef.current.delete(key);
+					}
+				});
+			}
+			return task;
 		},
-		[saveFile, selectedPath, truncated],
+		[saveFile, truncated],
 	);
 
 	useEffect(() => {
@@ -518,17 +579,25 @@ export const FilePreview = memo(function FilePreview() {
 			if (!path || !dirtyRef.current || draftPathRef.current !== path) {
 				return;
 			}
-			mdEditRef.current?.flush();
-			dirtyRef.current = false;
-			void persistForPath(draftRef.current);
+			const flushed = mdEditRef.current?.flush() ?? draftRef.current;
+			void persistForPath(flushed);
 		};
 	}, [selectedPath, persist]);
 
 	const onDraftChange = useCallback((next: string) => {
 		setDraft(next);
 		draftRef.current = next;
-		setDirty(next !== lastSaved.current);
-		dirtyRef.current = next !== lastSaved.current;
+		const isDirty = next !== lastSaved.current;
+		setDirty(isDirty);
+		dirtyRef.current = isDirty;
+		const key = draftCacheKey(draftRootRef.current, draftPathRef.current);
+		if (key) {
+			if (isDirty) {
+				unsavedDrafts.set(key, next);
+			} else {
+				unsavedDrafts.delete(key);
+			}
+		}
 	}, []);
 
 	const refreshPick = useCallback(() => {
@@ -829,14 +898,17 @@ export const FilePreview = memo(function FilePreview() {
 					className="xy-icon-btn rounded-md p-1.5 text-mute hover:bg-glass-hover hover:text-ink"
 					aria-label="关闭预览"
 					onClick={() => {
-						mdEditRef.current?.flush();
-						dirtyRef.current = false;
-						void persist(draftRef.current);
-						closePreview();
-						// 只剩文件预览（树导航已收起）时，关闭直接收起整个工作区。
-						if (navEff) {
-							collapseWorkspace();
-						}
+						const flushed = mdEditRef.current?.flush() ?? draftRef.current;
+						void persist(flushed).then(saved => {
+							if (!saved) {
+								return;
+							}
+							closePreview();
+							// 只剩文件预览（树导航已收起）时，关闭直接收起整个工作区。
+							if (navEff) {
+								collapseWorkspace();
+							}
+						});
 					}}
 				>
 					<X className="h-3.5 w-3.5" />
