@@ -16,6 +16,7 @@ import {
 	useCallback,
 	useEffect,
 	useId,
+	useLayoutEffect,
 	useMemo,
 	useRef,
 	useState,
@@ -26,6 +27,7 @@ import {createPortal} from 'react-dom';
 import {searchWorkspace, type WorkspaceEntry} from '@/lib/api';
 import {newSession, openPageView, openSession} from '@/lib/appNav';
 import {SIDE_SPACE_ID} from '@/lib/db';
+import {defaultComposerDraft, getComposerDraft} from '@/lib/composerDrafts';
 import {handleComposerSlash, lastUserMessage} from '@/lib/slashCommands';
 import {pushEscLayer, popEscLayer} from '@/lib/escStack';
 import {useIconTheme} from '@/lib/iconThemeLoader';
@@ -161,6 +163,13 @@ export function CommandPalette() {
 	const [activeIndex, setActiveIndex] = useState(0);
 	const [fileHits, setFileHits] = useState<WorkspaceEntry[]>([]);
 	const [filesLoading, setFilesLoading] = useState(false);
+	const slashRunRef = useRef(false);
+	const paletteOpenGenerationRef = useRef(0);
+	const [slashRunning, setSlashRunning] = useState('');
+	const [slashNotice, setSlashNotice] = useState('');
+	useLayoutEffect(() => {
+		paletteOpenGenerationRef.current += 1;
+	}, [open]);
 
 	const spaceName = useCallback(
 		(spaceId: string) => spaces.find(s => s.id === spaceId)?.name || 'XEYO',
@@ -222,7 +231,12 @@ export function CommandPalette() {
 	// Slash 命令：跟随 Composer 的 handleComposerSlash 路径执行（本地或 POST /v1/slash）。
 	const runSlash = useCallback(
 		(cmd: SlashCommand, arg = '') => {
-			void runAndClose(async () => {
+			if (slashRunRef.current) return;
+			const openGeneration = paletteOpenGenerationRef.current;
+			slashRunRef.current = true;
+			setSlashRunning(`/${cmd.name}`);
+			setSlashNotice('');
+			void (async () => {
 				const st = useChatStore.getState();
 				const sid0 = st.activeId;
 				if (!sid0) {
@@ -238,61 +252,103 @@ export function CommandPalette() {
 					toast.info('归档对话不能执行命令，请先恢复');
 					return;
 				}
+				const draft = getComposerDraft(sid0) ?? defaultComposerDraft();
 				const ws0 =
 					st.spaces.find(s => s.id === sess0.spaceId)?.rootPath?.trim() || '';
-				await handleComposerSlash(`/${cmd.name}${arg ? ` ${arg}` : ''}`, {
-					sessionId: sid0,
-					backendSessionId:
-						activeBackendSessionId(st.historyById, sid0) || undefined,
-					workspace: ws0,
-					onNewSession: () =>
-						newSession(
-							sess0?.spaceId === SIDE_SPACE_ID
-								? {side: true}
-								: {spaceId: sess0?.spaceId},
-						),
-					onRetryLast: async () => {
-						const last = lastUserMessage(sid0);
-						if (last) {
+				const consumed = await handleComposerSlash(
+					`/${cmd.name}${arg ? ` ${arg}` : ''}`,
+					{
+						sessionId: sid0,
+						backendSessionId:
+							activeBackendSessionId(st.historyById, sid0) || undefined,
+						workspace: ws0,
+						onNewSession: () =>
+							newSession(
+								sess0?.spaceId === SIDE_SPACE_ID
+									? {side: true}
+									: {spaceId: sess0?.spaceId},
+							),
+						onRetryLast: async () => {
+							const last = lastUserMessage(sid0);
+							if (last) {
+								const accepted = await st.sendMessage(
+									last.text,
+									last.mediaRefs,
+									[],
+									draft.agentMode,
+									undefined,
+									draft.multiAgent,
+									{
+										sessionId: sid0,
+										background: useChatStore.getState().activeId !== sid0,
+										reasoningEffort: draft.reasoningEffort,
+									},
+								);
+								if (!accepted) toast.error('上一条消息未能重试');
+								return accepted;
+							} else {
+								toast.info('还没有可重试的消息');
+								return true;
+							}
+						},
+						onSend: async text => {
 							const accepted = await st.sendMessage(
-								last.text,
-								last.mediaRefs,
+								text,
 								[],
+								[],
+								draft.agentMode,
 								undefined,
-								undefined,
-								undefined,
+								draft.multiAgent,
 								{
 									sessionId: sid0,
 									background: useChatStore.getState().activeId !== sid0,
+									reasoningEffort: draft.reasoningEffort,
 								},
 							);
-							if (!accepted) toast.error('上一条消息未能重试');
+							if (!accepted) toast.error('命令已转换为消息，但目标会话未接受发送');
 							return accepted;
-						} else {
-							toast.info('还没有可重试的消息');
-							return true;
-						}
+						},
+						onOutcome: outcome => {
+							if (
+								!useCommandPaletteStore.getState().open ||
+								paletteOpenGenerationRef.current !== openGeneration
+							) {
+								return;
+							}
+							if (outcome.status === 'rejected') {
+								setSlashNotice(outcome.text || `/${cmd.name} 未执行`);
+							} else if (outcome.status === 'unknown') {
+								setSlashNotice(`未知命令 /${outcome.name}，试试 /help`);
+							}
+						},
 					},
-					onSend: async text => {
-						const accepted = await st.sendMessage(
-							text,
-							[],
-							[],
-							undefined,
-							undefined,
-							undefined,
-							{
-								sessionId: sid0,
-								background: useChatStore.getState().activeId !== sid0,
-							},
-						);
-						if (!accepted) toast.error('命令已转换为消息，但目标会话未接受发送');
-						return accepted;
-					},
+				);
+				const samePaletteOpen =
+					useCommandPaletteStore.getState().open &&
+					paletteOpenGenerationRef.current === openGeneration;
+				const sameActiveSession =
+					cmd.name === 'clear' || useChatStore.getState().activeId === sid0;
+				if (consumed && samePaletteOpen && sameActiveSession) {
+					close();
+				} else if (samePaletteOpen) {
+					inputRef.current?.focus();
+				}
+			})()
+				.catch(err => {
+					toast.error(err instanceof Error ? err.message : String(err));
+					if (
+						useCommandPaletteStore.getState().open &&
+						paletteOpenGenerationRef.current === openGeneration
+					) {
+						inputRef.current?.focus();
+					}
+				})
+				.finally(() => {
+					slashRunRef.current = false;
+					setSlashRunning('');
 				});
-			});
 		},
-		[runAndClose],
+		[close],
 	);
 
 	// 打开时重置 UI
@@ -304,6 +360,8 @@ export function CommandPalette() {
 		setFilter('all');
 		setActiveIndex(0);
 		setFileHits([]);
+		setSlashNotice('');
+		if (!slashRunRef.current) setSlashRunning('');
 		const t = window.setTimeout(() => inputRef.current?.focus(), 30);
 		return () => window.clearTimeout(t);
 	}, [open]);
@@ -703,6 +761,7 @@ export function CommandPalette() {
 		toggleRemote,
 		setAgentMode,
 		openSettings,
+		showExperimental,
 	]);
 
 	// 收敛高亮下标范围
@@ -809,6 +868,7 @@ export function CommandPalette() {
 				role="dialog"
 				aria-modal="true"
 				aria-labelledby={titleId}
+				aria-busy={Boolean(slashRunning)}
 				className={cn(
 					'xy-menu-flyout flex w-full max-w-[640px] flex-col overflow-hidden rounded-2xl border border-line/50',
 					visible
@@ -831,6 +891,7 @@ export function CommandPalette() {
 						onChange={e => {
 							setQuery(e.target.value);
 							setActiveIndex(0);
+							setSlashNotice('');
 						}}
 						placeholder="搜索工作区、文件、命令…"
 						className="xy-palette-search min-w-0 flex-1 bg-transparent text-[14px] text-ink outline-none placeholder:text-mute"
@@ -838,6 +899,21 @@ export function CommandPalette() {
 						spellCheck={false}
 					/>
 				</div>
+				{slashNotice ? (
+					<div
+						role="alert"
+						className="max-h-24 overflow-y-auto break-words border-b border-line/50 px-4 py-2 text-[12px] text-danger"
+					>
+						{slashNotice}
+					</div>
+				) : slashRunning ? (
+					<div
+						role="status"
+						className="border-b border-line/50 px-4 py-2 text-[11px] text-mute"
+					>
+						执行中 {slashRunning}…
+					</div>
+				) : null}
 
 				<div className="flex flex-wrap gap-1 border-b border-line/50 px-3 py-2">
 					{FILTERS.map(f => (
@@ -885,6 +961,7 @@ export function CommandPalette() {
 									<button
 										type="button"
 										role="option"
+										disabled={Boolean(slashRunning) && item.filter === 'commands'}
 										aria-selected={index === activeIndex}
 										data-palette-index={index}
 										onMouseEnter={() => setActiveIndex(index)}

@@ -49,6 +49,8 @@ export type SlashRunOptions = {
 	onRetryLast: () => boolean | void | Promise<boolean | void>;
 	/** 将技能或改写命令送入常规聊天发送链路；返回值表示消息已被接受。 */
 	onSend?: (text: string) => Promise<boolean> | boolean;
+	/** 供非 Composer 调用方呈现完整执行结果；不改变统一处理语义。 */
+	onOutcome?: (outcome: SlashRunOutcome) => void;
 };
 
 const OUTPUT_LEVELS = new Set(['lite', 'full', 'ultra']);
@@ -399,6 +401,7 @@ export async function handleComposerSlash(
 	// 语义：composer 永不回显命令行——命令事实由结果回执卡片承载
 	// （见下方 noteKind:'cmd'），聊天流里不再出现 `> /cmd` 裸回显。
 	const outcome = await runSlashCommand(value, opts);
+	opts.onOutcome?.(outcome);
 	switch (outcome.status) {
 		case 'not-slash':
 			return false;
