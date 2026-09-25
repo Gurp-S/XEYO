@@ -24,7 +24,6 @@ import {
 	loadDeletedSessionIds,
 	loadDeletedSpaceIds,
 	loadDeletedSpacePaths,
-	loadMessages,
 	loadRollbackState,
 	loadSessions,
 	loadSpaces,
@@ -45,6 +44,7 @@ import {
 } from '@/lib/pendingForSession';
 import {
 	clearComposerDraft,
+	getComposerDraft,
 } from '@/lib/composerDrafts';
 import {
 	clearTodoDismissal,
@@ -524,8 +524,8 @@ messagesById: settled.messagesById,
 
 		const promise = (async () => {
 			const state = get();
-			// 仅复用消息已加载且确实为空的 sessions。
-			// 缺少 messagesById 条目 ≠ 空（避免将未加载历史当作空白）。
+			// 只复用本地已明确加载、无消息、无输入草稿的空会话。
+			// 未加载会话仍可能有服务端历史；空消息会话也可能保存了待发草稿。
 			const empties: ChatSession[] = [];
 			for (const s of state.sessions) {
 				// 归档会话是用户保留的历史项，不得作为空白草稿复用或清理。
@@ -538,51 +538,22 @@ messagesById: settled.messagesById,
 					continue;
 				}
 				const cached = state.messagesById[s.id];
-				if (cached === undefined) {
-					const loaded = await loadMessages(s.id);
-					set(cur => ({
-						messagesById: {...cur.messagesById, [s.id]: loaded},
-					}));
-					if (loaded.length === 0) {
-						empties.push(s);
-					}
-				} else if (cached.length === 0) {
+				if (
+					cached !== undefined &&
+					cached.length === 0 &&
+					!getComposerDraft(s.id)
+				) {
 					empties.push(s);
 				}
 			}
 			if (empties.length > 0) {
 				const keep = empties[0]!;
-				const drop = empties.slice(1);
-				for (const d of drop) {
-					await deleteSession(d.id);
-					clearComposerDraft(d.id);
-					clearTodoDismissal(d.id);
-				}
-				if (drop.length > 0) {
-					const dropIds = new Set(drop.map(d => d.id));
-					set(s => {
-						const messagesById = {...s.messagesById};
-						for (const id of dropIds) {
-							delete messagesById[id];
-						}
-						return {
-							sessions: s.sessions.filter(x => !dropIds.has(x.id)),
-							messagesById,
-							activeId: keep.id,
-							activeSpaceId: sid,
-							// 不清除其他 session 拥有的在途流。
-							collapsedSpaces: {...s.collapsedSpaces, [sid]: false},
-							emptyQuipSeq: s.emptyQuipSeq + 1,
-						};
-					});
-				} else {
-					set(s => ({
-						activeId: keep.id,
-						activeSpaceId: sid,
-						collapsedSpaces: {...s.collapsedSpaces, [sid]: false},
-						emptyQuipSeq: s.emptyQuipSeq + 1,
-					}));
-				}
+				set(s => ({
+					activeId: keep.id,
+					activeSpaceId: sid,
+					collapsedSpaces: {...s.collapsedSpaces, [sid]: false},
+					emptyQuipSeq: s.emptyQuipSeq + 1,
+				}));
 				persistCollapsed({...get().collapsedSpaces, [sid]: false});
 				return keep.id;
 			}
