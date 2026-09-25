@@ -53,6 +53,7 @@ export const DIAG_GAP_REASONS: ReadonlyArray<DiagContractGapReason> = [
 	{boundary: 'instruction_context', reason: 'recovered_outside_window'},
 	{boundary: 'instruction_context', reason: 'source_absent'},
 	{boundary: 'model_request', reason: 'out_of_window'},
+	{boundary: 'model_request', reason: 'recovered_outside_window'},
 	{boundary: 'model_request', reason: 'source_absent'},
 	{boundary: 'model_request', reason: 'unattributed_rows'},
 	{boundary: 'wsc_fold', reason: 'no_records'},

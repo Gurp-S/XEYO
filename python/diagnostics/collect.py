@@ -685,8 +685,20 @@ def _collect_usage(run: RunEvidence, session_id: str) -> None:
 		run.add_gap("model_request", "source_absent", "usage 账本不可导入")
 		return
 	path = events_path()
-	scan = _scan_jsonl_tail(path, _AUDIT_TAIL_BYTES)
-	window = _window_from_scan("usage", str(path), scan, max_bytes=_AUDIT_TAIL_BYTES)
+	usage_bytes = _AUDIT_TAIL_BYTES
+	scan = _scan_jsonl_tail(path, usage_bytes)
+	if scan.present and scan.truncated and run.model_requests:
+		# "这一枪没有用量账"是一句关于**整份账本**的话：只读了 61% 就没资格断言。
+		# 与审计同法，在读到截断且本轮确实有要归账的调用时扩窗重读
+		# （本机 6.28 MB 全读 0.09s、尾窗 0.058s）。
+		scan = _scan_jsonl_tail(path, max(usage_bytes, _AUDIT_WIDEN_BYTES))
+		usage_bytes = max(usage_bytes, _AUDIT_WIDEN_BYTES)
+		run.add_gap(
+			"model_request",
+			"recovered_outside_window",
+			f"usage 账本尾窗 {_AUDIT_TAIL_BYTES} 字节是截断的，已扩到 {usage_bytes} 字节读完整份再判缺账",
+		)
+	window = _window_from_scan("usage", str(path), scan, max_bytes=usage_bytes)
 	if not scan.present:
 		run.add_gap("model_request", "source_absent", f"usage 账本不存在：{path}，无费用可依据")
 		_publish_window(run, window)
@@ -729,7 +741,7 @@ def _collect_usage(run: RunEvidence, session_id: str) -> None:
 		run.add_gap(
 			"model_request",
 			"out_of_window",
-			f"usage 尾窗 {_AUDIT_TAIL_BYTES} 字节，仅覆盖最近 {window.rows_scanned} 行，"
+			f"usage 尾窗 {usage_bytes} 字节，仅覆盖最近 {window.rows_scanned} 行，"
 			f"窗口外更早的 {window.rows_outside_window} 行未读",
 		)
 	_publish_window(run, window)

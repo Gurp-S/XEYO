@@ -1,4 +1,4 @@
-"""采集层的诚实性回归：真实数据普查里确认的九个缺陷。
+"""采集层的诚实性回归：真实数据普查里确认的十个缺陷。
 
 每一条都对应一份真实产品数据上跑出来的错账：
 
@@ -21,6 +21,8 @@
 9. picker 与 detail 口径不一致 ⇒ ``list_runs`` 只看 8 MiB 尾窗，真实文件里有一个会话
    整段排在窗外（列表 0 条，而扩窗后的 ``collect_run`` 能完整诊断）。现在同一个 miss
    路径也扩窗重读，并把"读完整份还是没有"与"尾窗没盖到"分成两句话。
+10. 账本的「没有这一行」说的是整份文件，而扫描只读到 61% ⇒ 缺账断言的范围不成立。
+    现在账本截断且本轮确有要归账的调用时读完整份再判（本机 6.28 MB：全读 0.09s vs 尾窗 0.058s）。
 """
 
 from __future__ import annotations
@@ -514,7 +516,14 @@ def test_default_transcript_cap_is_a_real_window_budget() -> None:
 
 
 def test_usage_window_states_its_truncation(write_audit, monkeypatch) -> None:
+	"""截断仍要说出来 —— 即使扩窗之后仍然没读完，措辞得跟着生效口径走。
+
+	尾窗截断现在会触发一次扩窗重读（见 test_usage_row_outside_the_ledger_window…）；
+	这里把扩窗上限也压小，钉的是"读不完就继续报 partial / out_of_window，
+	且说的字节数是真正用过的那个"。
+	"""
 	monkeypatch.setattr(collect_module, "_AUDIT_TAIL_BYTES", 512)
+	monkeypatch.setattr(collect_module, "_AUDIT_WIDEN_BYTES", 800)
 	_write_jsonl(_ledger_path(), [_usage_row(f"r{i}", 1, 0.01, session_id="other") for i in range(60)])
 	path = write_audit(_model_rows("r1", 1))
 
@@ -526,7 +535,9 @@ def test_usage_window_states_its_truncation(write_audit, monkeypatch) -> None:
 	assert "尾窗截断" in window.note and "行未覆盖" in window.note
 	assert window.rows_outside_window > 0
 	assert window.rows_scanned < 60, "窗口确实读不满账本"
-	assert any(g.boundary == "model_request" and g.reason == "out_of_window" for g in run.gaps)
+	gap = [g for g in run.gaps if g.boundary == "model_request" and g.reason == "out_of_window"]
+	assert gap, "截断了就必须留缺项"
+	assert "800 字节" in gap[0].detail, "口径要说真正用过的那个上限，不是默认尾窗"
 	assert run.coverage()["usage"]["state"] == PARTIAL
 
 
@@ -708,3 +719,49 @@ def test_session_absent_from_the_whole_file_says_so_without_blaming_the_window(w
 	# 运行"才是事实，而不是采集范围造出来的话。正面对照：同一份文件里在窗内的
 	# 会话照样列得出来。
 	assert collect_module.list_runs(_SESSION, audit_path=path)
+
+
+# ---------- 10. 账本"没这一行"要说整份文件，不能只说读到的那一截 ----------
+
+
+def test_usage_row_outside_the_ledger_window_is_not_called_unaccounted(write_audit, monkeypatch) -> None:
+	"""缺账断言的范围是整份账本：只读到 61% 时"没有这行"可能只是没读到。
+
+	真实数据复跑（57 轮）今天 0 次误判 —— 6 条缺账证据对应的键在整份文件里也确实没有；
+	但账本窗口本身是截断的（尾窗 9 927 行 / 全份 16 308 行），所以那句话今天只是
+	**恰好**成立。这条用例把它变成结构上成立：把本会话的账行挤到窗户外，
+	旧行为会报"这一枪没有用量账"，扩窗后不该报。
+	"""
+	from diagnostics import collect as collect_module
+	from diagnostics.rules import evaluate_run
+	from usage.ledger import record_from_openai_usage
+
+	path = write_audit(_model_rows("r1", 1))
+	record_from_openai_usage(
+		provider="deepseek",
+		model="m",
+		api_key="k",
+		usage={"prompt_tokens": 100, "completion_tokens": 5},
+		session_id=_SESSION,
+		request_id="r1",
+		attempt=1,
+	)
+	for i in range(400):  # 别的会话的行把上面那行推出尾窗
+		record_from_openai_usage(
+			provider="deepseek",
+			model="m",
+			api_key="k",
+			usage={"prompt_tokens": 1, "completion_tokens": 1},
+			session_id="other-session",
+			request_id=f"o{i}",
+			attempt=1,
+		)
+	monkeypatch.setattr(collect_module, "_AUDIT_TAIL_BYTES", 2048)
+
+	run = collect_run(_SESSION, _TURN, audit_path=path)
+	misses = [f for f in evaluate_run(run) if f.rule_id == "usage_accounting"]
+	assert not misses, f"账行只是被尾窗挡住了，却被断成缺账：{[m.phenomenon for m in misses]}"
+	gap = [g for g in run.gaps if g.reason == "recovered_outside_window" and g.boundary == "model_request"]
+	assert gap and "读完整份" in gap[0].detail
+	window = run.window("usage")
+	assert window is not None and window.truncated is False
