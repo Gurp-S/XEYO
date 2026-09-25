@@ -71,3 +71,57 @@ def test_projection_manifest_flags_orphan_tool_result() -> None:
     assert manifest.tool_pairs_preserved == 1
     assert manifest.unresolved_tool_calls == 0
     assert "orphan_tool_results:1" in manifest.invariant_errors
+
+
+def _manifest_for(text: str):
+    """把一段工具输出塞进投影，看 manifest 对截断标记说什么。"""
+    canonical = [{"role": "tool", "content": [{"type": "tool_result", "tool_use_id": "u1", "content": text}]}]
+    return build_manifest(
+        canonical=canonical,
+        projected=canonical,
+        context_limit=1_000_000,
+    )
+
+
+def test_real_producer_shapes_are_all_consistent() -> None:
+    """四个真实产生方的标记形状各不相同，健康投影一律不得报不一致。
+
+    旧判据是 ``count("full output:") != count("output truncated")``：
+    Bash 截断与后台任务标记天生不带 ``full output:``，于是任何一次读被截断过的
+    输出都会让旗标为真（真实数据 26/40 轮全由此而来），正文引用这两个词也算数。
+    """
+    shapes = [
+        # tools/tool_registry.py：声明与句柄成对
+        "[output truncated: 预算截断（非错误），原始 9000 字符；full output: /tmp/a.txt]",
+        # tools/spill.py：只有句柄
+        "…前文…\nfull output: /tmp/b.txt (5120 bytes)",
+        # tools/bash_tool/truncate.py：自带回读路径，不写 "full output:"
+        "…body…\n\n[output truncated, full at /tmp/c.log (9000 chars)]",
+        # tools/job_tools.py：更早的输出已在之前的分片里送过，尾标记无句柄
+        "job tail\n(earlier output truncated)",
+    ]
+    for text in shapes:
+        manifest = _manifest_for(text)
+        assert "spill_reference_mismatch" not in manifest.invariant_errors, text
+        assert manifest.spills == (0 if "earlier output" in text else 1), text
+
+
+def test_truncation_claim_without_a_handle_is_flagged() -> None:
+    """真正会伤人的形状：说了"截断"却没给可回读句柄——原文再也读不回来。"""
+    manifest = _manifest_for("[output truncated: 预算截断（非错误），原始 9000 字符；]")
+    assert "spill_reference_mismatch" in manifest.invariant_errors
+    assert manifest.spills == 0
+
+
+def test_mentioning_the_words_in_prose_is_not_a_truncation() -> None:
+    """判据只认标记形状，不认裸子串：正文里讨论这两个词不再误报不一致。
+
+    口径限制一并钉住：``spills`` 是按标记前缀计数的估计值，正文原样引用
+    ``full output:`` 仍会算一处 —— 那只是展示用的"大概几处可回读"，
+    不变量看的是 ``_unhandled_truncations``。
+    """
+    manifest = _manifest_for(
+        "这段日志说 output truncated 又提到 full output: 但两处都是引用文本，不是标记"
+    )
+    assert "spill_reference_mismatch" not in manifest.invariant_errors
+    assert manifest.spills == 1

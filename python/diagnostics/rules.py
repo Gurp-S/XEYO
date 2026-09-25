@@ -373,22 +373,20 @@ def check_cold_references(run: RunEvidence) -> list[Finding]:
 		)
 	for manifest in run.projections:
 		if "spill_reference_mismatch" in (manifest.get("invariant_errors") or []):
-			# 这个旗标不能当可疑原因用：上游是
-			# `text.count("full output:") != text.count("output truncated")`，
-			# 而两类标记由不同产生方写出 —— tools/job_tools.py 的
-			# "(earlier output truncated)" 天生不带句柄，任何一次读后台任务输出
-			# 都会让两边对不上；正文里引用这两个字面量同样改变计数。
-			# 所以这里只报"数量不等"这个事实，档位停在未定，并写明已知良性来源。
-			marker_count = manifest.get("spills")
-			count_text = f"（标记侧 {marker_count} 处）" if isinstance(marker_count, int) else ""
+			# 旗标的含义已收窄（engine/projection_manifest.py 的 _unhandled_truncations）：
+			# 只在一处"[output truncated: …]"声明拿不到同处的 full output: 句柄时才为真。
+			# 旧判据是两个裸子串的全局计数比大小，Bash 截断与后台任务标记天生不带
+			# "full output:" ⇒ 真实数据里 26/40 轮被误判成不一致，只能停在未定。
+			handle_count = manifest.get("spills")
+			count_text = f"该投影带 {handle_count} 个可回读句柄" if isinstance(handle_count, int) else ""
 			findings.append(
 				Finding(
 					rule_id="cold_reference",
 					rule_version=RULESET_VERSION,
-					phenomenon=f"投影内 'full output:' 句柄数与 'output truncated' 标记数不等{count_text}",
+					phenomenon=f"投影里有预算截断声明没有给出可回读句柄（{count_text}）",
 					boundary="wsc_fold",
 					component="输出预算 / 折叠",
-					status=UNKNOWN,
+					status=SUSPECTED_CAUSE,
 					evidence=[
 						EvidenceRef(
 							source="projection",
@@ -397,13 +395,13 @@ def check_cold_references(run: RunEvidence) -> list[Finding]:
 							detail="spill_reference_mismatch",
 						)
 					],
-					impact="两个计数不相等；这本身不构成故障。",
+					impact="被截断的那段原文没有回读入口：模型看不到、也读不回来。",
 					coverage_gap=(
-						"上游按字面量整串计数：读后台任务输出时写的 (earlier output truncated) 不带句柄，"
-						"任何一次都会让两边对不上；正文引用这两个词同样改变计数。"
+						"旗标只说有几处声明缺句柄，不说是哪一处；要定位需要该次投影的正文，"
+						"而 manifest 只保留最后一份。"
 					),
 					allowed_conclusion=(
-						"只能当作人工翻查的线索；不能据此判定折叠或输出预算出了故障。"
+						"可疑：这一轮确实有截断声明拿不到回读句柄；不能据此判定是哪个工具的输出。"
 					),
 				)
 			)

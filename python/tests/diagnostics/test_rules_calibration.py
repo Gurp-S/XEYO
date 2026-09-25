@@ -18,6 +18,8 @@
    拿 working.json 路径冒充 pin）；
 6. 投影里 ``full output:`` 与 ``output truncated`` 两个字面量的计数不等被写成"可疑原因"，
    而 ``tools/job_tools.py`` 的 ``(earlier output truncated)`` 天生不带句柄 ⇒ 健康运行也会命中；
+   先降到未定，再把上游判据换成"截断声明必须带可回读句柄"（engine/projection_manifest.py，
+   #29）之后回到可疑档 —— 本文件钉的是新形状，不是旧计数；
 7. ``model.finished`` 的 ``aborted`` / ``retry`` 被一律写成"已确认厂商或传输故障"——
    前者来自引擎的 Aborted 分支（用户停止），后者是设计里的下一步。
    2026-09-25 对最近 40 个真实轮次复跑：该规则 24 条"已确认"里有 9 条属于这两类。
@@ -268,9 +270,13 @@ def test_run_scoped_cold_reference_is_still_a_confirmed_fault() -> None:
 	assert [f for f in rules.check_cold_references(run) if f.status == CONFIRMED_FAULT]
 
 
-def test_spill_marker_count_mismatch_is_only_a_lead() -> None:
-	"""上游是整串字面量计数：tools/job_tools.py 写的 (earlier output truncated) 天生不带句柄，
-	任何一次读后台任务输出都会让两个计数对不上 ⇒ 这条只能是线索，不能当可疑原因。"""
+def test_truncation_claim_without_handle_is_a_suspicion() -> None:
+	"""旗标含义已收窄（engine 侧 #29）：只在"截断声明拿不到回读句柄"时为真。
+
+	旧判据是两个字面量的全局计数比大小，(earlier output truncated) 与 Bash 的
+	[output truncated, full at …] 天生不带 "full output:" ⇒ 真实数据 26/40 轮被误判，
+	那条只能停在未定。现在它说的是原文读不回来，可以进可疑档。
+"""
 	run = _run(
 		[_ev(1, "model.started", 1.0, model_request_id="r1", attempt=1)],
 		projections=[
@@ -282,13 +288,12 @@ def test_spill_marker_count_mismatch_is_only_a_lead() -> None:
 			}
 		],
 	)
-	findings = [f for f in rules.check_cold_references(run) if "句柄数与" in f.phenomenon]
-	assert findings, "旗标仍要作为线索报出来，不能靠沉默消噪"
+	findings = [f for f in rules.check_cold_references(run) if "回读句柄" in f.phenomenon]
+	assert findings, "旗标仍要作为结论报出来，不能靠沉默消噪"
 	f = findings[0]
-	assert f.status == UNKNOWN
-	assert "标记侧 3 处" in f.phenomenon
-	assert "(earlier output truncated)" in f.coverage_gap
-	assert "不能据此判定" in f.allowed_conclusion
+	assert f.status == SUSPECTED_CAUSE
+	assert "3 个可回读句柄" in f.phenomenon
+	assert "不能据此判定是哪个工具" in f.allowed_conclusion
 
 
 def test_turn_without_records_yields_only_the_no_record_finding(collect) -> None:

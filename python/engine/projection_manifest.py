@@ -49,6 +49,49 @@ def _walk(value: Any):
             yield from _walk(child)
 
 
+# 「截断」这个词在投影里由三个不同的产生方写下，形状各不相同：
+#   tools/tool_registry.py      [output truncated: …；full output: <path>]   —— 声明+句柄成对
+#   tools/spill.py              full output: <path> (N bytes)                —— 只有句柄
+#   tools/bash_tool/truncate.py [output truncated, full at <path> (N chars)] —— 自带回读路径
+#   tools/job_tools.py          (earlier output truncated)                   —— 天生无句柄
+# 旧不变量拿 "full output:" 与 "output truncated" 两个子串各自的全局计数比大小，
+# 于是任何一次 Bash 截断或后台任务输出都会让它为真（真实数据 26/40 轮），
+# 连正文里引用过这两个词都会改变计数。它测的不是它以为的那件事。
+# 现在只问一条真正会伤人的：声明了预算截断，有没有在同一处给出可回读句柄。
+_TRUNCATION_CLAIM = "[output truncated:"
+_SPILL_HANDLE = "full output:"
+_BASH_SPILL_MARK = "[output truncated, full at "
+
+
+def _truncation_claim_spans(text: str) -> list[str]:
+    """每个预算截断标记 own 的那段文字（到它自己的右括号；没闭合就到结尾）。"""
+    spans: list[str] = []
+    start = 0
+    while True:
+        at = text.find(_TRUNCATION_CLAIM, start)
+        if at < 0:
+            return spans
+        end = text.find("]", at)
+        spans.append(text[at:] if end < 0 else text[at : end + 1])
+        start = at + len(_TRUNCATION_CLAIM)
+
+
+def _unhandled_truncations(text: str) -> int:
+    """截断声明里缺句柄的处数 —— 这些是模型再也读不回来的原文。"""
+    return sum(1 for span in _truncation_claim_spans(text) if _SPILL_HANDLE not in span)
+
+
+def _spill_handle_count(text: str) -> int:
+    """带可回读句柄的截断/落盘标记数（spills 的真实口径）。
+
+    残留口径限制：这是按**标记前缀**计数的估计值 —— 正文里原样引用
+    ``full output:`` 也会计入一项。它只用于"这一轮大概有几处可回读"的展示，
+    真正的不变量看 ``_unhandled_truncations``（只扫 ``[output truncated:`` 的
+    标记作用域，不受正文引用影响）。
+    """
+    return text.count(_SPILL_HANDLE) + text.count(_BASH_SPILL_MARK)
+
+
 def _tool_ids(messages: list[dict[str, Any]]) -> tuple[set[str], set[str]]:
     calls: set[str] = set()
     results: set[str] = set()
@@ -121,7 +164,9 @@ def build_manifest(
             )
         except Exception:  # noqa: BLE001 — 诊断失败不影响主链
             pass
-    if text.count("full output:") != text.count("output truncated"):
+    if _unhandled_truncations(text):
+        # 旗标名保持不变（诊断层按名字 membership 判定，见 diagnostics/rules.py 的
+        # cold_reference 分支）；含义收窄成"有截断声明拿不到回读句柄"。
         invariant_errors.append("spill_reference_mismatch")
     if calls - canonical_results:
         invariant_errors.append(
@@ -146,7 +191,7 @@ def build_manifest(
         tool_results_seen=len(projected_results),
         tool_pairs_preserved=pairs,
         unresolved_tool_calls=unresolved,
-        spills=text.count("output truncated"),
+        spills=_spill_handle_count(text),
         t_now_system_blocks=system_blocks,
         estimated_tokens=max(0, len(serialized) // 4),
         context_limit=context_limit,
