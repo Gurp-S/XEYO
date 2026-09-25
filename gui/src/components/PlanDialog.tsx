@@ -28,6 +28,12 @@ function PlanCard({pending}: {pending: PendingPlanInfo}) {
 
 	const [submitting, setSubmitting] = useState(false);
 	const submittingRef = useRef(false);
+	const clearCurrent = () => {
+		const store = useChatStore.getState();
+		if (store.pendingPlan?.requestId === pending.requestId) {
+			store.setPendingPlan?.(null);
+		}
+	};
 
 	const decide = async (approved: boolean) => {
 		if (submittingRef.current) {
@@ -38,7 +44,7 @@ function PlanCard({pending}: {pending: PendingPlanInfo}) {
 		try {
 			const receipt = await resolvePlan(pending.requestId, approved);
 			if (receipt.ok || receipt.reason === 'already_resolved') {
-				useChatStore.getState().setPendingPlan?.(null);
+				clearCurrent();
 			}
 			if (!receipt.ok) {
 				const notice = resolveFailureText(receipt);

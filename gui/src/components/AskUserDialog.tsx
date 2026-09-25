@@ -370,6 +370,12 @@ function AskCard({pending}: {pending: PendingAskInfo}) {
 	const submittingRef = useRef(false);
 	const [expanded, setExpanded] = useState(true);
 	const options = pending.options ?? [];
+	const clearCurrent = () => {
+		const store = useChatStore.getState();
+		if (store.pendingAsk?.requestId === pending.requestId) {
+			store.setPendingAsk?.(null);
+		}
+	};
 
 	const doResolve = async (answer: string) => {
 		if (submittingRef.current) return;
@@ -379,11 +385,11 @@ function AskCard({pending}: {pending: PendingAskInfo}) {
 			// 先 resolve 后清面板：失败时保留已选内容供重试。
 			const receipt = await resolveAsk(pending.requestId, answer);
 			if (receipt.ok) {
-				useChatStore.getState().setPendingAsk?.(null);
+				clearCurrent();
 			} else {
 				const notice = resolveFailureText(receipt);
 				if (notice.tone === 'info') {
-					useChatStore.getState().setPendingAsk?.(null);
+					clearCurrent();
 				}
 				toast[notice.tone](notice.text);
 			}

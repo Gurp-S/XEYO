@@ -50,6 +50,12 @@ function PermissionCard({pending}: {pending: PendingPermissionInfo}) {
 	const [remember, setRemember] = useState(false);
 	const decidingRef = useRef(false);
 	const [deciding, setDeciding] = useState(false);
+	const clearCurrent = () => {
+		const store = useChatStore.getState();
+		if (store.pendingPermission?.requestId === pending.requestId) {
+			store.setPendingPermission?.(null);
+		}
+	};
 
 	useEffect(() => {
 		const el = cmdRef.current;
@@ -103,7 +109,7 @@ function PermissionCard({pending}: {pending: PendingPermissionInfo}) {
 			if (!receipt.ok) {
 				const notice = resolveFailureText(receipt);
 				if (notice.tone === 'info') {
-					useChatStore.getState().setPendingPermission?.(null);
+					clearCurrent();
 				}
 				toast[notice.tone](notice.text);
 				return;
@@ -111,7 +117,7 @@ function PermissionCard({pending}: {pending: PendingPermissionInfo}) {
 			if (withRemember) {
 				toast.info('已记住：此类命令后续不再询问（可在设置中撤销）');
 			}
-			useChatStore.getState().setPendingPermission?.(null);
+			clearCurrent();
 		} catch (error) {
 			toast.error(error instanceof Error ? error.message : '提交审批失败');
 		} finally {
