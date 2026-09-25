@@ -30,6 +30,10 @@ def test_model_error_is_located_at_model_boundary(collect) -> None:
 	f = next(x for x in findings if x.rule_id == "provider_stream_failure")
 	assert f.boundary == "model_request"
 	assert f.evidence and f.evidence[0].ref_id == "L2"
+	# 结论断言的是哪个 status/code，证据里就得原样带着：只写 kind 的正文等于
+	# 让读者按行号自己回读才能核对这句话。
+	assert "status=failed" in f.evidence[0].detail
+	assert "error_code=HTTP_400" in f.evidence[0].detail
 	assert attribution(run, findings)["attributed"] is True
 
 

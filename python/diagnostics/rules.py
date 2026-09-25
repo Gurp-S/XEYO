@@ -542,8 +542,21 @@ def check_provider_stream(run: RunEvidence) -> list[Finding]:
 				continue
 			http = att.get("http_status")
 			attempt_no = att.get("attempt")
+			# 证据正文要带上结论所依据的那几个字段：原先只写一个 kind
+			# （"model.finished"），断言"这枪 status=protocol_fallback"的结论
+			# 在证据里看不到 status，读者只能按行号自己回读。
+			detail_bits = [kind or "model_attempt"]
+			for bit, val in (("status", status), ("error_code", _s(att.get("error_code"))), ("http", _s(http))):
+				if val:
+					detail_bits.append(f"{bit}={val}")
+			detail_bits.append(f"attempt={_s(attempt_no)}")
 			evidence = [
-				EvidenceRef(source="audit", locator=_loc(run), ref_id=f"L{_s(att.get('line_no'))}", detail=kind or status)
+				EvidenceRef(
+					source="audit",
+					locator=_loc(run),
+					ref_id=f"L{_s(att.get('line_no'))}",
+					detail=" ".join(detail_bits),
+				)
 			]
 			# 重试是设计里的下一步：同一逻辑调用后面还有尝试在跑时，
 			# 中间那次 retry 记录不构成故障，本轮的结论要看最后一次。
