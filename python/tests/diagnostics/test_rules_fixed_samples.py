@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from diagnostics.fault_split import ENVIRONMENT, UNDETERMINED, attribute_fault
 from diagnostics.identity import CONFIRMED_FAULT, SUSPECTED_CAUSE, UNKNOWN
 from diagnostics.rules import evaluate_run
 from diagnostics.report import attribution, build_report, usage_summary
@@ -55,6 +56,44 @@ def test_tool_failure_is_grouped_and_anchored(collect) -> None:
 	assert SUSPECTED_CAUSE in kinds.get("repeated_failure", set())
 	rf = next(x for x in evaluate_run(run) if x.rule_id == "repeated_failure")
 	assert "死循环" in rf.allowed_conclusion
+
+
+def _tool_error_run(collect, error_kind: str):
+	"""一条完整轮次：工具失败 + 指定的 error_kind（走真实生产者，不手写证据）。"""
+	rows = [
+		{"ts": 1.0, "kind": "model.started", "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", "attempt": 1},
+		{"ts": 1.1, "kind": "model.finished", "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", "attempt": 1, "status": "completed"},
+		{"ts": 2.0, "kind": "tool.started", "session_id": "s1", "turn_id": "t1", "request_id": "c1", "tool_name": "Read", "model_request_id": "r1"},
+		{"ts": 2.5, "kind": "tool.finished", "session_id": "s1", "turn_id": "t1", "request_id": "c1", "tool_name": "Read", "is_error": True, "error_kind": error_kind, "model_request_id": "r1"},
+	]
+	run = collect(rows)
+	return evaluate_run(run), run
+
+
+def test_tool_error_kind_reaches_the_attribution_layer(collect) -> None:
+	"""规则写出的证据 detail 必须带 error_kind：归属表只从 detail 读这个字段。
+
+	生产侧原先只写 `is_error=true action_id=...` ⇒ 两张归属表在真实数据上一次也没
+	被读到过（尾窗 200 轮：74/74 条证据落空，全部判"未定"）。
+	"""
+	findings, run = _tool_error_run(collect, "NOT_FOUND")
+	f = next(x for x in findings if x.rule_id == "tool_failure")
+	assert "error_kind=NOT_FOUND" in f.evidence[0].detail
+	assert attribute_fault(run, findings)["responsibility"] == ENVIRONMENT
+
+
+def test_default_internal_kind_is_not_blamed_on_the_engine(collect) -> None:
+	"""INTERNAL 是 base_tool 的兜底值，不是"引擎内部出错"的证据。
+
+	真实数据里非空的 error_kind 只有这一个取值（尾窗 12 000 行 129/129）：把它当分类
+	印出来是给读者一个不存在的区分，把它当归属依据是把全部工具失败判给我方引擎。
+	"""
+	findings, run = _tool_error_run(collect, "INTERNAL")
+	f = next(x for x in findings if x.rule_id == "tool_failure")
+	assert "error_kind=INTERNAL" in f.evidence[0].detail  # 原值仍留在证据里，可回读
+	assert "未细分" in f.phenomenon
+	verdict = attribute_fault(run, findings)
+	assert verdict["responsibility"] == UNDETERMINED
 
 
 def test_permission_wait_is_not_a_confirmed_fault(collect) -> None:

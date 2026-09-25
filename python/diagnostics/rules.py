@@ -726,6 +726,20 @@ def check_permission_block(run: RunEvidence) -> list[Finding]:
 # ---------- R7 工具 / 进程失败 ----------
 
 
+def _tool_error_detail(tool: Any) -> str:
+	"""工具失败那条审计行的证据文本。
+
+	error_kind 必须写在这里：fault_split 只从证据 detail 读归属，detail 里没有它
+	就等于两张归属表从来没被生产数据读到过（2026-09-25 实测 74/74 条落空）。
+	"""
+	parts = ["tool.finished is_error=true"]
+	kind = _s(tool.error_kind)
+	if kind:
+		parts.append(f"error_kind={kind}")
+	parts.append(f"action_id={_s(tool.action_id)}")
+	return " ".join(parts)
+
+
 def check_tool_failure(run: RunEvidence) -> list[Finding]:
 	findings: list[Finding] = []
 	failed = [t for t in turn_scoped(run.tool_calls, run.turn_id) if t.finished and t.is_error]
@@ -735,11 +749,19 @@ def check_tool_failure(run: RunEvidence) -> list[Finding]:
 	for tool in failed:
 		grouped.setdefault((tool.tool_name, tool.error_kind), []).append(tool)
 	for (name, error_kind), items in sorted(grouped.items()):
+		# INTERNAL 不是分类：tools/base_tool.py 给所有"只回了 is_error + 文本"的错误
+		# 统一填 INTERNAL，tools/error_taxonomy.py::classify_exception 也只接在
+		# orchestration（子代理工具）上。真实数据里非空的 error_kind 100% 是 INTERNAL
+		# （2026-09-25 尾窗 12 000 行：INTERNAL=129，其余取值 0）⇒ 把它印成分类是给
+		# 读者一个不存在的区分，写进归属表就是把所有工具失败判给我方引擎。
+		classified = error_kind if error_kind and error_kind != "INTERNAL" else ""
 		findings.append(
 			Finding(
 				rule_id="tool_failure",
 				rule_version=RULESET_VERSION,
-				phenomenon=f"工具 {name} 返回错误（error_kind={error_kind or '未记录'}，共 {len(items)} 次）",
+				phenomenon=(
+					f"工具 {name} 返回错误（{f'error_kind={classified}' if classified else '错误分类未细分'}，共 {len(items)} 次）"
+				),
 				boundary="tool_permission",
 				component=f"工具执行：{name}",
 				status=CONFIRMED_FAULT,
@@ -748,13 +770,16 @@ def check_tool_failure(run: RunEvidence) -> list[Finding]:
 						source="audit",
 						locator=_loc(run),
 						ref_id=f"L{_s((t.finished or {}).get('line_no'))}",
-						detail=f"tool.finished is_error=true action_id={_s(t.action_id)}",
+						detail=_tool_error_detail(t),
 					)
 					for t in items
 				][:20],
 				impact="失败步骤已定位到工具与 action_id；结果正文按需在 transcript 里回读。",
-				coverage_gap="审计不含退出码与 stderr 正文；「测试失败」与「测试无法运行」不在本规则区分范围内（见 verifier）。",
-				allowed_conclusion="可确认工具在这一步失败。",
+				coverage_gap=(
+					"审计不含退出码与 stderr 正文；「测试失败」与「测试无法运行」不在本规则区分范围内（见 verifier）。"
+					"error_kind 未细分（INTERNAL 或未记录）时不得据此定责。"
+				),
+				allowed_conclusion="可确认工具在这一步失败；未细分的分类不支持把责任落到某一方。",
 			)
 		)
 	return findings

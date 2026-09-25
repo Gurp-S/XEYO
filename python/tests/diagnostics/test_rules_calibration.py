@@ -26,6 +26,19 @@
 8. 不带 ``request_id`` 的账本行被写成**本轮**结论，但账本行没有轮次身份：同会话的
    每一轮都报同一行（真实数据 37/40 轮、13 个轮次的消息字字相同）。作用域错位的
    事实改由采集缺项承担，笔数仍留在报告侧。
+9. ``tool_failure`` 的归属通路是断的：``fault_split._tool_error_party`` 只从证据
+   ``detail`` 里正则取 ``error_kind=``，而规则写进 detail 的只有
+   ``is_error=true action_id=...`` —— 单测全都手写带 error_kind 的 detail 所以常绿，
+   生产侧 2026-09-25 复跑尾窗 200 轮：74/74 条证据取不到 kind，工具失败一律判"未定"，
+   ``_ENGINE_KINDS`` / ``_ENVIRONMENT_KINDS`` 两张表一次也没被读到（覆盖率为 0，
+   且看起来"已经在按 error_kind 定责"）。现由 ``rules._tool_error_detail`` 生产该字段，
+   本文件用**走真实生产者**的用例钉住两端。
+10. ``INTERNAL`` 曾被列进 ``_ENGINE_KINDS``。它不是分类：``tools/base_tool.py`` 给所有
+    "只回了 is_error + 文本"的错误统一填它，``error_taxonomy.classify_exception`` 什么
+    都没匹配上时也返回它，而后者只接在 ``tools/orchestration.py``（子代理工具）上。
+    真实尾窗 12 000 行里非空 error_kind 129/129 都是 INTERNAL ⇒ 把它当我方引擎证据，
+    等于把全部工具失败判给自己；把它印进现象，等于给读者一个不存在的区分。
+    现在它落到"未定"，现象里改说"错误分类未细分"，原值仍留在证据里可回读。
 
 纠正的底线：规则要么判对，要么 ``unknown`` 并写明缺哪条记录，不得靠沉默消噪。
 """

@@ -62,12 +62,16 @@ OUTCOME_LABEL = {
 }
 
 # 执行层错误分类（tools/error_taxonomy.py）按归属切分。
+#
+# INTERNAL 故意不在这里：它是 tools/base_tool.py 给"只回了 is_error + 文本"的错误
+# 统一填的默认值，也是 classify_exception 什么都没匹配上时的兜底 ⇒ 它说的是"没分类"，
+# 不是"引擎内部出错"。真实数据尾窗 12 000 行里非空的 error_kind 只有 INTERNAL（129 条），
+# 把它算成我方引擎就等于把全部工具失败判给自己。
 _ENGINE_KINDS = {
 	"PERMISSION_DENIED",
 	"USER_INPUT_REQUIRED",
 	"FINALIZATION_RESTRICTED",
 	"ACTION_OUTCOME_UNKNOWN",
-	"INTERNAL",
 	"UNKNOWN_TOOL",
 	"RESERVED_CHANNEL",
 }
