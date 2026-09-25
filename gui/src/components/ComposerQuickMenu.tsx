@@ -92,7 +92,18 @@ export function ComposerQuickMenu({
 				m =>
 					m.label.toLowerCase().includes(q) ||
 					m.description.toLowerCase().includes(q),
-			);
+				);
+	const matchesAction = (label: string, searchTerms: string) =>
+		!q ||
+		`${label} ${searchTerms} actions`.toLowerCase().includes(q);
+	const showFiles = matchesAction(
+		'Files',
+		'file attachment attachments add upload 文件 附件 上传',
+	);
+	const showMcp = matchesAction(
+		'MCP',
+		'server servers tools connector 服务 工具',
+	);
 
 	return (
 		<div
@@ -112,9 +123,7 @@ export function ComposerQuickMenu({
 			</div>
 
 			<div className="min-h-0 flex-1 overflow-y-auto">
-				{filtered.length === 0 ? (
-					<p className="px-2.5 py-2 text-[11.5px] text-mute">无匹配项。</p>
-				) : (
+				{filtered.length > 0 ? (
 					<div className="flex flex-col gap-0.5">
 						{filtered.map(m => {
 							const Icon = m.Icon;
@@ -165,36 +174,45 @@ export function ComposerQuickMenu({
 							);
 						})}
 					</div>
-				)}
+				) : null}
+				{filtered.length === 0 && !showFiles && !showMcp ? (
+					<p className="px-2.5 py-2 text-[11.5px] text-mute">无匹配项。</p>
+				) : null}
 			</div>
 
-			<MenuSeparator />
-			<div className="flex flex-col gap-0.5">
-				<button
-					type="button"
-					role="menuitem"
-					disabled={uploading}
-					onClick={onAddFile}
-					className="xy-menu-row flex w-full items-center gap-2 px-2 py-1.5 text-left text-[13px] text-ink-soft disabled:cursor-default disabled:text-mute/55"
-				>
-					<Paperclip className="h-4 w-4 shrink-0 text-mute" strokeWidth={1.9} />
-					<span>Files</span>
-				</button>
-				<button
-					type="button"
-					role="menuitem"
-					onClick={onRunMcp}
-					className="xy-menu-row flex w-full items-center gap-2 px-2 py-1.5 text-left text-[13px] text-ink-soft"
-				>
-					<Server className="h-4 w-4 shrink-0 text-mute" strokeWidth={1.9} />
-					<span className="min-w-0 flex-1">MCP</span>
-					{/* 行尾 chevron 指示进入面板 */}
-					<ChevronRight
-						className="h-3.5 w-3.5 shrink-0 text-mute"
-						strokeWidth={1.75}
-					/>
-				</button>
-			</div>
+			{filtered.length > 0 && (showFiles || showMcp) ? <MenuSeparator /> : null}
+			{showFiles || showMcp ? (
+				<div className="flex flex-col gap-0.5">
+					{showFiles ? (
+						<button
+							type="button"
+							role="menuitem"
+							disabled={uploading}
+							onClick={onAddFile}
+							className="xy-menu-row flex w-full items-center gap-2 px-2 py-1.5 text-left text-[13px] text-ink-soft disabled:cursor-default disabled:text-mute/55"
+						>
+							<Paperclip className="h-4 w-4 shrink-0 text-mute" strokeWidth={1.9} />
+							<span>Files</span>
+						</button>
+					) : null}
+					{showMcp ? (
+						<button
+							type="button"
+							role="menuitem"
+							onClick={onRunMcp}
+							className="xy-menu-row flex w-full items-center gap-2 px-2 py-1.5 text-left text-[13px] text-ink-soft"
+						>
+							<Server className="h-4 w-4 shrink-0 text-mute" strokeWidth={1.9} />
+							<span className="min-w-0 flex-1">MCP</span>
+							{/* 行尾 chevron 指示进入面板 */}
+							<ChevronRight
+								className="h-3.5 w-3.5 shrink-0 text-mute"
+								strokeWidth={1.75}
+							/>
+						</button>
+					) : null}
+				</div>
+			) : null}
 		</div>
 	);
 }

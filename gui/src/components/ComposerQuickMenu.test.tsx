@@ -70,6 +70,23 @@ describe('ComposerQuickMenu', () => {
 		expect(screen.getByText('Plan')).toBeTruthy();
 		expect(screen.queryByText('Ask')).toBeNull();
 		expect(screen.queryByText('Multi-Agent')).toBeNull();
+		expect(screen.queryByRole('menuitem', {name: 'Files'})).toBeNull();
+		expect(screen.queryByRole('menuitem', {name: 'MCP'})).toBeNull();
+	});
+
+	it('filters actions by the same search query', async () => {
+		renderQuick();
+		const search = screen.getByPlaceholderText('Search modes, actions…');
+
+		await userEvent.type(search, 'file');
+		expect(screen.getByRole('menuitem', {name: 'Files'})).toBeTruthy();
+		expect(screen.queryByText('Plan')).toBeNull();
+		expect(screen.queryByRole('menuitem', {name: 'MCP'})).toBeNull();
+
+		await userEvent.clear(search);
+		await userEvent.type(search, 'mcp');
+		expect(screen.getByRole('menuitem', {name: 'MCP'})).toBeTruthy();
+		expect(screen.queryByRole('menuitem', {name: 'Files'})).toBeNull();
 	});
 
 	it('shows a no-match hint when nothing filters', async () => {
