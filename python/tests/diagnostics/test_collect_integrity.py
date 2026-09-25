@@ -763,10 +763,13 @@ def test_harness_row_cannot_stand_in_for_this_session(write_audit) -> None:
 	assert gaps and "没盖到本轮" in gaps[0].detail
 
 
-def test_scan_has_turn_aligns_by_turn_only_when_no_identity_is_known(
-	tmp_path,
-) -> None:
-	"""谓词每一面都要钉住：有会话身份时空白行/别家行都不算数，没有身份时才只剩轮次号。"""
+def test_scan_has_turn_needs_a_comparable_identity(tmp_path) -> None:
+	"""谓词只有一种放行方式：同一会话 + 同一轮次。
+
+	没有可比身份时返回 False（宁可多扩一次窗）。"空 session_id 匹配一切"正是上一版
+	把评测行当成本会话行的入口，留着它，任何一个不带身份的调用点都会自动重新获得
+	那个错答。
+	"""
 	from diagnostics.collect import _scan_has_turn
 
 	blank = _write_jsonl(
@@ -780,14 +783,14 @@ def test_scan_has_turn_aligns_by_turn_only_when_no_identity_is_known(
 	blank_scan = _scan_jsonl_tail(blank, 4096)
 	other_scan = _scan_jsonl_tail(other, 4096)
 
-	# 调用方知道是谁：身份空白行与别家的行都不能算本轮"已在窗内"。
+	# 身份空白行与别家的行都不能算本轮"已在窗内"。
 	assert _scan_has_turn(blank_scan, _SESSION, _TURN) is False
 	assert _scan_has_turn(other_scan, _SESSION, _TURN) is False
-	# 调用方没有身份可比：只剩轮次号可对齐，别家的行也只能当作可能命中。
-	assert _scan_has_turn(other_scan, "", _TURN) is True
-	# 没有身份也不等于放行：轮次号仍然要自己对得上。
-	assert _scan_has_turn(other_scan, "", "t-some-other-turn") is False
-	assert _scan_has_turn(blank_scan, _SESSION, "") is True  # 没要轮次就别拿身份挡路
+	# 调用方没有可比身份：一律不放行，而不是"只剩轮次号可对齐"。
+	assert _scan_has_turn(other_scan, "", _TURN) is False
+	assert _scan_has_turn(blank_scan, "", _TURN) is False
+	# 没指定轮次时不按轮筛——那是"整会话"这个问法本身。
+	assert _scan_has_turn(blank_scan, _SESSION, "") is True
 
 
 def test_turn_absent_from_the_whole_file_still_says_no_records(write_audit) -> None:
