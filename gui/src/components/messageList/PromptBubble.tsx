@@ -287,6 +287,7 @@ promptEditRef,
 		}, [editClosing, editPreviewOpen, editingTextareaRef]);
 		/* 吸顶编辑会 portal 重挂载控件；若首帧就带 is-open，0fr→1fr 过渡会被跳过 */
 		const [controlsOpen, setControlsOpen] = useState(false);
+		const controlsInteractive = editing && controlsOpen && !editClosing;
 		useLayoutEffect(() => {
 			if (!editing || editClosing) {
 				setControlsOpen(false);
@@ -562,7 +563,8 @@ ref={editing ? promptEditRef : undefined}
 
 				<div
 					className={cn('xy-editing-controls', controlsOpen && 'is-open')}
-					aria-hidden={!editing}
+					aria-hidden={!controlsInteractive}
+					inert={!controlsInteractive}
 				>
 					<div className="xy-editing-controls-inner">
 							<div className="mt-2 flex h-8 items-center justify-between gap-1">
