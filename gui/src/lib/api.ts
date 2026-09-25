@@ -1163,6 +1163,94 @@ export async function fetchWorkspacePeers(
 	};
 }
 
+/**
+ * Git 只读面板的 200 回执必须校验形状。这四个端点的真失败会走 HTTP 状态码
+ * （api_error），所以过去没人看响应体；但"200 且缺字段"会原样进组件，
+ * 界面于是写出假事实：
+ * - `repo` 不在体里 ⇒ Git 面板显示「当前工作区不是 Git 仓库」；
+ * - `repo=true` 而 `clean` / 三个清单都不在 ⇒ 三个 StatusGroup 各自渲染 null，
+ *   看起来就是「没有任何改动」；
+ * - `commits` 不在体里 ⇒ `commits.length` 当场抛，提交记录面板整块崩掉；
+ * - `branches` 不在体里 ⇒ 分支树只剩当前分支。
+ * 抛错走各面板已有的 catch（显示「加载失败：…」并把数据留空），不改任何签名。
+ */
+function requireGitBase(payload: unknown, what: string): Record<string, unknown> {
+	const o = requirePayloadObject(payload, what);
+	if (typeof o.ok !== 'boolean' || typeof o.repo !== 'boolean') {
+		throw new Error(`${what}：回执缺 ok / repo —— 读不出不代表这不是 Git 仓库`);
+	}
+	return o;
+}
+
+function requireGitStatusLists(o: Record<string, unknown>, what: string): void {
+	const lists = ['staged', 'unstaged', 'untracked'] as const;
+	for (const key of lists) {
+		if (o[key] !== undefined && !Array.isArray(o[key])) {
+			throw new Error(`${what}：回执的 ${key} 不是清单`);
+		}
+	}
+	if (o.clean === false && !lists.some(key => Array.isArray(o[key]) && (o[key] as unknown[]).length > 0)) {
+		throw new Error(`${what}：clean=false 但改动清单不在回执里 —— 读不出不等于没有改动`);
+	}
+}
+
+export function parseGitStatus(payload: unknown): GitStatusResult {
+	const o = requireGitBase(payload, '读取 Git 状态');
+	if (o.repo === true) {
+		if (typeof o.clean !== 'boolean') {
+			throw new Error('读取 Git 状态：repo=true 但 clean 不在回执里 —— 读不出不代表工作区干净');
+		}
+		requireGitStatusLists(o, '读取 Git 状态');
+	}
+	return o as GitStatusResult;
+}
+
+export function parseGitLog(payload: unknown): GitLogResult {
+	const o = requireGitBase(payload, '读取提交记录');
+	if (o.repo !== true) {
+		return o as GitLogResult;
+	}
+	if (!Array.isArray(o.commits)) {
+		throw new Error('读取提交记录：回执缺 commits —— 读不出不等于没有提交');
+	}
+	for (const item of o.commits) {
+		if (
+			!item ||
+			typeof item !== 'object' ||
+			!['hash', 'short', 'subject', 'author', 'date'].every(k => typeof (item as Record<string, unknown>)[k] === 'string')
+		) {
+			throw new Error('读取提交记录：commits 里有一条不是提交');
+		}
+	}
+	return o as GitLogResult;
+}
+
+export function parseGitBranches(payload: unknown): GitBranchesResult {
+	const o = requireGitBase(payload, '读取分支列表');
+	if (o.repo !== true) {
+		return o as GitBranchesResult;
+	}
+	if (!Array.isArray(o.branches) || !o.branches.every(b => typeof b === 'string')) {
+		throw new Error('读取分支列表：回执缺 branches —— 读不出不等于只有当前分支');
+	}
+	if (o.current !== undefined && o.current !== null && typeof o.current !== 'string') {
+		throw new Error('读取分支列表：current 不是分支名');
+	}
+	return o as GitBranchesResult;
+}
+
+export function parseGitFileDiff(payload: unknown): FileDiffResult {
+	const o = requireGitBase(payload, '读取文件差异');
+	const kind = o.kind;
+	if (kind !== 'diff' && kind !== 'untracked' && kind !== 'binary' && kind !== 'unchanged' && kind !== 'none') {
+		throw new Error('读取文件差异：回执缺 kind（不知道这个文件算什么状态）');
+	}
+	if ((kind === 'diff' || kind === 'untracked') && (typeof o.diff !== 'string' || !o.diff.trim())) {
+		throw new Error(`读取文件差异：kind=${kind} 但差异正文不在回执里 —— 这不代表改动是空的`);
+	}
+	return o as FileDiffResult;
+}
+
 export async function gitStatus(workspace?: string): Promise<GitStatusResult> {
 	const query = workspace ? `?${new URLSearchParams({workspace})}` : '';
 	const res = await fetchWithTimeout(apiUrl(`/v1/workspace/git/status${query}`), {cache: 'no-store'});
@@ -1175,7 +1263,7 @@ export async function gitStatus(workspace?: string): Promise<GitStatusResult> {
 		}
 		throw new Error(formatErrorDetail(payload, res.status));
 	}
-	return (await res.json()) as GitStatusResult;
+	return parseGitStatus(await res.json());
 }
 
 export async function gitLog(limit = 20, workspace?: string): Promise<GitLogResult> {
@@ -1190,7 +1278,7 @@ export async function gitLog(limit = 20, workspace?: string): Promise<GitLogResu
 		}
 		throw new Error(formatErrorDetail(payload, res.status));
 	}
-	return (await res.json()) as GitLogResult;
+	return parseGitLog(await res.json());
 }
 
 export async function gitBranches(workspace?: string): Promise<GitBranchesResult> {
@@ -1205,7 +1293,7 @@ export async function gitBranches(workspace?: string): Promise<GitBranchesResult
 		}
 		throw new Error(formatErrorDetail(payload, res.status));
 	}
-	return (await res.json()) as GitBranchesResult;
+	return parseGitBranches(await res.json());
 }
 
 export async function gitFileDiff(path: string, workspace?: string): Promise<FileDiffResult> {
@@ -1220,7 +1308,7 @@ export async function gitFileDiff(path: string, workspace?: string): Promise<Fil
 		}
 		throw new Error(formatErrorDetail(payload, res.status));
 	}
-	return (await res.json()) as FileDiffResult;
+	return parseGitFileDiff(await res.json());
 }
 
 export async function execWorkspaceTerminal(
