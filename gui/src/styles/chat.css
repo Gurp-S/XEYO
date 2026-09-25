@@ -6,6 +6,9 @@
 }
 
 .xy-composer-surface {
+  min-width: 0;
+  container-name: xy-composer;
+  container-type: inline-size;
   transition:
     border-color 180ms var(--ease-out-soft),
     box-shadow 180ms var(--ease-out-soft);
@@ -14,6 +17,28 @@
 .xy-composer-surface:focus-within {
   border-color: var(--xy-accent) !important;
   box-shadow: var(--xy-ring);
+}
+
+/* Keep context controls and send actions on separate rows when the chat column narrows. */
+@container xy-composer (max-width: 520px) {
+  .xy-composer-toolbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+
+  .xy-composer-toolbar-tools {
+    flex-wrap: wrap;
+  }
+
+  .xy-composer-toolbar-spacer {
+    display: none;
+  }
+
+  .xy-composer-toolbar-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
 }
 
 /*

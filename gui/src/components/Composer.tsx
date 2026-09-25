@@ -2057,7 +2057,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 						void onPickFiles(e.dataTransfer.files);
 					}}
 					className={cn(
-						'xy-surface xy-composer-surface relative flex min-h-0 w-full flex-col',
+						'xy-surface xy-composer-surface relative flex min-h-0 min-w-0 w-full flex-col',
 						'transition-[border-color,box-shadow,border-radius] duration-200',
 						isComposerFused
 							? 'xy-composer-fused shrink-0'
@@ -2369,7 +2369,8 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 								onChange={e => void onPickFiles(e.target.files)}
 							/>
 
-							<div className="flex items-center gap-2 px-2 pb-2 pt-1">
+							<div className="xy-composer-toolbar flex items-center gap-2 px-2 pb-2 pt-1">
+								<div className="xy-composer-toolbar-tools flex min-w-0 items-center gap-2">
 								<div ref={quickMenuRef} className="relative shrink-0">
 									<button
 										type="button"
@@ -2424,8 +2425,9 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 								<ModeChip />
 								{multiAgent && <MultiAgentChip onExit={() => setMultiAgent(false)} />}
 								<ApprovalModeButton />
-								<div className="flex-1" />
-								<div className="flex min-h-8 min-w-0 shrink-0 flex-wrap items-center gap-1">
+								</div>
+								<div className="xy-composer-toolbar-spacer flex-1" />
+								<div className="xy-composer-toolbar-actions flex min-h-8 min-w-0 shrink-0 flex-wrap items-center gap-1">
 									<div ref={modelMenuRef} className="relative hidden sm:block">
 										<button
 											type="button"
