@@ -11,7 +11,7 @@
 
 本文件读 `usage.ledger._read_events()`（私有）是有意的：它自带
 (路径, mtime, size) 缓存，query_usage 刚刚解析过 ⇒ 复用它是零额外成本，
-而重新解析会在生产账本上双份开销。ledger.py 不在本次改动范围内。
+而重新解析会在生产账本上双份开销；账号身份过滤复用同一次读取。
 """
 
 from __future__ import annotations
@@ -354,6 +354,7 @@ def get_usage(
 	model: str | None = Query(default=None),
 	provider: str | None = Query(default=None),
 	key_fp: str | None = Query(default=None),
+	legacy_key_fallback: bool = Query(default=True),
 	authorization: str | None = Header(default=None),
 	x_provider: str | None = Header(default=None, alias="X-Provider"),
 	x_base_url: str | None = Header(default=None, alias="X-Base-Url"),
@@ -366,7 +367,7 @@ def get_usage(
 	- ``money``：有价 / 有行无价 / 无行 的三分类与计价口径。
 	"""
 	from usage.combine import compose_usage_report, report_has_usage
-	from usage.ledger import query_usage
+	from usage.ledger import key_identity, query_usage
 	from usage.vendor import fetch_vendor_usage
 
 	# ① 边界：空白过滤参数 422，绝不 strip 后静默扩到全量（修 A5）。
@@ -396,6 +397,8 @@ def get_usage(
 		model=model_f,
 		provider=prov if provider_filter_applied else "",
 		key_fp=key_f,
+		key_id=(key_identity(api_key) or None) if key_f else None,
+		legacy_key_fallback=legacy_key_fallback,
 	)
 	report = compose_usage_report(vendor, local)
 
@@ -421,7 +424,9 @@ def get_usage(
 		"model": model_f,
 		"provider": prov,
 		"provider_filter_applied": provider_filter_applied,
-		"key_fp": key_f,
+		"key_fp": key_f if legacy_key_fallback else None,
+		"key_id_filter_applied": bool(api_key and key_f),
+		"legacy_key_fallback": legacy_key_fallback,
 		"days": days,
 	}
 	report["data_integrity"] = _build_integrity(

@@ -28,7 +28,7 @@ type UsageQuerySnapshot = {
 	days: number;
 	modelId: string;
 	modelProvider: string;
-	keyFp: string;
+	keyProfileId: string;
 	provider: ProviderId;
 	apiKey: string;
 	baseUrl: string;
@@ -40,7 +40,7 @@ function sameUsageQuery(a: UsageQuerySnapshot, b: UsageQuerySnapshot): boolean {
 		a.days === b.days &&
 		a.modelId === b.modelId &&
 		a.modelProvider === b.modelProvider &&
-		a.keyFp === b.keyFp &&
+		a.keyProfileId === b.keyProfileId &&
 		a.provider === b.provider &&
 		a.apiKey === b.apiKey &&
 		a.baseUrl === b.baseUrl &&
@@ -199,7 +199,7 @@ export function UsagePanel({active = true}: Props) {
 	const [days, setDays] = useState(30);
 	const [modelId, setModelId] = useState('');
 	const [modelProvider, setModelProvider] = useState('');
-	const [keyFp, setKeyFp] = useState('');
+	const [keyProfileId, setKeyProfileId] = useState('');
 	const [kind, setKind] = useState<ChartKind>('bar');
 	const [openMenu, setOpenMenu] = useState<null | 'days' | 'key' | 'model'>(
 		null,
@@ -222,11 +222,23 @@ export function UsagePanel({active = true}: Props) {
 			null,
 		[activeProfileId, profiles],
 	);
-	const selectedKeyProfile = keyFp
-		? profiles.find(profile => keyFingerprint(profile.apiKey) === keyFp) ?? null
+	const selectedKeyProfile = keyProfileId
+		? profiles.find(profile => profile.id === keyProfileId) ?? null
 		: null;
-	const modelFilterScope = keyFp
-		? `${keyFp}:${selectedKeyProfile?.provider ?? 'unknown'}`
+	const selectedKeyFingerprint = selectedKeyProfile
+		? keyFingerprint(selectedKeyProfile.apiKey)
+		: '';
+	const hasKeyFingerprintCollision = Boolean(
+		selectedKeyFingerprint &&
+		profiles.some(
+			profile =>
+				profile.id !== selectedKeyProfile?.id &&
+				profile.apiKey.trim() !== selectedKeyProfile?.apiKey.trim() &&
+				keyFingerprint(profile.apiKey) === selectedKeyFingerprint,
+		),
+	);
+	const modelFilterScope = keyProfileId
+		? `${keyProfileId}:${selectedKeyProfile?.provider ?? 'unknown'}`
 		: 'all';
 	const previousModelFilterScopeRef = useRef(modelFilterScope);
 	useEffect(() => {
@@ -239,9 +251,7 @@ export function UsagePanel({active = true}: Props) {
 	// P2-⑨：给余额卡标注归属账号，消除「cost 跨厂商合计、余额却只显示单账号」的歧义。
 	// 非 DeepSeek 厂商官方通常不提供 /user/balance，余额卡只对 DeepSeek 有效。
 	const balanceOwner = useMemo(() => {
-		const match = keyFp
-			? profiles.find(p => keyFingerprint(p.apiKey) === keyFp)
-			: fallbackProfile;
+		const match = keyProfileId ? selectedKeyProfile : fallbackProfile;
 		const provider = match?.provider || useSettingsStore.getState().provider;
 		const key = match?.apiKey || useSettingsStore.getState().apiKey;
 		if (!key.trim() || provider !== 'deepseek') {
@@ -252,7 +262,7 @@ export function UsagePanel({active = true}: Props) {
 			provider,
 			label: `${PROVIDER_LABEL[provider] ?? provider}${fp ? ` · ${fp.slice(0, 6)}` : ''}`,
 		};
-	}, [keyFp, profiles, fallbackProfile, settingsProvider, settingsApiKey]);
+	}, [keyProfileId, selectedKeyProfile, profiles, fallbackProfile, settingsProvider, settingsApiKey]);
 	const filtersRef = useRef<HTMLDivElement>(null);
 	const menuId = useId();
 
@@ -270,7 +280,7 @@ export function UsagePanel({active = true}: Props) {
 			timer = window.setTimeout(() => void load(true), 20_000);
 		};
 		const load = async (silent: boolean) => {
-			if (cancelled || inFlight) return;
+			if (cancelled || inFlight || (keyProfileId && !selectedKeyProfile)) return;
 			inFlight = true;
 			if (timer != null) {
 				window.clearTimeout(timer);
@@ -281,7 +291,7 @@ export function UsagePanel({active = true}: Props) {
 					days,
 					modelId,
 					modelProvider,
-					keyFp,
+					keyProfileId,
 					provider: settingsProvider,
 					apiKey: settingsApiKey,
 					baseUrl: settingsBaseUrl,
@@ -305,11 +315,9 @@ export function UsagePanel({active = true}: Props) {
 				setWarning('');
 			}
 			try {
-				const match = keyFp
-					? profiles.find(p => keyFingerprint(p.apiKey) === keyFp)
-					: null;
+				const match = keyProfileId ? selectedKeyProfile : null;
 				const s = useSettingsStore.getState();
-				const requestProfile = keyFp ? match : null;
+				const requestProfile = keyProfileId ? match : null;
 				const requestProvider = requestProfile?.provider || s.provider;
 				const requestApiKey =
 					requestProfile?.apiKey ||
@@ -319,7 +327,7 @@ export function UsagePanel({active = true}: Props) {
 					: s.resolvedBaseUrl();
 				// 未选 Key 时按每套已配置账号查询；模型过滤同时应用到每套账号，
 				// 因为模型分组的 provider 是真实模型厂商，不一定是 API 接入通道。
-				if (!keyFp) {
+				if (!keyProfileId) {
 					const configuredAccounts = profiles
 						.filter(profile => profile.apiKey.trim())
 						.map(profile => ({
@@ -404,7 +412,8 @@ export function UsagePanel({active = true}: Props) {
 					const data = await fetchUsage({
 						days,
 						model: modelId || undefined,
-						key_fp: keyFp || undefined,
+						key_fp: keyFingerprint(requestProfile?.apiKey ?? '') || undefined,
+						legacy_key_fallback: !hasKeyFingerprintCollision,
 						provider: requestProvider,
 						apiKey: requestApiKey,
 						baseUrl: requestBaseUrl,
@@ -412,7 +421,14 @@ export function UsagePanel({active = true}: Props) {
 					if (!cancelled) {
 						setReport(data);
 						setError('');
-						setWarning('');
+						const usedLocalData =
+							data.source_basis?.totals === 'local' ||
+							data.source_basis?.models === 'local';
+						setWarning(
+							hasKeyFingerprintCollision && usedLocalData
+								? '多个账号的 API Key 末尾指纹相同；本机旧记录无法可靠区分，已排除旧记录。新记录可按账号精确筛选。'
+								: '',
+						);
 					}
 				}
 			} catch (err) {
@@ -447,15 +463,13 @@ export function UsagePanel({active = true}: Props) {
 			window.removeEventListener('focus', onVis);
 			document.removeEventListener('visibilitychange', onVis);
 		};
-	}, [active, days, modelId, modelProvider, keyFp, profiles, settingsProvider, settingsApiKey, settingsBaseUrl]);
+	}, [active, days, modelId, modelProvider, keyProfileId, selectedKeyProfile, hasKeyFingerprintCollision, profiles, settingsProvider, settingsApiKey, settingsBaseUrl]);
 
 	useEffect(() => {
 		if (!active) {
 			return;
 		}
-		const match = keyFp
-			? profiles.find(p => keyFingerprint(p.apiKey) === keyFp)
-			: fallbackProfile;
+		const match = keyProfileId ? selectedKeyProfile : fallbackProfile;
 		const key = match?.apiKey || settingsApiKey;
 		const provider = match?.provider || settingsProvider;
 		if (!key.trim() || provider !== 'deepseek') {
@@ -521,15 +535,13 @@ export function UsagePanel({active = true}: Props) {
 			window.removeEventListener('focus', onVis);
 			document.removeEventListener('visibilitychange', onVis);
 		};
-	}, [active, keyFp, profiles, fallbackProfile, settingsProvider, settingsApiKey, settingsBaseUrl]);
+	}, [active, keyProfileId, selectedKeyProfile, profiles, fallbackProfile, settingsProvider, settingsApiKey, settingsBaseUrl]);
 
 	useEffect(() => {
 		if (openMenu !== 'model') {
 			return;
 		}
-		const match = keyFp
-			? profiles.find(p => keyFingerprint(p.apiKey) === keyFp)
-			: fallbackProfile;
+		const match = keyProfileId ? selectedKeyProfile : fallbackProfile;
 		const s = useSettingsStore.getState();
 		const key = match?.apiKey || settingsApiKey;
 		if (!key.trim()) {
@@ -556,7 +568,7 @@ export function UsagePanel({active = true}: Props) {
 		return () => {
 			cancelled = true;
 		};
-	}, [openMenu, keyFp, profiles, fallbackProfile, settingsProvider, settingsApiKey, settingsBaseUrl]);
+	}, [openMenu, keyProfileId, selectedKeyProfile, profiles, fallbackProfile, settingsProvider, settingsApiKey, settingsBaseUrl]);
 
 	useEffect(() => {
 		if (!openMenu) {
@@ -573,9 +585,7 @@ export function UsagePanel({active = true}: Props) {
 
 	const modelChoices = useMemo(() => {
 		const seen = new Set<string>();
-		const selectedProfile = keyFp
-			? profiles.find(profile => keyFingerprint(profile.apiKey) === keyFp)
-			: undefined;
+		const selectedProfile = keyProfileId ? selectedKeyProfile ?? undefined : undefined;
 		const providerFilter = selectedProfile?.provider;
 		const items: {
 			key: string;
@@ -624,7 +634,7 @@ export function UsagePanel({active = true}: Props) {
 			add(id, vendorModelProvider, id, true);
 		}
 		return items;
-	}, [keyFp, profiles, report, vendorModelIds, vendorModelProvider]);
+	}, [keyProfileId, selectedKeyProfile, profiles, report, vendorModelIds, vendorModelProvider]);
 
 	const groups = useMemo(() => {
 		const models = report?.models ?? [];
@@ -651,26 +661,39 @@ export function UsagePanel({active = true}: Props) {
 		return [...map.entries()];
 	}, [report, modelId, modelProvider]);
 
-	const keys = useMemo(() => {
+	const keyAccounts = useMemo(() => {
 		// 只列设置里已配置的账号（profiles），与「设置 → 模型与账号」保持一致；
 		// 用量 ledger 里的历史 key 只有指纹、无法还原成账号，不再出现在筛选项里。
-		const set = new Set<string>();
-		for (const p of profiles) {
-			const fp = keyFingerprint(p.apiKey);
-			if (fp) {
-				set.add(fp);
-			}
+		const accounts = profiles
+			.map(profile => ({profile, fp: keyFingerprint(profile.apiKey)}))
+			.filter(account => account.fp);
+		const labelCounts = new Map<string, number>();
+		for (const {profile, fp} of accounts) {
+			const name = profile.name?.trim() || PROVIDER_LABEL[profile.provider];
+			const base = `${name} · ${PROVIDER_LABEL[profile.provider]} · ${fp}`;
+			labelCounts.set(base, (labelCounts.get(base) ?? 0) + 1);
 		}
-		return [...set];
+		return accounts.map(({profile, fp}) => {
+			const name = profile.name?.trim() || PROVIDER_LABEL[profile.provider];
+			const base = `${name} · ${PROVIDER_LABEL[profile.provider]} · ${fp}`;
+			return {
+				id: profile.id,
+				label:
+					labelCounts.get(base)! > 1
+						? `${base} · ${profile.id}`
+						: base,
+				hint: 'API Key',
+			};
+		});
 	}, [profiles]);
 
 	useEffect(() => {
-		if (keyFp && !keys.includes(keyFp)) {
-			setKeyFp('');
+		if (keyProfileId && !keyAccounts.some(account => account.id === keyProfileId)) {
+			setKeyProfileId('');
 			setModelId('');
 			setModelProvider('');
 		}
-	}, [keyFp, keys]);
+	}, [keyProfileId, keyAccounts]);
 
 	const dayChoices = [
 		{id: '1', label: '今日', hint: '今天'},
@@ -680,10 +703,10 @@ export function UsagePanel({active = true}: Props) {
 	];
 	const keyChoices = [
 		{id: '', label: '全部', hint: '当前账号全部 Key'},
-		...keys.map(k => ({id: k, label: k, hint: 'API Key'})),
+		...keyAccounts,
 	];
 	const activeDay = dayChoices.find(d => d.id === String(days)) ?? dayChoices[2];
-	const activeKey = keyChoices.find(k => k.id === keyFp) ?? keyChoices[0];
+	const activeKey = keyChoices.find(k => k.id === keyProfileId) ?? keyChoices[0];
 	const activeChoice = modelChoices.find(
 		choice => choice.id === modelId && choice.filterProvider === modelProvider,
 	) ?? modelChoices[0];
@@ -694,7 +717,7 @@ export function UsagePanel({active = true}: Props) {
 	// v4 主口径（B1）：三分类分列展示，输入合计 = hit + miss（官方 prompt_tokens 语义）；
 	// 不出现「总消耗」大数。命中率只展示、不设阈值文案。
 	const hitRate = fmtHitRate(totals.hit_rate);
-	const contentKey = `${days}:${keyFp}:${modelProvider}:${modelId}:${kind}`;
+	const contentKey = `${days}:${keyProfileId}:${modelProvider}:${modelId}:${kind}`;
 
 	const toolbar = (
 		<>
@@ -723,12 +746,11 @@ export function UsagePanel({active = true}: Props) {
 					}
 					valueLabel={activeKey.label}
 					options={keyChoices}
-					selectedId={keyFp}
+					selectedId={keyProfileId}
 					align="left"
-					mono
 					menuId={`${menuId}-key`}
 					onSelect={id => {
-						setKeyFp(id);
+						setKeyProfileId(id);
 						setModelId('');
 						setModelProvider('');
 						setOpenMenu(null);

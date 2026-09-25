@@ -208,6 +208,8 @@ export type UsageReport = {
 		provider?: string;
 		provider_filter_applied?: boolean;
 		key_fp?: string | null;
+		key_id_filter_applied?: boolean;
+		legacy_key_fallback?: boolean;
 		days?: number;
 	};
 	vendor_ok?: boolean;
@@ -222,6 +224,7 @@ export async function fetchUsage(query: {
 	model?: string;
 	provider?: string;
 	key_fp?: string;
+	legacy_key_fallback?: boolean;
 	apiKey?: string;
 	baseUrl?: string;
 }): Promise<UsageReport> {
@@ -237,6 +240,9 @@ export async function fetchUsage(query: {
 	}
 	if (query.key_fp) {
 		qs.set('key_fp', query.key_fp);
+	}
+	if (query.legacy_key_fallback !== undefined) {
+		qs.set('legacy_key_fallback', String(query.legacy_key_fallback));
 	}
 	const headers: Record<string, string> = {
 		'X-Provider': provider,

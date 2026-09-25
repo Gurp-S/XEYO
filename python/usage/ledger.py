@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import threading
@@ -33,6 +34,14 @@ def key_fingerprint(api_key: str) -> str:
 	if len(s) < 4:
 		return "…"
 	return f"…{s[-4:]}"
+
+
+def key_identity(api_key: str) -> str:
+	"""Return a stable SHA-256 digest without persisting the raw credential."""
+	key = (api_key or "").strip()
+	if not key:
+		return ""
+	return hashlib.sha256(key.encode("utf-8")).hexdigest()
 
 
 def _as_int(v: Any) -> int:
@@ -104,6 +113,7 @@ def record_from_openai_usage(
 		"model": model or "unknown",
 		"session_id": (session_id or "").strip(),
 		"key_fp": key_fingerprint(api_key),
+		"key_id": key_identity(api_key),
 		"prompt_tokens": prompt,
 		"completion_tokens": out,
 		"cache_hit": hit,
@@ -253,12 +263,15 @@ def query_usage(
 	model: str | None = None,
 	provider: str | None = None,
 	key_fp: str | None = None,
+	key_id: str | None = None,
+	legacy_key_fallback: bool = True,
 ) -> dict[str, Any]:
 	day_ids = _day_list(days)
 	day_set = set(day_ids)
 	want_model = (model or "").strip()
 	want_provider = (provider or "").strip().lower()
 	want_key = (key_fp or "").strip()
+	want_key_id = (key_id or "").strip()
 
 	events = _read_events()
 	filtered: list[dict[str, Any]] = []
@@ -271,13 +284,27 @@ def query_usage(
 			continue
 		# 厂商过滤语义（P0-1 钉正）：仅在「纯厂商视图」（未指定 model/key）时按
 		# vendor 匹配 —— 厂商已是最细维度时它=「该厂商全部用量」。一旦 model 或
-		# key_fp 已把行子集唯一化，再按厂商卡会滤空错位通道的历史行（如 openai
+		# key 标识已把行子集唯一化，再按厂商卡会滤空错位通道的历史行（如 openai
 		# 通道 key 下全是 vendor=deepseek 的 deepseek-v4-flash 行）。
 		# event_vendor 对缺 vendor 字段的迁移前旧行也能现场推断，不漏滤。
-		if want_provider and not want_model and not want_key and event_vendor(ev) != want_provider:
+		if (
+			want_provider
+			and not want_model
+			and not want_key
+			and not want_key_id
+			and event_vendor(ev) != want_provider
+		):
 			continue
-		if want_key and fp != want_key:
-			continue
+		if want_key_id:
+			event_key_id = str(ev.get("key_id") or "")
+			if event_key_id:
+				if event_key_id != want_key_id:
+					continue
+			elif not (legacy_key_fallback and want_key and fp == want_key):
+				continue
+		elif want_key:
+			if not legacy_key_fallback or fp != want_key:
+				continue
 		if ev.get("day") not in day_set:
 			continue
 		filtered.append(ev)
