@@ -4,6 +4,7 @@ import {useChatStore} from '@/stores/chatStore';
 import {cn} from '@/lib/utils';
 import {isSmoothnessOn, useSettingsStore} from '@/stores/settingsStore';
 import {ThoughtTicker} from './activity/MorphVerb';
+import {canOpenAgentTask, canRetryAgentTask} from '@/lib/agentTaskActions';
 
 /** 可扫视短名：序号 + 任务描述首段，避免千篇一律的 "Agent"。 */
 export function agentDisplayName(desc: string, index: number): string {
@@ -49,6 +50,9 @@ export const AgentDoneBars = memo(function AgentDoneBars({
 	const cancelAgentTask = useChatStore(s => s.cancelAgentTask);
 	const retryAgentTask = useChatStore(s => s.retryAgentTask);
 	const activeId = useChatStore(s => s.activeId);
+	const archived = useChatStore(s =>
+		Boolean(activeId && s.sessions.some(session => session.id === activeId && session.archived)),
+	);
 	const liveById = useChatStore(s => s.liveAgentTextById);
 
 	if (tasks.length === 0) {
@@ -71,6 +75,7 @@ export const AgentDoneBars = memo(function AgentDoneBars({
 							? (liveById[`${activeId}::${task.agentId}`] ?? '')
 							: ''
 					}
+					archived={archived}
 					onOpen={() => {
 						if (task.agentId) {
 							openAgentView(task.agentId);
@@ -96,6 +101,7 @@ const AgentBar = memo(function AgentBar({
 	task,
 	index,
 	liveText,
+	archived,
 	onOpen,
 	onCancel,
 	onRetry,
@@ -103,6 +109,7 @@ const AgentBar = memo(function AgentBar({
 	task: MultiAgentTaskView;
 	index: number;
 	liveText: string;
+	archived: boolean;
 	onOpen: () => void;
 	onCancel: () => void;
 	onRetry: () => void;
@@ -136,14 +143,14 @@ const AgentBar = memo(function AgentBar({
 				running && 'is-running',
 				pending && 'is-pending',
 				done && 'is-done',
-				!clickable && !running && !pending && 'is-disabled',
+				!clickable && 'is-disabled',
 			)}
 		>
 			<button
 				type="button"
 				className="xy-agent-bar-main"
 				aria-label={taskName}
-				disabled={!clickable && !running && !pending}
+				disabled={!canOpenAgentTask(task.agentId)}
 				onClick={() => {
 					if (clickable) {
 						onOpen();
@@ -249,9 +256,11 @@ const AgentBar = memo(function AgentBar({
 							type="button"
 							className="xy-agent-bar-action"
 							aria-label={`重试 ${taskName}`}
+							title={archived ? '归档对话不能启动新的子任务，请先恢复' : '重试子任务'}
+							disabled={!canRetryAgentTask(archived, task.agentId)}
 							onClick={e => {
 								e.stopPropagation();
-								onRetry();
+								if (canRetryAgentTask(archived, task.agentId)) onRetry();
 							}}
 						>
 							重试

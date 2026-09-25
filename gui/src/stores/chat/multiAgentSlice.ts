@@ -135,6 +135,9 @@ export function createMultiAgentSlice(
 		const sid = (sessionId || '').trim();
 		const aid = (agentId || '').trim();
 		if (!sid || !aid) return false;
+		if (get().sessions.some(session => session.id === sid && session.archived)) {
+			return false;
+		}
 		const key = `${sid}::${aid}`;
 		const retryBatchAt = Date.now();
 		// A retry starts a new projection generation. Late snapshots/finalizers from

@@ -46,17 +46,23 @@ export function roundsWithAgentTasks(
 	// SSE 按批次序到达 / 后端 meta 按 startedAt 升序，这里排序仅为兜底乱序。
 	const ordered =
 		tasks.length > 1
-			? [...tasks].sort((a, b) => (a.batchAt ?? 0) - (b.batchAt ?? 0))
+			? [...tasks].sort(
+					(a, b) =>
+						(normalizedBatchAt(a.batchAt) ?? Number.NEGATIVE_INFINITY) -
+						(normalizedBatchAt(b.batchAt) ?? Number.NEGATIVE_INFINITY),
+				)
 			: tasks;
 	let cursor = 0;
 	for (const task of ordered) {
-		const at = task.batchAt ?? Number.MAX_SAFE_INTEGER;
-		while (
-			cursor + 1 < rounds.length &&
-			rounds[cursor + 1]!.user !== undefined &&
-			(rounds[cursor + 1]!.user?.createdAt ?? Number.MAX_SAFE_INTEGER) <= at
-		) {
-			cursor += 1;
+		const at = normalizedBatchAt(task.batchAt);
+		if (at != null) {
+			while (
+				cursor + 1 < rounds.length &&
+				rounds[cursor + 1]!.user !== undefined &&
+				(rounds[cursor + 1]!.user?.createdAt ?? Number.MAX_SAFE_INTEGER) <= at
+			) {
+				cursor += 1;
+			}
 		}
 		let idx = cursor;
 		if (rounds[idx]!.user === undefined) {
@@ -96,6 +102,10 @@ export function agentTasksSame(
 	b: MultiAgentTaskView[],
 ): boolean {
 	return multiAgentTaskViewsEqual(a, b);
+}
+
+function normalizedBatchAt(value: number | undefined): number | null {
+	return value != null && Number.isFinite(value) ? value : null;
 }
 
 export const PROMPT_X = 'px-3 sm:px-5 md:px-8';
