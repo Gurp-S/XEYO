@@ -540,14 +540,16 @@ def test_blocked_real_deny_row_is_engine_not_model(monkeypatch) -> None:
 # ---------- 5. 证据指针与不削规则 ----------
 
 
-def test_verifier_absence_does_not_borrow_the_working_locator() -> None:
-	"""没有 verifier 固定记录时，证据指针不得拿 working.json 冒充 pin。"""
-	run = _run([_ev(1, "model.started", 1.0, model_request_id="r1", attempt=1)])
-	run.working = {"locator": r"C:\xeyo\sessions\s1.working.json"}
-	finding = next(f for f in rules.check_verifier(run) if f.rule_id == "verifier")
-	assert finding.status == UNKNOWN
-	assert all(ref.locator == "" for ref in finding.evidence)
-	assert all(ref.source == "pin" for ref in finding.evidence)
+def test_verifier_absence_is_a_gap_not_a_per_turn_finding(collect) -> None:
+	"""没有 verifier 固定记录：以前每轮都产出一条 unknown（真实数据 40/40），
+	把"未定"桶占满；现在它是采集缺项，不是一条待判结论。
+	原意图一并保留：没有 pin 就绝不产生一条带伪证据指针的结论。"""
+	run = collect([{"ts": 1.0, "kind": "model.started", "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", "attempt": 1}])
+	assert rules.check_verifier(run) == []
+	assert [f for f in evaluate_run(run) if f.rule_id == "verifier"] == []
+	gaps = [g for g in run.gaps if g.boundary == "file_verifier" and g.reason == "not_recorded"]
+	assert gaps, "缺席事实要留在缺项清单里"
+	assert "kind=verifier" in gaps[0].detail
 
 
 def test_audit_evidence_still_points_at_the_audit_window() -> None:

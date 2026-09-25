@@ -108,8 +108,13 @@ def test_pin_and_verifier_reach_the_rules(client, seed_audit) -> None:
 	assert pinned["ok"] is True
 	assert pinned["pin"]["kind"] == "run_mark"
 	unrun = client.get("/v1/diagnostics/runs/t1", params={"session_id": "s1"}).json()
-	ver = [f for f in unrun["findings"] if f["rule_id"] == "verifier"]
-	assert ver and ver[0]["status"] == "unknown"
+	# 只有 run_mark 类 pin、没有 verifier 类 pin：这是采集缺项，不是一条逐轮结论。
+	assert [f for f in unrun["findings"] if f["rule_id"] == "verifier"] == []
+	assert [
+		g
+		for g in unrun["gaps"]
+		if g["boundary"] == "file_verifier" and g["reason"] == "not_recorded"
+	]
 	zero = client.post(
 		"/v1/diagnostics/runs/t1/verifier",
 		params={"session_id": "s1"},

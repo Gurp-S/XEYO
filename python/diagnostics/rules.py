@@ -1035,28 +1035,9 @@ def check_verifier(run: RunEvidence) -> list[Finding]:
 	findings: list[Finding] = []
 	pinned = [p for p in run.pins if _s(p.get("kind")) == "verifier"]
 	if not pinned:
-		findings.append(
-			Finding(
-				rule_id="verifier",
-				rule_version=RULESET_VERSION,
-				phenomenon="本运行没有验收记录（未固定 verifier，或测试未运行）",
-				boundary="file_verifier",
-				component="结果验收",
-				status=UNKNOWN,
-				# 没有 pin 就没有 pin 可指：留空定位符，绝不拿 working.json 的路径冒充。
-				evidence=[
-					EvidenceRef(
-						source="pin",
-						locator="",
-						ref_id="",
-						detail="absent：本会话的固定记录里没有 kind=verifier 的条目",
-					)
-				],
-				impact="无法判定任务是否成功：模型说「通过」不等于已通过。",
-				coverage_gap="没有固定 verifier 时，本规则只能报「未执行/未记录」，不能推断结果。",
-				allowed_conclusion="验收状态未知。",
-			)
-		)
+		# 不再作为结论报出：采集器已把这条事实放进缺项清单（collect._attach_pins）。
+		# 它此前在真实数据里 40/40 轮都产出一条 unknown —— 一条恒真的"未定"
+		# 不携带信息，只会把需要人工判断的那几条淹掉。
 		return findings
 	for item in pinned:
 		code = item.get("exit_code")

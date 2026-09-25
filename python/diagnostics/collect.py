@@ -1055,9 +1055,19 @@ def _attach_captures(run: RunEvidence) -> None:
 def _attach_pins(run: RunEvidence) -> None:
 	try:
 		from diagnostics.pins import pins_for_run
-	except Exception:  # noqa: BLE001
+	except Exception:  # noqa: BLE001 — 读不到固定记录本尊，不能反过来断言"没验收"
 		return
 	run.pins.extend(pins_for_run(run.session_id, run.turn_id))
+	# 「本运行没有验收记录」是采集缺口，不是每条结论：它此前作为一条 unknown 结论
+	# 出现在**每一轮**（真实数据 40/40），把"未定"桶占满、淹掉真正说不清的信号。
+	# 事实保留在原位 —— 缺项清单里，措辞只说"固定记录里没有该条目"，并把两种解释并列，
+	# 不单独断言"没验收"。
+	if not [p for p in run.pins if str(p.get("kind") or "").strip() == "verifier"]:
+		run.add_gap(
+			"file_verifier",
+			"not_recorded",
+			"本运行的固定记录里没有 kind=verifier 的条目（未验收，或验收结果未落盘）",
+		)
 
 
 def list_runs(session_id: str, *, limit: int = 50, audit_path: str | os.PathLike[str] | None = None) -> list[dict[str, Any]]:

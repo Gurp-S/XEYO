@@ -202,10 +202,15 @@ def test_missing_cold_reference_is_recoverability_fault(collect) -> None:
 
 
 def test_verdict_without_pin_says_not_run(collect) -> None:
+	"""没有验收记录时，"无法判定结局"这句话必须还在 —— 只是不再由一条逐轮恒真的
+	unknown 结论承担（真实数据 40/40 轮都产出一条），而由责任划分承担。"""
+	from diagnostics.fault_split import attribute_fault
+
 	run = collect([{"ts": 1.0, "kind": "model.started", "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", "attempt": 1}])
-	v = [f for f in evaluate_run(run) if f.rule_id == "verifier"]
-	assert v and v[0].status == UNKNOWN
-	assert "模型说" in v[0].impact
+	assert [f for f in evaluate_run(run) if f.rule_id == "verifier"] == []
+	verdict = attribute_fault(run, evaluate_run(run))
+	assert verdict["task_outcome"] == "not_accepted"
+	assert "验收" in verdict["task_outcome_label"]
 
 
 # ---------- 正常对照 ----------
