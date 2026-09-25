@@ -483,7 +483,7 @@ messagesById: settled.messagesById,
 			const activeId =
 				s.activeId && sessions.some(x => x.id === s.activeId)
 					? s.activeId
-					: (sessions[0]?.id ?? null);
+					: (sessions.find(x => !x.archived)?.id ?? null);
 			let sessionStreams = s.sessionStreams;
 			for (const id of removedIds) {
 				sessionStreams = clearSessionStreamState(sessionStreams, id);
@@ -822,7 +822,9 @@ async selectSession(id) {
 			const messagesLoadingIds = {...s.messagesLoadingIds};
 			delete messagesLoadingIds[id];
 			const activeId =
-				s.activeId === id ? (sessions[0]?.id ?? null) : s.activeId;
+				s.activeId === id
+					? (sessions.find(session => !session.archived)?.id ?? null)
+					: s.activeId;
 			const pendingCleared = clearPendingFieldsForSession(s, id);
 			if (s.pendingPermission?.sessionId === id) {
 				writePendingPermission(null);
