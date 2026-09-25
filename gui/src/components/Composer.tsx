@@ -12,6 +12,7 @@ import {
 import {
 	useEffect,
 	useId,
+	useLayoutEffect,
 	useMemo,
 	useRef,
 	useState,
@@ -544,7 +545,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 	reasoningEffortRef.current = reasoningEffort;
 
 	/** 按 session 保存/恢复：输入草稿 + Agent/审批/多 Agent 模式。 */
-	useEffect(() => {
+	useLayoutEffect(() => {
 		const prevId = activeIdRef.current;
 		if (prevId && prevId !== activeId) {
 			setComposerDraft(prevId, {
