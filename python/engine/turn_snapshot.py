@@ -5,12 +5,16 @@
 
 from __future__ import annotations
 
+from _thread import LockType
+from contextlib import contextmanager
 import json
 import logging
 import os
+import tempfile
+import threading
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Iterator, Literal
 
 _logger = logging.getLogger("xeyo.turn_snapshot")
 
@@ -26,6 +30,69 @@ TurnStatus = Literal[
 ]
 
 _ACTIVE = frozenset({"queued", "running", "waiting_permission", "stopping"})
+
+# Flushes can come from the async turn runner and sync FastAPI worker threads.
+# Keep a short-lived lock per snapshot path so overlapping writes cannot share a
+# temporary file or replace the destination while another flush is in progress.
+_FLUSH_LOCKS_GUARD = threading.Lock()
+_FLUSH_LOCKS: dict[str, tuple[LockType, int]] = {}
+
+
+@contextmanager
+def _serialized_flush(path: Path) -> Iterator[None]:
+	key = os.path.normcase(str(path.absolute()))
+	with _FLUSH_LOCKS_GUARD:
+		entry = _FLUSH_LOCKS.get(key)
+		if entry is None:
+			lock = threading.Lock()
+			_FLUSH_LOCKS[key] = (lock, 1)
+		else:
+			lock, users = entry
+			_FLUSH_LOCKS[key] = (lock, users + 1)
+
+	acquired = False
+	try:
+		lock.acquire()
+		acquired = True
+		yield
+	finally:
+		try:
+			if acquired:
+				lock.release()
+		finally:
+			with _FLUSH_LOCKS_GUARD:
+				current = _FLUSH_LOCKS.get(key)
+				if current is not None and current[0] is lock:
+					if current[1] <= 1:
+						_FLUSH_LOCKS.pop(key, None)
+					else:
+						_FLUSH_LOCKS[key] = (lock, current[1] - 1)
+
+
+def _atomic_write(path: Path, payload: str) -> None:
+	fd, tmp_name = tempfile.mkstemp(
+		prefix=f".{path.name}.",
+		suffix=".tmp",
+		dir=str(path.parent),
+	)
+	tmp = Path(tmp_name)
+	try:
+		with os.fdopen(fd, "w", encoding="utf-8") as handle:
+			fd = -1
+			handle.write(payload)
+		os.replace(tmp, path)
+	finally:
+		if fd >= 0:
+			try:
+				os.close(fd)
+			except OSError:
+				pass
+		try:
+			tmp.unlink()
+		except FileNotFoundError:
+			pass
+		except OSError:
+			_logger.debug("turn snapshot temp cleanup failed name=%s", tmp.name, exc_info=True)
 
 
 @dataclass
@@ -125,14 +192,13 @@ def flush(snap: TurnSnapshot) -> None:
 
 	if not snap.session_id:
 		return
-	snap.updated_at = time.time()
 	path = path_for(snap.session_id)
 	try:
-		path.parent.mkdir(parents=True, exist_ok=True)
-		payload = json.dumps(snap.to_dict(), ensure_ascii=False, indent=None)
-		tmp = path.with_suffix(".turn.json.tmp")
-		tmp.write_text(payload, encoding="utf-8")
-		os.replace(tmp, path)
+		with _serialized_flush(path):
+			snap.updated_at = time.time()
+			path.parent.mkdir(parents=True, exist_ok=True)
+			payload = json.dumps(snap.to_dict(), ensure_ascii=False, indent=None)
+			_atomic_write(path, payload)
 	except Exception:  # noqa: BLE001
 		_logger.warning(
 			"turn snapshot flush failed session=%s", snap.session_id, exc_info=True

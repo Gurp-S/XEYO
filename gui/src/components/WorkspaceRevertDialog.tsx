@@ -9,6 +9,31 @@ import {toast} from '@/lib/toast';
 import {useRewindV3Store} from '@/stores/rewindV3Store';
 import {isImeComposing} from '@/lib/ime';
 
+// Keep track of completions produced during this page lifetime. The dialog
+// host can unmount while the transcript is temporarily empty during truncation;
+// when it mounts again, a same-lifetime completion must still be presented.
+// Persisted settled completions are absent from this set after a page reload.
+const pendingCompletionDialogs = new Set<string>();
+
+useRewindV3Store.subscribe((state, previousState) => {
+	for (const sessionId of new Set([
+		...Object.keys(previousState.bySession),
+		...Object.keys(state.bySession),
+	])) {
+		const current = state.bySession[sessionId];
+		if (current?.phase === 'done' && current.settled) {
+			if (
+				previousState.bySession[sessionId]?.phase !== 'done' ||
+				!previousState.bySession[sessionId]?.settled
+			) {
+				pendingCompletionDialogs.add(sessionId);
+			}
+		} else {
+			pendingCompletionDialogs.delete(sessionId);
+		}
+	}
+});
+
 export function WorkspaceRevertDialog({
 	plan,
 	mode = 'confirm',
@@ -364,7 +389,8 @@ export function RewindV3Dialog({sessionId}: {sessionId: string}) {
 				restoredDoneRef.current?.sessionId === sessionId &&
 				restoredDoneRef.current.done &&
 				state.phase === 'done' &&
-				state.settled;
+				state.settled &&
+				!pendingCompletionDialogs.has(sessionId);
 			if (el && !el.open && !restoredDone) {
 				el.showModal();
 			}
