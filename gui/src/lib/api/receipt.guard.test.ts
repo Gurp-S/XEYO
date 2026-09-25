@@ -34,9 +34,11 @@ const BASELINE: Record<string, number> = {
 	// 工作区读写那 5 处（listing / search / read / stat / write 回显）已换成
 	// parseWorkspace*（200 但形状不对就抛，走各 store 已有的 catch 分支），
 	// 钉在 api/workspaceReceipt.test.ts；git 4 处（status / log / branches / file diff）
-	// 换成 parseGit*，钉在 api/gitReceipt.test.ts。剩 6 处按 lane 分组：
-	// inbox 2、sessionTask 1、workspaceGraph 1、terminal 1、rewindGc 1。
-	'api.ts': 6,
+	// 换成 parseGit*，钉在 api/gitReceipt.test.ts；terminal / session task 各 1 处
+	// 换成 parseTerminalResult、parseSessionTask，钉在 api/terminalReceipt.test.ts
+	// 与 api/sessionTaskReceipt.test.ts。剩 4 处：inbox 2（他人 lane）、workspaceGraph 1
+	// （与 lib/workspaceMapApi.ts 同名的死副本）、rewindGc 1（rewind lane）。
+	'api.ts': 4,
 	'api/localModels.ts': 1,
 	'api/memory.ts': 1,
 	'api/usage.ts': 2,
@@ -143,6 +145,7 @@ describe('HTTP 回执裸转型棘轮', () => {
 		const sum = Object.values(BASELINE).reduce((a, b) => a + b, 0);
 		// 19 → 14：工作区读写 5 处换成 parseWorkspace*（api/workspaceReceipt.test.ts）。
 		// 14 → 10：git 4 处换成 parseGit*（api/gitReceipt.test.ts）。
-		expect(sum).toBe(10);
+		// 10 → 8：terminal 与 session task 各 1 处换成 parse*。
+		expect(sum).toBe(8);
 	});
 });

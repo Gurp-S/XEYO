@@ -572,6 +572,27 @@ export type SessionTaskInfo = {
 	busy: boolean;
 };
 
+/**
+ * 任务快照是"这一轮到底还在不在跑"的唯一读侧依据：streamRecoverySlice 用它决定
+ * 重连还是结算。缺字段的 200 过去会被当成一个读得到内容的快照，`busy`/`status`
+ * 都是 undefined ⇒ running=false ⇒ 直接 finalizeFinishedTurn，
+ * 把仍在跑的回合显示成已结束。这里让形状不对就抛，函数已有的 catch 会退回 null，
+ * 而 null 的含义（读不到，退避重试）才是诚实的。
+ */
+export function parseSessionTask(payload: unknown): SessionTaskInfo {
+	const o = requirePayloadObject(payload, '读取任务快照');
+	if (
+		typeof o.ok !== 'boolean' ||
+		typeof o.status !== 'string' ||
+		typeof o.busy !== 'boolean' ||
+		typeof o.waiting_permission !== 'boolean' ||
+		typeof o.last_event_id !== 'number'
+	) {
+		throw new Error('读取任务快照：回执缺 status / busy / last_event_id');
+	}
+	return o as SessionTaskInfo;
+}
+
 export async function fetchSessionTask(
 	sessionId: string,
 ): Promise<SessionTaskInfo | null> {
@@ -581,7 +602,7 @@ export async function fetchSessionTask(
 			{method: 'GET', headers: authHeaders()},
 		);
 		if (!res.ok) return null;
-		return (await res.json()) as SessionTaskInfo;
+		return parseSessionTask(await res.json());
 	} catch {
 		return null;
 	}
@@ -1311,6 +1332,38 @@ export async function gitFileDiff(path: string, workspace?: string): Promise<Fil
 	return parseGitFileDiff(await res.json());
 }
 
+/**
+ * 终端面板把回执的每一栏都印成事实：`[退出码 X · Yms · 输出已截断]`。
+ * 200 但缺字段时，过去会印成「退出码 — · undefinedms」并把 stdout 当没有输出，
+ * 或在读 `truncated.stdout` 时抛错、把已经跑完的命令整条换成一行错误。
+ * 校验后一律走调用方已有的 catch：面板显示后端 detail，不显示编出来的读数。
+ */
+export function parseTerminalResult(payload: unknown): TerminalResult {
+	const o = requirePayloadObject(payload, '执行命令');
+	if (typeof o.ok !== 'boolean') {
+		throw new Error('执行命令：回执缺 ok');
+	}
+	if (typeof o.stdout !== 'string' || typeof o.stderr !== 'string') {
+		throw new Error('执行命令：回执缺 stdout / stderr —— 读不出不等于命令没有输出');
+	}
+	if (typeof o.timed_out !== 'boolean' || typeof o.elapsed_ms !== 'number') {
+		throw new Error('执行命令：回执缺 timed_out / elapsed_ms');
+	}
+	if (o.exit_code !== null && typeof o.exit_code !== 'number') {
+		throw new Error('执行命令：exit_code 既不是数字也不是"没有退出码"');
+	}
+	const t = o.truncated;
+	if (
+		!t ||
+		typeof t !== 'object' ||
+		typeof (t as {stdout?: unknown}).stdout !== 'boolean' ||
+		typeof (t as {stderr?: unknown}).stderr !== 'boolean'
+	) {
+		throw new Error('执行命令：回执缺 truncated 标记 —— 不知道有没有截断就不能说输出是完整的');
+	}
+	return o as TerminalResult;
+}
+
 export async function execWorkspaceTerminal(
 	command: string,
 	timeoutS?: number,
@@ -1338,7 +1391,7 @@ export async function execWorkspaceTerminal(
 		}
 		throw new Error(formatErrorDetail(payload, res.status));
 	}
-	return (await res.json()) as TerminalResult;
+	return parseTerminalResult(await res.json());
 }
 
 export type FileHelperEvent = {
