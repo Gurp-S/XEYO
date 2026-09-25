@@ -338,6 +338,33 @@ def _llm_model_name(model: object) -> str:
     return str(getattr(model, "_model", None) or getattr(model, "model", None) or "")
 
 
+def _attempt_permission_snapshot_id() -> str:
+    """这一枪提交瞬间的权限身份；只读一次，之后钉在该次尝试的所有审计行上。
+
+    为什么必须钉：模型行的 ``permission_snapshot_id`` 原先在**写每一行时**从 ambient
+    ``ExecutionContext`` 现取，而本引擎的工具会在流式过程中并行/提前执行
+    （见 ``_cancel_early_tasks``），``tools/tool_registry.py`` 每次裁决都会
+    ``update_execution_context(permission_snapshot_id=...)`` ⇒ 同一个逻辑调用的
+    started 与 finished 会带不同 id（真实数据 27/40 轮）。那记录的是"写行的那一刻"，
+    不是"这一枪的权限面"，诊断层因此无法拿它判断权限上下文是否漂移。
+    """
+    try:
+        from engine.workspace_context import get_execution_context
+
+        ctx = get_execution_context()
+        value = str(getattr(ctx, "permission_snapshot_id", "") or "") if ctx is not None else ""
+        if value:
+            return value
+    except Exception:  # noqa: BLE001 — 观测旁路，取不到就不写该字段
+        pass
+    try:
+        from permissions.trace import current_permission_snapshot
+
+        return str(current_permission_snapshot().get("snapshot_id") or "")
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def _audit_llm_failure(
     code: str,
     *,
@@ -416,10 +443,9 @@ def _audit_model_event(
                 for name in (
                     "trace_id",
                     "projection_id",
-					"permission_snapshot_id",
-					"workspace_revision",
-					"tool_surface_id",
-					"tool_schema_hash",
+                    "workspace_revision",
+                    "tool_surface_id",
+                    "tool_schema_hash",
                     "capability_id",
                 ):
                     value = getattr(ctx, name, "")
@@ -427,6 +453,19 @@ def _audit_model_event(
                         fields[name] = value
         except Exception:  # noqa: BLE001 —上下文观测失败不挡模型调用
             pass
+        # 权限身份用"这一枪提交时"钉住的值，而不是写行瞬间的 ambient 值：
+        # 取不到钉住的值（旧 fake / 未注入 meta）才回落到 ambient，保持旧行为可见。
+        pinned_snapshot = str(getattr(model, "_meta_permission_snapshot_id", "") or "")
+        if not pinned_snapshot:
+            try:
+                from engine.workspace_context import get_execution_context as _ctx_now
+
+                _c = _ctx_now()
+                pinned_snapshot = str(getattr(_c, "permission_snapshot_id", "") or "") if _c is not None else ""
+            except Exception:  # noqa: BLE001
+                pinned_snapshot = ""
+        if pinned_snapshot:
+            fields["permission_snapshot_id"] = pinned_snapshot
         default_audit_log().record(kind, **fields)
     except Exception:  # noqa: BLE001 —审计故障不挡模型调用
         logging.getLogger(__name__).debug("model audit failed", exc_info=True)
@@ -1485,6 +1524,7 @@ async def query_loop(
             model._meta_request_id = call_request_id
             model._meta_attempt = attempt
             model._meta_kind = "turn"
+            model._meta_permission_snapshot_id = _attempt_permission_snapshot_id()
             try:
                 from engine.workspace_context import update_execution_context
 
