@@ -119,9 +119,20 @@ export const ChatHeader = memo(function ChatHeader({
 const usage = pageViewOpen ? null : sessionUsageById[activeId ?? ''] ?? null;
 			const usagePreviewVisible = !pageViewOpen && activeId != null;
 			const [usagePreviewOpen, setUsagePreviewOpen] = useState(false);
-		const [compression, setCompression] = useState<SessionCompression | null>(null);
-		// 非空 = 这一屏的压缩态没读到；卡片要写明下面按用量条目推导。
-		const [compressionError, setCompressionError] = useState('');
+		const [compressionRead, setCompressionRead] = useState<{
+			backendSessionId: string;
+			data: SessionCompression | null;
+			error: string;
+		} | null>(null);
+		// 压缩态与错误都按分支 ID 隔离；切换会话时首帧也不显示旧分支数据。
+		const compression =
+			compressionRead?.backendSessionId === backendSessionId
+				? compressionRead.data
+				: null;
+		const compressionError =
+			compressionRead?.backendSessionId === backendSessionId
+				? compressionRead.error
+				: '';
 		const [compactBusy, setCompactBusy] = useState(false);
 		const usagePreviewRef = useRef<HTMLDivElement>(null);
 		const usagePreviewId = 'chat-usage-preview';
@@ -242,26 +253,30 @@ const usage = pageViewOpen ? null : sessionUsageById[activeId ?? ''] ?? null;
 
 		useEffect(() => {
 			setUsagePreviewOpen(false);
-			setCompression(null);
 		}, [activeId, mode, usageOpen]);
 
 		useEffect(() => {
 			if (!usagePreviewOpen || !backendSessionId) {
 				return;
 			}
+			const targetBackendId = backendSessionId;
 			let cancelled = false;
-			void fetchSessionCompression(backendSessionId).then(r => {
+			void fetchSessionCompression(targetBackendId).then(r => {
 				if (cancelled) {
 					return;
 				}
-				if (r.ok && r.data) {
-					setCompression(r.data);
-					setCompressionError('');
-				} else {
-					// 读不出时保留上一次真读到的快照，并记下原因：
-					// 直接写 null 会让卡片回落到用量推导值，看上去像"没压缩过"。
-					setCompressionError(r.message);
-				}
+				setCompressionRead(current => {
+					const previous =
+						current?.backendSessionId === targetBackendId
+							? current.data
+							: null;
+					return {
+						backendSessionId: targetBackendId,
+						// 同一分支读取失败时保留最后一次有效快照；不同分支不复用。
+						data: r.ok && r.data ? r.data : previous,
+						error: r.ok && r.data ? '' : r.message,
+					};
+				});
 			});
 			return () => {
 				cancelled = true;
@@ -281,12 +296,17 @@ const usage = pageViewOpen ? null : sessionUsageById[activeId ?? ''] ?? null;
 				}
 				const r = await fetchSessionCompression(targetBackendId);
 				if (useChatStore.getState().activeId === targetSessionId) {
-					if (r.ok && r.data) {
-						setCompression(r.data);
-						setCompressionError('');
-					} else {
-						setCompressionError(r.message);
-					}
+					setCompressionRead(current => {
+						const previous =
+							current?.backendSessionId === targetBackendId
+								? current.data
+								: null;
+						return {
+							backendSessionId: targetBackendId,
+							data: r.ok && r.data ? r.data : previous,
+							error: r.ok && r.data ? '' : r.message,
+						};
+					});
 				}
 				toast.success('已完成 /compact');
 			} catch (error) {

@@ -28,6 +28,7 @@ import {uid} from '@/lib/utils';
 import {uploadFile} from '@/lib/api';
 import type {ChatMessage} from '@/lib/types';
 import type {DraftAttachment} from '@/lib/composerDrafts';
+import {isCurrentEditUpload} from './editUploadScope';
 import {PROMPT_CHIP_MAX_PX} from '../sticky';
 import type {StickyPromptController} from '../sticky/StickyPromptController';
 
@@ -135,6 +136,9 @@ export function useMessageListEditing(
 	} = opts;
 
 	const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+	const activeIdRef = useRef(activeId);
+	activeIdRef.current = activeId;
+	const editUploadGenerationRef = useRef(0);
 	const [editFlowHeight, setEditFlowHeight] = useState(PROMPT_CHIP_MAX_PX);
 	const editFlowHeightRef = useRef(PROMPT_CHIP_MAX_PX);
 	editFlowHeightRef.current = editFlowHeight;
@@ -456,6 +460,8 @@ export function useMessageListEditing(
 	}, [cancelDeferredEditingFollowTailRestore, restoreEditingScrollAnchor]);
 
 	useEffect(() => {
+		editUploadGenerationRef.current += 1;
+		setEditingUploading(false);
 		deferEditingFollowTailRestore();
 		for (const attachment of editingAttachmentsRef.current) {
 			if (attachment.kind === 'image') URL.revokeObjectURL(attachment.previewUrl);
@@ -492,6 +498,7 @@ export function useMessageListEditing(
 				toast.info('归档对话为只读，请先恢复后编辑');
 				return;
 			}
+			editUploadGenerationRef.current += 1;
 			let caret: number | null = null;
 
 			cancelDeferredEditingFollowTailRestore();
@@ -615,6 +622,18 @@ export function useMessageListEditing(
 			if (!fileList || editingSubmitting || anyStreaming) {
 				return;
 			}
+			const uploadScope = {
+				generation: editUploadGenerationRef.current,
+				sessionId: activeIdRef.current,
+				messageId: editingMessageIdRef.current,
+			};
+			const isUploadCurrent = () =>
+				isCurrentEditUpload(uploadScope, {
+					generation: editUploadGenerationRef.current,
+					sessionId: activeIdRef.current,
+					messageId: editingMessageIdRef.current,
+				});
+			if (!isUploadCurrent()) return;
 			const files = Array.from(fileList);
 			const images = files.filter(file => file.type.startsWith('image/'));
 			const otherFiles = files.filter(file => !file.type.startsWith('image/'));
@@ -655,6 +674,7 @@ export function useMessageListEditing(
 			try {
 				for (const file of otherFiles) {
 					const uploaded = await uploadFile(file);
+					if (!isUploadCurrent()) return;
 					if (uploaded.truncated) {
 						// 服务端砍过正文（超 _MAX_INLINE_CHARS 并追加 …[truncated]）。
 						// 不报出来，用户看到的就是"整份文件都在"，而模型只拿到前半份。
@@ -673,9 +693,11 @@ export function useMessageListEditing(
 					]);
 				}
 			} catch (error) {
-				toast.error(error instanceof Error ? error.message : String(error));
+				if (isUploadCurrent()) {
+					toast.error(error instanceof Error ? error.message : String(error));
+				}
 			} finally {
-				setEditingUploading(false);
+				if (isUploadCurrent()) setEditingUploading(false);
 			}
 		},
 		[anyStreaming, editingExistingMediaRefs.length, editingSubmitting],
@@ -725,6 +747,8 @@ export function useMessageListEditing(
 		if (editingSubmitting || editClosingRef.current) {
 			return;
 		}
+		editUploadGenerationRef.current += 1;
+		setEditingUploading(false);
 		editingFilePickerOpenRef.current = false;
 		const scroller = scrollerRef.current;
 		const pinScroll =
