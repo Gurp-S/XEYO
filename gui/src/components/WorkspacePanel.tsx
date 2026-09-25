@@ -1051,7 +1051,7 @@ export const WorkspacePanel = memo(function WorkspacePanel() {
 							const entryOpen = isTree ? isTreeOpen(entry.key) : false;
 							const entryActive =
 								entry.kind === 'tree'
-									? entryOpen
+									? entryOpen && active === entry.key
 									: activeTool === entry.func;
 							return (
 								<Row
