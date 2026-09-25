@@ -57,4 +57,24 @@ describe('buildTurnWorkflow', () => {
 		expect(steps.map(step => step.id)).toEqual(['read-1']);
 		expect(steps[0]?.running).toBe(true);
 	});
+
+	it('starts a fresh workflow after a queued message begins delivery', () => {
+		const queued: ChatMessage = {
+			id: 'u2',
+			role: 'user',
+			text: 'now process this',
+			queueState: 'delivering',
+			createdAt: 2,
+		};
+		const messages: ChatMessage[] = [
+			{id: 'u1', role: 'user', text: 'previous task', createdAt: 1},
+			tool('Read', {file_path: 'src/previous.ts'}, 'done', 'read-previous'),
+			queued,
+			tool('Edit', {file_path: 'src/current.ts'}, 'running', 'edit-current'),
+		];
+
+		expect(buildTurnWorkflow(messages).map(step => step.id)).toEqual([
+			'edit-current',
+		]);
+	});
 });
