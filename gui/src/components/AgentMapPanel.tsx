@@ -35,6 +35,7 @@ import {
 import {openWorkspacePreview} from '@/lib/openWorkspacePreview';
 import {samePath} from '@/lib/paths';
 import {latestUserTurnBoundary} from '@/lib/groupTranscript';
+import {parseJsonValue} from '@/lib/safeJson';
 import type {MultiAgentTaskView} from '@/lib/api';
 import type {ChatMessage} from '@/lib/types';
 import {useChatStore} from '@/stores/chatStore';
@@ -167,11 +168,28 @@ export function AgentMapPanel() {
 		const currentTurnMessageIds = new Set(
 			messages.slice(boundary.index + 1).map(message => message.id),
 		);
-		return hits.filter(hit =>
-			hit.messageId
-				? currentTurnMessageIds.has(hit.messageId)
-				: hit.createdAt >= boundary.message.createdAt,
-		);
+		const currentTurnTaskIds = new Set<string>();
+		for (const message of messages.slice(boundary.index + 1)) {
+			if (
+				message.role !== 'tool' ||
+				(message.toolName !== 'Agent' && message.toolName !== 'Task')
+			) {
+				continue;
+			}
+			const input = parseJsonValue<Record<string, unknown>>(message.toolInput);
+			const taskId = String(input?.task_id ?? input?.taskId ?? '').trim();
+			if (taskId) currentTurnTaskIds.add(taskId);
+		}
+		return hits.filter(hit => {
+			if (hit.messageId) return currentTurnMessageIds.has(hit.messageId);
+			if (hit.taskId && currentTurnTaskIds.size > 0) {
+				return (
+					currentTurnTaskIds.has(hit.taskId) &&
+					hit.createdAt >= boundary.message.createdAt
+				);
+			}
+			return hit.createdAt >= boundary.message.createdAt;
+		});
 	}, [hits, messages]);
 	const opsTrail = useMemo(() => buildOpsTrail(turnHits, 8), [turnHits]);
 	const replayScript = useMemo(() => {

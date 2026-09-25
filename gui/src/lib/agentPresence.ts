@@ -16,6 +16,8 @@ export type AgentPresenceHit = {
 	messageId?: string;
 	/** 主会话为空；子 Agent 带 id。 */
 	agentId?: string;
+	/** 任务 ID；用于把多 Agent 落点限制在当前轮触发的子任务。 */
+	taskId?: string;
 	/** Read.symbol 等符号路径。 */
 	symbol?: string;
 };
@@ -132,6 +134,7 @@ export function collectAgentPresence(
 				toolName: 'Agent',
 				createdAt: task.batchAt ?? 0,
 				agentId: task.agentId,
+				taskId: task.taskId,
 			});
 		}
 	}
