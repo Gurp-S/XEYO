@@ -609,6 +609,47 @@ html[data-scheme="dark"] .xy-prism-html .token.boolean {
   backdrop-filter: none;
 }
 
+/* 窄工作区里，文件路径与视图/窗格操作不能挤成一条被裁切的工具栏。
+   在窄槽内给路径单独一行，并允许模式组与窗格动作分别换行。 */
+.xy-file-preview-pane {
+  container: xy-file-preview / inline-size;
+}
+
+.xy-file-preview-mode {
+  flex: none;
+}
+
+@container xy-file-preview (max-width: 320px) {
+  .xy-file-preview-header {
+    height: auto;
+    min-height: 2.5rem;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 2px 4px;
+    padding-block: 4px;
+  }
+
+  .xy-file-preview-title {
+    flex: 1 1 100%;
+    line-height: 1.25;
+  }
+
+  .xy-file-preview-actions {
+    width: 100%;
+    min-width: 0;
+    flex-wrap: wrap;
+    justify-content: space-between;
+  }
+
+  .xy-file-preview-modes {
+    flex-wrap: wrap;
+  }
+
+  .xy-file-preview-utilities {
+    margin-left: auto;
+  }
+}
+
 .xy-md-doc {
   font-size: 14.5px;
   line-height: 1.7;

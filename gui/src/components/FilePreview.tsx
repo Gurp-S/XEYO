@@ -774,9 +774,9 @@ export const FilePreview = memo(function FilePreview() {
 				: '已保存';
 
 	const headerBar = (
-		<div className="flex h-10 shrink-0 items-center justify-between gap-2 px-2">
+		<div className="xy-file-preview-header flex h-10 shrink-0 items-center justify-between gap-2 px-2">
 			<div
-				className="min-w-0 truncate px-1 text-[12px] text-mute"
+				className="xy-file-preview-title min-w-0 truncate px-1 text-[12px] text-mute"
 				onContextMenu={event => {
 					const entryPath =
 						doc?.path || selectedPath || reviewDiff?.path || '';
@@ -825,38 +825,40 @@ export const FilePreview = memo(function FilePreview() {
 				)}
 				<span className="ml-2 text-[10px] text-mute">{saveHint}</span>
 			</div>
-			<div className="flex shrink-0 items-center gap-0.5">
-				{hasReview || liveDiff ? (
-					<button
-						type="button"
-						className={cn(
-							'rounded-md px-2 py-1 text-[11px] text-mute hover:bg-glass-hover hover:text-ink',
-							previewKind === 'diff' && 'bg-glass-hover text-ink',
-						)}
-						onClick={() =>
-							setPreviewKind(kind => (kind === 'diff' ? 'file' : 'diff'))
-						}
-					>
-						{previewKind === 'diff' ? '文件' : '改动'}
-					</button>
-				) : null}
-				{editable && !showDiff ? (
-					<>
-						{(
-							[
-								['preview', markdown ? '预览' : '高亮'],
-								['source', markdown ? '源码' : '编辑'],
-							] as const
-						).map(([id, label]) => (
+			<div className="xy-file-preview-actions flex shrink-0 items-center gap-1">
+				<div className="xy-file-preview-modes flex shrink-0 items-center gap-0.5" role="group" aria-label="文件视图">
+					{hasReview || liveDiff ? (
+						<button
+							type="button"
+							className={cn(
+								'xy-file-preview-mode rounded-md px-2 py-1 text-[11px] text-mute hover:bg-glass-hover hover:text-ink',
+								previewKind === 'diff' && 'bg-glass-hover text-ink',
+							)}
+							aria-label={previewKind === 'diff' ? '显示文件' : '显示改动'}
+							title={previewKind === 'diff' ? '切换到文件' : '切换到改动'}
+							onClick={() =>
+								setPreviewKind(kind => (kind === 'diff' ? 'file' : 'diff'))
+							}
+						>
+							{previewKind === 'diff' ? '文件' : '改动'}
+						</button>
+					) : null}
+					{editable && !showDiff ?
+						([
+							['preview', markdown ? '预览' : '高亮'],
+							['source', markdown ? '源码' : '编辑'],
+						] as const).map(([id, label]) => (
 							<button
 								key={id}
 								type="button"
 								className={cn(
-									'rounded-md px-2 py-1 text-[11px] text-mute hover:bg-glass-hover hover:text-ink',
+									'xy-file-preview-mode rounded-md px-2 py-1 text-[11px] text-mute hover:bg-glass-hover hover:text-ink',
 									previewKind === 'file' &&
 										mdMode === id &&
 										'bg-glass-hover text-ink',
 								)}
+								aria-pressed={previewKind === 'file' && mdMode === id}
+								title={label}
 								onClick={() => {
 									if (id === 'source') {
 										mdEditRef.current?.flush();
@@ -867,53 +869,55 @@ export const FilePreview = memo(function FilePreview() {
 							>
 								{label}
 							</button>
-						))}
-					</>
-				) : null}
-				{navEff && !previewExpanded ? (
+						))
+						: null}
+				</div>
+				<div className="xy-file-preview-utilities flex shrink-0 items-center gap-0.5">
+					{navEff && !previewExpanded ? (
+						<button
+							type="button"
+							className="xy-icon-btn rounded-md p-1.5 text-mute hover:bg-glass-hover hover:text-ink"
+							aria-label="展开右边内容"
+							title="展开右边内容"
+							onClick={toggleNavHidden}
+						>
+							<Columns2 className="h-3.5 w-3.5" />
+						</button>
+					) : null}
 					<button
 						type="button"
 						className="xy-icon-btn rounded-md p-1.5 text-mute hover:bg-glass-hover hover:text-ink"
-						aria-label="展开右边内容"
-						title="展开右边内容"
-						onClick={toggleNavHidden}
+						aria-label={previewExpanded ? '还原预览' : '放大预览'}
+						title={previewExpanded ? '还原预览' : '放大预览'}
+						onClick={() => setPreviewExpanded(!previewExpanded)}
 					>
-						<Columns2 className="h-3.5 w-3.5" />
+						{previewExpanded ? (
+							<Minimize2 className="h-3.5 w-3.5" />
+						) : (
+							<Maximize2 className="h-3.5 w-3.5" />
+						)}
 					</button>
-				) : null}
-				<button
-					type="button"
-					className="xy-icon-btn rounded-md p-1.5 text-mute hover:bg-glass-hover hover:text-ink"
-					aria-label={previewExpanded ? '还原预览' : '放大预览'}
-					title={previewExpanded ? '还原预览' : '放大预览'}
-					onClick={() => setPreviewExpanded(!previewExpanded)}
-				>
-					{previewExpanded ? (
-						<Minimize2 className="h-3.5 w-3.5" />
-					) : (
-						<Maximize2 className="h-3.5 w-3.5" />
-					)}
-				</button>
-				<button
-					type="button"
-					className="xy-icon-btn rounded-md p-1.5 text-mute hover:bg-glass-hover hover:text-ink"
-					aria-label="关闭预览"
-					onClick={() => {
-						const flushed = mdEditRef.current?.flush() ?? draftRef.current;
-						void persist(flushed).then(saved => {
-							if (!saved) {
-								return;
-							}
-							closePreview();
-							// 只剩文件预览（树导航已收起）时，关闭直接收起整个工作区。
-							if (navEff) {
-								collapseWorkspace();
-							}
-						});
-					}}
-				>
-					<X className="h-3.5 w-3.5" />
-				</button>
+					<button
+						type="button"
+						className="xy-icon-btn rounded-md p-1.5 text-mute hover:bg-glass-hover hover:text-ink"
+						aria-label="关闭预览"
+						onClick={() => {
+							const flushed = mdEditRef.current?.flush() ?? draftRef.current;
+							void persist(flushed).then(saved => {
+								if (!saved) {
+									return;
+								}
+								closePreview();
+								// 只剩文件预览（树导航已收起）时，关闭直接收起整个工作区。
+								if (navEff) {
+									collapseWorkspace();
+								}
+							});
+						}}
+					>
+						<X className="h-3.5 w-3.5" />
+					</button>
+				</div>
 			</div>
 		</div>
 	);
@@ -1033,7 +1037,7 @@ export const FilePreview = memo(function FilePreview() {
 				ref={paneRef as never}
 				className={cn(
 					'absolute inset-0 z-20 flex min-h-0 min-w-0 flex-col overflow-hidden',
-					'xy-workspace-chrome bg-paper',
+					'xy-workspace-chrome xy-file-preview-pane bg-paper',
 				)}
 				aria-label="文件预览（放大）"
 				onMouseEnter={hover.onMouseEnter}
@@ -1058,7 +1062,7 @@ export const FilePreview = memo(function FilePreview() {
 			paneRef={paneRef}
 			instant={hardSwitch}
 			className={cn(
-				'xy-workspace-chrome bg-transparent',
+				'xy-workspace-chrome xy-file-preview-pane bg-transparent',
 				!paneOpen && 'pointer-events-none',
 			)}
 			onMouseEnter={hover.onMouseEnter}

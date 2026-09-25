@@ -94,8 +94,6 @@ function Row({
 	chev,
 	onClick,
 	onContextMenu,
-	role,
-	ariaLevel,
 	ariaExpanded,
 	children,
 	subtree,
@@ -106,8 +104,6 @@ function Row({
 	chev?: boolean;
 	onClick?: () => void;
 	onContextMenu?: (event: ReactMouseEvent) => void;
-	role?: string;
-	ariaLevel?: number;
 	ariaExpanded?: boolean;
 	children: ReactNode;
 	subtree?: ReactNode;
@@ -118,8 +114,6 @@ function Row({
 				type="button"
 				onClick={onClick}
 				onContextMenu={onContextMenu}
-				role={role}
-				aria-level={ariaLevel}
 				aria-expanded={ariaExpanded}
 				className={cn(
 					'xy-pressable flex w-full items-center gap-1.5 rounded-md py-1 pr-2 text-left text-[13px] transition-colors',
@@ -192,8 +186,6 @@ const FileRow = memo(function FileRow({entry, depth}: {entry: WorkspaceEntry; de
 				open={isOpen}
 				active={isSel}
 				chev={isDir}
-				role="treeitem"
-				ariaLevel={depth}
 				ariaExpanded={isDir ? isOpen : undefined}
 				onClick={open}
 				onContextMenu={onContextMenu}
@@ -355,8 +347,6 @@ function JournalRow({change, depth}: {change: JournalChange; depth: number}) {
 		<Row
 			depth={depth}
 			active={isSel}
-			role="treeitem"
-			ariaLevel={depth}
 			onClick={open}
 			onContextMenu={onContextMenu}
 		>
@@ -652,8 +642,6 @@ function ReviewTree() {
 				depth={1}
 				open={journalOpen}
 				chev
-				role="treeitem"
-				ariaLevel={1}
 				ariaExpanded={journalOpen}
 				onClick={() => setJournalOpen(v => !v)}
 				subtree={
@@ -673,15 +661,13 @@ function ReviewTree() {
 				branches.map(b => {
 					const convId = b.session.id;
 					const convOpen = isOpen(convId);
-					const diffOpen = isOpen(`${convId}:diff`);
+					const diffOpen = isOpen(convId + ':diff');
 					return (
 						<Row
 							key={convId}
 							depth={1}
-								open={convOpen}
-								chev
-								role="treeitem"
-								ariaLevel={1}
+							open={convOpen}
+							chev
 							ariaExpanded={convOpen}
 							onClick={() => setOpen(o => ({...o, [convId]: !convOpen}))}
 							subtree={
@@ -691,79 +677,78 @@ function ReviewTree() {
 											depth={2}
 											open={diffOpen}
 											chev
-											role="treeitem"
-											ariaLevel={2}
 											ariaExpanded={diffOpen}
-											onClick={() => setOpen(o => ({...o, [`${convId}:diff`]: !diffOpen}))}
+											onClick={() => setOpen(o => ({...o, [convId + ':diff']: !diffOpen}))}
 											subtree={
 												diffOpen ? (
-												<TreeChildren open>
-													<PagedRows
-														items={b.changed}
-														empty={<li className="px-7 py-1 font-mono text-[11px] text-mute/70">无 diff</li>}
-														renderItem={f => (
-															<Row
-																key={f.path}
-																depth={3}
-																active={selectedPath === f.path}
-																role="treeitem"
-																ariaLevel={3}
-																onClick={() => void openReview({path: f.path, name: f.name, diff: f.diff ?? ''})}
-																onContextMenu={event => {
-																	const root =
-																		useChatStore.getState().spaces.find(
-																			sp =>
-																				sp.id ===
-																				useChatStore.getState().activeSpaceId,
-																		)?.rootPath ?? '';
-																	const absolutePath = joinWorkspacePath(root, f.path);
-																	showContextMenu(
-																		event,
-																		filePathMenuItems({
-																			entryPath: f.path,
-																			entryName: f.name,
-																			absolutePath,
-																			kind: 'file',
-																			onOpen: () => void useExplorerStore.getState().openFile(f.path),
-																			onOpenReview: () =>
-																				void openReview({path: f.path, name: f.name, diff: f.diff ?? ''}),
-																			includeSaveAs: false,
-																		}),
-																		`${f.name} 审查操作`,
-																	);
+													<TreeChildren open>
+														<PagedRows
+															items={b.changed}
+															empty={<li className="px-7 py-1 font-mono text-[11px] text-mute/70">无 diff</li>}
+															renderItem={f => (
+																<Row
+																	key={f.path}
+																	depth={3}
+																	active={selectedPath === f.path}
+																	onClick={() =>
+																		void openReview({path: f.path, name: f.name, diff: f.diff ?? ''})
+																	}
+																	onContextMenu={event => {
+																		const root =
+																			useChatStore.getState().spaces.find(
+																				sp =>
+																					sp.id ===
+																					useChatStore.getState().activeSpaceId,
+																			)?.rootPath ?? '';
+																		const absolutePath = joinWorkspacePath(root, f.path);
+																		showContextMenu(
+																			event,
+																			filePathMenuItems({
+																				entryPath: f.path,
+																				entryName: f.name,
+																				absolutePath,
+																				kind: 'file',
+																				onOpen: () =>
+																					void useExplorerStore.getState().openFile(f.path),
+																				onOpenReview: () =>
+																					void openReview({path: f.path, name: f.name, diff: f.diff ?? ''}),
+																				includeSaveAs: false,
+																			}),
+																			`${f.name} 审查操作`,
+																		);
 																	}}
-															>
-																<FileText className="h-3.5 w-3.5 shrink-0 text-mute" strokeWidth={1.8} />
-																<span className="min-w-0 flex-1 truncate">{f.name}</span>
-																<span className="font-mono text-[10px]">
-																	{f.add > 0 ? <span className="text-ok">+{f.add}</span> : null}
-																	{f.del > 0 ? <span className="text-danger">-{f.del}</span> : null}
-																</span>
-															</Row>
-														)}
-													/>
-												</TreeChildren>
-											) : undefined
-										}
-									>
-										<Boxes className="h-3.5 w-3.5 shrink-0 text-mute" strokeWidth={1.8} />
-										<span className="min-w-0 flex-1 truncate">历史diff</span>
-									</Row>
-									{/* 历史命令行：打开终端风格功能区界面（当前对话的所有命令行） */}
-									<Row depth={2} role="treeitem" ariaLevel={2} onClick={() => setActiveTool('history')}>
-										<TerminalSquare className="h-3.5 w-3.5 shrink-0 text-accent" strokeWidth={1.8} />
-										<span className="min-w-0 flex-1 truncate">历史命令行</span>
-										{commandsCount > 0 ? (
-											<span className="shrink-0 font-mono text-[10px] text-ok">+{commandsCount}</span>
-										) : null}
-									</Row>
-								</TreeChildren>
+																>
+																	<FileText className="h-3.5 w-3.5 shrink-0 text-mute" strokeWidth={1.8} />
+																	<span className="min-w-0 flex-1 truncate">{f.name}</span>
+																	<span className="font-mono text-[10px]">
+																		{f.add > 0 ? <span className="text-ok">+{f.add}</span> : null}
+																		{f.del > 0 ? <span className="text-danger">-{f.del}</span> : null}
+																	</span>
+																</Row>
+															)}
+														/>
+													</TreeChildren>
+												) : undefined
+											}
+										>
+											<Boxes className="h-3.5 w-3.5 shrink-0 text-mute" strokeWidth={1.8} />
+											<span className="min-w-0 flex-1 truncate">历史diff</span>
+										</Row>
+										{/* 历史命令行：打开终端风格功能区界面（当前对话的所有命令行） */}
+										<Row depth={2} onClick={() => setActiveTool('history')}>
+											<TerminalSquare className="h-3.5 w-3.5 shrink-0 text-accent" strokeWidth={1.8} />
+											<span className="min-w-0 flex-1 truncate">历史命令行</span>
+											{commandsCount > 0 ? (
+												<span className="shrink-0 font-mono text-[10px] text-ok">+{commandsCount}</span>
+											) : null}
+										</Row>
+									</TreeChildren>
 								) : undefined
 							}
-							>
-								<History className="h-3.5 w-3.5 shrink-0 text-mute" strokeWidth={1.8} />
-								<span className="min-w-0 flex-1 truncate">{b.session.title}</span>
-							</Row>
+						>
+							<History className="h-3.5 w-3.5 shrink-0 text-mute" strokeWidth={1.8} />
+							<span className="min-w-0 flex-1 truncate">{b.session.title}</span>
+						</Row>
 					);
 				})
 			)}
@@ -831,6 +816,7 @@ function GitTree() {
 				depth={1}
 				open={isOpen('branches')}
 				chev
+				ariaExpanded={isOpen('branches')}
 				onClick={() => setOpen(o => ({...o, branches: !isOpen('branches')}))}
 				subtree={
 					isOpen('branches') ? (
@@ -1060,6 +1046,7 @@ export const WorkspacePanel = memo(function WorkspacePanel() {
 									open={entryOpen}
 									active={entryActive}
 									chev={isTree}
+									ariaExpanded={isTree ? entryOpen : undefined}
 									onClick={() => onTop(entry)}
 									subtree={
 										isTree ? (
