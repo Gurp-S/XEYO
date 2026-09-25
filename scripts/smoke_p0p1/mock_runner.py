@@ -66,7 +66,14 @@ def _is_continuation(msgs: list[dict], last: dict | None) -> bool:
         )
     else:
         text = str(content or "")
-    return "# Continue（续写原问题" in text
+    # Newer engine turns carry their continuation context in a notice marked
+    # key="continue" and use the factual heading "工具结果后". Keep the older
+    # heading accepted for fixtures captured before that contract changed.
+    return (
+        'key="continue"' in text
+        or "# Continue（工具结果后）" in text
+        or "# Continue（续写原问题" in text
+    )
 
 
 def main() -> int:

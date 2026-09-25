@@ -33,7 +33,6 @@ const MOCK_BASE = `http://127.0.0.1:${process.env.XEYO_E2E_MOCK_PORT || '8491'}/
 const COMPOSER = '描述任务… Enter 发送';
 
 const EDIT_BUBBLE = '编辑这条消息';
-const EDIT_PREVIEW = '点击开始编辑';
 const EDIT_TEXTAREA = '编辑历史消息';
 const BTN_RESTORE = '恢复文件检查点';
 const BTN_UNDO = '撤销回溯';
@@ -126,16 +125,20 @@ async function findSessionAndMessageId(
 test('文件检查点回溯：Write 新建文件 → Restore 删除 → Undo 写回', async ({page}) => {
 	await send(page, '创建文件');
 
-	// 放行 T3 审批面板（permissionMode=always 路径下，UI 行为可能为 auto-allow
-	// 也可能弹面板；二者都尝试，按出现顺序点击。若并行 GUI 在途改动导致面板
-	// 文案变化，按钮名 "允许" 应仍稳定）。
+	// permissionMode=always 下 Write 会等待 T3 审批；必须等弹窗并确认收起，
+	// 再检查工具结果，避免把等待权限误判为工具已完成。
 	const panel = page.getByRole('alertdialog', {name: '请求批准'});
-	try {
-		await expect(panel).toBeVisible({timeout: 10_000});
-		await panel.getByRole('button', {name: '允许'}).click();
-	} catch {
-		/* auto-allow 路径：直接走文件落盘断言。 */
-	}
+	await expect(panel).toBeVisible({timeout: 30_000});
+	const approvalResponse = page.waitForResponse(
+		response =>
+			response.request().method() === 'POST' &&
+			response.url().includes('/v1/permission/resolve'),
+	);
+	await panel.getByRole('button', {name: '允许'}).click();
+	const receipt = await approvalResponse;
+	expect(receipt.ok()).toBe(true);
+	expect(await receipt.json()).toMatchObject({ok: true});
+	await expect(panel).toBeHidden({timeout: 15_000});
 
 	// Write 真实落盘 + 助理回复收尾（最权威的"工具真的写了"信号）。
 	await expect
@@ -172,7 +175,6 @@ test('文件检查点回溯：Write 新建文件 → Restore 删除 → Undo 写
 		.filter({hasText: '创建文件'})
 		.first()
 		.click();
-	await page.getByLabel(EDIT_PREVIEW).click();
 	const textarea = page.getByLabel(EDIT_TEXTAREA);
 	await expect(textarea).toBeVisible();
 	await textarea.fill('创建文件 v2');
