@@ -98,6 +98,7 @@ function Row({
 	ariaLevel,
 	ariaExpanded,
 	children,
+	subtree,
 }: {
 	depth: number;
 	open?: boolean;
@@ -109,6 +110,7 @@ function Row({
 	ariaLevel?: number;
 	ariaExpanded?: boolean;
 	children: ReactNode;
+	subtree?: ReactNode;
 }) {
 	return (
 		<li>
@@ -137,6 +139,7 @@ function Row({
 				</span>
 				{children}
 			</button>
+			{subtree}
 		</li>
 	);
 }
@@ -184,7 +187,6 @@ const FileRow = memo(function FileRow({entry, depth}: {entry: WorkspaceEntry; de
 	};
 
 	return (
-		<div>
 			<Row
 				depth={depth}
 				open={isOpen}
@@ -195,18 +197,17 @@ const FileRow = memo(function FileRow({entry, depth}: {entry: WorkspaceEntry; de
 				ariaExpanded={isDir ? isOpen : undefined}
 				onClick={open}
 				onContextMenu={onContextMenu}
+				subtree={isDir ? (
+					<TreeChildren open={isOpen}>
+						<FileRows parent={entry.path} depth={depth + 1} />
+					</TreeChildren>
+				) : undefined}
 			>
 				<span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center">
 					<SectionIcon entry={entry} />
 				</span>
 				<span className="min-w-0 flex-1 truncate">{entry.name}</span>
 			</Row>
-			{isDir ? (
-				<TreeChildren open={isOpen}>
-					<FileRows parent={entry.path} depth={depth + 1} />
-				</TreeChildren>
-			) : null}
-		</div>
 	);
 });
 
@@ -655,15 +656,17 @@ function ReviewTree() {
 				ariaLevel={1}
 				ariaExpanded={journalOpen}
 				onClick={() => setJournalOpen(v => !v)}
+				subtree={
+					journalOpen ? (
+						<TreeChildren open>
+							<JournalTree />
+						</TreeChildren>
+					) : undefined
+				}
 			>
 				<FileText className="h-3.5 w-3.5 shrink-0 text-accent" strokeWidth={1.8} />
 				<span className="min-w-0 flex-1 truncate">工作区变更</span>
 			</Row>
-			{journalOpen ? (
-				<TreeChildren open>
-					<JournalTree />
-				</TreeChildren>
-			) : null}
 			{branches.length === 0 ? (
 				<li className="px-7 py-1 font-mono text-[11px] text-mute/70">暂无对话记录</li>
 			) : (
@@ -672,22 +675,18 @@ function ReviewTree() {
 					const convOpen = isOpen(convId);
 					const diffOpen = isOpen(`${convId}:diff`);
 					return (
-						<div key={convId}>
-							<Row
-								depth={1}
+						<Row
+							key={convId}
+							depth={1}
 								open={convOpen}
 								chev
 								role="treeitem"
 								ariaLevel={1}
-								ariaExpanded={convOpen}
-								onClick={() => setOpen(o => ({...o, [convId]: !convOpen}))}
-							>
-								<History className="h-3.5 w-3.5 shrink-0 text-mute" strokeWidth={1.8} />
-								<span className="min-w-0 flex-1 truncate">{b.session.title}</span>
-							</Row>
-							{convOpen ? (
-								<TreeChildren open>
-									<div>
+							ariaExpanded={convOpen}
+							onClick={() => setOpen(o => ({...o, [convId]: !convOpen}))}
+							subtree={
+								convOpen ? (
+									<TreeChildren open>
 										<Row
 											depth={2}
 											open={diffOpen}
@@ -696,80 +695,75 @@ function ReviewTree() {
 											ariaLevel={2}
 											ariaExpanded={diffOpen}
 											onClick={() => setOpen(o => ({...o, [`${convId}:diff`]: !diffOpen}))}
-										>
-											<Boxes className="h-3.5 w-3.5 shrink-0 text-mute" strokeWidth={1.8} />
-											<span className="min-w-0 flex-1 truncate">历史diff</span>
-										</Row>
-										{diffOpen ? (
-											<TreeChildren open>
-												<PagedRows
-													items={b.changed}
-													empty={<li className="px-7 py-1 font-mono text-[11px] text-mute/70">无 diff</li>}
-													renderItem={f => (
-													<Row
-														key={f.path}
-														depth={3}
-														active={selectedPath === f.path}
-														role="treeitem"
-														ariaLevel={3}
-														onClick={() => void openReview({path: f.path, name: f.name, diff: f.diff ?? ''})}
-														onContextMenu={event => {
-															const root =
-																useChatStore.getState().spaces.find(
-																	sp =>
-																		sp.id ===
-																		useChatStore.getState().activeSpaceId,
-																)?.rootPath ?? '';
-															const absolutePath = joinWorkspacePath(
-																root,
-																f.path,
-															);
-															showContextMenu(
-																event,
-																filePathMenuItems({
-																	entryPath: f.path,
-																	entryName: f.name,
-																	absolutePath,
-																	kind: 'file',
-																	onOpen: () =>
-																		void useExplorerStore
-																			.getState()
-																			.openFile(f.path),
-																	onOpenReview: () =>
-																		void openReview({
-																			path: f.path,
-																			name: f.name,
-																			diff: f.diff ?? '',
+											subtree={
+												diffOpen ? (
+												<TreeChildren open>
+													<PagedRows
+														items={b.changed}
+														empty={<li className="px-7 py-1 font-mono text-[11px] text-mute/70">无 diff</li>}
+														renderItem={f => (
+															<Row
+																key={f.path}
+																depth={3}
+																active={selectedPath === f.path}
+																role="treeitem"
+																ariaLevel={3}
+																onClick={() => void openReview({path: f.path, name: f.name, diff: f.diff ?? ''})}
+																onContextMenu={event => {
+																	const root =
+																		useChatStore.getState().spaces.find(
+																			sp =>
+																				sp.id ===
+																				useChatStore.getState().activeSpaceId,
+																		)?.rootPath ?? '';
+																	const absolutePath = joinWorkspacePath(root, f.path);
+																	showContextMenu(
+																		event,
+																		filePathMenuItems({
+																			entryPath: f.path,
+																			entryName: f.name,
+																			absolutePath,
+																			kind: 'file',
+																			onOpen: () => void useExplorerStore.getState().openFile(f.path),
+																			onOpenReview: () =>
+																				void openReview({path: f.path, name: f.name, diff: f.diff ?? ''}),
+																			includeSaveAs: false,
 																		}),
-																	includeSaveAs: false,
-																}),
-																`${f.name} 审查操作`,
-															);
-														}}
-													>
-															<FileText className="h-3.5 w-3.5 shrink-0 text-mute" strokeWidth={1.8} />
-															<span className="min-w-0 flex-1 truncate">{f.name}</span>
-															<span className="font-mono text-[10px]">
-																{f.add > 0 ? <span className="text-ok">+{f.add}</span> : null}
-																{f.del > 0 ? <span className="text-danger">-{f.del}</span> : null}
-															</span>
-														</Row>
-													)}
-												/>
-											</TreeChildren>
-										) : null}
+																		`${f.name} 审查操作`,
+																	);
+																	}}
+															>
+																<FileText className="h-3.5 w-3.5 shrink-0 text-mute" strokeWidth={1.8} />
+																<span className="min-w-0 flex-1 truncate">{f.name}</span>
+																<span className="font-mono text-[10px]">
+																	{f.add > 0 ? <span className="text-ok">+{f.add}</span> : null}
+																	{f.del > 0 ? <span className="text-danger">-{f.del}</span> : null}
+																</span>
+															</Row>
+														)}
+													/>
+												</TreeChildren>
+											) : undefined
+										}
+									>
+										<Boxes className="h-3.5 w-3.5 shrink-0 text-mute" strokeWidth={1.8} />
+										<span className="min-w-0 flex-1 truncate">历史diff</span>
+									</Row>
 									{/* 历史命令行：打开终端风格功能区界面（当前对话的所有命令行） */}
 									<Row depth={2} role="treeitem" ariaLevel={2} onClick={() => setActiveTool('history')}>
-											<TerminalSquare className="h-3.5 w-3.5 shrink-0 text-accent" strokeWidth={1.8} />
-											<span className="min-w-0 flex-1 truncate">历史命令行</span>
-											{commandsCount > 0 ? (
-												<span className="shrink-0 font-mono text-[10px] text-ok">+{commandsCount}</span>
-											) : null}
-										</Row>
-									</div>
+										<TerminalSquare className="h-3.5 w-3.5 shrink-0 text-accent" strokeWidth={1.8} />
+										<span className="min-w-0 flex-1 truncate">历史命令行</span>
+										{commandsCount > 0 ? (
+											<span className="shrink-0 font-mono text-[10px] text-ok">+{commandsCount}</span>
+										) : null}
+									</Row>
 								</TreeChildren>
-							) : null}
-						</div>
+								) : undefined
+							}
+							>
+								<History className="h-3.5 w-3.5 shrink-0 text-mute" strokeWidth={1.8} />
+								<span className="min-w-0 flex-1 truncate">{b.session.title}</span>
+							</Row>
 					);
 				})
 			)}
@@ -833,41 +827,48 @@ function GitTree() {
 
 	return (
 		<>
-			<Row depth={1} open={isOpen('branches')} chev onClick={() => setOpen(o => ({...o, branches: !isOpen('branches')}))}>
+			<Row
+				depth={1}
+				open={isOpen('branches')}
+				chev
+				onClick={() => setOpen(o => ({...o, branches: !isOpen('branches')}))}
+				subtree={
+					isOpen('branches') ? (
+						<TreeChildren open>
+							{state.loading ? (
+								<li className="px-7 py-1 font-mono text-[11px] text-mute/70">加载中…</li>
+							) : !rootPath.trim() ? (
+								<li className="px-7 py-1 font-mono text-[11px] text-mute/70">还没有打开文件夹</li>
+							) : state.error || noRepo ? (
+								<li className="px-7 py-1 font-mono text-[11px] text-mute/70">
+									{state.error ? '加载失败' : '当前工作区不是 Git 仓库'}
+								</li>
+							) : (
+								(state.branches?.branches ?? []).map(b => (
+									<Row key={b} depth={2} onClick={() => setActiveTool('git')}>
+										<GitBranch
+											className={cn(
+												'h-3.5 w-3.5 shrink-0',
+												b === state.branches?.current ? 'text-accent' : 'text-mute',
+											)}
+											strokeWidth={1.8}
+										/>
+										<span className={cn('min-w-0 flex-1 truncate', b === state.branches?.current && 'text-accent')}>
+											{b}
+										</span>
+										{b === state.branches?.current ? (
+											<span className="rounded bg-accent/15 px-1 py-0.5 text-[11px] leading-none text-accent">当前</span>
+										) : null}
+									</Row>
+								))
+							)}
+						</TreeChildren>
+					) : undefined
+				}
+			>
 				<GitBranch className="h-3.5 w-3.5 shrink-0 text-mute" strokeWidth={1.8} />
 				<span className="min-w-0 flex-1 truncate">分支</span>
 			</Row>
-			{isOpen('branches') ? (
-				<TreeChildren open>
-					{state.loading ? (
-						<li className="px-7 py-1 font-mono text-[11px] text-mute/70">加载中…</li>
-					) : !rootPath.trim() ? (
-						<li className="px-7 py-1 font-mono text-[11px] text-mute/70">还没有打开文件夹</li>
-					) : state.error || noRepo ? (
-						<li className="px-7 py-1 font-mono text-[11px] text-mute/70">
-							{state.error ? '加载失败' : '当前工作区不是 Git 仓库'}
-						</li>
-					) : (
-						(state.branches?.branches ?? []).map(b => (
-							<Row key={b} depth={2} onClick={() => setActiveTool('git')}>
-								<GitBranch
-									className={cn(
-										'h-3.5 w-3.5 shrink-0',
-										b === state.branches?.current ? 'text-accent' : 'text-mute',
-									)}
-									strokeWidth={1.8}
-								/>
-								<span className={cn('min-w-0 flex-1 truncate', b === state.branches?.current && 'text-accent')}>
-									{b}
-								</span>
-								{b === state.branches?.current ? (
-									<span className="rounded bg-accent/15 px-1 py-0.5 text-[11px] leading-none text-accent">当前</span>
-								) : null}
-							</Row>
-						))
-					)}
-				</TreeChildren>
-			) : null}
 			{/* 提交记录：打开终端风格功能区界面（全部提交记录） */}
 			<Row
 				depth={1}
@@ -1053,31 +1054,32 @@ export const WorkspacePanel = memo(function WorkspacePanel() {
 									? entryOpen
 									: activeTool === entry.func;
 							return (
-								<div key={entry.key}>
 								<Row
+									key={entry.key}
 									depth={0}
 									open={entryOpen}
 									active={entryActive}
 									chev={isTree}
 									onClick={() => onTop(entry)}
+									subtree={
+										isTree ? (
+											/* 常挂载 + is-open/is-closed：展开/收起都有 grid-rows 平滑过渡；
+											   首次挂载/卸载没有前值，动画不会触发。 */
+											<TreeChildren open={entryOpen}>
+												{entry.key === 'files' ? (
+													<FilesTree />
+												) : entry.key === 'history' ? (
+													<ReviewTree />
+												) : (
+													<GitTree />
+												)}
+											</TreeChildren>
+										) : undefined
+									}
 								>
 									<Icon className="h-3.5 w-3.5 shrink-0 text-accent" strokeWidth={1.9} />
 									<span className="min-w-0 flex-1 truncate">{entry.label}</span>
 								</Row>
-								{isTree ? (
-									/* 常挂载 + is-open/is-closed：展开/收起都有 grid-rows 平滑过渡；
-									   首次挂载/卸载没有前值，动画不会触发。 */
-									<TreeChildren open={entryOpen}>
-										{entry.key === 'files' ? (
-											<FilesTree />
-										) : entry.key === 'history' ? (
-											<ReviewTree />
-										) : (
-											<GitTree />
-										)}
-									</TreeChildren>
-								) : null}
-								</div>
 							);
 						})}
 					</ul>
