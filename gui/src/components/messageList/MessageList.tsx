@@ -90,9 +90,12 @@ function SessionPendingState({workspaceName}: {workspaceName: string}) {
 			aria-busy="true"
 		>
 			<div className="flex min-h-0 flex-1 flex-col justify-end gap-2.5 overflow-hidden px-3 pb-10 sm:px-5 md:px-8">
-				<div className="h-9 w-2/3 self-end animate-pulse rounded-2xl bg-black/[0.06]" />
-				<div className="h-4 w-3/5 animate-pulse rounded-full bg-black/[0.04]" />
-				<div className="h-4 w-4/5 animate-pulse rounded-full bg-black/[0.04]" />
+				{/* 骨架必须跟着主题翻：原先写 bg-black/[0.0x]，深色下对底噪比实测 1.01
+				    ——正在加载的界面在深色主题里等于什么都不显示。bg-ink 在浅色下压暗、
+				    深色下提亮，两种主题都看得见。 */}
+				<div className="h-9 w-2/3 self-end animate-pulse rounded-2xl bg-ink/[0.06]" />
+				<div className="h-4 w-3/5 animate-pulse rounded-full bg-ink/[0.04]" />
+				<div className="h-4 w-4/5 animate-pulse rounded-full bg-ink/[0.04]" />
 			</div>
 			<span className="sr-only">正在载入{workspaceName}的对话…</span>
 		</div>

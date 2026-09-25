@@ -266,7 +266,7 @@ export function WorkspaceRevertDialog({
 								type="button"
 								onClick={onRetryCheckpoint}
 								disabled={confirming}
-								className="rounded-full border-none bg-warn px-4 py-1.5 font-sans text-[12px] font-semibold text-white transition-colors hover:bg-[color-mix(in_srgb,var(--xy-warn)_88%,black)] disabled:opacity-60"
+								className="rounded-full border-none bg-warn px-4 py-1.5 font-sans text-[12px] font-semibold text-warn-ink transition-colors hover:bg-[color-mix(in_srgb,var(--xy-warn)_88%,black)] disabled:opacity-60"
 							>
 								{confirming ? '正在恢复…' : '从检查点恢复'}
 							</button>

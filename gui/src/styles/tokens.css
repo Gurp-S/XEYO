@@ -14,6 +14,10 @@
   --color-accent-soft: var(--xy-accent-soft);
   --color-accent-hover: var(--xy-accent-hover);
   --color-warn: var(--xy-warn);
+  /* warn/danger 这类"浅色底"状态色上不能放白字：实测 bg-warn + 白字
+     浅色 2.53 / 深色 1.64（正文门槛 4.5）。这两套 warn 都是亮琥珀，
+     所以前景一律走深墨、不随明暗翻——和 --xy-on-accent 必须翻的情形相反。 */
+  --color-warn-ink: var(--xy-warn-ink);
   --color-danger: var(--xy-danger);
   --color-ok: var(--xy-ok);
   --color-on-accent: var(--xy-on-accent);
@@ -80,6 +84,9 @@ html[data-scheme="dark"] {
   --xy-danger-bg: color-mix(in oklch, var(--xy-danger) 10%, transparent);
   --xy-warn-line: color-mix(in oklch, var(--xy-warn) 36%, transparent);
   --xy-warn-bg: color-mix(in oklch, var(--xy-warn) 12%, transparent);
+  /* warn 实心底上的前景（按钮/徽标）。两套主题的 warn 都是亮琥珀 ⇒ 深墨在两边都过 AA：
+     浅色 5.03、深色 7.74；换成白字则掉到 2.53 / 1.64。 */
+  --xy-warn-ink: oklch(0.28 0.04 70);
   /* 既有四个阴影名保留为别名（消费者很多）：统一由海拔推导，换主题不换层级 */
   --xy-composer-shadow: var(--xy-elev-2);
   --xy-modal-shadow: var(--xy-elev-3);
