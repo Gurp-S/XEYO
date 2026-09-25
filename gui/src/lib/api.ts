@@ -843,53 +843,6 @@ export async function listWorkspaceEntries(
 	return parseWorkspaceListing(await res.json());
 }
 
-export type WorkspaceGraphFile = {
-	id: string;
-	name: string;
-	layer: string;
-	pkg: string;
-};
-
-export type WorkspaceGraphPackage = {
-	id: string;
-	name: string;
-	layer: string;
-	files: number;
-};
-
-export type WorkspaceGraphEdge = {from: string; to: string};
-
-export type WorkspaceGraph = {
-	ok: boolean;
-	cwd: string;
-	fileCount: number;
-	truncated: boolean;
-	layers: string[];
-	files: WorkspaceGraphFile[];
-	fileEdges: WorkspaceGraphEdge[];
-	packages: WorkspaceGraphPackage[];
-	packageEdges: WorkspaceGraphEdge[];
-};
-
-export async function fetchWorkspaceGraph(workspace?: string): Promise<WorkspaceGraph> {
-	const query = workspace ? `?${new URLSearchParams({workspace})}` : '';
-	const res = await fetchWithTimeout(
-		apiUrl(`/v1/workspace/graph${query}`),
-		{cache: 'no-store'},
-		45_000,
-	);
-	if (!res.ok) {
-		let payload: unknown = null;
-		try {
-			payload = await res.json();
-		} catch {
-			/* 忽略 */
-		}
-		throw new Error(formatErrorDetail(payload, res.status));
-	}
-	return (await res.json()) as WorkspaceGraph;
-}
-
 export type WorkspaceSearchResult = {
 	cwd: string;
 	query: string;
