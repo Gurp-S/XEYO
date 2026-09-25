@@ -506,7 +506,7 @@ def check_frozen_head(run: RunEvidence) -> list[Finding]:
 					Finding(
 						rule_id="frozen_head",
 						rule_version=RULESET_VERSION,
-						phenomenon="同一折叠区间内冻结摘要指纹发生变化",
+						phenomenon="同一折叠区间内冻结摘要长度发生变化",
 						boundary="wsc_fold",
 						component="前缀冻结不变量",
 						status=CONFIRMED_FAULT,
@@ -515,11 +515,18 @@ def check_frozen_head(run: RunEvidence) -> list[Finding]:
 								source="working",
 								locator=_s(run.working.get("locator")),
 								ref_id="compact_checkpoint.window_chain",
-								detail=f"cursor={entry.get('cursor')} fp {prev.get('summary_fp')}→{entry.get('summary_fp')}",
+								detail=(
+									f"cursor={entry.get('cursor')} "
+									f"摘要长度 {prev.get('summary_fp')}→{entry.get('summary_fp')}"
+								),
 							)
 						],
 						impact="两次折叠之间前缀必须逐字不变；变化会让缓存命中作废并使对比实验失配。",
-						coverage_gap="window_chain 只记折叠边界，不记每次发射的头内容。",
+						coverage_gap=(
+							"判据比的是摘要长度（生产者在 summary_fp 里存的是 len(summary_text)），"
+							"等长而不同文的改动这条看不见；window_chain 也只记折叠边界，"
+							"不记每次发射的头内容。"
+						),
 						allowed_conclusion="可确认前缀稳定性不变量失败。",
 					)
 				)

@@ -896,3 +896,75 @@ def test_usage_row_outside_the_ledger_window_is_not_called_unaccounted(write_aud
 	assert gap and "读完整份" in gap[0].detail
 	window = run.window("usage")
 	assert window is not None and window.truncated is False
+
+
+def test_window_chain_reaches_the_rule_whole(tmp_path, monkeypatch) -> None:
+	"""working 快照里的整条窗口链必须交给冻结前缀规则，不先在采集器里切掉。
+
+	采集器曾写 ``[-50:]``：链更长时最早那段违规看不见，也没人声明"只看了最后 50 条"，
+	而规则照发"不变量失败/未失败"的结论。真实数据里最长一条链有 116 条（50 个真实
+	会话带非空链），这条限制不是理论上的。
+	"""
+	import types
+
+	from diagnostics.collect import RunEvidence, _collect_working
+	from diagnostics.rules import check_frozen_head
+
+	chain = [{"cursor": 0, "frozen_until": 10, "summary_fp": 111}]
+	chain += [{"cursor": 0, "frozen_until": 10, "summary_fp": 222}]
+	for i in range(58):  # 往后每段换区间，不再制造第二处违规
+		chain.append({"cursor": i + 1, "frozen_until": 20 + i, "summary_fp": 222})
+	assert len(chain) == 60
+
+	snap = types.SimpleNamespace(
+		session_id="s1",
+		compact_checkpoint=types.SimpleNamespace(
+			anchor_cursor=0, anchor_frozen_until=10, window_chain=chain
+		),
+	)
+	monkeypatch.setattr("memory.working.hydrate", lambda _sid: snap)
+
+	run = RunEvidence(session_id="s1", turn_id="t1")
+	_collect_working(run, "s1")
+
+	carried = run.working["compact_checkpoint"]
+	assert len(carried["window_chain"]) == 60, len(carried["window_chain"])
+	assert carried["window_chain_total"] == 60
+
+	findings = check_frozen_head(run)
+	assert len(findings) == 1, "链首那处违规被采集器切掉了"
+	assert "摘要长度" in findings[0].phenomenon
+	assert "len(summary_text)" in findings[0].coverage_gap
+
+
+def _fold_gap_detail(run, ledger: Path) -> str:
+	from diagnostics.collect import _collect_folds
+
+	_collect_folds(run, _SESSION)
+	gaps = [g for g in run.gaps if g.boundary == "wsc_fold" and g.reason == "no_records"]
+	assert gaps, [f"{g.boundary}/{g.reason}" for g in run.gaps]
+	return gaps[0].detail
+
+
+def test_fold_gap_carries_the_folding_evidence(tmp_path, monkeypatch) -> None:
+	from diagnostics.collect import RunEvidence
+	"""折叠账本对本会话零行时，把 working 快照里的折叠边界数一起说出来。
+
+	全量普查（540 真实轮）里这条缺项对 539/540 同形 —— 恒真的"没记录"不携带本轮
+	信息；而同一批数据里 50 个会话的快照确实带折叠边界。那部分应当变成证据。
+	"""
+	ledger = tmp_path / "fold_events.jsonl"
+	_write_jsonl(ledger, [{"session_id": "someone-else", "fold": True}])
+	monkeypatch.setattr("usage.ledger.fold_events_path", lambda: ledger)
+
+	with_chain = RunEvidence(session_id=_SESSION, turn_id=_TURN)
+	with_chain.working = {
+		"locator": str(ledger),
+		"compact_checkpoint": {"window_chain_total": 29},
+	}
+	detail = _fold_gap_detail(with_chain, ledger)
+	assert "29 条折叠边界" in detail, detail
+
+	without = RunEvidence(session_id=_SESSION, turn_id=_TURN)
+	without.working = {"locator": str(ledger)}
+	assert "working 快照也没有折叠边界记录" in _fold_gap_detail(without, ledger)

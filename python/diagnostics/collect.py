@@ -641,10 +641,15 @@ def _collect_working(run: RunEvidence, session_id: str) -> None:
 		}
 	if checkpoint is not None:
 		chain = getattr(checkpoint, "window_chain", None) or []
+		# 整条带给规则：每条只有三个整数（cursor/frozen_until/summary_fp），实测最长
+		# 116 条（50 个真实会话）。原先切 [-50:]，冻结前缀规则于是只核对最后 50 条
+		# 却照发"不变量失败/通过"的结论 —— 更长的链里最早那一段违规被静默丢掉。
+		chain_rows = [dict(w) for w in chain if isinstance(w, dict)]
 		run.working["compact_checkpoint"] = {
 			"anchor_cursor": int(getattr(checkpoint, "anchor_cursor", 0) or 0),
 			"anchor_frozen_until": int(getattr(checkpoint, "anchor_frozen_until", 0) or 0),
-			"window_chain": [dict(w) for w in chain if isinstance(w, dict)][-50:],
+			"window_chain": chain_rows,
+			"window_chain_total": len(chain_rows),
 			"summary_fp": _s((chain[-1] if chain else {}) or {}).strip()[:16] if chain else "",
 		}
 	run.windows.append(
@@ -783,11 +788,23 @@ def _collect_folds(run: RunEvidence, session_id: str) -> None:
 	# 折叠事件按会话写、行内不带轮次身份，所以这条对每一轮都同形（真实数据 27/40 轮
 	# 曾被规则层当成"本轮未定"重复报出）。放在这里，措辞只说这一级没有可核对的记录。
 	if scan.present and window.complete and not window.rows_matched:
+		# 全量普查（540 真实轮）里这条对 539 轮同形 —— 一条恒真的"没记录"不携带
+		# 本轮信息。但同一批数据里有 50 个会话的 working 快照确实带着折叠边界
+		# （中位 29 条）：那部分会话这条缺项可以多说一句真话，把它从噪音变成证据。
+		chain_total = int(
+			(run.working.get("compact_checkpoint") or {}).get("window_chain_total") or 0
+		)
+		folding_evidence = (
+			f"同一会话的 working 快照里有 {chain_total} 条折叠边界记录（折叠发生过，"
+			f"只是这一级账本没记上）"
+			if chain_total
+			else "working 快照也没有折叠边界记录"
+		)
 		run.add_gap(
 			"wsc_fold",
 			"no_records",
 			"折叠账本可读且窗口完整，但本会话没有任何折叠记录行："
-			"这一级没有可核对的记录 —— 既不能说明折叠没发生，也不能说明发生过。",
+			f"这一级没有可核对的记录 —— 既不能说明折叠没发生，也不能说明发生过。{folding_evidence}。",
 		)
 	if scan.truncated:
 		run.add_gap(
