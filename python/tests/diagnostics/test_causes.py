@@ -1,9 +1,13 @@
-"""失败原因分类：每条都必须自带"能证明什么/不能证明什么"，且不得合并成综合结论。"""
+"""失败原因分类：每条都必须自带"能证明什么/不能证明什么"，且不得合并成综合结论。
+
+另有一道覆盖率门：规则集里每一条规则都必须能走到"可能原因"清单
+（映射、专门通路，或写明理由的豁免），否则它产出的事实在这份报告上是隐形的。"""
 
 from __future__ import annotations
 
 import json
 
+from diagnostics import causes as _causes
 from diagnostics.causes import (
 	ACCEPT_MISSING,
 	CONSTRAINT_FOLDED,
@@ -17,18 +21,18 @@ from diagnostics.causes import (
 )
 from diagnostics.collect import ModelRequest, RunEvidence, ToolCall
 from diagnostics.fault_split import attribute_fault
-from diagnostics.identity import CONFIRMED_FAULT, EvidenceRef, Finding
+from diagnostics.identity import CONFIRMED_FAULT, UNKNOWN, EvidenceRef, Finding
 from session.persistence import transcript_path
 
 
-def _finding(rule_id: str, boundary: str, *, detail: str = "") -> Finding:
+def _finding(rule_id: str, boundary: str, *, detail: str = "", status: str = CONFIRMED_FAULT) -> Finding:
 	return Finding(
 		rule_id=rule_id,
 		rule_version=1,
 		phenomenon=f"{rule_id} 现象",
 		boundary=boundary,
 		component="测试组件",
-		status=CONFIRMED_FAULT,
+		status=status,
 		evidence=[EvidenceRef(source="audit", locator="audit.jsonl", ref_id="L7", detail=detail)],
 		coverage_gap="测试夹具",
 		allowed_conclusion="测试夹具",
@@ -80,6 +84,76 @@ def test_projection_break_becomes_its_own_cause() -> None:
 	head = primary(verdict["causes"])
 	assert head["code"] == PROJECTION_BROKEN and head["party"] == "engine"
 	assert head["evidence"], "原因必须能回到原始记录"
+# --- 规则 → 原因 的覆盖率门 ------------------------------------------------- #
+
+# 不经过 _RULE_CAUSES、另有专门通路的两条：写清楚，免得被当成漏映射。
+_SPECIAL_PATH = {
+	"tool_failure": "经 fault_split 的 tool_error_kinds 通路产出 tool_execution_error",
+	"verifier": "经任务结局（accepted_fail / verifier_error）产出验收类原因",
+}
+
+# 刻意不进原因清单的规则，必须写理由。
+_CAUSE_EXEMPT = {
+	"no_turn_records": "本轮连自己的记录都读不出：它是缺项说明，不是一种失败类型",
+}
+
+
+def test_every_rule_reaches_the_cause_list_or_is_exempt_with_a_reason() -> None:
+	"""新增一条规则却没人把它接进"可能原因"，等于这条规则在报告上是隐形的。"""
+	from diagnostics import rules
+
+	rule_ids = {r.rule_id for r in rules.RULES}
+	mapped = {rule_id for _code, rule_id, _status in _causes._RULE_CAUSES}
+	unclaimed = sorted(rule_ids - mapped - set(_SPECIAL_PATH) - set(_CAUSE_EXEMPT))
+	assert unclaimed == [], f"这些规则产出的事实进不了原因清单：{unclaimed}"
+	# 反向门：映射里不得有已经改名/删掉的规则 id —— 那样那条原因永远产不出。
+	dangling = sorted(mapped - rule_ids)
+	assert dangling == [], f"这些原因映射到已经不存在的规则：{dangling}"
+
+
+def test_every_cause_code_is_fully_described() -> None:
+	"""新增原因码时三张表都要齐：漏一条就会在报告里渲染成半句话。"""
+	for code in _causes.CAUSE_LABEL:
+		assert code in _causes._PROVES, code
+		assert code in _causes._CAUSE_PARTY, code
+		proves, not_proves = _causes._PROVES[code]
+		assert proves and not_proves, code
+	assert set(_causes.CAUSE_LABEL) == set(_causes._PROVES) == set(_causes._CAUSE_PARTY)
+
+
+def test_rerouted_tool_call_becomes_its_own_cause() -> None:
+	"""改道是执行层事实：它进原因清单，但不把责任判给任何一方。"""
+	f = _finding("tool_routing", "tool_permission", detail="Bash→Glob dir doc/", status=UNKNOWN)
+	verdict = attribute_fault(_run(), [f])
+	entry = next((c for c in verdict["causes"] if c["code"] == "tool_action_rerouted"), None)
+	assert entry is not None, verdict["causes"]
+	assert entry["party"] == "undetermined"
+	assert entry["evidence"][0]["detail"] == "Bash→Glob dir doc/"
+	assert "不能把改道判成分发故障" in entry["does_not_prove"]
+
+def test_confirmed_cause_survives_an_unknown_sibling_of_the_same_rule() -> None:
+	"""同一条规则一边已确认、一边未定时，已确认那条原因不得被邻居顶掉。
+
+	真实形状：tool_pair_integrity 既会报「投影结构坏了」（已确认、引擎定责），
+	也会报「工作记忆里存着不成对的 tool_use」（未定）。规则集把已确认排在前面，
+	旧实现按规则只记最后一个状态 ⇒ 未定的邻居把原因整条抹掉，
+	而未定那条的证据还会挂到已确认的原因上。
+	"""
+	confirmed = _finding("tool_pair_integrity", "adapter", detail="invariant_errors:orphan_tool_results:1")
+	sibling = _finding("tool_pair_integrity", "wsc_fold", detail="canonical_unpaired_tool_calls:2", status=UNKNOWN)
+	verdict = attribute_fault(_run(), [confirmed, sibling])
+	assert PROJECTION_BROKEN in _codes(verdict), verdict["causes"]
+	entry = next(c for c in verdict["causes"] if c["code"] == PROJECTION_BROKEN)
+	assert [e["detail"] for e in entry["evidence"]] == ["invariant_errors:orphan_tool_results:1"], (
+		"未定邻居的证据不得挂到已确认的原因上"
+	)
+
+def test_unknown_only_rule_does_not_invent_a_confirmed_cause() -> None:
+	"""反向：只有未定项时不得替这条规则产出已确认原因。"""
+	sibling = _finding("tool_pair_integrity", "wsc_fold", detail="canonical_unpaired_tool_calls:2", status=UNKNOWN)
+	verdict = attribute_fault(_run(), [sibling])
+	assert PROJECTION_BROKEN not in _codes(verdict), verdict["causes"]
+
 
 
 def test_constraint_loss_is_the_upstream_cause(monkeypatch) -> None:

@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Any
 
 from diagnostics.collect import RunEvidence
-from diagnostics.identity import CONFIRMED_FAULT, SUSPECTED_CAUSE, Finding, _s
+from diagnostics.identity import CONFIRMED_FAULT, SUSPECTED_CAUSE, UNKNOWN, Finding, _s
 
 # 原因码：稳定主键，标签只是展示。
 CONTEXT_DROPPED = "context_dropped_constraint"
@@ -31,6 +31,8 @@ ACCEPT_MISSING = "acceptance_missing"
 DISPLAY_GAP = "display_transport_gap"
 USAGE_UNACCOUNTED = "usage_unaccounted"
 RUN_INCOMPLETE = "run_incomplete"
+TOOL_ROUTED = "tool_action_rerouted"
+CONTEXT_CHANGED_MIDTURN = "instruction_context_changed_midturn"
 NOT_DETERMINED = "not_determined"
 CONSTRAINT_FOLDED = "constraint_folded_out_of_projection"
 
@@ -52,6 +54,8 @@ CAUSE_LABEL: dict[str, str] = {
 	DISPLAY_GAP: "引擎已完成而界面/事件流缺尾",
 	USAGE_UNACCOUNTED: "部分请求没有用量账，费用未知",
 	RUN_INCOMPLETE: "运行有开始记录无结束记录",
+	TOOL_ROUTED: "工具调用在执行层换了另一个工具",
+	CONTEXT_CHANGED_MIDTURN: "同一轮内送出的指令上下文标识变过",
 	CONSTRAINT_FOLDED: "在场的约束被折叠移出投影",
 	NOT_DETERMINED: "没有可核对的失败原因",
 }
@@ -86,6 +90,14 @@ _PROVES: dict[str, tuple[str, str]] = {
 	DISPLAY_GAP: ("服务端与界面之间存在缺口", "不能证明引擎未完成"),
 	USAGE_UNACCOUNTED: ("这些请求的费用未知", "不能把它们按 0 计入合计"),
 	RUN_INCOMPLETE: ("结束记录缺失", "不能证明进程已死"),
+	TOOL_ROUTED: (
+		"这些调用请求的是左边的工具、实际执行的是右边的（审计 tool.routed 行）",
+		"不能把改道判成分发故障：它是执行层策略；也不能说这一枪每次都改道",
+	),
+	CONTEXT_CHANGED_MIDTURN: (
+		"同一轮内的模型/工具行带着不止一个该标识",
+		"不能证明变化发生在两次尝试之间，也不能判定哪一版才是预期的",
+	),
 	NOT_DETERMINED: ("本次记录不足以给出原因", "不等于没有失败，也不等于成功"),
 }
 
@@ -97,6 +109,9 @@ _CAUSE_PARTY: dict[str, str] = {
 	PREFIX_CHANGED: "engine",
 	COLD_REF_UNREADABLE: "engine",
 	PERMISSION_BLOCKED: "engine",
+	# 工具失败先记"未定"：归属要靠 error_kind（fault_split 的 tool_parties 通路），
+	# 这一栏以前根本不在表里，是 _entry 的 .get 默认值把它兜成 undetermined 的。
+	TOOL_ERROR: "undetermined",
 	PROVIDER_FAILURE: "environment",
 	REPEATED_ERROR: "undetermined",
 	ACTION_SKIPPED: "model",
@@ -107,16 +122,20 @@ _CAUSE_PARTY: dict[str, str] = {
 	DISPLAY_GAP: "engine",
 	USAGE_UNACCOUNTED: "undetermined",
 	RUN_INCOMPLETE: "undetermined",
+	TOOL_ROUTED: "undetermined",
+	CONTEXT_CHANGED_MIDTURN: "undetermined",
 	NOT_DETERMINED: "undetermined",
 }
 
 # (原因码, 触发它的规则 id, 需要的状态)
 _RULE_CAUSES: tuple[tuple[str, str, str], ...] = (
+	(CONTEXT_CHANGED_MIDTURN, "instruction_drift", SUSPECTED_CAUSE),
 	(PROJECTION_BROKEN, "tool_pair_integrity", CONFIRMED_FAULT),
 	(OUTPUT_DROPPED, "wire_gap", CONFIRMED_FAULT),
 	(PREFIX_CHANGED, "frozen_head", CONFIRMED_FAULT),
 	(COLD_REF_UNREADABLE, "cold_reference", CONFIRMED_FAULT),
 	(PERMISSION_BLOCKED, "permission_block", CONFIRMED_FAULT),
+	(TOOL_ROUTED, "tool_routing", UNKNOWN),
 	(PROVIDER_FAILURE, "provider_stream_failure", CONFIRMED_FAULT),
 	(REPEATED_ERROR, "repeated_failure", SUSPECTED_CAUSE),
 	(USAGE_UNACCOUNTED, "usage_accounting", CONFIRMED_FAULT),
@@ -149,12 +168,9 @@ def derive(
 	display_gap: bool = False,
 ) -> list[dict[str, Any]]:
 	"""按上游优先顺序产出原因列表。一个失败可以同时挂多条原因，不做合并。"""
-	by_rule: dict[str, list[dict[str, Any]]] = {}
-	status_of: dict[str, str] = {}
+	by_rule: dict[str, list[Finding]] = {}
 	for f in findings:
-		refs = [e.to_dict() for e in f.evidence]
-		by_rule.setdefault(f.rule_id, []).extend(refs)
-		status_of[f.rule_id] = f.status
+		by_rule.setdefault(f.rule_id, []).append(f)
 	out: list[dict[str, Any]] = []
 	if constraint_lost:
 		entry = _entry(CONTEXT_DROPPED, [])
@@ -164,12 +180,18 @@ def derive(
 			entry["proves"], entry["does_not_prove"] = _PROVES[CONSTRAINT_FOLDED]
 		out.append(entry)
 	for code, rule_id, want_status in _RULE_CAUSES:
-		refs = by_rule.get(rule_id) or []
-		if not refs:
+		# 同一条规则可以一边产出"已确认"一边产出"未定"（例：投影结构坏了 + 工作记忆里
+		# 存着不成对的 tool_use）。过去这里只记每条规则的**最后**一个状态，而规则集把
+		# 已确认排在前面 ⇒ 邻居那条未定会把已确认的原因顶掉，原因列表里就此看不见它；
+		# 证据又是按规则合并的，未定那半的证据还会挂到已确认的原因上。按状态各取各的。
+		matched = [
+			f
+			for f in by_rule.get(rule_id) or []
+			if f.status == want_status or code == REPEATED_ERROR
+		]
+		if not matched:
 			continue
-		if status_of.get(rule_id) != want_status and code != REPEATED_ERROR:
-			continue
-		out.append(_entry(code, refs))
+		out.append(_entry(code, [e.to_dict() for f in matched for e in f.evidence]))
 	for kind, refs in sorted(tool_error_kinds.items()):
 		entry = _entry(TOOL_ERROR, refs)
 		entry["detail_kind"] = kind
