@@ -523,14 +523,22 @@ def _publish_window(run: RunEvidence, window: Window) -> Window:
 
 
 def _scan_has_turn(scan: _TailScan, session_id: str, turn_id: str) -> bool:
-	"""窗口里有没有这一轮的行（只看身份字段，不做归因、不改载荷）。"""
+	"""窗口里有没有**本会话**这一轮的行（只看身份字段，不做归因、不改载荷）。
+
+	身份空白的行不算：评测/模拟器直写的行不带 session_id，turn_id 却常在 1、2
+	这种小值上和在跑的会话撞号（真实账本里 122 行是这个形状）。把它们当作"本轮
+	已在窗内"会跳过扩窗，于是本会话真正的那一行永远读不到——而这一判定直接决定
+	后面能不能说"本轮无记录"。调用方自己没有会话身份时，才只剩轮次号可对齐。
+	"""
 	if not turn_id:
 		return True
 	for _, row in scan.rows:
 		if _s(row.get("turn_id")) != turn_id:
 			continue
 		sid = _s(row.get("session_id"))
-		if not session_id or not sid or sid == session_id:
+		if not session_id:
+			return True
+		if sid == session_id:
 			return True
 	return False
 

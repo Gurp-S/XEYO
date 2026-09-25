@@ -699,6 +699,23 @@ def _filler_rows(count: int) -> list[dict[str, Any]]:
 	]
 
 
+def _harness_rows(count: int, turn_id: str) -> list[dict[str, Any]]:
+	"""评测/模拟器直写的行：没有会话身份，轮次号却和在跑的会话撞车。"""
+	return [
+		{
+			"ts": 900.0 + i,
+			"kind": "model.finished",
+			"session_id": "",
+			"turn_id": turn_id,
+			"model_request_id": f"h{i}",
+			"provider": "",
+			"model": "",
+			"pad": "y" * 120,
+		}
+		for i in range(count)
+	]
+
+
 def test_turn_outside_the_tail_window_is_recovered_by_widening(write_audit) -> None:
 	"""真实普查里 19% 的轮次属于这一类：行都在文件里，只是排在尾窗之外。"""
 	from diagnostics.rules import evaluate_run
@@ -716,6 +733,61 @@ def test_turn_outside_the_tail_window_is_recovered_by_widening(write_audit) -> N
 	window = run.window("audit")
 	assert window.rows_scanned > tail.rows_scanned
 	assert [f for f in evaluate_run(run) if f.rule_id == "no_turn_records"] == []
+
+
+def test_harness_row_cannot_stand_in_for_this_session(write_audit) -> None:
+	"""尾窗里同轮次但没有会话身份的行，不能替本会话宣布"本轮已在窗内"。
+
+	评测/模拟器直写的行不带 session_id，而 turn_id 只有 1、2 这种小值（真实账本
+	里 122 行正是这种形状），很容易和本会话的轮次撞号。撞号就不扩窗，本会话真正
+	的那一行永远读不到，诊断停在"本轮无记录"——而它本来读得到。
+	"""
+	path = write_audit(_model_rows("r1", 1) + _harness_rows(40, _TURN))
+	tail = _scan_jsonl_tail(path, 2048)
+	assert tail.truncated, "夹具没造出截断的尾窗"
+	assert any(
+		str(r.get("turn_id") or "") == _TURN and not str(r.get("session_id") or "").strip()
+		for _, r in tail.rows
+	), "夹具没把撞号的身份空白行留在尾窗里"
+	assert not any(
+		str(r.get("turn_id") or "") == _TURN and str(r.get("session_id") or "") == _SESSION
+		for _, r in tail.rows
+	), "本会话那一行必须还在窗外"
+
+	run = collect_run(_SESSION, _TURN, audit_path=path, max_audit_bytes=2048)
+
+	assert [e for e in run.events if e.turn_id == _TURN], (
+		"身份空白的那一行不属于本会话：仍然必须扩窗把本会话的行读回来"
+	)
+	gaps = [g for g in run.gaps if g.reason == "recovered_outside_window"]
+	assert gaps and "没盖到本轮" in gaps[0].detail
+
+
+def test_scan_has_turn_aligns_by_turn_only_when_no_identity_is_known(
+	tmp_path,
+) -> None:
+	"""谓词每一面都要钉住：有会话身份时空白行/别家行都不算数，没有身份时才只剩轮次号。"""
+	from diagnostics.collect import _scan_has_turn
+
+	blank = _write_jsonl(
+		tmp_path / "blank.jsonl",
+		[{"ts": 9.0, "kind": "model.finished", "session_id": "", "turn_id": _TURN}],
+	)
+	other = _write_jsonl(
+		tmp_path / "other.jsonl",
+		[{"ts": 9.0, "kind": "model.finished", "session_id": "someone-else", "turn_id": _TURN}],
+	)
+	blank_scan = _scan_jsonl_tail(blank, 4096)
+	other_scan = _scan_jsonl_tail(other, 4096)
+
+	# 调用方知道是谁：身份空白行与别家的行都不能算本轮"已在窗内"。
+	assert _scan_has_turn(blank_scan, _SESSION, _TURN) is False
+	assert _scan_has_turn(other_scan, _SESSION, _TURN) is False
+	# 调用方没有身份可比：只剩轮次号可对齐，别家的行也只能当作可能命中。
+	assert _scan_has_turn(other_scan, "", _TURN) is True
+	# 没有身份也不等于放行：轮次号仍然要自己对得上。
+	assert _scan_has_turn(other_scan, "", "t-some-other-turn") is False
+	assert _scan_has_turn(blank_scan, _SESSION, "") is True  # 没要轮次就别拿身份挡路
 
 
 def test_turn_absent_from_the_whole_file_still_says_no_records(write_audit) -> None:
