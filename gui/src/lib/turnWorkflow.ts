@@ -110,6 +110,10 @@ export function buildTurnWorkflow(messages: ChatMessage[]): TurnWorkflowStep[] {
 					: 'running';
 		// 旧 transcript 把调用占位文本保存在 text 中；它不是工具结果。
 		const result = message.text?.startsWith('call ') ? '' : (message.text ?? '');
+		// 兼容缺少结构化 toolStatus 的旧结果行，与 groupTranscript 的回放规则一致。
+		const error =
+			status === 'error' ||
+			(status === 'running' && result.trim().startsWith('[error]'));
 		const step = toolToStep({
 			id: message.id,
 			name: message.toolName,
@@ -129,7 +133,7 @@ export function buildTurnWorkflow(messages: ChatMessage[]): TurnWorkflowStep[] {
 					: step.verb,
 			detail: step.detail,
 			running,
-			error: status === 'error',
+			error,
 			relPath: pathFromInput(message.toolInput),
 			toolName: message.toolName,
 			createdAt: message.createdAt,
