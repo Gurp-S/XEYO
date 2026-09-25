@@ -8,10 +8,13 @@
 修一处不等于不会再长一处：这条测试把"哪些端点会回 200 假 ok"钉成一张清单。
 新增这种端点而没登记，这里就红，而不是等界面把"没删掉 / 没批准 / 没停"报成已完成。
 
-清单分两档，可信度不同，不许混：
-- READS_ENVELOPE：已逐个核实"客户端确实读了 body.ok"（写得出是哪个函数）；
-- BASELINE_NOT_YET_VERIFIED：端点确实用信封回拒绝，但客户端那半边还没逐个核实。
-  这一档是**已知欠账**，不是安全状态；每核实一个就往上一档挪一个，清零是目标。
+清单分三档，可信度不同，不许混：
+- READS_ENVELOPE：已逐个核实"客户端确实读 body.ok"，并点名是哪个函数；
+- NO_UI_CLIENT：gui/tui/cli 里没有任何调用点（只有服务端互调或人工 curl）。
+  登记它不是为了放过它，而是因为**一旦有人补上客户端**，就必须从这一档挪走并核实读法；
+- BASELINE_NOT_YET_VERIFIED：有客户端但读法还没逐个核实。这一档是**已知欠账**，
+  不是安全状态；清零是目标。本轮全部门端点已分类完毕，所以它是空的——
+  新增端点时必须选其中一档，不能不登记。
 """
 
 from __future__ import annotations
@@ -43,22 +46,24 @@ READS_ENVELOPE: dict[str, str] = {
     "/v1/mcp/op": "gui mcp.ts::mcpOp（body.ok === true）",
     "/v1/memory/compact": "gui memory.ts 透传服务端 ok/compact_cursor/reason",
     "/v1/local-models": "gui localModels.ts::setLocalModelSettings（b.ok === true + 必需字段）",
+    "/v1/mcp": "gui mcp.ts::fetchMcpStatus（透传 body.ok；缺字段为 undefined ⇒ 调用方按失败处理）",
+    "/v1/diagnostics/experiments": "gui diagnostics.ts::rawJson 的 envelopeFailure + ExperimentsView 按 r.ok 分支",
+    "/v1/diagnostics/experiments/plan": "同上（plan/cancel 走同一个 rawJson）",
+    "/v1/diagnostics/messages/{message_id}": "gui diagnostics.ts::fetchDiagMessage（ok: b(o.ok)，b 是 === true）",
+    "/v1/diagnostics/runs/{turn_id}/pin": "gui diagnostics.ts::pinRun（同上）",
 }
 
-BASELINE_NOT_YET_VERIFIED: frozenset[str] = frozenset(
-    {
-        "/v1/diagnostics/experiments",
-        "/v1/diagnostics/experiments/plan",
-        "/v1/diagnostics/messages/{message_id}",
-        "/v1/diagnostics/reports/{report_id}",
-        "/v1/diagnostics/runs/{turn_id}/pin",
-        "/v1/mcp",
-        "/v1/plugins/install",
-        "/v1/plugins/market",
-        "/v1/plugins/remove",
-        "/v1/plugins/update",
-    }
-)
+# 没有任何 UI/CLI 调用点的信封端点：本轮用 grep 在 gui/src、tui/src、python/cli 三处核实过。
+# 有人补上客户端时，必须把它从这一档挪进 READS_ENVELOPE（并真的读 body.ok）。
+NO_UI_CLIENT: dict[str, str] = {
+    "/v1/plugins/install": "仅服务端/人工调用；gui 里只有 GET /v1/plugins",
+    "/v1/plugins/update": "同上",
+    "/v1/plugins/remove": "同上",
+    "/v1/plugins/market": "同上",
+    "/v1/diagnostics/reports/{report_id}": "报告由服务端落盘，gui/tui/cli 无调用点",
+}
+
+BASELINE_NOT_YET_VERIFIED: frozenset[str] = frozenset()
 
 
 def _envelope_endpoints() -> dict[str, str]:
@@ -81,22 +86,29 @@ def _envelope_endpoints() -> dict[str, str]:
 
 
 def test_every_envelope_endpoint_is_registered() -> None:
-    """会回 200 假 ok 的端点，必须落在两档清单之一里。"""
+    """会回 200 假 ok 的端点，必须落在三档清单之一里。"""
     found = _envelope_endpoints()
-    registered = set(READS_ENVELOPE) | set(BASELINE_NOT_YET_VERIFIED)
+    registered = set(READS_ENVELOPE) | set(NO_UI_CLIENT) | set(BASELINE_NOT_YET_VERIFIED)
     unlisted = sorted(set(found) - registered)
     gone = sorted(registered - set(found))
     assert not unlisted, (
         "这些端点用 200 + {ok:false} 表达拒绝，但清单里没有它："
         f"{[(p, found[p]) for p in unlisted]}。请登记进 READS_ENVELOPE（客户端确实读 body.ok）"
-        "或 BASELINE_NOT_YET_VERIFIED（已知欠账），别让它悄悄长成假成功。"
+        "或 BASELINE_NOT_YET_VERIFIED（已知欠账）；没有调用点的进 NO_UI_CLIENT。别让它悄悄长成假成功。"
     )
     assert not gone, f"这些端点已不再回 200 假 ok，请从清单里删掉：{gone}"
 
 
-def test_verified_reading_list_is_a_subset_of_baseline() -> None:
-    """两档不能重叠：核实过的就不该再算欠账（否则计数会说谎）。"""
-    assert not (set(READS_ENVELOPE) & set(BASELINE_NOT_YET_VERIFIED))
+def test_envelope_tiers_do_not_overlap() -> None:
+    """三档不能重叠：一个端点不能同时是"已核实"、"没有客户端"和"欠账"。
+
+    重叠会让计数说谎——同一端点既被算安全又被算待办；而"没有客户端"也不该
+    变成逃避核实的去处：一旦有人补上客户端，它必须被挪进已核实档。
+    """
+    reads, no_client, debt = set(READS_ENVELOPE), set(NO_UI_CLIENT), set(BASELINE_NOT_YET_VERIFIED)
+    assert not (reads & debt), f"既算已核实又算欠账：{sorted(reads & debt)}"
+    assert not (reads & no_client), f"既算已核实又声称没有客户端：{sorted(reads & no_client)}"
+    assert not (no_client & debt), f"既说没有客户端又挂着欠账：{sorted(no_client & debt)}"
 
 
 def test_envelope_regex_actually_catches_the_shape() -> None:
