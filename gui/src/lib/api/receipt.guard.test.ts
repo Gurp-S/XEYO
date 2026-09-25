@@ -24,7 +24,7 @@ const CAST_RETURN = /return\s+\(?await\s+(?:res|response|r)\.json\(\)\)?\s+as\s/
 
 /** 存量基线：文件 → 裸转型处数。修一处就调小一处。 */
 const BASELINE: Record<string, number> = {
-	'api.ts': 20,
+	'api.ts': 18,
 	'api/localModels.ts': 1,
 	'api/memory.ts': 1,
 	'api/usage.ts': 2,
@@ -94,6 +94,6 @@ describe('HTTP 回执裸转型棘轮', () => {
 
 	it('基线总量与逐文件之和一致（防漏记）', () => {
 		const sum = Object.values(BASELINE).reduce((a, b) => a + b, 0);
-		expect(sum).toBe(24);
+		expect(sum).toBe(22);
 	});
 });

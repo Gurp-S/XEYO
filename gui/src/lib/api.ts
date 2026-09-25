@@ -1495,19 +1495,60 @@ export type MemorySwitchesResponse = {
 	error?: string;
 };
 
-export async function getMemorySwitches(): Promise<MemorySwitchesResponse | null> {
+/**
+ * 开关读写的统一回执：ok=false 时 data 一定是 null，message 是能直接上屏的原因。
+ *
+ * 旧签名 `Promise<MemorySwitchesResponse | null>` 有两处塌缩：
+ * - null 同时表示"HTTP 失败""离线""后端按 200 回了 ok:false"，面板只能一律当成
+ *   "没有可切换的开关"，把读不出画成一句关于开关的事实；
+ * - 后端拒绝未知键时回的是 200 + {ok:false, error}，旧面板只读 `message`，
+ *   那句"未知记忆开关: XEYO_…"就这样丢了。
+ */
+export type MemorySwitchesRead = {
+	ok: boolean;
+	data: MemorySwitchesResponse | null;
+	message: string;
+};
+
+function readSwitchesReceipt(payload: unknown, status: number): MemorySwitchesRead {
+	if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+		return {ok: false, data: null, message: formatErrorDetail(payload, status)};
+	}
+	const b = payload as MemorySwitchesResponse;
+	if (b.ok !== true) {
+		return {
+			ok: false,
+			data: null,
+			message: b.error || b.message || formatErrorDetail(payload, status),
+		};
+	}
+	const sw = b.switches;
+	if (!sw || typeof sw !== 'object' || Array.isArray(sw)) {
+		return {ok: false, data: null, message: 'receipt_missing_switches'};
+	}
+	return {ok: true, data: b, message: ''};
+}
+
+export async function getMemorySwitches(): Promise<MemorySwitchesRead> {
 	try {
 		const res = await fetchWithTimeout(apiUrl('/v1/settings/memory'), {cache: 'no-store'});
-		if (!res.ok) return null;
-		return (await res.json()) as MemorySwitchesResponse;
-	} catch {
-		return null;
+		const payload = await res.json().catch(() => null);
+		if (!res.ok) {
+			return {ok: false, data: null, message: formatErrorDetail(payload, res.status)};
+		}
+		return readSwitchesReceipt(payload, res.status);
+	} catch (err) {
+		return {
+			ok: false,
+			data: null,
+			message: err instanceof Error ? err.message : String(err),
+		};
 	}
 }
 
 export async function setMemorySwitches(
 	updates: Record<string, string | boolean>,
-): Promise<MemorySwitchesResponse | null> {
+): Promise<MemorySwitchesRead> {
 	try {
 		const res = await fetchWithTimeout(apiUrl('/v1/settings/memory'), {
 			method: 'POST',
@@ -1517,10 +1558,17 @@ export async function setMemorySwitches(
 			},
 			body: JSON.stringify({updates}),
 		});
-		if (!res.ok) return null;
-		return (await res.json()) as MemorySwitchesResponse;
-	} catch {
-		return null;
+		const payload = await res.json().catch(() => null);
+		if (!res.ok) {
+			return {ok: false, data: null, message: formatErrorDetail(payload, res.status)};
+		}
+		return readSwitchesReceipt(payload, res.status);
+	} catch (err) {
+		return {
+			ok: false,
+			data: null,
+			message: err instanceof Error ? err.message : String(err),
+		};
 	}
 }
 

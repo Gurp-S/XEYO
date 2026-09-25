@@ -23,32 +23,38 @@ export function MemorySwitchesSetting() {
 	const [busy, setBusy] = useState<string | null>(null);
 	const [loaded, setLoaded] = useState(false);
 	const [pruning, setPruning] = useState(false);
+	// 非空 = 这一屏的开关状态没读到；此时不能宣称"没有可切换的开关"。
+	const [loadError, setLoadError] = useState('');
+	const [reloadKey, setReloadKey] = useState(0);
 
 	useEffect(() => {
 		let ok = true;
 		(async () => {
 			const r = await getMemorySwitches();
 			if (!ok) return;
-			if (r?.ok && r.switches) {
-				setItems(r.switches);
-				setStale(r.stale ?? []);
+			if (r.ok && r.data) {
+				setItems(r.data.switches ?? {});
+				setStale(r.data.stale ?? []);
+				setLoadError('');
+			} else {
+				setLoadError(r.message || 'unknown');
 			}
 			setLoaded(true);
 		})();
 		return () => {
 			ok = false;
 		};
-	}, []);
+	}, [reloadKey]);
 
 	const onToggle = async (key: string, next: string) => {
 		setBusy(key);
 		const r = await setMemorySwitches({[key]: next});
 		setBusy(null);
-		if (r?.ok && r.switches) {
-			setItems(r.switches);
-			setStale(r.stale ?? []);
+		if (r.ok && r.data) {
+			setItems(r.data.switches ?? {});
+			setStale(r.data.stale ?? []);
 		} else {
-			toast.error(r?.message || '记忆开关更新失败');
+			toast.error(`开关 ${key} 未改动：${r.message || 'unknown'}`);
 		}
 	};
 
@@ -57,18 +63,36 @@ export function MemorySwitchesSetting() {
 		setPruning(true);
 		const r = await setMemorySwitches({});
 		setPruning(false);
-		if (r?.ok && r.switches) {
-			setItems(r.switches);
-			setStale(r.stale ?? []);
-			const n = r.pruned?.length ?? 0;
+		if (r.ok && r.data) {
+			setItems(r.data.switches ?? {});
+			setStale(r.data.stale ?? []);
+			const n = r.data.pruned?.length ?? 0;
 			if (n > 0) toast.success(`已清理 ${n} 个残留开关`);
 		} else {
-			toast.error(r?.message || r?.error || '清理残留开关失败');
+			toast.error(`清理残留开关失败：${r.message || 'unknown'}`);
 		}
 	};
 
 	if (!loaded) {
 		return <p className="text-[11px] text-mute">载入记忆系统开关…</p>;
+	}
+
+	if (loadError) {
+		return (
+			<div className="flex items-center gap-2 text-[11px] text-mute">
+				<span>未读到记忆开关状态（{loadError}）；这里不显示开关，也不宣称"没有开关"。</span>
+				<button
+					type="button"
+					className="text-accent hover:underline"
+					onClick={() => {
+						setLoaded(false);
+						setReloadKey(k => k + 1);
+					}}
+				>
+					重试
+				</button>
+			</div>
+		);
 	}
 
 	// 仅 GUI 暴露项；effective 缺失时回退 value（旧后端兼容）。
@@ -80,21 +104,28 @@ export function MemorySwitchesSetting() {
 				<p className="text-[11px] text-mute">当前无产品可切换的记忆开关（后端未就绪或均为测试开关）。</p>
 			) : null}
 
-			{rows.map(sw => {
-				const current = sw.effective ?? sw.value;
-				const isBinary = sw.allowed.length === 2 && sw.allowed.every(a => a === '0' || a === '1');
-				const on = isBinary ? current === '1' : current === sw.allowed[sw.allowed.length - 1];
-				const ignored = sw.ignored === true;
-				const busyKey = busy === sw.key;
-				return (
-					<button
-						key={sw.key}
-						type="button"
-						disabled={busyKey || ignored}
-						onClick={() => {
-							const next = isBinary ? (on ? '0' : '1') : on ? sw.allowed[0] : sw.allowed[sw.allowed.length - 1];
-							void onToggle(sw.key, next);
-						}}
+				{rows.map(sw => {
+					const current = sw.effective ?? sw.value;
+					// allowed 缺字段时不能直接 .length —— 整个设置面板会抛到错误边界。
+					const allowed = Array.isArray(sw.allowed) ? sw.allowed : [];
+					const noAllowed = allowed.length === 0;
+					const isBinary = allowed.length === 2 && allowed.every(a => a === '0' || a === '1');
+					const on = noAllowed
+						? false
+						: isBinary
+							? current === '1'
+							: current === allowed[allowed.length - 1];
+					const ignored = sw.ignored === true;
+					const busyKey = busy === sw.key;
+					return (
+						<button
+							key={sw.key}
+							type="button"
+							disabled={busyKey || ignored || noAllowed}
+							onClick={() => {
+								const next = isBinary ? (on ? '0' : '1') : on ? allowed[0] : allowed[allowed.length - 1];
+								void onToggle(sw.key, next);
+							}}
 						className={cn(
 							'xy-press flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors disabled:opacity-50',
 							on ? 'border-accent/50 bg-accent-soft' : 'border-line bg-glass-strong hover:border-line',
@@ -105,7 +136,11 @@ export function MemorySwitchesSetting() {
 							<span className="mt-0.5 block text-[11px] leading-snug text-mute">{sw.label}</span>
 							<span className="mt-0.5 block text-[10px] text-mute">
 								当前: {current}
-								{ignored ? '（已下线，不生效）' : `（${sw.source}）`}
+								{noAllowed
+									? '（回执未给可取值，暂不可切换）'
+									: ignored
+										? '（已下线，不生效）'
+										: `（${sw.source}）`}
 							</span>
 						</span>
 						<span
