@@ -240,8 +240,12 @@ def run_ripgrep(
 ) -> list[str]:
 	"""执行 rg；exit 0/1 为成功，其余抛错。abort/超时会杀死子进程。
 
-	``files`` 给定（索引候选集，可为空）时，把它作为显式目标文件列表传给 rg，
-	从而把扫描面收窄到候选集合（由索引预筛 + rg 精确验证双保险）。
+	``files`` 给定（索引候选集）时，把它作为显式目标文件列表传给 rg，从而把扫描
+	面收窄到候选集合（由索引预筛 + rg 精确验证双保险）。
+
+	**空列表不是合法输入**：它会拼成没有任何目标的 rg 命令，rg 便转去读 stdin
+	直到超时（几十秒的空等）。候选为空 = 索引没看到，不等于全库没有，调用方应
+	走 ``files=None`` 的全量检索。
 	"""
 	if files is not None:
 		cmd = ["rg", *args, *files]
@@ -609,9 +613,10 @@ class GrepTool:
 		# 收窄到候选集（索引为完整超集 + rg 精确验证 → 仍是“确切匹配”）。
 		# 任何索引不可用/异常/候选为空 → 回退全量 rg（fail-open，不改正确性）。
 		#
-		# 容器路由（2026-09-16）：**必须跳过预筛**。索引是按**宿主**文件系统建的，
-		# 而工作面在容器里 ⇒ 候选集恒为空 ⇒ 直接返回"零命中"。那正是"静默错答"
-		# （比报错更坏）：模型会以为文件里没有这个词。
+		# 容器路由（2026-09-16）：**跳过预筛**。索引是按**宿主**文件系统建的，
+		# 工作面在容器里 ⇒ 候选集对容器内容毫无意义。当时它还"候选为空=零命中"，
+		# 于是宿主索引直接把容器里的文件说成不存在；现在空候选已落回全量 rg，
+		# 跳过预筛省下的是必然白建的宿主索引，正确性不再依赖它。
 		_index_usable = True
 		try:
 			from tools.container_fs import active_container as _ac
@@ -629,23 +634,20 @@ class GrepTool:
 			and _fsprobe.isdir(absolute_path)
 		):
 			cands = content_index.lookup(absolute_path, input_data.pattern)
-			if cands is not None:
+			if cands:
 				index_prefiltered = True
-				if not cands:
-					# 候选为空 = 索引（完整超集）证明无文件可含该字面量 → 直接零命中。
-					return GrepOutput(
-						mode="files_with_matches",
-						num_files=0,
-						filenames=[],
-						applied_limit=None,
-						applied_offset=offset if offset > 0 else None,
-					)
 				results = run_ripgrep(
 					args,
 					absolute_path,
 					files=[os.path.normpath(os.path.join(absolute_path, c)) for c in cands],
 					abort=abort,
 				)
+			# 空候选**不等于**"全库都没有这个字面量"。索引只在 bash 里失效
+			# （clear_content_index），Write/Edit 只清 glob 缓存，TTL 30s 内的
+			# 外部写入更不会进候选集。2026-09-25 实测：刚写入 b.py 就 Grep 其中
+			# 的字面量，工具答 "No files found"，同一时刻 rg 能扫到它——把读不出
+			# 说成不存在，模型会认为自己的写入没落地。空候选与 None 一样落回
+			# 下面的全量 rg，与本函数开头声明的 fail-open 语义一致。
 
 		if not index_prefiltered:
 			results = run_ripgrep(args, absolute_path, abort=abort)
