@@ -13,7 +13,10 @@
 5. 折叠与验收的证据指针指向别的来源的文件（拿审计窗口路径冒充 usage 账本、
    拿 working.json 路径冒充 pin）；
 6. 投影里 ``full output:`` 与 ``output truncated`` 两个字面量的计数不等被写成"可疑原因"，
-   而 ``tools/job_tools.py`` 的 ``(earlier output truncated)`` 天生不带句柄 ⇒ 健康运行也会命中。
+   而 ``tools/job_tools.py`` 的 ``(earlier output truncated)`` 天生不带句柄 ⇒ 健康运行也会命中；
+7. ``model.finished`` 的 ``aborted`` / ``retry`` 被一律写成"已确认厂商或传输故障"——
+   前者来自引擎的 Aborted 分支（用户停止），后者是设计里的下一步。
+   2026-09-25 对最近 40 个真实轮次复跑：该规则 24 条"已确认"里有 9 条属于这两类。
 
 纠正的底线：规则要么判对，要么 ``unknown`` 并写明缺哪条记录，不得靠沉默消噪。
 """
@@ -579,3 +582,70 @@ def test_rules_never_emit_directive_wording() -> None:
 				assert isinstance(finding, Finding)
 				blob = " ".join((finding.phenomenon, finding.impact, finding.coverage_gap, finding.allowed_conclusion))
 				assert not any(word in blob for word in banned), (rule.rule_id, blob)
+
+
+# ---------- 7. 中止与重试不是厂商故障 ----------
+
+
+def _attempt_rows(*statuses: str) -> list[dict]:
+	"""按 (started, finished) 成对造审计行；statuses[i] 是第 i+1 次尝试的结束状态。"""
+	rows: list[dict] = []
+	ts = 1.0
+	for i, st in enumerate(statuses, start=1):
+		rows.append({"ts": ts, "kind": "model.started", "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", "attempt": i})
+		ts += 0.1
+		if st:
+			rows.append({"ts": ts, "kind": "model.finished", "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", "attempt": i, "status": st})
+			ts += 0.1
+	return rows
+
+
+def _psf(run) -> list:
+	return [f for f in rules.check_provider_stream(run) if f.rule_id == "provider_stream_failure"]
+
+
+def test_user_abort_is_not_a_confirmed_provider_fault(collect) -> None:
+	"""engine/query_loop.py 的 except Aborted 分支写 status=aborted：那是用户停止，
+	定责到厂商或传输边界就是误归因（真实数据里 40 轮出现 7 次）。"""
+	run = collect(_attempt_rows("ok", "aborted"))
+	findings = _psf(run)
+	assert len(findings) == 1
+	f = findings[0]
+	assert f.status == UNKNOWN
+	assert "Aborted" in f.coverage_gap
+	assert "不能据此判定模型或引擎出错" in f.allowed_conclusion
+
+
+def test_retry_with_a_later_attempt_leaves_no_finding(collect) -> None:
+	"""重试是设计里的下一步：后面还有尝试在跑时，中间那条 retry 不该留下"已确认故障"。"""
+	run = collect(_attempt_rows("retry", "ok"))
+	assert _psf(run) == []
+
+
+def test_retry_as_the_last_attempt_is_undetermined(collect) -> None:
+	run = collect(_attempt_rows("retry"))
+	findings = _psf(run)
+	assert len(findings) == 1
+	assert findings[0].status == UNKNOWN
+	assert "没有后续尝试记录" in findings[0].phenomenon
+	assert "不能据此判定请求失败" in findings[0].allowed_conclusion
+
+
+def test_protocol_fallback_stays_confirmed_but_not_blaming_prompt(collect) -> None:
+	"""请求形状被厂商拒过、引擎降级重打：这确实是适配器边界的故障（白多一次请求），
+	但不能读成提示词内容错误。"""
+	run = collect(_attempt_rows("protocol_fallback"))
+	findings = _psf(run)
+	assert len(findings) == 1
+	f = findings[0]
+	assert f.status == CONFIRMED_FAULT
+	assert "白多一次请求" in f.allowed_conclusion
+	assert "不能据此判定提示词内容错误" in f.allowed_conclusion
+
+
+def test_plain_failure_is_still_confirmed(collect) -> None:
+	"""正向守卫：status=failed 不许被一起放宽掉。"""
+	run = collect(_attempt_rows("failed"))
+	findings = _psf(run)
+	assert len(findings) == 1
+	assert findings[0].status == CONFIRMED_FAULT

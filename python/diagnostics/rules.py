@@ -551,24 +551,54 @@ def check_frozen_head(run: RunEvidence) -> list[Finding]:
 def check_provider_stream(run: RunEvidence) -> list[Finding]:
 	findings: list[Finding] = []
 	for mr in turn_scoped(run.model_requests, run.turn_id):
-		for att in mr.attempts:
+		attempts = mr.attempts
+		for idx, att in enumerate(attempts):
 			status = _s(att.get("status"))
 			kind = _s(att.get("kind"))
 			if kind != "llm.failure" and status not in _FAILED_MODEL_STATUSES:
 				continue
 			http = att.get("http_status")
+			attempt_no = att.get("attempt")
 			evidence = [
 				EvidenceRef(source="audit", locator=_loc(run), ref_id=f"L{_s(att.get('line_no'))}", detail=kind or status)
 			]
-			if kind == "llm.failure":
-				phen = f"模型请求失败（attempt={att.get('attempt')}，status={_s(http)}，code={_s(att.get('error_code'))}）"
-			else:
-				phen = f"模型尝试以 status={status} 结束（attempt={att.get('attempt')}）"
+			# 重试是设计里的下一步：同一逻辑调用后面还有尝试在跑时，
+			# 中间那次 retry 记录不构成故障，本轮的结论要看最后一次。
+			if status == "retry" and idx < len(attempts) - 1:
+				continue
 			component = "模型适配器 / 传输"
-			gap = "厂商内部处理输入不可见；只能定位到适配器提交边界。"
-			allowed = "可确认请求失败发生在厂商返回或传输或解析边界。"
-			if _s(http) == "429" or status == "retry":
-				allowed = "限流/重试是传输层结果，不能据此判定提示词错误。"
+			impact = f"逻辑调用 {mr.model_request_id} 的第 {attempt_no} 次尝试未产出正常结果。"
+			if status == "aborted":
+				# engine/query_loop.py 的 except Aborted 分支：用户停止/中断。
+				# 它不是厂商返回，也不是传输故障 —— 定责到 model_request 边界是误归因。
+				verdict = UNKNOWN
+				phen = f"模型尝试被中止（attempt={attempt_no}）"
+				gap = "中止来自引擎的 Aborted 分支（用户停止/中断），与厂商返回无关；谁触发的不在审计行里。"
+				allowed = "只能说明这一枪没跑完；不能据此判定模型或引擎出错。"
+			elif status == "retry":
+				# 最后一次尝试停在 retry 且没有后续记录：结果未知，不是已确认失败。
+				verdict = UNKNOWN
+				phen = f"模型尝试以 status=retry 结束且没有后续尝试记录（attempt={attempt_no}）"
+				gap = "重试的下一枪若没落审计行，本轮就看不到最终结果。"
+				allowed = "只能说这一枪停在重试状态、后续未落记录；不能据此判定请求失败。"
+			elif status == "protocol_fallback":
+				verdict = CONFIRMED_FAULT
+				phen = f"模型请求被协议回退接管（status=protocol_fallback，code={_s(att.get('error_code'))}，attempt={attempt_no}）"
+				gap = "厂商内部为什么拒这个请求形状不可见；只能定位到适配器提交边界。"
+				allowed = (
+					"可确认这一枪的请求形状被厂商拒过、引擎降级重打（白多一次请求）；"
+					"不能据此判定提示词内容错误。"
+				)
+			else:
+				verdict = CONFIRMED_FAULT
+				if kind == "llm.failure":
+					phen = f"模型请求失败（attempt={attempt_no}，status={_s(http)}，code={_s(att.get('error_code'))}）"
+				else:
+					phen = f"模型尝试以 status={status} 结束（attempt={attempt_no}）"
+				gap = "厂商内部处理输入不可见；只能定位到适配器提交边界。"
+				allowed = "可确认请求失败发生在厂商返回或传输或解析边界。"
+				if _s(http) == "429" or status == "retry":
+					allowed = "限流/重试是传输层结果，不能据此判定提示词错误。"
 			findings.append(
 				Finding(
 					rule_id="provider_stream_failure",
@@ -576,9 +606,9 @@ def check_provider_stream(run: RunEvidence) -> list[Finding]:
 					phenomenon=phen,
 					boundary="model_request",
 					component=component,
-					status=CONFIRMED_FAULT,
+					status=verdict,
 					evidence=evidence,
-					impact=f"逻辑调用 {mr.model_request_id} 的第 {att.get('attempt')} 次尝试未产出正常结果。",
+					impact=impact,
 					coverage_gap=gap,
 					allowed_conclusion=allowed,
 				)
