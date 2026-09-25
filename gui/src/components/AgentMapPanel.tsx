@@ -193,9 +193,10 @@ export function AgentMapPanel() {
 	}, [hits, messages]);
 	const opsTrail = useMemo(() => buildOpsTrail(turnHits, 8), [turnHits]);
 	const replayScript = useMemo(() => {
-		const src = turnHits.length >= 2 ? turnHits : hits;
+		// “本轮”地图必须只回放当前轮；回退到全会话会把旧路径伪装成当前流程。
+		const src = view === 'turn' || turnHits.length >= 2 ? turnHits : hits;
 		return buildReplayScript(src, 40);
-	}, [turnHits, hits]);
+	}, [view, turnHits, hits]);
 	const [replayIdx, setReplayIdx] = useState<number | null>(null);
 	const [replayPlaying, setReplayPlaying] = useState(false);
 	const [summaryOpen, setSummaryOpen] = useState(false);
