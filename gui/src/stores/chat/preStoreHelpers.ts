@@ -46,6 +46,7 @@ import {
 	scheduleThoughtSync,
 	shouldPreferServerMessages,
 } from './streamHelpers';
+import type {InboxItemState} from '@/lib/inboxItemState';
 
 /**
  * 边界投递回执：把这些消息号对应的排队卡撤掉（已作为真 user 消息进历史，不再是
@@ -383,7 +384,7 @@ export type InboxQueuedItem = {
 	message_id: string | null;
 	queued_at: number;
 	attempts: number;
-	state: 'queued' | 'delivering' | 'syncing' | 'stuck';
+	state: InboxItemState;
 	position: number;
 	autorun?: boolean;
 	delivery_id?: string | null;

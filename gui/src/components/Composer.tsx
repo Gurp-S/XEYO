@@ -21,6 +21,7 @@ import {
 	type MouseEvent as ReactMouseEvent,
 } from 'react';
 import {fetchFileReferences, uploadFile, uploadMedia, resumeInbox, type SkillInfo} from '@/lib/api';
+import {canMutateInboxItem} from '@/lib/inboxItemState';
 import {createTaAutoResize} from '@/lib/taAutoResize';
 import {TypingCaret, type CaretColorRange, type TypingCaretApi} from '@/components/composer/TypingCaret';
 import {
@@ -357,7 +358,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 		setQueueExpanded(false);
 	}, [activeId, activeInboxBackendId]);
 	const openQueueEdit = (it: InboxQueuedItem) => {
-		if (it.state === 'delivering' || it.state === 'syncing' || !activeId) return;
+		if (!canMutateInboxItem(it.state) || !activeId) return;
 		queueEscRef.current = false;
 		editingTargetRef.current = {sessionId: activeId, item: it};
 		setEditingId(it.queue_id);
@@ -374,7 +375,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 		const t = queueDraft.trim();
 		closeQueueEdit();
 		if (!target || !t || t === target.item.text) return;
-		if (target.item.state === 'delivering' || target.item.state === 'syncing') {
+		if (!canMutateInboxItem(target.item.state)) {
 			// 编辑期间被投递：保存必 409，直接提示而不是静默丢改动。
 			toast.error('该消息已开始投递，无法编辑');
 			return;
@@ -396,7 +397,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 				chatUiStoreApi.getState().inboxBySession[target.sessionId]?.find(
 					item => item.queue_id === target.item.queue_id,
 				);
-			if (!current || current.state === 'delivering') return;
+			if (!current || !canMutateInboxItem(current.state)) return;
 			// 保存失败时保留用户输入；消息若已进入投递态则由刷新结果决定，
 			// 不会把一个已不能编辑的旧队列项重新打开。
 			editingTargetRef.current = {sessionId: target.sessionId, item: current};
@@ -1752,7 +1753,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 												: '排队'}
 									</span>
 									<div className="xy-queue-actions" hidden={isEditing}>
-						{it.state !== 'delivering' && it.state !== 'syncing' ? (
+						{canMutateInboxItem(it.state) ? (
 											<button
 												type="button"
 												className="xy-queue-action disabled:pointer-events-none disabled:opacity-40"
@@ -1802,10 +1803,10 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 														? '正在处理…'
 														: '取消排队'
 											}
-											disabled={
-							(it.state === 'delivering' || it.state === 'syncing') ||
+							disabled={
+							!canMutateInboxItem(it.state) ||
 							queueActionsInFlight.has(it.queue_id)
-											}
+							}
 											onClick={() => cancelQueueItem(it)}
 										>
 											<X className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden />
