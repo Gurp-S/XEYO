@@ -31,7 +31,7 @@ export type SlashRunOutcome =
 	| {status: 'local'; text: string}
 	/** server 命令已执行；text 为结果（可能为空） */
 	| {status: 'server'; text: string}
-	/** 改发这段文本（/run → 交给模型用 Bash 工具） */
+	/** 作为用户消息发送（例如 /run）；保留用户原文。 */
 	| {status: 'send'; text: string};
 
 export type SlashRunOptions = {
@@ -291,13 +291,7 @@ export async function runSlashCommand(
 			if (!cmdText) {
 				return {status: 'rejected', text: '用法：/run <command>'};
 			}
-			return {
-				status: 'send',
-				text:
-					'[slash:/run] 请用 Bash 工具执行以下命令并汇总结果（遵守权限门禁，' +
-					'不要执行无关命令）：\n\n' +
-					cmdText,
-			};
+			return {status: 'send', text: raw};
 		}
 		case 'mode': {
 			const m = arg.trim().toLowerCase();
@@ -429,7 +423,7 @@ export async function handleComposerSlash(
 			}
 			return false;
 		case 'send':
-			// /run 等提示词改写命令：直接发提示词（用户气泡由 sendMessage 负责）。
+			// 发送用户原文；用户气泡由 sendMessage 负责。
 			if (opts.onSend) {
 				return await opts.onSend(outcome.text);
 			}
