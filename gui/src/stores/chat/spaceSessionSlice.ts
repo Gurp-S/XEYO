@@ -436,7 +436,7 @@ messagesById: settled.messagesById,
 
 	async enterSpace(spaceId) {
 		const sessions = get()
-			.sessions.filter(s => s.spaceId === spaceId)
+			.sessions.filter(s => s.spaceId === spaceId && !s.archived)
 			.sort((a, b) => b.updatedAt - a.updatedAt);
 		const latest = sessions[0];
 		if (latest) {
