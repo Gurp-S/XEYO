@@ -380,17 +380,25 @@ export async function handleComposerSlash(
 		case 'not-slash':
 			return false;
 		case 'unknown':
-			chat.appendLocalNote?.(`未知命令 /${outcome.name}，试试 /help`, {
-				sessionId: opts.sessionId,
-			});
+			if (opts.sessionId) {
+				chat.appendLocalNote?.(`未知命令 /${outcome.name}，试试 /help`, {
+					sessionId: opts.sessionId,
+				});
+			} else {
+				toast.error(`未知命令 /${outcome.name}，试试 /help`);
+			}
 			return true;
 		case 'rejected':
 			if (outcome.text) {
-				chat.appendLocalNote?.(outcome.text, {
-					kind: 'cmd',
-					title: value.trim(),
-					sessionId: opts.sessionId,
-				});
+				if (opts.sessionId) {
+					chat.appendLocalNote?.(outcome.text, {
+						kind: 'cmd',
+						title: value.trim(),
+						sessionId: opts.sessionId,
+					});
+				} else {
+					toast.error(outcome.text);
+				}
 			}
 			return false;
 		case 'send':
@@ -419,11 +427,15 @@ export async function handleComposerSlash(
 					probe.command?.name === 'clear'
 						? useChatStore.getState().activeId ?? opts.sessionId
 						: opts.sessionId;
-				chat.appendLocalNote?.(outcome.text, {
-					kind: 'cmd',
-					title: value.trim(),
-					sessionId: resultSessionId,
-				});
+				if (resultSessionId) {
+					chat.appendLocalNote?.(outcome.text, {
+						kind: 'cmd',
+						title: value.trim(),
+						sessionId: resultSessionId,
+					});
+				} else {
+					toast.info(outcome.text);
+				}
 			}
 			return true;
 		default:

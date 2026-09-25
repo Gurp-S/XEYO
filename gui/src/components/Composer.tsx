@@ -1376,6 +1376,17 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 								}
 							}
 						}
+					} else if (
+						consumed &&
+						!sessId &&
+						chatUiStoreApi.getState().activeId == null &&
+						valueRef.current === submittedDraft
+					) {
+						setValue('');
+						requestAnimationFrame(() => {
+							applyTaHeight(false);
+							taRef.current?.focus();
+						});
 					}
 				} catch (err) {
 					toast.error(err instanceof Error ? err.message : String(err));
