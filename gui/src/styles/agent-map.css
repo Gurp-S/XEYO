@@ -378,15 +378,26 @@ html[data-smoothness='off'] .xy-agent-map__pulse--anim {
 
 .xy-agent-map-panel__tabs {
 	display: flex;
+	min-width: 0;
+	flex: 1 1 auto;
 	gap: 2px;
+	overflow-x: auto;
+	overflow-y: hidden;
 	padding: 3px;
 	border: 1px solid color-mix(in oklch, var(--xy-line) 70%, transparent);
 	border-radius: 999px;
 	background: color-mix(in oklch, var(--xy-paper-deep) 55%, transparent);
+	scrollbar-width: none;
+}
+
+.xy-agent-map-panel__tabs::-webkit-scrollbar {
+	display: none;
 }
 
 .xy-agent-map-panel__tab {
+	flex: 0 0 auto;
 	padding: 3px 10px;
+	white-space: nowrap;
 	border-radius: 999px;
 	font-size: 11px;
 	letter-spacing: 0.02em;

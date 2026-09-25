@@ -635,7 +635,24 @@ function ActivityLogInner({
 	}, [startedAt]);
 
 	const working = Boolean(active || anyRunning);
-	const showActiveHeader = working || waitingForResult;
+	const workflowState = anyRunning
+		? 'working'
+		: waitingForResult
+			? 'waiting'
+			: working
+				? 'working'
+				: null;
+	const showActiveHeader = workflowState !== null;
+	const workflowAnnouncement = [
+		workflowState === 'waiting'
+			? 'Waiting for result'
+			: workflowState === 'working'
+				? 'Working'
+				: '',
+		failedStepCount > 0 ? `${failedStepCount} failed` : '',
+	]
+		.filter(Boolean)
+		.join('. ');
 
 	const tickElapsed = useCallback(
 		() => setElapsed(Date.now() - startRef.current),
@@ -833,8 +850,16 @@ function ActivityLogInner({
 				{showActiveHeader ? (
 					<>
 						<span className="xy-split-head-lead">
-							<span className="xy-split-head-label">
-								{waitingForResult ? 'Waiting for result' : 'Working'}
+							<span
+								className={cn(
+									'xy-split-head-label',
+									workflowState === 'waiting' && 'is-waiting',
+									workflowState === 'working' && 'is-working',
+								)}
+							>
+								{workflowState === 'waiting'
+									? 'Waiting for result'
+									: 'Working'}
 							</span>
 							{workflowStatusText ? (
 								<span
@@ -890,6 +915,9 @@ function ActivityLogInner({
 			>
 				{rail}
 			</ExpandPanel>
+			<span className="sr-only" role="status">
+				{workflowAnnouncement}
+			</span>
 		</div>
 	);
 }

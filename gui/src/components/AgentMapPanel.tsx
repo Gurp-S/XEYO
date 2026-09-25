@@ -732,7 +732,11 @@ export function AgentMapPanel() {
 	return (
 		<div className="xy-agent-map-panel flex h-full min-h-0 flex-col">
 			<div className="flex shrink-0 items-center gap-1.5 border-b border-line/40 px-2 py-1.5">
-				<div className="xy-agent-map-panel__tabs">
+				<div
+					className="xy-agent-map-panel__tabs"
+					role="group"
+					aria-label="地图视图"
+				>
 					{VIEW_TABS.map(tab => (
 						<button
 							key={tab.id}
@@ -756,7 +760,7 @@ export function AgentMapPanel() {
 				</div>
 				<button
 					type="button"
-					className="xy-icon-btn ml-auto rounded-full p-1.5 text-mute hover:bg-glass-hover hover:text-ink disabled:opacity-35"
+					className="xy-icon-btn ml-auto shrink-0 rounded-full p-1.5 text-mute hover:bg-glass-hover hover:text-ink disabled:opacity-35"
 					aria-label="返回上一个节点"
 					title="返回上一个"
 					disabled={focusHistLen < 1}
@@ -766,7 +770,7 @@ export function AgentMapPanel() {
 				</button>
 				<button
 					type="button"
-					className="xy-icon-btn rounded-full p-1.5 text-mute hover:bg-glass-hover hover:text-ink"
+					className="xy-icon-btn shrink-0 rounded-full p-1.5 text-mute hover:bg-glass-hover hover:text-ink"
 					aria-label="重新扫描地图"
 					title="重新扫描"
 					onClick={() => void reload()}

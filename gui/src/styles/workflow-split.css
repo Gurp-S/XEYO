@@ -41,10 +41,32 @@
 }
 
 .xy-split-head-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 13px;
   font-weight: 600;
   line-height: inherit;
   color: var(--xy-ink);
+}
+
+.xy-split-head-label.is-working::before {
+	content: "";
+	display: inline-block;
+	width: 6px;
+	height: 6px;
+	margin: 0 6px 1px 0;
+	border-radius: 50%;
+	background: var(--xy-accent);
+	vertical-align: middle;
+}
+
+.xy-split-head-label.is-waiting {
+	border-radius: 5px;
+	background: var(--xy-warn-bg);
+	color: var(--xy-warn);
+	padding: 1px 6px;
 }
 
 /* 标签 + chevron 贴在一起；右侧 meta 仍靠右 */
