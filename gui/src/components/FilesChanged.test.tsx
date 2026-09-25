@@ -47,7 +47,15 @@ describe('openChangedReview', () => {
 	it('拿到差异正文时照常打开面板，且不提示', async () => {
 		vi.mocked(gitFileDiff).mockResolvedValue({kind: 'diff', diff: '@@ -1 +1 @@\n-x\n+y\n'} as never);
 		await openChangedReview(file as never);
-		expect(openReview).toHaveBeenCalledWith({path: 'a.ts', name: 'a.ts', diff: '@@ -1 +1 @@\n-x\n+y\n'});
+		expect(openReview).toHaveBeenCalledWith(
+			{
+				path: 'a.ts',
+				name: 'a.ts',
+				diff: '@@ -1 +1 @@\n-x\n+y\n',
+				source: 'workspace',
+			},
+			{revealWorkspace: false},
+		);
 		expect(toast.info).not.toHaveBeenCalled();
 		expect(toast.error).not.toHaveBeenCalled();
 	});
@@ -76,6 +84,12 @@ describe('openChangedReview', () => {
 	it('活动里已经带着 diff 正文时不额外请求后端', async () => {
 		await openChangedReview({...file, diff: 'diff --git a/a.ts b/a.ts'} as never);
 		expect(gitFileDiff).not.toHaveBeenCalled();
-		expect(openReview).toHaveBeenCalledWith(expect.objectContaining({diff: 'diff --git a/a.ts b/a.ts'}));
+		expect(openReview).toHaveBeenCalledWith(
+			expect.objectContaining({
+				diff: 'diff --git a/a.ts b/a.ts',
+				source: 'recorded',
+			}),
+			{revealWorkspace: false},
+		);
 	});
 });
