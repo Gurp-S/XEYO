@@ -184,3 +184,132 @@ def test_tsc_missing_binary_is_reported(tmp_path: Path) -> None:
 
 	out = _run_tsc("", None, str(tmp_path / "a.ts"))
 	assert out and "tsc not found" in out[0]
+
+
+class TestBoundedScanIsDisclosed:
+	"""回归：目录扫描有文件数 / 深度 / 噪音目录三重边界，一条都不能吞。
+
+	「No diagnostics.」被模型读成「这个路径干净」，而它实际只覆盖被检查到的
+	那部分文件。行数 / 字符数截断早就有 `… truncated` 说明，范围边界却没有。
+	"""
+
+	def _py(self, root: Path, rel: str) -> Path:
+		f = root / rel
+		f.parent.mkdir(parents=True, exist_ok=True)
+		f.write_text("x = 1\n", encoding="utf-8")
+		return f
+
+	def test_file_cap_is_disclosed(self, tmp_path: Path, monkeypatch) -> None:
+		from tools.diagnostics_tool import diagnostics_tool as mod
+
+		# 跨目录：上限之外的文件必须真的没被走进去，否则"examined 数"和
+		# "stopped after N"会互相矛盾。
+		self._py(tmp_path, "a.py")
+		self._py(tmp_path, "b.py")
+		self._py(tmp_path, "sub/c.py")
+		monkeypatch.setattr(mod, "_MAX_FILES", 2)
+		out = mod._run_py_compile(str(tmp_path))
+		text = "\n".join(out)
+		assert "2 .py files examined" in text
+		assert "stopped after 2 .py files" in text
+		assert "c.py" not in text
+		assert "No diagnostics" not in text
+
+	def test_depth_bound_is_disclosed(self, tmp_path: Path, monkeypatch) -> None:
+		from tools.diagnostics_tool import diagnostics_tool as mod
+
+		self._py(tmp_path, "a.py")
+		self._py(tmp_path, "sub/b.py")
+		self._py(tmp_path, "sub/deeper/c.py")
+		monkeypatch.setattr(mod, "_MAX_DEPTH", 0)
+		text = "\n".join(mod._run_py_compile(str(tmp_path)))
+		assert "dirs deeper than 0 levels were not walked" in text
+		# 折返点之后的目录从未访问，所以不能报出一个"被排除的文件数"。
+		assert "2 .py files" not in text
+
+	def test_empty_depth_boundary_stays_silent(
+		self, tmp_path: Path, monkeypatch
+	) -> None:
+		"""边界上只有空目录：没有东西被排除，就不该有说明。"""
+		from tools.diagnostics_tool import diagnostics_tool as mod
+
+		self._py(tmp_path, "a.py")
+		(tmp_path / "empty").mkdir()
+		monkeypatch.setattr(mod, "_MAX_DEPTH", 0)
+		assert mod._run_py_compile(str(tmp_path)) == []
+
+	def test_skipped_dirs_are_disclosed(self, tmp_path: Path) -> None:
+		from tools.diagnostics_tool import diagnostics_tool as mod
+
+		self._py(tmp_path, "a.py")
+		self._py(tmp_path, ".venv/lib/site.py")
+		text = "\n".join(mod._run_py_compile(str(tmp_path)))
+		assert "skipped dirs: .venv" in text
+		assert "site.py" not in text
+
+	def test_unbounded_scan_stays_silent(self, tmp_path: Path) -> None:
+		"""没有边界就没有说明——不能为了免责逢扫必附一句。"""
+		from tools.diagnostics_tool import diagnostics_tool as mod
+
+		self._py(tmp_path, "a.py")
+		self._py(tmp_path, "sub/b.py")
+		assert mod._run_py_compile(str(tmp_path)) == []
+
+	async def test_capped_dir_is_not_reported_clean(
+		self, tmp_path: Path, monkeypatch
+	) -> None:
+		import shutil
+
+		from tools.diagnostics_tool import diagnostics_tool as mod
+
+		for name in ("a.py", "b.py", "c.py"):
+			self._py(tmp_path, name)
+		monkeypatch.setattr(mod, "_MAX_FILES", 2)
+		monkeypatch.setattr(shutil, "which", lambda n: None)
+		tool = DiagnosticsTool(cwd=str(tmp_path))
+		r = await tool.execute(
+			{"path": str(tmp_path), "language": "python"},
+			AbortController(),
+		)
+		assert not r.is_error
+		assert "No diagnostics." not in r.content
+		assert "stopped after 2 .py files" in r.content
+
+
+class TestRuffPayloadShape:
+	"""ruff 的结论读不出来时必须说「读不出」，不能落到「没有诊断」。"""
+
+	class _Proc:
+		def __init__(self, out: str) -> None:
+			self.returncode, self.stdout, self.stderr = 0, out, ""
+
+	def _run(self, monkeypatch, out: str, tmp_path: Path) -> list[str]:
+		import subprocess as sp
+
+		from tools.diagnostics_tool import diagnostics_tool as mod
+
+		monkeypatch.setattr(sp, "run", lambda *a, **k: self._Proc(out))
+		return mod._run_ruff("ruff", str(tmp_path))
+
+	def test_non_list_json_is_not_clean(self, monkeypatch, tmp_path: Path) -> None:
+		out = self._run(monkeypatch, '{"diagnostics": []}', tmp_path)
+		assert out and "unexpected JSON shape" in out[0]
+		assert "no diagnostics were read" in out[0]
+
+	def test_all_entries_unreadable_is_an_error(self, monkeypatch, tmp_path: Path) -> None:
+		out = self._run(monkeypatch, '["x", 3]', tmp_path)
+		assert out and "2 of 2 ruff entries could not be read" in out[0]
+		assert ": error:" in out[0]
+
+	def test_partial_drop_is_a_note(self, monkeypatch, tmp_path: Path) -> None:
+		out = self._run(
+			monkeypatch,
+			'[{"code": "F401", "message": "unused", "filename": "a.py",'
+			' "location": {"row": 1, "column": 1}}, "junk"]',
+			tmp_path,
+		)
+		assert len(out) == 2
+		assert "a.py:1:1: error: F401 unused" == out[0]
+		assert "1 of 2 ruff entries could not be read" in out[1]
+		assert ": note:" in out[1]
+

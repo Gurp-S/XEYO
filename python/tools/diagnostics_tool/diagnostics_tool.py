@@ -224,36 +224,54 @@ def _find_tsconfig(target: str, cwd: str) -> str | None:
 	return None
 
 
-def _iter_py_files(target: str) -> list[Path]:
+_NOISE_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv"}
+
+
+def _iter_py_files(target: str) -> tuple[list[Path], list[str]]:
+	"""Return (files, bounds). ``bounds`` names every part of the path that was
+	NOT examined — an empty list means the file set is the whole path."""
 	p = Path(target)
 	if p.is_file():
-		return [p] if p.suffix.lower() == ".py" else []
+		return ([p] if p.suffix.lower() == ".py" else []), []
 	out: list[Path] = []
+	bounds: list[str] = []
+	capped = False
+	shallow_cut = False
+	skipped_dirs: set[str] = set()
 	try:
 		for dirpath, dirnames, filenames in os.walk(p):
 			rel = os.path.relpath(dirpath, p)
 			depth = 0 if rel == "." else rel.count(os.sep) + 1
+			py_here = [name for name in filenames if name.endswith(".py")]
 			if depth > _MAX_DEPTH:
+				# 走到这里就折返：更深的目录不再访问，所以只能说"没走"，
+				# 报不出被排除的文件数——报一个数就是把有界视图当总量。
+				if py_here or dirnames:
+					shallow_cut = True
 				dirnames[:] = []
 				continue
-			# 跳过噪音目录
-			dirnames[:] = [
-				d
-				for d in dirnames
-				if d not in {".git", "node_modules", "__pycache__", ".venv", "venv"}
-			]
-			for name in filenames:
-				if name.endswith(".py"):
-					out.append(Path(dirpath) / name)
-					if len(out) >= _MAX_FILES:
-						return out
+			skipped_dirs.update(d for d in dirnames if d in _NOISE_DIRS)
+			dirnames[:] = [d for d in dirnames if d not in _NOISE_DIRS]
+			for name in py_here:
+				out.append(Path(dirpath) / name)
+				if len(out) >= _MAX_FILES:
+					capped = True
+					break
+			if capped:
+				break
 	except OSError:
-		return out
-	return out
+		pass
+	if capped:
+		bounds.append(f"stopped after {_MAX_FILES} .py files")
+	if shallow_cut:
+		bounds.append(f"dirs deeper than {_MAX_DEPTH} levels were not walked")
+	if skipped_dirs:
+		bounds.append("skipped dirs: " + ", ".join(sorted(skipped_dirs)))
+	return out, bounds
 
 
 def _run_py_compile(target: str) -> list[str]:
-	files = _iter_py_files(target)
+	files, bounds = _iter_py_files(target)
 	if not files:
 		# 一个文件都没检查过就不能报「干净」——那是两件事。
 		return [f"{target}:0:0: note: no .py file examined; nothing was checked"]
@@ -266,6 +284,12 @@ def _run_py_compile(target: str) -> list[str]:
 			out.append(f"{f}:{e.lineno or 0}:{e.offset or 0}: error: {e.msg}")
 		except OSError as e:
 			out.append(f"{f}:0:0: error: {e}")
+	if bounds:
+		# 有边界时「没有诊断」只覆盖检查到的那部分，不覆盖整个路径。
+		out.append(
+			f"{target}:0:0: note: {len(files)} .py files examined; not examined: "
+			+ "; ".join(bounds)
+		)
 	return out
 
 
@@ -295,9 +319,15 @@ def _run_ruff(ruff: str, target: str) -> list[str]:
 		return [f"{target}:0:0: error: ruff returned non-JSON output"]
 	out: list[str] = []
 	if not isinstance(items, list):
-		return out
+		# 认不出的载荷形状 = 读不出诊断，不等于「没有诊断」。
+		return [
+			f"{target}:0:0: error: ruff returned unexpected JSON shape"
+			f" ({type(items).__name__}, expected a list); no diagnostics were read"
+		]
+	dropped = 0
 	for it in items:
 		if not isinstance(it, dict):
+			dropped += 1
 			continue
 		loc = it.get("location") or {}
 		row = loc.get("row") or 0
@@ -307,6 +337,12 @@ def _run_ruff(ruff: str, target: str) -> list[str]:
 		fp = it.get("filename") or target
 		sev = "warning" if str(code).startswith("W") else "error"
 		out.append(f"{fp}:{row}:{col}: {sev}: {code} {msg}".strip())
+	if dropped:
+		bound_sev = "error" if not out else "note"
+		out.append(
+			f"{target}:0:0: {bound_sev}: {dropped} of {len(items)} ruff entries"
+			" could not be read"
+		)
 	return out
 
 
