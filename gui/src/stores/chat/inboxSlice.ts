@@ -99,6 +99,9 @@ export function createInboxSlice(
 			if (!payload || revisions.get(sessionId) !== revision) {
 				return false;
 			}
+			if (!get().sessions.some(session => session.id === sessionId)) {
+				return false;
+			}
 			const items = normalizeItems(payload);
 			set(s => {
 				const messages = s.messagesById[sessionId] ?? [];
@@ -128,6 +131,9 @@ export function createInboxSlice(
 			// 失败（delivering 409 / 网络）不本地移除，调用方据返回值提示。
 			if (!ok) {
 				return false;
+			}
+			if (!get().sessions.some(session => session.id === sessionId)) {
+				return true;
 			}
 			const initialInbox = get().inboxBySession[sessionId] ?? [];
 			const item = initialInbox.find(it => it.queue_id === queue_id) ?? originalItem;
@@ -167,6 +173,9 @@ export function createInboxSlice(
 			// 失败不改本地文本，调用方据返回值提示（避免「以为保存了」）。
 			if (!ok) {
 				return false;
+			}
+			if (!get().sessions.some(session => session.id === sessionId)) {
+				return true;
 			}
 			const initialInbox = get().inboxBySession[sessionId] ?? [];
 			const item = initialInbox.find(it => it.queue_id === queue_id) ?? originalItem;

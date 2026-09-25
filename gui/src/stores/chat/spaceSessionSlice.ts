@@ -785,8 +785,10 @@ async selectSession(id) {
 		clearTodoDismissal(id);
 		set(s => {
 			const sessions = s.sessions.filter(x => x.id !== id);
-				const messagesById = {...s.messagesById};
-				delete messagesById[id];
+			const messagesById = {...s.messagesById};
+			delete messagesById[id];
+			const inboxBySession = {...s.inboxBySession};
+			delete inboxBySession[id];
 				const historyById = {...s.historyById};
 				delete historyById[id];
 				const sessionTodosById = {...s.sessionTodosById};
@@ -827,6 +829,7 @@ async selectSession(id) {
 			return {
 				sessions,
 					messagesById,
+					inboxBySession,
 					messagesLoadingIds,
 					historyById,
 					sessionTodosById,

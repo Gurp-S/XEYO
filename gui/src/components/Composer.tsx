@@ -213,6 +213,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 	const [value, setValue] = useState('');
 	const [attachments, setAttachments] = useState<Attachment[]>([]);
 	const [uploading, setUploading] = useState(false);
+	const uploadCountRef = useRef(0);
 	const [dragOver, setDragOver] = useState(false);
 	const fileRef = useRef<HTMLInputElement>(null);
 	const taRef = useRef<HTMLTextAreaElement>(null);
@@ -462,8 +463,25 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 	/** 自绘光标重测出口(TypingCaret):textarea 滚动后视觉坐标重算。 */
 	const caretApiRef = useRef<TypingCaretApi | null>(null);
 	const activeIdRef = useRef(activeId);
+	const composerMountedRef = useRef(false);
 	const valueRef = useRef(value);
 	valueRef.current = value;
+	useEffect(() => {
+		composerMountedRef.current = true;
+		return () => {
+			composerMountedRef.current = false;
+		};
+	}, []);
+	const beginUpload = () => {
+		uploadCountRef.current += 1;
+		setUploading(true);
+	};
+	const endUpload = () => {
+		uploadCountRef.current = Math.max(0, uploadCountRef.current - 1);
+		if (composerMountedRef.current) {
+			setUploading(uploadCountRef.current > 0);
+		}
+	};
 	const currentSessionStreaming = useChatUiStore(s =>
 		activeId ? sessionStreamActive(s, activeId) : false,
 	);
@@ -1005,51 +1023,74 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 		if (!fileList) {
 			return;
 		}
-		const arr = Array.from(fileList);
-		const imgs = arr.filter(f => f.type.startsWith('image/'));
-		const others = arr.filter(f => !f.type.startsWith('image/'));
-		if (imgs.length && !remoteLoggedIn) {
-			addImages(imgs);
-		}
-		for (const file of others) {
-			setUploading(true);
-			try {
-				const res = await uploadFile(file);
-				const body = res.text ?? '';
-				const MAX_UPLOAD_SNIPPET = 48_000;
-				if (body.length > MAX_UPLOAD_SNIPPET) {
-					toast.warn(
-						`${res.filename || file.name} 较大，已按文件名引用（不内联全文）`,
-					);
-					setAttachments(prev => [
-						...prev,
-						{
+		const originSessionId = activeId;
+		const originText = valueRef.current;
+		const originAttachments = attachmentsRef.current;
+		let uploadStarted = false;
+		const appendUploadedFile = (attachment: FileAttachment) => {
+			const sameSessionIsActive =
+				composerMountedRef.current &&
+				activeIdRef.current === originSessionId &&
+				chatUiStoreApi.getState().activeId === originSessionId;
+			if (sameSessionIsActive) {
+				setAttachments(current => [...current, attachment]);
+				return;
+			}
+			if (!originSessionId) {
+				toast.info('附件已上传，但原草稿没有关联会话，未加入当前对话');
+				return;
+			}
+			const draft = getComposerDraft(originSessionId) ??
+				defaultComposerDraft({text: originText, attachments: originAttachments});
+			setComposerDraft(originSessionId, {
+				text: draft.text,
+				attachments: [...draft.attachments, attachment],
+			});
+		};
+		try {
+			const arr = Array.from(fileList);
+			const imgs = arr.filter(f => f.type.startsWith('image/'));
+			const others = arr.filter(f => !f.type.startsWith('image/'));
+			if (others.length > 0) {
+				beginUpload();
+				uploadStarted = true;
+			}
+			if (imgs.length && !remoteLoggedIn) {
+				addImages(imgs);
+			}
+			for (const file of others) {
+				try {
+					const res = await uploadFile(file);
+					const body = res.text ?? '';
+					const MAX_UPLOAD_SNIPPET = 48_000;
+					if (body.length > MAX_UPLOAD_SNIPPET) {
+						toast.warn(
+							`${res.filename || file.name} 较大，已按文件名引用（不内联全文）`,
+						);
+						appendUploadedFile({
 							kind: 'file',
 							id: uid('file'),
 							name: res.filename || file.name,
 							path: res.filename || file.name,
-						},
-					]);
-				} else {
-					setAttachments(prev => [
-						...prev,
-						{
+						});
+					} else {
+						appendUploadedFile({
 							kind: 'file',
 							id: uid('file'),
 							name: res.filename || file.name,
 							text: body,
-						},
-					]);
+						});
+					}
+				} catch (err) {
+					toast.error(err instanceof Error ? err.message : String(err));
+					return;
 				}
-			} catch (err) {
-				toast.error(err instanceof Error ? err.message : String(err));
-				return;
-			} finally {
-				setUploading(false);
 			}
-		}
-		if (fileRef.current) {
-			fileRef.current.value = '';
+		} finally {
+			if (uploadStarted) endUpload();
+			// Reset on every exit path, including a failed upload, so selecting the
+			// same file again reliably fires the input's change event.
+			if (fileRef.current) fileRef.current.value = '';
 		}
 	};
 
@@ -1106,40 +1147,46 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 		targetText = value,
 	): Promise<string[]> => {
 		const refs: string[] = [];
-		for (const image of imagesToUpload) {
-			if (image.mediaRef) {
-				refs.push(image.mediaRef);
-				continue;
+		const needsUpload = imagesToUpload.some(image => !image.mediaRef);
+		if (needsUpload) beginUpload();
+		try {
+			for (const image of imagesToUpload) {
+				if (image.mediaRef) {
+					refs.push(image.mediaRef);
+					continue;
+				}
+				if (!image.file) {
+					throw new Error(`图片 ${image.name} 尚未准备好，请重新添加`);
+				}
+				const uploaded = await uploadMedia(image.file);
+				refs.push(uploaded.media_ref);
+				if (
+					chatUiStoreApi.getState().activeId === targetSessionId &&
+					activeIdRef.current === targetSessionId
+				) {
+					setAttachments(prev =>
+						prev.map(item =>
+							item.id === image.id && item.kind === 'image'
+								? {...item, mediaRef: uploaded.media_ref}
+								: item,
+						),
+					);
+				} else if (targetSessionId) {
+					const draft = getComposerDraft(targetSessionId);
+					setComposerDraft(targetSessionId, {
+						text: draft?.text ?? targetText,
+						attachments: (draft?.attachments ?? imagesToUpload).map(item =>
+							item.id === image.id && item.kind === 'image'
+								? {...item, mediaRef: uploaded.media_ref}
+								: item,
+						),
+					});
+				}
 			}
-			if (!image.file) {
-				throw new Error(`图片 ${image.name} 尚未准备好，请重新添加`);
-			}
-			const uploaded = await uploadMedia(image.file);
-			refs.push(uploaded.media_ref);
-			if (
-				chatUiStoreApi.getState().activeId === targetSessionId &&
-				activeIdRef.current === targetSessionId
-			) {
-				setAttachments(prev =>
-					prev.map(item =>
-						item.id === image.id && item.kind === 'image'
-							? {...item, mediaRef: uploaded.media_ref}
-							: item,
-					),
-				);
-			} else if (targetSessionId) {
-				const draft = getComposerDraft(targetSessionId);
-				setComposerDraft(targetSessionId, {
-					text: draft?.text ?? targetText,
-					attachments: (draft?.attachments ?? imagesToUpload).map(item =>
-						item.id === image.id && item.kind === 'image'
-							? {...item, mediaRef: uploaded.media_ref}
-							: item,
-					),
-				});
-			}
+			return refs;
+		} finally {
+			if (needsUpload) endUpload();
 		}
-		return refs;
 	};
 
 	const canSend =
@@ -1216,7 +1263,6 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 						onSend: async commandText => {
 							let mediaRefs: string[];
 							try {
-								setUploading(true);
 								mediaRefs = await ensureMediaRefs(
 									submittedAttachments.filter(
 										(attachment): attachment is ImageAttachment => attachment.kind === 'image',
@@ -1227,8 +1273,6 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 							} catch (err) {
 								toast.error(err instanceof Error ? err.message : String(err));
 								return false;
-							} finally {
-								setUploading(false);
 							}
 							const payload = buildPayload(commandText, submittedAttachments);
 							return await new Promise<boolean>(resolve => {
@@ -1337,14 +1381,11 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 		void (async () => {
 			let mediaRefs: string[];
 			try {
-				setUploading(true);
 				mediaRefs = await ensureMediaRefs(images, sessionId, draftText);
-		} catch (err) {
-			toast.error(err instanceof Error ? err.message : String(err));
-			return;
-		} finally {
-			setUploading(false);
-		}
+			} catch (err) {
+				toast.error(err instanceof Error ? err.message : String(err));
+				return;
+			}
 		const clearAfterAccept = () => {
 			if (clearedByCallback) {
 				return;
