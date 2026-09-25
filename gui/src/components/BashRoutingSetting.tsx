@@ -1,5 +1,8 @@
 import {useEffect, useState} from 'react';
 import {loadBashPolicy, saveBashPolicy, type BashPolicy} from '@/lib/api';
+import {samePath} from '@/lib/paths';
+import {useChatStore} from '@/stores/chatStore';
+import {toast} from '@/lib/toast';
 
 /**
  * 43 号：Bash 专用工具路由 / 渐进强制设置（写工作区策略 .xeyo-policy.json）。
@@ -11,15 +14,28 @@ import {loadBashPolicy, saveBashPolicy, type BashPolicy} from '@/lib/api';
  * 不影响现有构建；未导入前不会被 vite 打包）。
  */
 export function BashRoutingSetting() {
+	const root = useChatStore(s => {
+		const space = s.spaces.find(item => item.id === s.activeSpaceId);
+		return space?.rootPath?.trim() ?? '';
+	});
 	const [pol, setPol] = useState<BashPolicy | null>(null);
 	const [routing, setRouting] = useState<'auto' | 'off'>('off');
 	const [escalate, setEscalate] = useState(0);
 	const [saved, setSaved] = useState(false);
+	const [loadError, setLoadError] = useState(false);
+	const [reloadKey, setReloadKey] = useState(0);
 
 	useEffect(() => {
 		let alive = true;
-		loadBashPolicy().then(p => {
-			if (!alive || !p) return;
+		setPol(null);
+		setLoadError(false);
+		if (!root) return () => { alive = false; };
+		void loadBashPolicy(root).then(p => {
+			if (!alive) return;
+			if (!p) {
+				setLoadError(true);
+				return;
+			}
 			setPol(p);
 			setRouting(p.bash_routing);
 			setEscalate(p.bash_escalate);
@@ -27,19 +43,36 @@ export function BashRoutingSetting() {
 		return () => {
 			alive = false;
 		};
-	}, []);
+	}, [root, reloadKey]);
 
 	async function save() {
-		const p = await saveBashPolicy({
-			bash_routing: routing,
-			bash_escalate: escalate,
-		});
-		if (p) {
-			setPol(p);
-			setEscalate(p.bash_escalate);
-			setRouting(p.bash_routing);
-			setSaved(true);
-			setTimeout(() => setSaved(false), 1500);
+		if (!root) return;
+		const savedRoot = root;
+		try {
+			const p = await saveBashPolicy({
+				bash_routing: routing,
+				bash_escalate: escalate,
+				workspace: savedRoot,
+			});
+			const state = useChatStore.getState();
+			const currentRoot = state.spaces.find(item => item.id === state.activeSpaceId)?.rootPath?.trim() ?? '';
+			if (!p) {
+				if (samePath(savedRoot, currentRoot)) toast.error('Bash 策略保存失败');
+				return;
+			}
+			if (samePath(savedRoot, currentRoot)) {
+				setPol(p);
+				setEscalate(p.bash_escalate);
+				setRouting(p.bash_routing);
+				setSaved(true);
+				setTimeout(() => setSaved(false), 1500);
+			}
+		} catch (error) {
+			const state = useChatStore.getState();
+			const currentRoot = state.spaces.find(item => item.id === state.activeSpaceId)?.rootPath?.trim() ?? '';
+			if (samePath(savedRoot, currentRoot)) {
+				toast.error(error instanceof Error ? error.message : 'Bash 策略保存失败');
+			}
 		}
 	}
 
@@ -49,7 +82,16 @@ export function BashRoutingSetting() {
 	return (
 		<div className="space-y-2 p-1">
 			<div className="text-[11px] font-semibold text-ink">Bash 工具策略</div>
-			{!pol && <div className="text-[10px] text-mute">读取中…</div>}
+			{!root ? <div className="text-[10px] text-mute">打开工作区后可配置</div> : null}
+			{root && !pol && !loadError ? <div className="text-[10px] text-mute">读取中…</div> : null}
+			{root && loadError ? (
+				<div className="flex items-center gap-2 text-[10px] text-mute">
+					<span>读取失败</span>
+					<button type="button" className="text-accent hover:underline" onClick={() => setReloadKey(key => key + 1)}>
+						重试
+					</button>
+				</div>
+			) : null}
 			<label className="flex items-center justify-between gap-3">
 				<span className="text-xs text-mute">透明路由</span>
 				<select
@@ -84,6 +126,7 @@ export function BashRoutingSetting() {
 			</div>
 			<button
 				onClick={save}
+				disabled={!root || !pol}
 				className="rounded-lg border border-line px-2 py-1 text-xs text-ink hover:border-accent"
 			>
 				{saved ? '已保存' : '保存'}

@@ -22,16 +22,19 @@ class WorkspaceRequest(BaseModel):
 class WorkspaceWriteBody(BaseModel):
 	path: str
 	text: str
+	workspace: str | None = None
 
 
 class TerminalExecBody(BaseModel):
 	command: str = Field(min_length=1, max_length=4000)
 	timeout_s: float | None = Field(default=None, ge=1, le=120)
+	workspace: str | None = None
 
 
 class BashPolicyBody(BaseModel):
 	bash_escalate: int | None = Field(default=None, ge=0)
 	bash_routing: str | None = None
+	workspace: str | None = None
 
 
 def checked_path(value: Any, *, field: str = "path") -> str:
@@ -55,8 +58,18 @@ def checked_path(value: Any, *, field: str = "path") -> str:
 	return text
 
 
+def resolve_workspace_root(value: str | None) -> str:
+	"""Resolve a workspace scoped to this request without mutating the UI cwd."""
+	if not value:
+		return _pool.cwd
+	try:
+		return _pool.resolve_workspace(value)
+	except (FileNotFoundError, NotADirectoryError, ValueError) as e:
+		raise api_error(400, str(e)) from e
+
+
 @router.get("/v1/workspace/policy-bash")
-def get_policy_bash() -> dict[str, Any]:
+def get_policy_bash(workspace: str | None = Query(default=None)) -> dict[str, Any]:
 	"""43 号：读 bash 路由/渐进强制策略 + 推荐/上限（供 UI 设置展示）。"""
 	from permissions.workspace_policy import (
 		BASH_ESCALATE_MAX,
@@ -64,10 +77,11 @@ def get_policy_bash() -> dict[str, Any]:
 		load_workspace_policy,
 	)
 
-	pol = load_workspace_policy(_pool.cwd)
+	cwd = resolve_workspace_root(workspace)
+	pol = load_workspace_policy(cwd)
 	return {
 		"ok": True,
-		"cwd": _pool.cwd,
+		"cwd": cwd,
 		"bash_routing": pol.bash_routing,
 		"bash_escalate": pol.bash_escalate,
 		"escalate_recommended": BASH_ESCALATE_RECOMMENDED,
@@ -86,14 +100,15 @@ def set_policy_bash(body: BashPolicyBody, request: Request) -> dict[str, Any]:
 		write_bash_policy,
 	)
 
+	cwd = resolve_workspace_root(body.workspace)
 	pol = write_bash_policy(
-		_pool.cwd,
+		cwd,
 		bash_routing=body.bash_routing,
 		bash_escalate=body.bash_escalate,
 	)
 	return {
 		"ok": True,
-		"cwd": _pool.cwd,
+		"cwd": cwd,
 		"bash_routing": pol.bash_routing,
 		"bash_escalate": pol.bash_escalate,
 		"escalate_recommended": BASH_ESCALATE_RECOMMENDED,
@@ -125,12 +140,15 @@ def set_workspace(body: WorkspaceRequest) -> dict[str, Any]:
 
 
 @router.get("/v1/workspace/entries")
-def workspace_entries(path: str = Query(default="")) -> dict[str, Any]:
+def workspace_entries(
+	path: str = Query(default=""), workspace: str | None = Query(default=None)
+) -> dict[str, Any]:
 	from server.workspace_fs import list_entries
 
 	checked_path(path)
+	cwd = resolve_workspace_root(workspace)
 	try:
-		return list_entries(_pool.cwd, path)
+		return list_entries(cwd, path)
 	except FileNotFoundError as e:
 		raise api_error(404, str(e)) from e
 	except NotADirectoryError as e:
@@ -140,14 +158,17 @@ def workspace_entries(path: str = Query(default="")) -> dict[str, Any]:
 
 
 @router.get("/v1/workspace/file")
-def workspace_file(path: str = Query(default="")) -> dict[str, Any]:
+def workspace_file(
+	path: str = Query(default=""), workspace: str | None = Query(default=None)
+) -> dict[str, Any]:
 	from server.workspace_fs import read_file
 
 	checked_path(path)
 	if not (path or "").strip():
 		raise api_error(400, "path is empty")
+	cwd = resolve_workspace_root(workspace)
 	try:
-		return read_file(_pool.cwd, path)
+		return read_file(cwd, path)
 	except FileNotFoundError as e:
 		raise api_error(404, str(e)) from e
 	except PermissionError as e:
@@ -157,15 +178,18 @@ def workspace_file(path: str = Query(default="")) -> dict[str, Any]:
 
 
 @router.get("/v1/workspace/file/stat")
-def workspace_file_stat(path: str = Query(default="")) -> dict[str, Any]:
+def workspace_file_stat(
+	path: str = Query(default=""), workspace: str | None = Query(default=None)
+) -> dict[str, Any]:
 	"""轻量 stat：不读正文，供文件预览 Agent 忙碌期轮询。"""
 	from server.workspace_fs import stat_file
 
 	checked_path(path)
 	if not (path or "").strip():
 		raise api_error(400, "path is empty")
+	cwd = resolve_workspace_root(workspace)
 	try:
-		return stat_file(_pool.cwd, path)
+		return stat_file(cwd, path)
 	except FileNotFoundError as e:
 		raise api_error(404, str(e)) from e
 	except PermissionError as e:
@@ -182,9 +206,12 @@ def workspace_write(body: WorkspaceWriteBody) -> dict[str, Any]:
 	if not (body.path or "").strip():
 		raise api_error(400, "path is empty")
 	try:
-		return write_file(_pool.cwd, body.path, body.text)
+		cwd = resolve_workspace_root(body.workspace)
+		return write_file(cwd, body.path, body.text)
 	except FileNotFoundError as e:
 		raise api_error(404, str(e)) from e
+	except NotADirectoryError as e:
+		raise api_error(400, str(e)) from e
 	except PermissionError as e:
 		raise api_error(403, str(e)) from e
 	except IsADirectoryError as e:
@@ -216,12 +243,15 @@ def workspace_delete_file(
 
 
 @router.get("/v1/workspace/graph")
-def workspace_graph(refresh: bool = Query(default=False)) -> dict[str, Any]:
+def workspace_graph(
+	refresh: bool = Query(default=False), workspace: str | None = Query(default=None)
+) -> dict[str, Any]:
 	"""代码/架构图：文件节点 + import 边 + 包折叠。无 LLM、无持久索引。"""
 	from codeindex.graph import build_workspace_graph
 
+	cwd = resolve_workspace_root(workspace)
 	try:
-		return build_workspace_graph(_pool.cwd, refresh=refresh)
+		return build_workspace_graph(cwd, refresh=refresh)
 	except FileNotFoundError as e:
 		raise api_error(404, str(e)) from e
 	except PermissionError as e:
@@ -229,7 +259,9 @@ def workspace_graph(refresh: bool = Query(default=False)) -> dict[str, Any]:
 
 
 @router.get("/v1/workspace/outline")
-def workspace_outline(path: str = Query(default="")) -> dict[str, Any]:
+def workspace_outline(
+	path: str = Query(default=""), workspace: str | None = Query(default=None)
+) -> dict[str, Any]:
 	"""单文件符号大纲（按需，不扫全仓）。"""
 
 	from codeindex.symbols import outline
@@ -239,8 +271,9 @@ def workspace_outline(path: str = Query(default="")) -> dict[str, Any]:
 	raw = (path or "").strip()
 	if not raw:
 		raise api_error(400, "path is empty")
+	cwd = resolve_workspace_root(workspace)
 	try:
-		abs_path = resolve_in_workspace(_pool.cwd, raw)
+		abs_path = resolve_in_workspace(cwd, raw)
 	except FileNotFoundError as e:
 		raise api_error(404, str(e)) from e
 	except PermissionError as e:
@@ -250,6 +283,7 @@ def workspace_outline(path: str = Query(default="")) -> dict[str, Any]:
 	syms = outline(str(abs_path))
 	return {
 		"ok": True,
+		"cwd": cwd,
 		"path": raw.replace("\\", "/"),
 		"symbols": [
 			{
@@ -269,6 +303,7 @@ def workspace_outline(path: str = Query(default="")) -> dict[str, Any]:
 class MapExplainBody(BaseModel):
 	id: str
 	kind: str = "file"  # file | package
+	workspace: str | None = None
 
 
 @router.post("/v1/workspace/map/explain")
@@ -288,8 +323,9 @@ def workspace_map_explain(body: MapExplainBody) -> dict[str, Any]:
 	if not node_id:
 		raise api_error(400, "id is empty")
 	checked_path(body.id, field="id")
+	cwd = resolve_workspace_root(body.workspace)
 
-	graph = build_workspace_graph(_pool.cwd)
+	graph = build_workspace_graph(cwd)
 	lines: list[str] = []
 
 	if kind == "package":
@@ -318,7 +354,7 @@ def workspace_map_explain(body: MapExplainBody) -> dict[str, Any]:
 		if ins:
 			lines.append("imported by：" + "、".join(Path(p).name for p in ins))
 		try:
-			abs_path = resolve_in_workspace(_pool.cwd, node_id)
+			abs_path = resolve_in_workspace(cwd, node_id)
 			if abs_path.is_file():
 				syms = outline(str(abs_path))[:16]
 				if syms:
@@ -331,6 +367,7 @@ def workspace_map_explain(body: MapExplainBody) -> dict[str, Any]:
 
 	return {
 		"ok": True,
+		"cwd": cwd,
 		"id": node_id,
 		"kind": kind,
 		"summary": "\n".join(lines),
@@ -339,11 +376,14 @@ def workspace_map_explain(body: MapExplainBody) -> dict[str, Any]:
 
 
 @router.get("/v1/workspace/search")
-def workspace_search(q: str = Query(default="")) -> dict[str, Any]:
+def workspace_search(
+	q: str = Query(default=""), workspace: str | None = Query(default=None)
+) -> dict[str, Any]:
 	from server.workspace_fs import search_entries
 
+	cwd = resolve_workspace_root(workspace)
 	try:
-		return search_entries(_pool.cwd, q)
+		return search_entries(cwd, q)
 	except FileNotFoundError as e:
 		raise api_error(404, str(e)) from e
 	except PermissionError as e:
@@ -356,12 +396,13 @@ def workspace_journal(
     agent_id: str = Query(default=""),
     since_ts: float | None = Query(default=None, ge=0),
     limit: int = Query(default=30, ge=1, le=100),
+    workspace: str | None = Query(default=None),
 ) -> dict[str, Any]:
     """跨 agent 的最近工作区变更（人可见；只读，不含对话正文）。"""
     from memory import journal
     from memory.memdir import workspace_id
 
-    cwd = (str(_pool.cwd or "")).strip()
+    cwd = (str(resolve_workspace_root(workspace) or "")).strip()
     if not cwd:
         raise api_error(400, "workspace cwd is empty")
     wsid = workspace_id(cwd)
@@ -410,11 +451,12 @@ def workspace_peers(
 
 
 @router.get("/v1/workspace/git/status")
-def workspace_git_status() -> dict[str, Any]:
+def workspace_git_status(workspace: str | None = Query(default=None)) -> dict[str, Any]:
 	from server.workspace_git import GitBinaryMissing, GitError, read_git_status
 
+	cwd = resolve_workspace_root(workspace)
 	try:
-		return read_git_status(_pool.cwd)
+		return read_git_status(cwd)
 	except FileNotFoundError as e:
 		raise api_error(404, str(e)) from e
 	except GitBinaryMissing as e:
@@ -424,11 +466,14 @@ def workspace_git_status() -> dict[str, Any]:
 
 
 @router.get("/v1/workspace/git/log")
-def workspace_git_log(limit: int = Query(default=20, ge=1, le=500)) -> dict[str, Any]:
+def workspace_git_log(
+	limit: int = Query(default=20, ge=1, le=500), workspace: str | None = Query(default=None)
+) -> dict[str, Any]:
 	from server.workspace_git import GitBinaryMissing, GitError, read_git_log
 
+	cwd = resolve_workspace_root(workspace)
 	try:
-		return read_git_log(_pool.cwd, limit)
+		return read_git_log(cwd, limit)
 	except FileNotFoundError as e:
 		raise api_error(404, str(e)) from e
 	except GitBinaryMissing as e:
@@ -438,11 +483,12 @@ def workspace_git_log(limit: int = Query(default=20, ge=1, le=500)) -> dict[str,
 
 
 @router.get("/v1/workspace/git/branches")
-def workspace_git_branches() -> dict[str, Any]:
+def workspace_git_branches(workspace: str | None = Query(default=None)) -> dict[str, Any]:
 	from server.workspace_git import GitBinaryMissing, GitError, read_git_branches
 
+	cwd = resolve_workspace_root(workspace)
 	try:
-		return read_git_branches(_pool.cwd)
+		return read_git_branches(cwd)
 	except FileNotFoundError as e:
 		raise api_error(404, str(e)) from e
 	except GitBinaryMissing as e:
@@ -452,14 +498,17 @@ def workspace_git_branches() -> dict[str, Any]:
 
 
 @router.get("/v1/workspace/file/diff")
-def workspace_file_diff(path: str = Query(default="")) -> dict[str, Any]:
+def workspace_file_diff(
+	path: str = Query(default=""), workspace: str | None = Query(default=None)
+) -> dict[str, Any]:
 	from server.workspace_git import GitBinaryMissing, GitError, read_file_diff
 
 	checked_path(path)
 	if not (path or "").strip():
 		raise api_error(400, "path is empty")
+	cwd = resolve_workspace_root(workspace)
 	try:
-		return read_file_diff(_pool.cwd, path)
+		return {**read_file_diff(cwd, path), "cwd": cwd}
 	except FileNotFoundError as e:
 		raise api_error(404, str(e)) from e
 	except PermissionError as e:
@@ -480,9 +529,12 @@ def workspace_terminal_exec(body: TerminalExecBody, request: Request) -> dict[st
 	if denied:
 		raise api_error(403, f"command denied: {denied}", "permission_error")
 	try:
-		return run_command(_pool.cwd, body.command, body.timeout_s or 30)
+		cwd = resolve_workspace_root(body.workspace)
+		return run_command(cwd, body.command, body.timeout_s or 30)
 	except FileNotFoundError as e:
 		raise api_error(404, str(e)) from e
+	except (NotADirectoryError, ValueError) as e:
+		raise api_error(400, str(e)) from e
 	except TerminalError as e:
 		raise api_error(400, str(e)) from e
 

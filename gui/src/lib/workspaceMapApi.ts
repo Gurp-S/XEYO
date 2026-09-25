@@ -34,11 +34,14 @@ export type WorkspaceGraph = {
 };
 
 export async function fetchWorkspaceGraph(
-	opts?: {refresh?: boolean},
+	opts?: {refresh?: boolean; root?: string},
 ): Promise<WorkspaceGraph> {
-	const q = opts?.refresh ? '?refresh=true' : '';
+	const q = new URLSearchParams();
+	if (opts?.refresh) q.set('refresh', 'true');
+	if (opts?.root?.trim()) q.set('workspace', opts.root.trim());
+	const suffix = q.toString() ? `?${q}` : '';
 	const res = await fetchWithTimeout(
-		apiUrl(`/v1/workspace/graph${q}`),
+		apiUrl(`/v1/workspace/graph${suffix}`),
 		{cache: 'no-store'},
 		45_000,
 	);
@@ -66,14 +69,16 @@ export type WorkspaceOutlineSymbol = {
 
 export type WorkspaceOutline = {
 	ok: boolean;
+	cwd: string;
 	path: string;
 	symbols: WorkspaceOutlineSymbol[];
 };
 
 export async function fetchWorkspaceOutline(
 	path: string,
+	root?: string,
 ): Promise<WorkspaceOutline> {
-	const q = new URLSearchParams({path});
+	const q = new URLSearchParams({path, ...(root?.trim() ? {workspace: root.trim()} : {})});
 	const res = await fetchWithTimeout(
 		apiUrl(`/v1/workspace/outline?${q}`),
 		{cache: 'no-store'},
@@ -94,13 +99,14 @@ export async function fetchWorkspaceOutline(
 export async function explainMapNode(
 	id: string,
 	kind: 'file' | 'package',
-): Promise<{ok: boolean; summary: string; source?: string}> {
+	root?: string,
+): Promise<{ok: boolean; cwd: string; summary: string; source?: string}> {
 	const res = await fetchWithTimeout(
 		apiUrl('/v1/workspace/map/explain'),
 		{
 			method: 'POST',
 			headers: {'Content-Type': 'application/json'},
-			body: JSON.stringify({id, kind}),
+			body: JSON.stringify({id, kind, ...(root?.trim() ? {workspace: root.trim()} : {})}),
 		},
 		30_000,
 	);
@@ -113,5 +119,5 @@ export async function explainMapNode(
 		}
 		throw new Error(formatErrorDetail(payload, res.status));
 	}
-	return (await res.json()) as {ok: boolean; summary: string; source?: string};
+	return (await res.json()) as {ok: boolean; cwd: string; summary: string; source?: string};
 }

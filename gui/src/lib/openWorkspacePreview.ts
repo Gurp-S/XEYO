@@ -1,4 +1,6 @@
 import {gitFileDiff} from '@/lib/api';
+import {samePath} from '@/lib/paths';
+import {useChatStore} from '@/stores/chatStore';
 import {useExplorerStore} from '@/stores/explorerStore';
 import {useWorkspaceStore} from '@/stores/workspaceStore';
 
@@ -25,10 +27,15 @@ export async function openWorkspacePreview(
 	useWorkspaceStore.getState().setOpen(true);
 	useWorkspaceStore.getState().setActive('files');
 	useExplorerStore.getState().setOpen(true);
+	const initialState = useChatStore.getState();
+	const root = initialState.spaces.find(space => space.id === initialState.activeSpaceId)?.rootPath?.trim() ?? '';
 
-	if (opts?.preferDiff) {
+	if (opts?.preferDiff && root) {
 		try {
-			const diff = await gitFileDiff(trimmed);
+			const diff = await gitFileDiff(trimmed, root);
+			const currentState = useChatStore.getState();
+			const currentRoot = currentState.spaces.find(space => space.id === currentState.activeSpaceId)?.rootPath?.trim() ?? '';
+			if (!samePath(root, currentRoot)) return;
 			if (diff.kind === 'diff' || diff.kind === 'untracked') {
 				const name =
 					trimmed.split(/[\\/]/).pop() || trimmed;
@@ -43,6 +50,9 @@ export async function openWorkspacePreview(
 			/* 无 git / 失败时退回文件 */
 		}
 	}
+	const currentState = useChatStore.getState();
+	const currentRoot = currentState.spaces.find(space => space.id === currentState.activeSpaceId)?.rootPath?.trim() ?? '';
+	if (!samePath(root, currentRoot)) return;
 
 	await useExplorerStore.getState().openFile(trimmed);
 }

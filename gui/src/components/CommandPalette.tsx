@@ -23,7 +23,7 @@ import {
 	type ReactNode,
 } from 'react';
 import {createPortal} from 'react-dom';
-import {searchWorkspace, setWorkspace, type WorkspaceEntry} from '@/lib/api';
+import {searchWorkspace, type WorkspaceEntry} from '@/lib/api';
 import {newSession, openPageView, openSession} from '@/lib/appNav';
 import {SIDE_SPACE_ID} from '@/lib/db';
 import {handleComposerSlash, lastUserMessage} from '@/lib/slashCommands';
@@ -325,8 +325,7 @@ export function CommandPalette() {
 		const timer = window.setTimeout(() => {
 			void (async () => {
 				try {
-					await setWorkspace(activeWorkspaceRoot);
-					const res = await searchWorkspace(q);
+					const res = await searchWorkspace(q, activeWorkspaceRoot);
 					if (!cancelled) {
 						setFileHits(res.hits.filter(h => h.kind === 'file').slice(0, 24));
 					}

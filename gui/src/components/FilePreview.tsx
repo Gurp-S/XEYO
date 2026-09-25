@@ -23,6 +23,7 @@ import {applyMdFormat, type MdFormatKind} from '@/lib/mdFormat';
 import {promptDialog} from '@/lib/inlineDialog';
 import {toast} from '@/lib/toast';
 import {cn} from '@/lib/utils';
+import {samePath} from '@/lib/paths';
 import {joinWorkspacePath} from '@/lib/workspaceOpen';
 import {sessionStreamActive} from '@/lib/sessionStreams';
 import {useChatStore} from '@/stores/chatStore';
@@ -38,6 +39,11 @@ import {
 type PickSel = {text: string; rect: DOMRect; bound: DOMRect};
 type MdMode = 'preview' | 'source';
 type PreviewKind = 'diff' | 'file';
+
+function activeWorkspaceRoot(): string {
+	const state = useChatStore.getState();
+	return state.spaces.find(space => space.id === state.activeSpaceId)?.rootPath?.trim() ?? '';
+}
 
 function pathParts(path: string): string[] {
 	return path.split(/[\\/]/).filter(Boolean);
@@ -128,6 +134,7 @@ export const FilePreview = memo(function FilePreview() {
 	const docLive = useExplorerStore(s => s.doc);
 	const loadingFile = useExplorerStore(s => s.loadingFile);
 	const selectedPath = useExplorerStore(s => s.selectedPath);
+	const loadedRoot = useExplorerStore(s => s.loadedRoot);
 	const previewExpanded = useExplorerStore(s => s.previewExpanded);
 	const setPreviewExpanded = useExplorerStore(s => s.setPreviewExpanded);
 	const agentBusy = useChatStore(s =>
@@ -244,11 +251,21 @@ export const FilePreview = memo(function FilePreview() {
 	);
 
 	const refreshLiveDiff = useCallback((path: string) => {
+		const root = loadedRoot;
+		if (!root || !samePath(root, activeWorkspaceRoot())) {
+			liveDiffEpoch.current += 1;
+			setLiveDiff(null);
+			return;
+		}
 		liveDiffEpoch.current += 1;
 		const epoch = liveDiffEpoch.current;
-		void gitFileDiff(path)
+		void gitFileDiff(path, root)
 			.then(result => {
-				if (epoch !== liveDiffEpoch.current) {
+				if (
+					epoch !== liveDiffEpoch.current ||
+					!samePath(root, useExplorerStore.getState().loadedRoot) ||
+					!samePath(root, activeWorkspaceRoot())
+				) {
 					return;
 				}
 				if (result.kind === 'diff' || result.kind === 'untracked') {
@@ -262,7 +279,7 @@ export const FilePreview = memo(function FilePreview() {
 					setLiveDiff(null);
 				}
 			});
-	}, []);
+	}, [loadedRoot]);
 
 	// 换路径或 Agent 写盘导致 doc 指纹变化时刷新「改动」页。
 	const docStamp = doc
@@ -270,6 +287,7 @@ export const FilePreview = memo(function FilePreview() {
 		: '';
 	useEffect(() => {
 		if (!selectedPath || reviewCoversFile) {
+			liveDiffEpoch.current += 1;
 			setLiveDiff(null);
 			return;
 		}
@@ -381,7 +399,13 @@ export const FilePreview = memo(function FilePreview() {
 	// Tool 事件通常会主动触发 reloadIfOpen；忙碌期只轮询 mtime/size，变化才整文件读。
 	// 有未保存修改时不覆盖草稿。空闲下降沿再 stat 一次，避免最后一次 Write 漏刷。
 	useEffect(() => {
-		if (!selectedPath || !paneOpen) {
+		const root = loadedRoot;
+		if (
+			!selectedPath ||
+			!paneOpen ||
+			!root ||
+			!samePath(root, activeWorkspaceRoot())
+		) {
 			return;
 		}
 		let active = true;
@@ -390,8 +414,12 @@ export const FilePreview = memo(function FilePreview() {
 				return;
 			}
 			try {
-				const st = await statWorkspaceFile(selectedPath);
-				if (!active) {
+				const st = await statWorkspaceFile(selectedPath, root);
+				if (
+					!active ||
+					!samePath(root, useExplorerStore.getState().loadedRoot) ||
+					!samePath(root, activeWorkspaceRoot())
+				) {
 					return;
 				}
 				const prev = knownStat.current;
@@ -431,7 +459,7 @@ export const FilePreview = memo(function FilePreview() {
 			active = false;
 			window.clearInterval(timer);
 		};
-	}, [agentBusy, selectedPath, paneOpen, reviewCoversFile, refreshLiveDiff]);
+	}, [agentBusy, selectedPath, paneOpen, reviewCoversFile, refreshLiveDiff, loadedRoot]);
 
 	// Escape 退出放大（与 Mermaid 全屏同一 escStack）。
 	useEffect(() => {

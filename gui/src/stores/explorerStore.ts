@@ -3,11 +3,11 @@ import {
 	listWorkspaceEntries,
 	readWorkspaceFile,
 	writeWorkspaceFile,
-	setWorkspace,
 	type WorkspaceEntry,
 	type WorkspaceFile,
 } from '@/lib/api';
 import {previewPathMatches} from '@/lib/toolFilePath';
+import {samePath} from '@/lib/paths';
 import {useChatStore} from '@/stores/chatStore';
 import {useCommandPaletteStore} from '@/stores/commandPaletteStore';
 
@@ -47,6 +47,7 @@ type ExplorerState = {
 
 let openSeq = 0;
 let reloadSeq = 0;
+let treeSeq = 0;
 
 /* ---- 展开状态持久化（smoke-test #13）：跨重启/重开工作区保留用户手工展开的目录。
    key 绑定工作区根路径；根切换时旧展开不套用。 ---- */
@@ -61,7 +62,7 @@ function loadExpandedForRoot(root: string): Record<string, boolean> | null {
 			parsed &&
 			typeof parsed === 'object' &&
 			typeof (parsed as {root?: unknown}).root === 'string' &&
-			(parsed as {root: string}).root === root &&
+			samePath((parsed as {root: string}).root, root) &&
 			(parsed as {expanded?: unknown}).expanded &&
 			typeof (parsed as {expanded: unknown}).expanded === 'object'
 		) {
@@ -167,21 +168,58 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
 	async ensureRoot() {
 		const root = activeRootPath();
 		if (!root) {
+			treeSeq += 1;
+			openSeq += 1;
+			reloadSeq += 1;
 			set({
 				error: '还没有打开文件夹。请先在左侧打开一个工作区。',
 				childrenByPath: {},
+				expanded: {},
 				rootName: '',
 				loadedRoot: '',
+				selectedPath: null,
+				doc: null,
+				reviewDiff: null,
+				loadingTree: false,
+				loadingFile: false,
 			});
 			return;
 		}
-		if (get().loadedRoot === root && get().childrenByPath['']) {
+		const current = get();
+		if (samePath(current.loadedRoot, root) && current.childrenByPath['']) {
 			return;
 		}
-		set({loadingTree: true, error: null});
+		const seq = ++treeSeq;
+		const switchingRoot = !samePath(current.loadedRoot, root);
+		if (switchingRoot) {
+			openSeq += 1;
+			reloadSeq += 1;
+		}
+		set({
+			loadingTree: true,
+			error: null,
+			...(switchingRoot
+				? {
+						childrenByPath: {},
+						expanded: {},
+						rootName: '',
+						loadedRoot: '',
+						selectedPath: null,
+						doc: null,
+						reviewDiff: null,
+						loadingFile: false,
+						previewExpanded: false,
+					}
+				: {}),
+		});
 		try {
-			await setWorkspace(root);
-			const listing = await listWorkspaceEntries('');
+			const listing = await listWorkspaceEntries('', root);
+			if (
+				seq !== treeSeq ||
+				!samePath(activeRootPath(), root)
+			) {
+				return;
+			}
 			// 默认收起根目录，避免重新打开工作区时整棵文件树全部展开（smoke-test #13）。
 			// 用户随后手动展开的目录按工作区根持久化到 localStorage，跨重启恢复。
 			const saved = loadExpandedForRoot(root);
@@ -195,10 +233,12 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
 				loadedRoot: root,
 			});
 		} catch (err) {
-			set({
-				loadingTree: false,
-				error: err instanceof Error ? err.message : String(err),
-			});
+			if (seq === treeSeq && samePath(activeRootPath(), root)) {
+				set({
+					loadingTree: false,
+					error: err instanceof Error ? err.message : String(err),
+				});
+			}
 		}
 	},
 	async toggleDir(path) {
@@ -216,9 +256,17 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
 		if (get().childrenByPath[key]) {
 			return;
 		}
+		const root = get().loadedRoot;
+		if (!root || !samePath(root, activeRootPath())) {
+			return;
+		}
 		try {
-			const listing = await listWorkspaceEntries(key);
-			if (!get().expanded[key]) {
+			const listing = await listWorkspaceEntries(key, root);
+			if (
+				!samePath(root, get().loadedRoot) ||
+				!samePath(root, activeRootPath()) ||
+				!get().expanded[key]
+			) {
 				return;
 			}
 			set({
@@ -228,13 +276,25 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
 				},
 			});
 		} catch (err) {
-			set({
-				expanded: {...get().expanded, [key]: false},
-				error: err instanceof Error ? err.message : String(err),
-			});
+			if (samePath(root, get().loadedRoot) && samePath(root, activeRootPath())) {
+				set({
+					expanded: {...get().expanded, [key]: false},
+					error: err instanceof Error ? err.message : String(err),
+				});
+			}
 		}
 	},
 	async openFile(path) {
+		const root = activeRootPath();
+		if (!root) {
+			return;
+		}
+		if (!samePath(get().loadedRoot, root)) {
+			await get().ensureRoot();
+			if (!samePath(get().loadedRoot, root) || !samePath(activeRootPath(), root)) {
+				return;
+			}
+		}
 		openSeq += 1;
 		const seq = openSeq;
 		const keepReview = get().reviewDiff?.path === path;
@@ -245,8 +305,13 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
 			...(keepReview ? {} : {reviewDiff: null}),
 		});
 		try {
-			const doc = await readWorkspaceFile(path);
-			if (openSeq !== seq || get().selectedPath !== path) {
+			const doc = await readWorkspaceFile(path, root);
+			if (
+				openSeq !== seq ||
+				get().selectedPath !== path ||
+				!samePath(get().loadedRoot, root) ||
+				!samePath(activeRootPath(), root)
+			) {
 				// 被更新的 openFile 或被 closePreview 抢先：只撤自己置的加载旗，
 				// 否则预览栏会永久停在骨架且关不掉（closePreview 不碰 loadingFile）。
 				if (openSeq === seq) set({loadingFile: false});
@@ -258,7 +323,12 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
 				name: doc.name || path.split(/[\\/]/).pop() || path,
 			});
 		} catch (err) {
-			if (openSeq !== seq || get().selectedPath !== path) {
+			if (
+				openSeq !== seq ||
+				get().selectedPath !== path ||
+				!samePath(get().loadedRoot, root) ||
+				!samePath(activeRootPath(), root)
+			) {
 				if (openSeq === seq) set({loadingFile: false});
 				return;
 			}
@@ -270,6 +340,16 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
 		}
 	},
 	async openReview(file) {
+		const root = activeRootPath();
+		if (!root) {
+			return;
+		}
+		if (!samePath(get().loadedRoot, root)) {
+			await get().ensureRoot();
+			if (!samePath(get().loadedRoot, root) || !samePath(activeRootPath(), root)) {
+				return;
+			}
+		}
 		set({
 			selectedPath: file.path,
 			reviewDiff: file,
@@ -282,11 +362,20 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
 		if (!cur || !previewPathMatches(cur, path)) {
 			return false;
 		}
+		const root = get().loadedRoot;
+		if (!root || !samePath(root, activeRootPath())) {
+			return false;
+		}
 		reloadSeq += 1;
 		const seq = reloadSeq;
 		try {
-			const doc = await readWorkspaceFile(cur);
-			if (seq !== reloadSeq || get().selectedPath !== cur) {
+			const doc = await readWorkspaceFile(cur, root);
+			if (
+				seq !== reloadSeq ||
+				get().selectedPath !== cur ||
+				!samePath(root, get().loadedRoot) ||
+				!samePath(root, activeRootPath())
+			) {
 				return false;
 			}
 			if (workspaceFileUnchanged(get().doc, doc)) {
@@ -300,8 +389,16 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
 		}
 	},
 	async saveFile(path, text) {
-		const doc = await writeWorkspaceFile(path, text);
-		if (get().selectedPath === path) {
+		const root = get().loadedRoot;
+		if (!root || !samePath(root, activeRootPath())) {
+			throw new Error('工作区已切换，请重新打开文件');
+		}
+		const doc = await writeWorkspaceFile(path, text, root);
+		if (
+			get().selectedPath === path &&
+			samePath(root, get().loadedRoot) &&
+			samePath(root, activeRootPath())
+		) {
 			set({doc, error: null});
 		}
 	},
@@ -319,9 +416,17 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
 		set({childrenByPath});
 		// 仅当目录正处于展开态且缓存存在时才重列（避免不必要的网络/文件系统读）。
 		if (get().expanded[key]) {
+			const root = get().loadedRoot;
+			if (!root || !samePath(root, activeRootPath())) {
+				return;
+			}
 			try {
-				const listing = await listWorkspaceEntries(key);
-				if (!get().expanded[key]) {
+				const listing = await listWorkspaceEntries(key, root);
+				if (
+					!samePath(root, get().loadedRoot) ||
+					!samePath(root, activeRootPath()) ||
+					!get().expanded[key]
+				) {
 					return;
 				}
 				set({
@@ -331,10 +436,12 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
 					},
 				});
 			} catch (err) {
-				set({
-					expanded: {...get().expanded, [key]: false},
-					error: err instanceof Error ? err.message : String(err),
-				});
+				if (samePath(root, get().loadedRoot) && samePath(root, activeRootPath())) {
+					set({
+						expanded: {...get().expanded, [key]: false},
+						error: err instanceof Error ? err.message : String(err),
+					});
+				}
 			}
 		}
 	},

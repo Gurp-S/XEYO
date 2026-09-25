@@ -7,6 +7,7 @@ import {useIconTheme} from '@/lib/iconThemeLoader';
 import {joinWorkspacePath} from '@/lib/workspaceOpen';
 import type {ChangedFile} from '@/lib/toolActivity';
 import {cn} from '@/lib/utils';
+import {samePath} from '@/lib/paths';
 import {useChatStore} from '@/stores/chatStore';
 import {useExplorerStore} from '@/stores/explorerStore';
 
@@ -33,15 +34,23 @@ type Props = {
 };
 
 async function openChangedReview(f: ChangedFile): Promise<void> {
+	const initialState = useChatStore.getState();
+	const root = initialState.spaces.find(space => space.id === initialState.activeSpaceId)?.rootPath?.trim() ?? '';
 	let diff = f.diff ?? '';
-	if (!diff.trim()) {
+	if (!diff.trim() && root) {
 		try {
-			const res = await gitFileDiff(f.path);
+			const res = await gitFileDiff(f.path, root);
+			const currentState = useChatStore.getState();
+			const currentRoot = currentState.spaces.find(space => space.id === currentState.activeSpaceId)?.rootPath?.trim() ?? '';
+			if (!samePath(root, currentRoot)) return;
 			diff = String(res.diff ?? '');
 		} catch {
 			diff = '';
 		}
 	}
+	const currentState = useChatStore.getState();
+	const currentRoot = currentState.spaces.find(space => space.id === currentState.activeSpaceId)?.rootPath?.trim() ?? '';
+	if (!samePath(root, currentRoot)) return;
 	void useExplorerStore.getState().openReview({
 		path: f.path,
 		name: f.name,

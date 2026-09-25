@@ -8,7 +8,7 @@ import {usePaneResize} from '@/hooks/usePaneResize';
 import {usePresence} from '@/hooks/usePresence';
 import {cn} from '@/lib/utils';
 import {samePath} from '@/lib/paths';
-import {execWorkspaceTerminal, gitLog, gitStatus, withWorkspaceRoot, type GitLogResult, type GitStatusEntry, type GitStatusResult} from '@/lib/api';
+import {execWorkspaceTerminal, gitLog, gitStatus, type GitLogResult, type GitStatusEntry, type GitStatusResult} from '@/lib/api';
 import {groupTranscript, type TurnItem} from '@/lib/groupTranscript';
 import {useChatStore} from '@/stores/chatStore';
 import {useSettingsStore, PANE_WIDTH_MAX, PANE_WIDTH_MIN, isSmoothnessOn} from '@/stores/settingsStore';
@@ -183,12 +183,9 @@ function CommitsBody() {
 		let disposed = false;
 		setLog(null);
 		setError(null);
-		void withWorkspaceRoot(rootPath, () => gitLog(500))
+		void gitLog(500, rootPath)
 			.then(result => {
 				if (!disposed) {
-					if (rootPath && !samePath(rootPath, result.cwd)) {
-						throw new Error('工作区已切换，请重新加载提交记录');
-					}
 					setLog(result);
 					setError(null);
 				}
@@ -306,10 +303,7 @@ function GitBody() {
 		setStatus(null);
 		void (async () => {
 			try {
-				const next = await withWorkspaceRoot(rootPath, () => gitStatus());
-				if (rootPath && !samePath(rootPath, next.cwd)) {
-					throw new Error('工作区已切换，请重新加载 Git 状态');
-				}
+				const next = await gitStatus(rootPath);
 				if (!disposed) {
 					setStatus(next);
 					setError(null);
@@ -360,6 +354,7 @@ type TermLine = {kind: 'in' | 'out' | 'err' | 'info'; text: string};
 
 function TerminalBody() {
 	const root = useExplorerStore(s => s.loadedRoot);
+	const commandSeqRef = useRef(0);
 	const [cmd, setCmd] = useState('');
 	const [lines, setLines] = useState<TermLine[]>([]);
 	const [busy, setBusy] = useState(false);
@@ -367,6 +362,14 @@ function TerminalBody() {
 	const [cursor, setCursor] = useState(-1);
 	const scrollerRef = useRef<HTMLDivElement | null>(null);
 	usePanelSubtitle(root ? `PS ${root}` : '');
+	useEffect(() => {
+		commandSeqRef.current += 1;
+		setCmd('');
+		setLines([]);
+		setHistory([]);
+		setCursor(-1);
+		setBusy(false);
+	}, [root]);
 
 	useEffect(() => {
 		scrollerRef.current?.scrollTo({top: scrollerRef.current.scrollHeight});
@@ -374,15 +377,23 @@ function TerminalBody() {
 
 	const run = async (text?: string) => {
 		const value = (text ?? cmd).trim();
-		if (!value || busy) {
+		const rootAtRun = root;
+		if (!value || busy || !rootAtRun) {
 			return;
 		}
+		const commandSeq = ++commandSeqRef.current;
 		setCmd('');
 		setCursor(-1);
 		setLines(l => [...l, {kind: 'in', text: value}]);
 		setBusy(true);
 		try {
-			const res = await execWorkspaceTerminal(value, 120);
+			const res = await execWorkspaceTerminal(value, 120, rootAtRun);
+			if (
+				commandSeq !== commandSeqRef.current ||
+				!samePath(rootAtRun, useExplorerStore.getState().loadedRoot)
+			) {
+				return;
+			}
 			if (res.stdout) {
 				setLines(l => [...l, {kind: 'out', text: res.stdout.replace(/\s+$/, '')}]);
 			}
@@ -398,9 +409,14 @@ function TerminalBody() {
 			]);
 			setHistory(h => [value, ...h.filter(x => x !== value)].slice(0, 30));
 		} catch (err) {
-			setLines(l => [...l, {kind: 'err', text: String(err instanceof Error ? err.message : err)}]);
+			if (
+				commandSeq === commandSeqRef.current &&
+				samePath(rootAtRun, useExplorerStore.getState().loadedRoot)
+			) {
+				setLines(l => [...l, {kind: 'err', text: String(err instanceof Error ? err.message : err)}]);
+			}
 		} finally {
-			setBusy(false);
+			if (commandSeq === commandSeqRef.current) setBusy(false);
 		}
 	};
 
@@ -460,7 +476,7 @@ function TerminalBody() {
 					value={cmd}
 					onChange={e => setCmd(e.target.value)}
 					onKeyDown={onKeyDown}
-					disabled={busy}
+					disabled={busy || !root}
 					placeholder="输入命令，回车执行"
 					aria-label="终端命令"
 					className="min-w-0 flex-1 bg-transparent font-mono text-[12px] text-ink outline-none placeholder:text-mute/60"

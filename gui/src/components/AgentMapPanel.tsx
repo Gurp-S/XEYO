@@ -33,10 +33,16 @@ import {
 	type WorkspaceOutlineSymbol,
 } from '@/lib/workspaceMapApi';
 import {openWorkspacePreview} from '@/lib/openWorkspacePreview';
+import {samePath} from '@/lib/paths';
 import type {MultiAgentTaskView} from '@/lib/api';
 import type {ChatMessage} from '@/lib/types';
 import {useChatStore} from '@/stores/chatStore';
 import {useCodeMapStore, type MapViewMode} from '@/stores/codeMapStore';
+
+function currentWorkspaceRoot(): string {
+	const state = useChatStore.getState();
+	return state.spaces.find(space => space.id === state.activeSpaceId)?.rootPath?.trim() ?? '';
+}
 
 const VIEW_TABS: Array<{id: MapViewMode; label: string}> = [
 	{id: 'turn', label: '本轮'},
@@ -98,6 +104,7 @@ export function AgentMapPanel() {
 	});
 	const symbolsRequestRef = useRef(0);
 	const symbolsScopeRef = useRef(spaceRoot);
+	const summaryRequestRef = useRef(0);
 	symbolsScopeRef.current = spaceRoot;
 
 	const [symbols, setSymbols] = useState<WorkspaceOutlineSymbol[]>([]);
@@ -118,6 +125,7 @@ export function AgentMapPanel() {
 
 	useEffect(() => {
 		symbolsRequestRef.current += 1;
+		summaryRequestRef.current += 1;
 		setSymbols([]);
 		setSymbolsFor(null);
 		setSymbolsLoading(false);
@@ -423,7 +431,7 @@ export function AgentMapPanel() {
 				setSymbolsFor(id);
 				setSymbols([]);
 				try {
-					const out = await fetchWorkspaceOutline(id);
+					const out = await fetchWorkspaceOutline(id, requestRoot);
 					if (
 						symbolsRequestRef.current === requestId &&
 						symbolsScopeRef.current === requestRoot
@@ -516,10 +524,24 @@ export function AgentMapPanel() {
 		}
 		setSummaryLoading(cardId);
 		setSummaryOpen(true);
+		const requestId = ++summaryRequestRef.current;
+		const requestRoot = spaceRoot;
 		try {
-			const res = await explainMapNode(cardId, cardKind ?? 'file');
+			const res = await explainMapNode(cardId, cardKind ?? 'file', requestRoot);
+			if (
+				requestId !== summaryRequestRef.current ||
+				!samePath(requestRoot, currentWorkspaceRoot())
+			) {
+				return;
+			}
 			setSummary(cardId, res.summary || '（无摘要）');
 		} catch (err) {
+			if (
+				requestId !== summaryRequestRef.current ||
+				!samePath(requestRoot, currentWorkspaceRoot())
+			) {
+				return;
+			}
 			setSummary(
 				cardId,
 				err instanceof Error ? err.message : '摘要请求失败',
@@ -529,6 +551,7 @@ export function AgentMapPanel() {
 
 	useEffect(() => {
 		setSummaryOpen(false);
+		summaryRequestRef.current += 1;
 	}, [cardId]);
 
 	const bumpFocus = (id: string | null | undefined) => {

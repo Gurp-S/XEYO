@@ -654,12 +654,12 @@ async function setWorkspaceNow(path: string): Promise<string> {
 	return data.cwd ?? path;
 }
 
-/** Serialize cwd mutations; workspace-relative reads use withWorkspaceRoot below. */
+/** Serialize legacy global cwd changes; workspace APIs accept explicit roots. */
 export function setWorkspace(path: string): Promise<string> {
 	return enqueueWorkspaceOperation(() => setWorkspaceNow(path));
 }
 
-/** Keep a cwd-dependent request paired with the root it belongs to. */
+/** Set the requested root and dispatch its cwd-dependent request in order. */
 export function withWorkspaceRoot<T>(
 	path: string,
 	request: () => Promise<T>,
@@ -670,8 +670,11 @@ export function withWorkspaceRoot<T>(
 	}
 	return enqueueWorkspaceOperation(async () => {
 		await setWorkspaceNow(root);
-		return request();
-	});
+		// Start fetch synchronously before releasing the cwd mutation queue. Keep
+		// waiting for its response outside the queue so slow jobs do not block a
+		// later workspace switch. Callers reject results from stale roots.
+		return {pending: request()};
+	}).then(({pending}) => pending);
 }
 
 export type WorkspaceEntry = {
@@ -713,11 +716,13 @@ export type WorkspaceFileStat = {
 
 export async function listWorkspaceEntries(
 	path = '',
+	workspace?: string,
 ): Promise<WorkspaceListing> {
 	const q = new URLSearchParams();
 	if (path) {
 		q.set('path', path);
 	}
+	if (workspace) q.set('workspace', workspace);
 	const qs = q.toString();
 	const res = await fetchWithTimeout(
 		apiUrl(`/v1/workspace/entries${qs ? `?${qs}` : ''}`),
@@ -762,9 +767,10 @@ export type WorkspaceGraph = {
 	packageEdges: WorkspaceGraphEdge[];
 };
 
-export async function fetchWorkspaceGraph(): Promise<WorkspaceGraph> {
+export async function fetchWorkspaceGraph(workspace?: string): Promise<WorkspaceGraph> {
+	const query = workspace ? `?${new URLSearchParams({workspace})}` : '';
 	const res = await fetchWithTimeout(
-		apiUrl('/v1/workspace/graph'),
+		apiUrl(`/v1/workspace/graph${query}`),
 		{cache: 'no-store'},
 		45_000,
 	);
@@ -787,8 +793,8 @@ export type WorkspaceSearchResult = {
 	truncated: boolean;
 };
 
-export async function searchWorkspace(q: string): Promise<WorkspaceSearchResult> {
-	const params = new URLSearchParams({q});
+export async function searchWorkspace(q: string, workspace?: string): Promise<WorkspaceSearchResult> {
+	const params = new URLSearchParams({q, ...(workspace ? {workspace} : {})});
 	const res = await fetchWithTimeout(
 		apiUrl(`/v1/workspace/search?${params}`),
 		{cache: 'no-store'},
@@ -805,8 +811,8 @@ export async function searchWorkspace(q: string): Promise<WorkspaceSearchResult>
 	return (await res.json()) as WorkspaceSearchResult;
 }
 
-export async function readWorkspaceFile(path: string): Promise<WorkspaceFile> {
-	const q = new URLSearchParams({path});
+export async function readWorkspaceFile(path: string, workspace?: string): Promise<WorkspaceFile> {
+	const q = new URLSearchParams({path, ...(workspace ? {workspace} : {})});
 	const res = await fetchWithTimeout(apiUrl(`/v1/workspace/file?${q}`));
 	if (!res.ok) {
 		let payload: unknown = null;
@@ -820,8 +826,8 @@ export async function readWorkspaceFile(path: string): Promise<WorkspaceFile> {
 	return (await res.json()) as WorkspaceFile;
 }
 
-export async function statWorkspaceFile(path: string): Promise<WorkspaceFileStat> {
-	const q = new URLSearchParams({path});
+export async function statWorkspaceFile(path: string, workspace?: string): Promise<WorkspaceFileStat> {
+	const q = new URLSearchParams({path, ...(workspace ? {workspace} : {})});
 	const res = await fetchWithTimeout(apiUrl(`/v1/workspace/file/stat?${q}`), {
 		cache: 'no-store',
 	});
@@ -840,11 +846,12 @@ export async function statWorkspaceFile(path: string): Promise<WorkspaceFileStat
 export async function writeWorkspaceFile(
 	path: string,
 	text: string,
+	workspace?: string,
 ): Promise<WorkspaceFile> {
 	const res = await fetchWithTimeout(apiUrl('/v1/workspace/file'), {
 		method: 'PUT',
 		headers: {'Content-Type': 'application/json'},
-		body: JSON.stringify({path, text}),
+		body: JSON.stringify({path, text, ...(workspace ? {workspace} : {})}),
 	});
 	if (!res.ok) {
 		let payload: unknown = null;
@@ -903,6 +910,7 @@ export type GitBranchesResult = {
 
 export type FileDiffResult = {
 	ok: boolean;
+	cwd?: string;
 	repo: boolean;
 	path: string;
 	kind: 'diff' | 'untracked' | 'binary' | 'unchanged' | 'none';
@@ -959,12 +967,13 @@ export type WorkspaceJournalResult = {
 };
 
 export async function fetchWorkspaceJournal(
-	options?: {pathPrefix?: string; agentId?: string; limit?: number},
+	options?: {pathPrefix?: string; agentId?: string; limit?: number; workspace?: string},
 ): Promise<WorkspaceJournalResult> {
 	const q = new URLSearchParams();
 	if (options?.pathPrefix?.trim()) q.set('path_prefix', options.pathPrefix.trim());
 	if (options?.agentId?.trim()) q.set('agent_id', options.agentId.trim());
 	if (options?.limit) q.set('limit', String(options.limit));
+	if (options?.workspace?.trim()) q.set('workspace', options.workspace.trim());
 	const suffix = q.toString() ? `?${q}` : '';
 	const res = await fetchWithTimeout(apiUrl(`/v1/workspace/journal${suffix}`), {
 		cache: 'no-store',
@@ -1015,8 +1024,9 @@ export async function fetchWorkspacePeers(
 	};
 }
 
-export async function gitStatus(): Promise<GitStatusResult> {
-	const res = await fetchWithTimeout(apiUrl('/v1/workspace/git/status'), {cache: 'no-store'});
+export async function gitStatus(workspace?: string): Promise<GitStatusResult> {
+	const query = workspace ? `?${new URLSearchParams({workspace})}` : '';
+	const res = await fetchWithTimeout(apiUrl(`/v1/workspace/git/status${query}`), {cache: 'no-store'});
 	if (!res.ok) {
 		let payload: unknown = null;
 		try {
@@ -1029,8 +1039,8 @@ export async function gitStatus(): Promise<GitStatusResult> {
 	return (await res.json()) as GitStatusResult;
 }
 
-export async function gitLog(limit = 20): Promise<GitLogResult> {
-	const q = new URLSearchParams({limit: String(limit)});
+export async function gitLog(limit = 20, workspace?: string): Promise<GitLogResult> {
+	const q = new URLSearchParams({limit: String(limit), ...(workspace ? {workspace} : {})});
 	const res = await fetchWithTimeout(apiUrl(`/v1/workspace/git/log?${q}`), {cache: 'no-store'});
 	if (!res.ok) {
 		let payload: unknown = null;
@@ -1044,8 +1054,9 @@ export async function gitLog(limit = 20): Promise<GitLogResult> {
 	return (await res.json()) as GitLogResult;
 }
 
-export async function gitBranches(): Promise<GitBranchesResult> {
-	const res = await fetchWithTimeout(apiUrl('/v1/workspace/git/branches'), {cache: 'no-store'});
+export async function gitBranches(workspace?: string): Promise<GitBranchesResult> {
+	const query = workspace ? `?${new URLSearchParams({workspace})}` : '';
+	const res = await fetchWithTimeout(apiUrl(`/v1/workspace/git/branches${query}`), {cache: 'no-store'});
 	if (!res.ok) {
 		let payload: unknown = null;
 		try {
@@ -1058,8 +1069,8 @@ export async function gitBranches(): Promise<GitBranchesResult> {
 	return (await res.json()) as GitBranchesResult;
 }
 
-export async function gitFileDiff(path: string): Promise<FileDiffResult> {
-	const q = new URLSearchParams({path});
+export async function gitFileDiff(path: string, workspace?: string): Promise<FileDiffResult> {
+	const q = new URLSearchParams({path, ...(workspace ? {workspace} : {})});
 	const res = await fetchWithTimeout(apiUrl(`/v1/workspace/file/diff?${q}`), {cache: 'no-store'});
 	if (!res.ok) {
 		let payload: unknown = null;
@@ -1076,6 +1087,7 @@ export async function gitFileDiff(path: string): Promise<FileDiffResult> {
 export async function execWorkspaceTerminal(
 	command: string,
 	timeoutS?: number,
+	workspace?: string,
 ): Promise<TerminalResult> {
 	const res = await fetchWithTimeout(
 		apiUrl('/v1/workspace/terminal/exec'),
@@ -1085,6 +1097,7 @@ export async function execWorkspaceTerminal(
 			body: JSON.stringify({
 				command,
 				...(timeoutS ? {timeout_s: timeoutS} : {}),
+				...(workspace ? {workspace} : {}),
 			}),
 		},
 		(timeoutS ?? 600) * 1000 + REQUEST_TIMEOUT_MS,
@@ -1715,9 +1728,10 @@ export type BashPolicy = {
 	escalate_min: number;
 };
 
-export async function loadBashPolicy(): Promise<BashPolicy | null> {
+export async function loadBashPolicy(workspace?: string): Promise<BashPolicy | null> {
 	try {
-		const res = await fetchWithTimeout(apiUrl('/v1/workspace/policy-bash'), {
+		const query = workspace ? `?${new URLSearchParams({workspace})}` : '';
+		const res = await fetchWithTimeout(apiUrl(`/v1/workspace/policy-bash${query}`), {
 			cache: 'no-store',
 		});
 		if (!res.ok) return null;
@@ -1730,6 +1744,7 @@ export async function loadBashPolicy(): Promise<BashPolicy | null> {
 export async function saveBashPolicy(input: {
 	bash_routing?: 'auto' | 'off';
 	bash_escalate?: number;
+	workspace?: string;
 }): Promise<BashPolicy | null> {
 	try {
 		const res = await fetchWithTimeout(apiUrl('/v1/workspace/policy-bash'), {

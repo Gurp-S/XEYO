@@ -1,6 +1,7 @@
 import {create} from 'zustand';
 import {fetchWorkspaceGraph, type WorkspaceGraph} from '@/lib/workspaceMapApi';
 import {useChatStore} from '@/stores/chatStore';
+import {samePath} from '@/lib/paths';
 
 export type MapViewMode = 'architecture' | 'code' | 'turn' | 'authored';
 
@@ -115,7 +116,7 @@ export const useCodeMapStore = create<CodeMapState>((set, get) => ({
 			});
 			return;
 		}
-		if (get().loadedRoot === cwd && get().graph && !get().error) {
+		if (samePath(get().loadedRoot, cwd) && get().graph && !get().error) {
 			if (get().loading) {
 				set({loading: false});
 			}
@@ -123,11 +124,11 @@ export const useCodeMapStore = create<CodeMapState>((set, get) => ({
 		}
 		set({loading: true, error: null});
 		try {
-			const graph = await fetchWorkspaceGraph();
+			const graph = await fetchWorkspaceGraph({root: cwd});
 			if (seq !== loadSeq) {
 				return;
 			}
-			const rootChanged = get().loadedRoot !== cwd;
+			const rootChanged = !samePath(get().loadedRoot, cwd);
 			set({
 				graph,
 				loading: false,
@@ -149,9 +150,18 @@ export const useCodeMapStore = create<CodeMapState>((set, get) => ({
 		loadSeq += 1;
 		const seq = loadSeq;
 		const cwd = (activeRootPath() || get().loadedRoot).trim();
+		if (!cwd) {
+			set({
+				loading: false,
+				error: '还没有打开文件夹。请先在左侧打开一个工作区。',
+				graph: null,
+				loadedRoot: '',
+			});
+			return;
+		}
 		set({loading: true, error: null});
 		try {
-			const graph = await fetchWorkspaceGraph({refresh: true});
+			const graph = await fetchWorkspaceGraph({refresh: true, root: cwd});
 			if (seq !== loadSeq) {
 				return;
 			}

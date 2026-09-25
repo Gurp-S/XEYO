@@ -19,7 +19,6 @@ import {PaneSlot} from '@/components/PaneSlot';
 import {showContextMenu} from '@/components/ui/ContextMenu';
 import type {WorkspaceEntry} from '@/lib/api';
 import {cn} from '@/lib/utils';
-import {samePath} from '@/lib/paths';
 import {filePathMenuItems} from '@/lib/contextMenus';
 import {joinWorkspacePath} from '@/lib/workspaceOpen';
 import {useHoverScroll} from '@/hooks/useHoverScroll';
@@ -35,7 +34,6 @@ import {
 	gitLog,
 	gitStatus,
 	fetchWorkspaceJournal,
-	withWorkspaceRoot,
 	type GitBranchesResult,
 	type GitLogResult,
 	type GitStatusResult,
@@ -369,12 +367,7 @@ function JournalTree() {
 		setLoaded(false);
 		void (async () => {
 			try {
-				const res = await withWorkspaceRoot(rootPath, () =>
-					fetchWorkspaceJournal({limit: 50}),
-				);
-				if (rootPath && !samePath(rootPath, res.cwd)) {
-					throw new Error('工作区已切换，请重新加载变更记录');
-				}
+				const res = await fetchWorkspaceJournal({limit: 50, workspace: rootPath});
 				if (!disposed) {
 					setChanges(res.changes);
 					setError(null);
@@ -761,15 +754,11 @@ function GitTree() {
 		setState({loading: true, error: null, status: null, log: null, branches: null});
 		void (async () => {
 			try {
-				const [status, log, branches] = await withWorkspaceRoot(rootPath, () =>
-					Promise.all([gitStatus(), gitLog(500), gitBranches()]),
-				);
-				if (
-					rootPath &&
-					![status.cwd, log.cwd, branches.cwd].every(cwd => samePath(rootPath, cwd))
-				) {
-					throw new Error('工作区已切换，请重新加载 Git 状态');
-				}
+				const [status, log, branches] = await Promise.all([
+					gitStatus(rootPath),
+					gitLog(500, rootPath),
+					gitBranches(rootPath),
+				]);
 				if (!disposed) {
 					setState({loading: false, error: null, status, log, branches});
 				}

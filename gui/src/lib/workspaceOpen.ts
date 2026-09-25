@@ -1,4 +1,5 @@
 import {readWorkspaceFile} from '@/lib/api';
+import {samePath} from '@/lib/paths';
 import {isTauri} from '@/lib/tauri';
 import {toast} from '@/lib/toast';
 import {useChatStore} from '@/stores/chatStore';
@@ -99,7 +100,15 @@ export async function saveWorkspaceFileAs(
 	entryName: string,
 ): Promise<void> {
 	await withToast(async () => {
-		const file = await readWorkspaceFile(entryPath);
+		const initialState = useChatStore.getState();
+		const root = initialState.spaces.find(space => space.id === initialState.activeSpaceId)?.rootPath?.trim() ?? '';
+		if (!root) throw new Error('请先打开工作区');
+		const file = await readWorkspaceFile(entryPath, root);
+		const currentState = useChatStore.getState();
+		const currentRoot = currentState.spaces.find(space => space.id === currentState.activeSpaceId)?.rootPath?.trim() ?? '';
+		if (!samePath(root, currentRoot)) {
+			throw new Error('工作区已切换，请重新另存文件');
+		}
 		if (file.text == null) {
 			throw new Error('该文件无法作为文本另存为');
 		}
