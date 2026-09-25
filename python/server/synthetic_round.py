@@ -14,9 +14,9 @@
   ``http.disconnect`` 让 SSE 泵停止——turn 在 TurnRunner detached 续跑（T31
   语义与 41/42 号 docstring 对齐）。
 - ``X-Xeyo-Surface`` 区分来源（goal-driver / job-wake / inbox），GUI 与日志可归因。
-- busy 语义：仅 inbox 面（真实用户消息）``queue_if_busy=True`` 走 202 排队；
-  goal-driver / job-wake 面 busy 直接 409（合成轮让位于人类 turn，由下一次
-  settlement 重新预约，轮号/唤醒预算语义不变形）。
+- busy 语义：所有内部合成提交 busy 时都返回 409；inbox drain 收到拒绝后将
+  原条目回队，避免生成重复消息。GUI 的人类请求仍由 chat 路由自己的
+  ``queue_if_busy=True`` 语义进入 inbox。
 """
 
 from __future__ import annotations
@@ -155,8 +155,7 @@ async def submit_synthetic(
 	turn）。调用方（goal driver / inbox drain）因此不被轮次时长阻塞，settlement
 	的 ``_schedule`` 也不再被未完成的 pending 卡住。
 
-	``queue_if_busy`` 仅 inbox 面开启：busy 时 202 排队（消息回 FIFO）；
-	goal-driver / job-wake 面 busy 返回 409 → False（合成轮让位，等下次 settlement）。
+	内部提交均不再次排队：busy 返回 409 → False，由原提交方决定何时重试。
 
 	模型环境缺失 / 未拿到响应头 / 状态码非 200/202 → False。
 	"""
@@ -190,8 +189,9 @@ async def submit_synthetic(
 		"messages": [{"role": "user", "content": user_text}],
 		"session_id": session_id,
 		"stream": True,
-		# busy 语义按面区分（见模块 docstring）：仅 inbox 面排队。
-		"queue_if_busy": surface == "inbox",
+		# 这是已经从 inbox 取出的内部投递。若它与新的人类回合竞态忙碌，
+		# 必须返回 409 让原条目回队，不能再生成一条重复 inbox 项。
+		"queue_if_busy": False,
 	}
 	if media_refs:
 		payload["media_refs"] = list(media_refs)

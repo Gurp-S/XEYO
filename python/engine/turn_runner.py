@@ -6,6 +6,7 @@ GUI 刷新只断投影流；显式 Stop / interrupt 才杀 turn。
 from __future__ import annotations
 
 import asyncio
+from contextvars import ContextVar
 import json
 import logging
 import threading
@@ -35,6 +36,14 @@ ProducerFn = Callable[[], AsyncIterator[tuple[int, bytes, str]]]
 # stop_reason)，实现必须自包含异常隔离、绝不抛、绝不阻塞 teardown。
 _SettlementListener = Optional[Callable[[str, str, str], Awaitable[None]]]
 _settlement_listener: _SettlementListener = None
+_settled_user_message_id: ContextVar[str] = ContextVar(
+	"xeyo_settled_user_message_id", default=""
+)
+
+
+def settled_user_message_id() -> str:
+	"""Return the message id attached to this settlement callback context."""
+	return _settled_user_message_id.get()
 
 
 def set_turn_settlement_listener(fn: _SettlementListener) -> None:
@@ -361,9 +370,13 @@ class TurnRunner:
 			listener = _settlement_listener
 			if listener is not None:
 				try:
-					_coro = listener(det.session_id, final_status, stop_reason)
-					if _coro is not None:
-						asyncio.create_task(_coro)
+					token = _settled_user_message_id.set(det.user_message_id)
+					try:
+						_coro = listener(det.session_id, final_status, stop_reason)
+						if _coro is not None:
+							asyncio.create_task(_coro)
+					finally:
+						_settled_user_message_id.reset(token)
 				except Exception:  # noqa: BLE001
 					_log.debug("turn settlement dispatch failed", exc_info=True)
 			# 终态保留一小段时间供 reattach 读 done；稍后可被新 turn 覆盖

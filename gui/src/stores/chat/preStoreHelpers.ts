@@ -383,9 +383,10 @@ export type InboxQueuedItem = {
 	message_id: string | null;
 	queued_at: number;
 	attempts: number;
-	state: 'queued' | 'delivering' | 'stuck';
+	state: 'queued' | 'delivering' | 'syncing' | 'stuck';
 	position: number;
 	autorun?: boolean;
+	delivery_id?: string | null;
 };
 
 export type ChatState = {

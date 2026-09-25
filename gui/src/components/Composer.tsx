@@ -357,7 +357,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 		setQueueExpanded(false);
 	}, [activeId, activeInboxBackendId]);
 	const openQueueEdit = (it: InboxQueuedItem) => {
-		if (it.state === 'delivering' || !activeId) return;
+		if (it.state === 'delivering' || it.state === 'syncing' || !activeId) return;
 		queueEscRef.current = false;
 		editingTargetRef.current = {sessionId: activeId, item: it};
 		setEditingId(it.queue_id);
@@ -374,7 +374,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 		const t = queueDraft.trim();
 		closeQueueEdit();
 		if (!target || !t || t === target.item.text) return;
-		if (target.item.state === 'delivering') {
+		if (target.item.state === 'delivering' || target.item.state === 'syncing') {
 			// 编辑期间被投递：保存必 409，直接提示而不是静默丢改动。
 			toast.error('该消息已开始投递，无法编辑');
 			return;
@@ -1676,8 +1676,8 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 				{goalDockLive ? <SessionGoalDock embedded /> : null}
 				{hasInboxChip && inboxItems.length > 0 ? (
 					// 排队列表：全部条目可见（默认 3 条，超出折叠）——
-					// 每条独立行：拖拽手柄 + 截断文本 + 幽灵图标动作（编辑 / stuck→重试 / 删除）。
-					// delivering 行不可编辑/取消（后端 409，前端先行拦截）。
+					// 每条独立行：状态、文本与安全可用的编辑/重试/取消动作。
+					// delivering / syncing 行不可编辑/取消（后端 409，前端先行拦截）。
 					<div className="xy-queue-dock" data-queue-dock="">
 						{manualQueueResumeAvailable ? (
 							<div className="flex items-center justify-between gap-3 border-b border-line/40 px-3 py-2 text-xs text-mute">
@@ -1736,21 +1736,23 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 									<span
 										className={cn(
 											'shrink-0 text-[10px]',
-											it.state === 'delivering'
-												? 'text-accent'
+								it.state === 'delivering' || it.state === 'syncing'
+									? 'text-accent'
 												: it.state === 'stuck'
 													? 'text-danger'
 													: 'text-mute',
 										)}
 									>
-										{it.state === 'delivering'
-											? '投递中'
+						{it.state === 'syncing'
+							? '同步回复'
+							: it.state === 'delivering'
+							? '投递中'
 											: it.state === 'stuck'
 												? '需重试'
 												: '排队'}
 									</span>
 									<div className="xy-queue-actions" hidden={isEditing}>
-										{it.state !== 'delivering' ? (
+						{it.state !== 'delivering' && it.state !== 'syncing' ? (
 											<button
 												type="button"
 												className="xy-queue-action disabled:pointer-events-none disabled:opacity-40"
@@ -1792,14 +1794,17 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 											type="button"
 											className="xy-queue-action disabled:pointer-events-none disabled:opacity-40"
 											title={
-												it.state === 'delivering'
-													? '已开始投递，无法取消'
+								it.state === 'syncing'
+									? '等待同步服务端回复'
+									: it.state === 'delivering'
+										? '已开始投递，无法取消'
 													: queueActionsInFlight.has(it.queue_id)
 														? '正在处理…'
 														: '取消排队'
 											}
 											disabled={
-												it.state === 'delivering' || queueActionsInFlight.has(it.queue_id)
+							(it.state === 'delivering' || it.state === 'syncing') ||
+							queueActionsInFlight.has(it.queue_id)
 											}
 											onClick={() => cancelQueueItem(it)}
 										>

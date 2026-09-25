@@ -224,6 +224,7 @@ export type InboxItem = {
 	attempts: number;
 	state: string;
 	position: number;
+	delivery_id?: string | null;
 };
 
 export type InboxSnapshot = {
@@ -243,6 +244,27 @@ export async function inboxSnapshot(sessionId: string): Promise<InboxSnapshot | 
 		return (await res.json()) as InboxSnapshot;
 	} catch {
 		return null;
+	}
+}
+
+/** 确认 GUI 已同步投递完成的消息记录。 */
+export async function acknowledgeInboxItems(
+	sessionId: string,
+	queueIds: string[],
+): Promise<boolean> {
+	if (queueIds.length === 0) return true;
+	try {
+		const res = await fetchWithTimeout(
+			apiUrl(`/v1/sessions/${encodeURIComponent(sessionId)}/inbox/ack`),
+			{
+				method: 'POST',
+				headers: {'Content-Type': 'application/json', ...authHeaders()},
+				body: JSON.stringify({queue_ids: queueIds}),
+			},
+		);
+		return res.ok;
+	} catch {
+		return false;
 	}
 }
 

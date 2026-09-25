@@ -23,6 +23,7 @@ const inboxSnapshotApi = vi.fn(async (_sessionId: string): Promise<InboxSnapshot
 	coalesce: false,
 	items: [],
 }));
+const acknowledgeInboxItemsApi = vi.fn(async (_sessionId: string, _queueIds: string[]) => true);
 const cancelInboxItemApi = vi.fn(async (_sessionId: string, _queueId: string) => true);
 const editInboxItemApi = vi.fn(async (_sessionId: string, _queueId: string, _text: string) => true);
 const listServerSessions = vi.fn(
@@ -38,6 +39,8 @@ vi.mock('@/lib/api', () => ({
 		resolveRollbackRecovery: (...args: unknown[]) => resolveRollbackRecovery(...args),
 		loadServerSessionMessages: (...args: unknown[]) => loadServerSessionMessages(...args),
 		inboxSnapshot: (sessionId: string) => inboxSnapshotApi(sessionId),
+		acknowledgeInboxItems: (sessionId: string, queueIds: string[]) =>
+			acknowledgeInboxItemsApi(sessionId, queueIds),
 		cancelInboxItem: (sessionId: string, queueId: string) =>
 			cancelInboxItemApi(sessionId, queueId),
 		editInboxItem: (sessionId: string, queueId: string, text: string) =>
@@ -178,6 +181,7 @@ describe('chatStore dialogue — normal', () => {
 	beforeEach(async () => {
 		vi.clearAllMocks();
 		inboxSnapshotApi.mockResolvedValue({autorun: true, coalesce: false, items: []});
+		acknowledgeInboxItemsApi.mockResolvedValue(true);
 		cancelInboxItemApi.mockResolvedValue(true);
 		editInboxItemApi.mockResolvedValue(true);
 		setWorkspace.mockResolvedValue('/tmp');
@@ -380,6 +384,57 @@ describe('chatStore dialogue — errors & busy', () => {
 
 		expect(await useChatStore.getState().refreshInbox('sess_test')).toBe(false);
 		expect(useChatStore.getState().inboxBySession.sess_test).toEqual([previous]);
+	});
+
+	it('loads the settled server transcript before clearing a delivered batch', async () => {
+		const delivered = (queueId: string, messageId: string) => ({
+			queue_id: queueId,
+			text: messageId === 'user-a' ? 'first' : 'second',
+			media_refs: [],
+			message_id: messageId,
+			queued_at: 3,
+			attempts: 0,
+			state: 'delivered',
+			position: queueId === 'q-a' ? 1 : 2,
+			delivery_id: 'user-a',
+		});
+		inboxSnapshotApi.mockResolvedValueOnce({
+			autorun: true,
+			coalesce: true,
+			items: [delivered('q-a', 'user-a'), delivered('q-b', 'user-b')],
+		});
+		loadServerSessionMessages.mockResolvedValueOnce([
+			{id: 'prior-user', role: 'user', text: 'request', createdAt: 1},
+			{id: 'prior-assistant', role: 'assistant', text: 'working', createdAt: 2},
+			{id: 'user-a', role: 'user', text: 'first\n\nsecond', createdAt: 3},
+			{id: 'answer', role: 'assistant', text: 'done', createdAt: 4},
+		]);
+		useChatStore.setState({
+			messagesById: {
+				sess_test: [
+					{id: 'prior-user', role: 'user', text: 'request', createdAt: 1},
+					{id: 'prior-assistant', role: 'assistant', text: 'working', createdAt: 2},
+					{id: 'user-a', role: 'user', text: 'first', createdAt: 3, queueState: 'delivering'},
+					{id: 'user-b', role: 'user', text: 'second', createdAt: 3, queueState: 'delivering'},
+				],
+			},
+			inboxBySession: {
+				sess_test: [
+					{...delivered('q-a', 'user-a'), state: 'delivering' as const},
+					{...delivered('q-b', 'user-b'), state: 'delivering' as const},
+				],
+			},
+		});
+
+		expect(await useChatStore.getState().refreshInbox('sess_test')).toBe(true);
+		expect(acknowledgeInboxItemsApi).toHaveBeenCalledWith('sess_test', ['q-a', 'q-b']);
+		expect(useChatStore.getState().inboxBySession.sess_test).toEqual([]);
+		expect(useChatStore.getState().messagesById.sess_test).toEqual([
+			{id: 'prior-user', role: 'user', text: 'request', createdAt: 1},
+			{id: 'prior-assistant', role: 'assistant', text: 'working', createdAt: 2},
+			{id: 'user-a', role: 'user', text: 'first\n\nsecond', createdAt: 3},
+			{id: 'answer', role: 'assistant', text: 'done', createdAt: 4},
+		]);
 	});
 
 	it('ignores an older inbox response that arrives after a newer snapshot', async () => {

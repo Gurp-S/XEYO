@@ -84,8 +84,9 @@ class InboxItem:
 	message_id: str | None = None
 	queued_at: float = field(default_factory=time.time)
 	attempts: int = 0
-	state: str = "queued"  # queued | delivering | stuck
+	state: str = "queued"  # queued | delivering | delivered | stuck
 	sequence: int = 0
+	delivery_id: str | None = None
 
 	def to_dict(self, *, position: int = 0) -> dict[str, Any]:
 		return {
@@ -99,6 +100,7 @@ class InboxItem:
 			"attempts": self.attempts,
 			"state": self.state,
 			"position": position,
+			"delivery_id": self.delivery_id,
 		}
 
 
@@ -106,7 +108,7 @@ class InboxRegistry:
 	"""per-session 主会话消息队列 + settlement 排水租户。
 
 	与 ``engine.live_agents`` 的 agent follow-up inbox 是两套生命周期模型：
-	本队列面向用户消息，带 queue_id / attempts / 三态重投；agent inbox 面向
+	本队列面向用户消息，带 queue_id / attempts / 可重试队列状态与完成回执；agent inbox 面向
 	子 Agent 的追加指令，无重试状态，仅落 ``meta.pending_followups`` 等待 settle/retry。
 	"""
 
@@ -114,8 +116,10 @@ class InboxRegistry:
 		self._lock = threading.Lock()
 		# FIFO 结构：key = session_id；value = deque[InboxItem]。
 		self._queues: dict[str, list[InboxItem]] = {}
-		# Popped messages stay visible here until the synthetic chat accepts them.
+		# Popped messages stay visible until the synthetic chat settles. Completed
+		# items remain visible until the GUI confirms its transcript backfill.
 		self._inflight: dict[str, dict[str, InboxItem]] = {}
+		self._completed: dict[str, dict[str, InboxItem]] = {}
 		self._next_sequence = 0
 		# 在途排水任务（per-session），防重复 spawn。
 		self._drain_tasks: dict[str, asyncio.Task] = {}
@@ -194,7 +198,8 @@ class InboxRegistry:
 		with self._lock:
 			q = list(self._queues.get(sid, []))
 			inflight = list(self._inflight.get(sid, {}).values())
-		items = sorted((*q, *inflight), key=lambda item: item.sequence)
+			completed = list(self._completed.get(sid, {}).values())
+		items = sorted((*q, *inflight, *completed), key=lambda item: item.sequence)
 		return {
 			"autorun": _autorun(),
 			"coalesce": _coalesce(),
@@ -311,7 +316,7 @@ class InboxRegistry:
 			return it
 
 	def _finish_delivering(self, session_id: str, items: list[InboxItem]) -> None:
-		"""Forget accepted items after their synthetic chat has started."""
+		"""Forget items already appended at a live T_now boundary."""
 		with self._lock:
 			inflight = self._inflight.get(session_id)
 			if not inflight:
@@ -321,8 +326,50 @@ class InboxRegistry:
 			if not inflight:
 				self._inflight.pop(session_id, None)
 
+	def _finish_settled_delivery(self, session_id: str, message_id: str) -> None:
+		"""Move the matching synthetic delivery to GUI transcript acknowledgement."""
+		mid = (message_id or "").strip()
+		if not mid:
+			return
+		with self._lock:
+			inflight = self._inflight.get(session_id)
+			if not inflight:
+				return
+			matching = [item for item in inflight.values() if item.delivery_id == mid]
+			if not matching:
+				return
+			completed = self._completed.setdefault(session_id, {})
+			for item in matching:
+				inflight.pop(item.queue_id, None)
+				item.state = "delivered"
+				completed[item.queue_id] = item
+			if not inflight:
+				self._inflight.pop(session_id, None)
+			# An inactive GUI may not acknowledge immediately. Bound recent receipts.
+			while len(completed) > 64:
+				oldest = min(completed.values(), key=lambda item: item.sequence)
+				completed.pop(oldest.queue_id, None)
+
+	def acknowledge_delivered(self, session_id: str, queue_ids: list[str]) -> int:
+		"""Drop receipt rows after the GUI has loaded the server transcript."""
+		sid = (session_id or "").strip()
+		ids = {str(queue_id or "").strip() for queue_id in queue_ids}
+		ids.discard("")
+		if not sid or not ids:
+			return 0
+		with self._lock:
+			completed = self._completed.get(sid)
+			if not completed:
+				return 0
+			removed = sum(
+				1 for queue_id in ids if completed.pop(queue_id, None) is not None
+			)
+			if not completed:
+				self._completed.pop(sid, None)
+			return removed
+
 	def remove(self, session_id: str, queue_id: str) -> bool:
-		"""取消单条排队消息；已在投递中（delivering）返回 False。"""
+		"""取消仍在队列中的消息；投递中与完成回执均不可取消。"""
 		sid = (session_id or "").strip()
 		qid = (queue_id or "").strip()
 		with self._lock:
@@ -392,6 +439,7 @@ class InboxRegistry:
 		with self._lock:
 			self._queues.pop(sid, None)
 			self._inflight.pop(sid, None)
+			self._completed.pop(sid, None)
 			task = self._drain_tasks.pop(sid, None)
 		if task is not None and not task.done():
 			task.cancel()
@@ -400,14 +448,14 @@ class InboxRegistry:
 		with self._lock:
 			return sum(len(q) for q in self._queues.values()) + sum(
 				len(items) for items in self._inflight.values()
-			)
+			) + sum(len(items) for items in self._completed.values())
 
 	def counts(self) -> dict[str, Any]:
 		"""P3 /health 聚合：每会话 pending + stuck + 累计投递观测。"""
 		with self._lock:
 			pending = sum(len(q) for q in self._queues.values()) + sum(
 				len(items) for items in self._inflight.values()
-			)
+			) + sum(len(items) for items in self._completed.values())
 			stuck = sum(
 				1
 				for q in self._queues.values()
@@ -417,7 +465,9 @@ class InboxRegistry:
 			return {
 				"pending": pending,
 				"stuck": stuck,
-				"sessions": len(set(self._queues) | set(self._inflight)),
+				"sessions": len(
+					set(self._queues) | set(self._inflight) | set(self._completed)
+				),
 				"batches_delivered": self._batches_delivered,
 				"items_delivered": self._items_delivered,
 				"tokens_est": self._tokens_est,
@@ -427,13 +477,18 @@ class InboxRegistry:
 	# settlement 检查点（hub 租户 · 排第一）
 	# ------------------------------------------------------------------
 	async def on_turn_settled(
-		self, session_id: str, final_status: str, stop_reason: str
+		self,
+		session_id: str,
+		final_status: str,
+		stop_reason: str,
+		user_message_id: str = "",
 	) -> None:
 		"""turn 终态：succeeded/failed → 空闲则排水；stopped/cancelled → hold。
 
 		异常全隔离——本协程绝不向调度方抛（turn_runner create_task 不等待它）。
 		"""
 		try:
+			self._finish_settled_delivery(session_id, user_message_id)
 			if final_status in ("stopped", "cancelled"):
 				# 用户停 / HTTP 取消：moss 已投递消息已被消费，剩余队列 hold；
 				# 下一条由下一次人类消息 settle 或 resume 触发（「interrupt
@@ -510,13 +565,16 @@ class InboxRegistry:
 		joined = "\n\n".join(it.text for it in items)
 		media_refs = [r for it in items for r in it.media_refs]
 		first_id = next((it.message_id for it in items if it.message_id), None)
+		delivery_id = first_id or uuid.uuid4().hex
+		for item in items:
+			item.delivery_id = delivery_id
 		try:
 			started = await self._submit_fn()(
 				session_id,
 				joined,
 				surface="inbox",
 				media_refs=media_refs,
-				message_id=first_id,
+				message_id=delivery_id,
 			)
 		except Exception:  # noqa: BLE001 — unexpected submit failures must restore the inbox
 			_logger.warning("inbox batch submit raised sid=%s", session_id, exc_info=True)
@@ -528,7 +586,6 @@ class InboxRegistry:
 				len(items),
 				len(joined),
 			)
-			self._finish_delivering(session_id, items)
 			with self._lock:
 				self._batches_delivered += 1
 				self._items_delivered += len(items)
@@ -542,13 +599,14 @@ class InboxRegistry:
 		it = self._pop_first_active(session_id)
 		if it is None:
 			return
+		it.delivery_id = it.message_id or uuid.uuid4().hex
 		try:
 			started = await self._submit_fn()(
 				session_id,
 				it.text,
 				surface="inbox",
 				media_refs=it.media_refs,
-				message_id=it.message_id,
+				message_id=it.delivery_id,
 							)
 		except Exception:  # noqa: BLE001 — unexpected submit failures must restore the inbox
 			_logger.warning(
@@ -559,7 +617,6 @@ class InboxRegistry:
 			)
 			started = False
 		if started:
-			self._finish_delivering(session_id, [it])
 			with self._lock:
 				self._batches_delivered += 1
 				self._items_delivered += 1
@@ -584,6 +641,7 @@ class InboxRegistry:
 			for it in items:
 				it.attempts += 1
 				it.state = "stuck" if it.attempts >= _max_attempts() else "queued"
+				it.delivery_id = None
 			q[:0] = items
 			if len(q) > _max_queued():
 				_logger.warning(
@@ -603,6 +661,7 @@ class InboxRegistry:
 			self._drain_tasks.clear()
 			self._queues.clear()
 			self._inflight.clear()
+			self._completed.clear()
 		for t in tasks:
 			if not t.done():
 				t.cancel()

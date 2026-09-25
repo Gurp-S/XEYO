@@ -82,6 +82,30 @@ describe('groupTranscript', () => {
 		});
 	});
 
+	it('keeps queued user bubbles after the active turn activity', () => {
+		const blocks = groupTranscript(
+			[
+				msg({id: 'u1', role: 'user', text: 'first request'}),
+				msg({id: 'tool-1', role: 'tool', toolName: 'Read', text: 'file contents'}),
+				msg({id: 'a1', role: 'assistant', text: 'working'}),
+				msg({
+					id: 'u2',
+					role: 'user',
+					text: 'follow-up',
+					queueState: 'queued',
+				}),
+			],
+			{streamingText: 'still working', isLoading: true},
+		);
+		expect(blocks.map(block => block.kind)).toEqual(['user', 'turn', 'user']);
+		expect(blocks[1]).toMatchObject({
+			kind: 'turn',
+			streaming: 'still working',
+			active: true,
+		});
+		expect(blocks[2]).toMatchObject({kind: 'user', message: {id: 'u2'}});
+	});
+
 	it('treats tool with result body as settled even if status still running', () => {
 		const blocks = groupTranscript([
 			msg({id: 'u', role: 'user', text: 't'}),

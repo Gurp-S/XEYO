@@ -23,13 +23,20 @@ async def on_turn_settled(
 	session_id: str, final_status: str, stop_reason: str
 ) -> None:
 	"""settlement 分发（由 turn_runner 槽调用；绝不上抛）。"""
+	user_message_id = ""
+	try:
+		from engine.turn_runner import settled_user_message_id
+
+		user_message_id = settled_user_message_id()
+	except Exception:  # noqa: BLE001
+		pass
 	# P1 租户（排第一）：mid-turn inbox 排水。先于 goal —— inbox 提交后 goal 的
 	# precheck 见 _turn_running 为真而跳过，实现「用户消息优先于 goal 自动续跑」。
 	try:
 		from server.inbox_registry import get_inbox_registry
 
 		await get_inbox_registry().on_turn_settled(
-			session_id, final_status, stop_reason
+			session_id, final_status, stop_reason, user_message_id
 		)
 	except Exception:  # noqa: BLE001
 		_logger.debug(

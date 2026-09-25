@@ -1748,9 +1748,23 @@ class InboxEditRequest(BaseModel):
 	text: str = Field(min_length=1, description="改写后的消息文本")
 
 
+class InboxAckRequest(BaseModel):
+	queue_ids: list[str] = Field(default_factory=list, max_length=64)
+
+
+@router.post("/v1/sessions/{session_id}/inbox/ack")
+def session_inbox_ack(session_id: str, body: InboxAckRequest) -> dict[str, Any]:
+	"""确认 GUI 已把投递完成的消息与服务端 transcript 同步。"""
+	from server.inbox_registry import get_inbox_registry
+
+	sid = require_session_id(session_id)
+	removed = get_inbox_registry().acknowledge_delivered(sid, body.queue_ids)
+	return {"ok": True, "acknowledged": removed}
+
+
 @router.delete("/v1/sessions/{session_id}/inbox/{queue_id}")
 def session_inbox_remove(session_id: str, queue_id: str) -> dict[str, Any]:
-	"""取消单条排队消息。delivering 态返回 409。"""
+	"""取消单条排队消息。delivering / delivered 态返回 409。"""
 	from server.inbox_registry import get_inbox_registry
 
 	sid = require_session_id(session_id)

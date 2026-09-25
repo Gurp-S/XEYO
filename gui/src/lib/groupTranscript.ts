@@ -32,6 +32,19 @@ export type TranscriptBlock =
 			active: boolean;
 	  };
 
+function isQueuedUserBlock(
+	block: TranscriptBlock | undefined,
+): block is Extract<TranscriptBlock, {kind: 'user'}> {
+	return block?.kind === 'user' && Boolean(block.message.queueState);
+}
+
+function lastNonQueuedBlockIndex(blocks: TranscriptBlock[]): number {
+	for (let i = blocks.length - 1; i >= 0; i -= 1) {
+		if (!isQueuedUserBlock(blocks[i])) return i;
+	}
+	return -1;
+}
+
 function isToolCall(m: ChatMessage): boolean {
 	if (m.role !== 'tool') {
 		return false;
@@ -202,6 +215,12 @@ export function groupTranscript(
 	},
 ): TranscriptBlock[] {
 	const blocks: TranscriptBlock[] = [];
+	const queuedUsers: TranscriptBlock[] = [];
+	const transcriptMessages = messages.filter(message => {
+		if (message.role !== 'user' || !message.queueState) return true;
+		queuedUsers.push({kind: 'user', message});
+		return false;
+	});
 	let i = 0;
 	let turnSeq = 0;
 
@@ -226,8 +245,8 @@ export function groupTranscript(
 		});
 	};
 
-	while (i < messages.length) {
-		const m = messages[i]!;
+	while (i < transcriptMessages.length) {
+		const m = transcriptMessages[i]!;
 		if (m.role === 'user') {
 			blocks.push({kind: 'user', message: m});
 			i += 1;
@@ -240,8 +259,8 @@ export function groupTranscript(
 		}
 
 		const items: TurnItem[] = [];
-		while (i < messages.length) {
-			const cur = messages[i]!;
+		while (i < transcriptMessages.length) {
+			const cur = transcriptMessages[i]!;
 			if (cur.role === 'user' || cur.role === 'system') {
 				break;
 			}
@@ -250,7 +269,7 @@ export function groupTranscript(
 				i += 1;
 				continue;
 			}
-			const consumed = consumeTools(messages, i);
+			const consumed = consumeTools(transcriptMessages, i);
 			if (!consumed) {
 				i += 1;
 				continue;
@@ -295,6 +314,7 @@ export function groupTranscript(
 	}
 
 	settleOrphanRunningInBlocks(blocks, Boolean(opts?.isLoading));
+	blocks.push(...queuedUsers);
 	return blocks;
 }
 
@@ -347,7 +367,7 @@ export function patchTranscriptTail(
 			: undefined;
 
 	if (blocks.length === 0) {
-		if (!streaming && !thinking) {
+		if (!streaming && !thinking && !opts?.isLoading) {
 			return blocks;
 		}
 		return [
@@ -362,9 +382,11 @@ export function patchTranscriptTail(
 		];
 	}
 
-	const last = blocks[blocks.length - 1]!;
+	const lastContentIndex = lastNonQueuedBlockIndex(blocks);
+	const last = lastContentIndex >= 0 ? blocks[lastContentIndex]! : undefined;
+	const insertBeforeQueuedUsers = lastContentIndex + 1;
 	if (streaming || thinking) {
-		if (last.kind === 'turn') {
+		if (last?.kind === 'turn') {
 			if (
 				last.streaming === streaming &&
 				last.thinking === thinking &&
@@ -374,26 +396,24 @@ export function patchTranscriptTail(
 				if (stripped === last) {
 					return blocks;
 				}
-				const next = blocks.slice(0, -1);
-				next.push(stripped);
+				const next = blocks.slice();
+				next[lastContentIndex] = stripped;
 				return next;
 			}
-			const next = blocks.slice(0, -1);
-			next.push(
-				stripDrainDuplicateProse(
-					{
-						...last,
-						streaming,
-						thinking,
-						active: true,
-					},
+			const next = blocks.slice();
+			next[lastContentIndex] = stripDrainDuplicateProse(
+				{
+					...last,
 					streaming,
-				),
+					thinking,
+					active: true,
+				},
+				streaming,
 			);
 			return next;
 		}
 		const next = blocks.slice();
-		next.push({
+		next.splice(insertBeforeQueuedUsers, 0, {
 			kind: 'turn',
 			id: 'turn-tail',
 			items: [],
@@ -404,15 +424,25 @@ export function patchTranscriptTail(
 		return next;
 	}
 
-	if (opts?.isLoading && last.kind === 'turn') {
-		if (last.active && last.streaming === undefined && last.thinking === undefined) {
-			return blocks;
+	if (opts?.isLoading) {
+		if (last?.kind === 'turn') {
+			if (last.active && last.streaming === undefined && last.thinking === undefined) {
+				return blocks;
+			}
+			const next = blocks.slice();
+			next[lastContentIndex] = {
+				...last,
+				streaming: undefined,
+				thinking: undefined,
+				active: true,
+			};
+			return next;
 		}
-		const next = blocks.slice(0, -1);
-		next.push({
-			...last,
-			streaming: undefined,
-			thinking: undefined,
+		const next = blocks.slice();
+		next.splice(insertBeforeQueuedUsers, 0, {
+			kind: 'turn',
+			id: 'turn-tail',
+			items: [],
 			active: true,
 		});
 		return next;
@@ -422,16 +452,16 @@ export function patchTranscriptTail(
 		!opts?.isLoading &&
 		!streaming &&
 		!thinking &&
-		last.kind === 'turn' &&
+		last?.kind === 'turn' &&
 		(last.active || last.streaming || last.thinking)
 	) {
-		const next = blocks.slice(0, -1);
-		next.push({
+		const next = blocks.slice();
+		next[lastContentIndex] = {
 			...last,
 			streaming: undefined,
 			thinking: undefined,
 			active: false,
-		});
+		};
 		return next;
 	}
 

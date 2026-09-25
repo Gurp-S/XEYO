@@ -106,7 +106,8 @@ def test_resume_clears_stuck(reg):
     assert snap["items"][0]["attempts"] == 0
 
 
-def test_drain_batch_submits_merged(reg):
+def test_drain_batch_submits_merged_until_gui_ack(reg, monkeypatch):
+    monkeypatch.setenv("XEYO_INBOX_AUTORUN", "0")
     reg.enqueue("s1", "甲", media_refs=["img://1"])
     reg.enqueue("s1", "乙", media_refs=["img://2"], message_id="mid-乙")
     fake, calls = _recorder(ok=True)
@@ -117,7 +118,15 @@ def test_drain_batch_submits_merged(reg):
     assert calls[0]["media_refs"] == ["img://1", "img://2"]
     assert calls[0]["message_id"] == "mid-乙"  # 取首个非空 message_id
     assert calls[0]["surface"] == "inbox"
-    assert reg.snapshot("s1")["items"] == []  # 已消费
+    pending = reg.snapshot("s1")["items"]
+    assert len(pending) == 2
+    assert {item["state"] for item in pending} == {"delivering"}
+    assert {item["delivery_id"] for item in pending} == {"mid-乙"}
+    asyncio.run(reg.on_turn_settled("s1", "succeeded", "", "mid-乙"))
+    delivered = reg.snapshot("s1")["items"]
+    assert {item["state"] for item in delivered} == {"delivered"}
+    assert reg.acknowledge_delivered("s1", [item["queue_id"] for item in delivered]) == 2
+    assert reg.snapshot("s1")["items"] == []
 
 
 def test_drain_batch_reject_requeues_and_stuck(reg):
@@ -133,8 +142,9 @@ def test_drain_batch_reject_requeues_and_stuck(reg):
     assert snap["items"][0]["attempts"] == 3
 
 
-def test_drain_one_per_item(reg, monkeypatch):
+def test_drain_one_per_item_stays_visible_until_turn_settles(reg, monkeypatch):
     monkeypatch.setenv("XEYO_INBOX_COALESCE", "0")
+    monkeypatch.setenv("XEYO_INBOX_AUTORUN", "0")
     reg.enqueue("s1", "only", message_id="mid")
     fake, calls = _recorder(ok=True)
     reg._submit = fake
@@ -142,7 +152,30 @@ def test_drain_one_per_item(reg, monkeypatch):
     assert len(calls) == 1
     assert calls[0]["text"] == "only"
     assert calls[0]["message_id"] == "mid"
-    assert reg.snapshot("s1")["items"] == []
+    pending = reg.snapshot("s1")["items"]
+    assert len(pending) == 1
+    assert pending[0]["state"] == "delivering"
+    assert pending[0]["delivery_id"] == "mid"
+    asyncio.run(reg.on_turn_settled("s1", "succeeded", "", "mid"))
+    assert reg.snapshot("s1")["items"][0]["state"] == "delivered"
+
+
+def test_fast_synthetic_settlement_is_not_lost(reg, monkeypatch):
+    monkeypatch.setenv("XEYO_INBOX_AUTORUN", "0")
+    reg.enqueue("s1", "fast", message_id="fast-message")
+
+    async def submit_then_settle(
+        session_id, text, *, surface, media_refs=None, message_id=None
+    ):
+        await reg.on_turn_settled(session_id, "succeeded", "", message_id or "")
+        return True
+
+    reg._submit = submit_then_settle
+    asyncio.run(reg._drain_batch("s1"))
+    items = reg.snapshot("s1")["items"]
+    assert len(items) == 1
+    assert items[0]["state"] == "delivered"
+    assert items[0]["delivery_id"] == "fast-message"
 
 
 def test_drain_one_reject_keeps_and_attempts(reg, monkeypatch):

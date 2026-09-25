@@ -111,7 +111,7 @@ export function PromptTextClamp({children}: {children: ReactNode}) {
 export type PromptBubbleProps = {
 	text: string;
 	mediaRefs?: string[];
-	queueState?: 'queued' | 'delivering' | 'stuck';
+	queueState?: 'queued' | 'delivering' | 'syncing' | 'stuck';
 	rise?: boolean;
 	editable?: boolean;
 	isEditing?: boolean;
@@ -529,25 +529,31 @@ ref={editing ? promptEditRef : undefined}
 							aria-live="polite"
 							className={cn(
 								'mt-2 flex items-center gap-1.5 font-mono text-[10px]',
-								queueState === 'stuck' ? 'text-danger' : 'text-mute',
+								queueState === 'stuck'
+									? 'text-danger'
+									: queueState === 'syncing' || queueState === 'delivering'
+										? 'text-accent'
+										: 'text-mute',
 							)}
 						>
 							<span
 								aria-hidden
 								className={cn(
 									'h-1.5 w-1.5 rounded-full',
-									queueState === 'queued'
+										queueState === 'queued'
 										? 'bg-amber-400'
-										: queueState === 'delivering'
+										: queueState === 'delivering' || queueState === 'syncing'
 											? 'animate-pulse bg-accent'
 											: 'bg-danger',
 								)}
 							/>
-			{queueState === 'queued'
+							{queueState === 'queued'
 				? '排队中 · 等待安全投递时机'
 								: queueState === 'delivering'
 									? '正在投递'
-									: '投递失败 · 请在输入框的排队项中重试'}
+									: queueState === 'syncing'
+										? '已投递 · 正在同步回复'
+										: '投递失败 · 请在输入框的排队项中重试'}
 						</div>
 					) : null}
 					</>
