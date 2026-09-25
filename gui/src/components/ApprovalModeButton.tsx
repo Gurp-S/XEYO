@@ -71,8 +71,8 @@ export function ApprovalModeButton() {
 				<span>{current.label}</span>
 				<ChevronDown
 					className={cn(
-						'h-3 w-3 opacity-50 transition-transform',
-						open && 'rotate-180 opacity-70',
+						'xy-caret h-3 w-3',
+						open && 'is-open',
 					)}
 				/>
 			</button>

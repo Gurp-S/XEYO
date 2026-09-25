@@ -85,3 +85,39 @@ code {
   letter-spacing: 0.01em;
   color: var(--xy-mute);
 }
+
+/* 下拉箭头（caret）统一档位。此前四处各自写 `text-mute` + `opacity-50`：
+   实测浅色 1.97 / 深色 2.19，低于 UI 组件 3:1 的底线，而箭头往往是"这里能展开"
+   的唯一线索（尤其按钮文字本身已经是 ink 档时）。状态改由颜色档位表达：
+   静止 = mute，悬停 = ink-soft，展开 = ink；不再用透明度压色。 */
+.xy-caret {
+  flex: none;
+  color: var(--xy-mute);
+  transition:
+    color var(--duration-fast) var(--ease-out-soft),
+    transform var(--duration-fast) var(--ease-out-soft);
+}
+
+.xy-caret.is-open {
+  color: var(--xy-ink);
+  transform: rotate(180deg);
+}
+
+button:hover > .xy-caret,
+button:focus-visible > .xy-caret,
+[role="button"]:hover > .xy-caret {
+  color: var(--xy-ink-soft);
+}
+
+button:hover > .xy-caret.is-open,
+button:focus-visible > .xy-caret.is-open {
+  color: var(--xy-ink);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* 只撤"补间"，不撤 180° 本身：箭头朝向是开合状态的载体，
+     把它归零等于对减少动效的用户抹掉了一条信息。 */
+  .xy-caret {
+    transition: none;
+  }
+}

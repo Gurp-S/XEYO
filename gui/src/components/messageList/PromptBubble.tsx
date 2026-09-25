@@ -543,8 +543,8 @@ ref={editing ? promptEditRef : undefined}
 											: 'bg-danger',
 								)}
 							/>
-							{queueState === 'queued'
-								? '排队中 · 当前回合结束后发送'
+			{queueState === 'queued'
+				? '排队中 · 等待安全投递时机'
 								: queueState === 'delivering'
 									? '正在投递'
 									: '投递失败 · 请在输入框的排队项中重试'}
@@ -610,8 +610,8 @@ ref={editing ? promptEditRef : undefined}
 									<span className="truncate">{model}</span>
 									<ChevronDown
 										className={cn(
-											'h-3 w-3 shrink-0 opacity-50 transition-transform',
-											modelOpen && 'rotate-180 opacity-70',
+											'xy-caret h-3 w-3',
+											modelOpen && 'is-open',
 										)}
 										aria-hidden
 									/>

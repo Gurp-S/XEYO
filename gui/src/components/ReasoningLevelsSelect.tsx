@@ -128,8 +128,8 @@ export function ReasoningLevelsSelect({
 				</span>
 				<ChevronDown
 					className={cn(
-						'h-3.5 w-3.5 shrink-0 opacity-50 transition-transform',
-						open && 'rotate-180 opacity-80',
+						'xy-caret h-3.5 w-3.5',
+						open && 'is-open',
 					)}
 				/>
 			</button>
