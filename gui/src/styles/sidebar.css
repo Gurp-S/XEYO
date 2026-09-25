@@ -24,6 +24,21 @@
   transition-delay: 0s;
 }
 
+/* Keyboard focus reveals the same row actions without keeping them visible
+   after a pointer click. */
+.group:has(:focus-visible) .xy-sidebar-affordance,
+.group\/item:has(:focus-visible) .xy-sidebar-affordance {
+  visibility: visible;
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(0);
+  transition-delay: 0s;
+}
+
+.group\/item:has(:focus-visible) .xy-session-meta {
+  opacity: 0;
+}
+
 /* 触屏 / 无精细指针：删除等操作常显 */
 @media (hover: none), (pointer: coarse) {
   .xy-sidebar-affordance,

@@ -79,7 +79,7 @@ export function SessionRow({
 					{session.title}
 				</span>
 				{peerLabel && !session.archived ? (
-					<span className='max-w-[5.5rem] shrink-0 truncate font-mono text-[10px] text-warn/90 group-hover/item:opacity-0'>
+					<span className='xy-session-meta max-w-[5.5rem] shrink-0 truncate font-mono text-[10px] text-warn/90 group-hover/item:opacity-0'>
 						{peerLabel}
 					</span>
 				) : (
