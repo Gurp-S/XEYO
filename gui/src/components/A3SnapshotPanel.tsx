@@ -166,7 +166,6 @@ export function A3SnapshotPanel({active}: {active: boolean}) {
 					</h2>
 					<p className="mt-0.5 text-[11px] text-mute">
 						{reportError || reportMeta}
-						<span className="ml-2">· 自动任务每日 09:30 更新</span>
 					</p>
 				</div>
 				<div className="flex shrink-0 items-center gap-2">
@@ -217,7 +216,7 @@ export function A3SnapshotPanel({active}: {active: boolean}) {
 						? '正在读取 A3 报告…'
 						: reportError
 							? '报告状态没读到，上面写了原因；恢复后点右上角刷新重试。'
-							: '还没有 A3 快照。点击“立即快照”生成报告；后台计划任务也会每日更新。'}
+							: '还没有 A3 快照。点击“立即快照”生成报告。'}
 				</div>
 			)}
 		</section>
