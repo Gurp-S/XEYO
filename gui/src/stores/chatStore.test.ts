@@ -185,7 +185,7 @@ describe('chatStore dialogue — normal', () => {
 		cancelInboxItemApi.mockResolvedValue(true);
 		editInboxItemApi.mockResolvedValue(true);
 		setWorkspace.mockResolvedValue('/tmp');
-		interruptChat.mockResolvedValue(undefined);
+		interruptChat.mockResolvedValue({ok: true, message: ''});
 		streamChat.mockImplementation(
 			async (
 				_sid: string,
@@ -272,7 +272,7 @@ describe('chatStore dialogue — errors & busy', () => {
 	beforeEach(async () => {
 		vi.clearAllMocks();
 		setWorkspace.mockResolvedValue('/tmp');
-		interruptChat.mockResolvedValue(undefined);
+		interruptChat.mockResolvedValue({ok: true, message: ''});
 		await seedSession();
 	});
 
@@ -1016,6 +1016,50 @@ describe('chatStore dialogue — errors & busy', () => {
 		expect(getSessionStream(st, 'sess_test').abortRef).toBeNull();
 	});
 
+	it('后端确认停止才写「已停止」', async () => {
+		interruptChat.mockResolvedValue({ok: true, message: ''});
+		useChatStore.setState({
+			sessionStreams: patchSessionStream({}, 'sess_test', {
+				isLoading: true,
+				streamingText: 'partial',
+				abortRef: new AbortController(),
+			}),
+		});
+		await useChatStore.getState().stopGeneration();
+		await Promise.resolve();
+		expect(getSessionStream(useChatStore.getState(), 'sess_test').statusText).toBe('已停止');
+	});
+
+	it('后端说"没有可中断的回合"也算已停止：那是事实', async () => {
+		interruptChat.mockResolvedValue({ok: false, message: 'not_running'});
+		useChatStore.setState({
+			sessionStreams: patchSessionStream({}, 'sess_test', {
+				isLoading: true,
+				streamingText: 'partial',
+				abortRef: new AbortController(),
+			}),
+		});
+		await useChatStore.getState().stopGeneration();
+		await Promise.resolve();
+		expect(getSessionStream(useChatStore.getState(), 'sess_test').statusText).toBe('已停止');
+	});
+
+	it('读不出停止回执时不得声称已停止（旧实现把 401/500/断网全吞成成功）', async () => {
+		interruptChat.mockResolvedValue({ok: false, message: 'Failed to fetch'});
+		useChatStore.setState({
+			sessionStreams: patchSessionStream({}, 'sess_test', {
+				isLoading: true,
+				streamingText: 'partial',
+				abortRef: new AbortController(),
+			}),
+		});
+		await useChatStore.getState().stopGeneration();
+		await Promise.resolve();
+		expect(getSessionStream(useChatStore.getState(), 'sess_test').statusText).toBe(
+			'本地已停止，后端未确认',
+		);
+	});
+
 	it('appendRemoteMessage mirrors remote user text', () => {
 		useChatStore.getState().appendRemoteMessage('user', '[远程]\n你是谁');
 		const msgs = useChatStore.getState().messagesById.sess_test ?? [];
@@ -1739,7 +1783,7 @@ describe('chatStore drain — burst deltas must still commit (multi-agent summar
 	beforeEach(async () => {
 		vi.clearAllMocks();
 		setWorkspace.mockResolvedValue('/tmp');
-		interruptChat.mockResolvedValue(undefined);
+		interruptChat.mockResolvedValue({ok: true, message: ''});
 		await seedSession();
 		useChatStore.setState({sessionStreams: {}});
 	});

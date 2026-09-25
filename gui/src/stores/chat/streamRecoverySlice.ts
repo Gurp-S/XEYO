@@ -705,7 +705,9 @@ export function createStreamRecoverySlice(
 			return;
 		}
 		stream.abortRef?.abort();
-		void interruptChat(activeBackendSessionId(get().historyById, sid));
+		// 立刻发请求，但回执要在到手后读：本地 abort 只证明"我不再读这条流"，
+		// 不证明引擎停了。旧实现 `void interruptChat(...)` 把 401/500/断网全吞掉。
+		const interrupting = interruptChat(activeBackendSessionId(get().historyById, sid));
 		const flushed = flushOrphanStreamingTail(messagesById, sid, stream);
 		if (flushed.changed) {
 			messagesById = flushed.messagesById;
@@ -740,6 +742,19 @@ export function createStreamRecoverySlice(
 			pendingAsk: s.pendingAsk?.sessionId === sid ? null : s.pendingAsk,
 			pendingPlan: s.pendingPlan?.sessionId === sid ? null : s.pendingPlan,
 		}));
+		void interrupting.then(receipt => {
+			// not_running = 后端回答"这个会话没有可中断的回合"：那「已停止」就是对的。
+			if (receipt.ok || receipt.message === 'not_running') {
+				return;
+			}
+			// 读不出回执 ⇒ 不能说"已停止"：引擎可能仍在跑并继续写这条会话的历史。
+			set(s => ({
+				sessionStreams: patchSessionStream(s.sessionStreams, sid, {
+					statusText: '本地已停止，后端未确认',
+				}),
+			}));
+			toast.warn(`停止请求未被后端确认（${receipt.message}）：回合可能仍在运行`);
+		});
 		if (settled.messages.some(m => m.role === 'tool' && m.toolStatus === 'waiting')) {
 			// smoke-test #15：立即以服务端 transcript 对账（引擎 abort 收尾已把
 			// 真实结果/标注落史），避免"工具成功落盘但 GUI 显示 error/等待"。

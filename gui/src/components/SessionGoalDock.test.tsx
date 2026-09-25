@@ -35,7 +35,7 @@ vi.mock('@/lib/api', async importOriginal => {
 	const actual = await importOriginal<typeof import('@/lib/api')>();
 	return {
 		...actual,
-		interruptChat: vi.fn().mockResolvedValue(undefined),
+		interruptChat: vi.fn().mockResolvedValue({ok: true, message: ''}),
 	};
 });
 

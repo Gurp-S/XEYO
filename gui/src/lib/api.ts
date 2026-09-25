@@ -521,15 +521,40 @@ export async function fetchSessionCompression(
 	}
 }
 
-export async function interruptChat(sessionId: string): Promise<void> {
+export type InterruptWrite = {ok: boolean; message: string};
+
+/**
+ * 请求后端中断本会话正在跑的回合。回执必须读：
+ * 旧实现 `catch {}` + 不看 res.ok，于是 401/404/500 与断网一律"成功"，
+ * 界面写「已停止」而后端仍在跑并继续写 transcript。
+ * `ok:false` 有两种：后端回答"该会话没有可中断的回合"（not_running），
+ * 以及根本读不出回执（网络 / HTTP / 回执形状）—— 界面对这两者说法不同。
+ */
+export async function interruptChat(sessionId: string): Promise<InterruptWrite> {
+	const sid = sessionId.trim();
+	if (!sid) {
+		return {ok: false, message: 'no_session'};
+	}
 	try {
-		await fetchWithTimeout(apiUrl('/v1/interrupt'), {
+		const res = await fetchWithTimeout(apiUrl('/v1/interrupt'), {
 			method: 'POST',
 			headers: {'Content-Type': 'application/json'},
-			body: JSON.stringify({session_id: sessionId}),
+			body: JSON.stringify({session_id: sid}),
 		});
-	} catch {
-		/* 忽略 */
+		const payload = await res.json().catch(() => null);
+		if (!res.ok) {
+			return {ok: false, message: formatErrorDetail(payload, res.status)};
+		}
+		if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+			return {ok: false, message: 'receipt_not_object'};
+		}
+		const ok = (payload as Record<string, unknown>).ok;
+		if (typeof ok !== 'boolean') {
+			return {ok: false, message: 'receipt_missing_ok'};
+		}
+		return {ok, message: ok ? '' : 'not_running'};
+	} catch (err) {
+		return {ok: false, message: err instanceof Error ? err.message : String(err)};
 	}
 }
 

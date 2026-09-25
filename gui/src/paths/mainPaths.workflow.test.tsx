@@ -209,7 +209,7 @@ describe('主路径部件集成 — 发 / 停 / 权限 / reattach / 回溯', () 
 	beforeEach(async () => {
 		vi.clearAllMocks();
 		setWorkspace.mockResolvedValue('/tmp');
-		interruptChat.mockResolvedValue(undefined);
+		interruptChat.mockResolvedValue({ok: true, message: ''});
 		streamChat.mockImplementation(
 			async (
 				_sid: string,
