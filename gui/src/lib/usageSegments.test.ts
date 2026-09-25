@@ -195,4 +195,17 @@ describe('segmentWidths — 渲染宽度钳制', () => {
 		);
 		expect(widths.every(w => Number.isFinite(w))).toBe(true);
 	});
+
+	it('总占用超出窗口时按比例缩回容器，不裁切末段', () => {
+		const widths = segmentWidths(
+			[
+				{key: 'hit', value: 800, color: '#000', label: 'hit', tokens: 800, share: 80},
+				{key: 'miss', value: 700, color: '#111', label: 'miss', tokens: 700, share: 70},
+			],
+			1_000,
+		);
+
+		expect(widths.reduce((sum, width) => sum + width, 0)).toBeCloseTo(100);
+		expect(widths.every(width => width >= 0.5 && width <= 98)).toBe(true);
+	});
 });

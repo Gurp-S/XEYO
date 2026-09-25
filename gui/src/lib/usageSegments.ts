@@ -159,13 +159,37 @@ export function computeUsageSegments(
 	return {segments, denominator, authoritative: false};
 }
 
-/** 渲染宽度（%），带命中用的最窄 0.5% 钳制与 98% 上限。 */
+/** 渲染宽度（%）：带命中用的最窄 0.5% 钳制、98% 单段上限，并防总宽溢出。 */
 export function segmentWidths(
 	segments: UsageSegment[],
 	denominator: number,
 ): number[] {
 	const denom = denominator > 0 ? denominator : 1;
-	return segments.map(s =>
-		Math.max(0.5, Math.min(98, (s.value / denom) * 100)),
+	const widths = segments.map(segment =>
+		Math.max(
+			0.5,
+			Math.min(
+				98,
+				((Number.isFinite(segment.value) ? Math.max(0, segment.value) : 0) /
+						denom) *
+					100,
+			),
+		),
+	);
+	const total = widths.reduce((sum, width) => sum + width, 0);
+	if (total <= 100) {
+		return widths;
+	}
+
+	// 输入超过窗口、或最窄命中宽度叠加时，按各段可缩宽度分摊超额。
+	// 保留 0.5% hover 下限，同时确保 CSS 百分比不会把条目裁在容器外。
+	const reducible = widths.map(width => Math.max(0, width - 0.5));
+	const reducibleTotal = reducible.reduce((sum, width) => sum + width, 0);
+	if (reducibleTotal === 0) {
+		return widths;
+	}
+	const overflow = total - 100;
+	return widths.map(
+		(width, index) => width - overflow * (reducible[index]! / reducibleTotal),
 	);
 }
