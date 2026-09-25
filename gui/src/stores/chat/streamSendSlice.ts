@@ -1733,6 +1733,14 @@ export function createStreamSendSlice(
 							backendSessionId,
 						);
 						if (recovered) {
+							if (submissionUnknown) {
+								set(
+									sessionErrorBannerPatch(
+										sessionId,
+										`连接已恢复，但原消息的提交响应丢失，无法确认服务端是否已接收。输入框仍保留原文；请先检查本会话是否已有该消息，再决定是否重发。`,
+									),
+								);
+							}
 							return;
 						}
 						const cur2 = get();
