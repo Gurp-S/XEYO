@@ -77,3 +77,11 @@ export const DIAG_PARTIES: readonly string[] = [
 	'model',
 	'undetermined',
 ];
+
+export const DIAG_PAYLOAD_KEYS: Readonly<Record<string, readonly string[]>> = {
+	attribution: ['attributed', 'confirmed_count', 'first_anomaly_boundary', 'first_anomaly_label', 'last_normal_boundary', 'last_normal_label', 'statement', 'suspected_count', 'unknown_count'],
+	evidence: ['detail', 'locator', 'ref_id', 'source'],
+	fault: ['cause_statement', 'causes', 'chain', 'engine_confirmed', 'environment_confirmed', 'missing_evidence', 'no_turn_records', 'not_claimed', 'obligation', 'primary_cause', 'primary_cause_label', 'responsibility', 'responsibility_label', 'shown_to_model', 'shown_to_model_note', 'task_outcome', 'task_outcome_label', 'transport_gap', 'why'],
+	finding: ['allowed_conclusion', 'boundary', 'component', 'coverage_gap', 'evidence', 'impact', 'phenomenon', 'rule_id', 'rule_version', 'status'],
+	usage_summary: ['cost_basis', 'cost_sources', 'estimated_total_cny', 'finished_attempts', 'priced_attempts', 'statement', 'total_is_partial', 'unknown_cost_attempts', 'unknown_cost_keys', 'unlinked_usage_rows', 'unpriced_attempts', 'unpriced_keys', 'usage_window_complete', 'usage_window_present'],
+};

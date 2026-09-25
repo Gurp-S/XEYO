@@ -154,6 +154,47 @@ def scan_invariant_names() -> dict[str, list[str]]:
 	}
 
 
+def scan_payload_keys() -> dict[str, list[str]]:
+	"""后端**会给**的字段名（按分组），供界面侧棘轮保证"给了就有人读"。
+
+	为什么活取而不是正则：这些字典里有一半是按运行内容条件添加的，
+	只看源码字面量会漏；所以直接构造一次最小 payload 取回真实键。
+	空运行 + 一条已确认发现 + 一个带结果的模型请求，两次的键取并集。
+	"""
+	from diagnostics import report
+	from diagnostics.collect import RunEvidence
+	from diagnostics.identity import CONFIRMED_FAULT, EvidenceRef, Finding
+
+	finding = Finding(
+		rule_id="gate_probe",
+		rule_version=1,
+		phenomenon="探针",
+		boundary="model_request",
+		component="探针",
+		status=CONFIRMED_FAULT,
+		evidence=[EvidenceRef(source="audit", locator="audit.jsonl", ref_id="L1", detail="probe")],
+		impact="探针",
+		coverage_gap="探针",
+		allowed_conclusion="探针",
+	)
+	groups: dict[str, set[str]] = {
+		"finding": set(finding.to_dict()),
+		"evidence": set((finding.to_dict().get("evidence") or [{}])[0]),
+		"fault": set(),
+		"attribution": set(),
+		"usage_summary": set(),
+	}
+	for run in (
+		RunEvidence(session_id="probe", turn_id="t1"),
+		RunEvidence(session_id="probe", turn_id="t1"),
+	):
+		doc = report.build_report(run, [] if not groups["fault"] else [finding])
+		groups["fault"] |= set(doc.get("fault") or {})
+		groups["attribution"] |= set(doc.get("attribution") or {})
+		groups["usage_summary"] |= set(doc.get("usage_summary") or {})
+	return {name: sorted(keys) for name, keys in sorted(groups.items())}
+
+
 def collect_contract() -> dict[str, Any]:
 	return {
 		"boundaries": [{"name": n, "label": l} for n, l in collect.BOUNDARIES],
@@ -161,6 +202,7 @@ def collect_contract() -> dict[str, Any]:
 		"gapReasons": scan_gap_reasons(),
 		"shownStates": scan_shown_states(),
 		"parties": sorted(fault_split.PARTY_LABEL),
+		"payloadKeys": scan_payload_keys(),
 	}
 
 
@@ -172,6 +214,9 @@ def render(contract: dict[str, Any]) -> str:
 	rule_ids = "\n".join(f"\t{r!r}," for r in contract["ruleIds"])
 	shown = "\n".join(f"\t{s!r}," for s in contract["shownStates"])
 	parties = "\n".join(f"\t{p!r}," for p in contract["parties"])
+	payload = "\n".join(
+		f"\t{name}: [" + ", ".join(repr(k) for k in keys) + "]," for name, keys in contract["payloadKeys"].items()
+	)
 	return (
 		"/**\n"
 		" * 由 `py -3.11 -m diagnostics.export_contract` 生成 —— 不要手改。\n"
@@ -202,6 +247,9 @@ def render(contract: dict[str, Any]) -> str:
 		"export const DIAG_PARTIES: readonly string[] = [\n"
 		f"{parties}\n"
 		"];\n"
+		"\nexport const DIAG_PAYLOAD_KEYS: Readonly<Record<string, readonly string[]>> = {\n"
+		f"{payload}\n"
+		"};\n"
 	)
 
 
