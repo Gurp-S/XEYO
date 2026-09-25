@@ -89,6 +89,11 @@ export function ChatPage() {
 	const {mounted: diagnosticsMounted} = usePresence(diagnosticsActive, 200, 1);
 	const recoverStuckStream = useChatStore(s => s.recoverStuckStream);
 	const activeId = useChatStore(s => s.activeId);
+	const activeSessionIsSide = useChatStore(s =>
+		s.sessions.some(
+			session => session.id === s.activeId && session.spaceId === SIDE_SPACE_ID,
+		),
+	);
 	const selectSession = useChatStore(s => s.selectSession);
 	const createSession = useChatStore(s => s.createSession);
 
@@ -104,7 +109,10 @@ export function ChatPage() {
 		return () => popEscLayer('page-view');
 	}, [pageViewOpen]);
 
-	const isSideChat = location.pathname.startsWith('/side/');
+	// 页面视图使用全局 URL；恢复当前会话的侧聊上下文供共享 chrome 使用。
+	const isSideChat =
+		location.pathname.startsWith('/side/') ||
+		(pageViewOpen && activeSessionIsSide);
 	useEffect(() => {
 		if (offlineReplay) {
 			return;

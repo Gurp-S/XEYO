@@ -98,7 +98,6 @@ import {
 export const Sidebar = memo(function Sidebar() {
 	const navigate = useNavigate();
 	const location = useLocation();
-	const isSideChat = location.pathname.startsWith('/side/');
 	const spaces = useChatStore(s => s.spaces);
 	const sessions = useChatStore(s => s.sessions);
 	const hydrated = useChatStore(s => s.hydrated);
@@ -124,6 +123,13 @@ export const Sidebar = memo(function Sidebar() {
 	const updateSettings = useSettingsStore(s => s.update);
 	// 页面视图（用量/扩展中心）→ 路由派生；开合走 lib/appNav（真路由导航）。
 	const pageView = pageViewFromPath(location.pathname);
+	const activeSessionIsSide = sessions.some(
+		session => session.id === activeId && session.spaceId === SIDE_SPACE_ID,
+	);
+	// 全局页面视图没有侧聊路由段，侧栏选中态仍跟随当前激活会话。
+	const isSideChat =
+		location.pathname.startsWith('/side/') ||
+		(pageView !== null && activeSessionIsSide);
 	const usageOpen = pageView === 'usage';
 	const pluginsOpen = pageView === 'plugins';
 	const diagnosticsOpen = pageView === 'diagnostics';
