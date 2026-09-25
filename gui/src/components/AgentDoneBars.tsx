@@ -1,6 +1,7 @@
 import {memo, useEffect, useRef, useState} from 'react';
 import type {MultiAgentTaskView} from '@/lib/api';
 import {useChatStore} from '@/stores/chatStore';
+import {toast} from '@/lib/toast';
 import {cn} from '@/lib/utils';
 import {isSmoothnessOn, useSettingsStore} from '@/stores/settingsStore';
 import {ThoughtTicker} from './activity/MorphVerb';
@@ -59,6 +60,16 @@ export const AgentDoneBars = memo(function AgentDoneBars({
 		return null;
 	}
 
+	// 这两个动作过去是 `void …`：失败一点痕迹都没有，用户只会觉得按钮卡了一下。
+	// 存储层回的是 boolean（cancelSessionAgent 只看 HTTP 状态），所以这里能说出口的
+	// 只有"没被接受"，不能编一个具体原因；404 的常见含义写在括号里。
+	const report = async (label: string, run: () => Promise<boolean>) => {
+		if (await run()) {
+			return;
+		}
+		toast.error(`${label}未被接受（这一项可能已不在运行，或服务端未响应）`);
+	};
+
 	return (
 		<div
 			className="xy-agent-done-list"
@@ -83,12 +94,15 @@ export const AgentDoneBars = memo(function AgentDoneBars({
 					}}
 					onCancel={() => {
 						if (activeId && task.agentId) {
-							void cancelAgentTask(activeId, task.agentId);
+							void report(
+								'取消子任务',
+								() => cancelAgentTask(activeId, task.agentId),
+							);
 						}
 					}}
 					onRetry={() => {
 						if (activeId && task.agentId) {
-							void retryAgentTask(activeId, task.agentId);
+							void report('重试子任务', () => retryAgentTask(activeId, task.agentId));
 						}
 					}}
 				/>
