@@ -7,7 +7,7 @@
  * - attributed=false 显示「无法归因」。
  * - 不出现概率、不出现加权总分（后端也没有这些字段，前端更不合成）。
  */
-import {useState} from 'react';
+import {useId, useState} from 'react';
 import {ChevronRight} from 'lucide-react';
 import type {DiagFinding, DiagRunDetail} from '@/lib/api/diagnostics';
 import {
@@ -35,6 +35,7 @@ const STATUS_TONE: Record<string, 'confirmed' | 'suspect' | 'unknown'> = {
 
 function FindingCard({f, boundaryLabel}: {f: DiagFinding; boundaryLabel: string}) {
 	const [open, setOpen] = useState(false);
+	const bodyId = useId();
 	const status = findingStatusOf(f);
 	return (
 		<li className={cn('xy-dig-finding', `is-${status}`)}>
@@ -42,6 +43,7 @@ function FindingCard({f, boundaryLabel}: {f: DiagFinding; boundaryLabel: string}
 				type="button"
 				className="xy-dig-finding-head"
 				aria-expanded={open}
+				aria-controls={open ? bodyId : undefined}
 				onClick={() => setOpen(v => !v)}
 			>
 				<ChevronRight
@@ -59,7 +61,7 @@ function FindingCard({f, boundaryLabel}: {f: DiagFinding; boundaryLabel: string}
 				</span>
 			</button>
 			{open ? (
-				<div className="xy-dig-finding-body">
+				<div id={bodyId} className="xy-dig-finding-body">
 					<KeyValue
 						rows={[
 							{k: '影响', v: f.impact},
