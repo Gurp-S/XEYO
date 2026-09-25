@@ -1,5 +1,6 @@
 /**
- * permissions.resolve.test.ts — 三个裁决客户端的回执形状。
+ * permissions.resolve.test.ts — 四个写动作客户端的回执形状
+ * （三个裁决 + 撤销 always-allow 授权）。
  *
  * 旧实现返回 boolean 且 `catch { return false }`：
  * "服务端说这项已经被别处答过"、"422 拒收这个 outcome"、"根本没送达"
@@ -7,7 +8,14 @@
  * 第一句甚至根本不是失败（裁决已经生效）。
  */
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
-import {resolveAsk, resolveFailureText, resolvePermission, resolvePlan} from '@/lib/api';
+import {
+	revokeFailureText,
+	revokePermissionGrant,
+	resolveAsk,
+	resolveFailureText,
+	resolvePermission,
+	resolvePlan,
+} from '@/lib/api';
 
 const fetchMock = vi.fn();
 
@@ -98,6 +106,66 @@ describe('resolveAsk / resolvePlan 同一形状', () => {
 			ok: false,
 			reason: 'already_resolved',
 		});
+	});
+});
+
+describe('revokePermissionGrant：撤销也不回 boolean', () => {
+	it('后端说"台账里没这条"时带回复核用的 reason', async () => {
+		fetchMock.mockResolvedValue(
+			response({ok: false, grant_id: 'a1b2c3d4e5f6', reason: 'grant_not_found'}),
+		);
+		await expect(revokePermissionGrant('a1b2c3d4e5f6')).resolves.toMatchObject({
+			ok: false,
+			reason: 'grant_not_found',
+		});
+	});
+
+	it('撤销真生效 = ok:true，且不带失败原因', async () => {
+		fetchMock.mockResolvedValue(response({ok: true, grant_id: 'a1b2c3d4e5f6'}));
+		await expect(revokePermissionGrant('a1b2c3d4e5f6')).resolves.toEqual({
+			ok: true,
+			reason: '',
+			message: '',
+		});
+	});
+
+	it('403 带出后端原话（loopback 门禁的拒绝不是"已撤销"）', async () => {
+		fetchMock.mockResolvedValue(response({detail: 'local only'}, 403));
+		const r = await revokePermissionGrant('a1b2c3d4e5f6');
+		expect(r.ok).toBe(false);
+		expect(r.reason).toBe('http');
+		expect(r.message).toBe('local only');
+	});
+
+	it('200 却没写 ok 不得读成生效', async () => {
+		fetchMock.mockResolvedValue(response({grant_id: 'a1b2c3d4e5f6'}));
+		await expect(revokePermissionGrant('a1b2c3d4e5f6')).resolves.toMatchObject({
+			ok: false,
+			reason: 'receipt_missing_ok',
+		});
+	});
+
+	it('断网说"未送达"，不说"撤销失败请重试"', async () => {
+		fetchMock.mockRejectedValue(new Error('Failed to fetch'));
+		await expect(revokePermissionGrant('a1b2c3d4e5f6')).resolves.toMatchObject({
+			ok: false,
+			reason: 'network',
+		});
+	});
+
+	it('revokeFailureText：已不在台账是 info，其余带后端原话', () => {
+		const gone = revokeFailureText({
+			ok: false,
+			reason: 'grant_not_found',
+			message: 'grant_not_found',
+		});
+		expect(gone.tone).toBe('info');
+		expect(gone.text).toContain('已不在台账');
+		expect(gone.text).not.toContain('重试');
+
+		const refused = revokeFailureText({ok: false, reason: 'http', message: 'local only'});
+		expect(refused.tone).toBe('error');
+		expect(refused.text).toContain('local only');
 	});
 });
 

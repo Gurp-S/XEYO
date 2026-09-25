@@ -216,9 +216,11 @@ def test_grant_revoke_legit_id_still_works(sandbox: dict[str, Any]) -> None:
 	assert r.json()["ok"] is True
 	assert _grants() == []
 	# 未知但形态合法的 id 仍是 200 + ok:false（既有用例钉死的 not-found 回执）。
+	# reason 也钉住：客户端靠它把"这条已不在台账"和"撤销失败请重试"分开说。
 	r = c.delete("/v1/permissions/grants/deadbeefdeadbeef")
 	assert r.status_code == 200, _body(r)
 	assert r.json()["ok"] is False
+	assert r.json()["reason"] == "grant_not_found", _body(r)
 
 
 # --------------------------------------------------------------------------- #

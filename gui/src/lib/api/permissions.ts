@@ -141,19 +141,43 @@ export async function listPermissionGrants(
 	}
 }
 
-/** T10：撤销一个 always-allow 授权。 */
-export async function revokePermissionGrant(grantId: string): Promise<boolean> {
+/**
+ * T10：撤销一个 always-allow 授权。
+ *
+ * 回执不是 boolean：这个端点 200 + ok:false 的唯一含义是"台账里没有这条"
+ * （loopback 与 id 形态不合法都在前面 4xx 掉了，见 control.py::revoke_permission_grant）。
+ * 旧实现回 false，界面据此说"撤销失败，请重试"——重试一条已经消失的授权永远修不好，
+ * 而且那一行还可能只是列表过期了。
+ */
+export async function revokePermissionGrant(
+	grantId: string,
+): Promise<ResolveReceipt> {
 	try {
 		const res = await fetchWithTimeout(
 			apiUrl(`/v1/permissions/grants/${encodeURIComponent(grantId)}`),
 			{method: 'DELETE'},
 		);
-		if (!res.ok) return false;
-		const payload = (await res.json()) as {ok?: boolean};
-		return payload.ok === true;
-	} catch {
-		return false;
+		return await receiptOf(res);
+	} catch (err) {
+		return {
+			...NETWORK_FAIL,
+			message: err instanceof Error ? err.message : NETWORK_FAIL.message,
+		};
 	}
+}
+
+/** 撤销没生效的说法：已不在台账 ≠ 失败重试。 */
+export function revokeFailureText(r: ResolveReceipt): {
+	tone: 'info' | 'error';
+	text: string;
+} {
+	if (r.reason === 'grant_not_found') {
+		return {
+			tone: 'info',
+			text: '这条授权已不在台账里（可能已到期或在别处撤销过），列表已重新读取',
+		};
+	}
+	return {tone: 'error', text: `撤销未生效：${r.message || '未知原因'}`};
 }
 
 /** 提交对一个挂起提问（AskUserQuestion）的作答。 */

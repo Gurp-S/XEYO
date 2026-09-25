@@ -6,6 +6,7 @@ import {useCallback, useEffect, useState} from 'react';
 import {RefreshCw, Trash2} from 'lucide-react';
 import {
 	listPermissionGrants,
+	revokeFailureText,
 	revokePermissionGrant,
 	type PermissionGrantInfo,
 } from '@/lib/api';
@@ -61,12 +62,16 @@ export function GrantsPanel() {
 			danger: true,
 		});
 		if (!ok) return;
-		if (await revokePermissionGrant(g.grant_id)) {
+		const receipt = await revokePermissionGrant(g.grant_id);
+		if (receipt.ok) {
 			toast.success('已撤销授权');
-			void reload();
 		} else {
-			toast.error('撤销失败，请重试');
+			const said = revokeFailureText(receipt);
+			(said.tone === 'info' ? toast.info : toast.error)(said.text);
 		}
+		// 无论成败都重读：这一行到底还在不在台账，只有后端说了算。
+		// 撤销没生效时它是"仍然有效"，已不在时它是"别再显示成有效授权"。
+		await reload();
 	};
 
 	return (

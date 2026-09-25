@@ -7,7 +7,7 @@ import type {ServerSession, SessionAgentMeta} from './api/chatStream';
 export {VENDOR_CONTEXT_LIMIT_KEY, fetchUsage, fetchUsageBalance, fetchVendorModels, getCachedModelContextLimit, healthCheck, loadVendorContextLimits, persistVendorContextLimits, rememberVendorContextLimits, vendorContextLimitCache, vendorModelCacheKey} from './api/usage';
 export type {UsageBalance, UsageBucket, UsageDayPoint, UsageModelBlock, UsageReport, VendorModel, VendorModelMode, VendorModelsReport} from './api/usage';
 export {uploadFile, uploadMedia} from './api/uploads';
-export {listPermissionGrants, resolveAsk, resolveFailureText, resolvePermission, resolvePlan, revokePermissionGrant} from './api/permissions';
+export {listPermissionGrants, resolveAsk, resolveFailureText, resolvePermission, resolvePlan, revokeFailureText, revokePermissionGrant} from './api/permissions';
 export type {PermissionGrantInfo, ResolveReceipt} from './api/permissions';
 export {requestManualCompact, syncUiThoughtsToServer} from './api/memory';
 export {

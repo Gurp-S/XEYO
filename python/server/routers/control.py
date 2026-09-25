@@ -364,7 +364,9 @@ def revoke_permission_grant(grant_id: str, request: Request) -> dict[str, Any]:
 	# <id> 那条真实授权**。固定点校验后这类写法 422、零删除。
 	gid = _require_store_id(grant_id, field="grant_id")
 	ok = default_grant_store().revoke(gid)
-	return {"ok": ok, "grant_id": gid}
+	# ok:false 的唯一来源是"台账里没有这条"（loopback 与 id 形态都在前面 4xx 掉了）。
+	# 不写 reason 时客户端只能念"撤销失败，请重试"——而重试永远修不好一条已消失的授权。
+	return {"ok": ok, "grant_id": gid, **({} if ok else {"reason": "grant_not_found"})}
 
 
 class AskUserResolveRequest(BaseModel):
