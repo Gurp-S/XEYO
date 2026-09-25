@@ -258,16 +258,15 @@ promptEditRef,
 		);
 		const [previewImage, setPreviewImage] = useState<ImageReaderSource | null>(null);
 		const editPortalHost = useContext(EditPortalHostContext);
-		/* 预览后编辑（选项A）：编辑态默认渲染 Markdown 预览（与查看态同源），
-		   点击/聚焦预览才切到原生 textarea 真正编辑，消除"查看=富文本/编辑=纯文本"的违和。 */
-		const [editPreviewOpen, setEditPreviewOpen] = useState(true);
-		/* 每次进入编辑态都回到预览（同一消息再进也预览）。 */
+		/* 编辑态直接进入可输入文本框；用户可显式切换 Markdown 预览。 */
+		const [editPreviewOpen, setEditPreviewOpen] = useState(false);
+		/* 每次进入编辑态都聚焦文本框，不要求用户二次点击。 */
 		useLayoutEffect(() => {
 			if (editing) {
-				setEditPreviewOpen(true);
+				setEditPreviewOpen(false);
 			}
 		}, [editing]);
-		/* 关闭预览 → 切到 textarea 时聚焦（便于直接输入）。 */
+		/* 预览 → textarea 时聚焦。 */
 		const openEditorFromPreview = () => setEditPreviewOpen(false);
 		useLayoutEffect(() => {
 			if (editing && !editPreviewOpen) {
@@ -593,6 +592,16 @@ ref={editing ? promptEditRef : undefined}
 									title="添加文件"
 								>
 									<Plus className="h-4 w-4" strokeWidth={2} />
+								</button>
+								<button
+									type="button"
+									aria-label={editPreviewOpen ? '返回编辑文本' : '预览 Markdown'}
+									aria-pressed={editPreviewOpen}
+									disabled={editingSubmitting || anyStreaming || editingUploading}
+									onClick={() => setEditPreviewOpen(value => !value)}
+									className="xy-press h-8 rounded-full px-2 text-[11px] text-mute transition-colors hover:bg-paper-deep hover:text-ink disabled:opacity-40"
+								>
+									{editPreviewOpen ? '继续编辑' : '预览'}
 								</button>
 								<div className="flex h-8 shrink-0 items-center gap-1">
 									<div
