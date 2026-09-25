@@ -15,6 +15,11 @@ import {syncGoalAfterCommand} from '@/lib/goalSync';
 import {useSettingsStore, type OutputMode, type PermissionMode} from '@/stores/settingsStore';
 import {normalizeThemeId} from '@/theme/catalog';
 import {useChatStore} from '@/stores/chatStore';
+import {
+	getSessionStream,
+	isSessionStreamLive,
+	sessionStreamActive,
+} from '@/lib/sessionStreams';
 import {toast} from '@/lib/toast';
 
 export type SlashRunOutcome =
@@ -250,7 +255,13 @@ export async function runSlashCommand(
 	}
 	const command = parsed.command;
 	const arg = parsed.arg;
-	if (command.when === 'idle' && opts.sessionBusy) {
+	const chatState = useChatStore.getState();
+	const stream = getSessionStream(chatState, opts.sessionId);
+	const sessionBusy =
+		Boolean(opts.sessionBusy) ||
+		sessionStreamActive(chatState, opts.sessionId) ||
+		isSessionStreamLive(stream);
+	if (command.when === 'idle' && sessionBusy) {
 		return {
 			status: 'rejected',
 			text: `会话仍在运行，/${command.name} 暂不可执行；可用 /stop 中断当前回合。`,

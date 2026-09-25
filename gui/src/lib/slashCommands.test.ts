@@ -12,6 +12,7 @@ const fetchMock = vi.fn(async () =>
 const chatState = {
 	appendLocalNote: vi.fn(),
 	sendMessage: vi.fn(),
+	sessionStreams: {},
 };
 
 vi.mock('@/lib/api', async () => {
@@ -39,6 +40,7 @@ describe('runSlashCommand dispatch', () => {
 
 	beforeEach(() => {
 		vi.clearAllMocks();
+		chatState.sessionStreams = {};
 		globalThis.fetch = fetchMock as unknown as typeof fetch;
 	});
 
@@ -74,6 +76,17 @@ describe('runSlashCommand dispatch', () => {
 		if (out.status !== 'server') return;
 		expect(out.text).toBe('exported');
 		expect(fetchMock).toHaveBeenCalledOnce();
+	});
+
+	it('enforces idle-only commands even when the caller omitted sessionBusy', async () => {
+		chatState.sessionStreams = {
+			sess_1: {isLoading: true, abortRef: {signal: {aborted: false}}},
+		};
+		const onNewSession = vi.fn();
+		const out = await runSlashCommand('/clear', {...opts, onNewSession});
+
+		expect(out.status).toBe('rejected');
+		expect(onNewSession).not.toHaveBeenCalled();
 	});
 
 	it('handleComposerSlash notes unknown commands without consuming the draft', async () => {
