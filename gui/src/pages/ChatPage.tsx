@@ -266,6 +266,7 @@ export function ChatPage() {
 												: 'pointer-events-auto translate-y-0 opacity-100',
 										)}
 										aria-hidden={pageViewOpen}
+										inert={pageViewOpen}
 									>
 										<div className="xy-chat-col relative flex min-h-0 min-w-0 flex-1 flex-col">
 											{!isSideChat ? (

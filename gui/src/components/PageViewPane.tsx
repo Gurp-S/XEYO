@@ -27,6 +27,7 @@ export function PageViewPane({
 					: 'pointer-events-none -translate-y-1 opacity-0',
 			)}
 			aria-hidden={!active}
+			inert={!active}
 		>
 			{children}
 		</div>
