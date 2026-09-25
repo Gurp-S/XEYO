@@ -280,6 +280,11 @@ promptEditRef,
 			mergedActivity ? finalRoundProseMessageIds(turnBlocks) : null,
 		[mergedActivity, turnBlocks],
 	);
+	const failedActivityCount =
+		mergedActivity?.steps.reduce(
+			(count, step) => count + (step.error ? 1 : 0),
+			0,
+		) ?? 0;
 	const [workflowOpen, setWorkflowOpen] = useState(false);
 	const prevMergedRef = useRef<string | null>(null);
 	useEffect(() => {
@@ -469,6 +474,11 @@ promptEditRef,
 								<span className="xy-split-head-meta">
 									<span className="xy-done-extra">
 										{mergedActivity.steps.length} 步
+										{failedActivityCount > 0 ? (
+											<span className="text-danger">
+												{' · '}失败 {failedActivityCount} 步
+											</span>
+										) : null}
 										{mergedActivity.diffs.add > 0 ||
 										mergedActivity.diffs.del > 0 ? (
 											<>

@@ -596,6 +596,10 @@ function ActivityLogInner({
 }: Props) {
 	const smoothness = useSettingsStore(s => isSmoothnessOn(s.smoothness));
 	const showDiff = diffs.add > 0 || diffs.del > 0 ? diffs : undefined;
+	const failedStepCount = steps.reduce(
+		(count, step) => count + (step.error ? 1 : 0),
+		0,
+	);
 	const lastRunningIdx = (() => {
 		for (let i = steps.length - 1; i >= 0; i -= 1) {
 			if (steps[i]?.running) {
@@ -840,6 +844,11 @@ function ActivityLogInner({
 							<SplitChevron open={expanded} />
 						</span>
 						<span className="xy-split-head-meta">
+							{failedStepCount > 0 ? (
+								<span className="text-danger">
+									{failedStepCount} failed
+								</span>
+							) : null}
 							{showDiff ? (
 								<span className="xy-done-extra">
 									<span className="text-ok">+{showDiff.add}</span>
