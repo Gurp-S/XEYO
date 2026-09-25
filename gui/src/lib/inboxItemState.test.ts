@@ -2,6 +2,7 @@ import {describe, expect, it} from 'vitest';
 import {
 	assignInboxQueuePositions,
 	canMutateInboxItem,
+	prioritizeInboxPreview,
 } from './inboxItemState';
 
 describe('canMutateInboxItem', () => {
@@ -25,5 +26,25 @@ describe('assignInboxQueuePositions', () => {
 		]);
 
 		expect(positioned.map(({position}) => position)).toEqual([1, 0, 0, 2, 0]);
+	});
+});
+
+describe('prioritizeInboxPreview', () => {
+	it('keeps actionable and in-flight items ahead of transcript-sync receipts', () => {
+		const sorted = prioritizeInboxPreview([
+			{queue_id: 'receipt', state: 'syncing' as const},
+			{queue_id: 'queue-a', state: 'queued' as const},
+			{queue_id: 'retry', state: 'stuck' as const},
+			{queue_id: 'delivery', state: 'delivering' as const},
+			{queue_id: 'queue-b', state: 'queued' as const},
+		]);
+
+		expect(sorted.map(({queue_id}) => queue_id)).toEqual([
+			'queue-a',
+			'queue-b',
+			'retry',
+			'delivery',
+			'receipt',
+		]);
 	});
 });

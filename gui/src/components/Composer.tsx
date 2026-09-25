@@ -21,7 +21,10 @@ import {
 	type MouseEvent as ReactMouseEvent,
 } from 'react';
 import {fetchFileReferences, uploadFile, uploadMedia, resumeInbox, type SkillInfo} from '@/lib/api';
-import {canMutateInboxItem} from '@/lib/inboxItemState';
+import {
+	canMutateInboxItem,
+	prioritizeInboxPreview,
+} from '@/lib/inboxItemState';
 import {
 	currentFileReferenceResult,
 	fileReferenceQueryKey,
@@ -316,9 +319,10 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 	});
 	// 队列列表：全部条目可见（默认最多 3 条，超出折叠）。
 	const [queueExpanded, setQueueExpanded] = useState(false);
+	const prioritizedInbox = prioritizeInboxPreview(inboxItems);
 	const visibleInbox = queueExpanded
-		? inboxItems
-		: inboxItems.slice(0, QUEUE_PREVIEW_COUNT);
+		? prioritizedInbox
+		: prioritizedInbox.slice(0, QUEUE_PREVIEW_COUNT);
 	const hiddenInboxCount = inboxItems.length - visibleInbox.length;
 	// 行内编辑：editingId 锁定目标条目——轮询导致的队列位移不会再改错行。
 	// Enter/失焦保存；Esc 取消（escRef 拦住失焦触发的保存，避免误保存）。
