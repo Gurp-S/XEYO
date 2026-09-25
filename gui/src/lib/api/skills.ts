@@ -51,7 +51,8 @@ export async function fetchSkills(workspace: string): Promise<SkillsReport> {
 		}
 		const payload = (await res.json()) as Partial<SkillsReport>;
 		return {
-			ok: payload.ok !== false,
+			// 缺 ok 字段算读不出：技能列表为空会被面板念成"这个工作区没有技能"。
+			ok: payload.ok === true,
 			enabled_extensions: payload.enabled_extensions === true,
 			skills: Array.isArray(payload.skills) ? payload.skills : [],
 			message: typeof payload.message === 'string' ? payload.message : undefined,

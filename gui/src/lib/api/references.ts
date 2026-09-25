@@ -38,7 +38,8 @@ export async function fetchFileReferences(
 			return null;
 		}
 		const payload = (await res.json()) as Partial<FileReferencesReport>;
-		if (payload.ok === false || !Array.isArray(payload.files)) {
+		// ok 必须显式为 true：缺字段/形状变形都不能算"读过了"，只算读不出。
+		if (payload.ok !== true || !Array.isArray(payload.files)) {
 			// 调用方只在拿到非 null 报告时才标「已加载」：后端明确拒绝（如工作区
 			// 未被索引）或回执缺 files 时若返回 {ok:false,files:[]}，@ 弹层会画成
 			// "没有匹配文件"——那是假空态，所以按"读不出"返回 null。

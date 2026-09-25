@@ -57,6 +57,16 @@ describe('fetchSkills', () => {
 		expect(report.message).toContain('readable directory');
 	});
 
+	it('200 但信封里没写 ok = 读不出，不得画成"这个工作区没有技能"', async () => {
+		// 后端成功分支总是显式带 ok（server/routers/skills.py:50/70），
+		// 缺字段只可能是回执变形；旧实现 `ok: payload.ok !== false` 会把它读成成功。
+		fetchMock.mockResolvedValue(fakeResponse({enabled_extensions: true, skills: []}));
+
+		const report = await fetchSkills('D:/proj');
+
+		expect(report.ok).toBe(false);
+	});
+
 	it('连不上时也是 ok:false + 原因，不能返回 null', async () => {
 		fetchMock.mockRejectedValue(new Error('Failed to fetch'));
 

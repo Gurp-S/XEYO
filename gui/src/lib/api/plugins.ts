@@ -61,7 +61,9 @@ export async function fetchExtensionSettings(): Promise<ExtensionSettingsView> {
 		}
 		const body = (await res.json()) as Partial<ExtensionSettingsView>;
 		return {
-			ok: body.ok !== false,
+// 信封里没写 ok 一律算读不出：这些视图的空列表会被读成"什么都没有"，
+		// 而后端每个分支都显式带 ok（server/routers/plugins.py），缺字段只可能是回执变形。
+					ok: body.ok === true,
 			message: body.message,
 			enabled_extensions: body.enabled_extensions === true,
 			plugins: body.plugins || {},
@@ -103,7 +105,9 @@ export async function fetchPlugins(): Promise<PluginsReport> {
 		}
 		const body = (await res.json()) as Partial<PluginsReport>;
 		return {
-			ok: body.ok !== false,
+// 信封里没写 ok 一律算读不出：这些视图的空列表会被读成"什么都没有"，
+		// 而后端每个分支都显式带 ok（server/routers/plugins.py），缺字段只可能是回执变形。
+					ok: body.ok === true,
 			message: body.message,
 			enabled_extensions: body.enabled_extensions === true,
 			plugin_market: body.plugin_market === true,

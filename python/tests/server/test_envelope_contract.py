@@ -35,6 +35,14 @@ READS_ENVELOPE: dict[str, str] = {
     "/v1/diagnostics/pins/{pin_id}": "gui diagnostics.ts::deleteDiagPin",
     "/v1/settings/memory": "gui api.bashPolicy/memorySwitches 系列：读 body.ok + 必需字段",
     "/v1/settings/memory/snapshot": "同上（同一客户端家族）",
+    # 以下七个是本轮核实并顺手把"缺 ok 也算成功"改成"缺 ok = 读不出"的：
+    "/v1/plugins": "gui plugins.ts::fetchPlugins（ok === true）",
+    "/v1/extensions/settings": "gui plugins.ts::fetchExtensionSettings（ok === true）",
+    "/v1/skills": "gui skills.ts::fetchSkills（ok === true）",
+    "/v1/references/files": "gui references.ts::fetchFileReferences（ok !== true 即读不出）",
+    "/v1/mcp/op": "gui mcp.ts::mcpOp（body.ok === true）",
+    "/v1/memory/compact": "gui memory.ts 透传服务端 ok/compact_cursor/reason",
+    "/v1/local-models": "gui localModels.ts::setLocalModelSettings（b.ok === true + 必需字段）",
 }
 
 BASELINE_NOT_YET_VERIFIED: frozenset[str] = frozenset(
@@ -44,18 +52,11 @@ BASELINE_NOT_YET_VERIFIED: frozenset[str] = frozenset(
         "/v1/diagnostics/messages/{message_id}",
         "/v1/diagnostics/reports/{report_id}",
         "/v1/diagnostics/runs/{turn_id}/pin",
-        "/v1/extensions/settings",
-        "/v1/local-models",
         "/v1/mcp",
-        "/v1/mcp/op",
-        "/v1/memory/compact",
-        "/v1/plugins",
         "/v1/plugins/install",
         "/v1/plugins/market",
         "/v1/plugins/remove",
         "/v1/plugins/update",
-        "/v1/references/files",
-        "/v1/skills",
     }
 )
 
