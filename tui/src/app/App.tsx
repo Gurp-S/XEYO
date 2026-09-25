@@ -415,10 +415,6 @@ export function App({ config: initial }: Props) {
     setError(null);
     try {
       const data = await getSessionMessages(config.baseUrl, config.apiKey, sid);
-      if (!data.session_id) {
-        sysNote(`未找到会话 ${sid}`);
-        return;
-      }
       setConfig((c) => ({
         ...c,
         sessionId: data.session_id,
@@ -427,7 +423,12 @@ export function App({ config: initial }: Props) {
       const rows = messagesToItems(data.messages);
       setItems(rows);
       setFreezeAt(rows.length);
-      sysNote(`已载入会话 ${data.session_id}（工作区：${data.cwd || "(未绑定)"}）`);
+      // 服务端一直在报这份 transcript 有没有读完（degraded / skipped_lines / read_errors）；
+      // 不说出来，一份读坏的历史就会被当成完整历史继续往下写。
+      sysNote(
+        `已载入会话 ${data.session_id}（工作区：${data.cwd || "(未绑定)"}）` +
+          (data.incomplete ? ` · 历史不完整：${data.incomplete}` : ""),
+      );
     } catch (e) {
       sysNote(`/load 失败：${e instanceof Error ? e.message : String(e)}`);
     }

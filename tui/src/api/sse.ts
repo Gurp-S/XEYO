@@ -233,6 +233,116 @@ export type SlashResponse = {
   result?: { message?: string } | null;
 };
 
+/**
+ * 会话端点的 200 回执必须校验形状。这些接口的真失败走 HTTP 状态码，
+ * 于是"200 但读不出"过去会被写成一句正面事实：
+ * - `sessions` 不在体里 ⇒ /load 说「没有可恢复的会话」（`?? []` 让它看着像事实）；
+ * - `session_id` 不在体里 ⇒ 拿 undefined 当会话 id 继续发请求，`--json` 还会把它印进机器契约；
+ * - `messages` 不在体里 ⇒ 历史显示成空的；
+ * - 服务端一直在返回的 `degraded` / `read_errors` / `skipped_lines` 被整个丢掉 ⇒
+ *   一份读坏的 transcript 显示成"完整历史"。
+ * 抛错走各调用点已有的 catch（`/load 失败：…`），不改任何签名。
+ */
+function requireObject(payload: unknown, what: string): Record<string, unknown> {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error(`${what}：回执不是对象，读不出结果`);
+  }
+  return payload as Record<string, unknown>;
+}
+
+/**
+ * 非 200 时带上服务端给的原因（统一错误体是 `{detail:{message,type}}`，也见过裸 `{detail}`）。
+ * 只报状态码的话，"/load 打错会话 id" 与 "服务没起" 会长成同一句话。
+ */
+async function httpFailure(res: Response): Promise<Error> {
+  let detail = "";
+  try {
+    const body: unknown = await res.json();
+    const o = body && typeof body === "object" && !Array.isArray(body)
+      ? (body as Record<string, unknown>)
+      : null;
+    const d = o?.detail;
+    if (typeof d === "string") detail = d;
+    else if (d && typeof d === "object" && typeof (d as { message?: unknown }).message === "string") {
+      detail = (d as { message: string }).message;
+    } else if (typeof o?.message === "string") detail = o.message;
+  } catch {
+    /* 错误体不是 JSON（反代 / 登录页）：只报状态码，不编原因 */
+  }
+  return new Error(`HTTP ${res.status}${detail ? ` · ${detail}` : ""}`);
+}
+
+export function parseCreatedSession(
+  payload: unknown,
+): { session_id: string; cwd: string } {
+  const o = requireObject(payload, "新建会话");
+  if (o.ok !== true) {
+    throw new Error("新建会话：服务端没有接受这次申请");
+  }
+  if (typeof o.session_id !== "string" || !o.session_id.trim()) {
+    throw new Error("新建会话：回执里没有服务端签发的 session_id（不能自造一个）");
+  }
+  if (typeof o.cwd !== "string") {
+    throw new Error("新建会话：回执缺 cwd（工作区归属读不出）");
+  }
+  return { session_id: o.session_id, cwd: o.cwd };
+}
+
+export function parseSessionList(payload: unknown): SessionInfo[] {
+  const o = requireObject(payload, "会话列表");
+  if (!Array.isArray(o.sessions)) {
+    throw new Error("会话列表：回执缺 sessions —— 读不出不等于没有可恢复的会话");
+  }
+  for (const item of o.sessions) {
+    if (!item || typeof item !== "object" || typeof (item as SessionInfo).id !== "string" || !(item as SessionInfo).id) {
+      throw new Error("会话列表：sessions 里有一条不是会话");
+    }
+  }
+  return o.sessions as SessionInfo[];
+}
+
+export function parseSlashResponse(payload: unknown): SlashResponse {
+  const o = requireObject(payload, "斜杠命令");
+  if (typeof o.handled !== "boolean") {
+    throw new Error("斜杠命令：回执缺 handled —— 读不出服务端有没有接这个命令");
+  }
+  return o as unknown as SlashResponse;
+}
+
+/** 载入的会话：`incomplete` 只在服务端说这份 transcript 没读完时出现。 */
+export type LoadedSession = {
+  session_id: string;
+  cwd: string;
+  messages: LoadedMessage[];
+  incomplete?: string;
+};
+
+export function parseLoadedSession(payload: unknown): LoadedSession {
+  const o = requireObject(payload, "载入会话历史");
+  if (
+    typeof o.session_id !== "string" ||
+    !o.session_id ||
+    !Array.isArray(o.messages) ||
+    typeof o.cwd !== "string"
+  ) {
+    throw new Error("载入会话历史：回执缺 session_id / messages / cwd —— 读不出不等于这个会话没有消息");
+  }
+  const bits: string[] = [];
+  if (o.degraded === true) bits.push("服务端读取降级");
+  if (typeof o.skipped_lines === "number" && o.skipped_lines > 0) {
+    bits.push(`跳过 ${o.skipped_lines} 行`);
+  }
+  if (Array.isArray(o.read_errors) && o.read_errors.length > 0) {
+    bits.push(`${o.read_errors.length} 处读取失败`);
+  }
+  return {
+    session_id: o.session_id,
+    cwd: o.cwd,
+    messages: o.messages as LoadedMessage[],
+    ...(bits.length > 0 ? { incomplete: bits.join(" · ") } : {}),
+  };
+}
+
 /** 统一斜杠命令：POST /v1/slash（server 命令）。 */
 export async function postSlashCommand(
   baseUrl: string,
@@ -247,7 +357,7 @@ export async function postSlashCommand(
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return (await res.json()) as SlashResponse;
+  return parseSlashResponse(await res.json());
 }
 
 export async function healthOk(baseUrl: string): Promise<boolean> {
@@ -293,8 +403,8 @@ export async function createSession(
     headers,
     body: JSON.stringify({ workspace: workspace || undefined }),
   });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return (await res.json()) as { session_id: string; cwd: string };
+  if (!res.ok) throw await httpFailure(res);
+  return parseCreatedSession(await res.json());
 }
 
 /** T31：列出服务端会话（恢复历史入口）。 */
@@ -305,9 +415,8 @@ export async function listSessions(
   const headers: Record<string, string> = {};
   if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
   const res = await fetch(`${baseUrl.replace(/\/$/, "")}/v1/sessions`, { headers });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const data = (await res.json()) as { sessions: SessionInfo[] };
-  return data.sessions ?? [];
+  if (!res.ok) throw await httpFailure(res);
+  return parseSessionList(await res.json());
 }
 
 /** T31：按 session_id 读取消息 + 服务端权威 cwd（恢复历史 / /load）。 */
@@ -315,19 +424,15 @@ export async function getSessionMessages(
   baseUrl: string,
   apiKey: string,
   sessionId: string,
-): Promise<{ session_id: string; cwd: string; messages: LoadedMessage[] }> {
+): Promise<LoadedSession> {
   const headers: Record<string, string> = {};
   if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
   const res = await fetch(
     `${baseUrl.replace(/\/$/, "")}/v1/sessions/${encodeURIComponent(sessionId)}/messages`,
     { headers },
   );
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return (await res.json()) as {
-    session_id: string;
-    cwd: string;
-    messages: LoadedMessage[];
-  };
+  if (!res.ok) throw await httpFailure(res);
+  return parseLoadedSession(await res.json());
 }
 
 type AssistantItem = Extract<TimelineItem, { kind: "assistant" }>;

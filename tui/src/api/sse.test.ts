@@ -1,16 +1,25 @@
 /**
  * TUI 流式层的回归测试（node --test + tsx，不引新依赖）。
- * 钉住三件真实数据上会错的事：并行同名工具的结果配对、缺字段的用量不得当成 0、
- * 以及 SSE 分块边界（一行被切断 / 一个中文被切断）。
+ * 钉住四件真实数据上会错的事：并行同名工具的结果配对、缺字段的用量不得当成 0、
+ * SSE 分块边界（一行被切断 / 一个中文被切断），以及会话面 200 回执的形状
+ * （缺 sessions 不能说成「没有可恢复的会话」，缺 messages 不能说成空历史，
+ * 服务端报的读取降级必须显示出来）。
  */
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
   applyXy,
+  createSession,
   DecisionNotApplied,
   deltaText,
+  getSessionMessages,
   interruptSession,
+  listSessions,
+  parseCreatedSession,
+  parseLoadedSession,
+  parseSessionList,
+  parseSlashResponse,
   resolvePermission,
   streamChat,
   type ChatBody,
@@ -312,4 +321,103 @@ test("中断：200 + ok:false 也要 reject，调用方才不会说服务端已�
 test("中断成功（200 + ok:true）不 reject", async () => {
   const { fake } = fetchReturning(200, { ok: true });
   await withFetch(fake, () => interruptSession("http://x/", "", "sess_1"));
+});
+
+// --------------------------------------------------------------------------- //
+// 会话面四个 helper 过去是裸转型：只查 HTTP 状态，不看 200 的正文。
+// 于是"200 但读不出"被写成正面事实 —— /load 说「没有可恢复的会话」、
+// 拿 undefined 当 session_id 继续发请求、读坏的历史显示成完整历史。
+// 好形体取自 python/server/routers/sessions.py 的真实返回。
+// --------------------------------------------------------------------------- //
+
+test("会话列表缺 sessions 不得变成「没有可恢复的会话」", async () => {
+  assert.throws(() => parseSessionList({}), /没有可恢复的会话/);
+  assert.throws(() => parseSessionList(null), /回执不是对象/);
+  assert.deepEqual(parseSessionList({ sessions: [] }), []);
+});
+
+test("会话列表里的条目必须真是会话（缺 id 会渲染成空白行）", () => {
+  assert.deepEqual(
+    parseSessionList({ sessions: [{ id: "s1", title: "T", createdAt: 1, updatedAt: 2 }] }),
+    [{ id: "s1", title: "T", createdAt: 1, updatedAt: 2 }],
+  );
+  assert.throws(() => parseSessionList({ sessions: [{ title: "没有 id" }] }), /不是会话/);
+});
+
+test("新建会话拿不到服务端签发的 id 就失败，不自造一个", () => {
+  assert.throws(() => parseCreatedSession({ ok: true, cwd: "D:/p" }), /session_id/);
+  assert.throws(() => parseCreatedSession({ ok: true, session_id: "  ", cwd: "D:/p" }), /session_id/);
+  assert.throws(() => parseCreatedSession({ ok: false, session_id: "x", cwd: "" }), /没有接受/);
+  // cwd 可以是空串：那表示这个会话还没绑工作区，是一个事实而不是缺失。
+  assert.deepEqual(parseCreatedSession({ ok: true, session_id: "xeyo-1", cwd: "" }), {
+    session_id: "xeyo-1",
+    cwd: "",
+  });
+});
+
+test("载入历史：缺 messages 不等于这个会话没有消息", () => {
+  assert.throws(
+    () => parseLoadedSession({ session_id: "s1", cwd: "D:/p" }),
+    /这个会话没有消息/,
+  );
+  assert.throws(() => parseLoadedSession({ session_id: "", cwd: "D:/p", messages: [] }), /session_id/);
+  // 老服务端不认 cwd 时也不能悄悄沿用旧工作区：这一栏读不出就要报错。
+  assert.throws(() => parseLoadedSession({ session_id: "s1", messages: [] }), /session_id \/ messages \/ cwd/);
+});
+
+test("服务端报了读取降级，载入说明就必须带上", () => {
+  const clean = parseLoadedSession({ session_id: "s1", cwd: "D:/p", messages: [{ id: "m1", role: "user", text: "hi", createdAt: 1 }] });
+  assert.equal(clean.incomplete, undefined);
+  assert.equal(clean.messages.length, 1);
+
+  const degraded = parseLoadedSession({
+    session_id: "s1",
+    cwd: "D:/p",
+    messages: [],
+    degraded: true,
+    read_errors: [{ path: "a.jsonl", error: "boom" }, { path: "b.jsonl", error: "boom" }],
+    skipped_lines: 7,
+  });
+  assert.equal(degraded.incomplete, "服务端读取降级 · 跳过 7 行 · 2 处读取失败");
+});
+
+test("helper 真的走了解析：200 空体不会给出可用的 session_id", async () => {
+  const { fake } = fetchReturning(200, { ok: true, cwd: "D:/p" });
+  await assert.rejects(
+    withFetch(fake, () => createSession("http://x/", "", undefined)),
+    /session_id/,
+  );
+});
+
+test("helper 真的走了解析：缺 sessions 的 200 会 reject 给 /load 的 catch", async () => {
+  const { fake } = fetchReturning(200, {});
+  await assert.rejects(withFetch(fake, () => listSessions("http://x/", "")), /没有可恢复的会话/);
+});
+
+test("helper 真的走了解析：缺 messages 的 200 不得变成一份空历史", async () => {
+  const { fake } = fetchReturning(200, { session_id: "s1", cwd: "D:/p" });
+  await assert.rejects(
+    withFetch(fake, () => getSessionMessages("http://x/", "", "s1")),
+    /这个会话没有消息/,
+  );
+});
+
+test("非 200 要带上服务端给的原因，而不是只剩一个状态码", async () => {
+  const { fake } = fetchReturning(404, {
+    detail: { message: "no transcript for session: sess_typo", type: "transcript_not_found" },
+  });
+  await assert.rejects(
+    withFetch(fake, () => getSessionMessages("http://x/", "", "sess_typo")),
+    /HTTP 404 · no transcript for session: sess_typo/,
+  );
+});
+
+test("斜杠命令：缺 handled 就是读不出服务端有没有接这个命令", () => {
+  assert.throws(() => parseSlashResponse({ message: "ok" }), /handled/);
+  assert.deepEqual(parseSlashResponse({ handled: false, kind: "unknown", message: "未知命令", result: null }), {
+    handled: false,
+    kind: "unknown",
+    message: "未知命令",
+    result: null,
+  });
 });
