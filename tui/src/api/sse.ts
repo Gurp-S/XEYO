@@ -128,6 +128,53 @@ export async function streamChat(
   }
 }
 
+/**
+ * 决议送达了但**没被接受**：200 信封里的 `{ok:false}`。
+ *
+ * 这一档和"没送达"（网络/5xx）不是一件事，和"批准成功"更不是。
+ * 后端的 reason 有两种（server/routers/control.py::_resolve_miss_reason）：
+ * `already_resolved` = 别的表面已经答过；`no_such_request` = 挂起项已经不在
+ * （服务重启会清掉内存里的它）。两种都不能写"✓ allowed"。
+ */
+export class DecisionNotApplied extends Error {
+  readonly reason: string;
+
+  constructor(reason: string, detail: string) {
+    super(
+      detail ||
+        (reason === "already_resolved"
+          ? "该项已在别处答复（远程或另一次点击）"
+          : reason === "no_such_request"
+            ? "挂起项已不在服务端（服务重启会清掉它）"
+            : "服务端未接受这次决议"),
+    );
+    this.name = "DecisionNotApplied";
+    this.reason = reason;
+  }
+}
+
+async function envelopeOf(res: Response): Promise<Record<string, unknown> | null> {
+  try {
+    const body: unknown = await res.json();
+    return body && typeof body === "object" && !Array.isArray(body)
+      ? (body as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function notApplied(body: Record<string, unknown> | null): DecisionNotApplied {
+  const reason = typeof body?.reason === "string" ? body.reason : "";
+  const detail =
+    typeof body?.detail === "string"
+      ? body.detail
+      : typeof body?.message === "string"
+        ? body.message
+        : "";
+  return new DecisionNotApplied(reason, detail);
+}
+
 export async function resolvePermission(
   baseUrl: string,
   apiKey: string,
@@ -149,6 +196,10 @@ export async function resolvePermission(
   // 决议必须确认送达：本文件其余 5 个 helper 都查 res.ok，只有这两个不查，
   // 于是 403/404/422 会被吞掉、界面照常写下 "✓ allowed"。
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  // 但 res.ok 只是 HTTP 层：这个端点在 200 信封里用 {ok:false} 表达"没接受"，
+  // 只看状态码会把"别处已经答过 / 挂起项没了"写成 ✓ allowed。
+  const body = await envelopeOf(res);
+  if (!body || body.ok !== true) throw notApplied(body);
 }
 
 export async function interruptSession(
@@ -165,6 +216,12 @@ export async function interruptSession(
   });
   // 同上：本地 abort() 只保证"不再接收"，服务端有没有停要靠这个响应。
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const body = await envelopeOf(res);
+  if (!body || body.ok !== true) {
+    throw notApplied(
+      body ?? { detail: "服务端未确认中断（回执缺少 ok 字段）" },
+    );
+  }
 }
 
 export type SlashResponse = {

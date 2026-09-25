@@ -8,6 +8,7 @@ import test from "node:test";
 
 import {
   applyXy,
+  DecisionNotApplied,
   deltaText,
   interruptSession,
   resolvePermission,
@@ -216,11 +217,15 @@ test("deltaText 忽略没有正文的帧", () => {
 // 于是 403/404/422 一律"成功"，App 照常写下 ✓ allowed（授权面上的假回执）。
 // --------------------------------------------------------------------------- //
 
-function fetchReturning(status: number) {
+function fetchReturning(status: number, payload: unknown = {}) {
   const calls: { url: string; init?: RequestInit }[] = [];
   const fake = (async (input: unknown, init?: RequestInit) => {
     calls.push({ url: String(input), init });
-    return { ok: status >= 200 && status < 300, status, json: async () => ({}) } as never;
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      json: async () => payload,
+    } as never;
   }) as never;
   return { fake, calls };
 }
@@ -246,7 +251,8 @@ test("决议被服务端拒绝时必须 reject，而不是静默算成功", asyn
 });
 
 test("决议成功时 resolve，并把 choice 映射成 approved + outcome", async () => {
-  const { fake, calls } = fetchReturning(200);
+  // 200 信封里必须带 ok:true —— 这正是新契约要求客户端读的那一层。
+  const { fake, calls } = fetchReturning(200, { ok: true, request_id: "req_1", grant_id: "" });
   await withFetch(fake, () => resolvePermission("http://x/", "k", "req_1", "deny"));
   const sent = JSON.parse(String(calls[0].init?.body));
   assert.equal(sent.request_id, "req_1");
@@ -262,4 +268,48 @@ test("中断请求失败时必须 reject，调用方才能说「服务端未确�
     withFetch(fake, () => interruptSession("http://127.0.0.1:1", "", "sess_1")),
     /500/,
   );
+});
+
+// --------------------------------------------------------------------------- //
+// 200 信封里的拒绝：/v1/permission/resolve 与 /v1/interrupt 用 {ok:false}
+// 表达"送达了但没接受"，只看 res.ok 会把它写成 ✓ allowed / 已中断。
+// --------------------------------------------------------------------------- //
+
+test("200 + ok:false(already_resolved) 必须 reject 并带上 reason", async () => {
+  const { fake } = fetchReturning(200, { ok: false, reason: "already_resolved" });
+  const e = await withFetch(fake, () =>
+    resolvePermission("http://x/", "k", "req_1", "allow"),
+  ).catch((err: unknown) => err);
+  assert.ok(e instanceof DecisionNotApplied, String(e));
+  assert.equal((e as DecisionNotApplied).reason, "already_resolved");
+  assert.match((e as DecisionNotApplied).message, /已在别处答复/);
+});
+
+test("200 + ok:false(no_such_request) 说清挂起项已不在", async () => {
+  const { fake } = fetchReturning(200, { ok: false, reason: "no_such_request" });
+  await assert.rejects(
+    withFetch(fake, () => resolvePermission("http://x/", "", "req_1", "deny")),
+    /挂起项已不在服务端/,
+  );
+});
+
+test("200 但信封里没有 ok 字段 = 读不出，不得算成功", async () => {
+  const { fake } = fetchReturning(200, { request_id: "req_1" });
+  const e = await withFetch(fake, () =>
+    resolvePermission("http://x/", "", "req_1", "allow"),
+  ).catch((err: unknown) => err);
+  assert.ok(e instanceof DecisionNotApplied);
+  assert.equal((e as DecisionNotApplied).reason, "");
+});
+
+test("中断：200 + ok:false 也要 reject，调用方才不会说服务端已停", async () => {
+  const { fake } = fetchReturning(200, { ok: false });
+  await assert.rejects(
+    withFetch(fake, () => interruptSession("http://x/", "", "sess_1")),
+  );
+});
+
+test("中断成功（200 + ok:true）不 reject", async () => {
+  const { fake } = fetchReturning(200, { ok: true });
+  await withFetch(fake, () => interruptSession("http://x/", "", "sess_1"));
 });

@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   applyXy,
   createSession,
+  DecisionNotApplied,
   getSessionMessages,
   interruptSession,
   listSessions,
@@ -304,14 +305,18 @@ export function App({ config: initial }: Props) {
     try {
       await resolvePermission(config.baseUrl, config.apiKey, req.requestId, choice);
     } catch (e) {
-      // 决议没送达服务端：不能写"已允许"。工具会一直卡在等授权，用户需要知道
-      // 自己没有批准过它，而不是以为批过了。
+      // 两种"没生效"要分开说：未送达（网络/5xx）与送达了但没被接受（200 + ok:false）。
+      // 后者里 already_resolved 表示别处已经答过 —— 那不是本端的批准，也不能写 ✓。
+      const alreadyElsewhere =
+        e instanceof DecisionNotApplied && e.reason === "already_resolved";
       setItems((prev) => [
         ...prev,
         {
           id: nextId(),
           kind: "system",
-          text: `${gly.fail} 决议未送达服务端（${req.tool} / ${verb}）：${String(e)}`,
+          text: alreadyElsewhere
+            ? `${gly.warn} 该项已在别处答复，本端未做决议（${req.tool}）`
+            : `${gly.fail} 决议未被接受（${req.tool} / ${verb}）：${String(e)}`,
         },
       ]);
       setError(String(e));
