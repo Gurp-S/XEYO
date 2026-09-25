@@ -291,7 +291,12 @@ def test_absent_wire_drops_is_reported_as_absent(write_audit) -> None:
 	assert "不存在" in window.note
 	assert "未覆盖" not in window.note, "缺失不得写成尾窗截断"
 	assert run.coverage()["wire_drops"]["state"] == ABSENT
-	assert any(g.boundary == "tool_permission" and g.reason == "source_absent" for g in run.gaps)
+	# 归属阶段要看护栏站在哪一道边界上：wire_drops 记的是"发射前把孤儿 tool 结果裁掉"，
+	# 属适配器出口（rules.wire_gap 的结论也钉在 adapter），不能挂在「工具与权限」下，
+	# 否则读的人会去权限链找一件发生在请求体组装处的事。
+	gap = next(g for g in run.gaps if g.reason == "source_absent" and g.boundary == "adapter")
+	assert "wire_drops" in gap.detail
+	assert "openai_compat" in gap.detail, "措辞要点明这个账本只覆盖一条链路"
 
 
 def test_absent_audit_file_is_not_a_small_window(tmp_path) -> None:

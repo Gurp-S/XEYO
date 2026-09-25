@@ -851,7 +851,12 @@ def _collect_wire_drops(run: RunEvidence, wanted_tool_ids: set[str]) -> None:
 	scan = _scan_jsonl_tail(path, _AUDIT_TAIL_BYTES)
 	window = _window_from_scan("wire_drops", str(path), scan, max_bytes=_AUDIT_TAIL_BYTES)
 	if not scan.present:
-		run.add_gap("tool_permission", "source_absent", f"wire_drops 账本不存在：{path}，无从判断是否丢过行")
+		run.add_gap(
+			"adapter",
+			"source_absent",
+			f"wire_drops 账本不存在：{path}。它只由 openai_compat 链路的出口护栏写入"
+			"（model/anthropic.py 的同类裁剪不落账），所以文件不存在只说明这条链路没记到丢行。",
+		)
 		_publish_window(run, window)
 		return
 	for line_no, row in scan.rows:
@@ -865,7 +870,7 @@ def _collect_wire_drops(run: RunEvidence, wanted_tool_ids: set[str]) -> None:
 		)
 	if scan.truncated:
 		run.add_gap(
-			"tool_permission",
+			"adapter",
 			"out_of_window",
 			f"wire_drops 尾窗 {_AUDIT_TAIL_BYTES} 字节，仅覆盖最近 {window.rows_scanned} 行",
 		)

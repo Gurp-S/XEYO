@@ -709,4 +709,19 @@ describe('证据缺项的中文口径与"零结论"的指向', () => {
 		render(<FindingsView detail={detail({findings: [], gaps: []})} />);
 		expect(document.body.textContent).not.toMatch(/采集侧记了/);
 	});
+
+	it('缺项的阶段用中文标签，不裸露 snake_case', () => {
+		render(
+			<ContextView
+				detail={detail({
+					gaps: [{boundary: 'adapter', reason: 'source_absent', detail: 'wire_drops 账本不存在'}],
+				})}
+				sessionId="s1"
+				turnId="t1"
+				storeRoot="/diag"
+			/>,
+		);
+		const list = document.querySelector('.xy-dig-gap-boundary')?.textContent ?? '';
+		expect(list).toBe('适配器最终请求');
+	});
 });
