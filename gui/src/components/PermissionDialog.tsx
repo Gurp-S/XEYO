@@ -48,6 +48,8 @@ function PermissionCard({pending}: {pending: PendingPermissionInfo}) {
 	const isBashConfirm =
 		pending.toolName === 'Bash' && (pending.intent ?? 'confirm') === 'confirm';
 	const [remember, setRemember] = useState(false);
+	const decidingRef = useRef(false);
+	const [deciding, setDeciding] = useState(false);
 
 	useEffect(() => {
 		const el = cmdRef.current;
@@ -86,33 +88,41 @@ function PermissionCard({pending}: {pending: PendingPermissionInfo}) {
 		outcome?: 'allow' | 'deny' | 'remind',
 		withRemember = false,
 	) => {
-		// T3：先发送再清状态；HTTP 失败 → 回滚面板 + toast，不假装已处理。
-		const receipt = await resolvePermission(
-			pending.requestId,
-			approved,
-			'desktop',
-			outcome,
-			withRemember,
-		);
-		if (!receipt.ok) {
-			// "已被别处答复"要把面板收起（裁决确实落地了），其余保留挂起好重试。
-			const notice = resolveFailureText(receipt);
-			if (notice.tone === 'info') {
-				useChatStore.getState().setPendingPermission?.(null);
+		if (decidingRef.current) return;
+		decidingRef.current = true;
+		setDeciding(true);
+		try {
+			// 先发送再清状态；HTTP 失败时保留面板供重试。
+			const receipt = await resolvePermission(
+				pending.requestId,
+				approved,
+				'desktop',
+				outcome,
+				withRemember,
+			);
+			if (!receipt.ok) {
+				const notice = resolveFailureText(receipt);
+				if (notice.tone === 'info') {
+					useChatStore.getState().setPendingPermission?.(null);
+				}
+				toast[notice.tone](notice.text);
+				return;
 			}
-			toast[notice.tone](notice.text);
-			return;
+			if (withRemember) {
+				toast.info('已记住：此类命令后续不再询问（可在设置中撤销）');
+			}
+			useChatStore.getState().setPendingPermission?.(null);
+		} catch (error) {
+			toast.error(error instanceof Error ? error.message : '提交审批失败');
+		} finally {
+			decidingRef.current = false;
+			setDeciding(false);
 		}
-		if (withRemember) {
-			toast.info('已记住：此类命令后续不再询问（可在设置中撤销）');
-		}
-		useChatStore.getState().setPendingPermission?.(null);
 	};
 
 	// T3：关闭 / Esc = 取消（deny），并toast提示。
 	const cancel = () => {
 		void decide(false, 'deny');
-		toast.info('已取消该操作');
 	};
 
 	useEffect(() => {
@@ -175,6 +185,7 @@ function PermissionCard({pending}: {pending: PendingPermissionInfo}) {
 					className="ml-1 rounded p-0.5 text-mute/70 hover:bg-line/40 hover:text-fg"
 					aria-label="取消（Esc）"
 					title="取消（Esc）"
+					disabled={deciding}
 					onClick={e => {
 						e.stopPropagation();
 						cancel();
@@ -209,6 +220,7 @@ function PermissionCard({pending}: {pending: PendingPermissionInfo}) {
 						<button
 							type="button"
 							className="xy-panel-ask-reject"
+							disabled={deciding}
 							onClick={() => void decide(false, 'deny')}
 						>
 							硬拦
@@ -216,6 +228,7 @@ function PermissionCard({pending}: {pending: PendingPermissionInfo}) {
 						<button
 							type="button"
 							className="xy-panel-ask-reject"
+							disabled={deciding}
 							onClick={() => void decide(false, 'remind')}
 						>
 							提醒
@@ -223,6 +236,7 @@ function PermissionCard({pending}: {pending: PendingPermissionInfo}) {
 						<button
 							type="button"
 							className="xy-panel-ask-allow"
+							disabled={deciding}
 							onClick={() => void decide(true, 'allow')}
 						>
 							继续
@@ -245,6 +259,7 @@ function PermissionCard({pending}: {pending: PendingPermissionInfo}) {
 						<button
 							type="button"
 							className="xy-panel-ask-reject"
+							disabled={deciding}
 							onClick={() => void decide(false)}
 						>
 							拒绝
@@ -252,6 +267,7 @@ function PermissionCard({pending}: {pending: PendingPermissionInfo}) {
 						<button
 							type="button"
 							className="xy-panel-ask-allow"
+							disabled={deciding}
 							onClick={() =>
 								void decide(true, undefined, isBashConfirm && remember)
 							}

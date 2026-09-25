@@ -1,4 +1,4 @@
-import {useState} from 'react';
+import {useRef, useState} from 'react';
 import {ChevronDown, ChevronLeft, ChevronRight} from 'lucide-react';
 import {resolveAsk, resolveFailureText} from '@/lib/api';
 import {toast} from '@/lib/toast';
@@ -367,22 +367,30 @@ function AskCard({pending}: {pending: PendingAskInfo}) {
 	);
 	// 提交中：防止双击重复 resolve；失败时保留面板与已选内容供重试。
 	const [submitting, setSubmitting] = useState(false);
+	const submittingRef = useRef(false);
 	const [expanded, setExpanded] = useState(true);
 	const options = pending.options ?? [];
 
 	const doResolve = async (answer: string) => {
+		if (submittingRef.current) return;
+		submittingRef.current = true;
 		setSubmitting(true);
-		// 先 resolve 后清面板：失败时保留挂起与已选，引擎不会无人应答地卡死。
-		const receipt = await resolveAsk(pending.requestId, answer);
-		if (receipt.ok) {
-			useChatStore.getState().setPendingAsk?.(null);
-		} else {
-			const notice = resolveFailureText(receipt);
-			if (notice.tone === 'info') {
-				// 已在别处答过：收面板是对的，重试反而会二次作答。
+		try {
+			// 先 resolve 后清面板：失败时保留已选内容供重试。
+			const receipt = await resolveAsk(pending.requestId, answer);
+			if (receipt.ok) {
 				useChatStore.getState().setPendingAsk?.(null);
+			} else {
+				const notice = resolveFailureText(receipt);
+				if (notice.tone === 'info') {
+					useChatStore.getState().setPendingAsk?.(null);
+				}
+				toast[notice.tone](notice.text);
 			}
-			toast[notice.tone](notice.text);
+		} catch (error) {
+			toast.error(error instanceof Error ? error.message : '提交回答失败');
+		} finally {
+			submittingRef.current = false;
 			setSubmitting(false);
 		}
 	};

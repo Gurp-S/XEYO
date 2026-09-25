@@ -1,4 +1,4 @@
-import {useState} from 'react';
+import {useRef, useState} from 'react';
 import {ChevronDown} from 'lucide-react';
 
 import {resolveFailureText, resolvePlan} from '@/lib/api';
@@ -27,22 +27,28 @@ function PlanCard({pending}: {pending: PendingPlanInfo}) {
 	const [expanded, setExpanded] = useState(true);
 
 	const [submitting, setSubmitting] = useState(false);
+	const submittingRef = useRef(false);
 
 	const decide = async (approved: boolean) => {
-		if (submitting) {
+		if (submittingRef.current) {
 			return;
 		}
+		submittingRef.current = true;
 		setSubmitting(true);
-		// 原先是"先清面板、再 void resolvePlan"：裁决没送达也照样收面板，
-		// 引擎就在无人应答地等这个计划，界面上已经没有能答它的入口了。
-		const receipt = await resolvePlan(pending.requestId, approved);
-		setSubmitting(false);
-		if (receipt.ok || receipt.reason === 'already_resolved') {
-			useChatStore.getState().setPendingPlan?.(null);
-		}
-		if (!receipt.ok) {
-			const notice = resolveFailureText(receipt);
-			toast[notice.tone](notice.text);
+		try {
+			const receipt = await resolvePlan(pending.requestId, approved);
+			if (receipt.ok || receipt.reason === 'already_resolved') {
+				useChatStore.getState().setPendingPlan?.(null);
+			}
+			if (!receipt.ok) {
+				const notice = resolveFailureText(receipt);
+				toast[notice.tone](notice.text);
+			}
+		} catch (error) {
+			toast.error(error instanceof Error ? error.message : '提交计划决定失败');
+		} finally {
+			submittingRef.current = false;
+			setSubmitting(false);
 		}
 	};
 
@@ -78,6 +84,7 @@ function PlanCard({pending}: {pending: PendingPlanInfo}) {
 					<button
 						type="button"
 						className="xy-panel-ask-reject"
+						disabled={submitting}
 						onClick={() => void decide(false)}
 					>
 						拒绝
@@ -85,6 +92,7 @@ function PlanCard({pending}: {pending: PendingPlanInfo}) {
 					<button
 						type="button"
 						className="xy-panel-ask-allow"
+						disabled={submitting}
 						onClick={() => void decide(true)}
 					>
 						允许执行
