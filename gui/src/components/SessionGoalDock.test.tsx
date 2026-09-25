@@ -8,6 +8,8 @@
  *   停止(轮中)→interrupt+disarm；标记完成→confirm_complete；恢复(blocked)→reopen。
  * - 编辑（行内 input）→edit；清除（确认）→drop；取消不触发。
  * - CAS 纪律（409 → 刷新重试一次）；goalDockLiveFor 谓词。
+ * - 动词失败：失败必须报出后端原话；暂停/恢复没落地就不动自动续跑；
+ *   编辑没落地就不关编辑器；interrupt 的 not_running 不算失败。
  */
 import {cleanup, render, screen, waitFor} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -38,6 +40,18 @@ vi.mock('@/lib/api', async importOriginal => {
 		interruptChat: vi.fn().mockResolvedValue({ok: true, message: ''}),
 	};
 });
+
+const toastError = vi.fn();
+
+vi.mock('@/lib/toast', () => ({
+	toast: {
+		error: (...args: unknown[]) => toastError(...args),
+		success: vi.fn(),
+		info: vi.fn(),
+		warn: vi.fn(),
+		dismiss: vi.fn(),
+	},
+}));
 
 function makeGoal(
 	over: Partial<SessionGoalState['goal']> = {},
@@ -314,6 +328,117 @@ describe('SessionGoalDock CAS 纪律', () => {
 			'confirm_complete',
 			{revision: 9},
 		);
+	});
+});
+
+describe('动词失败的三种说法（写请求发了不等于改成了）', () => {
+	it('暂停失败 → 报出后端原话，目标仍是进行中，且不停自动续跑', async () => {
+		const user = userEvent.setup();
+		seed({
+			goal: makeGoal().goal,
+			driver: {activation: 'armed', pending: false, active_round: null},
+		});
+		patchGoalAction.mockResolvedValue({
+			ok: false,
+			conflict: null,
+			message: 'goal_action_not_allowed',
+		});
+		render(<SessionGoalDock embedded />);
+		await user.click(screen.getByRole('button', {name: /暂停/}));
+		await waitFor(() => expect(toastError).toHaveBeenCalled());
+		expect(toastError.mock.calls[0][0]).toContain('目标操作未生效');
+		expect(toastError.mock.calls[0][0]).toContain('goal_action_not_allowed');
+		expect(roundDriverAction).not.toHaveBeenCalled();
+		expect(useChatStore.getState().sessionGoalById?.s1?.goal.status).toBe(
+			'active',
+		);
+		expect(screen.getByText('进行中的目标')).toBeInTheDocument();
+	});
+
+	it('恢复失败 → 不 arm（不能让自动续跑接着暂停的目标跑轮）', async () => {
+		const user = userEvent.setup();
+		seed(makeGoal({status: 'paused'}));
+		patchGoalAction.mockResolvedValue({
+			ok: false,
+			conflict: null,
+			message: 'session_not_found',
+		});
+		render(<SessionGoalDock embedded />);
+		await user.click(screen.getByRole('button', {name: /恢复/}));
+		await waitFor(() => expect(toastError).toHaveBeenCalled());
+		expect(toastError.mock.calls[0][0]).toContain('session_not_found');
+		expect(roundDriverAction).not.toHaveBeenCalled();
+		expect(useChatStore.getState().sessionGoalById?.s1?.goal.status).toBe(
+			'paused',
+		);
+	});
+
+	it('编辑失败 → 编辑器不关，刚输入的标题不跟着消失', async () => {
+		const user = userEvent.setup();
+		seed(makeGoal());
+		patchGoalAction.mockResolvedValue({
+			ok: false,
+			conflict: null,
+			message: 'goal_text_too_long',
+		});
+		render(<SessionGoalDock embedded />);
+		await user.click(screen.getByRole('button', {name: '编辑目标'}));
+		const textInput = await screen.findByPlaceholderText('目标内容');
+		await user.clear(textInput);
+		await user.type(textInput, '改成这个标题');
+		await user.click(screen.getByRole('button', {name: '保存'}));
+		await waitFor(() => expect(toastError).toHaveBeenCalled());
+		expect(toastError.mock.calls[0][0]).toContain('goal_text_too_long');
+		expect(screen.getByRole('button', {name: '保存'})).toBeInTheDocument();
+		expect(screen.getByPlaceholderText('目标内容')).toHaveValue(
+			'改成这个标题',
+		);
+	});
+
+	it('停止：interrupt 与 disarm 各自失败就各说一句', async () => {
+		const user = userEvent.setup();
+		const {interruptChat} = await import('@/lib/api');
+		vi.mocked(interruptChat).mockResolvedValueOnce({
+			ok: false,
+			message: 'HTTP 500',
+		});
+		seed({
+			goal: makeGoal().goal,
+			driver: {activation: 'armed', pending: false, active_round: ['g1', 2]},
+		});
+		roundDriverAction.mockResolvedValue({
+			ok: false,
+			conflict: null,
+			message: 'driver_unavailable',
+		});
+		render(<SessionGoalDock embedded />);
+		await user.click(screen.getByRole('button', {name: /停止/}));
+		await waitFor(() => expect(toastError).toHaveBeenCalledTimes(2));
+		const said = toastError.mock.calls.map(c => String(c[0])).join('\n');
+		expect(said).toContain('停止本轮未生效：HTTP 500');
+		expect(said).toContain('停止自动续跑未生效：driver_unavailable');
+	});
+
+	it('interrupt 回 not_running 不算失败（这一轮本来就没在跑）', async () => {
+		const user = userEvent.setup();
+		const {interruptChat} = await import('@/lib/api');
+		vi.mocked(interruptChat).mockResolvedValueOnce({
+			ok: false,
+			message: 'not_running',
+		});
+		seed({
+			goal: makeGoal().goal,
+			driver: {activation: 'armed', pending: false, active_round: ['g1', 2]},
+		});
+		roundDriverAction.mockResolvedValue({
+			ok: true,
+			goal: makeGoal().goal,
+			driver: {activation: 'disarmed', pending: false, active_round: null},
+		});
+		render(<SessionGoalDock embedded />);
+		await user.click(screen.getByRole('button', {name: /停止/}));
+		await waitFor(() => expect(interruptChat).toHaveBeenCalledWith('s1'));
+		expect(toastError).not.toHaveBeenCalled();
 	});
 });
 

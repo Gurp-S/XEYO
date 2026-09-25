@@ -26,6 +26,8 @@ import {
 } from 'lucide-react';
 import type {ReactNode} from 'react';
 import {interruptChat} from '@/lib/api';
+import {toast} from '@/lib/toast';
+import {isImeComposing} from '@/lib/ime';
 import {
 	fetchGoal,
 	patchGoalAction,
@@ -83,13 +85,18 @@ export function useSessionGoalLive(sessionId: string | null) {
 	}, [sessionId]);
 }
 
+/** 动词失败的统一说法：后端的原话必须带出来，否则用户只知道"按了没反应"。 */
+function verbFailureText(label: string, message: string): string {
+	return `${label}未生效：${message || '服务端拒绝，且未给出原因'}`;
+}
+
 /** PATCH 动词执行：CAS 409 → 用后端附带的当前 goal 刷新，重试一次（禁盲写）。 */
 async function runGoalVerb(
 	sessionId: string,
 	run: (revision: number) => Promise<GoalMutationResult>,
-): Promise<void> {
+): Promise<GoalMutationResult | null> {
 	const cur = useChatStore.getState().sessionGoalById?.[sessionId] ?? null;
-	if (!cur) return;
+	if (!cur) return null;
 	let res = await run(cur.goal.revision);
 	if (!res.ok && res.conflict) {
 		writeGoalState(sessionId, {goal: res.conflict, driver: cur.driver});
@@ -100,7 +107,13 @@ async function runGoalVerb(
 			sessionId,
 			res.goal ? {goal: res.goal, driver: res.driver ?? cur.driver} : null,
 		);
+	} else {
+		// 冲突重试之后还是失败：过去这里什么都不说，目标原地不动，
+		// 用户以为"继续/暂停/放弃"按下去了。后端的原话（revision 冲突、
+		// 会话不存在、动作不允许）是可操作的，必须带出来。
+		toast.error(verbFailureText('目标操作', res.message));
 	}
+	return res;
 }
 
 type Props = {
@@ -174,60 +187,61 @@ export function SessionGoalDock({embedded = false}: Props) {
 		});
 	};
 
+	/** 自动续跑开关：失败必须说话——静默失败的外表和成功一模一样。 */
+	const driverVerb = async (action: 'arm' | 'disarm'): Promise<boolean> => {
+		const res = await roundDriverAction(activeId, action);
+		if (!res.ok) {
+			toast.error(
+				verbFailureText(
+					action === 'arm' ? '开启自动续跑' : '停止自动续跑',
+					res.message,
+				),
+			);
+			return false;
+		}
+		writeGoalState(
+			activeId,
+			res.goal ? {goal: res.goal, driver: res.driver} : null,
+		);
+		return true;
+	};
 	const arm = () =>
 		act(async () => {
-			const res = await roundDriverAction(activeId, 'arm');
-			if (res.ok) {
-				writeGoalState(
-					activeId,
-					res.goal ? {goal: res.goal, driver: res.driver} : null,
-				);
-			}
+			await driverVerb('arm');
 		});
-	const doDisarm = async () => {
-		const res = await roundDriverAction(activeId, 'disarm');
-		if (res.ok) {
-			writeGoalState(
-				activeId,
-				res.goal ? {goal: res.goal, driver: res.driver} : null,
-			);
-		}
-	};
+	const doDisarm = (): Promise<boolean> => driverVerb('disarm');
 	/** 停止：轮中 = 现有 Stop（interrupt）→ settlement 自动 disarm；预约期 = 仅 disarm。 */
 	const stop = () =>
 		act(async () => {
 			if (inRound) {
-				try {
-					await interruptChat(activeId);
-				} catch {
-					/* interrupt 失败不阻断 disarm */
+				const res = await interruptChat(activeId);
+				// not_running = 这一轮本来就没在跑，不是失败；其余原话要说出来。
+				if (!res.ok && res.message !== 'not_running') {
+					toast.error(verbFailureText('停止本轮', res.message));
 				}
 			}
 			await doDisarm();
 		});
 	const pauseGoal = () =>
 		act(async () => {
-			await runGoalVerb(activeId, rev =>
+			const res = await runGoalVerb(activeId, rev =>
 				patchGoalAction(activeId, 'pause', {revision: rev}),
 			);
-			// 暂停后停掉自动续跑（paused 不续跑）。
-			if (armed) {
+			// 暂停没落地就不停自动续跑：条带仍显示"进行中"、行为却已经停了，
+			// 两处不一致比一次失败更难查。
+			if (armed && res?.ok) {
 				await doDisarm();
 			}
 		});
 	const resumeGoal = () =>
 		act(async () => {
-			await runGoalVerb(activeId, rev =>
+			const res = await runGoalVerb(activeId, rev =>
 				patchGoalAction(activeId, 'resume', {revision: rev}),
 			);
-			// 恢复即重新 armed（resume re-arms）。
-			const res = await roundDriverAction(activeId, 'arm');
-			if (res.ok) {
-				writeGoalState(
-					activeId,
-					res.goal ? {goal: res.goal, driver: res.driver} : null,
-				);
-			}
+			// 恢复成功后才重新 armed（resume re-arms）。目标仍是 paused 时 arm，
+			// 等于让自动续跑接着一个暂停的目标往下跑轮。
+			if (!res?.ok) return;
+			await driverVerb('arm');
 		});
 	const reopen = () =>
 		act(() =>
@@ -258,7 +272,7 @@ export function SessionGoalDock({embedded = false}: Props) {
 	const saveEdit = () =>
 		act(async () => {
 			const text = editTitle.trim() || goal.text.trim();
-			await runGoalVerb(activeId, rev =>
+			const res = await runGoalVerb(activeId, rev =>
 				patchGoalAction(activeId, 'edit', {
 					revision: rev,
 					text,
@@ -267,14 +281,19 @@ export function SessionGoalDock({embedded = false}: Props) {
 						: undefined,
 				}),
 			);
-			setEditing(false);
+			// 只在真的改成了才收编辑器：否则用户刚输入的标题会跟着一起消失。
+			if (res?.ok) {
+				setEditing(false);
+			}
 		});
 	const dropGoal = () =>
 		act(async () => {
-			await runGoalVerb(activeId, rev =>
+			const res = await runGoalVerb(activeId, rev =>
 				patchGoalAction(activeId, 'drop', {revision: rev}),
 			);
-			setConfirmDrop(false);
+			if (res?.ok) {
+				setConfirmDrop(false);
+			}
 		});
 
 	const pillBtn =
@@ -415,6 +434,7 @@ export function SessionGoalDock({embedded = false}: Props) {
 						placeholder="目标内容"
 						autoFocus
 						onKeyDown={e => {
+							if (isImeComposing(e.nativeEvent)) return;
 							if (e.key === 'Enter') void saveEdit();
 							if (e.key === 'Escape') setEditing(false);
 						}}
