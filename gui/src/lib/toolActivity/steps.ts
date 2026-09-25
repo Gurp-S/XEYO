@@ -155,6 +155,11 @@ export function toolToStep(tool: ToolView): ActivityStep {
 			verb = running ? 'Calling' : 'Called';
 			detail = file || pattern || command || tool.name;
 	}
+	// 错误结果在所有工具类别使用同一动词。此前只有写入/编辑/Agent 会
+	// 显示 Failed，读取、搜索、检查与命令运行虽然标红，却仍写成成功时态。
+	if (err) {
+		verb = 'Failed';
+	}
 
 	const estimated =
 		cat === 'edit' || cat === 'write'

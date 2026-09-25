@@ -77,7 +77,11 @@ function SectionIcon({entry}: {entry: WorkspaceEntry}) {
 /* 可展开容器：grid-rows 高度过渡（与左侧侧边栏完全一致，动画随设置 smoothness 开/关） */
 function TreeChildren({open, children}: {open: boolean; children: ReactNode}) {
 	return (
-		<div className={cn('xy-sidebar-tree grid', open ? 'is-open' : 'is-closed')} aria-hidden={!open}>
+		<div
+			className={cn('xy-sidebar-tree grid', open ? 'is-open' : 'is-closed')}
+			aria-hidden={!open}
+			inert={!open}
+		>
 			<ul className="min-h-0 overflow-hidden">{children}</ul>
 		</div>
 	);
