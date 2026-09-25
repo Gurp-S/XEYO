@@ -819,7 +819,7 @@ export async function listWorkspaceEntries(
 		}
 		throw new Error(formatErrorDetail(payload, res.status));
 	}
-	return (await res.json()) as WorkspaceListing;
+	return parseWorkspaceListing(await res.json());
 }
 
 export type WorkspaceGraphFile = {
@@ -876,6 +876,62 @@ export type WorkspaceSearchResult = {
 	truncated: boolean;
 };
 
+/**
+ * 工作区读写的 200 回执必须校验形状：这些接口的失败过去只在 HTTP 层拦，
+ * 200 但缺字段会原样进 store，界面于是写出假事实 ——
+ * `kind=text` 而 `text` 不在体里 = 编辑器显示空文件，用户一按保存就覆盖真内容；
+ * `entries` 不在体里 = 文件树显示"这个目录是空的"。
+ * 抛错走的是各 store 已有的 catch 分支（保留旧值 + 显示错误），不改任何签名。
+ */
+function requirePayloadObject(payload: unknown, what: string): Record<string, unknown> {
+	if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+		throw new Error(`${what}：回执不是对象，读不出结果`);
+	}
+	return payload as Record<string, unknown>;
+}
+
+export function parseWorkspaceFile(payload: unknown, what = '读取文件'): WorkspaceFile {
+	const o = requirePayloadObject(payload, what);
+	if (typeof o.path !== 'string' || typeof o.name !== 'string' || typeof o.size !== 'number') {
+		throw new Error(`${what}：回执缺 path / name / size`);
+	}
+	const kind = o.kind;
+	if (kind !== 'text' && kind !== 'image' && kind !== 'binary') {
+		throw new Error(`${what}：回执缺 kind（不是可判定的文件类型）`);
+	}
+	if (kind === 'text' && typeof o.text !== 'string') {
+		throw new Error(`${what}：kind=text 但正文不在回执里 —— 这不代表文件是空的`);
+	}
+	if (kind === 'image' && typeof o.data_url !== 'string') {
+		throw new Error(`${what}：kind=image 但 data_url 不在回执里`);
+	}
+	return o as WorkspaceFile;
+}
+
+export function parseWorkspaceFileStat(payload: unknown): WorkspaceFileStat {
+	const o = requirePayloadObject(payload, '读取文件信息');
+	if (typeof o.path !== 'string' || typeof o.size !== 'number' || typeof o.mtime !== 'number') {
+		throw new Error('读取文件信息：回执缺 path / size / mtime');
+	}
+	return o as WorkspaceFileStat;
+}
+
+export function parseWorkspaceListing(payload: unknown, what = '读取目录'): WorkspaceListing {
+	const o = requirePayloadObject(payload, what);
+	if (!Array.isArray(o.entries)) {
+		throw new Error(`${what}：回执缺 entries —— 读不出不等于目录为空`);
+	}
+	return o as WorkspaceListing;
+}
+
+export function parseWorkspaceSearch(payload: unknown): WorkspaceSearchResult {
+	const o = requirePayloadObject(payload, '搜索工作区');
+	if (!Array.isArray(o.hits)) {
+		throw new Error('搜索工作区：回执缺 hits —— 读不出不等于没有命中');
+	}
+	return o as WorkspaceSearchResult;
+}
+
 export async function searchWorkspace(q: string, workspace?: string): Promise<WorkspaceSearchResult> {
 	const params = new URLSearchParams({q, ...(workspace ? {workspace} : {})});
 	const res = await fetchWithTimeout(
@@ -891,7 +947,7 @@ export async function searchWorkspace(q: string, workspace?: string): Promise<Wo
 		}
 		throw new Error(formatErrorDetail(payload, res.status));
 	}
-	return (await res.json()) as WorkspaceSearchResult;
+	return parseWorkspaceSearch(await res.json());
 }
 
 export async function readWorkspaceFile(path: string, workspace?: string): Promise<WorkspaceFile> {
@@ -906,7 +962,7 @@ export async function readWorkspaceFile(path: string, workspace?: string): Promi
 		}
 		throw new Error(formatErrorDetail(payload, res.status));
 	}
-	return (await res.json()) as WorkspaceFile;
+	return parseWorkspaceFile(await res.json());
 }
 
 export async function statWorkspaceFile(path: string, workspace?: string): Promise<WorkspaceFileStat> {
@@ -923,7 +979,7 @@ export async function statWorkspaceFile(path: string, workspace?: string): Promi
 		}
 		throw new Error(formatErrorDetail(payload, res.status));
 	}
-	return (await res.json()) as WorkspaceFileStat;
+	return parseWorkspaceFileStat(await res.json());
 }
 
 export async function writeWorkspaceFile(
@@ -945,7 +1001,7 @@ export async function writeWorkspaceFile(
 		}
 		throw new Error(formatErrorDetail(payload, res.status));
 	}
-	return (await res.json()) as WorkspaceFile;
+	return parseWorkspaceFile(await res.json(), '保存文件');
 }
 
 export type GitStatusEntry = {

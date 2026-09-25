@@ -31,7 +31,11 @@ const WRITE_STATUS_ONLY = /^\s*return res\.ok;$/gm;
 
 /** 存量基线：文件 → 裸转型处数。修一处就调小一处。 */
 const BASELINE: Record<string, number> = {
-	'api.ts': 15,
+	// 工作区读写那 5 处（listing / search / read / stat / write 回显）已换成
+	// parseWorkspace*（200 但形状不对就抛，走各 store 已有的 catch 分支），
+	// 钉在 api/workspaceReceipt.test.ts。剩 10 处按 lane 分组：
+	// inbox 2、sessionTask 1、workspaceGraph 1、git 4、terminal 1、rewindGc 1。
+	'api.ts': 10,
 	'api/localModels.ts': 1,
 	'api/memory.ts': 1,
 	'api/usage.ts': 2,
@@ -136,6 +140,7 @@ describe('HTTP 回执裸转型棘轮', () => {
 
 	it('基线总量与逐文件之和一致（防漏记）', () => {
 		const sum = Object.values(BASELINE).reduce((a, b) => a + b, 0);
-		expect(sum).toBe(19);
+		// 19 → 14：工作区读写 5 处换成 parseWorkspace*（api/workspaceReceipt.test.ts）。
+		expect(sum).toBe(14);
 	});
 });
