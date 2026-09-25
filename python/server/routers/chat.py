@@ -183,7 +183,7 @@ def _workspace_for(session_id: str, body: ChatCompletionRequest) -> str | None:
 	return _pool.resolve_workspace(body.workspace) or None
 
 
-def _busy_or_queue(
+async def _busy_or_queue(
 	session_id: str,
 	body: "ChatCompletionRequest",
 	user_text: str,
@@ -230,6 +230,7 @@ def _busy_or_queue(
 		# 引导入队失败（队列满 / 内部异常）→ 回落既有 settle 排队语义
 	if body.queue_if_busy and not body.side:
 		from server.inbox_registry import (
+			InboxPersistenceError,
 			InboxQueueFull,
 			InboxTextTooLong,
 			get_inbox_registry,
@@ -237,7 +238,8 @@ def _busy_or_queue(
 
 		reg = get_inbox_registry()
 		try:
-			item = reg.enqueue(
+			item = await asyncio.to_thread(
+				reg.enqueue,
 				session_id,
 				user_text,
 				media_refs=media_refs,
@@ -248,6 +250,8 @@ def _busy_or_queue(
 		except InboxTextTooLong as e:
 			# 2026-09-05 修正：超长不再静默截断，明确 413（用户可拆分重发）。
 			raise api_error(413, str(e), "inbox_text_too_long") from e
+		except InboxPersistenceError as e:
+			raise api_error(503, "inbox state could not be saved", "inbox_unavailable") from e
 		position = len(reg.snapshot(session_id)["items"])
 		# 2026-09-05 e2e 抓修：Starlette JSONResponse 第一个位置参数是 content，
 		# 旧写法 JSONResponse(202, {...}) 把 202 当 content、payload 当 status_code
@@ -827,7 +831,7 @@ async def chat_completions(
 	from engine.turn_runner import get_turn_runner
 
 	if get_turn_runner().is_running(session_id):
-		return _busy_or_queue(
+		return await _busy_or_queue(
 			session_id, body, user_text,
 			media_refs=media_refs,
 			message_id=user_message_id,
@@ -835,7 +839,7 @@ async def chat_completions(
 
 	lease_id = _pool.try_begin(session_id)
 	if lease_id is None:
-		return _busy_or_queue(
+		return await _busy_or_queue(
 			session_id, body, user_text,
 			media_refs=media_refs,
 			message_id=user_message_id,

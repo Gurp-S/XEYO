@@ -290,6 +290,11 @@ def delete_session(session_id: str) -> dict[str, Any]:
 			"会话尚未归档：请先归档，再从已归档列表中删除",
 			"archived_required",
 		)
+	from server.inbox_registry import InboxPersistenceError, get_inbox_registry
+	try:
+		get_inbox_registry().drop_session(sid)
+	except InboxPersistenceError as exc:
+		raise api_error(503, "inbox state could not be removed", "inbox_unavailable") from exc
 	dropped = _pool.drop(sid)
 	removed: list[str] = []
 	removal_errors: list[dict[str, str]] = []
@@ -1736,12 +1741,18 @@ def session_recovery_abandon(session_id: str) -> dict[str, Any]:
 # P1 mid-turn inbox：排队快照 / 取消 / resume（GUI 轮询 + 操作）。
 # ---------------------------------------------------------------------------
 @router.get("/v1/sessions/{session_id}/inbox")
-def session_inbox_list(session_id: str) -> dict[str, Any]:
+async def session_inbox_list(session_id: str) -> dict[str, Any]:
 	"""主会话 inbox 快照（GUI 轮询驱动 chip，多端可见）。"""
-	from server.inbox_registry import get_inbox_registry
+	import asyncio
+	from server.inbox_registry import InboxPersistenceError, get_inbox_registry
 
 	sid = require_session_id(session_id)
-	return get_inbox_registry().snapshot(sid)
+	registry = get_inbox_registry()
+	try:
+		await asyncio.to_thread(registry.prepare_snapshot, sid)
+		return registry.snapshot(sid)
+	except InboxPersistenceError as exc:
+		raise api_error(503, "inbox state could not be loaded", "inbox_unavailable") from exc
 
 
 class InboxEditRequest(BaseModel):
@@ -1755,21 +1766,27 @@ class InboxAckRequest(BaseModel):
 @router.post("/v1/sessions/{session_id}/inbox/ack")
 def session_inbox_ack(session_id: str, body: InboxAckRequest) -> dict[str, Any]:
 	"""确认 GUI 已把投递完成的消息与服务端 transcript 同步。"""
-	from server.inbox_registry import get_inbox_registry
+	from server.inbox_registry import InboxPersistenceError, get_inbox_registry
 
 	sid = require_session_id(session_id)
-	removed = get_inbox_registry().acknowledge_delivered(sid, body.queue_ids)
+	try:
+		removed = get_inbox_registry().acknowledge_delivered(sid, body.queue_ids)
+	except InboxPersistenceError as exc:
+		raise api_error(503, "inbox state could not be acknowledged", "inbox_unavailable") from exc
 	return {"ok": True, "acknowledged": removed}
 
 
 @router.delete("/v1/sessions/{session_id}/inbox/{queue_id}")
 def session_inbox_remove(session_id: str, queue_id: str) -> dict[str, Any]:
 	"""取消单条排队消息。delivering / delivered 态返回 409。"""
-	from server.inbox_registry import get_inbox_registry
+	from server.inbox_registry import InboxPersistenceError, get_inbox_registry
 
 	sid = require_session_id(session_id)
 	qid = _require_stable_id(queue_id, field="queue_id")
-	ok = get_inbox_registry().remove(sid, qid)
+	try:
+		ok = get_inbox_registry().remove(sid, qid)
+	except InboxPersistenceError as exc:
+		raise api_error(503, "inbox state could not be updated", "inbox_unavailable") from exc
 	if not ok:
 		raise api_error(409, "inbox item not found or already delivering", "inbox_delivering")
 	return {"ok": True, "session_id": sid, "queue_id": qid}
@@ -1783,12 +1800,14 @@ def session_inbox_edit(
 
 	delivering / 不存在 → 409；超长 → 413；编辑不改变队列位置与 queue_id。
 	"""
-	from server.inbox_registry import InboxTextTooLong, get_inbox_registry
+	from server.inbox_registry import InboxPersistenceError, InboxTextTooLong, get_inbox_registry
 
 	sid = require_session_id(session_id)
 	qid = _require_stable_id(queue_id, field="queue_id")
 	try:
 		item = get_inbox_registry().edit(sid, qid, body.text)
+	except InboxPersistenceError as exc:
+		raise api_error(503, "inbox state could not be updated", "inbox_unavailable") from exc
 	except InboxTextTooLong as e:
 		raise api_error(413, str(e), "inbox_text_too_long") from e
 	if item is None:
@@ -1803,22 +1822,28 @@ async def session_inbox_resume(session_id: str) -> dict[str, Any]:
 	2026-09-05 修正：改 async def——``resume`` 内部 ``_maybe_schedule`` 需要运行
 	中的事件循环；sync def（线程池）下拿不到 loop 会静默放弃，「立即排水」从不生效。
 	"""
-	from server.inbox_registry import get_inbox_registry
+	from server.inbox_registry import InboxPersistenceError, get_inbox_registry
 
 	sid = require_session_id(session_id)
-	return get_inbox_registry().resume(sid)
+	try:
+		return get_inbox_registry().resume(sid)
+	except InboxPersistenceError as exc:
+		raise api_error(503, "inbox state could not be updated", "inbox_unavailable") from exc
 
 
 @router.post("/v1/sessions/{session_id}/inbox/{queue_id}/resume")
 async def session_inbox_item_resume(session_id: str, queue_id: str) -> dict[str, Any]:
 	"""重试单条 stuck 消息；其它排队项目保持原状态。"""
-	from server.inbox_registry import get_inbox_registry
+	from server.inbox_registry import InboxPersistenceError, get_inbox_registry
 
 	sid = (session_id or "").strip()
 	qid = (queue_id or "").strip()
 	if not sid or not qid:
 		raise api_error(400, "session_id and queue_id are required")
-	snapshot = get_inbox_registry().resume(sid, qid)
+	try:
+		snapshot = get_inbox_registry().resume(sid, qid)
+	except InboxPersistenceError as exc:
+		raise api_error(503, "inbox state could not be updated", "inbox_unavailable") from exc
 	if snapshot is None:
 		raise api_error(409, "inbox item not found or no longer stuck", "inbox_not_stuck")
 	return {"ok": True, **snapshot}

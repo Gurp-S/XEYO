@@ -12,11 +12,18 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from engine import t_now_inbox, t_now_steer  # noqa: E402
 from server.inbox_registry import InboxRegistry  # noqa: E402
 from session.message_store import MessageStore  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def isolate_persistence(tmp_path, monkeypatch):
+	monkeypatch.setenv("XEYO_SESSIONS_DIR", str(tmp_path / "sessions"))
 
 
 def _fresh_registry() -> InboxRegistry:

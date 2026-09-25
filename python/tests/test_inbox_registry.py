@@ -16,7 +16,8 @@ from server.inbox_registry import (
 
 
 @pytest.fixture
-def reg():
+def reg(tmp_path, monkeypatch):
+    monkeypatch.setenv("XEYO_SESSIONS_DIR", str(tmp_path / "sessions"))
     # 每测新 singleton：清内存态（registry 由 hub/其它测试共享，必须隔离）。
     from server import inbox_registry
 
@@ -140,6 +141,18 @@ def test_drain_batch_reject_requeues_and_stuck(reg):
     assert len(snap["items"]) == 1
     assert snap["items"][0]["state"] == "stuck"
     assert snap["items"][0]["attempts"] == 3
+
+
+def test_drain_rejection_does_not_retry_in_a_tight_loop(reg, monkeypatch):
+    monkeypatch.setenv("XEYO_INBOX_AUTORUN", "1")
+    reg.enqueue("s1", "single attempt")
+    fake, calls = _recorder(ok=False)
+    reg._submit = fake
+
+    asyncio.run(reg._drain("s1"))
+
+    assert len(calls) == 1
+    assert reg.snapshot("s1")["items"][0]["attempts"] == 1
 
 
 def test_drain_one_per_item_stays_visible_until_turn_settles(reg, monkeypatch):

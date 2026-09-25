@@ -27,12 +27,14 @@ mid-turn inbox 语义：
 ``_precheck`` 见 ``_turn_running`` 为真自动跳过，实现「用户消息优先于 goal 自动续跑」且不改
 goal driver）。teardown 调 ``shutdown()``。
 
-全路径 try/except 降级：本模块任何异常只记日志，绝不影响 turn 与人类请求（照 hub 现有租户惯例）。
+队列状态原子写入会话数据目录旁的私有 sidecar；人类入队只有在状态写盘成功后才返回 202。
+settlement bookkeeping 失败仍不会阻断 turn，重启时可用 transcript message id 恢复投递状态。
 """
 
 from __future__ import annotations
 
 import asyncio
+import copy
 import logging
 import os
 import threading
@@ -40,6 +42,13 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
+from server.inbox_persistence import (
+	InboxStateReadError,
+	delete_inbox_state,
+	load_inbox_state,
+	save_inbox_state,
+	transcript_message_ids,
+)
 
 _logger = logging.getLogger("xeyo.inbox")
 
@@ -76,7 +85,7 @@ def _max_attempts() -> int:
 
 @dataclass
 class InboxItem:
-	"""一条排队中的用户消息（仅内存；服务重启即丢，与 ``_pending_interrupt`` 同口径）。"""
+	"""一条排队中的用户消息及其可恢复投递状态。"""
 
 	queue_id: str
 	text: str
@@ -120,6 +129,8 @@ class InboxRegistry:
 		# items remain visible until the GUI confirms its transcript backfill.
 		self._inflight: dict[str, dict[str, InboxItem]] = {}
 		self._completed: dict[str, dict[str, InboxItem]] = {}
+		self._loaded_sessions: set[str] = set()
+		self._reconcile_pending: set[str] = set()
 		self._next_sequence = 0
 		# 在途排水任务（per-session），防重复 spawn。
 		self._drain_tasks: dict[str, asyncio.Task] = {}
@@ -136,6 +147,143 @@ class InboxRegistry:
 		from server.synthetic_round import submit_synthetic
 
 		return submit_synthetic
+
+	@staticmethod
+	def _stored_item(item: InboxItem) -> dict[str, Any]:
+		return {
+			"queue_id": item.queue_id,
+			"text": item.text,
+			"media_refs": list(item.media_refs),
+			"message_id": item.message_id,
+			"queued_at": item.queued_at,
+			"attempts": item.attempts,
+			"state": item.state,
+			"sequence": item.sequence,
+			"delivery_id": item.delivery_id,
+		}
+
+	def _persist_session_locked(self, session_id: str) -> bool:
+		items = [
+			*self._queues.get(session_id, []),
+			*self._inflight.get(session_id, {}).values(),
+			*self._completed.get(session_id, {}).values(),
+		]
+		items.sort(key=lambda item: item.sequence)
+		return save_inbox_state(session_id, [self._stored_item(item) for item in items])
+
+	def _capture_session_locked(self, session_id: str) -> tuple[Any, Any, Any]:
+		return (
+			copy.deepcopy(self._queues.get(session_id)),
+			copy.deepcopy(self._inflight.get(session_id)),
+			copy.deepcopy(self._completed.get(session_id)),
+		)
+
+	def _restore_session_locked(
+		self, session_id: str, snapshot: tuple[Any, Any, Any]
+	) -> None:
+		queue, inflight, completed = snapshot
+		for target, value in (
+			(self._queues, queue),
+			(self._inflight, inflight),
+			(self._completed, completed),
+		):
+			if value is None:
+				target.pop(session_id, None)
+			else:
+				target[session_id] = value
+
+	def _persist_or_restore_locked(
+		self, session_id: str, snapshot: tuple[Any, Any, Any]
+	) -> None:
+		if not self._persist_session_locked(session_id):
+			self._restore_session_locked(session_id, snapshot)
+			raise InboxPersistenceError(session_id)
+
+	def _ensure_loaded_locked(self, session_id: str) -> None:
+		if session_id in self._reconcile_pending:
+			if not self._persist_session_locked(session_id):
+				raise InboxPersistenceError(session_id)
+			self._reconcile_pending.discard(session_id)
+		if session_id in self._loaded_sessions:
+			return
+		try:
+			stored = load_inbox_state(session_id)
+		except InboxStateReadError as exc:
+			raise InboxPersistenceError(session_id) from exc
+		if not stored:
+			self._loaded_sessions.add(session_id)
+			return
+		needs_reconcile = any(item.get("state") == "delivering" for item in stored)
+		delivery_targets = {
+			str(item["delivery_id"])
+			for item in stored
+			if item.get("state") == "delivering" and item.get("delivery_id")
+		}
+		transcript_ids = (
+			transcript_message_ids(session_id, delivery_targets)
+			if delivery_targets
+			else set()
+		)
+		queue: list[InboxItem] = []
+		completed: dict[str, InboxItem] = {}
+		seen: set[str] = set()
+		for raw in stored:
+			queue_id = str(raw.get("queue_id") or "").strip()
+			text = str(raw.get("text") or "").strip()
+			if not queue_id or not text or queue_id in seen:
+				continue
+			state = str(raw.get("state") or "queued")
+			if state not in {"queued", "stuck", "delivering", "delivered"}:
+				state = "queued"
+			try:
+				sequence = max(0, int(raw.get("sequence") or 0))
+				attempts = max(0, int(raw.get("attempts") or 0))
+				queued_at = max(0.0, float(raw.get("queued_at") or time.time()))
+			except (TypeError, ValueError):
+				sequence, attempts, queued_at = 0, 0, time.time()
+			item = InboxItem(
+				queue_id=queue_id,
+				text=text,
+				media_refs=[
+					str(ref)
+					for ref in (
+						raw.get("media_refs")
+						if isinstance(raw.get("media_refs"), list)
+						else []
+					)
+					if ref
+				],
+				message_id=(str(raw["message_id"]) if raw.get("message_id") else None),
+				queued_at=queued_at,
+				attempts=attempts,
+				state=state,
+				sequence=sequence,
+				delivery_id=(str(raw["delivery_id"]) if raw.get("delivery_id") else None),
+			)
+			seen.add(queue_id)
+			self._next_sequence = max(self._next_sequence, sequence)
+			if state == "delivering":
+				if item.delivery_id and item.delivery_id in transcript_ids:
+					item.state = "delivered"
+					completed[queue_id] = item
+				else:
+					# No persisted transcript row means the accepted turn never committed.
+					item.state = "queued"
+					item.delivery_id = None
+					queue.append(item)
+			elif state == "delivered":
+				completed[queue_id] = item
+			else:
+				queue.append(item)
+		if queue:
+			self._queues[session_id] = sorted(queue, key=lambda item: item.sequence)
+		if completed:
+			self._completed[session_id] = completed
+		self._loaded_sessions.add(session_id)
+		if needs_reconcile:
+			if not self._persist_session_locked(session_id):
+				self._reconcile_pending.add(session_id)
+				raise InboxPersistenceError(session_id)
 
 	def _session_idle(self, session_id: str) -> bool:
 		"""会话空闲（无 busy 租约 + 无活 turn）才可排水。"""
@@ -181,40 +329,66 @@ class InboxRegistry:
 			queue_id=queue_id,
 			text=t,
 			media_refs=list(media_refs or []),
-			message_id=message_id,
+			message_id=message_id or uuid.uuid4().hex,
 		)
 		with self._lock:
+			self._ensure_loaded_locked(sid)
 			self._next_sequence += 1
 			item.sequence = self._next_sequence
 			q = self._queues.setdefault(sid, [])
 			if len(q) >= _max_queued():
 				raise InboxQueueFull(sid, _max_queued())
 			q.append(item)
+			try:
+				if not self._persist_session_locked(sid):
+					q.pop()
+					if not q:
+						self._queues.pop(sid, None)
+					raise InboxPersistenceError(sid)
+			except Exception:
+				if item in self._queues.get(sid, []):
+					self._queues[sid].remove(item)
+					if not self._queues[sid]:
+						self._queues.pop(sid, None)
+				raise
 		_logger.debug("inbox enqueue session=%s qid=%s pending=%s", sid, queue_id, len(q))
 		return item
 
 	def snapshot(self, session_id: str) -> dict[str, Any]:
 		sid = (session_id or "").strip()
 		with self._lock:
+			self._ensure_loaded_locked(sid)
 			q = list(self._queues.get(sid, []))
 			inflight = list(self._inflight.get(sid, {}).values())
 			completed = list(self._completed.get(sid, {}).values())
 		items = sorted((*q, *inflight, *completed), key=lambda item: item.sequence)
+		if _autorun() and any(item.state == "queued" for item in q):
+			self._maybe_schedule(sid)
 		return {
 			"autorun": _autorun(),
 			"coalesce": _coalesce(),
 			"items": [it.to_dict(position=i + 1) for i, it in enumerate(items)],
 		}
 
+	def prepare_snapshot(self, session_id: str) -> None:
+		"""Load/reconcile disk state separately from an async HTTP event loop."""
+		with self._lock:
+			self._ensure_loaded_locked((session_id or "").strip())
+
 	def peek(self, session_id: str) -> InboxItem | None:
 		with self._lock:
+			self._ensure_loaded_locked(session_id)
 			q = self._queues.get(session_id)
 			return q[0] if q else None
 
 	def pop_all(self, session_id: str) -> list[InboxItem]:
 		"""原子取空该会话队列（仅批投模式使用）。"""
 		with self._lock:
-			return self._queues.pop(session_id, [])
+			self._ensure_loaded_locked(session_id)
+			before = self._capture_session_locked(session_id)
+			items = self._queues.pop(session_id, [])
+			self._persist_or_restore_locked(session_id, before)
+			return items
 
 	def pop_active(self, session_id: str) -> list[InboxItem]:
 		"""取走全部**非 stuck** 项并标记 delivering（批投模式；stuck 项留在队内）。
@@ -223,9 +397,11 @@ class InboxRegistry:
 		批投模式下失效（毒丸项每次 settle 都被重试，永久性失败会堵死整批）。
 		"""
 		with self._lock:
+			self._ensure_loaded_locked(session_id)
 			q = self._queues.get(session_id)
 			if not q:
 				return []
+			before = self._capture_session_locked(session_id)
 			active = [it for it in q if it.state == "queued"]
 			stuck = [it for it in q if it.state != "queued"]
 			if not active:
@@ -235,9 +411,13 @@ class InboxRegistry:
 			else:
 				self._queues.pop(session_id, None)
 			inflight = self._inflight.setdefault(session_id, {})
+			delivery_id = next((it.message_id for it in active if it.message_id), None)
+			delivery_id = delivery_id or uuid.uuid4().hex
 			for it in active:
 				it.state = "delivering"
+				it.delivery_id = delivery_id
 				inflight[it.queue_id] = it
+			self._persist_or_restore_locked(session_id, before)
 			return active
 
 	def consume_for_boundary(self, session_id: str) -> list[InboxItem]:
@@ -251,12 +431,14 @@ class InboxRegistry:
 		if not sid:
 			return []
 		with self._lock:
+			self._ensure_loaded_locked(sid)
 			q = self._queues.get(sid)
 			if not q:
 				return []
 			active = [it for it in q if it.state == "queued"]
 			if not active:
 				return []
+			before = self._capture_session_locked(sid)
 			stuck = [it for it in q if it.state != "queued"]
 			if stuck:
 				self._queues[sid] = stuck
@@ -265,7 +447,10 @@ class InboxRegistry:
 			inflight = self._inflight.setdefault(sid, {})
 			for it in active:
 				it.state = "delivering"
+				it.message_id = it.message_id or uuid.uuid4().hex
+				it.delivery_id = it.message_id
 				inflight[it.queue_id] = it
+			self._persist_or_restore_locked(sid, before)
 			return active
 
 	def restore_front(self, session_id: str, items: list[InboxItem]) -> None:
@@ -274,6 +459,7 @@ class InboxRegistry:
 		if not sid or not items:
 			return
 		with self._lock:
+			self._ensure_loaded_locked(sid)
 			inflight = self._inflight.get(sid)
 			if inflight:
 				for it in items:
@@ -284,6 +470,10 @@ class InboxRegistry:
 			for it in reversed(items):
 				it.state = "queued"
 				q.insert(0, it)
+			if not self._persist_session_locked(sid):
+				# Preserve a live retry path. The durable snapshot still says
+				# delivering and startup reconciliation will recover it by id.
+				_logger.warning("inbox restore persistence failed sid=%s", sid)
 
 	def _pop_first_active(self, session_id: str) -> InboxItem | None:
 		"""取走首条**非 stuck** 项并标记 delivering（逐条模式）。
@@ -291,33 +481,42 @@ class InboxRegistry:
 		2026-09-05 修正：旧 ``peek`` 不跳 stuck，stuck 项卡队首会阻塞其后所有消息。
 		"""
 		with self._lock:
+			self._ensure_loaded_locked(session_id)
 			q = self._queues.get(session_id)
 			if not q:
 				return None
 			for i, it in enumerate(q):
 				if it.state == "queued":
+					before = self._capture_session_locked(session_id)
 					del q[i]
 					if not q:
 						self._queues.pop(session_id, None)
 					it.state = "delivering"
+					it.delivery_id = it.message_id or uuid.uuid4().hex
+					it.message_id = it.delivery_id
 					self._inflight.setdefault(session_id, {})[it.queue_id] = it
+					self._persist_or_restore_locked(session_id, before)
 					return it
 			return None
 
 	def pop_front(self, session_id: str) -> InboxItem | None:
 		"""取出一条（逐条模式使用）；取空则移除队列键。"""
 		with self._lock:
+			self._ensure_loaded_locked(session_id)
 			q = self._queues.get(session_id)
 			if not q:
 				return None
+			before = self._capture_session_locked(session_id)
 			it = q.pop(0)
 			if not q:
 				self._queues.pop(session_id, None)
+			self._persist_or_restore_locked(session_id, before)
 			return it
 
 	def _finish_delivering(self, session_id: str, items: list[InboxItem]) -> None:
 		"""Forget items already appended at a live T_now boundary."""
 		with self._lock:
+			self._ensure_loaded_locked(session_id)
 			inflight = self._inflight.get(session_id)
 			if not inflight:
 				return
@@ -325,6 +524,10 @@ class InboxRegistry:
 				inflight.pop(it.queue_id, None)
 			if not inflight:
 				self._inflight.pop(session_id, None)
+			if not self._persist_session_locked(session_id):
+				# The durable row still says delivering. On restart the transcript
+				# anchor reconciles it to a delivered receipt without redelivery.
+				_logger.warning("inbox boundary completion persistence failed sid=%s", session_id)
 
 	def _finish_settled_delivery(self, session_id: str, message_id: str) -> None:
 		"""Move the matching synthetic delivery to GUI transcript acknowledgement."""
@@ -332,6 +535,7 @@ class InboxRegistry:
 		if not mid:
 			return
 		with self._lock:
+			self._ensure_loaded_locked(session_id)
 			inflight = self._inflight.get(session_id)
 			if not inflight:
 				return
@@ -349,6 +553,10 @@ class InboxRegistry:
 			while len(completed) > 64:
 				oldest = min(completed.values(), key=lambda item: item.sequence)
 				completed.pop(oldest.queue_id, None)
+			if not self._persist_session_locked(session_id):
+				# Keep the in-memory receipt visible. A stale durable delivering row
+				# is recoverable from its transcript message id after restart.
+				_logger.warning("inbox settlement persistence failed sid=%s", session_id)
 
 	def acknowledge_delivered(self, session_id: str, queue_ids: list[str]) -> int:
 		"""Drop receipt rows after the GUI has loaded the server transcript."""
@@ -358,14 +566,18 @@ class InboxRegistry:
 		if not sid or not ids:
 			return 0
 		with self._lock:
+			self._ensure_loaded_locked(sid)
 			completed = self._completed.get(sid)
 			if not completed:
 				return 0
+			before = self._capture_session_locked(sid)
 			removed = sum(
 				1 for queue_id in ids if completed.pop(queue_id, None) is not None
 			)
 			if not completed:
 				self._completed.pop(sid, None)
+			if removed:
+				self._persist_or_restore_locked(sid, before)
 			return removed
 
 	def remove(self, session_id: str, queue_id: str) -> bool:
@@ -373,6 +585,7 @@ class InboxRegistry:
 		sid = (session_id or "").strip()
 		qid = (queue_id or "").strip()
 		with self._lock:
+			self._ensure_loaded_locked(sid)
 			q = self._queues.get(sid)
 			if not q:
 				return False
@@ -380,9 +593,11 @@ class InboxRegistry:
 				if it.queue_id == qid:
 					if it.state == "delivering":
 						return False
+					before = self._capture_session_locked(sid)
 					del q[i]
 					if not q:
 						self._queues.pop(sid, None)
+					self._persist_or_restore_locked(sid, before)
 					return True
 		return False
 
@@ -400,6 +615,7 @@ class InboxRegistry:
 		if len(t) > _MAX_CHARS:
 			raise InboxTextTooLong(sid, len(t), _MAX_CHARS)
 		with self._lock:
+			self._ensure_loaded_locked(sid)
 			q = self._queues.get(sid)
 			if not q:
 				return None
@@ -407,7 +623,9 @@ class InboxRegistry:
 				if it.queue_id == qid:
 					if it.state == "delivering":
 						return None
+					before = self._capture_session_locked(sid)
 					it.text = t
+					self._persist_or_restore_locked(sid, before)
 					return it
 		return None
 
@@ -419,8 +637,10 @@ class InboxRegistry:
 		qid = (queue_id or "").strip()
 		found = False
 		with self._lock:
+			self._ensure_loaded_locked(sid)
 			q = self._queues.get(sid)
 			if q:
+				before = self._capture_session_locked(sid)
 				for it in q:
 					if it.state != "stuck" or (qid and it.queue_id != qid):
 						continue
@@ -428,6 +648,8 @@ class InboxRegistry:
 					it.state = "queued"
 					# 重试不无限烧：清零 attempts，但靠下次拒绝再计数。
 					it.attempts = 0
+				if found:
+					self._persist_or_restore_locked(sid, before)
 		if qid and not found:
 			return None
 		self._maybe_schedule(sid)
@@ -437,10 +659,16 @@ class InboxRegistry:
 		"""FE 删除 session 时清队列 + 作废在途排水。"""
 		sid = (session_id or "").strip()
 		with self._lock:
+			task = self._drain_tasks.pop(sid, None)
+			if not delete_inbox_state(sid):
+				if task is not None:
+					self._drain_tasks[sid] = task
+				raise InboxPersistenceError(sid)
 			self._queues.pop(sid, None)
 			self._inflight.pop(sid, None)
 			self._completed.pop(sid, None)
-			task = self._drain_tasks.pop(sid, None)
+			self._loaded_sessions.discard(sid)
+			self._reconcile_pending.discard(sid)
 		if task is not None and not task.done():
 			task.cancel()
 
@@ -527,16 +755,18 @@ class InboxRegistry:
 
 	async def _drain(self, session_id: str) -> None:
 		"""防御：会话不空闲则等下一次 settle；否则按批投/逐条投递。"""
+		drain_succeeded = True
 		try:
 			if not self._session_idle(session_id):
 				with self._lock:
 					self._drain_tasks.pop(session_id, None)
 				return
 			if _coalesce():
-				await self._drain_batch(session_id)
+				drain_succeeded = await self._drain_batch(session_id)
 			else:
-				await self._drain_one(session_id)
+				drain_succeeded = await self._drain_one(session_id)
 		except Exception:  # noqa: BLE001
+			drain_succeeded = False
 			_logger.debug("inbox drain failed sid=%s", session_id, exc_info=True)
 		finally:
 			with self._lock:
@@ -545,29 +775,31 @@ class InboxRegistry:
 					self._drain_tasks.pop(session_id, None)
 			# 批投/逐条期间若有新消息到货（还留在队列）→ 继续排水，保 FIFO 且不丢。
 			# 只对「仍有 queued 项」续排，避免 stuck 项陷入 submit 拒绝的忙循环。
-			if (
-				_autorun()
-				and self._has_queued(session_id)
-				and self._session_idle(session_id)
-			):
-				self._maybe_schedule(session_id)
+			try:
+				if (
+					drain_succeeded
+					and _autorun()
+					and self._has_queued(session_id)
+					and self._session_idle(session_id)
+				):
+					self._maybe_schedule(session_id)
+			except Exception:  # noqa: BLE001
+				_logger.debug("inbox reschedule skipped sid=%s", session_id, exc_info=True)
 
 	def _has_queued(self, session_id: str) -> bool:
 		with self._lock:
+			self._ensure_loaded_locked(session_id)
 			q = self._queues.get(session_id)
 			return bool(q) and any(it.state == "queued" for it in q)
 
-	async def _drain_batch(self, session_id: str) -> None:
+	async def _drain_batch(self, session_id: str) -> bool:
 		"""批投：取走全部非 stuck 项合并为一个合成轮（N->1，省钱 + 减压缩计数）。"""
 		items = self.pop_active(session_id)
 		if not items:
-			return
+			return True
 		joined = "\n\n".join(it.text for it in items)
 		media_refs = [r for it in items for r in it.media_refs]
-		first_id = next((it.message_id for it in items if it.message_id), None)
-		delivery_id = first_id or uuid.uuid4().hex
-		for item in items:
-			item.delivery_id = delivery_id
+		delivery_id = items[0].delivery_id or items[0].message_id or uuid.uuid4().hex
 		try:
 			started = await self._submit_fn()(
 				session_id,
@@ -590,16 +822,16 @@ class InboxRegistry:
 				self._batches_delivered += 1
 				self._items_delivered += len(items)
 				self._tokens_est += max(1, len(joined) // 4)
-			return
+			return True
 		# 未被引擎接受（但已被 pop_active）→ 放回 + 计数（attempts）。
 		self._requeue_failed(session_id, items)
+		return False
 
-	async def _drain_one(self, session_id: str) -> None:
+	async def _drain_one(self, session_id: str) -> bool:
 		"""逐条投递：一次取一条（跳过 stuck）；成功消费，剩余下次 settle。"""
 		it = self._pop_first_active(session_id)
 		if it is None:
-			return
-		it.delivery_id = it.message_id or uuid.uuid4().hex
+			return True
 		try:
 			started = await self._submit_fn()(
 				session_id,
@@ -621,8 +853,9 @@ class InboxRegistry:
 				self._batches_delivered += 1
 				self._items_delivered += 1
 				self._tokens_est += max(1, len(it.text) // 4)
-			return
+			return True
 		self._requeue_failed(session_id, [it])
+		return False
 
 	def _requeue_failed(self, session_id: str, items: list[InboxItem]) -> None:
 		"""投递失败：把 items 放回队首（保持顺序）并递增 attempts。
@@ -641,6 +874,10 @@ class InboxRegistry:
 			for it in items:
 				it.attempts += 1
 				it.state = "stuck" if it.attempts >= _max_attempts() else "queued"
+				# Reuse the same user identity on an explicit retry. A rejected
+				# synthetic request has no transcript row, so this remains idempotent.
+				if it.delivery_id and not it.message_id:
+					it.message_id = it.delivery_id
 				it.delivery_id = None
 			q[:0] = items
 			if len(q) > _max_queued():
@@ -650,18 +887,22 @@ class InboxRegistry:
 					len(q),
 					_max_queued(),
 				)
+			if not self._persist_session_locked(session_id):
+				_logger.warning("inbox failed-delivery persistence failed sid=%s", session_id)
 		_logger.warning(
 			"inbox submit rejected sid=%s count=%s", session_id, len(items)
 		)
 
 	def shutdown(self) -> None:
-		"""app lifespan teardown：作废全部在途排水 + 清队列（仅内存）。"""
+		"""app lifespan teardown：作废在途排水并释放内存，保留磁盘队列供重启恢复。"""
 		with self._lock:
 			tasks = list(self._drain_tasks.values())
 			self._drain_tasks.clear()
 			self._queues.clear()
 			self._inflight.clear()
 			self._completed.clear()
+			self._loaded_sessions.clear()
+			self._reconcile_pending.clear()
 		for t in tasks:
 			if not t.done():
 				t.cancel()
@@ -685,6 +926,14 @@ class InboxTextTooLong(ValueError):
 		)
 
 
+class InboxPersistenceError(RuntimeError):
+	"""Durable inbox state could not be read or updated."""
+
+	def __init__(self, session_id: str) -> None:
+		self.session_id = session_id
+		super().__init__(f"inbox state unavailable for session {session_id}")
+
+
 # 模块单例（照 get_goal_round_driver 范式）。
 _registry: InboxRegistry | None = None
 
@@ -699,6 +948,7 @@ def get_inbox_registry() -> InboxRegistry:
 __all__ = [
 	"InboxItem",
 	"InboxQueueFull",
+	"InboxPersistenceError",
 	"InboxTextTooLong",
 	"get_inbox_registry",
 ]
