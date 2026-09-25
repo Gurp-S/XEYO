@@ -65,6 +65,23 @@ function resolveRemoteMirrorTarget(
 	return locked;
 }
 
+function resolveRemoteFallbackTarget(
+	state: Pick<ChatState, 'activeId' | 'sessions' | 'messagesById'>,
+): string | null {
+	// Unlocked payloads may use only loaded, visible sessions; cold history must not
+	// be overwritten by a mirror append. An already locked stream keeps its target.
+	const active = state.sessions.find(session => session.id === state.activeId);
+	if (active && !active.archived) {
+		return state.messagesById[active.id] !== undefined ? active.id : null;
+	}
+	return (
+		state.sessions.find(
+			session =>
+				!session.archived && state.messagesById[session.id] !== undefined,
+		)?.id ?? null
+	);
+}
+
 const SLICE_KEYS = ['appendRemoteMessage', 'appendLocalNote', 'syncRemoteStream', 'applyRemoteToolCall', 'applyRemoteToolResult', 'commitRemoteStream', 'finishRemoteStream'] as const;
 
 export function createRemoteMirrorSlice(
@@ -77,13 +94,9 @@ export function createRemoteMirrorSlice(
 		if (!trimmed) {
 			return;
 		}
-		let sessionId = resolveRemoteMirrorTarget(get());
-		if (!sessionId) {
-			sessionId = get().activeId;
-			if (!sessionId || !get().sessions.some(s => s.id === sessionId)) {
-				sessionId = get().sessions[0]?.id ?? null;
-			}
-		}
+		const state = get();
+		let sessionId =
+			resolveRemoteMirrorTarget(state) ?? resolveRemoteFallbackTarget(state);
 		if (!sessionId) {
 			const spaceId = get().activeSpaceId || DEFAULT_SPACE_ID;
 			const createdAt = Date.now();
@@ -177,9 +190,7 @@ export function createRemoteMirrorSlice(
 	syncRemoteStream(text, status) {
 		const sessionId =
 			resolveRemoteMirrorTarget(get()) ??
-			get().activeId ??
-			get().sessions[0]?.id ??
-			null;
+			resolveRemoteFallbackTarget(get());
 		if (!sessionId) {
 			return;
 		}
@@ -219,9 +230,7 @@ export function createRemoteMirrorSlice(
 	applyRemoteToolCall(name, input) {
 		const sessionId =
 			resolveRemoteMirrorTarget(get()) ??
-			get().activeId ??
-			get().sessions[0]?.id ??
-			null;
+			resolveRemoteFallbackTarget(get());
 		if (!sessionId) {
 			return;
 		}
@@ -297,9 +306,7 @@ export function createRemoteMirrorSlice(
 	applyRemoteToolResult(name, output, isError) {
 		const sessionId =
 			resolveRemoteMirrorTarget(get()) ??
-			get().activeId ??
-			get().sessions[0]?.id ??
-			null;
+			resolveRemoteFallbackTarget(get());
 		if (!sessionId) {
 			return;
 		}
@@ -358,7 +365,8 @@ export function createRemoteMirrorSlice(
 
 	commitRemoteStream(text) {
 		const sessionId =
-			resolveRemoteMirrorTarget(get()) ?? get().activeId ?? null;
+			resolveRemoteMirrorTarget(get()) ??
+			resolveRemoteFallbackTarget(get());
 		const trimmed = (text || '').trim();
 		if (trimmed) {
 			const msgs = sessionId ? (get().messagesById[sessionId] ?? []) : [];
