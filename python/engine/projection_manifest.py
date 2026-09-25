@@ -165,9 +165,10 @@ def build_manifest(
         except Exception:  # noqa: BLE001 — 诊断失败不影响主链
             pass
     if _unhandled_truncations(text):
-        # 旗标名保持不变（诊断层按名字 membership 判定，见 diagnostics/rules.py 的
-        # cold_reference 分支）；含义收窄成"有截断声明拿不到回读句柄"。
-        invariant_errors.append("spill_reference_mismatch")
+        # 名字换了：旧名 spill_reference_mismatch 由"两个字面量计数不等"写下，
+        # 健康运行也会为真。改名之后，磁盘上仍带旧名的 manifest 就明确是改版前的
+        # 残留（诊断层据此降级），新写的一律用这条精确判据。
+        invariant_errors.append("truncation_without_handle")
     if calls - canonical_results:
         invariant_errors.append(
             f"canonical_unpaired_tool_calls:{len(calls - canonical_results)}"

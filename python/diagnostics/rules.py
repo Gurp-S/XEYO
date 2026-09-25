@@ -372,13 +372,12 @@ def check_cold_references(run: RunEvidence) -> list[Finding]:
 			)
 		)
 	for manifest in run.projections:
-		if "spill_reference_mismatch" in (manifest.get("invariant_errors") or []):
-			# 旗标的含义已收窄（engine/projection_manifest.py 的 _unhandled_truncations）：
-			# 只在一处"[output truncated: …]"声明拿不到同处的 full output: 句柄时才为真。
-			# 旧判据是两个裸子串的全局计数比大小，Bash 截断与后台任务标记天生不带
-			# "full output:" ⇒ 真实数据里 26/40 轮被误判成不一致，只能停在未定。
-			handle_count = manifest.get("spills")
-			count_text = f"该投影带 {handle_count} 个可回读句柄" if isinstance(handle_count, int) else ""
+		errors = manifest.get("invariant_errors") or []
+		handle_count = manifest.get("spills")
+		count_text = f"该投影带 {handle_count} 个可回读句柄" if isinstance(handle_count, int) else ""
+		if "truncation_without_handle" in errors:
+			# 精确判据（engine/projection_manifest.py::_unhandled_truncations）：
+			# 有 "[output truncated: …]" 声明却拿不到同一处的 full output: 句柄。
 			findings.append(
 				Finding(
 					rule_id="cold_reference",
@@ -392,17 +391,40 @@ def check_cold_references(run: RunEvidence) -> list[Finding]:
 							source="projection",
 							locator=_s(manifest.get("locator")),
 							ref_id=_s(manifest.get("projection_id")),
-							detail="spill_reference_mismatch",
+							detail="truncation_without_handle",
 						)
 					],
 					impact="被截断的那段原文没有回读入口：模型看不到、也读不回来。",
 					coverage_gap=(
-						"旗标只说有几处声明缺句柄，不说是哪一处；要定位需要该次投影的正文，"
+						"旗标只说这份投影里有这样的声明，不说是哪一处；要定位需要该次投影的正文，"
 						"而 manifest 只保留最后一份。"
 					),
-					allowed_conclusion=(
-						"可疑：这一轮确实有截断声明拿不到回读句柄；不能据此判定是哪个工具的输出。"
-					),
+					allowed_conclusion="可疑：这一轮确实有截断声明拿不到回读句柄；不能据此判定是哪个工具的输出。",
+				)
+			)
+		elif "spill_reference_mismatch" in errors:
+			# 旧旗标来自改版前的判据（两个裸子串的整串计数比较）：四个产生方的形状本就
+			# 不同，健康运行也会为真（真实数据 26/40 轮）。现在还能看见它，只可能是
+			# 判据改版前留下的 manifest ⇒ 登记为读不出，不当可疑原因。
+			findings.append(
+				Finding(
+					rule_id="cold_reference",
+					rule_version=RULESET_VERSION,
+					phenomenon="这份投影带的是改版前的 spill 旗标（按字面量计数比较），本轮读不出回读性",
+					boundary="wsc_fold",
+					component="输出预算 / 折叠",
+					status=UNKNOWN,
+					evidence=[
+						EvidenceRef(
+							source="projection",
+							locator=_s(manifest.get("locator")),
+							ref_id=_s(manifest.get("projection_id")),
+							detail="spill_reference_mismatch（旧判据留下）",
+						)
+					],
+					impact="这条不构成本轮的任何结论：判据已改成按标记作用域配对（engine/projection_manifest.py）。",
+					coverage_gap="manifest 只保留最后一份，而这份是改版前写的；下一次投影重建后才会带新旗标。",
+					allowed_conclusion="只能说这份投影带的是改版前的旗标，不能据此判定折叠或输出预算出了故障。",
 				)
 			)
 	return findings

@@ -102,14 +102,14 @@ def test_real_producer_shapes_are_all_consistent() -> None:
     ]
     for text in shapes:
         manifest = _manifest_for(text)
-        assert "spill_reference_mismatch" not in manifest.invariant_errors, text
+        assert "truncation_without_handle" not in manifest.invariant_errors, text
         assert manifest.spills == (0 if "earlier output" in text else 1), text
 
 
 def test_truncation_claim_without_a_handle_is_flagged() -> None:
     """真正会伤人的形状：说了"截断"却没给可回读句柄——原文再也读不回来。"""
     manifest = _manifest_for("[output truncated: 预算截断（非错误），原始 9000 字符；]")
-    assert "spill_reference_mismatch" in manifest.invariant_errors
+    assert "truncation_without_handle" in manifest.invariant_errors
     assert manifest.spills == 0
 
 
@@ -123,5 +123,5 @@ def test_mentioning_the_words_in_prose_is_not_a_truncation() -> None:
     manifest = _manifest_for(
         "这段日志说 output truncated 又提到 full output: 但两处都是引用文本，不是标记"
     )
-    assert "spill_reference_mismatch" not in manifest.invariant_errors
+    assert "truncation_without_handle" not in manifest.invariant_errors
     assert manifest.spills == 1

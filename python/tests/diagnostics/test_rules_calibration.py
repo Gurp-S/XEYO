@@ -284,7 +284,7 @@ def test_truncation_claim_without_handle_is_a_suspicion() -> None:
 				"projection_id": "p1",
 				"locator": "working:projection",
 				"spills": 3,
-				"invariant_errors": ["spill_reference_mismatch"],
+				"invariant_errors": ["truncation_without_handle"],
 			}
 		],
 	)
@@ -294,6 +294,30 @@ def test_truncation_claim_without_handle_is_a_suspicion() -> None:
 	assert f.status == SUSPECTED_CAUSE
 	assert "3 个可回读句柄" in f.phenomenon
 	assert "不能据此判定是哪个工具" in f.allowed_conclusion
+
+
+def test_legacy_spill_flag_is_only_recorded_as_unreadable() -> None:
+	"""改版前留下的旗标不能升级成可疑原因：那份 manifest 是旧判据写的。
+
+	真实数据里 26/40 轮的这条都是旧判据（两个裸子串计数不等）误报的；
+	判据换名之后，还能看见旧名就说明这份投影是改版前生成的 —— 只能登记为读不出。
+	"""
+	run = _run(
+		[_ev(1, "model.started", 1.0, model_request_id="r1", attempt=1)],
+		projections=[
+			{
+				"projection_id": "p1",
+				"locator": "working:projection",
+				"spills": 3,
+				"invariant_errors": ["spill_reference_mismatch"],
+			}
+		],
+	)
+	findings = rules.check_cold_references(run)
+	assert len(findings) == 1
+	assert findings[0].status == UNKNOWN
+	assert "改版前" in findings[0].phenomenon
+	assert not [f for f in findings if f.status == SUSPECTED_CAUSE]
 
 
 def test_turn_without_records_yields_only_the_no_record_finding(collect) -> None:
