@@ -1090,12 +1090,27 @@ export async function fetchDiagPins(
 	return arr(o.pins).map(parsePin);
 }
 
-export async function deleteDiagPin(pinId: string, sessionId: string): Promise<boolean> {
+/**
+ * 撤销一条固定证据。回执必须读 body：`remove_pin` 在 200 里回 `{ok:false}`
+ * 表示"这条 pin 不在了 / 不属于你的会话"，只看 HTTP 状态会把没删掉报成已删除。
+ */
+export async function deleteDiagPin(
+	pinId: string,
+	sessionId: string,
+): Promise<{ok: boolean; error: string}> {
 	const res = await send(
 		`/v1/diagnostics/pins/${encodeURIComponent(pinId)}${qs({session_id: sessionId})}`,
 		{method: 'DELETE'},
 	);
-	return res.ok;
+	const payload = await res.json().catch(() => null);
+	if (!res.ok) {
+		return {ok: false, error: formatErrorDetail(payload, res.status)};
+	}
+	const o = rec(payload);
+	if (o.ok !== true) {
+		return {ok: false, error: s(o.error) || `HTTP ${res.status}`};
+	}
+	return {ok: true, error: ''};
 }
 
 /** 信息丢失定位链（7 级）；任一级未记账 → 后端判无法归因。 */

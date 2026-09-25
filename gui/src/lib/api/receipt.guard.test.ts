@@ -25,7 +25,7 @@ const CAST_RETURN = /return\s+\(?await\s+(?:res|response|r)\.json\(\)\)?\s+as\s/
  * 第二类：写侧只认 HTTP 状态。`return res.ok;` 把"200 + {ok:false}"、
  * "200 但回执缺字段"、"200 空体"全当成保存成功。后端已经为这一类改过路由
  * （rewind-gc 的 docstring 点名"GUI 只看 res.ok ⇒ keep_recent=0 被拒渲染成保存成功"），
- * 但同类写法还有 14 处 —— 先钉住，再逐处换成带回执的写法。
+ * 但同类写法一开始有 14 处，现已逐处换成带回执的写法（见下方基线的清零记录）。
  */
 const WRITE_STATUS_ONLY = /^\s*return res\.ok;$/gm;
 
@@ -40,9 +40,10 @@ const BASELINE: Record<string, number> = {
 /** 写侧"只认 HTTP 状态"的存量基线。 */
 const WRITE_BASELINE: Record<string, number> = {
 	'api.ts': 12,
-	'api/diagnostics.ts': 1,
 	'api/usage.ts': 1,
 };
+// api/diagnostics.ts 的那一处（deleteDiagPin 的 `return res.ok;`）已改成读 body 的
+// {ok,error}，并钉在 diagnostics.write.test.ts 里 —— 棘轮按设计把这一格清零。
 
 function textOf(rel: string): string {
 	return readFileSync(path.join(HERE, '..', rel), 'utf8').replace(/\r\n/g, '\n');
