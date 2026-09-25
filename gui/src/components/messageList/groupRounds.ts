@@ -13,14 +13,15 @@ import {
 	Round,
 } from './types';
 import {multiAgentTaskViewsEqual} from '@/lib/workflowEquality';
+import {parseJsonValue} from '@/lib/safeJson';
 
 export const NO_AGENT_TASKS: MultiAgentTaskView[] = [];
 
 /**
  * 多 Agent 卡片 → 轮次锚定：任务落在「触发它的那条用户
- * 消息」所在轮。live 批 batchAt=SSE 到达时刻，必然晚于该用户消息、早于
- * 下一条用户消息；历史批取 meta.startedAt，同理。无锚点（异常）时兜底
- * 挂最早一轮。
+ * 消息」所在轮。优先用 Agent 工具调用里的 task_id 精确锚定；旧记录缺少
+ * 调用身份时才按 batchAt / meta.startedAt 时间回退，避免同毫秒边界串轮。
+ * 无锚点（异常）时兜底挂最早一轮。
  *
  * 纯函数：不变更入参数组元素（reuseRoundPrefix 跨渲染复用 round 对象，
  * RoundHost 以引用相等跳过重渲，原地修改会污染 memo），仅在任务实际
@@ -43,6 +44,25 @@ export function roundsWithAgentTasks(
 	}
 
 	const byIndex = new Map<number, MultiAgentTaskView[]>();
+	const roundByTaskId = new Map<string, number>();
+	for (let index = 0; index < rounds.length; index += 1) {
+		for (const block of rounds[index]!.rest) {
+			if (block.kind !== 'turn') continue;
+			for (const item of block.items) {
+				if (
+					item.kind !== 'tool' ||
+					(item.tool.name !== 'Agent' && item.tool.name !== 'Task')
+				) {
+					continue;
+				}
+				const input = parseJsonValue<Record<string, unknown>>(item.tool.input);
+				const taskId = String(input?.task_id ?? input?.taskId ?? '').trim();
+				if (taskId && !roundByTaskId.has(taskId)) {
+					roundByTaskId.set(taskId, index);
+				}
+			}
+		}
+	}
 	// SSE 按批次序到达 / 后端 meta 按 startedAt 升序，这里排序仅为兜底乱序。
 	const ordered =
 		tasks.length > 1
@@ -55,7 +75,8 @@ export function roundsWithAgentTasks(
 	let cursor = 0;
 	for (const task of ordered) {
 		const at = normalizedBatchAt(task.batchAt);
-		if (at != null) {
+		const exactIndex = roundByTaskId.get(task.taskId.trim());
+		if (exactIndex == null && at != null) {
 			while (
 				cursor + 1 < rounds.length &&
 				rounds[cursor + 1]!.user !== undefined &&
@@ -64,7 +85,8 @@ export function roundsWithAgentTasks(
 				cursor += 1;
 			}
 		}
-		let idx = cursor;
+		let idx = exactIndex ?? cursor;
+		cursor = Math.max(cursor, idx);
 		if (rounds[idx]!.user === undefined) {
 			// 命中无用户消息的孤儿轮：向前回退到最近的用户轮。
 			while (idx > 0 && rounds[idx]!.user === undefined) {
