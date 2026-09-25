@@ -11,6 +11,7 @@ import {
 	loadServerSessionMessages,
 	readTurnCursor,
 	streamTurnEvents,
+	type ChatStreamHandlers,
 	type MultiAgentTaskView,
 } from '@/lib/api';
 import {dispatchXeyoUi} from '@/lib/dispatchXeyoUi';
@@ -48,6 +49,7 @@ import {
 	type ChatState,
 } from './preStoreHelpers';
 import {createPendingStreamHandlers} from './uiChromeSlice';
+import {sessionScopedStreamHandlers} from './sessionScopedStreamHandlers';
 import {
 	WAITING_TOOL_TIMEOUT_MS,
 	appendAssistantProse,
@@ -62,6 +64,9 @@ import {
 
 type SetState = StoreApi<ChatState>['setState'];
 type GetState = StoreApi<ChatState>['getState'];
+
+const sessionExists = (get: GetState, sessionId: string) =>
+	get().sessions.some(session => session.id === sessionId);
 
 /**
  * 整表回写（``replaceMessages`` 先按游标删干净再写）只允许用于历史已经加载
@@ -117,15 +122,18 @@ export async function recoverAfterDisconnect(
 	sessionId: string,
 	backendSessionId: string,
 ): Promise<boolean> {
+	const stillExists = () => sessionExists(get, sessionId);
 	for (let attempt = 0; attempt < REATTACH_MAX_ATTEMPTS; attempt++) {
-		if (!sessionStreamActive(get(), sessionId)) {
+		if (!stillExists() || !sessionStreamActive(get(), sessionId)) {
 			// 用户已停止/清理：放弃恢复
 			return false;
 		}
 		const task = await fetchSessionTask(backendSessionId);
+		if (!stillExists()) return false;
 		if (task) {
 			if (task.status === 'recovery_required') {
 				await get().reattachStream(sessionId);
+				if (!stillExists()) return false;
 				return true; // 显式恢复 UI 已呈现（continueRecovery / abandonRecovery）
 			}
 			const running =
@@ -135,15 +143,16 @@ export async function recoverAfterDisconnect(
 				task.status === 'stopping';
 			if (!running) {
 				const msgs = await loadServerSessionMessages(backendSessionId);
+				if (!stillExists()) return false;
 				if (msgs.length > 0) {
 					finalizeFinishedTurn(set, sessionId, msgs);
 					return true;
 				}
 				// transcript 暂时拉不到：退避后重试
-			} else if (await get().reattachStream(sessionId)) {
-				return true;
-			} else if (get().recoveryBySession[sessionId]) {
-				return true;
+			} else {
+				const reattached = await get().reattachStream(sessionId);
+				if (!stillExists()) return false;
+				if (reattached || get().recoveryBySession[sessionId]) return true;
 			}
 		}
 		await sleep(reattachBackoffMs(attempt));
@@ -278,25 +287,29 @@ export function createStreamRecoverySlice(
 		const inFlight = reattachInFlight.get(sessionId);
 		if (inFlight) return inFlight;
 		const work = (async () => {
+			if (!sessionExists(get, sessionId)) return false;
 			const backendSessionId = activeBackendSessionId(
 				get().historyById,
 				sessionId,
 			);
 			const task = await fetchSessionTask(backendSessionId);
-			if (!task) {
+			if (!sessionExists(get, sessionId) || !task) {
 				return false;
 			}
 			if (task.status === 'recovery_required') {
-				set(s => ({
-					recoveryBySession: {
-						...s.recoveryBySession,
-						[sessionId]: {
-							goalText: task.goal_text || '',
-							turnId: task.turn_id || '',
-							stopReason: task.stop_reason || 'process_restart',
+				set(s => {
+					if (!s.sessions.some(item => item.id === sessionId)) return s;
+					return {
+						recoveryBySession: {
+							...s.recoveryBySession,
+							[sessionId]: {
+								goalText: task.goal_text || '',
+								turnId: task.turn_id || '',
+								stopReason: task.stop_reason || 'process_restart',
+							},
 						},
-					},
-				}));
+					};
+				});
 				return false;
 			}
 			const running =
@@ -333,6 +346,7 @@ export function createStreamRecoverySlice(
 				} catch {
 					return false;
 				}
+				if (!sessionExists(get, sessionId)) return false;
 				set(s => {
 					if (!s.sessions.some(item => item.id === sessionId)) return s;
 					const byId = new Map(loaded.map(message => [message.id, message]));
@@ -353,6 +367,7 @@ export function createStreamRecoverySlice(
 				});
 				const ready = get();
 				if (
+					!sessionExists(get, sessionId) ||
 					ready.messagesById[sessionId] === undefined ||
 					ready.messagesLoadingIds[sessionId]
 				) {
@@ -400,6 +415,7 @@ export function createStreamRecoverySlice(
 			let sawGap = false;
 			/** 无洞时的收尾：把本地累积的尾巴作为正文提交（带末行同文去重）。 */
 			const commitLocalTail = () => {
+				if (!sessionExists(get, sessionId)) return;
 				set(s => {
 					const st = getSessionStream(s, sessionId);
 					const text = st.streamingText;
@@ -427,12 +443,13 @@ export function createStreamRecoverySlice(
 				});
 			};
 			for (let attempt = 0; attempt < REATTACH_MAX_ATTEMPTS; attempt++) {
+				if (!sessionExists(get, sessionId)) return false;
 				connectionLost = false;
 				sawGap = false;
 				// cursor 每次重取：上一次断流前已收到的事件不重放
 				const cursorNow = Math.max(cursor, readTurnCursor(backendSessionId));
 				try {
-					await streamTurnEvents(backendSessionId, cursorNow, {
+					const handlers: ChatStreamHandlers = {
 						...pending,
 						signal: abort.signal,
 						onLlmRetry(ev) {
@@ -603,6 +620,7 @@ export function createStreamRecoverySlice(
 							// 重放有洞：本地尾巴是缺段，绝不能当完整内容提交 ⇒ 用服务端
 							// transcript 收尾；拉不到（网络/空集）再退回本地提交，不静默卡住。
 							void loadServerSessionMessages(backendSessionId).then(server => {
+								if (!sessionExists(get, sessionId)) return;
 								if (server.length > 0) {
 									finalizeFinishedTurn(set, sessionId, server);
 									return;
@@ -630,13 +648,19 @@ export function createStreamRecoverySlice(
 							...sessionErrorBannerPatch(sessionId, message),
 						}));
 					},
-					});
+					};
+					await streamTurnEvents(
+						backendSessionId,
+						cursorNow,
+						sessionScopedStreamHandlers(handlers, () => sessionExists(get, sessionId)),
+					);
 				} catch (err) {
 					// streamTurnEvents 自身不抛连接错误（都走 onError）；保守按连接失败重试
 					if ((err as Error).name !== 'AbortError') {
 						connectionLost = true;
 					}
 				}
+				if (!sessionExists(get, sessionId)) return false;
 				if (abort.signal.aborted) {
 					// 用户在恢复期间主动停止：不再重试
 					return true;
@@ -646,6 +670,7 @@ export function createStreamRecoverySlice(
 				}
 				await sleep(reattachBackoffMs(attempt));
 			}
+			if (!sessionExists(get, sessionId)) return false;
 			// T29：重试上限已到——显式呈现断连（不静默、不假装在跑、不 interrupt）。
 			set(s => ({
 				sessionStreams: patchSessionStream(s.sessionStreams, sessionId, {
