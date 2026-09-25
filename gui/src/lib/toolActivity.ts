@@ -718,24 +718,23 @@ export function segmentTurn(items: TurnItem[]): TurnSegment[] {
 	const segments: TurnSegment[] = [];
 	const activitySteps: ActivityStep[] = [];
 	let toolBatch: ToolView[] = [];
-	const hasPersistedThoughts = items.some(
-		item =>
-			item.kind === 'assistant' &&
-			item.message.isThought &&
-			item.message.text.trim(),
-	);
+	const precedingThoughts = new Set<string>();
+	const thoughtKey = (content: string) => content.replace(/\s+/g, ' ').trim();
 
 	const flushToolsIntoActivity = () => {
 		if (toolBatch.length === 0) {
 			return;
 		}
 		const toolSteps = toolBatch.map(toolToStep);
-		activitySteps.push(
-			...(hasPersistedThoughts
-				? toolSteps
-				: injectThoughtSteps(toolSteps, toolBatch)),
-		);
+		const toolsWithUnrepresentedThoughts = toolBatch.map(tool => {
+			const reasoning = tool.reasoningBefore?.trim();
+			return reasoning && precedingThoughts.has(thoughtKey(reasoning))
+				? {...tool, reasoningBefore: undefined}
+				: tool;
+		});
+		activitySteps.push(...injectThoughtSteps(toolSteps, toolsWithUnrepresentedThoughts));
 		toolBatch = [];
+		precedingThoughts.clear();
 	};
 
 	const emitActivity = () => {
@@ -762,22 +761,25 @@ export function segmentTurn(items: TurnItem[]): TurnSegment[] {
 		const m = item.message;
 		if (m.isThought && m.text.trim()) {
 			flushToolsIntoActivity();
+			const thoughtContent = m.text.trim();
 			activitySteps.push({
 				id: m.id,
 				verb: 'Thought',
 				detail: formatThoughtDetail(m.thoughtMs ?? 0),
-				thoughtContent: m.text.trim(),
+				thoughtContent,
 				running: false,
 			});
+			precedingThoughts.add(thoughtKey(thoughtContent));
 			continue;
 		}
 		emitActivity();
 		if (m.reasoningBefore?.trim()) {
+			const thoughtContent = m.reasoningBefore.trim();
 			const thoughtStep: ActivityStep = {
 				id: `thought-before-${m.id}`,
 				verb: 'Thought',
 				detail: formatThoughtDetail(m.thoughtMs ?? 0),
-				thoughtContent: m.reasoningBefore.trim(),
+				thoughtContent,
 				running: false,
 			};
 			const {summary, diffs} = aggregateSteps([thoughtStep]);
@@ -788,6 +790,7 @@ export function segmentTurn(items: TurnItem[]): TurnSegment[] {
 				summary,
 				diffs,
 			});
+			precedingThoughts.add(thoughtKey(thoughtContent));
 		}
 		segments.push({kind: 'prose', messages: [m]});
 	}
