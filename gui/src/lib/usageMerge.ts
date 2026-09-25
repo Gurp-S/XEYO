@@ -77,10 +77,51 @@ function mergeSeries(
  * v4：输出层只有三分类 + hit_rate + requests（无金额字段传入/传出）；
  * 模型行排序 = 输入未命中(新增内容)降序 → requests 降序 → 厂商/模型字典序。
  */
-export function mergeReports(reports: UsageReport[]): UsageReport {
+
+type MergeOptions = {
+	/** Model-filtered local ledger responses can be repeated across API channels. */
+	modelFiltered?: boolean;
+};
+
+function sourceForDimension(
+	report: UsageReport,
+	dimension: 'totals' | 'models',
+): string | undefined {
+	return report.source_basis?.[dimension] ?? report.source;
+}
+
+function mergeDimensionReports(
+	reports: UsageReport[],
+	dimension: 'totals' | 'models',
+	modelFiltered: boolean,
+): UsageReport[] {
+	if (!modelFiltered) return reports;
+	let localSeen = false;
+	return reports.filter(report => {
+		if (sourceForDimension(report, dimension) !== 'local') return true;
+		if (localSeen) return false;
+		localSeen = true;
+		return true;
+	});
+}
+
+export function mergeReports(
+	reports: UsageReport[],
+	options: MergeOptions = {},
+): UsageReport {
+	const totalsReports = mergeDimensionReports(
+		reports,
+		'totals',
+		Boolean(options.modelFiltered),
+	);
+	const modelReports = mergeDimensionReports(
+		reports,
+		'models',
+		Boolean(options.modelFiltered),
+	);
 	const sumHitMissOut = (k: 'input_hit' | 'input_miss' | 'output') =>
-		reports.reduce((a, r) => a + (r.totals?.[k] ?? 0), 0);
-	const requests = reports.reduce(
+		totalsReports.reduce((a, r) => a + (r.totals?.[k] ?? 0), 0);
+	const requests = totalsReports.reduce(
 		(a, r) => a + (r.totals?.requests ?? 0),
 		0,
 	);
@@ -106,7 +147,7 @@ export function mergeReports(reports: UsageReport[]): UsageReport {
 						? 'mixed'
 						: 'local';
 	const seriesMap = new Map<string, UsageDayPoint>();
-	for (const r of reports) {
+	for (const r of totalsReports) {
 		for (const p of r.series ?? []) {
 			const cur =
 				seriesMap.get(p.day) ??
@@ -121,7 +162,7 @@ export function mergeReports(reports: UsageReport[]): UsageReport {
 	const series = [...seriesMap.values()].map(p => deriveDayPoint(p));
 	// 跨厂商去重 same provider+model 分块，避免重复计数；排序按「输入未命中」降序（B1）。
 	const modelMap = new Map<string, UsageModelBlock>();
-	for (const m of reports.flatMap(r => r.models ?? [])) {
+	for (const m of modelReports.flatMap(r => r.models ?? [])) {
 		const key = `${m.provider}:${m.model}`;
 		const cur =
 			modelMap.get(key) ??
@@ -155,6 +196,6 @@ export function mergeReports(reports: UsageReport[]): UsageReport {
 		vendor_ok: reports.some(r => r.vendor_ok),
 		series,
 		models,
-		keys: reports.flatMap(r => r.keys ?? []),
+		keys: [...new Set(reports.flatMap(r => r.keys ?? []))],
 	};
 }

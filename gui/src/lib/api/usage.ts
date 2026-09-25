@@ -197,6 +197,12 @@ export type UsageReport = {
 	days: string[];
 	totals: UsageBucket;
 	source?: 'vendor' | 'local' | 'mixed' | string;
+	source_basis?: {
+		totals?: 'vendor' | 'local' | string;
+		models?: 'vendor' | 'local' | string;
+		vendor_ok?: boolean;
+		vendor_error?: string;
+	};
 	vendor_ok?: boolean;
 	vendor_error?: string;
 	series: UsageDayPoint[];

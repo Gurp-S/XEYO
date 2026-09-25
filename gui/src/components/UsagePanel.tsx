@@ -368,7 +368,9 @@ export function UsagePanel({active = true}: Props) {
 								(r): r is UsageReport => Boolean(r),
 							);
 							if (ok.length > 0) {
-								setReport(mergeReports(ok));
+								setReport(
+									mergeReports(ok, {modelFiltered: Boolean(modelId)}),
+								);
 								setError('');
 								setWarning(
 									ok.length === results.length
