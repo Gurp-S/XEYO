@@ -1,4 +1,4 @@
-"""真实数据普查确认到的四类误归因缺陷的回归集。
+"""真实数据普查确认到的误归因与作用域缺陷的回归集。
 
 对应 2026-09-25 对十条真实回合的普查（设计文档第 6 节的不对称判据）：
 
@@ -17,11 +17,16 @@
 7. ``model.finished`` 的 ``aborted`` / ``retry`` 被一律写成"已确认厂商或传输故障"——
    前者来自引擎的 Aborted 分支（用户停止），后者是设计里的下一步。
    2026-09-25 对最近 40 个真实轮次复跑：该规则 24 条"已确认"里有 9 条属于这两类。
+8. 不带 ``request_id`` 的账本行被写成**本轮**结论，但账本行没有轮次身份：同会话的
+   每一轮都报同一行（真实数据 37/40 轮、13 个轮次的消息字字相同）。作用域错位的
+   事实改由采集缺项承担，笔数仍留在报告侧。
 
 纠正的底线：规则要么判对，要么 ``unknown`` 并写明缺哪条记录，不得靠沉默消噪。
 """
 
 from __future__ import annotations
+
+import json
 
 from diagnostics import fault_split, rules
 from diagnostics.collect import RunEvidence, Window
@@ -550,6 +555,34 @@ def test_verifier_absence_is_a_gap_not_a_per_turn_finding(collect) -> None:
 	gaps = [g for g in run.gaps if g.boundary == "file_verifier" and g.reason == "not_recorded"]
 	assert gaps, "缺席事实要留在缺项清单里"
 	assert "kind=verifier" in gaps[0].detail
+
+
+def test_unlinked_usage_rows_are_a_session_gap_not_a_per_turn_finding(collect) -> None:
+	"""账本行不带 request_id ⇒ 行内没有轮次身份，归属只到"会话 + 尾窗"。
+	以前它被写成一条本轮结论，同会话每一轮都报同一行（真实数据 37/40 轮、
+	其中 sess_mu9 的 13 个轮次报的都是同一 line_no）。事实不删，换个正确的层级说。"""
+	from diagnostics.report import usage_summary
+	from usage.ledger import events_path, record_from_openai_usage
+
+	record_from_openai_usage(  # 旁路调用：没有 _meta_request_id ⇒ 行里不写 request_id
+		provider="deepseek",
+		model="deepseek-chat",
+		api_key="sk-x",
+		usage={"prompt_tokens": 100, "completion_tokens": 5, "total_tokens": 105},
+		session_id="s1",
+	)
+	row = json.loads(events_path().read_text(encoding="utf-8").splitlines()[-1])
+	assert "request_id" not in row, "样本必须是真正的无归属行"
+	run = collect(
+		[{"ts": 1.0, "kind": "model.started", "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", "attempt": 1}]
+	)
+	assert run.usage_rows, "无归属行仍要被采集，否则后面都是空谈"
+	assert [f for f in evaluate_run(run) if f.rule_id == "usage_accounting"] == []
+	gaps = [g for g in run.gaps if g.boundary == "model_request" and g.reason == "unattributed_rows"]
+	assert gaps, "笔数要留在缺项清单里"
+	assert "1 笔" in gaps[0].detail
+	assert "无法归轮" in gaps[0].detail, "措辞必须点明作用域只到会话"
+	assert usage_summary(run)["unlinked_usage_rows"] == 1, "报告侧的笔数不能一起丢掉"
 
 
 def test_audit_evidence_still_points_at_the_audit_window() -> None:

@@ -917,10 +917,6 @@ def check_repeated_failure(run: RunEvidence) -> list[Finding]:
 
 def check_usage_accounting(run: RunEvidence) -> list[Finding]:
 	findings: list[Finding] = []
-	orphans: list[dict[str, Any]] = []
-	for row in run.usage_rows:
-		if not _s(row.get("attempt_key")):
-			orphans.append(row)
 	known_sources = {"api", "estimate"}
 	missing: list[EvidenceRef] = []
 	duplicated: list[EvidenceRef] = []
@@ -1007,24 +1003,10 @@ def check_usage_accounting(run: RunEvidence) -> list[Finding]:
 				allowed_conclusion="报账目异常，不报金额。",
 			)
 		)
-	if orphans:
-		findings.append(
-			Finding(
-				rule_id="usage_accounting",
-				rule_version=RULESET_VERSION,
-				phenomenon=f"{len(orphans)} 笔用量账不带 request_id/attempt，无法关联到模型请求",
-				boundary="model_request",
-				component="模型适配器记账 meta 注入",
-				status=UNKNOWN,
-				evidence=[
-					EvidenceRef(source="usage", locator=_s(r.get("locator")), ref_id=f"L{_s(r.get('line_no'))}", detail="缺 request_id")
-					for r in orphans[:10]
-				],
-				impact="这笔钱存在，但归不到具体请求；按会话聚合正确、按请求聚合会漏。",
-				coverage_gap="非流式路径与旁路调用（CLI/评测）本就不带 request_id。",
-				allowed_conclusion="不得把这些账当作 0，也不得凭归属猜测分配。",
-			)
-		)
+	# 「账本行不带 request_id」不再作为本轮结论报出：这类行没有轮次身份，归属只到
+	# "会话 + 尾窗"一级，此前被同会话的每一轮重复报成同一条（真实数据 37/40 轮）。
+	# 事实保留在采集缺项里（collect._collect_usage 的 unattributed_rows），
+	# 报告侧的笔数仍由 report.cost 的 unlinked_usage_rows 承担。
 	return findings
 
 

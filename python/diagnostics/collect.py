@@ -660,6 +660,19 @@ def _collect_usage(run: RunEvidence, session_id: str) -> None:
 		window.add_note(f"{window.rows_unattributed} 行缺 session_id，无法归入本会话，未补值")
 	if window.rows_other_session:
 		window.add_note(f"{window.rows_other_session} 行属于其他会话，未并入本运行")
+	# 账本行不带轮次身份：归属只到"会话 + 尾窗"这一级。此前规则层把窗口里的这类行
+	# 当作**每一轮**的结论重复报出（真实数据 37/40 轮、消息字字相同：同一会话的 13 轮
+	# 报的都是同一行 line_no）。事实本身属于采集范围，挪到缺项清单，一次说清。
+	unlinked_usage = [row for row in run.usage_rows if not _s(row.get("attempt_key"))]
+	if unlinked_usage:
+		run.add_gap(
+			"model_request",
+			"unattributed_rows",
+			f"本会话的账本窗口里有 {len(unlinked_usage)} 笔用量不带 request_id，无法归到某一次请求，"
+			"也无法归轮（账本行本身不记 turn_id）。已知两类来源：记账 meta 注入上线前的旧行；"
+			"以及在 engine/query_loop 之外构造适配器、未注入 _meta_request_id 的调用。"
+			"金额仍在账（行内有 cost_cny），只是不能按请求下钻；按会话聚合不受影响。",
+		)
 	if scan.truncated:
 		run.add_gap(
 			"model_request",
