@@ -38,6 +38,19 @@ function isQueuedUserBlock(
 	return block?.kind === 'user' && Boolean(block.message.queueState);
 }
 
+/** 返回最近一条已投递用户消息，排队消息不代表新一轮已经开始。 */
+export function latestUserTurnBoundary(
+	messages: readonly ChatMessage[],
+): {index: number; message: ChatMessage} | null {
+	for (let i = messages.length - 1; i >= 0; i -= 1) {
+		const message = messages[i];
+		if (message?.role === 'user' && !message.uiOnly && !message.queueState) {
+			return {index: i, message};
+		}
+	}
+	return null;
+}
+
 function lastNonQueuedBlockIndex(blocks: TranscriptBlock[]): number {
 	for (let i = blocks.length - 1; i >= 0; i -= 1) {
 		if (!isQueuedUserBlock(blocks[i])) return i;

@@ -1,6 +1,7 @@
 /** 从当前对话最近一轮抽出工具步骤，供「本轮」泳道工作流。 */
 
 import {TURN_STEP_CAP, fitLabel} from './codeMapLayout';
+import {latestUserTurnBoundary} from './groupTranscript';
 import {parseJsonValue} from './safeJson';
 import {toolToStep, type ActivityStep} from './toolActivity';
 import type {ChatMessage} from './types';
@@ -93,13 +94,8 @@ export function buildTurnWorkflow(messages: ChatMessage[]): TurnWorkflowStep[] {
 	if (!messages.length) {
 		return [];
 	}
-	let start = 0;
-	for (let i = messages.length - 1; i >= 0; i--) {
-		if (messages[i]?.role === 'user') {
-			start = i + 1;
-			break;
-		}
-	}
+	const boundary = latestUserTurnBoundary(messages);
+	const start = boundary ? boundary.index + 1 : 0;
 	const steps: TurnWorkflowStep[] = [];
 	for (let i = start; i < messages.length; i++) {
 		const message = messages[i]!;

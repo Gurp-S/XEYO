@@ -39,4 +39,22 @@ describe('buildTurnWorkflow', () => {
 		expect(edges).toContainEqual({from: 'r1', to: 'e1'});
 		expect(edges).toContainEqual({from: 'gui/src/a.ts', to: 'gui/src/b.ts'});
 	});
+
+	it('keeps the active workflow when the latest user message is queued', () => {
+		const messages: ChatMessage[] = [
+			{id: 'u1', role: 'user', text: 'inspect the file', createdAt: 1},
+			tool('Read', {file_path: 'src/a.ts'}, 'running', 'read-1'),
+			{
+				id: 'u2',
+				role: 'user',
+				text: 'also check this',
+				queueState: 'queued',
+				createdAt: 2,
+			},
+		];
+
+		const steps = buildTurnWorkflow(messages);
+		expect(steps.map(step => step.id)).toEqual(['read-1']);
+		expect(steps[0]?.running).toBe(true);
+	});
 });

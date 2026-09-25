@@ -34,6 +34,7 @@ import {
 } from '@/lib/workspaceMapApi';
 import {openWorkspacePreview} from '@/lib/openWorkspacePreview';
 import {samePath} from '@/lib/paths';
+import {latestUserTurnBoundary} from '@/lib/groupTranscript';
 import type {MultiAgentTaskView} from '@/lib/api';
 import type {ChatMessage} from '@/lib/types';
 import {useChatStore} from '@/stores/chatStore';
@@ -159,17 +160,11 @@ export function AgentMapPanel() {
 		[messages, spaceRoot, graph?.cwd, tasks],
 	);
 	const turnHits = useMemo(() => {
-		let since = 0;
-		for (let i = messages.length - 1; i >= 0; i -= 1) {
-			if (messages[i]?.role === 'user') {
-				since = messages[i]!.createdAt;
-				break;
-			}
-		}
-		if (!since) {
+		const boundary = latestUserTurnBoundary(messages);
+		if (!boundary) {
 			return hits;
 		}
-		return hits.filter(h => h.createdAt >= since);
+		return hits.filter(h => h.createdAt >= boundary.message.createdAt);
 	}, [hits, messages]);
 	const opsTrail = useMemo(() => buildOpsTrail(turnHits, 8), [turnHits]);
 	const replayScript = useMemo(() => {
