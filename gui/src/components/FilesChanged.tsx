@@ -8,6 +8,7 @@ import {joinWorkspacePath} from '@/lib/workspaceOpen';
 import type {ChangedFile} from '@/lib/toolActivity';
 import {cn} from '@/lib/utils';
 import {samePath} from '@/lib/paths';
+import {toast} from '@/lib/toast';
 import {useChatStore} from '@/stores/chatStore';
 import {useExplorerStore} from '@/stores/explorerStore';
 
@@ -33,19 +34,52 @@ type Props = {
 	files: ChangedFile[];
 };
 
-async function openChangedReview(f: ChangedFile): Promise<void> {
+/**
+ * 读到回执、但那一栏没有文本差异可显示时的说明。
+ * 空面板本身不说话，用户只会看到"这个改动没有内容" —— 那与"这是二进制文件"
+ * 或"工作区不是仓库"是三件不同的事，必须分开说。
+ */
+export function reviewGapNote(kind: string | undefined, hasText: boolean): string {
+	if (hasText) {
+		return '';
+	}
+	switch (kind) {
+		case 'binary':
+			return '这是二进制文件，没有文本差异可显示。';
+		case 'unchanged':
+			return '这个文件相对 HEAD 没有文本差异（列表里的改动可能已被提交，或已被后续写入覆盖）。';
+		case 'none':
+			return '当前工作区不是 Git 仓库，读不出这个文件的差异。';
+		default:
+			return '';
+	}
+}
+
+export async function openChangedReview(f: ChangedFile): Promise<void> {
 	const initialState = useChatStore.getState();
 	const root = initialState.spaces.find(space => space.id === initialState.activeSpaceId)?.rootPath?.trim() ?? '';
 	let diff = f.diff ?? '';
 	if (!diff.trim() && root) {
+		let kind: string | undefined;
 		try {
 			const res = await gitFileDiff(f.path, root);
 			const currentState = useChatStore.getState();
 			const currentRoot = currentState.spaces.find(space => space.id === currentState.activeSpaceId)?.rootPath?.trim() ?? '';
 			if (!samePath(root, currentRoot)) return;
-			diff = String(res.diff ?? '');
-		} catch {
-			diff = '';
+			diff = typeof res.diff === 'string' ? res.diff : '';
+			kind = res.kind;
+		} catch (err) {
+			// 读不出不开空面板：过去这里把 diff 置空后照常 openReview，
+			// 界面就显示成"这个改动没有内容"。
+			void toast.error(
+				`读不出 ${f.name} 的差异：${err instanceof Error ? err.message : String(err)}`,
+			);
+			return;
+		}
+		const note = reviewGapNote(kind, diff.trim() !== '');
+		if (note) {
+			void toast.info(note);
+			return;
 		}
 	}
 	const currentState = useChatStore.getState();
