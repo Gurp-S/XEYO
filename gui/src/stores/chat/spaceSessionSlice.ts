@@ -69,6 +69,7 @@ import {
 } from '@/lib/sessionStreams';
 import {
 	activeBackendSessionId,
+	commitDrainForSession,
 	clearSessionStreamState,
 	defaultChatHistoryState,
 	discardDrainForSession,
@@ -104,6 +105,7 @@ type SetState = StoreApi<ChatState>['setState'];
 type GetState = StoreApi<ChatState>['getState'];
 
 const SLICE_KEYS = ['hydrate', 'setActiveSpace', 'toggleSpaceCollapsed', 'openFolder', 'enterSpace', 'removeSpace', 'renameSpace', 'createSession', 'createSideSession', 'selectSession', 'removeSession', 'renameSession', 'forkSession', 'archiveSession', 'restoreSession'] as const;
+const archiveInFlight = new Map<string, Promise<void>>();
 
 export function createSpaceSessionSlice(
 	set: SetState,
@@ -838,15 +840,22 @@ async selectSession(id) {
 		if (!clean) {
 			throw new Error('标题不能为空');
 		}
-		const ok = await renameServerSession(id, clean);
-		if (!ok) {
-			throw new Error('重命名失败，请稍后重试');
-		}
 		const cur = get().sessions.find(x => x.id === id);
 		if (!cur) {
 			return;
 		}
-		const next = {...cur, title: clean};
+		if (cur.archived) {
+			throw new Error('归档对话为只读，请先恢复');
+		}
+		const ok = await renameServerSession(id, clean);
+		if (!ok) {
+			throw new Error('重命名失败，请稍后重试');
+		}
+		const latest = get().sessions.find(x => x.id === id);
+		if (!latest || latest.archived) {
+			return;
+		}
+		const next = {...latest, title: clean};
 		await saveSession(next);
 		set(s => ({
 			sessions: s.sessions.map(x => (x.id === id ? next : x)),
@@ -895,23 +904,77 @@ async selectSession(id) {
 	},
 
 	async archiveSession(id) {
-		const ok = await archiveServerSession(id);
-		if (!ok) {
-			throw new Error('归档失败，请稍后重试');
+		const inFlight = archiveInFlight.get(id);
+		if (inFlight) {
+			return inFlight;
 		}
 		const cur = get().sessions.find(x => x.id === id);
-		if (!cur) {
+		if (!cur || cur.archived) {
 			return;
 		}
 		const next = {...cur, archived: true, archivedAt: Date.now()};
-		set(s => ({
-			sessions: s.sessions.map(x => (x.id === id ? next : x)),
-		}));
-		// 服务端已经确认后立即更新 UI；IDB 故障不能让服务器已归档而当前列表仍显示未归档。
-		await saveSession(next).catch(() => undefined);
+		// 先在本地锁定该会话，发送入口会立即按 archived 拒绝新回合。
+		set(s => ({sessions: s.sessions.map(x => (x.id === id ? next : x))}));
+		const operation = (async () => {
+			const before = get();
+			const stream = getSessionStream(before, id);
+			if (isSessionStreamLive(stream)) {
+				const receipt = await interruptChat(
+					activeBackendSessionId(before.historyById, id),
+				);
+				if (!receipt.ok && receipt.message !== 'not_running') {
+					throw new Error(`停止请求未被后端确认（${receipt.message}），归档已取消`);
+				}
+				stream.abortRef?.abort();
+				commitDrainForSession(id);
+				const pendingThought = thoughtSyncTimers.get(id);
+				if (pendingThought) {
+					window.clearTimeout(pendingThought);
+					thoughtSyncTimers.delete(id);
+				}
+			}
+			const ok = await archiveServerSession(id);
+			if (!ok) {
+				throw new Error('归档失败，请稍后重试');
+			}
+			// 服务端已经确认后立即持久化；IDB 故障不能反转服务端已完成的归档。
+			const latest = get().sessions.find(x => x.id === id);
+			if (latest) {
+				const persisted = {
+					...latest,
+					archived: true,
+					archivedAt: next.archivedAt,
+				};
+				set(s => ({
+					sessions: s.sessions.map(x => (x.id === id ? persisted : x)),
+				}));
+				await saveSession(persisted).catch(() => undefined);
+			}
+		})();
+		archiveInFlight.set(id, operation);
+		try {
+			await operation;
+		} catch (error) {
+			set(s => ({
+				sessions: s.sessions.map(x =>
+					x.id === id && x.archivedAt === next.archivedAt
+						? {...x, archived: cur.archived, archivedAt: cur.archivedAt}
+						: x,
+				),
+			}));
+			throw error;
+		} finally {
+			if (archiveInFlight.get(id) === operation) {
+				archiveInFlight.delete(id);
+			}
+		}
 	},
 
 	async restoreSession(id) {
+		const archive = archiveInFlight.get(id);
+		if (archive) {
+			await archive;
+		}
 		const ok = await restoreServerSession(id);
 		if (!ok) {
 			throw new Error('恢复失败，请稍后重试');
