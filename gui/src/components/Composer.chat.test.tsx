@@ -2,6 +2,7 @@ import {cleanup, fireEvent, render, screen, waitFor} from '@testing-library/reac
 import userEvent from '@testing-library/user-event';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {resetComposerDraftsForTests} from '@/lib/composerDrafts';
+import {SIDE_SPACE_ID} from '@/lib/db';
 import {patchSessionStream} from '@/lib/sessionStreams';
 
 const {chatState, sendMessage, stopGeneration, fetchSkills} = vi.hoisted(() => {
@@ -120,6 +121,10 @@ describe('Composer send UX', () => {
 		resetComposerDraftsForTests();
 		resetSlashSkillCacheForTests();
 		chatState.activeId = 'sess_1';
+		// 89351af 之后，取不到工作区根路径的会话一律不出技能候选（不再回落服务端的
+		// 全局 UI cwd）——夹具不给 space/rootPath，这条路径就永远空跑、用例假绿。
+		chatState.sessions = [{id: 'sess_1', spaceId: 'space_1'}];
+		chatState.spaces = [{id: 'space_1', rootPath: 'D:/proj'}];
 		chatState.sessionStreams = {};
 		sendMessage.mockResolvedValue(true);
 	});
@@ -232,6 +237,17 @@ describe('Composer send UX', () => {
 		expect(screen.getByText('技能')).toBeInTheDocument();
 		expect(screen.getByText('画图技能')).toBeInTheDocument();
 		expect(screen.getByText('命令')).toBeInTheDocument();
+	});
+
+	it('取不到工作区根路径就不请求技能清单（不回落服务端全局 cwd）', async () => {
+		// 89351af 的隔离边界：侧链会话没有工作区，若照旧发请求，/v1/skills 会回落到
+		// 服务端的 UI cwd —— 那是"另一个项目的技能"，不能出现在侧聊候选里。
+		chatState.sessions = [{id: 'sess_1', spaceId: SIDE_SPACE_ID}];
+		const user = userEvent.setup();
+		render(<Composer />);
+		await user.type(screen.getByPlaceholderText(/描述任务/), '/');
+		await waitFor(() => expect(screen.getByPlaceholderText(/描述任务/)).toHaveValue('/'));
+		expect(fetchSkills).not.toHaveBeenCalled();
 	});
 
 	it('routes slash commands to handleComposerSlash, not sendMessage', async () => {
