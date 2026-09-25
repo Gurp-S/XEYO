@@ -371,8 +371,17 @@ def check_cold_references(run: RunEvidence) -> list[Finding]:
 				allowed_conclusion="只能说本轮没有可归属的冷引用，不能说本轮的恢复性没问题。",
 			)
 		)
+	turn_projection_ids = {
+		_s(event.row.get("projection_id")) for event in run.events_for_turn() if _s(event.row.get("projection_id"))
+	}
 	for manifest in run.projections:
 		errors = manifest.get("invariant_errors") or []
+		# working 只存"本会话最后一份"manifest，它多半不是本轮那一份。归不到本轮的
+		# 投影不得冒充本轮结论：2026-09-25 分层普查 57 轮里，29 条投影结论只有 7 条
+		# 的 projection_id 真出现在本轮的模型行里，其余 22 条是同一条会话级记录被
+		# 别轮复用（最多一份 manifest 被 22 个轮次各自报一遍）。
+		if _s(manifest.get("projection_id")) not in turn_projection_ids:
+			continue
 		handle_count = manifest.get("spills")
 		count_text = f"该投影带 {handle_count} 个可回读句柄" if isinstance(handle_count, int) else ""
 		if "truncation_without_handle" in errors:

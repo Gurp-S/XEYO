@@ -39,6 +39,11 @@
     真实尾窗 12 000 行里非空 error_kind 129/129 都是 INTERNAL ⇒ 把它当我方引擎证据，
     等于把全部工具失败判给自己；把它印进现象，等于给读者一个不存在的区分。
     现在它落到"未定"，现象里改说"错误分类未细分"，原值仍留在证据里可回读。
+11. 投影 manifest 的结论不带轮次身份：``memory/working`` 只存"本会话最后一份"
+    ``last_projection_manifest``，规则却把它当本轮结论报。2026-09-25 分层普查 57 轮：
+    29 条投影结论里只有 7 条的 ``projection_id`` 出现在本轮的模型行里，其余 22 条是
+    同一条会话级记录被同会话的别轮复用（一份 manifest 最多被 22 个轮次各自报一遍）。
+    现在归不到本轮的投影一律不出结论 —— 与第 7/8 条同一族：会话级记录不得冒充轮次结论。
 
 纠正的底线：规则要么判对，要么 ``unknown`` 并写明缺哪条记录，不得靠沉默消噪。
 """
@@ -291,7 +296,7 @@ def test_truncation_claim_without_handle_is_a_suspicion() -> None:
 	那条只能停在未定。现在它说的是原文读不回来，可以进可疑档。
 """
 	run = _run(
-		[_ev(1, "model.started", 1.0, model_request_id="r1", attempt=1)],
+		[_ev(1, "model.started", 1.0, model_request_id="r1", attempt=1, projection_id="p1")],
 		projections=[
 			{
 				"projection_id": "p1",
@@ -316,7 +321,7 @@ def test_legacy_spill_flag_is_only_recorded_as_unreadable() -> None:
 	判据换名之后，还能看见旧名就说明这份投影是改版前生成的 —— 只能登记为读不出。
 	"""
 	run = _run(
-		[_ev(1, "model.started", 1.0, model_request_id="r1", attempt=1)],
+		[_ev(1, "model.started", 1.0, model_request_id="r1", attempt=1, projection_id="p1")],
 		projections=[
 			{
 				"projection_id": "p1",
@@ -331,6 +336,28 @@ def test_legacy_spill_flag_is_only_recorded_as_unreadable() -> None:
 	assert findings[0].status == UNKNOWN
 	assert "改版前" in findings[0].phenomenon
 	assert not [f for f in findings if f.status == SUSPECTED_CAUSE]
+
+
+def test_projection_manifest_from_another_turn_is_not_a_turn_conclusion() -> None:
+	"""working 只留最后一份 manifest：它不属于本轮时，本轮就没有投影结论。
+
+	真实数据 57 轮里 29 条投影结论只有 7 条归得到本轮；其余 22 条是同一条会话级
+	记录被同会话的别轮各自报了一遍（一份最多被 22 轮复用）。会话级记录反复冒充
+	轮次结论这条族，折叠账本已经修过，投影这里是第二次实测到。
+	"""
+	for flag in ("truncation_without_handle", "spill_reference_mismatch"):
+		run = _run(
+			[_ev(1, "model.started", 1.0, model_request_id="r1", attempt=1, projection_id="p-this-turn")],
+			projections=[
+				{
+					"projection_id": "p-other-turn",
+					"locator": "working:projection",
+					"spills": 3,
+					"invariant_errors": [flag],
+				}
+			],
+		)
+		assert rules.check_cold_references(run) == [], flag
 
 
 def test_turn_without_records_yields_only_the_no_record_finding(collect) -> None:

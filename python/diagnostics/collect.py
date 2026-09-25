@@ -644,10 +644,23 @@ def _collect_working(run: RunEvidence, session_id: str) -> None:
 			note="working 只保留最后一份 manifest；历史投影需靠审计 projection_id 关联",
 		)
 	)
+	manifest_id = _s(run.projections[0].get("projection_id")) if run.projections else ""
+	turn_projection_ids = {
+		_s(event.row.get("projection_id")) for event in run.events_for_turn() if _s(event.row.get("projection_id"))
+	}
+	if manifest_id and manifest_id not in turn_projection_ids:
+		# 本轮没有属于自己的投影判据这件事要说出来：规则层会因此不出投影结论，
+		# 读者需要知道那是"拿不到本轮的那一份"，不是"本轮查过没问题"。
+		projection_note = (
+			f"working 只有本会话最后一份 manifest（projection_id={manifest_id[:12]}），"
+			"它不是本轮提交的那一份：本轮没有可核对的投影判据，规则层不会用别轮的投影顶替。"
+		)
+	else:
+		projection_note = "last_projection_manifest 单快照：本运行前的投影结构无法回放"
 	run.add_gap(
 		"instruction_context",
 		"field_missing",
-		"last_projection_manifest 单快照：本运行前的投影结构无法回放",
+		projection_note,
 	)
 
 
