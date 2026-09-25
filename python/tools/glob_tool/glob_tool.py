@@ -71,11 +71,14 @@ _glob_stats: dict[str, int] = {
 }
 
 # 空结果处置：禁止暗示去 list 全库
+# 最后一句是 2026-09-25 实测纠正：正向 --glob 会压过 ignore 规则，被 .gitignore
+# 挡掉的这里照样列出，所以不能说 ignore 文件"被尊重"——那句是错的承诺。
 _NO_FILES_TIP = (
 	"\n\nNo matches. The first pass is case-sensitive; patterns with letters also "
 	"have a case-insensitive retry. path and name fragments restrict the search. "
-	"node_modules/.git/dist and other heavy directories are excluded; "
-	".gitignore/.ignore and a workspace .agentignore are respected."
+	"node_modules/.git/dist and other heavy directories are excluded, and so is "
+	"anything a workspace .agentignore names. This pass is a name listing: the "
+	"pattern decides, and .gitignore/.ignore do not hide files from it."
 )
 
 
