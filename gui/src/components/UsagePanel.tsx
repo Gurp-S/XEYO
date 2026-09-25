@@ -612,17 +612,17 @@ export function UsagePanel({active = true}: Props) {
 		const models = report?.models ?? [];
 		let list = models;
 		if (modelId) {
-			const selected = models.find(
-				m => m.model === modelId && (!modelProvider || m.provider === modelProvider),
+			const exactProviderMatch = modelProvider
+				? models.some(m => m.model === modelId && m.provider === modelProvider)
+				: false;
+			// Filtering a model must never widen to every sibling model from the
+			// same vendor. API-channel choices may not match the canonical vendor
+			// recorded in the report, so fall back to the exact model id in that case.
+			list = models.filter(
+				m =>
+					m.model === modelId &&
+					(!exactProviderMatch || m.provider === modelProvider),
 			);
-			if (selected) {
-				list = models.filter(m => m.provider === selected.provider);
-			} else {
-				// The dropdown can identify a model by its API channel while the
-				// report groups it by the model's canonical vendor. Keep the model
-				// visible if those identifiers differ.
-				list = models.filter(m => m.model === modelId);
-			}
 		}
 		const map = new Map<string, UsageModelBlock[]>();
 		for (const m of list) {
