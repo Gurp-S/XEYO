@@ -364,6 +364,14 @@ function JournalTree() {
 
 	useEffect(() => {
 		let disposed = false;
+		if (!hydrated || !rootPath.trim()) {
+			setChanges([]);
+			setError(null);
+			setLoaded(true);
+			return () => {
+				disposed = true;
+			};
+		}
 		setLoaded(false);
 		void (async () => {
 			try {
@@ -385,7 +393,9 @@ function JournalTree() {
 
 	return (
 		<>
-			{!loaded ? (
+			{!rootPath.trim() ? (
+				<li className="px-7 py-1 font-mono text-[11px] text-mute/70">还没有打开文件夹</li>
+			) : !loaded ? (
 				<li className="px-7 py-1">
 					<span className="inline-block h-2.5 w-24 animate-pulse rounded bg-glass-strong" />
 				</li>
@@ -752,6 +762,12 @@ function GitTree() {
 	useEffect(() => {
 		let disposed = false;
 		setState({loading: true, error: null, status: null, log: null, branches: null});
+		if (!hydrated || !rootPath.trim()) {
+			setState({loading: false, error: null, status: null, log: null, branches: null});
+			return () => {
+				disposed = true;
+			};
+		}
 		void (async () => {
 			try {
 				const [status, log, branches] = await Promise.all([
@@ -785,6 +801,8 @@ function GitTree() {
 				<TreeChildren open>
 					{state.loading ? (
 						<li className="px-7 py-1 font-mono text-[11px] text-mute/70">加载中…</li>
+					) : !rootPath.trim() ? (
+						<li className="px-7 py-1 font-mono text-[11px] text-mute/70">还没有打开文件夹</li>
 					) : state.error || noRepo ? (
 						<li className="px-7 py-1 font-mono text-[11px] text-mute/70">
 							{state.error ? '加载失败' : '当前工作区不是 Git 仓库'}
@@ -811,9 +829,14 @@ function GitTree() {
 				</TreeChildren>
 			) : null}
 			{/* 提交记录：打开终端风格功能区界面（全部提交记录） */}
-			<Row depth={1} onClick={() => setActiveTool('commits')}>
+			<Row
+				depth={1}
+				onClick={rootPath.trim() ? () => setActiveTool('commits') : undefined}
+			>
 				<GitCommitHorizontal className="h-3.5 w-3.5 shrink-0 text-mute" strokeWidth={1.8} />
-				<span className="min-w-0 flex-1 truncate">提交记录</span>
+				<span className="min-w-0 flex-1 truncate">
+					{rootPath.trim() ? '提交记录' : '提交记录（请先打开工作区）'}
+				</span>
 				{state.log && state.log.repo && state.log.commits.length > 0 ? (
 					<span className="shrink-0 font-mono text-[10px] text-ok">+{state.log.commits.length}</span>
 				) : null}
