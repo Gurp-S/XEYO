@@ -22,6 +22,12 @@ import {useViewport} from './useViewport';
 
 /** 聊天列可读下限：正文 34ch + Composer 底行不溢出的经验值。 */
 export const CHAT_MIN_READABLE = 340;
+export const SIDEBAR_COMPACT_WIDTH_MAX = 280;
+
+/** 侧栏在紧凑窗口里的渲染宽；存储值继续保留，窗口变宽后恢复。 */
+export function sidebarRenderedWidth(width: number, compact: boolean): number {
+	return compact ? Math.min(width, SIDEBAR_COMPACT_WIDTH_MAX) : width;
+}
 
 export type PaneClamp = {
 	sidebarEff: number;
@@ -90,6 +96,7 @@ export function usePaneViewportClamp(): PaneClamp {
 	// 工作区开合在独立 workspaceStore（TitleBar 开关同一来源）。
 	const workspaceOpen = useWorkspaceStore(s => s.open);
 	const workspaceVisible = useWorkspaceStore(s => s.open && !s.navHidden);
+	const sidebarRendered = sidebarRenderedWidth(sidebarWidth, vp.compact);
 	// islands 的 row gap 作用于实际 flex 子项，宽度为 0 的过渡槽也占一道 gap。
 	// 平滑模式始终保留左右槽；关闭平滑模式时槽随面板卸载，只计仍打开的槽。
 	const layoutGap =
@@ -99,7 +106,7 @@ export function usePaneViewportClamp(): PaneClamp {
 			: 0;
 	return computePaneViewportClamp(
 		vp.width,
-		{open: sidebarOpen, width: sidebarWidth},
+		{open: sidebarOpen, width: sidebarRendered},
 		{open: workspaceVisible, width: explorerWidth},
 		CHAT_MIN_READABLE,
 		PANE_WIDTH_MIN,

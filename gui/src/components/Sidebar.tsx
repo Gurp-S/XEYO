@@ -33,7 +33,10 @@ import {useHoverScroll} from '@/hooks/useHoverScroll';
 import {usePaneResize} from '@/hooks/usePaneResize';
 import {usePresence} from '@/hooks/usePresence';
 import {useViewport} from '@/hooks/useViewport';
-import {usePaneViewportClamp} from '@/hooks/paneViewportClamp';
+import {
+	SIDEBAR_COMPACT_WIDTH_MAX,
+	usePaneViewportClamp,
+} from '@/hooks/paneViewportClamp';
 import {fetchWorkspacePeers, type WorkspacePeerInfo} from '@/lib/api';
 import {
 	closePageView,
@@ -422,7 +425,7 @@ export const Sidebar = memo(function Sidebar() {
 	// 窄窗口让位钳制：与工作区协调收缩，保聊天列可读（paneViewportClamp.ts）。
 	const {sidebarEff} = usePaneViewportClamp();
 	const width = compact
-		? Math.min(sidebarEff, 280)
+		? Math.min(sidebarEff, SIDEBAR_COMPACT_WIDTH_MAX)
 		: sidebarEff;
 	const {mounted, shown} = usePresence(
 		sidebarOpen,
