@@ -154,8 +154,11 @@ def measure_carrier(bodies: list[str]) -> dict[str, Any]:
 def measure_incidence_coverage(limit: int, turns: int) -> dict[str, Any]:
 	"""普查：真实会话轮边界能不能喂出通报块（测的是覆盖率，不是收益）。"""
 	from prompt.pre_llm_inject import InjectContext, run_pre_llm_inject
+	from session.persistence import default_sessions_dir
 
-	root = Path.home() / ".xeyo" / "sessions"
+	# 走权威解析：生产把会话根搬到 XEYO_SESSIONS_DIR 时，硬编码 home 的普查会读到
+	# 一个空目录，然后把"读不到"报成"没有覆盖率"。
+	root = default_sessions_dir()
 	paths = [p for p in sorted(root.glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True) if not p.name.startswith("_")][:limit]
 	sessions_used = 0
 	boundaries: list[list[dict[str, str]]] = []

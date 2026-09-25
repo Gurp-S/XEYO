@@ -21,12 +21,16 @@ if str(ROOT) not in sys.path:
 	sys.path.insert(0, str(ROOT))
 
 from memory.simulator.replay import _is_user_text, load_jsonl
+from session.persistence import default_sessions_dir
+
+# 会话根走权威解析（认 XEYO_SESSIONS_DIR），别再假设它一定在真实主目录下。
+_SESSIONS = default_sessions_dir()
 
 DEFAULT_SOURCE_CANDIDATES = (
-	Path.home() / ".xeyo" / "sessions" / "sess_msy1p5ev_up68xw.jsonl",
+	_SESSIONS / "sess_msy1p5ev_up68xw.jsonl",
 	Path.home() / ".xenyon" / "sessions" / "sess_msy1p5ev_up68xw.jsonl",
 )
-DEFAULT_OUT = Path.home() / ".xeyo" / "sessions" / "sess_real_200turn_c2.jsonl"
+DEFAULT_OUT = _SESSIONS / "sess_real_200turn_c2.jsonl"
 
 
 def resolve_source(explicit: str | None) -> Path:

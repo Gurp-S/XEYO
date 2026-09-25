@@ -16,6 +16,10 @@ def _isolate_xeyo_sessions(tmp_path, monkeypatch):
 	# 该测试自行 delenv 后再断言。
 	monkeypatch.setenv("XEYO_SNAPSHOTS_DIR", str(tmp_path / ".xeyo_snapshots"))
 	monkeypatch.setenv("XEYO_SPILL_DIR", str(tmp_path / ".xeyo_spill"))
+	# journal 根以前硬编码 Path.home()/.xeyo/journal，于是测试自己造的 workspace id
+	# （tmp_path 派生的 test_* / wt_*）连同派生索引一律写进用户真实主目录（实测
+	# 堆到 9662 个 .jsonl）。现在与 sessions/spill 同轨钉进 tmp。
+	monkeypatch.setenv("XEYO_JOURNAL_DIR", str(tmp_path / ".xeyo_journal"))
 	# 机器级 XEYO_L5 / C2_GATE env 不参与运行时（get_value 语义），setenv 仅
 	# 兜底历史直读残留。C2_GATE 生产默认开（用户决策 2026-09）；需 gate 关的
 	# 单测用 mem_switch(XEYO_C2_GATE="0") 隔离 settings。

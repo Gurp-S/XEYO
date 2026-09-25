@@ -646,10 +646,22 @@ def _detect_write_stale(messages: list[Any]) -> bool:
     return False
 
 
+def _sessions_root() -> Path:
+    """会话根：走 session.persistence 的权威解析，认 XEYO_SESSIONS_DIR。
+
+    原来这里硬编码 ``Path.home()/.xeyo/sessions``，于是设了覆盖的进程里
+    侧链写进真实主目录、会话本体却在别处 —— 清理循环按另一套根扫描就永远
+    扫不到自己写下的东西。
+    """
+    from session.persistence import default_sessions_dir
+
+    return default_sessions_dir()
+
+
 def _sidechain_dir(main_session_id: str) -> Path:
-    """子 agent 侧链目录：~/.xeyo/sessions/{main_session}/agents。"""
+    """子 agent 侧链目录：``{sessions_root}/{main_session}/agents``。"""
     safe_main = _safe(main_session_id)
-    return Path.home() / ".xeyo" / "sessions" / safe_main / "agents"
+    return _sessions_root() / safe_main / "agents"
 
 
 def _flush_subagent_snapshot(
@@ -853,13 +865,9 @@ def gc_sidechains(
 
 
 def _sidechain_path(main_session_id: str, agent_id: str) -> Path:
-    """侧链 JSONL：`~/.xeyo/sessions/{main_session}/agents/{agent_id}.jsonl`。"""
-    safe_main = _safe(main_session_id)
+    """侧链 JSONL：``{sessions_root}/{main_session}/agents/{agent_id}.jsonl``。"""
     safe_agent = _safe(agent_id)
-    return (
-        Path.home() / ".xeyo" / "sessions" / safe_main / "agents"
-        / f"{safe_agent}.jsonl"
-    )
+    return _sidechain_dir(main_session_id) / f"{safe_agent}.jsonl"
 
 
 def _safe(raw: str) -> str:

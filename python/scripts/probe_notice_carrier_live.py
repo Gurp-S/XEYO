@@ -42,7 +42,11 @@ from prompt.notice_channel import (  # noqa: E402
 	notice_open_tag,
 )
 
-_XEYO_SESSIONS = Path.home() / ".xeyo" / "sessions"
+from session.persistence import default_sessions_dir
+
+# 权威解析：会话根被 XEYO_SESSIONS_DIR 搬走时，硬编码 home 会探到一个空目录，
+# 探针于是把"读不到"当成"通报不存在"。
+_XEYO_SESSIONS = default_sessions_dir()
 
 #: 引擎注入块的自有标题（实发文本里靠它们认块；不靠自造词，只看装配口实际写的）
 _INJECT_HEADS = (

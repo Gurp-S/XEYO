@@ -96,7 +96,22 @@ def _read_rows(path: Path) -> list[dict[str, Any]]:
 # 路径
 # ---------------------------------------------------------------------------
 def _journal_root() -> Path:
+    """变更日志目录。
+
+    以前硬编码 ``~/.xeyo/journal``：于是测试里的 workspace（tmp_path 派生的
+    ``test_*`` 等）把 journal 与派生索引一律写进**用户真实主目录**（实测堆到
+    9662 个 .jsonl），而部署方也无从搬迁。``XEYO_JOURNAL_DIR`` 与
+    ``XEYO_SESSIONS_DIR`` 同形，测试在 conftest 里钉进 tmp。
+    """
+    override = os.environ.get("XEYO_JOURNAL_DIR", "").strip()
+    if override:
+        return Path(override).expanduser()
     return Path.home() / ".xeyo" / "journal"
+
+
+def journal_root() -> Path:
+    """公开入口：清理循环等外部调用方用它，别再各自拼 ``Path.home()``。"""
+    return _journal_root()
 
 
 def _changes_path(workspace_id: str) -> Path:

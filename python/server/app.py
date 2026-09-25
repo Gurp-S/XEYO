@@ -142,8 +142,12 @@ async def _lifespan(_app: FastAPI):
 
 		ttl = float(os.environ.get("XEYO_SIDECHAIN_GC_TTL_S", str(7 * 24 * 3600)))
 		interval = float(os.environ.get("XEYO_SIDECHAIN_GC_INTERVAL_S", "3600"))
-		sessions_root = Path.home() / ".xeyo" / "sessions"
-		journal_root = Path.home() / ".xeyo" / "journal"
+		# 走权威解析，别自己拼 Path.home()：设了 XEYO_SESSIONS_DIR 的进程里，
+		# 硬编码的扫描根既清不到真正的数据，又会把测试写入的 id 当真处理。
+		from session.persistence import default_sessions_dir
+
+		sessions_root = default_sessions_dir()
+		journal_root = journal.journal_root()
 		while True:
 			await asyncio.sleep(max(60.0, interval))
 			try:

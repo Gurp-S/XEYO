@@ -35,7 +35,11 @@ def _read_jsonl(path: Path) -> list[dict]:
 
 
 def _journal_path(workspace_id: str) -> Path:
-	return Path.home() / ".xeyo" / "journal" / f"{workspace_id}.jsonl"
+	# 走 journal 自己的权威解析（认 XEYO_JOURNAL_DIR）：硬编码 home 的报告脚本会
+	# 读到一个空目录，然后把"读不到"写成"这一路没有记录"。
+	from memory.journal import journal_root
+
+	return journal_root() / f"{workspace_id}.jsonl"
 
 
 def _usage_events() -> list[dict]:
