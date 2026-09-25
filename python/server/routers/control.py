@@ -260,6 +260,25 @@ class PermissionResolveRequest(BaseModel):
 	remember: bool = False
 
 
+def _resolve_miss_reason(store: Any, request_id: str) -> str:
+	"""resolve() 为什么没生效：句柄不存在，还是已经被别的表面裁决过。
+
+	权限与提问两个存储同形状（内存 dict + ``item.resolved``），这里只读不写。
+	GUI 要的就是这一层区分：``already_resolved`` 不是失败（远程/微信已经答过，
+	重试永远修不好，界面却写"提交失败请重试"）；``no_such_request`` 通常是服务重启
+	清掉了内存挂起项。取不到观测就退回空串，让界面用通用措辞，不猜原因。
+	"""
+	try:
+		item = store.get(request_id)
+	except Exception:  # noqa: BLE001 — 观测旁路不得影响裁决本身
+		return ""
+	if item is None:
+		return "no_such_request"
+	if getattr(item, "resolved", False):
+		return "already_resolved"
+	return ""
+
+
 @router.post("/v1/permission/resolve")
 def permission_resolve(body: PermissionResolveRequest, request: Request) -> dict[str, Any]:
 	"""前端/微信确认或拒绝一个挂起的权限请求。"""
@@ -274,6 +293,7 @@ def permission_resolve(body: PermissionResolveRequest, request: Request) -> dict
 			422, "outcome must be allow / deny / remind", "invalid_request"
 		)
 	store = default_permission_store()
+	miss = _resolve_miss_reason(store, request_id)
 	ok = store.resolve(request_id, body.approved, actor=body.actor, choice=choice)
 	grant_id = ""
 	if ok and body.remember and body.approved and choice in (None, "allow"):
@@ -297,7 +317,12 @@ def permission_resolve(body: PermissionResolveRequest, request: Request) -> dict
 				actor=body.actor,
 			)
 			grant_id = grant.grant_id if grant else ""
-	return {"ok": ok, "request_id": request_id, "grant_id": grant_id}
+	return {
+		"ok": ok,
+		"request_id": request_id,
+		"grant_id": grant_id,
+		**({} if ok else {"reason": miss}),
+	}
 
 
 @router.get("/v1/permissions/grants")
@@ -354,10 +379,10 @@ def ask_user_resolve(body: AskUserResolveRequest, request: Request) -> dict[str,
 	"""前端/微信提交对一个挂起提问（AskUserQuestion）的作答。"""
 	require_loopback(request)
 	request_id = _require_store_id(body.request_id, field="request_id")
-	ok = default_ask_store().resolve_answer(
-		request_id, body.answer, actor=body.actor
-	)
-	return {"ok": ok, "request_id": request_id}
+	ask_store = default_ask_store()
+	miss = _resolve_miss_reason(ask_store, request_id)
+	ok = ask_store.resolve_answer(request_id, body.answer, actor=body.actor)
+	return {"ok": ok, "request_id": request_id, **({} if ok else {"reason": miss})}
 
 
 class PlanApproveRequest(BaseModel):
