@@ -14,12 +14,16 @@ export function findRoundPills(
 	round: Round,
 	cutPills: RewindPill[] | undefined,
 ): RoundPills {
-	const before = cutPills?.find(p => p.afterMessageId === round.user?.id);
+	const before = cutPills?.find(
+		p => (p.localAfterMessageId ?? p.afterMessageId) === round.user?.id,
+	);
 	if (before) {
 		return {before, after: undefined};
 	}
 	const after = cutPills?.find(p =>
-		round.rest.some(b => (b as {id?: string}).id === p.afterMessageId),
+		round.rest.some(
+			b => (b as {id?: string}).id === (p.localAfterMessageId ?? p.afterMessageId),
+		),
 	);
 	return {before: undefined, after};
 }

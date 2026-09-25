@@ -319,9 +319,16 @@ export function RewindV3Dialog({sessionId}: {sessionId: string}) {
 	const abandon = useRewindV3Store(s => s.abandon);
 	const close = useRewindV3Store(s => s.closeDialog);
 	const dialogRef = useRef<HTMLDialogElement>(null);
+	const restoredDoneRef = useRef<{sessionId: string; done: boolean} | null>(null);
 	const [undoing, setUndoing] = useState(false);
 	const [markingAnchor, setMarkingAnchor] = useState(false);
 	const [anchorOn, setAnchorOn] = useState<boolean | null>(null);
+	if (restoredDoneRef.current?.sessionId !== sessionId) {
+		restoredDoneRef.current = {
+			sessionId,
+			done: state?.phase === 'done' && state.settled,
+		};
+	}
 
 	useEffect(() => {
 		setAnchorOn(state?.checkpointAnchor ?? null);
@@ -350,7 +357,15 @@ export function RewindV3Dialog({sessionId}: {sessionId: string}) {
 	useEffect(() => {
 		const el = dialogRef.current;
 		if (state && state.phase !== 'idle') {
-			if (el && !el.open) {
+			// A settled completion restored from storage was already acknowledged by
+			// the previous page lifetime. Keep its state available for Undo, but do
+			// not force the user to dismiss the same modal again after a reload.
+			const restoredDone =
+				restoredDoneRef.current?.sessionId === sessionId &&
+				restoredDoneRef.current.done &&
+				state.phase === 'done' &&
+				state.settled;
+			if (el && !el.open && !restoredDone) {
 				el.showModal();
 			}
 		}
@@ -359,7 +374,7 @@ export function RewindV3Dialog({sessionId}: {sessionId: string}) {
 				el.close();
 			}
 		};
-	}, [state?.phase, state === undefined]);
+	}, [sessionId, state?.phase, state?.settled, state === undefined]);
 
 	if (!state || state.phase === 'idle') {
 		return null;

@@ -18,6 +18,7 @@ import type {ChatMessage, RewindEvent} from '@/lib/types';
 import {uid} from '@/lib/utils';
 import {
 	activeBackendSessionId,
+	loadLocalSessionMessages,
 	loadSessionMessagesWithBackfill,
 	recoverSessionMessages,
 } from '@/stores/chat/preStoreHelpers';
@@ -74,6 +75,8 @@ export interface RewindV3DialogState {
 export interface RewindPill {
 	rewindId: string;
 	afterMessageId: string;
+	/** Client-side row identity used only to place the pill in the rendered transcript. */
+	localAfterMessageId?: string;
 	checkpointId: string;
 	editedDigest: string;
 	removedRows: number;
@@ -344,6 +347,47 @@ function eventsToPills(events: RewindEvent[]): RewindPill[] {
 		latestByAnchor.set(pill.afterMessageId, pill);
 	}
 	return [...latestByAnchor.values()].sort((a, b) => a.ts - b.ts);
+}
+
+function sameTranscriptRow(a: ChatMessage, b: ChatMessage): boolean {
+	return (
+		a.role === b.role &&
+		a.text === b.text &&
+		a.toolName === b.toolName &&
+		a.toolUseId === b.toolUseId &&
+		a.toolInput === b.toolInput &&
+		Boolean(a.isThought) === Boolean(b.isThought) &&
+		a.source === b.source &&
+		Boolean(a.uiOnly) === Boolean(b.uiOnly) &&
+		JSON.stringify(a.mediaRefs ?? []) === JSON.stringify(b.mediaRefs ?? [])
+	);
+}
+
+/** Preserve the server anchor for rewind API calls; resolve a local render anchor only
+ * when the transcript prefix through that row is identical on both sides. */
+function mapPillAnchorsToLocalRows(
+	pills: RewindPill[],
+	serverMessages: ChatMessage[],
+	localMessages: ChatMessage[],
+): RewindPill[] {
+	return pills.map(pill => {
+		if (localMessages.some(message => message.id === pill.afterMessageId)) {
+			return {...pill, localAfterMessageId: pill.afterMessageId};
+		}
+		const serverIndex = serverMessages.findIndex(
+			message => message.id === pill.afterMessageId,
+		);
+		if (
+			serverIndex < 0 ||
+			serverIndex >= localMessages.length ||
+			!serverMessages
+				.slice(0, serverIndex + 1)
+				.every((message, index) => sameTranscriptRow(message, localMessages[index]!))
+		) {
+			return pill;
+		}
+		return {...pill, localAfterMessageId: localMessages[serverIndex]!.id};
+	});
 }
 
 function summarizeRestore(event: RewindEvent): string | null {
@@ -1026,8 +1070,35 @@ export const useRewindV3Store = create<RewindV3Store>((set, get) => {
 		async loadPills(sessionId) {
 			try {
 				const events = await fetchRewindEvents(sessionId);
+				const eventPills = eventsToPills(events);
+				if (eventPills.length === 0) {
+					set(s => ({
+						pillsBySession: {...s.pillsBySession, [sessionId]: []},
+					}));
+					return;
+				}
+				const localMessages =
+					useChatStore.getState().messagesById[sessionId] ??
+					(await loadLocalSessionMessages(sessionId));
+				const needsIdMapping = eventPills.some(
+					pill => !localMessages.some(message => message.id === pill.afterMessageId),
+				);
+				let serverMessages: ChatMessage[] = [];
+				if (needsIdMapping) {
+					const chat = useChatStore.getState();
+					const backendSessionId = activeBackendSessionId(
+						chat.historyById,
+						sessionId,
+					);
+					serverMessages = await loadServerSessionMessages(backendSessionId);
+				}
+				const pills = mapPillAnchorsToLocalRows(
+					eventPills,
+					serverMessages,
+					localMessages,
+				);
 				set(s => ({
-					pillsBySession: {...s.pillsBySession, [sessionId]: eventsToPills(events)},
+					pillsBySession: {...s.pillsBySession, [sessionId]: pills},
 				}));
 			} catch {
 				/* pill 数据拉取失败不阻断聊天 */
