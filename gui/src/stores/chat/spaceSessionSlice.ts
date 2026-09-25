@@ -528,7 +528,8 @@ messagesById: settled.messagesById,
 			// 缺少 messagesById 条目 ≠ 空（避免将未加载历史当作空白）。
 			const empties: ChatSession[] = [];
 			for (const s of state.sessions) {
-				if (s.spaceId !== sid) {
+				// 归档会话是用户保留的历史项，不得作为空白草稿复用或清理。
+				if (s.spaceId !== sid || s.archived) {
 					continue;
 				}
 				// 乐观装载中（本地先行/回填未完成）的会话：既不能当空会话
