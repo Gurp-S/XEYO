@@ -120,6 +120,8 @@ const usage = pageViewOpen ? null : sessionUsageById[activeId ?? ''] ?? null;
 			const usagePreviewVisible = !pageViewOpen && activeId != null;
 			const [usagePreviewOpen, setUsagePreviewOpen] = useState(false);
 		const [compression, setCompression] = useState<SessionCompression | null>(null);
+		// 非空 = 这一屏的压缩态没读到；卡片要写明下面按用量条目推导。
+		const [compressionError, setCompressionError] = useState('');
 		const [compactBusy, setCompactBusy] = useState(false);
 		const usagePreviewRef = useRef<HTMLDivElement>(null);
 		const usagePreviewId = 'chat-usage-preview';
@@ -248,9 +250,17 @@ const usage = pageViewOpen ? null : sessionUsageById[activeId ?? ''] ?? null;
 				return;
 			}
 			let cancelled = false;
-			void fetchSessionCompression(backendSessionId).then(data => {
-				if (!cancelled) {
-					setCompression(data);
+			void fetchSessionCompression(backendSessionId).then(r => {
+				if (cancelled) {
+					return;
+				}
+				if (r.ok && r.data) {
+					setCompression(r.data);
+					setCompressionError('');
+				} else {
+					// 读不出时保留上一次真读到的快照，并记下原因：
+					// 直接写 null 会让卡片回落到用量推导值，看上去像"没压缩过"。
+					setCompressionError(r.message);
 				}
 			});
 			return () => {
@@ -269,9 +279,14 @@ const usage = pageViewOpen ? null : sessionUsageById[activeId ?? ''] ?? null;
 					toast.error(`压缩失败${res.reason ? `：${res.reason}` : ''}`);
 					return;
 				}
-				const data = await fetchSessionCompression(targetBackendId);
+				const r = await fetchSessionCompression(targetBackendId);
 				if (useChatStore.getState().activeId === targetSessionId) {
-					setCompression(data);
+					if (r.ok && r.data) {
+						setCompression(r.data);
+						setCompressionError('');
+					} else {
+						setCompressionError(r.message);
+					}
 				}
 				toast.success('已完成 /compact');
 			} catch (error) {
@@ -462,6 +477,12 @@ className="xy-icon-btn shrink-0 rounded-md p-1.5 text-mute hover:bg-glass-hover 
 														{active ? '已压缩' : '未触发'}
 													</span>
 												</div>
+												{compressionError ? (
+													<p className="mt-1 mb-0 text-[11px] leading-snug text-mute">
+														压缩态未取回（{compressionError}）：上面的状态按用量条目推导，
+														不代表本会话的压缩账。
+													</p>
+												) : null}
 												<div className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
 													<div className="text-mute">游标</div>
 													<div className="font-mono text-ink text-right">

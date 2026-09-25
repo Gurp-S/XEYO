@@ -450,25 +450,74 @@ export type SessionCompression = {
 	c2_summary_preview: string;
 };
 
+/**
+ * 压缩态读取的回执。旧签名 `Promise<SessionCompression | null>` 把三种情况压成一种：
+ * HTTP 失败、离线、200 但形状变了。用量浮标于是按 `compression?.compact_cursor ?? usage?.… ?? 0`
+ * 逐级回落 —— 一个没读到的字段会被渲染成"这轮还没压缩过（0）"。
+ */
+export type SessionCompressionRead = {
+	ok: boolean;
+	data: SessionCompression | null;
+	message: string;
+};
+
+function isFiniteNumber(v: unknown): v is number {
+	return typeof v === 'number' && Number.isFinite(v);
+}
+
+/** 后端固定回这 9 个键（无 ok 信封）；数值/布尔类缺任何一个都算没读到。 */
+function parseCompression(payload: unknown): SessionCompression | null {
+	if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
+	const b = payload as Record<string, unknown>;
+	if (typeof b.session_id !== 'string') return null;
+	if (typeof b.c2_gate !== 'boolean' || typeof b.active !== 'boolean') return null;
+	if (
+		!isFiniteNumber(b.compact_cursor) ||
+		!isFiniteNumber(b.turns_since_c2) ||
+		!isFiniteNumber(b.c2_summary_chars)
+	) {
+		return null;
+	}
+	return {
+		session_id: b.session_id,
+		c2_gate: b.c2_gate,
+		l5_mode: typeof b.l5_mode === 'string' ? b.l5_mode : '',
+		active: b.active,
+		compact_cursor: b.compact_cursor,
+		last_action: typeof b.last_action === 'string' ? b.last_action : '',
+		turns_since_c2: b.turns_since_c2,
+		c2_summary_chars: b.c2_summary_chars,
+		c2_summary_preview: typeof b.c2_summary_preview === 'string' ? b.c2_summary_preview : '',
+	};
+}
+
 /** 本会话 C2 压缩态（用量预览）。 */
 export async function fetchSessionCompression(
 	sessionId: string,
-): Promise<SessionCompression | null> {
+): Promise<SessionCompressionRead> {
 	const sid = sessionId.trim();
 	if (!sid) {
-		return null;
+		return {ok: false, data: null, message: 'no_session'};
 	}
 	try {
 		const res = await fetchWithTimeout(
 			apiUrl(`/v1/sessions/${encodeURIComponent(sid)}/compression`),
 			{cache: 'no-store'},
 		);
+		const payload = await res.json().catch(() => null);
 		if (!res.ok) {
-			return null;
+			return {ok: false, data: null, message: formatErrorDetail(payload, res.status)};
 		}
-		return (await res.json()) as SessionCompression;
-	} catch {
-		return null;
+		const data = parseCompression(payload);
+		return data
+			? {ok: true, data, message: ''}
+			: {ok: false, data: null, message: 'receipt_bad_compression'};
+	} catch (err) {
+		return {
+			ok: false,
+			data: null,
+			message: err instanceof Error ? err.message : String(err),
+		};
 	}
 }
 
@@ -1797,10 +1846,6 @@ export type BashPolicyRead = {
 	policy: BashPolicy | null;
 	message: string;
 };
-
-function isFiniteNumber(v: unknown): v is number {
-	return typeof v === 'number' && Number.isFinite(v);
-}
 
 /** 后端固定回这 7 个键；缺任何一个都不算"读到了策略"。 */
 function parseBashPolicy(payload: unknown): BashPolicy | null {
