@@ -1,9 +1,10 @@
 import {ChevronDown, ShieldAlert, ShieldCheck, ShieldQuestion} from 'lucide-react';
-import {useState} from 'react';
+import {useEffect, useRef, useState} from 'react';
 
 import {setSessionRuntimeMode} from '@/lib/api/runtimeMode';
 import {patchComposerDraftModes} from '@/lib/composerDrafts';
 import {cn} from '@/lib/utils';
+import {toast} from '@/lib/toast';
 import {useChatUiStore} from '@/stores/chatUiStore';
 import {useSettingsStore, type PermissionMode} from '@/stores/settingsStore';
 
@@ -40,17 +41,42 @@ export function ApprovalModeButton() {
 	const update = useSettingsStore(s => s.update);
 	const activeId = useChatUiStore(s => s.activeId);
 	const [open, setOpen] = useState(false);
+	// 非空 = 这一档只是用户点的意图，本会话的引擎还没认账（写失败/回执不符）。
+	// 不滚回本地选择：没有活值的会话里，请求 body 才是生效通道，滚回去等于把
+	// 用户要的档位改回旧档。诚实做法是"照你说的显示，但标出没确认"。
+	const [unconfirmed, setUnconfirmed] = useState('');
+	const seq = useRef(0);
+
+	// 换会话：上一枪的回执属于别的会话，提示不能跟着搬。
+	useEffect(() => {
+		seq.current += 1;
+		setUnconfirmed('');
+	}, [activeId]);
+
 	const current = MODES.find(m => m.mode === mode) ?? MODES[1];
 	const CurrentIcon = current.Icon;
 
 	const selectMode = (next: PermissionMode) => {
+		const mySeq = ++seq.current;
 		update({permissionMode: next});
-		if (activeId) {
-			patchComposerDraftModes(activeId, {permissionMode: next});
-			// 立即写活状态：同一轮内尚未执行的下一工具调用即按新模式判定。
-			setSessionRuntimeMode(activeId, next);
-		}
+		setUnconfirmed('');
 		setOpen(false);
+		if (!activeId) {
+			return;
+		}
+		patchComposerDraftModes(activeId, {permissionMode: next});
+		// 立即写活状态：同一轮内尚未执行的下一工具调用即按新模式判定。
+		void setSessionRuntimeMode(activeId, next).then(res => {
+			if (seq.current !== mySeq) {
+				return; // 更新的切换已接管
+			}
+			if (res.ok) {
+				setUnconfirmed('');
+				return;
+			}
+			setUnconfirmed(res.message || 'unknown');
+			toast.error(`审批模式未确认生效：${res.message || 'unknown'}`);
+		});
 	};
 
 	return (
@@ -59,16 +85,31 @@ export function ApprovalModeButton() {
 				type="button"
 				aria-haspopup="menu"
 				aria-expanded={open}
-				aria-label="审批模式"
+				aria-label={
+					unconfirmed ? '审批模式（本会话未确认生效）' : '审批模式'
+				}
+				title={
+					unconfirmed
+						? `本会话尚未确认切到「${current.label}」：${unconfirmed}`
+						: undefined
+				}
 				onClick={() => setOpen(v => !v)}
 				className={cn(
 					'inline-flex h-8 items-center gap-1 rounded-full px-2.5 text-xs text-mute transition-colors',
 					'hover:bg-ink/[0.06] hover:text-ink',
 					open && 'bg-ink/[0.08] text-ink',
+					unconfirmed && 'text-warn',
 				)}
 			>
-				<CurrentIcon className="h-3.5 w-3.5" strokeWidth={1.75} />
+				<CurrentIcon className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />
 				<span>{current.label}</span>
+				{unconfirmed ? (
+					<span
+						role="img"
+						aria-label="未确认生效"
+						className="h-1.5 w-1.5 shrink-0 rounded-full bg-warn"
+					/>
+				) : null}
 				<ChevronDown
 					className={cn(
 						'xy-caret h-3 w-3',
