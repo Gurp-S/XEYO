@@ -123,6 +123,9 @@ type Props = {
 
 export function SessionGoalDock({embedded = false}: Props) {
 	const activeId = useChatStore(s => s.activeId);
+	const activeSessionArchived = useChatStore(s =>
+		Boolean(activeId && s.sessions.some(session => session.id === activeId && session.archived)),
+	);
 	const state = useChatStore(s =>
 		activeId ? (s.sessionGoalById?.[activeId] ?? null) : null,
 	);
@@ -158,7 +161,7 @@ export function SessionGoalDock({embedded = false}: Props) {
 	useEffect(() => {
 		setEditing(false);
 		setConfirmDrop(false);
-	}, [activeId]);
+	}, [activeId, activeSessionArchived]);
 
 	if (!activeId || !state) {
 		return null;
@@ -179,8 +182,21 @@ export function SessionGoalDock({embedded = false}: Props) {
 	const paused = goal.status === 'paused';
 	const pending = goal.status === 'active' && goal.pending_complete === true;
 
-	const act = (fn: () => Promise<unknown>) => {
+	const ensureWritable = () => {
+		if (
+			!activeId ||
+			useChatStore.getState().sessions.some(
+				session => session.id === activeId && session.archived,
+			)
+		) {
+			toast.info('归档对话为只读，请先恢复');
+			return false;
+		}
+		return true;
+	};
+	const act = (fn: () => Promise<unknown>, allowArchivedStop = false) => {
 		if (busyRef.current) return;
+		if (!allowArchivedStop && !ensureWritable()) return;
 		busyRef.current = true;
 		void fn().finally(() => {
 			busyRef.current = false;
@@ -221,7 +237,7 @@ export function SessionGoalDock({embedded = false}: Props) {
 				}
 			}
 			await doDisarm();
-		});
+		}, true);
 	const pauseGoal = () =>
 		act(async () => {
 			const res = await runGoalVerb(activeId, rev =>
@@ -263,6 +279,7 @@ export function SessionGoalDock({embedded = false}: Props) {
 		);
 
 	const openEdit = () => {
+		if (!ensureWritable()) return;
 		const g = useChatStore.getState().sessionGoalById?.[activeId]?.goal;
 		setEditTitle(g?.text || g?.title || '');
 		setEditMax(g && g.max_rounds > 0 ? String(g.max_rounds) : '');
@@ -338,8 +355,9 @@ export function SessionGoalDock({embedded = false}: Props) {
 			type="button"
 			className={iconBtnCls}
 			aria-label="清除目标"
-			title="清除目标"
+			title={activeSessionArchived ? '归档对话为只读，请先恢复' : '清除目标'}
 			onClick={() => {
+				if (!ensureWritable()) return;
 				setEditing(false);
 				setConfirmDrop(true);
 			}}
@@ -420,9 +438,22 @@ export function SessionGoalDock({embedded = false}: Props) {
 					{objective}
 				</span>
 				<div className="ml-auto flex shrink-0 items-center gap-1">
-					{primary}
-					{editBtn}
-					{clearBtn}
+					{activeSessionArchived ? (
+						inRound ? (
+							<button type="button" className={ghostBtn} onClick={stop}>
+								<Square className="mr-0.5 inline size-2.5" strokeWidth={2} aria-hidden />
+								停止
+							</button>
+						) : (
+							<span className="text-[11px] text-mute">已归档 · 只读</span>
+						)
+					) : (
+						<>
+							{primary}
+							{editBtn}
+							{clearBtn}
+						</>
+					)}
 				</div>
 			</div>
 

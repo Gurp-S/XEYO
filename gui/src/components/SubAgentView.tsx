@@ -51,6 +51,9 @@ const SubAgentTranscript = memo(function SubAgentTranscript({
 	agentId: string;
 }) {
 	const sessionId = useChatStore(s => s.activeId);
+	const sessionArchived = useChatStore(s =>
+		Boolean(sessionId && s.sessions.some(session => session.id === sessionId && session.archived)),
+	);
 	const detail = useChatStore(s =>
 		sessionId ? s.agentTranscriptsById[`${sessionId}::${agentId}`] : undefined,
 	);
@@ -84,6 +87,14 @@ const SubAgentTranscript = memo(function SubAgentTranscript({
 	const sendFollow = async () => {
 		const t = followText.trim();
 		if (!t || !sessionId) {
+			return;
+		}
+		if (
+			useChatStore.getState().sessions.some(
+				session => session.id === sessionId && session.archived,
+			)
+		) {
+			setSentNote('归档对话为只读，请先恢复');
 			return;
 		}
 		const r = await postAgentInbox(sessionId, agentId, t);
@@ -206,6 +217,8 @@ const SubAgentTranscript = memo(function SubAgentTranscript({
 				<input
 					value={followText}
 					onChange={e => setFollowText(e.target.value)}
+					disabled={sessionArchived}
+					title={sessionArchived ? '归档对话为只读，请先恢复' : undefined}
 					onKeyDown={e => {
 						if (isImeComposing(e.nativeEvent)) return;
 						if (e.key === 'Enter' && !e.shiftKey) {
@@ -218,7 +231,7 @@ const SubAgentTranscript = memo(function SubAgentTranscript({
 				/>
 				<button
 					onClick={() => void sendFollow()}
-					disabled={!followText.trim()}
+					disabled={sessionArchived || !followText.trim()}
 					className="rounded-md border border-line/70 bg-glass px-2 py-1 text-xs text-ink-soft hover:bg-glass-hover disabled:opacity-40"
 				>
 					发送

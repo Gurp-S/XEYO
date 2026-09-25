@@ -32,12 +32,15 @@ import {toast} from '@/lib/toast';
 
 function RecoveryBanner() {
 	const activeId = useChatStore(s => s.activeId);
+	const activeSessionArchived = useChatStore(s =>
+		Boolean(activeId && s.sessions.some(session => session.id === activeId && session.archived)),
+	);
 	const recovery = useChatStore(s =>
 		activeId ? s.recoveryBySession[activeId] : undefined,
 	);
 	const continueRecovery = useChatStore(s => s.continueRecovery);
 	const abandonRecovery = useChatStore(s => s.abandonRecovery);
-	if (!activeId || !recovery) {
+	if (!activeId || !recovery || activeSessionArchived) {
 		return null;
 	}
 	const goal = (recovery.goalText || '').trim().slice(0, 120);

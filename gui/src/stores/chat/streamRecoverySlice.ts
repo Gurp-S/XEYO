@@ -77,6 +77,7 @@ function wholeWriteIsSafe(
 
 const REATTACH_MAX_ATTEMPTS = 3;
 const reattachInFlight = new Map<string, Promise<boolean>>();
+const recoveryContinueInFlight = new Set<string>();
 const reattachBackoffMs = (attempt: number) => 500 * 2 ** attempt;
 const sleep = (ms: number) =>
 	new Promise<void>(resolve => setTimeout(resolve, ms));
@@ -671,15 +672,41 @@ export function createStreamRecoverySlice(
 	},
 
 	async continueRecovery(sessionId: string) {
-		set(s => {
+		if (get().sessions.some(session => session.id === sessionId && session.archived)) {
+			toast.info('归档对话为只读，请先恢复');
+			return;
+		}
+		if (recoveryContinueInFlight.has(sessionId)) return;
+		recoveryContinueInFlight.add(sessionId);
+		const clearRecovery = () => set(s => {
 			const next = {...s.recoveryBySession};
 			delete next[sessionId];
 			return {recoveryBySession: next};
 		});
-		await get().sendMessage('继续');
+		try {
+			const accepted = await get().sendMessage(
+				'继续',
+				[],
+				[],
+				undefined,
+				clearRecovery,
+				undefined,
+				{
+					sessionId,
+					background: get().activeId !== sessionId,
+				},
+			);
+			if (accepted) clearRecovery();
+		} finally {
+			recoveryContinueInFlight.delete(sessionId);
+		}
 	},
 
 	async abandonRecovery(sessionId: string) {
+		if (get().sessions.some(session => session.id === sessionId && session.archived)) {
+			toast.info('归档对话为只读，请先恢复');
+			return;
+		}
 		const backendSessionId = activeBackendSessionId(
 			get().historyById,
 			sessionId,
