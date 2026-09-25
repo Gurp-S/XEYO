@@ -164,7 +164,14 @@ export function AgentMapPanel() {
 		if (!boundary) {
 			return hits;
 		}
-		return hits.filter(h => h.createdAt >= boundary.message.createdAt);
+		const currentTurnMessageIds = new Set(
+			messages.slice(boundary.index + 1).map(message => message.id),
+		);
+		return hits.filter(hit =>
+			hit.messageId
+				? currentTurnMessageIds.has(hit.messageId)
+				: hit.createdAt >= boundary.message.createdAt,
+		);
 	}, [hits, messages]);
 	const opsTrail = useMemo(() => buildOpsTrail(turnHits, 8), [turnHits]);
 	const replayScript = useMemo(() => {

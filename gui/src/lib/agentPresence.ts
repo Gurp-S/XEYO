@@ -12,6 +12,8 @@ export type AgentPresenceHit = {
 	running: boolean;
 	toolName: string;
 	createdAt: number;
+	/** 源工具消息身份；用于按对话轮次精确切分，不依赖毫秒时间戳。 */
+	messageId?: string;
 	/** 主会话为空；子 Agent 带 id。 */
 	agentId?: string;
 	/** Read.symbol 等符号路径。 */
@@ -109,6 +111,7 @@ export function collectAgentPresence(
 			running: Boolean(step.running),
 			toolName: message.toolName,
 			createdAt: message.createdAt,
+			messageId: message.id,
 			...(typeof obj?.symbol === 'string' && obj.symbol.trim()
 				? {symbol: obj.symbol.trim()}
 				: {}),
