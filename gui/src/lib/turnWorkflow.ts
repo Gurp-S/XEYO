@@ -108,17 +108,17 @@ export function buildTurnWorkflow(messages: ChatMessage[]): TurnWorkflowStep[] {
 				: message.toolStatus === 'done'
 					? 'done'
 					: 'running';
+		// 旧 transcript 把调用占位文本保存在 text 中；它不是工具结果。
+		const result = message.text?.startsWith('call ') ? '' : (message.text ?? '');
 		const step = toolToStep({
 			id: message.id,
 			name: message.toolName,
 			input: message.toolInput ?? '',
-			result: message.text?.startsWith('call ') ? '' : (message.text ?? ''),
+			result,
 			status,
 			createdAt: message.createdAt,
 		});
-		const running =
-			(message.toolStatus === 'running' || message.toolStatus === 'waiting') &&
-			!(message.text || '').trim();
+		const running = status === 'running' && !result.trim();
 		steps.push({
 			id: message.id,
 			lane: laneOf(step, message.toolName),

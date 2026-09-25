@@ -77,4 +77,22 @@ describe('buildTurnWorkflow', () => {
 			'edit-current',
 		]);
 	});
+
+	it('treats a legacy call placeholder as an active step, not as a result', () => {
+		const legacyCall: ChatMessage = {
+			id: 'legacy-read',
+			role: 'tool',
+			text: 'call Read {"file_path":"src/a.ts"}',
+			toolName: 'Read',
+			toolStatus: 'running',
+			createdAt: 3,
+		};
+
+		const [step] = buildTurnWorkflow([
+			{id: 'u', role: 'user', text: 'inspect', createdAt: 1},
+			legacyCall,
+		]);
+		expect(step?.running).toBe(true);
+		expect(step?.verb).toBe('Reading');
+	});
 });
