@@ -30,6 +30,7 @@ import {
 	fmtCostCny,
 	fmtDuration,
 	fmtInt,
+	gapReasonLabel,
 	groupFindingsByStatus,
 	mergeDetailPreservingLoadedPages,
 	pinKindLabel,
@@ -675,5 +676,37 @@ describe('实验请求体对齐后端契约（P1 3）', () => {
 			budgetCny: null,
 		}) as Record<string, unknown>;
 		expect('budget_cny' in body).toBe(false);
+	});
+});
+
+describe('证据缺项的中文口径与"零结论"的指向', () => {
+	// 后端把"缺席/归属不了/不可比"这类事实挪进缺项清单后，界面必须还能读：
+	// 一是新原因码要有中文，二是"没有结论"要指得出缺项在哪，不能读成全清白。
+	it('新原因码有中文口径，未知原因码原样带出不被吞', () => {
+		expect(gapReasonLabel('unattributed_rows')).toBe('行内没有可归属的身份');
+		expect(gapReasonLabel('no_records')).toBe('该来源对本会话没有记录行');
+		expect(gapReasonLabel('not_comparable')).toBe('字段粒度不支持这个判断');
+		expect(gapReasonLabel('field_missing')).toBe('记录里缺该字段');
+		expect(gapReasonLabel('brand_new_code')).toContain('brand_new_code');
+	});
+
+	it('零结论时把缺项条数说出来（缺项是"判不了"的原因）', () => {
+		render(
+			<FindingsView
+				detail={detail({
+					findings: [],
+					gaps: [
+						{boundary: 'model_request', reason: 'unattributed_rows', detail: '1 笔用量不带 request_id'},
+						{boundary: 'wsc_fold', reason: 'no_records', detail: '本会话没有折叠记录行'},
+					],
+				})}
+			/>
+		);
+		expect(document.body.textContent).toContain('采集侧记了 2 项证据缺项');
+	});
+
+	it('既无结论也无缺项时不编造缺项条数', () => {
+		render(<FindingsView detail={detail({findings: [], gaps: []})} />);
+		expect(document.body.textContent).not.toMatch(/采集侧记了/);
 	});
 });

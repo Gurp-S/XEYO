@@ -241,6 +241,9 @@ export function FindingsView({detail}: {detail: DiagRunDetail}) {
 			{detail.findings.length === 0 ? (
 				<Notice tone="info">
 					规则集未产生结论 —— 这不代表没有异常，只代表这些规则没看到。
+					{detail.gaps.length
+						? `采集侧记了 ${detail.gaps.length} 项证据缺项，逐条见「上下文」视图。`
+						: null}
 				</Notice>
 			) : null}
 
