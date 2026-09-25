@@ -358,11 +358,21 @@ export const Sidebar = memo(function Sidebar() {
 	const width = compact
 		? Math.min(sidebarEff, SIDEBAR_COMPACT_WIDTH_MAX)
 		: sidebarEff;
-	const {dragging, onResizeStart: startPaneResize} = usePaneResize(
+	const resizeMax = compact
+		? Math.min(SIDEBAR_WIDTH_MAX, SIDEBAR_COMPACT_WIDTH_MAX)
+		: SIDEBAR_WIDTH_MAX;
+	const {
+		dragging,
+		onResizeStart: startPaneResize,
+		onResizeKeyDown,
+		value,
+		minValue,
+		maxValue,
+	} = usePaneResize(
 		width,
 		onSidebarWidth,
 		SIDEBAR_WIDTH_MIN,
-		SIDEBAR_WIDTH_MAX,
+		resizeMax,
 		{paneRef},
 	);
 			useEffect(() => {
@@ -927,8 +937,12 @@ className="xy-icon-btn rounded-md p-1.5 text-mute hover:bg-glass-hover hover:tex
 				<PaneResizeHandle
 					edge="right"
 					dragging={dragging}
-					label="拖动调整侧栏宽度"
+					label="调整侧栏宽度"
 					onMouseDown={onResizeStart}
+					onKeyDown={onResizeKeyDown}
+					value={value}
+					minValue={minValue}
+					maxValue={maxValue}
 				/>
 			) : null}
 		</PaneSlot>

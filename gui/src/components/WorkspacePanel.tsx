@@ -912,7 +912,20 @@ export const WorkspacePanel = memo(function WorkspacePanel() {
 		(next: number) => updateSettings({explorerWidth: next}),
 		[updateSettings],
 	);
-	const {dragging, onResizeStart} = usePaneResize(width, onWidth, PANE_WIDTH_MIN, PANE_WIDTH_MAX, {invert: true, paneRef});
+	const {
+		dragging,
+		onResizeStart,
+		onResizeKeyDown,
+		value,
+		minValue,
+		maxValue,
+	} = usePaneResize(
+		width,
+		onWidth,
+		PANE_WIDTH_MIN,
+		PANE_WIDTH_MAX,
+		{invert: true, paneRef},
+	);
 	const {mounted, shown} = usePresence(open, smoothness ? 200 : 0, 0);
 
 	// 收起右边内容（navHidden）后若没有任何功能面板/预览打开，自动恢复，避免无从展开的死角；
@@ -985,7 +998,16 @@ export const WorkspacePanel = memo(function WorkspacePanel() {
 			onMouseLeave={hover.onMouseLeave}
 		>
 			{!navEff && (open || mounted) ? (
-				<PaneResizeHandle edge="left" dragging={dragging} label="拖动调整工作区宽度" onMouseDown={onResizeStart} />
+				<PaneResizeHandle
+					edge="left"
+					dragging={dragging}
+					label="调整工作区宽度"
+					onMouseDown={onResizeStart}
+					onKeyDown={onResizeKeyDown}
+					value={value}
+					minValue={minValue}
+					maxValue={maxValue}
+				/>
 			) : null}
 
 			{(open || mounted) && !navEff ? (

@@ -1,4 +1,12 @@
-import {useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject} from 'react';
+import {
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+	type RefObject,
+} from 'react';
 import {isSmoothnessOn, useSettingsStore} from '@/stores/settingsStore';
 
 /**
@@ -64,6 +72,31 @@ export function usePaneResize(
 			return {slot, base: slot - toSlot(0)};
 		},
 		[slotOf, effectiveSlotMax, min, max],
+	);
+	const {value, minValue, maxValue} = useMemo(
+		() => ({
+			value: mapBase(width).slot,
+			minValue: mapBase(min).slot,
+			maxValue: mapBase(max).slot,
+		}),
+		[mapBase, max, min, width],
+	);
+	const onResizeKeyDown = useCallback(
+		(e: React.KeyboardEvent<HTMLDivElement>) => {
+			const step = e.shiftKey ? 32 : 8;
+			if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+				e.preventDefault();
+				const direction = e.key === 'ArrowRight' ? 1 : -1;
+				onWidth(mapBase(width + direction * step).base);
+			} else if (e.key === 'Home') {
+				e.preventDefault();
+				onWidth(mapBase(min).base);
+			} else if (e.key === 'End') {
+				e.preventDefault();
+				onWidth(mapBase(max).base);
+			}
+		},
+		[mapBase, max, min, onWidth, width],
 	);
 
 	const onResizeStart = useCallback(
@@ -178,5 +211,5 @@ export function usePaneResize(
 		};
 	}, [dragging, invert, mapBase, onWidth, paneRef, smoothness]);
 
-	return {dragging, onResizeStart};
+	return {dragging, onResizeStart, onResizeKeyDown, value, minValue, maxValue};
 }

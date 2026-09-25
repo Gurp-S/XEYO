@@ -560,7 +560,14 @@ export const WorkspaceToolPanel = memo(function WorkspaceToolPanel() {
 				PANE_WIDTH_MAX + PANE_WIDTH_MAX;
 		return Math.max(PANE_WIDTH_MIN, avail - CHAT_COL_MIN - 2);
 	}, []);
-	const {dragging, onResizeStart} = usePaneResize(
+	const {
+		dragging,
+		onResizeStart,
+		onResizeKeyDown,
+		value,
+		minValue,
+		maxValue,
+	} = usePaneResize(
 		width,
 		onWidth,
 		PANE_WIDTH_MIN,
@@ -705,8 +712,12 @@ export const WorkspaceToolPanel = memo(function WorkspaceToolPanel() {
 				<PaneResizeHandle
 					edge="left"
 					dragging={dragging}
-					label="拖动调整功能面板宽度"
+					label="调整功能面板宽度"
 					onMouseDown={onResizeStart}
+					onKeyDown={onResizeKeyDown}
+					value={value}
+					minValue={minValue}
+					maxValue={maxValue}
 				/>
 			) : null}
 			{headerBar}

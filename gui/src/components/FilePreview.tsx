@@ -195,7 +195,14 @@ export const FilePreview = memo(function FilePreview() {
 				PANE_WIDTH_MAX + PANE_WIDTH_MAX;
 		return Math.max(PANE_WIDTH_MIN, avail - CHAT_COL_MIN - 2);
 	}, []);
-	const {dragging, onResizeStart} = usePaneResize(
+	const {
+		dragging,
+		onResizeStart,
+		onResizeKeyDown,
+		value,
+		minValue,
+		maxValue,
+	} = usePaneResize(
 		previewWidth,
 		onWidth,
 		PANE_WIDTH_MIN,
@@ -1067,8 +1074,12 @@ export const FilePreview = memo(function FilePreview() {
 				<PaneResizeHandle
 					edge="left"
 					dragging={dragging}
-					label="拖动调整预览栏宽度"
+					label="调整预览栏宽度"
 					onMouseDown={onResizeStart}
+					onKeyDown={onResizeKeyDown}
+					value={value}
+					minValue={minValue}
+					maxValue={maxValue}
 				/>
 			) : null}
 			{headerBar}

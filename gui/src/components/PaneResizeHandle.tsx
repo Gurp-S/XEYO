@@ -8,10 +8,23 @@ type Props = {
 	dragging: boolean;
 	label: string;
 	onMouseDown: (e: React.MouseEvent) => void;
+	onKeyDown: (e: React.KeyboardEvent<HTMLDivElement>) => void;
+	value: number;
+	minValue: number;
+	maxValue: number;
 };
 
 /** 全高命中区 + 中段淡出圆角缝 + 悬停握把；避免全高直角竖线切开感。 */
-export function PaneResizeHandle({edge, dragging, label, onMouseDown}: Props) {
+export function PaneResizeHandle({
+	edge,
+	dragging,
+	label,
+	onMouseDown,
+	onKeyDown,
+	value,
+	minValue,
+	maxValue,
+}: Props) {
 	const [hot, setHot] = useState(false);
 	const timer = useRef(0);
 
@@ -30,8 +43,14 @@ export function PaneResizeHandle({edge, dragging, label, onMouseDown}: Props) {
 			role="separator"
 			aria-orientation="vertical"
 			aria-label={label}
-			title="拖动调整宽度"
+			aria-valuemin={Math.round(minValue)}
+			aria-valuemax={Math.round(maxValue)}
+			aria-valuenow={Math.round(value)}
+			aria-valuetext={`${Math.round(value)} 像素`}
+			tabIndex={0}
+			title="拖动或使用方向键调整宽度"
 			onMouseDown={onMouseDown}
+			onKeyDown={onKeyDown}
 			onMouseEnter={() => {
 				if (timer.current) {
 					window.clearTimeout(timer.current);
