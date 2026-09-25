@@ -655,6 +655,13 @@ export function useMessageListEditing(
 			try {
 				for (const file of otherFiles) {
 					const uploaded = await uploadFile(file);
+					if (uploaded.truncated) {
+						// 服务端砍过正文（超 _MAX_INLINE_CHARS 并追加 …[truncated]）。
+						// 不报出来，用户看到的就是"整份文件都在"，而模型只拿到前半份。
+						toast.warn(
+							`${uploaded.filename} 超过内联上限，正文已被服务端截断，模型看到的是截断后的内容`,
+						);
+					}
 					setEditingAttachments(previous => [
 						...previous,
 						{
