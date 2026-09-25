@@ -1185,6 +1185,15 @@ def list_runs(session_id: str, *, limit: int = 50, audit_path: str | os.PathLike
 	path = Path(audit_path) if audit_path else _default_audit_path()
 	max_bytes = _AUDIT_TAIL_BYTES * 2
 	scan = _scan_jsonl_tail(path, max_bytes)
+	widened = False
+	if scan.present and scan.truncated and sid and not any(
+		_s(row.get("session_id")) == sid for _, row in scan.rows
+	):
+		# 列表读不到、详情却查得到 —— 同一个会话的两个入口口径不一致。
+		# 与 _collect_audit 同法：只在"这个会话一行都不在尾窗里"时扩窗重读一次。
+		scan = _scan_jsonl_tail(path, max(max_bytes, _AUDIT_WIDEN_BYTES))
+		max_bytes = max(max_bytes, _AUDIT_WIDEN_BYTES)
+		widened = True
 	turns: dict[str, dict[str, Any]] = {}
 	unattributed = 0
 	for line_no, row in scan.rows:
@@ -1232,6 +1241,15 @@ def list_runs(session_id: str, *, limit: int = 50, audit_path: str | os.PathLike
 				f"审计尾窗截断：{max_bytes} 字节仅覆盖最近 {scan.rows_scanned} 行，"
 				f"更早的 {scan.rows_outside_window} 行里的 turn 未列出"
 			)
+		elif widened:
+			if turns:
+				fragments.append(
+					f"本会话不在默认尾窗内，已扩到 {max_bytes} 字节读到（扫描 {scan.rows_scanned} 行、{len(turns)} 个 turn）"
+				)
+			else:
+				fragments.append(
+					f"已按 {max_bytes} 字节读完 {scan.rows_scanned} 行，本会话没有任何行（不是尾窗没盖到）"
+				)
 		if scan.rows_unparsable:
 			fragments.append(f"{scan.rows_unparsable} 行解不出 JSON 对象，未计入任何 turn")
 		if unattributed:

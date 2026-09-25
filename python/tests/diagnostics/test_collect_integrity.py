@@ -1,4 +1,4 @@
-"""采集层的诚实性回归：真实数据普查里确认的八个缺陷。
+"""采集层的诚实性回归：真实数据普查里确认的九个缺陷。
 
 每一条都对应一份真实产品数据上跑出来的错账：
 
@@ -18,6 +18,9 @@
    的行其实完整地在审计文件里，只是排在 4 MiB 之外。现在先在 miss 路径上扩窗
    重读一次（本机整份 11.3 MiB 多花 0.1s），扩完仍找不到才允许下这条结论，
    且两种结果各留一条缺项说明口径。
+9. picker 与 detail 口径不一致 ⇒ ``list_runs`` 只看 8 MiB 尾窗，真实文件里有一个会话
+   整段排在窗外（列表 0 条，而扩窗后的 ``collect_run`` 能完整诊断）。现在同一个 miss
+   路径也扩窗重读，并把"读完整份还是没有"与"尾窗没盖到"分成两句话。
 """
 
 from __future__ import annotations
@@ -661,3 +664,43 @@ def test_turn_absent_from_the_whole_file_still_says_no_records(write_audit) -> N
 	findings = evaluate_run(run)
 	ntr = [f for f in findings if f.rule_id == "no_turn_records"]
 	assert ntr and "扫描" in ntr[0].evidence[0].detail
+
+
+# ---------- 9. picker 与 detail 不得给两个答案 ----------
+
+
+def test_session_outside_the_tail_window_is_still_listable(write_audit, monkeypatch) -> None:
+	"""列表读不到、详情却查得到 = 同一份数据的两个入口口径不一致。
+
+	真实审计文件里就有一个会话整段排在列表的 8 MiB 窗之外（4 个轮次，列表 0 条，
+	而 collect_run 扩窗后能完整诊断）。picker 必须先跟 detail 一样肯扩窗，
+	否则"这条会话没有可诊断的运行"这句话是采集范围的话，不是事实。
+	"""
+	from diagnostics import collect as collect_module
+
+	path = write_audit(_model_rows("r1", 1) + _filler_rows(400))
+	tail = _scan_jsonl_tail(path, 4096)
+	assert tail.truncated, "夹具没造出截断的尾窗"
+	assert all(str(r.get("session_id") or "") != _SESSION for _, r in tail.rows), "夹具没把本会话推出尾窗"
+
+	monkeypatch.setattr(collect_module, "_AUDIT_TAIL_BYTES", 2048)
+	runs = collect_module.list_runs(_SESSION, audit_path=path)
+
+	assert [r["turn_id"] for r in runs] == [_TURN]
+	assert "已扩到" in runs[0]["coverage_note"]
+	assert "读到" in runs[0]["coverage_note"]
+
+
+def test_session_absent_from_the_whole_file_says_so_without_blaming_the_window(write_audit, monkeypatch) -> None:
+	"""反面对照：读完整份都没有，就不能再拿"尾窗没盖到"当说法。"""
+	from diagnostics import collect as collect_module
+
+	path = write_audit(_model_rows("r1", 1) + _filler_rows(400))
+	monkeypatch.setattr(collect_module, "_AUDIT_TAIL_BYTES", 2048)
+	runs = collect_module.list_runs("s-nowhere", audit_path=path)
+
+	assert runs == []
+	# 钉的是空态的含义：扩窗读完整份之后仍然空，picker 那句"该会话没有可诊断的
+	# 运行"才是事实，而不是采集范围造出来的话。正面对照：同一份文件里在窗内的
+	# 会话照样列得出来。
+	assert collect_module.list_runs(_SESSION, audit_path=path)
