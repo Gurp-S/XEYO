@@ -13,6 +13,7 @@ import {SelectionToolbar} from '@/components/SelectionToolbar';
 import {TextFileEditor} from '@/components/TextFileEditor';
 import {showContextMenu} from '@/components/ui/ContextMenu';
 import {useHoverScroll} from '@/hooks/useHoverScroll';
+import {CHAT_MIN_READABLE, usePaneChatHostWidth} from '@/hooks/paneViewportClamp';
 import {usePaneResize} from '@/hooks/usePaneResize';
 import {usePresence} from '@/hooks/usePresence';
 import {filePathMenuItems} from '@/lib/contextMenus';
@@ -162,6 +163,7 @@ export const FilePreview = memo(function FilePreview() {
 	const updateSettings = useSettingsStore(s => s.update);
 	const hover = useHoverScroll();
 	const paneRef = useRef<HTMLElement | null>(null);
+	const chatHostWidth = usePaneChatHostWidth();
 	// 工作区未展开时不显示文件预览（含聊天区链接触发的打开），收起状态下无任何工作区按钮。
 	const paneOpen = Boolean(workspaceOpen && (selectedPath || loadingFile || reviewDiff));
 	const holdDoc = useRef(docLive);
@@ -178,23 +180,15 @@ export const FilePreview = memo(function FilePreview() {
 	const navEff = workspaceOpen && navHidden;
 	// 隐藏树导航时，文件预览占满整个工作区（自身宽度 + 工作区侧栏宽度）。
 	const displayWidth = previewWidth + (navEff ? explorerWidth : 0);
-	// 拖拽钳制在“槽宽域”进行：显示宽 = 基础宽 + 隐藏树宽，且不得超出
-	// 聊天宿主留给功能栏的最大可用宽（保留 340px 可读聊天列；CSS 另有
-	// 180px 硬下限）。否则窄窗口下把面板拖满
-	// 会把聊天区顶出窗口/面板溢出视口。
-	const CHAT_COL_MIN = 340;
+	// 拖拽钳制在“槽宽域”进行：显示宽 = 基础宽 + 隐藏树宽。有足够空间时
+	// 给聊天列保留 340px；窄到两者无法兼得时，内容面板仍保留 180px 硬下限。
 	const slotOf = useCallback(
 		(base: number) => base + (navEff ? explorerWidth : 0),
 		[navEff, explorerWidth],
 	);
 	const slotMax = useCallback(() => {
-		const host = document.querySelector<HTMLElement>('.xy-pane-chat-host');
-		const avail = host
-			? host.clientWidth
-			: document.querySelector<HTMLElement>('.xy-pane-row')?.clientWidth ??
-				PANE_WIDTH_MAX + PANE_WIDTH_MAX;
-		return Math.max(PANE_WIDTH_MIN, avail - CHAT_COL_MIN - 2);
-	}, []);
+		return Math.max(PANE_WIDTH_MIN, chatHostWidth - CHAT_MIN_READABLE - 2);
+	}, [chatHostWidth]);
 	const {
 		dragging,
 		onResizeStart,

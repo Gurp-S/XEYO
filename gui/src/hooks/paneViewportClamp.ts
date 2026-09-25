@@ -11,8 +11,10 @@
  * 只影响**有效渲染宽**，不写回持久化设置——窗口重新变宽即恢复用户设定宽。
  * 让位是连续的（PaneSlot 有宽度过渡动画），不跳变。
  */
+import {useEffect, useState} from 'react';
 import {useChatStore} from '@/stores/chatStore';
 import {
+	PANE_WIDTH_MAX,
 	PANE_WIDTH_MIN,
 	isSmoothnessOn,
 	useSettingsStore,
@@ -23,6 +25,42 @@ import {useViewport} from './useViewport';
 /** 聊天列可读下限：正文 34ch + Composer 底行不溢出的经验值。 */
 export const CHAT_MIN_READABLE = 340;
 export const SIDEBAR_COMPACT_WIDTH_MAX = 280;
+
+/** Track the space shared by chat and its preview/tool panes as sibling panes change width. */
+export function usePaneChatHostWidth(): number {
+	const [hostWidth, setHostWidth] = useState(() => {
+		if (typeof document === 'undefined') return PANE_WIDTH_MAX * 2;
+		const host = document.querySelector<HTMLElement>('.xy-pane-chat-host');
+		if (host) return host.clientWidth;
+		return (
+			document.querySelector<HTMLElement>('.xy-pane-row')?.clientWidth ??
+			PANE_WIDTH_MAX * 2
+		);
+	});
+
+	useEffect(() => {
+		const host = document.querySelector<HTMLElement>('.xy-pane-chat-host');
+		const row = document.querySelector<HTMLElement>('.xy-pane-row');
+		const target = host ?? row;
+		if (!target) return;
+
+		const sync = () => {
+			const next = host?.clientWidth ?? row?.clientWidth ?? PANE_WIDTH_MAX * 2;
+			setHostWidth(current => (current === next ? current : next));
+		};
+		sync();
+		if (typeof ResizeObserver === 'undefined') {
+			window.addEventListener('resize', sync);
+			return () => window.removeEventListener('resize', sync);
+		}
+
+		const observer = new ResizeObserver(sync);
+		observer.observe(target);
+		return () => observer.disconnect();
+	}, []);
+
+	return hostWidth;
+}
 
 /** 侧栏在紧凑窗口里的渲染宽；存储值继续保留，窗口变宽后恢复。 */
 export function sidebarRenderedWidth(width: number, compact: boolean): number {

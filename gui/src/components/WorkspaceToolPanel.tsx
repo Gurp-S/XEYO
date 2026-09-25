@@ -4,6 +4,7 @@ import {PanelExpandOverlay} from '@/components/PanelExpandOverlay';
 import {PaneResizeHandle} from '@/components/PaneResizeHandle';
 import {PaneSlot} from '@/components/PaneSlot';
 import {useHoverScroll} from '@/hooks/useHoverScroll';
+import {CHAT_MIN_READABLE, usePaneChatHostWidth} from '@/hooks/paneViewportClamp';
 import {usePaneResize} from '@/hooks/usePaneResize';
 import {usePresence} from '@/hooks/usePresence';
 import {cn} from '@/lib/utils';
@@ -536,6 +537,7 @@ export const WorkspaceToolPanel = memo(function WorkspaceToolPanel() {
 	const [expanded, setExpanded] = useState(false);
 	const hover = useHoverScroll();
 	const paneRef = useRef<HTMLElement | null>(null);
+	const chatHostWidth = usePaneChatHostWidth();
 	const onWidth = useCallback(
 		(next: number) => updateSettings({previewWidth: next}),
 		[updateSettings],
@@ -544,21 +546,15 @@ export const WorkspaceToolPanel = memo(function WorkspaceToolPanel() {
 	const navEff = workspaceOpen && navHidden;
 	// 隐藏树导航时，功能面板占满整个工作区（自身宽度 + 工作区侧栏宽度）。
 	const displayWidth = width + (navEff ? explorerWidth : 0);
-	// 拖拽钳制在“槽宽域”进行（见 usePaneResize）：槽宽上限 = 窗口可用宽 -
-	// 聊天区最小列宽，避免窄窗口下拖满后把聊天区顶出视口。
-	const CHAT_COL_MIN = 340;
+	// 拖拽钳制在“槽宽域”进行（见 usePaneResize）：有足够空间时给聊天列
+	// 保留 340px；窄到两者无法兼得时，内容面板仍保留 180px 硬下限。
 	const slotOf = useCallback(
 		(base: number) => base + (navEff ? explorerWidth : 0),
 		[navEff, explorerWidth],
 	);
 	const slotMax = useCallback(() => {
-		const host = document.querySelector<HTMLElement>('.xy-pane-chat-host');
-		const avail = host
-			? host.clientWidth
-			: document.querySelector<HTMLElement>('.xy-pane-row')?.clientWidth ??
-				PANE_WIDTH_MAX + PANE_WIDTH_MAX;
-		return Math.max(PANE_WIDTH_MIN, avail - CHAT_COL_MIN - 2);
-	}, []);
+		return Math.max(PANE_WIDTH_MIN, chatHostWidth - CHAT_MIN_READABLE - 2);
+	}, [chatHostWidth]);
 	const {
 		dragging,
 		onResizeStart,
