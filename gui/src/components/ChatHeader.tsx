@@ -361,7 +361,7 @@ className="xy-icon-btn shrink-0 rounded-md p-1.5 text-mute hover:bg-glass-hover 
 							aria-label="展开用量详情"
 							aria-expanded={usagePreviewOpen}
 							aria-controls={usagePreviewId}
-							title="本对话累计消耗（厂商 usage 逐次累计）与费用"
+							title="本对话累计 Token 消耗、累计输出与最近一枪的上下文占用"
 							onClick={() => setUsagePreviewOpen(open => !open)}
 							className={cn(
 								'xy-usage-chip inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 transition-colors hover:bg-glass-hover hover:text-ink',
@@ -433,7 +433,7 @@ className="xy-icon-btn shrink-0 rounded-md p-1.5 text-mute hover:bg-glass-hover 
 											<div className="mt-0.5 font-mono text-[18px] font-semibold leading-tight text-ink">{cacheHitRateText == null ? '暂无数据' : `${cacheHitRateText}%`}</div>
 										</div>
 										<div className="min-w-0 rounded-lg border border-line/70 bg-glass-hover px-2.5 py-2">
-											<div className="text-mute">本轮输出</div>
+											<div className="text-mute">累计输出</div>
 											<div className="mt-0.5 font-mono text-[18px] font-semibold leading-tight text-ink">{totalOut != null ? formatTokenCount(totalOut) : '暂无数据'}</div>
 										</div>
 									</div>
