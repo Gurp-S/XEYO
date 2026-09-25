@@ -86,7 +86,7 @@ export function usePaneResize(
 			const step = e.shiftKey ? 32 : 8;
 			if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
 				e.preventDefault();
-				const direction = e.key === 'ArrowRight' ? 1 : -1;
+				const direction = (e.key === 'ArrowRight' ? 1 : -1) * (invert ? -1 : 1);
 				onWidth(mapBase(width + direction * step).base);
 			} else if (e.key === 'Home') {
 				e.preventDefault();
@@ -96,7 +96,7 @@ export function usePaneResize(
 				onWidth(mapBase(max).base);
 			}
 		},
-		[mapBase, max, min, onWidth, width],
+		[mapBase, max, min, onWidth, width, invert],
 	);
 
 	const onResizeStart = useCallback(
@@ -208,6 +208,11 @@ export function usePaneResize(
 			document.body.style.userSelect = '';
 			window.removeEventListener('mousemove', onMove);
 			window.removeEventListener('mouseup', onUp);
+			const pane = paneRef?.current;
+			if (pane) {
+				pane.style.willChange = '';
+				pane.classList.remove('xy-pane-dragging');
+			}
 		};
 	}, [dragging, invert, mapBase, onWidth, paneRef, smoothness]);
 
