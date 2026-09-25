@@ -1075,13 +1075,61 @@ RULES: tuple[Rule, ...] = tuple(
 
 
 def no_turn_records_finding(run: RunEvidence) -> Finding:
-	"""「本轮无记录」：采集跑过，但这个轮子没有任何带自己身份的记录。
+	"""「本轮读不出自身记录」：采集跑过，但这个轮子没有带自己身份的记录。
 
 	它必须是 unknown 加写明缺什么，不能是一个干净通过：会话级的 transcript /
 	working / usage 记录并不属于本轮，拿它们给本轮下结论就是误归因。
+
+	三种"读不出"不是一件事，措辞必须分开（真实数据分层普查 57 轮里，11 轮落在这条，
+	其中没有一轮是真的"没记录"，全是尾窗没覆盖到）：
+	- 窗口整份读完：本轮确实没有带身份的记录（多半是深链来的错轮次号）；
+	- 窗口截断且本会话零行：连会话都不在尾窗里，本轮无从谈起；
+	- 窗口截断但本会话有行：会话在窗口内，这一轮不在（更早，或行不带轮次身份）。
 	"""
 	window = run.window("audit")
-	if window is not None:
+	if window is None:
+		phen = f"本轮无记录：没有审计采集窗口，无从判断 turn_id={run.turn_id} 是否有记录"
+		gap = "本次运行没有审计采集窗口：既不能说有记录，也不能说没有。"
+		evidence = [
+			EvidenceRef(source="config", locator="diagnostics/rules.py", ref_id="no_turn_records", detail="无审计采集窗口")
+		]
+	elif window.complete:
+		phen = f"本轮无记录：审计窗口整份读完，本会话 {window.rows_matched} 行里没有一条带 turn_id={run.turn_id}"
+		gap = (
+			"窗口已读完，所以这不是覆盖不足：剩下的可能是轮次号来自别处/已删轮，"
+			"或该轮的记录本就不带 turn_id（旧审计格式）。"
+		)
+		evidence = [
+			EvidenceRef(
+				source="audit",
+				locator=_s(window.locator),
+				ref_id="",
+				detail=f"整份读完：扫描 {window.rows_scanned} 行、本会话 {window.rows_matched} 行，无 turn_id={run.turn_id} 的事件",
+			)
+		]
+	elif not window.rows_matched:
+		phen = f"尾窗没覆盖到这个会话：审计只读最近 {window.rows_scanned} 行，本会话零行在窗内（turn_id={run.turn_id} 无从判断）"
+		gap = (
+			"这是采集范围，不是这一轮的性质：尾窗之外的行没有被读，"
+			"所以本轮既不能判没发生，也不能判正常或异常。扩大 XEYO_DIAGNOSTICS_AUDIT_BYTES 或换较新的轮次再看。"
+		)
+		evidence = [
+			EvidenceRef(
+				source="audit",
+				locator=_s(window.locator),
+				ref_id="",
+				detail=f"尾窗截断：扫描 {window.rows_scanned} 行，其中 {window.rows_other_session} 行属于其他会话",
+			)
+		]
+	else:
+		phen = (
+			f"本会话在尾窗内有 {window.rows_matched} 行，但没有一条带 turn_id={run.turn_id}"
+			f"（{window.rows_other_turn} 行属于其他轮次）"
+		)
+		gap = (
+			"尾窗截断，且窗口里没有这一轮的行：可能是这一轮比尾窗更早，"
+			"也可能是它的记录不带轮次身份；两种都不能读成「本轮没有发生任何事」。"
+		)
 		evidence = [
 			EvidenceRef(
 				source="audit",
@@ -1090,24 +1138,17 @@ def no_turn_records_finding(run: RunEvidence) -> Finding:
 				detail=f"扫描 {window.rows_scanned} 行、匹配 {window.rows_matched} 行，无 turn_id={run.turn_id} 的事件",
 			)
 		]
-	else:
-		evidence = [
-			EvidenceRef(source="config", locator="diagnostics/rules.py", ref_id="no_turn_records", detail="无审计采集窗口")
-		]
 	return Finding(
 		rule_id="no_turn_records",
 		rule_version=RULESET_VERSION,
-		phenomenon=f"本轮无记录：采集窗口里没有一条带 turn_id={run.turn_id} 的记录",
+		phenomenon=phen,
 		boundary="user_request",
 		component="证据采集（轮次身份）",
 		status=UNKNOWN,
 		evidence=evidence,
 		impact="会话级记录（transcript / working / usage）不属于本轮：本轮没有任何可核对的自身记录，规则集本轮未运行。",
-		coverage_gap=(
-			"无记录不等于没发生：审计与账本都按尾窗采集，窗口可能没覆盖这一轮；"
-			"不带 turn_id 的旧审计行也不参与轮次归因。扩大窗口或补轮次身份前，本轮既不能判正常也不能判异常。"
-		),
-		allowed_conclusion="只能报本轮无记录；同会话别处的记录不得算给本轮。",
+		coverage_gap=gap + "不带 turn_id 的旧审计行也不参与轮次归因。",
+		allowed_conclusion="只能报本轮读不出自身记录，并说明是哪一种读不出；同会话别处的记录不得算给本轮。",
 	)
 
 

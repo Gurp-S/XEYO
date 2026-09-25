@@ -335,11 +335,55 @@ def test_turn_without_records_yields_only_the_no_record_finding(collect) -> None
 	assert not [f for f in findings if f.status == CONFIRMED_FAULT]
 
 
-def test_no_record_finding_says_window_may_not_cover_it() -> None:
-	"""无记录不等于没发生：措辞必须留下「窗口可能没覆盖」这条事实。"""
-	finding = rules.no_turn_records_finding(_run([]))
+def _audit_window_shape(*, complete: bool, matched: int, scanned: int = 7097, other_turn: int = 0, other_session: int = 0) -> Window:
+	return Window(
+		source="audit",
+		locator=AUDIT_LOCATOR,
+		complete=complete,
+		truncated=not complete,
+		rows_scanned=scanned,
+		rows_matched=matched,
+		rows_other_turn=other_turn,
+		rows_other_session=other_session,
+	)
+
+
+def test_no_record_wording_distinguishes_three_unreadable_cases() -> None:
+	"""三种"读不出"不是一件事，措辞必须分开。
+
+	真实数据分层普查 57 轮里 11 轮落在这条，全都不是"没记录"，而是尾窗没覆盖到：
+	旧措辞「采集窗口里没有一条带 turn_id 的记录」+ 标题「本轮无记录」会被读成
+	这一轮什么都没发生 —— 那是关于运行的事实，而我们只有关于窗口的证据。
+	"""
+	complete = _run([], windows=[_audit_window_shape(complete=True, matched=12)])
+	f = rules.no_turn_records_finding(complete)
+	assert f.status == UNKNOWN
+	assert "整份读完" in f.phenomenon and "12 行" in f.phenomenon
+	assert "这不是覆盖不足" in f.coverage_gap
+
+	session_outside = _run([], windows=[_audit_window_shape(complete=False, matched=0, other_session=6800)])
+	f = rules.no_turn_records_finding(session_outside)
+	assert "尾窗没覆盖到这个会话" in f.phenomenon
+	assert "这是采集范围，不是这一轮的性质" in f.coverage_gap
+
+	turn_outside = _run(
+		[],
+		windows=[_audit_window_shape(complete=False, matched=40, other_turn=40)],
+	)
+	f = rules.no_turn_records_finding(turn_outside)
+	assert "本会话在尾窗内有 40 行" in f.phenomenon
+	assert "本轮没有发生任何事" in f.coverage_gap  # 明确否定那个误读
+	assert "不得算给本轮" in f.allowed_conclusion
+
+
+def test_no_record_without_window_says_it_cannot_judge() -> None:
+	"""连采集窗口都没有：不能说"没有记录"，只能说无从判断。"""
+	run = _run([], windows=[])
+	run.windows = []
+	finding = rules.no_turn_records_finding(run)
 	assert finding.status == UNKNOWN
-	assert "无记录不等于没发生" in finding.coverage_gap
+	assert "没有审计采集窗口" in finding.phenomenon
+	assert "既不能说有记录，也不能说没有" in finding.coverage_gap
 
 
 def test_no_record_verdict_blames_nobody_and_shows_no_borrowed_obligation(collect) -> None:
