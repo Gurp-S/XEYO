@@ -844,8 +844,8 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 		}
 	}, [currentSessionStreaming, remoteLoggedIn, uploading]);
 
-	// 统一斜杠命令：由「光标处 slash 词元」驱动候选与技能弹层（来自生成的 manifest）。
-	// / 不在行首时（如消息中途「帮我 /xxx」）同样生效；删除 / 后词元消失，弹层随之收起。
+	// 统一斜杠命令：候选只对输入开头的 slash 词元开放，与提交时的命令解析口径一致。
+	// 前置空白允许；普通句子中间的 /xxx 按正文处理。@ 文件引用仍可出现在任意位置。
 	const activeWorkspace = useChatStore(s => {
 		const activeSession = s.sessions.find(session => session.id === s.activeId);
 		if (activeSession?.spaceId === SIDE_SPACE_ID) {
@@ -854,7 +854,10 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 		const spaceId = activeSession?.spaceId ?? s.activeSpaceId;
 		return s.spaces.find(space => space.id === spaceId)?.rootPath ?? '';
 	});
-	const slashToken = useMemo(() => slashTokenAt(value, taCaret), [value, taCaret]);
+	const slashToken = useMemo(() => {
+		const token = slashTokenAt(value, taCaret);
+		return token && value.slice(0, token.start).trim() === '' ? token : null;
+	}, [value, taCaret]);
 	const slashIntent = slashToken !== null;
 	const slashQuery = slashToken ? slashToken.text.slice(1).toLowerCase() : '';
 	const slashSuggest = useMemo(
@@ -1035,19 +1038,23 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 	};
 
 	// slash 着色 + ghost hint:由「镜像覆盖层 + 自绘光标」(TypingCaret)统一渲染。
-	// /词元 命中命令 → 橙、命中技能 → 蓝(前缀也算,输入中即着色)——这里只算
-	// 字符区间(闭开,UTF-16),渲染交给 TypingCaret 的逐字符镜像。
-	// URL(https://…)、路径(src/foo)整体是一个非空白词元,不以 / 开头,不会误着色。
+	// 仅输入首词元按命令/技能着色，和执行门禁一致；这里只算字符区间(闭开,UTF-16)。
+	// URL(https://…)、路径(src/foo)整体是一个非空白词元,不会误着色。
 	const caretColoring = useMemo(() => {
 		if (imeComposing || !value.includes('/')) {
 			return {ranges: [] as CaretColorRange[], hint: ''};
 		}
 		const ranges: CaretColorRange[] = [];
 		const parts = value.split(/(\s+)/);
+		const leadingStart = value.search(/\S/);
 		let off = 0;
 		let colored = false;
 		for (const part of parts) {
-			if (part && part.startsWith('/') && part.length > 1) {
+			if (
+				off === leadingStart &&
+				part.startsWith('/') &&
+				part.length > 1
+			) {
 				const color = slashLeadingColor(part.slice(1), activeSlashSkills);
 				if (color) {
 					colored = true;
