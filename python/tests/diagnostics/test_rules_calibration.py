@@ -44,6 +44,9 @@
     29 条投影结论里只有 7 条的 ``projection_id`` 出现在本轮的模型行里，其余 22 条是
     同一条会话级记录被同会话的别轮复用（一份 manifest 最多被 22 个轮次各自报一遍）。
     现在归不到本轮的投影一律不出结论 —— 与第 7/8 条同一族：会话级记录不得冒充轮次结论。
+    同一份 manifest 还喂着 ``tool_pair_integrity``，而那条是「已确认 + 引擎定责」两级
+    一起给的（``fault_split._ENGINE_RULES``）：漏归属的代价是把一个坏形状算到该会话
+    每一个被问诊的轮次头上（09-20 那次孤儿 tool_result 事故正是这种形状）。
 
 纠正的底线：规则要么判对，要么 ``unknown`` 并写明缺哪条记录，不得靠沉默消噪。
 """
@@ -358,6 +361,39 @@ def test_projection_manifest_from_another_turn_is_not_a_turn_conclusion() -> Non
 			],
 		)
 		assert rules.check_cold_references(run) == [], flag
+
+
+def test_pair_integrity_flag_from_another_turns_projection_is_not_a_verdict() -> None:
+	"""不成对旗标同样要归得到本轮：它是「已确认 + 引擎定责」两级一起给的。
+
+	working 里的 manifest 是本会话最后一份（collect 给它打了 scope=last_only）。
+	本轮没提交过它就不许当本轮的结论 —— 一旦出事（09-20 那次孤儿 tool_result），
+	同会话每一个被诊断的轮次都会各自领一条"投影里 call/result 不成对"的已确认故障。
+	"""
+	run = _run(
+		[_ev(1, "model.started", 1.0, model_request_id="r1", attempt=1, projection_id="p-this-turn")],
+		projections=[
+			{
+				"projection_id": "p-other-turn",
+				"locator": "sessions/s1.working.json",
+				"invariant_errors": ["orphan_tool_results:1"],
+			}
+		],
+	)
+	assert rules.check_tool_pair_integrity(run) == []
+
+	mine = _run(
+		[_ev(1, "model.started", 1.0, model_request_id="r1", attempt=1, projection_id="p1")],
+		projections=[
+			{
+				"projection_id": "p1",
+				"locator": "sessions/s1.working.json",
+				"invariant_errors": ["orphan_tool_results:1"],
+			}
+		],
+	)
+	hits = [f for f in rules.check_tool_pair_integrity(mine) if f.status == CONFIRMED_FAULT]
+	assert hits and "不成对" in hits[0].phenomenon, "归得到本轮时结论照旧下达，不能靠沉默消噪"
 
 
 def test_turn_without_records_yields_only_the_no_record_finding(collect) -> None:

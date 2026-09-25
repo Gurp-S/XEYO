@@ -181,13 +181,26 @@ def turn_scoped(rows: list[Any], turn_id: str, *, key: str = "turn_id") -> list[
 	return out
 
 
+def _turn_projection_ids(run: RunEvidence) -> set[str]:
+	"""本轮自己提交过哪些投影：working 只存"本会话最后一份"manifest，
+	没有这一步归属，会话级记录就会被同会话的每一个轮次各自报一遍
+	（2026-09-25 实测：29 条投影结论里 22 条属于这种情况）。
+	"""
+	return {_s(event.row.get("projection_id")) for event in run.events_for_turn() if _s(event.row.get("projection_id"))}
+
+
 # ---------- R1 工具调用 / 结果不成对 ----------
 
 
 def check_tool_pair_integrity(run: RunEvidence) -> list[Finding]:
 	findings: list[Finding] = []
 	refs: list[EvidenceRef] = []
+	turn_projection_ids = _turn_projection_ids(run)
 	for manifest in run.projections:
+		if _s(manifest.get("projection_id")) not in turn_projection_ids:
+			# 这份 manifest 不是本轮提交的那一份：它的坏形状可能是别轮留下的，
+			# 而这条结论一旦下达就是"已确认 + 引擎定责"（fault_split._ENGINE_RULES）。
+			continue
 		for err in manifest.get("invariant_errors") or []:
 			name = _s(err)
 			if not (name.startswith("unresolved_tool_calls") or name.startswith("orphan_tool_results")):
@@ -371,9 +384,7 @@ def check_cold_references(run: RunEvidence) -> list[Finding]:
 				allowed_conclusion="只能说本轮没有可归属的冷引用，不能说本轮的恢复性没问题。",
 			)
 		)
-	turn_projection_ids = {
-		_s(event.row.get("projection_id")) for event in run.events_for_turn() if _s(event.row.get("projection_id"))
-	}
+	turn_projection_ids = _turn_projection_ids(run)
 	for manifest in run.projections:
 		errors = manifest.get("invariant_errors") or []
 		# working 只存"本会话最后一份"manifest，它多半不是本轮那一份。归不到本轮的
