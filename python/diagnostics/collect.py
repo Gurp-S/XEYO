@@ -707,6 +707,16 @@ def _collect_folds(run: RunEvidence, session_id: str) -> None:
 		run.fold_rows.append(row | {"locator": str(path), "line_no": line_no, "event_id": f"L{line_no}"})
 	if window.rows_unattributed:
 		window.add_note(f"{window.rows_unattributed} 行缺 session_id，无法归入本会话，未补值")
+	# "账本在、窗口完整、但本会话一行都没有"是采集范围事实，不是某一轮的结论：
+	# 折叠事件按会话写、行内不带轮次身份，所以这条对每一轮都同形（真实数据 27/40 轮
+	# 曾被规则层当成"本轮未定"重复报出）。放在这里，措辞只说这一级没有可核对的记录。
+	if scan.present and window.complete and not window.rows_matched:
+		run.add_gap(
+			"wsc_fold",
+			"no_records",
+			"折叠账本可读且窗口完整，但本会话没有任何折叠记录行："
+			"这一级没有可核对的记录 —— 既不能说明折叠没发生，也不能说明发生过。",
+		)
 	if scan.truncated:
 		run.add_gap(
 			"wsc_fold",

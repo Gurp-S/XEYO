@@ -464,82 +464,62 @@ def check_frozen_head(run: RunEvidence) -> list[Finding]:
 					)
 				)
 		prev = entry
-	# 折叠账本里没有合法折叠事件却出现 projection_id 变化 ⇒ 头意外变化。
+	# 冻结头不变量的可核对形式只有一个：同一个逻辑调用的多次尝试必须逐字同一。
 	#
-	# 前提必须能证明才行：fold_events 按会话写入、不带轮次身份（见
-	# usage/ledger.py::record_fold_event），所以「本轮没拿到折叠行」既可能是
-	# 真没折叠、也可能是折叠没落账 / 账本窗口没覆盖 —— 两者在账面上同形。
-	proj_ids: list[str] = []
+	# 这里刻意不看"本轮出现了几个不同 projection_id"。投影是对整份消息列表取哈希
+	# （engine/projection_manifest.py:98），每发一枪都允许合法变化：真实数据 40 轮里
+	# 该前提命中 28 轮，而这 28 轮的不同投影数**全都 ≤ 本枪数** ⇒ 前提只等价于
+	# "这一轮不止一枪"，不携带任何异常信息（旧版本把它写成 27/40 轮的"未定"和
+	# 1/40 轮的"疑似"，正好淹掉真正说不清的那几条）。
+	# 折叠账本零记录这一事实改由采集层说（collect._collect_folds 的 wsc_fold/no_records）。
+	series_by_request: dict[str, list[str]] = {}
+	line_by_request: dict[str, int] = {}
 	for event in run.events_for_turn():
-		if event.kind.startswith("model.") and event.projection_id:
-			if not proj_ids or proj_ids[-1] != event.projection_id:
-				proj_ids.append(event.projection_id)
-	if len(proj_ids) <= 1:
+		if not event.kind.startswith("model.") or not event.model_request_id:
+			continue
+		pid = _s(event.projection_id)
+		if not pid:
+			continue
+		series = series_by_request.setdefault(event.model_request_id, [])
+		if not series or series[-1] != pid:
+			series.append(pid)
+		line_by_request.setdefault(event.model_request_id, int(event.line_no or 0))
+	shifted = sorted(
+		(rid for rid, series in series_by_request.items() if len(series) > 1),
+		key=lambda rid: (line_by_request.get(rid) or 0, rid),
+	)
+	if not shifted:
 		return findings
-	fold_window = run.window("fold_events")
-	ledger_covered = bool(fold_window and fold_window.complete and run.fold_rows)
-	fold_locator = source_locator(run, "fold_events")
-	if run.fold_rows:
-		fold_refs = [
+	evidence: list[EvidenceRef] = []
+	for rid in shifted[:10]:
+		evidence.append(
 			EvidenceRef(
-				source="usage",
-				locator=_s(fold.get("locator")) or fold_locator,
-				ref_id=f"L{_s(fold.get('line_no'))}",
-				detail=f"fold={_s(fold.get('fold'))} reason={_s(fold.get('reason'))}",
-			)
-			for fold in run.fold_rows[:5]
-		]
-	elif fold_window is not None:
-		fold_refs = [
-			EvidenceRef(
-				source="usage",
-				locator=fold_locator,
-				ref_id="",
-				detail="fold_events 对本会话没有记录行" if not fold_window.rows_matched else "fold_events 窗口已截断",
-			)
-		]
-	else:
-		# 拿不到折叠账本窗口就不给定位符：绝不借别的来源的路径来填。
-		fold_refs = [EvidenceRef(source="usage", locator="", ref_id="", detail="无 fold_events 采集窗口：折叠账本位置未记录")]
-	if ledger_covered:
-		findings.append(
-			Finding(
-				rule_id="frozen_head",
-				rule_version=RULESET_VERSION,
-				phenomenon=f"折叠账本完整且有 {len(run.fold_rows)} 条记录，本轮却出现 {len(proj_ids)} 个不同投影而无对应折叠事件",
-				boundary="wsc_fold",
-				component="前缀冻结不变量",
-				status=SUSPECTED_CAUSE,
-				evidence=fold_refs,
-				impact=f"投影序列：{', '.join(p[:10] for p in proj_ids[:6])}",
-				coverage_gap="fold_events 按会话写入、不带轮次身份，与本轮投影的先后关系只能按时间近似。",
-				allowed_conclusion="可疑：账本在场且完整，却没有解释这些投影变化的折叠事件。",
+				source="audit",
+				locator=_loc(run),
+				ref_id=f"L{line_by_request.get(rid) or ''}",
+				detail=f"model_request_id={rid} 投影 {'→'.join(p[:10] for p in series_by_request[rid][:4])}",
 			)
 		)
-		return findings
-	if fold_window is None:
-		gap_detail = "没有 fold_events 采集窗口：折叠账本位置未记录"
-	elif not fold_window.present:
-		gap_detail = "折叠账本文件不存在"
-	elif fold_window.complete:
-		gap_detail = "本会话在折叠账本里没有一行记录"
+	first = shifted[0]
+	if len(shifted) > 1:
+		phen = f"{len(shifted)} 个逻辑调用在重试之间提交了不同投影（首个 {first[:12]}）"
 	else:
-		gap_detail = f"折叠账本窗口没读完（{fold_window.note or '尾窗截断'}）"
+		phen = f"逻辑调用 {first[:12]} 在重试之间提交了不同投影"
 	findings.append(
 		Finding(
 			rule_id="frozen_head",
 			rule_version=RULESET_VERSION,
-			phenomenon=f"本轮出现 {len(proj_ids)} 个不同投影，折叠账本无法核对（{gap_detail}）",
+			phenomenon=phen,
 			boundary="wsc_fold",
 			component="前缀冻结不变量",
-			status=UNKNOWN,
-			evidence=fold_refs,
-			impact=f"投影序列：{', '.join(p[:10] for p in proj_ids[:6])}",
+			status=SUSPECTED_CAUSE,
+			evidence=evidence,
+			impact="同一个逻辑调用的两次尝试换了字节面：这两枪之间前缀不逐字相同，缓存命中作废，对比实验也不同底。",
 			coverage_gap=(
-				"折叠账本按会话写入、行内不带轮次身份，所以空的折叠集合证明不了「没发生过折叠」，"
-				"也证明不了「发生过」：这一级没有可核对的记录。"
+				"审计只记投影标识，不记投影正文；要定位变的是哪一段，需要等价的请求体捕获（默认关闭）"
+				"或两次序列化的差异。"
 			),
-			allowed_conclusion="只能说折叠账本不足以判断这些投影变化是否合法，不能判前缀冻结失败，也不能判它正常。",
+			allowed_conclusion="可确认同一逻辑调用的两次尝试提交了不同投影；不能据此判定是哪一处内容变化，也不能判定折叠出错。",
 		)
 	)
 	return findings

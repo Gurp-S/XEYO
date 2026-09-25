@@ -5,7 +5,9 @@
 1. ``permission_snapshot_id`` 一个轮里出现多个取值曾被写成 ``confirmed_fault``，
    而授权增删本身就会合法地改变快照 id；
 2. ``frozen_head`` 把「本轮折叠账本为空」当成「没折叠过」——折叠事件按会话写、
-   行内不带轮次身份，空的折叠集合证明不了任何事；
+   行内不带轮次身份，空的折叠集合证明不了任何事；而它衡量「本轮有几个不同投影」
+   的前提本身是空的（投影 = 整份消息列表的哈希，一枪一个，28/28 命中轮次都能被
+   "这一轮不止一枪"解释）。该规则已重新指向可核对的不变量。
 3. 一个根本不存在的轮次会拿到 ``confirmed_fault`` + 引擎定责，证据来自同会话
    别处的 transcript 行与会话级 leftovers；
 4. 真实 DENY 审计行（``tools/tool_registry.py`` 的只读门与策略 DENY）既不带
@@ -146,7 +148,7 @@ def test_other_identifier_drift_is_still_suspected() -> None:
 	assert drift and drift[0].status == SUSPECTED_CAUSE
 
 
-# ---------- 2. 折叠账本：空账本不能当成「没折叠过」 ----------
+# ---------- 2. 冻结头：投影按枪数变化是常态，只有重发换面才是信号 ----------
 
 
 def _projection_run(fold_rows: list, fold_window: Window | None) -> RunEvidence:
@@ -163,26 +165,16 @@ def _projection_run(fold_rows: list, fold_window: Window | None) -> RunEvidence:
 	return run
 
 
-def test_empty_fold_ledger_no_longer_suspects_prefix_change() -> None:
-	"""折叠账本完整但对本会话零行：分不清「没折叠」与「折叠没落账」，只能 unknown。"""
-	findings = [f for f in rules.check_frozen_head(_projection_run([], _fold_window())) if "投影" in f.phenomenon]
-	assert findings, "这一级没记账必须说出来，不能静默通过"
-	assert all(f.status == UNKNOWN for f in findings)
+def test_projection_changing_between_shots_is_not_a_signal() -> None:
+	"""一枪一个投影是构造上的必然（投影 = 整份消息列表的哈希，projection_manifest:98）。
+	真实数据 40 轮里旧前提命中 28 轮，而这 28 轮的不同投影数全都 ≤ 本枪数 ⇒ 前提只
+	等价于"这一轮不止一枪"。所以三个不同调用各带一个新投影：不得产出任何冻结头结论。
+	"折叠账本对本会话零记录"这一事实改由采集层说（见 test_collect_integrity 的 no_records）。"""
+	assert rules.check_frozen_head(_projection_run([], _fold_window())) == []
 
 
-def test_empty_fold_ledger_coverage_gap_names_the_missing_identity() -> None:
-	target = [f for f in rules.check_frozen_head(_projection_run([], _fold_window())) if f.status == UNKNOWN]
-	assert "轮次身份" in target[0].coverage_gap
-
-
-def test_truncated_fold_ledger_is_also_unknowable() -> None:
-	"""账本没读完时同样不能推断「没折叠」：截断要在措辞里说出来。"""
-	findings = [f for f in rules.check_frozen_head(_projection_run([], _fold_window(complete=False))) if f.status == UNKNOWN]
-	assert findings
-
-
-def test_populated_complete_fold_ledger_keeps_the_suspicion() -> None:
-	"""账本完整且有行：前提成立，可疑级照旧上报（纠正误判不等于削掉规则）。"""
+def test_populated_fold_ledger_does_not_make_multi_shot_turn_suspicious() -> None:
+	"""账本完整且有行也不改变结论：可疑级原先同样建立在"本轮多个投影"这个空前提上。"""
 	run = _projection_run(
 		[
 			{"session_id": "s1", "fold": True, "reason": "worth_fold", "line_no": 3, "locator": FOLD_LOCATOR},
@@ -190,25 +182,39 @@ def test_populated_complete_fold_ledger_keeps_the_suspicion() -> None:
 		],
 		_fold_window(complete=True, rows_matched=2),
 	)
-	findings = [f for f in rules.check_frozen_head(run) if f.rule_id == "frozen_head"]
-	assert findings and findings[0].status == SUSPECTED_CAUSE
+	assert rules.check_frozen_head(run) == []
 
 
-def test_frozen_head_evidence_points_at_the_fold_ledger() -> None:
-	"""折叠证据的指针必须指折叠账本，不得借用审计窗口的路径。"""
-	finding = [f for f in rules.check_frozen_head(_projection_run([], _fold_window())) if f.status == UNKNOWN][0]
-	assert finding.evidence
-	for ref in finding.evidence:
-		assert ref.source == "usage"
-		assert ref.locator == FOLD_LOCATOR, "windows[0] 是审计窗口，不得当作 usage 账本"
-		assert AUDIT_LOCATOR not in ref.locator
+def test_retry_that_changes_projection_is_suspected() -> None:
+	"""重新指向真正的不变量：同一个逻辑调用的两次尝试换了字节面。"""
+	run = _run(
+		[
+			_ev(1, "model.started", 1.0, model_request_id="r1", attempt=1, projection_id="p1"),
+			_ev(2, "model.finished", 1.4, model_request_id="r1", attempt=1, status="retry", projection_id="p1"),
+			_ev(3, "model.started", 2.0, model_request_id="r1", attempt=2, projection_id="p2"),
+		]
+	)
+	findings = rules.check_frozen_head(run)
+	assert len(findings) == 1
+	assert findings[0].status == SUSPECTED_CAUSE
+	assert "r1" in findings[0].phenomenon
+	assert findings[0].evidence
+	for ref in findings[0].evidence:
+		assert ref.source == "audit"
+		assert ref.locator == AUDIT_LOCATOR
+		assert FOLD_LOCATOR not in ref.locator, "折叠账本没参与这条结论，指针不得指它"
 
 
-def test_frozen_head_without_fold_window_emits_no_borrowed_locator() -> None:
-	"""没有折叠账本窗口就留空定位符：宁缺勿借。"""
-	finding = [f for f in rules.check_frozen_head(_projection_run([], None)) if f.status == UNKNOWN][0]
-	assert all(ref.locator == "" for ref in finding.evidence)
-	assert any("fold_events" in ref.detail for ref in finding.evidence)
+def test_retry_with_identical_projection_is_silent() -> None:
+	"""反面对照：重发同一份投影必须零结论，规则不能恒真。"""
+	run = _run(
+		[
+			_ev(1, "model.started", 1.0, model_request_id="r1", attempt=1, projection_id="p1"),
+			_ev(2, "model.finished", 1.4, model_request_id="r1", attempt=1, status="retry", projection_id="p1"),
+			_ev(3, "model.started", 2.0, model_request_id="r1", attempt=2, projection_id="p1"),
+		]
+	)
+	assert rules.check_frozen_head(run) == []
 
 
 def test_window_chain_break_is_still_a_confirmed_fault() -> None:

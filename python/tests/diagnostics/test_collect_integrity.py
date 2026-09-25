@@ -1,4 +1,4 @@
-"""采集层的诚实性回归：真实数据普查里确认的六个缺陷。
+"""采集层的诚实性回归：真实数据普查里确认的七个缺陷。
 
 每一条都对应一份真实产品数据上跑出来的错账：
 
@@ -12,6 +12,8 @@
    ``state=full / complete=true``，「没发现异常」建立在扔掉证据之上。
 5. transcript 行列表虚报 ⇒ 上限裁到 400 行之后仍写 rows=463。
 6. usage 窗口对自己的边界一言不发 ⇒ ``complete=false`` 却没有 ``note``。
+7. 会话级的"没记账"被规则层当成轮次性质重复报出 ⇒ 折叠账本对本会话零行
+   （行内不带轮次身份）现在只在缺项清单里说一次。
 """
 
 from __future__ import annotations
@@ -560,3 +562,34 @@ def test_no_window_claims_full_while_dropping_rows(write_audit) -> None:
 		if window.source in file_sources and not window.present:
 			assert "不存在" in window.note and "未覆盖" not in window.note, window.source
 			assert run.coverage()[window.source]["state"] == ABSENT, window.source
+
+
+def test_fold_ledger_with_no_rows_for_this_session_says_so_once(write_audit) -> None:
+	"""折叠账本可读、窗口完整，但本会话零行：这一级没有可核对的记录。
+	必须说，但要说在采集缺项里 —— 折叠事件按会话写、行内不带轮次身份，
+	这条对本会话的每一轮都同形（真实数据曾把它写成 27/40 轮的"本轮未定"）。"""
+	from usage.ledger import fold_events_path, record_fold_event
+
+	record_fold_event(session_id="another-session", arm="c2")
+	assert fold_events_path().is_file()
+
+	run = collect_run(_SESSION, _TURN, audit_path=write_audit(_model_rows("r1", 1)))
+
+	gaps = [g for g in run.gaps if g.boundary == "wsc_fold" and g.reason == "no_records"]
+	assert gaps, "账本没有本会话的记录行，要留在缺项清单里"
+	assert "没有可核对的记录" in gaps[0].detail
+	window = run.window("fold_events")
+	assert window.present and window.complete and window.rows_matched == 0
+
+
+def test_fold_ledger_rows_for_this_session_do_not_trigger_the_gap(write_audit) -> None:
+	"""反面对照：账本里有本会话的行时不得再发这条缺项，否则它又是一条恒真措辞。"""
+	from usage.ledger import fold_events_path, record_fold_event
+
+	record_fold_event(session_id=_SESSION, arm="c2")
+	assert fold_events_path().is_file()
+
+	run = collect_run(_SESSION, _TURN, audit_path=write_audit(_model_rows("r1", 1)))
+
+	assert [g for g in run.gaps if g.reason == "no_records"] == []
+	assert run.window("fold_events").rows_matched == 1
