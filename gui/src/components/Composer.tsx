@@ -22,6 +22,11 @@ import {
 } from 'react';
 import {fetchFileReferences, uploadFile, uploadMedia, resumeInbox, type SkillInfo} from '@/lib/api';
 import {canMutateInboxItem} from '@/lib/inboxItemState';
+import {
+	currentFileReferenceResult,
+	fileReferenceQueryKey,
+	type FileReferenceQueryResult,
+} from '@/lib/fileReferenceQuery';
 import {createTaAutoResize} from '@/lib/taAutoResize';
 import {TypingCaret, type CaretColorRange, type TypingCaretApi} from '@/components/composer/TypingCaret';
 import {
@@ -744,31 +749,32 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 	// GET /v1/references/files；选中插入 `@相对路径 `，由 Agent 按需读文件。
 	const atToken = useMemo(() => triggerTokenAt(value, taCaret, '@'), [value, taCaret]);
 	const atQuery = atToken ? atToken.text.slice(1) : '';
-	const [atFiles, setAtFiles] = useState<string[]>([]);
-	const [atLoaded, setAtLoaded] = useState(false);
+	const atWorkspace = activeWorkspace.trim();
+	const atRequestKey = atToken ? fileReferenceQueryKey(atWorkspace, atQuery) : null;
+	const [atResult, setAtResult] = useState<FileReferenceQueryResult | null>(null);
+	const currentAtResult = currentFileReferenceResult(atResult, atRequestKey);
+	const atFiles = currentAtResult?.files ?? [];
+	const atLoaded = currentAtResult !== null;
 	useEffect(() => {
-		if (!atToken || !taFocused) {
-			setAtLoaded(false);
+		if (!atRequestKey || !taFocused) {
+			setAtResult(null);
 			return;
 		}
-		if (!activeWorkspace) {
-			return;
-		}
+		const requestKey = atRequestKey;
 		const controller = new AbortController();
 		const t = setTimeout(() => {
-			void fetchFileReferences(activeWorkspace, atQuery, controller.signal).then(report => {
+			void fetchFileReferences(atWorkspace, atQuery, controller.signal).then(report => {
 				if (controller.signal.aborted || !report) {
 					return;
 				}
-				setAtFiles(report.files);
-				setAtLoaded(true);
+				setAtResult({key: requestKey, files: report.files});
 			});
 		}, 120);
 		return () => {
 			controller.abort();
 			clearTimeout(t);
 		};
-	}, [atToken, atQuery, activeWorkspace, taFocused]);
+	}, [atRequestKey, atQuery, atWorkspace, taFocused]);
 	const atMenuOpen =
 		atToken !== null &&
 		taFocused &&
