@@ -627,6 +627,17 @@ describe('深链选择不得顶替用户那一击（P1 11）', () => {
 			selectTurnAfterRunsLoaded({runs, currentTurn: 'gone', deepTurn: '', toolHint: ''}).turnId,
 		).toBe('t1');
 	});
+
+	it('回落第一条会把用户点过的轮次换掉时必须报出来（静默换选＝正文自己跳）', () => {
+		expect(
+			selectTurnAfterRunsLoaded({runs, currentTurn: 'gone', deepTurn: '', toolHint: ''})
+				.mismatch,
+		).toEqual({kind: 'replaced', value: 'gone', alt: 't1'});
+		// 从没有选过（首屏）时回落第一条不算改选，不该出提示。
+		expect(
+			selectTurnAfterRunsLoaded({runs, currentTurn: '', deepTurn: '', toolHint: ''}).mismatch,
+		).toBeNull();
+	});
 });
 
 describe('实验请求体对齐后端契约（P1 3）', () => {

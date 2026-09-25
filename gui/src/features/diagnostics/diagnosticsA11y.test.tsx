@@ -10,6 +10,7 @@ import {cleanup, fireEvent, render, screen, waitFor} from '@testing-library/reac
 import {afterEach, describe, expect, it, vi} from 'vitest';
 import {parseRunDetail, traceDiagFact} from '@/lib/api/diagnostics';
 import {ContextView} from './ContextView';
+import {FindingsView} from './FindingsView';
 import {StepsView} from './StepsView';
 import {UsageView} from './UsageView';
 
@@ -93,6 +94,59 @@ describe('「步骤」视图的展开联动', () => {
 		expect(chip).toBeDefined();
 		fireEvent.click(chip!);
 		expect(screen.getByRole('status').textContent).toContain('该来源在本轮没有记录');
+	});
+});
+
+describe('「问题」视图的展开面板', () => {
+	const f = (phenomenon: string) => ({
+		rule_id: 'tool_failure',
+		rule_version: 1,
+		boundary: 'tool',
+		component: '工具执行',
+		status: 'confirmed_fault',
+		phenomenon,
+		impact: `影响：${phenomenon}`,
+		allowed_conclusion: '可下的结论',
+		coverage_gap: '看不到的范围',
+		evidence: [],
+	});
+	const panels = () =>
+		[...document.querySelectorAll<HTMLElement>('.xy-dig-finding-panel')];
+
+	it('收起的面板留在 DOM 但退出可达性树；展开后两者都撤掉', () => {
+		render(<FindingsView detail={detail({findings: [f('工具 Bash 返回错误')]})} />);
+		const head = document.querySelector<HTMLButtonElement>('.xy-dig-finding-head');
+		const panel = panels()[0];
+		expect(head).not.toBeNull();
+		expect(panel).not.toBeNull();
+		expect(panel.hasAttribute('inert')).toBe(true);
+		expect(panel.getAttribute('aria-hidden')).toBe('true');
+		// 面板常驻是高度动画的前提，所以可达性隔离必须显式做，
+		// 否则"看不见但能 tab 到、读屏念得到"。
+		expect(head?.getAttribute('aria-controls')).toBe(panel.id);
+
+		fireEvent.click(head!);
+
+		expect(panel.hasAttribute('inert')).toBe(false);
+		expect(panel.getAttribute('aria-hidden')).toBe('false');
+		expect(panel.textContent).toContain('影响：工具 Bash 返回错误');
+	});
+
+	it('前面一条结论被删掉时，展开态不得跟到后面那条上', () => {
+		// 同一规则 + 同一边界可以出多条（实测 tool_failure 对 Bash / Edit 各一条）。
+		// 用下标当 key 的一半时，[A,B] → [B] 会让 B 顶到 A 的位置、继承 A 的展开态：
+		// 用户点开的是 Bash，看到的却是 Edit 的正文。
+		const {rerender} = render(
+			<FindingsView detail={detail({findings: [f('A'), f('B')]})} />,
+		);
+		fireEvent.click(document.querySelectorAll('.xy-dig-finding-head')[0]!);
+		expect(panels()[0]?.textContent).toContain('影响：A');
+
+		rerender(<FindingsView detail={detail({findings: [f('B')]})} />);
+
+		expect(document.querySelectorAll('.xy-dig-finding')).toHaveLength(1);
+		expect(panels()[0]?.hasAttribute('inert')).toBe(true);
+		expect(panels()[0]?.textContent).not.toContain('影响：A');
 	});
 });
 

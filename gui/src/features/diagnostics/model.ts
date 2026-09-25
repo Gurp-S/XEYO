@@ -800,10 +800,18 @@ export function ledgerCountText(
 }
 
 /** 深链没落进审计尾窗时的措辞：说清"没有顶替"，不假装这是用户点的那一击的结论。 */
-export function linkMismatchText(kind: 'tool' | 'turn', value: string): string {
-	return kind === 'tool'
-		? `工具调用 ${value || DASH} 不在当前审计尾窗里：本页没有自动改选其他轮次，下方结论不对应这一次点击。`
-		: `轮次 ${value || DASH} 不在当前审计尾窗里：本页没有自动改选其他轮次。`;
+export function linkMismatchText(
+	kind: 'tool' | 'turn' | 'replaced',
+	value: string,
+	alt?: string,
+): string {
+	if (kind === 'tool') {
+		return `工具调用 ${value || DASH} 不在当前审计尾窗里：本页没有自动改选其他轮次，下方结论不对应这一次点击。`;
+	}
+	if (kind === 'replaced') {
+		return `轮次 ${value || DASH} 已滑出当前审计尾窗：下面显示的是列表里最新一轮 ${alt || DASH} 的结论，不是你上次点的那一轮。`;
+	}
+	return `轮次 ${value || DASH} 不在当前审计尾窗里：本页没有自动改选其他轮次。`;
 }
 
 /** 刷新失败但底下仍有数据时的措辞：错误不遮数据。 */

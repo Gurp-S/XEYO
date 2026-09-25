@@ -405,23 +405,67 @@
   color: var(--color-mute);
 }
 
+/* ============ 问题视图：按结论档分组的轨道列表 ============
+   旧画法是"一条结论一个盒子"，实测有三个毛病：
+   - 左色轨用 inset box-shadow 画，跟着圆角走，看起来像浮在边上的胶囊；
+   - 同一个档位在一行里出现三次（组头徽章 + 行内徽章 + 色轨），互相抢；
+   - 行内徽章宽度按文字长短变化，正文起始位置逐行参差，整列读不齐。
+   现在一组一个容器、行与行用发丝线分隔；档位只在行尾出现一次（点 + 文字），
+   正文永远从同一列开始。色轨删掉——颜色不再是唯一线索（形状也带信息）。 */
 .xy-dig-group {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--xy-radius-control);
+  background: var(--color-glass-soft);
+  /* 行 hover 底色是矩形，容器圆角不会自己裁掉子元素背景；clip 不产生滚动容器。 */
+  overflow: clip;
 }
 
 .xy-dig-group-title {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   margin: 0;
-  font-size: 11.5px;
-  color: var(--color-mute);
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--color-line);
+  background: color-mix(in oklch, var(--color-ink) 2.5%, transparent);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-ink-soft);
 }
 
 .xy-dig-count {
   font-size: 10.5px;
+  font-weight: 400;
+  color: var(--color-mute);
+}
+
+/* 档位点：实心=已确认 / 实心=疑似 / 空心=未定。
+   空心这层形状差是为了让"未定"在色觉异常或灰阶打印下仍与两档可分。 */
+.xy-dig-sev-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: var(--color-mute);
+}
+
+.xy-dig-group.is-confirmed_fault .xy-dig-sev-dot,
+.xy-dig-finding.is-confirmed_fault .xy-dig-sev-dot {
+  background: var(--color-danger);
+}
+
+.xy-dig-group.is-suspected_cause .xy-dig-sev-dot,
+.xy-dig-finding.is-suspected_cause .xy-dig-sev-dot {
+  background: var(--color-warn);
+}
+
+.xy-dig-group.is-unknown .xy-dig-sev-dot,
+.xy-dig-finding.is-unknown .xy-dig-sev-dot {
+  background: transparent;
+  border-color: color-mix(in oklch, var(--color-mute) 70%, transparent);
 }
 
 .xy-dig-findings {
@@ -430,25 +474,10 @@
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 6px;
 }
 
-.xy-dig-finding {
-  border: 1px solid var(--color-line);
-  border-radius: var(--xy-radius-control);
-  background: var(--color-glass-hover);
-}
-
-.xy-dig-finding.is-confirmed_fault {
-  box-shadow: inset 3px 0 0 var(--color-danger);
-}
-
-.xy-dig-finding.is-suspected_cause {
-  box-shadow: inset 3px 0 0 var(--color-warn);
-}
-
-.xy-dig-finding.is-unknown {
-  box-shadow: inset 3px 0 0 color-mix(in oklch, var(--color-mute) 55%, transparent);
+.xy-dig-finding + .xy-dig-finding {
+  border-top: 1px solid var(--color-line);
 }
 
 .xy-dig-finding-head {
@@ -457,32 +486,93 @@
   gap: 8px;
   width: 100%;
   text-align: left;
-  padding: 7px 10px;
+  padding: 8px 10px;
   cursor: pointer;
 }
 
 .xy-dig-finding-what {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
   min-width: 0;
   flex: 1;
 }
 
 .xy-dig-finding-phenomenon {
-  font-size: 12px;
+  font-size: 12.5px;
   line-height: 1.5;
+  font-weight: 500;
   color: var(--color-ink);
 }
 
 .xy-dig-finding-meta {
+  display: flex;
+  flex-wrap: wrap;
+  row-gap: 2px;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--color-ink-soft);
+}
+
+/* 三项之间用发丝竖线分隔，替掉原来夹全角空格的做法——
+   全角空格的宽度随字体回落档变化，窄容器里换行点不可控。 */
+.xy-dig-meta-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+}
+
+.xy-dig-meta-item + .xy-dig-meta-item {
+  margin-left: 9px;
+  padding-left: 9px;
+  border-left: 1px solid var(--color-line);
+}
+
+.xy-dig-meta-k {
+  color: var(--color-mute);
+  white-space: nowrap;
+}
+
+.xy-dig-finding-sev {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  padding-top: 2px;
   font-size: 10.5px;
   color: var(--color-mute);
 }
 
+.xy-dig-finding.is-confirmed_fault .xy-dig-finding-sev {
+  color: var(--color-danger);
+}
+
+.xy-dig-finding.is-suspected_cause .xy-dig-finding-sev {
+  color: var(--color-warn);
+}
+
+/* 展开面板：0fr → 1fr 收放。条件渲染会让下方整列在一帧里位移（实测 137px），
+   读起来就是"跳"；这里让高度自己走完 200ms。 */
+.xy-dig-finding-panel {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--duration-base) ease;
+}
+
+.xy-dig-finding.is-open .xy-dig-finding-panel {
+  grid-template-rows: 1fr;
+}
+
+.xy-dig-finding-panel-inner {
+  overflow: hidden;
+  min-height: 0;
+}
+
 .xy-dig-finding-body {
+  /* 32px = head 的 10px 内边距 + 14px 箭头 + 8px 间距：正文与现象行同列起。 */
   border-top: 1px solid var(--color-line);
-  padding: 8px 10px;
+  padding: 9px 10px 11px 32px;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -1285,7 +1375,6 @@
 .xy-dig-mode:focus-visible,
 .xy-dig-run:focus-visible,
 .xy-dig-step-head:focus-visible,
-.xy-dig-finding-head:focus-visible,
 .xy-dig-evidence:focus-visible,
 .xy-dig-input:focus-visible,
 .xy-dig-textarea:focus-visible {
@@ -1293,10 +1382,16 @@
   box-shadow: var(--xy-ring, none);
 }
 
+/* 结论行在带 overflow: clip 的组容器里，外描环会被容器切掉上下两头；
+   这里改成同一支环色的内描环，位置仍然唯一可辨。 */
+.xy-dig-finding-head:focus-visible {
+  outline: none;
+  box-shadow: inset var(--xy-ring, none);
+}
+
 /* 展开行原先只有 cursor: pointer——静止时读不出"这行能点"。
    hover / 聚焦都要有底色变化，才和步骤行的交互语言一致。 */
 .xy-dig-finding-head {
-  border-radius: var(--xy-radius-control) var(--xy-radius-control) 0 0;
   transition: background-color var(--duration-fast) ease,
     color var(--duration-fast) ease;
 }
@@ -1349,6 +1444,7 @@
   .xy-dig-chip,
   .xy-dig-evidence,
   .xy-dig-finding-head,
+  .xy-dig-finding-panel,
   .xy-dig-step-link,
   .xy-dig-chevron {
     transition: none;

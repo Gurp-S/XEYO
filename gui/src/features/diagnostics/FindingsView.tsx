@@ -27,52 +27,68 @@ import {
 import {Badge, EvidenceList, KeyValue, Notice, Section} from './ui';
 import {cn} from '@/lib/utils';
 
-const STATUS_TONE: Record<string, 'confirmed' | 'suspect' | 'unknown'> = {
-	confirmed_fault: 'confirmed',
-	suspected_cause: 'suspect',
-	unknown: 'unknown',
-};
-
+/**
+ * 一条结论。展开面板常驻挂载、用 grid-template-rows 收放：
+ * 条件渲染会让下方行在一帧里整体位移（实测 137px 一步到位），读起来就是"跳"。
+ * 收起时靠 inert + aria-hidden 退出可达性树，不留"看不见但能 tab 到"的内容。
+ */
 function FindingCard({f, boundaryLabel}: {f: DiagFinding; boundaryLabel: string}) {
 	const [open, setOpen] = useState(false);
 	const bodyId = useId();
 	const status = findingStatusOf(f);
 	return (
-		<li className={cn('xy-dig-finding', `is-${status}`)}>
+		<li className={cn('xy-dig-finding', `is-${status}`, open && 'is-open')}>
 			<button
 				type="button"
 				className="xy-dig-finding-head"
 				aria-expanded={open}
-				aria-controls={open ? bodyId : undefined}
+				aria-controls={bodyId}
 				onClick={() => setOpen(v => !v)}
 			>
 				<ChevronRight
 					className={cn('xy-dig-chevron size-3.5 shrink-0', open && 'is-open')}
 					aria-hidden
 				/>
-				<Badge tone={STATUS_TONE[status]}>{FINDING_STATUS_LABEL[status]}</Badge>
 				<span className="xy-dig-finding-what">
 					<span className="xy-dig-finding-phenomenon">{f.phenomenon || DASH}</span>
 					<span className="xy-dig-finding-meta">
-						边界 {boundaryLabel}　功能归属 {f.component || DASH}　规则{' '}
-						<span className="font-mono">{f.rule_id || DASH}</span>
-						{f.rule_version != null ? ` v${f.rule_version}` : ''}
+						<span className="xy-dig-meta-item">
+							<span className="xy-dig-meta-k">边界</span>
+							{boundaryLabel}
+						</span>
+						<span className="xy-dig-meta-item">
+							<span className="xy-dig-meta-k">功能归属</span>
+							{f.component || DASH}
+						</span>
+						<span className="xy-dig-meta-item">
+							<span className="xy-dig-meta-k">规则</span>
+							<span className="font-mono">
+								{f.rule_id || DASH}
+								{f.rule_version != null ? ` v${f.rule_version}` : ''}
+							</span>
+						</span>
 					</span>
 				</span>
+				<span className="xy-dig-finding-sev">
+					<span className="xy-dig-sev-dot" aria-hidden />
+					{FINDING_STATUS_LABEL[status]}
+				</span>
 			</button>
-			{open ? (
-				<div id={bodyId} className="xy-dig-finding-body">
-					<KeyValue
-						rows={[
-							{k: '影响', v: f.impact},
-							{k: '允许下的结论', v: f.allowed_conclusion},
-							{k: '本规则看不到的范围', v: f.coverage_gap},
-						]}
-					/>
-					<p className="xy-dig-sub">原始记录（点击复制定位）</p>
-					<EvidenceList items={f.evidence} />
+			<div id={bodyId} className="xy-dig-finding-panel" aria-hidden={!open} inert={!open}>
+				<div className="xy-dig-finding-panel-inner">
+					<div className="xy-dig-finding-body">
+						<KeyValue
+							rows={[
+								{k: '影响', v: f.impact},
+								{k: '允许下的结论', v: f.allowed_conclusion},
+								{k: '本规则看不到的范围', v: f.coverage_gap},
+							]}
+						/>
+						<p className="xy-dig-sub">原始记录（点击复制定位）</p>
+						<EvidenceList items={f.evidence} />
+					</div>
 				</div>
-			) : null}
+			</div>
 		</li>
 	);
 }
@@ -87,20 +103,30 @@ function Group({
 	boundaryLabel: (name: string) => string;
 }) {
 	if (!items.length) return null;
+	// 同一规则 + 同一边界可以出多条（实测 tool_failure 对 Bash / Edit 各一条），
+	// 所以身份只能取内容本身；重复内容再按出现次序编号——两条内容完全一样的
+	// 结论互换是不可见的，但"删掉前面一条"不该让后面那条继承它的展开态。
+	const seen = new Map<string, number>();
 	return (
-		<div className="xy-dig-group">
+		<div className={cn('xy-dig-group', `is-${status}`)}>
 			<h4 className="xy-dig-group-title">
-				<Badge tone={STATUS_TONE[status]}>{FINDING_STATUS_LABEL[status]}</Badge>
+				<span className="xy-dig-sev-dot" aria-hidden />
+				<span className="xy-dig-group-label">{FINDING_STATUS_LABEL[status]}</span>
 				<span className="xy-dig-count tabular-nums">{items.length} 条</span>
 			</h4>
 			<ul className="xy-dig-findings">
-				{items.map((f, i) => (
-					<FindingCard
-						key={`${f.rule_id}|${f.boundary}|${i}`}
-						f={f}
-						boundaryLabel={boundaryLabel(f.boundary)}
-					/>
-				))}
+				{items.map(f => {
+					const base = `${f.rule_id}|${f.boundary}|${f.phenomenon}`;
+					const n = (seen.get(base) ?? 0) + 1;
+					seen.set(base, n);
+					return (
+						<FindingCard
+							key={n === 1 ? base : `${base}#${n}`}
+							f={f}
+							boundaryLabel={boundaryLabel(f.boundary)}
+						/>
+					);
+				})}
 			</ul>
 		</div>
 	);

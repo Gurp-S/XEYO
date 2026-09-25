@@ -29,7 +29,12 @@ const REFRESH_MS = 20_000;
 const RUNS_LIMIT = 80;
 
 /** 深链没有落到真实存在的轮次上——原样带出用户点的那个 id，不自动改选。 */
-export type DiagLinkMismatch = {kind: 'tool' | 'turn'; value: string};
+export type DiagLinkMismatch = {
+	kind: 'tool' | 'turn' | 'replaced';
+	value: string;
+	/** kind==='replaced'：自动改选后实际显示的那一轮。 */
+	alt?: string;
+};
 
 export type TurnSelectionAfterRuns = {
 	turnId: string;
@@ -43,7 +48,8 @@ export type TurnSelectionAfterRuns = {
  * - 有 tool 深链：只认 tool_use_ids 命中的一轮；没命中就明确报「不在这次的窗口里」，
  *   绝不退回 runs[0]（那等于把别的轮次结论当成用户那一击的答案）；
  * - 有 turn 深链但本轮不在审计尾窗：同样不顶替；
- * - 其余情形保留当前选择，最后才默认第一条。
+ * - 其余情形保留当前选择，最后才默认第一条；
+ * - 默认第一条这一支若会把用户点过的轮次换掉，必须带 mismatch 说明换成了哪一轮。
  */
 export function selectTurnAfterRunsLoaded(args: {
 	runs: DiagRunsResult;
@@ -67,7 +73,17 @@ export function selectTurnAfterRunsLoaded(args: {
 		if (has(args.deepTurn)) return {turnId: args.deepTurn, mismatch: null, toolResolved: true};
 		return {turnId: '', mismatch: {kind: 'turn', value: args.deepTurn}, toolResolved: true};
 	}
-	return {turnId: runs[0]?.turn_id ?? '', mismatch: null, toolResolved: true};
+	const first = runs[0]?.turn_id ?? '';
+	// 用户点过的那一轮滑出了审计尾窗：这里会自动改选列表第一条，整块正文随之换掉。
+	// 不报出来就是"结论自己在变"（20s 一轮的静默轮询会踩中），所以留下改选痕迹。
+	if (args.currentTurn && first && first !== args.currentTurn) {
+		return {
+			turnId: first,
+			mismatch: {kind: 'replaced', value: args.currentTurn, alt: first},
+			toolResolved: true,
+		};
+	}
+	return {turnId: first, mismatch: null, toolResolved: true};
 }
 
 export type DiagnosticsLink = {turn: string; tool: string};
@@ -145,7 +161,13 @@ export function useDiagnosticsData(args: {
 				.then(data => {
 					if (runsReqRef.current !== id) return;
 					// 会话 A 的慢响应不得覆盖会话 B 的列表（parseRunsResult 已带 session_id）。
-					if (data.session_id && data.session_id !== sessionId) return;
+					if (data.session_id && data.session_id !== sessionId) {
+						// 静默丢弃会让用户以为"刷新没反应"：这属于载荷自证失败，要说出来。
+						setRunsError(
+							`列表回执的会话是 ${data.session_id}，与当前会话 ${sessionId} 不符，未采用。`,
+						);
+						return;
+					}
 					setRunsError('');
 					setRuns(data);
 					const sel = selectTurnAfterRunsLoaded({
@@ -206,8 +228,20 @@ export function useDiagnosticsData(args: {
 				.then(data => {
 					if (detailReqRef.current !== id) return;
 					// 载荷自证身份：后端把 turn_id / session_id 一起回传，不符就是错轮。
-					if (data.turn_id && data.turn_id !== targetTurn) return;
-					if (data.session_id && data.session_id !== sessionId) return;
+					// 旧响应被更新的请求顶掉时已在上面按 id 返回，走到这里的一定是
+					// "当前这一枪回了别的轮次"——静默丢弃会让用户以为点了没反应。
+					if (data.turn_id && data.turn_id !== targetTurn) {
+						setDetailError(
+							`回执的轮次是 ${data.turn_id}，与本轮 ${targetTurn} 不符，未展示。`,
+						);
+						return;
+					}
+					if (data.session_id && data.session_id !== sessionId) {
+						setDetailError(
+							`回执的会话是 ${data.session_id}，与当前会话 ${sessionId} 不符，未展示。`,
+						);
+						return;
+					}
 					setDetailError('');
 					setDetail(prev =>
 						silent && prev && eventsExtendedRef.current

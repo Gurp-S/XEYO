@@ -425,7 +425,7 @@ export function DiagnosticsPanel({active}: {active: boolean}) {
 						<div className="xy-dig-notices">
 							{data.mismatch ? (
 								<Notice tone="warn">
-									{linkMismatchText(data.mismatch.kind, data.mismatch.value)}
+									{linkMismatchText(data.mismatch.kind, data.mismatch.value, data.mismatch.alt)}
 								</Notice>
 							) : null}
 							{data.detailError ? (

@@ -211,7 +211,7 @@ describe('运行详情的请求身份（P0 1）', () => {
 		expect(screen.getByText('乙轮的结论')).toBeTruthy();
 	});
 
-	it('载荷自证身份：turn_id 与所请求不符的响应被丢弃', async () => {
+	it('载荷自证身份：turn_id 与所请求不符的响应被丢弃，并说明为什么', async () => {
 		const user = userEvent.setup();
 		api.fetchDiagRuns.mockResolvedValue(
 			runsFixture(SESSION, [{turn_id: 't1'}, {turn_id: 't2'}]),
@@ -226,6 +226,20 @@ describe('运行详情的请求身份（P0 1）', () => {
 		await user.click(screen.getByRole('button', {name: /t2/}));
 		await new Promise(r => setTimeout(r, 0));
 		expect(screen.queryByText('串轮的结论')).toBeNull();
+		// 只丢弃不吭声 = 用户看到的是"点了 t2 没反应"。丢弃的理由必须上屏。
+		expect(await screen.findByText(/回执的轮次是 t1，与本轮 t2 不符/)).toBeTruthy();
+	});
+
+	it('列表回执的会话与当前会话不符时：保留旧列表并说明未采用', async () => {
+		api.fetchDiagRuns.mockResolvedValue(
+			runsFixture('other-session', [{turn_id: 't9'}]),
+		);
+		api.fetchDiagRun.mockImplementation(() => deferred<DiagRunDetail>().promise);
+		renderPanel();
+		// 旧列表还在（错误不遮数据），但必须说清这一枪的回执没被采用。
+		// 比对用的是后端侧会话号（gui-a 已映射成 backend-gui-a），所以只钉措辞不钉 id。
+		expect(await screen.findByText(/不符，未采用/)).toBeTruthy();
+		expect(screen.queryByText('t9')).toBeNull();
 	});
 
 	it('换轮次时先清空正文，加载态真的出现', async () => {
