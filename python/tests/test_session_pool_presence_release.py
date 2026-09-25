@@ -68,10 +68,13 @@ def test_reclaim_on_try_begin_clears_old_session_but_not_the_new_one(
 ) -> None:
 	"""回收发生在 try_begin 内部：不能把刚拿到的新租约也标成 idle。"""
 	ws = str(tmp_path / "ws")
-	pool = SessionPool(ws, busy_stale_sec=0.01)
+	# busy_stale_sec 同时是"s2 必须还没过期"的安全窗口：取 0.01 时这个窗口只有
+	# 10ms，机器一忙（并发跑套件）就被判成 idle，给出与产品无关的假红。
+	# 现在 s1 侧仍有 3 倍过期余量，s2 侧的安全窗从 10ms 抬到 0.5s。
+	pool = SessionPool(ws, busy_stale_sec=0.5)
 
 	assert pool.try_begin("s1") is not None
-	time.sleep(0.05)
+	time.sleep(1.5)
 	assert pool.try_begin("s2") is not None
 
 	assert _presence(ws, "s1").busy is False, "被回收的 s1 应落 idle"

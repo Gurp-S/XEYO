@@ -277,7 +277,7 @@ async def test_subagent_hydrates_sidechain_on_resume(tmp_path, monkeypatch):
 	from engine.subagent_runner import run_subagent
 	from msgtypes.events import FinalEvent
 	from msgtypes.message import Message, user_message
-	from session.record_transcript import record_transcript
+	from session.record_transcript import flush_transcript, record_transcript
 
 	agent_id = "agent-t1-resume"
 	main = "sess-hydrate"
@@ -295,6 +295,9 @@ async def test_subagent_hydrates_sidechain_on_resume(tmp_path, monkeypatch):
 		session_persistence_disabled=False,
 		known_ids=set(),
 	)
+	# record_transcript 只入队，落盘由后台线程完成；不 flush 就先读侧链，读到的
+	# 是"还没写"的空文件 —— 于是这条"续跑要接上历史"的断言变成在赌调度。
+	flush_transcript(side)
 
 	captured: dict = {}
 
