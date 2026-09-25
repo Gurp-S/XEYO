@@ -62,6 +62,16 @@ import {
 	syncPromptClampOverflow,
 } from '../sticky';
 
+function isNestedPromptControl(target: EventTarget | null, root: HTMLElement): boolean {
+	if (!(target instanceof Element)) {
+		return false;
+	}
+	const control = target.closest(
+		'a, button, input, textarea, select, summary, [role="link"], [role="button"]',
+	);
+	return control !== null && control !== root;
+}
+
 export function PromptTextClamp({children}: {children: ReactNode}) {
 	const ref = useRef<HTMLDivElement>(null);
 	const frameKeyRef = useRef(createFrameKey('prompt-clamp'));
@@ -326,10 +336,21 @@ ref={editing ? promptEditRef : undefined}
 				   配合占位同步渐缩，退出编辑不再同帧硬切、瞬移。 */
 				editClosing && 'xy-editing-bubble-closing',
 			)}
-			onClick={!editing && canEdit ? onEdit : undefined}
+			onClick={
+				!editing && canEdit
+					? event => {
+							if (!isNestedPromptControl(event.target, event.currentTarget)) {
+								onEdit?.(event);
+							}
+					  }
+					: undefined
+			}
 			onContextMenu={
 				!editing
 					? event => {
+							if (isNestedPromptControl(event.target, event.currentTarget)) {
+								return;
+							}
 							showContextMenu(
 								event,
 								userMessageMenuItems({
@@ -345,6 +366,9 @@ ref={editing ? promptEditRef : undefined}
 			onKeyDown={
 				!editing && canEdit
 					? event => {
+							if (isNestedPromptControl(event.target, event.currentTarget)) {
+								return;
+							}
 							if (event.key === 'Enter' || event.key === ' ') {
 								event.preventDefault();
 								onEdit?.();
