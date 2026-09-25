@@ -1,4 +1,4 @@
-import type {ReactNode} from 'react';
+import {useLayoutEffect, useRef, type ReactNode} from 'react';
 import {cn} from '@/lib/utils';
 
 /**
@@ -9,23 +9,37 @@ import {cn} from '@/lib/utils';
 export function PageViewPane({
 	active,
 	mounted,
+	label,
 	children,
 }: {
 	active: boolean;
 	mounted: boolean;
+	label: string;
 	children: ReactNode;
 }) {
+	const paneRef = useRef<HTMLDivElement>(null);
+
+	useLayoutEffect(() => {
+		if (active && mounted) {
+			paneRef.current?.focus({preventScroll: true});
+		}
+	}, [active, mounted]);
+
 	if (!active && !mounted) {
 		return null;
 	}
 	return (
 		<div
+			ref={paneRef}
 			className={cn(
 				'absolute inset-0 flex min-h-0 min-w-0 flex-col transition-[opacity,transform] duration-200 ease-out motion-reduce:transition-none',
 				active
 					? 'pointer-events-auto translate-y-0 opacity-100'
 					: 'pointer-events-none -translate-y-1 opacity-0',
 			)}
+			role="region"
+			aria-label={label}
+			tabIndex={-1}
 			aria-hidden={!active}
 			inert={!active}
 		>

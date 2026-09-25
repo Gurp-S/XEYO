@@ -1,4 +1,4 @@
-import {useEffect, useRef} from 'react';
+import {useEffect, useLayoutEffect, useRef} from 'react';
 import {AppShell} from '@/components/AppShell';
 import {ChatHeader} from '@/components/ChatHeader';
 
@@ -77,6 +77,8 @@ export function ChatPage() {
 		typeof window !== 'undefined' &&
 		window.location.pathname === '/bench/chat';
 	const creatingRef = useRef(false);
+	const chatMainRef = useRef<HTMLElement>(null);
+	const wasPageViewOpenRef = useRef(false);
 	const hydrated = useChatStore(s => s.hydrated);
 	const hydrate = useChatStore(s => s.hydrate);
 	const hydrateSettings = useSettingsStore(s => s.hydrate);
@@ -87,6 +89,20 @@ export function ChatPage() {
 	const usageActive = pageView === 'usage';
 	const pluginsActive = pageView === 'plugins';
 	const diagnosticsActive = pageView === 'diagnostics';
+	const mainLandmarkLabel =
+		pageView === 'usage'
+			? '用量'
+			: pageView === 'plugins'
+				? '扩展'
+				: pageView === 'diagnostics'
+					? '诊断'
+					: '对话';
+	useLayoutEffect(() => {
+		if (!pageViewOpen && wasPageViewOpenRef.current) {
+			chatMainRef.current?.focus({preventScroll: true});
+		}
+		wasPageViewOpenRef.current = pageViewOpen;
+	}, [pageViewOpen]);
 	const {mounted: usageMounted} = usePresence(usageActive, 200, 1);
 	const {mounted: pluginsMounted} = usePresence(pluginsActive, 200, 1);
 	const {mounted: diagnosticsMounted} = usePresence(diagnosticsActive, 200, 1);
@@ -256,7 +272,12 @@ export function ChatPage() {
 					{/* 聊天列 + 文件预览/工具面板共用宿主，放大时预览 absolute 盖住聊天。 */}
 					<div className="xy-pane-chat-host relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
 						<ChatUiStoreProvider store={useChatStore}>
-							<main className="xy-chat-independent-top-mask relative flex min-h-0 min-w-[180px] flex-1 flex-col bg-transparent">
+							<main
+								ref={chatMainRef}
+								aria-label={mainLandmarkLabel}
+								tabIndex={-1}
+								className="xy-chat-independent-top-mask relative flex min-h-0 min-w-[180px] flex-1 flex-col bg-transparent"
+							>
 								<ChatHeader mode={isSideChat ? "side" : "main"} />
 								<div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
 									<div
@@ -285,13 +306,13 @@ export function ChatPage() {
 							<RecoveryBanner />
 							<Composer showTodoDock={!isSideChat} />
 							</div>
-						<PageViewPane active={usageActive} mounted={usageMounted}>
+						<PageViewPane active={usageActive} mounted={usageMounted} label="用量">
 							<UsagePanel active={usageActive} />
 						</PageViewPane>
-						<PageViewPane active={pluginsActive} mounted={pluginsMounted}>
+						<PageViewPane active={pluginsActive} mounted={pluginsMounted} label="扩展中心">
 							<PluginsPanel active={pluginsActive} />
 						</PageViewPane>
-						<PageViewPane active={diagnosticsActive} mounted={diagnosticsMounted}>
+						<PageViewPane active={diagnosticsActive} mounted={diagnosticsMounted} label="诊断中心">
 							<DiagnosticsPanel active={diagnosticsActive} />
 						</PageViewPane>
 								</div>
