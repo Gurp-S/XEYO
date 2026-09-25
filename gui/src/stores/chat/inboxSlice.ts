@@ -21,6 +21,22 @@ import {assignInboxQueuePositions} from '@/lib/inboxItemState';
 type SetState = (partial: Partial<ChatState> | ((s: ChatState) => Partial<ChatState>)) => void;
 type GetState = () => ChatState;
 
+function hasValidInboxItems(payload: InboxSnapshot | null): payload is InboxSnapshot {
+	return Boolean(
+		payload &&
+		Array.isArray(payload.items) &&
+		payload.items.every(
+			item =>
+				item !== null &&
+				typeof item === 'object' &&
+				typeof item.queue_id === 'string' &&
+				Boolean(item.queue_id.trim()) &&
+				(item.message_id == null || typeof item.message_id === 'string') &&
+				(item.delivery_id == null || typeof item.delivery_id === 'string'),
+		),
+	);
+}
+
 function normalizeItems(payload: InboxSnapshot | null): InboxQueuedItem[] {
 	if (!payload || !Array.isArray(payload.items)) {
 		return [];
@@ -137,15 +153,20 @@ export function createInboxSlice(
 	return {
 		async refreshInbox(sessionId: string) {
 			const revision = revise(sessionId);
+			const backendSessionId = backendId(sessionId);
 			let payload: InboxSnapshot | null = null;
 			try {
-				payload = await inboxSnapshot(backendId(sessionId));
+				payload = await inboxSnapshot(backendSessionId);
 			} catch {
 				return false;
 			}
 			// null means the snapshot failed; only an authoritative empty items[]
 			// may clear queue cards.
-			if (!payload || revisions.get(sessionId) !== revision) {
+			if (
+				!hasValidInboxItems(payload) ||
+				revisions.get(sessionId) !== revision ||
+				backendId(sessionId) !== backendSessionId
+			) {
 				return false;
 			}
 			if (!get().sessions.some(session => session.id === sessionId)) {
@@ -224,10 +245,11 @@ export function createInboxSlice(
 			}
 			if (syncingGroups.size === 0) return true;
 
-			const serverMessages = await loadServerSessionMessages(backendId(sessionId));
+			const serverMessages = await loadServerSessionMessages(backendSessionId);
 			if (
 				!serverMessages.length ||
 				revisions.get(sessionId) !== revision ||
+				backendId(sessionId) !== backendSessionId ||
 				!get().sessions.some(session => session.id === sessionId)
 			) {
 				return true;
@@ -257,10 +279,13 @@ export function createInboxSlice(
 			);
 			const serverTail = serverMessages.slice(firstServerIndex);
 			const acknowledged = await acknowledgeInboxItems(
-				backendId(sessionId),
+				backendSessionId,
 				[...confirmedQueueIds],
 			);
-			if (revisions.get(sessionId) !== revision) return false;
+			if (
+				revisions.get(sessionId) !== revision ||
+				backendId(sessionId) !== backendSessionId
+			) return false;
 
 			let changedForDb: ChatMessage[] = [];
 			set(s => {

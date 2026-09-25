@@ -557,6 +557,10 @@ export function createStreamSendSlice(
 				const qSide = qSession?.spaceId === SIDE_SPACE_ID;
 				const qWorkspace = preSend.spaces.find(s => s.id === qSession?.spaceId)?.rootPath?.trim() ?? '';
 				await streamChat(qBackend, qApi, queueHandlers, {
+					mediaRefs,
+					agentMode: requestedAgentMode,
+					multiAgent: requestedMultiAgent,
+					reasoningEffort: opts?.reasoningEffort,
 					side: qSide,
 					workspace: qSide ? '' : qWorkspace,
 					steerIfBusy: opts?.steerIfBusy,
@@ -1292,6 +1296,20 @@ export function createStreamSendSlice(
 			}
 		};
 
+		// A 202 response accepted the user message into the inbox, but did not
+		// start an SSE turn for this optimistic local stream. Release only the
+		// provisional stream created by this send; a newer stream may own the slot.
+		const releaseQueueAcceptedStream = () => {
+			settled = true;
+			usage.flush();
+			set(s => {
+				if (getSessionStream(s, sessionId!).abortRef !== abort) return s;
+				return {
+					sessionStreams: clearSessionStreamState(s.sessionStreams, sessionId!),
+				};
+			});
+		};
+
 		// 空回复守卫标志：本回合出流但 0 输出 → 结束时给出可见反馈而非静默。
 		let emptyReplyNoticed = false;
 		const commitAssistant = () => {
@@ -1429,7 +1447,10 @@ export function createStreamSendSlice(
 			window.addEventListener('pagehide', flushPersistOnExit);
 			const apiMessages = toApiMessages(nextMessages);
 			await streamChat(backendSessionId, apiMessages, {
-				onAccepted: () => onAccepted?.(),
+				onAccepted: status => {
+					onAccepted?.();
+					if (status === 202) releaseQueueAcceptedStream();
+				},
 				signal: abort.signal,
 				onDelta(chunk) {
 					clearRetryStatus();
