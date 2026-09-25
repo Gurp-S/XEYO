@@ -676,7 +676,12 @@ def test_fold_ledger_rows_for_this_session_do_not_trigger_the_gap(write_audit) -
 
 	run = collect_run(_SESSION, _TURN, audit_path=write_audit(_model_rows("r1", 1)))
 
-	assert [g for g in run.gaps if g.reason == "no_records"] == []
+	# 断的是"这一条"（折叠账本对本会话的 no_records）；no_records 这个原因码可以
+	# 出现在别的边界上（working 快照没有 manifest 时也是"对本会话没有记录行"），
+	# 所以过滤必须带上边界，否则别处的合法缺项会被这条测试误吞。
+	assert [
+		g for g in run.gaps if g.boundary == "wsc_fold" and g.reason == "no_records"
+	] == []
 	assert run.window("fold_events").rows_matched == 1
 
 
@@ -968,3 +973,59 @@ def test_fold_gap_carries_the_folding_evidence(tmp_path, monkeypatch) -> None:
 	without = RunEvidence(session_id=_SESSION, turn_id=_TURN)
 	without.working = {"locator": str(ledger)}
 	assert "working 快照也没有折叠边界记录" in _fold_gap_detail(without, ledger)
+
+
+def _working_run(manifest: dict | None, *, turn_proj: str = "p-mine"):
+	"""造一个"审计里有本轮投影 id + working 快照里有/没有 manifest"的运行视图。"""
+	import types
+
+	from diagnostics.collect import RunEvidence, _collect_working, normalize_event
+
+	run = RunEvidence(session_id=_SESSION, turn_id=_TURN)
+	run.events = [
+		normalize_event(
+			0, 7, {"kind": "model.started", "session_id": _SESSION, "turn_id": _TURN, "projection_id": turn_proj}
+		)
+	]
+	snap = types.SimpleNamespace(
+		session_id=_SESSION,
+		last_projection_manifest=manifest,
+		compact_checkpoint=None,
+	)
+	return run, _collect_working, snap
+
+
+def test_projection_gap_names_the_real_limitation(tmp_path, monkeypatch) -> None:
+	"""缺项原因必须对上事实的形状，三形三面。
+
+ ``field_missing`` 在界面上写的是"记录里缺该字段"；而 working 快照这里字段常常是
+ 在的，缺的是"它属于哪一轮"的粒度 —— 全量普查（540/540 轮同形）里这条被当成
+ "缺字段"报了 540 次，本轮已有自己的 manifest 时也在报。
+	"""
+	def patch(snap):
+		monkeypatch.setattr("memory.working.hydrate", lambda _sid: snap)
+
+	# 形一：manifest 在，但不是本轮那一份 ⇒ not_comparable
+	run, collect, snap = _working_run({"projection_id": "p-other", "invariant_errors": []})
+	patch(snap)
+	collect(run, _SESSION)
+	reasons = {(g.boundary, g.reason) for g in run.gaps}
+	assert ("instruction_context", "not_comparable") in reasons, reasons
+	assert ("instruction_context", "field_missing") not in reasons, reasons
+
+	# 形二：快照里没有 manifest ⇒ no_records（不是"缺字段"）
+	run2, collect2, snap2 = _working_run(None)
+	patch(snap2)
+	collect2(run2, _SESSION)
+	r2 = {(g.boundary, g.reason) for g in run2.gaps}
+	assert ("instruction_context", "no_records") in r2, r2
+	assert ("instruction_context", "field_missing") not in r2, r2
+
+	# 形三：本轮那份就在手 ⇒ 不再挂任何投影类缺项（窗口 note 已经说了范围）
+	run3, collect3, snap3 = _working_run({"projection_id": "p-mine", "invariant_errors": []})
+	patch(snap3)
+	collect3(run3, _SESSION)
+	assert not [
+		g for g in run3.gaps
+		if g.boundary == "instruction_context" and g.reason in {"field_missing", "not_comparable", "no_records"}
+	], [(g.reason, g.detail) for g in run3.gaps]

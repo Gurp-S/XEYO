@@ -46,7 +46,7 @@ export const DIAG_GAP_REASONS: ReadonlyArray<DiagContractGapReason> = [
 	{boundary: 'file_verifier', reason: 'not_recorded'},
 	{boundary: 'file_verifier', reason: 'out_of_window'},
 	{boundary: 'file_verifier', reason: 'source_absent'},
-	{boundary: 'instruction_context', reason: 'field_missing'},
+	{boundary: 'instruction_context', reason: 'no_records'},
 	{boundary: 'instruction_context', reason: 'not_comparable'},
 	{boundary: 'instruction_context', reason: 'not_found_in_full_file'},
 	{boundary: 'instruction_context', reason: 'out_of_window'},

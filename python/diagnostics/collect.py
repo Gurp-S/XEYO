@@ -668,17 +668,24 @@ def _collect_working(run: RunEvidence, session_id: str) -> None:
 	if manifest_id and manifest_id not in turn_projection_ids:
 		# 本轮没有属于自己的投影判据这件事要说出来：规则层会因此不出投影结论，
 		# 读者需要知道那是"拿不到本轮的那一份"，不是"本轮查过没问题"。
-		projection_note = (
+		# 原因名用 not_comparable：这里字段是在的（manifest 存在），缺的是
+		# "它属于哪一轮"的粒度 —— 叫 field_missing 会让界面说成"记录里缺该字段"。
+		run.add_gap(
+			"instruction_context",
+			"not_comparable",
 			f"working 只有本会话最后一份 manifest（projection_id={manifest_id[:12]}），"
-			"它不是本轮提交的那一份：本轮没有可核对的投影判据，规则层不会用别轮的投影顶替。"
+			"它不是本轮提交的那一份：本轮没有可核对的投影判据，规则层不会用别轮的投影顶替。",
 		)
-	else:
-		projection_note = "last_projection_manifest 单快照：本运行前的投影结构无法回放"
-	run.add_gap(
-		"instruction_context",
-		"field_missing",
-		projection_note,
-	)
+	elif not manifest_id:
+		# 快照里连一份 manifest 都没有：这是"这个来源对本会话没有记录行"，
+		# 不是"记录里缺字段"（field_missing 在界面上就是后者）。
+		run.add_gap(
+			"instruction_context",
+			"no_records",
+			"working 快照里没有 last_projection_manifest：本运行的投影结构无从核对。",
+		)
+	# 本轮的投影判据在手时不再补任何缺项：working 窗口已经写明"只保留最后一份
+	# manifest"这条采集范围事实，逐轮再挂一条 field_missing 是 540/540 的恒真噪音。
 
 
 def _working_locator(session_id: str) -> Path:
