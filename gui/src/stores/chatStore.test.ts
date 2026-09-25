@@ -1464,6 +1464,21 @@ describe('chatStore dialogue — extreme', () => {
 		expect(useChatStore.getState().messagesById.sess_test).toBeUndefined();
 	});
 
+	it.each(['remoteStreaming', 'turnDetached'] as const)(
+		'interrupts a %s session before deleting it',
+		async stateKey => {
+			useChatStore.setState({
+				sessionStreams: patchSessionStream({}, 'sess_test', {
+					[stateKey]: true,
+				}),
+			});
+
+			await useChatStore.getState().removeSession('sess_test');
+
+			expect(interruptChat).toHaveBeenCalledWith('sess_test');
+			expect(useChatStore.getState().sessions).toEqual([]);
+		});
+
 	it('auto-creates session when activeId missing', async () => {
 		useChatStore.setState({
 			activeId: null,

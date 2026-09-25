@@ -178,7 +178,9 @@ export function selectRunningSessionIds(
 		return [];
 	}
 	return Object.entries(map)
-		.filter(([, s]) => s.isLoading || s.draining)
+		.filter(
+			([, s]) => s.isLoading || s.draining || s.remoteStreaming || s.turnDetached,
+		)
 		.map(([id]) => id);
 }
 

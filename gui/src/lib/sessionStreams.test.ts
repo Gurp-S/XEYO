@@ -39,6 +39,17 @@ describe('sessionStreams', () => {
 		expect(selectRunningSessionKey(state)).toBe(selectRunningSessionKey(state));
 	});
 
+	it('includes remote and detached turns in running sessions', () => {
+		const state = {
+			sessionStreams: {
+				remote: {remoteStreaming: true} as never,
+				detached: {turnDetached: true} as never,
+				idle: {remoteStreaming: false, turnDetached: false} as never,
+			},
+		};
+		expect(selectRunningSessionIds(state)).toEqual(['remote', 'detached']);
+	});
+
 	it('patchSessionStream accepts undefined prev', () => {
 		const next = patchSessionStream(undefined, 's1', {isLoading: true});
 		expect(next.s1?.isLoading).toBe(true);

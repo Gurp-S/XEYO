@@ -64,6 +64,7 @@ import {
 } from '@/stores/commandPaletteStore';
 import {
 	getSessionStream,
+	isSessionStreamLive,
 	normalizeSessionStreams,
 } from '@/lib/sessionStreams';
 import {
@@ -741,7 +742,7 @@ async selectSession(id) {
 	async removeSession(id) {
 		const state = get();
 		const stream = getSessionStream(state, id);
-		if (stream.isLoading || stream.draining) {
+		if (isSessionStreamLive(stream)) {
 			// 编辑重发/回溯分叉后本地 id ≠ backend id：用错 id 的 interrupt
 			// 打不到真实回合，后端会继续写已删会话的 transcript。
 			await interruptChat(activeBackendSessionId(state.historyById, id));
