@@ -161,31 +161,34 @@ function PermissionCard({pending}: {pending: PendingPermissionInfo}) {
 			role="alertdialog"
 			aria-label={title}
 		>
-			<div
-				className="xy-panel-ask-head"
-				aria-expanded={expanded}
-				onClick={() => setExpanded(v => !v)}
-			>
-				<span className="xy-panel-ask-caret" aria-hidden="true">
-					<ChevronDown
+			<div className="xy-panel-ask-head">
+				<button
+					type="button"
+					className="xy-panel-ask-toggle"
+					aria-expanded={expanded}
+					onClick={() => setExpanded(v => !v)}
+				>
+					<span className="xy-panel-ask-caret" aria-hidden="true">
+						<ChevronDown
+							className={cn(
+								'size-3.5 transition-transform duration-200 ease-out',
+								!expanded && '-rotate-90',
+							)}
+						/>
+					</span>
+					<span className="xy-panel-ask-title">{title}</span>
+					<span className="xy-panel-ask-count">
+						{toolLabel}
+						{timeoutNote}
+					</span>
+					<span
 						className={cn(
-							'size-3.5 transition-transform duration-200 ease-out',
-							!expanded && '-rotate-90',
-						)}
+							'xy-panel-ask-dot',
+								expiring ? 'is-danger animate-pulse' : 'is-danger',
+							)}
+						aria-hidden="true"
 					/>
-				</span>
-				<span className="xy-panel-ask-title">{title}</span>
-				<span className="xy-panel-ask-count">
-					{toolLabel}
-					{timeoutNote}
-				</span>
-				<span
-					className={cn(
-						'xy-panel-ask-dot',
-						expiring ? 'is-danger animate-pulse' : 'is-danger',
-					)}
-					aria-hidden="true"
-				/>
+				</button>
 				<button
 					type="button"
 					className="ml-1 rounded p-0.5 text-mute/70 hover:bg-line/40 hover:text-fg"

@@ -64,7 +64,8 @@ function PlanCard({pending}: {pending: PendingPlanInfo}) {
 			role="alertdialog"
 			aria-label="Plan 确认"
 		>
-			<div
+			<button
+				type="button"
 				className="xy-panel-ask-head"
 				aria-expanded={expanded}
 				onClick={() => setExpanded(v => !v)}
@@ -80,7 +81,7 @@ function PlanCard({pending}: {pending: PendingPlanInfo}) {
 				<span className="xy-panel-ask-title">Plan</span>
 				<span className="xy-panel-ask-count">等待确认执行</span>
 				<span className="xy-panel-ask-dot" aria-hidden="true" />
-			</div>
+			</button>
 
 			<PanelCollapse open={expanded} className="xy-panel-ask-body">
 				<div className="xy-panel-ask-cmd whitespace-pre-wrap">

@@ -14,7 +14,7 @@ type Props = {
  */
 export function PanelCollapse({open, children, className}: Props) {
 	return (
-		<div className={cn('xy-panel-collapse', open && 'open')}>
+		<div className={cn('xy-panel-collapse', open && 'open')} aria-hidden={!open} inert={!open}>
 			<div className="xy-panel-collapse-inner">
 				{className ? (
 					<div className={className}>{children}</div>

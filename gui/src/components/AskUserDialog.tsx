@@ -424,7 +424,8 @@ function AskCard({pending}: {pending: PendingAskInfo}) {
 			role="alertdialog"
 			aria-label="助手提问"
 		>
-			<div
+			<button
+				type="button"
 				className="xy-panel-ask-head"
 				aria-expanded={expanded}
 				onClick={() => setExpanded(v => !v)}
@@ -440,7 +441,7 @@ function AskCard({pending}: {pending: PendingAskInfo}) {
 				<span className="xy-panel-ask-title">Ask the user</span>
 				<span className="xy-panel-ask-count">({countLabel})</span>
 				<span className="xy-panel-ask-dot" aria-hidden="true" />
-			</div>
+			</button>
 
 			<PanelCollapse open={expanded} className="xy-panel-ask-body">
 				{isWizard ? (
