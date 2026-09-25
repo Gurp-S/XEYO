@@ -709,6 +709,16 @@ export function useMessageListEditing(
 	);
 
 	const onRemoveEditAttachment = useCallback((id: string) => {
+		const existingMediaPrefix = 'existing-media:';
+		if (id.startsWith(existingMediaPrefix)) {
+			const index = Number(id.slice(existingMediaPrefix.length));
+			if (Number.isInteger(index) && index >= 0) {
+				setEditingExistingMediaRefs(previous =>
+					previous.filter((_, itemIndex) => itemIndex !== index),
+				);
+			}
+			return;
+		}
 		setEditingAttachments(previous => {
 			const removed = previous.find(item => item.id === id);
 			if (removed?.kind === 'image') URL.revokeObjectURL(removed.previewUrl);

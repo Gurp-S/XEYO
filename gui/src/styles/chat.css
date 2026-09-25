@@ -473,6 +473,7 @@ html[data-xy-selfwallpaper!="1"] [data-pin-id] .xy-editing-bubble {
   min-height: 0;
   min-width: 0;
   overflow: hidden;
+  border-top: 1px solid color-mix(in oklch, var(--xy-accent) 24%, var(--xy-line));
 }
 
 html[data-smoothness="off"] .xy-editing-controls,

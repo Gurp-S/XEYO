@@ -368,21 +368,37 @@ ref={editing ? promptEditRef : undefined}
 									{editingExistingMediaRefs.map((ref, index) => {
 										const src = mediaUrl(ref);
 										return src ? (
-											<button
+											<div
 												key={`existing-${ref}-${index}`}
-												type="button"
-												aria-label="查看历史图片"
-												onClick={event => {
-													event.stopPropagation();
-													setPreviewImage({src, alt: '已发送图片', title: '历史图片预览'});
-												}}
-												className="group relative aspect-square min-w-0 cursor-zoom-in overflow-hidden rounded-xl border border-line/70 bg-paper-deep/60 p-0 text-left"
+												className="group relative aspect-square min-w-0 overflow-hidden rounded-xl border border-line/70 bg-paper-deep/60"
 											>
-												<img src={src} alt="已发送图片" loading="lazy" decoding="async" className="h-full w-full object-cover" draggable={false} />
-												<span className="pointer-events-none absolute right-1 bottom-1 flex h-6 w-6 items-center justify-center rounded-full bg-ink/60 text-paper opacity-0 shadow-sm transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
-													<ZoomIn className="h-3.5 w-3.5" strokeWidth={1.9} />
-												</span>
-											</button>
+												<button
+													type="button"
+													aria-label="查看历史图片"
+													onClick={event => {
+														event.stopPropagation();
+														setPreviewImage({src, alt: '已发送图片', title: '历史图片预览'});
+													}}
+													className="absolute inset-0 cursor-zoom-in border-0 bg-transparent p-0 text-left"
+												>
+													<img src={src} alt="已发送图片" loading="lazy" decoding="async" className="h-full w-full object-cover" draggable={false} />
+													<span className="pointer-events-none absolute right-1 bottom-1 flex h-6 w-6 items-center justify-center rounded-full bg-ink/60 text-paper opacity-0 shadow-sm transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
+														<ZoomIn className="h-3.5 w-3.5" strokeWidth={1.9} />
+													</span>
+												</button>
+												<button
+													type="button"
+													aria-label={`从消息移除第 ${index + 1} 张图片`}
+													title="移除这张图片"
+													onClick={event => {
+														event.stopPropagation();
+														onRemoveEditAttachment?.('existing-media:' + index);
+													}}
+													className="xy-icon-btn xy-hover-reveal absolute top-0.5 right-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-ink/75 text-paper opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 hover:bg-ink"
+												>
+													<X className="h-3 w-3" />
+												</button>
+											</div>
 										) : null;
 									})}
 
@@ -579,8 +595,10 @@ ref={editing ? promptEditRef : undefined}
 									disabled={editingSubmitting || anyStreaming || editingUploading}
 									onChange={event => {
 										editingFilePickerOpenRef.current = false;
-										onEditAttachmentPick?.(event.target.files);
-								}}
+										const files = Array.from(event.currentTarget.files ?? []);
+										event.currentTarget.value = '';
+										if (files.length > 0) onEditAttachmentPick?.(files);
+									}}
 								/>
 								<button
 									type="button"
