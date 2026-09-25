@@ -103,6 +103,37 @@ async def test_real_tool_failure_reaches_the_rule_and_the_attribution(audit_log,
 	assert failures[0].status == CONFIRMED_FAULT
 	assert "error_kind=NOT_FOUND" in failures[0].evidence[0].detail
 	assert attribute_fault(run, findings)["responsibility"] == ENVIRONMENT
+	# 同一批真实行还须喂到重复失败规则：三次同签名 ⇒ 只算可疑信号，不宣称死循环。
+	repeats = [f for f in findings if f.rule_id == "repeated_failure"]
+	assert repeats and repeats[0].status == SUSPECTED_CAUSE
+
+
+@pytest.mark.asyncio
+async def test_real_wire_drop_ledger_row_reaches_the_gap_rule(audit_log, execution_context) -> None:
+	"""出口护栏丢的行由 ``usage.ledger.record_wire_drop`` 落账 → wire_gap 必须读得到。
+
+	钉的是 join 键：账本行不带 session_id，采集只能拿 ``ids`` 与本运行的 tool_use id
+	求交（collect._collect_wire_drops）。生产者改字段名、或采集读错键，这条就断 ——
+	而本机平时连 wire_drops.jsonl 都没有，规则看起来"正常地不命中"。
+	"""
+	from usage.ledger import record_wire_drop, wire_drops_path
+
+	set_agent_mode(None)
+	reg = ToolRegistry(cwd=".")
+	reg.register(_FailingTool())
+	await reg.run(
+		ToolUse(id="u-drop", name="roundtrip_fail", input={}),
+		AbortController(),
+		skip_ask=True,
+	)
+	record_wire_drop(dropped_ids=["u-drop"], target="wire")
+	assert wire_drops_path().is_file()
+
+	run = collect_run(_SESSION, _TURN, audit_path=str(audit_log.path))
+	gaps = [f for f in evaluate_run(run) if f.rule_id == "wire_gap" and f.boundary == "adapter"]
+	assert gaps, "真实丢行账本没能命中 wire_gap：最后一公里仍是盲区"
+	assert gaps[0].status == CONFIRMED_FAULT
+	assert "u-drop" in gaps[0].evidence[0].detail
 
 
 @pytest.mark.asyncio
