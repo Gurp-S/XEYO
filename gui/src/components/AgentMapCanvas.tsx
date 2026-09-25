@@ -362,8 +362,8 @@ function AgentMapCanvasImpl({
 		>
 			<svg
 				className="xy-agent-map__svg h-full w-full cursor-grab touch-none active:cursor-grabbing"
-				role="img"
-				aria-label="工作区地图"
+				role="group"
+				aria-label={`工作区地图，${nodes.length} 个可选节点`}
 				onWheel={onWheel}
 				onPointerDown={onPointerDown}
 				onPointerMove={onPointerMove}
@@ -511,12 +511,14 @@ function AgentMapCanvasImpl({
 								: Boolean(hit?.running));
 						const waiting =
 							!replayHit &&
-							node.kind === 'step' &&
-							Boolean(stepWaitingIds?.has(node.id));
+							(node.kind === 'step'
+								? Boolean(stepWaitingIds?.has(node.id))
+								: Boolean(hit?.waiting));
 						const error =
 							!replayHit &&
-							node.kind === 'step' &&
-							Boolean(stepErrorIds?.has(node.id));
+							(node.kind === 'step'
+								? Boolean(stepErrorIds?.has(node.id))
+								: Boolean(hit?.error));
 						const active = running || waiting || error;
 						const seen =
 							replayHit ||
@@ -542,6 +544,22 @@ function AgentMapCanvasImpl({
 								: actionVerb ??
 								  (node.files != null ? `${node.files} files` : node.layer);
 						const rx = 11;
+						const statusText = replayHit
+							? '回放中'
+							: waiting
+								? '等待工具结果'
+								: error
+									? '工具失败'
+									: running
+										? '执行中'
+										: seen
+											? '已完成'
+											: '未执行';
+						const selectNode = () => {
+							if (!dragged.current) {
+								onSelect(node.id, node.kind);
+							}
+						};
 						const actionW =
 							active && actionVerb
 								? Math.min(76, Math.max(34, actionVerb.length * 6.4 + 14))
@@ -562,15 +580,20 @@ function AgentMapCanvasImpl({
 									searchHit && 'xy-agent-map__node--search',
 									dim && 'xy-agent-map__node--dim',
 								)}
+								role="button"
+								tabIndex={0}
+								aria-label={`${node.name}，${statusText}，${node.id}`}
+								aria-pressed={selected}
 								onPointerDown={e => e.stopPropagation()}
-								onClick={() => {
-									if (dragged.current) {
-										return;
+								onClick={selectNode}
+								onKeyDown={event => {
+									if (event.key === 'Enter' || event.key === ' ') {
+										event.preventDefault();
+										selectNode();
 									}
-									onSelect(node.id, node.kind);
 								}}
 							>
-								<title>{`${node.name}\n${node.id}${waiting ? '\n等待工具结果' : error ? '\n工具失败' : running ? '\n执行中' : ''}`}</title>
+								<title>{`${node.name}\n${node.id}\n${statusText}`}</title>
 								{active && actionVerb ? (
 									<g
 										className="xy-agent-map__action"

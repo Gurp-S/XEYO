@@ -136,6 +136,19 @@ const AgentBar = memo(function AgentBar({
 	const clickable = Boolean(task.agentId);
 	const taskName = task.desc?.trim() || `子任务 ${index + 1}`;
 	const label = agentDisplayName(task.desc, index);
+	const stateLabel = cancelling
+		? '正在取消'
+		: pending
+			? '排队中'
+			: running
+				? '运行中'
+				: failed
+					? '失败'
+					: '已完成';
+	const settledText = (failed ? task.reason || task.result : task.result)
+		?.replace(/\s+/g, ' ')
+		.trim();
+	const accessibleLabel = `${taskName}，${stateLabel}${settledText ? `：${settledText.slice(0, 180)}` : ''}`;
 	const liveTrim = liveText.trim();
 	const lastLiveRef = useRef('');
 	if (running && liveTrim) {
@@ -163,7 +176,7 @@ const AgentBar = memo(function AgentBar({
 			<button
 				type="button"
 				className="xy-agent-bar-main"
-				aria-label={taskName}
+				aria-label={accessibleLabel}
 				disabled={!canOpenAgentTask(task.agentId)}
 				onClick={() => {
 					if (clickable) {

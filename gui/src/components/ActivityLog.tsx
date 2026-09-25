@@ -2,6 +2,7 @@ import {
 	memo,
 	useCallback,
 	useEffect,
+	useId,
 	useLayoutEffect,
 	useRef,
 	useState,
@@ -287,6 +288,7 @@ function ThoughtStepRow({
 	collapsing,
 	onThoughtToken,
 }: StepRowProps) {
+	const detailId = useId();
 	const content = step.thoughtContent?.trim() || '';
 	const running = Boolean(step.running);
 	const smoothness = useSettingsStore(s => isSmoothnessOn(s.smoothness));
@@ -320,7 +322,8 @@ function ThoughtStepRow({
 			<button
 				type="button"
 				className="xy-split-left"
-				aria-expanded={running ? true : open}
+				aria-expanded={open}
+				aria-controls={!running && content ? detailId : undefined}
 				disabled={running || !content}
 				onClick={onToggle}
 			>
@@ -348,6 +351,8 @@ function ThoughtStepRow({
 							disabled={!content}
 							onClick={onToggle}
 							className="xy-split-row-main"
+							aria-expanded={open}
+							aria-controls={detailId}
 						>
 							<span
 								className={cn(
@@ -365,19 +370,21 @@ function ThoughtStepRow({
 								{peek}
 							</div>
 						) : null}
-						{mounted ? (
-							<ExpandPanel open={open} innerClassName="xy-tool-step-body">
-								{content ? (
-									<button
-										type="button"
-										className="xy-thought-expand-body"
-										onClick={onToggle}
-									>
-										{content}
-									</button>
-								) : null}
-							</ExpandPanel>
-						) : null}
+						<ExpandPanel
+							id={detailId}
+							open={open}
+							innerClassName="xy-tool-step-body"
+						>
+							{mounted && content ? (
+								<button
+									type="button"
+									className="xy-thought-expand-body"
+									onClick={onToggle}
+								>
+									{content}
+								</button>
+							) : null}
+						</ExpandPanel>
 					</>
 				)}
 			</div>
@@ -414,6 +421,7 @@ function ToolStepRow({
 	/** 新工具入轨：延迟后再过渡显现 */
 	appear?: boolean;
 }) {
+	const detailId = useId();
 	const {open, mounted, toggle} = useExpandReveal();
 	const preview = oneLinePreview(step);
 	const peek = resultPeek(step.result);
@@ -461,6 +469,7 @@ function ToolStepRow({
 					type="button"
 					onClick={toggle}
 					aria-expanded={open}
+					aria-controls={detailId}
 					className="xy-split-row-main"
 				>
 					<MorphVerb
@@ -485,16 +494,20 @@ function ToolStepRow({
 						) : null}
 					</div>
 				) : null}
-				{mounted ? (
-					<ExpandPanel open={open} innerClassName="xy-tool-step-body">
+				<ExpandPanel
+					id={detailId}
+					open={open}
+					innerClassName="xy-tool-step-body"
+				>
+					{mounted ? (
 						<StepDetailBody
 							args={step.args}
 							result={step.result}
 							running={step.running}
 							verb={step.verb}
 						/>
-					</ExpandPanel>
-				) : null}
+					) : null}
+				</ExpandPanel>
 			</div>
 		</div>
 	);
@@ -594,6 +607,7 @@ function ActivityLogInner({
 	agentIndexBase = 0,
 	workflowStatusText = '',
 }: Props) {
+	const railId = useId();
 	const smoothness = useSettingsStore(s => isSmoothnessOn(s.smoothness));
 	const showDiff = diffs.add > 0 || diffs.del > 0 ? diffs : undefined;
 	const failedStepCount = steps.reduce(
@@ -621,6 +635,7 @@ function ActivityLogInner({
 	}, [startedAt]);
 
 	const working = Boolean(active || anyRunning);
+	const showActiveHeader = working || waitingForResult;
 
 	const tickElapsed = useCallback(
 		() => setElapsed(Date.now() - startRef.current),
@@ -812,9 +827,10 @@ function ActivityLogInner({
 				onClick={onToggle}
 				className="xy-split-head group/head"
 				aria-expanded={expanded}
+				aria-controls={railId}
 				title="投影视图：展示引擎当前投影的活动摘要，非完整 transcript；审计明细见 /v1/audit"
 			>
-				{working ? (
+				{showActiveHeader ? (
 					<>
 						<span className="xy-split-head-lead">
 							<span className="xy-split-head-label">
@@ -831,8 +847,13 @@ function ActivityLogInner({
 							) : null}
 							<SplitChevron open={expanded} />
 						</span>
-						<span className="xy-split-head-meta xy-activity-timer">
-							{formatElapsed(elapsed)}
+						<span className="xy-split-head-meta">
+							{working ? (
+								<span className="xy-activity-timer">{formatElapsed(elapsed)}</span>
+							) : null}
+							{failedStepCount > 0 ? (
+								<span className="text-danger">{failedStepCount} failed</span>
+							) : null}
 						</span>
 					</>
 				) : (
@@ -863,6 +884,7 @@ function ActivityLogInner({
 			</button>
 
 			<ExpandPanel
+				id={railId}
 				open={expanded}
 				innerClassName="xy-activity-detail-inner"
 			>

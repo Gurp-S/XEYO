@@ -10,6 +10,8 @@ export type AgentPresenceHit = {
 	relPath: string;
 	verb: string;
 	running: boolean;
+	waiting?: boolean;
+	error?: boolean;
 	toolName: string;
 	createdAt: number;
 	/** 源工具消息身份；用于按对话轮次精确切分，不依赖毫秒时间戳。 */
@@ -93,24 +95,34 @@ export function collectAgentPresence(
 		if (!relPath) {
 			continue;
 		}
+		const result = message.text?.startsWith('call ') ? '' : (message.text ?? '');
+		const hasResult = Boolean(result.trim());
+		const error =
+			message.toolStatus === 'error' || result.trim().startsWith('[error]');
+		const waiting = message.toolStatus === 'waiting' && !hasResult;
 		const status =
-			message.toolStatus === 'error'
+			error
 				? 'error'
-				: message.toolStatus === 'done'
+				: message.toolStatus === 'done' ||
+					(message.toolStatus === 'running' || message.toolStatus === 'waiting') &&
+						hasResult
 					? 'done'
 					: 'running';
 		const step = toolToStep({
 			id: message.id,
 			name: message.toolName,
 			input: message.toolInput ?? '',
-			result: message.text?.startsWith('call ') ? '' : (message.text ?? ''),
+			result,
 			status,
+			waiting,
 			createdAt: message.createdAt,
 		});
 		hits.push({
 			relPath,
 			verb: step.verb,
-			running: Boolean(step.running),
+			running: Boolean(step.running && !waiting),
+			waiting,
+			error,
 			toolName: message.toolName,
 			createdAt: message.createdAt,
 			messageId: message.id,
@@ -121,7 +133,9 @@ export function collectAgentPresence(
 	}
 
 	for (const task of tasks ?? []) {
-		const running = task.status === 'running' || task.status === 'pending';
+		const running = task.status === 'running';
+		const waiting = task.status === 'pending';
+		const error = task.status === 'failed';
 		for (const raw of task.filesTouched ?? []) {
 			const relPath = toWorkspaceRel(raw, workspaceRoot);
 			if (!relPath) {
@@ -129,8 +143,16 @@ export function collectAgentPresence(
 			}
 			hits.push({
 				relPath,
-				verb: running ? 'Delegating' : 'Delegated',
+				verb: running
+					? 'Delegating'
+					: error
+						? 'Failed'
+						: waiting
+							? 'Pending'
+							: 'Delegated',
 				running,
+				waiting,
+				error,
 				toolName: 'Agent',
 				createdAt: task.batchAt ?? 0,
 				agentId: task.agentId,
@@ -168,8 +190,8 @@ export function latestHitForNode(
 	if (!matched.length) {
 		return null;
 	}
-	const running = matched.filter(h => h.running);
-	const pool = running.length ? running : matched;
+	const active = matched.filter(h => h.running || h.waiting);
+	const pool = active.length ? active : matched;
 	return pool[pool.length - 1] ?? null;
 }
 

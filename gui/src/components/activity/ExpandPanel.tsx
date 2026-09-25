@@ -13,11 +13,13 @@ const LONG_PX = 280;
  * 用 height 实测做展开/收起；长内容直接切，短内容保留过渡。
  */
 export function ExpandPanel({
+	id,
 	open,
 	children,
 	className,
 	innerClassName,
 }: {
+	id?: string;
 	open: boolean;
 	children: ReactNode;
 	className?: string;
@@ -109,7 +111,13 @@ export function ExpandPanel({
 	}, [open]);
 
 	return (
-		<div ref={outerRef} className={cn('xy-expand-panel', className)}>
+		<div
+			id={id}
+			ref={outerRef}
+			className={cn('xy-expand-panel', className)}
+			aria-hidden={!open}
+			inert={!open}
+		>
 			<div
 				ref={innerRef}
 				className={cn('xy-expand-panel-inner', innerClassName)}

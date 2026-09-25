@@ -1,7 +1,7 @@
 /** 从当前对话最近一轮抽出工具步骤，供「本轮」泳道工作流。 */
 
 import {TURN_STEP_CAP, fitLabel} from './codeMapLayout';
-import {latestUserTurnBoundary} from './groupTranscript';
+import {groupTranscript, latestUserTurnBoundary} from './groupTranscript';
 import {parseJsonValue} from './safeJson';
 import {toolToStep, type ActivityStep} from './toolActivity';
 import type {ChatMessage} from './types';
@@ -90,8 +90,11 @@ function pathFromInput(input: string | undefined): string | undefined {
 	return undefined;
 }
 
-/** 取最近一轮（最后一个 user 之后）的工具步骤；不经 groupTranscript，避免 orphan settle。 */
-export function buildTurnWorkflow(messages: ChatMessage[]): TurnWorkflowStep[] {
+/** 取最近一轮的工具步骤，复用 transcript 对旧 call/result 配对与孤儿状态的归一化。 */
+export function buildTurnWorkflow(
+	messages: ChatMessage[],
+	streamLive = true,
+): TurnWorkflowStep[] {
 	if (!messages.length) {
 		return [];
 	}
@@ -99,51 +102,28 @@ export function buildTurnWorkflow(messages: ChatMessage[]): TurnWorkflowStep[] {
 	if (!boundary) {
 		return [];
 	}
-	const start = boundary.index + 1;
 	const steps: TurnWorkflowStep[] = [];
-	for (let i = start; i < messages.length; i++) {
-		const message = messages[i]!;
-		if (message.role !== 'tool' || !message.toolName) {
+	const turnItems = groupTranscript(messages.slice(boundary.index), {
+		isLoading: streamLive,
+	}).flatMap(block => (block.kind === 'turn' ? block.items : []));
+	for (const item of turnItems) {
+		if (item.kind !== 'tool') {
 			continue;
 		}
-		const status =
-			message.toolStatus === 'error'
-				? 'error'
-				: message.toolStatus === 'done'
-					? 'done'
-					: 'running';
-		// 旧 transcript 把调用占位文本保存在 text 中；它不是工具结果。
-		const result = message.text?.startsWith('call ') ? '' : (message.text ?? '');
-		// 兼容缺少结构化 toolStatus 的旧结果行，与 groupTranscript 的回放规则一致。
-		const error =
-			status === 'error' ||
-			(status === 'running' && result.trim().startsWith('[error]'));
-		const waiting = message.toolStatus === 'waiting' && !result.trim();
-		const step = toolToStep({
-			id: message.id,
-			name: message.toolName,
-			input: message.toolInput ?? '',
-			result,
-			status,
-			waiting,
-			createdAt: message.createdAt,
-		});
-		const running = status === 'running' && !result.trim() && !waiting;
+		const tool = item.tool;
+		const step = toolToStep(tool);
+		const waiting = Boolean(tool.waiting);
 		steps.push({
-			id: message.id,
-			lane: laneOf(step, message.toolName),
-			verb: running
-				? step.verb
-				: status === 'error'
-					? step.verb
-					: step.verb,
+			id: tool.id,
+			lane: laneOf(step, tool.name),
+			verb: step.verb,
 			detail: step.detail,
-			running,
+			running: Boolean(step.running && !waiting),
 			waiting,
-			error,
-			relPath: pathFromInput(message.toolInput),
-			toolName: message.toolName,
-			createdAt: message.createdAt,
+			error: tool.status === 'error' || Boolean(step.error),
+			relPath: pathFromInput(tool.input),
+			toolName: tool.name,
+			createdAt: tool.createdAt,
 		});
 	}
 	return steps;

@@ -156,6 +156,11 @@ html[data-scheme='dark'] .xy-agent-map {
 	stroke-width: 1.5;
 }
 
+.xy-agent-map__node:focus-visible .xy-agent-map__node-body {
+	stroke: var(--map-select);
+	stroke-width: 2.4;
+}
+
 .xy-agent-map__node-title {
 	fill: var(--map-ink);
 	font-family: var(--font-mono);

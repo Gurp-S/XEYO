@@ -100,6 +100,15 @@ export function AgentMapPanel() {
 			? (s.multiAgentTasksBySession[s.activeId] ?? EMPTY_TASKS)
 			: EMPTY_TASKS,
 	);
+	const workflowLive = useChatStore(s => {
+		const stream = s.activeId ? s.sessionStreams[s.activeId] : undefined;
+		return Boolean(
+			stream?.isLoading ||
+			stream?.draining ||
+			stream?.remoteStreaming ||
+			stream?.turnDetached,
+		);
+	});
 	const spaceRoot = useChatStore(s => {
 		const space = s.spaces.find(sp => sp.id === s.activeSpaceId);
 		return space?.rootPath?.trim() || '';
@@ -213,7 +222,10 @@ export function AgentMapPanel() {
 			: '';
 	usePanelSubtitle(subtitle);
 
-	const turnSteps = useMemo(() => buildTurnWorkflow(messages), [messages]);
+	const turnSteps = useMemo(
+		() => buildTurnWorkflow(messages, workflowLive),
+		[messages, workflowLive],
+	);
 	const turnTouchedPaths = useMemo(() => {
 		const paths: string[] = [];
 		const seen = new Set<string>();
@@ -504,6 +516,8 @@ export function AgentMapPanel() {
 				relPath: step.relPath ?? step.detail,
 				verb: step.verb,
 				running: step.running,
+				waiting: step.waiting,
+				error: step.error,
 				toolName: step.toolName,
 				createdAt: step.createdAt,
 			};
@@ -727,6 +741,7 @@ export function AgentMapPanel() {
 								'xy-agent-map-panel__tab',
 								view === tab.id && 'xy-agent-map-panel__tab--on',
 							)}
+							aria-pressed={view === tab.id}
 							onClick={() => {
 								setView(tab.id);
 								if (tab.id !== 'code') {
@@ -822,7 +837,13 @@ export function AgentMapPanel() {
 									</span>
 									{cardHit ? (
 										<span className="shrink-0 text-[10px] text-mute">
-											{cardHit.verb}
+											{cardHit.waiting
+												? 'WAIT'
+												: cardHit.error
+													? 'ERR'
+													: cardHit.running
+														? 'RUN'
+														: 'DONE'} · {cardHit.verb}
 										</span>
 									) : null}
 									{cardKind === 'file' ||
@@ -883,7 +904,14 @@ export function AgentMapPanel() {
 										title={`打开 ${headline.relPath}`}
 										onClick={() => openRelFile(headline.relPath)}
 									>
-										{headline.running ? 'RUN' : 'DONE'} {headline.verb} ·{' '}
+										{headline.waiting
+											? 'WAIT'
+											: headline.error
+												? 'ERR'
+												: headline.running
+													? 'RUN'
+													: 'DONE'}{' '}
+										{headline.verb} ·{' '}
 										{headline.relPath.split('/').pop()}
 									</button>
 								) : null}
