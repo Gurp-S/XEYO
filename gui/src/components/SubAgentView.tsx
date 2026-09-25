@@ -4,6 +4,7 @@ import type {AgentDetailMessage} from '@/lib/api';
 import {postAgentInbox} from '@/lib/api';
 import type {ChatMessage} from '@/lib/types';
 import {useChatStore} from '@/stores/chatStore';
+import {isImeComposing} from '@/lib/ime';
 import {MessageList} from './MessageList';
 
 /** 稳定空列表：显式压制 MessageList 内部的任务卡片订阅。 */
@@ -206,6 +207,7 @@ const SubAgentTranscript = memo(function SubAgentTranscript({
 					value={followText}
 					onChange={e => setFollowText(e.target.value)}
 					onKeyDown={e => {
+						if (isImeComposing(e.nativeEvent)) return;
 						if (e.key === 'Enter' && !e.shiftKey) {
 							e.preventDefault();
 							void sendFollow();

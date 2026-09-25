@@ -33,6 +33,7 @@ import {pickFolder} from '@/lib/openFolder';
 import {formatRelativeShort} from '@/lib/time';
 import {toast} from '@/lib/toast';
 import {cn} from '@/lib/utils';
+import {isImeComposing} from '@/lib/ime';
 import {useModalA11y} from '@/hooks/useModalA11y';
 import {usePresence} from '@/hooks/usePresence';
 import {slashCommands, type SlashCommand} from '@/generated/slashManifest';
@@ -735,6 +736,7 @@ export function CommandPalette() {
 
 	const onKeyDown = useCallback(
 		(e: ReactKeyboardEvent) => {
+			if (isImeComposing(e.nativeEvent)) return;
 			if (e.key === 'ArrowDown') {
 				e.preventDefault();
 				setActiveIndex(i => (items.length === 0 ? 0 : (i + 1) % items.length));

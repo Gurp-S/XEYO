@@ -33,6 +33,7 @@ import {
 import {
 	mediaUrl,
 } from '@/lib/api';
+import {isImeComposing} from '@/lib/ime';
 import {
 	type DraftAttachment,
 } from '@/lib/composerDrafts';
@@ -473,7 +474,8 @@ ref={editing ? promptEditRef : undefined}
 							requestAnimationFrame(() => resizeEditingTextarea?.());
 						}}
 						onKeyDown={event => {
-							if (event.key === 'Escape') {
+								if (isImeComposing(event.nativeEvent)) return;
+								if (event.key === 'Escape') {
 								event.preventDefault();
 								cancelEdit?.();
 								return;

@@ -7,6 +7,7 @@ import {useChatStore, type PendingAskInfo} from '@/stores/chatStore';
 import type {AskQuestion, AskQuestionOption} from '@/lib/api';
 import {isSmoothnessOn, useSettingsStore} from '@/stores/settingsStore';
 import {cn} from '@/lib/utils';
+import {isImeComposing} from '@/lib/ime';
 import {DockPresence} from './DockPresence';
 import {PanelCollapse} from './PanelCollapse';
 
@@ -278,6 +279,7 @@ function QuestionFlow({
 							disabled={submitting}
 							onChange={e => setCustom(e.target.value)}
 							onKeyDown={e => {
+								if (isImeComposing(e.nativeEvent)) return;
 								if (e.key === 'Enter') {
 									e.preventDefault();
 									continueFlow();
@@ -295,6 +297,7 @@ function QuestionFlow({
 					disabled={submitting}
 					onChange={e => setCustom(e.target.value)}
 					onKeyDown={e => {
+						if (isImeComposing(e.nativeEvent)) return;
 						if (e.key === 'Enter') {
 							e.preventDefault();
 							continueFlow();
@@ -461,6 +464,7 @@ function AskCard({pending}: {pending: PendingAskInfo}) {
 								disabled={submitting}
 								onChange={e => setValue(e.target.value)}
 								onKeyDown={e => {
+									if (isImeComposing(e.nativeEvent)) return;
 									if (e.key === 'Enter') {
 										submit(value);
 									}

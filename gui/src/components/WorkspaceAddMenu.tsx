@@ -25,6 +25,7 @@ import {pickFolder} from '@/lib/openFolder';
 import {popEscLayer, pushEscLayer} from '@/lib/escStack';
 import {looksLikeFsPath, uniqueParentDirs} from '@/lib/paths';
 import {toast} from '@/lib/toast';
+import {isImeComposing} from '@/lib/ime';
 import {MenuSeparator} from '@/components/ui/MenuSeparator';
 import {
 	cloneDestPath,
@@ -310,6 +311,7 @@ function WorkspaceAddMenu({
 	}, [onClose, onOpenPath, query]);
 
 	const onSearchKey = (e: ReactKeyboardEvent<HTMLInputElement>) => {
+		if (isImeComposing(e.nativeEvent)) return;
 		if (e.key !== 'Enter') {
 			return;
 		}

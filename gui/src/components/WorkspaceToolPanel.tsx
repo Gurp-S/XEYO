@@ -7,6 +7,7 @@ import {useHoverScroll} from '@/hooks/useHoverScroll';
 import {usePaneResize} from '@/hooks/usePaneResize';
 import {usePresence} from '@/hooks/usePresence';
 import {cn} from '@/lib/utils';
+import {isImeComposing} from '@/lib/ime';
 import {samePath} from '@/lib/paths';
 import {execWorkspaceTerminal, gitLog, gitStatus, type GitLogResult, type GitStatusEntry, type GitStatusResult} from '@/lib/api';
 import {groupTranscript, type TurnItem} from '@/lib/groupTranscript';
@@ -418,6 +419,7 @@ function TerminalBody() {
 	};
 
 	const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+		if (isImeComposing(e.nativeEvent)) return;
 		if (e.key === 'Enter') {
 			e.preventDefault();
 			void run();

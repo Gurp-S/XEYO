@@ -2,6 +2,7 @@ import {Check, ListChecks, Plus} from 'lucide-react';
 import {useState} from 'react';
 import {useChatStore} from '@/stores/chatStore';
 import {cn} from '@/lib/utils';
+import {isImeComposing} from '@/lib/ime';
 import type {TodoItemView, TodoSnapshot} from '@/lib/toolActivity';
 
 function makeSnap(todos: TodoItemView[]): TodoSnapshot {
@@ -102,6 +103,7 @@ export function ImmersiveTodo() {
 					value={draft}
 					onChange={e => setDraft(e.target.value)}
 					onKeyDown={e => {
+						if (isImeComposing(e.nativeEvent)) return;
 						if (e.key === 'Enter') {
 							add();
 						}

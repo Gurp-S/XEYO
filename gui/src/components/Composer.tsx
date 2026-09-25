@@ -57,6 +57,7 @@ import {
 	triggerTokenAt,
 } from '@/lib/slash';
 import {arbitrateSlashMenuKey, type SlashMenuKey} from '@/lib/slashMenuKeys';
+import {isImeComposing} from '@/lib/ime';
 import {resolveSendMode, steerHintVisible, type SendMode} from '@/lib/composerSendMode';
 import {
 	cachedSlashSkills,
@@ -1673,7 +1674,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 	const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
 		// IME 组词中：确认键/方向键属于输入法，一律放行（修复组词上屏瞬间
 		// Enter 直接发送半截输入的隐患；仲裁在 composing 期间同样放行）。
-		if (e.nativeEvent.isComposing) {
+		if (isImeComposing(e.nativeEvent)) {
 			return;
 		}
 		// 弹层键盘仲裁（combobox 语义）：焦点始终留在编辑器表面，
@@ -1888,6 +1889,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 											value={queueDraft}
 											onChange={e => setQueueDraft(e.target.value)}
 											onKeyDown={e => {
+												if (isImeComposing(e.nativeEvent)) return;
 												if (e.key === 'Enter') saveQueueEdit();
 												if (e.key === 'Escape') {
 													// 先立旗再关闭：拦住随后的失焦保存，避免 Esc 误保存。

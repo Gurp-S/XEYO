@@ -7,6 +7,7 @@ import {useEffect, useMemo, useRef, useState} from 'react';
 import {setCheckpointAnchor} from '@/lib/api';
 import {toast} from '@/lib/toast';
 import {useRewindV3Store} from '@/stores/rewindV3Store';
+import {isImeComposing} from '@/lib/ime';
 
 export function WorkspaceRevertDialog({
 	plan,
@@ -82,7 +83,7 @@ export function WorkspaceRevertDialog({
 			return;
 		}
 		const onKey = (event: KeyboardEvent) => {
-			if (event.key === 'Enter' && !event.isComposing) {
+			if (event.key === 'Enter' && !isImeComposing(event)) {
 				event.preventDefault();
 				onConfirm?.({restoreWorkspace: canRestoreWorkspace});
 			}
