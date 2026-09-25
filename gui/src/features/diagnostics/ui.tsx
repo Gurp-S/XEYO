@@ -162,10 +162,17 @@ export function EvidenceList({items}: {items: DiagEvidenceRef[]}) {
 
 export function Notice({
 	tone = 'neutral',
+	live,
 	children,
 }: {
 	tone?: 'neutral' | 'warn' | 'fail' | 'info';
+	/** 异步结果/筛选反馈用：读屏器才会念出"这一条刚变了"。 */
+	live?: boolean;
 	children: ReactNode;
 }) {
-	return <p className={cn('xy-dig-notice', `is-${tone}`)}>{children}</p>;
+	return (
+		<p className={cn('xy-dig-notice', `is-${tone}`)} role={live ? 'status' : undefined}>
+			{children}
+		</p>
+	);
 }

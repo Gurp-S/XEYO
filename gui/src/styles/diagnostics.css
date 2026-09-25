@@ -619,7 +619,13 @@
 }
 
 .xy-dig-step-title {
-  flex: 0 0 auto;
+  /* 必须允许收缩：原来是 flex:0 0 auto 的刚性项，工具名一长就把右侧
+     状态/耗时/费用顶出行宽（这一行没有 overflow 兜底）。完整值在 title 属性上。 */
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   font-size: 11.5px;
   color: var(--color-ink);
 }

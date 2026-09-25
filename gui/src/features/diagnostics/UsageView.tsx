@@ -45,7 +45,13 @@ export function UsageView({detail}: {detail: DiagRunDetail}) {
 									fmtInt(summary?.unknown_cost_attempts ?? null)
 								),
 						},
-						{k: '用量来源', v: summary?.cost_sources.join('、')},
+						{k: '用量来源',
+							v: summary
+								? summary.cost_sources.length
+									? summary.cost_sources.join('、')
+									: '账本里没有计价来源记录'
+								: null,
+						},
 						{k: '未关联到请求的用量行', v: fmtInt(summary?.unlinked_usage_rows ?? null)},
 						{k: '说明', v: summary?.statement},
 					]}
@@ -69,7 +75,7 @@ export function UsageView({detail}: {detail: DiagRunDetail}) {
 				{rows.length === 0 ? (
 					<Notice tone="info">本轮没有模型尝试记录（无记录不等于没发生）。</Notice>
 				) : (
-					<table className="xy-dig-table">
+					<table className="xy-dig-table" aria-label="逐次尝试的用量与费用">
 						<thead>
 							<tr>
 								<th>请求 / 尝试</th>
@@ -123,7 +129,7 @@ export function UsageView({detail}: {detail: DiagRunDetail}) {
 				{detail.usage.length === 0 ? (
 					<Notice tone="info">本会话在用量账本里没有匹配行。</Notice>
 				) : (
-					<table className="xy-dig-table">
+					<table className="xy-dig-table" aria-label="用量账本原始行">
 						<thead>
 							<tr>
 								<th>attempt_key</th>

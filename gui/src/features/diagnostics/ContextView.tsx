@@ -96,7 +96,13 @@ export function ContextView({
 			const t = await traceDiagFact(sessionId, turnId, q);
 			if (!mountedRef.current || traceReqRef.current !== id) return;
 			// 载荷自证身份：后端回的是哪一轮就对哪一轮，不符就不呈现。
-			if (t.turn_id && turnId && t.turn_id !== turnId) return;
+			if (t.turn_id && turnId && t.turn_id !== turnId) {
+				// 载荷身份不符时不能静默丢弃：用户点了「定位」却什么都没发生，
+				// 读起来像按钮坏了。说清是后端回了另一轮的事实。
+				setErr(`返回的是 ${t.turn_id} 轮的事实，与当前轮 ${turnId} 不符，未展示。`);
+				setTrace(null);
+				return;
+			}
 			setErr('');
 			setTrace(t);
 		} catch (e) {
@@ -231,12 +237,12 @@ export function ContextView({
 							if (e.key === 'Enter') void run();
 						}}
 					/>
-					<button type="button" className="xy-dig-btn" disabled={busy} onClick={() => void run()}>
+					<button type="button" className="xy-dig-btn" aria-busy={busy} disabled={busy} onClick={() => void run()}>
 						{busy ? <Loader2 className="size-3 animate-spin" aria-hidden /> : null}
 						定位
 					</button>
 				</div>
-				{err ? <Notice tone="fail">{err}</Notice> : null}
+				{err ? <Notice tone="fail" live>{err}</Notice> : null}
 				{trace ? <FactChain trace={trace} /> : null}
 			</Section>
 		</div>

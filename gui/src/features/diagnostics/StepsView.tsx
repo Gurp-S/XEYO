@@ -6,7 +6,7 @@
  * - 等待授权与长任务各自有独立措辞与配色，不当成失败/卡死；
  * - 有耗时记录才显示耗时，没有就显示破折号，不推算。
  */
-import {useMemo, useState} from 'react';
+import {useId, useMemo, useState} from 'react';
 import {Loader2} from 'lucide-react';
 import type {DiagRunDetail} from '@/lib/api/diagnostics';
 import {
@@ -43,6 +43,7 @@ const TONE_LABEL: Record<TimelineRow['tone'], string> = {
 
 function Row({row}: {row: TimelineRow}) {
 	const [open, setOpen] = useState(false);
+	const bodyId = useId();
 	return (
 		<li className={cn('xy-dig-step', `is-${row.tone}`)}>
 			<span className="xy-dig-step-rail" aria-hidden>
@@ -53,11 +54,14 @@ function Row({row}: {row: TimelineRow}) {
 					type="button"
 					className="xy-dig-step-head"
 					aria-expanded={open}
+					aria-controls={open ? bodyId : undefined}
 					onClick={() => setOpen(v => !v)}
 				>
 					<span className="xy-dig-step-time tabular-nums">{fmtClock(row.ts)}</span>
 					<span className="xy-dig-step-tone">{TONE_LABEL[row.tone]}</span>
-					<span className="xy-dig-step-title">{row.title}</span>
+					<span className="xy-dig-step-title" title={row.title}>
+						{row.title}
+					</span>
 					{row.attemptText ? (
 						<span className="xy-dig-step-attempt">{row.attemptText}</span>
 					) : null}
@@ -70,7 +74,7 @@ function Row({row}: {row: TimelineRow}) {
 					</span>
 				</button>
 				{open ? (
-					<div className="xy-dig-step-body">
+					<div id={bodyId} className="xy-dig-step-body">
 						<KeyValue
 							rows={[
 								{k: '事件类型', v: row.kind, mono: true},
@@ -157,7 +161,9 @@ export function StepsView({
 			</div>
 
 			{shown.length === 0 ? (
-				<Notice tone="info">该来源在本轮没有记录（无记录不等于没发生，见「上下文」的覆盖情况）。</Notice>
+				<Notice tone="info" live>
+						该来源在本轮没有记录（无记录不等于没发生，见「上下文」的覆盖情况）。
+					</Notice>
 			) : (
 				<ul className="xy-dig-steps">
 					{shown.map(r => (
@@ -171,6 +177,7 @@ export function StepsView({
 					type="button"
 					className="xy-dig-more"
 					disabled={loadingMore}
+					aria-busy={loadingMore}
 					onClick={onLoadMore}
 				>
 					{loadingMore ? <Loader2 className="size-3 animate-spin" aria-hidden /> : null}

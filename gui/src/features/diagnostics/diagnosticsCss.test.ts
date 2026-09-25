@@ -122,6 +122,14 @@ describe('diagnostics.css 设计契约', () => {
 		expect([...pointered].filter(c => !hovering.has(c)).sort()).toEqual([]);
 	});
 
+	it('步骤标题可收缩并截断（刚性 flex 项会把右侧状态/耗时/费用顶出行宽）', () => {
+		const b = blocks.find(x => x.sel === '.xy-dig-step-title');
+		expect(b).toBeDefined();
+		expect(b!.body).toMatch(/flex:\s*0 1 auto/);
+		expect(b!.body).toMatch(/min-width:\s*0/);
+		expect(b!.body).toMatch(/text-overflow:\s*ellipsis/);
+	});
+
 	it('每个声明 transition 的类都在 prefers-reduced-motion 里降级', () => {
 		const animated = new Set<string>();
 		for (const b of blocks) {
