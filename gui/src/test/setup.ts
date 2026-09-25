@@ -10,6 +10,20 @@ vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
 });
 vi.stubGlobal('cancelAnimationFrame', () => {});
 
+/**
+ * jsdom 不实现 scrollIntoView。缺了它，产品代码要么写 `typeof x === 'function'`
+ * 这种为测试而生的防御（Composer.tsx 里就有），要么相关路径根本不敢测
+ * （CommandPalette 的 `el?.scrollIntoView` 一直没被覆盖）。
+ * 这里补成空实现，让测试能断言"谁被滚进可视区"，产品代码保持干净。
+ */
+if (typeof Element !== 'undefined' && !Element.prototype.scrollIntoView) {
+	Object.defineProperty(Element.prototype, 'scrollIntoView', {
+		value: () => {},
+		writable: true,
+		configurable: true,
+	});
+}
+
 vi.mock('@/stores/settingsStore', () => {
 	const state = {
 		theme: 'graphite' as const,

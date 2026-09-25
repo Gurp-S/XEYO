@@ -122,6 +122,32 @@ describe('SessionPicker', () => {
 		expect(screen.getByText('后端没有可选会话。')).toBeTruthy();
 	});
 
+	it('键盘移动会把高亮项滚进可视区（长列表不跟焦就等于看不见）', () => {
+		const spy = vi
+			.spyOn(HTMLElement.prototype, 'scrollIntoView')
+			.mockImplementation(() => {});
+		try {
+			const {trigger} = renderPicker();
+			// 关闭状态不该滚：列表还没进 DOM。
+			expect(spy).not.toHaveBeenCalled();
+
+			fireEvent.keyDown(trigger, {key: 'Enter'});
+			expect(spy).toHaveBeenCalledTimes(1);
+
+			fireEvent.keyDown(trigger, {key: 'ArrowDown'});
+			expect(spy).toHaveBeenCalledTimes(2);
+			expect(spy.mock.calls.at(-1)?.[0]).toEqual({block: 'nearest'});
+
+			fireEvent.keyDown(trigger, {key: 'Escape'});
+			expect(trigger.getAttribute('aria-expanded')).toBe('false');
+			// 关闭态按普通字符既不重开也不滚（Esc 后按 ↑↓ 会重新打开，与原生 select 一致）
+			fireEvent.keyDown(trigger, {key: 'a'});
+			expect(spy).toHaveBeenCalledTimes(2);
+		} finally {
+			spy.mockRestore();
+		}
+	});
+
 	it('空列表下键盘不崩也不"选中"任何东西', () => {
 		const onPick = vi.fn();
 		render(<SessionPicker sessions={[]} value="" onPick={onPick} />);

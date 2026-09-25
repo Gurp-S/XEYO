@@ -76,6 +76,18 @@ export function SessionPicker({
 		return () => window.removeEventListener('mousedown', onDown);
 	}, [open]);
 
+	// 键盘把高亮项推到可视区外时，要把它滚进来：列表封顶 21rem，会话几十条时
+	// 只有 aria-activedescendant 的话，看得见的人不知道自己在哪一行，读屏的人
+	// 看得见行号却不知道屏幕上有没有这一行。
+	useEffect(() => {
+		if (!open) {
+			return;
+		}
+		document
+			.getElementById(`${LIST_ID}-${active}`)
+			?.scrollIntoView({block: 'nearest'});
+	}, [open, active]);
+
 	const pick = (id: string) => {
 		setOpen(false);
 		if (id !== value) onPick(id);
