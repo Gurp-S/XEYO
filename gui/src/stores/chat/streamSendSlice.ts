@@ -261,7 +261,23 @@ export function createStreamSendSlice(
 					return userMessagePersistence;
 				};
 				const markQueueAccepted = () => {
+					const firstAcceptance = !queueAccepted;
 					queueAccepted = true;
+					if (firstAcceptance) {
+						const current = get().sessions.find(session => session.id === sessionId);
+						if (current) {
+							const nextSession = {
+								...current,
+								updatedAt: Math.max(current.updatedAt, qUserMsg.createdAt),
+							};
+							set(s => ({
+								sessions: s.sessions.map(session =>
+									session.id === sessionId ? nextSession : session,
+								),
+							}));
+							void saveSession(nextSession).catch(() => undefined);
+						}
+					}
 					persistAcceptedUserMessage();
 				};
 				const queueAbort = new AbortController();

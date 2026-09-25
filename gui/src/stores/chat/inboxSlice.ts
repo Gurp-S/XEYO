@@ -10,7 +10,7 @@ import {
 	loadServerSessionMessages,
 	type InboxSnapshot,
 } from '@/lib/api';
-import {deleteMessageForSession, patchMessages, updateMessageText} from '@/lib/db';
+import {deleteMessageForSession, patchMessages, saveSession, updateMessageText} from '@/lib/db';
 import type {ChatMessage} from '@/lib/types';
 import {
 	activeBackendSessionId,
@@ -152,6 +152,24 @@ export function createInboxSlice(
 				return false;
 			}
 			const snapshotItems = normalizeItems(payload);
+			// A lost 202 response is reconciled from this authoritative snapshot. Keep
+			// the sidebar's recent-session order correct even when no onAccepted ran.
+			const latestQueuedAt = snapshotItems.reduce(
+				(latest, item) => Math.max(latest, item.queued_at),
+				0,
+			);
+			const currentSession = get().sessions.find(session => session.id === sessionId);
+			if (currentSession && latestQueuedAt > currentSession.updatedAt) {
+				const nextSession = {...currentSession, updatedAt: latestQueuedAt};
+				set(s => ({
+					sessions: s.sessions.map(session =>
+						session.id === sessionId
+							? {...session, updatedAt: Math.max(session.updatedAt, latestQueuedAt)}
+							: session,
+					),
+				}));
+				void saveSession(nextSession).catch(() => undefined);
+			}
 			const snapshotIds = new Set(snapshotItems.map(item => item.queue_id));
 			const previousItems = get().inboxBySession[sessionId] ?? [];
 			// A completed receipt is acknowledged only after its server transcript is
