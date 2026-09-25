@@ -148,7 +148,7 @@ describe('tool workflow display — toolToStep verbs', () => {
 		expect(byId['edit-1']?.diff?.add).toBeGreaterThan(0);
 		expect(byId['todo-1']?.verb).toBe('Checked');
 		expect(byId['bash-1']?.verb).toBe('Ran');
-		expect(byId['fail-1']?.verb).toBe('Ran');
+		expect(byId['fail-1']?.verb).toBe('Failed');
 		expect(byId['fail-1']?.error).toBe(true);
 	});
 

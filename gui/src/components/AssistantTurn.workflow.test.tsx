@@ -93,7 +93,9 @@ describe('AssistantTurn workflow rendering', () => {
 		);
 
 		expect(screen.getAllByText('Reading').length).toBeGreaterThan(0);
-		expect(screen.getByText('Working')).toBeInTheDocument();
+		expect(
+			screen.getByText('Working', {selector: '.xy-split-head-label'}),
+		).toBeInTheDocument();
 		expect(
 			screen.getByText(/让我先搜索相关的代码文件/),
 		).toBeInTheDocument();

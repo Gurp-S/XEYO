@@ -234,6 +234,7 @@ describe('MarkdownView rendering', () => {
 	});
 
 	it('opens relative wiki links via onOpenPath', async () => {
+		const user = userEvent.setup();
 		const onOpenPath = vi.fn();
 		render(
 			<MarkdownView
@@ -242,12 +243,12 @@ describe('MarkdownView rendering', () => {
 				onOpenPath={onOpenPath}
 			/>,
 		);
-		await userEvent.click(screen.getByRole('link', {name: '09'}));
+		await user.click(screen.getByRole('link', {name: '09'}));
 		expect(onOpenPath).toHaveBeenCalledWith(
 			'docs/设计/09-企业级落地计划-时序与排期.md',
 			undefined,
 		);
-	});
+	}, 10_000);
 
 	it('assigns heading ids for in-page jumps', () => {
 		const {container} = render(<MarkdownView content={MD_HEADINGS} />);

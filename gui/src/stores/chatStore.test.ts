@@ -72,6 +72,7 @@ vi.mock('@/lib/db', async () => {
 		replaceMessages: vi.fn(async () => undefined),
 		upsertMessages: vi.fn(async () => undefined),
 		patchMessages: vi.fn(async () => undefined),
+		deleteMessageForSession: vi.fn(async () => undefined),
 		deleteSession: vi.fn(async () => undefined),
 		deleteSpace: vi.fn(async () => undefined),
 		deleteSpaceRecord: vi.fn(async () => undefined),
@@ -102,6 +103,7 @@ vi.mock('@/stores/settingsStore', () => ({
 }));
 
 import {
+	deleteMessageForSession,
 	deleteSpaceRecord,
 	loadDeletedSessionIds,
 	loadMessages,
@@ -486,6 +488,12 @@ describe('chatStore dialogue — errors & busy', () => {
 			text: 'before edit',
 			createdAt: 1,
 		};
+		const assistantMessage = {
+			id: 'assistant-existing',
+			role: 'assistant' as const,
+			text: 'existing reply',
+			createdAt: 2,
+		};
 		useChatStore.setState({
 			historyById: {
 				sess_test: {
@@ -501,7 +509,7 @@ describe('chatStore dialogue — errors & busy', () => {
 				},
 			},
 			inboxBySession: {sess_test: [queued]},
-			messagesById: {sess_test: [userMessage]},
+			messagesById: {sess_test: [userMessage, assistantMessage]},
 		});
 
 		expect(
@@ -513,8 +521,8 @@ describe('chatStore dialogue — errors & busy', () => {
 		expect(await useChatStore.getState().cancelInboxItem('sess_test', 'q-edit')).toBe(true);
 		expect(cancelInboxItemApi).toHaveBeenCalledWith('backend-2', 'q-edit');
 		expect(useChatStore.getState().inboxBySession.sess_test).toEqual([]);
-		expect(useChatStore.getState().messagesById.sess_test).toEqual([]);
-		expect(replaceMessages).toHaveBeenCalledWith('sess_test', []);
+		expect(useChatStore.getState().messagesById.sess_test).toEqual([assistantMessage]);
+		expect(deleteMessageForSession).toHaveBeenCalledWith('sess_test', 'user-queued');
 		inboxSnapshotApi.mockResolvedValueOnce({autorun: true, coalesce: false, items: []});
 		expect(await useChatStore.getState().refreshInbox('sess_test')).toBe(true);
 		expect(inboxSnapshotApi).toHaveBeenLastCalledWith('backend-2');

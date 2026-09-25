@@ -199,9 +199,13 @@ describe('handler 实现对账 · 派发了必须有人接', () => {
 		expect(declared).not.toContain('onActivity');
 	});
 
-	/** store 里是否实现了该 handler 槽（对象方法简写：行首缩进 + 名字 + 左括号）。 */
+	/** store 里是否实现了该 handler 槽（方法简写或箭头属性）。 */
 	const implemented = (name: string) =>
-		new RegExp(`^\\s*${name}\\s*\\(`, 'm').test(STORE_SRC);
+		new RegExp(`^\\s*${name}\\s*\\(`, 'm').test(STORE_SRC) ||
+		new RegExp(
+			`^\\s*${name}\\s*:\\s*(?:async\\s*)?(?:\\([^\\n]*\\)|[\\w$]+)\\s*=>`,
+			'm',
+		).test(STORE_SRC);
 
 	it('每个槽位都有 store 实现或登记理由', () => {
 		const orphan = declared.filter(n => !implemented(n)).filter(n => !(n in NOT_IMPLEMENTED)).sort();

@@ -199,10 +199,14 @@ describe('explorerStore', () => {
 			kind: 'text' as const,
 			text: 'abc',
 		};
-		useExplorerStore.setState({selectedPath: 'a.ts', doc});
+		useExplorerStore.setState({
+			selectedPath: 'a.ts',
+			doc,
+			loadedRoot: 'D:/proj',
+		});
 		readWorkspaceFile.mockResolvedValue({...doc});
-		const changed = await useExplorerStore.getState().reloadIfOpen('a.ts');
-		expect(changed).toBe(false);
+		expect(await useExplorerStore.getState().reloadIfOpen('a.ts')).toBe(false);
+		expect(readWorkspaceFile).toHaveBeenCalledWith('a.ts', 'D:/proj');
 		expect(useExplorerStore.getState().doc).toBe(doc);
 	});
 
@@ -218,7 +222,11 @@ describe('explorerStore', () => {
 			text: 'abc',
 		};
 		const next = {...prev, text: 'abcd', size: 4, mtime: 200};
-		useExplorerStore.setState({selectedPath: 'a.ts', doc: prev});
+		useExplorerStore.setState({
+			selectedPath: 'a.ts',
+			doc: prev,
+			loadedRoot: 'D:/proj',
+		});
 		readWorkspaceFile.mockResolvedValue(next);
 		const changed = await useExplorerStore
 			.getState()
