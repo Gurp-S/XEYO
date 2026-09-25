@@ -295,8 +295,9 @@ export function createStreamSendSlice(
 					signal: queueAbort.signal,
 					// fetch 收到 HTTP 2xx/202 即代表服务端已受理；SSE 首帧可能
 					// 超时或连接中断，不能把这种已提交的消息当作 HTTP 拒绝撤回。
-					onAccepted(status) {
+					onAccepted: status => {
 						markQueueAccepted();
+						onAccepted?.();
 						// 本地忙碌、服务端已空闲的窗口会直接启动普通 SSE 流。
 						// 202 只登记排队状态；200 则接管可见流状态与停止控制。
 						if (status !== 202) queueProjection.start(queueAbort);
