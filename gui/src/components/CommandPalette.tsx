@@ -356,9 +356,10 @@ export function CommandPalette() {
 			const rows = list
 				.filter(
 					s =>
-						matchesQuery(s.title, q) ||
-						matchesQuery(spaceName(s.spaceId), q) ||
-						matchesQuery(s.id, q),
+						!s.archived &&
+						(matchesQuery(s.title, q) ||
+							matchesQuery(spaceName(s.spaceId), q) ||
+							matchesQuery(s.id, q)),
 				)
 				.slice(0, limit ?? 40);
 			for (const s of rows) {
@@ -379,11 +380,11 @@ export function CommandPalette() {
 			if (!q) {
 				const recentIds = new Set(recentAgents.map(a => a.id));
 				const fromRecent = recentAgents
-					.map(r => sessions.find(s => s.id === r.id))
+					.map(r => sessions.find(s => s.id === r.id && !s.archived))
 					.filter((s): s is NonNullable<typeof s> => Boolean(s));
 				const fallback = [...sessions]
 					.sort((a, b) => b.updatedAt - a.updatedAt)
-					.filter(s => !recentIds.has(s.id))
+					.filter(s => !s.archived && !recentIds.has(s.id))
 					.slice(0, 8);
 				const merged = [...fromRecent, ...fallback].slice(0, 8);
 				pushAgents('最近的工作区', merged);
