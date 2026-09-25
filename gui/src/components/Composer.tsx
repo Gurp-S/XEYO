@@ -222,7 +222,7 @@ function MultiAgentChip({onExit}: {onExit: () => void}) {
 }
 
 export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
-	const [value, setValue] = useState('');
+	const [value, setValueState] = useState('');
 	const [attachments, setAttachments] = useState<Attachment[]>([]);
 	const [uploading, setUploading] = useState(false);
 	const uploadCountRef = useRef(0);
@@ -506,6 +506,17 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 	/** 自绘光标重测出口(TypingCaret):textarea 滚动后视觉坐标重算。 */
 	const caretApiRef = useRef<TypingCaretApi | null>(null);
 	const activeIdRef = useRef(activeId);
+	const draftRevisionRef = useRef(new Map<string, number>());
+	const draftRevisionFor = (sessionId: string | null | undefined) =>
+		draftRevisionRef.current.get(sessionId ?? '\0empty-composer') ?? 0;
+	const setValue = (
+		next: string,
+		sessionId: string | null = activeIdRef.current ?? activeId,
+	) => {
+		const key = sessionId ?? '\0empty-composer';
+		draftRevisionRef.current.set(key, draftRevisionFor(sessionId) + 1);
+		setValueState(next);
+	};
 	const composerMountedRef = useRef(false);
 	const valueRef = useRef(value);
 	valueRef.current = value;
@@ -565,7 +576,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 			: defaultComposerDraft({
 					permissionMode: useSettingsStore.getState().permissionMode,
 				});
-		setValue(loaded.text);
+		setValueState(loaded.text);
 		const restoredCaret = loaded.text.length;
 		setTaCaret(restoredCaret);
 		setTaCaretDir('forward');
@@ -1286,6 +1297,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 			const sessionBusyAtSubmit =
 				sessId !== '' && sessionStreamActive(chatUiStoreApi.getState(), sessId);
 			const submittedDraft = value;
+			const submittedDraftRevision = draftRevisionFor(sessId || null);
 			const submittedAttachments = attachmentsRef.current;
 			const submittedAgentMode = agentModeRef.current;
 			const submittedMultiAgent = multiAgentRef.current;
@@ -1398,7 +1410,9 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 							const {removed, remaining} = slashSentMessage
 								? removeSubmittedAttachments(currentOriginAttachments, submittedAttachments)
 								: {removed: [], remaining: currentOriginAttachments};
-							const textUnchanged = currentOriginText === submittedDraft;
+							const textUnchanged =
+								currentOriginText === submittedDraft &&
+								draftRevisionFor(sessId || null) === submittedDraftRevision;
 							setComposerDraft(sessId, {
 								text: textUnchanged ? '' : currentOriginText,
 								// 普通命令保留附件；技能/改写命令已发送同一组附件时清掉。
@@ -1460,6 +1474,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 		}
 		const sessionId = activeId;
 		const draftText = value;
+		const submittedDraftRevision = draftRevisionFor(sessionId);
 		const draftAttachments = attachments;
 		sendAcceptPendingRef.current = true;
 		// 仅在服务端明确受理后清除；HTTP 拒绝时保留原草稿。
@@ -1495,7 +1510,10 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 				currentAttachments,
 				draftAttachments,
 			);
-			const textUnchanged = currentText === draftText;
+			const textUnchanged =
+				currentText === draftText &&
+				draftRevisionFor(sessionId ?? acceptedSessionId) ===
+					submittedDraftRevision;
 			setComposerDraft(acceptedSessionId, {
 				text: textUnchanged ? '' : currentText,
 				attachments: remaining,
@@ -2149,12 +2167,12 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 									value={value}
 									onChange={e => {
 										const next = e.target.value;
-										setValue(next);
+										const draftSessionId = activeIdRef.current ?? activeId;
+										setValue(next, draftSessionId);
 										setTaCaret(e.target.selectionStart ?? next.length);
 										// 输入即写入当前会话草稿（防抖 250ms 落 localStorage）：
 										// 不切会话 / 不发送 / 直接刷新时输入不丢。setComposerDraft
 										// 为按字段合并，仅 text 变化，attachments/模式不受影响。
-										const draftSessionId = activeIdRef.current ?? activeId;
 										if (draftSessionId) {
 											setComposerDraft(draftSessionId, {
 												text: next,
