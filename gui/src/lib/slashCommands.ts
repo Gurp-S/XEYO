@@ -118,6 +118,10 @@ async function findSkillByName(
 	if (!want) {
 		return {skill: null};
 	}
+	if (!workspace.trim()) {
+		// An omitted workspace makes /v1/skills use the server's global UI cwd.
+		return {skill: null};
+	}
 	const report = await loadSlashSkills(workspace);
 	if (!report.ok) {
 		return {skill: null, error: report.message || '技能清单暂不可用'};

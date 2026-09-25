@@ -760,6 +760,13 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 		if (!slashZone) {
 			return;
 		}
+		if (!activeWorkspace.trim()) {
+			// Empty workspace means no workspace scope. Omitting the query would make
+			// /v1/skills fall back to the server's global UI cwd (often another project).
+			setSlashSkillsWorkspace('');
+			setSlashSkills([]);
+			return;
+		}
 		const cached = cachedSlashSkills(activeWorkspace);
 		if (cached) {
 			setSlashSkillsWorkspace(activeWorkspace);
