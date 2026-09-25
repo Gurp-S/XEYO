@@ -703,9 +703,14 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 
 	// 统一斜杠命令：由「光标处 slash 词元」驱动候选与技能弹层（来自生成的 manifest）。
 	// / 不在行首时（如消息中途「帮我 /xxx」）同样生效；删除 / 后词元消失，弹层随之收起。
-	const activeWorkspace = useChatStore(
-		s => s.spaces.find(sp => sp.id === s.activeSpaceId)?.rootPath ?? '',
-	);
+	const activeWorkspace = useChatStore(s => {
+		const activeSession = s.sessions.find(session => session.id === s.activeId);
+		if (activeSession?.spaceId === SIDE_SPACE_ID) {
+			return '';
+		}
+		const spaceId = activeSession?.spaceId ?? s.activeSpaceId;
+		return s.spaces.find(space => space.id === spaceId)?.rootPath ?? '';
+	});
 	const slashToken = useMemo(() => slashTokenAt(value, taCaret), [value, taCaret]);
 	const slashIntent = slashToken !== null;
 	const slashQuery = slashToken ? slashToken.text.slice(1).toLowerCase() : '';
