@@ -120,9 +120,21 @@ function consumeTools(
 	if (isToolCall(m)) {
 		const call = toToolView(m);
 		const nextMsg = messages[start + 1];
+		const callToolUseId = call.toolUseId?.trim();
+		const resultToolUseId = nextMsg?.toolUseId?.trim();
+		// 旧记录可能没有调用 ID；有任一侧带 ID 时必须精确相同才可合并。
+		const toolUseIdsMatch =
+			!callToolUseId && !resultToolUseId
+				? true
+				: Boolean(
+						callToolUseId &&
+						resultToolUseId &&
+						callToolUseId === resultToolUseId,
+					);
 		if (
 			nextMsg?.role === 'tool' &&
 			!isToolCall(nextMsg) &&
+			toolUseIdsMatch &&
 			(nextMsg.toolName ?? 'tool') === call.name
 		) {
 			return {
