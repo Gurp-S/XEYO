@@ -186,11 +186,14 @@ def attach_repl(
 					if saw_delta and not json_mode:
 						ui.out.print()
 			except KeyboardInterrupt:
+				# 本地 abort 只保证"不再接收"；服务端有没有停要靠这条回执。
+				note = ""
 				try:
-					http_api.interrupt_http(client, session_id)
-				except Exception:
-					pass
-				console.print("\n[dim]■ interrupted[/dim]")
+					if not http_api.interrupt_http(client, session_id):
+						note = " (no running turn to stop)"
+				except Exception as exc:  # noqa: BLE001 — 停止失败要说出来，不能静默
+					note = f" (server did not confirm: {escape(str(exc))})"
+				console.print(f"\n[dim]■ interrupted{note}[/dim]")
 			except httpx.ConnectError as exc:
 				console.print(
 					f"[bold red]✗ cannot reach {url}[/bold red]: {exc}\n"
@@ -277,6 +280,7 @@ def _resolve_xy(
 				approved=decision.approved,
 				choice=decision.choice,
 			)
+			ui.out.print(f"[dim]· server confirmed: {escape(decision.choice)}[/dim]")
 		elif kind == "ask_user_pending":
 			rid = str(xy.get("request_id") or "")
 			if not rid:
@@ -288,6 +292,7 @@ def _resolve_xy(
 				json_mode=json_mode,
 			)
 			http_api.resolve_ask_http(client, rid, decision.answer)
+			ui.out.print("[dim]· server confirmed: answer delivered[/dim]")
 		elif kind == "plan_pending":
 			rid = str(xy.get("request_id") or "")
 			if not rid:
@@ -297,6 +302,7 @@ def _resolve_xy(
 				json_mode=json_mode,
 			)
 			http_api.resolve_plan_http(client, rid, decision.approved)
+			ui.out.print("[dim]· server confirmed: plan decision[/dim]")
 		elif kind == "tool_call" and not json_mode:
 			name = str(xy.get("name") or xy.get("tool_name") or "?")
 			summary = ""

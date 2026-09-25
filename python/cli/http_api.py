@@ -77,6 +77,38 @@ def _ensure_ok(r: httpx.Response) -> None:
 		raise ApiError(r.status_code, _response_body(r))
 
 
+def _receipt(r: httpx.Response, what: str) -> dict[str, Any]:
+	"""200 只是 HTTP 层：这些写操作端点在**信封里**用 ok 表达"没接受"。
+
+	读不出的三种形态（没有正文 / 正文不是 JSON 对象 / 换代理回的 HTML）以前都会走
+	``bool(r.json().get("ok", True))`` 的默认值 True ⇒ 终端把一次没送达的放行念成
+	「✓ allowed」。这里把它们变成错误，不猜。
+	"""
+	try:
+		data = r.json()
+	except Exception as exc:  # noqa: BLE001 — 没有正文 / 非 JSON 都算读不出
+		raise ApiError(r.status_code, f"{what}：回执没有可读的 JSON 正文，无法确认服务端是否接受") from exc
+	if not isinstance(data, dict):
+		raise ApiError(r.status_code, f"{what}：回执不是对象，无法确认服务端是否接受")
+	return data
+
+
+def _confirmed(r: httpx.Response, what: str) -> bool:
+	"""只有 ``ok is True`` 才算成功；``ok:false`` 带上服务端给的 reason 抛出。"""
+	data = _receipt(r, what)
+	ok = data.get("ok")
+	if ok is True:
+		return True
+	if "ok" not in data:
+		raise ApiError(r.status_code, f"{what}：回执里没有 ok 字段，无法确认服务端是否接受")
+	if ok is not False:
+		# 缺字段与"字段在但说不出真假"都不是服务端说过的话，不能折成任何一种。
+		raise ApiError(r.status_code, f"{what}：回执里的 ok 不是布尔，无法确认服务端是否接受")
+	reason = str(data.get("reason") or "").strip()
+	detail = str(data.get("detail") or "").strip()
+	raise ApiError(r.status_code, f"{what}：{reason or detail or '服务端未接受这次决议'}")
+
+
 def make_client(base_url: str, api_key: str = "", timeout: float | None = 60.0) -> httpx.Client:
 	headers: dict[str, str] = {"Accept": "application/json"}
 	if api_key:
@@ -110,16 +142,22 @@ def delete_session(client: httpx.Client, session_id: str) -> dict[str, Any]:
 	require_path_segment(session_id)
 	r = client.delete(f"/v1/sessions/{session_id}")
 	_ensure_ok(r)
-	data = r.json() if r.content else {"ok": True}
-	return data if isinstance(data, dict) else {"ok": True, "raw": data}
+	# 删除是隐私动作：空正文或没有 ok 的回执都不能折算成"删干净了"。
+	data = _receipt(r, "删除会话")
+	if not isinstance(data.get("ok"), bool):
+		raise ApiError(r.status_code, "删除会话：回执里没有 ok 字段，无法确认服务端删掉了什么")
+	return data
 
 
 def get_messages(client: httpx.Client, session_id: str) -> dict[str, Any]:
 	require_path_segment(session_id)
 	r = client.get(f"/v1/sessions/{session_id}/messages")
 	_ensure_ok(r)
-	data = r.json()
-	return data if isinstance(data, dict) else {"messages": data}
+	data = _receipt(r, "读取会话消息")
+	if not isinstance(data.get("messages"), list):
+		# 与 list_sessions 同一条理由：认不出的回执 ≠ 这个会话没有消息。
+		raise ApiError(r.status_code, "server response has no 'messages' list")
+	return data
 
 
 def resolve_permission_http(
@@ -137,8 +175,8 @@ def resolve_permission_http(
 	if choice:
 		body["outcome"] = choice
 	r = client.post("/v1/permission/resolve", json=body)
-	r.raise_for_status()
-	return bool(r.json().get("ok", True))
+	_ensure_ok(r)
+	return _confirmed(r, "权限决议")
 
 
 def resolve_ask_http(client: httpx.Client, request_id: str, answer: str) -> bool:
@@ -146,8 +184,8 @@ def resolve_ask_http(client: httpx.Client, request_id: str, answer: str) -> bool
 		"/v1/ask/resolve",
 		json={"request_id": request_id, "answer": answer, "actor": "cli"},
 	)
-	r.raise_for_status()
-	return bool(r.json().get("ok", True))
+	_ensure_ok(r)
+	return _confirmed(r, "提问作答")
 
 
 def resolve_plan_http(client: httpx.Client, request_id: str, approved: bool) -> bool:
@@ -155,11 +193,19 @@ def resolve_plan_http(client: httpx.Client, request_id: str, approved: bool) -> 
 		f"/v1/plan/{request_id}/approve",
 		json={"approved": approved, "actor": "cli"},
 	)
-	r.raise_for_status()
-	return bool(r.json().get("ok", True))
+	_ensure_ok(r)
+	return _confirmed(r, "计划批准")
 
 
 def interrupt_http(client: httpx.Client, session_id: str) -> bool:
+	"""True=服务端确认停止；False=服务端没有在跑的回合（幂等 no-op，不是失败）。
+
+	读不出（缺 ok / 正文不是对象）抛 :class:`ApiError`：把"没确认"和"确认了但没东西可停"
+	混成同一个 False，等于让调用方拿猜测填空白。
+	"""
 	r = client.post("/v1/interrupt", json={"session_id": session_id})
-	r.raise_for_status()
-	return bool(r.json().get("ok", True))
+	_ensure_ok(r)
+	data = _receipt(r, "停止会话")
+	if "ok" not in data:
+		raise ApiError(r.status_code, "停止会话：回执里没有 ok 字段，无法确认服务端是否收到")
+	return data["ok"] is True

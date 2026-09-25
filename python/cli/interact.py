@@ -85,7 +85,9 @@ def prompt_permission(
 	headless = force_headless or json_mode or not is_tty()
 	if headless:
 		if not json_mode:
-			console.print(f"[bold red]✗ denied[/bold red] [dim]{tool} (no TTY; fail-closed)[/dim]")
+			console.print(
+				f"[bold red]→ deny[/bold red] [dim]{tool} (no TTY; fail-closed; awaiting server receipt)[/dim]"
+			)
 		return PermissionDecision(
 			choice="deny", approved=False, actor="cli-headless", headless=True
 		)
@@ -100,11 +102,11 @@ def prompt_permission(
 	line = _readline(f"[{ui.WARN}]decision[/] [a/d/r] › ")
 	choice = parse_permission_choice(line)
 	if choice == "allow":
-		console.print(f"[bold {ui.OK}]✓ allowed[/bold {ui.OK}] [dim]{tool}[/dim]")
+		console.print(f"[bold {ui.OK}]→ allow[/bold {ui.OK}] [dim]{tool} (awaiting server receipt)[/dim]")
 	elif choice == "remind":
-		console.print(f"[bold {ui.WARN}]↻ remind[/bold {ui.WARN}] [dim]{tool}[/dim]")
+		console.print(f"[bold {ui.WARN}]→ remind[/bold {ui.WARN}] [dim]{tool} (awaiting server receipt)[/dim]")
 	else:
-		console.print(f"[bold {ui.ERR}]✗ denied[/bold {ui.ERR}] [dim]{tool}[/dim]")
+		console.print(f"[bold {ui.ERR}]→ deny[/bold {ui.ERR}] [dim]{tool} (awaiting server receipt)[/dim]")
 	return PermissionDecision(
 		choice=choice,
 		approved=choice == "allow",
@@ -144,16 +146,16 @@ def prompt_plan(
 	headless = force_headless or json_mode or not is_tty()
 	if headless:
 		if not json_mode:
-			console.print(f"[bold {ui.ERR}]✗ plan rejected[/bold {ui.ERR}] [dim](no TTY; fail-closed)[/dim]")
+			console.print(f"[bold {ui.ERR}]→ plan: reject[/bold {ui.ERR}] [dim](no TTY; fail-closed; awaiting server receipt)[/dim]")
 		return PlanDecision(approved=False, actor="cli-headless", headless=True)
 	if plan_preview.strip():
 		console.print(ui.plan_panel(plan_preview))
 	line = _readline(f"[{ui.WARN}]approve plan?[/] [y/n] › ")
 	approved = parse_plan_approved(line)
 	if approved:
-		console.print(f"[bold {ui.OK}]✓ plan approved[/bold {ui.OK}]")
+		console.print(f"[bold {ui.OK}]→ plan: approve[/bold {ui.OK}] [dim](awaiting server receipt)[/dim]")
 	else:
-		console.print(f"[bold {ui.ERR}]✗ plan rejected[/bold {ui.ERR}]")
+		console.print(f"[bold {ui.ERR}]→ plan: reject[/bold {ui.ERR}] [dim](awaiting server receipt)[/dim]")
 	return PlanDecision(approved=approved, actor="cli", headless=False)
 
 
