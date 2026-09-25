@@ -16,6 +16,7 @@ import {
 	activeBackendSessionId,
 	type InboxQueuedItem,
 } from './preStoreHelpers';
+import {assignInboxQueuePositions} from '@/lib/inboxItemState';
 
 type SetState = (partial: Partial<ChatState> | ((s: ChatState) => Partial<ChatState>)) => void;
 type GetState = () => ChatState;
@@ -24,9 +25,9 @@ function normalizeItems(payload: InboxSnapshot | null): InboxQueuedItem[] {
 	if (!payload || !Array.isArray(payload.items)) {
 		return [];
 	}
-	return payload.items
+	const items = payload.items
 		.filter(it => Boolean(String(it.queue_id ?? '').trim()))
-		.map((it, i) => ({
+		.map((it): Omit<InboxQueuedItem, 'position'> => ({
 			queue_id: String(it.queue_id).trim(),
 			text: String(it.text ?? ''),
 			media_refs: Array.isArray(it.media_refs) ? it.media_refs.map(String) : [],
@@ -41,10 +42,10 @@ function normalizeItems(payload: InboxSnapshot | null): InboxQueuedItem[] {
 					: it.state === 'delivering'
 						? 'delivering'
 						: 'queued',
-			position: i + 1,
 			autorun: payload.autorun,
 			delivery_id: it.delivery_id ?? it.message_id ?? null,
 		}));
+	return assignInboxQueuePositions(items);
 }
 
 /** 把权威 inbox 快照投影到相应的用户气泡，不把本地状态写进后端消息。 */

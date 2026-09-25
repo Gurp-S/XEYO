@@ -1720,6 +1720,25 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 						) : null}
 						{visibleInbox.map(it => {
 							const isEditing = editingId === it.queue_id;
+							const statusLabel =
+								it.state === 'syncing'
+									? '同步回复'
+									: it.state === 'delivering'
+										? '投递中'
+										: it.state === 'stuck'
+											? '需重试'
+											: '排队';
+							const queuePositionLabel = it.state === 'queued'
+								? ` · 第 ${it.position} 位`
+								: '';
+							const statusClass = cn(
+								'shrink-0 text-[10px]',
+								it.state === 'delivering' || it.state === 'syncing'
+									? 'text-accent'
+									: it.state === 'stuck'
+										? 'text-danger'
+										: 'text-mute',
+							);
 							return (
 								<div className="xy-queue-card" key={it.queue_id}>
 									<span className="xy-queue-grip" aria-hidden>
@@ -1745,32 +1764,24 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 										/>
 									) : (
 										<span
-										className="xy-queue-text"
-										data-stuck={it.state === 'stuck' ? '' : undefined}
-									>
-										{it.text}
+											className="xy-queue-text"
+											data-stuck={it.state === 'stuck' ? '' : undefined}
+										>
+											{it.text}
 										</span>
 									)}
 									<span
-										className={cn(
-											'shrink-0 text-[10px]',
-								it.state === 'delivering' || it.state === 'syncing'
-									? 'text-accent'
-												: it.state === 'stuck'
-													? 'text-danger'
-													: 'text-mute',
-										)}
+										className={statusClass}
+										title={
+											it.state === 'queued'
+												? `队列位置 ${it.position}`
+												: undefined
+										}
 									>
-						{it.state === 'syncing'
-							? '同步回复'
-							: it.state === 'delivering'
-							? '投递中'
-											: it.state === 'stuck'
-												? '需重试'
-												: '排队'}
+										{statusLabel}{queuePositionLabel}
 									</span>
 									<div className="xy-queue-actions" hidden={isEditing}>
-						{canMutateInboxItem(it.state) ? (
+										{canMutateInboxItem(it.state) ? (
 											<button
 												type="button"
 												className="xy-queue-action disabled:pointer-events-none disabled:opacity-40"
@@ -1812,18 +1823,18 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 											type="button"
 											className="xy-queue-action disabled:pointer-events-none disabled:opacity-40"
 											title={
-								it.state === 'syncing'
-									? '等待同步服务端回复'
-									: it.state === 'delivering'
-										? '已开始投递，无法取消'
+											it.state === 'syncing'
+												? '等待同步服务端回复'
+												: it.state === 'delivering'
+													? '已开始投递，无法取消'
 													: queueActionsInFlight.has(it.queue_id)
 														? '正在处理…'
 														: '取消排队'
 											}
-							disabled={
-							!canMutateInboxItem(it.state) ||
-							queueActionsInFlight.has(it.queue_id)
-							}
+											disabled={
+												!canMutateInboxItem(it.state) ||
+												queueActionsInFlight.has(it.queue_id)
+											}
 											onClick={() => cancelQueueItem(it)}
 										>
 											<X className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden />
