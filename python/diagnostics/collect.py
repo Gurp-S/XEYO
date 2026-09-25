@@ -581,7 +581,10 @@ def _collect_audit(run: RunEvidence, *, session_id: str, turn_id: str, path: Pat
 		run.events.append(event)
 	window.rows_matched = matched
 	if window.rows_unattributed:
-		window.add_note(f"{window.rows_unattributed} 行缺 session_id（旧格式），无法归入本会话，未补值")
+		window.add_note(
+			f"{window.rows_unattributed} 行 session_id 为空（旧审计格式，或评测/模拟器直接写入），"
+			"无法归入本会话，未补值"
+		)
 	if window.rows_other_session:
 		window.add_note(f"{window.rows_other_session} 行属于其他会话，未并入本运行")
 	if window.rows_other_turn:

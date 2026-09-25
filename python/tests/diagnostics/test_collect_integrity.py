@@ -421,7 +421,10 @@ def test_rows_without_session_id_are_machine_readable(write_audit) -> None:
 	assert window.rows_matched == 2
 	assert window.complete is False
 	assert run.coverage()["audit"]["rows_unattributed"] == 1
-	assert "1 行缺 session_id" in window.note
+	# 措辞要说清两种来源：这一类既可能是旧审计格式，也可能是评测/模拟器直接写入
+	# （真实尾窗里 session_id 为空的行绝大多数是后者），一律写成"旧格式"是假归因。
+	assert "session_id 为空" in window.note
+	assert "旧审计格式" in window.note and "模拟器" in window.note
 
 
 def test_other_sessions_are_counted_without_being_called_dropped(write_audit) -> None:

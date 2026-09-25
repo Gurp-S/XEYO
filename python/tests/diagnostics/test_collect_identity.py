@@ -68,7 +68,7 @@ def test_rows_without_session_are_counted_not_silently_dropped(write_audit) -> N
 	window = run.window("audit")
 	assert window is not None
 	assert window.rows_scanned == 2 and window.rows_matched == 1
-	assert "1 行缺 session_id" in window.note
+	assert "session_id 为空" in window.note
 
 
 def test_tail_window_reports_truncation_and_keeps_line_numbers(tmp_path) -> None:

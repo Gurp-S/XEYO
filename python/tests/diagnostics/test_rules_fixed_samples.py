@@ -60,6 +60,11 @@ def test_tool_failure_is_grouped_and_anchored(collect) -> None:
 	assert SUSPECTED_CAUSE in kinds.get("repeated_failure", set())
 	rf = next(x for x in evaluate_run(run) if x.rule_id == "repeated_failure")
 	assert "死循环" in rf.allowed_conclusion
+	# impact 不得说"同一参数"：审计不带参数，签名里的参数位恒为空
+	# （真实尾窗 tool.* 行 0 条带 command/file_path/pattern/url），而 coverage_gap
+	# 本来就已经写明"签名相同不等于参数相同"。
+	assert "同一参数" not in rf.impact
+	assert "参数是否相同不可证" in rf.impact
 
 
 def _tool_error_run(collect, error_kind: str):

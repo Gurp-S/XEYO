@@ -978,7 +978,7 @@ def check_repeated_failure(run: RunEvidence) -> list[Finding]:
 				component=f"工具执行：{name}",
 				status=SUSPECTED_CAUSE,
 				evidence=[_event_ref(run, e, "重复失败") for e in events][:12],
-				impact="重复失败信号：同一参数与错误签名在有界窗口内反复出现。",
+				impact="重复失败信号：同一工具与同一错误签名在有界窗口内反复出现；参数是否相同不可证（审计不带参数）。",
 				coverage_gap="审计不含完整参数，签名相同不等于参数相同；窗口外的重复看不到。",
 				allowed_conclusion="不得据此断言死循环，也不得自动改写模型计划。",
 			)
