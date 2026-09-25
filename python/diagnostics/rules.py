@@ -250,25 +250,20 @@ def _run_has_later_activity(events: list[Any]) -> bool:
 
 # ---------- R2 指令 / 配置漂移 ----------
 
-# 快照 id 是 (session_id, cwd, mode, revision, runtime_profile_id) 的哈希（见
-# permissions/trace.py）：授权的增删会让它合法变化，所以「一个轮里出现多个值」
-# 本身不是不变量破坏。只有窗口里找不到这些增删行时，才需要说"判不了"。
-_SNAPSHOT_EXPLAINING_KINDS = ("permission.grant.added", "permission.grant.revoked")
-
-
-def _snapshot_explainers(run: RunEvidence) -> list[dict[str, Any]]:
-	"""本轮采集窗口里的授权增删行：它们在场，快照 id 变化就有账可查。"""
-	seen: set[str] = set()
-	out: list[dict[str, Any]] = []
-	candidates: list[dict[str, Any]] = [row for row in run.permissions if _s(row.get("kind")).startswith(_SNAPSHOT_EXPLAINING_KINDS)]
-	candidates += [e.row for e in run.events if _s(e.kind).startswith(_SNAPSHOT_EXPLAINING_KINDS)]
-	for row in candidates:
-		key = f"{_s(row.get('kind'))}|{_s(row.get('line_no'))}|{_s(row.get('grant_id'))}"
-		if key in seen:
-			continue
-		seen.add(key)
-		out.append(row)
-	return out
+# 参与"轮内标识漂移"比较的字段。
+#
+# ``permission_snapshot_id`` 被排除，且不是因为它偶尔合法变化：它是**写入那一瞬间**
+# 的 ambient 权限身份 —— permissions/trace.py::permission_snapshot 把 mode / revision /
+# cwd / runtime_profile_id 一起取哈希，而 revision 由 begin_turn 与每次 set() 递增，
+# 任何一条 model.* 行都可能在流式开始与结束之间被别的声道改动过的 ambient 值打标。
+# 2026-09-25 直接读原始审计行测最近 40 轮：32/40 轮的 model.* 行带着 ≥2 个快照 id，
+# 其中 27/40 轮是**同一个 model_request_id 的两次写入就用了不同 id**（最极端一轮
+# 有 29 个逻辑调用出现这种分裂），而同轮的逻辑调用数远大于快照 id 数（中位数 8.5 枪
+# 对 3 个 id）⇒ 它不是"这一轮的指令上下文变了"的量具。旧版本据此每条都产出一项，
+# 把需要人工判断的"未定"桶占满；事实与理由改由采集层说
+# （collect._note_identity_granularity 的 instruction_context/not_comparable）。
+# 要让这个字段可比，需要的是把请求级身份钉在请求行上（引擎侧补口，另立待批）。
+_DRIFT_FIELDS = ("tool_schema_hash", "tool_surface_id", "runtime_profile_id")
 
 
 def check_instruction_drift(run: RunEvidence) -> list[Finding]:
@@ -276,7 +271,7 @@ def check_instruction_drift(run: RunEvidence) -> list[Finding]:
 	scoped = [e for e in run.events_for_turn() if e.kind.startswith(("model.", "tool."))]
 	hashes: dict[str, list[str]] = {}
 	for event in scoped:
-		for field in ("tool_schema_hash", "tool_surface_id", "permission_snapshot_id", "runtime_profile_id"):
+		for field in _DRIFT_FIELDS:
 			value = _kv(event, field)
 			if value:
 				hashes.setdefault(field, []).append(value)
@@ -284,21 +279,6 @@ def check_instruction_drift(run: RunEvidence) -> list[Finding]:
 		uniq = sorted(set(values))
 		if len(uniq) <= 1:
 			continue
-		is_snapshot = field == "permission_snapshot_id"
-		if is_snapshot and _snapshot_explainers(run):
-			# 窗口里有授权增删行：变化有账可查，不作为故障上报。
-			continue
-		status = UNKNOWN if is_snapshot else SUSPECTED_CAUSE
-		if is_snapshot:
-			gap = (
-				"授权增删行（permission.grant.added / permission.grant.revoked）不带 session_id / turn_id，"
-				"不会进入按会话过滤的审计窗口，因此本轮无法判断快照变化是否有账可查；"
-				"快照 id 也由 cwd 与 mode 参与计算，这两项不在审计行里。"
-			)
-			allowed = "只能说这一轮里快照标识不止一个且窗口内没有解释它的记录；不能据此判定权限层出了故障。"
-		else:
-			gap = "轮内可见；跨轮的指令正文变化不在本规则范围，由 A0 静态差异负责。"
-			allowed = "可确认哪一段标识变了；不能据此判定变好或变坏。"
 		findings.append(
 			Finding(
 				rule_id="instruction_drift",
@@ -306,15 +286,15 @@ def check_instruction_drift(run: RunEvidence) -> list[Finding]:
 				phenomenon=f"同一轮内 {field} 出现 {len(uniq)} 个不同取值",
 				boundary="instruction_context",
 				component=f"上下文组装（{field}）",
-				status=status,
+				status=SUSPECTED_CAUSE,
 				evidence=[
 					_event_ref(run, e, f"{field}={_kv(e, field)}")
 					for e in scoped
 					if _kv(e, field)
 				][:20],
 				impact=f"变化值：{', '.join(v[:12] for v in uniq)}（只报事实，不评价哪一版更好）。",
-				coverage_gap=gap,
-				allowed_conclusion=allowed,
+				coverage_gap="轮内可见；跨轮的指令正文变化不在本规则范围，由 A0 静态差异负责。",
+				allowed_conclusion="可确认哪一段标识变了；不能据此判定变好或变坏。",
 			)
 		)
 	return findings

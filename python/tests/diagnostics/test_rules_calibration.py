@@ -3,7 +3,9 @@
 对应 2026-09-25 对十条真实回合的普查（设计文档第 6 节的不对称判据）：
 
 1. ``permission_snapshot_id`` 一个轮里出现多个取值曾被写成 ``confirmed_fault``，
-   而授权增删本身就会合法地改变快照 id；
+   而授权增删本身就会合法地改变快照 id；进一步实测（同批 40 轮）发现它是**写入瞬间**
+   的 ambient 身份 —— 27/40 轮里同一个 ``model_request_id`` 的两次写入就带着不同 id，
+   于是它连"未定"都判不了，已从漂移比较里退出，改由采集层说明量具粒度。
 2. ``frozen_head`` 把「本轮折叠账本为空」当成「没折叠过」——折叠事件按会话写、
    行内不带轮次身份，空的折叠集合证明不了任何事；而它衡量「本轮有几个不同投影」
    的前提本身是空的（投影 = 整份消息列表的哈希，一枪一个，28/28 命中轮次都能被
@@ -82,7 +84,7 @@ def _run(events: list | None = None, *, windows: list | None = None, **over) -> 
 	return base
 
 
-# ---------- 1. 快照标识的变化：有账可查就不报，无账可查报 unknown ----------
+# ---------- 1. 快照标识：不是请求身份，退出漂移比较 ----------
 
 
 def _snapshot_run() -> RunEvidence:
@@ -95,45 +97,37 @@ def _snapshot_run() -> RunEvidence:
 	)
 
 
-def test_snapshot_change_is_no_longer_a_confirmed_fault() -> None:
-	"""快照 id 变化不得再被写成已确认引擎故障：它不是不变量破坏。"""
+def test_snapshot_id_multiplicity_is_not_a_drift_finding() -> None:
+	"""快照 id 不是请求级身份 ⇒ 不再进漂移比较（既不判"已确认"，也不再判"未定"）。
+	实测（最近 40 个真实轮次）：32/40 轮的 model.* 行带着 ≥2 个快照 id，其中 27/40 轮
+	是同一个 model_request_id 的两次写入就用了不同 id。这不是故障的形状，是量具粒度。"""
 	findings = rules.check_instruction_drift(_snapshot_run())
-	drift = [f for f in findings if "permission_snapshot_id" in f.phenomenon]
-	assert drift, "规则不得靠沉默消掉这条信号"
-	assert all(f.status == UNKNOWN for f in drift)
-	assert not [f for f in findings if f.status == CONFIRMED_FAULT]
+	assert findings == []
 
 
-def test_snapshot_change_names_the_record_it_could_not_see() -> None:
-	"""unknown 必须写明缺哪条记录：授权增删行不带会话/轮次身份，进不了按会话过滤的窗口。"""
-	gap = rules.check_instruction_drift(_snapshot_run())[0].coverage_gap
-	assert "permission.grant.added" in gap and "permission.grant.revoked" in gap
-	assert "session_id" in gap and "turn_id" in gap
+def test_snapshot_split_is_reported_as_a_measurement_limit(collect) -> None:
+	"""事实要说，但说在采集层：缺项必须点名这个字段与它的来源，且只在真看到分裂时出现。"""
+	run = collect(
+		[
+			{"ts": 1.0, "kind": "model.started", "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", "attempt": 1, "permission_snapshot_id": "perm:aaaa"},
+			{"ts": 1.4, "kind": "model.finished", "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", "attempt": 1, "status": "ok", "permission_snapshot_id": "perm:bbbb"},
+		]
+	)
+	gaps = [g for g in run.gaps if g.boundary == "instruction_context" and g.reason == "not_comparable"]
+	assert gaps, "同一逻辑调用带着两个快照身份，必须说清这一级判不了"
+	assert "permission_snapshot_id" in gaps[0].detail
+	assert "写入瞬间" in gaps[0].detail
 
 
-def test_grant_row_in_window_explains_the_snapshot_change() -> None:
-	"""窗口里有授权增删行：变化有账可查，这一条就不再作为故障上报。"""
-	run = _snapshot_run()
-	run.permissions = [
-		{
-			"kind": "permission.grant.added",
-			"grant_id": "g1",
-			"tool_name": "Bash",
-			"line_no": 9,
-			"ts": 1.5,
-			"session_id": "s1",
-			"turn_id": "t1",
-		}
-	]
-	findings = rules.check_instruction_drift(run)
-	assert not [f for f in findings if "permission_snapshot_id" in f.phenomenon]
-
-
-def test_revocation_row_also_explains_the_snapshot_change() -> None:
-	run = _snapshot_run()
-	run.events.append(_ev(4, "permission.grant.revoked", 2.5, grant_id="g0"))
-	findings = rules.check_instruction_drift(run)
-	assert not [f for f in findings if "permission_snapshot_id" in f.phenomenon]
+def test_single_snapshot_id_per_request_does_not_trigger_the_gap(collect) -> None:
+	"""反面对照：一轮里每个逻辑调用各自一个快照身份（哪怕彼此不同）也不发这条缺项。"""
+	run = collect(
+		[
+			{"ts": 1.0, "kind": "model.started", "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", "attempt": 1, "permission_snapshot_id": "perm:aaaa"},
+			{"ts": 2.0, "kind": "model.started", "session_id": "s1", "turn_id": "t1", "model_request_id": "r2", "attempt": 1, "permission_snapshot_id": "perm:bbbb"},
+		]
+	)
+	assert [g for g in run.gaps if g.reason == "not_comparable"] == []
 
 
 def test_other_identifier_drift_is_still_suspected() -> None:
@@ -593,7 +587,14 @@ def test_unlinked_usage_rows_are_a_session_gap_not_a_per_turn_finding(collect) -
 
 def test_audit_evidence_still_points_at_the_audit_window() -> None:
 	"""防过度修正：审计类结论的指针仍要能回到审计文件。"""
-	findings = rules.check_instruction_drift(_snapshot_run())
+	run = _run(
+		[
+			_ev(1, "model.started", 1.0, model_request_id="r1", attempt=1, tool_schema_hash="h1"),
+			_ev(2, "model.started", 2.0, model_request_id="r2", attempt=1, tool_schema_hash="h2"),
+		]
+	)
+	findings = rules.check_instruction_drift(run)
+	assert findings
 	assert findings[0].evidence
 	assert all(ref.locator == AUDIT_LOCATOR for ref in findings[0].evidence)
 

@@ -1043,7 +1043,34 @@ def collect_run(
 	_attach_pins(run)
 	# 用量挂载必须在所有采集之后：join 的左操作数是 run.usage_rows，提前跑会永远空表。
 	_attach_usage_to_attempts(run)
+	_note_identity_granularity(run)
 	return run
+
+
+def _note_identity_granularity(run: RunEvidence) -> None:
+	"""permission_snapshot_id 的量具粒度：它记的是写入瞬间，不是这次请求。
+
+	规则层因此不再拿它判"指令上下文漂移"（见 rules._DRIFT_FIELDS 的实测理由）。
+	这条缺项只在本运行真的看到分裂时才出现 —— 不是恒真措辞。
+	"""
+	ids_by_request: dict[str, set[str]] = {}
+	for event in run.events:
+		if not event.kind.startswith("model.") or not event.model_request_id:
+			continue
+		snap = _s(event.row.get("permission_snapshot_id"))
+		if snap:
+			ids_by_request.setdefault(event.model_request_id, set()).add(snap)
+	split = [rid for rid, ids in ids_by_request.items() if len(ids) > 1]
+	if not split:
+		return
+	run.add_gap(
+		"instruction_context",
+		"not_comparable",
+		f"{len(split)} 个逻辑调用在本轮带着不止一个 permission_snapshot_id。"
+		"该字段是写入瞬间的 ambient 权限身份（permissions/trace.py::permission_snapshot 把 mode/revision/cwd "
+		"一起取哈希，revision 由 begin_turn 与每次 set() 递增），不是这次请求的身份："
+		"用它判不出指令上下文是否漂移，需要的是请求级身份钉在请求行上（引擎侧补口）。",
+	)
 
 
 def _default_audit_path() -> Path:
