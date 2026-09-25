@@ -21,6 +21,7 @@ type ExplorerState = {
 	open: boolean;
 	expanded: Record<string, boolean>;
 	childrenByPath: Record<string, WorkspaceEntry[]>;
+	directoryErrors: Record<string, string>;
 	selectedPath: string | null;
 	doc: WorkspaceFile | null;
 	reviewDiff: ReviewDiff | null;
@@ -36,6 +37,7 @@ type ExplorerState = {
 	closePreview: () => void;
 	setPreviewExpanded: (expanded: boolean) => void;
 	ensureRoot: () => Promise<void>;
+	ensureDir: (path: string) => Promise<void>;
 	toggleDir: (path: string) => Promise<void>;
 	openFile: (path: string) => Promise<void>;
 	openReview: (file: ReviewDiff) => Promise<void>;
@@ -48,6 +50,15 @@ type ExplorerState = {
 let openSeq = 0;
 let reloadSeq = 0;
 let treeSeq = 0;
+let directoryRequestSeq = 0;
+const directoryRequests = new Map<
+	string,
+	{token: number; promise: Promise<void>}
+>();
+
+function directoryRequestKey(root: string, path: string): string {
+	return `${root}\0${path}`;
+}
 
 /* ---- 展开状态持久化（smoke-test #13）：跨重启/重开工作区保留用户手工展开的目录。
    key 绑定工作区根路径；根切换时旧展开不套用。 ---- */
@@ -132,6 +143,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
 	open: false,
 	expanded: {},
 	childrenByPath: {},
+	directoryErrors: {},
 	selectedPath: null,
 	doc: null,
 	reviewDiff: null,
@@ -171,9 +183,11 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
 			treeSeq += 1;
 			openSeq += 1;
 			reloadSeq += 1;
+			directoryRequests.clear();
 			set({
 				error: '还没有打开文件夹。请先在左侧打开一个工作区。',
 				childrenByPath: {},
+				directoryErrors: {},
 				expanded: {},
 				rootName: '',
 				loadedRoot: '',
@@ -194,13 +208,17 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
 		if (switchingRoot) {
 			openSeq += 1;
 			reloadSeq += 1;
+			// 令旧工作区的目录请求失去写入资格；token 单调递增，切回同一路径
+			// 时旧响应也不能冒充新请求。
+			directoryRequests.clear();
 		}
 		set({
 			loadingTree: true,
 			error: null,
 			...(switchingRoot
 				? {
-						childrenByPath: {},
+					childrenByPath: {},
+					directoryErrors: {},
 						expanded: {},
 						rootName: '',
 						loadedRoot: '',
@@ -227,6 +245,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
 			saveExpandedForRoot(root, expanded);
 			set({
 				childrenByPath: {'': listing.entries},
+				directoryErrors: {},
 				rootName: listing.name || root.split(/[\\/]/).pop() || 'Workspace',
 				expanded,
 				loadingTree: false,
@@ -241,48 +260,91 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
 			}
 		}
 	},
+	async ensureDir(path) {
+		const key = path || '';
+		const root = get().loadedRoot;
+		if (!root || !samePath(root, activeRootPath())) {
+			return;
+		}
+		if (get().childrenByPath[key] != null) {
+			return;
+		}
+		const requestKey = directoryRequestKey(root, key);
+		const pending = directoryRequests.get(requestKey);
+		if (pending) {
+			return pending.promise;
+		}
+		const token = ++directoryRequestSeq;
+		set(s => {
+			if (!(key in s.directoryErrors)) return s;
+			const directoryErrors = {...s.directoryErrors};
+			delete directoryErrors[key];
+			return {directoryErrors};
+		});
+		const promise = Promise.resolve()
+			.then(async () => {
+				try {
+					const listing = await listWorkspaceEntries(key, root);
+					if (
+						directoryRequests.get(requestKey)?.token !== token ||
+						!samePath(root, get().loadedRoot) ||
+						!samePath(root, activeRootPath())
+					) {
+						return;
+					}
+					set(s => ({
+						childrenByPath: {
+							...s.childrenByPath,
+							[key]: listing.entries,
+						},
+						directoryErrors: Object.fromEntries(
+							Object.entries(s.directoryErrors).filter(([dir]) => dir !== key),
+						),
+						...(key === ''
+							? {rootName: listing.name || root.split(/[\\/]/).pop() || 'Workspace'}
+							: {}),
+					}));
+				} catch (err) {
+					if (
+						directoryRequests.get(requestKey)?.token === token &&
+						samePath(root, get().loadedRoot) &&
+						samePath(root, activeRootPath())
+					) {
+						set(s => ({
+							directoryErrors: {
+								...s.directoryErrors,
+								[key]: err instanceof Error ? err.message : String(err),
+							},
+						}));
+					}
+				}
+			})
+			.finally(() => {
+				if (directoryRequests.get(requestKey)?.token === token) {
+					directoryRequests.delete(requestKey);
+				}
+			});
+		directoryRequests.set(requestKey, {token, promise});
+		return promise;
+	},
 	async toggleDir(path) {
 		const key = path;
 		const was = Boolean(get().expanded[key]);
-		if (was) {
+		if (
+			was &&
+			(get().childrenByPath[key] != null || get().directoryErrors[key] != null)
+		) {
 			const expanded = {...get().expanded, [key]: false};
 			set({expanded});
 			saveExpandedForRoot(get().loadedRoot, expanded);
 			return;
 		}
-		const expanded = {...get().expanded, [key]: true};
-		set({expanded});
-		saveExpandedForRoot(get().loadedRoot, expanded);
-		if (get().childrenByPath[key]) {
-			return;
+		if (!was) {
+			const expanded = {...get().expanded, [key]: true};
+			set({expanded});
+			saveExpandedForRoot(get().loadedRoot, expanded);
 		}
-		const root = get().loadedRoot;
-		if (!root || !samePath(root, activeRootPath())) {
-			return;
-		}
-		try {
-			const listing = await listWorkspaceEntries(key, root);
-			if (
-				!samePath(root, get().loadedRoot) ||
-				!samePath(root, activeRootPath()) ||
-				!get().expanded[key]
-			) {
-				return;
-			}
-			set({
-				childrenByPath: {
-					...get().childrenByPath,
-					[key]: listing.entries,
-				},
-			});
-		} catch (err) {
-			if (samePath(root, get().loadedRoot) && samePath(root, activeRootPath())) {
-				set({
-					expanded: {...get().expanded, [key]: false},
-					error: err instanceof Error ? err.message : String(err),
-				});
-			}
-		}
+		await get().ensureDir(key);
 	},
 	async openFile(path) {
 		const root = activeRootPath();
@@ -407,42 +469,26 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
 		// 避免「已删除文件仍显示」的残留。若该目录当前展开，则立即重列；
 		// 未展开的目录缓存清掉，下次展开 toggleDir 会重新拉取。
 		const key = path || '';
-		const had = key in get().childrenByPath;
-		if (!had) {
+		const state = get();
+		const root = state.loadedRoot;
+		const requestKey = root ? directoryRequestKey(root, key) : '';
+		const had = key in state.childrenByPath;
+		const hadError = key in state.directoryErrors;
+		const wasPending = Boolean(requestKey && directoryRequests.delete(requestKey));
+		if (!had && !hadError && !wasPending) {
 			return;
 		}
-		const childrenByPath = {...get().childrenByPath};
+		const childrenByPath = {...state.childrenByPath};
 		delete childrenByPath[key];
-		set({childrenByPath});
+		const directoryErrors = {...state.directoryErrors};
+		delete directoryErrors[key];
+		set({childrenByPath, directoryErrors});
 		// 仅当目录正处于展开态且缓存存在时才重列（避免不必要的网络/文件系统读）。
 		if (get().expanded[key]) {
-			const root = get().loadedRoot;
 			if (!root || !samePath(root, activeRootPath())) {
 				return;
 			}
-			try {
-				const listing = await listWorkspaceEntries(key, root);
-				if (
-					!samePath(root, get().loadedRoot) ||
-					!samePath(root, activeRootPath()) ||
-					!get().expanded[key]
-				) {
-					return;
-				}
-				set({
-					childrenByPath: {
-						...get().childrenByPath,
-						[key]: listing.entries,
-					},
-				});
-			} catch (err) {
-				if (samePath(root, get().loadedRoot) && samePath(root, activeRootPath())) {
-					set({
-						expanded: {...get().expanded, [key]: false},
-						error: err instanceof Error ? err.message : String(err),
-					});
-				}
-			}
+			await get().ensureDir(key);
 		}
 	},
 }));

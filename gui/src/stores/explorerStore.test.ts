@@ -44,6 +44,7 @@ describe('explorerStore', () => {
 			open: false,
 			expanded: {},
 			childrenByPath: {},
+			directoryErrors: {},
 			selectedPath: null,
 			doc: null,
 			reviewDiff: null,
@@ -79,6 +80,58 @@ describe('explorerStore', () => {
 		expect(useExplorerStore.getState().loadingTree).toBe(false);
 		resolveList({name: 'src', entries: []});
 		await pending;
+	});
+
+	it('ensureDir reloads a previously expanded directory without its cache', async () => {
+		useExplorerStore.setState({
+			loadedRoot: 'D:/proj',
+			expanded: {'': true, src: true},
+			childrenByPath: {
+				'': [{kind: 'dir', name: 'src', path: 'src'}],
+			},
+		});
+		listWorkspaceEntries.mockResolvedValue({
+			name: 'src',
+			entries: [{kind: 'file', name: 'a.ts', path: 'src/a.ts'}],
+		});
+
+		await useExplorerStore.getState().ensureDir('src');
+
+		expect(listWorkspaceEntries).toHaveBeenCalledWith('src', 'D:/proj');
+		expect(useExplorerStore.getState().childrenByPath.src).toEqual([
+			{kind: 'file', name: 'a.ts', path: 'src/a.ts'},
+		]);
+	});
+
+	it('ignores a directory response invalidated by a newer listing', async () => {
+		const resolvers: Array<(value: unknown) => void> = [];
+		listWorkspaceEntries.mockImplementation(
+			() => new Promise(resolve => resolvers.push(resolve)),
+		);
+		useExplorerStore.setState({
+			loadedRoot: 'D:/proj',
+			expanded: {'': true, src: true},
+			childrenByPath: {'': [{kind: 'dir', name: 'src', path: 'src'}]},
+		});
+
+		const staleRequest = useExplorerStore.getState().ensureDir('src');
+		await vi.waitFor(() => expect(resolvers).toHaveLength(1));
+		const refresh = useExplorerStore.getState().invalidateDir('src');
+		await vi.waitFor(() => expect(resolvers).toHaveLength(2));
+		resolvers[1]!({
+			name: 'src',
+			entries: [{kind: 'file', name: 'new.ts', path: 'src/new.ts'}],
+		});
+		await refresh;
+		resolvers[0]!({
+			name: 'src',
+			entries: [{kind: 'file', name: 'old.ts', path: 'src/old.ts'}],
+		});
+		await staleRequest;
+
+		expect(useExplorerStore.getState().childrenByPath.src).toEqual([
+			{kind: 'file', name: 'new.ts', path: 'src/new.ts'},
+		]);
 	});
 
 	it('closePreview clears previewExpanded', () => {

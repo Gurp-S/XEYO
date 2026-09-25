@@ -212,11 +212,21 @@ const FILE_PAGE_SIZE = 300;
 
 function FileRows({parent, depth}: {parent: string; depth: number}) {
 	const entries = useExplorerStore(s => s.childrenByPath[parent]);
+	const expanded = useExplorerStore(s => Boolean(s.expanded[parent]));
+	const directoryError = useExplorerStore(s => s.directoryErrors[parent]);
+	const ensureDir = useExplorerStore(s => s.ensureDir);
 	const [limit, setLimit] = useState(FILE_PAGE_SIZE);
 
 	useEffect(() => {
 		setLimit(FILE_PAGE_SIZE);
 	}, [parent]);
+
+	// 工作区恢复时只从磁盘保存展开态；子目录内容按需补载，避免出现永久骨架。
+	useEffect(() => {
+		if (parent && expanded && entries == null && !directoryError) {
+			void ensureDir(parent);
+		}
+	}, [directoryError, ensureDir, entries, expanded, parent]);
 
 	const all = entries ?? [];
 	const loading = entries == null;
@@ -225,7 +235,18 @@ function FileRows({parent, depth}: {parent: string; depth: number}) {
 
 	return (
 		<>
-			{loading ? (
+			{directoryError ? (
+				<li className="flex items-center gap-2 px-7 py-1 text-[11px] text-danger" role="status">
+					<span className="min-w-0 flex-1 truncate">目录加载失败：{directoryError}</span>
+					<button
+						type="button"
+						className="shrink-0 rounded px-1 text-accent hover:bg-glass-hover"
+						onClick={() => void ensureDir(parent)}
+					>
+						重试
+					</button>
+				</li>
+			) : loading ? (
 				<li className="px-7 py-1">
 					<span className="inline-block h-2.5 w-24 animate-pulse rounded bg-glass-strong" />
 				</li>
