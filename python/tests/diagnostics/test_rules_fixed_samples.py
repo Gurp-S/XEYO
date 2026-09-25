@@ -207,6 +207,46 @@ def test_projection_structure_fault_is_confirmed_at_adapter(collect) -> None:
 	assert "任务失败的全部原因" in f.allowed_conclusion
 
 
+def test_canonical_layer_hole_is_reported_but_not_blamed(collect) -> None:
+	"""第四类旗标查的是完整历史，不是这一枪发出去的投影 ⇒ 只能说有洞，不能说请求形状坏。
+
+	这条旗标由 engine/projection_manifest.py 写下，此前规则集里没有任何一条读它：
+	生产者已经算出来的事实被整条丢掉，界面上就显示成"没有这类问题"。
+	"""
+	run = collect(
+		[{"ts": 1.0, "kind": "model.started", "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", "attempt": 1, "projection_id": "p1"}]
+	)
+	run.projections.append(
+		{
+			"projection_id": "p1",
+			"locator": "sessions/s1.working.json",
+			"invariant_errors": ["canonical_unpaired_tool_calls:2"],
+			"messages_kept": 12,
+		}
+	)
+	findings = evaluate_run(run)
+	f = next(x for x in findings if x.rule_id == "tool_pair_integrity")
+	assert f.status == UNKNOWN and f.boundary == "wsc_fold"
+	assert f.evidence[0].detail == "canonical_unpaired_tool_calls:2"
+	assert "不能据此判定本轮请求形状坏了" in f.allowed_conclusion
+
+
+def test_canonical_layer_hole_from_other_turn_is_silent(collect) -> None:
+	"""working 只存最后一份 manifest：不是本轮那一份就不许产成本轮结论。"""
+	run = collect(
+		[{"ts": 1.0, "kind": "model.started", "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", "attempt": 1, "projection_id": "p_other"}]
+	)
+	run.projections.append(
+		{
+			"projection_id": "p1",
+			"locator": "sessions/s1.working.json",
+			"invariant_errors": ["canonical_unpaired_tool_calls:2"],
+			"messages_kept": 12,
+		}
+	)
+	assert [x for x in evaluate_run(run) if x.rule_id == "tool_pair_integrity"] == []
+
+
 def test_frozen_head_change_inside_same_interval_is_confirmed(collect) -> None:
 	run = collect(
 		[{"ts": 1.0, "kind": "model.started", "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", "attempt": 1, "projection_id": "p1"}]

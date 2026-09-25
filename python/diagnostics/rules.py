@@ -229,6 +229,43 @@ def check_tool_pair_integrity(run: RunEvidence) -> list[Finding]:
 			)
 		)
 
+	# 生产者的第四类旗标说的是 **canonical 层**（持久化的工作记忆），不是发出去的那份投影：
+	# 历史里存着没有对应 tool_result 的 tool_use。它不证明这次请求形状坏 —— 折叠可以把
+	# 调用与结果一起丢掉，那时 projected 是干净的 —— 所以只能停在未定。但一声不吭就是把
+	# 已经拿到的事实丢掉：这条旗标由 engine/projection_manifest.py 写下，本规则集此前
+	# 没有任何一条读它（2026-09-25 对照生产者与读取方清单发现）。
+	for manifest in run.projections:
+		if _s(manifest.get("projection_id")) not in turn_projection_ids:
+			continue
+		hits = [_s(e) for e in (manifest.get("invariant_errors") or []) if _s(e).startswith("canonical_unpaired_tool_calls")]
+		if not hits:
+			continue
+		findings.append(
+			Finding(
+				rule_id="tool_pair_integrity",
+				rule_version=RULESET_VERSION,
+				phenomenon="持久化的工作记忆里存着没有配对结果的 tool_use（查的是完整历史，不是这一枪发出去的投影）",
+				boundary="wsc_fold",
+				component="上下文组装（projection manifest 的 canonical 检查）",
+				status=UNKNOWN,
+				evidence=[
+					EvidenceRef(
+						source="projection",
+						locator=_s(manifest.get("locator")),
+						ref_id=_s(manifest.get("projection_id")),
+						detail=hit,
+					)
+					for hit in hits
+				],
+				impact="发出去的那份投影不一定带着这个洞：折叠可以把调用与结果一起丢掉。",
+				coverage_gap=(
+					"manifest 只保留最后一份，且旗标本身说不上成因 —— 中止收尾没写结果、"
+					"还是折叠单独丢掉了结果，都要另找证据。"
+				),
+				allowed_conclusion="只能说工作记忆里有不成对的 tool_use；不能据此判定本轮请求形状坏了。",
+			)
+		)
+
 	# 审计侧：有 started 无 finished 的工具调用。
 	scoped = run.events_for_turn()
 	started_only = [t for t in turn_scoped(run.tool_calls, run.turn_id) if t.started and not t.finished]

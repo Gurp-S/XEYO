@@ -37,6 +37,13 @@ _REASON_LITERAL_RX = re.compile(r"[\"']([a-z][a-z0-9_]{2,})[\"']")
 _STR_CONST_RX = re.compile(r"^([A-Z][A-Z0-9_]*)\s*=\s*[\"']([a-z][a-z0-9_]{2,})[\"']", re.M)
 _BARE_IDENT_RX = re.compile(r"\b([A-Z][A-Z0-9_]{2,})\b")
 _SHOWN_STATE_RX = re.compile(r"\"state\"\]\s*==\s*[\"']([a-z_]+)[\"']")
+# 投影不变量旗标：产生方在引擎里，读取方在诊断层。两边各写各的就会静默漏结论 ——
+# ``canonical_unpaired_tool_calls`` 就被漏过（2026-09-25 对照两张清单才发现：引擎每次
+# 投影都在算它，规则集里没有任何一条读它，界面上于是永远显示"没有这类问题"）。
+_ENGINE_MANIFEST_SRC = _REPO_ROOT / "python" / "engine" / "projection_manifest.py"
+_INVARIANT_APPEND_RX = re.compile(r"invariant_errors\.append\(\s*f?[\"']([a-z][a-z0-9_]{3,})")
+# 读过但生产者已经不再写的名字：只能是判据改版前留在磁盘上的旗标。
+LEGACY_INVARIANT_NAMES = frozenset({"spill_reference_mismatch"})
 
 
 def _top_level_args(text: str, open_index: int) -> list[str]:
@@ -119,6 +126,32 @@ def scan_shown_states() -> list[str]:
 	"有分支比较某个 state 却不在正本里"这种不一致交给 python 侧的测试钉。
 	"""
 	return sorted(fault_split._SHOWN_TEXT)
+
+
+def scan_invariant_names() -> dict[str, list[str]]:
+	"""投影旗标两份清单：引擎写下的名字、诊断层读到的名字。
+
+	刻意扫描而不是另立常量表：常量表就是又一个会忘记更新的地方。
+	"""
+	written: list[str] = []
+	if _ENGINE_MANIFEST_SRC.exists():
+		text = _ENGINE_MANIFEST_SRC.read_text(encoding="utf-8", errors="replace")
+		written = sorted(set(_INVARIANT_APPEND_RX.findall(text)))
+	diag_text = "\n".join(
+		path.read_text(encoding="utf-8", errors="replace") for path in _py_sources()
+	)
+
+	def _read(name: str) -> bool:
+		return f'"{name}"' in diag_text or f"'{name}'" in diag_text
+
+	read = sorted({n for n in written if _read(n)})
+	return {
+		"written": written,
+		"read": read,
+		"unclaimed": sorted({n for n in written if n not in set(read)}),
+		# 生产者已不再写、诊断层仍在读的旧旗标（判据改版前留在磁盘上的那些）。
+		"legacy_read": sorted({n for n in LEGACY_INVARIANT_NAMES if _read(n)}),
+	}
 
 
 def collect_contract() -> dict[str, Any]:

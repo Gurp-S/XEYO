@@ -1,12 +1,14 @@
 """契约导出器的测试：生成的东西必须是"生产者真的会发"的东西。
 
-三道：
+四道：
 
 1. **新鲜度**：改了枚举没重导 ⇒ 红。否则 GUI 那道门读的是过期清单，等于没有。
 2. **扫描口径**：``add_gap`` 的原因码必须被扫到（漏扫就是门失效），且每个边界都仍在清单里。
 3. **两套 state 词表不得互相冒充**：``_SHOWN_TEXT`` 是"送达状态"的正本；
    ``_required_action_unmet`` 那套是另一码事。出现第三个词表值就说明有人在往
    送达判定里塞不属于它的状态。
+4. **投影旗标不得有人算、没人读**：引擎写下的每一类 ``invariant_errors`` 都必须被某条
+   规则消费，否则事实静默丢失（见文件末尾那条测试的来历）。
 """
 
 from __future__ import annotations
@@ -70,3 +72,29 @@ def test_parties_have_labels_at_the_source() -> None:
 		assert label and label != party
 		# 机器枚举不得混进人读正文（fault_split 顶部注释里的约束）。
 		assert not re.search(r"[a-z]+_[a-z]+", label), f"{party} 的中文说法里混了机器名：{label}"
+
+
+#: 引擎投影旗标的正本清单（engine/projection_manifest.py 写下的四类）。
+INVARIANT_VOCABULARY = {
+	"unresolved_tool_calls",
+	"orphan_tool_results",
+	"truncation_without_handle",
+	"canonical_unpaired_tool_calls",
+}
+
+
+def test_every_projection_invariant_flag_is_claimed_by_a_rule() -> None:
+	"""生产者算出来的旗标没有规则读，界面上就永远显示"没有这类问题"。
+
+	``canonical_unpaired_tool_calls`` 正是这么被漏掉的：引擎每次投影都在算它，
+	规则集里却无人读它 ⇒ 已经拿到的事实整条丢失。这里钉两个方向 ——
+	写了没人读要红；读了却没人写，只可能是判据改版前留在磁盘上的旧旗标（显式登记）。
+	"""
+	scan = ec.scan_invariant_names()
+	assert set(scan["written"]) == INVARIANT_VOCABULARY, (
+		f"引擎侧旗标清单对不上：{scan['written']} —— written 为空说明扫描口径失效（门会静默全绿）"
+	)
+	assert not scan["unclaimed"], f"这些旗标没有任何规则读，界面上等于不存在：{scan['unclaimed']}"
+	# 这一条按字面钉死，不从 LEGACY_INVARIANT_NAMES 推：把豁免清单改小应当是一次
+	# 有意识的决定，而不是跟着常量一起静默变绿。
+	assert scan["legacy_read"] == ["spill_reference_mismatch"]
