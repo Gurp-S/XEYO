@@ -510,7 +510,7 @@ function sessionMessagesKey(sessionId: string, msgs: ChatMessage[] | undefined):
 }
 
 function reviewMessagesKey(sessions: ChatSession[], messagesById: Record<string, ChatMessage[]>): string {
-	const win = sessions.length > 60 ? sessions.slice(-60) : sessions;
+	const win = sessions.length > 60 ? sessions.slice(0, 60) : sessions;
 	let sig = '';
 	for (const session of win) {
 		sig += sessionMessagesKey(session.id, messagesById[session.id]);
@@ -568,7 +568,19 @@ function PagedRows<T>({
 function ReviewTree() {
 	const sessions = useChatStore(s => s.sessions);
 	const activeId = useChatStore(s => s.activeId);
-	const branchesKey = useChatStore(s => reviewMessagesKey(s.sessions, s.messagesById));
+	const activeSpaceId = useChatStore(s => s.activeSpaceId);
+	const activeRootPath = useChatStore(
+		s => s.spaces.find(space => space.id === s.activeSpaceId)?.rootPath ?? '',
+	);
+	const reviewSessions = activeRootPath.trim()
+		? sessions.filter(session => session.spaceId === activeSpaceId)
+		: [];
+	const branchesKey = useChatStore(s => {
+		const scoped = activeRootPath.trim()
+			? s.sessions.filter(session => session.spaceId === activeSpaceId)
+			: [];
+		return `${activeSpaceId}:${activeRootPath}:${reviewMessagesKey(scoped, s.messagesById)}`;
+	});
 	const activeKey = useChatStore(s =>
 		s.activeId ? sessionMessagesKey(s.activeId, s.messagesById[s.activeId]) : '',
 	);
@@ -593,7 +605,10 @@ function ReviewTree() {
 		branchesCache.current = {
 			key: branchesKey,
 			sessions,
-			value: collectChangedFor(sessions.slice(-60), useChatStore.getState().messagesById),
+			value: collectChangedFor(
+				reviewSessions.slice(0, 60),
+				useChatStore.getState().messagesById,
+			),
 		};
 	}
 	const branches = branchesCache.current.value;
