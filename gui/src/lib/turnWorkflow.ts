@@ -95,7 +95,10 @@ export function buildTurnWorkflow(messages: ChatMessage[]): TurnWorkflowStep[] {
 		return [];
 	}
 	const boundary = latestUserTurnBoundary(messages);
-	const start = boundary ? boundary.index + 1 : 0;
+	if (!boundary) {
+		return [];
+	}
+	const start = boundary.index + 1;
 	const steps: TurnWorkflowStep[] = [];
 	for (let i = start; i < messages.length; i++) {
 		const message = messages[i]!;

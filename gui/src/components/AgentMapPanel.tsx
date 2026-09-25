@@ -163,7 +163,7 @@ export function AgentMapPanel() {
 	const turnHits = useMemo(() => {
 		const boundary = latestUserTurnBoundary(messages);
 		if (!boundary) {
-			return hits;
+			return [];
 		}
 		const currentTurnMessageIds = new Set(
 			messages.slice(boundary.index + 1).map(message => message.id),
@@ -191,6 +191,7 @@ export function AgentMapPanel() {
 			return hit.createdAt >= boundary.message.createdAt;
 		});
 	}, [hits, messages]);
+	const viewHits = view === 'turn' ? turnHits : hits;
 	const opsTrail = useMemo(() => buildOpsTrail(turnHits, 8), [turnHits]);
 	const replayScript = useMemo(() => {
 		// “本轮”地图必须只回放当前轮；回退到全会话会把旧路径伪装成当前流程。
@@ -202,8 +203,8 @@ export function AgentMapPanel() {
 	const [summaryOpen, setSummaryOpen] = useState(false);
 	const replayFrame =
 		replayIdx != null ? (replayScript[replayIdx] ?? null) : null;
-	const live = useMemo(() => hits.filter(h => h.running), [hits]);
-	const headline = live[live.length - 1] ?? hits[hits.length - 1] ?? null;
+	const live = useMemo(() => viewHits.filter(h => h.running), [viewHits]);
+	const headline = live[live.length - 1] ?? viewHits[viewHits.length - 1] ?? null;
 
 	const subtitle = headline
 		? `${headline.verb} ${headline.relPath.split('/').pop() ?? headline.relPath}`
@@ -406,13 +407,13 @@ export function AgentMapPanel() {
 			if (node.kind !== 'file' && node.kind !== 'package') {
 				continue;
 			}
-			const hit = latestHitForNode(hits, node.id, node.kind);
+			const hit = latestHitForNode(viewHits, node.id, node.kind);
 			if (hit) {
 				m.set(node.id, hit);
 			}
 		}
 		return m;
-	}, [laid.nodes, hits]);
+	}, [laid.nodes, viewHits]);
 
 	const searchHitIds = useMemo(() => {
 		const q = query.trim().toLowerCase();
@@ -484,7 +485,7 @@ export function AgentMapPanel() {
 			return null;
 		}
 		if (cardKind === 'file' || cardKind === 'package') {
-			return latestHitForNode(hits, cardId, cardKind);
+			return latestHitForNode(viewHits, cardId, cardKind);
 		}
 		if (cardKind === 'step') {
 			const step = turnBundle.stepById.get(cardId);
@@ -507,7 +508,7 @@ export function AgentMapPanel() {
 			return latestHitForNode(hits, node.file, 'file');
 		}
 		return null;
-	}, [cardId, cardKind, hits, turnBundle.stepById, authored]);
+	}, [cardId, cardKind, hits, viewHits, turnBundle.stepById, authored]);
 
 	const openRelFile = (relPath: string) => {
 		const path = relPath.trim().replace(/\\/g, '/');
