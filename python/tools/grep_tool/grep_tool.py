@@ -35,10 +35,25 @@ _NO_MATCH_TIP = (
 	"path and glob restrict the searched files (for example path=\"gui/src\" "
 	"or glob=\"*.tsx\")."
 )
+# rg 三路（content/count/files）的未命中面。不说出来，"No matches" 会被读成
+# "整个仓库没有这个串"。措辞逐条对过 rg 的实际行为（2026-09-25 非 git 目录实测：
+# `.ignore` 生效、`--glob` 排除生效，而 `.gitignore` 只在 git 工作树里生效）。
+_RG_SCOPE_NOTE = (
+	" Not searched by this pass: paths hidden by ignore files (.ignore, and "
+	".gitignore inside a git working tree), VCS/build/dependency directories "
+	"(node_modules, dist, .venv), and credential files (.env, keys)."
+)
 # files_with_matches 命中少时提醒改用 content 模式，避免额外 Read。
 _SMALL_FILES_TIP = (
 	"\n\noutput_mode=\"content\" returns matching lines; "
 	"output_mode=\"files_with_matches\" returns matching file paths."
+)
+# symbols 模式只解析源码扩展名，且跳过点目录/排除目录/超限文件；不说清这层
+# 范围，"No symbols found" 会被读成"整个工作区没有这个符号"。
+_SYMBOLS_SCOPE_NOTE = (
+	" Scope of this pass: .py/.pyi and .ts/.tsx/.mts/.cts/.js/.jsx/.mjs/.cjs "
+	"files under the given path; dot-named subdirectories and search-excluded "
+	"directories are not descended into, and files over 2 MB are not parsed."
 )
 
 # 默认 head_limit；显式传 0 表示不限制
@@ -835,7 +850,7 @@ class GrepTool:
 			if limit_info:
 				body = f"{body}\n\n[Showing results with pagination = {limit_info}]"
 			if not output.content:
-				body = body + _NO_MATCH_TIP
+				body = body + _NO_MATCH_TIP + _RG_SCOPE_NOTE
 			return body
 
 		if output.mode == "count":
@@ -843,7 +858,7 @@ class GrepTool:
 			matches = output.num_matches or 0
 			files = output.num_files or 0
 			if matches == 0:
-				raw = raw + _NO_MATCH_TIP
+				raw = raw + _NO_MATCH_TIP + _RG_SCOPE_NOTE
 			summary = (
 				f"\n\nFound {matches} total "
 				f"{'occurrence' if matches == 1 else 'occurrences'} across "
@@ -855,7 +870,7 @@ class GrepTool:
 
 		if output.mode == "symbols":
 			if not output.content:
-				return "No symbols found" + _NO_MATCH_TIP
+				return "No symbols found" + _NO_MATCH_TIP + _SYMBOLS_SCOPE_NOTE
 			matches = output.num_matches or 0
 			summary = f"\n\nFound {matches} {_plural(matches, 'symbol')} matched."
 			if limit_info:
@@ -864,7 +879,7 @@ class GrepTool:
 
 		# files_with_matches 模式
 		if output.num_files == 0:
-			return "No files found" + _NO_MATCH_TIP
+			return "No files found" + _NO_MATCH_TIP + _RG_SCOPE_NOTE
 		header = f"Found {output.num_files} {_plural(output.num_files, 'file')}"
 		if limit_info:
 			header = f"{header} {limit_info}"

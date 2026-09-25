@@ -294,6 +294,9 @@ class MemoryTool:
         # 命中即带会话归属返回 —— 让对话能看到别的对话聊过什么。
         from memory.search import search_session_notes
 
+        # 两条旁路检索是 best-effort，但失败必须说出来：把"这一路没读出来"
+        # 混进空结果里，模型会读成"内存在这个话题上没有东西"。
+        unread: list[str] = []
         try:
             session_hits = await asyncio.to_thread(
                 search_session_notes,
@@ -304,6 +307,7 @@ class MemoryTool:
             )
         except Exception:  # noqa: BLE001 — 跨会话检索失败不挡本会话记忆
             session_hits = []
+            unread.append("session_notes")
         # P2-2 任务级 rollout 归档：历史任务语义笔记（会话结束写一次，只读检索）
         from memory.search import search_rollout_summaries
 
@@ -316,10 +320,13 @@ class MemoryTool:
             )
         except Exception:  # noqa: BLE001 — 归档检索失败不挡本会话记忆
             rollout_hits = []
+            unread.append("rollout_summaries")
+        unread_note = "[unread channels: " + ", ".join(unread) + "]" if unread else ""
         if not hits and not session_hits and not rollout_hits:
             # 空结果也带提案计数——召回通道不依赖命中。
+            notice = _proposals_notice_line(self._cwd) or "(no memory hits)"
             return ToolResult(
-                content=_proposals_notice_line(self._cwd) or "(no memory hits)"
+                content=f"{notice} {unread_note}".strip() if unread_note else notice
             )
         lines = []
         for n in hits:
@@ -349,6 +356,9 @@ class MemoryTool:
         tail = _proposals_notice_line(self._cwd)
         if tail:
             lines.append(tail)
+        if unread_note:
+            # 有命中也不等于全量召回：失败的那一路同样要写在结果里。
+            lines.append(unread_note)
         return ToolResult(content="\n".join(lines))
 
     async def _execute_peers(self, abort: AbortController) -> ToolResult:

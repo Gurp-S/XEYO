@@ -258,3 +258,58 @@ async def test_symbols_folded_with_pagination(work: Path) -> None:
 	body_lines = [ln for ln in r.content.split("\n") if ln.strip()]
 	assert len([ln for ln in body_lines if ln.startswith("src")]) == 1
 	assert "limit: 1" in r.content
+
+
+class TestSymbolsScopeIsStated:
+	"""symbols 的空结果必须说清自己扫了什么。
+
+	"No symbols found" 只覆盖源码扩展名、不下钻进点目录、>2MB 不解析——这些
+	范围不写出来，模型会读成"整个工作区没有这个符号"，然后去重新推导已有的东西。
+	"""
+
+	@pytest.mark.asyncio
+	async def test_no_match_message_states_the_scope(self, work: Path) -> None:
+		tool = GrepTool(cwd=str(work))
+		r = await tool.execute(
+			{"pattern": "zzz_absent_symbol", "output_mode": "symbols", "path": "src"},
+			AbortController(),
+		)
+		assert "No symbols found" in r.content
+		assert "Scope of this pass" in r.content
+
+	@pytest.mark.asyncio
+	async def test_scope_note_matches_the_extension_rule(self, tmp_path: Path) -> None:
+		(tmp_path / "lib.rs").write_text("fn unique_rust_marker() {}\n", encoding="utf-8")
+		tool = GrepTool(cwd=str(tmp_path))
+		r = await tool.execute(
+			{"pattern": "unique_rust_marker", "output_mode": "symbols", "path": "."},
+			AbortController(),
+		)
+		# .rs 不在解析面里：这句话必须同时给出原因，而不是只说"没有"。
+		assert "No symbols found" in r.content
+		assert "Scope of this pass" in r.content
+
+	@pytest.mark.asyncio
+	async def test_scope_note_matches_the_dot_dir_rule(self, tmp_path: Path) -> None:
+		hidden = tmp_path / "pkg" / ".generated"
+		hidden.mkdir(parents=True)
+		(hidden / "m.py").write_text("def hidden_dir_marker():\n\tpass\n", encoding="utf-8")
+		open_dir = tmp_path / "pkg" / "generated"
+		open_dir.mkdir()
+		(open_dir / "m.py").write_text(
+			"def visible_dir_marker():\n\tpass\n", encoding="utf-8"
+		)
+		tool = GrepTool(cwd=str(tmp_path))
+
+		got = await tool.execute(
+			{"pattern": "visible_dir_marker", "output_mode": "symbols", "path": "pkg"},
+			AbortController(),
+		)
+		assert "visible_dir_marker" in got.content
+
+		miss = await tool.execute(
+			{"pattern": "hidden_dir_marker", "output_mode": "symbols", "path": "pkg"},
+			AbortController(),
+		)
+		assert "No symbols found" in miss.content
+		assert "dot-named subdirectories" in miss.content

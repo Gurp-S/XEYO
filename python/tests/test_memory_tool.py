@@ -179,3 +179,63 @@ async def test_search_no_proposals_keeps_legacy_shape(env, monkeypatch):
 		{"action": "search", "query": "不存在的词条zzz"}, AbortController()
 	)
 	assert out.content == "(no memory hits)"
+
+
+@pytest.mark.asyncio
+async def test_search_names_unread_channels_when_nothing_found(env, monkeypatch):
+	"""旁路检索失败要说出来：空结果不等于"内存里没有这个话题"。"""
+	import sys
+
+	import memory.instruction_maintain as im
+
+	ms = sys.modules["memory.search"]
+
+	monkeypatch.setattr(im, "list_pending_proposals", lambda _wsid: [])
+
+	def boom(*a, **k):
+		raise RuntimeError("channel down")
+
+	monkeypatch.setattr(ms, "search_session_notes", boom)
+	out = await _tool(env).execute(
+		{"action": "search", "query": "不存在的词条zzz"}, AbortController()
+	)
+	assert "(no memory hits)" in out.content
+	assert "unread channels: session_notes" in out.content
+
+
+@pytest.mark.asyncio
+async def test_search_names_unread_channels_even_with_hits(env, monkeypatch):
+	"""有命中也不等于全量召回。"""
+	import sys
+
+	import memory.instruction_maintain as im
+
+	ms = sys.modules["memory.search"]
+
+	monkeypatch.setattr(im, "list_pending_proposals", lambda _wsid: [])
+	tool = _tool(env)
+	await tool.execute(
+		{"action": "write", "type": "user", "content": "评测偏好用中文",
+		 "title": "偏好", "source_kind": "user"},
+		AbortController(),
+	)
+
+	def boom(*a, **k):
+		raise RuntimeError("archive down")
+
+	monkeypatch.setattr(ms, "search_rollout_summaries", boom)
+	out = await tool.execute({"action": "search", "query": "偏好"}, AbortController())
+	assert "偏好" in out.content
+	assert "unread channels: rollout_summaries" in out.content
+
+
+@pytest.mark.asyncio
+async def test_search_all_channels_healthy_says_nothing(env, monkeypatch):
+	"""没坏就不许出现 unread 行（否则免责话术会变成噪音）。"""
+	import memory.instruction_maintain as im
+
+	monkeypatch.setattr(im, "list_pending_proposals", lambda _wsid: [])
+	out = await _tool(env).execute(
+		{"action": "search", "query": "不存在的词条zzz"}, AbortController()
+	)
+	assert out.content == "(no memory hits)"
