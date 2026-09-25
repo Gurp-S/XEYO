@@ -5,12 +5,14 @@ import {
 	fetchRewindEvents,
 	fetchRewindStatus,
 	loadServerSessionMessages,
+	mediaUrl,
 	recoverRewind,
 	rewindHotpath,
 	rewindHotpathUndo,
 	RollbackRequestError,
 } from '@/lib/api';
-import {setComposerDraft} from '@/lib/composerDrafts';
+import {getComposerDraft, setComposerDraft} from '@/lib/composerDrafts';
+import type {DraftAttachment} from '@/lib/composerDrafts';
 import {replaceMessages} from '@/lib/db';
 import type {ChatMessage, RewindEvent} from '@/lib/types';
 import {uid} from '@/lib/utils';
@@ -43,6 +45,8 @@ export interface RewindV3DialogState {
 	phase: RewindV3Phase;
 	targetMessageId: string | null;
 	editedText: string;
+	/** 图片在编辑器确认时完成上传；回溯后的重发与刷新恢复都复用这些引用。 */
+	editedMediaRefs?: string[];
 	action: RewindV3Action | null;
 	checkpointState: RewindV3CheckpointState;
 	checkpointId: string | null;
@@ -79,7 +83,12 @@ export interface RewindPill {
 interface RewindV3Store {
 	bySession: Record<string, RewindV3BySession>;
 	pillsBySession: Record<string, RewindPill[]>;
-	openDialog(sessionId: string, targetMessageId: string, editedText: string): void;
+	openDialog(
+		sessionId: string,
+		targetMessageId: string,
+		editedText: string,
+		editedMediaRefs?: string[],
+	): void;
 	openPillDialog(sessionId: string, pill: RewindPill): void;
 	closeDialog(sessionId: string): void;
 	confirm(sessionId: string, action: RewindV3Action): Promise<boolean>;
@@ -101,6 +110,7 @@ const IDLE: RewindV3BySession = {
 	phase: 'idle',
 	targetMessageId: null,
 	editedText: '',
+	editedMediaRefs: [],
 	action: null,
 	checkpointState: 'pending',
 	checkpointId: null,
@@ -156,7 +166,16 @@ function loadPersisted(): Record<string, RewindV3BySession> {
 			try {
 				const raw = localStorage.getItem(key);
 				if (raw) {
-					out[sessionId] = {...IDLE, ...JSON.parse(raw)};
+					const parsed = JSON.parse(raw) as Partial<RewindV3BySession>;
+					out[sessionId] = {
+						...IDLE,
+						...parsed,
+						editedMediaRefs: Array.isArray(parsed.editedMediaRefs)
+							? parsed.editedMediaRefs.filter(
+								(ref): ref is string => typeof ref === 'string' && Boolean(ref.trim()),
+							)
+							: [],
+					};
 				}
 			} catch {
 				/* 单条损坏不影响其余 */
@@ -169,6 +188,67 @@ function loadPersisted(): Record<string, RewindV3BySession> {
 }
 
 const FALLBACK_PREFIX = 'xeyo.rewindV3.fallback';
+
+function draftImagesForRefs(mediaRefs: string[]): DraftAttachment[] {
+	return mediaRefs.map((mediaRef, index) => ({
+		kind: 'image',
+		id: uid('rewind-img'),
+		name: `图片 ${index + 1}`,
+		previewUrl: mediaUrl(mediaRef),
+		mime: 'image/png',
+		bytes: 0,
+		mediaRef,
+	}));
+}
+
+function resendEditedMessage(
+	sessionId: string,
+	text: string,
+	mediaRefs: string[],
+): Promise<boolean> {
+	const chat = useChatStore.getState();
+	return chat
+		.sendMessage(text, mediaRefs, [], undefined, undefined, undefined, {
+			sessionId,
+			background: chat.activeId !== sessionId,
+		})
+		.catch(() => false);
+}
+
+function restoreEditedDraft(sessionId: string, text: string, mediaRefs: string[]): void {
+	setComposerDraft(sessionId, {
+		text,
+		attachments: draftImagesForRefs(mediaRefs),
+	});
+	useChatStore.getState().requestComposerDraftRestore(sessionId);
+}
+
+function clearEditedDraftIfUnchanged(
+	sessionId: string,
+	text: string,
+	mediaRefs: string[],
+): void {
+	const chat = useChatStore.getState();
+	if (chat.activeId === sessionId) {
+		chat.requestComposerDraftClear(sessionId, text, mediaRefs);
+		return;
+	}
+	const draft = getComposerDraft(sessionId);
+	const draftMediaRefs = draft?.attachments.flatMap(attachment =>
+		attachment.kind === 'image' && attachment.mediaRef
+			? [attachment.mediaRef]
+			: [],
+	) ?? [];
+	if (
+		draft?.text !== text ||
+		draft.attachments.length !== mediaRefs.length ||
+		draftMediaRefs.length !== mediaRefs.length ||
+		draftMediaRefs.some((mediaRef, index) => mediaRef !== mediaRefs[index])
+	) {
+		return;
+	}
+	setComposerDraft(sessionId, {text: '', attachments: []});
+}
 
 /**
  * 兼容旧版「只存后缀」的兜底 key：migrating 到新持久态后即弃用。
@@ -397,7 +477,7 @@ export const useRewindV3Store = create<RewindV3Store>((set, get) => {
 		bySession: initialBySession,
 		pillsBySession: {},
 
-		openDialog(sessionId, targetMessageId, editedText) {
+		openDialog(sessionId, targetMessageId, editedText, editedMediaRefs = []) {
 			// 新意图：重置 attemptId/settled/suffixBackup（避免沿用上一次的幂等键与兜底快照）。
 			// 上一次未决的失败回溯已回滚到列表，其兜底在此作废；undo 走服务端 rewindId，不依赖本地快照。
 			const fresh: RewindV3BySession = {
@@ -405,6 +485,7 @@ export const useRewindV3Store = create<RewindV3Store>((set, get) => {
 				phase: 'dialog',
 				targetMessageId,
 				editedText,
+				editedMediaRefs: editedMediaRefs.filter(ref => Boolean(ref.trim())),
 				action: null,
 				suffixBackup: null,
 			};
@@ -469,6 +550,7 @@ export const useRewindV3Store = create<RewindV3Store>((set, get) => {
 			}
 			const targetId = state.targetMessageId;
 			const editedText = state.editedText.trim();
+			const editedMediaRefs = state.editedMediaRefs ?? [];
 			if (action === 'continue' && !editedText) {
 				return false;
 			}
@@ -588,12 +670,16 @@ export const useRewindV3Store = create<RewindV3Store>((set, get) => {
 				});
 				dropLegacyFallback(sessionId);
 				void get().loadPills(sessionId);
-				void useChatStore
-					.getState()
-					.sendMessage(editedText, [], [])
+				void resendEditedMessage(sessionId, editedText, editedMediaRefs)
 					.then(ok => {
 						if (!ok) {
-							setComposerDraft(sessionId, {text: editedText, attachments: []});
+							restoreEditedDraft(sessionId, editedText, editedMediaRefs);
+							patchSession(sessionId, {
+								phase: 'error',
+								settled: true,
+								resendPending: true,
+								error: '对话已回溯，但重新发送失败。可重试发送或把文案留在输入框。',
+							});
 						}
 					});
 				return true;
@@ -646,12 +732,10 @@ export const useRewindV3Store = create<RewindV3Store>((set, get) => {
 					void get().loadPills(sessionId);
 					if (action === 'continue') {
 						// 自动发送（复用输入框链路）；失败则进 resendPending（迁自 v2 committed_resend_failed）。
-						void useChatStore
-							.getState()
-							.sendMessage(editedText, [], [])
+						void resendEditedMessage(sessionId, editedText, editedMediaRefs)
 							.then(ok => {
 								if (!ok) {
-									setComposerDraft(sessionId, {text: editedText, attachments: []});
+									restoreEditedDraft(sessionId, editedText, editedMediaRefs);
 									patchSession(sessionId, {
 										phase: 'error',
 										settled: true,
@@ -721,12 +805,14 @@ export const useRewindV3Store = create<RewindV3Store>((set, get) => {
 		async retryResend(sessionId) {
 			const st = get().bySession[sessionId];
 			const text = st?.editedText?.trim();
+			const mediaRefs = st?.editedMediaRefs ?? [];
 			if (!st?.resendPending || !text) {
 				return false;
 			}
 			patchSession(sessionId, {phase: 'running', error: null});
-			const ok = await useChatStore.getState().sendMessage(text, [], []);
+			const ok = await resendEditedMessage(sessionId, text, mediaRefs);
 			if (ok) {
+				clearEditedDraftIfUnchanged(sessionId, text, mediaRefs);
 				patchSession(sessionId, {
 					phase: 'done',
 					settled: true,
@@ -736,7 +822,7 @@ export const useRewindV3Store = create<RewindV3Store>((set, get) => {
 				});
 				return true;
 			}
-			setComposerDraft(sessionId, {text, attachments: []});
+			restoreEditedDraft(sessionId, text, mediaRefs);
 			patchSession(sessionId, {
 				phase: 'error',
 				settled: true,

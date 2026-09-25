@@ -251,6 +251,10 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 	const stopGeneration = useChatUiStore(s => s.stopGeneration);
 	const composerInsertSeq = useChatUiStore(s => s.composerInsertSeq);
 	const composerFocusSeq = useChatUiStore(s => s.composerFocusSeq);
+	const composerDraftRestoreSeq = useChatUiStore(s => s.composerDraftRestoreSeq);
+	const composerDraftRestoreSessionId = useChatUiStore(s => s.composerDraftRestoreSessionId);
+	const composerDraftClearSeq = useChatUiStore(s => s.composerDraftClearSeq);
+	const composerDraftClearRequest = useChatUiStore(s => s.composerDraftClearRequest);
 	const model = useSettingsStore(s => s.model);
 	const apiKey = useSettingsStore(s => s.apiKey);
 	const provider = useSettingsStore(s => s.provider);
@@ -697,6 +701,74 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 		}
 		taRef.current?.focus();
 	}, [composerFocusSeq]);
+
+	useEffect(() => {
+		if (
+			composerDraftRestoreSeq === 0 ||
+			!composerDraftRestoreSessionId ||
+			activeIdRef.current !== composerDraftRestoreSessionId
+		) {
+			return;
+		}
+		const draft = getComposerDraft(composerDraftRestoreSessionId);
+		if (!draft) return;
+		for (const attachment of attachmentsRef.current) {
+			if (attachment.kind === 'image' && attachment.previewUrl.startsWith('blob:')) {
+				URL.revokeObjectURL(attachment.previewUrl);
+			}
+		}
+		const restoredText = draft.text;
+		setValue(restoredText, composerDraftRestoreSessionId);
+		setTaCaret(restoredText.length);
+		setTaCaretDir('forward');
+		setAttachments(draft.attachments.slice());
+		const frame = requestAnimationFrame(() => {
+			if (
+				activeIdRef.current !== composerDraftRestoreSessionId ||
+				valueRef.current !== restoredText
+			) {
+				return;
+			}
+			taRef.current?.focus();
+			taRef.current?.setSelectionRange(restoredText.length, restoredText.length);
+		});
+		return () => cancelAnimationFrame(frame);
+	}, [composerDraftRestoreSeq, composerDraftRestoreSessionId]);
+
+	useEffect(() => {
+		const request = composerDraftClearRequest;
+		if (
+			composerDraftClearSeq === 0 ||
+			!request ||
+			activeIdRef.current !== request.sessionId
+		) {
+			return;
+		}
+		const currentAttachments = attachmentsRef.current;
+		const currentMediaRefs = currentAttachments.flatMap(attachment =>
+			attachment.kind === 'image' && attachment.mediaRef
+				? [attachment.mediaRef]
+				: [],
+		);
+		if (
+			valueRef.current !== request.text ||
+			currentAttachments.length !== request.mediaRefs.length ||
+			currentMediaRefs.length !== request.mediaRefs.length ||
+			currentMediaRefs.some((mediaRef, index) => mediaRef !== request.mediaRefs[index])
+		) {
+			return;
+		}
+		for (const attachment of currentAttachments) {
+			if (attachment.kind === 'image' && attachment.previewUrl.startsWith('blob:')) {
+				URL.revokeObjectURL(attachment.previewUrl);
+			}
+		}
+		setComposerDraft(request.sessionId, {text: '', attachments: []});
+		setValue('', request.sessionId);
+		setTaCaret(0);
+		setAttachments([]);
+		requestAnimationFrame(() => applyTaHeight(false));
+	}, [composerDraftClearSeq, composerDraftClearRequest]);
 
 	useEffect(() => {
 		if (!currentSessionStreaming) {

@@ -25,7 +25,7 @@ import {useRewindV3Store} from '@/stores/rewindV3Store';
 import {useChatStore} from '@/stores/chatStore';
 import {toast} from '@/lib/toast';
 import {uid} from '@/lib/utils';
-import {uploadFile} from '@/lib/api';
+import {uploadFile, uploadMedia} from '@/lib/api';
 import type {ChatMessage} from '@/lib/types';
 import type {DraftAttachment} from '@/lib/composerDrafts';
 import {isCurrentEditUpload} from './editUploadScope';
@@ -147,6 +147,8 @@ export function useMessageListEditing(
 	const [editingText, setEditingText] = useState('');
 	const [editingCaret, setEditingCaret] = useState<number | null>(null);
 	const [editingSubmitting, setEditingSubmitting] = useState(false);
+	const editSubmitGenerationRef = useRef(0);
+	const editSubmitInFlightRef = useRef(false);
 	const [editingUploading, setEditingUploading] = useState(false);
 	const [editingExistingMediaRefs, setEditingExistingMediaRefs] = useState<string[]>([]);
 	const editingExistingMediaRefsRef = useRef<string[]>([]);
@@ -460,6 +462,9 @@ export function useMessageListEditing(
 	}, [cancelDeferredEditingFollowTailRestore, restoreEditingScrollAnchor]);
 
 	useEffect(() => {
+		editSubmitGenerationRef.current += 1;
+		editSubmitInFlightRef.current = false;
+		setEditingSubmitting(false);
 		editUploadGenerationRef.current += 1;
 		setEditingUploading(false);
 		deferEditingFollowTailRestore();
@@ -906,14 +911,65 @@ export function useMessageListEditing(
 			toast.error('归档对话为只读，请先恢复后编辑');
 			return;
 		}
-		if (!editingMessageId || !buildEditingText() || editingSubmitting || editingUploading || !activeSessionId) {
+		if (
+			!editingMessageId ||
+			!buildEditingText() ||
+			editingSubmitting ||
+			editingUploading ||
+			editSubmitInFlightRef.current ||
+			!activeSessionId
+		) {
 			return;
 		}
+		const sessionId = activeSessionId;
+		const messageId = editingMessageId;
+		const uploadScope = {
+			generation: editUploadGenerationRef.current,
+			sessionId,
+			messageId,
+		};
+		const submitGeneration = ++editSubmitGenerationRef.current;
+		const isCurrentSubmit = () =>
+			editSubmitGenerationRef.current === submitGeneration &&
+			isCurrentEditUpload(uploadScope, {
+				generation: editUploadGenerationRef.current,
+				sessionId: activeIdRef.current,
+				messageId: editingMessageIdRef.current,
+			});
+		editSubmitInFlightRef.current = true;
 		setEditingSubmitting(true);
 		try {
+			const mediaRefs = editingExistingMediaRefsRef.current.slice();
+			const editImages = editingAttachmentsRef.current.filter(
+				(attachment): attachment is Extract<DraftAttachment, {kind: 'image'}> =>
+					attachment.kind === 'image',
+			);
+			for (const image of editImages) {
+				let mediaRef = image.mediaRef;
+				if (!mediaRef) {
+					if (!image.file) {
+						throw new Error(`图片 ${image.name} 尚未准备好，请重新添加`);
+					}
+					mediaRef = (await uploadMedia(image.file)).media_ref;
+				}
+				if (!isCurrentSubmit()) return;
+				mediaRefs.push(mediaRef);
+				if (!image.mediaRef) {
+					const uploadedAttachments = editingAttachmentsRef.current.map(item =>
+						item.kind === 'image' && item.id === image.id
+							? {...item, mediaRef}
+							: item,
+					);
+					editingAttachmentsRef.current = uploadedAttachments;
+					setEditingAttachments(uploadedAttachments);
+				}
+			}
+			if (!isCurrentSubmit()) return;
 			/* 回溯 v3 热路径：编辑提交直接打开弹窗（跳过 preview，合同 31） */
 			const text = buildEditingText();
-			useRewindV3Store.getState().openDialog(activeSessionId, editingMessageId, text);
+			useRewindV3Store
+				.getState()
+				.openDialog(sessionId, messageId, text, mediaRefs);
 			deferEditingFollowTailRestore();
 			clearEditingAttachments();
 			editingMessageIdRef.current = null;
@@ -921,8 +977,15 @@ export function useMessageListEditing(
 			setEditingText('');
 			setEditingCaret(null);
 			setModelOpen(false);
+		} catch (error) {
+			if (isCurrentSubmit()) {
+				toast.error(error instanceof Error ? error.message : '图片准备失败，编辑内容已保留');
+			}
 		} finally {
-			setEditingSubmitting(false);
+			if (editSubmitGenerationRef.current === submitGeneration) {
+				editSubmitInFlightRef.current = false;
+				setEditingSubmitting(false);
+			}
 		}
 	}, [
 		activeSessionId,
@@ -933,6 +996,7 @@ export function useMessageListEditing(
 		editingMessageId,
 		editingSubmitting,
 		editingUploading,
+		isCurrentEditUpload,
 	]);
 
 	const openPinnedEdit = (msg: ChatMessage) => {

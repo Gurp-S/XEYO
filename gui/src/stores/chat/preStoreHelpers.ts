@@ -470,6 +470,16 @@ activeSpaceId: string;
 	} | null;
 	/** 输入框聚焦（预览 Add to Chat 后）。 */
 	composerFocusSeq: number;
+	/** 回溯重发失败后，把对应会话的草稿重新载入可见 Composer。 */
+	composerDraftRestoreSeq: number;
+	composerDraftRestoreSessionId: string | null;
+	/** 重发成功后，只有输入内容仍与已重发草稿相同才清空。 */
+	composerDraftClearSeq: number;
+	composerDraftClearRequest: {
+		sessionId: string;
+		text: string;
+		mediaRefs: string[];
+	} | null;
 	/** 新建聊天聚焦空 session 时递增 — 空态 hero 重新随机俏皮话。 */
 	emptyQuipSeq: number;
 
@@ -529,6 +539,12 @@ activeSpaceId: string;
 		path?: string;
 	}) => void;
 	requestComposerFocus: () => void;
+	requestComposerDraftRestore: (sessionId: string) => void;
+	requestComposerDraftClear: (
+		sessionId: string,
+		text: string,
+		mediaRefs: string[],
+	) => void;
 	setActiveSpace: (spaceId: string) => Promise<void>;
 	toggleSpaceCollapsed: (spaceId: string) => void;
 	/** 将文件夹打开为工作区。按路径幂等。 */

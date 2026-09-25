@@ -60,7 +60,7 @@ export const savedPendingPermission = readPendingPermission();
 type SetState = StoreApi<ChatState>['setState'];
 type GetState = StoreApi<ChatState>['getState'];
 
-const SLICE_KEYS = ['setSidebarOpen', 'setImmersive', 'setPendingPermission', 'setPendingAsk', 'setPendingPlan', 'setAgentMode', 'requestSearchFocus', 'requestComposerInsert', 'requestComposerFocus', 'clearErrorBanner'] as const;
+const SLICE_KEYS = ['setSidebarOpen', 'setImmersive', 'setPendingPermission', 'setPendingAsk', 'setPendingPlan', 'setAgentMode', 'requestSearchFocus', 'requestComposerInsert', 'requestComposerFocus', 'requestComposerDraftRestore', 'requestComposerDraftClear', 'clearErrorBanner'] as const;
 
 export function createUiChromeSlice(
 	set: SetState,
@@ -128,6 +128,24 @@ export function createUiChromeSlice(
 
 	requestComposerFocus() {
 		set(s => ({composerFocusSeq: s.composerFocusSeq + 1}));
+	},
+
+	requestComposerDraftRestore(sessionId) {
+		const id = sessionId.trim();
+		if (!id) return;
+		set(s => ({
+			composerDraftRestoreSeq: s.composerDraftRestoreSeq + 1,
+			composerDraftRestoreSessionId: id,
+		}));
+	},
+
+	requestComposerDraftClear(sessionId, text, mediaRefs) {
+		const id = sessionId.trim();
+		if (!id) return;
+		set(s => ({
+			composerDraftClearSeq: s.composerDraftClearSeq + 1,
+			composerDraftClearRequest: {sessionId: id, text, mediaRefs: [...mediaRefs]},
+		}));
 	},
 
 			clearErrorBanner() {

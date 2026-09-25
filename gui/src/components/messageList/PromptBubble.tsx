@@ -718,8 +718,8 @@ export function EditSendStopButton({
 						? 'bg-accent text-on-accent hover:bg-accent-hover'
 						: 'cursor-not-allowed bg-paper-deep text-mute',
 			)}
-			title={streaming ? '停止生成' : '发送'}
-			aria-label={streaming ? '停止生成' : '发送'}
+			title={streaming ? '停止生成' : '应用修改并重新运行'}
+			aria-label={streaming ? '停止生成' : '应用修改并重新运行'}
 		>
 			<ArrowUp
 				className={cn(
