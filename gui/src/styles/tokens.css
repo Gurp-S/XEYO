@@ -87,6 +87,11 @@ html[data-scheme="dark"] {
   /* warn 实心底上的前景（按钮/徽标）。两套主题的 warn 都是亮琥珀 ⇒ 深墨在两边都过 AA：
      浅色 5.03、深色 7.74；换成白字则掉到 2.53 / 1.64。 */
   --xy-warn-ink: oklch(0.28 0.04 70);
+  /* 思考流强调紫：原先在 workflow-thought.css / workflow-split.css 里写死 5 处
+     #6b5b95。它在浅色下 5.49 合格，深色下只有 3.24（正文门槛 4.5）——
+     深色主题下"思考"这条线一直不达标。深色档按同色相提亮到 5.55（沉浸暗台 5.77），
+     且用 var(--xy-ink) 混，跟着每套深色主题的墨色走。 */
+  --xy-thought: #6b5b95;
   /* 既有四个阴影名保留为别名（消费者很多）：统一由海拔推导，换主题不换层级 */
   --xy-composer-shadow: var(--xy-elev-2);
   --xy-modal-shadow: var(--xy-elev-3);
@@ -203,6 +208,7 @@ html[data-scheme="dark"] {
   --xy-veil: rgb(12 14 24 / 0.3);
   --xy-user-bubble: rgb(157 176 255 / 0.1);
   --xy-user-bubble-border: rgb(157 176 255 / 0.2);
+  --xy-thought: color-mix(in oklch, #6b5b95 70%, var(--xy-ink));
   --xy-selection: color-mix(in oklch, var(--xy-accent) 34%, transparent);
   --xy-rail-active: color-mix(in oklch, var(--xy-accent) 66%, var(--xy-mute));
   --xy-rail-idle: color-mix(in oklch, var(--xy-mute) 30%, transparent);

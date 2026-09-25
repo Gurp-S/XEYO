@@ -353,7 +353,7 @@
 }
 
 .xy-split-step.thought-step .xy-morph {
-  color: #6b5b95;
+  color: var(--xy-thought);
 }
 
 .xy-split-step.is-ok .xy-morph {

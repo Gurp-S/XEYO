@@ -32,7 +32,7 @@
 
 /* 最新 burst 字符块：紫色高亮（L6 hot） */
 .xy-kinetic-hot {
-  color: #6b5b95;
+  color: var(--xy-thought);
   font-weight: 700;
 }
 
@@ -40,7 +40,7 @@
   margin: 0 0.55em;
   opacity: 0.7;
   font-weight: 400;
-  color: color-mix(in srgb, #6b5b95 50%, var(--xy-mute));
+  color: color-mix(in srgb, var(--xy-thought) 50%, var(--xy-mute));
 }
 
 .xy-thought-fresh {
@@ -91,7 +91,7 @@
   width: 2px;
   height: 0.95em;
   margin-left: 2px;
-  background: #6b5b95;
+  background: var(--xy-thought);
   vertical-align: -2px;
   animation: xy-thought-blink 0.7s step-end infinite;
 }
@@ -161,6 +161,6 @@ html[data-smoothness="off"] .xy-thought-peek {
 
 .xy-thought-peek strong {
   font-weight: 650;
-  color: #6b5b95;
+  color: var(--xy-thought);
 }
 
