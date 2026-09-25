@@ -171,7 +171,9 @@ export function ChatPage() {
 				session != null && (session.spaceId === SIDE_SPACE_ID) === isSideChat;
 			if (!exists) {
 				if (isSideChat) {
-					const sideNext = st.sessions.find(s => s.spaceId === SIDE_SPACE_ID);
+					const sideNext = st.sessions.find(
+						s => s.spaceId === SIDE_SPACE_ID && !s.archived,
+					);
 					navigate(sideNext ? `/side/${sideNext.id}` : '/', {replace: true});
 					return;
 				}
@@ -199,7 +201,9 @@ export function ChatPage() {
 		}
 		// 路径无 session id：store → URL。
 		if (isSideChat) {
-			const sideNext = st.sessions.find(s => s.spaceId === SIDE_SPACE_ID);
+			const sideNext = st.sessions.find(
+				s => s.spaceId === SIDE_SPACE_ID && !s.archived,
+			);
 			navigate(sideNext ? `/side/${sideNext.id}` : '/', {replace: true});
 			return;
 		}
