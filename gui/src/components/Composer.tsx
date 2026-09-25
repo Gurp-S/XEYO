@@ -536,6 +536,15 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 					permissionMode: useSettingsStore.getState().permissionMode,
 				});
 		setValue(loaded.text);
+		const restoredCaret = loaded.text.length;
+		setTaCaret(restoredCaret);
+		setTaCaretDir('forward');
+		requestAnimationFrame(() => {
+			if (activeIdRef.current !== activeId || valueRef.current !== loaded.text) {
+				return;
+			}
+			taRef.current?.setSelectionRange(restoredCaret, restoredCaret);
+		});
 		setAttachments(loaded.attachments.slice());
 		setMultiAgent(loaded.multiAgent);
 		setAgentMode(loaded.agentMode);
@@ -738,7 +747,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 	const [atFiles, setAtFiles] = useState<string[]>([]);
 	const [atLoaded, setAtLoaded] = useState(false);
 	useEffect(() => {
-		if (!atToken) {
+		if (!atToken || !taFocused) {
 			setAtLoaded(false);
 			return;
 		}
@@ -759,9 +768,10 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 			controller.abort();
 			clearTimeout(t);
 		};
-	}, [atToken, atQuery, activeWorkspace]);
+	}, [atToken, atQuery, activeWorkspace, taFocused]);
 	const atMenuOpen =
 		atToken !== null &&
+		taFocused &&
 		!slashDismissed &&
 		atLoaded &&
 		atFiles.length > 0;
@@ -814,6 +824,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 	// 弹层只在光标位于 slash 词元时出现；此前 slashSkills 残留导致删除 / 后关不掉。
 	const slashMenuOpen =
 		slashIntent &&
+		taFocused &&
 		!slashDismissed &&
 		(slashSuggest.length > 0 || filteredSkills.length > 0);
 
