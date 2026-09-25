@@ -76,9 +76,9 @@ describe('runSlashCommand dispatch', () => {
 		expect(fetchMock).toHaveBeenCalledOnce();
 	});
 
-	it('handleComposerSlash consumes unknown command and notes it', async () => {
+	it('handleComposerSlash notes unknown commands without consuming the draft', async () => {
 		const consumed = await handleComposerSlash('/nonsense-cmd-xyz', opts);
-		expect(consumed).toBe(true);
+		expect(consumed).toBe(false);
 		expect(chatState.appendLocalNote).toHaveBeenCalled();
 	});
 

@@ -179,7 +179,7 @@ async function postSlash(
 	return data.message ?? '';
 }
 
-function localLevel(lvl: string): {on: boolean; mode: OutputMode} {
+function localLevel(lvl: string): {on: boolean; mode: OutputMode} | null {
 	const l = lvl.trim().toLowerCase();
 	if (l === 'off' || l === '关') {
 		return {on: false, mode: 'lite'};
@@ -187,7 +187,7 @@ function localLevel(lvl: string): {on: boolean; mode: OutputMode} {
 	if (OUTPUT_LEVELS.has(l)) {
 		return {on: true, mode: l as OutputMode};
 	}
-	return {on: true, mode: 'lite'};
+	return l ? null : {on: true, mode: 'lite'};
 }
 
 export async function runSlashCommand(
@@ -276,7 +276,7 @@ export async function runSlashCommand(
 		case 'run': {
 			const cmdText = arg.trim();
 			if (!cmdText) {
-				return {status: 'local', text: '用法：/run <command>'};
+				return {status: 'rejected', text: '用法：/run <command>'};
 			}
 			return {
 				status: 'send',
@@ -289,14 +289,18 @@ export async function runSlashCommand(
 		case 'mode': {
 			const m = arg.trim().toLowerCase();
 			if (m !== 'agent' && m !== 'plan' && m !== 'ask') {
-				return {status: 'local', text: '用法：/mode <agent|plan|ask>'};
+				return {status: 'rejected', text: '用法：/mode <agent|plan|ask>'};
 			}
 			useChatStore.getState().setAgentMode(m);
 			return {status: 'local', text: `mode → ${m}`};
 		}
 		case 'output':
 		case 'code': {
-			const {on, mode} = localLevel(arg);
+			const level = localLevel(arg);
+			if (!level) {
+				return {status: 'rejected', text: `用法：${command.usage}`};
+			}
+			const {on, mode} = level;
 			const patch =
 				command.name === 'output'
 					? {outputCompact: on, outputMode: mode}
@@ -311,7 +315,7 @@ export async function runSlashCommand(
 		case 'approval': {
 			const m = arg.trim().toLowerCase() as PermissionMode;
 			if (!PERMISSION_MODES.has(m)) {
-				return {status: 'local', text: '用法：/approval <always|risk|never>'};
+				return {status: 'rejected', text: '用法：/approval <always|risk|never>'};
 			}
 			useSettingsStore.getState().update({permissionMode: m});
 			return {status: 'local', text: `审批模式 → ${m}`};
@@ -319,7 +323,7 @@ export async function runSlashCommand(
 		case 'model': {
 			const id = arg.trim();
 			if (!id) {
-				return {status: 'local', text: '用法：/model <model_id>'};
+				return {status: 'rejected', text: '用法：/model <model_id>'};
 			}
 			useSettingsStore.getState().update({model: id});
 			return {status: 'local', text: `model → ${id}（下一轮生效）`};
@@ -327,7 +331,7 @@ export async function runSlashCommand(
 		case 'theme': {
 			const id = arg.trim();
 			if (!id) {
-				return {status: 'local', text: '用法：/theme <theme_id>'};
+				return {status: 'rejected', text: '用法：/theme <theme_id>'};
 			}
 			useSettingsStore.getState().update({theme: normalizeThemeId(id)});
 			return {status: 'local', text: `theme → ${normalizeThemeId(id)}`};
@@ -387,7 +391,8 @@ export async function handleComposerSlash(
 			} else {
 				toast.error(`未知命令 /${outcome.name}，试试 /help`);
 			}
-			return true;
+			// 保留草稿，方便原位修正拼错的命令；未知命令仍不会进入模型。
+			return false;
 		case 'rejected':
 			if (outcome.text) {
 				if (opts.sessionId) {
