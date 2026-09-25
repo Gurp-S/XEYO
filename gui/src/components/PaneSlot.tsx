@@ -43,6 +43,7 @@ export function PaneSlot({
 	onMouseEnter,
 	onMouseLeave,
 }: Props) {
+	const visible = shown && width > 0;
 	if (!smoothness) {
 		if (!mounted) {
 			return null;
@@ -56,9 +57,9 @@ export function PaneSlot({
 					instant && 'xy-pane-instant',
 					className,
 				)}
-				style={{width: shown ? width : 0, flexBasis: shown ? width : 0}}
-				aria-hidden={!shown}
-				inert={!shown}
+				style={{width: visible ? width : 0, flexBasis: visible ? width : 0}}
+				aria-hidden={!visible}
+				inert={!visible}
 				onMouseEnter={onMouseEnter}
 				onMouseLeave={onMouseLeave}
 			>
@@ -82,8 +83,8 @@ export function PaneSlot({
 				instant && 'xy-pane-instant',
 			)}
 			style={{width: slot, flexBasis: slot}}
-			aria-hidden={!open || !shown}
-			inert={!open || !shown}
+			aria-hidden={!open || !visible}
+			inert={!open || !visible}
 			onMouseEnter={onMouseEnter}
 			onMouseLeave={onMouseLeave}
 		>
@@ -91,14 +92,14 @@ export function PaneSlot({
 				<Tag
 					className={cn(
 						'xy-sidebar xy-pane-slide absolute inset-y-0 flex min-h-0 min-w-0 flex-col overflow-hidden',
-						!shown && 'pointer-events-none',
+					!visible && 'pointer-events-none',
 						className,
 					)}
 					style={{
 						width,
 						left: side === 'left' ? 0 : undefined,
 						right: side === 'right' ? 0 : undefined,
-						transform: shown ? 'translateX(0)' : hiddenTransform,
+						transform: visible ? 'translateX(0)' : hiddenTransform,
 					}}
 				>
 					{children}
