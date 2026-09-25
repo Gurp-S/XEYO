@@ -38,6 +38,8 @@ const PRESETS: Array<{
 export function RuntimePresetSetting() {
 	const activeId = useChatUiStore(s => s.activeId);
 	const [live, setLive] = useState<string | null>(null);
+	// 非空 = 这一档现在是"读不出"，内容就是原因。空串只代表"确实读到了"。
+	const [unknown, setUnknown] = useState('');
 	const [saved, setSaved] = useState(false);
 	// 连点时只有最新一次切换的回执能改选中态，旧回执不得把它回滚掉。
 	const seq = useRef(0);
@@ -45,12 +47,19 @@ export function RuntimePresetSetting() {
 	useEffect(() => {
 		let alive = true;
 		setLive(null);
+		setUnknown('');
 		if (!activeId) {
+			setUnknown('no_active_session');
 			return;
 		}
-		void fetchSessionRuntimePreset(activeId).then(v => {
-			if (alive) {
-				setLive(v);
+		void fetchSessionRuntimePreset(activeId).then(r => {
+			if (!alive) {
+				return;
+			}
+			if (r.ok) {
+				setLive(r.preset);
+			} else {
+				setUnknown(r.message || 'unknown');
 			}
 		});
 		return () => {
@@ -77,6 +86,8 @@ export function RuntimePresetSetting() {
 				toast.error(`切换未生效：${res.message}`);
 				return;
 			}
+			// 写回执同样是活值：它把"读不出"变成"知道是哪一档"。
+			setUnknown('');
 			setSaved(true);
 			window.setTimeout(() => setSaved(false), 1500);
 		});
@@ -87,6 +98,19 @@ export function RuntimePresetSetting() {
 			<div className="text-[11px] font-semibold text-ink">
 				会话权限 preset（本会话实时生效）
 			</div>
+			{unknown ? (
+				<div
+					role="status"
+					className="rounded-lg border border-warn/60 bg-warn/10 px-2.5 py-1.5 text-[11px] leading-snug text-warn"
+				>
+					未能读取本会话当前的 preset（原因：{unknown}）。
+					下面没有任何选中项，只代表没读到，不代表它没有生效值。
+				</div>
+			) : live === null ? (
+				<div role="status" className="text-[11px] leading-snug text-mute">
+					已确认本会话未显式切换过 preset，当前沿用创建时钉死的那一档。
+				</div>
+			) : null}
 			{PRESETS.map(item => {
 				const selected = live === item.id;
 				return (
@@ -94,6 +118,7 @@ export function RuntimePresetSetting() {
 						key={item.id}
 						type="button"
 						onClick={() => select(item.id)}
+						aria-pressed={selected}
 						className={cn(
 							'xy-press flex w-full items-start gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors',
 							selected
@@ -102,6 +127,7 @@ export function RuntimePresetSetting() {
 						)}
 					>
 						<span
+							aria-hidden
 							className={cn(
 								'mt-0.5 h-3 w-3 shrink-0 rounded-full border',
 								selected

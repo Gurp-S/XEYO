@@ -9,26 +9,6 @@ import {
 	fetchWithTimeout,
 	formatErrorDetail,
 } from './core';
-import {MemoryNoteRow} from '../api';
-
-export async function fetchMemoryNotes(
-	scope = '',
-	limit = 40,
-): Promise<MemoryNoteRow[]> {
-	try {
-		const q = new URLSearchParams();
-		if (scope) q.set('scope', scope);
-		q.set('limit', String(limit));
-		const res = await fetchWithTimeout(apiUrl(`/v1/memory/notes?${q}`), {
-			cache: 'no-store',
-		});
-		if (!res.ok) return [];
-		const data = (await res.json()) as {notes?: MemoryNoteRow[]};
-		return Array.isArray(data.notes) ? data.notes : [];
-	} catch {
-		return [];
-	}
-}
 
 /** 手动 /compact（不进模型循环）。 */
 export async function requestManualCompact(

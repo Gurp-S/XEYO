@@ -9,7 +9,7 @@ export type {UsageBalance, UsageBucket, UsageDayPoint, UsageModelBlock, UsageRep
 export {uploadFile, uploadMedia} from './api/uploads';
 export {listPermissionGrants, resolveAsk, resolvePermission, resolvePlan, revokePermissionGrant} from './api/permissions';
 export type {PermissionGrantInfo} from './api/permissions';
-export {fetchMemoryNotes, requestManualCompact, syncUiThoughtsToServer} from './api/memory';
+export {requestManualCompact, syncUiThoughtsToServer} from './api/memory';
 export {
 	getLocalModelLog,
 	getLocalModels,
@@ -472,20 +472,7 @@ export async function fetchSessionCompression(
 	}
 }
 
-export type MemoryNoteRow = {
-	id: string;
-	type: string;
-	scope: string;
-	title: string;
-	content: string;
-	confidence: number;
-	last_used_at?: string | null;
-	updated_at?: string;
-};
-
-/** 记忆侧栏：列出 active notes（工作区 + user）。 */
 export async function interruptChat(sessionId: string): Promise<void> {
-
 	try {
 		await fetchWithTimeout(apiUrl('/v1/interrupt'), {
 			method: 'POST',
