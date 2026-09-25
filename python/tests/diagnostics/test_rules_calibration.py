@@ -475,6 +475,44 @@ def test_fault_split_uses_the_same_reading_function() -> None:
 	assert fault_split.permission_blocked is rules.permission_blocked
 
 
+def test_unanswered_permission_wait_is_not_a_confirmed_fault() -> None:
+	"""授权等待没人答复（outcome=timeout）或中止：执行层的 fail-closed 结果，不是产品故障。
+
+	engine/permission_coordinator.py::wait 在超时那一刻自己写 approved=False +
+	outcome="timeout"；aborted 来自 engine/abort.py 的停止分支。
+	分层普查 57 个真实轮次里，该规则 7 条"已确认"全部是 timeout —— 与它自己
+	「不得把预期拒绝计成产品故障」的口径矛盾。事实要留住（仍算被权限挡住），档位要落对。
+	"""
+	timeout_row = {
+		"kind": "permission.resolved",
+		"request_id": "apr9",
+		"tool_name": "Bash",
+		"approved": False,
+		"outcome": "timeout",
+		"user_choice": "deny",
+		"reason": "timeout",
+		"matched_rule": "bash_default_ask",
+		"line_no": 21,
+		"ts": 2.0,
+	}
+	assert rules.permission_outcome(timeout_row) == "timeout"
+	assert rules.permission_blocked(timeout_row) is True, "事实层：这一枪确实没执行"
+
+	run = _run(
+		[],
+		permissions=[
+			{"kind": "permission.pending", "request_id": "apr9", "tool_name": "Bash", "matched_rule": "bash_default_ask", "line_no": 20, "ts": 1.0},
+			timeout_row,
+		],
+	)
+	findings = rules.check_permission_block(run)
+	assert findings
+	assert all(f.status == UNKNOWN for f in findings), [f.status for f in findings]
+	text = findings[0].phenomenon + findings[0].allowed_conclusion
+	assert "timeout" in text and "Bash" in text
+	assert not [f for f in findings if f.status == CONFIRMED_FAULT]
+
+
 def test_rule_reading_and_fault_split_agree_on_a_real_deny_row() -> None:
 	"""同一个 DENY 行：规则报挡住，责任划分也报挡住——不再互相矛盾。"""
 	run = _run(

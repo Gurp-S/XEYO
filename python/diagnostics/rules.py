@@ -66,6 +66,9 @@ def _sig(text: str) -> str:
 
 _DENY_ACTIONS = {"deny", "denied"}
 _BLOCKED_OUTCOMES = {"denied", "timeout", "aborted"}
+#: 「没人答复 / 被中止」这两类结果由执行层自己写下，属设计内的 fail-closed：
+#: 它们说明这一枪为什么没执行，但不构成产品故障（判据见 check_permission_block 的注释）。
+_UNANSWERED_OUTCOMES = {"timeout", "aborted"}
 
 OUTCOME_DENIED = "denied"
 OUTCOME_ALLOWED = "allowed"
@@ -611,7 +614,30 @@ def check_permission_block(run: RunEvidence) -> list[Finding]:
 			continue
 		last = resolved[-1]
 		outcome = permission_outcome(last)
-		if outcome in _BLOCKED_OUTCOMES:
+		if outcome in _UNANSWERED_OUTCOMES:
+			# 超时与中止都是执行层的**结果**，不是故障：
+			# timeout 来自 engine/permission_coordinator.py::wait —— 没人答复时按不放行收口
+			# （fail-closed，写 approved=False + outcome="timeout"）；aborted 来自 engine/abort.py
+			# 的停止分支。真实数据（分层普查 57 轮）里这一档占该规则全部 7 条"已确认"，
+			# 与"预期拒绝不得计成产品故障"的自有口径自相矛盾。
+			findings.append(
+				Finding(
+					rule_id="permission_block",
+					rule_version=RULESET_VERSION,
+					phenomenon=f"工具 {_s(pending[0].get('tool_name'))} 的授权等待以 {outcome} 收口（规则={_s(pending[0].get('matched_rule'))}）",
+					boundary="tool_permission",
+					component="权限执行层（等待超时 / 中止）",
+					status=UNKNOWN,
+					evidence=[
+						EvidenceRef(source="audit", locator=_loc(run), ref_id=f"L{_s(r.get('line_no'))}", detail=str(r.get("kind")))
+						for r in rows
+					],
+					impact="这一枪未执行：等待没人答复时按不放行收口，中止来自停止操作。",
+					coverage_gap="谁在等、等多久、期间界面有没有弹出来都不在审计行里；这两类结果都不证明权限层出了故障。",
+					allowed_conclusion="可确认执行停在权限等待的结果上；不能据此判定权限层或审批链故障。",
+				)
+			)
+		elif outcome in _BLOCKED_OUTCOMES:
 			findings.append(
 				Finding(
 					rule_id="permission_block",
