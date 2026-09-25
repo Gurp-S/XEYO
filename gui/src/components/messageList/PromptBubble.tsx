@@ -56,6 +56,7 @@ import {
 import {
 	UserMarkdownText,
 } from '../UserMarkdownText';
+import './prompt-bubble.css';
 import {
 	EditPortalHostContext,
 	PROMPT_CHIP_MAX_PX,
@@ -609,7 +610,8 @@ ref={editing ? promptEditRef : undefined}
 					inert={!controlsInteractive}
 				>
 					<div className="xy-editing-controls-inner">
-							<div className="mt-2 flex h-8 items-center justify-between gap-1">
+						<div className="xy-prompt-edit-toolbar mt-2 flex min-h-8 min-w-0 items-center justify-between gap-1">
+							<div className="xy-prompt-edit-options flex min-w-0 items-center gap-1">
 								<input
 									ref={editingFileInputRef}
 									type="file"
@@ -626,9 +628,9 @@ ref={editing ? promptEditRef : undefined}
 								/>
 								<button
 									type="button"
-																					data-xy-file-picker
-																					disabled={editingSubmitting || anyStreaming || editingUploading}
-																					onPointerDown={event => {
+									data-xy-file-picker
+									disabled={editingSubmitting || anyStreaming || editingUploading}
+									onPointerDown={event => {
 										editingFilePickerOpenRef.current = true;
 										event.stopPropagation();
 									}}
@@ -649,44 +651,47 @@ ref={editing ? promptEditRef : undefined}
 								>
 									{editPreviewOpen ? '继续编辑' : '预览'}
 								</button>
-								<div className="flex h-8 shrink-0 items-center gap-1">
+								<div className="flex h-8 min-w-0 shrink items-center gap-1">
 									<div
-									ref={editing ? editModelMenuRef : undefined}
-									className="relative hidden sm:block"
-								>
-								<button
-									type="button"
-									aria-haspopup="listbox"
-									aria-expanded={modelOpen}
-									aria-controls={modelMenuId}
-									disabled={anyStreaming || editingSubmitting || !editing}
-									onClick={toggleModel}
-									className={cn(
-										'inline-flex h-7 max-w-[9.5rem] items-center gap-1 rounded-full px-2 font-mono text-[11px] leading-none text-mute',
-										'hover:bg-ink/[0.06] hover:text-ink disabled:opacity-40',
-										modelOpen && 'bg-ink/[0.08] text-ink',
-									)}
-									title="选择模型"
-								>
-									<span className="truncate">{model}</span>
-									<ChevronDown
-										className={cn(
-											'xy-caret h-3 w-3',
-											modelOpen && 'is-open',
-										)}
-										aria-hidden
-									/>
-								</button>
-								<div onClick={closeModel}>
-									<ModelPicker
-										open={editing && modelOpen}
-										menuId={modelMenuId}
-										portal
-										anchorRef={editModelMenuRef}
-										disabled={anyStreaming || editingSubmitting || !editing}
-										/>
+										ref={editing ? editModelMenuRef : undefined}
+										className="relative hidden sm:block"
+									>
+										<button
+											type="button"
+											aria-haspopup="listbox"
+											aria-expanded={modelOpen}
+											aria-controls={modelMenuId}
+											disabled={anyStreaming || editingSubmitting || !editing}
+											onClick={toggleModel}
+											className={cn(
+												'inline-flex h-7 max-w-[9.5rem] items-center gap-1 rounded-full px-2 font-mono text-[11px] leading-none text-mute',
+												'hover:bg-ink/[0.06] hover:text-ink disabled:opacity-40',
+												modelOpen && 'bg-ink/[0.08] text-ink',
+											)}
+											title="选择模型"
+										>
+											<span className="min-w-0 truncate">{model}</span>
+											<ChevronDown
+												className={cn(
+													'xy-caret h-3 w-3',
+													modelOpen && 'is-open',
+												)}
+												aria-hidden
+											/>
+										</button>
+										<div onClick={closeModel}>
+											<ModelPicker
+												open={editing && modelOpen}
+												menuId={modelMenuId}
+												portal
+												anchorRef={editModelMenuRef}
+												disabled={anyStreaming || editingSubmitting || !editing}
+											/>
+										</div>
 									</div>
 								</div>
+							</div>
+							<div className="xy-prompt-edit-actions flex h-8 shrink-0 items-center gap-1">
 								<button
 									type="button"
 									onClick={cancelEdit}
@@ -702,7 +707,7 @@ ref={editing ? promptEditRef : undefined}
 									onSend={submitEdit ?? (() => undefined)}
 									onStop={stopGeneration ?? (() => undefined)}
 								/>
-</div>
+							</div>
 						</div>
 					</div>
 				</div>

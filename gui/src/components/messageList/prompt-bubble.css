@@ -1,0 +1,21 @@
+.xy-user-prompt.xy-editing-bubble {
+  container-name: xy-prompt-edit;
+  container-type: inline-size;
+}
+
+/* Keep edit controls inside the bubble in narrow chat columns and side panes. */
+@container xy-prompt-edit (max-width: 340px) {
+  .xy-prompt-edit-toolbar {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .xy-prompt-edit-options {
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+  }
+
+  .xy-prompt-edit-actions {
+    margin-left: auto;
+  }
+}
