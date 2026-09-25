@@ -288,6 +288,17 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 	const inboxItems: InboxQueuedItem[] = (activeId ? inboxBySession[activeId] : undefined) ?? [];
 	// 每会话派生：切走再切回时不会因其它会话的轮询结果把本会话 chip 熄灭。
 	const hasInboxChip = inboxItems.length > 0;
+	const queueSessionBusy = useChatUiStore(s => {
+		if (!activeId) return false;
+		const stream = selectActiveSessionStream(s);
+		return (
+			sessionStreamActive(s, activeId) ||
+			Boolean(stream.remoteStreaming || stream.turnDetached)
+		);
+	});
+	const manualQueueResumeAvailable =
+		!queueSessionBusy &&
+		inboxItems.some(item => item.state === 'queued' && item.autorun === false);
 	const inboxPollingActive = useChatUiStore(s => {
 		if (!activeId || s.sessions.find(session => session.id === activeId)?.spaceId === SIDE_SPACE_ID) return false;
 		const stream = selectActiveSessionStream(s);
@@ -1668,6 +1679,27 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 					// 每条独立行：拖拽手柄 + 截断文本 + 幽灵图标动作（编辑 / stuck→重试 / 删除）。
 					// delivering 行不可编辑/取消（后端 409，前端先行拦截）。
 					<div className="xy-queue-dock" data-queue-dock="">
+						{manualQueueResumeAvailable ? (
+							<div className="flex items-center justify-between gap-3 border-b border-line/40 px-3 py-2 text-xs text-mute">
+								<span>自动投递已暂停</span>
+								<button
+									type="button"
+									className="shrink-0 rounded-md px-2 py-1 font-medium text-accent hover:bg-accent/10 disabled:opacity-50"
+									disabled={queueActionsInFlight.has('__resume_queued__')}
+									onClick={() => {
+										if (!activeId) return;
+										const sessionId = activeId;
+										void runQueueAction(
+											'__resume_queued__',
+											() => resumeInbox(activeInboxBackendId),
+											'继续投递失败',
+										).then(() => refreshInbox(sessionId));
+									}}
+								>
+									继续投递
+								</button>
+							</div>
+						) : null}
 						{visibleInbox.map(it => {
 							const isEditing = editingId === it.queue_id;
 							return (
@@ -1695,12 +1727,28 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 										/>
 									) : (
 										<span
-											className="xy-queue-text"
-											data-stuck={it.state === 'stuck' ? '' : undefined}
-										>
-											{it.state === 'stuck' ? `投递失败：${it.text}` : it.text}
+										className="xy-queue-text"
+										data-stuck={it.state === 'stuck' ? '' : undefined}
+									>
+										{it.text}
 										</span>
 									)}
+									<span
+										className={cn(
+											'shrink-0 text-[10px]',
+											it.state === 'delivering'
+												? 'text-accent'
+												: it.state === 'stuck'
+													? 'text-danger'
+													: 'text-mute',
+										)}
+									>
+										{it.state === 'delivering'
+											? '投递中'
+											: it.state === 'stuck'
+												? '需重试'
+												: '排队'}
+									</span>
 									<div className="xy-queue-actions" hidden={isEditing}>
 										{it.state !== 'delivering' ? (
 											<button

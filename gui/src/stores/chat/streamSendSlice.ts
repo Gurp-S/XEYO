@@ -466,7 +466,7 @@ export function createStreamSendSlice(
 					},
 					onSteered() {
 						markQueueAccepted();
-						// 与"已排队（回合结束后投）"区别开：这条在本轮边界送达。
+						// 与普通 inbox 状态区分：这条在本轮边界送达。
 						// 不建 inbox 卡——引导路径没有 queue_id，卡删不掉；乐观气泡
 						// 本身就是指示物。
 						toast.info('已排到本轮边界，模型下一步就能看到');
@@ -489,7 +489,7 @@ export function createStreamSendSlice(
 							return;
 						}
 						console.info('[inbox] 已排队', {sessionId, queueId, position});
-						toast.info(`已排队（第 ${position} 条），当前回合结束后自动投递`);
+						toast.info(`已排队（第 ${position} 条）`);
 						set(s => {
 							const prev = s.inboxBySession[sessionId] ?? [];
 							const messages = s.messagesById[sessionId] ?? [];
@@ -1588,7 +1588,7 @@ export function createStreamSendSlice(
 						void get().refreshInbox(sessionId);
 						return;
 					}
-					toast.info(`已排队（第 ${position} 条），当前回合结束后自动投递`);
+					toast.info(`已排队（第 ${position} 条）`);
 					set(s => {
 						const prev = s.inboxBySession[sessionId] ?? [];
 						const messages = s.messagesById[sessionId] ?? [];

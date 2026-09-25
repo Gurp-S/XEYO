@@ -85,6 +85,7 @@ class InboxItem:
 	queued_at: float = field(default_factory=time.time)
 	attempts: int = 0
 	state: str = "queued"  # queued | delivering | stuck
+	sequence: int = 0
 
 	def to_dict(self, *, position: int = 0) -> dict[str, Any]:
 		return {
@@ -113,6 +114,9 @@ class InboxRegistry:
 		self._lock = threading.Lock()
 		# FIFO 结构：key = session_id；value = deque[InboxItem]。
 		self._queues: dict[str, list[InboxItem]] = {}
+		# Popped messages stay visible here until the synthetic chat accepts them.
+		self._inflight: dict[str, dict[str, InboxItem]] = {}
+		self._next_sequence = 0
 		# 在途排水任务（per-session），防重复 spawn。
 		self._drain_tasks: dict[str, asyncio.Task] = {}
 		# P3 观测：累计投递批次 / 条目 / 估算 token（合并轮 chars/4）。
@@ -176,6 +180,8 @@ class InboxRegistry:
 			message_id=message_id,
 		)
 		with self._lock:
+			self._next_sequence += 1
+			item.sequence = self._next_sequence
 			q = self._queues.setdefault(sid, [])
 			if len(q) >= _max_queued():
 				raise InboxQueueFull(sid, _max_queued())
@@ -187,10 +193,12 @@ class InboxRegistry:
 		sid = (session_id or "").strip()
 		with self._lock:
 			q = list(self._queues.get(sid, []))
+			inflight = list(self._inflight.get(sid, {}).values())
+		items = sorted((*q, *inflight), key=lambda item: item.sequence)
 		return {
 			"autorun": _autorun(),
 			"coalesce": _coalesce(),
-			"items": [it.to_dict(position=i + 1) for i, it in enumerate(q)],
+			"items": [it.to_dict(position=i + 1) for i, it in enumerate(items)],
 		}
 
 	def peek(self, session_id: str) -> InboxItem | None:
@@ -213,24 +221,26 @@ class InboxRegistry:
 			q = self._queues.get(session_id)
 			if not q:
 				return []
-			active = [it for it in q if it.state != "stuck"]
-			stuck = [it for it in q if it.state == "stuck"]
+			active = [it for it in q if it.state == "queued"]
+			stuck = [it for it in q if it.state != "queued"]
 			if not active:
 				return []
 			if stuck:
 				self._queues[session_id] = stuck
 			else:
 				self._queues.pop(session_id, None)
+			inflight = self._inflight.setdefault(session_id, {})
 			for it in active:
 				it.state = "delivering"
+				inflight[it.queue_id] = it
 			return active
 
 	def consume_for_boundary(self, session_id: str) -> list[InboxItem]:
-		"""取走全部**非 stuck** 项（边界投递用；stuck 项留在队内）。
+		"""取走全部 queued 项（边界投递用；stuck 项留在队内）。
 
-		与 ``pop_active`` 的区别：本方法**不**把条目置 ``delivering``——条目立刻
-		改由 ``engine.t_now_steer`` 承担「至少一次 + 幂等 + WAL」，失败时用
-		:meth:`restore_front` 原样放回，不计 attempts（不算本队列的投递失败）。
+		条目在快照中保持 ``delivering``，同时改由 ``engine.t_now_steer`` 承担
+		「至少一次 + 幂等 + WAL」；失败时用 :meth:`restore_front` 原样放回，不计
+		attempts（不算本队列的投递失败）。
 		"""
 		sid = (session_id or "").strip()
 		if not sid:
@@ -239,14 +249,18 @@ class InboxRegistry:
 			q = self._queues.get(sid)
 			if not q:
 				return []
-			active = [it for it in q if it.state != "stuck"]
+			active = [it for it in q if it.state == "queued"]
 			if not active:
 				return []
-			stuck = [it for it in q if it.state == "stuck"]
+			stuck = [it for it in q if it.state != "queued"]
 			if stuck:
 				self._queues[sid] = stuck
 			else:
 				self._queues.pop(sid, None)
+			inflight = self._inflight.setdefault(sid, {})
+			for it in active:
+				it.state = "delivering"
+				inflight[it.queue_id] = it
 			return active
 
 	def restore_front(self, session_id: str, items: list[InboxItem]) -> None:
@@ -255,10 +269,17 @@ class InboxRegistry:
 		if not sid or not items:
 			return
 		with self._lock:
+			inflight = self._inflight.get(sid)
+			if inflight:
+				for it in items:
+					inflight.pop(it.queue_id, None)
+				if not inflight:
+					self._inflight.pop(sid, None)
 			q = self._queues.setdefault(sid, [])
 			for it in reversed(items):
 				it.state = "queued"
 				q.insert(0, it)
+
 	def _pop_first_active(self, session_id: str) -> InboxItem | None:
 		"""取走首条**非 stuck** 项并标记 delivering（逐条模式）。
 
@@ -269,11 +290,12 @@ class InboxRegistry:
 			if not q:
 				return None
 			for i, it in enumerate(q):
-				if it.state != "stuck":
+				if it.state == "queued":
 					del q[i]
 					if not q:
 						self._queues.pop(session_id, None)
 					it.state = "delivering"
+					self._inflight.setdefault(session_id, {})[it.queue_id] = it
 					return it
 			return None
 
@@ -287,6 +309,17 @@ class InboxRegistry:
 			if not q:
 				self._queues.pop(session_id, None)
 			return it
+
+	def _finish_delivering(self, session_id: str, items: list[InboxItem]) -> None:
+		"""Forget accepted items after their synthetic chat has started."""
+		with self._lock:
+			inflight = self._inflight.get(session_id)
+			if not inflight:
+				return
+			for it in items:
+				inflight.pop(it.queue_id, None)
+			if not inflight:
+				self._inflight.pop(session_id, None)
 
 	def remove(self, session_id: str, queue_id: str) -> bool:
 		"""取消单条排队消息；已在投递中（delivering）返回 False。"""
@@ -358,26 +391,33 @@ class InboxRegistry:
 		sid = (session_id or "").strip()
 		with self._lock:
 			self._queues.pop(sid, None)
+			self._inflight.pop(sid, None)
 			task = self._drain_tasks.pop(sid, None)
 		if task is not None and not task.done():
 			task.cancel()
 
 	def __len__(self) -> int:
 		with self._lock:
-			return sum(len(q) for q in self._queues.values())
+			return sum(len(q) for q in self._queues.values()) + sum(
+				len(items) for items in self._inflight.values()
+			)
 
 	def counts(self) -> dict[str, Any]:
 		"""P3 /health 聚合：每会话 pending + stuck + 累计投递观测。"""
 		with self._lock:
-			pending = 0
-			stuck = 0
-			for sid, q in self._queues.items():
-				pending += len(q)
-				stuck += sum(1 for it in q if it.state == "stuck")
+			pending = sum(len(q) for q in self._queues.values()) + sum(
+				len(items) for items in self._inflight.values()
+			)
+			stuck = sum(
+				1
+				for q in self._queues.values()
+				for it in q
+				if it.state == "stuck"
+			)
 			return {
 				"pending": pending,
 				"stuck": stuck,
-				"sessions": len(self._queues),
+				"sessions": len(set(self._queues) | set(self._inflight)),
 				"batches_delivered": self._batches_delivered,
 				"items_delivered": self._items_delivered,
 				"tokens_est": self._tokens_est,
@@ -460,7 +500,7 @@ class InboxRegistry:
 	def _has_queued(self, session_id: str) -> bool:
 		with self._lock:
 			q = self._queues.get(session_id)
-			return bool(q) and any(it.state != "stuck" for it in q)
+			return bool(q) and any(it.state == "queued" for it in q)
 
 	async def _drain_batch(self, session_id: str) -> None:
 		"""批投：取走全部非 stuck 项合并为一个合成轮（N->1，省钱 + 减压缩计数）。"""
@@ -470,13 +510,17 @@ class InboxRegistry:
 		joined = "\n\n".join(it.text for it in items)
 		media_refs = [r for it in items for r in it.media_refs]
 		first_id = next((it.message_id for it in items if it.message_id), None)
-		started = await self._submit_fn()(
-			session_id,
-			joined,
-			surface="inbox",
-			media_refs=media_refs,
-			message_id=first_id,
-		)
+		try:
+			started = await self._submit_fn()(
+				session_id,
+				joined,
+				surface="inbox",
+				media_refs=media_refs,
+				message_id=first_id,
+			)
+		except Exception:  # noqa: BLE001 — unexpected submit failures must restore the inbox
+			_logger.warning("inbox batch submit raised sid=%s", session_id, exc_info=True)
+			started = False
 		if started:
 			_logger.info(
 				"inbox batch delivered sid=%s count=%s chars=%s",
@@ -484,6 +528,7 @@ class InboxRegistry:
 				len(items),
 				len(joined),
 			)
+			self._finish_delivering(session_id, items)
 			with self._lock:
 				self._batches_delivered += 1
 				self._items_delivered += len(items)
@@ -497,14 +542,24 @@ class InboxRegistry:
 		it = self._pop_first_active(session_id)
 		if it is None:
 			return
-		started = await self._submit_fn()(
-			session_id,
-			it.text,
-			surface="inbox",
-			media_refs=it.media_refs,
-			message_id=it.message_id,
-		)
+		try:
+			started = await self._submit_fn()(
+				session_id,
+				it.text,
+				surface="inbox",
+				media_refs=it.media_refs,
+				message_id=it.message_id,
+							)
+		except Exception:  # noqa: BLE001 — unexpected submit failures must restore the inbox
+			_logger.warning(
+				"inbox submit raised sid=%s qid=%s",
+				session_id,
+				it.queue_id,
+				exc_info=True,
+			)
+			started = False
 		if started:
+			self._finish_delivering(session_id, [it])
 			with self._lock:
 				self._batches_delivered += 1
 				self._items_delivered += 1
@@ -519,6 +574,12 @@ class InboxRegistry:
 		上限时**保数据不丢**（回队优先于限流）并告警——失败回放不该静默丢消息。
 		"""
 		with self._lock:
+			inflight = self._inflight.get(session_id)
+			if inflight:
+				for it in items:
+					inflight.pop(it.queue_id, None)
+				if not inflight:
+					self._inflight.pop(session_id, None)
 			q = self._queues.setdefault(session_id, [])
 			for it in items:
 				it.attempts += 1
@@ -541,6 +602,7 @@ class InboxRegistry:
 			tasks = list(self._drain_tasks.values())
 			self._drain_tasks.clear()
 			self._queues.clear()
+			self._inflight.clear()
 		for t in tasks:
 			if not t.done():
 				t.cancel()

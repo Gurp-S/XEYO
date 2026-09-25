@@ -385,6 +385,7 @@ export type InboxQueuedItem = {
 	attempts: number;
 	state: 'queued' | 'delivering' | 'stuck';
 	position: number;
+	autorun?: boolean;
 };
 
 export type ChatState = {

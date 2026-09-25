@@ -62,6 +62,7 @@ def deliver_queued_users(session_id: str, store: Any) -> list[Any]:
 	from engine.t_now_steer import push as _push
 
 	failed: list[Any] = []
+	pushed: list[Any] = []
 	for it in items:
 		ok = False
 		try:
@@ -77,6 +78,8 @@ def deliver_queued_users(session_id: str, store: Any) -> list[Any]:
 			_log.debug("inbox boundary push failed", exc_info=True)
 		if not ok:
 			failed.append(it)
+		else:
+			pushed.append(it)
 	if failed:
 		# 入队失败：原样放回队首（不计 attempts），settle 侧仍有机会投递。
 		try:
@@ -84,7 +87,16 @@ def deliver_queued_users(session_id: str, store: Any) -> list[Any]:
 		except Exception:  # noqa: BLE001
 			_log.warning("inbox restore after failed push failed sid=%s", sid, exc_info=True)
 	try:
-		return _deliver(sid, store)
+		added = _deliver(sid, store)
 	except Exception:  # noqa: BLE001
 		_log.debug("inbox boundary deliver failed", exc_info=True)
+		try:
+			reg.restore_front(sid, pushed)
+		except Exception:  # noqa: BLE001
+			_log.warning("inbox restore after failed delivery failed sid=%s", sid, exc_info=True)
 		return []
+	try:
+		reg._finish_delivering(sid, pushed)
+	except Exception:  # noqa: BLE001 — bookkeeping failure must not block the model turn
+		_log.debug("inbox delivery bookkeeping failed sid=%s", sid, exc_info=True)
+	return added

@@ -38,6 +38,7 @@ function normalizeItems(payload: InboxSnapshot | null): InboxQueuedItem[] {
 						? 'delivering'
 						: 'queued',
 			position: i + 1,
+			autorun: payload.autorun,
 		}));
 }
 
