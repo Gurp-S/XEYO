@@ -1631,16 +1631,43 @@ export type MemorySnapshotResult = {
 	error?: string;
 };
 
-export async function runMemorySnapshot(): Promise<MemorySnapshotResult | null> {
+/**
+ * 快照回执：ok=false 只表示"没读到结果"（HTTP 失败/离线/形状变了），
+ * 与"后端跑了但说失败"（ok:true + data.ok:false + error）是两件事。
+ */
+export type MemorySnapshotRead = {
+	ok: boolean;
+	data: MemorySnapshotResult | null;
+	message: string;
+};
+
+export async function runMemorySnapshot(): Promise<MemorySnapshotRead> {
 	try {
 		const res = await fetchWithTimeout(apiUrl('/v1/settings/memory/snapshot'), {
 			method: 'POST',
 			headers: {...authHeaders()},
 		});
-		if (!res.ok) return null;
-		return (await res.json()) as MemorySnapshotResult;
-	} catch {
-		return null;
+		const payload = await res.json().catch(() => null);
+		if (!res.ok) {
+			return {ok: false, data: null, message: formatErrorDetail(payload, res.status)};
+		}
+		if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+			return {ok: false, data: null, message: 'receipt_bad_snapshot'};
+		}
+		const data = payload as MemorySnapshotResult;
+		if (typeof data.ok !== 'boolean') {
+			return {ok: false, data: null, message: 'receipt_bad_snapshot'};
+		}
+		if (data.rc != null && !isFiniteNumber(data.rc)) {
+			return {ok: false, data: null, message: 'receipt_bad_snapshot'};
+		}
+		return {ok: true, data, message: ''};
+	} catch (err) {
+		return {
+			ok: false,
+			data: null,
+			message: err instanceof Error ? err.message : String(err),
+		};
 	}
 }
 
@@ -1660,16 +1687,41 @@ export type MemoryReportInfo = {
 	error?: string;
 };
 
+/**
+ * 报告回执。`ok:false + exists:false` 是后端**给得出的正面答案**（报告确实还没生成），
+ * 与"我们没读到"（HTTP 失败 / 离线 / 形状变了）必须分开：前者才能禁按钮并写"尚未生成"，
+ * 后者只能写"未读到"。后端自己也守这条 —— 报告存在却读不出时它回 500，不谎报"尚未生成"。
+ */
+export type MemoryReportRead = {
+	ok: boolean;
+	data: MemoryReportInfo | null;
+	message: string;
+};
+
 /** A3 监控报告（docs/A3-monitor.html）落点与元信息；设置页「打开报告」按钮用。 */
-export async function getMemoryReport(): Promise<MemoryReportInfo | null> {
+export async function getMemoryReport(): Promise<MemoryReportRead> {
 	try {
 		const res = await fetchWithTimeout(apiUrl('/v1/settings/memory/report'), {
 			cache: 'no-store',
 		});
-		if (!res.ok) return null;
-		return (await res.json()) as MemoryReportInfo;
-	} catch {
-		return null;
+		const payload = await res.json().catch(() => null);
+		if (!res.ok) {
+			return {ok: false, data: null, message: formatErrorDetail(payload, res.status)};
+		}
+		if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+			return {ok: false, data: null, message: 'receipt_bad_report'};
+		}
+		const data = payload as MemoryReportInfo;
+		if (typeof data.ok !== 'boolean' || typeof data.exists !== 'boolean') {
+			return {ok: false, data: null, message: 'receipt_bad_report'};
+		}
+		return {ok: true, data, message: ''};
+	} catch (err) {
+		return {
+			ok: false,
+			data: null,
+			message: err instanceof Error ? err.message : String(err),
+		};
 	}
 }
 

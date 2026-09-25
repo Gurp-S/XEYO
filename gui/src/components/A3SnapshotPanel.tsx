@@ -50,10 +50,14 @@ export function A3SnapshotPanel({active}: {active: boolean}) {
 		let disposed = false;
 		const requestId = ++reportRequestRef.current;
 		setLoading(true);
-		void getMemoryReport().then(info => {
-			if (!disposed && reportRequestRef.current === requestId) {
-				setReport(info);
-				setReportError(info ? '' : '无法读取 A3 报告状态，请确认 XEYO 服务正在运行。');
+		void getMemoryReport().then(r => {
+			if (disposed || reportRequestRef.current !== requestId) return;
+			if (r.ok && r.data) {
+				setReport(r.data);
+				setReportError('');
+			} else {
+				setReport(null);
+				setReportError(`未读到 A3 报告状态（${r.message || 'unknown'}）`);
 			}
 		}).catch(error => {
 			if (!disposed && reportRequestRef.current === requestId) {
@@ -71,10 +75,15 @@ export function A3SnapshotPanel({active}: {active: boolean}) {
 		const requestId = ++reportRequestRef.current;
 		setLoading(true);
 		try {
-			const info = await getMemoryReport();
+			const r = await getMemoryReport();
 			if (!mountedRef.current || reportRequestRef.current !== requestId) return;
-			setReport(info);
-			setReportError(info ? '' : '无法读取 A3 报告状态，请确认 XEYO 服务正在运行。');
+			if (r.ok && r.data) {
+				setReport(r.data);
+				setReportError('');
+			} else {
+				setReport(null);
+				setReportError(`未读到 A3 报告状态（${r.message || 'unknown'}）`);
+			}
 			setReportRevision(revision => revision + 1);
 		} catch (error) {
 			if (!mountedRef.current || reportRequestRef.current !== requestId) return;
@@ -92,10 +101,16 @@ export function A3SnapshotPanel({active}: {active: boolean}) {
 		setRunning(true);
 		setSnapshotResult('');
 		try {
-			const result = await runMemorySnapshot();
+			const r = await runMemorySnapshot();
 			if (!mountedRef.current) return;
-			if (!result?.ok) {
-				toast.error(result?.error || 'A3 快照失败');
+			if (!r.ok || !r.data) {
+				// 读不到回执 ≠ 后端没跑：这里只能说"未确认"，不能说"失败"。
+				toast.error(`A3 快照未确认：${r.message || 'unknown'}`);
+				return;
+			}
+			const result = r.data;
+			if (!result.ok) {
+				toast.error(result.error || 'A3 快照失败');
 				return;
 			}
 			const days = result.days ?? (result.day ? [result.day] : []);
@@ -127,9 +142,11 @@ export function A3SnapshotPanel({active}: {active: boolean}) {
 	};
 
 	const reportMeta = report
-		? [
+		? !report.exists
+			? '尚未生成报告'
+			: [
 				report.path?.split(/[\\/]/).pop() ?? 'A3 报告',
-				report.exists && report.days?.length ? `${report.days.length} 天` : null,
+				report.days?.length ? `${report.days.length} 天` : null,
 				bytesLabel(report.bytes),
 				generatedLabel(report.generated_at),
 			]
@@ -198,7 +215,9 @@ export function A3SnapshotPanel({active}: {active: boolean}) {
 				<div className="px-4 py-10 text-center text-[12px] text-mute">
 					{loading
 						? '正在读取 A3 报告…'
-						: '还没有 A3 快照。点击“立即快照”生成报告；后台计划任务也会每日更新。'}
+						: reportError
+							? '报告状态没读到，上面写了原因；恢复后点右上角刷新重试。'
+							: '还没有 A3 快照。点击“立即快照”生成报告；后台计划任务也会每日更新。'}
 				</div>
 			)}
 		</section>
