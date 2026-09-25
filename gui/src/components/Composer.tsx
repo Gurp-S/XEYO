@@ -440,9 +440,18 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 		});
 	};
 	const cancelQueueItem = (it: InboxQueuedItem) => {
-		if (it.queue_id === editingId) closeQueueEdit();
 		const sessionId = activeId;
 		if (!sessionId) return;
+		if (
+			activeSessionArchived ||
+			chatUiStoreApi.getState().sessions.some(
+				session => session.id === sessionId && session.archived,
+			)
+		) {
+			toast.info('归档对话为只读，请先恢复后取消排队消息');
+			return;
+		}
+		if (it.queue_id === editingId) closeQueueEdit();
 		void runQueueAction(
 			it.queue_id,
 			() => cancelInboxItem(sessionId, it.queue_id),
@@ -1951,15 +1960,18 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 											type="button"
 											className="xy-queue-action disabled:pointer-events-none disabled:opacity-40"
 											title={
-											it.state === 'syncing'
-												? '等待同步服务端回复'
-												: it.state === 'delivering'
-													? '已开始投递，无法取消'
-													: queueActionsInFlight.has(it.queue_id)
-														? '正在处理…'
-														: '取消排队'
+												activeSessionArchived
+													? '归档对话只读，请先恢复'
+													: it.state === 'syncing'
+														? '等待同步服务端回复'
+														: it.state === 'delivering'
+															? '已开始投递，无法取消'
+															: queueActionsInFlight.has(it.queue_id)
+																? '正在处理…'
+																: '取消排队'
 											}
 											disabled={
+												activeSessionArchived ||
 												!canMutateInboxItem(it.state) ||
 												queueActionsInFlight.has(it.queue_id)
 											}

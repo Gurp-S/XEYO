@@ -97,6 +97,9 @@ export const ChatHeader = memo(function ChatHeader({
 	});
 	const sessionTitle =
 		sessions.find(s => s.id === activeId)?.title?.trim() || '新对话';
+	const activeSessionArchived = Boolean(
+		activeId && sessions.some(session => session.id === activeId && session.archived),
+	);
 	const shortAgent = agentTitle
 		? agentTitle.length > 16
 			? `${agentTitle.slice(0, 16)}…`
@@ -284,7 +287,13 @@ const usage = pageViewOpen ? null : sessionUsageById[activeId ?? ''] ?? null;
 		}, [usagePreviewOpen, backendSessionId]);
 
 		const onManualCompact = async () => {
-			if (!backendSessionId || compactBusy) return;
+			if (
+				!backendSessionId ||
+				compactBusy ||
+				useChatStore.getState().sessions.some(
+					session => session.id === activeId && session.archived,
+				)
+			) return;
 			const targetSessionId = activeId;
 			const targetBackendId = backendSessionId;
 			setCompactBusy(true);
@@ -521,7 +530,8 @@ className="xy-icon-btn shrink-0 rounded-md p-1.5 text-mute hover:bg-glass-hover 
 													{compression?.c2_gate ? (
 														<button
 															type="button"
-															disabled={compactBusy || !backendSessionId}
+															disabled={compactBusy || !backendSessionId || activeSessionArchived}
+															title={activeSessionArchived ? '归档对话只读，请先恢复' : undefined}
 															onClick={() => void onManualCompact()}
 															className="rounded-md border border-line/80 bg-glass px-2 py-1 text-[11px] font-medium text-ink hover:bg-glass-hover disabled:opacity-50"
 														>
