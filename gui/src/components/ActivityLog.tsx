@@ -164,11 +164,13 @@ function StepDetailBody({
 	args,
 	result,
 	running,
+	waiting,
 	verb,
 }: {
 	args?: string;
 	result?: string;
 	running?: boolean;
+	waiting?: boolean;
 	verb?: string;
 }) {
 	const [full, setFull] = useState(false);
@@ -230,7 +232,7 @@ function StepDetailBody({
 					</>
 				) : (
 					<pre className="rounded bg-glass-soft/50 px-2 py-1.5 font-mono text-[11px] text-mute">
-						{running ? 'Running…' : '—'}
+						{waiting ? 'Waiting for result…' : running ? 'Running…' : '—'}
 					</pre>
 				)}
 			</section>
@@ -439,6 +441,7 @@ function ToolStepRow({
 			className={cn(
 				'xy-split-step',
 				step.error && 'is-failed',
+				step.waiting && 'is-waiting',
 				step.verb === 'Edited' && !step.error && 'is-ok',
 				handoff && 'is-handoff',
 				appear && 'is-tool-appear',
@@ -456,7 +459,9 @@ function ToolStepRow({
 			}}
 		>
 			<span className="xy-split-bullet" aria-hidden>
-				{step.running ? (
+				{step.waiting ? (
+					<i className="xy-split-wait-dot" />
+				) : step.running ? (
 					<i className="xy-split-pulse" />
 				) : step.error ? (
 					'✕'
@@ -504,6 +509,7 @@ function ToolStepRow({
 							args={step.args}
 							result={step.result}
 							running={step.running}
+							waiting={step.waiting}
 							verb={step.verb}
 						/>
 					) : null}
@@ -622,8 +628,7 @@ function ActivityLogInner({
 		}
 		return -1;
 	})();
-	const anyRunning =
-		lastRunningIdx >= 0 && steps[lastRunningIdx]?.running === true;
+	const anyRunning = steps.some(step => step.running && !step.waiting);
 	const waitingForResult = steps.some(step => step.waiting);
 
 	const [elapsed, setElapsed] = useState(0);
@@ -634,7 +639,7 @@ function ActivityLogInner({
 		}
 	}, [startedAt]);
 
-	const working = Boolean(active || anyRunning);
+	const working = Boolean(active || anyRunning || waitingForResult);
 	const workflowState = anyRunning
 		? 'working'
 		: waitingForResult
