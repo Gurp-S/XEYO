@@ -130,7 +130,7 @@ export function ChatPage() {
 
 	// 页面视图使用全局 URL；恢复当前会话的侧聊上下文供共享 chrome 使用。
 	const isSideChat =
-		location.pathname.startsWith('/side/') ||
+		location.pathname.toLowerCase().startsWith('/side/') ||
 		(pageViewOpen && activeSessionIsSide);
 	useEffect(() => {
 		if (offlineReplay) {

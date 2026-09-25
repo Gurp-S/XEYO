@@ -47,13 +47,16 @@ export type PageViewKind = 'usage' | 'plugins' | 'diagnostics';
 
 /** 路径 → 页面视图；非页面视图路径返回 null。 */
 export function pageViewFromPath(pathname: string): PageViewKind | null {
-	if (pathname === '/usage') {
+	// React Router 默认忽略大小写并接受尾随斜杠；页面视图派生须遵循同一规则，
+	// 否则匹配到 ChatPage 的 /usage/ 会被误判成聊天路由并重定向走。
+	const path = pathname.replace(/\/+$/, '').toLowerCase() || '/';
+	if (path === '/usage') {
 		return 'usage';
 	}
-	if (pathname === '/plugins') {
+	if (path === '/plugins') {
 		return 'plugins';
 	}
-	if (pathname === '/diagnostics') {
+	if (path === '/diagnostics') {
 		return 'diagnostics';
 	}
 	return null;
