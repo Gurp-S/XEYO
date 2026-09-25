@@ -124,33 +124,45 @@ export async function openWorkspaceSession(
 ): Promise<string> {
 	await page.waitForFunction(
 		() => {
-			const st = (
+			const store = (
 				window as unknown as {
 					__XEYO_CHAT__?: {
-						getState: () => {hydrated?: boolean};
+						getState: () => {hydrated?: boolean} | undefined;
 					};
 				}
-			).__XEYO_CHAT__!.getState();
-			return st.hydrated === true;
+			).__XEYO_CHAT__;
+			return store?.getState()?.hydrated === true;
 		},
+		undefined,
 		{timeout: 20_000},
 	);
 	const sid = (await page.evaluate(p => {
-		const st = (
+		const store = (
 			window as unknown as {
 				__XEYO_CHAT__?: {
 					getState: () => {
-						openFolder: (r: string) => Promise<string | unknown>;
-						createSession: () => Promise<string>;
+						openFolder: (r: string) => Promise<string>;
+						createSession: (spaceId?: string) => Promise<string>;
 					};
 				};
 			}
-		).__XEYO_CHAT__!.getState();
+		).__XEYO_CHAT__;
+		if (!store) {
+			throw new Error('XEYO chat store bridge is unavailable');
+		}
 		return (async () => {
-			await st.openFolder(p);
-			return await st.createSession();
+			const state = store.getState();
+			const spaceId = await state.openFolder(p);
+			// ChatPage keeps the URL authoritative for an existing /c/:id route.
+			// Pass the opened space explicitly so an overlapping route effect cannot
+			// make createSession attach this setup session to the previous workspace.
+			return await store.getState().createSession(spaceId);
 		})();
 	}, dir)) as string;
+	// openWorkspaceSession can run while ChatPage is already on an older /c/:id
+	// route. That route can win the store's activeId race even though setup created
+	// a session under the requested folder, so navigate to the session we created.
+	await page.goto(`/c/${encodeURIComponent(sid)}`);
 	// 双层幂等校验（防 ChatPage 路由 effect 把 activeId 拉回任何残留 session）：
 	// ① spaces 里有 rootPath 精确等于 dir 的空间、activeSpaceId 指向它；
 	// ② activeId 已切到 createSession 返回的 dirSpace 会话（send 守卫读
@@ -158,25 +170,28 @@ export async function openWorkspaceSession(
 	try {
 		await page.waitForFunction(
 			({p, sid}) => {
-				const st = (
+				const store = (
 					window as unknown as {
 						__XEYO_CHAT__?: {
 							getState: () => {
-								spaces?: Array<{rootPath?: string}>;
+								hydrated?: boolean;
+								spaces?: Array<{id?: string; rootPath?: string}>;
 								activeSpaceId?: string | null;
-								sessions?: Array<{spaceId?: string}>;
+								sessions?: Array<{id?: string; spaceId?: string}>;
 								activeId?: string | null;
 							};
 						};
 					}
-				).__XEYO_CHAT__!.getState();
+				).__XEYO_CHAT__;
+				const st = store?.getState();
+				const session = st?.sessions?.find(item => item.id === sid);
 				return (
-					!!st.spaces &&
-					st.spaces.some(s => s.rootPath === p) &&
-					!!st.activeSpaceId &&
-					!!st.sessions &&
-					st.sessions.some(s => s.spaceId === st.activeSpaceId) &&
-					st.activeId === sid
+					st?.hydrated === true &&
+					!!session?.spaceId &&
+					st?.spaces?.some(s => s.id === session.spaceId && s.rootPath === p) &&
+					st.activeSpaceId === session.spaceId &&
+					st.activeId === sid &&
+					window.location.pathname === `/c/${sid}`
 				);
 			},
 			{p: dir, sid},

@@ -4,7 +4,7 @@
  * 覆盖主路径：发（send）/ 停（stop）。权限 / reattach / 回溯按同一骨架后续补齐。
  * 门禁哲学与拆除脚本一致：失败即红。
  */
-import {render, screen} from '@testing-library/react';
+import {fireEvent, render, screen} from '@testing-library/react';
 import {beforeEach, describe, expect, it, vi} from 'vitest';
 import type {ChatStreamHandlers} from '@/lib/api';
 import {DEFAULT_SPACE_ID, replaceMessages} from '@/lib/db';
@@ -395,11 +395,18 @@ describe('主路径部件集成 — 发 / 停 / 权限 / reattach / 回溯', () 
 		);
 		expect(tool?.toolStatus).toBe('done');
 		expect(tool?.text).toBe('ok');
-		// 工具行（activity 面板）以本地化动词呈现完成态（"Wrote a.txt"）
+		// Timeline 工具行显示文件变更类别、目标路径与完成态。
+		const activitySummary = document.querySelector<HTMLButtonElement>(
+			'.xy-timeline-workflow-summary',
+		);
+		if (activitySummary?.getAttribute('aria-expanded') === 'false') {
+			fireEvent.click(activitySummary);
+		}
 		await vi.waitFor(() => {
-			expect(
-				document.querySelector('.xy-activity-detail-inner')?.textContent,
-			).toContain('Wrote');
+			const row = document.querySelector(
+				'.xy-timeline-activity-row[data-kind="change"].is-done',
+			);
+			expect(row?.textContent).toContain('a.txt');
 		});
 	});
 
@@ -422,8 +429,12 @@ describe('主路径部件集成 — 发 / 停 / 权限 / reattach / 回溯', () 
 			},
 		});
 		render(<MessageList />);
-		// 刷新前：running 工具行（activity 折叠行）在 UI
-		expect(document.querySelector('.xy-activity-split')).not.toBeNull();
+		// 刷新前：Timeline 显示了折叠活动摘要或运行中的任务清单行。
+		expect(
+			document.querySelector(
+				'.xy-timeline-workflow-summary, .xy-timeline-activity-row[data-kind="todo"]',
+			),
+		).not.toBeNull();
 
 		useChatStore.getState().recoverStuckStream();
 
@@ -435,11 +446,17 @@ describe('主路径部件集成 — 发 / 停 / 权限 / reattach / 回溯', () 
 			'interrupted (stream ended without tool result)',
 		);
 		expect(replaceMessages).toHaveBeenCalled();
-		// 注：错误详情文本（interrupted…）折叠态不渲染（UI 改进点）；
-		// DOM 层断言工具行仍在且呈现该工具的动词摘要（"Checked to-do list"）。
-		expect(
-			document.querySelector('.xy-activity-detail-inner')?.textContent,
-		).toContain('to-do list');
+		// Timeline 继续显示失败工具行为任务清单，并标记失败状态。
+		const activitySummary = document.querySelector<HTMLButtonElement>(
+			'.xy-timeline-workflow-summary',
+		);
+		if (activitySummary?.getAttribute('aria-expanded') === 'false') {
+			fireEvent.click(activitySummary);
+		}
+		const row = document.querySelector(
+			'.xy-timeline-activity-row[data-kind="todo"].is-error',
+		);
+		expect(row?.textContent).toContain('任务清单');
 	});
 
 	it('回溯 v3：openDialog → RewindV3Dialog；v2 preview 已退役', async () => {

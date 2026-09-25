@@ -20,10 +20,19 @@ vi.mock('@/hooks/useStreamTypewriter', () => ({
 vi.mock('@/stores/chatStore', () => {
 	const state = {
 		activeId: 'sess-1',
+		historyById: {},
 		emptyQuipSeq: 0,
 		activeSpaceId: 'space-1',
 		spaces: [{id: 'space-1', name: 'XEYO code', rootPath: 'D:/x'}],
 		sessions: [{id: 'sess-1', spaceId: 'space-1', title: 't', createdAt: 0, updatedAt: 0}],
+		pendingPermission: null,
+		pendingAsk: null,
+		pendingPlan: null,
+		errorBanner: null,
+		errorBannerSessionId: null,
+		sessionGoalById: {} as Record<string, unknown>,
+		sessionTodosById: {} as Record<string, unknown>,
+		sessionJobsById: {} as Record<string, unknown>,
 		sessionStreams: {} as Record<string, {
 			streamingText: string;
 			streamingShown: string;
@@ -178,6 +187,7 @@ describe('MessageList dialogue rendering', () => {
 	});
 
 	it('shows reasoning when loading without stream text', async () => {
+		const user = userEvent.setup();
 		const {useChatStore} = await import('@/stores/chatStore');
 		const state = useChatStore() as {
 			sessionStreams: Record<string, {
@@ -206,6 +216,7 @@ describe('MessageList dialogue rendering', () => {
 			},
 		};
 		render(<MessageList messages={[userMsg('q')]} />);
+		await user.click(screen.getByRole('button', {name: /思考/}));
 		expect(screen.getByText('Planning next steps')).toBeInTheDocument();
 		state.sessionStreams = {};
 	});

@@ -34,8 +34,19 @@ def _seed_transcript(sessions_dir: Path, sid: str) -> Path:
 @pytest.fixture()
 def isolated_env(tmp_path: Path, monkeypatch) -> Path:
 	"""隔离会话目录，避免测试触碰真实 ~/.xeyo/sessions。"""
-	monkeypatch.setenv("XEYO_SESSIONS_DIR", str(tmp_path / "sessions"))
-	return tmp_path / "sessions"
+	sessions_dir = tmp_path / "sessions"
+	monkeypatch.setenv("XEYO_SESSIONS_DIR", str(sessions_dir))
+	from server.routers import sessions as sessions_module
+	from server.session_pool import SessionPool
+
+	# 路由模块持有 server.deps._pool 的模块级引用。按测试作用域替换，
+	# 让 monkeypatch 在 tmp_path 清理前恢复原单例，避免污染后续 API 测试。
+	monkeypatch.setattr(
+		sessions_module,
+		"_pool",
+		SessionPool(cwd=str(sessions_dir), busy_stale_sec=600),
+	)
+	return sessions_dir
 
 
 def _delete(sid: str) -> dict:
@@ -47,9 +58,7 @@ def _delete(sid: str) -> dict:
 def test_delete_blocked_when_not_archived(isolated_env: Path) -> None:
 	"""常态会话删除必须 409 archived_required；transcript 原样保留。"""
 	from server.routers import sessions as sessions_module
-	from server.session_pool import SessionPool
 
-	sessions_module._pool = SessionPool(cwd=str(isolated_env), busy_stale_sec=600)
 	sid = "sess_not_archived"
 	tp = _seed_transcript(isolated_env, sid)
 
@@ -63,10 +72,8 @@ def test_delete_blocked_when_not_archived(isolated_env: Path) -> None:
 def test_delete_allowed_after_archive(isolated_env: Path) -> None:
 	"""归档 → 删除 → 200，transcript 与 archive sidecar 一并清理。"""
 	from server.routers import sessions as sessions_module
-	from server.session_pool import SessionPool
 	from engine.title import archive_sidecar_path, read_archive
 
-	sessions_module._pool = SessionPool(cwd=str(isolated_env), busy_stale_sec=600)
 	sid = "sess_archived_then_deleted"
 	tp = _seed_transcript(isolated_env, sid)
 
@@ -86,9 +93,7 @@ def test_delete_allowed_after_archive(isolated_env: Path) -> None:
 def test_restore_rearms_delete_gate(isolated_env: Path) -> None:
 	"""归档→恢复→删除：回到常态保护（409）。"""
 	from server.routers import sessions as sessions_module
-	from server.session_pool import SessionPool
 
-	sessions_module._pool = SessionPool(cwd=str(isolated_env), busy_stale_sec=600)
 	sid = "sess_restore_then_delete"
 	tp = _seed_transcript(isolated_env, sid)
 
@@ -105,9 +110,7 @@ def test_restore_rearms_delete_gate(isolated_env: Path) -> None:
 def test_delete_unknown_session_still_gated(isolated_env: Path) -> None:
 	"""不存在的会话同样吃归档门槛（不泄露存在性、不绕道）。"""
 	from server.routers import sessions as sessions_module
-	from server.session_pool import SessionPool
 
-	sessions_module._pool = SessionPool(cwd=str(isolated_env), busy_stale_sec=600)
 	with pytest.raises(HTTPException) as ei:
 		_delete("sess_never_existed")
 	assert ei.value.status_code == 409

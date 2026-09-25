@@ -426,7 +426,7 @@ html[data-xy-selfwallpaper="1"] [data-pin-id] .xy-editing-bubble {
 
 /* 吸顶 portal 编辑：legacy 挖孔路径禁止位移/缩放/动画（避免洞与气泡不同步、抖动）。
    自绘壁纸模式（默认）无挖孔，放行 xy-editing-bubble-in 入场淡入，让查看↔编辑平滑而非硬切。 */
-html[data-xy-selfwallpaper!="1"] [data-pin-id] .xy-editing-bubble {
+html:not([data-xy-selfwallpaper="1"]) [data-pin-id] .xy-editing-bubble {
   animation: none;
 }
 

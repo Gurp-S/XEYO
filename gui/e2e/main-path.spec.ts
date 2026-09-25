@@ -41,8 +41,11 @@ test('send: 用户气泡上屏 → 助理流式落定 ok: <text>', async ({page}
 	await composer.fill('hello');
 	await composer.press('Enter');
 
-	// 用户气泡（exact 匹配，避免命中助理 "ok: hello" 的子串）。
-	await expect(page.getByText('hello', {exact: true})).toBeVisible();
+	// 用户气泡本身是可访问的编辑按钮；限定到它，避免精确文本同时命中
+	// 仍保留内容的 composer textarea 与气泡正文。
+	await expect(
+		page.getByRole('button', {name: '编辑这条消息'}).filter({hasText: 'hello'}),
+	).toBeVisible();
 	// 助理最终文本（FakeModelClient 规则 3：`ok: <user>`，逐字符流式）。
 	await expect(page.getByText(/ok: hello/)).toBeVisible({timeout: 20_000});
 	// 回到非流式：发送按钮复原、无停止按钮。
@@ -51,7 +54,9 @@ test('send: 用户气泡上屏 → 助理流式落定 ok: <text>', async ({page}
 });
 
 test('stop: 停止按钮中断流 → UI 回非加载态', async ({page}) => {
-	const longText = 'stop me ' + 'x'.repeat(200);
+	// FakeModelClient emits one character every 8 ms. Keep this response alive
+	// long enough for Chromium and the stop assertion to observe the streaming UI.
+	const longText = 'stop me ' + 'x'.repeat(2_000);
 	const composer = page.getByPlaceholder(COMPOSER);
 	await composer.click();
 	await composer.fill(longText);

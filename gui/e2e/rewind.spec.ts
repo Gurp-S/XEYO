@@ -27,7 +27,6 @@ const STOP = '停止生成';
 const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'xeyo-e2e-rewind-ws-'));
 
 const EDIT_BUBBLE = '编辑这条消息';
-const EDIT_PREVIEW = '点击开始编辑';
 const EDIT_TEXTAREA = '编辑历史消息';
 const DIALOG_TITLE = '回溯到这条对话';
 const BTN_CANCEL = '取消';
@@ -84,7 +83,7 @@ async function send(page: import('@playwright/test').Page, text: string) {
 }
 
 /**
- * 打开某条 user 消息的回溯弹窗：点击气泡 → 编辑预览 → 原生 textarea → Enter 提交。
+ * 打开某条 user 消息的回溯弹窗：点击气泡即进入原生 textarea → Enter 提交。
  * `userText` 用于在多轮里唯一定位目标气泡。
  */
 async function openRewindDialog(
@@ -96,7 +95,6 @@ async function openRewindDialog(
 		.filter({hasText: userText})
 		.first()
 		.click();
-	await page.getByLabel(EDIT_PREVIEW).click();
 	const textarea = page.getByLabel(EDIT_TEXTAREA);
 	await expect(textarea).toBeVisible();
 	return textarea;
