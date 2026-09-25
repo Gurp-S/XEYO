@@ -1,4 +1,4 @@
-import {useEffect, useState, type CSSProperties, type ReactNode} from 'react';
+import {useEffect, useLayoutEffect, useState, type CSSProperties, type ReactNode} from 'react';
 import {
 	bindReducedMotionToSmoothness,
 	useSettingsStore,
@@ -74,13 +74,15 @@ export function AppShell({children}: Props) {
 		y: number;
 	} | null>(null);
 
-	useEffect(() => {
+	useLayoutEffect(() => {
 		if (!bgImage) {
 			setBakedSrc(null);
 			return;
 		}
+		// 图片或模糊等级切换时先同步显示当前原图，避免上一张烘焙图
+		// 在新图完成离屏模糊前继续留在界面上。
+		setBakedSrc(bgImage);
 		if (cappedBlur < 0.5) {
-			setBakedSrc(bgImage);
 			return;
 		}
 		const ac = new AbortController();

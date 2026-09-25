@@ -220,7 +220,7 @@ export function CommandPalette() {
 
 	// Slash 命令：跟随 Composer 的 handleComposerSlash 路径执行（本地或 POST /v1/slash）。
 	const runSlash = useCallback(
-		(cmd: SlashCommand) => {
+		(cmd: SlashCommand, arg = '') => {
 			void runAndClose(async () => {
 				const st = useChatStore.getState();
 				const sid0 = st.activeId;
@@ -229,9 +229,17 @@ export function CommandPalette() {
 					return;
 				}
 				const sess0 = st.sessions.find(s => s.id === sid0);
+				if (!sess0) {
+					toast.info('当前对话已关闭，请重新选择对话');
+					return;
+				}
+				if (sess0.archived) {
+					toast.info('归档对话不能执行命令，请先恢复');
+					return;
+				}
 				const ws0 =
-					st.spaces.find(s => s.id === sess0?.spaceId)?.rootPath?.trim() || '';
-				await handleComposerSlash(`/${cmd.name}`, {
+					st.spaces.find(s => s.id === sess0.spaceId)?.rootPath?.trim() || '';
+				await handleComposerSlash(`/${cmd.name}${arg ? ` ${arg}` : ''}`, {
 					sessionId: sid0,
 					backendSessionId:
 						activeBackendSessionId(st.historyById, sid0) || undefined,
@@ -349,6 +357,10 @@ export function CommandPalette() {
 	const items = useMemo(() => {
 		const q = query.trim();
 		const isSlashQuery = q.startsWith('/');
+		const slashBody = isSlashQuery ? q.slice(1).trimStart() : '';
+		const slashParts = slashBody.split(/\s+/);
+		const slashCommandQuery = slashParts[0]?.toLowerCase() ?? '';
+		const slashArgs = slashParts.slice(1).join(' ');
 		const out: PaletteItem[] = [];
 		const now = Date.now();
 
@@ -633,20 +645,21 @@ export function CommandPalette() {
 			}
 		}
 
-		// Slash 命令：/ 前缀开启命令搜索；Composer 自动补全同款（usage + summary）。
+		// Slash 命令：`/` 前缀按命令名补全，也允许在同一行输入参数。
 		if (filter === 'all' || filter === 'commands') {
 			if (filter === 'commands' || isSlashQuery) {
-				// 同时按带 / 的 usage 与去掉 / 的 name/summary/别名匹配。
-				const qStripped = isSlashQuery ? q.slice(1) : q;
+				// `/command args` 按命令名前缀筛选，并把参数原样交给同一执行入口。
+				// 全局命令面板原先只传命令名，导致 /export、/goal 等必需参数被静默丢掉。
 				for (const c of slashCommands) {
 					if (!c.surfaces.some(s => s === 'gui')) {
 						continue;
 					}
 					const haystack = `${c.usage} ${c.name} ${c.summary} ${c.aliases.join(' ')}`;
-					if (
-						!matchesQuery(haystack, q) &&
-						!matchesQuery(haystack, qStripped)
-					) {
+					const matchesSlash =
+						!slashCommandQuery ||
+						c.name.startsWith(slashCommandQuery) ||
+						c.aliases.some(alias => alias.toLowerCase().startsWith(slashCommandQuery));
+					if (isSlashQuery ? !matchesSlash : !matchesQuery(haystack, q)) {
 						continue;
 					}
 					out.push({
@@ -661,7 +674,7 @@ export function CommandPalette() {
 								strokeWidth={1.75}
 							/>
 						),
-						run: () => runSlash(c),
+						run: () => runSlash(c, isSlashQuery ? slashArgs : ''),
 					});
 				}
 			}
