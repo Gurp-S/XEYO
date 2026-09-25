@@ -167,11 +167,15 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
 		}
 	},
 	closePreview() {
+		// 让未完成的 openFile 失效，避免已切换到工具面板后 loadingFile
+		// 仍撑住预览槽，或迟到的文件响应重新回写已关闭的预览。
+		openSeq += 1;
 		set({
 			selectedPath: null,
 			doc: null,
 			reviewDiff: null,
 			previewExpanded: false,
+			loadingFile: false,
 		});
 	},
 	setPreviewExpanded(expanded) {
@@ -374,8 +378,8 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
 				!samePath(get().loadedRoot, root) ||
 				!samePath(activeRootPath(), root)
 			) {
-				// 被更新的 openFile 或被 closePreview 抢先：只撤自己置的加载旗，
-				// 否则预览栏会永久停在骨架且关不掉（closePreview 不碰 loadingFile）。
+				// 被更新的 openFile 或被 closePreview 抢先时，只撤自己仍拥有的加载旗；
+				// 新请求的 loading 状态不能被旧响应覆盖。
 				if (openSeq === seq) set({loadingFile: false});
 				return;
 			}

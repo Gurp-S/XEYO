@@ -137,6 +137,7 @@ describe('explorerStore', () => {
 	it('closePreview clears previewExpanded', () => {
 		useExplorerStore.setState({
 			selectedPath: 'a.ts',
+			loadingFile: true,
 			previewExpanded: true,
 			doc: {
 				cwd: 'D:/proj',
@@ -153,6 +154,38 @@ describe('explorerStore', () => {
 		expect(useExplorerStore.getState().selectedPath).toBeNull();
 		expect(useExplorerStore.getState().previewExpanded).toBe(false);
 		expect(useExplorerStore.getState().doc).toBeNull();
+		expect(useExplorerStore.getState().loadingFile).toBe(false);
+	});
+
+	it('ignores a file response after the preview is closed', async () => {
+		let resolveRead!: (value: unknown) => void;
+		readWorkspaceFile.mockImplementation(
+			() => new Promise(resolve => {
+				resolveRead = resolve;
+			}),
+		);
+		useExplorerStore.setState({loadedRoot: 'D:/proj'});
+		const pending = useExplorerStore.getState().openFile('slow.ts');
+		expect(useExplorerStore.getState().loadingFile).toBe(true);
+
+		useExplorerStore.getState().closePreview();
+		expect(useExplorerStore.getState().loadingFile).toBe(false);
+
+		resolveRead({
+			cwd: 'D:/proj',
+			path: 'slow.ts',
+			name: 'slow.ts',
+			mime: 'text/plain',
+			size: 1,
+			mtime: 1,
+			kind: 'text',
+			text: 'late response',
+		});
+		await pending;
+
+		expect(useExplorerStore.getState().selectedPath).toBeNull();
+		expect(useExplorerStore.getState().doc).toBeNull();
+		expect(useExplorerStore.getState().loadingFile).toBe(false);
 	});
 
 	it('reloadIfOpen skips set when content is unchanged', async () => {
