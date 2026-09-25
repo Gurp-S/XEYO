@@ -1,5 +1,6 @@
 import {beforeEach, describe, expect, it, vi} from 'vitest';
-import {handleComposerSlash, runSlashCommand} from '@/lib/slashCommands';
+import {handleComposerSlash, lastUserMessage, runSlashCommand} from '@/lib/slashCommands';
+import type {ChatMessage} from '@/lib/types';
 
 // mock fetch 以捕获 /v1/slash 的 server 命令调用
 const fetchMock = vi.fn(async () =>
@@ -13,6 +14,7 @@ const chatState = {
 	appendLocalNote: vi.fn(),
 	sendMessage: vi.fn(),
 	sessionStreams: {},
+	messagesById: {} as Record<string, ChatMessage[]>,
 };
 
 vi.mock('@/lib/api', async () => {
@@ -41,6 +43,7 @@ describe('runSlashCommand dispatch', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		chatState.sessionStreams = {};
+		chatState.messagesById = {};
 		globalThis.fetch = fetchMock as unknown as typeof fetch;
 	});
 
@@ -98,5 +101,23 @@ describe('runSlashCommand dispatch', () => {
 	it('handleComposerSlash returns false for non-slash text', async () => {
 		const consumed = await handleComposerSlash('not a slash', opts);
 		expect(consumed).toBe(false);
+	});
+
+	it('retries the latest delivered prompt instead of a still-queued prompt', () => {
+		chatState.messagesById.sess_1 = [
+			{id: 'sent', role: 'user', text: 'earlier request', createdAt: 1},
+			{
+				id: 'queued',
+				role: 'user',
+				text: 'later request',
+				queueState: 'queued',
+				createdAt: 2,
+			},
+		];
+
+		expect(lastUserMessage('sess_1')).toEqual({
+			text: 'earlier request',
+			mediaRefs: [],
+		});
 	});
 });

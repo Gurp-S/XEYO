@@ -474,7 +474,13 @@ export function lastUserMessage(
 	const msgs = useChatStore.getState().messagesById[sessionId] ?? [];
 	for (let i = msgs.length - 1; i >= 0; i -= 1) {
 		const m = msgs[i];
-		if (m && m.role === 'user' && m.text.trim() && !m.uiOnly) {
+		if (
+			m &&
+			m.role === 'user' &&
+			m.text.trim() &&
+			!m.uiOnly &&
+			!m.queueState
+		) {
 			return {text: m.text, mediaRefs: [...(m.mediaRefs ?? [])]};
 		}
 	}
