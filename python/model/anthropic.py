@@ -260,7 +260,7 @@ def _coalesce(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def _prune_orphan_tool_rows(
 	messages: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], list[str]]:
 	"""编码前一遍：丢弃没有前置 assistant tool_use 应答的内部行（fail-open）。
 
 	作用在**内部形状**（``role="tool"`` + ``tool_call_id``）上，与编码后的
@@ -269,8 +269,12 @@ def _prune_orphan_tool_rows(
 	（压缩 / T_now 注入 / 上游改写）一旦多出一条无主结果，厂商就以 400 拒收整次
 	请求（Anthropic 同样要求 tool_result 必须对应某个 tool_use）。丢掉的是
 	"没人在等的那份结果"——信息缺失可重读，会话不会砖。
+
+	返回 ``(留下的行, 被丢的 tool_use id)``：两个阶段各自留痕，否则诊断层数不到
+	发生率（丢行发生在哪一段，决定去查投影链还是去查序列化）。
 	"""
 	out: list[dict[str, Any]] = []
+	dropped: list[str] = []
 	outstanding: set[str] = set()
 	for message in messages:
 		role = message.get("role")
@@ -301,6 +305,8 @@ def _prune_orphan_tool_rows(
 				for one in ids:
 					outstanding.discard(one)
 				out.append(message)
+			else:
+				dropped.extend(one for one in ids if one)
 			continue
 		content = message.get("content")
 		if isinstance(content, list) and any(
@@ -314,6 +320,8 @@ def _prune_orphan_tool_rows(
 					if uid and uid in outstanding:
 						outstanding.discard(uid)
 						kept.append(block)
+					elif uid:
+						dropped.append(uid)
 					continue
 				kept.append(block)
 			if not kept:
@@ -322,7 +330,7 @@ def _prune_orphan_tool_rows(
 			continue
 		outstanding = set()
 		out.append(message)
-	return out
+	return out, dropped
 
 
 def _prune_orphan_tool_results(
@@ -396,6 +404,28 @@ def _drop_orphan_tool_result_blocks(
 	return kept
 
 
+def _record_wire_drops(dropped: list[str], stage: str) -> None:
+	"""两个序列化阶段的丢行都留痕（观测 only：失败绝不影响发射）。
+
+	``stage`` 决定去查哪一段：``precode`` 丢的是内部形状上的无主结果行，
+	出口那次丢的是已编码的 tool_result 块 —— 分母与定位点都不同。
+	"""
+	if not dropped:
+		return
+	logging.getLogger(__name__).warning(
+		"wire boundary (%s) dropped %d orphan tool result(s) (no preceding assistant tool_use): %s",
+		stage,
+		len(dropped),
+		", ".join(str(d) for d in dropped[:5]),
+	)
+	try:
+		from usage.ledger import record_wire_drop
+
+		record_wire_drop(dropped_ids=dropped, target=f"anthropic:{stage}")
+	except Exception:  # noqa: BLE001
+		logging.getLogger(__name__).debug("record_wire_drop failed", exc_info=True)
+
+
 def normalize_messages_for_anthropic(
 	messages: list[dict[str, Any]],
 ) -> tuple[str, list[dict[str, Any]]]:
@@ -405,7 +435,8 @@ def normalize_messages_for_anthropic(
 	是唯一的序列化入口。
 	"""
 	system_text, rest = _split_system(messages)
-	rest = _prune_orphan_tool_rows(rest)
+	rest, precode_dropped = _prune_orphan_tool_rows(rest)
+	_record_wire_drops(precode_dropped, "precode")
 	norm: list[dict[str, Any]] = []
 	for m in rest:
 		role = m.get("role")
@@ -446,13 +477,8 @@ def normalize_messages_for_anthropic(
 				norm.append({"role": "user", "content": blocks})
 			continue
 	norm = _coalesce(norm)
-	norm, _dropped = _prune_orphan_tool_results(norm)
-	if _dropped:
-		logging.getLogger(__name__).warning(
-			"wire boundary dropped %d orphan tool_result block(s) "
-			"(no preceding assistant tool_use)",
-			_dropped,
-		)
+	norm, dropped = _prune_orphan_tool_results(norm)
+	_record_wire_drops(dropped, "exit")
 	return system_text, norm
 
 

@@ -233,3 +233,102 @@ def test_ledger_failure_cannot_break_the_wire(monkeypatch) -> None:
     assert [m["role"] for m in wire] == ["user", "assistant", "tool", "user"]
     assert all(m.get("tool_call_id") != "call_ghost" for m in wire)
 
+
+
+def _anthropic_result_ids(messages: list[dict]) -> list[str]:
+    """Anthropic wire 形状里出现过的 tool_result.tool_use_id（两处阶段的产物都算）。"""
+    ids: list[str] = []
+
+    def walk(node) -> None:
+        if isinstance(node, dict):
+            if node.get("type") == "tool_result":
+                tid = str(node.get("tool_use_id") or "")
+                if tid:
+                    ids.append(tid)
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value)
+
+    walk(messages)
+    return ids
+
+
+def _orphan_history() -> list[dict]:
+    return _paired_history() + [
+        {
+            "role": "tool",
+            "name": "Bash",
+            "tool_call_id": "call_ghost",
+            "content": [
+                {"type": "tool_result", "tool_use_id": "call_ghost", "content": "x"}
+            ],
+        }
+    ]
+
+
+def test_anthropic_wire_drop_reaches_the_same_ledger(monkeypatch, tmp_path) -> None:
+    """Anthropic 出口的丢行必须进同一本 wire_drops 账。
+
+    此前只有 openai_compat 落账（model/_openai_common.py），Anthropic 侧把 dropped
+    算出来又丢掉 ⇒ 诊断层"最后一公里丢行"在这条链路上永远是盲区，
+    账本里也没有发生率的分母。观测补口，不改发射形状。
+    """
+    import usage.ledger as L
+    from model.anthropic import normalize_messages_for_anthropic
+
+    monkeypatch.setattr(L, "usage_dir", lambda: tmp_path)
+    _system, wire = normalize_messages_for_anthropic(_orphan_history())
+    assert "call_ghost" not in _anthropic_result_ids(wire), "行为不变：仍然丢弃"
+    assert "call_1" in _anthropic_result_ids(wire), "配对的必须照旧送出"
+    rows = _drop_rows(tmp_path / "wire_drops.jsonl")
+    assert len(rows) == 1, rows
+    assert rows[0]["target"].startswith("anthropic"), rows[0]
+    assert rows[0]["dropped"] == 1 and "call_ghost" in rows[0]["ids"]
+
+
+def test_anthropic_records_which_stage_dropped_the_row(monkeypatch, tmp_path) -> None:
+    """两个阶段的留痕必须能分开：precode 丢的是内部行，exit 丢的是已编码的块。
+
+    分母不同、要查的代码路径也不同（投影链 vs 序列化），合并成一个 target 就查不动了。
+    """
+    import usage.ledger as L
+    from model.anthropic import _prune_orphan_tool_results, _prune_orphan_tool_rows
+
+    monkeypatch.setattr(L, "usage_dir", lambda: tmp_path)
+    _kept, precode = _prune_orphan_tool_rows(_orphan_history())
+    assert precode == ["call_ghost"]
+    # 已编码形状里补一条无主 tool_result：只有出口那一遍看得见
+    encoded = [
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "call_late", "content": "x"}]}
+    ]
+    _kept2, exit_ids = _prune_orphan_tool_results(encoded)
+    assert exit_ids == ["call_late"]
+
+    from model.anthropic import _record_wire_drops
+
+    _record_wire_drops(precode, "precode")
+    _record_wire_drops(exit_ids, "exit")
+    rows = _drop_rows(tmp_path / "wire_drops.jsonl")
+    assert [r["target"] for r in rows] == ["anthropic:precode", "anthropic:exit"]
+
+
+def test_clean_anthropic_request_writes_no_drop_row(monkeypatch, tmp_path) -> None:
+    import usage.ledger as L
+    from model.anthropic import normalize_messages_for_anthropic
+
+    monkeypatch.setattr(L, "usage_dir", lambda: tmp_path)
+    normalize_messages_for_anthropic(_paired_history())
+    assert _drop_rows(tmp_path / "wire_drops.jsonl") == []
+
+
+def test_anthropic_ledger_failure_cannot_break_the_wire(monkeypatch) -> None:
+    """记账失败照旧不能影响发射：这条链路上也要有同一个不变量。"""
+    import usage.ledger as L
+    from model.anthropic import normalize_messages_for_anthropic
+
+    monkeypatch.setattr(L, "record_wire_drop", lambda **_kw: (_ for _ in ()).throw(RuntimeError("down")))
+    _system, wire = normalize_messages_for_anthropic(_orphan_history())
+    ids = _anthropic_result_ids(wire)
+    assert "call_ghost" not in ids and "call_1" in ids
