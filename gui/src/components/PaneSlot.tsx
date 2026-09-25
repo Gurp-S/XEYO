@@ -58,6 +58,7 @@ export function PaneSlot({
 				)}
 				style={{width: shown ? width : 0, flexBasis: shown ? width : 0}}
 				aria-hidden={!shown}
+				inert={!shown}
 				onMouseEnter={onMouseEnter}
 				onMouseLeave={onMouseLeave}
 			>
@@ -81,7 +82,8 @@ export function PaneSlot({
 				instant && 'xy-pane-instant',
 			)}
 			style={{width: slot, flexBasis: slot}}
-			aria-hidden={!open}
+			aria-hidden={!open || !shown}
+			inert={!open || !shown}
 			onMouseEnter={onMouseEnter}
 			onMouseLeave={onMouseLeave}
 		>
