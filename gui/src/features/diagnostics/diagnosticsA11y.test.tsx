@@ -68,22 +68,33 @@ afterEach(() => {
 });
 
 describe('「步骤」视图的展开联动', () => {
-	it('展开后 aria-controls 指向真实存在的详情块，收起时不留悬空引用', () => {
+	it('aria-controls 一直指向真实存在的面板；收起靠 inert 退出可达性树', () => {
 		render(<StepsView detail={detail(WITH_STEP)} loadingMore={false} onLoadMore={() => {}} />);
 		const head = document.querySelector<HTMLButtonElement>('.xy-dig-step-head');
 		expect(head).not.toBeNull();
 		expect(head?.getAttribute('aria-expanded')).toBe('false');
-		// 收起时正文根本不在 DOM 里，aria-controls 指向不存在的 id 会让读屏器报空。
-		expect(head?.getAttribute('aria-controls')).toBeNull();
+		// 面板常驻（收放要有高度可动画的对象），所以引用永不悬空；
+		// 代价是可达性隔离必须显式做，否则"看不见却能 tab 到、读屏念得到"。
+		const id = head?.getAttribute('aria-controls') ?? '';
+		expect(id).toBeTruthy();
+		const panel = document.getElementById(id);
+		expect(panel).not.toBeNull();
+		expect(panel?.hasAttribute('inert')).toBe(true);
+		expect(panel?.getAttribute('aria-hidden')).toBe('true');
+		// 没点过的行不挂正文：时间线可能几百行，全量常驻不值当。
+		expect(panel?.textContent).toBe('');
 
 		fireEvent.click(head!);
 
 		expect(head?.getAttribute('aria-expanded')).toBe('true');
-		const id = head?.getAttribute('aria-controls') ?? '';
-		expect(id).toBeTruthy();
-		const body = document.getElementById(id);
-		expect(body).not.toBeNull();
-		expect(body?.textContent).toContain('事件类型');
+		expect(panel?.hasAttribute('inert')).toBe(false);
+		expect(panel?.getAttribute('aria-hidden')).toBe('false');
+		expect(panel?.textContent).toContain('事件类型');
+
+		fireEvent.click(head!);
+		// 收起后正文留着（再展开才有动画），但对辅助技术不可达。
+		expect(panel?.hasAttribute('inert')).toBe(true);
+		expect(panel?.textContent).toContain('事件类型');
 	});
 
 	it('筛选到空来源时的提示对读屏器可见（role=status）', () => {

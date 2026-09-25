@@ -749,6 +749,23 @@
   text-align: right;
 }
 
+/* 展开面板：与「问题」视图同一套收放（0fr→1fr），正文由组件在第一次点开后才挂。
+   时间线可能有几百行，全量常驻不值当；没点过的行只占一个空壳。 */
+.xy-dig-step-panel {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--duration-base) ease;
+}
+
+.xy-dig-step.is-open .xy-dig-step-panel {
+  grid-template-rows: 1fr;
+}
+
+.xy-dig-step-panel-inner {
+  overflow: hidden;
+  min-height: 0;
+}
+
 .xy-dig-step-body {
   border-top: 1px solid var(--color-line);
   margin: 2px 6px 0;
@@ -1445,6 +1462,7 @@
   .xy-dig-evidence,
   .xy-dig-finding-head,
   .xy-dig-finding-panel,
+  .xy-dig-step-panel,
   .xy-dig-step-link,
   .xy-dig-chevron {
     transition: none;

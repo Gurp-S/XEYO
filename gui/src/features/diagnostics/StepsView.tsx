@@ -41,11 +41,18 @@ const TONE_LABEL: Record<TimelineRow['tone'], string> = {
 	fail: '失败',
 };
 
+/**
+ * 一行时间线。展开面板常驻、用 grid-template-rows 收放：条件渲染会让下面整列
+ * 在一帧里整体位移（「问题」视图实测 137px 一步到位，这就是"跳"）。
+ * 但时间线可能有几百行，所以正文**只在第一次点开后才挂**——没点过的行只占一个空壳，
+ * 点过之后收起/展开都有动画。收起时用 inert + aria-hidden 退出可达性树。
+ */
 function Row({row}: {row: TimelineRow}) {
 	const [open, setOpen] = useState(false);
+	const [seen, setSeen] = useState(false);
 	const bodyId = useId();
 	return (
-		<li className={cn('xy-dig-step', `is-${row.tone}`)}>
+		<li className={cn('xy-dig-step', `is-${row.tone}`, open && 'is-open')}>
 			<span className="xy-dig-step-rail" aria-hidden>
 				<span className="xy-dig-step-dot" />
 			</span>
@@ -54,8 +61,11 @@ function Row({row}: {row: TimelineRow}) {
 					type="button"
 					className="xy-dig-step-head"
 					aria-expanded={open}
-					aria-controls={open ? bodyId : undefined}
-					onClick={() => setOpen(v => !v)}
+					aria-controls={bodyId}
+					onClick={() => {
+						setSeen(true);
+						setOpen(v => !v);
+					}}
 				>
 					<span className="xy-dig-step-time tabular-nums">{fmtClock(row.ts)}</span>
 					<span className="xy-dig-step-tone">{TONE_LABEL[row.tone]}</span>
@@ -73,35 +83,41 @@ function Row({row}: {row: TimelineRow}) {
 						{row.source === 'model' ? fmtCostCny(row.hasUsage ? row.costCny : null) : null}
 					</span>
 				</button>
-				{open ? (
-					<div id={bodyId} className="xy-dig-step-body">
-						<KeyValue
-							rows={[
-								{k: '事件类型', v: row.kind, mono: true},
-								{k: '关联身份', v: row.subject, mono: true},
-								{k: '边界', v: row.boundary},
-								{k: '审计行号', v: row.lineNo == null ? DASH : `L${row.lineNo}`},
-								{k: '耗时', v: row.durationMs == null ? '无耗时记录' : fmtDuration(row.durationMs)},
-							]}
-						/>
-						{row.rawFields.length ? (
-							<>
-								<p className="xy-dig-sub">审计行原文字段（无对应中文标签，值原样保留）</p>
-								<ul className="xy-dig-raw">
-									{row.rawFields.map((f, i) => (
-										<li key={`${f.key}-${i}`}>
-											<span className="xy-dig-raw-key">{f.key}</span>
-											<span>{f.value}</span>
-										</li>
-									))}
-								</ul>
-							</>
-						) : null}
-						<EvidenceList items={row.evidence} />
-					</div>
-				) : null}
+				<div id={bodyId} className="xy-dig-step-panel" aria-hidden={!open} inert={!open}>
+					<div className="xy-dig-step-panel-inner">{seen ? <RowBody row={row} /> : null}</div>
+				</div>
 			</div>
 		</li>
+	);
+}
+
+function RowBody({row}: {row: TimelineRow}) {
+	return (
+		<div className="xy-dig-step-body">
+			<KeyValue
+				rows={[
+					{k: '事件类型', v: row.kind, mono: true},
+					{k: '关联身份', v: row.subject, mono: true},
+					{k: '边界', v: row.boundary},
+					{k: '审计行号', v: row.lineNo == null ? DASH : `L${row.lineNo}`},
+					{k: '耗时', v: row.durationMs == null ? '无耗时记录' : fmtDuration(row.durationMs)},
+				]}
+			/>
+			{row.rawFields.length ? (
+				<>
+					<p className="xy-dig-sub">审计行原文字段（无对应中文标签，值原样保留）</p>
+					<ul className="xy-dig-raw">
+						{row.rawFields.map((f, i) => (
+							<li key={`${f.key}-${i}`}>
+								<span className="xy-dig-raw-key">{f.key}</span>
+								<span>{f.value}</span>
+							</li>
+						))}
+					</ul>
+				</>
+			) : null}
+			<EvidenceList items={row.evidence} />
+		</div>
 	);
 }
 
