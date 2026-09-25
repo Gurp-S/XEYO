@@ -96,6 +96,8 @@ export function createUsageAccumulator(
 		for (const ev of events) {
 			const hasContextTokens = typeof ev.contextTokens === 'number';
 			const hasContextLimit = typeof ev.contextLimit === 'number' && ev.contextLimit > 0;
+			// 每条 UsageEvent 是一次模型请求的快照。缺字段代表本次未知，不能把
+			// 上一请求的上下文构成、占用率或 token 数拼到这次快照里。
 			nextUsage = {
 				promptTokens: (nextUsage?.promptTokens ?? 0) + ev.promptTokens,
 				completionTokens: (nextUsage?.completionTokens ?? 0) + ev.completionTokens,
@@ -107,20 +109,18 @@ export function createUsageAccumulator(
 				costSource:
 					nextUsage?.costSource === 'api' && ev.costSource === 'api' ? 'api' : 'estimate',
 				usdLimit: ev.usdLimit,
-				contextTokens: hasContextTokens ? ev.contextTokens : nextUsage?.contextTokens,
-				// smoke-test #2：事件未带窗口时清空而非沿用旧值 —— 换模型后
-				// 旧窗口不会残留（显示"窗口未知"比显示错误窗口更诚实）。
+				contextTokens: hasContextTokens ? ev.contextTokens : undefined,
 				contextLimit: hasContextLimit ? ev.contextLimit : undefined,
 				contextPercent:
 					hasContextTokens && hasContextLimit
 						? Math.min(100, Math.max(0, (ev.contextTokens! / ev.contextLimit!) * 100))
-						: nextUsage?.contextPercent,
-				contextSource: hasContextTokens ? 'stream' : nextUsage?.contextSource,
-				dataQuality: hasContextTokens && hasContextLimit ? 'measured' : nextUsage?.dataQuality,
-				lastContextAt: hasContextTokens ? Date.now() : nextUsage?.lastContextAt,
-				contextBreakdown: ev.contextBreakdown?.length
+						: undefined,
+				contextSource: hasContextTokens ? 'stream' : undefined,
+				dataQuality: hasContextTokens && hasContextLimit ? 'measured' : undefined,
+				lastContextAt: hasContextTokens ? Date.now() : undefined,
+				contextBreakdown: hasContextTokens && ev.contextBreakdown?.length
 					? ev.contextBreakdown
-					: nextUsage?.contextBreakdown,
+					: undefined,
 				// 单轮（非累计）拆分：与 contextTokens 同轮，供「上下文构成」回退条
 				// 使用；累计值会超过窗口，不能拿来画本轮构成。
 				lastCacheHitTokens: ev.cacheHitTokens,

@@ -31,6 +31,19 @@ describe('parseSseBlock · stream_gap 帧（reattach 空洞）', () => {
 	});
 });
 
+describe('parseSseBlock · usage 上下文快照', () => {
+	it('显式 null 表示该请求没有上下文遥测，不会变成 0 token', () => {
+		const ev = parseSseBlock(
+			frame({type: 'usage', context_tokens: null, context_limit: null}),
+		);
+		expect(ev && ev.kind).toBe('usage');
+		if (ev && ev.kind === 'usage') {
+			expect(ev.contextTokens).toBeUndefined();
+			expect(ev.contextLimit).toBeUndefined();
+		}
+	});
+});
+
 describe('parseSseBlock · title 帧（T5）', () => {
 	it('解析标题帧并保留 pinned / enhanced', () => {
 		const ev = parseSseBlock(

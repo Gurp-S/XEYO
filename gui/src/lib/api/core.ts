@@ -720,8 +720,14 @@ export function parseSseBlock(part: string): ParsedSse | null {
 						usedCny: Number(xy.used_cny ?? 0),
 						costSource: xy.cost_source === 'api' ? 'api' : 'estimate',
 						usdLimit: xy.usd_limit == null ? null : Number(xy.usd_limit),
-						contextTokens: Number.isFinite(Number(xy.context_tokens)) ? Number(xy.context_tokens) : undefined,
-						contextLimit: Number.isFinite(Number(xy.context_limit)) ? Number(xy.context_limit) : undefined,
+						contextTokens:
+							xy.context_tokens != null && Number.isFinite(Number(xy.context_tokens))
+								? Number(xy.context_tokens)
+								: undefined,
+						contextLimit:
+							xy.context_limit != null && Number.isFinite(Number(xy.context_limit))
+								? Number(xy.context_limit)
+								: undefined,
 						contextBreakdown: Array.isArray(xy.context_breakdown)
 							? (xy.context_breakdown as unknown[])
 									.map((row: unknown) => {
