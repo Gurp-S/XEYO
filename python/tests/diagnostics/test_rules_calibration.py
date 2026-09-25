@@ -47,6 +47,14 @@
     同一份 manifest 还喂着 ``tool_pair_integrity``，而那条是「已确认 + 引擎定责」两级
     一起给的（``fault_split._ENGINE_RULES``）：漏归属的代价是把一个坏形状算到该会话
     每一个被问诊的轮次头上（09-20 那次孤儿 tool_result 事故正是这种形状）。
+12. ``wire_gap`` 的 sse_gui 分支读的是 ``notice.channel`` 上一个**从未被任何生产者写过**
+    的 ``kind_detail`` 字段（2026-09-25 生产者普查：真实行只有 strategy / provider_model
+    / injected / reason 四个键），所以那条"事件流出现缺口通知"永远不命中，而界面仍按
+    "该边界有规则覆盖"展示。真正的缺口信号是 ``engine/turn_runner.py`` 发出的
+    ``stream_gap`` 帧 —— 它只活在那一次连接里。现在发出帧的同一处补写 ``stream.gap``
+    审计行（带 session_id/turn_id 与两端事件号），规则改读它。
+13. 同族的字段名错位：``llm.failure`` 的错误码写在 ``code`` 上，采集只读 ``error_code``
+    ⇒ 现象里的 ``code=`` 恒为空，看着像"厂商没给码"。采集改为两者取一。
 
 纠正的底线：规则要么判对，要么 ``unknown`` 并写明缺哪条记录，不得靠沉默消噪。
 """

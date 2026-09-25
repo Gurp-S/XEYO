@@ -473,6 +473,20 @@ class TurnRunner:
 					ensure_ascii=False,
 				)
 				yield f"data: {gap}\n\n".encode("utf-8")
+				# 缺口也得留得下证据：这条帧只活在本次连接里，事后无法统计"界面曾经
+				# 缺过一段"。诊断层的 wire_gap（SSE/界面）需要按轮次回读它。
+				try:
+					from audit.log import default_audit_log
+
+					default_audit_log().record(
+						"stream.gap",
+						session_id=t.session_id,
+						turn_id=t.turn_id,
+						dropped_through_event_id=int(t.dropped_through_id),
+						first_available_event_id=int(t.frames[0][0]) if t.frames else 0,
+					)
+				except Exception:  # noqa: BLE001 — 观测失败不挡重放
+					_log.debug("stream.gap audit failed", exc_info=True)
 			for event_id, frame, _kind in list(t.frames):
 				if event_id > cursor:
 					yield frame

@@ -65,6 +65,7 @@ _BOUNDARY_OF_KIND: tuple[tuple[str, str], ...] = (
 	("mcp.tool.", "tool_permission"),
 	("mcp.server.", "tool_permission"),
 	("notice.channel", "sse_gui"),
+	("stream.gap", "sse_gui"),
 	("config.invalid", "instruction_context"),
 	("policy.invalid", "instruction_context"),
 	("bash_rules.invalid", "instruction_context"),
@@ -981,7 +982,9 @@ def _merge(run: RunEvidence) -> None:
 					"kind": kind,
 					"ts": event.ts,
 					"status": _s(event.row.get("status")),
-					"error_code": _s(event.row.get("error_code")),
+					# llm.failure 把同一个事实写在 `code` 上（engine/query_loop.py::_record_llm_failure），
+					# error_code 只有 model.* 行才有：只读后者会让现象里的 code= 恒为空。
+					"error_code": _s(event.row.get("error_code")) or _s(event.row.get("code")),
 					"http_status": event.row.get("status") if kind == "llm.failure" else None,
 					"duration_ms": event.row.get("duration_ms"),
 					"error_kind": _s(event.row.get("error_kind")),

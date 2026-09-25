@@ -308,3 +308,34 @@ def test_broken_rule_becomes_visible_unknown_instead_of_silence(collect, monkeyp
 	assert len(findings) == 1
 	assert findings[0].status == UNKNOWN
 	assert "没发现异常" in findings[0].allowed_conclusion
+
+
+def test_stream_gap_audit_row_is_a_suspected_transport_gap(collect) -> None:
+	"""引擎发出缺口帧时必须落审计行，否则 sse_gui 边界没有任何可读的缺口证据。
+
+	这一支原先读 notice.channel 上一个从未被写过的 kind_detail 字段 ⇒ 规则永不命中，
+	而界面仍按"该边界有规则覆盖"展示（2026-09-25 生产者普查确认）。
+	"""
+	run = collect(
+		[
+			{"ts": 1.0, "kind": "stream.gap", "session_id": "s1", "turn_id": "t1", "dropped_through_event_id": 12, "first_available_event_id": 41},
+		]
+	)
+	gaps = [f for f in evaluate_run(run) if f.rule_id == "wire_gap"]
+	assert gaps, "stream.gap 行必须被读成传输缺口"
+	assert gaps[0].status == SUSPECTED_CAUSE and gaps[0].boundary == "sse_gui"
+	assert "12" in gaps[0].phenomenon and "41" in gaps[0].phenomenon
+
+
+def test_llm_failure_phenomenon_carries_the_code_the_writer_actually_writes(collect) -> None:
+	"""llm.failure 的错误码在 `code` 字段上，不在 model.* 那套 `error_code` 里。
+
+	采集只读后者的话，现象里的 code= 恒为空 —— 看着像"厂商没给码"，其实是字段名错位。
+	"""
+	run = collect(
+		[
+			{"ts": 1.0, "kind": "llm.failure", "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", "attempt": 1, "code": "http_429", "status": 429},
+		]
+	)
+	f = next(x for x in evaluate_run(run) if x.rule_id == "provider_stream_failure")
+	assert "code=http_429" in f.phenomenon

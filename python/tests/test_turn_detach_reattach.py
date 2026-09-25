@@ -158,8 +158,21 @@ def test_chat_request_accepts_anthropic_provider():
 	assert req.provider == "anthropic"
 
 
+@pytest.fixture()
+def tmp_audit(tmp_path):
+	"""把默认审计单例钉到 tmp：缺口帧必须同时留下可回读的证据行。"""
+	import audit.log as audit_mod
+	from audit.log import AuditLog, reset_default_audit_log
+
+	reset_default_audit_log()
+	log = AuditLog(tmp_path / "audit.jsonl")
+	audit_mod._default = log
+	yield log
+	reset_default_audit_log()
+
+
 @pytest.mark.asyncio
-async def test_subscribe_announces_gap_when_ring_evicted_frames(monkeypatch):
+async def test_subscribe_announces_gap_when_ring_evicted_frames(monkeypatch, tmp_audit):
 	"""环形缓冲挤掉旧帧后，重放段是不完整的：必须先发 stream_gap，
 	否则前端会把缺段当完整内容提交（正文中间少一截且无人知道）。"""
 	from engine import turn_runner as tr
@@ -201,6 +214,16 @@ async def test_subscribe_announces_gap_when_ring_evicted_frames(monkeypatch):
 	assert payload["type"] == "stream_gap"
 	assert payload["dropped_through_event_id"] >= 1
 	assert payload["first_available_event_id"] >= payload["dropped_through_event_id"] + 1
+
+	# 帧只活在这次连接里：诊断层要按轮次回读"界面缺过一段"，必须另有一条审计行。
+	# 没有它，wire_gap 的 sse_gui 分支在生产里永远不命中（曾经读的是一个从未被写的字段）。
+	rows = [r for r in tmp_audit.read_all() if str(r.get("kind")) == "stream.gap"]
+	assert rows, "缺口帧发出去了却没留证据行"
+	gap_row = rows[0]
+	assert gap_row.get("session_id") == "s3"
+	assert gap_row.get("turn_id") == "t3"
+	assert int(gap_row.get("dropped_through_event_id") or 0) >= 1
+	assert int(gap_row.get("first_available_event_id") or 0) > int(gap_row.get("dropped_through_event_id") or 0)
 
 
 @pytest.mark.asyncio

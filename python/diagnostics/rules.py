@@ -849,21 +849,31 @@ def check_wire_gap(run: RunEvidence) -> list[Finding]:
 			)
 		)
 	for event in run.events_for_turn():
-		if event.kind == "notice.channel" and "gap" in _kv(event, "kind_detail").lower():
-			findings.append(
-				Finding(
-					rule_id="wire_gap",
-					rule_version=RULESET_VERSION,
-					phenomenon="事件流出现缺口通知",
-					boundary="sse_gui",
-					component="SSE 传输 / 界面",
-					status=SUSPECTED_CAUSE,
-					evidence=[_event_ref(run, event, "stream_gap")],
-					impact="界面缺尾部而服务端可能已完成：显示边界与执行边界要分开判。",
-					coverage_gap="客户端 ack 游标不持久化，跨进程无法核对。",
-					allowed_conclusion="可确认传输或显示边界存在缺口；不能据此判定引擎未完成。",
-				)
+		# 缺口通知是 SSE 帧，过去没有任何地方为它落审计行 —— 这一支读的是
+		# notice.channel 上一个从未被写过的 kind_detail 字段，所以在生产里永远不命中，
+		# 而界面却已经按"sse_gui 边界有规则覆盖"展示它。现在读 stream.gap
+		# （engine/turn_runner.py 在发出缺口帧的同一处落审计）。
+		if event.kind != "stream.gap":
+			continue
+		dropped = _kv(event, "dropped_through_event_id")
+		first = _kv(event, "first_available_event_id")
+		findings.append(
+			Finding(
+				rule_id="wire_gap",
+				rule_version=RULESET_VERSION,
+				phenomenon=f"重放起点已被环形缓冲挤掉：事件 {dropped} 之前的帧不在，界面只拿到 {first} 起的那一段",
+				boundary="sse_gui",
+				component="SSE 传输 / 界面",
+				status=SUSPECTED_CAUSE,
+				evidence=[_event_ref(run, event, "stream_gap")],
+				impact="界面缺一段而服务端可能已完成：显示边界与执行边界要分开判；缺段必须靠重拉 transcript 对账。",
+				coverage_gap=(
+					"只知道服务端告知了缺口，客户端有没有真的补回这一段不在审计里。"
+					"这条判据需要引擎写出 stream.gap 行：重启前产生的旧轮次看不到（不是没发生）。"
+				),
+				allowed_conclusion="可确认传输或显示边界存在缺口；不能据此判定引擎未完成。",
 			)
+		)
 	return findings
 
 
