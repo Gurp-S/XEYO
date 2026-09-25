@@ -44,7 +44,7 @@ export function roundsWithAgentTasks(
 	}
 
 	const byIndex = new Map<number, MultiAgentTaskView[]>();
-	const roundByTaskId = new Map<string, number>();
+	const roundsByTaskId = new Map<string, number[]>();
 	for (let index = 0; index < rounds.length; index += 1) {
 		for (const block of rounds[index]!.rest) {
 			if (block.kind !== 'turn') continue;
@@ -57,8 +57,12 @@ export function roundsWithAgentTasks(
 				}
 				const input = parseJsonValue<Record<string, unknown>>(item.tool.input);
 				const taskId = String(input?.task_id ?? input?.taskId ?? '').trim();
-				if (taskId && !roundByTaskId.has(taskId)) {
-					roundByTaskId.set(taskId, index);
+				if (taskId) {
+					const matches = roundsByTaskId.get(taskId) ?? [];
+					if (matches[matches.length - 1] !== index) {
+						matches.push(index);
+					}
+					roundsByTaskId.set(taskId, matches);
 				}
 			}
 		}
@@ -75,7 +79,41 @@ export function roundsWithAgentTasks(
 	let cursor = 0;
 	for (const task of ordered) {
 		const at = normalizedBatchAt(task.batchAt);
-		const exactIndex = roundByTaskId.get(task.taskId.trim());
+		const exactRounds = roundsByTaskId.get(task.taskId.trim()) ?? [];
+		let exactIndex: number | undefined;
+		if (exactRounds.length === 1) {
+			exactIndex = exactRounds[0];
+		} else if (exactRounds.length > 1 && at != null) {
+			// 后端兜底任务会跨批次重复使用 t1/t2 等 ID；按批次时间
+			// 定位重复 ID，选择启动时刻之前最近的一条用户轮。
+			const timestamped = exactRounds
+				.map(index => ({index, createdAt: rounds[index]!.user?.createdAt}))
+				.filter(
+					(candidate): candidate is {index: number; createdAt: number} =>
+						typeof candidate.createdAt === 'number' &&
+						Number.isFinite(candidate.createdAt),
+				);
+			const preceding = timestamped.filter(candidate => candidate.createdAt <= at);
+			if (preceding.length > 0) {
+				exactIndex = preceding.reduce((best, candidate) =>
+					candidate.createdAt > best.createdAt ||
+					(candidate.createdAt === best.createdAt && candidate.index > best.index)
+						? candidate
+						: best,
+				).index;
+			} else if (timestamped.length > 0) {
+				exactIndex = timestamped.reduce((best, candidate) =>
+					candidate.createdAt < best.createdAt ||
+					(candidate.createdAt === best.createdAt && candidate.index < best.index)
+						? candidate
+						: best,
+				).index;
+			} else {
+				exactIndex = exactRounds[0];
+			}
+		} else if (exactRounds.length > 1) {
+			exactIndex = exactRounds.find(index => index >= cursor) ?? exactRounds[0];
+		}
 		if (exactIndex == null && at != null) {
 			while (
 				cursor + 1 < rounds.length &&
