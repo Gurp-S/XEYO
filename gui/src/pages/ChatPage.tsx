@@ -178,11 +178,11 @@ export function ChatPage() {
 					return;
 				}
 				const active = st.sessions.find(item => item.id === st.activeId);
-				if (active?.spaceId === SIDE_SPACE_ID) {
+				if (active?.spaceId === SIDE_SPACE_ID && !active.archived) {
 					navigate(`/side/${active.id}`, {replace: true});
 					return;
 				}
-				if (active) {
+				if (active && active.spaceId !== SIDE_SPACE_ID && !active.archived) {
 					navigate(`/c/${active.id}`, {replace: true});
 					return;
 				}
@@ -211,11 +211,15 @@ export function ChatPage() {
 		const activeSession = activeId
 			? st.sessions.find(s => s.id === activeId)
 			: undefined;
-		if (activeSession?.spaceId === SIDE_SPACE_ID) {
+		if (activeSession?.spaceId === SIDE_SPACE_ID && !activeSession.archived) {
 			navigate(`/side/${activeSession.id}`, {replace: true});
 			return;
 		}
-		if (activeSession && activeSession.spaceId !== SIDE_SPACE_ID) {
+		if (
+			activeSession &&
+			activeSession.spaceId !== SIDE_SPACE_ID &&
+			!activeSession.archived
+		) {
 			navigate(`/c/${activeId}`, {replace: true});
 			return;
 		}
