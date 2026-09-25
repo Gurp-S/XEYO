@@ -168,6 +168,11 @@ async def test_real_permission_timeout_is_not_blamed(audit_log, execution_contex
 	perm = [f for f in evaluate_run(run) if f.rule_id == "permission_block"]
 	assert perm, "真实权限行没能命中 permission_block：规则在链路上是死的"
 	assert all(f.status == UNKNOWN for f in perm), "超时不能被判成已确认故障"
+	# 证据正文要带上结论依据的字段：断言"以 timeout 收口"的那条，读者要能在证据里
+	# 看见 outcome / approved，而不是只看见 "permission.resolved"。
+	details = " ".join(e.detail for f in perm for e in f.evidence)
+	assert "outcome=timeout" in details, details
+	assert "approved=False" in details, details
 
 
 @pytest.mark.asyncio

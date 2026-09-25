@@ -635,6 +635,28 @@ def check_provider_stream(run: RunEvidence) -> list[Finding]:
 # ---------- R6 权限等待 / 拒绝 ----------
 
 
+def _permission_row_ref(run: RunEvidence, row: dict[str, Any]) -> EvidenceRef:
+	"""审批行的证据正文：把结论所依据的字段一起写出来。
+
+	只写 kind（"permission.resolved"）时，"以 timeout 收口""被权限层挡住"这类断言在
+	证据里看不见依据 —— 与 ``_tool_error_detail``、provider 证据同族（R7 / R5 已修）。
+	"""
+	parts = [_s(row.get("kind")) or "permission"]
+	for key in ("outcome", "permission_action", "matched_rule", "actor"):
+		value = _s(row.get(key))
+		if value:
+			parts.append(f"{key}={value}")
+	if isinstance(row.get("approved"), bool):
+		parts.append(f"approved={row.get('approved')}")
+	parts.append(f"request_id={_s(row.get('request_id'))}")
+	return EvidenceRef(
+		source="audit",
+		locator=_loc(run),
+		ref_id=f"L{_s(row.get('line_no'))}",
+		detail=" ".join(parts),
+	)
+
+
 def check_permission_block(run: RunEvidence) -> list[Finding]:
 	findings: list[Finding] = []
 	by_approval: dict[str, list[dict[str, Any]]] = {}
@@ -681,10 +703,7 @@ def check_permission_block(run: RunEvidence) -> list[Finding]:
 					boundary="tool_permission",
 					component="权限执行层（等待超时 / 中止）",
 					status=UNKNOWN,
-					evidence=[
-						EvidenceRef(source="audit", locator=_loc(run), ref_id=f"L{_s(r.get('line_no'))}", detail=str(r.get("kind")))
-						for r in rows
-					],
+					evidence=[_permission_row_ref(run, r) for r in rows],
 					impact="这一枪未执行：等待没人答复时按不放行收口，中止来自停止操作。",
 					coverage_gap="谁在等、等多久、期间界面有没有弹出来都不在审计行里；这两类结果都不证明权限层出了故障。",
 					allowed_conclusion="可确认执行停在权限等待的结果上；不能据此判定权限层或审批链故障。",
@@ -699,10 +718,7 @@ def check_permission_block(run: RunEvidence) -> list[Finding]:
 					boundary="tool_permission",
 					component="权限执行层（DENY / 超时）",
 					status=CONFIRMED_FAULT,
-					evidence=[
-						EvidenceRef(source="audit", locator=_loc(run), ref_id=f"L{_s(r.get('line_no'))}", detail=str(r.get("kind")))
-						for r in rows
-					],
+					evidence=[_permission_row_ref(run, r) for r in rows],
 					impact="该工具的调用未执行，模型看到的是执行层的拒绝结果。",
 					coverage_gap="预期内的 DENY 与意外 DENY 在账面上同形；本规则不区分，需人工核对规则意图。",
 					allowed_conclusion="可确认执行被哪条实际权限结果阻断；不得把预期拒绝计成产品故障。",
@@ -717,10 +733,7 @@ def check_permission_block(run: RunEvidence) -> list[Finding]:
 					boundary="tool_permission",
 					component="权限协调器（结果落账）",
 					status=UNKNOWN,
-					evidence=[
-						EvidenceRef(source="audit", locator=_loc(run), ref_id=f"L{_s(r.get('line_no'))}", detail=str(r.get("kind")))
-						for r in rows
-					],
+					evidence=[_permission_row_ref(run, r) for r in rows],
 					impact="这一行说不上放行还是拦下：把「没记结果」读成「已通过」或「已拒绝」都会造出假结论。",
 					coverage_gap="permission.resolved 的三个结果字段（approved / outcome / permission_action）任缺其一就无法核对；旧审计不补写。",
 					allowed_conclusion="只能报审批结果未记录，不能报这一枪通过或失败。",
@@ -739,7 +752,7 @@ def check_permission_block(run: RunEvidence) -> list[Finding]:
 			Finding(
 				rule_id="permission_block",
 				rule_version=RULESET_VERSION,
-				phenomenon="权限记录不带 tool_use_id / model_request_id（旧审计格式）",
+				phenomenon="权限记录不带 tool_use_id / model_request_id（写入时引擎还没带这两个字段，或来自不落关联身份的路径）",
 				boundary="tool_permission",
 				component="审计关联字段",
 				status=UNKNOWN,
