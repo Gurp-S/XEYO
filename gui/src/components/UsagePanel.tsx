@@ -317,29 +317,47 @@ export function UsagePanel({active = true}: Props) {
 				const requestBaseUrl = requestProfile
 					? requestProfile.baseUrl?.trim() || PROVIDER_DEFAULT_URL[requestProvider]
 					: s.resolvedBaseUrl();
-				// 未选 Key 时按每个已配置厂商查询；模型过滤同时应用到每个厂商，
+				// 未选 Key 时按每套已配置账号查询；模型过滤同时应用到每套账号，
 				// 因为模型分组的 provider 是真实模型厂商，不一定是 API 接入通道。
 				if (!keyFp) {
-					const providers = [
-						...new Set(
-							profiles
-								.filter(p => p.apiKey.trim())
-								.map(p => p.provider),
-						),
+					const configuredAccounts = profiles
+						.filter(profile => profile.apiKey.trim())
+						.map(profile => ({
+							provider: profile.provider,
+							apiKey: profile.apiKey.trim(),
+							baseUrl:
+								profile.baseUrl?.trim() ||
+								PROVIDER_DEFAULT_URL[profile.provider],
+						}));
+					const accounts = configuredAccounts.length
+						? configuredAccounts
+						: [
+								{
+									provider: s.provider,
+									apiKey: s.apiKey.trim(),
+									baseUrl: s.resolvedBaseUrl(),
+								},
+							];
+					const uniqueAccounts = [
+						...new Map(
+							accounts.map(account => [
+								JSON.stringify([
+									account.provider,
+									account.apiKey,
+									account.baseUrl.replace(/\/+$/, ''),
+								]),
+								account,
+							]),
+						).values(),
 					];
-					if (providers.length <= 1) {
-						const provider = providers[0] || s.provider;
-						const profile = profiles.find(
-							p => p.provider === provider && p.apiKey.trim(),
-						);
+					if (uniqueAccounts.length <= 1) {
+						const account = uniqueAccounts[0]!;
 						const data = await fetchUsage({
 							days,
 							model: modelId || undefined,
-							provider,
-							apiKey: profile?.apiKey || (provider === s.provider ? s.apiKey : ''),
-							baseUrl: profile
-								? profile.baseUrl?.trim() || PROVIDER_DEFAULT_URL[provider]
-								: s.resolvedBaseUrl(),
+							provider: account.provider,
+							apiKey: account.apiKey,
+							baseUrl: account.baseUrl,
 						});
 						if (!cancelled) {
 							setReport(data);
@@ -348,18 +366,13 @@ export function UsagePanel({active = true}: Props) {
 						}
 					} else {
 						const results = await Promise.all(
-							providers.map(prov => {
-								const p = profiles.find(
-									x => x.provider === prov && x.apiKey.trim(),
-								);
+							uniqueAccounts.map(account => {
 								return fetchUsage({
 									days,
 									model: modelId || undefined,
-									provider: prov,
-									apiKey: p?.apiKey || (prov === s.provider ? s.apiKey : ''),
-									baseUrl: p
-										? p.baseUrl?.trim() || PROVIDER_DEFAULT_URL[prov]
-										: s.resolvedBaseUrl(),
+									provider: account.provider,
+									apiKey: account.apiKey,
+									baseUrl: account.baseUrl,
 								}).catch(() => null);
 							}),
 						);
@@ -369,13 +382,16 @@ export function UsagePanel({active = true}: Props) {
 							);
 							if (ok.length > 0) {
 								setReport(
-									mergeReports(ok, {modelFiltered: Boolean(modelId)}),
+									mergeReports(ok, {
+										modelFiltered: Boolean(modelId),
+										localByProvider: true,
+									}),
 								);
 								setError('');
 								setWarning(
-									ok.length === results.length
+									ok.length === uniqueAccounts.length
 										? ''
-										: `${results.length - ok.length} 个厂商用量读取失败；当前数据只包含成功返回的厂商。`,
+										: `${uniqueAccounts.length - ok.length} 个账号用量读取失败；当前数据只包含成功返回的账号。`,
 								);
 							} else if (!silent) {
 								setError('没有可用的用量数据');

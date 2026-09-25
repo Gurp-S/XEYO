@@ -81,6 +81,8 @@ function mergeSeries(
 type MergeOptions = {
 	/** Model-filtered local ledger responses can be repeated across API channels. */
 	modelFiltered?: boolean;
+	/** Per-account requests repeat the same local ledger once for each API channel. */
+	localByProvider?: boolean;
 };
 
 function sourceForDimension(
@@ -93,14 +95,18 @@ function sourceForDimension(
 function mergeDimensionReports(
 	reports: UsageReport[],
 	dimension: 'totals' | 'models',
-	modelFiltered: boolean,
+	options: MergeOptions,
 ): UsageReport[] {
-	if (!modelFiltered) return reports;
-	let localSeen = false;
+	if (!options.modelFiltered && !options.localByProvider) return reports;
+	const localSeen = new Set<string>();
 	return reports.filter(report => {
 		if (sourceForDimension(report, dimension) !== 'local') return true;
-		if (localSeen) return false;
-		localSeen = true;
+		const provider = report.filters?.provider?.trim().toLowerCase();
+		const scope = options.modelFiltered ? '*' : provider;
+		// Older/mixed reports may not identify a safe local-data scope; preserve them.
+		if (!scope) return true;
+		if (localSeen.has(scope)) return false;
+		localSeen.add(scope);
 		return true;
 	});
 }
@@ -112,12 +118,12 @@ export function mergeReports(
 	const totalsReports = mergeDimensionReports(
 		reports,
 		'totals',
-		Boolean(options.modelFiltered),
+		options,
 	);
 	const modelReports = mergeDimensionReports(
 		reports,
 		'models',
-		Boolean(options.modelFiltered),
+		options,
 	);
 	const sumHitMissOut = (k: 'input_hit' | 'input_miss' | 'output') =>
 		totalsReports.reduce((a, r) => a + (r.totals?.[k] ?? 0), 0);

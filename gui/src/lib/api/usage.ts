@@ -203,6 +203,13 @@ export type UsageReport = {
 		vendor_ok?: boolean;
 		vendor_error?: string;
 	};
+	filters?: {
+		model?: string | null;
+		provider?: string;
+		provider_filter_applied?: boolean;
+		key_fp?: string | null;
+		days?: number;
+	};
 	vendor_ok?: boolean;
 	vendor_error?: string;
 	series: UsageDayPoint[];
