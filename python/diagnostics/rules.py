@@ -769,6 +769,9 @@ def check_incomplete_run(run: RunEvidence) -> list[Finding]:
 		starts = [a for a in mr.attempts if _s(a.get("kind")) == "model.started"]
 		finishes = [a for a in mr.attempts if _s(a.get("kind")) == "model.finished"]
 		if len(starts) > len(finishes):
+			# 只把**没配上结束记录的那几次开始**列进证据。整串 starts 会让用户点到
+			# 已经正常结束的 attempt（重试场景下 2 开始 1 结束是常态）。
+			unpaired = starts[len(finishes):]
 			findings.append(
 				Finding(
 					rule_id="incomplete_run",
@@ -779,7 +782,7 @@ def check_incomplete_run(run: RunEvidence) -> list[Finding]:
 					status=UNKNOWN,
 					evidence=[
 						EvidenceRef(source="audit", locator=_loc(run), ref_id=f"L{_s(a.get('line_no'))}", detail="model.started 无配对 finished")
-						for a in starts
+						for a in unpaired
 					],
 					impact="可能是仍在流式输出、被中断、或结束记录未写。",
 					coverage_gap="仅凭结束记录缺失不能证明进程已死；需与 job/进程状态联合判断。",
