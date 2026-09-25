@@ -11,21 +11,27 @@ function makeSnap(todos: TodoItemView[]): TodoSnapshot {
 
 export function ImmersiveTodo() {
 	const activeId = useChatStore(s => s.activeId);
+	const archived = useChatStore(s =>
+		Boolean(activeId && s.sessions.some(session => session.id === activeId && session.archived)),
+	);
 	const snap = useChatStore(s =>
 		activeId ? (s.sessionTodosById?.[activeId] ?? null) : null,
 	);
 	const [draft, setDraft] = useState('');
 
-	const setTodos = (todos: TodoItemView[]) => {
-		if (!activeId) {
-			return;
-		}
+	const setTodos = (update: (todos: TodoItemView[]) => TodoItemView[]) => {
+		if (!activeId || archived) return false;
+		const state = useChatStore.getState();
+		if (state.sessions.some(session => session.id === activeId && session.archived)) return false;
+		const current = state.sessionTodosById?.[activeId] ?? null;
+		const todos = update(current?.todos ?? []);
 		useChatStore.setState(s => ({
 			sessionTodosById: {
 				...s.sessionTodosById,
-				[activeId]: snap ? {...snap, todos} : makeSnap(todos),
+				[activeId]: current ? {...current, todos} : makeSnap(todos),
 			},
 		}));
+		return true;
 	};
 
 	const add = () => {
@@ -33,17 +39,17 @@ export function ImmersiveTodo() {
 		if (!text) {
 			return;
 		}
-		setTodos([...(snap?.todos ?? []), {content: text, status: 'pending', activeForm: ''}]);
-		setDraft('');
+		if (setTodos(todos => [...todos, {content: text, status: 'pending', activeForm: ''}])) {
+			setDraft('');
+		}
 	};
 
 	const toggle = (i: number) => {
-		const next = (snap?.todos ?? []).map((t, idx) =>
+		setTodos(todos => todos.map((t, idx) =>
 			idx === i
 				? {...t, status: (t.status === 'completed' ? 'pending' : 'completed') as TodoItemView['status']}
 				: t,
-		);
-		setTodos(next);
+		));
 	};
 
 	const todos = snap?.todos ?? [];
@@ -68,6 +74,7 @@ export function ImmersiveTodo() {
 									type="button"
 									className="flex w-full items-start gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-paper-deep/40"
 									onClick={() => toggle(i)}
+									disabled={archived}
 								>
 									<span
 										className={cn(
@@ -102,19 +109,21 @@ export function ImmersiveTodo() {
 				<input
 					value={draft}
 					onChange={e => setDraft(e.target.value)}
+					disabled={archived}
 					onKeyDown={e => {
 						if (isImeComposing(e.nativeEvent)) return;
 						if (e.key === 'Enter') {
 							add();
 						}
 					}}
-					placeholder="添加今日待办…"
+					placeholder={archived ? '归档对话为只读' : '添加今日待办…'}
 					className="min-w-0 flex-1 bg-transparent text-[12px] text-ink placeholder:text-mute focus:outline-none"
 				/>
 				<button
 					type="button"
 					className="xy-press flex size-6 items-center justify-center rounded-full bg-accent text-paper"
 					onClick={add}
+					disabled={archived || !draft.trim()}
 				>
 					<Plus className="size-3.5" />
 				</button>
