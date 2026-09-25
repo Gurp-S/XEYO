@@ -318,6 +318,8 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 		queueSessionBusy,
 		inboxItems,
 	);
+	// Side 会话目前不支持忙碌回合引导；忙碌状态仍可接收普通排队发送。
+	const canSteerCurrentSession = queueSessionBusy && !activeSessionIsSide;
 	const inboxPollingActive = useChatUiStore(s => {
 		if (!activeId || s.sessions.find(session => session.id === activeId)?.spaceId === SIDE_SPACE_ID) return false;
 		const stream = selectActiveSessionStream(s);
@@ -1726,7 +1728,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 			// 裸 Enter 保持排队语义（既有行为不变）。
 			onSend(
 				resolveSendMode({
-					streaming: currentSessionStreaming,
+					streaming: canSteerCurrentSession,
 					modifier: e.ctrlKey || e.metaKey,
 					enter: true,
 				}),
@@ -1763,7 +1765,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 						</span>
 						<span className="mx-2 text-line">·</span>
 						Esc 中断
-						{steerHintVisible(currentSessionStreaming) ? (
+						{steerHintVisible(canSteerCurrentSession) ? (
 							<>
 								<span className="mx-2 text-line">·</span>
 								Ctrl+Enter 引导本回合
@@ -1771,6 +1773,13 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 						) : null}
 					</p>
 				)}
+				{canSteerCurrentSession && !currentSessionStreaming ? (
+					<p className="anim-fade mb-1.5 px-1 font-mono text-[11px] text-mute">
+						<span className="xy-thinking">{statusText || '本回合仍在进行'}</span>
+						<span className="mx-2 text-line">·</span>
+						Ctrl+Enter 引导本回合
+					</p>
+				) : null}
 				{!currentSessionStreaming &&
 				statusText === '已停止' &&
 				!remoteLoggedIn ? (
