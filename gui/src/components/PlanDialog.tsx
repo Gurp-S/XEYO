@@ -1,7 +1,8 @@
 import {useState} from 'react';
 import {ChevronDown} from 'lucide-react';
 
-import {resolvePlan} from '@/lib/api';
+import {resolveFailureText, resolvePlan} from '@/lib/api';
+import {toast} from '@/lib/toast';
 import {usePendingPlanForActiveSession} from '@/hooks/usePendingForActiveSession';
 import {useChatStore, type PendingPlanInfo} from '@/stores/chatStore';
 import {isSmoothnessOn, useSettingsStore} from '@/stores/settingsStore';
@@ -25,9 +26,24 @@ export function PlanDialog() {
 function PlanCard({pending}: {pending: PendingPlanInfo}) {
 	const [expanded, setExpanded] = useState(true);
 
-	const decide = (approved: boolean) => {
-		useChatStore.getState().setPendingPlan?.(null);
-		void resolvePlan(pending.requestId, approved);
+	const [submitting, setSubmitting] = useState(false);
+
+	const decide = async (approved: boolean) => {
+		if (submitting) {
+			return;
+		}
+		setSubmitting(true);
+		// 原先是"先清面板、再 void resolvePlan"：裁决没送达也照样收面板，
+		// 引擎就在无人应答地等这个计划，界面上已经没有能答它的入口了。
+		const receipt = await resolvePlan(pending.requestId, approved);
+		setSubmitting(false);
+		if (receipt.ok || receipt.reason === 'already_resolved') {
+			useChatStore.getState().setPendingPlan?.(null);
+		}
+		if (!receipt.ok) {
+			const notice = resolveFailureText(receipt);
+			toast[notice.tone](notice.text);
+		}
 	};
 
 	return (
@@ -62,14 +78,14 @@ function PlanCard({pending}: {pending: PendingPlanInfo}) {
 					<button
 						type="button"
 						className="xy-panel-ask-reject"
-						onClick={() => decide(false)}
+						onClick={() => void decide(false)}
 					>
 						拒绝
 					</button>
 					<button
 						type="button"
 						className="xy-panel-ask-allow"
-						onClick={() => decide(true)}
+						onClick={() => void decide(true)}
 					>
 						允许执行
 					</button>

@@ -1,6 +1,6 @@
 import {useCallback, useEffect, useRef, useState} from 'react';
 import {ChevronDown, X} from 'lucide-react';
-import {resolvePermission} from '@/lib/api';
+import {resolveFailureText, resolvePermission} from '@/lib/api';
 import {toast} from '@/lib/toast';
 import {useHeartbeat} from '@/lib/heartbeat';
 import {usePendingPermissionForActiveSession} from '@/hooks/usePendingForActiveSession';
@@ -87,15 +87,20 @@ function PermissionCard({pending}: {pending: PendingPermissionInfo}) {
 		withRemember = false,
 	) => {
 		// T3：先发送再清状态；HTTP 失败 → 回滚面板 + toast，不假装已处理。
-		const ok = await resolvePermission(
+		const receipt = await resolvePermission(
 			pending.requestId,
 			approved,
 			'desktop',
 			outcome,
 			withRemember,
 		);
-		if (!ok) {
-			toast.error('提交审批结果失败，请重试');
+		if (!receipt.ok) {
+			// "已被别处答复"要把面板收起（裁决确实落地了），其余保留挂起好重试。
+			const notice = resolveFailureText(receipt);
+			if (notice.tone === 'info') {
+				useChatStore.getState().setPendingPermission?.(null);
+			}
+			toast[notice.tone](notice.text);
 			return;
 		}
 		if (withRemember) {

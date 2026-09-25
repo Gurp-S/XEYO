@@ -10,13 +10,68 @@ import {
 	formatErrorDetail,
 } from './core';
 
+/**
+ * 裁决回执：ok=false 必须带上"为什么"。
+ *
+ * 后端（server/routers/control.py::_resolve_miss_reason）区分两种没生效：
+ * - `already_resolved`：别处已经答过（远程/微信，或双击）—— 裁决其实落地了；
+ * - `no_such_request`：内存挂起项不在（最常见是服务重启）—— 重试也修不好。
+ * 旧实现只回一个 boolean，界面于是把这两类都念成"提交失败，请重试"。
+ */
+export type ResolveReceipt = {ok: boolean; reason: string; message: string};
+
+const NETWORK_FAIL: ResolveReceipt = {
+	ok: false,
+	reason: 'network',
+	message: '请求未送达后端',
+};
+
+async function receiptOf(res: Response): Promise<ResolveReceipt> {
+	const payload = await res.json().catch(() => null);
+	if (!res.ok) {
+		return {ok: false, reason: 'http', message: formatErrorDetail(payload, res.status)};
+	}
+	if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+		return {ok: false, reason: 'receipt_not_object', message: '回执不是对象'};
+	}
+	const body = payload as Record<string, unknown>;
+	if (body.ok === true) {
+		return {ok: true, reason: '', message: ''};
+	}
+	if (typeof body.ok !== 'boolean') {
+		// 200 却没写 ok：不能读成生效，也不能拿 HTTP 措辞凑话（"HTTP 200"对人没有信息量）。
+		return {ok: false, reason: 'receipt_missing_ok', message: '回执缺少 ok 字段'};
+	}
+	const reason = typeof body.reason === 'string' ? body.reason : '';
+	return {
+		ok: false,
+		reason,
+		message: reason || 'not_applied',
+	};
+}
+
+/**
+ * 把"没生效"翻译成人话。三类要分开：
+ * 已被别处答复不是失败（裁决落地了，面板该收起）；挂起项不在服务端时重试无意义；
+ * 其余才带后端原话。旧实现三种都念成"提交失败，请重试"。
+ */
+export function resolveFailureText(r: ResolveReceipt): {tone: 'info' | 'error'; text: string} {
+	if (r.reason === 'already_resolved') {
+		return {tone: 'info', text: '这项已在别处答复（远程或另一次点击），面板已收起'};
+	}
+	if (r.reason === 'no_such_request') {
+		return {tone: 'error', text: '挂起项已不在服务端（服务可能重启过）：请等待引擎重新发起'};
+	}
+	return {tone: 'error', text: `提交未生效：${r.message || '未知原因'}`};
+}
+
 export async function resolvePermission(
 	requestId: string,
 	approved: boolean,
 	actor = 'desktop',
 	outcome?: 'allow' | 'deny' | 'remind',
 	remember = false,
-): Promise<boolean> {
+): Promise<ResolveReceipt> {
 	try {
 		const res = await fetchWithTimeout(apiUrl('/v1/permission/resolve'), {
 			method: 'POST',
@@ -29,11 +84,12 @@ export async function resolvePermission(
 				...(outcome ? {outcome} : {}),
 			}),
 		});
-		if (!res.ok) return false;
-		const payload = (await res.json()) as {ok?: boolean};
-		return payload.ok === true;
-	} catch {
-		return false;
+		return await receiptOf(res);
+	} catch (err) {
+		return {
+			...NETWORK_FAIL,
+			message: err instanceof Error ? err.message : NETWORK_FAIL.message,
+		};
 	}
 }
 
@@ -105,18 +161,19 @@ export async function resolveAsk(
 	requestId: string,
 	answer: string,
 	actor = 'desktop',
-): Promise<boolean> {
+): Promise<ResolveReceipt> {
 	try {
 		const res = await fetchWithTimeout(apiUrl('/v1/ask/resolve'), {
 			method: 'POST',
 			headers: {'Content-Type': 'application/json'},
 			body: JSON.stringify({request_id: requestId, answer, actor}),
 		});
-		if (!res.ok) return false;
-		const payload = (await res.json()) as {ok?: boolean};
-		return payload.ok === true;
-	} catch {
-		return false;
+		return await receiptOf(res);
+	} catch (err) {
+		return {
+			...NETWORK_FAIL,
+			message: err instanceof Error ? err.message : NETWORK_FAIL.message,
+		};
 	}
 }
 
@@ -125,7 +182,7 @@ export async function resolvePlan(
 	requestId: string,
 	approved: boolean,
 	actor = 'desktop',
-): Promise<boolean> {
+): Promise<ResolveReceipt> {
 	try {
 		const res = await fetchWithTimeout(
 			apiUrl(`/v1/plan/${encodeURIComponent(requestId)}/approve`),
@@ -135,11 +192,12 @@ export async function resolvePlan(
 				body: JSON.stringify({approved, actor}),
 			},
 		);
-		if (!res.ok) return false;
-		const payload = (await res.json()) as {ok?: boolean};
-		return payload.ok === true;
-	} catch {
-		return false;
+		return await receiptOf(res);
+	} catch (err) {
+		return {
+			...NETWORK_FAIL,
+			message: err instanceof Error ? err.message : NETWORK_FAIL.message,
+		};
 	}
 }
 

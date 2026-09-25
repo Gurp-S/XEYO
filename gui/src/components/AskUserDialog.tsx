@@ -1,6 +1,6 @@
 import {useState} from 'react';
 import {ChevronDown, ChevronLeft, ChevronRight} from 'lucide-react';
-import {resolveAsk} from '@/lib/api';
+import {resolveAsk, resolveFailureText} from '@/lib/api';
 import {toast} from '@/lib/toast';
 import {usePendingAskForActiveSession} from '@/hooks/usePendingForActiveSession';
 import {useChatStore, type PendingAskInfo} from '@/stores/chatStore';
@@ -370,11 +370,16 @@ function AskCard({pending}: {pending: PendingAskInfo}) {
 	const doResolve = async (answer: string) => {
 		setSubmitting(true);
 		// 先 resolve 后清面板：失败时保留挂起与已选，引擎不会无人应答地卡死。
-		const ok = await resolveAsk(pending.requestId, answer);
-		if (ok) {
+		const receipt = await resolveAsk(pending.requestId, answer);
+		if (receipt.ok) {
 			useChatStore.getState().setPendingAsk?.(null);
 		} else {
-			toast.error('提交失败（请求未送达），请重试');
+			const notice = resolveFailureText(receipt);
+			if (notice.tone === 'info') {
+				// 已在别处答过：收面板是对的，重试反而会二次作答。
+				useChatStore.getState().setPendingAsk?.(null);
+			}
+			toast[notice.tone](notice.text);
 			setSubmitting(false);
 		}
 	};
