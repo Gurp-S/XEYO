@@ -486,11 +486,19 @@ export type ChatStreamHandlers = {
 	 * 两者都不应触发 interrupt（没有可中断的回合）。
 	 * - 'connection_lost'：T29 断流（空闲超时/服务器提前关流/读错误/意外中止）
 	 *   ——回合仍活着，调用方必须走 reattach 恢复管线，绝不自动 interrupt。
+	 * - 'submission_unknown'：初始 POST 未收到 HTTP 响应；服务端是否受理无法确认，
+	 *   调用方不得当作拒绝撤回用户输入或自动重发。
 	 * 无 opts = 流中引擎错误帧（用户消息已落服务端），照旧保留。
 	 */
 	onError: (
 		message: string,
-		opts?: {kind?: 'session_busy' | 'turn_not_started' | 'connection_lost'},
+		opts?: {
+			kind?:
+				| 'session_busy'
+				| 'turn_not_started'
+				| 'connection_lost'
+				| 'submission_unknown';
+		},
 	) => void;
 	signal?: AbortSignal;
 };

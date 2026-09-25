@@ -300,6 +300,21 @@ export function createStreamSendSlice(
 						else queueProjection.onDone();
 					},
 					onError(message: string, details) {
+						if (details?.kind === 'submission_unknown') {
+							const kept = (get().messagesById[sessionId] ?? []).filter(
+								m => m.id !== qUserMsg.id,
+							);
+							set(s => ({
+								messagesById: {...s.messagesById, [sessionId]: kept},
+								...sessionErrorBannerPatch(
+									sessionId,
+									`消息提交状态未确认；原文保留在输入框。请先检查排队列表和会话记录，再决定是否重发。${message ? `（${message}）` : ''}`,
+								),
+							}));
+							// 请求可能已落入队列但响应丢失，立即按 message_id 对账。
+							void get().refreshInbox(sessionId);
+							return;
+						}
 						// HTTP 拒绝（尚未受理）才撤回乐观消息；流中断发生在回合
 						// 已启动之后，保留用户输入并保存已收到的部分回复。
 						if (details?.kind === 'connection_lost') {
@@ -1694,13 +1709,19 @@ export function createStreamSendSlice(
 					if (looksAuth) {
 						useSettingsStore.getState().openSettings();
 					}
-					if (opts?.kind === 'connection_lost') {
+					if (
+						opts?.kind === 'connection_lost' ||
+						opts?.kind === 'submission_unknown'
+					) {
+						const submissionUnknown = opts?.kind === 'submission_unknown';
 						// T29：断流不杀回合、绝不自动 interrupt——带重试恢复，失败才显式呈现。
 						// 旧连接的 AbortController 已死但未 aborted：置空 + 标记 detached，
 						// 否则 reattachStream 会误判「已在收流」而跳过重连。
 						set(s => ({
 							sessionStreams: patchSessionStream(s.sessionStreams, sessionId, {
-								statusText: '连接中断，正在重连…',
+								statusText: submissionUnknown
+									? '正在核对消息提交状态…'
+									: '连接中断，正在重连…',
 								abortRef: null,
 								turnDetached: true,
 							}),
@@ -1729,7 +1750,9 @@ export function createStreamSendSlice(
 							messagesById: {...cur2.messagesById, [sessionId!]: msgs2},
 							...sessionErrorBannerPatch(
 								sessionId,
-								`连接中断：${message}。回合保留在后端，可手动重试`,
+								submissionUnknown
+									? `提交状态未确认：${message}。消息已保留在会话中，请先核对记录后再决定是否重发。`
+									: `连接中断：${message}。回合保留在后端，可手动重试`,
 							),
 						});
 						persistence.now(msgs2);

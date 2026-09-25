@@ -95,7 +95,7 @@ export async function streamChat(
 	const previewUrl = browserPreviewUrlForChat();
 	// 空 Key 仅允许本地测试 provider（localTestGate，T25c）。
 	if (!s.apiKey.trim() && !allowsEmptyApiKey(s.provider)) {
-		handlers.onError('请先在设置中填写 API Key');
+		handlers.onError('请先在设置中填写 API Key', {kind: 'turn_not_started'});
 		return;
 	}
 
@@ -105,7 +105,7 @@ export async function streamChat(
 			: input.filter(m => m.content.trim().length > 0);
 	const lastMessage = messages[messages.length - 1];
 	if (!lastMessage || lastMessage.role !== 'user') {
-		handlers.onError('消息为空');
+		handlers.onError('消息为空', {kind: 'turn_not_started'});
 		return;
 	}
 
@@ -174,18 +174,22 @@ export async function streamChat(
 	} catch (err) {
 		watchdog.dispose();
 		if (watchdog.timedOut()) {
-			handlers.onError(`连接空闲超时：连续 ${STREAM_IDLE_TIMEOUT_MS / 1000} 秒未收到任何数据`);
+			handlers.onError(
+				`提交等待超时：${STREAM_IDLE_TIMEOUT_MS / 1000} 秒内未收到服务端响应`,
+				{kind: 'submission_unknown'},
+			);
 			return;
 		}
 		// 壳里若记录了后端启动失败原因（如内嵌 Python 不可用），优先展示它——
 		// 否则用户只会看到"无法连接后端"，误以为是端口/网络问题。
 		const spawnError = await fetchBackendSpawnError();
 		if (spawnError) {
-			handlers.onError(`后端未能启动：${spawnError}`);
+			handlers.onError(`后端未能启动：${spawnError}`, {kind: 'submission_unknown'});
 			return;
 		}
 		handlers.onError(
-			`无法连接后端 127.0.0.1:${backendPortLabel()}（${err instanceof Error ? err.message : String(err)}）。`,
+			`无法确认服务端是否接收了本条消息：127.0.0.1:${backendPortLabel()}（${err instanceof Error ? err.message : String(err)}）。`,
+			{kind: 'submission_unknown'},
 		);
 		return;
 	}
