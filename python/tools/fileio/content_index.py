@@ -118,7 +118,11 @@ def _build_index(root: str) -> ContentIndex | None:
 def _get_or_build(root: str) -> ContentIndex | None:
 	with _lock:
 		item = _cache.get(root)
-		if item is not None and item[0] >= time.monotonic() and item[1] is not None:
+		if item is not None and item[0] >= time.monotonic():
+			# 负结果同样在 TTL 内复用：建不起来 = 这个 root 这 30s 内不加速。
+			# 早先这里多写了 `item[1] is not None`，于是缓存里的 None 从不短路，
+			# 每次字面量检索都重跑一遍"列文件 + 读全文 + 算 trigram"再落回全量
+			# rg（2026-09-25 实测 python/ 根：1556ms/次 vs 全量 rg 38ms）。
 			_cache.move_to_end(root)
 			return item[1]
 		# 过期或缺失 → 重建；重建结果（含 None）也写入缓存，避免每次重试。

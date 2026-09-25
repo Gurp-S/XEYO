@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import time
 
 
 from tools.fileio import content_index
@@ -65,3 +66,67 @@ def test_lookup_cached(tmp_path) -> None:
 	assert content_index.lookup(ws, "alpha") is not None
 	# 不触发建索引重建：命中缓存路径仍正常返回候选。
 	assert content_index.lookup(ws, "beta") is not None
+
+
+class _CountingBuild:
+	"""数 `_build_index` 的真实调用次数——缓存是否生效只能这么看。"""
+
+	def __init__(self) -> None:
+		self.real = content_index._build_index
+		self.calls: list[str] = []
+
+	def __enter__(self) -> "_CountingBuild":
+		def spy(root: str):
+			self.calls.append(root)
+			return self.real(root)
+
+		content_index._build_index = spy
+		content_index.clear_content_index()
+		return self
+
+	def __exit__(self, *exc) -> None:
+		content_index._build_index = self.real
+		content_index.clear_content_index()
+
+
+def test_failed_build_is_cached_for_the_ttl(tmp_path) -> None:
+	"""建不起来也必须只建一次。
+
+	`_get_or_build` 早先要求 `item[1] is not None` 才算命中，缓存里的 None 从不
+	短路：2026-09-25 实测 python/ 根（一个 2.1MB 文件就让整根放弃建索引）每次
+	字面量 Grep 都重跑列文件+读全文+算 trigram，1556ms，然后照样落回 38ms 的全量
+	rg —— 一个"加速"机制在最常用的根上变成永久 20× 税负。
+	"""
+	ws = str(tmp_path)
+	_make(ws, "big.py", "x" * (content_index._SKIP_FILE_BYTES + 1))
+	with _CountingBuild() as spy:
+		assert content_index.lookup(ws, "small") is None
+		assert content_index.lookup(ws, "other") is None
+		assert content_index.lookup(ws, "third") is None
+		assert spy.calls == [ws], spy.calls
+		# 压的是 TTL，不是永久——否则"这次建不起来"会一直不说话。
+		exp, cached = content_index._cache[ws]
+		assert cached is None
+		assert 0.0 < exp - time.monotonic() <= content_index._TTL_S
+
+
+def test_negative_cache_expires(tmp_path) -> None:
+	"""负缓存只压 TTL，过期后必须允许重试（目录可能已经变了）。"""
+	ws = str(tmp_path)
+	_make(ws, "big.py", "x" * (content_index._SKIP_FILE_BYTES + 1))
+	with _CountingBuild() as spy:
+		assert content_index.lookup(ws, "small") is None
+		# 把这条负缓存的到期时间挪到过去，不去跟 monotonic 的时钟粒度较劲。
+		content_index._cache[ws] = (time.monotonic() - 1.0, None)
+		assert content_index.lookup(ws, "small") is None
+		assert len(spy.calls) == 2, spy.calls
+
+
+def test_successful_build_is_cached(tmp_path) -> None:
+	ws = str(tmp_path)
+	_make(ws, "a.py", "alpha beta gamma\n")
+	with _CountingBuild() as spy:
+		assert content_index.lookup(ws, "alpha") is not None
+		assert content_index.lookup(ws, "beta") is not None
+		assert spy.calls == [ws], spy.calls
+
