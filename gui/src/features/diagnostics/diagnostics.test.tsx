@@ -687,6 +687,9 @@ describe('证据缺项的中文口径与"零结论"的指向', () => {
 		expect(gapReasonLabel('no_records')).toBe('该来源对本会话没有记录行');
 		expect(gapReasonLabel('not_comparable')).toBe('字段粒度不支持这个判断');
 		expect(gapReasonLabel('field_missing')).toBe('记录里缺该字段');
+		// 采集层扩窗重读的两个结果：找回来了和读完整份仍没有，是两件事。
+		expect(gapReasonLabel('recovered_outside_window')).toBe('尾窗外的记录已扩窗读回');
+		expect(gapReasonLabel('not_found_in_full_file')).toBe('读完整份记录仍无本轮身份');
 		expect(gapReasonLabel('brand_new_code')).toContain('brand_new_code');
 	});
 

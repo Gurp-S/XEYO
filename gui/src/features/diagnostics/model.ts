@@ -186,6 +186,8 @@ export const COVERAGE_STATE_LABEL: Record<string, string> = {
 export const GAP_REASON_LABEL: Record<string, string> = {
 	absent: '该来源缺失',
 	out_of_window: '超出采集窗口',
+	recovered_outside_window: '尾窗外的记录已扩窗读回',
+	not_found_in_full_file: '读完整份记录仍无本轮身份',
 	source_absent: '来源文件不存在',
 	not_captured: '未采集',
 	not_recorded: '该级未记账',

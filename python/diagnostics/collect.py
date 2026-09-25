@@ -38,6 +38,9 @@ def _env_bytes(name: str, default: int) -> int:
 
 
 _AUDIT_TAIL_BYTES = _env_bytes("XEYO_DIAGNOSTICS_AUDIT_BYTES", 4 * 1024 * 1024)
+# 尾窗没盖到本轮时的第二次读取上限：只在"本轮一行都没扫到"的分支上付费。
+# 实测（2026-09-25，本机 11.3 MiB / 38 550 行审计文件）整份重扫 0.16s、尾窗 0.06s。
+_AUDIT_WIDEN_BYTES = _env_bytes("XEYO_DIAGNOSTICS_AUDIT_WIDEN_BYTES", 64 * 1024 * 1024)
 _TRANSCRIPT_ROW_CAP = 400
 
 # 全链路边界（设计文档第 4 节的表）。名字是稳定主键，标签只用于展示。
@@ -518,15 +521,47 @@ def _publish_window(run: RunEvidence, window: Window) -> Window:
 # ---------- 采集 ----------
 
 
+def _scan_has_turn(scan: _TailScan, session_id: str, turn_id: str) -> bool:
+	"""窗口里有没有这一轮的行（只看身份字段，不做归因、不改载荷）。"""
+	if not turn_id:
+		return True
+	for _, row in scan.rows:
+		if _s(row.get("turn_id")) != turn_id:
+			continue
+		sid = _s(row.get("session_id"))
+		if not session_id or not sid or sid == session_id:
+			return True
+	return False
+
+
 def _collect_audit(run: RunEvidence, *, session_id: str, turn_id: str, path: Path, max_bytes: int) -> None:
 	locator = str(path)
-	scan = _scan_jsonl_tail(path, max_bytes)
-	window = _window_from_scan("audit", locator, scan, max_bytes=max_bytes)
+	audit_bytes = max_bytes
+	scan = _scan_jsonl_tail(path, audit_bytes)
 	if not scan.present:
 		# 没有审计文件不是「窗口太小」：两者是不同的事实，措辞也必须不同。
 		run.add_gap("instruction_context", "source_absent", f"审计文件不存在：{locator}")
-		_publish_window(run, window)
+		_publish_window(run, _window_from_scan("audit", locator, scan, max_bytes=audit_bytes))
 		return
+	if turn_id and scan.truncated and not _scan_has_turn(scan, session_id, turn_id):
+		# 尾窗没扫到本轮 ⇒ 先扩窗读完，再决定要不要下"本轮无记录"的结论。
+		# 分层普查 57 个真实轮次里 11 轮（19%）属于这一类：它们的行确实都在文件里，
+		# 只是排在 4 MiB 之外（最近的也在第 7 338 行以外）。不扩窗时这 19% 永远只能
+		# 得到"本轮无记录"，而扩一次窗只多花 0.1s。
+		wide = _scan_jsonl_tail(path, max(audit_bytes, _AUDIT_WIDEN_BYTES))
+		found = _scan_has_turn(wide, session_id, turn_id)
+		audit_bytes = max(audit_bytes, _AUDIT_WIDEN_BYTES)
+		run.add_gap(
+			"instruction_context",
+			"recovered_outside_window" if found else "not_found_in_full_file",
+			(
+				f"audit 尾窗 {max_bytes} 字节没盖到本轮，扩到 {audit_bytes} 字节后读到（扫描 {wide.rows_scanned} 行）"
+				if found
+				else f"audit 已读完 {audit_bytes} 字节上限（扫描 {wide.rows_scanned} 行）仍未见 turn_id={turn_id} 的行"
+			),
+		)
+		scan = wide
+	window = _window_from_scan("audit", locator, scan, max_bytes=audit_bytes)
 	matched = 0
 	for line_no, row in scan.rows:
 		row_session = _s(row.get("session_id"))
@@ -556,7 +591,7 @@ def _collect_audit(run: RunEvidence, *, session_id: str, turn_id: str, path: Pat
 		run.add_gap(
 			"instruction_context",
 			"out_of_window",
-			f"audit 尾窗 {max_bytes} 字节，仅覆盖最近 {window.rows_scanned} 行，"
+			f"audit 尾窗 {audit_bytes} 字节，仅覆盖最近 {window.rows_scanned} 行，"
 			f"窗口外更早的 {window.rows_outside_window} 行未读",
 		)
 

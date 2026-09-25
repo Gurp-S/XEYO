@@ -1,4 +1,4 @@
-"""采集层的诚实性回归：真实数据普查里确认的七个缺陷。
+"""采集层的诚实性回归：真实数据普查里确认的八个缺陷。
 
 每一条都对应一份真实产品数据上跑出来的错账：
 
@@ -14,6 +14,10 @@
 6. usage 窗口对自己的边界一言不发 ⇒ ``complete=false`` 却没有 ``note``。
 7. 会话级的"没记账"被规则层当成轮次性质重复报出 ⇒ 折叠账本对本会话零行
    （行内不带轮次身份）现在只在缺项清单里说一次。
+8. 尾窗扫不到就把本轮判成"本轮无记录" ⇒ 分层普查 57 个真实轮次里 11 轮（19%）
+   的行其实完整地在审计文件里，只是排在 4 MiB 之外。现在先在 miss 路径上扩窗
+   重读一次（本机整份 11.3 MiB 多花 0.1s），扩完仍找不到才允许下这条结论，
+   且两种结果各留一条缺项说明口径。
 """
 
 from __future__ import annotations
@@ -311,7 +315,10 @@ def test_absent_audit_file_is_not_a_small_window(tmp_path) -> None:
 
 
 def test_truncation_is_not_reported_as_absence(write_audit) -> None:
-	rows = _model_rows("r1", 1) + [{"ts": 5.0, "kind": "model.started", "session_id": "other", "turn_id": "ox", "model_request_id": "rx"}] * 40
+	other = [{"ts": 5.0, "kind": "model.started", "session_id": "other", "turn_id": "ox", "model_request_id": "rx"}] * 40
+	# 本轮的行留在尾窗内：尾窗外的行才是"截断"，本轮扫不到会走扩窗分支
+	# （见 test_turn_outside_the_tail_window_is_recovered_by_widening），那是另一件事。
+	rows = other + _model_rows("r1", 1)
 	path = write_audit(rows)
 
 	run = collect_run(_SESSION, _TURN, audit_path=path, max_audit_bytes=400)
@@ -598,3 +605,56 @@ def test_fold_ledger_rows_for_this_session_do_not_trigger_the_gap(write_audit) -
 
 	assert [g for g in run.gaps if g.reason == "no_records"] == []
 	assert run.window("fold_events").rows_matched == 1
+
+
+# ---------- 8. 尾窗之外的轮次：先扩窗重读，再谈"本轮无记录" ----------
+
+
+def _filler_rows(count: int) -> list[dict[str, Any]]:
+	"""别的会话的行：把本轮的行推出尾窗，模拟多个会话共用一份审计文件。"""
+	return [
+		{
+			"ts": 500.0 + i,
+			"kind": "tool.finished",
+			"session_id": "other-session",
+			"turn_id": f"other-turn-{i}",
+			"request_id": f"oc{i}",
+			"tool_name": "Read",
+			"pad": "x" * 120,
+		}
+		for i in range(count)
+	]
+
+
+def test_turn_outside_the_tail_window_is_recovered_by_widening(write_audit) -> None:
+	"""真实普查里 19% 的轮次属于这一类：行都在文件里，只是排在尾窗之外。"""
+	from diagnostics.rules import evaluate_run
+
+	path = write_audit(_model_rows("r1", 1) + _filler_rows(400))
+	tail = _scan_jsonl_tail(path, 2048)
+	assert tail.truncated, "夹具没造出截断的尾窗"
+	assert all(str(r.get("turn_id") or "") != _TURN for _, r in tail.rows), "夹具没把本轮推出尾窗"
+
+	run = collect_run(_SESSION, _TURN, audit_path=path, max_audit_bytes=2048)
+
+	assert [e for e in run.events if e.turn_id == _TURN], "扩窗后必须把本轮的行读回来"
+	gaps = [g for g in run.gaps if g.reason == "recovered_outside_window"]
+	assert gaps and "没盖到本轮" in gaps[0].detail, "扩窗找回要有口径可交代，不能悄悄多读"
+	window = run.window("audit")
+	assert window.rows_scanned > tail.rows_scanned
+	assert [f for f in evaluate_run(run) if f.rule_id == "no_turn_records"] == []
+
+
+def test_turn_absent_from_the_whole_file_still_says_no_records(write_audit) -> None:
+	"""反面对照：扩窗读完仍然没有本轮的行，结论才允许落下，并写明读过多少。"""
+	from diagnostics.rules import evaluate_run
+
+	path = write_audit(_model_rows("r1", 1) + _filler_rows(400))
+	run = collect_run(_SESSION, "t-nowhere", audit_path=path, max_audit_bytes=2048)
+
+	assert [e for e in run.events if e.turn_id == "t-nowhere"] == []
+	gaps = [g for g in run.gaps if g.reason == "not_found_in_full_file"]
+	assert gaps and "仍未见" in gaps[0].detail
+	findings = evaluate_run(run)
+	ntr = [f for f in findings if f.rule_id == "no_turn_records"]
+	assert ntr and "扫描" in ntr[0].evidence[0].detail
