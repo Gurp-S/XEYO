@@ -223,14 +223,18 @@ export function SettingsModal({open, onClose}: Props) {
 			toast.error(bytes.message);
 			return;
 		}
-		const ok = await setRewindGcSettings(keep.value, bytes.value);
-		if (ok) {
-			update({rewindGcKeepRecent: keep.value, rewindGcMaxBytes: bytes.value});
-			toast.success('已保存回溯清理设置');
-		} else {
+		const r = await setRewindGcSettings(keep.value, bytes.value);
+		if (!r.ok || !r.settings) {
 			// 不写"请检查后端可达"：最常见的原因是后端 422 拒收，那句会把人引向网络。
-			toast.error('保存失败，设置未确认生效');
+			toast.error(`回溯清理设置未生效：${r.message || 'unknown'}`);
+			return;
 		}
+		// 本地按后端回执写，不按我们发出去的那份 —— 落盘的才是生效的。
+		update({
+			rewindGcKeepRecent: r.settings.keep_recent,
+			rewindGcMaxBytes: r.settings.max_bytes,
+		});
+		toast.success('已保存回溯清理设置');
 	};
 	const fileRef = useRef<HTMLInputElement>(null);
 		const [compressing, setCompressing] = useState(false);

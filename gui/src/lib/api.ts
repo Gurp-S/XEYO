@@ -1493,10 +1493,22 @@ export async function getRewindGcSettings(): Promise<RewindGcSettings | null> {
 	}
 }
 
+/**
+ * 写入回执。后端专门因为 GUI 只看 `res.ok` 过一次假绿
+ * （路由 docstring 点名："keep_recent=0 被拒在前端渲染成保存成功"），
+ * 现在非法值走 422/500 —— 但"HTTP 成功"仍不等于"落盘的就是我以为的那份"：
+ * 回执带回 `**saved`，调用方要按它写本地，而不是按自己发出去的值。
+ */
+export type RewindGcWrite = {
+	ok: boolean;
+	settings: {keep_recent: number | null; max_bytes: number | null} | null;
+	message: string;
+};
+
 export async function setRewindGcSettings(
 	keepRecent: number | null,
 	maxBytes: number | null,
-): Promise<boolean> {
+): Promise<RewindGcWrite> {
 	try {
 		const res = await fetchWithTimeout(apiUrl('/v1/settings/rewind-gc'), {
 			method: 'PUT',
@@ -1509,9 +1521,37 @@ export async function setRewindGcSettings(
 				max_bytes: maxBytes ?? null,
 			}),
 		});
-		return res.ok;
-	} catch {
-		return false;
+		const payload = await res.json().catch(() => null);
+		if (!res.ok) {
+			return {ok: false, settings: null, message: formatErrorDetail(payload, res.status)};
+		}
+		if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+			return {ok: false, settings: null, message: 'receipt_not_object'};
+		}
+		const b = payload as Record<string, unknown>;
+		if (b.ok !== true) {
+			return {ok: false, settings: null, message: formatErrorDetail(payload, res.status)};
+		}
+		// null 是合法的"该项未设置"；缺键才是回执不完整。
+		if (!('keep_recent' in b) || !('max_bytes' in b)) {
+			return {ok: false, settings: null, message: 'receipt_missing_fields'};
+		}
+		const kr = b.keep_recent;
+		const mb = b.max_bytes;
+		if ((kr !== null && !isFiniteNumber(kr)) || (mb !== null && !isFiniteNumber(mb))) {
+			return {ok: false, settings: null, message: 'receipt_bad_fields'};
+		}
+		return {
+			ok: true,
+			settings: {keep_recent: kr as number | null, max_bytes: mb as number | null},
+			message: '',
+		};
+	} catch (err) {
+		return {
+			ok: false,
+			settings: null,
+			message: err instanceof Error ? err.message : String(err),
+		};
 	}
 }
 

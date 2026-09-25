@@ -21,6 +21,13 @@ import {describe, expect, it} from 'vitest';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CAST_RETURN = /return\s+\(?await\s+(?:res|response|r)\.json\(\)\)?\s+as\s/g;
+/**
+ * 第二类：写侧只认 HTTP 状态。`return res.ok;` 把"200 + {ok:false}"、
+ * "200 但回执缺字段"、"200 空体"全当成保存成功。后端已经为这一类改过路由
+ * （rewind-gc 的 docstring 点名"GUI 只看 res.ok ⇒ keep_recent=0 被拒渲染成保存成功"），
+ * 但同类写法还有 14 处 —— 先钉住，再逐处换成带回执的写法。
+ */
+const WRITE_STATUS_ONLY = /^\s*return res\.ok;$/gm;
 
 /** 存量基线：文件 → 裸转型处数。修一处就调小一处。 */
 const BASELINE: Record<string, number> = {
@@ -30,10 +37,44 @@ const BASELINE: Record<string, number> = {
 	'api/usage.ts': 2,
 };
 
-function countOf(rel: string): number {
-	const text = readFileSync(path.join(HERE, '..', rel), 'utf8').replace(/\r\n/g, '\n');
-	return (text.match(CAST_RETURN) ?? []).length;
+/** 写侧"只认 HTTP 状态"的存量基线。 */
+const WRITE_BASELINE: Record<string, number> = {
+	'api.ts': 12,
+	'api/diagnostics.ts': 1,
+	'api/usage.ts': 1,
+};
+
+function textOf(rel: string): string {
+	return readFileSync(path.join(HERE, '..', rel), 'utf8').replace(/\r\n/g, '\n');
 }
+
+function countOf(rel: string): number {
+	return (textOf(rel).match(CAST_RETURN) ?? []).length;
+}
+
+function writeCountOf(rel: string): number {
+	return (textOf(rel).match(WRITE_STATUS_ONLY) ?? []).length;
+}
+
+describe('写侧只认 HTTP 状态的棘轮', () => {
+	it('基线里的每个文件都还在，且这类写法没有增长', () => {
+		const drift: string[] = [];
+		for (const [rel, want] of Object.entries(WRITE_BASELINE)) {
+			const got = writeCountOf(rel);
+			if (got !== want) {
+				drift.push(`${rel}: 基线 ${want} 处，实测 ${got} 处`);
+			}
+		}
+		expect(drift).toEqual([]);
+	});
+
+	it('哨兵：这类写法抓得住，带回执的写法不该被抓', () => {
+		const bad = '\t\ttry {\n\t\t\tconst res = await fetch(u);\n\t\t\treturn res.ok;\n\t\t} catch {\n\t\t\treturn false;\n\t\t}';
+		expect((bad.match(WRITE_STATUS_ONLY) ?? []).length).toBe(1);
+		const good = '\t\tconst body = await res.json();\n\t\treturn {ok: body.ok === true, message: ""};';
+		expect((good.match(WRITE_STATUS_ONLY) ?? []).length).toBe(0);
+	});
+});
 
 describe('HTTP 回执裸转型棘轮', () => {
 	it('基线里的每个文件都还在，且裸转型数没有增长', () => {
