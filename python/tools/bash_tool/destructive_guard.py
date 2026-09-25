@@ -348,6 +348,13 @@ def settle_destructive_plan(plan: DestructivePlan | None, *, executed: bool) -> 
 
 	被中断/超时的命令仍按 completed 结算：破坏可能已部分发生，
 	「恢复到 before 快照」依旧是正确的逆操作。
+
+	``settled`` 必须在**账本全部落定之后**才发布，且整段持锁：
+	原先先置位再在锁外跑循环，于是出现两个都不成立的窗口——
+	· 观察者读到 ``settled=True`` 却看到操作还是 ``started``（后台路径的用例
+	  正是这样偶发失败：机器一忙，窗口就被放大）；
+	· 并发的第二次结算会提前返回并以为"已经结算完了"，随后就拿着一份
+	  还在改的账本去做决定（undo / 重放都读这份账本）。
 	"""
 
 	if plan is None or plan.settled:
@@ -355,13 +362,13 @@ def settle_destructive_plan(plan: DestructivePlan | None, *, executed: bool) -> 
 	with plan._settle_lock:
 		if plan.settled:
 			return
+		status = "completed" if executed else "cancelled"
+		for op_id in plan.operation_ids:
+			try:
+				plan.ctx.journal.transition_operation(op_id, status)
+			except Exception:  # noqa: BLE001 — 单条失败不影响其余结算
+				_log.warning("destructive guard settle failed for %s", op_id, exc_info=True)
 		plan.settled = True
-	status = "completed" if executed else "cancelled"
-	for op_id in plan.operation_ids:
-		try:
-			plan.ctx.journal.transition_operation(op_id, status)
-		except Exception:  # noqa: BLE001 — 单条失败不影响其余结算
-			_log.warning("destructive guard settle failed for %s", op_id, exc_info=True)
 
 
 __all__ = [
