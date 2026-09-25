@@ -632,6 +632,13 @@ async selectSession(id) {
 		// 侧聊是虚拟 space：不接管 activeSpaceId，也不动工作区 cwd 绑定，
 		// 否则回到主视图的新建/选目录会落到 side-chat-space。
 		const sideSession = spaceId === SIDE_SPACE_ID;
+		// 深链/命令面板打开已归档会话时，先展开所属列表；否则会话虽已激活，
+		// 归档筛选生效后它仍藏在折叠的 space / side-chat 分组里。
+		if (sess.archived && state.collapsedSpaces[spaceId]) {
+			const collapsedSpaces = {...state.collapsedSpaces, [spaceId]: false};
+			set({collapsedSpaces});
+			persistCollapsed(collapsedSpaces);
+		}
 		// 已在查看此 session — 仅刷新工作区 cwd（非阻塞）。
 		if (
 			state.activeId === id &&

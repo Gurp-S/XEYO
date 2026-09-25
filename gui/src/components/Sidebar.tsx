@@ -766,7 +766,7 @@ className="xy-icon-btn rounded-md p-1.5 text-mute hover:bg-glass-hover hover:tex
 								doneUnseen={doneUnseenIds}
 								peerHints={peerHintsById}
 								collapsed={Boolean(collapsedSpaces[space.id])}
-									activeId={isSideChat ? null : activeId}
+								activeId={isSideChat ? null : activeId}
 								forceOpen={false}
 								onToggle={() => toggleSpaceCollapsed(space.id)}
 								onAdd={() => void onNewInSpace(space.id)}
@@ -980,8 +980,8 @@ const SpaceFolder = memo(function SpaceFolder({
 	const listSource = viewArchived ? archivedSessions : activeSessions;
 	const activeSession = sessions.find(session => session.id === activeId);
 	useEffect(() => {
-		if (activeSession && !activeSession.archived) {
-			setViewArchived(false);
+		if (activeSession) {
+			setViewArchived(Boolean(activeSession.archived));
 		}
 	}, [activeSession?.id, activeSession?.archived]);
 	const hiddenCount = listSource.length - SESSION_VISIBLE_LIMIT;
@@ -1063,6 +1063,7 @@ const SpaceFolder = memo(function SpaceFolder({
 					onSelect: () => {
 						setViewArchived(true);
 						setShowAll(false);
+						if (!open) onToggle();
 					},
 				});
 			}
@@ -1093,7 +1094,7 @@ const SpaceFolder = memo(function SpaceFolder({
 			}
 			showContextMenu(e, items, space.name || '工作区操作');
 		},
-		[archivedSessions.length, onAdd, onRemoveSpace, space.name, viewArchived],
+		[archivedSessions.length, onAdd, onRemoveSpace, onToggle, open, space.name, viewArchived],
 	);
 
 	const renderSessionRow = (item: ChatSession) => {
@@ -1220,8 +1221,8 @@ const SideChatSection = memo(function SideChatSection({
 		session => session.id === activeId && session.archived,
 	);
 	useEffect(() => {
-		if (activeId && !activeIsArchived) {
-			setViewArchived(false);
+		if (activeId) {
+			setViewArchived(activeIsArchived);
 		}
 	}, [activeId, activeIsArchived]);
 
@@ -1283,7 +1284,10 @@ const SideChatSection = memo(function SideChatSection({
 						type="button"
 						aria-label={viewArchived ? '返回当前对话' : '查看归档对话'}
 						title={viewArchived ? '返回当前对话' : `归档对话${archivedSessions.length ? `（${archivedSessions.length}）` : ''}`}
-						onClick={() => setViewArchived(value => !value)}
+						onClick={() => {
+							setViewArchived(!viewArchived);
+							if (!expanded) onToggle();
+						}}
 						className={cn(
 							'xy-icon-btn rounded-md p-1 hover:bg-glass-hover',
 							viewArchived ? 'text-accent' : 'text-current',
