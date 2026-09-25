@@ -165,6 +165,7 @@ export function CommandPalette() {
 	const [filesLoading, setFilesLoading] = useState(false);
 	const slashRunRef = useRef(false);
 	const paletteOpenGenerationRef = useRef(0);
+	const paletteQueryGenerationRef = useRef(0);
 	const [slashRunning, setSlashRunning] = useState('');
 	const [slashNotice, setSlashNotice] = useState('');
 	useLayoutEffect(() => {
@@ -233,6 +234,7 @@ export function CommandPalette() {
 		(cmd: SlashCommand, arg = '') => {
 			if (slashRunRef.current) return;
 			const openGeneration = paletteOpenGenerationRef.current;
+			const queryGeneration = paletteQueryGenerationRef.current;
 			slashRunRef.current = true;
 			setSlashRunning(`/${cmd.name}`);
 			setSlashNotice('');
@@ -311,7 +313,10 @@ export function CommandPalette() {
 						onOutcome: outcome => {
 							if (
 								!useCommandPaletteStore.getState().open ||
-								paletteOpenGenerationRef.current !== openGeneration
+								paletteOpenGenerationRef.current !== openGeneration ||
+								paletteQueryGenerationRef.current !== queryGeneration ||
+								(cmd.name !== 'clear' &&
+									useChatStore.getState().activeId !== sid0)
 							) {
 								return;
 							}
@@ -326,9 +331,11 @@ export function CommandPalette() {
 				const samePaletteOpen =
 					useCommandPaletteStore.getState().open &&
 					paletteOpenGenerationRef.current === openGeneration;
+				const samePaletteQuery =
+					paletteQueryGenerationRef.current === queryGeneration;
 				const sameActiveSession =
 					cmd.name === 'clear' || useChatStore.getState().activeId === sid0;
-				if (consumed && samePaletteOpen && sameActiveSession) {
+				if (consumed && samePaletteOpen && samePaletteQuery && sameActiveSession) {
 					close();
 				} else if (samePaletteOpen) {
 					inputRef.current?.focus();
@@ -417,9 +424,12 @@ export function CommandPalette() {
 		const q = query.trim();
 		const isSlashQuery = q.startsWith('/');
 		const slashBody = isSlashQuery ? q.slice(1).trimStart() : '';
-		const slashParts = slashBody.split(/\s+/);
-		const slashCommandQuery = slashParts[0]?.toLowerCase() ?? '';
-		const slashArgs = slashParts.slice(1).join(' ');
+		const slashBoundary = slashBody.search(/\s/);
+		const slashCommandQuery = (
+			slashBoundary < 0 ? slashBody : slashBody.slice(0, slashBoundary)
+		).toLowerCase();
+		const slashArgs =
+			slashBoundary < 0 ? '' : slashBody.slice(slashBoundary).trim();
 		const out: PaletteItem[] = [];
 		const now = Date.now();
 
@@ -889,6 +899,7 @@ export function CommandPalette() {
 						type="text"
 						value={query}
 						onChange={e => {
+							paletteQueryGenerationRef.current += 1;
 							setQuery(e.target.value);
 							setActiveIndex(0);
 							setSlashNotice('');
