@@ -6,6 +6,8 @@
 	--map-edge: color-mix(in oklch, var(--xy-mute) 35%, transparent);
 	--map-edge-hot: color-mix(in oklch, var(--xy-accent) 55%, var(--xy-mute));
 	--map-live: var(--xy-ok);
+	--map-waiting: var(--xy-warn);
+	--map-error: var(--xy-danger);
 	--map-seen: color-mix(in oklch, var(--xy-ok) 55%, var(--xy-mute));
 	--map-node-idle: color-mix(in oklch, var(--xy-glass-strong) 88%, var(--xy-paper));
 	--map-node-fill: var(--map-node-idle);
@@ -149,7 +151,7 @@ html[data-scheme='dark'] .xy-agent-map {
     stroke-width var(--duration-fast) ease;
 }
 
-.xy-agent-map__node:hover:not(.xy-agent-map__node--selected):not(.xy-agent-map__node--live) .xy-agent-map__node-body {
+.xy-agent-map__node:hover:not(.xy-agent-map__node--selected):not(.xy-agent-map__node--live):not(.xy-agent-map__node--waiting):not(.xy-agent-map__node--error) .xy-agent-map__node-body {
 	stroke: var(--map-hover);
 	stroke-width: 1.5;
 }
@@ -177,6 +179,17 @@ html[data-scheme='dark'] .xy-agent-map {
 	stroke: var(--map-live);
 	stroke-width: 1.8;
 	fill: color-mix(in oklch, var(--map-live) 14%, var(--map-node-idle));
+}
+
+.xy-agent-map__node--waiting .xy-agent-map__node-body {
+	stroke: var(--map-waiting);
+	stroke-dasharray: 3 2;
+	fill: color-mix(in oklch, var(--map-waiting) 10%, var(--map-node-idle));
+}
+
+.xy-agent-map__node--error .xy-agent-map__node-body {
+	stroke: var(--map-error);
+	fill: color-mix(in oklch, var(--map-error) 10%, var(--map-node-idle));
 }
 
 .xy-agent-map__node--selected .xy-agent-map__node-body {
@@ -222,6 +235,14 @@ html[data-scheme='dark'] .xy-agent-map {
 
 .xy-agent-map__action-bg--replay {
 	fill: color-mix(in oklch, var(--xy-accent) 82%, var(--xy-paper));
+}
+
+.xy-agent-map__action-bg--waiting {
+	fill: color-mix(in oklch, var(--map-waiting) 86%, var(--xy-paper));
+}
+
+.xy-agent-map__action-bg--error {
+	fill: color-mix(in oklch, var(--map-error) 88%, var(--xy-paper));
 }
 
 .xy-agent-map__action-text {

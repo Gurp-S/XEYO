@@ -392,6 +392,14 @@ export function AgentMapPanel() {
 		() => new Set(turnSteps.filter(s => s.running).map(s => s.id)),
 		[turnSteps],
 	);
+	const stepWaitingIds = useMemo(
+		() => new Set(turnSteps.filter(s => s.waiting).map(s => s.id)),
+		[turnSteps],
+	);
+	const stepErrorIds = useMemo(
+		() => new Set(turnSteps.filter(s => s.error).map(s => s.id)),
+		[turnSteps],
+	);
 	const stepSeenIds = useMemo(
 		() => new Set(turnSteps.map(s => s.id)),
 		[turnSteps],
@@ -790,6 +798,8 @@ export function AgentMapPanel() {
 						}
 						trailAnimate={replayPlaying}
 						stepRunningIds={view === 'turn' ? stepRunningIds : undefined}
+						stepWaitingIds={view === 'turn' ? stepWaitingIds : undefined}
+						stepErrorIds={view === 'turn' ? stepErrorIds : undefined}
 						stepSeenIds={view === 'turn' ? stepSeenIds : undefined}
 						stepVerbs={view === 'turn' ? stepVerbs : undefined}
 					/>

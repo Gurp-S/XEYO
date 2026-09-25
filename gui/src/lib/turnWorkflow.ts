@@ -21,6 +21,7 @@ export type TurnWorkflowStep = {
 	verb: string;
 	detail: string;
 	running: boolean;
+	waiting: boolean;
 	error: boolean;
 	relPath?: string;
 	toolName: string;
@@ -117,15 +118,17 @@ export function buildTurnWorkflow(messages: ChatMessage[]): TurnWorkflowStep[] {
 		const error =
 			status === 'error' ||
 			(status === 'running' && result.trim().startsWith('[error]'));
+		const waiting = message.toolStatus === 'waiting' && !result.trim();
 		const step = toolToStep({
 			id: message.id,
 			name: message.toolName,
 			input: message.toolInput ?? '',
 			result,
 			status,
+			waiting,
 			createdAt: message.createdAt,
 		});
-		const running = status === 'running' && !result.trim();
+		const running = status === 'running' && !result.trim() && !waiting;
 		steps.push({
 			id: message.id,
 			lane: laneOf(step, message.toolName),
@@ -136,6 +139,7 @@ export function buildTurnWorkflow(messages: ChatMessage[]): TurnWorkflowStep[] {
 					: step.verb,
 			detail: step.detail,
 			running,
+			waiting,
 			error,
 			relPath: pathFromInput(message.toolInput),
 			toolName: message.toolName,

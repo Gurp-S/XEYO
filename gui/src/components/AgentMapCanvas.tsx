@@ -53,6 +53,8 @@ type Props = {
 	replayVerb?: string | null;
 	/** 步骤视图：用自定义 hit 判定（id 即 step id）。 */
 	stepRunningIds?: Set<string>;
+	stepWaitingIds?: Set<string>;
+	stepErrorIds?: Set<string>;
 	stepSeenIds?: Set<string>;
 	stepVerbs?: Map<string, string>;
 };
@@ -100,6 +102,8 @@ function AgentMapCanvasImpl({
 	replayPath,
 	replayVerb,
 	stepRunningIds,
+	stepWaitingIds,
+	stepErrorIds,
 	stepSeenIds,
 	stepVerbs,
 }: Props) {
@@ -505,28 +509,41 @@ function AgentMapCanvasImpl({
 							(node.kind === 'step'
 								? Boolean(stepRunningIds?.has(node.id))
 								: Boolean(hit?.running));
+						const waiting =
+							!replayHit &&
+							node.kind === 'step' &&
+							Boolean(stepWaitingIds?.has(node.id));
+						const error =
+							!replayHit &&
+							node.kind === 'step' &&
+							Boolean(stepErrorIds?.has(node.id));
+						const active = running || waiting || error;
 						const seen =
 							replayHit ||
 							(node.kind === 'step'
-								? Boolean(stepSeenIds?.has(node.id)) || running
+								? Boolean(stepSeenIds?.has(node.id)) || running || waiting || error
 								: Boolean(hit));
 						const selected = selectedId === node.id || replayHit;
 						const searchHit = Boolean(searchHitIds?.has(node.id));
 						const dim =
 							dimming && linkedIds != null && !linkedIds.has(node.id);
-						const actionVerb = replayHit
-							? (replayVerb ?? 'replay')
-							: node.kind === 'step'
-								? (stepVerbs?.get(node.id) ?? null)
-								: (hit?.verb ?? null);
-						const sub = actionVerb
-							? actionVerb
-							: node.files != null
-								? `${node.files} files`
-								: node.layer;
+						const stepVerb =
+							node.kind === 'step' ? (stepVerbs?.get(node.id) ?? null) : null;
+						const actionVerb = waiting
+							? 'WAIT'
+							: error
+								? 'ERR'
+							: replayHit
+								? (replayVerb ?? 'replay')
+								: (stepVerb ?? hit?.verb ?? null);
+						const sub =
+							node.kind === 'step'
+								? (stepVerb ?? node.layer)
+								: actionVerb ??
+								  (node.files != null ? `${node.files} files` : node.layer);
 						const rx = 11;
 						const actionW =
-							running && actionVerb
+							active && actionVerb
 								? Math.min(76, Math.max(34, actionVerb.length * 6.4 + 14))
 								: 0;
 						return (
@@ -538,6 +555,8 @@ function AgentMapCanvasImpl({
 									'xy-agent-map__node',
 									seen && 'xy-agent-map__node--seen',
 									running && 'xy-agent-map__node--live',
+									waiting && 'xy-agent-map__node--waiting',
+									error && 'xy-agent-map__node--error',
 									replayHit && 'xy-agent-map__node--replay',
 									selected && 'xy-agent-map__node--selected',
 									searchHit && 'xy-agent-map__node--search',
@@ -551,8 +570,8 @@ function AgentMapCanvasImpl({
 									onSelect(node.id, node.kind);
 								}}
 							>
-								<title>{`${node.name}\n${node.id}`}</title>
-								{running && actionVerb ? (
+								<title>{`${node.name}\n${node.id}${waiting ? '\n等待工具结果' : error ? '\n工具失败' : running ? '\n执行中' : ''}`}</title>
+								{active && actionVerb ? (
 									<g
 										className="xy-agent-map__action"
 										transform={`translate(${node.w / 2} -8)`}
@@ -566,6 +585,8 @@ function AgentMapCanvasImpl({
 											className={cn(
 												'xy-agent-map__action-bg',
 												replayHit && 'xy-agent-map__action-bg--replay',
+												waiting && 'xy-agent-map__action-bg--waiting',
+												error && 'xy-agent-map__action-bg--error',
 											)}
 										/>
 										<text
@@ -582,7 +603,7 @@ function AgentMapCanvasImpl({
 									height={node.h}
 									rx={rx}
 									className="xy-agent-map__node-body"
-									strokeWidth={selected || running || searchHit ? 1.5 : 1}
+									strokeWidth={selected || running || waiting || error || searchHit ? 1.5 : 1}
 								/>
 								<rect
 									x={5}
