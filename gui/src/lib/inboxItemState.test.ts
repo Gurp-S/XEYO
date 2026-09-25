@@ -1,6 +1,8 @@
 import {describe, expect, it} from 'vitest';
 import {
 	assignInboxQueuePositions,
+	canEditInboxItem,
+	canManuallyResumeInbox,
 	canMutateInboxItem,
 	prioritizeInboxPreview,
 } from './inboxItemState';
@@ -12,6 +14,20 @@ describe('canMutateInboxItem', () => {
 
 	it.each(['delivering', 'syncing'] as const)('locks %s items', state => {
 		expect(canMutateInboxItem(state)).toBe(false);
+	});
+});
+
+describe('archived inbox actions', () => {
+	it.each(['queued', 'stuck'] as const)('locks %s edits while archived', state => {
+		expect(canEditInboxItem(state, true)).toBe(false);
+		expect(canEditInboxItem(state, false)).toBe(true);
+	});
+
+	it('allows manual resume only while active and idle', () => {
+		const items = [{state: 'queued' as const, autorun: false}];
+		expect(canManuallyResumeInbox(false, false, items)).toBe(true);
+		expect(canManuallyResumeInbox(true, false, items)).toBe(false);
+		expect(canManuallyResumeInbox(false, true, items)).toBe(false);
 	});
 });
 

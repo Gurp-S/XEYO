@@ -22,6 +22,8 @@ import {
 } from 'react';
 import {fetchFileReferences, uploadFile, uploadMedia, resumeInbox, type SkillInfo} from '@/lib/api';
 import {
+	canEditInboxItem,
+	canManuallyResumeInbox,
 	canMutateInboxItem,
 	prioritizeInboxPreview,
 } from '@/lib/inboxItemState';
@@ -305,9 +307,11 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 			Boolean(stream.remoteStreaming || stream.turnDetached)
 		);
 	});
-	const manualQueueResumeAvailable =
-		!queueSessionBusy &&
-		inboxItems.some(item => item.state === 'queued' && item.autorun === false);
+	const manualQueueResumeAvailable = canManuallyResumeInbox(
+		activeSessionArchived,
+		queueSessionBusy,
+		inboxItems,
+	);
 	const inboxPollingActive = useChatUiStore(s => {
 		if (!activeId || s.sessions.find(session => session.id === activeId)?.spaceId === SIDE_SPACE_ID) return false;
 		const stream = selectActiveSessionStream(s);
@@ -365,9 +369,9 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 	useEffect(() => {
 		closeQueueEdit();
 		setQueueExpanded(false);
-	}, [activeId, activeInboxBackendId]);
+	}, [activeId, activeInboxBackendId, activeSessionArchived]);
 	const openQueueEdit = (it: InboxQueuedItem) => {
-		if (!canMutateInboxItem(it.state) || !activeId) return;
+		if (!canEditInboxItem(it.state, activeSessionArchived) || !activeId) return;
 		queueEscRef.current = false;
 		editingTargetRef.current = {sessionId: activeId, item: it};
 		setEditingId(it.queue_id);
@@ -383,6 +387,15 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 		const target = editingTargetRef.current;
 		const t = queueDraft.trim();
 		closeQueueEdit();
+		if (
+			target &&
+			chatUiStoreApi.getState().sessions.some(session =>
+				session.id === target.sessionId && session.archived,
+			)
+		) {
+			toast.info('归档对话为只读，请先恢复后编辑');
+			return;
+		}
 		if (!target || !t || t === target.item.text) return;
 		if (!canMutateInboxItem(target.item.state)) {
 			// 编辑期间被投递：保存必 409，直接提示而不是静默丢改动。
@@ -402,11 +415,18 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 			) {
 				return;
 			}
-			const current =
-				chatUiStoreApi.getState().inboxBySession[target.sessionId]?.find(
-					item => item.queue_id === target.item.queue_id,
-				);
-			if (!current || !canMutateInboxItem(current.state)) return;
+			const latest = chatUiStoreApi.getState();
+			if (
+				latest.sessions.some(
+					session => session.id === target.sessionId && session.archived,
+				)
+			) {
+				return;
+			}
+			const current = latest.inboxBySession[target.sessionId]?.find(
+				item => item.queue_id === target.item.queue_id,
+			);
+			if (!current || !canEditInboxItem(current.state)) return;
 			// 保存失败时保留用户输入；消息若已进入投递态则由刷新结果决定，
 			// 不会把一个已不能编辑的旧队列项重新打开。
 			editingTargetRef.current = {sessionId: target.sessionId, item: current};
@@ -1707,13 +1727,21 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 								<button
 									type="button"
 									className="shrink-0 rounded-md px-2 py-1 font-medium text-accent hover:bg-accent/10 disabled:opacity-50"
-									disabled={queueActionsInFlight.has('__resume_queued__')}
+									disabled={activeSessionArchived || queueActionsInFlight.has('__resume_queued__')}
+									title={activeSessionArchived ? '归档对话不能继续投递，请先恢复' : undefined}
 									onClick={() => {
-										if (!activeId) return;
+										if (!activeId || activeSessionArchived) return;
 										const sessionId = activeId;
+										const current = chatUiStoreApi.getState();
+										if (
+											current.sessions.some(
+												session => session.id === sessionId && session.archived,
+											)
+										) return;
+										const backendId = activeBackendSessionId(current.historyById, sessionId);
 										void runQueueAction(
 											'__resume_queued__',
-											() => resumeInbox(activeInboxBackendId),
+											() => resumeInbox(backendId),
 											'继续投递失败',
 										).then(() => refreshInbox(sessionId));
 									}}
@@ -1789,8 +1817,8 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 											<button
 												type="button"
 												className="xy-queue-action disabled:pointer-events-none disabled:opacity-40"
-												title="编辑消息"
-												disabled={queueActionsInFlight.has(it.queue_id)}
+												title={activeSessionArchived ? '归档对话只读，请先恢复' : '编辑消息'}
+												disabled={activeSessionArchived || queueActionsInFlight.has(it.queue_id)}
 												onClick={() => openQueueEdit(it)}
 											>
 												<Pencil className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden />
@@ -1803,16 +1831,21 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 												title={
 													queueActionsInFlight.has(it.queue_id)
 														? '正在重新投递…'
-														: '重新投递'
+														: activeSessionArchived
+															? '归档对话不能启动新的投递，请先恢复'
+															: '重新投递'
 												}
-												disabled={queueActionsInFlight.has(it.queue_id)}
+												disabled={activeSessionArchived || queueActionsInFlight.has(it.queue_id)}
 												onClick={() => {
 													const sessionId = activeId;
-													if (!sessionId) return;
-													const backendId = activeBackendSessionId(
-														chatUiStoreApi.getState().historyById,
-														sessionId,
-													);
+													if (!sessionId || activeSessionArchived) return;
+													const current = chatUiStoreApi.getState();
+													if (
+														current.sessions.some(
+															session => session.id === sessionId && session.archived,
+														)
+													) return;
+													const backendId = activeBackendSessionId(current.historyById, sessionId);
 													void runQueueAction(
 														it.queue_id,
 														() => resumeInbox(backendId, it.queue_id),

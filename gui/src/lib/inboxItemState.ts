@@ -5,6 +5,20 @@ export function canMutateInboxItem(state: InboxItemState): boolean {
 	return state === 'queued' || state === 'stuck';
 }
 
+/** Editing queue text is a session mutation; archived sessions remain read-only. */
+export function canEditInboxItem(state: InboxItemState, archived = false): boolean {
+	return !archived && canMutateInboxItem(state);
+}
+
+/** Manual resume starts model work and is unavailable from an archived session. */
+export function canManuallyResumeInbox(
+	archived: boolean,
+	busy: boolean,
+	items: readonly {state: InboxItemState; autorun?: boolean}[],
+): boolean {
+	return !archived && !busy && items.some(item => item.state === 'queued' && item.autorun === false);
+}
+
 export function assignInboxQueuePositions<T extends {state: InboxItemState}>(
 	items: T[],
 ): Array<T & {position: number}> {
