@@ -131,3 +131,52 @@ def test_session_filter_in_tool_compat(isolated):
     j.record_change(ws, rec)
     rows = j.recent_changes(ws)
     assert rows[0].metadata["session_id"] == "sess-1"
+
+
+# ---------------------------------------------------------------------------
+# 回归：GC 扫描把派生索引当 journal，会让文件名每小时多长一层 .index
+# ---------------------------------------------------------------------------
+
+
+def test_journal_workspace_ids_skips_derived_indexes(tmp_path):
+    for name in (
+        "ws-a.jsonl",
+        "ws-a.index.jsonl",
+        "ws-a.index.index.jsonl",
+        "ws-b.jsonl",
+        "notes.txt",
+    ):
+        (tmp_path / name).write_text("", encoding="utf-8")
+    assert j.journal_workspace_ids(tmp_path) == ["ws-a", "ws-b"]
+    assert j.is_derived_index(tmp_path / "ws-a.index.jsonl") is True
+    assert j.is_derived_index(tmp_path / "ws-a.jsonl") is False
+
+
+def test_index_name_is_not_a_workspace_id(isolated):
+    """把索引名喂回来必须报错，而不是静默再套一层 / 撞名。"""
+    with pytest.raises(ValueError):
+        j._index_path("ws-a.index")
+
+    # 旧跑轮的入口就是这个形状：ws-a.index.jsonl 确实在目录里"像个 journal"。
+    (isolated / "ws-a.index.jsonl").write_text(
+        '{"seq": 1, "path": "src/f.ts"}\n', encoding="utf-8"
+    )
+    with pytest.raises(ValueError):
+        j.gc("ws-a.index", ttl_seconds=0)
+    # 拒绝之后不能留下更深的一层
+    assert not (isolated / "ws-a.index.index.jsonl").exists()
+
+
+def test_repeated_gc_sweep_does_not_grow_files(isolated):
+    """闭环不变量：按新的枚举方式重复跑 GC，目录里的文件名集合不该增长。"""
+    for i in range(3):
+        j.record_change("ws-a", _rec(i, "agent-1", f"src/f{i}.ts", float(i)))
+    assert (isolated / "ws-a.jsonl").is_file()
+    assert (isolated / "ws-a.index.jsonl").is_file()
+
+    for _ in range(4):
+        for wsid in j.journal_workspace_ids(isolated):
+            j.gc(wsid, ttl_seconds=0)
+
+    names = sorted(p.name for p in isolated.glob("*.jsonl"))
+    assert names == ["ws-a.index.jsonl", "ws-a.jsonl"], names

@@ -104,14 +104,45 @@ def _changes_path(workspace_id: str) -> Path:
     return _journal_root() / f"{workspace_id}.jsonl"
 
 
+INDEX_SUFFIX = ".index.jsonl"
+
+
+def is_derived_index(path: Path) -> bool:
+    """这张表是 journal 的派生缓存，不是 journal 本身。"""
+    return path.name.endswith(INDEX_SUFFIX)
+
+
+def journal_workspace_ids(root: Path) -> list[str]:
+    """列出 root 下真正的 journal（排除派生索引）。
+
+    派生索引的名字是 ``{ws}.index.jsonl``，同样匹配 ``*.jsonl``。把它当 journal 再
+    喂回 ``gc()``，就会多出一层 ``.index``，下一轮再加一层：实测
+    ``~/.xeyo/journal`` 被堆到 9662 个 .jsonl（真 journal 只有 534），最深 37 层
+    ``.index``、最长文件名 250 字符——再两小时就顶到 Windows 260 上限，而调用点
+    把异常吞掉，GC 会从此静默失效。
+    """
+    if not root.is_dir():
+        return []
+    return sorted(
+        p.stem for p in root.glob("*.jsonl") if p.is_file() and not is_derived_index(p)
+    )
+
+
 def _index_path(workspace_id: str) -> Path:
     """每路径倒排索引文件路径（append-only，派生缓存）。
 
     由 journal 路径派生（同目录、同名加 ``.index``）；这样测试 monkeypatch
     ``_changes_path`` 后索引也会落在同一临时目录，不污染用户 home。
+
+    传入 ``ws.index`` 这种"索引名当 workspace_id"是上面那个跑轮的入口，且它派生出的
+    路径会和 ``ws.index.jsonl`` 这张 journal 撞名，所以直接拒绝而不是静默套一层。
     """
+    if workspace_id.endswith(".index"):
+        raise ValueError(
+            f"{workspace_id!r} 是派生索引名，不是 workspace id（journal 的 id 不能以 .index 结尾）"
+        )
     changes = _changes_path(workspace_id)
-    return changes.parent / f"{changes.stem}.index.jsonl"
+    return changes.parent / f"{changes.stem}{INDEX_SUFFIX}"
 
 
 # ---------------------------------------------------------------------------

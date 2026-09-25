@@ -152,11 +152,15 @@ async def _lifespan(_app: FastAPI):
 						if d.is_dir():
 							gc_sidechains(d.name, ttl_seconds=ttl)
 				if journal_root.is_dir():
-					for jf in journal_root.glob("*.jsonl"):
-						wsid = jf.stem
+					# 只清真正的 journal：派生索引也叫 *.jsonl，把它当 journal 喂给 gc
+					# 会让文件名每小时多长一层 .index（实测堆到 9662 个文件、最深 37 层、
+					# 最长名 250 字符，逼近 260 上限后整轮 GC 会静默失效）。
+					for wsid in journal.journal_workspace_ids(journal_root):
 						journal.gc(wsid, ttl_seconds=ttl)
 			except Exception:  # noqa: BLE001
-				pass
+				# 这一轮没清理成是事实，得说出来：静默吞掉等于让"GC 在跑"这个假设
+				# 一直成立，而它已经不成立了。
+				_log.warning("sidechain/journal gc loop failed", exc_info=True)
 
 	async def _blob_gc_loop() -> None:
 		"""定期执行一次回溯 blob GC（读配置/环境；默认 dry-run、禁用时只报告）。"""
