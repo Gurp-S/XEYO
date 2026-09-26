@@ -180,6 +180,41 @@ describe('归因与免责措辞', () => {
 		// 非法状态不得被塞进"已确认"，只能落进未知
 		expect(groups.unknown).toHaveLength(2);
 	});
+
+	it('策略拒绝按未定渲染：人读结论在标题，规则码与理由码在证据里', async () => {
+		// 后端把「没进审批就被挡下」补成一条可见结论之后（真实数据 77/77 轮），
+		// 界面这一侧要钉三件事：它落进未定而不是已确认；标题句不含机器码；
+		// 展开后 matched_rule / reason 仍要能回读。
+		const deny = finding({
+			rule_id: 'permission_block',
+			phenomenon: '2 次工具调用没进审批等待就被执行层挡下（Bash 1 次、Read 1 次）',
+			component: '权限执行层（策略 DENY / 只读门）',
+			status: 'unknown',
+			impact: '这些调用没有执行：模型拿到的是执行层的拒绝结果；被哪条规则、以什么理由挡下列在证据里。',
+			coverage_gap: '这一形不落 tool.started / tool.finished，调用意图只能按 tool_name 与时刻近似对应。',
+			allowed_conclusion: '可确认这一枪被执行层按策略挡下及其规则与理由；策略拒绝是执行层的设计结果，不得计成产品故障。',
+			evidence: [
+				{
+					source: 'audit',
+					locator: '/x/audit.jsonl',
+					ref_id: 'L7',
+					detail: 'permission.denied matched_rule=bash_deny reason=destructive_root_delete',
+				},
+			],
+		});
+		expect(groupFindingsByStatus([deny] as never).confirmed_fault).toHaveLength(0);
+		expect(groupFindingsByStatus([deny] as never).unknown).toHaveLength(1);
+		expect(deny.phenomenon).not.toMatch(/matched_rule|reason/);
+
+		render(<FindingsView detail={detail({findings: [deny]})} />);
+		const text = document.body.textContent ?? '';
+		expect(text).toContain('没进审批等待就被执行层挡下');
+		await userEvent.click(screen.getByRole('button', {expanded: false}));
+		const expanded = document.body.textContent ?? '';
+		expect(expanded).toContain('matched_rule=bash_deny');
+		expect(expanded).toContain('reason=destructive_root_delete');
+		expect(expanded).toContain('不得计成产品故障');
+	});
 });
 
 describe('责任划分', () => {
