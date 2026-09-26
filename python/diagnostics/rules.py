@@ -770,7 +770,7 @@ def _permission_row_ref(run: RunEvidence, row: dict[str, Any]) -> EvidenceRef:
 	证据里看不见依据 —— 与 ``_tool_error_detail``、provider 证据同族（R7 / R5 已修）。
 	"""
 	parts = [_s(row.get("kind")) or "permission"]
-	for key in ("outcome", "permission_action", "matched_rule", "actor"):
+	for key in ("outcome", "permission_action", "matched_rule", "permission_reason_code", "reason", "actor"):
 		value = _s(row.get(key))
 		if value:
 			parts.append(f"{key}={value}")
@@ -867,6 +867,44 @@ def check_permission_block(run: RunEvidence) -> list[Finding]:
 				)
 			)
 	own_permissions = turn_scoped(run.permissions, run.turn_id)
+	pending_ids = {
+		_s(r.get("request_id")) for r in own_permissions if _s(r.get("kind")).startswith("permission.pending")
+	}
+	gated = [
+		r
+		for r in own_permissions
+		if _s(r.get("kind")).startswith("permission.denied") and _s(r.get("request_id")) not in pending_ids
+	]
+	if gated:
+		by_tool: dict[str, int] = {}
+		for row in gated:
+			name = _s(row.get("tool_name")) or "未记录工具"
+			by_tool[name] = by_tool.get(name, 0) + 1
+		shapes = "、".join(f"{name} {n} 次" for name, n in sorted(by_tool.items(), key=lambda kv: (-kv[1], kv[0])))
+		findings.append(
+			Finding(
+				rule_id="permission_block",
+				rule_version=RULESET_VERSION,
+				phenomenon=f"{len(gated)} 次工具调用没进审批等待就被执行层挡下（{shapes}）",
+				boundary="tool_permission",
+				component="权限执行层（策略 DENY / 只读门）",
+				# 只读门与策略 DENY 本来就不弹审批：真实审计 214 行 permission.denied
+				# 每一行在整份审计里只此一行 —— 没有 pending 兄弟，也没有 tool.started /
+				# tool.finished（2026-09-26 逐 id 追踪）。上面那条按 pending 配对的通路
+				# 整条看不到它们，"这一枪为什么没执行"于是没有答案。
+				status=UNKNOWN,
+				evidence=[_permission_row_ref(run, r) for r in gated[:12]],
+				impact="这些调用没有执行：模型拿到的是执行层的拒绝结果；被哪条规则、以什么理由挡下列在证据里。",
+				coverage_gap=(
+					"这一形不落 tool.started / tool.finished，调用意图只能按 tool_name 与时刻近似对应；"
+					"策略表里那条规则当初为什么写、能不能申请放开，不在审计里。"
+				),
+				allowed_conclusion=(
+					"可确认这一枪被执行层按策略挡下及其规则与理由；策略拒绝是执行层的设计结果，"
+					"不得计成产品故障，也不得据此说模型没有尝试。"
+				),
+			)
+		)
 	if own_permissions and not any(
 		_s(r.get("tool_use_id"))
 		or _s(r.get("model_request_id"))

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from diagnostics.fault_split import ENVIRONMENT, UNDETERMINED, attribute_fault
+from diagnostics.fault_split import ENGINE, ENVIRONMENT, UNDETERMINED, attribute_fault
 from diagnostics.identity import CONFIRMED_FAULT, SUSPECTED_CAUSE, UNKNOWN
 from diagnostics.rules import evaluate_run
 from diagnostics.report import attribution, build_report, usage_summary
@@ -205,6 +205,43 @@ def test_ok_and_retried_missing_accounts_stay_two_claims(collect) -> None:
 	assert "重打或换通道" in retried[0].phenomenon
 	assert ok[0].evidence[0].ref_id == "L4"
 	assert retried[0].evidence[0].ref_id == "L2"
+
+
+def test_policy_deny_without_ask_is_visible_and_blames_nobody(collect) -> None:
+	"""只读门与策略 DENY 不弹审批：真实审计 214 行 permission.denied 全是这一形。
+
+	逐 id 追踪（2026-09-26）：一次拒绝在整份审计里只有这一行 —— 没有 pending 兄弟，
+	也没有 tool.started / tool.finished。旧通路按 pending 配对，于是这类拦截整条看不到。
+	"""
+	run = collect(
+		[
+			{"ts": 1.0, "kind": "permission.denied", "session_id": "s1", "turn_id": "t1", "request_id": "c1", "tool_name": "Bash", "matched_rule": "bash_deny", "reason": "destructive_root_delete", "agent_id": "a1"},
+			{"ts": 1.1, "kind": "permission.denied", "session_id": "s1", "turn_id": "t1", "request_id": "c2", "tool_name": "Read", "matched_rule": "read_deny", "reason": "path_outside_working_directory", "agent_id": "a1"},
+		]
+	)
+	claims = [f for f in evaluate_run(run) if f.rule_id == "permission_block"]
+	assert len(claims) == 1, [c.phenomenon for c in claims]
+	claim = claims[0]
+	assert claim.status == UNKNOWN, "策略拒绝是执行层的设计结果，不是已确认故障"
+	assert "2 次工具调用没进审批等待就被执行层挡下" in claim.phenomenon
+	assert "Bash 1 次" in claim.phenomenon and "Read 1 次" in claim.phenomenon
+	# 机器码留在证据里供回读，现象句说人话
+	details = " ".join(e.detail for e in claim.evidence)
+	assert "matched_rule=read_deny" in details and "reason=path_outside_working_directory" in details
+	assert attribute_fault(run, claims)["responsibility"] != ENGINE
+
+
+def test_deny_with_pending_sibling_stays_on_the_ask_path(collect) -> None:
+	"""有 pending 的 DENY 仍走原来的配对通路，不得被新分支重复报一条。"""
+	run = collect(
+		[
+			{"ts": 1.0, "kind": "permission.pending", "session_id": "s1", "turn_id": "t1", "request_id": "c1", "tool_name": "Bash"},
+			{"ts": 1.1, "kind": "permission.denied", "session_id": "s1", "turn_id": "t1", "request_id": "c1", "tool_name": "Bash", "matched_rule": "bash_deny", "reason": "destructive_root_delete"},
+		]
+	)
+	claims = [f for f in evaluate_run(run) if f.rule_id == "permission_block"]
+	assert len(claims) == 1, [c.phenomenon for c in claims]
+	assert "没进审批等待" not in claims[0].phenomenon
 
 
 def test_priced_and_duplicated_usage_are_both_visible(collect) -> None:

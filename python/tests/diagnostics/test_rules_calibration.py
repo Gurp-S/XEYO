@@ -64,8 +64,8 @@
 
 纠正的底线：规则要么判对，要么 ``unknown`` 并写明缺哪条记录，不得靠沉默消噪。
 
-本文件与 ``test_rules_fixed_samples.py`` 另钉两条"读不出被写成已确认故障"的家族成员
-（2026-09-26 生产者契约对照 + 真实账本普查）：
+本文件与 ``test_rules_fixed_samples.py`` 另钉三条"读不出被写成已确认故障 / 整条读不到"的
+家族成员（2026-09-26 生产者契约对照 + 真实账本普查）：
 
 15. ``usage_accounting`` 要求 ``retry`` / ``protocol_fallback`` 那一枪也必须有用量行。
     生产侧 ``model/deepseek.py::_record_usage_safe`` 是 ``if not usage: return`` —— 没拿到
@@ -80,6 +80,12 @@
     到期消失是设计。真实审计 11 条 ``tool.spill`` 里 6 条落在保留期之外。
     现在越过保留期的句柄降为未定；保留期被设成 0（引擎不做清理）时判据退回已确认，
     因为那时"到期"这个借口不存在。
+17. ``permission_block`` 整条通路要求 DENY 行有一个 ``permission.pending`` 兄弟，而只读门
+    与策略 DENY 本来就不弹审批 —— 逐 id 追踪真实审计：214/214 行 ``permission.denied``
+    在整份文件里只出现这一次，既没有 pending 也没有同 id 的 ``tool.started`` / ``tool.finished``。
+    于是"这一枪为什么没执行"在最常见的一类拦截上没有任何答案（77 个真实轮次）。
+    现在这类行单独成一条结论（未定：策略拒绝是执行层的设计结果，与 tool_routing 同一裁定），
+    规则与理由留在证据里；实测同批 77 轮的责任划分结论改动 0 条 —— 补的是可见性，不是定责。
 """
 
 from __future__ import annotations
