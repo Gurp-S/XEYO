@@ -205,3 +205,50 @@ def test_diagnostic_fixtures_only_use_values_a_producer_writes() -> None:
 		f"拼值豁免与实际命中不一致：清单={sorted(_COMPOSED_VALUES)} 实际={sorted(composed_hits)}"
 	)
 	assert not bad, "这些夹具取值没有任何生产者写得出：" + "; ".join(bad[:10])
+
+
+#: 诊断层从审计/转录/账本行里读键的几种写法（本仓库的采集与规则只用这几形）。
+_READ_KEY_RX = re.compile(
+	r'(?:row|att|event\.row|manifest|job|payload|item)\.get\("([a-z_][a-z0-9_]{2,28})"\)'
+	r'|_kv\([a-z_]+, "([a-z_][a-z0-9_]{2,28})"\)'
+)
+_WRITE_KEY_RXS = (
+	re.compile(r"\b([a-z_][a-z0-9_]{2,28})\s*=\s*[^=]"),
+	re.compile(r'"([a-z_][a-z0-9_]{2,28})"\s*:'),
+	re.compile(r'\["([a-z_][a-z0-9_]{2,28})"\]\s*='),
+)
+
+
+def test_every_field_the_diagnostics_layer_reads_has_a_writer() -> None:
+	"""诊断读的那个键，产品源码里必须真的出现过。
+
+	这一族在本项目里犯过 6 次以上（test_rules_calibration 第 11、13 条）：规则读一个
+	生产者从不写（或叫别的名字）的字段，套件全绿而规则恒不命中。今天实测 55 个读键
+	全部有出处，于是把这句话钉成机器门 —— 只改一侧的重命名当场就红。
+	门只保证"键名在产品源码里存在"，不保证语义相同（那要靠走真实生产者的 roundtrip 用例）。
+	"""
+	python_root = _ROOT / "python"
+	written: set[str] = set()
+	files = 0
+	for path in python_root.rglob("*.py"):
+		rel = path.relative_to(python_root).as_posix()
+		if ".venv" in rel or rel.startswith("tests"):
+			continue
+		files += 1
+		text = path.read_text(encoding="utf-8", errors="replace")
+		for rx in _WRITE_KEY_RXS:
+			written.update(rx.findall(text))
+	assert files > 300 and len(written) > 1000, f"写侧扫描口径失效：{files} 个文件 / {len(written)} 个键"
+
+	missing: list[str] = []
+	reads = 0
+	for path in sorted((python_root / "diagnostics").glob("*.py")):
+		text = path.read_text(encoding="utf-8", errors="replace")
+		for lineno, line in enumerate(text.split("\n"), 1):
+			for match in _READ_KEY_RX.finditer(line):
+				key = match.group(1) or match.group(2)
+				reads += 1
+				if key not in written:
+					missing.append(f"{path.name}:{lineno} {key}")
+	assert reads > 40, f"读侧一条都没扫到，口径失效：{reads}"
+	assert not missing, f"这些字段被诊断读、产品里却没人写：{missing[:10]}"
