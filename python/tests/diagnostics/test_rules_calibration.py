@@ -655,6 +655,19 @@ def test_projection_from_a_later_turn_cannot_prove_delivery() -> None:
 	assert fault_split._emitted_projection_in_turn(run) is False
 
 
+def test_projection_without_any_timestamp_cannot_be_attributed() -> None:
+	"""一条带时间戳的记录都没有时无从核对归属 —— 这条分支以前返回 True。
+
+	返回 True 等于默认"这份留存投影就是我们这一枪"，于是会话级报告能拿整会话最后一枪
+	去判某一枪送没送到：真实数据 404 个会话里 7 个因此被判 responsibility=engine，
+	而那条"引擎丢了约束"的原因条目证据是空的（2026-09-26 只读普查）。
+	"""
+	run = _run([])
+	assert fault_split._emitted_projection_in_turn(run) is False
+	run.projections = [{"projection_id": "p1", "created_at": 1.0}]
+	assert fault_split._emitted_projection_in_turn(run) is False
+
+
 # ---------- 4. 权限结果行的唯一读法 ----------
 
 REAL_READONLY_DENY = {

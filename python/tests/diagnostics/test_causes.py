@@ -48,6 +48,29 @@ def _run(**over) -> RunEvidence:
 	return RunEvidence(**base)
 
 
+def _shot(ts: float = 5.0) -> dict:
+	"""生产里"这一枪"的最小事实：一条带时间戳的审计行 + 一份不晚于它的留存投影。
+
+	送达判据要靠投影的创建时刻核对这份投影属不属于本范围；两样都没有时它只能报 unprovable
+	（#62 的裁定：拿整会话最后一枪去判某一枪送没送到，会凭空造出引擎侧故障）。
+	所以凡是断言 shown / not_shown / folded_out 的夹具，都得先把这一枪摆出来。
+	"""
+	from diagnostics.collect import normalize_event
+
+	row = {
+		"ts": ts,
+		"kind": "model.started",
+		"session_id": "s1",
+		"turn_id": "t1",
+		"model_request_id": "r1",
+		"projection_id": "p1",
+	}
+	return {
+		"events": [normalize_event(1, 1, row)],
+		"projections": [{"projection_id": "p1", "created_at": ts}],
+	}
+
+
 def _user_turn(text: str, shown_text: str, monkeypatch) -> None:
 	transcript_path("s1").parent.mkdir(parents=True, exist_ok=True)
 	transcript_path("s1").write_text(
@@ -180,7 +203,7 @@ def test_unknown_only_rule_does_not_invent_a_confirmed_cause() -> None:
 def test_constraint_loss_is_the_upstream_cause(monkeypatch) -> None:
 	_user_turn("改完必须跑 pytest", "别的内容", monkeypatch)
 	verdict = attribute_fault(
-		_run(events=[]),
+		_run(**_shot()),
 		[_finding("tool_pair_integrity", "adapter")],
 	)
 	# 上下文丢失排在结构破坏之前：越上游越能解释后面的现象
@@ -235,6 +258,7 @@ def test_nothing_observed_is_not_called_missing_acceptance(monkeypatch) -> None:
 	)
 	assert primary(verdict["causes"])["code"] == NOT_DETERMINED
 	assert ACCEPT_MISSING not in _codes(verdict)
+	assert "本会话没有一条采集到的执行记录" in verdict["cause_statement"]
 	assert "只能报边界缺项，不能报原因" in verdict["cause_statement"]
 
 
@@ -304,6 +328,7 @@ def test_folded_out_gets_its_own_cause_and_a_different_next_step(monkeypatch) ->
 
 	monkeypatch.setattr(lc, "_last_sent_projection", lambda sid: (json.dumps([{"content": "无关"}]), "w.json"))
 	run = _run(
+		**_shot(),
 		transcript_rows=[{"id": "m1", "role": "user", "line_no": 2, "content": constraint, "locator": "t.jsonl"}],
 		working={"compact_cursor": 5, "locator": "w.json"},
 	)

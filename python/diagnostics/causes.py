@@ -13,6 +13,7 @@ from typing import Any
 
 from diagnostics.collect import RunEvidence
 from diagnostics.identity import CONFIRMED_FAULT, SUSPECTED_CAUSE, UNKNOWN, Finding, _s
+from diagnostics.rules import scope_word
 
 #: 规则的证据正文里带着它所依据的 status；回退形状要从厂商失败里分出来。
 _FALLBACK_DETAIL_RX = re.compile(r"status=protocol_fallback")
@@ -188,6 +189,15 @@ def _entry(code: str, evidence: list[dict[str, Any]]) -> dict[str, Any]:
 	}
 
 
+def execution_observed(run: RunEvidence) -> bool:
+	"""执行面是否留下了任何一条记录。转录行不算：它是文本层，说不了"做了什么"。
+
+	会话级报告里"审计尾窗没盖到这个会话"是多数状态（2026-09-26 普查：404 个会话里 385 个
+	执行面零记录），这种运行上一切"没做 X"的说法都只是"没观察到"。
+	"""
+	return bool(run.events or run.model_requests or run.tool_calls or run.permissions or run.jobs)
+
+
 def derive(
 	*,
 	findings: list[Finding],
@@ -274,6 +284,10 @@ def primary(causes: list[dict[str, Any]]) -> dict[str, Any]:
 def statement(causes: list[dict[str, Any]], run: RunEvidence) -> str:
 	head = primary(causes)
 	if head["code"] == NOT_DETERMINED:
+		if not execution_observed(run):
+			# 兜底句要说出为什么兜底：这份报告对整个范围一条执行记录都没读到，
+			# "没有原因"是采集缺口，不是"这次运行没出事"。
+			return f"{scope_word(run)}没有一条采集到的执行记录：只能报边界缺项，不能报原因。"
 		return "没有可核对的失败原因记录：本次只能报边界缺项，不能报原因。"
 	others = len(causes) - 1
 	return "主原因：{}。{}".format(
@@ -296,6 +310,7 @@ __all__ = [
 	"SELF_REPORT_MISMATCH",
 	"TOOL_ERROR",
 	"derive",
+	"execution_observed",
 	"is_shape_rejection",
 	"primary",
 	"statement",

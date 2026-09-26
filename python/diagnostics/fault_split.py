@@ -95,7 +95,9 @@ _ERROR_KIND_RX = re.compile(r"error_kind=([A-Z_]+)")
 # 这类内部状态名写进结论正文，界面就会原样投给用户，读者也无法把正文和字段对上。
 _SHOWN_TEXT = {
 	"shown": "已进入模型实际收到的内容",
-	"not_shown": "从未进入模型实际收到的内容",
+	# 判据只是"留存的那一份发射投影里没有"：更早几枪的投影根本没落盘，说"从未进入"超出了
+	# 可比范围（会话级尤其如此——一份整会话的最后一枪当整段历史的证人）。
+	"not_shown": "不在留存的那一份发射投影里",
 	"folded_out": "被折叠移出投影（未送达）",
 	"unprovable": "无法证明是否送达（缺按轮留存的最终请求体）",
 	"no_obligation": "没有可比对的约束文本",
@@ -381,7 +383,11 @@ def _emitted_projection_in_turn(run: RunEvidence) -> bool:
 	"""
 	upper = _turn_last_ts(run)
 	if upper is None:
-		return True  # 本轮没有带时间戳的记录：无从证伪，按原样交给定位链
+		# 一条带时间戳的记录都没有 ⇒ 这份留存投影出自哪一枪根本无从核对。返回 True 等于
+		# "默认它就是我们这一枪"，于是会话级报告可以拿整会话最后一枪去判某一枪送没送到：
+		# 真实数据 404 个会话里有 7 个这样被判成引擎丢了约束（且原因条目 evidence 为空）。
+		# 与 _last_user_obligation 对同一事实的处理保持一致：界不了就不界，宁可不判。
+		return False
 	stamps = [_f(p.get("created_at")) for p in run.projections]
 	stamps = [s for s in stamps if s is not None]
 	if not stamps:
@@ -389,20 +395,25 @@ def _emitted_projection_in_turn(run: RunEvidence) -> bool:
 	return max(stamps) <= upper + _OBLIGATION_TOLERANCE_SEC
 
 
-def _unprovable_note(run: RunEvidence) -> str:
+def _unprovable_note(run: RunEvidence, *, retained_body: bool = False) -> str:
 	""""证不出来"要说出是哪一块证据不在场：本轮用了哪个投影、留存的又是哪个。
 
 	只写"无法判断"时，读者分不清这是引擎状态不明还是采集只留一份；把两个标识摆出来，
 	这条就成了一句可以拿审计行核对的话。标识缺失时也不许编一个占位符上去。
+	``retained_body`` 是调用方递给它的事实：正文确实读到了、只是两边都对不上标识 ——
+	没有这个参数时兜底句会把"读到过一份正文"说成"没有留存的投影正文"。
 	"""
 	used = sorted(_turn_projection_ids(run))
 	retained = sorted({_s(p.get("projection_id")) for p in run.projections if _s(p.get("projection_id"))})
+	retained_txt = "working 那份留存投影没有可对上的标识" if retained_body else "working 里没有留存的投影正文"
 	if used and retained:
 		which = f"{scope_word(run)}的审计行带着投影 {'、'.join(p[:12] for p in used[:3])}，working 留存的是 {retained[-1][:12]}"
 	elif used:
-		which = f"{scope_word(run)}的审计行带着投影 {'、'.join(p[:12] for p in used[:3])}，working 里没有留存的投影正文"
+		which = f"{scope_word(run)}的审计行带着投影 {'、'.join(p[:12] for p in used[:3])}，{retained_txt}"
 	elif retained:
-		which = f"{scope_word(run)}审计行没带投影标识，无从确认它用的是哪一份投影"
+		which = f"{scope_word(run)}审计行没有投影标识，无从确认它用的是哪一份投影"
+	elif retained_body:
+		which = f"{scope_word(run)}审计行没有投影标识，{retained_txt}"
 	else:
 		which = f"{scope_word(run)}既没有投影标识也没有留存的投影正文"
 	return (
@@ -414,8 +425,15 @@ def _unprovable_note(run: RunEvidence) -> str:
 def _shown_to_model(run: RunEvidence, needle: str) -> dict[str, Any]:
 	"""约束是否确实进了模型实际收到的内容。捕获正文优先，其次上一枪实际发送的投影。
 
-	两级都必须是本轮的记录：captures 按轮次取，投影按 ``_emitted_projection_in_turn``
-	核对。拿更晚一轮的投影命中／落空来判本轮的送达，就是凭空造出引擎侧故障。
+	轮次级：两级都必须是本轮的记录（captures 按轮次取，投影按 ``_emitted_projection_in_turn``
+	核对）。拿更晚一轮的投影命中／落空来判本轮的送达，就是凭空造出引擎侧故障。
+
+	会话级留一条不对称，因为两个方向的证据强度本来就不同：
+	- 命中是真的 —— 留存正文里带着这段用户原话，说明发这具正文时那句话已经存在，它必然晚于约束；
+	- 落空不是 —— working 只留整会话最后一枪，更早几枪没落盘，"不在这一份里"分不清
+	  "从未进入"与"这一份本来就早于它"。
+	真实数据：385 个"审计尾窗没盖到"的会话里 302 个属于前者，7 个被后者判成了引擎丢约束
+	（原因条目还带着空证据）。
 	"""
 	if not needle:
 		return {"state": "no_obligation", "evidence": [], "note": "没有可比对的约束文本"}
@@ -424,19 +442,51 @@ def _shown_to_model(run: RunEvidence, needle: str) -> dict[str, Any]:
 
 		body_stage = _stage_provider_body(run, needle)
 		if body_stage["state"] == "found":
-			return {"state": "shown", "evidence": body_stage["evidence"], "note": "在适配器最终请求体里命中"}
-		if not _emitted_projection_in_turn(run):
-			return {"state": "unprovable", "evidence": [], "note": _unprovable_note(run)}
+			return {"state": "shown", "hole": "", "evidence": body_stage["evidence"], "note": "在适配器最终请求体里命中"}
+		bound = _emitted_projection_in_turn(run)
 		proj_stage = _stage_emitted(run, needle)
-		if proj_stage["state"] == "found":
-			return {"state": "shown", "evidence": proj_stage["evidence"], "note": "在上一枪实际发送的投影里命中"}
-		if proj_stage["state"] == "folded_out":
-			return {"state": "folded_out", "evidence": proj_stage["evidence"], "note": proj_stage["note"]}
-		if proj_stage["state"] == "absent":
-			return {"state": "not_shown", "evidence": proj_stage["evidence"], "note": "发送投影里没有这段约束"}
-		return {"state": "unprovable", "evidence": [], "note": proj_stage["note"]}
+		state = _s(proj_stage["state"])
+		if state not in {"found", "absent", "folded_out"}:
+			# 连可比对的留存正文都没有：这句话说的是"没有记录"，不是"没送到"。
+			return {"state": "unprovable", "hole": "no_retained_projection", "evidence": [], "note": proj_stage["note"]}
+		if state == "found":
+			# 命中本身就是证据：正文里带着这段原话，说明发这具正文时那句话已经存在。
+			# 轮次级还要求这份投影属于本轮，否则那是更晚一枪的内容（#13 的裁定）。
+			if bound or not _s(run.turn_id):
+				return {
+					"state": "shown",
+					"hole": "",
+					"evidence": proj_stage["evidence"],
+					"note": "在上一枪实际发送的投影里命中",
+				}
+			return {
+				"state": "unprovable",
+				"hole": "projection_not_in_turn",
+				"evidence": [],
+				"note": _unprovable_note(run, retained_body=True),
+			}
+		if not bound:
+			if _s(run.turn_id):
+				# 轮次级：这条洞的名字是"这一枪的投影没留下"，两个标识都要摆出来。
+				return {
+					"state": "unprovable",
+					"hole": "projection_not_in_turn",
+					"evidence": [],
+					"note": _unprovable_note(run, retained_body=True),
+				}
+			size = next((_s(e.get("detail")) for e in proj_stage["evidence"]), "")
+			return {
+				"state": "unprovable",
+				"hole": "projection_not_in_turn",
+				"evidence": [],
+				"note": "working 只留整会话最后一份发射投影（{}），更早几枪没有留存：这段约束不在这一份里，"
+				"既不能据此说它从未送达，也不能据此说引擎把它弄丢了".format(size or "字符数未记录"),
+			}
+		if state == "folded_out":
+			return {"state": "folded_out", "hole": "", "evidence": proj_stage["evidence"], "note": proj_stage["note"]}
+		return {"state": "not_shown", "hole": "", "evidence": proj_stage["evidence"], "note": "发送投影里没有这段约束"}
 	except Exception as exc:  # noqa: BLE001
-		return {"state": "unprovable", "evidence": [], "note": f"定位链不可用：{type(exc).__name__}"}
+		return {"state": "unprovable", "hole": "", "evidence": [], "note": f"定位链不可用：{type(exc).__name__}"}
 
 
 _CLAIM_WORDS = ("测试通过", "已通过", "已完成", "全部通过", "验收通过", "done", "all tests pass")
@@ -832,9 +882,8 @@ def attribute_fault(run: RunEvidence, findings: list[Finding]) -> dict[str, Any]
 		display_gap=bool(transport or transport_suspect),
 		# 执行面上一条记录都没有时，"没有可判定的验收记录"不是一条关于这次执行的原因，
 		# 只是什么都没观察到 —— 与轮次视图的「本轮无记录」同一裁定（fault_split::_no_records_verdict）。
-		# 转录行不算观察：它是文本层，验收条目不住在那里。真实数据里 404 个会话有 383 个
-		# 是"审计尾窗没盖到、只剩转录"的形状（2026-09-26 只读普查）。
-		observed=bool(run.events or run.model_requests or run.tool_calls or run.permissions or run.jobs),
+		# 判据与主原因措辞共用 causes.execution_observed，不留第二份口径。
+		observed=_causes.execution_observed(run),
 	)
 	cause_head = _causes.primary(cause_list)
 
@@ -915,9 +964,9 @@ def attribute_fault(run: RunEvidence, findings: list[Finding]) -> dict[str, Any]
 			"这一枪放行还是拦下没有记录，不能据此判动作没做"
 		)
 	if shown["state"] == "unprovable":
-		if not _emitted_projection_in_turn(run):
+		if _s(shown.get("hole")) == "projection_not_in_turn":
 			missing.append(
-				"working 只留整会话最后一份发射投影，且它不属于这次运行：要判约束送没送到，"
+				"working 只留整会话最后一份发射投影，且无法核对它属不属于这次运行：要判约束送没送到，"
 				"需要开 capture 按轮留住适配器最终请求体"
 			)
 		else:

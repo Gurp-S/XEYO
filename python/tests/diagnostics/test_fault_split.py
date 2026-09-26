@@ -151,6 +151,8 @@ def test_model_fault_requires_constraint_shown(monkeypatch) -> None:
 
 	monkeypatch.setattr(lc, "_last_sent_projection", lambda sid: (sent, "working.json"))
 	run = _run(
+		events=[_ev(5.0, "model.started")],
+		projections=[{"projection_id": "p1", "created_at": 5.0}],
 		pins=[{"kind": "verifier", "pin_id": "p1", "name": "pytest", "exit_code": 1, "locator": "pins/p1.json"}],
 		transcript_rows=[
 			{"id": "m1", "role": "user", "content": constraint, "locator": "t.jsonl", "line_no": 1},
@@ -255,6 +257,7 @@ def test_post_hoc_pin_cannot_claim_context_loss_but_can_name_requirement(monkeyp
 			{"kind": "verifier", "pin_id": "p1", "name": "pytest", "exit_code": 1, "locator": "p1.json"},
 		],
 		events=[_ev(1.0, "model.started"), _ev(2.0, "model.finished")],
+		projections=[{"projection_id": "p1", "created_at": 2.0}],
 	)
 	verdict = attribute_fault(run, [])
 	assert not any("源历史里存在，但不在最后发射的投影里" in s["fact"] for s in verdict["chain"])
@@ -269,6 +272,8 @@ def test_required_test_skipped_is_a_model_fault_without_a_verifier(monkeypatch) 
 
 	monkeypatch.setattr(lc, "_last_sent_projection", lambda sid: (json.dumps([{"content": constraint}]), "w.json"))
 	run = _run(
+		events=[_ev(5.0, "model.started")],
+		projections=[{"projection_id": "p1", "created_at": 5.0}],
 		transcript_rows=[
 			{"id": "m1", "role": "user", "content": constraint, "locator": "t.jsonl", "line_no": 1},
 			{"id": "m2", "role": "assistant", "content": "已完成，测试通过", "locator": "t.jsonl", "line_no": 2},
@@ -331,9 +336,57 @@ def test_constraint_not_sent_is_engine_loss(monkeypatch) -> None:
 	import diagnostics.loss_chain as lc
 
 	monkeypatch.setattr(lc, "_last_sent_projection", lambda sid: (json.dumps([{"role": "user", "content": "别的内容"}]), "working.json"))
-	verdict = attribute_fault(_run(), [])
+	verdict = attribute_fault(
+		_run(events=[_ev(5.0, "model.started")], projections=[{"projection_id": "p1", "created_at": 5.0}]),
+		[],
+	)
 	assert verdict["shown_to_model"] == "not_shown"
 	assert verdict["responsibility"] == ENGINE
+
+
+def test_session_scope_hit_in_retained_projection_still_counts_as_delivery(monkeypatch) -> None:
+	"""审计尾窗没盖到的会话：约束出现在留存的那份发射投影里，就是送到过。
+
+	命中是自证的 —— 正文带着这段用户原话，说明发这具正文时那句话已经存在。把这条也退回
+	"无法证明"，385 个这种会话里 302 个仅存的送达信号就没了（那是把准确率换成空洞）。
+	"""
+	constraint = "改完必须跑 pytest 再说完成"
+	_write_transcript("s1", [{"id": "m1", "role": "user", "ts": 1.0, "content": constraint}])
+	import diagnostics.loss_chain as lc
+
+	monkeypatch.setattr(lc, "_last_sent_projection", lambda sid: (json.dumps([{"role": "user", "content": constraint}]), "w.json"))
+	run = _run(turn_id="", transcript_rows=[{"id": "m1", "role": "user", "content": constraint, "locator": "s1.jsonl", "line_no": 1}])
+	verdict = attribute_fault(run, [])
+	assert verdict["shown_to_model"] == "shown"
+	assert verdict["chain"], "送达这一步要留下能回读的证据"
+
+
+def test_session_scope_miss_in_retained_projection_cannot_blame_engine(monkeypatch) -> None:
+	"""只剩一份留存投影时，"不在这一份里"说不了"从未进入"，更不能算引擎丢了约束。
+
+	真实数据：404 个会话里 7 个这样被判 responsibility=engine、主原因「该在场的约束没进
+	最后发射的内容」，而那条原因的证据是空列表 —— 同一份报告的缺项栏还在说审计超出采集窗口。
+	"""
+	constraint = "改完必须跑 pytest 再说完成"
+	_write_transcript("s1", [{"id": "m1", "role": "user", "ts": 1.0, "content": constraint}])
+	import diagnostics.loss_chain as lc
+
+	monkeypatch.setattr(lc, "_last_sent_projection", lambda sid: (json.dumps([{"role": "user", "content": "别的内容"}]), "w.json"))
+	run = _run(turn_id="", transcript_rows=[{"id": "m1", "role": "user", "content": constraint, "locator": "s1.jsonl", "line_no": 1}])
+	verdict = attribute_fault(run, [])
+	assert verdict["shown_to_model"] == "unprovable"
+	assert verdict["responsibility"] != ENGINE
+	assert "context_dropped_constraint" not in [c["code"] for c in verdict["causes"]]
+	assert "更早几枪没有留存" in verdict["shown_to_model_note"]
+
+
+def test_delivery_labels_do_not_claim_never() -> None:
+	"""送达栏的措辞只能说"这一份里没有"：更早几枪的投影根本没落盘，"从未"超出可比范围。"""
+	from diagnostics.fault_split import shown_to_model_label
+
+	label = shown_to_model_label("not_shown")
+	assert "从未" not in label
+	assert "不在" in label or "没有" in label
 
 
 def test_engine_and_model_both_holds_is_mixed(monkeypatch) -> None:
@@ -346,6 +399,8 @@ def test_engine_and_model_both_holds_is_mixed(monkeypatch) -> None:
 
 	monkeypatch.setattr(lc, "_last_sent_projection", lambda sid: (json.dumps([{"content": constraint}]), "w.json"))
 	run = _run(
+		events=[_ev(5.0, "model.started")],
+		projections=[{"projection_id": "p1", "created_at": 5.0}],
 		pins=[
 			{"kind": "run_mark", "pin_id": "p0", "expected": constraint, "note": "结果不对", "locator": "pins/p0.json"},
 			{"kind": "verifier", "pin_id": "p1", "name": "pytest", "exit_code": 1, "locator": "pins/p1.json"},
@@ -376,7 +431,11 @@ def test_bare_acceptance_failure_does_not_blame_model(monkeypatch) -> None:
 	import diagnostics.loss_chain as lc
 
 	monkeypatch.setattr(lc, "_last_sent_projection", lambda sid: (json.dumps([{"content": constraint}]), "w.json"))
-	run = _run(pins=[{"kind": "verifier", "pin_id": "p1", "name": "pytest", "exit_code": 1, "locator": "p1.json"}])
+	run = _run(
+		events=[_ev(5.0, "model.started")],
+		projections=[{"projection_id": "p1", "created_at": 5.0}],
+		pins=[{"kind": "verifier", "pin_id": "p1", "name": "pytest", "exit_code": 1, "locator": "p1.json"}],
+	)
 	verdict = attribute_fault(run, [])
 	assert verdict["shown_to_model"] == "shown"
 	assert verdict["task_outcome"] == "accepted_fail"
@@ -456,7 +515,7 @@ def _ev_with(ts: float, kind: str, **row) -> object:
 	return normalize_event(0, 1, {"ts": ts, "kind": kind, "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", **row})
 
 
-def test_session_scope_attribution_prose_follows_the_scope() -> None:
+def test_session_scope_attribution_prose_follows_the_scope(monkeypatch) -> None:
 	"""会话级归因不许说「本轮」；按轮问诊时，同一批句子要说「本轮」。
 
 	这些句子来自义务识别、送达判定与动作核对三条通路。报告端点接受空 turn_id，
@@ -464,6 +523,11 @@ def test_session_scope_attribution_prose_follows_the_scope() -> None:
 	"""
 
 	def verdict_for(turn_id: str) -> dict:
+		# 送达判定要有真能比对的留存正文：没有正文时最早的洞是"没开 capture"，
+		# 那些带范围词的句子根本不会被说到，门就成了空转。
+		import diagnostics.loss_chain as lc
+
+		monkeypatch.setattr(lc, "_last_sent_projection", lambda sid: (json.dumps([{"content": "别的内容"}]), "w.json"))
 		# 约束正文由 _last_user_obligation 从转录文件里取（与采集层的窗口无关），
 		# 所以这条门要写真文件，不能只填 run.transcript_rows —— 那样它永远不会走到
 		# 带「本轮」的那些句子上，门就成了空转。
@@ -508,14 +572,17 @@ def test_session_scope_attribution_prose_follows_the_scope() -> None:
 	assert tripped("") == [], f"会话级归因里仍有「本轮」：{tripped('')}"
 
 
-def test_unprovable_note_names_both_projections() -> None:
+def test_unprovable_note_names_both_projections(monkeypatch) -> None:
 	""""证不出来"必须说清是哪块证据不在场：本轮用哪个投影、留存的是哪个。
 
 	笼统的"无法判断"读起来像引擎状态不明；把两个标识摆出来，这条就成了可以拿审计行
 	核对的话，也指明了要补的是按轮留存（capture），不是再去猜。
+	留存正文要真的给一份：没有正文时最早的洞是"无从比对"，走不到这条归属拒绝的分支。
 	"""
 	from diagnostics.fault_split import _shown_to_model
+	import diagnostics.loss_chain as lc
 
+	monkeypatch.setattr(lc, "_last_sent_projection", lambda sid: (json.dumps([{"content": "别的内容"}]), "w.json"))
 	run = _run(
 		events=[_ev_with(1.0, "model.started", projection_id="pA_used_this_turn"), _ev_with(2.0, "model.finished", projection_id="pA_used_this_turn")],
 		projections=[{"projection_id": "pB_retained_last", "created_at": 99.0, "locator": "w.json"}],
@@ -526,10 +593,12 @@ def test_unprovable_note_names_both_projections() -> None:
 	assert "只留整会话最后一份" in out["note"]
 
 
-def test_unprovable_note_without_any_projection_identity() -> None:
+def test_unprovable_note_without_any_projection_identity(monkeypatch) -> None:
 	"""两个标识都没有时不许编一个占位符上去：说"没带投影标识"就够了。"""
 	from diagnostics.fault_split import _shown_to_model
+	import diagnostics.loss_chain as lc
 
+	monkeypatch.setattr(lc, "_last_sent_projection", lambda sid: (json.dumps([{"content": "别的内容"}]), "w.json"))
 	run = _run(events=[_ev_with(1.0, "model.started"), _ev_with(2.0, "model.finished")])
 	out = _shown_to_model(run, "改完必须跑 pytest")
 	assert out["state"] == "unprovable"
