@@ -128,6 +128,19 @@ def scan_shown_states() -> list[str]:
 	return sorted(fault_split._SHOWN_TEXT)
 
 
+def scan_coverage_sources() -> list[str]:
+	"""采集覆盖表里会出现的来源标识：扫 collect 里构造 Window 的两处写法。
+
+	覆盖表把每个来源一行呈现给读者，此前 GUI 直接把 `audit`、`fold_events` 这类
+	机器名投出去 —— 界面上没有第二份清单，也就没人知道少了几档。扫描而不是另立
+	常量表：新增一个采集来源时这里会自动多出一条，界面没中文说法就红。
+	"""
+	text = (Path(__file__).resolve().parent / "collect.py").read_text(encoding="utf-8", errors="replace")
+	found = set(re.findall(r'source="([a-z_]+)"', text))
+	found |= set(re.findall(r'_window_from_scan\(\s*"([a-z_]+)"', text))
+	return sorted(found)
+
+
 def scan_fact_states() -> list[str]:
 	"""定位链每一级能发的状态值：以 loss_chain 的模块常量为正本。
 
@@ -240,6 +253,7 @@ def collect_contract() -> dict[str, Any]:
 			if (b, r) in emitted
 		],
 		"shownStates": scan_shown_states(),
+		"coverageSources": scan_coverage_sources(),
 		"factStates": scan_fact_states(),
 		"factVerdicts": scan_fact_verdicts(),
 		"parties": sorted(fault_split.PARTY_LABEL),
@@ -257,6 +271,7 @@ def render(contract: dict[str, Any]) -> str:
 	)
 	rule_ids = "\n".join(f"\t{r!r}," for r in contract["ruleIds"])
 	shown = "\n".join(f"\t{s!r}," for s in contract["shownStates"])
+	cov_sources = "\n".join(f"\t{s!r}," for s in contract["coverageSources"])
 	fact_states = "\n".join(f"\t{s!r}," for s in contract["factStates"])
 	fact_verdicts = "\n".join(f"\t{v!r}," for v in contract["factVerdicts"])
 	parties = "\n".join(f"\t{p!r}," for p in contract["parties"])
@@ -293,6 +308,10 @@ def render(contract: dict[str, Any]) -> str:
 		"\n"
 		"export const DIAG_SHOWN_STATES: readonly string[] = [\n"
 		f"{shown}\n"
+		"];\n"
+		"\n"
+		"export const DIAG_COVERAGE_SOURCES: readonly string[] = [\n"
+		f"{cov_sources}\n"
 		"];\n"
 		"\n"
 		"export const DIAG_FACT_STATES: readonly string[] = [\n"

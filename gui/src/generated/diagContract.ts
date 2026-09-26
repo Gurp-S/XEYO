@@ -87,6 +87,17 @@ export const DIAG_SHOWN_STATES: readonly string[] = [
 	'unprovable',
 ];
 
+export const DIAG_COVERAGE_SOURCES: readonly string[] = [
+	'audit',
+	'captures',
+	'fold_events',
+	'jobs',
+	'transcript',
+	'usage',
+	'wire_drops',
+	'working',
+];
+
 export const DIAG_FACT_STATES: readonly string[] = [
 	'absent',
 	'folded_out',

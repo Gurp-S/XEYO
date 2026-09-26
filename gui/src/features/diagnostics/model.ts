@@ -176,6 +176,23 @@ export function attributionLines(detail: DiagRunDetail): string[] {
 }
 
 /** 采集/记录完整性措辞：absent ≠ 没发生。 */
+/** 采集覆盖表的来源标识 → 中文（来源清单以生产者 collect 构造 Window 的字面量为正本，
+ *  经契约生成 DIAG_COVERAGE_SOURCES）。措辞与边界标签同一套词汇，读者能在两处对上。 */
+export const COVERAGE_SOURCE_LABEL: Record<string, string> = {
+	audit: '审计事件流',
+	transcript: '会话转录',
+	usage: '用量账本',
+	working: '工作状态快照',
+	fold_events: 'WSC 折叠账本',
+	wire_drops: '出口丢弃记录',
+	jobs: '后台任务',
+	captures: '请求体捕获',
+};
+
+export function coverageSourceLabel(source: string): string {
+	return COVERAGE_SOURCE_LABEL[source] ?? (source || DASH);
+}
+
 export const COVERAGE_STATE_LABEL: Record<string, string> = {
 	full: '完整',
 	partial: '部分',

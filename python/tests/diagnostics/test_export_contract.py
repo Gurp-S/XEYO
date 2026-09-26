@@ -252,3 +252,21 @@ def test_every_field_the_diagnostics_layer_reads_has_a_writer() -> None:
 					missing.append(f"{path.name}:{lineno} {key}")
 	assert reads > 40, f"读侧一条都没扫到，口径失效：{reads}"
 	assert not missing, f"这些字段被诊断读、产品里却没人写：{missing[:10]}"
+
+
+def test_coverage_sources_are_the_ones_the_collector_actually_builds() -> None:
+	"""采集覆盖表的来源清单按字面量钉死，正则口径漂走时这条会红。
+
+	期望写成字面量而不是"扫到就算对"：少扫一档就等于界面上少一档中文而没人报警。
+	这 8 档与 2026-09-26 真实载荷里 coverage() 的键逐一对得上。
+	"""
+	assert ec.scan_coverage_sources() == [
+		"audit",
+		"captures",
+		"fold_events",
+		"jobs",
+		"transcript",
+		"usage",
+		"wire_drops",
+		"working",
+	]

@@ -7,7 +7,7 @@
 import {useEffect, useRef, useState} from 'react';
 import {Loader2} from 'lucide-react';
 import {traceDiagFact, type DiagFactTrace, type DiagRunDetail} from '@/lib/api/diagnostics';
-import {DASH, FACT_STATE_TONE, FACT_VERDICT_TONE, boundaryLabelOf, coverageStateLabel, factStateLabel, fmtBytes, gapReasonLabel, ledgerCountText, projectionManifestText, splitGapsByScope} from './model';
+import {DASH, FACT_STATE_TONE, FACT_VERDICT_TONE, boundaryLabelOf, coverageSourceLabel, coverageStateLabel, factStateLabel, fmtBytes, gapReasonLabel, ledgerCountText, projectionManifestText, splitGapsByScope} from './model';
 import {Badge, EvidenceList, KeyValue, Notice, Section} from './ui';
 import {cn} from '@/lib/utils';
 
@@ -152,7 +152,7 @@ export function ContextView({
 						<tbody>
 							{coverage.map(([source, c]) => (
 								<tr key={source}>
-									<td className="font-mono">{source}</td>
+									<td>{coverageSourceLabel(source)}</td>
 									<td>
 										<Badge tone={c.state === 'full' ? 'ok' : c.state === 'absent' ? 'neutral' : 'warn'}>
 											{coverageStateLabel(c.state)}

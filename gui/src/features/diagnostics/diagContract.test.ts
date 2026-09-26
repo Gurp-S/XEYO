@@ -18,6 +18,7 @@ import {fileURLToPath} from 'node:url';
 import {describe, expect, it} from 'vitest';
 import {
 	DIAG_BOUNDARIES,
+	DIAG_COVERAGE_SOURCES,
 	DIAG_FACT_STATES,
 	DIAG_FACT_VERDICTS,
 	DIAG_GAP_REASONS,
@@ -29,6 +30,7 @@ import {
 } from '@/generated/diagContract';
 import {
 	BOUNDARY_ORDER,
+	COVERAGE_SOURCE_LABEL,
 	FACT_STATE_LABEL,
 	FACT_STATE_TONE,
 	FACT_VERDICT_TONE,
@@ -36,6 +38,7 @@ import {
 	PARTY_LABEL,
 	PARTY_TONE,
 	SHOWN_LABEL,
+	coverageSourceLabel,
 	factStateLabel,
 	gapReasonLabel,
 } from './model';
@@ -73,8 +76,21 @@ describe('诊断契约 · 生产者发得出，界面就必须说得出', () => 
 		}
 	});
 
+	it('采集覆盖表的每一档来源都有中文，界面也不留生产者不发的标签', () => {
+		expect(uniq(DIAG_COVERAGE_SOURCES)).toEqual(DIAG_COVERAGE_SOURCES);
+		expect(DIAG_COVERAGE_SOURCES.length).toBeGreaterThanOrEqual(8);
+		for (const source of DIAG_COVERAGE_SOURCES) {
+			const label = COVERAGE_SOURCE_LABEL[source];
+			expect(label, `界面缺来源标签 ${source}`).toBeTruthy();
+			expect(label).not.toContain(source);
+			expect(coverageSourceLabel(source)).toBe(label);
+		}
+		for (const source of Object.keys(COVERAGE_SOURCE_LABEL)) {
+			expect(DIAG_COVERAGE_SOURCES, `界面多了生产者不发的来源标签 ${source}`).toContain(source);
+		}
+	});
+
 	it('定位链每一级状态都有中文说法与语气，且不留孤儿标签', () => {
-		expect(uniq(DIAG_FACT_STATES)).toEqual(DIAG_FACT_STATES);
 		expect(DIAG_FACT_STATES.length).toBeGreaterThan(0);
 		for (const state of DIAG_FACT_STATES) {
 			const label = FACT_STATE_LABEL[state];
