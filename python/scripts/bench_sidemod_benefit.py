@@ -6,15 +6,15 @@
 ## 覆盖与口径
 - **⑧.5 memindex 签名**（correctness）：同秒编辑（同 mtime 同 size 改内容）——基线 `(mtime,size)`
   是否漏检 vs 内容哈希是否命中。收益=不 miss，不是读 IO。
-- **⑧ content_index trigram 缓存**（省 CPU）：同内容二建 trigram 重算次数（开=0）vs 基线=全量；耗时。
 - **⑮ 重排偏好**（召回排序）：被采用 note 是否提前。
 - **④ 污染门**（诚实度）：污染环境是否被拒 + 干净环境是否放行。
 - **⑤ 报告口径**（诚实度）：单 accuracy → 4 字段。
 - **① 冷记忆**（诚实度）：常忆 vs 冷忆召回面（基线=有召回，开=空）。
 - **②严格档/③盲审** 依赖真实模型/agent 回路，离线不可量化，结论注明。
 
-说明：⑧.5/⑧ 的收益在**程序性测试**里已有覆盖（test_memindex_sig_shadow / test_content_index_cache_shadow
-已断言未变零重跑、同秒命中），此处给出前/后量化对照。
+说明：⑧.5 的收益在**程序性测试**里已有覆盖（test_memindex_sig_shadow 已断言同秒命中），
+此处给出前/后量化对照。⑧（content_index trigram 缓存）已随 Grep 的索引预筛一并删除：
+实测每次查询省 3~9ms，而建一次索引要 142~888ms。
 
 用法：cd python && python scripts/bench_sidemod_benefit.py
 """
@@ -24,17 +24,12 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
-import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 # 用独立 memdir 域，避免污染真实记忆。
 _WSD = "ws_bench"
-
-
-def _fmt(ms: float) -> str:
-    return f"{ms:.1f}ms"
 
 
 # ================================================================ ⑧.5 memindex 签名
@@ -101,61 +96,6 @@ def bench_memindex_signature(workdir: Path) -> dict:
         "内容哈希_同秒编辑检测到": hash_detected,
         "基线_同秒编辑漏检": not base_detected,
         "内容哈希_同秒编辑漏检": not hash_detected,
-    }
-
-
-# ================================================================ ⑧ content_index 缓存
-def bench_content_index_cache(workdir: Path) -> dict:
-    """同内容二建：trigram 重算次数 基线 vs 缓存；耗时。"""
-    from tools.fileio import content_index
-    from tools.fileio.content_index_cache_shadow import (
-        install as ci_install,
-        read_count,
-        reset_read_count,
-        uninstall as ci_uninstall,
-    )
-
-    ws = workdir / "ci"
-    ws.mkdir(parents=True, exist_ok=True)
-    for i in range(300):
-        (ws / f"f{i}.py").write_text(
-            "".join(f"def f{i}(): return {i} # token{i} literal{i}\n" for i in range(40)),
-            encoding="utf-8",
-        )
-
-    def _measure():
-        reset_read_count()
-        t0 = time.perf_counter()
-        content_index._build_index(str(ws))
-        dt = (time.perf_counter() - t0) * 1000
-        rc = read_count() if os.environ.get("XEYO_CONTENT_INDEX_CACHE") == "1" else 300
-        return rc, dt
-
-    # 基线（关，未装）
-    os.environ.pop("XEYO_CONTENT_INDEX_CACHE", None)
-    ci_uninstall()
-    base_rc, base_ms = _measure()
-    # 开启（装）
-    os.environ["XEYO_CONTENT_INDEX_CACHE"] = "1"
-    ci_install()
-    try:
-        ci_rc, ci_ms = _measure()  # 首建
-        # 二建（内容未变）→ READ_COUNT 应为 0。
-        reset_read_count()
-        t1 = time.perf_counter()
-        content_index._build_index(str(ws))
-        ci_ms2 = (time.perf_counter() - t1) * 1000
-        ci_rc_second = read_count()
-    finally:
-        ci_uninstall()
-        os.environ.pop("XEYO_CONTENT_INDEX_CACHE", None)
-
-    return {
-        "基线_重算次数(每次全量)": base_rc,
-        "缓存_首建重算次数": ci_rc,
-        "缓存_二建重算次数": ci_rc_second,
-        "基线_耗时": _fmt(base_ms),
-        "缓存_二建耗时": _fmt(ci_ms2),
     }
 
 
@@ -229,9 +169,6 @@ def main() -> int:
         wd = Path(tmp)
         print("\n[⑧.5] memindex 同秒编辑检测（同 mtime 同 size 改内容）")
         for k, v in bench_memindex_signature(wd).items():
-            print(f"  - {k}: {v}")
-        print("\n[⑧] content_index trigram 缓存（300 文件，内容未变二建）")
-        for k, v in bench_content_index_cache(wd).items():
             print(f"  - {k}: {v}")
     print("\n[⑮] 检索重排偏好")
     for k, v in bench_rerank().items():

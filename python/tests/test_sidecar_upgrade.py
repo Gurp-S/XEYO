@@ -36,9 +36,7 @@ def test_apply_then_unapply(monkeypatch):
     assert upgrade.apply() is True
     assert memindex._sync_table is not before
     assert getattr(memindex, "__memindex_sig_installed", False) is True
-    # 其他挂钩型也应被安装（抽查 content_index / spill / pre_llm_inject）。
-    from tools.fileio import content_index
-    assert getattr(content_index, "__content_index_cache_installed", False) is True
+    # 其他挂钩型也应被安装（抽查 spill / pre_llm_inject）。
     from tools import spill
     assert getattr(spill, "__spill_tail_hint_installed", False) is True
     from prompt import pre_llm_inject
@@ -47,7 +45,6 @@ def test_apply_then_unapply(monkeypatch):
     upgrade.unapply()
     assert memindex._sync_table is before
     assert not getattr(memindex, "__memindex_sig_installed", False)
-    assert not getattr(content_index, "__content_index_cache_installed", False)
 
 
 def test_hooked_list_excludes_mcp_manifest(monkeypatch):

@@ -18,7 +18,6 @@ from engine.abort import AbortController
 from permissions import filesystem
 from tools.base_tool import ToolResult
 from codeindex.symbols import iter_symbols
-from tools.fileio import content_index
 from tools.fileio.excludes import excluded_dir_globs
 from tools.fileio.rg_subprocess import (
 	RG_MISSING_IN_CONTAINER,
@@ -251,21 +250,14 @@ def run_ripgrep(
 	*,
 	timeout: int = RG_TIMEOUT_SECONDS,
 	abort: AbortController | None = None,
-	files: list[str] | None = None,
 ) -> list[str]:
 	"""执行 rg；exit 0/1 为成功，其余抛错。abort/超时会杀死子进程。
 
-	``files`` 给定（索引候选集）时，把它作为显式目标文件列表传给 rg，从而把扫描
-	面收窄到候选集合（由索引预筛 + rg 精确验证双保险）。
-
-	**空列表不是合法输入**：它会拼成没有任何目标的 rg 命令，rg 便转去读 stdin
-	直到超时（几十秒的空等）。候选为空 = 索引没看到，不等于全库没有，调用方应
-	走 ``files=None`` 的全量检索。
+	目标只有 ``target`` 一个入口：2026-09-25 删掉索引预筛后，"把扫描面交给调用方
+	递来的候选文件列表"这条通路整体不存在了（空列表会拼成没有目标的 rg 命令，
+	rg 转去读 stdin 直到超时）。
 	"""
-	if files is not None:
-		cmd = ["rg", *args, *files]
-	else:
-		cmd = ["rg", *args, target]
+	cmd = ["rg", *args, target]
 	try:
 		return run_ripgrep_lines(
 			cmd,
@@ -624,48 +616,12 @@ class GrepTool:
 		args = build_rg_args(input_data)
 		offset = max(0, input_data.offset or 0)
 
-		# files_with_matches 字面量检索：用内容索引预筛候选文件，把 rg 扫描面从全库
-		# 收窄到候选集（索引为完整超集 + rg 精确验证 → 仍是“确切匹配”）。
-		# 任何索引不可用/异常/候选为空 → 回退全量 rg（fail-open，不改正确性）。
-		#
-		# 容器路由（2026-09-16）：**跳过预筛**。索引是按**宿主**文件系统建的，
-		# 工作面在容器里 ⇒ 候选集对容器内容毫无意义。当时它还"候选为空=零命中"，
-		# 于是宿主索引直接把容器里的文件说成不存在；现在空候选已落回全量 rg，
-		# 跳过预筛省下的是必然白建的宿主索引，正确性不再依赖它。
-		_index_usable = True
-		try:
-			from tools.container_fs import active_container as _ac
-
-			_index_usable = not bool(_ac())
-		except Exception:  # noqa: BLE001 — 路由模块不可用视为宿主
-			_index_usable = True
-		index_prefiltered = False
-		if (
-			_index_usable
-			and mode == "files_with_matches"
-			and content_index.is_literal(input_data.pattern)
-			and not input_data.glob
-			and not input_data.type
-			and _fsprobe.isdir(absolute_path)
-		):
-			cands = content_index.lookup(absolute_path, input_data.pattern)
-			if cands:
-				index_prefiltered = True
-				results = run_ripgrep(
-					args,
-					absolute_path,
-					files=[os.path.normpath(os.path.join(absolute_path, c)) for c in cands],
-					abort=abort,
-				)
-			# 空候选**不等于**"全库都没有这个字面量"。索引只在 bash 里失效
-			# （clear_content_index），Write/Edit 只清 glob 缓存，TTL 30s 内的
-			# 外部写入更不会进候选集。2026-09-25 实测：刚写入 b.py 就 Grep 其中
-			# 的字面量，工具答 "No files found"，同一时刻 rg 能扫到它——把读不出
-			# 说成不存在，模型会认为自己的写入没落地。空候选与 None 一样落回
-			# 下面的全量 rg，与本函数开头声明的 fail-open 语义一致。
-
-		if not index_prefiltered:
-			results = run_ripgrep(args, absolute_path, abort=abort)
+		# 这里曾经挂过一层 trigram 内容索引预筛（把 rg 扫描面收窄到候选集），2026-09-25
+		# 删除。账本实测：一次字面量查询省 3~9ms，而索引建一次要 142~888ms（TTL 30s），
+		# 回本要同根 20~117 次查询——Grep 全轮中位耗时只有 46ms。收益不成立，代价却落在
+		# 正确性上：候选集由宿主文件系统建、且只跟 bash 失效，刚 Write 出来的文件在 TTL 内
+		# 进不了候选，工具答 "No files found" 而同一时刻 rg 扫得到——读不出被说成不存在。
+		results = run_ripgrep(args, absolute_path, abort=abort)
 
 		if mode == "content":
 			# 确定序：先按 (路径, 行号) 排好再分页，避免 rg 遍历序跨调用漂移。

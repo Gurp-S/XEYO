@@ -5,13 +5,13 @@
 
 ## 范围
 - **笔记检索**：一组 `(query, 期望命中 note)`，用 `memory.search`（词法）跑，测 `hit@k`。
-- **代码检索**：一组 `(query, 期望命中文件)`，用 `content_index.lookup`（trigram 候选超集）跑，
-  测「期望文件是否在候选集」的召回基线（词法）。此为超集基线，仍需 rg 精确验证（对齐现状）。
+- **代码检索**：一组 `(query, 期望命中文件)`，用 Grep 工具的真实检索通路（全量 `rg`
+  字面量匹配）跑，测「期望文件是否在返回集」的召回基线（词法）。
 
 ## 纪律
 - 离线、无 API/模型/网络；数据集内置，结果可重复。
 - 纯词法检索，不引 embedding/向量库（⑯ 未启动前保持真实基线）。
-- **fail-open**：任何索引异常 → 回退全量 `rg`/文件扫描（与 content_index/memindex 语义一致）。
+- **fail-open**：任何检索异常 → 记 miss 并注明，不抛（基准不阻塞调用方）。
 
 ## 用法
 - 作为模块：`from evals.retrieval_bench import run_bench; run_bench(...) -> dict`
@@ -56,9 +56,9 @@ NOTE_CASES: list[BenchCase] = [
 ]
 
 #: 代码检索用例。query 用英文字面量，期望命中一个文件（相对受控 corpus root）。
-#: 对每个用例，会在受控 corpus 里写一个对应文件（模拟真实代码片段），确保索引可建、召回可测。
+#: 对每个用例，会在受控 corpus 里写一个对应文件（模拟真实代码片段），确保检索可跑、召回可测。
 CODE_CASES: list[BenchCase] = [
-    BenchCase("build_index trigrams content_index", "content_index.py"),
+    BenchCase("build_index trigrams code_search", "code_search.py"),
     BenchCase("sync_table sqlite signature memindex", "memindex.py"),
     BenchCase("MEMORY_SWITCHES registry default", "memory_switches.py"),
     BenchCase("rerank_preference bonus score", "rerank_shadow.py"),
@@ -67,7 +67,7 @@ CODE_CASES: list[BenchCase] = [
 
 #: 受控 corpus：为每个 CODE_CASE 生成一个文件，内容含 query 的词法 token（模拟真实候选）。
 _CODE_SOURCES: dict[str, str] = {
-    "content_index.py": "def _build_index(root): trigrams = {}  # content index build\n",
+    "code_search.py": "def _build_index(root): tokens = {}  # build index fallback\n",
     "memindex.py": "def _sync_table(domain): sqlite signature  # memindex sync\n",
     "memory_switches.py": "MEMORY_SWITCHES = ()  # registry default switched\n",
     "rerank_shadow.py": "def rerank_preference(note): return bonus  # rerank_preference score\n",
@@ -155,17 +155,18 @@ def _seed_notes(wsid: str) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# 代码检索：content_index.lookup（trigram 候选超集）基线段
+# 代码检索：Grep 工具的真实通路（全量 rg 字面量）基线段
 # --------------------------------------------------------------------------- #
 
 def bench_code(cases: list[BenchCase], *, code_root: str) -> list[BenchResult]:
-    """对受控 corpus 跑 `content_index.lookup`（trigram 候选超集），评估「期望文件是否在候选」召回基线。
+    """对受控 corpus 跑全量 `rg`（字面量），评估「期望文件是否在返回集」召回基线。
 
-    在 `code_root` 下写入 `_CODE_SOURCES` 对应的文件（保证索引可建、不触发 repo 大小上限回退），
-    再对每个 query 用 `content_index.lookup` 求候选集。这是**超集召回**基线：真正匹配还需 rg 精确验证。
+    在 `code_root` 下写入 `_CODE_SOURCES` 对应的文件，再对每个 query 取一个词法 token
+    去搜。这是**确切返回集**基线，不再是候选超集：2026-09-25 删掉 Grep 的 trigram 索引
+    预筛后，全量 rg 就是生产里唯一的代码检索通路。
     """
 
-    from tools.fileio import content_index
+    from tools.fileio.rg_subprocess import run_ripgrep_lines
 
     # 写受控 corpus 文件。
     root = Path(code_root)
@@ -178,26 +179,25 @@ def bench_code(cases: list[BenchCase], *, code_root: str) -> list[BenchResult]:
         expected = case.expected.replace("\\", "/")
         try:
             term = _stable_query_term(case.query)
-            if not content_index.is_literal(term):
-                # 非字面量 query：无法走索引（fail-open 回退全量 rg 语义），记为 miss 但注明。
-                results.append(
-                    BenchResult(case=case, hits=[], hit=False, detail=f"non-literal query: {term}")
-                )
-                continue
-            cands = content_index.lookup(str(root), term)
-            cands = [c.replace("\\", "/").lstrip("./") for c in (cands or [])]
-        except Exception as e:  # noqa: BLE001 — fail-open
-            results.append(BenchResult(case=case, detail=f"lookup error: {e}"))
+            hits = run_ripgrep_lines(
+                ["rg", "--fixed-strings", "--files-with-matches", term, "."],
+                cwd=str(root),
+                timeout_seconds=30.0,
+                timeout_message="retrieval_bench code search timed out",
+            )
+            hits = [h.replace("\\", "/").lstrip("./") for h in hits]
+        except Exception as e:  # noqa: BLE001 — fail-open：基准不抛
+            results.append(BenchResult(case=case, detail=f"search error: {e}"))
             continue
-        hit = expected in cands[: case.top_k]
+        hit = expected in hits[: case.top_k]
         results.append(
-            BenchResult(case=case, hits=cands[: case.top_k], hit=hit, detail="code(corpus)")
+            BenchResult(case=case, hits=hits[: case.top_k], hit=hit, detail="code(corpus)")
         )
     return results
 
 
 def _stable_query_term(query: str) -> str:
-    """把自然语言 query 归一成一个可被索引命中的字面量 token。
+    """把自然语言 query 归一成一个可被检索命中的字面量 token。
 
     取 query 里最长的字母数字串（尽量贴近真实词法命中）。若 query 含中文则取首个英文 token。
     """
@@ -263,7 +263,7 @@ def run_bench(*, code_root: str | None = None) -> dict:
     finally:
         _restore_search_side_effects(saved_env, installed)
 
-    # 受控 code corpus（写进临时目录，避免污染调用方 cwd、也避免 repo 大小触发索引回退）。
+    # 受控 code corpus（写进临时目录，避免污染调用方 cwd）。
     _code_tmp = tempfile.mkdtemp(prefix="retrieval_bench_code_")
     try:
         code_results = bench_code(CODE_CASES, code_root=code_root or _code_tmp)

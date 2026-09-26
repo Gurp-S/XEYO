@@ -1201,9 +1201,7 @@ class BashTool:
 				pass  # 分类器异常 → 继续清（正确性优先）
 		try:
 			from tools.glob_tool.glob_tool import clear_glob_cache
-			from tools.fileio.content_index import clear_content_index
 
 			clear_glob_cache()
-			clear_content_index()
 		except Exception:  # noqa: BLE001
 			pass

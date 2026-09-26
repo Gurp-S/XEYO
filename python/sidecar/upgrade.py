@@ -2,14 +2,13 @@
 
 依据：侧挂模块「升格」聚合器设计 + 用户决策（总开关 promotion=1）。
 作用：把升格动作集中到一处，供 `engine.query_engine.build_default_engine` 在构造时调用一次。
-- `apply()`：受 `XEYO_SIDEMOD_PROMOTE` 门控，对 6 个**挂钩型**侧挂模块统一 `install()`。
+- `apply()`：受 `XEYO_SIDEMOD_PROMOTE` 门控，对 5 个**挂钩型**侧挂模块统一 `install()`。
 - `unapply()`：对它们统一 `uninstall()`（一键回退）。
 - 纯函数型（pollution/reporting/strict_env/blind_audit）无挂钩面，其升格 = `enabled()` 回退到
   `side_enabled()`（见各自模块），不属于本聚合器。
 
 ## 挂的模块（挂钩型，受总升格开关控制、可卸载）
 - memory.memindex_sig_shadow          （⑧.5 memindex 内容哈希签名）
-- tools.fileio.content_index_cache_shadow（⑧ content_index trigram 缓存）
 - memory.eval_cold_memory_shadow      （① 冷记忆评测）
 - tools.spill_shadow                  （⑭ spill tail 建议）
 - prompt.transcript_pointer_shadow    （⑬ C2 原始历史指针）
@@ -33,7 +32,6 @@ _log = logging.getLogger("xeyo.sidecar.upgrade")
 #: 挂钩型侧挂模块列表（按升格顺序）。
 _HOOKED = [
     "memory.memindex_sig_shadow",
-    "tools.fileio.content_index_cache_shadow",
     "memory.eval_cold_memory_shadow",
     "tools.spill_shadow",
     "prompt.transcript_pointer_shadow",

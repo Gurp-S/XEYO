@@ -4,7 +4,7 @@
 - run_bench 离线可跑、返回结构完整（notes/code 各含 hit@k / hit / miss）。
 - 受控 code corpus：干净字面量 query → 期望文件命中（hit@k 高）。
 - 笔记侧：自然语言 query 未必命中（诚实基线，不强制 100%）。
-- fail-open：非字面量 query 走「miss/注明」而非崩溃。
+- fail-open：查不到 / 检索异常都记 miss 并注明，不抛。
 """
 
 from __future__ import annotations
@@ -56,22 +56,37 @@ def test_write_baseline_persists(tmp_path):
 
 
 def test_code_corpus_hits():
-    """代码（受控 corpus，干净字面量）→ hit@k == 1.0（索引是好的候选超集）。"""
+    """代码（受控 corpus，干净字面量）→ hit@k == 1.0（全量 rg 的确切返回集）。"""
     r = rb.run_bench()
     assert r["code"]["hit@k"] == 1.0
 
 
-def test_non_literal_query_fail_open():
-    """非字面量 query 走 miss/注明而非崩溃。"""
-    from tools.fileio import content_index
+def test_unmatched_query_fails_open(tmp_path):
+    """查不到的 token 记 miss 而不是崩；检索异常也只记 miss 并注明。"""
+    from evals.retrieval_bench import CODE_CASES, BenchCase, bench_code
 
-    # 用 code 基准遇到 non-literal 的途径直接验证 lookup 安全返回。
-    term = "记忆开关注册表"
-    assert content_index.is_literal(term) is False
+    root = tmp_path / "corpus"
+    results = bench_code([BenchCase("zzzz_no_such_token_zzzz", "nothing.py")], code_root=str(root))
+    assert len(results) == 1 and results[0].hit is False
+
+    import tools.fileio.rg_subprocess as rgs
+
+    def boom(*a, **k):
+        raise RuntimeError("rg down")
+
+    # bench_code 在调用时取模块属性，patch 源模块才生效。
+    orig = rgs.run_ripgrep_lines
+    rgs.run_ripgrep_lines = boom
+    try:
+        results = bench_code(CODE_CASES[:1], code_root=str(root))
+    finally:
+        rgs.run_ripgrep_lines = orig
+    assert len(results) == 1 and results[0].hit is False
+    assert "search error" in results[0].detail
 
 
 def test_bench_code_controlled_corpus(tmp_path):
-    """受控 corpus 写入后可建索引且命中期望文件。"""
+    """受控 corpus 写入后每条用例都在返回集里命中期望文件。"""
     from evals.retrieval_bench import CODE_CASES, bench_code
 
     root = tmp_path / "corpus"
