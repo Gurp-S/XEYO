@@ -790,4 +790,28 @@ describe('证据缺项的中文口径与"零结论"的指向', () => {
 		const list = document.querySelector('.xy-dig-gap-boundary')?.textContent ?? '';
 		expect(list).toBe('适配器最终请求');
 	});
+
+	it('会话级缺项折叠到本轮列表之外，本轮特有的仍留在主列表', () => {
+		render(
+			<ContextView
+				detail={detail({
+					gaps: [
+						// 本轮特有：model_request 缺归属身份。
+						{boundary: 'model_request', reason: 'unattributed_rows', detail: '2 行无身份', scope: 'per_turn'},
+						// 会话级：适配器未捕获（整会话每轮都在）。
+						{boundary: 'adapter', reason: 'not_captured', detail: '未开启可复现记录', scope: 'session'},
+					],
+				})}
+				sessionId="s1"
+				turnId="t1"
+				storeRoot="/diag"
+			/>,
+		);
+		const main = document.querySelector('.xy-dig-list:not(.xy-dig-list--muted)');
+		expect(main?.textContent).toContain('行内没有可归属的身份');
+		expect(main?.textContent).not.toContain('未开启可复现记录');
+		const session = document.querySelector('.xy-dig-gaps-session');
+		expect(session?.textContent).toContain('会话级采集限制');
+		expect(session?.textContent).toContain('未开启可复现记录');
+	});
 });

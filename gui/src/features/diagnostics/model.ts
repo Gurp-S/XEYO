@@ -11,6 +11,7 @@ import type {
 	DiagAttempt,
 	DiagEvidenceRef,
 	DiagFinding,
+	DiagGap,
 	DiagModelRequest,
 	DiagPermission,
 	DiagRunDetail,
@@ -203,6 +204,21 @@ export const GAP_REASON_LABEL: Record<string, string> = {
 export function gapReasonLabel(reason: string): string {
 	if (!reason) return DASH;
 	return GAP_REASON_LABEL[reason] ?? `未归类原因（${reason}）`;
+}
+
+/** 按 scope 把缺项分成"本轮特有"与"整个会话共有"。
+ *
+ * scope 由生产者判定并随载荷下发（同一会话内这几条要么每轮都在、要么都不在），
+ * 界面只负责把它折叠到会话级一次呈现——不自己按原因码猜，避免第二套真相。
+ * 缺 scope（旧后端）一律落 per_turn，宁可逐轮照旧也不误折叠。
+ */
+export function splitGapsByScope(gaps: DiagGap[]): {perTurn: DiagGap[]; session: DiagGap[]} {
+	const perTurn: DiagGap[] = [];
+	const session: DiagGap[] = [];
+	for (const g of gaps) {
+		(g.scope === 'session' ? session : perTurn).push(g);
+	}
+	return {perTurn, session};
 }
 
 export function coverageStateLabel(state: string): string {

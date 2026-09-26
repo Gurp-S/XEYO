@@ -177,6 +177,22 @@
   color: var(--color-ink-soft);
 }
 
+/* 会话级采集限制：同一会话每轮都在，折叠到本轮缺项下方一次呈现，弱化以免压过本轮事实。 */
+.xy-dig-gaps-session {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--color-line);
+}
+.xy-dig-gaps-session-title {
+  font-size: 11px;
+  color: var(--color-ink-soft);
+  opacity: 0.8;
+  margin-bottom: 3px;
+}
+.xy-dig-list--muted {
+  opacity: 0.72;
+}
+
 /* ============ 徽章 / 提示 ============ */
 .xy-dig-badge {
   display: inline-flex;

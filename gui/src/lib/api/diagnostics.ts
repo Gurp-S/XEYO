@@ -245,7 +245,7 @@ export type DiagUsageSummary = {
 	statement: string;
 };
 
-export type DiagGap = {boundary: string; reason: string; detail: string};
+export type DiagGap = {boundary: string; reason: string; detail: string; scope: string};
 
 export type DiagWindow = {
 	source: string;
@@ -733,7 +733,9 @@ export function parseRunDetail(raw: unknown): DiagRunDetail {
 		windows: arr(o.windows).map(parseWindow),
 		gaps: arr(o.gaps).map(v => {
 			const g = rec(v);
-			return {boundary: s(g.boundary), reason: s(g.reason), detail: s(g.detail)};
+			// 缺 scope（旧后端）时按 per_turn 处理：宁可逐轮照旧显示，也不误当会话级折叠掉。
+			const scope = s(g.scope) || 'per_turn';
+			return {boundary: s(g.boundary), reason: s(g.reason), detail: s(g.detail), scope};
 		}),
 		notes: arr(o.notes).map(s),
 		events: arr(o.events).map(parseEvent),

@@ -104,17 +104,23 @@ class EvidenceRef:
 
 @dataclass
 class Gap:
-	"""证据缺项：说明缺什么、为什么，禁止用默认值填补。"""
+	"""证据缺项：说明缺什么、为什么，禁止用默认值填补。
+
+	``scope`` 区分"本轮特有"与"整个会话共有"：后者是采集姿态级事实（同一会话内要么
+	每轮都在、要么每轮都不在），逐轮重复它不携带本轮信息，界面应折叠到会话级一次呈现。
+	"""
 
 	boundary: str
 	reason: str  # source_absent | read_failed | out_of_window | not_captured | field_missing
 	detail: str = ""
+	scope: str = "per_turn"  # per_turn | session
 
 	def to_dict(self) -> dict[str, Any]:
 		return {
 			"boundary": self.boundary,
 			"reason": self.reason,
 			"detail": self.detail,
+			"scope": self.scope,
 		}
 
 

@@ -62,6 +62,13 @@ export const DIAG_GAP_REASONS: ReadonlyArray<DiagContractGapReason> = [
 	{boundary: 'wsc_fold', reason: 'source_absent'},
 ];
 
+export const DIAG_SESSION_CONSTANT_GAPS: ReadonlyArray<DiagContractGapReason> = [
+	{boundary: 'adapter', reason: 'not_captured'},
+	{boundary: 'adapter', reason: 'source_absent'},
+	{boundary: 'file_verifier', reason: 'not_recorded'},
+	{boundary: 'wsc_fold', reason: 'no_records'},
+];
+
 export const DIAG_SHOWN_STATES: readonly string[] = [
 	'folded_out',
 	'no_obligation',

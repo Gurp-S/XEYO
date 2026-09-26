@@ -21,6 +21,7 @@ import {
 	DIAG_PARTIES,
 	DIAG_PAYLOAD_KEYS,
 	DIAG_RULE_IDS,
+	DIAG_SESSION_CONSTANT_GAPS,
 	DIAG_SHOWN_STATES,
 } from '@/generated/diagContract';
 import {
@@ -75,6 +76,20 @@ describe('诊断契约 · 生产者发得出，界面就必须说得出', () => 
 	it('规则集非空且 id 不重复（规则名会原样出现在结论上）', () => {
 		expect(DIAG_RULE_IDS.length).toBeGreaterThan(0);
 		expect(uniq(DIAG_RULE_IDS)).toEqual([...DIAG_RULE_IDS]);
+	});
+
+	it('会话级缺项是"生产者会发"的子集，且每条都有中文说法', () => {
+		// 界面按每行 scope 折叠；这张清单是 python 声明的会话级缺项的构建期镜像：
+		// 它必须①非空（否则折叠逻辑在等一个永不命中的分支），②都出现在 gapReasons 里
+		// （生产者确实发得出），③每条原因码都有中文（折叠后仍要说得清）。
+		expect(DIAG_SESSION_CONSTANT_GAPS.length).toBeGreaterThan(0);
+		const emitted = new Set(DIAG_GAP_REASONS.map(g => `${g.boundary}/${g.reason}`));
+		for (const g of DIAG_SESSION_CONSTANT_GAPS) {
+			expect(emitted.has(`${g.boundary}/${g.reason}`), `会话级缺项生产者发不出：${g.boundary}/${g.reason}`).toBe(true);
+			const label = GAP_REASON_LABEL[g.reason];
+			expect(label, `界面缺原因码 ${g.reason}`).toBeTruthy();
+			expect(label).not.toContain(g.reason);
+		}
 	});
 });
 

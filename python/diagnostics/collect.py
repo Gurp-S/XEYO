@@ -57,6 +57,21 @@ BOUNDARIES: tuple[tuple[str, str], ...] = (
 	("sse_gui", "SSE / 界面"),
 )
 
+# 会话级采集限制：这些缺项描述整个会话的采集姿态（某来源是否开启/是否存在），在同一
+# 会话内要么每轮都在、要么每轮都不在，不随本轮事件变化。逐轮重复它们只会把本轮真正
+# 特有的缺项淹成噪声。实测（2026-09-26，540 真实轮 / 316 会话，只读）：这四条在**每个
+# 会话内**都是全有或全无（PARTIAL=0），故按 (边界, 原因) 精确标记为 scope="session"。
+# 只标这一对里确实全有全无的项——例如 instruction_context/no_records 只覆盖 83.3% 轮次
+# 且随轮变化，属本轮事实，不在此列。
+SESSION_CONSTANT_GAPS: frozenset[tuple[str, str]] = frozenset(
+	{
+		("adapter", "not_captured"),
+		("adapter", "source_absent"),
+		("file_verifier", "not_recorded"),
+		("wsc_fold", "no_records"),
+	}
+)
+
 _BOUNDARY_OF_KIND: tuple[tuple[str, str], ...] = (
 	("permission.", "tool_permission"),
 	("model.", "model_request"),
@@ -259,7 +274,8 @@ class RunEvidence:
 		return None
 
 	def add_gap(self, boundary: str, reason: str, detail: str = "") -> Gap:
-		gap = Gap(boundary=boundary, reason=reason, detail=detail)
+		scope = "session" if (boundary, reason) in SESSION_CONSTANT_GAPS else "per_turn"
+		gap = Gap(boundary=boundary, reason=reason, detail=detail, scope=scope)
 		self.gaps.append(gap)
 		return gap
 

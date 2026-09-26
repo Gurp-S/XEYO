@@ -54,6 +54,23 @@ def test_scan_reaches_every_boundary_the_producer_can_emit() -> None:
 	}
 
 
+def test_session_constant_gaps_are_a_consistent_subset() -> None:
+	"""会话级缺项必须是"生产者确实会发"的子集，且与 collect 的声明一一对应。
+
+	钉两件事：① 界面按 scope 折叠的那几条，生产者今天确实发得出来（否则界面上永远
+	等不到，折叠逻辑是死码）；② collect.SESSION_CONSTANT_GAPS 里若混进一个发不出的
+	(边界, 原因) 拼写，这里当场红，而不是悄悄掉出去让会话块少一项。
+	"""
+	contract = ec.collect_contract()
+	emitted = {(g["boundary"], g["reason"]) for g in contract["gapReasons"]}
+	declared = ec.collect.SESSION_CONSTANT_GAPS
+	session = {(g["boundary"], g["reason"]) for g in contract["sessionConstantGaps"]}
+	assert session <= emitted, session - emitted
+	# 声明的每一项都要么被发出、要么显式承认发不出；不允许拼错导致静默漏项。
+	assert declared <= emitted, f"声明为会话级但生产者发不出：{sorted(declared - emitted)}"
+	assert session == declared
+
+
 def test_shown_state_comparisons_stay_inside_the_two_vocabularies() -> None:
 	"""送达判定的分支值必须都在正本里；只允许已知的另一套词表出现。"""
 	compared: set[str] = set()

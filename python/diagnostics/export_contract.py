@@ -196,10 +196,19 @@ def scan_payload_keys() -> dict[str, list[str]]:
 
 
 def collect_contract() -> dict[str, Any]:
+	gap_reasons = scan_gap_reasons()
+	emitted = {(g["boundary"], g["reason"]) for g in gap_reasons}
 	return {
 		"boundaries": [{"name": n, "label": l} for n, l in collect.BOUNDARIES],
 		"ruleIds": [r.rule_id for r in rules.RULES],
-		"gapReasons": scan_gap_reasons(),
+		"gapReasons": gap_reasons,
+		# 只保留生产者确实会发出的会话级缺项：交集让"标了却没发"的错配在生成期就掉出去，
+		# 而不是界面按一个永远不出现的 scope 去等。
+		"sessionConstantGaps": [
+			{"boundary": b, "reason": r}
+			for (b, r) in sorted(collect.SESSION_CONSTANT_GAPS)
+			if (b, r) in emitted
+		],
 		"shownStates": scan_shown_states(),
 		"parties": sorted(fault_split.PARTY_LABEL),
 		"payloadKeys": scan_payload_keys(),
@@ -211,6 +220,9 @@ def render(contract: dict[str, Any]) -> str:
 		f"\t{{name: {b['name']!r}, label: {b['label']!r}}},".replace("'", "'") for b in contract["boundaries"]
 	)
 	gap = "\n".join(f"\t{{boundary: {g['boundary']!r}, reason: {g['reason']!r}}}," for g in contract["gapReasons"])
+	session_gap = "\n".join(
+		f"\t{{boundary: {g['boundary']!r}, reason: {g['reason']!r}}}," for g in contract["sessionConstantGaps"]
+	)
 	rule_ids = "\n".join(f"\t{r!r}," for r in contract["ruleIds"])
 	shown = "\n".join(f"\t{s!r}," for s in contract["shownStates"])
 	parties = "\n".join(f"\t{p!r}," for p in contract["parties"])
@@ -238,6 +250,10 @@ def render(contract: dict[str, Any]) -> str:
 		"\n"
 		"export const DIAG_GAP_REASONS: ReadonlyArray<DiagContractGapReason> = [\n"
 		f"{gap}\n"
+		"];\n"
+		"\n"
+		"export const DIAG_SESSION_CONSTANT_GAPS: ReadonlyArray<DiagContractGapReason> = [\n"
+		f"{session_gap}\n"
 		"];\n"
 		"\n"
 		"export const DIAG_SHOWN_STATES: readonly string[] = [\n"

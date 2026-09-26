@@ -7,7 +7,7 @@
 import {useEffect, useRef, useState} from 'react';
 import {Loader2} from 'lucide-react';
 import {traceDiagFact, type DiagFactTrace, type DiagRunDetail} from '@/lib/api/diagnostics';
-import {DASH, boundaryLabelOf, coverageStateLabel, factStateLabel, fmtBytes, gapReasonLabel, ledgerCountText} from './model';
+import {DASH, boundaryLabelOf, coverageStateLabel, factStateLabel, fmtBytes, gapReasonLabel, ledgerCountText, splitGapsByScope} from './model';
 import {Badge, EvidenceList, KeyValue, Notice, Section} from './ui';
 import {cn} from '@/lib/utils';
 
@@ -175,19 +175,44 @@ export function ContextView({
 			</Section>
 
 			<Section title="证据缺项" hint="缺什么、为什么缺；不用默认值填补">
-				{detail.gaps.length ? (
-					<ul className="xy-dig-list">
-						{detail.gaps.map((g, i) => (
-							<li key={i}>
-								<span className="xy-dig-gap-boundary">{boundaryLabelOf(detail, g.boundary)}</span>
-								<span className="xy-dig-gap-reason">{gapReasonLabel(g.reason)}</span>
-								<span>{g.detail || DASH}</span>
-							</li>
-						))}
-					</ul>
-				) : (
-					<Notice tone="info">本轮未记录到缺项；未记录不等于没有缺项（见上方覆盖情况）。</Notice>
-				)}
+				{(() => {
+					const {perTurn, session} = splitGapsByScope(detail.gaps);
+					return (
+						<>
+							{perTurn.length ? (
+								<ul className="xy-dig-list">
+									{perTurn.map((g, i) => (
+										<li key={i}>
+											<span className="xy-dig-gap-boundary">{boundaryLabelOf(detail, g.boundary)}</span>
+											<span className="xy-dig-gap-reason">{gapReasonLabel(g.reason)}</span>
+											<span>{g.detail || DASH}</span>
+										</li>
+									))}
+								</ul>
+							) : (
+								<Notice tone="info">
+									本轮没有本轮特有的缺项；未记录不等于没有缺项（见上方覆盖情况与会话级限制）。
+								</Notice>
+							)}
+							{session.length ? (
+								<div className="xy-dig-gaps-session">
+									<div className="xy-dig-gaps-session-title">
+										会话级采集限制（同一会话每轮都在，不是本轮特有）
+									</div>
+									<ul className="xy-dig-list xy-dig-list--muted">
+										{session.map((g, i) => (
+											<li key={i}>
+												<span className="xy-dig-gap-boundary">{boundaryLabelOf(detail, g.boundary)}</span>
+												<span className="xy-dig-gap-reason">{gapReasonLabel(g.reason)}</span>
+												<span>{g.detail || DASH}</span>
+											</li>
+										))}
+									</ul>
+								</div>
+							) : null}
+						</>
+					);
+				})()}
 			</Section>
 
 			<Section title="本轮采集状态" hint="可复现记录只写文件，不改变模型可见内容">

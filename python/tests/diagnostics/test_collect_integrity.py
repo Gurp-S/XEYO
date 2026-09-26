@@ -1029,3 +1029,25 @@ def test_projection_gap_names_the_real_limitation(tmp_path, monkeypatch) -> None
 		g for g in run3.gaps
 		if g.boundary == "instruction_context" and g.reason in {"field_missing", "not_comparable", "no_records"}
 	], [(g.reason, g.detail) for g in run3.gaps]
+
+
+def test_add_gap_tags_session_scope_by_boundary_reason_pair():
+	"""缺项按 (边界, 原因) 精确标会话级；同因不同边界不得连带误标。"""
+	from diagnostics.collect import RunEvidence, SESSION_CONSTANT_GAPS
+
+	run = RunEvidence(session_id="s", turn_id="t")
+	# adapter/source_absent 是会话级；model_request/source_absent 是本轮事实（同一 reason 名）。
+	run.add_gap("adapter", "source_absent", "x")
+	run.add_gap("model_request", "source_absent", "y")
+	run.add_gap("wsc_fold", "no_records", "z")
+	run.add_gap("instruction_context", "no_records", "w")  # 随轮变化的那条不在此列
+	by_pair = {(g.boundary, g.reason): g.scope for g in run.gaps}
+	assert by_pair[("adapter", "source_absent")] == "session"
+	assert by_pair[("wsc_fold", "no_records")] == "session"
+	assert by_pair[("model_request", "source_absent")] == "per_turn"
+	assert by_pair[("instruction_context", "no_records")] == "per_turn"
+	# 声明集合里的每一条 add_gap 后都必须是 session（防声明与实现漂移）。
+	for pair in SESSION_CONSTANT_GAPS:
+		g = run.add_gap(pair[0], pair[1], "d")
+		assert g.scope == "session", pair
+	assert run.to_dict()["gaps"][0]["scope"] == "session"
