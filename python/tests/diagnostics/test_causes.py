@@ -210,17 +210,56 @@ def test_blocked_action_is_not_counted_as_skipped(monkeypatch) -> None:
 
 def test_missing_verifier_is_a_cause_but_blames_nobody(monkeypatch) -> None:
 	_user_turn("随便改点什么", "随便改点什么", monkeypatch)
-	verdict = attribute_fault(_run(), [])
+	# 执行面得有记录，"没有可判定的验收记录"才是一句关于某次执行的话（零记录见下一条）
+	run = _run(model_requests=[ModelRequest(model_request_id="r1", turn_id="t1")])
+	verdict = attribute_fault(run, [])
 	assert ACCEPT_MISSING in _codes(verdict)
 	item = next(c for c in verdict["causes"] if c["code"] == ACCEPT_MISSING)
 	assert item["party"] == "undetermined"
 	assert "既不能判完成也不能判失败" in item["does_not_prove"]
 
 
+def test_nothing_observed_is_not_called_missing_acceptance(monkeypatch) -> None:
+	"""执行面上一条记录都没有时，主原因只能是"记录不足"，不能是一条关于验收的话。
+
+	现场：只剩转录文件、审计里零行的会话 —— 真实数据 404 个会话里有 383 个是这个形状
+	（审计尾窗没盖到；测试残渣 s1 也算一个，见 #61）。它们此前每一份都写
+	「主原因：没跑验收…」，而同一份报告的缺项栏正在说 instruction_context/model_request
+	超出采集窗口 —— 把"什么都没观察到"讲成了一个原因，还和自家缺项打架。
+	轮次视图对同一件事早有裁定（「本轮无记录：只能报采集缺口，不能报原因」），这里补齐会话级。
+	"""
+	_user_turn("随便改点什么", "随便改点什么", monkeypatch)
+	verdict = attribute_fault(
+		_run(turn_id="", transcript_rows=[{"id": "m1", "role": "user", "content": "随便改点什么"}]),
+		[],
+	)
+	assert primary(verdict["causes"])["code"] == NOT_DETERMINED
+	assert ACCEPT_MISSING not in _codes(verdict)
+	assert "只能报边界缺项，不能报原因" in verdict["cause_statement"]
+
+
+def test_acceptance_cause_says_record_not_action() -> None:
+	"""原因措辞说的是记录本，不是模型做没做：验收条目只由 CLI / 界面提交。
+
+	diagnostics/pins.py::record_verifier 的调用方只有 __main__ 与 server 路由，引擎跑测试
+	不会写这里 —— 「没跑验收」是把"没有条目"读成"没做"。
+	"""
+	item = _causes._entry(ACCEPT_MISSING, [])
+	assert "没跑" not in item["label"] and "未执行" not in item["label"]
+	assert "条目" in item["proves"]
+	assert "不等于没跑验收" in item["does_not_prove"]
+	# 同一句 overreach 在结局栏里也有一份：not_accepted 说的是记录栏，不是"模型没跑测试"
+	from diagnostics.fault_split import OUTCOME_LABEL, OUTCOME_NOT_ACCEPTED
+
+	assert "未执行" not in OUTCOME_LABEL[OUTCOME_NOT_ACCEPTED]
+	assert "记录" in OUTCOME_LABEL[OUTCOME_NOT_ACCEPTED]
+
+
 def test_self_reported_without_a_verifier_still_lacks_acceptance(monkeypatch) -> None:
 	"""自述完成 + 零验收：缺的还是"可核对的验收记录"，而不是多出一条矛盾。"""
 	_user_turn("随便改点什么", "随便改点什么", monkeypatch)
 	run = _run(
+		model_requests=[ModelRequest(model_request_id="r1", turn_id="t1")],
 		transcript_rows=[
 			{"id": "m2", "role": "assistant", "content": "已完成，测试通过", "locator": "t.jsonl", "line_no": 2},
 		],

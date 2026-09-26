@@ -238,15 +238,15 @@ describe('责任划分', () => {
 					},
 					{
 						code: 'acceptance_missing',
-						label: '没跑验收，任务是否完成未知',
+						label: '没有可判定的验收记录，任务是否完成未知',
 						party: 'undetermined',
-						proves: '没有任何验收记录',
-						does_not_prove: '既不能判完成也不能判失败',
+						proves: '固定记录本里没有能判定的 verifier 条目：要么没有条目，要么条目没有退出码',
+						does_not_prove: '既不能判完成也不能判失败，也不等于没跑验收：跑过而未提交时同样没有条目',
 						evidence: [],
 					},
 				],
 				task_outcome: 'not_accepted',
-				task_outcome_label: '未执行验收：无法判定任务是否完成',
+				task_outcome_label: '无验收记录：无法判定任务是否完成',
 				obligation: {source: 'pin', locator: 'p.json', ref_id: 'p0', excerpt: '改完必须跑测试'},
 				shown_to_model: 'not_shown',
 				shown_to_model_note: '发送投影里没有这段约束',
@@ -264,7 +264,7 @@ describe('责任划分', () => {
 		render(<FindingsView detail={d} />);
 		const text = document.body.textContent ?? '';
 		expect(text).toContain('引擎侧');
-		expect(text).toContain('未执行验收');
+		expect(text).toContain('无验收记录');
 		expect(text).toContain('改完必须跑测试');
 		expect(text).toContain('事后固定的预期');
 		// 失败原因逐条列出，且每条都带"能证明/不能证明"

@@ -61,7 +61,7 @@ CAUSE_LABEL: dict[str, str] = {
 	SELF_REPORT_MISMATCH: "自述与验收记录不符",
 	ACCEPT_FAILED: "验收执行了且失败",
 	ACCEPT_ERROR: "验收自身执行报错",
-	ACCEPT_MISSING: "没跑验收，任务是否完成未知",
+	ACCEPT_MISSING: "没有可判定的验收记录，任务是否完成未知",
 	DISPLAY_GAP: "引擎已完成而界面/事件流缺尾",
 	USAGE_UNACCOUNTED: "部分请求没有用量账，费用未知",
 	RUN_INCOMPLETE: "运行有开始记录无结束记录",
@@ -109,7 +109,14 @@ _PROVES: dict[str, tuple[str, str]] = {
 	SELF_REPORT_MISMATCH: ("模型说的话与验收记录不一致", "不能证明回答里其他陈述为假"),
 	ACCEPT_FAILED: ("被指定的 verifier 退出码非 0", "不能证明任务整体未完成，也不能证明没有越界修改"),
 	ACCEPT_ERROR: ("verifier 自身异常退出", "不能证明被验收的代码有错"),
-	ACCEPT_MISSING: ("没有任何验收记录", "既不能判完成也不能判失败"),
+	# 验收条目只由 CLI / 界面提交（diagnostics/pins.py::record_verifier 的调用方只有
+	# __main__ 与 server/routers/diagnostics.py；引擎跑测试不写这里）。所以"没有条目"说的是
+	# 记录，不是行为——原措辞「没跑验收」把前者写成了后者，而本机真实数据里 0 条 verifier，
+	# 这句就成了每一份报告的主原因。另一种形状是条目在但退出码没记（"未运行"）。
+	ACCEPT_MISSING: (
+		"固定记录本里没有能判定的 verifier 条目：要么没有条目，要么条目没有退出码",
+		"既不能判完成也不能判失败，也不等于没跑验收：跑过而未提交时同样没有条目",
+	),
 	DISPLAY_GAP: ("服务端与界面之间存在缺口", "不能证明引擎未完成"),
 	USAGE_UNACCOUNTED: ("这些请求的费用未知", "不能把它们按 0 计入合计"),
 	RUN_INCOMPLETE: ("结束记录缺失", "不能证明进程已死"),
@@ -192,6 +199,7 @@ def derive(
 	outcome: str,
 	tool_error_kinds: dict[str, list[dict[str, Any]]],
 	display_gap: bool = False,
+	observed: bool = True,
 ) -> list[dict[str, Any]]:
 	"""按上游优先顺序产出原因列表。一个失败可以同时挂多条原因，不做合并。"""
 	by_rule: dict[str, list[Finding]] = {}
@@ -245,8 +253,10 @@ def derive(
 		out.append(_entry(ACCEPT_FAILED, []))
 	elif outcome == "verifier_error":
 		out.append(_entry(ACCEPT_ERROR, []))
-	elif outcome in ("not_accepted", "self_reported_unverified"):
+	elif outcome in ("not_accepted", "self_reported_unverified") and observed:
 		# 两条都缺的是同一件东西：可核对的验收记录。自述不构成验收，也不构成矛盾。
+		# 但执行面上一条记录都没有时，"没有验收记录"不是一条关于这次执行的原因，只是
+		# 什么都没观察到 —— 那句留给 NOT_DETERMINED（与「本轮无记录」的裁决同一裁定）。
 		out.append(_entry(ACCEPT_MISSING, []))
 	if not out:
 		out.append(_entry(NOT_DETERMINED, []))

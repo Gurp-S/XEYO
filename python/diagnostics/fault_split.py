@@ -59,7 +59,7 @@ OUTCOME_LABEL = {
 	OUTCOME_PASS: "验收通过",
 	OUTCOME_FAIL: "验收失败",
 	OUTCOME_VERIFIER_ERROR: "验收本身执行错误",
-	OUTCOME_NOT_ACCEPTED: "未执行验收：无法判定任务是否完成",
+	OUTCOME_NOT_ACCEPTED: "无验收记录：无法判定任务是否完成",
 	OUTCOME_SELF_REPORTED: "模型自述完成，但无验收证据",
 }
 
@@ -830,6 +830,11 @@ def attribute_fault(run: RunEvidence, findings: list[Finding]) -> dict[str, Any]
 		outcome=outcome,
 		tool_error_kinds=tool_error_kinds,
 		display_gap=bool(transport or transport_suspect),
+		# 执行面上一条记录都没有时，"没有可判定的验收记录"不是一条关于这次执行的原因，
+		# 只是什么都没观察到 —— 与轮次视图的「本轮无记录」同一裁定（fault_split::_no_records_verdict）。
+		# 转录行不算观察：它是文本层，验收条目不住在那里。真实数据里 404 个会话有 383 个
+		# 是"审计尾窗没盖到、只剩转录"的形状（2026-09-26 只读普查）。
+		observed=bool(run.events or run.model_requests or run.tool_calls or run.permissions or run.jobs),
 	)
 	cause_head = _causes.primary(cause_list)
 
