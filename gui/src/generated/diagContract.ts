@@ -94,7 +94,7 @@ export const DIAG_PARTIES: readonly string[] = [
 ];
 
 export const DIAG_PAYLOAD_KEYS: Readonly<Record<string, readonly string[]>> = {
-	attribution: ['attributed', 'confirmed_count', 'first_anomaly_boundary', 'first_anomaly_label', 'last_normal_boundary', 'last_normal_label', 'statement', 'suspected_count', 'unknown_count'],
+	attribution: ['attributed', 'confirmed_count', 'first_anomaly_boundary', 'first_anomaly_label', 'last_evidenced_boundary', 'last_evidenced_label', 'statement', 'suspected_count', 'unknown_count'],
 	evidence: ['detail', 'locator', 'ref_id', 'source'],
 	fault: ['cause_statement', 'causes', 'chain', 'engine_confirmed', 'environment_confirmed', 'missing_evidence', 'no_turn_records', 'not_claimed', 'obligation', 'primary_cause', 'primary_cause_label', 'responsibility', 'responsibility_label', 'shown_to_model', 'shown_to_model_note', 'task_outcome', 'task_outcome_label', 'transport_gap', 'why'],
 	finding: ['allowed_conclusion', 'boundary', 'component', 'coverage_gap', 'evidence', 'impact', 'phenomenon', 'rule_id', 'rule_version', 'status'],

@@ -119,7 +119,7 @@ describe('归因与免责措辞', () => {
 			findings: [finding({rule_id: 'verifier', status: 'unknown', evidence: []})],
 			attribution: {
 				first_anomaly_boundary: '',
-				last_normal_boundary: 'sse_gui',
+				last_evidenced_boundary: 'sse_gui',
 				confirmed_count: 0,
 				suspected_count: 0,
 				unknown_count: 1,
@@ -142,8 +142,8 @@ describe('归因与免责措辞', () => {
 			attribution: {
 				first_anomaly_boundary: 'tool_permission',
 				first_anomaly_label: '工具与权限',
-				last_normal_boundary: 'model_request',
-				last_normal_label: '模型请求与响应',
+				last_evidenced_boundary: 'model_request',
+				last_evidenced_label: '模型请求与响应',
 				confirmed_count: 1,
 				suspected_count: 0,
 				unknown_count: 0,
@@ -160,6 +160,9 @@ describe('归因与免责措辞', () => {
 		expect(text).toContain('L42');
 		expect(text).toContain('/x/audit.jsonl');
 		expect(text).toContain('可确认工具在这一步失败');
+		// 界面措辞也要钉住：边界那一栏只能说"有记录"，谁改回"已确认正常边界"就红。
+		expect(text).toContain('它之前最近一个有记录的边界：模型请求与响应（有记录不等于已确认正常）');
+		expect(text).not.toContain('已确认正常边界');
 	});
 
 	it('分组只认三档状态，未知不并入已确认', () => {
@@ -413,8 +416,8 @@ describe('缺证据不得渲染成确定的 0（P1 10）', () => {
 			attribution: {
 				first_anomaly_boundary: 'tool_permission',
 				first_anomaly_label: '工具与权限',
-				last_normal_boundary: 'model_request',
-				last_normal_label: '模型请求与响应',
+				last_evidenced_boundary: 'model_request',
+				last_evidenced_label: '模型请求与响应',
 				confirmed_count: 2,
 				suspected_count: 1,
 				unknown_count: 0,

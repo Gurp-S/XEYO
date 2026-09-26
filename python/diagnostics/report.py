@@ -121,7 +121,12 @@ def usage_summary(run: RunEvidence) -> dict[str, Any]:
 
 
 def attribution(run: RunEvidence, findings: list[Finding]) -> dict[str, Any]:
-	"""最后一个已确认正常的边界 / 首个已确认异常的边界；无证据就说无法归因。"""
+	"""首个已确认异常的边界，以及它之前最近一个**有记录**的边界；无证据就说无法归因。
+
+	这里刻意不说"已确认正常"：本函数能证明的只有"这条边界上读到了记录、且规则集没在
+	它上面判出已确认异常"。"没判出异常"不是"合格证"——13 条规则盖不住的部分恰恰是
+	多数边界平时的状态。字段名也跟着改，免得下游拿 last_normal_* 当已确认结论继续用。
+	"""
 	confirmed = [f for f in findings if f.status == CONFIRMED_FAULT]
 	suspected = [f for f in findings if f.status == SUSPECTED_CAUSE]
 	present = {b["name"] for b in run.boundaries() if b["present"] and b["evidence_count"] > 0}
@@ -142,7 +147,8 @@ def attribution(run: RunEvidence, findings: list[Finding]) -> dict[str, Any]:
 	if confirmed:
 		statement = (
 			f"首个已确认异常边界：{_label(first_anomaly)}；"
-			f"最后一个已确认正常边界：{_label(normal) if normal else '无（该边界之前的记录本身缺失）'}。"
+			f"它之前最近一个有记录的边界：{_label(normal) if normal else '无（更早的边界连记录都没有）'}"
+			"（有记录只说明那里读到了东西，不等于已确认正常）。"
 			"已确认的是记录里的不变量被破坏，不是任务失败的全部原因。"
 		)
 	elif suspected:
@@ -155,8 +161,8 @@ def attribution(run: RunEvidence, findings: list[Finding]) -> dict[str, Any]:
 	return {
 		"first_anomaly_boundary": first_anomaly,
 		"first_anomaly_label": _label(first_anomaly) if first_anomaly else "",
-		"last_normal_boundary": normal,
-		"last_normal_label": _label(normal) if normal else "",
+		"last_evidenced_boundary": normal,
+		"last_evidenced_label": _label(normal) if normal else "",
 		"confirmed_count": len(confirmed),
 		"suspected_count": len(suspected),
 		"unknown_count": len([f for f in findings if f.status == UNKNOWN]),
@@ -246,9 +252,11 @@ def to_markdown(doc: dict[str, Any]) -> str:
 	att = doc.get("attribution") or {}
 	lines += ["", "## 归因", "", att.get("statement") or "—"]
 	if att.get("first_anomaly_boundary"):
+		lines.append(f"- 首个已确认异常边界：{_s(att.get('first_anomaly_label'))}")
 		lines.append(
-			f"- 首个已确认异常边界：{_s(att.get('first_anomaly_label'))}；"
-			f"最后一个已确认正常边界：{_s(att.get('last_normal_label')) or '无'}"
+			"- 它之前最近一个有记录的边界：{}（有记录不等于已确认正常）".format(
+				_s(att.get("last_evidenced_label")) or "无"
+			)
 		)
 	lines.append(
 		"- 计数：已确认 {} / 疑似 {} / 未定 {}".format(

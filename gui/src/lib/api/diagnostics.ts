@@ -224,8 +224,8 @@ export type DiagFinding = {
 export type DiagAttribution = {
 	first_anomaly_boundary: string;
 	first_anomaly_label: string;
-	last_normal_boundary: string;
-	last_normal_label: string;
+	last_evidenced_boundary: string;
+	last_evidenced_label: string;
 	confirmed_count: number;
 	suspected_count: number;
 	unknown_count: number;
@@ -559,8 +559,8 @@ function parseAttribution(v: unknown): DiagAttribution | null {
 	return {
 		first_anomaly_boundary: s(o.first_anomaly_boundary),
 		first_anomaly_label: s(o.first_anomaly_label),
-		last_normal_boundary: s(o.last_normal_boundary),
-		last_normal_label: s(o.last_normal_label),
+		last_evidenced_boundary: s(o.last_evidenced_boundary),
+		last_evidenced_label: s(o.last_evidenced_label),
 		confirmed_count: n(o.confirmed_count) ?? 0,
 		suspected_count: n(o.suspected_count) ?? 0,
 		unknown_count: n(o.unknown_count) ?? 0,

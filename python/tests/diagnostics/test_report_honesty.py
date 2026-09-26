@@ -96,3 +96,42 @@ def test_markdown_states_how_many_attempts_back_the_total(collect) -> None:
 	assert "估算合计：0.25（已依据 1 次尝试）" in md
 	assert "计价口径：按 usage 估算" in md
 	assert "有价 1 · 无账 0 · 有账无价 0" in md
+
+
+def test_attribution_never_calls_a_boundary_confirmed_normal(collect) -> None:
+	"""边界只有"这里读到了记录"这一个事实，规则集证明不了它正常。
+
+	旧措辞把 present && evidence_count>0 写成「最后一个已确认正常边界」，与本模块顶部
+	那条纪律（不得把「没发现异常」读成「没有异常」）自相矛盾：13 条规则没有一条能给
+	某条边界发"正常"合格证。机器键名一并改掉 —— 叫 last_normal_* 会被下游当成
+	已确认的结论继续用。
+	"""
+	from diagnostics.identity import CONFIRMED_FAULT, EvidenceRef, Finding
+	from diagnostics.report import attribution
+
+	run = collect(_FINISHED)
+	finding = Finding(
+		rule_id="tool_failure",
+		rule_version=1,
+		phenomenon="工具失败",
+		boundary="tool_permission",
+		component="测试组件",
+		status=CONFIRMED_FAULT,
+		evidence=[EvidenceRef(source="audit", locator="audit.jsonl", ref_id="L4", detail="tool.finished is_error=true")],
+		coverage_gap="测试夹具",
+		allowed_conclusion="测试夹具",
+	)
+	att = attribution(run, [finding])
+	assert att["first_anomaly_boundary"] == "tool_permission"
+	assert att["last_evidenced_boundary"] == "model_request"
+	assert "last_normal_boundary" not in att and "last_normal_label" not in att
+	# 旧断言写成 "已确认正常" not in statement 会自我打脸：新句子里带着
+	# "不等于已确认正常"这句限定。要禁的是"把它当结论"的那种说法。
+	assert "已确认正常边界" not in att["statement"]
+	assert "不等于已确认正常" in att["statement"]
+	assert "有记录" in att["statement"]
+	assert "已确认正常" not in att["last_evidenced_label"]
+	md = to_markdown(build_report(run, [finding]))
+	assert "已确认正常边界" not in md
+	assert "最近一个有记录的边界" in md
+	assert "有记录不等于已确认正常" in md
