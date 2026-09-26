@@ -450,3 +450,58 @@ def test_llm_failure_phenomenon_carries_the_code_the_writer_actually_writes(coll
 	)
 	f = next(x for x in evaluate_run(run) if x.rule_id == "provider_stream_failure")
 	assert "code=http_429" in f.phenomenon
+
+
+def test_orphan_started_after_a_clean_call_is_still_reported(collect) -> None:
+	"""前一个调用干净结束，不能把"只开了头且其后什么记录都没有"的调用一起吞掉。"""
+	run = collect(
+		[
+			{"ts": 1.0, "kind": "tool.started", "session_id": "s1", "turn_id": "t1", "request_id": "c1", "tool_name": "Read", "model_request_id": "r1"},
+			{"ts": 1.1, "kind": "tool.finished", "session_id": "s1", "turn_id": "t1", "request_id": "c1", "tool_name": "Read", "is_error": False, "model_request_id": "r1"},
+			{"ts": 1.2, "kind": "tool.started", "session_id": "s1", "turn_id": "t1", "request_id": "c2", "tool_name": "Bash", "model_request_id": "r1"},
+		]
+	)
+	orphans = [f for f in evaluate_run(run) if f.rule_id == "tool_pair_integrity" and f.status == UNKNOWN]
+	assert orphans, "c2 有开始无结束且其后无任何记录：这条事实被整轮判据吞掉了"
+	assert "1 个工具调用" in orphans[0].phenomenon
+	assert [e.ref_id for e in orphans[0].evidence] == ["L3"]
+
+
+def test_no_later_activity_claim_when_records_follow(collect) -> None:
+	"""整轮没有 tool.finished，但孤儿行之后还有别的记录：不能说"其后无更晚活动可参照"。"""
+	run = collect(
+		[
+			{"ts": 1.0, "kind": "tool.started", "session_id": "s1", "turn_id": "t1", "request_id": "c1", "tool_name": "Read", "model_request_id": "r1"},
+			{"ts": 1.1, "kind": "model.started", "session_id": "s1", "turn_id": "t1", "model_request_id": "r2", "attempt": 1},
+		]
+	)
+	assert not [f for f in evaluate_run(run) if f.rule_id == "tool_pair_integrity"]
+
+
+def test_started_row_without_line_number_is_not_claimed_orphaned() -> None:
+	"""行号拿不到就无从判断前后：不得把"不知位置"报成"其后无更晚活动"。"""
+	from diagnostics.collect import RunEvidence, ToolCall
+	from diagnostics.rules import check_tool_pair_integrity
+
+	run = RunEvidence(session_id="s1", turn_id="t1")
+	run.tool_calls.append(
+		ToolCall(tool_use_id="c1", tool_name="Read", turn_id="t1", started={"kind": "tool.started"})
+	)
+	orphans = [f for f in check_tool_pair_integrity(run) if f.rule_id == "tool_pair_integrity"]
+	assert not orphans
+
+
+def test_unattributed_rows_count_as_later_activity(collect) -> None:
+	"""不带轮次身份的行同样算"更晚活动"：参照口径必须与挑出调用的口径一致。
+
+	``turn_scoped`` 保留不带 turn_id 的旧行（无从排除），所以"其后还有没有记录"
+	也得看见这些行；只看归属本轮的行，就会在一堆未归属记录之后报出
+	"其后无更晚活动可参照"。
+	"""
+	run = collect(
+		[
+			{"ts": 1.0, "kind": "tool.started", "session_id": "s1", "turn_id": "t1", "request_id": "c1", "tool_name": "Read", "model_request_id": "r1"},
+			{"ts": 1.1, "kind": "permission.pending", "session_id": "s1", "request_id": "apr1", "tool_name": "Read", "tool_use_id": "c1"},
+		]
+	)
+	assert not [f for f in evaluate_run(run) if f.rule_id == "tool_pair_integrity"]

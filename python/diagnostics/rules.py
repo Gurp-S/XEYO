@@ -267,15 +267,15 @@ def check_tool_pair_integrity(run: RunEvidence) -> list[Finding]:
 		)
 
 	# 审计侧：有 started 无 finished 的工具调用。
-	scoped = run.events_for_turn()
 	started_only = [t for t in turn_scoped(run.tool_calls, run.turn_id) if t.started and not t.finished]
-	if started_only and not _run_has_later_activity(scoped):
+	orphaned = [t for t in started_only if not _activity_after(_turn_comparable_events(run), t)]
+	if orphaned:
 		# 没有更晚的活动可参照，无法区分"还在跑"和"没了结束记录"。
 		findings.append(
 			Finding(
 				rule_id="tool_pair_integrity",
 				rule_version=RULESET_VERSION,
-				phenomenon=f"{len(started_only)} 个工具调用有开始记录、无结束记录，且其后无更晚活动可参照",
+				phenomenon=f"{len(orphaned)} 个工具调用有开始记录、无结束记录，且其后无更晚活动可参照",
 				boundary="tool_permission",
 				component="工具分发",
 				status=UNKNOWN,
@@ -286,7 +286,7 @@ def check_tool_pair_integrity(run: RunEvidence) -> list[Finding]:
 						ref_id=f"L{_s((t.started or {}).get('line_no'))}",
 						detail=f"tool.started {t.tool_name}",
 					)
-					for t in started_only
+					for t in orphaned
 				],
 				impact="无法判断工具仍在执行还是结束记录缺失。",
 				coverage_gap="结束记录缺失本身不证明进程已死；正常长任务会命中同一形状。",
@@ -296,9 +296,31 @@ def check_tool_pair_integrity(run: RunEvidence) -> list[Finding]:
 	return findings
 
 
-def _run_has_later_activity(events: list[Any]) -> bool:
-	kinds = {e.kind for e in events}
-	return bool(kinds & {"model.started", "model.finished", "tool.finished"}) and "tool.finished" in kinds
+def _turn_comparable_events(run: RunEvidence) -> list[Any]:
+	"""与 ``turn_scoped`` 同口径的行集：本轮的行 + 不带轮次身份的行。
+
+	用 ``events_for_turn()`` 会比选调用时窄一档（它丢掉不带 turn_id 的旧行），
+	那会让"其后无更晚活动"在一堆未归属记录面前被谎报成成立。
+	"""
+	if not run.turn_id:
+		return list(run.events)
+	return [e for e in run.events if not e.turn_id or e.turn_id == run.turn_id]
+
+
+def _activity_after(events: list[Any], tool: Any) -> bool:
+	"""这条 started 之后还有没有别的审计行。
+
+	旧写法拿整轮有没有 ``tool.finished`` 当判据（且那个与运算让 ``model.*``
+	两项从不参与判决），于是两种形状都会走偏：同一轮里前一个调用干净结束、
+	后一个调用只开了头且其后什么都没有——正是要报的那件事被整体吞掉；
+	反过来整轮没有 tool.finished 但孤儿行后面还有记录时，"其后无更晚活动"
+	是一句假话。判据只能按行号逐条问。
+	"""
+	line = _s((tool.started or {}).get("line_no"))
+	if not line.isdigit():
+		return True  # 不知位置就不能宣称"其后无更晚活动"
+	start = int(line)
+	return any(e.line_no > start for e in events)
 
 
 # ---------- R2 指令 / 配置漂移 ----------
