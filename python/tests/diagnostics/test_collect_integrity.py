@@ -1036,16 +1036,20 @@ def test_add_gap_tags_session_scope_by_boundary_reason_pair():
 	from diagnostics.collect import RunEvidence, SESSION_CONSTANT_GAPS
 
 	run = RunEvidence(session_id="s", turn_id="t")
-	# adapter/source_absent 是会话级；model_request/source_absent 是本轮事实（同一 reason 名）。
-	run.add_gap("adapter", "source_absent", "x")
+	# 三条已实测"逐会话全有或全无"的会话级项：no_records 落在 instruction_context 上是会话姿态。
+	run.add_gap("instruction_context", "no_records", "x")
+	run.add_gap("model_request", "out_of_window", "o")
+	run.add_gap("instruction_context", "recovered_outside_window", "r")
+	# 同因不同边界的反例：source_absent 挂在 model_request 上仍属本轮事实（只在 adapter 那侧才是会话级）。
 	run.add_gap("model_request", "source_absent", "y")
-	run.add_gap("wsc_fold", "no_records", "z")
-	run.add_gap("instruction_context", "no_records", "w")  # 随轮变化的那条不在此列
+	# 真随轮变化的会话级"同名不同义"反例：not_comparable 只有 13.7%，不在折叠集里。
+	run.add_gap("instruction_context", "not_comparable", "n")
 	by_pair = {(g.boundary, g.reason): g.scope for g in run.gaps}
-	assert by_pair[("adapter", "source_absent")] == "session"
-	assert by_pair[("wsc_fold", "no_records")] == "session"
+	assert by_pair[("instruction_context", "no_records")] == "session"
+	assert by_pair[("model_request", "out_of_window")] == "session"
+	assert by_pair[("instruction_context", "recovered_outside_window")] == "session"
 	assert by_pair[("model_request", "source_absent")] == "per_turn"
-	assert by_pair[("instruction_context", "no_records")] == "per_turn"
+	assert by_pair[("instruction_context", "not_comparable")] == "per_turn"
 	# 声明集合里的每一条 add_gap 后都必须是 session（防声明与实现漂移）。
 	for pair in SESSION_CONSTANT_GAPS:
 		g = run.add_gap(pair[0], pair[1], "d")

@@ -57,18 +57,21 @@ BOUNDARIES: tuple[tuple[str, str], ...] = (
 	("sse_gui", "SSE / 界面"),
 )
 
-# 会话级采集限制：这些缺项描述整个会话的采集姿态（某来源是否开启/是否存在），在同一
+# 会话级采集限制：这些缺项描述整个会话的采集姿态（某来源是否开启/存在/在窗内），在同一
 # 会话内要么每轮都在、要么每轮都不在，不随本轮事件变化。逐轮重复它们只会把本轮真正
-# 特有的缺项淹成噪声。实测（2026-09-26，540 真实轮 / 316 会话，只读）：这四条在**每个
-# 会话内**都是全有或全无（PARTIAL=0），故按 (边界, 原因) 精确标记为 scope="session"。
-# 只标这一对里确实全有全无的项——例如 instruction_context/no_records 只覆盖 83.3% 轮次
-# 且随轮变化，属本轮事实，不在此列。
+# 特有的缺项淹成噪声。实测（2026-09-26，540 真实轮 / 316 会话，只读，逐会话全有或全无）：
+# 下列七条在**每个会话内** PARTIAL=0（有的会话全有、有的全无，但绝不同一会话内忽有忽无），
+# 故按 (边界, 原因) 精确标 scope="session"。低于 30% 且真随轮变化的（unattributed_rows、
+# not_comparable 等）不在此列——那是本轮信号。
 SESSION_CONSTANT_GAPS: frozenset[tuple[str, str]] = frozenset(
 	{
 		("adapter", "not_captured"),
 		("adapter", "source_absent"),
 		("file_verifier", "not_recorded"),
 		("wsc_fold", "no_records"),
+		("instruction_context", "no_records"),
+		("model_request", "out_of_window"),
+		("instruction_context", "recovered_outside_window"),
 	}
 )
 

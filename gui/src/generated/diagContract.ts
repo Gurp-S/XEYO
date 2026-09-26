@@ -66,6 +66,9 @@ export const DIAG_SESSION_CONSTANT_GAPS: ReadonlyArray<DiagContractGapReason> = 
 	{boundary: 'adapter', reason: 'not_captured'},
 	{boundary: 'adapter', reason: 'source_absent'},
 	{boundary: 'file_verifier', reason: 'not_recorded'},
+	{boundary: 'instruction_context', reason: 'no_records'},
+	{boundary: 'instruction_context', reason: 'recovered_outside_window'},
+	{boundary: 'model_request', reason: 'out_of_window'},
 	{boundary: 'wsc_fold', reason: 'no_records'},
 ];
 
