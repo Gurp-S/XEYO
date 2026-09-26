@@ -16,7 +16,7 @@ from diagnostics.collect import collect_run, list_runs
 from diagnostics.identity import Finding
 from diagnostics.loss_chain import trace_fact
 from diagnostics.pins import pin_run, record_verifier
-from diagnostics.report import build_report, save_report, to_markdown
+from diagnostics.report import build_report, cause_evidence_text, save_report, to_markdown
 from diagnostics.rules import evaluate_run
 
 
@@ -120,6 +120,10 @@ def main(argv: list[str] | None = None) -> int:
 			)
 			for cause in (fault.get("causes") or [])[:6]:
 				_emit("  [{}] {} ← {}".format(cause.get("party"), cause.get("label"), cause.get("code")))
+				# 与 markdown 同一件事：定责的原因要能回到原始记录，指针不能只留在结构体里
+				cause_evidence = cause_evidence_text(cause)
+				if cause_evidence:
+					_emit(f"    证据：{cause_evidence}")
 			_emit(f"为什么：{fault.get('why', '')}")
 			_emit(doc["attribution"]["statement"])
 			for line in _findings_rows(evaluate_run(run)):

@@ -35,6 +35,24 @@ def test_read_only_commands_write_nothing(tmp_path, monkeypatch, capsys) -> None
 	assert audit.read_text(encoding="utf-8").count("\n") == 2, "只读命令不得写审计"
 
 
+def test_text_report_prints_the_evidence_behind_a_cause(tmp_path, monkeypatch, capsys) -> None:
+	"""text 输出也要印出原因的证据：指针只留在 --format json 里，读终端的人拿不到。"""
+	audit = tmp_path / "audit.jsonl"
+	rows = [
+		{"ts": 1.0, "kind": "model.started", "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", "attempt": 1},
+		{"ts": 1.1, "kind": "model.finished", "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", "attempt": 1, "status": "ok"},
+		{"ts": 1.2, "kind": "tool.started", "session_id": "s1", "turn_id": "t1", "request_id": "c1", "tool_name": "Bash"},
+		{"ts": 1.3, "kind": "tool.finished", "session_id": "s1", "turn_id": "t1", "request_id": "c1", "tool_name": "Bash", "is_error": True, "status": "error", "error_kind": "INTERNAL"},
+	]
+	audit.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+	import audit.log as mod
+
+	monkeypatch.setattr(mod, "_default", mod.AuditLog(audit))
+	assert main(["report", "--session", "s1", "--turn", "t1"]) == 0
+	out = capsys.readouterr().out
+	assert "证据：audit:" in out, "定责的原因要在终端里也指回那条审计行"
+
+
 def test_json_and_md_formats(tmp_path, monkeypatch, capsys) -> None:
 	_seed(tmp_path, monkeypatch)
 	assert main(["report", "--session", "s1", "--turn", "t1", "--format", "json", "--save"]) == 0

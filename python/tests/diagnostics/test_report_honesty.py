@@ -40,6 +40,38 @@ def test_non_numeric_price_is_not_counted_as_zero(collect) -> None:
 	assert "未计入合计" in summary["statement"]
 
 
+def test_markdown_cites_the_evidence_behind_a_cause(collect) -> None:
+	"""定责的原因在导出里也要指回原始记录：指针只留在结构体里等于没给读者。
+
+	同文件的 Markdown 自己写着「无原始证据（因此不下定责结论）」，原因栏此前只印句子。
+	总数按 ``evidence_total`` 说：随附的指针只有前 6 条，写"共 6 条"就是把截断说成完整。
+	"""
+	from diagnostics.identity import CONFIRMED_FAULT, EvidenceRef, Finding
+
+	refs = [EvidenceRef(source="audit", locator="audit.jsonl", ref_id=f"L{i}", detail="tool.finished") for i in range(1, 10)]
+	finding = Finding(
+		rule_id="tool_failure",
+		rule_version=1,
+		phenomenon="工具 Bash 返回错误（error_kind=INTERNAL，共 9 次）",
+		boundary="tool_permission",
+		component="工具执行：Bash",
+		status=CONFIRMED_FAULT,
+		evidence=refs,
+		impact="失败步骤已定位。",
+		coverage_gap="审计不含 stderr。",
+		allowed_conclusion="可确认工具在这一步失败。",
+	)
+	run = collect(_FINISHED)
+	markdown = to_markdown(build_report(run, [finding]))
+	lines = markdown.splitlines()
+	# 断言必须钉在"这一条原因下面那一行"上：只查整篇里有没有「证据：」「另 N 条」，
+	# 结论明细那一段本来就印证据，门会替导出把空位填上（我第一版就是这么假绿的）。
+	at = next(i for i, ln in enumerate(lines) if ln.strip().startswith("- [") and "工具执行返回错误" in ln)
+	cited = lines[at + 1]
+	assert cited.startswith("    证据：audit:L1 "), cited
+	assert "另 6 条" in cited, "总数要说 9 条里的另 6 条，不是随附的 6 条样本"
+
+
 def test_partial_price_in_a_multi_row_attempt_still_counts_the_priced_part(collect) -> None:
 	run = collect(_FINISHED)
 	run.usage_rows = [

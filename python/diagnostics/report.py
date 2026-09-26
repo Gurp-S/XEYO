@@ -227,15 +227,28 @@ def _window_status(window: dict[str, Any]) -> str:
 	return "有行未纳入"
 
 
-def _short(refs: list[dict[str, Any]], cap: int = 3) -> str:
+def _short(refs: list[dict[str, Any]], cap: int = 3, total: int | None = None) -> str:
 	parts: list[str] = []
 	for ref in refs[:cap]:
 		detail = _s(ref.get("detail"))[:60]
 		entry = f"{_s(ref.get('source'))}:{_s(ref.get('ref_id'))}"
 		parts.append(f"{entry} {detail}" if detail else entry)
-	if len(refs) > cap:
-		parts.append(f"…另 {len(refs) - cap} 条")
+	full = len(refs) if total is None else max(int(total), len(refs))
+	if full > cap:
+		parts.append(f"…另 {full - cap} 条")
 	return "；".join(parts)
+
+
+def cause_evidence_text(cause: dict[str, Any]) -> str:
+	"""一条原因的证据摘要：随附的指针只有前几条，总数按 ``evidence_total`` 说。
+
+	没有证据时返回空串 —— 调用方据此不印空行（"这条没有依据"由"不能证明"那一栏说）。
+	"""
+	refs = cause.get("evidence") or []
+	if not isinstance(refs, list) or not refs:
+		return ""
+	total = cause.get("evidence_total")
+	return _short(refs, cap=3, total=total if isinstance(total, int) else None)
 
 
 def to_markdown(doc: dict[str, Any]) -> str:
@@ -280,6 +293,11 @@ def to_markdown(doc: dict[str, Any]) -> str:
 				cause.get("party"), cause.get("label"), cause.get("proves"), cause.get("does_not_prove")
 			)
 		)
+		# 定责的那条要能回到原始记录：结论明细那行自己写着「无原始证据（因此不下定责结论）」，
+		# 原因栏以前只印句子、把后端一起送来的指针丢掉了。
+		cause_evidence = cause_evidence_text(cause)
+		if cause_evidence:
+			lines.append(f"    证据：{cause_evidence}")
 	for step in fault.get("chain") or []:
 		lines.append(f"  {step.get('order')}. [{step.get('party_label')}] {step.get('fact')}")
 	for item in fault.get("missing_evidence") or []:
