@@ -7,7 +7,7 @@
 import {useEffect, useRef, useState} from 'react';
 import {Loader2} from 'lucide-react';
 import {traceDiagFact, type DiagFactTrace, type DiagRunDetail} from '@/lib/api/diagnostics';
-import {DASH, boundaryLabelOf, coverageStateLabel, factStateLabel, fmtBytes, gapReasonLabel, ledgerCountText, splitGapsByScope} from './model';
+import {DASH, boundaryLabelOf, coverageStateLabel, factStateLabel, fmtBytes, gapReasonLabel, ledgerCountText, projectionManifestText, splitGapsByScope} from './model';
 import {Badge, EvidenceList, KeyValue, Notice, Section} from './ui';
 import {cn} from '@/lib/utils';
 
@@ -234,7 +234,7 @@ export function ContextView({
 						},
 						{
 							k: '投影 manifest',
-							v: ledgerCountText(projectionWindow, detail.projections.length, '份', '投影'),
+							v: projectionManifestText(detail.projections, projectionWindow),
 						},
 						{k: '诊断目录', v: storeRoot, mono: true},
 						{

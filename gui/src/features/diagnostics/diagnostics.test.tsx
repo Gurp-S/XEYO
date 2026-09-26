@@ -485,6 +485,28 @@ describe('缺证据不得渲染成确定的 0（P1 10）', () => {
 		render(<ContextView detail={d} sessionId="s1" turnId="t1" storeRoot="/diag" />);
 		expect(document.body.textContent).toContain('1 条（窗口未读全，实际不少于此数）');
 	});
+
+	it('working 只留会话最后一份投影时，那一句要说「未必属于本轮」', () => {
+		// 采集器给每条 projection 带 scope=last_only（python/diagnostics/collect.py），
+		// 这一栏住在「本轮采集状态」里 —— 不说范围，用户就会把会话的最后一份当成本轮的。
+		const d = detail({
+			projections: [{projection_id: 'p-last', scope: 'last_only'}],
+			windows: [{source: 'working', complete: true, rows_matched: 1, note: '只保留最后一份 manifest'}],
+		});
+		render(<ContextView detail={d} sessionId="s1" turnId="t1" storeRoot="/diag" />);
+		const text = document.body.textContent ?? '';
+		expect(text).toContain('1 份');
+		expect(text).toContain('未必属于本轮');
+	});
+
+	it('载荷没标 scope 时不得凭空加那句限制', () => {
+		const d = detail({
+			projections: [{projection_id: 'p1'}],
+			windows: [{source: 'working', complete: true, rows_matched: 1, note: ''}],
+		});
+		render(<ContextView detail={d} sessionId="s1" turnId="t1" storeRoot="/diag" />);
+		expect(document.body.textContent ?? '').not.toContain('未必属于本轮');
+	});
 });
 
 describe('授权结果不得猜（P1 4）', () => {

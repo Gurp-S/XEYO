@@ -846,6 +846,20 @@ export function ledgerCountText(
 	return window.complete ? base : `${base}（窗口未读全，实际不少于此数）`;
 }
 
+/** 投影 manifest 的条数措辞：working 只留会话最后一份，未必属于本轮。
+ *
+ * 采集器在每一条 projection 上带 `scope: "last_only"`（python/diagnostics/collect.py）；
+ * 后端没标这个字段时不凭空加限制句 —— 说了没有的证据就是假话。
+ */
+export function projectionManifestText(
+	projections: Record<string, unknown>[],
+	window: DiagWindow | undefined,
+): string {
+	const base = ledgerCountText(window, projections.length, '份', '投影');
+	if (!projections.some(p => String(p['scope'] ?? '') === 'last_only')) return base;
+	return `${base}；working 只留存会话最后一份，未必属于本轮`;
+}
+
 /** 深链没落进审计尾窗时的措辞：说清"没有顶替"，不假装这是用户点的那一击的结论。 */
 export function linkMismatchText(
 	kind: 'tool' | 'turn' | 'replaced',
