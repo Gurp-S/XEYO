@@ -736,7 +736,12 @@ def check_provider_stream(run: RunEvidence) -> list[Finding]:
 			else:
 				verdict = CONFIRMED_FAULT
 				if kind == "llm.failure":
-					phen = f"模型请求失败（attempt={attempt_no}，status={_s(http)}，code={_s(att.get('error_code'))}）"
+					# 厂商没给 HTTP 码时行里是 status=null（真实 24 行 llm.failure 有 4 行如此）。
+					# 空位直接印出来会变成「status=，」，读起来像"厂商返回了空状态"。
+					phen = (
+						f"模型请求失败（attempt={attempt_no}，status={_s(http) or '未记录'}，"
+						f"code={_s(att.get('error_code'))}）"
+					)
 				else:
 					phen = f"模型尝试以 status={status} 结束（attempt={attempt_no}）"
 				gap = "厂商内部处理输入不可见；只能定位到适配器提交边界。"

@@ -1114,7 +1114,7 @@ def _merge(run: RunEvidence) -> None:
 					"kind": kind,
 					"ts": event.ts,
 					"status": _s(event.row.get("status")),
-					# llm.failure 把同一个事实写在 `code` 上（engine/query_loop.py::_record_llm_failure），
+					# llm.failure 把同一个事实写在 `code` 上（engine/query_loop.py::_audit_llm_failure），
 					# error_code 只有 model.* 行才有：只读后者会让现象里的 code= 恒为空。
 					"error_code": _s(event.row.get("error_code")) or _s(event.row.get("code")),
 					"http_status": event.row.get("status") if kind == "llm.failure" else None,

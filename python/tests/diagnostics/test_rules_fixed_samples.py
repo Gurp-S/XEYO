@@ -40,7 +40,9 @@ def test_model_error_is_located_at_model_boundary(collect) -> None:
 def test_rate_limit_is_not_blamed_on_prompt(collect) -> None:
 	run = collect(
 		[
-			{"ts": 1.0, "kind": "llm.failure", "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", "attempt": 1, "code": "http_429", "status": 429},
+			# 生产者真实形状（engine/query_loop.py::_audit_llm_failure）：码在 `code` 上，
+			# HTTP 号在 `status` 上 —— 不是 "http_429" 这种拼出来的值。
+			{"ts": 1.0, "kind": "llm.failure", "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", "attempt": 1, "code": "rate_limit", "status": 429, "provider": "deepseek", "model": "deepseek-v4-flash"},
 		]
 	)
 	f = next(x for x in evaluate_run(run) if x.rule_id == "provider_stream_failure")
@@ -524,14 +526,33 @@ def test_llm_failure_phenomenon_carries_the_code_the_writer_actually_writes(coll
 	"""llm.failure 的错误码在 `code` 字段上，不在 model.* 那套 `error_code` 里。
 
 	采集只读后者的话，现象里的 code= 恒为空 —— 看着像"厂商没给码"，其实是字段名错位。
+	取值按真实账本（24 行 llm.failure 的 code 只有 rate_limit / provider_error / network）。
 	"""
 	run = collect(
 		[
-			{"ts": 1.0, "kind": "llm.failure", "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", "attempt": 1, "code": "http_429", "status": 429},
+			{"ts": 1.0, "kind": "llm.failure", "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", "attempt": 1, "code": "provider_error", "status": 503},
 		]
 	)
 	f = next(x for x in evaluate_run(run) if x.rule_id == "provider_stream_failure")
-	assert "code=http_429" in f.phenomenon
+	assert "code=provider_error" in f.phenomenon
+	assert "status=503" in f.phenomenon
+
+
+def test_missing_http_status_is_said_as_unrecorded_not_as_an_empty_slot(collect) -> None:
+	"""厂商没给 HTTP 号时行里是 ``"status": null``（真实 24 行里有 4 行）。
+
+	空位直接印进现象会变成「status=，」—— 读起来像"厂商返回了一个空状态"，
+	而事实是这一项没有记录。
+	"""
+	run = collect(
+		[
+			{"ts": 1.0, "kind": "llm.failure", "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", "attempt": 2, "code": "network", "status": None},
+		]
+	)
+	f = next(x for x in evaluate_run(run) if x.rule_id == "provider_stream_failure")
+	assert "status=未记录" in f.phenomenon, f.phenomenon
+	assert "status=，" not in f.phenomenon
+	assert "code=network" in f.phenomenon
 
 
 def test_orphan_started_after_a_clean_call_is_still_reported(collect) -> None:
