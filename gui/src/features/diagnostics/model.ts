@@ -239,9 +239,33 @@ export const FACT_STATE_LABEL: Record<string, string> = {
 	unreadable: '不可读',
 };
 
+/** 定位链每一级状态的语气：与 FACT_STATE_LABEL 一样以契约生成的档位为准。 */
+export const FACT_STATE_TONE: Record<string, 'ok' | 'warn' | 'fail' | 'neutral'> = {
+	found: 'ok',
+	absent: 'warn',
+	folded_out: 'warn',
+	not_recorded: 'neutral',
+	not_captured: 'neutral',
+	unreadable: 'fail',
+};
+
 export function factStateLabel(state: string): string {
 	return FACT_STATE_LABEL[state] ?? (state || DASH);
 }
+
+/** 定位链结论的语气：每一档自己声明，不靠"除 unknown 之外一律中性"的三元式。
+ *
+ * 结论档位由后端 loss_chain 的正本经契约生成（DIAG_FACT_VERDICTS），新增一档而这里
+ * 没登记时 ratchet 测试会红 —— 否则一条"已定位到发射前丢失"会和"一路都在"用同一种
+ * 中性提示出现，严重度在界面上被抹平。
+ */
+export const FACT_VERDICT_TONE: Record<string, 'neutral' | 'warn' | 'fail' | 'info'> = {
+	kept_through: 'info',
+	not_in_source_history: 'neutral',
+	folded_out_of_projection: 'warn',
+	'lost_before:emitted': 'fail',
+	unknown: 'warn',
+};
 
 /** 固定证据的种类：后端存的是 snake_case id，界面只出中文（未知种类原样带出，不静默丢）。 */
 export const PIN_KIND_LABEL: Record<string, string> = {

@@ -7,17 +7,9 @@
 import {useEffect, useRef, useState} from 'react';
 import {Loader2} from 'lucide-react';
 import {traceDiagFact, type DiagFactTrace, type DiagRunDetail} from '@/lib/api/diagnostics';
-import {DASH, boundaryLabelOf, coverageStateLabel, factStateLabel, fmtBytes, gapReasonLabel, ledgerCountText, projectionManifestText, splitGapsByScope} from './model';
+import {DASH, FACT_STATE_TONE, FACT_VERDICT_TONE, boundaryLabelOf, coverageStateLabel, factStateLabel, fmtBytes, gapReasonLabel, ledgerCountText, projectionManifestText, splitGapsByScope} from './model';
 import {Badge, EvidenceList, KeyValue, Notice, Section} from './ui';
 import {cn} from '@/lib/utils';
-
-const FACT_STATE_TONE: Record<string, 'ok' | 'warn' | 'fail' | 'neutral'> = {
-	found: 'ok',
-	absent: 'warn',
-	not_recorded: 'neutral',
-	not_captured: 'neutral',
-	unreadable: 'fail',
-};
 
 function FactChain({trace}: {trace: DiagFactTrace}) {
 	// 后端在这份载荷里已经带了每级的中文名，缺项名单就照着对上：
@@ -38,7 +30,7 @@ function FactChain({trace}: {trace: DiagFactTrace}) {
 					</li>
 				))}
 			</ol>
-			<Notice tone={trace.verdict === 'unknown' ? 'warn' : 'info'}>
+			<Notice tone={FACT_VERDICT_TONE[trace.verdict] ?? 'neutral'}>
 				{trace.statement || '各级记录不足以判断这条事实的命运。'}
 			</Notice>
 			{trace.unprovable_stages.length ? (

@@ -4,7 +4,8 @@
  * 锁的是结构，不是某一次措辞：`gui/src/generated/diagContract.ts` 由
  * `py -3.11 -m diagnostics.export_contract` 从诊断层**实际会发出的值**扫出来
  * （BOUNDARIES、RULES、add_gap 调用的原因码、fault_split 的 `_SHOWN_TEXT` 与
- * `PARTY_LABEL`）。本文件要求界面的每张标签表都覆盖它。
+ * `PARTY_LABEL`、loss_chain 的状态常量与 verdict 字面量）。本文件要求界面的每张
+ * 标签表都覆盖它。
  *
  * 为什么值得立这道门：同一份边界清单在 python 和 GUI 各手抄一份；缺项原因码
  * 曾两次靠"撞上了才补"（recovered_outside_window、not_found_in_full_file）。
@@ -17,6 +18,8 @@ import {fileURLToPath} from 'node:url';
 import {describe, expect, it} from 'vitest';
 import {
 	DIAG_BOUNDARIES,
+	DIAG_FACT_STATES,
+	DIAG_FACT_VERDICTS,
 	DIAG_GAP_REASONS,
 	DIAG_PARTIES,
 	DIAG_PAYLOAD_KEYS,
@@ -26,10 +29,14 @@ import {
 } from '@/generated/diagContract';
 import {
 	BOUNDARY_ORDER,
+	FACT_STATE_LABEL,
+	FACT_STATE_TONE,
+	FACT_VERDICT_TONE,
 	GAP_REASON_LABEL,
 	PARTY_LABEL,
 	PARTY_TONE,
 	SHOWN_LABEL,
+	factStateLabel,
 	gapReasonLabel,
 } from './model';
 
@@ -64,6 +71,40 @@ describe('诊断契约 · 生产者发得出，界面就必须说得出', () => 
 			expect(label, `界面缺送达状态 ${state}`).toBeTruthy();
 			expect(label).not.toContain(state);
 		}
+	});
+
+	it('定位链每一级状态都有中文说法与语气，且不留孤儿标签', () => {
+		expect(uniq(DIAG_FACT_STATES)).toEqual(DIAG_FACT_STATES);
+		expect(DIAG_FACT_STATES.length).toBeGreaterThan(0);
+		for (const state of DIAG_FACT_STATES) {
+			const label = FACT_STATE_LABEL[state];
+			expect(label, `界面缺定位链状态 ${state}`).toBeTruthy();
+			expect(label).not.toContain(state);
+			expect(factStateLabel(state)).toBe(label);
+			expect(FACT_STATE_TONE[state], `定位链状态 ${state} 没有语气档`).toBeTruthy();
+		}
+		// 反向：界面表里不得留着生产者发不出的档位 —— 孤儿标签会把"真的漏了一档"
+		// 混成"看起来挺全"，与手抄清单失效是同一个毛病。
+		for (const state of Object.keys(FACT_STATE_LABEL)) {
+			expect(DIAG_FACT_STATES, `界面多了生产者发不出的状态标签 ${state}`).toContain(state);
+		}
+		for (const state of Object.keys(FACT_STATE_TONE)) {
+			expect(DIAG_FACT_STATES, `语气表里有生产者发不出的状态 ${state}`).toContain(state);
+		}
+	});
+
+	it('定位链每条结论自己声明语气，新增一档不会静默降成中性', () => {
+		expect(uniq(DIAG_FACT_VERDICTS)).toEqual(DIAG_FACT_VERDICTS);
+		for (const verdict of DIAG_FACT_VERDICTS) {
+			expect(FACT_VERDICT_TONE[verdict], `结论 ${verdict} 没有语气档`).toBeTruthy();
+		}
+		for (const verdict of Object.keys(FACT_VERDICT_TONE)) {
+			expect(DIAG_FACT_VERDICTS, `语气表里有生产者不会发的结论 ${verdict}`).toContain(verdict);
+		}
+		// 严重度不得塌成一档：判不动、已定位到丢失、一路都在必须分得开
+		expect(FACT_VERDICT_TONE['lost_before:emitted']).toBe('fail');
+		expect(FACT_VERDICT_TONE.unknown).toBe('warn');
+		expect(FACT_VERDICT_TONE.kept_through).not.toBe(FACT_VERDICT_TONE.unknown);
 	});
 
 	it('归属的每一档同时有说法和语气', () => {

@@ -128,6 +128,36 @@ def scan_shown_states() -> list[str]:
 	return sorted(fault_split._SHOWN_TEXT)
 
 
+def scan_fact_states() -> list[str]:
+	"""定位链每一级能发的状态值：以 loss_chain 的模块常量为正本。
+
+	这六个值此前只在 GUI 里手抄了一份标签表；新增一档而没人给它中文时，
+	上下文视图会把 `folded_out` 这类机器名原样投出去，而且没有任何构建期信号。
+	"""
+	from diagnostics import loss_chain as lc
+
+	return sorted(
+		{
+			lc.FOUND,
+			lc.ABSENT,
+			lc.FOLDED_OUT,
+			lc.NOT_RECORDED,
+			lc.NOT_CAPTURED,
+			lc.UNREADABLE,
+		}
+	)
+
+
+def scan_fact_verdicts() -> list[str]:
+	"""``trace_fact`` 会赋给 verdict 的字面量：扫源码而不是另立常量表。
+
+	常量表就是下一个会忘记更新的地方（与 scan_gap_reasons 同一手法）。GUI 按
+	verdict 决定这条结论的语气，少一档就等于把新结论降格成中性提示。
+	"""
+	text = (Path(__file__).resolve().parent / "loss_chain.py").read_text(encoding="utf-8", errors="replace")
+	return sorted(set(re.findall(r'verdict = "([a-z_:]+)"', text)))
+
+
 def scan_invariant_names() -> dict[str, list[str]]:
 	"""投影旗标两份清单：引擎写下的名字、诊断层读到的名字。
 
@@ -210,6 +240,8 @@ def collect_contract() -> dict[str, Any]:
 			if (b, r) in emitted
 		],
 		"shownStates": scan_shown_states(),
+		"factStates": scan_fact_states(),
+		"factVerdicts": scan_fact_verdicts(),
 		"parties": sorted(fault_split.PARTY_LABEL),
 		"payloadKeys": scan_payload_keys(),
 	}
@@ -225,6 +257,8 @@ def render(contract: dict[str, Any]) -> str:
 	)
 	rule_ids = "\n".join(f"\t{r!r}," for r in contract["ruleIds"])
 	shown = "\n".join(f"\t{s!r}," for s in contract["shownStates"])
+	fact_states = "\n".join(f"\t{s!r}," for s in contract["factStates"])
+	fact_verdicts = "\n".join(f"\t{v!r}," for v in contract["factVerdicts"])
 	parties = "\n".join(f"\t{p!r}," for p in contract["parties"])
 	payload = "\n".join(
 		f"\t{name}: [" + ", ".join(repr(k) for k in keys) + "]," for name, keys in contract["payloadKeys"].items()
@@ -234,8 +268,9 @@ def render(contract: dict[str, Any]) -> str:
 		" * 由 `py -3.11 -m diagnostics.export_contract` 生成 —— 不要手改。\n"
 		" *\n"
 		" * 内容是诊断层生产者**实际会发出**的枚举值（扫描 add_gap 调用、BOUNDARIES、\n"
-		" * RULES、_SHOWN_TEXT 得到）。界面的 ratchet 测试用它保证：新增枚举值而没有\n"
-		" * 中文说法时，构建期就红，而不是等用户看到 `recovered_outside_window`。\n"
+		" * RULES、_SHOWN_TEXT、loss_chain 的状态常量与 verdict 字面量得到）。界面的 ratchet\n"
+		" * 测试用它保证：新增枚举值而没有中文说法时，构建期就红，而不是等用户看到\n"
+		" * `recovered_outside_window`。\n"
 		" */\n"
 		"\n"
 		"export type DiagContractGapReason = {boundary: string; reason: string};\n"
@@ -258,6 +293,14 @@ def render(contract: dict[str, Any]) -> str:
 		"\n"
 		"export const DIAG_SHOWN_STATES: readonly string[] = [\n"
 		f"{shown}\n"
+		"];\n"
+		"\n"
+		"export const DIAG_FACT_STATES: readonly string[] = [\n"
+		f"{fact_states}\n"
+		"];\n"
+		"\n"
+		"export const DIAG_FACT_VERDICTS: readonly string[] = [\n"
+		f"{fact_verdicts}\n"
 		"];\n"
 		"\n"
 		"export const DIAG_PARTIES: readonly string[] = [\n"

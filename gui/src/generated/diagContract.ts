@@ -2,8 +2,9 @@
  * 由 `py -3.11 -m diagnostics.export_contract` 生成 —— 不要手改。
  *
  * 内容是诊断层生产者**实际会发出**的枚举值（扫描 add_gap 调用、BOUNDARIES、
- * RULES、_SHOWN_TEXT 得到）。界面的 ratchet 测试用它保证：新增枚举值而没有
- * 中文说法时，构建期就红，而不是等用户看到 `recovered_outside_window`。
+ * RULES、_SHOWN_TEXT、loss_chain 的状态常量与 verdict 字面量得到）。界面的 ratchet
+ * 测试用它保证：新增枚举值而没有中文说法时，构建期就红，而不是等用户看到
+ * `recovered_outside_window`。
  */
 
 export type DiagContractGapReason = {boundary: string; reason: string};
@@ -84,6 +85,23 @@ export const DIAG_SHOWN_STATES: readonly string[] = [
 	'not_shown',
 	'shown',
 	'unprovable',
+];
+
+export const DIAG_FACT_STATES: readonly string[] = [
+	'absent',
+	'folded_out',
+	'found',
+	'not_captured',
+	'not_recorded',
+	'unreadable',
+];
+
+export const DIAG_FACT_VERDICTS: readonly string[] = [
+	'folded_out_of_projection',
+	'kept_through',
+	'lost_before:emitted',
+	'not_in_source_history',
+	'unknown',
 ];
 
 export const DIAG_PARTIES: readonly string[] = [
