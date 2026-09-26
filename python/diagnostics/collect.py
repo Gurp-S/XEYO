@@ -57,21 +57,31 @@ BOUNDARIES: tuple[tuple[str, str], ...] = (
 	("sse_gui", "SSE / 界面"),
 )
 
-# 会话级采集限制：这些缺项描述整个会话的采集姿态（某来源是否开启/存在/在窗内），在同一
-# 会话内要么每轮都在、要么每轮都不在，不随本轮事件变化。逐轮重复它们只会把本轮真正
-# 特有的缺项淹成噪声。实测（2026-09-26，540 真实轮 / 316 会话，只读，逐会话全有或全无）：
-# 下列七条在**每个会话内** PARTIAL=0（有的会话全有、有的全无，但绝不同一会话内忽有忽无），
-# 故按 (边界, 原因) 精确标 scope="session"。低于 30% 且真随轮变化的（unattributed_rows、
-# not_comparable 等）不在此列——那是本轮信号。
+# 会话级采集限制：这些缺项由"整个会话的窗/账本/采集姿态"决定，在同一会话内要么每轮都在、
+# 要么每轮都不在，逐轮重复只会把本轮真特有的缺项淹成噪声。
+#
+# 判据不是"总体占比高"（那是错的轴），而是**逐会话测得全有或全无（PARTIAL==0）**。
+# 实测（2026-09-26，540 真实轮 / 316 会话，只读）：下列 12 条 (边界, 原因) 在 316 个会话里
+# PARTIAL 均为 0（有的会话全有、有的全无，但绝不在同一会话内忽有忽无）；它们都从会话级的
+# 窗口截断 / 账本缺失 / 未开启采集 推出，与具体轮次无关。
+#
+# 反向证据（真·随轮变化，刻意不折叠）：file_verifier/field_missing PARTIAL=3、
+# instruction_context/not_comparable PARTIAL=4 —— 同一会话内有的轮有、有的轮没有，是本轮事实。
+# 频率低不代表会随轮变，PARTIAL>0 才代表会；这两条是"按判据而非按频率筛"的活样本。
 SESSION_CONSTANT_GAPS: frozenset[tuple[str, str]] = frozenset(
 	{
 		("adapter", "not_captured"),
 		("adapter", "source_absent"),
+		("file_verifier", "not_captured"),
 		("file_verifier", "not_recorded"),
+		("file_verifier", "out_of_window"),
 		("wsc_fold", "no_records"),
 		("instruction_context", "no_records"),
-		("model_request", "out_of_window"),
+		("instruction_context", "out_of_window"),
 		("instruction_context", "recovered_outside_window"),
+		("model_request", "out_of_window"),
+		("model_request", "recovered_outside_window"),
+		("model_request", "unattributed_rows"),
 	}
 )
 

@@ -1040,16 +1040,23 @@ def test_add_gap_tags_session_scope_by_boundary_reason_pair():
 	run.add_gap("instruction_context", "no_records", "x")
 	run.add_gap("model_request", "out_of_window", "o")
 	run.add_gap("instruction_context", "recovered_outside_window", "r")
+	# 新并入的两条会话级项（低频率但 PARTIAL=0）：证明折叠按判据、不按频率。
+	run.add_gap("file_verifier", "out_of_window", "f")
+	run.add_gap("model_request", "unattributed_rows", "u")
 	# 同因不同边界的反例：source_absent 挂在 model_request 上仍属本轮事实（只在 adapter 那侧才是会话级）。
 	run.add_gap("model_request", "source_absent", "y")
-	# 真随轮变化的会话级"同名不同义"反例：not_comparable 只有 13.7%，不在折叠集里。
+	# 真随轮变化（PARTIAL>0）的两条同名/近名项：必须留 per_turn，不许被顺手折叠。
 	run.add_gap("instruction_context", "not_comparable", "n")
+	run.add_gap("file_verifier", "field_missing", "m")
 	by_pair = {(g.boundary, g.reason): g.scope for g in run.gaps}
 	assert by_pair[("instruction_context", "no_records")] == "session"
 	assert by_pair[("model_request", "out_of_window")] == "session"
 	assert by_pair[("instruction_context", "recovered_outside_window")] == "session"
+	assert by_pair[("file_verifier", "out_of_window")] == "session"
+	assert by_pair[("model_request", "unattributed_rows")] == "session"
 	assert by_pair[("model_request", "source_absent")] == "per_turn"
 	assert by_pair[("instruction_context", "not_comparable")] == "per_turn"
+	assert by_pair[("file_verifier", "field_missing")] == "per_turn"
 	# 声明集合里的每一条 add_gap 后都必须是 session（防声明与实现漂移）。
 	for pair in SESSION_CONSTANT_GAPS:
 		g = run.add_gap(pair[0], pair[1], "d")
