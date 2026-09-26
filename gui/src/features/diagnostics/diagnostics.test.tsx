@@ -131,6 +131,9 @@ describe('归因与免责措辞', () => {
 		expect(screen.getAllByText(NO_CONFIRMED_FAULT_TEXT).length).toBeGreaterThan(0);
 		expect(screen.getAllByText(NOT_ATTRIBUTED_TEXT).length).toBeGreaterThan(0);
 		expect(document.body.textContent).not.toMatch(/未发现问题|一切正常|通过/);
+		// 没有异常时"它之前"没有指代对象：那句只有在 attributed 为真时才成立。
+		expect(document.body.textContent).toContain('最近一个有记录的边界');
+		expect(document.body.textContent).not.toContain('它之前最近一个有记录的边界');
 	});
 
 	it('已确认异常带证据定位与覆盖缺口', async () => {

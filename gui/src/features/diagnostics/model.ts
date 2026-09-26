@@ -167,7 +167,9 @@ export function attributionLines(detail: DiagRunDetail): string[] {
 			: `${NOT_ATTRIBUTED_TEXT}：没有已确认异常的边界记录。`,
 	);
 	lines.push(
-		`它之前最近一个有记录的边界：${att.last_evidenced_label || '无（更早的边界连记录都没有）'}（有记录不等于已确认正常）`,
+		att.attributed
+			? `它之前最近一个有记录的边界：${att.last_evidenced_label || '无（更早的边界连记录都没有）'}（有记录不等于已确认正常）`
+			: `最近一个有记录的边界：${att.last_evidenced_label || DASH}（本轮没有已确认异常，这条只说明记录读到哪儿）`,
 	);
 	if (att.statement) lines.push(att.statement);
 	return lines;
