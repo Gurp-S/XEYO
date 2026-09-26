@@ -21,6 +21,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import threading
 from dataclasses import dataclass, field
@@ -163,6 +164,32 @@ def _index_path(workspace_id: str) -> Path:
 # ---------------------------------------------------------------------------
 # seq 分配
 # ---------------------------------------------------------------------------
+def _row_stat(path: Path) -> tuple[int, int]:
+    """(非空行数, 最后一行的 seq)；不存在/空返回 (0, 0)，坏行计入行数但 seq 记 0。
+
+    新鲜度判定用：journal 与索引都是同序追加的逐行 JSON，两者行数与尾号同时相等
+    才说明索引覆盖到 journal 尾。这里不解析除尾行以外的内容，成本与 ``_tail_seq``
+    的同一次全读相当。
+    """
+    if not path.is_file():
+        return 0, 0
+    count = 0
+    last: str | None = None
+    with _lock_for(path):
+        with path.open("r", encoding="utf-8", errors="ignore") as handle:
+            for line in handle:
+                if not line.strip():
+                    continue
+                count += 1
+                last = line
+    if last is None:
+        return 0, 0
+    try:
+        return count, int(json.loads(last).get("seq") or 0)
+    except (json.JSONDecodeError, TypeError, ValueError, AttributeError):
+        return count, 0
+
+
 def _tail_seq(path: Path) -> int:
     """基于最近一条的 seq +1；空/坏文件则 1。"""
     if not path.is_file() or path.stat().st_size == 0:
@@ -246,13 +273,20 @@ def _read_index(workspace_id: str) -> tuple[int, dict[str, list[dict[str, Any]]]
 
 
 def _journal_fresh(workspace_id: str, journal: Path) -> bool:
-    """索引是否覆盖到 journal 尾（watermark >= journal 最后 seq）。"""
-    if not _index_path(workspace_id).is_file():
+    """索引是否与 journal 逐行对齐（行数相同、尾 seq 相同），否则不许走索引。
+
+    两处都得比：
+    - 旧实现写成 ``watermark >= _tail_seq(journal)``，而 ``_tail_seq`` 返回的是
+      **下一条要分配** 的 seq（尾号+1）⇒ 索引永远追不上，``recent_changes`` 从写
+      入第一天起就没用过索引：整套索引只写不读。
+    - 只比尾号也不够：``gc`` 裁掉的是**旧**行，裁完 journal 的尾号不变，旧索引仍然
+      "盖得住"尾号，于是被删掉的变更会被当成真话——所以行数也必须相等。
+    """
+    j_count, j_seq = _row_stat(journal)
+    if j_count == 0:
         return False
-    watermark, _ = _read_index(workspace_id)
-    if watermark <= 0:
-        return False
-    return watermark >= _tail_seq(journal)
+    i_count, i_seq = _row_stat(_index_path(workspace_id))
+    return i_count == j_count and i_seq == j_seq
 
 
 def rebuild_index(workspace_id: str) -> int:
@@ -441,12 +475,30 @@ def gc(workspace_id: str, *, ttl_seconds: float = 7 * 24 * 3600) -> int:
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(tmp, path)
-    # 让索引与裁剪后的 journal 对齐
+    # 让索引与裁剪后的 journal 对齐。重建失败时绝不能留着旧索引：它比 journal 多出的
+    # 行正是刚被删掉的变更，留着就是"报出已经不存在的改动"。删掉索引 ⇒ 下一次读走
+    # 全量扫描（慢一点，但不错答）。
     try:
         rebuild_index(workspace_id)
-    except OSError:
-        pass
+    except OSError as exc:
+        _discard_stale_index(workspace_id, exc)
     return removed
+
+
+def _discard_stale_index(workspace_id: str, cause: OSError) -> None:
+    """索引重建失败后让它不可被当作新鲜；连删都删不掉时把事实记下来，不静默。"""
+    index = _index_path(workspace_id)
+    try:
+        index.unlink(missing_ok=True)
+    except OSError as exc:
+        logging.getLogger(__name__).warning(
+            "journal index rebuild failed for %s (%s) and the stale index %s could "
+            "not be removed (%s): it still lists entries the journal no longer has",
+            workspace_id,
+            cause,
+            index,
+            exc,
+        )
 
 
 def _now() -> float:

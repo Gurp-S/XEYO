@@ -122,6 +122,39 @@ def test_gc_prunes_and_rebuilds_index(isolated):
     assert wm == 2
 
 
+def test_recent_changes_uses_the_index_when_aligned(isolated, monkeypatch):
+    """对齐时必须真的走索引读——这条路径在修好新鲜度之前从未被执行过。"""
+    ws = "ws-uses"
+    j.record_change(ws, _rec(0, "a", "src/f.ts", 1.0))
+    j.record_change(ws, _rec(0, "a", "src/g.ts", 2.0))
+
+    seen: list[str] = []
+    real = j._read_index
+
+    def spy(wsid):
+        out = real(wsid)
+        seen.append(wsid)
+        return out
+
+    monkeypatch.setattr(j, "_read_index", spy)
+    assert j._journal_fresh(ws, Path(isolated) / f"{ws}.jsonl") is True
+    rows = j.recent_changes(ws, path_prefix="src/")
+    assert [r.path for r in rows] == ["src/f.ts", "src/g.ts"]
+    assert seen == [ws], seen
+
+
+def test_index_ahead_of_journal_is_not_fresh(isolated):
+    """索引比 journal 多行（GC 后没重建成功就是这个形）⇒ 判为不新鲜。"""
+    ws = "ws-ahead"
+    j.record_change(ws, _rec(0, "a", "one.ts", 1.0))
+    j.record_change(ws, _rec(0, "a", "two.ts", 2.0))
+    journal = Path(isolated) / f"{ws}.jsonl"
+    kept = journal.read_text(encoding="utf-8").splitlines()[-1]
+    journal.write_text(kept + "\n", encoding="utf-8")  # 只留最新一条，索引不动
+    assert j._journal_fresh(ws, journal) is False
+    assert [r.path for r in j.recent_changes(ws)] == ["two.ts"]
+
+
 def test_session_filter_in_tool_compat(isolated):
     """索引物化出的 ChangeRecord 保留 metadata，供工具做 session 过滤。"""
     ws = "ws-meta"
@@ -180,3 +213,51 @@ def test_repeated_gc_sweep_does_not_grow_files(isolated):
 
     names = sorted(p.name for p in isolated.glob("*.jsonl"))
     assert names == ["ws-a.index.jsonl", "ws-a.jsonl"], names
+
+
+# ---------------------------------------------------------------------------
+# 回归：GC 裁了 journal 却没重建索引 ⇒ 旧索引不能继续被当作"新鲜"
+# ---------------------------------------------------------------------------
+
+
+def test_gc_that_cannot_rebuild_index_does_not_serve_ghosts(isolated, monkeypatch):
+    """裁剪成功、重建失败 ⇒ 查询不得报出 journal 里已经没有的变更。
+
+    索引的 watermark 只跟 journal 的尾 seq 比，被裁掉的是**旧** seq，所以裁剪后
+    旧索引仍然"盖得住"尾号——不删掉它就会把幻影行读成真话。
+    """
+    ws = "ws-gc-fail"
+    now = j._now()
+    j.record_change(ws, _rec(0, "a", "old.ts", now - 100 * 3600))
+    j.record_change(ws, _rec(0, "a", "new.ts", now))
+
+    def boom(_wsid):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(j, "rebuild_index", boom)
+    assert j.gc(ws, ttl_seconds=24 * 3600) == 1
+
+    rows = j.recent_changes(ws)
+    assert [r.path for r in rows] == ["new.ts"], rows
+
+
+def test_gc_reports_when_the_stale_index_survives(isolated, monkeypatch, caplog):
+    """连删都删不掉时至少要留下事实，不许静默 pass。"""
+    ws = "ws-gc-stuck"
+    now = j._now()
+    j.record_change(ws, _rec(0, "a", "old.ts", now - 100 * 3600))
+    j.record_change(ws, _rec(0, "a", "new.ts", now))
+
+    monkeypatch.setattr(j, "rebuild_index", lambda _wsid: (_ for _ in ()).throw(OSError("ro")))
+    real_unlink = Path.unlink
+
+    def stuck(self, *a, **k):
+        if self.name.endswith(".index.jsonl"):
+            raise OSError("locked by another handle")
+        return real_unlink(self, *a, **k)
+
+    monkeypatch.setattr(Path, "unlink", stuck)
+    with caplog.at_level("WARNING"):
+        j.gc(ws, ttl_seconds=24 * 3600)
+    monkeypatch.setattr(Path, "unlink", real_unlink)
+    assert "index" in caplog.text.lower(), caplog.text
