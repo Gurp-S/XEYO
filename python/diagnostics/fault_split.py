@@ -32,6 +32,12 @@ from diagnostics.rules import (
 	turn_scoped,
 	_turn_projection_ids,
 )
+from msgtypes.notice_markers import (
+	is_notice_message,
+	is_synthetic_user_text,
+	matches_notice_text,
+	resume_user_cue,
+)
 
 # 责任方
 ENGINE = "engine"
@@ -105,6 +111,7 @@ _SHOWN_TEXT = {
 
 _OBLIGATION_SOURCE_TEXT = {
 	"turn_user_message": "在场的用户原话",
+	"resume_user_cue": "续跑契约里的用户追加语",
 	"pin": "事后钉上的预期",
 }
 
@@ -291,6 +298,7 @@ def _last_user_obligation(run: RunEvidence) -> dict[str, Any]:
 	upper = _turn_last_ts(run)
 	found: dict[str, Any] = {}
 	oldest_seen: float | None = None
+	notices_skipped = 0
 	try:
 		from diagnostics.loss_chain import _iter_transcript, _resolve_body
 
@@ -308,9 +316,16 @@ def _last_user_obligation(run: RunEvidence) -> dict[str, Any]:
 			body = _resolve_body(row)
 			if not body.strip():
 				continue
+			cue = resume_user_cue(body) if is_synthetic_user_text(body) else ""
+			if is_notice_message(row) or matches_notice_text(body) or (is_synthetic_user_text(body) and not cue):
+				# 通报声道落的 role=user、以及没有人的追加语的合成人话轮：不是人的话。
+				# 拿它们当"在场的约束"，后面每一步（送达、动作核对、自述比对）都在拿引擎
+				# 自己写的话审模型 —— 真实数据里这类行占 role=user 的 5.8%（47/811）。
+				notices_skipped += 1
+				continue
 			found = {
-				"text": body.strip()[:500],
-				"source": "turn_user_message",
+				"text": (cue or body).strip()[:500],
+				"source": "resume_user_cue" if cue else "turn_user_message",
 				"locator": _s(row.get("_path")),
 				"ref_id": _s(row.get("id")),
 				"created_at": row.get("ts"),
@@ -331,6 +346,19 @@ def _last_user_obligation(run: RunEvidence) -> dict[str, Any]:
 			"created_at": None,
 			"state": "outside_scan",
 			"ts_bound": True,
+		}
+	if notices_skipped:
+		# 扫到的"用户条目"全是引擎写的：报「这轮没提要求」是假话 —— 那是把"没有人的话"
+		# 说成"人没说话"。如实报状态，并把跳过的条数带出去。
+		return {
+			"text": "",
+			"source": "",
+			"locator": "",
+			"ref_id": "",
+			"created_at": None,
+			"state": "notice_only",
+			"notice_count": notices_skipped,
+			"ts_bound": upper is not None,
 		}
 	return {"text": "", "source": "", "locator": "", "ref_id": "", "created_at": None, "state": ""}
 
@@ -972,6 +1000,11 @@ def attribute_fault(run: RunEvidence, findings: list[Finding]) -> dict[str, Any]
 			missing.append(
 				f"{scope_word(run)}的用户原话在 transcript 扫描窗（最近 {_OBLIGATION_SCAN_ROWS} 行）之外：没有约束正文可比对，"
 				"不能据此说这轮没提要求"
+			)
+		elif _s(obligation.get("in_turn_scan")) == "notice_only":
+			missing.append(
+				f"{obligation.get('notice_count', 0)} 条「用户条目」是引擎写的（通报 / 后台完成通知 / 续跑指令），不是人打的话："
+				f"{scope_word(run)}没有可比对的用户原话，但这不等于{scope_word(run)}没提要求"
 			)
 		else:
 			missing.append("没有声明的预期：用「标记这轮结果不对」写下预期结果，才能判模型侧")

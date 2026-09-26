@@ -485,3 +485,42 @@ def test_vanishing_state_is_retracted_from_the_projection(monkeypatch):
 	monkeypatch.setattr("prompt.pre_llm_inject.compact_block", lambda: state)
 	back = one_round(visible=frozenset(store.note_fingerprints()))
 	assert "输出压缩：开" in str(back)
+
+
+def test_synthetic_user_prefixes_match_their_producers():
+	"""前缀清单必须与生产者字面量同步：漂了就会把人话当注入、或把注入当人话。
+
+	``SYNTHETIC_USER_PREFIXES`` 靠措辞认引擎写的 role=user 行（这些行不带 note_key，
+	来源信息留在了请求头上）。生产者一旦改文案，清单会静默失灵 ⇒ 这里逐个回读源文件。
+	"""
+	from pathlib import Path as _P
+
+	from msgtypes.notice_markers import SYNTHETIC_USER_PREFIXES
+
+	sources = {"[Background jobs]": "server/job_registry.py", "[Resume]": "engine/scheduler.py"}
+	assert set(sources) == set(SYNTHETIC_USER_PREFIXES), "清单与核对表不一致：加前缀就得同时加核对点"
+	root = _P(__file__).resolve().parents[1]
+	for prefix, rel in sources.items():
+		text = (root / rel).read_text(encoding="utf-8", errors="replace")
+		assert f'"{prefix}' in text, f"{rel} 里已搜不到 {prefix} 的字面量：生产者改了措辞，清单要跟着改"
+
+
+def test_resume_user_cue_takes_only_the_human_line():
+	"""续跑文本里只有 ``User cue:`` 那一行属于人；后面还接引擎段落。"""
+	from msgtypes.notice_markers import is_synthetic_user_text, resume_user_cue
+
+	blob = "\n".join(
+		[
+			"[Resume] The user asked to continue an interrupted turn.",
+			"Original goal:",
+			"实施2,3",
+			"User cue: 继续",
+			"Incomplete todos:",
+			"- [in_progress] 阶段一",
+		]
+	)
+	assert is_synthetic_user_text(blob)
+	assert resume_user_cue(blob) == "继续"
+	assert resume_user_cue("把登录页改掉") == ""
+	assert resume_user_cue("[Background jobs] 没有人的追加语") == ""
+	assert is_synthetic_user_text(None) is False

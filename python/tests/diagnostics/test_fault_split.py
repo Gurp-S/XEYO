@@ -471,6 +471,105 @@ def test_missing_exit_code_is_not_treated_as_zero() -> None:
 # ---------- 纪律 ----------
 
 
+def test_synthetic_notice_rows_are_not_the_users_words(monkeypatch) -> None:
+	"""约束识别不许把引擎写的 role=user 当成「在场的用户原话」。
+
+	真实数据：811 条 role=user 里 47 条（5.8%）是引擎写的 —— 16 条通报声道（note_key /
+	``<system-reminder>`` 包封）+ 31 条合成人话轮（``[Background jobs]`` / ``[Resume]``）。
+	那句 job 完成通知的原文甚至自称 "This is a completion notification, not a new task."。
+	"""
+	from diagnostics.fault_split import _last_user_obligation
+
+	job_row = (
+		"[Background jobs] The following background jobs finished. Read their output with job_output, "
+		"then continue or wrap up. This is a completion notification, not a new task."
+	)
+	_write_transcript("s1", [
+		{"id": "m1", "role": "user", "ts": 1.0, "content": "把登录页改掉"},
+		{"id": "m2", "role": "assistant", "ts": 2.0, "content": "好"},
+		{"id": "m3", "role": "user", "ts": 3.0, "content": job_row},
+	])
+	run = _run(turn_id="", events=[_ev(2.0, "model.finished")])
+	out = _last_user_obligation(run)
+	assert out["text"] == "把登录页改掉", "取到的是人的那句，不是引擎那条"
+	assert out["source"] == "turn_user_message"
+
+	# 只剩注入行时：如实报"没有人的话可比对"，绝不退化成「这轮没提要求」
+	_write_transcript("s1", [
+		{"id": "m1", "role": "user", "ts": 1.0, "content": job_row},
+		{"id": "m2", "role": "assistant", "ts": 2.0, "content": "好"},
+	])
+	out2 = _last_user_obligation(_run(turn_id=""))
+	assert out2["text"] == ""
+	assert out2["state"] == "notice_only"
+	assert out2["notice_count"] == 1
+
+	# 通报声道落的行（note_key）同样不算人的话
+	_write_transcript("s1", [
+		{"id": "m1", "role": "user", "ts": 1.0, "content": "改完必须跑 pytest"},
+		{
+			"id": "m2",
+			"role": "user",
+			"ts": 2.0,
+			"note_key": "world_state",
+			"content": '<system-reminder key="world_state">\n[引擎实测] 本机状态\n</system-reminder>',
+		},
+	])
+	out3 = _last_user_obligation(_run(turn_id=""))
+	assert out3["text"] == "改完必须跑 pytest"
+
+
+def test_resume_contract_yields_only_the_human_cue(monkeypatch) -> None:
+	"""``[Resume]`` 那类合成人话里只有 ``User cue:`` 那一段属于人。
+
+	整段 416 字符的引擎模板（含 ``Prefer resuming incomplete todos`` 这种导演句）曾被
+	整条当成用户约束；而 cue 之后还会接 ``Incomplete todos:`` 等引擎段落 ⇒ 只取一行。
+	"""
+	from diagnostics.fault_split import _last_user_obligation, attribute_fault, obligation_source_label
+
+	blob = (
+		"[Resume] The user asked to continue an interrupted turn.\n"
+		"Prefer resuming incomplete todos/tools over re-planning from scratch.\n"
+		"Original goal:\n实施2,3\nUser cue: 继续\nIncomplete todos:\n- [in_progress] 阶段一"
+	)
+	_write_transcript("s1", [{"id": "m1", "role": "user", "ts": 1.0, "content": blob}])
+	run = _run(turn_id="")
+	out = _last_user_obligation(run)
+	assert out["text"] == "继续"
+	assert out["source"] == "resume_user_cue"
+	assert obligation_source_label(out["source"]) == "续跑契约里的用户追加语"
+	verdict = attribute_fault(run, [])
+	assert any("续跑契约里的用户追加语" in s["fact"] for s in verdict["chain"]), "因果链也要说清来源"
+	assert "Prefer resuming" not in verdict["obligation"]["excerpt"]
+
+
+def test_every_obligation_source_has_a_chinese_label() -> None:
+	"""来源枚举加了名字就必须同时加中文说法，否则机器名会原样投给读者。
+
+	``fault_split``:94 的注释本身就警告过这件事，而 ``obligation_source_label`` 对未登记的
+	来源是"返回原字符串"—— 静默漏过去，界面上就成了 ``resume_user_cue``。
+	"""
+	import re as _re
+	from pathlib import Path
+
+	from diagnostics.fault_split import _OBLIGATION_SOURCE_TEXT, obligation_source_label
+
+	src = (Path(__file__).resolve().parents[2] / "diagnostics" / "fault_split.py").read_text(encoding="utf-8")
+	emitted = set(_re.findall(r"\"source\": \"([a-z_]+)\"", src)) - {
+		"audit",
+		"transcript",
+		"working",
+		"capture",
+		"job",
+		"usage",
+		"config",
+	}
+	assert emitted, "扫描口径失效：一条来源字面量都没读到，这条门就是空的"
+	for source in sorted(emitted):
+		assert source in _OBLIGATION_SOURCE_TEXT, f"约束来源 {source} 没有中文说法"
+		assert not _re.search(r"[a-z]+_[a-z]+", obligation_source_label(source)), f"{source} 的中文说法里混了机器名"
+
+
 def test_verdict_always_states_what_it_does_not_claim() -> None:
 	verdict = attribute_fault(_run(), [])
 	assert verdict["not_claimed"]

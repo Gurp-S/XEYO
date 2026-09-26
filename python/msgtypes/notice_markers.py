@@ -83,6 +83,38 @@ def _flatten_content(content: object) -> str:
 	return ""
 
 
+#: 引擎自己写进 ``role=user`` 的合成人话前缀。通报声道有 ``note_key`` / 包封留痕，
+#: 这几条没有 —— 写它们的人把来源留在了请求头（``X-Xeyo-Surface``，见
+#: server/synthetic_round.py），落到 transcript 行里只剩措辞。判据只能按前缀，
+#: 且必须与生产者字面量同步（回归门：tests/test_notice_channel.py 里逐条核对生产者）。
+#: 生产者：server/job_registry.py::_build_digest（"[Background jobs]"）、
+#: engine/scheduler.py 与 engine/subagent_runner.py（"[Resume]" 续跑契约）。
+SYNTHETIC_USER_PREFIXES: tuple[str, ...] = ("[Background jobs]", "[Resume]")
+
+#: 续跑契约里唯一属于人的那一段（GUI 侧 api.ts 认的是同一条规则）。
+RESUME_USER_CUE_MARKER = "User cue:"
+
+
+def is_synthetic_user_text(text: object) -> bool:
+	"""这段"用户消息"是引擎合成的轮次（job-wake / 续跑），不是人打的话。"""
+	s = text if isinstance(text, str) else ""
+	return s.lstrip().startswith(SYNTHETIC_USER_PREFIXES)
+
+
+def resume_user_cue(text: object) -> str:
+	"""续跑文本里真正属于人的那一段；没有则空串。
+
+	只取到行尾：实测这些行后面还会接 ``Incomplete todos:`` 等引擎段落，
+	多抓一行就是把引擎正文当成人话 —— 宁可少抓。
+	"""
+	s = text if isinstance(text, str) else ""
+	i = s.find(RESUME_USER_CUE_MARKER)
+	if i < 0:
+		return ""
+	rest = s[i + len(RESUME_USER_CUE_MARKER) :]
+	return rest.splitlines()[0].strip() if rest.strip() else ""
+
+
 def is_notice_message(msg: object) -> bool:
 	"""这条"用户消息"其实是引擎注入的通报？（说话人归属的唯一判据）
 
@@ -114,9 +146,13 @@ __all__ = [
 	"NOTICE_ENVELOPE_OPEN",
 	"NOTICE_KEY_ATTR",
 	"OPEN_TAG_RE",
+	"RESUME_USER_CUE_MARKER",
+	"SYNTHETIC_USER_PREFIXES",
 	"is_notice_message",
 	"is_notice_text",
+	"is_synthetic_user_text",
 	"matches_notice_text",
 	"notice_key_of",
 	"notice_open_tag",
+	"resume_user_cue",
 ]
