@@ -11,6 +11,8 @@ from diagnostics import causes as _causes
 from diagnostics.causes import (
 	ACCEPT_MISSING,
 	CONSTRAINT_FOLDED,
+	PROVIDER_FAILURE,
+	SHAPE_REJECTED,
 	SELF_REPORT_MISMATCH,
 	ACTION_SKIPPED,
 	CONTEXT_DROPPED,
@@ -209,6 +211,28 @@ def test_self_reported_without_a_verifier_still_lacks_acceptance(monkeypatch) ->
 	assert verdict["task_outcome"] == "self_reported_unverified"
 	assert ACCEPT_MISSING in codes, "换了结局取值就不能顺手丢掉那条原因"
 	assert SELF_REPORT_MISMATCH not in codes
+
+
+def test_fallback_4xx_gets_its_own_cause_not_the_provider_one() -> None:
+	"""被拒后降级重打要与 429/5xx 分成两个码：同一条规则下的两种形状，归属不同。"""
+	verdict = attribute_fault(_run(), [
+		_finding(
+			"provider_stream_failure",
+			"model_request",
+			detail="model.finished status=protocol_fallback error_code=HTTP_400 attempt=1",
+		)
+	])
+	codes = _codes(verdict)
+	assert SHAPE_REJECTED in codes
+	assert PROVIDER_FAILURE not in codes
+	item = next(c for c in verdict["causes"] if c["code"] == SHAPE_REJECTED)
+	assert item["party"] == "undetermined"
+	# 同一轮里既有 429 又有回退时，两个码要各留各的证据，不得合并成一条。
+	both = attribute_fault(_run(), [
+		_finding("provider_stream_failure", "model_request", detail="llm.failure status=429 attempt=1"),
+		_finding("provider_stream_failure", "model_request", detail="model.finished status=protocol_fallback attempt=2"),
+	])
+	assert PROVIDER_FAILURE in _codes(both) and SHAPE_REJECTED in _codes(both)
 
 
 def test_folded_out_gets_its_own_cause_and_a_different_next_step(monkeypatch) -> None:

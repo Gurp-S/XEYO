@@ -8,10 +8,19 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from diagnostics.collect import RunEvidence
 from diagnostics.identity import CONFIRMED_FAULT, SUSPECTED_CAUSE, UNKNOWN, Finding, _s
+
+#: 规则的证据正文里带着它所依据的 status；回退形状要从厂商失败里分出来。
+_FALLBACK_DETAIL_RX = re.compile(r"status=protocol_fallback")
+
+
+def is_shape_rejection(finding: Finding) -> bool:
+	"""该结论是否是"我方提交的形状被拒、引擎换通道重打"（看证据里的 status，不看措辞）。"""
+	return any(_FALLBACK_DETAIL_RX.search(_s(e.detail)) for e in finding.evidence)
 
 # 原因码：稳定主键，标签只是展示。
 CONTEXT_DROPPED = "context_dropped_constraint"
@@ -22,6 +31,7 @@ COLD_REF_UNREADABLE = "cold_reference_unreadable"
 PERMISSION_BLOCKED = "permission_blocked_action"
 TOOL_ERROR = "tool_execution_error"
 PROVIDER_FAILURE = "provider_or_transport_failure"
+SHAPE_REJECTED = "request_shape_rejected"
 REPEATED_ERROR = "repeated_tool_error"
 ACTION_SKIPPED = "required_action_skipped"
 SELF_REPORT_MISMATCH = "self_report_vs_verifier"
@@ -45,6 +55,7 @@ CAUSE_LABEL: dict[str, str] = {
 	PERMISSION_BLOCKED: "被要求的动作由权限执行层挡下",
 	TOOL_ERROR: "工具执行返回错误",
 	PROVIDER_FAILURE: "模型请求在厂商/传输/解析边界失败",
+	SHAPE_REJECTED: "我方提交的请求形状被拒，引擎换通道重打（至少多一次请求）",
 	REPEATED_ERROR: "同一签名的错误重复出现",
 	ACTION_SKIPPED: "被要求的动作没做，却自述完成",
 	SELF_REPORT_MISMATCH: "自述与验收记录不符",
@@ -81,6 +92,11 @@ _PROVES: dict[str, tuple[str, str]] = {
 		"INTERNAL）才带得出这个区分",
 	),
 	PROVIDER_FAILURE: ("这一枪没拿到正常响应", "不能据此评价提示词好坏（429 尤其）"),
+	SHAPE_REJECTED: (
+		"这一枪带着我方提交的形状被 4xx 拒过，引擎换了另一条注入通道重打",
+		"不能区分厂商不支持该通道与我方结构有错——引擎这条回退判据本身被证明会误判"
+		"（engine/query_loop.py::_is_tool_pairing_400 记的事故），也不能证明重打后成功",
+	),
 	REPEATED_ERROR: ("同一错误签名反复出现", "不能断言死循环，也不能断言参数完全相同"),
 	ACTION_SKIPPED: ("要求已送达、没被执行、没被挡，还自述完成", "不能证明模型「理解」了要求，只比对了字面"),
 	SELF_REPORT_MISMATCH: ("模型说的话与验收记录不一致", "不能证明回答里其他陈述为假"),
@@ -113,6 +129,8 @@ _CAUSE_PARTY: dict[str, str] = {
 	# 这一栏以前根本不在表里，是 _entry 的 .get 默认值把它兜成 undetermined 的。
 	TOOL_ERROR: "undetermined",
 	PROVIDER_FAILURE: "environment",
+	# 被拒的是我方提交的形状，理由不可见；把它算给外部世界与算给我方同样是凭空定责。
+	SHAPE_REJECTED: "undetermined",
 	REPEATED_ERROR: "undetermined",
 	ACTION_SKIPPED: "model",
 	SELF_REPORT_MISMATCH: "model",
@@ -191,6 +209,17 @@ def derive(
 		]
 		if not matched:
 			continue
+		if code == PROVIDER_FAILURE:
+			# 同一条规则覆盖两种形状，归属不同：429/5xx/网络是外部世界的事实，
+			# 而 status=protocol_fallback 说的是"我方提交的形状被 4xx 拒过、引擎
+			# 换通道重打"——被拒的东西是我们构造的，厂商为什么拒不可见。
+			fallback = [f for f in matched if is_shape_rejection(f)]
+			plain = [f for f in matched if not is_shape_rejection(f)]
+			if plain:
+				out.append(_entry(PROVIDER_FAILURE, [e.to_dict() for f in plain for e in f.evidence]))
+			if fallback:
+				out.append(_entry(SHAPE_REJECTED, [e.to_dict() for f in fallback for e in f.evidence]))
+			continue
 		out.append(_entry(code, [e.to_dict() for f in matched for e in f.evidence]))
 	for kind, refs in sorted(tool_error_kinds.items()):
 		entry = _entry(TOOL_ERROR, refs)
@@ -245,9 +274,11 @@ __all__ = [
 	"NOT_DETERMINED",
 	"PERMISSION_BLOCKED",
 	"PROVIDER_FAILURE",
+	"SHAPE_REJECTED",
 	"SELF_REPORT_MISMATCH",
 	"TOOL_ERROR",
 	"derive",
+	"is_shape_rejection",
 	"primary",
 	"statement",
 ]

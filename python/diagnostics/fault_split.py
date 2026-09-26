@@ -190,18 +190,25 @@ def _engine_findings(findings: list[Finding]) -> list[Finding]:
 	return out
 
 
-def _environment_findings(findings: list[Finding]) -> list[Finding]:
+def _environment_findings(findings: list[Finding]) -> tuple[list[Finding], list[Finding]]:
+	"""外部世界的事实，与"我方形状被拒后引擎降级重打"，要分开放。
+
+	后者被拒的是我方构造的请求体，厂商为什么拒不可见；引擎那条回退判据本身还被
+	证明会误判（engine/query_loop.py::_is_tool_pairing_400 记的事故），所以它没有
+	资格被算成外部世界的错，但也不能就此从因果链里消失。
+	"""
 	out: list[Finding] = []
+	shaped: list[Finding] = []
 	for f in findings:
 		if f.status != CONFIRMED_FAULT:
 			continue
-		if f.rule_id == "provider_stream_failure":
-			out.append(f)
+		if f.rule_id in _ENVIRONMENT_RULES:
+			(shaped if _causes.is_shape_rejection(f) else out).append(f)
 		elif f.rule_id == "tool_failure" and any(
 			_tool_error_party(e.detail) == ENVIRONMENT for e in f.evidence
 		):
 			out.append(f)
-	return out
+	return out, shaped
 
 
 def _task_outcome(run: RunEvidence) -> tuple[str, list[EvidenceRef], str]:
@@ -676,7 +683,7 @@ def attribute_fault(run: RunEvidence, findings: list[Finding]) -> dict[str, Any]
 	# 本轮没有一条属于自己的记录：不指责任何一方，也不得把会话级 leftovers 当证据。
 	own_tools = turn_scoped(run.tool_calls, run.turn_id)
 	engine = _engine_findings(findings)
-	environment = _environment_findings(findings)
+	environment, shape_rejected = _environment_findings(findings)
 	transport, transport_suspect = _transport_findings(findings)
 	outcome, outcome_refs, outcome_note = _task_outcome(run)
 
@@ -712,6 +719,13 @@ def attribute_fault(run: RunEvidence, findings: list[Finding]) -> dict[str, Any]
 		_step(f.boundary, f.phenomenon, ENGINE, f.evidence)
 	for f in environment:
 		_step(f.boundary, f.phenomenon, ENVIRONMENT, f.evidence)
+	for f in shape_rejected:
+		_step(
+			f.boundary,
+			f.phenomenon + "；被拒的是我方提交的形状，降级重打至少多一次请求，厂商为什么拒不可见",
+			UNDETERMINED,
+			f.evidence,
+		)
 	for kind, items in sorted(tool_parties.items()):
 		for f in items[:1]:
 			_step(f.boundary, f.phenomenon, kind if kind != UNDETERMINED else UNDETERMINED, f.evidence)

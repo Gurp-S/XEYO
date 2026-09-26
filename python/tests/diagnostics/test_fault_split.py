@@ -76,6 +76,42 @@ def test_engine_error_kind_inside_tool_failure_is_engine() -> None:
 	assert verdict["responsibility"] == ENGINE
 
 
+def test_4xx_our_engine_fell_back_on_is_not_environment() -> None:
+	"""引擎换通道重打的那次 4xx：被拒的是我方提交的形状，理由不可见 ⇒ 不判给外部世界。
+
+	engine/query_loop.py 自己在 `_is_tool_pairing_400` 的注释里记着事故：无主 tool 结果
+	造成的 400 曾被声道回退判据读成"厂商不接受声道"，"白打一次模型、并把失败记成
+	protocol_fallback（误导归因）"。判据被证明会误判时，诊断层没资格替厂商定罪。
+	"""
+	run = _run()
+	verdict = attribute_fault(
+		run,
+		[_finding(
+			"provider_stream_failure",
+			"model_request",
+			detail="model.finished status=protocol_fallback error_code=HTTP_400 attempt=1",
+		)],
+	)
+	assert verdict["responsibility"] != ENVIRONMENT
+	assert verdict["environment_confirmed"] == 0
+	assert any("降级" in s["fact"] and s["party"] == UNDETERMINED for s in verdict["chain"])
+
+
+def test_rate_limited_request_stays_an_environment_fact() -> None:
+	"""429 仍是外部世界的事实：拆这一刀不得把整条厂商通路都吸进"未定"。"""
+	run = _run()
+	verdict = attribute_fault(
+		run,
+		[_finding(
+			"provider_stream_failure",
+			"model_request",
+			detail="llm.failure status=429 error_code=rate_limit attempt=1",
+		)],
+	)
+	assert verdict["responsibility"] == ENVIRONMENT
+	assert verdict["environment_confirmed"] == 1
+
+
 def test_aborted_error_kind_is_not_blamed_on_the_model() -> None:
 	"""ABORTED 由插件钩子 should_abort / 引擎"用户停止"分支写下，两者都不是模型侧。
 
