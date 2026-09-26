@@ -1176,3 +1176,19 @@ def test_no_spill_rows_means_no_new_gap(write_audit) -> None:
 	path = write_audit(_model_rows("r1", 1))
 	run = collect_run(_SESSION, _TURN, audit_path=path)
 	assert not [g for g in run.gaps if g.boundary == "wsc_fold" and g.reason == "unattributed_rows"]
+
+
+def test_missing_transcript_is_recorded_as_lost_artifact(collect) -> None:
+	"""转录文件不在 = 产物缺失（source_absent），不是"没开采集"（not_captured）。
+
+	not_captured 在界面上显示「未采集」，等于暗示有人把开关关过；真实数据 2026-09-26
+	普查里有 45 个跑过的会话根本没有 sessions/<sid>.jsonl —— 那是取证产物丢了。
+	"""
+	run = collect([{"ts": 1.0, "kind": "model.started", "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", "attempt": 1}])
+	gaps = [g for g in run.gaps if g.boundary == "file_verifier"]
+	reasons = {g.reason for g in gaps}
+	assert "source_absent" in reasons, gaps
+	assert "not_captured" not in reasons, gaps
+	gap = next(g for g in gaps if g.reason == "source_absent")
+	assert gap.scope == "session"
+	assert "产物缺失" in gap.detail

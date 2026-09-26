@@ -68,11 +68,16 @@ BOUNDARIES: tuple[tuple[str, str], ...] = (
 # 反向证据（真·随轮变化，刻意不折叠）：file_verifier/field_missing PARTIAL=3、
 # instruction_context/not_comparable PARTIAL=4 —— 同一会话内有的轮有、有的轮没有，是本轮事实。
 # 频率低不代表会随轮变，PARTIAL>0 才代表会；这两条是"按判据而非按频率筛"的活样本。
+#
+# 2026-09-26 更正一条标签：transcript 文件不存在原记作 file_verifier/not_captured
+# （界面显示「未采集」，暗示有人关了开关），实际语义是产物缺失 → 改记 source_absent。
+# 该对 (边界, 原因) 仍属会话级：判定只看 sessions/<sid>.jsonl 在不在，是会话的属性而非轮次的，
+# PARTIAL==0 由构造成立（ emitter 换成按轮判断时这条要重新测）。
 SESSION_CONSTANT_GAPS: frozenset[tuple[str, str]] = frozenset(
 	{
 		("adapter", "not_captured"),
 		("adapter", "source_absent"),
-		("file_verifier", "not_captured"),
+		("file_verifier", "source_absent"),
 		("file_verifier", "not_recorded"),
 		("file_verifier", "out_of_window"),
 		("wsc_fold", "no_records"),
@@ -907,7 +912,13 @@ def _collect_transcript(run: RunEvidence, session_id: str, wanted_tool_ids: set[
 				note=f"{path} 不存在：无 transcript 文件，非尾窗截断",
 			)
 		)
-		run.add_gap("file_verifier", "not_captured", "transcript 不存在，结果正文不可回读")
+		run.add_gap(
+			"file_verifier",
+			"source_absent",
+			# 一个跑过的会话本该有转录；文件不在是**产物缺失**，不是"没开采集"。
+			# 叫 not_captured 会把丢了的东西说成关掉的开关（界面据此显示「未采集」）。
+			"transcript 文件不存在：结果正文不可回读（产物缺失，非未开启采集）",
+		)
 		return
 	scan = _scan_jsonl_tail(path, _AUDIT_TAIL_BYTES * 2)
 	window = _window_from_scan("transcript", str(path), scan, max_bytes=_AUDIT_TAIL_BYTES * 2)

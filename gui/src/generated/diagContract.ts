@@ -42,7 +42,6 @@ export const DIAG_GAP_REASONS: ReadonlyArray<DiagContractGapReason> = [
 	{boundary: 'adapter', reason: 'out_of_window'},
 	{boundary: 'adapter', reason: 'source_absent'},
 	{boundary: 'file_verifier', reason: 'field_missing'},
-	{boundary: 'file_verifier', reason: 'not_captured'},
 	{boundary: 'file_verifier', reason: 'not_recorded'},
 	{boundary: 'file_verifier', reason: 'out_of_window'},
 	{boundary: 'file_verifier', reason: 'source_absent'},
@@ -66,9 +65,9 @@ export const DIAG_GAP_REASONS: ReadonlyArray<DiagContractGapReason> = [
 export const DIAG_SESSION_CONSTANT_GAPS: ReadonlyArray<DiagContractGapReason> = [
 	{boundary: 'adapter', reason: 'not_captured'},
 	{boundary: 'adapter', reason: 'source_absent'},
-	{boundary: 'file_verifier', reason: 'not_captured'},
 	{boundary: 'file_verifier', reason: 'not_recorded'},
 	{boundary: 'file_verifier', reason: 'out_of_window'},
+	{boundary: 'file_verifier', reason: 'source_absent'},
 	{boundary: 'instruction_context', reason: 'no_records'},
 	{boundary: 'instruction_context', reason: 'out_of_window'},
 	{boundary: 'instruction_context', reason: 'recovered_outside_window'},
