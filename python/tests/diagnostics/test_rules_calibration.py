@@ -1,4 +1,4 @@
-"""真实数据普查确认到的误归因与作用域缺陷的回归集。
+"""真实数据普查确认到的误归因与作用域缺陷的回归集（19 条）。
 
 对应 2026-09-25 对十条真实回合的普查（设计文档第 6 节的不对称判据）：
 
@@ -92,6 +92,15 @@
     ``INTERNAL``），而审计又不带参数 ⇒ 那一组里真正相同的只有工具名。把"读不出"写成
     ``error_kind=未记录`` 仍是在造一个不存在的取值。现在分两句话：有分类位才说
     "同一错误签名"，没有就说"错误分类未记录：这一组只按工具名归"。
+19. **范围词不跟范围走**：报告端点接受空 ``turn_id``（``post_report``），那时每条规则读的都是
+    整个会话的行，而规则与归因块里有二十多处句子写死「本轮」—— 把会话级的行数说成一轮，
+    与 ``tool_routing`` 当年为同一件事改口的理由一模一样，但只有它自己改了。
+    现在 ``rules.scope_word(run)`` 是正本，两侧都从它取词，并钉两道双向门：
+    会话级不许出现「本轮」，同一批事实按轮问诊时必须重新出现（否则门是空转的）。
+    反面教材两条，都在这轮现场踩到：① 占位符被换成 ``scope_word(run)`` 却漏了花括号，
+    f-string 于是把函数名当字面文本印出去 —— 套件全绿，只有把裁决 dump 出来才看得见；
+    ② 约束正文由 ``_last_user_obligation`` 自己开转录文件取（与采集器的窗口无关），
+    所以那条门必须写真实转录文件，只填 ``run.transcript_rows`` 会一句范围词都扫不到。
 """
 
 from __future__ import annotations
@@ -315,7 +324,7 @@ def test_session_scoped_cold_reference_is_not_this_turns_fault() -> None:
 	findings = rules.check_cold_references(run)
 	assert not [f for f in findings if f.status == CONFIRMED_FAULT], "会话级 leftovers 不是本轮证据"
 	assert findings and all(f.status == UNKNOWN for f in findings)
-	assert "不带本轮身份" in findings[0].phenomenon
+	assert "可归属的轮次身份" in findings[0].phenomenon
 
 
 def test_run_scoped_cold_reference_is_still_a_confirmed_fault() -> None:

@@ -456,6 +456,58 @@ def _ev_with(ts: float, kind: str, **row) -> object:
 	return normalize_event(0, 1, {"ts": ts, "kind": kind, "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", **row})
 
 
+def test_session_scope_attribution_prose_follows_the_scope() -> None:
+	"""会话级归因不许说「本轮」；按轮问诊时，同一批句子要说「本轮」。
+
+	这些句子来自义务识别、送达判定与动作核对三条通路。报告端点接受空 turn_id，
+	那时每条规则读的都是整个会话的行 —— 把会话级范围说成"本轮"就是替读者把范围缩窄了。
+	"""
+
+	def verdict_for(turn_id: str) -> dict:
+		# 约束正文由 _last_user_obligation 从转录文件里取（与采集层的窗口无关），
+		# 所以这条门要写真文件，不能只填 run.transcript_rows —— 那样它永远不会走到
+		# 带「本轮」的那些句子上，门就成了空转。
+		_write_transcript(
+			"s1",
+			[
+				{"id": "m1", "role": "user", "ts": 0.5, "content": "改完必须跑 pytest 再说完成"},
+				{"id": "m2", "role": "assistant", "ts": 2.0, "content": "已完成，测试通过"},
+			],
+		)
+		run = _run(
+			turn_id=turn_id,
+			events=[
+				_ev_with(1.0, "model.started", projection_id="pA_used"),
+				_ev_with(1.2, "model.finished", projection_id="pA_used", status="ok"),
+			],
+			projections=[{"projection_id": "pB_retained", "created_at": 99.0, "locator": "w.json"}],
+			transcript_rows=[
+				{"id": "m1", "role": "user", "ts": 0.5, "content": "改完必须跑 pytest", "line_no": 1, "locator": "s1.jsonl", "in_run": True},
+				{"id": "m2", "role": "assistant", "ts": 2.0, "content": "已完成，测试通过", "line_no": 2, "locator": "s1.jsonl", "in_run": True},
+			],
+		)
+		return attribute_fault(run, [])
+
+	def tripped(turn_id: str) -> list[str]:
+		node = verdict_for(turn_id)
+
+		def walk(value, path="fault"):
+			if isinstance(value, str):
+				if "本轮" in value or "这一轮" in value:
+					yield path
+			elif isinstance(value, dict):
+				for k, v in value.items():
+					yield from walk(v, f"{path}.{k}")
+			elif isinstance(value, (list, tuple)):
+				for i, v in enumerate(value):
+					yield from walk(v, f"{path}[{i}]")
+
+		return sorted(set(walk(node)))
+
+	assert tripped("t1"), "轮次范围下没有任何句子说「本轮」——样本没跑到那些分支，这条门是空的"
+	assert tripped("") == [], f"会话级归因里仍有「本轮」：{tripped('')}"
+
+
 def test_unprovable_note_names_both_projections() -> None:
 	""""证不出来"必须说清是哪块证据不在场：本轮用哪个投影、留存的是哪个。
 

@@ -159,6 +159,16 @@ def no_turn_records(run: RunEvidence) -> bool:
 	return bool(run.turn_id) and collection_attempted(run) and not turn_has_records(run)
 
 
+def scope_word(run: RunEvidence) -> str:
+	"""运行范围的中文说法：会话级报告（``turn_id=""``）不许说「本轮」。
+
+	`/report` 端点接受空 turn_id（server/routers/diagnostics.py::post_report），那时每条规则
+	读的都是整个会话的行 —— 说「本轮」就是把会话级的行数算给一轮。check_tool_routing 的措辞
+	注释早就为这一条改过口，但只改了它自己那一处。
+	"""
+	return "本轮" if _s(run.turn_id) else "本会话"
+
+
 def source_locator(run: RunEvidence, source: str) -> str:
 	"""按来源名取窗口定位符；取不到就返回空串，绝不拿别的来源凑数。"""
 	window = run.window(source)
@@ -228,7 +238,7 @@ def check_tool_pair_integrity(run: RunEvidence) -> list[Finding]:
 				evidence=refs,
 				impact="该形状会被厂商直接拒（400），后续每条消息都可能带着同一个坏形状重发。",
 				coverage_gap="manifest 只保存最后一份；本运行更早的投影只能靠审计里的 projection_id 关联。",
-				allowed_conclusion="可确认某个边界上配对被破坏；不足以解释本轮任务失败的全部原因。",
+				allowed_conclusion=f"可确认某个边界上配对被破坏；不足以解释{scope_word(run)}任务失败的全部原因。",
 			)
 		)
 
@@ -247,7 +257,7 @@ def check_tool_pair_integrity(run: RunEvidence) -> list[Finding]:
 			Finding(
 				rule_id="tool_pair_integrity",
 				rule_version=RULESET_VERSION,
-				phenomenon="持久化的工作记忆里存着没有配对结果的 tool_use（查的是完整历史，不是这一枪发出去的投影）",
+				phenomenon="持久化的工作记忆里存着没有配对结果的 tool_use（查的是完整历史，不是发出去的那份投影）",
 				boundary="wsc_fold",
 				component="上下文组装（projection manifest 的 canonical 检查）",
 				status=UNKNOWN,
@@ -265,7 +275,7 @@ def check_tool_pair_integrity(run: RunEvidence) -> list[Finding]:
 					"manifest 只保留最后一份，且旗标本身说不上成因 —— 中止收尾没写结果、"
 					"还是折叠单独丢掉了结果，都要另找证据。"
 				),
-				allowed_conclusion="只能说工作记忆里有不成对的 tool_use；不能据此判定本轮请求形状坏了。",
+				allowed_conclusion="只能说工作记忆里有不成对的 tool_use；不能据此判定请求形状坏了。",
 			)
 		)
 
@@ -278,7 +288,7 @@ def check_tool_pair_integrity(run: RunEvidence) -> list[Finding]:
 			Finding(
 				rule_id="tool_pair_integrity",
 				rule_version=RULESET_VERSION,
-				phenomenon=f"{len(orphaned)} 个工具调用有开始记录、无结束记录，且本轮记录里该行之后没有别的行可参照",
+				phenomenon=f"{len(orphaned)} 个工具调用有开始记录、无结束记录，且{scope_word(run)}记录里该行之后没有别的行可参照",
 				boundary="tool_permission",
 				component="工具分发",
 				status=UNKNOWN,
@@ -464,7 +474,7 @@ def check_cold_references(run: RunEvidence) -> list[Finding]:
 			Finding(
 				rule_id="cold_reference",
 				rule_version=RULESET_VERSION,
-				phenomenon=f"本会话窗口里有 {len(foreign)} 处不可回读的冷层引用，但都不带本轮身份",
+				phenomenon=f"本会话窗口里有 {len(foreign)} 处不可回读的冷层引用，但都没有可归属的轮次身份",
 				boundary="wsc_fold",
 				component="可恢复性（transcript blob / 输出预算 spill）",
 				status=UNKNOWN,
@@ -477,9 +487,9 @@ def check_cold_references(run: RunEvidence) -> list[Finding]:
 					)
 					for row in foreign[:10]
 				],
-				impact="这些引用属于同会话的别处：既不能记到本轮，也不能据此说本轮干净。",
+				impact="这些引用锚不到这次运行里的任何一次工具调用：既归不到具体轮次，也不能据此说查过没问题。",
 				coverage_gap="transcript 行不带轮次身份，采集器只按本运行的 tool_use_id 锚定；锚不上的行无法归轮。",
-				allowed_conclusion="只能说本轮没有可归属的冷引用，不能说本轮的恢复性没问题。",
+				allowed_conclusion="只能说这些引用无法归属到这次运行的某一次工具调用；不得据此判定它的恢复性没问题。",
 			)
 		)
 	if expired_handles:
@@ -497,7 +507,7 @@ def check_cold_references(run: RunEvidence) -> list[Finding]:
 				# 在这里是同一个观察结果。保留期是设计，不是恢复性故障。
 				status=UNKNOWN,
 				evidence=expired_handles,
-				impact="这一枪之后原文不再可回读：跨保留期的取证只能靠 transcript 里的预览段。",
+				impact="句柄到期后原文不再可回读：跨保留期的取证只能靠 transcript 里的预览段。",
 				coverage_gap=(
 					"删除按文件 mtime、这里按审计行的落盘时刻估，两者差一次保存延迟；"
 					"到期只说明句柄该被例行清理，不证明它一定没被别的机制提前删掉。"
@@ -540,7 +550,7 @@ def check_cold_references(run: RunEvidence) -> list[Finding]:
 						"旗标只说这份投影里有这样的声明，不说是哪一处；要定位需要该次投影的正文，"
 						"而 manifest 只保留最后一份。"
 					),
-					allowed_conclusion="可疑：这一轮确实有截断声明拿不到回读句柄；不能据此判定是哪个工具的输出。",
+					allowed_conclusion=f"可疑：{scope_word(run)}确实有截断声明拿不到回读句柄；不能据此判定是哪个工具的输出。",
 				)
 			)
 		elif "spill_reference_mismatch" in errors:
@@ -551,7 +561,7 @@ def check_cold_references(run: RunEvidence) -> list[Finding]:
 				Finding(
 					rule_id="cold_reference",
 					rule_version=RULESET_VERSION,
-					phenomenon="这份投影带的是改版前的 spill 旗标（按字面量计数比较），本轮读不出回读性",
+					phenomenon=f"这份投影带的是改版前的 spill 旗标（按字面量计数比较），{scope_word(run)}读不出回读性",
 					boundary="wsc_fold",
 					component="输出预算 / 折叠",
 					status=UNKNOWN,
@@ -563,7 +573,7 @@ def check_cold_references(run: RunEvidence) -> list[Finding]:
 							detail="spill_reference_mismatch（旧判据留下）",
 						)
 					],
-					impact="这条不构成本轮的任何结论：判据已改成按标记作用域配对（engine/projection_manifest.py）。",
+					impact=f"这条不构成{scope_word(run)}的任何结论：判据已改成按标记作用域配对（engine/projection_manifest.py）。",
 					coverage_gap="manifest 只保留最后一份，而这份是改版前写的；下一次投影重建后才会带新旗标。",
 					allowed_conclusion="只能说这份投影带的是改版前的旗标，不能据此判定折叠或输出预算出了故障。",
 				)
@@ -723,7 +733,7 @@ def check_provider_stream(run: RunEvidence) -> list[Finding]:
 				# 最后一次尝试停在 retry 且没有后续记录：结果未知，不是已确认失败。
 				verdict = UNKNOWN
 				phen = f"模型尝试以 status=retry 结束且没有后续尝试记录（attempt={attempt_no}）"
-				gap = "重试的下一枪若没落审计行，本轮就看不到最终结果。"
+				gap = f"重试的下一枪若没落审计行，{scope_word(run)}就看不到最终结果。"
 				allowed = "只能说这一枪停在重试状态、后续未落记录；不能据此判定请求失败。"
 			elif status == "protocol_fallback":
 				verdict = CONFIRMED_FAULT
@@ -813,7 +823,7 @@ def check_permission_block(run: RunEvidence) -> list[Finding]:
 					evidence=[
 						EvidenceRef(source="audit", locator=_loc(run), ref_id=f"L{_s(pending[0].get('line_no'))}", detail="permission.pending")
 					],
-					impact="本轮可能停在等待用户，而不是卡死。",
+					impact=f"{scope_word(run)}可能停在等待用户，而不是卡死。",
 					coverage_gap="pending 存储是纯内存进程状态，服务重启后无法判断当时是否仍在等待。",
 					allowed_conclusion="等待与中断两种可能都未被排除。",
 				)

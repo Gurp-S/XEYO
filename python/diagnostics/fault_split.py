@@ -27,6 +27,7 @@ from diagnostics.rules import (
 	permission_outcome,
 	permission_outcome_unrecorded,
 	row_belongs_to_run,
+	scope_word,
 	source_locator,
 	turn_scoped,
 	_turn_projection_ids,
@@ -101,7 +102,7 @@ _SHOWN_TEXT = {
 }
 
 _OBLIGATION_SOURCE_TEXT = {
-	"turn_user_message": "本轮用户原话",
+	"turn_user_message": "在场的用户原话",
 	"pin": "事后钉上的预期",
 }
 
@@ -397,16 +398,16 @@ def _unprovable_note(run: RunEvidence) -> str:
 	used = sorted(_turn_projection_ids(run))
 	retained = sorted({_s(p.get("projection_id")) for p in run.projections if _s(p.get("projection_id"))})
 	if used and retained:
-		which = f"本轮的审计行带着投影 {'、'.join(p[:12] for p in used[:3])}，working 留存的是 {retained[-1][:12]}"
+		which = f"{scope_word(run)}的审计行带着投影 {'、'.join(p[:12] for p in used[:3])}，working 留存的是 {retained[-1][:12]}"
 	elif used:
-		which = f"本轮的审计行带着投影 {'、'.join(p[:12] for p in used[:3])}，working 里没有留存的投影正文"
+		which = f"{scope_word(run)}的审计行带着投影 {'、'.join(p[:12] for p in used[:3])}，working 里没有留存的投影正文"
 	elif retained:
-		which = "本轮审计行没带投影标识，无从确认它用的是哪一份投影"
+		which = f"{scope_word(run)}审计行没带投影标识，无从确认它用的是哪一份投影"
 	else:
-		which = "本轮既没有投影标识也没有留存的投影正文"
+		which = f"{scope_word(run)}既没有投影标识也没有留存的投影正文"
 	return (
 		f"working 只留整会话最后一份发射投影（{which}，可能出自更晚的一轮）："
-		"既不能据此说约束送到了，也不能据此说本轮把它弄丢了"
+		"既不能据此说约束送到了，也不能据此说它把约束弄丢了"
 	)
 
 
@@ -551,7 +552,7 @@ def _required_action_unmet(run: RunEvidence, obligation_text: str) -> dict[str, 
 	joined = " ".join(seen_cmds).lower()
 	done = [m for m in markers if m in joined]
 	if done:
-		return {"state": "action_present", "evidence": [], "note": f"本轮已见动作标记：{', '.join(done)}"}
+		return {"state": "action_present", "evidence": [], "note": f"{scope_word(run)}已见动作标记：{', '.join(done)}"}
 	if blocked:
 		return {
 			"state": "blocked_by_permission",
@@ -582,7 +583,7 @@ def _required_action_unmet(run: RunEvidence, obligation_text: str) -> dict[str, 
 			"note": "权限行没有落审批结果：分不清是放行了还是根本没记录，不能据此判动作没做",
 		}
 	if not own_tools and not seen_cmds:
-		return {"state": "no_tool_records", "evidence": [], "note": "本轮没有任何工具记录：分不清是没调用还是没采集"}
+		return {"state": "no_tool_records", "evidence": [], "note": f"{scope_word(run)}没有任何工具记录：分不清是没调用还是没采集"}
 	if not seen_cmds:
 		# 命令正文没落账就不许下"没跑"的结论：真实审计里 tool.* 行不带 command /
 		# command_summary（入参摘要只写在 permission.* 行上，见待批 #36），
@@ -598,7 +599,7 @@ def _required_action_unmet(run: RunEvidence, obligation_text: str) -> dict[str, 
 				)
 				for t in own_tools[:3]
 			],
-			"note": f"本轮 {len(own_tools)} 次工具调用没有落下命令正文：分不清是没跑还是没记",
+			"note": f"{scope_word(run)} {len(own_tools)} 次工具调用没有落下命令正文：分不清是没跑还是没记",
 		}
 	claims = [w for w in _CLAIM_WORDS if w in _assistant_text(run)]
 	if not claims:
@@ -613,7 +614,7 @@ def _required_action_unmet(run: RunEvidence, obligation_text: str) -> dict[str, 
 				detail=f"要求动作标记：{', '.join(markers[:3])}",
 			)
 		],
-		"note": f"约束要求 {', '.join(markers[:3])}，本轮 {len(own_tools)} 次工具调用里没有一项含该标记，且未被权限挡住",
+		"note": f"约束要求 {', '.join(markers[:3])}，{scope_word(run)} {len(own_tools)} 次工具调用里没有一项含该标记，且未被权限挡住",
 	}
 
 
@@ -758,7 +759,7 @@ def attribute_fault(run: RunEvidence, findings: list[Finding]) -> dict[str, Any]
 		_step(
 			"tool_permission",
 			f"要求动作 {'、'.join(sorted({m for m in _ACTION_MARKERS if m in requirement_text.lower() or m in requirement_text}))}，"
-			f"本轮 {len(own_tools)} 次工具调用里没有一项对应，且未被权限挡住；回答仍自述完成"
+			f"{scope_word(run)} {len(own_tools)} 次工具调用里没有一项对应，且未被权限挡住；回答仍自述完成"
 			+ ("" if delivered else "；该要求是否送达无法证明，不指责任何一方"),
 			MODEL if delivered else UNDETERMINED,
 			unmet["evidence"],
@@ -775,7 +776,7 @@ def attribute_fault(run: RunEvidence, findings: list[Finding]) -> dict[str, Any]
 	elif unmet["state"] == "commands_unrecorded":
 		_step(
 			"tool_permission",
-			"本轮工具调用没有落下命令正文：被要求的动作做没做无从核对",
+			f"{scope_word(run)}工具调用没有落下命令正文：被要求的动作做没做无从核对",
 			UNDETERMINED,
 			unmet["evidence"],
 		)
@@ -874,9 +875,9 @@ def attribute_fault(run: RunEvidence, findings: list[Finding]) -> dict[str, Any]
 		elif shown["state"] == "shown":
 			if outcome == OUTCOME_FAIL:
 				why = (
-					"约束确实送到了模型，验收也失败了，但本轮没有可归到模型行为上的矛盾"
+					f"约束确实送到了模型，验收也失败了，但{scope_word(run)}没有可归到模型行为上的矛盾"
 					"（既没抓到「自述完成 vs 验收不符」，也没抓到「要求的动作没做」）："
-					"本轮之前的红测会呈现完全一样的形状，所以只能报任务结局，不指责任何一方。"
+					f"{scope_word(run)}之前的红测会呈现完全一样的形状，所以只能报任务结局，不指责任何一方。"
 				)
 			else:
 				why = (
@@ -896,13 +897,13 @@ def attribute_fault(run: RunEvidence, findings: list[Finding]) -> dict[str, Any]
 	if shown["state"] == "no_obligation":
 		if _s(obligation.get("in_turn_scan")) == "outside_scan":
 			missing.append(
-				f"本轮的用户原话在 transcript 扫描窗（最近 {_OBLIGATION_SCAN_ROWS} 行）之外：没有约束正文可比对，"
+				f"{scope_word(run)}的用户原话在 transcript 扫描窗（最近 {_OBLIGATION_SCAN_ROWS} 行）之外：没有约束正文可比对，"
 				"不能据此说这轮没提要求"
 			)
 		else:
 			missing.append("没有声明的预期：用「标记这轮结果不对」写下预期结果，才能判模型侧")
 	if obligation.get("text") and not obligation.get("ts_bound"):
-		missing.append("本轮没有带时间戳的记录：无法界定这条用户原话属不属于本轮")
+		missing.append(f"{scope_word(run)}没有带时间戳的记录：无法界定这条用户原话属不属于这一范围")
 	if unmet["state"] == "permission_outcome_unrecorded" or silent_permissions:
 		missing.append(
 			f"{len(silent_permissions)} 条权限结束行未记录 approved / outcome / permission_action："
@@ -911,7 +912,7 @@ def attribute_fault(run: RunEvidence, findings: list[Finding]) -> dict[str, Any]
 	if shown["state"] == "unprovable":
 		if not _emitted_projection_in_turn(run):
 			missing.append(
-				"working 只留整会话最后一份发射投影，且它不属于本轮：要判本轮送没送到，"
+				"working 只留整会话最后一份发射投影，且它不属于这次运行：要判约束送没送到，"
 				"需要开 capture 按轮留住适配器最终请求体"
 			)
 		else:
@@ -928,7 +929,7 @@ def attribute_fault(run: RunEvidence, findings: list[Finding]) -> dict[str, Any]
 		missing.append("没有 verifier 记录：任务是否完成无法判定")
 	if outcome == OUTCOME_FAIL and contradiction is False:
 		missing.append(
-			"只有「验收失败」这一条：需要本轮的自述或动作证据，否则红测可能先于本轮存在"
+			f"只有「验收失败」这一条：需要{scope_word(run)}的自述或动作证据，否则红测可能先于{scope_word(run)}存在"
 		)
 	if not run.captures:
 		missing.append("缺适配器最终请求体：投影之后的变换不可见")

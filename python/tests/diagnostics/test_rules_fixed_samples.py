@@ -275,6 +275,71 @@ def test_policy_deny_without_ask_is_visible_and_blames_nobody(collect) -> None:
 	assert attribute_fault(run, claims)["responsibility"] != ENGINE
 
 
+def test_session_scope_findings_never_say_this_turn(collect) -> None:
+	"""会话级运行（turn_id 为空）的措辞不许说「本轮」。
+
+	报告端点接受空 turn_id（server/routers/diagnostics.py::post_report），那时每条规则
+	读的都是整个会话的行；把会话级的行数说成"本轮"就是把范围算给一轮。
+	这条不是文案洁癖：同一份事实有两个范围，句子必须跟着范围走。
+	"""
+	rows = [
+		{"ts": 1.0, "kind": "model.started", "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", "attempt": 1},
+		{"ts": 1.1, "kind": "model.finished", "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", "attempt": 1, "status": "ok"},
+		{"ts": 1.2, "kind": "tool.started", "session_id": "s1", "turn_id": "t1", "request_id": "c9", "tool_name": "Bash", "model_request_id": "r1"},
+		{"ts": 1.3, "kind": "permission.pending", "session_id": "s1", "turn_id": "t1", "request_id": "a1", "tool_name": "Bash"},
+	]
+	for i in range(3):
+		rows.append({"ts": 2.0 + i, "kind": "tool.started", "session_id": "s1", "turn_id": "t1", "request_id": f"c{i}", "tool_name": "Read", "model_request_id": "r1"})
+		rows.append({"ts": 2.5 + i, "kind": "tool.finished", "session_id": "s1", "turn_id": "t1", "request_id": f"c{i}", "tool_name": "Read", "is_error": True, "error_kind": "INTERNAL", "model_request_id": "r1"})
+	session_run = collect(rows, turn_id="")
+	turn_run = collect(rows)
+	claims = evaluate_run(session_run)
+	rule_ids = {f.rule_id for f in claims}
+	assert len(rule_ids) >= 3, f"样本没跑出足够多的规则，这条门会空转：{sorted(rule_ids)}"
+	bad = [
+		f"{f.rule_id}:{field}"
+		for f in claims
+		for field in ("phenomenon", "impact", "coverage_gap", "allowed_conclusion")
+		if "本轮" in getattr(f, field) or "这一轮" in getattr(f, field)
+	]
+	assert not bad, f"会话级运行里说了「本轮」的结论字段：{bad}"
+	# 同一批行按轮次问诊时，范围词要回到「本轮」——否则说明它根本没跟着范围变
+	back = [f for f in evaluate_run(turn_run) if any("本轮" in getattr(f, name) for name in ("phenomenon", "impact"))]
+	assert back, "换成轮次范围后没有任何句子回到「本轮」，范围词没在跟着范围变"
+
+
+def test_session_scope_attribution_prose_never_says_this_turn(collect) -> None:
+	"""同一句话的检验做在归因块上：责任划分、因果步骤、缺证据清单都不许说「本轮」。
+
+	归因块是这份报告里被读得最多的散文，规则字段之外的句子同样要说得出范围。
+	"""
+	rows = [
+		{"ts": 1.0, "kind": "model.started", "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", "attempt": 1},
+		{"ts": 1.1, "kind": "model.finished", "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", "attempt": 1, "status": "ok"},
+		{"ts": 1.2, "kind": "tool.started", "session_id": "s1", "turn_id": "t1", "request_id": "c9", "tool_name": "Bash", "model_request_id": "r1"},
+		{"ts": 1.3, "kind": "permission.pending", "session_id": "s1", "turn_id": "t1", "request_id": "a1", "tool_name": "Bash"},
+	]
+	for i in range(3):
+		rows.append({"ts": 2.0 + i, "kind": "tool.started", "session_id": "s1", "turn_id": "t1", "request_id": f"c{i}", "tool_name": "Read", "model_request_id": "r1"})
+		rows.append({"ts": 2.5 + i, "kind": "tool.finished", "session_id": "s1", "turn_id": "t1", "request_id": f"c{i}", "tool_name": "Read", "is_error": True, "error_kind": "INTERNAL", "model_request_id": "r1"})
+	session_run = collect(rows, turn_id="")
+	verdict = attribute_fault(session_run, evaluate_run(session_run))
+
+	def strings(node, path="fault"):
+		if isinstance(node, str):
+			yield path, node
+		elif isinstance(node, dict):
+			for k, v in node.items():
+				yield from strings(v, f"{path}.{k}")
+		elif isinstance(node, (list, tuple)):
+			for i, v in enumerate(node):
+				yield from strings(v, f"{path}[{i}]")
+
+	tripped = sorted({p for p, text in strings(verdict) if "本轮" in text or "这一轮" in text})
+	assert verdict["chain"] or verdict["missing_evidence"] or verdict["causes"], "归因块是空的，这条门在空转"
+	assert not tripped, f"会话级归因里说了「本轮」的位置：{tripped[:8]}"
+
+
 def test_deny_with_pending_sibling_stays_on_the_ask_path(collect) -> None:
 	"""有 pending 的 DENY 仍走原来的配对通路，不得被新分支重复报一条。"""
 	run = collect(
@@ -354,7 +419,7 @@ def test_canonical_layer_hole_is_reported_but_not_blamed(collect) -> None:
 	f = next(x for x in findings if x.rule_id == "tool_pair_integrity")
 	assert f.status == UNKNOWN and f.boundary == "wsc_fold"
 	assert f.evidence[0].detail == "canonical_unpaired_tool_calls:2"
-	assert "不能据此判定本轮请求形状坏了" in f.allowed_conclusion
+	assert "不能据此判定请求形状坏了" in f.allowed_conclusion
 
 
 def test_canonical_layer_hole_from_other_turn_is_silent(collect) -> None:
