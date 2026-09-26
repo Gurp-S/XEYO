@@ -301,9 +301,10 @@ def _last_user_obligation(run: RunEvidence) -> dict[str, Any]:
 	oldest_seen: float | None = None
 	notices_skipped = 0
 	try:
-		from diagnostics.loss_chain import _iter_transcript, _resolve_body
+		from diagnostics.loss_chain import _resolve_body, _transcript_window
 
-		for row in reversed(list(_iter_transcript(run.session_id, _OBLIGATION_SCAN_ROWS))):
+		rows, _scanned, _total = _transcript_window(run.session_id, _OBLIGATION_SCAN_ROWS)
+		for row in reversed(rows):
 			row_ts = _f(row.get("ts"))
 			if row_ts is not None and (oldest_seen is None or row_ts < oldest_seen):
 				oldest_seen = row_ts

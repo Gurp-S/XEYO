@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 from diagnostics.collect import RunEvidence
 from diagnostics.identity import _f, _s
@@ -101,27 +101,33 @@ def _hit(needle: str, text: str) -> bool:
 	return any(nd and nd in hay for nd in needle_forms for hay in haystack_forms)
 
 
-def _iter_transcript(session_id: str, cap: int) -> Iterator[dict[str, Any]]:
+def _transcript_window(session_id: str, cap: int) -> tuple[list[dict[str, Any]], int, int]:
+	"""返回 (窗口内解析出的行, 扫过的行数, 文件总行数)。
+
+	总行数必须一起带出来：窗外还有多少行，决定"这一级没查到"能不能被说成
+	"源历史里没有这条事实"。不报总数，定位链就会拿最后 400 行给更早的枪脱罪。
+	"""
 	try:
 		from session.persistence import transcript_path
 	except Exception:  # noqa: BLE001
-		return
+		return [], 0, 0
 	path = transcript_path(session_id)
 	if not path.is_file():
-		return
+		return [], 0, 0
 	with path.open("r", encoding="utf-8", errors="replace") as handle:
-		lines = handle.readlines()
-	for line in lines[-cap:]:
-		line = line.strip()
-		if not line:
-			continue
+		lines = [line.strip() for line in handle.readlines()]
+	lines = [line for line in lines if line]
+	window = lines[-cap:] if cap else lines
+	rows: list[dict[str, Any]] = []
+	for line in window:
 		try:
 			row = json.loads(line)
 		except ValueError:
 			continue
 		if isinstance(row, dict):
 			row["_path"] = str(path)
-			yield row
+			rows.append(row)
+	return rows, len(window), len(lines)
 
 
 def _resolve_body(row: dict[str, Any]) -> str:
@@ -161,9 +167,10 @@ def _stage_source_history(run: RunEvidence, needle: str, cap: int) -> dict[str, 
 			evidence=[],
 			note="该会话没有 transcript 文件：无从判断这条事实是否在源历史里，不得报「不存在」",
 		)
+	rows, scanned, total = _transcript_window(run.session_id, cap)
 	hits: list[dict[str, Any]] = []
 	unreadable = 0
-	for row in _iter_transcript(run.session_id, cap):
+	for row in rows:
 		body = _resolve_body(row)
 		if not body and row.get("content_ref"):
 			unreadable += 1
@@ -191,7 +198,20 @@ def _stage_source_history(run: RunEvidence, needle: str, cap: int) -> dict[str, 
 			evidence=[{"source": "transcript", "locator": "", "ref_id": "", "detail": f"{unreadable} 条 blob 读不回"}],
 			note="正文读不回来，不能说这条事实不在源历史里",
 		)
-	return _stage("source_history", ABSENT, evidence=[], note=f"最近 {cap} 行 transcript 内未命中")
+	if total > scanned:
+		# 窗覆盖不到整份转录：这一级的"没查到"是"没读到"，不是"不存在"。
+		# 真实数据实测（28 个 >=4 轮会话、137 枪）：只扫最后 400 行时 28 枪（20%）的
+		# 用户原话落在窗外，被这条结论判成"源历史里就查不到，不是这次压缩丢的"。
+		return _stage(
+			"source_history",
+			NOT_CAPTURED,
+			evidence=[],
+			note=(
+				f"扫描窗只有最近 {scanned} 行，窗外还有 {total - scanned} 行没读到："
+				"这一级说不出「源历史里没有这条事实」"
+			),
+		)
+	return _stage("source_history", ABSENT, evidence=[], note=f"整份 transcript {total} 行内未命中")
 
 
 def _structured_state_text(session_id: str) -> tuple[str, str]:
@@ -477,12 +497,16 @@ def _stage_cold_handle(run: RunEvidence, needle: str) -> dict[str, Any]:
 	)
 
 
-def trace_fact(run: RunEvidence, needle: str, *, transcript_cap: int = 400) -> dict[str, Any]:
+def trace_fact(run: RunEvidence, needle: str, *, transcript_cap: int = 2000) -> dict[str, Any]:
 	"""跑一遍定位链。
 
-	判读规则：源历史就没有 ⇒ 不是这次压缩丢的；发射级仍在 ⇒ 一路都在（中间级可以
-	合理跳过，正文类事实本就不会进结构化状态）；否则取「最后一次可见」之后的第一个
+	判读规则：整份源历史扫过且没有 ⇒ 不是这次压缩丢的；发射级仍在 ⇒ 一路都在（中间级
+	可以合理跳过，正文类事实本就不会进结构化状态）；否则取「最后一次可见」之后的第一个
 	缺失级，且要求中间没有没记账的级别，不然只能报无法归因。
+
+	两条"落空"结论各带一个前提：发射级要落得下"丢在发射之前"，必须先知道这份留存投影
+	属于被问的那个范围（``_emitted_projection_in_turn``），且这条事实确实进过源历史 ——
+	扫描窗没盖住整份转录时，"没查到"只是"没读到"。
 	"""
 	needle_text = _s(needle)
 	if not needle_text:
@@ -503,6 +527,9 @@ def trace_fact(run: RunEvidence, needle: str, *, transcript_cap: int = 400) -> d
 	# 已经存在），落空不是 —— 归属核不上时，"不在这一份里"既可能是被某一级丢了，也可能
 	# 这一份本来就早于它。责任划分那边同一条裁定（fault_split::_shown_to_model）。
 	emitted_bound = _emitted_projection_in_turn(run)
+	# "丢在某一级之前"这句话有两个前提，缺一个就只能停在无法归因：这份投影属于被问的那个范围，
+	# 以及这条事实确实进过源历史。第二个前提在窗外没读到 / 正文读不回时不成立。
+	source_seen = state_at.get("source_history") == FOUND
 
 	def _hole_note(names: list[str]) -> str:
 		return "、".join(_STAGE_LABEL.get(n, n) for n in names)
@@ -518,13 +545,13 @@ def trace_fact(run: RunEvidence, needle: str, *, transcript_cap: int = 400) -> d
 			"该事实在发射级仍然可查（中间级可以合理跳过，跳过不构成丢失）。"
 			"它仍在热层时任务失败，只能排除「这条被直接删掉」，不能排除压缩通过信息顺序或噪声影响模型。"
 		)
-	elif state_at.get("emitted") == FOLDED_OUT and emitted_bound:
+	elif state_at.get("emitted") == FOLDED_OUT and emitted_bound and source_seen:
 		verdict = "folded_out_of_projection"
 		statement = (
 			"该事实在源历史里查得到，但落在 compact_cursor 之前的折叠区间内：是折叠把它移出投影的。"
 			"折叠本身可以是对的，需要复核的是这条是否该被保留。"
 		)
-	elif state_at.get("emitted") == ABSENT and emitted_bound:
+	elif state_at.get("emitted") == ABSENT and emitted_bound and source_seen:
 		verdict = "lost_before:emitted"
 		statement = (
 			"该事实在源历史里查得到、在最后发射的投影里查不到。"
@@ -533,16 +560,23 @@ def trace_fact(run: RunEvidence, needle: str, *, transcript_cap: int = 400) -> d
 	else:
 		verdict = "unknown"
 		last_visible = [ _STAGE_LABEL[s["stage"]] for s in stages if s["state"] == FOUND ]
-		if state_at.get("emitted") in {ABSENT, FOLDED_OUT}:
+		if state_at.get("emitted") in {ABSENT, FOLDED_OUT} and not emitted_bound:
 			# 有可比对的投影，只是核不出它属不属于这个范围：这句话不能说成"没丢"也不能说成"丢了"
 			statement = (
 				"发射级只留存整会话最后一份投影，且无从核对它属不属于这个范围："
 				"该事实不在这一份里，既不能定位到哪一级丢的，也不能排除这份投影本来就早于它。"
 			)
+		elif state_at.get("emitted") in {ABSENT, FOLDED_OUT}:
+			# 投影归属核得上，但"它在源历史里"这件事没被证实（窗外没读到 / 正文读不回）：
+			# 少了这个前提，"丢在发射之前"和"源历史里查得到"都是凭空补的。
+			statement = (
+				"发射级里没有这段事实，但源历史级也给不出可比对的记录（见该级说明）："
+				"既不能断定它进过历史，也就不能断定它是在哪一级丢的。"
+			)
 		else:
 			statement = (
-				f"最后可见于 {'、'.join(last_visible) if last_visible else '无任何一级'}，"
-				f"发射级本身没有可用记录（{_hole_note(unprovable)}）：无法归因。"
+				f"最后可见于 {'、'.join(last_visible) if last_visible else '无任何一级'}；"
+				f"{_hole_note(unprovable)} 没有可比对的记录：无法归因。"
 			)
 	return {
 		"needle": needle_text,

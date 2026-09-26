@@ -152,6 +152,9 @@ def test_folded_out_is_distinguished_from_never_emitted(tmp_path, monkeypatch) -
 
 def test_after_cursor_hit_is_still_never_emitted(tmp_path, monkeypatch) -> None:
 	constraint = "部署前先跑迁移"
+	# 「丢在发射之前」的前提是这条事实确实进过源历史：这里得写真转录，
+	# 只往 run.transcript_rows 塞视图是不够的（源历史级读的是文件）。
+	_transcript("s1", [{"id": "m9", "role": "user", "ts": 0.9, "content": constraint}])
 	run = _attributable(_run(tmp_path))
 	run.transcript_rows = [{"id": "m9", "role": "user", "line_no": 9, "content": constraint, "locator": "s1.jsonl"}]
 	run.working["compact_cursor"] = 5
@@ -159,7 +162,62 @@ def test_after_cursor_hit_is_still_never_emitted(tmp_path, monkeypatch) -> None:
 	doc = trace_fact(run, constraint)
 	stage = next(s for s in doc["stages"] if s["stage"] == "emitted")
 	assert stage["state"] == "absent"
+	assert _states(doc)["source_history"] == FOUND
 	assert doc["verdict"] == "lost_before:emitted"
+
+
+def test_missing_source_history_level_blocks_the_loss_verdict(tmp_path, monkeypatch) -> None:
+	"""没有转录可查时，"投影里没有"不能升级成"丢在发射之前"。
+
+	发射级的落空只说明这一份里没有；"它本来在源历史里"是另一半前提，源历史级没记账时
+	这一半拿不出来 —— 那句话是替引擎把话说满。
+	"""
+	constraint = "部署前先跑迁移"
+	run = _attributable(_run(tmp_path))
+	run.working["compact_cursor"] = 5
+	_stub_last_sent(monkeypatch, json.dumps([{"content": "无关"}], ensure_ascii=False))
+	doc = trace_fact(run, constraint)
+	states = _states(doc)
+	assert states["source_history"] == NOT_CAPTURED
+	assert states["emitted"] == ABSENT
+	assert doc["verdict"] == "unknown"
+	assert "不能断定它进过历史" in doc["statement"]
+	assert "源历史里查得到" not in doc["statement"]
+
+
+def test_outside_window_fact_is_not_reported_as_absent_from_history(tmp_path) -> None:
+	"""扫描窗外的事实不得被判成「源历史里查不到」：没读到不等于不存在。
+
+	真实数据实测（28 个 >=4 轮会话、137 枪）：只扫最后 400 行时 28 枪（20%）的用户原话
+	落在窗外，被这条结论判成"不是这次压缩丢的"。抬到整份可读的窗口之后，窗外仍要如实说。
+	"""
+	constraint = "部署前先跑迁移"
+	rows = [{"id": "m1", "role": "user", "ts": 0.1, "content": constraint}]
+	rows += [{"id": f"m{i}", "role": "assistant", "ts": 0.2, "content": "无关内容"} for i in range(2, 12)]
+	_transcript("s1", rows)
+	_working("s1", {"session_id": "s1", "last_x_sent": json.dumps([{"content": "无关"}], ensure_ascii=False)})
+	run = _attributable(_run(tmp_path))
+
+	narrow = trace_fact(run, constraint, transcript_cap=5)
+	assert _states(narrow)["source_history"] == NOT_CAPTURED
+	assert narrow["verdict"] == "unknown"
+	assert "窗外还有 6 行没读到" in narrow["stages"][0]["note"]
+	assert "不是这次压缩丢的" not in narrow["statement"]
+	# 投影归属核得上，缺的是另一半前提：这条事实到底进没进过源历史
+	assert "不能断定它进过历史" in narrow["statement"]
+
+	wide = trace_fact(run, constraint, transcript_cap=2000)
+	assert _states(wide)["source_history"] == FOUND
+
+
+def test_whole_transcript_scanned_and_missing_is_a_real_negative(tmp_path) -> None:
+	"""整份转录扫过仍没有 ⇒ "不是这次压缩丢的"照旧能说：诚实的脱罪不能被门一起关掉。"""
+	constraint = "部署前先跑迁移"
+	_transcript("s1", [{"id": "m1", "role": "user", "ts": 0.1, "content": "换个别的话题"}])
+	doc = trace_fact(_run(tmp_path), constraint, transcript_cap=2000)
+	assert _states(doc)["source_history"] == ABSENT
+	assert doc["verdict"] == "not_in_source_history"
+	assert "整份 transcript 1 行内未命中" in doc["stages"][0]["note"]
 
 
 def _stub_last_sent(monkeypatch, sent: str) -> None:
