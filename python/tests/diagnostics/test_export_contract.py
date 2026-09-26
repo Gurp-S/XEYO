@@ -27,6 +27,7 @@ UNMET_VOCABULARY = {
 	"action_missing",
 	"blocked_by_permission",
 	"permission_outcome_unrecorded",
+	"commands_unrecorded",
 	"found",
 	"absent",
 }

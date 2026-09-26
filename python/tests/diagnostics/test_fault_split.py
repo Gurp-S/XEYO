@@ -126,6 +126,46 @@ def test_model_fault_requires_constraint_shown(monkeypatch) -> None:
 	assert "self_report" in verdict
 
 
+def test_unrecorded_commands_cannot_prove_the_action_was_skipped(monkeypatch) -> None:
+	"""工具行的命令正文没落账：分不清"没跑测试"还是"没记命令"，不能判模型的错。
+
+	真实审计里 tool.* 行不带 command / command_summary（入参摘要只写在 permission.*
+	行上），所以"本轮 N 次调用里没有一项含 pytest"这件事永远没有依据。
+	"""
+	constraint = "改完必须跑 pytest 再说完成"
+	_write_transcript("s1", [{"id": "m1", "role": "user", "ts": 1.0, "content": constraint}])
+	import diagnostics.loss_chain as lc
+
+	monkeypatch.setattr(lc, "_last_sent_projection", lambda sid: (json.dumps([{"content": constraint}]), "w.json"))
+	run = _run(
+		transcript_rows=[
+			{"id": "m1", "role": "user", "content": constraint, "locator": "t.jsonl", "line_no": 1},
+			{"id": "m2", "role": "assistant", "content": "已完成，测试通过", "locator": "t.jsonl", "line_no": 2},
+		],
+		model_requests=[
+			ModelRequest(model_request_id="r1", attempts=[{"attempt": 1, "kind": "model.finished", "status": "ok"}])
+		],
+		tool_calls=[ToolCall(tool_use_id="c1", tool_name="Read", started={"line_no": 3}, finished={"line_no": 4})],
+	)
+	verdict = attribute_fault(run, [])
+	assert verdict["responsibility"] != MODEL
+	assert not any("要求动作" in s["fact"] and s["party"] == "model" for s in verdict["chain"])
+	assert any("命令" in s["fact"] and s["party"] == "undetermined" for s in verdict["chain"])
+
+
+def test_missing_verifier_is_not_a_self_report_contradiction() -> None:
+	"""没有验收记录时，自述不与任何东西矛盾：那句"验收记录显示…"是凭空指控。"""
+	run = _run(
+		transcript_rows=[
+			{"id": "m1", "role": "user", "content": "改完跑一下测试", "locator": "t.jsonl", "line_no": 1},
+			{"id": "m2", "role": "assistant", "content": "测试通过，任务已完成", "locator": "t.jsonl", "line_no": 2},
+		],
+	)
+	verdict = attribute_fault(run, [])
+	assert "self_report" not in verdict
+	assert not any(s["party"] == "model" for s in verdict["chain"])
+
+
 def test_post_hoc_pin_cannot_claim_context_loss_but_can_name_requirement(monkeypatch) -> None:
 	"""两条判据分开：当场在场的原话才判"上下文丢了它"；事后声明只当要求来源。"""
 	constraint = "改完必须跑 pytest"

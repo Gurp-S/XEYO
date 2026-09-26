@@ -405,8 +405,13 @@ def _assistant_text(run: RunEvidence) -> str:
 
 
 def _self_report_contradiction(run: RunEvidence, outcome: str) -> Finding | None:
-	"""模型自述与验收不符：措辞按事实比对，不评价。"""
-	if outcome not in {OUTCOME_FAIL, OUTCOME_VERIFIER_ERROR, OUTCOME_NOT_ACCEPTED}:
+	"""模型自述与验收不符：措辞按事实比对，不评价。
+
+	只在**确有验收记录且记录说了相反的话**时下这条结论。``not_accepted`` 的含义是
+	"本运行一条验收记录都没有"，拿它当"验收记录显示…"来指控自述不符，是在凭空造
+	一份不存在的记录 —— 自述没有证据支撑是另一件事，由任务结局那一栏说。
+	"""
+	if outcome not in {OUTCOME_FAIL, OUTCOME_VERIFIER_ERROR}:
 		return None
 	joined = _assistant_text(run)
 	if not joined:
@@ -528,6 +533,23 @@ def _required_action_unmet(run: RunEvidence, obligation_text: str) -> dict[str, 
 		}
 	if not own_tools and not seen_cmds:
 		return {"state": "no_tool_records", "evidence": [], "note": "本轮没有任何工具记录：分不清是没调用还是没采集"}
+	if not seen_cmds:
+		# 命令正文没落账就不许下"没跑"的结论：真实审计里 tool.* 行不带 command /
+		# command_summary（入参摘要只写在 permission.* 行上，见待批 #36），
+		# "N 次调用里没有一项含该标记"这句话没有依据。
+		return {
+			"state": "commands_unrecorded",
+			"evidence": [
+				EvidenceRef(
+					source="audit",
+					locator=source_locator(run, "audit"),
+					ref_id=f"L{_s((t.started or {}).get('line_no'))}",
+					detail=f"{t.tool_name} 未记录命令正文",
+				)
+				for t in own_tools[:3]
+			],
+			"note": f"本轮 {len(own_tools)} 次工具调用没有落下命令正文：分不清是没跑还是没记",
+		}
 	claims = [w for w in _CLAIM_WORDS if w in _assistant_text(run)]
 	if not claims:
 		return {"state": "not_claimed_done", "evidence": [], "note": "回答没有自述完成：动作没做也不能据此判模型的错"}
@@ -686,6 +708,13 @@ def attribute_fault(run: RunEvidence, findings: list[Finding]) -> dict[str, Any]
 		_step(
 			"tool_permission",
 			"权限行未落审批结果：这一枪到底放没放行没有记录，动作没做的归属判不了",
+			UNDETERMINED,
+			unmet["evidence"],
+		)
+	elif unmet["state"] == "commands_unrecorded":
+		_step(
+			"tool_permission",
+			"本轮工具调用没有落下命令正文：被要求的动作做没做无从核对",
 			UNDETERMINED,
 			unmet["evidence"],
 		)

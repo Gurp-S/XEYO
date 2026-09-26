@@ -181,9 +181,10 @@ def test_blocked_action_is_not_counted_as_skipped(monkeypatch) -> None:
 	codes = _codes(verdict)
 	assert PERMISSION_BLOCKED in codes
 	assert ACTION_SKIPPED not in codes, "被挡下不能同时算『没做』"
-	# 引擎挡了动作、模型又断言"测试通过"而没有任何验收：两方各自成立
-	assert verdict["responsibility"] == "mixed"
-	assert SELF_REPORT_MISMATCH in codes
+	# 引擎挡下动作是执行层事实；模型那句"测试通过"没有验收记录可对，
+	# 就构不成"与验收不符"——没有记录就没有矛盾，只剩引擎这一方。
+	assert verdict["responsibility"] == "engine"
+	assert SELF_REPORT_MISMATCH not in codes, "无验收记录不得算成自述与验收不符"
 
 
 def test_missing_verifier_is_a_cause_but_blames_nobody(monkeypatch) -> None:
