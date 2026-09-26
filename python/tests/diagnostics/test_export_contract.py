@@ -136,3 +136,72 @@ def test_every_projection_invariant_flag_is_claimed_by_a_rule() -> None:
 	# 这一条按字面钉死，不从 LEGACY_INVARIANT_NAMES 推：把豁免清单改小应当是一次
 	# 有意识的决定，而不是跟着常量一起静默变绿。
 	assert scan["legacy_read"] == ["spill_reference_mismatch"]
+
+
+#: 诊断夹具里带取值语义的字段名（会话/轮次/请求 id 这类自由字符串不在内）。
+_FIXTURE_KEYS = ("kind", "error_kind", "error_code", "status", "code", "outcome", "cost_source", "note_kind", "body_state")
+_STR_LIT = r'"([A-Za-z0-9_.\-]{3,32})"'
+#: 生产者用 f-string 拼出来的取值：字面量不在源码里，但确实会写进审计行。
+#: 这里按 (键, 值) 精确列，不用正则 —— 正则能被放宽成 ".*" 而当场看不出差别，
+#: 清单扩大必须是一次显式的改动。
+_COMPOSED_VALUES: set[tuple[str, str]] = {
+	("error_code", "HTTP_400"),  # engine/query_loop.py: f"HTTP_{exc.status_code}"
+}
+
+
+def _non_test_literal_set() -> set[str]:
+	root = _ROOT / "python"
+	rx = re.compile(_STR_LIT)
+	out: set[str] = set()
+	for path in root.rglob("*.py"):
+		rel = path.relative_to(root).as_posix()
+		if ".venv" in rel or rel.startswith("tests/"):
+			continue
+		out.update(rx.findall(path.read_text(encoding="utf-8", errors="replace")))
+	return out
+
+
+def test_diagnostic_fixtures_only_use_values_a_producer_writes() -> None:
+	"""诊断夹具的取值必须有出处；"看起来合理的枚举"不算证据。
+
+	2026-09-25 登记过这条族（``test_rules_calibration`` 第 11 条）：单测自己写审计行 dict，
+	于是"规则读一个生产端从没写过的字段"能长期全绿。2026-09-26 在同一族里又抓到三个我自己
+	写的漂亮值 —— error_kind 写成 EXIT_NONZERO（真实 16 229 行 tool.finished 里非空
+	error_kind 129/129 都是 INTERNAL）、code 写成 conn（真实只有 rate_limit /
+	provider_error / network）。这里把"取值也要有出处"变成机器门。
+
+	注意这条门扫的是整个文件的字面量，所以本段说明里不能再写键=值的字面形式，
+	否则它会把散文当成用例红一次（第一次跑就红在这里，算它自证有效）。
+
+	范围只钉 tests/diagnostics：同一口径扫整个 tests/ 另有 6 处落在别的工作流里
+	（coord 的三种协调消息类型、控制面用例的大写枚举成员名、诊断工具的 ruff 码、
+	多代理用例的自造 ping 类型）。那六条不归本流改，留在这里说明为什么门不做全仓。
+	"""
+	literals = _non_test_literal_set()
+	assert len(literals) > 1000, f"字面量扫描口径失效：只读到 {len(literals)} 条（这条门会静默全绿）"
+	dict_rx = {key: re.compile(rf'"{key}"\s*:\s*{_STR_LIT}') for key in _FIXTURE_KEYS}
+	assign_rx = {key: re.compile(rf"\b{key}\s*=\s*{_STR_LIT}") for key in _FIXTURE_KEYS}
+	checked = 0
+	composed_hits: set[tuple[str, str]] = set()
+	bad: list[str] = []
+	for path in sorted((_ROOT / "python" / "tests" / "diagnostics").glob("*.py")):
+		text = path.read_text(encoding="utf-8", errors="replace")
+		for lineno, line in enumerate(text.split("\n"), 1):
+			for key in _FIXTURE_KEYS:
+				for rx in (dict_rx[key], assign_rx[key]):
+					for match in rx.finditer(line):
+						value = match.group(1)
+						checked += 1
+						if value in literals:
+							continue
+						if (key, value) in _COMPOSED_VALUES:
+							composed_hits.add((key, value))
+							continue
+						bad.append(f"{path.name}:{lineno} {key}={value!r}")
+	assert checked > 100, f"没读到夹具取值，扫描口径失效：{checked}"
+	# 豁免清单必须"挣到自己那份活"，两个方向都钉：漏一项就当没记过，
+	# 多一项（含放宽成正则的企图）就是有人在不看证据的情况下扩大豁免。
+	assert composed_hits == _COMPOSED_VALUES, (
+		f"拼值豁免与实际命中不一致：清单={sorted(_COMPOSED_VALUES)} 实际={sorted(composed_hits)}"
+	)
+	assert not bad, "这些夹具取值没有任何生产者写得出：" + "; ".join(bad[:10])

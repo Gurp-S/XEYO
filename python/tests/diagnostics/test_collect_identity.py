@@ -60,7 +60,7 @@ def test_rows_without_session_are_counted_not_silently_dropped(write_audit) -> N
 	"""缺 session_id 的旧行无法归因，必须在窗口说明里出现，而不是悄悄消失。"""
 	path = write_audit(
 		[
-			{"ts": 1.0, "kind": "llm.failure", "code": "conn", "attempt": 1, "status": 500},
+			{"ts": 1.0, "kind": "llm.failure", "code": "provider_error", "attempt": 1, "status": 500},
 			{"ts": 1.1, "kind": "model.started", "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", "attempt": 1},
 		]
 	)

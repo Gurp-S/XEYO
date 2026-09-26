@@ -51,10 +51,17 @@ def test_rate_limit_is_not_blamed_on_prompt(collect) -> None:
 
 
 def test_tool_failure_is_grouped_and_anchored(collect) -> None:
+	"""夹具里的 error_kind 只用生产者真写得出的值。
+
+	Bash 以非零退出结束时，``tools/base_tool.py`` 只会补上默认的 ``INTERNAL``。整份真实
+	审计 16 229 行 tool.finished 里带 error_kind 键的 2 948 行：2 819 行是 null，
+	非空的 129/129 全是 INTERNAL（登记见 test_rules_calibration.py 第 10 条）。
+	写一个 "EXIT_NONZERO" 之类的漂亮值只会让用例看起来在测分类，实际什么也没测。
+	"""
 	rows = [{"ts": 1.0, "kind": "model.started", "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", "attempt": 1}]
 	for i in range(3):
 		rows.append({"ts": 2.0 + i, "kind": "tool.started", "session_id": "s1", "turn_id": "t1", "request_id": f"c{i}", "tool_name": "Bash", "model_request_id": "r1", "command_summary": "pytest x"})
-		rows.append({"ts": 2.5 + i, "kind": "tool.finished", "session_id": "s1", "turn_id": "t1", "request_id": f"c{i}", "tool_name": "Bash", "is_error": True, "error_kind": "EXIT_NONZERO", "model_request_id": "r1"})
+		rows.append({"ts": 2.5 + i, "kind": "tool.finished", "session_id": "s1", "turn_id": "t1", "request_id": f"c{i}", "tool_name": "Bash", "is_error": True, "error_kind": "INTERNAL", "model_request_id": "r1"})
 	run = collect(rows)
 	kinds = _kinds(evaluate_run(run))
 	assert CONFIRMED_FAULT in kinds.get("tool_failure", set())

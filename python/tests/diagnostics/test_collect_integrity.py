@@ -479,7 +479,7 @@ def test_rows_without_session_id_are_machine_readable(write_audit) -> None:
 	"""缺 session_id 的行原先只活在一句中文说明里：计数必须进字段。"""
 	path = write_audit(
 		[
-			{"ts": 1.0, "kind": "llm.failure", "code": "conn", "attempt": 1, "status": 500},
+			{"ts": 1.0, "kind": "llm.failure", "code": "provider_error", "attempt": 1, "status": 500},
 			*_model_rows("r1", 1),
 		]
 	)
