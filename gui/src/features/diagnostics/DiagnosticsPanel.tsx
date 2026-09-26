@@ -36,6 +36,7 @@ import {
 	fmtInt,
 	linkMismatchText,
 	pinKindLabel,
+	reportVersionText,
 } from './model';
 import {ContextView} from './ContextView';
 import {ExperimentsView} from './ExperimentsView';
@@ -486,6 +487,10 @@ export function DiagnosticsPanel({active}: {active: boolean}) {
 								<div className="xy-dig-view" hidden={tab !== 'experiments'}>
 									<ExperimentsView sessionId={sessionId} turnId={turnId} />
 								</div>
+							) : null}
+							{/* 版本说的是"出这份报告的进程"，界面以前解析了它却从不显示 */}
+							{reportVersionText(detail.versions) ? (
+								<p className="xy-dig-foot">{reportVersionText(detail.versions)}</p>
 							) : null}
 						</div>
 					)}

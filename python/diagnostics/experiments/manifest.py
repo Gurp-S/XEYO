@@ -207,7 +207,7 @@ def compare_arms(
 
 
 def code_section(*, repo_root: str | None = None) -> dict[str, Any]:
-	"""实际运行版本：commit + 工作树状态（行号只是附加信息，不作主键）。"""
+	"""写这份 manifest 的进程所在树：commit + 工作树状态（行号只是附加信息，不作主键）。"""
 	return dict(store.code_version(repo_root=repo_root))
 
 

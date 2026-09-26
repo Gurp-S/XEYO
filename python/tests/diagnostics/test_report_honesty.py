@@ -72,6 +72,19 @@ def test_markdown_cites_the_evidence_behind_a_cause(collect) -> None:
 	assert "另 6 条" in cited, "总数要说 9 条里的另 6 条，不是随附的 6 条样本"
 
 
+def test_version_line_does_not_claim_the_version_that_produced_the_records(collect) -> None:
+	"""版本那行只能说"出报告的进程"：记录行里没有版本字段，跨构建时后者无从证明。
+
+	真实背景（#66）：release 构建跑的是打包资源里的引擎快照，盘上那份是 09-05 的，
+	而报告里的 commit 来自当前树 —— 写"运行版本"就是给读者一个会对错的号。
+	"""
+	run = collect(_FINISHED)
+	markdown = to_markdown(build_report(run))
+	assert "运行版本" not in markdown
+	assert "代码版本（出这份报告的进程）" in markdown
+	assert "不能当成产生这些记录的引擎版本" in markdown
+
+
 def test_partial_price_in_a_multi_row_attempt_still_counts_the_priced_part(collect) -> None:
 	run = collect(_FINISHED)
 	run.usage_rows = [

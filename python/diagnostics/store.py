@@ -288,7 +288,11 @@ _VERSION_CACHE: dict[str, Any] | None = None
 
 
 def code_version(*, repo_root: str | None = None, timeout: float = 2.0) -> dict[str, Any]:
-	"""实际运行版本：commit + 工作树是否干净。行号只是附加信息，不作主键。
+	"""**出这份报告的进程**所在树的版本：commit + 工作树是否干净。行号只是附加信息，不作主键。
+
+	记录（审计 / 账本 / transcript）里不带版本字段，所以这个值不能读成"产生那些记录的引擎
+	版本"：release 跑的是打包资源里的快照（见 gui/src-tauri/src/lib.rs 的 ``python_root``），
+	与当前树可以差若干个提交。
 
 	git 不可用时如实返回 ``unknown``，不谎报干净。
 	"""

@@ -259,7 +259,7 @@ def to_markdown(doc: dict[str, Any]) -> str:
 	lines.append(f"- 轮次：`{_s(doc.get('turn_id')) or '整会话'}`")
 	lines.append(f"- 生成时间：{doc.get('generated_at')}")
 	lines.append(
-		"- 运行版本：`{}` @ `{}`（工作树 {}）".format(
+		"- 代码版本（出这份报告的进程）：`{}` @ `{}`（工作树 {}）；记录行本身不带版本，跨构建时不能当成产生这些记录的引擎版本".format(
 			_s(versions.get("commit")), _s(versions.get("branch")), _s(versions.get("worktree_state"))
 		)
 	)

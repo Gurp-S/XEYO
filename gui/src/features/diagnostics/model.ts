@@ -884,6 +884,23 @@ export function evidenceText(e: DiagEvidenceRef): string {
 }
 
 /**
+ * 报告页脚用的代码版本一行。措辞限定死：这是**出这份报告的进程**所在树，
+ * 记录行里不带产生它的版本，跨构建时不能读成"运行这些记录的引擎版本"。
+ * 后端把 versions 一路解析到了前端类型里，却没有任何一处显示它。
+ */
+export function reportVersionText(v: {commit: string; branch: string; worktree_state: string} | null | undefined): string {
+	const commit = (v?.commit ?? '').trim();
+	if (!commit || commit === 'unknown') return '';
+	const bits = [`报告代码版本 ${commit.slice(0, 7)}`];
+	const branch = (v?.branch ?? '').trim();
+	if (branch && branch !== 'unknown') bits.push(branch);
+	const state = (v?.worktree_state ?? '').trim();
+	if (state === 'dirty') bits.push('工作树有未提交改动');
+	else if (state && state !== 'clean' && state !== 'unknown') bits.push(`工作树：${state}`);
+	return `${bits.join(' · ')}（记录本身不带版本，别把它当成产生这些记录的引擎版本）`;
+}
+
+/**
  * 一条原因的证据摘要：界面原来只投出 label 与"能证明/不能证明"，
  * 后端已经带过来的原始记录指针被丢掉（因果链那一段是渲染的）。
  * 逐条铺开会和因果链重复，这里只给一行"指得到哪里"，没有证据时返回空串。

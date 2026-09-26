@@ -36,6 +36,7 @@ import {
 	groupFindingsByStatus,
 	mergeDetailPreservingLoadedPages,
 	pinKindLabel,
+	reportVersionText,
 } from './model';
 
 function detail(raw: Record<string, unknown>) {
@@ -900,5 +901,15 @@ describe('causeEvidenceSummary', () => {
 	it('没有证据的原因条目不给空行', () => {
 		expect(causeEvidenceSummary([], 0)).toBe('');
 		expect(causeEvidenceSummary(undefined)).toBe('');
+	});
+});
+
+describe('reportVersionText', () => {
+	it('读不出 commit 就不说话：宁可不显示，也不印一个 unknown 版本给读者', () => {
+		expect(reportVersionText({commit: 'unknown', branch: 'unknown', worktree_state: 'unknown'})).toBe('');
+		expect(reportVersionText(null)).toBe('');
+		expect(
+			reportVersionText({commit: 'abc1234def56', branch: 'main', worktree_state: 'clean'}),
+		).toBe('报告代码版本 abc1234 · main（记录本身不带版本，别把它当成产生这些记录的引擎版本）');
 	});
 });

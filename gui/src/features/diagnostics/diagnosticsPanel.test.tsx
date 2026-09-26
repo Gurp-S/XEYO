@@ -312,6 +312,22 @@ describe('离线与重试（P1 6）', () => {
 		);
 	});
 
+	it('页脚说出"这是出报告的代码版本"，并提醒它不等于产生记录的引擎版本', async () => {
+		// 后端一路把 versions 解析进了前端类型，但以前没有任何一处显示它：
+		// 读者遇到"报告与数据形状对不上"时（打包快照跑的是旧引擎）没有落点。
+		api.fetchDiagRuns.mockResolvedValue(runsFixture(SESSION, [{turn_id: 't1'}]));
+		api.fetchDiagRun.mockResolvedValue(
+			detailFixture('t1', {
+				findings: [findingOf('甲轮的结论')],
+				versions: {commit: 'abc1234def56', branch: 'main', worktree_state: 'dirty', probed_at: 1},
+			}),
+		);
+		renderPanel();
+		const foot = await screen.findByText(/报告代码版本 abc1234/);
+		expect(foot.textContent).toContain('工作树有未提交改动');
+		expect(foot.textContent).toContain('别把它当成产生这些记录的引擎版本');
+	});
+
 	it('一次瞬时失败不得永久挡住仍在到达的数据', async () => {
 		const user = userEvent.setup();
 		api.fetchDiagRuns.mockRejectedValueOnce(new Error('无法连接本地后端（请确认 server 已启动）'));

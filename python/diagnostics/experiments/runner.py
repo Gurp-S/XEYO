@@ -785,7 +785,7 @@ def render_report(
 	lines = [f"# XEYO 实验报告（{mode.upper() or '—'}）", ""]
 	lines.append(f"- 实验：`{_s(experiment_id)}` · 状态：`{_s(status) or '—'}`" + (f" · 原因：`{_s(reason)}`" if reason else ""))
 	lines.append(
-		"- 运行版本：`{}` @ `{}`（工作树 {}）".format(
+		"- 代码版本（写这份产物的进程）：`{}` @ `{}`（工作树 {}）；实验行不带版本，跨构建时不能当成跑实验的引擎版本".format(
 			_s((doc.get("context") or {}).get("code", {}).get("commit")),
 			_s((doc.get("context") or {}).get("code", {}).get("branch")),
 			_s((doc.get("context") or {}).get("code", {}).get("worktree_state")),
