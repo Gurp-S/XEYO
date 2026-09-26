@@ -275,7 +275,7 @@ def check_tool_pair_integrity(run: RunEvidence) -> list[Finding]:
 			Finding(
 				rule_id="tool_pair_integrity",
 				rule_version=RULESET_VERSION,
-				phenomenon=f"{len(orphaned)} 个工具调用有开始记录、无结束记录，且其后无更晚活动可参照",
+				phenomenon=f"{len(orphaned)} 个工具调用有开始记录、无结束记录，且本轮记录里该行之后没有别的行可参照",
 				boundary="tool_permission",
 				component="工具分发",
 				status=UNKNOWN,
@@ -289,7 +289,10 @@ def check_tool_pair_integrity(run: RunEvidence) -> list[Finding]:
 					for t in orphaned
 				],
 				impact="无法判断工具仍在执行还是结束记录缺失。",
-				coverage_gap="结束记录缺失本身不证明进程已死；正常长任务会命中同一形状。",
+				coverage_gap=(
+					"参照范围只有本运行读到的行：同一会话更晚轮次的行不在里面，跨轮补记的结束行看不到；"
+					"结束记录缺失本身也不证明进程已死，正常长任务会命中同一形状。"
+				),
 				allowed_conclusion="只能说记录不完整，不能说执行失败。",
 			)
 		)

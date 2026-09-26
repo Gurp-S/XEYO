@@ -464,6 +464,10 @@ def test_orphan_started_after_a_clean_call_is_still_reported(collect) -> None:
 	orphans = [f for f in evaluate_run(run) if f.rule_id == "tool_pair_integrity" and f.status == UNKNOWN]
 	assert orphans, "c2 有开始无结束且其后无任何记录：这条事实被整轮判据吞掉了"
 	assert "1 个工具调用" in orphans[0].phenomenon
+	# 措辞要说清参照范围只有本运行的行：同一会话更晚轮次不算"其后"，
+	# 否则读者会把"没有别的行可参照"读成"这个会话之后再无记录"。
+	assert "本轮记录里" in orphans[0].phenomenon
+	assert "更晚轮次" in orphans[0].coverage_gap
 	assert [e.ref_id for e in orphans[0].evidence] == ["L3"]
 
 
