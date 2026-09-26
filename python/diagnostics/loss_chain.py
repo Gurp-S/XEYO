@@ -119,13 +119,15 @@ def _transcript_window(session_id: str, cap: int) -> tuple[list[dict[str, Any]],
 	lines = [line for line in lines if line]
 	window = lines[-cap:] if cap else lines
 	rows: list[dict[str, Any]] = []
-	for line in window:
+	for i, line in enumerate(window):
 		try:
 			row = json.loads(line)
 		except ValueError:
 			continue
 		if isinstance(row, dict):
 			row["_path"] = str(path)
+			# 整份文件里的 1-based 序号：折叠游标量的就是这个序号，窗外那些行也得有身份
+			row["_line_no"] = (len(lines) - len(window)) + i + 1
 			rows.append(row)
 	return rows, len(window), len(lines)
 
@@ -159,22 +161,33 @@ def _transcript_locator(session_id: str) -> str:
 		return ""
 
 
-def _stage_source_history(run: RunEvidence, needle: str, cap: int) -> dict[str, Any]:
+def _stage_source_history(run: RunEvidence, needle: str, cap: int) -> tuple[dict[str, Any], list[int]]:
+	"""源历史级。第二个返回值是命中行在整份转录里的序号 —— 折叠判定要吃它。
+
+	发射级原来只能拿 ``run.transcript_rows``（采集器按本运行锚定的子集）判折叠：约束行
+	没被锚进来时，"被折叠移出投影"这一支永远拿不到输入，于是一条确实被折掉的事实会被
+	说成"从未进入投影"。整份扫描已经算得出行号，就没必要让机制判断卡在采集口径上。
+	"""
 	if not _transcript_locator(run.session_id):
-		return _stage(
-			"source_history",
-			NOT_CAPTURED,
-			evidence=[],
-			note="该会话没有 transcript 文件：无从判断这条事实是否在源历史里，不得报「不存在」",
+		return (
+			_stage(
+				"source_history",
+				NOT_CAPTURED,
+				evidence=[],
+				note="该会话没有 transcript 文件：无从判断这条事实是否在源历史里，不得报「不存在」",
+			),
+			[],
 		)
 	rows, scanned, total = _transcript_window(run.session_id, cap)
 	hits: list[dict[str, Any]] = []
+	hit_lines: list[int] = []
 	unreadable = 0
 	for row in rows:
 		body = _resolve_body(row)
 		if not body and row.get("content_ref"):
 			unreadable += 1
 		if _hit(needle, body) or _hit(needle, json.dumps(row.get("tool_call_id"), ensure_ascii=False)):
+			hit_lines.append(int(row.get("_line_no") or 0))
 			hits.append(
 				{
 					"source": "transcript",
@@ -184,34 +197,46 @@ def _stage_source_history(run: RunEvidence, needle: str, cap: int) -> dict[str, 
 				}
 			)
 	if hits:
-		return _stage(
-			"source_history",
-			FOUND,
-			evidence=hits[:10],
-			note=f"命中 {len(hits)} 条消息" + (f"；另有 {unreadable} 条正文不可解引用" if unreadable else ""),
+		return (
+			_stage(
+				"source_history",
+				FOUND,
+				evidence=hits[:10],
+				note=f"命中 {len(hits)} 条消息" + (f"；另有 {unreadable} 条正文不可解引用" if unreadable else ""),
+			),
+			hit_lines,
 		)
-	# ↑ hits 里已带 transcript 行号，折叠判定按第一条命中位置估算
+	# ↑ 命中行的序号单独返回：发射级判"落在折叠区间内"要吃它，而不是吃采集载荷里的子集
 	if unreadable:
-		return _stage(
-			"source_history",
-			UNREADABLE,
-			evidence=[{"source": "transcript", "locator": "", "ref_id": "", "detail": f"{unreadable} 条 blob 读不回"}],
-			note="正文读不回来，不能说这条事实不在源历史里",
+		return (
+			_stage(
+				"source_history",
+				UNREADABLE,
+				evidence=[{"source": "transcript", "locator": "", "ref_id": "", "detail": f"{unreadable} 条 blob 读不回"}],
+				note="正文读不回来，不能说这条事实不在源历史里",
+			),
+			[],
 		)
 	if total > scanned:
 		# 窗覆盖不到整份转录：这一级的"没查到"是"没读到"，不是"不存在"。
 		# 真实数据实测（28 个 >=4 轮会话、137 枪）：只扫最后 400 行时 28 枪（20%）的
 		# 用户原话落在窗外，被这条结论判成"源历史里就查不到，不是这次压缩丢的"。
-		return _stage(
-			"source_history",
-			NOT_CAPTURED,
-			evidence=[],
-			note=(
-				f"扫描窗只有最近 {scanned} 行，窗外还有 {total - scanned} 行没读到："
-				"这一级说不出「源历史里没有这条事实」"
+		return (
+			_stage(
+				"source_history",
+				NOT_CAPTURED,
+				evidence=[],
+				note=(
+					f"扫描窗只有最近 {scanned} 行，窗外还有 {total - scanned} 行没读到："
+					"这一级说不出「源历史里没有这条事实」"
+				),
 			),
+			[],
 		)
-	return _stage("source_history", ABSENT, evidence=[], note=f"整份 transcript {total} 行内未命中")
+	return (
+		_stage("source_history", ABSENT, evidence=[], note=f"整份 transcript {total} 行内未命中"),
+		[],
+	)
 
 
 def _structured_state_text(session_id: str) -> tuple[str, str]:
@@ -353,7 +378,9 @@ def _last_sent_projection(session_id: str) -> tuple[str, str]:
 	return _s(getattr(snap, "last_x_sent", "")), str(path_for(session_id))
 
 
-def _stage_emitted(run: RunEvidence, needle: str) -> dict[str, Any]:
+def _stage_emitted(
+	run: RunEvidence, needle: str, *, source_hit_lines: list[int] | None = None
+) -> dict[str, Any]:
 	sent, locator = _last_sent_projection(run.session_id)
 	if not sent:
 		return _stage(
@@ -378,11 +405,14 @@ def _stage_emitted(run: RunEvidence, needle: str) -> dict[str, Any]:
 		)
 	# 区分两种"没在投影里"：被折叠移出投影 vs 从未进入投影。用既有游标，不新建账本。
 	cursor = int((run.working or {}).get("compact_cursor") or 0)
-	hit_lines = [
-		int(row.get("line_no") or 0)
-		for row in run.transcript_rows
-		if isinstance(row.get("content"), str) and _hit(needle, row["content"])
-	]
+	if source_hit_lines is None:
+		# 独立调用（责任划分那条路）仍按采集器锚定的行判；定位链会把整份扫描算出的行号传进来。
+		source_hit_lines = [
+			int(row.get("line_no") or 0)
+			for row in run.transcript_rows
+			if isinstance(row.get("content"), str) and _hit(needle, row["content"])
+		]
+	hit_lines = [ln for ln in source_hit_lines if ln]
 	folded_out = bool(hit_lines) and any(0 < (ln - 1) < cursor for ln in hit_lines)
 	if folded_out:
 		return _stage(
@@ -511,12 +541,13 @@ def trace_fact(run: RunEvidence, needle: str, *, transcript_cap: int = 2000) -> 
 	needle_text = _s(needle)
 	if not needle_text:
 		raise ValueError("trace_fact 需要非空 needle")
+	source_stage, source_hit_lines = _stage_source_history(run, needle_text, transcript_cap)
 	stages = [
-		_stage_source_history(run, needle_text, transcript_cap),
+		source_stage,
 		_stage_structured_state(run, needle_text),
 		_stage_candidate(run),
 		_stage_selected(run),
-		_stage_emitted(run, needle_text),
+		_stage_emitted(run, needle_text, source_hit_lines=source_hit_lines),
 		_stage_provider_body(run, needle_text),
 		_stage_cold_handle(run, needle_text),
 	]

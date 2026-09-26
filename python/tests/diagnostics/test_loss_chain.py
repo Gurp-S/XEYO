@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 
 from diagnostics.collect import collect_run
-from diagnostics.loss_chain import ABSENT, FOUND, NOT_CAPTURED, NOT_RECORDED, UNREADABLE, trace_fact
+from diagnostics.loss_chain import ABSENT, FOLDED_OUT, FOUND, NOT_CAPTURED, NOT_RECORDED, UNREADABLE, trace_fact
 from session.persistence import transcript_path
 
 
@@ -127,20 +127,13 @@ def test_in_source_but_not_emitted_localizes_to_emission(tmp_path) -> None:
 	assert set(doc["unprovable_stages"]) >= {"candidate", "selected"}
 
 
-def test_folded_out_is_distinguished_from_never_emitted(tmp_path, monkeypatch) -> None:
+def test_folded_out_is_distinguished_from_never_emitted(tmp_path) -> None:
 	"""折叠游标把"被折掉"和"从未进入投影"分开 —— 用既有记录，不新建账本。"""
 	constraint = "部署前先跑迁移"
 	_transcript("s1", [{"id": f"m{i}", "role": "user", "ts": 0.1 * i, "content": constraint if i == 2 else "无关"} for i in range(1, 8)])
 	_working("s1", {"session_id": "s1", "last_x_sent": json.dumps([{"content": "无关"}], ensure_ascii=False), "compact_cursor": 5})
-	import diagnostics.collect as coll
-
+	# 约束在转录第 2 行、游标 5：命中行落在被折叠区间里，判定直接吃源历史级扫出来的行号
 	run = _attributable(_run(tmp_path))
-	# collect 只在 in-run 行上留正文，这里直接补一份等价视图
-	run.transcript_rows = [
-		{"id": "m2", "role": "user", "line_no": 2, "content": constraint, "locator": "s1.jsonl"},
-	]
-	run.working["compact_cursor"] = 5
-	assert run.working.get("compact_cursor") == 5
 	doc = trace_fact(run, constraint)
 	stage = next(s for s in doc["stages"] if s["stage"] == "emitted")
 	assert stage["state"] == "folded_out"
@@ -152,11 +145,12 @@ def test_folded_out_is_distinguished_from_never_emitted(tmp_path, monkeypatch) -
 
 def test_after_cursor_hit_is_still_never_emitted(tmp_path, monkeypatch) -> None:
 	constraint = "部署前先跑迁移"
-	# 「丢在发射之前」的前提是这条事实确实进过源历史：这里得写真转录，
-	# 只往 run.transcript_rows 塞视图是不够的（源历史级读的是文件）。
-	_transcript("s1", [{"id": "m9", "role": "user", "ts": 0.9, "content": constraint}])
+	# 约束落在游标之后（第 7 行 > 游标 5）：不是被折掉的，是压根没进过投影
+	_transcript(
+		"s1",
+		[{"id": f"m{i}", "role": "user", "ts": 0.05 * i, "content": constraint if i == 7 else "无关"} for i in range(1, 8)],
+	)
 	run = _attributable(_run(tmp_path))
-	run.transcript_rows = [{"id": "m9", "role": "user", "line_no": 9, "content": constraint, "locator": "s1.jsonl"}]
 	run.working["compact_cursor"] = 5
 	_stub_last_sent(monkeypatch, json.dumps([{"content": "无关"}], ensure_ascii=False))
 	doc = trace_fact(run, constraint)
@@ -218,6 +212,45 @@ def test_whole_transcript_scanned_and_missing_is_a_real_negative(tmp_path) -> No
 	assert _states(doc)["source_history"] == ABSENT
 	assert doc["verdict"] == "not_in_source_history"
 	assert "整份 transcript 1 行内未命中" in doc["stages"][0]["note"]
+
+
+def test_folded_fact_survives_without_the_collector_anchoring_the_row(tmp_path, monkeypatch) -> None:
+	"""约束行没被采集器带进载荷（长转录只留尾窗）时，折叠判定仍要成立。
+
+	发射级原先只认 ``run.transcript_rows`` 来判"落在游标之前"：采集器只保留 transcript
+	尾部 400 行（`_TRANSCRIPT_ROW_CAP`），更早的行不进载荷 —— 于是那条被折掉的事实
+	一路被说成"从未进入投影"，机制方向判错。源历史级既然已经扫了整份转录，
+	命中行的序号是现成的。
+	"""
+	constraint = "部署前先跑迁移"
+	rows = [
+		{"id": f"m{i}", "role": "user", "ts": 0.05 * i, "content": constraint if i == 2 else "无关内容"}
+		for i in range(1, 9)
+	]
+	_transcript("s1", rows)
+	_working(
+		"s1",
+		{
+			"session_id": "s1",
+			"last_x_sent": json.dumps([{"content": "无关内容"}], ensure_ascii=False),
+			"compact_cursor": 6,
+			# 投影归属核得上（created_at 不晚于本轮最后一条记录），折叠结论才有资格出
+			"last_projection_manifest": {"projection_id": "p1", "created_at": 1.0, "messages_kept": 1},
+		},
+	)
+	import diagnostics.collect as coll
+
+	# 把保留上限压到 2 行，模拟一条早已滑出采集载荷的长转录
+	monkeypatch.setattr(coll, "_TRANSCRIPT_ROW_CAP", 2)
+	run = _run(tmp_path)
+	assert not any(str(row.get("content") or "") == constraint for row in run.transcript_rows), (
+		"夹具必须真的没被锚定，否则测的是旧口径"
+	)
+	doc = trace_fact(run, constraint)
+	states = _states(doc)
+	assert states["source_history"] == FOUND
+	assert states["emitted"] == FOLDED_OUT
+	assert doc["verdict"] == "folded_out_of_projection"
 
 
 def _stub_last_sent(monkeypatch, sent: str) -> None:
