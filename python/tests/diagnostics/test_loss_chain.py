@@ -163,3 +163,31 @@ def test_empty_needle_is_rejected(tmp_path) -> None:
 
 	with pytest.raises(ValueError):
 		trace_fact(_run(tmp_path), "   ")
+
+
+def test_hit_survives_reflow_and_json_escaping() -> None:
+	"""用户消息自带换行时，投影里的原文不得判成"没送到"。
+
+	真实数据实测（150 轮）：5 轮的约束就在发射投影里，只因排版差异被判 absent，
+	其中 3 轮已据此产出 context_dropped_constraint（已确认 + 定责引擎）。
+	"""
+	from diagnostics.loss_chain import _hit
+
+	needle = "改完必须跑 pytest" + chr(10) + "然后才能说完成"
+	# 投影里换行被排版成空格
+	assert _hit(needle, "x 改完必须跑 pytest 然后才能说完成 y")
+	# 投影里留着 JSON 的字面 \n（反斜杠 + n），出现在短语中间与结尾各一例
+	assert _hit(needle, "x 改完必须跑\\npytest 然后才能说完成 y")
+	assert _hit(needle, "x 改完必须跑 pytest\\n然后才能说完成 y")
+	# 中文被 ensure_ascii 转成 \\uXXXX 时也要能对上（既有那条能力不得丢）
+	escaped = "改完必须跑 pytest\n然后才能说完成".encode("unicode_escape").decode("ascii")
+	assert _hit(needle, "prefix " + escaped + " suffix")
+
+
+def test_hit_does_not_become_whitespace_blind() -> None:
+	"""放宽只能折叠空白，不能删空白：否则"没送到"会被反过来掩盖成"送到了"。"""
+	from diagnostics.loss_chain import _hit
+
+	assert not _hit("x y", "xy z")
+	assert not _hit("ab", "a b")
+	assert not _hit("必须跑测试", "必须 跑 测试 别的")

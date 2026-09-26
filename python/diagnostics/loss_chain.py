@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -44,11 +45,44 @@ def _stage(name: str, state: str, *, evidence: list[dict[str, Any]], note: str =
 	}
 
 
+_JSON_ESC_RX = re.compile(r"\\(u[0-9a-fA-F]{4}|[nrtbf\"'/\\])")
+
+
+def _json_unescaped(text: str) -> str:
+	"""还原一层常见 JSON 转义（``\\n`` / ``\\uXXXX`` 等）。
+
+	只处理这几种安全形态：整体 ``codecs.decode(..., 'unicode_escape')`` 会把非 ASCII
+	字节按 latin-1 解，中文会变成乱码。
+	"""
+
+	def _one(m: "re.Match[str]") -> str:
+		token = m.group(1)
+		if token[0] in "uU":
+			try:
+				return chr(int(token[1:], 16))
+			except ValueError:
+				return m.group(0)
+		return {"n": "\n", "r": "\r", "t": "\t", "b": "\b", "f": "\f"}.get(token, token)
+
+	return _JSON_ESC_RX.sub(_one, text)
+
+
+def _collapse_ws(text: str) -> str:
+	"""连续空白折成单个空格：排版差异不得判成"这条约束没送到模型"。
+
+	只折叠不删除：删掉空白会让 "x y" 匹配上 "xy"，那是把"没送到"误判成"送到了"。
+	"""
+	return re.sub(r"\s+", " ", text).strip()
+
+
 def _hit(needle: str, text: str) -> bool:
-	"""子串匹配，且对 JSON 转码不敏感。
+	"""子串匹配，且对 JSON 转码与排版差异不敏感。
 
 	``last_x_sent`` 一类字段可能是 ``ensure_ascii=True`` 序列化出来的（中文变
-	``\\uXXXX``）；只按原文匹配会让"约束没送到模型"成为系统性误判。
+	``\\uXXXX``）；只按原文匹配会让"约束没送到模型"成为系统性误判。真实数据实测
+	（150 个真实轮）：5 轮的约束原文就在发射投影里，却因为用户消息自带换行而判成
+	"没送到"，其中 3 轮已经产出 ``context_dropped_constraint``（引擎定责）——
+	即报告里最强那句指控有 3/5 是匹配器造出来的。
 	"""
 	if not needle or not text:
 		return False
@@ -60,7 +94,11 @@ def _hit(needle: str, text: str) -> bool:
 		escaped = needle.encode("unicode_escape").decode("ascii").lower()
 	except Exception:  # noqa: BLE001
 		return False
-	return bool(escaped) and escaped in low
+	if bool(escaped) and escaped in low:
+		return True
+	needle_forms = {n, _collapse_ws(n)}
+	haystack_forms = {_collapse_ws(low), _collapse_ws(_json_unescaped(low))}
+	return any(nd and nd in hay for nd in needle_forms for hay in haystack_forms)
 
 
 def _iter_transcript(session_id: str, cap: int) -> Iterator[dict[str, Any]]:
