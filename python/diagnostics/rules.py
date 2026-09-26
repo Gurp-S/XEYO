@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -22,7 +23,9 @@ from diagnostics.identity import (
 	UNKNOWN,
 	EvidenceRef,
 	Finding,
+	_f,
 	_s,
+	request_key,
 )
 
 RULESET_VERSION = 1
@@ -381,6 +384,27 @@ def check_instruction_drift(run: RunEvidence) -> list[Finding]:
 # ---------- R3 冷引用 / 可回读性 ----------
 
 
+def _spill_retention_days() -> float | None:
+	"""spill 句柄的例行保留期（tools/spill.py 每次落盘顺带删掉更早的）。
+
+	读引擎的权威常量与环境覆盖，不在诊断侧抄一个数字：保留期一改，这条判据必须跟着改。
+	读不出来返回 None —— 宁可不判过期，也不把"拿不到常数"说成"没过期"。
+	"""
+	try:
+		import os
+
+		from tools.spill import DEFAULT_RETENTION_DAYS, ENV_RETENTION_DAYS
+
+		raw = _s(os.environ.get(ENV_RETENTION_DAYS, ""))
+		days = float(raw or DEFAULT_RETENTION_DAYS)
+	except Exception:  # noqa: BLE001 — 引擎常量读不到时退回"无从判断"
+		return None
+	if days <= 0:
+		# 保留期关掉＝引擎永不做例行清理，读不到的文件没有任何"到期"可归。
+		return None
+	return days
+
+
 def check_cold_references(run: RunEvidence) -> list[Finding]:
 	findings: list[Finding] = []
 	broken_all = [
@@ -400,14 +424,26 @@ def check_cold_references(run: RunEvidence) -> list[Finding]:
 		)
 		for row in broken
 	]
+	expired_handles: list[EvidenceRef] = []
+	retention_days = _spill_retention_days()
 	for spill in [e for e in run.events_for_turn() if e.kind == "tool.spill"]:
 		path = _kv(spill, "path")
-		if path:
-			from pathlib import Path
+		if not path:
+			continue
+		from pathlib import Path
 
-			if not Path(path).is_file():
-				refs.append(spill.ref(_loc(run), f"spill 文件缺失: {path}"))
-				broken.append({"spill": path})
+		if Path(path).is_file():
+			continue
+		ref = spill.ref(_loc(run), f"spill 文件缺失: {path}")
+		# 引擎每次落 spill 都会删掉超过保留期的旧文件（tools/spill.py::_prune_old）。
+		# 越过那个时刻的句柄读不到是例行清理的形状，不能记成"冷层原文丢了"的已确认故障。
+		handle_ts = _f(spill.row.get("ts"))
+		expiry_cut = None if retention_days is None else time.time() - retention_days * 86400.0
+		if handle_ts is not None and expiry_cut is not None and handle_ts < expiry_cut:
+			expired_handles.append(ref)
+		else:
+			refs.append(ref)
+			broken.append({"spill": path})
 	if refs:
 		findings.append(
 			Finding(
@@ -444,6 +480,29 @@ def check_cold_references(run: RunEvidence) -> list[Finding]:
 				impact="这些引用属于同会话的别处：既不能记到本轮，也不能据此说本轮干净。",
 				coverage_gap="transcript 行不带轮次身份，采集器只按本运行的 tool_use_id 锚定；锚不上的行无法归轮。",
 				allowed_conclusion="只能说本轮没有可归属的冷引用，不能说本轮的恢复性没问题。",
+			)
+		)
+	if expired_handles:
+		findings.append(
+			Finding(
+				rule_id="cold_reference",
+				rule_version=RULESET_VERSION,
+				phenomenon=(
+					f"{len(expired_handles)} 处 spill 句柄现在读不到，落盘时刻已越过 tools/spill.py "
+					f"的 {retention_days:g} 天保留期"
+				),
+				boundary="wsc_fold",
+				component="可恢复性（输出预算 spill 的保留期）",
+				# 引擎每次落 spill 都顺带删掉超过保留期的旧文件，所以"到期"与"丢了"
+				# 在这里是同一个观察结果。保留期是设计，不是恢复性故障。
+				status=UNKNOWN,
+				evidence=expired_handles,
+				impact="这一枪之后原文不再可回读：跨保留期的取证只能靠 transcript 里的预览段。",
+				coverage_gap=(
+					"删除按文件 mtime、这里按审计行的落盘时刻估，两者差一次保存延迟；"
+					"到期只说明句柄该被例行清理，不证明它一定没被别的机制提前删掉。"
+				),
+				allowed_conclusion="可确认现在回读不到；不得据此判定引擎弄丢了冷层原文。",
 			)
 		)
 	turn_projection_ids = _turn_projection_ids(run)
@@ -731,7 +790,6 @@ def check_permission_block(run: RunEvidence) -> list[Finding]:
 	by_approval: dict[str, list[dict[str, Any]]] = {}
 	for row in turn_scoped(run.permissions, run.turn_id):
 		by_approval.setdefault(_s(row.get("request_id")), []).append(row)
-	scoped_kinds = {e.kind for e in run.events_for_turn()}
 	for approval_id, rows in by_approval.items():
 		rows.sort(key=lambda r: float(r.get("ts") or 0))
 		pending = [r for r in rows if str(r.get("kind", "")).startswith("permission.pending")]
@@ -834,7 +892,6 @@ def check_permission_block(run: RunEvidence) -> list[Finding]:
 				allowed_conclusion="不得把近似对应写成精确关联。",
 			)
 		)
-	_ = scoped_kinds
 	return findings
 
 
@@ -1128,25 +1185,28 @@ def check_usage_accounting(run: RunEvidence) -> list[Finding]:
 	findings: list[Finding] = []
 	known_sources = {"api", "estimate"}
 	missing: list[EvidenceRef] = []
+	missing_retried: list[EvidenceRef] = []
 	duplicated: list[EvidenceRef] = []
 	bad_source: list[EvidenceRef] = []
 	for mr in turn_scoped(run.model_requests, run.turn_id):
 		for att in mr.attempts:
 			if _s(att.get("kind")) != "model.finished":
 				continue
-			if _s(att.get("status")) not in {"ok", "retry", "protocol_fallback"}:
+			status = _s(att.get("status"))
+			if status not in {"ok", "retry", "protocol_fallback"}:
 				continue
-			key = f"{mr.model_request_id}#{att.get('attempt')}"
+			key = request_key(mr.model_request_id, att.get("attempt"))
 			rows = [row for row in run.usage_rows if _s(row.get("attempt_key")) == key]
 			if not rows:
-				missing.append(
-					EvidenceRef(
-						source="audit",
-						locator=_loc(run),
-						ref_id=f"L{_s(att.get('line_no'))}",
-						detail=f"attempt {key} 无用量账",
-					)
+				ref = EvidenceRef(
+					source="audit",
+					locator=_loc(run),
+					ref_id=f"L{_s(att.get('line_no'))}",
+					detail=f"attempt {key} 无用量账",
 				)
+				# 成功结束的那一枪本该带用量；重打／换通道的那一枪未必拿到过用量尾帧，
+				# 两者不能共用一句"已确认故障"（理由见下方 missing_retried 的 coverage_gap）。
+				(missing if status == "ok" else missing_retried).append(ref)
 				continue
 			if len(rows) > 1:
 				duplicated.append(
@@ -1172,7 +1232,7 @@ def check_usage_accounting(run: RunEvidence) -> list[Finding]:
 			Finding(
 				rule_id="usage_accounting",
 				rule_version=RULESET_VERSION,
-				phenomenon=f"{len(missing)} 次模型尝试在用量账本里没有对应记录",
+				phenomenon=f"{len(missing)} 次成功结束的模型尝试在用量账本里没有对应记录",
 				boundary="model_request",
 				component="用量账本（usage/ledger）",
 				status=CONFIRMED_FAULT,
@@ -1180,6 +1240,31 @@ def check_usage_accounting(run: RunEvidence) -> list[Finding]:
 				impact="这些请求的费用未知：不得按 0 元计入合计，也不得释放实验预算预留。",
 				coverage_gap="账本在 usage 缺失时整行不写，因此「没有行」既可能是没计费也可能是没落账。",
 				allowed_conclusion="报告为费用未知/账目缺失。",
+			)
+		)
+	if missing_retried:
+		findings.append(
+			Finding(
+				rule_id="usage_accounting",
+				rule_version=RULESET_VERSION,
+				phenomenon=(
+					f"{len(missing_retried)} 次重打或换通道结束的尝试在用量账本里没有对应记录："
+					"费用未知，但不因此记成账目故障"
+				),
+				boundary="model_request",
+				component="用量账本（按尝试归账）",
+				# 生产者契约：适配器拿到厂商用量才写行（model/deepseek.py::_record_usage_safe
+				# 的 ``if not usage: return``）。被打断的一枪没拿到用量尾帧时，账本按契约
+				# 本来就没有行——把它写成"已确认故障"是凭空给引擎认一笔账。
+				status=UNKNOWN,
+				evidence=missing_retried[:20],
+				impact="这些尝试的费用未知：不得按 0 元计入合计。",
+				coverage_gap=(
+					"没有行既可能是这一枪没拿到厂商用量（重打与换通道常在尾帧到达前就中断），"
+					"也可能是拿到了却没落账；成功结束的那一枪才一定要有用量。两种情况在此分不开，"
+					"所以只报费用未知，不报账目故障。"
+				),
+				allowed_conclusion="可确认这笔费用无从核对；不得据此判定账本漏记，也不得按 0 计入。",
 			)
 		)
 	if duplicated:

@@ -159,6 +159,7 @@ _RULE_CAUSES: tuple[tuple[str, str, str], ...] = (
 	(PROVIDER_FAILURE, "provider_stream_failure", CONFIRMED_FAULT),
 	(REPEATED_ERROR, "repeated_failure", SUSPECTED_CAUSE),
 	(USAGE_UNACCOUNTED, "usage_accounting", CONFIRMED_FAULT),
+	(USAGE_UNACCOUNTED, "usage_accounting", UNKNOWN),
 	(RUN_INCOMPLETE, "incomplete_run", CONFIRMED_FAULT),
 )
 

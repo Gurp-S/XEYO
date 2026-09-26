@@ -162,6 +162,51 @@ def test_missing_usage_never_becomes_zero_cost(collect) -> None:
 	assert "不得按 0" in f.impact
 
 
+def test_retried_attempt_without_usage_is_not_a_confirmed_account_fault(collect) -> None:
+	"""重打／换通道那一枪常常没拿到厂商用量：账本按契约不写行，不是引擎漏记。
+
+	生产者契约见 ``model/deepseek.py::_record_usage_safe`` 的 ``if not usage: return``。
+	真实语料里 8 个报「已确认缺账」的轮次有 4 个整条都由这类尝试构成（2026-09-26 普查）。
+	"""
+	run = collect(
+		[
+			{"ts": 1.0, "kind": "model.started", "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", "attempt": 1},
+			{"ts": 1.1, "kind": "model.finished", "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", "attempt": 1, "status": "protocol_fallback"},
+			{"ts": 1.2, "kind": "model.started", "session_id": "s1", "turn_id": "t1", "model_request_id": "r2", "attempt": 1},
+			{"ts": 1.3, "kind": "model.finished", "session_id": "s1", "turn_id": "t1", "model_request_id": "r2", "attempt": 1, "status": "retry"},
+		]
+	)
+	ua = [f for f in evaluate_run(run) if f.rule_id == "usage_accounting"]
+	assert ua, "费用未知这件事不能消失"
+	assert CONFIRMED_FAULT not in {f.status for f in ua}
+	assert {f.status for f in ua} == {UNKNOWN}
+	assert sum(len(f.evidence) for f in ua) == 2
+	claim = ua[0]
+	assert "2 次" in claim.phenomenon
+	assert "不得按 0" in claim.impact  # 降级不等于按 0 计入
+	assert "没拿到" in claim.coverage_gap and "没落账" in claim.coverage_gap
+
+
+def test_ok_and_retried_missing_accounts_stay_two_claims(collect) -> None:
+	"""同一轮里两种形状并存时不能合成一条：合并就是把未定说成已确认。"""
+	run = collect(
+		[
+			{"ts": 1.0, "kind": "model.started", "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", "attempt": 1},
+			{"ts": 1.1, "kind": "model.finished", "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", "attempt": 1, "status": "protocol_fallback"},
+			{"ts": 1.2, "kind": "model.started", "session_id": "s1", "turn_id": "t1", "model_request_id": "r2", "attempt": 1},
+			{"ts": 1.3, "kind": "model.finished", "session_id": "s1", "turn_id": "t1", "model_request_id": "r2", "attempt": 1, "status": "ok"},
+		]
+	)
+	ua = [f for f in evaluate_run(run) if f.rule_id == "usage_accounting"]
+	ok = [f for f in ua if f.status == CONFIRMED_FAULT]
+	retried = [f for f in ua if f.status == UNKNOWN]
+	assert len(ok) == len(retried) == 1
+	assert ok[0].phenomenon == "1 次成功结束的模型尝试在用量账本里没有对应记录"
+	assert "重打或换通道" in retried[0].phenomenon
+	assert ok[0].evidence[0].ref_id == "L4"
+	assert retried[0].evidence[0].ref_id == "L2"
+
+
 def test_priced_and_duplicated_usage_are_both_visible(collect) -> None:
 	from usage.ledger import events_path, record_from_openai_usage
 

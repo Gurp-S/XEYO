@@ -1,4 +1,4 @@
-"""采集层的诚实性回归：真实数据普查里确认的十二个缺陷。
+"""采集层的诚实性回归：真实数据普查里确认的十三个缺陷。
 
 每一条都对应一份真实产品数据上跑出来的错账：
 
@@ -29,11 +29,16 @@
 12. 行内正文只随"本轮工具结果"进载荷，而且只认 ``str`` ⇒ assistant 行既不带
     ``tool_call_id``、正文又普遍是块列表（本机两个会话 302/303 与 273/273 都是 list），
     自述核对与整条模型侧归因在真实数据上永不成立。
+13. 生产者不给轮次身份的那类行，本轮视图判不了 ⇒ ``tool.spill`` 只写 ``session_id``
+    （真实审计 11 行里 11 行都没有 ``turn_id``），规则按轮取事件于是永远看不到被截断
+    输出的回读句柄。界面把"没有这条结论"显示成"这一类没问题"。现在缺项直说"本轮判不了、
+    只有会话级报告能判"，而不是继续沉默。
 """
 
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import Any
 
@@ -45,7 +50,7 @@ from diagnostics.collect import (
 	collect_run,
 	list_runs,
 )
-from diagnostics.identity import ABSENT, COMPLETE, PARTIAL
+from diagnostics.identity import ABSENT, COMPLETE, CONFIRMED_FAULT, PARTIAL
 
 # ---------- 夹具形状：与真实审计 / transcript / 用量账本同形 ----------
 
@@ -1122,3 +1127,52 @@ def test_add_gap_tags_session_scope_by_boundary_reason_pair():
 		g = run.add_gap(pair[0], pair[1], "d")
 		assert g.scope == "session", pair
 	assert run.to_dict()["gaps"][0]["scope"] == "session"
+
+
+# ---------- 11. 生产者不给轮次身份：本轮读不到 spill 句柄要说"判不了" ----------
+
+
+def _spill_rows(path: Path) -> list[dict[str, Any]]:
+	return _model_rows("r1", 1) + [
+		{
+			"ts": time.time(),
+			"kind": "tool.spill",
+			"session_id": _SESSION,  # 与生产者同形：只写会话身份，不写轮次
+			"tool_name": "Bash",
+			"path": str(path),
+			"original_chars": 9000,
+			"spill_bytes": 9000,
+		}
+	]
+
+
+def test_turn_less_spill_rows_say_unjudgable_instead_of_clean(write_audit, tmp_path) -> None:
+	"""真实审计 11 行 ``tool.spill`` 全部不带 ``turn_id``（2026-09-26 只读普查）。
+
+	规则按轮取事件 ⇒ 本轮的"冷层引用不可回读"永不命中，而界面会把"没有这条结论"
+	显示成"这一类没问题"。缺项必须说"本轮判不了"；同一件事在会话级报告里仍要能判。
+	"""
+	from diagnostics.rules import check_cold_references
+
+	gone = tmp_path / "gone.txt"
+	path = write_audit(_spill_rows(gone))
+
+	turn_run = collect_run(_SESSION, _TURN, audit_path=path)
+	gap = [g for g in turn_run.gaps if g.boundary == "wsc_fold" and g.reason == "unattributed_rows"]
+	assert gap and gap[0].scope == "session", "这是整份会话的范围事实，不该逐轮重复"
+	assert "判不了" in gap[0].detail
+	assert not check_cold_references(turn_run), "本轮按轮取事件，本来就读不到那条行"
+
+	session_run = collect_run(_SESSION, "", audit_path=path)
+	assert not [
+		g for g in session_run.gaps if g.boundary == "wsc_fold" and g.reason == "unattributed_rows"
+	], "会话级报告读得到这条行，不需要那句「判不了」"
+	assert [f for f in check_cold_references(session_run) if f.status == CONFIRMED_FAULT], (
+		"句柄确实不在盘上，会话级报告要把它报出来"
+	)
+
+
+def test_no_spill_rows_means_no_new_gap(write_audit) -> None:
+	path = write_audit(_model_rows("r1", 1))
+	run = collect_run(_SESSION, _TURN, audit_path=path)
+	assert not [g for g in run.gaps if g.boundary == "wsc_fold" and g.reason == "unattributed_rows"]

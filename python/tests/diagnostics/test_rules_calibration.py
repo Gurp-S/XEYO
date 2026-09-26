@@ -63,11 +63,29 @@
     不只是"旧格式"，实测 2 320 行里 tool.* 占 1 969，绝大多数是评测/模拟器直接写入。
 
 纠正的底线：规则要么判对，要么 ``unknown`` 并写明缺哪条记录，不得靠沉默消噪。
+
+本文件与 ``test_rules_fixed_samples.py`` 另钉两条"读不出被写成已确认故障"的家族成员
+（2026-09-26 生产者契约对照 + 真实账本普查）：
+
+15. ``usage_accounting`` 要求 ``retry`` / ``protocol_fallback`` 那一枪也必须有用量行。
+    生产侧 ``model/deepseek.py::_record_usage_safe`` 是 ``if not usage: return`` —— 没拿到
+    厂商用量尾帧就整行不写，所以被打断的一枪没有行是契约的形状。同一条判据把
+    ``failed`` / ``aborted`` 排除在外，却把这两类留在里面，是自相矛盾的口径。
+    真实数据：5 个会话 9 条「已确认缺账」里 4 条整条由这类尝试构成
+    （sess_mu9oqy8m 2、sess_mubdisp8 1、raman-fitting 1），另 5 条是 ``ok`` 尝试真没账。
+    现在拆成两条：``ok`` 无账仍是已确认故障，重打/换通道无账降为未定并写明两种可能都成立
+    （账本里确有 attempt=2 的行 ⇒ 重打后也可能记到账）。
+16. ``cold_reference`` 的 spill 分支把「路径 ``is_file()`` 为假」直接写成已确认的恢复性故障，
+    而 ``tools/spill.py::_prune_old`` 每次落盘都会删掉超过保留期（默认 7 天）的旧句柄 ——
+    到期消失是设计。真实审计 11 条 ``tool.spill`` 里 6 条落在保留期之外。
+    现在越过保留期的句柄降为未定；保留期被设成 0（引擎不做清理）时判据退回已确认，
+    因为那时"到期"这个借口不存在。
 """
 
 from __future__ import annotations
 
 import json
+import time
 
 from diagnostics import fault_split, rules
 from diagnostics.collect import RunEvidence, Window
@@ -303,6 +321,43 @@ def test_run_scoped_cold_reference_is_still_a_confirmed_fault() -> None:
 		}
 	]
 	assert [f for f in rules.check_cold_references(run) if f.status == CONFIRMED_FAULT]
+
+
+def test_expired_spill_handle_is_not_a_confirmed_recovery_fault(monkeypatch) -> None:
+	"""越过 tools/spill.py 保留期的句柄读不到，是例行清理的形状，不是恢复性故障。
+
+	引擎每次落 spill 都会删掉更早的（``_prune_old``，默认 7 天）。真实审计 11 条
+	``tool.spill`` 里 6 条属于这一类（2026-09-26 只读普查），而 cold_reference 是
+	「已确认 + 引擎定责」两级一起给的规则。
+	"""
+	monkeypatch.delenv("XEYO_SPILL_RETENTION_DAYS", raising=False)
+	old = time.time() - 40 * 86400.0
+	run = _run([_ev(1, "tool.spill", old, path=r"C:\xeyo\spill\s1\20260901-000000-ab.txt")])
+	findings = rules.check_cold_references(run)
+	assert not [f for f in findings if f.status == CONFIRMED_FAULT], "到期不等于丢在发射链上"
+	expired = [f for f in findings if "保留期" in f.phenomenon]
+	assert len(expired) == 1 and expired[0].status == UNKNOWN
+	assert "不得据此判定引擎弄丢了冷层原文" in expired[0].allowed_conclusion
+	# 降级不等于消失：证据指针必须还在，读者能回到那一行核对
+	assert expired[0].evidence and "spill 文件缺失" in expired[0].evidence[0].detail
+
+
+def test_recent_missing_spill_handle_is_still_a_confirmed_recovery_fault() -> None:
+	run = _run([_ev(1, "tool.spill", time.time(), path=r"C:\xeyo\spill\s1\missing-now.txt")])
+	confirmed = [f for f in rules.check_cold_references(run) if f.status == CONFIRMED_FAULT]
+	assert len(confirmed) == 1
+	assert "1 处冷层引用不可回读" in confirmed[0].phenomenon
+	assert not [f for f in confirmed if "保留期" in f.phenomenon]
+
+
+def test_retention_disabled_takes_the_expiry_excuse_away(monkeypatch) -> None:
+	"""``XEYO_SPILL_RETENTION_DAYS=0`` 时引擎根本不做清理：老句柄消失只能是真丢。"""
+	monkeypatch.setenv("XEYO_SPILL_RETENTION_DAYS", "0")
+	old = time.time() - 40 * 86400.0
+	run = _run([_ev(1, "tool.spill", old, path=r"C:\xeyo\spill\s1\gone.txt")])
+	findings = rules.check_cold_references(run)
+	assert [f for f in findings if f.status == CONFIRMED_FAULT]
+	assert not [f for f in findings if "保留期" in f.phenomenon]
 
 
 def test_truncation_claim_without_handle_is_a_suspicion() -> None:

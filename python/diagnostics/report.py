@@ -26,6 +26,7 @@ from diagnostics.identity import (
 	gap_reason_text,
 	Finding,
 	_s,
+	request_key,
 )
 from diagnostics.rules import evaluate_run
 
@@ -66,7 +67,7 @@ def usage_summary(run: RunEvidence) -> dict[str, Any]:
 		for att in mr.attempts:
 			if _s(att.get("kind")) != "model.finished":
 				continue
-			key = f"{mr.model_request_id}#{att.get('attempt')}"
+			key = request_key(mr.model_request_id, att.get("attempt"))
 			attempts += 1
 			rows = [row for row in run.usage_rows if _s(row.get("attempt_key")) == key]
 			if not rows:

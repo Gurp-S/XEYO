@@ -60,6 +60,7 @@ export const DIAG_GAP_REASONS: ReadonlyArray<DiagContractGapReason> = [
 	{boundary: 'wsc_fold', reason: 'no_records'},
 	{boundary: 'wsc_fold', reason: 'out_of_window'},
 	{boundary: 'wsc_fold', reason: 'source_absent'},
+	{boundary: 'wsc_fold', reason: 'unattributed_rows'},
 ];
 
 export const DIAG_SESSION_CONSTANT_GAPS: ReadonlyArray<DiagContractGapReason> = [
@@ -75,6 +76,7 @@ export const DIAG_SESSION_CONSTANT_GAPS: ReadonlyArray<DiagContractGapReason> = 
 	{boundary: 'model_request', reason: 'recovered_outside_window'},
 	{boundary: 'model_request', reason: 'unattributed_rows'},
 	{boundary: 'wsc_fold', reason: 'no_records'},
+	{boundary: 'wsc_fold', reason: 'unattributed_rows'},
 ];
 
 export const DIAG_SHOWN_STATES: readonly string[] = [

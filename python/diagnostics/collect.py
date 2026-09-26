@@ -82,6 +82,7 @@ SESSION_CONSTANT_GAPS: frozenset[tuple[str, str]] = frozenset(
 		("model_request", "out_of_window"),
 		("model_request", "recovered_outside_window"),
 		("model_request", "unattributed_rows"),
+		("wsc_fold", "unattributed_rows"),
 	}
 )
 
@@ -1231,7 +1232,29 @@ def collect_run(
 	# 用量挂载必须在所有采集之后：join 的左操作数是 run.usage_rows，提前跑会永远空表。
 	_attach_usage_to_attempts(run)
 	_note_identity_granularity(run)
+	_note_turn_less_spills(run)
 	return run
+
+
+def _note_turn_less_spills(run: RunEvidence) -> None:
+	"""``tool.spill`` 行不带轮次身份 ⇒ 本轮的冷层句柄可回读性判不了。
+
+	生产者的 spill 分支（tools/tool_registry.py）只写 ``session_id``：采集把这些行留在
+	上下文里，但 ``events_for_turn`` 会滤掉它们。于是"本轮没有冷层故障"其实是"本轮读不到
+	spill 行"——这句话必须写在缺项里，不能靠沉默。真实审计 11 行里 11 行都没有轮次身份
+	（2026-09-26 只读普查），所以 ``cold_reference`` 的 spill 分支只有会话级报告走得到。
+	"""
+	if not run.turn_id:
+		return
+	turn_less = sum(1 for e in run.events if e.kind == "tool.spill" and not e.turn_id)
+	if not turn_less:
+		return
+	run.add_gap(
+		"wsc_fold",
+		"unattributed_rows",
+		f"本会话窗口里有 {turn_less} 行 tool.spill 不带轮次身份（生产者只写 session_id）："
+		"被截断输出的回读句柄归不到本轮，本轮的冷层可回读性判不了，只有会话级报告能判。",
+	)
 
 
 def _note_identity_granularity(run: RunEvidence) -> None:

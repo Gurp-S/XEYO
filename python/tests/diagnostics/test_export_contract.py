@@ -1,6 +1,6 @@
 """契约导出器的测试：生成的东西必须是"生产者真的会发"的东西。
 
-四道：
+五道：
 
 1. **新鲜度**：改了枚举没重导 ⇒ 红。否则 GUI 那道门读的是过期清单，等于没有。
 2. **扫描口径**：``add_gap`` 的原因码必须被扫到（漏扫就是门失效），且每个边界都仍在清单里。
@@ -9,6 +9,8 @@
    送达判定里塞不属于它的状态。
 4. **投影旗标不得有人算、没人读**：引擎写下的每一类 ``invariant_errors`` 都必须被某条
    规则消费，否则事实静默丢失（见文件末尾那条测试的来历）。
+5. **每个缺项原因码都要有报告侧的中文说法**：同一份事实有两个出口（界面与 markdown
+   正文），只补一边就是让另一边把机器名印给人读。
 """
 
 from __future__ import annotations
@@ -17,7 +19,7 @@ import re
 from pathlib import Path
 
 from diagnostics import export_contract as ec
-from diagnostics import fault_split
+from diagnostics import fault_split, identity
 
 _ROOT = Path(__file__).resolve().parents[3]
 _CONTRACT_PATH = _ROOT / "gui" / "src" / "generated" / "diagContract.ts"
@@ -90,6 +92,24 @@ def test_parties_have_labels_at_the_source() -> None:
 		assert label and label != party
 		# 机器枚举不得混进人读正文（fault_split 顶部注释里的约束）。
 		assert not re.search(r"[a-z]+_[a-z]+", label), f"{party} 的中文说法里混了机器名：{label}"
+
+
+def test_every_emitted_gap_reason_has_a_report_label() -> None:
+	"""缺项原因码在报告侧必须有人读说法 —— 界面的词表补齐过，正文的没有。
+
+	``gap_reason_text`` 的兜底是「未归类原因（xxx）」：它不撒谎，但 markdown 报告与
+	界面是同一份事实的两个出口。GUI 侧的 ``GAP_REASON_LABEL`` 在真实载荷上被"撞上了
+	才补"过两次，python 侧实测 22 个 (边界, 原因) 里有 6 个直接印出机器名
+	（no_records / unattributed_rows / not_comparable / not_found_in_full_file /
+	recovered_outside_window / field_missing）。这条门把 python 侧钉住。
+	"""
+	contract = ec.collect_contract()
+	reasons = sorted({g["reason"] for g in contract["gapReasons"]})
+	assert reasons, "扫描口径失效：一个原因码都没扫到，这条门会静默全绿"
+	for reason in reasons:
+		label = identity.GAP_REASON_TEXT.get(reason)
+		assert label, f"缺项原因码 {reason} 在报告侧没有中文说法"
+		assert not re.search(r"[a-z]+_[a-z]+", label), f"{reason} 的中文说法里混了机器名：{label}"
 
 
 #: 引擎投影旗标的正本清单（engine/projection_manifest.py 写下的四类）。
