@@ -29,6 +29,7 @@ from diagnostics.rules import (
 	row_belongs_to_run,
 	source_locator,
 	turn_scoped,
+	_turn_projection_ids,
 )
 
 # 责任方
@@ -387,6 +388,28 @@ def _emitted_projection_in_turn(run: RunEvidence) -> bool:
 	return max(stamps) <= upper + _OBLIGATION_TOLERANCE_SEC
 
 
+def _unprovable_note(run: RunEvidence) -> str:
+	""""证不出来"要说出是哪一块证据不在场：本轮用了哪个投影、留存的又是哪个。
+
+	只写"无法判断"时，读者分不清这是引擎状态不明还是采集只留一份；把两个标识摆出来，
+	这条就成了一句可以拿审计行核对的话。标识缺失时也不许编一个占位符上去。
+	"""
+	used = sorted(_turn_projection_ids(run))
+	retained = sorted({_s(p.get("projection_id")) for p in run.projections if _s(p.get("projection_id"))})
+	if used and retained:
+		which = f"本轮的审计行带着投影 {'、'.join(p[:12] for p in used[:3])}，working 留存的是 {retained[-1][:12]}"
+	elif used:
+		which = f"本轮的审计行带着投影 {'、'.join(p[:12] for p in used[:3])}，working 里没有留存的投影正文"
+	elif retained:
+		which = "本轮审计行没带投影标识，无从确认它用的是哪一份投影"
+	else:
+		which = "本轮既没有投影标识也没有留存的投影正文"
+	return (
+		f"working 只留整会话最后一份发射投影（{which}，可能出自更晚的一轮）："
+		"既不能据此说约束送到了，也不能据此说本轮把它弄丢了"
+	)
+
+
 def _shown_to_model(run: RunEvidence, needle: str) -> dict[str, Any]:
 	"""约束是否确实进了模型实际收到的内容。捕获正文优先，其次上一枪实际发送的投影。
 
@@ -402,14 +425,7 @@ def _shown_to_model(run: RunEvidence, needle: str) -> dict[str, Any]:
 		if body_stage["state"] == "found":
 			return {"state": "shown", "evidence": body_stage["evidence"], "note": "在适配器最终请求体里命中"}
 		if not _emitted_projection_in_turn(run):
-			return {
-				"state": "unprovable",
-				"evidence": [],
-				"note": (
-					"working 里最后一份发射投影不属于本轮（或无从判断它属于本轮）："
-					"既不能据此说约束送到了，也不能据此说本轮把它弄丢了"
-				),
-			}
+			return {"state": "unprovable", "evidence": [], "note": _unprovable_note(run)}
 		proj_stage = _stage_emitted(run, needle)
 		if proj_stage["state"] == "found":
 			return {"state": "shown", "evidence": proj_stage["evidence"], "note": "在上一枪实际发送的投影里命中"}

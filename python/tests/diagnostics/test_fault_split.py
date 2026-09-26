@@ -448,3 +448,38 @@ def test_every_taxonomy_error_kind_has_an_explicit_party_decision() -> None:
 		"这些 error_kind 没有归属决定，会被静默判成未定（要么进三张表，要么把弃权理由写进本用例）："
 		f"{sorted(unclaimed ^ ({'INTERNAL'} | {'ABORTED'}))}"
 	)
+
+
+def _ev_with(ts: float, kind: str, **row) -> object:
+	from diagnostics.identity import normalize_event
+
+	return normalize_event(0, 1, {"ts": ts, "kind": kind, "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", **row})
+
+
+def test_unprovable_note_names_both_projections() -> None:
+	""""证不出来"必须说清是哪块证据不在场：本轮用哪个投影、留存的是哪个。
+
+	笼统的"无法判断"读起来像引擎状态不明；把两个标识摆出来，这条就成了可以拿审计行
+	核对的话，也指明了要补的是按轮留存（capture），不是再去猜。
+	"""
+	from diagnostics.fault_split import _shown_to_model
+
+	run = _run(
+		events=[_ev_with(1.0, "model.started", projection_id="pA_used_this_turn"), _ev_with(2.0, "model.finished", projection_id="pA_used_this_turn")],
+		projections=[{"projection_id": "pB_retained_last", "created_at": 99.0, "locator": "w.json"}],
+	)
+	out = _shown_to_model(run, "改完必须跑 pytest")
+	assert out["state"] == "unprovable"
+	assert "pA_used_" in out["note"] and "pB_retain" in out["note"], out["note"]
+	assert "只留整会话最后一份" in out["note"]
+
+
+def test_unprovable_note_without_any_projection_identity() -> None:
+	"""两个标识都没有时不许编一个占位符上去：说"没带投影标识"就够了。"""
+	from diagnostics.fault_split import _shown_to_model
+
+	run = _run(events=[_ev_with(1.0, "model.started"), _ev_with(2.0, "model.finished")])
+	out = _shown_to_model(run, "改完必须跑 pytest")
+	assert out["state"] == "unprovable"
+	assert "没有投影标识" in out["note"] or "没有留存的投影正文" in out["note"], out["note"]
+	assert "pA" not in out["note"] and "None" not in out["note"]
