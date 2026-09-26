@@ -145,6 +145,9 @@ api_key.txt
 
 # python 测试临时目录与一次性调试脚本
 python/.tmp-*/
+# 同类的下划线命名实验 basetemp（如 _wsc2_dedup_arm 跑留下的 python/.tmp_audit_a，
+# 内含 >2MiB 文件）：不忽略会污染每一次字面量 Grep 全量扫描与 Glob（rg 受 ignore 约束）。
+python/.tmp_*/
 python/dbg_*.py
 
 # Tauri 安装包资源：精简 Python 引擎（构建脚本产物，不入库）
