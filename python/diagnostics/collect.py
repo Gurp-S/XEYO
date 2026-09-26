@@ -583,6 +583,23 @@ def _scan_has_turn(scan: _TailScan, session_id: str, turn_id: str) -> bool:
 	return False
 
 
+def _scan_has_session(scan: _TailScan, session_id: str) -> bool:
+	"""窗口里有没有**本会话**的任何一行（会话级口径的"读到了吗"判据）。
+
+	会话级报告不带 turn_id，原来只按尾窗读：实测 38 550 行的账本里 352 个会话有 333 个
+	（95%）整段排在 4 MiB 尾窗之外，采集器于是拿到 0 行，全部规则静默 —— 报告只能
+ 	说"超出采集窗口"，而那 57% 的行明明在盘上。扩窗上限是 64 MiB（账本 11.3 MiB），
+	多花的是一次整读，换回来的是这一整块覆盖率。
+	"""
+	if not session_id:
+		# 没有可比身份就不许声称"窗内已有"：宁可多扩一次窗，也不把读不出说成没有。
+		return False
+	for _, row in scan.rows:
+		if _s(row.get("session_id")) == session_id:
+			return True
+	return False
+
+
 def _collect_audit(run: RunEvidence, *, session_id: str, turn_id: str, path: Path, max_bytes: int) -> None:
 	locator = str(path)
 	audit_bytes = max_bytes
@@ -592,21 +609,26 @@ def _collect_audit(run: RunEvidence, *, session_id: str, turn_id: str, path: Pat
 		run.add_gap("instruction_context", "source_absent", f"审计文件不存在：{locator}")
 		_publish_window(run, _window_from_scan("audit", locator, scan, max_bytes=audit_bytes))
 		return
-	if turn_id and scan.truncated and not _scan_has_turn(scan, session_id, turn_id):
-		# 尾窗没扫到本轮 ⇒ 先扩窗读完，再决定要不要下"本轮无记录"的结论。
+	scope_what = "本轮" if turn_id else "本会话"
+	in_window = (
+		_scan_has_turn(scan, session_id, turn_id) if turn_id else _scan_has_session(scan, session_id)
+	)
+	if scan.truncated and not in_window:
+		# 尾窗没扫到 ⇒ 先扩窗读完，再决定要不要下"无记录"的结论。
 		# 分层普查 57 个真实轮次里 11 轮（19%）属于这一类：它们的行确实都在文件里，
 		# 只是排在 4 MiB 之外（最近的也在第 7 338 行以外）。不扩窗时这 19% 永远只能
 		# 得到"本轮无记录"，而扩一次窗只多花 0.1s。
 		wide = _scan_jsonl_tail(path, max(audit_bytes, _AUDIT_WIDEN_BYTES))
-		found = _scan_has_turn(wide, session_id, turn_id)
+		found = _scan_has_turn(wide, session_id, turn_id) if turn_id else _scan_has_session(wide, session_id)
 		audit_bytes = max(audit_bytes, _AUDIT_WIDEN_BYTES)
+		identifier = f"turn_id={turn_id}" if turn_id else f"session_id={session_id}"
 		run.add_gap(
 			"instruction_context",
 			"recovered_outside_window" if found else "not_found_in_full_file",
 			(
-				f"audit 尾窗 {max_bytes} 字节没盖到本轮，扩到 {audit_bytes} 字节后读到（扫描 {wide.rows_scanned} 行）"
+				f"audit 尾窗 {max_bytes} 字节没盖到{scope_what}，扩到 {audit_bytes} 字节后读到（扫描 {wide.rows_scanned} 行）"
 				if found
-				else f"audit 已读完 {audit_bytes} 字节上限（扫描 {wide.rows_scanned} 行）仍未见 turn_id={turn_id} 的行"
+				else f"audit 已读完 {audit_bytes} 字节上限（扫描 {wide.rows_scanned} 行）仍未见 {identifier} 的行"
 			),
 		)
 		scan = wide

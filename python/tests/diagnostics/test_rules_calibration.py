@@ -981,3 +981,22 @@ def test_plain_failure_is_still_confirmed(collect) -> None:
 	findings = _psf(run)
 	assert len(findings) == 1
 	assert findings[0].status == CONFIRMED_FAULT
+
+
+def test_drift_phenomenon_follows_the_scope_of_the_run() -> None:
+	"""会话级运行的漂移结论不许说"同一轮内"：那是把整会话的两档标识算给一轮。
+
+	这条形状在会话级扩窗（#77）之前永远不会被观察到 —— 会话级报告连一行审计都读不到。
+	真实数据里确实有一个会话的 tool_schema_hash 换过两档（38 550 行账本里唯一一个）。
+	"""
+	events = [
+		_ev(1, "model.started", tool_schema_hash="aaa"),
+		_ev(2, "model.started", tool_schema_hash="bbb"),
+	]
+	turn = next(f for f in evaluate_run(_run(list(events))) if f.rule_id == "instruction_drift")
+	session = next(
+		f for f in evaluate_run(_run(list(events), turn_id="")) if f.rule_id == "instruction_drift"
+	)
+	assert turn.phenomenon.startswith("本轮里"), turn.phenomenon
+	assert session.phenomenon.startswith("本会话里"), session.phenomenon
+	assert "同一轮" not in session.phenomenon

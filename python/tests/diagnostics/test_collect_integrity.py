@@ -1192,3 +1192,60 @@ def test_missing_transcript_is_recorded_as_lost_artifact(collect) -> None:
 	gap = next(g for g in gaps if g.reason == "source_absent")
 	assert gap.scope == "session"
 	assert "产物缺失" in gap.detail
+
+
+def _write_ledger(path, rows) -> None:
+	import json
+
+	path.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
+
+
+def _ledger_rows(sid: str, start: float, count: int) -> list[dict]:
+	return [
+		{
+			"ts": start + i * 0.01,
+			"kind": "model.started",
+			"session_id": sid,
+			"turn_id": f"{sid}-t{i}",
+			"model_request_id": f"{sid}-r{i}",
+			"attempt": 1,
+		}
+		for i in range(count)
+	]
+
+
+def test_session_scope_widens_the_audit_window_itself(tmp_path, monkeypatch) -> None:
+	"""会话级报告也得扩窗：只看尾窗时整段在窗外的会话全部规则静默。
+
+	真实账本实测（38 550 行、352 个带身份会话）：4 MiB 尾窗下 333 个会话（95%）
+	一行都读不到，57% 的带身份行在盘上却进不了报告。扩窗上限 64 MiB > 账本 11.3 MiB，
+	所以这一整块覆盖率是一次整读就能拿回来的。
+	"""
+	import diagnostics.collect as coll
+
+	path = tmp_path / "audit.jsonl"
+	_write_ledger(path, _ledger_rows("target", 1.0, 40) + _ledger_rows("noisy", 10.0, 400))
+	monkeypatch.setattr(coll, "_AUDIT_WIDEN_BYTES", 64 * 1024 * 1024)
+	# 尾窗压到只够读最后几十行：target 的行全部在窗外
+	run = coll.collect_run("target", "", audit_path=path, max_audit_bytes=1024)
+	window = run.window("audit")
+	assert window is not None
+	assert window.rows_matched == 40, window
+	assert len(run.events) == 40
+	gap = next(g for g in run.gaps if g.boundary == "instruction_context" and g.reason == "recovered_outside_window")
+	assert "没盖到本会话" in gap.detail and "扩到" in gap.detail, gap.detail
+
+
+def test_session_scope_says_so_when_even_the_widened_read_finds_nothing(tmp_path, monkeypatch) -> None:
+	"""扩窗读完仍没有这个会话 ⇒ 说的是"读完整份仍无 session_id"，不是"本轮无记录"。"""
+	import diagnostics.collect as coll
+
+	path = tmp_path / "audit.jsonl"
+	_write_ledger(path, _ledger_rows("other", 1.0, 60))
+	monkeypatch.setattr(coll, "_AUDIT_WIDEN_BYTES", 64 * 1024 * 1024)
+	run = coll.collect_run("absent_session", "", audit_path=path, max_audit_bytes=1024)
+	reasons = {g.reason for g in run.gaps if g.boundary == "instruction_context"}
+	assert "not_found_in_full_file" in reasons, run.gaps
+	gap = next(g for g in run.gaps if g.reason == "not_found_in_full_file")
+	assert "session_id=absent_session" in gap.detail, gap.detail
+	assert "turn_id=" not in gap.detail

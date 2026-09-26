@@ -374,7 +374,7 @@ def check_instruction_drift(run: RunEvidence) -> list[Finding]:
 			Finding(
 				rule_id="instruction_drift",
 				rule_version=RULESET_VERSION,
-				phenomenon=f"同一轮内 {field} 出现 {len(uniq)} 个不同取值",
+				phenomenon=f"{scope_word(run)}里 {field} 出现 {len(uniq)} 个不同取值",
 				boundary="instruction_context",
 				component=f"上下文组装（{field}）",
 				status=SUSPECTED_CAUSE,
