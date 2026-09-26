@@ -25,6 +25,7 @@ import {
 	NOT_ATTRIBUTED_TEXT,
 	SHOWN_LABEL,
 	buildTimeline,
+	causeEvidenceSummary,
 	describeAuditRow,
 	fmtClock,
 	fmtCostCny,
@@ -235,6 +236,8 @@ describe('责任划分', () => {
 						proves: '动作是被执行层挡下的',
 						does_not_prove: '不能把「没做」记到模型头上',
 						evidence: EVIDENCE,
+						// 后端只把前 6 条指针放进来，总数另说；这里给 7 条，界面必须报 7。
+						evidence_total: 7,
 					},
 					{
 						code: 'acceptance_missing',
@@ -271,6 +274,9 @@ describe('责任划分', () => {
 		expect(text).toContain('被要求的动作由权限执行层挡下');
 		expect(text).toContain('permission_blocked_action');
 		expect(text).toContain('不能把「没做」记到模型头上');
+		// 原因条目也得指回原始记录；"等 7 条"说的是总数，不是随附的那 1 条样本
+		expect(text).toContain('证据：audit L42 等 7 条');
+		expect((text.match(/证据：/g) ?? []).length).toBe(1);
 		expect(text).toContain('既不能判完成也不能判失败');
 		expect(text).toContain('约束未进入发射投影');
 		expect(text).toContain('缺适配器最终请求体');
@@ -876,5 +882,23 @@ describe('证据缺项的中文口径与"零结论"的指向', () => {
 		const session = document.querySelector('.xy-dig-gaps-session');
 		expect(session?.textContent).toContain('会话级采集限制');
 		expect(session?.textContent).toContain('未开启可复现记录');
+	});
+});
+
+describe('causeEvidenceSummary', () => {
+	it('一行给出指得到哪条记录，条数说总数', () => {
+		const items = [
+			{source: 'audit', locator: '/x/audit.jsonl', ref_id: 'L42', detail: 'tool.finished'},
+			{source: 'audit', locator: '/x/audit.jsonl', ref_id: 'L43', detail: 'tool.finished'},
+		];
+		expect(causeEvidenceSummary(items, 9)).toBe('证据：audit L42 等 9 条');
+		// 后端没给总数时按随附的条数说，不吹成更多
+		expect(causeEvidenceSummary(items, 0)).toBe('证据：audit L42 等 2 条');
+		expect(causeEvidenceSummary([items[0]])).toBe('证据：audit L42');
+	});
+
+	it('没有证据的原因条目不给空行', () => {
+		expect(causeEvidenceSummary([], 0)).toBe('');
+		expect(causeEvidenceSummary(undefined)).toBe('');
 	});
 });

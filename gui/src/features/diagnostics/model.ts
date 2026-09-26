@@ -883,6 +883,23 @@ export function evidenceText(e: DiagEvidenceRef): string {
 	return [e.source, e.ref_id, e.locator, e.detail].filter(Boolean).join(' | ');
 }
 
+/**
+ * 一条原因的证据摘要：界面原来只投出 label 与"能证明/不能证明"，
+ * 后端已经带过来的原始记录指针被丢掉（因果链那一段是渲染的）。
+ * 逐条铺开会和因果链重复，这里只给一行"指得到哪里"，没有证据时返回空串。
+ */
+export function causeEvidenceSummary(items: DiagEvidenceRef[] | undefined, total?: number): string {
+	const shown = items ?? [];
+	const first = shown.find(e => e && (e.source || e.ref_id || e.locator || e.detail));
+	if (!first) return '';
+	const head =
+		[first.source, first.ref_id].filter(Boolean).join(' ') ||
+		(first.locator ? (first.locator.split(/[\\/]/).pop() ?? '') : '');
+	if (!head) return '';
+	const n = typeof total === 'number' && total > 0 ? total : shown.length;
+	return `证据：${head}${n > 1 ? ` 等 ${n} 条` : ''}`;
+}
+
 // ---------------------------------------------------------------------------
 // 运行列表的边界覆盖
 // ---------------------------------------------------------------------------

@@ -209,6 +209,9 @@ def test_constraint_loss_is_the_upstream_cause(monkeypatch) -> None:
 	# 上下文丢失排在结构破坏之前：越上游越能解释后面的现象
 	assert _codes(verdict)[0] == CONTEXT_DROPPED
 	assert verdict["responsibility"] == "engine"
+	assert next(c for c in verdict["causes"] if c["code"] == CONTEXT_DROPPED)["evidence"], (
+		"定责到引擎的原因必须能回到原始记录（报告自己的结论明细就写着「无原始证据（因此不下定责结论）」）"
+	)
 
 
 def test_blocked_action_is_not_counted_as_skipped(monkeypatch) -> None:
@@ -229,6 +232,9 @@ def test_blocked_action_is_not_counted_as_skipped(monkeypatch) -> None:
 	# 就构不成"与验收不符"——没有记录就没有矛盾，只剩引擎这一方。
 	assert verdict["responsibility"] == "engine"
 	assert SELF_REPORT_MISMATCH not in codes, "无验收记录不得算成自述与验收不符"
+	assert next(c for c in verdict["causes"] if c["code"] == PERMISSION_BLOCKED)["evidence"], (
+		"「被执行层挡下」要指到那条审批行"
+	)
 
 
 def test_missing_verifier_is_a_cause_but_blames_nobody(monkeypatch) -> None:
@@ -277,6 +283,37 @@ def test_acceptance_cause_says_record_not_action() -> None:
 
 	assert "未执行" not in OUTCOME_LABEL[OUTCOME_NOT_ACCEPTED]
 	assert "记录" in OUTCOME_LABEL[OUTCOME_NOT_ACCEPTED]
+
+
+def test_cause_entries_report_the_full_evidence_count_not_just_the_sample() -> None:
+	"""原因条目只带前 6 条指针，但总数必须单独说 —— 否则界面写"等 6 条"而实际有 9 条。"""
+	refs = [
+		EvidenceRef(source="audit", locator="audit.jsonl", ref_id=f"L{i}", detail="tool_use 不成对")
+		for i in range(1, 10)
+	]
+	big = Finding(
+		rule_id="tool_pair_integrity",
+		rule_version=1,
+		phenomenon="投影结构坏了",
+		boundary="adapter",
+		component="测试组件",
+		status=CONFIRMED_FAULT,
+		evidence=refs,
+		coverage_gap="测试夹具",
+		allowed_conclusion="测试夹具",
+	)
+	causes = _causes.derive(
+		findings=[big],
+		constraint_lost=False,
+		permission_blocked=False,
+		action_skipped=False,
+		self_report=None,
+		outcome="not_accepted",
+		tool_error_kinds={},
+	)
+	item = next(c for c in causes if c["code"] == "projection_structure_broken")
+	assert len(item["evidence"]) == 6, "指针按前 6 条带，正文不爆量"
+	assert item["evidence_total"] == 9, "总数说的是全部，不是样本"
 
 
 def test_self_reported_without_a_verifier_still_lacks_acceptance(monkeypatch) -> None:
@@ -339,6 +376,7 @@ def test_folded_out_gets_its_own_cause_and_a_different_next_step(monkeypatch) ->
 	assert CONSTRAINT_FOLDED in codes and CONTEXT_DROPPED not in codes
 	item = next(c for c in verdict["causes"] if c["code"] == CONSTRAINT_FOLDED)
 	assert "折叠是错的" not in item["proves"] and "复核" in item["does_not_prove"]
+	assert item["evidence"], "折叠移出同样要指出是哪一份投影、哪一行"
 	assert any("是否该被保留" in m for m in verdict["missing_evidence"])
 
 
@@ -358,6 +396,7 @@ def test_engine_finished_but_gui_missing_gets_its_own_cause() -> None:
 	assert "display_transport_gap" in codes
 	item = next(c for c in verdict["causes"] if c["code"] == "display_transport_gap")
 	assert item["party"] == "engine"
+	assert item["evidence"], "归到引擎的缺口也要指到那条审计行"
 	assert "不能证明引擎未完成" in item["does_not_prove"]
 	assert verdict["responsibility"] == "engine"
 

@@ -185,7 +185,10 @@ def _entry(code: str, evidence: list[dict[str, Any]]) -> dict[str, Any]:
 		"party": _CAUSE_PARTY.get(code, "undetermined"),
 		"proves": proves,
 		"does_not_prove": not_proves,
+		# 只带前 6 条指针，但总数要说得出：否则界面写"等 6 条"而实际有 20 条，
+		# 又是一处把截断说成完整。
 		"evidence": evidence[:6],
+		"evidence_total": len(evidence),
 	}
 
 
@@ -210,19 +213,23 @@ def derive(
 	tool_error_kinds: dict[str, list[dict[str, Any]]],
 	display_gap: bool = False,
 	observed: bool = True,
+	flag_evidence: dict[str, list[dict[str, Any]]] | None = None,
 ) -> list[dict[str, Any]]:
-	"""按上游优先顺序产出原因列表。一个失败可以同时挂多条原因，不做合并。"""
+	"""按上游优先顺序产出原因列表。一个失败可以同时挂多条原因，不做合并。
+
+	``flag_evidence``：由标志位（而非某条 Finding）派生的那几条原因，证据指针由调用方
+	按原因码递进来 —— 这些标志背后都有一次真实的读取（留存投影、审批行、verifier 条目），
+	那条记录本来就能指认，以前只是没传过来。
+	"""
+	flag_evidence = flag_evidence or {}
 	by_rule: dict[str, list[Finding]] = {}
 	for f in findings:
 		by_rule.setdefault(f.rule_id, []).append(f)
 	out: list[dict[str, Any]] = []
 	if constraint_lost:
-		entry = _entry(CONTEXT_DROPPED, [])
-		if constraint_mode == "folded_out":
-			entry["code"] = CONSTRAINT_FOLDED
-			entry["label"] = CAUSE_LABEL[CONSTRAINT_FOLDED]
-			entry["proves"], entry["does_not_prove"] = _PROVES[CONSTRAINT_FOLDED]
-		out.append(entry)
+		# 折叠移出与从未进入都是"该在场却没送到"，只是前者能定位到具体一级。
+		lost_code = CONSTRAINT_FOLDED if constraint_mode == "folded_out" else CONTEXT_DROPPED
+		out.append(_entry(lost_code, flag_evidence.get(lost_code, [])))
 	for code, rule_id, want_status in _RULE_CAUSES:
 		# 同一条规则可以一边产出"已确认"一边产出"未定"（例：投影结构坏了 + 工作记忆里
 		# 存着不成对的 tool_use）。过去这里只记每条规则的**最后**一个状态，而规则集把
@@ -252,17 +259,17 @@ def derive(
 		entry["detail_kind"] = kind
 		out.append(entry)
 	if permission_blocked and not any(x["code"] == PERMISSION_BLOCKED for x in out):
-		out.append(_entry(PERMISSION_BLOCKED, []))
+		out.append(_entry(PERMISSION_BLOCKED, flag_evidence.get(PERMISSION_BLOCKED, [])))
 	if display_gap:
-		out.append(_entry(DISPLAY_GAP, []))
+		out.append(_entry(DISPLAY_GAP, flag_evidence.get(DISPLAY_GAP, [])))
 	if action_skipped:
-		out.append(_entry(ACTION_SKIPPED, []))
+		out.append(_entry(ACTION_SKIPPED, flag_evidence.get(ACTION_SKIPPED, [])))
 	if self_report is not None:
 		out.append(_entry(SELF_REPORT_MISMATCH, [e.to_dict() for e in self_report.evidence]))
 	if outcome == "accepted_fail":
-		out.append(_entry(ACCEPT_FAILED, []))
+		out.append(_entry(ACCEPT_FAILED, flag_evidence.get(ACCEPT_FAILED, [])))
 	elif outcome == "verifier_error":
-		out.append(_entry(ACCEPT_ERROR, []))
+		out.append(_entry(ACCEPT_ERROR, flag_evidence.get(ACCEPT_ERROR, [])))
 	elif outcome in ("not_accepted", "self_reported_unverified") and observed:
 		# 两条都缺的是同一件东西：可核对的验收记录。自述不构成验收，也不构成矛盾。
 		# 但执行面上一条记录都没有时，"没有验收记录"不是一条关于这次执行的原因，只是

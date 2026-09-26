@@ -17,6 +17,7 @@ import {
 	NOT_ATTRIBUTED_TEXT,
 	attributionLines,
 	boundaryLabelOf,
+	causeEvidenceSummary,
 	PARTY_LABEL,
 	PARTY_TONE,
 	SHOWN_LABEL,
@@ -155,21 +156,28 @@ export function FindingsView({detail}: {detail: DiagRunDetail}) {
 						</div>
 						{detail.fault.causes.length ? (
 							<ul className="xy-dig-causes">
-								{detail.fault.causes.map(c => (
-									<li key={`${c.code}-${c.detail_kind ?? ''}`}>
-										<Badge tone={PARTY_TONE[c.party] ?? 'unknown'}>
-											{PARTY_LABEL[c.party] ?? c.party}
-										</Badge>
-										<span className="xy-dig-cause-label">
-											{c.label}
-											{c.detail_kind ? <span className="mono"> · {c.detail_kind}</span> : null}
-										</span>
-										<span className="xy-dig-cause-mono mono">{c.code}</span>
-										<span className="xy-dig-cause-limits">
-											能证明：{c.proves}；不能证明：{c.does_not_prove}
-										</span>
-									</li>
-								))}
+								{detail.fault.causes.map(c => {
+									const evidenceLine = causeEvidenceSummary(c.evidence, c.evidence_total);
+									return (
+										<li key={`${c.code}-${c.detail_kind ?? ''}`}>
+											<Badge tone={PARTY_TONE[c.party] ?? 'unknown'}>
+												{PARTY_LABEL[c.party] ?? c.party}
+											</Badge>
+											<span className="xy-dig-cause-label">
+												{c.label}
+												{c.detail_kind ? <span className="mono"> · {c.detail_kind}</span> : null}
+											</span>
+											<span className="xy-dig-cause-mono mono">{c.code}</span>
+											<span className="xy-dig-cause-limits">
+												能证明：{c.proves}；不能证明：{c.does_not_prove}
+											</span>
+											{/* 后端把这条原因依据的原始记录一起送了过来，以前只投句子不投指针。 */}
+											{evidenceLine ? (
+											<span className="xy-dig-cause-evidence mono">{evidenceLine}</span>
+										) : null}
+										</li>
+									);
+								})}
 							</ul>
 						) : null}
 						<p className="xy-dig-fault-why">{detail.fault.why}</p>

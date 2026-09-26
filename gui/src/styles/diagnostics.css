@@ -1371,6 +1371,14 @@
   overflow-wrap: anywhere;
 }
 
+/* 一条原因指回原始记录的那一行：整宽、比"能证明"更小一档，等 N 条说的是总数（后端只带前 6 条指针）。 */
+.xy-dig-cause-evidence {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  color: var(--color-mute);
+  overflow-wrap: anywhere;
+}
+
 /* 失败步骤上的「查看诊断」入口（ActivityLog 的行右侧，非动画面板，不上 blur） */
 .xy-dig-step-link {
   appearance: none;

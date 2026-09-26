@@ -292,6 +292,8 @@ def test_required_test_skipped_is_a_model_fault_without_a_verifier(monkeypatch) 
 	assert verdict["shown_to_model"] == "shown"
 	assert verdict["responsibility"] == MODEL
 	assert any("要求动作" in s["fact"] and s["party"] == "model" for s in verdict["chain"])
+	skip = next(c for c in verdict["causes"] if c["code"] == "required_action_skipped")
+	assert skip["evidence"], "判模型的错，必须能指回那句要求与这条运行的记录"
 
 
 def test_blocked_action_is_not_a_model_fault(monkeypatch) -> None:
@@ -443,6 +445,9 @@ def test_bare_acceptance_failure_does_not_blame_model(monkeypatch) -> None:
 	assert any("先于本轮存在" in m for m in verdict["missing_evidence"])
 	# 原因照实列出：责任未定不等于原因没有
 	assert "acceptance_failed" in [c["code"] for c in verdict["causes"]]
+	assert next(c for c in verdict["causes"] if c["code"] == "acceptance_failed")["evidence"], (
+		"「验收执行了且失败」要指到那条 verifier 记录"
+	)
 
 
 def test_green_verifier_does_not_become_model_fault() -> None:

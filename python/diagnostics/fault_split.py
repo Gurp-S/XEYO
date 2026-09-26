@@ -712,6 +712,7 @@ def _no_records_verdict(run: RunEvidence) -> dict[str, Any]:
 				"proves": "本轮没有一条带自己身份的记录：这是采集缺口，不是执行结果",
 				"does_not_prove": "不等于没有失败，也不等于成功；无记录只说明记录里没有",
 				"evidence": [],
+				"evidence_total": 0,
 			}
 		],
 		"task_outcome": OUTCOME_NOT_ACCEPTED,
@@ -867,6 +868,23 @@ def attribute_fault(run: RunEvidence, findings: list[Finding]) -> dict[str, Any]
 			match = _re.search(r"error_kind=([A-Z_]+)", ev.detail)
 			kind = match.group(1) if match else "UNCLASSIFIED"
 			tool_error_kinds.setdefault(kind, []).append(ev.to_dict())
+	flag_evidence: dict[str, list[dict[str, Any]]] = {}
+	if constraint_lost:
+		# 指针指约束自己的那条记录（transcript / pin）与发射级证据：每条原因都得能回到原始记录，
+		# 界面才会出现"复制定位"而不是只有一句断言。
+		flag_evidence[
+			_causes.CONSTRAINT_FOLDED if shown["state"] == "folded_out" else _causes.CONTEXT_DROPPED
+		] = [r.to_dict() for r in _obligation_step_evidence(obligation, shown)]
+	if unmet["state"] == "blocked_by_permission":
+		flag_evidence[_causes.PERMISSION_BLOCKED] = [e.to_dict() for e in unmet["evidence"]]
+	if unmet["state"] == "action_missing":
+		flag_evidence[_causes.ACTION_SKIPPED] = [e.to_dict() for e in unmet["evidence"]]
+	if outcome_refs:
+		flag_evidence[
+			_causes.ACCEPT_FAILED if outcome == OUTCOME_FAIL else _causes.ACCEPT_ERROR
+		] = [e.to_dict() for e in outcome_refs]
+	if transport:
+		flag_evidence[_causes.DISPLAY_GAP] = [e.to_dict() for f_item in transport for e in f_item.evidence]
 	cause_list = _causes.derive(
 		findings=findings,
 		constraint_lost=constraint_lost,
@@ -884,6 +902,7 @@ def attribute_fault(run: RunEvidence, findings: list[Finding]) -> dict[str, Any]
 		# 只是什么都没观察到 —— 与轮次视图的「本轮无记录」同一裁定（fault_split::_no_records_verdict）。
 		# 判据与主原因措辞共用 causes.execution_observed，不留第二份口径。
 		observed=_causes.execution_observed(run),
+		flag_evidence=flag_evidence,
 	)
 	cause_head = _causes.primary(cause_list)
 

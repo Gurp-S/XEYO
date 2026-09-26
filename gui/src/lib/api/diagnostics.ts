@@ -365,6 +365,8 @@ export type DiagCause = {
 	does_not_prove: string;
 	detail_kind?: string;
 	evidence: DiagEvidenceRef[];
+	/** 后端只带前 6 条指针，总数另说：否则界面写"等 6 条"而实际有 20 条。 */
+	evidence_total: number;
 };
 
 /** 责任划分：后端判据不对称——判"模型的错"必须有约束送达证据。 */
@@ -606,6 +608,7 @@ function parseFault(v: unknown): DiagFault | null {
 				does_not_prove: s(c1.does_not_prove),
 				detail_kind: c1.detail_kind ? s(c1.detail_kind) : undefined,
 				evidence: arr(c1.evidence).map(parseEvidence),
+				evidence_total: n(c1.evidence_total) ?? 0,
 			};
 		}),
 		task_outcome: s(o.task_outcome),
