@@ -20,6 +20,9 @@ const FACT_STATE_TONE: Record<string, 'ok' | 'warn' | 'fail' | 'neutral'> = {
 };
 
 function FactChain({trace}: {trace: DiagFactTrace}) {
+	// 后端在这份载荷里已经带了每级的中文名，缺项名单就照着对上：
+	// 直接 join 机器名会把 `candidate、selected` 这种原文投给读者。
+	const stageLabels = new Map(trace.stages.map((st) => [st.stage, st.label || st.stage] as const));
 	return (
 		<div className="xy-dig-fact">
 			<ol className="xy-dig-stages">
@@ -40,7 +43,7 @@ function FactChain({trace}: {trace: DiagFactTrace}) {
 			</Notice>
 			{trace.unprovable_stages.length ? (
 				<p className="xy-dig-sub">
-					不可证明的级别：{trace.unprovable_stages.join('、')}
+					不可证明的级别：{trace.unprovable_stages.map((name) => stageLabels.get(name) ?? name).join('、')}
 				</p>
 			) : null}
 			<p className="xy-dig-caveat">注意：{trace.caveat || '字符串匹配不代表模型理解了该事实。'}</p>

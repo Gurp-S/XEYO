@@ -243,3 +243,43 @@ describe('「上下文」视图的载荷自证', () => {
 		await waitFor(() => expect(btn.getAttribute('aria-busy')).toBe('false'));
 	});
 });
+
+describe('定位链的中文纪律', () => {
+	it('未记账级别用后端的中文级名，折叠徽章不替后端断言送达', async () => {
+		vi.mocked(traceDiagFact).mockResolvedValueOnce({
+			needle: '改完必须跑测试',
+			session_id: 's1',
+			turn_id: 't1',
+			stages: [
+				{stage: 'source_history', label: '源历史（transcript）', state: 'found', evidence: [], note: ''},
+				{stage: 'candidate', label: '进入候选', state: 'not_recorded', evidence: [], note: ''},
+				{stage: 'selected', label: '被选择', state: 'not_captured', evidence: [], note: ''},
+				{
+					stage: 'emitted',
+					label: '已发射（投影）',
+					state: 'folded_out',
+					evidence: [],
+					note: '游标 5：第 2 行落在被折叠区间内',
+				},
+			],
+			unprovable_stages: ['candidate', 'selected'],
+			verdict: 'unknown',
+			statement: '发射级只留存整会话最后一份投影，且无从核对它属不属于这个范围',
+			caveat: '',
+		} as never);
+		render(<ContextView detail={detail()} sessionId="s1" turnId="t1" storeRoot="/diag" />);
+		fireEvent.change(document.querySelector<HTMLInputElement>('.xy-dig-input')!, {
+			target: {value: '改完必须跑测试'},
+		});
+		fireEvent.click(screen.getByRole('button', {name: '定位'}));
+
+		await waitFor(() => expect(document.body.textContent).toContain('无从核对它属不属于这个范围'));
+		const names = document.querySelector('.xy-dig-sub')?.textContent ?? '';
+		expect(names).toContain('进入候选、被选择');
+		expect(names).not.toMatch(/candidate|selected/);
+		// 发射级徽章读的是"整会话留存的那一份投影"，归属核不上时后端结论是"无从核对"：
+		// 徽章再写"未送达"就是同一块面板里一边说判不了、一边替引擎认账。
+		expect(document.body.textContent).toContain('被折叠移出留存投影');
+		expect(document.body.textContent).not.toContain('未送达');
+	});
+});

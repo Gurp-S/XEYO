@@ -47,6 +47,16 @@ def _states(doc: dict) -> dict[str, str]:
 	return {s["stage"]: s["state"] for s in doc["stages"]}
 
 
+def _attributable(run):
+	"""把留存投影的时刻钉回本运行：发射级的"落空"只有在归属核得上时才有结论资格。
+
+	生产里审计行带着 projection_id、working 带着那份投影的 created_at；两者都对不上时
+	判据说不出"丢在发射之前"（#68），所以断言这条结论的夹具必须先把这一枪摆实。
+	"""
+	run.projections = [{"projection_id": "p1", "created_at": 1.0}]
+	return run
+
+
 def test_missing_transcript_is_not_reported_as_absent(tmp_path) -> None:
 	doc = trace_fact(_run(tmp_path), "部署前先跑迁移")
 	assert doc["stages"][0]["state"] == NOT_CAPTURED
@@ -108,7 +118,7 @@ def test_in_source_but_not_emitted_localizes_to_emission(tmp_path) -> None:
 	sent = json.dumps([{"role": "user", "content": "无关内容"}], ensure_ascii=False)
 	_transcript("s1", [{"id": "m1", "role": "user", "ts": 0.5, "content": "部署前先跑迁移"}])
 	_working("s1", {"session_id": "s1", "last_x_sent": sent})
-	doc = trace_fact(_run(tmp_path), "部署前先跑迁移")
+	doc = trace_fact(_attributable(_run(tmp_path)), "部署前先跑迁移")
 	states = _states(doc)
 	assert states["source_history"] == FOUND
 	assert states["emitted"] == ABSENT
@@ -124,7 +134,7 @@ def test_folded_out_is_distinguished_from_never_emitted(tmp_path, monkeypatch) -
 	_working("s1", {"session_id": "s1", "last_x_sent": json.dumps([{"content": "无关"}], ensure_ascii=False), "compact_cursor": 5})
 	import diagnostics.collect as coll
 
-	run = _run(tmp_path)
+	run = _attributable(_run(tmp_path))
 	# collect 只在 in-run 行上留正文，这里直接补一份等价视图
 	run.transcript_rows = [
 		{"id": "m2", "role": "user", "line_no": 2, "content": constraint, "locator": "s1.jsonl"},
@@ -140,22 +150,85 @@ def test_folded_out_is_distinguished_from_never_emitted(tmp_path, monkeypatch) -
 	assert "前提是 transcript 行序与游标同为消息序号" in stage["note"]
 
 
-def test_after_cursor_hit_is_still_never_emitted(tmp_path) -> None:
+def test_after_cursor_hit_is_still_never_emitted(tmp_path, monkeypatch) -> None:
 	constraint = "部署前先跑迁移"
-	run = _run(tmp_path)
+	run = _attributable(_run(tmp_path))
 	run.transcript_rows = [{"id": "m9", "role": "user", "line_no": 9, "content": constraint, "locator": "s1.jsonl"}]
 	run.working["compact_cursor"] = 5
-	import diagnostics.loss_chain as lc
-
-	monkeypatch_last_sent(lc, json.dumps([{"content": "无关"}], ensure_ascii=False))
+	_stub_last_sent(monkeypatch, json.dumps([{"content": "无关"}], ensure_ascii=False))
 	doc = trace_fact(run, constraint)
 	stage = next(s for s in doc["stages"] if s["stage"] == "emitted")
 	assert stage["state"] == "absent"
 	assert doc["verdict"] == "lost_before:emitted"
 
 
-def monkeypatch_last_sent(lc, sent: str) -> None:
-	lc._last_sent_projection = lambda sid: (sent, "working.json")
+def _stub_last_sent(monkeypatch, sent: str) -> None:
+	"""换掉发射级读的那份投影，用完必须自动还原。
+
+	原先这是一句裸赋值（``lc._last_sent_projection = lambda …``）：模块级补丁不随用例
+	还原，后面每条用例读到的都是这里塞进去的那一份 —— 新用例会在别人的桩上"通过"，
+	断言的其实不是自己的夹具。
+	"""
+	import diagnostics.loss_chain as lc
+
+	monkeypatch.setattr(lc, "_last_sent_projection", lambda sid: (sent, "working.json"))
+
+
+def test_unbound_miss_does_not_localize_to_emission(tmp_path) -> None:
+	"""发射级落空但归属核不上 ⇒ 只能停在无法归因，不能写成"丢在发射之前"。
+
+	working 里的 last_x_sent 是整会话最后发射的那一份，可能出自更晚的一轮；拿它判
+	某一枪"没送到"，把更晚几轮的内容当成这一枪的输入。命中是自证的，落空不是。
+	"""
+	constraint = "部署前先跑迁移"
+	_transcript("s1", [{"id": "m1", "role": "user", "ts": 0.5, "content": constraint}])
+	_working("s1", {"session_id": "s1", "last_x_sent": json.dumps([{"content": "无关内容"}], ensure_ascii=False)})
+	run = _run(tmp_path)
+	# 留存投影的创建时刻晚于本轮最后一条记录：它不是这一枪发出去的那一份
+	run.projections = [{"projection_id": "p9", "created_at": 9_000.0}]
+	doc = trace_fact(run, constraint)
+	assert _states(doc)["emitted"] == ABSENT
+	assert doc["verdict"] == "unknown"
+	assert "无从核对它属不属于这个范围" in doc["statement"]
+	# 两头都不许替引擎或事实认账：既不定位到哪一级丢的，也不排除"这份本来就早于它"
+	assert "既不能定位" in doc["statement"] and "也不能排除" in doc["statement"]
+
+
+def test_unbound_hit_is_still_kept_through(tmp_path) -> None:
+	"""门只关落空那一支：命中带的是投影正文本身，归属核不上也改不了事实。
+
+	#62 交过学费 —— 一把闸把 302 条自证命中一起关掉，覆盖率退步比准确率修得更多。
+	"""
+	constraint = "部署前先跑迁移"
+	_transcript("s1", [{"id": "m1", "role": "user", "ts": 0.5, "content": constraint}])
+	_working("s1", {"session_id": "s1", "last_x_sent": json.dumps([{"content": constraint}], ensure_ascii=False)})
+	run = _run(tmp_path)
+	run.projections = [{"projection_id": "p9", "created_at": 9_000.0}]
+	doc = trace_fact(run, constraint)
+	assert _states(doc)["emitted"] == FOUND
+	assert doc["verdict"] == "kept_through"
+
+
+def test_gate_opens_on_the_projection_manifest_producers_actually_write(tmp_path) -> None:
+	"""归属判据吃的 created_at 必须是生产者真写的那个字段，不能是夹具造的。
+
+	ProjectionManifest.created_at（engine/projection_manifest.py）经
+	snap.last_projection_manifest 落进 working.json，collect 再灌进 run.projections。
+	这条走完整 collect 路径：字段改名时它会先红，而不是让门悄悄关上。
+	"""
+	constraint = "部署前先跑迁移"
+	_transcript("s1", [{"id": "m1", "role": "user", "ts": 0.5, "content": constraint}])
+	_working(
+		"s1",
+		{
+			"session_id": "s1",
+			"last_x_sent": json.dumps([{"content": "无关内容"}], ensure_ascii=False),
+			"last_projection_manifest": {"projection_id": "p1", "created_at": 1.0, "messages_kept": 1},
+		},
+	)
+	doc = trace_fact(_run(tmp_path), constraint)
+	assert _states(doc)["emitted"] == ABSENT
+	assert doc["verdict"] == "lost_before:emitted"
 
 
 def test_empty_needle_is_rejected(tmp_path) -> None:

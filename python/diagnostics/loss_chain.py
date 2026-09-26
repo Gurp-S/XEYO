@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from diagnostics.collect import RunEvidence
-from diagnostics.identity import _s
+from diagnostics.identity import _f, _s
 
 FOUND = "found"
 FOLDED_OUT = "folded_out"
@@ -292,6 +292,36 @@ def _stage_selected(run: RunEvidence) -> dict[str, Any]:
 	)
 
 
+#: 判定"这条记录还属于这个范围"时允许的时间误差（授权等待、时钟抖动都算在内）。
+_OBLIGATION_TOLERANCE_SEC = 2.0
+
+
+def _turn_last_ts(run: RunEvidence) -> float | None:
+	ts = [e.ts for e in run.events_for_turn() if e.ts is not None]
+	return max(ts) if ts else None
+
+
+def _emitted_projection_in_turn(run: RunEvidence) -> bool:
+	"""working 里的 last_x_sent 是整会话的最后一份投影，可能出自更晚的一轮。
+
+	拿它判断「本轮的约束没送到模型」会把后面几轮的内容当成这一轮的输入。只有
+	manifest 的创建时刻不晚于本轮最后一条记录时，这份投影才还是这一轮的。
+	判不动就返回 False：宁可不判，也不替引擎凭空认账。
+	"""
+	upper = _turn_last_ts(run)
+	if upper is None:
+		# 一条带时间戳的记录都没有 ⇒ 这份留存投影出自哪一枪根本无从核对。返回 True 等于
+		# "默认它就是我们这一枪"，于是会话级报告可以拿整会话最后一枪去判某一枪送没送到：
+		# 真实数据 404 个会话里有 7 个这样被判成引擎丢了约束（且原因条目 evidence 为空）。
+		# 与 _last_user_obligation 对同一事实的处理保持一致：界不了就不界，宁可不判。
+		return False
+	stamps = [_f(p.get("created_at")) for p in run.projections]
+	stamps = [s for s in stamps if s is not None]
+	if not stamps:
+		return False
+	return max(stamps) <= upper + _OBLIGATION_TOLERANCE_SEC
+
+
 def _last_sent_projection(session_id: str) -> tuple[str, str]:
 	"""取回上一枪实际发送的投影文本（只用于本地匹配，绝不进报告正文）。"""
 	try:
@@ -469,6 +499,10 @@ def trace_fact(run: RunEvidence, needle: str, *, transcript_cap: int = 400) -> d
 	holes = {NOT_RECORDED, NOT_CAPTURED, UNREADABLE}
 	state_at = {s["stage"]: s["state"] for s in stages}
 	unprovable = [s["stage"] for s in stages if s["state"] in holes]
+	# 发射级只有整会话留存的那一份投影：命中是自证的（正文带着这段原文 ⇒ 发它的时候这段话
+	# 已经存在），落空不是 —— 归属核不上时，"不在这一份里"既可能是被某一级丢了，也可能
+	# 这一份本来就早于它。责任划分那边同一条裁定（fault_split::_shown_to_model）。
+	emitted_bound = _emitted_projection_in_turn(run)
 
 	def _hole_note(names: list[str]) -> str:
 		return "、".join(_STAGE_LABEL.get(n, n) for n in names)
@@ -484,13 +518,13 @@ def trace_fact(run: RunEvidence, needle: str, *, transcript_cap: int = 400) -> d
 			"该事实在发射级仍然可查（中间级可以合理跳过，跳过不构成丢失）。"
 			"它仍在热层时任务失败，只能排除「这条被直接删掉」，不能排除压缩通过信息顺序或噪声影响模型。"
 		)
-	elif state_at.get("emitted") == FOLDED_OUT:
+	elif state_at.get("emitted") == FOLDED_OUT and emitted_bound:
 		verdict = "folded_out_of_projection"
 		statement = (
 			"该事实在源历史里查得到，但落在 compact_cursor 之前的折叠区间内：是折叠把它移出投影的。"
 			"折叠本身可以是对的，需要复核的是这条是否该被保留。"
 		)
-	elif state_at.get("emitted") == ABSENT:
+	elif state_at.get("emitted") == ABSENT and emitted_bound:
 		verdict = "lost_before:emitted"
 		statement = (
 			"该事实在源历史里查得到、在最后发射的投影里查不到。"
@@ -499,10 +533,17 @@ def trace_fact(run: RunEvidence, needle: str, *, transcript_cap: int = 400) -> d
 	else:
 		verdict = "unknown"
 		last_visible = [ _STAGE_LABEL[s["stage"]] for s in stages if s["state"] == FOUND ]
-		statement = (
-			f"最后可见于 {'、'.join(last_visible) if last_visible else '无任何一级'}，"
-			f"发射级本身没有可用记录（{_hole_note(unprovable)}）：无法归因。"
-		)
+		if state_at.get("emitted") in {ABSENT, FOLDED_OUT}:
+			# 有可比对的投影，只是核不出它属不属于这个范围：这句话不能说成"没丢"也不能说成"丢了"
+			statement = (
+				"发射级只留存整会话最后一份投影，且无从核对它属不属于这个范围："
+				"该事实不在这一份里，既不能定位到哪一级丢的，也不能排除这份投影本来就早于它。"
+			)
+		else:
+			statement = (
+				f"最后可见于 {'、'.join(last_visible) if last_visible else '无任何一级'}，"
+				f"发射级本身没有可用记录（{_hole_note(unprovable)}）：无法归因。"
+			)
 	return {
 		"needle": needle_text,
 		"session_id": run.session_id,

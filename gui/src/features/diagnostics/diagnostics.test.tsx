@@ -21,6 +21,7 @@ import {selectTurnAfterRunsLoaded} from './useDiagnosticsData';
 import {
 	COST_BASIS_LABEL,
 	DASH,
+	FACT_STATE_LABEL,
 	NO_CONFIRMED_FAULT_TEXT,
 	NOT_ATTRIBUTED_TEXT,
 	SHOWN_LABEL,
@@ -601,6 +602,14 @@ describe('授权结果不得猜（P1 4）', () => {
 describe('被折叠移出的约束要有中文标签（P1 9）', () => {
 	it('SHOWN_LABEL 覆盖后端 fault_split 发出的 folded_out', () => {
 		expect(SHOWN_LABEL.folded_out).toBe('被折叠移出投影（未送达）');
+	});
+
+	it('两级 folded_out 的断言强度按证据强度分档', () => {
+		// 责任划分那条路已经过投影归属门，才敢说"未送达"；事实定位链的级徽章只看到
+		// "整会话留存的那一份投影"，归属核不上时后端出的是"无从核对"——徽章不得越过它。
+		expect(SHOWN_LABEL.folded_out).toContain('未送达');
+		expect(FACT_STATE_LABEL.folded_out).not.toContain('送达');
+		expect(FACT_STATE_LABEL.folded_out).toContain('留存投影');
 	});
 
 	it('责任划分徽章不照抄机器名', () => {

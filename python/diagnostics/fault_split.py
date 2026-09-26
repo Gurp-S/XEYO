@@ -38,6 +38,13 @@ from msgtypes.notice_markers import (
 	matches_notice_text,
 	resume_user_cue,
 )
+# 归属判据住在 loss_chain：事实定位链（``trace_fact``）与责任划分必须用同一份，
+# 两处各写一遍就是下一次"一边改了另一边没改"的入口。
+from diagnostics.loss_chain import (
+	_OBLIGATION_TOLERANCE_SEC,
+	_emitted_projection_in_turn,
+	_turn_last_ts,
+)
 
 # 责任方
 ENGINE = "engine"
@@ -278,12 +285,6 @@ def _task_outcome(run: RunEvidence) -> tuple[str, list[EvidenceRef], str]:
 # （实测早 ~0.9 秒到几十分钟不等，等授权时更久），所以只能按「不晚于本轮最后
 # 一条带轮次身份的记录」来界定，不能要求它落在本轮时间区间内。
 _OBLIGATION_SCAN_ROWS = 2000
-_OBLIGATION_TOLERANCE_SEC = 2.0
-
-
-def _turn_last_ts(run: RunEvidence) -> float | None:
-	ts = [e.ts for e in run.events_for_turn() if e.ts is not None]
-	return max(ts) if ts else None
 
 
 def _last_user_obligation(run: RunEvidence) -> dict[str, Any]:
@@ -400,27 +401,6 @@ def _obligation(run: RunEvidence) -> dict[str, Any]:
 	if scan_state:
 		out["in_turn_scan"] = scan_state
 	return out
-
-
-def _emitted_projection_in_turn(run: RunEvidence) -> bool:
-	"""working 里的 last_x_sent 是整会话的最后一份投影，可能出自更晚的一轮。
-
-	拿它判断「本轮的约束没送到模型」会把后面几轮的内容当成这一轮的输入。只有
-	manifest 的创建时刻不晚于本轮最后一条记录时，这份投影才还是这一轮的。
-	判不动就返回 False：宁可不判，也不替引擎凭空认账。
-	"""
-	upper = _turn_last_ts(run)
-	if upper is None:
-		# 一条带时间戳的记录都没有 ⇒ 这份留存投影出自哪一枪根本无从核对。返回 True 等于
-		# "默认它就是我们这一枪"，于是会话级报告可以拿整会话最后一枪去判某一枪送没送到：
-		# 真实数据 404 个会话里有 7 个这样被判成引擎丢了约束（且原因条目 evidence 为空）。
-		# 与 _last_user_obligation 对同一事实的处理保持一致：界不了就不界，宁可不判。
-		return False
-	stamps = [_f(p.get("created_at")) for p in run.projections]
-	stamps = [s for s in stamps if s is not None]
-	if not stamps:
-		return False
-	return max(stamps) <= upper + _OBLIGATION_TOLERANCE_SEC
 
 
 def _unprovable_note(run: RunEvidence, *, retained_body: bool = False) -> str:

@@ -230,7 +230,10 @@ export function coverageStateLabel(state: string): string {
 export const FACT_STATE_LABEL: Record<string, string> = {
 	found: '找到',
 	absent: '未命中',
-	folded_out: '被折叠移出投影（未送达）',
+	// 事实定位链的每一级徽章只说这一级查到了什么：发射级读的是"整会话留存的那一份投影"，
+	// 归属核不上时后端的结论会是"无从核对"，徽章却写"未送达"就在同一块面板里替引擎认账。
+	// 送达断言住在 SHOWN_LABEL.folded_out —— 那条路已经过归属门，证据强度够。
+	folded_out: '被折叠移出留存投影',
 	not_recorded: '该级未记账',
 	not_captured: '该级未采集',
 	unreadable: '不可读',
