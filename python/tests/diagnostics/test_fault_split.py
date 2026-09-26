@@ -428,3 +428,23 @@ def test_report_and_markdown_carry_the_verdict(collect) -> None:
 	md = to_markdown(doc)
 	assert "## 责任划分" in md
 	assert "本报告不宣称" in md
+
+
+def test_every_taxonomy_error_kind_has_an_explicit_party_decision() -> None:
+	"""执行层新增一个 error_kind，就必须当场决定归谁，不许静默滑进"未定"。
+
+	归属只由 fault_split 的三张表决定；没列进去的取值一律 UNDETERMINED。那是安全的下限，
+	但同时是一次没人批准的弃权——INTERNAL 与 ABORTED 就是两次**有意**的弃权，
+	在这里当例外登记；第三个没登记的名字出现时，这条应当红。
+	"""
+	import tools.error_taxonomy as taxonomy
+
+	from diagnostics.fault_split import _ENGINE_KINDS, _ENVIRONMENT_KINDS, _MODEL_KINDS
+
+	kinds = {v for k, v in vars(taxonomy).items() if k.isupper() and isinstance(v, str)}
+	assert kinds, "扫描口径失效：分类表一个常量都没读到"
+	unclaimed = kinds - _ENGINE_KINDS - _ENVIRONMENT_KINDS - _MODEL_KINDS
+	assert unclaimed == {"INTERNAL", "ABORTED"}, (
+		"这些 error_kind 没有归属决定，会被静默判成未定（要么进三张表，要么把弃权理由写进本用例）："
+		f"{sorted(unclaimed ^ ({'INTERNAL'} | {'ABORTED'}))}"
+	)
