@@ -228,7 +228,7 @@ async def test_permission_pending_yields_while_sibling_bash_runs(
 				# run_tools_partitioned 推进到 Bash（execute 首行 set started），
 				# 再释放 release —— 否则 Bash 在 execute 内 await release 而自锁。
 				if not _SlowBash.started.is_set():
-					await asyncio.wait_for(_SlowBash.started.wait(), timeout=3.0)
+					await asyncio.wait_for(_SlowBash.started.wait(), timeout=20.0)
 				_SlowBash.release.set()
 				if bash_started_at is None:
 					bash_started_at = time.monotonic()
@@ -236,7 +236,9 @@ async def test_permission_pending_yields_while_sibling_bash_runs(
 			if bash_started_at is None and _SlowBash.started.is_set():
 				bash_started_at = time.monotonic()
 
-	await asyncio.wait_for(_drive(), timeout=8.0)
+	# 这里的墙只防"永远挂住"，不测延迟：断言全是先后关系。墙取 25s 是因为
+	# 满载机器上跑完一次 loop 就可能超过 8s —— 那样得到的是负载假红，不是回归。
+	await asyncio.wait_for(_drive(), timeout=25.0)
 	assert pending_at is not None
 	assert bash_started_at is not None
 	assert bash_started_at >= pending_at  # 串行语义：Bash 不早于 Write 挂起
@@ -317,7 +319,7 @@ async def test_two_asks_pending_before_either_resolved(tmp_path) -> None:
 					assert ask_store.resolve_answer(pending_ids[0], "a", actor="t")
 					assert ask_store.resolve_answer(pending_ids[1], "b", actor="t")
 
-	await asyncio.wait_for(_drive(), timeout=5.0)
+	await asyncio.wait_for(_drive(), timeout=25.0)  # 同上：断言是顺序，不是延迟
 	assert len(pending_ids) == 2
 	assert pending_ids[0] != pending_ids[1]
 

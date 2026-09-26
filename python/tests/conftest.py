@@ -147,11 +147,24 @@ def _bind_test_workspace(tmp_path):
 
 
 
+_SLOW_BUDGET_S = 300
+
+
 def pytest_collection_modifyitems(items):
-	"""给通道测试打标记：fixture 按标记做单例状态隔离。"""
+	"""给通道测试打标记：fixture 按标记做单例状态隔离。
+
+	同时把 `slow` 翻译 pytest-timeout 认得的 `timeout` 标记：全局 `timeout = 60`
+	对每个用例生效，而 markers 里 "slow: allowed up to 300s" 只是声明——不翻译，
+	标了 slow 的长用例照样在 60s 被 thread 法杀掉，且杀掉的是整轮会话（不是单条红）。
+	"""
 	for item in items:
 		if "channel" in item.module.__name__:
 			item.add_marker(pytest.mark.channel)
+		if (
+			item.get_closest_marker("slow")
+			and item.get_closest_marker("timeout") is None
+		):
+			item.add_marker(pytest.mark.timeout(_SLOW_BUDGET_S))
 
 
 @pytest.fixture(autouse=True)

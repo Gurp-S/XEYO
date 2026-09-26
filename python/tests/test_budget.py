@@ -459,7 +459,10 @@ async def test_submit_stops_on_budget_usd(pin_pricing):
 
 
 @pytest.mark.asyncio
+@pytest.mark.slow
 async def test_submit_without_limit_is_unchanged(pin_pricing):
+	# slow：50 轮 max_turns 收尾，每轮都跑真实的 project_for_model→simulator.decide，
+	# 单例实测 ~98s —— 超过全局 60s 线程超时，会被杀掉并中止整轮会话。
 	eng = _engine(UsageToolModel(_usage()))
 	events = []
 	async for ev in eng.submit("go"):
