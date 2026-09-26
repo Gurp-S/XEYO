@@ -227,6 +227,9 @@ def test_fallback_4xx_gets_its_own_cause_not_the_provider_one() -> None:
 	assert PROVIDER_FAILURE not in codes
 	item = next(c for c in verdict["causes"] if c["code"] == SHAPE_REJECTED)
 	assert item["party"] == "undetermined"
+	# 措辞里必须带上这台量具的盲区：frozen_head 看不见换通道重打，读者才不会把它的
+	# 沉默当成"前缀没变"（真实 2,086 个逻辑调用的 projection_id 全部只有一个取值）。
+	assert "冻结前缀" in item["does_not_prove"]
 	# 同一轮里既有 429 又有回退时，两个码要各留各的证据，不得合并成一条。
 	both = attribute_fault(_run(), [
 		_finding("provider_stream_failure", "model_request", detail="llm.failure status=429 attempt=1"),

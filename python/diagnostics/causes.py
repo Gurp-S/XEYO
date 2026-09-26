@@ -95,7 +95,9 @@ _PROVES: dict[str, tuple[str, str]] = {
 	SHAPE_REJECTED: (
 		"这一枪带着我方提交的形状被 4xx 拒过，引擎换了另一条注入通道重打",
 		"不能区分厂商不支持该通道与我方结构有错——引擎这条回退判据本身被证明会误判"
-		"（engine/query_loop.py::_is_tool_pairing_400 记的事故），也不能证明重打后成功",
+		"（engine/query_loop.py::_is_tool_pairing_400 记的事故），也不能证明重打后成功；"
+		"更不能证明它改动了冻结前缀：frozen_head 的量具是投影标识，而回退分支只重建"
+		"消息、不重建 manifest（真实 2,086 个逻辑调用的 projection_id 全部只有一个取值）",
 	),
 	REPEATED_ERROR: ("同一错误签名反复出现", "不能断言死循环，也不能断言参数完全相同"),
 	ACTION_SKIPPED: ("要求已送达、没被执行、没被挡，还自述完成", "不能证明模型「理解」了要求，只比对了字面"),
