@@ -13,8 +13,10 @@ from diagnostics.fault_split import (
 	MIXED,
 	MODEL,
 	OUTCOME_FAIL,
+	OUTCOME_LABEL,
 	OUTCOME_NOT_ACCEPTED,
 	OUTCOME_PASS,
+	OUTCOME_SELF_REPORTED,
 	UNDETERMINED,
 	_tool_error_party,
 	attribute_fault,
@@ -153,6 +155,39 @@ def test_unrecorded_commands_cannot_prove_the_action_was_skipped(monkeypatch) ->
 	assert any("命令" in s["fact"] and s["party"] == "undetermined" for s in verdict["chain"])
 
 
+def test_unprovable_delivery_cannot_blame_the_model_for_a_skipped_action() -> None:
+	"""命令有记录、动作确实没做，但"要求送没送到"证不出来：只报事实，不指责任何一方。
+
+	真实数据里这条是有分母的：59 轮中唯一一条 ``required_action_skipped`` 恰好落在
+	``shown_to_model=unprovable`` 的那 42 轮里——模型是否见过那句要求都无从证明。
+	"""
+	constraint = "改完必须跑 pytest 再说完成"
+	_write_transcript("s1", [{"id": "m1", "role": "user", "ts": 1.0, "content": constraint}])
+	run = _run(
+		transcript_rows=[
+			{"id": "m1", "role": "user", "content": constraint, "locator": "t.jsonl", "line_no": 1},
+			{"id": "m2", "role": "assistant", "content": "已完成，测试通过", "locator": "t.jsonl", "line_no": 2},
+		],
+		model_requests=[
+			ModelRequest(model_request_id="r1", attempts=[{"attempt": 1, "kind": "model.finished", "status": "ok"}])
+		],
+		tool_calls=[
+			ToolCall(
+				tool_use_id="c1",
+				tool_name="Read",
+				started={"line_no": 3, "command_summary": "read config"},
+				finished={"line_no": 4, "command_summary": "read config"},
+			)
+		],
+	)
+	verdict = attribute_fault(run, [])
+	assert verdict["shown_to_model"] == "unprovable"
+	assert verdict["responsibility"] != MODEL
+	assert any("要求动作" in s["fact"] for s in verdict["chain"]), "事实仍要说出来"
+	assert not any(s["party"] == "model" for s in verdict["chain"])
+	assert "required_action_skipped" not in [c["code"] for c in verdict["causes"]]
+
+
 def test_missing_verifier_is_not_a_self_report_contradiction() -> None:
 	"""没有验收记录时，自述不与任何东西矛盾：那句"验收记录显示…"是凭空指控。"""
 	run = _run(
@@ -164,6 +199,10 @@ def test_missing_verifier_is_not_a_self_report_contradiction() -> None:
 	verdict = attribute_fault(run, [])
 	assert "self_report" not in verdict
 	assert not any(s["party"] == "model" for s in verdict["chain"])
+	# 但这句话必须被说出来：自述完成而无验收可核，是任务结局的一种，不是没有结局。
+	assert verdict["task_outcome"] == OUTCOME_SELF_REPORTED
+	assert verdict["task_outcome_label"] == OUTCOME_LABEL[OUTCOME_SELF_REPORTED]
+	assert any(s["party"] == UNDETERMINED and "自述" in s["fact"] for s in verdict["chain"])
 
 
 def test_post_hoc_pin_cannot_claim_context_loss_but_can_name_requirement(monkeypatch) -> None:

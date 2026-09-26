@@ -867,6 +867,27 @@ def _blob_present(anchor: Path, ref: str) -> bool:
 		return True
 
 
+def _content_text(value: Any) -> str:
+	"""把 transcript 行的正文折成可读文本。
+
+	真实 transcript 里 assistant 正文是块列表（``[{"type":"text","text":…},
+	{"type":"tool_use",…}]``：本机两个会话 302/303 与 273/273 都是列表，纯 str 只
+	有 1 行）。按 ``isinstance(content, str)`` 取正文 ⇒ 自述核对一句也读不到，
+	整条模型侧判据在真实数据上永不成立。只取 text 块：工具块不是"说的话"。
+	"""
+	if isinstance(value, str):
+		return value
+	if isinstance(value, list):
+		parts: list[str] = []
+		for block in value:
+			if isinstance(block, dict) and _s(block.get("type")) == "text":
+				text = block.get("text")
+				if isinstance(text, str) and text:
+					parts.append(text)
+		return "\n".join(parts)
+	return ""
+
+
 def _collect_transcript(run: RunEvidence, session_id: str, wanted_tool_ids: set[str]) -> None:
 	"""transcript 行不带 turn 身份；用本运行的 tool_use_id 锚定，锚不到的只给窗口。"""
 	try:
@@ -911,6 +932,13 @@ def _collect_transcript(run: RunEvidence, session_id: str, wanted_tool_ids: set[
 			view["body_state"] = "blob" if _blob_present(path, _s(row.get("content_ref"))) else "missing_blob"
 		elif "content" in row:
 			view["body_state"] = "inline"
+			# 行内正文必须带进载荷：模型自述（"测试通过"）就在 assistant 行里，而
+			# 这些行不带 tool_call_id。旧写法只在"本轮工具结果"分支里塞 content，
+			# 于是真实数据 20/20 轮读不到一句自述——自述核对与整条模型侧归因
+			# 在结构上永不成立。序列化时 to_dict 仍会剥掉 content，不外发。
+			text = _content_text(row.get("content"))
+			if text:
+				view["content"] = text[:2000]
 		else:
 			view["body_state"] = "absent"
 		if calls and wanted_tool_ids and calls in wanted_tool_ids:
@@ -922,8 +950,10 @@ def _collect_transcript(run: RunEvidence, session_id: str, wanted_tool_ids: set[
 					from session.transcript_blobs import resolve_transcript_row
 
 					resolved = resolve_transcript_row(row, anchor)
-					if isinstance(resolved, dict) and isinstance(resolved.get("content"), str):
-						view["content"] = resolved["content"][:2000]
+					if isinstance(resolved, dict):
+						text = _content_text(resolved.get("content"))
+						if text:
+							view["content"] = text[:2000]
 				except Exception:  # noqa: BLE001 — 回读失败由规则标成冷引用故障
 					view["body_state"] = "missing_blob"
 		if row.get("content_ref") and calls and calls not in wanted_tool_ids:

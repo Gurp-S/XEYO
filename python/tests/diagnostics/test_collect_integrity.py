@@ -1,4 +1,4 @@
-"""采集层的诚实性回归：真实数据普查里确认的十一个缺陷。
+"""采集层的诚实性回归：真实数据普查里确认的十二个缺陷。
 
 每一条都对应一份真实产品数据上跑出来的错账：
 
@@ -26,6 +26,9 @@
 11. 「文件与验收」边界读的是一个从不存在的字段 ⇒ ``note_kind`` 只有 ``state`` / ``event``
     两种取值，没有任何生产者写 ``"verifier"``，于是已经落盘的验收 pin 也被报成
     ``present=false``，而同一份报告的责任划分那句"已验收"恰恰是从这条 pin 读的。
+12. 行内正文只随"本轮工具结果"进载荷，而且只认 ``str`` ⇒ assistant 行既不带
+    ``tool_call_id``、正文又普遍是块列表（本机两个会话 302/303 与 273/273 都是 list），
+    自述核对与整条模型侧归因在真实数据上永不成立。
 """
 
 from __future__ import annotations
@@ -331,6 +334,38 @@ def test_verifier_pin_shows_up_as_acceptance_evidence(write_audit) -> None:
 	assert boundary["evidence"][0]["ref_id"] == doc["pin_id"]
 	assert boundary["evidence"][0]["source"] == "pin"
 	assert not [g for g in run.gaps if g.boundary == "file_verifier" and g.reason == "not_recorded"]
+
+
+def test_assistant_text_reaches_the_run_payload(write_audit) -> None:
+	"""自述核对吃的是 assistant 行的正文：读不到正文＝那句话永远没说过。
+
+	旧写法只在"本轮工具结果"分支里塞 ``content``，而 assistant 消息不带
+	``tool_call_id`` ⇒ 真实数据 20/20 轮读不到一句自述，自述核对与整条模型侧
+	归因在结构上永不成立。
+	"""
+	path = write_audit(_model_rows("r1", 1) + _tool_rows("c1", "r1"))
+	_write_jsonl(
+		_transcript_file(),
+		[
+			_transcript_row(0, content="改完跑一下测试"),
+			_transcript_row(
+				1,
+				content=[
+					# 真实块形状：reasoning 也带 text 字段（本机两个会话 reasoning 673 /
+					# tool_use 1007 / text 130），但旁白与工具调用都不是"说的话"。
+					{"type": "reasoning", "text": "先看看 pytest 的输出"},
+					{"type": "tool_use", "id": "c9", "name": "Bash", "input": {"command": "pytest -q"}},
+					{"type": "text", "text": "测试通过，任务已完成"},
+				],
+			),
+		],
+	)
+
+	run = collect_run(_SESSION, _TURN, audit_path=path)
+	assistant = [t for t in run.transcript_rows if t.get("role") == "assistant"]
+	assert assistant and assistant[0].get("content") == "测试通过，任务已完成"
+	# 正文只留在进程内的判据里，序列化载荷仍要剥掉：界面读 has_content，不外发原文。
+	assert all("content" not in row for row in run.to_dict()["transcript"])
 
 
 def test_absent_audit_file_is_not_a_small_window(tmp_path) -> None:

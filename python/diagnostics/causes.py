@@ -208,7 +208,8 @@ def derive(
 		out.append(_entry(ACCEPT_FAILED, []))
 	elif outcome == "verifier_error":
 		out.append(_entry(ACCEPT_ERROR, []))
-	elif outcome == "not_accepted":
+	elif outcome in ("not_accepted", "self_reported_unverified"):
+		# 两条都缺的是同一件东西：可核对的验收记录。自述不构成验收，也不构成矛盾。
 		out.append(_entry(ACCEPT_MISSING, []))
 	if not out:
 		out.append(_entry(NOT_DETERMINED, []))

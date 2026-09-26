@@ -205,9 +205,36 @@ def _environment_findings(findings: list[Finding]) -> list[Finding]:
 
 
 def _task_outcome(run: RunEvidence) -> tuple[str, list[EvidenceRef], str]:
-	"""任务结局只看验收记录；没有验收就报"无法判定"。"""
+	"""任务结局只看验收记录；没有验收就报"无法判定"。
+
+	"没有记录"与"自述完成但没有记录可核"是两件事，分开说：前者对本运行一无所知，
+	后者至少有一条可回读的自述。合在一起的后果是这条区分在界面上永远只剩一种取值。
+	"""
 	verifiers = [p for p in run.pins if _s(p.get("kind")) == "verifier"]
 	if not verifiers:
+		claims = [
+			(row, word)
+			for row in _assistant_rows(run)
+			if isinstance(row.get("content"), str)
+			for word in _CLAIM_WORDS
+			if word in str(row.get("content"))
+		]
+		if claims:
+			row, word = claims[0]
+			return (
+				OUTCOME_SELF_REPORTED,
+				[
+					EvidenceRef(
+						source="transcript",
+						locator=_s(row.get("locator")),
+						ref_id=_s(row.get("id")),
+						detail=f"自述含「{word}」",
+					)
+				],
+				"模型自述完成（{}），但本运行没有验收记录可核对：既不能说通过，也不能说失败。".format(
+					"、".join(sorted({w for _, w in claims}))
+				),
+			)
 		return OUTCOME_NOT_ACCEPTED, [], "本运行没有验收记录：既不能说通过，也不能说失败。"
 	ref = [
 		EvidenceRef(
@@ -695,11 +722,15 @@ def attribute_fault(run: RunEvidence, findings: list[Finding]) -> dict[str, Any]
 	if self_report is not None:
 		_step(self_report.boundary, self_report.phenomenon, MODEL, self_report.evidence)
 	if unmet["state"] == "action_missing":
+		# 把"没做"算到模型头上，前提是那句要求确实送达过：shown 证不出来时
+		# 只能说动作没有对应记录，指责任何一方都是凭空。
+		delivered = shown["state"] == "shown"
 		_step(
 			"tool_permission",
 			f"要求动作 {'、'.join(sorted({m for m in _ACTION_MARKERS if m in requirement_text.lower() or m in requirement_text}))}，"
-			f"本轮 {len(own_tools)} 次工具调用里没有一项对应，且未被权限挡住；回答仍自述完成",
-			MODEL,
+			f"本轮 {len(own_tools)} 次工具调用里没有一项对应，且未被权限挡住；回答仍自述完成"
+			+ ("" if delivered else "；该要求是否送达无法证明，不指责任何一方"),
+			MODEL if delivered else UNDETERMINED,
 			unmet["evidence"],
 		)
 	elif unmet["state"] == "blocked_by_permission":
@@ -763,7 +794,7 @@ def attribute_fault(run: RunEvidence, findings: list[Finding]) -> dict[str, Any]
 			unmet["state"] == "blocked_by_permission"
 			or any(f_item.rule_id == "permission_block" and f_item.status == CONFIRMED_FAULT for f_item in findings)
 		),
-		action_skipped=unmet["state"] == "action_missing",
+		action_skipped=(unmet["state"] == "action_missing" and shown["state"] == "shown"),
 		self_report=self_report,
 		outcome=outcome,
 		tool_error_kinds=tool_error_kinds,
@@ -855,7 +886,7 @@ def attribute_fault(run: RunEvidence, findings: list[Finding]) -> dict[str, Any]
 			)
 		else:
 			missing.append("未开启可复现记录且无上一枪投影：开 capture 后重跑才能得到最终请求体正文")
-	if outcome == OUTCOME_NOT_ACCEPTED and shown["state"] == "shown":
+	if outcome in {OUTCOME_NOT_ACCEPTED, OUTCOME_SELF_REPORTED} and shown["state"] == "shown":
 		missing.append("没有验收记录：补一条 verifier（或让模型跑被要求的测试）才能判完没完成")
 	if constraint_lost and shown["state"] == "not_shown":
 		missing.append("约束未进入发送内容：还需候选/选择两级的账本才能定位到具体一级")
@@ -863,7 +894,7 @@ def attribute_fault(run: RunEvidence, findings: list[Finding]) -> dict[str, Any]
 		missing.append("约束落在折叠区间内：需复核这条是否该被保留，而不是找别的边界")
 	if after_the_fact:
 		missing.append("预期是事后钉上的：不能据此判这一枪丢了约束；要判需在下一枪前就固定预期")
-	if outcome == OUTCOME_NOT_ACCEPTED:
+	if outcome in {OUTCOME_NOT_ACCEPTED, OUTCOME_SELF_REPORTED}:
 		missing.append("没有 verifier 记录：任务是否完成无法判定")
 	if outcome == OUTCOME_FAIL and contradiction is False:
 		missing.append(

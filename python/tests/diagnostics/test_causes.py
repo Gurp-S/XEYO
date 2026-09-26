@@ -196,6 +196,21 @@ def test_missing_verifier_is_a_cause_but_blames_nobody(monkeypatch) -> None:
 	assert "既不能判完成也不能判失败" in item["does_not_prove"]
 
 
+def test_self_reported_without_a_verifier_still_lacks_acceptance(monkeypatch) -> None:
+	"""自述完成 + 零验收：缺的还是"可核对的验收记录"，而不是多出一条矛盾。"""
+	_user_turn("随便改点什么", "随便改点什么", monkeypatch)
+	run = _run(
+		transcript_rows=[
+			{"id": "m2", "role": "assistant", "content": "已完成，测试通过", "locator": "t.jsonl", "line_no": 2},
+		],
+	)
+	verdict = attribute_fault(run, [])
+	codes = _codes(verdict)
+	assert verdict["task_outcome"] == "self_reported_unverified"
+	assert ACCEPT_MISSING in codes, "换了结局取值就不能顺手丢掉那条原因"
+	assert SELF_REPORT_MISMATCH not in codes
+
+
 def test_folded_out_gets_its_own_cause_and_a_different_next_step(monkeypatch) -> None:
 	"""折叠移出要单独成码：下一步是复核这条该不该保留，不是去找别的边界。"""
 	constraint = "改完必须跑 pytest"
