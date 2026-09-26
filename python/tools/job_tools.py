@@ -163,6 +163,11 @@ class JobOutputTool:
 					retryable=False,
 				)
 			text, _cursor, status, truncated = res
+			# read() 是按 (job, 单游标) 增量消费：循环里每读一次游标就前移。必须累加，
+			# 否则当输出在"运行中"的某次读里被消费、而 settle 触发的最后一次读到空增量时，
+			# 覆写 text 会把先前块丢掉（表现为 status=succeeded 却没有输出行）。
+			chunks: list[str] = [text or ""]
+			truncated_any = truncated
 			deadline = asyncio.get_running_loop().time() + timeout_ms / 1000.0
 			while wait and status == "running":
 				if abort.aborted:
@@ -179,11 +184,14 @@ class JobOutputTool:
 				if res is None:
 					break
 				text, _cursor, status, truncated = res
+				chunks.append(text or "")
+				truncated_any = truncated_any or truncated
+			accumulated = "".join(chunks)
 			parts: list[str] = []
-			if truncated:
+			if truncated_any:
 				parts.append("(earlier output truncated)")
-			if (text or "").strip():
-				parts.append(text.rstrip())
+			if accumulated.strip():
+				parts.append(accumulated.rstrip())
 			elif status == "running":
 				parts.append("(no new output)")
 			parts.append(_format_status_line(status))

@@ -178,6 +178,66 @@ async def test_job_output_local_context_ignores_stale_container_env(
 	assert "[status: succeeded]" in out.content
 
 
+@pytest.mark.asyncio
+async def test_job_output_wait_keeps_output_across_incremental_reads(
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""job_output(wait=true) 必须累加增量读，不能把先前块覆写掉。
+
+	确定性复现全量套件里偶发的丢输出：producer 先 push 输出、卡在结算前；测试轮询到
+	工具已把这段输出消费掉（游标 >= len，即它在 status=running 时读到过），再放行结算。
+	于是工具必然做"读到输出(运行中) → 结算后再读到空增量"两次读。旧代码末次读把 text
+	覆写成空，content 只剩 [status: succeeded]、输出行丢失；累加修复后输出保留。
+	"""
+	import threading
+
+	from engine.abort import AbortController
+	from engine.execution_context import ExecutionContext
+	from engine.workspace_context import set_workspace_context
+	import tools.bash_tool.bash_tool as bash_module
+	from tools.job_tools import JobOutputTool
+
+	reg = JobRegistry()
+	monkeypatch.setattr("tools.job_tools._registry", lambda: reg)
+	monkeypatch.setattr(bash_module, "docker_bg_snapshot", lambda: [])
+	payload = "acc-out\n"
+	settled = threading.Event()
+
+	def producer(push) -> tuple[str, str]:  # type: ignore[no-untyped-def]
+		push(payload)
+		settled.wait(5.0)  # 卡住结算，逼出"运行中读到输出 → 结算后读到空增量"的两次读
+		return STATUS_SUCCEEDED, ""
+
+	job_id, err = reg.start(
+		kind="bash", label="acc", owner_session_id=SID, producer=producer
+	)
+	assert err == "" and job_id
+	set_workspace_context(
+		ExecutionContext(session_id=SID, cwd=".", runtime="local")
+	)
+	try:
+		task = asyncio.create_task(
+			JobOutputTool().execute(
+				{"job_id": job_id, "wait": True, "timeout_ms": 30_000},
+				AbortController(),
+			)
+		)
+		for _ in range(500):
+			if reg._cursors.get(job_id, 0) >= len(payload):
+				break
+			await asyncio.sleep(0.01)
+		assert reg._cursors.get(job_id, 0) >= len(payload), "工具未读到输出，前置不成立"
+		settled.set()  # 结算 → 工具再读到空增量（旧代码在此覆写掉 acc-out）
+		out = await task
+	finally:
+		settled.set()
+		set_workspace_context(None)
+
+	assert out.is_error is False, out.content
+	assert "acc-out" in out.content, out.content
+	assert "[status: succeeded]" in out.content, out.content
+
+
 # ---------------------------------------------------------------------------
 # registry：start / settle / owner / 容量 / kill
 # ---------------------------------------------------------------------------
