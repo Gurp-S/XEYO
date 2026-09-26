@@ -19,11 +19,12 @@ from diagnostics.causes import (
 	NOT_DETERMINED,
 	PERMISSION_BLOCKED,
 	PROJECTION_BROKEN,
+	REPEATED_ERROR,
 	primary,
 )
 from diagnostics.collect import ModelRequest, RunEvidence, ToolCall
 from diagnostics.fault_split import attribute_fault
-from diagnostics.identity import CONFIRMED_FAULT, UNKNOWN, EvidenceRef, Finding
+from diagnostics.identity import CONFIRMED_FAULT, SUSPECTED_CAUSE, UNKNOWN, EvidenceRef, Finding
 from session.persistence import transcript_path
 
 
@@ -132,6 +133,24 @@ def test_rerouted_tool_call_becomes_its_own_cause() -> None:
 	assert entry["party"] == "undetermined"
 	assert entry["evidence"][0]["detail"] == "Bash→Glob dir doc/"
 	assert "不能把改道判成分发故障" in entry["does_not_prove"]
+
+
+def test_repeated_error_cause_does_not_claim_a_shared_signature() -> None:
+	"""原因句也不能说"同一错误签名反复出现"。
+
+	与规则侧同一族（test_rules_calibration 第 18 条）：真实数据 58 条重复失败里 55 条的
+	错误分类位是空的，审计也不带参数 ⇒ 那一组真正相同的只有工具名，把"读不出"写成
+	一个签名取值就是凭空造区分。
+	"""
+	f = _finding("repeated_failure", "tool_permission", status=SUSPECTED_CAUSE)
+	verdict = attribute_fault(_run(), [f])
+	entry = next((c for c in verdict["causes"] if c["code"] == REPEATED_ERROR), None)
+	assert entry is not None, verdict["causes"]
+	assert "同一工具在窗口内反复失败" in entry["proves"]
+	assert "只按工具名" in entry["proves"], "分类位为空这一形必须留在原因的说法里"
+	assert "同一错误签名" not in entry["proves"]
+	assert "死循环" in entry["does_not_prove"]
+	assert "不能断言参数相同" in entry["does_not_prove"]
 
 def test_confirmed_cause_survives_an_unknown_sibling_of_the_same_rule() -> None:
 	"""同一条规则一边已确认、一边未定时，已确认那条原因不得被邻居顶掉。

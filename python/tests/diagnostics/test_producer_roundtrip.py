@@ -106,6 +106,10 @@ async def test_real_tool_failure_reaches_the_rule_and_the_attribution(audit_log,
 	# 同一批真实行还须喂到重复失败规则：三次同签名 ⇒ 只算可疑信号，不宣称死循环。
 	repeats = [f for f in findings if f.rule_id == "repeated_failure"]
 	assert repeats and repeats[0].status == SUSPECTED_CAUSE
+	# 走真实生产者时分类位是有值的（NOT_FOUND 由 tools/base_tool 带上来），
+	# 所以措辞必须落在"同一错误签名"那一侧 —— 生产者哪天不再写 error_kind，
+	# 这条会红，提醒去核对重复失败那句话是否还成立。
+	assert "以同一 error_kind=NOT_FOUND 重复失败 3 次" in repeats[0].phenomenon
 
 
 @pytest.mark.asyncio

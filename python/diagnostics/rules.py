@@ -1204,16 +1204,25 @@ def check_repeated_failure(run: RunEvidence) -> list[Finding]:
 		if len(events) < 3:
 			continue
 		name, error_kind, _digest = sig.split("|", 2)
+		if error_kind:
+			phen = f"工具 {name} 以同一 error_kind={error_kind} 重复失败 {len(events)} 次"
+			group_note = "同一工具与同一错误签名在有界窗口内反复出现"
+		else:
+			# 真实审计 16 229 行 tool.finished 里带 error_kind 键的 2 948 行有 2 819 行是
+			# null（非空的 129/129 又都是 INTERNAL），而审计从来不带参数 ⇒ 分类位空时，
+			# "同一签名"实际只剩工具名。说成"同一错误签名"就是把读不出当成一个取值。
+			phen = f"工具 {name} 重复失败 {len(events)} 次（错误分类未记录：这一组只按工具名归）"
+			group_note = "只按工具名在有界窗口内归组：错误分类没有记录位，签名里没有别的区分项"
 		findings.append(
 			Finding(
 				rule_id="repeated_failure",
 				rule_version=RULESET_VERSION,
-				phenomenon=f"工具 {name} 以同一 error_kind={error_kind or '未记录'} 重复失败 {len(events)} 次",
+				phenomenon=phen,
 				boundary="tool_permission",
 				component=f"工具执行：{name}",
 				status=SUSPECTED_CAUSE,
 				evidence=[_event_ref(run, e, "重复失败") for e in events][:12],
-				impact="重复失败信号：同一工具与同一错误签名在有界窗口内反复出现；参数是否相同不可证（审计不带参数）。",
+				impact=f"重复失败信号：{group_note}；参数是否相同不可证（审计不带参数）。",
 				coverage_gap="审计不含完整参数，签名相同不等于参数相同；窗口外的重复看不到。",
 				allowed_conclusion="不得据此断言死循环，也不得自动改写模型计划。",
 			)

@@ -74,6 +74,41 @@ def test_tool_failure_is_grouped_and_anchored(collect) -> None:
 	# 本来就已经写明"签名相同不等于参数相同"。
 	assert "同一参数" not in rf.impact
 	assert "参数是否相同不可证" in rf.impact
+	# INTERNAL 是一个真写出来的分类位 ⇒ 仍按"同一错误签名"措辞
+	assert "以同一 error_kind=INTERNAL 重复失败 3 次" in rf.phenomenon
+
+
+def _repeat_rows(*, error_kind: object) -> list[dict[str, object]]:
+	rows: list[dict[str, object]] = [
+		{"ts": 1.0, "kind": "model.started", "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", "attempt": 1}
+	]
+	for i in range(3):
+		rows.append({"ts": 2.0 + i, "kind": "tool.started", "session_id": "s1", "turn_id": "t1", "request_id": f"c{i}", "tool_name": "Read", "model_request_id": "r1"})
+		# 真实形状：带键的行里 2 819/2 948 是 null（非空的 129/129 全是 INTERNAL）
+		rows.append({"ts": 2.5 + i, "kind": "tool.finished", "session_id": "s1", "turn_id": "t1", "request_id": f"c{i}", "tool_name": "Read", "is_error": True, "error_kind": error_kind, "model_request_id": "r1"})
+	return rows
+
+
+def test_repeated_failure_without_a_kind_says_it_grouped_by_tool_only(collect) -> None:
+	"""错误分类没记录时，"同一错误签名"这个说法把读不出当成了取值。
+
+	真实数据 508 个轮次跑出 58 条重复失败，其中 55 条的分类位是空的；而审计又不带
+	参数 ⇒ 那一组里唯一真正相同的只有工具名。
+	"""
+	run = collect(_repeat_rows(error_kind=None))
+	rf = next(x for x in evaluate_run(run) if x.rule_id == "repeated_failure")
+	assert rf.status == SUSPECTED_CAUSE
+	assert "错误分类未记录" in rf.phenomenon and "只按工具名" in rf.phenomenon
+	assert "同一 error_kind" not in rf.phenomenon
+	assert "错误分类没有记录位" in rf.impact
+
+
+def test_repeated_failure_with_a_real_kind_keeps_the_signature_wording(collect) -> None:
+	run = collect(_repeat_rows(error_kind="TIMEOUT"))
+	rf = next(x for x in evaluate_run(run) if x.rule_id == "repeated_failure")
+	assert "以同一 error_kind=TIMEOUT 重复失败 3 次" in rf.phenomenon
+	assert "同一工具与同一错误签名" in rf.impact
+	assert "错误分类未记录" not in rf.phenomenon
 
 
 def _tool_error_run(collect, error_kind: str):
