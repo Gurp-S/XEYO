@@ -16,6 +16,7 @@ from diagnostics.fault_split import (
 	OUTCOME_NOT_ACCEPTED,
 	OUTCOME_PASS,
 	UNDETERMINED,
+	_tool_error_party,
 	attribute_fault,
 )
 from diagnostics.identity import CONFIRMED_FAULT, SUSPECTED_CAUSE, EvidenceRef, Finding
@@ -71,6 +72,18 @@ def test_engine_error_kind_inside_tool_failure_is_engine() -> None:
 	run = _run()
 	verdict = attribute_fault(run, [_finding("tool_failure", "tool_permission", detail="tool.finished is_error=true error_kind=PERMISSION_DENIED")])
 	assert verdict["responsibility"] == ENGINE
+
+
+def test_aborted_error_kind_is_not_blamed_on_the_model() -> None:
+	"""ABORTED 由插件钩子 should_abort / 引擎"用户停止"分支写下，两者都不是模型侧。
+
+	回归点直接钉在 _tool_error_party 上（它是本次修改的函数；attribute_fault 的顶层
+	responsibility 只按 ENGINE/ENVIRONMENT 提升，不覆盖 MODEL 通路，测它会假绿）。
+	ABORTED 曾在 _MODEL_KINDS 里 ⇒ 被归成"模型侧"，与当初 INTERNAL→ENGINE 同形。
+	"""
+	assert _tool_error_party("tool.finished is_error=true error_kind=ABORTED") == UNDETERMINED
+	# 反面对照：确实该归模型的仍归模型，别把修复做成"全都不归因"。
+	assert _tool_error_party("tool.finished is_error=true error_kind=INVALID_ARGUMENT") == MODEL
 
 
 def test_transport_gap_is_engine_side_not_model() -> None:

@@ -81,7 +81,11 @@ _ENVIRONMENT_KINDS = {
 	"TIMEOUT",
 	"NOT_FOUND",
 }
-_MODEL_KINDS = {"INVALID_ARGUMENT", "ABORTED"}
+# ABORTED 不在这里：它由 tool_registry 的插件钩子 should_abort、或引擎"用户停止"分支写下
+# （见 rules 校准注 7：Aborted 来自用户停止），两条成因都不是模型侧。没有独立的 user party，
+# 又存在 engine(钩子)/非定(用户停) 两种来源，落到 UNDETERMINED 比硬判给模型诚实 ——
+# 这与当初把 INTERNAL 从 _ENGINE_KINDS 摘掉同理：不把一件不是某方造成的事算到某方头上。
+_MODEL_KINDS = {"INVALID_ARGUMENT"}
 
 _ERROR_KIND_RX = re.compile(r"error_kind=([A-Z_]+)")
 
