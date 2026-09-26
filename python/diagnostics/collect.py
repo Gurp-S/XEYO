@@ -358,10 +358,15 @@ class RunEvidence:
 					for j in self.jobs
 				]
 			elif name == "file_verifier":
+				# 验收记录只有 pins 一条来源（diagnostics.pins.record_verifier，由 CLI / 界面提交）。
+				# 这里原先看的是 transcript 行的 ``note_kind == "verifier"``，而 note_kind 的取值
+				# 只有 ``state`` / ``event``（prompt/pre_llm_inject 的管道标记），全仓库没有生产者
+				# ⇒ 已经落盘的验收也被报成"该边界无记录"，而同一份报告的责任划分那句"已验收"
+				# 正是从这条 pin 读的。
 				refs = [
-					EvidenceRef("transcript", _s(t.get("locator", "")), _s(t.get("id")), "message")
-					for t in self.transcript_rows
-					if t.get("note_kind") == "verifier"
+					EvidenceRef("pin", _s(p.get("locator", "")), _s(p.get("pin_id")), "verifier")
+					for p in self.pins
+					if _s(p.get("kind")) == "verifier"
 				]
 			elif name == "sse_gui":
 				refs = [e.ref("") for e in scoped if e.kind in {"notice.channel", "title.enhance.applied"}]

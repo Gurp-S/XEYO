@@ -1,4 +1,4 @@
-"""采集层的诚实性回归：真实数据普查里确认的十个缺陷。
+"""采集层的诚实性回归：真实数据普查里确认的十一个缺陷。
 
 每一条都对应一份真实产品数据上跑出来的错账：
 
@@ -23,6 +23,9 @@
    路径也扩窗重读，并把"读完整份还是没有"与"尾窗没盖到"分成两句话。
 10. 账本的「没有这一行」说的是整份文件，而扫描只读到 61% ⇒ 缺账断言的范围不成立。
     现在账本截断且本轮确有要归账的调用时读完整份再判（本机 6.28 MB：全读 0.09s vs 尾窗 0.058s）。
+11. 「文件与验收」边界读的是一个从不存在的字段 ⇒ ``note_kind`` 只有 ``state`` / ``event``
+    两种取值，没有任何生产者写 ``"verifier"``，于是已经落盘的验收 pin 也被报成
+    ``present=false``，而同一份报告的责任划分那句"已验收"恰恰是从这条 pin 读的。
 """
 
 from __future__ import annotations
@@ -306,6 +309,28 @@ def test_absent_wire_drops_is_reported_as_absent(write_audit) -> None:
 	gap = next(g for g in run.gaps if g.reason == "source_absent" and g.boundary == "adapter")
 	assert "wire_drops" in gap.detail
 	assert "openai_compat" in gap.detail, "措辞要点明这个账本只覆盖一条链路"
+
+
+def test_verifier_pin_shows_up_as_acceptance_evidence(write_audit) -> None:
+	"""验收只有 pin 一条活路，边界表却只看 transcript 里一个从没人写的字段。
+
+	``note_kind`` 的取值由 prompt/pre_llm_inject 的管道决定，只有 ``state`` /
+	``event`` 两种；全仓库没有任何生产者写 ``note_kind="verifier"``。于是即便
+	``diagnostics.pins.record_verifier`` 已经落了一条 exit_code=0 的验收，
+	「文件与验收」边界仍报 ``present=false / evidence_count=0``——同一份报告里
+	责任划分那句"已验收"却正是从这条 pin 读的。
+	"""
+	from diagnostics.pins import record_verifier
+
+	path = write_audit(_model_rows("r1", 1) + _tool_rows("c1", "r1"))
+	doc = record_verifier(_SESSION, _TURN, name="pytest", command="pytest -q", exit_code=0)
+
+	run = collect_run(_SESSION, _TURN, audit_path=path)
+	boundary = next(b for b in run.boundaries() if b["name"] == "file_verifier")
+	assert boundary["present"] is True and boundary["evidence_count"] == 1
+	assert boundary["evidence"][0]["ref_id"] == doc["pin_id"]
+	assert boundary["evidence"][0]["source"] == "pin"
+	assert not [g for g in run.gaps if g.boundary == "file_verifier" and g.reason == "not_recorded"]
 
 
 def test_absent_audit_file_is_not_a_small_window(tmp_path) -> None:
