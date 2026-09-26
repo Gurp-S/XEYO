@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import json
 
 import pytest
 from fastapi.testclient import TestClient
@@ -227,3 +228,41 @@ def test_runs_envelope_carries_the_scan_coverage_for_the_empty_case(client, seed
 	assert missing["coverage"]["present"] is True, "文件在，就不能推给「审计不存在」"
 	assert missing["coverage"]["truncated"] is False, "已读完整份，就不能推给尾窗"
 	assert missing["coverage"]["rows_scanned"] >= 4
+
+
+def test_run_detail_transports_the_current_vocabulary(client, seed_audit) -> None:
+	"""新枚举必须真能走通 HTTP：单测与界面 fixture 都看不见传输层。
+
+	钉三样今天改过的东西：归因字段改名（last_normal_* → last_evidenced_*）、
+	任务结局新增的 self_reported_unverified、以及从厂商失败里拆出来的
+	request_shape_rejected。路由若在别处按白名单拷字段，这里就会红。
+	"""
+	from session.persistence import transcript_path
+
+	seed_audit(
+		[
+			{"kind": "model.started", "ts": 1.0, "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", "attempt": 1, "projection_id": "p1"},
+			{"kind": "model.finished", "ts": 1.1, "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", "attempt": 1, "status": "protocol_fallback", "error_code": "HTTP_400", "projection_id": "p1"},
+		]
+	)
+	path = transcript_path("s1")
+	path.parent.mkdir(parents=True, exist_ok=True)
+	path.write_text(
+		"".join(
+			json.dumps(row, ensure_ascii=False) + "\n"
+			for row in (
+				{"id": "m1", "role": "user", "ts": 0.9, "content": "改完必须跑 pytest"},
+				{"id": "m2", "role": "assistant", "ts": 1.2, "content": "已完成，测试通过"},
+			)
+		),
+		encoding="utf-8",
+	)
+
+	body = client.get("/v1/diagnostics/runs/t1", params={"session_id": "s1"}).json()
+	att = body["attribution"]
+	assert "last_evidenced_boundary" in att
+	assert "last_normal_boundary" not in att and "last_normal_label" not in att
+	fault = body["fault"]
+	assert fault["task_outcome"] == "self_reported_unverified"
+	codes = [c["code"] for c in fault["causes"]]
+	assert "request_shape_rejected" in codes, codes
