@@ -301,7 +301,20 @@ def _last_user_obligation(run: RunEvidence) -> dict[str, Any]:
 	oldest_seen: float | None = None
 	notices_skipped = 0
 	try:
-		from diagnostics.loss_chain import _resolve_body, _transcript_window
+		from diagnostics.loss_chain import _resolve_body, _transcript_locator, _transcript_window
+
+		if not _transcript_locator(run.session_id):
+			# 没有转录就没有"这一轮人说了什么"可查。报「没有声明的约束」等于把人没说话
+			# 和查不到人说过话混成一件事（真实数据 155 轮里 45 轮是这种形状）。
+			return {
+				"text": "",
+				"source": "",
+				"locator": "",
+				"ref_id": "",
+				"created_at": None,
+				"state": "no_source",
+				"ts_bound": upper is not None,
+			}
 
 		rows, _scanned, _total = _transcript_window(run.session_id, _OBLIGATION_SCAN_ROWS)
 		for row in reversed(rows):
@@ -431,7 +444,7 @@ def _unprovable_note(run: RunEvidence, *, retained_body: bool = False) -> str:
 	)
 
 
-def _shown_to_model(run: RunEvidence, needle: str) -> dict[str, Any]:
+def _shown_to_model(run: RunEvidence, needle: str, *, obligation_state: str = "") -> dict[str, Any]:
 	"""约束是否确实进了模型实际收到的内容。捕获正文优先，其次上一枪实际发送的投影。
 
 	轮次级：两级都必须是本轮的记录（captures 按轮次取，投影按 ``_emitted_projection_in_turn``
@@ -445,6 +458,15 @@ def _shown_to_model(run: RunEvidence, needle: str) -> dict[str, Any]:
 	（原因条目还带着空证据）。
 	"""
 	if not needle:
+		if obligation_state in {"no_source", "unreadable"}:
+			# 约束文本拿不到是因为**没有可查的来源**，不是因为人没说话：徽章必须是"判不动"，
+			# 不能是"没有声明的约束"。
+			note = (
+				f"该会话没有 transcript 文件：{scope_word(run)}用户说过什么无从查起"
+				if obligation_state == "no_source"
+				else f"transcript 读不出来：{scope_word(run)}用户说过什么无从查起"
+			)
+			return {"state": "unprovable", "hole": "obligation_source_unavailable", "evidence": [], "note": note}
 		return {"state": "no_obligation", "evidence": [], "note": "没有可比对的约束文本"}
 	try:
 		from diagnostics.loss_chain import _stage_emitted, _stage_provider_body
@@ -772,7 +794,7 @@ def attribute_fault(run: RunEvidence, findings: list[Finding]) -> dict[str, Any]
 			tool_parties.setdefault(_tool_error_party(ev.detail), []).append(f)
 
 	obligation = _obligation(run)
-	shown = _shown_to_model(run, _s(obligation.get("text"))[:120])
+	shown = _shown_to_model(run, _s(obligation.get("text"))[:120], obligation_state=_s(obligation.get("in_turn_scan")))
 	self_report = _self_report_contradiction(run, outcome)
 	# 要求来源可以是当场原话，也可以是事后钉上的预期（人证）；
 	# 但"引擎把约束弄丢了"这一条只认当场原话。
@@ -997,7 +1019,12 @@ def attribute_fault(run: RunEvidence, findings: list[Finding]) -> dict[str, Any]
 			"这一枪放行还是拦下没有记录，不能据此判动作没做"
 		)
 	if shown["state"] == "unprovable":
-		if _s(shown.get("hole")) == "projection_not_in_turn":
+		if _s(shown.get("hole")) == "obligation_source_unavailable":
+			missing.append(
+				f"该会话没有 transcript 文件（或读不出来）：{scope_word(run)}的用户原话无从查起，"
+				f"所以既不能说{scope_word(run)}没提要求，也不能说约束没送到模型"
+			)
+		elif _s(shown.get("hole")) == "projection_not_in_turn":
 			missing.append(
 				"working 只留整会话最后一份发射投影，且无法核对它属不属于这次运行：要判约束送没送到，"
 				"需要开 capture 按轮留住适配器最终请求体"

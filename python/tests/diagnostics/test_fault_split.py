@@ -708,3 +708,26 @@ def test_unprovable_note_without_any_projection_identity(monkeypatch) -> None:
 	assert out["state"] == "unprovable"
 	assert "没有投影标识" in out["note"] or "没有留存的投影正文" in out["note"], out["note"]
 	assert "pA" not in out["note"] and "None" not in out["note"]
+
+
+def test_missing_transcript_is_not_reported_as_no_obligation() -> None:
+	"""没有转录文件时不能说「没有声明的约束」：那是把"查不到人说过什么"说成"人没说话"。
+
+	真实数据 2026-09-26 敌意普查：155 个真实轮次报告里 45 轮（29%）落在这一形状
+	——审计有行、working 有快照，但 sessions 里没有该会话的 transcript。
+	"""
+	run = _run(
+		events=[_ev_with(1.0, "model.started"), _ev_with(2.0, "model.finished")],
+	)
+	verdict = attribute_fault(run, [_finding("tool_failure", "tool", detail="tool_use_id=c1")])
+	assert verdict["shown_to_model"] == "unprovable", verdict["shown_to_model"]
+	assert any("没有 transcript 文件" in line for line in verdict["missing_evidence"]), verdict["missing_evidence"]
+	assert not any("用「标记这轮结果不对」写下预期结果" in line for line in verdict["missing_evidence"])
+
+
+def test_transcript_without_user_rows_is_a_real_no_obligation() -> None:
+	"""转录在、只是这一轮没有人的话：这仍然是"没有声明的约束"，别一律推给采集缺口。"""
+	_write_transcript("s1", [{"id": "a1", "role": "assistant", "ts": 1.0, "content": "回话"}])
+	run = _run(events=[_ev_with(2.0, "model.started"), _ev_with(3.0, "model.finished")])
+	verdict = attribute_fault(run, [])
+	assert verdict["shown_to_model"] == "no_obligation", verdict["shown_to_model"]
