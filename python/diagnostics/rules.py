@@ -956,13 +956,42 @@ def _tool_error_detail(tool: Any) -> str:
 
 	error_kind 必须写在这里：fault_split 只从证据 detail 读归属，detail 里没有它
 	就等于两张归属表从来没被生产数据读到过（2026-09-25 实测 74/74 条落空）。
+
+	标识只印实际存在的那个：整份账本 711 条失败行里 625 条（88%）根本不写
+	action_id，无条件印 `action_id=` 是在证据里摆一个空字段让读者以为查过了。
 	"""
 	parts = ["tool.finished is_error=true"]
 	kind = _s(tool.error_kind)
 	if kind:
 		parts.append(f"error_kind={kind}")
-	parts.append(f"action_id={_s(tool.action_id)}")
+	action = _s(tool.action_id)
+	call = _s(tool.tool_use_id)
+	if action:
+		parts.append(f"action_id={action}")
+	if call:
+		parts.append(f"tool_use_id={call}")
+	if not action and not call:
+		parts.append("无 action_id / 调用标识")
 	return " ".join(parts)
+
+
+def _tool_failure_locate_clause(items: list[Any]) -> str:
+	""""定位到什么"必须跟着行里真的有啥：88% 的失败行只有 request_id，没有 action_id。"""
+	if all(_s(t.action_id) for t in items):
+		return "失败步骤已定位到工具与 action_id"
+	if all(_s(t.tool_use_id) for t in items):
+		return "失败步骤已定位到工具与调用标识（tool_use_id），这些行不带 action_id"
+	return "失败步骤只定位到审计行号：这些行既不写 action_id 也不写调用标识"
+
+
+def _tool_failure_readback_clause(run: RunEvidence) -> str:
+	"""结果正文能不能回读，取决于转录在不在：实测 36%（254/711）的失败行属于没有转录文件的会话。"""
+	window = run.window("transcript")
+	if window is None:
+		return "；工具结果正文本轮未取回（没有读到转录来源）。"
+	if not window.present:
+		return "；这个会话没有转录文件，工具结果正文不可回读。"
+	return "；结果正文按需在 transcript 里回读。"
 
 
 def check_tool_failure(run: RunEvidence) -> list[Finding]:
@@ -999,7 +1028,7 @@ def check_tool_failure(run: RunEvidence) -> list[Finding]:
 					)
 					for t in items
 				][:20],
-				impact="失败步骤已定位到工具与 action_id；结果正文按需在 transcript 里回读。",
+				impact=_tool_failure_locate_clause(items) + _tool_failure_readback_clause(run),
 				coverage_gap=(
 					"审计不含退出码与 stderr 正文；「测试失败」与「测试无法运行」不在本规则区分范围内（见 verifier）。"
 					"error_kind 未细分（INTERNAL 或未记录）时不得据此定责。"

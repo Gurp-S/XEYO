@@ -101,6 +101,15 @@
     f-string 于是把函数名当字面文本印出去 —— 套件全绿，只有把裁决 dump 出来才看得见；
     ② 约束正文由 ``_last_user_obligation`` 自己开转录文件取（与采集器的窗口无关），
     所以那条门必须写真实转录文件，只填 ``run.transcript_rows`` 会一句范围词都扫不到。
+
+20. ``tool_failure`` 的 impact 是一句常量：「失败步骤已定位到工具与 action_id；
+    结果正文按需在 transcript 里回读。」整份真实账本 711 条 ``tool.finished
+    is_error=true`` 行里 **625 条（88%）根本不写 action_id**（生产者只写 ``request_id``），
+    而证据 detail 无条件印 ``action_id=`` 后面接空 —— 结论与证据同时在说一件没发生的事；
+    另有 254 条（36%）属于**没有转录文件**的会话，那句"去 transcript 里回读"是把读者
+    指向一个不存在的文件（与 #74 同一族：产物丢失 ≠ 开关关闭）。现在两句都跟着事实走：
+    有 action_id 才说 action_id，否则说调用标识（tool_use_id，实测 711/711 都在），
+    两者都没有就只说行号；转录不在就明写"结果正文不可回读"。
 """
 
 from __future__ import annotations
@@ -1000,3 +1009,56 @@ def test_drift_phenomenon_follows_the_scope_of_the_run() -> None:
 	assert turn.phenomenon.startswith("本轮里"), turn.phenomenon
 	assert session.phenomenon.startswith("本会话里"), session.phenomenon
 	assert "同一轮" not in session.phenomenon
+
+
+def _tool_fail_rows(*, action_id: bool = False) -> list[dict]:
+	rows = [
+		{"kind": "tool.started", "ts": 1.0, "session_id": "s1", "turn_id": "t1", "request_id": "tool-a", "tool_name": "Bash"},
+		{"kind": "tool.finished", "ts": 1.1, "session_id": "s1", "turn_id": "t1", "request_id": "tool-a", "tool_name": "Bash", "is_error": True},
+	]
+	if action_id:
+		rows[1]["action_id"] = "act-7"
+	return rows
+
+
+def _one_tool_failure(run):
+	return next(f for f in evaluate_run(run) if f.rule_id == "tool_failure")
+
+
+def test_tool_failure_impact_does_not_claim_an_action_id_the_row_lacks(collect) -> None:
+	"""真实生产者只在少数行上写 action_id（整账本 625/711 没有）⇒ 不许无条件说定位到它。"""
+	f = _one_tool_failure(collect(_tool_fail_rows()))
+	assert "已定位到工具与 action_id" not in f.impact, f.impact
+	assert "tool_use_id" in f.impact, f.impact
+	# 证据里也不留空字段：印 `action_id=` 后面什么都没有，等于宣称查过一个不存在的标识
+	details = [e.detail for e in f.evidence]
+	assert all("action_id=" not in d for d in details), details
+	assert all("tool_use_id=tool-a" in d for d in details), details
+
+
+def test_tool_failure_keeps_the_action_id_claim_when_the_row_carries_one(collect) -> None:
+	"""反向守卫：行里真有 action_id 时不许把这句话一起删掉（否则修假话修成漏信息）。"""
+	f = _one_tool_failure(collect(_tool_fail_rows(action_id=True)))
+	assert "已定位到工具与 action_id" in f.impact, f.impact
+	assert any("action_id=act-7" in e.detail for e in f.evidence), f.evidence
+
+
+def test_tool_failure_does_not_send_the_reader_to_a_transcript_that_is_not_there(collect) -> None:
+	"""没有转录文件的会话（实测 254/711 条失败行属于这类）：回读入口不存在。"""
+	f = _one_tool_failure(collect(_tool_fail_rows()))
+	assert "不可回读" in f.impact, f.impact
+	assert "按需在 transcript 里回读" not in f.impact, f.impact
+
+
+def test_tool_failure_offers_readback_when_the_transcript_exists(collect) -> None:
+	from session.persistence import transcript_path
+
+	path = transcript_path("s1")
+	path.parent.mkdir(parents=True, exist_ok=True)
+	path.write_text(
+		'{"id": "m1", "role": "tool", "ts": 1.2, "tool_call_id": "tool-a", "content": "boom"}\n',
+		encoding="utf-8",
+	)
+	f = _one_tool_failure(collect(_tool_fail_rows()))
+	assert "按需在 transcript 里回读" in f.impact, f.impact
+	assert "不可回读" not in f.impact, f.impact
