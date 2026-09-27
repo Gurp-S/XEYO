@@ -67,7 +67,7 @@ CAUSE_LABEL: dict[str, str] = {
 	USAGE_UNACCOUNTED: "部分请求没有用量账，费用未知",
 	RUN_INCOMPLETE: "运行有开始记录无结束记录",
 	TOOL_ROUTED: "工具调用在执行层换了另一个工具",
-	CONTEXT_CHANGED_MIDTURN: "同一轮内送出的指令上下文标识变过",
+	CONTEXT_CHANGED_MIDTURN: "读到的记录里，送出的指令上下文标识出现过不止一种",
 	CONSTRAINT_FOLDED: "在场的约束被折叠移出投影",
 	NOT_DETERMINED: "没有可核对的失败原因",
 }
@@ -126,7 +126,7 @@ _PROVES: dict[str, tuple[str, str]] = {
 		"不能把改道判成分发故障：它是执行层策略；也不能说这一枪每次都改道",
 	),
 	CONTEXT_CHANGED_MIDTURN: (
-		"同一轮内的模型/工具行带着不止一个该标识",
+		"读到的模型/工具行带着不止一个该标识",
 		"不能证明变化发生在两次尝试之间，也不能判定哪一版才是预期的",
 	),
 	NOT_DETERMINED: ("本次记录不足以给出原因", "不等于没有失败，也不等于成功"),

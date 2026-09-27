@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+from diagnostics import rules
 from diagnostics.fault_split import ENGINE, ENVIRONMENT, UNDETERMINED, attribute_fault
 from diagnostics.identity import CONFIRMED_FAULT, SUSPECTED_CAUSE, UNKNOWN
 from diagnostics.rules import evaluate_run
+
+# 会话级报告不许出现的轮次措辞。写成模块级常量，两个门共用一份，
+# 免得以后又出现"只列了本轮/这一轮，同一轮内漏网"的那种半边门。
+TURN_WORDS = ("本轮", "这一轮", "同一轮", "该轮", "当轮", "这轮")
 from diagnostics.report import attribution, build_report, usage_summary
 
 
@@ -335,7 +340,9 @@ def test_session_scope_attribution_prose_never_says_this_turn(collect) -> None:
 			for i, v in enumerate(node):
 				yield from strings(v, f"{path}[{i}]")
 
-	tripped = sorted({p for p, text in strings(verdict) if "本轮" in text or "这一轮" in text})
+	# 措辞口径的变体都要抓：只列「本轮/这一轮」时，"同一轮内"这种写法会漏网，
+	# 而它正是会话级扩窗（#77）之后新暴露出来的那条原因标签的措辞。
+	tripped = sorted({p for p, text in strings(verdict) if any(w in text for w in TURN_WORDS)})
 	assert verdict["chain"] or verdict["missing_evidence"] or verdict["causes"], "归因块是空的，这条门在空转"
 	assert not tripped, f"会话级归因里说了「本轮」的位置：{tripped[:8]}"
 
@@ -719,3 +726,47 @@ def test_unattributed_rows_count_as_later_activity(collect) -> None:
 		]
 	)
 	assert not [f for f in evaluate_run(run) if f.rule_id == "tool_pair_integrity"]
+
+
+def test_session_scope_findings_never_say_this_turn(collect, monkeypatch) -> None:
+	"""整条规则集在会话级口径上都不许说「本轮」，不只是责任划分那一段。
+
+	已有的门只扫 `fault` 块；规则自己发的现象/影响/允许结论/免责范围是另一批文案。
+	会话级报告在 #77 之后真的能读到整会话的行，这些文案从此有人看 —— 一处硬写的
+	「本轮」就是把整会话的读数算给一轮。顺带把"规则自身故障"那条也钉住：它以前
+	在会话级也说「本轮」。
+	"""
+	rows = [
+		{"ts": 1.0, "kind": "model.started", "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", "attempt": 1, "tool_schema_hash": "aaa"},
+		{"ts": 2.0, "kind": "model.finished", "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", "attempt": 1, "status": "ok", "tool_schema_hash": "bbb"},
+		{"ts": 2.5, "kind": "model.started", "session_id": "s1", "turn_id": "t2", "model_request_id": "r2", "attempt": 1},
+		{"ts": 3.0, "kind": "tool.started", "session_id": "s1", "turn_id": "t2", "request_id": "c1", "tool_name": "Read", "model_request_id": "r2"},
+		{"ts": 3.5, "kind": "tool.finished", "session_id": "s1", "turn_id": "t2", "request_id": "c1", "tool_name": "Read", "is_error": True, "error_kind": "INTERNAL", "model_request_id": "r2"},
+		{"ts": 4.0, "kind": "permission.pending", "session_id": "s1", "turn_id": "t2", "request_id": "c1", "tool_name": "Bash"},
+		{"ts": 4.5, "kind": "permission.denied", "session_id": "s1", "turn_id": "t2", "request_id": "c1", "tool_name": "Bash", "approved": False},
+	]
+	run = collect(rows, turn_id="")
+	# 让一条规则故障，钉住"规则自身故障"那条文案在会话级的措辞
+	victim = next(r for r in rules.RULES if r.rule_id == "cold_reference")
+	monkeypatch.setattr(victim, "check", lambda _run: (_ for _ in ()).throw(RuntimeError("故意故障")))
+	findings = evaluate_run(run)
+	assert findings, "夹具没发出任何结论，这条门在空转"
+
+	tripped: list[str] = []
+	for f in findings:
+		for name in ("phenomenon", "impact", "allowed_conclusion", "coverage_gap", "component"):
+			text = str(getattr(f, name, "") or "")
+			if any(word in text for word in TURN_WORDS):
+				tripped.append(f"{f.rule_id}.{name}: {text[:70]}")
+	assert not tripped, f"会话级结论里说了「本轮」：{tripped[:6]}"
+	# 规则故障那条必须在场，否则上面的扫描没覆盖到刚修的文案
+	assert any(f.rule_id == "cold_reference" and "本会话" in f.impact for f in findings), [f.impact for f in findings]
+
+	# 同一批夹具也要走到**原因标签**：#78 把范围门从 fault 块扩到 findings 时，
+	# CONTEXT_CHANGED_MIDTURN 的旧措辞（"同一轮内…"）恰好只有这条通路能撞上。
+	# 门如果扫不到它， widened 的词表就是一张半边门。
+	verdict = attribute_fault(run, findings)
+	causes = [str(c.get("label") or "") + str(c.get("proves") or "") for c in verdict.get("causes") or []]
+	assert any("instruction_context_changed_midturn" in str(c.get("code")) for c in verdict.get("causes") or []), causes
+	dirty = [text for text in causes if any(word in text for word in TURN_WORDS)]
+	assert not dirty, f"会话级原因标签说了「同一轮」：{dirty[:3]}"

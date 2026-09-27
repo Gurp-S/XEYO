@@ -1522,7 +1522,7 @@ def evaluate_run(run: RunEvidence) -> list[Finding]:
 					component="诊断规则集",
 					status=UNKNOWN,
 					evidence=[EvidenceRef(source="config", locator="diagnostics/rules.py", ref_id=rule.rule_id, detail=str(exc)[:200])],
-					impact="该规则本轮未产生结论。",
+					impact=f"该规则{scope_word(run)}未产生结论。",
 					coverage_gap="规则自身故障，覆盖范围未知。",
 					allowed_conclusion="不得把「没发现异常」读成「没有异常」。",
 				)
