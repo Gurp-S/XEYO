@@ -322,3 +322,22 @@ def test_a_ledger_only_session_is_then_diagnosable(client, seed_audit) -> None:
 	runs = client.get("/v1/diagnostics/runs", params={"session_id": "ghost"}).json()
 	assert runs["count"] == 2, runs
 	assert {r["turn_id"] for r in runs["runs"]} == {"g1", "g2"}
+
+
+def test_sessions_endpoint_note_names_the_dominant_kind(client, seed_audit) -> None:
+	"""清单说明要能指向可修的东西：裸一个"缺身份 N 行"不告诉读者去查谁。
+
+	真实账本 10936 行缺身份里 96.5% 是 tool.started / tool.finished。这里用种子账本
+	把同一条通路在 HTTP 面上钉住（措辞由采集器按当次扫描算出，不写字面量）。
+	"""
+	rows = [
+		{"kind": "model.started", "ts": 1.0, "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", "attempt": 1},
+	]
+	rows += [{"kind": "tool.started", "ts": 2.0 + 0.01 * i} for i in range(8)]
+	rows += [{"kind": "notice.channel", "ts": 3.5}]
+	seed_audit(rows)
+	body = client.get("/v1/diagnostics/sessions").json()
+	note = body["coverage"]["note"]
+	assert "9 行缺 session_id" in note, note
+	assert "tool.started×8 占 89%" in note, note
+	assert body["complete"] is False
