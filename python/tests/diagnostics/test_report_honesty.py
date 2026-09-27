@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from diagnostics.report import build_report, to_markdown, usage_summary
+from diagnostics.rules import evaluate_run
 
 _FINISHED = [
 	{"ts": 1.0, "kind": "model.started", "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", "attempt": 1},
@@ -180,3 +181,33 @@ def test_attribution_never_calls_a_boundary_confirmed_normal(collect) -> None:
 	assert "已确认正常边界" not in md
 	assert "最近一个有记录的边界" in md
 	assert "有记录不等于已确认正常" in md
+
+
+def test_no_sentence_promises_transcript_readback_when_it_is_absent(collect) -> None:
+	"""把 09-27 的负结果变成长期门：没有转录的那份报告里，凡许诺"去 transcript 回读"的句子都得是拒绝句。
+
+	抽样 55 个真实会话、81 条提到转录的句子：指向不存在转录的肯定句 0 条，
+	21 条命中全是否定句（#74 的缺项措辞 + #85 的 impact 分支）。这个形状不能只靠一次普查守住——
+	#85 之前那句 impact 是常量「结果正文按需在 transcript 里回读。」，对 36% 的失败行都是假话。
+	"""
+	import re
+
+	NEG = ("不可", "无法", "不存在", "没有", "未取回", "无从", "读不出")
+	MENTIONS = re.compile(r"transcript|转录")
+	run = collect(
+		[
+			{"ts": 1.0, "kind": "model.started", "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", "attempt": 1},
+			{"ts": 1.1, "kind": "tool.started", "session_id": "s1", "turn_id": "t1", "request_id": "c1", "tool_name": "Bash"},
+			{"ts": 1.2, "kind": "tool.finished", "session_id": "s1", "turn_id": "t1", "request_id": "c1", "tool_name": "Bash", "is_error": True, "error_kind": "INTERNAL"},
+		]
+	)
+	tr = run.window("transcript")
+	assert tr is not None and tr.present is False, "夹具没造出「转录不存在」的形状，这条门在空转"
+	said = [("gap:" + g.reason, g.detail) for g in run.gaps]
+	for f in evaluate_run(run):
+		said += [(f"finding.{fld}:{f.rule_id}", getattr(f, fld)) for fld in ("phenomenon", "impact", "coverage_gap", "allowed_conclusion")]
+	said += [("markdown", line) for line in to_markdown(build_report(run)).splitlines()]
+	mentioned = [(w, t) for w, t in said if t and MENTIONS.search(t)]
+	assert mentioned, "一条提到 transcript 的句子都没有 —— 这条门在空转"
+	bad = [(w, t) for w, t in mentioned if not any(n in t for n in NEG)]
+	assert not bad, f"这些句子许诺去转录回读，可这份报告没有转录：{bad[:4]}"
