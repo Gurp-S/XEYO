@@ -770,3 +770,26 @@ def test_session_scope_findings_never_say_this_turn(collect, monkeypatch) -> Non
 	assert any("instruction_context_changed_midturn" in str(c.get("code")) for c in verdict.get("causes") or []), causes
 	dirty = [text for text in causes if any(word in text for word in TURN_WORDS)]
 	assert not dirty, f"会话级原因标签说了「同一轮」：{dirty[:3]}"
+
+
+def test_gap_details_follow_the_scope_of_the_run_too(collect) -> None:
+	"""范围词门原先只走结论与归因块，缺项正文是读者同样会看到的句子。
+
+	第一个真实受害者：permission_snapshot_id 的量具粒度那句写成常量「本轮」，
+	而会话级报告（#77 之后能读整会话）会印出「N 个逻辑调用在本轮带着不止一个…」——
+	把几个轮次的分裂算给一轮。
+	"""
+	rows = [
+		{"ts": 1.0, "kind": "model.started", "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", "attempt": 1, "permission_snapshot_id": "snap-a"},
+		{"ts": 1.5, "kind": "model.started", "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", "attempt": 2, "permission_snapshot_id": "snap-b"},
+	]
+	session = collect(rows, turn_id="", session_id="s1")
+	notes = [g.detail for g in session.gaps]
+	# 反空转：这条缺项必须在会话级真的出现，否则下面那句断言什么都没钉
+	assert any("permission_snapshot_id" in d for d in notes), notes
+	assert not [d for d in notes if any(w in d for w in TURN_WORDS)], notes
+	assert any("本会话" in d for d in notes), notes
+
+	turn = collect(rows, turn_id="t1", session_id="s1")
+	said = [g.detail for g in turn.gaps if "permission_snapshot_id" in g.detail]
+	assert said and "本轮" in said[0], said

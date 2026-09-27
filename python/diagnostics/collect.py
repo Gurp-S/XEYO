@@ -1314,10 +1314,13 @@ def _note_identity_granularity(run: RunEvidence) -> None:
 	split = [rid for rid, ids in ids_by_request.items() if len(ids) > 1]
 	if not split:
 		return
+	# 范围词跟着范围走：会话级报告（turn_id 为空）读的是整会话的行，
+	# 这里说"本轮"就是把几个轮次的分裂算给一轮。
+	scope = "本轮" if _s(run.turn_id) else "本会话"
 	run.add_gap(
 		"instruction_context",
 		"not_comparable",
-		f"{len(split)} 个逻辑调用在本轮带着不止一个 permission_snapshot_id。"
+		f"{len(split)} 个逻辑调用在{scope}带着不止一个 permission_snapshot_id。"
 		"该字段是写入瞬间的 ambient 权限身份（permissions/trace.py::permission_snapshot 把 mode/revision/cwd "
 		"一起取哈希，revision 由 begin_turn 与每次 set() 递增），不是这次请求的身份："
 		"用它判不出指令上下文是否漂移，需要的是请求级身份钉在请求行上（引擎侧补口）。",
