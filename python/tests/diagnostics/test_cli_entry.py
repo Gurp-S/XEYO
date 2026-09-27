@@ -85,3 +85,49 @@ def test_capture_toggle_requires_one_direction(tmp_path, monkeypatch, capsys) ->
 	assert capture_enabled("s1") is False
 	assert main(["capture", "--session", "s1"]) == 0
 	assert "关" in capsys.readouterr().out
+
+
+def test_fact_output_is_chinese_not_machine_enums(tmp_path, monkeypatch, capsys) -> None:
+	"""CLI 的 fact 正文只印中文：枚举值留给结构化字段，不该出现在终端正文里。
+
+	report 那条命令早就按 `*_label` 印中文，fact 一直把 `absent` /
+	`lost_before:emitted` 原样丢给人读 —— 同一个工具里两套口径。
+	"""
+	audit = tmp_path / "audit.jsonl"
+	rows = [
+		{"ts": 1.0, "kind": "model.started", "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", "attempt": 1, "projection_id": "p1"},
+		{"ts": 1.1, "kind": "model.finished", "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", "attempt": 1, "status": "ok", "projection_id": "p1"},
+	]
+	audit.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+	import audit.log as mod
+
+	monkeypatch.setattr(mod, "_default", mod.AuditLog(audit))
+
+	from memory.working import path_for
+	from session.persistence import transcript_path
+
+	tt = transcript_path("s1")
+	tt.parent.mkdir(parents=True, exist_ok=True)
+	tt.write_text(
+		json.dumps({"id": "m1", "role": "user", "ts": 0.5, "content": "部署前先跑迁移"}, ensure_ascii=False) + "\n",
+		encoding="utf-8",
+	)
+	wp = path_for("s1")
+	wp.parent.mkdir(parents=True, exist_ok=True)
+	wp.write_text(
+		json.dumps(
+			{
+				"session_id": "s1",
+				"last_x_sent": json.dumps([{"content": "无关内容"}], ensure_ascii=False),
+				"last_projection_manifest": {"projection_id": "p1", "created_at": 1.0, "messages_kept": 1},
+			},
+			ensure_ascii=False,
+		),
+		encoding="utf-8",
+	)
+
+	assert main(["fact", "--session", "s1", "--turn", "t1", "--needle", "部署前先跑迁移"]) == 0
+	out = capsys.readouterr().out
+	assert "丢在发射之前" in out, out
+	for raw in ("lost_before:emitted", "not_in_source_history", "absent", "not_recorded", "not_captured"):
+		assert raw not in out, (raw, out)

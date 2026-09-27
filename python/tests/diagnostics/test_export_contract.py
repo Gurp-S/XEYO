@@ -270,3 +270,17 @@ def test_coverage_sources_are_the_ones_the_collector_actually_builds() -> None:
 		"wire_drops",
 		"working",
 	]
+
+
+def test_cli_label_tables_cover_every_fact_enum() -> None:
+	"""CLI 正文用的两张中文表必须覆盖定位链全部档位。
+
+	界面那份中文表由本文件的 parity 门对着契约清单钉；CLI 这份此前没人钉 ——
+	新增一档状态/结论时，终端会静默退回印机器名，而不是报错。
+	"""
+	from diagnostics.loss_chain import STATE_TEXT, VERDICT_TEXT
+
+	assert set(STATE_TEXT) == set(ec.scan_fact_states()), set(ec.scan_fact_states()) ^ set(STATE_TEXT)
+	assert set(VERDICT_TEXT) == set(ec.scan_fact_verdicts()), set(ec.scan_fact_verdicts()) ^ set(VERDICT_TEXT)
+	for text in list(STATE_TEXT.values()) + list(VERDICT_TEXT.values()):
+		assert text.strip(), text

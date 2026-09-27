@@ -13,8 +13,9 @@ import sys
 from diagnostics import store
 from diagnostics.capture import capture_enabled, set_capture_enabled
 from diagnostics.collect import collect_run, list_runs
+from diagnostics.fault_split import PARTY_LABEL
 from diagnostics.identity import Finding
-from diagnostics.loss_chain import trace_fact
+from diagnostics.loss_chain import STATE_TEXT, VERDICT_TEXT, trace_fact
 from diagnostics.pins import pin_run, record_verifier
 from diagnostics.report import build_report, cause_evidence_text, save_report, to_markdown
 from diagnostics.rules import evaluate_run
@@ -119,7 +120,13 @@ def main(argv: list[str] | None = None) -> int:
 				)
 			)
 			for cause in (fault.get("causes") or [])[:6]:
-				_emit("  [{}] {} ← {}".format(cause.get("party"), cause.get("label"), cause.get("code")))
+				_emit(
+					"  [{}] {} ← {}".format(
+						PARTY_LABEL.get(cause.get("party"), cause.get("party")),
+						cause.get("label"),
+						cause.get("code"),
+					)
+				)
 				# 与 markdown 同一件事：定责的原因要能回到原始记录，指针不能只留在结构体里
 				cause_evidence = cause_evidence_text(cause)
 				if cause_evidence:
@@ -138,8 +145,16 @@ def main(argv: list[str] | None = None) -> int:
 	if args.cmd == "fact":
 		doc = trace_fact(collect_run(args.session, args.turn), args.needle)
 		for stage in doc["stages"]:
-			_emit(f"{stage['label']}: {stage['state']} — {stage['note']}")
-		_emit(f"结论：{doc['verdict']}")
+			# 正文只用中文；机器枚举留在结构化字段里（`/v1/diagnostics/.../fact` 与
+			# `report --format json` 的载荷里都还在，脚本要按枚举分支的照旧能读）。
+			_emit(
+				"{}: {} — {}".format(
+					stage["label"],
+					STATE_TEXT.get(stage["state"], stage["state"]),
+					stage["note"],
+				)
+			)
+		_emit("结论：{}".format(VERDICT_TEXT.get(doc["verdict"], doc["verdict"])))
 		_emit(doc["statement"])
 		_emit(doc["caveat"])
 		return 0

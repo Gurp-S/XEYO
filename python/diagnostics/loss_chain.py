@@ -34,6 +34,27 @@ STAGES: tuple[tuple[str, str], ...] = (
 
 _STAGE_LABEL = dict(STAGES)
 
+#: 每一级状态的中文说法。CLI 的正文只用中文，机器枚举留在结构化字段里
+#: （与 fault_split 的 _SHOWN_TEXT 同一裁定）。键集必须与导出的契约一致，
+#: 由 tests/diagnostics/test_export_contract.py 钉住：新增一档而这里没登记就红。
+STATE_TEXT: dict[str, str] = {
+	FOUND: "找到",
+	ABSENT: "未命中",
+	FOLDED_OUT: "被折叠移出留存投影",
+	NOT_RECORDED: "该级未记账",
+	NOT_CAPTURED: "该级未采集",
+	UNREADABLE: "不可读",
+}
+
+#: 结论档位的短标签：长句 `statement` 单独一行跟着印，这里只给"这一条算哪种结论"。
+VERDICT_TEXT: dict[str, str] = {
+	"not_in_source_history": "源历史里就没有",
+	"kept_through": "一路都在（发射级仍查得到）",
+	"folded_out_of_projection": "被折叠移出留存投影",
+	"lost_before:emitted": "丢在发射之前（中间两级无账本，定位不到具体一级）",
+	"unknown": "无法归因",
+}
+
 
 def _stage(name: str, state: str, *, evidence: list[dict[str, Any]], note: str = "") -> dict[str, Any]:
 	return {
@@ -628,6 +649,8 @@ __all__ = [
 	"NOT_CAPTURED",
 	"NOT_RECORDED",
 	"STAGES",
+	"STATE_TEXT",
 	"UNREADABLE",
+	"VERDICT_TEXT",
 	"trace_fact",
 ]
