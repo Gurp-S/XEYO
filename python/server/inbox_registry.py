@@ -329,7 +329,10 @@ class InboxRegistry:
 			queue_id=queue_id,
 			text=t,
 			media_refs=list(media_refs or []),
-			message_id=message_id or uuid.uuid4().hex,
+			# 不在此合成 message_id：投递边界的三条路径各自 `or uuid4()` 兜底，
+			# 而批投要区分「调用方给的 id」与「没给」——提前填会把 pop_active 的
+			# 「取首个非空 message_id」永远变成第一条的假 id。
+			message_id=message_id,
 		)
 		with self._lock:
 			self._ensure_loaded_locked(sid)
