@@ -1519,10 +1519,13 @@ def list_ledger_sessions(
 	scan = _scan_jsonl_tail(path, max_bytes)
 	acc: dict[str, dict[str, Any]] = {}
 	unattributed = 0
+	unattr_kinds: dict[str, int] = {}
 	for line_no, row in scan.rows:
 		sid = _s(row.get("session_id"))
 		if not sid:
 			unattributed += 1  # 连属于哪个会话都不知道，不猜
+			kind = _s(row.get("kind")) or "(无 kind)"
+			unattr_kinds[kind] = unattr_kinds.get(kind, 0) + 1
 			continue
 		item = acc.setdefault(
 			sid,
@@ -1556,7 +1559,23 @@ def list_ledger_sessions(
 		if scan.rows_unparsable:
 			fragments.append(f"{scan.rows_unparsable} 行解不出 JSON 对象，未计入任何会话")
 		if unattributed:
-			fragments.append(f"{unattributed} 行缺 session_id，未归入任何会话")
+			# 裸数字不算说清了自己：真实账本里缺身份的行 96.5% 是 tool.started/tool.finished
+			# （只读工具的审计行不写会话身份）。但只有少数几类真能解释这个数时才点名 ——
+			# 零零散散也照抄前两名，等于凭空造一个"就是这两个生产者"的因果。
+			ranked = sorted(unattr_kinds.items(), key=lambda kv: (-kv[1], kv[0]))
+			named: list[tuple[str, int]] = []
+			for kind, n in ranked[:2]:  # 最多两类：再多就不是"解释"，而是罗列
+				named.append((kind, n))
+				if sum(v for _, v in named) >= unattributed * 0.8:
+					break
+			covered = sum(v for _, v in named)
+			if named and covered >= unattributed * 0.8:
+				listed = "、".join(f"{k}×{v}" for k, v in named)
+				fragments.append(
+					f"{unattributed} 行缺 session_id，未归入任何会话（其中 {listed} 占 {round(100.0 * covered / unattributed)}%）"
+				)
+			else:
+				fragments.append(f"{unattributed} 行缺 session_id，未归入任何会话")
 	total_sessions = len(acc)
 	keep = max(1, int(limit))
 	if total_sessions > keep:

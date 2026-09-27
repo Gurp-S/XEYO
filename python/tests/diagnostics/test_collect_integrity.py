@@ -1359,3 +1359,29 @@ def test_a_downgraded_window_always_says_which_class_of_rows_it_dropped(tmp_path
 	told.add_note("transcript 保留上限 400 行：更早的 4 行未带入载荷")
 	_seal_window(told)
 	assert told.note.count("4") == 2, told.note  # 只有调用点那一句（上限 400 + 更早 4）
+
+
+def test_unattributed_rows_name_the_kinds_only_when_a_few_explain_them(tmp_path) -> None:
+	"""裸数字不算说清了自己；但把谁都算进来凑一句"解释"，是凭空造因果。
+
+	真实账本：缺身份的行 10936 个里 96.5% 是 tool.started / tool.finished
+	（只读工具的审计行不写会话身份）。这种形状值得点名；四类各占一点时不值得。
+	"""
+	import diagnostics.collect as coll
+
+	keep = [{"ts": 1.0, "kind": "model.started", "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", "attempt": 1}]
+	path = tmp_path / "audit.jsonl"
+
+	_write_ledger(path, keep + [{"ts": 2.0, "kind": "tool.started"}] * 8 + [{"ts": 2.5, "kind": "notice.channel"}])
+	sink: dict = {}
+	coll.list_ledger_sessions(audit_path=path, coverage_sink=sink)
+	assert "9 行缺 session_id，未归入任何会话（其中 tool.started×8 占 89%）" in sink["note"], sink["note"]
+
+	_write_ledger(
+		path,
+		keep + [{"ts": 3.0 + i, "kind": k} for i, k in enumerate(("tool.started", "tool.finished", "notice.channel", "llm.failure", "model.finished"))],
+	)
+	sink2: dict = {}
+	coll.list_ledger_sessions(audit_path=path, coverage_sink=sink2)
+	assert "5 行缺 session_id，未归入任何会话" in sink2["note"], sink2["note"]
+	assert "×" not in sink2["note"], sink2["note"]  # 谁都解释不了大部分时不点名
