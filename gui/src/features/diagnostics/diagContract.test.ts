@@ -266,3 +266,26 @@ describe('诊断契约 · 后端给的字段界面必须接住', () => {
 		}
 	});
 });
+
+describe('诊断界面文案不引用设计稿编号，也不写死生产者算出的数量', () => {
+	it('剥离注释后的正文里没有 §，也没有写死的定位链级数', () => {
+		// §6.2 这类编号对读者不是入口：他们手上没有那份文档，文档一改版引用就指错地方
+		// （项目记忆里"文档指向不存在的东西"已经踩过多次）。界面文案一律中文产品化。
+		// 「七级顺序」则是把定位链的级数写死：级数由生产者按当次证据算出，写死的数字
+		// 迟早与载荷不符——而那正是我们一路在修的"文案说得比数据多"。
+		const dir = path.dirname(fileURLToPath(import.meta.url));
+		const names = readdirSync(dir).filter(n => /\.(tsx|ts)$/.test(n) && !n.includes('.test.'));
+		expect(names.length).toBeGreaterThan(5);
+		const stripped = names.map(n => {
+			const text = readFileSync(path.join(dir, n), 'utf8');
+			return [n, text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')] as const;
+		});
+		const total = stripped.reduce((n, [, s]) => n + s.length, 0);
+		// 反空转：注释剥离把代码也剥没了的话，门同样什么都不知道
+		expect(total, '剥离注释后几乎没有正文可扫 —— 这条门在空转').toBeGreaterThan(20000);
+		for (const [n, s] of stripped) {
+			expect(s, `${n} 的界面正文里出现设计稿编号 §`).not.toMatch(/§/);
+			expect(s, `${n} 把定位链级数写死了`).not.toMatch(/(七|六|八|九|十|[1-9])\s*级/);
+		}
+	});
+});

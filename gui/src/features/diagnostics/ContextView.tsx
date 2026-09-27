@@ -244,7 +244,7 @@ export function ContextView({
 				/>
 			</Section>
 
-			<Section title="事实定位" hint="按 §6.2 的七级顺序查同一项事实">
+			<Section title="事实定位" hint="逐级核对这条事实在哪些环节还在、在哪一级断的">
 				<div className="xy-dig-factbar">
 					<input
 						type="text"
