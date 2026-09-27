@@ -12,7 +12,7 @@ import sys
 
 from diagnostics import store
 from diagnostics.capture import capture_enabled, set_capture_enabled
-from diagnostics.collect import collect_run, list_runs
+from diagnostics.collect import collect_run, list_ledger_sessions, list_runs
 from diagnostics.fault_split import PARTY_LABEL
 from diagnostics.identity import Finding
 from diagnostics.loss_chain import STATE_TEXT, VERDICT_TEXT, trace_fact
@@ -47,6 +47,9 @@ def _findings_rows(findings: list[Finding]) -> list[str]:
 def main(argv: list[str] | None = None) -> int:
 	parser = argparse.ArgumentParser(prog="python -m diagnostics", description="XEYO 诊断中心")
 	sub = parser.add_subparsers(dest="cmd", required=True)
+
+	sessions = sub.add_parser("sessions", help="列出审计账本里出现过的会话（含没有转录的那些）")
+	sessions.add_argument("--limit", type=int, default=50)
 
 	runs = sub.add_parser("runs", help="列出会话内的运行")
 	runs.add_argument("--session", required=True)
@@ -99,6 +102,28 @@ def main(argv: list[str] | None = None) -> int:
 			)
 			if row["coverage_note"]:
 				_emit(f"    ! {row['coverage_note']}")
+		return 0
+
+	if args.cmd == "sessions":
+		coverage = {}
+		rows = list_ledger_sessions(limit=args.limit, coverage_sink=coverage)
+		for row in rows:
+			lines = row["audit_lines"]
+			_emit(
+				"{}  {:>19}  轮次{}个 记录{}行  审计 L{}–L{}".format(
+					row["session_id"],
+					"—" if row["last_ts"] is None else row["last_ts"],
+					row["turn_count"],
+					row["event_rows"],
+					lines[0],
+					lines[1],
+				)
+			)
+		if coverage.get("note"):
+			_emit(f"! {coverage['note']}")
+		elif not rows:
+			# 一行都没列出来时，"读完整份没有会话"与"没读到账本"是两句话。
+			_emit("! 账本里没有可归属的会话记录" if coverage.get("present") else "! 没有读到审计账本")
 		return 0
 
 	if args.cmd == "report":

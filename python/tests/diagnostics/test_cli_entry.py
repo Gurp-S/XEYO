@@ -131,3 +131,35 @@ def test_fact_output_is_chinese_not_machine_enums(tmp_path, monkeypatch, capsys)
 	assert "丢在发射之前" in out, out
 	for raw in ("lost_before:emitted", "not_in_source_history", "absent", "not_recorded", "not_captured"):
 		assert raw not in out, (raw, out)
+
+
+def test_sessions_command_lists_ledger_only_sessions_and_stays_readable(tmp_path, monkeypatch, capsys) -> None:
+	"""CLI 的发现面：``runs`` 要先知道 session id，账本独有的会话此前无从查起。"""
+	audit = tmp_path / "audit.jsonl"
+	rows = [
+		{"ts": 1.0, "kind": "model.started", "session_id": "ghost", "turn_id": "g1", "model_request_id": "r1", "attempt": 1},
+		{"ts": 2.0, "kind": "tool.started", "session_id": "other", "turn_id": "o1", "request_id": "c1", "tool_name": "Read"},
+		{"ts": 3.0, "kind": "model.started"},
+	]
+	audit.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+	import audit.log as mod
+
+	monkeypatch.setattr(mod, "_default", mod.AuditLog(audit))
+	assert main(["sessions"]) == 0
+	out = capsys.readouterr().out
+	assert "ghost" in out and "other" in out
+	assert "轮次1个" in out, out
+	# 缺身份的那行必须报数：静默少列会让清单看着"再没有别的会话"
+	assert "1 行缺 session_id" in out, out
+	# 列出来的目的是问得到：同一个 id 接得上 runs
+	assert main(["runs", "--session", "ghost"]) == 0
+	assert "g1" in capsys.readouterr().out
+
+
+def test_sessions_command_says_a_missing_ledger_is_not_an_empty_one(tmp_path, monkeypatch, capsys) -> None:
+	import audit.log as mod
+
+	monkeypatch.setattr(mod, "_default", mod.AuditLog(tmp_path / "absent.jsonl"))
+	assert main(["sessions"]) == 0
+	out = capsys.readouterr().out
+	assert "审计文件不存在" in out, out
