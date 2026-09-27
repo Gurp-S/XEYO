@@ -913,7 +913,23 @@ async function failureOf(res: Response): Promise<Error> {
 	} catch {
 		/* 非 JSON 错误响应由状态码兜底 */
 	}
+	if (isDefaultNotFound(payload, res.status)) return new Error(DIAG_MODULE_MISSING_MESSAGE);
 	return new Error(formatErrorDetail(payload, res.status));
+}
+
+/** 诊断路由自己从不回 404（见 server/routers/diagnostics.py），所以框架默认的
+ *  `Not Found` 只有一个解释：这个后端压根没挂诊断模块。桌面版打包的引擎快照早于
+ *  诊断层，此时把英文原文投给读者，既看不懂也说不出该做什么。 */
+export const DIAG_MODULE_MISSING_MESSAGE =
+	'这个后端没有诊断模块：请改用 dev 后端（py -3.11 -m cli serve），或重新打包引擎后再看诊断中心';
+
+function isDefaultNotFound(payload: unknown, status: number): boolean {
+	if (status !== 404) return false;
+	if (payload == null) return true;
+	if (typeof payload === 'string') return payload.trim() === '' || payload.trim() === 'Not Found';
+	if (typeof payload !== 'object' || Array.isArray(payload)) return true;
+	const detail = (payload as {detail?: unknown}).detail;
+	return detail == null || detail === 'Not Found' || detail === 'Method Not Found';
 }
 
 /**

@@ -11,6 +11,7 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {
 	buildExperimentBody,
+	DIAG_MODULE_MISSING_MESSAGE,
 	cancelDiagExperiment,
 	fetchDiagCapture,
 	fetchDiagReportMarkdown,
@@ -208,5 +209,26 @@ describe('实验请求体真的按后端契约发出去', () => {
 		);
 		const sent = JSON.parse(String(fetchMock.mock.calls[0]![1]?.body)) as Record<string, unknown>;
 		expect(sent.budget_cny).toBe(8.5);
+	});
+});
+
+describe('后端根本没挂诊断模块时要说出这件事', () => {
+	// 桌面版打包的引擎快照早于诊断层：resources/python 里没有 diagnostics，
+	// 也没有 server/routers/diagnostics.py。此时每个端点都是框架默认的 404，
+	// 把 `Not Found` 原样投给读者既看不懂、也指不出该做什么。
+	it('框架默认 404 翻译成"没有诊断模块"，不保留英文原文', async () => {
+		fetchMock.mockResolvedValue(fakeResponse({detail: 'Not Found'}, 404));
+		await expect(fetchDiagRuns('s1')).rejects.toThrow(DIAG_MODULE_MISSING_MESSAGE);
+		await expect(fetchDiagRuns('s1')).rejects.not.toThrow(/Not Found/);
+	});
+
+	it('后端自己写的 404 文案原样保留（不得一口咬定模块缺失）', async () => {
+		fetchMock.mockResolvedValue(fakeResponse({detail: '这个轮次不在诊断索引里'}, 404));
+		await expect(fetchDiagRun('s1', 't9')).rejects.toThrow('这个轮次不在诊断索引里');
+	});
+
+	it('非 404 的错误映射不受影响', async () => {
+		fetchMock.mockResolvedValue(fakeResponse({detail: 'session_id 含非法字符'}, 422));
+		await expect(fetchDiagRuns('s/../x')).rejects.toThrow('session_id 含非法字符');
 	});
 });
