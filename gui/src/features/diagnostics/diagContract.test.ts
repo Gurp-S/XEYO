@@ -189,6 +189,15 @@ const UNREAD_OK: Record<string, string> = {
 	'usage_summary.usage_window_complete': '同上：「用量账本按尾窗读取，更早的账本行未纳入本次统计」',
 	'usage_summary.usage_window_present': '同上：「本机没有可用的用量账本文件」',
 	'fault.no_turn_records': '界面用本轮空态与 attribution 的未定桶表达，不再渲染一个布尔',
+	// 以下 8 条是契约补全形状（report 顶层 / window）后才露出来的，逐条写明信息从哪到达读者：
+	'report.evidence_rows': '步骤视图按「审计事件（本页/总）」说条数，用的是 events.length 与 event_total',
+	'report.pin_count': '界面渲染 pins 列表本身，条数就是 pins.length，不再读第二个数',
+	'window.rows_outside_window': '数字以正文形式进 note（_window_from_scan 的「更早的 N 行未覆盖」）',
+	'window.rows_unparsable': '数字以正文形式进 note（_seal_window 的「N 行解不出 JSON 对象，已丢弃」）',
+	'window.rows_unattributed': '数字以正文形式进 note（_seal_window 的「N 行不带本会话身份，未补值」）',
+	'window.rows_capped': '数字以正文形式进 note（_seal_window 的「保留上限之外还有 N 行」）',
+	'window.rows_other_session': '归到别的会话是正常过滤，不降级 complete，所以不写进正文（实测 fold_events 窗口 12 行属于这类）',
+	'window.rows_other_turn': '归到本会话别的轮次同理：不是丢证据，读者看到的行数是本轮的',
 };
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -211,6 +220,27 @@ describe('诊断契约 · 后端给的字段界面必须接住', () => {
 		const total = Object.values(DIAG_PAYLOAD_KEYS).reduce((n, keys) => n + keys.length, 0);
 		// 反空转：清单为空 = 这道门什么都没看。
 		expect(total).toBeGreaterThan(40);
+		// 反向守卫之二：清单**缩水**也得红。以前只钉 5 档形状，报告顶层、原因条目、
+		// 缺项、窗口、工具调用、模型请求全在棘轮外 —— 往那里加一个没人读的字段
+		// 一句都不红（补全后立刻露出 8 个）。只数总键数抓不到"整档被删掉"。
+		for (const group of [
+			'finding',
+			'evidence',
+			'fault',
+			'attribution',
+			'usage_summary',
+			'report',
+			'cause',
+			'gap',
+			'window',
+			'tool_call',
+			'model_request',
+		]) {
+			expect(
+				(DIAG_PAYLOAD_KEYS[group] ?? []).length,
+				`契约的 ${group} 一档不见了：棘轮又盖不到整份载荷`,
+			).toBeGreaterThan(0);
+		}
 		const unread: string[] = [];
 		const stale: string[] = [];
 		for (const [group, keys] of Object.entries(DIAG_PAYLOAD_KEYS)) {

@@ -226,7 +226,21 @@ def scan_payload_keys() -> dict[str, list[str]]:
 		"fault": set(),
 		"attribution": set(),
 		"usage_summary": set(),
+		# 其余形状以前不在清单里：拿真实载荷逐档比对（sess_mu0mkitk 的一轮，
+		# 14 个工具调用）发现 fault.causes[] 的 8 个键、windows[] 的 15 个键、
+		# 报告顶层的 28 个键**全部在棘轮之外** —— 往这些形状里加一个没人读的字段，
+		# 门一句都不红。补齐之后"给了就有人读"才覆盖整份载荷。
+		"report": set(),
+		"cause": set(),
+		"gap": set(),
+		"window": set(collect.Window(source="probe").to_dict()),
+		"tool_call": set(collect.ToolCall(tool_use_id="probe-call").to_dict()),
+		"model_request": set(collect.ModelRequest(model_request_id="probe-req").to_dict()),
 	}
+	probe = RunEvidence(session_id="probe", turn_id="t1")
+	probe.add_gap("model_request", "probe_reason", "探针")
+	if probe.gaps:
+		groups["gap"] = set(probe.gaps[-1].to_dict())
 	for run in (
 		RunEvidence(session_id="probe", turn_id="t1"),
 		RunEvidence(session_id="probe", turn_id="t1"),
@@ -235,7 +249,11 @@ def scan_payload_keys() -> dict[str, list[str]]:
 		groups["fault"] |= set(doc.get("fault") or {})
 		groups["attribution"] |= set(doc.get("attribution") or {})
 		groups["usage_summary"] |= set(doc.get("usage_summary") or {})
-	return {name: sorted(keys) for name, keys in sorted(groups.items())}
+		groups["report"] |= set(doc)
+		causes = (doc.get("fault") or {}).get("causes") or []
+		if causes:
+			groups["cause"] |= set(causes[0])
+	return {name: sorted(keys) for name, keys in sorted(groups.items()) if keys}
 
 
 def collect_contract() -> dict[str, Any]:

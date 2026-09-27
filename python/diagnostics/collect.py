@@ -544,9 +544,17 @@ def _seal_window(window: Window) -> Window:
 
 	「没发现异常」只有在证据没被扔掉时才有意义，所以只要 ``rows_dropped``
 	非零就把状态从 full 降级并写明原因，而不是让 complete 继续为真。
+
+	降级与"写明原因"是一件事的两半：只降级不写原因，读者在覆盖表上看到
+	「不完整」却不知道少在哪一类。缺身份与被上限截断这两类以前只有个别调用点
+	会补话，其余来源静默丢行 —— 所以这里兜一道"那个数字没出现在正文里就补一句"。
 	"""
 	if window.rows_unparsable:
 		window.add_note(f"{window.rows_unparsable} 行读到了却解不出 JSON 对象，已丢弃")
+	if window.rows_unattributed and str(window.rows_unattributed) not in window.note:
+		window.add_note(f"{window.rows_unattributed} 行不带本会话身份，未补值")
+	if window.rows_capped and str(window.rows_capped) not in window.note:
+		window.add_note(f"保留上限之外还有 {window.rows_capped} 行未带入载荷")
 	if window.rows_dropped:
 		window.complete = False
 	return window

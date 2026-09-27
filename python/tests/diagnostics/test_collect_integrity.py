@@ -1335,3 +1335,27 @@ def test_ledger_session_list_keeps_window_and_file_loss_apart(tmp_path, monkeypa
 	assert "更早的" in sink2["note"] and "未列出" in sink2["note"], sink2["note"]
 	# 整段在窗外的那条会话确实不出现 —— 措辞必须停在"未列出"，不能说它没有证据
 	assert [r["session_id"] for r in out] == ["late"]
+
+
+def test_a_downgraded_window_always_says_which_class_of_rows_it_dropped(tmp_path) -> None:
+	"""降级与"写明原因"是一件事的两半：只说「不完整」不说少在哪一类，读者无从判断。
+
+	_seal_window 的 docstring 本来就承诺"写明原因"，但实现只给解不出的行补话；
+	缺身份与被上限截断两类只在个别调用点有句子，其余来源会静默丢行。
+	"""
+	from diagnostics.collect import Window, _seal_window
+
+	capped = Window(source="transcript", locator="/x/t.jsonl", complete=True, rows_capped=37)
+	_seal_window(capped)
+	assert capped.complete is False
+	assert "37" in capped.note, capped.note
+
+	unattr = Window(source="usage", locator="/x/u.jsonl", complete=True, rows_unattributed=8)
+	_seal_window(unattr)
+	assert unattr.complete is False and "8" in unattr.note, unattr.note
+
+	# 调用点已经把数字写进更具体的句子时，不重复印第二遍
+	told = Window(source="transcript", locator="/x/t.jsonl", complete=True, rows_capped=4)
+	told.add_note("transcript 保留上限 400 行：更早的 4 行未带入载荷")
+	_seal_window(told)
+	assert told.note.count("4") == 2, told.note  # 只有调用点那一句（上限 400 + 更早 4）

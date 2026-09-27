@@ -133,8 +133,14 @@ export const DIAG_PARTIES: readonly string[] = [
 
 export const DIAG_PAYLOAD_KEYS: Readonly<Record<string, readonly string[]>> = {
 	attribution: ['attributed', 'confirmed_count', 'first_anomaly_boundary', 'first_anomaly_label', 'last_evidenced_boundary', 'last_evidenced_label', 'statement', 'suspected_count', 'unknown_count'],
+	cause: ['code', 'does_not_prove', 'evidence', 'evidence_total', 'label', 'party', 'proves'],
 	evidence: ['detail', 'locator', 'ref_id', 'source'],
 	fault: ['cause_statement', 'causes', 'chain', 'engine_confirmed', 'environment_confirmed', 'missing_evidence', 'no_turn_records', 'not_claimed', 'obligation', 'primary_cause', 'primary_cause_label', 'responsibility', 'responsibility_label', 'shown_to_model', 'shown_to_model_note', 'task_outcome', 'task_outcome_label', 'transport_gap', 'why'],
 	finding: ['allowed_conclusion', 'boundary', 'component', 'coverage_gap', 'evidence', 'impact', 'phenomenon', 'rule_id', 'rule_version', 'status'],
+	gap: ['boundary', 'detail', 'reason', 'scope'],
+	model_request: ['attempt_keys', 'attempts', 'capture', 'evidence', 'model', 'model_request_id', 'projection_id', 'provider', 'tool_use_ids', 'turn_id', 'usage_by_attempt'],
+	report: ['attribution', 'boundaries', 'captures', 'coverage', 'evidence_rows', 'fault', 'findings', 'folds', 'gaps', 'generated_at', 'identity', 'jobs', 'model_requests', 'notes', 'permissions', 'pin_count', 'pins', 'projections', 'schema_version', 'session_id', 'tool_calls', 'turn_id', 'usage', 'usage_summary', 'versions', 'windows', 'wire_drops', 'working'],
+	tool_call: ['action_id', 'approval_ids', 'error_kind', 'evidence', 'finished', 'is_error', 'model_request_id', 'paired', 'projection_id', 'result_message_id', 'started', 'tool_name', 'tool_use_id', 'turn_id'],
 	usage_summary: ['cost_basis', 'cost_sources', 'estimated_total_cny', 'finished_attempts', 'priced_attempts', 'statement', 'total_is_partial', 'unknown_cost_attempts', 'unknown_cost_keys', 'unlinked_usage_rows', 'unpriced_attempts', 'unpriced_keys', 'usage_window_complete', 'usage_window_present'],
+	window: ['bytes_read', 'complete', 'locator', 'note', 'present', 'rows_capped', 'rows_matched', 'rows_other_session', 'rows_other_turn', 'rows_outside_window', 'rows_scanned', 'rows_unattributed', 'rows_unparsable', 'source', 'truncated'],
 };
