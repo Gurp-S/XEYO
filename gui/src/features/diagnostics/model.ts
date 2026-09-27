@@ -834,7 +834,9 @@ export const PARTY_TONE: Record<string, 'fail' | 'warn' | 'neutral' | 'unknown'>
 /** 约束是否进入模型实际收到的内容。 */
 export const SHOWN_LABEL: Record<string, string> = {
 	shown: '已送达模型',
-	not_shown: '未送达',
+	// 后端正文是「不在留存的那一份发射投影里」——它刻意不写"未送达"，因为更早几枪的投影
+	// 根本没落盘（fault_split._SHOWN_TEXT 的注释）。徽章原先写「未送达」，比判据更肯定。
+	not_shown: '不在留存投影里',
 	// 后端 fault_split.py 在这条路上发的是 folded_out：丢了哪一级已定位到折叠，
 	// 缺这一条时徽章会照抄机器名（约束：folded_out）。
 	folded_out: '被折叠移出投影（未送达）',

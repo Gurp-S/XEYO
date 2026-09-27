@@ -27,6 +27,7 @@ import {
 	DIAG_RULE_IDS,
 	DIAG_SESSION_CONSTANT_GAPS,
 	DIAG_SHOWN_STATES,
+	DIAG_SHOWN_TEXTS,
 } from '@/generated/diagContract';
 import {
 	BOUNDARY_ORDER,
@@ -74,6 +75,31 @@ describe('诊断契约 · 生产者发得出，界面就必须说得出', () => 
 			expect(label, `界面缺送达状态 ${state}`).toBeTruthy();
 			expect(label).not.toContain(state);
 		}
+	});
+
+	it('徽章可以比后端正文短，但不许比它更肯定', () => {
+		// 界面只读得到 fault.shown_to_model 这个枚举，措辞是这里现编的。编得比后端正文
+		// 更肯定，读者就会把"读不出"当成结论：not_shown 曾被写成「未送达」，而后端
+		// 刻意只说"不在留存的那一份发射投影里"（更早几枪的投影根本没落盘）。
+		const assertTokens = ['未送达', '从未进入', '丢失'];
+		// 反面自证：这些断言词里至少要有一个真的出现在某档后端正文里，否则门是空转的。
+		expect(
+			DIAG_SHOWN_STATES.some(s => assertTokens.some(t => (DIAG_SHOWN_TEXTS[s] ?? '').includes(t))),
+			'断言词清单与后端正文完全不相交 —— 这道门抓不到任何东西',
+		).toBe(true);
+		for (const state of DIAG_SHOWN_STATES) {
+			const label = SHOWN_LABEL[state] ?? '';
+			const text = DIAG_SHOWN_TEXTS[state] ?? '';
+			for (const token of assertTokens) {
+				if (label.includes(token)) {
+					expect(text, `徽章 ${state} 说了「${token}」，后端正文没有这么说`).toContain(token);
+				}
+			}
+		}
+		// 逐档钉住当前裁定：这两档的差别就是"过没过归属门"。
+		expect(SHOWN_LABEL.not_shown).not.toContain('未送达');
+		expect(SHOWN_LABEL.unprovable).not.toContain('未送达');
+		expect(SHOWN_LABEL.folded_out).toContain('未送达');
 	});
 
 	it('采集覆盖表的每一档来源都有中文，界面也不留生产者不发的标签', () => {

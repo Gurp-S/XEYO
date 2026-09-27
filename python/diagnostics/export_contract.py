@@ -253,6 +253,9 @@ def collect_contract() -> dict[str, Any]:
 			if (b, r) in emitted
 		],
 		"shownStates": scan_shown_states(),
+		# 后端正文也进契约：界面的徽章允许比它短，但不允许比它**更肯定**
+		# （'未送达' 比 '不在留存的那一份发射投影里' 强，读者据此会把"读不出"当成结论）。
+		"shownTexts": {s: fault_split._SHOWN_TEXT[s] for s in scan_shown_states()},
 		"coverageSources": scan_coverage_sources(),
 		"factStates": scan_fact_states(),
 		"factVerdicts": scan_fact_verdicts(),
@@ -271,6 +274,7 @@ def render(contract: dict[str, Any]) -> str:
 	)
 	rule_ids = "\n".join(f"\t{r!r}," for r in contract["ruleIds"])
 	shown = "\n".join(f"\t{s!r}," for s in contract["shownStates"])
+	shown_texts = "\n".join(f"\t{s!r}: {t!r}," for s, t in contract["shownTexts"].items())
 	cov_sources = "\n".join(f"\t{s!r}," for s in contract["coverageSources"])
 	fact_states = "\n".join(f"\t{s!r}," for s in contract["factStates"])
 	fact_verdicts = "\n".join(f"\t{v!r}," for v in contract["factVerdicts"])
@@ -309,6 +313,10 @@ def render(contract: dict[str, Any]) -> str:
 		"export const DIAG_SHOWN_STATES: readonly string[] = [\n"
 		f"{shown}\n"
 		"];\n"
+		"\n"
+		"export const DIAG_SHOWN_TEXTS: Readonly<Record<string, string>> = {\n"
+		f"{shown_texts}\n"
+		"};\n"
 		"\n"
 		"export const DIAG_COVERAGE_SOURCES: readonly string[] = [\n"
 		f"{cov_sources}\n"

@@ -87,6 +87,14 @@ export const DIAG_SHOWN_STATES: readonly string[] = [
 	'unprovable',
 ];
 
+export const DIAG_SHOWN_TEXTS: Readonly<Record<string, string>> = {
+	'folded_out': '被折叠移出投影（未送达）',
+	'no_obligation': '没有可比对的约束文本',
+	'not_shown': '不在留存的那一份发射投影里',
+	'shown': '已进入模型实际收到的内容',
+	'unprovable': '无法证明是否送达',
+};
+
 export const DIAG_COVERAGE_SOURCES: readonly string[] = [
 	'audit',
 	'captures',

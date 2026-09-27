@@ -112,7 +112,11 @@ _SHOWN_TEXT = {
 	# 可比范围（会话级尤其如此——一份整会话的最后一枪当整段历史的证人）。
 	"not_shown": "不在留存的那一份发射投影里",
 	"folded_out": "被折叠移出投影（未送达）",
-	"unprovable": "无法证明是否送达（缺按轮留存的最终请求体）",
+	# 徽章不带原因：unprovable 背后至少两种洞（本轮投影没留存 / 整会话根本没留存发射投影），
+	# 写死"缺按轮留存的最终请求体"对后者是假话。固定种子抽 70/352 会话的 59 个有约束轮次：
+	# 47 条判不动里 38 条是 projection_not_in_turn、9 条是 no_retained_projection —— 后者
+	# 一份发射投影都没落盘，跟"按轮"无关。原因由 shown_to_model_note 承担（界面与 Markdown 都印）。
+	"unprovable": "无法证明是否送达",
 	"no_obligation": "没有可比对的约束文本",
 }
 
@@ -433,14 +437,14 @@ def _unprovable_note(run: RunEvidence, *, retained_body: bool = False) -> str:
 	elif used:
 		which = f"{scope_word(run)}的审计行带着投影 {'、'.join(p[:12] for p in used[:3])}，{retained_txt}"
 	elif retained:
-		which = f"{scope_word(run)}审计行没有投影标识，无从确认它用的是哪一份投影"
+		which = f"{scope_word(run)}审计行没有投影标识，无从确认模型用的是哪一份投影"
 	elif retained_body:
 		which = f"{scope_word(run)}审计行没有投影标识，{retained_txt}"
 	else:
 		which = f"{scope_word(run)}既没有投影标识也没有留存的投影正文"
 	return (
 		f"working 只留整会话最后一份发射投影（{which}，可能出自更晚的一轮）："
-		"既不能据此说约束送到了，也不能据此说它把约束弄丢了"
+		"既不能据此说约束送到了，也不能据此说引擎把约束弄丢了"
 	)
 
 

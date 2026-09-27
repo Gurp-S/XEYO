@@ -731,3 +731,34 @@ def test_transcript_without_user_rows_is_a_real_no_obligation() -> None:
 	run = _run(events=[_ev_with(2.0, "model.started"), _ev_with(3.0, "model.finished")])
 	verdict = attribute_fault(run, [])
 	assert verdict["shown_to_model"] == "no_obligation", verdict["shown_to_model"]
+
+
+def test_unprovable_badge_carries_no_cause_and_the_notes_do(monkeypatch) -> None:
+	"""徽章不许写死原因：unprovable 背后至少两种洞，写死任何一种都对另一种说谎。
+
+	固定种子抽 70/352 会话、59 个有约束的轮次：47 条判不动里 38 条是
+	``projection_not_in_turn``（本轮没留存那份投影）、9 条是 ``no_retained_projection``
+	（整会话根本没留存发射投影）。旧措辞「（缺按轮留存的最终请求体）」对后者是假话。
+	"""
+	import diagnostics.fault_split as fs
+	import diagnostics.loss_chain as lc
+
+	text = fs._SHOWN_TEXT["unprovable"]
+	for noun in ("请求体", "投影", "transcript", "working", "按轮"):
+		assert noun not in text, f"徽章把原因写死了：{text}"
+
+	run = _run(turn_id="")
+	needle = "部署前先跑迁移"
+	monkeypatch.setattr(lc, "_last_sent_projection", lambda sid: ("", ""))
+	a = fs._shown_to_model(run, needle, obligation_state="")
+	assert a["state"] == "unprovable" and a["hole"] == "no_retained_projection", a
+	assert "未持久化" in a["note"], a
+
+	monkeypatch.setattr(lc, "_last_sent_projection", lambda sid: ('{"c": "别的正文"}', "working.json"))
+	monkeypatch.setattr(fs, "_emitted_projection_in_turn", lambda r: False)
+	b = fs._shown_to_model(run, needle, obligation_state="")
+	assert b["state"] == "unprovable" and b["hole"] == "projection_not_in_turn", b
+	assert "只留整会话最后一份" in b["note"], b
+	# 两种洞各有各的话术，而徽章对两者是同一句不含任何具体原因的话
+	assert a["note"] != b["note"]
+	assert a["note"] not in text and b["note"] not in text
