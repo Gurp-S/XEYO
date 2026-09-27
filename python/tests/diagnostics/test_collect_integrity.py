@@ -1249,3 +1249,89 @@ def test_session_scope_says_so_when_even_the_widened_read_finds_nothing(tmp_path
 	gap = next(g for g in run.gaps if g.reason == "not_found_in_full_file")
 	assert "session_id=absent_session" in gap.detail, gap.detail
 	assert "turn_id=" not in gap.detail
+
+
+def test_ledger_session_list_reaches_sessions_that_have_no_transcript(tmp_path) -> None:
+	"""会话可达性的地板：账本里有证据的会话必须列得出来，哪怕一份转录都没有。
+
+	真实数据里 29%（45/155）的轮次报告对应的会话没有转录文件，另有一批子代理会话
+	从来不在聊天列表里 —— 诊断面板的会话选择器只有聊天列表那一份，于是这些会话
+	一行证据都在盘上却永远选不到。
+	"""
+	import diagnostics.collect as coll
+
+	path = tmp_path / "audit.jsonl"
+	_write_ledger(
+		path,
+		_ledger_rows("older", 1.0, 3)
+		+ [
+			{
+				"ts": 9.0,
+				"kind": "tool.started",
+				"session_id": "no_transcript_agent",
+				"turn_id": "nt-t1",
+				"request_id": "c1",
+				"tool_name": "Read",
+			}
+		],
+	)
+	sink: dict = {}
+	rows = coll.list_ledger_sessions(audit_path=path, coverage_sink=sink)
+	assert [r["session_id"] for r in rows] == ["no_transcript_agent", "older"], rows
+	assert rows[1]["turn_count"] == 3 and rows[1]["event_rows"] == 3
+	assert rows[0]["turn_count"] == 1 and rows[0]["last_ts"] == 9.0
+	assert sink["complete"] is True and sink["total_sessions"] == 2
+	assert sink["note"] == ""
+
+
+def test_ledger_session_list_counts_the_rows_it_cannot_attribute(tmp_path) -> None:
+	"""缺身份的行不猜归属，但必须报数：静默少算会让清单看着"再没有别的会话了"。"""
+	import diagnostics.collect as coll
+
+	path = tmp_path / "audit.jsonl"
+	rows = _ledger_rows("s1", 1.0, 2)
+	_write_ledger(path, rows)
+	with path.open("a", encoding="utf-8") as handle:
+		handle.write('{"ts": 2.0, "kind": "model.started"}\n')  # 旧格式行：没有 session_id
+		handle.write("not json at all\n")
+	sink: dict = {}
+	out = coll.list_ledger_sessions(audit_path=path, coverage_sink=sink)
+	assert [r["session_id"] for r in out] == ["s1"]
+	assert sink["complete"] is False
+	assert sink["rows_unattributed"] == 1 and sink["rows_unparsable"] == 1
+	assert "1 行缺 session_id" in sink["note"] and "1 行解不出 JSON" in sink["note"], sink["note"]
+
+
+def test_ledger_session_list_says_a_cut_list_is_not_the_whole_ledger(tmp_path, monkeypatch) -> None:
+	"""limit 砍掉的会话数要说出来：返回条数不是总数，否则分页被报成全量。"""
+	import diagnostics.collect as coll
+
+	path = tmp_path / "audit.jsonl"
+	_write_ledger(path, _ledger_rows("s1", 1.0, 1) + _ledger_rows("s2", 2.0, 1) + _ledger_rows("s3", 3.0, 1))
+	sink: dict = {}
+	out = coll.list_ledger_sessions(limit=2, audit_path=path, coverage_sink=sink)
+	assert len(out) == 2
+	assert sink["total_sessions"] == 3
+	assert sink["complete"] is False
+	assert "共 3 个，只返回最近 2 个" in sink["note"], sink["note"]
+
+
+def test_ledger_session_list_keeps_window_and_file_loss_apart(tmp_path, monkeypatch) -> None:
+	""""没读到"与"没有文件"是两句话，截断也不能被写成会话不存在。"""
+	import diagnostics.collect as coll
+
+	missing = tmp_path / "gone.jsonl"
+	sink: dict = {}
+	assert coll.list_ledger_sessions(audit_path=missing, coverage_sink=sink) == []
+	assert sink["present"] is False and sink["truncated"] is False
+	assert "审计文件不存在" in sink["note"] and "非尾窗截断" in sink["note"], sink["note"]
+
+	path = tmp_path / "audit.jsonl"
+	_write_ledger(path, _ledger_rows("early", 1.0, 200) + _ledger_rows("late", 100.0, 40))
+	monkeypatch.setattr(coll, "_AUDIT_WIDEN_BYTES", 1024)
+	sink2: dict = {}
+	out = coll.list_ledger_sessions(audit_path=path, coverage_sink=sink2)
+	assert sink2["truncated"] is True and sink2["complete"] is False
+	assert "更早的" in sink2["note"] and "未列出" in sink2["note"], sink2["note"]
+	# 整段在窗外的那条会话确实不出现 —— 措辞必须停在"未列出"，不能说它没有证据
+	assert [r["session_id"] for r in out] == ["late"]

@@ -1487,6 +1487,111 @@ def list_runs(
 	return out[: max(1, int(limit))]
 
 
+def list_ledger_sessions(
+	*,
+	limit: int = 200,
+	audit_path: str | os.PathLike[str] | None = None,
+	coverage_sink: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+	"""审计账本里出现过的会话清单（跨会话聚合）。
+
+	为什么需要它：诊断面板的会话选择器只有 chat store 那一份列表，而它按
+	``sessions/*.jsonl`` 枚举。实测 155 个真实轮次报告里有 45 个会话（29%）根本没有转录文件，
+	另有一批子代理会话（``..._agent``）从来不在聊天列表里 —— 这些会话在账本里有几百行证据，
+	面板却一个都选不到。可达性不取决于界面肯不肯显示，而取决于这里列不列得出来。
+
+	聚合必须看整份账本：只看尾窗会让列表偏向最近几个会话，早期会话永远进不了候选，
+	那与它要解决的问题是同一个。截断时如实说明，不假装是全部。
+	"""
+	path = Path(audit_path) if audit_path else _default_audit_path()
+	max_bytes = _AUDIT_WIDEN_BYTES
+	scan = _scan_jsonl_tail(path, max_bytes)
+	acc: dict[str, dict[str, Any]] = {}
+	unattributed = 0
+	for line_no, row in scan.rows:
+		sid = _s(row.get("session_id"))
+		if not sid:
+			unattributed += 1  # 连属于哪个会话都不知道，不猜
+			continue
+		item = acc.setdefault(
+			sid,
+			{"turn_ids": set(), "rows": 0, "first_ts": None, "last_ts": None, "line_min": line_no, "line_max": line_no},
+		)
+		item["rows"] += 1
+		tid = _s(row.get("turn_id"))
+		if tid:
+			item["turn_ids"].add(tid)
+		try:
+			ts: float | None = float(row.get("ts"))
+		except (TypeError, ValueError):
+			ts = None
+		if ts is not None:
+			if item["first_ts"] is None or ts < item["first_ts"]:
+				item["first_ts"] = ts
+			if item["last_ts"] is None or ts > item["last_ts"]:
+				item["last_ts"] = ts
+		item["line_min"] = min(item["line_min"], line_no)
+		item["line_max"] = max(item["line_max"], line_no)
+
+	fragments: list[str] = []
+	if not scan.present:
+		fragments.append(f"审计文件不存在：{path}，无会话可列（非尾窗截断）")
+	else:
+		if scan.truncated:
+			fragments.append(
+				f"审计只读到最近 {scan.rows_scanned} 行（上限 {max_bytes} 字节），"
+				f"更早的 {scan.rows_outside_window} 行里的会话未列出"
+			)
+		if scan.rows_unparsable:
+			fragments.append(f"{scan.rows_unparsable} 行解不出 JSON 对象，未计入任何会话")
+		if unattributed:
+			fragments.append(f"{unattributed} 行缺 session_id，未归入任何会话")
+	total_sessions = len(acc)
+	keep = max(1, int(limit))
+	if total_sessions > keep:
+		# 返回条数不是会话总数：只截断不说，界面上"共 N 个会话"就把分页说成了全量。
+		fragments.append(f"读到的会话共 {total_sessions} 个，只返回最近 {keep} 个（limit）")
+	note = "；".join(fragments)
+	coverage = {
+		"source": "audit",
+		"locator": str(path),
+		"present": scan.present,
+		"truncated": scan.truncated,
+		"rows_scanned": scan.rows_scanned,
+		"rows_outside_window": scan.rows_outside_window,
+		"rows_unparsable": scan.rows_unparsable,
+		"rows_unattributed": unattributed,
+		"total_sessions": total_sessions,
+		"complete": (
+			scan.present
+			and not scan.truncated
+			and not scan.rows_unparsable
+			and not unattributed
+			and total_sessions <= keep
+		),
+		"note": note,
+	}
+	if coverage_sink is not None:
+		coverage_sink.clear()
+		coverage_sink.update(coverage)
+
+	out: list[dict[str, Any]] = []
+	for sid, item in acc.items():
+		out.append(
+			{
+				"session_id": sid,
+				"turn_count": len(item["turn_ids"]),
+				"event_rows": item["rows"],
+				"first_ts": item["first_ts"],
+				"last_ts": item["last_ts"],
+				"audit_lines": [item["line_min"], item["line_max"]],
+				"coverage_note": note,
+			}
+		)
+	out.sort(key=lambda r: (r["last_ts"] or 0), reverse=True)
+	return out[: max(1, int(limit))]
+
+
 __all__ = [
 	"BOUNDARIES",
 	"ModelRequest",
@@ -1495,5 +1600,6 @@ __all__ = [
 	"Window",
 	"boundary_of",
 	"collect_run",
+	"list_ledger_sessions",
 	"list_runs",
 ]

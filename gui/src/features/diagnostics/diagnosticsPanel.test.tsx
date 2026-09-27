@@ -29,6 +29,7 @@ const api = vi.hoisted(() => ({
 	fetchDiagRun: vi.fn(),
 	fetchDiagRunEvents: vi.fn(),
 	fetchDiagCapture: vi.fn(),
+	fetchDiagLedgerSessions: vi.fn(),
 	setDiagCapture: vi.fn(),
 	fetchDiagReportMarkdown: vi.fn(),
 	pinDiagRun: vi.fn(),
@@ -162,6 +163,14 @@ beforeEach(() => {
 		quota_bytes: null,
 		locator: '',
 	} satisfies DiagCaptureState);
+	api.fetchDiagLedgerSessions.mockResolvedValue({
+		// 默认"读到了、账本里没有聊天列表之外的会话"：需要这条数据源的用例自己覆盖。
+		sessions: [],
+		count: 0,
+		complete: true,
+		note: '',
+		error: '',
+	});
 	api.fetchDiagRunEvents.mockResolvedValue({events: [], total: 0, complete: true, nextCursor: ''});
 	api.traceDiagFact.mockResolvedValue({needle: '', session_id: SESSION, turn_id: 't1', stages: [], verdict: '', statement: '', unprovable_stages: [], caveat: ''});
 	api.listDiagExperiments.mockResolvedValue({ok: true, status: 200, data: {experiments: [], count: 0}});
@@ -624,3 +633,108 @@ describe('标签页与正文的重挂载边界（P2 16）', () => {
 function locationProbe(): string {
 	return (screen.getByTestId('loc-probe').textContent ?? '').replace(/^\s+/, '');
 }
+
+describe('会话候选的第二条来源：审计账本', () => {
+	// 聊天列表按转录文件枚举会话。实测 352 个账本会话里 68 个（19.3%）没有转录文件，
+	// 它们在账本里有几十到几百行证据，却在选择器里一个都点不到 —— 这一整块覆盖率
+	// 之前是零：不是措辞不准，是那扇门根本没开。
+	beforeEach(() => {
+		// 默认当前会话有一份空列表：本 describe 测的是会话候选与它的说明，不是轮次装载。
+		api.fetchDiagRuns.mockResolvedValue(runsFixture(SESSION, []));
+		// 选中账本会话后装载层会去要详情；按请求身份回一份，未声明的响应会变成未处理拒绝。
+		api.fetchDiagRun.mockImplementation(async (sid: string, tid: string) =>
+			parseRunDetail({schema_version: 1, session_id: sid, turn_id: tid}),
+		);
+	});
+
+	it('账本独有的会话可以选，选了就按它的身份去拉轮次', async () => {
+		const user = userEvent.setup();
+		api.fetchDiagLedgerSessions.mockResolvedValue({
+			sessions: [
+				{
+					session_id: 'ghost_agent',
+					turn_count: 2,
+					event_rows: 68,
+					last_ts: 9,
+					coverage_note: '',
+				},
+			],
+			count: 1,
+			complete: true,
+			note: '',
+			error: '',
+		});
+		api.fetchDiagRuns.mockResolvedValue(runsFixture('ghost_agent', [{turn_id: 'g1'}]));
+		renderPanel();
+		await user.click(screen.getByRole('combobox', {name: '会话'}));
+		await user.click(await screen.findByRole('option', {name: 'ghost_agent（仅审计可见）'}));
+		await waitFor(() =>
+			expect(api.fetchDiagRuns).toHaveBeenCalledWith(
+				'ghost_agent',
+				expect.objectContaining({limit: expect.any(Number)}),
+			),
+		);
+	});
+
+	it('聊天列表那批不能被账本合并挤掉', async () => {
+		const user = userEvent.setup();
+		api.fetchDiagLedgerSessions.mockResolvedValue({
+			sessions: [{session_id: 'ghost', turn_count: 1, event_rows: 3, last_ts: 9, coverage_note: ''}],
+			count: 1,
+			complete: true,
+			note: '',
+			error: '',
+		});
+		renderPanel();
+		await user.click(screen.getByRole('combobox', {name: '会话'}));
+		// 两边都要在：合并不能把聊天列表挤掉，也不能把账本独有的丢掉
+		expect(await screen.findByRole('option', {name: '会话甲'})).toBeTruthy();
+		expect(screen.getByRole('option', {name: '会话乙'})).toBeTruthy();
+		expect(screen.getByRole('option', {name: 'ghost（仅审计可见）'})).toBeTruthy();
+	});
+
+	it('账本清单读不到时说明读不到，不把少一批来源说成"没有更多会话"', async () => {
+		api.fetchDiagLedgerSessions.mockResolvedValue({
+			sessions: [],
+			count: 0,
+			complete: false,
+			note: '',
+			error: '连不上本地后端',
+		});
+		renderPanel();
+		expect(await screen.findByText(/账本会话清单没读到：连不上本地后端/)).toBeTruthy();
+	});
+
+	it('扫描没看全时把后端那句说明原样呈现，不写"这就是全部会话"', async () => {
+		api.fetchDiagLedgerSessions.mockResolvedValue({
+			sessions: [{session_id: 'ghost', turn_count: 1, event_rows: 3, last_ts: 9, coverage_note: ''}],
+			count: 1,
+			complete: false,
+			note: '10936 行缺 session_id，未归入任何会话',
+			error: '',
+		});
+		renderPanel();
+		expect(await screen.findByText('10936 行缺 session_id，未归入任何会话')).toBeTruthy();
+	});
+
+	it('两个来源给出同一个会话时只列一条，不追加"仅审计可见"的重复项', async () => {
+		const user = userEvent.setup();
+		api.fetchDiagLedgerSessions.mockResolvedValue({
+			sessions: [
+				{session_id: SESSION, turn_count: 1, event_rows: 3, last_ts: 9, coverage_note: ''},
+				{session_id: 'ghost', turn_count: 1, event_rows: 3, last_ts: 8, coverage_note: ''},
+			],
+			count: 2,
+			complete: true,
+			note: '',
+			error: '',
+		});
+		renderPanel();
+		await user.click(screen.getByRole('combobox', {name: '会话'}));
+		await screen.findByRole('option', {name: 'ghost（仅审计可见）'});
+		// 同一个 id 只能有一行：重复项的文案与聊天那条不同，所以按名字查是查不出重复的，
+		// 必须数行数。
+		expect(screen.getAllByRole('option')).toHaveLength(3);
+		expect(screen.queryByRole('option', {name: `${SESSION}（仅审计可见）`})).toBeNull();
+	});
+});

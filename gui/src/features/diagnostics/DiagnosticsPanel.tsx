@@ -1,7 +1,8 @@
 /**
  * DiagnosticsPanel.tsx — XEYO 诊断中心页面（与用量页同级的页面视图）。
  *
- * 结构：左列 = 会话 / 运行选择（GET /v1/diagnostics/runs）；右列 = 一次运行的四个视图
+ * 结构：左列 = 会话 / 运行选择（会话候选来自聊天列表 + GET /v1/diagnostics/sessions，
+ * 轮次来自 GET /v1/diagnostics/runs）；右列 = 一次运行的四个视图
  * （问题 / 步骤 / 上下文 / 用量）+ 实验。工具条上另有 导出 Markdown、标记这轮结果不对、
  * 采集开关。
  *
@@ -18,7 +19,9 @@ import {useSearchParams} from 'react-router-dom';
 import {Download, Loader2, Pin, RotateCw, Stethoscope} from 'lucide-react';
 import {PageShell} from '@/components/PageShell';
 import {
+	fetchDiagLedgerSessions,
 	fetchDiagReportMarkdown,
+	type DiagLedgerSession,
 	type DiagRunsResult,
 } from '@/lib/api/diagnostics';
 import {useChatStore} from '@/stores/chatStore';
@@ -83,6 +86,31 @@ function useBackendSessions(): Array<{id: string; label: string}> {
 				}),
 		[sessions, historyById],
 	);
+}
+
+
+/** 账本视角的会话清单：拉不到时只在界面上少一批可选项，并说明为什么。 */
+function useLedgerSessions(): {sessions: DiagLedgerSession[]; complete: boolean; note: string} {
+	const [state, setState] = useState<{sessions: DiagLedgerSession[]; complete: boolean; note: string}>({
+		sessions: [],
+		complete: false,
+		note: '',
+	});
+	useEffect(() => {
+		let alive = true;
+		void fetchDiagLedgerSessions().then(r => {
+			if (!alive) return;
+			setState({
+				sessions: r.sessions,
+				complete: r.error ? false : r.complete,
+				note: r.error ? `账本会话清单没读到：${r.error}` : r.note,
+			});
+		});
+		return () => {
+			alive = false;
+		};
+	}, []);
+	return state;
 }
 
 function RunPicker({
@@ -173,6 +201,17 @@ function ErrorBox({
 
 export function DiagnosticsPanel({active}: {active: boolean}) {
 	const backendSessions = useBackendSessions();
+	const ledger = useLedgerSessions();
+	// 聊天列表按转录文件枚举会话，所以"转录丢了"和"子代理会话"在选择器里一个都不出现，
+	// 而账本里可能有它们几百行证据。两清单按 id 合并，账本独有的那条标出来源，
+	// 让用户知道这不是聊天里的会话、但确实可诊断。
+	const pickerSessions = useMemo(() => {
+		const seen = new Set(backendSessions.map(s => s.id));
+		const extras = ledger.sessions
+			.filter(s => !seen.has(s.session_id))
+			.map(s => ({id: s.session_id, label: `${s.session_id}（仅审计可见）`}));
+		return [...backendSessions, ...extras];
+	}, [backendSessions, ledger.sessions]);
 	const activeId = useChatStore(s => s.activeId);
 	const historyById = useChatStore(s => s.historyById);
 	const activeBackendId = activeId
@@ -285,7 +324,7 @@ export function DiagnosticsPanel({active}: {active: boolean}) {
 	const toolbar = (
 		<>
 			<SessionPicker
-				sessions={backendSessions}
+				sessions={pickerSessions}
 				value={sessionId}
 				onPick={id => {
 					pickSession(id);
@@ -371,6 +410,9 @@ export function DiagnosticsPanel({active}: {active: boolean}) {
 							)}
 						</>
 					)}
+					{ledger.note && !ledger.complete ? (
+						<p className="xy-dig-foot">{ledger.note}</p>
+					) : null}
 					<div className="xy-dig-capture">
 						<label className="xy-dig-check">
 							<input

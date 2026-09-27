@@ -266,3 +266,59 @@ def test_run_detail_transports_the_current_vocabulary(client, seed_audit) -> Non
 	assert fault["task_outcome"] == "self_reported_unverified"
 	codes = [c["code"] for c in fault["causes"]]
 	assert "request_shape_rejected" in codes, codes
+
+
+def test_sessions_endpoint_lists_ledger_only_sessions(client, seed_audit) -> None:
+	"""会话选择器的候选不能只有聊天列表：账本里有证据的会话要列得出来。
+
+	聊天列表按 ``sessions/*.jsonl`` 枚举，所以"转录丢了"与"子代理会话"两类
+	在选择器里一个都点不到 —— 实测 29%（45/155）的轮次报告属于前者。
+	"""
+	seed_audit(
+		[
+			{"kind": "model.started", "ts": 1.0, "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", "attempt": 1},
+			{"kind": "model.finished", "ts": 1.1, "session_id": "s1", "turn_id": "t1", "model_request_id": "r1", "attempt": 1, "status": "ok"},
+			{"kind": "tool.started", "ts": 5.0, "session_id": "ghost_agent", "turn_id": "g1", "request_id": "c1", "tool_name": "Read"},
+		]
+	)
+	body = client.get("/v1/diagnostics/sessions").json()
+	assert body["schema_version"]
+	by_id = {r["session_id"]: r for r in body["sessions"]}
+	assert set(by_id) == {"s1", "ghost_agent"}
+	assert by_id["s1"]["event_rows"] == 2 and by_id["s1"]["turn_count"] == 1
+	assert by_id["ghost_agent"]["event_rows"] == 1
+	assert body["count"] == 2 and body["complete"] is True
+	assert body["coverage"]["total_sessions"] == 2 and body["coverage"]["note"] == ""
+	# 最近在前：面板里默认露出的是刚跑过的那批
+	assert body["sessions"][0]["session_id"] == "ghost_agent"
+
+
+def test_sessions_endpoint_does_not_pass_a_cut_list_as_the_total(client, seed_audit) -> None:
+	"""limit 砍掉时 complete 必须翻假并给出总会话数：条数不是总数。"""
+	seed_audit(
+		[
+			{"kind": "model.started", "ts": 1.0, "session_id": "a", "turn_id": "ta", "model_request_id": "ra", "attempt": 1},
+			{"kind": "model.started", "ts": 2.0, "session_id": "b", "turn_id": "tb", "model_request_id": "rb", "attempt": 1},
+			{"kind": "model.started", "ts": 3.0, "session_id": "c", "turn_id": "tc", "model_request_id": "rc", "attempt": 1},
+		]
+	)
+	body = client.get("/v1/diagnostics/sessions", params={"limit": 2}).json()
+	assert body["count"] == 2
+	assert body["complete"] is False
+	assert body["coverage"]["total_sessions"] == 3
+	assert "共 3 个，只返回最近 2 个" in body["coverage"]["note"], body["coverage"]["note"]
+
+
+def test_a_ledger_only_session_is_then_diagnosable(client, seed_audit) -> None:
+	"""列出来的唯一目的是选得到：拿到 id 后轮次列表必须真的能开。"""
+	seed_audit(
+		[
+			{"kind": "model.started", "ts": 4.0, "session_id": "ghost", "turn_id": "g1", "model_request_id": "r1", "attempt": 1},
+			{"kind": "model.started", "ts": 5.0, "session_id": "ghost", "turn_id": "g2", "model_request_id": "r2", "attempt": 1},
+		]
+	)
+	sessions = client.get("/v1/diagnostics/sessions").json()["sessions"]
+	assert [s["session_id"] for s in sessions] == ["ghost"]
+	runs = client.get("/v1/diagnostics/runs", params={"session_id": "ghost"}).json()
+	assert runs["count"] == 2, runs
+	assert {r["turn_id"] for r in runs["runs"]} == {"g1", "g2"}

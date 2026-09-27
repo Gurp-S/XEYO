@@ -1367,3 +1367,45 @@ export function cancelDiagExperiment(id: string): Promise<DiagRawResult> {
 		{method: 'POST'},
 	);
 }
+
+/** 账本视角的会话：聊天列表里选不到的会话（转录丢失、子代理会话）从这里可达。 */
+export type DiagLedgerSession = {
+	session_id: string;
+	turn_count: number;
+	event_rows: number;
+	last_ts: number | null;
+	coverage_note: string;
+};
+
+export type DiagLedgerSessions = {
+	sessions: DiagLedgerSession[];
+	count: number;
+	complete: boolean;
+	note: string;
+	/** 取不到时说明原因：空列表与"没读到"是两句话，不能合成一句。 */
+	error: string;
+};
+
+export async function fetchDiagLedgerSessions(limit = 200): Promise<DiagLedgerSessions> {
+	try {
+		const o = rec(await getJson(`/v1/diagnostics/sessions${qs({limit})}`, LONG_TIMEOUT_MS));
+		return {
+			sessions: arr(o.sessions).map(v => {
+				const row = rec(v);
+				return {
+					session_id: s(row.session_id) ?? '',
+					turn_count: n(row.turn_count) ?? 0,
+					event_rows: n(row.event_rows) ?? 0,
+					last_ts: n(row.last_ts) ?? null,
+					coverage_note: s(row.coverage_note) ?? '',
+				};
+			}),
+			count: n(o.count) ?? 0,
+			complete: o.complete === true,
+			note: s((rec(o.coverage) as Record<string, unknown>)?.note) ?? '',
+			error: '',
+		};
+	} catch (err) {
+		return {sessions: [], count: 0, complete: false, note: '', error: (err as Error)?.message?.trim() || OFFLINE_ERROR_MESSAGE};
+	}
+}

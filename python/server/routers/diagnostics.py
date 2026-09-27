@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 
 from diagnostics import store
 from diagnostics.capture import capture_enabled, set_capture_enabled
-from diagnostics.collect import collect_run, list_runs
+from diagnostics.collect import collect_run, list_ledger_sessions, list_runs
 from diagnostics.identity import SCHEMA_VERSION, _s
 from diagnostics.loss_chain import trace_fact
 from diagnostics.pins import delete_pin, pin_run, pins_for_run, record_verifier
@@ -144,6 +144,26 @@ def get_runs(
         "complete": bool(runs) and not any(r.get("coverage_note") for r in runs),
         "coverage": coverage,
         "store_root": str(store.diagnostics_root()),
+    }
+
+
+@router.get("/v1/diagnostics/sessions")
+def get_sessions(limit: int = Query(default=200, ge=1, le=1000)) -> dict[str, Any]:
+    """审计账本视角的会话清单。
+
+    聊天列表按 ``sessions/*.jsonl`` 枚举会话，因此"跑过但转录丢了"的会话和子代理会话
+    在选择器里一个都点不到 —— 而账本里可能有它们几百行证据。诊断要先能被打开，
+    才谈得上准确。扫描没看全时 complete=false 并带上一句说明，不假装是全部会话。
+    """
+    coverage: dict[str, Any] = {}
+    sessions = list_ledger_sessions(limit=limit, coverage_sink=coverage)
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "sessions": sessions,
+        "count": len(sessions),
+        "limit": limit,
+        "complete": bool(coverage.get("complete")),
+        "coverage": coverage,
     }
 
 

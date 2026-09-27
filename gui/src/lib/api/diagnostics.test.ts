@@ -14,6 +14,7 @@ import {
 	DIAG_MODULE_MISSING_MESSAGE,
 	cancelDiagExperiment,
 	fetchDiagCapture,
+	fetchDiagLedgerSessions,
 	fetchDiagReportMarkdown,
 	fetchDiagRun,
 	fetchDiagRuns,
@@ -230,5 +231,45 @@ describe('后端根本没挂诊断模块时要说出这件事', () => {
 	it('非 404 的错误映射不受影响', async () => {
 		fetchMock.mockResolvedValue(fakeResponse({detail: 'session_id 含非法字符'}, 422));
 		await expect(fetchDiagRuns('s/../x')).rejects.toThrow('session_id 含非法字符');
+	});
+});
+
+describe('账本会话清单：读不到不等于"没有别的会话"', () => {
+	it('按后端给的 complete 与 coverage.note 透传，不自己推断', async () => {
+		fetchMock.mockResolvedValue(
+			fakeResponse({
+				schema_version: 1,
+				sessions: [
+					{session_id: 'ghost', turn_count: 2, event_rows: 68, last_ts: 9.5, audit_lines: [5, 72]},
+					{session_id: 'no_ts', turn_count: 0, event_rows: 1, last_ts: null, audit_lines: [3, 3]},
+				],
+				count: 2,
+				limit: 200,
+				complete: false,
+				coverage: {total_sessions: 2, note: '10936 行缺 session_id，未归入任何会话'},
+			}),
+		);
+		const r = await fetchDiagLedgerSessions();
+		expect(r.error).toBe('');
+		expect(r.complete).toBe(false);
+		expect(r.note).toContain('缺 session_id');
+		expect(r.sessions[0]).toMatchObject({session_id: 'ghost', turn_count: 2, event_rows: 68});
+		// 时间戳读不出保持 null：塌成 0 会让界面把"没读到时间"显示成 1970
+		expect(r.sessions[1].last_ts).toBeNull();
+	});
+
+	it('complete 只在后端明确写 true 时为真，缺字段不是"完整"', async () => {
+		fetchMock.mockResolvedValue(fakeResponse({sessions: [{session_id: 'a'}]}));
+		const r = await fetchDiagLedgerSessions();
+		expect(r.complete).toBe(false);
+		expect(r.count).toBe(0);
+	});
+
+	it('请求失败时带 error 说明，不把空列表说成"账本里没有会话"', async () => {
+		fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
+		const r = await fetchDiagLedgerSessions();
+		expect(r.sessions).toEqual([]);
+		expect(r.complete).toBe(false);
+		expect(r.error).toBe(OFFLINE_ERROR_MESSAGE);
 	});
 });
