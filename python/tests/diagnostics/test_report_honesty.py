@@ -211,3 +211,34 @@ def test_no_sentence_promises_transcript_readback_when_it_is_absent(collect) -> 
 	assert mentioned, "一条提到 transcript 的句子都没有 —— 这条门在空转"
 	bad = [(w, t) for w, t in mentioned if not any(n in t for n in NEG)]
 	assert not bad, f"这些句子许诺去转录回读，可这份报告没有转录：{bad[:4]}"
+
+
+def test_diagnostics_strings_cite_design_doc_sections_or_hardcoded_chain_lengths() -> None:
+	"""GUI 侧那条"正文不许引用设计稿编号 / 不许写死定位链级数"的门，后端也得有。
+
+	读者能看到的句子有一半是 python 拼出来的（Markdown 导出、CLI 输出、缺项正文）。
+	只在界面扫等于给这条纪律留了一扇没锁的门。用 ast 走字符串字面量而不是正则扫源码：
+	注释与 docstring 里的 § 会误报，而注释不是读者看到的句子。
+	"""
+	import ast
+	import re
+	from pathlib import Path
+
+	root = Path(__file__).resolve().parents[2] / "diagnostics"
+	pattern = re.compile(r"§|(?:七|六|八|九|十|[1-9])\s*级")
+	files = sorted(root.glob("*.py"))
+	assert len(files) > 8, files
+	seen_strings = 0
+	seen_docstrings = 0
+	for path in files:
+		tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+		for node in ast.walk(tree):
+			if isinstance(node, ast.Constant) and isinstance(node.value, str):
+				if len(node.value) > 40:
+					seen_docstrings += 1
+				seen_strings += 1
+				hit = pattern.search(node.value)
+				assert not hit, f"{path.name}:{node.lineno} 读者可见正文里出现 {hit.group(0)!r}：…{node.value[:80]}…"
+	# 反空转： walker 没读到足够多的字符串 = 这条门什么都没看
+	assert seen_strings > 400, seen_strings
+	assert seen_docstrings > 60, seen_docstrings
