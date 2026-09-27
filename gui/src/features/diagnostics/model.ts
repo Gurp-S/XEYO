@@ -949,7 +949,7 @@ export function reportVersionText(v: {commit: string; branch: string; worktree_s
  * 后端已经带过来的原始记录指针被丢掉（因果链那一段是渲染的）。
  * 逐条铺开会和因果链重复，这里只给一行"指得到哪里"，没有证据时返回空串。
  */
-export function causeEvidenceSummary(items: DiagEvidenceRef[] | undefined, total?: number): string {
+export function causeEvidenceSummary(items: DiagEvidenceRef[] | undefined, total?: number | null): string {
 	const shown = items ?? [];
 	const first = shown.find(e => e && (e.source || e.ref_id || e.locator || e.detail));
 	if (!first) return '';
@@ -957,8 +957,10 @@ export function causeEvidenceSummary(items: DiagEvidenceRef[] | undefined, total
 		[first.source, first.ref_id].filter(Boolean).join(' ') ||
 		(first.locator ? (first.locator.split(/[\\/]/).pop() ?? '') : '');
 	if (!head) return '';
-	const n = typeof total === 'number' && total > 0 ? total : shown.length;
-	return `证据：${head}${n > 1 ? ` 等 ${n} 条` : ''}`;
+	// 总数只能来自后端。旧后端不报 evidence_total 时，截断列表的长度不是总数：
+	// 写"等 6 条"就是把截断说成完整（后端上限正是 6 条）。这时只给指针，不给条数。
+	const known = typeof total === 'number' && total > 0 ? total : null;
+	return `证据：${head}${known !== null && known > 1 ? ` 等 ${known} 条` : ''}`;
 }
 
 // ---------------------------------------------------------------------------

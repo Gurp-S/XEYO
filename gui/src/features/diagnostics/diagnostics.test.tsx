@@ -896,15 +896,27 @@ describe('证据缺项的中文口径与"零结论"的指向', () => {
 });
 
 describe('causeEvidenceSummary', () => {
-	it('一行给出指得到哪条记录，条数说总数', () => {
+	it('一行给出指得到哪条记录，条数只说后端报的总数', () => {
 		const items = [
 			{source: 'audit', locator: '/x/audit.jsonl', ref_id: 'L42', detail: 'tool.finished'},
 			{source: 'audit', locator: '/x/audit.jsonl', ref_id: 'L43', detail: 'tool.finished'},
 		];
 		expect(causeEvidenceSummary(items, 9)).toBe('证据：audit L42 等 9 条');
-		// 后端没给总数时按随附的条数说，不吹成更多
-		expect(causeEvidenceSummary(items, 0)).toBe('证据：audit L42 等 2 条');
-		expect(causeEvidenceSummary([items[0]])).toBe('证据：audit L42');
+		expect(causeEvidenceSummary([items[0]], 1)).toBe('证据：audit L42');
+	});
+
+	it('后端没报总数时不拿随附条数冒充总数', () => {
+		// 生产者只带前 6 条指针：旧后端不发 evidence_total，若把 shown.length 写成总数，
+		// "等 6 条"就成了"一共 6 条"的假话——正是 #63 要消灭的那个形状。
+		const six = Array.from({length: 6}, (_, i) => ({
+			source: 'audit',
+			locator: '/x/audit.jsonl',
+			ref_id: `L${40 + i}`,
+			detail: 'tool.finished',
+		}));
+		expect(causeEvidenceSummary(six)).toBe('证据：audit L40');
+		expect(causeEvidenceSummary(six, 0)).toBe('证据：audit L40');
+		expect(causeEvidenceSummary(six, 20)).toBe('证据：audit L40 等 20 条');
 	});
 
 	it('没有证据的原因条目不给空行', () => {
