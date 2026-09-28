@@ -275,3 +275,13 @@
 /* 顶部淡出复用滚动内容自身的遮罩（.xy-scroll-fade.is-fade-top），
    与底部同源；用于透出壁纸（bgOpacity/bgBlur）。 */
 
+
+/* 补 data-smoothness 一路：本文件此前只挡 prefers-reduced-motion，
+   应用内的平滑开关（见 lib/motionDuration.ts）关不掉悬停位移与光晕。 */
+html[data-smoothness='off'] .xy-turn-rail,
+html[data-smoothness='off'] .xy-turn-rail-tick,
+html[data-smoothness='off'] .xy-turn-rail-tick:hover {
+  transition: none;
+  transform: none;
+  box-shadow: none;
+}
