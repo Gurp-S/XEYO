@@ -2191,3 +2191,272 @@ export async function saveBashPolicy(input: {
 		};
 	}
 }
+
+/* ── A3 日监控报告的结构化数据面（替代用量页的 iframe）────────────────────────── */
+
+/** 服务端把每个数字都清洗过：非有限值（NaN/Inf）一律回 null，界面据此说"数据里没有"。 */
+type A3Num = number | null | undefined;
+
+export type A3ReportModelRow = {
+	provider?: string;
+	model?: string;
+	requests?: A3Num;
+	prompt_tokens?: A3Num;
+	cache_hit?: A3Num;
+	cache_miss?: A3Num;
+	hit_rate?: A3Num;
+	output?: A3Num;
+	cost_cny?: A3Num;
+};
+
+export type A3ReportDaySummary = {
+	day: string;
+	accepted: boolean;
+	requests?: A3Num;
+	prompt_tokens?: A3Num;
+	cache_hit?: A3Num;
+	cache_miss?: A3Num;
+	hit_rate?: A3Num;
+	c2_count?: A3Num;
+	output?: A3Num;
+	cost_cny?: A3Num;
+	/** 服务端按 by_session 行数给的真值；报告 payload 里没有 sessions 字段，旧网页这项恒为 0。 */
+	sessions?: A3Num;
+	turns?: A3Num;
+	/** 24 桶，服务端本地小时口径（与报告原图的 hourOf 同一算法）。 */
+	hour_counts: number[];
+	/** first_ts 缺失/非法的轮数；不为 0 时界面要说明。 */
+	hour_unknown: number;
+	by_model: A3ReportModelRow[];
+};
+
+export type A3ReportData = {
+	ok: true;
+	generated_at: string;
+	source: {path: string; bytes: number; mtime: number};
+	day_count: number;
+	days: A3ReportDaySummary[];
+};
+
+export type A3ReportSessionRow = {
+	session_id?: string;
+	requests?: A3Num;
+	prompt_tokens?: A3Num;
+	cache_hit?: A3Num;
+	cache_miss?: A3Num;
+	hit_rate?: A3Num;
+	output?: A3Num;
+	cost_cny?: A3Num;
+};
+
+export type A3ReportTurnRow = {
+	session_id?: string;
+	label?: string;
+	model?: string;
+	requests?: A3Num;
+	cache_hit?: A3Num;
+	cache_miss?: A3Num;
+	hit_rate?: A3Num;
+	output?: A3Num;
+	cost_cny?: A3Num;
+	/** 该轮首次请求的 epoch 秒；界面按本地时间格式化。 */
+	first_ts?: A3Num;
+	/** 服务端把原始 events 数组换成条数下发（原文不下发，10 MB 的主体就在这里）。 */
+	event_count?: A3Num;
+};
+
+export type A3ReportDayDetail = {
+	ok: true;
+	generated_at: string;
+	source: {path: string; bytes: number; mtime: number};
+	day: string;
+	summary: A3ReportDaySummary;
+	sessions: A3ReportSessionRow[];
+	turns: A3ReportTurnRow[];
+};
+
+/** 与 getMemoryReport 同一条判据：后端"确认没有"走 HTTP 错误，读不出/形状变了也走这里。 */
+export type A3ReportDataRead = {
+	ok: boolean;
+	data: A3ReportData | null;
+	message: string;
+};
+
+export type A3ReportDayRead = {
+	ok: boolean;
+	data: A3ReportDayDetail | null;
+	message: string;
+};
+
+function a3Str(value: unknown): string | undefined {
+	return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function a3NumOr(value: unknown): A3Num {
+	return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function a3ModelRows(value: unknown): A3ReportModelRow[] {
+	if (!Array.isArray(value)) return [];
+	return value
+		.filter((r): r is Record<string, unknown> => !!r && typeof r === 'object')
+		.map(r => ({
+			provider: a3Str(r.provider),
+			model: a3Str(r.model),
+			requests: a3NumOr(r.requests),
+			prompt_tokens: a3NumOr(r.prompt_tokens),
+			cache_hit: a3NumOr(r.cache_hit),
+			cache_miss: a3NumOr(r.cache_miss),
+			hit_rate: a3NumOr(r.hit_rate),
+			output: a3NumOr(r.output),
+			cost_cny: a3NumOr(r.cost_cny),
+		}));
+}
+
+/** 逐字段收口：服务端少给一个键 ⇒ 该键是 null/undefined，而不是"0"。界面按这个区别说话。 */
+function a3DaySummary(raw: unknown): A3ReportDaySummary | null {
+	if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+	const o = raw as Record<string, unknown>;
+	const day = a3Str(o.day);
+	if (!day) return null;
+	const hours = Array.isArray(o.hour_counts) ? o.hour_counts.slice(0, 24) : [];
+	return {
+		day,
+		accepted: o.accepted === true,
+		requests: a3NumOr(o.requests),
+		prompt_tokens: a3NumOr(o.prompt_tokens),
+		cache_hit: a3NumOr(o.cache_hit),
+		cache_miss: a3NumOr(o.cache_miss),
+		hit_rate: a3NumOr(o.hit_rate),
+		c2_count: a3NumOr(o.c2_count),
+		output: a3NumOr(o.output),
+		cost_cny: a3NumOr(o.cost_cny),
+		sessions: a3NumOr(o.sessions),
+		turns: a3NumOr(o.turns),
+		hour_counts: hours.map(h => (typeof h === 'number' && Number.isFinite(h) ? h : 0)),
+		hour_unknown: typeof o.hour_unknown === 'number' ? o.hour_unknown : 0,
+		by_model: a3ModelRows(o.by_model),
+	};
+}
+
+function a3Source(raw: unknown): A3ReportData['source'] {
+	const o = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+	return {
+		path: a3Str(o.path) ?? '',
+		bytes: typeof o.bytes === 'number' ? o.bytes : 0,
+		mtime: typeof o.mtime === 'number' ? o.mtime : 0,
+	};
+}
+
+/**
+ * A3 报告的结构化摘要（`GET /v1/settings/memory/report/data`）。
+ *
+ * 用量页原来用 iframe 贴 10 MB 报告网页；这条路由把同一份内嵌 JSON 裁成摘要
+ * （实测 12 KB）交给界面原生渲染。返回 `ok:false` 的两种情况都必须让调用方退回
+ * iframe：后端确认报告还没生成（404 not_found）、以及报告解析不出来（500）。
+ */
+export async function getMemoryReportData(): Promise<A3ReportDataRead> {
+	try {
+		const res = await fetchWithTimeout(apiUrl('/v1/settings/memory/report/data'), {
+			cache: 'no-store',
+		});
+		const payload = await res.json().catch(() => null);
+		if (!res.ok) {
+			return {ok: false, data: null, message: formatErrorDetail(payload, res.status)};
+		}
+		if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+			return {ok: false, data: null, message: 'receipt_bad_report_data'};
+		}
+		const body = payload as Record<string, unknown>;
+		if (body.ok !== true || !Array.isArray(body.days)) {
+			return {ok: false, data: null, message: 'receipt_bad_report_data'};
+		}
+		const days = body.days
+			.map(a3DaySummary)
+			.filter((d): d is A3ReportDaySummary => d !== null);
+		return {
+			ok: true,
+			data: {
+				ok: true,
+				generated_at: a3Str(body.generated_at) ?? '',
+				source: a3Source(body.source),
+				day_count: typeof body.day_count === 'number' ? body.day_count : days.length,
+				days,
+			},
+			message: '',
+		};
+	} catch (err) {
+		return {
+			ok: false,
+			data: null,
+			message: err instanceof Error ? err.message : String(err),
+		};
+	}
+}
+
+/** 某一天的会话/轮次明细（`?day=YYYY-MM-DD`）：下钻不再需要整份 payload。 */
+export async function getMemoryReportDay(day: string): Promise<A3ReportDayRead> {
+	try {
+		const res = await fetchWithTimeout(
+			apiUrl(`/v1/settings/memory/report/data?day=${encodeURIComponent(day)}`),
+			{cache: 'no-store'},
+		);
+		const payload = await res.json().catch(() => null);
+		if (!res.ok) {
+			return {ok: false, data: null, message: formatErrorDetail(payload, res.status)};
+		}
+		if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+			return {ok: false, data: null, message: 'receipt_bad_report_day'};
+		}
+		const body = payload as Record<string, unknown>;
+		const summary = a3DaySummary(body.summary);
+		if (body.ok !== true || !a3Str(body.day) || !summary) {
+			return {ok: false, data: null, message: 'receipt_bad_report_day'};
+		}
+		const rows = (value: unknown) =>
+			Array.isArray(value)
+				? value.filter((r): r is Record<string, unknown> => !!r && typeof r === 'object')
+				: [];
+		return {
+			ok: true,
+			data: {
+				ok: true,
+				generated_at: a3Str(body.generated_at) ?? '',
+				source: a3Source(body.source),
+				day: String(body.day),
+				summary,
+				sessions: rows(body.sessions).map(r => ({
+					session_id: a3Str(r.session_id),
+					requests: a3NumOr(r.requests),
+					prompt_tokens: a3NumOr(r.prompt_tokens),
+					cache_hit: a3NumOr(r.cache_hit),
+					cache_miss: a3NumOr(r.cache_miss),
+					hit_rate: a3NumOr(r.hit_rate),
+					output: a3NumOr(r.output),
+					cost_cny: a3NumOr(r.cost_cny),
+				})),
+				turns: rows(body.turns).map(r => ({
+					session_id: a3Str(r.session_id),
+					label: a3Str(r.label),
+					model: a3Str(r.model),
+					requests: a3NumOr(r.requests),
+					cache_hit: a3NumOr(r.cache_hit),
+					cache_miss: a3NumOr(r.cache_miss),
+					hit_rate: a3NumOr(r.hit_rate),
+					output: a3NumOr(r.output),
+					cost_cny: a3NumOr(r.cost_cny),
+					first_ts: a3NumOr(r.first_ts),
+					event_count: a3NumOr(r.event_count),
+				})),
+			},
+			message: '',
+		};
+	} catch (err) {
+		return {
+			ok: false,
+			data: null,
+			message: err instanceof Error ? err.message : String(err),
+		};
+	}
+}
+

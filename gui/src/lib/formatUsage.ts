@@ -1,5 +1,21 @@
 const TOKEN_UNITS = ['', 'k', 'M', 'B', 'T'] as const;
 
+/**
+ * 金额显示：按量级给有效精度，一条规则统管所有 ¥ 读数——
+ * - |value| ≥ 1 → 两位小数（总额：¥18.76）
+ * - 0 < |value| < 1 → 四位小数（单请求成本：¥0.0133）
+ * - value === 0 → 两位小数（¥0.00，别把整点零写成四位假精度）
+ * 保留 ¥ 符号；只决定小数位，不做汇率/单位换算。非有限值交调用方按缺失处理。
+ */
+export function formatMoney(value: number): string {
+	const abs = Math.abs(value);
+	const dp = abs === 0 || abs >= 1 ? 2 : 4;
+	return `¥${value.toLocaleString('en-US', {
+		minimumFractionDigits: dp,
+		maximumFractionDigits: dp,
+	})}`;
+}
+
 /** 将 Token 以紧凑且稳定的单位显示，原始值仍由后端保留。 */
 export function formatTokenCount(tokens: number): string {
 	const value = Math.max(0, Math.round(Number.isFinite(tokens) ? tokens : 0));

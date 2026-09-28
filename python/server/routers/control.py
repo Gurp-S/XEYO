@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import json
+import math
+import re
+from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Header, Query, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from engine.plan import default_plan_engine
@@ -224,6 +229,230 @@ def memory_report_view(request: Request) -> Any:
 	return FileResponse(
 		path,
 		media_type="text/html; charset=utf-8",
+		headers={"Cache-Control": "no-store"},
+	)
+
+
+# ── A3 报告的结构化数据面（把内嵌 JSON 交给 GUI 原生渲染，不再贴网页）──────────────
+#
+# 报告 HTML 有 10 MB，其中 99.2 % 是生成器内嵌的 ``window.__A3__`` payload
+# （``scripts.memory_stack_eval.render_a3_html``）。payload 每天形如
+# ``{day, total, by_model, by_session, by_turn, accepted}``，而 ``total`` 就是**整个
+# detail 字典本身**——于是 ``by_turn`` 被原地嵌了两份（实测 18 天里约 5.1 MB 是重复的
+# ``total.by_turn``），且每轮的 ``events`` 又是 ``by_turn`` 的体积主体。这两个重复面
+# 就是"不能整份发给前端"的原因，也是下面裁剪函数的唯一依据。
+
+#: 每天下发哪些标量：只取 detail 里的数字字段。``ledger_dir`` 是服务端绝对路径，
+#: 界面用不上（文件路径另由 ``source.path`` 给），故不带。
+_A3_SUMMARY_FIELDS = (
+	"requests",
+	"prompt_tokens",
+	"cache_hit",
+	"cache_miss",
+	"hit_rate",
+	"c2_count",
+	"output",
+	"cost_cny",
+)
+
+#: ``?day=`` 的取值形态：报告按本地日 upsert，日就是 ``YYYY-MM-DD``。固定正则而不是
+#: 宽松字符串——这条路由与 ``report/view`` 同族，靠**结构**保证调用方参数碰不到路径。
+#: 校验只留这一道（不给 pydantic 加 ``max_length``）：加了就会有一种失败回
+#: ``{"detail":[...]}``、另一种回 ``{"error":{...}}``，前端按 type 分文案时得先猜状态码。
+_A3_DAY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+#: 轮次标签是用户消息原文，界面只渲染一行；截断后补省略号，避免把长文本整段反射回前端。
+_A3_LABEL_CHARS = 160
+
+
+def _a3_text(value: Any) -> str:
+	"""压成可安全上屏的文本：去掉 C0/C1 控制符，解码残骸 U+FFFD 换成可见的 ``?``（保留中文）。
+
+	控制符直接丢——它们本就不占位、不改变语义；U+FFFD 换成 ``?`` 而不是删掉：删掉会把
+	``a\ufffdb`` 与 ``ab`` 两个不同的 session_id 压成同一个字符串，那是静默改写身份。
+	"""
+	s = value if isinstance(value, str) else ("" if value is None else str(value))
+	if len(s) > _A3_LABEL_CHARS:
+		s = s[:_A3_LABEL_CHARS] + "…"
+	cleaned = "".join(
+		"?" if c == "\ufffd" else c
+		for c in s
+		if not (ord(c) < 0x20 or 0x7F <= ord(c) <= 0x9F)
+	)
+	return cleaned.strip()
+
+
+def _a3_key_fp(value: Any) -> str:
+	"""Key 指纹的安全形态。
+
+	``usage.ledger.key_fingerprint`` 的正常输出是 ``…`` + 末 4 位字母数字，但历史账本行
+	里有解码残骸（实测 ``~/.xeyo/usage/events.jsonl`` 存在 ``'\\ufffd\\ufffd6962'`` 这种
+	形态）——原样上屏就是乱码。这里统一压成 ``…<尾 4 位>``；残骸多到没有可信尾时给
+	``hex:`` 形态（指纹本身已是截断摘要，十六进制化不额外泄凭据）。
+	"""
+	s = _a3_text(value)
+	tail = "".join(c for c in s if c.isascii() and c.isalnum())[-4:]
+	if len(s) and not tail:
+		return "hex:" + s.encode("utf-8", "replace").hex()[:16]
+	return f"…{tail}" if tail else ""
+
+
+def _a3_clean(value: Any, *, field: str = "") -> Any:
+	"""递归清洗要下发的子集：字符串安全化、非有限数变 None，其余原样（只读，不改盘）。"""
+	if isinstance(value, dict):
+		return {str(k): _a3_clean(v, field=str(k)) for k, v in value.items()}
+	if isinstance(value, list):
+		return [_a3_clean(v, field=field) for v in value]
+	if isinstance(value, bool) or value is None:
+		return value
+	if isinstance(value, (int, float)):
+		return value if math.isfinite(float(value)) else None
+	if field == "key_fp":
+		return _a3_key_fp(value)
+	return _a3_text(value)
+
+
+def _a3_hour_counts(by_turn: list[Any]) -> tuple[list[int], int]:
+	"""按**服务端本地时区**给每轮的 ``first_ts`` 分 24 桶（与报告原图的口径一致：
+	生成器的 ``hourOf(ts)`` 用的也是渲染机本地小时）。分不了桶的计入 ``unknown``，
+	不静默丢。"""
+	counts = [0] * 24
+	unknown = 0
+	for row in by_turn:
+		ts = row.get("first_ts") if isinstance(row, dict) else None
+		try:
+			counts[datetime.fromtimestamp(float(ts)).hour] += 1  # type: ignore[arg-type]
+		except (TypeError, ValueError, OSError, OverflowError):
+			unknown += 1
+	return counts, unknown
+
+
+def _a3_day_summary(day_row: dict[str, Any]) -> dict[str, Any]:
+	"""一天：只留标量 + 分模型 + 计数 + 小时直方图。``total`` 里重复的明细整体不带。"""
+	total = day_row.get("total") if isinstance(day_row.get("total"), dict) else {}
+	by_model = total.get("by_model") if isinstance(total.get("by_model"), list) else []
+	by_session = total.get("by_session") if isinstance(total.get("by_session"), list) else []
+	by_turn = total.get("by_turn") if isinstance(total.get("by_turn"), list) else []
+	hours, hour_unknown = _a3_hour_counts(by_turn)
+	summary: dict[str, Any] = {
+		"day": _a3_text(total.get("day") or day_row.get("day")),
+		"accepted": bool(day_row.get("accepted")),
+	}
+	for name in _A3_SUMMARY_FIELDS:
+		summary[name] = _a3_clean(total.get(name))
+	# 报告 payload 的 detail 里**没有** sessions 字段（生成器只写了 ledger_dir/by_*），
+	# 旧网页的"会话数"KPI 因此恒为 0。这里给真值：by_session 的行数。
+	summary["sessions"] = len(by_session)
+	summary["turns"] = len(by_turn)
+	summary["hour_counts"] = hours
+	summary["hour_unknown"] = hour_unknown
+	summary["by_model"] = [_a3_clean(m) for m in by_model]
+	return summary
+
+
+def _a3_turn_row(turn: dict[str, Any]) -> dict[str, Any]:
+	"""一轮（一条用户消息）的明细行：``events`` 换成条数，其余字段照原语义下发。"""
+	row = {k: _a3_clean(v, field=str(k)) for k, v in turn.items() if k != "events"}
+	events = turn.get("events")
+	row["event_count"] = len(events) if isinstance(events, list) else 0
+	return row
+
+
+def _a3_read_payload() -> tuple[dict[str, Any], dict[str, Any]]:
+	"""读报告 HTML 并解出内嵌 payload；所有失败都回**结构化错误**，不裸 500、不谎报"尚未生成"。
+
+	与 ``memory_report`` / ``memory_report_view`` 共用同一个 ``A3_HTML`` 常量与同一套
+	判据：不存在 404、存在却读不出 500。解析不缓存——10 MB 全文实测读 + 解 0.2 s，
+	而缓存会引入"报告已刷新但界面还拿旧的"这类难查状态。
+	"""
+	from pathlib import Path
+
+	from scripts.memory_stack_eval import A3_HTML
+
+	path = Path(A3_HTML)
+	if not path.is_file():
+		raise api_error(404, "A3 report not generated yet", "not_found")
+	try:
+		text = path.read_text(encoding="utf-8", errors="replace")
+		st = path.stat()
+	except OSError as exc:  # noqa: BLE001 — 报告**存在**却读不出：不能谎报成"尚未生成"
+		raise api_error(500, safe_error_detail(exc), "memory_report_unreadable") from exc
+	source = {"path": str(path), "bytes": st.st_size, "mtime": round(st.st_mtime, 3)}
+	m = re.search(r"window\.__A3__\s*=\s*(.*?)</script>", text, re.S)
+	if not m:
+		raise api_error(
+			500,
+			"embedded A3 payload (window.__A3__) not found in report html",
+			"memory_report_unparsable",
+		)
+	blob = m.group(1).replace("<\\/", "</")
+	try:
+		payload = json.loads(blob)
+	except (ValueError, TypeError) as exc:  # noqa: BLE001 — 生成器改了内嵌形态也归这一档
+		raise api_error(
+			500,
+			f"embedded A3 payload is not valid json: {safe_error_detail(exc)}",
+			"memory_report_unparsable",
+		) from exc
+	if not isinstance(payload, dict) or not isinstance(payload.get("days"), list):
+		raise api_error(
+			500, "embedded A3 payload has unexpected shape", "memory_report_unparsable"
+		)
+	return payload, source
+
+
+@router.get("/v1/settings/memory/report/data")
+def memory_report_data(
+	request: Request,
+	day: str | None = Query(default=None),
+) -> Any:
+	"""A3 报告的结构化数据：不带 ``day`` 回全区间摘要，带 ``day=YYYY-MM-DD`` 回那天的会话/轮次明细。
+
+	存在的意义就是替代 iframe：报告 HTML 99.2 % 体积是内嵌 JSON，但没有一条路由把它交给
+	前端，于是界面只能贴网页。这里只下发界面要渲染的那部分——按审计结论砍掉两处冗余：
+	``total``（原地重嵌了整份 detail，含第二份 ``by_turn``）与每轮的 ``events`` 原始数组。
+
+	``?day=`` 让下钻不必再取整份 payload：18 天摘要 ≈ 15 KB，单日明细（含 2 MB 级
+	``by_turn`` 裁出来的行）≈ 70 KB。失败一律走 HTTP 错误码（404 未生成 / 500 读不出
+	或解析不了），detail 是 ``{message, type}``，前端按 type 出中文产品文案。
+	"""
+	require_loopback(request)
+
+	if day is not None and not _A3_DAY_RE.match(day):
+		raise api_error(404, f"no such day in report: {day}", "not_found")
+
+	payload, source = _a3_read_payload()
+	generated_at = payload.get("generated_at")
+	rows = [r for r in payload["days"] if isinstance(r, dict)]
+
+	if day is None:
+		return JSONResponse(
+			{
+				"ok": True,
+				"generated_at": _a3_text(generated_at),
+				"source": source,
+				"day_count": len(rows),
+				"days": [_a3_day_summary(r) for r in rows],
+			},
+			headers={"Cache-Control": "no-store"},
+		)
+
+	target = next((r for r in rows if _a3_text(r.get("day")) == day), None)
+	if target is None:
+		raise api_error(404, f"no such day in report: {day}", "not_found")
+	total = target.get("total") if isinstance(target.get("total"), dict) else {}
+	by_session = total.get("by_session") if isinstance(total.get("by_session"), list) else []
+	by_turn = total.get("by_turn") if isinstance(total.get("by_turn"), list) else []
+	return JSONResponse(
+		{
+			"ok": True,
+			"generated_at": _a3_text(generated_at),
+			"source": source,
+			"day": day,
+			"summary": _a3_day_summary(target),
+			"sessions": [_a3_clean(s) for s in by_session],
+			"turns": [_a3_turn_row(t) for t in by_turn if isinstance(t, dict)],
+		},
 		headers={"Cache-Control": "no-store"},
 	)
 
