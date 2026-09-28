@@ -2,6 +2,7 @@ import type {ChatMessage} from './types';
 import {parseJsonValue} from './safeJson';
 import {type ToolView, type TurnItem} from './groupTranscript';
 import {appendLiveThoughtStep, formatThoughtDetail, injectThoughtSteps, normalizeActivitySteps, toolToStep} from './toolActivity/steps';
+import type {ToolCat} from './toolActivity/todos';
 export {appendLiveThoughtStep, formatThoughtDetail, injectThoughtSteps, normalizeActivitySteps, summarizeTools, toolToStep} from './toolActivity/steps';
 export {TODO_LIST_TAG_RE, categorize, collectChangedFiles, collectChangedFilesFromItems, collectLatestTodosFromItems, collectLatestTodosFromSteps, collectLiveSessionTodos, extractDiffFence, isLiveTodoSnapshot, isTodoActivityStep, isTodoToolName, lineRange, mergeChangedFilesWithPaths, normalizeTodoRows, parseTodosFromInput, parseTodosFromResult, todoSnapshotFromTool, writeSettledVerb} from './toolActivity/todos';
 export type {TodoItemView, TodoSnapshot, TodoStatus, ToolCat} from './toolActivity/todos';
@@ -29,6 +30,12 @@ export type ActivityStep = {
 	result?: string;
 	/** Agent 工具步骤（含 Failed），供卡片挂载识别。 */
 	agent?: boolean;
+	/**
+	 * 仅供表现层：steps.ts 里 `categorize(tool.name)` 的既有结果原样带出，
+	 * ActivityLog 用它落 `data-xy-cat`（工具族的唯一 DOM 钩子）。
+	 * 不参与任何判定、比较或渲染逻辑；Thought 行没有工具身份，恒为 undefined。
+	 */
+	cat?: ToolCat;
 };
 
 export type TurnSegment =

@@ -10,6 +10,11 @@ import {
 	buildSyntheticMessages,
 	buildSyntheticStreamReply,
 } from './syntheticTranscript';
+import {
+	buildLifecycleAgentTasks,
+	buildLifecycleMessages,
+	LIFECYCLE_STREAM_TEXT,
+} from './lifecycleFixture';
 
 type ReplayFixture = {
 	version: number;
@@ -172,17 +177,58 @@ function installReplay(fixture: ReplayFixture, extras: ReplayExtra[] = []) {
 	};
 }
 
-function parseBenchQuery(): {rounds: number; seed: number; auto: boolean} {
+/**
+ * live 形态必须在首帧前就把流写进 store：groupTranscript 会用
+ * settleOrphanRunningInBlocks 就地改写 block.items，任何一次
+ * 「isLoading 还是 false」的渲染都会把在途工具永久落成 error，
+ * 之后再点亮流也救不回来。
+ */
+function applyLiveStream(sessionId: string, text: string, status: string) {
+	setStreamingTextSignal(text);
+	useChatStore.setState(s => ({
+		sessionStreams: patchSessionStream(s.sessionStreams, sessionId, {
+			streamingText: text,
+			streamingShown: text,
+			isLoading: true,
+			statusText: status,
+		}),
+	}));
+}
+
+function parseBenchQuery(): {
+	rounds: number;
+	seed: number;
+	auto: boolean;
+	/** 'lifecycle' = 完整活动生命周期样张；'' = 原有 rounds / JSON 回放路径。 */
+	scenario: string;
+	/**
+	 * scenario 的阶段：
+	 * settled（缺省）= 全落定，走 done-on 折叠卡 + 最终回答；
+	 * live = 末尾挂一条在途命令并点亮 Working；
+	 * stopped = 停在失败那一步（失败行是轨里最后一条）。
+	 */
+	phase: 'settled' | 'live' | 'stopped';
+} {
 	if (typeof window === 'undefined') {
-		return {rounds: 0, seed: BENCH_DEFAULT_SEED, auto: false};
+		return {
+			rounds: 0,
+			seed: BENCH_DEFAULT_SEED,
+			auto: false,
+			scenario: '',
+			phase: 'settled',
+		};
 	}
 	const params = new URLSearchParams(window.location.search);
 	const rounds = Math.max(0, Math.floor(Number(params.get('rounds') ?? '0')) || 0);
 	const seedRaw = Number(params.get('seed') ?? '0');
+	const phaseRaw = (params.get('phase') ?? 'settled').trim();
 	return {
 		rounds,
 		seed: Number.isFinite(seedRaw) && seedRaw > 0 ? seedRaw : BENCH_DEFAULT_SEED,
 		auto: rounds > 0 && params.get('auto') === '1',
+		scenario: (params.get('scenario') ?? '').trim(),
+		phase:
+			phaseRaw === 'live' || phaseRaw === 'stopped' ? phaseRaw : 'settled',
 	};
 }
 
@@ -196,6 +242,38 @@ export function OfflineReplayRoute() {
 	const [bench] = useState(() => parseBenchQuery());
 
 	useEffect(() => {
+		// 生命周期样张：/bench/chat?scenario=lifecycle[&phase=live]
+		// 与 rounds 合成路径完全分开，不改后者口径。
+		if (bench.scenario === 'lifecycle') {
+			const fixture: ReplayFixture = {
+				version: 1,
+				sessionId: BENCH_SESSION_ID,
+				spaceId: BENCH_SPACE_ID,
+				scenario: 'lifecycle',
+				messages: buildLifecycleMessages({phase: bench.phase}),
+				streamText: LIFECYCLE_STREAM_TEXT,
+			};
+			installReplay(fixture);
+			// 子 Agent 结果条的真实数据源（生产由多 Agent SSE 帧写入）。
+			useChatStore.setState(s => ({
+				multiAgentTasksBySession: {
+					...s.multiAgentTasksBySession,
+					[fixture.sessionId]: buildLifecycleAgentTasks(),
+				},
+			}));
+			if (bench.phase === 'live') {
+				applyLiveStream(
+					fixture.sessionId,
+					LIFECYCLE_STREAM_TEXT,
+					'正在重试模型请求（第 2 次）',
+				);
+			}
+			setReady(true);
+			return () => {
+				delete window.__XY_REPLAY__;
+			};
+		}
+
 		if (bench.rounds > 0) {
 			const streamText = buildSyntheticStreamReply(bench.seed + 77);
 			const buildFixture = (rounds: number, seed: number): ReplayFixture => ({

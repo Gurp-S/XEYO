@@ -181,6 +181,8 @@ export function toolToStep(tool: ToolView): ActivityStep {
 		running,
 		waiting: tool.waiting,
 		result: tool.result,
+		// 上面 switch 用的同一个 categorize() 结果，原样带出给表现层当族钩子。
+		cat,
 	};
 }
 
