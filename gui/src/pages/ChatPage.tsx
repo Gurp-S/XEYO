@@ -16,7 +16,7 @@ import {Sidebar} from '@/components/Sidebar';
 import {useChatStore} from '@/stores/chatStore';
 import {ChatUiStoreProvider} from '@/stores/chatUiStore';
 import {useRemoteStore} from '@/stores/remoteStore';
-import {useSettingsStore} from '@/stores/settingsStore';
+import {useSettingsStore, isSmoothnessOn} from '@/stores/settingsStore';
 import {DEFAULT_SPACE_ID, SIDE_SPACE_ID} from '@/lib/db';
 import {useLocation, useNavigate, useParams} from 'react-router-dom';
 import {ImmersiveLayer} from '@/components/immersive/ImmersiveLayer';
@@ -25,7 +25,7 @@ import {PluginsPanel} from '@/components/PluginsPanel';
 import {DiagnosticsPanel} from '@/features/diagnostics/DiagnosticsPanel';
 import {PageViewPane} from '@/components/PageViewPane';
 import {usePresence} from '@/hooks/usePresence';
-import {closePageView, pageViewFromPath} from '@/lib/appNav';
+import {closePageView, isSideChatPath, pageViewFromPath} from '@/lib/appNav';
 import {popEscLayer, pushEscLayer} from '@/lib/escStack';
 import {cn} from '@/lib/utils';
 import {toast} from '@/lib/toast';
@@ -103,9 +103,26 @@ export function ChatPage() {
 		}
 		wasPageViewOpenRef.current = pageViewOpen;
 	}, [pageViewOpen]);
-	const {mounted: usageMounted} = usePresence(usageActive, 200, 1);
-	const {mounted: pluginsMounted} = usePresence(pluginsActive, 200, 1);
-	const {mounted: diagnosticsMounted} = usePresence(diagnosticsActive, 200, 1);
+	// 页面视图的进入必须等满 rAF 帧（shown）：只订 mounted 会让新页面硬切进来，
+	// 盖在还在淡出的上一个页面视图上（两块都是 absolute inset-0），
+	// 用户看到两层半透明面板叠在一起 —— 正是聊天列让位淡出想避免的事。
+	// 退出时长跟随 smoothness（与 Sidebar/FilePreview 等一致）。
+	const smoothness = useSettingsStore(s => isSmoothnessOn(s.smoothness));
+	const {mounted: usageMounted, shown: usageShown} = usePresence(
+		usageActive,
+		smoothness ? 200 : 0,
+		1,
+	);
+	const {mounted: pluginsMounted, shown: pluginsShown} = usePresence(
+		pluginsActive,
+		smoothness ? 200 : 0,
+		1,
+	);
+	const {mounted: diagnosticsMounted, shown: diagnosticsShown} = usePresence(
+		diagnosticsActive,
+		smoothness ? 200 : 0,
+		1,
+	);
 	const recoverStuckStream = useChatStore(s => s.recoverStuckStream);
 	const activeId = useChatStore(s => s.activeId);
 	const activeSessionIsSide = useChatStore(s =>
@@ -129,9 +146,9 @@ export function ChatPage() {
 	}, [pageViewOpen]);
 
 	// 页面视图使用全局 URL；恢复当前会话的侧聊上下文供共享 chrome 使用。
+	// 大小写判定与侧栏共用 isSideChatPath（React Router 忽略大小写）。
 	const isSideChat =
-		location.pathname.toLowerCase().startsWith('/side/') ||
-		(pageViewOpen && activeSessionIsSide);
+		isSideChatPath(location.pathname) || (pageViewOpen && activeSessionIsSide);
 	useEffect(() => {
 		if (offlineReplay) {
 			return;
@@ -306,13 +323,13 @@ export function ChatPage() {
 							<RecoveryBanner />
 							<Composer showTodoDock={!isSideChat} />
 							</div>
-						<PageViewPane active={usageActive} mounted={usageMounted} label="用量">
+						<PageViewPane active={usageActive} mounted={usageMounted} shown={usageShown} label="用量">
 							<UsagePanel active={usageActive} />
 						</PageViewPane>
-						<PageViewPane active={pluginsActive} mounted={pluginsMounted} label="扩展中心">
+						<PageViewPane active={pluginsActive} mounted={pluginsMounted} shown={pluginsShown} label="扩展中心">
 							<PluginsPanel active={pluginsActive} />
 						</PageViewPane>
-						<PageViewPane active={diagnosticsActive} mounted={diagnosticsMounted} label="诊断中心">
+						<PageViewPane active={diagnosticsActive} mounted={diagnosticsMounted} shown={diagnosticsShown} label="诊断中心">
 							<DiagnosticsPanel active={diagnosticsActive} />
 						</PageViewPane>
 								</div>

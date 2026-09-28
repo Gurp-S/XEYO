@@ -40,12 +40,15 @@ import {
 import {fetchWorkspacePeers, type WorkspacePeerInfo} from '@/lib/api';
 import {
 	closePageView,
+	isSideChatPath,
 	newSession,
 	openPageView,
 	openSession,
 	pageViewFromPath,
+	sessionRouteMatches,
 	type PageViewKind,
 } from '@/lib/appNav';
+import {handoffHiddenActiveSession} from '@/lib/sessionHandoff';
 import {pickFolder} from '@/lib/openFolder';
 import type {ChatSession, ChatSpace} from '@/lib/types';
 import {cn} from '@/lib/utils';
@@ -129,8 +132,10 @@ export const Sidebar = memo(function Sidebar() {
 		session => session.id === activeId && session.spaceId === SIDE_SPACE_ID,
 	);
 	// 全局页面视图没有侧聊路由段，侧栏选中态仍跟随当前激活会话。
+	// 大小写判定与 ChatPage / pageViewFromPath 共用 isSideChatPath：
+	// React Router 忽略大小写，`/Side/<id>` 也是侧聊，各自 startsWith 会分裂。
 	const isSideChat =
-		location.pathname.startsWith('/side/') ||
+		isSideChatPath(location.pathname) ||
 		(pageView !== null && activeSessionIsSide);
 	const usageOpen = pageView === 'usage';
 	const pluginsOpen = pageView === 'plugins';
@@ -241,6 +246,27 @@ export const Sidebar = memo(function Sidebar() {
 			});
 		}
 	}, [activeId, sideChatActiveId]);
+
+	// 微光集合只随「仍在世且未归档」的会话存在：归档/删除后 id 必须掉出去，
+	// 否则它只被 clearDoneGlow（点击/分叉）清，按进程生命周期无界增长。
+	// 归档即视为消失——归档本身就把那条「已完成待查看」消费掉了。
+	useEffect(() => {
+		setDoneUnseenIds(cur => {
+			if (cur.size === 0) {
+				return cur;
+			}
+			let changed = false;
+			const next = new Set<string>();
+			for (const id of cur) {
+				if (sessions.some(s => s.id === id && !s.archived)) {
+					next.add(id);
+				} else {
+					changed = true;
+				}
+			}
+			return changed ? next : cur;
+		});
+	}, [sessions]);
 
 	// 点击即熄灭：不依赖 effect 的依赖变化（点击当前已是 active 的行时
 	// selectSession 可能早退、路由不变，兜底 effect 不会触发）。
@@ -516,9 +542,10 @@ export const Sidebar = memo(function Sidebar() {
 			const before = useChatStore.getState();
 			const archivedSession = before.sessions.find(session => session.id === id);
 			const wasActiveSession = before.activeId === id;
-			const expectedPath =
-				archivedSession?.spaceId === SIDE_SPACE_ID ? `/side/${id}` : `/c/${id}`;
-			const wasActiveRoute = wasActiveSession && window.location.pathname === expectedPath;
+			const isSide = archivedSession?.spaceId === SIDE_SPACE_ID;
+			const wasActiveRoute =
+				wasActiveSession &&
+				sessionRouteMatches(window.location.pathname, id, isSide);
 			try {
 				await archiveSession(id);
 			} catch (err) {
@@ -530,12 +557,11 @@ export const Sidebar = memo(function Sidebar() {
 			if (
 				wasActiveRoute &&
 				useChatStore.getState().activeId === id &&
-				window.location.pathname === expectedPath
+				sessionRouteMatches(window.location.pathname, id, isSide)
 			) {
 				// 归档当前会话后只切到可见会话；没有可见项时退出旧路由，
 				// 避免路由镜像把已归档的 activeId 再次选回来。
 				const st = useChatStore.getState();
-				const isSide = archivedSession?.spaceId === SIDE_SPACE_ID;
 				const spaceId = archivedSession?.spaceId;
 				const visible = st.sessions.filter(
 					session => session.id !== id && !session.archived,
@@ -559,21 +585,9 @@ export const Sidebar = memo(function Sidebar() {
 			) {
 				// 页面视图（用量 / 扩展 / 诊断）不带会话 id。归档其下方仍激活的
 				// 会话时保留页面视图，但先把隐藏会话切走，关闭页面视图不会回到归档项。
-				const st = useChatStore.getState();
-				const isSide = archivedSession?.spaceId === SIDE_SPACE_ID;
-				const spaceId = archivedSession?.spaceId;
-				const visible = st.sessions.filter(
-					session => session.id !== id && !session.archived,
-				);
-				const next = isSide
-					? visible.find(session => session.spaceId === SIDE_SPACE_ID)
-					: visible.find(session => session.spaceId === spaceId) ??
-						visible.find(session => session.spaceId !== SIDE_SPACE_ID);
-				if (next) {
-					void st.selectSession(next.id);
-				} else {
-					useChatStore.setState({activeId: null});
-				}
+				// 必须 await 且校验落点：发射即忘时 selectSession 一旦没落地，
+				// activeId 会停在已归档项上，Esc 就落到 /c/<已归档>（只读、无人选过）。
+				await handoffHiddenActiveSession({id, spaceId: archivedSession?.spaceId});
 			}
 		},
 		[archiveSession, navigate],
@@ -631,7 +645,9 @@ className="xy-icon-btn rounded-md p-1.5 text-mute hover:bg-glass-hover hover:tex
 					</div>
 				</div>
 
-				<div className="flex flex-col px-1.5 pb-1">
+				{/* 导航块在滚动容器之外：不写 shrink-0 就会被 flex 压扁，
+				    窗口一矮最先丢的就是排在末尾的「诊断」入口（侧栏 bug #17）。 */}
+				<div className="flex shrink-0 flex-col px-1.5 pb-1">
 					<button
 						type="button"
 						onClick={() => void onNew()}
@@ -743,7 +759,7 @@ className="xy-icon-btn rounded-md p-1.5 text-mute hover:bg-glass-hover hover:tex
 									aria-expanded={workspaceExpanded}
 									className="flex min-w-0 flex-1 items-center gap-1 rounded-md px-1.5 py-1 text-left text-[11px] font-medium text-current focus:outline-none focus-visible:outline-none"
 								>
-										<span className="min-w-0 truncate pl-0.125">工作区</span>
+										<span className="min-w-0 truncate">工作区</span>
 										<ChevronRight
 											className={cn(
 												'h-3.5 w-3.5 shrink-0 opacity-0 transition-[transform,opacity] duration-150 group-hover/section:opacity-100',
@@ -772,7 +788,7 @@ className="xy-icon-btn rounded-md p-1.5 text-mute hover:bg-glass-hover hover:tex
 					) : workspaceExpanded ? (
 							orderedSpaces.length === 0 ? (
 						<p className="px-2 py-6 text-center font-mono text-xs text-mute">
-							无匹配结果
+							还没有工作区，从右上角「添加工作区」开始
 						</p>
 					) : (
 						orderedSpaces.map(space => (
@@ -799,13 +815,22 @@ className="xy-icon-btn rounded-md p-1.5 text-mute hover:bg-glass-hover hover:tex
 									if (!(await confirmSessionDelete(title))) {
 										return;
 									}
+									const wasActiveSession =
+										useChatStore.getState().activeId === id;
 									const wasActiveRoute =
-										useChatStore.getState().activeId === id &&
-										window.location.pathname === `/c/${id}`;
+										wasActiveSession &&
+										sessionRouteMatches(window.location.pathname, id);
+									// 页面视图（用量/扩展/诊断）不带会话 id：这里的
+									// wasActiveRoute 恒为 false，删除当前会话后必须另走
+									// 一条页面视图交接分支，否则 removeSession 的盲兜底会把
+									// 别的工作区/侧聊塞成当前会话，Esc 就落到那条会话上。
+									const onPageView =
+										wasActiveSession &&
+										pageViewFromPath(window.location.pathname) !== null;
 									await removeSession(id);
 									if (
 										wasActiveRoute &&
-										window.location.pathname === `/c/${id}`
+										sessionRouteMatches(window.location.pathname, id)
 									) {
 										const current = useChatStore.getState();
 										const next =
@@ -821,6 +846,11 @@ className="xy-icon-btn rounded-md p-1.5 text-mute hover:bg-glass-hover hover:tex
 											useChatStore.setState({activeId: null});
 											navigate('/');
 										}
+									} else if (onPageView) {
+										await handoffHiddenActiveSession({
+											id,
+											spaceId: original?.spaceId,
+										});
 									}
 								})();
 							}}
@@ -891,9 +921,19 @@ className="xy-icon-btn rounded-md p-1.5 text-mute hover:bg-glass-hover hover:tex
 								if (!(await confirmSessionDelete(title))) {
 									return;
 								}
-				const wasActive = sideChatActiveId === id;
+				const wasActiveSession = useChatStore.getState().activeId === id;
+				const wasActiveRoute =
+					wasActiveSession &&
+					sessionRouteMatches(window.location.pathname, id, true);
+				// 页面视图不带会话 id：与主会话删除同一处教训，交接必须显式做。
+				const onPageView =
+					wasActiveSession &&
+					pageViewFromPath(window.location.pathname) !== null;
 				await removeSession(id);
-				if (wasActive && window.location.pathname === `/side/${id}`) {
+				if (
+					wasActiveRoute &&
+					sessionRouteMatches(window.location.pathname, id, true)
+				) {
 					const next = useChatStore
 						.getState()
 						.sessions.find(s => s.spaceId === SIDE_SPACE_ID && !s.archived);
@@ -902,7 +942,9 @@ className="xy-icon-btn rounded-md p-1.5 text-mute hover:bg-glass-hover hover:tex
 					} else {
 						void newSession({side: true});
 					}
-								}
+				} else if (onPageView) {
+					await handoffHiddenActiveSession({id, spaceId: SIDE_SPACE_ID});
+				}
 							}}
 								onArchiveSession={handleArchiveSession}
 								onRestoreSession={handleRestoreSession}
@@ -1006,10 +1048,24 @@ const SpaceFolder = memo(function SpaceFolder({
 			setViewArchived(Boolean(activeSession.archived));
 		}
 	}, [activeSession?.id, activeSession?.archived]);
-	const hiddenCount = listSource.length - SESSION_VISIBLE_LIMIT;
+	const limitedList = listSource.slice(0, SESSION_VISIBLE_LIMIT);
+	// 上限不得把「当前会话」藏掉：按 updatedAt 排到 6 名开外时它一个字都不渲染，
+	// 侧栏也就没有任何选中行（侧栏 bug #10）。选中项恒定并入可见集。
+	const activePinned =
+		!showAll &&
+		activeId != null &&
+		!limitedList.some(session => session.id === activeId) &&
+		listSource.some(session => session.id === activeId);
 	const visibleList = showAll
 		? listSource
-		: listSource.slice(0, SESSION_VISIBLE_LIMIT);
+		: activePinned
+			? listSource.filter(
+					session => session.id === activeId || limitedList.includes(session),
+				)
+			: limitedList;
+	const hiddenCount = showAll
+		? listSource.length - SESSION_VISIBLE_LIMIT
+		: listSource.length - visibleList.length;
 
 	// smoke-test #3 + 归档门槛（2026-09-05）：常态菜单 = 重命名/分叉/归档，
 	// **不提供删除**；已归档菜单 = 恢复/删除（删除前危险确认）。
@@ -1171,19 +1227,20 @@ className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 py-1 text-
 				</button>
 			</div>
 
-			<SessionTree open={open}>
-				{listSource.length === 0 ? (
-					<li className="px-7 py-1 font-mono text-[11px] text-mute/70">
-						{viewArchived
-							? '暂无归档会话'
-							: hasRoot
-								? '暂无对话'
-								: '打开文件夹后开始'}
-					</li>
-				) : (
-					visibleList.map(item => renderSessionRow(item))
-				)}
-				{hiddenCount > 0 ? (
+			{/* 空态写在收合树之外：树是 0fr 折叠的，空分组一旦收合就什么都看不见
+			    ——既不说明没会话，也不提示要打开文件夹（侧栏 bug #29）。 */}
+			{listSource.length === 0 ? (
+				<p className="px-7 py-1 font-mono text-[11px] text-mute/70">
+					{viewArchived
+						? '暂无归档会话'
+						: hasRoot
+							? '暂无对话'
+							: '打开文件夹后开始'}
+				</p>
+			) : (
+				<SessionTree open={open}>
+					{visibleList.map(item => renderSessionRow(item))}
+					{hiddenCount > 0 ? (
 					<li>
 						<button
 							type="button"
@@ -1195,8 +1252,9 @@ className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 py-1 text-
 								: `展开其余 ${hiddenCount} 个会话`}
 						</button>
 					</li>
-				) : null}
-		</SessionTree>
+					) : null}
+				</SessionTree>
+			)}
 		</div>
 		);
 	});

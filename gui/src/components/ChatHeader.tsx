@@ -183,16 +183,20 @@ className="xy-icon-btn shrink-0 rounded-md p-1.5 text-mute hover:bg-glass-hover 
 						<span
 							aria-hidden={sidebarOpen && !pageViewOpen}
 							className={cn(
-									'xy-hdr-title overflow-hidden whitespace-nowrap px-1 text-[13px] text-ink-soft',
+									'xy-hdr-title flex min-w-0 items-center overflow-hidden whitespace-nowrap px-1 text-[13px] text-ink-soft',
 									sidebarOpen && !pageViewOpen
 										? 'pointer-events-none max-w-0 shrink-0 -translate-x-1.5 opacity-0'
-										: 'min-w-0 max-w-[28ch] translate-x-0 truncate opacity-100',
+										: 'max-w-[28ch] translate-x-0 opacity-100',
 								)}
 
 							>
-								{title}
+								{/* 主文本（会话标题）与次文本（工作区名）分开截断：
+								    次文本自己封顶 10ch，长路径不再吃掉标题；两截都可从 title 复原。 */}
+								<span className="min-w-0 flex-1 truncate" title={title}>
+									{title}
+								</span>
 								{workspaceLabel ? (
-									<span className="text-mute"> · {workspaceLabel}</span>
+									<span className="max-w-[10ch] min-w-0 shrink truncate text-mute" title={workspaceLabel}> · {workspaceLabel}</span>
 								) : null}
 							</span>
 				{!pageViewOpen && activeId != null ? (

@@ -1,4 +1,5 @@
 import {afterEach, describe, expect, it} from 'vitest';
+import chatPageSrc from '../pages/ChatPage.tsx?raw';
 import dockPresenceSrc from '../components/DockPresence.tsx?raw';
 import settingsModalSrc from '../components/SettingsModal.tsx?raw';
 import {
@@ -67,5 +68,17 @@ describe('调用点不得写死与容器时长脱钩的裸数字', () => {
 		expect(settingsModalSrc).toContain('presenceExitMs(');
 		// 裸数字（曾是 160）导致末 40ms 截断，禁止回归
 		expect(settingsModalSrc).not.toMatch(/usePresence\(open,\s*\d+/);
+	});
+
+	it('ChatPage 的三处页面视图 presence 退出时长跟随 smoothness', () => {
+		// 曾是写死的 `usePresence(usageActive, 200, 1)`：关掉动效后退出仍要空等
+		// 200ms，与 Sidebar / FilePreview / WorkspacePanel 的契约不一致。
+		expect(chatPageSrc.match(/usePresence\(/g)?.length).toBe(3);
+		expect(chatPageSrc).not.toMatch(/usePresence\(\s*[A-Za-z]+,\s*\d+/);
+		for (const kind of ['usageActive', 'pluginsActive', 'diagnosticsActive']) {
+			expect(chatPageSrc).toMatch(
+				new RegExp(`usePresence\\(\\s*${kind},\\s*smoothness \\? \\d+ : 0`),
+			);
+		}
 	});
 });

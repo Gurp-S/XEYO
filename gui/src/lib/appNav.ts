@@ -33,6 +33,11 @@ function go(to: string, opts?: {replace?: boolean}): void {
 	navigateFn(to, opts);
 }
 
+/** 地址栏路径（BrowserRouter 下即真路由路径）。非浏览器环境回落 '/'。 */
+function currentPathname(): string {
+	return typeof window === 'undefined' ? '/' : window.location.pathname;
+}
+
 /** 在 Router 内部挂载一次：把 navigate 注入本模块（App.tsx 使用）。 */
 export function AppNavBridge(): null {
 	const navigate = useNavigate();
@@ -45,11 +50,18 @@ export function AppNavBridge(): null {
 
 export type PageViewKind = 'usage' | 'plugins' | 'diagnostics';
 
+/**
+ * 路径归一：React Router 默认忽略大小写并接受尾随斜杠，页面视图/路由段派生
+ * 必须遵循同一规则，否则同一个界面会被判成两种路由（曾致 `/Side/<id>` 下
+ * 侧栏点亮错行）。全站路径谓词一律走这里，不再各自 `startsWith`。
+ */
+function normalizePath(pathname: string): string {
+	return pathname.replace(/\/+$/, '').toLowerCase() || '/';
+}
+
 /** 路径 → 页面视图；非页面视图路径返回 null。 */
 export function pageViewFromPath(pathname: string): PageViewKind | null {
-	// React Router 默认忽略大小写并接受尾随斜杠；页面视图派生须遵循同一规则，
-	// 否则匹配到 ChatPage 的 /usage/ 会被误判成聊天路由并重定向走。
-	const path = pathname.replace(/\/+$/, '').toLowerCase() || '/';
+	const path = normalizePath(pathname);
 	if (path === '/usage') {
 		return 'usage';
 	}
@@ -62,6 +74,23 @@ export function pageViewFromPath(pathname: string): PageViewKind | null {
 	return null;
 }
 
+/** 路径是否侧聊路由（`/side/<id>`）。与 `pageViewFromPath` 同一归一规则。 */
+export function isSideChatPath(pathname: string): boolean {
+	return normalizePath(pathname).startsWith('/side/');
+}
+
+/**
+ * 路径是否正好停在某个会话自己的路由上（归档/删除「当前会话」时的落点判定）。
+ * 页面视图（/usage 等）不带会话 id，因此一律返回 false。
+ */
+export function sessionRouteMatches(
+	pathname: string,
+	id: string,
+	side = false,
+): boolean {
+	return normalizePath(pathname) === `${side ? '/side/' : '/c/'}${id.toLowerCase()}`;
+}
+
 /** 打开页面视图（真路由导航；互斥天然成立）。`query` 用于可深链的页面（诊断）。 */
 export function openPageView(
 	kind: PageViewKind,
@@ -72,7 +101,12 @@ export function openPageView(
 		if (v) q.set(k, v);
 	}
 	const qs = q.toString();
-	go(`/${kind}${qs ? `?${qs}` : ''}`);
+	// 页面视图 → 页面视图（用量→扩展→诊断）用 replace：一次往返若每条都 push，
+	// 浏览器历史会留下 4 条，后退键要把每个页面视图重放一遍。
+	// 从聊天界面首次进入页面视图仍 push，后退才回得去那个会话。
+	go(`/${kind}${qs ? `?${qs}` : ''}`, {
+		replace: pageViewFromPath(currentPathname()) !== null,
+	});
 }
 
 /** 关闭页面视图：回到当前会话（主会话 /c/:id，侧聊 /side/:id），无会话则回 '/'。 */
