@@ -33,35 +33,15 @@
 /* 头部：可折叠行（点击整行收起/展开） */
 .xy-panel-ask-head {
   display: flex;
-  width: 100%;
   align-items: center;
   gap: 8px;
   padding: 9px 12px;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
   cursor: pointer;
   border-bottom: 1px solid transparent;
   user-select: none;
   transition:
     background var(--duration-fast) var(--ease-out-soft),
     border-color var(--duration-base) var(--ease-out-soft);
-}
-.xy-panel-ask-toggle {
-  display: flex;
-  min-width: 0;
-  flex: 1;
-  align-items: center;
-  gap: 8px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
 }
 .xy-panel-ask.is-expanded .xy-panel-ask-head {
   border-bottom-color: var(--xy-panel-ask-divider);
@@ -421,7 +401,9 @@ html[data-smoothness="off"] .xy-panel-collapse {
 
 .xy-composer-stack:has(:focus-within) {
   border-color: var(--xy-accent);
-  box-shadow: var(--xy-ring), var(--xy-composer-shadow);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--xy-accent) 22%, transparent),
+    var(--xy-composer-shadow);
 }
 
 .xy-composer-stack.is-drag-over {

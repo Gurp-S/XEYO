@@ -11,48 +11,22 @@ html.tauri body {
   background: transparent;
 }
 
+/* 应用基面：AppShell.tsx:171 的 .xy-app-surface 是唯一铺满窗口的表面（壁纸层是它的子节点，
+   画在自己的 background 之上）。铁律：扁平、无渐变、无阴影——09-17 选中就是这一档中性纸面。
+   回退把这条整块删掉过，组件仍在用，所以基面必须由它自己承担，不能靠 #root 漏出来的色斑。 */
+.xy-app-surface {
+  background: var(--xy-paper);
+}
+
 html.tauri #root {
-  border-radius: var(--xy-radius-pane);
+  border-radius: var(--xy-radius-float);
   border: 1px solid color-mix(in oklch, var(--xy-frame) 70%, transparent);
   overflow: hidden;
   /* 给 fixed/portal 全屏浮层也裁进圆角内 */
   contain: paint;
-  /* 亮暗都保留柔和深度：半透面板要靠这三团色斑"透"出东西，纯色底会让玻璃等于不透明 */
-  background:
-    radial-gradient(900px 420px at 8% -8%, var(--xy-bg-a) 0%, transparent 58%),
-    var(--color-paper);
-}
-
-/* 玻璃底：三团 radial 色斑。Tauri 下由 #root 承接窗口圆角裁切，浏览器下直接铺满。 */
-.xy-app-surface {
-  background:
-    radial-gradient(
-      1100px 520px at 6% -8%,
-      var(--xy-bg-a) 0%,
-      transparent 56%
-    ),
-    radial-gradient(
-      1000px 520px at 100% 0%,
-      var(--xy-bg-b) 0%,
-      transparent 52%
-    ),
-    radial-gradient(
-      1100px 620px at 55% 108%,
-      var(--xy-bg-c) 0%,
-      transparent 58%
-    ),
-    var(--color-paper);
-}
-
-html[data-scheme="dark"].tauri #root {
-  background:
-    radial-gradient(
-      1200px 600px at 10% -10%,
-      var(--xy-bg-a) 0%,
-      transparent 55%
-    ),
-    radial-gradient(900px 500px at 100% 0%, var(--xy-bg-b) 0%, transparent 50%),
-    var(--color-paper);
+  /* 窗口底同样一律平整：这里过去画的那一团 radial 色斑（--xy-bg-a）基面已经不需要，
+     暗色档也不再另开一块——--color-paper 本身就随主题/主题档取值。 */
+  background: var(--color-paper);
 }
 
 /* 最大化时窗口顶满屏幕：去圆角与边框，用纸色填满，避免露壁纸四角 */

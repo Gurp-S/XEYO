@@ -1,0 +1,148 @@
+/* settings.css — XEYO 设置界面视觉层：专业桌面应用「偏好设置面板」质感
+ * （密集、安静、清晰分组），而不是「一摞卡片」。
+ *
+ * 只写表现，不改功能：不动任何 .tsx / .ts，全部规则打在 SettingsModal.tsx 及其子组件
+ * （ThemePicker / PaneLayoutSetting / MemorySwitchesSetting / LocalModelSetting /
+ *  RuntimePresetSetting / GrantsPanel / BashRoutingSetting …）已经产出的 DOM 上。
+ * 由 styles/entry.css 末位引入；非 @layer 规则天然压过 Tailwind 的 @layer utilities，
+ * 故无需 !important。
+ *
+ * 作用域（唯一钩子，绝不外溢到聊天 / 工作区面板）——下文记作 SC：
+ *   .xy-modal-panel:has([class*="150px_1fr"])
+ *     └ `grid-cols-[150px_1fr]` 只出现在 SettingsModal.tsx:576 的「标签栏 / 内容」栅格。
+ *        RemoteQrPanel.tsx:104、WorkspaceRevertDialog.tsx 虽同为 .xy-modal-panel，
+ *        但都不含这张栅格，:has() 命中不到它们；chat / sidebar / workbench 更不在
+ *        .xy-modal-panel 之内。每条选择器都以 SC 起头，因此不可能泄漏。
+ *
+ * 未做（需改 DOM，见交付说明）：ThemePicker 主题卡配色是内联非 token；
+ * 「减少动态 / 暂停桌宠」是 grid-cols-2 双列磁贴，没有右对齐滑块，无法并入单列 40px 行。
+ */
+
+/* ============ 0. 尺子（局部变量，不进 tokens.css；只放尺寸，不放颜色） ============ */
+.xy-modal-panel:has([class*="150px_1fr"]) {
+  --xy-set-row-h: 40px;   /* 开关行节奏（decision 3） */
+  --xy-set-ctl-h: 32px;   /* 文本框 / 原生下拉统一控件高（decision 3） */
+  --xy-set-label: 13px;   /* 行标签字号（decision 3） */
+  --xy-set-hair: var(--xy-line);                                            /* 1px 发丝分组线（decision 1） */
+  --xy-set-tint: color-mix(in oklch, var(--xy-ink) 5%, transparent);         /* 悬停静 tint：由 ink 派生，明暗都成立 */
+  --xy-set-tint-on: color-mix(in oklch, var(--xy-accent) 10%, transparent);  /* active 轻 tint，代替实心药丸 */
+
+  /* 中文标签一律不追字距；子组件里出现的英文字距由各自 util 决定，此处不强化。 */
+  letter-spacing: normal;
+}
+
+/* ============ 1. 分组标签：沿用 .xy-section-label，稳定 11px + 中文零字距（decision 2） ============ */
+.xy-modal-panel:has([class*="150px_1fr"]) .xy-section-label {
+  font-size: 11px;
+  letter-spacing: 0;
+}
+
+/* ============ 2. 标签栏（rail）：扁平、13px、active = 行首 2px 强调条 + 轻 tint（decision 4） ============ */
+/* nav > button 是组件里唯一的按钮，rail 内不会有别种按钮，选择器天然收敛。 */
+.xy-modal-panel:has([class*="150px_1fr"]) nav > button {
+  min-height: 32px;
+  padding: 6px 10px;
+  border-radius: var(--xy-radius-tight);
+  background: transparent;
+  color: var(--xy-ink-soft);
+  text-align: start;
+}
+.xy-modal-panel:has([class*="150px_1fr"]) nav > button:hover {
+  background: var(--xy-set-tint);
+  color: var(--xy-ink);
+}
+/* active：组件用 bg-accent-soft 标选中，这里改成「行首 2px 强调条 + 轻 tint」，去掉实心药丸。 */
+.xy-modal-panel:has([class*="150px_1fr"]) nav > button.bg-accent-soft {
+  background: var(--xy-set-tint-on);
+  color: var(--xy-ink);
+  box-shadow: inset 2px 0 0 var(--xy-accent);
+}
+
+/* ============ 3. 开关行 → 发丝分组行（decision 1 + 3） ============ */
+/* 「带滑块的开关行」识别：直接子元素里有一个 aria-hidden 且 w-9 的滑块 span。
+   这样一并覆盖 SettingsModal 里 role="switch" 的 10 条，以及 MemorySwitchesSetting
+   里没打 role 但同款滑标的行；而分段磁贴 / 卡片 / ReasoningLevels 触发按钮（无滑块）
+   不会被误伤。 */
+.xy-modal-panel:has([class*="150px_1fr"]) button:has(> span[aria-hidden].w-9) {
+  min-height: var(--xy-set-row-h);
+  padding: 4px 8px;
+  border: 0;
+  border-top: 1px solid var(--xy-set-hair);
+  border-radius: 0;
+  background: transparent;                 /* 去掉 bg-glass-strong / bg-accent-soft 的卡片感；滑块本身即 on/off */
+  align-items: center;
+}
+/* 行标签：第一列里最上方的 title span（14px text-sm）收到 13px。 */
+.xy-modal-panel:has([class*="150px_1fr"]) button:has(> span[aria-hidden].w-9) > span:first-child > span:first-child {
+  font-size: var(--xy-set-label);
+}
+/* 悬停：一层极淡 tint；拍平后取消 xy-press 的抬升，保证整行不跳、线不错位。 */
+.xy-modal-panel:has([class*="150px_1fr"]) button:has(> span[aria-hidden].w-9):hover {
+  background: var(--xy-set-tint);
+}
+.xy-modal-panel:has([class*="150px_1fr"]) button:has(> span[aria-hidden].w-9):hover,
+.xy-modal-panel:has([class*="150px_1fr"]) button:has(> span[aria-hidden].w-9):active {
+  transform: none;
+}
+/* 相邻开关行折叠 section 的 space-y 缝，让发丝线正好落在两行之间。 */
+.xy-modal-panel:has([class*="150px_1fr"]) button:has(> span[aria-hidden].w-9)
+  + button:has(> span[aria-hidden].w-9) {
+  margin-top: 0;
+}
+
+/* ============ 4. 装饰卡片 → 扁平分组（decision 1） ============ */
+/* 面板内的浮动卡（rounded-xl + border + bg-glass-strong）：去材质，靠标签与发丝线分组。
+   只打「作为 section 直接子元素的分隔卡」，不误伤控件按钮 / 输入框 / 内联错误卡。 */
+.xy-modal-panel:has([class*="150px_1fr"]) section > div[class~="bg-glass-strong"] {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  overflow: visible;
+}
+
+/* ============ 5. 账号 / 授权列表 → 发丝行；active 走行首强调条（decision 1 的延伸） ============ */
+.xy-modal-panel:has([class*="150px_1fr"]) section > ul > li > div,
+.xy-modal-panel:has([class*="150px_1fr"]) ul > li.flex[class~="bg-glass-strong"] {
+  min-height: var(--xy-set-row-h);
+  padding: 6px 8px;
+  border: 0;
+  border-top: 1px solid var(--xy-set-hair);
+  border-radius: 0;
+  background: transparent;
+}
+/* 当前账号：组件用 border-accent/45 bg-accent-soft/70 标 active，这里换成轻 tint + 行首条。 */
+.xy-modal-panel:has([class*="150px_1fr"]) section > ul > li > div[class~="bg-accent-soft/70"] {
+  background: var(--xy-set-tint-on);
+  box-shadow: inset 2px 0 0 var(--xy-accent);
+}
+/* 折叠 ul 的 space-y 缝，让发丝线落在相邻行之间（remote 命令表一并收紧）。 */
+.xy-modal-panel:has([class*="150px_1fr"]) section > ul > li + li,
+.xy-modal-panel:has([class*="150px_1fr"]) ul > li.flex + li.flex {
+  margin-top: 0;
+}
+
+/* ============ 6. 文本框 / 原生下拉：统一控件高（decision 3；select 保持原生，不动行为） ============ */
+/* 只收高度与圆角，保留它们自身的边框 / 表面（字段需要看得见的框）；
+   滑块（range）与隐藏 file input、原生 checkbox/radio 不参与。 */
+.xy-modal-panel:has([class*="150px_1fr"])
+  :is(input, select):not([type="range"]):not([type="file"]):not([type="checkbox"]):not([type="radio"]) {
+  min-height: var(--xy-set-ctl-h);
+  padding-block: 5px;
+  border-radius: var(--xy-radius-tight);
+}
+
+/* ============ 7. 分段选择 / 通道网格：与控件同一把尺，保留选中态底色 ============ */
+.xy-modal-panel:has([class*="150px_1fr"]) [role="radiogroup"] > button {
+  min-height: var(--xy-set-ctl-h);
+  border-radius: var(--xy-radius-tight);
+}
+
+/* ============ 8. 焦点可见性（decision 5） ============ */
+/* 保留 @layer base 的 :focus-visible 轮廓（本文件不碰它），在滑块行 / 字段 / 下拉上
+   再叠一层 --xy-ring 光环。只打没有常驻 box-shadow 的元素，避免盖掉标签栏 active 的
+   行首条（那是 box-shadow inset）。 */
+.xy-modal-panel:has([class*="150px_1fr"]) button:has(> span[aria-hidden].w-9):focus-visible,
+.xy-modal-panel:has([class*="150px_1fr"]) :is(input, select):focus-visible {
+  box-shadow: var(--xy-ring);
+}

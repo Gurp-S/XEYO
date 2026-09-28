@@ -171,7 +171,7 @@
   min-height: 26px;
   padding: 3px 5px 3px 3px;
   border: 0;
-  border-radius: var(--xy-radius-tight);
+  border-radius: 7px;
   background: transparent;
   text-align: left;
   cursor: pointer;

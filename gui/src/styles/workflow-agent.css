@@ -336,18 +336,23 @@ html[data-smoothness="off"] .xy-agent-bar-face {
 }
 
 .xy-workflow-fold .xy-split-step {
-  padding: 0 0 0 2px;
+  padding: 0;
+  gap: 6px;
 }
 
 .xy-workflow-fold .xy-split-rail {
   padding-top: 0;
 }
 
-/* 展开体保持 Codex 的行高与字号；原来压成 12px/1.3 会把结果行与动作行糊成一片 */
 .xy-workflow-fold .xy-split-left,
 .xy-workflow-fold .xy-split-right {
-  font-size: 12.5px;
-  line-height: 1.7;
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.xy-workflow-fold .xy-split-preview {
+  font-size: 12px;
+  line-height: 1.3;
 }
 
 /* 段与段：仅保留很细的分隔，上下几乎贴住 */

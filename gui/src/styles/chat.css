@@ -6,9 +6,6 @@
 }
 
 .xy-composer-surface {
-  min-width: 0;
-  container-name: xy-composer;
-  container-type: inline-size;
   transition:
     border-color 180ms var(--ease-out-soft),
     box-shadow 180ms var(--ease-out-soft);
@@ -16,29 +13,7 @@
 
 .xy-composer-surface:focus-within {
   border-color: var(--xy-accent) !important;
-  box-shadow: var(--xy-ring);
-}
-
-/* Keep context controls and send actions on separate rows when the chat column narrows. */
-@container xy-composer (max-width: 520px) {
-  .xy-composer-toolbar {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    gap: 4px;
-  }
-
-  .xy-composer-toolbar-tools {
-    flex-wrap: wrap;
-  }
-
-  .xy-composer-toolbar-spacer {
-    display: none;
-  }
-
-  .xy-composer-toolbar-actions {
-    width: 100%;
-    justify-content: flex-end;
-  }
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--xy-accent) 22%, transparent);
 }
 
 /*
@@ -110,22 +85,16 @@ html[data-scheme="dark"] .xy-composer-shell textarea::placeholder {
   align-items: flex-start;
   gap: 0.75rem;
   font-size: 15px;
-  line-height: 1.72;
+  line-height: 1.625;
 }
 
-/* 正文左缘导轨：承载"这是同一段正文"，不承载评价。默认静默一档灰，
-   悬停时加重到强调档——只换颜色，不改宽度、不推布局。 */
 .xy-prose-mark > .xy-prose-dot {
   flex-shrink: 0;
-  width: 2px;
-  align-self: stretch;
-  border-radius: 2px;
-  background: var(--xy-guide);
-  transition: background-color 180ms var(--ease-out-soft);
-}
-
-.xy-prose-mark:hover > .xy-prose-dot {
-  background: var(--xy-guide-strong);
+  width: 5px;
+  height: 5px;
+  margin-top: calc((1.625em - 5px) / 2);
+  border-radius: 9999px;
+  background: var(--xy-ink);
 }
 
 /* Light surface for long markdown blocks (tables / code) —— not a chat bubble */
@@ -323,10 +292,8 @@ html[data-scheme="dark"] .xy-code-fade {
   position: relative;
   background: var(--xy-user-bubble);
   border: 1px solid var(--xy-user-bubble-border);
-  border-radius: var(--xy-radius-pane);
   color: var(--xy-ink);
-  /* 玻璃感靠"抬一层 + 上缘内高光"，不上 blur（吸顶 pin 会随滚动重绘） */
-  box-shadow: var(--xy-elev-1), var(--xy-edge-hi);
+  box-shadow: none;
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
   /* 统一查看上限（96px）：流内/吸顶 pin/编辑气泡共用 —— 长 prompt 一律塌成紧凑卡，
@@ -426,7 +393,7 @@ html[data-xy-selfwallpaper="1"] [data-pin-id] .xy-editing-bubble {
 
 /* 吸顶 portal 编辑：legacy 挖孔路径禁止位移/缩放/动画（避免洞与气泡不同步、抖动）。
    自绘壁纸模式（默认）无挖孔，放行 xy-editing-bubble-in 入场淡入，让查看↔编辑平滑而非硬切。 */
-html:not([data-xy-selfwallpaper="1"]) [data-pin-id] .xy-editing-bubble {
+html[data-xy-selfwallpaper!="1"] [data-pin-id] .xy-editing-bubble {
   animation: none;
 }
 
@@ -498,7 +465,6 @@ html:not([data-xy-selfwallpaper="1"]) [data-pin-id] .xy-editing-bubble {
   min-height: 0;
   min-width: 0;
   overflow: hidden;
-  border-top: 1px solid color-mix(in oklch, var(--xy-accent) 24%, var(--xy-line));
 }
 
 html[data-smoothness="off"] .xy-editing-controls,
@@ -739,13 +705,4 @@ html[data-scheme="dark"] body {
   .xy-ch-in {
     animation: none;
   }
-}
-
-/* ===== 产品化收口（2026-09-22 样式轮）=====
-   用户气泡原本内距偏大（Tailwind px-4 pt-3.5 pb-2.5），连续两条时像堆叠的石板。
-   收紧一档并统一走面板圆角；未命中态加一点抬升，让它读起来是"一张卡"而不是一块底色。 */
-.xy-user-prompt {
-  padding: 10px 14px;
-  font-size: 14px;
-  line-height: 1.65;
 }

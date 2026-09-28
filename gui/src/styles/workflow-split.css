@@ -41,32 +41,10 @@
 }
 
 .xy-split-head-label {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   font-size: 13px;
   font-weight: 600;
   line-height: inherit;
   color: var(--xy-ink);
-}
-
-.xy-split-head-label.is-working::before {
-	content: "";
-	display: inline-block;
-	width: 6px;
-	height: 6px;
-	margin: 0 6px 1px 0;
-	border-radius: 50%;
-	background: var(--xy-accent);
-	vertical-align: middle;
-}
-
-.xy-split-head-label.is-waiting {
-	border-radius: 5px;
-	background: var(--xy-warn-bg);
-	color: var(--xy-warn);
-	padding: 1px 6px;
 }
 
 /* 标签 + chevron 贴在一起；右侧 meta 仍靠右 */
@@ -160,30 +138,13 @@
 /* Idea 5 peek 样式见下方「Idea 5 peek」完整块 */
 
 .xy-split-row-main {
-  display: flex;
+  display: inline-flex;
   max-width: 100%;
+  width: auto;
   min-width: 0;
-  align-items: baseline;
-  gap: 6px;
+  align-items: center;
+  gap: 2px;
   text-align: left;
-}
-
-/* Codex 的一行是终端口吻：动词 + 对象同排，命令带 $ 前缀 */
-.xy-split-step .xy-split-right {
-  font-family: var(--font-mono);
-  font-size: 12.5px;
-  line-height: 1.7;
-  color: var(--xy-ink);
-}
-.xy-split-preview {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.xy-split-preview.is-cmd::before {
-  content: "$ ";
-  color: var(--xy-mute);
 }
 
 .xy-split-chevron {
@@ -232,81 +193,11 @@
 .xy-split-step {
   position: relative;
   display: grid;
-  /* Codex 骨架：悬挂符号列 + 一条流式内容列，不再有 104px 的动词栏 */
-  grid-template-columns: 15px minmax(0, 1fr);
-  gap: 0;
-  padding: 1px 0 1px 9px;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 8px;
+  padding: 3px 0;
   border-radius: 0;
-  border-bottom: 0;
-}
-
-/* 思考行：思考是成段的散文，不是「动词 + 对象」，所以保留独立的动词栏，
-   但仍共用同一条悬挂列，两种行左边缘对得齐。 */
-.xy-split-step.thought-step {
-  grid-template-columns: 15px auto minmax(0, 1fr);
-  gap: 0 6px;
-}
-
-/* 行首状态符：• 完成 / ✕ 失败 / 脉冲点 进行中 */
-.xy-split-bullet {
-  grid-column: 1;
-  text-align: center;
-  color: var(--xy-accent);
-  font-size: 12px;
-  line-height: 1.7;
-  user-select: none;
-}
-.xy-split-step.is-failed .xy-split-bullet {
-  color: var(--xy-danger);
-}
-.xy-split-pulse {
-  display: inline-block;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--xy-accent);
-  vertical-align: 1px;
-  animation: xy-split-pulse 1.1s ease-in-out infinite;
-}
-.xy-split-wait-dot {
-  display: inline-block;
-  width: 7px;
-  height: 7px;
-  border: 1px solid var(--xy-warn);
-  border-radius: 50%;
-  vertical-align: 1px;
-}
-.xy-split-step.is-waiting .xy-split-bullet {
-  color: var(--xy-warn);
-}
-@keyframes xy-split-pulse {
-  50% {
-    opacity: 0.2;
-    transform: scale(0.7);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .xy-split-pulse {
-    animation: none;
-  }
-}
-
-/* 结果弱显行：第一行 + 「+N 行」，展开后由详情体接管 */
-.xy-split-result {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--xy-mute);
-  font-size: 11.5px;
-  line-height: 1.6;
-}
-.xy-split-step.is-failed .xy-split-result {
-  color: var(--xy-danger);
-}
-.xy-split-more {
-  color: var(--xy-mute);
-  font-size: 10.5px;
+  border-bottom: 1px dashed color-mix(in srgb, var(--xy-line) 55%, transparent);
 }
 
 .xy-split-step:last-child {
@@ -397,49 +288,3 @@
   color: var(--xy-danger);
 }
 
-
-/* ===== 产品化收口（2026-09-22 样式轮）=====
-   收尾轮的活动摘要原本是一行裸文字 + 下边框：状态在左、步数与 diff 在右，中间整条空着，
-   读起来不像一个整体。这三项是同一组事实，所以给它们同一个容器。
-   冻结口径（文案与 typography contract）不动，只动容器与视觉权重。
-   两种渲染路径都要覆盖：收尾轮用 .xy-done-on-wrap，进行中/投影视图用 .xy-activity-split。 */
-.xy-done-on-wrap,
-.xy-activity-split:not([data-headless]) {
-  border: 1px solid var(--xy-line);
-  border-radius: var(--xy-radius-control);
-  background: var(--xy-glass-strong);
-  box-shadow: var(--xy-elev-1);
-  overflow: hidden;
-  /* 容器自己不再留内距：外距由轮次间距给，内距交给头部，否则描边到内容会空一大段 */
-  padding: 0;
-}
-
-.xy-done-on-wrap .xy-done-on-head,
-.xy-activity-split:not([data-headless]) .xy-split-head {
-  padding: 7px 11px;
-  margin-bottom: 0;
-  border-bottom: 0;
-}
-
-.xy-done-on-wrap .xy-done-on-head:hover,
-.xy-activity-split:not([data-headless]) .xy-split-head:hover {
-  background: color-mix(in oklch, var(--xy-ink) 4%, transparent);
-}
-
-.xy-done-on-wrap .xy-done-on-head:focus-visible,
-.xy-activity-split:not([data-headless]) .xy-split-head:focus-visible {
-  color: var(--xy-ink);
-  box-shadow: var(--xy-ring);
-}
-
-/* 展开明细时与头部之间补一条分隔；折叠时不留多余边线 */
-.xy-done-on-wrap .xy-activity-detail-inner,
-.xy-activity-split:not([data-headless]) .xy-activity-detail-inner {
-  border-top: 1px solid var(--xy-rule-weak);
-}
-
-.xy-split-head-meta {
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  color: var(--xy-text-tertiary);
-}

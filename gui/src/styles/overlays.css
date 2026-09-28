@@ -1,23 +1,20 @@
 /* auto-split from index.css L2706-2790 — menu-flyout / ctx-menu / seg; do not edit order relative to styles/entry.css */
 
-/* 全 GUI 菜单统一毛玻璃：半透明底 + 真实 backdrop blur（blur 量由 tokens.css 的 --xy-blur 统一给） */
+/* 全 GUI 菜单统一毛玻璃：半透明底 + 真实 backdrop blur */
 .xy-menu-flyout,
 .xy-ctx-menu,
 .xy-menu-frosted {
-  /* 48% 纸色压在黑色遮罩上会糊成中灰，页面文字从面板里透出来。
-     玻璃感靠 blur + 内高光 + 描边读，不靠让背景透过来。 */
-  background: color-mix(in oklch, var(--xy-paper) 88%, transparent);
-  -webkit-backdrop-filter: var(--xy-blur);
-  backdrop-filter: var(--xy-blur);
+  background: color-mix(in oklch, var(--xy-paper) 48%, transparent);
+  -webkit-backdrop-filter: blur(32px) saturate(1.45);
+  backdrop-filter: blur(32px) saturate(1.45);
   box-shadow:
     var(--xy-modal-shadow),
-    var(--xy-edge-hi),
     0 0 0 0.5px color-mix(in srgb, var(--xy-ink) 8%, transparent);
 }
 html[data-scheme="dark"] .xy-menu-flyout,
 html[data-scheme="dark"] .xy-ctx-menu,
 html[data-scheme="dark"] .xy-menu-frosted {
-  /* 底色沿用上面的 88% 纸色（各档 --xy-paper 自带明暗），深色只换描边与内高光 */
+  background: rgb(22 22 24 / 0.66);
   box-shadow:
     var(--xy-modal-shadow),
     0 0 0 0.5px rgb(255 255 255 / 0.08),
@@ -85,7 +82,7 @@ html[data-scheme="dark"] .xy-seg {
   background: rgb(255 255 255 / 0.06);
 }
 .xy-seg-btn {
-  border-radius: var(--xy-radius-tight);
+  border-radius: 7px;
   padding: 5px 6px;
   font-size: 11px;
   color: var(--xy-mute);
@@ -141,50 +138,4 @@ html[data-scheme="dark"] .xy-seg-btn.is-on {
   font-size: 9.5px;
   line-height: 14px;
   color: var(--xy-mute);
-}
-
-/* ===== 命令面板收口（2026-09-22 样式轮）===== */
-
-/* 键帽字形：Consolas 没有 ↵  ⇧ 这三个码位，底栏会渲染成豆腐块。
-   换到含符号字形的栈（Segoe UI Symbol 覆盖这三个），并给单字符键帽最小宽度，
-   免得被挤成正方形。 */
-.xy-kbd {
-  font-family: "Segoe UI Symbol", Consolas, "Cascadia Mono", ui-monospace, monospace;
-  min-width: 18px;
-  line-height: 1.35;
-  text-align: center;
-}
-
-/* 搜索框：本文件的飞层通用规则给所有 input 刷了 35% 纸色，
-   在已经是玻璃的面板上叠出一块不透明灰板。命令面板的搜索位要的是"直接写在面板上"。 */
-.xy-palette-search {
-  background: transparent !important;
-  border: 0 !important;
-}
-
-/* 筛选行：原本只有选中项有底色，其余是裸文字——一排里既像标签又像按钮。
-   统一给芯片轮廓，选中才填充。 */
-.xy-palette-filter {
-  border: 1px solid var(--xy-rule-weak);
-}
-
-.xy-palette-filter:hover {
-  border-color: color-mix(in oklch, var(--xy-ink) 18%, transparent);
-}
-
-/* 右键菜单圆角原本写死 rounded-md(6px)，而这一版体系的控件圆角是 12px、
-   弹层 16-18px——6px 在新体系里读起来像没跟着改。描边也归到统一的 --xy-line。 */
-.xy-ctx-menu {
-  border-radius: var(--xy-radius-float);
-  border-color: var(--xy-line);
-}
-
-/* 下拉/飞层此前各自写死 rounded-lg(8px) 或 rounded-2xl(16px)——
-   同一类浮层三种圆角。统一走 --xy-radius-float。 */
-.xy-menu-flyout {
-  border-radius: var(--xy-radius-float);
-}
-
-.xy-ctx-menu .xy-ctx-row {
-  border-radius: calc(var(--xy-radius-float) - 6px);
 }

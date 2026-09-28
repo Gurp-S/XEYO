@@ -1,0 +1,596 @@
+/* activity.css — XEYO 视觉层：agent 工作过程的可读性（由 styles/entry.css 末位引入）。
+ *
+ * 只写表现，不改功能：本文件不引入新 class；新增的两个属性钩子
+ * （data-xy-cat / data-xy-agent）由 ActivityLog.tsx 把**已存在**的数据
+ * （steps.ts 的 categorize() 结果、ActivityStep.agent）原样透出，无新判定。
+ *
+ * 可用的行级钩子（?scenario=lifecycle 三相位实测）：
+ *   .xy-split-step                行根（grid：标记列 + 内容）
+ *     data-xy-cat                 read|search|edit|write|todo|lint|run|other（族）
+ *     data-xy-agent="1"           子 Agent 派工行（三相位都命中）
+ *     .is-failed / .is-waiting / .is-ok / .is-handoff / .is-tool-appear
+ *     .thought-step               Thought 行（无工具身份 → 没有 data-xy-cat）
+ *     :has(.xy-split-pulse)       running（markup 只在 running 时画这个 <i>）
+ *     :has(.xy-split-wait-dot)    waiting
+ *     :has(.xy-dig-step-link)     失败且有诊断入口
+ *     :has(+ .xy-agent-done-list) 派工行紧邻卡片条（只在交错态成立）
+ *     .xy-split-preview.is-cmd    命令行（含失败命令，见第 5 节）
+ *     .xy-split-row-main:has(.tabular-nums) 带 +N/−N 徽章 = 改动行
+ *   展开体：.xy-tool-step-body > section > h4/pre、.xy-diff-preview、.xy-thought-expand-body
+ *   顶栏：.xy-split-head / .xy-split-head-label.is-working|is-waiting / .xy-activity-timer
+ *
+ * 还是没有钩子的两族（记为数据缺口，不用输出文本猜）：
+ *   test —— categorize() 没有 test 桶，pytest/vitest 走 Bash → 与 command 同签；
+ *   retry —— ChatMessage / ActivityStep 没有 attempt 字段，重试行与首试行逐字节同签。
+ *
+ * 2026-09-27 r4 用 ?scenario=lifecycle（settled 19 步 / live 20 / stopped 14，
+ * paper+basalt × 1680+900 × 正常/系统减弱/平滑关闭，像素级采样）实测出的四条硬事实，
+ * 后面改这个文件的人不要再凭想象推翻：
+ *   1. 落定后轨唯一的形态是 .xy-workflow-fold 里的合并轨（19/19 行），
+ *      所以第 10 节任何「顺手抹平」都会把第 2/3/5 节整体作废 —— 只准收留白。
+ *   2. 子 Agent 卡片在落定态不落在轨内（AssistantTurn 把它提到回答之上），
+ *      第 3.3 节整节在落定态不相交；只有 live 交错态命中，且只命中连续派工的
+ *      最后一条。
+ *   3. 失败命令的动词被 steps.ts 统一改写成 Failed，于是它丢掉 .is-cmd ——
+ *      命令族在它最该被认出来的那一格自己塌了；现在 isCommand 并上 cat==='run'。
+ *   4. settled 唯一的容器形态带 data-headless，任何打在 .xy-split-preview 上的
+ *      data-headless 颜色规则都会以同特异度压过第 3/5 节 —— 第 7 节因此不再上色。
+ */
+
+/* ============ 0. 尺子（局部变量，不进 tokens.css） ============ */
+.xy-activity-split {
+	--xy-act-gutter: 16px;
+	--xy-act-gap: 8px;
+	--xy-act-lh: 1.7;
+	--xy-act-read: 11px; /* 读：轨里量最大的一族，压到阶梯最底 */
+	--xy-act-quiet: 11.5px; /* 搜 / 计划 / 通用调用 */
+	--xy-act-body: 12.5px; /* 命令 / 改动 / 子 Agent */
+	--xy-act-code: 10.5px; /* 廉价操作展开体 */
+	--xy-act-code-2: 11px; /* 重要操作展开体 */
+	--xy-act-pad-quiet: 1px;
+	--xy-act-pad-body: 3px;
+	--xy-act-pad-strong: 4px;
+	--xy-act-pad-inline: 2px;
+	--xy-act-cap: 260px; /* 长输出封顶 */
+
+	/* 正文列里可能是中文：一律不追字距 */
+	letter-spacing: normal;
+}
+
+/* ============ 1. 轨几何：窄标记列 + 动词对齐 ============ */
+/* 原来工具行的标记列是 88px 空槽（点飘在中间，正文从 96px 起）。收到 16px 后，
+   工具行的动词与 Thought 行的动词落在同一条竖线上，整轨可以按列扫读。 */
+.xy-activity-split .xy-split-step {
+	grid-template-columns: var(--xy-act-gutter) minmax(0, 1fr);
+	column-gap: var(--xy-act-gap);
+	padding-block: var(--xy-act-pad-quiet);
+	padding-inline-start: var(--xy-act-pad-inline);
+	border-bottom: 0; /* 行分组由密度与标记承担，不靠每行虚线 */
+}
+
+.xy-activity-split .xy-split-step.thought-step {
+	grid-template-columns: var(--xy-act-gutter) auto minmax(0, 1fr);
+	column-gap: var(--xy-act-gap);
+}
+
+.xy-activity-split .xy-split-bullet {
+	grid-column: 1;
+	font-family: var(--font-mono);
+	font-size: 9px;
+	line-height: var(--xy-act-lh);
+	text-align: center;
+	/* 实测：mute@72% 在 paper 上只有 2.90:1。标记符是这一行唯一的「状态」图形
+	   （• / ✕ / 呼吸点），按非文本对比度 3:1 的底线走整色 mute，不再稀释；
+	   族之间靠字号（9 / 10 / 11px）分档，不靠透明度分档。 */
+	color: var(--xy-mute);
+}
+
+.xy-activity-split .xy-split-rail {
+	padding-top: 2px;
+}
+
+/* ============ 2. 默认（廉价操作）退到背景里 ============ */
+/* 没有命中任何「重要」钩子的行 = 读 / 搜 / 通用调用，占长任务绝大多数。
+   它们用等宽、mute 前景、最小字号；重要的行靠下面几节把自己抬上来。 */
+.xy-activity-split .xy-split-step .xy-split-right {
+	font-family: var(--font-mono);
+	font-size: var(--xy-act-quiet);
+	line-height: var(--xy-act-lh);
+	letter-spacing: normal;
+	color: var(--xy-mute);
+	min-width: 0;
+}
+
+.xy-activity-split .xy-split-step .xy-split-preview {
+	font-family: var(--font-mono);
+	font-size: var(--xy-act-quiet);
+	letter-spacing: normal;
+	color: var(--xy-mute);
+}
+
+.xy-activity-split .xy-split-step .xy-morph {
+	font-size: var(--xy-act-quiet);
+	/* 这里过去写死 color: color-mix(mute 82%, ink)：它与产品自己的三条动词配色
+	   规则（.xy-morph.is-error / .xy-split-step.is-ok .xy-morph /
+	   .thought-step .xy-morph）同特异度且引入更晚，实测把「改动=ok 绿、
+	   失败=danger 红、思考=thought 紫」三档动词全部抹平成同一色。
+	   现在只收字号，动词颜色交回产品既有的那三档。 */
+}
+
+.xy-activity-split .xy-split-step .xy-split-result {
+	font-family: var(--font-mono);
+	letter-spacing: normal;
+	font-size: 10.5px;
+}
+
+/* ============ 3. 工具族签名（只按可行钩子） ============ */
+
+/* —— 3.0 只读族：read / search / todo ——
+   r4 之前这三族在计算样式上逐字节同签（塌陷组 [todo≈read≈search≈sub-agent]），
+   因为 DOM 里根本没有族钩子。现在 markup 透出了 data-xy-cat（值 = steps.ts 里
+   既有的 categorize() 结果），三族各自锚定，且全部留在「安静档」以下：
+     read   11px   mute       —— 量最大，压到阶梯最底
+     search 11.5px mute       —— 通常是「线索从哪来」，比读高一格
+     todo   11.5px ink-soft   —— 计划是状态事实，不是过程噪声
+   三族两两之间至少有一个计算量不同（字号或前景），可用 getComputedStyle 复核。 */
+.xy-activity-split .xy-split-step[data-xy-cat="read"] .xy-split-preview,
+.xy-activity-split .xy-split-step[data-xy-cat="read"] .xy-morph {
+	font-size: var(--xy-act-read);
+}
+
+.xy-activity-split .xy-split-step[data-xy-cat="search"] .xy-split-preview,
+.xy-activity-split .xy-split-step[data-xy-cat="search"] .xy-morph {
+	font-size: var(--xy-act-quiet);
+}
+
+.xy-activity-split .xy-split-step[data-xy-cat="todo"] .xy-split-preview,
+.xy-activity-split .xy-split-step[data-xy-cat="todo"] .xy-morph,
+.xy-activity-split .xy-split-step[data-xy-cat="lint"] .xy-split-preview {
+	font-size: var(--xy-act-quiet);
+	color: var(--xy-ink-soft);
+}
+
+/* —— 3.1 命令（Bash / 测试 / git 都走这里，见交付说明）——
+   签名：$ 前缀（已有）+ 等宽目标 + ink 前景 + 中等密度，不加彩色。 */
+.xy-activity-split .xy-split-step:has(.xy-split-preview.is-cmd),
+.xy-activity-split .xy-split-step[data-xy-cat="run"] {
+	padding-block: var(--xy-act-pad-body);
+}
+
+.xy-activity-split .xy-split-step:has(.xy-split-preview.is-cmd) .xy-split-bullet {
+	font-size: 10px;
+	color: var(--xy-mute);
+}
+
+.xy-activity-split .xy-split-step:has(.xy-split-preview.is-cmd) .xy-morph {
+	font-size: var(--xy-act-body);
+	color: var(--xy-ink);
+}
+
+.xy-activity-split .xy-split-step:has(.xy-split-preview.is-cmd) .xy-split-preview {
+	font-size: var(--xy-act-body);
+	color: var(--xy-ink-soft);
+}
+
+/* —— 3.2 改动文件（Edited / Wrote / Created：.is-ok 或带 +N/−N 徽章）——
+   签名：唯一使用 ok 色相的地方只给标记符与徽章，正文目标仍是等宽 ink。 */
+.xy-activity-split .xy-split-step.is-ok,
+.xy-activity-split .xy-split-step:has(.xy-split-row-main .tabular-nums) {
+	padding-block: var(--xy-act-pad-strong);
+}
+
+.xy-activity-split .xy-split-step.is-ok .xy-split-bullet,
+.xy-activity-split .xy-split-step:has(.xy-split-row-main .tabular-nums) .xy-split-bullet {
+	font-size: 11px;
+	color: var(--xy-ok);
+}
+
+.xy-activity-split .xy-split-step.is-ok .xy-split-preview,
+.xy-activity-split .xy-split-step:has(.xy-split-row-main .tabular-nums) .xy-split-preview {
+	font-size: var(--xy-act-body);
+	color: var(--xy-ink);
+}
+
+/* —— 3.3 子 Agent 派工行 ——
+   r4 实测：落定态里子 Agent 卡片不在轨内（AssistantTurn 把它提到回答之上），
+   `:has(+ .xy-agent-done-list)` 在用户真正看到的那个态里命中 0 行，整节形同虚设；
+   交错态也只命中连续派工的最后一条。markup 现在把既有的 step.agent 透出成
+   data-xy-agent="1"，于是这一族在三种相位里都有同一个钩子。
+   签名：目标换成 sans（派工描述是散文，常含中文）+ thought 色相的标记符。 */
+.xy-activity-split .xy-split-step[data-xy-agent="1"] {
+	padding-block: var(--xy-act-pad-strong);
+}
+
+.xy-activity-split .xy-split-step[data-xy-agent="1"] .xy-split-bullet {
+	font-size: 11px;
+	color: color-mix(in oklch, var(--xy-thought) 72%, var(--xy-ink));
+}
+
+.xy-activity-split .xy-split-step[data-xy-agent="1"] .xy-split-preview,
+.xy-activity-split .xy-split-step[data-xy-agent="1"] .xy-split-right,
+.xy-activity-split .xy-split-step[data-xy-agent="1"] .xy-morph {
+	font-family: var(--font-sans);
+	letter-spacing: normal;
+	font-size: var(--xy-act-body);
+	color: var(--xy-ink);
+}
+
+/* 派工行与它的卡片条（交错态同层相邻时）不留空隙，读成一组 */
+.xy-activity-split .xy-split-step:has(+ .xy-agent-done-list) + .xy-agent-done-list,
+.xy-activity-split .xy-split-step[data-xy-agent="1"] + .xy-agent-done-list {
+	margin-block-start: 2px;
+	padding-inline-start: calc(var(--xy-act-gutter) + var(--xy-act-gap));
+}
+
+/* —— 3.4 思考行：散文不是代码，撤掉等宽与负字距 —— */
+.xy-activity-split .xy-split-step.thought-step .xy-split-right,
+.xy-activity-split .xy-split-step.thought-step .xy-split-preview,
+.xy-activity-split .xy-split-step.thought-step .xy-thought-settled,
+.xy-activity-split .xy-split-step.thought-step .xy-kinetic-body,
+.xy-activity-split .xy-thought-ticker-track,
+.xy-activity-split .xy-thought-expand-body {
+	font-family: var(--font-sans);
+	letter-spacing: normal;
+}
+
+.xy-activity-split .xy-split-step.thought-step .xy-split-right {
+	font-size: var(--xy-act-quiet);
+	color: var(--xy-mute);
+}
+
+/* ============ 4. 运行中 vs 已落定 ============ */
+/* 在途行是轨里唯一有底的一行，且只有一行（normalizeActivitySteps 保证）。
+   标记符改成纯透明度呼吸，去掉 scale——缩放的点看起来像在闪。 */
+.xy-activity-split .xy-split-step:has(.xy-split-pulse) {
+	padding-block: var(--xy-act-pad-strong);
+	background: color-mix(in oklch, var(--xy-accent) 5%, transparent);
+}
+
+.xy-activity-split .xy-split-step:has(.xy-split-pulse) .xy-morph,
+.xy-activity-split .xy-split-step:has(.xy-split-pulse) .xy-split-preview {
+	color: var(--xy-ink);
+}
+
+.xy-activity-split .xy-split-pulse {
+	width: 6px;
+	height: 6px;
+	background: color-mix(in oklch, var(--xy-accent) 78%, transparent);
+	animation: xy-act-live 2.2s ease-in-out infinite;
+}
+
+@keyframes xy-act-live {
+	50% {
+		opacity: 0.38;
+	}
+}
+
+/* 落定行的标记符是静态小点：markup 里 running 结束就不再画 xy-split-pulse，
+   所以轨里最多只有一个动画元素，不会整片呼吸。 */
+.xy-activity-split .xy-split-wait-dot {
+	width: 6px;
+	height: 6px;
+	border-color: var(--xy-warn);
+}
+
+/* 两套降级机制都走：平滑开关 + 系统减弱动效（含既有动画，一并补齐） */
+html[data-smoothness="off"] .xy-activity-split .xy-split-pulse,
+html[data-smoothness="off"] .xy-activity-split .xy-thought-blink {
+	animation: none !important;
+}
+
+/* 实测漏网的一条：工作过程上方那行「仍在思考」用 background-clip:text 的移动高亮条
+   （.xy-thinking / .status-shimmer，3.2s linear infinite）。prefers-reduced-motion
+   那条路测得 0 个动画，html[data-smoothness="off"] 这条路留着 1 个无限动画。
+   关掉动画后必须把渐变底一起撤掉：静止的高亮条本身是中灰字压纸底，只有 3.2:1。 */
+html[data-smoothness="off"] .xy-thinking,
+html[data-smoothness="off"] .status-shimmer {
+	animation: none !important;
+	background: none !important;
+	-webkit-text-fill-color: initial;
+	color: var(--xy-mute);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.xy-activity-split .xy-split-pulse,
+	.xy-activity-split .xy-thought-blink,
+	.xy-activity-split .xy-snap-in,
+	.xy-activity-split .xy-split-step.is-tool-appear,
+	.xy-activity-split .xy-split-step.is-handoff .xy-morph,
+	.xy-activity-split .xy-split-step.is-handoff .xy-split-preview::after {
+		animation: none !important;
+	}
+
+	.xy-activity-split .xy-split-step.is-tool-appear {
+		opacity: 1;
+	}
+}
+
+/* ============ 5. 错误：2px 行首竖条 + 一处文字色 ============ */
+/* 不铺红底（前一轮已裁定）。竖条只在行首，宽度 2px，色用 danger 本体。 */
+.xy-activity-split .xy-split-step.is-failed {
+	position: relative;
+	padding-block: var(--xy-act-pad-strong);
+}
+
+.xy-activity-split .xy-split-step.is-failed::before {
+	content: '';
+	position: absolute;
+	z-index: 1;
+	inset-block: 3px;
+	inset-inline-start: 0;
+	inline-size: 2px;
+	border-radius: 2px;
+	background: var(--xy-danger);
+	pointer-events: none;
+}
+
+.xy-activity-split .xy-split-step.is-failed .xy-split-bullet,
+/* 同一条比特异性算术也打在标记符上：3.1 的 :has(.is-cmd) 档是 (0,5,0)，
+   不并写这两条，失败命令的 ✕ 会留在 mute 上（实测 r4 after 第一轮就是这样）。 */
+.xy-activity-split .xy-split-step.is-failed:has(.xy-split-preview.is-cmd) .xy-split-bullet,
+.xy-activity-split .xy-split-step.is-failed[data-xy-cat="run"] .xy-split-bullet {
+	font-size: 10px;
+	color: var(--xy-danger);
+}
+
+/* 动词本身：产品用 .xy-morph.is-error 上 danger，但 3.1 / 3.3 的命令档与派工档
+   比特异性更高；不并写这三条，失败命令 / 失败派工的动词会留在 ink 上。 */
+.xy-activity-split .xy-split-step.is-failed .xy-morph,
+.xy-activity-split .xy-split-step.is-failed:has(.xy-split-preview.is-cmd) .xy-morph,
+.xy-activity-split .xy-split-step.is-failed[data-xy-agent="1"] .xy-morph {
+	color: var(--xy-danger);
+}
+
+.xy-activity-split .xy-split-step.is-failed .xy-split-preview,
+.xy-activity-split .xy-split-step.is-failed .xy-split-result,
+/* 失败命令同时命中 3.1 的 :has(.is-cmd)（比特异性更高的安静/命令档）：
+   没有下面这条并写，命令族一旦报错就只保住 $ 前缀、丢掉错误前景。 */
+.xy-activity-split .xy-split-step.is-failed:has(.xy-split-preview.is-cmd) .xy-split-preview,
+.xy-activity-split .xy-split-step.is-failed[data-xy-cat="run"] .xy-split-preview {
+	color: color-mix(in oklch, var(--xy-danger) 58%, var(--xy-ink));
+}
+
+/* 失败后继续 vs 停在这一步：轨里最后一条 = 事实上的收尾位置。
+   最后一条用通高竖条，中间的用短竖条；有 data-retried 才能说准，见交付说明。 */
+.xy-activity-split .xy-split-rail > :last-child > .xy-split-step.is-failed::before {
+	inset-block: 0;
+}
+
+.xy-activity-split .xy-split-rail > :last-child > .xy-split-step.is-failed .xy-morph {
+	font-weight: 700;
+}
+
+.xy-activity-split .xy-split-step.is-failed .xy-dig-step-link {
+	margin-block-start: 2px;
+}
+
+/* 子 Agent 结果条的失败标签：产品上是整色 danger，实测压在卡片自身的浅灰底上只有
+   4.37:1（12.5px，正文档要求 4.5）。与轨内失败动词同一味——danger 向墨底压一档，
+   仍是红色相，实测 8.4:1。本文件在 entry.css 末位引入，同特异度即可拿回这条。 */
+.xy-agent-bar.is-failed .xy-agent-bar-label,
+.xy-agent-done-list .xy-agent-bar-label.is-failed {
+	color: color-mix(in oklch, var(--xy-danger) 58%, var(--xy-ink));
+}
+
+/* ============ 6. 展开体：封顶内部滚动，不推正文 ============ */
+/* 展开/收起机制不动，只改展开后的样子。 */
+.xy-activity-split .xy-tool-step-body {
+	min-width: 0;
+	max-width: 100%;
+}
+
+.xy-activity-split .xy-tool-step-body section {
+	min-width: 0;
+}
+
+/* 标签只有 Args / Output 两个英文常量，可以留字距 */
+.xy-activity-split .xy-tool-step-body h4 {
+	font-size: 9.5px;
+	letter-spacing: 0.06em;
+	color: var(--xy-mute);
+}
+
+.xy-activity-split .xy-tool-step-body pre {
+	max-height: var(--xy-act-cap);
+	overflow: auto;
+	overscroll-behavior: contain;
+	min-width: 0;
+	max-width: 100%;
+	font-size: var(--xy-act-code);
+	line-height: 1.5;
+	letter-spacing: normal;
+	color: var(--xy-ink-soft);
+}
+
+/* 重要操作的展开体比廉价操作大一档 */
+.xy-activity-split .xy-split-step:has(.xy-split-preview.is-cmd) .xy-tool-step-body pre,
+.xy-activity-split .xy-split-step.is-ok .xy-tool-step-body pre,
+.xy-activity-split .xy-split-step:has(.xy-split-row-main .tabular-nums) .xy-tool-step-body pre {
+	font-size: var(--xy-act-code-2);
+}
+
+/* diff：折叠态本来有 12 行 clamp，展开后必须有硬顶，否则长 diff 把对话推走 */
+.xy-activity-split .xy-tool-step-body .xy-diff-preview {
+	max-height: var(--xy-act-cap);
+	overflow: auto;
+	overscroll-behavior: contain;
+	max-width: 100%;
+}
+
+.xy-activity-split .xy-thought-expand-body {
+	max-height: var(--xy-act-cap);
+	max-inline-size: 62ch;
+	overflow: auto;
+	overscroll-behavior: contain;
+	font-size: 12px;
+	line-height: 1.625;
+	letter-spacing: normal;
+	color: var(--xy-ink-soft);
+}
+
+/* ============ 7. 顶栏事实：时间 / 重试 / 失败计数 ============ */
+.xy-activity-split .xy-split-head-meta {
+	letter-spacing: normal;
+}
+
+.xy-activity-split .xy-split-head .xy-activity-timer {
+	font-size: 11.5px;
+}
+
+/* 头部的「Working」是在途事实，用与行内一致的呼吸，不给它额外颜色 */
+.xy-activity-split .xy-split-head-label.is-working::before {
+	width: 6px;
+	height: 6px;
+	background: color-mix(in oklch, var(--xy-accent) 78%, transparent);
+	animation: xy-act-live 2.2s ease-in-out infinite;
+}
+
+html[data-smoothness="off"]
+	.xy-activity-split
+	.xy-split-head-label.is-working::before {
+	animation: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.xy-activity-split .xy-split-head-label.is-working::before {
+		animation: none !important;
+	}
+}
+
+/* 后续段（无顶栏的续轨）：实测原写法 `color: color-mix(… mute 88%, transparent)`
+   有两条硬伤害——
+   1. paper 上把轨里最主要的一行文字压到 3.91:1（<4.5，落定态的 read/search/thought
+      预览全部不合格；同色不带 alpha 时是 4.92:1）；
+   2. 它的比特异性(0,4,0) 与第 5 节错误档打平且写在后面，于是把错误前景整条吃掉，
+      settled 里失败行的文字根本不带 danger（实测同签塌陷）。
+   「续段比主段轻」是留白问题，不是颜色问题：这里只收标记列，不动任何前景色。 */
+.xy-activity-split[data-headless] {
+	--xy-act-gutter: 14px;
+	--xy-act-gap: 6px;
+}
+
+/* ============ 8. 最终回答与工作轨分离 ============ */
+/* 钩子：活动轨所在的 div，与回答所在的 div 是同一容器里的兄弟。
+   用量（窄）、行距、顶部一条发丝线区分，不做卡片、不加底。 */
+div:has(> .xy-enter-fade > .xy-activity-split) ~ div > .xy-prose-mark {
+	box-sizing: border-box;
+	max-inline-size: 40rem;
+	margin-block-start: 12px;
+	padding-block-start: 12px;
+	border-block-start: 1px solid
+		color-mix(in oklch, var(--xy-line) 78%, transparent);
+}
+
+div:has(> .xy-enter-fade > .xy-activity-split) ~ div > .xy-prose-mark > .xy-chat-text {
+	font-size: 15px;
+	line-height: 1.72;
+	letter-spacing: normal; /* 中文正文不追字距 */
+	color: var(--xy-ink);
+}
+
+/* 回答里的行内代码与路径本来就是等宽，轨的字号阶梯不影响它 */
+div:has(> .xy-enter-fade > .xy-activity-split) ~ div > .xy-prose-mark .xy-chat-text code {
+	letter-spacing: normal;
+}
+
+/* 落定态：轨被并进 done-on 卡片，卡片与回答是 .xy-round-transcript-layer 里的兄弟，
+   上面那条「rail 所在 div 的兄弟 div」选择器在这种 DOM 形态下根本不相交。
+   实测 settled 时回答的 max-inline-size / border-top / letter-spacing 全部退回
+   none / 0px / 0.075px —— 同一段回答在 live→settled 之间会从 640px 跳到 768px。
+   这里补上同一套用量；不再加发丝线，因为卡片自带一圈边框，两条线会打架。 */
+.xy-done-on-wrap ~ div .xy-prose-mark {
+	box-sizing: border-box;
+	max-inline-size: 40rem;
+	margin-block-start: 12px;
+}
+
+.xy-done-on-wrap ~ div .xy-prose-mark > .xy-chat-text {
+	font-size: 15px;
+	line-height: 1.72;
+	letter-spacing: normal; /* 中文正文不追字距 */
+	color: var(--xy-ink);
+}
+
+.xy-done-on-wrap ~ div .xy-prose-mark .xy-chat-text code {
+	letter-spacing: normal;
+}
+
+/* ============ 9. 窄容器降级 ============ */
+@media (max-width: 720px) {
+	.xy-activity-split {
+		--xy-act-gutter: 14px;
+		--xy-act-body: 12px;
+		--xy-act-cap: 200px;
+	}
+
+	div:has(> .xy-enter-fade > .xy-activity-split) ~ div > .xy-prose-mark,
+	.xy-done-on-wrap ~ div .xy-prose-mark {
+		max-inline-size: 100%;
+	}
+}
+
+/* ============ 10. 聚合折叠视图（.xy-workflow-fold）只收留白 ============ */
+/* 落定之后，轨在产品里唯一的形态就是这张折叠卡（RoundHost 一旦 settle 就把
+   所有 turn 的 activity 合并进 .xy-workflow-fold，本轮实测 19/19 行都在里面）。
+   所以这里只允许收「留白与分隔」：字号 / 颜色 / 标记符是族之间仅剩的区分量，
+   上一版在这里把 preview/morph/result 一律按回 12/12/11px，等于把第 2、3、5 节
+   在用户真正看得到的那个态里全部作废（实测：读与命令在折叠态计算值完全同签）。
+   留白改用尺子变量下传，避免与第 3、5 节的 :has() 规则比特异性——那会让
+   安静行 padding 归零、改动与命令行仍留 3–4px，变成没道理的不齐。 */
+.xy-workflow-fold .xy-activity-split {
+	--xy-act-pad-quiet: 0px;
+	--xy-act-pad-body: 0px;
+	--xy-act-pad-strong: 0px;
+	--xy-act-pad-inline: 0px;
+}
+
+/* 聚合视图行距贴死（1.3），没有留白分组，这里保留原有的虚线行分隔 */
+.xy-workflow-fold .xy-activity-split .xy-split-step,
+.xy-workflow-fold .xy-split-step {
+	padding-inline-start: var(--xy-act-pad-inline);
+	border-bottom: 1px dashed
+		color-mix(in srgb, var(--xy-line) 55%, transparent);
+}
+
+.xy-workflow-fold .xy-activity-split .xy-split-step:last-child,
+.xy-workflow-fold .xy-split-step:last-child {
+	border-bottom: 0;
+}
+
+.xy-workflow-fold .xy-activity-split .xy-split-step .xy-split-preview,
+.xy-workflow-fold .xy-split-step .xy-split-preview {
+	line-height: 1.3;
+}
+
+.xy-workflow-fold
+	.xy-activity-split
+	.xy-split-step:has(+ .xy-agent-done-list)
+	+ .xy-agent-done-list {
+	padding-inline-start: 0;
+}
+
+/* ============ 11. 中文不追字距（决策 7） ============ */
+/* 这些槽位装的是派工名 / 作用域 / 思考前瞻，多为中文；既有样式给它们加了
+   0.01–0.02em 字距，中文被拉散。字距只保留在本文件里纯拉丁的常量标签
+   （第 6 节的 Args / Output）。 */
+.xy-activity-split .xy-split-left,
+.xy-activity-split .xy-split-preview,
+.xy-activity-split .xy-split-result,
+.xy-activity-split .xy-thought-peek,
+.xy-activity-split .xy-thought-settled,
+.xy-activity-split .xy-thought-ticker-track,
+.xy-agent-done-list .xy-agent-bar-label,
+.xy-agent-done-list .xy-agent-bar-scope,
+.xy-agent-done-list .xy-agent-bar-settled,
+.xy-agent-done-list .xy-agent-bar-morph,
+.xy-agent-done-list .xy-agent-bar-tokens {
+	letter-spacing: normal;
+}
+
+/* ── 动词与目标之间必须读得出分界 ────────────────────────────────
+   行内 gap 只有 2px，实测 "Checked"+"5 tasks"、"Read"+路径、"Delegated"+任务名
+   会粘成一个词。思考行是 6px 才读得开，所以把非思考行的动词后距补到同一档。 */
+.xy-split-step:not(.thought-step) > .xy-morph + *,
+.xy-split-step:not(.thought-step) .xy-split-row-main > .xy-morph + * {
+  margin-inline-start: 4px;
+}

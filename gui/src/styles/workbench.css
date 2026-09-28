@@ -1,0 +1,288 @@
+/* workbench.css — 右侧工作区（文件夹根目录 / 审查 / git / 终端 / 浏览器 + 文件树 / 文件预览 / 工具面板）。
+ * 由 styles/entry.css 末位引入，只写表现，不改功能：入口（*.tsx / *.ts / store）零改动。
+ *
+ * 作用域根据（可核对）：三块面板壳都带 .xy-workspace-chrome —
+ *   WorkspacePanel.tsx:985、WorkspaceToolPanel.tsx:700、FilePreview.tsx:1040,1065；
+ *   左侧栏壳是 .xy-sidebar-chrome（Sidebar.tsx:929），回滚弹窗挂在 MessageList（聊天列）里，
+ *   .xy-sidebar-tree 也被左侧栏与 RollbackDiffTree.tsx:12 复用 —
+ *   所以本文件每条规则都以 .xy-workspace-chrome 起头，结构上不可能改到那三块表面。
+ *
+ * 铁律（本轮设计决定）：表面一律扁平——无阴影、无渐变（除缩进参考线）、无玻璃；
+ * 边界只来自 1px var(--xy-line) 细线与 --xy-paper↔--xy-paper-deep 的底色阶；
+ * 中文一律不加 letter-spacing。 */
+
+/* ============ 0 · 本作用域私有令牌（挂在面板壳上，不外泄） ============ */
+.xy-workspace-chrome {
+  --xy-wb-guide: color-mix(in oklch, var(--xy-line) 55%, transparent);
+  --xy-wb-step: color-mix(in oklch, var(--xy-paper-deep) 55%, transparent);
+  --xy-wb-active: color-mix(in oklch, var(--xy-accent) 10%, transparent);
+  --xy-wb-tint: color-mix(in oklch, var(--xy-ink) 6%, transparent);
+  --xy-wb-veil: color-mix(in oklch, var(--xy-paper) 88%, transparent);
+}
+
+/* ============ 1 · 平面分区：只用底色阶做边界 ============ */
+/* 树导航列整列压一层 paper-deep 阶，与右侧内容栏分开（IDE 侧栏↔编辑器）。
+   :has(> .xy-hover-scroll) 只命中导航列——工具面板 / 预览的滚动容器都在更深层，
+   不是面板壳的直接子节点（WorkspaceToolPanel.tsx:665、FilePreview.tsx:927）。 */
+.xy-workspace-chrome:has(> .xy-hover-scroll) {
+  background-color: var(--xy-wb-step);
+}
+
+/* 标题带同阶：h-10 行只换背景色，不加 border / padding——
+   行盒与按钮命中位置一像素都不动（决定 2「按钮不得移动」）。
+   导航列标题（.xy-soft-rule-b，WorkspacePanel.tsx:1006）排除：它脚下已经是同一阶，
+   再叠一次会深于另外两块面板的标题带，且它自带的 1px 细线已经分了区。 */
+.xy-workspace-chrome > div[class~="h-10"]:not(.xy-soft-rule-b) {
+  background-color: var(--xy-wb-step);
+}
+
+/* 工作区内任何玻璃模糊都退役（与 app-chrome-shell.css:580 .xy-file-preview 同法）。 */
+.xy-workspace-chrome [class*="backdrop-blur"] {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* ============ 2 · 缩进参考线：纯 CSS 12px 网格，只画在树滚动容器上 ============ */
+/* 逐层量过（不是假设）自树容器左边缘的行内容落点：
+     scroller px-1.5 = calc(var(--spacing)=0.25rem * 1.5) = 6px（WorkspacePanel.tsx:1032）
+     ul / li 无 padding（tailwindcss preflight 的 * { padding: 0 }）
+     行按钮 paddingLeft = 8 + depth*12 内联样式（WorkspacePanel.tsx:122），无 border
+   ⇒ 第 d 层行内容左边缘 = 6 + 8 + 12d ⇒ 14 / 26 / 38 / 50…px。
+   background-origin: content-box 先减掉 6px 内衬，于是相位只剩内联那 8px，
+   周期 12px 与内联的 12px 同单位（px，不随根字号缩放），逐格对齐；
+   background-size: 12px 100% 让渐变按 12px 精确平铺，右侧不会出现相位断裂；
+   background-clip: content-box 顺带裁掉向负方向外推的那一条（x=2px，落在内衬里）。 */
+.xy-workspace-chrome > .xy-hover-scroll {
+  background-image: repeating-linear-gradient(
+    to right,
+    transparent 0px 8px,
+    var(--xy-wb-guide) 8px 9px,
+    transparent 9px 12px
+  );
+  background-size: 12px 100%;
+  background-position: 0 0;
+  background-origin: content-box;
+  background-clip: content-box;
+}
+
+/* ============ 3 · 行密度与选中/悬停态 ============ */
+/* 树行 26px：3px 上下内衬 + 20px 行盒（原 py-1 + 继承的 1.5 行距 ≈ 27.5px）。
+   行盒显式给 px，字号再怎么分档（13 标签 / 12 路径 / 10 元信息）总高都恒为 26px。
+   满幅方角条：行带左右贴到滚动容器内容边，替掉聊天侧的圆角胶囊感。 */
+.xy-workspace-chrome li > button.xy-pressable {
+  border-radius: 0;
+  padding-block: 3px;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+/* 选中行（组件用 bg-glass-strong 标记，WorkspacePanel.tsx:120）：玻璃 → 扁平静态底
+   + 行首 2px 强调条（伪元素绝对定位，不占位、不推字）。 */
+.xy-workspace-chrome li > button.xy-pressable[class~="bg-glass-strong"] {
+  position: relative;
+  background-color: var(--xy-wb-active);
+}
+.xy-workspace-chrome li > button.xy-pressable[class~="bg-glass-strong"]::before {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  width: 2px;
+  background-color: var(--xy-accent);
+}
+
+/* 悬停 / 按下：一律中性墨色，不再用玻璃。
+   覆盖组件里的 hover:bg-glass-hover、hover:bg-glass-hover/50（历史命令、提交、图标按钮、快捷地址）。
+   只动背景色：不碰 opacity / visibility，两个 hover-reveal 复制按钮
+   （WorkspaceToolPanel.tsx:125,261）与 revert-compat.css:271-283 的 focus-visible 出口照旧生效。 */
+.xy-workspace-chrome [class*="hover:bg-glass"]:hover {
+  background-color: var(--xy-wb-tint);
+}
+/* sidebar.css:43 的 .xy-pressable:active 上了 !important 玻璃强底，只能同级 !important 压制。 */
+.xy-workspace-chrome li > button.xy-pressable:active {
+  background-color: color-mix(in oklch, var(--xy-ink) 9%, transparent) !important;
+}
+
+/* 功能面板列表行（历史命令 / 提交记录 / git 状态行）与树行同规格：包装 div 方角 + 3px 上下内衬。
+   形状判据（可执行，见 styles/styleRevertContracts.guard.test.ts，改回宽匹配会红）：
+   ① 行必须是列表项的**直接子节点**——历史命令行挂在 div.group（WorkspaceToolPanel.tsx:99,100），
+      提交行挂在 li.group（:235,236），git 状态行挂在 StatusGroup 的 div.mb-2（:158,163）；
+   ② 行自身必须同时带 flex / items-center 与一个**完整**的 hover 底纹 token（[class~=]，
+      不是 [class*=] 子串）。子串写法会把"任何挂着 hover 类的后代 div"一起改掉。 */
+.xy-workspace-chrome
+  :is(div, li)[class~="group"]
+  > div[class~="flex"][class~="items-center"][class~="hover:bg-glass-hover"] {
+  border-radius: 0;
+  padding-block: 3px;
+}
+.xy-workspace-chrome
+  div[class~="mb-2"]
+  > div[class~="flex"][class~="items-center"][class~="hover:bg-glass-hover/50"] {
+  border-radius: 0;
+  padding-block: 3px;
+}
+/* 内钮 py-1 显式归零：行盒 20px + 包装 3px×2 = 26px，与树行同规格。
+   不这么做的话按钮自己那 4px 内衬会把行顶到 28px。 */
+.xy-workspace-chrome
+  :is(div, li)[class~="group"]
+  > div[class~="flex"][class~="items-center"][class~="hover:bg-glass-hover"]
+  > button[class~="py-1"] {
+  padding-block: 0;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+/* ============ 4 · 字形层级（11 分区标签 / 13 行标签 / 12 等宽内容） ============ */
+/* 导航列标题「工作区」 */
+.xy-workspace-chrome > .xy-soft-rule-b > span {
+  font-size: 11px;
+  color: var(--xy-mute);
+}
+/* 功能面板标题带：标题 11px --xy-mute，副标题再轻一档（--xy-text-tertiary），同为 11px。
+   既不带 .xy-soft-rule-b 也不带 .xy-file-preview-header 的直接 h-10 子节点=功能面板壳。 */
+.xy-workspace-chrome
+  > div[class~="h-10"]:not(.xy-soft-rule-b):not(.xy-file-preview-header)
+  span {
+  font-size: 11px;
+  color: var(--xy-mute);
+}
+.xy-workspace-chrome
+  > div[class~="h-10"]:not(.xy-soft-rule-b):not(.xy-file-preview-header)
+  span
+  + span {
+  color: var(--xy-text-tertiary);
+}
+
+/* 路径 / 终端 / diff 走既有等宽栈 12px；行内路径列（JournalRow 的 flex-1 等宽列）单独提到 12px，
+   行尾 10px 元信息保持小档，否则一行里三块同权。 */
+.xy-workspace-chrome li > button span[class~="flex-1"][class~="font-mono"] {
+  font-size: 12px;
+}
+.xy-workspace-chrome .xy-diff-preview {
+  font-size: 12px;
+  line-height: 20px;
+  /* chat.css:165 给 diff 底写的 rgb(255 255 255/.45) 在白底上是一层洗白，工作区里直接摊平到面板底 */
+  background-color: transparent;
+}
+/* 展开的命令正文（WorkspaceToolPanel.tsx:138）属终端内容：等宽 12px。 */
+.xy-workspace-chrome li[class~="break-all"] {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 20px;
+}
+/* 终端 / Git 正文已是 font-mono text-[12px]，这里只把 leading-6(24px) 收到 20px 栅格。 */
+.xy-workspace-chrome [class~="font-mono"][class~="leading-6"] {
+  line-height: 20px;
+}
+
+/* ============ 5 · 文件预览标题带 ============ */
+/* 路径：等宽、muted、12px。只给容器上色——末段文件名（组件自带 text-ink-soft）与
+   「›」分隔符（text-mute/50）各有直接声明，继承改不到它们，正好留下层级。 */
+.xy-workspace-chrome .xy-file-preview-title {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--xy-mute);
+}
+/* 模式按钮：位置与尺寸一律不动（px-2 py-1 text-[11px] 原样，圆角也不碰），
+   只把静止底由玻璃换成扁平底——文字色沿用组件自带的 text-ink，这里不额外声明。 */
+.xy-workspace-chrome .xy-file-preview-mode[class~="bg-glass-hover"] {
+  background-color: var(--xy-wb-active);
+}
+.xy-workspace-chrome .xy-file-preview-mode[class~="bg-glass-hover"]:hover {
+  background-color: var(--xy-wb-active);
+}
+
+/* ============ 6 · 空 / 加载态：扁平、一行、muted，无卡片无插图 ============ */
+/* 树加载骨架（WorkspacePanel.tsx:247,416）：脉动玻璃条 → 静止 1px 细线。 */
+.xy-workspace-chrome li > span[class~="animate-pulse"] {
+  animation: none;
+  height: 1px;
+  border-radius: 0;
+  background-color: color-mix(in oklch, var(--xy-mute) 45%, transparent);
+}
+/* 树内状态行（空 / 暂无 / 加载中文案）：带 text-mute 又没有按钮的 li 就是纯文案，
+   11px 正文 muted。要求 text-mute 是为了把命令正文与提交详情那两条 px-7 内容行
+   （text-ink-soft / break-all）留给下面的等宽档，不被这条盖掉。 */
+.xy-workspace-chrome li[class~="px-7"][class*="text-mute"]:not(:has(button)) {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  line-height: 20px;
+  color: var(--xy-mute);
+}
+/* 功能面板空态（当前对话还没有命令行 / 暂无提交）：不再居中成块，左对齐一行。 */
+.xy-workspace-chrome p[class~="text-center"] {
+  text-align: start;
+  padding-block: 4px;
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--xy-mute);
+}
+/* 预览空态「打开一个文件开始查看」（FilePreview.tsx:935）：取消垂直居中与卡片化间距。 */
+.xy-workspace-chrome div[class~="justify-center"][class~="gap-3"] {
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 0;
+  padding: 8px 12px;
+}
+.xy-workspace-chrome div[class~="justify-center"][class~="gap-3"] > p {
+  font-size: 12px;
+  color: var(--xy-mute);
+}
+/* 预览「正在打开…」（FilePreview.tsx:932）：同规格一行。 */
+.xy-workspace-chrome p[class~="px-5"][class~="py-4"] {
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--xy-mute);
+}
+/* 浏览器空态：圆玻璃徽标（插图）去掉，欢迎块左对齐，标题并入分区标签档。
+   退役判据锁死成"欢迎块的第一个子节点 + 40px 见方 + 圆角成环 + 只裹一个 svg"这一种形状
+   （BrowserPreviewPanel.tsx:304），而不是"挂着 rounded-full 的 div 一律消失"——
+   后者会把今后这些面板里任何正当的圆形 chip / 状态点一起抹掉。
+   :not([class~="w-full"]) 把隔壁「快捷地址」列排除在外：那列按钮靠 stretch 满幅，
+   改 align-items 会把它们缩成内容宽（快捷地址列保持原样）。 */
+.xy-workspace-chrome
+  div[class~="mx-auto"][class~="max-w-sm"]:not([class~="w-full"])
+  > div[class~="h-10"][class~="rounded-full"]:first-child:has(> svg) {
+  display: none;
+}
+.xy-workspace-chrome
+  div[class~="mx-auto"][class~="max-w-sm"]:not([class~="w-full"]) {
+  margin-inline: 0;
+  align-items: flex-start;
+  text-align: start;
+  gap: 4px;
+}
+.xy-workspace-chrome
+  div[class~="mx-auto"][class~="max-w-sm"]:not([class~="w-full"])
+  > p[class~="font-medium"] {
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--xy-mute);
+}
+/* 浏览器加载条 / 拒绝嵌入遮罩：玻璃强底 → 扁平纸底 veil（无模糊，与决定 1 一致）。 */
+.xy-workspace-chrome div[class~="bg-glass-strong"] {
+  background-color: var(--xy-wb-veil);
+}
+/* 浏览器地址框静止底：玻璃 → 纸阶。 */
+.xy-workspace-chrome [class~="bg-glass-hover/60"] {
+  background-color: var(--xy-wb-step);
+}
+
+/* ============ 7 · 滚动条：滑块 8px、跟主题、命中区不变 ============ */
+/* 轨道/命中区维持 shell.css:87-124 的 10px；滑块可见厚度 = 10 - 2*边框，
+   边框由 2px 收到 1px ⇒ 滑块 6px→8px，命中区一像素没动。 */
+.xy-workspace-chrome .xy-hover-scroll::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.xy-workspace-chrome .xy-hover-scroll::-webkit-scrollbar-thumb {
+  border-width: 1px;
+}
+.xy-workspace-chrome .xy-hover-scroll.xy-hover-scroll-on::-webkit-scrollbar-thumb {
+  border-width: 1px;
+}
+.xy-workspace-chrome .xy-hover-scroll::-webkit-scrollbar-thumb:hover {
+  border-width: 1px;
+}

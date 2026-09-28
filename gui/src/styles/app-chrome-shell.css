@@ -340,27 +340,6 @@ html[data-smoothness="on"] .xy-hdr-title {
   touch-action: none;
 }
 
-/* 命中区整体落在面板内侧：面板是 overflow:hidden 的，跨界的半条既点不到，
-   又把 scrollWidth 撑出容器（审计里的 H_OVERFLOW）。缝/握把改为贴边锚定。 */
-.xy-pane-resize-grip {
-  position: absolute;
-  top: 50%;
-  translate: 0 -50%;
-  pointer-events: none;
-}
-.xy-pane-resize-handle.is-edge-right .xy-pane-resize-seam,
-.xy-pane-resize-handle.is-edge-right .xy-pane-resize-grip {
-  left: auto;
-  right: 0;
-  translate: 0 -50%;
-}
-.xy-pane-resize-handle.is-edge-left .xy-pane-resize-seam,
-.xy-pane-resize-handle.is-edge-left .xy-pane-resize-grip {
-  left: 0;
-  right: auto;
-  translate: 0 -50%;
-}
-
 /* 常显中缝：圆角胶囊 + 上下 mask 淡出，不顶到窗沿，避免「切开」感 */
 .xy-pane-resize-seam {
   pointer-events: none;
@@ -580,13 +559,6 @@ html[data-scheme="dark"] .xy-prism-html .token.boolean {
 }
 
 .xy-modal-panel {
-  /* 弹窗属于静态浮层，允许真 blur；会动/会 resize 的层（侧栏、文件预览）不给，
-     见下方 .xy-file-preview 的 backdrop-filter:none。 */
-  background: var(--xy-glass-strong);
-  -webkit-backdrop-filter: var(--xy-blur);
-  backdrop-filter: var(--xy-blur);
-  border-radius: var(--xy-radius-pane);
-  border-color: var(--xy-frame);
   transition:
     opacity var(--duration-base) var(--ease-out-soft),
     transform var(--duration-base) var(--ease-out-soft);
@@ -607,47 +579,6 @@ html[data-scheme="dark"] .xy-prism-html .token.boolean {
 
 .xy-file-preview {
   backdrop-filter: none;
-}
-
-/* 窄工作区里，文件路径与视图/窗格操作不能挤成一条被裁切的工具栏。
-   在窄槽内给路径单独一行，并允许模式组与窗格动作分别换行。 */
-.xy-file-preview-pane {
-  container: xy-file-preview / inline-size;
-}
-
-.xy-file-preview-mode {
-  flex: none;
-}
-
-@container xy-file-preview (max-width: 320px) {
-  .xy-file-preview-header {
-    height: auto;
-    min-height: 2.5rem;
-    flex-wrap: wrap;
-    justify-content: flex-start;
-    gap: 2px 4px;
-    padding-block: 4px;
-  }
-
-  .xy-file-preview-title {
-    flex: 1 1 100%;
-    line-height: 1.25;
-  }
-
-  .xy-file-preview-actions {
-    width: 100%;
-    min-width: 0;
-    flex-wrap: wrap;
-    justify-content: space-between;
-  }
-
-  .xy-file-preview-modes {
-    flex-wrap: wrap;
-  }
-
-  .xy-file-preview-utilities {
-    margin-left: auto;
-  }
 }
 
 .xy-md-doc {
@@ -677,7 +608,7 @@ html[data-scheme="dark"] .xy-prism-html .token.boolean {
 }
 
 .xy-modal-elevated {
-  box-shadow: var(--xy-modal-shadow), var(--xy-edge-hi);
+  box-shadow: var(--xy-modal-shadow);
 }
 
 .xy-rewind-dialog {
@@ -697,24 +628,3 @@ html[data-scheme="dark"] .xy-prism-html .token.boolean {
   transition: opacity var(--duration-base) ease;
 }
 
-
-/* 筛选器触发器（用量页等）：原本静态下无边框无底色，只有 hover 才出现底色，
-   看成一排文字、看不出是可点的控件。给它一枚安静的芯片——1px 描边 + 与卡片同底，
-   hover / 展开时才加重。不加阴影、不做位移。 */
-.xy-filter-menu {
-  border: 1px solid var(--xy-line);
-  background: var(--xy-glass-strong);
-  box-shadow: var(--xy-edge-hi);
-}
-
-.xy-filter-menu:hover {
-  border-color: color-mix(in oklch, var(--xy-ink) 22%, transparent);
-}
-
-/* 无数据的账户卡：占位符「—」原本沿用真实大数的 20px 半粗，整张卡看着像塌了。
-   占位符降到说明级字号与禁用色——它表达的是"没有数",不是"一个很大的数"。 */
-.xy-usage-value-empty {
-  font-size: 14px;
-  font-weight: 400;
-  color: var(--xy-text-disabled);
-}

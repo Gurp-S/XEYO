@@ -24,21 +24,6 @@
   transition-delay: 0s;
 }
 
-/* Keyboard focus reveals the same row actions without keeping them visible
-   after a pointer click. */
-.group:has(:focus-visible) .xy-sidebar-affordance,
-.group\/item:has(:focus-visible) .xy-sidebar-affordance {
-  visibility: visible;
-  opacity: 1;
-  pointer-events: auto;
-  transform: translateX(0);
-  transition-delay: 0s;
-}
-
-.group\/item:has(:focus-visible) .xy-session-meta {
-  opacity: 0;
-}
-
 /* 触屏 / 无精细指针：删除等操作常显 */
 @media (hover: none), (pointer: coarse) {
   .xy-sidebar-affordance,
@@ -330,19 +315,49 @@ html[data-smoothness="off"] .xy-tool-detail-wrap {
   transition: none;
 }
 
-/* 当前会话行：底色只说"在这一组里"，2px 左轨才说"就是这一条"。 */
-.xy-session-on {
-  position: relative;
+/* ============ 左栏行节奏（2026-09-28 复核 r7） ============ */
+/* 判据：列表行 26 / 导航行 30（比列表行高一档，动作读作动作）/ 分组标题带 24 /
+   图标钮一律 28px 命中框。左栏会话行与右栏工作区树行是同一类东西，必须同高——
+   树行由 workbench.css:72（3px 内衬 + 20px 行盒 = 26px）定，这里用同一算法。
+   只动内衬 / 行盒 / 带高，不碰状态类、aria、data、文案、事件。 */
+
+/* 导航行：新对话 / 搜索 / 用量 / 扩展 / 诊断 → 30px（20px 行盒 + 5px×2） */
+.xy-sidebar-chrome div[class~="shrink-0"][class~="flex-col"] > button.xy-pressable {
+  padding-block: 5px;
+  line-height: 20px;
 }
 
-.xy-session-on::before {
-  content: "";
-  position: absolute;
-  top: 5px;
-  bottom: 5px;
-  left: 0;
-  width: 2px;
-  border-radius: 2px;
-  background: var(--xy-accent);
+/* 会话列表行（含「展开其余 N 个会话」行）→ 26px（20px 行盒 + 3px×2） */
+.xy-sidebar-chrome .xy-sidebar-tree li > button.xy-pressable {
+  padding-block: 3px;
+  line-height: 20px;
+}
+
+/* 分组标题带（工作区 / 对话 / 归档段）→ 24px：带高显式定死，
+   带内 28px 图标钮静止态无底纹，上下各溢出 2px 不推高标题。 */
+.xy-sidebar-chrome div[class~="group/section"] {
+  height: 24px;
+  padding-block: 0;
+}
+.xy-sidebar-chrome div[class~="group/section"] > button {
+  padding-block: 2px;
+  line-height: 20px;
+}
+
+/* 工作区折叠标签（文件夹行）与标题带同族 → 24px */
+.xy-sidebar-chrome div[class~="group"]:has(> button[class~="gap-1.5"]) {
+  height: 24px;
+  padding-block: 0;
+}
+.xy-sidebar-chrome div[class~="group"] > button[class~="gap-1.5"] {
+  padding-block: 2px;
+  line-height: 20px;
+}
+
+/* 图标钮命中框统一 28px（14px 字形 + 7px 内衬）。
+   实测：p-1 → 22px、p-1.5 → 26px，两档都够不到 28px，所以在 CSS 里定一档，
+   组件侧的 p-1 / p-1.5 不必逐个改（改了也是同一个 28px）。 */
+.xy-sidebar-chrome button.xy-icon-btn {
+  padding: 7px;
 }
 

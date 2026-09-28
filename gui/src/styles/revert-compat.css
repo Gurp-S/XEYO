@@ -1,0 +1,511 @@
+/* 视觉层回退到 09-17 之后的补漏表：只收录"09-17 完全没有、但现在的组件在用"的规则。
+ * 材质一律走 09-17 的 token；时间线/工作台层（.xy-timeline-* / .xy-workbench-*）不在此列。
+ * 由 _design_drafts/backup-20260927/port-missing-rules.mjs 生成，人工复核后再改。
+ */
+
+/* ← src/styles/agent-map.css */
+.xy-agent-map__node:hover:not(.xy-agent-map__node--selected):not(.xy-agent-map__node--live):not(.xy-agent-map__node--waiting):not(.xy-agent-map__node--error) .xy-agent-map__node-body {
+stroke: var(--map-hover);
+	stroke-width: 1.5;
+}
+
+/* ← src/styles/agent-map.css */
+.xy-agent-map__node:focus-visible .xy-agent-map__node-body {
+stroke: var(--map-select);
+	stroke-width: 2.4;
+}
+
+/* ← src/styles/agent-map.css */
+.xy-agent-map__node--waiting .xy-agent-map__node-body {
+stroke: var(--map-waiting);
+	stroke-dasharray: 3 2;
+	fill: color-mix(in oklch, var(--map-waiting) 10%, var(--map-node-idle));
+}
+
+/* ← src/styles/agent-map.css */
+.xy-agent-map__node--error .xy-agent-map__node-body {
+stroke: var(--map-error);
+	fill: color-mix(in oklch, var(--map-error) 10%, var(--map-node-idle));
+}
+
+/* ← src/styles/agent-map.css */
+.xy-agent-map__action-bg--waiting {
+fill: color-mix(in oklch, var(--map-waiting) 86%, var(--xy-paper));
+}
+
+/* ← src/styles/agent-map.css */
+.xy-agent-map__action-bg--error {
+fill: color-mix(in oklch, var(--map-error) 88%, var(--xy-paper));
+}
+
+/* ← src/styles/agent-map.css */
+.xy-agent-map-panel__tabs::-webkit-scrollbar {
+display: none;
+}
+
+/* ← src/styles/app-chrome-shell.css */
+.xy-pane-resize-handle.is-edge-right .xy-pane-resize-seam,
+.xy-pane-resize-handle.is-edge-right .xy-pane-resize-grip {
+left: auto;
+  right: 0;
+  translate: 0 -50%;
+}
+
+/* ← src/styles/app-chrome-shell.css */
+.xy-pane-resize-handle.is-edge-left .xy-pane-resize-seam,
+.xy-pane-resize-handle.is-edge-left .xy-pane-resize-grip {
+left: 0;
+  right: auto;
+  translate: 0 -50%;
+}
+
+/* ← src/styles/app-chrome-shell.css */
+.xy-file-preview-pane {
+container: xy-file-preview / inline-size;
+}
+
+/* ← src/styles/app-chrome-shell.css */
+.xy-file-preview-mode {
+flex: none;
+}
+
+/* ← src/styles/app-chrome-shell.css */
+@container xy-file-preview (max-width: 320px) {
+.xy-file-preview-header {
+    height: auto;
+    min-height: 2.5rem;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 2px 4px;
+    padding-block: 4px;
+  }
+
+  .xy-file-preview-title {
+    flex: 1 1 100%;
+    line-height: 1.25;
+  }
+
+  .xy-file-preview-actions {
+    width: 100%;
+    min-width: 0;
+    flex-wrap: wrap;
+    justify-content: space-between;
+  }
+
+  .xy-file-preview-modes {
+    flex-wrap: wrap;
+  }
+
+  .xy-file-preview-utilities {
+    margin-left: auto;
+  }
+}
+
+/* ← src/styles/base.css */
+@layer base {
+:focus-visible {
+    outline: 2px solid color-mix(in oklch, var(--xy-accent) 60%, transparent);
+    outline-offset: 2px;
+  }
+
+  html[data-scheme="dark"] :focus-visible {
+    outline-color: color-mix(in oklch, var(--xy-accent) 72%, transparent);
+  }
+}
+
+/* ← src/styles/base.css */
+.xy-section-label {
+font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--xy-mute);
+}
+
+/* ← src/styles/base.css */
+.xy-caret {
+flex: none;
+  color: var(--xy-mute);
+  transition:
+    color var(--duration-fast) var(--ease-out-soft),
+    transform var(--duration-fast) var(--ease-out-soft);
+}
+
+/* ← src/styles/base.css */
+.xy-caret.is-open {
+color: var(--xy-ink);
+  transform: rotate(180deg);
+}
+
+/* ← src/styles/base.css */
+button:hover > .xy-caret,
+button:focus-visible > .xy-caret,
+[role="button"]:hover > .xy-caret {
+color: var(--xy-ink-soft);
+}
+
+/* ← src/styles/base.css */
+button:hover > .xy-caret.is-open,
+button:focus-visible > .xy-caret.is-open {
+color: var(--xy-ink);
+}
+
+/* ← src/styles/base.css（HEAD 117-124 行）：caret 的 reduced-motion 伴生块。
+   只撤"补间"，不撤 180° 本身——箭头朝向是开合状态的载体，归零等于抹掉一条信息。
+   必须排在上面那条 .xy-caret{transition:…} 之后（同特异度，靠源序取胜）。 */
+@media (prefers-reduced-motion: reduce) {
+  .xy-caret {
+    transition: none;
+  }
+}
+
+/* ← src/styles/base.css（HEAD 71-78 行）：小控件圆角一处收口。回退删掉整块后 6/7/8px
+   的散值又回来了（app-turn-rail.css:174 的 7px、overlays.css:54 的 8px、Tailwind 各档），
+   这正是 HEAD 用这一条压掉的那把散尺。
+   放这里而不是回 base.css：base.css 在 entry.css 里早于 app-chrome.css（→app-turn-rail.css），
+   同特异度压不住那条 7px；本文件排在最后，才真的"一处收口"。
+   块本身不带 @layer，按层叠规则高于 @layer utilities 里的 Tailwind 档位（dist 实测：
+   .rounded-full 落在 @layer utilities，.xy-icon-btn/.xy-pressable 落在无层）。 */
+.xy-icon-btn:not([class~="rounded-full"]),
+.xy-pressable:not([class~="rounded-full"]),
+.xy-menu-row:not([class~="rounded-full"]),
+.xy-palette-filter:not([class~="rounded-full"]),
+.xy-turn-rail-row:not([class~="rounded-full"]),
+.xy-ctx-row:not([class~="rounded-full"]) {
+  /* 收口的是 6/7/8px 散值，不是圆形本身：显式 rounded-full 的图标按钮一律豁免，
+     否则这条无层规则会压过 @layer utilities 里的 .rounded-full，把圆钮切成 8px 方角。 */
+  border-radius: var(--xy-radius-tight);
+}
+
+/* ← src/styles/chat.css */
+@container xy-composer (max-width: 520px) {
+.xy-composer-toolbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+
+  .xy-composer-toolbar-tools {
+    flex-wrap: wrap;
+  }
+
+  .xy-composer-toolbar-spacer {
+    display: none;
+  }
+
+  .xy-composer-toolbar-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}
+
+/* ← src/styles/chat.css */
+.xy-prose-mark:hover > .xy-prose-dot {
+background: var(--xy-guide-strong);
+}
+
+/* ← src/styles/chat.css */
+html:not([data-xy-selfwallpaper="1"]) [data-pin-id] .xy-editing-bubble {
+animation: none;
+}
+
+/* ← src/styles/dock-panels.css */
+.xy-panel-ask-toggle {
+display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* ← src/styles/extensions.css */
+.xy-ext-panel [role="tablist"] {
+gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--xy-line);
+  border-radius: var(--xy-radius-control);
+  background: color-mix(in oklch, var(--xy-ink) 4%, transparent);
+}
+
+/* ← src/styles/extensions.css */
+.xy-ext-panel [role="tablist"] [role="tab"] {
+border-radius: calc(var(--xy-radius-control) - 3px);
+}
+
+/* ← src/styles/extensions.css */
+.ext-search input {
+border-radius: var(--xy-radius-control);
+}
+
+/* ← src/styles/immersive.css */
+html[data-scheme="light"] .xy-immersive {
+background: color-mix(in oklch, var(--xy-paper) 64%, var(--xy-ink));
+	--xy-imm-fg-strong: color-mix(in oklch, var(--xy-ink) 92%, transparent);
+	--xy-imm-fg-mid: color-mix(in oklch, var(--xy-ink) 80%, transparent);
+	--xy-imm-fg-soft: color-mix(in oklch, var(--xy-ink) 62%, transparent);
+	--xy-imm-fg-faint: color-mix(in oklch, var(--xy-ink) 46%, transparent);
+	--xy-imm-chip-bg: color-mix(in oklch, var(--xy-ink) 5%, transparent);
+	--xy-imm-chip-bg-hover: color-mix(in oklch, var(--xy-ink) 10%, transparent);
+	--xy-imm-chip-line: color-mix(in oklch, var(--xy-ink) 16%, transparent);
+}
+
+/* ← src/styles/immersive.css */
+html[data-scheme="light"] .xy-immersive-veil {
+background: linear-gradient(
+		180deg,
+		color-mix(in oklch, var(--xy-paper) 58%, transparent),
+		color-mix(in oklch, var(--xy-paper) 74%, transparent)
+	);
+}
+
+/* ← src/styles/overlays.css */
+.xy-kbd {
+font-family: "Segoe UI Symbol", Consolas, "Cascadia Mono", ui-monospace, monospace;
+  min-width: 18px;
+  line-height: 1.35;
+  text-align: center;
+}
+
+/* ← src/styles/overlays.css */
+.xy-palette-search {
+background: transparent !important;
+  border: 0 !important;
+}
+
+/* ← src/styles/overlays.css */
+.xy-palette-filter {
+border: 1px solid var(--xy-rule-weak);
+}
+
+/* ← src/styles/overlays.css */
+.xy-palette-filter:hover {
+border-color: color-mix(in oklch, var(--xy-ink) 18%, transparent);
+}
+
+/* ← src/styles/overlays.css */
+.xy-ctx-menu .xy-ctx-row {
+border-radius: calc(var(--xy-radius-float) - 6px);
+}
+
+
+/* ← src/styles/sidebar.css */
+.group:has(:focus-visible) .xy-sidebar-affordance,
+.group\/item:has(:focus-visible) .xy-sidebar-affordance {
+visibility: visible;
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(0);
+  transition-delay: 0s;
+}
+
+/* ← src/styles/sidebar.css */
+.group\/item:has(:focus-visible) .xy-session-meta {
+opacity: 0;
+}
+
+/* ← src/styles/sidebar.css */
+.xy-session-on {
+position: relative;
+}
+
+/* ← src/styles/sidebar.css */
+.xy-session-on::before {
+content: "";
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  left: 0;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--xy-accent);
+}
+
+/* ← src/styles/workflow-split.css */
+.xy-split-head-label.is-working::before {
+content: "";
+	display: inline-block;
+	width: 6px;
+	height: 6px;
+	margin: 0 6px 1px 0;
+	border-radius: 50%;
+	background: var(--xy-accent);
+	vertical-align: middle;
+}
+
+/* ← src/styles/workflow-split.css */
+.xy-split-head-label.is-waiting {
+border-radius: 5px;
+	background: var(--xy-warn-bg);
+	color: var(--xy-warn);
+	padding: 1px 6px;
+}
+
+/* ← src/styles/workflow-split.css */
+.xy-split-step .xy-split-right {
+font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--xy-ink);
+}
+
+/* ← src/styles/workflow-split.css */
+.xy-split-preview.is-cmd::before {
+content: "$ ";
+  color: var(--xy-mute);
+}
+
+/* ← src/styles/workflow-split.css */
+.xy-split-step.thought-step {
+grid-template-columns: 15px auto minmax(0, 1fr);
+  gap: 0 6px;
+}
+
+/* ← src/styles/workflow-split.css */
+.xy-split-bullet {
+grid-column: 1;
+  text-align: center;
+  color: var(--xy-accent);
+  font-size: 12px;
+  line-height: 1.7;
+  user-select: none;
+}
+
+/* ← src/styles/workflow-split.css */
+.xy-split-step.is-failed .xy-split-bullet {
+color: var(--xy-danger);
+}
+
+/* ← src/styles/workflow-split.css */
+.xy-split-pulse {
+display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--xy-accent);
+  vertical-align: 1px;
+  animation: xy-split-pulse 1.1s ease-in-out infinite;
+}
+
+/* ← src/styles/workflow-split.css */
+.xy-split-wait-dot {
+display: inline-block;
+  width: 7px;
+  height: 7px;
+  border: 1px solid var(--xy-warn);
+  border-radius: 50%;
+  vertical-align: 1px;
+}
+
+/* ← src/styles/workflow-split.css */
+.xy-split-step.is-waiting .xy-split-bullet {
+color: var(--xy-warn);
+}
+
+/* ← src/styles/workflow-split.css */
+@keyframes xy-split-pulse {
+50% {
+    opacity: 0.2;
+    transform: scale(0.7);
+  }
+}
+
+/* ← src/styles/workflow-split.css */
+.xy-split-result {
+min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--xy-mute);
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+
+/* ← src/styles/workflow-split.css */
+.xy-split-step.is-failed .xy-split-result {
+color: var(--xy-danger);
+}
+
+/* ← src/styles/workflow-split.css */
+.xy-split-more {
+color: var(--xy-mute);
+  font-size: 10.5px;
+}
+
+/* ← src/styles/workflow-split.css */
+.xy-done-on-wrap,
+.xy-activity-split:not([data-headless]) {
+border: 1px solid var(--xy-line);
+  border-radius: var(--xy-radius-control);
+  background: var(--xy-glass-strong);
+  box-shadow: var(--xy-elev-1);
+  overflow: hidden;
+  
+  padding: 0;
+}
+
+/* ← src/styles/workflow-split.css */
+.xy-done-on-wrap .xy-done-on-head,
+.xy-activity-split:not([data-headless]) .xy-split-head {
+padding: 7px 11px;
+  margin-bottom: 0;
+  border-bottom: 0;
+}
+
+/* ← src/styles/workflow-split.css */
+.xy-done-on-wrap .xy-done-on-head:hover,
+.xy-activity-split:not([data-headless]) .xy-split-head:hover {
+background: color-mix(in oklch, var(--xy-ink) 4%, transparent);
+}
+
+/* ← src/styles/workflow-split.css */
+.xy-done-on-wrap .xy-done-on-head:focus-visible,
+.xy-activity-split:not([data-headless]) .xy-split-head:focus-visible {
+color: var(--xy-ink);
+  box-shadow: var(--xy-ring);
+}
+
+/* ← src/styles/workflow-split.css */
+.xy-done-on-wrap .xy-activity-detail-inner,
+.xy-activity-split:not([data-headless]) .xy-activity-detail-inner {
+border-top: 1px solid var(--xy-rule-weak);
+}
+
+/* ── 结构 token 补定义（值取自 HEAD，不含任何配色/材质偏好）──────────────── */
+:root {
+  --xy-elev-1: 0 1px 2px rgb(40 50 90 / 0.06);
+  --xy-guide-strong: color-mix(in oklch, var(--xy-accent) 40%, transparent);
+  --xy-warn-bg: color-mix(in oklch, var(--xy-warn) 12%, transparent);
+  --xy-ring: 0 0 0 3px color-mix(in oklch, var(--xy-accent) 16%, transparent);
+  --xy-radius-pane: 18px;
+  --xy-radius-control: 12px;
+  --xy-radius-tight: 8px;
+  --xy-radius-float: 14px;
+  /* 思考流强调色：浅色档原样，深色档压向墨底（09-25 深色 3.24 不合格的修法） */
+  --xy-thought: #6b5b95;
+}
+html[data-scheme="dark"] {
+  --xy-elev-1: 0 1px 2px rgb(0 0 0 / 0.35);
+  --xy-guide-strong: color-mix(in oklch, var(--xy-accent) 48%, transparent);
+  --xy-ring: 0 0 0 3px color-mix(in oklch, var(--xy-accent) 20%, transparent);
+  --xy-thought: color-mix(in oklch, #6b5b95 70%, var(--xy-ink));
+}
+
+/* ── 圆角：接回 HEAD 那把更大的尺子（09-17 的 pane/control 偏小）─────── */
+/* Tailwind 档位直接等于 --xy-radius-*，避免同一个 rounded-md 落成两档 */
+@theme {
+  --radius-md: var(--xy-radius-tight);
+  --radius-lg: var(--xy-radius-tight);
+  --radius-xl: var(--xy-radius-control);
+  --radius-2xl: var(--xy-radius-pane);
+}
+
+/* ── 唯一真正缺失的颜色别名（09-17 tokens.css:3-25 已有其余 21 条）──── */
+@theme {
+  --color-warn-ink: var(--xy-warn-ink);
+}

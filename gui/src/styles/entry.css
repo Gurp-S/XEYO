@@ -19,3 +19,9 @@
 @import "immersive.css";
 @import "extensions.css";
 @import "diagnostics.css";
+/* 视觉层回退到 09-17 后的补漏表，必须排在最后：只补 09-17 没有的结构规则。 */
+@import "revert-compat.css";
+/* 本轮重做的三条线，各占一个文件，互不重叠；顺序即层叠优先级。 */
+@import "workbench.css";
+@import "activity.css";
+@import "settings.css";
