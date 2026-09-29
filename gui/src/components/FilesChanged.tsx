@@ -111,9 +111,9 @@ function FilesChangedInner({files}: Props) {
 	return (
 		<div className="xy-panel-ask xy-panel-ask-card anim-rise mt-2.5">
 			<div className="xy-panel-ask-head">
-				<span className="xy-panel-ask-title">Changes</span>
+				<span className="xy-panel-ask-title">文件变更</span>
 				<span className="xy-panel-ask-count">
-					{files.length} file{files.length === 1 ? '' : 's'}
+					{files.length} 个文件
 					{totalAdd > 0 || totalDel > 0
 						? ` · ${totalAdd > 0 ? `+${totalAdd}` : ''}${totalDel > 0 ? `-${totalDel}` : ''}`
 						: ''}
@@ -196,7 +196,7 @@ function FilesChangedInner({files}: Props) {
 									strokeWidth={1.5}
 									aria-hidden
 								/>
-								Show {more} more
+								显示其余 {more} 个文件
 							</button>
 						</li>
 					) : null}
