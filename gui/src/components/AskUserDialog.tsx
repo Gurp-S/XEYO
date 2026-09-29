@@ -438,7 +438,7 @@ function AskCard({pending}: {pending: PendingAskInfo}) {
 						)}
 					/>
 				</span>
-				<span className="xy-panel-ask-title">Ask the user</span>
+				<span className="xy-panel-ask-title">助手提问</span>
 				<span className="xy-panel-ask-count">({countLabel})</span>
 				<span className="xy-panel-ask-dot" aria-hidden="true" />
 			</button>

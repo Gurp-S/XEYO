@@ -125,7 +125,7 @@ function TodoListInner({snapshot, dock = false, onDismiss}: Props) {
 				</span>
 				<div className="min-w-0 flex-1">
 					<div className="flex items-center gap-2">
-						<span className="xy-panel-ask-title">Todo</span>
+						<span className="xy-panel-ask-title">待办</span>
 						<span className="xy-panel-ask-count">
 							({stats.done}/{stats.total})
 						</span>

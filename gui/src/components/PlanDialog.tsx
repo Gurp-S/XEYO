@@ -78,7 +78,7 @@ function PlanCard({pending}: {pending: PendingPlanInfo}) {
 						)}
 					/>
 				</span>
-				<span className="xy-panel-ask-title">Plan</span>
+				<span className="xy-panel-ask-title">计划</span>
 				<span className="xy-panel-ask-count">等待确认执行</span>
 				<span className="xy-panel-ask-dot" aria-hidden="true" />
 			</button>

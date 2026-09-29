@@ -88,7 +88,7 @@ function Kpi({
 	extra,
 }: {
 	label: string;
-	sub: string;
+	sub?: string;
 	value: string;
 	extra?: ReactNode;
 }) {
@@ -96,7 +96,7 @@ function Kpi({
 		<div className="min-w-0 bg-paper px-4 py-3" data-a3-kpi={label}>
 			<div className="flex items-baseline gap-1.5">
 				<span className="text-[12px] text-ink-soft">{label}</span>
-				<span className="text-[10px] uppercase tracking-wide text-mute">{sub}</span>
+				{sub ? <span className="text-[10px] tracking-wide text-mute">{sub}</span> : null}
 			</div>
 			<div className="mt-1 truncate text-[16px] tabular-nums text-ink" title={value}>
 				{value}
@@ -280,7 +280,7 @@ function ModelTable({day}: {day: A3ReportDaySummary}) {
 				<thead>
 					<tr className="border-y border-line bg-paper-deep">
 						<Th>模型</Th>
-						<Th>Provider</Th>
+						<Th>渠道</Th>
 						<Th num>命中率</Th>
 						<Th num>命中/输入</Th>
 						<Th num>请求</Th>
@@ -483,21 +483,16 @@ export function A3NativePanel({data}: {data: A3ReportData}) {
 					<div className="grid grid-cols-2 gap-px border-b border-line bg-line/40 md:grid-cols-4">
 						<Kpi
 							label="命中率"
-							sub="cache hit rate"
 							value={rateLabel(day)}
 							extra={<InputCacheSplit day={day} />}
 						/>
-						<Kpi label="请求" sub="requests" value={intLabel(day.requests)} />
-						<Kpi label="输出 token" sub="output" value={tokenLabel(day.output)} />
-						<Kpi
-							label="输入 token"
-							sub="prompt input"
-							value={tokenLabel(day.prompt_tokens)}
-						/>
-						<Kpi label="成本" sub="CNY" value={costLabel(day.cost_cny)} />
-						<Kpi label="C2" sub="compactions" value={intLabel(day.c2_count)} />
-						<Kpi label="会话数" sub="sessions" value={intLabel(day.sessions)} />
-						<Kpi label="单位成本" sub="cost/req" value={perRequestLabel(day)} />
+						<Kpi label="请求" value={intLabel(day.requests)} />
+						<Kpi label="输出 token" value={tokenLabel(day.output)} />
+						<Kpi label="输入 token" value={tokenLabel(day.prompt_tokens)} />
+						<Kpi label="成本" value={costLabel(day.cost_cny)} />
+						<Kpi label="C2" value={intLabel(day.c2_count)} />
+						<Kpi label="会话数" value={intLabel(day.sessions)} />
+						<Kpi label="单位成本" value={perRequestLabel(day)} />
 					</div>
 
 					<div className="border-b border-line">

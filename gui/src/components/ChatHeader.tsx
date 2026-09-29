@@ -602,7 +602,7 @@ className="xy-icon-btn shrink-0 rounded-md p-1.5 text-mute hover:bg-glass-hover 
 									<span className="font-semibold text-ink">{segTip.label}</span>
 								</div>
 								<div className="mt-0.5 flex items-baseline justify-between gap-5">
-									<span className="text-mute">Tokens</span>
+									<span className="text-mute">Token 数</span>
 									<span className="font-mono text-[12px] text-ink">{formatTokenCount(segTip.tokens)}</span>
 								</div>
 								{segTip.chars != null && segTip.chars > 0 ? (
