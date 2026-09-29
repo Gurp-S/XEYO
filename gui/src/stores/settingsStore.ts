@@ -219,7 +219,7 @@ export type Settings = {
 	pastureReducedMotion: boolean;
 	/** 暂停生态生命周期推进，但保留静态场景。 */
 	pasturePaused: boolean;
-	/** XeyoPet 独立桌宠总开关；缺失时默认开启。 */
+	/** XeyoPet 独立桌宠总开关；缺失时默认关闭（设置里挂在「外观 → 实验功能」下）。 */
 	xeyoPetEnabled: boolean;
 	/** 当前选中的 XeyoPet manifest id。 */
 	xeyoPetId: string;

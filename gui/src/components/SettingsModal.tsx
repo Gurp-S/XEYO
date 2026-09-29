@@ -169,7 +169,7 @@ export function SettingsModal({open, onClose}: Props) {
 			
 		const pastureReducedMotion = useSettingsStore(s => s.pastureReducedMotion === true);
 			const pasturePaused = useSettingsStore(s => s.pasturePaused === true);
-			const xeyoPetEnabled = useSettingsStore(s => s.xeyoPetEnabled !== false);
+			const xeyoPetEnabled = useSettingsStore(s => s.xeyoPetEnabled === true);
 			const xeyoPetReducedMotion = useSettingsStore(s => s.xeyoPetReducedMotion === true);
 			const xeyoPetId = useSettingsStore(s => s.xeyoPetId);
 			const remoteChannel = useSettingsStore(s => s.remoteChannel);
@@ -580,7 +580,6 @@ export function SettingsModal({open, onClose}: Props) {
 							['accounts', '模型与账号'],
 							['perms', '权限'],
 							['rewind', '回溯'],
-							['pet', '桌宠'],
 							['remote', '远程 · 微信'],
 						] as const).map(([id, label]) => (
 							<button
@@ -879,9 +878,9 @@ export function SettingsModal({open, onClose}: Props) {
 							</div>
 							</section>
 
-							<section className={cn('mb-5 space-y-3', activeTab !== 'pet' && 'hidden')}>
+							<section className={cn('mb-5 space-y-3', activeTab !== 'pet' && !(activeTab === 'appearance' && showExperimental) && 'hidden')}>
 								<h3 className="xy-section-label">
-									桌宠加载器
+									桌宠 · 实验
 								</h3>
 								<div className="overflow-hidden rounded-xl border border-line/70 bg-glass-strong">
 									<button
