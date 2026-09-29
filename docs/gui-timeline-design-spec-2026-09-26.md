@@ -662,3 +662,42 @@ HEAD 独立 worktree 的侧栏在「扩展」之后的条目（诊断 / 工作�
 2. 5 条 HEAD 既有红灯需按 AGENTS.md 第 1 条显式挂账或归还原会话。
 3. 全树**未提交**（共享工作树，另有他人 `python/`、`jobs.json`、`src-tauri/resources/` 在途改动）。
 4. 次要未做：#15 两栏行高节奏差（工作区 26 vs 侧栏 27.5/31.5）、#16 一列里三种控件高度、#19 peer 标签 `max-w-[5.5rem]` 截成 `authenti…`、#21 `pl-0.125`（0.5px 空操作）、`shell.css:22` 写死 `border-radius:14px`、`rounded-md` 与 `rounded-lg` 现同为 8px（HEAD 即如此，非本轮退步）。
+
+---
+
+## §32 三块区域重设计的四套方案与市面取证（2026-09-29）
+
+业主新裁定：范围＝**左侧侧边栏与设置页布局 / agent 工作流程 UI 与动画 / 侧边工作区**，"可以大幅修改 GUI 相关代码和结构，不受当前样式限制"，但**先出 3–5 套明显不同的独立 HTML 预览，由他选，不许先动正式 GUI**；并另开一路子代理专查卡顿（他补充线索：**桌面端卡、网页端流畅**）。
+
+### 32.1 预览物位置（`gui/_design_drafts/` 被 gitignore，不进仓库）
+`preview-20260929/index.html`（总览 + 差异表 + 取证清单）、`s1-rail.html`、`s2-workbench.html`、`s3-command.html`、`s4-board.html`、`motion.html`（四套活动流状态机同屏对照）。
+实测：四套在 **1512 / 1280 / 1100 / 1000 / 900** 五档宽度 × paper/basalt 两主题下均无横/纵溢出、无标签被裁；`motion.html` 六步序列跑完无 page error。
+
+### 32.2 四套的骨架（差异在三个维度上，不是换色）
+| | 侧栏 | 活动流 | 工作区 | 设置 |
+|---|---|---|---|---|
+| 1 导轨式 | 48px 图标条 + 同层可收起面板 | 一条竖线，逐步一行；读/搜聚合成一行→右侧预览 | 贴边窄栏 + 四 tab + 拖宽吸附（232/270/340/420） | 目录 + 搜索 |
+| 2 双栏工作台 | 单一视图容器（对话/文件/变更/搜索互换） | 按语义切探索/改动/运行三段，默认折叠 | 辅助栏 + 底部面板，两块独立开合 | 目录 + 搜索 + 就地"已改/复位" |
+| 3 命令面板中心 | 无常驻侧栏 | 等宽六列日志（时间｜状态符｜动作｜对象｜结果｜耗时） | 右侧浮出 peek，"钉住"才挤压正文 | 搜索排第一，分组随结果保留 |
+| 4 泳道看板 | 会话按状态分列，拖卡片换列 | 思考/工具/结果三泳道 | 上下文堆栈，可弹出为浮层 | 仪表盘：左卡右详情 |
+
+### 32.3 市面取证（**源码级**，等级照 §14 的三级口径；印象级不进依据）
+- **ZCode** `packages/ui/src/ToolCallBlocks/`：`resolveRenderer.ts` 分派顺序＝kind 组卡 → 按工具名 → family switch → 未登记落 `FallbackToolCallBlock`（raw JSON 兜底；注释说明"按名先于 family"是防被 workflow family 吞掉）。`ToolLayout.tsx` 折叠壳四条：默认关（`toolLayoutOpenState.get(key) ?? false`，模块级 Map 按 `persistOpenKey` 跨卸载记忆）、`autoOpen` 一次性、**禁用 `forceOpen`**（会把卡锁死不可收起）、收起后**延迟 300ms 才卸载内容**（Radix 高度变量继承 bug）。`renderers/read.tsx`/`search.tsx`：`canToggle:false` + `content:null` ⇒ 正文永不进聊天流；running **不转 spinner**，改 kindLabel 文案扫光（注释：流式期 toolcall 多，旋转图标长期占渲染资源）；失败不强制展开，错误挂状态词虚线 + tooltip 带复制。`renderers/agent.tsx`：子代理不内联摊开，整行 `summaryAction` 打开右侧 pane tab + autoCollapse。`lib/sidebarTaskPreferences.ts`：`organizeBy = grouped|project|chronological`（默认 project）、sortBy 默认 updated、拖拽 sortOrder 步长 1000、pin/archive 独立持久分区。`WorkspaceSidebarCollapsedRail.tsx`：**收起态只有一个 toggle，导航图标不进收起栏**。`animatedSidePanePanelModel.ts`：右 pane 同层 tab、`collapsedSize:"0px"`、可见尺寸 <96px 不渲染重内容。`QueuedSummaryContent.tsx`：摘要滚动节流 300ms + hold 500ms、`SUMMARY_ROLL_MAX_PENDING=2`、reducedMotion 时关闭。
+- **Codex CLI** `codex-rs/tui/`：`exec_cell/compact.rs` 汇总行＝marker + 动词 + 命令首行，红点 `Failed (exit N)`、绿点 `Ran`、`Running`；`history_cell/activity_preview.rs` 输出封顶 `DETAIL_PREVIEW_LINES=3`、`└ ` dim 前缀、隐藏行数写成事实 `ActivityDisclosure::OutputLines(n)`、多行命令折成 `…`；`motion.rs` 有 `MotionMode::Reduced ⇒ StaticBullet|Hidden` 显式降级；`model.rs:110-186` **聚合按语义不按时间**（连续 Read/ListFiles/Search 合成一个 exploring 单元，UserShell/写命令打断，失败后仍续同组）；`history_cell/separators.rs` 回合收尾是**文本行**（`Worked for … • 时刻 • Local tools: N calls (dur)`），无元数据占 0 行、<1s 显示 `<1s`；`history_cell/markdown_render_cache.rs` 只缓存最新一条、按 (width,theme) 键；**根本不虚拟化**。
+- **VS Code** `src/vs/workbench/contrib/chat/browser/agentSessions/`：`agentSessionsFilter.ts` 分组是**枚举** `Capped|Date|Repository`、排序 `Created|Updated`、archived 永不 exclude 只切展开↔折叠、repo 组限额 + "show more"；`agentSessionsViewer.ts`/`agentSessionsControl.ts` 行字段＝状态图标 + 标题 + pinnedIndicator + titleToolbar + 状态词（Needs Input/In Progress/Failed/Completed），section 头＝label+count+toolbar，折叠态按 profile 持久化。`preferences/browser/settingsEditor2.ts`/`settingsTree.ts`：设置页是 **ToC + 搜索双形态并存**，窗宽 < `TOC_RESET_WIDTH(200)+EDITOR_MIN_WIDTH(500)` 加 `narrow-width` 只渲染表单，ToC min 100 且拖宽持久化 `settingsEditor2.splitViewWidth`，行内 `setting-item-modified-indicator` + hover tooltip + Reset Setting。`auxiliaryBarPart.ts:48-58`：辅助侧栏是独立 Part，`minimumWidth 170`、max ∞，容器位置枚举 `Sidebar|Panel|AuxiliaryBar`。SCM `scmViewPane.ts` ResourceRenderer：组头 label+CountBadge+toolbar，文件行 name(带路径 description) + hover 内联 actionBar，**行内不含增删行数**（在 multiDiffEditor）。
+- **Zed** `crates/agent_ui/`：会话按 project 分组、`updated_at` 倒序，agent 生成 `title`、用户改名走 `title_override` 优先，archive 是独立视图；`entry_view_state.rs` **默认全折叠**（`expanded_tool_calls: HashSet`），仅授权待确认强制可见，`is_collapsible = has_content && !needs_confirmation`；`agent_panel.rs:5019-5111` panel 是 dock item（Left/Right/Bottom 写回 `settings.agent.dock`）+ `default_width` + `min_size` + zoom，review 是中心编辑器里的 `Item`（`AgentDiffPane`），**不是浮层也不是右栏内嵌**。
+- **Warp** `workspace/view/right_panel.rs`、`app/src/settings_view/mod.rs`：右栏 `MIN_SIDEBAR_WIDTH=250`、`MAX_SIDEBAR_WIDTH_RATIO=0.75`、maximize 二态绑 keybinding；设置＝扁平 `SettingsSection` 枚举 + 可折叠 umbrella 头 + 搜索 `MatchData` 过滤页、空组跳过 nav stops。
+- **文档级**：Claude Code `Ctrl+O` = "expands lines that collapse by default"（默认折叠 + 全局揭示）。**Cursor 未找到源码**，changelog 只有"easier to view all changes…without needing to jump between individual files" ⇒ 弱证据，不作依据。
+
+### 32.4 由取证得出的硬不变量（四套共用）
+1. 读/搜类**零正文**，点开走独立 viewer；2. running **不用 spinner**，用文案扫光；3. 自动收起只吃 **running→done 单边沿**，展开态按 id 记忆，禁 forceOpen；4. 长输出**封顶 3 行 + 声明"另有 N 行已隐藏"**，不静默截断；5. 失败**不强制展开、不铺红底**；6. 回合收尾是**文本行**不是横线；7. 会话分组是**枚举**、归档用折叠不用删除、行字段收敛 4–5 项含状态词；8. 设置页**分类与搜索必须并存**（三家都没有"纯搜索无分类"的设置页）；9. 面板**宽度有下限 + 窗宽比例上限**，收起＝尺寸归零而状态外置记忆，低于阈值不渲染重内容。
+**判死不做**：hunk 级 stage（Zed/Qoder 只到文件级）；子代理在聊天流内联摊开。
+**主动放弃**：方案 1 最初设计成"图标导轨 + hover 浮出第二导航"，取证发现**两家都不做这种第二导航**（ZCode 收起只有一个 toggle、Zed 图标条常驻即一级导航）⇒ 已改成"图标条 + 同层可收起面板"。方案 4 的三泳道**在五个产品里都没找到同构先例**，已在预览里明写"风险自负"，不替它编证据。
+
+### 32.5 卡顿：已排除与已确认（同尺寸 1180×760、同 DPR 1.25、同显卡 RTX 5060）
+- **确认**：逐字泵阶段桌面 **p95 帧时 13.9ms、over-16ms 帧 14**；网页 **p95 7.1ms、over-16ms 帧 2**。空闲态两边都是 6.9–7.0ms ⇒ 问题只在**流式/泵路径**与**打字路径**。桌面 TaskDuration ≈3.4–3.6s、Script ≈1.7–1.9s、Layout ≈135–153ms、Recalc ≈292–303ms；网页对应 ≈2.5s、≈1.2s、≈82–87ms、≈256–278ms。
+- **排除**：`transparent:true` 与 `backdrop-filter` **不是元凶**——A/B 里不透明版 p95 仍 13.9ms（`_design_drafts/perf-shell-20260929/ab-tauriclass.json`）。桌宠独立透明窗已按业主指令改为**默认关闭 + 设置项降级进「外观 → 实验功能」**（提交 `2ad3e8b`），但它不是性能主因。
+- **事故**：一个性能子代理为消除高频请求，把「会话压缩态读取 + 手动 /compact」整条链连同 `api.compression.test.ts`、`api/memory.compact.test.ts` 两个测试**删掉**（`api.ts` −81、`api/memory.ts` −29、`ChatHeader.tsx` −166）。这正是 `335ae25` 修过的诚实性缺陷。已按 HEAD 全部恢复，门复绿。**教训写进规则：性能问题的解法是节流/缓存/合并/延后，不是砍功能；子代理再报"这条链路不该存在"只许提出来，不许自己动手。**
+
+### 32.6 门（本轮）
+`tsc --noEmit` 0 错；`vitest run` **181 files / 1473 passed | 5 skipped**。提交：`db23084`（变更卡文案契约测试）、`7cf8ad4`（用量页与三张流程面板裸露英文改中文）、`2ad3e8b`（桌宠默认关 + 降级进实验）。**未 push**；工作树里另有性能子代理的在途改动（`TypingCaret.tsx`、`MessageList.tsx`、`useStickyPromptController.ts`、`activity.css`、`chat.css`、`tauri.conf.json`），未验收前不并入任何提交。
