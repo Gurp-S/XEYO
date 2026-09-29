@@ -50,6 +50,16 @@ export function useMessageListStore(
 	const smoothness = useSettingsStore(s => isSmoothnessOn(s.smoothness));
 	const model = useSettingsStore(s => s.model);
 
+	/* 信号直更路径（VITE_XY_STREAM_SIGNALS=1）：流式尾巴由 streamingTextSignal
+	   直接更新单个文本节点，store 的 streamingShown 在这条路径下没有任何消费者
+	   （见下方 streamingSignal / streamingText 的同一判据）。原先它仍进快照 →
+	   每个 token 都让 useShallow 判不等 → 整棵 MessageList（含 VirtualRoundList
+	   全部挂载轮）每 token 重渲一次。这里只在尾巴确实由信号渲染时不订阅该字段：
+	   订阅值与不订阅值在任何时刻至多一边被读到，可见结果逐帧相同。
+	   判据与 isLoading 完全同源（props.isLoading 优先），drain 阶段
+	   （isLoading 假、draining 真）依旧走 store 路径，打字机不受影响。 */
+	const signalMode = streamSignalsEnabled && props.streamingText === undefined;
+
 	// 将所有选中字段拍平——嵌套对象会破坏 useShallow（每次
 	// 调用产生新引用 → React useSyncExternalStore 死循环）。
 	const {
@@ -75,6 +85,14 @@ export function useMessageListStore(
 			const id = s.activeId;
 			const stream = selectActiveSessionStream(s);
 			const viewing = Boolean(id && sessionStreamActive(s, id));
+			/* 与下方 streamingSignal 严格同一判据（props.isLoading 优先）：
+			   为真时尾巴由信号渲染，streamingShown 在本快照无人读取。 */
+			const signalDriven =
+				signalMode &&
+				viewing &&
+				Boolean(
+					props.isLoading ?? (viewing && (stream.isLoading || stream.draining)),
+				);
 			return {
 				activeId: id,
 				activeSessionArchived: Boolean(
@@ -92,7 +110,7 @@ export function useMessageListStore(
 				activeSpaceId: s.activeSpaceId,
 				spaces: s.spaces,
 				viewingStream: viewing,
-				streamingShown: stream.streamingShown,
+				streamingShown: signalDriven ? '' : stream.streamingShown,
 				streamIsLoading: stream.isLoading,
 				streamDraining: stream.draining,
 				statusTextRaw: stream.statusText,
@@ -108,7 +126,6 @@ export function useMessageListStore(
 		props.messages === undefined && storeMessagesPending;
 	const agentTasks = props.agentTasks ?? storeAgentTasks;
 
-	const signalMode = streamSignalsEnabled && props.streamingText === undefined;
 	const storeLoading = streamIsLoading || streamDraining;
 	const isLoading = props.isLoading ?? (viewingStream && storeLoading);
 	const streamingSignal = signalMode && viewingStream && isLoading;

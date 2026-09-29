@@ -3,6 +3,7 @@ import {
 	useCallback,
 	useEffect,
 	useMemo,
+	useRef,
 	useState,
 	type MutableRefObject,
 } from 'react';
@@ -67,12 +68,35 @@ export function useStickyPromptController(opts: {
 		}
 	}, [controller, enabled, scrollerRef, contentRef, overlayRef]);
 
+	/* bindDom 只是三个字段赋值（对同一批节点幂等）。原先是无依赖数组的 effect：
+	   MessageList 每渲染一次就重建一个绑定对象并重跑一次——流式期间每帧一次。
+	   现在只在节点引用真的换了三态之一时才绑（同一批节点 → 完全等价）。
+	   flushStuck（滚动 / 吸顶注册的热路径）共用同一守卫：省掉每次一个对象分配
+	   与三次赋值，绑定结果与逐次重绑严格相同。 */
+	const boundDomRef = useRef<{
+		scroller: HTMLElement | null;
+		content: HTMLElement | null;
+		overlay: HTMLDivElement | null;
+	} | null>(null);
+	const bindDomFromRefs = useCallback(() => {
+		const scroller = scrollerRef.current;
+		const content = contentRef.current;
+		const overlay = overlayRef.current;
+		const prev = boundDomRef.current;
+		if (
+			prev &&
+			prev.scroller === scroller &&
+			prev.content === content &&
+			prev.overlay === overlay
+		) {
+			return;
+		}
+		boundDomRef.current = {scroller, content, overlay};
+		controller.bindDom({scroller, content, overlay});
+	}, [controller, scrollerRef, contentRef, overlayRef]);
+
 	useEffect(() => {
-		controller.bindDom({
-			scroller: scrollerRef.current,
-			content: contentRef.current,
-			overlay: overlayRef.current,
-		});
+		bindDomFromRefs();
 	});
 
 	useEffect(() => {
@@ -84,13 +108,9 @@ export function useStickyPromptController(opts: {
 	}, [controller]);
 
 	const flushStuck = useCallback(() => {
-		controller.bindDom({
-			scroller: scrollerRef.current,
-			content: contentRef.current,
-			overlay: overlayRef.current,
-		});
+		bindDomFromRefs();
 		return controller.flush();
-	}, [controller, scrollerRef, contentRef, overlayRef]);
+	}, [controller, bindDomFromRefs]);
 
 	const requestStuck = useCallback(() => {
 		flushStuck();

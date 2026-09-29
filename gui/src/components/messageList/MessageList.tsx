@@ -25,7 +25,6 @@ import {pickEmptyQuip} from '@/lib/emptyQuips';
 import {groupTranscript, patchTranscriptTail, type TranscriptBlock} from '@/lib/groupTranscript';
 import {
 	createFrameKey,
-	scheduleFrameRead,
 } from '@/lib/frameScheduler';
 import {
 	collectLatestTodosFromItems,
@@ -179,12 +178,13 @@ export function MessageList({
 		const [forceMount, setForceMount] = useState<Record<string, true>>({});
 
 		const syncTopFade = useCallback(() => {
-			/* 顶 fade 叠层已撤；保留调度点以免 scroll/RO 接线再改一轮 */
+			/* 顶 fade 叠层已撤；函数体为空是事实，不是待补的坑。 */
 		}, []);
 
-		const scheduleTopFade = useCallback(() => {
-			scheduleFrameRead(frameKeysRef.current!.topFade, syncTopFade);
-		}, [syncTopFade]);
+		/* 空回调不再进帧调度器：滚动/吸顶接线每帧都会 scheduleTopFade 一次，
+		   排进去的却是一个什么都不做的任务（多一次 Map 写入 + 队列展开）。
+		   调度点本身保留，接线不改。 */
+		const scheduleTopFade = useCallback(() => {}, []);
 
 		const stickyBubblesOn = useSettingsStore(s => s.stickyBubbles === true);
 		const {

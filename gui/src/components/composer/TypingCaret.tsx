@@ -90,6 +90,67 @@ export function TypingCaret({
 	const onShownRef = useRef(false);
 	const prevValueRef = useRef('');
 	const recentKeyRef = useRef(0); /* 最近 keydown 时刻:拉伸只认键盘手势 */
+	/* 性能改造(2026-09-29 卡顿排查):以下三组缓存把每键的 O(n) DOM 查询/
+	   布局重排降为 O(1) —— 只减工作量,不改任何几何结论。 */
+	/** 上一次落到 inner 层的滚动平移；相同则完全不写 style(写即失效布局)。 */
+	const appliedShiftRef = useRef(0);
+	/** textarea 只查一次(每键 querySelector 无谓消耗)。 */
+	const taElRef = useRef<HTMLTextAreaElement | null>(null);
+	/** value → code point 数组 + UTF-16 起点表;value 未变则复用。 */
+	const cpsCacheRef = useRef<{
+		value: string;
+		cps: string[];
+		cpStarts: number[];
+	} | null>(null);
+	/** 上一次渲染的逐字符元素表（按公共 code point 前缀复用）。 */
+	const charNodesRef = useRef<{
+		cps: string[];
+		ranges: {start: number; end: number}[];
+		nodes: ReactNode[];
+	} | null>(null);
+
+	const readCps = (text: string) => {
+		const cache = cpsCacheRef.current;
+		if (cache && cache.value === text) {
+			return cache;
+		}
+		const cps = Array.from(text);
+		const cpStarts: number[] = [];
+		let u16 = 0;
+		for (const ch of cps) {
+			cpStarts.push(u16);
+			u16 += ch.length;
+		}
+		const next = {value: text, cps, cpStarts};
+		cpsCacheRef.current = next;
+		return next;
+	};
+
+	/* 逐字符 span 视图：探针只在空文本时占最前，ghost 只在有补全提示时占最后，
+	   其余按序就是 code point 下标。取一次视图 → O(1) 按下标直取，取代每键一次
+	   querySelectorAll 全表物化 / 每个插入字符一次 querySelector 全子树扫描。
+	   count 与原实现的 spanEls.length 同源（DOM 真相），边界判定逐字一致。 */
+	const readSpanView = () => {
+		const kids = innerRef.current?.children ?? null;
+		const kidCount = kids ? kids.length : 0;
+		const headIsSpan = kidCount > 0 && kids![0].hasAttribute('data-ci');
+		const tailIsSpan =
+			kidCount > 0 && kids![kidCount - 1].hasAttribute('data-ci');
+		const offset = headIsSpan ? 0 : 1;
+		const count = Math.max(0, kidCount - offset - (tailIsSpan ? 0 : 1));
+		return {
+			count,
+			at(i: number): HTMLSpanElement | null {
+				if (i < 0 || i >= count || !kids) {
+					return null;
+				}
+				const el = kids.item(i + offset);
+				return el instanceof HTMLSpanElement && el.hasAttribute('data-ci')
+					? el
+					: null;
+			},
+		};
+	};
 
 	const placeCaret = (mode: 'auto' | 'snap') => {
 		const overlayEl = overlayRef.current;
@@ -103,26 +164,24 @@ export function TypingCaret({
 			return;
 		}
 
-		/* 镜像滚动同步(必须在测量前):textarea 滚动后内容反向平移 */
-		const ta = parent.querySelector<HTMLTextAreaElement>('textarea');
-		if (innerEl && ta && ta.scrollTop > 0) {
-			innerEl.style.transform = `translateY(${-ta.scrollTop}px)`;
-		} else if (innerEl) {
-			innerEl.style.transform = 'translateY(0px)';
+		/* 镜像滚动同步:textarea 滚动后内容反向平移。
+		   只有 scrollTop 真的变了才写 style —— 写入本身会让整棵子树布局失效,
+		   紧接着的 rect 读取就变成一次强制同步回流(打字时每键都踩)。 */
+		if (!taElRef.current || !parent.contains(taElRef.current)) {
+			taElRef.current =
+				parent.querySelector<HTMLTextAreaElement>('textarea');
+		}
+		const ta = taElRef.current;
+		const shift = ta && ta.scrollTop > 0 ? ta.scrollTop : 0;
+		if (innerEl && shift !== appliedShiftRef.current) {
+			appliedShiftRef.current = shift;
+			innerEl.style.transform = `translateY(${-shift}px)`;
 		}
 
 		const wrapRect = parent.getBoundingClientRect();
-		const spanEls = Array.from(
-			overlayEl.querySelectorAll<HTMLSpanElement>('span[data-ci]'),
-		);
-		const cps = Array.from(value);
+		const spans = readSpanView();
+		const {cps, cpStarts} = readCps(value);
 		/* caret(UTF-16)→ 目标 code point 边界:第一个起点 ≥ caret 的 cp */
-		const cpStarts: number[] = [];
-		let u16 = 0;
-		for (const ch of cps) {
-			cpStarts.push(u16);
-			u16 += ch.length;
-		}
 		let nextCp = cpStarts.findIndex(s => s >= caret);
 		if (nextCp === -1) {
 			nextCp = cps.length;
@@ -130,7 +189,7 @@ export function TypingCaret({
 
 		let x: number;
 		let y: number;
-		if (spanEls.length === 0) {
+		if (spans.count === 0) {
 			/* 空文本:零宽探针 span 给出与字符测量完全同系的几何(字体盒顶/内容
 			 * 起点)。勿改回 PAD 常量——那与 span 路径差 ~3.5px,首字符会垂直
 			 * 跳动并被误判 macro(2026-09-08 录屏实测)。坐标统一视口系。 */
@@ -140,25 +199,31 @@ export function TypingCaret({
 				: null;
 			x = r ? r.left : wrapRect.left + PAD_X;
 			y = r ? r.top : wrapRect.top + PAD_Y;
-		} else if (nextCp < spanEls.length) {
-			const rNext = spanEls[nextCp].getBoundingClientRect();
-			if (nextCp > 0) {
-				const rPrev = spanEls[nextCp - 1].getBoundingClientRect();
-				if (rNext.top > rPrev.top + 4) {
+		} else if (nextCp < spans.count) {
+			const rNext = spans.at(nextCp)?.getBoundingClientRect();
+			if (!rNext) {
+				x = wrapRect.left + PAD_X;
+				y = wrapRect.top + PAD_Y;
+			} else if (nextCp > 0) {
+				const rPrev = spans.at(nextCp - 1)?.getBoundingClientRect();
+				if (rPrev && rNext.top > rPrev.top + 4) {
 					x = rNext.left;   /* 跨行:行尾 → 下一行行首 */
 					y = rNext.top;
-				} else {
+				} else if (rPrev) {
 					x = rPrev.right;
 					y = rPrev.top;
+				} else {
+					x = rNext.left;
+					y = rNext.top;
 				}
 			} else {
 				x = rNext.left;
 				y = rNext.top;
 			}
 		} else {
-			const rPrev = spanEls[spanEls.length - 1].getBoundingClientRect();
-			x = rPrev.right;
-			y = rPrev.top;
+			const rPrev = spans.at(spans.count - 1)?.getBoundingClientRect();
+			x = rPrev ? rPrev.right : wrapRect.left + PAD_X;
+			y = rPrev ? rPrev.top : wrapRect.top + PAD_Y;
 		}
 
 		const tx = x - wrapRect.left;
@@ -236,26 +301,30 @@ export function TypingCaret({
 		if (insEnd <= insStart) {
 			return; /* 纯删除:无动画 */
 		}
-		const overlayEl = overlayRef.current;
-		const targets: HTMLSpanElement[] = [];
-		const chars = Array.from(value);
-		let u16 = 0;
-		let nCp = 0;
-		for (let i = 0; i < chars.length; i++) {
-			const start = u16;
-			u16 += chars[i].length;
-			if (start < insEnd && start + chars[i].length > insStart) {
-				nCp++;
-				const el = overlayEl.querySelector<HTMLSpanElement>(
-					`span[data-ci="${i}"]`,
-				);
-				if (el) {
-					targets.push(el);
+		/* 先用缓存的 code point 表数出插入码点数（零 DOM），超阈值直接静默返回；
+		   命中区间再按下标直取 span。原实现在同一个循环里对每个命中字符跑一次
+		   querySelector 全子树扫描，粘贴大段插入时更是要先扫完再放弃。 */
+		const {cps, cpStarts} = readCps(value);
+		const hitIdx: number[] = [];
+		for (let i = 0; i < cps.length; i++) {
+			const start = cpStarts[i]!;
+			if (start < insEnd && start + cps[i]!.length > insStart) {
+				hitIdx.push(i);
+				if (hitIdx.length > CH_IN_MAX_CP) {
+					break;
 				}
 			}
 		}
-		if (nCp === 0 || nCp > CH_IN_MAX_CP) {
-			return; /* 粘贴/大段插入:静默 */
+		if (hitIdx.length === 0 || hitIdx.length > CH_IN_MAX_CP) {
+			return; /* 纯删除同帧 / 粘贴大段插入:静默 */
+		}
+		const spans = readSpanView();
+		const targets: HTMLSpanElement[] = [];
+		for (const i of hitIdx) {
+			const el = spans.at(i);
+			if (el) {
+				targets.push(el);
+			}
 		}
 		for (const el of targets) {
 			if (!el.classList.contains('xy-ch-in')) {
@@ -299,43 +368,92 @@ export function TypingCaret({
 		}
 	}, [active, focused]);
 
-	/* 父级滚动同步出口:snap 档(镜像平移 + 位移瞬时) */
+	/* 父级滚动同步出口:snap 档(镜像平移 + 位移瞬时)。
+	   稳定外壳 + 每次渲染刷新内层实现:effect 依赖为空,不再每渲染重建对象。 */
+	const placeCaretModeRef = useRef(placeCaret);
+	placeCaretModeRef.current = placeCaret;
+	const apiRefInner = useRef<TypingCaretApi>({
+		reposition: () => placeCaretModeRef.current('snap'),
+	});
 	useLayoutEffect(() => {
-		if (apiRef) {
-			apiRef.current = {reposition: () => placeCaret('snap')};
+		if (!apiRef) {
+			return;
 		}
+		apiRef.current = apiRefInner.current;
 		return () => {
 			if (apiRef) {
 				apiRef.current = null;
 			}
 		};
-	});
+	}, [apiRef]);
 
 	useEffectCleanup(idleTimer);
+
+	/* 逐字符 span:UTF-16 → code point,着色区间按 UTF-16 相交判定。
+	   code point 数组走 readCps 缓存（与 placeCaret 同一份,不重复拆串）。
+	   元素表按「最长公共 code point 前缀」复用：前缀内每个 span 的 props 只由
+	   该字符本身 + 它的 UTF-16 起点 + 着色区间决定,三者都在前缀里逐字相同,所以
+	   可以原样交回同一批元素引用（React 对引用相同的元素不再建 work-in-progress）。
+	   每键建表成本 O(全文) → O(变更后缀);着色区间变化（斜杠命令高亮）时整表重建。
+	   渲染出的 DOM 与逐字符重建完全一致。 */
+	const sameRanges = (
+		a: {start: number; end: number}[],
+		b: {start: number; end: number}[],
+	) =>
+		a.length === b.length &&
+		a.every((r, i) => {
+			const o = b[i];
+			return !!o && r.start === o.start && r.end === o.end;
+		});
+
+	const buildCharNodes = (
+		cps: string[],
+		cpStarts: number[],
+		ranges: {start: number; end: number}[],
+	): ReactNode[] => {
+		const colored = (u16Start: number, u16Len: number) =>
+			ranges.some(r => u16Start < r.end && u16Start + u16Len > r.start);
+		const cache = charNodesRef.current;
+		let from = 0;
+		let out: ReactNode[];
+		if (cache && sameRanges(cache.ranges, ranges)) {
+			if (cache.cps === cps) {
+				/* value 未变（父级因别的原因重渲染）：整表原样交回 */
+				return cache.nodes;
+			}
+			const prev = cache.cps;
+			const n = Math.min(prev.length, cps.length);
+			while (from < n && prev[from] === cps[from]) {
+				from += 1;
+			}
+			out = cache.nodes.slice(0, from);
+		} else {
+			out = [];
+		}
+		for (let i = from; i < cps.length; i += 1) {
+			const ch = cps[i]!;
+			out.push(
+				<span
+					key={i}
+					data-ci={i}
+					className={
+						colored(cpStarts[i]!, ch.length) ? 'text-accent' : undefined
+					}
+				>
+					{ch}
+				</span>,
+			);
+		}
+		charNodesRef.current = {cps, ranges, nodes: out};
+		return out;
+	};
 
 	if (!active) {
 		return null;
 	}
 
-	/* 逐字符 span:UTF-16 → code point,着色区间按 UTF-16 相交判定 */
-	const isColored = (u16Start: number, u16Len: number) =>
-		colorRanges.some(r => u16Start < r.end && u16Start + u16Len > r.start);
-
-	const cps = Array.from(value);
-	let u16 = 0;
-	const nodes: ReactNode[] = cps.map((ch, i) => {
-		const start = u16;
-		u16 += ch.length;
-		return (
-			<span
-				key={i}
-				data-ci={i}
-				className={isColored(start, ch.length) ? 'text-accent' : undefined}
-			>
-				{ch}
-			</span>
-		);
-	});
+	const {cps, cpStarts} = readCps(value);
+	const nodes = buildCharNodes(cps, cpStarts, colorRanges);
 
 	return (
 		<>
