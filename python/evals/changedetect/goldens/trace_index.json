@@ -23,24 +23,24 @@
    "sha256": "5c0b0eae13df37b03492ba04c0cc2268fb2c2ea70fe2a0457846b1e62060617f"
   },
   "inject/channel_env": {
-   "chars": 529,
-   "sha256": "fc91a57b03c32c5c0044548e06e9d1dc4f4ddf5f791ef94a66779277ff92a8ed"
+   "chars": 493,
+   "sha256": "678a74c6059aa74bf7646467ce61cb060a773d5796e36c11c5dcc240b6e730e6"
   },
   "inject/channel_legacy": {
-   "chars": 337,
-   "sha256": "02c580e2b3ea225cb6f14a32a0ec78b9c03c1c984510f3ed21e7e733823232c2"
+   "chars": 301,
+   "sha256": "c6802d8d5ee12663ff3c1890c5d1b0fa6102278183fbb8e7a111cd0c87acdc16"
   },
   "inject/goal": {
    "chars": 526,
    "sha256": "d573f02a0ecf00098a3b95b181e650bee125dcbba5aa4ccaf120ef8006265b97"
   },
   "inject/instructions_off": {
-   "chars": 853,
-   "sha256": "f51d94989409656685bc3241324a8e6150054180571145965f5e96b4d5a3a52a"
+   "chars": 851,
+   "sha256": "8ddb31da4f80c3693f0f10efb3a75de4beb9ad5ce61163eda8f83ad8bd01ce2c"
   },
   "inject/instructions_on": {
-   "chars": 853,
-   "sha256": "f51d94989409656685bc3241324a8e6150054180571145965f5e96b4d5a3a52a"
+   "chars": 851,
+   "sha256": "8ddb31da4f80c3693f0f10efb3a75de4beb9ad5ce61163eda8f83ad8bd01ce2c"
   },
   "inject/multi_agent": {
    "chars": 563,

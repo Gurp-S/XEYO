@@ -77,6 +77,10 @@ def test_canon_normalizes_host_specific_runtime_facts():
     assert canon_text(windows) == canon_text(linux)
     assert "当前时间: <TS> <TZ>" in canon_text(windows)
     assert "<ENV_FACTS>" in canon_text(windows)
+    assert canon_text("shell: pwsh 7.6.6 | elevated: false | tz: +0800 CST\n") == canon_text(
+        "shell: sh (version unavailable) | elevated: false | tz: +0000 UTC | desktop: false\n"
+    )
+    assert canon_text(r"<TMP>\pkg\XEYO.md") == canon_text("<TMP>/pkg/XEYO.md")
 
 
 def test_compliance_r2_minimal_branch_flagged():
