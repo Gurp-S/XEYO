@@ -6,7 +6,7 @@ import {
 	renderMermaidSvg,
 	svgToImageUrl,
 } from '@/lib/mermaidRender';
-import {popEscLayer, pushEscLayer} from '@/lib/escStack';
+import {useOverlayLock} from '@/ui/useOverlayLock';
 import {useSettingsStore} from '@/stores/settingsStore';
 import {isDarkScheme} from '@/theme/catalog';
 import {CodeBlock} from './CodeBlock';
@@ -73,23 +73,20 @@ function MermaidBlockInner({source}: Props) {
 		};
 	}, [text, mermaidTheme]);
 
+	// 锁滚动 + Esc 配对走基座（PanelExpandOverlay / ImageReader 同族）。
+	useOverlayLock({open, escId: 'mermaid-viewer', onEscape: () => setOpen(false)});
+
+	// 滚轮缩放要 passive:false 才能 preventDefault，与锁滚动各自一条 effect。
 	useEffect(() => {
 		if (!open) {
 			return;
 		}
-		const prev = document.body.style.overflow;
-		document.body.style.overflow = 'hidden';
-		pushEscLayer('mermaid-viewer', () => setOpen(false));
 		const onWheel = (e: WheelEvent) => {
 			e.preventDefault();
 			setScale(s => clampScale(s * (e.deltaY > 0 ? 1 / 1.12 : 1.12)));
 		};
 		window.addEventListener('wheel', onWheel, {passive: false});
-		return () => {
-			document.body.style.overflow = prev;
-			popEscLayer('mermaid-viewer');
-			window.removeEventListener('wheel', onWheel);
-		};
+		return () => window.removeEventListener('wheel', onWheel);
 	}, [open]);
 
 	const zoomBy = (factor: number) => {

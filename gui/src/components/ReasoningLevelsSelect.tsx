@@ -1,8 +1,9 @@
 import {Check, ChevronDown, Search} from 'lucide-react';
-import {useEffect, useLayoutEffect, useRef, useState} from 'react';
+import {useRef, useState} from 'react';
 import {createPortal} from 'react-dom';
 import {cn} from '@/lib/utils';
-import {popEscLayer, pushEscLayer} from '@/lib/escStack';
+import {useAnchoredPanel} from '@/ui/useAnchoredPanel';
+import {useDismiss} from '@/ui/useDismiss';
 import {
 	REASONING_EFFORTS,
 	type ReasoningEffort,
@@ -14,6 +15,13 @@ import {
  * 对齐历史 ModelPicker 的 flyout 视觉：搜索框 + 勾选行（Check 图标）。
  * 多选不自动收起；Portal 定位避免被设置弹层的滚动容器裁剪。
  */
+
+/** 估高：低于它就不翻转（沿用重构前的常数，不借重构改几何）。 */
+const EST_H = 320;
+/** 面板最小宽 = 14ch；与历史一致。 */
+const MIN_W_CH = 14;
+const FLYOUT_ID = 'xeyo-reasoning-levels-flyout';
+
 export function ReasoningLevelsSelect({
 	value,
 	onChange,
@@ -29,81 +37,33 @@ export function ReasoningLevelsSelect({
 	const [query, setQuery] = useState('');
 	const wrapRef = useRef<HTMLDivElement>(null);
 	const btnRef = useRef<HTMLButtonElement>(null);
-	const [pos, setPos] = useState<{top: number; left: number; width: number}>({
-		top: 0,
-		left: 0,
-		width: 0,
-	});
 
-	useLayoutEffect(() => {
-		if (!open) {
-			return;
-		}
-		const update = () => {
-			const r = btnRef.current?.getBoundingClientRect();
-			if (!r) {
-				return;
-			}
-			const width = Math.max(r.width, 14 * 16);
-			const left = Math.min(
-				r.left,
-				window.innerWidth - width - 8,
-			);
+	// 定位公式留在宿主（它是这一家自己的几何），监听与重算走全局回路。
+	const panelStyle = useAnchoredPanel({
+		open,
+		anchorRef: btnRef,
+		place: (r, vp) => {
+			const width = Math.max(r.width, MIN_W_CH * 16);
+			const left = Math.min(r.left, vp.width - width - 8);
 			// 下方放不下则翻转到触发器上方。
-			const estH = 320;
-			const below =
-				r.bottom + estH < window.innerHeight || r.top < estH;
-			setPos({
-				top: below ? r.bottom + 6 : Math.max(8, r.top - estH - 6),
+			const below = r.bottom + EST_H < vp.height || r.top < EST_H;
+			return {
+				top: below ? r.bottom + 6 : Math.max(8, r.top - EST_H - 6),
 				left: Math.max(8, left),
-				width,
-			});
-		};
-		update();
-		window.addEventListener('resize', update);
-		window.addEventListener('scroll', update, true);
-		return () => {
-			window.removeEventListener('resize', update);
-			window.removeEventListener('scroll', update, true);
-		};
-	}, [open]);
-
-	useEffect(() => {
-		if (!open) {
-			return;
-		}
-		const onDown = (e: MouseEvent) => {
-			if (
-				!wrapRef.current?.contains(e.target as Node) &&
-				!document
-					.getElementById('xeyo-reasoning-levels-flyout')
-					?.contains(e.target as Node)
-			) {
-				setOpen(false);
-			}
-		};
-		const onKey = (e: KeyboardEvent) => {
-			if (e.key === 'Escape') {
-				setOpen(false);
-			}
-		};
-		window.addEventListener('mousedown', onDown);
-		window.addEventListener('keydown', onKey);
-		return () => {
-			window.removeEventListener('mousedown', onDown);
-			window.removeEventListener('keydown', onKey);
-		};
-	}, [open]);
+				minWidth: width,
+			};
+		},
+	});
 
 	// 思考等级下拉的 Esc 走 escStack 顶层：window 冒泡监听在流式期间会被
 	// 「停止生成」层先吃掉（Esc 停回合、下拉还开着）。
-	useEffect(() => {
-		if (!open) {
-			return;
-		}
-		pushEscLayer('reasoning-levels', () => setOpen(false));
-		return () => popEscLayer('reasoning-levels');
-	}, [open]);
+	useDismiss({
+		open,
+		onClose: () => setOpen(false),
+		escId: 'reasoning-levels',
+		keepOpenRefs: [wrapRef],
+		panelId: FLYOUT_ID,
+	});
 
 	const q = query.trim().toLowerCase();
 	const options = q
@@ -147,13 +107,9 @@ export function ReasoningLevelsSelect({
 			{open
 				? createPortal(
 						<div
-							id="xeyo-reasoning-levels-flyout"
+							id={FLYOUT_ID}
 							className="xy-menu-flyout fixed z-[1000] flex w-min flex-col overflow-hidden rounded-xl"
-							style={{
-								top: pos.top,
-								left: pos.left,
-								minWidth: pos.width,
-							}}
+							style={panelStyle ?? undefined}
 						>
 							<div className="px-2 pt-2">
 								<label className="flex h-8 items-center gap-2 rounded-lg bg-ink/[0.06] px-2.5">

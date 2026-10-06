@@ -15,8 +15,9 @@ import {
 	type McpStatusReport,
 } from '@/lib/api/mcp';
 import {openPageView} from '@/lib/appNav';
-import {popEscLayer, pushEscLayer} from '@/lib/escStack';
+import {useDismiss} from '@/ui/useDismiss';
 import {cn} from '@/lib/utils';
+import {useScrollArea} from '@/ui/useScrollArea';
 
 const STATUS_LABEL: Record<string, {label: string; cls: string}> = {
 	ready: {label: '就绪', cls: 'text-ok'},
@@ -180,25 +181,12 @@ export function McpPanel({open, onClose}: {open: boolean; onClose: () => void}) 
 	const [busy, setBusy] = useState<string | null>(null);
 	const [tick, setTick] = useState(0);
 	const rootRef = useRef<HTMLDivElement | null>(null);
+	// 面板根是悬停区、正文是滚动元素（两个节点），所以走宿主档而不是自接。
+	const area = useScrollArea({edgeFade: false, outerRef: rootRef});
 
 	// 关闭配对：Esc 走 escStack（流式中优先于「停止生成」层）+ 外点关闭；
 	// 同族弹层（审批模式/模型选择/＋菜单/任务角标/用量浮层）皆此形态。
-	useEffect(() => {
-		if (!open) {
-			return;
-		}
-		const onDocumentMouseDown = (event: MouseEvent) => {
-			if (!rootRef.current?.contains(event.target as Node)) {
-				onClose();
-			}
-		};
-		pushEscLayer('mcp-panel', onClose);
-		document.addEventListener('mousedown', onDocumentMouseDown);
-		return () => {
-			document.removeEventListener('mousedown', onDocumentMouseDown);
-			popEscLayer('mcp-panel');
-		};
-	}, [open, onClose]);
+	useDismiss({open, onClose, escId: 'mcp-panel', keepOpenRefs: [rootRef]});
 
 	useEffect(() => {
 		if (!open) {
@@ -239,8 +227,8 @@ export function McpPanel({open, onClose}: {open: boolean; onClose: () => void}) 
 
 	return (
 		<div
-			ref={rootRef}
 			className="xy-menu-flyout absolute bottom-full left-0 z-[1000] mb-1.5 flex max-h-[min(60vh,540px)] w-[min(360px,calc(100vw-1rem))] flex-col overflow-hidden rounded-xl"
+			{...area.hostProps}
 		>
 			<div className="flex items-center gap-1.5 border-b border-line/40 p-1.5">
 				<button

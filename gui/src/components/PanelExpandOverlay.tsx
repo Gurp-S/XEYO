@@ -1,5 +1,5 @@
-import {useEffect, type ReactNode} from 'react';
-import {popEscLayer, pushEscLayer} from '@/lib/escStack';
+import {type ReactNode} from 'react';
+import {useOverlayLock} from '@/ui/useOverlayLock';
 import {WorkbenchOverlay} from './review/WorkbenchOverlay';
 
 /**
@@ -20,18 +20,7 @@ export function PanelExpandOverlay({
 	onClose: () => void;
 	children: ReactNode;
 }) {
-	useEffect(() => {
-		if (!open) {
-			return;
-		}
-		const prev = document.body.style.overflow;
-		document.body.style.overflow = 'hidden';
-		pushEscLayer('panel-expand', onClose);
-		return () => {
-			document.body.style.overflow = prev;
-			popEscLayer('panel-expand');
-		};
-	}, [open, onClose]);
+	useOverlayLock({open, escId: 'panel-expand', onEscape: onClose});
 
 	if (!open) {
 		return null;

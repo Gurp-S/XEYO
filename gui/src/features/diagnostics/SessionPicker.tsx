@@ -13,9 +13,10 @@
  * （portal 定位，避免被设置弹层的滚动容器裁剪）。
  */
 import {Check, ChevronDown} from 'lucide-react';
-import {useEffect, useLayoutEffect, useRef, useState} from 'react';
+import {useEffect, useRef, useState} from 'react';
 import {createPortal} from 'react-dom';
 import {cn} from '@/lib/utils';
+import {useAnchoredPanel} from '@/ui/useAnchoredPanel';
 
 const LIST_ID = 'xeyo-dig-session-listbox';
 const FLYOUT_ID = 'xeyo-dig-session-flyout';
@@ -39,29 +40,32 @@ export function SessionPicker({
 	const [active, setActive] = useState(0);
 	const wrapRef = useRef<HTMLDivElement>(null);
 	const btnRef = useRef<HTMLButtonElement>(null);
-	const [pos, setPos] = useState({top: 0, left: 0, width: 0});
 
 	const selected = sessions.findIndex(s => s.id === value);
 	const current = value ? sessions[selected] : undefined;
 
-	useLayoutEffect(() => {
-		if (!open) return;
-		const update = () => {
-			const r = btnRef.current?.getBoundingClientRect();
-			if (!r) return;
+	// 定位公式留在宿主（最小宽按 22ch、翻转按估高 FLYOUT_H），回路走全局。
+	const panelStyle = useAnchoredPanel({
+		open,
+		anchorRef: btnRef,
+		place: (r, vp) => {
 			const width = Math.max(r.width, 22 * 16);
-			const left = Math.max(8, Math.min(r.left, window.innerWidth - width - 8));
-			const below = r.bottom + FLYOUT_H < window.innerHeight || r.top < FLYOUT_H;
-			setPos({top: below ? r.bottom + 6 : Math.max(8, r.top - FLYOUT_H - 6), left, width});
-		};
-		update();
+			const left = Math.max(8, Math.min(r.left, vp.width - width - 8));
+			const below = r.bottom + FLYOUT_H < vp.height || r.top < FLYOUT_H;
+			return {
+				top: below ? r.bottom + 6 : Math.max(8, r.top - FLYOUT_H - 6),
+				left,
+				minWidth: width,
+			};
+		},
+	});
+
+	// 打开时把高亮项对齐到当前值（与测量同拍，但它是状态而不是几何）。
+	useEffect(() => {
+		if (!open) {
+			return;
+		}
 		setActive(Math.max(0, sessions.findIndex(s => s.id === value)));
-		window.addEventListener('resize', update);
-		window.addEventListener('scroll', update, true);
-		return () => {
-			window.removeEventListener('resize', update);
-			window.removeEventListener('scroll', update, true);
-		};
 	}, [open, sessions, value]);
 
 	useEffect(() => {
@@ -159,7 +163,7 @@ export function SessionPicker({
 						<div
 							id={FLYOUT_ID}
 							className="xy-menu-flyout fixed z-[1000] flex flex-col overflow-hidden"
-							style={{top: pos.top, left: pos.left, minWidth: pos.width}}
+							style={panelStyle ?? {top: 0, left: 0, minWidth: 0}}
 						>
 							{sessions.length === 0 ? (
 								<p className="px-3 py-3 text-[12px] text-mute">后端没有可选会话。</p>

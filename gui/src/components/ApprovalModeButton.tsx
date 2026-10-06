@@ -3,9 +3,9 @@ import {useEffect, useRef, useState} from 'react';
 
 import {setSessionRuntimeMode} from '@/lib/api/runtimeMode';
 import {patchComposerDraftModes} from '@/lib/composerDrafts';
-import {popEscLayer, pushEscLayer} from '@/lib/escStack';
 import {cn} from '@/lib/utils';
 import {toast} from '@/lib/toast';
+import {useDismiss} from '@/ui/useDismiss';
 import {useChatUiStore} from '@/stores/chatUiStore';
 import {useSettingsStore, type PermissionMode} from '@/stores/settingsStore';
 
@@ -55,24 +55,8 @@ export function ApprovalModeButton() {
 		setUnconfirmed('');
 	}, [activeId]);
 
-	// 关闭配对：Esc 走 escStack（优先于「停止生成」等下层）+ 外点关闭；
-	// 漏了这两条时菜单只能"再点一次"或选档才关，流式中按 Esc 还会误停回合。
-	useEffect(() => {
-		if (!open) {
-			return;
-		}
-		const onDocumentMouseDown = (event: MouseEvent) => {
-			if (!rootRef.current?.contains(event.target as Node)) {
-				setOpen(false);
-			}
-		};
-		pushEscLayer('approval-mode', () => setOpen(false));
-		document.addEventListener('mousedown', onDocumentMouseDown);
-		return () => {
-			document.removeEventListener('mousedown', onDocumentMouseDown);
-			popEscLayer('approval-mode');
-		};
-	}, [open]);
+	// 关闭配对：Esc 走 escStack（优先于「停止生成」等下层）+ 外点关闭。
+	useDismiss({open, onClose: () => setOpen(false), escId: 'approval-mode', keepOpenRefs: [rootRef]});
 
 	const current = MODES.find(m => m.mode === mode) ?? MODES[1];
 	const CurrentIcon = current.Icon;

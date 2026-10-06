@@ -26,7 +26,7 @@ import {
 	type JobOutputPeek,
 	type JobSnapshot,
 } from '@/lib/api/jobs';
-import {popEscLayer, pushEscLayer} from '@/lib/escStack';
+import {useDismiss} from '@/ui/useDismiss';
 
 const JOBS_POLL_MS = 5000;
 /** 展开行运行中的输出刷新间隔。 */
@@ -150,20 +150,7 @@ export function SessionJobsBadge({
 		return () => window.clearInterval(t);
 	}, [open, hasActive]);
 
-	useEffect(() => {
-		if (!open) return;
-		const onDocumentMouseDown = (event: MouseEvent) => {
-			if (!rootRef.current?.contains(event.target as Node)) {
-				setOpen(false);
-			}
-		};
-		pushEscLayer('jobs-popover', () => setOpen(false));
-		document.addEventListener('mousedown', onDocumentMouseDown);
-		return () => {
-			document.removeEventListener('mousedown', onDocumentMouseDown);
-			popEscLayer('jobs-popover');
-		};
-	}, [open]);
+	useDismiss({open, onClose: () => setOpen(false), escId: 'jobs-popover', keepOpenRefs: [rootRef]});
 
 	useEffect(() => {
 		setOpen(false);

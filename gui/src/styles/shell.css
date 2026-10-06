@@ -116,6 +116,19 @@ html.tauri[data-window-maximized="1"] #root {
   height: 0;
 }
 
+/* 宿主档：悬停区与滚动元素不是同一个节点时（面板里的叶子正文），显形状态由
+   宿主穿透给内部皮肤元素。只有被 useHoverScroll 的 hostRef 标记过的祖先才走
+   这条，聊天列那种同节点结构不受影响。 */
+.xy-hover-host-on .xy-hover-scroll::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--xy-scroll) 55%, transparent);
+  background-clip: padding-box;
+}
+
+.xy-hover-host-on .xy-hover-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--xy-scroll);
+  background-clip: padding-box;
+}
+
 /* 滚动边缘透明度渐隐。mask 必须用白（亮/暗 alpha 都表示可见）；黑会把整栏盖没 */
 .xy-scroll-fade {
   --xy-fade-top: 0px;

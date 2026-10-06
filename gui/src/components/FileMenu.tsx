@@ -8,7 +8,7 @@ import {useSettingsStore} from '@/stores/settingsStore';
 import {useRemoteStore} from '@/stores/remoteStore';
 import {useWorkspaceStore} from '@/stores/workspaceStore';
 import {closePetWindow} from '@/pet/PetBridge';
-import {popEscLayer, pushEscLayer} from '@/lib/escStack';
+import {useDismiss} from '@/ui/useDismiss';
 import {toast} from '@/lib/toast';
 import {MenuSeparator} from '@/components/ui/MenuSeparator';
 import './ux-loaders.css';
@@ -147,37 +147,11 @@ export function FileMenu({label = 'XEYO'}: {label?: string}) {
 		},
 	];
 
-	useEffect(() => {
-		if (!open) {
-			return;
-		}
-		const onDoc = (e: MouseEvent) => {
-			if (!rootRef.current?.contains(e.target as Node)) {
-				setOpen(false);
-			}
-		};
-		const onKey = (e: KeyboardEvent) => {
-			if (e.key === 'Escape') {
-				setOpen(false);
-			}
-		};
-		document.addEventListener('mousedown', onDoc);
-		document.addEventListener('keydown', onKey);
-		return () => {
-			document.removeEventListener('mousedown', onDoc);
-			document.removeEventListener('keydown', onKey);
-		};
-	}, [open]);
-
-	// 文件菜单的 Esc 走 escStack 顶层：document 冒泡监听在流式期间会被
-	// 「停止生成」层先吃掉（Esc 停回合、菜单还开着）。
-	useEffect(() => {
-		if (!open) {
-			return;
-		}
-		pushEscLayer('file-menu', () => setOpen(false));
-		return () => popEscLayer('file-menu');
-	}, [open]);
+	// 关闭配对：Esc 走 escStack 顶层（document 冒泡监听在流式期间会被「停止生成」
+	// 层先吃掉 —— Esc 停回合、菜单还开着），外点关闭。原先另挂的 document
+	// keydown 兜底随重构去掉：escStack 在捕获阶段就 stopPropagation，本菜单是
+	// 最上层时它从不触发，不是最上层时它反而会越级关掉下层。
+	useDismiss({open, onClose: () => setOpen(false), escId: 'file-menu', keepOpenRefs: [rootRef]});
 
 	useEffect(() => {
 		const onKey = (e: KeyboardEvent) => {

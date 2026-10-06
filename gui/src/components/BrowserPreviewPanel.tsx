@@ -10,6 +10,7 @@ import {
 import {usePanelSubtitle} from '@/lib/panelSubtitle';
 import {isTauri} from '@/lib/tauri';
 import {cn} from '@/lib/utils';
+import {useScrollArea} from '@/ui/useScrollArea';
 import {useBrowserPreviewStore} from '@/stores/browserPreviewStore';
 
 const BACKEND_ORIGIN = `http://127.0.0.1:${import.meta.env.VITE_XEYO_HTTP_PORT || '8000'}`;
@@ -82,6 +83,7 @@ export const BrowserPreviewPanel = memo(function BrowserPreviewPanel() {
 	const [loadError, setLoadError] = useState(false);
 	const [frameKey, setFrameKey] = useState(0);
 	const inputRef = useRef<HTMLInputElement | null>(null);
+	const area = useScrollArea({edgeFade: false});
 
 	const historyRef = useRef(history);
 	const cursorRef = useRef(cursor);
@@ -299,7 +301,10 @@ export const BrowserPreviewPanel = memo(function BrowserPreviewPanel() {
 			</div>
 
 			{!url ? (
-				<div className="xy-hover-scroll flex min-h-0 flex-1 flex-col items-stretch gap-3 overflow-auto px-4 py-6">
+				<div
+					className="xy-hover-scroll flex min-h-0 flex-1 flex-col items-stretch gap-3 overflow-auto px-4 py-6"
+					{...area.scrollerProps}
+				>
 					<div className="mx-auto flex max-w-sm flex-col items-center gap-2 text-center">
 						<div className="flex h-10 w-10 items-center justify-center rounded-full bg-glass-hover text-mute">
 							<Globe className="h-5 w-5" strokeWidth={1.6} />

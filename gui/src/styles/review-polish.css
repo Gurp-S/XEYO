@@ -42,7 +42,9 @@ html.tauri[data-window-maximized="1"] #root:has(.xy-review-layout) { clip-path: 
 /* composer 栈现在只是一列独立卡（无外框），故 review 布局只给 dock 卡本身着色。 */
 .xy-review-layout .xy-panel-ask { background: var(--xy-review-card); box-shadow: none; }
 .xy-review-layout .xy-panel-ask-head { width: 100%; background: transparent; text-align: left; }
-.xy-review-layout .xy-panel-ask-body { padding: 12px 14px; scrollbar-width: thin; scrollbar-color: var(--xy-line) transparent; }
+/* 这几块原先各自写 `scrollbar-width: thin`：Chromium 一旦见到标准 scrollbar
+   属性就丢掉该元素全部 ::-webkit-scrollbar*，等于局部退出全局皮肤。 */
+.xy-review-layout .xy-panel-ask-body { padding: 12px 14px; }
 .xy-review-layout .xy-panel-ask-opt-main { display: flex; align-items: center; gap: 10px; }
 .xy-review-layout .xy-panel-ask-opt-label { min-width: 0; overflow-wrap: anywhere; }
 .xy-review-layout :is(.xy-ask-num,.xy-ask-check) { width: 18px; height: 18px; flex: 0 0 18px; display: inline-grid; place-items: center; font-size: 11px; color: var(--xy-mute); }
@@ -70,7 +72,7 @@ html.tauri[data-window-maximized="1"] #root:has(.xy-review-layout) { clip-path: 
    旧的 [data-goal-pop] 弹层结构已随之外移，规则一并删除。 */
 .xy-review-layout .xy-queue-card { background: var(--xy-review-card); box-shadow: none; border-color: var(--xy-line); }
 .xy-review-layout .xy-queue-head { background: var(--xy-review-card); border-color: var(--xy-line); box-shadow: none; }
-.xy-review-layout .xy-queue-dock { max-height: min(28vh,200px); overflow-y: auto; scrollbar-width: thin; }
+.xy-review-layout .xy-queue-dock { max-height: min(28vh,200px); overflow-y: auto; }
 .xy-review-layout .xy-queue-actions { opacity: .6; }
 .xy-review-layout .xy-queue-card:hover .xy-queue-actions,.xy-review-layout .xy-queue-card:focus-within .xy-queue-actions { opacity: 1; }
 .xy-review-layout .xy-command-receipt { background: var(--xy-review-card); padding: 10px 14px; border: 0; border-radius: 10px; }
@@ -100,7 +102,7 @@ html.tauri[data-window-maximized="1"] #root:has(.xy-review-layout) { clip-path: 
 .xy-review-settings nav { padding-top: 10px; }
 .xy-review-settings nav button { min-height: 36px; border: 0; box-shadow: none; }
 .xy-review-settings nav button[aria-current=page] { background: var(--xy-glass-hover); color: var(--xy-ink); }
-.xy-review-settings .xy-settings-body { padding: 10px 8px 32px; scrollbar-width: thin; }
+.xy-review-settings .xy-settings-body { padding: 10px 8px 32px; }
 .xy-review-settings .xy-settings-body > section > .xy-section-label { font-size: 20px; letter-spacing: 0; font-weight: 600; text-transform: none; color: var(--xy-ink); margin-bottom: 18px; }
 .xy-review-settings [role=listbox][aria-label="主题"] { grid-template-columns: repeat(4,minmax(0,1fr)); gap: 10px; margin-bottom: 26px; }
 .xy-review-settings [role=listbox][aria-label="主题"] [role=option] > span:first-child { height: 38px; }
@@ -132,7 +134,7 @@ html.tauri[data-window-maximized="1"] #root:has(.xy-review-layout) { clip-path: 
 .xy-a3-report > div:first-child { border: 0; padding: 10px 0 20px; }
 .xy-a3-report > div:first-child h2 { font-size: 20px; font-weight: 600; }
 .xy-a3-dashboard { display: grid; grid-template-columns: 150px minmax(0,1fr); gap: 24px; container-type: inline-size; }
-.xy-a3-days { min-width: 0; max-height: 70vh; overflow-y: auto; scrollbar-width: thin; }
+.xy-a3-days { min-width: 0; max-height: 70vh; overflow-y: auto; }
 .xy-a3-days h3 { font-size: 11px; color: var(--xy-mute); margin: 12px 10px; }
 .xy-a3-days button { display: block; width: 100%; padding: 10px; text-align: left; border-radius: 9px; margin: 4px 0; }
 .xy-a3-days button strong { display: block; font-size: 12px; font-weight: 500; }

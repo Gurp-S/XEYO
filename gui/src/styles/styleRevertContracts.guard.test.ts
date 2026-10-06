@@ -166,7 +166,7 @@ const tsxTokens = (roots: string[]) => {
   return tokens;
 };
 
-const liveTokens = tsxTokens(['src/components', 'src/pages', 'src/features']);
+const liveTokens = tsxTokens(['src/components', 'src/pages', 'src/features', 'src/ui']);
 
 describe('CSS 回退契约 · 解析前置', () => {
   it('每条契约都真的读到了内容（空串会让全部断言静默假绿）', () => {

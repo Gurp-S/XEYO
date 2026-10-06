@@ -1,7 +1,7 @@
 import {useEffect, useMemo, useRef, useState} from 'react';
 import {ChevronDown, ChevronLeft, ChevronRight, Search} from 'lucide-react';
 import {activityCaption, toolCallLabel, type RoundActivity} from '@/lib/roundActivity';
-import {popEscLayer, pushEscLayer} from '@/lib/escStack';
+import {useDismiss} from '@/ui/useDismiss';
 import {ActivityIcon} from './ActivityIcon';
 
 /** Direct navigation for long event streams, without changing their chronology. */
@@ -15,6 +15,11 @@ export function ActivityNavigator({events, activeId, onSelect}: {
 	const root = useRef<HTMLDivElement>(null);
 	const search = useRef<HTMLInputElement>(null);
 	const index = Math.max(0, events.findIndex(event => event.id === activeId));
+	// 关闭配对：Esc 归本层（escStack LIFO）+ 外点关闭。裸 document 捕获监听在
+	// 流式/沉浸等层在场时会被窗口捕获先拦走——实测流式中按 Esc：回合被停、弹层不关。
+	useDismiss({open, onClose: () => setOpen(false), escId: 'activity-navigator', keepOpenRefs: [root]});
+
+	// 打开时把焦点交给搜索框，并把当前记录滚进可视区。
 	useEffect(() => {
 		if (!open) return;
 		search.current?.focus();
@@ -23,17 +28,6 @@ export function ActivityNavigator({events, activeId, onSelect}: {
 		if (list && active) {
 			list.scrollTop += active.getBoundingClientRect().top - list.getBoundingClientRect().top - (list.clientHeight - active.clientHeight) / 2;
 		}
-		const outside = (event: MouseEvent) => {
-			if (!root.current?.contains(event.target as Node)) setOpen(false);
-		};
-		document.addEventListener('mousedown', outside);
-		// Esc 归本层（escStack LIFO）：裸 document 捕获监听在流式/沉浸等层在场时
-		// 会被窗口捕获先拦走——实测流式中按 Esc：回合被停、弹层不关。
-		pushEscLayer('activity-navigator', () => setOpen(false));
-		return () => {
-			document.removeEventListener('mousedown', outside);
-			popEscLayer('activity-navigator');
-		};
 	}, [open]);
 	const needle = query.trim().toLocaleLowerCase();
 	const matches = useMemo(() => open ? events.map((event, ordinal) => ({event, ordinal})).filter(({event, ordinal}) =>

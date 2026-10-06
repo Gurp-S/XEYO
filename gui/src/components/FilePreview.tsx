@@ -258,8 +258,12 @@ export const FilePreview = memo(function FilePreview() {
 			pickVersionRef.current += 1;
 			bodyRef.current = el;
 			hover.scrollerRef(el);
+			// 差异分支的滚动元素不是这个宿主、而是子节点 <DiffPreview>（皮肤类在
+			// 它身上），所以宿主同时要挂 hostRef：只挂 scrollerRef 时 `-on` 落在
+			// 不带皮肤类的宿主上，滑块永远透明。两种分支都覆盖。
+			hover.hostRef(el);
 		},
-		[hover.scrollerRef],
+		[hover.scrollerRef, hover.hostRef],
 	);
 
 	// 无会话审查时，从后端取工作区当前 vs HEAD 的 diff（覆盖真实改动浏览）。

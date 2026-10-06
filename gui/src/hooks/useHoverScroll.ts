@@ -66,7 +66,18 @@ function attachEdgeFade(
 	};
 }
 
-/** 鼠标进入区域 100ms 后显示滚动条，离开立即隐藏。不走 React state，避免整栏重绘。 */
+/**
+ * 鼠标进入区域 100ms 后显示滚动条，离开立即隐藏。不走 React state，避免整栏重绘。
+ *
+ * 两个挂载点，各自对应一种真实结构：
+ * - `scrollerRef`：皮肤类与滚动元素在同一个节点上（聊天列、侧栏）。滑块加
+ *   `.xy-hover-scroll-on`。
+ * - `hostRef`：滚动元素是宿主的**后代**（面板里的正文/列表叶子），宿主只负责
+ *   判定悬停区。加 `.xy-hover-host-on`，由 shell.css 的宿主档规则穿透到内部皮肤。
+ *
+ * 历史上坏掉的滚动条全是第二种结构却只挂了第一种：`-on` 落在不带皮肤类的宿主上，
+ * 带皮肤类的叶子永远透明。所以这里把两个挂载点显式分开，而不是让调用方猜。
+ */
 export function useHoverScroll(
 	delayMs = SHOW_DELAY_MS,
 	options: {
@@ -75,11 +86,12 @@ export function useHoverScroll(
 		edgeFadeTopSize?: number;
 	} = {},
 ) {
-  const edgeFade = options.edgeFade !== false;
+	const edgeFade = options.edgeFade !== false;
 	const edgeFadeTop = options.edgeFadeTop !== false;
 	const edgeFadeTopSize = Math.max(0, options.edgeFadeTopSize ?? FADE_PX);
 	const timer = useRef(0);
 	const node = useRef<HTMLElement | null>(null);
+	const host = useRef<HTMLElement | null>(null);
 	const fadeOff = useRef<(() => void) | null>(null);
 
 	const scrollerRef = useCallback((el: HTMLElement | null) => {
@@ -91,33 +103,49 @@ export function useHoverScroll(
 		}
   }, [edgeFade, edgeFadeTop, edgeFadeTopSize]);
 
+	const hostRef = useCallback((el: HTMLElement | null) => {
+		host.current = el;
+		if (!el) {
+			return;
+		}
+		el.classList.add('xy-hover-host');
+	}, []);
+
 	useEffect(() => {
 		return () => {
 			if (timer.current) {
 				window.clearTimeout(timer.current);
 			}
+			host.current?.classList.remove('xy-hover-host', 'xy-hover-host-on');
 			fadeOff.current?.();
 			fadeOff.current = null;
 		};
 	}, []);
 
-	return {
-		scrollerRef,
-		onMouseEnter() {
-			if (timer.current) {
-				window.clearTimeout(timer.current);
-			}
-			timer.current = window.setTimeout(() => {
-				node.current?.classList.add('xy-hover-scroll-on');
-				timer.current = 0;
-			}, delayMs);
-		},
-		onMouseLeave() {
-			if (timer.current) {
-				window.clearTimeout(timer.current);
-				timer.current = 0;
-			}
-			node.current?.classList.remove('xy-hover-scroll-on');
-		},
-	};
+	const reveal = useCallback((on: boolean) => {
+		node.current?.classList.toggle('xy-hover-scroll-on', on);
+		host.current?.classList.toggle('xy-hover-host-on', on);
+	}, []);
+
+	// 返回值都要稳定身份：调用方把 onMouseEnter/onMouseLeave 与 ref 一起挂上，
+	// 每帧新建会让 React 反复 detach/attach，渐隐观察者与定时器随之重建。
+	const onMouseEnter = useCallback(() => {
+		if (timer.current) {
+			window.clearTimeout(timer.current);
+		}
+		timer.current = window.setTimeout(() => {
+			reveal(true);
+			timer.current = 0;
+		}, delayMs);
+	}, [delayMs, reveal]);
+
+	const onMouseLeave = useCallback(() => {
+		if (timer.current) {
+			window.clearTimeout(timer.current);
+			timer.current = 0;
+		}
+		reveal(false);
+	}, [reveal]);
+
+	return {scrollerRef, hostRef, onMouseEnter, onMouseLeave};
 }

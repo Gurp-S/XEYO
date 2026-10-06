@@ -77,6 +77,7 @@ import {
 } from '@/lib/slashCommands';
 import {newSession} from '@/lib/appNav';
 import {popEscLayer, pushEscLayer} from '@/lib/escStack';
+import {useDismiss} from '@/ui/useDismiss';
 import {textFieldMenuItems} from '@/lib/contextMenus';
 import {toast} from '@/lib/toast';
 import {cn, uid} from '@/lib/utils';
@@ -820,39 +821,19 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 		};
 	}, [stopGeneration, currentSessionStreaming]);
 
-	useEffect(() => {
-		if (!modelOpen) {
-			return;
-		}
-		const onDoc = (e: MouseEvent) => {
-			if (!modelMenuRef.current?.contains(e.target as Node)) {
-				setModelOpen(false);
-			}
-		};
-		pushEscLayer('composer-model', () => setModelOpen(false));
-		document.addEventListener('mousedown', onDoc);
-		return () => {
-			document.removeEventListener('mousedown', onDoc);
-			popEscLayer('composer-model');
-		};
-	}, [modelOpen]);
+	useDismiss({
+		open: modelOpen,
+		onClose: () => setModelOpen(false),
+		escId: 'composer-model',
+		keepOpenRefs: [modelMenuRef],
+	});
 
-	useEffect(() => {
-		if (!quickMenuOpen) {
-			return;
-		}
-		const onDoc = (e: MouseEvent) => {
-			if (!quickMenuRef.current?.contains(e.target as Node)) {
-				setQuickMenuOpen(false);
-			}
-		};
-		pushEscLayer('composer-quick', () => setQuickMenuOpen(false));
-		document.addEventListener('mousedown', onDoc);
-		return () => {
-			document.removeEventListener('mousedown', onDoc);
-			popEscLayer('composer-quick');
-		};
-	}, [quickMenuOpen]);
+	useDismiss({
+		open: quickMenuOpen,
+		onClose: () => setQuickMenuOpen(false),
+		escId: 'composer-quick',
+		keepOpenRefs: [quickMenuRef],
+	});
 
 	useEffect(() => {
 		if (!taExpanded) {

@@ -13,7 +13,7 @@ import {readdirSync, readFileSync, statSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {describe, expect, it} from 'vitest';
 
-const roots = ['src/components', 'src/features', 'src/pages'];
+const roots = ['src/components', 'src/features', 'src/pages', 'src/ui'];
 
 const sources = roots.flatMap(root => {
   const abs = resolve(process.cwd(), root);

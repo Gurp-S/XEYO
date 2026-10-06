@@ -1,5 +1,6 @@
 import {type HTMLAttributes, type ReactNode, type Ref} from 'react';
 import {cn} from '@/lib/utils';
+import {useScrollArea} from '@/ui/useScrollArea';
 
 type PageShellProps = {
 	/**
@@ -29,6 +30,9 @@ export function PageShell({
 	children,
 	...rest
 }: PageShellProps) {
+	// 窄版正文带 hover 皮肤（历史上就只挂了类、没接 hook，滑块因此一直是
+	// transparent）；宽版走全局常显皮肤，不接这条。
+	const area = useScrollArea({edgeFade: false, enabled: !wide});
 	return (
 		<div
 			className={cn('xy-usage-page flex min-h-0 flex-1 flex-col', className)}
@@ -57,6 +61,7 @@ export function PageShell({
 					'relative min-h-0 flex-1 overflow-y-auto px-4 py-4',
 					!wide && 'xy-hover-scroll',
 				)}
+				{...area.scrollerProps}
 			>
 				{wide ? (
 					children

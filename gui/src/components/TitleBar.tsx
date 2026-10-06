@@ -4,7 +4,7 @@ import {REVIEW_LAYOUT_ENABLED} from '@/lib/reviewLayout';
 import {FileMenu} from '@/components/FileMenu';
 import {SettingsModal} from '@/components/SettingsModal';
 import {isTauri} from '@/lib/tauri';
-import {popEscLayer, pushEscLayer} from '@/lib/escStack';
+import {useDismiss} from '@/ui/useDismiss';
 import {cn} from '@/lib/utils';
 import {useEffect, useRef, useState} from 'react';
 import {useSettingsStore} from '@/stores/settingsStore';
@@ -77,38 +77,17 @@ export function TitleBar() {
 		return () => html.removeAttribute('data-window-maximized');
 	}, [maximized]);
 
-	useEffect(() => {
-		if (!themeOpen) {
-			return;
-		}
-		const onDoc = (e: Event) => {
-			const t = e.target as Node | null;
-			if (themeWrapRef.current && t && !themeWrapRef.current.contains(t)) {
-				setThemeOpen(false);
-			}
-		};
-		const onKey = (e: KeyboardEvent) => {
-			if (e.key === 'Escape') {
-				setThemeOpen(false);
-			}
-		};
-		document.addEventListener('mousedown', onDoc);
-		document.addEventListener('keydown', onKey);
-		return () => {
-			document.removeEventListener('mousedown', onDoc);
-			document.removeEventListener('keydown', onKey);
-		};
-	}, [themeOpen]);
-
-	// 主题菜单的 Esc 走 escStack 顶层：document 冒泡监听在流式期间会被
-	// 「停止生成」层先吃掉（Esc 停回合、菜单还开着）。
-	useEffect(() => {
-		if (!themeOpen) {
-			return;
-		}
-		pushEscLayer('titlebar-theme', () => setThemeOpen(false));
-		return () => popEscLayer('titlebar-theme');
-	}, [themeOpen]);
+	// 关闭配对：Esc 走 escStack 顶层（document 冒泡监听在流式期间会被「停止生成」
+	// 层先吃掉 —— Esc 停回合、菜单还开着），外点关闭。
+	// 原先这里还各挂了一份 document keydown 兜底 Esc：escStack 在捕获阶段就
+	// stopPropagation 了，本菜单是最上层时那份从不触发，不是最上层时它反而会
+	// 越级关掉下层，所以随重构一并去掉。
+	useDismiss({
+		open: themeOpen,
+		onClose: () => setThemeOpen(false),
+		escId: 'titlebar-theme',
+		keepOpenRefs: [themeWrapRef],
+	});
 
 	const theme = useSettingsStore(s => s.theme);
 	const update = useSettingsStore(s => s.update);

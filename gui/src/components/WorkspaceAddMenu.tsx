@@ -12,7 +12,6 @@ import {
 	useCallback,
 	useEffect,
 	useId,
-	useLayoutEffect,
 	useMemo,
 	useRef,
 	useState,
@@ -22,7 +21,8 @@ import {
 } from 'react';
 import {createPortal} from 'react-dom';
 import {pickFolder} from '@/lib/openFolder';
-import {popEscLayer, pushEscLayer} from '@/lib/escStack';
+import {useAnchoredPanel} from '@/ui/useAnchoredPanel';
+import {useDismiss} from '@/ui/useDismiss';
 import {looksLikeFsPath, uniqueParentDirs} from '@/lib/paths';
 import {toast} from '@/lib/toast';
 import {isImeComposing} from '@/lib/ime';
@@ -114,7 +114,6 @@ function WorkspaceAddMenu({
 	const searchRef = useRef<HTMLInputElement>(null);
 	const [view, setView] = useState<MenuView>('root');
 	const [query, setQuery] = useState('');
-	const [pos, setPos] = useState<{top: number; left: number} | null>(null);
 	const [localRepos, setLocalRepos] = useState<string[]>([]);
 	const [loadingRepos, setLoadingRepos] = useState(false);
 
@@ -137,66 +136,46 @@ function WorkspaceAddMenu({
 		return localRepos.filter(p => p.toLowerCase().includes(q));
 	}, [localRepos, query]);
 
-	useLayoutEffect(() => {
-		const update = () => {
-			const btn = anchorRef.current;
-			const el = menuRef.current;
-			if (!btn) {
-				return;
-			}
-			const rect = btn.getBoundingClientRect();
-			const width = el?.offsetWidth || 280;
-			const height = el?.offsetHeight || 320;
+	// 定位公式留在宿主（它读面板自身尺寸做翻转），监听与重算走全局回路；
+	// view 与两个列表长度进 revision —— 内容一变就要重测，否则换视图后位置是旧的。
+	const panelStyle = useAnchoredPanel({
+		open: true,
+		anchorRef,
+		revision: `${view}|${filteredRecents.length}|${filteredLocal.length}`,
+		place: (rect, vp) => {
+			const width = menuRef.current?.offsetWidth || 280;
+			const height = menuRef.current?.offsetHeight || 320;
 			const pad = 8;
 			let left = rect.left;
-			if (left + width > window.innerWidth - pad) {
+			if (left + width > vp.width - pad) {
 				left = Math.max(pad, rect.right - width);
 			}
 			let top = rect.bottom + 6;
-			if (top + height > window.innerHeight - pad) {
+			if (top + height > vp.height - pad) {
 				top = Math.max(pad, rect.top - height - 6);
 			}
-			setPos({top, left});
-		};
-		update();
-		window.addEventListener('resize', update);
-		window.addEventListener('scroll', update, true);
-		return () => {
-			window.removeEventListener('resize', update);
-			window.removeEventListener('scroll', update, true);
-		};
-	}, [anchorRef, view, filteredRecents.length, filteredLocal.length]);
+			return {top, left};
+		},
+	});
 
 	useEffect(() => {
 		searchRef.current?.focus();
 	}, [view]);
 
-	useEffect(() => {
-		pushEscLayer('workspace-add', () => {
+	useDismiss({
+		open: true,
+		onClose: () => {
+			// 子视图里 Esc 先退回根视图，不整块关掉。
 			if (view !== 'root') {
 				setView('root');
 				setQuery('');
 				return;
 			}
 			onClose();
-		});
-		return () => popEscLayer('workspace-add');
-	}, [onClose, view]);
-
-	useEffect(() => {
-		const onDoc = (e: MouseEvent) => {
-			const t = e.target as Node | null;
-			if (!t) {
-				return;
-			}
-			if (menuRef.current?.contains(t) || anchorRef.current?.contains(t)) {
-				return;
-			}
-			onClose();
-		};
-		document.addEventListener('mousedown', onDoc);
-		return () => document.removeEventListener('mousedown', onDoc);
-	}, [anchorRef, onClose]);
+		},
+		escId: 'workspace-add',
+		keepOpenRefs: [menuRef, anchorRef],
+	});
 
 	useEffect(() => {
 		if (view !== 'this-pc') {
@@ -346,11 +325,7 @@ function WorkspaceAddMenu({
 			role="dialog"
 			aria-label="添加工作区"
 			className="xy-menu-flyout fixed z-[90] w-[280px] overflow-hidden rounded-2xl border border-line/50 py-1.5"
-			style={
-				pos
-					? {top: pos.top, left: pos.left}
-					: {top: 0, left: 0, visibility: 'hidden'}
-			}
+			style={panelStyle ?? {top: 0, left: 0, visibility: 'hidden'}}
 			onMouseDown={e => e.stopPropagation()}
 		>
 			{view !== 'root' ? (

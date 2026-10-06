@@ -2,6 +2,7 @@ import {useEffect, useRef, useState} from 'react';
 import {useChatStore} from '@/stores/chatStore';
 import {useChatUiStore} from '@/stores/chatUiStore';
 import {popEscLayer, pushEscLayer} from '@/lib/escStack';
+import {useDismiss} from '@/ui/useDismiss';
 import {useSettingsStore} from '@/stores/settingsStore';
 import {Composer} from '@/components/Composer';
 import {MessageList} from '@/components/MessageList';
@@ -104,28 +105,14 @@ function ImmersiveModelPicker() {
 	const btnRef = useRef<HTMLButtonElement>(null);
 	// 与 Composer 的模型弹层同款配对：外点关闭 + Esc 层。沉浸版此前两者都缺：
 	// 弹层打开后只能再点一次按钮才关，按 Esc 反而把整块侧板关掉。
-	useEffect(() => {
-		if (!open) {
-			return;
-		}
-		const onDoc = (e: MouseEvent) => {
-			const target = e.target as Node;
-			if (btnRef.current?.contains(target)) {
-				return;
-			}
-			// 弹层是 portal 到 body 的：命中弹层自身（id=menuId）不算外点。
-			if (document.getElementById('immersive-model-picker')?.contains(target)) {
-				return;
-			}
-			setOpen(false);
-		};
-		pushEscLayer('immersive-model', () => setOpen(false));
-		document.addEventListener('mousedown', onDoc);
-		return () => {
-			document.removeEventListener('mousedown', onDoc);
-			popEscLayer('immersive-model');
-		};
-	}, [open]);
+	// 沉浸层的模型菜单：弹层 portal 到 body，所以按 id 放行命中弹层自身。
+	useDismiss({
+		open,
+		onClose: () => setOpen(false),
+		escId: 'immersive-model',
+		keepOpenRefs: [btnRef],
+		panelId: 'immersive-model-picker',
+	});
 	return (
 		<div className="relative">
 			<button

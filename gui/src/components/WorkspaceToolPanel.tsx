@@ -5,6 +5,7 @@ import {REVIEW_LAYOUT_ENABLED} from '@/lib/reviewLayout';
 import {PaneResizeHandle} from '@/components/PaneResizeHandle';
 import {PaneSlot} from '@/components/PaneSlot';
 import {useHoverScroll} from '@/hooks/useHoverScroll';
+import {useScrollArea} from '@/ui/useScrollArea';
 import {CHAT_MIN_READABLE, usePaneChatHostWidth} from '@/hooks/paneViewportClamp';
 import {usePaneResize} from '@/hooks/usePaneResize';
 import {usePresence} from '@/hooks/usePresence';
@@ -76,6 +77,7 @@ function HistoryCommandsBody() {
 	const [copied, setCopied] = useState<string | null>(null);
 	// 文件树式折叠：每个节点独立展开/收起（常挂载 grid-rows 平滑动画）。
 	const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+	const area = useScrollArea({edgeFade: false});
 
 	const onCopy = async (input: string) => {
 		try {
@@ -89,7 +91,10 @@ function HistoryCommandsBody() {
 
 	return (
 		<div className="flex h-full flex-col">
-			<div className="xy-hover-scroll min-h-0 flex-1 overflow-auto px-1.5 py-2">
+			<div
+				className="xy-hover-scroll min-h-0 flex-1 overflow-auto px-1.5 py-2"
+				{...area.scrollerProps}
+			>
 				{commands.length === 0 ? (
 					<p className="py-4 text-center text-[12px] text-mute">当前对话还没有命令行</p>
 				) : (
@@ -216,10 +221,14 @@ function CommitsBody() {
 
 	const commits = log?.repo ? log.commits : [];
 	usePanelSubtitle(log?.repo ? `git log · ${commits.length} 条` : '');
+	const area = useScrollArea({edgeFade: false});
 
 	return (
 		<div className="flex h-full flex-col">
-			<div className="xy-hover-scroll min-h-0 flex-1 overflow-auto px-1.5 py-2">
+			<div
+				className="xy-hover-scroll min-h-0 flex-1 overflow-auto px-1.5 py-2"
+				{...area.scrollerProps}
+			>
 				{error ? (
 					<p className="py-2 text-[11px] text-danger">加载失败：{error}</p>
 				) : !log ? (

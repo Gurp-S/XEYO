@@ -4,7 +4,7 @@ import {useLocation} from 'react-router-dom';
 import {useChatUiStore} from '@/stores/chatUiStore';
 import {useChatStore} from '@/stores/chatStore';
 import {newSession, pageViewFromPath} from '@/lib/appNav';
-import {popEscLayer, pushEscLayer} from '@/lib/escStack';
+import {useDismiss} from '@/ui/useDismiss';
 import {cn} from '@/lib/utils';
 import {
 	formatCacheHitPercent,
@@ -214,22 +214,12 @@ const usage = pageViewOpen ? null : sessionUsageById[activeId ?? ''] ?? null;
 		};
 		const onBarLeave = () => setSegTip(null);
 
-		useEffect(() => {
-			if (!usagePreviewOpen) {
-				return;
-			}
-			const onDocumentMouseDown = (event: MouseEvent) => {
-				if (!usagePreviewRef.current?.contains(event.target as Node)) {
-					setUsagePreviewOpen(false);
-				}
-			};
-			pushEscLayer('usage-popover', () => setUsagePreviewOpen(false));
-			document.addEventListener('mousedown', onDocumentMouseDown);
-			return () => {
-				document.removeEventListener('mousedown', onDocumentMouseDown);
-				popEscLayer('usage-popover');
-			};
-		}, [usagePreviewOpen]);
+		useDismiss({
+			open: usagePreviewOpen,
+			onClose: () => setUsagePreviewOpen(false),
+			escId: 'usage-popover',
+			keepOpenRefs: [usagePreviewRef],
+		});
 
 		useEffect(() => {
 			setUsagePreviewOpen(false);

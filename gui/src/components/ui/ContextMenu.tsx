@@ -13,7 +13,7 @@ import {createPortal} from 'react-dom';
 import {ChevronRight} from 'lucide-react';
 import {cn} from '@/lib/utils';
 import {MenuSeparator} from './MenuSeparator';
-import {pushEscLayer, popEscLayer} from '@/lib/escStack';
+import {useDismiss} from '@/ui/useDismiss';
 import {
 	closeContextMenu,
 	openContextMenu,
@@ -246,28 +246,18 @@ function ContextMenuPanel({
 		setPos(clampPos(x, y, el.offsetWidth, el.offsetHeight));
 	}, [x, y, items]);
 
-	useEffect(() => {
-		pushEscLayer(escId, onClose);
-		return () => popEscLayer(escId);
-	}, [escId, onClose]);
-
-	useEffect(() => {
-		const onPointerDown = (event: PointerEvent) => {
-			const t = event.target;
-			if (t instanceof Element && t.closest(`[${MENU_ATTR}]`)) {
-				return;
-			}
-			onClose();
-		};
-		// 等当前右键手势结束再监听，避免立刻关掉
-		const t = window.setTimeout(() => {
-			document.addEventListener('pointerdown', onPointerDown, true);
-		}, 0);
-		return () => {
-			window.clearTimeout(t);
-			document.removeEventListener('pointerdown', onPointerDown, true);
-		};
-	}, [onClose]);
+	// 关闭配对：Esc 走 escStack；外点用属性选择器放行 —— 一层菜单可能带一个
+	// 子菜单面板（都挂在 body 上），逐个 ref 放行会漏，closest 才是要的形状。
+	// arm:'nextTick' 是因为本菜单由右键手势打开，那一次按下不能立刻把它关掉。
+	useDismiss({
+		open: true,
+		onClose,
+		escId,
+		keepOpenSelector: `[${MENU_ATTR}]`,
+		dismissOn: 'pointerdown',
+		capture: true,
+		arm: 'nextTick',
+	});
 
 	const openSubmenuAt = useCallback((id: string, el: HTMLElement | null) => {
 		setSubmenuId(id);

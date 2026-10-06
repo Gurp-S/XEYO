@@ -286,3 +286,8 @@
 .xy-workspace-chrome .xy-hover-scroll::-webkit-scrollbar-thumb:hover {
   border-width: 1px;
 }
+/* 宿主档同样收边框：工作区面板里的叶子正文，滑块粗细要与同栏其它面板一致。 */
+.xy-workspace-chrome .xy-hover-host-on .xy-hover-scroll::-webkit-scrollbar-thumb,
+.xy-workspace-chrome .xy-hover-host-on .xy-hover-scroll::-webkit-scrollbar-thumb:hover {
+  border-width: 1px;
+}
