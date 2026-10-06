@@ -13,6 +13,3 @@ def source_messages(store, layout):
         return store.as_api_messages()
     # The API/export view stays unchanged. Compression uses its own source view.
     return AppendStateStore(list(store.items)).as_api_messages()
-
-
-\n

@@ -115,6 +115,3 @@ def _finalize_mcp_result(
 		images=images or None,
 		metadata=final_meta or None,
 	)
-
-
-\n

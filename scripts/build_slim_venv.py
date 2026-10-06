@@ -100,6 +100,18 @@ SITE_PRUNE_GLOBS = [
 ]
 
 
+def _configure_console() -> None:
+    """Keep Chinese build diagnostics printable on Windows CI consoles."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except (OSError, ValueError):
+            pass
+
+
 def _log(msg: str) -> None:
     print(msg, flush=True)
 
@@ -427,6 +439,7 @@ def _cleanup_aside(dst: str, done: bool) -> None:
 
 
 def main() -> None:
+    _configure_console()
     ap = argparse.ArgumentParser(description="构建自包含 Python 运行时到 resources/python/.venv")
     ap.add_argument("--tag", default=os.environ.get("XEYO_PBS_TAG"),
                     help="python-build-standalone 发行 tag，默认 latest")

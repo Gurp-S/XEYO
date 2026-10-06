@@ -203,5 +203,3 @@ def test_shared_decoder_guaranteed_properties() -> None:
 		assert isinstance(out, str)
 		assert out != "", f"非空字节被解成空串（就是被吞掉的形状）：{payload[:8]!r}"
 	assert decode_child_output(b"plain ascii") == "plain ascii"
-
-\n

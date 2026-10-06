@@ -63,7 +63,7 @@ def main():
                     )
                 else:
                     shutil.copy2(sp2, dp2)
-            print(f"  COPY memory/ (精选子模块)")
+            print("  COPY memory/ (selected modules)")
             continue
         if item in KEEP_TOP:
             dp = os.path.join(DST, item)
@@ -75,7 +75,7 @@ def main():
                 ),
             )
             print(f"  COPY {item}")
-    print(f"=== 精简完成: {DST} ===")
+    print(f"=== Slim Python source prepared: {DST} ===")
 
 
 if __name__ == "__main__":

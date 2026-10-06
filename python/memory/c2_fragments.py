@@ -55,5 +55,3 @@ def store_c2_fragments(working, left: list[dict]) -> None:
 		memindex.store_fragments(working.session_id, rows)
 	except Exception:  # noqa: BLE001 — 增强项绝不阻塞压缩热路径
 		pass
-
-\n
