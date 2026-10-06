@@ -8,6 +8,7 @@ import {
 import type {ChatMessage} from '@/lib/types';
 import {useChatStore} from '@/stores/chatStore';
 import {useChatUiStore} from '@/stores/chatUiStore';
+import {useSwitchLag} from '@/stores/chat/switchLag';
 import {isSmoothnessOn, useSettingsStore} from '@/stores/settingsStore';
 
 const EMPTY_MESSAGES: ChatMessage[] = [];
@@ -59,6 +60,8 @@ export function useMessageListStore(
 	   判据与 isLoading 完全同源（props.isLoading 优先），drain 阶段
 	   （isLoading 假、draining 真）依旧走 store 路径，打字机不受影响。 */
 	const signalMode = streamSignalsEnabled && props.streamingText === undefined;
+	// 切会话首帧先按旧会话渲染（覆盖层盖着），下一帧追平 —— 见 chat/switchLag。
+	const lagState = useSwitchLag();
 
 	// 将所有选中字段拍平——嵌套对象会破坏 useShallow（每次
 	// 调用产生新引用 → React useSyncExternalStore 死循环）。
@@ -82,7 +85,10 @@ export function useMessageListStore(
 		anyStreaming,
 	} = useChatUiStore(
 		useShallow(s => {
-			const id = s.activeId;
+			const id =
+				lagState.lagging && lagState.displayed
+					? lagState.displayed
+					: s.activeId;
 			const stream = selectActiveSessionStream(s);
 			const viewing = Boolean(id && sessionStreamActive(s, id));
 			/* 与下方 streamingSignal 严格同一判据（props.isLoading 优先）：

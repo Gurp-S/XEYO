@@ -40,6 +40,33 @@
   --xy-rule-weak: color-mix(in oklch, var(--xy-line) 40%, transparent);
   --xy-rule: color-mix(in oklch, var(--xy-line) 60%, transparent);
   --xy-rule-strong: color-mix(in oklch, var(--xy-line) 70%, transparent);
+  /* 用量页热力图五档：只由 accent × paper 混出来，两套主题共用这一份定义
+     （与上面 --xy-rule-* 同一手法：这里引用的是变量，落到 html 上按当前主题解析）。 */
+  --xy-heat-0: color-mix(in oklch, var(--xy-line) 55%, var(--xy-paper));
+  --xy-heat-1: color-mix(in oklch, var(--xy-accent) 14%, var(--xy-paper));
+  --xy-heat-2: color-mix(in oklch, var(--xy-accent) 30%, var(--xy-paper));
+  --xy-heat-3: color-mix(in oklch, var(--xy-accent) 52%, var(--xy-paper));
+  --xy-heat-4: color-mix(in oklch, var(--xy-accent) 78%, var(--xy-paper));
+  /* 分模型系列色六档：墨阶由深到浅（同一色系，不引入第二套语义色）。
+     第 7 个模型起循环——超过 6 个模型的日子靠图例行区分，不靠颜色。 */
+  --xy-series-1: var(--xy-accent);
+  --xy-series-2: color-mix(in oklch, var(--xy-accent) 78%, var(--xy-paper));
+  --xy-series-3: color-mix(in oklch, var(--xy-accent) 60%, var(--xy-paper));
+  --xy-series-4: color-mix(in oklch, var(--xy-accent) 42%, var(--xy-paper));
+  --xy-series-5: color-mix(in oklch, var(--xy-accent) 26%, var(--xy-paper));
+  --xy-series-6: color-mix(in oklch, var(--xy-accent) 14%, var(--xy-paper));
+}
+html[data-scheme="dark"] {
+  /* 深底上同一批百分比会被"读暗"，所以整组上移一档；上面那份是浅色的。 */
+  --xy-heat-1: color-mix(in oklch, var(--xy-accent) 22%, var(--xy-paper));
+  --xy-heat-2: color-mix(in oklch, var(--xy-accent) 40%, var(--xy-paper));
+  --xy-heat-3: color-mix(in oklch, var(--xy-accent) 62%, var(--xy-paper));
+  --xy-heat-4: color-mix(in oklch, var(--xy-accent) 88%, var(--xy-paper));
+  --xy-series-2: color-mix(in oklch, var(--xy-accent) 88%, var(--xy-paper));
+  --xy-series-3: color-mix(in oklch, var(--xy-accent) 72%, var(--xy-paper));
+  --xy-series-4: color-mix(in oklch, var(--xy-accent) 55%, var(--xy-paper));
+  --xy-series-5: color-mix(in oklch, var(--xy-accent) 38%, var(--xy-paper));
+  --xy-series-6: color-mix(in oklch, var(--xy-accent) 22%, var(--xy-paper));
 }
 html[data-scheme="dark"] {
   --xy-rule-weak: color-mix(in oklch, var(--xy-line) 52%, transparent);

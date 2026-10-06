@@ -1,86 +1,49 @@
 import {Fragment, useEffect, useMemo, useRef, useState, type ReactNode} from 'react';
-import {ChevronDown, ChevronRight, X} from 'lucide-react';
+import {ChevronDown, ChevronRight, Download} from 'lucide-react';
+import {fetchLiveUsageDay, type LiveUsageDayDetail, type LiveUsageReport} from '@/lib/api';
+import {DonutCard, type DonutSegment} from '@/components/usage/DonutCard';
+import {ModelTable} from '@/components/usage/ModelTable';
+import {TokenActivityHeatmap} from '@/components/usage/TokenActivityHeatmap';
+import {TurnDrilldown} from '@/components/usage/TurnDrilldown';
+import {downloadUsageJson} from '@/components/usage/exportUsageJson';
+import {seriesColor} from '@/components/usage/palette';
 import {
-	getMemoryReportDay,
-	type A3ReportData,
-	type A3ReportDayDetail,
-	type A3ReportDaySummary,
-} from '@/lib/api';
-import {formatCacheHitPercent, formatMoney, formatTokenCount} from '@/lib/formatUsage';
+	NO_DATA,
+	NO_PRICE,
+	PARTIAL,
+	costLabel,
+	generatedLabel,
+	intLabel,
+	rateLabel,
+	shortModel,
+	snapshotLabel,
+	tokenLabel,
+} from '@/components/usage/labels';
+import {formatMoney, formatTokenCount} from '@/lib/formatUsage';
 import {computeUsageSegments, segmentWidths} from '@/lib/usageSegments';
+import {toast} from '@/lib/toast';
 import {cn} from '@/lib/utils';
+import {A3DayNavigator} from './review/A3DayNavigator';
 
 /**
- * A3 日监控报告的原生视图（用量页）。
+ * 用量页的看板视图（数据来自 `GET /v1/usage/report`，即本机账本的实时聚合）。
  *
- * 前身是用量页里的一个 iframe：那份 HTML 有 10 MB，其中 99.6 % 是生成器内嵌的
- * `window.__A3__` JSON（实测 10,587,777 / 10,629,939 字节，其中一半是 `total` 重嵌的
- * 同一份明细），于是界面只能贴整个网页——白底、不跟主题、看不出是本 app 的东西。
- * 这里改吃 `GET /v1/settings/memory/report/data`（同一份数据裁到 12 KB 左右），
- * 配色一律走 `var(--xy-*)`。命中/未命中的输入 token 构成用 `usageSegments` 的纯计算。
- * 小时分布不复用共享的 `UsageChart`：它把零高度的柱子直接不渲染、且 x 轴刻度点写死成
- * 四个索引，表达不出「24 小时都在标度上 + 零轮次的小时也占一格 + 固定 0/6/12/18/23 刻度」。
- * 为不动这个被多处共用的组件，这里在本面板内做一个只依赖 `var(--xy-*)` 的按小时槽位直方图。
+ * 演进：最早用量页贴 A3 报告的 10 MB 网页（iframe，白底、不跟主题）；R5 换成吃
+ * `/report/data` 的原生视图，但那份数据仍是**快照**——不点「立即快照」，今天就是空的。
+ * 现在改吃实时账本，快照降级成次要动作（生成网页报告 / 浏览器打开），界面与表D 各读
+ * 各的源，但同一套口径（对账钉在 `python/tests/test_usage_live_report.py`）。
  *
- * 口径说明（对齐报告本身的算法）：
+ * 与网页报告的功能对齐：模型多选过滤、四张环形卡（命中率 / 输入构成 / 成本 / 请求
+ * 分模型，弧与明细行互相高亮）、分模型对比条、会话明细里的"每枪一行" + 用户消息搜索 +
+ * 模型 chip、导出 JSON。配色一律 `var(--xy-*)`（写死色由本文件的源码门扫）。
+ *
+ * 口径：
  * - 命中率 = cache_hit / (cache_hit + cache_miss)，与网页 `pct(hit/(hit+miss))` 同式；
- * - 小时分布按**服务端本地小时**分桶（生成器 `hourOf(ts)` 用的也是渲染机本地小时）；
- * - 轮次明细的原始 `events` 数组不下发，只下发条数。
+ * - 小时分布按**轮次**首笔时间、北京时间分桶（与 `day` 字段同时区）；
+ * - 环形卡/分模型表受多选过滤影响，KPI 与热力图始终是当天/全区间的完整口径——
+ *   过滤是"看哪几个模型"，不是"重算这一天"。
  */
 
-/** 数据里没有这项时统一说的话——不猜、不用 0 顶、不静默画 dashes。 */
-const NO_DATA = '数据里没有';
-
-function intLabel(value?: number | null): string {
-	return value == null ? NO_DATA : Math.round(value).toLocaleString('en-US');
-}
-
-function tokenLabel(value?: number | null): string {
-	return value == null ? NO_DATA : formatTokenCount(value);
-}
-
-/** 紧凑 token，去掉 " tok" 单位——用在成对的「命中/输入」这种单位已在表头言明的格子里。 */
-function compactToken(value?: number | null): string {
-	return value == null ? NO_DATA : formatTokenCount(value).replace(/ tok$/, '');
-}
-
-/** 成本：统一走 `formatMoney`（≥¥1 两位、<¥1 四位）；0 是真值，不当缺失。 */
-function costLabel(value?: number | null): string {
-	return value == null || !Number.isFinite(value) ? NO_DATA : formatMoney(value);
-}
-
-/** 命中率优先用 hit/miss 两个分母算（与网页同式），两者都没有才退到 hit_rate 字段。 */
-function rateLabel(day: {
-	cache_hit?: number | null;
-	cache_miss?: number | null;
-	hit_rate?: number | null;
-}): string {
-	const oneDecimal =
-		day.cache_hit != null && day.cache_miss != null
-			? formatCacheHitPercent(day.cache_hit, day.cache_miss)
-			: null;
-	if (oneDecimal) return `${oneDecimal}%`;
-	if (day.hit_rate != null) return `${(day.hit_rate * 100).toFixed(1)}%`;
-	return NO_DATA;
-}
-
-function timeLabel(ts?: number | null): string {
-	if (ts == null) return NO_DATA;
-	const date = new Date(ts * 1000);
-	return Number.isNaN(date.getTime()) ? NO_DATA : date.toTimeString().slice(0, 8);
-}
-
-function generatedLabel(iso: string): string {
-	if (!iso) return NO_DATA;
-	const date = new Date(iso);
-	return Number.isNaN(date.getTime()) ? iso : date.toLocaleString(undefined, {dateStyle: 'medium', timeStyle: 'short'});
-}
-
-function shortModel(model?: string): string {
-	return (model || '').split('/').pop() || '未记模型';
-}
-
-/** KPI 单元：扁平一层；格线由网格 `gap-px` + 底色 `bg-line` 拼出，不套卡片。 */
 function Kpi({
 	label,
 	sub,
@@ -93,7 +56,7 @@ function Kpi({
 	extra?: ReactNode;
 }) {
 	return (
-		<div className="min-w-0 bg-paper px-4 py-3" data-a3-kpi={label}>
+		<div className="xy-a3-kpi min-w-0 bg-paper px-4 py-3" data-a3-kpi={label}>
 			<div className="flex items-baseline gap-1.5">
 				<span className="text-[12px] text-ink-soft">{label}</span>
 				{sub ? <span className="text-[10px] tracking-wide text-mute">{sub}</span> : null}
@@ -109,12 +72,12 @@ function Kpi({
 /**
  * 命中率下面那根构成条：直接吃 `usageSegments` 的纯计算，不另立图形原语。
  *
- * 报告的一天给的 `cache_hit` / `cache_miss` 就是**输入 token 的两半**（实测恒等于
- * `prompt_tokens`：23,971,930 + 2,300,223 = 26,272,153），与该模块回退分段的口径同形，
- * 所以复用它的分段与宽度算法；配色由模块给出，本来就是 `var(--xy-chart-*)` 令牌。
- * 两者都为 0 / 读不出时整条不渲染——宽度钳制有 0.5% 下限，画出来会是假的五五分。
+ * 一天的 `cache_hit` / `cache_miss` 就是**输入 token 的两半**（实测恒等于 prompt_tokens），
+ * 与该模块回退分段的口径同形，所以复用它的分段与宽度算法；配色由模块给出，本来就是
+ * `var(--xy-chart-*)` 令牌。两者都为 0 / 读不出时整条不渲染——宽度钳制有 0.5 % 下限，
+ * 画出来会是假的五五分。
  */
-function InputCacheSplit({day}: {day: A3ReportDaySummary}) {
+function InputCacheSplit({day}: {day: LiveUsageReport['days'][number]}) {
 	const {segments, denominator} = useMemo(
 		() =>
 			computeUsageSegments({
@@ -172,37 +135,35 @@ function Th({children, num = false}: {children: ReactNode; num?: boolean}) {
 		>
 			{children}
 		</th>
-	);
+	)
 }
 
 function Td({children, num = false}: {children: ReactNode; num?: boolean}) {
 	return (
-		<td className={cn('px-3 py-1.5', num ? 'text-right tabular-nums' : 'text-left')}>
-			{children}
-		</td>
+		<td className={cn('px-3 py-1.5', num ? 'text-right tabular-nums' : 'text-left')}>{children}</td>
 	);
 }
 
-/** 单位成本 = 当日成本 / 当日请求数；任一缺失就说缺失，不合成一个看起来像数的东西。 */
-function perRequestLabel(day: A3ReportDaySummary): string {
-	if (day.cost_cny == null || day.requests == null || day.requests <= 0) {
-		return NO_DATA;
-	}
-	return formatMoney(day.cost_cny / day.requests);
+/** 单位成本 = 当日成本 / 当日请求数；缺价目/缺请求数就说缺失，不合成一个看起来像数的东西。 */
+function perRequestLabel(day: LiveUsageReport['days'][number]): string {
+	if (day.cost_cny === null) return NO_PRICE;
+	if (day.cost_cny == null || day.requests == null || day.requests <= 0) return NO_DATA;
+	const money = formatMoney(day.cost_cny / day.requests);
+	return day.cost_unknown_requests != null && day.cost_unknown_requests > 0
+		? `${money}（${PARTIAL}）`
+		: money;
 }
 
 /** 固定的 x 轴刻度小时（末点取 23 而非 24，保证「到 23:59 为止」这一档可读）。 */
 const HOUR_TICKS = [0, 6, 12, 18, 23] as const;
 
 /**
- * 请求 · 小时分布：固定 24 槽，小时即索引，零轮次的小时也在标度上占一格。
+ * 请求活动：固定 24 槽，小时即索引，零轮次的小时也在标度上占一格。
  *
  * 共享的 `UsageChart` 会跳过零高度柱子、且把 x 刻度写死成四个索引，做不到这点；
- * 为不动它，这里在本面板内用 `var(--xy-*)` 令牌画最简槽位图（柱子按小时定位，
- * 高度 = 该小时轮数 / 峰值；零小时给一根 3px 的 `--xy-line` 底桩占位）。
+ * 为不动它，这里在本面板内用 `var(--xy-*)` 令牌画最简槽位图。
  */
-function HourHistogram({day}: {day: A3ReportDaySummary}) {
-	// 定长 24：越界/缺失补 0，杜绝「有几桶画几格」把柱子挤到左边。
+function HourHistogram({day}: {day: LiveUsageReport['days'][number]}) {
 	const slots = useMemo(
 		() =>
 			Array.from({length: 24}, (_, hour) => {
@@ -216,11 +177,11 @@ function HourHistogram({day}: {day: A3ReportDaySummary}) {
 	return (
 		<div className="px-4 py-3">
 			<div className="flex flex-wrap items-baseline justify-between gap-2">
-				<h3 className="text-[13px] font-medium text-ink">请求 · 小时分布</h3>
+				<h3 className="text-[13px] font-medium text-ink">活动分布 · 每小时轮次</h3>
 				<p className="text-[11px] text-mute">
 					{empty
-						? '这一天的报告数据里没有可分桶的轮次时间戳'
-						: '按轮次首次请求的服务端本地小时分桶' +
+						? '这一天没有可分桶的轮次时间戳'
+						: '0—23 点 · 北京时间' +
 							(day.hour_unknown > 0 ? `；${day.hour_unknown} 轮无时间戳，未计入` : '')}
 				</p>
 			</div>
@@ -269,311 +230,370 @@ function HourHistogram({day}: {day: A3ReportDaySummary}) {
 	);
 }
 
-function ModelTable({day}: {day: A3ReportDaySummary}) {
-	return (
-		<div className="overflow-x-auto px-4 py-3">
-			<h3 className="mb-2 text-[13px] font-medium text-ink">分模型</h3>
-			{day.by_model.length === 0 ? (
-				<p className="text-[12px] text-mute">这一天的报告数据里没有分模型行。</p>
-			) : (
-				<table className="w-full border-collapse text-[12px]">
-				<thead>
-					<tr className="border-y border-line bg-paper-deep">
-						<Th>模型</Th>
-						<Th>渠道</Th>
-						<Th num>命中率</Th>
-						<Th num>命中/输入</Th>
-						<Th num>请求</Th>
-						<Th num>输出</Th>
-						<Th num>成本</Th>
-					</tr>
-				</thead>
-				<tbody>
-					{day.by_model.map((m, i) => (
-						<tr
-							key={`${m.provider ?? ''}/${m.model ?? ''}-${i}`}
-							className="border-b border-line/60"
-						>
-							<Td>{shortModel(m.model)}</Td>
-							<Td>{m.provider ?? NO_DATA}</Td>
-							<Td num>{rateLabel(m)}</Td>
-							<Td num>
-								{m.cache_hit == null || m.cache_miss == null
-									? NO_DATA
-									: `${compactToken(m.cache_hit)} / ${compactToken((m.cache_hit ?? 0) + (m.cache_miss ?? 0))}`}
-							</Td>
-							<Td num>{intLabel(m.requests)}</Td>
-							<Td num>{tokenLabel(m.output)}</Td>
-							<Td num>{costLabel(m.cost_cny)}</Td>
-						</tr>
-					))}
-				</tbody>
-				</table>
-			)}
-		</div>
-	);
-}
-
 /** 会话明细：一次 `?day=` 请求换一天，切日即失效重取。 */
-function DayDetail({day, onClose}: {day: string; onClose: () => void}) {
-	const [detail, setDetail] = useState<A3ReportDayDetail | null>(null);
+function useDayDetail(selectedDay: string | undefined, wanted: boolean) {
+	const [detail, setDetail] = useState<LiveUsageDayDetail | null>(null);
 	const [error, setError] = useState('');
-	const [loading, setLoading] = useState(true);
+	const [loading, setLoading] = useState(false);
 	const requestRef = useRef(0);
 
 	useEffect(() => {
+		if (!wanted || !selectedDay) return;
 		const requestId = ++requestRef.current;
-		setDetail(null);
-		setError('');
 		setLoading(true);
-		void getMemoryReportDay(day).then(r => {
-			if (requestRef.current !== requestId) return;
-			if (r.ok && r.data) setDetail(r.data);
-			else setError(`没读到 ${day} 的会话明细（${r.message || 'unknown'}）`);
-			setLoading(false);
-		});
+		setError('');
+		void fetchLiveUsageDay(selectedDay)
+			.then(r => {
+				if (requestRef.current !== requestId) return;
+				if (r.ok && r.data) setDetail(r.data);
+				else {
+					setDetail(null);
+					setError(`没读到 ${selectedDay} 的会话明细（${r.message || 'unknown'}）`);
+				}
+			})
+			.catch(error => {
+				if (requestRef.current !== requestId) return;
+				setError(error instanceof Error ? error.message : '读取会话明细失败');
+			})
+			.finally(() => {
+				if (requestRef.current === requestId) setLoading(false);
+			});
 		return () => {
 			requestRef.current += 1;
 		};
-	}, [day]);
+	}, [selectedDay, wanted]);
 
-	return (
-		<div className="border-t border-line bg-paper">
-			<div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5">
-				<div className="min-w-0">
-					<h3 className="text-[13px] font-medium text-ink">会话明细 · {day}</h3>
-					<p className="mt-0.5 text-[11px] text-mute">
-						{loading
-							? '正在读取这一天的明细…'
-							: detail
-								? `${detail.sessions.length} 个会话 · ${detail.turns.length} 轮 · 原始 events 未下发，只给条数`
-								: error}
-					</p>
-				</div>
-				<button
-					type="button"
-					onClick={onClose}
-					aria-label="收起会话明细"
-					className="xy-icon-btn rounded-[var(--xy-radius-control)] p-1.5 text-mute hover:text-ink"
-				>
-					<X className="h-3.5 w-3.5" aria-hidden />
-				</button>
-			</div>
-			{detail ? (
-				<div className="max-h-[440px] overflow-auto">
-					<h4 className="px-4 pb-1 pt-2 text-[12px] font-medium text-ink-soft">
-						按轮次（一条用户消息一行）
-					</h4>
-					<table className="w-full border-collapse text-[12px]">
-						<thead className="sticky top-0 z-[1] border-y border-line bg-paper-deep">
-							<tr>
-								<Th>时间</Th>
-								<Th>会话</Th>
-								<Th>模型</Th>
-								<Th>消息</Th>
-								<Th num>命中率</Th>
-								<Th num>请求</Th>
-								<Th num>输出</Th>
-								<Th num>成本</Th>
-								<Th num>枪数</Th>
-							</tr>
-						</thead>
-						<tbody>
-							{detail.turns.map((t, i) => (
-								<tr key={`${t.session_id ?? ''}-${t.first_ts ?? ''}-${i}`} className="border-b border-line/60">
-									<Td>{timeLabel(t.first_ts)}</Td>
-									<Td>{t.session_id ?? NO_DATA}</Td>
-									<Td>{shortModel(t.model)}</Td>
-									<Td>
-										<span className="line-clamp-1 text-ink-soft" title={t.label}>
-											{t.label || '未命名消息'}
-										</span>
-									</Td>
-									<Td num>{rateLabel(t)}</Td>
-									<Td num>{intLabel(t.requests)}</Td>
-									<Td num>{tokenLabel(t.output)}</Td>
-									<Td num>{costLabel(t.cost_cny)}</Td>
-									<Td num>{intLabel(t.event_count)}</Td>
-								</tr>
-							))}
-						</tbody>
-					</table>
-					<h4 className="border-t border-line px-4 pb-1 pt-3 text-[12px] font-medium text-ink-soft">
-						按会话
-					</h4>
-					<table className="w-full border-collapse text-[12px]">
-						<thead className="sticky top-0 z-[1] border-y border-line bg-paper-deep">
-							<tr>
-								<Th>会话</Th>
-								<Th num>命中率</Th>
-								<Th num>请求</Th>
-								<Th num>输入</Th>
-								<Th num>输出</Th>
-								<Th num>成本</Th>
-							</tr>
-						</thead>
-						<tbody>
-							{detail.sessions.map((s, i) => (
-								<tr key={`${s.session_id ?? ''}-${i}`} className="border-b border-line/60">
-									<Td>{s.session_id ?? NO_DATA}</Td>
-									<Td num>{rateLabel(s)}</Td>
-									<Td num>{intLabel(s.requests)}</Td>
-									<Td num>{tokenLabel(s.prompt_tokens)}</Td>
-									<Td num>{tokenLabel(s.output)}</Td>
-									<Td num>{costLabel(s.cost_cny)}</Td>
-								</tr>
-							))}
-						</tbody>
-					</table>
-					{detail.turns.length === 0 && detail.sessions.length === 0 ? (
-						<p className="px-4 py-4 text-[12px] text-mute">这一天没有任何会话行。</p>
-					) : null}
-				</div>
-			) : loading ? null : (
-				<p className="px-4 py-4 text-[12px] text-warn">{error}</p>
-			)}
-		</div>
-	);
+	// 切日即作废：留着上一天的明细会让"这一天的会话数"读成假值。
+	useEffect(() => {
+		setDetail(null);
+		setError('');
+	}, [selectedDay]);
+
+	return {detail, error, loading};
 }
 
-export function A3NativePanel({data}: {data: A3ReportData}) {
+export function A3NativePanel({data}: {data: LiveUsageReport}) {
 	const lastDay = data.days.length > 0 ? data.days[data.days.length - 1]!.day : '';
 	const [selected, setSelected] = useState(lastDay);
-	const [detailDay, setDetailDay] = useState<string | null>(null);
+	const [detailOpen, setDetailOpen] = useState(false);
+	const [picked, setPicked] = useState<string[]>([]);
 
-	// 刷新后日集合可能变（补齐历史天 / 新的一天）：选中日不在集合里就回到最后一天。
+	// 刷新后日集合可能变（新的一天 / 账本补齐历史天）：选中日不在集合里就回到最后一天。
 	useEffect(() => {
-		if (!data.days.some(d => d.day === selected)) {
-			setSelected(lastDay);
-		}
+		if (!data.days.some(d => d.day === selected)) setSelected(lastDay);
 	}, [data.days, lastDay, selected]);
 
 	const day = data.days.find(d => d.day === selected) ?? data.days[data.days.length - 1];
+	const allModels = day?.by_model ?? [];
+	const colorIndex = useMemo(() => {
+		const map = new Map<string, number>();
+		allModels.forEach((m, i) => map.set(m.model ?? '', i));
+		return map;
+	}, [allModels]);
+	const colorOf = (model: string) => seriesColor(colorIndex.get(model) ?? 0);
+	const shownModels = picked.length
+		? allModels.filter(m => picked.includes(m.model ?? ''))
+		: allModels;
+
+	// 多选过滤只影响环形卡与分模型表；切日时清掉，避免"选中的模型今天没有"的空图。
+	useEffect(() => {
+		setPicked([]);
+	}, [selected]);
+
+	const {detail, error: detailError, loading: detailLoading} = useDayDetail(day?.day, detailOpen);
+
+	const seg = (model: string): DonutSegment['color'] => colorOf(model);
+	const hitSegments: DonutSegment[] = shownModels.map(m => {
+		const hit = m.cache_hit ?? 0;
+		const miss = m.cache_miss ?? 0;
+		const rate = hit + miss > 0 ? ((hit / (hit + miss)) * 100).toFixed(1) : '0.0';
+		return {
+			key: `hit-${m.model}`,
+			label: shortModel(m.model),
+			value: hit,
+			color: seg(m.model ?? ''),
+			percent: `${rate}%`,
+			valueLabel: `${formatTokenCount(hit)} / ${formatTokenCount(hit + miss)}`,
+		};
+	});
+	const inputSegments: DonutSegment[] = shownModels.map(m => ({
+		key: `in-${m.model}`,
+		label: m.model ?? '未记模型',
+		value: m.prompt_tokens ?? null,
+		color: seg(m.model ?? ''),
+	}));
+	const costSegments: DonutSegment[] = shownModels.map(m => ({
+		key: `cost-${m.model}`,
+		label: m.model ?? '未记模型',
+		value: m.cost_cny ?? null,
+		color: seg(m.model ?? ''),
+		valueLabel: costLabel(m.cost_cny, m.cost_unknown_requests),
+	}));
+	const reqSegments: DonutSegment[] = shownModels.map(m => ({
+		key: `req-${m.model}`,
+		label: m.model ?? '未记模型',
+		value: m.requests ?? null,
+		color: seg(m.model ?? ''),
+	}));
+
+	const exportNow = () => {
+		try {
+			const name = downloadUsageJson(
+				{source: 'live_ledger', generated_at: data.generated_at, report: data, day_detail: detail},
+				data.generated_at,
+			);
+			toast.success(`已导出 ${name}`);
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : '导出失败');
+		}
+	};
 
 	return (
-		<div className="xy-a3-native">
-			<div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-2.5">
-				<label className="flex items-center gap-2 text-[12px] text-ink-soft">
-					日期
-					<select
-						value={selected}
-						onChange={e => setSelected(e.target.value)}
-						aria-label="选择查看的快照日期"
-						className="rounded-[var(--xy-radius-control)] border border-line bg-paper px-2 py-1 text-[12px] text-ink"
-					>
-						{data.days.map(d => (
-							<option key={d.day} value={d.day}>
-								{d.day}
-							</option>
-						))}
-					</select>
-				</label>
-				<p className="text-[11px] text-mute">
-					{data.day_count} 天 · 生成于 {generatedLabel(data.generated_at)} · 快照状态：
-					{day ? (day.accepted ? '已验收' : '待验收') : NO_DATA}
-				</p>
-			</div>
-
-			{!day ? (
-				<p className="px-4 py-8 text-center text-[12px] text-mute">
-					报告里没有任何一天的数据。
-				</p>
-			) : (
-				<>
-					<div className="grid grid-cols-2 gap-px border-b border-line bg-line/40 md:grid-cols-4">
-						<Kpi
-							label="命中率"
-							value={rateLabel(day)}
-							extra={<InputCacheSplit day={day} />}
-						/>
-						<Kpi label="请求" value={intLabel(day.requests)} />
-						<Kpi label="输出 token" value={tokenLabel(day.output)} />
-						<Kpi label="输入 token" value={tokenLabel(day.prompt_tokens)} />
-						<Kpi label="成本" value={costLabel(day.cost_cny)} />
-						<Kpi label="C2" value={intLabel(day.c2_count)} />
-						<Kpi label="会话数" value={intLabel(day.sessions)} />
-						<Kpi label="单位成本" value={perRequestLabel(day)} />
+		<div className="xy-a3-native xy-a3-dashboard">
+			<A3DayNavigator
+				days={data.days.map(d => ({day: d.day, requests: d.requests}))}
+				selected={selected}
+				onSelect={setSelected}
+			/>
+			<div className="xy-a3-body">
+				<div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-2.5">
+					<div className="xy-a3-heading">
+						<h2>{day?.day ?? '用量概览'}</h2>
+						<p>费用、Token 与请求活动 · 本机账本实时</p>
 					</div>
-
-					<div className="border-b border-line">
-						<HourHistogram day={day} />
-					</div>
-
-					<div className="border-b border-line">
-						<ModelTable day={day} />
-					</div>
-
-					<div className="overflow-x-auto">
-						<div className="flex items-baseline justify-between gap-2 px-4 pb-1 pt-3">
-							<h3 className="text-[13px] font-medium text-ink">每日快照</h3>
-							<p className="text-[11px] text-mute">点一行切换上面的日期</p>
-						</div>
-						<table className="w-full border-collapse text-[12px]">
-							<thead>
-								<tr className="border-y border-line bg-paper-deep">
-									<Th>日期</Th>
-									<Th>状态</Th>
-									<Th num>命中率</Th>
-									<Th num>请求</Th>
-									<Th num>输入</Th>
-									<Th num>输出</Th>
-									<Th num>成本</Th>
-									<Th num>C2</Th>
-									<Th num>会话</Th>
-									<Th num>轮次</Th>
-								</tr>
-							</thead>
-							<tbody>
-								{data.days
-									.slice()
-									.reverse()
-									.map(d => (
-										<tr
-											key={d.day}
-											onClick={() => setSelected(d.day)}
-											title={`${d.day}：切到这一天的报告`}
-											className={cn(
-												'cursor-pointer border-b border-line/60 hover:bg-paper-deep',
-												d.day === day.day && 'bg-paper-deep',
-											)}
-										>
-											<Td>{d.day}</Td>
-											<Td>{d.accepted ? '已验收' : '待验收'}</Td>
-											<Td num>{rateLabel(d)}</Td>
-											<Td num>{intLabel(d.requests)}</Td>
-											<Td num>{tokenLabel(d.prompt_tokens)}</Td>
-											<Td num>{tokenLabel(d.output)}</Td>
-											<Td num>{costLabel(d.cost_cny)}</Td>
-											<Td num>{intLabel(d.c2_count)}</Td>
-											<Td num>{intLabel(d.sessions)}</Td>
-											<Td num>{intLabel(d.turns)}</Td>
-										</tr>
-									))}
-							</tbody>
-						</table>
-					</div>
-
-					<div className="flex items-center justify-between gap-3 border-t border-line px-4 py-2.5">
+					<label className="xy-a3-date-select flex items-center gap-2 text-[12px] text-ink-soft">
+						日期
+						<select
+							value={selected}
+							onChange={e => setSelected(e.target.value)}
+							aria-label="选择查看的日期"
+							className="rounded-[var(--xy-radius-control)] border border-line bg-paper px-2 py-1 text-[12px] text-ink"
+						>
+							{data.days.map(d => (
+								<option key={d.day} value={d.day}>
+									{d.day}
+								</option>
+							))}
+						</select>
+					</label>
+					<div className="flex shrink-0 items-center gap-2">
+						<p className="text-[11px] text-mute">
+							{data.day_count} 天 · 聚合于 {generatedLabel(data.generated_at)} · 快照状态：
+							{day ? snapshotLabel(day.accepted) : NO_DATA}
+						</p>
 						<button
 							type="button"
-							onClick={() => setDetailDay(detailDay ? null : day.day)}
-							className="xy-press inline-flex items-center gap-1.5 rounded-[var(--xy-radius-control)] border border-line px-3 py-1.5 text-xs text-ink-soft transition-colors hover:border-accent/50 hover:bg-accent-soft hover:text-accent"
+							onClick={exportNow}
+							disabled={!data.days.length}
+							className="xy-press inline-flex items-center gap-1.5 rounded-[var(--xy-radius-control)] border border-line/70 px-2.5 py-1 text-[11px] text-ink-soft transition-colors hover:border-accent/50 hover:bg-accent-soft hover:text-accent disabled:opacity-50"
 						>
-							{detailDay ? (
-								<ChevronDown className="h-3.5 w-3.5" aria-hidden />
-							) : (
-								<ChevronRight className="h-3.5 w-3.5" aria-hidden />
-							)}
-							查看会话明细
+							<Download className="h-3.5 w-3.5" aria-hidden />
+							导出 JSON
 						</button>
-						<p className="text-[11px] text-mute">
-							成本按账本计价口径，与厂商账单可能有差；命中率分母 = 命中 + 未命中。
-						</p>
 					</div>
+				</div>
 
-					{detailDay ? <DayDetail day={detailDay} onClose={() => setDetailDay(null)} /> : null}
-				</>
-			)}
+				{!day ? (
+					<p className="px-4 py-8 text-center text-[12px] text-mute">
+						账本里还没有任何一天的数据。
+					</p>
+				) : (
+					<>
+						<div className="xy-a3-kpis grid grid-cols-2 gap-px border-b border-line bg-line/40 md:grid-cols-4">
+							<Kpi label="成本" sub="当日已计价费用" value={costLabel(day.cost_cny, day.cost_unknown_requests)} />
+							<Kpi
+								label="命中率"
+								sub="输入缓存复用"
+								value={rateLabel(day)}
+								extra={<InputCacheSplit day={day} />}
+							/>
+							<Kpi label="输入 token" sub="发送给模型" value={tokenLabel(day.prompt_tokens)} />
+							<Kpi label="输出 token" sub="模型生成" value={tokenLabel(day.output)} />
+							<Kpi label="请求" sub="模型调用次数" value={intLabel(day.requests)} />
+							<Kpi label="单位成本" sub="每次请求平均" value={perRequestLabel(day)} />
+							<Kpi label="会话数" sub="当日会话" value={intLabel(day.sessions)} />
+							<Kpi label="轮次" sub="任务交互轮次" value={intLabel(day.turns)} />
+						</div>
+
+						<div className="border-b border-line">
+							<TokenActivityHeatmap days={data.days} generatedAt={data.generated_at} />
+						</div>
+
+						<div className="xy-a3-donuts grid grid-cols-1 gap-px border-b border-line bg-line/40 lg:grid-cols-2">
+							<DonutCard
+								title="整体命中率"
+								sub="按模型 · 弧长=命中 token"
+								segments={hitSegments}
+								centerValue={rateLabel(day)}
+								centerLabel="命中 / 总输入"
+								emptyHint="这一天没有可分段的命中数据（未命中或读不出）。"
+							/>
+							<DonutCard
+								title="输入 token · 构成"
+								sub="按模型"
+								segments={inputSegments}
+								centerValue={tokenLabel(day.prompt_tokens)}
+								centerLabel="总输入 token"
+							/>
+							<DonutCard
+								title="成本 · 模型"
+								sub="账本计价口径"
+								segments={costSegments}
+								centerValue={costLabel(day.cost_cny, day.cost_unknown_requests)}
+								centerLabel="总成本 CNY"
+								emptyHint="这一天没有已计价的行（无价目不等于免费）。"
+							/>
+							<DonutCard
+								title="请求 · 模型"
+								sub="模型调用次数"
+								segments={reqSegments}
+								centerValue={intLabel(day.requests)}
+								centerLabel="总请求数"
+							/>
+						</div>
+
+						<div className="xy-a3-filters flex flex-wrap items-center gap-1.5 border-b border-line px-4 py-2.5">
+							<span className="text-[11px] text-mute">模型过滤</span>
+							<button
+								type="button"
+								aria-pressed={picked.length === 0}
+								onClick={() => setPicked([])}
+								className={cn(
+									'xy-press rounded-full border px-2 py-0.5 text-[11px] transition-colors',
+									picked.length === 0
+										? 'border-accent/50 bg-accent-soft text-accent'
+										: 'border-line text-mute hover:bg-glass-hover hover:text-ink',
+								)}
+							>
+								全部
+							</button>
+							{allModels.map(m => {
+								const id = m.model ?? '';
+								const on = picked.includes(id);
+								return (
+									<button
+										key={id}
+										type="button"
+										aria-pressed={on}
+										onClick={() =>
+											setPicked(cur => (cur.includes(id) ? cur.filter(x => x !== id) : [...cur, id]))
+										}
+										className={cn(
+											'xy-press inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] transition-colors',
+											on
+												? 'border-accent/50 bg-accent-soft text-accent'
+												: 'border-line text-mute hover:bg-glass-hover hover:text-ink',
+										)}
+									>
+										<span aria-hidden className="h-2 w-2 rounded-[2px]" style={{background: colorOf(id)}} />
+										{id.split('/').pop() || '未记模型'}
+										<span className="tabular-nums">{rateLabel(m)}</span>
+									</button>
+								);
+							})}
+							{picked.length ? (
+								<span className="text-[11px] text-mute">
+									只影响环形卡与分模型表；KPI 与热力图仍是这一天的完整口径。
+								</span>
+							) : null}
+						</div>
+
+						<div className="border-b border-line">
+							<HourHistogram day={day} />
+						</div>
+
+						<div className="border-b border-line">
+							<h3 className="px-4 pt-3 text-[13px] font-medium text-ink">分模型</h3>
+							<ModelTable rows={shownModels} colorOf={colorOf} />
+						</div>
+
+						<details className="xy-a3-history">
+							<summary>
+								历史快照与运行记录
+								<ChevronDown size={14} />
+							</summary>
+							<p className="xy-a3-c2">C2 事件：{intLabel(day.c2_count)}</p>
+							<div className="overflow-x-auto">
+								<div className="flex items-baseline justify-between gap-2 px-4 pb-1 pt-3">
+									<h3 className="text-[13px] font-medium text-ink">每日记录</h3>
+									<p className="text-[11px] text-mute">点一行切换上面的日期</p>
+								</div>
+								<table className="w-full border-collapse text-[12px]">
+									<thead>
+										<tr className="border-y border-line bg-paper-deep">
+											<Th>日期</Th>
+											<Th>状态</Th>
+											<Th num>命中率</Th>
+											<Th num>请求</Th>
+											<Th num>输入</Th>
+											<Th num>输出</Th>
+											<Th num>成本</Th>
+											<Th num>C2</Th>
+											<Th num>会话</Th>
+											<Th num>轮次</Th>
+										</tr>
+									</thead>
+									<tbody>
+										{data.days
+											.slice()
+											.reverse()
+											.map(d => (
+												<tr
+													key={d.day}
+													onClick={() => setSelected(d.day)}
+													title={`${d.day}：切到这一天`}
+													className={cn(
+														'cursor-pointer border-b border-line/60 hover:bg-paper-deep',
+														d.day === day.day && 'bg-paper-deep',
+													)}
+												>
+													<Td>{d.day}</Td>
+													<Td>{snapshotLabel(d.accepted)}</Td>
+													<Td num>{rateLabel(d)}</Td>
+													<Td num>{intLabel(d.requests)}</Td>
+													<Td num>{tokenLabel(d.prompt_tokens)}</Td>
+													<Td num>{tokenLabel(d.output)}</Td>
+													<Td num>{costLabel(d.cost_cny, d.cost_unknown_requests)}</Td>
+													<Td num>{intLabel(d.c2_count)}</Td>
+													<Td num>{intLabel(d.sessions)}</Td>
+													<Td num>{intLabel(d.turns)}</Td>
+												</tr>
+											))}
+									</tbody>
+								</table>
+							</div>
+						</details>
+
+						<div className="flex items-center justify-between gap-3 border-t border-line px-4 py-2.5">
+							<button
+								type="button"
+								onClick={() => setDetailOpen(v => !v)}
+								aria-expanded={detailOpen}
+								className="xy-press inline-flex items-center gap-1.5 rounded-[var(--xy-radius-control)] border border-line px-3 py-1.5 text-xs text-ink-soft transition-colors hover:border-accent/50 hover:bg-accent-soft hover:text-accent"
+							>
+								{detailOpen ? (
+									<ChevronDown className="h-3.5 w-3.5" aria-hidden />
+								) : (
+									<ChevronRight className="h-3.5 w-3.5" aria-hidden />
+								)}
+								查看会话明细
+							</button>
+							<p className="text-[11px] text-mute">
+								成本按账本计价口径，与厂商账单可能有差；命中率分母 = 命中 + 未命中。
+							</p>
+						</div>
+
+						{detailOpen ? (
+							<TurnDrilldown
+								detail={detail}
+								loading={detailLoading}
+								error={detailError}
+								onClose={() => setDetailOpen(false)}
+							/>
+						) : null}
+					</>
+				)}
+			</div>
 		</div>
 	);
 }

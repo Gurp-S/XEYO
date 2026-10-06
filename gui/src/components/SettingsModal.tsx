@@ -1,3 +1,7 @@
+import {REVIEW_LAYOUT_ENABLED} from '@/lib/reviewLayout';
+import {ArchivedSessions} from './review/ArchivedSessions';
+import {SettingsLayoutHost} from './review/SettingsLayoutHost';
+import {pushEscLayer, popEscLayer} from '@/lib/escStack';
 import {Check, Eye, EyeOff, ImagePlus, Pencil, Plus, RefreshCw, Trash2, X} from 'lucide-react';
 import {useEffect, useMemo, useRef, useState} from 'react';
 import {usePresence} from '@/hooks/usePresence';
@@ -11,7 +15,6 @@ import {cn} from '@/lib/utils';
 import {toast} from '@/lib/toast';
 import {confirmDialog} from '@/lib/inlineDialog';
 import {cssDurationMs, presenceExitMs} from '@/lib/motionDuration';
-import {useRemoteStore} from '@/stores/remoteStore';
 import {allowsEmptyApiKey} from '@/lib/localTestGate';
 import {invokePet} from '@/pet/PetBridge';
 import {
@@ -27,14 +30,12 @@ import {
 	type ModelInput,
 	type ModelProfile,
 	type ProviderId,
-	type RemoteChannel,
 } from '@/stores/settingsStore';
 import {getThemeMeta, type ThemeId} from '@/theme/catalog';
 import {ThemePicker} from '@/theme/ThemePicker';
 import {BashRoutingSetting} from './BashRoutingSetting';
 import {LocalModelSetting} from './LocalModelSetting';
 import {MemorySwitchesSetting} from './MemorySwitchesSetting';
-import {PaneLayoutSetting} from './PaneLayoutSetting';
 
 type Props = {
 	open: boolean;
@@ -166,13 +167,14 @@ export function SettingsModal({open, onClose}: Props) {
 	const titleBarDivider = useSettingsStore(s => s.titleBarDivider !== false);
 	const paneEaseSilky = useSettingsStore(s => s.paneEaseSilky === true);
 	const stickyBubbles = useSettingsStore(s => s.stickyBubbles === true);
+	// 忙时裸 Enter 的含义（判定在 lib/composerSendMode，这里只读写值）。
+	const busyEnter = useSettingsStore(s => (s.busyEnter === 'steer' ? 'steer' : 'queue'));
 			
 		const pastureReducedMotion = useSettingsStore(s => s.pastureReducedMotion === true);
 			const pasturePaused = useSettingsStore(s => s.pasturePaused === true);
 			const xeyoPetEnabled = useSettingsStore(s => s.xeyoPetEnabled === true);
 			const xeyoPetReducedMotion = useSettingsStore(s => s.xeyoPetReducedMotion === true);
 			const xeyoPetId = useSettingsStore(s => s.xeyoPetId);
-			const remoteChannel = useSettingsStore(s => s.remoteChannel);
 	const maxBudgetUsd = useSettingsStore(s => s.maxBudgetUsd);
 	const searxngUrl = useSettingsStore(s => s.searxngUrl ?? '');
 	const outputCompact = useSettingsStore(s => s.outputCompact === true);
@@ -199,6 +201,10 @@ export function SettingsModal({open, onClose}: Props) {
 	useEffect(() => {
 		if (!open) {
 			return;
+		}
+		if (REVIEW_LAYOUT_ENABLED) {
+			pushEscLayer('review-settings', onClose);
+			return () => popEscLayer('review-settings');
 		}
 		const onKeyDown = (e: KeyboardEvent) => {
 			if (e.isComposing) {
@@ -244,7 +250,7 @@ export function SettingsModal({open, onClose}: Props) {
 		const {mounted, shown} = usePresence(open, modalExitMs);
 
 	const [activeTab, setActiveTab] = useState<
-		'appearance' | 'accounts' | 'rewind' | 'perms' | 'pet' | 'remote'
+		'appearance' | 'accounts' | 'rewind' | 'perms' | 'pet' | 'remote' | 'archive'
 	>('appearance');
 		const [showAdd, setShowAdd] = useState(false);
 		/** 正在被编辑的账号 id；非空时表单处于「编辑账号」态并预填现存值。 */
@@ -545,8 +551,9 @@ export function SettingsModal({open, onClose}: Props) {
 	};
 
 	return (
-		<div
+		<SettingsLayoutHost><div
 			className={cn(
+				REVIEW_LAYOUT_ENABLED && 'xy-review-settings-backdrop',
 				'xy-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4 backdrop-blur-[3px]',
 				shown ? 'opacity-100' : 'opacity-0',
 			)}
@@ -554,38 +561,43 @@ export function SettingsModal({open, onClose}: Props) {
 		>
 			<div
 				role="dialog"
-				aria-modal="true"
+				aria-modal={!REVIEW_LAYOUT_ENABLED}
 				className={cn(
+					REVIEW_LAYOUT_ENABLED && 'xy-review-settings',
 					'xy-modal-panel xy-modal-elevated flex h-[560px] w-[720px] max-w-[92vw] flex-col overflow-hidden rounded-2xl border border-line/80 bg-paper p-5',
 					shown ? 'translate-y-0 scale-100 opacity-100' : 'translate-y-2 scale-[0.98] opacity-0',
 				)}
 				onClick={e => e.stopPropagation()}
 			>
-				<div className="mb-4 flex items-center justify-between">
+				<div className="xy-settings-page-header mb-4 flex items-center justify-between">
 					<h2 className="font-sans text-base font-semibold text-ink">
 						设置
+						{REVIEW_LAYOUT_ENABLED && <small className="xy-settings-subtitle">偏好与应用配置</small>}
 					</h2>
 					<button
 						type="button"
 						onClick={onClose}
+						aria-label="关闭设置"
 						className="xy-icon-btn rounded-xl p-1.5 text-mute hover:bg-paper-deep"
 					>
 						<X className="h-4 w-4" />
 					</button>
 				</div>
 				<div className="grid min-h-0 flex-1 grid-cols-[150px_1fr] gap-4">
-					<nav className="space-y-1">
+					<nav className="space-y-1" aria-label="设置分类">
 						{([
 							['appearance', '外观'],
 							['accounts', '模型与账号'],
 							['perms', '权限'],
 							['rewind', '回溯'],
 							['remote', '远程 · 微信'],
+							...(REVIEW_LAYOUT_ENABLED ? [['archive', '归档对话'] as const] : []),
 						] as const).map(([id, label]) => (
 							<button
 								key={id}
 								type="button"
 								onClick={() => setActiveTab(id)}
+								aria-current={activeTab === id ? 'page' : undefined}
 								className={cn(
 									'block w-full rounded-lg px-3 py-2 text-left text-[13px] transition-colors',
 									activeTab === id
@@ -597,7 +609,8 @@ export function SettingsModal({open, onClose}: Props) {
 							</button>
 						))}
 					</nav>
-					<div className="min-w-0 flex-1 overflow-y-auto pr-1">
+					<div className="xy-settings-body min-w-0 flex-1 overflow-y-auto pr-1">
+						{REVIEW_LAYOUT_ENABLED && activeTab === 'archive' && <ArchivedSessions />}
 
 				<section className={cn('mb-5 space-y-3', activeTab !== 'appearance' && 'hidden')}>
 					<h3 className="xy-section-label">
@@ -608,7 +621,6 @@ export function SettingsModal({open, onClose}: Props) {
 						onChange={id => update({theme: id})}
 					/>
 
-					<PaneLayoutSetting />
 
 					{/* T32：半成品实验功能收进「实验菜单」——默认隐藏，需显式开启 */}
 					<div className="rounded-xl border border-line/70 bg-glass-strong">
@@ -813,6 +825,44 @@ export function SettingsModal({open, onClose}: Props) {
 								/>
 							</span>
 						</button>
+
+						<div
+							role="radiogroup"
+							aria-label="忙时 Enter 键位"
+							className="rounded-xl border border-line bg-glass-strong px-3 py-2.5"
+						>
+							<span className="block text-sm text-ink">忙时 Enter 键位</span>
+							<span className="mt-0.5 block text-[11px] leading-snug text-mute">
+								任务正在跑时按 Enter 做什么；Ctrl+Enter 永远是另一个选择。侧栏会话与子任务只排队。
+							</span>
+							<div className="mt-2 grid grid-cols-2 gap-2">
+								{(
+									[
+										{id: 'queue', label: '排队到本轮结束'},
+										{id: 'steer', label: '插进本轮边界'},
+									] as const
+								).map(opt => {
+									const active = busyEnter === opt.id;
+									return (
+										<button
+											key={opt.id}
+											type="button"
+											role="radio"
+											aria-checked={active}
+											onClick={() => update({busyEnter: opt.id})}
+											className={cn(
+												'xy-press rounded-xl border px-3 py-2 text-sm transition-colors',
+												active
+													? 'border-accent/50 bg-accent-soft text-ink'
+													: 'border-line bg-glass-strong text-ink hover:border-line',
+											)}
+										>
+											{opt.label}
+										</button>
+									);
+								})}
+							</div>
+						</div>
 
 						<button
 							type="button"
@@ -1896,83 +1946,18 @@ export function SettingsModal({open, onClose}: Props) {
 						远程 · 微信
 					</h3>
 					<p className="text-[12px] leading-relaxed text-mute">
-						两种方式并存，同一时刻只启动一种。点右上角二维码启动当前所选通道；回复以
-						[XEYO] 开头。切换通道时会断开正在运行的远程。
+						点顶栏二维码启动微信远程；回复以 [XEYO] 开头。
 					</p>
-					<div
-						role="radiogroup"
-						aria-label="远程通道"
-						className="grid grid-cols-2 gap-2"
-					>
-						{(
-							[
-								{id: 'ilink', label: 'ClawBot / iLink'},
-								{id: 'filehelper', label: '文件传输助手'},
-							] as const
-						).map(opt => {
-							const active = remoteChannel === opt.id;
-							return (
-								<button
-									key={opt.id}
-									type="button"
-									role="radio"
-									aria-checked={active}
-									onClick={() => {
-										if (opt.id === remoteChannel) {
-											return;
-										}
-										const remote = useRemoteStore.getState();
-										void (async () => {
-											if (remote.state !== 'stopped') {
-												await remote.stopRemote();
-											}
-											update({
-												remoteChannel: opt.id as RemoteChannel,
-											});
-										})();
-									}}
-									className={cn(
-										'xy-press rounded-xl border px-3 py-2.5 text-sm transition-colors',
-										active
-											? 'border-accent/50 bg-accent-soft text-accent'
-											: 'border-line bg-glass-strong text-ink-soft hover:border-line hover:text-ink',
-									)}
-								>
-									{opt.label}
-								</button>
-							);
-						})}
-					</div>
-					{remoteChannel === 'ilink' ? (
-						<>
-							<p className="text-[12px] leading-relaxed text-mute">
-								不依赖手机里的「插件」入口，也不安装 OpenClaw。点顶栏二维码后，用微信扫描
-								XEYO 弹出的码并确认。支持私聊文字、图片和文件。截图由 Screenshot 工具完成；连上远程时会在后台发一份到微信，不阻塞模型。
-							</p>
-							<p className="text-[12px] leading-relaxed text-ink-soft">
-								验收：设置里选本通道 → 填 API Key → 点顶栏二维码 →
-								手机微信扫码确认 → 给该 Bot 发「你好」→ 桌面当前对话出现
-								[远程] 气泡，回复回到微信。若接口报灰度/风控，面板会显示
-								errmsg，可改回文件传输助手。
-							</p>
-						</>
-					) : (
-						<>
-							<p className="text-[12px] leading-relaxed text-mute">
-								XEYO 在后台打开官方网页并显示二维码。用手机微信扫码后，发给「文件传输助手」的文字会驱动当前对话。浏览器窗口不会弹出。
-							</p>
-							<p className="text-[12px] leading-relaxed text-ink-soft">
-								需要本机已安装 Playwright：
-								<code className="mx-1 font-mono text-[11px]">
-									pip install playwright mss
-								</code>
-								后执行
-								<code className="mx-1 font-mono text-[11px]">
-									playwright install chromium
-								</code>
-							</p>
-						</>
-					)}
+					<p className="text-[12px] leading-relaxed text-mute">
+						不依赖手机里的「插件」入口，也不安装 OpenClaw。点顶栏二维码后，用微信扫描
+						XEYO 弹出的码并确认。支持私聊文字、图片和文件。截图由 Screenshot 工具完成；连上远程时会在后台发一份到微信，不阻塞模型。
+					</p>
+					<p className="text-[12px] leading-relaxed text-ink-soft">
+						验收：设置里选本通道 → 填 API Key → 点顶栏二维码 →
+						手机微信扫码确认 → 给该 Bot 发「你好」→ 桌面当前对话出现
+						[远程] 气泡，回复回到微信。若接口报灰度/风控，面板会显示
+						errmsg。
+					</p>
 					<ul className="space-y-1 font-mono text-[11px] text-ink-soft">
 						<li>/help · 帮助 — 指令列表（远程统一入口）</li>
 						<li>/status · 状态 — 连接与任务</li>
@@ -1988,6 +1973,6 @@ export function SettingsModal({open, onClose}: Props) {
 				</div>
 
 			</div>
-		</div>
+		</div></SettingsLayoutHost>
 	);
 }

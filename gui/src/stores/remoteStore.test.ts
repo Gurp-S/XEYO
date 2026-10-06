@@ -120,9 +120,31 @@ describe('remote tool SSE', () => {
 			name: 'Screenshot',
 			input: {monitor: 1},
 		});
-		expect(applyRemoteToolCall).toHaveBeenCalledWith('Screenshot', {
-			monitor: 1,
+		expect(applyRemoteToolCall).toHaveBeenCalledWith(
+			'Screenshot',
+			{
+				monitor: 1,
+			},
+			'tool-1',
+		);
+	});
+
+	it('routes tool_result SSE with its id（同名并行工具靠它归位）', async () => {
+		const {useChatStore} = await import('./chatStore');
+		const applyRemoteToolResult = vi.fn();
+		useChatStore.setState({applyRemoteToolResult});
+		useRemoteStore.getState().handleSsePayload('tool', {
+			id: 'tool-2',
+			kind: 'tool_result',
+			name: 'Screenshot',
+			output: 'PNG',
 		});
+		expect(applyRemoteToolResult).toHaveBeenCalledWith(
+			'Screenshot',
+			'PNG',
+			false,
+			'tool-2',
+		);
 	});
 
 	it('ignores tool SSE from another WeChat session', async () => {

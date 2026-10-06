@@ -12,14 +12,9 @@ import {
 	formatUsageChipPreview,
 } from '@/lib/formatUsage';
 import {SessionJobsBadge} from '@/components/SessionJobsBadge';
-import {
-	fetchSessionCompression,
-	getCachedModelContextLimit,
-	requestManualCompact,
-	type SessionCompression,
-} from '@/lib/api';
-import {toast} from '@/lib/toast';
+import {getCachedModelContextLimit} from '@/lib/api';
 import {useSettingsStore} from '@/stores/settingsStore';
+import {REVIEW_LAYOUT_ENABLED} from '@/lib/reviewLayout';
 import {
 	registeredWindowFromSettings,
 	resolveWindowLimit,
@@ -97,9 +92,6 @@ export const ChatHeader = memo(function ChatHeader({
 	});
 	const sessionTitle =
 		sessions.find(s => s.id === activeId)?.title?.trim() || '新对话';
-	const activeSessionArchived = Boolean(
-		activeId && sessions.some(session => session.id === activeId && session.archived),
-	);
 	const shortAgent = agentTitle
 		? agentTitle.length > 16
 			? `${agentTitle.slice(0, 16)}…`
@@ -122,21 +114,6 @@ export const ChatHeader = memo(function ChatHeader({
 const usage = pageViewOpen ? null : sessionUsageById[activeId ?? ''] ?? null;
 			const usagePreviewVisible = !pageViewOpen && activeId != null;
 			const [usagePreviewOpen, setUsagePreviewOpen] = useState(false);
-		const [compressionRead, setCompressionRead] = useState<{
-			backendSessionId: string;
-			data: SessionCompression | null;
-			error: string;
-		} | null>(null);
-		// 压缩态与错误都按分支 ID 隔离；切换会话时首帧也不显示旧分支数据。
-		const compression =
-			compressionRead?.backendSessionId === backendSessionId
-				? compressionRead.data
-				: null;
-		const compressionError =
-			compressionRead?.backendSessionId === backendSessionId
-				? compressionRead.error
-				: '';
-		const [compactBusy, setCompactBusy] = useState(false);
 		const usagePreviewRef = useRef<HTMLDivElement>(null);
 		const usagePreviewId = 'chat-usage-preview';
 		// 悬停分段条显示明细（与预览一致：label + Tokens + 占窗口），并高亮当前区域。
@@ -258,73 +235,6 @@ const usage = pageViewOpen ? null : sessionUsageById[activeId ?? ''] ?? null;
 			setUsagePreviewOpen(false);
 		}, [activeId, mode, usageOpen]);
 
-		useEffect(() => {
-			if (!usagePreviewOpen || !backendSessionId) {
-				return;
-			}
-			const targetBackendId = backendSessionId;
-			let cancelled = false;
-			void fetchSessionCompression(targetBackendId).then(r => {
-				if (cancelled) {
-					return;
-				}
-				setCompressionRead(current => {
-					const previous =
-						current?.backendSessionId === targetBackendId
-							? current.data
-							: null;
-					return {
-						backendSessionId: targetBackendId,
-						// 同一分支读取失败时保留最后一次有效快照；不同分支不复用。
-						data: r.ok && r.data ? r.data : previous,
-						error: r.ok && r.data ? '' : r.message,
-					};
-				});
-			});
-			return () => {
-				cancelled = true;
-			};
-		}, [usagePreviewOpen, backendSessionId]);
-
-		const onManualCompact = async () => {
-			if (
-				!backendSessionId ||
-				compactBusy ||
-				useChatStore.getState().sessions.some(
-					session => session.id === activeId && session.archived,
-				)
-			) return;
-			const targetSessionId = activeId;
-			const targetBackendId = backendSessionId;
-			setCompactBusy(true);
-			try {
-				const res = await requestManualCompact(targetBackendId);
-				if (!res.ok) {
-					toast.error(`压缩失败${res.reason ? `：${res.reason}` : ''}`);
-					return;
-				}
-				const r = await fetchSessionCompression(targetBackendId);
-				if (useChatStore.getState().activeId === targetSessionId) {
-					setCompressionRead(current => {
-						const previous =
-							current?.backendSessionId === targetBackendId
-								? current.data
-								: null;
-						return {
-							backendSessionId: targetBackendId,
-							data: r.ok && r.data ? r.data : previous,
-							error: r.ok && r.data ? '' : r.message,
-						};
-					});
-				}
-				toast.success('已完成 /compact');
-			} catch (error) {
-				toast.error(error instanceof Error ? error.message : '压缩请求失败');
-			} finally {
-				setCompactBusy(false);
-			}
-		};
-
 		const onNew = () => {
 		// 统一入口：新建会话 + 路由（页面视图若开着随路由自动退出）。
 		void newSession(mode === 'main' ? undefined : {side: true});
@@ -379,10 +289,10 @@ className="xy-icon-btn shrink-0 rounded-md p-1.5 text-mute hover:bg-glass-hover 
 						</div>
 					</div>
 						<span
-							aria-hidden={sidebarOpen && !pageViewOpen}
+							aria-hidden={!REVIEW_LAYOUT_ENABLED && sidebarOpen && !pageViewOpen}
 							className={cn(
 									'xy-hdr-title flex min-w-0 items-center overflow-hidden whitespace-nowrap px-1 text-[13px] text-ink-soft',
-									sidebarOpen && !pageViewOpen
+									!REVIEW_LAYOUT_ENABLED && sidebarOpen && !pageViewOpen
 										? 'pointer-events-none max-w-0 shrink-0 -translate-x-1.5 opacity-0'
 										: 'max-w-[28ch] translate-x-0 opacity-100',
 								)}
@@ -482,79 +392,6 @@ className="xy-icon-btn shrink-0 rounded-md p-1.5 text-mute hover:bg-glass-hover 
 											<div className="mt-0.5 font-mono text-[18px] font-semibold leading-tight text-ink">{totalOut != null ? formatTokenCount(totalOut) : '暂无数据'}</div>
 										</div>
 									</div>
-									{(() => {
-										const cursor =
-											compression?.compact_cursor ?? usage?.compactCursor ?? 0;
-										const active =
-											compression?.active ??
-											(cursor > 0 && (usage?.c2SummaryChars ?? 0) > 0);
-										const chars =
-											compression?.c2_summary_chars ?? usage?.c2SummaryChars ?? 0;
-										const action =
-											compression?.last_action || usage?.lastAction || '';
-										return (
-											<div className="mt-2 rounded-lg border border-line/70 bg-glass-hover px-2.5 py-2">
-												<div className="flex items-center justify-between gap-2">
-													<div className="font-semibold text-ink">C2 压缩</div>
-													<span
-														className={cn(
-															'rounded-full px-1.5 py-0.5 font-mono text-[11px]',
-															active
-																? 'bg-ink/10 text-ink'
-																: 'bg-glass text-mute',
-														)}
-													>
-														{active ? '已压缩' : '未触发'}
-													</span>
-												</div>
-												{compressionError ? (
-													<p className="mt-1 mb-0 text-[11px] leading-snug text-mute">
-														压缩态未取回（{compressionError}）：上面的状态按用量条目推导，
-														不代表本会话的压缩账。
-													</p>
-												) : null}
-												<div className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
-													<div className="text-mute">游标</div>
-													<div className="font-mono text-ink text-right">
-														{cursor > 0 ? cursor : '—'}
-													</div>
-													<div className="text-mute">摘要</div>
-													<div className="font-mono text-ink text-right">
-														{chars > 0 ? `${chars} 字` : '—'}
-													</div>
-													<div className="text-mute">上一动作</div>
-													<div className="font-mono text-ink text-right">
-														{action || '—'}
-													</div>
-												</div>
-												<div className="mt-2 flex items-center justify-between gap-2">
-													{compression?.c2_gate ? (
-														<button
-															type="button"
-															disabled={compactBusy || !backendSessionId || activeSessionArchived}
-															title={activeSessionArchived ? '归档对话只读，请先恢复' : undefined}
-															onClick={() => void onManualCompact()}
-															className="rounded-md border border-line/80 bg-glass px-2 py-1 text-[11px] font-medium text-ink hover:bg-glass-hover disabled:opacity-50"
-														>
-															{compactBusy ? '压缩中…' : '立即压缩 /compact'}
-														</button>
-													) : null}
-													<span className="text-[11px] text-mute">不改历史 JSONL</span>
-												</div>
-												{compression?.c2_summary_preview ? (
-													<p className="mt-2 mb-0 max-h-24 overflow-y-auto whitespace-pre-wrap break-words text-[11px] leading-4 text-ink-soft">
-														{compression.c2_summary_preview}
-													</p>
-												) : (
-													<p className="mt-2 mb-0 text-[11px] text-mute">
-														{active
-															? '本会话已进入 C2 压缩态；继续对话可保持前缀缓存。'
-															: ''}
-													</p>
-												)}
-																							</div>
-										);
-									})()}
 									<div className="mt-2.5 flex items-baseline justify-between">
 										<span className="text-[11px] text-mute">最近一枪上下文构成</span>
 										<span className="text-[11px] text-mute">{measuredContext ? '占模型窗口' : '占本轮已用量'}</span>

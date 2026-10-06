@@ -8,6 +8,7 @@ import {setCheckpointAnchor} from '@/lib/api';
 import {toast} from '@/lib/toast';
 import {useRewindV3Store} from '@/stores/rewindV3Store';
 import {isImeComposing} from '@/lib/ime';
+import {popEscLayer, pushEscLayer} from '@/lib/escStack';
 
 // Keep track of completions produced during this page lifetime. The dialog
 // host can unmount while the transcript is temporarily empty during truncation;
@@ -101,6 +102,16 @@ export function WorkspaceRevertDialog({
 				el.close();
 			}
 		};
+	}, []);
+
+	const onCancelRef = useRef(onCancel);
+	onCancelRef.current = onCancel;
+	useEffect(() => {
+		// 弹窗自持 Esc 层（权限/内联弹窗同款 doctrine）：escStack 其他层在场时
+		// （流式 composer-stop、沉浸层），窗口捕获的 preventDefault 会打掉原生
+		// Esc=cancel ⇒ Esc 会被下层抢走，弹窗不关。
+		pushEscLayer('rewind-dialog', () => onCancelRef.current());
+		return () => popEscLayer('rewind-dialog');
 	}, []);
 
 	useEffect(() => {

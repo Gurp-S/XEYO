@@ -169,14 +169,19 @@ export async function addWorkspaceFileToChat(
 	});
 }
 
+/** 返回是否真的写入剪贴板成功；调用方据返回值决定后续动作（剪切只在成功后清选区）。 */
 export async function copyTextToClipboard(
 	text: string,
 	okMsg = '已复制',
-): Promise<void> {
-	await withToast(async () => {
+): Promise<boolean> {
+	try {
 		await writeClipboard(text);
 		toast.success(okMsg);
-	});
+		return true;
+	} catch (err) {
+		toast.error(err instanceof Error ? err.message : String(err));
+		return false;
+	}
 }
 
 export async function readClipboardText(): Promise<string> {

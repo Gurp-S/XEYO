@@ -1,5 +1,6 @@
 import {useCallback, useEffect, useMemo, useRef} from 'react';
 import {useHoverScroll} from '@/hooks/useHoverScroll';
+import {isImeComposing} from '@/lib/ime';
 import {cn} from '@/lib/utils';
 
 type Props = {
@@ -75,6 +76,10 @@ export function TextFileEditor({
 				onChange={e => onChange(e.target.value)}
 				onScroll={syncGutter}
 				onKeyDown={e => {
+					// 组词中：Tab/Ctrl+S 属于输入法会话，一律交还（与 Composer 同规）。
+					if (isImeComposing(e.nativeEvent)) {
+						return;
+					}
 					if (e.key === 'Tab') {
 						e.preventDefault();
 						const ta = e.currentTarget;

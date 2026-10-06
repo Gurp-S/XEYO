@@ -4,7 +4,6 @@ import {useModalA11y} from '@/hooks/useModalA11y';
 import {usePresence} from '@/hooks/usePresence';
 import {cn} from '@/lib/utils';
 import {remoteQrUrl, useRemoteStore} from '@/stores/remoteStore';
-import {useSettingsStore} from '@/stores/settingsStore';
 
 const STEPS = [
 	{id: 'starting', label: '连接'},
@@ -59,8 +58,6 @@ const RemoteQrPanelBody = memo(function RemoteQrPanelBody({
 	const qrRev = useRemoteStore(s => s.qrRev);
 	const busy = useRemoteStore(s => s.busy);
 	const stopRemote = useRemoteStore(s => s.stopRemote);
-	const remoteChannel = useSettingsStore(s => s.remoteChannel);
-	const ilink = remoteChannel === 'ilink';
 
 	// Body 的挂载期 == 弹层存在期，故 open 恒真；Esc / 背景隔离 / 焦点陷阱
 	// 由基座统一接管（此前本弹层既无 Esc 也无焦点陷阱）。
@@ -121,9 +118,7 @@ const RemoteQrPanelBody = memo(function RemoteQrPanelBody({
 								{title}
 							</h2>
 							<p className="mt-0.5 text-[11px] leading-relaxed text-mute">
-								{ilink
-									? '微信扫码确认（不是文件助手网页）'
-									: '用手机微信扫码，登录「文件传输助手」'}
+								微信扫码确认（不是文件助手网页）
 							</p>
 						</div>
 					</div>
@@ -184,7 +179,7 @@ const RemoteQrPanelBody = memo(function RemoteQrPanelBody({
 					{showQr ? (
 						<QrFrame
 							qrRev={qrRev}
-							alt={ilink ? 'ClawBot / iLink 登录二维码' : '微信登录二维码'}
+							alt="ClawBot / iLink 登录二维码"
 						/>
 					) : (
 						<div className="flex flex-col items-center gap-3 px-6 text-center">

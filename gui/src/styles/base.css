@@ -26,6 +26,9 @@ textarea,
 .xy-file-editor,
 .xy-code-file,
 .xy-prism-file,
+/* diff 也是内容面（划选复制行 / 选区工具条），与聊天/代码/正文同权；
+   全局禁选只该管 chrome。此前漏在名单外 ⇒ diff 里鼠标划不出选区。 */
+.xy-diff-preview,
 .xy-selectable {
   cursor: text;
   -webkit-user-select: text;

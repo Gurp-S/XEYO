@@ -33,6 +33,10 @@ export function usePaneResize(
 		slotOf?: (base: number) => number;
 		slotMax?: () => number;
 		chatMin?: number;
+		/** Nested review panes store the visible width, without an invisible drag range. */
+		constrainBaseToSlot?: boolean;
+		/** Continue dragging past the minimum to collapse an auxiliary pane. */
+		onCollapse?: () => void;
 	},
 ) {
 	const invert = options?.invert ?? false;
@@ -40,6 +44,8 @@ export function usePaneResize(
 	const slotOf = options?.slotOf;
 	const slotMax = options?.slotMax;
 	const chatMin = options?.chatMin ?? 340;
+	const constrainBaseToSlot = options?.constrainBaseToSlot ?? false;
+	const onCollapse = options?.onCollapse;
 	const smoothness = useSettingsStore(s => isSmoothnessOn(s.smoothness));
 	const [dragging, setDragging] = useState(false);
 	const dragRef = useRef<{startX: number; startW: number} | null>(null);
@@ -80,9 +86,9 @@ export function usePaneResize(
 				availableSlotMax,
 				Math.max(slotMin, toSlot(baseWidth)),
 			);
-			return {slot, base: baseWidth};
+			return {slot, base: constrainBaseToSlot ? Math.min(baseWidth, slot) : baseWidth};
 		},
-		[slotOf, effectiveSlotMax, min, max],
+		[slotOf, effectiveSlotMax, min, max, constrainBaseToSlot],
 	);
 	const {value, minValue, maxValue} = useMemo(
 		() => ({
@@ -150,12 +156,19 @@ export function usePaneResize(
 			return;
 		}
 		const paint = (raw: number) => {
+			if (onCollapse && raw < min - 32) {
+				dragRef.current = null;
+				setDragging(false);
+				onCollapse();
+				return;
+			}
 			const {slot, base} = mapBase(raw);
 			liveRef.current = base;
 			const pane = paneRef?.current;
 			if (smoothness && pane) {
 				const px = `${Math.round(slot)}px`;
 				pane.style.width = px;
+				pane.style.flexBasis = px;
 				pane.style.setProperty('--xy-pane-w', px);
 				pane.style.willChange = 'width';
 				pane.classList.add('xy-pane-dragging');
@@ -225,7 +238,7 @@ export function usePaneResize(
 				pane.classList.remove('xy-pane-dragging');
 			}
 		};
-	}, [dragging, invert, mapBase, onWidth, paneRef, smoothness]);
+	}, [dragging, invert, mapBase, onWidth, paneRef, smoothness, onCollapse, min]);
 
 	return {dragging, onResizeStart, onResizeKeyDown, value, minValue, maxValue};
 }

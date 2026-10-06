@@ -280,7 +280,7 @@ export const TurnRail = memo(function TurnRail({items, activeId, onJump, getBadg
 
 	// 首次挂载 / items 换代（切会话）/ 面板几何变化时重算窗口。
 	useEffect(() => {
-		recomputeRange();
+		if (hovered) recomputeRange();
 	}, [recomputeRange, hovered, activeId]);
 
 	const ticks = useMemo(
@@ -295,12 +295,13 @@ export const TurnRail = memo(function TurnRail({items, activeId, onJump, getBadg
 	// 面板行：全量（≤阈值，行为与从前一致）或窗口切片；只对挂载的行做
 	// label 归一化，切会话不再 O(n) 构建整表 label 对象。
 	const rows = useMemo<RailLabel[]>(() => {
+		if (!hovered) return [];
 		if (!windowed) {
 			return items.map(toLabel);
 		}
 		const slice = items.slice(range.start, range.end);
 		return slice.map(toLabel);
-	}, [items, range, windowed, toLabel]);
+	}, [items, range, windowed, toLabel, hovered]);
 
 	const capped = items.length > MAX_TICKS;
 	const scrollable = items.length >= SCROLL_AT;

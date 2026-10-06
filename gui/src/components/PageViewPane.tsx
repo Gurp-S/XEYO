@@ -38,7 +38,7 @@ export function PageViewPane({
 		<div
 			ref={paneRef}
 			className={cn(
-				'absolute inset-0 flex min-h-0 min-w-0 flex-col transition-[opacity,transform] duration-200 ease-out motion-reduce:transition-none',
+				'xy-page-view-pane absolute inset-0 flex min-h-0 min-w-0 flex-col transition-[opacity,transform] duration-200 ease-out motion-reduce:transition-none',
 				visible
 					? 'pointer-events-auto translate-y-0 opacity-100'
 					: 'pointer-events-none -translate-y-1 opacity-0',

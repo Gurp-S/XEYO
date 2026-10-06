@@ -1,3 +1,7 @@
+import {REVIEW_LAYOUT_ENABLED} from '@/lib/reviewLayout';
+import {ReviewWorkspaceNav} from './review/ReviewWorkspaceNav';
+import {WorkbenchFiles} from './review/WorkbenchFiles';
+import {WorkbenchChanges} from './review/WorkbenchChanges';
 import {memo, useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type MouseEvent as ReactMouseEvent, type ReactNode} from 'react';
 import {
 	ChevronRight,
@@ -965,7 +969,10 @@ export const WorkspacePanel = memo(function WorkspacePanel() {
 		}
 	};
 
-	if (!smoothness && !mounted) return null;
+	if (REVIEW_LAYOUT_ENABLED) return <ReviewWorkspaceNav active={active} activeTool={activeTool} hasContent={anyFunctionOpen} onTree={key => {useExplorerStore.getState().closePreview(); setActiveTool(null); setActive(key);}} onTool={key => {useExplorerStore.getState().closePreview(); setActiveTool(key);}} onClose={collapseWorkspace} showExperimental={showExperimental}>
+ {active === 'history' ? <WorkbenchChanges /> : active === 'git' ? <ul><GitTree /></ul> : <WorkbenchFiles />}
+ </ReviewWorkspaceNav>;
+ if (!smoothness && !mounted) return null;
 
 	// 只在工作区打开时「收起右边内容」才生效；关闭时等同于未收起，不残留任何按钮。
 	const navEff = open && navHidden;

@@ -44,7 +44,7 @@ Playwright 的 `webServer` 会：
 | `gui/src/stores/settingsStore.fakeProvider.test.ts` | 前端 fake gate 单测。 |
 
 ## 选择器说明
-- Composer 输入框：`getByPlaceholder('描述任务… Enter 发送')`；Enter 发送。
+- Composer 输入框：`getByLabel('消息输入')`（placeholder 会随忙时提示变，不作选择器）；Enter 发送。
 - 发送：`getByRole('button', {name: '发送'})`；流式期间变 `停止生成`。
 - 若首跑遇上选择器二义（会话未激活 / 权限弹窗），按实际 DOM 微调即可。
 

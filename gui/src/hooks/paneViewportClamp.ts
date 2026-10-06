@@ -1,3 +1,4 @@
+import {REVIEW_LAYOUT_ENABLED} from '@/lib/reviewLayout';
 /**
  * paneViewportClamp.ts — 窄窗口下面板让位钳制（2026-09-05 GUI 审计 P1 修复）。
  *
@@ -135,10 +136,20 @@ export function usePaneViewportClamp(): PaneClamp {
 	const workspaceOpen = useWorkspaceStore(s => s.open);
 	const workspaceVisible = useWorkspaceStore(s => s.open && !s.navHidden);
 	const sidebarRendered = sidebarRenderedWidth(sidebarWidth, vp.compact);
+	if (REVIEW_LAYOUT_ENABLED) {
+		const available = Math.max(0, vp.width - (vp.width <= 600 ? 44 : 48) - 6);
+		const drawer = vp.width <= 900;
+		const sidebarEff = Math.min(sidebarWidth, Math.max(0, available - (drawer ? 0 : CHAT_MIN_READABLE + (workspaceOpen ? PANE_WIDTH_MIN : 0))));
+		const host = Math.max(0, available - (!drawer && sidebarOpen ? sidebarEff : 0));
+		return {
+			sidebarEff,
+			workspaceEff: Math.min(explorerWidth, vp.width <= 640 ? Math.max(0, host - 16) : Math.max(0, Math.min(host * .52, host - CHAT_MIN_READABLE))),
+		};
+	}
 	// islands 的 row gap 作用于实际 flex 子项，宽度为 0 的过渡槽也占一道 gap。
 	// 平滑模式始终保留左右槽；关闭平滑模式时槽随面板卸载，只计仍打开的槽。
 	const layoutGap =
-		paneLayout === 'islands'
+		!REVIEW_LAYOUT_ENABLED && paneLayout === 'islands'
 			? 8 *
 					(Number(smoothness || sidebarOpen) + Number(smoothness || workspaceOpen))
 			: 0;

@@ -82,7 +82,7 @@ describe('groupTranscript', () => {
 		});
 	});
 
-	it('keeps queued user bubbles after the active turn activity', () => {
+	it('排队中的用户消息不进转录：唯一表面是 composer 的排队 dock', () => {
 		const blocks = groupTranscript(
 			[
 				msg({id: 'u1', role: 'user', text: 'first request'}),
@@ -97,13 +97,33 @@ describe('groupTranscript', () => {
 			],
 			{streamingText: 'still working', isLoading: true},
 		);
-		expect(blocks.map(block => block.kind)).toEqual(['user', 'turn', 'user']);
+		expect(blocks.map(block => block.kind)).toEqual(['user', 'turn']);
 		expect(blocks[1]).toMatchObject({
 			kind: 'turn',
 			streaming: 'still working',
 			active: true,
 		});
-		expect(blocks[2]).toMatchObject({kind: 'user', message: {id: 'u2'}});
+		expect(blocks.some(block => block.kind === 'user')).toBe(true);
+	});
+
+	it('同一条消息在 queueState 被权威快照清掉后回到转录（不是永久隐身）', () => {
+		const queued = msg({
+			id: 'u2',
+			role: 'user',
+			text: 'follow-up',
+			queueState: 'queued',
+		});
+		const released = msg({id: 'u2', role: 'user', text: 'follow-up'});
+		expect(
+			groupTranscript([queued]).some(
+				block => block.kind === 'user' && block.message.id === 'u2',
+			),
+		).toBe(false);
+		expect(
+			groupTranscript([released]).some(
+				block => block.kind === 'user' && block.message.id === 'u2',
+			),
+		).toBe(true);
 	});
 
 	it('treats tool with result body as settled even if status still running', () => {

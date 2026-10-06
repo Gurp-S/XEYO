@@ -132,6 +132,20 @@ describe('useModalA11y 焦点陷阱', () => {
 		pressTab(opener);
 		expect(document.activeElement).toBe(first);
 	});
+
+	it('IME 组词中的 Tab 不拦截：不夺焦、不 preventDefault（组词归输入法）', () => {
+		openModal();
+		const last = q('last');
+		last.focus();
+		// 焦点在末元素本会触发回卷拦截；组词中必须整体让行。
+		const ev = new KeyboardEvent('keydown', {key: 'Tab', bubbles: true, cancelable: true});
+		Object.defineProperty(ev, 'isComposing', {value: true});
+		act(() => {
+			last.dispatchEvent(ev);
+		});
+		expect(ev.defaultPrevented).toBe(false);
+		expect(document.activeElement).toBe(last);
+	});
 });
 
 describe('useModalA11y 焦点归还', () => {

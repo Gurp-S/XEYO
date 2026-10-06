@@ -1644,6 +1644,29 @@ describe('chatStore hydrate', () => {
 		expect(useChatStore.getState().sessions).toEqual([]);
 	});
 
+	it('并发 hydrate 单飞：第二次调用复用在飞过程，不许再叠一次整包替换', async () => {
+		// hydrate 的收尾是整包 set({sessions, activeId…})；StrictMode 双挂载/任意
+		// 重复调用下，两个 hydrate 各自带旧快照后到者会盖掉先到者（10-05 归档
+		// 标记三连丢的根因）。单飞后：并发两次 = 只跑一轮（loadSpaces 每轮读一次）。
+		const sp = space();
+		const sess = session('sess_sf');
+		vi.mocked(loadSpaces).mockResolvedValue([sp]);
+		vi.mocked(loadSessions).mockResolvedValue([sess]);
+		vi.mocked(loadMessages).mockResolvedValue([]);
+		useChatStore.setState({
+			hydrated: false,
+			spaces: [],
+			sessions: [],
+			messagesById: {},
+			activeId: null,
+		});
+		const first = useChatStore.getState().hydrate();
+		const second = useChatStore.getState().hydrate();
+		await Promise.all([first, second]);
+		expect(vi.mocked(loadSpaces).mock.calls.length).toBe(1);
+		expect(useChatStore.getState().hydrated).toBe(true);
+	});
+
 		it('loads spaces/sessions/messages', async () => {
 		const sp = space();
 		const sess = session('sess_h');

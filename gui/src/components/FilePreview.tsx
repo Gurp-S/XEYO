@@ -1,5 +1,8 @@
 import {Columns2, Maximize2, Minimize2, X} from 'lucide-react';
-import {memo, useCallback, useEffect, useRef, useState} from 'react';
+import {WorkbenchOverlay} from './review/WorkbenchOverlay';
+import {WorkbenchView} from './review/WorkbenchView';
+import {REVIEW_LAYOUT_ENABLED} from '@/lib/reviewLayout';
+import {memo, useCallback, useEffect, useRef, useState, useContext} from 'react';
 import {useNavigate} from 'react-router-dom';
 import {CodeBlock} from '@/components/CodeBlock';
 import {DiffPreview} from '@/components/DiffPreview';
@@ -325,6 +328,10 @@ export const FilePreview = memo(function FilePreview() {
 	);
 	const showPreview = showMdPreview;
 	const showEditor = Boolean(!showDiff && editable && mdMode === 'source');
+	// 选区工具条的可达面 = 挂了选择根（bodyRef）的分支：md 预览 / 代码高亮 /
+	// diff / 超限截断。此前只有 md 预览挂根 ⇒ 代码变体工具条（Add to Chat ⌘L /
+	// 加入侧链对话）与 Ctrl+L 快捷键对代码/文本文件整支不可达。
+	const pickRoot = showPreview || showCodeView || showDiff || truncated;
 	const snippetName = doc?.name || 'selection';
 	const snippetPath = doc?.path || selectedPath || snippetName;
 
@@ -703,11 +710,13 @@ export const FilePreview = memo(function FilePreview() {
 		const root = bodyRef.current;
 		document.addEventListener('mouseup', onMouseUp);
 		window.addEventListener('keydown', onKey);
-		root?.addEventListener('scroll', onScroll, {passive: true});
+		// capture：代码高亮/diff 的滚动容器是选择根的内层子节点，滚它也要刷新选区
+		// （工具条跟随）；md 预览里根即滚动容器，捕获与否等价。
+		root?.addEventListener('scroll', onScroll, {passive: true, capture: true});
 		return () => {
 			document.removeEventListener('mouseup', onMouseUp);
 			window.removeEventListener('keydown', onKey);
-			root?.removeEventListener('scroll', onScroll);
+			root?.removeEventListener('scroll', onScroll, {capture: true});
 		};
 	}, [addToChat, refreshPick, showPreview]);
 
@@ -773,6 +782,18 @@ export const FilePreview = memo(function FilePreview() {
 				? '未保存'
 				: '已保存';
 
+	const {registerFileClose} = useContext(WorkbenchView);
+	const closeSavedPreview = useCallback(async () => {
+		const flushed = mdEditRef.current?.flush() ?? draftRef.current;
+		if (!(await persist(flushed))) return false;
+		closePreview();
+		return true;
+	}, [persist, closePreview]);
+	useEffect(() => {
+		if (!REVIEW_LAYOUT_ENABLED) return;
+		registerFileClose(closeSavedPreview);
+		return () => registerFileClose(null);
+	}, [registerFileClose, closeSavedPreview]);
 	const headerBar = (
 		<div className="xy-file-preview-header flex h-10 shrink-0 items-center justify-between gap-2 px-2">
 			<div
@@ -873,7 +894,7 @@ export const FilePreview = memo(function FilePreview() {
 						: null}
 				</div>
 				<div className="xy-file-preview-utilities flex shrink-0 items-center gap-0.5">
-					{navEff && !previewExpanded ? (
+					{!REVIEW_LAYOUT_ENABLED && navEff && !previewExpanded ? (
 						<button
 							type="button"
 							className="xy-icon-btn rounded-md p-1.5 text-mute hover:bg-glass-hover hover:text-ink"
@@ -888,6 +909,7 @@ export const FilePreview = memo(function FilePreview() {
 						type="button"
 						className="xy-icon-btn rounded-md p-1.5 text-mute hover:bg-glass-hover hover:text-ink"
 						aria-label={previewExpanded ? '还原预览' : '放大预览'}
+						hidden={REVIEW_LAYOUT_ENABLED}
 						title={previewExpanded ? '还原预览' : '放大预览'}
 						onClick={() => setPreviewExpanded(!previewExpanded)}
 					>
@@ -901,6 +923,7 @@ export const FilePreview = memo(function FilePreview() {
 						type="button"
 						className="xy-icon-btn rounded-md p-1.5 text-mute hover:bg-glass-hover hover:text-ink"
 						aria-label="关闭预览"
+						hidden={REVIEW_LAYOUT_ENABLED && !reviewDiff}
 						onClick={() => {
 							const flushed = mdEditRef.current?.flush() ?? draftRef.current;
 							void persist(flushed).then(saved => {
@@ -909,7 +932,7 @@ export const FilePreview = memo(function FilePreview() {
 								}
 								closePreview();
 								// 只剩文件预览（树导航已收起）时，关闭直接收起整个工作区。
-								if (navEff) {
+									if (!REVIEW_LAYOUT_ENABLED && navEff) {
 									collapseWorkspace();
 								}
 							});
@@ -989,12 +1012,14 @@ export const FilePreview = memo(function FilePreview() {
 					</div>
 				) : null}
 				{doc?.kind === 'text' && !truncated && showCodeView ? (
-					<CodeBlock
-						language={highlightLangForName(doc.name)}
-						value={draft}
-						autoCollapse={false}
-						variant="file"
-					/>
+					<div ref={setBodyRef} className="flex min-h-0 flex-1 flex-col">
+						<CodeBlock
+							language={highlightLangForName(doc.name)}
+							value={draft}
+							autoCollapse={false}
+							variant="file"
+						/>
+					</div>
 				) : null}
 				{doc?.kind === 'text' && !truncated && showPreview ? (
 					<div
@@ -1016,7 +1041,7 @@ export const FilePreview = memo(function FilePreview() {
 					</div>
 				) : null}
 			</div>
-			{pick && showPreview ? (
+			{pick && pickRoot ? (
 				<SelectionToolbar
 					variant={showMdTools ? 'markdown' : 'code'}
 					rect={pick.rect}
@@ -1033,7 +1058,7 @@ export const FilePreview = memo(function FilePreview() {
 	// 放大：覆盖聊天列宿主（absolute inset-0），聊天保持挂载；无宽度过渡。
 	if (previewExpanded && (paneOpen || mounted)) {
 		return (
-			<section
+			<WorkbenchOverlay><section
 				ref={paneRef as never}
 				className={cn(
 					'absolute inset-0 z-20 flex min-h-0 min-w-0 flex-col overflow-hidden',
@@ -1045,7 +1070,7 @@ export const FilePreview = memo(function FilePreview() {
 			>
 				{headerBar}
 				{body}
-			</section>
+			</section></WorkbenchOverlay>
 		);
 	}
 

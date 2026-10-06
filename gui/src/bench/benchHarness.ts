@@ -305,7 +305,7 @@ function pushStream(sessionId: string, text: string, status: string): void {
 }
 
 function getScroller(): HTMLElement {
-	const el = document.querySelector<HTMLElement>('.xy-hover-scroll');
+	const el = document.querySelector<HTMLElement>('.xy-chat-surface.xy-hover-scroll');
 	if (!el) {
 		throw new Error('[xy-bench] 未找到消息滚动容器（.xy-hover-scroll）');
 	}

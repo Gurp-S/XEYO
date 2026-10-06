@@ -1,4 +1,5 @@
 import {defineConfig, devices} from '@playwright/test';
+import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -19,6 +20,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // 后端固定端口 + 前后端共享同一端口文件（vite proxy 依端口文件动态跟随）。
 const BACKEND_PORT = Number(process.env.XEYO_E2E_PORT || '8177');
+// 前端端口：默认 5173；被他人 dev server / 并行会话占用时，用
+// XEYO_E2E_VITE_PORT 换端口跑（与 extensions 档同一约定），互不打扰。
+const VITE_PORT = Number(process.env.XEYO_E2E_VITE_PORT || '5173');
 const PORT_FILE = path.join(
 	os.tmpdir(),
 	`xeyo-e2e-port-${process.pid}.json`,
@@ -26,6 +30,9 @@ const PORT_FILE = path.join(
 const ISOLATE_DIR = path.join(os.tmpdir(), `xeyo-e2e-${process.pid}`);
 // 后端可写的临时工作区（SessionPool 需要 cwd；避免污染 repo / 用户现场）。
 const WS_DIR = path.join(ISOLATE_DIR, 'ws');
+// boot_ui_cwd 只读 XEYO_CWD；目录必须真实存在，否则池的 ui cwd 是空的
+// （side 会话在无工作区时发送会 400 workspace cwd is required）。
+fs.mkdirSync(WS_DIR, {recursive: true});
 
 const backendEnv = {
 	XEYO_HTTP_PORT: String(BACKEND_PORT),
@@ -40,10 +47,16 @@ const backendEnv = {
 	// 与 pytest conftest 同等隔离：单测级 env，避免本机真实数据污染。
 	XEYO_C2_GATE: '0',
 	XEYO_TOOL_AGING: '0',
+	// FilePreview 源码编辑直写默认关闭（安全默认）；置位后本档验证「真落盘」
+	// 成功路径（探针按该 env 分失败/成功两模式断言）。
+	XEYO_WORKSPACE_FS_WRITABLE: process.env.XEYO_WORKSPACE_FS_WRITABLE ?? '',
 	XEYO_SESSIONS_DIR: path.join(ISOLATE_DIR, 'sessions'),
 	XEYO_USAGE_DIR: path.join(ISOLATE_DIR, 'usage'),
 	XEYO_HOME: ISOLATE_DIR,
 	// 后端工作区（boot_ui_cwd 回落）；无文件工具时仅作占位。
+	// 后端工作区（boot_ui_cwd 回落）。注意读取方：boot_ui_cwd 认 XEYO_CWD；
+	// XEYO_UI_CWD 全仓无人读（四个 e2e 配置都设它=旧漂移，保留仅为兼容改名前的旧约定）。
+	XEYO_CWD: WS_DIR,
 	XEYO_UI_CWD: WS_DIR,
 };
 
@@ -76,7 +89,7 @@ export default defineConfig({
 	reporter: process.env.CI ? 'github' : 'list',
 	timeout: 60_000,
 	use: {
-		baseURL: `http://127.0.0.1:5173`,
+		baseURL: `http://127.0.0.1:${VITE_PORT}`,
 		trace: 'on-first-retry',
 		screenshot: 'only-on-failure',
 	},
@@ -96,10 +109,10 @@ export default defineConfig({
 			timeout: 120_000,
 		},
 		{
-			command: 'npx vite --port 5173 --strictPort --host 127.0.0.1',
+			command: `npx vite --port ${VITE_PORT} --strictPort --host 127.0.0.1`,
 			cwd: __dirname,
 			env: frontendEnv,
-			url: 'http://127.0.0.1:5173',
+			url: `http://127.0.0.1:${VITE_PORT}`,
 			reuseExistingServer: process.env.XEYO_E2E_REUSE === '1',
 			timeout: 120_000,
 		},

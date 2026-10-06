@@ -1,3 +1,4 @@
+import {REVIEW_LAYOUT_ENABLED} from '@/lib/reviewLayout';
 import {
 	Archive,
 	ArrowLeft,
@@ -7,6 +8,7 @@ import {
 	ChevronRight,
 	Folder,
 	ListFilter,
+	MoreHorizontal,
 	MessageSquare,
 	PanelLeftClose,
 	Plus,
@@ -32,6 +34,7 @@ import {showContextMenu, type ContextMenuItem} from '@/components/ui/ContextMenu
 import {useHoverScroll} from '@/hooks/useHoverScroll';
 import {usePaneResize} from '@/hooks/usePaneResize';
 import {usePresence} from '@/hooks/usePresence';
+import {useTextFade} from '@/hooks/useTextFade';
 import {useViewport} from '@/hooks/useViewport';
 import {
 	SIDEBAR_COMPACT_WIDTH_MAX,
@@ -372,7 +375,7 @@ export const Sidebar = memo(function Sidebar() {
 	const paneRef = useRef<HTMLElement | null>(null);
 
 			const [opening, setOpening] = useState(false);
-		const [workspaceExpanded, setWorkspaceExpanded] = useState(false);
+		const [workspaceExpanded, setWorkspaceExpanded] = useState(REVIEW_LAYOUT_ENABLED);
 
 	const onSidebarWidth = useCallback(
 		(next: number) => updateSettings({sidebarWidth: next}),
@@ -381,12 +384,20 @@ export const Sidebar = memo(function Sidebar() {
 	const {compact} = useViewport();
 	// 窄窗口让位钳制：拖拽也从实际显示宽起算，避免紧凑侧栏出现拖动空程。
 	const {sidebarEff} = usePaneViewportClamp();
-	const width = compact
+	const width = compact && !REVIEW_LAYOUT_ENABLED
 		? Math.min(sidebarEff, SIDEBAR_COMPACT_WIDTH_MAX)
 		: sidebarEff;
-	const resizeMax = compact
+	const resizeMax = compact && !REVIEW_LAYOUT_ENABLED
 		? Math.min(SIDEBAR_WIDTH_MAX, SIDEBAR_COMPACT_WIDTH_MAX)
 		: SIDEBAR_WIDTH_MAX;
+	const collapseSidebar = useCallback(() => setSidebarOpen(false), [setSidebarOpen]);
+	const reviewSidebarMax = useCallback(() => {
+		const row = paneRef.current?.closest<HTMLElement>('.xy-pane-row');
+		if (!row) return resizeMax;
+		const rail = row.querySelector<HTMLElement>('.xy-activity-rail')?.getBoundingClientRect().width ?? 48;
+		const drawer = window.innerWidth <= 900;
+		return Math.min(resizeMax, Math.max(SIDEBAR_WIDTH_MIN, row.clientWidth - rail - 6 - (drawer ? 0 : 340 + (useWorkspaceStore.getState().open ? SIDEBAR_WIDTH_MIN : 0))));
+	}, [resizeMax]);
 	const {
 		dragging,
 		onResizeStart: startPaneResize,
@@ -399,7 +410,7 @@ export const Sidebar = memo(function Sidebar() {
 		onSidebarWidth,
 		SIDEBAR_WIDTH_MIN,
 		resizeMax,
-		{paneRef},
+		{paneRef, constrainBaseToSlot: REVIEW_LAYOUT_ENABLED, onCollapse: REVIEW_LAYOUT_ENABLED ? collapseSidebar : undefined, slotMax: REVIEW_LAYOUT_ENABLED ? reviewSidebarMax : undefined},
 	);
 			useEffect(() => {
 			void invokePet('character_drop_on_island');
@@ -528,6 +539,8 @@ export const Sidebar = memo(function Sidebar() {
 				const newId = await forkSession(id);
 				clearDoneGlow(id);
 				void openSession(newId);
+				// 分叉=要接着聊 ⇒ 输入面就绪（与「新对话」同口径）。
+				useChatStore.getState().requestComposerFocus();
 			} catch (err) {
 				toast.error(
 					err instanceof Error ? err.message : '分叉失败',
@@ -651,7 +664,8 @@ className="xy-icon-btn rounded-md p-1.5 text-mute hover:bg-glass-hover hover:tex
 					<button
 						type="button"
 						onClick={() => void onNew()}
-						className="xy-pressable flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-ink-soft hover:bg-glass-hover hover:text-ink"
+						aria-label="新对话"
+						className="xy-review-new xy-pressable flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-ink-soft hover:bg-glass-hover hover:text-ink"
 					>
 						<Plus className="h-3.5 w-3.5 shrink-0" />
 						<span className="min-w-0 flex-1 truncate text-[13px]">
@@ -676,6 +690,7 @@ className="xy-icon-btn rounded-md p-1.5 text-mute hover:bg-glass-hover hover:tex
 						</span>
 					</button>
 
+					{!REVIEW_LAYOUT_ENABLED && <>
 					<button
 						type="button"
 						onClick={() => {
@@ -743,6 +758,7 @@ className="xy-icon-btn rounded-md p-1.5 text-mute hover:bg-glass-hover hover:tex
 							诊断
 						</span>
 					</button>
+					</>}
 				</div>
 
 				
@@ -1133,7 +1149,7 @@ const SpaceFolder = memo(function SpaceFolder({
 					icon: <Plus className="h-3.5 w-3.5" strokeWidth={1.9} />,
 					onSelect: onAdd,
 				});
-				items.push({
+				if (!REVIEW_LAYOUT_ENABLED) items.push({
 					kind: 'action',
 					id: 'archive-view',
 					label: `归档对话${archivedSessions.length > 0 ? `（${archivedSessions.length}）` : ''}`,
@@ -1195,6 +1211,9 @@ const SpaceFolder = memo(function SpaceFolder({
 		);
 	};
 
+	const spaceNameFadeRef = useTextFade<HTMLSpanElement>(space.name);
+	const expandFadeRef = useTextFade<HTMLSpanElement>(hiddenCount);
+
 	return (
 		<div className="mb-0.5">
 			<div className="group flex items-center gap-0.5 rounded-md hover:bg-glass-hover">
@@ -1205,8 +1224,12 @@ className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 py-1 text-
  
 				>
 					
+					{REVIEW_LAYOUT_ENABLED && <ChevronRight className={cn('h-3 w-3 shrink-0 text-mute transition-transform',open && 'rotate-90')}/>}
 					<Folder className="h-3.5 w-3.5 shrink-0 text-mute" />
-					<span className="min-w-0 flex-1 truncate text-[13px] text-ink">
+					<span
+						ref={spaceNameFadeRef}
+						className="min-w-0 flex-1 truncate text-[13px] text-ink"
+					>
 						{space.name}
 					</span>
 				</button>
@@ -1223,7 +1246,7 @@ className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 py-1 text-
 							: 'opacity-0 translate-x-1 invisible pointer-events-none group-hover:visible group-hover:pointer-events-auto group-hover:opacity-100 group-hover:translate-x-0',
 					)}
 				>
-					<ListFilter className="h-3.5 w-3.5" />
+					{REVIEW_LAYOUT_ENABLED ? <MoreHorizontal className="h-3.5 w-3.5"/> : <ListFilter className="h-3.5 w-3.5" />}
 				</button>
 			</div>
 
@@ -1247,9 +1270,14 @@ className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 py-1 text-
 							onClick={() => setShowAll(v => !v)}
 							className="xy-pressable flex w-full items-center rounded-md px-7 py-1 text-left text-[12px] text-mute hover:bg-glass-hover hover:text-ink"
 						>
-							{showAll
-								? '收起会话列表'
-								: `展开其余 ${hiddenCount} 个会话`}
+							<span
+								ref={expandFadeRef}
+								className="xy-sidebar-expand block min-w-0 truncate"
+							>
+								{showAll
+									? '收起会话列表'
+									: `展开其余 ${hiddenCount} 个会话`}
+							</span>
 						</button>
 					</li>
 					) : null}
@@ -1350,7 +1378,7 @@ const SideChatSection = memo(function SideChatSection({
 					className="flex min-w-0 flex-1 items-center gap-1 rounded-md px-1.5 py-1 text-left text-[11px] font-medium text-current focus:outline-none focus-visible:outline-none"
 				>
 					<span className="min-w-0 truncate">
-						{viewArchived ? `已归档 ${archivedSessions.length}` : '对话'}
+						{viewArchived ? `已归档 ${archivedSessions.length}` : REVIEW_LAYOUT_ENABLED ? '侧聊' : '对话'}
 					</span>
 					<ChevronRight
 						className={cn(
@@ -1362,6 +1390,7 @@ const SideChatSection = memo(function SideChatSection({
 				<div className="flex items-center gap-0.5">
 					<button
 						type="button"
+						hidden={REVIEW_LAYOUT_ENABLED}
 						aria-label={viewArchived ? '返回当前对话' : '查看归档对话'}
 						title={viewArchived ? '返回当前对话' : `归档对话${archivedSessions.length ? `（${archivedSessions.length}）` : ''}`}
 						onClick={() => {

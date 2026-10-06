@@ -137,7 +137,8 @@ function mount(pathname: string) {
 
 /** 展开「工作区」分组（默认收起，会话树不渲染）。 */
 async function expandWorkspaces() {
-	fireEvent.click(await screen.findByRole('button', {name: '工作区'}));
+	const button = await screen.findByRole('button', {name: '工作区'});
+	if (button.getAttribute('aria-expanded') !== 'true') fireEvent.click(button);
 }
 
 function rowOf(title: string): HTMLElement {
@@ -173,7 +174,8 @@ async function runMenuItem(title: string, item: string) {
 
 async function acceptDeleteDialog() {
 	const dialog = await waitFor(() => {
-		const d = document.querySelector('dialog');
+		// The previous dialog may still be exiting; accept the newest modal.
+		const d = Array.from(document.querySelectorAll('dialog')).at(-1);
 		if (!d) {
 			throw new Error('未出现删除确认弹窗');
 		}

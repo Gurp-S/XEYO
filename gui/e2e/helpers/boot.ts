@@ -1,6 +1,6 @@
 import {expect, type Page} from '@playwright/test';
 
-const COMPOSER_PLACEHOLDER = '描述任务… Enter 发送';
+const COMPOSER_LABEL = '消息输入';
 const CRASH_MARK = '界面渲染出错';
 
 /**
@@ -26,7 +26,7 @@ export async function bootChat(page: Page, timeoutMs = 15_000): Promise<void> {
 	});
 
 	await page.goto('/');
-	const composer = page.getByPlaceholder(COMPOSER_PLACEHOLDER);
+	const composer = page.getByLabel(COMPOSER_LABEL);
 	const crashed = page.getByText(CRASH_MARK);
 	try {
 		await expect

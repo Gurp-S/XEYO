@@ -2,14 +2,15 @@
 /* ===== 助手提问贴输入框面板（变体 C：可折叠 Todo 式，底部与发送框一体）=====
    表面与 Todo 面板同源；底部取消圆角与下边框，与下方 Composer 融为双层表面。
    AskUserDialog 与 PermissionDialog 共用此表面体系。 */
+/* dock 卡：DSH 的形态是**每张卡独立**（12px 圆角、四边描边、6px 间距），
+   不再和输入卡拼成一个外框；只有排队面板贴输入卡（见 .xy-queue-list）。 */
 .xy-panel-ask {
-  border-radius: 14px 14px 0 0;
+  border-radius: 12px;
   background: var(--xy-panel-ask-bg);
   border: 1px solid var(--xy-panel-ask-border);
-  border-bottom: none;
   overflow: hidden;
   margin-bottom: 0;
-  box-shadow: 0 -10px 30px rgb(0 0 0 / 0.05);
+  box-shadow: 0 2px 10px rgb(0 0 0 / 0.05);
   animation: xy-ask-rise 0.3s var(--ease-out-soft) both;
 }
 
@@ -384,43 +385,18 @@ html[data-smoothness="off"] .xy-panel-collapse {
   flex-direction: column;
 }
 
-/* 提问/审批/Plan/Todo 与发送框一体：单一外框，发送框为底部 deck */
+/* composer 栈：DSH 的 composerStack —— 只是**一列独立卡 + 6px 间距**，
+   不再有单一外框（旧版：border + overflow:hidden + 发送框当底部 deck）。 */
 .xy-composer-stack {
   display: flex;
   flex-direction: column;
+  gap: 6px;
   position: relative;
-  border: 1px solid var(--xy-panel-ask-border);
-  border-radius: 14px;
-  overflow: hidden;
-  box-shadow: var(--xy-composer-shadow);
-  background: var(--xy-panel-ask-bg);
-  transition:
-    border-color 180ms var(--ease-out-soft),
-    box-shadow 180ms var(--ease-out-soft);
-}
-
-.xy-composer-stack:has(:focus-within) {
-  border-color: var(--xy-accent);
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--xy-accent) 22%, transparent),
-    var(--xy-composer-shadow);
-}
-
-.xy-composer-stack.is-drag-over {
-  border-color: var(--xy-accent) !important;
-  box-shadow:
-    0 0 0 2px color-mix(in srgb, var(--xy-accent) 20%, transparent),
-    var(--xy-composer-shadow) !important;
 }
 
 .xy-composer-stack .xy-panel-ask {
   flex: 0 1 auto;
   min-width: 0;
-  border: none;
-  border-radius: 0;
-  box-shadow: none;
-  margin-bottom: 0;
-  animation: none;
 }
 
 .xy-composer-stack .xy-panel-ask-head {
@@ -440,35 +416,12 @@ html[data-smoothness="off"] .xy-panel-collapse {
   overscroll-behavior: contain;
 }
 
-.xy-composer-stack .xy-panel-ask + .xy-panel-ask {
-  margin-top: 0;
-  border-radius: 0;
-}
-
-/* 矩形托槽：与上方面板同色，填平顶圆角外侧角袋 */
-.xy-composer-stack .xy-composer-fused-slot {
-  flex: 0 0 auto;
-  width: 100%;
-  margin: 0;
-  background: var(--xy-panel-ask-bg);
-}
-
-/* 底部 deck：顶圆角叠在同色托槽上，底与外框齐平 */
-.xy-composer-stack .xy-composer-fused {
-  flex: 0 0 auto;
-  width: 100%;
-  margin: 0;
-  border: none !important;
-  border-radius: 12px 12px 0 0 !important;
-  background: var(--xy-composer-deck-bg) !important;
-  box-shadow: 0 -4px 14px rgb(0 0 0 / 0.14);
-}
-
-.xy-composer-stack .xy-composer-fused:focus-within {
-  border: none !important;
+/* 拖文件进来的反馈归输入卡本身（旧版画在合并外框上，外框已不存在）。 */
+.xy-composer-card.is-drag-over {
   box-shadow:
-    0 -4px 14px rgb(0 0 0 / 0.14),
-    inset 0 0 0 1px color-mix(in srgb, var(--xy-accent) 28%, transparent);
+    0 0 0 0.5px color-mix(in srgb, var(--xy-ink) 11%, transparent),
+    0 0 0 2px color-mix(in srgb, var(--xy-accent) 28%, transparent),
+    0 2px 12px color-mix(in srgb, var(--xy-ink) 8%, transparent);
 }
 
 :root {
@@ -485,42 +438,96 @@ html[data-smoothness="off"] .xy-panel-collapse {
     var(--xy-user-bubble-border) 55%,
     transparent
   );
-  --xy-composer-deck-bg: var(--xy-user-bubble);
 }
 /* 注：不再有 html[data-scheme="dark"] 覆盖——各值均派生自随主题翻转的变量，
    旧 dark 块与 :root 完全同值，属死代码，已删。 */
 
-/* ---- 排队卡 xy-queue-card —— 多条列表：手柄 + 文本 + 幽灵图标动作 ----
-   堆叠卡语言的列表形态；默认 3 条，超出折叠。色值走 XEYO token。 */
+/* ---- 排队 dock —— 计数头 + 一张面板装所有行；面板贴住输入卡顶边 ----
+   1 条不出计数头，>1 条默认折叠成计数头（规则在 lib/inboxDockPresentation）。 */
 .xy-queue-dock {
   display: flex;
   flex: none;
   flex-direction: column;
   gap: 6px;
   padding: 0 10px;
-  margin-bottom: 4px;
+  /* 抵掉栈的 6px 间距：队列面板下沿直角，直接接上输入卡顶边（DSH 的贴卡读法）。 */
+  margin-bottom: -6px;
 }
 
-/* 折叠切换按钮：居中幽灵文本行 */
-.xy-queue-more {
+/* 计数头：多条队列折叠成这一行（对齐 DSH QueueDock 的 header）。
+   交互中（行内编辑 / 动作在飞）禁用，免得用户看不见自己正在改哪行。 */
+.xy-queue-head {
+  box-sizing: border-box;
+  display: flex;
   flex: none;
+  align-items: center;
+  gap: 10px;
   width: 100%;
-  padding: 4px 0;
+  height: 36px;
+  padding: 4px 12px;
+  border: 1px solid var(--xy-line);
+  border-radius: 12px;
+  background: var(--xy-paper);
+  color: var(--xy-ink);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background 120ms var(--ease-out-soft),
+    border-color 120ms var(--ease-out-soft);
+}
+.xy-queue-head:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--xy-accent) 40%, var(--xy-line));
+  background: color-mix(in srgb, var(--xy-ink) 4%, var(--xy-paper));
+}
+.xy-queue-head:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+/* 展开后的队列：DSH 是**一张面板装所有行**（内部 0.5px 分隔线），
+   下沿直角、向上塞 3px 贴住输入卡，读作同一块面。 */
+.xy-queue-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 180px;
+  overflow-y: auto;
+  padding: 2px 0;
+  border: 0.5px solid var(--xy-line);
+  border-bottom: none;
+  border-radius: 12px 12px 0 0;
+  background: var(--xy-paper);
+}
+
+/* 行本身不再是各自的卡：描边/投影归面板，行只留内部分隔。 */
+.xy-queue-list .xy-queue-card {
   border: none;
   border-radius: 8px;
   background: transparent;
-  color: var(--xy-mute);
-  font-family: inherit;
-  font-size: 11.5px;
-  text-align: center;
-  cursor: pointer;
-  transition:
-    color 120ms var(--ease-out-soft),
-    background 120ms var(--ease-out-soft);
+  box-shadow: none;
 }
-.xy-queue-more:hover {
-  color: var(--xy-ink);
-  background: color-mix(in srgb, var(--xy-ink) 6%, transparent);
+.xy-queue-list .xy-queue-card + .xy-queue-card {
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--xy-line) 60%, transparent);
+}
+
+/* 排队行里的图片：固定 24px 缩略图，行高不受影响。 */
+.xy-queue-attachments {
+  display: flex;
+  flex: none;
+  gap: 4px;
+  min-width: 0;
+  max-width: 55%;
+  overflow: hidden;
+}
+.xy-queue-thumb {
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--xy-line);
+  border-radius: 4px;
+  background: var(--xy-paper-deep);
+  object-fit: cover;
 }
 
 .xy-queue-card {

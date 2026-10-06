@@ -1,45 +1,46 @@
 /**
- * SessionGoalDock.tsx — 41 号 P0（保留 XEYO 半透明玻璃风格）。
+ * SessionGoalDock.tsx — goal 条带，逐条对齐 DSH 的 GoalBar
+ * （packages/client/ui-goal/src/client/GoalBar.tsx + .module.css）。
  *
- * 单行 bar = 目标图标 + 阶段标签 +
- * 截断目标 + 右侧动作（暂停/恢复/编辑/清除），编辑为行内 input，clear 带确认。
- * XEYO 有意保留的差异（§9.4）：
- * - 投影携带 armed 态 → 条带以圆点标注「已开启自动续跑 vs 空闲」。
- * - 额外暴露 XEYO 的候选（pending_complete）「待确认完成 + 标记完成/继续」与
- *   blocked 的「恢复」。
- * 渲染规则：无 goal / completed / abandoned 不渲染；active / paused / blocked /
- * pending_complete 渲染。
+ * 条带上只有：glyph + 相位标签 + 单行省略的目标原文 + 图标动作
+ * （active→暂停 / paused→恢复 / 编辑 / 清除；**blocked 只有编辑与清除**）。
+ * 编辑是同一条原地换成输入框，失败内联在条内（role=alert）。
  *
- * 数据双源：SSE goal 帧（turn 起点 whole-value，经 chatStore onGoal 落库）+
- * 3s 轻量轮询（settlement 发生在流结束之后，帧盖不住那段——轮询补齐，41 号 §8）。
+ * 按业主 2026-10-03 深夜裁定"goal 样式、交互等所有对齐 DSH"，XEYO 这几项
+ * 从条带上撤掉（DSH 没有）：自动续跑(armed)的开关与状态圆点、待确认完成的
+ * 标记完成/继续、轮次上限编辑、停止本轮、受阻重开、清除的二次确认。
+ *
+ * 同批撤净的还有 pause/resume 的 disarm/arm 副作用：GUI 不再触碰 round-driver
+ * （服务端 arm 的唯一入口是 `/goal` 后的同步与本组件，两处都已删）＝自动续跑停用。
+ *
+ * 数据双源不变：SSE goal 帧（turn 起点 whole-value，经 chatStore onGoal 落库）
+ * + 3s 轻量轮询（settlement 发生在流结束之后，帧盖不住那段——41 号 §8）。
  * 纪律：动词 single-flight；PATCH 带 revision CAS，409 用后端当前 goal 刷新后
- * 重试一次（禁盲写）； armed 不落盘，重启后自然回到 disarmed。
+ * 重试一次（禁盲写）；armed 不落盘，重启后自然回到 disarmed。
  */
-import {useEffect, useRef, useState} from 'react';
+import {useCallback, useEffect, useRef, useState} from 'react';
 import {
+	Check,
+	Compass,
 	Pause,
 	Pencil,
 	Play,
-	Square,
-	Compass,
 	Trash2,
+	X,
 } from 'lucide-react';
-import type {ReactNode} from 'react';
-import {interruptChat} from '@/lib/api';
 import {toast} from '@/lib/toast';
 import {isImeComposing} from '@/lib/ime';
 import {
 	fetchGoal,
 	patchGoalAction,
-	roundDriverAction,
 	type GoalMutationResult,
 	type SessionGoalState,
 } from '@/lib/api/goals';
-import {writeGoalState} from '@/lib/goalSync';
+import {popEscLayer, pushEscLayer} from '@/lib/escStack';
+import {isGoalLive, writeGoalState} from '@/lib/goalSync';
 import {cn} from '@/lib/utils';
 import {useChatStore} from '@/stores/chatStore';
 import {isSmoothnessOn, useSettingsStore} from '@/stores/settingsStore';
-import {popEscLayer, pushEscLayer} from '@/lib/escStack';
 import {DockPresence} from './DockPresence';
 
 const GOAL_POLL_MS = 3000;
@@ -107,11 +108,6 @@ async function runGoalVerb(
 			sessionId,
 			res.goal ? {goal: res.goal, driver: res.driver ?? cur.driver} : null,
 		);
-	} else {
-		// 冲突重试之后还是失败：过去这里什么都不说，目标原地不动，
-		// 用户以为"继续/暂停/放弃"按下去了。后端的原话（revision 冲突、
-		// 会话不存在、动作不允许）是可操作的，必须带出来。
-		toast.error(verbFailureText('目标操作', res.message));
 	}
 	return res;
 }
@@ -131,379 +127,255 @@ export function SessionGoalDock({embedded = false}: Props) {
 	);
 	const smoothness = useSettingsStore(s => isSmoothnessOn(s.smoothness));
 	const busyRef = useRef(false);
+	const [pending, setPending] = useState(false);
 	const [editing, setEditing] = useState(false);
-	const [confirmDrop, setConfirmDrop] = useState(false);
-	const [editTitle, setEditTitle] = useState('');
-	const [editMax, setEditMax] = useState('');
+	const [draft, setDraft] = useState('');
+	// 失败内联在条带里：条带就是动作发生的地方（DSH GoalBar 的 actionError）。
+	const [actionError, setActionError] = useState<string | null>(null);
+	// 清除后先本地记住这条 id：投影滞后时旧版目标不许再冒充当前事实。
+	const [clearedGoalId, setClearedGoalId] = useState<string | null>(null);
 	useSessionGoalLive(activeId);
 
-	// 编辑 / 删除确认卡：点卡外或 Esc 关闭。
-	useEffect(() => {
-		if (!editing && !confirmDrop) return;
-		const onDoc = (e: MouseEvent) => {
-			const t = e.target as HTMLElement;
-			if (t.closest('[data-goal-pop]')) return;
-			setEditing(false);
-			setConfirmDrop(false);
-		};
-		pushEscLayer('goal-pop', () => {
-			setEditing(false);
-			setConfirmDrop(false);
-		});
-		document.addEventListener('mousedown', onDoc);
-		return () => {
-			document.removeEventListener('mousedown', onDoc);
-			popEscLayer('goal-pop');
-		};
-	}, [editing, confirmDrop]);
-
-	// 切换会话时关闭弹层。
+	// 目标换了身份（外部清除/完成/替换）就丢掉本地编辑态：残留草稿的 Enter
+	// 会写到一个新目标上（DSH GoalBar 同口径）。
+	const goalId = state?.goal.goal_id;
 	useEffect(() => {
 		setEditing(false);
-		setConfirmDrop(false);
-	}, [activeId, activeSessionArchived]);
+		setActionError(null);
+		setClearedGoalId(null);
+	}, [goalId, activeSessionArchived]);
 
-	if (!activeId || !state) {
+	// 编辑态拥有 Esc（escStack LIFO 顶层）：元素级 onKeyDown 在流式期间会被
+	// 「停止生成」层先吃掉 —— 实测 Esc 停了回合、编辑框不关（e2e input-chain 探针）。
+	useEffect(() => {
+		if (!editing) {
+			return;
+		}
+		pushEscLayer('goal-dock-edit', () => setEditing(false));
+		return () => popEscLayer('goal-dock-edit');
+	}, [editing]);
+
+	const report = useCallback((label: string, message: string) => {
+		setActionError(verbFailureText(label, message));
+	}, []);
+
+	if (!activeId || !isGoalLive(state)) {
 		return null;
 	}
-	const {goal, driver} = state;
-	if (
-		goal.status !== 'active' &&
-		goal.status !== 'paused' &&
-		goal.status !== 'blocked'
-	) {
+	const {goal} = state;
+	if (goal.goal_id === clearedGoalId) {
 		return null;
 	}
 
-	const armed = driver?.activation === 'armed';
-	const inRound = Array.isArray(driver?.active_round);
 	const title = goal.title.trim() || '未命名目标';
 	const blocked = goal.status === 'blocked';
 	const paused = goal.status === 'paused';
-	const pending = goal.status === 'active' && goal.pending_complete === true;
 
-	const ensureWritable = () => {
-		if (
-			!activeId ||
-			useChatStore.getState().sessions.some(
-				session => session.id === activeId && session.archived,
-			)
-		) {
-			toast.info('归档对话为只读，请先恢复');
-			return false;
-		}
-		return true;
-	};
-	const act = (fn: () => Promise<unknown>, allowArchivedStop = false) => {
+	const act = (fn: () => Promise<unknown>) => {
 		if (busyRef.current) return;
-		if (!allowArchivedStop && !ensureWritable()) return;
 		busyRef.current = true;
+		setPending(true);
+		setActionError(null);
 		void fn().finally(() => {
 			busyRef.current = false;
+			setPending(false);
 		});
 	};
-
-	/** 自动续跑开关：失败必须说话——静默失败的外表和成功一模一样。 */
-	const driverVerb = async (action: 'arm' | 'disarm'): Promise<boolean> => {
-		const res = await roundDriverAction(activeId, action);
-		if (!res.ok) {
-			toast.error(
-				verbFailureText(
-					action === 'arm' ? '开启自动续跑' : '停止自动续跑',
-					res.message,
-				),
-			);
-			return false;
-		}
-		writeGoalState(
-			activeId,
-			res.goal ? {goal: res.goal, driver: res.driver} : null,
-		);
-		return true;
+	/** 归档只读：DSH 没这个态，但 XEYO 的写请求会被后端挡，先在前端说清楚。 */
+	const archivedGuard = () => {
+		if (!activeSessionArchived) return true;
+		toast.info('归档对话为只读，请先恢复');
+		return false;
 	};
-	const arm = () =>
-		act(async () => {
-			await driverVerb('arm');
-		});
-	const doDisarm = (): Promise<boolean> => driverVerb('disarm');
-	/** 停止：轮中 = 现有 Stop（interrupt）→ settlement 自动 disarm；预约期 = 仅 disarm。 */
-	const stop = () =>
-		act(async () => {
-			if (inRound) {
-				const res = await interruptChat(activeId);
-				// not_running = 这一轮本来就没在跑，不是失败；其余原话要说出来。
-				if (!res.ok && res.message !== 'not_running') {
-					toast.error(verbFailureText('停止本轮', res.message));
-				}
-			}
-			await doDisarm();
-		}, true);
 	const pauseGoal = () =>
 		act(async () => {
 			const res = await runGoalVerb(activeId, rev =>
 				patchGoalAction(activeId, 'pause', {revision: rev}),
 			);
-			// 暂停没落地就不停自动续跑：条带仍显示"进行中"、行为却已经停了，
-			// 两处不一致比一次失败更难查。
-			if (armed && res?.ok) {
-				await doDisarm();
-			}
+			if (res && !res.ok) report('目标操作', res.message);
 		});
 	const resumeGoal = () =>
 		act(async () => {
 			const res = await runGoalVerb(activeId, rev =>
 				patchGoalAction(activeId, 'resume', {revision: rev}),
 			);
-			// 恢复成功后才重新 armed（resume re-arms）。目标仍是 paused 时 arm，
-			// 等于让自动续跑接着一个暂停的目标往下跑轮。
-			if (!res?.ok) return;
-			await driverVerb('arm');
+			if (res && !res.ok) report('目标操作', res.message);
 		});
-	const reopen = () =>
-		act(() =>
-			runGoalVerb(activeId, rev =>
-				patchGoalAction(activeId, 'reopen', {revision: rev}),
-			),
-		);
-	const confirmComplete = () =>
-		act(() =>
-			runGoalVerb(activeId, rev =>
-				patchGoalAction(activeId, 'confirm_complete', {revision: rev}),
-			),
-		);
-	const continueGoal = () =>
-		act(() =>
-			runGoalVerb(activeId, rev =>
-				patchGoalAction(activeId, 'continue', {revision: rev}),
-			),
-		);
 
-	const openEdit = () => {
-		if (!ensureWritable()) return;
-		const g = useChatStore.getState().sessionGoalById?.[activeId]?.goal;
-		setEditTitle(g?.text || g?.title || '');
-		setEditMax(g && g.max_rounds > 0 ? String(g.max_rounds) : '');
-		setConfirmDrop(false);
-		setEditing(true);
-	};
 	const saveEdit = () =>
 		act(async () => {
-			const text = editTitle.trim() || goal.text.trim();
+			const text = draft.trim();
+			if (text === '') return;
 			const res = await runGoalVerb(activeId, rev =>
-				patchGoalAction(activeId, 'edit', {
-					revision: rev,
-					text,
-					maxRounds: editMax.trim()
-						? Number(editMax.trim())
-						: undefined,
-				}),
+				patchGoalAction(activeId, 'edit', {revision: rev, text}),
 			);
-			// 只在真的改成了才收编辑器：否则用户刚输入的标题会跟着一起消失。
-			if (res?.ok) {
-				setEditing(false);
+			if (!res) return;
+			if (!res.ok) {
+				// 只在真的改成了才收编辑器：否则用户刚输入的标题会跟着一起消失。
+				report('目标操作', res.message);
+				return;
 			}
+			setEditing(false);
 		});
-	const dropGoal = () =>
+	const clearGoal = () =>
 		act(async () => {
+			const clearedId = goal.goal_id;
 			const res = await runGoalVerb(activeId, rev =>
 				patchGoalAction(activeId, 'drop', {revision: rev}),
 			);
-			if (res?.ok) {
-				setConfirmDrop(false);
+			if (res && !res.ok) {
+				report('目标操作', res.message);
+				return;
 			}
+			if (res?.ok) setClearedGoalId(clearedId);
 		});
 
-	const pillBtn =
-		'xy-press inline-flex items-center gap-1 rounded-md border px-2 py-0.5 font-sans text-[11px] leading-tight text-ink transition-colors disabled:opacity-50';
-	const ghostBtn = cn(pillBtn, 'border-line/70 bg-paper hover:bg-paper-deep/50');
-	const accentBtn = cn(pillBtn, 'border-accent/60 bg-accent/10 text-accent hover:bg-accent/20');
-	const iconBtnCls =
-		'xy-icon-btn inline-flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-full text-mute transition-colors hover:bg-paper-deep hover:text-ink disabled:opacity-40';
-
-	const phaseLabel = paused
-		? '已暂停的目标'
-		: blocked
-			? '受阻的目标'
-			: pending
-				? '待确认完成'
-				: '进行中的目标';
+	const phaseLabel = paused ? '已暂停的目标' : blocked ? '受阻的目标' : '进行中的目标';
 	const objective = (goal.text.trim() || title).slice(0, 140);
-	const armedDot =
-		!paused && !blocked && !pending ? (
-			<span
-				className={cn(
-					'size-2 shrink-0 rounded-full',
-					armed ? 'bg-ok animate-pulse' : 'bg-mute/50',
-				)}
-				aria-hidden
-			/>
-		) : null;
 
-	const editBtn = (
-		<button
-			type="button"
-			className={iconBtnCls}
-			aria-label="编辑目标"
-			title="编辑目标"
-			onClick={openEdit}
-		>
-			<Pencil className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden />
-		</button>
-	);
-	const clearBtn = (
-		<button
-			type="button"
-			className={iconBtnCls}
-			aria-label="清除目标"
-			title={activeSessionArchived ? '归档对话为只读，请先恢复' : '清除目标'}
-			onClick={() => {
-				if (!ensureWritable()) return;
-				setEditing(false);
-				setConfirmDrop(true);
-			}}
-		>
-			<Trash2 className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden />
-		</button>
-	);
+	const iconBtn =
+		'xy-icon-btn inline-flex h-[28px] w-[28px] shrink-0 items-center justify-center rounded-full text-mute transition-colors hover:bg-paper-deep hover:text-ink disabled:opacity-40 disabled:hover:bg-transparent';
+	const disabledTitle = activeSessionArchived ? '归档对话为只读，请先恢复' : undefined;
 
-	let primary: ReactNode;
-	if (paused) {
-		primary = (
-			<button type="button" className={accentBtn} onClick={resumeGoal}>
-				<Play className="mr-0.5 inline size-2.5" strokeWidth={2} aria-hidden />
-				恢复
-			</button>
-		);
-	} else if (blocked) {
-		primary = (
-			<button type="button" className={accentBtn} onClick={reopen}>
-				<Play className="mr-0.5 inline size-2.5" strokeWidth={2} aria-hidden />
-				恢复
-			</button>
-		);
-	} else if (pending) {
-		primary = (
-			<>
-				<button type="button" className={accentBtn} onClick={confirmComplete}>
-					标记完成
+	const actions = (
+		<div className="flex shrink-0 items-center gap-[10px]">
+			{goal.status === 'active' ? (
+				<button
+					type="button"
+					className={iconBtn}
+					aria-label="暂停"
+					title={disabledTitle ?? '暂停目标'}
+					disabled={pending || activeSessionArchived}
+					onClick={() => {
+						if (!archivedGuard()) return;
+						pauseGoal();
+					}}
+				>
+					<Pause className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden />
 				</button>
-				<button type="button" className={ghostBtn} onClick={continueGoal}>
-					继续此目标
+			) : paused ? (
+				<button
+					type="button"
+					className={iconBtn}
+					aria-label="恢复"
+					title={disabledTitle ?? '恢复目标'}
+					disabled={pending || activeSessionArchived}
+					onClick={() => {
+						if (!archivedGuard()) return;
+						resumeGoal();
+					}}
+				>
+					<Play className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden />
 				</button>
-			</>
-		);
-	} else if (inRound) {
-		primary = (
-			<button type="button" className={ghostBtn} onClick={stop}>
-				<Square className="mr-0.5 inline size-2.5" strokeWidth={2} aria-hidden />
-				停止
-			</button>
-		);
-	} else if (armed) {
-		primary = (
+			) : null}
 			<button
 				type="button"
-				className={ghostBtn}
-				title="暂停目标（持久，停止自动续跑）"
-				onClick={pauseGoal}
+				className={iconBtn}
+				aria-label="编辑目标"
+				title={disabledTitle ?? '编辑目标'}
+				disabled={pending || activeSessionArchived}
+				onClick={() => {
+					if (!archivedGuard()) return;
+					const g = useChatStore.getState().sessionGoalById?.[activeId]?.goal;
+					setDraft(g?.text || g?.title || '');
+					setActionError(null);
+					setEditing(true);
+				}}
 			>
-				<Pause className="mr-0.5 inline size-2.5" strokeWidth={2} aria-hidden />
-				暂停
+				<Pencil className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden />
 			</button>
-		);
-	} else {
-		primary = (
-			<button type="button" className={accentBtn} onClick={arm}>
-				<Play className="mr-0.5 inline size-2.5" strokeWidth={2} aria-hidden />
-				自动续跑
+			<button
+				type="button"
+				className={iconBtn}
+				aria-label="清除目标"
+				title={disabledTitle ?? '清除目标'}
+				disabled={pending || activeSessionArchived}
+				onClick={() => {
+					if (!archivedGuard()) return;
+					clearGoal();
+				}}
+			>
+				<Trash2 className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden />
 			</button>
-		);
-	}
+		</div>
+	);
 
 	const panel = (
-		<div className="xy-panel-ask is-expanded" role="region" aria-label="Session goal">
-			<div className="flex items-center gap-2 px-3 py-1.5">
-				<Compass className="size-4 shrink-0 text-mute" strokeWidth={1.8} aria-hidden />
-				{armedDot}
-				<span
-					className={cn(
-						'shrink-0 text-[12px] font-medium text-ink',
-						blocked && 'text-warn',
-						pending && 'text-ok',
-					)}
-				>
-					{phaseLabel}
-				</span>
-				<span className="min-w-0 flex-1 truncate text-[12px] text-ink-soft">
-					{objective}
-				</span>
-				<div className="ml-auto flex shrink-0 items-center gap-1">
-					{activeSessionArchived ? (
-						inRound ? (
-							<button type="button" className={ghostBtn} onClick={stop}>
-								<Square className="mr-0.5 inline size-2.5" strokeWidth={2} aria-hidden />
-								停止
-							</button>
-						) : (
-							<span className="text-[11px] text-mute">已归档 · 只读</span>
-						)
-					) : (
-						<>
-							{primary}
-							{editBtn}
-							{clearBtn}
-						</>
-					)}
-				</div>
-			</div>
-
+		<div
+			className="xy-panel-ask xy-goal-dock is-expanded"
+			role="region"
+			aria-label="Session goal"
+			data-goal-bar=""
+			title={blocked ? goal.blocked_reason || undefined : undefined}
+		>
 			{editing ? (
-				<div className="flex items-center gap-2 px-3 pb-2" data-goal-pop>
+				/* 编辑态：整条换位，不另起一块面板（DSH GoalBar 的 inline form）。 */
+				<div className="flex h-9 items-center gap-[10px] px-3">
 					<input
-						value={editTitle}
-						onChange={e => setEditTitle(e.target.value)}
+						value={draft}
+						onChange={e => setDraft(e.target.value)}
 						placeholder="目标内容"
 						autoFocus
+						aria-label="目标内容"
 						onKeyDown={e => {
 							if (isImeComposing(e.nativeEvent)) return;
 							if (e.key === 'Enter') void saveEdit();
 							if (e.key === 'Escape') setEditing(false);
 						}}
-						className="min-w-0 flex-1 rounded-md border border-line/70 bg-paper-deep/40 px-2 py-1 text-[12px] text-ink outline-none focus:border-accent/60"
+						className="min-w-0 flex-1 rounded-md border border-line/70 bg-paper-deep/40 px-2 text-[13px] leading-5 text-ink outline-none focus:border-accent/60"
 					/>
-					<input
-						value={editMax}
-						onChange={e => setEditMax(e.target.value)}
-						inputMode="numeric"
-						placeholder="轮次上限(0=默认)"
-						className="w-24 rounded-md border border-line/70 bg-paper-deep/40 px-2 py-1 text-[12px] text-ink outline-none focus:border-accent/60"
-					/>
-					<button type="button" className={accentBtn} onClick={() => void saveEdit()}>
-						保存
-					</button>
-					<button type="button" className={ghostBtn} onClick={() => setEditing(false)}>
-						取消
-					</button>
-				</div>
-			) : null}
-
-			{confirmDrop ? (
-				<div className="px-3 pb-2" data-goal-pop>
-					<p className="text-[11px] text-ink">删除这个目标？该会话将不再显示目标面板。</p>
-					<div className="mt-1.5 flex justify-end gap-1">
-						<button type="button" className={ghostBtn} onClick={() => setConfirmDrop(false)}>
-							取消
+					{actionError !== null ? (
+						<span className="min-w-0 shrink truncate text-[12px] leading-5 text-danger" role="alert">
+							{actionError}
+						</span>
+					) : null}
+					<div className="flex shrink-0 items-center gap-[10px]">
+						<button
+							type="button"
+							className={iconBtn}
+							aria-label="保存目标"
+							title="保存目标"
+							disabled={pending || draft.trim() === ''}
+							onClick={() => void saveEdit()}
+						>
+							<Check className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden />
 						</button>
 						<button
 							type="button"
-							className="xy-press rounded-md border border-warn/60 bg-warn/10 px-2 py-0.5 font-sans text-[11px] leading-tight text-warn hover:bg-warn/20"
-							onClick={dropGoal}
+							className={iconBtn}
+							aria-label="取消编辑"
+							title="取消编辑"
+							disabled={pending}
+							onClick={() => setEditing(false)}
 						>
-							确认删除
+							<X className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden />
 						</button>
 					</div>
 				</div>
-			) : null}
+			) : (
+				<div className="flex h-9 items-center gap-[10px] pl-3 pr-[5px]">
+					<span className="shrink-0 text-mute" aria-hidden>
+						<Compass className="h-3.5 w-3.5" strokeWidth={1.9} />
+					</span>
+					<span
+						className={cn(
+							'shrink-0 text-[13px] font-medium leading-6',
+							blocked ? 'text-warn' : 'text-ink',
+						)}
+					>
+						{phaseLabel}
+					</span>
+					<span className="min-w-0 flex-1 truncate text-[13px] leading-5 text-ink-soft">
+						{objective}
+					</span>
+					{actionError !== null ? (
+						<span className="min-w-0 shrink truncate text-[12px] leading-5 text-danger" role="alert">
+							{actionError}
+						</span>
+					) : null}
+					{actions}
+				</div>
+			)}
 		</div>
 	);
 
@@ -520,17 +392,11 @@ export function SessionGoalDock({embedded = false}: Props) {
 	);
 }
 
-/** live 谓词（纯函数，供 hook 与测试共用）：active / paused / blocked 即 live。 */
+/** live 谓词（供 hook 与测试共用）：唯一权威在 lib/goalSync 的 isGoalLive。 */
 export function goalDockLiveFor(
 	state: SessionGoalState | null | undefined,
 ): boolean {
-	if (!state) return false;
-	const {goal} = state;
-	return (
-		goal.status === 'active' ||
-		goal.status === 'paused' ||
-		goal.status === 'blocked'
-	);
+	return isGoalLive(state);
 }
 
 /** Goal 面板是否应在 Composer 统一外框中显示（参与外框融合高度）。 */

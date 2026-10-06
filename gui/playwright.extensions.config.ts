@@ -23,6 +23,7 @@ const WS_DIR = path.join(ISOLATE_DIR, 'ws');
 // 注意:XEYO_HOME 覆盖时后端把它直接当 home root —— settings 落在
 // $XEYO_HOME/settings.json(不带 .xeyo 段),见 memory/instruction.py::xeyo_home。
 try {
+	fs.mkdirSync(WS_DIR, {recursive: true});
 	fs.mkdirSync(ISOLATE_DIR, {recursive: true});
 	fs.writeFileSync(
 		path.join(ISOLATE_DIR, 'settings.json'),
@@ -48,6 +49,8 @@ const backendEnv = {
 	XEYO_USAGE_DIR: path.join(ISOLATE_DIR, 'usage'),
 	XEYO_HOME: ISOLATE_DIR,
 	XEYO_SPILL_DIR: path.join(ISOLATE_DIR, 'spill'),
+	// 读取方是 boot_ui_cwd（认 XEYO_CWD）；XEYO_UI_CWD 全仓无人读（旧漂移，保留）。
+	XEYO_CWD: WS_DIR,
 	XEYO_UI_CWD: WS_DIR,
 };
 

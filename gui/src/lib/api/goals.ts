@@ -1,14 +1,18 @@
 /**
  * goals.ts — T9/41 号 Goal 域 API 客户端。
  *
- * 三个动词族：
+ * 两个动词：
  * - fetchGoal：GET 投影（goal + driver 快照；未绑定 → null）。
- * - patchGoalAction：PATCH 动作（confirm_complete/continue/drop/reopen/new/edit）。
- * - roundDriverAction：POST round-driver（41 号 armed 内存态显式开关）。
+ * - patchGoalAction：PATCH 动作（drop/new/edit/pause/resume）。
+ *
+ * 业主 2026-10-03 裁定废弃"自动续跑 + 待确认完成 + 轮次上限 + 受阻重开"这组功能：
+ * `roundDriverAction`（POST round-driver）已从客户端删除，`confirm_complete` /
+ * `continue` / `reopen` 也不再暴露（服务端仍接受，CLI 与远程通道未同步废弃）。
+ * 类型里保留 `pending_complete` / `max_rounds` / `activation` 是因为**服务端仍发这些键**
+ * ——客户端如实描述 wire，但 GUI 不再据它们行动。
  *
  * CAS 纪律（41 号 §5）：PATCH 动词带 revision 提交；409 goal_revision_conflict
  * 时返回 conflict（后端附当前 goal），调用方刷新后重试一次（禁盲写）。
- * arm/disarm 不需要 CAS（armed 不落盘；arm 内部需要改 cap 时后端自取新鲜 revision）。
  */
 import {apiUrl} from '@/lib/apiBase';
 import {fetchWithTimeout, formatErrorDetail} from './core';
@@ -118,11 +122,13 @@ export async function fetchGoal(sessionId: string): Promise<GoalReadResult> {
 	}
 }
 
+/**
+ * 41 号里 GUI 会发的动作。业主 2026-10-03 裁定废弃这组功能后，
+ * `confirm_complete` / `continue` / `reopen` 已从界面撤净，客户端也不再暴露；
+ * 服务端仍接受它们（CLI / 远程通道未同步废弃）。
+ */
 export const GOAL_ACTIONS = [
-	'confirm_complete',
-	'continue',
 	'drop',
-	'reopen',
 	'new',
 	'edit',
 	'pause',
@@ -142,7 +148,6 @@ export type GoalPatchOptions = {
 	revision?: number;
 	title?: string;
 	text?: string;
-	maxRounds?: number;
 };
 
 /** PATCH /v1/sessions/{sid}/goal（T9 动作 + 41 号 edit）。 */
@@ -151,7 +156,7 @@ export async function patchGoalAction(
 	action: GoalAction,
 	opts: GoalPatchOptions = {},
 ): Promise<GoalMutationResult> {
-	const {revision, title, text, maxRounds} = opts;
+	const {revision, title, text} = opts;
 	return goalMutate(
 		apiUrl(`/v1/sessions/${encodeURIComponent(sessionId)}/goal`),
 		{
@@ -161,25 +166,6 @@ export async function patchGoalAction(
 				...(revision != null ? {revision} : {}),
 				...(title != null ? {title} : {}),
 				...(text != null ? {text} : {}),
-				...(maxRounds != null ? {max_rounds: maxRounds} : {}),
-			},
-		},
-	);
-}
-
-/** POST /v1/sessions/{sid}/goal/round-driver（41 号 arm/disarm；内存态不落盘）。 */
-export async function roundDriverAction(
-	sessionId: string,
-	action: 'arm' | 'disarm',
-	maxRounds?: number,
-): Promise<GoalMutationResult> {
-	return goalMutate(
-		apiUrl(`/v1/sessions/${encodeURIComponent(sessionId)}/goal/round-driver`),
-		{
-			method: 'POST',
-			body: {
-				action,
-				...(maxRounds != null ? {max_rounds: maxRounds} : {}),
 			},
 		},
 	);

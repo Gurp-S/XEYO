@@ -1,8 +1,6 @@
 /**
- * streamPersistence.ts — 单次流式发送的防抖 IDB 持久化，自
- * streamSendSlice.createStreamSendSlice() 原样拆出 (persistWrites /
- * persistNow / persistHot / persistTimer / persistIdle / fingerprints / thoughtsync)。
- * 行为不变；调用方委托给返回的 controller。
+ * 单次流式发送的防抖 IDB 持久化；数据库写入与成功快照由 messageWriter
+ * 串行维护，controller 负责防抖、空闲调度与 thought sync。
  */
 import type {StoreApi} from 'zustand';
 import {
@@ -16,10 +14,7 @@ import {
 import {
 	isLayoutBusy,
 } from '@/lib/layoutBusy';
-import {
-	collectMessagesToPersist,
-	seedPersistFingerprints,
-} from '@/lib/messagePersist';
+import {createMessageWriter} from '@/lib/messageWriter';
 import {
 	type ChatState,
 } from './preStoreHelpers';
@@ -59,25 +54,13 @@ export function createStreamPersistence(deps: {
 	let persistTimer = 0;
 	let persistIdle = 0;
 	let persistQueued: ChatMessage[] | null = null;
-	let persistedCount = seedMessages.length;
-	let persistFingerprints = seedPersistFingerprints(seedMessages);
+	const persist = createMessageWriter(seedMessages, {
+		patch: msgs => patchMessages(sessionId, msgs),
+		replace: msgs => replaceMessages(sessionId, msgs),
+	});
 
 	const write = (msgs: ChatMessage[]) => {
-		if (msgs.length < persistedCount) {
-			void replaceMessages(sessionId, msgs);
-			persistedCount = msgs.length;
-			persistFingerprints = seedPersistFingerprints(msgs);
-		} else {
-			const {toWrite, nextFingerprints} = collectMessagesToPersist(
-				msgs,
-				persistFingerprints,
-			);
-			persistFingerprints = nextFingerprints;
-			if (toWrite.length > 0) {
-				void patchMessages(sessionId, toWrite).catch(() => {});
-			}
-			persistedCount = msgs.length;
-		}
+		persist(msgs);
 		scheduleThoughtSync(backendSessionId, msgs);
 	};
 

@@ -9,6 +9,7 @@ import {
 } from 'react';
 import {MarkdownView} from '@/components/MarkdownView';
 import {htmlToMarkdown} from '@/lib/htmlToMarkdown';
+import {isImeComposing} from '@/lib/ime';
 
 export type EditableMarkdownHandle = {
 	flush: () => string;
@@ -183,6 +184,10 @@ export const EditableMarkdown = forwardRef<EditableMarkdownHandle, Props>(
 					insertPlain(e.clipboardData.getData('text/plain'));
 				}}
 				onKeyDown={e => {
+					// 组词中：Tab/Ctrl+S 属于输入法会话，一律交还（与 Composer 同规）。
+					if (isImeComposing(e.nativeEvent)) {
+						return;
+					}
 					if (e.key === 'Tab') {
 						e.preventDefault();
 						insertPlain('  ');

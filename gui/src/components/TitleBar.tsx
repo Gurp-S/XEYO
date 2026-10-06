@@ -1,8 +1,10 @@
 import type {CSSProperties, MouseEvent} from 'react';
 import {Minus, Square, Copy, Moon, PanelRightClose, PanelRightOpen, Sun, X} from 'lucide-react';
+import {REVIEW_LAYOUT_ENABLED} from '@/lib/reviewLayout';
 import {FileMenu} from '@/components/FileMenu';
 import {SettingsModal} from '@/components/SettingsModal';
 import {isTauri} from '@/lib/tauri';
+import {popEscLayer, pushEscLayer} from '@/lib/escStack';
 import {cn} from '@/lib/utils';
 import {useEffect, useRef, useState} from 'react';
 import {useSettingsStore} from '@/stores/settingsStore';
@@ -98,6 +100,16 @@ export function TitleBar() {
 		};
 	}, [themeOpen]);
 
+	// 主题菜单的 Esc 走 escStack 顶层：document 冒泡监听在流式期间会被
+	// 「停止生成」层先吃掉（Esc 停回合、菜单还开着）。
+	useEffect(() => {
+		if (!themeOpen) {
+			return;
+		}
+		pushEscLayer('titlebar-theme', () => setThemeOpen(false));
+		return () => popEscLayer('titlebar-theme');
+	}, [themeOpen]);
+
 	const theme = useSettingsStore(s => s.theme);
 	const update = useSettingsStore(s => s.update);
 	const settingsOpen = useSettingsStore(s => s.settingsModalOpen);
@@ -169,7 +181,10 @@ export function TitleBar() {
 					className="xy-no-drag relative z-10 flex shrink-0 items-center gap-1.5 pl-0.5"
 					style={noDragStyle}
 				>
-					<FileMenu />
+					{REVIEW_LAYOUT_ENABLED ? <>
+						<span className="xy-app-name">XEYO</span>
+						<FileMenu label="文件" />
+					</> : <FileMenu />}
 				</div>
 				<div
 					className="xy-titlebar-drag h-full min-w-0 flex-1 cursor-default"

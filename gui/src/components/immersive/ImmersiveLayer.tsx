@@ -1,5 +1,7 @@
 import {useEffect, useRef, useState} from 'react';
+import {useChatStore} from '@/stores/chatStore';
 import {useChatUiStore} from '@/stores/chatUiStore';
+import {popEscLayer, pushEscLayer} from '@/lib/escStack';
 import {useSettingsStore} from '@/stores/settingsStore';
 import {Composer} from '@/components/Composer';
 import {MessageList} from '@/components/MessageList';
@@ -19,6 +21,34 @@ export function ImmersiveLayer() {
 	const [panelOpen, setPanelOpen] = useState(true);
 
 	useEffect(() => {
+		// 退出沉浸：让常驻的基础 Composer 按共享草稿重载。基础输入框在沉浸期间
+		// 只是被盖住、并未卸载，不重载就会保留进场前的陈旧值——随后任一敲键都会
+		// 把沉浸期间续写的内容整段顶掉（静默丢字）。
+		return () => {
+			const st = useChatStore.getState();
+			const sid = st.activeId;
+			if (sid) {
+				st.requestComposerDraftRestore(sid);
+			}
+		};
+	}, []);
+
+	// 沉浸层自己的 Esc 归 escStack（LIFO，一键只关一层）：面板开着先关面板、再退沉浸。
+	// 裸 window 监听会与下层注入口（如正在编辑的消息气泡、编辑层）同按一键、连关两层。
+	useEffect(() => {
+		pushEscLayer('immersive-layer', () => setImmersive(false));
+		return () => popEscLayer('immersive-layer');
+	}, [setImmersive]);
+
+	useEffect(() => {
+		if (!panelOpen) {
+			return;
+		}
+		pushEscLayer('immersive-panel', () => setPanelOpen(false));
+		return () => popEscLayer('immersive-panel');
+	}, [panelOpen]);
+
+	useEffect(() => {
 		const onKey = (e: KeyboardEvent) => {
 			if (
 				(e.ctrlKey || e.metaKey) &&
@@ -28,21 +58,11 @@ export function ImmersiveLayer() {
 			) {
 				e.preventDefault();
 				setPanelOpen(v => !v);
-				return;
-			}
-			if (e.key === 'Escape') {
-				if (panelOpen) {
-					e.preventDefault();
-					setPanelOpen(false);
-					return;
-				}
-				e.preventDefault();
-				setImmersive(false);
 			}
 		};
 		window.addEventListener('keydown', onKey);
 		return () => window.removeEventListener('keydown', onKey);
-	}, [panelOpen, setImmersive]);
+	}, []);
 
 	return (
 		<div className="xy-immersive fixed inset-0 z-[100] overflow-hidden">
@@ -82,6 +102,30 @@ function ImmersiveModelPicker() {
 	const model = useSettingsStore(s => s.model);
 	const [open, setOpen] = useState(false);
 	const btnRef = useRef<HTMLButtonElement>(null);
+	// 与 Composer 的模型弹层同款配对：外点关闭 + Esc 层。沉浸版此前两者都缺：
+	// 弹层打开后只能再点一次按钮才关，按 Esc 反而把整块侧板关掉。
+	useEffect(() => {
+		if (!open) {
+			return;
+		}
+		const onDoc = (e: MouseEvent) => {
+			const target = e.target as Node;
+			if (btnRef.current?.contains(target)) {
+				return;
+			}
+			// 弹层是 portal 到 body 的：命中弹层自身（id=menuId）不算外点。
+			if (document.getElementById('immersive-model-picker')?.contains(target)) {
+				return;
+			}
+			setOpen(false);
+		};
+		pushEscLayer('immersive-model', () => setOpen(false));
+		document.addEventListener('mousedown', onDoc);
+		return () => {
+			document.removeEventListener('mousedown', onDoc);
+			popEscLayer('immersive-model');
+		};
+	}, [open]);
 	return (
 		<div className="relative">
 			<button

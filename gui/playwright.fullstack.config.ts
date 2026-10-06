@@ -1,4 +1,5 @@
 import {defineConfig, devices} from '@playwright/test';
+import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -26,6 +27,8 @@ const MOCK_RESPONSES =
 const ISOLATE_DIR = path.join(os.tmpdir(), `xeyo-fullstack-${process.pid}`);
 const PORT_FILE = path.join(ISOLATE_DIR, 'backend_port.json');
 const WS_DIR = path.join(ISOLATE_DIR, 'ws');
+// boot_ui_cwd 只读 XEYO_CWD；目录必须真实存在，否则池的 ui cwd 是空的。
+fs.mkdirSync(WS_DIR, {recursive: true});
 
 const backendEnv = {
 	XEYO_HTTP_PORT: String(BACKEND_PORT),
@@ -40,6 +43,8 @@ const backendEnv = {
 	XEYO_USAGE_DIR: path.join(ISOLATE_DIR, 'usage'),
 	XEYO_HOME: ISOLATE_DIR,
 	XEYO_SPILL_DIR: path.join(ISOLATE_DIR, 'spill'),
+	// 读取方是 boot_ui_cwd（认 XEYO_CWD）；XEYO_UI_CWD 全仓无人读（旧漂移，保留）。
+	XEYO_CWD: WS_DIR,
 	XEYO_UI_CWD: WS_DIR,
 	// T29：允许后端在收到含哨兵 `__XEYO_DROP_STREAM__` 的消息时断流（测试钩子，
 	// 仅此 e2e 后端设置）。生产路径不设此 env。

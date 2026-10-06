@@ -8,7 +8,7 @@ import {StreamingMarkdown} from './StreamingMarkdown';
 import {ThinkingLine} from './ThinkingLine';
 import {UserMarkdownText} from './UserMarkdownText';
 import {ImageReaderDialog, type ImageReaderSource} from './ImageReader';
-import {ZoomIn} from 'lucide-react';
+import {ChevronRight, ZoomIn} from 'lucide-react';
 
 type Props = {
 	message?: ChatMessage;
@@ -173,7 +173,7 @@ function MessageBubbleInner({message, streaming, thinking}: Props) {
 					)}
 				>
 				<div
-					className="mx-auto max-w-3xl rounded-lg border border-line/50 bg-paper-deep/40 px-2.5 py-1.5 text-left"
+					className="xy-command-receipt mx-auto max-w-3xl rounded-lg border border-line/50 bg-paper-deep/40 px-2.5 py-1.5 text-left"
 					data-state={message.text.startsWith('已创建') ? 'ok' : undefined}
 				>
 					<div className="min-w-0 font-mono text-[11.5px] leading-5">
@@ -183,11 +183,11 @@ function MessageBubbleInner({message, streaming, thinking}: Props) {
 							{multiline ? (
 								<details className="group mt-0.5">
 									<summary className="cursor-pointer list-none whitespace-nowrap text-[11px] text-mute transition-colors hover:text-ink-soft">
-										{message.text.split('\n')[0]}
-										<span className="ml-1 opacity-60 group-open:hidden">展开</span>
+										<span>{message.text.split('\n')[0]}</span>
+										<ChevronRight size={14} className="shrink-0 group-open:rotate-90" aria-hidden />
 									</summary>
 									<pre className="mt-1 overflow-x-auto whitespace-pre-wrap text-[11px] text-ink-soft">
-										{message.text}
+										{message.text.slice(message.text.indexOf('\n') + 1)}
 									</pre>
 								</details>
 							) : (

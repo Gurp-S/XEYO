@@ -19,7 +19,7 @@ import path from 'node:path';
 import {bootChat, openWorkspaceSession} from './helpers/boot';
 import {seedFakeTestSettings} from './helpers/seed';
 
-const COMPOSER = '描述任务… Enter 发送';
+const COMPOSER = '消息输入';
 const SEND = '发送';
 const STOP = '停止生成';
 
@@ -36,7 +36,7 @@ test.beforeEach(async ({page}) => {
 });
 
 test('send: 用户气泡上屏 → 助理流式落定 ok: <text>', async ({page}) => {
-	const composer = page.getByPlaceholder(COMPOSER);
+	const composer = page.getByLabel(COMPOSER);
 	await composer.click();
 	await composer.fill('hello');
 	await composer.press('Enter');
@@ -57,7 +57,7 @@ test('stop: 停止按钮中断流 → UI 回非加载态', async ({page}) => {
 	// FakeModelClient emits one character every 8 ms. Keep this response alive
 	// long enough for Chromium and the stop assertion to observe the streaming UI.
 	const longText = 'stop me ' + 'x'.repeat(2_000);
-	const composer = page.getByPlaceholder(COMPOSER);
+	const composer = page.getByLabel(COMPOSER);
 	await composer.click();
 	await composer.fill(longText);
 	await composer.press('Enter');
@@ -73,7 +73,7 @@ test('stop: 停止按钮中断流 → UI 回非加载态', async ({page}) => {
 
 test.skip('tool echo: echo 工具链 → echoed: <text>（Phase 2 钩子占位）', async ({page}) => {
 	// 依赖 EchoTool 非 ASK 门禁；若现 ASK 弹窗，按「权限」场景改断言。
-	const composer = page.getByPlaceholder(COMPOSER);
+	const composer = page.getByLabel(COMPOSER);
 	await composer.click();
 	await composer.fill('echo: world');
 	await composer.press('Enter');

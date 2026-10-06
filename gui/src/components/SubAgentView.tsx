@@ -198,6 +198,25 @@ const SubAgentTranscript = memo(function SubAgentTranscript({
 				/>
 			);
 		}
+		if (detail === null) {
+			// 拉取失败（404/网络）：done 态不轮询，这里不给明路就是永久空白。
+			return (
+				<div className="flex min-h-0 min-w-0 flex-1 flex-col items-center justify-center gap-2 px-4 text-center">
+					<span className="text-xs text-mute">侧链记录暂不可读（网络波动或记录缺失）</span>
+					<button
+						type="button"
+						className="rounded-md border border-line/70 bg-glass px-2 py-1 text-xs text-ink-soft hover:bg-glass-hover"
+						onClick={() => {
+							if (sessionId) {
+								void ensureAgentTranscript(sessionId, agentId, {force: true});
+							}
+						}}
+					>
+						重试读取
+					</button>
+				</div>
+			);
+		}
 		return <div className="min-h-0 min-w-0 flex-1" />;
 	}
 

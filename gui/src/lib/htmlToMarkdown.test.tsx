@@ -133,3 +133,14 @@ describe('htmlToMarkdown', () => {
 		expect(out).toContain('Hi there');
 	});
 });
+
+describe('htmlToMarkdown 往返等式补强（写回通道结构性保真）', () => {
+	it('嵌套列表整段等式往返', () => {
+		expect(fromMarkdown('- a\n  - b\n- c').trimEnd()).toBe('- a\n  - b\n- c');
+	});
+
+	it('围栏内嵌反引号时外层自动加长（fenceWrap n+1）', () => {
+		const md = '````\n```\ninner\n```\n````';
+		expect(fromMarkdown(md).trimEnd()).toBe(md);
+	});
+});

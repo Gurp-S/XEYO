@@ -16,7 +16,7 @@ import {seedLocalTest} from './helpers/seed';
 
 // 对应 playwright.fullstack.config.ts 的默认 mock 端口。
 const MOCK_BASE = 'http://127.0.0.1:8490/v1';
-const COMPOSER = '描述任务… Enter 发送';
+const COMPOSER = '消息输入';
 const SEND = '发送';
 
 const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'xeyo-e2e-ws-'));
@@ -24,7 +24,7 @@ const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'xeyo-e2e-ws-'));
 test.beforeEach(async ({page}) => {
 	await seedLocalTest(page, {baseUrl: MOCK_BASE, permissionMode: 'always'});
 	await page.goto('/');
-	await expect(page.getByPlaceholder(COMPOSER)).toBeVisible();
+	await expect(page.getByLabel(COMPOSER)).toBeVisible();
 	// 打开一个真实文件夹作为工作区（每次测试一个隔离临时目录），
 	// 否则发送被「请先打开一个项目文件夹」拦截。backend 需校验目录存在。
 	// openFolder 只建立 space；还需 createSession() 让 active session 绑定该
@@ -51,13 +51,13 @@ test.beforeEach(async ({page}) => {
 });
 
 async function send(page: import('@playwright/test').Page, text: string) {
-	const composer = page.getByPlaceholder(COMPOSER);
+	const composer = page.getByLabel(COMPOSER);
 	await composer.click();
 	await composer.fill(text);
 	await composer.press('Enter');
 }
 
-test('T3/T13/T38：审批面板(默认展开/允许/超时文案) → 放行后 Bash 工具卡 → compact 按钮按 gate 显示', async ({
+test('T3/T13：审批面板(默认展开/允许/超时文案) → 放行后 Bash 工具卡', async ({
 	page,
 }) => {
 	await send(page, 'git push');
@@ -75,15 +75,6 @@ test('T3/T13/T38：审批面板(默认展开/允许/超时文案) → 放行后 
 	await panel.getByRole('button', {name: '允许'}).click();
 	// 工具卡：活动块（Agent 工具活动）出现，含命令正文。文案可能随 UI 微调，宽松匹配。
 	await expect(page.getByText(/已推送|git push/).first()).toBeVisible({timeout: 20_000});
-
-	// T38：compact 按钮（C2 gate=1）应显示。
-	// 该按钮只在「用量/上下文预览」展开时才渲染（ChatHeader 在 usagePreviewOpen
-	// 时才 fetch compression 并读取 c2_gate），故先点开用量预览。
-	// 注意要用主区「展开用量详情」（点它才置 usagePreviewOpen），别命中侧栏「用量」。
-	await page.getByRole('button', {name: /展开用量详情/}).first().click();
-	await expect(page.getByRole('button', {name: '立即压缩 /compact'})).toBeVisible({
-		timeout: 10_000,
-	});
 });
 
 test('T3 Esc=取消（deny）→ 面板关闭', async ({page}) => {

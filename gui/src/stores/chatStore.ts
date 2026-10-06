@@ -11,6 +11,7 @@ import {createSpaceSessionSlice} from './chat/spaceSessionSlice';
 import {createRemoteMirrorSlice} from './chat/remoteMirrorSlice';
 import {createMultiAgentSlice} from './chat/multiAgentSlice';
 import {createInboxSlice} from './chat/inboxSlice';
+import {installSwitchLagDriver} from './chat/switchLag';
 
 export type {ChatState, SessionUsageView, PendingPermissionInfo, PendingAskInfo, PendingPlanInfo} from './chat/preStoreHelpers';
 export {AGENT_VIEW_MAIN, currentAgentView} from './chat/preStoreHelpers';
@@ -55,3 +56,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
 	...createStreamSendSlice(set, get),
 	...createRemoteMirrorSlice(set, get),
 }));
+
+// 会话切换「先画一帧」驱动：切会话时消息列表滞后一两帧渲染（见 chat/switchLag.ts）。
+installSwitchLagDriver(useChatStore);

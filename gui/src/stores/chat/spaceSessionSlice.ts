@@ -75,6 +75,7 @@ import {
 	discardDrainForSession,
 	idleRollbackState,
 	loadLocalSessionMessages,
+	loadLocalSessionSnapshot,
 	loadSessionMessagesWithBackfill,
 	normalizeChatHistoryState,
 	settleAllSessionTools,
@@ -104,8 +105,13 @@ import {
 type SetState = StoreApi<ChatState>['setState'];
 type GetState = StoreApi<ChatState>['getState'];
 
-const SLICE_KEYS = ['hydrate', 'setActiveSpace', 'toggleSpaceCollapsed', 'openFolder', 'enterSpace', 'removeSpace', 'renameSpace', 'createSession', 'createSideSession', 'selectSession', 'removeSession', 'renameSession', 'forkSession', 'archiveSession', 'restoreSession'] as const;
+const SLICE_KEYS = ['hydrate', 'hydrateOnce', 'setActiveSpace', 'toggleSpaceCollapsed', 'openFolder', 'enterSpace', 'removeSpace', 'renameSpace', 'createSession', 'createSideSession', 'selectSession', 'removeSession', 'renameSession', 'forkSession', 'archiveSession', 'restoreSession'] as const;
 const archiveInFlight = new Map<string, Promise<void>>();
+// hydrate 收尾是整包 set({sessions, activeId: first...})。StrictMode 双挂载（dev）
+// 或任意重复调用下，两个 hydrate 各带自己启动时的 IDB/服务端快照，后到者会盖掉
+// 期间已落地的本地变更（10-05 归档标记三连丢、dump 钉因=迟到整包替换）。
+// 同一时刻只允许一个在飞；并发调用者复用同一 Promise（hydrateOnce 为无去重原体）。
+let hydrateInFlight: Promise<void> | null = null;
 
 export function createSpaceSessionSlice(
 	set: SetState,
@@ -113,7 +119,7 @@ export function createSpaceSessionSlice(
 ): Pick<ChatState, (typeof SLICE_KEYS)[number]> {
 	const sessionLoadTokens = new Map<string, symbol>();
 	return {
-	async hydrate() {
+	async hydrateOnce() {
 		// 先把旧侧聊 KV 会话并入 IDB，再做 tombstone 清理与会话装载。
 		await migrateSideChatSessions();
 		await purgeTombstonedLocalRecords();
@@ -193,6 +199,14 @@ export function createSpaceSessionSlice(
 		if (savedPendingPermission && !pendingPermission) {
 			writePendingPermission(null);
 		}
+		// 水合前已经踩过守卫（pre-hydrate 窗口里发过消息）时，那条横幅属于仍将
+		// 活动的会话：不许被整包水合静默抹掉——用户刚看到的"为什么没发出去"
+		// 不许凭空消失（e2e 实测：未开文件夹先发送，横幅出现后又被水合清掉）。
+		const preHydrateKeepBanner = Boolean(
+			get().errorBanner &&
+				get().errorBannerSessionId != null &&
+				get().errorBannerSessionId === (first?.id ?? null),
+		);
 		set({
 			spaces,
 			sessions,
@@ -211,7 +225,7 @@ messagesById: settled.messagesById,
 			activeId: first?.id ?? null,
 			activeSpaceId,
 			pendingPermission,
-			...sessionErrorBannerPatch(null, null),
+			...(preHydrateKeepBanner ? {} : sessionErrorBannerPatch(null, null)),
 		});
 		const activeSpace = spaces.find(s => s.id === activeSpaceId);
 		void syncWorkspaceRoot(activeSpace?.rootPath);
@@ -304,6 +318,21 @@ messagesById: settled.messagesById,
 				Array.from({length: Math.min(CONCURRENCY, rest.length)}, worker),
 			);
 		})();
+	},
+
+	async hydrate() {
+		if (hydrateInFlight) {
+			return hydrateInFlight;
+		}
+		const task = get().hydrateOnce();
+		hydrateInFlight = task;
+		try {
+			await task;
+		} finally {
+			if (hydrateInFlight === task) {
+				hydrateInFlight = null;
+			}
+		}
 	},
 
 	async setActiveSpace(spaceId) {
@@ -685,8 +714,10 @@ async selectSession(id) {
 			sessionLoadTokens.set(id, loadToken);
 			void (async () => {
 				let localRef: ChatMessage[] | undefined;
+				let localSnapshot: Awaited<ReturnType<typeof loadLocalSessionSnapshot>> | undefined;
 				try {
-					const local = await loadLocalSessionMessages(id);
+					localSnapshot = await loadLocalSessionSnapshot(id);
+					const local = localSnapshot.messages;
 					// 仅在本地确有内容时先行写入：空数组不能提前落 —— 否则
 					// createSession 的 empties 复用逻辑会把仍在回填的会话
 					// 误判为「空对话」而复用/删除。本地为空时等服务端回填定夺。
@@ -707,7 +738,7 @@ async selectSession(id) {
 					);
 					const chosen = await loadSessionMessagesWithBackfill(id, {
 						[id]: hist,
-					});
+					}, {localSnapshot});
 					set(s => {
 						const cur = s.messagesById[id];
 						// 覆盖条件：仍是我们本地先行写入的引用，或仍无人填充
@@ -719,6 +750,7 @@ async selectSession(id) {
 						if (!s.sessions.some(x => x.id === id)) {
 							return s;
 						}
+						if (cur === chosen) return s;
 						return {messagesById: {...s.messagesById, [id]: chosen}};
 					});
 				} catch {}
@@ -893,7 +925,10 @@ async selectSession(id) {
 		await saveSession(session);
 		set(s => ({
 			sessions: [session, ...s.sessions],
-			messagesById: {...s.messagesById, [session.id]: []},
+			// 不预置 messagesById[newId]=[]：那会把"未加载"伪装成"已加载的空
+			// 会话"，selectSession 的冷载判据（undefined 才算冷）随之短路 ——
+			// 分叉体明明是服务端复制来的历史，界面却恒空（e2e 实测 20s 无回填，
+			// 刷新后才出现）。留 undefined 让冷载管线（IDB→服务端回填）接管。
 			historyById: {
 				...s.historyById,
 				[session.id]: defaultChatHistoryState(session.id),

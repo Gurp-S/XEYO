@@ -1,5 +1,6 @@
 import {useEffect, useRef, type RefObject} from 'react';
 import {popEscLayer, pushEscLayer} from '@/lib/escStack';
+import {isImeComposing} from '@/lib/ime';
 
 /**
  * 浮层可达性基座：焦点陷阱 + Esc 关闭 + 关闭后焦点归还 + 背景 inert。
@@ -88,6 +89,11 @@ export function useModalA11y({open, rootRef, escId, onEscape}: ModalA11yOptions)
 		}
 
 		const onKeyDown = (e: KeyboardEvent) => {
+			// IME 组词中的键属于输入法（部分 IME 用 Tab 翻页/确认候选项）：
+			// 抢焦点会打断组词——陷阱整体让行，与全仓 isImeComposing 教义一致。
+			if (isImeComposing(e)) {
+				return;
+			}
 			if (e.key !== 'Tab') {
 				return;
 			}

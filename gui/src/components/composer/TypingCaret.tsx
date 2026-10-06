@@ -1,4 +1,5 @@
 import {useLayoutEffect, useRef, type ReactNode} from 'react';
+import {createCaretRemeasure} from './caretRemeasure';
 
 /**
  * 自绘光标 + 镜像覆盖层(2026-09-08 双档运动改版,初版同日)。
@@ -33,8 +34,15 @@ import {useLayoutEffect, useRef, type ReactNode} from 'react';
  *   (与 selectionStart 同系),经 cpStarts 映射。
  *
  * 显示策略:
+ * - 可见性唯一判据 active && focused:placeCaret 内统一把关 —— 滚动/重测入口
+ *   不受 React 依赖驱动,失焦后仍会打进来,不设闸就会"失焦还亮着";
  * - active=false(IME 组词 / 超大文本)→ 整层不渲染,退回原生光标;
  * - 失焦隐没,聚焦浮现;滚动由父级调 apiRef.reposition()(snap 档)。
+ *
+ * 重测失效源(caretRemeasure.ts,2026-10-01):测量结果只在同一帧内有效。
+ * 自动高度动画、分栏/窗口 resize、迟到字体都会改文本落点而不改 value ——
+ * 三类来源合并成每帧一次 snap 重测。新增"改布局不改 value"的路径时,必须
+ * 要么让容器尺寸进入观察,要么显式调 apiRef.reposition(),否则光标停在旧坐标。
  *
  * 与 Composer 的对齐契约(改 textarea 排版类必须同步这里):
  * px-3 pt-3(12px)、text-[14px]、leading-6(24px)。
@@ -72,6 +80,36 @@ const IDLE_DELAY_MS = 560;   /* 停手后转呼吸的延迟 */
 const MICRO_MAX_DX = 26;     /* fast 档上限:同行 ≤≈1.5 字(中文 14px/字) */
 const CH_IN_MAX_CP = 12;     /* 字符浮现上限:粘贴/大段插入跳过动画 */
 
+/** 单码点的、且正好落在光标处的增删 = 连续输入手势(打字 / 退格 / 单字上屏)。
+ *  这类位移即便因重排跨行(行尾插入挤到下一行),也不是"大跳"。 */
+function isSingleCaretEdit(
+	prevValue: string,
+	value: string,
+	caret: number,
+): boolean {
+	if (prevValue === value) {
+		return false;
+	}
+	let p = 0;
+	const maxP = Math.min(prevValue.length, value.length);
+	while (p < maxP && prevValue[p] === value[p]) p += 1;
+	let s = 0;
+	const maxS = Math.min(prevValue.length, value.length) - p;
+	while (
+		s < maxS &&
+		prevValue[prevValue.length - 1 - s] === value[value.length - 1 - s]
+	) {
+		s += 1;
+	}
+	const ins = value.slice(p, value.length - s);
+	const del = prevValue.slice(p, prevValue.length - s);
+	if (Array.from(ins).length + Array.from(del).length !== 1) {
+		return false;
+	}
+	/* 光标紧贴增删点:否则是程序化改写(草稿切换 / 清空)后的落位,不算手势 */
+	return caret === p + ins.length;
+}
+
 export function TypingCaret({
 	value,
 	caret,
@@ -86,6 +124,9 @@ export function TypingCaret({
 	const innerRef = useRef<HTMLDivElement>(null);
 	const caretRef = useRef<HTMLDivElement>(null);
 	const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+	/** 光标可见性的唯一判据(active && focused):placeCaret 与退场清理共用。 */
+	const liveRef = useRef(active && focused);
+	liveRef.current = active && focused;
 	const lastPosRef = useRef<{x: number; y: number} | null>(null);
 	const onShownRef = useRef(false);
 	const prevValueRef = useRef('');
@@ -96,6 +137,10 @@ export function TypingCaret({
 	const appliedShiftRef = useRef(0);
 	/** textarea 只查一次(每键 querySelector 无谓消耗)。 */
 	const taElRef = useRef<HTMLTextAreaElement | null>(null);
+	/** 上一次写给 inner 的折行宽(= textarea 内容宽)；相同则完全不写 style。 */
+	const appliedWidthRef = useRef(0);
+	/** textarea 左右内边距之和(只在换元素时重算)。 */
+	const padRef = useRef(PAD_X * 2);
 	/** value → code point 数组 + UTF-16 起点表;value 未变则复用。 */
 	const cpsCacheRef = useRef<{
 		value: string;
@@ -126,25 +171,30 @@ export function TypingCaret({
 		return next;
 	};
 
-	/* 逐字符 span 视图：探针只在空文本时占最前，ghost 只在有补全提示时占最后，
-	   其余按序就是 code point 下标。取一次视图 → O(1) 按下标直取，取代每键一次
-	   querySelectorAll 全表物化 / 每个插入字符一次 querySelector 全子树扫描。
-	   count 与原实现的 spanEls.length 同源（DOM 真相），边界判定逐字一致。 */
+	/* 逐字符 span 视图：装饰节点(空文本探针 / 尾哨兵 / ghost)都不是码点，码点 span
+	   夹在它们中间且按序对应 code point 下标。取一次视图 → O(1) 按下标直取，取代
+	   每键一次 querySelectorAll 全表物化 / 每个插入字符一次 querySelector 全子树扫描。
+	   头尾各按 data-ci 逐节点数(头侧 ≤1，尾侧 ≤2：哨兵 + ghost)，不靠位置猜数量。 */
 	const readSpanView = () => {
 		const kids = innerRef.current?.children ?? null;
 		const kidCount = kids ? kids.length : 0;
-		const headIsSpan = kidCount > 0 && kids![0].hasAttribute('data-ci');
-		const tailIsSpan =
-			kidCount > 0 && kids![kidCount - 1].hasAttribute('data-ci');
-		const offset = headIsSpan ? 0 : 1;
-		const count = Math.max(0, kidCount - offset - (tailIsSpan ? 0 : 1));
+		const isCi = (i: number) => !!kids![i]?.hasAttribute('data-ci');
+		let head = 0;
+		while (head < kidCount && !isCi(head)) {
+			head += 1;
+		}
+		let tail = 0;
+		while (tail < kidCount - head && !isCi(kidCount - 1 - tail)) {
+			tail += 1;
+		}
+		const count = Math.max(0, kidCount - head - tail);
 		return {
 			count,
 			at(i: number): HTMLSpanElement | null {
 				if (i < 0 || i >= count || !kids) {
 					return null;
 				}
-				const el = kids.item(i + offset);
+				const el = kids.item(i + head);
 				return el instanceof HTMLSpanElement && el.hasAttribute('data-ci')
 					? el
 					: null;
@@ -152,11 +202,70 @@ export function TypingCaret({
 		};
 	};
 
+	/** 清光全部类 → 基础 opacity:0 真隐没。退场与"不该显示"共用同一处,
+	 *  防止两条路径各自维护类名表而漂移(CSS animation 优先级高于基础声明,
+	 *  漏掉 xy-idle 就会失焦后原地呼吸)。 */
+	const hideCaret = (g: HTMLDivElement | null) => {
+		if (!g) {
+			return;
+		}
+		g.classList.remove('xy-on', 'xy-moving', 'xy-idle', 'xy-fast', 'xy-snap');
+	};
+
+	/** 回亮不加跳变:呼吸中的光标被摘掉 xy-idle 的一瞬间会从当前暗值(最低
+	 *  0.35)直接跳到 1,读感就是"闪一下"。这里先把当前实际亮度冻结成起点,
+	 *  再用 120ms 斜坡补到常亮;没有动画在跑(常亮态)时什么都不做。 */
+	const wakeToFull = (g: HTMLDivElement) => {
+		const animating =
+			typeof g.getAnimations === 'function' && g.getAnimations().length > 0;
+		const dip =
+			animating && typeof getComputedStyle === 'function'
+				? Number.parseFloat(getComputedStyle(g).opacity)
+				: Number.NaN;
+		g.classList.remove('xy-idle');
+		if (!animating || !Number.isFinite(dip) || dip >= 1) {
+			return;
+		}
+		if (typeof g.animate !== 'function') {
+			return;
+		}
+		try {
+			g.animate([{opacity: dip}, {opacity: 1}], {
+				duration: 120,
+				easing: 'ease-out',
+			});
+		} catch {
+			/* 动画 API 被拒:退回瞬时常亮,可见性不受影响 */
+		}
+	};
+
+	/** 运动后的节律:常亮起步,停手 560ms 转呼吸。打字、大跳、聚焦共用。 */
+	const armIdle = (g: HTMLDivElement) => {
+		wakeToFull(g);
+		if (idleTimer.current) {
+			clearTimeout(idleTimer.current);
+		}
+		idleTimer.current = setTimeout(() => {
+			g.classList.remove('xy-moving');
+			g.classList.add('xy-idle');
+		}, IDLE_DELAY_MS);
+	};
+
 	const placeCaret = (mode: 'auto' | 'snap') => {
 		const overlayEl = overlayRef.current;
 		const innerEl = innerRef.current;
 		const g = caretRef.current;
 		if (!overlayEl || !g) {
+			return;
+		}
+		/* 可见性不变量:光标只在 active && focused 时可见。滚动/重测这些入口
+		   不受 React 依赖驱动,失焦后照样能打进来 —— 没有这道闸,失焦状态下
+		   任何程序化 scroll(草稿切换、高度复位、贴底)都会把光标重新点亮,
+		   用户读感就是"凭空闪一下"。 */
+		if (!liveRef.current) {
+			hideCaret(g);
+			onShownRef.current = false;
+			lastPosRef.current = null;
 			return;
 		}
 		const parent = overlayEl.parentElement;
@@ -170,12 +279,32 @@ export function TypingCaret({
 		if (!taElRef.current || !parent.contains(taElRef.current)) {
 			taElRef.current =
 				parent.querySelector<HTMLTextAreaElement>('textarea');
+			/* 左右内边距随元素而定:换 textarea 才解析一次样式(这里的读写都在
+			   按键关键路径上,不每键 getComputedStyle)。 */
+			const el = taElRef.current;
+			const cs = el ? getComputedStyle(el) : null;
+			padRef.current = cs
+				? (Number.parseFloat(cs.paddingLeft) || 0) +
+					(Number.parseFloat(cs.paddingRight) || 0)
+				: PAD_X * 2;
+			appliedWidthRef.current = 0; /* 新元素:折行宽按需重写一次 */
 		}
 		const ta = taElRef.current;
 		const shift = ta && ta.scrollTop > 0 ? ta.scrollTop : 0;
 		if (innerEl && shift !== appliedShiftRef.current) {
 			appliedShiftRef.current = shift;
 			innerEl.style.transform = `translateY(${-shift}px)`;
+		}
+
+		/* 镜像折行宽 = textarea 内容宽。草稿涨到上限后 taAutoResize 打开 overflowY,
+		   全局 ::-webkit-scrollbar(shell.css)在实机上让经典滚动条占掉内容宽 —— 镜像
+		   若仍按整宽折行,折行点与 textarea 分叉,光标整字/整行错位。只在变了时写。 */
+		if (ta && innerEl) {
+			const contentW = Math.max(0, ta.clientWidth - padRef.current);
+			if (contentW > 0 && contentW !== appliedWidthRef.current) {
+				appliedWidthRef.current = contentW;
+				innerEl.style.width = `${contentW}px`;
+			}
 		}
 
 		const wrapRect = parent.getBoundingClientRect();
@@ -221,9 +350,20 @@ export function TypingCaret({
 				y = rNext.top;
 			}
 		} else {
-			const rPrev = spans.at(spans.count - 1)?.getBoundingClientRect();
-			x = rPrev ? rPrev.right : wrapRect.left + PAD_X;
-			y = rPrev ? rPrev.top : wrapRect.top + PAD_Y;
+			/* 光标在文本末尾:先看尾哨兵(硬换行结尾才渲染),它给出下一行行首几何。
+			 * 回退链保留 —— 空文本探针 / 无哨兵(软折行结尾)仍走最后一个码点右缘。 */
+			const tailEl = endsWithHardNewline(cps)
+				? overlayEl.querySelector('span[data-tail]')
+				: null;
+			const rTail = tailEl?.getBoundingClientRect();
+			if (rTail) {
+				x = rTail.left;
+				y = rTail.top;
+			} else {
+				const rPrev = spans.at(spans.count - 1)?.getBoundingClientRect();
+				x = rPrev ? rPrev.right : wrapRect.left + PAD_X;
+				y = rPrev ? rPrev.top : wrapRect.top + PAD_Y;
+			}
 		}
 
 		const tx = x - wrapRect.left;
@@ -237,11 +377,23 @@ export function TypingCaret({
 		}
 		lastPosRef.current = {x: tx, y: ty};
 
-		const kind = mode === 'snap' || !prev || !onShownRef.current
-			? 'snap'
-			: Math.abs(ty - prev.y) < 1 && Math.abs(tx - prev.x) <= MICRO_MAX_DX
-				? 'fast'
-				: 'macro';
+		/* 手势分级:单码点连续输入即便跨行也只滑移 —— 旧规则用"Δy ≥ 1 行"判 macro,
+		   行尾打字挤到下一行时误判大跳,键盘手势下加 xy-moving(--xy-gcaret-h 24px),
+		   读感就是"每打到行尾光标整根抽高再缩回"。 */
+		const typedOne =
+			mode !== 'snap' &&
+			!!prev &&
+			onShownRef.current &&
+			isSingleCaretEdit(prevValueRef.current, value, caret);
+		const kind =
+			mode === 'snap' || !prev || !onShownRef.current
+				? 'snap'
+				: typedOne
+					? 'fast'
+					: Math.abs(ty - prev.y) < 1 &&
+						  Math.abs(tx - prev.x) <= MICRO_MAX_DX
+						? 'fast'
+						: 'macro';
 		onShownRef.current = true;
 
 		g.classList.toggle('xy-snap', kind === 'snap');
@@ -256,18 +408,11 @@ export function TypingCaret({
 		}
 		g.style.transform = `translate3d(${tx}px, ${ty}px, 0)`;
 
-		/* snap(滚动/落位)不搅动呼吸节律;打字/大跳 = 常亮 + 停手后呼吸 */
+		/* snap(滚动/落位/重测)不搅动呼吸节律;打字/大跳 = 常亮 + 停手后呼吸 */
 		if (kind === 'snap') {
 			return;
 		}
-		g.classList.remove('xy-idle');
-		if (idleTimer.current) {
-			clearTimeout(idleTimer.current);
-		}
-		idleTimer.current = setTimeout(() => {
-			g.classList.remove('xy-moving');
-			g.classList.add('xy-idle');
-		}, IDLE_DELAY_MS);
+		armIdle(g);
 	};
 
 	/* 渲染驱动:值/光标/显隐变化后测量定位(layout effect 避免闪一帧) */
@@ -357,14 +502,21 @@ export function TypingCaret({
 	 * 压过基础声明,绝不能留 xy-idle,否则失焦后原地呼吸) */
 	useLayoutEffect(() => {
 		if (!active || !focused) {
-			const g = caretRef.current;
-			if (g) {
-				g.classList.remove('xy-on', 'xy-moving', 'xy-idle', 'xy-fast', 'xy-snap');
-			}
+			hideCaret(caretRef.current);
 			onShownRef.current = false;
+			lastPosRef.current = null;
 			if (idleTimer.current) {
 				clearTimeout(idleTimer.current);
 			}
+		}
+	}, [active, focused]);
+
+	/* 聚焦即起节律:落位本身走 snap(不搅动),但"停手 560ms 转呼吸"的计时
+	   必须从可见那一刻开始 —— 否则聚焦后不打字的光标会一直常亮,与失焦前的
+	   节律断裂(用户读感:同一件事一会儿闪一会儿不闪)。 */
+	useLayoutEffect(() => {
+		if (active && focused && caretRef.current) {
+			armIdle(caretRef.current);
 		}
 	}, [active, focused]);
 
@@ -372,6 +524,27 @@ export function TypingCaret({
 	   稳定外壳 + 每次渲染刷新内层实现:effect 依赖为空,不再每渲染重建对象。 */
 	const placeCaretModeRef = useRef(placeCaret);
 	placeCaretModeRef.current = placeCaret;
+
+	/* 布局失效重量测:自动高度动画(逐帧重排)、分栏拖拽/窗口缩放(换行点变化)、
+	   迟到字体(字形度量变化)都不改 value —— 没有这条链,光标就停在旧坐标,
+	   直到下一次按键才跳回去。以 snap 档重定位:只对位移负责,不重启呼吸节律、
+	   不触发拉伸。来源缺失(jsdom/老引擎)时 caretRemeasure 自动降级,不抛。 */
+	useLayoutEffect(() => {
+		if (!active) {
+			return;
+		}
+		const overlayEl = overlayRef.current;
+		if (!overlayEl) {
+			return;
+		}
+		const remeasure = createCaretRemeasure(() => {
+			if (liveRef.current) {
+				placeCaretModeRef.current('snap');
+			}
+		});
+		remeasure.attach(overlayEl.parentElement ?? overlayEl);
+		return () => remeasure.dispose();
+	}, [active]);
 	const apiRefInner = useRef<TypingCaretApi>({
 		reposition: () => placeCaretModeRef.current('snap'),
 	});
@@ -454,6 +627,7 @@ export function TypingCaret({
 
 	const {cps, cpStarts} = readCps(value);
 	const nodes = buildCharNodes(cps, cpStarts, colorRanges);
+	const hardNewlineTail = endsWithHardNewline(cps);
 
 	return (
 		<>
@@ -472,8 +646,13 @@ export function TypingCaret({
 						<span data-probe>{'\u200b'}</span>
 					) : null}
 					{nodes}
+					{/* 尾哨兵:文本以硬换行结尾时占位。硬换行后 Chromium 不单独生成行盒,
+					    最后一个 '\n' span 的 rect 仍留在上一行 —— 直接用它锚光标就是
+					    "换行不动"。零宽哨兵落在下一行行首(真实 Chrome 实测:内容左缘、
+					    下一行 rowTop),同时让镜像行数与 textarea 行数对齐。 */}
+					{hardNewlineTail ? <span data-tail>{'\u200b'}</span> : null}
 					{ghostHint ? (
-						<span data-ghost className="select-none text-ink/40">
+						<span data-ghost className="select-none pl-1 text-ink/40">
 							{ghostHint}
 						</span>
 					) : null}
@@ -482,6 +661,11 @@ export function TypingCaret({
 			<div ref={caretRef} aria-hidden className="xy-gcaret" />
 		</>
 	);
+}
+
+/** 文本是否以硬换行结尾(仅 '\n' 计硬换行;软折行由排版决定,引擎不推测) */
+export function endsWithHardNewline(cps: readonly string[]): boolean {
+	return cps.length > 0 && cps[cps.length - 1] === '\n';
 }
 
 /** 卸载时清呼吸定时器(独立小 hook,避免主 effect 依赖膨胀) */

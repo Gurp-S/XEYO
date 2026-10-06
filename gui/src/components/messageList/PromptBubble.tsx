@@ -6,6 +6,7 @@
 import {
 	memo,
 	useContext,
+	useEffect,
 	useLayoutEffect,
 	useRef,
 	useState,
@@ -34,6 +35,7 @@ import {
 	mediaUrl,
 } from '@/lib/api';
 import {isImeComposing} from '@/lib/ime';
+import {popEscLayer, pushEscLayer} from '@/lib/escStack';
 import {
 	type DraftAttachment,
 } from '@/lib/composerDrafts';
@@ -123,7 +125,6 @@ export function PromptTextClamp({children}: {children: ReactNode}) {
 export type PromptBubbleProps = {
 	text: string;
 	mediaRefs?: string[];
-	queueState?: 'queued' | 'delivering' | 'syncing' | 'stuck';
 	rise?: boolean;
 	editable?: boolean;
 	isEditing?: boolean;
@@ -185,7 +186,6 @@ export function promptBubblePropsAreEqual(
 	return (
 		prev.text === next.text &&
 		shallowArrayEqual(prev.mediaRefs, next.mediaRefs) &&
-		prev.queueState === next.queueState &&
 		prev.rise === next.rise &&
 		prev.editable === next.editable &&
 		prev.isEditing === next.isEditing &&
@@ -225,7 +225,6 @@ export function promptBubblePropsAreEqual(
 export const PromptBubble = memo(function PromptBubble({
 	text,
 	mediaRefs = [],
-	queueState,
 	rise,
 	editable = false,
 	isEditing = false,
@@ -262,6 +261,15 @@ promptEditRef,
 	const body = remote ? text.replace(/^\[远程\]\s*/, '') : text;
 	const canEdit = editable && !remote;
 	const editing = canEdit && isEditing;
+	useEffect(() => {
+		if (!editing) {
+			return;
+		}
+		// 编辑态压入 Esc 层（与队列编辑同款）：沉浸模式等有更上层 escStack 层时，
+		// 一键只退编辑，不再顺着冒泡把面板/沉浸一起关掉；无层时元素级处理器兜底。
+		pushEscLayer('bubble-edit', () => cancelEdit?.());
+		return () => popEscLayer('bubble-edit');
+	}, [editing, cancelEdit]);
 	const editImages = editingAttachments.filter(
 		(a): a is Extract<DraftAttachment, {kind: 'image'}> => a.kind === 'image',
 	);
@@ -566,39 +574,6 @@ ref={editing ? promptEditRef : undefined}
 							className="xy-chat-text min-w-0 font-sans text-[15px] leading-relaxed"
 						/>
 					</PromptTextClamp>
-					{queueState ? (
-						<div
-							role="status"
-							aria-live="polite"
-							className={cn(
-								'mt-2 flex items-center gap-1.5 font-mono text-[10px]',
-								queueState === 'stuck'
-									? 'text-danger'
-									: queueState === 'syncing' || queueState === 'delivering'
-										? 'text-accent'
-										: 'text-mute',
-							)}
-						>
-							<span
-								aria-hidden
-								className={cn(
-									'h-1.5 w-1.5 rounded-full',
-										queueState === 'queued'
-										? 'bg-amber-400'
-										: queueState === 'delivering' || queueState === 'syncing'
-											? 'animate-pulse bg-accent'
-											: 'bg-danger',
-								)}
-							/>
-							{queueState === 'queued'
-				? '排队中 · 等待安全投递时机'
-								: queueState === 'delivering'
-									? '正在投递'
-									: queueState === 'syncing'
-										? '已投递 · 正在同步回复'
-										: '投递失败 · 请在输入框的排队项中重试'}
-						</div>
-					) : null}
 					</>
 					)}
 							<ImageReaderDialog image={previewImage} onClose={() => setPreviewImage(null)} />

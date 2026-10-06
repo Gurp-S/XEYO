@@ -298,7 +298,7 @@ export function createMultiAgentSlice(
 		transcriptRequests.delete(key);
 		if (!detail) {
 			// 拉取失败：已有快照则保留；否则置 null 仅作「本轮失败」标记，
-			// 不阻塞后续重试（404/网络恢复后轮询会自然覆盖）。
+			// 不阻塞后续重试（运行中由轮询自然覆盖；已结束由 SubAgentView 的失败态手动重试）。
 			if (!cached) {
 				set(s => ({agentTranscriptsById: {...s.agentTranscriptsById, [key]: null}}));
 			}

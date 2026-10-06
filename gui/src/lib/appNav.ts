@@ -153,9 +153,13 @@ export async function newSession(opts?: {
 	if (opts?.side) {
 		const id = await st.createSideSession();
 		go(`/side/${id}`, {replace: opts?.replace});
+		st.requestComposerFocus();
 		return id;
 	}
 	const id = await st.createSession(opts?.spaceId);
 	go(`/c/${id}`, {replace: opts?.replace});
+	// 用户显式要新会话 ⇒ 输入面就绪（否则要先点一下输入框才能打字；
+	// 请求焦点机制本来就有，只是从来没人接这一枪）。
+	st.requestComposerFocus();
 	return id;
 }

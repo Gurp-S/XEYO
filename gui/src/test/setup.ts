@@ -38,7 +38,6 @@ vi.mock('@/stores/settingsStore', () => {
 		previewWidth: 360,
 		explorerWidth: 248,
 		smoothness: true,
-		remoteChannel: 'ilink' as const,
 		hydrated: true,
 		thinking: 'disabled' as const,
 		reasoningEffort: '' as const,
@@ -103,8 +102,6 @@ vi.mock('@/stores/settingsStore', () => {
 		applyDocumentTheme: vi.fn(),
 		applyDocumentSmoothness: vi.fn(),
 		isSmoothnessOn: (v?: unknown) => v !== false,
-		normalizeRemoteChannel: (v: unknown) =>
-			v === 'filehelper' ? 'filehelper' : 'ilink',
 		// 转发 settingsStore.isProviderId 的真实判定实体（localTestGate.isKnownProvider）：
 		// 'local' 是正式功能恒真；'fake' 受 LOCAL-TEST gate 管理。
 		// 替身不再自己复刻规则，因此不会与实现漂移。

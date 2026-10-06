@@ -20,7 +20,7 @@ export const StreamingMarkdown = memo(function StreamingMarkdown({
 	final?: boolean;
 	codeAutoCollapse?: boolean;
 }) {
-	const cleaned = stripXmlToolCallsForDisplay(text);
+	const cleaned = stripXmlToolCallsForDisplay(text).replace(/[\u200b\ufeff]/g, '');
 	if (!cleaned.trim()) {
 		return null;
 	}

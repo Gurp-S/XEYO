@@ -2,7 +2,7 @@
  * （密集、安静、清晰分组），而不是「一摞卡片」。
  *
  * 只写表现，不改功能：不动任何 .tsx / .ts，全部规则打在 SettingsModal.tsx 及其子组件
- * （ThemePicker / PaneLayoutSetting / MemorySwitchesSetting / LocalModelSetting /
+ * （ThemePicker / MemorySwitchesSetting / LocalModelSetting /
  *  RuntimePresetSetting / GrantsPanel / BashRoutingSetting …）已经产出的 DOM 上。
  * 由 styles/entry.css 末位引入；非 @layer 规则天然压过 Tailwind 的 @layer utilities，
  * 故无需 !important。

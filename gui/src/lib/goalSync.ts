@@ -4,9 +4,9 @@
  * 背景（2026-09-05 调查报告 §10-④）：SSE goal 帧只在 chat turn 起点出现，
  * POST /v1/slash 不产生 SSE；/goal 命令也不发消息 → 没有 turn → store 永远为空，
  * GoalDock（仅 store 非空挂载）就永远不显示。所以 /goal 创建成功后必须
- * 主动 GET 投影写进 store，再显式 arm 让轮驱动接管续跑。
+ * 主动 GET 投影写进 store。
  */
-import {fetchGoal, roundDriverAction, type SessionGoalState} from '@/lib/api/goals';
+import {fetchGoal, type SessionGoalState} from '@/lib/api/goals';
 import {useChatStore} from '@/stores/chatStore';
 
 /** whole-value 写回 store（SSE goal 帧 / GET 投影 / 命令回执同步三源共用同形）。 */
@@ -22,14 +22,27 @@ export function writeGoalState(
 export type GoalSyncResult = {ok: boolean; note: string};
 
 /**
- * /goal 发出后：拉投影 → 落 store（dock 立即挂载）→ 显式 arm。
- * arm 口径：/goal 是用户的显式意图命令，由它触发的 arm 不算「自动 armed」
- * （armed 不落盘，重启后自然回到 disarmed，41 号冻结口径不变）。
- * 落库一律写在 GUI 会话 id 上（GoalDock 按 chatStore.activeId 取数）；
- * goal 实际绑定在后端会话 id 时，对后端 id arm，展示仍归 GUI id。
+ * 目标是否"活着"（active / paused / blocked）。这是唯一权威谓词：
+ * 条带挂载、`/goal` 的反馈面选择都读它，不再各写一份状态清单。
+ */
+export function isGoalLive(
+	state: SessionGoalState | null | undefined,
+): state is SessionGoalState {
+	if (!state) return false;
+	const s = state.goal.status;
+	return s === 'active' || s === 'paused' || s === 'blocked';
+}
+
+/**
+ * /goal 发出后：拉一次权威投影并落 store（条带立即挂载）。
+ * 落库一律写在 GUI 会话 id 上（GoalDock 按 chatStore.activeId 取数）。
  *
- * 返回 note 给调用方贴进斜杠命令的回执：投影读不到时，用户看到的只有
- * 后端那句"已创建"，dock 却没出现、自动续跑也没挂上——那句沉默必须变成话。
+ * 业主 2026-10-03 裁定废弃"自动续跑"这组功能 ⇒ 这里不再 arm。服务端 arm 的唯一
+ * 入口就是本函数（`server/routers/chat.py:924`：是否重新 armed 由用户显式操作，
+ * 不自动），撤掉即停用：目标仍会创建/暂停/记账，但不会自己开下一轮。
+ *
+ * 返回 note 给调用方：投影读不到时用户只看到后端那句"已创建"，条带却没出现
+ * ——那句沉默必须变成话。
  */
 export async function syncGoalAfterCommand(
 	guiSessionId: string,
@@ -46,28 +59,17 @@ export async function syncGoalAfterCommand(
 			readFailure = r.message;
 			continue;
 		}
-		if (!r.goal || r.goal.status === 'completed' || r.goal.status === 'abandoned') {
+		const next = r.goal ? {goal: r.goal, driver: r.driver} : null;
+		if (!isGoalLive(next)) {
 			continue;
 		}
-		writeGoalState(guiSessionId, {goal: r.goal, driver: r.driver});
-		// 显式 arm：round-driver POST（内存态不落盘）；arm 后端会开轮踢 agent。
-		const res = await roundDriverAction(sid, 'arm');
-		if (res.ok && res.goal) {
-			writeGoalState(guiSessionId, {
-				goal: res.goal,
-				driver: res.driver ?? r.driver,
-			});
-			return {ok: true, note: ''};
-		}
-		if (!res.ok) {
-			return {ok: false, note: `目标已投影，但自动续跑没挂上：${res.message}`};
-		}
+		writeGoalState(guiSessionId, next);
 		return {ok: true, note: ''};
 	}
 	if (readFailure) {
 		return {
 			ok: false,
-			note: `目标投影读不到（${readFailure}）：界面没有显示目标，也没挂上自动续跑`,
+			note: `目标投影读不到（${readFailure}）：界面没有显示目标`,
 		};
 	}
 	return {

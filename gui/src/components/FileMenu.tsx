@@ -8,6 +8,7 @@ import {useSettingsStore} from '@/stores/settingsStore';
 import {useRemoteStore} from '@/stores/remoteStore';
 import {useWorkspaceStore} from '@/stores/workspaceStore';
 import {closePetWindow} from '@/pet/PetBridge';
+import {popEscLayer, pushEscLayer} from '@/lib/escStack';
 import {toast} from '@/lib/toast';
 import {MenuSeparator} from '@/components/ui/MenuSeparator';
 import './ux-loaders.css';
@@ -16,7 +17,7 @@ type MenuItem =
 	| {kind: 'action'; id: string; label: string; shortcut?: string; disabled?: boolean; onSelect: () => void}
 	| {kind: 'sep'};
 
-export function FileMenu() {
+export function FileMenu({label = 'XEYO'}: {label?: string}) {
 	const navigate = useNavigate();
 	const immersive = useChatStore(s => s.immersive);
 	const createSession = useChatStore(s => s.createSession);
@@ -131,7 +132,8 @@ export function FileMenu() {
 			kind: 'action',
 			id: 'immersive',
 			label: immersive ? '退出沉浸模式' : '沉浸模式',
-			shortcut: 'Esc',
+			// 不挂快捷键提示：进入方向没有任何键盘键（Ctrl+B 只管沉浸内的侧板，
+			// Esc 只在「已沉浸且无上层可关物」时退出）——挂 Esc 会引人白按。
 			onSelect: () => {
 				useChatStore.getState().setImmersive(!immersive);
 			},
@@ -165,6 +167,16 @@ export function FileMenu() {
 			document.removeEventListener('mousedown', onDoc);
 			document.removeEventListener('keydown', onKey);
 		};
+	}, [open]);
+
+	// 文件菜单的 Esc 走 escStack 顶层：document 冒泡监听在流式期间会被
+	// 「停止生成」层先吃掉（Esc 停回合、菜单还开着）。
+	useEffect(() => {
+		if (!open) {
+			return;
+		}
+		pushEscLayer('file-menu', () => setOpen(false));
+		return () => popEscLayer('file-menu');
 	}, [open]);
 
 	useEffect(() => {
@@ -204,7 +216,7 @@ export function FileMenu() {
 				)}
 			>
 				<span className="pointer-events-none select-none whitespace-nowrap leading-none">
-					<span className="text-[12.5px] font-semibold text-ink-soft">XEYO</span>
+					<span className="text-[12.5px] font-semibold text-ink-soft">{label}</span>
 				</span>
 			</button>
 			{open ? (

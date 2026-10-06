@@ -8,6 +8,7 @@ import type {
 import {folderName, normalizePath} from './paths';
 import {coerceJsonText, parseJsonValue} from './safeJson';
 import {uid} from './utils';
+import {idbBatch} from './idbBatch';
 
 export const DEFAULT_SPACE_ID = 'space_default';
 export const DEFAULT_SPACE_NAME = '本地工作区';
@@ -536,9 +537,7 @@ export async function upsertMessages(
 		return;
 	}
 	const tx = database.transaction('messages', 'readwrite');
-	for (const m of messages) {
-		await tx.store.put({...persistableMessage(m), sessionId});
-	}
+	await idbBatch(messages, m => tx.store.put({...persistableMessage(m), sessionId}));
 	await tx.done;
 }
 
@@ -552,9 +551,7 @@ export async function patchMessages(
 	}
 	const database = await openXEYODb();
 	const tx = database.transaction('messages', 'readwrite');
-	for (const m of messages) {
-		await tx.store.put({...persistableMessage(m), sessionId});
-	}
+	await idbBatch(messages, m => tx.store.put({...persistableMessage(m), sessionId}));
 	await tx.done;
 }
 
@@ -599,14 +596,9 @@ export async function replaceMessages(
 	const tx = database.transaction('messages', 'readwrite');
 	const store = tx.store;
 	const idx = store.index('by-session');
-	let cursor = await idx.openCursor(sessionId);
-	while (cursor) {
-		await cursor.delete();
-		cursor = await cursor.continue();
-	}
-	for (const m of messages) {
-		await store.put({...persistableMessage(m), sessionId});
-	}
+	const keys = await idx.getAllKeys(sessionId);
+	await idbBatch(keys, key => store.delete(key));
+	await idbBatch(messages, m => store.put({...persistableMessage(m), sessionId}));
 	await tx.done;
 }
 

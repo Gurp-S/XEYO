@@ -1,3 +1,4 @@
+import {REVIEW_LAYOUT_ENABLED} from '@/lib/reviewLayout';
 import {useEffect, useLayoutEffect, useState, type CSSProperties, type ReactNode} from 'react';
 import {
 	bindReducedMotionToSmoothness,
@@ -12,6 +13,7 @@ import {syncPromptViewCapVar} from '@/components/sticky/stickyTypes';
 import {TitleBar} from './TitleBar';
 import {WindowResizeHandles} from './WindowResizeHandles';
 import {ContextIsland} from '@/pasture/ContextIsland';
+import {ReviewFrame} from './review/ReviewFrame';
 
 type Props = {
 	children: ReactNode;
@@ -168,7 +170,8 @@ export function AppShell({children}: Props) {
 	return (
 		<div className="relative h-full w-full min-h-0 min-w-0">
 			<div
-				className="xy-app-surface relative z-0 flex h-full w-full min-h-0 min-w-0 flex-col overflow-hidden"
+				data-review-wallpaper={showWallpaper ? '1' : undefined}
+				className={`${REVIEW_LAYOUT_ENABLED ? 'xy-review-layout ' : ''}xy-app-surface relative z-0 flex h-full w-full min-h-0 min-w-0 flex-col overflow-hidden`}
 				style={
 					{
 						['--xy-bg-image' as string]: showWallpaper
@@ -221,6 +224,7 @@ export function AppShell({children}: Props) {
 					/>
 				) : null}
 
+				{REVIEW_LAYOUT_ENABLED && <ReviewFrame />}
 				<div className="relative z-10 flex min-h-0 min-w-0 flex-1 flex-col bg-transparent">
 					<TitleBar />
 					<div className="relative z-0 flex min-h-0 min-w-0 flex-1 flex-col">

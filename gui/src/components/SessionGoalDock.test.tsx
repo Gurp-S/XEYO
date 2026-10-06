@@ -1,15 +1,14 @@
 /**
- * SessionGoalDock.test.tsx — 41 号 P0 GUI 单测（单行 GoalBar 外观）。
+ * SessionGoalDock.test.tsx — goal 条带契约（2026-10-03 深夜起按 DSH GoalBar 字面对齐）。
  *
- * 覆盖：
- * - 渲染矩阵：无 goal / completed / abandoned 不渲染；
- *   active / paused / blocked / 候选各自的标签与动词。
- * - 动词：自动续跑→arm；暂停→pause(+disarm)；恢复(paused)→resume(+arm)；
- *   停止(轮中)→interrupt+disarm；标记完成→confirm_complete；恢复(blocked)→reopen。
- * - 编辑（行内 input）→edit；清除（确认）→drop；取消不触发。
- * - CAS 纪律（409 → 刷新重试一次）；goalDockLiveFor 谓词。
- * - 动词失败：失败必须报出后端原话；暂停/恢复没落地就不动自动续跑；
- *   编辑没落地就不关编辑器；interrupt 的 not_running 不算失败。
+ * 钉住"条带上有什么、没什么"：
+ * - 相位 → 动作：active→暂停、paused→恢复、blocked→**只有**编辑/清除（DSH 不给 blocked 恢复）；
+ * - 条带上不出现：自动续跑开关与状态圆点、待确认完成的标记完成/继续、轮次上限输入、
+ *   停止本轮、受阻重开、清除的二次确认（业主裁定"样式、交互等所有对齐 DSH"）。
+ * 自动续跑这组功能已废弃（业主 10-03 裁定）：动词只发 phase PATCH；夹具连
+ * `roundDriverAction` 都不提供，产品代码若再调用它就直接抛 = 不是恒真断言。
+ * 另外钉：CAS 409 刷新重试一次、失败内联在条带里、编辑没落地不关编辑器、
+ * 目标换身份时丢弃本地草稿、归档只读、轮询"读不出≠没有"。
  */
 import {cleanup, render, screen, waitFor} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -18,40 +17,41 @@ import {useChatStore} from '@/stores/chatStore';
 import {SessionGoalDock, goalDockLiveFor} from './SessionGoalDock';
 import type {SessionGoalState} from '@/lib/api/goals';
 
-const roundDriverAction = vi.fn();
 const patchGoalAction = vi.fn();
 const fetchGoalMock = vi.fn();
 
+// 故意不提供 roundDriverAction：自动续跑这组功能已废弃（业主 10-03 裁定），
+// 产品代码若再去 import 它，调用即抛——比"断言它没被调用"的恒真判据有牙。
 vi.mock('@/lib/api/goals', async importOriginal => {
 	const actual =
 		await importOriginal<typeof import('@/lib/api/goals')>();
 	return {
 		...actual,
+		roundDriverAction: undefined,
 		fetchGoal: (...args: unknown[]) => fetchGoalMock(...args),
 		patchGoalAction: (...args: unknown[]) => patchGoalAction(...args),
-		roundDriverAction: (...args: unknown[]) => roundDriverAction(...args),
 	};
 });
-
-vi.mock('@/lib/api', async importOriginal => {
-	const actual = await importOriginal<typeof import('@/lib/api')>();
-	return {
-		...actual,
-		interruptChat: vi.fn().mockResolvedValue({ok: true, message: ''}),
-	};
-});
-
-const toastError = vi.fn();
 
 vi.mock('@/lib/toast', () => ({
 	toast: {
-		error: (...args: unknown[]) => toastError(...args),
+		error: vi.fn(),
 		success: vi.fn(),
 		info: vi.fn(),
 		warn: vi.fn(),
 		dismiss: vi.fn(),
 	},
 }));
+
+/** 动词失败内联在条带里（role=alert）；这里是读它当前说了什么。 */
+function goalAlert(): string {
+	return screen.getAllByRole('alert').map(el => el.textContent ?? '').join('\n');
+}
+
+/** 条带上当前的动作（DSH：active/paused 三个，blocked 两个）。 */
+function goalButtonLabels(): Array<string | null> {
+	return screen.getAllByRole('button').map(b => b.getAttribute('aria-label'));
+}
 
 function makeGoal(
 	over: Partial<SessionGoalState['goal']> = {},
@@ -89,7 +89,6 @@ beforeEach(() => {
 			? {ok: true, goal: fixture.goal, driver: fixture.driver, message: ''}
 			: {ok: true, goal: null, driver: null, message: ''},
 	);
-	roundDriverAction.mockReset();
 	patchGoalAction.mockReset();
 	seed(null);
 });
@@ -99,7 +98,7 @@ afterEach(() => {
 	vi.clearAllMocks();
 });
 
-describe('SessionGoalDock 渲染矩阵', () => {
+describe('渲染矩阵', () => {
 	it('无 goal 不渲染', () => {
 		const {container} = render(<SessionGoalDock embedded />);
 		expect(container).toBeEmptyDOMElement();
@@ -114,225 +113,103 @@ describe('SessionGoalDock 渲染矩阵', () => {
 		const res = render(<SessionGoalDock embedded />);
 		expect(res.container).toBeEmptyDOMElement();
 	});
+});
 
-	it('active+disarmed：进行中的目标 + 自动续跑 → arm', async () => {
+describe('条带上有什么、没什么（DSH GoalBar 的字面动作集）', () => {
+	it('active：进行中的目标 + 恰好 暂停/编辑目标/清除目标 三个动作', () => {
+		seed(makeGoal());
+		const {container} = render(<SessionGoalDock embedded />);
+		expect(screen.getByText('进行中的目标')).toBeInTheDocument();
+		expect(goalButtonLabels()).toEqual(['暂停', '编辑目标', '清除目标']);
+		// 撤掉的能力不许留痕迹：待确认完成文案、armed 状态圆点。
+		expect(screen.queryByText('待确认完成')).not.toBeInTheDocument();
+		expect(container.querySelector('.animate-pulse')).toBeNull();
+	});
+
+	it('active + pending_complete：与 active 同形，没有「标记完成」入口', () => {
+		seed(makeGoal({pending_complete: true}));
+		render(<SessionGoalDock embedded />);
+		expect(screen.getByText('进行中的目标')).toBeInTheDocument();
+		expect(
+			screen.queryByRole('button', {name: '标记完成'}),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole('button', {name: '继续此目标'}),
+		).not.toBeInTheDocument();
+	});
+
+	it('paused：已暂停的目标 + 恢复/编辑/清除', () => {
+		seed(makeGoal({status: 'paused'}));
+		render(<SessionGoalDock embedded />);
+		expect(screen.getByText('已暂停的目标')).toBeInTheDocument();
+		expect(goalButtonLabels()).toEqual(['恢复', '编辑目标', '清除目标']);
+	});
+
+	it('blocked：受阻的目标 + 只有编辑/清除', () => {
+		seed(makeGoal({status: 'blocked', blocked_reason: 'provider_error'}));
+		render(<SessionGoalDock embedded />);
+		expect(screen.getByText('受阻的目标')).toBeInTheDocument();
+		expect(goalButtonLabels()).toEqual(['编辑目标', '清除目标']);
+		expect(screen.queryByRole('button', {name: '恢复'})).not.toBeInTheDocument();
+	});
+
+	it('编辑态只有一个输入框：轮次上限不再出现在条带上', async () => {
 		const user = userEvent.setup();
 		seed(makeGoal());
 		render(<SessionGoalDock embedded />);
-		expect(screen.getByText('进行中的目标')).toBeInTheDocument();
-		const armed = makeGoal();
-		armed.driver = {activation: 'armed', pending: false, active_round: null};
-		roundDriverAction.mockResolvedValue({
-			ok: true,
-			goal: armed.goal,
-			driver: armed.driver,
-		});
-		await user.click(screen.getByRole('button', {name: /自动续跑/}));
-		expect(roundDriverAction).toHaveBeenCalledWith('s1', 'arm');
-		await waitFor(() => {
-			expect(
-				useChatStore.getState().sessionGoalById?.s1?.driver?.activation,
-			).toBe('armed');
-		});
+		await user.click(screen.getByRole('button', {name: '编辑目标'}));
+		expect(screen.getByPlaceholderText('目标内容')).toBeInTheDocument();
+		expect(
+			screen.queryByPlaceholderText('轮次上限(0=默认)'),
+		).not.toBeInTheDocument();
 	});
+});
 
-	it('active+armed 空闲：进行中的目标 + 暂停 → PATCH pause', async () => {
+describe('动词只发 phase PATCH（round-driver 已废弃）', () => {
+	it('暂停 → 只发 PATCH pause', async () => {
 		const user = userEvent.setup();
 		seed({
 			goal: makeGoal().goal,
 			driver: {activation: 'armed', pending: false, active_round: null},
 		});
-		const pausedGoal = makeGoal({status: 'paused'});
 		patchGoalAction.mockResolvedValue({
 			ok: true,
-			goal: pausedGoal.goal,
+			goal: makeGoal({status: 'paused'}).goal,
 			driver: null,
 		});
-		roundDriverAction.mockResolvedValue({
-			ok: true,
-			goal: pausedGoal.goal,
-			driver: {activation: 'disarmed', pending: false, active_round: null},
-		});
 		render(<SessionGoalDock embedded />);
-		expect(screen.getByText('进行中的目标')).toBeInTheDocument();
-		await user.click(screen.getByRole('button', {name: /暂停/}));
-		expect(patchGoalAction).toHaveBeenCalledWith('s1', 'pause', {
-			revision: 3,
-		});
-	});
-
-	it('active+armed+轮中：进行中的目标 + 停止 → interrupt + disarm', async () => {
-		const user = userEvent.setup();
-		seed({
-			goal: makeGoal().goal,
-			driver: {activation: 'armed', pending: false, active_round: ['g1', 2]},
-		});
-		const {interruptChat} = await import('@/lib/api');
-		roundDriverAction.mockResolvedValue({
-			ok: true,
-			goal: makeGoal().goal,
-			driver: {activation: 'disarmed', pending: false, active_round: null},
-		});
-		render(<SessionGoalDock embedded />);
-		expect(screen.getByText('进行中的目标')).toBeInTheDocument();
-		await user.click(screen.getByRole('button', {name: /停止/}));
+		await user.click(screen.getByRole('button', {name: '暂停'}));
 		await waitFor(() => {
-			expect(interruptChat).toHaveBeenCalledWith('s1');
+			expect(patchGoalAction).toHaveBeenCalledWith('s1', 'pause', {revision: 3});
 		});
-		expect(roundDriverAction).toHaveBeenCalledWith('s1', 'disarm');
 	});
 
-	it('paused：已暂停的目标 + 恢复 → PATCH resume + arm', async () => {
+	it('恢复 → 只发 PATCH resume', async () => {
 		const user = userEvent.setup();
 		seed(makeGoal({status: 'paused'}));
-		const resumed = makeGoal();
-		resumed.driver = {activation: 'armed', pending: false, active_round: null};
-		patchGoalAction.mockResolvedValue({
-			ok: true,
-			goal: resumed.goal,
-			driver: null,
-		});
-		roundDriverAction.mockResolvedValue({
-			ok: true,
-			goal: resumed.goal,
-			driver: resumed.driver,
-		});
+		patchGoalAction.mockResolvedValue({ok: true, goal: makeGoal().goal, driver: null});
 		render(<SessionGoalDock embedded />);
-		expect(screen.getByText('已暂停的目标')).toBeInTheDocument();
-		await user.click(screen.getByRole('button', {name: /恢复/}));
-		expect(patchGoalAction).toHaveBeenCalledWith('s1', 'resume', {
-			revision: 3,
-		});
-		expect(roundDriverAction).toHaveBeenCalledWith('s1', 'arm');
-	});
-
-	it('候选：待确认完成 + 标记完成 → PATCH confirm_complete', async () => {
-		const user = userEvent.setup();
-		seed(makeGoal({pending_complete: true}));
-		patchGoalAction.mockResolvedValue({
-			ok: true,
-			goal: makeGoal({status: 'completed'}).goal,
-			driver: null,
-		});
-		render(<SessionGoalDock embedded />);
-		expect(screen.getByText('待确认完成')).toBeInTheDocument();
-		await user.click(screen.getByRole('button', {name: '标记完成'}));
-		expect(patchGoalAction).toHaveBeenCalledWith('s1', 'confirm_complete', {
-			revision: 3,
-		});
-	});
-
-	it('blocked：受阻的目标 + 恢复 → PATCH reopen', async () => {
-		const user = userEvent.setup();
-		seed(makeGoal({status: 'blocked', blocked_reason: 'provider_error'}));
-		patchGoalAction.mockResolvedValue({
-			ok: true,
-			goal: makeGoal().goal,
-			driver: null,
-		});
-		render(<SessionGoalDock embedded />);
-		expect(screen.getByText('受阻的目标')).toBeInTheDocument();
 		await user.click(screen.getByRole('button', {name: '恢复'}));
-		expect(patchGoalAction).toHaveBeenCalledWith('s1', 'reopen', {
-			revision: 3,
-		});
-	});
-});
-
-describe('SessionGoalDock 编辑 / 清除', () => {
-	it('编辑 → 行内 input → 保存 → PATCH edit（text + maxRounds）', async () => {
-		const user = userEvent.setup();
-		seed(makeGoal());
-		const saved = makeGoal({text: '新目标', max_rounds: 8});
-		patchGoalAction.mockResolvedValue({
-			ok: true,
-			goal: saved.goal,
-			driver: null,
-		});
-		render(<SessionGoalDock embedded />);
-		await user.click(screen.getByRole('button', {name: '编辑目标'}));
-		const textInput = await screen.findByPlaceholderText('目标内容');
-		await user.clear(textInput);
-		await user.type(textInput, '新目标');
-		const cap = screen.getByPlaceholderText('轮次上限(0=默认)');
-		await user.clear(cap);
-		await user.type(cap, '8');
-		await user.click(screen.getByRole('button', {name: '保存'}));
-		expect(patchGoalAction).toHaveBeenCalledWith('s1', 'edit', {
-			revision: 3,
-			text: '新目标',
-			maxRounds: 8,
+		await waitFor(() => {
+			expect(patchGoalAction).toHaveBeenCalledWith('s1', 'resume', {revision: 3});
 		});
 	});
 
-	it('清除 → 确认 → PATCH drop，dock 随 abandoned 隐藏', async () => {
+	it('动词回执按 whole-value 覆写：条带当场换成新相位，不靠本地猜', async () => {
 		const user = userEvent.setup();
 		seed(makeGoal());
 		patchGoalAction.mockResolvedValue({
 			ok: true,
-			goal: makeGoal({status: 'abandoned'}).goal,
+			goal: makeGoal({status: 'paused', revision: 4}).goal,
 			driver: null,
 		});
-		const {container} = render(<SessionGoalDock embedded />);
-		await user.click(screen.getByRole('button', {name: '清除目标'}));
-		expect(
-			await screen.findByRole('button', {name: '确认删除'}),
-		).toBeInTheDocument();
-		await user.click(screen.getByRole('button', {name: '确认删除'}));
-		expect(patchGoalAction).toHaveBeenCalledWith('s1', 'drop', {revision: 3});
-		await waitFor(() => {
-			expect(container).toBeEmptyDOMElement();
-		});
-	});
-
-	it('清除确认前点取消不触发 drop', async () => {
-		const user = userEvent.setup();
-		seed(makeGoal());
 		render(<SessionGoalDock embedded />);
-		await user.click(screen.getByRole('button', {name: '清除目标'}));
-		await user.click(screen.getByRole('button', {name: '取消'}));
-		expect(
-			screen.queryByRole('button', {name: '确认删除'}),
-		).not.toBeInTheDocument();
-		expect(patchGoalAction).not.toHaveBeenCalled();
+		await user.click(screen.getByRole('button', {name: '暂停'}));
+		await waitFor(() => expect(screen.getByText('已暂停的目标')).toBeInTheDocument());
+		expect(screen.getByRole('button', {name: '恢复'})).toBeInTheDocument();
 	});
-});
 
-describe('SessionGoalDock CAS 纪律', () => {
-	it('409 conflict：刷新 store 后带新 revision 重试一次', async () => {
-		const user = userEvent.setup();
-		seed(makeGoal({pending_complete: true}));
-		const conflicted = makeGoal({pending_complete: true, revision: 9});
-		const settled = makeGoal({status: 'completed', revision: 10});
-		patchGoalAction
-			.mockResolvedValueOnce({
-				ok: false,
-				conflict: conflicted.goal,
-				message: 'goal_revision_conflict',
-			})
-			.mockResolvedValueOnce({ok: true, goal: settled.goal, driver: null});
-		render(<SessionGoalDock embedded />);
-		await user.click(screen.getByRole('button', {name: '标记完成'}));
-		await waitFor(() => {
-			expect(patchGoalAction).toHaveBeenCalledTimes(2);
-		});
-		expect(patchGoalAction).toHaveBeenNthCalledWith(
-			1,
-			's1',
-			'confirm_complete',
-			{revision: 3},
-		);
-		expect(patchGoalAction).toHaveBeenNthCalledWith(
-			2,
-			's1',
-			'confirm_complete',
-			{revision: 9},
-		);
-	});
-});
-
-describe('动词失败的三种说法（写请求发了不等于改成了）', () => {
-	it('暂停失败 → 报出后端原话，目标仍是进行中，且不停自动续跑', async () => {
+	it('暂停失败 → 条带内报出后端原话，相位原地不动', async () => {
 		const user = userEvent.setup();
 		seed({
 			goal: makeGoal().goal,
@@ -344,18 +221,14 @@ describe('动词失败的三种说法（写请求发了不等于改成了）', (
 			message: 'goal_action_not_allowed',
 		});
 		render(<SessionGoalDock embedded />);
-		await user.click(screen.getByRole('button', {name: /暂停/}));
-		await waitFor(() => expect(toastError).toHaveBeenCalled());
-		expect(toastError.mock.calls[0][0]).toContain('目标操作未生效');
-		expect(toastError.mock.calls[0][0]).toContain('goal_action_not_allowed');
-		expect(roundDriverAction).not.toHaveBeenCalled();
-		expect(useChatStore.getState().sessionGoalById?.s1?.goal.status).toBe(
-			'active',
-		);
+		await user.click(screen.getByRole('button', {name: '暂停'}));
+		await waitFor(() => expect(goalAlert()).toContain('目标操作未生效'));
+		expect(goalAlert()).toContain('goal_action_not_allowed');
+		expect(useChatStore.getState().sessionGoalById?.s1?.goal.status).toBe('active');
 		expect(screen.getByText('进行中的目标')).toBeInTheDocument();
 	});
 
-	it('恢复失败 → 不 arm（不能让自动续跑接着暂停的目标跑轮）', async () => {
+	it('恢复失败 → 条带内报出原话，目标仍是已暂停', async () => {
 		const user = userEvent.setup();
 		seed(makeGoal({status: 'paused'}));
 		patchGoalAction.mockResolvedValue({
@@ -364,13 +237,38 @@ describe('动词失败的三种说法（写请求发了不等于改成了）', (
 			message: 'session_not_found',
 		});
 		render(<SessionGoalDock embedded />);
-		await user.click(screen.getByRole('button', {name: /恢复/}));
-		await waitFor(() => expect(toastError).toHaveBeenCalled());
-		expect(toastError.mock.calls[0][0]).toContain('session_not_found');
-		expect(roundDriverAction).not.toHaveBeenCalled();
-		expect(useChatStore.getState().sessionGoalById?.s1?.goal.status).toBe(
-			'paused',
-		);
+		await user.click(screen.getByRole('button', {name: '恢复'}));
+		await waitFor(() => expect(goalAlert()).toContain('session_not_found'));
+		expect(useChatStore.getState().sessionGoalById?.s1?.goal.status).toBe('paused');
+	});
+});
+
+describe('编辑 / 清除', () => {
+	it('编辑 → 行内 input → 保存 → PATCH edit 只带 text', async () => {
+		const user = userEvent.setup();
+		seed(makeGoal());
+		const saved = makeGoal({text: '新目标'});
+		patchGoalAction.mockResolvedValue({ok: true, goal: saved.goal, driver: null});
+		render(<SessionGoalDock embedded />);
+		await user.click(screen.getByRole('button', {name: '编辑目标'}));
+		const textInput = await screen.findByPlaceholderText('目标内容');
+		await user.clear(textInput);
+		await user.type(textInput, '新目标');
+		await user.click(screen.getByRole('button', {name: '保存目标'}));
+		expect(patchGoalAction).toHaveBeenCalledWith('s1', 'edit', {
+			revision: 3,
+			text: '新目标',
+		});
+	});
+
+	it('草稿为空时保存键禁用（空目标不许提交）', async () => {
+		const user = userEvent.setup();
+		seed(makeGoal());
+		render(<SessionGoalDock embedded />);
+		await user.click(screen.getByRole('button', {name: '编辑目标'}));
+		await user.clear(screen.getByPlaceholderText('目标内容'));
+		expect(screen.getByRole('button', {name: '保存目标'})).toBeDisabled();
+		expect(patchGoalAction).not.toHaveBeenCalled();
 	});
 
 	it('编辑失败 → 编辑器不关，刚输入的标题不跟着消失', async () => {
@@ -386,59 +284,107 @@ describe('动词失败的三种说法（写请求发了不等于改成了）', (
 		const textInput = await screen.findByPlaceholderText('目标内容');
 		await user.clear(textInput);
 		await user.type(textInput, '改成这个标题');
-		await user.click(screen.getByRole('button', {name: '保存'}));
-		await waitFor(() => expect(toastError).toHaveBeenCalled());
-		expect(toastError.mock.calls[0][0]).toContain('goal_text_too_long');
-		expect(screen.getByRole('button', {name: '保存'})).toBeInTheDocument();
-		expect(screen.getByPlaceholderText('目标内容')).toHaveValue(
-			'改成这个标题',
-		);
+		await user.click(screen.getByRole('button', {name: '保存目标'}));
+		await waitFor(() => expect(goalAlert()).toContain('goal_text_too_long'));
+		expect(screen.getByRole('button', {name: '保存目标'})).toBeInTheDocument();
+		expect(screen.getByPlaceholderText('目标内容')).toHaveValue('改成这个标题');
 	});
 
-	it('停止：interrupt 与 disarm 各自失败就各说一句', async () => {
+	it('清除 → 一次点击即 drop（DSH 无二次确认），条带随即收起', async () => {
 		const user = userEvent.setup();
-		const {interruptChat} = await import('@/lib/api');
-		vi.mocked(interruptChat).mockResolvedValueOnce({
-			ok: false,
-			message: 'HTTP 500',
+		seed(makeGoal());
+		patchGoalAction.mockResolvedValue({
+			ok: true,
+			goal: makeGoal({status: 'abandoned'}).goal,
+			driver: null,
 		});
-		seed({
-			goal: makeGoal().goal,
-			driver: {activation: 'armed', pending: false, active_round: ['g1', 2]},
+		const {container} = render(<SessionGoalDock embedded />);
+		await user.click(screen.getByRole('button', {name: '清除目标'}));
+		expect(patchGoalAction).toHaveBeenCalledWith('s1', 'drop', {revision: 3});
+		expect(
+			screen.queryByRole('button', {name: '确认删除'}),
+		).not.toBeInTheDocument();
+		await waitFor(() => {
+			expect(container).toBeEmptyDOMElement();
 		});
-		roundDriverAction.mockResolvedValue({
+	});
+
+	it('清除失败 → 条带留在原地说清楚为什么没删掉', async () => {
+		const user = userEvent.setup();
+		seed(makeGoal());
+		const {container} = render(<SessionGoalDock embedded />);
+		patchGoalAction.mockResolvedValue({
 			ok: false,
 			conflict: null,
-			message: 'driver_unavailable',
+			message: 'goal_action_not_allowed',
 		});
+		await user.click(screen.getByRole('button', {name: '清除目标'}));
+		await waitFor(() => expect(goalAlert()).toContain('goal_action_not_allowed'));
+		expect(container).not.toBeEmptyDOMElement();
+	});
+});
+
+describe('CAS 与投影滞后', () => {
+	it('409 conflict：刷新 store 后带新 revision 重试一次', async () => {
+		const user = userEvent.setup();
+		seed(makeGoal());
+		const conflicted = makeGoal({revision: 9});
+		const settled = makeGoal({text: '新目标', revision: 10});
+		patchGoalAction
+			.mockResolvedValueOnce({
+				ok: false,
+				conflict: conflicted.goal,
+				message: 'goal_revision_conflict',
+			})
+			.mockResolvedValueOnce({ok: true, goal: settled.goal, driver: null});
 		render(<SessionGoalDock embedded />);
-		await user.click(screen.getByRole('button', {name: /停止/}));
-		await waitFor(() => expect(toastError).toHaveBeenCalledTimes(2));
-		const said = toastError.mock.calls.map(c => String(c[0])).join('\n');
-		expect(said).toContain('停止本轮未生效：HTTP 500');
-		expect(said).toContain('停止自动续跑未生效：driver_unavailable');
+		await user.click(screen.getByRole('button', {name: '编辑目标'}));
+		const textInput = await screen.findByPlaceholderText('目标内容');
+		await user.clear(textInput);
+		await user.type(textInput, '新目标');
+		await user.click(screen.getByRole('button', {name: '保存目标'}));
+		await waitFor(() => {
+			expect(patchGoalAction).toHaveBeenCalledTimes(2);
+		});
+		expect(patchGoalAction).toHaveBeenNthCalledWith(1, 's1', 'edit', {
+			revision: 3,
+			text: '新目标',
+		});
+		expect(patchGoalAction).toHaveBeenNthCalledWith(2, 's1', 'edit', {
+			revision: 9,
+			text: '新目标',
+		});
 	});
 
-	it('interrupt 回 not_running 不算失败（这一轮本来就没在跑）', async () => {
+	it('目标换了身份（外部替换/清除）→ 未提交的草稿被丢弃，不许写到新目标上', async () => {
 		const user = userEvent.setup();
-		const {interruptChat} = await import('@/lib/api');
-		vi.mocked(interruptChat).mockResolvedValueOnce({
-			ok: false,
-			message: 'not_running',
-		});
-		seed({
-			goal: makeGoal().goal,
-			driver: {activation: 'armed', pending: false, active_round: ['g1', 2]},
-		});
-		roundDriverAction.mockResolvedValue({
-			ok: true,
-			goal: makeGoal().goal,
-			driver: {activation: 'disarmed', pending: false, active_round: null},
-		});
+		seed(makeGoal());
 		render(<SessionGoalDock embedded />);
-		await user.click(screen.getByRole('button', {name: /停止/}));
-		await waitFor(() => expect(interruptChat).toHaveBeenCalledWith('s1'));
-		expect(toastError).not.toHaveBeenCalled();
+		await user.click(screen.getByRole('button', {name: '编辑目标'}));
+		const textInput = await screen.findByPlaceholderText('目标内容');
+		await user.type(textInput, '还没保存的字');
+		seed(makeGoal({goal_id: 'g2', text: '别的目标', revision: 7}));
+		await waitFor(() => {
+			expect(screen.queryByPlaceholderText('目标内容')).not.toBeInTheDocument();
+		});
+		expect(screen.getByText('别的目标')).toBeInTheDocument();
+	});
+
+	it('归档会话：动作全部禁用，写请求一个都不发', async () => {
+		const user = userEvent.setup();
+		seed(makeGoal());
+		useChatStore.setState(s => ({
+			sessions: [...s.sessions, {id: 's1', archived: true} as never],
+		}));
+		render(<SessionGoalDock embedded />);
+		const btns = screen.getAllByRole('button');
+		expect(btns.length).toBeGreaterThan(0);
+		for (const b of btns) {
+			expect(b).toBeDisabled();
+		}
+		await user.click(screen.getByRole('button', {name: '编辑目标'}));
+		expect(patchGoalAction).not.toHaveBeenCalled();
+		expect(screen.queryByPlaceholderText('目标内容')).not.toBeInTheDocument();
 	});
 });
 

@@ -1,3 +1,7 @@
+import {REVIEW_LAYOUT_ENABLED} from '@/lib/reviewLayout';
+import {ActivityRail} from '@/components/review/ActivityRail';
+import {ReviewWorkbench} from '@/components/review/ReviewWorkbench';
+import {ReviewLayoutBehavior} from '@/components/review/ReviewLayoutBehavior';
 import {useEffect, useLayoutEffect, useRef} from 'react';
 import {AppShell} from '@/components/AppShell';
 import {ChatHeader} from '@/components/ChatHeader';
@@ -8,6 +12,7 @@ import {WorkspacePanel} from '@/components/WorkspacePanel';
 import {WorkspaceToolPanel} from '@/components/WorkspaceToolPanel';
 import {FilePreview} from '@/components/FilePreview';
 import {MessageList} from '@/components/MessageList';
+import {SwitchCover} from '@/components/messageList/SwitchCover';
 import {SubAgentView} from '@/components/SubAgentView';
 import {RemotePoller} from '@/components/RemotePoller';
 import {RemoteSseClient} from '@/components/RemoteSseClient';
@@ -284,7 +289,9 @@ export function ChatPage() {
 			<AppShell>
 				<RemotePoller />
 				<RemoteSseClient />
+				{REVIEW_LAYOUT_ENABLED && <ReviewLayoutBehavior />}
 				<div className="xy-pane-row relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
+					{REVIEW_LAYOUT_ENABLED && <ActivityRail />}
 					<Sidebar />
 					{/* 聊天列 + 文件预览/工具面板共用宿主，放大时预览 absolute 盖住聊天。 */}
 					<div className="xy-pane-chat-host relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
@@ -319,6 +326,8 @@ export function ChatPage() {
 										) : (
 											<MessageList />
 										)}
+										{/* 切换覆盖层：闸门亮起时盖住消息区（stores/chat/switchCover）。 */}
+										<SwitchCover />
 										</div>
 							<RecoveryBanner />
 							<Composer showTodoDock={!isSideChat} />
@@ -335,10 +344,15 @@ export function ChatPage() {
 								</div>
 							</main>
 						</ChatUiStoreProvider>
-						<FilePreview />
-						<WorkspaceToolPanel />
+						{REVIEW_LAYOUT_ENABLED ? (
+							<ReviewWorkbench>
+								<WorkspacePanel />
+								<FilePreview />
+								<WorkspaceToolPanel />
+							</ReviewWorkbench>
+						) : <><FilePreview /><WorkspaceToolPanel /></>}
 					</div>
-					<WorkspacePanel />
+					{!REVIEW_LAYOUT_ENABLED && <WorkspacePanel />}
 					<RemoteQrPanel />
 				</div>
 				{immersiveOpen ? <ImmersiveLayer /> : null}

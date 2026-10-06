@@ -1,6 +1,7 @@
 import {memo, useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {ChevronRight, Columns2, CornerDownLeft, Maximize2, Minimize2, X} from 'lucide-react';
 import {PanelExpandOverlay} from '@/components/PanelExpandOverlay';
+import {REVIEW_LAYOUT_ENABLED} from '@/lib/reviewLayout';
 import {PaneResizeHandle} from '@/components/PaneResizeHandle';
 import {PaneSlot} from '@/components/PaneSlot';
 import {useHoverScroll} from '@/hooks/useHoverScroll';
@@ -577,7 +578,7 @@ export const WorkspaceToolPanel = memo(function WorkspaceToolPanel() {
 	// 避免关掉之后留下一段没有树导航的死空档；收起的是用户显式关闭的面板，不再恢复。
 	const onClose = () => {
 		setActiveTool(null);
-		if (navEff) {
+		if (!REVIEW_LAYOUT_ENABLED && navEff) {
 			collapseWorkspace();
 		}
 	};
@@ -620,7 +621,7 @@ export const WorkspaceToolPanel = memo(function WorkspaceToolPanel() {
 				) : null}
 			</div>
 			<div className="flex shrink-0 items-center gap-0.5">
-				{activeTool && navEff ? (
+				{!REVIEW_LAYOUT_ENABLED && activeTool && navEff ? (
 					<button
 						type="button"
 						className="xy-icon-btn rounded-md p-1.5 text-mute hover:bg-glass-hover hover:text-ink"
@@ -631,7 +632,7 @@ export const WorkspaceToolPanel = memo(function WorkspaceToolPanel() {
 						<Columns2 className="h-3.5 w-3.5" />
 					</button>
 				) : null}
-				{activeTool ? (
+				{!REVIEW_LAYOUT_ENABLED && activeTool ? (
 					<button
 						type="button"
 						className="xy-icon-btn rounded-md p-1.5 text-mute hover:bg-glass-hover hover:text-ink"
@@ -646,7 +647,7 @@ export const WorkspaceToolPanel = memo(function WorkspaceToolPanel() {
 						)}
 					</button>
 				) : null}
-				{activeTool ? (
+				{!REVIEW_LAYOUT_ENABLED && activeTool ? (
 					<button
 						type="button"
 						className="xy-icon-btn rounded-md p-1.5 text-mute hover:bg-glass-hover hover:text-ink"
@@ -697,7 +698,7 @@ export const WorkspaceToolPanel = memo(function WorkspaceToolPanel() {
 			paneRef={paneRef}
 			instant={hardSwitch}
 			className={cn(
-				'xy-workspace-chrome bg-transparent',
+				'xy-workspace-chrome xy-workspace-tool-pane bg-transparent',
 				!open && 'pointer-events-none',
 			)}
 			onMouseEnter={hover.onMouseEnter}

@@ -9,6 +9,7 @@
  */
 import {cleanup, render} from '@testing-library/react';
 import {MemoryRouter} from 'react-router-dom';
+import {REVIEW_LAYOUT_ENABLED} from '@/lib/reviewLayout';
 import {afterEach, describe, expect, it, vi} from 'vitest';
 import {ChatHeader} from './ChatHeader';
 
@@ -104,8 +105,8 @@ describe('ChatHeader 标题截断', () => {
 		expect(titleCell().className).toMatch(/flex-1/);
 	});
 
-	it('整行上限仍是 28ch，侧栏展开且不在页面视图时整块塌掉的动画类没变', () => {
-		// 组件判据是 `sidebarOpen && !pageViewOpen` 才塌（侧栏已给出上下文，标题让位）。
+	it('标题上限为 28ch；新版布局展开侧栏仍保留标题，旧布局折叠', () => {
+		// 既有 review 布局保留标题；legacy 布局仍让位给侧栏。
 		state.sidebarOpen = false;
 		renderHeader();
 		const row = document.querySelector('.xy-hdr-title') as HTMLElement;
@@ -115,8 +116,13 @@ describe('ChatHeader 标题截断', () => {
 		state.sidebarOpen = true;
 		renderHeader();
 		const collapsed = document.querySelector('.xy-hdr-title') as HTMLElement;
-		expect(collapsed.className).toMatch(/max-w-0/);
-		expect(collapsed).toHaveAttribute('aria-hidden', 'true');
+		if (REVIEW_LAYOUT_ENABLED) {
+			expect(collapsed.className).toMatch(/max-w-\[28ch\]/);
+			expect(collapsed).not.toHaveAttribute('aria-hidden', 'true');
+		} else {
+			expect(collapsed.className).toMatch(/max-w-0/);
+			expect(collapsed).toHaveAttribute('aria-hidden', 'true');
+		}
 	});
 
 	it('side 模式不显示工作区名（行为不变）', () => {

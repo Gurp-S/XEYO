@@ -59,9 +59,15 @@ export type ChatUsage = {
 	cacheHitTokens: number;
 	cacheMissTokens: number;
 	tokens: number;
-	cny: number;
+	/** 已计价部分之和；全程无价目时为 null（「费用未知」≠「¥0.00」）。 */
+	cny: number | null;
 	requests: number;
-	costSource: 'api' | 'estimate';
+	/** api = 厂商 usage 自带金额；estimate = 本地价表估算；unpriced = 无权威价目。 */
+	costSource: 'api' | 'estimate' | 'unpriced';
+	/** 费用未知的回合数（cny 只累加了可计价部分，>0 时合计是部分值）。 */
+	unpricedTurns?: number;
+	/** USD 预算闸未生效的原因（中文事实）；空/缺省 = 闸正常生效。 */
+	budgetGateNote?: string;
 	/** 后端明确提供的上下文遥测；缺失时 Pasture 会降级为估算/旧快照。 */
 	contextTokens?: number;
 	contextLimit?: number;

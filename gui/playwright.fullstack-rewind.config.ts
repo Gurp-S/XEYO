@@ -43,6 +43,8 @@ const backendEnv = {
 	XEYO_USAGE_DIR: path.join(ISOLATE_DIR, 'usage'),
 	XEYO_HOME: ISOLATE_DIR,
 	XEYO_SPILL_DIR: path.join(ISOLATE_DIR, 'spill'),
+	// 读取方是 boot_ui_cwd（认 XEYO_CWD）；XEYO_UI_CWD 全仓无人读（旧漂移，保留）。
+	XEYO_CWD: WS_DIR,
 	XEYO_UI_CWD: WS_DIR,
 };
 

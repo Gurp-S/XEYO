@@ -1,15 +1,11 @@
 import {create} from 'zustand';
 import {sessionErrorBannerPatch} from '@/lib/pendingForSession';
 import {
-	filehelperQrUrl,
-	filehelperStart,
-	filehelperStatus,
-	filehelperStop,
 	ilinkQrUrl,
 	ilinkStart,
 	ilinkStatus,
 	ilinkStop,
-	type FileHelperStatus,
+	type RemoteStatus,
 } from '@/lib/api';
 import {assembleStream} from '@/lib/remoteStream';
 import {allowsEmptyApiKey} from '@/lib/localTestGate';
@@ -21,10 +17,10 @@ import {
 } from '@/lib/remoteSession';
 import {hasRemoteStreaming} from '@/lib/sessionStreams';
 import {useChatStore} from '@/stores/chatStore';
-import {useSettingsStore, type RemoteChannel} from '@/stores/settingsStore';
+import {useSettingsStore} from '@/stores/settingsStore';
 
 type RemoteUiState = {
-	state: FileHelperStatus['state'];
+	state: RemoteStatus['state'];
 	loggedIn: boolean;
 	hasQr: boolean;
 	error: string | null;
@@ -66,28 +62,15 @@ function addCapped(target: Set<string>, id: string, cap = 5000) {
 let pendingStream: {text: string; status: string} | null = null;
 let streamRaf = 0;
 
-function currentChannel(): RemoteChannel {
-	return useSettingsStore.getState().remoteChannel === 'ilink'
-		? 'ilink'
-		: 'filehelper';
-}
-
 function channelApi() {
-	if (currentChannel() === 'ilink') {
-		return {start: ilinkStart, stop: ilinkStop, status: ilinkStatus};
-	}
-	return {
-		start: filehelperStart,
-		stop: filehelperStop,
-		status: filehelperStatus,
-	};
+	return {start: ilinkStart, stop: ilinkStop, status: ilinkStatus};
 }
 
 export function remoteQrUrl(rev = 0): string {
-	return currentChannel() === 'ilink' ? ilinkQrUrl(rev) : filehelperQrUrl(rev);
+	return ilinkQrUrl(rev);
 }
 
-function applyRemoteTools(tools: FileHelperStatus['stream_tools']) {
+function applyRemoteTools(tools: RemoteStatus['stream_tools']) {
 	if (!tools?.length) {
 		return;
 	}
@@ -107,12 +90,13 @@ function applyRemoteTools(tools: FileHelperStatus['stream_tools']) {
 			addCapped(seenToolIds, rec.id);
 		}
 		if (rec.kind === 'tool_call') {
-			chat.applyRemoteToolCall(rec.name, rec.input);
+			chat.applyRemoteToolCall(rec.name, rec.input, rec.id);
 		} else if (rec.kind === 'tool_result') {
 			chat.applyRemoteToolResult(
 				rec.name,
 				rec.output ?? '',
 				Boolean(rec.is_error),
+				rec.id,
 			);
 		}
 	}
@@ -128,7 +112,7 @@ function eventKind(kind: string | undefined): RemotePayloadKind {
 	return 'other';
 }
 
-function applyEvents(events: FileHelperStatus['events']) {
+function applyEvents(events: RemoteStatus['events']) {
 	const chat = useChatStore.getState();
 	for (const ev of events) {
 		if (ev.id && seenEventIds.has(ev.id)) {
@@ -228,7 +212,7 @@ function resetStreamAcc() {
 	}
 }
 
-function applyStreamPayload(st: FileHelperStatus): boolean {
+function applyStreamPayload(st: RemoteStatus): boolean {
 	if (
 		!gateRemotePayload('stream', {
 			stream_session_id: st.stream_session_id ?? '',
@@ -338,8 +322,8 @@ export function pollIssueFromStatus(st: {
 }
 
 function applySseState(data: Record<string, unknown>) {
-	const st = data as Partial<FileHelperStatus>;
-	const events = (st.events as FileHelperStatus['events'] | undefined) ?? [];
+	const st = data as Partial<RemoteStatus>;
+	const events = (st.events as RemoteStatus['events'] | undefined) ?? [];
 	if (events.length) {
 		applyEvents(events);
 	}
@@ -353,14 +337,14 @@ function applySseState(data: Record<string, unknown>) {
 			if (len === full.length) {
 				resetStreamAcc();
 				streamApplied = applyStreamPayload({
-					...(st as FileHelperStatus),
+					...(st as RemoteStatus),
 					stream_reset: true,
 				});
 			} else {
-				streamApplied = applyStreamPayload(st as FileHelperStatus);
+				streamApplied = applyStreamPayload(st as RemoteStatus);
 			}
 		} else if (!st.streaming) {
-			streamApplied = applyStreamPayload(st as FileHelperStatus);
+			streamApplied = applyStreamPayload(st as RemoteStatus);
 		}
 	}
 	const cur = useRemoteStore.getState();
@@ -408,7 +392,7 @@ export const useRemoteStore = create<RemoteUiState>((set, get) => ({
 	},
 	handleSsePayload(kind, data) {
 		if (kind === 'event') {
-			const ev = data as FileHelperStatus['events'][number];
+			const ev = data as RemoteStatus['events'][number];
 			if (ev?.id) {
 				set({lastEventId: ev.id});
 			}
@@ -424,7 +408,7 @@ export const useRemoteStore = create<RemoteUiState>((set, get) => ({
 				return;
 			}
 			applyRemoteTools([
-				data as NonNullable<FileHelperStatus['stream_tools']>[number],
+				data as NonNullable<RemoteStatus['stream_tools']>[number],
 			]);
 			return;
 		}
@@ -636,5 +620,3 @@ export const useRemoteStore = create<RemoteUiState>((set, get) => ({
 		}
 	},
 }));
-
-export {filehelperQrUrl};

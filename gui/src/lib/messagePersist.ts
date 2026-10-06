@@ -1,42 +1,45 @@
 import type {ChatMessage} from '@/lib/types';
 
-/** 用于检测 IDB 增量写：消息是否在 persist 后发生变化。 */
-export function messagePersistFingerprint(m: ChatMessage): string {
-	const tail = m.text.length > 48 ? m.text.slice(-48) : m.text;
-	return [
-		m.role,
-		m.text.length,
-		tail,
-		m.toolName ?? '',
-		m.toolStatus ?? '',
-		m.isThought ? '1' : '0',
-		m.thoughtMs ?? '',
-		(m.toolInput ?? '').length,
-	].join('|');
+/** 保存快照不含运行期投递状态；复制媒体数组以免后续修改污染快照。 */
+function snapshot(m: ChatMessage): ChatMessage {
+	const {queueState: _queueState, ...saved} = m;
+	return saved.mediaRefs ? {...saved, mediaRefs: [...saved.mediaRefs]} : saved;
+}
+
+function sameMessage(a: ChatMessage, b: ChatMessage): boolean {
+	for (const key in a) {
+		if (key === 'queueState') continue;
+		const field = key as keyof ChatMessage;
+		if (field === 'mediaRefs') {
+			if (a.mediaRefs?.length !== b.mediaRefs?.length ||
+				a.mediaRefs?.some((ref, i) => ref !== b.mediaRefs?.[i])) return false;
+		} else if (a[field] !== b[field]) return false;
+	}
+	for (const key in b) {
+		if (key !== 'queueState' && !(key in a) && b[key as keyof ChatMessage] !== undefined) return false;
+	}
+	return true;
 }
 
 export function collectMessagesToPersist(
 	messages: ChatMessage[],
-	fingerprints: Map<string, string>,
-): {toWrite: ChatMessage[]; nextFingerprints: Map<string, string>} {
+	saved: Map<string, ChatMessage>,
+): {toWrite: ChatMessage[]; nextSaved: Map<string, ChatMessage>} {
 	const toWrite: ChatMessage[] = [];
-	const next = new Map(fingerprints);
+	const nextSaved = new Map<string, ChatMessage>();
 	for (const m of messages) {
-		const fp = messagePersistFingerprint(m);
-		if (next.get(m.id) !== fp) {
-			toWrite.push(m);
-			next.set(m.id, fp);
+		const previous = saved.get(m.id);
+		if (previous && sameMessage(previous, m)) {
+			nextSaved.set(m.id, previous);
+		} else {
+			const copy = snapshot(m);
+			toWrite.push(copy);
+			nextSaved.set(m.id, copy);
 		}
 	}
-	return {toWrite, nextFingerprints: next};
+	return {toWrite, nextSaved};
 }
 
-export function seedPersistFingerprints(
-	messages: ChatMessage[],
-): Map<string, string> {
-	const out = new Map<string, string>();
-	for (const m of messages) {
-		out.set(m.id, messagePersistFingerprint(m));
-	}
-	return out;
+export function seedPersistedMessages(messages: ChatMessage[]): Map<string, ChatMessage> {
+	return new Map(messages.map(m => [m.id, snapshot(m)]));
 }

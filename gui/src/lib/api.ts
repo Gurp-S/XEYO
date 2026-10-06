@@ -9,7 +9,7 @@ export type {UsageBalance, UsageBucket, UsageDayPoint, UsageModelBlock, UsageRep
 export {uploadFile, uploadMedia} from './api/uploads';
 export {listPermissionGrants, resolveAsk, resolveFailureText, resolvePermission, resolvePlan, revokeFailureText, revokePermissionGrant} from './api/permissions';
 export type {PermissionGrantInfo, ResolveReceipt} from './api/permissions';
-export {requestManualCompact, syncUiThoughtsToServer} from './api/memory';
+export {syncUiThoughtsToServer} from './api/memory';
 export {
 	getLocalModelLog,
 	getLocalModels,
@@ -438,87 +438,8 @@ export async function loadServerSessionMessages(
 	}
 }
 
-export type SessionCompression = {
-	session_id: string;
-	c2_gate: boolean;
-	l5_mode: string;
-	active: boolean;
-	compact_cursor: number;
-	last_action: string;
-	turns_since_c2: number;
-	c2_summary_chars: number;
-	c2_summary_preview: string;
-};
-
-/**
- * 压缩态读取的回执。旧签名 `Promise<SessionCompression | null>` 把三种情况压成一种：
- * HTTP 失败、离线、200 但形状变了。用量浮标于是按 `compression?.compact_cursor ?? usage?.… ?? 0`
- * 逐级回落 —— 一个没读到的字段会被渲染成"这轮还没压缩过（0）"。
- */
-export type SessionCompressionRead = {
-	ok: boolean;
-	data: SessionCompression | null;
-	message: string;
-};
-
 function isFiniteNumber(v: unknown): v is number {
 	return typeof v === 'number' && Number.isFinite(v);
-}
-
-/** 后端固定回这 9 个键（无 ok 信封）；数值/布尔类缺任何一个都算没读到。 */
-function parseCompression(payload: unknown): SessionCompression | null {
-	if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
-	const b = payload as Record<string, unknown>;
-	if (typeof b.session_id !== 'string') return null;
-	if (typeof b.c2_gate !== 'boolean' || typeof b.active !== 'boolean') return null;
-	if (
-		!isFiniteNumber(b.compact_cursor) ||
-		!isFiniteNumber(b.turns_since_c2) ||
-		!isFiniteNumber(b.c2_summary_chars)
-	) {
-		return null;
-	}
-	return {
-		session_id: b.session_id,
-		c2_gate: b.c2_gate,
-		l5_mode: typeof b.l5_mode === 'string' ? b.l5_mode : '',
-		active: b.active,
-		compact_cursor: b.compact_cursor,
-		last_action: typeof b.last_action === 'string' ? b.last_action : '',
-		turns_since_c2: b.turns_since_c2,
-		c2_summary_chars: b.c2_summary_chars,
-		c2_summary_preview: typeof b.c2_summary_preview === 'string' ? b.c2_summary_preview : '',
-	};
-}
-
-/** 本会话 C2 压缩态（用量预览）。 */
-export async function fetchSessionCompression(
-	sessionId: string,
-): Promise<SessionCompressionRead> {
-	const sid = sessionId.trim();
-	if (!sid) {
-		return {ok: false, data: null, message: 'no_session'};
-	}
-	try {
-		const res = await fetchWithTimeout(
-			apiUrl(`/v1/sessions/${encodeURIComponent(sid)}/compression`),
-			{cache: 'no-store'},
-		);
-		const payload = await res.json().catch(() => null);
-		if (!res.ok) {
-			return {ok: false, data: null, message: formatErrorDetail(payload, res.status)};
-		}
-		const data = parseCompression(payload);
-		return data
-			? {ok: true, data, message: ''}
-			: {ok: false, data: null, message: 'receipt_bad_compression'};
-	} catch (err) {
-		return {
-			ok: false,
-			data: null,
-			message: err instanceof Error ? err.message : String(err),
-		};
-	}
 }
 
 export type InterruptWrite = {ok: boolean; message: string};
@@ -1347,7 +1268,7 @@ export async function execWorkspaceTerminal(
 	return parseTerminalResult(await res.json());
 }
 
-export type FileHelperEvent = {
+export type RemoteEvent = {
 	id: string;
 	kind: 'inbound' | 'outbound' | string;
 	text: string;
@@ -1359,7 +1280,7 @@ export type FileHelperEvent = {
 	reason?: string | null;
 };
 
-export type FileHelperStatus = {
+export type RemoteStatus = {
 	state: 'stopped' | 'starting' | 'qr' | 'scanned' | 'logged_in' | 'error' | string;
 	logged_in: boolean;
 	has_qr: boolean;
@@ -1370,7 +1291,7 @@ export type FileHelperStatus = {
 	last_session_id?: string;
 	stream_session_id?: string;
 	recent_jobs?: unknown[];
-	events: FileHelperEvent[];
+	events: RemoteEvent[];
 	streaming?: boolean;
 	stream_text?: string;
 	stream_status?: string;
@@ -1385,66 +1306,24 @@ export type FileHelperStatus = {
 		is_error?: boolean;
 		session_id?: string;
 	}>;
-	channel?: 'filehelper' | 'ilink' | string;
+	channel?: 'ilink' | string;
 	last_poll_error?: string | null;
 	poll_timeouts?: number;
 	poll_alive?: boolean;
 };
 
-async function readFilehelperJson(res: Response): Promise<FileHelperStatus> {
+async function readRemoteJson(res: Response): Promise<RemoteStatus> {
 	const payload: unknown = await res.json().catch(() => ({}));
 	if (!res.ok) {
 		throw new Error(formatErrorDetail(payload, res.status));
 	}
-	return payload as FileHelperStatus;
-}
-
-export async function filehelperStatus(
-	after = '',
-	opts?: {omitJobs?: boolean; streamFrom?: number},
-): Promise<FileHelperStatus> {
-	const q = new URLSearchParams();
-	if (after) {
-		q.set('after', after);
-	}
-	if (opts?.omitJobs) {
-		q.set('omit_jobs', '1');
-	}
-	if (opts?.streamFrom != null && opts.streamFrom >= 0) {
-		q.set('stream_from', String(opts.streamFrom));
-	}
-	const qs = q.toString();
-	const res = await fetchWithTimeout(apiUrl(`/v1/filehelper/status${qs ? `?${qs}` : ''}`));
-	return readFilehelperJson(res);
-}
-
-export async function filehelperStart(body: {
-	api_key: string;
-	provider: string;
-	model: string;
-	base_url: string;
-}): Promise<FileHelperStatus> {
-	const res = await fetchWithTimeout(apiUrl('/v1/filehelper/start'), {
-		method: 'POST',
-		headers: {'Content-Type': 'application/json'},
-		body: JSON.stringify(body),
-	});
-	return readFilehelperJson(res);
-}
-
-export async function filehelperStop(): Promise<FileHelperStatus> {
-	const res = await fetchWithTimeout(apiUrl('/v1/filehelper/stop'), {method: 'POST'});
-	return readFilehelperJson(res);
-}
-
-export function filehelperQrUrl(rev = 0): string {
-	return apiUrl(`/v1/filehelper/qr.png?n=${rev}`);
+	return payload as RemoteStatus;
 }
 
 export async function ilinkStatus(
 	after = '',
 	opts?: {omitJobs?: boolean; streamFrom?: number},
-): Promise<FileHelperStatus> {
+): Promise<RemoteStatus> {
 	const q = new URLSearchParams();
 	if (after) {
 		q.set('after', after);
@@ -1457,7 +1336,7 @@ export async function ilinkStatus(
 	}
 	const qs = q.toString();
 	const res = await fetchWithTimeout(apiUrl(`/v1/ilink/status${qs ? `?${qs}` : ''}`));
-	return readFilehelperJson(res);
+	return readRemoteJson(res);
 }
 
 export async function ilinkStart(body: {
@@ -1465,18 +1344,18 @@ export async function ilinkStart(body: {
 	provider: string;
 	model: string;
 	base_url: string;
-}): Promise<FileHelperStatus> {
+}): Promise<RemoteStatus> {
 	const res = await fetchWithTimeout(apiUrl('/v1/ilink/start'), {
 		method: 'POST',
 		headers: {'Content-Type': 'application/json'},
 		body: JSON.stringify(body),
 	});
-	return readFilehelperJson(res);
+	return readRemoteJson(res);
 }
 
-export async function ilinkStop(): Promise<FileHelperStatus> {
+export async function ilinkStop(): Promise<RemoteStatus> {
 	const res = await fetchWithTimeout(apiUrl('/v1/ilink/stop'), {method: 'POST'});
-	return readFilehelperJson(res);
+	return readRemoteJson(res);
 }
 
 export function ilinkQrUrl(rev = 0): string {
@@ -2192,271 +2071,16 @@ export async function saveBashPolicy(input: {
 	}
 }
 
-/* ── A3 日监控报告的结构化数据面（替代用量页的 iframe）────────────────────────── */
-
-/** 服务端把每个数字都清洗过：非有限值（NaN/Inf）一律回 null，界面据此说"数据里没有"。 */
-type A3Num = number | null | undefined;
-
-export type A3ReportModelRow = {
-	provider?: string;
-	model?: string;
-	requests?: A3Num;
-	prompt_tokens?: A3Num;
-	cache_hit?: A3Num;
-	cache_miss?: A3Num;
-	hit_rate?: A3Num;
-	output?: A3Num;
-	cost_cny?: A3Num;
-};
-
-export type A3ReportDaySummary = {
-	day: string;
-	accepted: boolean;
-	requests?: A3Num;
-	prompt_tokens?: A3Num;
-	cache_hit?: A3Num;
-	cache_miss?: A3Num;
-	hit_rate?: A3Num;
-	c2_count?: A3Num;
-	output?: A3Num;
-	cost_cny?: A3Num;
-	/** 服务端按 by_session 行数给的真值；报告 payload 里没有 sessions 字段，旧网页这项恒为 0。 */
-	sessions?: A3Num;
-	turns?: A3Num;
-	/** 24 桶，服务端本地小时口径（与报告原图的 hourOf 同一算法）。 */
-	hour_counts: number[];
-	/** first_ts 缺失/非法的轮数；不为 0 时界面要说明。 */
-	hour_unknown: number;
-	by_model: A3ReportModelRow[];
-};
-
-export type A3ReportData = {
-	ok: true;
-	generated_at: string;
-	source: {path: string; bytes: number; mtime: number};
-	day_count: number;
-	days: A3ReportDaySummary[];
-};
-
-export type A3ReportSessionRow = {
-	session_id?: string;
-	requests?: A3Num;
-	prompt_tokens?: A3Num;
-	cache_hit?: A3Num;
-	cache_miss?: A3Num;
-	hit_rate?: A3Num;
-	output?: A3Num;
-	cost_cny?: A3Num;
-};
-
-export type A3ReportTurnRow = {
-	session_id?: string;
-	label?: string;
-	model?: string;
-	requests?: A3Num;
-	cache_hit?: A3Num;
-	cache_miss?: A3Num;
-	hit_rate?: A3Num;
-	output?: A3Num;
-	cost_cny?: A3Num;
-	/** 该轮首次请求的 epoch 秒；界面按本地时间格式化。 */
-	first_ts?: A3Num;
-	/** 服务端把原始 events 数组换成条数下发（原文不下发，10 MB 的主体就在这里）。 */
-	event_count?: A3Num;
-};
-
-export type A3ReportDayDetail = {
-	ok: true;
-	generated_at: string;
-	source: {path: string; bytes: number; mtime: number};
-	day: string;
-	summary: A3ReportDaySummary;
-	sessions: A3ReportSessionRow[];
-	turns: A3ReportTurnRow[];
-};
-
-/** 与 getMemoryReport 同一条判据：后端"确认没有"走 HTTP 错误，读不出/形状变了也走这里。 */
-export type A3ReportDataRead = {
-	ok: boolean;
-	data: A3ReportData | null;
-	message: string;
-};
-
-export type A3ReportDayRead = {
-	ok: boolean;
-	data: A3ReportDayDetail | null;
-	message: string;
-};
-
-function a3Str(value: unknown): string | undefined {
-	return typeof value === 'string' && value.trim() ? value : undefined;
-}
-
-function a3NumOr(value: unknown): A3Num {
-	return typeof value === 'number' && Number.isFinite(value) ? value : null;
-}
-
-function a3ModelRows(value: unknown): A3ReportModelRow[] {
-	if (!Array.isArray(value)) return [];
-	return value
-		.filter((r): r is Record<string, unknown> => !!r && typeof r === 'object')
-		.map(r => ({
-			provider: a3Str(r.provider),
-			model: a3Str(r.model),
-			requests: a3NumOr(r.requests),
-			prompt_tokens: a3NumOr(r.prompt_tokens),
-			cache_hit: a3NumOr(r.cache_hit),
-			cache_miss: a3NumOr(r.cache_miss),
-			hit_rate: a3NumOr(r.hit_rate),
-			output: a3NumOr(r.output),
-			cost_cny: a3NumOr(r.cost_cny),
-		}));
-}
-
-/** 逐字段收口：服务端少给一个键 ⇒ 该键是 null/undefined，而不是"0"。界面按这个区别说话。 */
-function a3DaySummary(raw: unknown): A3ReportDaySummary | null {
-	if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-	const o = raw as Record<string, unknown>;
-	const day = a3Str(o.day);
-	if (!day) return null;
-	const hours = Array.isArray(o.hour_counts) ? o.hour_counts.slice(0, 24) : [];
-	return {
-		day,
-		accepted: o.accepted === true,
-		requests: a3NumOr(o.requests),
-		prompt_tokens: a3NumOr(o.prompt_tokens),
-		cache_hit: a3NumOr(o.cache_hit),
-		cache_miss: a3NumOr(o.cache_miss),
-		hit_rate: a3NumOr(o.hit_rate),
-		c2_count: a3NumOr(o.c2_count),
-		output: a3NumOr(o.output),
-		cost_cny: a3NumOr(o.cost_cny),
-		sessions: a3NumOr(o.sessions),
-		turns: a3NumOr(o.turns),
-		hour_counts: hours.map(h => (typeof h === 'number' && Number.isFinite(h) ? h : 0)),
-		hour_unknown: typeof o.hour_unknown === 'number' ? o.hour_unknown : 0,
-		by_model: a3ModelRows(o.by_model),
-	};
-}
-
-function a3Source(raw: unknown): A3ReportData['source'] {
-	const o = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
-	return {
-		path: a3Str(o.path) ?? '',
-		bytes: typeof o.bytes === 'number' ? o.bytes : 0,
-		mtime: typeof o.mtime === 'number' ? o.mtime : 0,
-	};
-}
-
-/**
- * A3 报告的结构化摘要（`GET /v1/settings/memory/report/data`）。
- *
- * 用量页原来用 iframe 贴 10 MB 报告网页；这条路由把同一份内嵌 JSON 裁成摘要
- * （实测 12 KB）交给界面原生渲染。返回 `ok:false` 的两种情况都必须让调用方退回
- * iframe：后端确认报告还没生成（404 not_found）、以及报告解析不出来（500）。
- */
-export async function getMemoryReportData(): Promise<A3ReportDataRead> {
-	try {
-		const res = await fetchWithTimeout(apiUrl('/v1/settings/memory/report/data'), {
-			cache: 'no-store',
-		});
-		const payload = await res.json().catch(() => null);
-		if (!res.ok) {
-			return {ok: false, data: null, message: formatErrorDetail(payload, res.status)};
-		}
-		if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-			return {ok: false, data: null, message: 'receipt_bad_report_data'};
-		}
-		const body = payload as Record<string, unknown>;
-		if (body.ok !== true || !Array.isArray(body.days)) {
-			return {ok: false, data: null, message: 'receipt_bad_report_data'};
-		}
-		const days = body.days
-			.map(a3DaySummary)
-			.filter((d): d is A3ReportDaySummary => d !== null);
-		return {
-			ok: true,
-			data: {
-				ok: true,
-				generated_at: a3Str(body.generated_at) ?? '',
-				source: a3Source(body.source),
-				day_count: typeof body.day_count === 'number' ? body.day_count : days.length,
-				days,
-			},
-			message: '',
-		};
-	} catch (err) {
-		return {
-			ok: false,
-			data: null,
-			message: err instanceof Error ? err.message : String(err),
-		};
-	}
-}
-
-/** 某一天的会话/轮次明细（`?day=YYYY-MM-DD`）：下钻不再需要整份 payload。 */
-export async function getMemoryReportDay(day: string): Promise<A3ReportDayRead> {
-	try {
-		const res = await fetchWithTimeout(
-			apiUrl(`/v1/settings/memory/report/data?day=${encodeURIComponent(day)}`),
-			{cache: 'no-store'},
-		);
-		const payload = await res.json().catch(() => null);
-		if (!res.ok) {
-			return {ok: false, data: null, message: formatErrorDetail(payload, res.status)};
-		}
-		if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-			return {ok: false, data: null, message: 'receipt_bad_report_day'};
-		}
-		const body = payload as Record<string, unknown>;
-		const summary = a3DaySummary(body.summary);
-		if (body.ok !== true || !a3Str(body.day) || !summary) {
-			return {ok: false, data: null, message: 'receipt_bad_report_day'};
-		}
-		const rows = (value: unknown) =>
-			Array.isArray(value)
-				? value.filter((r): r is Record<string, unknown> => !!r && typeof r === 'object')
-				: [];
-		return {
-			ok: true,
-			data: {
-				ok: true,
-				generated_at: a3Str(body.generated_at) ?? '',
-				source: a3Source(body.source),
-				day: String(body.day),
-				summary,
-				sessions: rows(body.sessions).map(r => ({
-					session_id: a3Str(r.session_id),
-					requests: a3NumOr(r.requests),
-					prompt_tokens: a3NumOr(r.prompt_tokens),
-					cache_hit: a3NumOr(r.cache_hit),
-					cache_miss: a3NumOr(r.cache_miss),
-					hit_rate: a3NumOr(r.hit_rate),
-					output: a3NumOr(r.output),
-					cost_cny: a3NumOr(r.cost_cny),
-				})),
-				turns: rows(body.turns).map(r => ({
-					session_id: a3Str(r.session_id),
-					label: a3Str(r.label),
-					model: a3Str(r.model),
-					requests: a3NumOr(r.requests),
-					cache_hit: a3NumOr(r.cache_hit),
-					cache_miss: a3NumOr(r.cache_miss),
-					hit_rate: a3NumOr(r.hit_rate),
-					output: a3NumOr(r.output),
-					cost_cny: a3NumOr(r.cost_cny),
-					first_ts: a3NumOr(r.first_ts),
-					event_count: a3NumOr(r.event_count),
-				})),
-			},
-			message: '',
-		};
-	} catch (err) {
-		return {
-			ok: false,
-			data: null,
-			message: err instanceof Error ? err.message : String(err),
-		};
-	}
-}
-
+/* ── 用量页实时数据面（本机账本聚合，见 usage/live_report.py）─────────────────── */
+export {fetchLiveUsageDay, fetchLiveUsageReport} from './api/liveUsage';
+export type {
+	LiveUsageDay,
+	LiveUsageDayDetail,
+	LiveUsageDayRead,
+	LiveUsageEventRow,
+	LiveUsageModelRow,
+	LiveUsageRead,
+	LiveUsageReport,
+	LiveUsageSessionRow,
+	LiveUsageTurnRow,
+} from './api/liveUsage';

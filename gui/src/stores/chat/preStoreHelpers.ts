@@ -124,25 +124,29 @@ const sessionLoadInFlight = new Map<string, Promise<ChatMessage[]>>();
  * 只读本地 IDB（不碰网络）。乐观切换的第一步：先给 UI 一个可渲染的转录，
  * 服务端回填在后台继续。任何失败都降级为空数组（回填阶段再补）。
  */
-async function loadLocalSessionMessages(sessionId: string): Promise<ChatMessage[]> {
+async function loadLocalSessionSnapshot(sessionId: string): Promise<{messages: ChatMessage[]; changed: boolean}> {
 	try {
-		return recoverSessionMessages(await loadMessages(sessionId)).messages;
+		return recoverSessionMessages(await loadMessages(sessionId));
 	} catch {
-		return [];
+		return {messages: [], changed: false};
 	}
+}
+
+async function loadLocalSessionMessages(sessionId: string): Promise<ChatMessage[]> {
+	return (await loadLocalSessionSnapshot(sessionId)).messages;
 }
 
 async function loadSessionMessagesWithBackfill(
 	sessionId: string,
 	historyById: Record<string, ChatHistoryState>,
-	options?: {preferServer?: boolean},
+	options?: {preferServer?: boolean; localSnapshot?: {messages: ChatMessage[]; changed: boolean}},
 ): Promise<ChatMessage[]> {
 	const existing = sessionLoadInFlight.get(sessionId);
 	if (existing) {
 		return existing;
 	}
 	const promise = (async () => {
-		const local = recoverSessionMessages(await loadMessages(sessionId));
+		const local = options?.localSnapshot ?? recoverSessionMessages(await loadMessages(sessionId));
 		let chosen = local.messages;
 
 		try {
@@ -530,6 +534,8 @@ activeSpaceId: string;
 	retryAgentTask: (sessionId: string, agentId: string) => Promise<boolean>;
 
 	hydrate: () => Promise<void>;
+	/** 无去重的 hydrate 原体；对外一律走 hydrate（单飞）。 */
+	hydrateOnce: () => Promise<void>;
 	setSidebarOpen: (open: boolean) => void;
 	setImmersive: (open: boolean) => void;
 	requestSearchFocus: () => void;
@@ -603,11 +609,12 @@ activeSpaceId: string;
 		opts?: {kind?: 'cmd'; title?: string; sessionId?: string},
 	) => void;
 	syncRemoteStream: (text: string, status?: string) => void;
-	applyRemoteToolCall: (name: string, input: unknown) => void;
+	applyRemoteToolCall: (name: string, input: unknown, toolId?: string) => void;
 	applyRemoteToolResult: (
 		name: string,
 		output: string,
 		isError?: boolean,
+		toolId?: string,
 	) => void;
 	commitRemoteStream: (text: string) => void;
 	finishRemoteStream: () => void;
@@ -638,6 +645,7 @@ export {
 	initAgentNav,
 	isTransientRollbackState,
 	loadLocalSessionMessages,
+	loadLocalSessionSnapshot,
 	loadSessionMessagesWithBackfill,
 	normalizeChatHistoryState,
 	normalizeRollbackState,

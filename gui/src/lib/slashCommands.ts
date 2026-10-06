@@ -11,7 +11,7 @@ import {slashCommands, type SlashCommand} from '@/generated/slashManifest';
 import {apiUrl} from '@/lib/apiBase';
 import {fetchSkills, fetchWithTimeout, type SkillInfo, type SkillsReport} from '@/lib/api';
 import {formatSlashHelp, parseSlashInput} from '@/lib/slash';
-import {syncGoalAfterCommand} from '@/lib/goalSync';
+import {isGoalLive, syncGoalAfterCommand} from '@/lib/goalSync';
 import {useSettingsStore, type OutputMode, type PermissionMode} from '@/stores/settingsStore';
 import {normalizeThemeId} from '@/theme/catalog';
 import {useChatStore} from '@/stores/chatStore';
@@ -357,7 +357,7 @@ export async function runSlashCommand(
 			}
 			try {
 				const text = await postSlash(command, arg, opts);
-				// /goal 创建成功后主动同步投影 + 显式 arm：/v1/slash 不产生 SSE goal 帧，
+				// /goal 创建成功后同步投影：/v1/slash 不产生 SSE goal 帧，
 				// 不发消息 → 没有 chat turn → store 为空 → GoalDock（按 store 挂载）永不显示。
 				// 详见 lib/goalSync.ts 头注释（2026-09-05 调查报告 §10-④）。
 				if (command.name === 'goal' && opts.sessionId) {
@@ -443,6 +443,19 @@ export async function handleComposerSlash(
 			return accepted;
 		case 'local':
 		case 'server':
+			// /goal 的反馈面是 composer 上方的目标条带（DSH 同口径），不是聊天流里的卡：
+			// 设上了就只出条带；没设上（缺参数 / 投影读不到 / 当场结束）出一句 toast。
+			// 判据读权威投影，不读命令回传的旗标——投影说有目标就是设上了。
+			if (probe.command?.name === 'goal') {
+				const goalSessionId = opts.sessionId ?? '';
+				const live = isGoalLive(
+					useChatStore.getState().sessionGoalById?.[goalSessionId] ?? null,
+				);
+				if (!live && outcome.text) {
+					toast.info(outcome.text);
+				}
+				return true;
+			}
 			if (outcome.text) {
 				const resultSessionId =
 					probe.command?.name === 'clear'

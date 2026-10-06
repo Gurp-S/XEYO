@@ -20,6 +20,8 @@ function usageEvent(overrides: Partial<UsageStreamEvent> = {}): UsageStreamEvent
 		usedCny: 0,
 		costSource: 'api' as const,
 		usdLimit: null,
+		unpricedTurns: 0,
+		budgetGateNote: '',
 		...overrides,
 	};
 }

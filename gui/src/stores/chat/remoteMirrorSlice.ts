@@ -227,7 +227,7 @@ export function createRemoteMirrorSlice(
 		}
 	},
 
-	applyRemoteToolCall(name, input) {
+	applyRemoteToolCall(name, input, toolId) {
 		const sessionId =
 			resolveRemoteMirrorTarget(get()) ??
 			resolveRemoteFallbackTarget(get());
@@ -251,10 +251,10 @@ export function createRemoteMirrorSlice(
 				source: 'remote',
 			});
 		}
-		const toolId = uid('tool');
+		const cardId = uid('tool');
 		const toolInput = formatToolInputForUi(input);
 		msgs.push({
-			id: toolId,
+			id: cardId,
 			role: 'tool',
 			toolName: name,
 			toolInput,
@@ -262,6 +262,7 @@ export function createRemoteMirrorSlice(
 			text: '',
 			createdAt: Date.now(),
 			source: 'remote',
+			toolUseId: toolId,
 		});
 		const patch: Partial<ChatState> = {
 			messagesById: {...cur.messagesById, [sessionId]: msgs},
@@ -270,7 +271,7 @@ export function createRemoteMirrorSlice(
 			try {
 				clearTodoDismissal(sessionId);
 				const snap = snapshotFromTodoTool({
-					id: toolId,
+					id: cardId,
 					input: toolInput,
 					running: true,
 				});
@@ -303,7 +304,7 @@ export function createRemoteMirrorSlice(
 		});
 	},
 
-	applyRemoteToolResult(name, output, isError) {
+	applyRemoteToolResult(name, output, isError, toolId) {
 		const sessionId =
 			resolveRemoteMirrorTarget(get()) ??
 			resolveRemoteFallbackTarget(get());
@@ -316,16 +317,28 @@ export function createRemoteMirrorSlice(
 			return;
 		}
 		const msgs = [...(cur.messagesById[sessionId] ?? [])];
+		const isOpenTool = (m: ChatMessage) =>
+			m.toolStatus === 'running' || m.toolStatus === 'waiting';
 		let idx = -1;
-		for (let i = msgs.length - 1; i >= 0; i -= 1) {
-			const m = msgs[i]!;
-			if (
-				m.role === 'tool' &&
-				m.toolName === name &&
-				(m.toolStatus === 'running' || m.toolStatus === 'waiting')
-			) {
-				idx = i;
-				break;
+		// 优先按 tool id 归位：同名并行工具（如两个 Read 一批）完成顺序与调用顺序
+		// 不一致时，按名配"最后一个在跑"会把结果互换（本地路径早按 toolUseId 配对）。
+		if (toolId) {
+			for (let i = msgs.length - 1; i >= 0; i -= 1) {
+				const m = msgs[i]!;
+				if (m.role === 'tool' && m.toolUseId === toolId && isOpenTool(m)) {
+					idx = i;
+					break;
+				}
+			}
+		}
+		// 回退：无 id（旧通道/未带 id）或 id 未命中（call 帧曾丢失）时保持旧口径，不丢结果。
+		if (idx < 0) {
+			for (let i = msgs.length - 1; i >= 0; i -= 1) {
+				const m = msgs[i]!;
+				if (m.role === 'tool' && m.toolName === name && isOpenTool(m)) {
+					idx = i;
+					break;
+				}
 			}
 		}
 		const body = isError ? `[error]\n${output}` : output;

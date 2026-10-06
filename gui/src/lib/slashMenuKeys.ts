@@ -1,9 +1,11 @@
 /**
  * slash 弹层键盘仲裁 —— 纯函数核（combobox 仲裁语义：焦点始终留在编辑器表面，弹层开着时 ↑↓/Tab/Enter/Esc
- * 被拦截；IME 组词期间一律放行；无高亮时 Enter 放行提交）。
+ * 被拦截；IME 组词期间一律放行）。
  *
  * 高亮索引是「扁平列表」下标：渲染顺序 = 技能组在前、命令组在后，
  * 与 Composer 弹层的行序一致。hover 与键盘共用同一高亮（后到者胜）。
+ * 调用方保证：弹层开着且候选非空时高亮恒为合法下标（DSH `popup.ts:79` 的
+ * `active: 0` 口径），所以 Enter 在弹层里总是"选中"；`pass` 只在候选为空时出现。
  */
 
 export type SlashMenuKey = 'up' | 'down' | 'enter' | 'tab' | 'escape';

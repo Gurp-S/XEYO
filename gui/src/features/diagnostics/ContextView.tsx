@@ -9,6 +9,7 @@ import {Loader2} from 'lucide-react';
 import {traceDiagFact, type DiagFactTrace, type DiagRunDetail} from '@/lib/api/diagnostics';
 import {DASH, FACT_STATE_TONE, FACT_VERDICT_TONE, boundaryLabelOf, coverageSourceLabel, coverageStateLabel, factStateLabel, fmtBytes, gapReasonLabel, ledgerCountText, projectionManifestText, splitGapsByScope} from './model';
 import {Badge, EvidenceList, KeyValue, Notice, Section} from './ui';
+import {isImeComposing} from '@/lib/ime';
 import {cn} from '@/lib/utils';
 
 function FactChain({trace}: {trace: DiagFactTrace}) {
@@ -254,6 +255,8 @@ export function ContextView({
 						className="xy-dig-input"
 						onChange={e => setNeedle(e.target.value)}
 						onKeyDown={e => {
+							// 组词中的回车归输入法（上屏候选）：不许把半截组词当查询打出去。
+							if (isImeComposing(e.nativeEvent)) return;
 							if (e.key === 'Enter') void run();
 						}}
 					/>

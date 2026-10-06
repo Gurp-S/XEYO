@@ -27,6 +27,7 @@ type GetState = StoreApi<ChatState>['getState'];
 
 export type UsageAccumulator = {
 	flush: () => void;
+	finish: () => void;
 	schedule: () => void;
 	/** 追加一条 usage 事件并调度 rAF 冲刷（守卫由调用方处理）。 */
 	push: (ev: UsageStreamEvent) => void;
@@ -47,15 +48,19 @@ export function createUsageAccumulator(
 	// 密集时原本每帧都可能 saveSession 一次。限 2 次/秒,窗口尾部补一次防丢尾。
 	let lastPersistAt = 0;
 	let persistTimer: ReturnType<typeof setTimeout> | undefined;
+	let lastSavedUsage: ChatState['sessionUsageById'][string] | undefined;
 
 	const persistSessionUsage = () => {
 		const cur = get();
 		const sess = cur.sessions.find(s => s.id === sessionId);
 		const usage = cur.sessionUsageById[sessionId];
-		if (!sess || !usage || !sessionStreamActive(cur, sessionId)) {
+		if (!sess || !usage || usage === lastSavedUsage) {
 			return;
 		}
-		void saveSession({...sess, usage, updatedAt: Date.now()});
+		lastSavedUsage = usage;
+		void saveSession({...sess, usage, updatedAt: Date.now()}).catch(() => {
+			if (lastSavedUsage === usage) lastSavedUsage = undefined;
+		});
 	};
 
 	const scheduleUsagePersist = () => {
@@ -98,16 +103,29 @@ export function createUsageAccumulator(
 			const hasContextLimit = typeof ev.contextLimit === 'number' && ev.contextLimit > 0;
 			// 每条 UsageEvent 是一次模型请求的快照。缺字段代表本次未知，不能把
 			// 上一请求的上下文构成、占用率或 token 数拼到这次快照里。
+			const pricedCny =
+				typeof ev.cny === 'number' && Number.isFinite(ev.cny) && ev.costSource !== 'unpriced';
+			// 无价目（或金额缺失）= 费用未知：只计「未知回合数」，绝不加进 ¥ 合计
+			// （把 null 当 0 累加会把「未知」读成「免费」，是反方向的同类误导）。
+			const evUnpriced = !pricedCny;
 			nextUsage = {
 				promptTokens: (nextUsage?.promptTokens ?? 0) + ev.promptTokens,
 				completionTokens: (nextUsage?.completionTokens ?? 0) + ev.completionTokens,
 				cacheHitTokens: (nextUsage?.cacheHitTokens ?? 0) + ev.cacheHitTokens,
 				cacheMissTokens: (nextUsage?.cacheMissTokens ?? 0) + ev.cacheMissTokens,
 				tokens: (nextUsage?.tokens ?? 0) + ev.tokens,
-				cny: (nextUsage?.cny ?? 0) + ev.cny,
+				cny: pricedCny
+					? (nextUsage?.cny ?? 0) + (ev.cny ?? 0)
+					: (nextUsage?.cny ?? null),
 				requests: (nextUsage?.requests ?? 0) + 1,
-				costSource:
-					nextUsage?.costSource === 'api' && ev.costSource === 'api' ? 'api' : 'estimate',
+				costSource: evUnpriced || (nextUsage?.unpricedTurns ?? 0) > 0 || nextUsage?.costSource === 'unpriced'
+					? 'unpriced'
+					: (!nextUsage || nextUsage.costSource === 'api') && ev.costSource === 'api'
+						? 'api'
+						: 'estimate',
+				unpricedTurns: (nextUsage?.unpricedTurns ?? 0) + (evUnpriced ? 1 : 0),
+				// 闸未生效的原因由后端给（无价目 ⇒ 已花费金额不可判定），原样展示。
+				budgetGateNote: ev.budgetGateNote || nextUsage?.budgetGateNote,
 				usdLimit: ev.usdLimit,
 				contextTokens: hasContextTokens ? ev.contextTokens : undefined,
 				contextLimit: hasContextLimit ? ev.contextLimit : undefined,
@@ -143,16 +161,24 @@ export function createUsageAccumulator(
 		const nextSession = current.sessions.find(s => s.id === sessionId);
 		if (nextSession) {
 			const persisted = {...nextSession, usage: nextUsage, updatedAt: Date.now()};
-			scheduleUsagePersist();
 			set(state => ({
 				sessions: state.sessions.map(s => s.id === sessionId ? persisted : s),
 				sessionUsageById: {...state.sessionUsageById, [sessionId]: nextUsage},
 			}));
+			scheduleUsagePersist();
 		} else {
 			set(state => ({
 				sessionUsageById: {...state.sessionUsageById, [sessionId]: nextUsage},
 			}));
 		}
+	};
+	const finish = () => {
+		flush();
+		if (persistTimer !== undefined) {
+			clearTimeout(persistTimer);
+			persistTimer = undefined;
+		}
+		persistSessionUsage();
 	};
 
 	const schedule = () => {
@@ -219,5 +245,5 @@ export function createUsageAccumulator(
 		}
 	};
 
-	return {flush, schedule, push, onUsage, onCompression};
+	return {flush, finish, schedule, push, onUsage, onCompression};
 }

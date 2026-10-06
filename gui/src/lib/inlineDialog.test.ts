@@ -98,4 +98,28 @@ describe('promptDialog 基础契约', () => {
 		await expect(pending).resolves.toBeNull();
 		vi.advanceTimersByTime(cssDurationMs('fast') + 1);
 	});
+
+	it('IME 组词中的 Enter 不确认：不把半截组词当输入提交', async () => {
+		vi.useFakeTimers();
+		const pending = promptDialog({title: '重命名对话', initial: '旧名'});
+		const input = q<HTMLInputElement>('.xy-id-input');
+		let settled: string | null | undefined;
+		void pending.then(v => {
+			settled = v;
+		});
+
+		input.value = '半截组词';
+		input.dispatchEvent(
+			new KeyboardEvent('keydown', {key: 'Enter', isComposing: true, bubbles: true}),
+		);
+		await Promise.resolve();
+		// 组词中的回车属于输入法：弹窗必须保持未决、文本未提交
+		expect(settled).toBeUndefined();
+		expect(document.querySelector('dialog')).not.toBeNull();
+
+		// 上屏结束后的真实 Enter 才提交
+		input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true}));
+		await expect(pending).resolves.toBe('半截组词');
+		vi.advanceTimersByTime(cssDurationMs('fast') + 1);
+	});
 });

@@ -7,6 +7,7 @@ import {
 	useLayoutEffect,
 	useRef,
 	useState,
+	startTransition,
 } from 'react';
 import {
 	cancelFrameTask,
@@ -139,7 +140,7 @@ export function VirtualRoundList({
 		return prefixRef.current;
 	}, []);
 
-	const measure = useCallback((landBottom: boolean) => {
+	const measure = useCallback((landBottom: boolean, urgent = false) => {
 		const {scrollElement: el, allMount: all} = stateRef.current;
 		if (all || !el) {
 			return;
@@ -170,9 +171,12 @@ export function VirtualRoundList({
 			el.scrollTop,
 			el.clientHeight,
 		);
-		setWin(prev =>
+		const update = () => setWin(prev =>
 			prev.start === next.start && prev.end === next.end ? prev : next,
 		);
+		// Initial landing must finish before paint. During scrolling, let input
+		// and paint interrupt offscreen Markdown preparation within overscan.
+		if (urgent) update(); else startTransition(update);
 	}, [ensurePrefix]);
 
 	const scheduleMeasure = useCallback(() => {
@@ -188,9 +192,9 @@ export function VirtualRoundList({
 		didLandRef.current = true;
 		if (land && !stickToBottomRef.current) {
 			// 不跟尾：浏览器已把 scrollTop clamp 到新内容，按当前位置取窗。
-			measure(false);
+			measure(false, true);
 		} else {
-			measure(land);
+			measure(land, true);
 		}
 	}, [roundIds, sessionSwitching, scrollElement, allMount, measure, stickToBottomRef]);
 

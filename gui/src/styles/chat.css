@@ -13,7 +13,20 @@
 
 .xy-composer-surface:focus-within {
   border-color: var(--xy-accent) !important;
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--xy-accent) 22%, transparent);
+  box-shadow:
+    0 0 0 0.5px color-mix(in srgb, var(--xy-ink) 11%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--xy-accent) 55%, transparent),
+    0 2px 12px color-mix(in srgb, var(--xy-ink) 8%, transparent);
+}
+
+/* 输入卡：DSH InputBar 的度量 —— 22px 圆角、不占布局的发丝描边 + 柔和投影。
+   （旧态是 rounded-2xl 的 16px + 1px 实线边框。） */
+.xy-composer-card {
+  border: 0;
+  border-radius: 22px;
+  box-shadow:
+    0 0 0 0.5px color-mix(in srgb, var(--xy-ink) 11%, transparent),
+    0 2px 12px color-mix(in srgb, var(--xy-ink) 8%, transparent);
 }
 
 /*
@@ -336,6 +349,25 @@ html[data-xy-selfwallpaper="1"] [data-pin-id] .xy-editing-bubble {
   background-repeat: no-repeat !important;
 }
 
+/* 切换覆盖层（SwitchCover）开壁纸时同样自绘 L0：消息区是半透的（评审表面 78% 纸压在
+   壁纸上），盖不透明纸面会让壁纸整块消失两帧 —— 肉眼可见的一闪。层序 =
+   [评审表面][合成 veil][壁纸绘制矩形] + 纸基；background-position 由组件按覆盖层自身
+   原点内联写入，与 pin 同一套对齐规则。无壁纸时这两条都不命中，覆盖层仍是 bg-paper。 */
+.xy-app-surface[data-review-wallpaper="1"] .xy-switch-cover {
+  --xy-cover-tint: transparent;
+  background-color: var(--xy-paper);
+  background-image:
+    linear-gradient(var(--xy-cover-tint), var(--xy-cover-tint)),
+    linear-gradient(var(--xy-bg-veil-composited), var(--xy-bg-veil-composited)),
+    var(--xy-bg-image);
+  background-origin: border-box;
+  background-size: auto, auto, var(--xy-bg-draw-size);
+  background-repeat: no-repeat;
+}
+.xy-review-layout[data-review-wallpaper="1"] .xy-switch-cover {
+  --xy-cover-tint: var(--xy-review-surface);
+}
+
 /* 编辑态沿用普通气泡的透明表面；唯一新增的视觉信号是强调色边框。
    overflow 必须 visible，否则底部控件 0fr→1fr 展开动画会被裁掉。
    高度受统一查看上限约束（与吸顶 pin 的 promptChipMaxPx 同源：现由 JS 投影成
@@ -393,7 +425,7 @@ html[data-xy-selfwallpaper="1"] [data-pin-id] .xy-editing-bubble {
 
 /* 吸顶 portal 编辑：legacy 挖孔路径禁止位移/缩放/动画（避免洞与气泡不同步、抖动）。
    自绘壁纸模式（默认）无挖孔，放行 xy-editing-bubble-in 入场淡入，让查看↔编辑平滑而非硬切。 */
-html[data-xy-selfwallpaper!="1"] [data-pin-id] .xy-editing-bubble {
+html:not([data-xy-selfwallpaper="1"]) [data-pin-id] .xy-editing-bubble {
   animation: none;
 }
 

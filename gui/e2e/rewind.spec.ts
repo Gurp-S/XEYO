@@ -18,7 +18,7 @@ import path from 'node:path';
 import {bootChat, openWorkspaceSession, resetBackendSessions} from './helpers/boot';
 import {seedFakeTestSettings} from './helpers/seed';
 
-const COMPOSER = '描述任务… Enter 发送';
+const COMPOSER = '消息输入';
 const SEND = '发送';
 const STOP = '停止生成';
 
@@ -76,7 +76,7 @@ async function send(page: import('@playwright/test').Page, text: string) {
 		},
 		{timeout: 15_000},
 	);
-	const composer = page.getByPlaceholder(COMPOSER);
+	const composer = page.getByLabel(COMPOSER);
 	await composer.click();
 	await composer.fill(text);
 	await composer.press('Enter');
@@ -316,7 +316,7 @@ test('多轮截断：回溯第 2 轮 → 第 2 轮消失；事件流（pill 数�
 	// 刷新后：截断结果在服务端持久化，列表不回弹、新会话不被卡死。
 	// （同前：必须过滤 visible，避开 sticky 钉住层的隐藏文本副本。）
 	await page.reload();
-	await expect(page.getByPlaceholder(COMPOSER)).toBeVisible();
+	await expect(page.getByLabel(COMPOSER)).toBeVisible();
 	await expect(
 		page.getByText('hello', {exact: true}).locator('visible=true').first(),
 	).toBeVisible();

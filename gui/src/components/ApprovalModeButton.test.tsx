@@ -137,3 +137,23 @@ describe('写入回执决定读数', () => {
 		expect(mocks.patchDraft).toHaveBeenCalledWith('sess_A', {permissionMode: 'always'});
 	});
 });
+
+describe('关闭配对：Esc 与外点（同族弹层都不许只留"再点一次"）', () => {
+	it('Esc 关闭菜单', () => {
+		render(<ApprovalModeButton />);
+		fireEvent.click(screen.getByRole('button', {name: TRIGGER}));
+		expect(screen.getByRole('menu')).toBeTruthy();
+
+		fireEvent.keyDown(window, {key: 'Escape'});
+		expect(screen.queryByRole('menu')).toBeNull();
+	});
+
+	it('点击菜单外关闭菜单', () => {
+		render(<ApprovalModeButton />);
+		fireEvent.click(screen.getByRole('button', {name: TRIGGER}));
+		expect(screen.getByRole('menu')).toBeTruthy();
+
+		fireEvent.mouseDown(document.body);
+		expect(screen.queryByRole('menu')).toBeNull();
+	});
+});

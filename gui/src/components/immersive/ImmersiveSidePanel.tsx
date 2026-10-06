@@ -10,6 +10,7 @@ import {
 	X,
 } from 'lucide-react';
 import {useEffect, useRef, useState} from 'react';
+import {popEscLayer, pushEscLayer} from '@/lib/escStack';
 import {ImmersiveTodo} from './ImmersiveTodo';
 import {useChatUiStore} from '@/stores/chatUiStore';
 import {newSession, openPageView, openSession, type PageViewKind} from '@/lib/appNav';
@@ -55,6 +56,18 @@ export function ImmersiveSidePanel({onCollapse}: {onCollapse: () => void}) {
 		};
 		window.addEventListener('mousedown', handler);
 		return () => window.removeEventListener('mousedown', handler);
+	}, [titleOpen, wsOpen]);
+
+	// 下拉也是"最上层可关闭物"：Esc 先关下拉，不许把整块侧板带走。
+	useEffect(() => {
+		if (!titleOpen && !wsOpen) {
+			return;
+		}
+		pushEscLayer('immersive-panel-menu', () => {
+			setTitleOpen(false);
+			setWsOpen(false);
+		});
+		return () => popEscLayer('immersive-panel-menu');
 	}, [titleOpen, wsOpen]);
 
 	const activeTitle =

@@ -3,6 +3,7 @@ import {ChevronDown, X} from 'lucide-react';
 import {resolveFailureText, resolvePermission} from '@/lib/api';
 import {toast} from '@/lib/toast';
 import {useHeartbeat} from '@/lib/heartbeat';
+import {popEscLayer, pushEscLayer} from '@/lib/escStack';
 import {usePendingPermissionForActiveSession} from '@/hooks/usePendingForActiveSession';
 import {useChatStore, type PendingPermissionInfo} from '@/stores/chatStore';
 import {isSmoothnessOn, useSettingsStore} from '@/stores/settingsStore';
@@ -44,9 +45,15 @@ function PermissionCard({pending}: {pending: PendingPermissionInfo}) {
 	// T3：面板默认展开——安全决策不应藏在折叠条里。
 	const [expanded, setExpanded] = useState(true);
 	const [expiring, setExpiring] = useState(false);
-	// T10：「不再询问此类命令」——仅 Bash 确认型请求提供（前缀 always-allow）。
+	// T10：「不再询问」——Bash 记命令前缀，区外读记「该目录及其子目录」。
+	// 服务端只在「这一格能记住」时才开区外读的 ASK（盘根/家目录/引擎数据根仍硬
+	// 拦），所以这里的承诺不会落空。
 	const isBashConfirm =
 		pending.toolName === 'Bash' && (pending.intent ?? 'confirm') === 'confirm';
+	const isReadOutsideConfirm =
+		pending.reason === 'read_outside_working_directory' &&
+		(pending.intent ?? 'confirm') === 'confirm';
+	const canRemember = isBashConfirm || isReadOutsideConfirm;
 	const [remember, setRemember] = useState(false);
 	const decidingRef = useRef(false);
 	const [deciding, setDeciding] = useState(false);
@@ -115,7 +122,11 @@ function PermissionCard({pending}: {pending: PendingPermissionInfo}) {
 				return;
 			}
 			if (withRemember) {
-				toast.info('已记住：此类命令后续不再询问（可在设置中撤销）');
+				toast.info(
+					isReadOutsideConfirm
+						? '已记住：该目录及其子目录后续不再询问（可在设置中撤销）'
+						: '已记住：此类命令后续不再询问（可在设置中撤销）',
+				);
 			}
 			clearCurrent();
 		} catch (error) {
@@ -140,6 +151,18 @@ function PermissionCard({pending}: {pending: PendingPermissionInfo}) {
 		};
 		window.addEventListener('keydown', onKey);
 		return () => window.removeEventListener('keydown', onKey);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [pending.requestId]);
+
+	// 弹窗的 Esc 走 escStack 顶层：window 冒泡监听在流式期间会被「停止生成」
+	// 层先吃掉 —— Esc 既不拒绝也不关弹窗，还顺手停了回合。层顺序按弹窗出现
+	// 时间入栈（晚于 composer-stop），LIFO 保证「谁最上层谁收 Esc」。
+	useEffect(() => {
+		if (!pending.requestId) {
+			return;
+		}
+		pushEscLayer('permission-dialog', cancel);
+		return () => popEscLayer('permission-dialog');
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [pending.requestId]);
 
@@ -254,7 +277,7 @@ function PermissionCard({pending}: {pending: PendingPermissionInfo}) {
 				) : (
 					<div className="xy-panel-ask-actions flex-wrap items-center gap-2">
 						{/* 「不再询问」勾选放左侧（mr-auto 把按钮推到右侧），样式走面板主色调。 */}
-						{isBashConfirm ? (
+						{canRemember ? (
 							<label className="mr-auto flex cursor-pointer select-none items-center gap-1.5 rounded-md px-1.5 py-1 text-[11px] text-ink-soft transition-colors hover:bg-line/40 hover:text-ink">
 								<input
 									type="checkbox"
@@ -262,7 +285,11 @@ function PermissionCard({pending}: {pending: PendingPermissionInfo}) {
 									checked={remember}
 									onChange={e => setRemember(e.target.checked)}
 								/>
-								<span>不再询问此类命令</span>
+								<span>
+									{isReadOutsideConfirm
+										? '不再询问该目录及其子目录'
+										: '不再询问此类命令'}
+								</span>
 							</label>
 						) : null}
 						<button
@@ -278,7 +305,7 @@ function PermissionCard({pending}: {pending: PendingPermissionInfo}) {
 							className="xy-panel-ask-allow"
 							disabled={deciding}
 							onClick={() =>
-								void decide(true, undefined, isBashConfirm && remember)
+								void decide(true, undefined, canRemember && remember)
 							}
 						>
 							允许

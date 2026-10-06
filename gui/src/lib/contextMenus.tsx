@@ -47,8 +47,11 @@ export function textFieldMenuItems(
 			disabled: !hasSelection || el.readOnly || el.disabled,
 			onSelect: () => {
 				const selected = value.slice(start, end);
-				void copyTextToClipboard(selected, '已剪切').then(() => {
-					replaceSelection('');
+				void copyTextToClipboard(selected, '已剪切').then(copied => {
+					// 事务性：复制没成功不许清选区（否则剪贴板没拿到、字却没了）。
+					if (copied) {
+						replaceSelection('');
+					}
 				});
 			},
 		},

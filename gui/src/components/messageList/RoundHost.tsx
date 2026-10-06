@@ -1,3 +1,6 @@
+import {REVIEW_LAYOUT_ENABLED} from '@/lib/reviewLayout';
+import {AgentRoundWorkflow} from '../workflow/AgentRoundWorkflow';
+import {AgentDoneBars} from '../AgentDoneBars';
 /**
  * 归属：从 components/MessageList.tsx 巨石拆分而来（spec m3: RoundHost，2026 拆分）。
  * 拆分脚本 dismantle-messagelist.cjs 已归档至 [过程]/legacy/，本文件此后为手工维护。
@@ -239,12 +242,11 @@ promptEditRef,
 					round.user.id,
 					node,
 					round.user.source !== 'remote' &&
-						!round.user.queueState &&
 						!sessionArchived,
 				);
 			}
 		},
-		[registerSticky, round.user?.id, round.user?.source, round.user?.queueState, sessionArchived],
+		[registerSticky, round.user?.id, round.user?.source, sessionArchived],
 	);
 	const editPrompt = useCallback(
 		(event?: MouseEvent<HTMLDivElement>) => {
@@ -398,11 +400,13 @@ promptEditRef,
 							<PromptBubble
 								text={round.user.text}
 								mediaRefs={round.user.mediaRefs}
-								queueState={round.user.queueState}
 								editable={
 									round.user.source !== 'remote' &&
-									!round.user.queueState &&
-									!sessionArchived
+									!sessionArchived &&
+									// 流式中编辑框是 disabled（提交期不许改历史）：入口
+									// 必须同批退场，否则点开的是一个打不了字的死框
+									//（e2e 实测 open-disabled）。
+									!anyStreaming
 								}
 								isEditing={editingMessageId === round.user.id}
 								onEdit={editPrompt}
@@ -450,7 +454,28 @@ promptEditRef,
 						settling && 'is-settling',
 					)}
 				>
-				{showDoneChrome && mergedActivity ? (
+				{REVIEW_LAYOUT_ENABLED ? <>
+					<div className="px-3 pt-2 sm:px-5 md:px-8">
+						<div className="mx-auto max-w-3xl">
+							<AgentRoundWorkflow
+								blocks={round.rest}
+								settled={roundSettledForDisplay}
+								signalLive={streamingSignal}
+								status={workflowStatusText}
+							/>
+							{round.agentTasks.length > 0 && <AgentDoneBars tasks={round.agentTasks} />}
+						</div>
+					</div>
+					{round.rest.map(block => {
+						if (block.kind === 'system') return <MessageBubble key={block.message.id} message={block.message} />;
+						if (block.kind !== 'turn' || !roundSettledForDisplay) return null;
+						return renderTurn(block, {
+							suppressActivity: true,
+							visibleProseIds: finalRoundProseMessageIds(turnBlocks),
+							includeAgents: false,
+						});
+					})}
+				</> : <>{showDoneChrome && mergedActivity ? (
 					<div
 						key={`done-on-${round.id}`}
 						className={cn(
@@ -544,7 +569,7 @@ promptEditRef,
 						});
 					}
 					return null;
-				})}
+				})}</>}
 				</div>
 			</RoundMount>
 	);

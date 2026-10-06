@@ -135,6 +135,7 @@ function MenuRowButton({
 				active && !disabled && (danger ? 'bg-danger/10' : 'bg-glass-hover text-ink'),
 			)}
 		>
+			{item.icon ? <span className="flex h-4 w-4 shrink-0 items-center justify-center text-mute">{item.icon}</span> : null}
 			<span className="min-w-0 flex-1 truncate">{item.label}</span>
 			{item.kind === 'action' && item.shortcut ? (
 				<span className="shrink-0 font-mono text-[10px] tracking-tight text-mute/55">

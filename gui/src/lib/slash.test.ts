@@ -1,6 +1,8 @@
 import {describe, expect, it} from 'vitest';
 import {
 	formatSlashHelp,
+	argRequired,
+	needsArgument,
 	parseSlashInput,
 	slashLeadingColor,
 	slashGhostHint,
@@ -176,5 +178,75 @@ describe('slashGhostHint（命令 claim hint 对应物）', () => {
 		expect(slashGhostHint('/ver', skills)).toBeNull();
 		// /goal 必须是整段开头（claim 语义），消息中途不显示
 		expect(slashGhostHint('帮我 /goal ', skills)).toBeNull();
+	});
+});
+
+/**
+ * needsArgument 的判据是命令表 `usage` 的必填/可选约定（`<…>` 必填、`[…]` 可选，
+ * 与 handler 里的 `用法：…` 门禁同源），所以这里**逐个普查**而不是点几个名字：
+ * 必填参数裸写拦下，可选参数裸写照旧执行（`/usage`、`/ls` 有自己的默认行为）。
+ */
+describe('needsArgument（裸命令不执行，覆盖所有命令）', () => {
+	const guiCommands = slashCommands.filter(c => c.surfaces.includes('gui'));
+	/** usage 里命令名之后的参数段（空串 = 该命令没有参数）。 */
+	const argSection = (usage: string) => usage.trim().replace(/^\/\S+\s*/, '');
+	const requiredCommands = guiCommands.filter(c => argRequired(c));
+	const optionalCommands = guiCommands.filter(
+		c => argSection(c.usage) !== '' && !argRequired(c),
+	);
+	const noArgCommands = guiCommands.filter(c => argSection(c.usage) === '');
+
+	it('普查非空（清单退化成空集时本档必须红）', () => {
+		expect(requiredCommands.length).toBeGreaterThan(0);
+		expect(optionalCommands.length).toBeGreaterThan(0);
+		expect(noArgCommands.length).toBeGreaterThan(0);
+	});
+
+	it('命令表里没有第三种参数写法（新命令必须按 <必填> / [可选] 登记）', () => {
+		for (const c of guiCommands) {
+			const section = argSection(c.usage);
+			expect(
+				section === '' || section.startsWith('<') || section.startsWith('['),
+				`${c.name} 的 usage 参数段开头既不是 < 也不是 [：${c.usage}`,
+			).toBe(true);
+			// 声明了 arg_spec 却没写参数段 = 表和实现脱节。
+			if ((c.arg_spec ?? '').trim() !== '') {
+				expect(section, `${c.name} 有 arg_spec 但 usage 不带参数段`).not.toBe('');
+			}
+		}
+	});
+
+	it.each(requiredCommands.map(c => [c.name, c.arg_spec] as const))(
+		'%s 要求参数（arg_spec=%s）',
+		name => {
+			expect(needsArgument(`/${name}`)).toBe(true);
+			expect(needsArgument(`/${name}  `)).toBe(true);
+			expect(needsArgument(`/${name} 要做的东西`)).toBe(false);
+		},
+	);
+
+	it.each(optionalCommands.map(c => [c.name, c.usage] as const))(
+		'%s 参数可选（%s），裸写照旧执行',
+		name => {
+			expect(needsArgument(`/${name}`)).toBe(false);
+		},
+	);
+
+	it.each(noArgCommands.map(c => [c.name] as const))(
+		'%s 不要参数，裸写即可执行',
+		name => {
+			expect(needsArgument(`/${name}`)).toBe(false);
+		},
+	);
+
+	it('中文别名同样按命令表判定（/目标 = /goal）', () => {
+		expect(needsArgument('/目标')).toBe(true);
+		expect(needsArgument('/目标 重构登录模块')).toBe(false);
+	});
+
+	it('非斜杠 / 只有斜杠 / 未知命令一律不拦', () => {
+		expect(needsArgument('普通消息')).toBe(false);
+		expect(needsArgument('/')).toBe(false);
+		expect(needsArgument('/zzz-unknown')).toBe(false);
 	});
 });

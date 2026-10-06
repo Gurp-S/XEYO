@@ -1,7 +1,9 @@
 import {
 	ArrowUp,
 	ChevronDown,
+	ChevronUp,
 	GripVertical,
+	ListChecks,
 	Network,
 	Pencil,
 	Plus,
@@ -21,7 +23,7 @@ import {
 	type KeyboardEvent,
 	type MouseEvent as ReactMouseEvent,
 } from 'react';
-import {fetchFileReferences, uploadFile, uploadMedia, resumeInbox, type SkillInfo} from '@/lib/api';
+import {fetchFileReferences, uploadFile, uploadMedia, mediaUrl, resumeInbox, type SkillInfo} from '@/lib/api';
 import {
 	canEditInboxItem,
 	canManuallyResumeInbox,
@@ -29,12 +31,19 @@ import {
 	prioritizeInboxPreview,
 } from '@/lib/inboxItemState';
 import {
+	queueCountLabel,
+	queueDockView,
+	queueImageRefs,
+	shouldCollapseQueueDock,
+} from '@/lib/inboxDockPresentation';
+import {
 	currentFileReferenceResult,
 	fileReferenceQueryKey,
 	type FileReferenceQueryResult,
 } from '@/lib/fileReferenceQuery';
 import {createTaAutoResize} from '@/lib/taAutoResize';
 import {TypingCaret, type CaretColorRange, type TypingCaretApi} from '@/components/composer/TypingCaret';
+import {useImeComposition} from '@/components/composer/useImeComposition';
 import {
 	activeBackendSessionId,
 	type InboxQueuedItem,
@@ -50,6 +59,7 @@ import {
 } from '@/lib/composerDrafts';
 import {selectActiveSessionStream, sessionStreamActive} from '@/lib/sessionStreams';
 import {
+	needsArgument,
 	slashGhostHint,
 	slashLeadingColor,
 	slashSuggestions,
@@ -58,7 +68,7 @@ import {
 } from '@/lib/slash';
 import {arbitrateSlashMenuKey, type SlashMenuKey} from '@/lib/slashMenuKeys';
 import {isImeComposing} from '@/lib/ime';
-import {resolveSendMode, steerHintVisible, type SendMode} from '@/lib/composerSendMode';
+import {composerPlaceholder, normalizeBusyEnter, resolveSendMode, type SendMode} from '@/lib/composerSendMode';
 import {
 	cachedSlashSkills,
 	handleComposerSlash,
@@ -66,7 +76,6 @@ import {
 	loadSlashSkills,
 } from '@/lib/slashCommands';
 import {newSession} from '@/lib/appNav';
-import {useHasComposerPendingDock} from '@/hooks/usePendingForActiveSession';
 import {popEscLayer, pushEscLayer} from '@/lib/escStack';
 import {textFieldMenuItems} from '@/lib/contextMenus';
 import {toast} from '@/lib/toast';
@@ -85,7 +94,7 @@ import {PermissionDialog} from './PermissionDialog';
 import {AskUserDialog} from './AskUserDialog';
 import {PlanDialog} from './PlanDialog';
 import {ErrorBanner} from './ErrorBanner';
-import {SessionTodoDock, useSessionTodoDockLive} from './SessionTodoDock';
+import {SessionTodoDock} from './SessionTodoDock';
 import {ComposerQuickMenu} from './ComposerQuickMenu';
 import {McpPanel} from './McpPanel';
 import {SessionGoalDock, useSessionGoalDockLive} from './SessionGoalDock';
@@ -109,8 +118,6 @@ function removeSubmittedAttachments(current: Attachment[], submitted: Attachment
 
 const MAX_IMAGES = 8;
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
-/** 排队卡默认展示条数：超出折叠为「展开其余 N 条」。 */
-const QUEUE_PREVIEW_COUNT = 3;
 /** 空态单行高度（矮框）；输入变多后长到 TA_MAX；封顶后内部滚动 */
 const TA_MIN_PX = 36;
 const TA_MAX_PX = 120;
@@ -139,7 +146,7 @@ function SendStopButton({
 											onClick={onStop}
 						aria-label="停止生成"
 						title="停止生成"
-						className="xy-press flex h-8 w-8 items-center justify-center rounded-full bg-ink text-paper hover:bg-ink-soft"
+						className="xy-press flex h-[34px] w-[34px] -translate-y-[2px] items-center justify-center rounded-full bg-accent text-on-accent hover:bg-accent-hover"
 						
 				>
 					<Square className="h-3 w-3 fill-current" />
@@ -154,10 +161,8 @@ aria-label="发送"
 									title="发送"
 									disabled={!canSend}
 				className={cn(
-					'flex h-8 w-8 items-center justify-center rounded-full transition-colors',
-					canSend
-						? 'bg-accent text-on-accent hover:bg-accent-hover'
-						: 'cursor-not-allowed bg-paper-deep text-mute',
+					'flex h-[34px] w-[34px] -translate-y-[2px] items-center justify-center rounded-full bg-accent text-on-accent transition-[background-color,opacity] duration-100',
+					canSend ? 'hover:bg-accent-hover' : 'cursor-default opacity-40',
 				)}
 				
 			>
@@ -171,12 +176,8 @@ aria-label="发送"
 			onClick={showStop ? onStop : () => onSend()}
 			disabled={!streaming && !canSend}
 			className={cn(
-				'xy-press relative flex h-8 w-8 items-center justify-center rounded-full',
-				showStop
-					? 'bg-ink text-paper hover:bg-ink-soft'
-					: canSend
-						? 'bg-accent text-on-accent hover:bg-accent-hover'
-						: 'cursor-not-allowed bg-paper-deep text-mute',
+				'xy-press relative flex h-[34px] w-[34px] -translate-y-[2px] items-center justify-center rounded-full bg-accent text-on-accent transition-[background-color,opacity] duration-100',
+				showStop || canSend ? 'hover:bg-accent-hover' : 'cursor-default opacity-40',
 			)}
 			
 			aria-label={showStop ? '停止生成' : '发送'}
@@ -261,11 +262,9 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 	const provider = useSettingsStore(s => s.provider);
 	const openSettings = useSettingsStore(s => s.openSettings);
 	const smoothness = useSettingsStore(s => isSmoothnessOn(s.smoothness));
-	const hasPendingDock = useHasComposerPendingDock();
-	const todoDockLive = useSessionTodoDockLive();
-	const hasTodoDock = showTodoDock && todoDockLive;
+	// 忙时裸 Enter 的含义（'queue' | 'steer'）；加速键恒为其反面。
+	const busyEnter = useSettingsStore(s => normalizeBusyEnter(s.busyEnter));
 	const goalDockLive = useSessionGoalDockLive();
-	const isComposerFused = hasPendingDock || hasTodoDock || goalDockLive;
 	const agentMode = useChatUiStore(s => s.agentMode);
 	const setAgentMode = useChatUiStore(s => s.setAgentMode);
 	const remoteLoggedIn = useRemoteStore(s => s.loggedIn);
@@ -329,13 +328,10 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 			Boolean(stream.remoteStreaming || stream.turnDetached)
 		);
 	});
-	// 队列列表：全部条目可见（默认最多 3 条，超出折叠）。
-	const [queueExpanded, setQueueExpanded] = useState(false);
+	// 排队 dock 形态：多于 1 条默认折叠成「N 条排队消息」计数头；行内编辑或
+	// 动作在飞时强制展开。规则本身在 lib/inboxDockPresentation（可单测）。
+	const [queueCollapsed, setQueueCollapsed] = useState(true);
 	const prioritizedInbox = prioritizeInboxPreview(inboxItems);
-	const visibleInbox = queueExpanded
-		? prioritizedInbox
-		: prioritizedInbox.slice(0, QUEUE_PREVIEW_COUNT);
-	const hiddenInboxCount = inboxItems.length - visibleInbox.length;
 	// 行内编辑：editingId 锁定目标条目——轮询导致的队列位移不会再改错行。
 	// Enter/失焦保存；Esc 取消（escRef 拦住失焦触发的保存，避免误保存）。
 	const [editingId, setEditingId] = useState<string | null>(null);
@@ -345,6 +341,17 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 		() => new Set(),
 	);
 	const queueActionsInFlightRef = useRef(new Set<string>());
+	const queueView = queueDockView({
+		count: inboxItems.length,
+		collapsed: queueCollapsed,
+		interactionActive: editingId !== null || queueActionsInFlight.size > 0,
+	});
+	useEffect(() => {
+		// 队列清空后收回折叠态：下次出现队列不沿用上一轮的展开偏好。
+		if (shouldCollapseQueueDock(inboxItems.length, queueCollapsed)) {
+			setQueueCollapsed(true);
+		}
+	}, [inboxItems.length, queueCollapsed]);
 	const runQueueAction = async (
 		queueId: string,
 		action: () => Promise<boolean>,
@@ -376,7 +383,8 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 	};
 	useEffect(() => {
 		closeQueueEdit();
-		setQueueExpanded(false);
+		// 切会话/切后端/归档态变化都收回折叠态：新会话的队列不该沿用上一轮的展开。
+		setQueueCollapsed(true);
 	}, [activeId, activeInboxBackendId, activeSessionArchived]);
 	const openQueueEdit = (it: InboxQueuedItem) => {
 		if (!canEditInboxItem(it.state, activeSessionArchived) || !activeId) return;
@@ -497,8 +505,8 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 	const [slashExecuting, setSlashExecuting] = useState(false);
 	const [slashExecutingName, setSlashExecutingName] = useState('');
 	const slashExecutingRef = useRef(false);
-	/** IME 组词期间关闭着色覆盖层，避免合成文字被 text-transparent 隐藏。 */
-	const [imeComposing, setImeComposing] = useState(false);
+	/** IME 组词期间的渲染所有权时序(交还推迟到下次 value 提交):见 useImeComposition。 */
+	const ime = useImeComposition();
 	/** 当前工作区技能清单（/ 弹层与着色候选；按 workspace 缓存）。 */
 	const [slashSkills, setSlashSkills] = useState<SkillInfo[]>([]);
 	const [slashSkillsWorkspace, setSlashSkillsWorkspace] = useState('');
@@ -587,12 +595,26 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 		const loaded = activeId
 			? (getComposerDraft(activeId) ??
 				defaultComposerDraft({
+					// 无会话期间打的字随身带入首个会话：此前 prevId 为假连"存旧"分支
+					// 都不进，紧接着 setValueState(loaded.text) 直接把它抹成空
+					//（「未开文件夹先打字 → Enter」实测丢字：文本在 createSession
+					//  的瞬间消失，只留一条"请先打开一个项目文件夹"横幅）。
+					...(prevId
+						? {}
+						: {
+								text: valueRef.current,
+								attachments: attachmentsRef.current,
+							}),
 					permissionMode: useSettingsStore.getState().permissionMode,
 				}))
 			: defaultComposerDraft({
 					permissionMode: useSettingsStore.getState().permissionMode,
 				});
 		setValueState(loaded.text);
+		// 同步“最后提交”引用：严格模式会在挂载后立刻做一次合成卸载，下面那条
+		// 卸载落盘 cleanup 必须拿到刚装载的文本，而不是首渲染的旧值（''）；
+		// 否则第二个 Composer 一挂载就把共享草稿清空（沉浸进场实测）。
+		valueRef.current = loaded.text;
 		const restoredCaret = loaded.text.length;
 		setTaCaret(restoredCaret);
 		setTaCaretDir('forward');
@@ -603,6 +625,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 			taRef.current?.setSelectionRange(restoredCaret, restoredCaret);
 		});
 		setAttachments(loaded.attachments.slice());
+		attachmentsRef.current = loaded.attachments.slice();
 		setMultiAgent(loaded.multiAgent);
 		setAgentMode(loaded.agentMode);
 		setReasoningEffort(loaded.reasoningEffort);
@@ -972,11 +995,45 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 	);
 	const popupItems = slashToken ? slashFlatItems : atFlatItems;
 	const popupOpen = slashMenuOpen || atMenuOpen;
+	/** 高亮行锚（replacement 串）：列表内容变化时按它找回同一行，见下方复位 effect。 */
+	const highlightAnchorRef = useRef<string | null>(null);
+	/** 行高亮唯一入口：写高亮同时记锚（键盘 move / hover 共用）。 */
+	const highlightRow = (idx: number | null) => {
+		setSlashHighlight(idx);
+		highlightAnchorRef.current =
+			idx === null ? null : (popupItems[idx]?.replacement ?? null);
+	};
+	const prevHighlightTokenRef = useRef<string | null>(null);
 
-	// 词元/弹层变化即清高亮，防陈旧下标落在另一组行上。
+	// 词元/弹层变化即把高亮复位到第一行（DSH popup.ts:79/148/175：`active` 恒为
+	// 合法下标、搜索词一变就归零），也防陈旧下标落在另一组行上。
+	// 高亮不是装饰：弹层开着时 Enter 归弹层（选中该行），草稿永远拿不到这一枪。
+	// 例外（列表内容变化 ≠ 用户换了词元）：技能清单是异步到达的，到达时行会
+	// 在顶部前插——重置回 0 会让 Enter 选中用户从没见过被选中的行（e2e 实测把
+	// "/goal" 换成了新到的技能 "/go-probe"）。词元没变时按锚找回同一行，锚丢了才归零。
 	useEffect(() => {
-		setSlashHighlight(null);
-	}, [slashToken, atToken, popupOpen]);
+		// 比较键取词元文本（含 / 或 @ 前缀）：搜索词一变即归零的口径按文本算。
+		const token = (slashToken ?? atToken)?.text ?? null;
+		const tokenChanged = prevHighlightTokenRef.current !== token;
+		prevHighlightTokenRef.current = token;
+		if (!popupOpen || popupItems.length === 0) {
+			highlightAnchorRef.current = null;
+			setSlashHighlight(null);
+			return;
+		}
+		if (!tokenChanged) {
+			const anchor = highlightAnchorRef.current;
+			if (anchor !== null) {
+				const idx = popupItems.findIndex(item => item.replacement === anchor);
+				if (idx >= 0) {
+					setSlashHighlight(idx);
+					return;
+				}
+			}
+		}
+		highlightAnchorRef.current = popupItems[0]?.replacement ?? null;
+		setSlashHighlight(0);
+	}, [slashToken, atToken, popupOpen, popupItems]);
 
 	// 高亮行自动滚入可视区（命令面板 combobox 语义）：键盘 ↑↓ 走出视口时列表跟随，
 	// block:'nearest' 保证视口内已有行不跳动。滚动条隐藏后这是唯一的导航可见反馈。
@@ -1001,6 +1058,21 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 		pushEscLayer('composer-slash', () => setSlashDismissed(true));
 		return () => popEscLayer('composer-slash');
 	}, [popupOpen]);
+
+	// 排队消息编辑态也拥有 Esc（escStack LIFO 顶层）：元素级 onKeyDown 的
+	// 冒泡监听在流式期间会被 window 捕获阶段的「停止生成」层先吃掉 —— 实测
+	// Esc 把回合停了、编辑框还开着（e2e input-chain 探针）。取消编辑的旗标
+	// 与失焦保存守卫同路径，行为与输入框内 Esc 完全一致。
+	useEffect(() => {
+		if (editingId === null) {
+			return;
+		}
+		pushEscLayer('composer-queue-edit', () => {
+			queueEscRef.current = true;
+			closeQueueEdit();
+		});
+		return () => popEscLayer('composer-queue-edit');
+	}, [editingId]);
 
 	// 点选候选项后把光标放回替换点。
 	useEffect(() => {
@@ -1044,7 +1116,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 	// 仅输入首词元按命令/技能着色，和执行门禁一致；这里只算字符区间(闭开,UTF-16)。
 	// URL(https://…)、路径(src/foo)整体是一个非空白词元,不会误着色。
 	const caretColoring = useMemo(() => {
-		if (imeComposing || !value.includes('/')) {
+		if (ime.imeRendering || !value.includes('/')) {
 			return {ranges: [] as CaretColorRange[], hint: ''};
 		}
 		const ranges: CaretColorRange[] = [];
@@ -1070,12 +1142,12 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 		// 在词元后展示灰字提示(零 DOM 侵入草稿,仅覆盖层显示,不参与提交)。
 		const hint = slashGhostHint(value, activeSlashSkills) ?? '';
 		return colored || hint ? {ranges, hint} : {ranges: [] as CaretColorRange[], hint: ''};
-	}, [value, activeSlashSkills, imeComposing]);
+	}, [value, activeSlashSkills, ime.imeRendering]);
 
 	// 自绘光标接管条件:非 IME 且文本量在阈值内(超大文本退回原生,保编辑流畅)。
 	// 接管时 textarea 文字隐藏(text-transparent),原生光标 caret-color: transparent。
 	const CARET_MAX_CHARS = 2000;
-	const caretOverlayActive = !imeComposing && value.length <= CARET_MAX_CHARS;
+	const caretOverlayActive = !ime.imeRendering && value.length <= CARET_MAX_CHARS;
 
 	useEffect(() => {
 		if (!remoteLoggedIn) {
@@ -1269,19 +1341,56 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 			return;
 		}
 		const imageFiles: File[] = [];
+		const otherFiles: File[] = [];
 		for (const item of items) {
-			if (item.kind === 'file' && item.type.startsWith('image/')) {
-				const f = item.getAsFile();
-				if (f) {
-					imageFiles.push(f);
-				}
+			if (item.kind !== 'file') {
+				continue;
+			}
+			const f = item.getAsFile();
+			if (!f) {
+				continue;
+			}
+			if (item.type.startsWith('image/')) {
+				imageFiles.push(f);
+			} else {
+				otherFiles.push(f);
 			}
 		}
-		if (imageFiles.length === 0 || remoteLoggedIn) {
+		if (imageFiles.length === 0 && otherFiles.length === 0) {
+			return;
+		}
+		if (remoteLoggedIn) {
 			return;
 		}
 		e.preventDefault();
-		addImages(imageFiles);
+		// 混合粘贴（文本 + 文件/图片）：文本也要落进输入框，否则「图/文件 + 说明
+		// 文字」这类剪贴板会静默丢字——与「粘贴非图片文件静默」同族（DSH 两者都保）。
+		// getData 走可选调用：极简 clipboardData 替身（测试/旧环境）可能没有它。
+		const pastedText: string = e.clipboardData?.getData?.('text/plain') ?? '';
+		if (pastedText) {
+			const el = e.currentTarget;
+			const start = el.selectionStart ?? el.value.length;
+			const end = el.selectionEnd ?? start;
+			const next = el.value.slice(0, start) + pastedText + el.value.slice(end);
+			const draftSessionId = activeIdRef.current ?? activeId;
+			setValue(next, draftSessionId);
+			if (draftSessionId) {
+				setComposerDraft(draftSessionId, {
+					text: next,
+					attachments: attachmentsRef.current,
+				});
+			}
+			const pos = start + pastedText.length;
+			setTaCaret(pos);
+			requestAnimationFrame(() => el.setSelectionRange(pos, pos));
+		}
+		if (imageFiles.length > 0) {
+			addImages(imageFiles);
+		}
+		// 非图片文件走与拖放同一条附件链：此前只认图片，粘贴文件是静默无动作。
+		if (otherFiles.length > 0) {
+			void onPickFiles(otherFiles);
+		}
 	};
 
 	const buildPayload = (
@@ -1377,6 +1486,12 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 			return;
 		}
 		if (slashExecutingRef.current) return;
+		// 只打了命令名、而该命令要求参数（判据 = manifest 的 arg_spec）：
+		// Enter 不执行也不发送，草稿留在框里，ghost hint 继续提示该填什么。
+		// 覆盖所有要求参数的命令，不止 /goal。
+		if (needsArgument(value)) {
+			return;
+		}
 		// 斜杠命令网关：/xxx 先在本机（本地命令/技能直呼/未知命令提示）或
 		// POST /v1/slash（server 命令）执行。命中则拦截，不当作普通消息发给模型
 		// （修复 /export、/map、/run、/mode 等在 GUI 主输入框被当作普通文本发送）。
@@ -1699,7 +1814,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 				});
 				if (verdict.type === 'move') {
 					e.preventDefault();
-					setSlashHighlight(verdict.next);
+					highlightRow(verdict.next);
 					return;
 				}
 				if (verdict.type === 'pick') {
@@ -1724,13 +1839,20 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 		}
 		if (e.key === 'Enter' && !e.shiftKey) {
 			e.preventDefault();
-			// 忙时 Ctrl/Cmd+Enter = 引导（本轮下一个边界就投给模型）；
-			// 裸 Enter 保持排队语义（既有行为不变）。
+			// 长按 Enter 不连发：键盘自动重复的按键只吞不发（对齐 DSH
+			// keymap.ts:125；此前按住回车会一口气排进多条消息）。
+			if (e.repeat) {
+				return;
+			}
+			// 忙时裸 Enter 走偏好档、Ctrl/Cmd+Enter 走偏好的反面；不可引导的
+			// 会话（侧会话/没在跑）两个键都只排队。默认档 queue = 既有行为。
 			onSend(
 				resolveSendMode({
-					streaming: canSteerCurrentSession,
+					streaming: queueSessionBusy,
 					modifier: e.ctrlKey || e.metaKey,
 					enter: true,
+					busyEnter,
+					steeringAvailable: !activeSessionIsSide,
 				}),
 			);
 		}
@@ -1765,19 +1887,11 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 						</span>
 						<span className="mx-2 text-line">·</span>
 						Esc 中断
-						{steerHintVisible(canSteerCurrentSession) ? (
-							<>
-								<span className="mx-2 text-line">·</span>
-								Ctrl+Enter 引导本回合
-							</>
-						) : null}
 					</p>
 				)}
 				{canSteerCurrentSession && !currentSessionStreaming ? (
 					<p className="anim-fade mb-1.5 px-1 font-mono text-[11px] text-mute">
 						<span className="xy-thinking">{statusText || '本回合仍在进行'}</span>
-						<span className="mx-2 text-line">·</span>
-						Ctrl+Enter 引导本回合
 					</p>
 				) : null}
 				{!currentSessionStreaming &&
@@ -1825,12 +1939,8 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 						</button>
 					</div>
 				) : null}
-				<div
-					className={cn(
-						isComposerFused && 'xy-composer-stack',
-						isComposerFused && dragOver && 'is-drag-over',
-					)}
-				>
+				{/* composer 栈：一列独立卡 + 6px 间距（DSH composerStack）。 */}
+				<div className="xy-composer-stack">
 				{showTodoDock ? <SessionTodoDock embedded /> : null}
 				{goalDockLive ? <SessionGoalDock embedded /> : null}
 				{hasInboxChip && inboxItems.length > 0 ? (
@@ -1867,8 +1977,32 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 								</button>
 							</div>
 						) : null}
-						{visibleInbox.map(it => {
+						{queueView.showHeader ? (
+							<button
+								type="button"
+								className="xy-queue-head"
+								aria-expanded={queueView.expanded}
+								// 交互中不让头收起：正在改的那行会跟着消失。
+								disabled={editingId !== null || queueActionsInFlight.size > 0}
+								onClick={() => setQueueCollapsed(v => !v)}
+							>
+								<ListChecks className="h-3.5 w-3.5 shrink-0" strokeWidth={1.9} aria-hidden />
+								<span className="min-w-0 flex-1 truncate">
+									{queueCountLabel(inboxItems.length)}
+								</span>
+								{queueView.expanded ? (
+									<ChevronDown className="h-3.5 w-3.5 shrink-0" strokeWidth={1.9} aria-hidden />
+								) : (
+									<ChevronUp className="h-3.5 w-3.5 shrink-0" strokeWidth={1.9} aria-hidden />
+								)}
+							</button>
+						) : null}
+						{queueView.listVisible ? (
+							<div className="xy-queue-list">
+							{prioritizedInbox.map(it => {
 							const isEditing = editingId === it.queue_id;
+							// 排队行的图片：media_refs 后端一直在写，GUI 此前从不渲染。
+							const queueImages = queueImageRefs(it.media_refs);
 							const statusLabel =
 								it.state === 'syncing'
 									? '同步回复'
@@ -1913,12 +2047,27 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 											className="min-w-0 flex-1 rounded-md border border-line/70 bg-paper-deep/40 px-2 py-0.5 text-[12.5px] text-ink outline-none focus:border-accent/60"
 										/>
 									) : (
-										<span
-											className="xy-queue-text"
-											data-stuck={it.state === 'stuck' ? '' : undefined}
-										>
-											{it.text}
-										</span>
+										<>
+											{queueImages.length > 0 ? (
+												<span className="xy-queue-attachments">
+													{queueImages.map(ref => (
+														<img
+															key={ref}
+															className="xy-queue-thumb"
+															src={mediaUrl(ref)}
+															alt="排队消息图片"
+															loading="lazy"
+														/>
+													))}
+												</span>
+											) : null}
+											<span
+												className="xy-queue-text"
+												data-stuck={it.state === 'stuck' ? '' : undefined}
+											>
+												{it.text}
+											</span>
+										</>
 									)}
 									<span
 										className={statusClass}
@@ -2000,24 +2149,8 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 									</div>
 								</div>
 							);
-						})}
-						{hiddenInboxCount > 0 ? (
-							<button
-								type="button"
-								className="xy-queue-more"
-								onClick={() => setQueueExpanded(true)}
-							>
-								展开其余 {hiddenInboxCount} 条
-							</button>
-						) : null}
-						{queueExpanded && hiddenInboxCount === 0 && inboxItems.length > QUEUE_PREVIEW_COUNT ? (
-							<button
-								type="button"
-								className="xy-queue-more"
-								onClick={() => setQueueExpanded(false)}
-							>
-								收起排队列表
-							</button>
+							})}
+							</div>
 						) : null}
 					</div>
 				) : null}
@@ -2025,7 +2158,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 				<AskUserDialog />
 				<PlanDialog />
 
-				<div className={cn(isComposerFused && 'xy-composer-fused-slot')}>
+				<div className="shrink-0">
 				<div
 					onDragEnter={e => {
 						if (remoteLoggedIn) {
@@ -2059,12 +2192,8 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 					className={cn(
 						'xy-surface xy-composer-surface relative flex min-h-0 min-w-0 w-full flex-col',
 						'transition-[border-color,box-shadow,border-radius] duration-200',
-						isComposerFused
-							? 'xy-composer-fused shrink-0'
-							: 'xy-user-bubble rounded-2xl',
-						!isComposerFused &&
-							dragOver &&
-							'!border-accent ring-2 ring-accent/20',
+						'xy-user-bubble xy-composer-card shrink-0',
+						dragOver && 'is-drag-over',
 					)}
 				>
 					{images.length > 0 && !remoteLoggedIn && (
@@ -2161,7 +2290,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 											aria-selected={slashHighlight === i}
 											style={{'--row-i': i} as CSSProperties}
 											onMouseDown={e => e.preventDefault()}
-											onMouseEnter={() => setSlashHighlight(i)}
+											onMouseEnter={() => highlightRow(i)}
 											onClick={() => applySlashPick(`/${s.name} `)}
 											className={cn(
 												'xy-menu-row xy-flyout-row flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors duration-100',
@@ -2197,7 +2326,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 											aria-selected={slashHighlight === filteredSkills.length + i}
 											style={{'--row-i': filteredSkills.length + i} as CSSProperties}
 											onMouseDown={e => e.preventDefault()}
-											onMouseEnter={() => setSlashHighlight(filteredSkills.length + i)}
+											onMouseEnter={() => highlightRow(filteredSkills.length + i)}
 											onClick={() => applySlashPick(`/${c.name} `)}
 											className={cn(
 												'xy-menu-row xy-flyout-row flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors duration-100',
@@ -2247,7 +2376,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 												role="option"
 												aria-selected={slashHighlight === i}
 												onMouseDown={e => e.preventDefault()}
-												onMouseEnter={() => setSlashHighlight(i)}
+												onMouseEnter={() => highlightRow(i)}
 												onClick={() => applyAtPick(`@${f} `)}
 												className={cn(
 													'xy-menu-row flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left',
@@ -2272,6 +2401,8 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 										const draftSessionId = activeIdRef.current ?? activeId;
 										setValue(next, draftSessionId);
 										setTaCaret(e.target.selectionStart ?? next.length);
+										/* value 提交即完成 IME 交还:新文本与渲染者切换同一帧 */
+										ime.onValueCommit();
 										// 输入即写入当前会话草稿（防抖 250ms 落 localStorage）：
 										// 不切会话 / 不发送 / 直接刷新时输入不丢。setComposerDraft
 										// 为按字段合并，仅 text 变化，attachments/模式不受影响。
@@ -2289,8 +2420,8 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 									}}
 									onKeyDown={onKeyDown}
 									onPaste={onPaste}
-									onCompositionStart={() => setImeComposing(true)}
-									onCompositionEnd={() => setImeComposing(false)}
+									onCompositionStart={ime.onCompositionStart}
+									onCompositionEnd={ime.onCompositionEnd}
 									onScroll={e => {
 										caretApiRef.current?.reposition();
 										void e.currentTarget.scrollTop;
@@ -2302,6 +2433,8 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 									onBlur={() => {
 										setSlashDismissed(true);
 										setTaFocused(false);
+										/* 失焦收口:取消组词可能不发 change,留标记会一直不回自绘光标 */
+										ime.onSettle();
 									}}
 									onContextMenu={(e: ReactMouseEvent<HTMLTextAreaElement>) => {
 										const el = taRef.current;
@@ -2311,7 +2444,12 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 										showContextMenu(e, textFieldMenuItems(el), '编辑');
 									}}
 									rows={1}
-									placeholder="描述任务… Enter 发送"
+									placeholder={composerPlaceholder({
+										busy: canSteerCurrentSession,
+										hasDraft: value.trim() !== '',
+										busyEnter,
+									})}
+									aria-label="消息输入"
 									className={cn(
 										'min-h-[36px] w-full resize-none bg-transparent px-3 pt-3 text-left font-sans text-[14px] leading-6 text-ink outline-none transition-[height] duration-200 [transition-timing-function:var(--ease-out-soft)] placeholder:text-mute/65',
 										/* 自绘光标接管显示:原文隐藏 + 原生 caret 透明(IME/超大文本自动回退),避免两层文字叠影 */

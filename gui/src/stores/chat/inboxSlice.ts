@@ -303,9 +303,12 @@ export function createInboxSlice(
 					byId.set(message.id, message);
 				}
 			}
-			const transcript = [...byId.values()].sort(
-				(a, b) => a.createdAt - b.createdAt,
-			);
+			// 顺序取数组位置，不按 createdAt 重排：本地行是客户端 ms、服务端尾行是
+			// transcript ts，两套时钟混排会把「先发那轮的回复」排到排队消息之后
+			// （事故：排队投递完成后转录看起来像排队消息被直发；服务端 transcript
+			// 行序本身是对的）。byId 的插入序 = 本地既有顺序（含 projectQueueStates
+			// 刚把已投递气泡移到末尾的落位）+ 服务端尾行顺次追加，就地替换不改位。
+			const transcript = [...byId.values()];
 			const remainingItems = acknowledged
 				? items.filter(item => !confirmedQueueIds.has(item.queue_id))
 				: items;

@@ -25,3 +25,6 @@
 @import "workbench.css";
 @import "activity.css";
 @import "settings.css";
+
+@import './review-layout.css';
+@import './review-polish.css';

@@ -2,6 +2,7 @@ import {Check, ChevronDown, Search} from 'lucide-react';
 import {useEffect, useLayoutEffect, useRef, useState} from 'react';
 import {createPortal} from 'react-dom';
 import {cn} from '@/lib/utils';
+import {popEscLayer, pushEscLayer} from '@/lib/escStack';
 import {
 	REASONING_EFFORTS,
 	type ReasoningEffort,
@@ -92,6 +93,16 @@ export function ReasoningLevelsSelect({
 			window.removeEventListener('mousedown', onDown);
 			window.removeEventListener('keydown', onKey);
 		};
+	}, [open]);
+
+	// 思考等级下拉的 Esc 走 escStack 顶层：window 冒泡监听在流式期间会被
+	// 「停止生成」层先吃掉（Esc 停回合、下拉还开着）。
+	useEffect(() => {
+		if (!open) {
+			return;
+		}
+		pushEscLayer('reasoning-levels', () => setOpen(false));
+		return () => popEscLayer('reasoning-levels');
 	}, [open]);
 
 	const q = query.trim().toLowerCase();

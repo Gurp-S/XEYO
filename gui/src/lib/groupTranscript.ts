@@ -32,12 +32,6 @@ export type TranscriptBlock =
 			active: boolean;
 	  };
 
-function isQueuedUserBlock(
-	block: TranscriptBlock | undefined,
-): block is Extract<TranscriptBlock, {kind: 'user'}> {
-	return block?.kind === 'user' && Boolean(block.message.queueState);
-}
-
 /** 返回最近一条已投递用户消息，排队消息不代表新一轮已经开始。 */
 export function latestUserTurnBoundary(
 	messages: readonly ChatMessage[],
@@ -55,13 +49,6 @@ export function latestUserTurnBoundary(
 		}
 	}
 	return null;
-}
-
-function lastNonQueuedBlockIndex(blocks: TranscriptBlock[]): number {
-	for (let i = blocks.length - 1; i >= 0; i -= 1) {
-		if (!isQueuedUserBlock(blocks[i])) return i;
-	}
-	return -1;
 }
 
 function isToolCall(m: ChatMessage): boolean {
@@ -237,12 +224,12 @@ export function groupTranscript(
 	},
 ): TranscriptBlock[] {
 	const blocks: TranscriptBlock[] = [];
-	const queuedUsers: TranscriptBlock[] = [];
-	const transcriptMessages = messages.filter(message => {
-		if (message.role !== 'user' || !message.queueState) return true;
-		queuedUsers.push({kind: 'user', message});
-		return false;
-	});
+	// 排队中的用户消息不进转录：它唯一的表面是 composer 里的排队 dock（DSH
+	// QueueDock 同口径）。权威快照清掉 queueState 之后，这条才作为普通用户消息
+	// 回到转录里（release 分支见 stores/chat/inboxSlice.ts）。
+	const transcriptMessages = messages.filter(
+		message => !(message.role === 'user' && message.queueState),
+	);
 	let i = 0;
 	let turnSeq = 0;
 
@@ -336,7 +323,6 @@ export function groupTranscript(
 	}
 
 	settleOrphanRunningInBlocks(blocks, Boolean(opts?.isLoading));
-	blocks.push(...queuedUsers);
 	return blocks;
 }
 
@@ -404,9 +390,9 @@ export function patchTranscriptTail(
 		];
 	}
 
-	const lastContentIndex = lastNonQueuedBlockIndex(blocks);
+	// 排队消息不再进转录，所以尾部就是最后一个块（旧代码要跳过尾部的排队气泡）。
+	const lastContentIndex = blocks.length - 1;
 	const last = lastContentIndex >= 0 ? blocks[lastContentIndex]! : undefined;
-	const insertBeforeQueuedUsers = lastContentIndex + 1;
 	if (streaming || thinking) {
 		if (last?.kind === 'turn') {
 			if (
@@ -435,7 +421,7 @@ export function patchTranscriptTail(
 			return next;
 		}
 		const next = blocks.slice();
-		next.splice(insertBeforeQueuedUsers, 0, {
+		next.push({
 			kind: 'turn',
 			id: 'turn-tail',
 			items: [],
@@ -461,7 +447,7 @@ export function patchTranscriptTail(
 			return next;
 		}
 		const next = blocks.slice();
-		next.splice(insertBeforeQueuedUsers, 0, {
+		next.push({
 			kind: 'turn',
 			id: 'turn-tail',
 			items: [],

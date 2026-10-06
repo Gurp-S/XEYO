@@ -90,10 +90,11 @@ const sleep = (ms: number) =>
 /**
  * T29：回合在断连期间已结束 → 以服务端 transcript 收尾（不报错）。
  */
-function finalizeFinishedTurn(
+export function finalizeFinishedTurn(
 	set: SetState,
 	sessionId: string,
 	msgs: ChatMessage[],
+	note = '回合已结束（连接曾中断，已恢复最终内容）',
 ): void {
 	void replaceMessages(sessionId, msgs);
 	set(s => ({
@@ -102,7 +103,7 @@ function finalizeFinishedTurn(
 			isLoading: false,
 			streamingText: '',
 			streamingShown: '',
-			statusText: '回合已结束（连接曾中断，已恢复最终内容）',
+			statusText: note,
 			abortRef: null,
 			turnDetached: false,
 			draining: false,

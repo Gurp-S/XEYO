@@ -2,75 +2,24 @@ import {beforeEach, describe, expect, it, vi} from 'vitest';
 
 vi.unmock('@/stores/settingsStore');
 
-import {
-	normalizeRemoteChannel,
-	useSettingsStore,
-} from './settingsStore';
+import {useSettingsStore} from './settingsStore';
 
-describe('remoteChannel persistence', () => {
+/**
+ * 远程通道选择已删除（只保留 iLink）后必须守住的不变量：
+ * 旧 localStorage 里存着的 remoteChannel（含 "filehelper"）不能阻断设置加载，
+ * 也不能把该字段复活回 state。
+ */
+describe('legacy remoteChannel storage', () => {
 	beforeEach(() => {
 		localStorage.clear();
-		useSettingsStore.setState({remoteChannel: 'ilink'});
 	});
 
-	it('defaults to ilink; filehelper stays when chosen', () => {
-		expect(useSettingsStore.getState().remoteChannel).toBe('ilink');
-		expect(normalizeRemoteChannel('ilink')).toBe('ilink');
-		expect(normalizeRemoteChannel('filehelper')).toBe('filehelper');
-		expect(normalizeRemoteChannel('nope')).toBe('ilink');
-		expect(normalizeRemoteChannel(undefined)).toBe('ilink');
-	});
-
-	it('empty or legacy storage without remoteChannel hydrates to ilink', () => {
+	it('hydrates without the removed remoteChannel field', () => {
 		useSettingsStore.getState().hydrate();
-		expect(useSettingsStore.getState().remoteChannel).toBe('ilink');
-
-		localStorage.setItem(
-			'xeyo-settings',
-			JSON.stringify({
-				provider: 'deepseek',
-				model: 'deepseek-v4-flash',
-				apiKey: '',
-				baseUrl: '',
-				theme: 'paper',
-				bgOpacity: 70,
-				bgBlur: 12,
-				sidebarWidth: 248,
-			}),
-		);
-		useSettingsStore.getState().hydrate();
-		expect(useSettingsStore.getState().remoteChannel).toBe('ilink');
+		expect('remoteChannel' in useSettingsStore.getState()).toBe(false);
 	});
 
-	it('persists ilink to localStorage', () => {
-		useSettingsStore.getState().update({remoteChannel: 'ilink'});
-		expect(useSettingsStore.getState().remoteChannel).toBe('ilink');
-		const raw = JSON.parse(localStorage.getItem('xeyo-settings') ?? '{}') as {
-			remoteChannel?: string;
-		};
-		expect(raw.remoteChannel).toBe('ilink');
-	});
-
-	it('hydrates ilink from localStorage', () => {
-		localStorage.setItem(
-			'xeyo-settings',
-			JSON.stringify({
-				provider: 'deepseek',
-				model: 'deepseek-v4-flash',
-				apiKey: '',
-				baseUrl: '',
-				theme: 'paper',
-				remoteChannel: 'ilink',
-				bgOpacity: 70,
-				bgBlur: 12,
-				sidebarWidth: 248,
-			}),
-		);
-		useSettingsStore.getState().hydrate();
-		expect(useSettingsStore.getState().remoteChannel).toBe('ilink');
-	});
-
-	it('keeps filehelper when already saved', () => {
+	it('ignores a legacy filehelper value and still loads other settings', () => {
 		localStorage.setItem(
 			'xeyo-settings',
 			JSON.stringify({
@@ -86,6 +35,9 @@ describe('remoteChannel persistence', () => {
 			}),
 		);
 		useSettingsStore.getState().hydrate();
-		expect(useSettingsStore.getState().remoteChannel).toBe('filehelper');
+		const st = useSettingsStore.getState();
+		expect(st.provider).toBe('deepseek');
+		expect(st.sidebarWidth).toBe(248);
+		expect('remoteChannel' in st).toBe(false);
 	});
 });

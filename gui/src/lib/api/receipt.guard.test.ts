@@ -55,7 +55,7 @@ const BASELINE: Record<string, number> = {
 	// 与 api/sessionTaskReceipt.test.ts。剩 3 处：inbox 2（他人 lane）、rewindGc 1（rewind lane）。
 	'api.ts': 3,
 	'api/localModels.ts': 1,
-	'api/memory.ts': 1,
+	'api/memory.ts': 0, // 既有 memory 回执校验已消除裸转型，收紧棘轮。
 	'api/usage.ts': 2,
 	// 工作区地图正本（刻意放在 api/ 外，见该文件首注释）——之前根本不在棘轮的
 	// 扫描名单里，等于这一族的裸转型对门禁完全隐身。3 处已换成 parse*，钉在
@@ -162,6 +162,7 @@ describe('HTTP 回执裸转型棘轮', () => {
 		// 10 → 8：terminal 与 session task 各 1 处换成 parse*。
 		// 8 → 7：地图正本 workspaceMapApi.ts 的 3 处换成 parse*（api/mapReceipt.test.ts），
 		// 并删掉 api.ts 里那份没人 import 的同名死副本 fetchWorkspaceGraph。
-		expect(sum).toBe(7);
+		// 7 → 6：memory 已有校验，见本文件 api/memory.ts 的清零记录。
+		expect(sum).toBe(6);
 	});
 });

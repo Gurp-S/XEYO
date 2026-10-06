@@ -126,12 +126,18 @@ export type UsageStreamEvent = {
 	cacheMissTokens: number;
 	tokens: number;
 	usedTokens: number;
-	usd: number;
+	/** 金额为 null = 费用未知（该轮没有权威价目），不是 0。 */
+	usd: number | null;
 	usedUsd: number;
-	cny: number;
+	cny: number | null;
 	usedCny: number;
-	costSource: 'api' | 'estimate';
+	/** api = 厂商 usage 自带金额；estimate = 本地价表估算；unpriced = 无权威价目。 */
+	costSource: 'api' | 'estimate' | 'unpriced';
 	usdLimit: number | null;
+	/** 费用未知的回合数；>0 时 USD 预算闸对这一轮不生效。 */
+	unpricedTurns: number;
+	/** 闸未生效的原因（中文事实，供界面说明）。 */
+	budgetGateNote: string;
 	contextTokens?: number;
 	contextLimit?: number;
 	/** 发送给模型的上下文构成（按内容分类的 token 数），用于画分段用量条。 */
@@ -722,12 +728,18 @@ export function parseSseBlock(part: string): ParsedSse | null {
 						cacheMissTokens: Number(xy.cache_miss_tokens ?? 0),
 						tokens: Number(xy.tokens ?? 0),
 						usedTokens: Number(xy.used_tokens ?? xy.tokens ?? 0),
-						usd: Number(xy.usd ?? 0),
+						// 金额缺失 = 未知，保留 null（落成 0 会把「未知」读成「免费」）。
+						usd: xy.usd == null ? null : Number(xy.usd),
 						usedUsd: Number(xy.used_usd ?? 0),
-						cny: Number(xy.cny ?? 0),
+						cny: xy.cny == null ? null : Number(xy.cny),
 						usedCny: Number(xy.used_cny ?? 0),
-						costSource: xy.cost_source === 'api' ? 'api' : 'estimate',
+						costSource:
+							xy.cost_source === 'api' || xy.cost_source === 'unpriced'
+								? xy.cost_source
+								: 'estimate',
 						usdLimit: xy.usd_limit == null ? null : Number(xy.usd_limit),
+						unpricedTurns: Number(xy.unpriced_turns ?? 0),
+						budgetGateNote: typeof xy.budget_gate_note === 'string' ? xy.budget_gate_note : '',
 						contextTokens:
 							xy.context_tokens != null && Number.isFinite(Number(xy.context_tokens))
 								? Number(xy.context_tokens)
@@ -1007,9 +1019,14 @@ export function parseSseBlock(part: string): ParsedSse | null {
 						tokensUsed: Number.isFinite(Number(xy.tokens_used))
 							? Math.max(0, Number(xy.tokens_used))
 							: undefined,
-						costCny: Number.isFinite(Number(xy.cost_cny))
-							? Math.max(0, Number(xy.cost_cny))
-							: undefined,
+						// `cost_cny: null` 是上游核实过的「没有权威价目」，不是 0：
+						// `Number(null) === 0` 会把未知读成免费，所以先判 null 再判数值。
+						costCny:
+							xy.cost_cny == null
+								? undefined
+								: Number.isFinite(Number(xy.cost_cny))
+									? Math.max(0, Number(xy.cost_cny))
+									: undefined,
 						...readIdentity(xy),
 					};
 				}

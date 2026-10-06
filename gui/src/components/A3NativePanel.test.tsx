@@ -1,29 +1,32 @@
 /**
- * A3NativePanel.test.tsx — 原生视图的四条硬账。
+ * A3NativePanel.test.tsx — 用量页看板的四条硬账（数据源=实时账本）。
  *
  * 1. KPI 逐个来自 payload，缺字段就说"数据里没有"，不补 0、不画假柱；
  * 2. `accepted` 是服务端的验收判据，界面**只展示**：fixture 特意让"数据很好但未验收"
  *    与"数据残缺但已验收"同时存在——只要界面从数字反推判据，这两条就会互相打脸；
- * 3. 报告不在 / 数据读不出时，界面说的话要和证据一致（容器那层负责，见文件末尾两条）；
- * 4. 颜色全部走主题令牌，源码里不许出现写死色（这条把"不再是贴进来的网页"钉成机器判据）。
+ *    实时账本还有第三种"从没快照过" ⇒ 必须说"未快照"，不许退成前两种；
+ * 3. 账本里没有这一天 / 读不出，界面说的话要和证据一致（容器那层负责，见
+ *    A3SnapshotPanel.test.tsx）；
+ * 4. 颜色全部走主题令牌，源码里不许出现写死色（这条把"不再是贴进来的网页"钉成机器判据，
+ *    扫描面覆盖用量页这一族全部新文件）。
  *
- * fixture 全部是确定值：不读时钟、不读 locale（生成时间只做存在性断言，不比字符串）。
+ * fixture 全部是确定值：不读时钟、不读 locale（聚合时刻只做存在性断言，不比字符串）。
  */
 import {readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {cleanup, fireEvent, render, screen} from '@testing-library/react';
 
-const dataMock = vi.fn();
 const dayMock = vi.fn();
 const reportMock = vi.fn();
+const liveMock = vi.fn();
 
 vi.mock('@/lib/api', async importOriginal => {
 	const actual = await importOriginal<typeof import('@/lib/api')>();
 	return {
 		...actual,
-		getMemoryReportData: () => dataMock(),
-		getMemoryReportDay: (day: string) => dayMock(day),
+		fetchLiveUsageDay: (day: string) => dayMock(day),
+		fetchLiveUsageReport: () => liveMock(),
 		getMemoryReport: () => reportMock(),
 		runMemorySnapshot: vi.fn(),
 		memoryReportViewUrl: () => 'http://127.0.0.1:8000/v1/settings/memory/report/view',
@@ -34,7 +37,7 @@ vi.mock('@/lib/toast', () => ({
 	toast: {error: vi.fn(), success: vi.fn()},
 }));
 
-// jsdom 没有 ResizeObserver，而 UsageChart 用它量容器宽度。
+// jsdom 没有 ResizeObserver，而用量页共用的 UsageChart 用它量容器宽度。
 class ResizeObserverStub {
 	observe(): void {}
 	unobserve(): void {}
@@ -44,17 +47,15 @@ vi.stubGlobal('ResizeObserver', ResizeObserverStub);
 
 /* eslint-disable import/first */
 import {A3NativePanel} from './A3NativePanel';
-import {A3SnapshotPanel} from './A3SnapshotPanel';
-import type {A3ReportData} from '@/lib/api';
-import {formatMoney} from '@/lib/formatUsage';
+import type {LiveUsageReport} from '@/lib/api';
 
 /** 24 桶：只在 09 点挂 n 笔，其余为 0。 */
 const hours = (n: number, at = 9) =>
 	Array.from({length: 24}, (_, i) => (i === at ? n : 0));
 
-const DAY_OK: A3ReportData['days'][number] = {
+const DAY_OK: LiveUsageReport['days'][number] = {
 	day: '2026-09-27',
-	// 数据很漂亮，但报告判它未验收：界面必须跟着判据说"待验收"。
+	// 数据很漂亮，但快照判它未验收：界面必须跟着判据说"待验收"。
 	accepted: false,
 	requests: 42,
 	prompt_tokens: 1_200_000,
@@ -63,6 +64,7 @@ const DAY_OK: A3ReportData['days'][number] = {
 	hit_rate: 0.95,
 	c2_count: 3,
 	output: 9_000,
+	tokens: 1_209_000,
 	cost_cny: 1.5,
 	sessions: 5,
 	turns: 12,
@@ -83,7 +85,7 @@ const DAY_OK: A3ReportData['days'][number] = {
 	],
 };
 
-const DAY_HOLES: A3ReportData['days'][number] = {
+const DAY_HOLES: LiveUsageReport['days'][number] = {
 	day: '2026-09-28',
 	// 数据残缺却被验收：界面不能因为"请求读不出来"就把判据翻成待验收。
 	accepted: true,
@@ -94,6 +96,7 @@ const DAY_HOLES: A3ReportData['days'][number] = {
 	hit_rate: 0.5,
 	c2_count: 0,
 	output: 4_000,
+	tokens: null,
 	cost_cny: null,
 	sessions: 7,
 	turns: 20,
@@ -102,21 +105,78 @@ const DAY_HOLES: A3ReportData['days'][number] = {
 	by_model: [],
 };
 
-const DATA: A3ReportData = {
+const DATA: LiveUsageReport = {
 	ok: true,
-	generated_at: '2026-09-27T18:31:19.658759+00:00',
-	source: {path: 'D:/lea/XenYon code/docs/A3-monitor.html', bytes: 10_629_939, mtime: 1},
+	live: true,
+	generated_at: '2026-09-28T18:31:19+08:00',
+	source: {kind: 'live_ledger', path: 'C:/Users/me/.xeyo/usage/events.jsonl', rows: 1234, store: 'ok'},
 	day_count: 2,
 	days: [DAY_OK, DAY_HOLES],
+};
+
+/**
+ * 一天里混了「无价目」行：合计仍是数字（只累加有价行），但必须自报「部分未知」；
+ * 无价目的模型行单独说「无价目」，绝不显示 ¥0.00。
+ */
+const DAY_MIXED_PRICE: LiveUsageReport['days'][number] = {
+	day: '2026-09-29',
+	accepted: true,
+	requests: 50,
+	prompt_tokens: 100_000,
+	cache_hit: 40_000,
+	cache_miss: 60_000,
+	hit_rate: 0.4,
+	c2_count: 0,
+	output: 1_000,
+	tokens: 101_000,
+	cost_cny: 2.0,
+	cost_unknown_requests: 3,
+	sessions: 1,
+	turns: 2,
+	hour_counts: hours(2, 3),
+	hour_unknown: 0,
+	by_model: [
+		{
+			provider: 'zhipu',
+			model: 'XenYon/glm-4.6v',
+			requests: 3,
+			prompt_tokens: 1_000,
+			cache_hit: 0,
+			cache_miss: 1_000,
+			hit_rate: 0,
+			output: 10,
+			cost_cny: null,
+			cost_unknown_requests: 3,
+		},
+		{
+			provider: 'deepseek',
+			model: 'XenYon/deepseek-v4-flash',
+			requests: 47,
+			prompt_tokens: 99_000,
+			cache_hit: 40_000,
+			cache_miss: 59_000,
+			hit_rate: 0.4,
+			output: 990,
+			cost_cny: 2.0,
+		},
+	],
+};
+
+/** 从没进过快照的一天：判据是 null，界面要说"未快照"，不许退成"待验收"。 */
+const DAY_NO_SNAPSHOT: LiveUsageReport['days'][number] = {
+	...DAY_OK,
+	day: '2026-09-30',
+	accepted: null,
+	snapshot: false,
 };
 
 const kpiText = (container: HTMLElement, label: string) =>
 	container.querySelector(`[data-a3-kpi="${label}"]`)?.textContent ?? '';
 
 beforeEach(() => {
-	dataMock.mockReset();
 	dayMock.mockReset();
 	reportMock.mockReset();
+	liveMock.mockReset();
 });
 
 afterEach(() => {
@@ -130,24 +190,29 @@ describe('KPI 来自数据', () => {
 		expect(kpiText(container, '命中率')).toContain('50.0%');
 		expect(kpiText(container, '输出 token')).toContain('4.00k tok');
 		expect(kpiText(container, '输入 token')).toContain('2.00M tok');
-		expect(kpiText(container, 'C2')).toContain('0');
+		// 既有报告布局把 C2 放在运行记录，KPI 第八项为轮次。
+		expect(kpiText(container, '轮次')).toContain('20');
+		expect(container.querySelector('.xy-a3-c2')).toHaveTextContent('C2 事件：0');
 		expect(kpiText(container, '会话数')).toContain('7');
 		// 0 是真值：不许把它当成缺失渲染成"数据里没有"。
-		expect(kpiText(container, 'C2')).not.toContain('数据里没有');
+		expect(container.querySelector('.xy-a3-c2')).not.toHaveTextContent('数据里没有');
 	});
 
-	it('缺字段的 KPI 直说"数据里没有"，单位成本不编数', () => {
+	it('缺字段的 KPI 直说"数据里没有"；账上明写无价目时说"无价目"（都是缺失，但不是 0）', () => {
 		const {container} = render(<A3NativePanel data={DATA} />);
 
 		expect(kpiText(container, '请求')).toContain('数据里没有');
-		expect(kpiText(container, '成本')).toContain('数据里没有');
-		expect(kpiText(container, '单位成本')).toContain('数据里没有');
+		// cost_cny: null 是上游核实过「没有权威价目」，不是「这一层没读到字段」，
+		// 更不能落成 ¥0.00（那会把费用未知读成免费）。
+		expect(kpiText(container, '成本')).toContain('无价目');
+		expect(kpiText(container, '成本')).not.toContain('¥');
+		expect(kpiText(container, '单位成本')).toContain('无价目');
 	});
 
 	it('切到数据完整的一天：KPI 与分模型表跟着换', () => {
 		const {container} = render(<A3NativePanel data={DATA} />);
 
-		fireEvent.change(screen.getByRole('combobox', {name: '选择查看的快照日期'}), {
+		fireEvent.change(screen.getByRole('combobox', {name: '选择查看的日期'}), {
 			target: {value: DAY_OK.day},
 		});
 
@@ -159,7 +224,21 @@ describe('KPI 来自数据', () => {
 		// 金额 <¥1 走 4 位小数（旧口径的 6 位 ¥0.035714 已废）。
 		expect(kpiText(container, '单位成本')).toContain('¥0.0357');
 		// 模型列走 shortModel（取最后一段）：厂商/协议名保留拉丁原文，不截成乱码。
-		expect(screen.getByText('deepseek-v4-flash')).toBeInTheDocument();
+		// 模型名同时出现在过滤 chip、环形卡明细与分模型表里：只断言「至少三处」。
+		expect(screen.getAllByText('deepseek-v4-flash').length).toBeGreaterThanOrEqual(3);
+	});
+
+	it('混了无价目行：合计标"部分未知"，无价目那一行说"无价目"而不是 ¥0.00', () => {
+		const {container} = render(
+			<A3NativePanel data={{...DATA, days: [DAY_MIXED_PRICE]}} />,
+		);
+
+		expect(kpiText(container, '成本')).toContain('¥2.00');
+		expect(kpiText(container, '成本')).toContain('部分未知');
+		expect(kpiText(container, '单位成本')).toContain('部分未知');
+		// 无价目模型行：没有金额就说没有，不写 ¥0.00、不写空串、不留白。
+		expect(screen.getAllByText('无价目').length).toBeGreaterThan(0);
+		expect(screen.queryByText('¥0.00')).toBeNull();
 	});
 
 	it('无时间戳的轮数要说出来，不静默丢', () => {
@@ -174,7 +253,7 @@ describe('KPI 来自数据', () => {
 		// 默认选中的那天 hit/miss 都是 null ⇒ 不画（宽度钳制会把它画成假的五五分）。
 		expect(container.querySelector('[data-a3-hitmiss]')).toBeNull();
 
-		fireEvent.change(screen.getByRole('combobox', {name: '选择查看的快照日期'}), {
+		fireEvent.change(screen.getByRole('combobox', {name: '选择查看的日期'}), {
 			target: {value: DAY_OK.day},
 		});
 
@@ -218,7 +297,8 @@ describe('小时分布：24 槽都在标度上', () => {
 });
 
 describe('读数精度', () => {
-	it('formatMoney：≥¥1 两位、0<¥1 四位、恰好 0 用两位', () => {
+	it('formatMoney：≥¥1 两位、0<¥1 四位、恰好 0 用两位', async () => {
+		const {formatMoney} = await import('@/lib/formatUsage');
 		expect(formatMoney(18.764621)).toBe('¥18.76');
 		expect(formatMoney(5.844108)).toBe('¥5.84');
 		expect(formatMoney(0.013312)).toBe('¥0.0133');
@@ -227,7 +307,7 @@ describe('读数精度', () => {
 
 	it('KPI 渲染按量级给精度：总额两位、单位成本四位', () => {
 		const {container} = render(<A3NativePanel data={DATA} />);
-		fireEvent.change(screen.getByRole('combobox', {name: '选择查看的快照日期'}), {
+		fireEvent.change(screen.getByRole('combobox', {name: '选择查看的日期'}), {
 			target: {value: DAY_OK.day},
 		});
 
@@ -240,7 +320,7 @@ describe('读数精度', () => {
 
 	it('分模型「命中/输入」用紧凑单位（19.21M / 20.88M 式），不再是原始整数', () => {
 		render(<A3NativePanel data={DATA} />);
-		fireEvent.change(screen.getByRole('combobox', {name: '选择查看的快照日期'}), {
+		fireEvent.change(screen.getByRole('combobox', {name: '选择查看的日期'}), {
 			target: {value: DAY_OK.day},
 		});
 
@@ -250,7 +330,7 @@ describe('读数精度', () => {
 	});
 });
 
-describe('验收判据只透传（补：数字漂亮也不改判据）', () => {
+describe('验收判据只透传（三态）', () => {
 	it('accepted:false 且请求/成本/命中率都齐全的一天，仍判"待验收"', () => {
 		// DAY_OK：请求 42、成本 ¥1.50、命中率 95%——数据很完整，但服务端 accepted:false。
 		const {container} = render(<A3NativePanel data={{...DATA, days: [DAY_OK]}} />);
@@ -263,15 +343,18 @@ describe('验收判据只透传（补：数字漂亮也不改判据）', () => {
 		expect(screen.getByText(/快照状态：待验收/)).toBeInTheDocument();
 		expect(screen.queryByText('已验收')).toBeNull();
 	});
-});
 
-describe('验收判据只透传', () => {
-	it('两行的状态各自等于服务端的 accepted，不由数字反推', () => {
-		render(<A3NativePanel data={DATA} />);
+	it('三态各说各话：已验收 / 待验收 / 未快照，不许由数字反推', () => {
+		const days = [DAY_OK, DAY_HOLES, DAY_NO_SNAPSHOT];
+		render(<A3NativePanel data={{...DATA, days, day_count: days.length}} />);
 
-		// 数据漂亮但未验收 ⇒ 待验收；数据残缺但已验收 ⇒ 已验收。
+		// 数据漂亮但未验收 ⇒ 待验收；数据残缺但已验收 ⇒ 已验收；null ⇒ 未快照。
 		expect(screen.getAllByText('待验收')).toHaveLength(1);
 		expect(screen.getAllByText('已验收')).toHaveLength(1);
+		// 顶栏跟着选中那天（最后一天=未快照）⇒ 未快照两处：顶栏 + 它自己那一行。
+		// 顶栏那行是「快照状态：未快照」的连续文本，exact 匹配只命中表格里它自己那一行。
+		expect(screen.getByText(/快照状态：未快照/)).toBeInTheDocument();
+		expect(screen.getAllByText('未快照')).toHaveLength(1);
 		// 判据要钉在**它自己那一天**上：串了行就等于界面自己算了一个判据。
 		expect(screen.getByText('待验收').closest('tr')?.textContent).toContain(DAY_OK.day);
 		expect(screen.getByText('已验收').closest('tr')?.textContent).toContain(DAY_HOLES.day);
@@ -282,135 +365,179 @@ describe('验收判据只透传', () => {
 
 		expect(screen.getByText(/快照状态：已验收/)).toBeInTheDocument();
 
-		fireEvent.change(screen.getByRole('combobox', {name: '选择查看的快照日期'}), {
+		fireEvent.change(screen.getByRole('combobox', {name: '选择查看的日期'}), {
 			target: {value: DAY_OK.day},
 		});
 
 		expect(screen.getByText(/快照状态：待验收/)).toBeInTheDocument();
 	});
-
-	it('accepted 为 false 的一天不出现任何"已验收"字样', () => {
-		render(<A3NativePanel data={{...DATA, days: [DAY_OK]}} />);
-
-		expect(screen.queryByText('已验收')).toBeNull();
-		expect(screen.getByText(/快照状态：待验收/)).toBeInTheDocument();
-	});
 });
 
 describe('诚实的空态', () => {
-	it('报告里没有任何一天：明说，不画空图、不摆 0 值 KPI', () => {
+	it('账本里没有任何一天：明说，不画空图、不摆 0 值 KPI', () => {
 		const {container} = render(
 			<A3NativePanel data={{...DATA, day_count: 0, days: []}} />,
 		);
 
-		expect(screen.getByText('报告里没有任何一天的数据。')).toBeInTheDocument();
+		expect(screen.getByText('账本里还没有任何一天的数据。')).toBeInTheDocument();
 		expect(container.querySelector('[data-a3-kpi="命中率"]')).toBeNull();
-		expect(screen.queryByText('请求 · 小时分布')).toBeNull();
+		expect(screen.queryByText('活动分布 · 每小时轮次')).toBeNull();
 	});
 
 	it('分模型行为空时说"没有分模型行"，不渲染空表头当作有数据', () => {
 		render(<A3NativePanel data={DATA} />);
 
-		expect(screen.getByText('这一天的报告数据里没有分模型行。')).toBeInTheDocument();
+		expect(screen.getByText('这一天没有分模型行。')).toBeInTheDocument();
 	});
 });
 
-describe('不出现写死颜色', () => {
-	const src = readFileSync(resolve(process.cwd(), 'src/components/A3NativePanel.tsx'), 'utf8');
-	// 剥注释：文档里提到的「原先是白底」不算违规（与 themePairing.guard 同一手法）。
-	const code = src
-		.replace(/\/\*[\s\S]*?\*\//g, '')
-		.split('\n')
-		.filter(l => !/^\s*(\/\/|\*)/.test(l))
-		.join('\n');
+describe('模型过滤只影响环形卡与分模型表', () => {
+	it('选中一个模型：分模型表只剩它，KPI 仍是全口径', () => {
+		const {container} = render(
+			<A3NativePanel data={{...DATA, days: [DAY_MIXED_PRICE], day_count: 1}} />,
+		);
+		fireEvent.click(screen.getByRole('button', {name: /glm-4\.6v/}));
+
+		const models = container.querySelector('[data-a3-models]')?.textContent ?? '';
+		expect(models).not.toContain('deepseek-v4-flash');
+		expect(models).toContain('glm-4.6v');
+		// KPI 不受过滤影响：请求仍是 50，不是 3。
+		expect(kpiText(container, '请求')).toContain('50');
+	});
+
+	it('取消选择回到全部', () => {
+		const {container} = render(
+			<A3NativePanel data={{...DATA, days: [DAY_MIXED_PRICE], day_count: 1}} />,
+		);
+		fireEvent.click(screen.getByRole('button', {name: /glm-4\.6v/}));
+		fireEvent.click(screen.getByRole('button', {name: '全部'}));
+
+		const models = container.querySelector('[data-a3-models]')?.textContent ?? '';
+		expect(models).toContain('deepseek-v4-flash');
+		expect(models).toContain('glm-4.6v');
+	});
+});
+
+describe('会话明细：一次请求换一天', () => {
+	it('展开时才发请求，且只发选中那一天', async () => {
+		dayMock.mockResolvedValue({
+			ok: true,
+			message: '',
+			data: {
+				ok: true,
+				live: true,
+				generated_at: DATA.generated_at,
+				source: DATA.source,
+				day: DAY_HOLES.day,
+				missing: false,
+				summary: DAY_HOLES,
+				sessions: [
+					{
+						session_id: 'sess_x',
+						requests: 5,
+						prompt_tokens: 1000,
+						cache_hit: 900,
+						cache_miss: 100,
+						hit_rate: 0.9,
+						output: 40,
+						cost_cny: 0.02,
+					},
+				],
+				turns: [
+					{
+						session_id: 'sess_x',
+						label: '把压缩器接回主链',
+						model: 'deepseek-v4-flash',
+						first_ts: 1_788_672_364.839,
+						requests: 5,
+						prompt_tokens: 1000,
+						cache_hit: 900,
+						cache_miss: 100,
+						hit_rate: 0.9,
+						output: 40,
+						cost_cny: 0.02,
+						event_count: 2,
+						events_truncated: 0,
+						events: [
+							{ts: 1_788_672_364.839, model: 'deepseek-v4-flash', cache_hit: 800, cache_miss: 100, output: 20, prompt_tokens: 900, cost_cny: 0.01},
+							{ts: 1_788_672_400.111, model: 'deepseek-v4-flash', cache_hit: 100, cache_miss: 0, output: 20, prompt_tokens: 100, cost_cny: 0.01},
+						],
+					},
+				],
+				events_truncated: 0,
+			},
+		});
+		render(<A3NativePanel data={DATA} />);
+		expect(dayMock).not.toHaveBeenCalled();
+
+		fireEvent.click(screen.getByRole('button', {name: '查看会话明细'}));
+
+		expect(await screen.findByText('把压缩器接回主链')).toBeInTheDocument();
+		expect(dayMock).toHaveBeenCalledWith(DAY_HOLES.day);
+		// 每枪一行：展开后能看到该轮两次模型调用各自的时间。
+		fireEvent.click(screen.getByRole('button', {name: /把压缩器接回主链/}));
+		// 该轮 2 次模型调用各自一行（重试 attempt 也各占一行，与账本 S4 口径一致）。
+		expect(document.querySelectorAll('[data-a3-event-row]')).toHaveLength(2);
+	});
+});
+
+describe('不出现写死颜色（扫描用量页这一族全部文件）', () => {
+	// 搬家/新增文件必须同时进这张清单：只扫旧文件会让新文件静默失去覆盖面。
+	const FILES = [
+		'src/components/A3NativePanel.tsx',
+		'src/components/A3SnapshotPanel.tsx',
+		'src/components/review/A3DayNavigator.tsx',
+		'src/components/usage/TokenActivityHeatmap.tsx',
+		'src/components/usage/DonutCard.tsx',
+		'src/components/usage/ModelTable.tsx',
+		'src/components/usage/TurnDrilldown.tsx',
+		'src/components/usage/palette.ts',
+	];
+	const code = FILES.map(f =>
+		readFileSync(resolve(process.cwd(), f), 'utf8')
+			.replace(/\/\*[\s\S]*?\*\//g, '')
+			.split('\n')
+			.filter(l => !/^\s*(\/\/|\*)/.test(l))
+			.join('\n'),
+	);
 
 	it('扫描面本身有效（防止文件读空导致断言空跑）', () => {
-		expect(code.length).toBeGreaterThan(1000);
-		expect(code).toContain('var(--xy-chart)');
+		expect(FILES).toHaveLength(8);
+		for (const src of code) expect(src.length).toBeGreaterThan(80);
+		expect(code[0]).toContain('var(--xy-chart)');
 	});
 
 	it('没有 bg-white / text-white', () => {
-		expect(code).not.toMatch(/\bbg-white\b/);
-		expect(code).not.toMatch(/\btext-white\b/);
+		for (const src of code) {
+			expect(src).not.toMatch(/\bbg-white\b/);
+			expect(src).not.toMatch(/\btext-white\b/);
+		}
 	});
 
 	it('没有十六进制与 rgb/a 字面色', () => {
-		expect(code).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
-		expect(code).not.toMatch(/\brgba?\(/);
-		expect(code).not.toMatch(/\bhsla?\(/);
+		for (const src of code) {
+			expect(src).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
+			expect(src).not.toMatch(/\brgba?\(/);
+			expect(src).not.toMatch(/\bhsla?\(/);
+		}
 	});
 
 	it('没有 Tailwind 调色板字面量（一切前景/底色走 --xy 令牌）', () => {
-		expect(code).not.toMatch(
-			/\b(?:bg|text|border|fill|stroke|from|to)-(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d{2,3}\b/,
-		);
+		for (const src of code) {
+			expect(src).not.toMatch(
+				/\b(?:bg|text|border|fill|stroke|from|to)-(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d{2,3}\b/,
+			);
+		}
 	});
 
 	it('图表/槽位用色必须是 var(--xy-*) 令牌（内联色字面量不得是十六进制/rgb/hsl）', () => {
-		// 收集源码里所有「直接引号包起来的颜色值」：CSS 变量引用或十六进制/rgb/hsl 字面量。
-		// 小时槽位图把 `background: cond ? 'var(--xy-chart)' : 'var(--xy-line)'` 写成三元，
-		// 用 `color:/background:` 前缀抓不到；这里改抓字符串字面量本身，覆盖面更大。
-		const literals = [
-			...code.matchAll(
-				/['"](var\(--[^'"]+\)|#[0-9a-fA-F]{3,8}|rgba?\([^'"]+\)|hsla?\([^'"]+\))['"]/g,
-			),
-		].map(m => m[1] ?? '');
-		expect(literals.length).toBeGreaterThan(0);
-		for (const value of literals) expect(value).toMatch(/^var\(--xy-/);
-	});
-});
-
-/**
- * 容器那层的两条错误态（在这里测而不是只放 A3SnapshotPanel.test.tsx 的原因：
- * "报告还没生成"与"数据面读不出"是这整个特性最容易被糊弄过去的两个分支，
- * 而它们**不属于**视图组件——视图只收到已经裁好的 payload。
- */
-describe('数据面失败时容器怎么说', () => {
-	it('报告还没生成：不发数据请求，只说"尚未生成报告"', async () => {
-		reportMock.mockResolvedValue({
-			ok: true,
-			data: {
-				ok: false,
-				exists: false,
-				path: 'D:/docs/A3-monitor.html',
-				url: 'file:///D:/docs/A3-monitor.html',
-			},
-			message: '',
-		});
-		dataMock.mockResolvedValue({ok: false, data: null, message: 'not_found'});
-
-		render(<A3SnapshotPanel active />);
-
-		await screen.findByText('尚未生成报告');
-		expect(screen.queryByText(/报告数据读不出来/)).toBeNull();
-		expect(dataMock).not.toHaveBeenCalled();
-	});
-
-	it('数据面 500：退回 iframe，并把原因写成中文', async () => {
-		reportMock.mockResolvedValue({
-			ok: true,
-			data: {
-				ok: true,
-				exists: true,
-				path: 'D:/docs/A3-monitor.html',
-				url: 'file:///D:/docs/A3-monitor.html',
-				bytes: 10_629_939,
-				mtime: 1,
-				generated_at: '2026-09-27T18:31:19.658759+00:00',
-				days: ['2026-09-27'],
-			},
-			message: '',
-		});
-		dataMock.mockResolvedValue({
-			ok: false,
-			data: null,
-			message: 'memory_report_unparsable',
-		});
-
-		render(<A3SnapshotPanel active />);
-
-		expect(await screen.findByTitle('A3 日常监控报告')).toBeInTheDocument();
-		expect(screen.getByText('报告数据读不出来（报告里的内嵌数据解析失败）')).toBeInTheDocument();
-		expect(screen.queryByText('请求 · 小时分布')).toBeNull();
+		for (const src of code) {
+			const literals = [
+				...src.matchAll(
+					/['"`](var\(--[^'"`]+\)|#[0-9a-fA-F]{3,8}|rgba?\([^'"`]+\)|hsla?\([^'"`]+\))['"`]/g,
+				),
+			].map(m => m[1] ?? '');
+			for (const value of literals) expect(value).toMatch(/^var\(--xy-/);
+		}
 	});
 });

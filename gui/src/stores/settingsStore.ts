@@ -6,6 +6,11 @@ import {
 } from '@/lib/modelWindow';
 import {prefersReducedMotion} from '@/lib/prefersReducedMotion';
 import {
+	DEFAULT_BUSY_ENTER,
+	normalizeBusyEnter,
+	type BusyEnterBehavior,
+} from '@/lib/composerSendMode';
+import {
 	isDarkScheme,
 	isThemeId,
 	normalizeThemeId,
@@ -18,23 +23,14 @@ import {isKnownProvider} from '@/lib/localTestGate';
 
 // 'local' = 本地模型服务（正式功能）；'fake' = 测试假模型（仅 dev 门禁内可达）。
 export type ProviderId = 'deepseek' | 'openai' | 'anthropic' | 'local' | 'fake';
-export type RemoteChannel = 'filehelper' | 'ilink';
 export type PermissionMode = 'always' | 'risk' | 'never';
 export type OutputMode = 'lite' | 'full' | 'ultra';
 
 /**
- * 面板布局与分割线（设置 → 外观）。
- * classic=现状胶囊缝；wireless=无线化纯留白；islands=圆角分岛；dotted=虚点呼吸线。
- * 仅视觉档位，CSS 按 html[data-pane-layout] 分发（styles/pane-layouts.css）。
+ * Legacy preference values retained for loading existing settings backups.
+ * The review GUI has one layout; these values no longer select its appearance.
  */
 export type PaneLayout = 'classic' | 'wireless' | 'islands' | 'dotted';
-
-export const PANE_LAYOUTS: readonly {id: PaneLayout; label: string; hint: string}[] = [
-	{id: 'islands', label: '圆角分岛', hint: '三栏各自成卡，分界靠留白'},
-	{id: 'wireless', label: '无线化', hint: '去掉描边与分割，只靠留白分区'},
-	{id: 'dotted', label: '虚点线', hint: '1px 点状虚线分界，视觉最轻'},
-	{id: 'classic', label: '经典', hint: '实线分界，中段圆角胶囊缝'},
-];
 
 export function normalizePaneLayout(v: unknown): PaneLayout {
 	// 默认档 = 圆角分岛（islands）；与 DEFAULTS.paneLayout 保持一致。
@@ -170,8 +166,6 @@ export type Settings = {
 	/** 本地保存的多套厂商账号；当前对话使用 activeProfileId 对应的那套。 */
 	profiles: ModelProfile[];
 	activeProfileId: string;
-	/** 微信远程通道：文件传输助手网页，或 ClawBot / iLink HTTP */
-	remoteChannel: RemoteChannel;
 	/** 外观主题 ID（见 theme/catalog）；明暗由 themeScheme 决定 */
 	theme: ThemeId;
 	/** @deprecated 兼容旧存储；运行时以 accentByTheme 为准 */
@@ -202,8 +196,13 @@ export type Settings = {
 	/** 标题栏底部分割线；缺省为开。 */
 	titleBarDivider: boolean;
 	/**
-	 * 面板布局与分割线档位（外观页可切）。缺省/非法 = islands（圆角分岛）。
-	 * CSS 分发见 styles/pane-layouts.css。
+	 * 忙时裸 Enter 的含义：'queue' = 排队到本轮结束（缺省，= 既有行为），
+	 * 'steer' = 本轮下一个边界就投给模型。Ctrl/Cmd+Enter 恒为其反面，
+	 * 判定与措辞都在 `lib/composerSendMode` 里，这里只存值。
+	 */
+	busyEnter: BusyEnterBehavior;
+	/**
+	 * Legacy layout preference retained for settings backup compatibility.
 	 */
 	paneLayout: PaneLayout;
 	/** 侧边栏开合动画使用“极平滑减速”（④ quintic-out）而非默认“柔和减速”（② expo-out）。 */
@@ -241,7 +240,7 @@ export type Settings = {
 	showExperimental: boolean;
 };
 
-export const SIDEBAR_WIDTH_MIN = 180;
+export const SIDEBAR_WIDTH_MIN = 150;
 export const SIDEBAR_WIDTH_MAX = 420;
 export const SIDEBAR_WIDTH_DEFAULT = 248;
 export const PANE_WIDTH_MIN = SIDEBAR_WIDTH_MIN;
@@ -341,7 +340,6 @@ const DEFAULTS: Settings = {
 	accentColorDark: '',
 	accentByTheme: {},
 	accentHistory: [],
-	remoteChannel: 'ilink',
 	bgImage: '',
 	/** 壁纸清晰度 0–100（越高 = 遮罩越薄）。 */
 	bgOpacity: 70,
@@ -351,6 +349,7 @@ const DEFAULTS: Settings = {
 		explorerWidth: EXPLORER_WIDTH_DEFAULT,
 			smoothness: true,
 			titleBarDivider: true,
+			busyEnter: DEFAULT_BUSY_ENTER,
 			paneLayout: 'islands',
 			paneEaseSilky: false,
 			stickyBubbles: false,
@@ -564,10 +563,6 @@ function parseAccentByTheme(parsed: {
 		out.graphite = pair.accentColorDark;
 	}
 	return out;
-}
-
-export function normalizeRemoteChannel(v: unknown): RemoteChannel {
-	return v === 'filehelper' ? 'filehelper' : 'ilink';
 }
 
 export function normalizePermissionMode(v: unknown): PermissionMode {
@@ -988,7 +983,6 @@ function loadLite(): PersistedLite {
 			...parseAccentPair(parsed),
 			accentByTheme: parseAccentByTheme(parsed),
 			accentHistory: normalizeAccentHistory(parsed.accentHistory),
-			remoteChannel: normalizeRemoteChannel(parsed.remoteChannel),
 			bgOpacity: parsed.bgOpacity,
 			bgBlur: parsed.bgBlur,
 			sidebarWidth: clampSidebarWidth(parsed.sidebarWidth),
@@ -1002,6 +996,7 @@ function loadLite(): PersistedLite {
 			),
 				smoothness: parsed.smoothness === false ? false : true,
 				titleBarDivider: parsed.titleBarDivider === false ? false : true,
+				busyEnter: normalizeBusyEnter(parsed.busyEnter),
 				paneLayout: normalizePaneLayout(parsed.paneLayout),
 					paneEaseSilky: parsed.paneEaseSilky === true,
 					stickyBubbles: parsed.stickyBubbles === true,
@@ -1056,7 +1051,6 @@ function writePersistLite(settings: Settings) {
 		accentColorDark: settings.accentByTheme?.graphite ?? settings.accentColorDark ?? '',
 		accentByTheme: settings.accentByTheme ?? {},
 		accentHistory: settings.accentHistory ?? [],
-		remoteChannel: settings.remoteChannel,
 		bgOpacity: settings.bgOpacity,
 		bgBlur: settings.bgBlur,
 		sidebarWidth: settings.sidebarWidth,
@@ -1064,6 +1058,7 @@ function writePersistLite(settings: Settings) {
 		explorerWidth: settings.explorerWidth,
 			smoothness: settings.smoothness !== false,
 			titleBarDivider: settings.titleBarDivider !== false,
+			busyEnter: normalizeBusyEnter(settings.busyEnter),
 			paneLayout: normalizePaneLayout(settings.paneLayout),
 			paneEaseSilky: settings.paneEaseSilky === true,
 			stickyBubbles: settings.stickyBubbles === true,
@@ -1238,7 +1233,6 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 			accentColorDark: cur.accentColorDark ?? '',
 			accentByTheme: {...(cur.accentByTheme ?? {})},
 			accentHistory: cur.accentHistory ?? [],
-			remoteChannel: cur.remoteChannel,
 			bgImage: cur.bgImage,
 			bgOpacity: cur.bgOpacity,
 			bgBlur: cur.bgBlur,
@@ -1247,6 +1241,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 			explorerWidth: cur.explorerWidth ?? EXPLORER_WIDTH_DEFAULT,
 				smoothness: cur.smoothness !== false,
 				titleBarDivider: cur.titleBarDivider !== false,
+				busyEnter: normalizeBusyEnter(cur.busyEnter),
 				paneLayout: normalizePaneLayout(cur.paneLayout),
 					paneEaseSilky: cur.paneEaseSilky === true,
 					stickyBubbles: cur.stickyBubbles === true,
@@ -1354,6 +1349,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 		if (patch.titleBarDivider !== undefined) {
 			next.titleBarDivider = patch.titleBarDivider !== false;
 		}
+		if (patch.busyEnter !== undefined) {
+			next.busyEnter = normalizeBusyEnter(patch.busyEnter);
+		}
 		if (patch.paneLayout !== undefined) {
 			next.paneLayout = normalizePaneLayout(patch.paneLayout);
 			applyDocumentPaneLayout(next.paneLayout);
@@ -1365,9 +1363,6 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 		if (patch.stickyBubbles !== undefined) {
 			next.stickyBubbles = patch.stickyBubbles === true;
 			applyDocumentStickyBubbles(next.stickyBubbles);
-		}
-		if (patch.remoteChannel !== undefined) {
-			next.remoteChannel = normalizeRemoteChannel(patch.remoteChannel);
 		}
 		if (patch.profiles !== undefined) {
 			next.profiles = patch.profiles

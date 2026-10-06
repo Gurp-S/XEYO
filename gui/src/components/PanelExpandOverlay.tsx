@@ -1,5 +1,6 @@
 import {useEffect, type ReactNode} from 'react';
 import {popEscLayer, pushEscLayer} from '@/lib/escStack';
+import {WorkbenchOverlay} from './review/WorkbenchOverlay';
 
 /**
  * 通用「面板放大」容器：把宿主提供的 header + body 渲染进一个覆盖**内容区**
@@ -36,11 +37,11 @@ export function PanelExpandOverlay({
 		return null;
 	}
 	return (
-		<div
+		<WorkbenchOverlay><div
 			className="absolute inset-0 z-[80] flex flex-col overflow-hidden bg-paper"
 			aria-label="放大面板"
 		>
 			{children}
-		</div>
+		</div></WorkbenchOverlay>
 	);
 }

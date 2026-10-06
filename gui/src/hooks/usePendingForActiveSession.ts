@@ -48,20 +48,4 @@ export function usePendingPlanForActiveSession(): PendingPlanInfo | null {
 	);
 }
 
-/** Composer 融合外框：当前 session 是否有 Ask / 审批 / Plan 挂起。 */
-export function useHasComposerPendingDock(): boolean {
-	const activeId = useActiveSessionId();
-	return useChatStore(s => {
-		if (!activeId) {
-			return false;
-		}
-		const perm = s.pendingPermission;
-		const ask = s.pendingAsk;
-		const plan = s.pendingPlan;
-		return (
-			Boolean(perm && pendingMatchesActiveSession(perm.sessionId, activeId)) ||
-			Boolean(ask && pendingMatchesActiveSession(ask.sessionId, activeId)) ||
-			Boolean(plan && pendingMatchesActiveSession(plan.sessionId, activeId))
-		);
-	});
-}
+/** Composer 融合外框已随 DSH 对齐拆除（dock 卡各自独立），故不再需要"有没有挂起面板"的聚合谓词。 */

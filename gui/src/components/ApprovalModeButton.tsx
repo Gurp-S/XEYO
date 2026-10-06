@@ -3,6 +3,7 @@ import {useEffect, useRef, useState} from 'react';
 
 import {setSessionRuntimeMode} from '@/lib/api/runtimeMode';
 import {patchComposerDraftModes} from '@/lib/composerDrafts';
+import {popEscLayer, pushEscLayer} from '@/lib/escStack';
 import {cn} from '@/lib/utils';
 import {toast} from '@/lib/toast';
 import {useChatUiStore} from '@/stores/chatUiStore';
@@ -46,12 +47,32 @@ export function ApprovalModeButton() {
 	// 用户要的档位改回旧档。诚实做法是"照你说的显示，但标出没确认"。
 	const [unconfirmed, setUnconfirmed] = useState('');
 	const seq = useRef(0);
+	const rootRef = useRef<HTMLDivElement | null>(null);
 
 	// 换会话：上一枪的回执属于别的会话，提示不能跟着搬。
 	useEffect(() => {
 		seq.current += 1;
 		setUnconfirmed('');
 	}, [activeId]);
+
+	// 关闭配对：Esc 走 escStack（优先于「停止生成」等下层）+ 外点关闭；
+	// 漏了这两条时菜单只能"再点一次"或选档才关，流式中按 Esc 还会误停回合。
+	useEffect(() => {
+		if (!open) {
+			return;
+		}
+		const onDocumentMouseDown = (event: MouseEvent) => {
+			if (!rootRef.current?.contains(event.target as Node)) {
+				setOpen(false);
+			}
+		};
+		pushEscLayer('approval-mode', () => setOpen(false));
+		document.addEventListener('mousedown', onDocumentMouseDown);
+		return () => {
+			document.removeEventListener('mousedown', onDocumentMouseDown);
+			popEscLayer('approval-mode');
+		};
+	}, [open]);
 
 	const current = MODES.find(m => m.mode === mode) ?? MODES[1];
 	const CurrentIcon = current.Icon;
@@ -80,7 +101,7 @@ export function ApprovalModeButton() {
 	};
 
 	return (
-		<div className="relative shrink-0">
+		<div ref={rootRef} className="relative shrink-0">
 			<button
 				type="button"
 				aria-haspopup="menu"

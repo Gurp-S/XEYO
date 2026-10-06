@@ -1,7 +1,6 @@
 import {useEffect, useRef} from 'react';
 import {apiUrl} from '@/lib/apiBase';
 import {useRemoteStore} from '@/stores/remoteStore';
-import {useSettingsStore} from '@/stores/settingsStore';
 
 /** SSE 推送：入站 / delta / status / outbound / state。已登录时替代高频 HTTP poll。 */
 export function RemoteSseClient() {
@@ -10,7 +9,6 @@ export function RemoteSseClient() {
 	);
 	const handleSse = useRemoteStore(s => s.handleSsePayload);
 	const setSseConnected = useRemoteStore(s => s.setSseConnected);
-	const remoteChannel = useSettingsStore(s => s.remoteChannel);
 
 	const handleRef = useRef(handleSse);
 	handleRef.current = handleSse;
@@ -32,11 +30,7 @@ export function RemoteSseClient() {
 				return;
 			}
 			es?.close();
-			const path =
-				remoteChannel === 'ilink'
-					? '/v1/ilink/events'
-					: '/v1/filehelper/events';
-			es = new EventSource(apiUrl(path));
+			es = new EventSource(apiUrl('/v1/ilink/events'));
 
 			es.addEventListener('open', () => {
 				setConnRef.current(true);
@@ -75,7 +69,7 @@ export function RemoteSseClient() {
 			}
 			es?.close();
 		};
-	}, [active, remoteChannel]);
+	}, [active]);
 
 	return null;
 }

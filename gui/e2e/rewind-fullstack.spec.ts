@@ -30,7 +30,7 @@ import {WS_DIR} from '../playwright.fullstack-rewind.config';
 // 读 XEYO_E2E_MOCK_PORT 让用户在 Windows 排除端口区间（8430-8529 含 8491），
 // 需用 9491+ 等空闲端口启动时不被写死。
 const MOCK_BASE = `http://127.0.0.1:${process.env.XEYO_E2E_MOCK_PORT || '8491'}/v1`;
-const COMPOSER = '描述任务… Enter 发送';
+const COMPOSER = '消息输入';
 
 const EDIT_BUBBLE = '编辑这条消息';
 const EDIT_TEXTAREA = '编辑历史消息';
@@ -59,7 +59,7 @@ test.beforeEach(async ({page}) => {
 });
 
 async function send(page: import('@playwright/test').Page, text: string) {
-	const composer = page.getByPlaceholder(COMPOSER);
+	const composer = page.getByLabel(COMPOSER);
 	await composer.click();
 	await composer.fill(text);
 	await composer.press('Enter');

@@ -6,7 +6,7 @@ import {
 	ShieldCheck,
 	X,
 } from 'lucide-react';
-import {useEffect, useMemo, useState} from 'react';
+import {useEffect, useMemo, useRef, useState} from 'react';
 
 import {
 	fetchMcpStatus,
@@ -15,6 +15,7 @@ import {
 	type McpStatusReport,
 } from '@/lib/api/mcp';
 import {openPageView} from '@/lib/appNav';
+import {popEscLayer, pushEscLayer} from '@/lib/escStack';
 import {cn} from '@/lib/utils';
 
 const STATUS_LABEL: Record<string, {label: string; cls: string}> = {
@@ -178,6 +179,26 @@ export function McpPanel({open, onClose}: {open: boolean; onClose: () => void}) 
 	const [query, setQuery] = useState('');
 	const [busy, setBusy] = useState<string | null>(null);
 	const [tick, setTick] = useState(0);
+	const rootRef = useRef<HTMLDivElement | null>(null);
+
+	// 关闭配对：Esc 走 escStack（流式中优先于「停止生成」层）+ 外点关闭；
+	// 同族弹层（审批模式/模型选择/＋菜单/任务角标/用量浮层）皆此形态。
+	useEffect(() => {
+		if (!open) {
+			return;
+		}
+		const onDocumentMouseDown = (event: MouseEvent) => {
+			if (!rootRef.current?.contains(event.target as Node)) {
+				onClose();
+			}
+		};
+		pushEscLayer('mcp-panel', onClose);
+		document.addEventListener('mousedown', onDocumentMouseDown);
+		return () => {
+			document.removeEventListener('mousedown', onDocumentMouseDown);
+			popEscLayer('mcp-panel');
+		};
+	}, [open, onClose]);
 
 	useEffect(() => {
 		if (!open) {
@@ -217,7 +238,10 @@ export function McpPanel({open, onClose}: {open: boolean; onClose: () => void}) 
 	}
 
 	return (
-		<div className="xy-menu-flyout absolute bottom-full left-0 z-[1000] mb-1.5 flex max-h-[min(60vh,540px)] w-[min(360px,calc(100vw-1rem))] flex-col overflow-hidden rounded-xl">
+		<div
+			ref={rootRef}
+			className="xy-menu-flyout absolute bottom-full left-0 z-[1000] mb-1.5 flex max-h-[min(60vh,540px)] w-[min(360px,calc(100vw-1rem))] flex-col overflow-hidden rounded-xl"
+		>
 			<div className="flex items-center gap-1.5 border-b border-line/40 p-1.5">
 				<button
 					type="button"

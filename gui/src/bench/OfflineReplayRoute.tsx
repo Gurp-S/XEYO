@@ -38,6 +38,8 @@ type ReplayApi = {
 	setStream: (text: string, status?: string) => void;
 	finish: () => void;
 	setSidebarOpen: (open: boolean) => void;
+	/** Local fixtures only: use the route's store instance, including after HMR. */
+	setMessages: (messages: ChatMessage[]) => void;
 };
 
 declare global {
@@ -137,6 +139,9 @@ function installReplay(fixture: ReplayFixture, extras: ReplayExtra[] = []) {
 		sessionId: fixture.sessionId,
 		streamText: fixture.streamText,
 		reset,
+		setMessages(messages) {
+			useChatStore.setState(s => ({messagesById: {...s.messagesById, [fixture.sessionId]: messages}}));
+		},
 			setStream(text, status = '本地离线回放') {
 				finished = false;
 				queuedStreamText = text;

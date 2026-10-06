@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import type {ReactNode} from 'react';
 import type {ContextMenuItem} from '@/components/ui/ContextMenu';
+import {useTextFade} from '@/hooks/useTextFade';
 import {promptDialog} from '@/lib/inlineDialog';
 import {formatRelativeShort} from '@/lib/time';
 import {cn} from '@/lib/utils';
@@ -41,6 +42,7 @@ export function SessionRow({
 	onMenu: (e: React.MouseEvent) => void;
 	affordanceTitle: string;
 }) {
+	const titleFadeRef = useTextFade<HTMLSpanElement>(session.title);
 	return (
 		<li
 			className='group/item relative'
@@ -71,8 +73,9 @@ export function SessionRow({
 					aria-hidden='true'
 				/>
 				<span
+					ref={titleFadeRef}
 					className={cn(
-						'min-w-0 flex-1 truncate',
+						'xy-session-title min-w-0 flex-1 truncate',
 						session.archived && 'text-mute',
 					)}
 					title={peerLabel ? `${session.title} · 也在改 ${peerLabel}` : session.title}

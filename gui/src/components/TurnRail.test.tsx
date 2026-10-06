@@ -9,6 +9,10 @@ function makeItems(n: number): TurnRailItem[] {
 	}));
 }
 
+function openPanel(container: HTMLElement) {
+ act(() => {fireEvent.mouseEnter(container.querySelector('.xy-turn-rail')!); vi.advanceTimersByTime(200);});
+}
+
 describe('TurnRail', () => {
 	beforeEach(() => {
 		vi.useFakeTimers();
@@ -24,12 +28,13 @@ describe('TurnRail', () => {
 		expect(container.firstChild).toBeNull();
 	});
 
-	it('small sessions: full panel, no spacers (exact legacy DOM)', () => {
+	it('small sessions: opens the full panel without spacers', () => {
 		// 12 ≤ MAX_TICKS(15) 且 ≤ WINDOW_THRESHOLD(60)：idle 刻度 = 全部轮次。
 		const items = makeItems(12);
 		const {container} = render(
 			<TurnRail items={items} activeId={null} onJump={() => {}} />,
 		);
+		openPanel(container);
 		const rows = container.querySelectorAll('[data-rail-id]');
 		expect(rows).toHaveLength(items.length);
 		// 窗口化路径的 spacer 是 aria-hidden 的纯高度 div；非窗口路径不存在。
@@ -52,6 +57,7 @@ describe('TurnRail', () => {
 			container.querySelectorAll('[data-rail-tick]').length,
 		).toBeLessThanOrEqual(15);
 		// 挂载的行数有界（OVERSCAN×2 + 视口，jsdom clientHeight=0 → 12 行）。
+		openPanel(container);
 		const rows = container.querySelectorAll('[data-rail-id]');
 		expect(rows.length).toBeGreaterThan(0);
 		expect(rows.length).toBeLessThanOrEqual(20);
@@ -97,6 +103,7 @@ describe('TurnRail', () => {
 		const {container} = render(
 			<TurnRail items={items} activeId={null} onJump={onJump} />,
 		);
+		openPanel(container);
 		fireEvent.click(
 			container.querySelector('[data-rail-id="r7"]') as HTMLElement,
 		);
@@ -115,6 +122,7 @@ describe('TurnRail', () => {
 				badgeVersion={1}
 			/>,
 		);
+		openPanel(container);
 		const rows = container.querySelectorAll('[data-rail-id]');
 		// 只对挂载行回调，绝不全量调用（300 项若全扫会调 300 次）。
 		expect(getBadge.mock.calls.length).toBe(rows.length);
@@ -137,6 +145,7 @@ describe('TurnRail', () => {
 				badgeVersion={1}
 			/>,
 		);
+		openPanel(container);
 		expect(container.querySelector('.xy-turn-rail-badge')!.textContent).toBe(
 			'1/2',
 		);

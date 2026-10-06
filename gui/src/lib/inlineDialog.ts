@@ -4,6 +4,8 @@
  * 视觉与现有浮层同语言：glass-strong 表面 + line 描边 + 14px 圆角 + 浮层级阴影。
  */
 
+import {isImeComposing} from './ime';
+import {popEscLayer, pushEscLayer} from './escStack';
 import {cssDurationMs} from './motionDuration';
 
 export interface ConfirmDialogOptions {
@@ -211,12 +213,17 @@ function dismissCard(dlg: HTMLDialogElement, card: HTMLElement) {
 	}, cssDurationMs('fast'));
 }
 
-/** Esc 走原生 cancel 事件。 */
+/** Esc 走原生 cancel 事件；并自持 escStack 层（见下）。 */
 function bindCancel(dlg: HTMLDialogElement, onCancel: () => void) {
 	dlg.addEventListener('cancel', e => {
 		e.preventDefault();
 		onCancel();
 	});
+	// escStack 层：其他层在场时（流式 composer-stop、沉浸层等），窗口捕获阶段的
+	// preventDefault 会打掉原生 dialog 的 Esc=cancel ⇒ 弹窗必须自持一层，Esc 才归它
+	// （否则按 Esc 关的是下层——实测流式中重命名弹窗：回合被停、弹窗不关）。
+	pushEscLayer('inline-dialog', () => onCancel());
+	dlg.addEventListener('close', () => popEscLayer('inline-dialog'));
 }
 
 /** Enter 确认；焦点落在取消钮时交给按钮自身行为。 */
@@ -293,6 +300,10 @@ export function promptDialog(o: PromptDialogOptions): Promise<string | null> {
 		cancel.addEventListener('click', () => finish(null));
 		ok.addEventListener('click', confirm);
 		input.addEventListener('keydown', e => {
+			// IME 组词中的回车属于输入法：放行，不把半截组词当输入提交（与 Composer 同规）。
+			if (isImeComposing(e)) {
+				return;
+			}
 			if (e.key === 'Enter') {
 				e.preventDefault();
 				confirm();

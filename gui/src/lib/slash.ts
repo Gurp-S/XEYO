@@ -176,6 +176,31 @@ const SLASH_HINTS: Readonly<Record<string, string>> = {
 export const SKILL_GHOST_HINT = '请输入任务，技能将按其流程执行';
 
 /**
+ * 该命令的参数是否**必填**。判据取 registry 的 `usage` 文本约定：
+ * 命令名后第一段以 `<` 开头 = 必填，以 `[` 开头 = 可选（裸跑有默认行为）。
+ * 这张表和 handler 里的 `用法：…` 门禁同源，是命令表里唯一区分必填/可选的地方。
+ */
+export function argRequired(cmd: SlashCommand): boolean {
+	return cmd.usage.trim().replace(/^\/\S+\s*/, '').startsWith('<');
+}
+
+/**
+ * 只打了命令名、而该命令**要求**参数。Enter 用它决定"不执行、不发送、草稿留在
+ * 输入框"——判据来自命令表，覆盖所有要求参数的命令，不点名某一个。
+ * 可选参数的命令（`/usage`、`/ls`、`/transcript` 等）不拦：它们裸跑就有默认行为。
+ */
+export function needsArgument(text: string): boolean {
+	const probe = parseSlashInput(text);
+	if (!probe.isSlash || probe.command === undefined) {
+		return false;
+	}
+	if (probe.arg.trim() !== '') {
+		return false;
+	}
+	return argRequired(probe.command);
+}
+
+/**
  * ghost hint 判定（claim 语义的纯函数化）：
  * 首个词元必须是整段输入的开头（claim = 草稿起点）、精确命中 GUI 命令或技能名、
  * 且其后参数为空白（仅有换行/空格也算未输入）。前缀匹配（输入 "/goa" 中途）不显示。

@@ -11,6 +11,7 @@ import type {ChatStreamHandlers} from '@/lib/api';
 import {sessionScopedStreamHandlers} from './sessionScopedStreamHandlers';
 import {
 	interruptChat,
+	loadServerSessionMessages,
 	streamChat,
 } from '@/lib/api';
 import {normalizeSessionGoalState} from '@/lib/api/goals';
@@ -102,7 +103,11 @@ import {
 	titleFromText,
 	todosWithUnfinished,
 } from './streamHelpers';
-import {createStreamRecoverySlice, recoverAfterDisconnect} from './streamRecoverySlice';
+import {
+	createStreamRecoverySlice,
+	finalizeFinishedTurn,
+	recoverAfterDisconnect,
+} from './streamRecoverySlice';
 import {createStreamPersistence} from './streamPersistence';
 import {createUsageAccumulator} from './usageAccumulator';
 import {createStreamDrain} from './streamDrain';
@@ -315,7 +320,7 @@ export function createStreamSendSlice(
 					},
 					onDone() {
 						markQueueAccepted();
-						queueUsage.flush();
+						queueUsage.finish();
 						// stopGeneration 已在 abort 时提交尾部、把未决工具标成
 						// waiting 并显示“已停止”；不要用流回调覆盖它的收尾状态。
 						if (queueAbort.signal.aborted) queueProjection.onAbort();
@@ -345,7 +350,7 @@ export function createStreamSendSlice(
 						if (queueAccepted) {
 							persistAcceptedUserMessage();
 							set(sessionErrorBannerPatch(sessionId, message));
-							queueUsage.flush();
+							queueUsage.finish();
 							if (details?.kind === 'connection_lost') {
 								queueProjection.onConnectionLost();
 								void recoverAfterDisconnect(set, get, sessionId, qBackend)
@@ -406,7 +411,7 @@ export function createStreamSendSlice(
 						queueUsage.onUsage(event);
 						// 忙闲竞态流可能立刻被 Stop 清状态；先结算本次低频用量帧，
 						// 避免 accumulator 因 inactive 守卫丢掉尚未刷新的最后一笔。
-						queueUsage.flush();
+						queueUsage.finish();
 					},
 					onCompression(event) {
 						markQueueAccepted();
@@ -511,7 +516,9 @@ export function createStreamSendSlice(
 						// 与普通 inbox 状态区分：这条在本轮边界送达。
 						// 不建 inbox 卡——引导路径没有 queue_id，卡删不掉；乐观气泡
 						// 本身就是指示物。
-						toast.info('已排到本轮边界，模型下一步就能看到');
+						// 措辞只说事实：有边界就此刻投递，本轮已无边界时由 settle
+						// 兜底在回合结束后投递（server/steer_settle_fallback）。
+						toast.info('已受理：最早在下个边界投递，最迟回合结束后投递');
 					},
 					onSteerDelivered({messageIds}: {messageIds: string[]}) {
 						markQueueAccepted();
@@ -657,6 +664,8 @@ export function createStreamSendSlice(
 
 		const abort = new AbortController();
 		let settled = false;
+		// 本次流里被服务端记过洞（丢帧）⇒ 本地尾巴是缺段，收尾要改用 transcript。
+		let sawGap = false;
 		let retryStatusText: string | null = null;
 		// 乐观气泡被撤回 = 这条消息后端从未受理。此时 sendMessage 必须返回
 		// false，Composer 才会把草稿退回输入框（否则输入框已清空、气泡已撤回，
@@ -1255,6 +1264,7 @@ export function createStreamSendSlice(
 			patch: Partial<ChatState> = {},
 			opts?: {orphanMode?: 'waiting' | 'error'},
 		) => {
+			usage.finish();
 			/* 先把已入队的 tool result settle 完，再清队列。 */
 			flushFrame({settle: true});
 			while (pendingTools.length > 0) {
@@ -1318,7 +1328,7 @@ export function createStreamSendSlice(
 		// provisional stream created by this send; a newer stream may own the slot.
 		const releaseQueueAcceptedStream = () => {
 			settled = true;
-			usage.flush();
+			usage.finish();
 			set(s => {
 				if (getSessionStream(s, sessionId!).abortRef !== abort) return s;
 				return {
@@ -1433,6 +1443,7 @@ export function createStreamSendSlice(
 		});
 
 		const flushPersistOnExit = () => {
+			usage.finish();
 			if (!get().sessions.some(s => s.id === sessionId)) {
 				return;
 			}
@@ -1633,7 +1644,9 @@ export function createStreamSendSlice(
 					multi.onMultiAgentStatus(ev);
 				},
 				onSteered() {
-					toast.info('已排到本轮边界，模型下一步就能看到');
+					// 措辞只说事实（与排队路径同口径）：有边界就此刻投递，
+					// 本轮已无边界时由 settle 兜底在回合结束后投递。
+					toast.info('已受理：最早在下个边界投递，最迟回合结束后投递');
 				},
 				onSteerDelivered({messageIds}) {
 					if (!sessionStillAlive()) {
@@ -1689,11 +1702,33 @@ export function createStreamSendSlice(
 					});
 					void get().refreshInbox(sessionId);
 				},
+				onStreamGap() {
+					// 服务端在这条连接上丢了帧 ⇒ 本地尾巴从此是缺段（契约见
+					// engine/turn_runner 的每连接额度与 stream_gap 帧）。
+					sawGap = true;
+				},
 				onDone() {
-					usage.flush();
+					usage.finish();
 					flushFrame({settle: true});
 					while (pendingTools.length > 0) {
 						flushFrame({settle: true});
+					}
+					if (sawGap && sessionStillAlive()) {
+						// 缺段绝不能当完整内容提交 ⇒ 改用服务端 transcript 收尾；
+						// 拉不到（网络/空集）再退回本地提交，不静默卡住。
+						void loadServerSessionMessages(backendSessionId).then(server => {
+							if (!sessionStillAlive() || server.length === 0) {
+								commitAssistant();
+								return;
+							}
+							finalizeFinishedTurn(
+								set,
+								sessionId,
+								server,
+								'本次流里有缺帧，内容已按服务端记录补齐',
+							);
+						});
+						return;
 					}
 					const cur = get();
 					const stream = getSessionStream(cur, sessionId);
@@ -1718,7 +1753,7 @@ export function createStreamSendSlice(
 					if (settled) {
 						return;
 					}
-					usage.flush();
+					usage.finish();
 					flushFrame();
 					settled = true;
 					if (!sessionStillAlive()) {
