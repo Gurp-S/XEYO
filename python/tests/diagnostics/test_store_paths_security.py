@@ -130,14 +130,14 @@ def test_router_rejects_traversal_ids(client, dig_root, tmp_path) -> None:
 	victim = tmp_path / "victim.json"
 	victim.write_text('{"keep":1}', encoding="utf-8")
 	res = client.delete(
-		"/v1/diagnostics/pins/" + str(victim.with_suffix("")), params={"session_id": "s1"}
+		"/v1/diagnostics/pins/..%5C..%5Cvictim", params={"session_id": "s1"}
 	)
 	assert res.status_code == 422
 	assert victim.is_file()
 
 	foreign = tmp_path / "package.json"
 	foreign.write_text('{"name":"gui"}', encoding="utf-8")
-	res = client.get("/v1/diagnostics/reports/" + str(foreign.with_suffix("")))
+	res = client.get("/v1/diagnostics/reports/..%5C..%5Cpackage")
 	assert res.status_code == 422
 	assert "gui" not in res.text
 

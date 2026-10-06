@@ -84,13 +84,12 @@ def test_resolve_profile_empty_name_returns_base() -> None:
 
 
 def test_cli_profile_option_exposed() -> None:
-	from typer.testing import CliRunner
-
+	from typer.main import get_command
 	from cli.main import app
 
-	res = CliRunner().invoke(app, ["chat", "--help"])
-	assert res.exit_code == 0
-	assert "--profile" in (res.stdout or "")
+	command = get_command(app)
+	chat = command.commands["chat"]
+	assert any("--profile" in param.opts for param in chat.params)
 
 
 # ---------------------------------------------------------------------------

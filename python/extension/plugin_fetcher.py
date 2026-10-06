@@ -25,7 +25,7 @@ import re
 import shutil
 import subprocess
 import uuid
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any
 
 from common.child_text import decode_child_output
@@ -176,12 +176,15 @@ def _confined_plugin_dir(root: Path, name: str) -> Path:
 	字符集 ``[a-zA-Z0-9_.-]`` 放行 ``..``，``plugins_root/..`` 正是工作区的 ``.xeyo``
 	整体 —— 不校验落点就有一个任意目录删除原语。与 ``remove_plugin`` 同一条判据。
 	"""
+	windows_name = PureWindowsPath(name)
 	target = root / name
 	resolved_root = root.resolve()
 	resolved = target.resolve()
 	if (
 		not name
 		or Path(name).name != name
+		or windows_name.name != name
+		or windows_name.drive
 		or not name.strip(".")
 		or resolved == resolved_root
 		or resolved.parent != resolved_root

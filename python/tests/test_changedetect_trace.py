@@ -56,6 +56,29 @@ def test_trace_check_against_committed_golden_passes():
     assert changes == [], f"L1 golden 漂移：{[c['name'] for c in changes]}"
 
 
+def test_canon_normalizes_host_specific_runtime_facts():
+    from evals.changedetect.canon import canon_text
+
+    windows = (
+        "当前时间: 2026-10-07 10:20:30 +0800\n"
+        '<system-reminder key="env_facts">\n'
+        "[引擎实测] 本节由 XEYO 运行时在本地执行环境采集，非用户消息；其中的路径、任务号、时间戳均为本机可核对值。\n"
+        "shell: pwsh 7.6.6 | elevated: false | tz: +0800 中国标准时间\n"
+        "</system-reminder>"
+    )
+    linux = (
+        "当前时间: 2026-10-07 02:20:30 +0000\n"
+        '<system-reminder key="env_facts">\n'
+        "[引擎实测] 本节由 XEYO 运行时在本地执行环境采集，非用户消息；其中的路径、任务号、时间戳均为本机可核对值。\n"
+        "shell: sh (version unavailable) | elevated: false | tz: +0000 UTC | desktop: false\n"
+        "</system-reminder>"
+    )
+
+    assert canon_text(windows) == canon_text(linux)
+    assert "当前时间: <TS> <TZ>" in canon_text(windows)
+    assert "<ENV_FACTS>" in canon_text(windows)
+
+
 def test_compliance_r2_minimal_branch_flagged():
     from evals.changedetect import compliance
     diff = (

@@ -42,8 +42,9 @@ def test_isolated_clean_run(tmp_path) -> None:
     # 机制本身（结构化复制/ISO_DIR/清单/退出码）用后续断言验证。
     _seed(tmp_path)
     tool = _tool(tmp_path)
+    invoke = f'& "{PY}"' if sys.platform == "win32" else f'"{PY}"'
     out = tool.call(BashInput(
-        command=f'& "{PY}" src/main.py && ls',
+        command=f'{invoke} src/main.py && ls',
         run_isolated=True,
         isolation_inputs=["src/main.py"],
     ), cwd=str(tmp_path))
@@ -61,9 +62,10 @@ def test_isolated_clean_run(tmp_path) -> None:
 def test_isolated_missing_dependency_fails_honestly(tmp_path) -> None:
     _seed(tmp_path)
     tool = _tool(tmp_path)
+    invoke = f'& "{PY}"' if sys.platform == "win32" else f'"{PY}"'
     # main.py 依赖 data.txt，但净室只声明了 main.py → 如实失败
     out = tool.call(BashInput(
-        command=f'& "{PY}" src/main.py && cat data.txt',
+        command=f'{invoke} src/main.py && cat data.txt',
         run_isolated=True,
         isolation_inputs=["src/main.py"],
     ), cwd=str(tmp_path))

@@ -12,7 +12,6 @@
 
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 
@@ -26,18 +25,16 @@ def test_to_container_path_strips_windows_drive() -> None:
 
 	assert to_container_path("/app/src") == "/app/src"
 	assert to_container_path(r"\app\src") == "/app/src"
-	if os.name == "nt":
-		# 工具层 abspath 的产物：D:\app\src → /app/src（否则容器里必然找不到）
-		assert to_container_path(r"D:\app\src") == "/app/src"
-		assert to_container_path("D:/app/x.py") == "/app/x.py"
+	# 无论测试跑在哪种宿主上，容器路径都必须归一为 POSIX 形态。
+	assert to_container_path(r"D:\app\src") == "/app/src"
+	assert to_container_path("D:/app/x.py") == "/app/x.py"
 
 
 def test_host_shaped_to_container_never_mangles_regex() -> None:
 	"""只认驱动器绝对路径：正则里的 \\b / \\d 必须原样保留。"""
 	from tools.container_fs import _host_shaped_to_container as fix
 
-	if os.name == "nt":
-		assert fix(r"D:\app\src") == "/app/src"
+	assert fix(r"D:\app\src") == "/app/src"
 	assert fix(r"\bPASSWORD\b") == r"\bPASSWORD\b"
 	assert fix(r"\bfoo\b.*\d+") == r"\bfoo\b.*\d+"
 	assert fix("a\\b") == "a\\b"

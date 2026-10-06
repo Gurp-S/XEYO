@@ -160,11 +160,12 @@ def to_container_path(path: object) -> str:
 	``_host_shaped_to_container`` 用更保守的规则处理）。
 	"""
 	raw = str(path)
-	if os.name == "nt":
-		raw = raw.replace("\\", "/")
-		match = re.match(r"^[A-Za-z]:(/.*)$", raw)
-		if match:
-			raw = "/" + match.group(1).lstrip("/")
+	# This function handles paths destined for a POSIX container, even when a
+	# test or remote client supplies a Windows-shaped path on a POSIX host.
+	raw = raw.replace("\\", "/")
+	match = re.match(r"^[A-Za-z]:(/.*)$", raw)
+	if match:
+		raw = "/" + match.group(1).lstrip("/")
 	return raw
 
 

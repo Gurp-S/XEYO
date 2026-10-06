@@ -307,12 +307,13 @@ def test_escalate_concedes_after_n(tmp_path: Path) -> None:
 	(tmp_path / "a.py").write_text("hello-phase2\n", encoding="utf-8")
 	_write_policy(tmp_path, '{"bash":"default","bash_escalate":3}')
 	reg = build_default_registry(cwd=str(tmp_path))
+	read_command = "type a.py" if os.name == "nt" else "cat a.py"
 	results = []
 	for _ in range(4):
 		results.append(
 			asyncio.run(
 				reg.run(
-					ToolUse(id="t1", name="Bash", input={"command": "type a.py"}),
+					ToolUse(id="t1", name="Bash", input={"command": read_command}),
 					AbortController(),
 				)
 			)

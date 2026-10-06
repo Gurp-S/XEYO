@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -106,7 +107,12 @@ class TestLocalTscResolution:
 		if with_tsc:
 			bin_dir = ws / "node_modules" / ".bin"
 			bin_dir.mkdir(parents=True)
-			(bin_dir / "tsc.cmd").write_text("@echo off\n", encoding="utf-8")
+			if os.name == "nt":
+				(bin_dir / "tsc.cmd").write_text("@echo off\n", encoding="utf-8")
+			else:
+				tsc = bin_dir / "tsc"
+				tsc.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+				tsc.chmod(0o755)
 		return ws, target
 
 	def test_uses_local_tsc_when_global_missing(
@@ -327,4 +333,3 @@ class TestRuffPayloadShape:
 		assert "a.py:1:1: error: F401 unused" == out[0]
 		assert "1 of 2 ruff entries could not be read" in out[1]
 		assert ": note:" in out[1]
-

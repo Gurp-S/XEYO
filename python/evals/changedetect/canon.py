@@ -71,6 +71,12 @@ def _path_rules() -> list[tuple[str, str]]:
 
 _PATH_RULES: list[tuple[str, str]] = _path_rules()
 
+_ENV_FACT_LINE = re.compile(
+    r'(<system-reminder key="env_facts">\n.*?\n)[^\n]*(\n</system-reminder>)',
+    re.DOTALL,
+)
+_TIMEZONE_SUFFIX = re.compile(r"(当前时间: <TS> )[+-]\d{4}\b")
+
 #: 运行时追加的字面量替换（按调用顺序；前驱的"更具体"项优先）。
 _EXTRA_RULES: list[tuple[str, str]] = []
 
@@ -101,6 +107,11 @@ def scrub(text: str) -> str:
             out = out.replace(needle, placeholder)
     for pat, placeholder in _VOLATILE:
         out = pat.sub(placeholder, out)
+    # Environment facts are real runtime values, so their presence is part of
+    # the trace. Their host-specific values (shell, timezone, desktop) cannot
+    # be compared across Windows and Linux CI runners.
+    out = _ENV_FACT_LINE.sub(r"\1<ENV_FACTS>\2", out)
+    out = _TIMEZONE_SUFFIX.sub(r"\1<TZ>", out)
     return out
 
 

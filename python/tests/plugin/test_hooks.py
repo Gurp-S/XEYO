@@ -1,6 +1,7 @@
 """hooks：三分结果 / abort 短路 / 上下文块注入 / 开关 fail-closed / 归类。"""
 
 import json
+import os
 from pathlib import Path
 
 from extension.hooks import _outcome_for, run_event_hooks
@@ -31,7 +32,15 @@ def _setup(tmp, name="demo", *, hooks=None, master=True) -> Path:
 
 def _cmds(plug: Path, body: str, name="hook.cmd") -> Path:
 	p = plug / name
-	p.write_text(body, encoding="utf-8")
+	if os.name == "nt":
+		p.write_text(body, encoding="utf-8")
+	else:
+		lines = [line.strip() for line in body.splitlines()]
+		message = next(line[5:] for line in lines if line.lower().startswith("echo "))
+		exit_line = next(line for line in lines if line.lower().startswith("exit /b "))
+		exit_code = exit_line.rsplit(" ", 1)[1]
+		p.write_text(f"#!/bin/sh\necho {message}\nexit {exit_code}\n", encoding="utf-8")
+		p.chmod(0o755)
 	return p
 
 

@@ -94,7 +94,7 @@ def test_containment_guard_survives_a_forged_manifest_name(tmp_path, monkeypatch
 	assert (canary / "keepme.txt").is_file()
 
 
-@pytest.mark.parametrize("bad", ["..", ".", "a/b", r"C:\Windows"])
+@pytest.mark.parametrize("bad", ["..", ".", "a/b", r"C:\Windows", "C:"])
 def test_copy_install_refuses_unsafe_destination(tmp_path, monkeypatch, bad):
 	"""断言错因：同名冲突也是 PluginError，不能靠它蒙过落点校验。"""
 	ws = _ws(tmp_path)
