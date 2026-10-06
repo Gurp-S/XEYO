@@ -62,6 +62,39 @@ def _read_raw_bytes(path: str) -> bytes:
 		return f.read()
 
 
+class UndecodableFileError(ValueError):
+	"""正文无法逐字节无损还原时的拒读。
+
+	读侧一旦用 ``errors="replace"``，解不出的字节就变成 ``\\ufffd``，而 Edit 是整文件
+	写回 ⇒ 模型改一行 ASCII 就把用户的中文正文重写掉，回执还报 success。拒读把"看不清"
+	如实交回调用方，不伪装成"这个文件没有内容"。
+	"""
+
+
+#: 与 ``common/child_text._CODECS`` 同口径（utf-8 → gbk → cp1252）。这里比子进程输出
+#: 多一道要求：解码结果必须能编码回**同一串字节**——"能解码"不等于"不丢数据"。
+#: utf-16-le 走上面 BOM 分支；utf-16-be / UTF-32 / 其它码页一律拒读（写回补不回 BOM）。
+_ROUNDTRIP_CODECS = ("utf-8", "gbk", "cp1252")
+
+
+def _decode_roundtrip(data: bytes, path: str) -> tuple[str, str]:
+	nul = data.find(b"\x00")
+	if nul != -1:
+		raise UndecodableFileError(
+			f"cannot read {path}: NUL byte at offset {nul} (binary)"
+		)
+	for codec in _ROUNDTRIP_CODECS:
+		try:
+			text = data.decode(codec)
+		except UnicodeDecodeError:
+			continue
+		if text.encode(codec) == data:
+			return text, codec
+	raise UndecodableFileError(
+		f"cannot read {path}: none of {'/'.join(_ROUNDTRIP_CODECS)} round-trips the bytes"
+	)
+
+
 def read_text_file(path: str) -> tuple[str, LineEnding, str]:
 	"""
 	读取文本文件。
@@ -69,9 +102,11 @@ def read_text_file(path: str) -> tuple[str, LineEnding, str]:
 
 	容器路由（2026-09-16）：工作面在容器里时读容器——本函数是 Read / Edit /
 	Write / NotebookEdit 的**共用汇聚点**，在此接线四处同时生效。
+
+	编码（2026-10-03）：只接受能逐字节还原的解码；解不出抛
+	``UndecodableFileError``，由各工具转成 ``is_error`` 回执，绝不写替换符。
 	"""
 	data = _read_raw_bytes(path)
-	encoding = "utf-8"
 	if len(data) >= 2 and data[0] == 0xFF and data[1] == 0xFE:
 		encoding = "utf-16-le"
 		text = data.decode("utf-16-le")
@@ -80,9 +115,14 @@ def read_text_file(path: str) -> tuple[str, LineEnding, str]:
 		if text.startswith("\ufeff"):
 			text = text[1:]
 	else:
-		text = data.decode("utf-8", errors="replace")
+		text, encoding = _decode_roundtrip(data, path)
 		if text.startswith("\ufeff"):
 			text = text[1:]
+			# BOM 是**文件的属性**，不是正文：报成 utf-8-sig，写回时由编码器补回来
+			# ——与上面 utf-16-le 分支同一口径。此前这里只报 "utf-8"，而 Edit 是
+			# 整文件写回 ⇒ 模型改一行 ASCII 就把用户文件的 BOM 剥掉；PowerShell 5.1
+			# 与 Excel 在没有 BOM 时会按 ANSI 解读，中文列名直接看成乱码。
+			encoding = "utf-8-sig"
 	endings = detect_line_endings(text)
 	return normalize_newlines(text), endings, encoding
 
@@ -108,7 +148,10 @@ def write_text_file(
 	if encoding == "utf-16-le":
 		payload = b"\xff\xfe" + to_write.encode("utf-16-le")
 	else:
-		payload = to_write.encode(encoding, errors="replace")
+		# 严格编码：正文里有该码页表示不了的字符（如往 GBK 文件里塞 emoji）时抛
+		# UnicodeEncodeError，由工具转成 is_error 回执。此前这里是
+		# ``errors="replace"`` ⇒ 静默把字符写成 ``?`` 并报成功。
+		payload = to_write.encode(encoding)
 	if _routed_container():
 		from tools.container_fs import write_bytes
 
@@ -118,12 +161,10 @@ def write_text_file(
 	parent = os.path.dirname(path)
 	if parent:
 		os.makedirs(parent, exist_ok=True)
-	if encoding == "utf-16-le":
-		with open(path, "wb") as f:
-			f.write(payload)
-		return
-	with open(path, "w", encoding=encoding, newline="") as f:
-		f.write(to_write)
+	# 字节先编好再开文件：`open(path, "w")` 会先截断目标，正文里若有该码页表示不了
+	# 的字符，抛错时用户文件已被清成空文件。
+	with open(path, "wb") as f:
+		f.write(payload)
 
 
 def add_line_numbers(content: str, *, start_line: int = 1) -> str:
@@ -153,11 +194,22 @@ def normalize_quotes(s: str) -> str:
 def find_actual_string(file_content: str, search_string: str) -> str | None:
 	if search_string in file_content:
 		return search_string
-	normalized_search = normalize_quotes(search_string)
+	# old_string 的行尾形态可能与磁盘正文不一致（file_content 是 read_text_file
+	# 的 LF 归一契约；模型侧可能带 \r\n）⇒ 先按 LF 归一找一遍，回取文件里的真实
+	# 片段。弯引号归一在同一条链上做（否则"CRLF + 弯引号"的输入仍报 not found）。
+	lf_search = normalize_newlines(search_string)
+	candidates = (
+		(search_string, lf_search) if lf_search != search_string else (search_string,)
+	)
+	for cand in candidates:
+		idx = file_content.find(cand)
+		if idx != -1:
+			return file_content[idx : idx + len(cand)]
+	normalized_search = normalize_quotes(lf_search)
 	normalized_file = normalize_quotes(file_content)
 	idx = normalized_file.find(normalized_search)
 	if idx != -1:
-		return file_content[idx : idx + len(search_string)]
+		return file_content[idx : idx + len(normalized_search)]
 	return None
 
 

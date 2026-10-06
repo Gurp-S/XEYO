@@ -84,6 +84,10 @@ function serializeInline(node: Node): string {
 	if (tag === 'A') {
 		const href = el.getAttribute('href') || '';
 		const text = serializeInlineChildren(el);
+		const title = el.getAttribute('title');
+		if (title) {
+			return `[${text}](${href} "${title.replace(/"/g, '\\"')}")`;
+		}
 		return `[${text}](${href})`;
 	}
 	if (tag === 'IMG') {

@@ -13,6 +13,7 @@ from typing import Any
 from engine.abort import AbortController
 from permissions import filesystem
 from tools.base_tool import ToolResult
+from tools.error_taxonomy import INVALID_ARGUMENT, PERMISSION_DENIED
 from tools.diagnostics_tool.prompt import DESCRIPTION, DIAGNOSTICS_TOOL_NAME
 
 # 与 engine.compact.MAX_TOOL_RESULT_CHARS 对齐，避免白做。
@@ -81,6 +82,7 @@ class DiagnosticsTool:
 					"(e.g. path=src/foo.py). Whole-workspace scans are not allowed."
 				),
 				is_error=True,
+				error_kind=INVALID_ARGUMENT,
 			)
 		lang = str(raw.get("language") or "auto").strip().lower() or "auto"
 		if lang not in ("auto", "python", "typescript", "javascript"):
@@ -88,7 +90,7 @@ class DiagnosticsTool:
 
 		target = filesystem.expand_to_abs(path_raw, cwd=self._cwd)
 		if not self.check_permissions({"path": target}):
-			return ToolResult(content="permission denied", is_error=True)
+			return ToolResult(content="permission denied", is_error=True, error_kind=PERMISSION_DENIED)
 
 		if not os.path.exists(target):
 			return ToolResult(content=f"path not found: {target}", is_error=True)

@@ -59,13 +59,17 @@ def list_notes(
 def manual_compact(body: CompactBody) -> dict[str, Any]:
 	"""手动 /compact：强制 C2 投影游标前进；不改 JSONL。"""
 	from memory.runtime import force_compact
+	from session.compression_source import compression_messages
+	from memory.wsc_source_transition import prepare_compression_source
 	from memory.working import flush
 
 	engine = _pool.get_if_present(body.session_id)
 	if engine is None:
 		raise HTTPException(status_code=404, detail="session not found")
 	session = engine._session  # noqa: SLF001
-	msgs = session.messages.as_api_messages()
+	compact_cwd = getattr(_pool, "session_cwd", lambda sid: None)(body.session_id) or _cwd()
+	prepare_compression_source(session.messages, session.working, cwd=compact_cwd, fold=False)
+	msgs = compression_messages(session.messages, session.working)
 	if len(msgs) < 4:
 		return {
 			"ok": False,
@@ -73,7 +77,7 @@ def manual_compact(body: CompactBody) -> dict[str, Any]:
 			"compact_cursor": session.working.compact_cursor,
 		}
 	before = int(session.working.compact_cursor or 0)
-	force_compact(msgs, session.working)
+	force_compact(msgs, session.working, cwd=compact_cwd)
 	flush(session.session_id, session.working)
 	after = int(session.working.compact_cursor or 0)
 	preview = (session.working.c2_summary_text or "")[:240]

@@ -244,6 +244,8 @@ def memory_report_view(request: Request) -> Any:
 
 #: 每天下发哪些标量：只取 detail 里的数字字段。``ledger_dir`` 是服务端绝对路径，
 #: 界面用不上（文件路径另由 ``source.path`` 给），故不带。
+#: ``cost_unknown_requests`` 与 ``cost_cny`` 成对下发：前者是该日无价目行数，
+#: >0 时界面把金额标成「部分未知」（没有它，前端无从区分「就是 0」与「缺价」）。
 _A3_SUMMARY_FIELDS = (
 	"requests",
 	"prompt_tokens",
@@ -253,6 +255,7 @@ _A3_SUMMARY_FIELDS = (
 	"c2_count",
 	"output",
 	"cost_cny",
+	"cost_unknown_requests",
 )
 
 #: ``?day=`` 的取值形态：报告按本地日 upsert，日就是 ``YYYY-MM-DD``。固定正则而不是

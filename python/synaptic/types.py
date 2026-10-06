@@ -67,6 +67,10 @@ class Node:
 	read_only: bool = False  # 只读且可安全重放（Read/Grep/Glob 及只读 Bash）
 	ts: float = 0.0
 	refs: tuple[str, ...] = ()  # 触碰的文件路径（归一化后）
+	#: 调用参数里点名的路径（**身份位**）：Read 的 file_path、Edit 的 path……
+	#: 与 ``refs`` 的差别是语义不是去重——卡面 target 只认这里；输出正文里
+	#: "提到"的路径不许冒充"被操作的文件"（现场：读 Sidebar.tsx 的卡标 ux-loaders.css）。
+	arg_paths: tuple[str, ...] = ()
 	symbols: tuple[str, ...] = ()  # 触碰的符号（用于语义邻接的弱启发式）
 	error_sig: str = ""  # 错误签名（异常类 / 首行关键片段）
 	replay_cmd: str = ""  # 可重放命令（只读工具才有）
@@ -128,7 +132,8 @@ class PruneCard:
 
 	@property
 	def handle(self) -> str:
-		return f"branch://{self.card_id}"
+		from synaptic.group_reference import group_reference
+		return group_reference(self.nodes)
 
 
 @dataclass(frozen=True)
@@ -215,6 +220,8 @@ class WscParams:
 	# 永不重排 ⇒ 整段投影逐轮单调 ⇒ LCP = 上一轮全长。代价是日志会变胖，
 	# 达阈值时只做逻辑换头：追加新头与旧头句柄，不改写已发前缀。
 	journal_layout: bool = True
+	# 旁路：达到原有增长阈值时收回旧行，保留已归档旧头的稳定引用。
+	journal_rebase: bool = False
 	# 重冻结阈值：距上次冻结累计追加了多少 token 就重冻结一次。
 	# 太小 → 频繁追加换头记录；太大 → 日志臃肿（token 变多）。
 	#
@@ -389,6 +396,7 @@ class WscParams:
 			churn_warn_rate=self.churn_warn_rate,
 			churn_min_obs=self.churn_min_obs,
 			journal_layout=self.journal_layout,
+			journal_rebase=self.journal_rebase,
 			request_excerpt_chars=self.request_excerpt_chars,
 			# P1-a / P1-b / P0-1 的行为参数必须**显式透传**。
 			# 漏传时 dataclass 会静默回落到默认值：若默认值恰好相同就毫无症状，

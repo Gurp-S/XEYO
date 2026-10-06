@@ -253,7 +253,7 @@ export const slashCommands: SlashCommand[] = [
 		usage: "/ls [dir]",
 		aliases: ["dir", "列目录"],
 		arg_spec: "dir",
-		surfaces: ["gui", "cli"],
+		surfaces: ["gui", "cli", "tui"],
 		when: "idle",
 	},
 	{
@@ -290,6 +290,17 @@ export const slashCommands: SlashCommand[] = [
 		when: "always",
 	},
 	{
+		name: "answer",
+		category: "control",
+		handler: "server",
+		summary: "回答一个挂起提问（AskUserQuestion）",
+		usage: "/answer <你的回答>",
+		aliases: ["回答", "答"],
+		arg_spec: "text",
+		surfaces: ["remote"],
+		when: "always",
+	},
+	{
 		name: "compact",
 		category: "memory",
 		handler: "server",
@@ -319,7 +330,7 @@ export const slashCommands: SlashCommand[] = [
 		usage: "/rule <条文>",
 		aliases: ["规则", "记住"],
 		arg_spec: "line",
-		surfaces: ["gui", "remote"],
+		surfaces: ["gui", "remote", "cli", "tui"],
 		when: "idle",
 	},
 	{
@@ -330,7 +341,7 @@ export const slashCommands: SlashCommand[] = [
 		usage: "/doctor",
 		aliases: ["体检", "检查规则"],
 		arg_spec: "",
-		surfaces: ["gui", "remote"],
+		surfaces: ["gui", "remote", "cli", "tui"],
 		when: "idle",
 	},
 	{
@@ -341,7 +352,7 @@ export const slashCommands: SlashCommand[] = [
 		usage: "/proposals",
 		aliases: ["提案", "规则提案"],
 		arg_spec: "",
-		surfaces: ["gui", "remote"],
+		surfaces: ["gui", "remote", "cli", "tui"],
 		when: "idle",
 	},
 	{

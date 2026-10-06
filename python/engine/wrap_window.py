@@ -17,14 +17,15 @@ contextvars；工具层据此把"会不会吃掉整个收尾窗"的决策（长�
 
 from __future__ import annotations
 
-from contextvars import ContextVar
+from contextvars import ContextVar, Token
 from dataclasses import dataclass
 
 __all__ = [
 	"WrapWindow",
-	"clear_wrap_window",
 	"in_wrap_window",
+	"reset_wrap_window",
 	"set_wrap_window",
+	"snapshot_wrap_window",
 	"wrap_remaining_s",
 	"wrap_state",
 ]
@@ -48,6 +49,24 @@ def set_wrap_window(active: bool, remaining_s: float | None = None) -> None:
 
 def clear_wrap_window() -> None:
 	_SLOT.set(_INACTIVE)
+
+
+def snapshot_wrap_window() -> "Token[WrapWindow]":
+	"""进入查询循环前调用：取一个恢复令牌（记录当前值）。
+
+	循环期间的 set/刷新在同一上下文内生效；退出时用 ``reset_wrap_window``
+	恢复进入前的值——嵌套循环（子 Agent 在同一 task 直接 await）因此把内层
+	状态还原成父上下文的值，而不是把内层状态留给父级。
+	"""
+	return _SLOT.set(_SLOT.get())
+
+
+def reset_wrap_window(token: "Token[WrapWindow]") -> None:
+	"""与 ``snapshot_wrap_window`` 配对；token 跨上下文失效时退化为清位。"""
+	try:
+		_SLOT.reset(token)
+	except ValueError:  # token 不属于当前上下文（跨 task 误用）——清位兜底
+		_SLOT.set(_INACTIVE)
 
 
 def wrap_state() -> WrapWindow:

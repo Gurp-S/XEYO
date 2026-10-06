@@ -62,7 +62,7 @@ def test_missing_package_is_planned_for_copy(tmp_path) -> None:
 
 def test_junk_and_loose_files_never_enter_the_plan(tmp_path) -> None:
 	src, dst = _layout(tmp_path, src_pkgs=["server"], dst_pkgs=[])
-	(src / ".xeyo_filehelper").mkdir()
+	(src / ".xeyo_ilink").mkdir()
 	(src / "tests").mkdir()
 	(src / "notes.txt").write_text("x", encoding="utf-8")
 	p = stp.plan(src, dst)

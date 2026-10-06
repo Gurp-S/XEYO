@@ -7,6 +7,7 @@ from typing import Any
 
 from engine.abort import AbortController
 from tools.base_tool import ToolResult
+from tools.error_taxonomy import INVALID_ARGUMENT
 from tools.git_tool.prompt import DESCRIPTION, GIT_TOOL_NAME, WRITE_REJECT
 
 _READ_ACTIONS = frozenset({"status", "log", "branches", "diff", "summary"})
@@ -70,7 +71,7 @@ class GitTool:
 		raw = input or {}
 		action = str(raw.get("action") or "").strip().lower()
 		if not action:
-			return ToolResult(content="action is required", is_error=True)
+			return ToolResult(content="action is required", is_error=True, error_kind=INVALID_ARGUMENT)
 		if action in _WRITE_ACTIONS or action not in _READ_ACTIONS:
 			return ToolResult(content=WRITE_REJECT, is_error=True)
 
@@ -139,6 +140,7 @@ class GitTool:
 				return ToolResult(
 					content="path is required for action=diff",
 					is_error=True,
+					error_kind=INVALID_ARGUMENT,
 				)
 			payload = await asyncio.to_thread(read_file_diff, self._cwd, path)
 			return ToolResult(content=_cap(_maybe_compact("diff", _format_diff(payload))))

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from channels.filehelper.commands import parse_command
+from channels.remote_commands import parse_command
 from channels.ilink.service import _run_command
 from permissions.store import default_permission_store
 

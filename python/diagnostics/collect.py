@@ -683,7 +683,7 @@ def _collect_working(run: RunEvidence, session_id: str) -> None:
 	try:
 		from memory.working import hydrate
 
-		snap = hydrate(session_id)
+		snap = hydrate(session_id, source_layout=None)
 	except Exception:  # noqa: BLE001 — 观测不可用只记缺项
 		run.windows.append(Window(source="working", complete=False, present=False, note="hydrate 失败：working 快照读不出来"))
 		run.add_gap("instruction_context", "read_failed", "working 快照不可读")

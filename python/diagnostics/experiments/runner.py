@@ -111,9 +111,7 @@ def _append_row(experiment_id: str, row: dict[str, Any]) -> None:
 	store.append_jsonl(results_path(experiment_id), row)
 
 
-# --------------------------------------------------------------------------
 # 计划与上下文
-# --------------------------------------------------------------------------
 
 
 def plan(
@@ -254,9 +252,7 @@ def default_context(
 	return context
 
 
-# --------------------------------------------------------------------------
 # 启动
-# --------------------------------------------------------------------------
 
 
 def start(
@@ -606,9 +602,7 @@ def _finish(
 	}
 
 
-# --------------------------------------------------------------------------
 # 读取 / 取消
-# --------------------------------------------------------------------------
 
 
 def read_rows(experiment_id: str) -> list[dict[str, Any]]:
@@ -713,9 +707,7 @@ def cancel(experiment_id: str, *, reason: str = "cancelled") -> dict[str, Any]:
 	return {"experiment_id": ident, "status": STATUS_CANCELLED, "kept_reservations": abandoned, "state": updated}
 
 
-# --------------------------------------------------------------------------
 # 报告
-# --------------------------------------------------------------------------
 
 
 _DIMENSIONS = ("task", "change", "behaviour", "context", "performance", "cost")

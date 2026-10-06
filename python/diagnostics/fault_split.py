@@ -87,6 +87,10 @@ _ENGINE_KINDS = {
 	"USER_INPUT_REQUIRED",
 	"FINALIZATION_RESTRICTED",
 	"ACTION_OUTCOME_UNKNOWN",
+	# 动作账本写不进去：失败的是我方记账子系统，既不是模型的参数错，也不是外部
+	# 基础设施（TRANSIENT_INFRA 说的是网络/磁盘那一类）。此前这个名字只以裸字符串
+	# 出现在 tools/tool_registry.py，不在任何集合里 ⇒ 这一格一直静默"归属未定"。
+	"ACTION_JOURNAL_UNAVAILABLE",
 	"UNKNOWN_TOOL",
 	"RESERVED_CHANNEL",
 }

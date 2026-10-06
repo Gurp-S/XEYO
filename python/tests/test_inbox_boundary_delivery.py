@@ -30,6 +30,13 @@ def _fresh_registry() -> InboxRegistry:
 	return InboxRegistry()
 
 
+@pytest.fixture
+def boundary_on(monkeypatch):
+	"""本文件测「边界声道」本身；该声道 2026-09-30 起默认关（对齐市面排队语义），
+	故用例显式打开——默认值由 ``test_boundary_channel_off_by_default`` 钉住。"""
+	monkeypatch.setenv("XEYO_INBOX_BOUNDARY", "1")
+
+
 def test_consume_for_boundary_takes_active_and_leaves_stuck() -> None:
 	reg = _fresh_registry()
 	reg.enqueue("s1", "第一条")
@@ -43,7 +50,7 @@ def test_consume_for_boundary_takes_active_and_leaves_stuck() -> None:
 	assert reg.consume_for_boundary("") == []
 
 
-def test_boundary_delivery_lands_in_store_and_clears_inbox(monkeypatch) -> None:
+def test_boundary_delivery_lands_in_store_and_clears_inbox(monkeypatch, boundary_on) -> None:
 	reg = _fresh_registry()
 	reg.enqueue("s1", "停一下，先回答我的问题", message_id="m1")
 	monkeypatch.setattr(t_now_inbox, "_registry", lambda: reg)
@@ -58,7 +65,7 @@ def test_boundary_delivery_lands_in_store_and_clears_inbox(monkeypatch) -> None:
 	assert reg.consume_for_boundary("s1") == []
 
 
-def test_boundary_delivery_idempotent_on_same_message_id(monkeypatch) -> None:
+def test_boundary_delivery_idempotent_on_same_message_id(monkeypatch, boundary_on) -> None:
 	reg = _fresh_registry()
 	reg.enqueue("s1", "再来一次", message_id="m2")
 	monkeypatch.setattr(t_now_inbox, "_registry", lambda: reg)
@@ -75,7 +82,7 @@ def test_boundary_delivery_idempotent_on_same_message_id(monkeypatch) -> None:
 	assert len(store.items) == 1
 
 
-def test_push_failure_restores_items_without_attempt_bump(monkeypatch) -> None:
+def test_push_failure_restores_items_without_attempt_bump(monkeypatch, boundary_on) -> None:
 	reg = _fresh_registry()
 	item = reg.enqueue("s1", "排队中", message_id="m3")
 	monkeypatch.setattr(t_now_inbox, "_registry", lambda: reg)
@@ -94,6 +101,22 @@ def test_boundary_channel_can_be_disabled(monkeypatch) -> None:
 	reg.enqueue("s1", "别投", message_id="m4")
 	monkeypatch.setattr(t_now_inbox, "_registry", lambda: reg)
 	monkeypatch.setenv("XEYO_INBOX_BOUNDARY", "0")
+
+	assert t_now_inbox.deliver_queued_users("s1", MessageStore()) == []
+	assert reg.peek("s1") is not None
+
+
+def test_boundary_channel_off_by_default(monkeypatch) -> None:
+	"""默认不中途投递（2026-09-30 对齐市面）：排队 = 回合结束后投递。
+
+	Codex 队列文案 ``Messages to be submitted at end of turn``（另有显式
+	``turn/steer``）、Claude Code 的统一命令队列只在 query idle 时消费。边界声道
+	默认关 ⇒ 排队消息留在 inbox 等 settle 排水；要中途注入用 Ctrl+Enter 引导。
+	"""
+	reg = _fresh_registry()
+	reg.enqueue("s1", "排队到回合结束后投递", message_id="m-default")
+	monkeypatch.setattr(t_now_inbox, "_registry", lambda: reg)
+	monkeypatch.delenv("XEYO_INBOX_BOUNDARY", raising=False)
 
 	assert t_now_inbox.deliver_queued_users("s1", MessageStore()) == []
 	assert reg.peek("s1") is not None

@@ -12,6 +12,8 @@
 
 from __future__ import annotations
 
+import math
+
 import asyncio
 import os
 import logging
@@ -55,6 +57,8 @@ def _tool_timeout_s() -> float | None:
 		value = float(raw)
 	except ValueError:
 		return 300.0
+	if not math.isfinite(value):
+		return 300.0
 	if value <= 0:
 		return None
 	return value
@@ -69,7 +73,7 @@ def _progress_interval_s() -> float:
 		value = float(raw)
 	except ValueError:
 		return 5.0
-	return max(0.0, value)
+	return max(0.0, value) if math.isfinite(value) else 5.0
 
 
 def is_concurrency_safe(registry: "ToolRegistry", name: str) -> bool:
@@ -135,6 +139,7 @@ async def _run_one_tool(
 	progress_q: asyncio.Queue[Any] | None = None,
 	result_q: asyncio.Queue[Any] | None = None,
 	lock: RWLock | None = None,
+	*, skip_ask: bool = False,
 ) -> ToolResult:
 	"""执行单个工具：局部 abort + 可选超时 + 可选进度心跳 + 读写锁（T2）。"""
 	from msgtypes.events import ToolProgressEvent
@@ -218,7 +223,7 @@ async def _run_one_tool(
 		)
 
 	try:
-		coro = registry.run(tu, local, coordinator=coordinator)
+		coro = registry.run(tu, local, coordinator=coordinator, **({"skip_ask": True} if skip_ask else {}))
 		if lock is not None:
 			# T2：并发安全工具共享读锁；不安全工具独占写锁（与分区判定同源）。
 			if is_concurrency_safe(registry, tu.name):

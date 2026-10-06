@@ -1,5 +1,6 @@
 import { Box, Text } from "ink";
 import React from "react";
+import { isPeerChoicePrompt } from "../lib/permissionPrompt.js";
 import { border, g, theme } from "../theme.js";
 import type { PermissionPrompt } from "../types.js";
 
@@ -11,6 +12,7 @@ type Props = {
 export function PermissionModal({ pending }: Props) {
   const t = theme();
   const gly = g();
+  const peer = isPeerChoicePrompt(pending);
   return (
     <Box
       flexDirection="column"
@@ -41,12 +43,15 @@ export function PermissionModal({ pending }: Props) {
           </Text>
           <Text color={t.muted}> deny</Text>
         </Text>
-        <Text>
-          <Text color={t.warning} bold>
-            r
+        {/* 「提醒」= 不执行 + 双方下轮各挂提醒（多会话冲突三选）；普通确认没有这一档。 */}
+        {peer ? (
+          <Text>
+            <Text color={t.warning} bold>
+              r
+            </Text>
+            <Text color={t.muted}> remind（不执行 · 双方下轮提醒）</Text>
           </Text>
-          <Text color={t.muted}> allow + remind</Text>
-        </Text>
+        ) : null}
         <Text color={t.muted}>
           esc / ctrl-c 取消等待（本轮已结束时只关闭弹窗）
         </Text>

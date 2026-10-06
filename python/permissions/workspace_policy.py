@@ -8,6 +8,8 @@ Agent 对策略文件本身不可写（由 policy 硬拒绝）。
 ``risk``/``never``/``allow`` 不得把用户更严的审批模式放宽为自动放行——
 放宽只能走用户侧（env / grant store / preset），仓库策略不再反客为主。
 坏文件（解析失败）一律回退收紧默认并记审计（T25 fail-closed）。
+键认得、值读不出（打错 / 类型错 / 形状错）与坏文件同向处理：收紧 + 出声，
+不静默回落缺省宽档。
 """
 
 from __future__ import annotations
@@ -56,8 +58,74 @@ class WorkspacePolicy:
 		return bool(self.source_path) and self.parse_error is None
 
 
-def _as_str_tuple(value: Any) -> tuple[str, ...]:
+def _unreadable_field(source: str | None, field: str, value: Any, *, action: str) -> None:
+	"""值读不出时的出口：error 日志 + 审计（与坏文件同级可见）。
+
+	坏文件走 ``_invalid_policy``（已带日志 + 审计）；单个键的值不合法过去是
+	静默回落，且回落方向常是宽档 —— 同一个 T25 意图不该有两种待遇。
+	"""
+	import logging
+
+	logging.getLogger(__name__).error(
+		"%s: field %r has unreadable value %r; %s",
+		POLICY_FILENAME,
+		field,
+		value,
+		action,
+	)
+	try:
+		from audit.log import default_audit_log
+
+		default_audit_log().record(
+			"policy.field_invalid",
+			path=source or "",
+			field=field,
+			value=str(value)[:120],
+			action=action,
+		)
+	except Exception:  # 审计故障不得影响策略解析
+		logging.getLogger(__name__).debug("policy.field_invalid audit failed", exc_info=True)
+
+
+def _mode(
+	raw: dict[str, Any],
+	field: str,
+	*,
+	known: frozenset[str],
+	absent: str,
+	source: str | None,
+) -> str:
+	"""枚举档位：键缺失 / 值为空 → ``absent``（缺省设计）；非空但认不出 → 收紧档 + 出声。
+
+	收紧档取 "ask"（每步都要用户批准）当该档集合里有 "ask" 时；否则 ``absent``
+	本身就是保守侧（如 bash_routing 的 "off"=不改道），只补可见性。
+	"""
+	value = raw.get(field)
+	if value is None:
+		return absent
+	text = str(value).strip().lower()
+	if not text:
+		return absent
+	if text in known:
+		return text
+	tighten = "ask" if "ask" in known else absent
+	_unreadable_field(source, field, value, action=f"fallback_{tighten}")
+	return tighten
+
+
+def _as_str_tuple(
+	value: Any, *, field: str = "", source: str | None = None
+) -> tuple[str, ...]:
+	if value is None:
+		return ()
+	if isinstance(value, str):
+		# 手写策略最常见的形状错：漏了方括号（"deny_tools": "Read"）。
+		# 过去整条丢弃 ⇒ T25「不静默丢 deny」被一个字符的形状错破掉。
+		s = value.strip()
+		return (s,) if s else ()
 	if not isinstance(value, list):
+		if field:
+			_unreadable_field(source, field, value, action="fallback_empty")
 		return ()
 	out: list[str] = []
 	for item in value:
@@ -67,43 +135,68 @@ def _as_str_tuple(value: Any) -> tuple[str, ...]:
 	return tuple(out)
 
 
+def _deny_unusable(raw: dict[str, Any]) -> str:
+	"""deny 清单写成既非字符串又非列表 ⇒ 返回原因串（可读写入却读不出）。
+
+	这类形状只能"丢掉整条 deny"，而丢 deny = 放宽；本文件的 T25 纪律是
+	「宁可多问，不静默丢 deny」⇒ 交给坏文件那一支（收紧 + 审计），不是静默放行。
+	"""
+	for field in ("deny_tools", "deny_commands"):
+		value = raw.get(field)
+		if value is None or isinstance(value, (str, list)):
+			continue
+		if str(value).strip() == "":
+			continue
+		return f"{field} is not a string or list (got {type(value).__name__})"
+	return ""
+
+
 def _normalize(raw: dict[str, Any], *, source: str | None) -> WorkspacePolicy:
-	bash = str(raw.get("bash") or "default").strip().lower()
-	if bash not in _BASH_MODES:
-		bash = "default"
-	remote_bash = str(raw.get("remote_bash") or "ask").strip().lower()
-	if remote_bash not in _REMOTE_BASH_MODES:
-		remote_bash = "ask"
-	write_raw = raw.get("write")
-	if write_raw is None:
-		write: str | None = "risk"
-	else:
-		write = str(write_raw).strip().lower()
-		if write not in _WRITE_MODES:
-			write = "risk"
+	bad_deny = _deny_unusable(raw)
+	if bad_deny and source is not None:
+		return _invalid_policy(Path(source), bad_deny)
+	bash = _mode(raw, "bash", known=_BASH_MODES, absent="default", source=source)
+	remote_bash = _mode(
+		raw, "remote_bash", known=_REMOTE_BASH_MODES, absent="ask", source=source
+	)
+	write = _mode(raw, "write", known=_WRITE_MODES, absent="risk", source=source)
 	mem = raw.get("bash_job_memory_mb")
 	mem_i: int | None
 	try:
 		mem_i = int(mem) if mem is not None and str(mem).strip() != "" else None
 	except (TypeError, ValueError):
 		mem_i = None
+		if mem is not None and str(mem).strip() != "":
+			# 带单位（"512MB"）/ 认不出的写法：限额照旧不设，但必须出声。
+			_unreadable_field(
+				source, "bash_job_memory_mb", mem, action="fallback_uncapped"
+			)
 	if mem_i is not None and mem_i < 64:
 		mem_i = 64
-	bash_routing = str(raw.get("bash_routing") or "off").strip().lower()
-	if bash_routing not in _BASH_ROUTING_MODES:
-		bash_routing = "off"
+	bash_routing = _mode(
+		raw, "bash_routing", known=_BASH_ROUTING_MODES, absent="off", source=source
+	)
 	esc_raw = raw.get("bash_escalate")
 	try:
 		esc = int(esc_raw) if esc_raw is not None and str(esc_raw).strip() != "" else 0
 	except (TypeError, ValueError):
 		esc = 0
+		if esc_raw is not None and str(esc_raw).strip() != "":
+			# 0=关是保守侧，值本身不改；但重复命中阈值读不出时必须出声。
+			_unreadable_field(source, "bash_escalate", esc_raw, action="fallback_off")
 	esc = max(0, min(BASH_ESCALATE_MAX, esc))
 	return WorkspacePolicy(
-		allowed_roots=_as_str_tuple(raw.get("allowed_roots")),
+		allowed_roots=_as_str_tuple(
+			raw.get("allowed_roots"), field="allowed_roots", source=source
+		),
 		bash=bash,
 		write=write,
-		deny_tools=_as_str_tuple(raw.get("deny_tools")),
-		deny_commands=_as_str_tuple(raw.get("deny_commands")),
+		deny_tools=_as_str_tuple(
+			raw.get("deny_tools"), field="deny_tools", source=source
+		),
+		deny_commands=_as_str_tuple(
+			raw.get("deny_commands"), field="deny_commands", source=source
+		),
 		remote_bash=remote_bash,
 		bash_job_memory_mb=mem_i,
 		bash_routing=bash_routing,

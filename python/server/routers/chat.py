@@ -251,7 +251,7 @@ async def _busy_or_queue(
 			# 2026-09-05 修正：超长不再静默截断，明确 413（用户可拆分重发）。
 			raise api_error(413, str(e), "inbox_text_too_long") from e
 		except InboxPersistenceError as e:
-			raise api_error(503, "inbox state could not be saved", "inbox_unavailable") from e
+			raise api_error(503, "排队状态保存失败，请重试。", "inbox_unavailable") from e
 		position = len(reg.snapshot(session_id)["items"])
 		# 2026-09-05 e2e 抓修：Starlette JSONResponse 第一个位置参数是 content，
 		# 旧写法 JSONResponse(202, {...}) 把 202 当 content、payload 当 status_code
@@ -998,7 +998,7 @@ async def chat_completions(
 							origin="submit",
 							session_id=session_id,
 						)
-			except Exception:  # noqa: BLE001
+			except Exception:  # noqa: BLE001 — 提交时自动建目标 best-effort：失败不阻断提交
 				pass
 
 		# 清理遗留 scheduler checkpoint：仅非续跑口令时清，避免「继续」误伤。
@@ -1071,7 +1071,7 @@ async def chat_completions(
 							_xy_chunk(_xy, model=body.model).encode("utf-8"),
 							"goal",
 						)
-				except Exception:  # noqa: BLE001
+				except Exception:  # noqa: BLE001 — goal 帧 best-effort：失败不阻断流
 					pass
 				# 42 号：jobs whole-value 帧（turn start 播种；owner turn 存活
 				# 期内的结算变化靠 GUI 对 GET /jobs 轻量轮询补齐）。
@@ -1090,7 +1090,7 @@ async def chat_completions(
 							_xy_chunk(_xy, model=body.model).encode("utf-8"),
 							"jobs",
 						)
-				except Exception:  # noqa: BLE001
+				except Exception:  # noqa: BLE001 — jobs 帧 best-effort：失败不阻断流（GUI 对 GET /jobs 轮询兜底）
 					pass
 				# T5：会话标题——首个 sidecar 缺失时即时落盘并推 SSE 帧；
 				# pinned/enhanced 不重推。后台 LLM 增强（可选）失败静默。
@@ -1297,6 +1297,8 @@ async def chat_completions(
 							"used_cny": ev.used_cny,
 							"cost_source": ev.cost_source,
 							"usd_limit": ev.usd_limit,
+							"unpriced_turns": ev.unpriced_turns,
+							"budget_gate_note": ev.budget_gate_note,
 						}
 						if ev.context_tokens is not None:
 							xy["context_tokens"] = ev.context_tokens

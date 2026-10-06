@@ -21,6 +21,8 @@ type Props = {
   onSubmit: (v: string) => void;
   mode: string;
   busy: boolean;
+  /** 弹窗占焦（权限/提问）：输入框让位，避免双 TextInput 抢键。 */
+  disabled?: boolean;
   hint?: string;
   connected?: boolean | null;
   elapsedSec?: number;
@@ -52,6 +54,7 @@ export function PromptLine({
   onSubmit,
   mode,
   busy,
+  disabled = false,
   hint,
   connected,
   elapsedSec = 0,
@@ -70,7 +73,7 @@ export function PromptLine({
     connected === false
       ? "engine offline · py -3.11 -m cli serve · or /demo"
       : busy
-        ? `esc to interrupt${elapsedSec > 0 ? ` · ${formatElapsed(elapsedSec)}` : ""}`
+        ? `esc to interrupt${elapsedSec > 0 ? ` · ${formatElapsed(elapsedSec)}` : ""} · enter queues`
         : "? for shortcuts · ↑↓ history · tab";
 
   return (
@@ -86,21 +89,18 @@ export function PromptLine({
         {mode !== "agent" ? (
           <Text color={t.warning}>{mode} </Text>
         ) : null}
-        {busy ? (
-          <Spinner
-            ascii={isAscii()}
-            label={
-              elapsedSec > 0
-                ? `working ${formatElapsed(elapsedSec)}`
-                : "working…"
-            }
-          />
+        {/* 忙时输入面不消失（#2）：Enter=入队（202 queued）；命令按 manifest 的
+            when 分流。弹窗占焦（disabled）时让位，避免双 TextInput 抢键。 */}
+        {disabled ? (
+          <Text color={t.muted} dimColor>
+            （等待作答…）
+          </Text>
         ) : (
           <TextInput
             value={value}
             onChange={onChange}
             onSubmit={onSubmit}
-            placeholder=""
+            placeholder={busy ? "排队…" : ""}
           />
         )}
       </Box>
@@ -121,7 +121,9 @@ export function PromptLine({
         </Box>
       ) : (
         <Box marginLeft={1}>
+          {busy ? <Spinner ascii={isAscii()} /> : null}
           <Text color={t.muted} dimColor>
+            {" "}
             {hint ?? defaultHint}
           </Text>
         </Box>

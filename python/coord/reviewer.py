@@ -68,7 +68,7 @@ class Reviewer:
             try:
                 self.store.release_task_scope(self.repo, owner, scope)
             except Exception:  # noqa: BLE001
-                _log.debug("reviewer release lease failed", exc_info=True)
+                _log.warning("reviewer release lease failed", exc_info=True)
 
     def reject(self, *, task_id: str, worker_id: str,
                findings: list[dict]) -> dict[str, Any]:

@@ -27,11 +27,15 @@ from common.errors import (
 )
 
 from engine.abort import AbortController
+from model.stream_io import (
+	abortable, abortable_lines, abortable_stream, close_response_on_abort, post_to_loop,
+)
 from model._capture_hook import (
 	capture_body as _capture_body,
 	capture_response as _capture_response,
 )
 from model.chunks import ModelChunk
+from model.stream_end import validate_stream_end
 from msgtypes.message import ToolUse
 
 try:
@@ -183,18 +187,19 @@ class DeepSeekModelClient:
 			self, provider="deepseek", model=self._model, body=body
 		)
 		tool_bufs: dict[int, dict[str, str]] = {}
+		end_state = {}
 		self.last_usage = None
 		self._usage_recorded_this_stream = False
 		last_usage: dict[str, Any] | None = None
 		client = get_shared_httpx_client(120.0)
-		async with client.stream(
+		async with abortable_stream(client.stream(
 			"POST", url, headers=self._headers(), json=body, timeout=120.0
-		) as resp:
+		), abort) as resp:
 			_capture_response(
 				captured, http_status=resp.status_code, headers=resp.headers
 			)
 			if resp.status_code >= 400:
-				err = await resp.aread()
+				err = await abortable(resp.aread(), abort)
 				raw = err.decode("utf-8", errors="replace")
 				raise ProviderError(
 					provider_error_message(
@@ -204,9 +209,9 @@ class DeepSeekModelClient:
 					status_code=resp.status_code,
 					retry_after_ms=parse_retry_after(resp.headers.get("Retry-After")),
 				)
-			async for line in resp.aiter_lines():
+			async for line in abortable_lines(resp.aiter_lines(), abort):
 				abort.raise_if_aborted()
-				u, chunks = _consume_sse_line_with_usage(line, tool_bufs)
+				u, chunks = _consume_sse_line_with_usage(line, tool_bufs, end_state=end_state)
 				if u:
 					last_usage = u
 					self.last_usage = u
@@ -216,6 +221,7 @@ class DeepSeekModelClient:
 						self._record_usage_safe(u)
 				for chunk in chunks:
 					yield chunk
+		validate_stream_end(end_state)
 		for chunk in _finish_tool_bufs(tool_bufs):
 			abort.raise_if_aborted()
 			yield chunk
@@ -243,33 +249,35 @@ class DeepSeekModelClient:
 
 		def worker() -> None:
 			tool_bufs: dict[int, dict[str, str]] = {}
+			end_state = {}
 			last_usage: dict[str, Any] | None = None
 			try:
 				req = Request(url, data=data, headers=self._headers(), method="POST")
-				with urlopen(req, timeout=120) as resp:
+				with urlopen(req, timeout=120) as resp, close_response_on_abort(resp, abort):
 					_capture_response(
 						captured, http_status=resp.status, headers=resp.headers
 					)
 					while True:
+						abort.raise_if_aborted()
 						raw = resp.readline()
 						if not raw:
 							break
 						line = raw.decode("utf-8", errors="replace").rstrip("\r\n")
-						u, chunks = _consume_sse_line_with_usage(line, tool_bufs)
+						u, chunks = _consume_sse_line_with_usage(line, tool_bufs, end_state=end_state)
 						if u:
 							last_usage = u
+							post_to_loop(loop, queue.put_nowait, ("usage", u))
 						for chunk in chunks:
-							loop.call_soon_threadsafe(queue.put_nowait, ("chunk", chunk))
+							post_to_loop(loop, queue.put_nowait, ("chunk", chunk))
+				validate_stream_end(end_state)
 				for chunk in _finish_tool_bufs(tool_bufs):
-					loop.call_soon_threadsafe(queue.put_nowait, ("chunk", chunk))
-				if last_usage:
-					self.last_usage = last_usage
-				loop.call_soon_threadsafe(queue.put_nowait, ("done", None))
+					post_to_loop(loop, queue.put_nowait, ("chunk", chunk))
+				post_to_loop(loop, queue.put_nowait, ("done", None))
 			except HTTPError as e:
 				# 失败尝试也有响应身份：状态码 + 厂商请求 id 是定位 429/500 的事实。
 				_capture_response(captured, http_status=e.code, headers=e.headers)
 				detail = sanitize_http_body(e.read().decode("utf-8", errors="replace"))
-				loop.call_soon_threadsafe(
+				post_to_loop(loop,
 					queue.put_nowait,
 					("err", ProviderError(
 						provider_error_message(e.code, detail),
@@ -278,22 +286,30 @@ class DeepSeekModelClient:
 					)),
 				)
 			except URLError as e:
-				loop.call_soon_threadsafe(
+				post_to_loop(loop,
 					queue.put_nowait,
 					("err", NetworkError(str(e))),
 				)
 			except Exception as e:  # noqa: BLE001
-				loop.call_soon_threadsafe(queue.put_nowait, ("err", e))
+				post_to_loop(loop, queue.put_nowait, ("err", e))
 
 		threading.Thread(target=worker, name="deepseek-sse", daemon=True).start()
 
 		while True:
 			abort.raise_if_aborted()
-			kind, payload = await queue.get()
+			kind, payload = await abortable(queue.get(), abort)
+			if kind != "usage":
+				abort.raise_if_aborted()
 			if kind == "done":
 				if self.last_usage and not self._usage_recorded_this_stream:
 					self._record_usage_safe(self.last_usage)
 				return
+			if kind == "usage":
+				self.last_usage = payload
+				if not self._usage_recorded_this_stream:
+					self._usage_recorded_this_stream = True
+					self._record_usage_safe(payload)
+				continue
 			if kind == "err":
 				raise payload
 			yield payload  # type: ignore[misc]

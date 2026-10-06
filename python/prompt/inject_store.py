@@ -309,6 +309,7 @@ class InjectStore:
 			with self._lock:
 				self._ledger.pop(sid, None)
 				self._pending.pop(sid, None)
+				self._retracting.pop(sid, None)
 		except Exception:  # noqa: BLE001
 			pass
 

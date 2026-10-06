@@ -250,13 +250,16 @@ class PendingPermissionStore:
 
 	def _prune(self) -> None:
 		now = time.time()
-		for rid in (
+		# 先把待删 id 取全再动字典：边迭代 `_items.items()` 边 pop 会抛
+		# "dictionary changed size during iteration"，把审批通路整个变成工具错误。
+		stale = [
 			r
 			for r, it in self._items.items()
 			if it.expires_at is not None
 			and it.expires_at < now
 			and not it.resolved
-		):
+		]
+		for rid in stale:
 			self._items.pop(rid, None)
 			self._events.pop(rid, None)
 
@@ -501,6 +504,18 @@ class PermissionGrantStore:
 			logging.getLogger(__name__).debug("permission.grant.added audit failed", exc_info=True)
 		return grant
 
+	def _usable(
+		self, grant: "PermissionGrant", tool: str, effective_scope: str, now: float
+	) -> bool:
+		"""工具名 / 工作区 scope / 过期三道判据（match 与 match_read_dir 同源）。"""
+		if grant.tool_name.lower() != tool:
+			return False
+		if grant.scope != effective_scope and grant.scope.lower() != (
+			effective_scope or ""
+		).lower():
+			return False
+		return grant.expires_at is None or grant.expires_at >= now
+
 	def match(
 		self, *, tool_name: str, fingerprint: str, scope: str | None = None
 	) -> PermissionGrant | None:
@@ -515,17 +530,38 @@ class PermissionGrantStore:
 		)
 		now = time.time()
 		for grant in self._grants.values():
-			if grant.tool_name.lower() != tool:
-				continue
 			if grant.fingerprint.strip().lower() != fp:
 				continue
-			if grant.scope != effective_scope and grant.scope.lower() != (
-				effective_scope or ""
-			).lower():
+			if self._usable(grant, tool, effective_scope, now):
+				return grant
+		return None
+
+	def match_read_dir(
+		self, *, tool_name: str, target_dir: str, scope: str | None = None
+	) -> PermissionGrant | None:
+		"""区外读授权：请求目录落在某条已授权目录内（含其自身）即命中。
+
+		只认 ``read-dir:v1:`` 前缀的指纹，Bash 命令前缀 / MCP 哈希结构上不可能
+		匹配；反向亦然——区外读授权永不参与写侧 match（写侧 fp=matched_rule）。
+		"""
+		self._prune()
+		tool = (tool_name or "").strip().lower()
+		target = _norm_dir(target_dir)
+		if not tool or not target:
+			return None
+		effective_scope = (
+			os.path.abspath(scope) if scope else _grant_workspace_scope()
+		)
+		now = time.time()
+		for grant in self._grants.values():
+			fp = grant.fingerprint.strip()
+			if not fp.startswith(_READ_DIR_PREFIX):
 				continue
-			if grant.expires_at is not None and grant.expires_at < now:
+			granted = _norm_dir(fp[len(_READ_DIR_PREFIX):])
+			if not granted or not covers_dir(granted, target):
 				continue
-			return grant
+			if self._usable(grant, tool, effective_scope, now):
+				return grant
 		return None
 
 	def revoke(self, grant_id: str) -> bool:
@@ -597,6 +633,105 @@ def mcp_grant_fingerprint(registered_tool_name: str) -> str:
 	return f"{_MCP_FP_VERSION}:{digest}"
 
 
+#: 区外读的 ASK 规则名（policy 侧与 grant 侧同源，别写两遍字面量）。
+READ_OUTSIDE_RULE = "read_outside_ask"
+#: 目录指纹前缀：与 Bash（命令前缀）/ MCP（``v2:<hex>``）的命名空间互斥。
+_READ_DIR_PREFIX = "read-dir:v1:"
+#: 可参与读授权的工具（与 ``tools.meta.READ_PATH_TOOLS`` 同族，但 store 不依赖
+#: tools/，避免 store→tools 的反向 import）。
+_READ_GRANT_TOOLS = frozenset({"read", "glob", "grep", "ls", "diagnostics"})
+
+
+def _norm_dir(path: str) -> str:
+	return os.path.normcase(os.path.normpath(os.path.abspath(os.path.expanduser(path))))
+
+
+def covers_dir(target_dir: str, candidate: str) -> bool:
+	"""``candidate`` 是否落在 ``target_dir`` 内（含其自身）。"""
+	d = _norm_dir(target_dir)
+	c = _norm_dir(candidate)
+	if not d or not c:
+		return False
+	return c == d or c.startswith(d.rstrip("\\/") + os.sep) or c.startswith(
+		d.rstrip("\\/") + "/"
+	)
+
+
+def _refused_grant_roots() -> list[str] | None:
+	"""引擎自己的数据根：记忆 / 账本 / 转录 / 溢出。
+
+	这些目录的读放行由 `filesystem.readable_extra_roots` 逐格决定（当前会话转录、
+	本工作区记忆域…）；若允许"点一次允许就记住整片目录"，一次确认能把**其他会话
+	的转录**或整个 spill 根开成门。取不到任何一个根 → None（调用侧 fail-closed 拒记）。
+	"""
+	roots: list[str] = []
+	try:
+		from session.workspace_path import xeyo_data_root
+
+		roots.append(_norm_dir(str(xeyo_data_root())))
+		mem_override = os.environ.get("XEYO_MEMORY_DIR", "").strip()
+		roots.append(
+			_norm_dir(mem_override) if mem_override else _norm_dir(str(xeyo_data_root() / "memory"))
+		)
+		from tools.spill import spill_root
+
+		roots.append(_norm_dir(str(spill_root())))
+	except Exception:
+		return None
+	return roots
+
+
+def grantable_read_dir(raw_path: str, *, cwd: str | None = None) -> str:
+	"""区外读「记住」的落点：请求路径的父目录；目录请求则取自身。
+
+	返回空串表示这一格不许记住：盘根、家目录及其祖先、引擎自己的数据根——
+	一次确认不能把整机、整个用户剖面或别人的转录开成一扇门。落空即 ASK 照旧
+	逐条问，绝不静默放宽。
+	"""
+	p = str(raw_path or "").strip()
+	if not p:
+		return ""
+	if not os.path.isabs(os.path.expanduser(p)):
+		p = os.path.join(cwd or os.getcwd(), p)
+	d = os.path.abspath(os.path.expanduser(p))
+	if os.path.isdir(d):
+		target = d
+	else:
+		target = os.path.dirname(d) or d
+	target = _norm_dir(target)
+	drive_root = _norm_dir(os.path.abspath(os.sep))
+	home = _norm_dir(os.path.expanduser("~"))
+	if target == drive_root or target.rstrip("\\/") + os.sep == drive_root:
+		return ""
+	# 家目录及其祖先一律不记（home 本身也是"整个剖面"）。
+	if target == home or _norm_dir(home).startswith(target.rstrip("\\/") + os.sep):
+		return ""
+	roots = _refused_grant_roots()
+	if roots is None:
+		return ""
+	for root in roots:
+		if covers_dir(root, target):
+			return ""
+	return target
+
+
+def read_dir_fingerprint(raw_path: str, *, cwd: str | None = None) -> str:
+	"""区外读 grant 指纹 = ``read-dir:v1:<规范目录>``；不许记住 → 空串。"""
+	d = grantable_read_dir(raw_path, cwd=cwd)
+	return f"{_READ_DIR_PREFIX}{d}" if d else ""
+
+
+def read_grant_path(tool_input: dict[str, Any] | None) -> str:
+	"""从只读工具的入参里取被请求路径；取不到 → 空串（不落 grant）。"""
+	if not isinstance(tool_input, dict):
+		return ""
+	for key in ("file_path", "path", "filePath", "notebook_path"):
+		val = tool_input.get(key)
+		if isinstance(val, str) and val.strip():
+			return val.strip()
+	return ""
+
+
 def grant_fingerprint(
 	tool_name: str,
 	tool_input: dict[str, Any] | None,
@@ -635,6 +770,13 @@ def grant_fingerprint(
 		if len(toks) == 1:
 			return toks[0].lower()
 		return f"{toks[0].lower()} {toks[1].lower()}"
+	if (matched_rule or "").strip() == READ_OUTSIDE_RULE:
+		# 区外读：指纹 = 被请求的目录（不是 matched_rule）。用 matched_rule 当
+		# 指纹会让"放行一个区外文件"变成"放行所有区外读取"——正是 MCP v1 那次
+		# 过放的同族缺陷。非只读工具带这个规则名属意外，落空串（不许记住）。
+		if name not in _READ_GRANT_TOOLS:
+			return ""
+		return read_dir_fingerprint(read_grant_path(tool_input))
 	return (matched_rule or "").strip()
 
 

@@ -13,8 +13,10 @@ golden 是怎么来的（不是随手抄的数）：常量由本文件自己的 
 把无法复现的数当基线 = 把守卫建在沙子上，所以按"读过的当前输出"重采。
 
 已知灵敏度边界（写清楚，别把 golden 当万能）：在下面的合成夹具上，指纹对
-``hot_budget_tokens`` / ``max_cards`` / ``path_index_limit`` 敏感（本文件倒数第二条测试就是钉这个），
+``hot_budget_tokens`` / ``max_cards`` / ``card_conclusion_chars`` 敏感（本文件倒数第二条测试就是钉这个），
 对 ``mode``、``closure_hops`` 不敏感 —— 短会话单发投影里这两条没有可观察差异。
+2026-10-04 起 ``path_index_limit`` 不再敏感：卡面 suffix 改取结果首行后，[PATHS] 候选
+路径全部被卡面/工作集覆盖（``uncovered_path_lines`` 去重），limit 3 与 96 逐字节相同。
 """
 
 from __future__ import annotations
@@ -30,10 +32,18 @@ from synaptic.project import project
 from tests.wsc._fixtures import msg_asst_use, msg_tool, synth_session
 
 # golden：synth_session(34/5) + 6 条大块工具输出，production_params()，region_baseline=1e9
-GOLDEN_SINGLE = "c4eeeae082588744"
-GOLDEN_SEQ = "ef55edcdd6601217"
-LEN_SINGLE = 5_087
-LEN_SEQ = 9_836
+# V20 replaces mutable branch-root aliases with ordered member references.
+# Reviewed delta: seven recovery expressions only, +14 chars single/sequence.
+# 2026-10-04 卡面修复两刀：
+#   ① 结论后缀：调用参数 JSON（被 90 字截断成坏引用）→ **结果**首行；
+#   ② target 身份化：卡面 target 只认调用参数点名的文件，正文/命令提及不再冒充——
+#      Bash 单元 target 因此退场（线索仍在 files=），Read/Edit 的 target 不变。
+#   单发 4925→4401、序列 9765→9241；卡面 suffix 携带的结果首行里的路径与 [PATHS]
+#   重复，被 uncovered_path_lines 去重（两处 diff 已逐行读过）。
+GOLDEN_SINGLE = "f36354899b50e412"
+GOLDEN_SEQ = "4a8ef742a8ccc493"
+LEN_SINGLE = 4_401
+LEN_SEQ = 9_241
 
 
 def _fixture() -> list[dict]:
@@ -118,7 +128,10 @@ def test_golden_actually_has_teeth() -> None:
 		dict(hot_budget_tokens=600, fixed_segment_budget_tokens=400,
 		     main_segment_budget_tokens=200),
 		dict(max_cards=2),
-		dict(path_index_limit=3),
+		# 2026-10-04：原第三杠杆 path_index_limit 在本夹具下已无观察面（[PATHS]
+		# 候选被卡面覆盖去重，limit 3 与 96 逐字节相同）。以 card_conclusion_chars
+		# 接替：直接控制卡面结论截断，实测改变指纹。
+		dict(card_conclusion_chars=20),
 	)
 	unchanged = [sorted(kv) for kv in levers
 	             if _h(_single(**kv)) == base_s and _h(_seq(**kv)) == base_q]

@@ -7,7 +7,7 @@
 - 存储：``~/.xeyo/spill/<safe_session>/``（会话命名空间；可用
   ``XEYO_SPILL_DIR`` 覆盖）。``O_EXCL`` 独占创建，POSIX 下 0600。
 - 保留纪律：save 时顺带清理超过 ``XEYO_SPILL_RETENTION_DAYS``（默认 7 天）
-  的旧文件，防长期膨胀。
+  的旧 spill 文件，防长期膨胀；清理只认本模块自己的产物名（``_SPILL_NAME``）。
 - spill 失败绝不抛给工具调用方——调用方原样返回未截断结果（宁可超预算，
   不可假证据）。
 """
@@ -26,6 +26,11 @@ ENV_RETENTION_DAYS = "XEYO_SPILL_RETENTION_DAYS"
 DEFAULT_RETENTION_DAYS = 7
 
 _SAFE_CHAR = re.compile(r"[A-Za-z0-9._-]")
+# ``save_text`` 自己的产物名（``YYYYmmdd-HHMMSS-<8 hex>.txt``）。保留期清理只认
+# 这个形状：``spill_root()`` 可被 ``XEYO_SPILL_DIR`` 指到任何目录，而实测把
+# 清理按"目录里任何超过 7 天的文件"执行时，指到 ``~/.xeyo`` 一次 spill 就把
+# 会话转录、usage 账本、记忆文件全删了（不可恢复）。
+_SPILL_NAME = re.compile(r"[0-9]{8}-[0-9]{6}-[0-9a-f]{8}\.txt\Z")
 
 
 @dataclass(frozen=True)
@@ -86,6 +91,8 @@ def _prune_old(root: Path, *, now: float | None = None) -> int:
 	try:
 		for dirpath, _dirnames, filenames in os.walk(root):
 			for fn in filenames:
+				if not _SPILL_NAME.match(fn):
+					continue
 				p = Path(dirpath) / fn
 				try:
 					if p.stat().st_mtime < cutoff:

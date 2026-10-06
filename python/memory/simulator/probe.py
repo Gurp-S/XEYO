@@ -146,6 +146,11 @@ def record_from_usage(
 		usage=usage,
 		ts=params.default_ts,
 	)
+	if actual is None:
+		# 无权威价目 ⇒ 费用未知：校准值不许按 0 落盘（0 会让 predicted/actual 比值失真）。
+		raise RuntimeError(
+			f"无权威价目：{cache.provider}/{cache.model} 的费用未知，探针校准拒绝编数"
+		)
 	return HitRecord(
 		request_id=uuid.uuid4().hex,
 		provider=cache.provider,

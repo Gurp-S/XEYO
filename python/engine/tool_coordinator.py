@@ -69,7 +69,8 @@ class ToolCoordinator:
 		self, tu: ToolUse, abort: AbortController
 	) -> ToolResult:
 		"""执行已通过权限面板的调用。"""
-		return await self.registry.run(
+		return await _run_one_tool(
+			self.registry,
 			tu,
 			abort,
 			coordinator=self.permission_coordinator,

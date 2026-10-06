@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import hashlib
 import json
 import os
 import time
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from audit.log import default_audit_log
@@ -26,6 +28,7 @@ from tools.error_taxonomy import (
 	RESERVED_CHANNEL,
 	UNKNOWN_TOOL,
 	USER_INPUT_REQUIRED,
+	classify_exception,
 )
 from tools.ask_user_question_tool import ASK_USER_TOOL_NAME
 
@@ -44,6 +47,32 @@ def _side_effect_class(tool_name: str, tool: Tool) -> str:
 	if tool_name in {"Bash", "job_kill", "Agent"}:
 		return "process"
 	return "external"
+
+
+def _record_rejected_call(
+	coordinator: "PermissionCoordinator | None",
+	tool_use: ToolUse,
+	error_kind: str,
+	reason: str,
+) -> None:
+	"""被拒的调用也要留痕（2026-10-05）：两条早退此前在记账前 return，
+	转录里 unknown/reserved 的失败（360+47 次）在归属与诊断面完全不存在。
+
+	审计失败不挡拒绝本身；kind 用 ``tool.rejected``（boundary_of 落在
+	``tool_permission``，与 ``permission.denied`` 同族）。
+	"""
+	try:
+		default_audit_log().record(
+			"tool.rejected",
+			session_id=coordinator.session_id if coordinator else "",
+			turn_id=coordinator.turn_id if coordinator else "",
+			request_id=tool_use.id,
+			tool_name=str(tool_use.name or ""),
+			error_kind=error_kind,
+			reason=reason,
+		)
+	except Exception:  # noqa: BLE001 — 留痕失败不能把拒绝顶掉
+		_log.debug("rejected-call audit failed", exc_info=True)
 
 
 def _observe_bash_route(
@@ -267,7 +296,7 @@ class ToolRegistry:
 		# 早期执行路径，身份从执行上下文补齐后，副作用工具照样入 journal。
 		if side_effect != "none" and audit_session_id:
 			try:
-				from engine.action_journal import ActionJournal, action_identity
+				from engine.action_journal import ActionDecision, ActionJournal, action_identity
 
 				action_id, idempotency_key = action_identity(
 					session_id=audit_session_id,
@@ -277,26 +306,17 @@ class ToolRegistry:
 					tool_input=tool_use.input if isinstance(tool_use.input, dict) else {},
 				)
 				action_journal = ActionJournal(audit_session_id)
-				decision = action_journal.begin(
+				decision = await asyncio.to_thread(action_journal.begin,
 					action_id=action_id,
 					idempotency_key=idempotency_key,
 					turn_id=audit_turn_id,
 					tool_use_id=tool_use.id,
 					tool_name=tool.name,
 					side_effect=side_effect,
-				)
+				) if action_journal.enabled else ActionDecision("execute")
 				if decision.action == "replay" and decision.record is not None:
-					record = decision.record
-					return ToolResult(
-						content=str(record.get("result_content") or ""),
-						is_error=bool(record.get("result_is_error", False)),
-						status=str(record.get("result_status") or "ok"),
-						error_kind=record.get("error_kind"),
-						retryable=bool(record.get("retryable", False)),
-						side_effect=str(record.get("side_effect") or side_effect),
-						action_id=action_id,
-						metadata={"action_replayed": True},
-					)
+					from engine.action_result import replay_result
+					return replay_result(decision.record, action_id=action_id, side_effect=side_effect)
 				if decision.action == "recovery_required":
 					return ToolResult(
 						content="action outcome unknown; execution was not repeated",
@@ -307,7 +327,12 @@ class ToolRegistry:
 						action_id=action_id,
 						metadata={"action_recovery_required": True},
 					)
-			except Exception:  # noqa: BLE001 — journal 不可用不阻断旧执行路径
+			except Exception:  # noqa: BLE001
+				from engine.action_journal import enabled_from_env
+				if enabled_from_env():
+					return ToolResult("action journal unavailable; execution was not repeated",
+					                  is_error=True, error_kind="ACTION_JOURNAL_UNAVAILABLE",
+					                  side_effect=side_effect, action_id=action_id)
 				action_journal = None
 				action_id = None
 				_log.debug("action journal prepare failed", exc_info=True)
@@ -320,13 +345,23 @@ class ToolRegistry:
 			**_runtime_audit_fields(),
 		)
 		try:
+			from session.call_trace import record_start as _trace_call_start
+		except Exception:  # noqa: BLE001 — 台账模块不可用只影响归因，不影响执行
+			_trace_call_start = None
+		# 执行起点台账：给恢复层留下「这一次调用确实进入了执行」的可归因记录。
+		# 这里**只裹 import**：参数名/会话名写错要当场炸——被 fail-open 吞掉的
+		# NameError 会让"功能是死的、测试却全绿"（2026-10-07 实际踩过）。
+		if _trace_call_start is not None and audit_session_id:
+			_trace_call_start(audit_session_id, str(tool_use.id), str(tool.name))
+		try:
 			# 策略层已 ALLOW / skip_ask：工具内 check_permissions 不得再把 ASK 降成 DENY。
 			with mark_permission_preapproved(True):
 				result = await tool.execute(tool_use.input, abort)
 		except BaseException as exc:
 			if action_journal is not None and action_id:
 				try:
-					action_journal.unknown(action_id, f"{type(exc).__name__}: {exc}")
+					if action_journal.enabled:
+						await asyncio.to_thread(action_journal.unknown, action_id, f"{type(exc).__name__}: {exc}")
 				except Exception:  # noqa: BLE001
 					_log.debug("action journal unknown transition failed", exc_info=True)
 				audit.record(
@@ -337,6 +372,8 @@ class ToolRegistry:
 					tool_name=tool.name,
 					duration_ms=int((time.monotonic() - started) * 1000),
 					is_error=True,
+					status="error",
+					error_kind=classify_exception(exc)[0],
 					error=str(exc)[:500],
 					**_runtime_audit_fields(),
 				)
@@ -349,7 +386,8 @@ class ToolRegistry:
 			result.action_id = action_id
 		if action_journal is not None and action_id:
 			try:
-				action_journal.complete(action_id, result)
+				if action_journal.enabled:
+					await asyncio.to_thread(action_journal.complete, action_id, result)
 			except Exception:  # noqa: BLE001 — 结果已执行，journal 失败只留审计
 				_log.debug("action journal complete failed", exc_info=True)
 
@@ -426,16 +464,7 @@ class ToolRegistry:
 				"truncation": "output_budget",
 			}
 		)
-		return ToolResult(
-			content=preview,
-			is_error=False,
-			metadata=metadata,
-			status=result.status,
-			error_kind=result.error_kind,
-			retryable=result.retryable,
-			side_effect=result.side_effect,
-			action_id=result.action_id,
-		)
+		return replace(result, content=preview, metadata=metadata)
 
 	async def _hook_blocker(
 		self,
@@ -513,6 +542,7 @@ class ToolRegistry:
 			# 保留前缀：引擎自己的 env 伪对只进投影，从不走执行层（见 RESERVED_TOOL_PREFIX
 			# 的注释）。所以这里是**模型发起**的同名调用，一律中性拒绝、不派发、不产生副作用。
 			# 措辞只陈述结果，不带劝导。
+			_record_rejected_call(coordinator, tool_use, RESERVED_CHANNEL, "reserved_channel")
 			return ToolResult(
 				content=f"reserved environment channel: {name}",
 				is_error=True,
@@ -522,6 +552,7 @@ class ToolRegistry:
 			)
 		tool = self._tools.get(name)
 		if tool is None:
+			_record_rejected_call(coordinator, tool_use, UNKNOWN_TOOL, "unknown_tool")
 			return ToolResult(
 				content=f"unknown tool: {name}",
 				is_error=True,
@@ -940,13 +971,8 @@ class ToolRegistry:
 				"routed_command": routed.brief,
 			}
 		)
-		return ToolResult(
+		return replace(
+			result,
 			content=f"{routed.note}\n{result.content or ''}".rstrip("\n"),
-			is_error=bool(result.is_error),
 			metadata=metadata,
-			status=result.status,
-			error_kind=result.error_kind,
-			retryable=result.retryable,
-			side_effect=result.side_effect,
-			action_id=result.action_id,
 		)

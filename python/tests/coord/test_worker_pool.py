@@ -202,6 +202,32 @@ def test_submit_requires_claim(tmp_path):
     assert store.submit_result(tid, "w0", "coord/task/whatever") is None
 
 
+# -- 中断回收：Ctrl+C 不许把任务钉死在 claimed ---------------------------------
+
+def test_interrupt_does_not_strand_claimed_task(tmp_path):
+    """worker 干活中途 KeyboardInterrupt（=「xeyo coord run 里按 Ctrl+C」）：
+
+    控制流交还调用方之前，任务必须已可重试（worker_failed → reopened）——
+    只捕 Exception 会把任务永久留在 claimed（claim_next 只认 pending ∪ reopened，
+    孤儿认领没有任何回收路径，租约过期也救不回任务本身）。
+    """
+    repo = _mk_repo(tmp_path)
+    store = CoordFileStore(repo)
+    tid = _mk_task(store, "interrupted worker", ["x.txt"])
+
+    def work_boom(p: Path) -> None:
+        (p / "half.txt").write_text("partial\n", encoding="utf-8")
+        raise KeyboardInterrupt()
+
+    pool = WorkerPool(repo, store)
+    with pytest.raises(KeyboardInterrupt):
+        pool.run_task(tid, "w9", work_boom)
+
+    assert _submit_state(store, tid) == STATUS_REOPENED, _submit_state(store, tid)
+    # worktree 即弃：重试从零起，不带半成品
+    assert not worktree_path(repo, tid).exists()
+
+
 # -- d. 50 worker 并行压测 ----------------------------------------------------
 
 @pytest.mark.timeout(600)

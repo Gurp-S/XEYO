@@ -80,7 +80,7 @@ def try_finalize_tool_buf(buf: dict[str, Any]) -> ToolUse | None:
 
 
 def consume_sse_line_with_usage(
-	line: str, tool_bufs: dict[int, dict[str, Any]]
+	line: str, tool_bufs: dict[int, dict[str, Any]], *, end_state: dict | None = None
 ) -> tuple[dict[str, Any] | None, list[ModelChunk]]:
 	"""单次 json.loads 解析一行 SSE，返回 (usage, chunks)。
 
@@ -89,6 +89,8 @@ def consume_sse_line_with_usage(
 	if not line or not line.startswith("data:"):
 		return None, []
 	payload = line[len("data:") :].strip()
+	if payload == "[DONE]" and end_state is not None:
+		end_state["done"] = True
 	if not payload or payload == "[DONE]":
 		return None, []
 	try:
@@ -100,6 +102,8 @@ def consume_sse_line_with_usage(
 	choices = event.get("choices") or []
 	if not choices:
 		return u, []
+	if end_state is not None and choices[0].get("finish_reason"):
+		end_state["finish_reason"] = choices[0]["finish_reason"]
 	delta = choices[0].get("delta") or {}
 	out: list[ModelChunk] = []
 	reasoning = delta.get("reasoning_content")
@@ -132,6 +136,8 @@ def consume_sse_line_with_usage(
 			finalized = try_finalize_tool_buf(buf)
 			if finalized is not None:
 				out.append(ModelChunk(kind="tool_use", tool_use=finalized))
+	if end_state is not None and (out or delta.get("tool_calls")):
+		end_state["has_output"] = True
 	return u, out
 
 
@@ -213,6 +219,7 @@ def normalize_messages_for_openai(
 ) -> list[dict[str, Any]]:
 	"""将内部消息转换为 OpenAI chat 格式，并按供应商上限物化图片。"""
 	from media_store import materialize_image_url
+	from model.tool_media import append_tool_media, tool_images
 
 	image_count = 0
 	for row in messages:
@@ -225,9 +232,12 @@ def normalize_messages_for_openai(
 			)
 
 	out: list[dict[str, Any]] = []
+	pending_tool_images: list[dict] = []
 	for m in messages:
 		role = m.get("role")
 		content = m.get("content")
+		if role != "tool":
+			append_tool_media(out, pending_tool_images)
 
 		if role == "system":
 			out.append(
@@ -338,6 +348,7 @@ def normalize_messages_for_openai(
 				continue
 
 		if role == "tool":
+			pending_tool_images.extend(tool_images(content, provider=provider, model=model, image_count=image_count))
 			tool_call_id = m.get("tool_call_id") or ""
 			# dsh 口径（serialize.ts:269-271）：空 tool 输出在 wire 上也需要
 			# 非空内容——部分网关拒收空串 tool 消息，统一给结构性哨兵。
@@ -375,6 +386,7 @@ def normalize_messages_for_openai(
 		except Exception:  # noqa: BLE001
 			logging.getLogger(__name__).debug("record_wire_drop failed", exc_info=True)
 		return pruned
+	append_tool_media(out, pending_tool_images)
 	return out
 
 

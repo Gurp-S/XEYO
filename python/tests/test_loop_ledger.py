@@ -342,15 +342,15 @@ class TestInjectWiring:
 		out = run_pre_llm_inject(_make_projected(), ctx)
 		return "\n".join(str(m) for m in out)
 
-	def test_ledger_reaches_model_when_hot(self, monkeypatch):
+	def test_hot_ledger_counts_stay_out_of_model(self, monkeypatch):
 		monkeypatch.delenv("XEYO_LOOP_LEDGER", raising=False)
 		led = LoopLedger()
 		for _ in range(4):
 			led.observe_tool("Grep", "same")
 			led.observe_assistant("基于我对代码的深入分析，我发现了问题")
 		text = self._run(monkeypatch, led)
-		assert "Grep:本次结果与既往 3 次调用结果逐字节相同" in text
-		assert "Repeat guard" in text
+		assert "Grep:本次结果与既往 3 次调用结果逐字节相同" not in text
+		assert "Repeat guard" not in text
 
 	def test_ledger_silent_when_cold(self, monkeypatch):
 		monkeypatch.delenv("XEYO_LOOP_LEDGER", raising=False)

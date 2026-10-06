@@ -27,10 +27,34 @@
 
 from __future__ import annotations
 
+import os
+
 from synaptic.graph import Graph
-from synaptic.seeds import Seeds, recent_paths
-from synaptic.textutil import node_token_len
+from synaptic.seeds import Seeds, recent_paths, strip_machine_blocks
+from synaptic.textutil import extract_paths, node_token_len
 from synaptic.types import WscParams
+
+#: 本轮请求对齐（旁路，默认关）：用户最近一条实质消息里点名的路径在 [PATHS] 里最优先。
+#: 只降权不删——候选池、配额、冷层可达性全部不变（16 条缺陷 #12 的旁路候选）。
+_ALIGN_ENV = "XEYO_WSC_REQUEST_ALIGN"
+
+
+def _request_paths(graph: Graph, seeds: Seeds) -> frozenset[str]:
+	"""本轮请求点名的路径（最近一条实质用户消息；机器注入块不算）。"""
+	if not seeds.user_nodes:
+		return frozenset()
+	node = graph.node(seeds.user_nodes[-1])
+	if node is None:
+		return frozenset()
+	return frozenset(extract_paths(strip_machine_blocks(node.text or "")))
+
+
+def _span_match(path: str, span: dict[str, tuple[int, int]]) -> str | None:
+	"""把请求里写的路径对到 span 的键上（span 键可能被 suffix_chain 折叠成短形）。"""
+	if path in span:
+		return path
+	cands = [k for k in span if k.endswith("/" + path) or path.endswith("/" + k)]
+	return min(cands, key=len) if cands else None
 
 H_PATHS = "[PATHS]"
 
@@ -122,6 +146,15 @@ def render_paths(
 			cand = (tier, -last, p)
 			if cur is None or cand < cur:
 				rank[p] = cand
+	# 本轮请求对齐（旁路，默认关，``XEYO_WSC_REQUEST_ALIGN=1`` 启用）：用户点名的
+	# 路径提到 tier=-1。只改排序，不动候选池（池外路径不加入、池内路径不剔除）——
+	# 冷层可达性与配额口径完全不变（16 条缺陷 #12 的旁路候选，待 A/B）。
+	if os.environ.get(_ALIGN_ENV, "").strip() in ("1", "on", "true", "True"):
+		for rp in _request_paths(graph, seeds):
+			key = _span_match(rp, span)
+			if key is not None and key in rank:
+				first, last = span[key]
+				rank[key] = (-1, -last, key)
 
 	ordered = sorted(rank, key=lambda p: rank[p])
 	# 两个维度的上限都是「正数 = 上限；0 或负数 = 该段不发」。可疑配置一律按保守方向处理：

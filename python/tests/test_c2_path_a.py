@@ -167,12 +167,10 @@ def _formula_override(monkeypatch, on: bool) -> int:
 	return adv
 
 
-def test_scheme_a_single_trigger_reduces_rewrites(monkeypatch):
+def test_legacy_pressure_override_cannot_replace_v61_trigger(monkeypatch):
 	# Scheme A（压力门单一触发，压力 0.70）把 C2 收敛为稀发事件：
 	# 改写数应显著少于「decide 每轮可触发」的冻结路径。
 	frozen_adv = _formula_override(monkeypatch, on=False)
 	formula_adv = _formula_override(monkeypatch, on=True)
-	assert formula_adv <= frozen_adv
-	# 合成会话上冻结路径在 3 左右；压力 0.70 收敛到 1（一次首压后稳定态）
-	assert formula_adv <= 2
+	assert formula_adv == frozen_adv
 	assert frozen_adv >= 1

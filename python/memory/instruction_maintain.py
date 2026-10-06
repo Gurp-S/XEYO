@@ -29,21 +29,6 @@ _DERIVABLE_PATTERNS = (
 	re.compile(r"(?i)\btop[- ]?level dirs?\b"),
 )
 
-MINIMAL_TEMPLATE = """# XEYO 项目说明（指针式，保持简短）
-
-## 常用命令
-- 测试：
-- 构建：
-
-## 禁区 / 硬约定
--
-
-## 指针（细则不内联；需要时用 Read / Skill）
-- 架构：
-- 长流程（发版等）→ `.xeyo/skills/<name>/SKILL.md`，用 Skill 工具按需加载
-"""
-
-
 @dataclass(frozen=True)
 class DoctorIssue:
 	path: str
@@ -61,6 +46,8 @@ def soft_instruction_budget() -> int:
 
 def ensure_minimal_xeyo_md(workspace_root: str | Path) -> Path | None:
 	"""若工作区尚无 XEYO.md，写入最小指针式模板。已存在则不动。"""
+	from memory.instruction import MINIMAL_TEMPLATE
+
 	try:
 		root = Path(workspace_root).expanduser().resolve()
 	except OSError:
@@ -423,9 +410,14 @@ def _sha1_text(raw: str) -> str:
 
 
 def _sha1_file(path: str) -> str:
+	"""内容指纹；**读不动就返回空哨兵**，绝不把异常抛给调用方。
+
+	`UnicodeDecodeError` 不是 `OSError`：非 UTF-8 的指令文件（PowerShell 存成
+	UTF-16、GBK 中文正文）原先会从这里炸出去，把整段状态卫生带走。
+	"""
 	try:
 		return _sha1_text(Path(path).read_text(encoding="utf-8"))
-	except OSError:
+	except (OSError, UnicodeDecodeError):
 		return ""
 
 
@@ -441,15 +433,29 @@ def load_nested_instruction_text(
 	- 预算内装不下的文件**整份丢弃**（不拦腰截断）；丢弃后若仍有剩余
 	  预算，把**最具体**的被丢文件截断填入；两者都写进可见 notice。
 	"""
+	from memory.instruction import is_unfilled_instruction
+
 	entries: list[tuple[str, str, str]] = []  # (path, header, body)
 	seen_sha: set[str] = set()
 	dup_dropped: list[str] = []
+	undecodable: list[str] = []
 	for p in paths:
 		try:
 			body = Path(p).read_text(encoding="utf-8").strip()
+		except UnicodeDecodeError:
+			# 只丢这一个文件，并把事实留在 notice 里。原先 UnicodeDecodeError
+			# （不是 OSError）一路炸到唯一调用点 `prompt/pre_llm_inject.
+			# _format_nested_block` 的 `except Exception` ⇒ **整块**嵌套指令被丢，
+			# 且产品从不配 logging handler（debug 等价于 pass）：模型每轮在没有
+			# 项目规则的情况下跑，现场不留任何证据。
+			undecodable.append(p)
+			continue
 		except OSError:
 			continue
 		if not body:
+			continue
+		if is_unfilled_instruction(body):
+			# 未填过的自动模板不进注入（与外层 system 左段同源判据）。
 			continue
 		digest = _sha1_text(body)
 		if digest in seen_sha:
@@ -491,6 +497,9 @@ def load_nested_instruction_text(
 	if dropped:
 		names = "、".join(Path(p).name for p in dropped[:6])
 		notice_lines.append(f"整份略过（超预算）：{names}")
+	if undecodable:
+		names = "、".join(Path(p).name for p in undecodable[:6])
+		notice_lines.append(f"无法按 UTF-8 解码：{names}")
 	if truncated:
 		notice_lines.append(f"仅截断最具体文件：{Path(truncated).name}")
 	if dup_dropped:
@@ -567,7 +576,6 @@ def reconcile_nested_state(working: Any) -> None:
 
 __all__ = [
 	"REPEAT_PROMOTE_N",
-	"MINIMAL_TEMPLATE",
 	"DoctorIssue",
 	"soft_instruction_budget",
 	"ensure_minimal_xeyo_md",

@@ -49,21 +49,36 @@ async def test_diagnostics_clean_python(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_diagnostics_outside_denied(tmp_path: Path) -> None:
-	tool = DiagnosticsTool(cwd=str(tmp_path))
+async def test_diagnostics_outside_needs_approval(tmp_path: Path) -> None:
+	"""区外诊断走生产通路（registry）：无应答者即拒，且文案点名是哪一档。
+
+	原来这条直接 `tool.execute()`，测的是"工体内不认未批准的 ASK"——那不是生产
+	形态（registry 裁决后会置批准位），名字却写成"outside denied"，会把已放行的
+	行为钉成契约。
+	"""
+	from msgtypes.message import ToolUse
+	from tools.tool_registry import ToolRegistry
+
+	reg = ToolRegistry(cwd=str(tmp_path))
+	reg.register(DiagnosticsTool(cwd=str(tmp_path)))
 	outside = tmp_path.parent / "outside_diag.py"
 	outside.write_text("x = 1\n", encoding="utf-8")
-	r = await tool.execute({"path": str(outside)}, AbortController())
+	r = await reg.run(
+		ToolUse(id="1", name="Diagnostics", input={"path": str(outside)}),
+		AbortController(),
+	)
 	assert r.is_error
-	assert "permission" in r.content.lower()
+	assert "no resolver: read_outside_working_directory" in r.content
 
 
-def test_diagnostics_policy_outside(tmp_path: Path) -> None:
+def test_diagnostics_policy_outside_asks(tmp_path: Path) -> None:
+	# 第二刀：区外读（含 Diagnostics）从静默 DENY 改成 ASK + 目录级授权。
 	outside = str(tmp_path.parent)
 	d = evaluate_policy(
 		"Diagnostics", {"path": outside}, cwd=str(tmp_path)
 	)
-	assert d.decision == PermissionDecision.DENY
+	assert d.decision == PermissionDecision.ASK
+	assert d.reason == "read_outside_working_directory"
 
 
 @pytest.mark.asyncio

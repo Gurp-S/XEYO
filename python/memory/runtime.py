@@ -1002,66 +1002,9 @@ def c2_escape_hatch_block(left: list[dict]) -> str:
 
 
 def _store_c2_fragments(working: WorkingSnapshot, left: list[dict]) -> None:
-	"""A2：把左区结构化原子全文抓拍进 sqlite（``notes:msg:<i>`` 可 retrieve 还原）。
+	from memory.c2_fragments import store_c2_fragments
 
-	优先级保证：最近报错栈永远排第一（总量封顶也轮不到它被裁掉）；其余按
-	(kind, 出现序) 抓拍。同文本去重（12× 循环副本不再浪费封顶额度）。同时写
-	C1 因果边（tool_use→tool_result）。失败静默——还原/边表是增强项。
-	"""
-	try:
-		if not _restore_enabled() or not (working.session_id or "").strip():
-			return
-		from memory import memindex
-		from memory.fidelity_segmenter import split_into_atoms
-
-		keep_kinds = {"stack", "kv", "path", "json", "tree", "table"}
-		rows: list[dict] = []
-		seen_text: set[str] = set()
-
-		def _push(i: int, kind: str, seq: int, text: str) -> None:
-			sig = f"{kind}:{hashlib.sha1(text.encode('utf-8', 'replace')).hexdigest()}"
-			if sig in seen_text or not text.strip():
-				return
-			seen_text.add(sig)
-			rows.append({"msg_index": i, "kind": kind, "seq": seq, "text": text})
-
-		# ① 最近报错栈优先
-		tb = _last_traceback_atom(left)
-		if tb is not None:
-			_push(tb[0], "stack", 0, tb[1])
-		# ② 全区结构化原子
-		for i, msg in enumerate(left):
-			for text in _msg_payload_texts(msg):
-				try:
-					atoms = split_into_atoms(text)
-				except AssertionError:
-					continue
-				seq_by_kind: dict[str, int] = {}
-				for atom in atoms:
-					if atom.kind not in keep_kinds:
-						continue
-					seq = seq_by_kind.get(atom.kind, 0)
-					seq_by_kind[atom.kind] = seq + 1
-					_push(i, atom.kind, seq, atom.text)
-				if len(rows) >= 2000:
-					break
-			if len(rows) >= 2000:
-				break
-		# ③ C1 地基：tool_use → 其 tool_result 因果边
-		edge_rows: list[dict] = []
-		for i, msg in enumerate(left):
-			for uid in _assistant_tool_ids(msg):
-				j = i + 1
-				while j < len(left):
-					if uid in _tool_result_ids(left[j]):
-						edge_rows.append({"from_msg": i, "to_msg": j, "kind": "tool_use"})
-						break
-					j += 1
-		memindex.store_fragments(working.session_id, rows)
-		if edge_rows:
-			memindex.add_edges(working.session_id, edge_rows)
-	except Exception:  # noqa: BLE001 — 增强项绝不阻塞压缩热路径
-		pass
+	store_c2_fragments(working, left)
 
 
 def apply_c2_messages(
@@ -1128,6 +1071,61 @@ def apply_c2_messages(
 	return head + project_c0c1(right, frozen_until=frozen_rel, cwd=cwd)
 
 
+def _emitted_basis_enabled() -> bool:
+	"""θ 门的"发射侧口径"旗标（`XEYO_WSC_GATE_EMITTED_BASIS`，env 权威，默认关）。"""
+	try:
+		from memory.memory_switches import env_flag
+
+		return bool(env_flag("XEYO_WSC_GATE_EMITTED_BASIS"))
+	except Exception:  # noqa: BLE001 — 读不到旗标就按关（改动前行为）
+		return False
+
+
+def _extension_head_tokens(ext: str, working: WorkingSnapshot) -> tuple[int, str]:
+	"""这次扩展给**头**增加多少 token，以及这个数是什么口径。
+
+	默认（旗标关）= 历史的 C2 摘要口径 ``token_len(c2_summary_extension(...))``：
+	WSC 接管发射面时那份摘要**从不被发出去**（`c2_summary_text` 恒空，见本文件
+	`if old_text.strip() or not _wsc_owns_emission()` 那条），所以它只描述"若由 C2
+	执行会加多少"，不是实发头的增量——实测两者可差数倍。
+
+	旗标开且拿得到发射侧实测（`wsc_projection` 记的上一次真折叠头增量）时改用实测；
+	拿不到（从未折过 / 状态从磁盘接回）回退 C2 口径并在账上标 `c2_estimate_fallback`，
+	绝不把"没有实测"当成 0。
+	"""
+	if _emitted_basis_enabled() and _wsc_owns_emission():
+		try:
+			from memory.wsc_projection import live_head_delta_tokens
+
+			measured = live_head_delta_tokens(str(getattr(working, "session_id", "") or ""))
+		except Exception:  # noqa: BLE001 — 观测拿不到不算错，回退即可
+			measured = None
+		if measured is not None:
+			return max(0, int(measured)), "wsc_emitted"
+		return token_len(ext), "c2_estimate_fallback"
+	return token_len(ext), "c2_estimate"
+
+
+def _extension_prompt_tokens(measured, messages: list[dict], working: WorkingSnapshot) -> tuple[int, str]:
+	"""命中率约束里的 prompt 分母。
+
+	默认（旗标关）= ``_region_tokens(messages)``：**全部未压历史**的 token。它与实发面
+	不同源——实发 prompt 还含 system/tools/T_now，而这里连 C0 截断、保尾、头都还没算，
+	实测当日该值反而是实发 prompt 的 2.5~5 倍 ⇒ 这条"保 99% 命中"的约束被系统性放宽
+	（分母越大，允许的 gap 越小）。
+
+	旗标开且本枪有厂商实发 prompt（``working.last_prompt_tokens``，与
+	``wsc_watermark.admit_assessment`` 同一取法）时改用它：全链只留一个"prompt"定义。
+	"""
+	if measured is not None:
+		return int(measured.keep_tokens), "wsc_projected"
+	if _emitted_basis_enabled() and _wsc_owns_emission():
+		last = int(getattr(working, "last_prompt_tokens", 0) or 0)
+		if last > 0:
+			return last, "last_prompt_tokens"
+	return _region_tokens(messages), "region_raw"
+
+
 def try_extend_c2(
 	working: WorkingSnapshot,
 	messages: list[dict],
@@ -1135,6 +1133,7 @@ def try_extend_c2(
 	params,
 	force: bool = False,
 	account: dict | None = None,
+	cwd=None,
 ) -> bool:
 	"""已压缩态下追加式扩展冻结摘要（append-only），返回是否执行。
 
@@ -1152,6 +1151,8 @@ def try_extend_c2(
 
 	def _exit(approve: bool, reason: str = "", **numbers) -> bool:
 		if account is not None:
+			# 在落地清零前保留旧计数，成功行与否决行使用同一诊断口径。
+			account.setdefault("turns_since_c2", int(getattr(working, "turns_since_c2", 0) or 0))
 			account["fold"] = approve
 			account["reason"] = reason
 			account["forced"] = bool(force)
@@ -1163,25 +1164,61 @@ def try_extend_c2(
 	region = messages[working.compact_cursor:new_cursor]
 	if not region:
 		return _exit(False, "empty_region")
+	if not force:
+		# One execution gate for both ordinary extension callers; hard capacity
+		# pressure bypasses it. Disabled by default, with no identity hashing.
+		from memory import wsc_watermark as _wm
+
+		if _wm.soft_watermark_tokens() > 0 and _wsc_owns_emission():
+			admission = _wm.admit_assessment(
+				str(getattr(working, "session_id", "") or ""),
+				input_tokens=int(getattr(working, "last_prompt_tokens", 0) or 0),
+				identity=_assessment_identity(working, new_cursor, messages),
+				min_gap_shots=int(getattr(params, "min_middle_edit_gap", 4) or 0),
+			)
+			if admission != _wm.REASON_OK:
+				return _exit(False, "soft_watermark_" + admission, gate="soft_watermark",
+					prompt_tokens=int(getattr(working, "last_prompt_tokens", 0) or 0))
+		from memory.fold_cadence_veto import evaluate
+
+		reason, veto_numbers = evaluate(
+			turns_since_c2=getattr(working, "turns_since_c2", 0),
+			c2_gap_shots=getattr(working, "c2_gap_shots", 0),
+		)
+		if reason:
+			return _exit(False, reason, region_tokens=_region_tokens(region),
+				economics_basis="not_measured_cadence_veto", **veto_numbers)
 	ext = c2_summary_extension(region, start_index=working.compact_cursor)
-	head_tokens = token_len(ext)
+	head_tokens, head_basis = _extension_head_tokens(ext, working)
 	region_tokens_ = _region_tokens(region)
 	tail_tokens = _region_tokens(messages[new_cursor:])
 	numbers: dict = {
 		"region_tokens": region_tokens_,
 		"head_tokens": head_tokens,
+		"head_basis": head_basis,
 		"tail_tokens": tail_tokens,
 		# 净省 = 离场的原样区域 − 新增的头；重发面 = 头 + 仍逐字保留的尾部
 		"saved_net": max(0, region_tokens_ - head_tokens),
 		"transition": head_tokens + tail_tokens,
 	}
+	# 本次落地后要收紧到的冷却枪数；force 路径不参与记账 ⇒ 保持 0（= 不动现有冷却）。
+	gap_next = 0
 	if not force:
 		region_chars = _region_chars(region)
 		min_gain = int(getattr(params, "c2_min_gain_chars", 4000))
 		# θ 的两个因子默认取自 synaptic.cadence，与活路径吸收判据（同一价目常数）同源。
 		# env 是这两个因子**唯一**的覆盖面（params 的 c2_extend_* 只喂首压收益门）：
 		# 闭环定参脚本用它扫阈值，v61 / project 两条通道都读，不再有公式开关。
-		from synaptic.cadence import DEFAULT_MARGIN, PRICE_RATIO_HIT_MISS, theta_required
+		from synaptic.cadence import (
+			DEFAULT_MARGIN,
+			MIN_GAP_SHOTS,
+			PRICE_RATIO_HIT_MISS,
+			effective_gap_cap,
+			fold_gap_required,
+			gap_from_payback,
+			payback_from_economics,
+			theta_required,
+		)
 
 		margin = DEFAULT_MARGIN
 		price_ratio = PRICE_RATIO_HIT_MISS
@@ -1205,8 +1242,8 @@ def try_extend_c2(
 		ratio = float(getattr(params, "c2_extend_ratio", 0.5))
 		if region_chars < max(min_gain, ratio * frozen_chars):
 			return _exit(False, "region_thin_vs_frozen", region_chars=region_chars, **numbers)
-		# 3) 经济门：**本次净省 ≥ θ × 本次重发面**（θ 默认 1.0 ⇒ 折叠当枪就不亏，
-		#    不必相信未来任何一枪）。旧第 3/4 闸乘的是 `remaining_turns`——那是**本轮
+		# 3) 经济门：本次净省 ≥ θ × 本次重发面（θ=1 允许约 30 次后续请求回本，
+		#    不保证折叠当次便宜）。旧第 3/4 闸乘的是 `remaining_turns`——那是**本轮
 		#    预算的剩余轮数**（`max_turns − turn_count`，docs §17.6），不是"还会重用前缀
 		#    几枪"：会话提前收尾它就高估，而门槛随预算档位漂移（旧式 = `60 /
 		#    remaining_turns`，生产被 `r_cap=96` 封顶 ⇒ 0.625 倍，评测台传 8 ⇒ 7.5 倍，
@@ -1215,13 +1252,84 @@ def try_extend_c2(
 		#    G66: token 计量统一走 memory.token.token_len(utf-8 字节/4)，弃 字符/4 双口径。
 		theta = theta_required(margin=margin, price_ratio=price_ratio)
 		numbers["theta"] = theta
-		if float(numbers["saved_net"]) < theta * float(numbers["transition"]):
+		saved_net = float(numbers["saved_net"])
+		transition = float(numbers["transition"])
+		from memory import wsc_extension_economics as _wsc_econ
+
+		numbers["economics_basis"] = "c2_estimate"
+		measured = None
+		if _wsc_owns_emission() and _wsc_econ.enabled():
+			measured = _wsc_econ.measure(messages, working, new_cursor, cwd=cwd)
+			if measured is not None:
+				numbers.update(measured.account())
+				saved_net = float(measured.saved_tokens)
+				transition = float(measured.transition_tokens)
+			else:
+				numbers["economics_measurement"] = "unavailable"
+		# 这次折叠「理想界」下要几枪回本（当枪不计；`price_ratio` 反映 miss/hit 价差）。
+		# 实测 payback 只有在**真的折了**之后才可能更大，所以这里只用判据自己的数去估，
+		# 落地后回填的也是它 —— 引擎不需要知道真实命中率就能得到下界。
+		payback = payback_from_economics(price_ratio, transition, saved_net)
+		numbers["payback_shots"] = round(payback, 2) if payback != float("inf") else -1.0
+		if saved_net <= 0 or saved_net < theta * transition:
 			return _exit(False, "pays_back_too_slow", **numbers)
+		# 4) 节奏（引擎自决的冷却）：这次折叠实测要 N 枪回本 ⇒ 接下来这 N 枪之内不再折
+		#    （`synaptic.cadence.gap_from_payback`）。只有本会话**实测过**
+		#    （`c2_gap_shots > 0`）才生效，且下限恒为 MIN_GAP_SHOTS ⇒ 绝不会比旧行为
+		#    折得更频繁；没测过时与旧行为逐字一致（fail-open）。上界 `effective_gap_cap()`
+		#    缺省即结构上界（`MAX_GAP_SHOTS`）。
+		#    force 不受此闸约束：硬顶折叠不是"划算才折"，它不参与收益记账，也不更新
+		#    `c2_gap_shots`（否则硬顶折叠会把冷却按"不划算"的 payback 顶到上界）。
+		gap_seen = int(getattr(working, "c2_gap_shots", 0) or 0)
+		numbers["gap_shots"] = gap_seen
+		# 4) 算出的 `gap_next` = "这次折叠要几枪回本"，由下面 6) 的真否决闸执行（A1 默认开）。
+		# 旧注释在这里写过"冷却只记账、不否决"，依据是"θ=1 已保证这一枪折了不比不折贵，
+		# 再等 N 枪只会把原文多发几遍"。那句推断已被同语料重放证伪（`_wsc_out/_fold_veto_ab.py`：
+		# off 臂在两张价目表上都比 A1 贵）。更正记录留在此处，防止下一轮又把它当权威。
+		# `c2_gap_shots` 的另一读者是发射侧 `CadenceState.adopt_gap`（只收紧）。
+		gap_next = gap_from_payback(payback, cap=effective_gap_cap())
+		# 5) 命中率约束（token 口径，与活路径吸收判据同一条规则，同一份 `fold_gap_required`）：
+		#    折叠在冷却期内往上下文注入 `transition` 个未命中 token，同期读过的 prompt 总量
+		#    约 `gap × prompt_tokens`，于是 `transition / (gap × prompt) ≤ 1 − TARGET_HIT_RATE`
+		#    移项 ⇒ gap 还要抬到 `transition / ((1 − TARGET_HIT_RATE) × prompt)`。
+		#    prompt 越小这条越严 —— 短上下文 / 长尾对话自动往后推折叠，不需要另设窗口水位
+		#    常数（`params.window_tokens` 是离线校准常量，本文件多处明令不得拿它当判据）。
+		#    prompt 未知（0）时不设门（fail-open）。
+		prompt_tok, prompt_basis = _extension_prompt_tokens(measured, messages, working)
+		numbers["prompt_tokens"] = prompt_tok
+		numbers["prompt_basis"] = prompt_basis
+		if prompt_tok > 0:
+			hit_gap = fold_gap_required(payback, transition, prompt_tok)
+			gap_next = min(max(gap_next, hit_gap), effective_gap_cap())
+			# 有界策略可能截短目标间隔；明确记录，不能声称保证总体 99% 命中。
+			numbers["hit_gap_required"] = hit_gap
+			numbers["hit_gap_capped"] = hit_gap > gap_next
+		# 6) 冷却否决（A1 `XEYO_WSC_FOLD_COOLDOWN_VETO` **默认开**；A2 `XEYO_WSC_FOLD_MIN_INTERVAL`
+		#    默认关）。上面 4) 算出的冷却此前只记账不否决；本闸把它（用本会话实测的
+		#    `c2_gap_shots`）或固定间隔（A2）变成真否决。置 A1=0 即逐字回到"只记账"。
+		#    方向：只收紧（拒绝发生在上面任何写之前）；force（硬顶）不受约束，
+		#    与 `cooling` 对 hardtop 的豁免同一口径。
 	old_text = working.c2_summary_text or ""
-	working.c2_summary_text = (old_text.rstrip() + "\n" + ext) if old_text.strip() else ext
+	if account is not None:
+		account["turns_since_c2"] = int(getattr(working, "turns_since_c2", 0) or 0)
+	if old_text.strip() or not _wsc_owns_emission():
+		# WSC 接管发射面时不物化摘要：它永远不会被发出去（``apply_c2_messages`` 先 return
+		# WSC 的投影），写进 working 只会让 sidecar 无谓膨胀（实测某会话摘要 120,153 字符、
+		# 快照 7.7 MB）。判据只用 ``ext`` 的 token 数，与是否落盘无关。
+		working.c2_summary_text = (old_text.rstrip() + "\n" + ext) if old_text.strip() else ext
 	working.compact_cursor = new_cursor
 	working.c1_frozen_until = max(working.c1_frozen_until, new_cursor)
 	working.turns_since_c2 = 0
+	# 落地回填：把"这次折叠要几枪回本"钉进 working（随 sidecar 持久化）。折叠的成本是真的
+	# 付了，冷却也必须是真的：本数的运行时读者有两处——上面 6) 的否决闸（A1 默认开即真拦；
+	# 置 0 时回到"只记账"）与发射侧 `CadenceState.adopt_gap`（只收紧）。
+	# 只在前面的经济门算过（非 force）时才写。语义是**重设**，不是对历史取 max：
+	# `max(旧值, 本次)` 会让"上一次贵折叠"永久占住冷却，越折越久、直到锁死不再回收；
+	# 每次折叠的收益账目只对**本次**成立，所以冷却只该按本次实测给（下限 MIN_GAP_SHOTS
+	# 保证不比旧行为折得更频繁，上界由 gap_next 自身已夹过）。
+	if not force and gap_next > 0:
+		working.c2_gap_shots = int(gap_next)
+		numbers["gap_next"] = int(working.c2_gap_shots)
 	working.proj_cache = None
 	# T8：append-only 扩展也写入 checkpoint 窗口链（锚点推进），resume 可重现窗口演进
 	append_compact_window(
@@ -1233,6 +1341,22 @@ def try_extend_c2(
 	# 与 note_c2 一致：cursor 前进后清空嵌套路径，下一枪按需再发现
 	working.loaded_nested_instruction_paths = []
 	return _exit(True, "forced" if force else "worth_fold", **numbers)
+
+
+def _wsc_owns_emission() -> bool:
+	"""WSC 是否接管这一枪的发射面（= ``XEYO_WSC`` 开着）。
+
+	单独一个函数只为把"谁发头"收在一处：``apply_c2_messages`` 先问 WSC，只有它返回 None
+	才轮到 C2 本体 ⇒ WSC 开着时摘要文本不进任何一次发射，它剩下的唯一用途是判据中间量。
+	拿不到（异常）时按"摘要要落盘"的保守侧返回 False——那是改动前的行为。
+	"""
+	try:
+		from memory.wsc_projection import live_enabled
+
+		return bool(live_enabled())
+	except Exception:  # noqa: BLE001 — 观测性判据绝不阻塞折叠
+		logging.getLogger(__name__).debug("wsc live_enabled unavailable", exc_info=True)
+		return False
 
 
 def _note_fold_attempt(working: WorkingSnapshot, account: dict) -> None:
@@ -1256,6 +1380,51 @@ def _note_fold_attempt(working: WorkingSnapshot, account: dict) -> None:
 		logging.getLogger(__name__).debug("record_fold_event failed", exc_info=True)
 
 
+def _size_gate_fold_account(
+	messages: list[dict], working: WorkingSnapshot, new_cursor: int, *, forced: bool,
+	gain: dict | None = None,
+) -> dict[str, Any]:
+	"""``decide`` 点 C2 但摘要为空那一支真折了：算出与 θ 门同一组量，只为补账。
+
+	为什么必须单独记：``try_extend_c2`` 的 append-only 分支要求 ``c2_summary_text`` 非空，而
+	WSC 接管发射面之后摘要永远是空（写它的两处——``apply_c2_messages`` 的 C2 本体、
+	``try_extend_c2`` 自己——都以 WSC 返回 None / 摘要已非空为前提）。于是生产里每次 C2 折叠
+	都落在这一支，``fold_events`` 一条都不写：实测某会话 ``c2_events`` 12 行、折叠记账 0 行，
+	"折了几次、每次重发面多大"仍要靠重放转录倒推——正是 ``usage.ledger.record_fold_event``
+	文档里说要堵的那个缺口。
+
+	本函数**只观测**：不改判据、不改游标、不改任何一个发出字节。数字描述的是 **C2 触发侧**
+	的区与确定性扩展（与 ``try_extend_c2`` 同口径、可直接并排比），不是 WSC 实发头的尺寸；
+	两者要靠 ``gate`` 字段分行统计，不许混成一个"折叠成本"。
+	"""
+	try:
+		region = messages[working.compact_cursor:new_cursor]
+		if not region:
+			return {}
+		head_tokens = token_len(c2_summary_extension(region, start_index=working.compact_cursor))
+		region_tokens_ = _region_tokens(region)
+		tail_tokens = _region_tokens(messages[new_cursor:])
+		return {
+			"fold": True,
+			"reason": "forced" if forced else "size_gate_fold",
+			"forced": bool(forced),
+			"gate": "size_first_press",
+			"region_chars": _region_chars(region),
+			"region_tokens": region_tokens_,
+			"head_tokens": head_tokens,
+			"tail_tokens": tail_tokens,
+			"saved_net": max(0, region_tokens_ - head_tokens),
+			"saved_net_basis": "c2_estimate",
+			"transition": head_tokens + tail_tokens,
+			# 新报价另立字段（不改 saved_net 的含义）：候选臂量到的发射面长度差。
+			# 估算臂没有这两个字段 ⇒ 读侧按 `gain_arm` 分行，不许把两把尺并成一个数。
+			**(gain or {}),
+		}
+	except Exception:  # noqa: BLE001 — 观测绝不阻塞折叠
+		logging.getLogger(__name__).debug("size-gate fold account failed", exc_info=True)
+		return {}
+
+
 def _branch_x(d: Any, action: str) -> str:
 	"""取该动作分支的 simulator 投影 X，作为下一轮 Ĥ 的 x_prev；取不到返回空串"""
 	try:
@@ -1274,8 +1443,8 @@ def update_projection_digest(working: WorkingSnapshot, s0) -> None:
 	"""把 s0 的冻结前缀（P = p_s + p_c）计量为 ``working.last_projection``（P1 缺失2）。
 
 	只存可重入计量信息，**不存全文**：对 P 做 sha256、记下各段 token 长度。这样
-	杀进程重启后，``decide`` 的 keep 分支仍能算 ``lcp_keep``（= frozen_len），无需
-	重放整段投影。任何失败都静默（不阻塞热路径）。
+	杀进程重启后，先重建并验证前缀哈希，验证成功才参与 LCP 估计。
+	长度不作为前缀身份的证明。任何失败都静默（不阻塞热路径）。
 	"""
 	try:
 		from memory.simulator.projection import emit_segment, project as sim_project
@@ -1439,7 +1608,10 @@ def _c2_formula_enabled(key: str) -> bool:
 		return True
 
 
-def _c2_gain_enough(messages: list[dict], working: WorkingSnapshot, new_cursor: int, params, remaining_turns: int = 8) -> bool:
+def _c2_gain_enough(messages: list[dict], working: WorkingSnapshot, new_cursor: int, params,
+                  remaining_turns: int = 8, *, account: dict | None = None,
+                  cwd: str | os.PathLike[str] | None = None,
+                  context_limit: int | None = None) -> bool:
 	"""C2 收益门：待压缩区比摘要文本大出足够多、且压缩后投影显著小于全量才压缩。
 
 	避免每轮重压缩破坏 KV 缓存（命中率下降）；收益不足时退回保持现有紧凑投影。
@@ -1448,7 +1620,11 @@ def _c2_gain_enough(messages: list[dict], working: WorkingSnapshot, new_cursor: 
 	Path A（XEYO_C2_GAIN_FORMULA=1）：改用成本模型经济公式——
 	「剩余轮次 × 每轮省 token ≥ margin × price_ratio × 改写一次性 miss」，随
 	remaining_turns 动态（不再拍固定 0.40/8000 常量）。默认关，走冻结行为。
+
+	两个完整 WSC 候选的配对测量位于 evals.wsc_gain_candidates，仅由离线实验调用。
 	"""
+	if account is not None:
+		account.setdefault("gain_arm", "c2_region_minus_summary")
 	if _c2_formula_enabled("XEYO_C2_GAIN_FORMULA"):
 		region = messages[working.compact_cursor:new_cursor]
 		if not region:
@@ -1559,6 +1735,36 @@ def params_for_window(params, context_limit: int | None):
 		return params
 
 
+def _assessment_identity(working: WorkingSnapshot, new_cursor: int, messages: list[dict]) -> str:
+	"""软水位的"候选身份"三要素（旁路；`memory/wsc_watermark.py` 的调用方）。
+
+	- 冻结头版本：用 ``compact_cursor`` 当代号——头只在折叠那一枪重排，游标即版本；
+	- 可吸收边界：``new_cursor``；
+	- 消息修订状态：**最后一条消息内容的哈希**，不是消息条数。
+	  顾问明令"不能只比较消息数量"——原地改写与回滚都不改条数，却会造出新候选。
+	"""
+	import hashlib
+	import json
+
+	last = messages[-1] if messages else {}
+	body = last.get("content")
+	if body is None:
+		digest = "none"
+	else:
+		try:
+			blob = json.dumps(body, ensure_ascii=False, default=str, sort_keys=True)
+		except (TypeError, ValueError):
+			blob = str(body)
+		digest = hashlib.sha1(blob.encode("utf-8")).hexdigest()[:12]
+	from memory import wsc_watermark as _wm
+
+	return _wm.candidate_identity(
+		head_version=f"c{int(working.compact_cursor)}",
+		region_end=int(new_cursor),
+		revision_state=f"{len(messages)}:{digest}",
+	)
+
+
 def project_for_model(
 	messages: list[dict],
 	working: WorkingSnapshot,
@@ -1568,13 +1774,14 @@ def project_for_model(
 	include_memory_index: bool = True,
 	summary_provider=None,
 	context_limit: int | None = None,
+	provider: str = "",
+	model_name: str = "",
 	cwd: str | os.PathLike[str] | None = None,
 ) -> list[dict]:
 	"""按开关生成送模型投影。
 
-	- 默认 project：字节级等于 compact.project（硬不变量），不跑 decide；
-	    仅当 XEYO_C2_GATE 打开（超长会话单开）时才允许公式 C2。
-	- v61：实验通道，每轮 decide（keep/C1/C2）。
+	- project：不跑 decide；存在 C2 游标时复用既有压缩，否则只做 C0/C1。
+	- v61：当前默认通道，每轮 decide（keep/C1/C2）。
 
 	``context_limit``：**真实模型上下文窗口**（用户添加模型时必填的上下文窗口 / route capacity）。
 	Path A 压力门据此推导「离硬顶留够余量才压」。**必需**：缺省 None 时压力门返回 None（窗口未知
@@ -1582,6 +1789,10 @@ def project_for_model(
 	误以为窗口只有 128k。
 	"""
 	if l5_mode() == "project":  # 2026-09-06：C2_GATE 固化恒 True（已删开关）→ 快路径只看 L5
+		if working.compact_cursor > 0:
+			working.last_action = "C2"
+			out = apply_c2_messages(messages, working, summary_provider=summary_provider, cwd=cwd)
+			return _append_memory_index(out) if include_memory_index else out
 		if aging_enabled():
 			maybe_advance_aging_boundary(messages, working)
 			working.last_action = "project"
@@ -1591,14 +1802,19 @@ def project_for_model(
 			out = project_c0c1(messages, cwd=cwd)
 		return _append_memory_index(out) if include_memory_index else out
 
-	# T38 解耦（条件 import）：默认 project 路径（上方 return）不 import 离线 simulator，
-	# 仅 v61 实验通道 / C2 gate 真正需要 decide 时才加载，且绑定为局部名。
+	# project 快路径不加载 simulator；仅 v61 决策路径使用它。
 	from memory.simulator.params import load_params
 	from memory.simulator.scenarios import DEFAULT_SYSTEM, state_from_messages
 	from memory.simulator.cache_model import CacheState
 	from memory.simulator.decision import decide
+	from memory.simulator.projection import verified_previous_text
 
-	p = params_for_window(load_params(), context_limit)
+	identity = {}
+	if provider:
+		identity["provider"] = provider
+	if model_name:
+		identity["model"] = model_name
+	p = params_for_window(load_params(**identity), context_limit)
 	# r_cap 接线（原死参数）：剩余轮数估计按 params.r_cap 封顶（与 replay.estimate_remaining 一致）
 	try:
 		remaining_turns = min(max(1, int(remaining_turns)), int(p.r_cap))
@@ -1625,19 +1841,10 @@ def project_for_model(
 		cur_tokens = sim_project(s0).length
 		usage_ratio = usage_ratio_from_tokens(cur_tokens, p.window_tokens)
 		unread_count = count_unread_files(getattr(working, "read_file_state", {}) or {})
-		# B3 证据门：窗口余量 ÷ 近期增速（≈ cur_tokens / 历史轮数）作 R_base 输入；
-		# env 关闭时传 None → 静态规则（与 P1 缺失3 冻结行为逐位一致）。
-		avg_turn = None
-		from memory.simulator.r_estimator import _dynamic_enabled as _dyn_on
-
-		if _dyn_on():
-			n_turns = max(1, len(messages) // 2)
-			avg_turn = float(cur_tokens) / float(n_turns)
 		r_gate = estimate_r_gate(
 			usage_ratio,
 			unread_count,
 			params=p,
-			avg_turn_tokens=avg_turn,
 			window_tokens=p.window_tokens,
 			current_tokens=cur_tokens,
 		)
@@ -1646,8 +1853,9 @@ def project_for_model(
 	age = idle_seconds(working)
 	cache = CacheState(
 		age_seconds=age,  # 距上次打模型的空闲秒数
-		x_prev=working.last_x_sim,  # 上一轮真实发送的投影 X → keep 的 Ĥ 不再恒 0
-		x_prev_frozen_len=prev_frozen_len,  # 上一枪冻结前缀长度 → restart 可重入 lcp_keep
+		x_prev=verified_previous_text(
+			working.last_x_sim, prev_proj, s0),
+		x_prev_frozen_len=prev_frozen_len,  # 兼容计量字段；命中依据已验证的前缀正文
 		provider=p.provider,  # 计价/TTL 画像所用厂商
 		model=p.model,  # 计价所用模型名
 	)
@@ -1658,59 +1866,6 @@ def project_for_model(
 		working.last_action = "C2"
 		note_c2(working, max(working.compact_cursor, c2_cut_index(messages, s0)))
 		return apply_c2_messages(messages, working, summary_provider=summary_provider, cwd=cwd)
-
-	# Path A（XEYO_C2_PRESSURE_FORMULA=1）：**压力门单一触发**。
-	# C2 触发只由「压力门（必要）∧ 收益门（充分）」决定，**接管 decide 的 C2 分支**
-	# （未达压 → keep，投影字节稳定；压后进稳定压缩态，扩展只走 try_extend_c2 稀疏触发）。
-	# 这正是「减改写、提命中」：decide 每轮都可能点 C2，压力门把它收敛为
-	# 「窗口压力跨过才压一次」的稀发事件。HardTop 兜底永远保留（窗口真快溢出仍强制压）。
-	# 公式关（默认）时逐字节冻结，走下方 decide 原路径。
-	formula_c2 = (
-		_c2_formula_enabled("XEYO_C2_PRESSURE_FORMULA")
-		and working.compact_cursor == 0
-	)
-	if formula_c2:
-		try:
-			from memory.simulator.projection import project as _sim_project
-
-			cur_tokens = _sim_project(s0).length
-			# 真实窗口：**必须**是传入的 model.context_limit（用户添加模型时必填的上下文窗口）。
-			# 不再回退 params.window_tokens=128k（那会让 C2 误以为窗口只有 128k，主流模型已 1M）。
-			win = int(context_limit) if context_limit and int(context_limit) > 0 else None
-			pressure_ratio = _c2_pressure_ratio(working, p, window_override=context_limit)
-			# 窗口未知（未填）→ 压力门不触发（安全：宁可不压，也不拿错窗口压）；
-			# pressure_ratio 是相对真实窗口的比例（= (l_hard_send−reserve−tail)/window）。
-			pressure_ok = (
-				win is not None
-				and pressure_ratio is not None
-				and cur_tokens / max(1, win) >= pressure_ratio
-			)
-			new_cursor = max(working.compact_cursor, c2_cut_index(messages, s0))
-			gain_ok = bool(
-				new_cursor > working.compact_cursor
-				and _c2_gain_enough(messages, working, new_cursor, p, remaining_turns)
-			)
-			working.last_x_sim = _branch_x(d, "keep")
-			if pressure_ok and gain_ok:
-				working.last_action = "C2"
-				note_c2(working, new_cursor)
-				try:
-					from usage.ledger import record_c2_event
-
-					record_c2_event(session_id=working.session_id, cursor=new_cursor)
-				except Exception:
-					logging.getLogger(__name__).debug("record_c2_event failed", exc_info=True)
-				return _append_memory_index(
-					apply_c2_messages(messages, working, summary_provider=summary_provider, cwd=cwd)
-				) if include_memory_index else apply_c2_messages(
-					messages, working, summary_provider=summary_provider, cwd=cwd
-				)
-			# 未达压 / 收益不足：keep（投影字节稳定，KV 命中）
-			working.last_action = "keep"
-			out = project_c0c1(messages, frozen_until=working.c1_frozen_until, cwd=cwd)
-			return _append_memory_index(out) if include_memory_index else out
-		except Exception:
-			logging.getLogger(__name__).debug("c2 formula path failed; falling back to decide", exc_info=True)
 
 	def send(action: str) -> list[dict]:
 		"""把已选动作的投影记为 last_x_sim，再追加记忆索引尾部（只影响 T_now）"""
@@ -1729,7 +1884,15 @@ def project_for_model(
 	if d.a_star == "C2" and not cooling:
 		new_cursor = max(working.compact_cursor, c2_cut_index(messages, s0))
 		if new_cursor > working.compact_cursor:
-			if working.compact_cursor > 0 and working.c2_summary_text:
+			# 前提只问"是不是已压缩态"，**不再问摘要非空**：WSC 接管发射面后
+			# ``c2_summary_text`` 永远是空（写它的两处都以"WSC 返回 None / 摘要已非空"为前提），
+			# 拿它当前提 ⇒ 下面那道带 θ/记账的扩展闸对 WSC 会话整体旁路，每次 decide 点 C2
+			# 都退到再下面那道只查 4000 字符的尺寸门。
+			# ⚠️ 旧注释在这里写过"节奏就只剩固定 ``min_middle_edit_gap``（生产实测：折叠正好
+			# 每 4 枪一次）"——**那句是错的**：本文件的折叠节奏实际由下面 1912 行的 decoupled
+			# 支决定，而那条支**不读 ``cooling``**（实测 106 个折叠间隔里 23 个是 1–3 枪）。
+			# 保留更正记录，防止下一次又把它当权威。
+			if working.compact_cursor > 0:
 				# 已压缩态：append-only 扩展冻结摘要，绝不重写旧文本（KV 前缀稳定）
 				# HardTop（缺口①）：必要性高于经济闸——窗口临近/越过时强制扩展，防止尾部
 				# 增长越过硬顶（否则扩展被拒后降级 keep，投影溢出窗口）。
@@ -1737,6 +1900,7 @@ def project_for_model(
 				extended = try_extend_c2(
 					working, messages, new_cursor, p,
 					force=bool(d.hardtop), account=acct,
+					cwd=cwd,
 				)
 				_note_fold_attempt(working, acct)
 				if extended:
@@ -1756,7 +1920,9 @@ def project_for_model(
 					return send("C2")
 				# 收益/稀发/经济门不足：保持现有紧凑投影（字节稳定），不破坏缓存
 				return send("keep")
-			if d.hardtop or _c2_gain_enough(messages, working, new_cursor, p, remaining_turns):
+			gain_acct: dict[str, Any] = {}
+			if d.hardtop or _c2_gain_enough(messages, working, new_cursor, p, remaining_turns,
+			                               account=gain_acct, cwd=cwd, context_limit=context_limit):
 				try:
 					from memory.agent_scope import may_touch_session_md
 					from memory.session_md import maybe_update
@@ -1765,6 +1931,12 @@ def project_for_model(
 						maybe_update(working.session_id, messages, working=working)
 				except ImportError:
 					pass
+				_note_fold_attempt(
+					working,
+					_size_gate_fold_account(
+						messages, working, new_cursor, forced=bool(d.hardtop), gain=gain_acct
+					),
+				)
 				note_c2(working, new_cursor)  # 同时清 loaded_nested_instruction_paths
 				try:
 					from usage.ledger import record_c2_event
@@ -1782,13 +1954,16 @@ def project_for_model(
 				return send("C2")
 
 	# 可选：压缩态扩展与 θ 门解耦——已压缩后只按 append 三道闸门扩展，不再等 decide 返回 C2
-	# （C2Q 首压后常低于 θ，θ 门会卡死扩展、让尾部无限增长）。默认关（c2_extend_decouple=False）。
+	# （C2Q 首压后常低于 θ，θ 门会卡死扩展、让尾部无限增长）。
+	# ⚠️ 旧注释在这里写"默认关（c2_extend_decouple=False）"，与 `simulator/params.py:70`
+	# 的 `c2_extend_decouple: bool = True` **相反** ⇒ 生产实际每枪都问这道门，且**不经过
+	# 上面的 ``cooling``**。改默认值时这一句必须同步，否则注释又一次比代码先撒谎。
 	if working.compact_cursor > 0 and p.c2_extend_decouple and d.a_star != "C2":
 		new_cursor = max(working.compact_cursor, c2_cut_index(messages, s0))
 		dacct: dict = {}
 		_decoupled = False
 		if new_cursor > working.compact_cursor:
-			_decoupled = try_extend_c2(working, messages, new_cursor, p, account=dacct)
+			_decoupled = try_extend_c2(working, messages, new_cursor, p, account=dacct, cwd=cwd)
 			_note_fold_attempt(working, dacct)
 		if _decoupled:
 			# try_extend_c2 已清 nested paths / proj_cache
@@ -1816,18 +1991,6 @@ def project_for_model(
 		if new_until > working.c1_frozen_until:
 			note_c1(working, new_until)
 			return send("C1")
-
-	# project+gate：C2 未触发时回到既有 C0+C1 路径；若已压缩则保持紧凑投影
-	if l5_mode() == "project":
-		if aging_enabled():
-			maybe_advance_aging_boundary(messages, working)
-		if working.compact_cursor > 0:
-			working.last_action = "C2"
-			out = apply_c2_messages(messages, working, summary_provider=summary_provider, cwd=cwd)
-		else:
-			working.last_action = "project"
-			out = project_c0c1(messages, frozen_until=working.c1_frozen_until, cwd=cwd)
-		return _append_memory_index(out) if include_memory_index else out
 
 	# 日常 keep：投影只按既有冻结边界走，旧消息字节稳定
 	return send("keep")
@@ -2013,6 +2176,25 @@ def reasoning_tokens_in_context(messages: object) -> int:
 	return int(total_chars / _CHARS_PER_TOKEN_EST)
 
 
+def _absolute_pressure_tokens() -> int:
+	"""绝对 token 压力线（`XEYO_C2_PRESSURE_TOKENS`，数值键不入册，默认 0=关）。
+
+	存在的理由（10-04 账本实测）：窗口比例这条线在 1M 窗口型号上等于永不触发——
+	`deepseek-v4.1-flash-expires-on-0910` 窗口 1,000,000，HardTop 线 0.55×window=550k、
+	压力线 0.95×window=950k，而当日在跑会话实发 prompt 峰值 89,968（离 HardTop 16%）。
+	容量安全阀离现场 6~10 倍远 ⇒ 需要一条**与窗口无关**的线才能表达"上下文到了这个
+	绝对规模就该压"。与 09-30 裁定一致：按窗口比例触发曾被真实 prompt 分布否掉，
+	能做的只有绝对字节线。只作**触发线**，不改压力比公式本身。
+	"""
+	raw = os.environ.get("XEYO_C2_PRESSURE_TOKENS", "").strip()
+	if not raw:
+		return 0
+	try:
+		return max(0, int(float(raw)))
+	except ValueError:
+		return 0
+
+
 def should_force_compact_on_pressure(
 	*,
 	prompt_tokens: int,
@@ -2024,10 +2206,17 @@ def should_force_compact_on_pressure(
 	"""上一枪（或本会话累计）prompt 已达厂商 context_limit 的 ratio 时返回 True。
 
 	ratio 缺省：Path A 压力公式开启时按 (l_max−tail)/window 推导，否则冻结 0.80。
+	绝对线（`XEYO_C2_PRESSURE_TOKENS`，默认 0=关）优先于比例线，且**不需要窗口**——
+	窗口未知时它仍然工作（比例线在窗口未知时按"宁可不压"返回 False）。
 	"""
 	limit = int(context_limit or 0)
 	prompt = int(prompt_tokens or 0)
-	if limit <= 0 or prompt <= 0:
+	if prompt <= 0:
+		return False
+	abs_line = _absolute_pressure_tokens()
+	if abs_line > 0 and prompt >= abs_line:
+		return True
+	if limit <= 0:
 		return False
 	# pressure_ratio 必须用**真实窗口**（context_limit）推导，与分母 limit 同一窗口——
 	# 否则 ratios 用 params.window_tokens=128k、分母用真实 1M，会不一致（C2 误判窗口）。
@@ -2101,12 +2290,13 @@ def force_compact(
 				maybe_update(working.session_id, messages, working=working)
 		except ImportError:
 			pass
-		if working.compact_cursor > 0 and working.c2_summary_text:
+		if working.compact_cursor > 0:  # 同上：摘要不为 WSC 会话的前提（见 project_for_model 的注释）
 			from memory.simulator.params import load_params
 
 			facc: dict = {}
 			try_extend_c2(
 				working, messages, new_cursor, load_params(), force=True, account=facc,
+				cwd=cwd,
 			)
 			_note_fold_attempt(working, facc)
 		else:

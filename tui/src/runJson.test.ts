@@ -33,7 +33,31 @@ function sseBody(frames: string[]): ReadableStream<Uint8Array> {
 const PERMITTED_FRAMES = [
   'data: {"xy":{"type":"permission_pending","request_id":"apr1","tool_name":"Bash","prompt":"rm -rf build"}}\n\n',
   'data: {"choices":[{"delta":{"content":"停下了"}}]}\n\n',
+  'data: [DONE]\n\n',
 ];
+
+test('空响应或部分输出后断流的 JSON 退出码非零，不能输出成功', async () => {
+  for (const frames of [[], ['data: {"choices":[{"delta":{"content":"partial"}}]}\n\n']]) {
+    const originalFetch = globalThis.fetch;
+    const originalWrite = process.stdout.write;
+    const lines: string[] = [];
+    globalThis.fetch = (async (input: unknown) => String(input).endsWith('/health')
+      ? {ok: true, status: 200, json: async () => ({})}
+      : new Response(sseBody(frames))) as never;
+    // 只捕获应用 JSON，转发 node:test 的二进制报告，避免把测试结果本身吞掉。
+    process.stdout.write = ((chunk: string | Uint8Array, ...args: unknown[]) => {
+      if (typeof chunk === 'string' && chunk.startsWith('{')) {lines.push(chunk); return true;}
+      return Reflect.apply(originalWrite, process.stdout, [chunk, ...args]);
+    }) as never;
+    let code: number;
+    try {code = await runJsonChat(CONFIG, 'sample');}
+    finally {globalThis.fetch = originalFetch; process.stdout.write = originalWrite;}
+    assert.equal(code, 1);
+    const events = lines.flatMap(line => line.trim().split('\n').map(value => JSON.parse(value)));
+    assert.ok(events.some(event => event.type === 'error' && /incomplete_stream/.test(event.message)));
+    assert.ok(!events.some(event => event.type === 'done' && event.ok === true));
+  }
+});
 
 test("permission_pending 会把拒绝发回服务端，并且退出码非零", async () => {
   const calls: {url: string; body: unknown}[] = [];
@@ -57,10 +81,10 @@ test("permission_pending 会把拒绝发回服务端，并且退出码非零", a
 
   const lines: string[] = [];
   const write = process.stdout.write.bind(process.stdout);
-  (process.stdout as unknown as { write: (c: string) => boolean }).write = (chunk: string) => {
-    lines.push(chunk);
-    return true;
-  };
+  process.stdout.write = ((chunk: string | Uint8Array, ...args: unknown[]) => {
+    if (typeof chunk === 'string' && chunk.startsWith('{')) {lines.push(chunk); return true;}
+    return Reflect.apply(write, process.stdout, [chunk, ...args]);
+  }) as never;
 
   let code = 0;
   try {

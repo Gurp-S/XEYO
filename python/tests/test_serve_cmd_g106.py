@@ -23,16 +23,19 @@ def test_serve_rejects_lan_env_host(monkeypatch: pytest.MonkeyPatch, tmp_path) -
 	assert ei.value.code == 2
 
 
-@pytest.mark.xfail(reason="既有红（2026-09-21 挂账）：G 桶·死引用：monkeypatch 的目标 cli.serve_cmd.server_main 属性已不存在。待办=对齐 serve 入口现签名或删用例。", strict=False)
 def test_serve_allows_lan_with_explicit_flag(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
-	monkeypatch.setenv("XEYO_ALLOW_LAN", "1")
+	"""G106 的正半段：显式 XEYO_ALLOW_LAN=1 时必须一路走到启动调用。
 
-	def fake_main():
+	旧写法 `monkeypatch.setattr(m, "server_main", …)` 永远打不中——`server_main` 是
+	`run_serve` 内部的函数级 import（`from server.__main__ import main as server_main`），
+	不是模块属性；要拦就得钉 `server.__main__.main` 本身。
+	"""
+	import server.__main__ as server_main_mod
+
+	def fake_main() -> None:
 		raise RuntimeError("reached server")
 
-	monkeypatch.setattr("cli.serve_cmd.os.environ.setdefault", lambda k, v: None)
-	import cli.serve_cmd as m
-
-	monkeypatch.setattr(m, "server_main", fake_main)  # type: ignore[attr-defined]
+	monkeypatch.setenv("XEYO_ALLOW_LAN", "1")
+	monkeypatch.setattr(server_main_mod, "main", fake_main)
 	with pytest.raises(RuntimeError, match="reached server"):
 		run_serve(host="0.0.0.0", port=8113, cwd=str(tmp_path))

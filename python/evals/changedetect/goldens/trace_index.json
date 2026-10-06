@@ -3,80 +3,80 @@
  "schema": 1,
  "traces": {
   "inject/after_failed_tool": {
-   "chars": 536,
-   "sha256": "4bebae633f84e3bc02b4861d13c9141bc05c3f29bfd5a1243567fc4e3fb71af2"
+   "chars": 895,
+   "sha256": "6ae7c4071385d8dbc139d4fc237000bf3a561a42ba352d588f03b58356f806d5"
   },
   "inject/after_tools": {
-   "chars": 520,
-   "sha256": "88c608b35c8c51be6c7098b6daa707d902898a1ced6ec47872a183d7058405f8"
+   "chars": 879,
+   "sha256": "4593cee7560b0b68423dc198d15313ab790b333ee964f1a7e3b2b42edebe64c3"
   },
   "inject/approved_plan": {
-   "chars": 237,
-   "sha256": "9ea3d42a6953680d82c64ddbec04dd63336229b53be77d02640093f98b27c218"
+   "chars": 596,
+   "sha256": "30de39c4a783cf98228312219579140d18fe0f5ede3d1e8d9d4d8e9d91269545"
   },
   "inject/approved_plan_pointer": {
-   "chars": 229,
-   "sha256": "afd319b274510156ef9d093811219b522a860457fac3565547262c17a7c372da"
+   "chars": 588,
+   "sha256": "a59930c139eec0f26b61d29a6340e1b92f1145d25b9d5b01409395c661c20fab"
   },
   "inject/ask_mode": {
-   "chars": 245,
-   "sha256": "fae1612e46691a077602c2379d7a420830a8db35e059a7fe879bea0e89a5f0b7"
+   "chars": 604,
+   "sha256": "e11383f453d304d0b27f1d6df0e4a3be3a816472cfc3161cb937737ee8faf1d9"
   },
   "inject/channel_env": {
-   "chars": 452,
-   "sha256": "937d72212742116fec9357e29e1ff93f81d54197515bd4ee6c33496e0632b837"
+   "chars": 530,
+   "sha256": "e450173282e65da970cde793da8d14e9cca3efcf38e0c866da0c062b4118fc59"
   },
   "inject/channel_legacy": {
-   "chars": 216,
-   "sha256": "d0d3ea71e4e2fdee640cf55adcc36b8a0ef9a2f9a2d8753678514cf40fdb64bb"
+   "chars": 338,
+   "sha256": "7ff61ef02f03994b3ea9e7d147219dc2d2e1701796dc6ae7fc8e093f97f3871d"
   },
   "inject/goal": {
-   "chars": 211,
-   "sha256": "ca16b9b32fe39c253b0f0253cd15882879ffe4cfe5de87ed12cd56fc56a4ea04"
+   "chars": 570,
+   "sha256": "2e98fba9bb839c4633c4193a43a357798afbe53fe97f78a8fa851818cae7f178"
   },
   "inject/instructions_off": {
-   "chars": 538,
-   "sha256": "c98e14ebf1490ea90fece31a56c60e2188ad065b0efb65d3a282c6939fc0cd57"
+   "chars": 897,
+   "sha256": "7294981736fdd1527b66576e79c1fd9010f7f730e1577f684aa9d46a30eab572"
   },
   "inject/instructions_on": {
-   "chars": 538,
-   "sha256": "c98e14ebf1490ea90fece31a56c60e2188ad065b0efb65d3a282c6939fc0cd57"
+   "chars": 897,
+   "sha256": "7294981736fdd1527b66576e79c1fd9010f7f730e1577f684aa9d46a30eab572"
   },
   "inject/multi_agent": {
-   "chars": 248,
-   "sha256": "a1c7876adc3ab39d36310d0d992f41185a8d4bc51cf8e7bff3fe87a2d66af168"
+   "chars": 607,
+   "sha256": "9ee1793c0603420eb412ca2e198f54dcec2be7275a8d61441897dc6210c94dcb"
   },
   "inject/no_instructions": {
-   "chars": 44,
-   "sha256": "0ae2bd4802c89f954aff7776790d976b2b5ef1d76c0d78c2c41bf924080859dd"
+   "chars": 403,
+   "sha256": "2a80305a9d3877a4f5f8d3b48102bf0f5784c753135ca371c56556e1d744487b"
   },
   "inject/plain": {
-   "chars": 44,
-   "sha256": "0ae2bd4802c89f954aff7776790d976b2b5ef1d76c0d78c2c41bf924080859dd"
+   "chars": 403,
+   "sha256": "2a80305a9d3877a4f5f8d3b48102bf0f5784c753135ca371c56556e1d744487b"
   },
   "inject/plan_mode": {
-   "chars": 252,
-   "sha256": "0ea32678578c97cecbbb59d59165acb2ce2d042ab28e56fc94c62cdbf6ec70d3"
+   "chars": 611,
+   "sha256": "659eae5bea1b0fcce6f280ad8a13cc4b6a382f2fbef421b63308f0ca1d85e7bd"
   },
   "inject/runtime_notice": {
-   "chars": 44,
-   "sha256": "0ae2bd4802c89f954aff7776790d976b2b5ef1d76c0d78c2c41bf924080859dd"
+   "chars": 403,
+   "sha256": "2a80305a9d3877a4f5f8d3b48102bf0f5784c753135ca371c56556e1d744487b"
   },
   "inject/runtime_notice_after_tools": {
-   "chars": 520,
-   "sha256": "88c608b35c8c51be6c7098b6daa707d902898a1ced6ec47872a183d7058405f8"
+   "chars": 879,
+   "sha256": "4593cee7560b0b68423dc198d15313ab790b333ee964f1a7e3b2b42edebe64c3"
   },
   "inject/subagent": {
-   "chars": 520,
-   "sha256": "88c608b35c8c51be6c7098b6daa707d902898a1ced6ec47872a183d7058405f8"
+   "chars": 879,
+   "sha256": "4593cee7560b0b68423dc198d15313ab790b333ee964f1a7e3b2b42edebe64c3"
   },
   "inject/wrap_up": {
-   "chars": 44,
-   "sha256": "0ae2bd4802c89f954aff7776790d976b2b5ef1d76c0d78c2c41bf924080859dd"
+   "chars": 403,
+   "sha256": "2a80305a9d3877a4f5f8d3b48102bf0f5784c753135ca371c56556e1d744487b"
   },
   "inject/wrap_up_after_tools": {
-   "chars": 520,
-   "sha256": "88c608b35c8c51be6c7098b6daa707d902898a1ced6ec47872a183d7058405f8"
+   "chars": 879,
+   "sha256": "4593cee7560b0b68423dc198d15313ab790b333ee964f1a7e3b2b42edebe64c3"
   },
   "loop/echo_empty": {
    "chars": 125,

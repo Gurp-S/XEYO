@@ -20,9 +20,7 @@ from enum import Enum
 from threading import RLock
 from typing import Callable
 
-# ---------------------------------------------------------------------------
 # 类型与缺省实现
-# ---------------------------------------------------------------------------
 
 
 class Kind(str, Enum):
@@ -68,15 +66,9 @@ CleanupFn = Callable[[Entry], bool]
 
 
 def _pid_alive(pid: int) -> bool:
-	try:
-		os.kill(pid, 0)
-		return True
-	except ProcessLookupError:
-		return False
-	except PermissionError:
-		return True  # 存在但无权探查:按存活处理,不误杀也不误删
-	except OSError:
-		return False
+	from server.portfile import is_pid_alive
+
+	return is_pid_alive(pid)
 
 
 def default_probe(entry: Entry) -> bool:
@@ -126,9 +118,7 @@ def default_cleanup(entry: Entry) -> bool:
 	return False
 
 
-# ---------------------------------------------------------------------------
 # 台账
-# ---------------------------------------------------------------------------
 
 
 class ProcessLedger:
@@ -294,9 +284,7 @@ class ProcessLedger:
 		]
 
 
-# ---------------------------------------------------------------------------
 # 旁路便捷入口(XEYO_PROC_LEDGER 门控;默认关,关时零行为差异)
-# ---------------------------------------------------------------------------
 
 _DEFAULT: "ProcessLedger | None" = None
 
@@ -367,9 +355,7 @@ def leftovers(*, owner: str | None = None) -> list[Entry]:
 	return out
 
 
-# ---------------------------------------------------------------------------
 # CLI / 自检
-# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
 	import argparse

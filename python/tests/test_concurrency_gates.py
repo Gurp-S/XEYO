@@ -154,7 +154,7 @@ def test_rewind_process_lock_alias_disambiguation() -> None:
 
 
 def test_inbound_queue_is_lockfree() -> None:
-	from channels.filehelper.inbound_queue import InboundQueue
+	from channels.inbound_queue import InboundQueue
 
 	q = InboundQueue()
 	assert not hasattr(q, "_lock")  # T39：未使用过的锁已删除

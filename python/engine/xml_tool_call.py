@@ -21,6 +21,10 @@ from uuid import uuid4
 
 from msgtypes.message import ToolUse
 
+#: 规范十进制字面量（拒绝前导零/尾点，那些一律按字符串交给工具）。
+_INT_RE = re.compile(r"-?(?:0|[1-9][0-9]*)\Z")
+_FLOAT_RE = re.compile(r"-?(?:0|[1-9][0-9]*)\.[0-9]+\Z")
+
 _TOOL_CALL_RE = re.compile(
 	r"<tool_call>\s*([A-Za-z_][\w.-]*)\s*(.*?)</tool_call>",
 	re.DOTALL | re.IGNORECASE,
@@ -130,16 +134,12 @@ def _coerce_arg(val: str) -> Any:
 		return False
 	if low in ("null", "none"):
 		return None
-	try:
-		if s.startswith("-") or s.isdigit():
-			return int(s)
-	except ValueError:
-		pass
-	try:
-		if "." in s:
-			return float(s)
-	except ValueError:
-		pass
+	# 只认规范十进制字面量：`007`/`0042` 这类带前导零的串一旦被 int() 吞掉，
+	# 模型请求的检索词/文件名就静默换了（"007" → 7）。
+	if _INT_RE.match(s):
+		return int(s)
+	if _FLOAT_RE.match(s):
+		return float(s)
 	return s
 
 

@@ -8,6 +8,7 @@ import { App } from "./app/App.js";
 import { argValue, missingOptionValues, positionalPrompt } from "./lib/cliArgs.js";
 import { runJsonChat } from "./runJson.js";
 import { detectColorMode, initTheme, type ColorMode } from "./theme.js";
+import { TUI_RENDER_OPTIONS } from "./lib/renderOptions.js";
 import type { CliConfig } from "./types.js";
 
 function hasFlag(argv: string[], name: string): boolean {
@@ -229,7 +230,9 @@ if (!interactiveOk) {
   process.exit(2);
 }
 
-const instance = render(<App config={config} />);
+// 传 TUI_RENDER_OPTIONS 关掉 ink 内建 Ctrl+C 退出（否则忙时 Ctrl+C 直接退
+// 全屏、routeKey 的 interrupt 永远收不到按键，见 lib/renderOptions.ts）。
+const instance = render(<App config={config} />, TUI_RENDER_OPTIONS);
 
 const shutdown = () => {
   try {

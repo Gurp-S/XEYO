@@ -154,11 +154,19 @@ class StateReducer:
                 state.mark_used(call, event_id=e.event_id, event_index=e.index)
                 d.touched.append(call.fact_id)
 
+        if is_todo_tool(e.tool):
+            self._on_todo(state, e, d)
+
+    def _on_file_receipt(self, state: WorkingState, e: Event, call: Fact, d: Delta) -> None:
+        from dataclasses import replace
+
+        e = replace(e, tool=str(call.value.get("tool") or ""),
+                    paths=tuple(call.value.get("paths") or ()))
         if is_write_tool(e.tool):
             for p in e.paths:
                 prev = state.latest("file", p)
                 f = state.add("file", p, {"op": _canon(e.tool) or "write", "path": p,
-                                          "turn": e.turn, "version_source": "tool_use",
+                                          "turn": e.turn, "version_source": "tool_result",
                                           "hash_verified": False},
                               event_id=e.event_id, event_index=e.index,
                               evidence="write_after_write" if prev else "first_write")
@@ -183,8 +191,6 @@ class StateReducer:
                     state.mark_used(cur, event_id=e.event_id, event_index=e.index)
                     d.touched.append(cur.fact_id)
 
-        if is_todo_tool(e.tool):
-            self._on_todo(state, e, d)
 
     def _on_todo(self, state: WorkingState, e: Event, d: Delta) -> None:
         items = _todo_items(e.inputs)
@@ -256,13 +262,14 @@ class StateReducer:
                                    "tool_result_paired"))
         if not e.is_error:
             if call is not None:
+                self._on_file_receipt(state, e, call, d)
                 self._resolve_retried_failure(
                     state, str(call.value.get("signature") or ""),
                     call_id=e.call_id, event_id=e.event_id, event_index=e.index, d=d)
             return
         tool = (str(call.value.get("tool")) if call else e.tool) or ""
         # 签名必须与 tool_use 侧同源：从 call 事实取，不重新从（未存的）入参算。
-        sig = str(call.value.get("signature")) if call else fingerprint(e.event_id, 16)
+        sig = str(call.value.get("signature")) if call else fingerprint(e.event_id, width=16)
         key = e.call_id or e.event_id
         prev = state.latest("failure", key)
         if prev is not None:

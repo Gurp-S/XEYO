@@ -123,7 +123,11 @@ async def test_materialization_fact_reports_missing_output(tmp_path) -> None:
 	)
 	assert res.is_error is False
 	assert "[引擎核对]" in res.content
-	assert "不存在" in res.content
+	# 钉的是"缺失事实被陈述"，不是某串字面措辞：2026-10-03 把"磁盘上不存在"改成
+	# "磁盘上没有这个文件（缺失或不是普通文件）"（stat_path 分不清缺失与目录，
+	# 原措辞对"产物其实是目录"是假陈述）。旧位置的门必须同批改，否则改文案=静默丢覆盖面。
+	assert "磁盘上没有这个文件" in res.content
+	assert "缺失或不是普通文件" in res.content
 	assert "out/result.json" in res.content
 
 

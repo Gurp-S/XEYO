@@ -23,6 +23,7 @@ from typing import Any
 
 from engine.abort import AbortController
 from tools.base_tool import Tool, ToolResult
+from tools.error_taxonomy import INVALID_ARGUMENT
 
 #: list/describe 输出上限（字符）—— 网关响应也要守 token 预算。
 _GATEWAY_OUTPUT_BUDGET = 4000
@@ -120,6 +121,7 @@ class McpGatewayTool(Tool):
                     content=f"Mcp gateway: unknown action {action!r}; "
                     "available actions: list, describe, call, resources, read_resource",
                     is_error=True,
+                    error_kind=INVALID_ARGUMENT,
                 )
         except Exception as e:  # noqa: BLE001 — 网关不炸工具循环
             return ToolResult(content=f"Mcp gateway error: {e}", is_error=True)
@@ -130,11 +132,13 @@ class McpGatewayTool(Tool):
 
     # -- 动作实现 ------------------------------------------------------------
 
-    def _act_list(self) -> str:
+    def _act_list(self) -> "str | ToolResult":
         try:
             catalog = self._manager.gateway_catalog()
         except Exception as e:  # noqa: BLE001
-            return f"Mcp gateway error: {e}"
+            # 失败不能以纯文本回给 execute：那一路会被包成 is_error=False 的成功回执，
+            # 归属表把网关自己的崩掉记成"这次调用成功"。
+            return ToolResult(content=f"Mcp gateway error: {e}", is_error=True)
         if not catalog:
             return "no MCP servers attached (extension layer may be off or none enabled)"
         lines: list[str] = []
@@ -148,10 +152,15 @@ class McpGatewayTool(Tool):
                 lines.append(f"  - {t['tool']}{flag}{desc}")
         return _clip("\n".join(lines))
 
-    def _act_describe(self, data: dict[str, Any]) -> str:
+    def _act_describe(self, data: dict[str, Any]) -> "str | ToolResult":
         target = self._resolve(data)
         if target is None:
-            return self._unknown_message(data)
+            # 与 action=call 同一句话、同一语义：解析不到目标就是失败。
+            return ToolResult(
+                content=self._unknown_message(data),
+                is_error=True,
+                error_kind=INVALID_ARGUMENT,
+            )
         schema = target.schema()
         payload = {
             "server": target.server_id,
@@ -165,7 +174,11 @@ class McpGatewayTool(Tool):
     async def _act_call(self, data: dict[str, Any], abort: AbortController) -> ToolResult:
         target = self._resolve(data)
         if target is None:
-            return ToolResult(content=self._unknown_message(data), is_error=True)
+            return ToolResult(
+                content=self._unknown_message(data),
+                is_error=True,
+                error_kind=INVALID_ARGUMENT,
+            )
         args = data.get("args")
         if not isinstance(args, dict):
             args = {}
@@ -198,15 +211,17 @@ class McpGatewayTool(Tool):
         client_for = getattr(self._manager, "client_for", None)
         return client_for(server_id) if callable(client_for) else None
 
-    def _act_resources(self, data: dict[str, Any]) -> str:
+    def _act_resources(self, data: dict[str, Any]) -> "str | ToolResult":
         pairs = self._servers_for_resources(data)
         if not pairs:
             server = str(data.get("server") or "").strip()
-            return (
-                f"Mcp gateway: server {server!r} not ready or unknown — use action:list."
-                if server
-                else "no ready MCP servers with resources"
-            )
+            if server:
+                # 指定了 server 却没拿到它 = 这次请求没被满足，与 read_resource 同判。
+                return ToolResult(
+                    content=f"Mcp gateway: server {server!r} not ready or unknown — use action:list.",
+                    is_error=True,
+                )
+            return "no ready MCP servers with resources"
         cursor = str(data.get("cursor") or "").strip() or None
         lines: list[str] = []
         for sid, client in pairs:
@@ -240,6 +255,7 @@ class McpGatewayTool(Tool):
             return ToolResult(
                 content="Mcp gateway: read_resource requires server and uri.",
                 is_error=True,
+                error_kind=INVALID_ARGUMENT,
             )
         client = self._client_of(server)
         if client is None:
@@ -252,7 +268,10 @@ class McpGatewayTool(Tool):
         try:
             result = client.read_resource(uri)
         except Exception as e:  # noqa: BLE001
-            return f"Mcp gateway: resources/read failed for {uri}: {e}"
+            return ToolResult(
+                content=f"Mcp gateway: resources/read failed for {uri}: {e}",
+                is_error=True,
+            )
         contents = result.get("contents") or []
         if not isinstance(contents, list) or not contents:
             return f"(no content for {uri})"

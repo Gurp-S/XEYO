@@ -268,7 +268,7 @@ def _structured_state_text(session_id: str) -> tuple[str, str]:
 	try:
 		from memory.working import hydrate, path_for
 
-		snap = hydrate(session_id)
+		snap = hydrate(session_id, source_layout=None)
 	except Exception:  # noqa: BLE001
 		return "", ""
 	bits: list[Any] = []
@@ -393,7 +393,7 @@ def _last_sent_projection(session_id: str) -> tuple[str, str]:
 	try:
 		from memory.working import hydrate, path_for
 
-		snap = hydrate(session_id)
+		snap = hydrate(session_id, source_layout=None)
 	except Exception:  # noqa: BLE001 — 状态不可读时这一级判为未采集
 		return "", ""
 	return _s(getattr(snap, "last_x_sent", "")), str(path_for(session_id))

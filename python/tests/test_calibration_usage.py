@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+
 import pytest
 
 from memory.observe import observe_shot
@@ -72,6 +74,19 @@ def test_observe_two_shots_lcp_nonzero(tmp_path, monkeypatch):
 	assert rows[1]["observed_hit"] == 5.0
 
 
+def test_observation_uses_request_start_age_after_note_shot(monkeypatch):
+	from memory.runtime import idle_seconds
+	from memory.working import note_shot
+
+	snap = WorkingSnapshot(session_id="s_age")
+	snap.last_model_call_at = datetime.now() - timedelta(minutes=12)
+	request_age = idle_seconds(snap)
+	note_shot(snap, hit=64, prompt=100, at=datetime.now())
+	observe_shot(snap, [{"role": "user", "content": "hi"}], hit=64, miss=36,
+	             cache_age=request_age)
+	assert read_calibration_events()[-1]["cache_age"] >= 720
+
+
 def test_hit_records_from_events_roundtrip(tmp_path, monkeypatch):
 	monkeypatch.setenv("XEYO_USAGE_DIR", str(tmp_path))
 	record_calibration_shot(
@@ -135,6 +150,30 @@ async def test_query_loop_records_calibration_events(tmp_path, monkeypatch, mem_
 	rows = read_calibration_events()
 	assert len(rows) >= 1
 	assert rows[0]["action"] == "project"
+
+
+@pytest.mark.asyncio
+async def test_query_loop_snapshots_age_before_the_request(monkeypatch, mem_switch):
+	from engine.abort import AbortController
+	from engine.budget import BudgetTracker
+	from engine.query_loop import query_loop
+	from model.fake import FakeModelClient
+	from msgtypes.message import user_message
+	from prompt.assembler import DEFAULT_SYSTEM, PromptAssembler
+	from session.message_store import MessageStore
+	from tools.tool_registry import ToolRegistry
+
+	mem_switch(XEYO_L5="project")
+	snap = WorkingSnapshot(session_id="s_loop_age")
+	snap.last_model_call_at = datetime.now() - timedelta(minutes=12)
+	async for _ in query_loop(
+		store=MessageStore([user_message("hi")]), model=FakeModelClient(),
+		tools=ToolRegistry(), prompt=PromptAssembler(), system_prompt=DEFAULT_SYSTEM,
+		abort=AbortController(), budget=BudgetTracker(max_turns=1), working=snap,
+	):
+		pass
+	rows = read_calibration_events()
+	assert rows and rows[0]["cache_age"] >= 720
 
 
 if __name__ == "__main__":

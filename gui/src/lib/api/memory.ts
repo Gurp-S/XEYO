@@ -7,36 +7,7 @@ import {
 } from '@/lib/apiBase';
 import {
 	fetchWithTimeout,
-	formatErrorDetail,
 } from './core';
-
-/** 手动 /compact（不进模型循环）。 */
-export async function requestManualCompact(
-	sessionId: string,
-): Promise<{ok: boolean; compact_cursor: number; c2_summary_chars?: number; reason?: string}> {
-	const sid = sessionId.trim();
-	if (!sid) return {ok: false, compact_cursor: 0, reason: 'no_session'};
-	const res = await fetchWithTimeout(apiUrl('/v1/memory/compact'), {
-		method: 'POST',
-		headers: {'Content-Type': 'application/json'},
-		body: JSON.stringify({session_id: sid}),
-	});
-	if (!res.ok) {
-		// 后端原话（"会话正在生成中"之类）比 http_502 可操作得多；解不出才退回状态码。
-		const payload = await res.json().catch(() => null);
-		return {
-			ok: false,
-			compact_cursor: 0,
-			reason: formatErrorDetail(payload, res.status),
-		};
-	}
-	return (await res.json()) as {
-		ok: boolean;
-		compact_cursor: number;
-		c2_summary_chars?: number;
-		reason?: string;
-	};
-}
 
 /** 把 finalized Thought 块同步到服务端 transcript（ui_thought 行）。 */
 export async function syncUiThoughtsToServer(

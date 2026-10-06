@@ -7,7 +7,7 @@
  * 只在"还有任务"时继续，一次瞬时失败就永久失明（见 e9e07f2）。
  */
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
-import {fetchSessionJobs} from '@/lib/api/jobs';
+import {fetchSessionJobs, killJob} from '@/lib/api/jobs';
 
 const fetchMock = vi.fn();
 
@@ -109,5 +109,24 @@ describe('fetchSessionJobs', () => {
 
 		expect(r.ok).toBe(false);
 		expect(r.message).toContain('Failed to fetch');
+	});
+});
+
+describe('killJob（F1 人侧停止）', () => {
+	it('200 + ok:true 才算接受', async () => {
+		fetchMock.mockResolvedValueOnce(response({ok: true, job_id: 'j1'}));
+		await expect(killJob('s1', 'j1')).resolves.toBe(true);
+	});
+
+	it('200 + ok:false（已结束/未被接受）落 false，不谎报停止', async () => {
+		fetchMock.mockResolvedValueOnce(response({ok: false}));
+		await expect(killJob('s1', 'j1')).resolves.toBe(false);
+	});
+
+	it('404（越权/未知）与网络异常都落 false', async () => {
+		fetchMock.mockResolvedValueOnce(response({message: 'job not found'}, 404));
+		await expect(killJob('s1', 'j1')).resolves.toBe(false);
+		fetchMock.mockRejectedValueOnce(new Error('boom'));
+		await expect(killJob('s1', 'j1')).resolves.toBe(false);
 	});
 });

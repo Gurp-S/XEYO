@@ -68,14 +68,18 @@ def uninstall() -> None:
 def _save_text_with_hint(session_id: str, text: str):
     """包装 `spill.save_text`：在 hint 里追加 tail 建议。"""
     mod = _TARGET or importlib.import_module(_TARGET_MODULE)
+    ref = getattr(mod, _ORIG_NAME)(session_id, text)
+    # 装饰 hint 失败也要 fail-open，但**绝不重跑 save_text**：那是带副作用的
+    # 写盘，重跑会多落一份原文，而返回的 ref 指向第二份——第一份从此没有任何
+    # 引用者（audit 只记返回路径），证据留在盘上却再也取不回。
     try:
-        ref = getattr(mod, _ORIG_NAME)(session_id, text)
-        # ref.hint 是 SpillRef 的 hint 字段；追加建议（不覆盖原 hint）。
-        if ref is not None and hasattr(ref, "hint") and ref.hint:
-            return ref.__class__(path=ref.path, bytes=ref.bytes, hint=ref.hint + f"（{_TAIL_SUGGESTION}）")
-        return ref
-    except Exception:  # noqa: BLE001 — fail-open：hint 建议失败不破坏落盘
-        return getattr(mod, _ORIG_NAME)(session_id, text)
+        if ref is not None and getattr(ref, "hint", ""):
+            return ref.__class__(
+                path=ref.path, bytes=ref.bytes, hint=f"{ref.hint}（{_TAIL_SUGGESTION}）"
+            )
+    except Exception:  # noqa: BLE001 — 只放弃建议，落盘结果原样返回
+        pass
+    return ref
 
 
 def tail_suggestion() -> str:

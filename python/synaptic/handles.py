@@ -27,7 +27,8 @@
 
 口径后果如实记：跨度**可能包含组外的节点文本**（它们也在视图里，是真实历史，不是噪声）。
 这是刻意的取舍——宁可多给真实历史，也不给一个取不回的窄区间；
-`Read` 自身的 25k token / 2000 行上限会在跨度过大时明确报错，模型据此收窄。
+`Read` 自身的 25k token 上限会在跨度过大时明确报错；2000 行是默认值，
+显式 limit 可更大。模型可按 offset/limit 分页，但超大单行不能通过行分页取回。
 """
 
 from __future__ import annotations
@@ -37,6 +38,8 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping
 
 from synaptic.coldstore import node_handle
+from synaptic.handle_coverage import rendered_nodes
+from synaptic.read_plan import declared_extents, first_page_end
 
 #: 旧形态：`expand(<handle>)`。
 _EXPAND_RE = re.compile(r"expand\(([^)\s]+)\)")
@@ -44,6 +47,7 @@ _EXPAND_RE = re.compile(r"expand\(([^)\s]+)\)")
 _READ_RE = re.compile(
 	r"Read\(file_path='(?P<path>[^']*)'\s*,\s*offset=(?P<offset>\d+)\s*,\s*limit=(?P<limit>\d+)\)"
 )
+_EXTENT_RE = re.compile(_READ_RE.pattern + r" span=(?P<first>\d+)-(?P<last>\d+)")
 
 
 @dataclass(frozen=True)
@@ -58,9 +62,12 @@ class HandleRenderer:
 	path: str = ""
 	node_ranges: Mapping[str, tuple[int, int]] = field(default_factory=dict)
 	handle_nodes: Mapping[str, tuple[int, ...]] = field(default_factory=dict)
+	line_lengths: tuple[int, ...] = ()
 	#: 一个投影内 ranges/handles 都是定稿快照；同一句柄可能被多处渲染/解析，缓存不改变语义。
 	_span_cache: dict[str, tuple[int, int] | None] = field(default_factory=dict, init=False, repr=False, compare=False)
 	_reverse_cache: dict[tuple[str, int, int], str] | None = field(default=None, init=False, repr=False, compare=False)
+	_coverage_cache: dict[tuple[str, int, int], frozenset[int]] = field(default_factory=dict, init=False, repr=False, compare=False)
+	_page_cache: dict[tuple[int, int], int] = field(default_factory=dict, init=False, repr=False, compare=False)
 
 	# -- 渲染 ---------------------------------------------------------------
 	def span(self, handle: str) -> tuple[int, int] | None:
@@ -97,10 +104,14 @@ class HandleRenderer:
 		"""渲染一个句柄。`read` 档下缺区间时**回落 `expand`**（见模块文档的回落规则）。"""
 		if self.can_render_read(handle):
 			start, end = self.span(handle) or (0, 0)
-			return (
+			if (start, end) not in self._page_cache:
+				self._page_cache[start, end] = first_page_end(start, end, self.line_lengths)
+			page_end = self._page_cache[start, end]
+			reference = (
 				f"Read(file_path='{self.path}', offset={start}, "
-				f"limit={max(1, end - start + 1)})"
+				f"limit={max(1, page_end - start + 1)})"
 			)
+			return reference if page_end == end else f"{reference} span={start}-{end}"
 		return f"expand({handle})"
 
 	# -- 解析（与渲染同源）--------------------------------------------------
@@ -119,29 +130,31 @@ class HandleRenderer:
 			hit = rev.get(key)
 			if hit:
 				out.append(hit)
+		for full, _first_read in self._declared_extents(text):
+			out.append(rev[full])
 		return tuple(dict.fromkeys(out))
+
+	def _declared_extents(self, text: str):
+		return declared_extents(self, text, _EXTENT_RE)
+
+	def recoverable_nodes(self, text: str) -> frozenset[int]:
+		"""已发入口的恢复覆盖；完整 span 允许后续合法分页，不代表首次返回。"""
+		out = set(self.extract_nodes(text))
+		for full, _first_read in self._declared_extents(text):
+			start, end = full[1], full[1] + full[2] - 1
+			for handle, (lo, hi) in self.node_ranges.items():
+				if start <= lo and hi <= end:
+					from synaptic.handle_coverage import bound_nodes
+					out.update(bound_nodes(handle, {}))
+		return frozenset(out)
 
 	def extract_nodes(self, text: str) -> frozenset[int]:
 		"""从已渲染文本里读回**节点 idx 集合**（覆盖审计用）。
 
-		区间句柄按整段展开是安全的，理由见 `budget.rendered_request_nodes` 的 docstring：
-		调用方始终与本区域用户节点求交，混进的非用户节点会被滤掉。
+		Read 按完整正文所在的实际区间计；expand 优先使用精确绑定。
+		调用方再与本区域用户节点求交；同跨度别名不改变返回正文的覆盖。
 		"""
-		out: set[int] = set()
-		for handle in self.extract(text):
-			kind, _sep, payload = handle.partition("://")
-			if kind == "node":
-				for part in payload.split(","):
-					part = part.strip()
-					if part.isdigit():
-						out.add(int(part))
-			elif kind == "reqs":
-				from synaptic.coldstore import parse_reqs_payload
-
-				span = parse_reqs_payload(payload)
-				if span is not None:
-					out.update(range(span[0], span[1] + 1))
-		return frozenset(out)
+		return rendered_nodes(self, text, _READ_RE)
 
 	def _reverse_index(self) -> dict[tuple[str, int, int], str]:
 		"""``(path, offset, limit) -> 句柄``：让 `Read` 形态也能被解析回来。

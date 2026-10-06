@@ -24,13 +24,13 @@ def test_manifest_shape_and_alias_uniqueness() -> None:
 		for a in c.aliases:
 			assert a not in seen, f"alias conflict: {a}"
 			seen.add(a)
-	# 35 条命令、核心命令齐备
-	assert len(COMMANDS) == 35
+	# 36 条命令、核心命令齐备
+	assert len(COMMANDS) == 36
 	names = {c.name for c in COMMANDS}
 	for required in (
 		"help", "version", "status", "usage", "context", "cwd", "clear",
 		"transcript", "export", "retry", "mode", "output", "code", "model",
-		"theme", "approval", "ls", "stop", "allow", "deny", "compact",
+		"theme", "approval", "ls", "stop", "allow", "deny", "answer", "compact",
 		"rule", "doctor", "proposals", "run", "git", "diff", "revert",
 		"skills", "mcp", "plugins", "exit", "load", "docs", "goal",
 	):
@@ -221,3 +221,11 @@ def test_dispatch_skills_menu_filters_user_invocable_false(tmp_path: Path) -> No
 	# 显式按名 show 是详情视图，不是菜单：不受过滤影响。
 	r2 = dispatch("skills", "show internal", ctx=ctx)
 	assert r2.handled and "internal" in r2.message
+
+
+def test_terminal_surfaces_aligned_for_memory_and_ls() -> None:
+	"""#16 落地钉：ls 补齐 tui；rule/doctor/proposals 补齐两个终端面（原先只 gui+remote）。"""
+	tui_names = {c.name for c in match_commands("", surfaces=("tui",))}
+	assert {"ls", "rule", "doctor", "proposals"} <= tui_names
+	cli_names = {c.name for c in match_commands("", surfaces=("cli",))}
+	assert {"rule", "doctor", "proposals"} <= cli_names

@@ -60,6 +60,7 @@ _LAZY_TOOL_IMPORTS: dict[str, str] = {
 	"WebSearchTool": "tools.web_search_tool",
 	"XeyoUITool": "tools.xeyo_ui_tool",
 	"JobKillTool": "tools.job_tools",
+	"AgentSendTool": "tools.agent_message_tool",
 	"JobListTool": "tools.job_tools",
 	"JobOutputTool": "tools.job_tools",
 }
@@ -247,9 +248,13 @@ def _job_kill(_cwd: str) -> Tool:
 	return JobKillTool()
 
 
-# ==============================================================================
+def _agent_send(_cwd: str) -> Tool:
+	from tools.agent_message_tool import AgentSendTool
+
+	return AgentSendTool()
+
+
 # 真实可用工具矩阵 (ENABLED_TOOL_ENTRIES)
-# ==============================================================================
 # 【契约】名须与 tools.meta.TOOL_META 且 tool.name 一致；副作用工具须有边界测。
 ENABLED_TOOL_ENTRIES: Sequence[tuple[str, ToolFactory]] = (
 	("getTime", _get_time),
@@ -263,6 +268,7 @@ ENABLED_TOOL_ENTRIES: Sequence[tuple[str, ToolFactory]] = (
 	("job_output", _job_output),
 	("job_list", _job_list),
 	("job_kill", _job_kill),
+	("agent_send", _agent_send),
 	("Screenshot", _screenshot),
 	("SendToWeChat", _send_to_wechat),
 	("Memory", _memory),
@@ -315,6 +321,18 @@ def _minimal_surface_requested() -> bool:
 	"""``XEYO_TOOL_SURFACE=minimal`` 时启用最小面；缺省/其它值不改行为。"""
 	raw = (os.environ.get("XEYO_TOOL_SURFACE") or "").strip().lower()
 	return raw in ("minimal", "min", "small")
+
+
+def _denied_tools() -> frozenset[str]:
+	"""``XEYO_TOOL_DENY=Agent,WebSearch``：把命名工具从工作面移除（默认空=不改行为）。
+
+	16 条缺陷 #16：项目级策略（如「本仓不使用子代理」）以前只能写在 XEYO.md 文字里，
+	与工具面互相打脸；现在可以落到执行层——工具不在场，策略从文本变成事实。
+	"""
+	raw = (os.environ.get("XEYO_TOOL_DENY") or "").strip()
+	if not raw:
+		return frozenset()
+	return frozenset(p.strip() for p in raw.split(",") if p.strip())
 
 # 兼容旧调用：仅工厂序列
 ENABLED_TOOLS: Sequence[ToolFactory] = tuple(
@@ -408,6 +426,14 @@ def build_default_registry(*, cwd: str = ".") -> ToolRegistry:
 		surface_id = "minimal@1"
 	elif os.environ.get("XEYO_BENCH_MINIMAL") == "1":
 		surface_id = "benchmark@1"
+	_deny = _denied_tools()
+	if _deny:
+		_unknown = sorted(_deny - set(TOOL_FACTORY_BY_NAME))
+		if _unknown:
+			# 配置错误早暴露：typo 静默 = 用户以为禁了其实没禁（比"多禁一个"危险得多）。
+			raise ValueError(f"XEYO_TOOL_DENY 含未知工具名: {_unknown}")
+		entries = [e for e in entries if e[0] not in _deny]
+		surface_id = f"{surface_id}+deny:{','.join(sorted(_deny))}"
 	reg = ToolRegistry(cwd=work, tool_surface_id=surface_id)
 	_register_factories(
 		reg, entries, cwd=work, read_state=ReadFileState()
@@ -490,11 +516,17 @@ def build_subagent_registry(
 	reg = ToolRegistry(cwd=work)
 	from memory.agent_scope import filter_tool_names_for_scope
 
-	names_in = list(tool_names) if tool_names else []
-	allowed = set(filter_tool_names_for_scope(names_in, agent_id)) if names_in else set()
+	names_in = [str(n) for n in (tool_names or []) if str(n).strip()]
+	if names_in:
+		# 显式窄化请求：作用域裁到空 = 该工人没有可用工具。
+		# 旧写法 `sorted(allowed) if allowed else [全部 ENABLED]` 把"裁完什么都不剩"
+		# 当成"没给限制"⇒ 请求越窄反而越可能拿到整张全工具面（含 Write/Edit/Bash）。
+		candidates = sorted(set(filter_tool_names_for_scope(names_in, agent_id)))
+	else:
+		candidates = [n for n, _ in ENABLED_TOOL_ENTRIES]
 	shared = read_state or ReadFileState()
 	entries: list[tuple[str, ToolFactory]] = []
-	for name in sorted(allowed) if allowed else [n for n, _ in ENABLED_TOOL_ENTRIES]:
+	for name in candidates:
 		if name in FORBIDDEN_SUB_TOOLS:
 			continue
 		factory = TOOL_FACTORY_BY_NAME.get(name)

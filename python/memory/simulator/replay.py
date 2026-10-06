@@ -42,9 +42,10 @@ def load_jsonl(path: Path) -> list[dict[str, Any]]:
 	if not path.is_file():
 		return []
 	out: list[dict[str, Any]] = []
-	with path.open("r", encoding="utf-8") as f:
-		for line in f:
-			line = line.strip()
+	with path.open("rb") as f:
+		for raw in f:
+			# 逐行字节解码：一个坏字节只报废它所在那一行，绝不报废整份回放档。
+			line = raw.decode("utf-8", errors="replace").strip()
 			if not line:
 				continue
 			try:

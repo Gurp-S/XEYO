@@ -258,10 +258,14 @@ async def test_turn_runner_cursor_skips_replayed():
 
 @pytest.mark.asyncio
 async def test_dead_slow_subscriber_terminates_with_end_sentinel():
-	"""慢订阅者挤爆订阅队列（QueueFull 标死）后必须及时收到 _END 收流。
+	"""慢订阅者不被摘除：溢出只丢它自己的队首，并且必须带着 stream_gap + _END 及时收流。
 
-	修复前：标死队列被移除但不补 _END，subscribe() 只能等心跳兜底（拖满一个
-	tick）甚至永久悬死；修复后 pump 腾格补发 _END，消费方立即收到流结束。
+	两代缺陷都在这里钉住：
+	① 旧写法 QueueFull 即把订阅者标死移除 ⇒ 尾部帧与 [DONE] 永远到不了，
+	   实测一枪 700 帧只收到 639 帧就无终止标记断流；
+	② 就算补发 _END，"活着但慢"的连接被掐死本身就是把截断当完整提交。
+	现在每连接额度 4096（环形缓冲才 4000 帧），真溢出丢队首并给这条连接
+	发 stream_gap，由界面改用服务端 transcript 收尾。
 	"""
 	import time as _time
 
@@ -272,7 +276,7 @@ async def test_dead_slow_subscriber_terminates_with_end_sentinel():
 			pass
 
 	runner = TurnRunner(_Pool())
-	total = 2000
+	total = 5000
 	started = asyncio.Event()
 
 	async def producer():
@@ -305,14 +309,23 @@ async def test_dead_slow_subscriber_terminates_with_end_sentinel():
 		t0 = _time.monotonic()
 		first = await asyncio.wait_for(first_task, timeout=2.0)
 		assert isinstance(first, bytes)
-		await asyncio.sleep(0.1)  # 慢消费者停顿：q 被填满 → QueueFull 标死
-		async for _fr in agen:
-			got += 1
+		# 等泵跑完再开始读：溢出丢帧那一支要确定性走到，不靠调度时序。
+		await asyncio.wait_for(runner._turns["s3"].done.wait(), timeout=20.0)
+		await asyncio.sleep(0.05)  # 让 pump 把 gap 与 _END 塞完
+		frames = [f async for f in agen if f is not None]
+		got = len(frames)
 		elapsed = _time.monotonic() - t0
 
-		assert got < total, "溢出标死后应丢帧收流"
-		assert elapsed < 0.8, (
-			f"标死订阅者收流耗时 {elapsed:.2f}s：疑似未补发 _END，退化为等心跳兜底"
+		assert got > 4000, (
+			f"只收到 {got} 帧：慢订阅者又被在旧额度上掐死了"
+		)
+		assert got < total + 2, "溢出必须真的发生（否则这档没走到丢帧支）"
+		assert any(b"[DONE]" in f for f in frames), "尾部终止帧必须到达"
+		assert any(b"stream_gap" in f for f in frames), (
+			"丢了帧就要把洞交给这条连接，否则缺段会被当完整内容提交"
+		)
+		assert elapsed < 1.5, (
+			f"收流耗时 {elapsed:.2f}s：疑似没补发 _END，退化为等心跳兜底"
 		)
 		await runner.wait_done("s3", timeout=2.0)
 	finally:

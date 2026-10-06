@@ -327,8 +327,7 @@ class InjectContext:
 	strategy: str = ""
 	#: 禀赋①：BudgetTracker（仅当调用方设置墙钟死线时用于预算镜像渲染；None = 不注入）。
 	budget: Any | None = None
-	#: 行为账本（engine.loop_ledger.LoopLedger 实例；None = 不渲染账本行）。
-	#: repeat_guard 块内直读当前计数——每轮新鲜渲染，不走 publish/clear 槽位
+	#: 行为账本只用于未完成 TODO 的触发条件，计数文本不进入模型上下文。
 	#: （账本需持续在场，信号清零自动消失）。子代理上下文不渲染（净化清单）。
 	loop_ledger: Any | None = None
 	#: 管道 2 去重的**真相源**：本轮投影里真实存在的留痕身份集合
@@ -702,9 +701,7 @@ def approved_plan_decays_on(name: str, is_error: bool) -> bool:
 	return (str(name or "").strip() in _PLAN_DECAY_TOOLS) and not is_error
 
 
-# ---------------------------------------------------------------------------
 # T_now v2：一个边界，三条管道（2026-09-16 重分类；治理位）
-# ---------------------------------------------------------------------------
 # 边界（唯一注入时机）：工具批次完成后 / 下一次模型采样前。
 #
 # 管道 1｜用户消息（``user``）：**不在本表**——真 user 消息进历史
@@ -757,7 +754,7 @@ T_NOW_EVENT_WARN_CHARS = 6_000
 #      「能不能不进上下文」（引擎能强制的，一律不给模型看）。
 # 执法：tests/test_t_now_block_registry.py。
 # ---------------------------------------------------------------------------
-T_NOW_BLOCK_HARD_CAP = 17  # =现存量：23→21（删 stale_xeyo_md / nested_change）→18→16→17（2026-09-22 加 world_state 聚合维度：10 个状态块的留痕由"每块一条"合成"整段一条"，占用只降不升）
+T_NOW_BLOCK_HARD_CAP = 19  # =现存量：23→21（删 stale_xeyo_md / nested_change）→18→16→17（2026-09-22 world_state 聚合：10 个状态块的留痕由"每块一条"合成"整段一条"，占用只降不升）→18（2026-10-04 加 time_now：一行约 12 tok/采样的事实，补「时效判断无基准」的硬缺失；T_NOW_TOTAL_BUDGET=6000 内不影响其它块配额）→19（2026-10-07 加 env_facts：shell/提权/时区/可写面一行常驻事实，dedup=False 不进 world_state 聚合 ⇒ 撤回不变量零影响，补「第一次决策前不知道 shell 语义与可写面」的硬缺失；一行约 25-35 tok/边界，与 time_now 同形态、同预算内）
 
 T_NOW_BLOCK_REGISTRY: dict[str, dict[str, Any]] = {
 	"continue": {
@@ -795,7 +792,7 @@ T_NOW_BLOCK_REGISTRY: dict[str, dict[str, Any]] = {
 		"pipe": PIPE_STATE,
 		"quota": False,
 		"dedup": True,
-		"why": "轮内防复读提醒（引擎 clear_advice 逐轮重置）",
+		"why": "重复证据出现时的未完成 TODO 状态；计数只在执行层消费",
 	},
 	"nested_instructions": {
 		"pipe": PIPE_STATE,
@@ -887,6 +884,25 @@ T_NOW_BLOCK_REGISTRY: dict[str, dict[str, Any]] = {
 		"dedup": False,
 		"why": "用户 /name 直呼技能的宿主确定性加载；不注入则直呼依赖模型自觉调 Skill 工具，user 只见技能的直呼即失效",
 	},
+	"time_now": {
+		"pipe": PIPE_STATE,
+		"quota": False,
+		# 不去重：时间每轮都在变，"值没变"最多维持 1 秒——按值去重等于每轮重发，
+		# 不如显式声明「每边界常驻」，也避免被 world_state 聚合段整段差分吞掉
+		# （同 continue / skill_preinvoke 的形态）。
+		"dedup": False,
+		"why": "当前时间一行（秒级）：未来执行必需的「多久之前/哪份更新」基准；GetTime 工具存在但需模型额外调用（实测一批时效判断被留成「未核对」）",
+	},
+	"env_facts": {
+		"pipe": PIPE_STATE,
+		"quota": False,
+		# 与 time_now 同形态：**刻意不去重**。它是常驻事实行，参与 world_state 聚合
+		# 会带来一个副作用——聚合段永远非空 ⇒「本轮一个状态段都没产出 ⇒ 撤回上一版
+		# world_state」这条不变量恒假（撤回是"已作废的模式合同离开投影"的安全网，
+		# 见 engine/t_now_notes.persist_pending）。宁可按边界常驻，不动那条不变量。
+		"dedup": False,
+		"why": "执行环境事实（shell 语义 / 提权 / 时区基准 / 可写面）：缺了它模型先按 bash 语义写命令再撞墙、向不可写目录写草稿——实测两类各白烧整轮；事实引擎早算得出，此前只在首个 Bash 结果头出现（晚于第一次决策）",
+	},
 }
 
 # 块级旁路开关（消融/应急）：XEYO_T_NOW_SKIP="a,b" —— 名单内块本轮不注入。
@@ -898,6 +914,19 @@ _SKIP_ENV = "XEYO_T_NOW_SKIP"
 def _skipped_blocks() -> frozenset[str]:
 	raw = os.environ.get(_SKIP_ENV, "")
 	return frozenset(s.strip() for s in raw.split(",") if s.strip())
+
+
+def _agent_tool_denied() -> bool:
+	"""Agent 被 ``XEYO_TOOL_DENY`` 从工作面移除时，multi-agent 提示块同步消失。
+
+	否则工具面与提示文本反向打脸（16 条缺陷 #16：同一事实不许有两个来源）。
+	"""
+	try:
+		from tools.catalog import _denied_tools  # noqa: SLF001
+
+		return "Agent" in _denied_tools()
+	except Exception:  # noqa: BLE001
+		return False
 
 
 def _block_meta(name: str) -> dict[str, Any]:
@@ -1093,6 +1122,28 @@ def _trim_tagged_blocks(
 	return kept
 
 
+def _env_facts_text(cwd: str) -> str:
+	"""环境事实正文；导入/探测失败一律空串（该块本轮缺席，绝不阻断主循环）。
+
+	口径在 ``engine/env_facts``（单项探测各自 fail-open，失败项不出现在正文里）。
+	侧聊不注入（与 ``prompt/system_prompt`` 的侧聊不注入 CWD 行同源）；判不出侧聊
+	就照常注入——宁可多给一行事实，不误删执行环境信息。
+	"""
+	try:
+		from permissions.policy import side_mode
+
+		if side_mode():
+			return ""
+	except Exception:  # noqa: BLE001
+		pass
+	try:
+		from engine.env_facts import render
+
+		return render(str(cwd or ""))
+	except Exception:  # noqa: BLE001
+		return ""
+
+
 def run_pre_llm_inject(
 	projected: list[dict[str, Any]],
 	ctx: InjectContext,
@@ -1103,10 +1154,13 @@ def run_pre_llm_inject(
 
 	out = projected
 	strategy = (ctx.strategy or "").strip() or t_now_strategy()
+	append_source = getattr(ctx.working, "compression_source_layout", "") == "append-notes-v1"
 	if strategy == STRATEGY_PREFILL:
 		# 预留档：prefill 厂商容忍度实测通过前回落包封片段（不再回落伪对——
 		# 伪对与「模型自己的工具调用」同形，见 prompt/notice_channel.py）。
 		strategy = STRATEGY_NOTICE_FRAGMENT
+	if append_source and strategy not in _NOTICE_RENDER_STRATEGIES:
+		raise ValueError("carrier not validated for append source")
 	prepared_events = (
 		_prepared_events_for(ctx.session_id)
 		if strategy != STRATEGY_SKIP
@@ -1116,6 +1170,17 @@ def run_pre_llm_inject(
 	# 要不要去重，全部由登记表逐条声明（装配点不自带类目）。未登记名按最
 	# 保守处理（state + 受配额 + 不去重）。
 	tagged: list[tuple[str, str]] = []
+	# block: time_now
+	# 当前时间一行事实：判断"多久之前 / 哪份决策更新"的基准。GetTime 工具存在，
+	# 但那要多花一次调用（实测模型因此把一批时效判断留成"未核对"）。
+	_tag_block(tagged, "time_now", f"当前时间: {time.strftime('%Y-%m-%d %H:%M:%S %z')}")
+	# block: env_facts
+	# 执行环境事实（shell 语义 / 提权 / 时区基准 / 可写面）。此前唯一的到达路径是
+	# "会话首个 Bash 成功结果头"（tools/bash_tool/bash_tool.py 的 shell_notice），
+	# 时序晚于模型的第一次决策：实测模型先按 bash 语义写 pwsh 命令单轮刷出
+	# 127KB 重复错误，又向不可写目录写草稿撞 path_denied。
+	# dedup=False（同 time_now）：不进 world_state 聚合，撤回不变量零影响。
+	_tag_block(tagged, "env_facts", _env_facts_text(ctx.cwd))
 	after_tools = ends_with_tool_result(out)
 
 	if after_tools:
@@ -1143,7 +1208,7 @@ def run_pre_llm_inject(
 	# 硬停本来就是执行层事实（query_loop 的 prepare_next_turn / wrap_quota_left），
 	# 不需要讲给模型听。执行层一律保留：forced_wrap_up 状态、收尾配额、
 	# StoppedEvent 语义、成本闸全部照旧（删的只是文本，不是机制）。
-	if ctx.multi_agent:
+	if ctx.multi_agent and not _agent_tool_denied():
 		try:
 			from tools.agent_tool.prompt import MULTI_AGENT_HINT
 
@@ -1151,11 +1216,7 @@ def run_pre_llm_inject(
 		except Exception:
 			_log.debug("MULTI_AGENT_HINT load failed", exc_info=True)
 
-	# T6：重复调用递进提醒（background only）——query_loop 轮内状态，
-	# 不进历史、不改写 ToolResult；每次 submit 由引擎 clear_advice 重置。
-	# T14 净化清单：子代理上下文不继承主循环的 repeat guard。
-	# 停滞监测（todo 契约执行侧）同块消费：同为 advice-only、逐 submit
-	# 重置、子代理豁免——不新增注册条目、不动 T_NOW_BLOCK_HARD_CAP。
+	# 重复证据只触发现有未完成 TODO 状态；repeat_guard 登记名保留跳块配置兼容。
 	try:
 		from engine.repeat_guard import current_advice
 
@@ -1163,34 +1224,20 @@ def run_pre_llm_inject(
 		# 生成劝导文本，行为纠偏交给执行层失败信号；本块只消费 repeat 的
 		# 事实性信息（同签名重复计数）。
 		rep = current_advice()
-		# 行为账本（loop_ledger 方案）：s1/s2/s3 任一达阈值时渲染 ≤5 行
-		# 纯数据（计数与事实，无导演词——措辞由 test_loop_ledger 执法）；
-		# 与 advice 同块消费，不新增注册条目、不动 T_NOW_BLOCK_HARD_CAP。
+		# render 消费一次性 episode；正文不进入模型可见面。
 		ledger_text = ""
 		if ctx.loop_ledger is not None:
 			try:
 				ledger_text = ctx.loop_ledger.render()
 			except Exception:
 				_log.debug("loop ledger render failed", exc_info=True)
-		combined = "\n".join(x for x in (rep, ledger_text) if x)
-		if combined and not ctx.subagent:
-			# #2 完成度提示（思想蒸馏自 Todo DAG「失败要局部化」）并入同块：
-			# advice 非空 = 引擎已检出重复证据，此刻补渲染"已完成 X/Y +
-			# 剩余项"纯事实。常态零注入——不新增注册条目、不动
-			# T_NOW_BLOCK_HARD_CAP（消融随 repeat_guard）。
-			block_text = f"# Repeat guard（background only）\n{combined}"
-			if ctx.working is not None:
-				try:
-					from engine.todo_hint import build_todo_hint
+		# 计数不进入注意力；保持原来的 TODO 触发条件与一次性 episode 语义。
+		if (rep or ledger_text) and not ctx.subagent and ctx.working is not None:
+			from engine.todo_hint import build_todo_hint
 
-					hint = build_todo_hint(
-						getattr(ctx.working, "todos", None) or []
-					)
-					if hint:
-						block_text += "\n\n" + hint
-				except Exception:
-					_log.debug("todo progress inject failed", exc_info=True)
-			_tag_block(tagged, "repeat_guard", block_text)
+			hint = build_todo_hint(getattr(ctx.working, "todos", None) or [])
+			if hint:
+				_tag_block(tagged, "repeat_guard", hint)
 	except Exception:
 		_log.debug("repeat advice inject failed", exc_info=True)
 
@@ -1403,6 +1450,10 @@ def run_pre_llm_inject(
 				# "Ask 只读"那条已作废的合同会一直挂着）。撤回在下一边界由
 				# engine/t_now_notes.persist_pending 落地。
 				inject_store.retract(WORLD_STATE_KEY)
+		current_notes = {}
+		if append_source:
+			from prompt.state_emission import current_notes as state_notes
+			current_notes = state_notes(tagged, strategy)
 		tagged = _dedup_round(tagged, visible=ctx.visible_notes)
 	finally:
 		inject_store.end_round(token)
@@ -1424,12 +1475,16 @@ def run_pre_llm_inject(
 		# 形态选择不在这里做——统一交给 render_notices（唯一出口 + 档位归因）。
 		# 默认档：当前态合成一条 world_state 段（对齐 Codex），事件逐条成片段；
 		# 对照档仍整体一条；来源声明由包封承担，不再重复拼 ENV_NOTICE_HEADER。
-		return render_notices(
+		rendered = render_notices(
 			out,
 			[(name, text) for name, text in kept],
 			strategy=strategy,
 			session_id=getattr(ctx, "session_id", "") or "",
 		)
+		if append_source:
+			from prompt.state_emission import select_rendered_state
+			return select_rendered_state(out, rendered, current_notes, strategy)
+		return rendered
 	if after_tools:
 		return append_text_blocks_to_last_user(out, [t for _k, t in kept])
 	head = [t for n, t in kept if _block_meta(n).get("quota")]

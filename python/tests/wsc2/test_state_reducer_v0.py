@@ -74,7 +74,7 @@ def test_active_file_fact_points_at_the_last_write_event() -> None:
     events = build_events(msgs)
     st = reduce_events(events)[0]
     last_write = max(e.index for e in events
-                     if e.kind == "tool_use" and "p.py" in e.paths)
+                     if e.kind == "tool_result" and not e.is_error)
     cur = st.latest("file", "p.py")
     assert cur is not None and cur.created_index == last_write
 

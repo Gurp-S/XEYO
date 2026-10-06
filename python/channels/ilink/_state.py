@@ -12,7 +12,7 @@ from typing import Any
 from channels.ilink import SESSION_ID
 from channels.ilink.bridge import ILinkBridge
 from channels.ilink.channel import ILinkChannel
-from channels.filehelper.inbound_queue import InboundQueue
+from channels.inbound_queue import InboundQueue
 from channels.runner import FinalOnlyRunner
 
 # 通道唯一桥与频道实例

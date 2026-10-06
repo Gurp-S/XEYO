@@ -43,28 +43,30 @@ def test_basic_tool_availability(registry):
     assert "Edit" in schema_names
 
 
-@pytest.mark.xfail(reason="stale API（与 2026-09-16 本轮改动无关）：该用例写在旧接口上，待重写", strict=False)
 def test_user_message_creation():
-    """测试用户消息创建"""
+    """测试用户消息创建（Message 是 dataclass，不是 dict）"""
     msg = user_message("测试消息")
-    assert msg["role"] == "user"
-    assert msg["content"] == "测试消息"
+    assert msg.role == "user"
+    assert msg.content == "测试消息"
 
 
-@pytest.mark.xfail(reason="stale API（与 2026-09-16 本轮改动无关）：该用例写在旧接口上，待重写", strict=False)
 def test_abort_controller():
-    """测试中止控制器"""
+    """测试中止控制器（aborted 是属性；raise_if_aborted 在已中止时必须抛）"""
+    from engine.abort import Aborted
+
     abort = AbortController()
-    
+
     # 初始状态应该不是中止
-    assert not abort.is_aborted()
-    
+    assert not abort.aborted
+
     # 测试中止功能
-    abort.abort()
-    assert abort.is_aborted()
-    
+    abort.abort("user_stop")
+    assert abort.aborted
+    assert abort.reason == "user_stop"
+
     # 测试异常抛出
-    abort.raise_if_aborted()
+    with pytest.raises(Aborted):
+        abort.raise_if_aborted()
 
 
 def test_budget_tracker():
@@ -124,33 +126,24 @@ async def test_simple_query_loop(registry, tmp_path):
     assert len(text_events) > 0
 
 
-@pytest.mark.xfail(reason="stale API（与 2026-09-16 本轮改动无关）：该用例写在旧接口上，待重写", strict=False)
 def test_file_operations(registry, tmp_path):
-    """测试文件操作工具"""
-    test_file = tmp_path / "write_test.txt"
-    test_content = "这是一个测试文件"
-    
-    # 测试Write工具
-    write_tool = registry.get_tool("Write")
-    assert write_tool is not None
-    
-    # 测试Read工具
-    read_tool = registry.get_tool("Read")
+    """读工具走当前 API：registry.get + tool.call(ReadInput)。
+
+    原实现用 `registry.get_tool(...)` 与 `tool.tool_func(...)`——两个都已在重构中
+    删除（同文件 test_glob_tool 已按当前 API 修过，这条没跟上）。写侧不在这里断言：
+    Write 需要 write-store / read-state 接线，由 tools.catalog 那条 happy-path 档覆盖。
+    """
+    from tools.file_read_tool.file_read_tool import ReadInput
+
+    test_file = tmp_path / "read_test.txt"
+    test_content = "这是一个测试文件\n第二行\n"
+    test_file.write_text(test_content, encoding="utf-8")
+
+    read_tool = registry.get("Read")
     assert read_tool is not None
-    
-    # 创建文件
-    write_tool.tool_func(
-        file_path=str(test_file),
-        content=test_content
-    )
-    
-    # 验证文件创建
-    assert test_file.exists()
-    assert test_file.read_text() == test_content
-    
-    # 读取文件
-    result = read_tool.tool_func(file_path=str(test_file))
-    assert result == test_content
+
+    out = read_tool.call(ReadInput(file_path=str(test_file)))
+    assert test_content.strip() in out.content
 
 
 def test_glob_tool(registry, tmp_path):
@@ -182,13 +175,19 @@ def test_glob_tool(registry, tmp_path):
     assert len(names("**/*.txt")) >= 3
 
 
-def test_error_handling():
-    """测试错误处理"""
-    from tools.agent_tool.agent_tool import AgentTool
-    
-    # 测试无效输入
-    with pytest.raises(Exception):
-        AgentTool().tool_func()  # 缺少必需参数
+def test_error_handling(tmp_path):
+    """读不存在的文件必须抛带事实的 FileNotFoundError。
+
+    原用例断言 `AgentTool().tool_func()` 抛异常，而该方法早已删除——AttributeError
+    让 `pytest.raises(Exception)` 恒成立，是一条假绿的门。
+    """
+    from tools.file_read_tool import FileReadTool
+    from tools.file_read_tool.file_read_tool import ReadInput
+
+    tool = FileReadTool(cwd=str(tmp_path))
+    with pytest.raises(FileNotFoundError) as exc:
+        tool.call(ReadInput(file_path=str(tmp_path / "nope.txt")))
+    assert "File does not exist" in str(exc.value)
 
 
 if __name__ == "__main__":

@@ -134,6 +134,36 @@ class PermissionCoordinator:
 		"""等待用户选择，返回 allow / deny / remind / timeout。"""
 		item = await self.store.wait(request_id, timeout=timeout)
 		if item is None:
+			# 项已经不在了（过期剪枝 / 会话清理把它摘掉），不是"用户没答"那么轻：
+			# 这一支原先直接 return，于是 task_state 永远停在
+			# ``waiting_permission`` + ``interruptible=False``（request() 设的），
+			# GUI 的授权卡不消失、连中断都被判不可打断，
+			# 且这一枪的审批终态**一条 resolved 审计都没留下**。
+			# 这里补齐的是状态与留痕，判定不变（与超时档同为拒绝）。
+			default_audit_log().record(
+				"permission.resolved",
+				session_id=self.session_id,
+				turn_id=self.turn_id,
+				request_id=request_id,
+				tool_name="",
+				reason="",
+				matched_rule="",
+				approved=False,
+				user_choice=USER_CHOICE_DENY,
+				actor="",
+				outcome="timeout",
+				pending_absent=True,
+			)
+			self.task_state.set_status("running", current_tool=None, interruptible=True)
+			self._emit(
+				PermissionResolvedEvent(
+					request_id=request_id,
+					approved=False,
+					actor="",
+					reason="timeout",
+					choice="timeout",
+				)
+			)
 			return "timeout"
 		if not item.resolved:
 			# 超时：store.resolve 未调用，此处补 resolved 审计。

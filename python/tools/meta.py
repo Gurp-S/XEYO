@@ -299,6 +299,16 @@ TOOL_META: dict[str, ToolMeta] = {
 				"Request cancellation of one of this session's background jobs."
 			),
 		),
+		ToolMeta(
+			name="agent_send",
+			read_only=False,
+			concurrency_safe=False,
+			policy="always_allow",
+			subagent_ok=False,
+			short_description=(
+				"Send a follow-up to a running subagent (parked until settle)."
+			),
+		),
 	)
 }
 

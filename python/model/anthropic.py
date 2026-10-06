@@ -46,11 +46,15 @@ from common.errors import (
 )
 
 from engine.abort import AbortController
+from model.stream_io import (
+	abortable, abortable_lines, abortable_stream, close_response_on_abort, post_to_loop,
+)
 from model._capture_hook import (
 	capture_body as _capture_body,
 	capture_response as _capture_response,
 )
 from model.chunks import ModelChunk
+from model.stream_end import validate_stream_end
 from msgtypes.message import ToolUse
 
 try:
@@ -79,9 +83,7 @@ def _positive_int(value: Any) -> int | None:
 	return n if n > 0 else None
 
 
-# ---------------------------------------------------------------------------
 # 请求体构造：内部消息 → Messages API
-# ---------------------------------------------------------------------------
 
 
 def _split_system(messages: list[dict[str, Any]]) -> tuple[str, list[dict[str, Any]]]:
@@ -503,9 +505,7 @@ def to_anthropic_tool(schema: dict[str, Any]) -> dict[str, Any]:
 	}
 
 
-# ---------------------------------------------------------------------------
 # SSE 解析
-# ---------------------------------------------------------------------------
 
 
 def _consume_sse_event(
@@ -516,7 +516,7 @@ def _consume_sse_event(
 	"""解析一条 Anthropic SSE 事件 → (usage, chunks)。
 
 	state 跨事件累积：``tool_bufs``（每 block index 一个 json 缓冲）、
-	``thinking_sigs``（block index → signature，content_block_stop 时落定）。
+	``thinking_bufs``（block index → text/signature，content_block_stop 时发射完整块）。
 	"""
 	if not payload:
 		return None, []
@@ -537,6 +537,7 @@ def _consume_sse_event(
 		return None, []
 
 	if etype == "content_block_start":
+		state["has_output"] = True
 		idx = int(event.get("index") or 0)
 		block = event.get("content_block") or {}
 		btype = block.get("type")
@@ -554,9 +555,12 @@ def _consume_sse_event(
 			# 思考态以明文增量下发；签名在 content_block_delta(signature_delta)
 			# 或 content_block_stop 里落定。此处留一个槽。
 			state.setdefault("thinking_bufs", {})[idx] = {"text": "", "signature": ""}
-		return None, []
+		elif btype == "redacted_thinking" and block.get("data"):
+			out.append(ModelChunk(kind="reasoning_block", block={"type": btype, "data": block["data"]}))
+		return None, out
 
 	if etype == "content_block_delta":
+		state["has_output"] = True
 		idx = int(event.get("index") or 0)
 		delta = event.get("delta") or {}
 		dtype = delta.get("type")
@@ -589,13 +593,21 @@ def _consume_sse_event(
 	if etype == "content_block_stop":
 		idx = int(event.get("index") or 0)
 		buf = state.setdefault("tool_bufs", {}).get(idx)
-		if buf is not None:
+		if buf is not None and not buf.get("_emitted"):
+			buf["_emitted"] = True
 			chunk = _finalize_tool_block(buf)
 			if chunk is not None:
 				out.append(chunk)
+		thinking = state.get("thinking_bufs", {}).get(idx)
+		if thinking is not None and thinking.get("signature") and not thinking.get("_emitted"):
+			thinking["_emitted"] = True
+			out.append(ModelChunk(kind="reasoning_block", block={
+				"type": "thinking", "text": thinking["text"], "signature": thinking["signature"],
+			}))
 		return None, out
 
 	if etype == "message_delta":
+		state["finish_reason"] = (event.get("delta") or {}).get("stop_reason") or state.get("finish_reason")
 		usage = event.get("usage")
 		merged = usage if isinstance(usage, dict) else None
 		if merged is not None and state.get("input_usage"):
@@ -603,6 +615,9 @@ def _consume_sse_event(
 			# 合并成一条完整 usage 供账本结算（否则面板输入恒为 0）。
 			merged = {**state["input_usage"], **merged}
 		return merged, out
+	if etype == "message_stop":
+		state["done"] = True
+		return None, out
 
 	if etype == "error":
 		err = event.get("error") or {}
@@ -644,9 +659,7 @@ def _finish_pending_tool_bufs(state: dict[str, Any]) -> list[ModelChunk]:
 	return out
 
 
-# ---------------------------------------------------------------------------
 # 客户端
-# ---------------------------------------------------------------------------
 
 
 class AnthropicModelClient:
@@ -806,52 +819,53 @@ class AnthropicModelClient:
 		self.last_usage = None
 		self.last_context_tokens = None
 		self._usage_recorded_this_stream = False
-		last_usage: dict[str, Any] | None = None
 		client = get_shared_httpx_client(120.0)
-		async with client.stream(
-			"POST", url, headers=self._headers(), json=body, timeout=120.0
-		) as resp:
-			_capture_response(
-				captured, http_status=resp.status_code, headers=resp.headers
-			)
-			if resp.status_code >= 400:
-				err = await resp.aread()
-				raw = err.decode("utf-8", errors="replace")
-				raise ProviderError(
-					provider_error_message(resp.status_code, sanitize_http_body(raw)),
-					status_code=resp.status_code,
-					retry_after_ms=parse_retry_after(resp.headers.get("Retry-After")),
+		try:
+			async with abortable_stream(client.stream(
+				"POST", url, headers=self._headers(), json=body, timeout=120.0
+			), abort) as resp:
+				_capture_response(
+					captured, http_status=resp.status_code, headers=resp.headers
 				)
-			event_name = ""
-			async for line in resp.aiter_lines():
+				if resp.status_code >= 400:
+					err = await abortable(resp.aread(), abort)
+					raw = err.decode("utf-8", errors="replace")
+					raise ProviderError(
+						provider_error_message(resp.status_code, sanitize_http_body(raw)),
+						status_code=resp.status_code,
+						retry_after_ms=parse_retry_after(resp.headers.get("Retry-After")),
+					)
+				event_name = ""
+				async for line in abortable_lines(resp.aiter_lines(), abort):
+					abort.raise_if_aborted()
+					if line.startswith("event:"):
+						event_name = line[len("event:") :].strip()
+						continue
+					if not line.startswith("data:"):
+						continue
+					u, chunks = _consume_sse_event(event_name, line[len("data:") :].strip(), state)
+					if u:
+						self._update_usage(u)
+					for chunk in chunks:
+						yield chunk
+			validate_stream_end(state)
+			for chunk in _finish_pending_tool_bufs(state):
 				abort.raise_if_aborted()
-				if line.startswith("event:"):
-					event_name = line[len("event:") :].strip()
-					continue
-				if not line.startswith("data:"):
-					continue
-				u, chunks = _consume_sse_event(event_name, line[len("data:") :].strip(), state)
-				if u:
-					if u.get("input_tokens") is not None and "output_tokens" not in u:
-						state["input_usage"] = u
-					last_usage = u
-				for chunk in chunks:
-					yield chunk
-		for chunk in _finish_pending_tool_bufs(state):
-			abort.raise_if_aborted()
-			yield chunk
-		self.last_usage = last_usage
-		self._settle_usage(last_usage)
+				yield chunk
+		finally:
+			self._settle_usage(self.last_usage)
+
+	def _update_usage(self, usage: dict[str, Any]) -> None:
+		self.last_usage = _usage_to_openai_shape(usage)
+		self.last_context_tokens = self.last_usage.get("prompt_tokens")
 
 	def _settle_usage(self, usage: dict[str, Any] | None) -> None:
 		if not usage:
 			return
-		self.last_context_tokens = _positive_int(
-			usage.get("input_tokens")
-		) or _positive_int(usage.get("prompt_tokens"))
+		self._update_usage(usage)
 		if not self._usage_recorded_this_stream:
 			self._usage_recorded_this_stream = True
-			self._record_usage_safe(usage)
+			self._record_usage_safe(self.last_usage)
 
 	async def _stream_stdlib(
 		self,
@@ -874,15 +888,15 @@ class AnthropicModelClient:
 
 		def worker() -> None:
 			state: dict[str, Any] = {}
-			last_usage: dict[str, Any] | None = None
 			try:
 				req = Request(url, data=data, headers=self._headers(), method="POST")
-				with urlopen(req, timeout=120) as resp:
+				with urlopen(req, timeout=120) as resp, close_response_on_abort(resp, abort):
 					_capture_response(
 						captured, http_status=resp.status, headers=resp.headers
 					)
 					event_name = ""
 					while True:
+						abort.raise_if_aborted()
 						raw = resp.readline()
 						if not raw:
 							break
@@ -896,22 +910,18 @@ class AnthropicModelClient:
 							event_name, line[len("data:") :].strip(), state
 						)
 						if u:
-							if u.get("input_tokens") is not None and "output_tokens" not in u:
-								state["input_usage"] = u
-							last_usage = u
+							post_to_loop(loop, queue.put_nowait, ("usage", u))
 						for chunk in chunks:
-							loop.call_soon_threadsafe(queue.put_nowait, ("chunk", chunk))
+							post_to_loop(loop, queue.put_nowait, ("chunk", chunk))
+					validate_stream_end(state)
 					for chunk in _finish_pending_tool_bufs(state):
-						loop.call_soon_threadsafe(queue.put_nowait, ("chunk", chunk))
-					loop.call_soon_threadsafe(
-						queue.put_nowait, ("usage", last_usage)
-					)
-					loop.call_soon_threadsafe(queue.put_nowait, ("done", None))
+						post_to_loop(loop, queue.put_nowait, ("chunk", chunk))
+					post_to_loop(loop, queue.put_nowait, ("done", None))
 			except HTTPError as e:
 				# 失败尝试也有响应身份：状态码 + 厂商请求 id 是定位 429/500 的事实。
 				_capture_response(captured, http_status=e.code, headers=e.headers)
 				detail = sanitize_http_body(e.read().decode("utf-8", errors="replace"))
-				loop.call_soon_threadsafe(
+				post_to_loop(loop,
 					queue.put_nowait,
 					(
 						"err",
@@ -923,24 +933,28 @@ class AnthropicModelClient:
 					),
 				)
 			except URLError as e:
-				loop.call_soon_threadsafe(queue.put_nowait, ("err", NetworkError(str(e))))
+				post_to_loop(loop, queue.put_nowait, ("err", NetworkError(str(e))))
 			except Exception as e:  # noqa: BLE001
-				loop.call_soon_threadsafe(queue.put_nowait, ("err", e))
+				post_to_loop(loop, queue.put_nowait, ("err", e))
 
 		threading.Thread(target=worker, name="anthropic-sse", daemon=True).start()
 
-		while True:
-			abort.raise_if_aborted()
-			kind, payload = await queue.get()
-			if kind == "done":
-				return
-			if kind == "err":
-				raise payload
-			if kind == "usage":
-				self.last_usage = payload
-				self._settle_usage(payload)
-				continue
-			yield payload  # type: ignore[misc]
+		try:
+			while True:
+				abort.raise_if_aborted()
+				kind, payload = await abortable(queue.get(), abort)
+				if kind != "usage":
+					abort.raise_if_aborted()
+				if kind == "done":
+					return
+				if kind == "err":
+					raise payload
+				if kind == "usage":
+					self._update_usage(payload)
+					continue
+				yield payload  # type: ignore[misc]
+		finally:
+			self._settle_usage(self.last_usage)
 
 
 def _usage_to_openai_shape(usage: dict[str, Any]) -> dict[str, Any]:
@@ -953,6 +967,8 @@ def _usage_to_openai_shape(usage: dict[str, Any]) -> dict[str, Any]:
 	注意 Anthropic 的 ``input_tokens`` **不含**缓存命中与缓存写入部分，
 	故 prompt_tokens 应是三者之和，否则面板输入会显著偏低。
 	"""
+	if "prompt_tokens" in usage:
+		return dict(usage)
 	inp = _positive_int(usage.get("input_tokens")) or 0
 	out = _positive_int(usage.get("output_tokens")) or 0
 	read = _positive_int(usage.get("cache_read_input_tokens")) or 0

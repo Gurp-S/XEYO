@@ -24,6 +24,7 @@ from synaptic.fixed_budget import (
 from synaptic.graph import Graph
 from synaptic.handles import renderer_or_default
 from synaptic.textutil import node_token_len
+from synaptic.visible_paths import uncovered_path_lines
 from synaptic.types import KIND_USER, WscParams
 
 Line = tuple[str, str]
@@ -82,18 +83,18 @@ def rendered_request_nodes(
 	``render_requests_compact`` 会把旧节点合并成 ``reqs://<首>-<末>``。
 	覆盖率审计若直接数行数，会变成「分母逐节点、分子逐行」的异源口径（踩过）。
 
-	**解析收在 `handles.HandleRenderer.extract_nodes`**：渲染形态与解析必须同源，
+	**解析收在 `handles.HandleRenderer.recoverable_nodes`**：渲染形态与解析必须同源，
 	两处各写一份就会漂移——渲染换成 `Read` 形态而解析仍找 `expand(`，覆盖率会**静默归零**
 	（审计报「用户原话全丢」而实际没丢）。本函数只负责把渲染器接进来。
 
-	**区间句柄按 [首, 末] 全展开是安全的**：调用方始终拿它与 ``request_nodes`` 求交，
-	区间内混进的非用户节点会被交集滤掉；而区间内真正的用户节点，要么属于该块、
-	要么属于按 idx 升序的相邻块——两种情形它们**都有出口**，不存在「虚报可见」。
+	分页入口按显式完整 span 计恢复覆盖，首次实际正文覆盖另由 extract_nodes 计算。
+	普通 Read 按实际跨度内完整正文计数；expand 使用已有精确绑定，缺绑定的旧式
+	引用才按载荷解析。调用方与 ``request_nodes`` 求交，非用户节点不计入分子。
 	"""
 	hr = renderer_or_default(handles)
 	out: set[int] = set()
 	for _key, line in items:
-		out.update(hr.extract_nodes(line))
+		out.update(hr.recoverable_nodes(line))
 	return frozenset(out)
 
 
@@ -444,8 +445,23 @@ def apply_hot_budgets(
 		else:
 			out.pop(request_header, None)
 
+	# Check the final surviving lines: earlier WS/REQUESTS text may be trimmed.
+	if "[PATHS]" in out:
+		visible = "\n".join(line for h, items in out.items() if h != "[PATHS]" for _, line in items)
+		remaining = uncovered_path_lines(out["[PATHS]"], visible)
+		if remaining:
+			out["[PATHS]"] = remaining
+		else:
+			out.pop("[PATHS]")
 	fixed_tokens = sum(segment_tokens(out.get(h, ())) for h in fixed_headers)
-	protected_tokens = sum(
+	# 请求行**在保留额度内**的部分与受保护事实同类：floor 已保证它不被裁
+	# （见 ``trim_fixed_for_request_floor``），再把它计进"可消除超额"会让
+	# 「avoidable>0」永远为真却无从消除——这是 09-21 挂账测试的真实底因。
+	# 超出 floor 的部分仍算可消除（它确实要过降级梯）。
+	request_in_floor = min(
+		segment_tokens(out.get(request_header, ())), int(_request_floor)
+	)
+	protected_tokens = request_in_floor + sum(
 		segment_tokens(out.get(h, ())) for h in fixed_headers if h in _PROTECTED_FIXED_HEADERS
 	)
 	fixed_overflow = max(0, fixed_tokens - int(params.fixed_segment_budget_tokens))

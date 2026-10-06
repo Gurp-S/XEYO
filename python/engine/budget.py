@@ -7,6 +7,9 @@
 
 from __future__ import annotations
 
+import math
+
+import logging
 import os
 import time
 from dataclasses import dataclass, field
@@ -15,6 +18,8 @@ from typing import Any
 from usage import pricing as pricing_mod
 from usage.pricing import estimate_cny, official_cost_cny
 from engine.lifecycle import AgentLifecycle
+
+_log = logging.getLogger("xeyo.budget")
 
 
 DEFAULT_MAX_TURNS = 256
@@ -82,7 +87,7 @@ def default_budget_usd_from_env() -> float | None:
 		v = float(raw)
 	except (TypeError, ValueError):
 		return None
-	return v if v > 0 else None
+	return v if math.isfinite(v) and v > 0 else None
 
 
 def max_budget_usd_from_env() -> float | None:
@@ -93,7 +98,7 @@ def max_budget_usd_from_env() -> float | None:
 			v = float(raw)
 		except (TypeError, ValueError):
 			v = None
-		if v is not None and v >= 0:
+		if v is not None and math.isfinite(v) and v >= 0:
 			return v
 	return default_budget_usd_from_env()
 
@@ -128,10 +133,19 @@ class BudgetTracker:
 	used_usd: float = 0.0
 	last_usage: dict[str, Any] | None = None
 	last_usage_tokens: int = 0
-	last_usage_usd: float = 0.0
-	last_usage_cny: float = 0.0
+	# 无权威价目时为 None（费用未知，不是 0）——见 ``usd_gate_note``。
+	last_usage_usd: float | None = 0.0
+	last_usage_cny: float | None = 0.0
 	used_cny: float = 0.0
+	# 价目来源三态：api / estimate / unpriced（与 usage.ledger.cost_source 同口径）。
 	last_cost_source: str = "estimate"
+	# 价目权威来源：usage / vendor / user / none（见 usage.pricing.price_authority）。
+	last_price_authority: str = ""
+	# 已计价 / 无价目的回合数。有任一回合无价目 ⇒ 已花费金额不可判定，
+	# USD 闸对这些模型不生效（既不误拦，也不假装算得出「还剩多少额度」）。
+	usd_priced_turns: int = 0
+	usd_unpriced_turns: int = 0
+	_usd_gate_logged: bool = field(default=False, init=False, repr=False)
 	provider: str = "deepseek"
 	model: str = "deepseek-v4-flash"
 	prices: dict[str, float] | None = None
@@ -194,7 +208,16 @@ class BudgetTracker:
 				remain_min = max(0, int((self.wall_deadline_ts - now) / 60))
 				# C6 裁决：预算信息纯事实，不加行动指令。
 				notice = f"时间预算已用 {label}，剩余约 {remain_min} 分钟。"
-				self._queue_notice(notice)
+				# `_queue_notice` 只认 reason 名（max_turns / max_tool_calling / wall），
+				# 传播报正文会落进它的 else 分支被静默丢弃 ⇒ 走自由文本通道。
+				# ⚠️2026-10-03 实测更正：自由文本通道本身**当前不落到模型**——
+				# `consume_runtime_notice()` 在 query_loop 取走后只塞进
+				# ``InjectContext.runtime_notice``，而 prompt/ 下读该字段的点为 0
+				# （``evals/changedetect/trace.py:134`` 记 wrap_up/runtime_notice
+				# 两类块"已从模型可见面撤除"，本模块 docstring 却说"播报照旧"）。
+				# ⇒ 这一行只是把文本放进**正确的**那条队列；队列末端要接回还是要
+				# 删净，属对外可见文本的政策，待用户裁定。执行层（grace/硬停/配额）不受影响。
+				self.queue_runtime_notice(notice)
 				# 同一时刻可能既越 90% 又走尽 100%：先记下播报，不提前 return，
 				# 让下方武装分支仍能在此次调用里启动收尾 grace。
 				pending_notice = notice
@@ -247,8 +270,12 @@ class BudgetTracker:
 
 		与墙钟 80%/90% 走同一 runtime notice 通道；仅 ``usd_limit`` 为正时
 		武装。默认档/显式限额共用——模型在硬停前能看到水位事实，自行收敛。
+		有任一回合无价目时整个播报关闭：此时 ``used_usd`` 只覆盖可计价部分，
+		报出的百分比是假的（要么虚低要么虚高）。
 		"""
 		if not self.usd_limit or self.usd_limit <= 0 or self.used_usd <= 0:
+			return
+		if self.usd_unpriced_turns > 0:
 			return
 		for threshold, label in ((0.9, "90%"), (0.8, "80%")):
 			key = f"usd_{label}"
@@ -271,12 +298,12 @@ class BudgetTracker:
 		# 墙钟死线检查（禀赋①）：80%/90% 阈值提醒走既有 runtime notice 通道。
 		try:
 			self.check_wall_deadline()
-		except Exception:  # noqa: BLE001
+		except Exception:  # noqa: BLE001 — 墙钟提醒 best-effort：失败不阻断预算推进
 			pass
 		# USD 水位事实播报（默认档/显式限额共用，纯数字）。
 		try:
 			self.check_usd_waterline()
-		except Exception:  # noqa: BLE001
+		except Exception:  # noqa: BLE001 — USD 播报 best-effort：失败不阻断预算推进
 			pass
 		if self.grace_started:
 			if self.turn_count >= self.max_turns:
@@ -384,10 +411,13 @@ class BudgetTracker:
 		miss: int,
 		out: int,
 		ts: float | None = None,
-	) -> float:
-		"""折算一轮 usage 的 USD。
+	) -> float | None:
+		"""折算一轮 usage 的 USD；**没有权威价目时返回 None**（不编价）。
 
-		厂商在 usage 里显式给出金额时原样采用；否则按「用户选择模型的实时价」折算。
+		厂商在 usage 里显式给出金额时原样采用；会话显式登记过价目（``prices``）按其折算；
+		否则按「用户选择模型的实时价 → 本地登记价目」折算。三者都没有 ⇒ ``None``：
+		历史行为是回落到通用默认价（2.0/8.0 USD 的保守上限），那是拿别家价算出
+		「还剩多少额度」，2026-09-27 起不再允许（见 ``usd_gate_note``）。
 		"""
 		for key in ("usd", "cost_usd", "usage_usd", "total_cost_usd"):
 			if key not in usage or usage[key] is None:
@@ -396,32 +426,37 @@ class BudgetTracker:
 				n = float(usage[key])
 			except (TypeError, ValueError):
 				continue
-			if n >= 0:
+			if math.isfinite(n) and n >= 0:
+				self.last_price_authority = "usage"
 				return n
 		if self.prices is not None:
 			table = self.prices
+			self.last_price_authority = "user"
 			return (
 				hit * table.get("input_hit", 0.0)
 				+ miss * table.get("input_miss", 0.0)
 				+ out * table.get("output", 0.0)
 			) / 1_000_000.0
-		return pricing_mod.estimate_usd(
+		value, basis = pricing_mod.estimate_usd_checked(
 			provider=self.provider,
 			model=self.model,
 			usage=usage,
 			local_only=self.usd_limit is None,
 			ts=ts,
 		)
+		self.last_price_authority = basis
+		return value
 
 	def _usage_cny(
 		self,
 		usage: dict[str, Any],
 		ts: float | None = None,
-	) -> float:
-		"""返回本轮人民币费用：厂商金额优先，否则按与 USD 同源的权威价目估算。
+	) -> float | None:
+		"""返回本轮人民币费用；**没有权威价目时返回 None**。
 
-		未设 USD 上限时不联网（与 ``_usage_usd`` 的 local_only 一致），只走本地兜底价；
-		设了上限才拉厂商实时价，确保费用与预算来自同一条价格链。
+		厂商金额优先，否则按与 USD 同源的权威价目估算。未设 USD 上限时不联网
+		（与 ``_usage_usd`` 的 local_only 一致），只走本地价目；设了上限才拉厂商
+		实时价，确保费用与预算来自同一条价格链。
 		"""
 		api_cost = official_cost_cny(usage)
 		if api_cost is not None:
@@ -435,7 +470,7 @@ class BudgetTracker:
 		)
 
 	def add_usage(self, usage: dict[str, Any] | None, ts: float | None = None) -> None:
-		"""以厂商响应 usage 累计本轮 token 与 USD。"""
+		"""以厂商响应 usage 累计本轮 token 与 USD；无价目的回合只计 token。"""
 		if not isinstance(usage, dict) or not usage:
 			return
 		hit, miss, out = pricing_mod.split_usage(usage)
@@ -449,17 +484,69 @@ class BudgetTracker:
 		round_tokens = official_total or (prompt + out)
 		self.last_usage_tokens = round_tokens
 		self.last_usage_usd = self._usage_usd(usage, hit, miss, out, ts=ts)
+		if self.last_usage_usd is not None and not math.isfinite(self.last_usage_usd):
+			self.last_usage_usd = None
 		api_cost = official_cost_cny(usage)
-		self.last_cost_source = "api" if api_cost is not None else "estimate"
-		self.last_usage_cny = api_cost if api_cost is not None else self._usage_cny(usage, ts=ts)
+		if api_cost is not None:
+			self.last_cost_source = "api"
+			self.last_usage_cny = api_cost
+		else:
+			cny = self._usage_cny(usage, ts=ts)
+			if cny is None:
+				# 无价目：金额未知 —— 落 None（不是 0），也不进 used_usd / used_cny 合计。
+				self.last_cost_source = "unpriced"
+			else:
+				self.last_cost_source = "estimate"
+			self.last_usage_cny = cny
+		if self.last_usage_cny is not None and not math.isfinite(self.last_usage_cny):
+			self.last_usage_cny = None
 		self.used_tokens += round_tokens
-		self.used_usd += self.last_usage_usd
-		self.used_cny += self.last_usage_cny
+		if self.last_usage_usd is None:
+			self.usd_unpriced_turns += 1
+		else:
+			self.usd_priced_turns += 1
+			self.used_usd += self.last_usage_usd
+		if self.last_usage_cny is not None:
+			self.used_cny += self.last_usage_cny
+		if self.usd_unpriced_turns:
+			self._note_usd_gate_inactive()
+
+	@property
+	def usd_gate_note(self) -> str:
+		"""部分费用未知的中文事实（供界面 / 日志，不进模型上下文）。
+
+		空串 = 费用均可计价（或本来就没设上限）。无价目时说明已知小计
+		仍受上限约束，但不能由它计算准确剩余额度。
+		"""
+		if not self.usd_limit:
+			return ""
+		if self.usd_unpriced_turns <= 0:
+			return ""
+		return (
+			f"{self.provider}/{self.model} 有 {self.usd_unpriced_turns} 轮费用未知，"
+			"总费用和剩余额度不可判定；预算闸按已知费用小计执行。"
+		)
+
+	def _note_usd_gate_inactive(self) -> None:
+		"""日志留痕一次：部分费用未知，剩余额度不可判定。"""
+		if self._usd_gate_logged:
+			return
+		self._usd_gate_logged = True
+		try:
+			_log.info("%s", self.usd_gate_note)
+		except Exception:  # noqa: BLE001 — 日志通道不得影响预算闸
+			pass
 
 	@property
 	def over_budget(self) -> bool:
-		"""是否超过美元上限（>= 即停，与 token 超限口径一致）。"""
-		return self.usd_limit is not None and self.used_usd >= self.usd_limit
+		"""是否超过美元上限（>= 即停，与 token 超限口径一致）。
+
+		无价目的回合不编价；``used_usd`` 仍是已知非负费用的下界。
+		下界达到上限即可判定超限，即使部分回合费用未知。
+		"""
+		if self.usd_limit is None:
+			return False
+		return self.used_usd >= self.usd_limit
 
 	def over_token_budget(self) -> bool:
 		"""是否超过 token 预算。"""
@@ -494,6 +581,10 @@ class BudgetTracker:
 		self.last_usage_cny = 0.0
 		self.used_cny = 0.0
 		self.last_cost_source = "estimate"
+		self.last_price_authority = ""
+		self.usd_priced_turns = 0
+		self.usd_unpriced_turns = 0
+		self._usd_gate_logged = False
 		if max_turns is not None:
 			self.max_turns = int(max_turns)
 		if max_tool_calling is not None:

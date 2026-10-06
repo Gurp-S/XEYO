@@ -221,14 +221,12 @@ def test_short_sessions_are_skipped(shadow_home, monkeypatch):
 	assert not wsc_shadow.log_path().exists()
 
 
-def test_wiring_point_exists_in_query_loop():
-	"""接线点必须存在且被 try/except 包裹（防「模块写了但没人调」）。"""
+def test_automatic_shadow_is_outside_the_production_loop():
+	"""Explicit offline audits do not require a duplicate live projection."""
 	src = (Path(__file__).resolve().parents[1] / "engine" / "query_loop.py").read_text(
 		encoding="utf-8"
 	)
-	assert "from memory.wsc_shadow import maybe_observe" in src
-	idx = src.index("maybe_observe(")
-	assert "try:" in src[max(0, idx - 600) : idx], "影子档调用必须包在 try 内"
+	assert "from memory.wsc_shadow import maybe_observe" not in src
 
 
 # ---------------------------------------------------------------------------
@@ -252,7 +250,7 @@ class _EchoTurnModel:
 		)
 
 
-def test_shadow_fires_through_the_real_query_loop(shadow_home, monkeypatch, tmp_path):
+def test_live_query_does_not_run_an_automatic_shadow(shadow_home, monkeypatch, tmp_path):
 	"""端到端：开启影子档后跑真实 `QueryEngine.submit`，账目必须落盘。
 
 	这条测试防的是**接线点选错分支**：影子档接在「全量投影」分支上，
@@ -288,14 +286,4 @@ def test_shadow_fires_through_the_real_query_loop(shadow_home, monkeypatch, tmp_
 	asyncio.run(_run())
 
 	path = wsc_shadow.log_path()
-	assert path.exists(), "影子档开启后跑真实一轮，账目却没落盘（接线点没走到）"
-	rows = [json.loads(x) for x in path.read_text(encoding="utf-8").splitlines() if x.strip()]
-	assert rows, "账目文件为空"
-	r = rows[-1]
-	assert r["wsc_hot_tokens"] >= 0 and "fold" in r and "reason" in r
-	# 取回视图必须落在**本轮工作区**（`cwd` 从 registry 传来）而不是进程 cwd
-	view = Path(r["view_path"])
-	assert view.exists() and (tmp_path / ".xeyo_offload") in view.parents, (
-		f"视图没落在会话工作区的 offload 根下（cwd 没传对？）：{view}"
-	)
-	assert r["view_externalized"] is True
+	assert not path.exists(), "Live WSC must not run an additional shadow projection"

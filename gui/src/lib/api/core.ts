@@ -32,11 +32,30 @@ export async function fetchWithTimeout(
 	timeoutMs = REQUEST_TIMEOUT_MS,
 ): Promise<Response> {
 	const controller = new AbortController();
-	const timer = setTimeout(() => controller.abort(), timeoutMs);
+	// 调用方 signal 必须**合并**而非被覆盖（取消语义）：直接 {...init, signal: controller.signal}
+	// 会静默丢弃它，调用方的 abort() 再也到不了这次请求。
+	const caller = init?.signal ?? null;
+	const onCallerAbort = caller ? () => controller.abort() : null;
+	if (caller) {
+		if (caller.aborted) {
+			controller.abort();
+		} else {
+			caller.addEventListener('abort', onCallerAbort!, {once: true});
+		}
+	}
+	let timedOut = false;
+	const timer = setTimeout(() => {
+		timedOut = true;
+		controller.abort();
+	}, timeoutMs);
 	try {
 		return await fetch(url, {...init, signal: controller.signal});
 	} catch (err) {
 		if ((err as Error).name === 'AbortError') {
+			// 调用方取消是事实本身，不是超时——原样上抛，不谎报「请求超时」。
+			if (!timedOut) {
+				throw err;
+			}
 			throw new Error(
 				`请求超时：${Math.round(timeoutMs / 1000)} 秒内未收到服务器响应`,
 			);
@@ -44,6 +63,9 @@ export async function fetchWithTimeout(
 		throw err;
 	} finally {
 		clearTimeout(timer);
+		if (caller && onCallerAbort) {
+			caller.removeEventListener('abort', onCallerAbort);
+		}
 	}
 }
 

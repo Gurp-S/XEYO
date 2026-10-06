@@ -121,12 +121,17 @@ class UsageEvent:
 	cache_miss_tokens: int = 0
 	tokens: int = 0
 	used_tokens: int = 0
-	usd: float = 0.0
+	# 金额为 None = 费用未知（该轮没有权威价目），不是 0 —— 见 cost_source="unpriced"。
+	usd: float | None = 0.0
 	used_usd: float = 0.0
-	cny: float = 0.0
+	cny: float | None = 0.0
 	used_cny: float = 0.0
 	cost_source: str = "estimate"
 	usd_limit: float | None = None
+	# 费用未知的回合数（cost_source="unpriced"）之和；>0 时 USD 预算闸对这一轮不生效。
+	unpriced_turns: int = 0
+	# 闸未生效的原因（中文事实，供界面 / 日志；不进模型上下文）。
+	budget_gate_note: str = ""
 	# 当前模型请求实际消耗的 prompt/context token 数；来自上游 usage。
 	context_tokens: int | None = None
 	# 仅在厂商或运行配置提供可靠上限时发送，未知时保持 None。

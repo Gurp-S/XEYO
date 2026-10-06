@@ -117,7 +117,7 @@ def unwrap_tool_output(content: str) -> tuple[str, str | None]:
 
 
 def fence_remote_user_text(text: str, *, source: str = "remote") -> str:
-	"""Wrap WeChat / filehelper / ilink inbound; harvest sanitize; idempotent."""
+	"""Wrap WeChat / ilink inbound; harvest sanitize; idempotent."""
 	raw = text if text is not None else ""
 	inner = unwrap_remote_user_text(raw) if is_fenced_untrusted_user(raw) else raw
 	sanitized = _escape_close_tags(

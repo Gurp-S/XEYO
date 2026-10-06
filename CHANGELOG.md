@@ -2,9 +2,30 @@
 
 本项目采用 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
-> 状态：**发布准备中**——首个公开版本（v0.1.0）尚未打 tag。以下条目为发布快照的内容草案，按「语义化提交（Conventional Commits）」从开发历史整理而来。
+> 当前正式版：**1.1.0**（2026-10-07）。
 
-## [Unreleased]（发布快照草案，待定 tag v0.1.0）
+## [1.1.0] - 2026-10-07
+
+### Added
+
+- Windows x64 一键安装包，内置可迁移的 Python 运行时和 ripgrep。
+- 用量事件读取与本地用量报告。
+
+### Changed
+
+- 整理桌面端、终端端和引擎的会话、流式输出与恢复流程。
+- 微信远程通道收敛为 iLink Bot。
+
+### Fixed
+
+- 修复 Windows 绝对路径在 POSIX 环境中被当作工作区相对路径的问题。
+- 修复 CI 缺少运行工具、Tauri 资源未生成和 GUI 锁文件下载地址错误。
+
+### Security
+
+- 正式桌面配置关闭 Chromium 远程调试端口。
+
+## [0.1.0] - 2026-09-07
 
 ### 初始化（Initial）
 
@@ -16,7 +37,7 @@
 - Agentic 主循环：模型 ↔ 工具多轮（中断 / 预算 / 工具分区执行）。
 - 编码工具面：Glob / Grep / Read / Write / Edit / Bash / TodoWrite 等 21 项（`python/tools/catalog.py`）。
 - 符号级代码理解：`Read symbol` / `Grep output_mode:"symbols"`（tree-sitter，未装自动降级）。
-- 会话 JSONL 持久化 + 重启续聊；微信远程通道（文件传输助手 / iLink Bot，按微信号隔离）。
+- 会话 JSONL 持久化 + 重启续聊；微信远程通道（iLink Bot，按微信号隔离）。
 - 权限沙箱：工作区外 deny；Bash 读命令透明路由（`bash_routing=auto`，可关）。
 - 记忆体系：内存索引 / 语义检索 / C2 压缩与回溯（rewind v3 热路径，`XEYO_REWIND_ENABLED`）。
 - 斜杠命令统一 manifest：`python/slash/registry.py` → 四表面共用。

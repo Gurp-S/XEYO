@@ -62,7 +62,7 @@ class Reconciler:
             try:
                 self.store.release_task_scope(self.repo, owner, scope)
             except Exception:  # noqa: BLE001
-                _log.debug("reconcile release lease failed", exc_info=True)
+                _log.warning("reconcile release lease failed", exc_info=True)
 
     def _classify(self, task_id: str, nxt, report: dict, *,
                   owner: str = "", scope: list[str] | None = None) -> None:

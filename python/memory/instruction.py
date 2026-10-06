@@ -145,6 +145,55 @@ def _filter_instruction_chunk(
 	return "", True
 
 
+#: 空壳条目：bullet 后无内容（`-` / `- 测试：`）。
+_BULLET_EMPTY = re.compile(r"^[-*+]\s*$")
+_BULLET_KEY_EMPTY = re.compile(r"^[-*+]\s+.{0,40}[：:]\s*$")
+
+#: 自动生成的最小指针式模板（``ensure_minimal_xeyo_md`` 落盘；逐字未改过的不进注入）。
+MINIMAL_TEMPLATE = """# XEYO 项目说明（指针式，保持简短）
+
+## 常用命令
+- 测试：
+- 构建：
+
+## 禁区 / 硬约定
+-
+
+## 指针（细则不内联；需要时用 Read / Skill）
+- 架构：
+- 长流程（发版等）→ `.xeyo/skills/<name>/SKILL.md`，用 Skill 工具按需加载
+"""
+
+
+def _normalize_block(text: str) -> str:
+	return "\n".join(line.rstrip() for line in str(text or "").strip().splitlines())
+
+
+_TEMPLATE_NORM = _normalize_block(MINIMAL_TEMPLATE)
+
+
+def is_unfilled_instruction(text: str) -> bool:
+	"""整段是未填过的自动模板 ⇒ 不进注入。
+
+	两种形态都算「未填」：
+	1. **逐字等于** ``MINIMAL_TEMPLATE``（自动生成后无人动过——现场 python/XEYO.md）；
+	2. **全空壳**（只有标题 + `-` / `- 键：`——手写/旧版模板——现场外层 XEYO.md）。
+	现场两层逐字相同的空模板被双双注入，信息量为零还造成「这里有项目指引」的错觉。
+	任一实质行（含冒号后有内容的条目、普通文本）即视为已填写：宁放勿滤。
+	"""
+	normalized = _normalize_block(text)
+	if normalized == _TEMPLATE_NORM:
+		return True
+	for raw in normalized.splitlines():
+		line = raw.strip()
+		if not line or line.startswith("#"):
+			continue
+		if _BULLET_EMPTY.match(line) or _BULLET_KEY_EMPTY.match(line):
+			continue
+		return False
+	return True
+
+
 def read_optional(
 	path: Path,
 	*,
@@ -160,7 +209,10 @@ def read_optional(
 		if not path.is_file():
 			return []
 		text = path.read_text(encoding="utf-8")
-	except OSError:
+	except (OSError, UnicodeDecodeError):
+		# UnicodeDecodeError 不是 OSError：漏掉它时，一个非 UTF-8 的指令文件会把
+		# **整套** L1 指令一起带走（上层 `_load_instructions` 是 except Exception → ""），
+		# 模型看到"这个项目没有说明"。逐文件收口，坏一个不连坐其余。
 		return []
 	if collect is not None:
 		collect.add(path.resolve())
@@ -215,7 +267,9 @@ def _expand_includes(
 			collect.add(target)
 		try:
 			body = target.read_text(encoding="utf-8")
-		except OSError:
+		except (OSError, UnicodeDecodeError):
+			# 同 read_optional：@include 的目标读不出，只丢那一段引用，
+			# 不许把带着引用的父文件一起清零。
 			return ""
 		return _expand_includes(body, target.parent, depth + 1, seen, collect)
 
@@ -364,6 +418,9 @@ def load_instruction_text(cwd: str, workspace_root: str) -> str:
 			chunk, cwd=cwd, workspace_root=workspace_root
 		)
 		if not body:
+			continue
+		if is_unfilled_instruction(body):
+			# 未填过的自动模板不进注入：信息量为零，却制造「这里有项目指引」的错觉。
 			continue
 		if is_scoped:
 			scoped.append(body)

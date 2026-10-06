@@ -1,7 +1,7 @@
 """T33 安全边界测试：chat/sessions/rewind 仅 loopback；通道 loopback-or-token。
 
 审计基线（ship blocker）：此前 chat/sessions/rewind 不设闸，LAN 或 0.0.0.0 暴露
-可直接驱动 Agent / 改写 transcript；filehelper/ilink 管理面完全开放。
+可直接驱动 Agent / 改写 transcript；通道（ilink）管理面完全开放。
 """
 
 from __future__ import annotations
@@ -68,36 +68,7 @@ def test_lan_allowed_with_remote_control_escape(monkeypatch: pytest.MonkeyPatch)
 		assert c.get("/v1/sessions").status_code == 200
 
 
-# ---------- 通道管理面（filehelper/ilink）：loopback 或 token ----------
-
-
-def test_filehelper_status_lan_without_token_rejected(
-	monkeypatch: pytest.MonkeyPatch,
-) -> None:
-	monkeypatch.setenv("XEYO_REMOTE_TOKEN", "tok-123")
-	with _lan_client() as c:
-		assert c.get("/v1/filehelper/status").status_code == 401
-
-
-def test_filehelper_status_lan_with_token_allowed(
-	monkeypatch: pytest.MonkeyPatch,
-) -> None:
-	monkeypatch.setenv("XEYO_REMOTE_TOKEN", "tok-123")
-	with _lan_client() as c:
-		r = c.get("/v1/filehelper/status", headers={"X-Remote-Token": "tok-123"})
-		assert r.status_code == 200
-
-
-def test_filehelper_status_loopback_no_token(monkeypatch: pytest.MonkeyPatch) -> None:
-	monkeypatch.setenv("XEYO_REMOTE_TOKEN", "tok-123")
-	with _local_client() as c:
-		assert c.get("/v1/filehelper/status").status_code == 200
-
-
-def test_filehelper_lan_token_disabled_503(monkeypatch: pytest.MonkeyPatch) -> None:
-	monkeypatch.delenv("XEYO_REMOTE_TOKEN", raising=False)
-	with _lan_client() as c:
-		assert c.get("/v1/filehelper/status").status_code == 503
+# ---------- 通道管理面（ilink）：loopback 或 token ----------
 
 
 def test_ilink_status_lan_without_token_rejected(
@@ -106,3 +77,24 @@ def test_ilink_status_lan_without_token_rejected(
 	monkeypatch.setenv("XEYO_REMOTE_TOKEN", "tok-123")
 	with _lan_client() as c:
 		assert c.get("/v1/ilink/status").status_code == 401
+
+
+def test_ilink_status_lan_with_token_allowed(
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	monkeypatch.setenv("XEYO_REMOTE_TOKEN", "tok-123")
+	with _lan_client() as c:
+		r = c.get("/v1/ilink/status", headers={"X-Remote-Token": "tok-123"})
+		assert r.status_code == 200
+
+
+def test_ilink_status_loopback_no_token(monkeypatch: pytest.MonkeyPatch) -> None:
+	monkeypatch.setenv("XEYO_REMOTE_TOKEN", "tok-123")
+	with _local_client() as c:
+		assert c.get("/v1/ilink/status").status_code == 200
+
+
+def test_ilink_lan_token_disabled_503(monkeypatch: pytest.MonkeyPatch) -> None:
+	monkeypatch.delenv("XEYO_REMOTE_TOKEN", raising=False)
+	with _lan_client() as c:
+		assert c.get("/v1/ilink/status").status_code == 503

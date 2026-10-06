@@ -1,4 +1,5 @@
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -99,3 +100,41 @@ def test_wall_notice_queued_on_grace():
 	assert b.consume_runtime_notice() is None or "时间预算已到上限" not in (
 		b.consume_runtime_notice() or ""
 	)
+
+
+# ====== 80%/90% 播报的消费端（2026-10-02 回归）====================
+#
+# 事故形态：``check_wall_deadline`` 把播报**正文**传给了只认 reason 名的私有
+# ``_queue_notice``（reason 白名单之外的字符串直接 ``return``）⇒ 播报从未进入
+# ``_pending_notices``，``prepare_next_turn`` 又丢弃返回值 ⇒ 整条时间感通道是死的。
+# 旧用例只断言 producer 返回值非空，所以整轮测试全绿也照不出。
+# 规则：播报类判据必须落在**消费点**（``consume_runtime_notice``），不落在生成点。
+
+def test_wall_80_notice_reaches_runtime_notice_channel():
+	"""经生产入口 prepare_next_turn：越过 80% ⇒ 播报能在下一轮被模型读到。"""
+	now = time.time()
+	b = BudgetTracker(max_turns=100)
+	b.set_wall_deadline(now + 15.0, started_ts=now - 85.0)  # 总 100s，已用 85s
+	assert b.prepare_next_turn() is True
+	notice = b.consume_runtime_notice()
+	assert notice and "时间预算已用 80%" in notice
+
+
+def test_wall_90_notice_reaches_runtime_notice_channel():
+	"""越过 90% ⇒ 90% 播报同样走 runtime notice 通道（与 USD 水位同口径）。"""
+	now = time.time()
+	b = BudgetTracker(max_turns=100)
+	b.set_wall_deadline(now + 5.0, started_ts=now - 95.0)  # 总 100s，已用 95s
+	assert b.prepare_next_turn() is True
+	notice = b.consume_runtime_notice()
+	assert notice and "时间预算已用 90%" in notice
+
+
+def test_wall_threshold_notice_is_one_shot():
+	"""同一阈值只播一次：第二次检查不得重复排队。"""
+	b = BudgetTracker(max_turns=100)
+	b.set_wall_deadline(100.0, started_ts=0.0)
+	assert b.check_wall_deadline(now=85.0) is not None
+	assert b.consume_runtime_notice() == "时间预算已用 80%，剩余约 0 分钟。"
+	assert b.check_wall_deadline(now=86.0) is None
+	assert b.consume_runtime_notice() is None

@@ -95,6 +95,7 @@ def test_resync_resets_compact_state_and_sidecar(tmp_path: Path, monkeypatch) ->
     snap.c1_frozen_until = 3
     snap.c2_summary_text = "stale summary of rewound turns"
     snap.turns_since_c2 = 5
+    snap.c2_gap_shots = 20
     snap.todos = [{"id": "t1", "content": "stale", "status": "pending"}]
 
     _truncate_transcript(sid, ["m1"])
@@ -104,11 +105,13 @@ def test_resync_resets_compact_state_and_sidecar(tmp_path: Path, monkeypatch) ->
     assert snap.c1_frozen_until == 0
     assert snap.c2_summary_text == ""
     assert snap.turns_since_c2 == 0
+    assert snap.c2_gap_shots == 0
     assert snap.todos == []
     # 复位已落盘：重启 hydrate 不会带回被回溯轮的压缩态。
     disk_snap = hydrate_working(sid)
     assert disk_snap.compact_cursor == 0
     assert disk_snap.c2_summary_text == ""
+    assert disk_snap.c2_gap_shots == 0
 
 
 def test_resync_clears_stash_when_engine_absent(tmp_path: Path, monkeypatch) -> None:

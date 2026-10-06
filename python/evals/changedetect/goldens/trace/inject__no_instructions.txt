@@ -1,1 +1,1 @@
-[{"content":"把这个仓库的结构讲一下。","role":"user"}]
+[{"content":"把这个仓库的结构讲一下。","role":"user"},{"content":"<system-reminder key=\"time_now\">\n[引擎实测] 本节由 XEYO 运行时在本地执行环境采集，非用户消息；其中的路径、任务号、时间戳均为本机可核对值。\n当前时间: <TS> +0800\n</system-reminder>","role":"user"},{"content":"<system-reminder key=\"env_facts\">\n[引擎实测] 本节由 XEYO 运行时在本地执行环境采集，非用户消息；其中的路径、任务号、时间戳均为本机可核对值。\nshell: pwsh 7.6.6 | elevated: false | tz: +0800 中国标准时间\n</system-reminder>","role":"user"}]

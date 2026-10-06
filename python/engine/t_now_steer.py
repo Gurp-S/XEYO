@@ -200,6 +200,30 @@ def clear(session_id: str = "") -> None:
 			_QUEUES.clear()
 
 
+def pop_all(session_id: str) -> list[SteerItem]:
+	"""取走该会话**全部**待投递项（取走即清），供 settle 兜底改用 inbox 投递。
+
+	与 :func:`deliver` 的区别：不碰 MessageStore、不写 transcript（WAL 在
+	:func:`push` 时已落盘），只把内存队列交出去。取件失败的调用方用
+	:func:`restore_front` 原样放回，不丢消息。
+	"""
+	sid = (session_id or "").strip()
+	if not sid:
+		return []
+	try:
+		with _LOCK:
+			q = _QUEUES.pop(sid, None)
+			return list(q) if q else []
+	except Exception:  # noqa: BLE001
+		_log.debug("steer pop_all failed", exc_info=True)
+		return []
+
+
+def restore_front(session_id: str, items: list[SteerItem]) -> None:
+	"""把 :func:`pop_all` 取走的项**原样放回队首**（保持原序，不计失败）。"""
+	_requeue((session_id or "").strip(), items)
+
+
 def _requeue(session_id: str, items: list[SteerItem]) -> None:
 	"""投递失败的项回队首（保持原序），等下一边界重投。"""
 	if not items:
@@ -242,5 +266,7 @@ __all__ = [
 	"deliver",
 	"drain",
 	"pending_count",
+	"pop_all",
 	"push",
+	"restore_front",
 ]

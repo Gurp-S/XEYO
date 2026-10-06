@@ -5,12 +5,18 @@
 import {
   applyXy,
   createSession,
+  getSessionMessages,
   healthOk,
   interruptSession,
   resolvePermission,
   streamChat,
   type ChatBody,
 } from "./api/sse.js";
+import {
+  gapThroughOf,
+  lastAssistantTextFromRows,
+  recoverAssistantAfterGap,
+} from "./lib/streamGap.js";
 import type { CliConfig, TimelineItem } from "./types.js";
 
 function emit(obj: Record<string, unknown>): void {
@@ -84,6 +90,8 @@ export async function runJsonChat(
   let id = 0;
   const nextId = () => `j${++id}`;
   let code = 0;
+  /** 本回合服务端报过的"缺帧到哪个事件"（0 = 没缺过）。 */
+  let gapThrough = 0;
   const ac = new AbortController();
 
   await new Promise<void>((resolve) => {
@@ -111,6 +119,7 @@ export async function runJsonChat(
         },
         onXy: (xy) => {
           emit({ type: "xy", ...xy });
+          gapThrough = Math.max(gapThrough, gapThroughOf(xy));
           const kind = String(xy.type ?? "");
           if (kind === "permission_pending") {
             // 无头 JSON 模式下默认拒绝（无 TTY 交互提示）。
@@ -136,8 +145,39 @@ export async function runJsonChat(
           items = applyXy(items, xy, nextId);
         },
         onDone: () => {
-          emit({ type: "done", ok: code === 0 });
-          finish();
+          const finishLine = () => {
+            emit({ type: "done", ok: code === 0 });
+            finish();
+          };
+          if (!gapThrough) {
+            finishLine();
+            return;
+          }
+          // 缺过帧：把服务端完整正文补成一条 assistant_final，让管道下游能拿权威正文；
+          // 补不到就 code=1 —— 管道里"退出 0 + 残缺正文"比报错更坏。
+          void recoverAssistantAfterGap({
+            gapThrough,
+            loadText: async () =>
+              lastAssistantTextFromRows(
+                (
+                  await getSessionMessages(
+                    config.baseUrl,
+                    config.apiKey,
+                    String(body.session_id ?? ""),
+                  )
+                ).messages,
+              ),
+          }).then(({ text, note }) => {
+            if (text != null) emit({ type: "assistant_final", text });
+            emit({
+              type: "stream_gap_notice",
+              dropped_through_event_id: gapThrough,
+              complete: text != null,
+              note,
+            });
+            if (text == null) code = 1;
+            finishLine();
+          });
         },
         onError: (err) => {
           emit({

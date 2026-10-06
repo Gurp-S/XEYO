@@ -159,10 +159,11 @@ export function createStreamSendSlice(
 		if (!trimmed) {
 			return false;
 		}
-		// 新发送覆盖旧 Ask 面板（例如用户打「继续」续跑时不应再挂着确认框）。
-		// 后台跨会话发送不碰当前会话的 pendingAsk。
+		// 新发送覆盖旧 Ask/Plan 面板（例如用户打「继续」续跑时不应再挂着确认框）。
+		// 后台跨会话发送不碰当前会话的挂起面板。
 		if (!background) {
 			get().setPendingAsk?.(null);
+			get().setPendingPlan?.(null);
 		}
 		set(sessionErrorBannerPatch(null, null));
 

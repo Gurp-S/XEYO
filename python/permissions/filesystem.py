@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextvars
+import ntpath
 import os
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -115,10 +116,21 @@ def normalize_case_for_comparison(path: str) -> str:
 	return path.lower()
 
 
+def _foreign_windows_absolute(path: str) -> bool:
+	"""POSIX 进程遇到 Windows 绝对路径时保持其绝对路径语义。"""
+	if os.name == "nt":
+		return False
+	value = os.path.expanduser(str(path).strip())
+	drive, _tail = ntpath.splitdrive(value)
+	return bool(drive) and ntpath.isabs(value)
+
+
 def expand_to_abs(path: str, *, cwd: str | None = None) -> str:
 	"""相对路径相对 cwd 展开，再 abspath（防 .. 穿越）。"""
 	base = os.path.abspath(os.path.expanduser(cwd or os.getcwd()))
 	p = os.path.expanduser(str(path).strip())
+	if _foreign_windows_absolute(p):
+		return ntpath.normpath(p)
 	if not os.path.isabs(p):
 		p = os.path.join(base, p)
 	return os.path.abspath(p)
@@ -135,6 +147,8 @@ def path_in_allowed_working_path(
 	两侧都按 realpath 解析：工作区内的符号链接若指向外部目标，
 	比较时落在真实目标上，防止借 symlink 逃出工作区写文件。
 	"""
+	if _foreign_windows_absolute(path):
+		return False
 	base = os.path.abspath(os.path.expanduser(cwd or os.getcwd()))
 	abs_path = normalize_case_for_comparison(
 		os.path.realpath(expand_to_abs(path, cwd=base))
@@ -154,9 +168,23 @@ def path_in_allowed_working_path(
 	return False
 
 
-def is_secret_path(path: str, *, cwd: str | None = None) -> bool:
-	"""凭据/密钥路径：硬门禁默认 DENY（不可经 ASK 放行）。"""
-	abs_path = expand_to_abs(path, cwd=cwd)
+def _realpath_form(abs_path: str) -> str | None:
+	"""realpath 形态（与字面不同才返回），否则 None。
+
+	工作区内软链指向密钥/危险目录时，只扫字面组件的旧实现看不出真实落点
+	（2026-10-05 复核 09-10 PERM-04；与 path_in_allowed_working_path 的
+	realpath 口径对齐）。
+	"""
+	try:
+		real = os.path.realpath(abs_path)
+	except OSError:  # realpath 的实现相关边界；失败保持只扫字面形态
+		return None
+	if normalize_case_for_comparison(real) == normalize_case_for_comparison(abs_path):
+		return None
+	return real
+
+
+def _looks_secret(abs_path: str) -> bool:
 	base_l = os.path.basename(abs_path).lower()
 	if base_l in DANGEROUS_FILES:
 		return True
@@ -175,16 +203,33 @@ def is_secret_path(path: str, *, cwd: str | None = None) -> bool:
 	return False
 
 
+def is_secret_path(path: str, *, cwd: str | None = None) -> bool:
+	"""凭据/密钥路径：硬门禁默认 DENY（不可经 ASK 放行）。
+
+	字面与 realpath 两种形态都扫（只加拦截，不放宽）。
+	"""
+	abs_path = expand_to_abs(path, cwd=cwd)
+	if _looks_secret(abs_path):
+		return True
+	real = _realpath_form(abs_path)
+	return real is not None and _looks_secret(real)
+
+
 def is_dangerous_path(path: str, *, cwd: str | None = None) -> bool:
 	"""危险文件名或路径组件（.git / .ssh / 密钥等）。"""
 	if is_secret_path(path, cwd=cwd):
 		return True
 	abs_path = expand_to_abs(path, cwd=cwd)
-	# 拆分组件（同时认 / 与 \）
-	norm = abs_path.replace("/", os.sep).replace("\\", os.sep)
-	for part in norm.split(os.sep):
-		if part.lower() in DANGEROUS_DIRECTORIES:
-			return True
+	forms = [abs_path]
+	real = _realpath_form(abs_path)
+	if real is not None:
+		forms.append(real)
+	for form in forms:
+		# 拆分组件（同时认 / 与 \）
+		norm = form.replace("/", os.sep).replace("\\", os.sep)
+		for part in norm.split(os.sep):
+			if part.lower() in DANGEROUS_DIRECTORIES:
+				return True
 	return False
 
 
@@ -274,10 +319,21 @@ def check_read_permission_for_path(
 	path: str,
 	*,
 	context: ToolPermissionContext | None = None,
+	mutating: bool = False,
 ) -> PermissionDecision:
-	"""按路径做读权限裁决。"""
+	"""按路径做读权限裁决；mutating=True 时按写侧裁决（危险路径保留 ASK）。
+
+	只读侧的两档放宽：危险路径（`.git` 组件）不再 ASK——账本里只读面板通过率
+	Read 6/6、Edit 41/41、Write 16/16，这类确认对人不含信息；区外路径从静默 DENY
+	改成 ASK，一次确认换一格目录授权（见 store.read_dir_fingerprint）。
+	写侧的区外边界与密钥硬 DENY 一概不放宽。
+	"""
 	ctx = context or default_permission_context()
 	cwd = ctx.cwd
+	# 密钥/凭据：硬 DENY（不走 ASK）。必须先于区外判定——否则区外的密钥路径会
+	# 从「无条件拒绝」降级成「可以问一句」。
+	if is_secret_path(path, cwd=cwd):
+		return PermissionDecision.DENY
 	allowed = list(ctx.allowed_working_paths or [cwd])
 	allowed.extend(readable_extra_roots(cwd=cwd))
 	if not path_in_allowed_working_path(
@@ -285,14 +341,19 @@ def check_read_permission_for_path(
 		cwd=cwd,
 		allowed_working_paths=allowed,
 	):
-		# 区外：默认 DENY；max 档放宽（如跨目录找日志），但密钥/危险仍拦截。
+		# 区外：max 档（never/allow）放宽放行；否则读走 ASK、写仍 DENY。
+		# ASK 只在"这一格能记住"时发生：盘根 / 家目录及其祖先 / 引擎自己的数据根
+		# 记住不了，就维持硬 DENY——面板于是永远不会承诺"不再询问"却照旧问。
 		if not _max_outside_allowed():
+			if mutating:
+				return PermissionDecision.DENY
+			from permissions.store import grantable_read_dir
+
+			if grantable_read_dir(path, cwd=cwd):
+				return PermissionDecision.ASK
 			return PermissionDecision.DENY
-	# 密钥/凭据：硬 DENY（不走 ASK）。
-	if is_secret_path(path, cwd=cwd):
-		return PermissionDecision.DENY
 	if is_dangerous_path(path, cwd=cwd):
-		return PermissionDecision.ASK
+		return PermissionDecision.ASK if mutating else PermissionDecision.ALLOW
 	return PermissionDecision.ALLOW
 
 
@@ -312,7 +373,7 @@ def check_write_permission_for_path(
 		return PermissionDecision.DENY
 	if protected_metadata_reason(path, cwd=cwd) is not None:
 		return PermissionDecision.DENY
-	return check_read_permission_for_path(path, context=ctx)
+	return check_read_permission_for_path(path, context=ctx, mutating=True)
 
 
 # ── T12：workspace 内受保护元数据（WritableRoot 语义）──────────
@@ -410,11 +471,12 @@ def check_read_permission_for_tool(
 	input_data: Any = None,
 	context: ToolPermissionContext | None = None,
 ) -> bool:
-	"""Glob / Grep / Read 等工具级读权限入口。
+	"""Glob / Grep / Read / Diagnostics 的工具级读权限入口。
 
-	只做路径裁决：ALLOW 放行；DENY 拒绝。
-	ASK 仅在 registry 已批准（preapproved）时放行，不再二次把 ASK 降成 DENY 语义混淆——
-	未批准的 ASK 直接 False，由 registry 挂起流程负责。
+	读侧只可能因「区外」给 ASK。这里的 ASK 必须认 registry 的批准位：本层用
+	`default_permission_context` 取根，**不读** `.xeyo-policy.json` 的 allowed_roots，
+	根集合比策略层窄——不认批准位就会把策略层已放行/用户已确认的读重新降成
+	静默 DENY（且不落审计）。
 	"""
 	cwd = _tool_cwd(tool, context)
 	ctx = context or default_permission_context(cwd)

@@ -191,9 +191,7 @@ class JobRegistry:
 			return LinkedAbortController(parent_abort, label=label)
 		return CancellationScope(label=label)
 
-	# ------------------------------------------------------------------
 	# 监听广播（异常隔离、不等待）
-	# ------------------------------------------------------------------
 	def _fire_done(self, rec: JobRecord) -> None:
 		for fn in list(self.on_done):
 			try:
@@ -208,9 +206,7 @@ class JobRegistry:
 			except Exception:  # noqa: BLE001
 				_logger.debug("job on_changed listener failed", exc_info=True)
 
-	# ------------------------------------------------------------------
 	# start（生产方执行前预检容量；不排队、不抢占）
-	# ------------------------------------------------------------------
 	def _register(
 		self, *, kind: str, label: str, owner_session_id: str
 	) -> tuple[str | None, str]:
@@ -471,9 +467,7 @@ class JobRegistry:
 		self._spawn(job_id, _produce)
 		return job_id, ""
 
-	# ------------------------------------------------------------------
 	# 输出 / 快照
-	# ------------------------------------------------------------------
 	def _push(self, job_id: str, chunk: str) -> None:
 		with self._lock:
 			ring = self._rings.get(job_id)
@@ -567,9 +561,7 @@ class JobRegistry:
 	def settle(self, job_id: str, status: str, detail: str = "") -> None:
 		self._settle(job_id, status, detail)
 
-	# ------------------------------------------------------------------
 	# kill（终止）
-	# ------------------------------------------------------------------
 	def kill(self, job_id: str, caller_session_id: str, reason: str = "") -> str:
 		"""请求取消：置 stopping + 标记已报告；取消异常由生产方隔离为 killed。"""
 		with self._lock:
@@ -591,9 +583,7 @@ class JobRegistry:
 		self._fire_changed()
 		return f"requested cancellation of job {job_id}"
 
-	# ------------------------------------------------------------------
 	# 通知决策（§6）：忙→挂起；闲+预算→唤醒轮；预算尽→pending 等人类
-	# ------------------------------------------------------------------
 	def _queue_delivery_decision(self, sid: str) -> None:
 		"""settle（可能在 worker 线程）→ 代理到启动时的 loop 上做异步决策。"""
 		loop = self._loops.get(sid)
@@ -735,9 +725,7 @@ class JobRegistry:
 		except Exception:  # noqa: BLE001
 			_logger.debug("job on_turn_settled failed sid=%s", session_id, exc_info=True)
 
-	# ------------------------------------------------------------------
 	# 共享唤醒预算（§3.4）与让位
-	# ------------------------------------------------------------------
 	def consume_wake(self, session_id: str) -> bool:
 		with self._lock:
 			left = self._wake_budget.get(

@@ -51,16 +51,16 @@ def test_guard_advice_progression_and_quiet_gaps():
 	"""T6+R2':[3,5,8] 递进;3=短、5/8=详细;4/6/7 安静;越过末档后静默(逐字告知移交 repeat_fold)。"""
 	clear_advice()
 	guard = RepeatCallGuard()
-	snapshots: list[tuple[str, str]] = []
+	snapshots: list[tuple[str, bool]] = []
 	for _ in range(10):
 		action = guard.observe("Grep", {"pattern": "x"})
 		snapshots.append((action, guard.last_advice))
 	acts = [a for a, _t in snapshots]
-	assert acts[2] == ACTION_ADVICE and snapshots[2][1].count("\n") == 0
+	assert acts[2] == ACTION_ADVICE and snapshots[2][1] is True
 	assert acts[3] == ACTION_RUN
-	assert acts[4] == ACTION_ADVICE and "tool: Grep" in snapshots[4][1]
+	assert acts[4] == ACTION_ADVICE and snapshots[4][1] is True
 	assert acts[5] == ACTION_RUN and acts[6] == ACTION_RUN
-	assert acts[7] == ACTION_ADVICE and "args:" in snapshots[7][1]
+	assert acts[7] == ACTION_ADVICE and snapshots[7][1] is True
 	# R2':越过末档(9、10)后静默——持续空转告知由 repeat_fold 的字节级折叠行承担。
 	assert acts[8] == ACTION_RUN and acts[9] == ACTION_RUN
 
@@ -70,9 +70,9 @@ def test_guard_advice_publishes_to_module_state():
 	guard = RepeatCallGuard()
 	for _ in range(3):
 		guard.observe("Grep", {"pattern": "pub"})
-	assert "[repeat]" in current_advice()
+	assert current_advice() is True
 	guard.reset()
-	assert current_advice() == ""
+	assert current_advice() is False
 
 
 def test_guard_different_inputs_and_tools_do_not_collide():
@@ -384,7 +384,7 @@ async def test_duplicate_calls_advise_without_blocking():
 	# 每轮都真实执行（不再拒执行）；至少越过首档阈值 3。
 	assert CountingEcho.executed >= 3
 	# 提醒已发布到 T_now 管线状态（第 3 次调用命中首档阈值 3）。
-	assert "[repeat]" in current_advice()
+	assert current_advice() is True
 	# 不改写 ToolResult：历史行中既无 block 也无 hint 文案。
 	tool_rows = [
 		str(b.get("content"))

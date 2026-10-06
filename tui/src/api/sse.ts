@@ -1,10 +1,24 @@
 import type { TimelineItem, TodoRow, UsageInfo } from "../types.js";
+import {consumeChatStream} from './consumeChatStream.js';
 
 export type SseHandlers = {
   onDelta: (text: string) => void;
   onXy: (xy: Record<string, unknown>) => void;
   onDone: () => void;
   onError: (err: Error) => void;
+  /** 忙时受理（202 JSON，非流式）：queued 位次 / steered 边界投递（与 GUI 同一份口径）。 */
+  onAccepted?: (payload: AcceptedPayload) => void;
+};
+
+/** 202 受理体（server/stream_contract.accepted_payload 的镜像；键集漂移即幽灵卡）。 */
+export type AcceptedPayload = {
+  queued?: boolean;
+  steered?: boolean;
+  /** boundary = 下一采样边界投递；after_turn = settle 后排（下一轮送达）。 */
+  delivery?: string;
+  queue_id?: string;
+  position?: number;
+  message_id?: string;
 };
 
 function parseDataLine(line: string): Record<string, unknown> | null {
@@ -60,6 +74,10 @@ export type ChatBody = {
   output_mode?: string;
   code_compact?: boolean;
   code_mode?: string;
+  /** 会话语义（忙时提交）：true=忙则入队（202），否则维持 409（旧客户端语义）。 */
+  queue_if_busy?: boolean;
+  /** 引导：忙时投到本轮下一个采样边界，不打断工具批次（Codex turn/steer 同形）。 */
+  steer_if_busy?: boolean;
 };
 
 export async function streamChat(
@@ -86,46 +104,30 @@ export async function streamChat(
     const detail = await res.text().catch(() => "");
     throw new Error(`HTTP ${res.status}: ${detail.slice(0, 200)}`);
   }
-  if (!res.body) throw new Error("No response body");
-
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let carry = "";
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      carry += decoder.decode(value, { stream: true });
-      const parts = carry.split("\n");
-      carry = parts.pop() ?? "";
-      for (const line of parts) {
-        const obj = parseDataLine(line);
-        if (!obj) continue;
-        const d = deltaText(obj);
-        if (d) handlers.onDelta(d);
-        const xy = extractXy(obj);
-        if (xy) handlers.onXy(xy);
-      }
-    }
-    // 冲刷解码器：一个多字节字符（中文）正好被切在流末尾时，不 flush 就少一个字。
-    carry += decoder.decode();
-    if (carry.trim()) {
-      const obj = parseDataLine(carry);
-      if (obj) {
-        const d = deltaText(obj);
-        if (d) handlers.onDelta(d);
-        const xy = extractXy(obj);
-        if (xy) handlers.onXy(xy);
-      }
-    }
-    handlers.onDone();
-  } catch (err) {
-    if ((err as Error).name === "AbortError") {
-      handlers.onDone();
+  // 忙时受理是 **JSON（202 受理体），不是流**：queued 位次 / steered 边界投递。
+  // 没有这条分支时，受理体会被当 SSE 消费 ⇒ 界面永远等不到 done（幽灵"进行中"）。
+  const ctype = res.headers?.get?.("content-type") ?? "";
+  if (ctype.includes("application/json")) {
+    const payload = (await res.json().catch(() => null)) as AcceptedPayload | null;
+    if (payload && handlers.onAccepted) {
+      handlers.onAccepted(payload);
       return;
     }
-    handlers.onError(err as Error);
+    handlers.onError(
+      new Error("服务端受理了忙时提交，但客户端没有对应的回执处理（版本不匹配）"),
+    );
+    return;
   }
+  if (!res.body) throw new Error("No response body");
+
+  await consumeChatStream(res.body, handlers, line => {
+    const obj = parseDataLine(line);
+    if (!obj) return;
+    const d = deltaText(obj);
+    if (d) handlers.onDelta(d);
+    const xy = extractXy(obj);
+    if (xy) handlers.onXy(xy);
+  }, signal);
 }
 
 /**
@@ -175,6 +177,15 @@ function notApplied(body: Record<string, unknown> | null): DecisionNotApplied {
   return new DecisionNotApplied(reason, detail);
 }
 
+/**
+ * 决议未生效后的本地处置：除 already_resolved（别处已答，本端收场）外都保留弹窗。
+ * 未送达（网络/5xx）与未被接受（no_such_request 等）都可能重试成功；弹窗被丢
+ * 等于收走唯一作答入口，而服务端可能仍在等这单决议（GUI 同款：失败保留面板）。
+ */
+export function decisionRetainsPrompt(e: unknown): boolean {
+  return !(e instanceof DecisionNotApplied && e.reason === "already_resolved");
+}
+
 export async function resolvePermission(
   baseUrl: string,
   apiKey: string,
@@ -198,6 +209,26 @@ export async function resolvePermission(
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   // 但 res.ok 只是 HTTP 层：这个端点在 200 信封里用 {ok:false} 表达"没接受"，
   // 只看状态码会把"别处已经答过 / 挂起项没了"写成 ✓ allowed。
+  const body = await envelopeOf(res);
+  if (!body || body.ok !== true) throw notApplied(body);
+}
+
+export async function resolveAsk(
+  baseUrl: string,
+  apiKey: string,
+  requestId: string,
+  answer: string,
+): Promise<void> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+  const res = await fetch(`${baseUrl.replace(/\/$/, "")}/v1/ask/resolve`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ request_id: requestId, answer, actor: "tui" }),
+  });
+  // 与 resolvePermission 同规：HTTP 层与 200 信封里的 {ok:false} 是两件事，
+  // 只看状态码会把「已在别处答过 / 挂起项已不在」写成 ✓。
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const body = await envelopeOf(res);
   if (!body || body.ok !== true) throw notApplied(body);
 }
@@ -452,7 +483,11 @@ function usageFrom(xy: Record<string, unknown>): UsageInfo {
     completionTokens: fnum(xy.completion_tokens),
     cacheHitTokens: fnum(xy.cache_hit_tokens),
     cacheMissTokens: fnum(xy.cache_miss_tokens),
-    cny: fnum(xy.cny),
+    // 金额两态必须分开：`cny: null` 是上游核实过的「该厂商没有权威价目」，
+    // `fnum` 会把它读成 0（免费），那是反方向的谎报，所以先判 null 再判数值。
+    cny: xy.cny == null ? undefined : fnum(xy.cny),
+    /** 只有显式 null 才算「已核实无价目」；字段缺席只是这一轮没报金额。 */
+    costUnknown: xy.cny === null,
     contextLimit: fnum(xy.context_limit),
   };
 }

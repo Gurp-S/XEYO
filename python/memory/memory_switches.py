@@ -68,6 +68,36 @@ MEMORY_SWITCHES: tuple[tuple[str, str, tuple[str, ...], str, bool, bool, str], .
 	# GUI 仍不暴露（exposed 面由 test_gui_exposed_surface_is_exactly_one 锁死为恒一项）。
 	("XEYO_WSC_FROZEN_HEAD", "WSC 折叠头冻结：无新折叠事件的枪逐字节复用上次的头（默认开；关=回到'每枪重投影'的历史行为，生产实测贵 2.3 倍）", ("0", "1"), "1", False, True, "env"),
 	("XEYO_WSC_CADENCE_ABSORB", "WSC 吸收节奏：右段何时折进头改由 synaptic.cadence 的成本判据决定（默认关。09-22 实测当时 PAYBACK_SHOTS=8 下 43 次判定 0 次放行 ⇒ 只在否决；成本 1.036× vs 不折 1.000×。该常数已改 30，且同一判据现已装在推进游标的 try_extend_c2 上 ⇒ 本旗标要做的事已被主链覆盖，旧数字作废、要开得重测）", ("0", "1"), "0", False, True, "env"),
+	# 实际投影增益门的候选臂（docs 第 18 条）：开着时把"值不值得折"的比较对象从
+	# C2 估算换成**两个完整 WSC 候选的长度差**。旁路，默认关 ⇒ 生产逐字节不变。
+	("XEYO_WSC_EXTENSION_ECONOMICS", "WSC 扩展经济门：比较同一历史的 keep/fold 投影与共同前缀（旁路验证，默认关）", ("0", "1"), "0", False, True, "env"),
+	# 冻结头的**跨进程**存活（2026-09-24）：进程内 `wsc_projection._STATE` 只有 64 槽 FIFO，
+	# 重启或第 65 个会话进来 ⇒ 头字节丢 ⇒ 那一枪整段重投。默认开：它只把"已经发出去过的
+	# 字节"接回来，接回的前提是一整套失败即拒的封印（见 memory/wsc_head_store.py）。
+	("XEYO_WSC_HEAD_STORE", "WSC 冻结头落盘：进程内状态丢失（重启 / 状态槽被顶掉）时从磁盘接回上一份头字节，避免那一枪整段重投（默认开；关=回到'丢失即整段重建'）", ("0", "1"), "1", False, True, "env"),
+	("XEYO_WSC_APPEND_SOURCE", "WSC 条件来源切换：冻结来源确实变化时保留历史状态坐标并重建一次（实验默认关）", ("0", "1"), "0", False, True, "env"),
+	# 折叠冷却的**真否决**（2026-09-30 旁路上线 → 同日凭收益验证转默认开）：
+	# `try_extend_c2` 记的 `c2_gap_shots`（按 C2 proxy 估算的回本间隔）过去只记账不拦。
+	# 收益/代价（`_wsc_out/_fold_veto_ab.py`，6 份真实转录同语料只换闸）：折数 251→84、
+	# miss token −20.8%、静态输入估价 −15.0%、命中率 +2.06pt；这是历史离线结果。
+	# 代价=单枪尺寸上抬
+	# （总量 prompt +7.4%、峰值最多 2.7×，生产侧另有 HardTop 强折兜底）。要买回尺寸
+	# 用**现成**的 `XEYO_C2_GAP_CAP`（cap=8 那一档已量过：钱 −12.2%、总量 −5.3%）。
+	# 置 "0" = 回到"只记账不否决"的历史行为。
+	# 数值键 `XEYO_WSC_FOLD_MIN_INTERVAL`（固定最小间隔）按数值惯例不入册，
+	# 由 `tests/test_memory_switch_authority.py::test_no_unregistered_flag_can_appear_in_the_wsc_live_path`
+	# 的等式豁免覆盖。
+	("XEYO_WSC_FOLD_COOLDOWN_VETO", "折叠冷却：在本会话估算间隔 c2_gap_shots 内拒绝普通折叠，硬上限强制折叠可通过（默认开；关=仅记录间隔）", ("0", "1"), "1", False, True, "env"),
+	# —— 10-04 三档旁路（口径/尺寸/绝对线），全部默认关 = 生产逐字节不变 ——
+	# 口径档：`try_extend_c2` 的 θ 门过去用 C2 摘要口径的 `head_tokens`（WSC 会话里这份摘要
+	# 恒空、从不发射）与 `_region_tokens(messages)`（全历史未压 token，实测为实发 prompt 的
+	# 2.5~5 倍）当分母。开=换成发射侧实测（头增量取上一次真折叠的实测、分母取
+	# `working.last_prompt_tokens`）；账上以 `head_basis`/`prompt_basis` 分行，两把尺不许并成一个数。
+	("XEYO_WSC_GATE_EMITTED_BASIS", "折叠闸发射侧口径：θ 门的头增量与命中率分母改用发射侧实测（默认关=C2 摘要口径/全历史分母）", ("0", "1"), "0", False, True, "env"),
+	# 尺寸档：C0（8192 字符截断）**不提供取回入口**——被截掉的中间段模型拿不回；本档用
+	# 「头 4096 + 标记 + 尾 1024 + 原文落盘 + Read 句柄」替换它，更小且可恢复。
+	# 前提是原文真的落盘成功，失败即不修剪（fail-open 到原样）。
+	("XEYO_WSC_SIZE_PRUNE", "工具结果尺寸侧修剪（最终档）：阈 3072 以上换成「头2048+标记+尾512+Read取回句柄」并归档原文（默认关=保持 C0 截断；与 TOOL_OFFLOAD 互斥，本档优先）", ("0", "1"), "0", False, True, "env"),
 	# ---- 固化（2026-09-06 用户决策 "v61 默认开启"）→ 删除的 7 个开关 ----
 	# XEYO_C2_GATE（project 专用闸；v61 下 decide 自主，无读取意义）
 	# XEYO_V61_PARETO / XEYO_V61_SI / XEYO_V61_DYNAMIC_R（B1/B2/B3 证据门未过，恒关）

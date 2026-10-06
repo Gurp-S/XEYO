@@ -83,11 +83,28 @@ def _last_user_text(messages: list[dict]) -> str | None:
 	from prompt.fence import unwrap_remote_user_text
 
 	for m in reversed(messages):
-		if m.get("role") == "user" and isinstance(m.get("content"), str):
-			text = unwrap_remote_user_text(m["content"])
-			if _is_engine_notice(text):
+		if m.get("role") != "user":
+			continue
+		content = m.get("content")
+		if isinstance(content, str):
+			text = content
+		elif isinstance(content, list):
+			# 多模态 user 行（带图/带文件）的正文在 text 块里。整条跳过会让回声
+			# 落到上一条文本上 —— e2e 假象：投递轮明明看到了刚投递的消息，
+			# 回答却是更早那条（2026-10-05 input-chain 探针实测踩到）。
+			text = "".join(
+				str(block.get("text") or "")
+				for block in content
+				if isinstance(block, dict) and block.get("type") == "text"
+			)
+			if not text:
 				continue
-			return text
+		else:
+			continue
+		text = unwrap_remote_user_text(text)
+		if _is_engine_notice(text):
+			continue
+		return text
 	return None
 
 
@@ -115,12 +132,14 @@ def _find_latest_echo_result(messages: list[dict]) -> str | None:
 
 	for m in reversed(messages):
 		content = m.get("content")
-		if (
-			m.get("role") == "user"
-			and isinstance(content, str)
-			and not _is_engine_notice(content)
-		):
-			return None  # 已越过最近真实 user → 其后无 echo 待回显
+		if m.get("role") == "user":
+			if isinstance(content, str):
+				if not _is_engine_notice(content):
+					return None  # 已越过最近真实 user → 其后无 echo 待回显
+			# notice（字符串）：跳过。
+			elif isinstance(content, list):
+				# 多模态 user 行同样是「真实 user 文本」：它之后的 echo 结果不算待回显。
+				return None
 		if isinstance(content, list):
 			for block in content:
 				if (

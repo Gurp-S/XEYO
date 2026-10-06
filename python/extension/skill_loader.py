@@ -225,10 +225,22 @@ def _description(meta: dict[str, str], body: str) -> str:
 def _entry_from_dir(d: Path, *, source: str, plugin: str = "") -> SkillEntry:
 	"""从目录构建条目；坏 frontmatter → broken-but-listed。"""
 	body = ""
+	read_reason = ""
 	try:
 		body = (d / "SKILL.md").read_text(encoding="utf-8")
-	except OSError:
-		body = ""
+	except OSError as exc:
+		read_reason = f"SKILL.md 读不出：{exc}"
+	except UnicodeDecodeError as exc:
+		# UnicodeDecodeError 不是 OSError：以前它逃出这里，一路撞到
+		# `_skill_entries_with_descriptions` 的 `except Exception: return []`
+		# ⇒ 一个 GBK 的 SKILL.md 把**整张技能表**清空（同批正常技能一起消失）。
+		# 按本模块既有的策略走 broken-but-listed，而不是留 body="" ——
+		# 空正文会静默造出一个"没有说明的正常技能"，那是把读不出伪装成没有。
+		read_reason = f"SKILL.md 不是合法 UTF-8（{exc.reason}，字节位置 {exc.start}）"
+	if read_reason:
+		return SkillEntry(
+			name=d.name, path=d, source=source, plugin=plugin, broken=True, reason=read_reason
+		)
 	try:
 		meta = _parse_frontmatter_raw(body)
 		validated = _validated_meta(meta)

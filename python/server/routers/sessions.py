@@ -7,7 +7,6 @@ import logging
 import os
 import re
 import shutil
-import threading
 import uuid
 from collections import deque
 from pathlib import Path
@@ -107,29 +106,6 @@ def require_session_id(raw: Any) -> str:
 
 def require_agent_id(raw: Any) -> str:
 	return _require_stable_id(raw, field="agent_id", filename_bearing=True)
-
-
-class _KeyedLocks:
-	"""按 key 取的全局锁表：同一资源的读-改-写串行，不同资源不互斥。
-
-	子 agent meta（``pending_followups``）是「读文件 → 改列表 → 整表写回」，
-	两个并发请求会各自读到同一份旧表、后写的把先写的静默覆盖掉。
-	"""
-
-	def __init__(self) -> None:
-		self._lock = threading.Lock()
-		self._keys: dict[str, threading.Lock] = {}
-
-	def acquire(self, key: str) -> threading.Lock:
-		with self._lock:
-			handle = self._keys.get(key)
-			if handle is None:
-				handle = threading.Lock()
-				self._keys[key] = handle
-			return handle
-
-
-_meta_locks = _KeyedLocks()
 
 
 class NewSessionRequest(BaseModel):
@@ -290,6 +266,14 @@ def delete_session(session_id: str) -> dict[str, Any]:
 			"会话尚未归档：请先归档，再从已归档列表中删除",
 			"archived_required",
 		)
+	# goal 驱动器 per-session 内存态先拆（与 rewind._detach_auto_drivers 同法）：
+	# 不拆的话已删会话仍会被自动续跑排合成轮。
+	try:
+		from server.goal_round_driver import get_goal_round_driver
+
+		get_goal_round_driver().drop_session(sid)
+	except Exception:  # noqa: BLE001 — 内存态清理失败不挡删除
+		_logger.debug("goal driver drop failed sid=%s", sid, exc_info=True)
 	from server.inbox_registry import InboxPersistenceError, get_inbox_registry
 	try:
 		get_inbox_registry().drop_session(sid)
@@ -743,7 +727,7 @@ def restore_session(session_id: str) -> dict[str, Any]:
 
 
 @router.get("/v1/sessions/{session_id}/messages", response_model=None)
-async def session_messages(session_id: str, include_notes: bool = False):
+def session_messages(session_id: str, include_notes: bool = False):
 	"""按精确 session_id 读取 transcript 消息（不套 side- 前缀），供前端恢复本地历史。
 
 	跨轮转归档（.old2 → .old1 → 当前）按时间顺序合并读取。
@@ -922,6 +906,9 @@ def _side_row_to_ui(
         texts: list[str] = []
         if isinstance(content, list):
             known = persisted_thoughts or set()
+            from session.thought_projection import display_blocks
+
+            content = display_blocks(content)
             for k, block in enumerate(content):
                 if not isinstance(block, dict):
                     continue
@@ -1111,6 +1098,25 @@ def session_compression(session_id: str) -> dict[str, Any]:
     }
 
 
+def _combined_inbox_count(sid: str, aid: str, pending: list[str]) -> int:
+	"""待办计数 = meta 与运行时队列的并集（F7 幽灵计数收口）。
+
+	retry 把 meta 项放回运行时后、到消费退休前，同一逻辑项在两处各有一份；
+	naive 相加会把 2 条显示成 4 条。文本即身份：同文本取两侧份数的较大者
+	（配对后仍是同一逻辑项），不同文本各自计入。纯读快照，不改任何一侧。
+	"""
+	from engine.live_agents import inbox_texts
+
+	meta_counts: dict[str, int] = {}
+	for t in pending:
+		meta_counts[t] = meta_counts.get(t, 0) + 1
+	runtime_counts: dict[str, int] = {}
+	for t in inbox_texts(sid, aid):
+		runtime_counts[t] = runtime_counts.get(t, 0) + 1
+	keys = set(meta_counts) | set(runtime_counts)
+	return sum(max(meta_counts.get(k, 0), runtime_counts.get(k, 0)) for k in keys)
+
+
 @router.get("/v1/sessions/{session_id}/agents")
 def session_agents(session_id: str) -> dict[str, Any]:
     """列出该会话跑过的全部子 agent 元数据（FE 卡片列表 / 历史回放入口）。"""
@@ -1118,7 +1124,6 @@ def session_agents(session_id: str) -> dict[str, Any]:
 
     sid = require_session_id(session_id)
     agents: list[dict[str, Any]] = []
-    from engine.live_agents import inbox_count as live_inbox_count
 
     for m in list_subagent_metas(sid):
         try:
@@ -1141,7 +1146,7 @@ def session_agents(session_id: str) -> dict[str, Any]:
             "scope": [
                 str(x) for x in (m.get("write_scope") or []) if str(x).strip()
             ][:16],
-            "inboxCount": len(pending) + live_inbox_count(sid, aid),
+            "inboxCount": _combined_inbox_count(sid, aid, pending),
             "tokensUsed": max(0, int(m.get("tokens_used") or 0)),
         })
     return {"session_id": sid, "agents": agents}
@@ -1182,8 +1187,6 @@ def session_agent_detail(session_id: str, agent_id: str) -> dict[str, Any]:
         messages.extend(_side_row_to_ui(row, i, pending_calls))
 
     status = str((meta or {}).get("status") or ("done" if raw_rows else "error"))
-    from engine.live_agents import inbox_count as live_inbox_count
-
     pending_followups = [str(x) for x in ((meta or {}).get("pending_followups") or []) if str(x).strip()]
     return {
         "session_id": sid,
@@ -1191,7 +1194,7 @@ def session_agent_detail(session_id: str, agent_id: str) -> dict[str, Any]:
         "status": status,
         "meta": meta,
         "messages": messages,
-        "inboxCount": len(pending_followups) + live_inbox_count(sid, aid),
+        "inboxCount": _combined_inbox_count(sid, aid, pending_followups),
     }
 
 
@@ -1226,10 +1229,10 @@ def session_agent_followup(
     返回 ``deliver``（running / pending）与 ``inboxCount``。
     """
     from engine.live_agents import (
-        inbox_count as live_inbox_count,
         is_live_agent,
         post_to_agent,
     )
+    from engine.subagent_meta import META_LOCKS, meta_lock_key
     from engine.subagent_runner import _meta_path, upsert_subagent_meta
 
     sid = require_session_id(session_id)
@@ -1245,16 +1248,17 @@ def session_agent_followup(
 
     if is_live_agent(sid, aid):
         post_to_agent(sid, aid, text, message_id=str(body.message_id or ""))
+        pending_now = _read_pending_followups(_meta_path, sid, aid)
         return {
             "ok": True,
             "deliver": "running",
-            "inboxCount": live_inbox_count(sid, aid),
+            "inboxCount": _combined_inbox_count(sid, aid, pending_now),
         }
 
     # 已结束：落 meta.pending_followups。这是「读整表 → 追加 → 写整表」的
     # 读-改-写，必须按 (会话, agent) 串行：两个并发投递会各自读到同一份旧表，
     # 后写的把先写的整表覆盖掉——一条 follow-up 静默消失。
-    with _meta_locks.acquire(f"{sid}\x00{aid}"):
+    with META_LOCKS.acquire(meta_lock_key(sid, aid)):
         meta: dict[str, Any] = {}
         read_failed = False
         try:
@@ -1290,7 +1294,7 @@ def session_agent_followup(
     return {
         "ok": True,
         "deliver": "pending",
-        "inboxCount": len(persisted),
+        "inboxCount": _combined_inbox_count(sid, aid, persisted),
         "meta_read_failed": read_failed,
     }
 
@@ -1331,9 +1335,14 @@ def session_agent_followup_remove(
     # meta.pending_followups 以「文本即身份」存储：只按精确定位删。
     # 早先的兜底是「匹配不上就 pop() 最后一条」——调用方给错 id 时会删掉
     # 另一条排队消息，且回执 still 说 removed=true（错删 + 谎报）。
+    # F7：运行时残留那份也要清——retry 放回后、消费前 abort 的窗口里同一逻辑项
+    # 在 meta 与运行时各有一份；只删 meta 那份，下轮 retry 会把它「复活」。
+    from engine.live_agents import remove_agent_inbox_text
+    from engine.subagent_meta import META_LOCKS, meta_lock_key
     from engine.subagent_runner import _meta_path, upsert_subagent_meta
 
-    with _meta_locks.acquire(f"{sid}\x00{aid}"):
+    removed_runtime = remove_agent_inbox_text(sid, aid, target)
+    with META_LOCKS.acquire(meta_lock_key(sid, aid)):
         meta: dict[str, Any] = {}
         try:
             mp = _meta_path(sid, aid)
@@ -1352,8 +1361,8 @@ def session_agent_followup_remove(
             return {
                 "ok": True,
                 "deliver": "pending",
-                "removed": False,
-                "inboxCount": len(pending),
+                "removed": removed_runtime,
+                "inboxCount": _combined_inbox_count(sid, aid, pending),
             }
         pending.pop(idx)
         upsert_subagent_meta(
@@ -1372,7 +1381,41 @@ def session_agent_followup_remove(
                 "follow-up removal could not be persisted to agent meta",
                 "agent_inbox_persist_failed",
             )
-    return {"ok": True, "deliver": "pending", "removed": True, "inboxCount": len(persisted)}
+    return {
+        "ok": True,
+        "deliver": "pending",
+        "removed": True,
+        "inboxCount": _combined_inbox_count(sid, aid, persisted),
+    }
+
+
+def _reattach_pending_followups(sid: str, aid: str, pending: list[str]) -> int:
+	"""retry 前把「运行时残留 + meta 待办」合成单一队列，返回投递条数（F7）。
+
+	同一逻辑项可能在两处各有一份（retry 放回后、消费前 abort）：按多重集配对，
+	同名各抵一份，只补投 meta 独有的——直接重投会让一条消息送两次。
+	残留先放回、补投在后，保持既有 FIFO 相对顺序。
+	"""
+	from engine.live_agents import drain_agent_inbox, post_to_agent
+
+	leftover = drain_agent_inbox(sid, aid)
+	remaining = [str(it.get("text") or "") for it in leftover]
+	to_add: list[str] = []
+	for fu in pending:
+		if fu in remaining:
+			remaining.remove(fu)
+		else:
+			to_add.append(fu)
+	for it in leftover:
+		post_to_agent(
+			sid,
+			aid,
+			str(it.get("text") or ""),
+			message_id=str(it.get("message_id") or ""),
+		)
+	for fu in to_add:
+		post_to_agent(sid, aid, fu)
+	return len(leftover) + len(to_add)
 
 
 class AgentRetryRequest(BaseModel):
@@ -1486,13 +1529,19 @@ async def session_agent_retry(
         clear_sidechain(sid, aid)
         # P2：已结束 agent 的迟到 follow-up 在 retry 时连带执行——置入运行时
         # inbox，run_subagent 的 follow-up 循环同实例消费（清侧链后重跑但消息不丢）。
+        # F7：与运行时残留按多重集配对后放回（abort 窗口里两处各一份的项不重投）。
         try:
-            from engine.live_agents import post_to_agent
-
-            for fu in [str(x) for x in (meta.get("pending_followups") or []) if str(x).strip()]:
-                post_to_agent(sid, aid, fu)
-        except Exception:  # noqa: BLE001
-            pass
+            pending_fu = [
+                str(x)
+                for x in (meta.get("pending_followups") or [])
+                if str(x).strip()
+            ]
+            _reattach_pending_followups(sid, aid, pending_fu)
+        except Exception:  # noqa: BLE001 — 投递失败只留痕：条目仍留在 meta.pending_followups，重试会重新投递
+            _logger.warning(
+                "pending follow-up delivery failed sid=%s agent=%s", sid, aid,
+                exc_info=True,
+            )
         abort = AbortController()
         result = await at.execute(
             {
@@ -1737,9 +1786,7 @@ def session_recovery_abandon(session_id: str) -> dict[str, Any]:
 	return {"ok": True, "status": snap.status, "turn_id": snap.turn_id}
 
 
-# ---------------------------------------------------------------------------
 # P1 mid-turn inbox：排队快照 / 取消 / resume（GUI 轮询 + 操作）。
-# ---------------------------------------------------------------------------
 @router.get("/v1/sessions/{session_id}/inbox")
 async def session_inbox_list(session_id: str) -> dict[str, Any]:
 	"""主会话 inbox 快照（GUI 轮询驱动 chip，多端可见）。"""
@@ -1836,10 +1883,10 @@ async def session_inbox_item_resume(session_id: str, queue_id: str) -> dict[str,
 	"""重试单条 stuck 消息；其它排队项目保持原状态。"""
 	from server.inbox_registry import InboxPersistenceError, get_inbox_registry
 
-	sid = (session_id or "").strip()
-	qid = (queue_id or "").strip()
-	if not sid or not qid:
-		raise api_error(400, "session_id and queue_id are required")
+	# 与家族其余 5 条同一套固定点谓词：strip 会把 "victim "/"victim." 清洗成
+	# 歧义命中（别的动作 422、这里静默到达目标队列）。
+	sid = require_session_id(session_id)
+	qid = _require_stable_id(queue_id, field="queue_id")
 	try:
 		snapshot = get_inbox_registry().resume(sid, qid)
 	except InboxPersistenceError as exc:
@@ -1847,3 +1894,41 @@ async def session_inbox_item_resume(session_id: str, queue_id: str) -> dict[str,
 	if snapshot is None:
 		raise api_error(409, "inbox item not found or no longer stuck", "inbox_not_stuck")
 	return {"ok": True, **snapshot}
+
+
+@router.post("/v1/sessions/{session_id}/inbox/{queue_id}/steer")
+async def session_inbox_item_steer(session_id: str, queue_id: str) -> dict[str, Any]:
+	"""把一条排队消息改为「边界引导」（DSH QueueAction:steer 对齐，登记 #3 落地）。
+
+	投递口径 = 本轮下一个采样边界（不打断工具批次）；复用边界声道的
+	consume/restore：引导队列满时原样放回队首，不丢消息、不计失败。
+	"""
+	from engine.t_now_steer import push as steer_push
+	from server.inbox_registry import get_inbox_registry
+
+	sid = require_session_id(session_id)
+	qid = _require_stable_id(queue_id, field="queue_id")
+	reg = get_inbox_registry()
+	taken = reg.consume_for_boundary(sid, queue_id=qid)
+	if not taken:
+		raise api_error(
+			409, "inbox item not found or already delivering", "inbox_delivering"
+		)
+	item = taken[0]
+	if not steer_push(
+		sid,
+		item.text,
+		images=list(item.media_refs or []),
+		message_id=item.message_id or "",
+	):
+		# 引导队列满 / 内部异常 ⇒ 原样放回队首（与 t_now_inbox 边界声道同款）。
+		reg.restore_front(sid, [item])
+		raise api_error(
+			409, "steer queue rejected the message; item kept in queue", "steer_unavailable"
+		)
+	return {
+		"ok": True,
+		"session_id": sid,
+		"queue_id": qid,
+		"delivery": "boundary",
+	}

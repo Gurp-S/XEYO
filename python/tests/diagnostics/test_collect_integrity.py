@@ -992,7 +992,7 @@ def test_window_chain_reaches_the_rule_whole(tmp_path, monkeypatch) -> None:
 			anchor_cursor=0, anchor_frozen_until=10, window_chain=chain
 		),
 	)
-	monkeypatch.setattr("memory.working.hydrate", lambda _sid: snap)
+	monkeypatch.setattr("memory.working.hydrate", lambda _sid, *, source_layout: snap if source_layout is None else None)
 
 	run = RunEvidence(session_id="s1", turn_id="t1")
 	_collect_working(run, "s1")
@@ -1068,7 +1068,7 @@ def test_projection_gap_names_the_real_limitation(tmp_path, monkeypatch) -> None
  "缺字段"报了 540 次，本轮已有自己的 manifest 时也在报。
 	"""
 	def patch(snap):
-		monkeypatch.setattr("memory.working.hydrate", lambda _sid: snap)
+		monkeypatch.setattr("memory.working.hydrate", lambda _sid, *, source_layout: snap if source_layout is None else None)
 
 	# 形一：manifest 在，但不是本轮那一份 ⇒ not_comparable
 	run, collect, snap = _working_run({"projection_id": "p-other", "invariant_errors": []})

@@ -24,6 +24,35 @@ _ERR_LINE_RE = re.compile(
 MAX_ERROR_EXCERPT_LINES = 8
 MAX_ERROR_EXCERPT_CHARS = 800
 
+#: 连续重复行的折叠门槛（只折叠长串；短串是数据不是噪声，一律原样保留）。
+REPEAT_RUN_MIN = 6
+
+
+def _fold_repeat_runs(text: str) -> str:
+	"""把连续 ≥``REPEAT_RUN_MIN`` 条完全相同的行折成「一行 + 计数」。
+
+	只作用于**已被截断**的超限输出（调用点在截断分支内），所以正常结果逐字节不变。
+	折叠是事实型：保留第一行 + ``[×N identical lines omitted]``，不评价不劝导。
+	"""
+	lines = (text or "").splitlines(keepends=True)
+	if not lines:
+		return text
+	out: list[str] = []
+	index = 0
+	while index < len(lines):
+		line = lines[index]
+		run = 1
+		while index + run < len(lines) and lines[index + run] == line:
+			run += 1
+		if run >= REPEAT_RUN_MIN and line.strip():
+			out.append(line if line.endswith("\n") else line + "\n")
+			out.append(f"[×{run} identical lines omitted]\n")
+			index += run
+			continue
+		out.extend(lines[index : index + run])
+		index += run
+	return "".join(out)
+
 
 def ensure_dir(path: str) -> None:
 	os.makedirs(path, exist_ok=True)
@@ -122,5 +151,6 @@ def truncate_for_model(
 			if excerpt:
 				body += excerpt + "\n\n"
 		body += tail
+	body = _fold_repeat_runs(body)
 	body = body + f"\n\n[output truncated, full at {path} ({len(text)} chars)]"
 	return body, path

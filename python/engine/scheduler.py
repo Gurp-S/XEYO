@@ -390,15 +390,20 @@ class Scheduler:
 
                 abort_watcher = asyncio.create_task(self._watch_batch_abort())
                 wait_set = set(running.values()) | {abort_watcher}
-                done, _ = await asyncio.wait(
-                    wait_set, return_when=asyncio.FIRST_COMPLETED
-                )
-                abort_hit = abort_watcher in done or self._batch_aborted()
-                abort_watcher.cancel()
                 try:
-                    await abort_watcher
-                except asyncio.CancelledError:
-                    pass
+                    done, _ = await asyncio.wait(
+                        wait_set, return_when=asyncio.FIRST_COMPLETED
+                    )
+                finally:
+                    # 无条件收掉监视任务：取消正是落在上面那次 await 上，会直接跳到
+                    # 外层 except，跳过这里的 cancel ⇒ 每取消一个批次就漏一个 20Hz
+                    # 轮询任务，它自己永不自终止，会活到进程结束。
+                    abort_watcher.cancel()
+                    try:
+                        await abort_watcher
+                    except asyncio.CancelledError:
+                        pass
+                abort_hit = abort_watcher in done or self._batch_aborted()
                 if abort_hit:
                     await self._cancel_running(running, inflight)
                     self._mark_pending_interrupted()
@@ -543,7 +548,22 @@ class Scheduler:
                     abort.abort()
                     try:
                         await asyncio.wait_for(run_fut, timeout=2.0)
-                    except (asyncio.TimeoutError, asyncio.CancelledError):
+                    except asyncio.CancelledError:
+                        # 取消落在"给子 agent 的 2 秒收尾"里 ⇒ 这**不是**超时。
+                        # 记成 failed/timeout 会把一次用户按停钉成终态，恢复/重认领
+                        # 路径就不再捡它起来（同文件的其它取消分支一律记
+                        # pending/interrupted）。按中断处理，并把取消原样传出去。
+                        run_fut.cancel()
+                        try:
+                            await run_fut
+                        except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                            pass
+                        if t.status == "running":
+                            t.status = "pending"
+                            t.failure_reason = "interrupted"
+                            self._persist()
+                        raise
+                    except asyncio.TimeoutError:
                         run_fut.cancel()
                         try:
                             await run_fut

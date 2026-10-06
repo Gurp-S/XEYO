@@ -71,9 +71,44 @@ def _followup_user_text(text: str) -> str:
     return f"[Resume] Continue.\n\nUser follow-up:\n{(text or '').strip()}"
 
 
+def _consume_parked_followup(
+    main_session_id: str, agent_id: str, sub_store: Any
+) -> bool:
+    """消费一条 park 的 follow-up：取队 → 其余放回 → 写 transcript → 退休 meta 副本。
+
+    返回 False = 队列为空（调用方结束 follow-up 循环）。整段无 await（同步块），
+    与 abort 检查之间不会半更新；meta 退休失败由 retire 内部静默兜住。
+    """
+    from engine.live_agents import drain_agent_inbox, post_to_agent
+    from msgtypes.message import user_message
+
+    followups = drain_agent_inbox(main_session_id, agent_id)
+    if not followups:
+        return False
+    # 只消费第一条；其余放回（保持 FIFO 顺序，下轮再取）。
+    first = followups[0]
+    for fut in followups[1:]:
+        post_to_agent(
+            main_session_id,
+            agent_id,
+            str(fut.get("text") or ""),
+            message_id=str(fut.get("message_id") or ""),
+        )
+    sub_store.append(user_message(_followup_user_text(first["text"])))
+    # F7：本条已进 transcript（模型已收到）；退休 meta 里的副本，否则计数
+    # 虚高（幽灵）且下一次 retry 会把同一条再投一次（重放）。
+    retire_consumed_followups(
+        main_session_id, agent_id, [str(first.get("text") or "")]
+    )
+    return True
+
+
 # 运行中侧链增量落盘的最小间隔（秒）：GUI 每 2s 轮询一次，
 # 1s 的落盘节拍足够跟上轮询且几乎不增加 IO 压力。
 _LIVE_FLUSH_INTERVAL_S = 1.0
+
+# 「调用方没提这个字段」的哨兵：与 ``None``（= 明确声明费用未知）区分开。
+_UNSET: Any = object()
 
 
 class _StreamingTeeClient:
@@ -137,8 +172,10 @@ class SubagentRunResult:
     read_only: bool = False
     #: 累计 token（首轮 + follow-up 预算的 used_tokens 之和；GUI 卡片展示用）。
     tokens_used: int = 0
-    #: 累计成本（CNY，两段预算 used_cny 之和）。
-    cost_cny: float = 0.0
+    #: 累计成本（CNY，两段预算 used_cny 之和）。``None`` = 费用未知（无权威价目）。
+    #: ``cost_partial`` 为真时这个和只覆盖可计价回合，不等于总成本（界面须说「部分未知」）。
+    cost_cny: float | None = None
+    cost_partial: bool = False
 
 
 async def run_subagent(
@@ -338,6 +375,7 @@ async def _run_subagent_body(
     )
     budget.provider = provider
     budget.model = model
+    from engine.abort import AbortController
     from memory.agent_scope import scoped_session_id
 
     snap = WorkingSnapshot(
@@ -470,21 +508,8 @@ async def _run_subagent_body(
             break
         if cycle_no >= _followup_limit():
             break
-        from engine.live_agents import drain_agent_inbox, post_to_agent
-
-        followups = drain_agent_inbox(main_session_id, agent_id)
-        if not followups:
+        if not _consume_parked_followup(main_session_id, agent_id, sub_store):
             break
-        # 只消费第一条；其余放回（保持 FIFO 顺序，下轮再取）。
-        first = followups[0]
-        for fut in followups[1:]:
-            post_to_agent(
-                main_session_id,
-                agent_id,
-                str(fut.get("text") or ""),
-                message_id=str(fut.get("message_id") or ""),
-            )
-        sub_store.append(user_message(_followup_user_text(first["text"])))
         if followup_budget is None:
             followup_budget = BudgetTracker(
                 max_turns=_followup_max_turns(),
@@ -499,9 +524,19 @@ async def _run_subagent_body(
     tokens_used_total = int(getattr(budget, "used_tokens", 0) or 0) + int(
         getattr(followup_budget, "used_tokens", 0) or 0
     )
-    cost_cny_total = float(getattr(budget, "used_cny", 0.0) or 0.0) + float(
+    # 两段之和只覆盖「有权威价目」的回合；无价目回合的金额是未知，不是 0。
+    # 全无价目 ⇒ 金额未知（None）；部分无价目 ⇒ 给可计价部分和并标记 partial。
+    _priced_turns = int(getattr(budget, "usd_priced_turns", 0) or 0) + int(
+        getattr(followup_budget, "usd_priced_turns", 0) or 0
+    )
+    _unpriced_turns = int(getattr(budget, "usd_unpriced_turns", 0) or 0) + int(
+        getattr(followup_budget, "usd_unpriced_turns", 0) or 0
+    )
+    _priced_cny = float(getattr(budget, "used_cny", 0.0) or 0.0) + float(
         getattr(followup_budget, "used_cny", 0.0) or 0.0
     )
+    cost_cny_total: float | None = None if (_unpriced_turns and not _priced_turns) else _priced_cny
+    cost_partial_total = bool(_unpriced_turns and _priced_turns)
 
     # 4) 侧链兜底全量写（增量收尾已落绝大部分；此处扫盘去重补齐）+ snapshot 持久化
     try:
@@ -539,6 +574,8 @@ async def _run_subagent_body(
             result_preview=result.conclusion,
             has_transcript=sidechain.is_file(),
             tokens_used=tokens_used_total,
+            cost_cny=cost_cny_total,
+            cost_partial=cost_partial_total,
         )
     except Exception:  # noqa: BLE001
         pass
@@ -566,6 +603,7 @@ async def _run_subagent_body(
     # 累计 token / 成本（GUI 卡片 token 角标数据源）。
     result.tokens_used = tokens_used_total
     result.cost_cny = cost_cny_total
+    result.cost_partial = cost_partial_total
 
     if budget.last_usage and task_batch_id:
         try:
@@ -717,6 +755,8 @@ def upsert_subagent_meta(
     write_scope: list[str] | None = None,
     pending_followups: list[str] | None = None,
     tokens_used: int = -1,
+    cost_cny: Any = _UNSET,
+    cost_partial: bool | None = None,
 ) -> None:
     """写/更新子 agent 元数据（best-effort）：UI 卡片列表与历史回放的数据源。
 
@@ -725,6 +765,8 @@ def upsert_subagent_meta(
     ``pending_followups``：P2 已结束 agent 的迟到 follow-up（merge-keep，不覆盖旧值）；由
     retry 连带执行。``inbox_count`` 为派生值（不在 meta 存储，读取时合成）。
     ``tokens_used``：-1 = 保留旧值（调用方未知时不冲掉历史）。
+    ``cost_cny``：``_UNSET`` = 保留旧值；``None`` = 费用未知（无权威价目，落 null，不是 0）；
+    数值 = 可计价部分金额。``cost_partial``：真 = 只覆盖可计价回合（还有未知回合）。
     """
     import json
     import os
@@ -795,6 +837,22 @@ def upsert_subagent_meta(
             payload["tokens_used"] = max(0, int(existing.get("tokens_used") or 0))
         except (TypeError, ValueError):
             payload["tokens_used"] = 0
+    # 金额：``_UNSET`` 保留旧值（含"旧值就是 null"）；``None`` = 无权威价目 → 落 null。
+    # 落 0 会把"费用未知"说成"免费"，两者在账本里是不同事实。
+    if cost_cny is _UNSET:
+        if "cost_cny" in existing:
+            payload["cost_cny"] = existing.get("cost_cny")
+    elif cost_cny is None:
+        payload["cost_cny"] = None
+    else:
+        try:
+            payload["cost_cny"] = round(float(cost_cny), 4)
+        except (TypeError, ValueError):
+            payload["cost_cny"] = None
+    if cost_partial is None:
+        payload["cost_partial"] = bool(existing.get("cost_partial") or False)
+    else:
+        payload["cost_partial"] = bool(cost_partial)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_name(path.name + ".tmp")
@@ -802,6 +860,62 @@ def upsert_subagent_meta(
         os.replace(tmp, path)
     except OSError:
         pass
+
+
+def retire_consumed_followups(
+    main_session_id: str, agent_id: str, consumed_texts: list[str]
+) -> None:
+    """从 meta.pending_followups 退休已消费的迟到 follow-up（F7）。
+
+    消费点 = ``_consume_parked_followup``（文本已进侧链 transcript，模型已收到）。
+    不退休的两个后果：/agents 计数把已消费项一直算在内（幽灵）；下一次 retry
+    把同一条再投一次（重放）。文本即身份：每条消费文本按首次精确匹配删一份
+    （与删除路由同口径）。写环用 ``META_LOCKS``——与 server 投递/删除路由共用，
+    否则并发时两边「读整表→写整表」互相覆盖。写失败静默（best-effort）：
+    下轮 retry 重投是 at-least-once 可接受面，丢 transcript 才是真丢失。
+    """
+    import json
+
+    from engine.subagent_meta import META_LOCKS, meta_lock_key
+
+    texts = [str(t) for t in consumed_texts if str(t).strip()]
+    if not texts:
+        return
+    with META_LOCKS.acquire(meta_lock_key(main_session_id, agent_id)):
+        try:
+            path = _meta_path(main_session_id, agent_id)
+            if not path.is_file():
+                return
+            obj = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(obj, dict):
+                return
+            pending = [
+                str(x) for x in (obj.get("pending_followups") or []) if str(x).strip()
+            ]
+            before = len(pending)
+            for t in texts:
+                idx = next((i for i, x in enumerate(pending) if x == t), None)
+                if idx is not None:
+                    pending.pop(idx)
+            if len(pending) == before:
+                return  # 一条都没命中：不重写磁盘
+        except Exception:  # noqa: BLE001 — meta 读失败：放弃这轮退休，下个消费点再试
+            _log.debug(
+                "retire followups: meta read failed sid=%s aid=%s",
+                main_session_id,
+                agent_id,
+                exc_info=True,
+            )
+            return
+        upsert_subagent_meta(
+            main_session_id,
+            agent_id=agent_id,
+            task_desc=str(obj.get("task_desc") or ""),
+            status=str(obj.get("status") or "done"),
+            task_id=str(obj.get("task_id") or ""),
+            result_preview=str(obj.get("result_preview") or ""),
+            pending_followups=pending,
+        )
 
 
 def list_subagent_metas(main_session_id: str) -> list[dict[str, Any]]:

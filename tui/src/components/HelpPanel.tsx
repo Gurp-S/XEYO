@@ -19,7 +19,7 @@ const ROWS: { cmd: string; tip: string }[] = [
   ...COMMAND_ROWS,
   { cmd: "Tab", tip: "Cycle slash completions" },
   { cmd: "↑ / ↓", tip: "Input history" },
-  { cmd: "Esc", tip: "Interrupt · dismiss" },
+  { cmd: "Esc", tip: "Deny prompt · interrupt turn" },
   { cmd: "Ctrl+C", tip: "Interrupt · or quit if idle" },
 ];
 

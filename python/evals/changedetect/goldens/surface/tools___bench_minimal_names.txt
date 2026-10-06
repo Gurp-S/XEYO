@@ -14,6 +14,7 @@ TodoWrite
 WebFetch
 WebSearch
 Write
+agent_send
 getTime
 job_kill
 job_list

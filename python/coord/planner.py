@@ -115,7 +115,11 @@ class Planner:
                 continue  # 相邻可试，相交（含空 scope）拒并行
             claimed = self.store.claim_task(t.task_id, worker_id, base_commit)
             if claimed is None:
-                self.store.release_scope(root, lease.lease_id, worker_id)
+                # 只放开这个输掉的候选自己的 scope。`release_scope(lease_id)` 放的是
+                # **整条租约**，而同 owner 的租约会因续约合并成一条（lease_id 沿用首条）
+                # ⇒ 一次认领失败就撤掉本 worker 其他在途任务的全部写域保护，
+                # 别的 worker 随即能认领相交任务，两个进程同时写同一批文件。
+                self.store.release_task_scope(root, worker_id, t.scope)
                 continue
             return claimed
         return None
@@ -129,7 +133,8 @@ class Planner:
             return None
         claimed = self.store.claim_task(task_id, worker_id, base_commit)
         if claimed is None and lease is not None:
-            self.store.release_scope(root, lease.lease_id, worker_id)
+            # 同 claim_next：整条释放会连这个 worker 其他在途任务的 scope 一起撤掉
+            self.store.release_task_scope(root, worker_id, _scope_of(self.store, task_id))
         return claimed
 
 

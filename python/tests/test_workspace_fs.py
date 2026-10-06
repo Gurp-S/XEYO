@@ -102,6 +102,37 @@ def test_read_image_data_url(tmp_path: Path) -> None:
 	assert got["data_url"].startswith("data:image/png;base64,")
 
 
+def test_large_utf8_read_truncated_at_char_boundary(tmp_path: Path) -> None:
+	"""大 UTF-8 文件截断读：前缀可能切在多字节字符中间。
+
+	旧行为：read(_MAX_TEXT+8) 的字节前缀 decode('utf-8') 抛错 → 整段落
+	gbk(errors='replace') → 预览整屏乱码（而不是「正文 + 截断标记」）。
+	构造：首字节 'a'（1B）+ 汉（3B/字），切口 400008 % 3 非整 ⇒ 必切在字中。
+	"""
+	root = tmp_path / "ws"
+	root.mkdir()
+	big = "a" + "汉" * 200_000  # utf-8 ≈ 0.58 MB，远超 400k 上限
+	(root / "big.md").write_bytes(big.encode("utf-8"))
+
+	got = read_file(str(root), "big.md")
+	assert got["kind"] == "text"
+	assert got["truncated"] is True
+	# 乱码防线：正文必须以真实的 'a' + 连续「汉」开头（GBK 兜底会立刻变形）
+	assert got["text"].startswith("a" + "汉" * 50)
+	assert got["text"].endswith("…[truncated]")
+
+
+def test_gbk_file_still_decodes_via_gbk(tmp_path: Path) -> None:
+	"""回归护栏：真 GBK 文件路径不受边界回退修复影响。"""
+	root = tmp_path / "ws"
+	root.mkdir()
+	(root / "gbk.txt").write_bytes("中文测试\n".encode("gbk"))
+
+	got = read_file(str(root), "gbk.txt")
+	assert got["kind"] == "text"
+	assert got["text"] == "中文测试\n"
+
+
 def test_write_text_roundtrip(tmp_path: Path) -> None:
 	root = tmp_path / "ws"
 	root.mkdir()

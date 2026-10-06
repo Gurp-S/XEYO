@@ -39,6 +39,22 @@ def _kill(proc: subprocess.Popen) -> None:
 		pass
 
 
+def _decode_bytes(data: bytes | None) -> str:
+	"""rg 输出解码：与 Bash 侧同一条码页链（utf-8 → gbk → cp1252 → replace）。
+
+	rg 把匹配行的原始字节原样吐出——搜 GBK 文件时输出就是 GBK 字节；
+	此前固定 utf-8 + errors="replace" 会把整行中文变成 U+FFFD（2026-10-05 修）。
+	"""
+	if not data:
+		return ""
+	for codec in ("utf-8", "gbk", "cp1252"):
+		try:
+			return data.decode(codec)
+		except UnicodeDecodeError:
+			continue
+	return data.decode("utf-8", errors="replace")
+
+
 def _run_in_container(
 	cmd: list[str],
 	*,
@@ -60,7 +76,7 @@ def _run_in_container(
 	probed = run_argv(list(cmd), cwd=cwd, timeout_s=max(1.0, float(timeout_seconds)))
 	if probed is None:
 		raise RipgrepRunnerError(
-			"ripgrep runner: container route unavailable (the work面 is inside the container)"
+			"ripgrep runner: container route unavailable (the workspace is inside the container)"
 		)
 	code, out, err = probed
 	if code == 127 or "command not found" in (err or ""):
@@ -111,9 +127,6 @@ def run_ripgrep_lines(
 			stdout=subprocess.PIPE,
 			stderr=subprocess.PIPE,
 			stdin=subprocess.DEVNULL,
-			text=True,
-			encoding="utf-8",
-			errors="replace",
 		)
 	except FileNotFoundError as e:
 		raise RipgrepRunnerError("tool running error,check ripgrep") from e
@@ -135,20 +148,23 @@ def run_ripgrep_lines(
 		threading.Thread(target=_watch_abort, daemon=True).start()
 
 	timed_out = False
-	out = ""
-	err = ""
 	try:
-		out, err = proc.communicate(timeout=max(0.001, float(timeout_seconds)))
+		out_b, err_b = proc.communicate(timeout=max(0.001, float(timeout_seconds)))
 	except subprocess.TimeoutExpired:
 		timed_out = True
 		_kill(proc)
 		try:
-			out, err = proc.communicate(timeout=2)
+			out_b, err_b = proc.communicate(timeout=2)
 		except Exception:  # noqa: BLE001
-			out, err = "", ""
+			out_b, err_b = b"", b""
 	finally:
 		if proc.poll() is None:
 			_kill(proc)
+
+	# 与 Bash 侧同一条码页链（2026-10-05）：此前 Popen(text=True, errors="replace")
+	# 让 GBK 正文的匹配行整段变 U+FFFD（10-03 转录里 Grep 命中替换符的残留根因）。
+	out = _decode_bytes(out_b)
+	err = _decode_bytes(err_b)
 
 	if timed_out:
 		message = timeout_message or (

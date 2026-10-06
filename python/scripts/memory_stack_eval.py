@@ -91,13 +91,14 @@ def _usage_totals() -> dict:
 
 	events = _read_events()
 	hit = miss = out = prompt = req = 0
-	cost = 0.0
+	bucket: dict = {}
 	for ev in events:
 		hit += int(ev.get("cache_hit") or 0)
 		miss += int(ev.get("cache_miss") or 0)
 		out += int(ev.get("output") or 0)
 		prompt += int(ev.get("prompt_tokens") or 0)
-		cost += float(ev.get("cost_cny") or 0)
+		# 无价目行只计数、不加 0：合计缺价时要能看出来（未知 ≠ 免费）。
+		_cost_accumulate(bucket, ev)
 		req += 1
 	return {
 		"requests": req,
@@ -105,12 +106,20 @@ def _usage_totals() -> dict:
 		"cache_hit": hit,
 		"cache_miss": miss,
 		"output": out,
-		"cost_cny": round(cost, 6),
+		**_cost_fields(bucket),
 	}
 
 
 def _delta(before: dict, after: dict) -> dict:
-	return {k: after.get(k, 0) - before.get(k, 0) for k in after}
+	"""两次快照的差值；任一侧缺价（``None``）时该键的差值也是 ``None``，不当 0 算。"""
+	out: dict = {}
+	for k, v in after.items():
+		prev = before.get(k, 0)
+		if v is None or prev is None:
+			out[k] = None
+		else:
+			out[k] = v - prev
+	return out
 
 
 def formula_snapshot(messages: list[dict], cursor: int = 0) -> dict:
@@ -1597,7 +1606,20 @@ var HIT='var(--hit)', MISS='var(--miss)';
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 function fmt(n){n=Number(n)||0;if(n>=1e9)return(n/1e9).toFixed(1)+'b';if(n>=1e6)return(n/1e6).toFixed(1)+'m';if(n>=1e3)return(n/1e3).toFixed(1)+'k';return n.toLocaleString('en-US')}
 function pct(x,d){d=d==null?1:d;return (Number(x)*100).toFixed(d)+'%'}
-function cost(n){n=Number(n)||0;return n.toLocaleString('en-US',{maximumFractionDigits:6})}
+function money(n){
+  if(n==null||n==='')return null;
+  var v=Number(n);
+  return isFinite(v)?v:null;
+}
+function cost(n){
+  var v=money(n);
+  if(v===null)return '无价目';
+  return v.toLocaleString('en-US',{maximumFractionDigits:6});
+}
+function costPartial(n,unknown){
+  var s=cost(n);
+  return (unknown&&Number(unknown)>0)?s+'（部分未知）':s;
+}
 function mk(sel){return document.createElement(sel)}
 function shortModel(m){var s=String(m||'').split('/').pop();return s}
 function hourOf(ts){var d=new Date(Number(ts)*1000);return isNaN(d)?-1:d.getHours()}
@@ -1897,10 +1919,12 @@ function renderMain(day){
   kpi.appendChild(kpiCard('请求','ALL REQUESTS',fmt(tot.requests)));
   kpi.appendChild(kpiCard('输出 token','OUTPUT',fmt(tot.output)));
   kpi.appendChild(kpiCard('输入 token','PROMPT INPUT',fmt(tot.prompt_tokens)));
-  kpi.appendChild(kpiCard('成本','COST · CNY',cost(tot.cost_cny)));
+  kpi.appendChild(kpiCard('成本','COST · CNY',costPartial(tot.cost_cny,tot.cost_unknown_requests)));
   kpi.appendChild(kpiCard('C2','COMPACTIONS',fmt(tot.c2_count),accepted?'good':''));
   kpi.appendChild(kpiCard('会话数','SESSIONS',fmt(tot.sessions||0)));
-  kpi.appendChild(kpiCard('单位成本','COST/REQ',cost(tot.cost_cny/(tot.requests||1))));
+  kpi.appendChild(kpiCard('单位成本','COST/REQ',
+    money(tot.cost_cny)===null?'无价目':
+      costPartial(money(tot.cost_cny)/(Number(tot.requests)||1),tot.cost_unknown_requests)));
   main.appendChild(kpi);
 
   // donut cards
@@ -1926,14 +1950,16 @@ function renderMain(day){
     toks,fmt(maxTok),'总输入 token',fmt));
 
   // 3. 成本分模型（老行可能缺 cost_cny：此时按该模型输入 token 占比分摊日总成本兜底）
-  var dayCost=Number(tot.cost_cny)||0, dayTok=buildModels(day).reduce(function(s,m){return s+Number(m.prompt_tokens||0)},0)||1;
+  //    日合计本身无价目时不编分摊——按 token 占比摊出来的数字是假的。
+  var dayCost=money(tot.cost_cny), dayCostKnown=(dayCost!==null);
+  var dayTok=buildModels(day).reduce(function(s,m){return s+Number(m.prompt_tokens||0)},0)||1;
   var costs=models.map(function(m){
-    var c=Number(m.cost_cny);
-    if(!c){c=dayCost*(Number(m.prompt_tokens||0)/dayTok);}
-    return {v:c,color:m._c,name:shortModel(m.model)}});
+    var c=money(m.cost_cny);
+    if(c===null&&dayCostKnown){c=dayCost*(Number(m.prompt_tokens||0)/dayTok);}
+    return {v:c===null?0:c,color:m._c,name:shortModel(m.model)}});
   var totCost=costs.reduce(function(s,x){return s+Number(x.v||0)},0);
   cards.appendChild(donutCard('成本 · 模型','COST BY MODEL',
-    costs,cost(totCost),'总成本 CNY',cost));
+    costs,costPartial(totCost,tot.cost_unknown_requests),'总成本 CNY',cost));
 
   // 4. 请求分模型
   var reqs=models.map(function(m){return {v:m.requests,color:m._c,name:shortModel(m.model)}});
@@ -2801,7 +2827,10 @@ async def _run_source_ab(
 							"— 中止以防用坏数据覆盖表D；请检查 DEEPSEEK_API_KEY"
 						)
 				est = estimate_cny(provider=params.provider, model=params.model, usage=u, ts=params.default_ts)
-				cost_ab += est
+				# 无权威价目 ⇒ 金额未知：不加 0 进累计（那就把未知读成免费），逐枪只打「无价目」。
+				if est is not None:
+					cost_ab += est
+				est_text = "无价目" if est is None else f"¥{est:.5f}"
 				shots += 1
 				hit = int(u.get("prompt_cache_hit_tokens") or 0)
 				miss = int(u.get("prompt_cache_miss_tokens") or 0)
@@ -2811,7 +2840,7 @@ async def _run_source_ab(
 					ok += 1
 				print(
 					f"  [{source}/{style}/{mode}] {q.get('id')} rep{_rep + 1} "
-					f"{'PASS' if passed else 'FAIL':4s} hit%={rate:5.1f} 本枪¥{est:.5f} 累计¥{cost_ab:.4f} ({shots}枪)"
+					f"{'PASS' if passed else 'FAIL':4s} hit%={rate:5.1f} 本枪{est_text} 累计¥{cost_ab:.4f} ({shots}枪)"
 				)
 			per_q[q.get("id")] = {"ok": ok, "n": AB_REPEATS}
 		_ab_store(source, style, mode, per_q)
@@ -3404,12 +3433,15 @@ async def run_hitrate_live() -> int:
 				out = int(u.get("completion_tokens") or 0)
 				# 每枪成本（确定性空闲价）；逐枪打印，便于你盯累计花费、随时 Ctrl-C。
 				est = estimate_cny(provider=params.provider, model=params.model, usage=u, ts=params.default_ts)
-				cost_sum += est
+				# 无权威价目 ⇒ 未知：不进累计（0 会把未知读成免费），只打「无价目」。
+				if est is not None:
+					cost_sum += est
+				est_text = "无价目" if est is None else f"¥{est:.5f}"
 				shots += 1
 				rate = (hit / (hit + miss) * 100.0) if (hit + miss) else 0.0
 				print(
 					f"  [{band}/{mode}] #{t:>3} prompt={prompt:>6} hit={hit:>7} miss={miss:>7} "
-					f"rate={rate:5.1f}% 本枪¥{est:.5f} 累计¥{cost_sum:.4f} ({shots}枪)"
+					f"rate={rate:5.1f}% 本枪{est_text} 累计¥{cost_sum:.4f} ({shots}枪)"
 				)
 				total_prompt += prompt
 				total_hit += hit
@@ -3750,6 +3782,44 @@ def _turn_label_for(umap, sid_raw, ts) -> tuple[str, str]:
 	return f"t{i}", raw or f"消息{i}"
 
 
+def _cost_accumulate(bucket: dict, ev: dict) -> None:
+	"""把一行账的金额加进桶：**没有可用价格的行只计数，不加 0**（未知 ≠ 免费）。
+
+	键约定：``cost`` 有价行金额之和、``cost_priced`` 有价行数、``cost_unknown``
+	无可用价格的行数（含 ``cost_cny == None`` 的无价目行）。三者分开后读侧才能
+	区分「合计就是 0」与「合计不完整」——把缺价按 0 累加会把未知读成免费。
+	"""
+	raw = ev.get("cost_cny")
+	value: float | None
+	if raw is None or isinstance(raw, bool):
+		value = None
+	else:
+		try:
+			value = float(raw)
+		except (TypeError, ValueError):
+			value = None
+	if value is None:
+		bucket["cost_unknown"] = int(bucket.get("cost_unknown") or 0) + 1
+		return
+	bucket["cost"] = float(bucket.get("cost") or 0.0) + value
+	bucket["cost_priced"] = int(bucket.get("cost_priced") or 0) + 1
+
+
+def _cost_fields(bucket: dict) -> dict:
+	"""桶的金额字段（日合计 / by_model / by_session / by_turn 共用）。
+
+	``cost_cny``：有价行之和；**一行有价都没有时是 ``None``**（无价目 ⇒ 费用未知，
+	不是 0）。``cost_unknown_requests``：无可用价格的行数，>0 表示这个合计不完整
+	（界面据此标「部分未知」）。
+	"""
+	priced = int(bucket.get("cost_priced") or 0)
+	unknown = int(bucket.get("cost_unknown") or 0)
+	return {
+		"cost_cny": None if priced == 0 else round(float(bucket.get("cost") or 0.0), 6),
+		"cost_unknown_requests": unknown,
+	}
+
+
 def _a3_snapshot_one_day(day: str, *, render: bool = True) -> int:
 	"""单日快照：聚合 ledger（token/命中/未命中）+ C2 事件，upsert 成 ``deploy_project_mode_<day>`` 行。
 
@@ -3769,7 +3839,7 @@ def _a3_snapshot_one_day(day: str, *, render: bool = True) -> int:
 		print(f"SKIP: 无 {day} 的 ledger 数据（已有日: {', '.join(days)}）")
 		return 1
 	prompt = hit = miss = out = req = 0
-	cost = 0.0
+	cost_bucket: dict = {}
 	by_key: dict[tuple[str, str], dict[str, float | int]] = {}
 	by_sess: dict[str, dict[str, float | int]] = {}
 	by_turn: dict[tuple[str, str], dict[str, Any]] = {}
@@ -3782,7 +3852,7 @@ def _a3_snapshot_one_day(day: str, *, render: bool = True) -> int:
 		hit += int(ev.get("cache_hit") or 0)
 		miss += int(ev.get("cache_miss") or 0)
 		out += int(ev.get("output") or 0)
-		cost += float(ev.get("cost_cny") or 0)
+		_cost_accumulate(cost_bucket, ev)
 		key = (str(ev.get("provider") or "unknown"), str(ev.get("model") or "unknown"))
 		b = by_key.setdefault(key, {"req": 0, "hit": 0, "miss": 0, "prompt": 0, "output": 0, "cost": 0.0})
 		b["req"] += 1
@@ -3790,7 +3860,7 @@ def _a3_snapshot_one_day(day: str, *, render: bool = True) -> int:
 		b["miss"] += int(ev.get("cache_miss") or 0)
 		b["prompt"] += int(ev.get("prompt_tokens") or 0)
 		b["output"] += int(ev.get("output") or 0)
-		b["cost"] += float(ev.get("cost_cny") or 0)
+		_cost_accumulate(b, ev)
 		sid_raw = str(ev.get("session_id") or "").strip()
 		sid = sid_raw or "(none)"
 		sb = by_sess.setdefault(sid, {"req": 0, "hit": 0, "miss": 0, "prompt": 0, "output": 0, "cost": 0.0})
@@ -3799,7 +3869,7 @@ def _a3_snapshot_one_day(day: str, *, render: bool = True) -> int:
 		sb["miss"] += int(ev.get("cache_miss") or 0)
 		sb["prompt"] += int(ev.get("prompt_tokens") or 0)
 		sb["output"] += int(ev.get("output") or 0)
-		sb["cost"] += float(ev.get("cost_cny") or 0)
+		_cost_accumulate(sb, ev)
 		turn_id, turn_lbl = _turn_label_for(umap, sid_raw, float(ev.get("ts") or 0))
 		tkey = (sid, turn_id)
 		tb = by_turn.setdefault(
@@ -3813,7 +3883,7 @@ def _a3_snapshot_one_day(day: str, *, render: bool = True) -> int:
 		tb["miss"] += int(ev.get("cache_miss") or 0)
 		tb["prompt"] += int(ev.get("prompt_tokens") or 0)
 		tb["output"] += int(ev.get("output") or 0)
-		tb["cost"] += float(ev.get("cost_cny") or 0)
+		_cost_accumulate(tb, ev)
 		tb["model"] = str(ev.get("model") or tb["model"])
 		tb["first_ts"] = min(tb["first_ts"], float(ev.get("ts") or 0))
 		tb["events"].append(ev)
@@ -3834,7 +3904,7 @@ def _a3_snapshot_one_day(day: str, *, render: bool = True) -> int:
 				"cache_miss": int(b["miss"]),
 				"hit_rate": round(int(b["hit"]) / total, 4) if total else 0.0,
 				"output": int(b["output"]),
-				"cost_cny": round(float(b["cost"]), 6),
+				**_cost_fields(b),
 			}
 		)
 	# 按会话拆分（会话级缓存命中率与成本透视）。
@@ -3850,7 +3920,7 @@ def _a3_snapshot_one_day(day: str, *, render: bool = True) -> int:
 				"cache_miss": int(b["miss"]),
 				"hit_rate": round(int(b["hit"]) / total, 4) if total else 0.0,
 				"output": int(b["output"]),
-				"cost_cny": round(float(b["cost"]), 6),
+				**_cost_fields(b),
 			}
 		)
 	# 按用户消息（轮次）拆分。
@@ -3867,7 +3937,7 @@ def _a3_snapshot_one_day(day: str, *, render: bool = True) -> int:
 				"cache_miss": int(tb["miss"]),
 				"hit_rate": round(int(tb["hit"]) / total, 4) if total else 0.0,
 				"output": int(tb["output"]),
-				"cost_cny": round(float(tb["cost"]), 6),
+				**_cost_fields(tb),
 				"first_ts": tb["first_ts"],
 				"events": list(tb["events"]),
 			}
@@ -3882,15 +3952,21 @@ def _a3_snapshot_one_day(day: str, *, render: bool = True) -> int:
 		"hit_rate": round(hit_rate, 4),
 		"c2_count": c2_count,
 		"output": out,
-		"cost_cny": round(cost, 6),
+		**_cost_fields(cost_bucket),
 		"ledger_dir": str(usage_dir()),
 		"by_model": by_model,
 		"by_session": by_sess_list,
 		"by_turn": by_turn_list,
 	}
+	_cost_known = _cost_fields(cost_bucket)
+	cost_text = (
+		"无价目" if _cost_known["cost_cny"] is None else str(_cost_known["cost_cny"])
+	)
+	if _cost_known["cost_unknown_requests"]:
+		cost_text += f"（另有 {_cost_known['cost_unknown_requests']} 行无价目，未计入）"
 	output_line = (
 		f"命中率={hit_rate * 100:.2f}% ({hit}/{total_in}) C2次数={c2_count} "
-		f"req={req} output={out} cost={round(cost, 6)}"
+		f"req={req} output={out} cost={cost_text}"
 	)
 	if by_model:
 		model_line = "; ".join(

@@ -99,14 +99,14 @@ def test_bash_cat_resets_the_clock_but_never_supplies_the_hash() -> None:
     assert o.stale and o.stale_at == 8, "cat 把过期时钟推到 7，写发生在 8"
 
 
-def test_only_the_first_tool_result_of_a_message_counts_as_a_read() -> None:
-    """V1 在第一个 tool_result 块就 break ⇒ 第二个块的区间不许进账。"""
+def test_all_successful_tool_results_of_a_message_count_as_reads() -> None:
+    """Every successful receipt contributes its own observation in both versions."""
     msgs = [user("go"),
             use("c1", "Read", file_path="a.py", offset=1, limit=2),
             use("c2", "Read", file_path="a.py", offset=9, limit=2),
             two_results(("c1", "1: a\n2: b"), ("c2", "9: i\n10: j"))]
     mine = assert_parity(msgs)
-    assert mine["a.py"].read_ranges == ((1, 2),), mine["a.py"].read_ranges
+    assert mine["a.py"].read_ranges == ((1, 2), (9, 10)), mine["a.py"].read_ranges
 
 
 def test_failed_read_still_counts_as_an_observation_like_v1() -> None:

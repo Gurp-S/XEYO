@@ -12,10 +12,10 @@
 类目不是特例分支，而是同一模型下的「实体键函数 + 覆盖判据」：
 
 | 类目 | 实体键 | 覆盖信号 | 判不出时 |
-| error_sig | (工具, 现场文件集) | 后续同类成功结果 / 后续成功改写该文件 | 不降级 |
+| error_sig | (工具, 完整调用参数) | 后续相同调用的成功结果 | 不降级 |
 | filestate | 文件路径 | 后续对同一路径的成功结果 | 不降级 |
 | todo | 清单整体 | 后续 TodoWrite 快照 | 不降级 |
-| decision | (工具, 现场文件集) | 后续成功结果终结该失败方案 | 不降级 |
+| decision | (工具, 完整调用参数) | 后续相同调用的成功结果 | 不降级 |
 | constraint | 约束主题（关键词集） | 后续用户消息显式改口 + 主题重合 ≥2 | 不降级 |
 | injected | 声道标识（机器注入块） | 机器注入 ⇒ 非种子 | 恒定 |
 | path_dead | 文件路径 | 后续**成功**的删除/改名命令，且此后无人再碰 | 不降级 |
@@ -189,6 +189,8 @@ def _invocation_text(graph: Graph, node) -> str:
 	uid = str(getattr(node, "tool_use_id", "") or "")
 	if not uid:
 		return ""
+	if uid in graph.use_signatures:
+		return graph.use_signatures[uid]
 	use = graph.node(graph.by_use_id.get(uid, -1))
 	return str(use.text or "").strip() if use is not None else ""
 
@@ -220,13 +222,6 @@ def _result_index(graph: Graph, region_end: int) -> dict[str, tuple[int, ...]]:
 	return {k: tuple(v) for k, v in out.items()}
 
 
-def _write_index(graph: Graph, region_end: int) -> tuple[int, ...]:
-	"""区域内所有**写工具调用**节点下标（升序）。"""
-	return tuple(
-		m.idx
-		for m in graph.nodes
-		if m.idx < region_end and m.kind == KIND_TOOL_USE and m.is_write
-	)
 
 
 def _covered_later(
@@ -238,17 +233,15 @@ def _covered_later(
 ) -> int | None:
 	"""``n``（一个失败结果）是否被后续**同类成功**覆盖。
 
-	两条并列的结构信号，缺一不可地要求**能指认到同一现场**：
-
-	1. 有文件引用 ⇒ 后续同类成功结果必须引用**同一个文件**且带成功标记；
-	2. 无文件引用（纯命令失败）⇒ 必须有**同一条调用的原文**，且它后来成功过。
+	后续结果必须来自相同工具和完整调用参数，且带成功标记。
+	旧结果有文件引用时，还要求现场路径重合；仅同路径或成功改写不能证明错误已解决。
 
 	信号不够就返回 ``None``（保守：不降级）。宁可多留一条未解错误，也不把还在
 	的坑标成已填。
 	"""
 	targets = set(n.refs)
-	invocation = _invocation_text(graph, n) if not targets else ""
-	if not targets and not invocation:
+	invocation = _invocation_text(graph, n)
+	if not invocation:
 		return None
 	cands = (
 		results_by_tool.get(n.tool_name, ())
@@ -271,9 +264,8 @@ def _covered_later(
 		if targets:
 			if not (targets & set(m.refs)):
 				continue
-		else:
-			if _invocation_text(graph, m) != invocation:
-				continue
+		if _invocation_text(graph, m) != invocation:
+			continue
 		return j
 	return None
 
@@ -302,32 +294,6 @@ def _write_success(graph: Graph, u, region_end: int) -> bool:
 	return True
 
 
-def _write_cover(
-	graph: Graph,
-	n,
-	region_end: int,
-	writes: tuple[int, ...] | None = None,
-) -> int | None:
-	"""失败现场是否被后续**成功改写**覆盖（与「同类工具成功」并列的第二条结构信号）。"""
-	targets = set(n.refs)
-	if not targets:
-		return None
-	for j in writes if writes is not None else range(n.idx + 1, region_end):
-		if j <= n.idx:
-			continue
-		m = graph.nodes[j]
-		if writes is None:
-			# **没传索引时的回退扫面不得比索引路径更宽**：``range`` 里的每个下标都试一遍，
-			# 会把「同命令的只读重试」当成改写现场（实测 ``npm test`` 重试回 ``no output``
-			# 就把上一条失败判成已解决）。调用方（``seeds._is_resolved``）本就拿不到索引，
-			# 故这里按写节点自身过滤，保证"判据只有一份实现"不沦为两份口径。
-			if not (m.kind == KIND_TOOL_USE and m.is_write):
-				continue
-		if not (targets & set(m.refs)):
-			continue
-		if _write_success(graph, m, region_end):
-			return j
-	return None
 
 
 def error_covered_by(
@@ -335,7 +301,6 @@ def error_covered_by(
 	n,
 	region_end: int,
 	results_by_tool: dict[str, tuple[int, ...]] | None = None,
-	writes: tuple[int, ...] | None = None,
 	marker_cache: dict[int, bool] | None = None,
 ) -> tuple[int, str] | None:
 	"""一条失败结果是否已被后续证据覆盖：返回 ``(覆盖者下标, 依据)``，否则 ``None``。
@@ -346,9 +311,6 @@ def error_covered_by(
 	by = _covered_later(graph, n, region_end, results_by_tool, marker_cache)
 	if by is not None:
 		return by, "后续同类成功结果覆盖同一现场"
-	by = _write_cover(graph, n, region_end, writes)
-	if by is not None:
-		return by, "后续成功改写同一文件"
 	return None
 
 
@@ -356,13 +318,12 @@ def _error_superseders(graph: Graph, region_end: int) -> tuple[list[Downgrade], 
 	out: list[Downgrade] = []
 	resolved = 0
 	results_by_tool = _result_index(graph, region_end)
-	writes = _write_index(graph, region_end)
 	marker_cache: dict[int, bool] = {}
 	for n in graph.nodes:
 		if n.idx >= region_end or not n.is_error or not n.error_sig:
 			continue
 		hit = error_covered_by(
-			graph, n, region_end, results_by_tool, writes, marker_cache
+			graph, n, region_end, results_by_tool, marker_cache
 		)
 		if hit is None:
 			continue

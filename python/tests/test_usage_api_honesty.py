@@ -253,23 +253,19 @@ def test_full_window_report_can_claim_complete(store) -> None:
 	assert integrity["rows_counted_local"] == 2
 
 
-def test_row_read_limit_truncation_is_reported_with_denominator(store, monkeypatch) -> None:
-	"""账本行数上限（生产 80_000，append-only ⇒ 丢的是最新行）必须自报。"""
-	from usage import ledger
-
-	monkeypatch.setattr(ledger, "_MAX_LINES", 2)
+def test_all_stored_rows_are_counted_without_a_read_limit(store) -> None:
+	"""累计与存储分母一致；移除旧的“只读最早 8 万行”契约。"""
 	store([_row(cost=float(i) / 100) for i in range(1, 6)])
 	body = _get_usage(_client(), days=30)
 	integrity = body["data_integrity"]
-	assert integrity["read_row_limit"] == 2
+	assert integrity["read_row_limit"] is None
 	assert integrity["store_raw_lines"] == 5
-	assert integrity["rows_read"] == 2
-	assert integrity["lines_beyond_read_limit"] == 3
-	assert integrity["truncated_by_read_limit"] is True
-	assert "read_row_limit_exceeded" in integrity["partial_reasons"]
-	assert integrity["complete"] is False
-	# 合计只覆盖了 2 行，却仍是「totals」—— 分母必须写在同一份 payload 里。
-	assert body["totals"]["requests"] == 2
+	assert integrity["rows_read"] == 5
+	assert integrity["lines_beyond_read_limit"] == 0
+	assert integrity["truncated_by_read_limit"] is False
+	assert "read_row_limit_exceeded" not in integrity["partial_reasons"]
+	assert integrity["complete"] is True
+	assert body["totals"]["requests"] == 5
 
 
 def test_unparsable_lines_are_counted_separately_from_blank_lines(store) -> None:

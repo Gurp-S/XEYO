@@ -307,19 +307,10 @@ LOCK_STALE_SECONDS = 3600.0  # 锁文件超过此时长且 PID 不可达 → 回
 
 
 def _pid_alive(pid: int) -> bool:
-	"""尽力判断 PID 是否仍存活（跨平台）。"""
-	if pid <= 0:
-		return False
-	try:
-		os.kill(pid, 0)
-		return True
-	except ProcessLookupError:
-		return False
-	except PermissionError:
-		# 无权限发信号，但进程可能仍在 → 视为存活
-		return True
-	except OSError:
-		return False
+	"""复用安全判活；Windows 的 os.kill(pid, 0) 会终止进程。"""
+	from server.portfile import is_pid_alive
+
+	return is_pid_alive(pid)
 
 
 def _try_reclaim_stale_lock(path: Path) -> bool:

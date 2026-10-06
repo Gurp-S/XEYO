@@ -22,6 +22,11 @@ from engine.aging import (
 # tool_result 内容的最大字符数，超过则截断。从 16k 收紧到 8k
 # （thresholdChars=8192，头/尾各保留 4k/1k 量级），短会话单条工具结果成本减半。
 MAX_TOOL_RESULT_CHARS = 8_192
+# WSC 尺寸修剪最终档（2026-10-04 用户裁定；被实测的档 = 阈 3072 → 可见 2048+标记+512）：
+# 只在 `XEYO_WSC_SIZE_PRUNE=1` 时被接线使用。与 C0 的 8192 是**不同的量**，别互相复用。
+SIZE_PRUNE_THRESHOLD_CHARS = 3_072
+SIZE_PRUNE_HEAD_CHARS = 2_048
+SIZE_PRUNE_TAIL_CHARS = 512
 KEEP_TAIL_MESSAGES = 6              # 兼容旧名：等价于保留约 N 条消息的尾部保护区
 KEEP_TAIL_TOOL_ROUNDS = 3           # 按「assistant(tool_calls)+连续 tool」成对区间保留的轮数
 TRUNCATE_SUFFIX = "\n…[truncated]"  # 截断时追加的后缀
@@ -207,19 +212,34 @@ def _project_tool_result_content(
     )
 
     inner, _fname = unwrap_tool_output(raw)
-    # Link②① 统一 C0/L3：非冻结且超 L3 阈值(默认128) → 直接 offload（固定预览引用），不再 C0 截断。
-    from memory.offload import OFFLOAD_THRESHOLD, maybe_offload, offload_enabled
+    # 尺寸侧修剪（`XEYO_WSC_SIZE_PRUNE`，默认关）：与 C0 截断**互斥**的那一档——
+    # C0 上限 8192 字符但不给取回入口；本档把超阈结果归档并附 `Read(...)` 句柄。
+    # 两开的优先级：本档在前（它在"中间段"另留头尾、且有入口），offload（阈值 128）在后。
+    # 关着时本分支零开销 = 改动前行为。可见几何 = 上面 SIZE_PRUNE_* 三个常量（最终档）。
+    from memory.wsc_size_prune import enabled as _size_prune_enabled
+    from memory.wsc_size_prune import maybe_prune_with_archive as _prune_archive
 
-    if not frozen and offload_enabled() and len(inner) > OFFLOAD_THRESHOLD:
-        raw, _offloaded = maybe_offload(raw, msg_idx=idx, uid=uid, cwd=cwd)
-    elif len(inner) > MAX_TOOL_RESULT_CHARS:
-        # 保底：offload 未开启 / 未超阈值但超 8192 的极少数 → C0 截断。
-        raw = truncate_tool_content_preserving_fence(
-            raw,
-            max_chars=MAX_TOOL_RESULT_CHARS,
-            marker="\n…[truncated]…\n",
-            fallback_suffix=TRUNCATE_SUFFIX,
+    if not frozen and _size_prune_enabled() and len(inner) > SIZE_PRUNE_THRESHOLD_CHARS:
+        raw, _archived = _prune_archive(
+            raw, msg_idx=idx, uid=uid, cwd=cwd,
+            threshold_chars=SIZE_PRUNE_THRESHOLD_CHARS,
+            head_chars=SIZE_PRUNE_HEAD_CHARS,
+            tail_chars=SIZE_PRUNE_TAIL_CHARS,
         )
+    else:
+        # Link②① 统一 C0/L3：非冻结且超 L3 阈值(默认128) → 直接 offload（固定预览引用），不再 C0 截断。
+        from memory.offload import OFFLOAD_THRESHOLD, maybe_offload, offload_enabled
+
+        if not frozen and offload_enabled() and len(inner) > OFFLOAD_THRESHOLD:
+            raw, _offloaded = maybe_offload(raw, msg_idx=idx, uid=uid, cwd=cwd)
+        elif len(inner) > MAX_TOOL_RESULT_CHARS:
+            # 保底：offload 未开启 / 未超阈值但超 8192 的极少数 → C0 截断。
+            raw = truncate_tool_content_preserving_fence(
+                raw,
+                max_chars=MAX_TOOL_RESULT_CHARS,
+                marker="\n…[truncated]…\n",
+                fallback_suffix=TRUNCATE_SUFFIX,
+            )
 
     aged = False
     if frozen:
@@ -237,7 +257,7 @@ def _project_tool_result_content(
         else:
             raw = (
                 f"[compacted] {name}: prior result ({n_lines} lines) "
-                "archived; answer from remaining context"
+                "archived"
             )
     return raw, aged
 

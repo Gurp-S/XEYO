@@ -6,8 +6,8 @@ env_channel 的回退档，其摆放语义仍被冻结。env_channel / system_ch
 
 冻结口径（2026-09-16 三管道重分类后）：
 - A1 分仓：fresh-user 轮 **quota 类**（nested 正文 / 浏览器预览）前插到用户
-  文本之前（生成点紧邻用户请求），其余尾插贴近生成点；after_tools 轮维持
-  原尾插合同（Continue 在前）。
+  文本之前（生成点紧邻用户请求），其余尾插贴近生成点；after_tools 轮尾插，
+  自 2026-10-04 起 **time_now 常驻行在首**、Continue 紧随其后。
 - 门控：**无**轮型门控——D1「模糊指代轮静默参考块」已删除（用户裁定：
   T_now 不为弱模型做特化）。参考数据只受预算约束，不受"猜用户说完没说完"影响。
 - F1 真硬顶：全部块入预算，非 quota 类全保，quota 类限配额、超限截断。
@@ -90,7 +90,7 @@ def test_quota_head_rest_tail_on_fresh_user_turn(monkeypatch):
 	# A1：quota 类在用户原文之前，其余在其后
 	assert "浏览器预览" in texts[0]
 	assert texts[1] == "看看当前预览页上有什么内容"
-	assert any("Repeat guard" in t for t in texts[2:])
+	assert not any("Repeat guard" in t for t in texts[2:])
 
 
 def test_short_follow_up_turn_keeps_reference_blocks(monkeypatch):
@@ -108,11 +108,11 @@ def test_short_follow_up_turn_keeps_reference_blocks(monkeypatch):
 	# 批次3：index 永不在场；模糊轮静默已随 D1 删除（预览块照常在头部）
 	assert "Memory index" not in joined
 	assert "浏览器预览" in texts[0]
-	assert "Repeat guard" in joined
+	assert "Repeat guard" not in joined
 	assert "帮我修改" in texts
 
 
-def test_after_tools_keeps_legacy_contract(monkeypatch):
+def test_after_tools_order_time_now_then_continue(monkeypatch):
 	_patch_preview(monkeypatch)
 	projected = [
 		{"role": "user", "content": "task"},
@@ -124,8 +124,10 @@ def test_after_tools_keeps_legacy_contract(monkeypatch):
 	)
 	texts = _text_blocks(out[-1])
 	joined = "\n".join(texts)
-	# after_tools：单插合成 user，Continue 在前；inventory 垫在指令之后
-	assert texts[0].startswith("# Continue")
+	# 2026-10-07 加入 env_facts 后：time_now、环境事实、Continue 按此顺序出现。
+	assert texts[0].startswith("当前时间"), texts[:3]
+	assert texts[1].startswith("shell:"), texts[:3]
+	assert texts[2].startswith("# Continue"), texts[:4]
 	assert "浏览器预览" in joined
 	# 批次3：Memory index 永不进入 T_now（含 after_tools 轮）
 	assert "Memory index" not in joined

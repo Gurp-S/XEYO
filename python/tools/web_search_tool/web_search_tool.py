@@ -11,6 +11,7 @@ from urllib.parse import parse_qs, quote_plus, unquote, urlparse
 
 from engine.abort import AbortController
 from tools.base_tool import ToolResult
+from tools.error_taxonomy import INVALID_ARGUMENT, TRANSIENT_INFRA
 from tools.web_common import is_blocked_url
 from tools.web_search_tool.config import (
 	get_searxng_url,
@@ -84,7 +85,9 @@ class WebSearchTool:
 		raw = input or {}
 		query = str(raw.get("query") or "").strip()
 		if not query:
-			return ToolResult(content="query is required", is_error=True)
+			return ToolResult(
+				content="query is required", is_error=True, error_kind=INVALID_ARGUMENT
+			)
 		try:
 			count = int(raw.get("count") or _DEFAULT_COUNT)
 		except (TypeError, ValueError):
@@ -170,6 +173,7 @@ class WebSearchTool:
 		return ToolResult(
 			content=f"search provider failed: {detail}\n{hint}"[:800],
 			is_error=True,
+			error_kind=TRANSIENT_INFRA,
 		)
 
 

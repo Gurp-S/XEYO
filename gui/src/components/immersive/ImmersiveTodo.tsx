@@ -1,56 +1,19 @@
-import {Check, ListChecks, Plus} from 'lucide-react';
-import {useState} from 'react';
+import {Check, ListChecks} from 'lucide-react';
 import {useChatStore} from '@/stores/chatStore';
 import {cn} from '@/lib/utils';
-import {isImeComposing} from '@/lib/ime';
-import type {TodoItemView, TodoSnapshot} from '@/lib/toolActivity';
 
-function makeSnap(todos: TodoItemView[]): TodoSnapshot {
-	return {id: `immersive-${Date.now()}`, todos, running: false};
-}
-
+/**
+ * 沉浸侧板的今日待办：sessionTodosById 的只读镜像（F6 统一只读）。
+ *
+ * 这里曾有勾选/新增（只写本地镜像、零回路到模型，下一次模型 todo 事件
+ * 整表替换时被静默覆盖）。与 Composer 侧 SessionTodoDock 和 Claude 的
+ * TodoWrite 展示口径一致：只展示模型给的事实，不提供人侧编辑。
+ */
 export function ImmersiveTodo() {
 	const activeId = useChatStore(s => s.activeId);
-	const archived = useChatStore(s =>
-		Boolean(activeId && s.sessions.some(session => session.id === activeId && session.archived)),
-	);
 	const snap = useChatStore(s =>
 		activeId ? (s.sessionTodosById?.[activeId] ?? null) : null,
 	);
-	const [draft, setDraft] = useState('');
-
-	const setTodos = (update: (todos: TodoItemView[]) => TodoItemView[]) => {
-		if (!activeId || archived) return false;
-		const state = useChatStore.getState();
-		if (state.sessions.some(session => session.id === activeId && session.archived)) return false;
-		const current = state.sessionTodosById?.[activeId] ?? null;
-		const todos = update(current?.todos ?? []);
-		useChatStore.setState(s => ({
-			sessionTodosById: {
-				...s.sessionTodosById,
-				[activeId]: current ? {...current, todos} : makeSnap(todos),
-			},
-		}));
-		return true;
-	};
-
-	const add = () => {
-		const text = draft.trim();
-		if (!text) {
-			return;
-		}
-		if (setTodos(todos => [...todos, {content: text, status: 'pending', activeForm: ''}])) {
-			setDraft('');
-		}
-	};
-
-	const toggle = (i: number) => {
-		setTodos(todos => todos.map((t, idx) =>
-			idx === i
-				? {...t, status: (t.status === 'completed' ? 'pending' : 'completed') as TodoItemView['status']}
-				: t,
-		));
-	};
 
 	const todos = snap?.todos ?? [];
 	const done = todos.filter(t => t.status === 'completed').length;
@@ -65,68 +28,40 @@ export function ImmersiveTodo() {
 				</span>
 			</div>
 
-			<div className="min-h-0 flex-1 overflow-y-auto px-2">
+			<div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
 				{todos.length ? (
 					<ul className="space-y-0.5">
 						{todos.map((t, i) => (
-							<li key={`${i}-${t.content}`}>
-								<button
-									type="button"
-									className="flex w-full items-start gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-paper-deep/40"
-									onClick={() => toggle(i)}
-									disabled={archived}
+							<li
+								key={`${i}-${t.content}`}
+								className="flex w-full items-start gap-2 rounded-lg px-2 py-1.5 text-left"
+							>
+								<span
+									className={cn(
+										'mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border',
+										t.status === 'completed'
+											? 'border-ok bg-ok text-paper'
+											: 'border-mute/50 text-transparent',
+									)}
 								>
-									<span
-										className={cn(
-											'mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border',
-											t.status === 'completed'
-												? 'border-ok bg-ok text-paper'
-												: 'border-mute/50 text-transparent',
-										)}
-									>
-										<Check className="size-3" strokeWidth={3} />
-									</span>
-									<span
-										className={cn(
-											'min-w-0 flex-1 text-[12px] leading-snug',
-											t.status === 'completed'
-												? 'text-mute line-through'
-												: 'text-ink-soft',
-										)}
-									>
-										{t.content}
-									</span>
-								</button>
+									<Check className="size-3" strokeWidth={3} />
+								</span>
+								<span
+									className={cn(
+										'min-w-0 flex-1 text-[12px] leading-snug',
+										t.status === 'completed'
+											? 'text-mute line-through'
+											: 'text-ink-soft',
+									)}
+								>
+									{t.content}
+								</span>
 							</li>
 						))}
 					</ul>
 				) : (
 					<div className="px-2 py-3 text-[12px] text-mute">暂无待办</div>
 				)}
-			</div>
-
-			<div className="flex items-center gap-2 border-t border-line/50 px-3 py-2">
-				<input
-					value={draft}
-					onChange={e => setDraft(e.target.value)}
-					disabled={archived}
-					onKeyDown={e => {
-						if (isImeComposing(e.nativeEvent)) return;
-						if (e.key === 'Enter') {
-							add();
-						}
-					}}
-					placeholder={archived ? '归档对话为只读' : '添加今日待办…'}
-					className="min-w-0 flex-1 bg-transparent text-[12px] text-ink placeholder:text-mute focus:outline-none"
-				/>
-				<button
-					type="button"
-					className="xy-press flex size-6 items-center justify-center rounded-full bg-accent text-paper"
-					onClick={add}
-					disabled={archived || !draft.trim()}
-				>
-					<Plus className="size-3.5" />
-				</button>
 			</div>
 		</div>
 	);

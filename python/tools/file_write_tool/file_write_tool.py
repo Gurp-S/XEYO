@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from typing import Any, Literal, Optional
 
 from engine.abort import AbortController
+from tools.error_taxonomy import PERMISSION_DENIED
 from permissions import filesystem
 from rewind.context import current_context
 from tools.base_tool import ToolResult
@@ -366,7 +367,11 @@ class FileWriteTool:
 					unchanged=True,
 				)
 
-		journal_warning = self._persist(full, content, encoding=encoding, line_endings="LF")
+		# 落盘用归一后的正文：直通路径 write_text_file 自己会归一，而 store 路径的
+		# `_persist` 只按 line_endings 做 "\n"→"\r\n"。把模型的原始正文直接递过去，
+		# 同一枪 Write 在主 agent（直通）与子 agent（store）下会落成不同字节
+		# （LF 文件里留下混合行尾）。快照/行数/语法自检本来就用的 normalized。
+		journal_warning = self._persist(full, normalized, encoding=encoding, line_endings="LF")
 
 		self._read_state.set_written(
 			full,
@@ -464,7 +469,7 @@ class FileWriteTool:
 			)
 
 		if not self.check_permissions(write_input):
-			return ToolResult(content="permission denied", is_error=True)
+			return ToolResult(content="permission denied", is_error=True, error_kind=PERMISSION_DENIED)
 
 		abort.raise_if_aborted()
 		try:

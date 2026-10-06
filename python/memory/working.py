@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from memory.wsc_source_layout import APPEND, LEGACY, validate, restore_source
 
 _logger = logging.getLogger(__name__)
 
@@ -69,6 +70,8 @@ class WorkingSnapshot:
     c1_frozen_until: int = 0  # C1 冻结边界：此索引之前的 tool_result 一律占位，不再回退
     c2_summary_text: str = ""  # C2 摘要文本（首次压缩时冻结，保证后续请求字节稳定）
     turns_since_c2: int = 0  # 自上次 C2 压缩后的对话轮次
+    # 上次折叠实测回本枪数（引擎自决的冷却下限）。0 = 未测到 → 冷却退回 params 固定值。
+    c2_gap_shots: int = 0
     last_model_call_at: datetime | None = None  # 最近一次模型调用时间
     last_cache_hit_tokens: int = 0  # 最近请求的缓存命中 token 数
     last_prompt_tokens: int = 0  # 最近请求的 prompt token 总数
@@ -114,6 +117,9 @@ class WorkingSnapshot:
     last_projection_manifest: dict[str, Any] | None = field(
         default=None, repr=False, compare=False
     )
+    compression_source_layout: str = LEGACY
+    compression_source_rebuilt: bool = field(default=False, repr=False, compare=False)
+    compression_source_transition_enabled: bool | None = field(default=None, repr=False, compare=False)
 
 def _sessions_dir() -> Path:
     """会话 sidecar 目录（与 JSONL 相同，可用 XEYO_SESSIONS_DIR 覆盖）。"""
@@ -230,6 +236,7 @@ def append_compact_window(
 def _to_dict(snap: WorkingSnapshot) -> dict[str, Any]:
     """把快照编成可 JSON 化的字典。"""
     at = snap.last_model_call_at
+    layout = validate(getattr(snap, "compression_source_layout", LEGACY))
     # 2026-09-15：用 getattr 容忍"桩快照"。离线回放（memory/simulator/replay.py）
     # 用 SimpleNamespace 造轻量 snapshot 复用同一套 runtime 函数，桩上未必有
     # compact_checkpoint 字段 —— 直接取属性会抛 AttributeError，导致 v6.1 基线
@@ -248,12 +255,14 @@ def _to_dict(snap: WorkingSnapshot) -> dict[str, Any]:
         }
     return {
         "session_id": snap.session_id,
+        **({"compression_source_layout": layout} if layout != LEGACY else {}),
         "agent_id": snap.agent_id,
         "compact_cursor": int(snap.compact_cursor),
         "c1_frozen_until": int(snap.c1_frozen_until),
         "c2_summary_text": str(snap.c2_summary_text or ""),
         "compact_checkpoint": cp_payload,
         "turns_since_c2": int(snap.turns_since_c2),
+        "c2_gap_shots": int(getattr(snap, "c2_gap_shots", 0) or 0),
         "last_model_call_at": at.isoformat() if at else None,
         "last_cache_hit_tokens": int(snap.last_cache_hit_tokens),
         "last_prompt_tokens": int(snap.last_prompt_tokens),
@@ -346,7 +355,7 @@ def _parse_checkpoint(raw: dict[str, Any] | None) -> CompactCheckpoint | None:
     )
 
 
-def _from_dict(raw: dict[str, Any], session_id: str) -> WorkingSnapshot:
+def _from_dict(raw: dict[str, Any], session_id: str, *, source_layout: str = LEGACY) -> WorkingSnapshot:
     """从字典恢复快照；缺字段用默认。
 
     T8：读回 compact_checkpoint 后做**投影锚点对齐**——resume 时 cursor/frozen
@@ -396,7 +405,7 @@ def _from_dict(raw: dict[str, Any], session_id: str) -> WorkingSnapshot:
     code_mode = str(raw.get("code_mode") or "").strip().lower()
     if code_mode not in ("lite", "full", "ultra"):
         code_mode = ""
-    return WorkingSnapshot(
+    snapshot = WorkingSnapshot(
         session_id=str(raw.get("session_id") or session_id or ""),
         agent_id=str(raw.get("agent_id") or "main"),
         compact_cursor=cursor_i,
@@ -404,6 +413,7 @@ def _from_dict(raw: dict[str, Any], session_id: str) -> WorkingSnapshot:
         c2_summary_text=c2_summary_text,
         compact_checkpoint=cp,
         turns_since_c2=max(0, int(raw.get("turns_since_c2") or 0)),
+        c2_gap_shots=max(0, int(raw.get("c2_gap_shots") or 0)),
         last_model_call_at=_parse_dt(raw.get("last_model_call_at")),
         last_cache_hit_tokens=max(0, int(raw.get("last_cache_hit_tokens") or 0)),
         last_prompt_tokens=max(0, int(raw.get("last_prompt_tokens") or 0)),
@@ -432,12 +442,15 @@ def _from_dict(raw: dict[str, Any], session_id: str) -> WorkingSnapshot:
             else None
         ),
     )
+    return restore_source(snapshot, raw.get("compression_source_layout", LEGACY), source_layout)
 
 
-def hydrate(session_id: str) -> WorkingSnapshot:
+def hydrate(session_id: str, *, source_layout: str | None = LEGACY) -> WorkingSnapshot:
     """从 sidecar 读回 WorkingSnapshot；缺文件或坏 JSON 时返回默认空快照"""
+    if source_layout is not None:
+        validate(source_layout)
     sid = (session_id or "").strip()
-    empty = WorkingSnapshot(session_id=sid)
+    empty = WorkingSnapshot(session_id=sid, compression_source_layout=source_layout or LEGACY)
     if not sid:
         return empty
     path = path_for(sid)
@@ -450,8 +463,11 @@ def hydrate(session_id: str) -> WorkingSnapshot:
         return empty
     if not isinstance(raw, dict):
         return empty
+    if source_layout is None:
+        stored = raw.get("compression_source_layout", LEGACY)
+        source_layout = stored if stored in (LEGACY, APPEND) else LEGACY
     try:
-        snap = _from_dict(raw, sid)
+        snap = _from_dict(raw, sid, source_layout=source_layout)
     except (TypeError, ValueError):
         return empty
     snap.session_id = sid
@@ -486,22 +502,14 @@ def flush(session_id: str, snap: WorkingSnapshot) -> None:
             pass
 
 
-def reset_after_rollback(session_id: str) -> None:
-    """Drop compression / projection sidecar state after transcript rewind.
-
-    Chat-only rewinds truncate JSONL but leave ``.working.json`` untouched unless
-    we reset it here.  Stale ``c2_summary_text`` would otherwise re-inject
-    truncated conversation back into the model via C2 projection.
-    """
-    sid = (session_id or "").strip()
-    if not sid:
-        return
-    snap = hydrate(sid)
-    snap.session_id = sid
+def reset_rollback_state(snap: WorkingSnapshot) -> None:
+    """Reset discarded timeline state for both live and restored snapshots."""
     snap.compact_cursor = 0
     snap.c1_frozen_until = 0
     snap.c2_summary_text = ""
     snap.turns_since_c2 = 0
+    # 回本间隔属于已丢弃的冻结头，不能带到回滚后的新时间线。
+    snap.c2_gap_shots = 0
     snap.last_x_sim = ""
     snap.last_x_sent = ""
     snap.last_action = ""
@@ -516,6 +524,21 @@ def reset_after_rollback(session_id: str) -> None:
     snap.last_projection = None
     snap.last_projection_manifest = None
     snap.current_atoms = []
+
+
+def reset_after_rollback(session_id: str) -> None:
+    """Drop compression / projection sidecar state after transcript rewind.
+
+    Chat-only rewinds truncate JSONL but leave ``.working.json`` untouched unless
+    we reset it here.  Stale ``c2_summary_text`` would otherwise re-inject
+    truncated conversation back into the model via C2 projection.
+    """
+    sid = (session_id or "").strip()
+    if not sid:
+        return
+    snap = hydrate(sid, source_layout=None)
+    snap.session_id = sid
+    reset_rollback_state(snap)
     flush(sid, snap)
 
 
@@ -669,4 +692,3 @@ def apply_modes(snap: WorkingSnapshot, modes: dict[str, Any]) -> None:
     snap.output_mode = _norm_quad(modes.get("output_mode"), default="")
     snap.code_compact = bool(modes.get("code_compact"))
     snap.code_mode = _norm_quad(modes.get("code_mode"), default="")
-

@@ -84,8 +84,13 @@ def test_env_channel_input_never_mutated_and_tool_name_not_in_input():
 	assert ENV_TOOL_NAME in str(out)
 
 
-def test_env_channel_empty_blocks_no_pair():
-	"""无任何块时不伪造空对（避免无意义的环境消息）。"""
+def test_env_channel_empty_blocks_no_pair(monkeypatch):
+	"""无任何块时不伪造空对（避免无意义的环境消息）。
+
+	2026-10-07 起 ``time_now`` 与 ``env_facts`` 都是常驻事实；"无块"状态要显式
+	消融两者来构造，并把名单式消融开关钉进契约。
+	"""
+	monkeypatch.setenv("XEYO_T_NOW_SKIP", "time_now,env_facts")
 	set_t_now_strategy(STRATEGY_ENV_CHANNEL)
 	projected = [{"role": "user", "content": "hi"}]
 	out = run_pre_llm_inject(projected, InjectContext(cwd=""))
@@ -237,7 +242,7 @@ def test_env_short_follow_up_keeps_reference_blocks(monkeypatch):
 	blob = _env_blob(out)
 	# D1 已删（2026-09-16）：短追问轮不再静默参考块；其余装配语义不变
 	assert "浏览器预览" in blob
-	assert "Repeat guard" in blob
+	assert "Repeat guard" not in blob
 	# 用户原文完好、不在伪对里
 	assert "帮我修改" not in blob
 	assert out[-3]["content"] == "帮我修改"

@@ -148,6 +148,32 @@ class SessionPool:
 		with self._lock:
 			return self._session_cwd.get(session_id)
 
+	def pin_session_cwd(self, session_id: str, cwd: str) -> str | None:
+		"""把「会话 → 工作区」登记为已知（first-write-wins，不建 engine、不碰 busy）。
+
+		``/v1/slash`` 的 goal 命令用：目标按调用方给的工作区落盘，而新会话在首个
+		chat 请求之前不在任何表里，goals 读侧（GET/PATCH/round-driver 的
+		``_require_known_session``）却要求会话已知 —— 不登记就是「写侧 200、
+		读侧 404」。语义与 ``get_or_create`` 的 pin 一致：已钉死时保留先到者
+		（真冲突由 chat 侧既有组合里的 CwdConflictError 管）。
+		"""
+		sid = (session_id or "").strip()
+		raw = (cwd or "").strip()
+		if not sid or not raw:
+			return None
+		from session.workspace_path import resolve_physical_cwd
+
+		physical = resolve_physical_cwd(raw)
+		if not physical:
+			return None
+		with self._lock:
+			pinned = self._session_cwd.get(sid)
+			if pinned:
+				return pinned
+			self._session_cwd[sid] = physical
+			self._register_workspace_id(physical)
+			return physical
+
 	def _register_workspace_id(self, physical: str) -> None:
 		"""T31：把规范化路径登记为其 workspace id → 路径映射（服务端权威）。"""
 		from memory.memdir import workspace_id
@@ -250,7 +276,7 @@ class SessionPool:
 		- T10：首次创建同时钉死权限 preset（readonly/workspace-write/full）；
 		  后续请求传入不同 preset 不溯及既有会话。
 		"""
-		from permissions.presets import normalize_preset
+		from permissions.presets import PERMISSION_PRESETS, normalize_preset
 		from session.workspace_path import resolve_physical_cwd
 
 		requested = (cwd or "").strip()
@@ -314,6 +340,21 @@ class SessionPool:
 				cwd=use_cwd,
 			)
 			# T10：preset 首建 pin（first-write-wins）；engine 重建沿用原 pin。
+			# 认不出的**非空**值必须拒绝，不能靠 normalize_preset 回退：
+			# `permissions/runtime_preset.set` 的 docstring 就写着
+			# 「presets.normalize_preset 会把未知值回退为默认（workspace-write），
+			# 这里必须用原始名校验 —— 用户打字错误不能静默变成"工作区写"」。
+			# 原先只有运行时切档那一路照做了，首建这一路直接把 normalize_preset
+			# 拿去 pin ⇒ 同一个字段两套政策：客户端把 readonly 打错一个字母，
+			# 拿到的不是"只读会话 + 一次明确报错"，而是**静默的写权限**。
+			# 空 / 缺省仍回退默认档（现状行为不变）。
+			if permission_preset is not None and str(permission_preset).strip():
+				wanted = str(permission_preset).strip().lower().replace("_", "-")
+				if wanted not in PERMISSION_PRESETS:
+					raise ValueError(
+						"permission_preset must be one of: "
+						"readonly / workspace-write / full"
+					)
 			profile = self._profiles.setdefault(
 				session_id, normalize_preset(permission_preset)
 			)

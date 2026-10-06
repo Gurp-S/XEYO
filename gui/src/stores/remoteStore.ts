@@ -139,7 +139,12 @@ function applyEvents(events: RemoteStatus['events']) {
 		if (!gated) {
 			continue;
 		}
-		if (!ev.text?.trim()) {
+		// ask/ask_resolved 允许空 text（resolved 本就是空载荷事件），其余保持原门。
+		if (
+			!ev.text?.trim() &&
+			ev.kind !== 'ask' &&
+			ev.kind !== 'ask_resolved'
+		) {
 			continue;
 		}
 		if (ev.kind === 'error' || ev.kind === 'warn') {
@@ -174,6 +179,37 @@ function applyEvents(events: RemoteStatus['events']) {
 						useChatStore.getState().activeId ??
 						'',
 			});
+		} else if (ev.kind === 'ask') {
+			// #11：远端回合的提问推到这里 → 桌面 AskUserDialog 直接可作答
+			//（此前手机答不了、桌面连题都看不到，只能等 180s TTL）。
+			if (!ev.request_id) {
+				continue;
+			}
+			useChatStore.getState().setPendingAsk?.({
+				requestId: String(ev.request_id),
+				question: typeof ev.text === 'string' ? ev.text : '',
+				options: Array.isArray(ev.options)
+					? (ev.options as string[]).map(String)
+					: [],
+				default:
+					typeof ev.default === 'string' && ev.default
+						? ev.default
+						: null,
+				questions: Array.isArray(ev.questions)
+					? (ev.questions as never)
+					: [],
+				sessionId:
+					getRemoteMirrorSession() ??
+					useChatStore.getState().activeId ??
+					'',
+			});
+		} else if (ev.kind === 'ask_resolved') {
+			// 别处（手机 /answer、超时）已答：桌面挂起弹窗随之收起。
+			const rid = ev.request_id ? String(ev.request_id) : '';
+			const cur = useChatStore.getState().pendingAsk;
+			if (cur && (!rid || cur.requestId === rid)) {
+				useChatStore.getState().setPendingAsk?.(null);
+			}
 		}
 	}
 }

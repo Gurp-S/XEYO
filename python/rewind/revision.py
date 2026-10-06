@@ -49,8 +49,9 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     with _lock_for(path):
         try:
-            with path.open("r", encoding="utf-8") as handle:
-                for line in handle:
+            with path.open("rb") as handle:
+                for raw in handle:
+                    line = raw.decode("utf-8", errors="replace")
                     try:
                         value = json.loads(line)
                     except json.JSONDecodeError:

@@ -19,6 +19,15 @@ export function canManuallyResumeInbox(
 	return !archived && !busy && items.some(item => item.state === 'queued' && item.autorun === false);
 }
 
+/** 「立即插入」（边界引导）只对尚未进入投递的排队项开放；侧会话不支持引导。 */
+export function canSteerInboxItem(
+	state: InboxItemState,
+	archived: boolean,
+	side: boolean,
+): boolean {
+	return state === 'queued' && !archived && !side;
+}
+
 export function assignInboxQueuePositions<T extends {state: InboxItemState}>(
 	items: T[],
 ): Array<T & {position: number}> {

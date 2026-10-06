@@ -85,6 +85,56 @@ def _assistant_tool_uses(m: Message) -> list[tuple[str, str]]:
 	return uses
 
 
+def _ledger_fact() -> str:
+	"""进程台账里**可归因的存活事实**（只读、fail-open、门控关闭时返回空串）。
+
+	为什么必须门控：``XEYO_PROC_LEDGER`` 默认关，关着时"无记录"是机制没开造成的
+	空事实——报出去就是假信息（本模块的原则：宁缺勿假）。台账里剩下的存活对象
+	至少能说明"上一进程确实 spawn 过东西"，比裸的"可能已执行"多一格信息。
+
+	call 级归因（这一次调用是否开始过）由 ``session/call_trace.py`` 承担：执行层入口按
+	``call_id`` 落一条开始记录，本模块只取**正向证据**（见 ``_call_start_fact``）。
+	"""
+	try:
+		from engine.process_ledger import ledger_enabled, leftovers
+
+		if not ledger_enabled():
+			return ""
+		alive = leftovers()
+	except Exception:  # noqa: BLE001 — 台账不可用 ⇒ 不加这句
+		return ""
+	if not alive:
+		return " 进程台账：无存活对象。"
+	head = "; ".join(
+		f"pid={getattr(entry, 'pid', '?')} "
+		f"{(getattr(entry, 'cmdline', '') or '')[:60]}".strip()
+		for entry in alive[:2]
+	)
+	more = f" 等 {len(alive)} 个" if len(alive) > 2 else ""
+	return f" 进程台账：存活对象 {head}{more}。"
+
+
+def _call_start_fact(call_id: str) -> str:
+	"""执行起点台账里的**正向证据**：这一次调用确实进入了执行。
+
+	只报正向证据：开关关着 / 会话未知 / 记录被裁剪 / 台账读炸 ⇒ 一律返回空串。
+	"无记录"不构成"未开始"的证据，报出去就是假信息（本模块原则：宁缺勿假）。
+	"""
+	try:
+		from engine.t_now_notes import current_session_id
+		from session.call_trace import started
+
+		session_id = current_session_id()
+		if not session_id:
+			return ""
+		row = started(session_id, call_id)
+	except Exception:  # noqa: BLE001 — 台账不可用 ⇒ 不加这句
+		return ""
+	if not row:
+		return ""
+	return " 执行起点台账：该调用已进入执行（有开始记录，无结果）。"
+
+
 def _repair_unclosed_tool_uses(messages: list[Message]) -> list[Message]:
 	"""T4：为没有对应 tool_result 行的 tool_use 合成确定性结果。"""
 	messages = reorder_system_messages_around_tool_results(messages)
@@ -126,7 +176,7 @@ def _repair_unclosed_tool_uses(messages: list[Message]) -> list[Message]:
 				# （write_store missing_read 门 / unchanged 短路 / 语法门）。
 				text = (
 					f"[{name}] TOOL_OUTCOME_UNKNOWN — 上一进程中断且该调用"
-					"可能已执行。"
+					"可能已执行。" + _ledger_fact() + _call_start_fact(uid)
 				)
 			out.append(tool_result_message(uid, name, text, is_error=True))
 		i = j

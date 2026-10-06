@@ -57,8 +57,8 @@ def test_run_pre_llm_inject_does_not_mutate_input():
 	assert "Wrap-up(预算已尽)" not in _joined_user_texts(out)
 
 
-def test_repeat_guard_block_injected_as_t_now(monkeypatch):
-	"""T6：current_advice 非空时挂 Repeat guard（background only）块。"""
+def test_repeat_counts_do_not_enter_t_now(monkeypatch):
+	"""重复证据不再携带计数文本；无未完成 TODO 时不注入。"""
 	from engine import repeat_guard
 
 	monkeypatch.setattr(
@@ -69,8 +69,8 @@ def test_repeat_guard_block_injected_as_t_now(monkeypatch):
 		projected, InjectContext(working=WorkingSnapshot(session_id="t"), cwd="")
 	)
 	blob = _joined_user_texts(out)
-	assert "# Repeat guard（background only）" in blob
-	assert "已连续调用 3 次" in blob
+	assert "# Repeat guard（background only）" not in blob
+	assert "已连续调用 3 次" not in blob
 
 	monkeypatch.setattr(repeat_guard, "current_advice", lambda: "")
 	out2 = run_pre_llm_inject(

@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from engine.abort import AbortController
+from tools.error_taxonomy import PERMISSION_DENIED
 from tools.base_tool import ToolResult
 from tools.todo_write_tool.constants import TODO_WRITE_TOOL_NAME
 from tools.todo_write_tool.prompt import DESCRIPTION
@@ -310,7 +311,14 @@ class TodoWriteTool:
 				if is_file:
 					rows.append(f"[引擎核对] 产物 {path}: 已存在（{size} B）")
 				else:
-					rows.append(f"[引擎核对] 产物 {path}: 磁盘上不存在（该项已标 completed）")
+					# stat_path 只测得出"不是普通文件"——路径**缺失**与"是个目录"
+					# 同样是 (False, 0)（容器分支内部区分了 D/M，出口仍折叠）。
+					# 原先直说"磁盘上不存在"，对"产物其实是目录"的情形是假陈述；
+					# 按引擎铁律第 1 条，这里只说我量到的那件事。
+					rows.append(
+						f"[引擎核对] 产物 {path}: 磁盘上没有这个文件"
+						f"（缺失或不是普通文件），该项已标 completed"
+					)
 			except Exception:  # noqa: BLE001 — fail-open
 				continue
 		return "\n".join(rows)
@@ -329,7 +337,7 @@ class TodoWriteTool:
 		if not v.get("result"):
 			return ToolResult(content=str(v.get("message")), is_error=True)
 		if not self.check_permissions(parsed):
-			return ToolResult(content="permission denied", is_error=True)
+			return ToolResult(content="permission denied", is_error=True, error_kind=PERMISSION_DENIED)
 		abort.raise_if_aborted()
 		try:
 			out = self.call(parsed)

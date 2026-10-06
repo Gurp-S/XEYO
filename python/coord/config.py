@@ -47,7 +47,7 @@ def _read_backend(path: Path) -> str | None:
     except FileNotFoundError:
         return None
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        _log.debug("coord config read failed at %s: %s", path, exc)
+        _log.warning("coord config read failed at %s: %s", path, exc)
         return None
     if not isinstance(raw, dict):
         return None
@@ -80,7 +80,7 @@ def _read_workers(path: Path) -> bool | None:
     except FileNotFoundError:
         return None
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        _log.debug("coord workers config read failed at %s: %s", path, exc)
+        _log.warning("coord workers config read failed at %s: %s", path, exc)
         return None
     if not isinstance(raw, dict):
         return None

@@ -295,7 +295,16 @@ async def chat_async(
 			break
 		text = (line or "").strip()
 		if text:
-			await _one(text)
+			try:
+				await _one(text)
+			except Exception as exc:  # noqa: BLE001 — SystemExit/KeyboardInterrupt 不在内
+				# 一轮的异常不许把整个 REPL 连根拔掉（一次性路径同款围栏）：
+				# 打印失败原因后继续读下一行，会话环境（engine/模式/last_prompt）原样保留。
+				renderer.stop_status()
+				console.print(
+					f"[bold red]✗ turn failed[/bold red]: "
+					f"{type(exc).__name__}: {escape(str(exc))}"
+				)
 	return 0
 
 

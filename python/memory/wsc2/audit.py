@@ -29,16 +29,20 @@ def gold(events: list[Event], t: int) -> dict[str, Any]:
     last_write: dict[str, int] = {}
     writes: dict[str, int] = {}
     untracked: set[str] = set()
+    calls = {e.call_id: e for e in before if e.kind == KIND_TOOL_USE and e.call_id}
     for e in before:
-        if e.kind != KIND_TOOL_USE:
+        if e.kind != KIND_TOOL_RESULT or e.is_error:
             continue
-        if not (is_write_tool(e.tool) or is_read_tool(e.tool)):
+        call = calls.get(e.call_id)
+        if call is None:
+            continue
+        if not (is_write_tool(call.tool) or is_read_tool(call.tool)):
             # Grep/Glob 之类也带 path：状态层 v0 不跟踪，单独计账，不混进召回率
-            untracked.update(p for p in e.paths if p not in seen)
+            untracked.update(p for p in call.paths if p not in seen)
             continue
-        for p in e.paths:
+        for p in call.paths:
             seen.setdefault(p, e.index)
-            if is_write_tool(e.tool):
+            if is_write_tool(call.tool):
                 writes[p] = writes.get(p, 0) + 1
                 last_write[p] = e.index
     later: set[str] = set()
@@ -161,7 +165,7 @@ def score(events: list[Event], t: int, state: WorkingState,
     # 同 key 只允许一条 ACTIVE（"旧值+新值同时在场"的直接反证）
     dup: dict[str, int] = {}
     for f in state.active_facts():
-        dup[f"{f.kind}:{f.key}"] = dup.get(f"{f.key}:{f.kind}", 0) + 1
+        dup[f"{f.kind}:{f.key}"] = dup.get(f"{f.kind}:{f.key}", 0) + 1
     out["active_duplicate_keys"] = sum(1 for k, n in dup.items() if n > 1)
 
     if v1_text:

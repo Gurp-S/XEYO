@@ -67,8 +67,10 @@ def load_skill_body(cwd: str, name: str) -> str | None:
 	if entry is None or entry.broken:
 		return None
 	try:
-		return (entry.path / "SKILL.md").read_text(encoding="utf-8")
-	except OSError:
+		from tools.fileio.text import read_text_file
+
+		return read_text_file(str(entry.path / "SKILL.md"))[0]
+	except (OSError, UnicodeDecodeError):
 		return None
 
 
@@ -255,6 +257,14 @@ class SkillTool:
 			avail = [e.name for e in entries if not e.broken and e.model_invocable]
 			hint = f" Available: {', '.join(avail)}" if avail else " (none installed)"
 			return ToolResult(content=f"Skill not found: {name}.{hint}", is_error=True)
+		got = _entry(entries, name)
+		if got is not None and got.broken:
+			# 坏 manifest ≠ 作者禁用调用 ≠ 未安装：加载器的原因原样交出去。
+			return ToolResult(
+				content=f"Skill {name} is installed but unreadable: "
+				f"{got.reason or 'invalid SKILL.md'}",
+				is_error=True,
+			)
 		if not _model_invocable_ok(entries, name):
 			return ToolResult(
 				content=f"Skill {name} not available for model invocation "
@@ -263,7 +273,12 @@ class SkillTool:
 			)
 		body = load_skill_body(self._cwd, name)
 		if body is None:
-			return ToolResult(content=f"Skill not found: {name} (broken?).", is_error=True)
+			if _entry(entries, name) is not None:
+				return ToolResult(
+					content=f"Skill {name} is installed but its SKILL.md could not be read.",
+					is_error=True,
+				)
+			return ToolResult(content=f"Skill not found: {name}.", is_error=True)
 
 		entry = _entry(entries, name)
 		path = str(entry.path / "SKILL.md") if entry else ""

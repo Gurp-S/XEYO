@@ -106,7 +106,19 @@ def _request_text(messages: list[dict]) -> str:
 	return "\n".join(parts)
 
 
-@pytest.mark.xfail(reason="既有红（2026-09-21 挂账）：I 桶·**疑似真缺陷，优先查**：断言 [0,0,0,1,…] 实际 [0,0,0,0,…]，该发的收尾提醒未发。必须先判定是「文本不发」（改断言）还是「闸门不关」（护栏失效）。2026-09-18 审计已点名，至今未处理。", strict=False)
+@pytest.mark.xfail(
+	reason=(
+		"既有红（2026-09-21 挂账；2026-10-03 已定位，勿顺手改绿）：挂账问的两支已用证据答——"
+		"「闸门不关」为**假**：--runxfail 跑到本行之前，calls==7 / turn_count==7 / "
+		"grace_turns_used==4 / tools 逐字一致 全绿，执行层护栏照常。失效的是「文本不发」："
+		"MAX_TURN_WARNING 进 budget._pending_notices，query_loop:925 consume_runtime_notice() "
+		"取走后只塞进 InjectContext.runtime_notice，而 prompt/ 下读该字段的点为 0"
+		"（evals/changedetect/trace.py:134 记该块'已从模型可见面撤除'，budget.py docstring "
+		"却说'播报照旧'——两处互相矛盾）。⇒ 待用户裁定：把这条通道接回模型可见面，"
+		"还是连同 queue_runtime_notice 的消费端一起删净。裁定前本条保持 xfail。"
+	),
+	strict=False,
+)
 @pytest.mark.asyncio
 async def test_max_turns_allows_three_shared_grace_turns_and_stops():
 	model = AlwaysToolModel()

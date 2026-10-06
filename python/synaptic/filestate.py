@@ -6,14 +6,16 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
-from synaptic.graph import Graph
+from common.read_target import single_file_target
+from synaptic.graph import Graph, result_is_error
 from synaptic.textutil import (
 	classify_tool,
 	content_hash,
 	is_full_file_read,
 	node_token_len,
+	normalize_path,
 	read_range,
 	tool_input_paths,
 	tool_result_blocks,
@@ -70,63 +72,80 @@ def _first_line(text: str, limit: int = 80) -> str:
 	return ""
 
 
-def collect_reads_writes(
-	graph: Graph, messages: list[dict]
-) -> tuple[list[_Read], list[_Write]]:
-	"""按时间顺序收集所有 read / write 事件。"""
+def collect_reads_writes(graph: Graph, messages: list[dict]) -> tuple[list[_Read], list[_Write]]:
+	"""Collect successful receipts per call, including batched result messages."""
 	reads: list[_Read] = []
 	writes: list[_Write] = []
-	name_by_uid: dict[str, str] = {}
-	inp_by_uid: dict[str, dict] = {}
-	for msg in messages:
-		for u in tool_use_blocks(msg):
-			uid = str(u.get("id") or "")
-			name = str(u.get("name") or "")
-			inp = u.get("input") if isinstance(u.get("input"), dict) else {}
-			if uid:
-				name_by_uid[uid] = name
-				inp_by_uid[uid] = inp
-
-	for idx, node in enumerate(graph.nodes):
-		if node.kind != KIND_TOOL_RESULT:
-			continue
-		uid = node.tool_use_id
-		name = name_by_uid.get(uid, node.tool_name)
-		inp = inp_by_uid.get(uid, {})
-		is_write, read_only, replay = classify_tool(name, inp)
-		paths = list(tool_input_paths(inp))
-		if not paths:
-			paths = [p for p in node.refs]
-		if not paths:
-			continue
-		text = ""
-		for b in tool_result_blocks(messages[idx]) if idx < len(messages) else []:
-			text = tool_result_text(b)
-			break
-		if is_write:
-			for p in paths:
-				writes.append(_Write(idx=idx, path=p, summary=_write_summary(name, inp)))
-		elif read_only:
-			# 观测来源**按覆盖面判定，不按工具名**：`cat` / `Get-Content` / `type` 读的是
-			# 整个文件，和 `Read` 同样有效。原先这里写死 `name in ("Read","NotebookRead")`，
-			# 于是 Bash 驱动的会话（容器内任务、Codex 形态）**一条读观测都收不到** ⇒ 时效轴
-			# 的 stale 恒为 0。反过来，片段型命令（grep/rg/head/sed/ls）刻意**不收**：让它们
-			# 参与会凭空归零写后过期时钟（实测 `synth_session` 末轮的 grep 就会抹掉 STALE，
-			# 破了规则 5 的契约测试）。
-			precise_source = name in ("Read", "NotebookRead")
-			if not precise_source and not is_full_file_read(replay):
+	uses = {str(u.get("id")): u for msg in messages for u in tool_use_blocks(msg) if u.get("id")}
+	for idx, msg in enumerate(messages):
+		for block in tool_result_blocks(msg):
+			uid = str(block.get("tool_use_id") or "")
+			use = uses.get(uid, {})
+			name = str(use.get("name") or msg.get("name") or "")
+			inp = use.get("input") if isinstance(use.get("input"), dict) else {}
+			command = str(inp.get("command") or inp.get("cmd") or "")
+			if result_is_error(block, command=command, tool_name=name):
 				continue
-			# `read_range` 只认 Read 的 offset/limit；喂给它 bash 的 input 会**凭空造出**
-			# 「1..输出行数」这种假区间（无 offset/limit ⇒ 按整段输出算），故非 Read 一律 None。
-			rng = read_range(inp, text) if precise_source else None
-			for p in paths:
-				reads.append(_Read(idx=idx, path=p, text=text, rng=rng))
+			is_write, read_only, replay = classify_tool(name, inp)
+			paths = list(tool_input_paths(inp))
+			if not paths and read_only and name in ("Bash", "exec_command", "exec"):
+				# 读观测的身份 = 命令点名的**唯一**文件（判据与 bash 路由、卡面 target 同源，
+				# 见 common.read_target）。旧实现 fallback 到结果正文的 refs（提及路径），
+				# 把正文里提到的文件名记成了读观测（现场：一条 Get-Content 产出 5 条
+				# read:未读 的裸名条目），命令真正的目标反而没进表。
+				target = single_file_target(command)
+				paths = [normalize_path(target)] if target else []
+			elif not paths and use:
+				paths = list(graph.node(idx).refs) if graph.node(idx) is not None else []
+			if not paths:
+				continue
+			text = tool_result_text(block)
+			if is_write:
+				for path in paths:
+					writes.append(_Write(idx=idx, path=path, summary=_write_summary(name, inp)))
+			elif read_only:
+				precise = name in ("Read", "NotebookRead")
+				if not precise and not is_full_file_read(replay):
+					continue
+				rng = read_range(inp, text) if precise else None
+				for path in paths:
+					reads.append(_Read(idx=idx, path=path, text=text, rng=rng))
 	return reads, writes
+
+
+def _merge_suffix_keys(
+	reads: list[_Read], writes: list[_Write]
+) -> tuple[list[_Read], list[_Write]]:
+	"""相对短键并入唯一后缀匹配的完整键（纯字符串判据，确定性）。
+
+	现场（sess_musrbw08_n9tly2）：``docs/wsc2-handoff-2026-09-23.md``（Bash 相对
+	形态）与 ``/lea/XenYon code/docs/wsc2-handoff-2026-09-23.md``（Read 完整形态）
+	是同一文件的两条记录，模型无法判断哪条是当前版本。两个完整键都以同一短键
+	结尾（同名文件不同目录）时**不归并**——不许猜。
+	"""
+	full_keys = sorted(
+		{p for p in (r.path for r in reads) if p.startswith("/")}
+		| {w.path for w in writes if w.path.startswith("/")}
+	)
+	if not full_keys:
+		return reads, writes
+
+	def resolve(path: str) -> str:
+		if not path or path.startswith("/"):
+			return path
+		matches = [key for key in full_keys if key.endswith("/" + path)]
+		return matches[0] if len(matches) == 1 else path
+
+	return (
+		[replace(r, path=resolve(r.path)) for r in reads],
+		[replace(w, path=resolve(w.path)) for w in writes],
+	)
 
 
 def build_file_states(graph: Graph, messages: list[dict]) -> dict[str, FileState]:
 	"""构建文件状态表。"""
 	reads, writes = collect_reads_writes(graph, messages)
+	reads, writes = _merge_suffix_keys(reads, writes)
 
 	# 路径 -> 相关错误签名（按节点序）
 	errs_by_path: dict[str, list[str]] = {}

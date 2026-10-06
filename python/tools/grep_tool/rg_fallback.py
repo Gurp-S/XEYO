@@ -44,7 +44,15 @@ _UNSUPPORTED = (
 
 #: 可安全丢弃的纯性能/呈现类选项（丢弃不改变"命中集合"语义）。
 _DROPPABLE_WITH_VALUE = ("--max-columns",)
-_DROPPABLE_FLAGS = ("--hidden", "--max-columns-preview", "--no-config", "--no-heading")
+#: ``--null``（路径 NUL 定界）同理：GNU grep 复现不出该格式，但解析层
+#: 两种形态都吃得下（宿主 NUL / 回退文本），模型可见输出逐字相同。
+_DROPPABLE_FLAGS = (
+	"--hidden",
+	"--max-columns-preview",
+	"--no-config",
+	"--no-heading",
+	"--null",
+)
 
 
 def _is_glob_like(token: str) -> bool:

@@ -27,6 +27,9 @@ jobs:
             python/requirements.txt
             python/pyproject.toml
 
+      - name: Install ripgrep
+        run: sudo apt-get update && sudo apt-get install --yes ripgrep
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -50,10 +53,15 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
       - uses: dtolnay/rust-toolchain@stable
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: gui/src-tauri
+      - name: Prepare Tauri resource tree
+        run: python scripts/build_slim_python.py
       - name: cargo check
         run: cargo check --message-format=short
         working-directory: gui/src-tauri
@@ -69,7 +77,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
           cache-dependency-path: gui/package-lock.json
 

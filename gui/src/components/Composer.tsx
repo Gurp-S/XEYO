@@ -10,6 +10,7 @@ import {
 	Send,
 	Square,
 	X,
+	Zap,
 } from 'lucide-react';
 import {
 	useEffect,
@@ -23,11 +24,12 @@ import {
 	type KeyboardEvent,
 	type MouseEvent as ReactMouseEvent,
 } from 'react';
-import {fetchFileReferences, uploadFile, uploadMedia, mediaUrl, resumeInbox, type SkillInfo} from '@/lib/api';
+import {fetchFileReferences, uploadFile, uploadMedia, mediaUrl, resumeInbox, steerInboxItem, type SkillInfo} from '@/lib/api';
 import {
 	canEditInboxItem,
 	canManuallyResumeInbox,
 	canMutateInboxItem,
+	canSteerInboxItem,
 	prioritizeInboxPreview,
 } from '@/lib/inboxItemState';
 import {
@@ -2102,6 +2104,36 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 												}}
 											>
 												<Send className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden />
+											</button>
+										) : null}
+										{canSteerInboxItem(it.state, activeSessionArchived, activeSessionIsSide) ? (
+											<button
+												type="button"
+												className="xy-queue-action disabled:pointer-events-none disabled:opacity-40"
+												title={
+													queueActionsInFlight.has(it.queue_id)
+														? '正在插入…'
+														: '立即插入：本轮下一个采样边界投递，不打断当前工具批次'
+												}
+												disabled={queueActionsInFlight.has(it.queue_id)}
+												onClick={() => {
+													const sessionId = activeId;
+													if (!sessionId || activeSessionArchived) return;
+													const current = chatUiStoreApi.getState();
+													if (
+														current.sessions.some(
+															session => session.id === sessionId && session.archived,
+														)
+													) return;
+													const backendId = activeBackendSessionId(current.historyById, sessionId);
+													void runQueueAction(
+														it.queue_id,
+														() => steerInboxItem(backendId, it.queue_id),
+														'立即插入失败',
+													).then(() => refreshInbox(sessionId));
+												}}
+											>
+												<Zap className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden />
 											</button>
 										) : null}
 										<button

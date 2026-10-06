@@ -47,8 +47,8 @@ def _patch_capture(
 		src = preview if preview and preview.is_file() else path
 		return src.read_bytes()
 
-	monkeypatch.setattr("channels.filehelper.screenshot.capture_primary", _cap)
-	monkeypatch.setattr("channels.filehelper.screenshot.preview_png", _preview)
+	monkeypatch.setattr("tools.screenshot_tool.capture.capture_primary", _cap)
+	monkeypatch.setattr("tools.screenshot_tool.capture.preview_png", _preview)
 
 
 @pytest.mark.asyncio

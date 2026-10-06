@@ -234,3 +234,25 @@ def test_failed_write_does_not_discover(tmp_path):
 	snap = WorkingSnapshot(session_id="t")
 	new = _discover_nested_from_projection(projected, snap, str(root))
 	assert new == []
+
+
+def test_unfilled_nested_template_is_not_injected(tmp_path):
+	"""未填过的自动模板不进嵌套注入（与外层 system 左段同源判据）。
+
+	现场：外层与内层 python/XEYO.md 逐字相同的空模板被双双注入。
+	"""
+	f = tmp_path / "XEYO.md"
+	f.write_text(
+		"# XEYO 项目说明（指针式，保持简短）\n\n"
+		"## 常用命令\n- 测试：\n- 构建：\n\n"
+		"## 指针（细则不内联；需要时用 Read / Skill）\n- 架构：\n",
+		encoding="utf-8",
+	)
+	assert load_nested_instruction_text([str(f)]) == ""
+
+
+def test_filled_nested_instruction_still_renders(tmp_path):
+	f = tmp_path / "XEYO.md"
+	f.write_text("## 常用命令\n- 测试：py -3.11 -m pytest\n", encoding="utf-8")
+	out = load_nested_instruction_text([str(f)])
+	assert "py -3.11 -m pytest" in out

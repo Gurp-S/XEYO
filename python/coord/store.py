@@ -19,9 +19,7 @@ import uuid
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-# ---------------------------------------------------------------------------
 # 状态机
-# ---------------------------------------------------------------------------
 
 STATUS_PENDING = "pending"
 STATUS_CLAIMED = "claimed"
@@ -82,9 +80,7 @@ def scope_conflicts(a: list[str], b: list[str]) -> bool:
     return False
 
 
-# ---------------------------------------------------------------------------
 # Task
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -334,9 +330,7 @@ def worker_failed(task: Task, worker_id: str, findings: list[dict]) -> Task | No
     return _reopen_or_block(task, task.base_commit, findings)
 
 
-# ---------------------------------------------------------------------------
 # Scope lease
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -443,9 +437,7 @@ def release_scope_paths(leases: list[ScopeLease], owner: str,
     return out
 
 
-# ---------------------------------------------------------------------------
 # Ask queue
-# ---------------------------------------------------------------------------
 
 
 @dataclass

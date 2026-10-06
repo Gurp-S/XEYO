@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "XEYO",
-  "version": "0.1.0",
+  "version": "1.1.0",
   "identifier": "com.xeyo.agent",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -25,7 +25,7 @@
         "transparent": true,
         "shadow": false,
         "visible": false,
-        "additionalBrowserArgs": "--enable-gpu --ignore-gpu-blocklist --disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,CalculateNativeWinOcclusion"
+        "additionalBrowserArgs": "--enable-gpu --ignore-gpu-blocklist --disable-gpu-rasterization --disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,CalculateNativeWinOcclusion"
       }
     ],
     "security": {

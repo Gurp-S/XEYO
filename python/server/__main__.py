@@ -28,6 +28,30 @@ def _pick_free_port(host: str, start: int, max_attempts: int = 50) -> int:
 	raise RuntimeError(f"no free port in range {start}..{start + max_attempts}")
 
 
+def resolve_bridge_workspace(raw: str | None = None) -> str | None:
+	"""把启动器的 XEYO_CWD 解析成"桥"用的物理工作区；None=home 级语义。
+
+	启动器给的常是相对值（`.env` 里 `.`），而本进程 cwd 可能已被 pushd 到 `python/`：
+	必须先物理解析；结果若是 python 包根（点击式启动的典型情形），回退到其父=仓库根。
+	否则 `_memory_store` 只合并 home 段 ⇒ **工作区级开关（R3/R4 等）静默失效**——
+	2026-10-05 活后端实测事故（env 里两键 source=default，bridged 集与 home 存储逐键相同）。
+	"""
+	value = (raw if raw is not None else os.environ.get("XEYO_CWD", "")).strip()
+	if not value:
+		return None
+	try:
+		from session.workspace_path import is_python_package_root, resolve_physical_cwd
+
+		physical = resolve_physical_cwd(value)
+		if is_python_package_root(physical):
+			from cli.cwdutil import package_parent_workspace
+
+			physical = package_parent_workspace() or ""
+		return physical or None
+	except (OSError, ValueError):
+		return None  # 解析失败退回 home 级语义（与未设 XEYO_CWD 同路径）
+
+
 def main() -> None:
 	os.environ.setdefault("XEYO_REWIND_ENABLED", "1")
 	# 记忆系统开关：把 settings.json 的 memory 段桥接到 os.environ（运行时各开关读 env）。
@@ -35,7 +59,14 @@ def main() -> None:
 	try:
 		from memory.memory_switches import apply_to_environ, prune_stale
 
-		ws = os.environ.get("XEYO_CWD", "").strip() or None
+		# XEYO_CWD 常由启动器给相对值（.env 里 "."），而本进程 cwd 可能已被 pushd 到
+		# python/：解析职责收在 `resolve_bridge_workspace`（含包根→父级回退；详见其
+		# docstring——这是 2026-10-05"R3/R4 从未生效"事故的修复点）。解析成功后**发布**为
+		# 物理路径（与 `cli serve` 的 `resolve_cwd` 同契约），供发射侧 cwd 兜底读取
+		# （`wsc_projection._pinned`/`ref_path_for` 会读 XEYO_CWD）。
+		ws = resolve_bridge_workspace()
+		if ws:
+			os.environ["XEYO_CWD"] = ws
 		applied = apply_to_environ(ws)
 		if applied:
 			print("[xeyo] 应用记忆开关: " + ", ".join(f"{k}={v}" for k, v in applied.items()), flush=True)

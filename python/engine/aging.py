@@ -87,7 +87,7 @@ def build_stub(tool_name: str, use_id: str, summary: str, *, folded: bool) -> st
 		return f"[elided earlier {tool_name}]"
 	uid8 = (use_id or "")[-8:]
 	s = sanitize_summary(summary)
-	return f"[elided {tool_name} {uid8}: {s}] (archived; answer from remaining context)"
+	return f"[elided {tool_name} {uid8}: {s}] (archived)"
 
 
 def record_stub(chars_before: int, chars_after: int) -> None:

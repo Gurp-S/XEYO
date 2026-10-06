@@ -7,6 +7,19 @@ REM  XEYO TUI (TypeScript / Ink) — double-click entry
 REM  Falls back to Python CLI if Node deps are missing.
 REM ============================================================
 
+REM ------------------------------------------------------------
+REM  env setup (2026-10-05 与 XEYO.bat 同源): 加载仓库根 .env
+REM  ——R1 水位、XEYO_TOOL_DENY 等 env-only 键只能走这里；
+REM  缺它会使 TUI 自启后端与 GUI 入口策略不一致。
+REM ------------------------------------------------------------
+if not exist "%~dp0.env" if exist "%~dp0.env.example" copy /y "%~dp0.env.example" "%~dp0.env" >nul
+
+if exist "%~dp0.env" (
+  for /f "usebackq tokens=* eol=#" %%i in ("%~dp0.env") do (
+    for /f "tokens=1,* delims==" %%a in ("%%i") do if not "%%~a"=="" set "%%~a=%%~b"
+  )
+)
+
 if not defined XEYO_PYTHON_ROOT set "XEYO_PYTHON_ROOT=%~dp0python"
 if not defined PYTHONUNBUFFERED set "PYTHONUNBUFFERED=1"
 if not defined PYTHONIOENCODING set "PYTHONIOENCODING=utf-8"

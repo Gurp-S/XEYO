@@ -17,6 +17,7 @@ from engine.abort import AbortController
 from permissions import filesystem
 from rewind.context import current_context
 from tools.base_tool import ToolResult
+from tools.error_taxonomy import INVALID_ARGUMENT, PERMISSION_DENIED
 
 from tools.fileio.diff_preview import append_diff_fence, format_capped_unified_diff
 from tools.fileio.paths import (
@@ -30,6 +31,7 @@ from tools.fileio.text import (
 	apply_edit_to_file,
 	find_actual_string,
 	get_mtime_ms,
+	normalize_newlines,
 	preserve_quote_style,
 	read_text_file,
 	write_text_file,
@@ -447,19 +449,22 @@ class FileEditTool:
 
 		# 新文件创建：old_string == ""
 		if not _fsprobe.exists(full) and input_data.old_string == "":
+			# 落盘、快照、行数统计用同一份归一正文：直通路径 write_text_file 会把
+			# "\r\n"/孤立 "\r" 都折成 "\n"，快照若留着它们就和 write_store 的归一化
+			# 哈希空间对不上（下一枪无端判 stale，见下方主分支同一处注释）。
+			new_norm = normalize_newlines(input_data.new_string)
 			journal_warning = self._persist(
-				full, input_data.new_string, encoding="utf-8", line_endings="LF"
+				full, new_norm, encoding="utf-8", line_endings="LF"
 			)
 			self._read_state.set_written(
 				full,
-				input_data.new_string.replace("\r\n", "\n"),
+				new_norm,
 				get_mtime_ms(full),
 				self._session_id,
 				offset=None,
 				limit=None,
 			)
-			added, _removed = _line_diff_counts("", input_data.new_string)
-			new_norm = input_data.new_string.replace("\r\n", "\n")
+			added, _removed = _line_diff_counts("", new_norm)
 			return EditOutput(
 				file_path=input_data.file_path,
 				replace_all=False,
@@ -519,6 +524,16 @@ class FileEditTool:
 				actual_new,
 				replace_all=input_data.replace_all,
 			)
+
+		# 正文一律落在 LF 归一空间再交给落盘/快照/输出：
+		# ①直通路径 `write_text_file` 本就归一，而 store 路径的 `_persist` 只按
+		#   line_endings 做 "\n"→"\r\n" ⇒ 模型 new_string 里的 "\r\n" 在 store 路径会
+		#   原样留在 LF 文件里（混合行尾），同一枪 Edit 在主 agent 与子 agent 下写出不同字节；
+		# ②`read_state` 快照因此带上 "\r\n"，而 `write_store._content_hash` 比的是
+		#   `read_text_file` 的归一文本 ⇒ base_hash != current ⇒ **没人改过文件**也被判
+		#   `stale`（"File has been unexpectedly modified"），并污染 journal 与写冲突指标。
+		#   2026-10-03 实测：子 agent 一次带 CRLF 的粘贴之后，该文件后续每枪 Edit 都被拒。
+		updated = normalize_newlines(updated)
 
 		journal_warning = self._persist(
 			full, updated, encoding=encoding, line_endings=endings  # type: ignore[arg-type]
@@ -589,13 +604,19 @@ class FileEditTool:
 
 		validation = self.validate_input(edit_input)
 		if not validation.get("result"):
+			# 0 = file_path 缺失、9 = 多处命中且 replace_all=false（给出更多上下文
+			# 即可自纠）⇒ 模型侧 INVALID_ARGUMENT。4/7/8 等目标类失败**故意留
+			# INTERNAL**：NOT_FOUND 在 fault_split 归环境侧，路径/目标串找不到
+			# 可能因用户改文件而不可归属，别把模型写错的目标判给环境。
+			kind = INVALID_ARGUMENT if validation.get("errorCode") in (0, 9) else None
 			return ToolResult(
 				content=str(validation.get("message") or "invalid input"),
 				is_error=True,
+				error_kind=kind,
 			)
 
 		if not self.check_permissions(edit_input):
-			return ToolResult(content="permission denied", is_error=True)
+			return ToolResult(content="permission denied", is_error=True, error_kind=PERMISSION_DENIED)
 
 		abort.raise_if_aborted()
 		existed_before = _fsprobe.exists(self.get_path(edit_input))

@@ -139,11 +139,13 @@ def permission_panel(
 	hint.append("[a]", style=f"bold {OK}")
 	hint.append("llow  ", style=MUTED)
 	hint.append("[d]", style=f"bold {ERR}")
-	hint.append("eny  ", style=MUTED)
-	hint.append("[r]", style=f"bold {WARN}")
-	hint.append("emind", style=MUTED)
-	if choices:
-		hint.append(f"\nchoices: {', '.join(str(c) for c in choices)}", style=MUTED)
+	hint.append("eny", style=MUTED)
+	# remind 只在请求真的提供该选项（多会话冲突三件套）时才教：非冲突请求按 r
+	# 解析层已落回 deny，再摆提示就是教用户按一个会被改道的键（与解析/提示行同门）。
+	if "remind" in (choices or []):
+		hint.append("  ", style=MUTED)
+		hint.append("[r]", style=f"bold {WARN}")
+		hint.append("emind", style=MUTED)
 	return Panel(
 		Group(body, hint),
 		title=Text(" permission ", style=f"bold {WARN}"),

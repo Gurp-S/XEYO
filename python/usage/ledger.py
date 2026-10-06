@@ -11,11 +11,17 @@ from pathlib import Path
 from typing import Any
 
 from usage.attribution import canonical_vendor, event_vendor
-from usage.pricing import BJ, estimate_cny, official_cost_cny, split_usage
+from usage.event_reader import LedgerRead, read_ledger
+from usage.pricing import (
+	BJ,
+	estimate_cny,
+	official_cost_cny,
+	price_authority,
+	split_usage,
+)
 
 _lock = threading.Lock()
-_MAX_LINES = 80_000
-_events_cache: tuple[str, float, int, list[dict[str, Any]]] | None = None
+_events_cache: tuple[str, int, int, LedgerRead] | None = None
 
 
 def usage_dir() -> Path:
@@ -82,6 +88,12 @@ def record_from_openai_usage(
 	  （dsh D-3 教训：压缩走模型的调用必须可归因、不得静默消失）。
 	- 每个 ``stream()`` 内的双写防御由模型适配器 ``_usage_recorded_this_stream``
 	  布尔完成（同一次尝试只记一次 = dsh S2 的流内单结算）。
+
+	价目诚实性（2026-09-27）：``cost_source`` 三态机器可判 —— ``api``（厂商 usage
+	自带金额）/ ``estimate``（本地价表估算，语义未变：内置厂商官方价目与用户登记价
+	都在这一档）/ ``unpriced``（**无权威价目**：``cost_cny`` 落 ``null``，不是 0）。
+	想细分「厂商价目命中 / 用户登记价」读同一行的 ``price_authority``
+	（``vendor`` / ``user`` / ``none``；``api`` 行记 ``usage``）。
 	"""
 	if not isinstance(usage, dict) or not usage:
 		return
@@ -97,14 +109,23 @@ def record_from_openai_usage(
 	vendor = canonical_vendor(model=model, provider=provider, base_url=base_url)
 	api_cost = official_cost_cny(usage)
 	if api_cost is not None:
-		cost_cny = api_cost
+		cost_cny: float | None = api_cost
 		cost_source = "api"
+		price_basis = "usage"
 	else:
 		# 计价按真实厂商(vendor)，而不是接入通道 —— 错位通道不再套错档。
 		cost_cny = estimate_cny(
 			provider=vendor, model=model, usage=usage, ts=now
 		)
-		cost_source = "estimate"
+		if cost_cny is None:
+			# 没有权威价目 ⇒ 费用未知：落 null（不是 0，也不是借来的数）。
+			cost_source = "unpriced"
+			price_basis = "none"
+		else:
+			# ``estimate`` 语义未变窄：仍是「本地价表估算」，覆盖内置厂商官方价目
+			# 与用户登记价两类；细分看同一行的 ``price_authority``。
+			cost_source = "estimate"
+			price_basis = price_authority(vendor)
 	event: dict[str, Any] = {
 		"ts": now,
 		"day": datetime.fromtimestamp(now, tz=BJ).date().isoformat(),
@@ -120,8 +141,11 @@ def record_from_openai_usage(
 		"cache_miss": miss,
 		"output": out,
 		"tokens": tokens,
-		"cost_cny": round(float(cost_cny), 8),
+		"cost_cny": None if cost_cny is None else round(float(cost_cny), 8),
 		"cost_source": cost_source,
+		# 机器可判的价目权威来源：usage（厂商 usage 自带金额）/ vendor（厂商价目命中）
+		# / user（用户显式登记价）/ none（无价目 ⇒ cost_cny 为 null）。
+		"price_authority": price_basis,
 	}
 	rid = (request_id or "").strip()
 	if rid:
@@ -149,39 +173,37 @@ def _append(event: dict[str, Any]) -> None:
 			f.write(line)
 
 
-def _read_events() -> list[dict[str, Any]]:
+def _read_snapshot() -> LedgerRead:
 	global _events_cache
 	path = events_path()
-	if not path.is_file():
-		_events_cache = None
-		return []
 	try:
 		st = path.stat()
+	except FileNotFoundError:
+		_events_cache = None
+		return LedgerRead(store="missing_store")
 	except OSError:
-		return []
-	cache_key = (str(path.resolve()), st.st_mtime, st.st_size)
+		return LedgerRead(store="unreadable_store")
+	cache_key = (str(path.resolve()), st.st_mtime_ns, st.st_size)
 	cached = _events_cache
 	if cached is not None and cached[0] == cache_key[0] and cached[1] == cache_key[1] and cached[2] == cache_key[2]:
 		return cached[3]
-	out: list[dict[str, Any]] = []
+	snapshot = read_ledger(path)
+	# 读取期间追加/替换的文件不能缓存为读取前或读取后的稳定版本。
 	try:
-		raw = path.read_text(encoding="utf-8")
+		after = path.stat()
+		if snapshot.store in {"ok", "empty_store"} and (st.st_mtime_ns, st.st_size) == (after.st_mtime_ns, after.st_size):
+			_events_cache = (*cache_key, snapshot)
 	except OSError:
-		return []
-	for i, line in enumerate(raw.splitlines()):
-		if i >= _MAX_LINES:
-			break
-		line = line.strip()
-		if not line:
-			continue
-		try:
-			row = json.loads(line)
-		except json.JSONDecodeError:
-			continue
-		if isinstance(row, dict):
-			out.append(row)
-	_events_cache = (cache_key[0], cache_key[1], cache_key[2], out)
-	return out
+		pass
+	return snapshot
+
+
+def _read_events() -> list[dict[str, Any]]:
+	return _read_snapshot().events
+
+
+def local_store_status() -> dict[str, Any]:
+	return _read_snapshot().status()
 
 
 def _day_list(days: int, *, end: date | None = None) -> list[str]:

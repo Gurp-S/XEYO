@@ -40,15 +40,13 @@ def hat_H(
 	"""Return (Ĥ, LCP tokens). C2 保留左段 P（实现与模拟器投影一致）→ 按 LCP 正常算；
 	只有真正从头重建（x_prev 无共同前缀）才自然为 0。
 
-	P1 缺失2：若已知上一枪投影的冻结前缀长度（``x_prev_frozen_len``，来自
-	``ProjectionDigest.frozen_len``），用它作 lcp_keep——可重入、无需重放全文，
-	重启后仍能估出 keep 的命中。未知（=0）时回退字符串 LCP（行为不变）。
+	冻结长度本身不能证明前缀相同；兼容参数不参与命中计算。
+	重启时可由上游恢复通过摘要哈希验证的旧前缀，再按真实字符串 LCP 计算。
 	"""
 	_ = action
-	if x_prev_frozen_len > 0:
-		lcp = min(int(x_prev_frozen_len), int(L))
-	else:
-		lcp = lcp_tokens(x_a, x_prev)
+	# A persisted length cannot certify that a candidate kept the same prefix.
+	_ = x_prev_frozen_len
+	lcp = min(int(L), lcp_tokens(x_a, x_prev))
 	blk = g * math.floor(lcp / g) if g > 0 else 0
 	h = rho * blk
 	h = min(float(L), max(0.0, h))

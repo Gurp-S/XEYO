@@ -77,3 +77,65 @@ def test_surface_id_records_selected_policy(monkeypatch) -> None:  # type: ignor
 
 	assert registry.tool_surface_id == "minimal@1"
 	assert registry.schema_snapshot()["surface_id"] == "minimal@1"
+
+
+def _with_env(**kv):
+	"""临时设/清 env（None=清），返回恢复函数。"""
+	import os as _os
+
+	saved = {k: _os.environ.get(k) for k in kv}
+
+	def restore():
+		for k, v in saved.items():
+			if v is None:
+				_os.environ.pop(k, None)
+			else:
+				_os.environ[k] = v
+
+	for k, v in kv.items():
+		if v is None:
+			_os.environ.pop(k, None)
+		else:
+			_os.environ[k] = v
+	return restore
+
+
+def test_tool_deny_removes_named_tools() -> None:
+	"""``XEYO_TOOL_DENY``：项目策略落到执行层（工具不在场 = 策略是事实，不再两套话）。"""
+	restore = _with_env(XEYO_TOOL_DENY="Agent")
+	try:
+		names = _surface(bench=False)
+		assert "Agent" not in names
+		assert "Bash" in names, "deny 只该影响点名的工具"
+	finally:
+		restore()
+
+
+def test_tool_deny_default_no_change() -> None:
+	restore = _with_env(XEYO_TOOL_DENY=None)
+	try:
+		assert "Agent" in _surface(bench=False), "默认（未设 deny）不许改行为"
+	finally:
+		restore()
+
+
+def test_tool_deny_composes_with_minimal_surface() -> None:
+	restore = _with_env(XEYO_TOOL_SURFACE="minimal", XEYO_TOOL_DENY="Agent")
+	try:
+		names = _surface(bench=False)
+		assert "Agent" not in names
+		assert "Bash" in names
+	finally:
+		restore()
+
+
+def test_tool_deny_typo_fails_loud() -> None:
+	"""未知工具名硬失败：静默 typo = 用户以为禁了其实没禁。"""
+	import pytest
+
+	restore = _with_env(XEYO_TOOL_DENY="Agnet")
+	try:
+		with pytest.raises(ValueError):
+			build_default_registry(cwd=".")
+	finally:
+		restore()

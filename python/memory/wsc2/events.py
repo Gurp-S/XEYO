@@ -169,6 +169,8 @@ def build_events(msgs: list[Mapping[str, Any]]) -> list[Event]:
     events: list[Event] = []
     turn = 0
     tool_of_call: dict[str, str] = {}
+    commands: dict[str, str] = {}
+    from synaptic.graph import result_is_error
     for idx, msg in enumerate(msgs):
         if not isinstance(msg, Mapping):
             continue
@@ -176,11 +178,15 @@ def build_events(msgs: list[Mapping[str, Any]]) -> list[Event]:
         for cid, name, inputs in _tool_rows(msg):
             if cid:
                 tool_of_call[cid] = name
+                commands[cid] = str(inputs.get("command") or inputs.get("cmd") or "")
             events.append(Event(f"E{idx:05d}u{len(events):04d}", idx, turn,
                                 KIND_TOOL_USE, tool=name, call_id=cid, inputs=inputs,
                                 paths=_event_paths(inputs)))
         result_rows = _result_rows(msg)
         for pos, (cid, is_err, text) in enumerate(result_rows):
+            is_err = result_is_error({"content": text, "is_error": is_err},
+                                     command=commands.get(cid, ""),
+                                     tool_name=tool_of_call.get(cid, ""))
             events.append(Event(f"E{idx:05d}r{len(events):04d}", idx, turn,
                                 KIND_TOOL_RESULT, tool=tool_of_call.get(cid, ""),
                                 call_id=cid, is_error=is_err, text=text, result_for=cid,

@@ -75,7 +75,7 @@ class ScreenshotTool:
 		if monitor < 1:
 			monitor = 1
 
-		from channels.filehelper.screenshot import capture_primary, preview_png
+		from tools.screenshot_tool.capture import capture_primary, preview_png
 
 		try:
 			path = await asyncio.to_thread(capture_primary, monitor=monitor)

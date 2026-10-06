@@ -29,6 +29,7 @@ import {createIncrementalBlockParse, type BlockParseFn} from '@/lib/incrementalB
 import {parseStaticBlocks} from '@/lib/markdownStaticCache';
 import {createRehypeTailFade, planTailFadeByBlocks} from '@/lib/rehypeTailFade';
 import {rehypeSafeHtml} from '@/lib/rehypeSafeHtml';
+import {resolveMediaRefsInMarkdown} from '@/lib/markdownMediaRefs';
 import {useExplorerStore} from '@/stores/explorerStore';
 import {CodeBlock} from './CodeBlock';
 import {MermaidBlock} from './MermaidBlock';
@@ -115,8 +116,9 @@ export const XyStreamdown = memo(function XyStreamdown({
 	if (streaming && remendRef.current === null) {
 		remendRef.current = createIncrementalRemend({handlers: xyRemendHandlers});
 	}
-	const displayContent =
-		streaming && remendRef.current ? remendRef.current(content) : content;
+	const displayContent = resolveMediaRefsInMarkdown(
+		streaming && remendRef.current ? remendRef.current(content) : content,
+	);
 
 	// 增量分块：同一个实例同时服务 fadePlans 与 Streamdown 内部，
 	// 第二次调用命中缓存，每帧只做一次 O(增量) 的 lex。
@@ -240,7 +242,7 @@ export const XyStreamdown = memo(function XyStreamdown({
 				</h6>
 			),
 			hr: () => <hr className="my-4 border-line/40" />,
-			a: ({href, children}) => {
+			a: ({href, children, title}) => {
 				const dest = resolveMdHref(href, basePath);
 				const lock = editable ? {contentEditable: false as const} : {};
 				if (dest.kind === 'unsafe') {
@@ -250,6 +252,7 @@ export const XyStreamdown = memo(function XyStreamdown({
 					return (
 						<a
 							href={`#${dest.id}`}
+							title={title}
 							className="text-accent underline"
 							{...lock}
 							onClick={e => {
@@ -265,6 +268,7 @@ export const XyStreamdown = memo(function XyStreamdown({
 					return (
 						<a
 							href={href}
+							title={title}
 							className="text-accent underline"
 							{...lock}
 							onClick={e => {
@@ -283,6 +287,7 @@ export const XyStreamdown = memo(function XyStreamdown({
 				return (
 					<a
 						href={dest.href}
+						title={title}
 						target="_blank"
 						rel="noreferrer"
 						className="text-accent underline"
@@ -294,7 +299,8 @@ export const XyStreamdown = memo(function XyStreamdown({
 			},
 			img: ({src, alt}) => {
 				const label = alt || '';
-				if (src && /^(https?:|data:image\/)/i.test(src)) {
+				// 归一化后这里也会见到 /v1/media/ 相对地址（#13 粘贴图片链）。
+				if (src && /^(https?:|data:image\/|\/v1\/media\/)/i.test(src)) {
 					return wrapImage(
 						<img
 							src={src}

@@ -29,7 +29,7 @@ POST /v1/chat/completions
 | `session/` | MessageStore、transcript JSONL、CWD |
 | `slash/` | `registry.py`（SSOT）→ `export_manifest` → TS；`dispatch.py` 服务端命令 |
 | `tools/` | 每工具 `*_tool.py` + `meta.py` 登记 |
-| `channels/` | 微信 filehelper / ilink（可选远程通道） |
+| `channels/` | 微信 ilink（可选远程通道） |
 | `cli/` | Typer：`serve`、`chat`、attach、config |
 | `extension/` | 插件 / skill / MCP（默认关） |
 | `bridge/` | **已废弃** — 见下方 |

@@ -10,12 +10,13 @@ from tools.fileio import fsprobe as _fsprobe
 from typing import Any
 
 from engine.abort import AbortController
+from tools.error_taxonomy import PERMISSION_DENIED
 from permissions import filesystem
 from rewind.context import current_context
 from tools.base_tool import ToolResult
 from tools.fileio.paths import expand_path
 from tools.fileio.read_state import FileStateEntry, ReadFileState
-from tools.fileio.text import get_mtime_ms, write_text_file
+from tools.fileio.text import get_mtime_ms, read_text_file, write_text_file
 from tools.notebook_edit_tool.prompt import DESCRIPTION, NOTEBOOK_EDIT_TOOL_NAME
 
 _MAX_SOURCE = 1_024 * 1_024
@@ -96,7 +97,8 @@ class NotebookEditTool:
 	def check_permissions(self, input_data: dict[str, Any], context: Any = None) -> bool:
 		return filesystem.check_write_permission_for_tool(self, input_data, context)
 
-	def _persist(self, full: str, content: str) -> None:
+	def _persist(self, full: str, content: str, *, encoding: str = "utf-8") -> None:
+		"""落盘；``encoding`` 沿用读侧判定（2026-10-05）——带 BOM 的 .ipynb 写回不丢 BOM。"""
 		if self._write_store is None:
 			# 与 file_edit_tool 同款兜底：子 agent（write_scope 激活）必须经
 			# WriteStore，禁止静默直写——多 agent 写隔离唯一旁路（G129）。
@@ -107,7 +109,7 @@ class NotebookEditTool:
 					"write_store required for sub-agent writes "
 					"(refusing direct disk bypass)"
 				)
-			write_text_file(full, content, encoding="utf-8", line_endings="LF")
+			write_text_file(full, content, encoding=encoding, line_endings="LF")
 			return
 		from engine.write_store import ChangeIntent, EditOp, _content_hash_text
 
@@ -129,6 +131,7 @@ class NotebookEditTool:
 				agent_id=self._agent_id,
 				base_hashes={full: base_hash},
 				ops=[EditOp(path=full, new_content=content)],
+				encoding=encoding,
 			)
 		)
 		if not result.ok:
@@ -160,7 +163,7 @@ class NotebookEditTool:
 
 		perm_input = {"notebook_path": nb_path}
 		if not self.check_permissions(perm_input):
-			return ToolResult(content="permission denied", is_error=True)
+			return ToolResult(content="permission denied", is_error=True, error_kind=PERMISSION_DENIED)
 
 		full = expand_path(nb_path, cwd=self._cwd)
 		new_source = raw.get("new_source")
@@ -207,12 +210,16 @@ class NotebookEditTool:
 				except OSError as e:
 					return ToolResult(content=str(e), is_error=True)
 				if mtime > entry.timestamp and entry.content:
-					# 内容仍与磁盘一致则放行
+					# 内容仍与磁盘一致则放行。
+					# 必须走共用的 read_text_file：它做 LF 归一化 + 剥 BOM + 容器路由，
+					# 与 read_state 里那份正文同源。原先这里用 ``open(..., encoding="utf-8")``
+					# 直读，三个后果：① 非 UTF-8 字节让 UnicodeDecodeError 逃出 execute()
+					# （tool_registry.run 只做审计后 re-raise，整回合被打断）；
+					# ② 带 BOM 的 notebook 多出的 \ufeff 使比对必然不等 ⇒ 没改也判"自上次读后被修改"；
+					# ③ 容器工作面下读的是宿主路径，比的是另一个文件系统。
 					try:
-						disk = await asyncio.to_thread(
-							lambda: open(full, encoding="utf-8").read()
-						)
-					except OSError as e:
+						disk = await asyncio.to_thread(lambda: read_text_file(full)[0])
+					except (OSError, UnicodeDecodeError) as e:
 						return ToolResult(content=str(e), is_error=True)
 					if disk != entry.content:
 						return ToolResult(
@@ -224,10 +231,11 @@ class NotebookEditTool:
 						)
 			try:
 				# ipynb 常含大段 output（数 MB），读盘+解析挪线程。
-				text = await asyncio.to_thread(
-					lambda: open(full, encoding="utf-8").read()
+				# 同上方新鲜度比对：共用 reader 才能容下 BOM / 非 UTF-8 / 容器路径。
+				text, _endings, nb_encoding = await asyncio.to_thread(
+					lambda: read_text_file(full)
 				)
-			except OSError as e:
+			except (OSError, UnicodeDecodeError) as e:
 				return ToolResult(content=str(e), is_error=True)
 			try:
 				nb = json.loads(text)
@@ -311,9 +319,11 @@ class NotebookEditTool:
 		abort.raise_if_aborted()
 		try:
 			if self._write_store is not None:
-				await asyncio.to_thread(self._persist, full, content)
+				await asyncio.to_thread(
+					self._persist, full, content, encoding=nb_encoding
+				)
 			else:
-				self._persist(full, content)
+				self._persist(full, content, encoding=nb_encoding)
 		except Exception as e:  # noqa: BLE001
 			return ToolResult(content=str(e), is_error=True)
 

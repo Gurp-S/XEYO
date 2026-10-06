@@ -33,27 +33,35 @@ def reconcile_digest(state: dict) -> str:
 
 
 def publish_if_changed(kind: str, state: dict, build_block) -> bool:
-	"""digest 变化才发布（幂等）；返回是否真的发布了一块。"""
+	"""digest 变化才发布（幂等）；返回是否真的发布了一块。
+
+	digest 只在**块实际入队后**才落位：build_block 抛错或返回空时不得置位
+	——否则该状态值在本进程内被永久静默（2026-10-05 复核 09-10 EXT-02）。
+	"""
 	d = reconcile_digest(state)
 	with _LOCK:
 		if _LAST_DIGESTS.get(kind) == d:
 			return False
-		_LAST_DIGESTS[kind] = d
 	block = build_block()
-	if block:
-		publish_reconcile_block(block)
-		return True
-	return False
+	if not publish_reconcile_block(block):
+		return False
+	with _LOCK:
+		_LAST_DIGESTS[kind] = d
+	return True
 
 
-def publish_reconcile_block(block: str) -> None:
-	"""push 通道：把一块活页挂进待消费队列（去重，保序）。"""
+def publish_reconcile_block(block: str) -> bool:
+	"""push 通道：把一块活页挂进待消费队列（去重，保序）。
+
+	返回块是否已在队列中（空块 False）——调用方据此决定 digest 能否落位。
+	"""
 	text = (block or "").strip()
 	if not text:
-		return
+		return False
 	with _LOCK:
 		if text not in _PENDING:
 			_PENDING.append(text)
+	return True
 
 
 def consume_reconcile_blocks() -> list[str]:

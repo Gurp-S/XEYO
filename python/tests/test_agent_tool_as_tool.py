@@ -82,3 +82,26 @@ def test_agent_always_registered_soft_hint():
 	assert "multi-agent" in MULTI_AGENT_HINT
 	assert "优先用 Agent" not in MULTI_AGENT_HINT
 	assert "MUST" not in MULTI_AGENT_HINT
+
+
+def test_agent_denied_removes_tool_and_hint(monkeypatch):
+	"""XEYO_TOOL_DENY=Agent：工具不在场 + multi-agent 提示同步消失（不许两套话）。"""
+	from prompt.pre_llm_inject import InjectContext, run_pre_llm_inject
+	from prompt.t_now_strategy import STRATEGY_ENV_CHANNEL
+	from tools.catalog import build_default_registry
+
+	monkeypatch.setenv("XEYO_TOOL_DENY", "Agent")
+	reg = build_default_registry(cwd=".")
+	assert reg.get("Agent") is None, "deny 后 Agent 不许注册"
+
+	projected = [{"role": "user", "content": "hi"}]
+	out = run_pre_llm_inject(
+		projected, InjectContext(cwd="", multi_agent=True, strategy=STRATEGY_ENV_CHANNEL)
+	)
+	assert "multi-agent" not in str(out), "工具已移除，提示文本不许还在"
+
+	monkeypatch.delenv("XEYO_TOOL_DENY", raising=False)
+	out2 = run_pre_llm_inject(
+		projected, InjectContext(cwd="", multi_agent=True, strategy=STRATEGY_ENV_CHANNEL)
+	)
+	assert "multi-agent" in str(out2), "对照：未 deny 时提示应在"

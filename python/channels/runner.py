@@ -12,6 +12,8 @@ from channels.jobs import JobRecord, JobStore
 from common.errors import friendly_error
 from model.openai_compat import PROVIDER_PRESETS
 from msgtypes.events import (
+	AskUserPendingEvent,
+	AskUserResolvedEvent,
 	AssistantDelta,
 	FinalEvent,
 	PermissionPendingEvent,
@@ -30,6 +32,7 @@ OnStatus = Callable[[str, str], Awaitable[None] | None]
 OnToolCall = Callable[[str, dict[str, Any], str], Awaitable[None] | None]
 OnToolResult = Callable[[str, str, bool, str], Awaitable[None] | None]
 OnPermission = Callable[[dict[str, Any], str], Awaitable[None] | None]
+OnAsk = Callable[[dict[str, Any], str], Awaitable[None] | None]
 OnTaskState = Callable[[str, str], Awaitable[None] | None]
 
 _runtime_model_cfg: ModelConfig | None = None
@@ -104,6 +107,7 @@ async def run_final_only(
 	on_tool_call: OnToolCall | None = None,
 	on_tool_result: OnToolResult | None = None,
 	on_permission: OnPermission | None = None,
+	on_ask: OnAsk | None = None,
 	on_task_state: OnTaskState | None = None,
 	images: list[str] | None = None,
 ) -> str:
@@ -170,6 +174,35 @@ async def run_final_only(
 							session_id,
 						)
 					)
+			elif isinstance(ev, AskUserPendingEvent):
+				if on_ask is not None:
+					await _maybe_await(
+						on_ask(
+							{
+								"kind": "ask_user_pending",
+								"request_id": ev.request_id,
+								"question": ev.question,
+								"options": list(ev.options or []),
+								"default": ev.default,
+								"questions": list(ev.questions or []),
+								"expires_at": ev.expires_at,
+							},
+							session_id,
+						)
+					)
+			elif isinstance(ev, AskUserResolvedEvent):
+				if on_ask is not None:
+					await _maybe_await(
+						on_ask(
+							{
+								"kind": "ask_user_resolved",
+								"request_id": ev.request_id,
+								"answer": ev.answer,
+								"timeout": bool(ev.timeout),
+							},
+							session_id,
+						)
+					)
 			elif isinstance(ev, TaskStateEvent):
 				if on_task_state is not None:
 					await _maybe_await(on_task_state(ev.task_status, session_id))
@@ -200,7 +233,7 @@ class FinalOnlyRunner:
 	) -> None:
 		self._pool = pool
 		self._store = store
-		# 多播回调：ilink / filehelper 各自注册、各自注销，互不感知。
+		# 多播回调：各通道各自注册、各自注销，互不感知。
 		self._on_complete_cbs: list[OnComplete] = (
 			[on_complete] if on_complete is not None else []
 		)
@@ -209,6 +242,7 @@ class FinalOnlyRunner:
 		self._on_tool_call: OnToolCall | None = None
 		self._on_tool_result: OnToolResult | None = None
 		self._on_permission: OnPermission | None = None
+		self._on_ask: OnAsk | None = None
 		self._on_task_state: OnTaskState | None = None
 		self._session_locks: dict[str, asyncio.Lock] = {}
 		self._locks_guard = asyncio.Lock()
@@ -219,7 +253,7 @@ class FinalOnlyRunner:
 		self._on_complete_cbs = [on_complete] if on_complete is not None else []
 
 	def add_on_complete(self, on_complete: OnComplete) -> None:
-		"""追加多播回调（ilink/filehelper 各自注册）。"""
+		"""追加多播回调（各通道各自注册）。"""
 		if on_complete not in self._on_complete_cbs:
 			self._on_complete_cbs.append(on_complete)
 
@@ -246,6 +280,10 @@ class FinalOnlyRunner:
 
 	def set_on_permission(self, on_permission: OnPermission | None) -> None:
 		self._on_permission = on_permission
+
+	def set_on_ask(self, on_ask: OnAsk | None) -> None:
+		"""提问（AskUserQuestion）双桥的推送钩子（#11）：与 on_permission 同形。"""
+		self._on_ask = on_ask
 
 	def set_on_task_state(self, on_task_state: OnTaskState | None) -> None:
 		self._on_task_state = on_task_state
@@ -316,6 +354,16 @@ class FinalOnlyRunner:
 				elif kind == "permission_resolved":
 					self._store.mark_running(job_id)
 
+			async def _on_ask(payload: dict[str, Any], session_id: str) -> None:
+				if self._on_ask is not None:
+					await _maybe_await(self._on_ask(payload, session_id))
+				kind = payload.get("kind")
+				if kind == "ask_user_pending":
+					# 与权限同一档语义：等人类输入期间任务不在跑。
+					self._store.mark_waiting_permission(job_id)
+				elif kind == "ask_user_resolved":
+					self._store.mark_running(job_id)
+
 			try:
 				final = await run_final_only(
 					self._pool,
@@ -326,6 +374,7 @@ class FinalOnlyRunner:
 					on_tool_call=self._on_tool_call,
 					on_tool_result=self._on_tool_result,
 					on_permission=_on_permission,
+					on_ask=_on_ask,
 					on_task_state=self._on_task_state,
 					images=rec.images,
 				)

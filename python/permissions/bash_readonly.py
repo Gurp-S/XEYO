@@ -107,9 +107,7 @@ _WRITE_FLAGS_GLOBAL = frozenset(
 	}
 )
 
-# ---------------------------------------------------------------------------
 # 只读程序表
-# ---------------------------------------------------------------------------
 # 只读 = 语义上只产出 stdout/stderr（读文件 / 查询 / 过滤 / 格式化）：不写工作区、
 # 不改环境、不执行外部程序。窗口类过滤命令（Select-Object / Where-Object /
 # Format-* / ConvertTo-Json…）只做数据变换，收录；脚本块类（ForEach-Object /
@@ -346,9 +344,7 @@ _DENY_FLAGS: dict[str, frozenset[str]] = {
 	),
 }
 
-# ---------------------------------------------------------------------------
 # 本地开发工具表（dev 类）
-# ---------------------------------------------------------------------------
 # 语义上等价于「跑工作区里的代码」（构建产物、格式化结果、依赖目录、本机环境）。
 
 _DEV_ANY = frozenset(
@@ -616,9 +612,7 @@ def program_of_token(tok: str) -> str:
 	return t
 
 
-# ---------------------------------------------------------------------------
 # 词法：引号感知的单遍扫描（分段 + 词元 + 结构拒绝）
-# ---------------------------------------------------------------------------
 
 #: 重定向到这些目标 = 丢弃输出（`>$null` / `2>&1` / `>/dev/null`），不算写。
 _REDIRECT_NOOP_TARGETS = frozenset({"$null", "/dev/null", "nul"})
@@ -775,6 +769,14 @@ def _classify(program: str, args: tuple[str, ...]) -> str:
 	if program in ("npx", "bunx"):
 		return _classify_tool_runner(args)
 	if program in ("pnpm", "yarn") and args and args[0].lower() == "dlx":
+		return _classify_tool_runner(args[1:])
+	if program in ("npm", "pnpm", "yarn") and args and args[0].lower() == "exec":
+		# 与 npx / dlx 同形：跑的是远端包里的 bin，命令里看不见可审计来源，
+		# 不像 `npm run <script>`（跑工作区 package.json，脚本可读）。
+		# 早前只给了 npx/dlx 内置工具表，`npm exec evil-package` 直接落进
+		# _SUB_DEV["npm"] 的 "exec" 整词 ⇒ 任意包名自动放行（10-04 实测
+		# evaluate_policy = ALLOW/bash_dev_tool_allow；现网 10,781 条 Bash 命令
+		# 里 exec 形态 0 次 ⇒ 收口不改变任何既有工作流）。
 		return _classify_tool_runner(args[1:])
 	if program in _INTERPRETERS:
 		return _classify_interpreter(program, args)

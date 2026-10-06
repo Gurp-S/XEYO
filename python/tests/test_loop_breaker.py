@@ -130,8 +130,9 @@ class TestL4NoNewContent:
 		lb = _disabled_probe_breaker(same_at=99, equiv_at=99, family_at=2)
 		for i in range(3):
 			lb.observe_result("Grep", {"pattern": f"p{i}"}, "same-old-content")
-		refusal = lb.admit("Grep", {"pattern": "p9"})
+		refusal = lb.admit("Grep", {"pattern": "p0"})
 		assert refusal is not None and refusal.kind == "L4"
+		assert lb.admit("Grep", {"pattern": "p9"}) is None
 
 	def test_new_content_clears_streak(self):
 		lb = _disabled_probe_breaker(same_at=99, equiv_at=99, family_at=2)
@@ -206,7 +207,7 @@ class TestContract:
 		l4 = _disabled_probe_breaker(same_at=99, equiv_at=99, family_at=2)
 		for i in range(3):
 			l4.observe_result("Grep", {"pattern": f"p{i}"}, "old")
-		texts.append(l4.admit("Grep", {"pattern": "p9"}).text)
+		texts.append(l4.admit("Grep", {"pattern": "p0"}).text)
 		return texts
 
 	def test_wording_compliance(self):

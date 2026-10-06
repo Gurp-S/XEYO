@@ -61,8 +61,6 @@ BACKGROUND_RENDERERS: tuple[tuple[str, str], ...] = (
     ("prompt/pre_llm_inject.py", "pending_jobs_block"),
     ("prompt/pre_llm_inject.py", "file_conflict_block"),
     ("engine/todo_hint.py", "build_todo_hint"),
-    ("engine/wrap_gap.py", "compose_gap_text"),
-    ("engine/wrap_gap.py", "compose_guide_text"),
     ("memory/runtime.py", "_memory_index_block"),
 )
 
@@ -278,8 +276,7 @@ class TestBackgroundDataDialect:
 		assert block.startswith("# 文件冲突")
 		_assert_pure_text(block, "file_conflict")
 
-	def test_memory_index_and_wrap_data_dialect(self):
-		from engine.wrap_gap import compose_gap_text, compose_guide_text
+	def test_memory_index_data_dialect(self):
 		from memory.runtime import _memory_index_block
 
 		idx = "# Memory index\n" + "".join(
@@ -287,11 +284,6 @@ class TestBackgroundDataDialect:
 		)
 		blk = _memory_index_block(idx)
 		assert blk and _data_dialect_issue(blk) is None
-		assert compose_guide_text(5, ["x -> a.md(未落盘)"]) and _data_dialect_issue(
-			compose_guide_text(5, ["x -> a.md(未落盘)"])
-		) is None
-		assert compose_gap_text([]) == ""
-		assert _data_dialect_issue(compose_gap_text(["x -> a.md(未落盘)"])) is None
 
 
 if __name__ == "__main__":

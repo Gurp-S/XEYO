@@ -92,7 +92,6 @@ def test_params_for_window_moves_the_denominator() -> None:
 	assert params_for_window(base, None) is base
 	assert params_for_window(base, 0) is base
 	assert params_for_window(base, base.window_tokens) is base
-
 	p = params_for_window(base, 64_000)
 	assert p.window_tokens == 64_000
 	assert p.l_hard_send == 64_000 - base.reserve_tokens

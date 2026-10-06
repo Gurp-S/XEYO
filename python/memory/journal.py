@@ -24,6 +24,7 @@ import json
 import logging
 import os
 import threading
+from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable
@@ -45,9 +46,7 @@ class ChangeRecord:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
-# ---------------------------------------------------------------------------
 # 进程内每文件锁（与 rewind/index.py 同构：append + fsync 崩溃顺序合同）
-# ---------------------------------------------------------------------------
 _LOCKS: dict[str, threading.RLock] = {}
 _LOCKS_GUARD = threading.Lock()
 
@@ -63,12 +62,25 @@ def _lock_for(path: Path) -> threading.RLock:
 
 
 def _append_row(path: Path, payload: dict[str, Any]) -> None:
-    """加锁追加一行 JSONL 并 fsync；崩溃后顺序一致、无半行。"""
+    """加锁追加一行 JSONL 并 fsync；崩溃后顺序一致、无半行。
+
+    文件若以崩溃截断行结尾（无换行），先补一个换行再写——否则新记录会并进
+    坏行里一起变不可读（2026-10-05 复核，与 _tail_seq 同一次崩溃场景）。
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     line = json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n"
     with _lock_for(path):
+        prefix = ""
+        try:
+            if path.stat().st_size > 0:
+                with path.open("rb") as head:
+                    head.seek(-1, os.SEEK_END)
+                    if head.read(1) != b"\n":
+                        prefix = "\n"
+        except OSError:
+            prefix = ""
         with path.open("a", encoding="utf-8", newline="\n") as handle:
-            handle.write(line)
+            handle.write(prefix + line)
             handle.flush()
             os.fsync(handle.fileno())
 
@@ -93,9 +105,7 @@ def _read_rows(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
-# ---------------------------------------------------------------------------
 # 路径
-# ---------------------------------------------------------------------------
 def _journal_root() -> Path:
     """变更日志目录。
 
@@ -161,9 +171,7 @@ def _index_path(workspace_id: str) -> Path:
     return changes.parent / f"{changes.stem}{INDEX_SUFFIX}"
 
 
-# ---------------------------------------------------------------------------
 # seq 分配
-# ---------------------------------------------------------------------------
 def _row_stat(path: Path) -> tuple[int, int]:
     """(非空行数, 最后一行的 seq)；不存在/空返回 (0, 0)，坏行计入行数但 seq 记 0。
 
@@ -191,25 +199,27 @@ def _row_stat(path: Path) -> tuple[int, int]:
 
 
 def _tail_seq(path: Path) -> int:
-    """基于最近一条的 seq +1；空/坏文件则 1。"""
+    """基于最近一条**有效**记录的 seq +1；空文件/无有效行则 1。
+
+    末行损坏（崩溃截断）时向尾部窗口内继续找最近有效行——回落 1 会让下一条
+    与既有 seq 撞号（2026-10-05 复核 09-10 MEM-11）。
+    """
     if not path.is_file() or path.stat().st_size == 0:
         return 1
     with _lock_for(path):
         with path.open("r", encoding="utf-8", errors="ignore") as handle:
-            last = None
-            for line in handle:
-                last = line
-    if not last:
-        return 1
-    try:
-        return int(json.loads(last).get("seq", 0)) + 1
-    except (json.JSONDecodeError, TypeError, ValueError):
-        return 1
+            tail = deque(handle, maxlen=16)
+    for line in reversed(tail):
+        if not line.strip():
+            continue
+        try:
+            return int(json.loads(line).get("seq", 0)) + 1
+        except (json.JSONDecodeError, TypeError, ValueError, AttributeError):
+            continue
+    return 1
 
 
-# ---------------------------------------------------------------------------
 # record_change：写 journal + 同步写索引（同锁内 append+fsync）
-# ---------------------------------------------------------------------------
 def record_change(
     workspace_id: str,
     rec: ChangeRecord,
@@ -247,9 +257,7 @@ def _index_marker(row: dict[str, Any]) -> dict[str, Any]:
     return dict(row)
 
 
-# ---------------------------------------------------------------------------
 # 索引读取 / 重建 / 新鲜度
-# ---------------------------------------------------------------------------
 def _index_watermark(rows: list[dict[str, Any]]) -> int:
     wm = 0
     for row in rows:
@@ -313,9 +321,7 @@ def rebuild_index(workspace_id: str) -> int:
     return len(rows)
 
 
-# ---------------------------------------------------------------------------
 # 路径前缀匹配（保留原名，供 tests / 兼容）
-# ---------------------------------------------------------------------------
 def _path_matches_prefix(
     path: str,
     prefix: str,
@@ -350,9 +356,7 @@ def _path_matches_prefix(
     return p_l.endswith("/" + pref_l.lstrip("./")) or p_l.endswith(pref_l)
 
 
-# ---------------------------------------------------------------------------
 # 查询：优先索引，新鲜度不足回退全量扫描（绝不给错结果）
-# ---------------------------------------------------------------------------
 def recent_changes(
     workspace_id: str,
     *,

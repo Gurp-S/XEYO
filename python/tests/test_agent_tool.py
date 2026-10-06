@@ -225,3 +225,55 @@ def test_sidechain_gc(tmp_path, monkeypatch):
 	assert removed == 1
 	assert not old.exists() and fresh.exists()
 
+
+# ---- 子 Agent 工具面：窄化请求绝不回填全工具面（fail-open 回归）----
+
+
+def _names(reg) -> set[str]:
+	return set(reg._tools)  # type: ignore[attr-defined]
+
+
+def test_narrow_request_filtered_to_empty_does_not_widen(tmp_path):
+	"""作用域裁完全空 = 没有可用工具，不得当成"没给限制"回填整张面。
+
+	`Memory` 对子 Agent 恒被剔（agent_scope.can_write_memdir=False）⇒ 这一条
+	正好走到旧实现最宽的那一支：曾经给出 11 个工具，含 Write/Edit/Bash。
+	"""
+	reg = build_subagent_registry(
+		cwd=str(tmp_path), tool_names=["Memory"], read_state=ReadFileState(),
+		agent_id="agent-narrow",
+	)
+	names = _names(reg)
+	assert names == set(), f"窄化请求被放宽成：{sorted(names)}"
+	assert reg.get("Write") is None and reg.get("Bash") is None
+
+
+def test_unnamed_request_keeps_default_surface(tmp_path):
+	"""方向控制：不给 tool_names 仍是默认全工具面（修复不得顺手裁掉合法路径）。"""
+	reg = build_subagent_registry(
+		cwd=str(tmp_path), read_state=ReadFileState(), agent_id="agent-default",
+	)
+	names = _names(reg)
+	assert "Read" in names and "Write" in names
+	assert "Agent" not in names and "_agent" not in names  # 递归禁仍在
+
+
+def test_explicit_subset_is_exactly_the_request(tmp_path):
+	reg = build_subagent_registry(
+		cwd=str(tmp_path), tool_names=["Read", "Grep"], read_state=ReadFileState(),
+		agent_id="agent-sub",
+	)
+	assert _names(reg) == {"Read", "Grep"}
+
+
+def test_production_whitelist_for_empty_scope_has_no_write_tools(tmp_path):
+	"""生产接线：调度器给空 scope 工人的白名单走同一条构造路径，仍不得含写工具。"""
+	from engine.scheduler import WRITE_PATH_TOOLS, build_tool_whitelist
+
+	wl = build_tool_whitelist(Task(id="t-empty", desc="d", scope=[]))
+	reg = build_subagent_registry(
+		cwd=str(tmp_path), tool_names=wl, read_state=ReadFileState(),
+		agent_id="agent-sched",
+	)
+	assert _names(reg) & set(WRITE_PATH_TOOLS) == set()
+

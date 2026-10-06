@@ -76,9 +76,7 @@ class GoalRoundDriver:
 		# 测试注入点：goals.py 同款取根 + TurnRunner 判活。
 		self._pool: Any = None
 
-	# ------------------------------------------------------------------
 	# 可覆写钩子（测试 monkeypatch）
-	# ------------------------------------------------------------------
 	def _session_root(self, session_id: str) -> str:
 		try:
 			if self._pool is None:
@@ -99,9 +97,7 @@ class GoalRoundDriver:
 		except Exception:  # noqa: BLE001
 			return False
 
-	# ------------------------------------------------------------------
 	# 请求环境快照（42 号起收敛到 server.synthetic_round 共享 stash）
-	# ------------------------------------------------------------------
 	def note_request_env(self, session_id: str, env: dict[str, Any]) -> None:
 		"""记录最近一次人类请求的模型环境（api_key 含在内；仅内存、随进程消失）。"""
 		try:
@@ -112,9 +108,7 @@ class GoalRoundDriver:
 			pass
 
 
-	# ------------------------------------------------------------------
 	# 状态读 / arm / disarm / 让位
-	# ------------------------------------------------------------------
 	def snapshot(self, session_id: str) -> dict[str, Any] | None:
 		"""GUI 投影（41 号 §9.4：XEYO 有意多暴露 armed 态）。"""
 		st = self._states.get(session_id)
@@ -189,18 +183,18 @@ class GoalRoundDriver:
 			return
 		if st.pending is not None and not st.pending.done():
 			return
+		coro = self._round_task(session_id)
 		try:
 			st.pending = asyncio.create_task(
-				self._round_task(session_id),
+				coro,
 				name=f"xeyo-goal-round-{session_id}",
 			)
 		except RuntimeError:
 			# 无运行循环（如同步端点误调）：放弃预约，等下一次 settlement。
+			coro.close()
 			st.pending = None
 
-	# ------------------------------------------------------------------
 	# settlement 检查点（turn_runner 注册调用）
-	# ------------------------------------------------------------------
 	async def on_turn_settled(
 		self, session_id: str, final_status: str, stop_reason: str
 	) -> None:
@@ -258,9 +252,7 @@ class GoalRoundDriver:
 		except Exception:  # noqa: BLE001
 			_logger.debug("goal blocked mark skipped session=%s", session_id, exc_info=True)
 
-	# ------------------------------------------------------------------
 	# 预约 → 防抖 → 复检 → 合成轮 → admit
-	# ------------------------------------------------------------------
 	async def _round_task(self, session_id: str) -> None:
 		"""预约任务：防抖 → 复检 → 合成轮 → admit（进 turn 才计轮）。"""
 		st = self._states.get(session_id)

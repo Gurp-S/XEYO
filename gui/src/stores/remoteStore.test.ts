@@ -1,6 +1,7 @@
 import {beforeEach, describe, expect, it, vi} from 'vitest';
 import {pollIssueFromStatus, streamingFlagUpdate, useRemoteStore} from './remoteStore';
 import {resetRemoteMirrorSession} from '@/lib/remoteSession';
+import {useChatStore} from '@/stores/chatStore';
 
 describe('pollIssueFromStatus', () => {
 	it('ignores empty long-poll timeout', () => {
@@ -165,5 +166,51 @@ describe('remote tool SSE', () => {
 			session_id: 'ilink:b',
 		});
 		expect(applyRemoteToolCall).not.toHaveBeenCalled();
+	});
+});
+
+describe('远端提问桥（#11）', () => {
+	beforeEach(() => {
+		resetRemoteMirrorSession();
+		useChatStore.setState({pendingAsk: null, activeId: 's1'} as never);
+	});
+
+	it('ask 事件开弹窗：字段逐个落地', () => {
+		useRemoteStore.getState().handleSsePayload('event', {
+			id: 'ev-ask-1',
+			kind: 'ask',
+			text: '选哪个？',
+			request_id: 'req_1',
+			options: ['甲', '乙'],
+			default: '甲',
+			questions: [],
+		});
+		const p = useChatStore.getState().pendingAsk;
+		expect(p).toMatchObject({
+			requestId: 'req_1',
+			question: '选哪个？',
+			options: ['甲', '乙'],
+			default: '甲',
+		});
+	});
+
+	it('ask_resolved 清匹配弹窗、不误伤他单', () => {
+		useChatStore.setState({
+			pendingAsk: {
+				requestId: 'req_1',
+				question: 'q',
+				options: [],
+				questions: [],
+				sessionId: 's1',
+			},
+		} as never);
+		useRemoteStore
+			.getState()
+			.handleSsePayload('event', {id: 'ev-ar-x', kind: 'ask_resolved', request_id: 'other'});
+		expect(useChatStore.getState().pendingAsk).not.toBeNull();
+		useRemoteStore
+			.getState()
+			.handleSsePayload('event', {id: 'ev-ar-1', kind: 'ask_resolved', request_id: 'req_1'});
+		expect(useChatStore.getState().pendingAsk).toBeNull();
 	});
 });

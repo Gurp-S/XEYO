@@ -41,6 +41,25 @@ def test_non_numeric_price_is_not_counted_as_zero(collect) -> None:
 	assert "未计入合计" in summary["statement"]
 
 
+def test_null_price_row_is_unknown_not_zero(collect) -> None:
+	"""无价目厂商的账本行（``cost_cny: null``）在诊断面是「费用未知」，不是 0 元。
+
+	上游（``usage.ledger``）不再为无权威价目的厂商编价之后，这里的 ``null``
+	就是常态输入；一旦哪层把它当 0 累加，合计与「已计价」的判断都会失真。
+	"""
+	run = collect(_FINISHED)
+	run.usage_rows = [
+		{"attempt_key": "r1#1", "cost_cny": None, "cost_source": "unpriced"},
+	]
+	summary = usage_summary(run)
+	assert summary["priced_attempts"] == 0
+	assert summary["unpriced_attempts"] == 1
+	assert summary["unknown_cost_attempts"] == 0
+	assert summary["estimated_total_cny"] == 0.0
+	assert summary["total_is_partial"] is True
+	assert "unpriced" in summary["cost_sources"]
+
+
 def test_markdown_cites_the_evidence_behind_a_cause(collect) -> None:
 	"""定责的原因在导出里也要指回原始记录：指针只留在结构体里等于没给读者。
 

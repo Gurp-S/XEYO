@@ -31,6 +31,7 @@ from memory.memdir import (
     write_note,
 )
 from tools.base_tool import ToolResult
+from tools.error_taxonomy import INVALID_ARGUMENT
 from tools.memory_tool.prompt import build_description
 
 _ACTIONS = ("write", "update", "forget", "search", "peers", "retrieve")
@@ -237,6 +238,7 @@ class MemoryTool:
             return ToolResult(
                 content=f"unknown action: {action or '(empty)'}; expected {_ACTIONS}",
                 is_error=True,
+                error_kind=INVALID_ARGUMENT,
             )
         if action == "search":
             return await self._execute_search(raw, abort)
@@ -258,7 +260,7 @@ class MemoryTool:
             )
         note_id = str(raw.get("id") or "").strip()
         if action in ("update", "forget") and not note_id:
-            return ToolResult(content=f"action={action} requires id", is_error=True)
+            return ToolResult(content=f"action={action} requires id", is_error=True, error_kind=INVALID_ARGUMENT)
         if action == "forget":
             return await self._execute_forget(note_id, raw, abort)
         if action == "update":
@@ -271,7 +273,7 @@ class MemoryTool:
         abort.raise_if_aborted()
         query = str(raw.get("query") or raw.get("content") or "").strip()
         if not query:
-            return ToolResult(content="action=search requires query", is_error=True)
+            return ToolResult(content="action=search requires query", is_error=True, error_kind=INVALID_ARGUMENT)
         scope = str(raw.get("scope") or "").strip()
         note_type = str(raw.get("type") or "").strip()
         try:
@@ -397,7 +399,7 @@ class MemoryTool:
         """
         fid = str(raw.get("id") or "").strip()
         if not fid:
-            return ToolResult(content="action=retrieve requires id", is_error=True)
+            return ToolResult(content="action=retrieve requires id", is_error=True, error_kind=INVALID_ARGUMENT)
         import re as _re
 
         m = _re.match(r"^notes:msg:(\d+)(?::([A-Za-z_]+))?$", fid)

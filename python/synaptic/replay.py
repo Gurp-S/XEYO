@@ -23,9 +23,7 @@ from synaptic.seeds import harvest_needles
 from synaptic.textutil import node_token_len
 from synaptic.types import MODE_CLOSURE, WscParams
 
-# ---------------------------------------------------------------------------
 # 会话加载
-# ---------------------------------------------------------------------------
 
 _log = logging.getLogger("xeyo.synaptic.replay")
 
@@ -39,21 +37,32 @@ def default_sessions_dir() -> Path:
 	return Path.home() / ".xeyo" / "sessions"
 
 
+#: 与生产 ``session/hydrate._ROLES`` 同源：进模型注意力的 role 只有这四个。
+#: 转录里另有前端补写的 UI-only 行（``ui_thought``——现场会话实测占 20.6% 字符），
+#: 生产从不把它们发给模型；离线重放必须同口径，否则所有评测数字都被"模型根本
+#: 看不到的正文"污染。缺 role 的行按 ``user`` 归属（与 ``_as_api_message`` 同口径）。
+_NATIVE_ROLES = frozenset({"system", "user", "assistant", "tool"})
+
+
 def load_jsonl(path: Path, *, hydrate: bool = True) -> list[dict[str, Any]]:
-	"""读会话 JSONL；默认把外置正文（``content_ref``）取回（见 ``hydrate_external_rows``）。"""
+	"""读会话 JSONL；默认把外置正文（``content_ref``）取回（见 ``hydrate_external_rows``）。
+
+	只保留生产会发给模型的 role（``_NATIVE_ROLES``）——UI-only 行在读取层就被丢弃。
+	"""
 	if not path.is_file():
 		return []
 	out: list[dict[str, Any]] = []
-	with path.open("r", encoding="utf-8") as fh:
-		for line in fh:
-			line = line.strip()
+	with path.open("rb") as fh:
+		for raw in fh:
+			# 逐行字节解码：坏字节只报废它所在那一行，不报废整份外部回放档。
+			line = raw.decode("utf-8", errors="replace").strip()
 			if not line:
 				continue
 			try:
 				obj = json.loads(line)
 			except json.JSONDecodeError:
 				continue
-			if isinstance(obj, dict):
+			if isinstance(obj, dict) and str(obj.get("role") or "user") in _NATIVE_ROLES:
 				out.append(obj)
 	if not hydrate:
 		return out
@@ -216,9 +225,7 @@ def user_turn_starts(api_msgs: list[dict[str, Any]]) -> list[int]:
 	return idxs or ([0] if api_msgs else [])
 
 
-# ---------------------------------------------------------------------------
 # 记录结构
-# ---------------------------------------------------------------------------
 
 @dataclass
 class TurnRecord:
@@ -311,9 +318,7 @@ class SessionRecord:
 	recover: dict[str, float | int] = field(default_factory=dict)
 
 
-# ---------------------------------------------------------------------------
 # 单会话回放
-# ---------------------------------------------------------------------------
 
 def run_session(
 	path: Path,

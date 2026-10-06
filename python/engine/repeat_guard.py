@@ -1,14 +1,13 @@
-"""重复工具调用检测（RepeatCallGuard）—— T6 递进建议制。
+"""重复调用的确定性签名与 TODO 触发信号。
 
-同一 submit 内，"(工具名, 签名)" 相同的调用按出现次数递进提醒：
+同一 submit 内，"(工具名, 签名)" 相同的调用按出现次数计数：
 - 阈值 ``[3, 5, 8]``（``XEYO_REPEAT_TOOL_ADVICE`` 逗号分隔覆盖）：
-  第 1 阈短提示；后续阈值详细提醒（点名 tool / count / args 预览 ≤500 字符）；
+  命中阈值只发布布尔信号，不生成计数文案或参数预览；
   越过末档后**静默**（R2'：持续空转的逐字告知交给 ``engine.repeat_fold``
   的字节级折叠行——同签名且输出不变时每轮一行 ``[fold]``，此处不再刷长文）。
 - **只提醒、永不拒执行**（旧版 block 语义移除；轮次/预算硬顶仍兜底死循环）。
 - **denied 调用同样计数**——观察点在调用准入处，权限结果不影响计数。
-- 提醒**不改写 ToolResult**：经 T_now 注入（``prompt/pre_llm_inject`` 的
-  ``# Repeat guard（background only）`` 块），source-attributed。
+- 信号不改写 ToolResult；pre_llm_inject 仅据此触发现有未完成 TODO 状态。
 - 每次 submit 新建 guard（用户输入即重置）；``clear_advice()`` 在轮首调用。
 - 边界：签名重复但输出在变（合法轮询 / 进度推进）→ 不折叠也不长提醒——
   由 ``repeat_fold`` 的字节级判据天然豁免；此处只管"同签名计数"。
@@ -80,21 +79,21 @@ def block_threshold_from_env(default: int = DEFAULT_ADVICE_LEVELS[-1]) -> int:
 
 # ── 模块级当前提醒（单进程单 loop；T_now 块消费）───────────────────
 
-_CURRENT_ADVICE: str = ""
+_CURRENT_ADVICE: bool = False
 
 
-def publish_advice(text: str) -> None:
+def publish_advice(trigger: bool) -> None:
 	global _CURRENT_ADVICE
-	_CURRENT_ADVICE = (text or "").strip()
+	_CURRENT_ADVICE = bool(trigger)
 
 
-def current_advice() -> str:
+def current_advice() -> bool:
 	return _CURRENT_ADVICE
 
 
 def clear_advice() -> None:
 	global _CURRENT_ADVICE
-	_CURRENT_ADVICE = ""
+	_CURRENT_ADVICE = False
 
 
 def canonical_input(input_data: Any) -> str:
@@ -211,7 +210,7 @@ class RepeatCallGuard:
 		if not self.advice_at:
 			self.advice_at = DEFAULT_ADVICE_LEVELS
 		self._counts: dict[str, int] = {}
-		self.last_advice: str = ""
+		self.last_advice: bool = False
 
 	@staticmethod
 	def _key(tool_name: str, input_data: Any) -> str:
@@ -221,7 +220,7 @@ class RepeatCallGuard:
 		"""记录一次调用意图；返回 ACTION_RUN 或 ACTION_ADVICE。
 
 		每次调用恰好计一次数（denied 同样计入）；命中阈值时产出提醒并发布到
-		模块级 current_advice()（T_now 块消费），**不改写 ToolResult**。
+		模块级 current_advice() 布尔槽（TODO 触发），**不改写 ToolResult**。
 		"""
 		if tool_name in EXEMPT_TOOLS:
 			return ACTION_RUN
@@ -243,9 +242,7 @@ class RepeatCallGuard:
 				return ACTION_RUN
 			else:
 				return ACTION_RUN
-		self.last_advice = self.advice_text(
-			tool_name, input_data, level_idx, count
-		)
+		self.last_advice = True
 		publish_advice(self.last_advice)
 		return ACTION_ADVICE
 
@@ -253,29 +250,10 @@ class RepeatCallGuard:
 		"""当前签名已观察到的总次数（含本次之前）；供错误文案引用。"""
 		return self._counts.get(self._key(tool_name, input_data), 0)
 
-	@staticmethod
-	def advice_text(
-		tool_name: str, input_data: Any, level_idx: int, count: int
-	) -> str:
-		"""纯事实（理念裁决 C1）：工具名 + 次数；详细档附参数预览 ≤500 字符。
-
-		不带任何"请作答/请换参数"类劝导——是否换方法由模型自决；引擎
-		侧的强制手段是 repeat_fold 的输出折叠与 tool 执行层，不是文本。
-		"""
-		base = f"'{tool_name}' 已用完全相同的参数连续调用 {count} 次。"
-		if level_idx <= 0:
-			return f"[repeat] {base}"
-		preview = canonical_input(input_data)[:500]
-		return (
-			f"[repeat] {base}\n"
-			f"tool: {tool_name}\n"
-			f"args: {preview}"
-		)
-
 	def reset(self) -> None:
 		"""清空计数与当前提醒（同一实例复用时的用户输入级重置）。"""
 		self._counts.clear()
-		self.last_advice = ""
+		self.last_advice = False
 		clear_advice()
 
 # ====== 零命中计数（多组不同查询全部空结果 → 纯事实计数） ======

@@ -6,8 +6,8 @@
  * `parseSseBlock()` 的 if-chain 缺分支，落到末尾 `return null`。
  * 这类断裂不会报错、不会告警，只能靠契约测试锁住。
  */
-import {describe, expect, it} from 'vitest';
-import {parseOpenAiSse, parseSseBlock} from './core';
+import {describe, expect, it, vi} from 'vitest';
+import {fetchWithTimeout, parseOpenAiSse, parseSseBlock} from './core';
 
 /** 组装一条 xy 信封帧（与后端 `_xy_chunk` 同形）。 */
 function frame(xy: Record<string, unknown>): string {
@@ -171,5 +171,49 @@ describe('parseOpenAiSse · 行尾与跨块边界', () => {
 		expect(
 			await collect([`${a}\r`, `\n\r\n${b}\r\n\r\n`, 'data: [DONE]\r\n\r\n']),
 		).toEqual(['delta:A', 'delta:B', 'done']);
+	});
+});
+
+describe('fetchWithTimeout · 取消语义', () => {
+	/** 假 fetch：只有传进来的 signal 被中止才 reject（模拟原生 fetch 行为）。 */
+	function hangingFetch() {
+		return vi.fn(
+			(_url: string, init?: RequestInit) =>
+				new Promise<Response>((_resolve, reject) => {
+					init?.signal?.addEventListener('abort', () =>
+						reject(new DOMException('aborted', 'AbortError')),
+					);
+				}),
+		);
+	}
+
+	it('调用方 signal 取消：原样上抛 AbortError，不谎报「请求超时」', async () => {
+		const fake = hangingFetch();
+		vi.stubGlobal('fetch', fake);
+		try {
+			const caller = new AbortController();
+			const p = fetchWithTimeout('http://x/', {signal: caller.signal});
+			// 等一拍让 fetch 拿到 init（含合并后的 signal）再取消
+			await Promise.resolve();
+			caller.abort();
+			await expect(p).rejects.toMatchObject({name: 'AbortError'});
+		} finally {
+			vi.unstubAllGlobals();
+		}
+	});
+
+	it('超时：仍然给出「请求超时」消息（回归护栏）', async () => {
+		vi.useFakeTimers();
+		const fake = hangingFetch();
+		vi.stubGlobal('fetch', fake);
+		try {
+			const p = fetchWithTimeout('http://x/', undefined, 1000);
+			const assertion = expect(p).rejects.toThrow(/请求超时/);
+			await vi.advanceTimersByTimeAsync(1001);
+			await assertion;
+		} finally {
+			vi.useRealTimers();
+			vi.unstubAllGlobals();
+		}
 	});
 });

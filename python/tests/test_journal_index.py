@@ -216,6 +216,43 @@ def test_repeated_gc_sweep_does_not_grow_files(isolated):
 
 
 # ---------------------------------------------------------------------------
+# 回归：崩溃截断的尾行不得吞掉下一条记录 / 不得让 seq 撞号（09-10 MEM-11）
+# ---------------------------------------------------------------------------
+
+
+def test_tail_seq_heals_corrupted_tail(isolated):
+    """末行是截断的非法 JSON 时，seq 从最近有效行继续，而不是回落 1 撞号。"""
+    ws = "ws-heal"
+    for i in range(3):
+        assert j.record_change(ws, _rec(0, f"a{i}", f"f{i}.ts", float(i))) == i + 1
+    journal = Path(isolated) / f"{ws}.jsonl"
+    with journal.open("a", encoding="utf-8") as fh:
+        fh.write('{"seq": 4, "path": "trunca')  # 崩溃截断：非法 JSON、无换行
+    assert j.record_change(ws, _rec(0, "b", "next.ts", 9.0)) == 4
+
+
+def test_append_after_truncated_tail_starts_on_a_new_line(isolated):
+    """无换行的截断尾行之后，新记录必须落在新行上——不许并进坏行。"""
+    ws = "ws-merge"
+    j.record_change(ws, _rec(0, "a", "one.ts", 1.0))
+    journal = Path(isolated) / f"{ws}.jsonl"
+    with journal.open("a", encoding="utf-8") as fh:
+        fh.write('{"seq": 2, "path": "trunca')  # 无换行截断
+    j.record_change(ws, _rec(0, "b", "survivor.ts", 2.0))
+    rows = j._read_rows(journal)
+    assert [r.get("path") for r in rows] == ["one.ts", "survivor.ts"]
+
+
+def test_healthy_append_file_has_no_blank_lines(isolated):
+    """方向控制：健康文件追加不掺空行（既有行数口径不变）。"""
+    ws = "ws-clean"
+    for i in range(3):
+        j.record_change(ws, _rec(0, "a", f"f{i}.ts", float(i)))
+    journal = Path(isolated) / f"{ws}.jsonl"
+    assert len(journal.read_text(encoding="utf-8").splitlines()) == 3
+
+
+# ---------------------------------------------------------------------------
 # 回归：GC 裁了 journal 却没重建索引 ⇒ 旧索引不能继续被当作"新鲜"
 # ---------------------------------------------------------------------------
 

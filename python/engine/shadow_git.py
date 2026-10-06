@@ -128,6 +128,8 @@ class ShadowGit:
                             handle.write("\n")
                         handle.write("\n".join(additions) + "\n")
             except Exception:
+                # exclude 修补 best-effort：失败不阻断快照；下次调用按
+                # required_excludes 差集重新补写。
                 pass
 
     def head_commit(self) -> Optional[str]:

@@ -23,6 +23,9 @@ _logger = logging.getLogger(__name__)
 # 进程内缓存：session_id → workspace_id（与磁盘最新行一致）。
 _cache: dict[str, str] = {}
 _loaded = False
+#: 上次加载时的索引 mtime_ns。磁盘被其它进程追加后必须重载（SES-05）；
+#: 读失败时不更新（SES-06：一次瞬时 I/O 错误不得把视图永久冻结）。
+_loaded_mtime_ns: int | None = None
 
 
 def _sessions_dir() -> Path:
@@ -38,37 +41,56 @@ def index_path() -> Path:
     return _sessions_dir() / "_workspace_index.jsonl"
 
 
-def _read_all() -> dict[str, str]:
-    """读全量索引 → {session_id: workspace_id}（后行覆盖前行）。"""
+def _read_all() -> dict[str, str] | None:
+    """读全量索引 → {session_id: workspace_id}（后行覆盖前行）。
+
+    文件不存在 = 合法空集；其它 OSError = 读失败 → None（调用方保持旧视图并
+    允许下次重试，不得把失败当成"磁盘上什么都没有"）。
+    """
     path = index_path()
-    if not path.is_file():
-        return {}
-    out: dict[str, str] = {}
     try:
-        for line in path.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                row = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if not isinstance(row, dict):
-                continue
-            sid = str(row.get("session_id") or "").strip()
-            wsid = str(row.get("workspace_id") or "").strip()
-            if sid and wsid:
-                out[sid] = wsid
+        raw = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return {}
     except OSError:
-        return dict(_cache)
+        return None
+    out: dict[str, str] = {}
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(row, dict):
+            continue
+        sid = str(row.get("session_id") or "").strip()
+        wsid = str(row.get("workspace_id") or "").strip()
+        if sid and wsid:
+            out[sid] = wsid
     return out
 
 
+def _disk_mtime_ns() -> int | None:
+    try:
+        return index_path().stat().st_mtime_ns
+    except OSError:
+        return None
+
+
 def _ensure_loaded() -> None:
-    global _loaded
-    if not _loaded:
-        _cache.update(_read_all())
-        _loaded = True
+    global _loaded, _loaded_mtime_ns
+    m = _disk_mtime_ns()
+    if _loaded and m == _loaded_mtime_ns:
+        return
+    fresh = _read_all()
+    if fresh is None:
+        return  # 瞬时 I/O 失败：不置位 ⇒ 下次调用重试
+    _cache.clear()
+    _cache.update(fresh)
+    _loaded = True
+    _loaded_mtime_ns = m
 
 
 def _workspace_id(cwd: str) -> str:
@@ -117,9 +139,10 @@ def sessions_for_workspace(cwd: str) -> list[str]:
 
 def reset_for_tests() -> None:
     """测试用：清空进程内缓存（XEYO_SESSIONS_DIR 重定向后必须调用）。"""
-    global _loaded
+    global _loaded, _loaded_mtime_ns
     _cache.clear()
     _loaded = False
+    _loaded_mtime_ns = None
 
 
 __all__ = [

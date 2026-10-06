@@ -20,8 +20,17 @@ def normalize_model_event(value: Any) -> ModelEvent:
 	if not isinstance(value, ModelChunk):
 		raise ModelProtocolError("provider emitted a non-ModelEvent")
 	kind = str(value.kind or "")
-	if kind not in {"text_delta", "reasoning_delta", "tool_use"}:
+	if kind not in {"text_delta", "reasoning_delta", "reasoning_block", "tool_use"}:
 		raise ModelProtocolError(f"unknown model event kind: {kind}")
+	if kind == "reasoning_block":
+		from engine.reasoning_blocks import validate_reasoning_block
+
+		validate_reasoning_block(value.block)
+		if value.text or value.tool_use is not None:
+			raise ModelProtocolError("reasoning_block cannot carry text or tool_use")
+		return value
+	if value.block is not None:
+		raise ModelProtocolError(f"{kind} cannot carry a reasoning block")
 	if kind in {"text_delta", "reasoning_delta"}:
 		if not isinstance(value.text, str):
 			raise ModelProtocolError(f"{kind} text must be a string")

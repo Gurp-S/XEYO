@@ -99,9 +99,10 @@ def _read_rows(path: Path) -> list[dict[str, Any]]:
         return []
     rows: list[dict[str, Any]] = []
     with _lock_for(path):
-        with open(path, "r", encoding="utf-8") as fh:
-            for line in fh:
-                line = line.strip()
+        with open(path, "rb") as fh:
+            for raw in fh:
+                # 逐行字节解码：半条多字节序列会让整份 revision 索引读不出来。
+                line = raw.decode("utf-8", errors="replace").strip()
                 if not line:
                     continue
                 try:

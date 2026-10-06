@@ -294,3 +294,88 @@ def test_gateway_casefold_resolve_and_disabled_server(tmp_path):
     # 未启动 server：伪造 entry state（直接构造 manager 查询）。
     mgr2 = mm.McpManager(str(ws))
     assert mgr2.resolve_tool("fs", "read_file") is None
+
+
+# --- 失败回执不许冒充成功 ----------------------------------------------------
+#
+# execute 的收尾是「动作返回 ToolResult 就照原样，返回纯文本就包成 is_error=False」。
+# 于是任何一个失败分支只要把错误写成纯文本，模型和归属表看到的都是"这次调用成功"。
+# 2026-10-03 实测有四处这样漏（list 异常 / describe 解析不到 / resources 指定了没就绪的
+# server / read_resource 异常）。每条都配正控，防止门只挡一头。
+
+
+def test_gateway_describe_unknown_target_is_not_a_success(tmp_path):
+    _, _, reg = _setup(tmp_path, tools=[_raw("read_file")])
+    res = _run(
+        reg, GATEWAY_TOOL_NAME, {"action": "describe", "server": "fs", "tool": "nope"}
+    )
+    assert res.is_error is True
+    assert res.error_kind == "INVALID_ARGUMENT"
+    assert "fail-closed" in res.content
+    # 正控：已知目标仍是成功，且没有被子串匹配误判
+    ok = _run(
+        reg, GATEWAY_TOOL_NAME, {"action": "describe", "server": "fs", "tool": "read_file"}
+    )
+    assert ok.is_error is False and "read_file" in ok.content
+
+
+def test_gateway_call_unknown_target_is_an_argument_error(tmp_path):
+    """call 的同一句话早就标成错误——把归属钉在模型侧（修前落 INTERNAL=没分类）。"""
+    _, _, reg = _setup(tmp_path, tools=[_raw("read_file")])
+    tool = reg.get(GATEWAY_TOOL_NAME)
+    res = asyncio.run(
+        tool.execute({"action": "call", "server": "fs", "tool": "nope", "args": {}}, AbortController())
+    )
+    assert res.is_error is True and res.error_kind == "INVALID_ARGUMENT"
+
+
+def test_gateway_resources_unknown_server_is_not_a_success(tmp_path):
+    _, _, reg = _setup(tmp_path, tools=[_raw("read_file")])
+    res = _run(reg, GATEWAY_TOOL_NAME, {"action": "resources", "server": "nope"})
+    assert res.is_error is True and "not ready" in res.content
+    # 正控：不指定 server 且确有就绪 server ⇒ 正常列表
+    ok = _run(reg, GATEWAY_TOOL_NAME, {"action": "resources"})
+    assert ok.is_error is False
+
+
+class _BoomManager:
+    """manager 自己抛：网关必须把它记成失败，而不是把异常文本当正文回成功。"""
+
+    def gateway_catalog(self):
+        raise RuntimeError("catalog blew up")
+
+    def client_for(self, server_id):
+        return self
+
+    def read_resource(self, uri):
+        raise RuntimeError("server exploded")
+
+    def resolve_tool(self, server_id, raw_name):
+        return None
+
+
+def _tool():
+    from extension.mcp_gateway import McpGatewayTool
+
+    return McpGatewayTool(_BoomManager())
+
+
+def test_gateway_manager_failures_are_error_receipts():
+    tool = _tool()
+    res = asyncio.run(tool.execute({"action": "list"}, AbortController()))
+    assert res.is_error is True and "catalog blew up" in res.content
+
+    res = asyncio.run(
+        tool.execute(
+            {"action": "read_resource", "server": "fs", "uri": "file:///x"},
+            AbortController(),
+        )
+    )
+    assert res.is_error is True and "server exploded" in res.content
+
+    # 正控：参数缺失是明确的参数错，不是"空正文的成功"
+    res = asyncio.run(tool.execute({"action": "read_resource"}, AbortController()))
+    assert res.is_error is True and res.error_kind == "INVALID_ARGUMENT"
+
+    res = asyncio.run(tool.execute({"action": "shutdown"}, AbortController()))
+    assert res.is_error is True and res.error_kind == "INVALID_ARGUMENT"

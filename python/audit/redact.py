@@ -53,15 +53,31 @@ def command_summary(command: str | None, *, max_len: int = _MAX_DEFAULT) -> str:
 	return redacted[: max(0, max_len - 1)] + "…"
 
 
+#: 嵌套扫描深度上限：真实工具入参远达不到；上限只为把恶意深嵌套的遍历成本变得有界。
+_SCRUB_MAX_DEPTH = 8
+
+
 def scrub_audit_fields(fields: dict[str, Any]) -> dict[str, Any]:
-	"""对已知敏感字段做浅层打码（不递归改写整个 tool_input 树）。"""
-	out: dict[str, Any] = {}
-	for key, value in fields.items():
-		if key == "command_summary" and isinstance(value, str):
-			out[key] = command_summary(value)
-			continue
-		if key in _SENSITIVE_KEYS and isinstance(value, str):
-			out[key] = redact_text(value)[:_MAX_DEFAULT]
-			continue
-		out[key] = value
-	return out
+	"""对已知敏感字段打码；嵌套 dict/list **逐层同规则**。
+
+	此前浅层实现只打码顶层字符串，`tool_input` 树内嵌套的
+	`headers.authorization` / `token` 等敏感键会**明文落审计**（2026-10-05
+	复核 09-10 P1-16）。递归后语义与顶层一致：敏感键名命中才打码，中性键原样。
+	"""
+	return {key: _scrub_value(key, value, _SCRUB_MAX_DEPTH) for key, value in fields.items()}
+
+
+def _scrub_value(key: str, value: Any, depth: int) -> Any:
+	if isinstance(value, str):
+		if key == "command_summary":
+			return command_summary(value)
+		if key in _SENSITIVE_KEYS:
+			return redact_text(value)[:_MAX_DEFAULT]
+		return value
+	if depth <= 0:
+		return value
+	if isinstance(value, dict):
+		return {str(k): _scrub_value(str(k), v, depth - 1) for k, v in value.items()}
+	if isinstance(value, list):
+		return [_scrub_value(key, v, depth - 1) for v in value]
+	return value

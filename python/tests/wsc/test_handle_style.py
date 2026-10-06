@@ -406,11 +406,11 @@ def _session_long() -> list[dict]:
 	return synth_session(turns=40, user_every=1)
 
 
-def test_logical_refreeze_keeps_old_head_snapshot_readable(tmp_path):
-	"""逻辑换头只追加：旧头句柄仍能经生产 Read 取回原热层。"""
+def test_rebase_keeps_displaced_head_snapshot_readable(tmp_path):
+	"""真正替换热头时，旧头仍能经生产 Read 逐字取回。"""
 	msgs = _session()
 	view = tmp_path / ".xeyo_offload" / "wsc" / "cold.txt"
-	params = replace(default_params(level="Hard"), handle_style="read", journal_growth_tokens=1)
+	params = replace(default_params(level="Hard"), handle_style="read", journal_growth_tokens=1, journal_rebase=True)
 	mid = len(msgs) // 2
 	p1 = project(msgs[:mid], region_end=mid, params=params, view_path=view)
 	p2 = project(
@@ -422,8 +422,7 @@ def test_logical_refreeze_keeps_old_head_snapshot_readable(tmp_path):
 		view_path=view,
 	)
 	assert p2.result.journal_refroze is True
-	assert p2.result.rebuilt is False
-	assert p2.text.startswith(p1.text)
+	assert p2.result.rebuilt is True
 	handle = head_handle(p1.text)
 	assert p2.cold.expand(handle) == (p1.text,)
 	ranges = p2.cold.write_text_view(view)

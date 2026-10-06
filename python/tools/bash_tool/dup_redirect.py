@@ -34,14 +34,15 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-#: 命令链/管道/重定向/换行等元字符：出现即视为复合命令，不重定向。
-_METACHARS = re.compile(r"[|<>;&`^%]|\$\(|\n")
-
-#: Windows 设备名（cat nul / type nul 常见于占位操作，非文件读）。
-_DEVICE_NAMES = re.compile(r"^(nul|null|con|prn|aux|lpt[1-9]|com[1-9])$", re.I)
-
-#: 文件名/路径里的通配符——出现即放行（shell 展开多文件，不可映射为单次工具调用）。
-_WILDCARD = re.compile(r"[*?]")
+# 单文件读的判据（元字符/切词/取参）同源自 common.read_target：bash 路由、读观测身份
+# 与卡面 target 共用一套"这条命令读的是哪个文件"的判定。
+from common.read_target import (
+	DEVICE_NAMES as _DEVICE_NAMES,
+	METACHARS as _METACHARS,
+	WILDCARD as _WILDCARD,
+	read_positional as _read_positional,
+	tokens as _tokens,
+)
 
 #: grep 家族允许的短标志（组合如 -rn 逐字符校验）；不在此列的选项放行执行。
 _GREP_FLAG_CHARS = frozenset("rRinIEs")
@@ -87,49 +88,9 @@ class _Hit:
 	hint: str
 
 
-def _tokens(command: str) -> list[str]:
-	"""按空白切词：保留引号内空格，不做 shell 转义解释（Windows 反斜杠路径安全）。"""
-	out: list[str] = []
-	cur: list[str] = []
-	quote: str | None = None
-	for ch in command:
-		if quote:
-			if ch == quote:
-				quote = None
-			else:
-				cur.append(ch)
-		elif ch in "\"'":
-			quote = ch
-		elif ch.isspace():
-			if cur:
-				out.append("".join(cur))
-				cur = []
-		else:
-			cur.append(ch)
-	if cur:
-		out.append("".join(cur))
-	return out
-
-
 def _short(text: str, limit: int = 80) -> str:
 	text = (text or "").strip()
 	return text if len(text) <= limit else text[: limit - 1] + "…"
-
-
-def _read_positional(tokens: list[str], start: int) -> str | None:
-	"""取唯一的位置参数（文件路径）；多参数/含通配符/设备名/未知标志 → None。"""
-	path: str | None = None
-	for tok in tokens[start:]:
-		if tok in ("-n", "--number"):
-			continue
-		if tok.startswith("-"):
-			return None
-		if path is not None:
-			return None
-		if _WILDCARD.search(tok) or _DEVICE_NAMES.match(tok):
-			return None
-		path = tok
-	return path
 
 
 def _hit_read(tokens: list[str]) -> _Hit | None:

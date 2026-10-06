@@ -34,6 +34,8 @@ from typing import Any, Optional
 from engine.abort import AbortController
 from permissions import filesystem
 from tools.base_tool import ToolResult
+from tools.error_taxonomy import INVALID_ARGUMENT, PERMISSION_DENIED, TIMEOUT
+from tools.input_types import int_field_type_error, string_field_type_error
 from tools.fileio.excludes import agentignore_args, excluded_dir_globs
 from tools.fileio.rg_subprocess import (
 	RG_MISSING_IN_CONTAINER,
@@ -87,6 +89,19 @@ def _truncation_note(shown: int, limit: int, total: int, next_off: int) -> str:
 		f"\nToo many matches (匹配过多): showing {shown} of {total}. "
 		f"head_limit is hard-capped at {limit}; offset={next_off} identifies "
 		"the next slice."
+	)
+
+
+def _empty_window_note(total: int, offset: int) -> str:
+	"""窗口切片为空、整趟却有命中：只陈述这两件事（同 Read 的"shorter than offset"口径）。
+
+	`total_matches` 是分页**前**的整趟数，它一直在 metadata 里；此前空页会说成
+	"No files found" 并给出放宽建议，同时把 `no_match` 记进 ZeroHitTracker 的
+	"第 N 次空结果"——对模型而言，一次成功的检索被陈述成了不存在。
+	"""
+	return (
+		f"\n\nEmpty window (窗口内为空): this pass matched {total} "
+		f"file{'' if total == 1 else 's'}; offset={offset} starts past them."
 	)
 
 def clear_glob_cache() -> None:
@@ -657,8 +672,6 @@ def perform_glob(
 		"--files",
 		glob_flag,
 		pattern,
-		"--sort",
-		"modified",
 		"--hidden",
 	]
 	cmd.extend(
@@ -693,7 +706,17 @@ def perform_glob(
 			raise RuntimeError("Glob: container find fallback unavailable") from e
 		all_files = found
 
-	all_files.reverse()
+	# rg's modified-time sort has no stable tie-break for files with the same
+	# timestamp. Pages are scanned independently, so an unstable tie can put the
+	# same file on adjacent pages. Rebuild the ordering with a path tie-break.
+	all_files.sort(
+		key=lambda rel: (
+			_stat_mtime_safe(os.path.join(root_dir, rel)),
+			rel.replace("\\", "/").casefold(),
+			rel.replace("\\", "/"),
+		),
+		reverse=True,
+	)
 	total = len(all_files)
 	sliced = all_files[offset : offset + limit]
 	truncated = total > offset + limit
@@ -898,6 +921,9 @@ class GlobTool:
 		# --- 4) TTL 缓存：相同 (pattern, root, limit, offset) 60s 内不重扫 ---
 		# 大小写重试的结果一并烘焙进缓存：命中即零磁盘扫描。
 		scan_key: tuple = ("files", pattern, root, head_limit, off)
+		# 分页的大小写模式由第 0 页定案（2026-10-05）：此前 off>0 的页一律回到
+		# 大小写敏感 ⇒ 第 0 页用 iglob 列出的条目在下一页答"没有"。
+		case_mode_key: tuple = ("case_mode", pattern, root)
 		cached_scan = _glob_cache_get(scan_key)
 		case_retry = False
 		spill_path: str | None = None
@@ -905,17 +931,19 @@ class GlobTool:
 			files, truncated, total, case_retry, spill_path = cached_scan
 			_bump_stat("cache_hits")
 		else:
+			inherited_ci = off > 0 and bool(_glob_cache_get(case_mode_key))
 			files, truncated, total, spill_path = perform_glob(
 				pattern=pattern,
 				root_dir=root,
 				limit=head_limit,
 				offset=off,
 				abort=abort,
-				case_insensitive=False,
+				case_insensitive=inherited_ci,
 				ignore_roots=(self._cwd,),
 				session_id=session_id,
 			)
-			# --- 1) 空结果 + 含字母 → iglob 重试 ---
+			case_retry = inherited_ci
+			# --- 1) 空结果 + 含字母 → iglob 重试（仅第 0 页定案模式） ---
 			if not files and off == 0 and _pattern_has_letters(pattern):
 				files, truncated, total, spill_path = perform_glob(
 					pattern=pattern,
@@ -931,6 +959,8 @@ class GlobTool:
 				if case_retry:
 					_bump_stat("case_retries")
 			if not _aborted(abort):
+				if off == 0:
+					_glob_cache_put(case_mode_key, case_retry)
 				_glob_cache_put(
 					scan_key, (files, truncated, total, case_retry, spill_path)
 				)
@@ -1004,9 +1034,15 @@ class GlobTool:
 		if output.rendered is not None:
 			text = output.rendered
 		elif not output.filenames:
-			text = "No files found" + _NO_FILES_TIP
-			if output.suggestion:
-				text += "\n\n" + output.suggestion
+			if output.total_matches:
+				# 分页越界的空页：整趟有命中，不能说"No files found"，也不该给放宽建议。
+				text = "No files in this window" + _empty_window_note(
+					output.total_matches, output.offset
+				)
+			else:
+				text = "No files found" + _NO_FILES_TIP
+				if output.suggestion:
+					text += "\n\n" + output.suggestion
 		else:
 			lines = list(output.notes)
 			if not output.truncated:
@@ -1035,6 +1071,17 @@ class GlobTool:
 		self, input: dict[str, Any], abort: AbortController
 	) -> ToolResult:
 		abort.raise_if_aborted()
+
+		# 类型收口：`path` 非字符串时原先被降级成"没给目录"⇒ 搜遍整个工作区，
+		# 结果照常报成对该请求的回答。先挡下来，把形状如实说回去。
+		bad_type = string_field_type_error(
+			input or {}, ("pattern", "path", "detail")
+		)
+		if bad_type:
+			return ToolResult(content=bad_type, is_error=True, error_kind=INVALID_ARGUMENT)
+		bad_num = int_field_type_error(input or {}, ("head_limit", "offset"))
+		if bad_num:
+			return ToolResult(content=bad_num, is_error=True, error_kind=INVALID_ARGUMENT)
 
 		raw_path = input.get("path")
 		path: str | None
@@ -1076,13 +1123,18 @@ class GlobTool:
 
 		validation = self.validate_input(glob_input)
 		if not validation.get("result"):
+			# 0/3 = 参数缺失/枚举非法、2 = 目标存在但不是目录（稳定事实，模型侧）
+			# ⇒ INVALID_ARGUMENT。目录不存在（1）**故意留 INTERNAL**：NOT_FOUND
+			# 在 fault_split 归环境侧，模型写错的路径不该判给环境。
+			kind = INVALID_ARGUMENT if validation.get("errorCode") in (0, 2, 3) else None
 			return ToolResult(
 				content=str(validation.get("message") or "invalid input"),
 				is_error=True,
+				error_kind=kind,
 			)
 
 		if not self.check_permissions(glob_input):
-			return ToolResult(content="permission denied", is_error=True)
+			return ToolResult(content="permission denied", is_error=True, error_kind=PERMISSION_DENIED)
 
 		abort.raise_if_aborted()
 		from engine.workspace_context import get_workspace_context
@@ -1099,7 +1151,10 @@ class GlobTool:
 				session_id=session_id,
 			)
 		except Exception as e:  # noqa: BLE001
-			return ToolResult(content=str(e), is_error=True)
+			# rg 搜索超时 ⇒ TIMEOUT（环境侧）；其余（起不来 rg / fallback 失败）不分类。
+			text = str(e)
+			kind = TIMEOUT if "timed out" in text else None
+			return ToolResult(content=text, is_error=True, error_kind=kind)
 
 		abort.raise_if_aborted()
 		# metadata 恒上报单次命中量（GUI/遥测可消费）；键保持向后兼容
@@ -1115,7 +1170,10 @@ class GlobTool:
 			meta["greedy_pattern"] = True
 		elif output.folded:
 			meta["glob_kind"] = "folded"
-		elif not output.filenames:
+		elif not output.filenames and not output.total_matches:
+			# 零命中分类落在**整趟**上：窗口切片为空而整趟有命中，不是没匹配到。
+			# `no_match` 是 ZeroHitTracker 唯一的输入，误报等于把一次成功检索
+			# 记进注入模型注意力的"第 N 次空结果"。
 			meta["no_match"] = True
 			if output.suggestion:
 				meta["suggestion"] = True

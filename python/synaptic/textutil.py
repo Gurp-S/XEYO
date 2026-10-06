@@ -14,9 +14,7 @@ from synaptic.memo import Memo
 #: ``extract_paths`` 的记忆表（进程内、有界、不落盘）。见 ``synaptic/memo.py``。
 _PATH_MEMO = Memo()
 
-# ---------------------------------------------------------------------------
 # 消息扁平化
-# ---------------------------------------------------------------------------
 
 def message_blocks(msg: dict[str, Any]) -> list[dict[str, Any]]:
 	"""把消息 content 归一为 block 列表（字符串 content 视为单个 text block）。"""
@@ -84,9 +82,7 @@ def node_token_len(text: str) -> int:
 	return (len(text.encode("utf-8")) + 3) // 4
 
 
-# ---------------------------------------------------------------------------
 # 块级抽取
-# ---------------------------------------------------------------------------
 
 def tool_use_blocks(msg: dict[str, Any]) -> list[dict[str, Any]]:
 	out = []
@@ -115,7 +111,7 @@ def tool_result_blocks(msg: dict[str, Any]) -> list[dict[str, Any]]:
 	for b in message_blocks(msg):
 		if b.get("type") == "tool_result":
 			out.append(b)
-	if msg.get("role") == "tool" and msg.get("tool_call_id"):
+	if not out and msg.get("role") == "tool" and msg.get("tool_call_id"):
 		out.append(
 			{
 				"type": "tool_result",
@@ -151,9 +147,7 @@ def _maybe_json(raw: Any) -> Any:
 	return raw if isinstance(raw, dict) else {}
 
 
-# ---------------------------------------------------------------------------
 # 路径 / 符号抽取
-# ---------------------------------------------------------------------------
 
 # 保守的路径正则：带扩展名、可含目录分隔符；排除 URL 与纯数字版本号。
 _PATH_RE = re.compile(r"(?<![\w/])(?:[A-Za-z0-9_.\-]+[/\\])*[A-Za-z0-9_.\-]+\.[A-Za-z][A-Za-z0-9]{0,5}\b")
@@ -185,9 +179,7 @@ _EXT_ALLOW = frozenset({
 # 少数无目录分隔符、扩展名碰巧像真实后缀的点号链，显式拒绝。
 _DOTTED_CHAIN_DENY = frozenset({"block.get", "mss.mss", "sct.grab", "img.rgb", "os.path", "torch.nn"})
 
-# ---------------------------------------------------------------------------
 # 来源 / 路径过滤（建图前剔除机器噪音路径）
-# ---------------------------------------------------------------------------
 
 #: 二进制 / 构建产物扩展名：不承载任务事实（「这个解释器在哪」不是会话事实）。
 _NOISE_EXT = frozenset({
@@ -369,9 +361,7 @@ def command_paths(inp: Any) -> tuple[str, ...]:
 	return tuple(dict.fromkeys(targets + tuple(extract_paths(cmd, limit=12))))
 
 
-# ---------------------------------------------------------------------------
 # 错误签名
-# ---------------------------------------------------------------------------
 
 _SIG_PATTERNS = (
 	re.compile(r"\b([A-Za-z_][A-Za-z0-9_.]*(?:Error|Exception|Warning|Failure|Timeout))\b\s*:?\s*([^\n]{0,120})"),
@@ -504,9 +494,7 @@ def _refine_sig(sig: str, head: str) -> str:
 	return sig
 
 
-# ---------------------------------------------------------------------------
 # 工具分类
-# ---------------------------------------------------------------------------
 
 #: 写工具（会改盘）。``apply_patch`` 是 Codex 形态轨迹里**实际在用的写工具**——
 #: 原先漏登记，导致「成功改写同一文件」这条时效轴覆盖信号、以及 filestate 的 stale 标记

@@ -66,15 +66,24 @@ class WorkerPool:
                 return WorkerOutcome(task_id=task_id, ok=False,
                                      error="claim_failed: not claimable or lock busy")
 
-        handle = self.wt.create(task_id, base)
         try:
+            handle = self.wt.create(task_id, base)
             work_fn(handle.path)
             head = self.wt.commit_all(handle, message or f"coord: task {task_id}")
-        except Exception as exc:  # noqa: BLE001 — worker 任意异常统一退回
-            err = f"worker_error: {exc}"
+        except BaseException as exc:  # noqa: BLE001 — 含 KeyboardInterrupt/SystemExit 的回收
+            # 只捕 Exception 会把 Ctrl+C 变成「任务永久 claimed」：claim_next 只认
+            # pending ∪ reopened，孤儿认领没有任何回收路径（租约过期也救不回任务）。
+            # 先落可重试状态与清理，再把非 Exception 控制流原样交还调用方。
+            err = (
+                f"worker_error: {exc}"
+                if str(exc).strip()
+                else f"worker_error: {type(exc).__name__}"
+            )
             self.store.worker_failed(task_id, worker_id,
                                      [{"file": "", "line": 0, "error": err}])
             self.wt.remove(task_id)
+            if not isinstance(exc, Exception):
+                raise
             return WorkerOutcome(task_id=task_id, ok=False, error=err)
 
         nxt = self.store.submit_result(task_id, worker_id, handle.branch)

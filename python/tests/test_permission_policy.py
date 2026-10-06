@@ -8,6 +8,7 @@ import pytest
 
 from permissions.filesystem import PermissionDecision
 from permissions.policy import evaluate_policy
+from permissions.store import READ_OUTSIDE_RULE
 
 
 def _work(tmp_path: Path) -> Path:
@@ -81,14 +82,29 @@ def test_read_allow_inside(tmp_path: Path) -> None:
 	assert r.decision == PermissionDecision.ALLOW
 
 
-def test_read_dangerous_path_asks(tmp_path: Path) -> None:
+def test_read_dangerous_path_allows_write_still_gated(tmp_path: Path) -> None:
+	"""读危险路径不再 ASK；写侧同一路径仍被拦（双向校，防放宽扩散）。"""
 	cwd = str(_work(tmp_path))
-	r = evaluate_policy(
-		"Read", {"file_path": str(tmp_path / ".git" / "config")}, cwd=cwd
+	git_cfg = str(tmp_path / ".git" / "config")
+	r = evaluate_policy("Read", {"file_path": git_cfg}, cwd=cwd)
+	assert r.decision == PermissionDecision.ALLOW
+	assert r.matched_rule == "read_allow"
+	# 写侧：workspace 内 .git 是受保护元数据 → 硬 DENY（不因读侧放宽而变）。
+	w = evaluate_policy(
+		"Write", {"file_path": git_cfg, "content": "x"}, cwd=cwd
 	)
-	assert r.decision == PermissionDecision.ASK
-	assert r.prompt is not None
-	assert r.matched_rule == "read_ask"
+	assert w.decision == PermissionDecision.DENY
+	# 密钥仍硬 DENY，且不经 ASK：放宽只摘掉危险路径这一档。
+	s = evaluate_policy(
+		"Read", {"file_path": str(tmp_path / ".ssh" / "id_rsa")}, cwd=cwd
+	)
+	assert s.decision == PermissionDecision.DENY
+	assert s.reason == "secret_path"
+	# 区外读：本刀之后走 ASK（逐条问 + 可记住该目录），不再是静默 DENY。
+	outside = tmp_path.parent / "outside.txt"
+	o = evaluate_policy("Read", {"file_path": str(outside)}, cwd=cwd)
+	assert o.decision == PermissionDecision.ASK
+	assert o.matched_rule == READ_OUTSIDE_RULE
 
 
 def test_write_inside_default_allows(tmp_path: Path) -> None:
@@ -259,12 +275,14 @@ def test_read_outside_max_allows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 	assert r.matched_rule == "read_allow"
 
 
-def test_read_outside_nonmax_denies(tmp_path: Path) -> None:
+def test_read_outside_nonmax_asks(tmp_path: Path) -> None:
+	# 第二刀：区外读从静默 DENY 改成 ASK（一次确认换该目录及其子目录的授权）。
 	cwd = str(_work(tmp_path))
 	outside = str(tmp_path.parent / "log.txt")
 	r = evaluate_policy("Read", {"file_path": outside}, cwd=cwd)
-	assert r.decision == PermissionDecision.DENY
-	assert r.matched_rule == "read_deny"
+	assert r.decision == PermissionDecision.ASK
+	assert r.matched_rule == READ_OUTSIDE_RULE
+	assert r.reason == "read_outside_working_directory"
 
 
 def test_write_outside_max_allows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -95,8 +95,34 @@ def build_first_sniff_text(cwd: str) -> str:
 		lines.append(f"（{total} 项，仅列 {count} 项——按需用 ls/Read 深入）")
 	else:
 		lines.append(f"（共 {total} 项；按需用 ls/Read 深入）")
+	skill_line = _skill_face_line(cwd)
+	if skill_line:
+		lines.insert(1, skill_line)
 	text = "\n".join(lines)
 	return text if len(text) <= _MAX_TEXT_CHARS + 400 else text[:_MAX_TEXT_CHARS]
+
+
+#: 技能行最多列几个名字（其余只给计数——有界，防几十个技能撑爆首轮）。
+_MAX_SKILL_NAMES = 8
+
+
+def _skill_face_line(cwd: str) -> str:
+	"""技能面一行（有界）：技能清单不在工具 schema 里，不注入则模型不知道有哪些可用。
+
+	只列前 ``_MAX_SKILL_NAMES`` 个名字 + 计数；枚举出口（Skill 工具 action="list"）
+	是事实描述。失败静默——嗅探的一部分，不影响主路径。
+	"""
+	try:
+		from extension.skill_loader import list_skill_names
+
+		names = list_skill_names(cwd)
+	except Exception:  # noqa: BLE001 — 技能面失败静默
+		return ""
+	if not names:
+		return ""
+	head = names[:_MAX_SKILL_NAMES]
+	suffix = f"等 {len(names)} 个" if len(names) > len(head) else f"共 {len(names)} 个"
+	return f'skills: {", ".join(head)}（{suffix}；Skill 工具 action="list" 可枚举）'
 
 
 def maybe_first_sniff_text(

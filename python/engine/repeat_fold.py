@@ -39,11 +39,11 @@ DEFAULT_FOLD_AFTER = 3
 DEFAULT_FOLD_EQUIV_AT = 3
 
 #: 超短占位（seq > fold_after 时使用）：既保持配对又几乎零 token。
-_REPEAT_SHORT = "[fold] 与上一条输出相同（第 {n} 次连续）——详情见首次输出。"
+_REPEAT_SHORT = "[fold] 与上一条输出相同（第 {n} 次连续）；已有可见完整副本。"
 #: 触发档的解释行：出现一次，点明引擎在做什么（C1 同精神：纯事实，
 #: 不带"请继续/请换参数"类劝导）。
 _FOLD_EXPLAIN = (
-	"[fold] 这是同一签名的第 {n} 次调用，输出与首次逐字节相同——"
+	"[fold] 同一签名的第 {n} 次连续相同输出；已有可见完整副本，"
 	"引擎已折叠后续重复内容以节省上下文。"
 )
 #: 结果等价档（loop_ledger 方案）：同工具、**不同参数**但输出内容完全相同
@@ -115,7 +115,7 @@ def _facts_line(original: str) -> str:
 	head = lines[0][:_FACT_HEAD_CHARS]
 	if len(lines[0]) > _FACT_HEAD_CHARS:
 		head += "…"
-	return f"（内容：{head} · {len(lines)} 行 · {len(body)} 字节）"
+	return f"（内容：{head} · {len(lines)} 行 · {len(body.encode('utf-8'))} 字节）"
 
 
 def _with_facts(fold_text: str, original: str) -> str:
@@ -133,12 +133,10 @@ class IdenticalResultFold:
 		self.fold_after = max(2, int(fold_after))
 		#: key → (last_digest, seq)
 		self._state: dict[str, tuple[str, int]] = {}
-		#: 等价档（loop_ledger 方案）：tool → 出现过的结果摘要集合。
-		self._equi_seen: dict[str, set[str]] = {}
 		#: tool → 等价重复连续计数（新内容出现即清零）。
 		self._equi_seq: dict[str, int] = {}
-		#: (tool, 摘要) → 首次出现时的消息下标（折叠前提：该副本仍可见）。
-		self._equi_first: dict[tuple[str, str], int] = {}
+		#: (tool, 摘要) → 最近完整副本下标；同时承担已见内容集合。
+		self._full_at: dict[tuple[str, str], int] = {}
 
 	def process(
 		self,
@@ -171,17 +169,12 @@ class IdenticalResultFold:
 		# 等价档状态推进（先于逐字节档：seen 集合需登记本次摘要）。
 		equi_n = 0
 		if _equiv_enabled() and foldable:
-			seen = self._equi_seen.setdefault(tool_name, set())
-			if d in seen:
+			if (tool_name, d) in self._full_at:
 				self._equi_seq[tool_name] = self._equi_seq.get(tool_name, 0) + 1
 			else:
 				self._equi_seq[tool_name] = 0
-				seen.add(d)
 			# 该内容第 N 次出现（N≥2 为等价重复）
 			equi_n = self._equi_seq[tool_name] + 1
-			self._equi_first.setdefault(
-				(tool_name, d), int(msg_index) if msg_index is not None else 0
-			)
 
 		if not foldable:
 			# 模板回执 / 空输出：不进"同签名相邻"档，每次原文可见。
@@ -194,19 +187,24 @@ class IdenticalResultFold:
 		else:
 			seq = 1
 		self._state[key] = (d, seq)
+		candidate = None
 		if seq >= self.fold_after:
 			candidate = (
 				_FOLD_EXPLAIN.format(n=seq)
 				if seq == self.fold_after
 				else _REPEAT_SHORT.format(n=seq)
 			)
-			return self._maybe_fold(candidate, text)
-		if (
+		elif (
 			_equiv_enabled()
 			and equi_n >= _fold_equiv_at()
-			and self._still_visible(tool_name, d, visible_from)
 		):
-			return self._maybe_fold(_FOLD_EQUIV.format(n=equi_n), text)
+			candidate = _FOLD_EQUIV.format(n=equi_n)
+		if candidate and self._still_visible(tool_name, d, visible_from):
+			projected, folded = self._maybe_fold(candidate, text)
+			if folded:
+				return projected, True
+		# Only full copies can authorize later folding, including with ledger off.
+		self._full_at[(tool_name, d)] = int(msg_index) if msg_index is not None else 0
 		return text, False
 
 	def _maybe_fold(self, fold_text: str, original: str) -> tuple[str, bool]:
@@ -217,17 +215,16 @@ class IdenticalResultFold:
 		return candidate, True
 
 	def _still_visible(self, tool_name: str, digest: str, visible_from: int) -> bool:
-		"""同工具同内容的首次出现是否仍在当前投影可见面内。
+		"""同工具同内容的最近完整副本是否仍在当前投影可见面内。
 
 		``visible_from<=0``（无压缩 / 调用方未提供）→ 视为可见（保持既有行为）。
 		"""
 		if int(visible_from or 0) <= 0:
 			return True
-		first = self._equi_first.get((tool_name, digest))
-		return first is None or int(first) >= int(visible_from)
+		first = self._full_at.get((tool_name, digest))
+		return first is not None and int(first) >= int(visible_from)
 
 	def reset(self) -> None:
 		self._state.clear()
-		self._equi_seen.clear()
 		self._equi_seq.clear()
-		self._equi_first.clear()
+		self._full_at.clear()

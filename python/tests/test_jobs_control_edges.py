@@ -269,3 +269,52 @@ def test_report_routes_use_fixed_path_not_caller_path(client):
 	assert "exists" in meta.json()
 	view = client.get("/v1/settings/memory/report/view")
 	assert view.status_code in (200, 404)
+
+
+# ---------------------------------------------------------------------------
+# F1：人侧 kill 路由（与模型侧 job_kill 同轨；越权=404）
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def running_job():
+	"""Register one *running* job for owner 'victim'; return (owner, jid)."""
+	reg = get_job_registry()
+	owner = "victim-run"
+	jid, err = reg._register(kind="bash", label="long-run", owner_session_id=owner)
+	assert jid is not None, err
+	return owner, jid
+
+
+def test_kill_own_running_job(client, running_job):
+	owner, jid = running_job
+	r = client.post(f"/v1/sessions/{owner}/jobs/{jid}/kill")
+	assert r.status_code == 200, r.text
+	body = r.json()
+	assert body["ok"] is True and body["job_id"] == jid
+	assert "cancellation" in body["message"]
+	snap = client.get(f"/v1/sessions/{owner}/jobs").json()
+	row = next(j for j in snap["jobs"] if j["job_id"] == jid)
+	assert row["status"] == "stopping"
+
+
+def test_kill_other_sessions_job_is_404(client, running_job):
+	_, jid = running_job
+	r = client.post(f"/v1/sessions/xeyo-other/jobs/{jid}/kill")
+	assert r.status_code == 404
+
+
+def test_kill_unknown_job_is_404(client):
+	r = client.post("/v1/sessions/victim-run/jobs/job-nope/kill")
+	assert r.status_code == 404
+
+
+def test_kill_whitespace_job_id_is_422(client):
+	r = client.post("/v1/sessions/victim-run/jobs/%20jid%20/kill")
+	assert r.status_code == 422
+
+
+def test_kill_settled_job_reports_already(client, seeded):
+	owner, jid = seeded  # 该夹具已 settle 为 succeeded
+	r = client.post(f"/v1/sessions/{owner}/jobs/{jid}/kill")
+	assert r.status_code == 200
+	assert "already" in r.json()["message"]

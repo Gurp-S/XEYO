@@ -11,7 +11,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from synaptic.coldstore import BRANCH_PREFIX
+from synaptic.group_reference import group_reference
 from synaptic.graph import Graph, _ERROR_RECORD_RE, _output_body  # noqa: SLF001  （回执头剥离/错误形状判定与建图层同源，不重抄第二份）
 from synaptic.handles import renderer_or_default
 from synaptic.seeds import strip_machine_blocks
@@ -41,6 +41,9 @@ class _Unit:
 	error_sig: str
 	files: tuple[str, ...]
 	replay: str
+	#: 调用参数点名的路径（身份位）；空 = 这个单元没有"被操作的文件"。
+	#: 卡面 target 只认这里——输出正文里"提到"的路径不许冒充身份。
+	targets: tuple[str, ...] = ()
 
 
 def _units(graph: Graph, region_end: int) -> list[_Unit]:
@@ -82,6 +85,7 @@ def _units(graph: Graph, region_end: int) -> list[_Unit]:
 				error_sig=err,
 				files=tuple(dict.fromkeys(files)),
 				replay=replay,
+				targets=tuple(n.arg_paths),
 			)
 		)
 	# 未被单元认领的节点（用户文本 / 纯助手文本 / 孤儿结果）→ 各自成「散点单元」
@@ -115,11 +119,17 @@ def _conclusion(
 	graph: Graph, unit: _Unit, limit: int
 ) -> str:
 	"""把单元压缩成一句结论（删过程留结论）。"""
-	target = unit.files[0] if unit.files else ""
 	if unit.error_sig:
+		# 失败现场用 files 首选（契约：截断时优先保完整失败路径，见 test_visible_paths）；
+		# "对哪个现场失败"本身就是有用线索，不参与下面的身份收紧。
+		target = unit.files[0] if unit.files else ""
 		head = f"{unit.tool} 对 {target} 失败：{unit.error_sig}" if target else f"{unit.tool} 失败：{unit.error_sig}"
 		head = head[:limit]
 		return head
+	# 成功卡 target 只取**调用参数点名**的文件（身份位）；没有身份（多文件/搜索/无目标
+	# 命令）时宁可不给——输出正文里"提到"的路径会把卡面标到另一个文件上
+	# （现场：读 Sidebar.tsx 的卡标 ux-loaders.css，因为正文首行是 import 的 css）。
+	target = unit.targets[0] if unit.targets else ""
 	if unit.tool == KIND_TOOL_RESULT:
 		# 孤儿结果：只留首行实质内容
 		m = graph.node(unit.root)
@@ -135,8 +145,16 @@ def _conclusion(
 		m = graph.node(unit.root)
 		line = _first_meaningful_line(m.text if m else "")
 		return (f"助手结论: {line}" if line else "")[:limit]
-	m = graph.node(unit.root)
-	line = _first_meaningful_line(m.text if m else "")
+	# 成功项的后缀是**结果**的首行：调用节点（unit.root）的 text 是参数 JSON
+	# （`Read({"file_path":…`），既是坏引用形态、又会被 90 字截断从中间切断
+	# （现场：模型拿到的"可核对引用"是断掉的 JSON）。结果未被剪进本单元时
+	# 干脆不发后缀——原文还在热层，模型能直接看。
+	line = ""
+	for i in unit.nodes:
+		m = graph.node(i)
+		if m is not None and m.kind == KIND_TOOL_RESULT and m.text:
+			line = _first_meaningful_line(m.text)
+			break
 	suffix = f" → {line}" if line else ""
 	head = f"{unit.tool}"
 	if target:
@@ -181,6 +199,7 @@ def build_cards(
 					error_sig=u.error_sig,
 					files=u.files,
 					replay=u.replay,
+					targets=u.targets,
 				)
 			)
 	if not kept_units:
@@ -371,15 +390,8 @@ def group_cards(cards: tuple[PruneCard, ...]) -> list[list[PruneCard]]:
 
 
 def cards_handle(cards: list[PruneCard]) -> str:
-	"""组句柄：**渲染与冷层绑定共用这一处**。
-
-	两边各拼一次 ``branch://id1,id2`` 就会漂移——「行里写的句柄」与「绑定的节点集」
-	不一致时可恢复性会被悄悄破坏，而往返比对照样通过（句柄自洽地错）。
-	与 ``budget.request_chunk_ids`` 是同一条纪律。
-	"""
-	if len(cards) == 1:
-		return cards[0].handle
-	return BRANCH_PREFIX + ",".join(c.card_id for c in cards)
+	"""Rendering and binding share the same ordered membership identity."""
+	return group_reference(tuple(i for c in cards for i in c.nodes))
 
 
 def render_card_group(cards: list[PruneCard], *, handles: Any = None) -> str:
@@ -396,8 +408,10 @@ def render_card_group(cards: list[PruneCard], *, handles: Any = None) -> str:
 	hr = renderer_or_default(handles)
 	head = cards[0]
 	bits = [_CARD_SEP.join(c.conclusion for c in cards)]
-	if head.files:
-		bits.append(f"files={','.join(head.files)}")
+	from synaptic.visible_paths import missing_paths
+	remaining = missing_paths(head.files, bits[0])
+	if remaining:
+		bits.append(f"files={','.join(remaining)}")
 	if head.error_sig:
 		bits.append(f"err={head.error_sig[:80]}")
 	if head.replay:

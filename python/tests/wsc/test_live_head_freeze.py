@@ -259,6 +259,61 @@ def test_handle_usage_is_counted_and_ledgered(live, monkeypatch, tmp_path) -> No
 	assert rows[-1]["head_shots"] >= 2
 
 
+def test_junction_retreat_keeps_frozen_head(live, monkeypatch) -> None:
+	"""交界下标回退（尾部预算把上界顶回交界之下）不得作废冻结头。
+
+	上界是 `keep_tail_cut` 按**尾部预算现算**的：一根大 tool 结果落进尾部就能把它顶
+	回去。旧口径在这条分支上把整份状态（含冻结头）扔掉 ⇒ 本该是"前缀扩展"的一枪变
+	成全量重排，厂商侧整段 miss。这就是那批"不该发生的 miss"的机械来源之一。
+	"""
+	WP, n = live
+	monkeypatch.setenv("XEYO_WSC_CADENCE_ABSORB", "0")
+	import engine.compact as EC
+
+	ktc = {"v": 79}
+	monkeypatch.setattr(EC, "keep_tail_cut", lambda msgs, **kw: ktc["v"])
+	msgs = synth_session(turns=26, error_turn=4)
+	first = WP.project_c2_messages(msgs, _W(20), cwd=None)
+	assert first is not None and n[0] == 1, "合成会话没被接管"
+	r0 = next(iter(WP._STATE.values())).region_end
+	assert r0 > 25, f"构造成立条件：交界（{r0}）必须明显高于游标（20）"
+
+	ktc["v"] = r0 - 5  # 下一枪：尾部保护区吃掉交界 ⇒ 上界回退到交界之下（游标不动）
+	second = WP.project_c2_messages(msgs, _W(20), cwd=None)
+	assert second is not None
+	assert n[0] == 1, "交界回退却重新投影 ⇒ 冻结头被整段换掉（不该发生的 miss）"
+	assert second[0]["content"] == first[0]["content"], "折叠头字节变了"
+	assert _body(second).startswith(_body(first)), "发射不是上一枪的前缀扩展"
+
+
+def test_cwd_flap_does_not_drop_the_frozen_head(live, monkeypatch, tmp_path) -> None:
+	"""调用方每枪给的 cwd 抖动不得换槽位，也不得改写发射字节。
+
+	cwd 只用来定一次 offload 路径；冻结点一旦钉住，之后整段只管字节不变（`_pinned`）。
+	旧口径把 cwd 拼进状态键 ⇒ 抖一次就落进冷槽位 = 整段重投。
+	"""
+	import os
+
+	WP, n = live
+	monkeypatch.setenv("XEYO_WSC_CADENCE_ABSORB", "0")
+	msgs, out, cut = _folded_msgs(live)
+	pinned = next(iter(WP._STATE.values())).cwd
+	assert pinned == os.environ["XEYO_CWD"], "冻结点没钉住第一次定义它的那个 cwd"
+	more = msgs + [msg_asst_text("继续。" + ("正文 " * 30))]
+
+	second = WP.project_c2_messages(more, _W(cut), cwd=str(tmp_path).upper())
+	assert second is not None
+	assert n[0] == 1, "cwd 抖一次就重新投影 ⇒ 同一会话落进两个槽位"
+	assert _body(second).startswith(_body(out)), "cwd 抖动改了发射字节"
+
+	other = tmp_path / "other"
+	other.mkdir()
+	monkeypatch.setenv("XEYO_CWD", str(other))
+	assert WP.project_c2_messages(more, _W(cut), cwd=None) is not None
+	assert n[0] == 1, "环境 cwd 变了就重新投影 ⇒ 冻结点没钉死"
+	assert next(iter(WP._STATE.values())).cwd == pinned
+
+
 def test_offline_projections_do_not_pollute_the_head_ledger(live, monkeypatch, tmp_path) -> None:
 	"""离线重放/扫描台必须能把自己从生产分母里摘出去。
 

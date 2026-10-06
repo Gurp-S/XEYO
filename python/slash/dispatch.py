@@ -3,7 +3,7 @@
 被以下面复用：
 - HTTP 路由 ``POST /v1/slash``（GUI / CLI-TS 调它）
 - CLI-Py 进程内（``cli/slash.py`` 处理 server 命令时直接调 :func:`dispatch`）
-- 微信远程通道（``filehelper/commands.py`` / ``ilink/service.py`` 命令处理改调此处）
+- 微信远程通道（``channels/remote_commands.py`` / ``ilink/service.py`` 命令处理改调此处）
 
 设计约束：
 - **不通模型、不改 MessageStore / JSONL**：本模块只做「查询会话状态 / 触发已存在的
@@ -167,8 +167,10 @@ def _cmd_status(ctx: DispatchContext, arg: str) -> CommandResult:
 				"tool_name": pend.tool_name,
 				"prompt": pend.prompt,
 			}
-	except Exception:
-		pass
+	except Exception as exc:  # noqa: BLE001
+		# "读不出"不许写成"没有待批准"：这一行是给使用者看的事实，静默省略会让人
+		# 以为审批不存在，于是下一步动作白等。
+		payload["pending_permission_error"] = f"{type(exc).__name__}: {str(exc)[:120]}"
 	try:
 		from channels.api import get_store
 
@@ -178,8 +180,8 @@ def _cmd_status(ctx: DispatchContext, arg: str) -> CommandResult:
 				r.to_public()
 				for r in store.recent(8, session_id=ctx.session_id or None)
 			]
-	except Exception:
-		pass
+	except Exception as exc:  # noqa: BLE001
+		payload["recent_jobs_error"] = f"{type(exc).__name__}: {str(exc)[:120]}"
 
 	lines = [
 		f"会话 {ctx.session_id or '(未指定)'}",
@@ -192,9 +194,13 @@ def _cmd_status(ctx: DispatchContext, arg: str) -> CommandResult:
 	pend = payload.get("pending_permission")
 	if pend:
 		lines.append(f"待批准 {pend['tool_name']}：{str(pend['prompt'])[:80]}")
+	elif payload.get("pending_permission_error"):
+		lines.append(f"待批准 读不出：{payload['pending_permission_error']}")
 	jobs = payload.get("recent_jobs") or []
 	if jobs:
 		lines.append(f"最近任务 {len(jobs)} 条（最新 {jobs[0].get('status')}）")
+	if payload.get("recent_jobs_error"):
+		lines.append(f"最近任务 读不出：{payload['recent_jobs_error']}")
 	return CommandResult(handled=True, kind="info", message="\n".join(lines), result=payload)
 
 
@@ -396,11 +402,15 @@ def _cmd_compact(ctx: DispatchContext, arg: str) -> CommandResult:
 		)
 	try:
 		from memory.runtime import force_compact
+		from session.compression_source import compression_messages
+		from memory.wsc_source_transition import prepare_compression_source
 		from memory.working import flush
 
-		msgs = session.messages.as_api_messages()
+		compact_cwd = _workspace(ctx)
+		prepare_compression_source(session.messages, session.working, cwd=compact_cwd, fold=False)
+		msgs = compression_messages(session.messages, session.working)
 		before = int(getattr(session.working, "compact_cursor", 0) or 0)
-		force_compact(msgs, session.working)
+		force_compact(msgs, session.working, cwd=compact_cwd)
 		flush(session.session_id, session.working)
 		after = int(getattr(session.working, "compact_cursor", 0) or 0)
 		chars = len(getattr(session.working, "c2_summary_text", "") or "")

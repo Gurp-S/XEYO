@@ -28,6 +28,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from common.child_text import decode_child_output
 from extension.errors import ManifestError, PluginConflictError, PluginError
 from extension.manifest import version_at_least
 from extension import plugin_store as plugin_store_module
@@ -40,7 +41,7 @@ from extension.plugin_store import (
 _log = logging.getLogger(__name__)
 
 #: xeyo 当前版本（min_xeyo 兼容检查基准）。
-_XEYO_VERSION = "0.1.0"
+_XEYO_VERSION = "1.1.0"
 
 #: 仓库级 GIT_* 环境变量（git 操作时剥离，防泄漏主仓库/凭证/钩子）。
 GIT_ENV_STRIP = frozenset({
@@ -280,16 +281,22 @@ def install_from_github(
 				["git", "clone", "--depth", "1"] + (["--branch", ref] if ref else [])
 				+ [repo_url, str(work)],
 				capture_output=True,
-				text=True,
+				# text=False：`text=True` 且不给 encoding 时，解不出的字节会被
+				# subprocess 的读线程吞成**空串**（不抛错）⇒ 下面这条 PluginError
+				# 的尾部变成空白，用户与模型都看不到失败原因。
+				text=False,
 				env=scrubbed,
 				timeout=180,
 			)
 		except (OSError, subprocess.TimeoutExpired) as e:
 			raise PluginError(f"git clone failed: {e}") from e
 		if proc.returncode != 0:
-			_log.debug("git stderr: %s", (proc.stderr or "")[:500])
+			git_err = decode_child_output(proc.stderr).strip()
+			git_out = decode_child_output(proc.stdout).strip()
+			_log.debug("git stderr: %s", git_err[:500])
 			raise PluginError(
-				f"git clone '{owner_repo}' failed: {(proc.stderr or proc.stdout or '').strip()[:400]}"
+				f"git clone '{owner_repo}' failed: "
+				f"{(git_err or git_out or f'git 退出码 {proc.returncode}，未给出可解码的输出')[:400]}"
 			)
 		if not (work / "plugin.json").is_file():
 			# 插件可能在仓库子目录：仅支持根直装；否则明确报错。

@@ -179,6 +179,18 @@ async def _pump_submit(
 		out_q.put(None)
 
 
+class MalformedRequestBody(ValueError):
+	"""请求体读不成一个 JSON 对象：非 UTF-8 字节，或 Content-Length 不是非负整数。
+
+	单独立一个类型（而不是继续挂 `json.JSONDecodeError`）：
+	- 非文本字节被报成 "bad json" 会把客户端引向"我的 JSON 写错了"这条错路；
+	- ValueError 的子类 ⇒ 任何按 ValueError 兜这一层的调用点仍然兜得住。
+	两类都必须在这里收口：它们逃过 `except json.JSONDecodeError` 后，
+	`BaseHTTPRequestHandler` 只会打 traceback 然后关连接 ⇒ 客户端收不到任何 HTTP 响应
+	（2026-10-03 在 127.0.0.1 真端口上实测两种都是 RemoteDisconnected）。
+	"""
+
+
 class Handler(BaseHTTPRequestHandler):
 	protocol_version = "HTTP/1.1"
 
@@ -192,16 +204,37 @@ class Handler(BaseHTTPRequestHandler):
 		self.send_header("Access-Control-Allow-Credentials", "true")
 
 	def _read_json(self) -> dict[str, Any]:
-		length = int(self.headers.get("Content-Length") or "0")
+		raw_len = self.headers.get("Content-Length") or "0"
+		try:
+			length = int(raw_len)
+		except ValueError as exc:
+			# 长度不可信 ⇒ 没法排空请求体，余下的字节会在这条 keep-alive 连接上被当成
+			# 下一个请求行解析（实测：畸形 Content-Length 之后的第二枪拿到 501
+			# `Unsupported method ('{"sessionId":"s"}')`）。只能关连接。
+			self.close_connection = True
+			raise MalformedRequestBody(f"Content-Length 不是整数：{raw_len!r}") from exc
+		if length < 0:
+			# read(-5) 会一路读到 EOF：连接不结束就永远卡在这枪上
+			self.close_connection = True
+			raise MalformedRequestBody(f"Content-Length 是负数：{length}")
 		raw = self.rfile.read(length) if length > 0 else b"{}"
 		if not raw:
 			return {}
-		return json.loads(raw.decode("utf-8"))
+		try:
+			text = raw.decode("utf-8")
+		except UnicodeDecodeError as exc:
+			raise MalformedRequestBody(
+				f"请求体不是合法 UTF-8（{exc.reason}，字节位置 {exc.start}）"
+			) from exc
+		return json.loads(text)
 
 	def _send_json(self, code: int, obj: dict[str, Any]) -> None:
 		body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
 		self.send_response(code)
 		self._cors()
+		if self.close_connection:
+			# 关连接必须说给客户听：否则客户端会把下一枪写进一个已死的 socket。
+			self.send_header("Connection", "close")
 		self.send_header("Content-Type", "application/json; charset=utf-8")
 		self.send_header("Content-Length", str(len(body)))
 		self.end_headers()
@@ -232,6 +265,9 @@ class Handler(BaseHTTPRequestHandler):
 		if path == "/api/interrupt":
 			try:
 				payload = self._read_json()
+			except MalformedRequestBody as e:
+				self._send_json(400, {"error": str(e)})
+				return
 			except json.JSONDecodeError as e:
 				self._send_json(400, {"error": f"bad json: {e}"})
 				return
@@ -249,6 +285,9 @@ class Handler(BaseHTTPRequestHandler):
 
 		try:
 			payload = self._read_json()
+		except MalformedRequestBody as e:
+			self._send_json(400, {"error": str(e)})
+			return
 		except json.JSONDecodeError as e:
 			self._send_json(400, {"error": f"bad json: {e}"})
 			return

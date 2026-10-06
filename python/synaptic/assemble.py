@@ -25,6 +25,8 @@ from synaptic.handles import renderer_or_default
 from synaptic.graph import Graph
 from synaptic.paths import H_PATHS, render_paths
 from synaptic.prune import render_card, render_cards_merged
+from synaptic.journal_rollover import journal_preserves_head
+from synaptic.pin_render import render_pin
 from synaptic.coldstore import node_handle
 from synaptic.rehydrate import RehydrationPlan, render_rehydrated_nodes
 from synaptic.seeds import Seeds, request_skip
@@ -102,9 +104,7 @@ class SegStat:
 		return self.front_break / max(1, self.obs)
 
 
-# ---------------------------------------------------------------------------
 # PIN 集
-# ---------------------------------------------------------------------------
 
 def build_pins(seeds: Seeds) -> tuple[Pin, ...]:
 	"""强制 PIN 集：目标 / 约束 / 未解决错误 / TODO——永不压缩。
@@ -116,7 +116,8 @@ def build_pins(seeds: Seeds) -> tuple[Pin, ...]:
 	"""
 	pins: list[Pin] = []
 	if seeds.original_task:
-		pins.append(Pin("goal", "目标", seeds.original_task))
+		pins.append(Pin("goal", "目标", seeds.original_task,
+		                nodes=(seeds.user_nodes[0],) if seeds.user_nodes else ()))
 	if seeds.goal and seeds.goal != seeds.original_task:
 		pins.append(Pin("goal_current", "当前目标", seeds.goal))
 	for i, c in enumerate(seeds.constraints):
@@ -125,11 +126,13 @@ def build_pins(seeds: Seeds) -> tuple[Pin, ...]:
 		pins.append(Pin(f"unresolved:{i}", "未解决", e))
 	for i, t in enumerate(seeds.todos):
 		pins.append(Pin(f"todo:{i}", "TODO", t))
+	from synaptic.todo_state import empty_state_pin
+	pins.extend(empty_state_pin(seeds))
 	return tuple(pins)
 
 
-def pin_line(p: Pin) -> str:
-	return f"{p.label}: {_one_line(p.text, 400)}"
+def pin_line(p: Pin, *, handles=None) -> str:
+	return render_pin(p, handles=handles)
 
 
 def render_pins(pins: tuple[Pin, ...]) -> list[tuple[str, str]]:
@@ -146,9 +149,7 @@ def pin_group(p: Pin) -> str:
 
 
 
-# ---------------------------------------------------------------------------
 # 主链骨架
-# ---------------------------------------------------------------------------
 
 def _skeleton_of(node, limit: int = 140) -> str:
 	"""节点的一行骨架（去噪留结论）。"""
@@ -205,7 +206,7 @@ def render_main(
 		if not node.text.strip():
 			continue
 		if node.tokens <= params.inline_max_tokens:
-			line = f"#{idx} {_one_line(node.text, 400)}"
+			line = f"#{idx} {node.text}"
 		else:
 			line = f"#{idx} {_skeleton_of(node)} {hr.expression(node_handle(idx))}"
 		out.append((f"main:{idx}", line))
@@ -213,7 +214,7 @@ def render_main(
 
 
 def render_decisions(cards: tuple[PruneCard, ...], *, handles: Any = None) -> list[tuple[str, str]]:
-	"""[DECISIONS]：已排除分支（带错误签名的卡）。
+	"""[DECISIONS]：带错误签名的结果卡，不推断分支已被放弃。
 
 	行里**必须带 ``files=``**。归因实测（`_cost_decompose` 同批的针漏失分类，n=185）：
 	185 条 failure_site 漏失里有 **17 条**是「卡里已经有这条路径、就是没渲染」——
@@ -221,17 +222,20 @@ def render_decisions(cards: tuple[PruneCard, ...], *, handles: Any = None) -> li
 	（[MAIN] 只渲染 `refs[0]`、[WORKING SET] ≤12 条、剪枝卡只覆盖被剪节点）。
 	这是「信息已经算出来却没发射」，按引擎铁律优先于任何调参。
 
-	只发射 ``files[1:]``：``files[0]`` 已在结论里，重复发射是纯重复计费。
+	只补结论里未完整出现的路径；首路径也可能被结论长度上限截断。
 	"""
 	hr = renderer_or_default(handles)
 	out: list[tuple[str, str]] = []
 	for c in cards:
 		if not c.error_sig:
 			continue
-		rest = tuple(c.files[1:]) if c.files else ()
+		from synaptic.visible_paths import missing_paths
+		rest = missing_paths(c.files, c.conclusion)
 		tail = f" files={','.join(rest)}" if rest else ""
+		if c.error_sig not in c.conclusion:
+			tail += f" err={c.error_sig}"
 		out.append(
-			(f"card:{c.card_id}", f"已排除: {c.conclusion}{tail}  {hr.expression(c.handle)}")
+			(f"card:{c.card_id}", f"错误结果: {c.conclusion}{tail}  {hr.expression(c.handle)}")
 		)
 	return out
 
@@ -260,9 +264,7 @@ def render_next(graph: Graph, seeds: Seeds, kept: tuple[int, ...]) -> list[tuple
 
 
 
-# ---------------------------------------------------------------------------
 # 组装器（带 append_only 状态）
-# ---------------------------------------------------------------------------
 
 @dataclass
 class AssemblyState:
@@ -363,7 +365,7 @@ def _segment_groups(
 	pin_nodes = frozenset(seeds.pin_nodes)
 	out: dict[str, list[tuple[str, str]]] = {}
 	for p in pins:
-		out.setdefault(pin_group(p), []).append((f"pin:{p.key}", pin_line(p)))
+		out.setdefault(pin_group(p), []).append((f"pin:{p.key}", pin_line(p, handles=handles)))
 	if fs:
 		out[H_WORKING] = render_working_set(fs)
 	# [PATHS]：路径的第四条渲染通道 + 强制配额（见 synaptic/paths.py 的根因说明）。
@@ -499,9 +501,7 @@ def _render_full(sections: list[tuple[str, list[tuple[str, str]]]]) -> str:
 	return "\n".join(lines)
 
 
-# ---------------------------------------------------------------------------
 # 规则 8：日志布局
-# ---------------------------------------------------------------------------
 
 def _journal_key(header: str, line: str) -> str:
 	"""日志条目身份 = 内容摘要。
@@ -699,6 +699,9 @@ def assemble(
 			tuple(prev.journal) if (prev is not None and prev.mode == params.mode) else ()
 		)
 		fresh = tuple((h, line) for h in order for _k, line in groups[h])
+		if params.journal_rebase:
+			from synaptic.journal_snapshot import protect_paths
+			fresh = protect_paths(fresh, seeds.pin_paths)
 		if not prev_journal:
 			text = _journal_text(fresh)
 			return _finish(
@@ -712,11 +715,11 @@ def assemble(
 		rebuilt = False
 		journal_refroze = False
 		if since > params.journal_growth_tokens:
-			# 换头只追加：本轮新增事实作为新头，旧头用快照句柄追加在其后。
+			# 默认只追加：旧头已经完整可见；仅未保留旧头时才补归档引用。
 			# 旧实现直接 journal=fresh，会把前缀改写成另一份布局，命中率随即归零。
 			# 这里 rebuilt 保持 False：逻辑换头不等于 KV 前缀失效。
 			rollover = new
-			if old_head_handle:
+			if old_head_handle and not journal_preserves_head(prev, params):
 				hr = renderer_or_default(handles)
 				rollover += (("[HEAD]", f"previous={hr.expression(old_head_handle)}"),)
 			trace.append(
@@ -725,7 +728,7 @@ def assemble(
 					"action": "refreeze",
 					"why": (
 						f"日志累计追加 {since} tok > 预算 {params.journal_growth_tokens} tok "
-						f"→ 追加新头与旧头句柄"
+						f"→ 保留旧前缀并完成累计追加记账"
 					),
 				}
 			)
@@ -733,6 +736,16 @@ def assemble(
 			since = 0
 			journal_refroze = True
 			appends = len(rollover)
+			if params.journal_rebase:
+				from synaptic.journal_rollover import rebase_journal
+
+				rebased = rebase_journal(fresh, old_head_handle=old_head_handle, handles=handles)
+				if rebased is not None:
+					journal = rebased
+					rebuilt = True
+					appends = len(rebased)
+					trace.append({"mode": params.mode, "action": "journal_rebase",
+					              "why": "当前快照替换累计日志；旧头引用保留"})
 		else:
 			appends = len(new)
 		text = _journal_text(journal)
@@ -815,8 +828,8 @@ def assemble(
 
 	appended = prev.appended + tuple(new_lines)
 	text = prev.full_text
-	if appended:
-		text = text + "\n" + "\n".join(appended)
+	if new_lines:
+		text = text + "\n" + "\n".join(new_lines)
 	trace.append(
 		{
 			"mode": MODE_APPEND_ONLY,

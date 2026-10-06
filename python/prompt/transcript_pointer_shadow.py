@@ -109,11 +109,21 @@ def _should_inject(ctx) -> bool:
 
 
 def _inject_pointer(out, block: str):
-    """把 pointer 块（inventory）插入最新用户消息之前的文本块序列。"""
+    """把 pointer 块（inventory）插入投影：fresh-user 前插、after_tools 尾插。"""
     if not block:
         return out
     mod = _TARGET or importlib.import_module(_TARGET_MODULE)
     try:
+        # 合同与主装配一致（pre_llm_inject 的 after_tools 分支）：末条是 tool_result
+        # 载体时必须尾插——前插会把文本挤到 tool_result 之前，openai 归一化后
+        # 位置语义漂移（2026-10-05 复核 09-10 INJ-03；模块设计本意即是两分支）。
+        from prompt.turn_context import (
+            append_text_blocks_to_last_user,
+            ends_with_tool_result,
+        )
+
+        if ends_with_tool_result(out):
+            return append_text_blocks_to_last_user(out, [block])
         # 复用 pre_llm_inject 的文本块插入 helper（若导出现则用；否则 append 到最后一个 user 消息）。
         if hasattr(mod, "prepend_text_blocks_to_last_user"):
             return mod.prepend_text_blocks_to_last_user(out, [block])

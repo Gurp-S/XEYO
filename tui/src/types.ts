@@ -16,6 +16,8 @@ export type UsageInfo = {
   cacheHitTokens?: number;
   cacheMissTokens?: number;
   cny?: number;
+  /** 上游显式给出 `cny: null`：该厂商没有权威价目，本轮费用未知（不是 0）。 */
+  costUnknown?: boolean;
   contextLimit?: number;
 };
 
@@ -60,6 +62,8 @@ export type PermissionPrompt = {
   requestId: string;
   tool: string;
   prompt: string;
+  /** 服务端给出的可选决议；空 = 普通确认（只有允许/拒绝）。 */
+  choices: string[];
 };
 
 export type CliConfig = {

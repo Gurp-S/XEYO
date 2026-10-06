@@ -21,6 +21,7 @@ import os
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from coord.worktree_metadata import metadata_guard
 
 #: git 子进程环境：禁可选锁（index.lock 事故防线之一）。
 GIT_ENV = {**os.environ, "GIT_OPTIONAL_LOCKS": "0"}
@@ -88,9 +89,12 @@ class WorktreeManager:
         """从 base_commit 建隔离 worktree + 专用分支；有残留先清（重做场景）。"""
         path = worktree_path(self.repo, task_id)
         branch = branch_name(task_id)
-        if path.exists():
-            self.remove(task_id)
-        git(self.repo, "worktree", "add", "-b", branch, str(path), base_commit or "HEAD")
+        with metadata_guard(self.repo, git, timeout=GIT_TIMEOUT_SEC) as acquired:
+            if not acquired:
+                raise WorktreeError("worktree metadata lock unavailable")
+            if path.exists():
+                self._remove_unlocked(task_id)
+            git(self.repo, "worktree", "add", "-b", branch, str(path), base_commit or "HEAD")
         return WorktreeHandle(repo=self.repo, path=path, branch=branch, task_id=task_id)
 
     def load(self, task_id: str) -> WorktreeHandle:
@@ -106,6 +110,11 @@ class WorktreeManager:
 
     def remove(self, task_id: str) -> None:
         """完成即弃：删 worktree + 专用分支（尽力而为，失败不挡主路径）。"""
+        with metadata_guard(self.repo, git, timeout=GIT_TIMEOUT_SEC) as acquired:
+            if acquired:
+                self._remove_unlocked(task_id)
+
+    def _remove_unlocked(self, task_id: str) -> None:
         path = worktree_path(self.repo, task_id)
         branch = branch_name(task_id)
         if path.exists():

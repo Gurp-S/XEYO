@@ -474,3 +474,106 @@ async def test_webfetch_oversized(
 	assert not r.is_error
 	assert "truncated" in r.content.lower()
 	assert len(r.content) < _FETCH_OUT_CAP + 500
+def test_html_to_text_decodes_entities_exactly_once() -> None:
+	# 手写 replace 链会解两遍（&amp;lt; → <），且不认数字码位（&#8212; 原样留给模型）。
+	assert html_to_text("<p>Use &amp;lt;div&amp;gt; here</p>") == "Use &lt;div&gt; here"
+	assert html_to_text("<p>a &amp;amp; b</p>") == "a &amp; b"
+	assert html_to_text("<p>dash&#8212;end</p>") == "dash—end"
+	assert html_to_text("<p>quote&#x27;s</p>") == "quote's"
+	assert html_to_text("<p>x&nbsp;y</p>") == "x y"
+	assert "\xa0" not in html_to_text("<p>x&nbsp;y</p>")
+
+
+def test_html_to_text_keeps_escaped_markup_as_text() -> None:
+	# 解码在剥标签之后：正文里转义过的标签必须原样留成文本，不能被当真标签剥掉。
+	assert html_to_text("<p>&lt;script&gt;evil&lt;/script&gt;</p>") == (
+		"<script>evil</script>"
+	)
+@pytest.mark.asyncio
+async def test_webfetch_timeout_names_the_hop_that_stalled(
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	# 入口 URL 只是 302，真正卡住的是重定向目标——报错必须点名后者。
+	ENTRY = "https://entry.example/go"
+	HOP = "https://slow.example/final"
+	monkeypatch.setattr(
+		"tools.web_fetch_tool.web_fetch_tool.is_blocked_url", lambda url: None
+	)
+
+	def handler(request: httpx.Request) -> httpx.Response:
+		if "entry.example" in str(request.url):
+			return httpx.Response(302, headers={"location": HOP})
+		raise httpx.ReadTimeout("stalled")
+
+	transport = httpx.MockTransport(handler)
+	real_client = httpx.AsyncClient
+
+	def fake_client(*args, **kwargs):
+		kwargs["transport"] = transport
+		return real_client(*args, **kwargs)
+
+	monkeypatch.setattr(httpx, "AsyncClient", fake_client)
+	tool = WebFetchTool()
+	r = await tool.execute({"url": ENTRY}, AbortController())
+	assert r.is_error
+	assert r.content.startswith("fetch timed out: ")
+	assert HOP in r.content
+	assert f"redirected from {ENTRY}" in r.content
+	# 归属要落在环境侧：INTERNAL 会被诊断中心算成我方引擎出错。
+	assert r.error_kind == "TIMEOUT"
+	assert r.retryable is True
+
+
+@pytest.mark.asyncio
+async def test_webfetch_timeout_without_redirect_names_entry(
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	# 没有重定向时措辞不变（不多塞 "redirected from"）。
+	monkeypatch.setattr(
+		"tools.web_fetch_tool.web_fetch_tool.is_blocked_url", lambda url: None
+	)
+
+	def handler(request: httpx.Request) -> httpx.Response:
+		raise httpx.ReadTimeout("stalled")
+
+	transport = httpx.MockTransport(handler)
+	real_client = httpx.AsyncClient
+
+	def fake_client(*args, **kwargs):
+		kwargs["transport"] = transport
+		return real_client(*args, **kwargs)
+
+	monkeypatch.setattr(httpx, "AsyncClient", fake_client)
+	tool = WebFetchTool()
+	r = await tool.execute({"url": "https://solo.example/x"}, AbortController())
+	assert r.is_error
+	assert r.content == "fetch timed out: https://solo.example/x"
+
+@pytest.mark.asyncio
+async def test_webfetch_abort_is_not_reported_as_fetch_failure(
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	from engine.abort import Aborted
+
+	monkeypatch.setattr(
+		"tools.web_fetch_tool.web_fetch_tool.is_blocked_url", lambda url: None
+	)
+	ctl = AbortController()
+
+	def handler(request: httpx.Request) -> httpx.Response:
+		# 第一跳回来之前就用户停止：下一跳的 raise_if_aborted 落在 try 内部。
+		ctl.abort("user_stop")
+		return httpx.Response(302, headers={"location": "https://next.example/y"})
+
+	transport = httpx.MockTransport(handler)
+	real_client = httpx.AsyncClient
+
+	def fake_client(*args, **kwargs):
+		kwargs["transport"] = transport
+		return real_client(*args, **kwargs)
+
+	monkeypatch.setattr(httpx, "AsyncClient", fake_client)
+	tool = WebFetchTool()
+	# 吞掉 Aborted 会把它伪装成「抓取失败」的正常工具回执，编排层的取消链随之断开。
+	with pytest.raises(Aborted):
+		await tool.execute({"url": "https://entry.example/go"}, ctl)

@@ -119,11 +119,14 @@ class PendingAskStore:
 
 	def _prune(self) -> None:
 		now = time.time()
-		for rid in (
+		# 先把待删 id 取全再动字典：边迭代 `_items.items()` 边 pop 会抛
+		# "dictionary changed size during iteration"，把整条提问通路变成工具错误。
+		stale = [
 			r
 			for r, it in self._items.items()
 			if it.expires_at < now and not it.resolved
-		):
+		]
+		for rid in stale:
 			self._items.pop(rid, None)
 			self._events.pop(rid, None)
 

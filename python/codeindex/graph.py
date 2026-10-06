@@ -295,6 +295,11 @@ def _imports_of(abs_path: str, rel: str, index: dict[str, str]) -> list[str]:
 	except OSError:
 		return []
 	text = data.decode("utf-8", errors="replace")
+	# 与 `codeindex.symbols._decode` 同一条：BOM 会让 `ast.parse` 抛
+	# "invalid non-printable character U+FEFF"，而下面的解析器把 SyntaxError 吞成
+	# 空列表 ⇒ 带 BOM 的已提交 .py 在 import 图里一条边都没有。
+	if text.startswith("\ufeff"):
+		text = text[1:]
 	if ext in PY_EXTENSIONS:
 		specs = _python_import_specs(text, rel)
 	elif ext in TS_EXTENSIONS:

@@ -9,13 +9,23 @@
 R1/R4 的完整判定需要人，但 R2 是**纯文本可判定的**，R3 也有很强的文本特征。
 这里只扫 diff 的**新增行**，避免把既有代码算进来。
 
+**散文豁免（2026-10-07）**：纯注释行、模块/类/函数 docstring、文档文件（.md/.rst/.txt）
+不参与判定——它们既不执行（不可能是"评测分支"），也不进模型可见文本（模型看到的是
+注入块与工具描述字符串）。此前对新增行一律 `re.search`，于是"注释里描述同一条通道"
+与"按评测环境分支"共用同一个正则：实测 3 条 R2 fail 全部落在 `#` 注释上
+（write_store.py ×2、notebook_edit_tool ×1，而 HEAD 里本就有 4 处同词注释）。
+方向性：**行内注释与字符串字面量不豁免**（`x = 1  # 容器路由` 仍报）——宁可多报，
+不可漏报真分支。回归：tests/test_changedetect_compliance.py。
+
 定位：这是"报警器"不是"判官"。命中不等于违规，但每一条命中都必须被解释。
 """
 
 from __future__ import annotations
 
+import ast
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 
@@ -84,17 +94,98 @@ _RULES: tuple[tuple[str, str, str, str], ...] = (
 )
 
 
-def scan_added_lines(diff_text: str) -> list[Hit]:
-    """扫描 diff 的新增行（`+` 开头且不是 `+++` 头）。"""
-    hits: list[Hit] = []
+#: 文档类后缀：不承载产品路径行为，也不是模型可见文本（模型看到的是注入块与
+#: 工具描述字符串，不是 docs/ 里的散文）。
+_PROSE_SUFFIXES: frozenset[str] = frozenset({".md", ".rst", ".txt", ".adoc"})
+
+#: 非 .py 的纯注释行前缀（strip 后）。.py 只认 `#`：块注释不存在，而 `*` 开头在
+#: .py 里可能是解包赋值（`*a, b = c`）⇒ 不能当注释。行尾注释不豁免。
+_PROSE_PREFIXES = ("#", "//", "/*", "*", "<!--")
+
+_HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
+
+#: (root, rel, mtime_ns) → docstring 行号集合。文件没变就不重复 parse。
+_DOCSTRING_CACHE: dict[tuple[str, str, int], frozenset[int]] = {}
+
+
+def _rel_of(where: str) -> str:
+    """diff 头 `b/<rel>` → `<rel>`。"""
+    return where[2:] if where.startswith("b/") else where
+
+
+def _docstring_lines(rel: str, root: Path) -> frozenset[int]:
+    """`rel` 里模块/类/函数 docstring 覆盖的行号；解析失败 ⇒ 空集（照常扫）。"""
+    path = root / rel
+    try:
+        mtime = path.stat().st_mtime_ns
+    except OSError:
+        return frozenset()
+    key = (str(root), rel, mtime)
+    cached = _DOCSTRING_CACHE.get(key)
+    if cached is not None:
+        return cached
+    lines: set[int] = set()
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+    except Exception:  # noqa: BLE001 — 解析不了就当没有 docstring
+        _DOCSTRING_CACHE[key] = frozenset()
+        return _DOCSTRING_CACHE[key]
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        body = getattr(node, "body", None)
+        if not body or not isinstance(body[0], ast.Expr):
+            continue
+        val = body[0].value
+        if isinstance(val, ast.Constant) and isinstance(val.value, str):
+            lines.update(range(val.lineno, (val.end_lineno or val.lineno) + 1))
+    _DOCSTRING_CACHE[key] = frozenset(lines)
+    return _DOCSTRING_CACHE[key]
+
+
+def _is_prose(where: str, lineno: int, line: str, root: Path | None) -> bool:
+    """这一行是否「散文」（纯注释 / docstring / 文档文件）——散文不判定。"""
+    rel = _rel_of(where)
+    suffix = Path(rel).suffix.lower()
+    if suffix in _PROSE_SUFFIXES:
+        return True
+    stripped = line.strip()
+    if not stripped:
+        return True
+    if stripped.startswith(("#",) if suffix == ".py" else _PROSE_PREFIXES):
+        return True
+    if suffix == ".py" and root is not None and lineno:
+        return lineno in _docstring_lines(rel, root)
+    return False
+
+
+def _iter_added(diff_text: str):
+    """产出 `(where, lineno, line)`；lineno 是**新文件**行号（docstring 判定要用）。"""
     where = ""
+    lineno = 0
     for raw in diff_text.splitlines():
         if raw.startswith("+++ "):
             where = raw[4:].strip()
             continue
-        if not raw.startswith("+") or raw.startswith("+++"):
+        if raw.startswith("@@"):
+            m = _HUNK_RE.match(raw)
+            lineno = int(m.group(1)) if m else 0
             continue
-        line = raw[1:]
+        if raw.startswith("+"):
+            if not raw.startswith("+++"):
+                yield where, lineno, raw[1:]
+                lineno += 1
+            continue
+        if raw.startswith(" "):
+            lineno += 1
+
+
+def scan_added_lines(diff_text: str, *, root: Path | None = None) -> list[Hit]:
+    """扫描 diff 的新增行（`+` 开头且不是 `+++` 头）；散文行按模块说明豁免。"""
+    hits: list[Hit] = []
+    for where, lineno, line in _iter_added(diff_text):
+        if _is_prose(where, lineno, line, root):
+            continue
         for rule, severity, pattern, why in _RULES:
             if re.search(pattern, line, flags=re.IGNORECASE):
                 hits.append(
@@ -151,4 +242,4 @@ def scan_git_diff(paths: list[str] | None = None, *, root=None) -> dict[str, Any
             "error": (proc.stderr or "").strip()[:300],
             "hits": [],
         }
-    return summarize(scan_added_lines(proc.stdout))
+    return summarize(scan_added_lines(proc.stdout, root=Path(root or REPO_ROOT)))

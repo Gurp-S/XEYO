@@ -30,6 +30,8 @@ class FileStateEntry:
 	#: 没有可比对的基线，写入要么被 missing_read 拒绝，要么退化成"拿盘上内容当
 	#: 基线"（等于不校验）。有了它，重启后仍能判定"盘上内容是否还是我读过的那版"。
 	content_hash: str = ""
+	view_digest: str = ""
+	view_visible: bool = True
 
 
 def _content_hash_text(content: str) -> str:
@@ -140,6 +142,12 @@ class ReadFileState:
 	def clear(self) -> None:
 		with self._lock:
 			self._entries.clear()
+
+	def sync_visible_views(self, digests: set[str]) -> None:
+		"""只更新 Read 去重资格，保留 Edit/Write 的正文、时间戳和哈希。"""
+		with self._lock:
+			for entry in self._entries.values():
+				entry.view_visible = bool(entry.view_digest and entry.view_digest in digests)
 
 	def snapshot_meta(self) -> dict[str, dict]:
 		"""序列化 mtime/offset，不含文件正文（给 WorkingSnapshot sidecar）。"""

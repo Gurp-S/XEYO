@@ -4,10 +4,12 @@ import {
   applyXy,
   createSession,
   DecisionNotApplied,
+  decisionRetainsPrompt,
   getSessionMessages,
   interruptSession,
   listSessions,
   postSlashCommand,
+  resolveAsk,
   resolvePermission,
   streamChat,
   type LoadedMessage,
@@ -16,6 +18,7 @@ import { EmptyState } from "../components/EmptyState.js";
 import { ErrorBanner } from "../components/ErrorBanner.js";
 import { HeaderBar } from "../components/HeaderBar.js";
 import { HelpPanel } from "../components/HelpPanel.js";
+import { AskModal } from "../components/AskModal.js";
 import { PermissionModal } from "../components/PermissionModal.js";
 import { PromptLine, slashMatches } from "../components/PromptLine.js";
 import {
@@ -28,9 +31,26 @@ import { runDemoTurn } from "../demo.js";
 import { useElapsed } from "../hooks/useElapsed.js";
 import { useEngineHealth } from "../hooks/useEngineHealth.js";
 import { useInputHistory } from "../hooks/useInputHistory.js";
+import {
+  askKeyIntent,
+  askReceipt,
+  parseAskPending,
+  type AskPrompt,
+} from "../lib/askPrompt.js";
+import {
+  acceptedNote,
+  busySlashNote,
+  resolveBusySubmit,
+} from "../lib/busySubmit.js";
 import { routeKey } from "../lib/keyRouter.js";
-import { parsePermissionPending } from "../lib/permissionPrompt.js";
+import { isPeerChoicePrompt, parsePermissionPending } from "../lib/permissionPrompt.js";
 import { parseSlashInput } from "../lib/slash.js";
+import {
+  gapNote,
+  gapThroughOf,
+  lastAssistantText,
+  recoverAssistantAfterGap,
+} from "../lib/streamGap.js";
 import { g } from "../theme.js";
 import type { CliConfig, PermissionPrompt, TimelineItem } from "../types.js";
 
@@ -93,6 +113,8 @@ export function App({ config: initial }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<PermissionPrompt | null>(null);
+  const [ask, setAsk] = useState<AskPrompt | null>(null);
+  const [askDraft, setAskDraft] = useState("");
   const [showDash, setShowDash] = useState(!initial.demo);
   const [showHelp, setShowHelp] = useState(false);
   const [suggestIndex, setSuggestIndex] = useState(0);
@@ -102,6 +124,8 @@ export function App({ config: initial }: Props) {
   const lastUserRef = useRef("");
   /** T31：本次入口是否显式切换过模式（/mode /output /code /approval）。 */
   const modesTouchedRef = useRef(false);
+  /** 本回合服务端报过的"缺帧到哪个事件"（0 = 没缺过）。见 onXy 的 stream_gap 分支。 */
+  const gapThroughRef = useRef(0);
   const history = useInputHistory();
   const { connected, refresh } = useEngineHealth(config.baseUrl);
   const elapsedSec = useElapsed(busy);
@@ -205,6 +229,8 @@ export function App({ config: initial }: Props) {
     );
     setBusy(false);
     setPending(null);
+    setAsk(null);
+    setAskDraft("");
     setItems((prev) => [
       ...prev.map((it) =>
         it.kind === "assistant" && it.streaming
@@ -222,7 +248,7 @@ export function App({ config: initial }: Props) {
     ]);
   }, [busy, config.apiKey, config.baseUrl, config.sessionId, gly.fail, gly.warn, nextId]);
 
-  /** 关掉一个已经没人等的弹窗：流都结束了还没收到 permission_resolved，
+  /** 关闭一个已经没人等的弹窗：流都结束了还没收到 permission_resolved，
    *  再往服务端发决议只会多余地报错；但弹窗留着会把用户锁死在终端里。 */
   const dismissPending = useCallback(() => {
     if (!pending) return;
@@ -238,12 +264,54 @@ export function App({ config: initial }: Props) {
     ]);
   }, [gly.warn, nextId, pending]);
 
+  /** 提交提问作答（#10）：送达失败保留弹窗可重试；别处已答走信息档收起。 */
+  const submitAsk = useCallback(
+    async (cur: AskPrompt, answer: string) => {
+      try {
+        await resolveAsk(config.baseUrl, config.apiKey, cur.requestId, answer);
+      } catch (e) {
+        if (e instanceof DecisionNotApplied && e.reason === "already_resolved") {
+          setAsk(null);
+          setAskDraft("");
+          setItems((prev) => [
+            ...prev,
+            {
+              id: nextId(),
+              kind: "system",
+              text: `${gly.warn} 该提问已在别处答复（超时或桌面端）`,
+            },
+          ]);
+          return;
+        }
+        // 未送达：弹窗保留供重试，出声不静默（与 PermissionModal 同规）。
+        setItems((prev) => [
+          ...prev,
+          {
+            id: nextId(),
+            kind: "system",
+            text: `${gly.fail} 作答未送达：${String(e)}（弹窗保留，可重试）`,
+          },
+        ]);
+        return;
+      }
+      setAsk(null);
+      setAskDraft("");
+      setItems((prev) => [
+        ...prev,
+        { id: nextId(), kind: "system", text: askReceipt(answer) },
+      ]);
+    },
+    [config.apiKey, config.baseUrl, gly.fail, gly.warn, nextId],
+  );
+
   useInput((inputKey, key) => {
     const action = routeKey(inputKey, key, {
       busy,
       pending: !!pending,
+      askPending: !!ask,
       showHelp,
       hasError: !!error,
+      peerChoice: pending ? isPeerChoicePrompt(pending) : false,
     });
     switch (action) {
       case "interrupt":
@@ -252,6 +320,28 @@ export function App({ config: initial }: Props) {
       case "dismiss_pending":
         dismissPending();
         return;
+      case "dismiss_ask":
+        setAsk(null);
+        setAskDraft("");
+        setItems((prev) => [
+          ...prev,
+          {
+            id: nextId(),
+            kind: "system",
+            text: `${gly.warn} 未作答已关闭：模型将等待答复或超时`,
+          },
+        ]);
+        return;
+      case "pass_to_input": {
+        // 选项态提问：数字 1..n 直接提交该项、s 显式跳过（空答案）。
+        if (ask && ask.extraQuestions === 0 && ask.options.length > 0) {
+          const intent = askKeyIntent(inputKey, ask);
+          if (intent.kind === "submit") {
+            void submitAsk(ask, intent.value);
+          }
+        }
+        return;
+      }
       case "clear_panels":
         setShowHelp(false);
         setError(null);
@@ -309,6 +399,11 @@ export function App({ config: initial }: Props) {
       // 后者里 already_resolved 表示别处已经答过 —— 那不是本端的批准，也不能写 ✓。
       const alreadyElsewhere =
         e instanceof DecisionNotApplied && e.reason === "already_resolved";
+      // 可重试的失败把弹窗放回去：此前一律丢弃，唯一作答入口消失、
+      // 而服务端可能仍在等这单决议（GUI 同款：失败保留面板供重试）。
+      if (decisionRetainsPrompt(e)) {
+        setPending(req);
+      }
       setItems((prev) => [
         ...prev,
         {
@@ -336,7 +431,13 @@ export function App({ config: initial }: Props) {
 
   async function submit(raw: string) {
     const text = raw.trim();
-    if (!text || busy) return;
+    if (!text) return;
+    if (busy) {
+      // 忙时输入面不消失（#2）：非命令文本走服务端队列，命令按 manifest 的
+      // when 分流——/stop 等 always 档照常可执行，其余给拒绝指引。
+      await submitWhileBusy(text);
+      return;
+    }
     setInput("");
     setError(null);
     setShowHelp(false);
@@ -372,6 +473,43 @@ export function App({ config: initial }: Props) {
     }
 
     await sendTurn(text);
+  }
+
+  /** 忙时提交：命令按 when 分流；普通文本入队（202 queued），失败回填草稿。 */
+  async function submitWhileBusy(text: string) {
+    if (text === "/exit" || text === "/quit" || text === "/q") {
+      exit();
+      return;
+    }
+    if (text.startsWith("/")) {
+      const slash = parseSlashInput(text);
+      setItems((prev) => [
+        ...prev,
+        { id: nextId(), kind: "user" as const, text },
+      ]);
+      if (slash.command && slash.command.when === "always") {
+        await runSlashCommand(slash, text);
+        return;
+      }
+      const name = slash.command?.name ?? slash.name;
+      setItems((prev) => [
+        ...prev,
+        {
+          id: nextId(),
+          kind: "system" as const,
+          text: slash.command
+            ? busySlashNote(name)
+            : `未知命令 /${name}，试试 /help`,
+        },
+      ]);
+      return;
+    }
+    setInput("");
+    setError(null);
+    const ok = await sendTurn(text, "busy");
+    if (!ok) {
+      setInput(text);
+    }
   }
 
   async function newServerSession(): Promise<string> {
@@ -577,34 +715,78 @@ export function App({ config: initial }: Props) {
     }
   }
 
-  async function sendTurn(text: string) {
-    setShowDash(false);
-    setFreezeAt(items.length);
-    setBusy(true);
+  /**
+   * 一轮发送。intent="busy"（#2 忙时提交）：本端已有回合在跑——不预占 busy/abort
+   * 语义、不预建气泡；服务端回 202 受理体（queued/steered）时只上用户气泡+回执；
+   * 竞态里原回合已结束、服务端真起流（onDelta/onXy 先到）时惰性接管为普通回合。
+   * 返回：受理或接管=true（调用方清草稿）；失败=false（调用方回填草稿）。
+   */
+  async function sendTurn(
+    text: string,
+    intent: "idle" | "busy" = "idle",
+  ): Promise<boolean> {
+    const busyIntent = intent === "busy";
+    if (!busyIntent) {
+      setShowDash(false);
+      setFreezeAt(items.length);
+      setBusy(true);
+    }
     const ac = new AbortController();
-    abortRef.current = ac;
+    if (!busyIntent) {
+      abortRef.current = ac;
+    }
 
     const live = await refresh();
     if (!live) {
-      setBusy(false);
+      if (!busyIntent) {
+        setBusy(false);
+      }
       setError(
         `Cannot reach ${config.baseUrl}. The Python engine is not running.`,
       );
-      return;
+      // 未上屏的输入不是"已发出的消息"：草稿放回输入框，别让用户重打
+      // （与 GUI 的「气泡或草稿必存其一」同规）。
+      setInput(text);
+      return false;
     }
 
+    let surfaced = false;
+    let userAdded = false;
+    let tookOver = false;
+    let accepted = false;
+    let assistantId = "";
+    /** 惰性建气泡：idle 在开流前调用；busy 只在真流到达（竞态）时接管为普通回合。 */
+    const ensureBubbles = () => {
+      if (userAdded) return;
+      userAdded = true;
+      surfaced = true;
+      if (busyIntent && !tookOver) {
+        tookOver = true;
+        setShowDash(false);
+        setFreezeAt(items.length);
+        setBusy(true);
+        abortRef.current = ac;
+      }
+      lastUserRef.current = text;
+      gapThroughRef.current = 0;
+      assistantId = nextId();
+      const aid = assistantId;
+      setItems((prev) => [
+        ...prev,
+        { id: nextId(), kind: "user", text },
+        { id: aid, kind: "assistant", text: "", streaming: true },
+      ]);
+    };
+
     // T31：会话 id 由服务端签发（无则先申请；不再客户端自造 UUID）。
-    const sessionId = await ensureSessionId();
-
-    lastUserRef.current = text;
-    setItems((prev) => [...prev, { id: nextId(), kind: "user", text }]);
-    const assistantId = nextId();
-    setItems((prev) => [
-      ...prev,
-      { id: assistantId, kind: "assistant", text: "", streaming: true },
-    ]);
-
+    // 申请失败与流式失败共用一道守卫：未上屏 ⇒ 放回草稿；已上屏 ⇒ 气泡在，草稿不回。
+    // 此前 ensureSessionId 的拒绝会逃出 sendTurn（TextInput 不接 promise）⇒
+    // unhandledRejection 处理器直接 process.exit(1)：首次发送时后端一抖 TUI 整个退出。
     try {
+      const sessionId = await ensureSessionId();
+      if (!busyIntent) {
+        ensureBubbles();
+      }
       const body: Parameters<typeof streamChat>[2] = {
         model: config.model || "deepseek-chat",
         stream: true,
@@ -613,6 +795,13 @@ export function App({ config: initial }: Props) {
         workspace: config.cwd,
         messages: [{ role: "user", content: text }],
       };
+      if (busyIntent) {
+        // Enter=排队（202 queued）；Ctrl+Enter=边界引导暂无 TUI 键位入口，
+        // 判定纯函数按 modifier=false 调用（键位接上时传真实 modifier 即可）。
+        const plan = resolveBusySubmit(false);
+        body.queue_if_busy = plan.queueIfBusy;
+        body.steer_if_busy = plan.steerIfBusy;
+      }
       // T31：仅当用户显式切换过模式才发送，避免默认值在恢复会话时碾压 durable 记录。
       if (modesTouchedRef.current) {
         body.permission_mode = config.permissionMode;
@@ -628,6 +817,7 @@ export function App({ config: initial }: Props) {
         body,
         {
           onDelta: (chunk: string) => {
+            ensureBubbles();
             setItems((prev) =>
               prev.map((it) =>
                 it.id === assistantId && it.kind === "assistant"
@@ -637,6 +827,14 @@ export function App({ config: initial }: Props) {
             );
           },
           onXy: (xy: Record<string, unknown>) => {
+            ensureBubbles();
+            const gap = gapThroughOf(xy);
+            if (gap) {
+              // 引擎在这条连接上丢了帧 ⇒ 本地尾巴从此刻起是缺段。不能说"完成"，
+              // 也不能当完整正文留下：收尾交给 onDone 回拉 transcript 对账。
+              gapThroughRef.current = Math.max(gapThroughRef.current, gap);
+              return;
+            }
             const kind = String(xy.type ?? "");
             if (kind === "permission_pending") {
               const frame = parsePermissionPending(xy);
@@ -652,27 +850,106 @@ export function App({ config: initial }: Props) {
               ]);
               return;
             }
+            if (kind === "permission_resolved") {
+              const rid = String(xy.request_id ?? "").trim();
+              // 别处（GUI/微信/超时）已答：本端弹窗随之关掉；一个没人等的弹窗
+              // 会把 Esc 变成"打断回合"的陷阱，或把按键引向"已在别处答复"的假流程。
+              setPending((cur) =>
+                cur && (!rid || cur.requestId === rid) ? null : cur,
+              );
+            }
+            if (kind === "ask_user_pending") {
+              // 提问到达 = 打开作答弹窗（#10）；帧缺 request_id 时开不了可决议的弹窗，
+              // 交给 applyXy 落一条静态 note（旧行为）。
+              const parsed = parseAskPending(xy);
+              if (parsed) {
+                setAsk(parsed);
+                setAskDraft(parsed.defaultAnswer ?? "");
+                return;
+              }
+            }
+            if (kind === "ask_user_resolved") {
+              setAsk((cur) =>
+                cur && (!String(xy.request_id ?? "").trim() ||
+                cur.requestId === String(xy.request_id ?? "").trim())
+                  ? null
+                  : cur,
+              );
+              // 不 return：回执 note 仍进时间线（与 permission_resolved 同规）。
+            }
             setItems((prev) => applyXy(prev, xy, nextId));
           },
+          onAccepted: (payload) => {
+            // 忙时受理（202）：不是一轮对话——用户气泡 + 中性回执（含位次/口径）。
+            accepted = true;
+            surfaced = true;
+            setItems((prev) => [
+              ...prev,
+              { id: nextId(), kind: "user", text },
+              { id: nextId(), kind: "system", text: acceptedNote(payload) },
+            ]);
+          },
           onDone: () => {
-            setItems((prev) =>
-              prev.map((it) =>
-                it.id === assistantId && it.kind === "assistant"
-                  ? { ...it, streaming: false }
-                  : it,
-              ),
-            );
+            if (accepted || !userAdded) {
+              return;
+            }
+            const gapThrough = gapThroughRef.current;
+            gapThroughRef.current = 0;
+            const settle = (text?: string) =>
+              setItems((prev) =>
+                prev.map((it) =>
+                  it.id === assistantId && it.kind === "assistant"
+                    ? {
+                        ...it,
+                        streaming: false,
+                        ...(text == null ? null : { text }),
+                      }
+                    : it,
+                ),
+              );
+            if (!gapThrough) {
+              settle();
+              return;
+            }
+            // 缺过帧 ⇒ 正文以服务端 transcript 为准（引擎完整落盘，丢的只是这一次投递）；
+            // 拉不到或拉失败都必须出声，绝不把缺段当完整内容留下。
+            void recoverAssistantAfterGap({
+              gapThrough,
+              loadText: async () =>
+                lastAssistantText(
+                  messagesToItems(
+                    (await getSessionMessages(config.baseUrl, config.apiKey, sessionId))
+                      .messages,
+                  ),
+                ),
+            })
+              .then(({ text, note }) => {
+                settle(text ?? undefined);
+                sysNote(note);
+              })
+              .catch(() => {
+                settle();
+                sysNote(gapNote(gapThrough, "failed"));
+              });
           },
           onError: (err: Error) => setError(err.message),
         },
         ac.signal,
       );
     } catch (e) {
+      if (!surfaced) {
+        setInput(text);
+      }
       setError(String(e));
+      return false;
     } finally {
-      setBusy(false);
+      // busy 提交未接管（受理/失败）时不碰 busy/abort——原回合还在跑。
+      if (!busyIntent || tookOver) {
+        setBusy(false);
+      }
       void refresh();
     }
+    return accepted || tookOver;
   }
 
   const showEmpty =
@@ -721,6 +998,14 @@ export function App({ config: initial }: Props) {
       {showEmpty ? <EmptyState connected={connected} /> : null}
 
       {pending ? <PermissionModal pending={pending} /> : null}
+      {ask ? (
+        <AskModal
+          prompt={ask}
+          draft={askDraft}
+          onDraftChange={setAskDraft}
+          onSubmitText={(v) => void submitAsk(ask, v)}
+        />
+      ) : null}
       {error ? <ErrorBanner message={error} /> : null}
 
       {!pending ? (
@@ -735,6 +1020,7 @@ export function App({ config: initial }: Props) {
           onSubmit={submit}
           mode={config.agentMode}
           busy={busy}
+          disabled={Boolean(pending) || Boolean(ask)}
           connected={connected}
           elapsedSec={elapsedSec}
           suggestIndex={suggestIndex}

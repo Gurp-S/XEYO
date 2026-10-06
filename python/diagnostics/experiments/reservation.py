@@ -133,6 +133,8 @@ def priced_cny(usage: Mapping[str, Any], *, provider: str, model: str) -> dict[s
 	"""复用产品计价语义：厂商金额优先，其次按 usage 估算（不联网）。
 
 	``local_only`` 恒真：实验记账不许为了算钱去联网拉实时价。
+	**没有权威价目时 ``cny`` 是 ``None``**（费用未知）——与折算失败同一条出路，
+	调用方不得把它按 ¥0 释放预留。
 	"""
 	from engine.budget import BudgetTracker
 
@@ -141,8 +143,9 @@ def priced_cny(usage: Mapping[str, Any], *, provider: str, model: str) -> dict[s
 		tracker.add_usage(dict(usage))
 	except Exception as exc:  # noqa: BLE001 — 折算失败即费用未知
 		return {"cny": None, "source": "", "error": f"{type(exc).__name__}: {exc}"}
+	cny = tracker.last_usage_cny
 	return {
-		"cny": round(float(tracker.last_usage_cny), 8),
+		"cny": None if cny is None else round(float(cny), 8),
 		"source": _s(tracker.last_cost_source),
 		"tokens": int(tracker.last_usage_tokens),
 	}

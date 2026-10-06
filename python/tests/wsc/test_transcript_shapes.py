@@ -242,3 +242,27 @@ def test_strip_requires_the_request_anchor() -> None:
 	body = "# Files mentioned by the user:\n## a.png: C:/Temp/a.png\n这里全是正文，没有锚点\n"
 	assert "Files mentioned by the user" in strip_machine_blocks(body)
 	assert "这里全是正文" in strip_machine_blocks(body)
+
+
+def test_ui_thought_rows_are_dropped_like_native(tmp_path: Path) -> None:
+	"""转录里的 UI-only 行（ui_thought）与生产同口径：不进离线重放的输入。
+
+	生产 ``session/hydrate._ROLES`` 只放 system/user/assistant/tool —— 现场会话里
+	``ui_thought`` 占 20.6% 字符且模型根本看不到；重放若把它们喂进投影，
+	所有离线评测数字都被"模型看不到的正文"污染。
+	"""
+	from synaptic.replay import load_jsonl
+
+	path = tmp_path / "s.jsonl"
+	path.write_text(
+		"\n".join(json.dumps(row) for row in [
+			{"role": "user", "content": "真实请求"},
+			{"role": "ui_thought", "content": "模型思考：这不该进投影"},
+			{"role": "assistant", "content": "真实回答"},
+		]) + "\n",
+		encoding="utf-8",
+	)
+	rows = load_jsonl(path)
+	assert [r["role"] for r in rows] == ["user", "assistant"]
+	text = "\n".join(str(m.get("content")) for m in _api(rows))
+	assert "这不该进投影" not in text

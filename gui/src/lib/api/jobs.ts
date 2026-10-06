@@ -5,12 +5,12 @@
  * - normalizeJobSnapshots：SSE jobs 帧 / GET 响应统一归一化（防御式）。
  * - sortJobsForPanel：弹层确定性排序（活跃 startedAt 升序在前，终态 finishedAt
  *   降序在后；map 序永不参与——42 号 §8）。
+ * - killJob：人类侧停止（F1 落地；与模型侧 job_kill 同轨，越权/未知 404）。
  *
- * 纪律（冻结口径 6）：UI 只读——无流直读、无人类中断行；数据全部来自
- * whole-value 快照（SSE 帧 + GET），渲染层零 RPC。
+ * 纪律：渲染层不做流直读；数据全部来自 whole-value 快照（SSE 帧 + GET）。
  */
 import {apiUrl} from '@/lib/apiBase';
-import {fetchWithTimeout, formatErrorDetail} from './core';
+import {authHeaders, fetchWithTimeout, formatErrorDetail} from './core';
 
 export type JobStatus = 'running' | 'stopping' | 'succeeded' | 'failed' | 'killed';
 
@@ -186,5 +186,32 @@ export async function fetchJobOutput(
 		};
 	} catch {
 		return null;
+	}
+}
+
+/**
+ * POST /v1/sessions/{sid}/jobs/{job_id}/kill → 人类侧停止（F1）。
+ *
+ * 与模型侧 `job_kill` 同一执行路径（容器优先、registry 回落）；越权/未知 404。
+ * false = 未被接受（已结束 / 越权 / 网络失败），调用方出声并刷新快照——不谎报停止。
+ */
+export async function killJob(
+	sessionId: string,
+	jobId: string,
+): Promise<boolean> {
+	try {
+		const res = await fetchWithTimeout(
+			apiUrl(
+				`/v1/sessions/${encodeURIComponent(sessionId)}/jobs/${encodeURIComponent(jobId)}/kill`,
+			),
+			{method: 'POST', headers: {...authHeaders()}},
+		);
+		if (!res.ok) return false;
+		const data = (await res.json().catch(() => null)) as {
+			ok?: boolean;
+		} | null;
+		return data?.ok === true;
+	} catch {
+		return false;
 	}
 }

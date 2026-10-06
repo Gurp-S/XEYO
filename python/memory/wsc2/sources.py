@@ -118,15 +118,13 @@ class FileObserver:
     def _on_result(self, e: Event) -> None:
         if e.call_id:
             w = self._pend_write.pop(e.call_id, None)
-            if w is not None:
+            if w is not None and not e.is_error:
                 paths, summary = w
                 for p in paths:
                     self._track(p).writes.append((e.index, summary))
                     self._changed.add(p)
-        if not e.first_in_message:
-            return
         pend = self._pend.pop(e.call_id, None) if e.call_id else None
-        if pend is None:
+        if pend is None or e.is_error:
             return
         _tool, inputs, paths, precise = pend
         for p in paths:

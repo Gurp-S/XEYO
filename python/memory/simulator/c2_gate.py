@@ -32,9 +32,7 @@ from __future__ import annotations
 from typing import Any
 
 
-# ===========================================================================
 # 公式化门控（全部纯函数、确定性；不调用任何模型，零费用）
-# ===========================================================================
 
 
 def pressure_ratio(*, window: int, l_hard_send: int, output_reserve: int, tail_budget: int) -> float:
@@ -122,9 +120,7 @@ def tail_budget_tokens(*, per_turn_tokens: float, retain_rounds: int) -> int:
 
 
 
-# ===========================================================================
 # params 派生（从 Params 读几何量）
-# ===========================================================================
 
 
 

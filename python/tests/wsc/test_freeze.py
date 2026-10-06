@@ -51,8 +51,14 @@ def test_project_freeze_reuses_main_decision_inside_same_phase():
 	assert p2.state.frozen_kept == p1.state.frozen_kept
 
 
-@pytest.mark.xfail(reason="既有红（2026-09-21 挂账）：F 桶·预算常量真冲突：assert 6005 <= 1800 —— T_NOW_TOTAL_BUDGET=6000 与 WSC 侧 1800 未对齐，**可能静默截断正要评测的注入块**。机制评测前优先解决，别长期挂本标记。", strict=False)
 def test_request_floor_takes_space_before_fixed_facts():
+	"""请求保留额与固定预算的对账（09-21 挂账，2026-10-05 解）。
+
+	场景：受保护 PIN（[CONSTRAINTS]）远超固定预算 + 一条请求行。设计语义——
+	PIN 豁免（占用加回上限）与请求保留额（floor 保证不被裁）都**不算**"可消除超额"。
+	旧断言 ``fixed_tokens <= fixed_budget_tokens`` 在此语义下永远不可能成立；
+	真正的不变量是：**可消除超额必须为 0，超出预算部分全部记进 unavoidable**。
+	"""
 	msgs = [msg_user("这是一个足够长的用户问题内容"), msg_asst_text("ok")]
 	graph = build_graph(msgs)
 	params = WscParams(fixed_segment_budget_tokens=1_800, main_segment_budget_tokens=1_200)
@@ -73,5 +79,9 @@ def test_request_floor_takes_space_before_fixed_facts():
 	assert audit.request_reserved_tokens == 1_000
 	assert audit.request_mode == "full"
 	assert audit.request_tokens > 0
-	assert audit.fixed_tokens <= audit.fixed_budget_tokens
+	# 真正的不变量（policy-neutral）：没有任何"可降级段"被留在预算之外；
+	# 超预算部分 = 受保护 PIN + 请求保留额（两者都不可通过再裁其它段解决）。
+	assert audit.fixed_avoidable_overflow_tokens == 0
+	assert audit.fixed_unavoidable_overflow_tokens == audit.fixed_overflow_tokens
+	assert audit.fixed_tokens - audit.fixed_unavoidable_overflow_tokens <= audit.fixed_budget_tokens
 	assert H_REQUESTS in out

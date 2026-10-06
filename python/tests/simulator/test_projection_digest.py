@@ -59,7 +59,7 @@ def test_projection_digest_roundtrip_flush_hydrate():
     assert restored.last_projection.tail_len == 100
 
 
-def test_evaluate_lcp_keep_uses_frozen_len():
+def test_evaluate_lcp_keep_does_not_trust_unverified_frozen_len():
     """decide/keep 的 lcp_keep 用 x_prev_frozen_len（= digest.frozen_len），而非依赖全文。"""
     s0 = _state()
     p = load_params()
@@ -69,8 +69,8 @@ def test_evaluate_lcp_keep_uses_frozen_len():
     _s, shot = shot_cost(s0, "keep", cache, charge_action=True)
     keep_L = project(s0).length
     assert keep_L > digest_frozen
-    assert shot.lcp == digest_frozen  # 重启用 frozen_len 估，不回退字符串 LCP
-    assert 0 < shot.H <= shot.L
+    assert shot.lcp == 0
+    assert shot.H == 0
 
 
 def test_evaluate_lcp_fallback_to_string_when_zero():
@@ -108,5 +108,19 @@ def test_decide_keep_lcp_reentrant_after_restart():
     # 重启后只有 digest，_x 全文（last_x_sim）为空字符串
     cache = CacheState(x_prev="", x_prev_frozen_len=digest.frozen_len)
     d = decide(s0, cache, remaining_turns=8, params=p, forecast="p0")
-    assert d.branches["keep"].lcp > 0
-    assert d.branches["keep"].lcp == min(digest.frozen_len, project(s0).length)
+    assert d.branches["keep"].lcp == 0
+
+
+def test_restart_credit_requires_matching_prefix_identity():
+    from memory.runtime import update_projection_digest
+    from memory.simulator.projection import verified_previous_text
+    from dataclasses import replace
+
+    state = _state()
+    working = WorkingSnapshot(session_id="verified_digest")
+    update_projection_digest(working, state)
+    previous = verified_previous_text("", working.last_projection, state)
+    assert previous
+    _, shot = shot_cost(state, "keep", CacheState(x_prev=previous), charge_action=True)
+    assert shot.lcp == working.last_projection.frozen_len
+    assert verified_previous_text("", replace(working.last_projection, prefix_hash="wrong"), state) == ""

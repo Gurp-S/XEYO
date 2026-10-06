@@ -821,3 +821,88 @@ def test_c2_compressed_right_side_freezes_after_c1(monkeypatch, mem_switch):
 	assert any(isinstance(c, str) and c.startswith("xxx") for c in content[-3:]) or any(
 		isinstance(c, str) and len(c) > 100 for c in content[-3:]
 	)
+
+
+# ---------------------------------------------------------------------------
+# 活路径折叠落地：把实测回本枪数写进 working，冷却闸读它（触发频率整改）
+# ---------------------------------------------------------------------------
+
+def test_fold_writes_payback_and_never_blocks_the_next(monkeypatch):
+	"""折叠的成本真付了：落地写实测回本枪数，冷却闸按它拦；关掉 A1 = 历史"只记账"；force 不受阻。
+
+	2026-09-30 起 A1（`XEYO_WSC_FOLD_COOLDOWN_VETO`）**默认开** ⇒ "不否决"只是
+	回退开关那一侧的契约，两边都要钉。
+	"""
+	from memory.runtime import try_extend_c2
+	from memory.simulator.params import Params
+	from synaptic.cadence import MAX_GAP_SHOTS, MIN_GAP_SHOTS
+
+	msgs = _big_msgs(10)
+	params = Params(c2_extend_ratio=0.5)
+
+	w = WorkingSnapshot()
+	w.compact_cursor = 5
+	w.c2_summary_text = "FROZEN_SUMMARY"
+	acct: dict = {}
+	assert try_extend_c2(w, msgs, 8, params, account=acct)
+	gap = int(w.c2_gap_shots)
+	assert gap >= MIN_GAP_SHOTS, "落地必须记下回本枪数（且不低于结构下限）"
+	assert acct["gap_next"] == gap, "判定出口与落地写入必须是同一个数"
+
+	# 默认态（A1 开）：冷却窗口内再折必须被拦 —— 这是新的默认语义
+	monkeypatch.delenv("XEYO_WSC_FOLD_COOLDOWN_VETO", raising=False)
+	w2 = WorkingSnapshot()
+	w2.compact_cursor = 5
+	w2.c2_summary_text = "FROZEN_SUMMARY"
+	w2.c2_gap_shots = MIN_GAP_SHOTS + 3
+	w2.turns_since_c2 = 1
+	acct2: dict = {}
+	assert try_extend_c2(w2, msgs, 8, params, account=acct2) is False, "默认态下冷却窗口内不该再折"
+	assert acct2["reason"] == "cooldown_veto"
+	assert w2.compact_cursor == 5, "否决不许动游标"
+
+	# 回退开关（A1=0）：逐字回到"只记账、不否决"的历史行为
+	monkeypatch.setenv("XEYO_WSC_FOLD_COOLDOWN_VETO", "0")
+	w2b = WorkingSnapshot()
+	w2b.compact_cursor = 5
+	w2b.c2_summary_text = "FROZEN_SUMMARY"
+	w2b.c2_gap_shots = MIN_GAP_SHOTS + 3
+	w2b.turns_since_c2 = 1
+	acct2b: dict = {}
+	assert try_extend_c2(w2b, msgs, 8, params, account=acct2b), "关掉 A1 后冷却读数不得拦下一次划算的折叠"
+	assert acct2b["gap_shots"] == MIN_GAP_SHOTS + 3, "判定当时的冷却读数仍要留账（落地后会被本次实测改写）"
+	assert w2b.compact_cursor == 8
+	monkeypatch.delenv("XEYO_WSC_FOLD_COOLDOWN_VETO", raising=False)
+
+	# 折叠落地后冷却按**本次**实测重设（不是沿用旧值）
+	w3 = WorkingSnapshot()
+	w3.compact_cursor = 5
+	w3.c2_summary_text = "FROZEN_SUMMARY"
+	w3.c2_gap_shots = MIN_GAP_SHOTS + 3
+	w3.turns_since_c2 = w3.c2_gap_shots + 1
+	acct3: dict = {}
+	assert try_extend_c2(w3, msgs, 8, params, account=acct3)
+	assert w3.compact_cursor == 8
+	assert acct3["gap_shots"] == MIN_GAP_SHOTS + 3, "账目要留下判定当时的冷却读数"
+	assert w3.c2_gap_shots == acct3["gap_next"]
+	assert MIN_GAP_SHOTS <= w3.c2_gap_shots <= MAX_GAP_SHOTS, "冷却夹在[结构下限, 结构上界]"
+
+	# 冷却只由**本次**实测决定，不对历史取 max：把上一轮人为顶到结构上界，折叠结果必须一模一样
+	w4 = WorkingSnapshot()
+	w4.compact_cursor = 5
+	w4.c2_summary_text = "FROZEN_SUMMARY"
+	w4.c2_gap_shots = MAX_GAP_SHOTS
+	w4.turns_since_c2 = MAX_GAP_SHOTS + 1
+	acct4: dict = {}
+	assert try_extend_c2(w4, msgs, 8, params, account=acct4)
+	assert w4.c2_gap_shots == acct4["gap_next"] == w3.c2_gap_shots, "冷却不得累积（越折越久）"
+
+	# force（窗口硬顶兜底）不受冷却限制，且不改动冷却账本
+	w5 = WorkingSnapshot()
+	w5.compact_cursor = 5
+	w5.c2_summary_text = "FROZEN_SUMMARY"
+	w5.c2_gap_shots = MIN_GAP_SHOTS + 9
+	w5.turns_since_c2 = 1
+	assert try_extend_c2(w5, msgs, 8, params, force=True)
+	assert w5.compact_cursor == 8
+	assert w5.c2_gap_shots == MIN_GAP_SHOTS + 9, "force 是必要性通道，不得改写冷却实测"

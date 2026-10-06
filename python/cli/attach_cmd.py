@@ -25,15 +25,20 @@ from cli.interact import prompt_ask, prompt_permission, prompt_plan
 console = ui.err
 
 
-def parse_data_line(line: str) -> dict[str, Any] | None:
-	"""Parse one SSE ``data:`` line (tolerates ``\\r``)."""
+def _data_payload(line: str) -> str | None:
+	"""取出一条 SSE 的 ``data:`` 正文（容忍 BOM 与 ``\\r``）；非 data 行 → None。"""
 	line = line.strip().lstrip("\ufeff")
 	if line.endswith("\r"):
 		line = line[:-1]
 	line = line.strip()
 	if not line.startswith("data:"):
 		return None
-	payload = line[5:].strip()
+	return line[5:].strip()
+
+
+def parse_data_line(line: str) -> dict[str, Any] | None:
+	"""Parse one SSE ``data:`` line (tolerates ``\\r``)."""
+	payload = _data_payload(line)
 	if not payload or payload == "[DONE]":
 		return None
 	try:
@@ -43,20 +48,35 @@ def parse_data_line(line: str) -> dict[str, Any] | None:
 	return obj if isinstance(obj, dict) else None
 
 
-def iter_sse_objects(chunks: Iterator[str]) -> Iterator[dict[str, Any]]:
-	"""Yield parsed SSE JSON objects; flush trailing buffer without final newline."""
+def iter_sse_objects(
+	chunks: Iterator[str],
+	*,
+	end_state: dict[str, Any] | None = None,
+) -> Iterator[dict[str, Any]]:
+	"""Yield parsed SSE JSON objects; flush trailing buffer without final newline.
+
+	``end_state`` 记录终止证据：厂商流以 ``data: [DONE]`` 收尾，而该标记既不是
+	对象也被 ``parse_data_line`` 判为 None —— 调用方因此**看不见**结束。没有这层
+	证据，连接被提前关闭（截断的回答、服务端异常收尾）与正常结束在客户端完全同形，
+	界面把残缺答案当完整答案显示。GUI（``chatStream.ts`` 的 ``sawDone``）与 TUI
+	（``incomplete_stream``）都据此报错，这里补上第三个客户端。
+	"""
 	buf = ""
+
+	def _feed(one: str) -> Iterator[dict[str, Any]]:
+		if end_state is not None and _data_payload(one) == "[DONE]":
+			end_state["done"] = True
+		obj = parse_data_line(one)
+		if obj is not None:
+			yield obj
+
 	for chunk in chunks:
 		buf += chunk.replace("\r\n", "\n").replace("\r", "\n")
 		while "\n" in buf:
 			one, buf = buf.split("\n", 1)
-			obj = parse_data_line(one)
-			if obj is not None:
-				yield obj
+			yield from _feed(one)
 	if buf.strip():
-		obj = parse_data_line(buf)
-		if obj is not None:
-			yield obj
+		yield from _feed(buf)
 
 
 def extract_xy(obj: dict[str, Any]) -> dict[str, Any] | None:
@@ -177,12 +197,25 @@ def attach_repl(
 						)
 						continue
 					saw_delta = False
-					for obj in iter_sse_objects(resp.iter_text()):
+					end_state: dict[str, Any] = {}
+					for obj in iter_sse_objects(
+						resp.iter_text(), end_state=end_state
+					):
 						saw = handle_sse_obj(
 							client, obj, json_mode=json_mode, saw_delta=saw_delta
 						)
 						if saw:
 							saw_delta = True
+						if end_state.get("done"):
+							break
+					if not end_state.get("done"):
+						# 没有完成标记的 EOF 是故障形态，不是"回答就说这么多"：
+						# 必须说出来，否则截断的答案会被当成完整回答。
+						console.print(
+							"[bold red]✗ 连接中断[/bold red]：服务器提前关闭了流"
+							"（未收到完成标记），本轮回答可能不完整，请重试。"
+						)
+						continue
 					if saw_delta and not json_mode:
 						ui.out.print()
 			except KeyboardInterrupt:

@@ -63,7 +63,7 @@ def _read_json(path: Path) -> Any | None:
     except FileNotFoundError:
         return None
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        _log.debug("coord read failed at %s: %s", path, exc)
+        _log.warning("coord read failed at %s: %s", path, exc)
         return None
 
 
@@ -76,7 +76,7 @@ def _atomic_write_json(path: Path, data: Any) -> bool:
         os.replace(tmp, path)
         return True
     except OSError as exc:
-        _log.debug("coord write failed at %s: %s", path, exc)
+        _log.warning("coord write failed at %s: %s", path, exc)
         if tmp is not None:
             try:
                 tmp.unlink()

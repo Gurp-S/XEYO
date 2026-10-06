@@ -253,6 +253,18 @@ def pip_install(py: str) -> None:
         pass
 
 
+def prune_debug_symbols(dst: str) -> int:
+    """Remove optional PDB files from the redistributable runtime."""
+    removed = 0
+    for root, _dirs, files in os.walk(dst):
+        for name in files:
+            if name.lower().endswith(".pdb"):
+                os.remove(os.path.join(root, name))
+                removed += 1
+    _log(f"  移除调试符号 {removed} 个")
+    return removed
+
+
 def _discard(path: str) -> None:
     """删除单项。
 
@@ -435,6 +447,7 @@ def main() -> None:
     extract(archive, dst)
     py = self_python(dst)
     pip_install(py)
+    prune_debug_symbols(dst)
     prune(py, dst)
     write_pyvenv_cfg(py, dst)
     verify(py)

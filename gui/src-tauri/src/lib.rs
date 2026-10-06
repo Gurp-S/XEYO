@@ -428,6 +428,13 @@ fn spawn_python(app: &AppHandle) -> Result<Child, String> {
 		}
 	};
 	let mut cmd = Command::new(&py);
+	let mut search_paths = vec![root.join("bin")];
+	if let Some(existing) = std::env::var_os("PATH") {
+		search_paths.extend(std::env::split_paths(&existing));
+	}
+	if let Ok(path) = std::env::join_paths(search_paths) {
+		cmd.env("PATH", path);
+	}
 	cmd.args(["-u", "-m", "server"])
 		.current_dir(&root)
 		.env("PYTHONUNBUFFERED", "1")

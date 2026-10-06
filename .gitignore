@@ -9,6 +9,8 @@
 .xeyo_ilink/
 python/.xeyo_filehelper/
 python/.xeyo_ilink/
+python/.xeyo-policy.json
+python/.xeyo_session_index.json.disabled-*
 credentials
 credentials.*
 
@@ -152,6 +154,21 @@ python/dbg_*.py
 
 # Tauri 安装包资源：精简 Python 引擎（构建脚本产物，不入库）
 gui/src-tauri/resources/python/
+gui/src-tauri/resources/python.bak-*/
+
+# 本机一次性对照、缓存和资源快照
+/_bak_16fix/
+/_xeyo_head/
+/_xeyo_tmp/
+/jobs.json
+/1000words.txt
+/reports/*.json
+gui/base-cover.html
+gui/demo-*-frame.png
+gui/sidebar-before.png
+gui/sidebar-after.png
+gui/switch-firstframe.png
+gui/switch-settled*.png
 
 # 打包缓存：python-build-standalone 发行包（构建脚本自动下载，46MB，不入库）
 .cache/

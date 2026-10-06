@@ -103,7 +103,7 @@ def test_paths_segment_emits_recent_paths_within_quota():
 	from synaptic.project import default_params, project
 
 	msgs = synth_session(turns=8)
-	# 区域内尾部插入三条不同路径：它们不在 working set 的 12 条里，也不一定进 kept
+	# 区域内尾部插入三条不同路径；它们可能已被 working set / kept 完整显示。
 	for i, p in enumerate(("src/alpha/one.ts", "src/beta/two.ts", "src/gamma/deep/three.ts")):
 		uid = f"x{i}"
 		msgs.append(msg_asst_use(uid, "Read", {"path": p}))
@@ -111,11 +111,10 @@ def test_paths_segment_emits_recent_paths_within_quota():
 	params = default_params()
 	proj = project(msgs, region_end=len(msgs) - 1, params=params)
 	hot = proj.text
-	assert H_PATHS in hot, "路径段没有发射"
 	# 热层是「逐行带段头」的形态（每行前缀 [PATHS]），所以按行筛段内条目。
 	section = [ln for ln in hot.splitlines() if ln.startswith(H_PATHS)]
-	assert 1 <= len(section) <= params.path_index_limit
-	assert any("one.ts" in ln for ln in section), section
+	assert len(section) <= params.path_index_limit
+	assert all(p in hot for p in ("src/alpha/one.ts", "src/beta/two.ts", "src/gamma/deep/three.ts")), hot
 
 
 def test_paths_quota_is_bounded_by_tokens():

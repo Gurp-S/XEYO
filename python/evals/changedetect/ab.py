@@ -136,15 +136,19 @@ def price_case_cny(
         "prompt_cache_miss_tokens": int(miss_tokens or 0),
         "completion_tokens": int(out_tokens or 0),
     }
-    return float(
-        estimate_cny(
-            provider=vendor,
-            model=model or vendor,
-            usage=usage,
-            ts=time.time() if ts is None else float(ts),
-            local_only=True,
-        )
+    value = estimate_cny(
+        provider=vendor,
+        model=model or vendor,
+        usage=usage,
+        ts=time.time() if ts is None else float(ts),
+        local_only=True,
     )
+    if value is None:
+        # 无权威价目 ⇒ 费用未知：AB 的成本口径不许按 0 计入（那会把未知读成免费）。
+        raise RuntimeError(
+            f"无权威价目：{vendor}/{model or vendor} 的费用未知，AB 成本口径拒绝按 0 计入"
+        )
+    return float(value)
 
 
 # --------------------------------------------------------------------------

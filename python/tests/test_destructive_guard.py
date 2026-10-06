@@ -337,3 +337,83 @@ def test_start_background_guard_settles(tmp_path):
 	assert plan.settled
 	for op_id in plan.operation_ids:
 		assert ctx.journal.get_operation(op_id).status == "completed"
+
+
+# ---------------------------------------------------- 命令里的 cd 决定基准目录
+#
+# 2026-10-04 实测到的假账：`cd sub && rm -rf data` 原先按**工具 cwd** 解析相对目标，
+# 于是快照并记账的是 <cwd>/data/innocent.txt（这条命令从没碰过它），
+# 真正被删的 <cwd>/sub/data/victim.txt 反而毫无保护。那行
+# inverse_kind="restore_snapshot" 会被 rewind/service.py 的逆操作分支
+# 当真理去 _write_atomic 写文件 —— 账本说谎比不记账更糟。
+
+
+def _cd_fixture(tmp_path):
+	cwd = tmp_path / "ws"
+	_touch(cwd / "sub" / "data" / "victim.txt", b"REAL TARGET")
+	_touch(cwd / "data" / "innocent.txt", b"NOT TOUCHED BY THE COMMAND")
+	return cwd
+
+
+def _paths(plan):
+	return {str(Path(e.path)) for e in (plan.entries if plan else [])}
+
+
+def test_control_rm_without_cd_still_uses_tool_cwd(tmp_path):
+	"""对照组：本修法不许把简单形状的保护也改掉。"""
+	cwd = _cd_fixture(tmp_path)
+	ctx = _make_ctx(tmp_path)
+	plan = plan_destructive_snapshot("rm -rf data", str(cwd), ctx)
+	assert plan is not None
+	assert _paths(plan) == {str(cwd / "data" / "innocent.txt")}
+
+
+def test_cd_prefix_moves_the_relative_target_base(tmp_path):
+	cwd = _cd_fixture(tmp_path)
+	ctx = _make_ctx(tmp_path)
+	plan = plan_destructive_snapshot("cd sub && rm -rf data", str(cwd), ctx)
+	assert plan is not None
+	assert _paths(plan) == {str(cwd / "sub" / "data" / "victim.txt")}, _paths(plan)
+	for op_id in plan.operation_ids:
+		rec = ctx.journal.get_operation(op_id)
+		assert str(rec.path).endswith(
+			str(Path("sub") / "data" / "victim.txt")
+		), rec.path
+
+
+def test_cd_chain_resolves_each_segment_against_the_running_base(tmp_path):
+	cwd = _cd_fixture(tmp_path)
+	_touch(cwd / "sub" / "deep" / "x.txt", b"X")
+	ctx = _make_ctx(tmp_path)
+	plan = plan_destructive_snapshot("cd sub && cd deep && rm -f x.txt", str(cwd), ctx)
+	assert plan is not None
+	assert _paths(plan) == {str(cwd / "sub" / "deep" / "x.txt")}, _paths(plan)
+
+
+def test_unresolvable_cd_protects_nothing_instead_of_guessing(tmp_path):
+	"""`cd $D && rm -rf data`：基准目录不可知 ⇒ 整体不保护，且一行假账都不许留。"""
+	cwd = _cd_fixture(tmp_path)
+	ctx = _make_ctx(tmp_path)
+	plan = plan_destructive_snapshot('cd "$D" && rm -rf data', str(cwd), ctx)
+	assert plan is None
+	assert ctx.journal.list_operations() == []
+
+
+def test_cd_with_no_argument_is_unresolvable(tmp_path):
+	cwd = _cd_fixture(tmp_path)
+	ctx = _make_ctx(tmp_path)
+	assert plan_destructive_snapshot("cd && rm -rf data", str(cwd), ctx) is None
+	assert ctx.journal.list_operations() == []
+
+
+def test_cd_outside_workspace_stays_out_of_scope(tmp_path):
+	"""绝对 cd 到工作区外：包含性检查照旧生效（宿主不快照别人的目录）。"""
+	cwd = _cd_fixture(tmp_path)
+	elsewhere = tmp_path / "elsewhere"
+	_touch(elsewhere / "data" / "out.txt", b"OUT")
+	ctx = _make_ctx(tmp_path)
+	plan = plan_destructive_snapshot(
+		f"cd {elsewhere} && rm -rf data", str(cwd), ctx
+	)
+	assert plan is None
+	assert ctx.journal.list_operations() == []

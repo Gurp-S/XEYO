@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 
 TaskStatus = Literal[
 	"queued",
@@ -20,6 +20,10 @@ TaskStatus = Literal[
 	"succeeded",
 	"failed",
 ]
+
+#: 区分「参数没给」与「显式传 None（清空）」。
+#: 用 None 当缺省会把两者合并：调用方永远清不掉 current_tool / error。
+_KEEP = object()
 
 
 @dataclass
@@ -40,32 +44,37 @@ class SessionTaskState:
 		self,
 		status: TaskStatus,
 		*,
-		turn_id: str | None = None,
-		current_tool: str | None = None,
-		interruptible: bool | None = None,
-		agent_mode: str | None = None,
-		error: str | None = None,
+		turn_id: Any = _KEEP,
+		current_tool: Any = _KEEP,
+		interruptible: Any = _KEEP,
+		agent_mode: Any = _KEEP,
+		error: Any = _KEEP,
 	) -> bool:
-		"""更新状态。返回是否发生"可观察"变化（供事件去重）。"""
+		"""更新状态。返回是否发生"可观察"变化（供事件去重）。
+
+		缺省 = 保持原值；显式 `None` = 清空该字段。
+		"""
 		changed = bool(
 			self.status != status
-			or (turn_id is not None and self.turn_id != turn_id)
-			or (current_tool is not None and self.current_tool != current_tool)
-			or (interruptible is not None and self.interruptible != interruptible)
-			or (agent_mode is not None and self.agent_mode != agent_mode)
-			or (error is not None and self.error != error)
+			or (turn_id is not _KEEP and self.turn_id != turn_id)
+			or (current_tool is not _KEEP and self.current_tool != current_tool)
+			or (interruptible is not _KEEP and self.interruptible != interruptible)
+			or (agent_mode is not _KEEP and self.agent_mode != agent_mode)
+			or (error is not _KEEP and self.error != error)
 		)
 		self.status = status
-		if turn_id is not None:
-			self.turn_id = turn_id
-		if current_tool is not None:
-			self.current_tool = current_tool
-		if interruptible is not None:
-			self.interruptible = interruptible
-		if agent_mode is not None:
-			self.agent_mode = agent_mode
-		if error is not None:
-			self.error = error
+		if turn_id is not _KEEP:
+			self.turn_id = str(turn_id or "")
+		if current_tool is not _KEEP:
+			self.current_tool = None if current_tool is None else str(current_tool)
+		if interruptible is not _KEEP:
+			self.interruptible = bool(interruptible)
+		if agent_mode is not _KEEP and agent_mode is not None:
+			# 非 Optional 字段：显式 None 没有合法的清空目标，按保持处理，
+			# 免得把字面 "None" 写进模式字段（生产调用点恒给合法模式名）。
+			self.agent_mode = str(agent_mode)
+		if error is not _KEEP:
+			self.error = None if error is None else str(error)
 		self.revision += 1
 		self.updated_at = time.time()
 		return changed

@@ -2,14 +2,18 @@
 
 mid-turn inbox 语义：
 - **两条投递声道**：
-  (a) **边界投递（默认，2026-09-20 起）**：``engine.t_now_inbox`` 在每个采样前的
+  (a) **settle 排水（默认）**：``on_turn_settled``（turn_runner `finally` 之后的
+      settlement 检查点）把仍留在队里的消息合成一轮投递 —— 即「回合结束后提交」，
+      对齐 Codex ``Messages to be submitted at end of turn`` 与 Claude Code
+      「队列只在 query idle 时消费」的口径；
+  (b) **边界投递（可选声道，默认关）**：``engine.t_now_inbox`` 在每个采样前的
       T_now 边界把排队消息取走、作为**真 user 消息**追加进历史（与 steer 共用
-      队列/WAL/幂等/回队），工具批次不被打断、模型下一个采样前就看到；
-  (b) **settle 排水（兜底）**：``on_turn_settled``（turn_runner `finally` 之后的
-      settlement 检查点）把**仍留在队里**的消息合成一轮投递。长回合不 settle ⇒
-      曾经只有 (b) ⇒ 用户消息整轮进不了模型输入（2026-09-20 事故）。
+      队列/WAL/幂等/回队），工具批次不被打断、模型下一个采样前就看到；需
+      ``XEYO_INBOX_BOUNDARY=1`` 显式开启（长回合抢投的逃生门）。
   两条声道共用同一队列：谁先取走谁投，取走即离开队列 ⇒ 不会重复投递。
-- **不打断回合**：边界投递只发生在工具批次完成、下一次采样之前。
+  2026-09-20 事故（长回合不 settle ⇒ 用户消息整轮进不了模型输入）现由分工解决：
+  默认走 (a)，要中途注入用 Ctrl+Enter 引导（= Codex ``turn/steer``）或开 (b)。
+- **不打断回合**：可选声道 (b) 只发生在工具批次完成、下一次采样之前。
 - **park 而非注入**：只入 FIFO，不打断当前 turn，不改 MessageStore / JSONL（不碰 T_now）。
 - **投递与结果分离**：投递即 ``submit_synthetic(surface="inbox")``（复用 41/42 自调用通道），
   结果待下一轮 settlement 后另行排水。
@@ -303,9 +307,7 @@ class InboxRegistry:
 			return True  # pool 不可用时不挡排水（保守不误伤）
 		return True
 
-	# ------------------------------------------------------------------
 	# 队列操作
-	# ------------------------------------------------------------------
 	def enqueue(
 		self,
 		session_id: str,
@@ -378,6 +380,16 @@ class InboxRegistry:
 		with self._lock:
 			self._ensure_loaded_locked((session_id or "").strip())
 
+	def arm(self, session_id: str) -> None:
+		"""预约一次排水（供 steer settle 兜底把消息转进来后立刻续跑）。
+
+		``XEYO_INBOX_AUTORUN=0`` 时不预约：只排队，等用户手动 resume。
+		"""
+		sid = (session_id or "").strip()
+		if not sid or not _autorun():
+			return
+		self._maybe_schedule(sid)
+
 	def peek(self, session_id: str) -> InboxItem | None:
 		with self._lock:
 			self._ensure_loaded_locked(session_id)
@@ -423,8 +435,11 @@ class InboxRegistry:
 			self._persist_or_restore_locked(session_id, before)
 			return active
 
-	def consume_for_boundary(self, session_id: str) -> list[InboxItem]:
+	def consume_for_boundary(self, session_id: str, *, queue_id: str = "") -> list[InboxItem]:
 		"""取走全部 queued 项（边界投递用；stuck 项留在队内）。
+
+		``queue_id`` 给定时只取该条（单条「立即引导」用，DSH QueueAction:steer 对齐）；
+		未命中返回空列表。
 
 		条目在快照中保持 ``delivering``，同时改由 ``engine.t_now_steer`` 承担
 		「至少一次 + 幂等 + WAL」；失败时用 :meth:`restore_front` 原样放回，不计
@@ -433,12 +448,15 @@ class InboxRegistry:
 		sid = (session_id or "").strip()
 		if not sid:
 			return []
+		want = (queue_id or "").strip()
 		with self._lock:
 			self._ensure_loaded_locked(sid)
 			q = self._queues.get(sid)
 			if not q:
 				return []
 			active = [it for it in q if it.state == "queued"]
+			if want:
+				active = [it for it in active if it.queue_id == want]
 			if not active:
 				return []
 			before = self._capture_session_locked(sid)
@@ -704,9 +722,7 @@ class InboxRegistry:
 				"tokens_est": self._tokens_est,
 			}
 
-	# ------------------------------------------------------------------
 	# settlement 检查点（hub 租户 · 排第一）
-	# ------------------------------------------------------------------
 	async def on_turn_settled(
 		self,
 		session_id: str,
@@ -915,7 +931,10 @@ class InboxQueueFull(ValueError):
 	def __init__(self, session_id: str, limit: int) -> None:
 		self.session_id = session_id
 		self.limit = limit
-		super().__init__(f"inbox queue full for session {session_id} (limit {limit})")
+		# 面向用户的产品文案（chat.py / sessions.py 直接把它回给 GUI 横幅）。
+		super().__init__(
+			f"排队已满（最多 {limit} 条）；请等本轮结束，或在输入框的排队项里取消部分消息。"
+		)
 
 
 class InboxTextTooLong(ValueError):
@@ -924,8 +943,7 @@ class InboxTextTooLong(ValueError):
 		self.length = length
 		self.limit = limit
 		super().__init__(
-			f"inbox text too long for session {session_id} "
-			f"({length} > {limit} chars)"
+			f"消息过长（{length} 字，上限 {limit} 字），无法排队；请拆分后重发。"
 		)
 
 

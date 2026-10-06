@@ -125,19 +125,19 @@ def assistant_text_message(
 	narration: str = "",
 	interrupted: bool = False,
 	reasoning: str = "",
+	reasoning_blocks: list[dict[str, Any]] | None = None,
 ) -> Message:
 	"""构造 assistant 消息。
 
-	reasoning 是厂商思考态原文（DeepSeek `reasoning_content`），作为 content
-	数组的 block 留档：原样存储，不做任何清洗/截断/重排。**任何带 reasoning
-	的 assistant 轮（含纯文本轮）都承载**——dsh 口径
-	（`dsh-src/packages/llm/llm-deepseek/src/serialize.ts:228-233`）：
-	官方规则只要求工具轮回传、非工具轮忽略该字段（无害）；且非工具轮的
-	reasoning 是跨厂商转码时恢复思考签名的唯一载体（2026-09-14 落地）。
+	reasoning 保存显示增量的明文；reasoning_blocks 保存带原生身份的完整块。
+	完整块已承载的明文不重复存储，尚未闭合的思考增量仍随中断消息留档。
 	"""
-	blocks: list[dict[str, Any]] = []
+	blocks: list[dict[str, Any]] = [dict(block) for block in reasoning_blocks or []]
 	if reasoning:
-		blocks.append({"type": "reasoning", "text": reasoning})
+		complete = "".join(str(block.get("text") or "") for block in blocks if block.get("type") == "thinking")
+		remaining = reasoning[len(complete):] if reasoning.startswith(complete) else reasoning
+		if remaining:
+			blocks.append({"type": "reasoning", "text": remaining})
 	if text:
 		blocks.append({"type": "text", "text": text})
 	for tu in tool_uses or []:
@@ -154,7 +154,7 @@ def assistant_text_message(
 		# block 数组只在「有工具或带思考」时使用；纯文本无 reasoning 轮回落
 		# 纯字符串（老形状零回归——下游 20+ 处 isinstance(content,str) 消费者
 		# 只需兼容"带 reasoning 的纯文本轮"这一种新形状）。
-		content=blocks if (tool_uses or reasoning) else text,
+		content=blocks if (tool_uses or reasoning or reasoning_blocks) else text,
 		narration=narration or "",
 		interrupted=interrupted,
 	)
@@ -167,6 +167,7 @@ def tool_result_message(
 	*,
 	is_error: bool = False,
 	images: list[str] | None = None,
+	status: str | None = None,
 ) -> Message:
 	# γ4 围栏在投影送模型时（proj_cache 增量 / 全量 project）添加，
 	# 不在此处写入，以免污染 transcript / ToolResultEvent / UI。
@@ -175,7 +176,7 @@ def tool_result_message(
 			"type": "tool_result",
 			"tool_use_id": tool_use_id,
 			"content": content,
-			"is_error": is_error,
+			"is_error": bool(is_error or status == "cancelled"),
 		}
 	]
 	for url in images or []:

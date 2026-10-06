@@ -10,22 +10,27 @@
  * - 排序确定性：活跃行前（startedAt 升序）、终态行后（finishedAt 降序）。
  * - 数据：SSE jobs 帧（turn 起点播种，经 chatStore onJobs 落库）+ GET 轻量
  *   轮询（有任务才轮询；owner turn 结束后的结算变化靠它补齐）。
- * - 只读纪律：无流直读、无人类中断行（冻结口径 6）。
+ * - 控制：运行中行提供 ⏹ 停止（F1 落地：模型有 job_kill，人类也有同轨入口；
+ *   失败出声并刷新快照，不谎报停止）。
  */
 import {useEffect, useRef, useState} from 'react';
-import {ChevronDown, Loader2, ListTree, Stethoscope, Terminal} from 'lucide-react';
+import {ChevronDown, Loader2, ListTree, Square, Stethoscope, Terminal} from 'lucide-react';
+import {agentDisplayName} from './AgentDoneBars';
 import {useChatStore} from '@/stores/chatStore';
 import {activeBackendSessionId} from '@/stores/chat/preStoreHelpers';
 import {openPageView} from '@/lib/appNav';
+import {toast} from '@/lib/toast';
 import {cn} from '@/lib/utils';
 import {
 	activeJobsCount,
 	fetchJobOutput,
 	fetchSessionJobs,
+	killJob,
 	sortJobsForPanel,
 	type JobOutputPeek,
 	type JobSnapshot,
 } from '@/lib/api/jobs';
+import type {MultiAgentTaskView} from '@/lib/api';
 import {useDismiss} from '@/ui/useDismiss';
 
 const JOBS_POLL_MS = 5000;
@@ -122,6 +127,7 @@ function statusTone(status: string): string {
 /** 模块级稳定空集：选择器回退必须引用稳定，否则 useSyncExternalStore 每渲染
  * 误判快照变化 → Maximum update depth（41 号 GoalDock 用 null 回退同理）。 */
 const EMPTY_JOBS: JobSnapshot[] = [];
+const EMPTY_AGENT_TASKS: MultiAgentTaskView[] = [];
 
 export function SessionJobsBadge({
 	sessionId,
@@ -134,10 +140,52 @@ export function SessionJobsBadge({
 	const jobsRecord = useChatStore(s => s.sessionJobsById);
 	const historyById = useChatStore(s => s.historyById);
 	const jobs = sessionId ? (jobsRecord[sessionId] ?? EMPTY_JOBS) : EMPTY_JOBS;
+	const tasksRecord = useChatStore(s => s.multiAgentTasksBySession);
+	const cancelAgentTask = useChatStore(s => s.cancelAgentTask);
+	const openAgentView = useChatStore(s => s.openAgentView);
+	const agentTasks = sessionId
+		? (tasksRecord[sessionId] ?? EMPTY_AGENT_TASKS)
+		: EMPTY_AGENT_TASKS;
+	// F3：运行中的子代理并入本总览（job + agent 合一；参考 Codex agents_overview）。
+	const liveAgents = agentTasks.filter(
+		t => t.status === 'running' || t.status === 'pending',
+	);
 	const [open, setOpen] = useState(false);
 	const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
+	const [killingIds, setKillingIds] = useState<string[]>([]);
 	const rootRef = useRef<HTMLDivElement>(null);
 	useSessionJobsLive(sessionId);
+
+	/** F3：从总览直接停一个子代理（与条栏同源动作；失败出声）。 */
+	const cancelAgent = async (aid: string) => {
+		if (!sessionId) {
+			return;
+		}
+		const ok = await cancelAgentTask(sessionId, aid);
+		if (!ok) {
+			toast.error('停止子代理未被接受（可能已结束，或服务端未响应）');
+		}
+	};
+
+	/** F1：停止一条运行中的后台任务；失败出声 + 无论成败都刷新快照（终态以服务端为准）。 */
+	const requestKill = async (jid: string) => {
+		if (!sessionId || killingIds.includes(jid)) {
+			return;
+		}
+		setKillingIds(ids => [...ids, jid]);
+		try {
+			const accepted = await killJob(sessionId, jid);
+			if (!accepted) {
+				toast.error('停止任务未被接受（可能已结束，或服务端未响应）');
+			}
+			const res = await fetchSessionJobs(sessionId);
+			if (res.ok) {
+				writeJobs(sessionId, res.jobs);
+			}
+		} finally {
+			setKillingIds(ids => ids.filter(id => id !== jid));
+		}
+	};
 
 	// 活跃行存在时每秒推进耗时（时钟只在有活物且弹层打开时运行）。
 	const [, forceTick] = useState(0);
@@ -158,8 +206,10 @@ export function SessionJobsBadge({
 	}, [sessionId, mode]);
 
 	const active = activeJobsCount(jobs);
-	if (!sessionId || jobs.length === 0) {
-		return null; // 角标为零整个隐藏（42 号 §8）
+	const activeTotal = active + liveAgents.length;
+	const totalCount = jobs.length + agentTasks.length;
+	if (!sessionId || totalCount === 0) {
+		return null; // 角标为零整个隐藏（42 号 §8；F3 起 job+agent 合并计数）
 	}
 	const rows = sortJobsForPanel(jobs);
 	const now = Date.now();
@@ -168,7 +218,7 @@ export function SessionJobsBadge({
 		<div ref={rootRef} className="relative shrink-0">
 			<button
 				type="button"
-				aria-label={`后台任务（${active} 个进行中，共 ${jobs.length}）`}
+				aria-label={`后台任务与子代理（${activeTotal} 个进行中，共 ${totalCount}）`}
 				aria-expanded={open}
 				onClick={() => setOpen(o => !o)}
 				className={cn(
@@ -186,7 +236,7 @@ export function SessionJobsBadge({
 					<ListTree className="size-3" strokeWidth={1.8} aria-hidden />
 				)}
 				<span>
-					{active > 0 ? `后台 ${active}/${jobs.length}` : `后台 ${jobs.length}`}
+					{activeTotal > 0 ? `后台 ${activeTotal}/${totalCount}` : `后台 ${totalCount}`}
 				</span>
 			</button>
 			{open ? (
@@ -197,8 +247,56 @@ export function SessionJobsBadge({
 					className="xy-ctx-menu absolute right-0 top-[calc(100%+6px)] z-[70] max-h-80 w-[min(400px,calc(100vw-32px))] overflow-y-auto rounded-md border border-line/60 p-1 shadow-lg"
 				>
 					<p className="px-1.5 pb-1 pt-0.5 text-[10px] text-mute">
-						后台任务（只读；点击行查看终端输出）
+						运行中的工作（子代理可打开/停止；后台任务点击行看输出）
 					</p>
+					{liveAgents.length ? (
+						<>
+							<p className="px-1.5 pb-1 pt-0.5 text-[10px] text-mute">
+								子代理（{liveAgents.length}）
+							</p>
+							<ul className="m-0 list-none space-y-0.5 p-0">
+								{liveAgents.map((t, i) => (
+									<li key={t.uid} className="flex items-stretch rounded-[5px]">
+										<button
+											type="button"
+											className="flex min-w-0 flex-1 items-center gap-1.5 rounded-[5px] px-2 py-1.5 text-left transition-colors duration-75 hover:bg-glass-hover"
+											title="打开侧链（前台化）"
+											onClick={() => {
+												setOpen(false);
+												if (t.agentId) {
+													openAgentView(t.agentId);
+												}
+											}}
+										>
+											<Loader2
+												className="size-3 shrink-0 animate-spin text-ok"
+												strokeWidth={2}
+												aria-hidden
+											/>
+											<span className="min-w-0 flex-1 truncate text-[11.5px] leading-4 text-ink">
+												{agentDisplayName(t.desc, i)}
+											</span>
+										</button>
+										{t.agentId ? (
+											<button
+												type="button"
+												aria-label={`停止子代理 ${agentDisplayName(t.desc, i)}`}
+												title="停止该子代理（不影响主会话其他工作）"
+												className="my-1 mr-1 flex shrink-0 items-center justify-center rounded-[5px] px-1.5 text-mute transition-colors duration-75 hover:bg-glass-hover hover:text-warn"
+												onClick={() => {
+													if (t.agentId) {
+														void cancelAgent(t.agentId);
+													}
+												}}
+											>
+												<Square className="size-3" strokeWidth={2} aria-hidden />
+											</button>
+										) : null}
+									</li>
+								))}
+							</ul>
+						</>
+					) : null}
 					<ul className="m-0 list-none space-y-0.5 p-0">
 						{rows.map(j => {
 							const isActive = j.status === 'running' || j.status === 'stopping';
@@ -214,10 +312,11 @@ export function SessionJobsBadge({
 										!isActive && 'opacity-60',
 									)}
 								>
+									<div className="flex items-stretch">
 									<button
 										type="button"
 										className={cn(
-											'flex w-full items-start gap-1.5 rounded-[5px] px-2 py-1.5 text-left transition-colors duration-75 hover:bg-glass-hover',
+											'flex min-w-0 flex-1 items-start gap-1.5 rounded-[5px] px-2 py-1.5 text-left transition-colors duration-75 hover:bg-glass-hover',
 										)}
 										aria-expanded={expanded}
 										onClick={() => setExpandedJobId(expanded ? null : j.job_id)}
@@ -277,6 +376,23 @@ export function SessionJobsBadge({
 											</span>
 										</span>
 									</button>
+									{j.status === 'running' ? (
+										<button
+											type="button"
+											aria-label={`停止任务 ${j.label || j.kind}`}
+											title={
+												killingIds.includes(j.job_id)
+													? '正在请求停止…'
+													: '停止该后台任务（与模型侧 job_kill 同轨）'
+											}
+											disabled={killingIds.includes(j.job_id)}
+											className="my-1 mr-1 flex shrink-0 items-center justify-center rounded-[5px] px-1.5 text-mute transition-colors duration-75 hover:bg-glass-hover hover:text-warn disabled:opacity-40"
+											onClick={() => void requestKill(j.job_id)}
+										>
+											<Square className="size-3" strokeWidth={2} aria-hidden />
+										</button>
+									) : null}
+									</div>
 									{expanded ? (
 										<JobTerminal sessionId={sessionId} job={j} running={isActive} />
 									) : null}

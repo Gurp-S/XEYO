@@ -19,18 +19,23 @@ from synaptic.budget import request_chunk_ids
 from synaptic.closure import Selection, audit_rows, plan_selection
 from synaptic.coldstore import (
 	ColdStore,
-	branch_handle,
 	head_handle,
 	node_group_handle,
 	node_handle,
 	reqs_handle,
 )
+from synaptic.cold_evidence import complete_cold_evidence
 from synaptic.filestate import build_file_states, file_state_tokens, working_set
 from synaptic.freeze import freeze_working_set, phase_signature
 from synaptic.freshness import analyze as analyze_freshness
 from synaptic.graph import Graph, build_graph, graph_digest
 from synaptic.handles import HandleRenderer
+from synaptic.read_plan import prepare_view
 from synaptic.prune import build_cards, cards_handle, cards_tokens, group_cards
+from synaptic.pin_sources import bind_short_pin_sources, complete_pin_sources
+from synaptic.journal_rollover import journal_preserves_head
+from synaptic.group_recovery import prepare_groups, recovery_renderer
+from synaptic.journal_snapshot import finish_rebase
 from synaptic.rehydrate import (
 	decay_leases,
 	leased_paths,
@@ -41,9 +46,6 @@ from synaptic.retrieval import (
 	CurrentState,
 	HistoryCandidate,
 	HistoryQuery,
-	build_current_state,
-	build_history_query,
-	discover_history,
 )
 from synaptic.seeds import Seeds, collect_seeds, recent_paths, request_skip
 from synaptic.textutil import node_token_len
@@ -108,6 +110,8 @@ def project(
 	view_ref: str = "",
 	#: 当前轮显式触碰的工作集路径；供旁路自动取回使用，不做语义推断。
 	rehydrate_paths: tuple[str, ...] = (),
+	persist_view: bool = True,
+	exclude_state_notes: bool = False,
 ) -> Projection:
 	"""压缩 ``messages[:region_end]`` 为热层；``[region_end, end)`` 不触碰。
 
@@ -121,10 +125,16 @@ def project(
 		region_end = 0
 
 	graph = build_graph(messages, include_soft_edges=p.soft_dag)
+	state_notes = frozenset()
+	if exclude_state_notes:
+		from synaptic.state_source import exclude_state_notes as exclude_notes
+		graph, state_notes = exclude_notes(graph, messages)
 	timer.mark("graph")
 	# 时效轴：判定「同实体的旧断言是否已被后续断言覆盖」。这一步必须先于种子收集——
 	# 降级集要参与「谁当种子 / 谁进热层」的决策，但它**只降级不删除**（冷层句柄可 expand）。
 	fresh = analyze_freshness(graph, region_end=region_end)
+	if state_notes:
+		fresh = replace(fresh, superseded=fresh.superseded | state_notes)
 	timer.mark("freshness")
 	file_states = build_file_states(graph, messages)
 	timer.mark("file_state")
@@ -141,7 +151,8 @@ def project(
 	seeds = replace(seeds, dead_paths=fresh.dead_paths)
 	timer.mark("seeds")
 
-	pins = build_pins(seeds)
+	pins = bind_short_pin_sources(build_pins(seeds), seeds, graph,
+	                              region_end=region_end, inline_max_tokens=p.inline_max_tokens)
 	pin_tokens = sum(node_token_len(line) + 1 for _, line in render_pins(pins))
 	ws = working_set(
 		file_states,
@@ -152,13 +163,6 @@ def project(
 	if p.freeze_working_set and prev is not None and prev.frozen_file_states:
 		ws = freeze_working_set(prev.frozen_file_states, ws, limit=12)
 	ws_tokens = file_state_tokens(ws)
-	current_state = build_current_state(
-		seeds,
-		file_states,
-		working_paths=tuple(state.path for state in ws),
-	)
-	history_query = build_history_query(current_state, region_end=region_end)
-	history_candidates = discover_history(graph, history_query)
 
 	# 已被后续成功覆盖的失败不再是「未解决」——它降级进冷层，不再占热层席位。
 	# 口径直接取时效轴的结果，避免与 ``seeds`` 各算一份。
@@ -168,7 +172,7 @@ def project(
 	# 主链预算独立于固定段：REQUESTS 不再与 kept 抢同一个未分账水位。
 	budget = max(0, p.main_segment_budget_tokens - _CARD_RESERVE_SEED)
 
-	phase_key = phase_signature(graph, seeds, region_end)
+	phase_key = phase_signature(graph, seeds, region_end) if p.freeze_main_chain else ""
 	frozen_reuse = bool(
 		p.freeze_main_chain
 		and prev is not None
@@ -234,7 +238,8 @@ def project(
 		inline_visible = {
 			n.idx
 			for n in graph.nodes
-			if n.idx in selection.kept and n.tokens <= p.inline_max_tokens and n.text.strip()
+			if n.idx in selection.kept and n.idx not in seeds.pin_nodes
+			and n.tokens <= p.inline_max_tokens and n.text.strip()
 		}
 		# Append-only journals already contain the previous recall lines.  They are
 		# visible facts, so do not emit the same node again on every lease turn.
@@ -267,20 +272,19 @@ def project(
 	cs = cold or ColdStore(session=session)
 	cold_nodes: list[tuple[int, str, dict]] = []
 	for c in cards:
-		cs.bind(branch_handle(c.card_id), c.nodes)
+		cs.bind(c.handle, c.nodes)
 		for i in c.nodes:
 			n = graph.node(i)
 			if n is not None:
 				cold_nodes.append((i, n.text, {"kind": n.kind, "tool": n.tool_name}))
 	# 合并卡行的组句柄：渲染（prune.render_card_group）与本处共用 group_cards/cards_handle。
-	# 两边各拼一次 ``branch://id1,id2`` 会漂移，而漂移在往返比对里看不出来（句柄自洽地错），
-	# 所以句柄的拼装必须只有一处实现。
+	# 引用包含完整成员身份，不能让同名根节点在后续合并时改写旧引用。
 	for group in group_cards(cards):
 		if len(group) > 1:
 			cs.bind(cards_handle(group), tuple(i for c in group for i in c.nodes))
 	for idx in selection.kept:
 		n = graph.node(idx)
-		if n is None or n.tokens <= p.inline_max_tokens:
+		if n is None or (n.tokens <= p.inline_max_tokens and idx not in seeds.pin_nodes):
 			continue
 		cs.bind(node_handle(idx), (idx,))
 		cold_nodes.append((idx, n.text, {"kind": n.kind, "tool": n.tool_name}))
@@ -328,11 +332,19 @@ def project(
 		if len(idxs) > 1:
 			cs.bind(reqs_handle(first, last), idxs)
 	cs.put_nodes(cold_nodes)
-	# 换头时的旧热层也必须有冷层出口；快照是内容寻址且只 setdefault，
-	# 不改变已有节点/快照的插入顺序或 Read 行号。
+	complete_cold_evidence(cs, graph, selection.kept, region_end=region_end)
+	# 被替换的旧头需要归档；经核对仍完整保留的追加前缀不复制第二份。
+	# 已发布的快照与 Read 区间仍按原块序保留。
 	old_head = head_handle(prev.full_text) if prev is not None and prev.full_text else ""
-	if old_head:
-		cs.put_snapshot(old_head, prev.full_text)
+	pending_archive = None
+	if old_head and not journal_preserves_head(prev, p):
+		if p.journal_layout and p.journal_rebase and p.handle_style == "read" and view_path:
+			pending_archive = (old_head, prev.full_text)
+		else:
+			cs.put_snapshot(old_head, prev.full_text)
+	recovery_aliases = {}
+	if p.journal_rebase and p.handle_style == "read" and view_path:
+		recovery_aliases = prepare_groups(cs, cards, view_ref or str(view_path))
 	# ── 取回视图 + 句柄渲染器（2026-09-16 用户裁定：取回统一到 `Read`）──────────
 	# 顺序要求：**先定稿节点集 → 写视图拿行号 → 再渲染**。旧顺序是「先渲染句柄文本、
 	# 再绑冷层」，那样渲染时拿不到行号，也就渲染不出 `Read(file_path=…, offset=…, limit=…)`。
@@ -341,13 +353,16 @@ def project(
 	view_out = ""
 	if p.handle_style == "read":
 		if view_path:
-			ranges = cs.write_text_view(Path(view_path))
+			ranges, line_lengths = prepare_view(cs, view_path, persist_view)
 			handles = HandleRenderer(
 				style="read",
 				path=view_ref or str(view_path),
 				node_ranges=ranges,
 				handle_nodes=dict(cs.handles),
+				line_lengths=line_lengths,
 			)
+			if recovery_aliases or any(h.startswith("head://packet-") for h in cs.snapshots):
+				handles = recovery_renderer(cs, handles.path, ranges, line_lengths, recovery_aliases)
 			view_out = str(view_path)
 		else:
 			# 没给视图路径 ⇒ 回落 expand 形态。**不静默**：调用方给了 read 却没给路径是配置错，
@@ -355,6 +370,7 @@ def project(
 			pass
 	timer.mark("coldstore")
 
+	pins = complete_pin_sources(pins, prev, handles, cs)
 	text, rebuilt, state, atrace = assemble(
 		graph,
 		seeds,
@@ -369,6 +385,14 @@ def project(
 		old_head_handle=old_head,
 		rehydration=rehydration,
 	)
+	if pending_archive is not None:
+		text, rebuilt, state, atrace = finish_rebase(
+			(text, rebuilt, state, atrace), cold=cs, pending=pending_archive,
+			view_path=view_path, view_ref=view_ref or str(view_path), persist=persist_view,
+			aliases=recovery_aliases, assembler=assemble,
+			args=(graph, seeds, pins, ws, cards, selection.kept, p),
+			kwargs=dict(prev=prev, region_end=region_end, handles=handles,
+			            old_head_handle=old_head, rehydration=rehydration))
 	timer.mark("assemble")
 	if p.freeze_main_chain:
 		state.frozen_phase_signature = phase_key
@@ -502,9 +526,6 @@ def project(
 		state=state,
 		graph=graph,
 		seeds=seeds,
-		current_state=current_state,
-		history_query=history_query,
-		history_candidates=history_candidates,
 		audit=_audit_with_freshness(graph, selection, fresh),
 		denoise=_denoise_report(graph, fresh),
 	)

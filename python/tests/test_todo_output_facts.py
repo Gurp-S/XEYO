@@ -49,7 +49,7 @@ class TestMaterializationFacts:
 		)
 		assert "[引擎核对]" in content
 		assert "reports/summary.md" in content
-		assert "磁盘上不存在" in content
+		assert "磁盘上没有这个文件" in content
 		low = content.lower()
 		for marker in _PERSUASION_MARKERS:
 			assert marker not in content, f"尾注含引导措辞: {marker}"
@@ -88,7 +88,24 @@ class TestMaterializationFacts:
 			_run(tmp_path, [_item("生成", "completed", output="missing.bin")])
 		)
 		row = next(line for line in content.splitlines() if "引擎核对" in line)
-		assert row == "[引擎核对] 产物 missing.bin: 磁盘上不存在（该项已标 completed）"
+		assert row == (
+			"[引擎核对] 产物 missing.bin: 磁盘上没有这个文件（缺失或不是普通文件），"
+			"该项已标 completed"
+		)
+
+	def test_directory_output_is_not_reported_as_absent(self, tmp_path):
+		"""反向校：产物是**目录**时不得说"不存在"——探针只测得出"不是普通文件"。
+
+		`stat_path` 容器分支内部区分 D/M，但出口把两者都折成 (False, 0)；
+		⇒ 引擎能说的只有"没有这个文件"。说成"不存在"就是替模型造事实。
+		"""
+		(tmp_path / "dist").mkdir()
+		content = asyncio.run(
+			_run(tmp_path, [_item("打包", "completed", output="dist")])
+		)
+		row = next(line for line in content.splitlines() if "引擎核对" in line)
+		assert "不存在" not in row, f"目录被说成不存在：{row!r}"
+		assert "不是普通文件" in row
 
 
 class TestFactoryCwdWiring:

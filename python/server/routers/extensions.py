@@ -77,7 +77,10 @@ def require_entry_name(raw: Any, *, field: str) -> str:
 
 
 def require_visible_ident(raw: Any, *, field: str) -> str:
-    """要出现在**模型可见文本**里的标识符：挡掉换行与控制字符、以及反引号。
+    r"""要出现在**模型可见文本**里的标识符：挡掉换行与控制字符、以及反引号。
+
+    非 raw 文档串里的 `` \` `` 是**非法转义**：目前只报 DeprecationWarning，
+    未来 Python 版本会直接 SyntaxError ⇒ 这段说明性文字改成 raw 串（字节内容不变）。
 
     ``extension.config.set_mcp_enabled`` 把调用方给的 server id 原样插进
     ``MCP 服务 \`{id}\``` 并作为 T_now 活页块发布 —— 带换行的 id 就能在模型注意力里

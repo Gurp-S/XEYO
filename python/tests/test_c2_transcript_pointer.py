@@ -158,3 +158,42 @@ def test_transcript_path_uses_env(tmp_path, monkeypatch):
 
     # 确认 env 生效，transcript_path 指向该目录。
     assert str(default_sessions_dir()) == str(tmp_path / "sessions")
+
+
+# ---------------------------------------------------------------------------
+# INJ-03（09-10 复核）：after_tools 轮必须尾插，不许把文本挤到 tool_result 之前
+# ---------------------------------------------------------------------------
+
+
+def test_pointer_after_tools_appends_after_tool_result():
+    from prompt.transcript_pointer_shadow import _inject_pointer
+
+    out = [
+        {"role": "user", "content": "hi"},
+        {
+            "role": "user",
+            "content": [
+                {"type": "tool_result", "tool_use_id": "call_1", "content": "ok"}
+            ],
+        },
+    ]
+    res = _inject_pointer(out, "# C2 后原始历史\npointer")
+    content = res[-1]["content"]
+    assert isinstance(content, list)
+    # 前插实现会把这个断言打红：pointer 文本会占据 content[0]。
+    assert content[0].get("type") == "tool_result", content
+    assert content[-1].get("type") == "text"
+    assert "pointer" in content[-1]["text"]
+
+
+def test_pointer_fresh_user_prepends_before_user_text():
+    from prompt.transcript_pointer_shadow import _inject_pointer
+
+    out = [{"role": "user", "content": "hello"}]
+    res = _inject_pointer(out, "pointer-block")
+    content = res[-1]["content"]
+    assert isinstance(content, list)
+    assert content[0]["text"] == "pointer-block"
+    assert content[-1]["text"] == "hello"
+    # copy-on-write：不动入参对象
+    assert out[-1]["content"] == "hello"

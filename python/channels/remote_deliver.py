@@ -1,4 +1,4 @@
-"""把本地文件发到当前已登录的微信远程通道（iLink 或文件助手）。"""
+"""把本地文件发到当前已登录的微信远程通道（iLink）。"""
 
 from __future__ import annotations
 
@@ -20,7 +20,6 @@ def looks_like_image(path: Path) -> bool:
 def wechat_remote_ready() -> bool:
 	"""已登录且未在关闭：可投递。失败当未就绪，不抛。"""
 	try:
-		from channels.filehelper.service import get_bridge as fh_bridge
 		from channels.ilink.service import get_bridge as il_bridge
 		from channels.ilink.service import is_running as il_running
 
@@ -28,8 +27,7 @@ def wechat_remote_ready() -> bool:
 			il = il_bridge()
 			if il.state == "logged_in" and not il._stop.is_set():
 				return True
-		fh = fh_bridge()
-		return fh.state == "logged_in" and not fh._stop.is_set()
+		return False
 	except Exception:
 		return False
 
@@ -60,7 +58,6 @@ async def send_remote_file(path: Path, *, as_image: bool | None = None) -> str:
 		raise RuntimeError(f"file not found: {p}")
 	want_image = looks_like_image(p) if as_image is None else as_image
 
-	from channels.filehelper.service import get_bridge as fh_bridge
 	from channels.ilink.service import get_bridge as il_bridge
 	from channels.ilink.service import is_running as il_running
 
@@ -73,9 +70,4 @@ async def send_remote_file(path: Path, *, as_image: bool | None = None) -> str:
 			await il.send_file(p)
 			return f"sent file to WeChat (iLink): {p.name}"
 
-	fh = fh_bridge()
-	if fh.state == "logged_in" and not fh._stop.is_set():
-		await fh.send_file(p)
-		return f"sent file to WeChat (file helper): {p.name}"
-
-	raise RuntimeError("no WeChat remote channel is logged in")
+	raise RuntimeError("iLink is not logged in")

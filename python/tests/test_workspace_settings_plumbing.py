@@ -154,3 +154,22 @@ def test_workspace_off_beats_stray_env(_isolate, monkeypatch) -> None:
 	_write_ws(ws, "0")
 	resolve_cwd(str(ws))
 	assert os.environ[_KEY] == "0" and not _live()
+
+
+def test_suite_baseline_neutralizes_workspace_wsc_flags() -> None:
+	"""套件基线不得继承工作区 memory 镜像键（XEYO_WSC 族）——环境不该决定红绿。
+
+	事故形态（2026-10-05 全量实测）：agent/容器会话把工作区 settings
+	（.xeyo/settings.json 里 WSC/SIZE_PRUNE/EMITTED_BASIS=1）桥进 env 后跑套件，
+	XEYO_WSC=1 恒红 12 条（C2 被 WSC 活投影接管：test_runtime_c2 4 +
+	test_c2_llm_summary_t8 7 + test_c2_escape_hatch 1），XEYO_WSC_SIZE_PRUNE=1
+	另致 test_project_cow_c2_gain 1 条红。中立化在 conftest::_isolate_xeyo_sessions
+	（delenv 三键）；本用例钉住它——中立化被删/被绕过时，带开关的会话里先红
+	（干净 shell 里它答的是"没有被别处写回"）。要开 WSC 的用例自行 setenv
+	（tests/wsc 皆是如此）。
+	"""
+	from memory import wsc_projection
+
+	for key in ("XEYO_WSC", "XEYO_WSC_SIZE_PRUNE", "XEYO_WSC_GATE_EMITTED_BASIS"):
+		assert not os.environ.get(key), f"{key}={os.environ.get(key)!r} 泄漏进测试基线"
+	assert wsc_projection.live_enabled() is False, "WSC 活路径在测试基线上必须是关的"

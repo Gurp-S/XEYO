@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from common.child_text import decode_child_output
 from extension.config import ExtensionConfig, load_ext_config
 from extension.loader import discover_plugins
 from extension.plugin_fetcher import scrub_git_env
@@ -124,10 +125,14 @@ def _run_one_sync(hook: PluginHook, context: dict[str, Any]) -> dict[str, Any]:
 	env["XEYO_HOOK_CONTEXT"] = json.dumps(context, ensure_ascii=False)
 	cmdline = [str(hook.command), *hook.args]
 	try:
+		# 必须抓字节再自己解码：`text=True` 遇到本地码页解不了的字节时，
+		# 异常发生在 subprocess 的读线程里被吞掉，回来的是
+		# returncode=0 + 空 stdout —— 一个根本没跑通的钩子被记成 success，
+		# 连 errors 都不留一条（2026-10-03 实测）。
 		proc = subprocess.run(
 			cmdline,
 			capture_output=True,
-			text=True,
+			text=False,
 			cwd=str(hook.command.parent),
 			env=env,
 			timeout=hook.timeout_s,
@@ -139,8 +144,8 @@ def _run_one_sync(hook: PluginHook, context: dict[str, Any]) -> dict[str, Any]:
 	return {
 		"status": "ok",
 		"returncode": proc.returncode,
-		"stdout": proc.stdout or "",
-		"stderr": proc.stderr or "",
+		"stdout": decode_child_output(proc.stdout),
+		"stderr": decode_child_output(proc.stderr),
 	}
 
 

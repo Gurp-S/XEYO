@@ -16,7 +16,9 @@ import inspect
 import pathlib
 
 from synaptic.cadence import (
+	DEFAULT_GAP_CAP_SHOTS,
 	DEFAULT_MARGIN,
+	MAX_GAP_SHOTS,
 	MIN_GAP_SHOTS,
 	PAYBACK_SHOTS,
 	PRICE_RATIO_HIT_MISS,
@@ -272,3 +274,78 @@ def test_cadence_state_counts_and_reasons():
 	assert st.last_reason == "cooldown"
 	st.decide(region_tokens_=200, tail_tokens_=10 ** 5, shots_since_fold=MIN_GAP_SHOTS)
 	assert st.last_reason == "pays_back_too_slow", "攒不够回本也必须给出可审计的理由"
+# ---------------------------------------------------------------------------
+# 节奏（冷却）：跟随后果 + 单向收紧 + fail-open（触发频率整改）
+# ---------------------------------------------------------------------------
+
+def test_gap_from_payback_never_guesses_zero():
+	"""拿不到可信实测 ⇒ 取上界（少折），**绝不取 0**：没有证据 ≠ 允许随便折。"""
+	from synaptic.cadence import effective_gap_cap, gap_from_payback
+
+	cap = effective_gap_cap()
+	for bad in (float("nan"), float("inf"), 0.0, -3.0):
+		assert gap_from_payback(bad, cap=cap) == cap, bad
+	# 有实测：上取整（6.1 枪回本 ⇒ 必须等满 7 枪）
+	assert gap_from_payback(6.1, cap=cap) == 7
+	# 下限是结构常数：算出来比 MIN_GAP_SHOTS 短也得等满 MIN_GAP_SHOTS
+	assert gap_from_payback(2.1, cap=cap) == MIN_GAP_SHOTS
+	assert gap_from_payback(0.5, cap=cap) == MIN_GAP_SHOTS
+	assert gap_from_payback(10 ** 9, cap=cap) == cap
+
+
+def test_gap_cap_is_fail_open(monkeypatch):
+	"""标定参数写错（非数/负数/None/0）绝不放宽：一律退回缺省，且永不低于结构下限。"""
+	from synaptic.cadence import DEFAULT_GAP_CAP_SHOTS, effective_gap_cap
+
+	monkeypatch.delenv("XEYO_C2_GAP_CAP", raising=False)
+	assert effective_gap_cap() == DEFAULT_GAP_CAP_SHOTS
+	assert effective_gap_cap(9) == 9
+	for bad in (None, "abc", -7, 0):
+		assert effective_gap_cap(bad) == DEFAULT_GAP_CAP_SHOTS, bad
+	monkeypatch.setenv("XEYO_C2_GAP_CAP", "not-a-number")
+	assert effective_gap_cap() == DEFAULT_GAP_CAP_SHOTS
+	monkeypatch.setenv("XEYO_C2_GAP_CAP", "-4")
+	assert effective_gap_cap() == DEFAULT_GAP_CAP_SHOTS, "env 写负数不得把冷却放宽"
+	# 结构下限：任何输入都得不到比 MIN_GAP_SHOTS 更短的冷却
+	monkeypatch.setenv("XEYO_C2_GAP_CAP", "1")
+	assert effective_gap_cap() == MIN_GAP_SHOTS
+	assert effective_gap_cap(1) == MIN_GAP_SHOTS
+
+
+def test_adopt_gap_only_tightens():
+	"""同一会话两条折叠链路共用一个冷却数：合流只取大，绝不取小。
+
+	这里把冷却上界**显式钉到结构上界**（`gap_cap_shots=MAX_GAP_SHOTS`），测的是合流规则
+	本身；出厂默认的夹取另测（见本函数末尾），否则两种语义混在一条断言里，
+	改默认档就会把"合流取大"的回归一起改掉。
+	"""
+	st = CadenceState(observed_ratio=0.05, gap_cap_shots=MAX_GAP_SHOTS)
+	assert st.gap_shots == MIN_GAP_SHOTS
+	st.adopt_gap(30)
+	assert st.gap_shots == 30
+	st.adopt_gap(MIN_GAP_SHOTS)
+	assert st.gap_shots == 30, "较小的实测不得把已达成的冷却缩短"
+	st.adopt_gap("abc")
+	assert st.gap_shots == 30, "坏值不得改变冷却（fail-open = 保持不动）"
+	st.adopt_gap(10 ** 6)
+	assert st.gap_shots == st.effective_gap_cap()
+	assert st.gap_shots >= MIN_GAP_SHOTS, "上界由 effective_gap_cap 夹住"
+	# 没显式给字段 ⇒ 实测回本再长也被出厂默认夹住（数据定的档，不是结构上界）
+	factory = CadenceState(observed_ratio=0.05)
+	factory.adopt_gap(MAX_GAP_SHOTS)
+	assert factory.gap_shots == DEFAULT_GAP_CAP_SHOTS
+	assert DEFAULT_GAP_CAP_SHOTS <= MAX_GAP_SHOTS, "出厂默认只能是上界以内"
+
+
+def test_learned_gap_actually_gates_decide():
+	"""实测冷却必须真的挡在 decide 上：不足 N 枪不折，攒满 N 枪才折。"""
+	st = CadenceState(observed_ratio=0.05)
+	st.adopt_gap(9)
+	blocked = st.decide(region_tokens_=10 ** 6, tail_tokens_=10, shots_since_fold=8)
+	assert not blocked.fold and blocked.reason == "cooldown"
+	allowed = st.decide(region_tokens_=10 ** 6, tail_tokens_=10, shots_since_fold=9)
+	assert allowed.fold
+	# 折完立刻把自己学到的新冷却装上（跟随后果），且下次仍被这条数挡住
+	assert st.gap_shots >= MIN_GAP_SHOTS
+	again = st.decide(region_tokens_=10 ** 6, tail_tokens_=10, shots_since_fold=1)
+	assert not again.fold

@@ -392,10 +392,18 @@ def find_note(wsid: str, note_id: str) -> MemoryNote | None:
 
 
 def touch_last_used(note: MemoryNote, *, wsid: str) -> MemoryNote:
-    """检索命中后更新 last_used_at 并写回（不改索引字节）。"""
+    """检索命中后更新 last_used_at 并写回（不改索引字节）。
+
+    写前重读磁盘（2026-10-05）：调用方持有的 ``note`` 可能是过期快照——
+    与 forget/治理并发时直接写回会把已删笔记复活；仅当磁盘上仍为
+    active 且 id 匹配时才落盘（以磁盘对象为准更新）。
+    """
     from dataclasses import replace as _replace
 
-    updated = _replace(note, last_used_at=today_iso(), updated_at=note.updated_at)
+    current = find_note(wsid, note.id)
+    if current is None or current.status != "active":
+        return note
+    updated = _replace(current, last_used_at=today_iso(), updated_at=current.updated_at)
     write_note(updated, wsid=wsid)
     return updated
 

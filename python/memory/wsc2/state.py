@@ -68,9 +68,9 @@ class Observation:
         return Observation(
             path=str(d.get("path") or ""),
             observed_hash=str(d.get("observed_hash") or ""),
-            last_read_index=int(d.get("last_read_index") or -1),
+            last_read_index=int(d["last_read_index"]) if d.get("last_read_index") is not None else -1,
             read_ranges=tuple((int(a), int(b)) for a, b in d.get("read_ranges") or ()),
-            stale=bool(d.get("stale")), stale_at=int(d.get("stale_at") or -1),
+            stale=bool(d.get("stale")), stale_at=int(d["stale_at"]) if d.get("stale_at") is not None else -1,
             diff_summary=str(d.get("diff_summary") or ""))
 
 

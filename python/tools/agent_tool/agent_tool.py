@@ -29,6 +29,7 @@ from msgtypes.events import ToolProgressEvent
 from tools.agent_tool.prompt import DESCRIPTION, TOOL_NAME
 from tools.base_tool import ToolResult
 from tools.progress_sink import emit_progress
+from usage.money import round_money8
 
 MAX_DEPTH = 1  # P0 硬限制（A8）：只允许一层子 agent，禁止孙 agent
 # 同会话并发 spawn 上限（硬门禁；可用环境变量覆盖）
@@ -235,82 +236,89 @@ class AgentTool:
                 is_error=True,
             )
 
-        from engine.abort import LinkedAbortController
-        from engine.live_agents import register_live_agent, unregister_live_agent
-        from usage.multi_agent_metrics import (
-            record_agent_tool_end,
-            record_agent_tool_start,
-        )
-        import time as _time
+        try:
+            from engine.abort import LinkedAbortController
+            from engine.live_agents import register_live_agent, unregister_live_agent
+            from usage.multi_agent_metrics import (
+                record_agent_tool_end,
+                record_agent_tool_start,
+            )
+            import time as _time
 
-        task_id = (agent_input.task_id or "task").strip() or "task"
-        reuse = (agent_input.reuse_agent_id or "").strip()
-        if reuse:
-            agent_id = reuse
-            tail = agent_id.rsplit("-", 1)[-1] if "-" in agent_id else "retry"
-            try:
-                from engine.subagent_runner import clear_sidechain
+            task_id = (agent_input.task_id or "task").strip() or "task"
+            reuse = (agent_input.reuse_agent_id or "").strip()
+            if reuse:
+                agent_id = reuse
+                tail = agent_id.rsplit("-", 1)[-1] if "-" in agent_id else "retry"
+                try:
+                    from engine.subagent_runner import clear_sidechain
 
-                clear_sidechain(self._session_id, agent_id)
-            except Exception:  # noqa: BLE001
-                pass
-        else:
-            tail = uuid.uuid4().hex[:6]
-            agent_id = _safe_agent_id(task_id, tail=tail)
-        uid = f"{task_id}:{tail}"
-        # spawn 描述自动生成：desc 缺省时回退角色描述 / task_id；卡片名带角色。
-        desc = (agent_input.desc or "").strip()
-        if not desc and role is not None:
-            desc = role.description or role.display
-        desc = (desc or task_id)[:120]
-        from permissions.write_scope import normalize_worker_scope
+                    clear_sidechain(self._session_id, agent_id)
+                except Exception:  # noqa: BLE001
+                    pass
+            else:
+                tail = uuid.uuid4().hex[:6]
+                agent_id = _safe_agent_id(task_id, tail=tail)
+            uid = f"{task_id}:{tail}"
+            # spawn 描述自动生成：desc 缺省时回退角色描述 / task_id；卡片名带角色。
+            desc = (agent_input.desc or "").strip()
+            if not desc and role is not None:
+                desc = role.description or role.display
+            desc = (desc or task_id)[:120]
+            from permissions.write_scope import normalize_worker_scope
 
-        cwd = self._cwd or "."
-        scope_paths, read_only, scope_reason = normalize_worker_scope(
-            agent_input.scope, cwd=cwd
-        )
-        # 同步回 input，供 whitelist / run_subagent 使用
-        agent_input.scope = list(scope_paths)
-        tool_whitelist = self._tools_for(agent_input)
-        local_abort = LinkedAbortController(abort)
-        register_live_agent(self._session_id, agent_id, local_abort)
-        started = _time.monotonic()
-        record_agent_tool_start(
-            session_id=self._session_id,
-            agent_id=agent_id,
-            task_id=task_id,
-            desc=desc,
-            read_only=read_only,
-        )
+            cwd = self._cwd or "."
+            scope_paths, read_only, scope_reason = normalize_worker_scope(
+                agent_input.scope, cwd=cwd
+            )
+            # 同步回 input，供 whitelist / run_subagent 使用
+            agent_input.scope = list(scope_paths)
+            tool_whitelist = self._tools_for(agent_input)
+            local_abort = LinkedAbortController(abort)
+            register_live_agent(self._session_id, agent_id, local_abort)
+            started = _time.monotonic()
+            record_agent_tool_start(
+                session_id=self._session_id,
+                agent_id=agent_id,
+                task_id=task_id,
+                desc=desc,
+                read_only=read_only,
+            )
 
-        self._emit_xy({
-            "type": "multi_agent_task",
-            "task_id": task_id,
-            "uid": uid,
-            "agent_id": agent_id,
-            "desc": desc,
-            "status": "running",
-            "scope": scope_paths,
-            "read_only": read_only,
-            "agent_type": agent_type,
-            **({"role_display": role.display} if role is not None else {}),
-            **({"scope_reason": scope_reason} if scope_reason else {}),
-        })
-
-        def _on_delta(text: str) -> None:
-            if not text:
-                return
             self._emit_xy({
-                "type": "multi_agent_delta",
+                "type": "multi_agent_task",
                 "task_id": task_id,
                 "uid": uid,
                 "agent_id": agent_id,
-                "text": text,
+                "desc": desc,
+                "status": "running",
+                "scope": scope_paths,
+                "read_only": read_only,
+                "agent_type": agent_type,
+                **({"role_display": role.display} if role is not None else {}),
+                **({"scope_reason": scope_reason} if scope_reason else {}),
             })
 
-        end_status = "failed"
-        turns_used = 0
-        max_turns_used = 0
+            def _on_delta(text: str) -> None:
+                if not text:
+                    return
+                self._emit_xy({
+                    "type": "multi_agent_delta",
+                    "task_id": task_id,
+                    "uid": uid,
+                    "agent_id": agent_id,
+                    "text": text,
+                })
+
+            end_status = "failed"
+            turns_used = 0
+            max_turns_used = 0
+        except BaseException:  # noqa: BLE001 — 只保证还槽，异常原样上抛
+            # 实测：这段裸代码一旦抛出（例如 metrics 写不下去），每次都永久烧掉 1/8
+            # 个并发槽，烧完后整个进程再也 spawn 不了子代理——桌面 app 一开数天。
+            _agent_slots.release()
+            raise
+
         try:
             try:
                 out = await self._run_subagent(
@@ -364,7 +372,14 @@ class AgentTool:
                     main_session_id=self._session_id,
                 )
             except Exception:  # noqa: BLE001
-                pass
+                # 交接被丢 = 子代理写过的文件与记忆再也不会进主会话热缓存，
+                # 而 debug 级在本仓等于没说（产品从不配 logging handler）。
+                logging.getLogger(__name__).warning(
+                    "subagent handoff enqueue failed agent=%s task=%s",
+                    agent_id,
+                    task_id,
+                    exc_info=True,
+                )
 
             if local_abort.aborted and not abort.aborted:
                 status = "failed"
@@ -389,7 +404,9 @@ class AgentTool:
                 "result": preview[:800],
                 # 累计 token / 成本（GUI 子代理卡片角标）。
                 "tokens_used": int(getattr(out, "tokens_used", 0) or 0),
-                "cost_cny": round(float(getattr(out, "cost_cny", 0.0) or 0.0), 4),
+                # 没有权威价目时 cost_cny 是 None（费用未知），原样传给 GUI；
+                # 不能用 `or 0.0` 把它顶成 0，那会让卡片显示"花了 ¥0.00"。
+                "cost_cny": round_money8(getattr(out, "cost_cny", None)),
             })
 
             body = (preview or "").strip() or "(empty subagent result)"
@@ -427,10 +444,15 @@ class AgentTool:
                         summary="子代理结果未带回主会话（回合被中断或异常）",
                     )
             except Exception:  # noqa: BLE001
-                logging.getLogger(__name__).debug(
+                logging.getLogger(__name__).warning(
                     "record_agent_settlement failed", exc_info=True
                 )
-            unregister_live_agent(self._session_id, agent_id)
+            try:
+                unregister_live_agent(self._session_id, agent_id)
+            except Exception:  # noqa: BLE001 — 注销失败不许挡住后面的记账与还槽
+                logging.getLogger(__name__).warning(
+                    "unregister_live_agent failed", exc_info=True
+                )
             try:
                 record_agent_tool_end(
                     session_id=self._session_id,
@@ -443,7 +465,7 @@ class AgentTool:
                     max_turns=max_turns_used,
                 )
             except Exception:  # noqa: BLE001
-                logging.getLogger(__name__).debug(
+                logging.getLogger(__name__).warning(
                     "record_agent_tool_end failed", exc_info=True
                 )
             _agent_slots.release()

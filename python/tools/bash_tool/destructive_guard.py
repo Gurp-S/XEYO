@@ -224,6 +224,33 @@ def plan_destructive_snapshot(
 		return None
 
 
+def _cd_segment_base(segment: str, base: str) -> str | None:
+	"""命令段若是 ``cd <路径>``，返回执行后续命令时的新基准目录。
+
+	返回 ``None`` = 这条命令的工作目录**不可知**（``cd`` 无参 / ``cd -`` / 多参数 /
+	``$VAR``）。调用方据此停止收集目标：宁可本条命令不保护，也不能拿工具 cwd
+	去解析一个相对路径 —— 那会把账记到这条命令从没碰过的同名文件上
+	（``cd sub && rm -rf data`` 曾快照 ``<cwd>/data/*`` 而真正被删的是
+	``<cwd>/sub/data/*``；那行 ``inverse_kind="restore_snapshot"`` 会被
+	``rewind/service.py`` 当作逆操作执行 ``_write_atomic``）。
+	"""
+	tokens = _segment_tokens(segment)
+	if not tokens or _program_name(tokens[0]) != "cd":
+		return base
+	args = [t for t in tokens[1:] if not t.startswith("-") and t not in _REDIR_TOKENS]
+	if len(args) != 1:
+		return None
+	tok = args[0]
+	if "$" in tok or "%" in tok:
+		return None
+	tok = os.path.expanduser(tok)
+	new = os.path.abspath(tok if os.path.isabs(tok) else os.path.join(base, tok))
+	# 目标目录不存在 ⇒ `cd` 在真实 shell 里当场失败，工作目录不变 ⇒ 基准照旧。
+	# （此时命令里 `&&` 之后的部分压根不执行，快照只是多余而非错指；
+	# 错指才是事故：见本函数 docstring。）
+	return new if os.path.isdir(new) else base
+
+
 def _plan(command: str, cwd: str, ctx: Any) -> DestructivePlan | None:
 	if current_context is None or RewindExecutionContext is None:
 		return None
@@ -237,7 +264,12 @@ def _plan(command: str, cwd: str, ctx: Any) -> DestructivePlan | None:
 		return None
 
 	raw_targets: list[str] = []
+	base = cwd
 	for segment in _SEG_SPLIT.split(command or ""):
+		base = _cd_segment_base(segment, base)
+		if base is None:
+			# 目录不可知：本条命令整体不保护（见 _cd_segment_base 的假账风险）。
+			return None
 		raw_targets.extend(_targets_in_segment(segment))
 	if not raw_targets:
 		return None
@@ -303,7 +335,7 @@ def _plan(command: str, cwd: str, ctx: Any) -> DestructivePlan | None:
 		)
 		return True
 
-	for candidate in _expand_targets(raw_targets, cwd):
+	for candidate in _expand_targets(raw_targets, base):
 		if len(entries) >= file_cap:
 			skipped += 1
 			continue

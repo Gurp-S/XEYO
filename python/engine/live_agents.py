@@ -66,9 +66,7 @@ def is_live_agent(session_id: str, agent_id: str) -> bool:
 		return _key(session_id, agent_id) in _LIVE
 
 
-# ---------------------------------------------------------------------------
 # follow-up inbox（park 而非注入）
-# ---------------------------------------------------------------------------
 def post_to_agent(session_id: str, agent_id: str, text: str, message_id: str = "") -> int:
 	"""向一个子 agent 投递一条 follow-up（入队）。返回队列长度。
 
@@ -103,6 +101,36 @@ def drain_agent_inbox(session_id: str, agent_id: str) -> list[dict[str, Any]]:
 def inbox_count(session_id: str, agent_id: str) -> int:
 	with _lock:
 		return len(_INBOX.get(_key(session_id, agent_id), []))
+
+
+def inbox_texts(session_id: str, agent_id: str) -> list[str]:
+	"""运行时队列的文本快照（只读）。与 meta 待办配份计数、配对重投用。"""
+	with _lock:
+		q = _INBOX.get(_key(session_id, agent_id), [])
+		return [str(it.get("text") or "") for it in q]
+
+
+def remove_agent_inbox_text(session_id: str, agent_id: str, text: str) -> bool:
+	"""按文本精确匹配移除一条 follow-up；返回是否命中。
+
+	删除路由用：retry 把 meta 项放回运行时后、消费前 abort 的窗口里，
+	同一逻辑项在 meta 与运行时各有一份——只删 meta 那份，下轮 retry 会复活。
+	"""
+	key = _key(session_id, agent_id)
+	t = (text or "").strip()
+	if not t:
+		return False
+	with _lock:
+		q = _INBOX.get(key)
+		if not q:
+			return False
+		for i, it in enumerate(q):
+			if str(it.get("text") or "") == t:
+				del q[i]
+				if not q:
+					_INBOX.pop(key, None)
+				return True
+	return False
 
 
 def remove_agent_inbox_item(session_id: str, agent_id: str, message_id: str) -> bool:
@@ -145,9 +173,11 @@ __all__ = [
 	"clear_all_for_tests",
 	"drain_agent_inbox",
 	"inbox_count",
+	"inbox_texts",
 	"is_live_agent",
 	"post_to_agent",
 	"register_live_agent",
 	"remove_agent_inbox_item",
+	"remove_agent_inbox_text",
 	"unregister_live_agent",
 ]

@@ -5,6 +5,7 @@ from __future__ import annotations
 import ipaddress
 import re
 import socket
+from html import unescape as _html_unescape
 from urllib.parse import urlparse
 
 _PRIVATE_HOSTS = frozenset(
@@ -151,14 +152,8 @@ def html_to_text(html: str, *, max_chars: int = 1_000_000) -> str:
 	text = _BR_RE.sub("\n", text)
 	text = _BLOCK_CLOSE_RE.sub("\n\n", text)
 	text = _TAG_RE.sub(" ", text)
-	text = (
-		text.replace("&nbsp;", " ")
-		.replace("&amp;", "&")
-		.replace("&lt;", "<")
-		.replace("&gt;", ">")
-		.replace("&quot;", '"')
-		.replace("&#39;", "'")
-	)
+	# 解码必须在剥标签之后：先解码会把正文里的 &lt;script&gt; 当成真标签剥掉。
+	text = _html_unescape(text).replace("\xa0", " ")
 	text = _WS_RE.sub("\n", text)
 	text = _MULTI_NL.sub("\n\n", text)
 	text = re.sub(r"[ \t]{2,}", " ", text).strip()

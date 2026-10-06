@@ -142,16 +142,26 @@ def test_ledger_report_money_free_by_vendor(tmp_path, monkeypatch) -> None:
 # 计价：中性档 / time-tier 覆盖
 # ---------------------------------------------------------------------------
 
-def test_unknown_vendor_neutral_cny_not_budget_default() -> None:
-	# 中性档未命中 1.5 / 输出 4.5；而非 _DEFAULT_USD_PRICES(2/8 USD → 14.4/57.6 CNY)
+def test_unknown_vendor_has_no_amount(monkeypatch) -> None:
+	"""无权威价目厂商 ⇒ 无金额（2026-09-27 计价诚实性）。
+
+	旧行为是借 DeepSeek flash 空闲档的中性档算出 6.0 元 —— 那让账本上「费用未知」
+	变成了一个看起来精确的数字；现在契约是 ``None``，既不借中性档，也不落
+	``_DEFAULT_USD_PRICES``(2/8 USD → 14.4/57.6 CNY)。
+	"""
+	for key in ("XEYO_BUDGET_PRICE_INPUT_USD", "XEYO_BUDGET_PRICE_CACHED_INPUT_USD", "XEYO_BUDGET_PRICE_OUTPUT_USD"):
+		monkeypatch.delenv(key, raising=False)
 	ts = utc_ts(2026, 8, 16, 19, 0)
-	cost = estimate_cny(
-		provider="zhipu",
-		model="glm-4.5-air",
-		usage={"prompt_tokens": 1_000_000, "prompt_cache_hit_tokens": 0, "prompt_cache_miss_tokens": 1_000_000, "completion_tokens": 1_000_000},
-		ts=ts,
-	)
-	assert abs(cost - 6.0) < 1e-6
+	usage = {"prompt_tokens": 1_000_000, "prompt_cache_hit_tokens": 0, "prompt_cache_miss_tokens": 1_000_000, "completion_tokens": 1_000_000}
+	assert estimate_cny(provider="zhipu", model="glm-4.5-air", usage=usage, ts=ts) is None
+	# 用户显式登记价目（env 覆盖）后才有数 —— 登记过就照用。
+	monkeypatch.setenv("XEYO_BUDGET_PRICE_INPUT_USD", "2.0")
+	monkeypatch.setenv("XEYO_BUDGET_PRICE_CACHED_INPUT_USD", "0.2")
+	monkeypatch.setenv("XEYO_BUDGET_PRICE_OUTPUT_USD", "8.0")
+	registered = estimate_cny(provider="zhipu", model="glm-4.5-air", usage=usage, ts=ts)
+	assert registered is not None
+	# 1M 未命中 × 2.0 + 1M 输出 × 8.0 = 10 USD → ×7.2 = 72.0 CNY
+	assert abs(registered - 72.0) < 1e-6
 
 
 def test_time_tier_override_affects_estimate(monkeypatch) -> None:

@@ -24,65 +24,10 @@ from memory.simulator.state_model import (
 L4 = "L4"
 
 
-def _pareto_enabled() -> bool:
-	"""B1 证据门（优化1）：Pareto 可行集替代加权 J。默认关=与冻结版逐位一致。
-
-	走 memory_switches.get_value（settings.memory 唯一权威，env 不参与）。
-	"""
-	from memory.memory_switches import get_value
-
-	return get_value("XEYO_V61_PARETO") == "1"
 
 
-def _pareto_env_float(name: str, default: float) -> float:
-	raw = os.environ.get(name, "").strip()
-	if raw:
-		try:
-			return float(raw)
-		except ValueError:
-			pass
-	return default
 
 
-def _pareto_pick(
-	cand: dict[str, float],
-	branches: dict[str, "Branch"],
-	m_tok: int,
-	params: Params,
-) -> str:
-	"""B1：硬约束 + 非支配排序替代 argmin J。
-
-	可行集 F = {a | C_biz(a) ≤ C_MAX×C_biz(keep), D_a/|M| ≤ D_MAX}；
-	F 内取 (C_biz, D) 非支配集，再按 J（平局 TIE_RANK）决胜——J 保留为
-	可行集内部的排序器，但「省小钱丢大脸」的组合被硬约束直接排除。
-	"""
-	c_max = _pareto_env_float("XEYO_V61_PARETO_CMAX", 1.15)
-	d_max = _pareto_env_float("XEYO_V61_PARETO_DMAX", 0.05)
-	c_keep = max(branches["keep"].c_biz, 1e-12)
-	den = max(int(m_tok), 1)
-	feas: list[tuple[str, float, float, float]] = []
-	for a, j in cand.items():
-		br = branches.get(a)
-		if br is None:
-			continue
-		d_norm = float(br.D) / den
-		if br.c_biz <= c_max * c_keep and d_norm <= d_max:
-			feas.append((a, br.c_biz, d_norm, j))
-	if not feas:
-		return _argmin_j(cand, params)
-
-	def _dominated(x: tuple[str, float, float, float]) -> bool:
-		return any(
-			y[1] <= x[1] + 1e-15
-			and y[2] <= x[2] + 1e-15
-			and (y[1] < x[1] - 1e-15 or y[2] < x[2] - 1e-15)
-			for y in feas
-			if y[0] != x[0]
-		)
-
-	non_dominated = [x for x in feas if not _dominated(x)]
-	non_dominated.sort(key=lambda x: (round(x[3], params.j_round_ndigits), TIE_RANK.get(x[0], 9)))
-	return non_dominated[0][0]
 
 
 def _round_j(j: float, params: Params) -> float:
@@ -327,13 +272,7 @@ def decide(
 		cand = {a: jtab[a][R] for a in fset if a in jtab and R in jtab[a]}
 		if "keep" not in cand:
 			cand["keep"] = j_keep
-		if _pareto_enabled():
-			# B1 证据门：Pareto 可行集（C_biz ≤ 1.15×keep，D/|M| ≤ θ_D）内非支配，
-			# J 只作可行集内部决胜。「省小钱丢大脸」的组合被硬约束排除。
-			m_tok = sum(v for _i, v in s0.frozen_v)
-			per_r[R] = _pareto_pick(cand, branches, m_tok, p)
-		else:
-			per_r[R] = _argmin_j(cand, p)
+		per_r[R] = _argmin_j(cand, p)
 		js = [jtab[a][R] for a in fset if a in jtab and R in jtab[a]]
 		js_sorted = sorted(js)
 		if len(js_sorted) >= 2:
@@ -343,7 +282,7 @@ def decide(
 
 	a4, a8, a16 = per_r.get(4, "keep"), per_r.get(8, "keep"), per_r.get(16, "keep")
 	counts: dict[str, int] = {}
-	for a in (a4, a8, a16):
+	for a in per_r.values():
 		counts[a] = counts.get(a, 0) + 1
 	# 稳定顺序：先遍历 ACTIONS 再遍历其余
 	best_n = 0
@@ -353,7 +292,7 @@ def decide(
 		if n > best_n:
 			best_n = n
 			a_vote = a
-	if best_n < 2:
+	if best_n <= len(per_r) // 2:
 		a_vote = "keep"
 
 	a_star = _safety(a_vote, branches, p, hardtop=False)

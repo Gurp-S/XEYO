@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -121,6 +122,56 @@ async def test_case_insensitive_retry(tmp_path: Path) -> None:
 	assert "Case-insensitive" in r.content or (
 		r.metadata and r.metadata.get("case_insensitive_retry")
 	)
+
+
+@pytest.mark.asyncio
+async def test_case_insensitive_retry_continues_across_pages(tmp_path: Path) -> None:
+	"""第 0 页定下 iglob 模式后，第 2 页必须继承——不得退回大小写敏感答"没有"。
+
+	2026-10-05 修前实测：page0 告 "共 2 条、offset=1 翻页"，page1(off=1)
+	却回 "No files found"（大小写敏感第二趟）。
+	"""
+	for n in ("MISSING_LOWER_1.txt", "MISSING_LOWER_2.txt"):
+		(tmp_path / n).write_text("x", encoding="utf-8")
+	tool = GlobTool(cwd=str(tmp_path))
+	page0 = await tool.execute(
+		{"pattern": "missing_lower*", "head_limit": 1, "offset": 0}, AbortController()
+	)
+	assert (page0.metadata or {}).get("case_insensitive_retry") is True, page0.metadata
+	assert (page0.metadata or {}).get("total_matches") == 2, page0.metadata
+
+	page1 = await tool.execute(
+		{"pattern": "missing_lower*", "head_limit": 1, "offset": 1}, AbortController()
+	)
+	assert "No files found" not in page1.content, page1.content
+	assert "MISSING_LOWER" in page1.content, page1.content
+	page0_file = "MISSING_LOWER_2.txt" if "MISSING_LOWER_2.txt" in page0.content else "MISSING_LOWER_1.txt"
+	other = "MISSING_LOWER_1.txt" if page0_file == "MISSING_LOWER_2.txt" else "MISSING_LOWER_2.txt"
+	assert other in page1.content, (page0.content, page1.content)
+	assert page0_file not in page1.content, (page0.content, page1.content)
+	assert (page1.metadata or {}).get("total_matches") == 2, page1.metadata
+
+
+@pytest.mark.asyncio
+async def test_case_sensitive_queries_do_not_get_switched_by_paging(tmp_path: Path) -> None:
+	"""大小写敏感查询在相同 mtime 下翻页仍稳定且不切换到 iglob。"""
+	for n in ("plain_lower.txt", "plain_lower2.txt"):
+		path = tmp_path / n
+		path.write_text("x", encoding="utf-8")
+		os.utime(path, ns=(1_700_000_000_000_000_000, 1_700_000_000_000_000_000))
+	tool = GlobTool(cwd=str(tmp_path))
+	q0 = await tool.execute(
+		{"pattern": "plain_lower*.txt", "head_limit": 1, "offset": 0}, AbortController()
+	)
+	assert not (q0.metadata or {}).get("case_insensitive_retry"), q0.metadata
+	q1 = await tool.execute(
+		{"pattern": "plain_lower*.txt", "head_limit": 1, "offset": 1}, AbortController()
+	)
+	assert "No files found" not in q1.content, q1.content
+	first = "plain_lower2.txt" if "plain_lower2.txt" in q0.content else "plain_lower.txt"
+	second = "plain_lower.txt" if first == "plain_lower2.txt" else "plain_lower2.txt"
+	assert second in q1.content and first not in q1.content, (q0.content, q1.content)
+	assert not (q1.metadata or {}).get("case_insensitive_retry"), q1.metadata
 
 
 @pytest.mark.asyncio

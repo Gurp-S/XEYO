@@ -15,7 +15,11 @@ def test_no_chars_over_4_residue_in_c2_economic_gate() -> None:
     assert "_region_tokens" in src
     # 09-22 经济门换成了 θ 判据并把两个量塞进 account,变量名改了 —— 口径不许改:
     # 重发面 = token_len(摘要) + 尾部 token,净省的基底同样走 _region_tokens。
-    assert "head_tokens = token_len(ext)" in src
+    # 10-05：头增量口径已抽成 `_extension_head_tokens()`（按 basis 分支；两条非实测
+    # 支仍是 token_len(ext)，实测支带 basis）。断言跟随重构后的形状，不变量不变：
+    # 头口径不许回"字符/4"（上面两条 absent 断言继续执法）。
+    assert "head_tokens, head_basis = _extension_head_tokens(ext, working)" in src
+    assert 'return token_len(ext), "c2_estimate"' in src
     assert '"transition": head_tokens + tail_tokens' in src
     assert '"region_tokens": region_tokens_' in src
 

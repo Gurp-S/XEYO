@@ -69,8 +69,16 @@ def _read_bytes(path: str) -> bytes | None:
 
 def _decode(data: bytes) -> str:
 	if data.startswith(b"\xff\xfe"):
-		return data.decode("utf-16-le", errors="replace")
-	return data.decode("utf-8", errors="replace")
+		text = data.decode("utf-16-le", errors="replace")
+	else:
+		text = data.decode("utf-8", errors="replace")
+	# BOM 不属于正文。留着它，`ast.parse` 会抛
+	# "invalid non-printable character U+FEFF"，而本模块与 graph 的解析器都是
+	# `except SyntaxError: return ()` ⇒ **带 BOM 的已提交 .py 在代码索引里是空的**
+	# （实测 model/chunks.py、model/client.py、model/fake.py、tools/echo/echo_tool.py
+	# 四个文件 outline()=0 个符号、import 图 0 条边；无 BOM 的对照文件 21/34 个符号）。
+	# utf-16-le 分支同样会解出一个前导 \ufeff（那就是 BOM 本身），故两支统一剥。
+	return text[1:] if text.startswith("\ufeff") else text
 
 
 def outline(path: str) -> tuple[Symbol, ...]:

@@ -4,7 +4,7 @@
 - **每文件一把锁**：同文件串行 apply，不同文件可并行（submit 走 to_thread）。
 - **content-hash 版本校验**：base vs 磁盘哈希，不一致 -> stale，不覆盖。
 - **原子写**：temp + os.replace。
-- **P0 单文件事务**；多文件走 _apply_multi 预检。
+- **P0 单文件事务**。
 - **语法校验**：Python/JSON 增量（新文件引入错误才记 syntax_valid=false）。
 """
 
@@ -18,6 +18,7 @@ import json
 import logging
 import os
 import threading
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Awaitable
@@ -128,13 +129,11 @@ def _syntax_ok(path: Path, new_content: str) -> bool:
     new_err = _syntax_error_count(suffix, new_content)
     if new_err == 0:
         return True
-    if _routed_container():
-        old = _read_text_safe(path)
-    else:
-        try:
-            old = path.read_text(encoding="utf-8")
-        except OSError:
-            old = ""
+    # 旧内容统一走 _read_text_safe：它按 read_text_file 解码（容错、剥 BOM、容器路由），
+    # 且从不抛。原先非容器分支裸 `read_text(encoding="utf-8")` 只在 `except OSError` 下
+    # 兜底，而 UnicodeDecodeError **不是** OSError：旧文件非 UTF-8 + 本次新内容自己
+    # 就是语法错 ⇒ 异常逃出 submit_sync ⇒ 逃出工具 ⇒ 一整枪 Edit/Write 打断回合。
+    old = _read_text_safe(path)
     old_err = _syntax_error_count(suffix, old)
     return new_err <= old_err
 
@@ -182,6 +181,46 @@ def _make_unified_diff(path: Path, before: str, after: str) -> str:
         lines = lines[:_MAX_DIFF_LINES]
         lines.append("…（diff 过长，已截断）")
     return "\n".join(lines)
+
+
+def _replace_with_retry(tmp: Path, path: Path) -> None:
+    """os.replace，带 Windows「目标被其它进程持有」的短重试与原地写回落。
+
+    实测（2026-10-05 本地双进程句柄实验 + 当日活体会话 7 次 WinError 5）：目标
+    被普通共享模式打开时（IDE / TS server / 预览进程都会），os.replace 一律抛
+    PermissionError(WinError 5)，而**同一时刻原地写（open "wb"）能成功**。所以：
+    先短重试（抢瞬时锁/杀软扫描窗口），仍败则回落原地写——保内容、warning 出声。
+    原位写失去原子替换，但只在「替换已被证明不可行」时才走，比让该文件永远
+    编不动强。仅 5/32 类（占用）进这条链；其它 OSError 首个即抛，不许吞。
+    """
+    last: PermissionError | None = None
+    for delay in (0.0, 0.05, 0.15, 0.4):
+        if delay:
+            time.sleep(delay)
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError as exc:
+            last = exc
+    if os.name == "nt":
+        try:
+            payload = tmp.read_bytes()
+            with open(path, "wb") as handle:
+                handle.write(payload)
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+            logging.getLogger(__name__).warning(
+                "atomic replace blocked (winerror=%s); wrote in place: %s",
+                getattr(last, "winerror", None),
+                path,
+            )
+            return
+        except OSError:
+            pass
+    assert last is not None
+    raise last
 
 
 class WriteStore:
@@ -383,31 +422,6 @@ class WriteStore:
                 "session presence note_write failed", exc_info=True
             )
 
-    async def _apply_multi(self, intent: ChangeIntent) -> ApplyResult:
-        """多文件预检：先全部校验 base，任一冲突则整体拒绝。"""
-        path_keys = {str(self._canon(op.path)) for op in intent.ops}
-        conflicted = [
-            p for p in path_keys
-            if intent.base_hashes.get(p, "")
-            and _content_hash(Path(p)) != intent.base_hashes[p]
-        ]
-        if conflicted:
-            return ApplyResult(ok=False, reason="conflict", detail="multi-file precheck")
-        results = []
-        for op in intent.ops:
-            results.append(self.submit_sync(ChangeIntent(
-                agent_id=intent.agent_id, ops=[op], base_hashes=intent.base_hashes,
-                annotation=intent.annotation,
-            )))
-        if all(r.ok for r in results):
-            hashes = {k: v for r in results for k, v in r.new_hashes.items()}
-            return ApplyResult(
-                ok=True, version=", ".join(hashes.values()),
-                syntax_valid=all(r.syntax_valid for r in results),
-                new_hashes=hashes,
-            )
-        return ApplyResult(ok=False, reason="conflict", detail="multi-file partial")
-
     def _lookup_base_hash(self, intent: ChangeIntent, path: Path) -> str:
         """匹配 base_hashes 键（兼容相对/绝对/正反斜杠）。"""
         for k, v in (intent.base_hashes or {}).items():
@@ -420,29 +434,36 @@ class WriteStore:
 
     @staticmethod
     def _atomic_write(path: Path, content: str, encoding: str = "utf-8") -> None:
-        # 容器路由（2026-09-16）：工作面在容器里，落宿主等于"报了成功但判分看不见"。
-        # 容器分支失败必须抛错（**绝不静默回落宿主**）——那正是本模块要消灭的
-        # 失败形态：write 说 ok、文件却去了另一个文件系统。
-        if _routed_container():
-            from tools.container_fs import write_text as _cfs_write
-
-            if not _cfs_write(str(path), content):
-                raise OSError(f"container write failed: {path}")
-            return
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_name(path.name + ".xeyo.write.tmp")
-        # 复用 write_text_file 的编码语义（utf-16-le 补 BOM），
+        # 编码事实只有一个计算点：先按声明编码算出 payload，再让两条路由各自落字节。
+        # 复用 write_text_file 的编码语义（utf-16-le 补 BOM；utf-8-sig 由编码器补 BOM），
         # 但绕过它的 line_endings 逻辑：换行形态由调用方在 content 里定稿，
         # 此处只做原子替换（tmp + os.replace），禁止平台翻译。
         write_encoding = encoding or "utf-8"
         if write_encoding == "utf-16-le":
             data = b"\xff\xfe" + content.encode("utf-16-le")
         else:
-            data = content.encode(write_encoding, errors="replace")
+            # 严格编码：与 tools/fileio/text.py::write_text_file 同口径。此前这里是
+            # ``errors="replace"`` ⇒ 子 agent / journal 路由能把码页外的字符静默写成
+            # ``?`` 并报成功，而宿主直通路径不会——同一枪按路由劈成两种字节。
+            data = content.encode(write_encoding)
+        # 容器路由（2026-09-16）：工作面在容器里，落宿主等于"报了成功但判分看不见"。
+        # 容器分支失败必须抛错（**绝不静默回落宿主**）——那正是本模块要消灭的
+        # 失败形态：write 说 ok、文件却去了另一个文件系统。
+        # 2026-10-03：这里原先走 `container_fs.write_text(path, content)` —— 那个函数
+        # 没有 encoding 形参、内部硬编码 utf-8 ⇒ 容器路由下 BOM 被剥、UTF-16 被重编码，
+        # 而宿主分支自己补着 BOM：同一枪 Edit 按"容器/宿主 × 主/子 agent"劈成两种字节。
+        if _routed_container():
+            from tools.container_fs import write_bytes as _cfs_write_bytes
+
+            if not _cfs_write_bytes(str(path), data):
+                raise OSError(f"container write failed: {path}")
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(path.name + ".xeyo.write.tmp")
         try:
             with open(tmp, "wb") as handle:
                 handle.write(data)
-            os.replace(tmp, path)
+            _replace_with_retry(tmp, path)
         except OSError:
             # 失败清理 tmp 残留（Windows 下目标被占用是常态，不留垃圾文件）。
             try:

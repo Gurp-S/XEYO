@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from channels.base import Channel, InboundMessage
-from channels.filehelper.prefix import is_own_reply, xeyo_reply
+from channels.remote_prefix import is_own_reply, xeyo_reply
 from channels.ilink import SESSION_ID
 from channels.jobs import JobRecord
 from channels.runner import FinalOnlyRunner

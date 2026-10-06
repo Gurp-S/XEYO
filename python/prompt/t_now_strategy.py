@@ -1,7 +1,11 @@
-"""T_now 注入声道策略（设计 32 号修订：方案 A 环境声道 → 声道 B 治本）。
+"""T_now 注入声道策略（设计 32 号修订：方案 A 环境声道 → 声道 B 治本 → 声道 C 默认）。
 
-四值策略：
-- ``system_channel``（**2026-09-15 起默认**）：全部易变块作为一条**原生
+档位（现行）：
+- ``notice_fragment``（**2026-09-22 起默认**，声道 C）：易变块以一条 **user 消息**
+  尾插，正文用 ``<system-reminder>`` 包封（``notice_channel.append_notice_fragment``）。
+  与 Codex / Claude Code 对齐：两家都把引擎注入的状态放 user 侧 + 共训练包封标签，
+  没有一家往 messages 中段塞 system 角色（各家网关兼容性最不确定的一环）。
+- ``system_channel``（2026-09-15→09-22 曾为默认）：全部易变块作为一条**原生
   system 消息**追加在投影尾部（``turn_context.append_system_notice``）。
   这是伪对缺陷的治本档：``env_channel`` 的伪对
   ``assistant(tool_use: xeyo_env_notice) → tool_result`` 与「模型自己的工具
@@ -13,24 +17,26 @@
   也不是 assistant（不伪装成模型自身行为）⇒ 不可调用性来自形态本身。
   协议分工：OpenAI 系保留 role=system；Anthropic 由 ``_split_system``
   上提顶层 ``system`` 字段。
-- ``env_channel``：原默认（伪造 tool 对）。**保留为对照/回退档**：声道 B 被
-  厂商以结构类 4xx 拒绝（厂商不接受 messages 里的 system 角色）时，本进程内
-  对该 provider:model 退回本档（保功能；已知代价是会重新引入上述 affordance）。
+- ``env_channel``：原默认（伪造 tool 对）。**仅保留为显式对照/评测档**
+  （``XEYO_T_NOW_STRATEGY=env_channel``）；生产阶梯**不再降级到本档**——一次
+  降级会同时引入假 id 的 ``reasoning_content`` 校验、无主 tool_result 与上述
+  affordance。
 - ``legacy``：更早的行为——块以文本追加进末条 user（bg_wrap 身份标记 +
   分隔符）。**仅作审计对照/显式评测档**（``XEYO_T_NOW_STRATEGY=legacy``
   或 ``set_t_now_strategy``），不充当任何自动回退档——引擎文本进用户角色
   正是 L2（2026-09-09）要消灭的说话人混淆源。
-- ``skip``：内部档——本轮不注入任何 T_now 块。env_channel 被标记不支持时的
-  终态：宁缺毋滥，不把引擎文本伪装成用户消息。执行层硬约束（预算/回合/wrap
+- ``skip``：内部档——本轮不注入任何 T_now 块。档位被标记不支持时的终态：
+  宁缺毋滥，不把引擎文本伪装成用户消息。执行层硬约束（预算/回合/wrap
   门）不依赖提示文本。
 - ``prefill``：预留（尾部 assistant 预填充锚定）。厂商容忍度实测通过前
-  不开放，当前解析为 env_channel。
+  不开放，当前解析为 ``notice_fragment``。
 
 优先级：会话/请求显式设置（``set_t_now_strategy``）> 环境变量
-``XEYO_T_NOW_STRATEGY`` > 默认 system_channel。
+``XEYO_T_NOW_STRATEGY`` > 默认 ``notice_fragment``。
 
 回退阶梯（均为进程级备忘，重启即重试）：
-``system_channel`` --结构类 4xx--> ``env_channel`` --结构类 4xx--> ``skip``
+``system_channel`` --结构类 4xx--> ``notice_fragment`` --结构类 4xx--> ``skip``；
+``env_channel``（显式档）被拒 --结构类 4xx--> ``skip``。
 """
 
 from __future__ import annotations

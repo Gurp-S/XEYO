@@ -41,7 +41,7 @@ async def loopback_or_remote_token(
 ) -> None:
 	"""通道管理面门禁（T33）：本机放行；非本机须携带 XEYO_REMOTE_TOKEN。
 
-	用于 filehelper/ilink 的 start/stop/qr/status/events——GUI 从 loopback
+	用于 ilink 的 start/stop/qr/status/events——GUI 从 loopback
 	轮询不受影响；LAN 直连（0.0.0.0 暴露）必须持 token。远程隧道场景流量
 	经 cloudflared 落到 loopback，仍受隧道侧认证保护。
 	"""

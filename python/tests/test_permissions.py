@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -13,6 +14,7 @@ from msgtypes.message import ToolUse
 from permissions.filesystem import (
 	PermissionDecision,
 	check_read_permission_for_path,
+	check_write_permission_for_path,
 	default_permission_context,
 	expand_to_abs,
 	is_dangerous_path,
@@ -56,6 +58,12 @@ def test_path_outside_cwd(work: Path) -> None:
 	assert not path_in_allowed_working_path(outside, cwd=cwd)
 
 
+def test_windows_absolute_path_is_not_reinterpreted_as_relative(work: Path) -> None:
+	cwd = str(work)
+	path = expand_to_abs(r"C:\Temp\x", cwd=cwd)
+	assert not path_in_allowed_working_path(path, cwd=cwd)
+
+
 def test_dotdot_escape_denied(work: Path) -> None:
 	cwd = str(work / "python")
 	# 解析到 work 的父目录 — 应在 python/ 之外
@@ -70,10 +78,16 @@ def test_dangerous_git_path(work: Path) -> None:
 	cwd = str(work)
 	git_cfg = str(work / ".git" / "config")
 	assert is_dangerous_path(git_cfg, cwd=cwd)
+	# 读侧：危险路径不再 ASK（只读确认对人不含信息）。
 	d = check_read_permission_for_path(
 		git_cfg, context=default_permission_context(cwd)
 	)
-	assert d == PermissionDecision.ASK
+	assert d == PermissionDecision.ALLOW
+	# 写侧同一路径仍按危险路径 ASK/DENY，放宽不外溢。
+	dw = check_write_permission_for_path(
+		git_cfg, context=default_permission_context(cwd)
+	)
+	assert dw != PermissionDecision.ALLOW
 
 
 def test_gate_allow_read_inside(work: Path) -> None:
@@ -95,15 +109,21 @@ def test_gate_deny_outside(work: Path) -> None:
 	assert r.reason == "path_outside_working_directory"
 
 
-def test_gate_deny_git(work: Path) -> None:
+def test_gate_allows_git_read_but_still_denies_git_write(work: Path) -> None:
 	cwd = str(work)
 	r = can_use_tool(
 		"Read",
 		{"file_path": str(work / ".git" / "config")},
 		cwd=cwd,
 	)
-	assert not r.allowed
-	assert r.reason == "dangerous_path"
+	assert r.allowed
+	w = can_use_tool(
+		"Write",
+		{"file_path": str(work / ".git" / "config"), "content": "x"},
+		cwd=cwd,
+	)
+	assert not w.allowed
+	assert w.reason == "protected_metadata"
 
 
 def test_current_session_spill_is_readable_but_other_session_is_not(
@@ -121,7 +141,12 @@ def test_current_session_spill_is_readable_but_other_session_is_not(
 		other = save_text("session-b", "other evidence")
 		ctx = default_permission_context(str(workspace))
 		assert check_read_permission_for_path(own.path, context=ctx) == PermissionDecision.ALLOW
+		# 别的会话仍 DENY：区外读只在该目录"能一格记住"时才走 ASK，而 spill 根属于
+		# 引擎自己的数据根（记住会把所有会话的溢出开成门）→ 维持硬 DENY。
 		assert check_read_permission_for_path(other.path, context=ctx) == PermissionDecision.DENY
+		from permissions.store import read_dir_fingerprint
+
+		assert read_dir_fingerprint(other.path) == ""
 	finally:
 		set_workspace_context(None)
 
@@ -187,7 +212,9 @@ async def test_registry_blocks_outside_read(work: Path) -> None:
 		abort,
 	)
 	assert result.is_error
-	assert "path_outside_working_directory" in result.content
+	# 无应答者（coordinator=None）：区外读走 ASK 后立刻按"审批不可用"落 DENY，
+	# 文案必须点名是哪一档拦住的，不能回退成旧的 path_outside_working_directory。
+	assert "no resolver: read_outside_working_directory" in result.content
 
 
 @pytest.mark.asyncio
@@ -266,3 +293,55 @@ def test_symlink_escape_denied_by_path_jail(work: Path) -> None:
 		str(link), context=default_permission_context(str(work))
 	)
 	assert d == PermissionDecision.DENY
+
+
+def _make_dir_link(link: Path, target: Path) -> bool:
+	"""软链优先（POSIX/开发者模式），失败回退 Windows junction（无需管理员）。"""
+	try:
+		link.symlink_to(target, target_is_directory=True)
+		return True
+	except OSError:
+		pass
+	try:
+		proc = subprocess.run(
+			["cmd", "/c", "mklink", "/J", str(link), str(target)],
+			capture_output=True,
+			text=True,
+		)
+	except OSError:
+		return False
+	return proc.returncode == 0 and link.is_dir()
+
+
+def test_symlink_into_secret_dir_hits_secret_gate(work: Path) -> None:
+	"""PERM-04（09-10 复核）：软链/junction 指向密钥目录时，组件扫描必须看 realpath。
+
+	同工作区内直接路径 `home/.ssh/config` 是硬 DENY，而 `link/config`
+	（link → home/.ssh）字面组件里没有任何密钥名 ⇒ 旧实现直接放行。
+	"""
+	secret = work / "home" / ".ssh"
+	secret.mkdir(parents=True)
+	(secret / "config").write_text("Host x\n", encoding="utf-8")
+	link = work / "link"
+	if not _make_dir_link(link, secret):
+		pytest.skip("symlink/junction not permitted on this platform/user")
+
+	from permissions.filesystem import is_secret_path
+
+	# 直接路径：既有硬 DENY（对照，两种形态修前修后都应成立）
+	direct = str(secret / "config")
+	assert is_secret_path(direct, cwd=str(work))
+	d_direct = check_read_permission_for_path(
+		direct, context=default_permission_context(str(work))
+	)
+	assert d_direct == PermissionDecision.DENY
+	# 软链路径：必须同判（修前字面扫描放行 = 逃逸）
+	linked = str(link / "config")
+	assert is_secret_path(linked, cwd=str(work))
+	assert is_dangerous_path(linked, cwd=str(work))
+	d_linked = check_read_permission_for_path(
+		linked, context=default_permission_context(str(work))
+	)
+	assert d_linked == PermissionDecision.DENY
+	# 方向控制：普通文件的字面形态不受影响
+	assert not is_secret_path(str(work / "safe.txt"), cwd=str(work))

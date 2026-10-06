@@ -17,7 +17,7 @@
 
   compliance             扫当前 git diff 的新增行
 
-  check                  提交门：surface + trace + selftest，全绿才放行
+  check                  提交门：L0/L1 selftest + L0/L1 check + 应试扫描（Compliance），全绿才放行
   all                    上面所有非 ab 子命令合一
   verdict                合成最终判决书
 """
@@ -30,7 +30,7 @@ import sys
 from pathlib import Path
 
 from . import ab as ab_mod
-from . import budget, compliance, surface, trace, verdict
+from . import budget, compliance, env_baseline, surface, trace, verdict
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -259,7 +259,7 @@ def cmd_compliance(args: argparse.Namespace) -> int:
 
 
 def cmd_check(args: argparse.Namespace) -> int:
-    """提交门：L0 check + L1 check + L0 selftest + L1 selftest。"""
+    """提交门：L0/L1 selftest + L0/L1 check + 应试扫描（Compliance）。"""
     fails = 0
     for label, fn in (
         ("L0 selftest", _selftest(surface.mutation_selftest)),
@@ -473,6 +473,10 @@ def main(argv: list[str] | None = None) -> int:
     _setup()
     p = build_parser()
     args = p.parse_args(argv)
+    if args.cmd in {"surface", "trace", "check", "all"}:
+        # 快照钉的是产品默认面：宿主会话桥进来的开关先按默认面归一化（见 env_baseline）。
+        for _name, _value, _why in env_baseline.pin():
+            print(f"[env] {_name}={_value} 按默认面比对（{_why}）")
 
     if args.cmd == "surface":
         return {

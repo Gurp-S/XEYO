@@ -50,9 +50,11 @@ class AuditLog:
 		if not self._path.is_file():
 			return []
 		rows: list[dict[str, Any]] = []
-		with self._path.open("r", encoding="utf-8") as handle:
-			for line in handle:
-				line = line.strip()
+		with self._path.open("rb") as handle:
+			for raw in handle:
+				# 按行解码而非整文件文本模式：进程被杀留下的半个 UTF-8 序列会让
+				# 文本模式读整份审计日志抛 UnicodeDecodeError（诊断中心直接 500）。
+				line = raw.decode("utf-8", errors="replace").strip()
 				if not line:
 					continue
 				try:

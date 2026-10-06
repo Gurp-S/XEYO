@@ -14,7 +14,14 @@
 - 只在**边界**投递（与 steer 同刻，唯一注入时机）；
 - 复用 steer 队列的全部可靠性（WAL / 幂等 / 至少一次 / 失败回队）；
 - steer 队列满（``push`` 返回 False）⇒ 原样放回 inbox 队首，不丢消息、不计失败；
-- 任何异常返回空列表，绝不挡主链；``XEYO_INBOX_BOUNDARY=0`` 关闭本声道。
+- 任何异常返回空列表，绝不挡主链；``XEYO_INBOX_BOUNDARY=1`` 显式开启本声道。
+
+**默认关（2026-09-30 对齐市面主流）**：忙时 Enter 的公开语义是「排队」——
+Codex 的队列文案为 ``Messages to be submitted at end of turn``（另有显式
+``turn/steer``）、Claude Code 的统一命令队列只在 query idle 时消费。本声道是
+「下一个采样边界就把排队消息插进当前回合」，与「排队」语义（等回合结束）冲突，
+故默认关闭：排队走 settle 排水（= 回合结束后作为独立一轮投递），要中途注入用
+Ctrl+Enter 引导（等价 Codex ``turn/steer``）。长回合抢投仍可用本 env 打开。
 """
 
 from __future__ import annotations
@@ -27,7 +34,7 @@ _log = logging.getLogger(__name__)
 
 
 def _enabled() -> bool:
-	raw = os.environ.get("XEYO_INBOX_BOUNDARY", "1").strip().lower()
+	raw = os.environ.get("XEYO_INBOX_BOUNDARY", "0").strip().lower()
 	return raw not in ("0", "false", "no", "off")
 
 

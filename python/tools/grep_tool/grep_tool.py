@@ -2,7 +2,8 @@
 
 # 读权限：走 permissions.filesystem 路径狱；ASK 仅信 registry preapproved。
 # abort→杀 rg：已由 fileio.rg_subprocess 的 abort watcher 覆盖。
-# TODO: [ignore] 挂载 .agentignore（glob_tool 已接，grep 尚未）与用户 deny 路径接入
+# TODO: [ignore] 用户 deny 路径接入（.agentignore 挂载已于 2026-10-05 接上，见 call() 内
+# agentignore_args；test_grep_agentignore_parity.py 钉着两侧同源）
 
 from __future__ import annotations
 
@@ -17,8 +18,10 @@ from typing import Any, Literal, Optional
 from engine.abort import AbortController
 from permissions import filesystem
 from tools.base_tool import ToolResult
+from tools.error_taxonomy import INVALID_ARGUMENT, PERMISSION_DENIED, TIMEOUT
+from tools.input_types import int_field_type_error, string_field_type_error
 from codeindex.symbols import iter_symbols
-from tools.fileio.excludes import excluded_dir_globs
+from tools.fileio.excludes import agentignore_args, excluded_dir_globs
 from tools.fileio.rg_subprocess import (
 	RG_MISSING_IN_CONTAINER,
 	RipgrepRunnerError,
@@ -133,7 +136,7 @@ def _coerce_optional_int(value: Any) -> int | None:
 			return None
 		try:
 			return int(float(s))
-		except ValueError:
+		except (ValueError, OverflowError):
 			return None
 	return None
 
@@ -172,6 +175,17 @@ def format_limit_info(
 
 def _plural(n: int, word: str) -> str:
 	return word if n == 1 else f"{word}s"
+
+
+def _empty_page_fact(rows_word: str, total: int, unit: str) -> str:
+	"""窗口切片为空、整趟却有命中：只陈述这两件事的差。
+
+	不写 "No matches found"——那句话在这一页是假的；也不写建议（引擎铁律第 1 条）。
+	"""
+	return (
+		f"No {rows_word} in this page — the pass matched {total} {unit} in total, "
+		f"none inside this window."
+	)
 
 
 def split_glob_patterns(glob: str) -> list[str]:
@@ -214,6 +228,15 @@ def build_rg_args(input_data: "GrepInput") -> list[str]:
 
 	if mode == "content" and input_data.show_line_numbers:
 		args.append("-n")
+
+	if mode == "content":
+		# NUL 定界路径（`path\0num[-:]content`）：rg 的纯文本分隔形态在
+		# "路径含 -N-" 时不可解析，且 context 行（`path-N-text`）此前整行解析
+		# 失败 ⇒ 排序按整行字符串、绝对路径泄漏、与 match 分离（2026-10-05）。
+		# 无条件加：宿主 rg 直用；容器 GNU grep 回退在 rg_fallback 的
+		# _DROPPABLE_FLAGS 里等价丢弃后走文本形态，_parse_content_line 两态都吃
+		# ——产品路径不为评测环境分叉（compliance R2）。
+		args.append("--null")
 
 	if mode == "content":
 		ctx = input_data.context
@@ -337,15 +360,42 @@ def _split_rg_path_prefix(line: str) -> tuple[str, str] | None:
 	return line[:colon], line[colon:]
 
 
-def _relativize_content_line(line: str, base: str) -> str:
-	"""content 行格式: path:content 或 path:num:content。"""
+def _parse_content_line(line: str) -> tuple[str, int, str, str] | None:
+	"""解析 content 行 → ``(path, num, sep, content)``；sep=':' 命中、'-' 上下文。
+
+	两种形态：宿主 rg 的 ``--null`` 形态 ``path\\0num[-:]content``，与回退后端
+	（容器 GNU grep）的文本形态 ``path:num:content`` / ``path-num-content``
+	（两处分隔符同字符）。解析失败返回 None。
+	"""
+	if "\0" in line:
+		path, rest = line.split("\0", 1)
+		m = re.match(r"(\d+)([-:])(.*)$", rest, re.S)
+		if m:
+			return path, int(m.group(1)), m.group(2), m.group(3)
+		return path, 0, ":", rest
+	m = re.search(r":(\d+):", line)
+	if m:
+		return line[: m.start()], int(m.group(1)), ":", line[m.end() :]
+	m = re.search(r"-(\d+)-", line)
+	if m:
+		return line[: m.start()], int(m.group(1)), "-", line[m.end() :]
 	parts = _split_rg_path_prefix(line)
 	if parts is None:
+		return None
+	return parts[0], 0, ":", parts[1].lstrip(":")
+
+
+def _relativize_content_line(line: str, base: str) -> str:
+	"""content 行 → 模型可见形态：相对路径 + 原分隔符（``:`` 命中 / ``-`` 上下文）。"""
+	parsed = _parse_content_line(line)
+	if parsed is None:
 		return line
-	file_path, rest = parts
+	file_path, num, sep, content = parsed
 	if os.path.isabs(file_path) or re.match(r"^[A-Za-z]:[\\/]", file_path):
-		return to_relative_path(file_path, base) + rest
-	return line
+		file_path = to_relative_path(file_path, base)
+	if num:
+		return f"{file_path}{sep}{num}{sep}{content}"
+	return f"{file_path}:{content}"
 
 
 def _relativize_count_line(line: str, base: str) -> str:
@@ -362,12 +412,10 @@ def _relativize_count_line(line: str, base: str) -> str:
 
 def _content_line_sort_key(line: str) -> tuple[str, int]:
 	"""content 行确定性排序键：先按路径、再按行号（rg 遍历序不稳定）。"""
-	parts = _split_rg_path_prefix(line)
-	if parts is None:
+	parsed = _parse_content_line(line)
+	if parsed is None:
 		return (line, 0)
-	file_path, rest = parts
-	m = re.match(r":(\d+):", rest)
-	num = int(m.group(1)) if m else 0
+	file_path, num, _sep, _content = parsed
 	return (file_path.replace("\\", "/").lower(), num)
 
 
@@ -410,6 +458,11 @@ class GrepOutput:
 	num_matches: Optional[int] = None
 	applied_limit: Optional[int] = None
 	applied_offset: Optional[int] = None
+	# 本次分页**前**整趟匹配到的条目数（content=行、files=文件、count=每文件计数字段）。
+	# 没有这个分母时，"页切片为空"与"整趟零命中"在模型眼里是同一句话——而前者是
+	# 工具说过自己匹配到过东西。`result_no_match` 也用它判定，避免把成功检索
+	# 记进 ZeroHitTracker 的"第 N 次空结果"。
+	total_matched: Optional[int] = None
 
 
 def prompt() -> str:
@@ -614,6 +667,10 @@ class GrepTool:
 			return self._call_symbols(input_data, absolute_path)
 
 		args = build_rg_args(input_data)
+		# `.agentignore` 挂载（2026-10-05）：与 Glob 同源（glob_tool 已接），工具描述
+		# 早已向模型承诺 "auto-skipped"，此前只对 Glob 兑现。搜索根 + 工作区 cwd 各
+		# 探一次；无该文件时零变化。后置的 `--glob !rule` 保证用户 glob 也穿不透。
+		args.extend(agentignore_args(absolute_path, self._cwd))
 		offset = max(0, input_data.offset or 0)
 
 		# 这里曾经挂过一层 trigram 内容索引预筛（把 rg 扫描面收窄到候选集），2026-09-25
@@ -624,6 +681,9 @@ class GrepTool:
 		results = run_ripgrep(args, absolute_path, abort=abort)
 
 		if mode == "content":
+			# rg 的上下文分组分隔行（"--"）不带路径/行号，参与排序会被甩到最前；
+			# 分组信息由行号表达 ⇒ 摘掉（2026-10-05）。
+			results = [ln for ln in results if ln.strip() != "--"]
 			# 确定序：先按 (路径, 行号) 排好再分页，避免 rg 遍历序跨调用漂移。
 			results.sort(key=_content_line_sort_key)
 			limited, applied_limit = apply_head_limit(
@@ -640,6 +700,7 @@ class GrepTool:
 				num_lines=len(final_lines),
 				applied_limit=applied_limit,
 				applied_offset=offset if offset > 0 else None,
+				total_matched=len(results),
 			)
 
 		if mode == "count":
@@ -653,7 +714,10 @@ class GrepTool:
 			]
 			total_matches = 0
 			file_count = 0
-			for line in final_lines:
+			# 总数按**整趟**算，不按页切片：这句话的主语是 "total … across N files"，
+			# 用分页后的行来加，等于把页内小计报成仓库总数（head_limit 生效时必错）。
+			# 解析只看行尾的整数，路径是否已转相对不影响。
+			for line in results:
 				colon = line.rfind(":")
 				if colon <= 0:
 					continue
@@ -670,6 +734,7 @@ class GrepTool:
 				num_matches=total_matches,
 				applied_limit=applied_limit,
 				applied_offset=offset if offset > 0 else None,
+				total_matched=len(results),
 			)
 
 		# files_with_matches：统一、确定的排序（按相对路径字母序）。
@@ -686,6 +751,7 @@ class GrepTool:
 			num_files=len(relative),
 			applied_limit=applied_limit,
 			applied_offset=offset if offset > 0 else None,
+			total_matched=len(results),
 		)
 
 	def _call_symbols(self, input_data: GrepInput, absolute_path: str) -> GrepOutput:
@@ -794,6 +860,7 @@ class GrepTool:
 			num_matches=count,
 			applied_limit=applied_limit,
 			applied_offset=offset if offset > 0 else None,
+			total_matched=count,
 		)
 
 	@staticmethod
@@ -802,15 +869,23 @@ class GrepTool:
 		limit_info = format_limit_info(output.applied_limit, output.applied_offset)
 
 		if output.mode == "content":
-			body = output.content or "No matches found"
+			paged_empty = not output.content and (output.total_matched or 0) > 0
+			if paged_empty:
+				body = _empty_page_fact("lines", output.total_matched or 0, "line(s)")
+			else:
+				body = output.content or "No matches found"
 			if limit_info:
 				body = f"{body}\n\n[Showing results with pagination = {limit_info}]"
-			if not output.content:
+			if not output.content and not paged_empty:
 				body = body + _NO_MATCH_TIP + _RG_SCOPE_NOTE
 			return body
 
 		if output.mode == "count":
-			raw = output.content or "No matches found"
+			paged_empty = not output.content and (output.total_matched or 0) > 0
+			if paged_empty:
+				raw = _empty_page_fact("rows", output.total_matched or 0, "file row(s)")
+			else:
+				raw = output.content or "No matches found"
 			matches = output.num_matches or 0
 			files = output.num_files or 0
 			if matches == 0:
@@ -826,6 +901,10 @@ class GrepTool:
 
 		if output.mode == "symbols":
 			if not output.content:
+				if (output.total_matched or 0) > 0:
+					return _empty_page_fact(
+						"symbols", output.total_matched or 0, "symbol(s)"
+					)
 				return "No symbols found" + _NO_MATCH_TIP + _SYMBOLS_SCOPE_NOTE
 			matches = output.num_matches or 0
 			summary = f"\n\nFound {matches} {_plural(matches, 'symbol')} matched."
@@ -835,6 +914,11 @@ class GrepTool:
 
 		# files_with_matches 模式
 		if output.num_files == 0:
+			if (output.total_matched or 0) > 0:
+				body = _empty_page_fact("files", output.total_matched or 0, "file(s)")
+				if limit_info:
+					body = f"{body}\n\n[Showing results with pagination = {limit_info}]"
+				return body
 			return "No files found" + _NO_MATCH_TIP + _RG_SCOPE_NOTE
 		header = f"Found {output.num_files} {_plural(output.num_files, 'file')}"
 		if limit_info:
@@ -847,7 +931,14 @@ class GrepTool:
 
 	@staticmethod
 	def result_no_match(output: GrepOutput) -> bool:
-		"""是否为合法执行但零命中（供 query_loop 零命中前提复核用）。"""
+		"""是否为合法执行但零命中（供 query_loop 零命中前提复核用）。
+
+		判据落在**整趟**上：分页越界的空页里 num_lines/filenames 都是 0，但那不是
+		"没匹配"——把它记进 ZeroHitTracker 等于对模型说"这条路没有"，而工具自己
+		刚在同一趟里数到了命中。total_matched 缺失时（旧构造点/外部调用）退回逐模式判据。
+		"""
+		if output.total_matched is not None:
+			return output.total_matched == 0
 		if output.mode == "content":
 			return not (output.num_lines or 0)
 		if output.mode == "symbols":
@@ -931,24 +1022,50 @@ class GrepTool:
 		"""XEYO 入口：校验 → 权限 → call → ToolResult。"""
 		abort.raise_if_aborted()
 
+		# 类型收口：这几项在解析层会被降级成"没给过滤器"或强造成字面量，
+		# 那等于把模型的请求换了再执行（实测覆盖面翻倍），所以先挡下来。
+		bad_type = string_field_type_error(
+			input or {}, ("pattern", "path", "glob", "type", "detail")
+		)
+		if bad_type:
+			return ToolResult(content=bad_type, is_error=True, error_kind=INVALID_ARGUMENT)
+		bad_num = int_field_type_error(
+			input or {}, ("-A", "-B", "-C", "context", "head_limit", "offset")
+		)
+		if bad_num:
+			return ToolResult(content=bad_num, is_error=True, error_kind=INVALID_ARGUMENT)
+
 		grep_input = self.parse_input(input)
 
 		validation = self.validate_input(grep_input)
 		if not validation.get("result"):
+			# 0/3/4 = 参数缺失/枚举非法/越界 ⇒ 模型侧。路径不存在（1）**故意留
+			# INTERNAL**：NOT_FOUND 在 fault_split 归环境侧，把模型写错的路径判给
+			# 环境是新的假话（同 test_missing_note_stays_honestly_unclassified）。
+			kind = INVALID_ARGUMENT if validation.get("errorCode") in (0, 3, 4) else None
 			return ToolResult(
 				content=str(validation.get("message") or "invalid input"),
 				is_error=True,
+				error_kind=kind,
 			)
 
 		if not self.check_permissions(grep_input):
-			return ToolResult(content="permission denied", is_error=True)
+			return ToolResult(content="permission denied", is_error=True, error_kind=PERMISSION_DENIED)
 
 		abort.raise_if_aborted()
 		try:
 			# P0: rg 子进程是同步阻塞，挪出事件循环；abort 传入以杀死子进程。
 			output = await asyncio.to_thread(self.call, grep_input, abort=abort)
 		except Exception as e:  # noqa: BLE001
-			return ToolResult(content=str(e), is_error=True)
+			# rg 退出码 >=2：正则解析错（模型写的 pattern）⇒ INVALID_ARGUMENT；
+			# 超时 ⇒ TIMEOUT（环境侧）。其余（起不来 rg / fallback 失败等）不分类。
+			text = str(e)
+			kind = None
+			if "regex parse error" in text:
+				kind = INVALID_ARGUMENT
+			elif "timed out" in text:
+				kind = TIMEOUT
+			return ToolResult(content=text, is_error=True, error_kind=kind)
 
 		abort.raise_if_aborted()
 		return ToolResult(

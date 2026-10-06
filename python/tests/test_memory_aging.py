@@ -135,7 +135,7 @@ def test_disabled_keeps_legacy_stub_bytes(monkeypatch: pytest.MonkeyPatch, mem_s
 	frozen = len(h) - 4
 	out = project(h, frozen_until=frozen)
 	assert out[2]["content"][0]["content"] == (
-		"[compacted] Bash: prior result (3 lines) archived; answer from remaining context"
+		"[compacted] Bash: prior result (3 lines) archived"
 	)
 
 

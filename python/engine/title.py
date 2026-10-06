@@ -7,8 +7,9 @@
   （投影字节稳定性不受影响）。
 - ``pinned``（用户显式 rename）永不被自动路径覆盖。
 - ``enhance_with_model``：``purpose='session-title'`` 旁路请求；thinking 关、
-  无工具、dispatch 前写审计（``title.enhance``）；空结果 / 非 stop 结束 /
-  pinned 一律拒绝采纳，保留即时标题。
+  无工具、dispatch 前写审计（``title.enhance``）；空结果 / 非 stop 且非缺省
+  结束 / pinned 一律拒绝采纳（缺省 ``None`` 视为可信，兼容不发 finish_reason
+  的厂商），保留即时标题。
 """
 
 from __future__ import annotations
@@ -268,6 +269,9 @@ _TITLE_PROMPT = (
 	"只输出标题本身，不要引号、句号或任何解释。\n\n用户消息：\n"
 )
 
+#: 在飞的后台增强任务（防 GC；见 fire_and_forget_enhance docstring）。
+_ENHANCE_TASKS: set[asyncio.Task[None]] = set()
+
 
 def _audit(kind: str, **fields: Any) -> None:
 	try:
@@ -314,7 +318,11 @@ def fire_and_forget_enhance(
 	first_user_text: str,
 	client: _StreamClient,
 ) -> asyncio.Task[None] | None:
-	"""尽力派发后台增强任务；无运行中事件循环时返回 None。"""
+	"""尽力派发后台增强任务；无运行中事件循环时返回 None。
+
+	任务引用必须由模块持有（asyncio 官方注意事项：create_task 的返回值若无人
+	持强引用，任务可能在执行中被 GC）。调用方不需要关心它。
+	"""
 	try:
 		loop = asyncio.get_running_loop()
 	except RuntimeError:
@@ -329,4 +337,7 @@ def fire_and_forget_enhance(
 		except Exception:  # noqa: BLE001
 			pass
 
-	return loop.create_task(_run())
+	task = loop.create_task(_run())
+	_ENHANCE_TASKS.add(task)
+	task.add_done_callback(_ENHANCE_TASKS.discard)
+	return task

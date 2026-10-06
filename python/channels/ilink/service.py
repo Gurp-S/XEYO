@@ -13,8 +13,8 @@ import channels.ilink._state as _st
 import httpx
 
 from channels.base import InboundMessage
-from channels.filehelper.commands import parse_command, with_screenshot_nudge
-from channels.filehelper.prefix import is_own_reply, xeyo_reply
+from channels.remote_commands import parse_command, with_screenshot_nudge
+from channels.remote_prefix import is_own_reply, xeyo_reply
 from common.errors import safe_error_text
 from channels.ilink import SESSION_ID, session_id_for
 from channels.ilink.channel import ILinkChannel
@@ -33,8 +33,8 @@ from server.session_pool import ModelConfig
 
 log = logging.getLogger("xeyo.ilink")
 
-# 帮助文案与文件传输助手同源（统一 manifest 生成，白名单一致）。
-from channels.filehelper.commands import help_text as _shared_remote_help_text
+# 帮助文案由统一 manifest 生成（远程白名单一致）。
+from channels.remote_commands import help_text as _shared_remote_help_text
 
 _HELP = _shared_remote_help_text()
 
@@ -527,7 +527,7 @@ async def _handle_user_msg(msg: dict[str, Any], channel: ILinkChannel, runner: F
 	if not need_media:
 		hit = parse_command(text)
 		if hit is not None:
-			reply = await _run_command(hit.name, text, runner, session_id=sid)
+			reply = await _run_command(hit.name, text, runner, session_id=sid, arg=hit.arg)
 			info = dict(_bridge.last_inbound or {})
 			info["handled"] = "command"
 			_bridge.last_inbound = info
@@ -601,6 +601,7 @@ async def _run_command(
 	runner: FinalOnlyRunner,
 	*,
 	session_id: str = "",
+	arg: str = "",
 ) -> str | None:
 	sid = (session_id or "").strip() or SESSION_ID
 	_st._last_session_id = sid
@@ -653,11 +654,29 @@ async def _run_command(
 			)
 		_push_event("outbound", xeyo_reply(reply), command=name, session_id=sid)
 		return reply
+	if name == "answer":
+		# #11：手机侧作答（与 allow/deny 同款，取会话内最新挂起提问）。
+		from permissions.ask_store import default_ask_store
+
+		answer_text = (arg or "").strip()
+		if not answer_text:
+			reply = "用法：/answer <你的回答>"
+		else:
+			item = default_ask_store().pending_for_session(sid)
+			if item is None:
+				reply = "当前没有待回答的提问"
+			else:
+				ok = default_ask_store().resolve_answer(
+					item.request_id, answer_text, actor="ilink"
+				)
+				reply = "已提交回答。" if ok else "提问已处理过或已过期。"
+		_push_event("outbound", xeyo_reply(reply), command=name, session_id=sid)
+		return reply
 	if name == "help":
 		_push_event("outbound", xeyo_reply(_HELP), command=name, session_id=sid)
 		return _HELP
 	if name in {"rule", "doctor", "proposals"}:
-		from channels.filehelper.commands import handle_instruction_command, parse_command
+		from channels.remote_commands import handle_instruction_command, parse_command
 
 		hit = parse_command(raw)
 		arg = hit.arg if hit is not None else ""
@@ -897,12 +916,6 @@ async def start(
 	if _bridge.state == "error":
 		await _bridge.stop()
 
-	from channels.filehelper.service import get_bridge as fh_bridge
-	from channels.filehelper.service import stop as fh_stop
-
-	if fh_bridge().state != "stopped":
-		await fh_stop(runner)
-
 	_mirror.reset_data()
 	_inbound_q.clear()
 	_st._last_session_id = SESSION_ID
@@ -996,6 +1009,53 @@ async def start(
 			_mirror.set_status("")
 		_mirror.broadcast_stream(reset=True)
 
+	def on_ask(payload: dict[str, Any], session_id: str) -> None:
+		"""提问（AskUserQuestion）双桥（#11）：推桌面镜像 + 微信侧带作答指引。
+
+		旧状：远端回合一旦 AskUserQuestion，手机答不了、桌面看不到题，只能等
+		TTL 超时（模型收 [no answer: …]）。本钩子与 on_permission 同形。
+		"""
+		if not accepts_stream_session(session_id):
+			return
+		if payload.get("kind") == "ask_user_pending":
+			_mirror.set_status("等待你的回答…")
+			question = str(payload.get("question") or "")
+			options = [str(o) for o in (payload.get("options") or [])]
+			_push_event(
+				"ask",
+				question,
+				session_id=session_id,
+				request_id=str(payload.get("request_id") or ""),
+				options=options,
+				default=str(payload.get("default") or ""),
+				questions=list(payload.get("questions") or []),
+			)
+			peer = _bridge.peer_id
+			ctx = _bridge.context_token
+			if peer and ctx:
+				opts_hint = (
+					"\n可选项：" + " / ".join(options) if options else ""
+				)
+				asyncio.create_task(
+					_silent_send(
+						xeyo_reply(
+							f"{question}{opts_hint}\n回复 /answer <你的回答> 继续。"
+						),
+						to_user_id=peer,
+						context_token=ctx,
+					)
+				)
+		else:
+			# resolved（含超时）：桌面镜像收尾（关弹窗），状态复位。
+			_push_event(
+				"ask_resolved",
+				"",
+				session_id=session_id,
+				request_id=str(payload.get("request_id") or ""),
+			)
+			_mirror.set_status("")
+		_mirror.broadcast_stream(reset=True)
+
 	def on_task_state(status: str, session_id: str) -> None:
 		if not accepts_stream_session(session_id):
 			return
@@ -1040,6 +1100,7 @@ async def start(
 	runner.set_on_tool_call(on_tool_call)
 	runner.set_on_tool_result(on_tool_result)
 	runner.set_on_permission(on_permission)
+	runner.set_on_ask(on_ask)
 	runner.set_on_task_state(on_task_state)
 	_bridge.set_inbound_handler(on_inbound)
 	_bridge._stop = asyncio.Event()
@@ -1064,6 +1125,7 @@ async def stop(runner: FinalOnlyRunner | None = None) -> None:
 		runner.set_on_tool_call(None)
 		runner.set_on_tool_result(None)
 		runner.set_on_permission(None)
+		runner.set_on_ask(None)
 		runner.set_on_task_state(None)
 	_st._runner_ref = None
 	await _notify_offline(_bridge._client, _bridge._token)

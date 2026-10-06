@@ -8,8 +8,9 @@ from collections import OrderedDict
 from typing import Any
 from urllib.parse import urljoin, urlsplit, urlunsplit
 
-from engine.abort import AbortController
+from engine.abort import AbortController, Aborted
 from tools.base_tool import ToolResult
+from tools.error_taxonomy import TIMEOUT
 from tools.web_common import focus_text, html_to_text, is_blocked_url
 from tools.web_fetch_tool.prompt import DESCRIPTION, WEB_FETCH_TOOL_NAME
 
@@ -219,10 +220,22 @@ class WebFetchTool:
 			_cache_put(cache_key, content)
 			return ToolResult(content=content, is_error=False)
 		except httpx.TimeoutException:
-			return ToolResult(content=f"fetch timed out: {url}", is_error=True)
-		except Exception as e:  # noqa: BLE001
+			# 报错要点名"实际卡住的那一跳"，否则模型只会重试入口 URL 再撞同一次超时。
+			tail = f" (redirected from {url})" if current != url else ""
 			return ToolResult(
-				content=f"fetch failed: {type(e).__name__}: {e}"[:500],
+				content=f"fetch timed out: {current}{tail}",
+				is_error=True,
+				error_kind=TIMEOUT,
+				retryable=True,
+			)
+		except Aborted:
+			# 用户停止不是抓取失败：吞掉它会让工具被记成 error，模型读到的是
+			# 「站点坏了」而不是「我刚才被停了」，编排层的取消链也断了。
+			raise
+		except Exception as e:  # noqa: BLE001
+			tail = f" (redirected from {url})" if current != url else ""
+			return ToolResult(
+				content=f"fetch failed: {type(e).__name__}: {e}{tail}"[:500],
 				is_error=True,
 			)
 

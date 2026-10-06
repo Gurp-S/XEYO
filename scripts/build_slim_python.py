@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 """精简 Python 代码到 gui/src-tauri/resources/python/。
 
-复制运行时必需目录（server/engine/cli/tools/prompt/slash/permissions/
-session/msgtypes/memory(部分)/channels/rewind/audit/codeindex/common/
-model/extension/usage），去除 evals/bridge/scripts/tests/_shadow 与
+复制桌面后端运行必需目录，去除 evals/scripts/tests/_shadow 与
 __pycache__/*.pyc/out/simulator/out 等。
 
 重复运行会先清理目标目录再复制。
@@ -18,10 +16,12 @@ DST = os.path.join(os.path.dirname(__file__), "..", "gui", "src-tauri", "resourc
 KEEP_TOP = {
     "server", "engine", "cli", "tools", "prompt", "slash", "permissions",
     "session", "msgtypes", "model", "channels", "rewind", "audit",
-    "codeindex", "common", "extension", "usage",
+    "codeindex", "common", "extension", "usage", "bridge", "coord",
+    "diagnostics", "localmodels", "sidecar", "synaptic",
 }
 # memory 单独处理：保留运行时引用的子模块，去 simulator/out
-CUT_TOP = {"evals", "bridge", "scripts", "tests"}
+CUT_TOP = {"evals", "scripts", "tests"}
+TOP_FILES = {"media_store.py"}
 MEMORY_KEEP_SUB = {
     "__init__.py", "instruction.py", "l.py", "l", "runtime.py", "token.py",
     "working.py", "governance.py", "agent_scope.py", "cache_profile.py",
@@ -37,6 +37,10 @@ def main():
     os.makedirs(DST, exist_ok=True)
     for item in sorted(os.listdir(SRC)):
         sp = os.path.join(SRC, item)
+        if os.path.isfile(sp) and item in TOP_FILES:
+            shutil.copy2(sp, os.path.join(DST, item))
+            print(f"  COPY {item}")
+            continue
         if not os.path.isdir(sp):
             continue
         if item in CUT_TOP:

@@ -1,4 +1,4 @@
-"""按厂商 / 模型估算消费金额（人民币）。
+"""按厂商 / 模型估算消费金额（人民币 / 美元）。
 
 DeepSeek V4 官方价（2026-08-17 起，元 / 百万 token）：
   高峰 09:00–12:00、14:00–18:00（北京时间）；空闲 = 高峰 × 1/2。
@@ -6,9 +6,17 @@ DeepSeek V4 官方价（2026-08-17 起，元 / 百万 token）：
   pro   空闲 命中 0.15 / 未命中 4.5 / 输出 13.5；高峰 0.30 / 9.0 / 27.0
 
 OpenAI 公开价按美元计，再按固定汇率折人民币，仅作看板近似。
+
+**计价诚实性（2026-09-27 钉）**：本模块只对**有权威价目**的厂商出数。
+``price_authority()`` 给出机器可判的三态 —— ``vendor``（内置厂商官方价目 / 实时价目命中）
+/ ``user``（用户显式登记：``XEYO_BUDGET_PRICE_*`` 覆盖）/ ``none``（无价目）。
+``none`` 时 ``estimate_cny`` / ``estimate_usd`` / ``get_model_pricing`` 一律返回 ``None``：
+账本与面板据此记「费用未知」，绝不借别家价目或 ``_DEFAULT_USD_PRICES`` 顶替出一个数。
 """
 
 from __future__ import annotations
+
+import math
 
 import json
 import os
@@ -188,7 +196,7 @@ def official_cost_cny(usage: dict[str, Any]) -> float | None:
 			n = float(usage[key])
 		except (TypeError, ValueError):
 			continue
-		if n < 0:
+		if not math.isfinite(n) or n < 0:
 			continue
 		currency = str(
 			usage.get("currency") or usage.get("cost_currency") or ""
@@ -224,19 +232,42 @@ def _deepseek_multiplier(
 		return 1.0
 
 
-def _has_explicit_price(provider: str) -> bool:
-	"""该厂商是否有显式价目（LOCAL_PRICING_DB 登记 或 env 覆盖）；无则走中性估算档。"""
-	db = LOCAL_PRICING_DB.get((provider or "").lower())
+#: 内置厂商官方价目覆盖的厂商（``LOCAL_PRICING_DB`` 的内建部分）。
+#: 非内建项 = 用户后来登记的价目，两者在 ``price_authority()`` 里区分。
+_BUILTIN_PRICED_PROVIDERS = frozenset({"deepseek", "openai"})
+
+#: 用户显式登记价目的环境变量（任一非空即视为「用户登记过价」）。
+_PRICE_ENV_KEYS = (
+	"XEYO_BUDGET_PRICE_INPUT_USD",
+	"XEYO_BUDGET_PRICE_CACHED_INPUT_USD",
+	"XEYO_BUDGET_PRICE_OUTPUT_USD",
+)
+
+
+def _env_price_override() -> bool:
+	return any(os.environ.get(k, "").strip() for k in _PRICE_ENV_KEYS)
+
+
+def price_authority(provider: str) -> str:
+	"""该厂商价目的权威来源（机器可判的三态，账本 / 预算闸共用同一判据）：
+
+	- ``"vendor"``：内置厂商官方价目（``LOCAL_PRICING_DB`` 内建项；实时价目命中同属此档）；
+	- ``"user"``：用户显式登记（``XEYO_BUDGET_PRICE_*`` 覆盖 / ``LOCAL_PRICING_DB`` 非内建项）；
+	- ``"none"``：**没有任何权威价目** —— 计价一律返回 ``None``。
+
+	判据与既有 ``_has_explicit_price`` 完全一致（只是把「有 / 无」细分成两类），
+	不新造第二套口径：``none`` ⇔ ``not _has_explicit_price(...)``。
+	"""
+	prov = (provider or "").lower()
+	db = LOCAL_PRICING_DB.get(prov)
 	if isinstance(db, dict) and db:
-		return True
-	return any(
-		os.environ.get(k, "").strip()
-		for k in (
-			"XEYO_BUDGET_PRICE_INPUT_USD",
-			"XEYO_BUDGET_PRICE_CACHED_INPUT_USD",
-			"XEYO_BUDGET_PRICE_OUTPUT_USD",
-		)
-	)
+		return "vendor" if prov in _BUILTIN_PRICED_PROVIDERS else "user"
+	return "user" if _env_price_override() else "none"
+
+
+def _has_explicit_price(provider: str) -> bool:
+	"""该厂商是否有显式价目（LOCAL_PRICING_DB 登记 或 env 覆盖）；无则没有权威价目。"""
+	return price_authority(provider) != "none"
 
 
 def estimate_cny(
@@ -246,13 +277,17 @@ def estimate_cny(
 	usage: dict[str, Any],
 	ts: float,
 	local_only: bool = True,
-) -> float:
-	"""折算一轮 usage 的人民币费用。
+) -> float | None:
+	"""折算一轮 usage 的人民币费用；**没有权威价目时返回 ``None``**（费用未知）。
 
 	- ``local_only=True``（默认，未设 USD 上限）：DeepSeek 用官方人民币价目（精确，
 	  分时倍率），OpenAI 用本地美元价目折人民币 —— 不联网，和旧行为一致。
 	- ``local_only=False``（设了 USD 上限）：走厂商实时价（aipricing.guru）链路，
 	  与 ``estimate_usd`` / USD 预算同源，保证 费用(CNY) 与 预算(USD) 来自同一条价格链。
+
+	其它厂商（智谱 / 通义 / Kimi …）：本机没有权威价目（``price_authority()=="none"``）
+	时返回 ``None``，调用方记「费用未知」。**不许**再借 DeepSeek flash 空闲档这类
+	别家价目顶替出一个数 —— 那是把未知写成已知（2026-09-27 修复，原实现约 pricing.py:271）。
 	"""
 	hit, miss, out = split_usage(usage)
 	prov = (provider or "").lower()
@@ -266,29 +301,27 @@ def estimate_cny(
 			key = (model or "").lower()
 			usd = _OPENAI_USD.get(key) or _OPENAI_USD["gpt-4o-mini"]
 			return (miss * usd[0] + hit * usd[1] + out * usd[2]) / _M * USD_CNY
-		# 其它厂商（智谱 / 通义 / Kimi …，2026-09-09 P0-1 修正）：
-		# 本机没有官方价目时**不为它硬定价**——沿用中性估算档（与 DeepSeek flash
-		# 空闲档同量级），不落 _DEFAULT_USD_PRICES（2.0/8.0 美元是预算保守上限，
-		# 拿来做面板金额会把无价目厂商的消费虚高数倍）。
-		# LOCAL_PRICING_DB 显式登记 / env 显式覆盖的厂商仍按其价目估算。
-		if not _has_explicit_price(prov):
-			neutral = _DEEPSEEK["flash"][0]  # (hit, miss, out) 元 / 百万
-			return (
-				hit * neutral[0] + miss * neutral[1] + out * neutral[2]
-			) / _M
-		price = _local_pricing(provider, model)
-		price = effective_prices(provider, model, ts, price) or price
+		# LOCAL_PRICING_DB 显式登记 / env 显式覆盖的厂商按其价目估算；
+		# 无权威价目 ⇒ None（费用未知，不编价）。
+		rate = _rate_with_basis(
+			provider=provider, model=model, local_only=True, ts=ts
+		)
+		if rate is None:
+			return None
+		price, _basis = rate
 		return (
 			hit * price["input_hit"] + miss * price["input_miss"] + out * price["output"]
 		) / _M * USD_CNY
-	# 对齐 USD 预算：实时价（厂商）→ 本地兜底 → 分时倍率 → CNY
-	usd = estimate_usd(
+	# 对齐 USD 预算：实时价（厂商）→ 本地登记价 → 分时倍率 → CNY；无价目 ⇒ None
+	usd, _basis = estimate_usd_checked(
 		provider=provider,
 		model=model,
 		usage=usage,
 		local_only=False,
 		ts=ts,
 	)
+	if usd is None:
+		return None
 	return usd * USD_CNY
 
 
@@ -372,7 +405,7 @@ def _price_env(name: str, default: float) -> float:
 		v = float(raw)
 	except (TypeError, ValueError):
 		return default
-	return v if v >= 0 else default
+	return v if math.isfinite(v) and v >= 0 else default
 
 
 def _normalize_price(price: Any) -> dict[str, float] | None:
@@ -397,6 +430,8 @@ def _normalize_price(price: Any) -> dict[str, float] | None:
 			raw_cache = price.get("cache_prompt")
 		cached = float(raw_cache) if raw_cache is not None else input_miss
 	except (TypeError, ValueError):
+		return None
+	if not all(math.isfinite(v) for v in (input_miss, cached, output)):
 		return None
 	return {
 		"input_miss": max(0.0, input_miss),
@@ -592,18 +627,34 @@ def get_model_pricing(
 	model_name: str,
 	timeout: float = 2.0,
 ) -> dict[str, float] | None:
-	"""USD/1M 单价：{input_miss, input_hit, output}。
+	"""USD/1M 单价：{input_miss, input_hit, output}；**没有权威价目时返回 ``None``**。
 
-	优先用 aipricing.guru 实时价；接口异常 / 模型不在表内 / 开关关闭 → 本地兜底。
+	优先用 aipricing.guru 实时价；接口异常 / 模型不在表内 / 开关关闭 → 本地价目。
+	本地价目也没有该厂商（``price_authority()=="none"``）时返回 ``None``：历史行为是
+	回落到 ``_DEFAULT_USD_PRICES``（2.0/0.2/8.0 的保守上限），那会让无价目厂商
+	凭空多出一个金额，预算闸据此算「还剩多少额度」属于编数（2026-09-27 修复）。
 	"""
 	prov = (provider or "").lower()
-	if _pricing_fetch_enabled():
-		data = _load_pricing_json(timeout)
-		if isinstance(data, dict):
-			entry = _find_model_entry(data, prov, model_name)
-			if entry is not None:
-				return entry
+	live = live_pricing_entry(prov, model_name, timeout)
+	if live is not None:
+		return live
+	if price_authority(prov) == "none":
+		return None
 	return _local_pricing(prov, model_name)
+
+
+def live_pricing_entry(
+	provider: str,
+	model_name: str,
+	timeout: float = 2.0,
+) -> dict[str, float] | None:
+	"""只查厂商实时价目（aipricing.guru）；未命中 / 开关关闭 → ``None``（不回落）。"""
+	if not _pricing_fetch_enabled():
+		return None
+	data = _load_pricing_json(timeout)
+	if not isinstance(data, dict):
+		return None
+	return _find_model_entry(data, provider, model_name)
 
 
 def _local_pricing(provider: str, model_name: str) -> dict[str, float]:
@@ -626,6 +677,64 @@ def _local_pricing(provider: str, model_name: str) -> dict[str, float]:
 	}
 
 
+def _rate_with_basis(
+	*,
+	provider: str,
+	model: str,
+	local_only: bool,
+	ts: float,
+	timeout: float = 2.0,
+) -> tuple[dict[str, float], str] | None:
+	"""（单价表, 权威来源）或 ``None``；``None`` = 没有任何权威价目，不许编价。
+
+	来源取值与 ``price_authority()`` 同构（``vendor`` / ``user``），实时价目命中
+	归入 ``vendor``（同属「厂商价目」）。分时倍率（DeepSeek 峰谷）在返回前已折算。
+	"""
+	prov = (provider or "").lower()
+	if not local_only:
+		price = get_model_pricing(prov, model, timeout)
+		if price is None:
+			return None
+		# 只有实时价目命中时 get_model_pricing 才会在无本地登记的情况下给出价目，
+		# 此时权威来源仍是厂商价目。
+		basis = price_authority(prov)
+		if basis == "none":
+			basis = "vendor"
+		return effective_prices(prov, model, ts, price) or price, basis
+	basis = price_authority(prov)
+	if basis == "none":
+		return None
+	price = _local_pricing(prov, model)
+	return effective_prices(prov, model, ts, price) or price, basis
+
+
+def estimate_usd_checked(
+	*,
+	provider: str,
+	model: str,
+	usage: dict[str, Any],
+	local_only: bool = False,
+	ts: float | None = None,
+) -> tuple[float | None, str]:
+	"""按用户选择的 provider / model 折算一轮 usage 的 USD + 权威来源。
+
+	没有什么权威价目时返回 ``(None, "none")`` —— 费用未知，调用方（预算闸）据此
+	判定该闸对这些模型不生效，而不是拿别人的价目算一个假的「还剩多少额度」。
+	"""
+	hit, miss, out = split_usage(usage)
+	if ts is None:
+		ts = time.time()
+	rate = _rate_with_basis(
+		provider=provider, model=model, local_only=local_only, ts=ts
+	)
+	if rate is None:
+		return None, "none"
+	price, basis = rate
+	return (
+		hit * price["input_hit"] + miss * price["input_miss"] + out * price["output"]
+	) / _M, basis
+
+
 def estimate_usd(
 	*,
 	provider: str,
@@ -633,20 +742,17 @@ def estimate_usd(
 	usage: dict[str, Any],
 	local_only: bool = False,
 	ts: float | None = None,
-) -> float:
-	"""按用户选择的 provider / model 折算一轮 usage 的 USD（实时价优先）。
+) -> float | None:
+	"""折算 USD；**没有权威价目时返回 ``None``**（详见 ``estimate_usd_checked``）。
 
-	``local_only=True`` 只查本地兜底价：未设 USD 上限的普通使用不依赖第三方。
+	``local_only=True`` 只查本地价目：未设 USD 上限的普通使用不依赖第三方。
 	``ts`` 为消费时刻（默认 now）：DeepSeek 等分时厂商按高峰 / 低峰倍率折算。
 	"""
-	hit, miss, out = split_usage(usage)
-	if ts is None:
-		ts = time.time()
-	if local_only:
-		price = _local_pricing(provider, model)
-	else:
-		price = get_model_pricing(provider, model) or _local_pricing(provider, model)
-	price = effective_prices(provider, model, ts, price) or price
-	return (
-		hit * price["input_hit"] + miss * price["input_miss"] + out * price["output"]
-	) / _M
+	value, _basis = estimate_usd_checked(
+		provider=provider,
+		model=model,
+		usage=usage,
+		local_only=local_only,
+		ts=ts,
+	)
+	return value

@@ -6,10 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from memory.instruction import clear_instruction_cache, load_instruction_text
+from memory.instruction import MINIMAL_TEMPLATE, clear_instruction_cache, load_instruction_text
 from memory.instruction_maintain import (
 	REPEAT_PROMOTE_N,
-	MINIMAL_TEMPLATE,
 	append_rule_line,
 	discover_nested_instruction_files,
 	doctor_xeyo_md,
@@ -105,7 +104,7 @@ def test_instruction_budget_caps_left(tmp_path, monkeypatch):
 
 
 def test_parse_rule_command():
-	from channels.filehelper.commands import parse_command
+	from channels.remote_commands import parse_command
 
 	hit = parse_command("/rule 永远用中文")
 	assert hit is not None and hit.name == "rule" and "中文" in hit.arg

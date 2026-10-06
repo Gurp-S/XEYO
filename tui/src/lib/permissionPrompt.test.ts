@@ -9,7 +9,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { parsePermissionPending } from "./permissionPrompt.js";
+import { parsePermissionPending, isPeerChoicePrompt } from "./permissionPrompt.js";
 
 test("带 request_id 的帧正常开弹窗，字段原样带出", () => {
   const frame = parsePermissionPending({
@@ -24,6 +24,7 @@ test("带 request_id 的帧正常开弹窗，字段原样带出", () => {
     requestId: "req_7",
     tool: "Bash",
     prompt: "要执行 rm -rf 吗",
+    choices: [],
   });
 });
 
@@ -67,4 +68,38 @@ test("prompt 为空时留空串，不写出 undefined 字样", () => {
   assert.equal(frame.kind, "open");
   if (frame.kind !== "open") return;
   assert.equal(frame.prompt.prompt, "");
+});
+
+test("choices 原样带出：缺省空数组、脏项被滤掉（不把非字符串送上决议面）", () => {
+  const triple = parsePermissionPending({
+    request_id: "r",
+    tool_name: "Write",
+    choices: ["deny", "remind", "allow"],
+  });
+  assert.equal(triple.kind, "open");
+  if (triple.kind !== "open") return;
+  assert.deepEqual(triple.prompt.choices, ["deny", "remind", "allow"]);
+
+  const none = parsePermissionPending({ request_id: "r", tool_name: "Write" });
+  assert.equal(none.kind, "open");
+  if (none.kind !== "open") return;
+  assert.deepEqual(none.prompt.choices, []);
+
+  const dirty = parsePermissionPending({
+    request_id: "r",
+    choices: ["allow", null, " deny ", 7],
+  });
+  assert.equal(dirty.kind, "open");
+  if (dirty.kind !== "open") return;
+  assert.deepEqual(dirty.prompt.choices, ["allow", "deny"]);
+});
+
+test("三选判定：只有服务端给的三件套才算多会话冲突（提醒才有位置）", () => {
+  // GUI 同口径：length>=3 且每一项都在 {deny, remind, allow} 里。
+  assert.equal(isPeerChoicePrompt({ choices: ["deny", "remind", "allow"] }), true);
+  assert.equal(isPeerChoicePrompt({ choices: ["allow", "remind", "deny"] }), true);
+  assert.equal(isPeerChoicePrompt({ choices: [] }), false);
+  assert.equal(isPeerChoicePrompt({}), false);
+  assert.equal(isPeerChoicePrompt({ choices: ["allow", "deny"] }), false);
+  assert.equal(isPeerChoicePrompt({ choices: ["allow", "deny", "remind", "x"] }), false);
 });

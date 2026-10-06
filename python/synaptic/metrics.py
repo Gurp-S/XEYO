@@ -116,17 +116,15 @@ def recoverability(proj) -> dict[str, float | int]:
 
 
 def exposed_handles(proj) -> int:
-	"""投影里**实际暴露给模型**的取回句柄数（去重）。
+	"""发射文本内不同取回引用的出现数；不代表可执行、被使用或任务成功。
 
-	为什么单列一个指标：「剪枝不是删除，是降级成缺口 + 可展开句柄」这句设计承诺，
-	只有配上**暴露量 / 使用量**才算证据。暴露量在这里（离线可算），
-	使用量在真实会话里（按需取回工具的调用率）。实测 4 条真实长会话 / 35 个投影：
-	median **28** 个句柄/轮，而同一批回合被剪节点 median **390**。
+	Read 按实际路径和范围去重，expand 按句柄去重。冷层隐藏绑定不计；
+	原文内引用形态的文本也属于出现，不能用这个数替代恢复合同验收。
 	"""
-	cold = getattr(proj, "cold", None)
-	if cold is None:
-		return 0
-	return len(getattr(cold, "handles", {}) or {})
+	from synaptic.handle_coverage import visible_reference_count
+	from synaptic.handles import _EXPAND_RE, _READ_RE
+
+	return visible_reference_count(getattr(proj, "text", "") or "", _EXPAND_RE, _READ_RE)
 
 
 
@@ -152,6 +150,7 @@ ALGORITHM_MODULES = (
 	"types.py",
 	"memo.py",
 	"freshness.py",
+	"state_source.py",
 	"failure_modes.py",
 	"qa_visibility.py",
 	"qa_grading.py",
@@ -160,7 +159,17 @@ ALGORITHM_MODULES = (
 	"graph.py",
 	"filestate.py",
 	"seeds.py",
+	"todo_snapshot.py",
+	"todo_fields.py",
+	"todo_state.py",
 	"paths.py",
+	"visible_paths.py",
+	"pin_render.py",
+	"pin_sources.py",
+	"read_receipt.py",
+	"handle_coverage.py",
+	"read_plan.py",
+	"read_budget.py",
 	"fixed_budget.py",
 	"freeze.py",
 	"rehydrate.py",
@@ -172,7 +181,12 @@ ALGORITHM_MODULES = (
 	"cadence.py",
 	"timing.py",
 	"assemble.py",
+	"journal_rollover.py",
+	"group_recovery.py",
+	"journal_snapshot.py",
 	"coldstore.py",
+	"cold_evidence.py",
+	"group_reference.py",
 	"project.py",
 	"metrics.py",
 )

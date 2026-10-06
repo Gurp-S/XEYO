@@ -4,6 +4,7 @@ import {
 	canEditInboxItem,
 	canManuallyResumeInbox,
 	canMutateInboxItem,
+	canSteerInboxItem,
 	prioritizeInboxPreview,
 } from './inboxItemState';
 
@@ -62,5 +63,16 @@ describe('prioritizeInboxPreview', () => {
 			'delivery',
 			'receipt',
 		]);
+	});
+});
+
+describe('canSteerInboxItem（DSH QueueAction:steer 的入口门）', () => {
+	it('只有 queued 且非归档非侧会话可插入', () => {
+		expect(canSteerInboxItem('queued', false, false)).toBe(true);
+		expect(canSteerInboxItem('delivering', false, false)).toBe(false);
+		expect(canSteerInboxItem('syncing', false, false)).toBe(false);
+		expect(canSteerInboxItem('stuck', false, false)).toBe(false);
+		expect(canSteerInboxItem('queued', true, false)).toBe(false);
+		expect(canSteerInboxItem('queued', false, true)).toBe(false);
 	});
 });

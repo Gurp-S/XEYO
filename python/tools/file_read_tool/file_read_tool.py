@@ -18,6 +18,8 @@ from engine.abort import AbortController
 from engine.aging import aging_enabled
 from permissions import filesystem
 from tools.base_tool import ToolResult
+from tools.error_taxonomy import INVALID_ARGUMENT, PERMISSION_DENIED
+from tools.input_types import int_field_type_error
 from codeindex.symbols import locate_all
 from tools.fileio.paths import (
 	FILE_NOT_FOUND_CWD_NOTE,
@@ -139,7 +141,7 @@ def _coerce_optional_int(value: Any) -> int | None:
 			return None
 		try:
 			return int(float(s))
-		except ValueError:
+		except (ValueError, OverflowError):
 			return None
 	return None
 
@@ -161,6 +163,8 @@ class ReadOutput:
 	start_line: int = 1
 	total_lines: int = 0
 	symbol_meta: Optional[dict] = None
+	#: 本次是"无 limit 默认视图"且被 2000 行上限截断过（模型可见提示的依据）
+	default_capped: bool = False
 
 
 def prompt(*, vision: bool = False) -> str:
@@ -366,6 +370,7 @@ class FileReadTool:
 		if input_data.offset == 0:
 			offset = 1
 		limit = input_data.limit
+		canonical_limit = MAX_LINES_TO_READ if limit is None else limit
 
 		# 去重：同路径同 range 且 mtime 未变 → stub
 		# 老化开启时跳过去重（R1）：unchanged-stub 会指向可能已被老化清除的
@@ -377,9 +382,11 @@ class FileReadTool:
 			and input_data.symbol is None
 			and not aging_enabled()
 			and not existing.is_partial_view
+			and existing.content_known
+			and existing.view_visible
 			and existing.offset is not None
 			and existing.offset == offset
-			and existing.limit == limit
+			and (MAX_LINES_TO_READ if existing.limit is None else existing.limit) == canonical_limit
 		):
 			try:
 				if get_mtime_ms(full) == existing.timestamp:
@@ -507,9 +514,13 @@ class FileReadTool:
 			)
 
 		all_lines = content.split("\n")
+		if all_lines and all_lines[-1] == "":
+			# 尾随换行是终止符不是一行：此前被渲染成 phantom 末行、total_lines 多 1。
+			all_lines = all_lines[:-1]
 		total_lines = len(all_lines) if content else 0
 
 		symbol_meta: Optional[dict] = None
+		default_capped = False
 		if sym is not None:
 			if input_data.pack:
 				from codeindex.pack import pack_symbol_context
@@ -542,6 +553,9 @@ class FileReadTool:
 			start_idx = max(0, offset - 1)
 			effective_limit = MAX_LINES_TO_READ if limit is None else limit
 			sliced = all_lines[start_idx : start_idx + effective_limit]
+			default_capped = (
+				limit is None and total_lines > start_idx + effective_limit
+			)
 			slice_text = "\n".join(sliced)
 			start_line_out = offset
 
@@ -561,13 +575,16 @@ class FileReadTool:
 		#    而取回语义要求每次都给正文。
 		# 判定走 `memory.offload.is_externalized_path`（按 offload 根前缀，见其 docstring）。
 		if not _is_externalized(full, self._cwd):
+			from tools.fileio.read_visibility import view_digest
+
 			self._read_state.set(
 				full,
 				FileStateEntry(
 					content=content,
 					timestamp=mtime,
 					offset=start_line_out if symbol_meta is None else None,
-					limit=None if symbol_meta is not None else limit,
+					limit=None if symbol_meta is not None else canonical_limit,
+					view_digest=view_digest(add_line_numbers(slice_text, start_line=start_line_out)),
 				),
 			)
 
@@ -578,6 +595,7 @@ class FileReadTool:
 			start_line=start_line_out,
 			total_lines=total_lines,
 			symbol_meta=symbol_meta,
+			default_capped=default_capped,
 		)
 
 	@staticmethod
@@ -585,7 +603,16 @@ class FileReadTool:
 		if output.type == "file_unchanged":
 			return FILE_UNCHANGED_STUB
 		if output.content:
-			return add_line_numbers(output.content, start_line=output.start_line)
+			rendered = add_line_numbers(output.content, start_line=output.start_line)
+			if output.default_capped:
+				shown = output.content.count("\n") + 1
+				rendered += (
+					f"\n\n<system-reminder>The file has {output.total_lines} lines; "
+					f"this view shows lines {output.start_line}-"
+					f"{output.start_line + shown - 1}. "
+					f"offset/limit select other portions.</system-reminder>"
+				)
+			return rendered
 		if output.total_lines == 0:
 			return (
 				"<system-reminder>Warning: the file exists but the contents "
@@ -614,17 +641,30 @@ class FileReadTool:
 		self, input: dict[str, Any], abort: AbortController
 	) -> ToolResult:
 		abort.raise_if_aborted()
+
+		# 类型收口：`_coerce_optional_int` 认不出的值会降级成 None，而 None 的含义是
+		# "没给"——实测 `limit='abc'` 读回整份 534 行、`offset='abc'` 从第 1 行开始，
+		# 模型看到的是一次成功的按要求读取。先挡下来，把形状如实说回去。
+		bad_type = int_field_type_error(input or {}, ("offset", "limit"))
+		if bad_type:
+			return ToolResult(content=bad_type, is_error=True, error_kind=INVALID_ARGUMENT)
+
 		read_input = self.parse_input(input)
 
 		validation = self.validate_input(read_input)
 		if not validation.get("result"):
+			# 0/5/6 = 必填缺失/越界/组合非法 ⇒ 模型侧 INVALID_ARGUMENT。
+			# 4（vision/binary 能力拒绝）与 9（设备文件）依赖引擎配置/宿主，
+			# 故意不分类：别把配置问题算成模型参数错。
+			kind = INVALID_ARGUMENT if validation.get("errorCode") in (0, 5, 6) else None
 			return ToolResult(
 				content=str(validation.get("message") or "invalid input"),
 				is_error=True,
+				error_kind=kind,
 			)
 
 		if not self.check_permissions(read_input):
-			return ToolResult(content="permission denied", is_error=True)
+			return ToolResult(content="permission denied", is_error=True, error_kind=PERMISSION_DENIED)
 
 		abort.raise_if_aborted()
 		full = self.get_path(read_input)
@@ -639,6 +679,11 @@ class FileReadTool:
 		try:
 			# 同步磁盘 I/O（图像/PDF 解码更重）——挪线程防冻结事件循环。
 			output = await asyncio.to_thread(self.call, read_input)
+		except IsADirectoryError as e:
+			# 目标存在但是目录（模型把 Read 指到目录）：稳定事实、模型侧可自纠。
+			# FileNotFoundError 故意不在此列——NOT_FOUND 归环境侧，路径不存在
+			# 可能因用户删改而不可归属，留 INTERNAL 更诚实。
+			return ToolResult(content=str(e), is_error=True, error_kind=INVALID_ARGUMENT)
 		except RuntimeError as e:
 			msg = str(e)
 			if msg in ("__VISION_IMAGE__", "__VISION_PDF__"):
@@ -694,7 +739,16 @@ class FileReadTool:
 	def _execute_pdf(self, full: str, read_input: ReadInput) -> ToolResult:
 		from tools.file_read_tool.vision_media import read_pdf_for_llm
 
-		page = 1 if read_input.offset is None else max(1, int(read_input.offset))
+		# 模型给的页号走带兜底取值（2026-10-05 摘账）：裸 int() 抛 ValueError 会被
+		# 兜成 INTERNAL（=没分类），本该是 INVALID_ARGUMENT（模型侧参数错）。
+		try:
+			page = 1 if read_input.offset is None else max(1, int(read_input.offset))
+		except (TypeError, ValueError):
+			return ToolResult(
+				content=f"invalid offset: {read_input.offset!r} is not an integer page number",
+				is_error=True,
+				error_kind=INVALID_ARGUMENT,
+			)
 		try:
 			summary, images, meta = read_pdf_for_llm(full, page=page)
 		except Exception as e:  # noqa: BLE001

@@ -1,0 +1,1 @@
+{"description":"Send a follow-up to a running subagent (parked until settle).","input_schema":{"properties":{"agent_id":{"description":"Subagent id to message","type":"string"},"text":{"description":"Message text (max 2000 chars)","type":"string"}},"required":["agent_id","text"],"type":"object"},"name":"agent_send"}

@@ -26,7 +26,8 @@ from synaptic.metrics import lcp_tokens
 from synaptic.project import Projection, project
 from synaptic.textutil import node_token_len
 from synaptic.types import KIND_USER, MODE_APPEND_ONLY, MODE_CLOSURE, PruneCard, WscParams
-from wsc._fixtures import CONSTRAINT, SRC, synth_session
+from synaptic.prune import _Unit, _conclusion
+from wsc._fixtures import CONSTRAINT, SRC, msg_asst_use, msg_tool, msg_user, synth_session
 
 
 def _proj(msgs, params=None, prev=None, region_end=None) -> Projection:
@@ -44,6 +45,78 @@ def test_constraints_section_carries_goal_and_constraint():
 	assert H_CONSTRAINTS in p.text
 	assert "修复登录超时" in p.text
 	assert CONSTRAINT in p.text, "用户硬约束没进 PIN"
+
+
+def test_goal_sentence_is_not_repeated_as_constraint():
+	"""同一句原话在同一枪里只出现一次：整句即目标时不再单发约束行。
+
+	现场（sess_musrbw08_n9tly2 第 1 轮）：首条用户消息
+	「告诉我完整的WSC机制…必须完整详细，不能有太多自造词」整句同时成为
+	「目标」pin 与被约束抽取命中的「约束」pin，模型读到两行逐字相同的句子。
+	"""
+	msgs = synth_session(turns=3, include_constraint=False)
+	msgs[0] = msg_user("必须完整详细，不能有太多自造词")
+	p = _proj(msgs)
+	lines = [l for l in p.text.splitlines() if l.startswith(H_CONSTRAINTS)]
+	targets = [l for l in lines if "目标:" in l]
+	constraints = [l for l in lines if "约束:" in l]
+	assert any("必须完整详细" in l for l in targets), "目标行丢了"
+	assert not any("必须完整详细" in l for l in constraints), "目标整句仍在约束段重复出现"
+
+
+def test_real_constraint_in_multi_sentence_goal_stays_in_constraints():
+	"""反向断言：目标消息里的**另一句**真约束必须保留在约束段（防过度去重）。"""
+	msgs = synth_session(turns=3)
+	p = _proj(msgs)
+	assert CONSTRAINT in p.text
+
+
+def test_card_target_prefers_argument_identity_over_mentioned_paths():
+    """卡面 target 只认调用参数点名的文件：正文提到的路径不许冒充身份。"""
+    messages = [
+        msg_asst_use('r', 'Read', {'file_path': 'src/real.py', 'offset': 1, 'limit': 10}),
+        msg_tool('r', 'Read', '// src/real.py\nimport "./other.css"'),
+    ]
+    graph = build_graph(messages)
+    assert graph.node(0).arg_paths, '装配没有为参数路径建身份位'
+    unit = _Unit(root=0, nodes=(0, 1), tool='Read', ok=True, error_sig='',
+                 files=('other.css', 'src/real.py'), replay='',
+                 targets=graph.node(0).arg_paths)
+    concl = _conclusion(graph, unit, 200)
+    assert 'src/real.py' in concl
+    assert 'other.css' not in concl
+
+
+def test_card_target_absent_when_unit_has_no_argument_identity():
+    """没有身份位的单元不许拿正文提及路径充当 target（现场：Bash working.py）。"""
+    messages = [msg_asst_use('b', 'Bash', {'command': 'python -c "grep working.py"'}),
+                msg_tool('b', 'Bash', 'x')]
+    graph = build_graph(messages)
+    unit = _Unit(root=0, nodes=(0, 1), tool='Bash', ok=True, error_sig='',
+                 files=('working.py',), replay='')
+    concl = _conclusion(graph, unit, 200)
+    assert 'working.py' not in concl
+
+
+def test_success_card_suffix_is_result_not_call_arguments():
+	"""卡面后缀取自**结果**首行：调用参数 JSON 会被 90 字截断切成坏引用。
+
+	现场（sess_musrbw08_n9tly2）：`[PRUNED] Read l5_flag.py 完成 → Read({"file_path":"D:\\…
+	模型拿到的"可核对引用"是断掉的 JSON——既不可解析，也不指向任何取回入口。
+	"""
+	messages = [
+		msg_asst_use('r', 'Read', {'file_path': 'src/auth.ts', 'offset': 1, 'limit': 60}),
+		msg_tool('r', 'Read', '// src/auth.ts line 1\n// src/auth.ts line 2'),
+	]
+	graph = build_graph(messages)
+	full = _Unit(root=0, nodes=(0, 1), tool='Read', ok=True, error_sig='',
+	             files=('src/auth.ts',), replay='')
+	concl = _conclusion(graph, full, 200)
+	assert '({"file_path"' not in concl, concl
+	assert 'src/auth.ts line 1' in concl, "结果首行应作为后缀"
+	partial = _Unit(root=0, nodes=(0,), tool='Read', ok=True, error_sig='',
+	                files=('src/auth.ts',), replay='')
+	assert '({"file_path"' not in _conclusion(graph, partial, 200)
 
 
 def test_instruction_lines_are_not_in_hot_layer():
@@ -399,7 +472,7 @@ def test_decisions_row_carries_extra_files_without_duplicating_first():
 	row = render_decisions(cards)[0][1]
 	assert "src/b.ts" in row and "src/c.ts" in row, f"DECISIONS 行漏了 files[1:]：{row}"
 	assert row.count("src/a.ts") == 1, "files[0] 已在结论里，不得重复发射"
-	assert "branch://B7" in row
+	assert "node://7" in row
 
 
 def test_level_watermarks():

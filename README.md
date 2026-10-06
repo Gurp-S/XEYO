@@ -12,7 +12,7 @@
 <p align="center">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
   <img alt="Python" src="https://img.shields.io/badge/python-3.11%2B-3776AB.svg">
-  <img alt="Node.js" src="https://img.shields.io/badge/node-20%2B-339933.svg">
+  <img alt="Node.js" src="https://img.shields.io/badge/node-22%2B-339933.svg">
   <img alt="Tauri" src="https://img.shields.io/badge/desktop-Tauri%202-FFC131.svg">
 </p>
 
@@ -33,19 +33,26 @@ XEYO 把代码阅读、文件操作、命令执行和会话管理放在一个本
 - HTTP/SSE 接口，可连接桌面端、TUI 或脚本
 - 可选的本地模型、MCP、Skill 和插件扩展
 
+## Windows 桌面版
+
+打开 [XEYO Releases](https://github.com/Gurp-S/XEYO/releases/latest)，下载 XEYO_1.1.0_x64-setup.exe 并运行安装器。安装后可从开始菜单打开 XEYO。安装包已包含 Python 运行时和文件搜索工具，目标电脑不需要安装 Python、Node.js 或 Rust。
+
+首次打开后，在应用的“设置”面板填写模型服务商和 API Key。
+
 ## 快速开始
 
 ### 环境要求
 
 - Windows 10/11
 - Python 3.11
-- Node.js 20+
+- Node.js 22+
+- ripgrep（从源码启动时需要；桌面安装包已内置）
 - Rust + Cargo（仅桌面端需要，可从 [rustup.rs](https://rustup.rs/) 安装）
 
-### 一键启动桌面端
+### 从源码启动桌面端
 
 ```powershell
-git clone https://github.com/GiseFt/XEYO.git
+git clone https://github.com/Gurp-S/XEYO.git
 cd XEYO
 XEYO.bat
 ```

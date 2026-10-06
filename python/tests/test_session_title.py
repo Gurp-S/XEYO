@@ -135,6 +135,24 @@ async def test_enhance_rejects_empty_and_pinned(tmp_path: Path):
 	assert quiet.seen_prompt is None
 
 
+@pytest.mark.asyncio
+async def test_fire_and_forget_task_is_held_until_done(tmp_path: Path):
+	"""在飞增强任务必须有模块级强引用（asyncio 官方 GC 注意事项），完成后摘除。"""
+	import asyncio
+
+	import engine.title as title_mod
+
+	write_title("s-t5f", "即时标题")
+	client = _FakeClient("增强标题X")
+	task = title_mod.fire_and_forget_enhance("s-t5f", "问题", client)
+	assert task is not None
+	assert task in title_mod._ENHANCE_TASKS  # 在飞期持留
+	await task
+	await asyncio.sleep(0)  # done callback 下一轮循环执行
+	assert task not in title_mod._ENHANCE_TASKS  # 完成后摘除，不留内存
+	assert read_title("s-t5f")["enhanced"] is True
+
+
 # ---------- rename 端点 ----------
 
 

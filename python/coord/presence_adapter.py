@@ -78,7 +78,7 @@ class FileBackedPresence:
                     self._global.note_session_root(session_id, root)
                     store.save_presence(root, state.to_dict())
         except Exception:  # noqa: BLE001
-            _log.debug("presence mutate failed (root=%s)", h, exc_info=True)
+            _log.warning("presence mutate failed (root=%s)", h, exc_info=True)
 
     def _take(self, root: str, session_id: str) -> list[str]:
         """drain 专用：锁内 load → take → save。
@@ -100,7 +100,7 @@ class FileBackedPresence:
                     store.save_presence(root, state.to_dict())
             return taken
         except Exception:  # noqa: BLE001
-            _log.debug("presence take failed (root=%s)", h, exc_info=True)
+            _log.warning("presence take failed (root=%s)", h, exc_info=True)
             return []
 
     def _read(self, root: str, read):
@@ -112,7 +112,7 @@ class FileBackedPresence:
             state = PresenceState.from_dict(raw)
             return read(state)
         except Exception:  # noqa: BLE001
-            _log.debug("presence read failed (root=%s)", h, exc_info=True)
+            _log.warning("presence read failed (root=%s)", h, exc_info=True)
             return None
 
     # -- 带 cwd 方法 --------------------------------------------------------
@@ -221,7 +221,7 @@ class FileBackedPresence:
                 self._store_for(root).remove_session_from_presence(root, session_id)
             self._global.remove_session_root(session_id)
         except Exception:  # noqa: BLE001
-            _log.debug("presence drop failed", exc_info=True)
+            _log.warning("presence drop failed", exc_info=True)
 
     def queue_notice(self, session_id: str, text: str) -> None:
         root = self._root_of(session_id)

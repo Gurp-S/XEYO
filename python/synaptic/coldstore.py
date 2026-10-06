@@ -216,6 +216,13 @@ class ColdStore:
 		   只能挂在权威副本与视图上。行号是**寻址元数据**，不是内容丢失：
 		   去掉前缀后每行逐字节等于原文（有测试机械地剥前缀比对）。
 		"""
+		text, ranges = self.render_text_view()
+		path.parent.mkdir(parents=True, exist_ok=True)
+		path.write_text(text, encoding="utf-8")
+		return ranges
+
+	def render_text_view(self) -> tuple[str, dict[str, tuple[int, int]]]:
+		"""与落盘视图共用的行号布局；候选评估不写生产取回文件。"""
 		lines: list[str] = []
 		ranges: dict[str, tuple[int, int]] = {}
 		# ⚠️ **按写入顺序（插入序）排块，不许按节点 idx 排序**（2026-09-16 实测修正）。
@@ -260,9 +267,7 @@ class ColdStore:
 			lines.extend(body)
 			end = start + len(body) - 1
 			ranges[handle] = (start, end)
-		path.parent.mkdir(parents=True, exist_ok=True)
-		path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-		return ranges
+		return "\n".join(lines) + "\n", ranges
 
 	def read_ref(self, handle: str, ranges: dict[str, tuple[int, int]], path: Path) -> str:
 		"""把一个句柄渲染成**模型可直接照抄调用**的取回引用（`Read` 口径）。

@@ -22,56 +22,6 @@ def q_unit(r: float, z: float | None, kappa: float) -> float:
 	return r / lambda_z(z, kappa)
 
 
-# --------------------------------------------------------------------------- #
-# B2 证据门（优化2）：内容类型驻留分 s_i —— q_i = r_i·s_i/λ_eff(z_i)。
-# 报错栈 s=1.2 且 λ 强制 1（无视位置死保）；kv/json/path 正常衰减 κ=0.3；
-# tree/grep 大输出 s=0.6 强衰减 κ=1.2；line/chunk（bash 纯日志）s=0.3 极强衰减 κ=1.8。
-# 仅 XEYO_V61_SI=1 且单元带 atom_kind 时生效；默认关闭=与冻结公式逐位一致。
-# --------------------------------------------------------------------------- #
-
-_SI_TABLE: dict[str, tuple[float, float | None]] = {
-	"stack": (1.2, None),  # None → λ 强制 1（位置豁免）
-	"kv": (1.0, 0.3),
-	"json": (1.0, 0.3),
-	"path": (1.0, 0.3),
-	"table": (0.8, 0.8),
-	"tree": (0.6, 1.2),
-	"line": (0.3, 1.8),
-	"chunk": (0.3, 1.8),
-}
-
-
-def si_enabled() -> bool:
-	"""B2 证据门：走 memory_switches.get_value（settings.memory 唯一权威）。"""
-	from memory.memory_switches import get_value
-
-	return get_value("XEYO_V61_SI") == "1"
-
-
-def si_for(atom_kind: str) -> tuple[float, float | None]:
-	"""返回 (s_i, κ覆盖)。无标注 / 未收录类型 → (1.0, None)（冻结公式行为）。"""
-	entry = _SI_TABLE.get((atom_kind or "").strip())
-	if not entry:
-		return 1.0, None
-	return entry
-
-
-def q_unit_si(
-	r: float, z: float | None, kappa: float, atom_kind: str
-) -> float:
-	"""B2 版 q_unit：q = r·s_i/λ_eff(z)。stack 的 λ_eff 强制 1。"""
-	if r <= 0:
-		return 0.0
-	if z is None:
-		raise ValueError("z required when r>0")
-	s_i, kappa_override = si_for(atom_kind)
-	if kappa_override is None and s_i >= 1.2:
-		# 报错栈：位置豁免（λ=1），只乘驻留分
-		return r * s_i
-	lam = lambda_z(z, kappa_override if kappa_override is not None else kappa)
-	return r * s_i / lam
-
-
 @dataclass(frozen=True)
 class UnitEval:
 	id: str
@@ -146,17 +96,12 @@ def evaluate_quality(
 	num = 0.0
 	den = 0.0
 	d_sum = 0.0
-	si_on = si_enabled()
 	for uid in i_m:
 		v = int(vmap.get(uid, 0))
 		r0, z0, kind0 = _z_for_unit(s0, uid, proj0)
 		ra, za, _kind_a = _z_for_unit(s_a, uid, proja)
-		if si_on and kind0:
-			q0 = q_unit_si(r0, z0, p.kappa, kind0) if r0 > 0 else 0.0
-			qa = q_unit_si(ra, za, p.kappa, kind0) if ra > 0 else 0.0
-		else:
-			q0 = q_unit(r0, z0, p.kappa) if r0 > 0 else 0.0
-			qa = q_unit(ra, za, p.kappa) if ra > 0 else 0.0
+		q0 = q_unit(r0, z0, p.kappa) if r0 > 0 else 0.0
+		qa = q_unit(ra, za, p.kappa) if ra > 0 else 0.0
 		lam0 = lambda_z(z0 if z0 is not None else 0.0, p.kappa)
 		lama = lambda_z(za if za is not None else 0.0, p.kappa)
 		pos_improved = ra > 0 and r0 > 0 and za is not None and z0 is not None and lama < lam0 - 1e-12

@@ -1,8 +1,10 @@
-"""Jobs 域路由（42 号 P0）：会话后台任务只读快照（GUI 播种 / 轻量轮询）。
+"""Jobs 域路由（42 号 P0）：会话后台任务快照（GUI 播种 / 轻量轮询）+ 人类停止（F1）。
 
 42 号 §8 的现实化：SSE ``jobs`` 帧只在 turn 流存活时可发；owner turn 结束后的
-结算变化靠本端点轮询补齐（与 41 号 GoalDock 同款取舍）。UI 零 RPC——列表行
-不做流直读、不做人类中断（冻结口径 6）。
+结算变化靠本端点轮询补齐（与 41 号 GoalDock 同款取舍）。**10-07 更新**：原
+「不做人类中断（冻结口径 6）」已由 F1 落地作废——模型有 ``job_kill``、人类
+现在也有 ``POST …/jobs/{job_id}/kill``（同一执行路径：容器优先、registry 回落；
+owner=路径会话 id，越权=404 与模型侧同规）。
 """
 
 from __future__ import annotations
@@ -63,3 +65,46 @@ def job_output_peek(session_id: str, job_id: str) -> dict[str, Any]:
 	if peek is None:
 		raise api_error(404, "job not found", "job_not_found")
 	return peek
+
+
+@router.post("/v1/sessions/{session_id}/jobs/{job_id}/kill")
+def kill_job(session_id: str, job_id: str) -> dict[str, Any]:
+	"""人类侧停止一条后台任务（F1：模型能 kill、人也能 kill，同一执行路径）。
+
+	容器后台优先、registry 回落——与模型侧 ``JobKillTool`` 完全同轨；owner =
+	路径里的会话 id（人类即 owner，无会话上下文可借）。越权/未知 → 404（registry
+	的 owner 比对返回 unknown，绝不静默命中他人任务）；终态任务原样回报「already」。
+	"""
+	sid = require_session_id(session_id)
+	jid = job_id or ""
+	if not jid.strip() or jid != jid.strip():
+		raise api_error(
+			422, "job_id is blank or has surrounding whitespace", "invalid_request"
+		)
+	try:
+		from tools.bash_tool.bash_tool import cancel_docker_bg, docker_bg_snapshot
+
+		docker_hit = any(j["job_id"] == jid for j in docker_bg_snapshot())
+	except Exception:  # noqa: BLE001 — 容器面不可用则回落 registry
+		docker_hit = False
+	if docker_hit:
+		try:
+			msg = cancel_docker_bg(jid, "user_stop")
+		except Exception as exc:  # noqa: BLE001
+			raise api_error(
+				500, f"cancel failed: {type(exc).__name__}", "job_cancel_failed"
+			) from exc
+		if msg is None:
+			raise api_error(404, "job not found", "job_not_found")
+		return {"ok": True, "job_id": jid, "message": msg}
+	from server.job_registry import get_job_registry
+
+	try:
+		msg = get_job_registry().kill(jid, sid, "user_stop")
+	except Exception as exc:  # noqa: BLE001
+		raise api_error(
+			500, f"kill failed: {type(exc).__name__}", "job_cancel_failed"
+		) from exc
+	if msg.startswith("unknown job"):
+		raise api_error(404, "job not found", "job_not_found")
+	return {"ok": True, "job_id": jid, "message": msg}

@@ -17,8 +17,8 @@ Two caller-side policies live here because WSC's algorithm layer never reads the
   folds shallow regions (15~65% of the emission) whose measured payback is 12~238 shots,
   so the gate only ever vetoes.  Total modelled cost vs the frozen-head default: 1.036x.
   It stays opt-in until a live smoke run decides it.
-  2026-09-22 update: ``PAYBACK_SHOTS`` moved 8 -> 30 (= "this shot's net saving must cover
-  this shot's resend face"), and ``memory.runtime.try_extend_c2`` now enforces that same
+  2026-09-22 update: ``PAYBACK_SHOTS`` moved 8 -> 30 (up to 30 future requests to repay
+  the transition), and ``memory.runtime.try_extend_c2`` now enforces that same
   criterion on the cursor push for **both** arms.  So this flag would be re-tuning a gate
   that already fires on the identical rule -- its 1.036x measurement predates the change
   and has to be re-run before the flag can be considered again.
@@ -31,6 +31,7 @@ import logging
 import os
 import re
 from typing import Any
+from memory.wsc_source_layout import LEGACY
 
 _log = logging.getLogger(__name__)
 _ENV = "XEYO_WSC"
@@ -60,6 +61,16 @@ class _Live:
     #: 这份头的句柄面占用（tok）与它活着期间被引用了几次 —— ③ 的取数点。
     handle_tokens: int = 0
     handle_refs: int = 0
+    #: 发射侧钉住的工作区根。整份头/尾区间冻结期间它必须逐字不变（见 `_pinned`）。
+    cwd: str = ""
+    #: 与磁盘冻结头复用同一份来源封印，防过滤旧状态后消息下标漂移。
+    source_seal: str = ""
+    source_layout: str = LEGACY
+    view_path: str = ""
+    #: 上一次**真折叠**实测到的头增量（token）：新头 − 旧头。−1 = 还没有实测
+    #: （进程内从未折过 / 从磁盘接回头）。读者只有 `live_head_delta_tokens()`，
+    #: 供 `memory.runtime.try_extend_c2` 的 θ 门在旗标打开时当"头增量"用。
+    last_head_delta: int = -1
 
 
 _STATE: dict[str, _Live] = {}
@@ -113,7 +124,9 @@ def production_params() -> "Any":
     from synaptic.types import WscParams
 
     return WscParams(
-        mode="closure", fold_cadence="econ", handle_style="read"
+        mode="closure", fold_cadence="econ", handle_style="read",
+        stable_prefix_ordering=False,
+        journal_rebase=True,
     ).for_level("Medium+")
 
 
@@ -121,19 +134,45 @@ def _head_msg(text: str) -> dict:
     return {"role": "assistant", "content": text, "name": "session_summary"}
 
 
-def _emit(head: str, messages: list[dict], base: int, frozen_attr: int, *, cwd) -> list[dict]:
-    from engine.compact import project as project_c0c1
+def _dump_emission(head: str) -> None:
+    """``XEYO_WSC_DUMP=1`` 时把**实发头文本**追加落盘（调试用；默认关、零成本）。
 
-    return [_head_msg(head)] + project_c0c1(
+    落的就是 _emit 收到的 head 本身——不重算、不重放：被观测对象必须是真正发
+    出去的"那一枪"（16 条缺陷 #14：投影只在模型侧可见，调试压缩机制时对象不可见）。
+    """
+    if os.environ.get("XEYO_WSC_DUMP", "").strip() in ("", "0"):
+        return
+    try:
+        from memory.instruction import xeyo_home
+
+        d = xeyo_home() / "wsc_dump"
+        d.mkdir(parents=True, exist_ok=True)
+        from datetime import datetime, timezone
+
+        stamp = datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d %H:%M:%S %z")
+        with (d / "emissions.txt").open("a", encoding="utf-8") as fh:
+            fh.write(f"\n===== {stamp} =====\n{head}\n")
+    except Exception:  # noqa: BLE001 — 调试落盘失败绝不影响主链
+        pass
+
+
+def _emit(head: str, messages: list[dict], base: int, frozen_attr: int, *, cwd, view_path=None) -> list[dict]:
+    from engine.compact import project as project_c0c1
+    from memory.wsc_recovery_emit import restore
+
+    _dump_emission(head)
+    emitted = [_head_msg(head)] + project_c0c1(
         messages[base:], frozen_until=max(0, frozen_attr - base), cwd=cwd
     )
+    return restore(emitted, messages, base, frozen_attr, cwd=cwd, view_path=view_path)
 
 
 def project_c2_messages(messages: list[dict], working, *, cwd=None) -> list[dict] | None:
     if not live_enabled():
         return None
     try:
-        from engine.compact import keep_tail_cut
+        from memory import wsc_head_store
+        from memory.wsc_source_layout import LEGACY, APPEND, validate
         from memory.offload import ref_path_for
         from synaptic.cadence import CadenceState
         from synaptic.project import project as wsc_project
@@ -141,32 +180,51 @@ def project_c2_messages(messages: list[dict], working, *, cwd=None) -> list[dict
         from synaptic.textutil import node_token_len
 
         session = str(getattr(working, "session_id", "") or "-")
+        source_layout = validate(getattr(working, "compression_source_layout", LEGACY))
         cursor = int(getattr(working, "compact_cursor", 0) or 0)
         frozen_attr = int(getattr(working, "c1_frozen_until", 0) or 0)
         params = production_params()
 
         # 可吸收上界：调用方游标之上、keep_tail_cut 之内，并且**落在 pair-safe 切点**
         # （不拆散 assistant tool_use 与它的 tool_result —— 那会直接造出 400 形状）。
-        upper = min(len(messages), max(int(keep_tail_cut(messages)), cursor))
-        try:
-            from memory.runtime import c2_cut_index
+        from memory.wsc_extension_economics import absorb_boundary
 
-            pair_safe = int(c2_cut_index(messages, None))
-            if 1 < pair_safe < upper:
-                upper = pair_safe
-        except Exception:  # noqa: BLE001 - 拿不到就用原切点，绝不阻塞投影
-            _log.debug("c2_cut_index unavailable; boundary not snapped", exc_info=True)
+        upper = absorb_boundary(messages, cursor)
         if upper <= 1:
             return None
 
         key = _state_key(session, cwd)
         cached = _STATE.get(key)
-        if cached is not None and (
-            len(messages) < cached.n_messages
-            or cached.cursor > cursor
-            or upper < cached.region_end
-        ):
-            cached = None  # 回滚 / 游标倒退 ⇒ 连冻结头一起作废
+        if cached is not None:
+            # 历史回滚、游标倒退或冻结区来源变化，都作废整份状态（含冻结头）。
+            # 交界下标回退**不作废**：右段上界是 `keep_tail_cut` 按尾部预算现算的，一根大
+            # tool 结果落进尾部就会把它顶回去。旧口径在这里把整份冻结头扔掉，于是本该是
+            # "前缀扩展"的一枪变成全量重排 —— 厂商侧整段 miss（不该发生的 miss 之一）。
+            # 退回旧交界发射：head 与 head 之后的重投区逐字未动 ⇒ 仍是前缀扩展。
+            if len(messages) < cached.n_messages or cached.cursor > cursor:
+                cached = None
+            elif (
+                cached.source_seal
+                and cached.source_seal != wsc_head_store.region_seal(messages, cached.region_end, source_layout=source_layout)
+            ):
+                cached = None
+            elif not _junction_intact(messages, cached.region_end):
+                # 状态旧版本过滤可能让旧交界移动到结果内部；同时追加新工具轮时
+                # upper 仍会变大，不能用 upper 回退作检查前提。
+                cached = None
+
+        if cached is None:
+            cached = _restore_frozen(session, cursor, messages, cwd, source_layout=source_layout)
+
+        # 冷却同源：活路径（`memory.runtime.try_extend_c2`）把**实测回本枪数**钉进
+        # `working.c2_gap_shots`，而发射侧的节奏由 `CadenceState` 自己维护。同一会话里两条
+        # 路径都会折叠 ⇒ 冷却必须是**一个数**：这里取两者的较大值（`adopt_gap` 只收紧不放宽）。
+        try:
+            gap_seen = int(getattr(working, "c2_gap_shots", 0) or 0)
+        except (TypeError, ValueError):
+            gap_seen = 0
+        if gap_seen > 0 and cached is not None and cached.cadence is not None:
+            cached.cadence.adopt_gap(gap_seen)
 
         moved = cached is None or cursor > cached.cursor       # 真发生了折叠/扩展事件
         grow = cached is not None and upper > cached.region_end  # 右段长大了，可吸收
@@ -182,48 +240,70 @@ def project_c2_messages(messages: list[dict], working, *, cwd=None) -> list[dict
                     head_delta_cap=int(params.hot_budget_tokens)
                     + int(params.journal_growth_tokens)
                 )
+            prompt_tok = int(_region_raw_tokens(messages))
+            from synaptic.cadence import watermark_tokens
+
+            wm = watermark_tokens(int(getattr(params, "window_tokens", 0) or 0))
+            below_watermark = wm > 0 and prompt_tok < wm
             dec = cached.cadence.decide(
                 region_tokens_=region_tok,
                 tail_tokens_=int(_region_raw_tokens(messages[upper:])),
                 margin=params.fold_margin,
                 price_ratio=params.fold_price_ratio,
+                prompt_tokens=prompt_tok,
             )
             # 保底：待吸收区已长过一个头的增长周期 ⇒ 不划算也得折（尾巴不能无限长）
-            absorb = bool(dec.fold) or region_tok >= int(params.journal_growth_tokens)
+            # 水位：prompt 未到 window × FOLD_WATERMARK_RATIO 一律不折（window 未知时不设门）。
+            absorb = (not below_watermark) and (
+                bool(dec.fold) or region_tok >= int(params.journal_growth_tokens)
+            )
 
         if cached is not None and cached.head and not absorb and freeze_enabled():
             # 头字节原样复用 + 右段只追加 ⇒ 整份发射是上一枪的前缀扩展。
             # 反面形状被生产实测过：交界每枪前移 ⇒ 头之后全重排，
             # 厂商 cache_hit 99.8%→55.6%、每请求成本 ¥9.23m→¥21.11m（2.3 倍）。
             _reuse_frozen(cached, messages)
-            return _emit(cached.head, messages, cached.region_end, frozen_attr, cwd=cwd)
+            return _emit(cached.head, messages, cached.region_end, frozen_attr, cwd=_pinned(cached, cwd), view_path=cached.view_path)
 
         view_path = _view_path_for(_cwd_of(cwd), session)
+        from memory.wsc_continuation import resume_inputs
+
+        previous, cold, view_path = resume_inputs(
+            cached, cached.view_path if cached is not None and cached.view_path else view_path,
+            mode=params.mode, level=params.level,
+        )
         proj = wsc_project(
             messages,
             region_end=upper,
             params=params,
-            prev=cached.prev if cached is not None else None,
-            cold=cached.cold if cached is not None else None,
+            prev=previous,
+            cold=cold,
             session=session,
             region_baseline_tokens=int(_region_raw_tokens(messages[:upper])),
             view_path=view_path,
             view_ref=ref_path_for(view_path, os.environ.get("XEYO_CWD") if cwd is None else str(cwd) or None),
+            exclude_state_notes=source_layout == APPEND,
         )
         if not proj.result.compressed:
             # 收益门拒了本次折叠 ⇒ 绝不能返回 None。返回 None 会让调用方回退 C2 本体，
             # 那等于把已冻结的头整段换掉（前缀全废），比"这次不折"糟糕得多。
             if cached is not None and cached.head and freeze_enabled():
                 _reuse_frozen(cached, messages)
-                return _emit(cached.head, messages, cached.region_end, frozen_attr, cwd=cwd)
+                return _emit(cached.head, messages, cached.region_end, frozen_attr, cwd=_pinned(cached, cwd), view_path=cached.view_path)
             return None
 
+        # 本次折叠实测的头增量（新头 − 旧头；首折/头丢失时 = 整个新头）。两个读者：
+        # ① CadenceState 的追加比估计（只吃"头被沿用"的那种）；② θ 门的发射侧口径
+        # （`try_extend_c2` → `live_head_delta_tokens`，下一枪生效）。
+        head_delta_tok = max(
+            0,
+            node_token_len(proj.text)
+            - (node_token_len(cached.head) if cached is not None and cached.head else 0),
+        )
         if dec is not None and cached is not None and cached.cadence is not None:
             cached.cadence.observe_fold(
                 region_tokens_=region_tok,
-                head_delta_tokens=max(
-                    0, node_token_len(proj.text) - node_token_len(cached.head)
-                ),
+                head_delta_tokens=head_delta_tok,
                 # 只有头被沿用才算 carry_over；首折/整层重冻结的 delta 是整个新头
                 carried_over=bool(cached.head and not proj.result.rebuilt),
             )
@@ -237,6 +317,7 @@ def project_c2_messages(messages: list[dict], working, *, cwd=None) -> list[dict
             handle_tok = int((proj.result.budget or {}).get("handle_tokens") or 0)
         except Exception:  # noqa: BLE001 - 观测字段，拿不到就算了
             handle_tok = 0
+        pinned = _pinned(cached, cwd)
         _STATE[key] = _Live(
             prev=proj.state,
             cold=proj.cold,
@@ -244,21 +325,88 @@ def project_c2_messages(messages: list[dict], working, *, cwd=None) -> list[dict
             region_end=upper,
             cursor=cursor,
             head=proj.text,
-            cadence=(cached.cadence if cached is not None
-                     else CadenceState(head_delta_cap=int(params.hot_budget_tokens)
-                                       + int(params.journal_growth_tokens))),
+            cadence=_cadence_for(cached, params, gap_seen),
             shots=shot,
             head_shot=shot,
             handle_tokens=handle_tok,
+            cwd=pinned,
+            source_seal=wsc_head_store.region_seal(messages, upper, source_layout=source_layout),
+            view_path=str(view_path.resolve()),
+            source_layout=source_layout,
+            last_head_delta=int(head_delta_tok),
         )
-        return _emit(proj.text, messages, upper, frozen_attr, cwd=cwd)
+        # 落盘只在这一个点上发生（= 头真被重排的那一枪）⇒ 写放大 = 折叠次数，不是枪数。
+        wsc_head_store.save(
+            session, text=proj.text, cwd=pinned, cursor=cursor,
+            region_end=upper, messages=messages,
+            view_path=str(view_path.resolve()),
+            source_layout=source_layout,
+        )
+        return _emit(proj.text, messages, upper, frozen_attr, cwd=pinned, view_path=str(view_path.resolve()))
     except Exception:  # noqa: BLE001 - WSC must never block the projection
         _log.debug("wsc live projection failed; falling back to C2", exc_info=True)
         return None
 
 
+def _restore_frozen(session: str, cursor: int, messages: list[dict], cwd, *, source_layout="latest-notes-v1"):
+    """进程内状态没了（重启 / 状态槽被顶掉）时，把上一份冻结头**字节**接回来。
+
+    不接会怎样（生产实测形状）：那一枪交给 `synaptic.project` 从头重排 ⇒ 发出的 prompt
+    与上一枪逐字无关 ⇒ 厂商侧整段 miss，而单枪 prompt 中位 11.7k tok 全价重投。
+
+    接回来的全部前提在 `wsc_head_store.load`（ver / cwd / cursor / 冻结区 sha1）；
+    这里补最后一道**只在发射侧才知道**的判据：交界在新历史里是不是还没切开调用对。
+    任一不成立 ⇒ None ⇒ 走原重建路径（失败方向永远是"更保守"）。
+    """
+    if not freeze_enabled():
+        return None  # 头冻结关着 ⇒ 语义上本来就每枪重投影，别偷偷改行为
+    from memory import wsc_head_store
+
+    fh = wsc_head_store.load(
+        session, cwd=_cwd_of(cwd), cursor=cursor, messages=messages, allow_advance=True, source_layout=source_layout
+    )
+    if fh is None or not _junction_intact(messages, fh.region_end):
+        return None
+    # 不恢复瞬时统计。下一次折叠由 resume_inputs 保留旧文件，并接续完整旧头。
+    # 游标已前进时仍返回旧游标，使 moved 立即触发真正折叠而不是复用旧交界。
+    return _Live(
+        prev=None,
+        cold=None,
+        n_messages=len(messages),
+        region_end=fh.region_end,
+        cursor=fh.cursor,
+        head=fh.text,
+        cadence=None,
+        shots=1,
+        head_shot=1,
+        cwd=fh.cwd,
+        source_seal=wsc_head_store.region_seal(messages, fh.region_end, source_layout=source_layout),
+        view_path=fh.view_path,
+        source_layout=source_layout,
+    )
+
+
+def _cadence_for(cached, params, gap_seen: int):
+    """折叠后新状态要挂的节奏状态：沿用旧的（保留观测比），否则新建；再把**实测冷却**吃进去。
+
+    `gap_seen` 来自活路径（`working.c2_gap_shots`）：同一会话两条折叠路径共用**一个**冷却数，
+    `adopt_gap` 只收紧不放宽 ⇒ 这个合流永远不会让它折得更频繁。
+    """
+    from synaptic.cadence import CadenceState
+
+    cadence = cached.cadence if cached is not None else None
+    if cadence is None:
+        cadence = CadenceState(
+            head_delta_cap=int(params.hot_budget_tokens)
+            + int(params.journal_growth_tokens)
+        )
+    if gap_seen > 0:
+        cadence.adopt_gap(gap_seen)
+    return cadence
+
+
 def _cwd_of(cwd) -> str:
-    """本进程当前把工作区当作哪个目录（与 `_state_key` 同一份判据，不留两处读法）。"""
+    """本进程当前把工作区当作哪个目录（与发射侧 `_pinned` 同一份判据，不留两处读法）。"""
     return os.fspath(cwd) if cwd is not None else os.environ.get("XEYO_CWD", "")
 
 
@@ -288,6 +436,34 @@ def _usage_ledger():
     home = (os.environ.get("XEYO_HOME") or "").strip()
     base = Path(home) if home else Path(os.path.expanduser("~")) / ".xeyo"
     return base / "wsc_index_usage.jsonl"
+
+
+def _junction_intact(messages: list[dict], cut: int) -> bool:
+    """冻结点在新历史里还是不是成对切点（不拆散 tool_use 与它的 tool_result）。
+
+    判不了就当作"完好"：交界当年是按 pair-safe 冻下来的，而右段只增不改 ⇒
+    默认复用安全；只有**明确算得出**被切开才作废。
+    """
+    if cut <= 0 or cut >= len(messages):
+        return True
+    try:
+        from memory.runtime import pair_safe_cut
+
+        return int(pair_safe_cut(messages, cut)) == cut
+    except Exception:  # noqa: BLE001 - 判不了就不作废
+        return True
+
+
+def _pinned(st: "_Live | None", cwd) -> str:
+    """发射侧要交给下游投影的 cwd —— 钉住第一个定义它的那一枪的值。
+
+    `_emit` 把 cwd 交给 `engine.compact.project`（内部会拼 offload 路径，且
+    `_offload_root("")` 会读**活值** `os.getcwd()`）。调用方每枪给的 cwd 一旦抖动
+    （相对/绝对、尾斜杠、进程 cwd 与工作区 cwd 混用），尾部字节就变 ⇒ 冻结前缀
+    从中间断掉。冻结点钉一次，之后整段只管字节不变。
+    """
+    pinned = getattr(st, "cwd", "") if st is not None else ""
+    return pinned or _cwd_of(cwd)
 
 
 def _reuse_frozen(st: "_Live", messages: list[dict]) -> None:
@@ -340,8 +516,14 @@ def node_tokens_of(text: str) -> int:
         return 0
 
 
-def _state_key(session: str, cwd) -> str:
-    return f"{session}\0{_cwd_of(cwd)}"
+def _state_key(session: str, cwd=None) -> str:
+    """活路径状态只认会话 —— 工作区不参与。
+
+    旧口径把 cwd 拼进键：调用方每枪给的 cwd 只要抖一次（相对/绝对、尾斜杠、
+    进程 cwd 与工作区 cwd 混用），同一会话就落进两个槽位，第二个槽位永远是冷的
+    ⇒ 那一枪必然整段重投。会话 id（`sess_<uuid>`）本身已唯一，不需要 cwd 再区分。
+    """
+    return str(session or "-")
 
 
 def live_index_age(session: str = "", cwd: str | None = None) -> int:
@@ -353,3 +535,16 @@ def live_index_age(session: str = "", cwd: str | None = None) -> int:
     """
     st = _STATE.get(_state_key(session, cwd))
     return max(0, st.shots - st.head_shot) if st is not None else 0
+
+
+def live_head_delta_tokens(session: str = "", cwd: str | None = None) -> int | None:
+    """上一次真折叠实测的**头增量**（token）；没有实测返回 None（调用方回退 C2 口径）。
+
+    None 与 0 必须分开：0 表示"实测到这次折叠没让头变大"（合法事实），None 表示
+    "本进程没有可信实测"（从磁盘接回的头、或从未折过）——把后者当 0 会让 θ 门
+    以为头增量免费，正是"没有证据就少折"的反方向。
+    """
+    st = _STATE.get(_state_key(session, cwd))
+    if st is None or int(getattr(st, "last_head_delta", -1)) < 0:
+        return None
+    return int(st.last_head_delta)

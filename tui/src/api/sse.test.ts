@@ -12,6 +12,7 @@ import {
   applyXy,
   createSession,
   DecisionNotApplied,
+  decisionRetainsPrompt,
   deltaText,
   getSessionMessages,
   interruptSession,
@@ -20,6 +21,7 @@ import {
   parseLoadedSession,
   parseSessionList,
   parseSlashResponse,
+  resolveAsk,
   resolvePermission,
   streamChat,
   type ChatBody,
@@ -195,7 +197,7 @@ async function collectStream(text: string, cuts: number[]) {
 
 test("一行 data 被切在两个分块里也不丢事件", async () => {
   const payload =
-    'data: {"choices":[{"delta":{"content":"A"}}]}\n\ndata: {"choices":[{"delta":{"content":"B"}}]}\n\n';
+    'data: {"choices":[{"delta":{"content":"A"}}]}\n\ndata: {"choices":[{"delta":{"content":"B"}}]}\n\ndata: [DONE]\n\n';
   const { deltas, state } = await collectStream(payload, [20]);
   assert.equal(deltas.join(""), "AB");
   assert.equal(state.done, 1);
@@ -203,7 +205,7 @@ test("一行 data 被切在两个分块里也不丢事件", async () => {
 });
 
 test("中文正好被切在字节边界时不丢字", async () => {
-  const payload = 'data: {"choices":[{"delta":{"content":"压缩中"}}]}\n\n';
+  const payload = 'data: {"choices":[{"delta":{"content":"压缩中"}}]}\n\ndata: [DONE]\n\n';
   const bytes = Buffer.from(payload, "utf8");
   const start = bytes.indexOf(Buffer.from("压缩中", "utf8"));
   assert.ok(start > 0, "样例里应含多字节正文");
@@ -218,6 +220,45 @@ test("deltaText 忽略没有正文的帧", () => {
   assert.equal(deltaText({ choices: [] }), "");
   assert.equal(deltaText({}), "");
   assert.equal(deltaText({ choices: [{ delta: { content: 1 } }] }), "");
+});
+
+test("空响应和未完成断流走错误出口", async () => {
+  for (const payload of ['', 'data: {"choices":[{"delta":{"content":"partial"}}]}\n\n']) {
+    const {state} = await collectStream(payload, []);
+    assert.equal(state.done, 0);
+    assert.match(state.error, /incomplete_stream/);
+  }
+});
+
+test("完成标记可拆分且末尾无需换行", async () => {
+  const payload = 'data: [DONE]';
+  const {state} = await collectStream(payload, [8, 10]);
+  assert.equal(state.done, 1);
+  assert.equal(state.error, '');
+});
+
+test("完成标记无需等待 EOF，并释放流 reader", async () => {
+  let cancelled = false;
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {controller.enqueue(new TextEncoder().encode('data: [DONE]\n\n'));},
+    cancel() {cancelled = true;},
+  });
+  const c = collector();
+  await withFetch((async () => new Response(body)) as never, () => streamChat('http://x', '', BODY, c.handlers));
+  assert.equal(c.state.done, 1);
+  assert.equal(cancelled, true);
+});
+
+test("主动取消保留收尾语义；非主动 AbortError 走错误出口", async () => {
+  for (const aborted of [true, false]) {
+    const ac = new AbortController();
+    if (aborted) ac.abort();
+    const body = new ReadableStream<Uint8Array>({start(controller) {controller.error(new DOMException('read aborted', 'AbortError'));}});
+    const c = collector();
+    await withFetch((async () => new Response(body)) as never, () => streamChat('http://x', '', BODY, c.handlers, ac.signal));
+    assert.equal(c.state.done, aborted ? 1 : 0);
+    assert.equal(c.state.error, aborted ? '' : 'read aborted');
+  }
 });
 
 // --------------------------------------------------------------------------- //
@@ -420,4 +461,99 @@ test("斜杠命令：缺 handled 就是读不出服务端有没有接这个命�
     message: "未知命令",
     result: null,
   });
+});
+
+test("决议未生效后的弹窗保留：already_resolved 之外都可重试", () => {
+  // 别处已经答过 ⇒ 本端收场（弹窗不回来，也不需要回来）。
+  assert.equal(decisionRetainsPrompt(new DecisionNotApplied("already_resolved", "")), false);
+  // 未送达（网络 / HTTP 5xx）与未被接受（no_such_request / 无 reason）：保留弹窗可重试。
+  // 此前 App 把这些也一丢：唯一作答入口消失，而服务端可能还在等这单决议。
+  assert.equal(decisionRetainsPrompt(new DecisionNotApplied("no_such_request", "")), true);
+  assert.equal(decisionRetainsPrompt(new DecisionNotApplied("", "")), true);
+  assert.equal(decisionRetainsPrompt(new Error("HTTP 500")), true);
+  assert.equal(decisionRetainsPrompt(new TypeError("fetch failed")), true);
+});
+
+test("忙时 202 受理体走 onAccepted，不进流消费（#2）", async () => {
+  const seen: unknown[] = [];
+  const fake = (async () =>
+    new Response(
+      JSON.stringify({
+        queued: true,
+        delivery: "after_turn",
+        queue_id: "q1",
+        position: 2,
+      }),
+      { status: 202, headers: { "content-type": "application/json" } },
+    )) as never;
+  await withFetch(fake, () =>
+    streamChat("http://x", "", BODY, {
+      onDelta: () => {
+        throw new Error("受理体不该被当流（不该有 delta）");
+      },
+      onXy: () => {},
+      onDone: () => {
+        throw new Error("受理体不该被当流（不该有 done）");
+      },
+      onError: (e) => {
+        throw e;
+      },
+      onAccepted: (p) => seen.push(p),
+    }),
+  );
+  assert.equal(seen.length, 1);
+  assert.deepEqual(seen[0], {
+    queued: true,
+    delivery: "after_turn",
+    queue_id: "q1",
+    position: 2,
+  });
+});
+
+test("受理体无人处理时必须出声，不静默挂起", async () => {
+  let err: Error | null = null;
+  const fake = (async () =>
+    new Response(JSON.stringify({ queued: true }), {
+      status: 202,
+      headers: { "content-type": "application/json" },
+    })) as never;
+  await withFetch(fake, () =>
+    streamChat("http://x", "", BODY, {
+      onDelta: () => {},
+      onXy: () => {},
+      onDone: () => {},
+      onError: (e) => {
+        err = e;
+      },
+    }),
+  );
+  assert.ok(err && /受理/.test((err as Error).message));
+});
+
+test("resolveAsk：非 2xx 必须 reject（不静默算成功）", async () => {
+  const { fake } = fetchReturning(403);
+  await assert.rejects(
+    withFetch(fake, () => resolveAsk("http://127.0.0.1:1", "k", "req_1", "甲")),
+    /403/,
+  );
+});
+
+test("resolveAsk：200 信封 ok:false 判「未接受」（already_resolved 可识别）", async () => {
+  const { fake } = fetchReturning(200, {
+    ok: false,
+    request_id: "req_1",
+    reason: "already_resolved",
+  });
+  await assert.rejects(
+    withFetch(fake, () => resolveAsk("http://x/", "", "req_1", "甲")),
+    (e: unknown) =>
+      e instanceof DecisionNotApplied && e.reason === "already_resolved",
+  );
+});
+
+test("resolveAsk：ok:true 才 resolve，且 actor=tui", async () => {
+  const { fake, calls } = fetchReturning(200, { ok: true, request_id: "req_1" });
+  await withFetch(fake, () => resolveAsk("http://x/", "", "req_1", "42"));
+  const sent = JSON.parse(String((calls[0] as { init?: RequestInit }).init?.body));
+  assert.deepEqual(sent, { request_id: "req_1", answer: "42", actor: "tui" });
 });

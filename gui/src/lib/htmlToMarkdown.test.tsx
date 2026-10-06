@@ -143,4 +143,9 @@ describe('htmlToMarkdown 往返等式补强（写回通道结构性保真）', (
 		const md = '````\n```\ninner\n```\n````';
 		expect(fromMarkdown(md).trimEnd()).toBe(md);
 	});
+
+	it('链接 title 存活往返（渲染层 anchor 带 title + 序列化写回）', () => {
+		const md = '[标题](https://example.com "提示")';
+		expect(fromMarkdown(md).trimEnd()).toBe(md);
+	});
 });

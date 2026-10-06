@@ -52,6 +52,7 @@ _FROZEN_ENABLED = (
 	"job_output",
 	"job_list",
 	"job_kill",
+	"agent_send",
 	"Screenshot",
 	"SendToWeChat",
 	"Memory",

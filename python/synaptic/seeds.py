@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 
 from synaptic.graph import Graph
 from synaptic.textutil import tool_use_blocks
+from synaptic.todo_snapshot import latest_todo_snapshot
 from synaptic.types import KIND_TOOL_RESULT, KIND_TOOL_USE, KIND_USER, FileState
 
 # 用户硬约束句式（中英双轨）
@@ -71,7 +72,7 @@ _MACHINE_BLOCK_RES = tuple(
 )
 
 
-def strip_machine_blocks(text: str) -> str:
+def strip_machine_blocks(text: str, *, preserve_layout: bool = False) -> str:
 	"""剥掉机器注入块，只留人类文本。
 
 	**不改写任何原文**：原消息仍逐字节留在图与冷层里（可 expand 拉回），这里只是
@@ -82,7 +83,7 @@ def strip_machine_blocks(text: str) -> str:
 		s = rx.sub(" ", s)
 	if "<environment_context>" in s:  # 截断/未闭合的注入块：其后全部丢弃
 		s = s.split("<environment_context>", 1)[0]
-	return " ".join(s.split())
+	return s.strip() if preserve_layout else " ".join(s.split())
 
 _SENT_SPLIT = re.compile(r"(?<=[。！？；!?;])|\n+")
 
@@ -99,6 +100,10 @@ class Seeds:
 	constraints: tuple[str, ...] = ()
 	unresolved_errors: tuple[str, ...] = ()
 	todos: tuple[str, ...] = ()
+	#: Node backing the current active TODO summary (input or observed result).
+	todo_source: int = -1
+	todo_observed: bool = False
+	todo_active_count: int | None = 0
 	pin_nodes: tuple[int, ...] = ()
 	pin_paths: tuple[str, ...] = ()
 	#: 已死的路径（``freshness`` 判定）：删除/改名之后无人再碰 ⇒ 不进 [PATHS] 索引。
@@ -202,40 +207,8 @@ def _unresolved_error_nodes(graph: Graph) -> list[int]:
 
 
 def _todo_items(messages: list[dict], graph: Graph) -> list[str]:
-	"""取**最后一次** TodoWrite 的未完成条目。
-
-任务树记录的是「现在要做什么」，不是「历史上一共写过哪些待办」——历次
-TodoWrite 是同一份清单的覆盖式快照，累积起来会把已废弃条目当成现存任务。
-	"""
-	last_idx = -1
-	for n in graph.nodes:
-		if n.kind != KIND_TOOL_USE:
-			continue
-		names = [x.strip() for x in str(n.tool_name or "").split(",") if x.strip()]
-		if any(x in TODO_TOOLS for x in names):
-			last_idx = max(last_idx, n.idx)
-	if last_idx < 0 or last_idx >= len(messages):
-		return []
-
-	out: list[str] = []
-	for u in tool_use_blocks(messages[last_idx]):
-		inp = u.get("input")
-		if not isinstance(inp, dict):
-			continue
-		items = inp.get("todos") or inp.get("items")
-		if isinstance(items, list):
-			for it in items:
-				if not isinstance(it, dict):
-					continue
-				st = str(it.get("status") or "").lower()
-				body = str(
-					it.get("content") or it.get("text") or it.get("subject") or ""
-				).strip()
-				if body and st in TODO_PENDING:
-					out.append(f"[{st or 'pending'}] {body[:180]}")
-		elif isinstance(items, str) and items.strip():
-			out.append(items.strip()[:180])
-	return list(dict.fromkeys(out))
+	"""Current observed list, with legacy input fallback."""
+	return list(latest_todo_snapshot(messages).items)
 
 
 
@@ -261,7 +234,7 @@ def collect_seeds(
 		n for n in graph.nodes
 		if n.kind == KIND_USER and _substantive(n.text) and n.idx not in superseded
 	]
-	original_task = strip_machine_blocks(user_nodes[0].text) if user_nodes else ""
+	original_task = strip_machine_blocks(user_nodes[0].text, preserve_layout=True) if user_nodes else ""
 	if original_task:
 		trace.append({"kind": "goal", "src": f"user#{user_nodes[0].idx}", "why": "首个实质用户目标"})
 
@@ -272,9 +245,18 @@ def collect_seeds(
 	#      其后 [MAIN]/[DECISIONS]/[PRUNED] 数千 token 的稳定内容全部前缀失效。
 	# 目标/约束由下面两条抽取式种子承担（稳定），近期原话由尾部承担（逐字）。
 	# 详见 docs/synaptic-compression.md §11.8。
+	# 目标整句不重复占 [CONSTRAINTS]：同一句原话在同一枪里只出现一次。
+	# 现场（sess_musrbw08_n9tly2 第 1 轮）：首条消息整句含"必须/不能"，同时成为
+	# 「目标」pin 与被抽取命中的「约束」pin，模型读到两行逐字相同的句子。
+	goal_norm = " ".join((goal_override.strip() or original_task).casefold().split())
+	task_norm = " ".join(original_task.casefold().split())
+	target_norms = {t for t in (goal_norm, task_norm) if t}
 	constraints: list[str] = []
 	for n in user_nodes:
 		for c in extract_constraints(strip_machine_blocks(n.text)):
+			if " ".join(c.casefold().split()) in target_norms:
+				trace.append({"kind": "constraint_skip", "src": f"user#{n.idx}", "why": "整句即目标"})
+				continue
 			constraints.append(c)
 			trace.append({"kind": "constraint", "src": f"user#{n.idx}", "why": f"约束句: {c[:48]}"})
 	constraints = [c for c in dict.fromkeys(constraints) if c not in drop_constraints]
@@ -309,26 +291,16 @@ def collect_seeds(
 			{"kind": "unresolved_error", "src": f"msg#{i}", "why": graph.nodes[i].error_sig[:64]}
 		)
 
-	todos = tuple(_todo_items(messages, graph))
+	todo_snapshot = latest_todo_snapshot(messages)
+	todos = todo_snapshot.items
 	for t in todos:
 		trace.append({"kind": "todo", "src": "todo_tool", "why": t[:64]})
 
 	# PIN 节点：用户消息 + 未解决错误 + TODO 所在节点
 	pin_nodes: list[int] = [n.idx for n in user_nodes]
 	pin_nodes.extend(err_nodes)
-	# 任务清单是**覆盖式快照**（时效轴 todo 类）：只有最后一次 TodoWrite 代表现状，
-	# 历次快照的条目都已被它取代 ⇒ 只钉最后一个，其余降级进冷层（句柄可 expand）。
-	_todo_nodes = [
-		n.idx
-		for n in graph.nodes
-		if n.kind == KIND_TOOL_USE
-		and any(
-			x.strip() in TODO_TOOLS
-			for x in str(n.tool_name or "").split(",")
-		)
-	]
-	if _todo_nodes:
-		pin_nodes.append(_todo_nodes[-1])
+	if todo_snapshot.backing >= 0:
+		pin_nodes.append(todo_snapshot.backing)
 
 	# PIN 路径：目标/约束/未解决错误涉及，或状态已过期/带未解错误
 	pin_paths: list[str] = []
@@ -354,6 +326,9 @@ def collect_seeds(
 		constraints=tuple(constraints),
 		unresolved_errors=unresolved,
 		todos=todos,
+		todo_source=todo_snapshot.backing,
+		todo_observed=todo_snapshot.observed,
+		todo_active_count=todo_snapshot.active_count,
 		pin_nodes=tuple(dict.fromkeys(pin_nodes)),
 		pin_paths=tuple(dict.fromkeys(pin_paths)),
 		user_nodes=tuple(n.idx for n in user_nodes),
@@ -361,9 +336,7 @@ def collect_seeds(
 	)
 
 
-# ---------------------------------------------------------------------------
 # 关键信息针（用于「即时关键信息保留」的非同义反复度量）
-# ---------------------------------------------------------------------------
 
 def recent_paths(graph: Graph, *, region_end: int | None = None) -> tuple[str, ...]:
 	"""区域内后 25% 节点触碰过的路径（近期工作集口径）。

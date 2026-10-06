@@ -237,7 +237,7 @@ _COMMANDS: tuple[Command, ...] = (
 		usage="/ls [dir]",
 		aliases=("dir", "列目录"),
 		arg_spec="dir",
-		surfaces=("gui", "cli"),
+		surfaces=("gui", "cli", "tui"),
 	),
 	# ------------------------------------------------------------- 控制
 	Command(
@@ -269,6 +269,17 @@ _COMMANDS: tuple[Command, ...] = (
 		arg_spec="rid",
 		when="always",
 	),
+	Command(
+		name="answer",
+		category="control",
+		handler="server",
+		summary="回答一个挂起提问（AskUserQuestion）",
+		usage="/answer <你的回答>",
+		aliases=("回答", "答"),
+		arg_spec="text",
+		when="always",
+		surfaces=("remote",),
+	),
 	# -------------------------------------------------------------- 记忆
 	Command(
 		name="compact",
@@ -295,7 +306,7 @@ _COMMANDS: tuple[Command, ...] = (
 		usage="/rule <条文>",
 		aliases=("规则", "记住"),
 		arg_spec="line",
-		surfaces=("gui", "remote"),
+		surfaces=("gui", "remote", "cli", "tui"),
 	),
 	Command(
 		name="doctor",
@@ -304,7 +315,7 @@ _COMMANDS: tuple[Command, ...] = (
 		summary="检查 XEYO.md 是否过长 / 可推导 / 坏 include",
 		usage="/doctor",
 		aliases=("体检", "检查规则"),
-		surfaces=("gui", "remote"),
+		surfaces=("gui", "remote", "cli", "tui"),
 	),
 	Command(
 		name="proposals",
@@ -313,7 +324,7 @@ _COMMANDS: tuple[Command, ...] = (
 		summary="查看待确认的 XEYO.md 写入提案",
 		usage="/proposals",
 		aliases=("提案", "规则提案"),
-		surfaces=("gui", "remote"),
+		surfaces=("gui", "remote", "cli", "tui"),
 	),
 	# ---------------------------------------------------------------- 工具
 	Command(

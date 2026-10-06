@@ -73,28 +73,8 @@ def _threshold_unread() -> int:
     return UNREAD_THRESHOLD
 
 
-def _dynamic_enabled() -> bool:
-    """B3 证据门（优化3）：动态 R_base 参与档位分级。默认关=静态规则。
-
-    走 memory_switches.get_value（settings.memory 唯一权威，env 不参与）。
-    """
-    from memory.memory_switches import get_value
-
-    return get_value("XEYO_V61_DYNAMIC_R") == "1"
 
 
-def dynamic_r_base(
-    *,
-    current_tokens: float,
-    window_tokens: float,
-    avg_turn_tokens: float,
-    cap: float = 24.0,
-) -> float:
-    """B3：R_base = min((L_limit − L_current)/ΔL_avg, 24)——按窗口余量与
-    近期增速估「还能装下几轮」，比静态待读数更贴近真实剩余工作量。"""
-    avg = max(1.0, float(avg_turn_tokens or 0.0))
-    headroom = max(0.0, float(window_tokens or 0.0) - float(current_tokens or 0.0))
-    return min(float(cap), headroom / avg)
 
 
 def estimate_r_gate(
@@ -124,19 +104,6 @@ def estimate_r_gate(
     allow16 = usage > hard_ratio or unread >= unread_thr
     allow8 = unread >= unread_thr
     allow4 = True  # 永远给短收尾留活路
-    if _dynamic_enabled() and avg_turn_tokens and window_tokens and current_tokens is not None:
-        try:
-            r_base = dynamic_r_base(
-                current_tokens=current_tokens,
-                window_tokens=window_tokens,
-                avg_turn_tokens=avg_turn_tokens,
-            )
-        except (TypeError, ValueError):
-            r_base = 0.0
-        if r_base >= 6.0:
-            allow8 = True
-        if r_base >= 14.0:
-            allow16 = True
     return RGate(allow={4: allow4, 8: allow8, 16: allow16})
 
 

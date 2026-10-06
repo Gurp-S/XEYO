@@ -174,6 +174,35 @@ def test_publish_if_changed_digest_semantics():
     assert consume_reconcile_blocks() == ["b1", "b2"]
 
 
+def test_publish_if_changed_empty_block_does_not_poison_digest():
+    """build_block 返回空时 digest 不落位 ⇒ 同状态下一个调用仍可发布（09-10 EXT-02）。"""
+    calls = {"n": 0}
+
+    def build():
+        calls["n"] += 1
+        return "" if calls["n"] == 1 else "late-block"
+
+    assert publish_if_changed("k-empty", {"a": 9}, build) is False
+    assert publish_if_changed("k-empty", {"a": 9}, build) is True  # 未被 digest 静默
+    assert consume_reconcile_blocks() == ["late-block"]
+
+
+def test_publish_if_changed_raising_block_does_not_poison_digest():
+    """build_block 抛错时 digest 不落位 ⇒ 异常修好后同状态仍可发布。"""
+    calls = {"n": 0}
+
+    def build():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("boom")
+        return "recovered"
+
+    with pytest.raises(RuntimeError):
+        publish_if_changed("k-raise", {"a": 9}, build)
+    assert publish_if_changed("k-raise", {"a": 9}, build) is True
+    assert consume_reconcile_blocks() == ["recovered"]
+
+
 # -- pull 兜底 + 移除→DENY 门 ------------------------------------------------
 
 

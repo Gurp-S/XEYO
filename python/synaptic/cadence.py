@@ -28,8 +28,8 @@
 price_ratio = p_miss / p_hit = 1.5 / 0.05 = 30（usage/pricing.py，deepseek-v4-flash 空闲档）
 ```
 
-默认 `θ = 30 × 1 / 30 = 1.0` ⇒ "这一枪就不亏"。`margin > 1` = 要求净省是重发面的
-margin 倍，是保守边际。
+默认 `θ = 30 × 1 / 30 = 1.0` ⇒ 估计回本周期不超过 30 次后续请求。
+它不保证折叠当次便宜。`margin > 1` 缩短允许的回本周期。
 
 ### 三项量怎么取（都是 O(1)，不需要渲染）
 
@@ -57,6 +57,8 @@ margin 倍，是保守边际。
 
 from __future__ import annotations
 
+import math
+import os as _os
 from dataclasses import dataclass
 from typing import Any
 
@@ -72,7 +74,7 @@ PRICE_RATIO_HIT_MISS = 30.0
 #: `PAYBACK_SHOTS` —— 最多等几枪回本。一次折叠的重填代价 `price_ratio × transition`
 #: （未命中价），之后每枪省 `saved`（命中价）⇒ 回本枪数 = `price_ratio × transition / saved`，
 #: 要求它 ≤ 本常数。**30 = price_ratio ⇒ θ=1 ⇒「本次净省 ≥ 本次重发面」**，也就是
-#: `margin=1` 时折叠当枪就不亏（不依赖未来任何一枪）。
+#: `margin=1` 时允许最多 30 次后续请求回本，不是当次盈亏平衡。
 #:
 #: 取值依据（09-22 `_wsc_out/_b_plan.py`，四份转录重放，总成本 ÷ 同转录 θ=0）：
 #:
@@ -88,7 +90,7 @@ PRICE_RATIO_HIT_MISS = 30.0
 #: θ=0 四份全最差 ⇒ 旧「攒一点就折」是纯亏；θ 再往上（2/4）不再省钱，且末枪 prompt 随
 #: 推迟上涨（θ=4 在 attempt1 把末枪推到 52,883 ≈ 64k 档水位 52,428）⇒ 取 θ=1：它在
 #: attempt2 / tgbg36 上就是最优，在 attempt1 / qawa1w 上比各自次优贵 13% / 18%，
-#: 但只有它有一句不需要知道会话多长的结构含义——**本枪不亏**。
+#: 该档位的结构含义是允许的估计回本周期不超过 30 次后续请求。
 #: （装上生产判据后重放 `_b_plan_live.py`：0.57 / 0.54 / 0.63 / 0.46，另加尺寸两道闸。）
 #:
 #: ⚠️ 旧值 8 的含义是「只允许深折」，不是「折叠通常 8 枪回本」：影子账本单次移出比例
@@ -102,6 +104,84 @@ MIN_GAP_SHOTS = 4
 #: 30~40 倍（`price_ratio` × transition/saved）——低了一个数量级，所以旧 C 档
 #: 每 2~3 枪折一次、三条 transcript 上实测贵 2.2~2.4 倍。
 DEFAULT_MARGIN = 1.0
+
+#: `MAX_GAP_SHOTS` —— 冷却的**结构上界**。不是第三个策略常数，是判据自身的不动点：
+#: 任何通过 θ 门的折叠都满足 `saved ≥ θ·transition`，θ = `price_ratio·margin/PAYBACK_SHOTS`
+#: ⇒ `回本枪数 = price_ratio·transition/saved ≤ PAYBACK_SHOTS/margin ≤ PAYBACK_SHOTS`。
+#: 所以实测回本枪数**结构上不可能超过本常数**：封顶在这里不是"再拍一个数"，而是
+#: "取判据自己允许的最长回本周期"。env `XEYO_C2_GAP_CAP` 可覆盖（标定用）。
+MAX_GAP_SHOTS = PAYBACK_SHOTS
+
+#: `CadenceState.gap_cap_shots` 的**出厂默认** = 结构上界（判据不动点）。
+#:
+#: 出厂值取 `MAX_GAP_SHOTS` 而不是某个更小的"调参档"，理由是冷却这条规则本身：
+#: **折叠后要 N 枪回本 ⇒ 接下来至少 N 枪不得再折**。实测回本枪数在 `[4, 30]` 之间
+#: 变动，任何小于 30 的 cap 都会把 `16 < N ≤ 30` 那批折叠的冷却截短到 cap
+#: ⇒ 那批折叠的第二次折叠发生在它自己回本之前，规则被破坏。所以 cap 的同义物
+#: 只能是判据的上界，不能是策略档位。
+#:
+#: 更小的 cap 是**可选标定档**（env `XEYO_C2_GAP_CAP`），代价/收益已离线量过：
+#: 4 份真实转录 × 8 档 (4/6/8/10/12/16/20/30)，走生产代码路径（`_wsc_out/_cd_sweep_result_r*.jsonl`）：
+#:   · cap=4：纯美元最优，但 4 会话合计折 60 次、冷层引用保留 `id_ret` 最低 0.215；
+#:   · cap=16：成本 +1.05%（合计 +$0.078）、折叠 −33.3%（60→40）、`id_ret` +24%
+#:     —— 但它是"拿规则换钱"：截短了 16~30 枪那一档；
+#:   · cap=30（=出厂值）：成本 +4.61%，相对 16 只再 −6 次折叠 ⇒ 边际递减。
+#: 即：省下的钱与折叠次数都来自同一处——让一部分折叠不被等到回本。用户已明确
+#: 该规则优先（"折叠之后需要 N 枪回本，接下来至少 N 枪不能折"），故出厂 30。
+DEFAULT_GAP_CAP_SHOTS = MAX_GAP_SHOTS
+
+
+def effective_gap_cap(field_value: int = 0) -> int:
+	"""冷却上界：字段 > env `XEYO_C2_GAP_CAP` > `DEFAULT_GAP_CAP_SHOTS`（出厂默认）。
+
+	fail-open：任何解析失败（空/非数/负）都退回缺省，**绝不因为标定参数写错而放大折叠**。
+
+	这是 `CadenceState.effective_gap_cap()` 与生产链（`memory.runtime.try_extend_c2`，
+	只拿得到 working 快照、拿不到 CadenceState）**共用**的一份实现：两处各写一份优先级
+	就是"同一个数在两处含义不同"那类事故的种子。
+	"""
+	try:
+		cap = int(field_value)
+	except (TypeError, ValueError):
+		cap = 0
+	if cap <= 0:
+		raw = _os.environ.get("XEYO_C2_GAP_CAP", "").strip()
+		if raw:
+			try:
+				cap = int(float(raw))
+			except (TypeError, ValueError):
+				cap = 0
+	if cap <= 0:
+		cap = DEFAULT_GAP_CAP_SHOTS
+	return max(MIN_GAP_SHOTS, cap)
+
+
+def gap_from_payback(
+	payback_shots: float,
+	*,
+	floor: int = MIN_GAP_SHOTS,
+	cap: int = DEFAULT_GAP_CAP_SHOTS,
+) -> int:
+	"""冷却枪数 = 上一次折叠的**实测回本枪数**（上取整），夹在 `[floor, cap]`。
+
+	`floor` 恒为 `MIN_GAP_SHOTS` ⇒ 这个改动是**单向的**：任何路径的冷却都不可能比
+	旧行为的 4 枪更短，只可能更长（折得更少）。所以它不需要"收益证明"来兜底——
+	它只会收紧。
+
+	fail-open 方向：拿不到可信实测（NaN / inf / 净省 ≤ 0）⇒ 取 `cap`（最保守），
+	**绝不取 0**——"没有证据"必须是少折，不能是随便折。
+	"""
+	f = max(1, int(floor))
+	c = max(f, int(cap))
+	p = float(payback_shots)
+	if math.isnan(p) or math.isinf(p):
+		return c
+	if p <= 0.0:
+		# 「净省 ≤ 0」= 这次折叠没换到任何回本证据 ⇒ 按无证据处理，取 cap（少折）。
+		# 上面那句 docstring 与 `test_gap_from_payback_never_guesses_zero` 都要求这个方向。
+		return c
+	return int(min(c, max(f, math.ceil(p))))
+
 
 #: 首折前对「头增量 / 区域」的保守估计（无观测时的先验）。
 #: 偏大 = 更保守（更不容易折）。实测 Medium+ 长会话的头增量约为区域的 0.10–0.20。
@@ -119,6 +199,61 @@ def theta_required(*, margin: float = DEFAULT_MARGIN,
 	重算——两处各写一份代数，就是上次「θ=1 vs 60/remaining（0.625~7.5 倍）」那个分歧的来源。
 	"""
 	return float(price_ratio) * max(0.0, float(margin)) / float(PAYBACK_SHOTS)
+
+
+#: 目标：长对话稳态命中率（给定值，非估计）。
+TARGET_HIT_RATE = 0.99
+
+#: 折叠水位：下一枪投影 prompt 低于「窗口 × 该比例」时不折（保底压缩）。
+FOLD_WATERMARK_RATIO = 0.5
+
+
+def watermark_tokens(window_tokens: int,
+                     ratio: float = FOLD_WATERMARK_RATIO) -> int:
+	"""折叠水位（token 数）：不到这条线不折。"""
+	return int(max(0, int(window_tokens)) * max(0.0, float(ratio)))
+
+
+def fold_gap_required(payback_shots: float,
+                      transition: int,
+                      prompt_tokens: int,
+                      target_hit_rate: float = TARGET_HIT_RATE) -> int:
+	"""折叠后至少等多少枪才允许再折：`max(回本枪数, 命中率约束枪数)`。
+
+	命中率约束的来历：折叠每 `gap` 枪往上下文里注入 `transition` 个未命中 token，
+	而这段时间读过的 prompt 总量约 `gap × prompt_tokens`，于是
+	`transition / (gap × prompt) ≤ 1 - target_hit_rate` 移项即得
+	`gap ≥ transition / ((1 - target_hit_rate) × prompt)`。
+	两个约束都取上取整，取较严的一侧；prompt 越小越由命中率项主导。
+	"""
+	pb = int(math.ceil(max(0.0, float(payback_shots))))
+	allow = max(1e-6, 1.0 - float(target_hit_rate))
+	p = max(1, int(prompt_tokens))
+	hit_term = int(math.ceil(max(0, int(transition)) / (allow * p)))
+	return max(1, pb, hit_term)
+
+
+def payback_from_economics(price_ratio: float, transition: float, saved: float) -> float:
+	"""`回本枪数 = price_ratio × transition ÷ saved`（`saved ≤ 0` ⇒ `inf`）。
+
+	这是**唯一**一份回本代数。两处都只认它：
+
+	1. `fold_economics` 填 `FoldDecision.payback_shots`（判据自己算的账）；
+	2. `memory.runtime.try_extend_c2` 算"这次折叠落地后要几枪回本"——它就是折叠后
+	   冷却枪数的来源（`gap_from_payback`）。
+
+	为什么必须同源：两处各写一份等价式子，改动只落一处时就会静默分叉（旧事故：
+	判据 θ=1、活路径 `60/remaining`，实际门槛差 0.625~7.5 倍）。守卫测试
+	`tests/wsc/test_cadence.py::test_production_extend_gate_shares_the_theta_implementation`
+	会扫 `try_extend_c2` 源码里是否又长出第二份代数。
+	"""
+	try:
+		s = float(saved)
+	except (TypeError, ValueError):
+		return float("inf")
+	if s <= 0.0:
+		return float("inf")
+	return float(price_ratio) * float(transition) / s
 
 
 def region_tokens(texts: list[str]) -> int:
@@ -174,19 +309,24 @@ def fold_economics(
 	shots_since_fold: int,
 	margin: float = DEFAULT_MARGIN,
 	price_ratio: float = PRICE_RATIO_HIT_MISS,
+	min_gap_shots: int = MIN_GAP_SHOTS,
 ) -> FoldDecision:
 	"""纯函数判据（**不含任何预测**）：
 
 	```
 	回本枪数 = price_ratio × transition / saved
-	折  ⟺  回本枪数 ≤ PAYBACK_SHOTS / margin   且   shots_since_fold ≥ MIN_GAP_SHOTS
+	折  ⟺  回本枪数 ≤ PAYBACK_SHOTS / margin   且   shots_since_fold ≥ min_gap_shots
 	```
 
 	第二条闸等价于 `saved ≥ theta_required(...) × transition`，即「本次净省 ≥ θ × 本次
 	重发面」。`margin` 是**保守边际**（>1 更保守）：0.1 ⇒ 允许等 300 枪，1.0 ⇒ 30 枪
-	（= θ=1，本枪不亏），10 ⇒ 3 枪。两个量都是**已发生的事实**
+	（= θ=1，允许 30 枪回本），10 ⇒ 3 枪。两个量都是**已发生的事实**
 	（尾巴攒了几枪、这次能移出多少）加一个价目常数——旧版的 `remaining_turns` 是猜的，
 	猜错方向时判据整体反向（§22 实测：剩余寿命不随会话深度衰减，旧式却越猜越小）。
+
+	`min_gap_shots` 默认 `MIN_GAP_SHOTS`（= 4，与旧行为逐字一致）；生产链传
+	`gap_from_payback(上次实测回本枪数)`。语义：**折叠后第 `min_gap_shots` 枪起才允许
+	再折**（`shots_since_fold` 从 1 起算）——即"需要 N 枪才回本，那 N 枪之内不许再折"。
 	"""
 	region = max(0, int(region_tokens_))
 	head_delta = max(0, int(head_delta_tokens))
@@ -205,9 +345,9 @@ def fold_economics(
 	)
 	if region <= 0:
 		return _with(dec, False, "empty_region")
-	payback = (float(price_ratio) * float(dec.transition) / float(saved)) if saved > 0 else float("inf")
+	payback = payback_from_economics(price_ratio, dec.transition, saved)
 	dec = _replace(dec, payback_shots=payback)
-	if shots < MIN_GAP_SHOTS:
+	if shots < max(1, int(min_gap_shots)):
 		return _with(dec, False, "cooldown")
 	if saved <= 0:
 		return _with(dec, False, "nothing_saved")
@@ -261,9 +401,35 @@ class CadenceState:
 	since_fold: int = 0
 	#: 头增量的结构上界（token）。0 = 不封顶（仅在调用方明确知道界时省略）。
 	head_delta_cap: int = 0
+	#: 当前生效的冷却下限（枪）：= 上一次折叠实测回本枪数，夹在 [MIN_GAP_SHOTS, gap_cap_shots]。
+	#: 语义是「回本要 N 枪 ⇒ 这 N 枪之内不许再折」，所以是**跟随后果**的下界，
+	#: 不是先验常数。初值 MIN_GAP_SHOTS = 与旧行为逐字一致。
+	gap_shots: int = MIN_GAP_SHOTS
+	#: `gap_shots` 的封顶。0 = 用 DEFAULT_GAP_CAP_SHOTS。
+	gap_cap_shots: int = 0
+	#: 上一次折叠实测的回本枪数（payback，仅诊断/回读用；∞ 记为 -1.0）。
+	last_payback_shots: float = 0.0
 	folds: int = 0
 	skips: int = 0
 	last_reason: str = ""
+
+	def effective_gap_cap(self) -> int:
+		"""冷却上界：字段 > env > 缺省。实现见模块级 `effective_gap_cap`（同一份）。"""
+		return effective_gap_cap(self.gap_cap_shots)
+
+	def adopt_gap(self, gap_shots: int) -> None:
+		"""接收**外部（生产链）实测**的冷却枪数，只收紧不放宽（fail-open 方向固定）。
+
+		活路径的折叠落点在 `memory.runtime.try_extend_c2`（它把实测回本枪数写进
+		working.c2_gap_shots），而 WSC 发射侧的节奏由本状态维护——同一个会话里两条
+		路径都会折叠，所以冷却必须是**一个数**：这里取两者的最大值，绝不取小。
+		"""
+		try:
+			gap = int(gap_shots)
+		except (TypeError, ValueError):
+			return
+		if gap > int(self.gap_shots):
+			self.gap_shots = min(gap, self.effective_gap_cap())
 
 	def estimate_head_delta(self, region_tokens_: int) -> int:
 		est = int(max(0.0, self.observed_ratio) * max(0, int(region_tokens_)))
@@ -280,6 +446,7 @@ class CadenceState:
 		shots_since_fold: int | None = None,
 		margin: float = DEFAULT_MARGIN,
 		price_ratio: float = PRICE_RATIO_HIT_MISS,
+		prompt_tokens: int = 0,
 	) -> FoldDecision:
 		# 冷却量由状态自己数：调用方只要"每个请求边界问一次"，不必各自维护计数。
 		self.since_fold += 1
@@ -291,11 +458,29 @@ class CadenceState:
 			shots_since_fold=shots,
 			margin=margin,
 			price_ratio=price_ratio,
+			min_gap_shots=self.gap_shots,
 		)
 		self.last_reason = dec.reason
 		if dec.fold:
 			self.folds += 1
 			self.since_fold = 0
+			# 这次折叠要几枪回本 ⇒ 接下来这几枪不许再折（引擎自决的冷却）。判据用的是
+			# `saved≥θ×transition` 的理想界，实测 payback 可能更大（头增量被估低时），
+			# 所以用实测值而不是重算 θ——这正是"跟随后果"。
+			self.last_payback_shots = float(dec.payback_shots)
+			gap = gap_from_payback(self.last_payback_shots, cap=self.effective_gap_cap())
+			if int(prompt_tokens) > 0:
+				# 命中率约束（token 口径）：本次折叠往上下文里注入 `transition` 个未命中
+				# token，而这段冷却期内读过的 prompt 总量约 `gap × prompt_tokens`，于是
+				# 未命中占比 ≤ 1 − TARGET_HIT_RATE 要求 `gap ≥ transition / (0.01 × prompt)`。
+				# prompt 越小这条越严 ⇒ 尾部/小上下文自动停止折叠，无需另一条规则。
+				gap = min(
+					max(gap, fold_gap_required(
+						self.last_payback_shots, dec.transition, prompt_tokens
+					)),
+					self.effective_gap_cap(),
+				)
+			self.gap_shots = int(gap)
 		else:
 			self.skips += 1
 		return dec

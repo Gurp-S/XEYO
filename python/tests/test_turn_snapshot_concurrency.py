@@ -96,3 +96,53 @@ def test_failed_replace_cleans_unique_temp_file(tmp_path, monkeypatch, caplog):
 		and "turn snapshot flush failed" in record.getMessage()
 		for record in caplog.records
 	)
+
+
+def test_flush_fsyncs_before_replace(tmp_path, monkeypatch):
+	"""落盘原语必须 fsync：原子替换只保证原子性、不保证持久性（09-10 P1-6）。
+
+	sidecar 是重启 recovery 的权威状态源；断电丢内容会把 crashed 判定变错。
+	与 transcript 落盘（flush+fsync）同口径。
+	"""
+	monkeypatch.setenv("XEYO_SESSIONS_DIR", str(tmp_path))
+	calls: list[str] = []
+	real_fsync = turn_snapshot.os.fsync
+
+	def spy(fd: int) -> None:
+		calls.append("fsync")
+		real_fsync(fd)
+
+	monkeypatch.setattr(turn_snapshot.os, "fsync", spy)
+	turn_snapshot.flush(
+		turn_snapshot.TurnSnapshot(session_id="sess_fsync_gate", turn_id="t1")
+	)
+	assert calls == ["fsync"], calls
+
+
+def test_active_flushes_are_throttled_but_terminal_is_durable(tmp_path, monkeypatch):
+	"""逐帧活动态刷写不逐次 fsync；终态必 fsync（P1-6 的性能-持久化分档）。
+
+	一场流式回合有 600+ 次逐帧 `_persist`（2026-10-05 实测 628 次）；逐次
+	FlushFileBuffers 会把毫秒级整写推成秒级。恢复判定读的是**终态**快照，
+	活动态中间刷写被后续覆盖、无独立持久价值。
+	"""
+	monkeypatch.setenv("XEYO_SESSIONS_DIR", str(tmp_path))
+	calls: list[int] = []
+	real_fsync = turn_snapshot.os.fsync
+
+	def spy(fd: int) -> None:
+		calls.append(1)
+		real_fsync(fd)
+
+	monkeypatch.setattr(turn_snapshot.os, "fsync", spy)
+	active = turn_snapshot.TurnSnapshot(
+		session_id="sess_throttle_gate", turn_id="t1", status="running"
+	)
+	turn_snapshot.flush(active)  # 新路径首刷 ⇒ 必 fsync
+	assert len(calls) == 1
+	active.revision = 2
+	turn_snapshot.flush(active)  # 窗口内活动态 ⇒ 不 fsync
+	assert len(calls) == 1
+	active.status = "succeeded"
+	turn_snapshot.flush(active)  # 终态 ⇒ 必 fsync
+	assert len(calls) == 2

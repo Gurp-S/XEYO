@@ -179,3 +179,55 @@ def test_paths_frontmatter_filters_by_cwd(tmp_path, monkeypatch):
 	at_gui = load_instruction_text(str(gui), str(root))
 	assert "core-always" in at_gui
 	assert "gui-scoped-rule" in at_gui
+
+
+_EMPTY_TEMPLATE = (
+	"# XEYO 项目说明（指针式，保持简短）\n\n"
+	"## 常用命令\n- 测试：\n- 构建：\n\n"
+	"## 指针（细则不内联；需要时用 Read / Skill）\n- 架构：\n"
+)
+
+
+def test_unfilled_template_is_not_injected(tmp_path, monkeypatch):
+	"""未填过的自动模板不进注入（现场：外层与内层两份逐字相同的空模板）。
+
+	信息量为零却造成「这里有项目指引」的错觉——模型为此白读 AGENTS.md/docs 找
+	一份不存在的指引（sess_musrbw08_n9tly2 第 1 轮实录）。
+	"""
+	monkeypatch.setenv("XEYO_HOME", str(tmp_path / "home"))
+	root = tmp_path / "proj"
+	root.mkdir()
+	(root / "XEYO.md").write_text(_EMPTY_TEMPLATE, encoding="utf-8")
+	text = load_instruction_text(str(root), str(root))
+	assert "常用命令" not in text
+	assert "架构：" not in text
+
+
+def test_partially_filled_template_is_injected(tmp_path, monkeypatch):
+	"""反向断言：填了任意一条就不许滤（宁放勿滤）。"""
+	monkeypatch.setenv("XEYO_HOME", str(tmp_path / "home"))
+	root = tmp_path / "proj"
+	root.mkdir()
+	(root / "XEYO.md").write_text(
+		_EMPTY_TEMPLATE.replace("- 构建：", "- 构建：py -3.11 -m pytest"),
+		encoding="utf-8",
+	)
+	text = load_instruction_text(str(root), str(root))
+	assert "py -3.11 -m pytest" in text
+
+
+def test_exact_generated_template_is_not_injected(tmp_path, monkeypatch):
+	"""逐字等于自动模板（含 skills 指引行）也不注入——模板不是规范，填过才是。
+
+	现场：python/XEYO.md 与 ensure_minimal_xeyo_md 落盘的模板逐字相同（无人填过），
+	却被当规范注入。
+	"""
+	from memory.instruction import MINIMAL_TEMPLATE
+
+	monkeypatch.setenv("XEYO_HOME", str(tmp_path / "home"))
+	root = tmp_path / "proj"
+	root.mkdir()
+	(root / "XEYO.md").write_text(MINIMAL_TEMPLATE, encoding="utf-8")
+	text = load_instruction_text(str(root), str(root))
+	assert "常用命令" not in text
+	assert "长流程（发版等）" not in text

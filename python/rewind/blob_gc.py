@@ -182,9 +182,10 @@ def write_rewind_gc_config(
 def _iter_jsonl(path: Path) -> Iterator[dict[str, Any]]:
     """尽量容错地读一个 JSONL：坏行跳过，返回 dict。"""
     try:
-        with path.open("r", encoding="utf-8", newline="") as handle:
-            for line in handle:
-                text = line.strip()
+        with path.open("rb") as handle:
+            for raw in handle:
+                # 逐行字节解码：坏字节只报废它所在那一行（下面 JSONDecodeError 同口径）。
+                text = raw.decode("utf-8", errors="replace").strip()
                 if not text:
                     continue
                 try:

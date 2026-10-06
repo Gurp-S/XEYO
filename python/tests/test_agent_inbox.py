@@ -83,3 +83,19 @@ def test_followup_env_budgets(monkeypatch):
     assert _followup_limit() == 5
     monkeypatch.setenv("XEYO_SUB_FOLLOWUP_MAX_TURNS", "9")
     assert _followup_max_turns() == 9
+
+
+def test_inbox_texts_snapshot():
+    la.post_to_agent("s1", "a1", "one")
+    la.post_to_agent("s1", "a1", "two")
+    assert la.inbox_texts("s1", "a1") == ["one", "two"]
+    assert la.inbox_texts("s2", "a1") == []
+
+
+def test_remove_by_text_exact():
+    la.post_to_agent("s1", "a1", "one")
+    la.post_to_agent("s1", "a1", "two")
+    assert la.remove_agent_inbox_text("s1", "a1", "two") is True
+    assert la.remove_agent_inbox_text("s1", "a1", "nope") is False
+    assert la.remove_agent_inbox_text("s1", "a1", "  ") is False
+    assert la.inbox_texts("s1", "a1") == ["one"]

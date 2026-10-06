@@ -71,8 +71,7 @@ async def _lifespan(_app: FastAPI):
 	import logging
 	from pathlib import Path
 
-	from channels.api import get_runner, get_store
-	from channels.filehelper.service import autostart, shutdown as fh_shutdown
+	from channels.api import get_runner
 	from channels.ilink.service import shutdown as il_shutdown
 	from engine.turn_snapshot import (
 		list_recoverable,
@@ -186,7 +185,6 @@ async def _lifespan(_app: FastAPI):
 
 	gc_task = asyncio.create_task(_sidechain_gc_loop())
 	blob_gc_task = asyncio.create_task(_blob_gc_loop())
-	await autostart(get_runner(), get_store())
 	_ensure_toolchain_prewarm()
 	# 本地模型：仅在设置里启用时拉起。默认关 ⇒ 进程不存在 ⇒ 零常驻占用。
 	# 已在跑（上次会话遗留且 /health 通）则收养，不重复拉起：单实例约束下
@@ -218,7 +216,6 @@ async def _lifespan(_app: FastAPI):
 		except asyncio.CancelledError:
 			pass
 		await il_shutdown(get_runner())
-		await fh_shutdown(get_runner())
 		# F1：清理 MCP 管理器（关闭全部 stdio server 子进程；Windows JobObject 已有）。
 		try:
 			from extension.mcp_manager import shutdown_all_managers
@@ -236,7 +233,7 @@ async def _lifespan(_app: FastAPI):
 			_log.warning("local model shutdown failed", exc_info=True)
 
 
-app = FastAPI(title="XEYO", version="0.1.0", lifespan=_lifespan)
+app = FastAPI(title="XEYO", version="1.1.0", lifespan=_lifespan)
 
 
 def _cors_origins() -> list[str]:
@@ -310,12 +307,10 @@ except Exception:
 	pass
 
 from channels.api import init_remote, router as remote_router
-from channels.filehelper.api import router as filehelper_router
 from channels.ilink.api import router as ilink_router
 
 init_remote(_pool)
 app.include_router(remote_router)
-app.include_router(filehelper_router)
 app.include_router(ilink_router)
 
 from server.routers.workspace import router as workspace_router

@@ -18,6 +18,7 @@ WebFetch
 WebSearch
 Write
 XeyoUI
+agent_send
 getTime
 job_kill
 job_list

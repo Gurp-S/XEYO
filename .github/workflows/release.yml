@@ -1,0 +1,57 @@
+name: Windows release
+
+on:
+  push:
+    tags:
+      - "1.1"
+
+permissions:
+  contents: read
+
+jobs:
+  windows-installer:
+    name: Build Windows x64 installer
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: gui/package-lock.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build installer
+        run: pwsh -File scripts/build_installer.ps1
+
+      - name: Create checksum and release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = (Get-Content "gui/src-tauri/tauri.conf.json" -Raw | ConvertFrom-Json).version
+          $installer = "gui/src-tauri/target/release/bundle/nsis/XEYO_" + $version + "_x64-setup.exe"
+          $checksum = "$installer.sha256"
+          $hash = (Get-FileHash $installer -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $(Split-Path -Leaf $installer)" | Set-Content -Path $checksum -Encoding ascii
+
+          $notes = @"
+          XEYO 1.1 for Windows 10/11 (x64).
+
+          Download and run the XEYO installer. The desktop app includes its Python runtime and file search utility; Python, Node.js, and Rust are not required on the target computer.
+
+          Configure a model provider and API key in Settings after opening the app.
+          "@
+          $notesPath = Join-Path $env:RUNNER_TEMP "xeyo-release-notes.md"
+          [System.IO.File]::WriteAllText($notesPath, $notes, [System.Text.UTF8Encoding]::new($false))
+
+          gh release create $env:GITHUB_REF_NAME $installer $checksum --title "XEYO 1.1" --notes-file $notesPath --verify-tag
+          if ($LASTEXITCODE -ne 0) { throw "GitHub Release creation failed ($LASTEXITCODE)" }

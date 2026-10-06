@@ -22,7 +22,6 @@ from dataclasses import dataclass
 
 from memory.governance import MemoryNote, today_iso
 from memory.memdir import (
-	load_index_text,
 	load_notes_for_search,
 	note_location,
 	touch_last_used,
@@ -167,25 +166,24 @@ def _query_terms(q: str) -> tuple[list[str], bool, int]:
 	return terms, False, 1
 
 
-def _term_hit(term: str, hay: str, index: str) -> bool:
-	return len(term) >= 2 and (term in hay or term in index)
+def _term_hit(term: str, hay: str) -> bool:
+	return len(term) >= 2 and term in hay
 
 
 def _matches(
 	hay: str,
-	index: str,
 	q: str,
 	terms: list[str],
 	require_all: bool,
 	min_or_hits: int,
 ) -> bool:
-	if q and (q in hay or q in index):
+	if q and q in hay:
 		return True
 	if not terms:
 		return False
 	if require_all:
-		return all(t in hay or t in index for t in terms)
-	hits = sum(1 for t in terms if _term_hit(t, hay, index))
+		return all(t in hay for t in terms)
+	hits = sum(1 for t in terms if _term_hit(t, hay))
 	return hits >= max(1, min_or_hits)
 
 
@@ -232,21 +230,11 @@ def search(
 		if n.status == "active"
 		and (not want_type or (n.type or "").strip().lower() == want_type)
 	]
-	index_ws = _normalize_query(load_index_text(ident))
-	index_user = ""
-	try:
-		from memory.memdir import USER_MEMDIR_ID
-
-		if ident != USER_MEMDIR_ID:
-			index_user = _normalize_query(load_index_text(USER_MEMDIR_ID))
-	except Exception:
-		index_user = ""
-	index = index_ws + "\n" + index_user
 	reweight = query_reweight_enabled(cwd)
 	scored: list[tuple[float, MemoryNote]] = []
 	for note in notes:
 		hay = _note_hay(note)
-		if not _matches(hay, index, q, terms, require_all, min_or_hits):
+		if not _matches(hay, q, terms, require_all, min_or_hits):
 			continue
 		scored.append((score_note(note, q, terms, hay=hay, reweight=reweight), note))
 	scored.sort(key=lambda x: x[0], reverse=True)
@@ -403,7 +391,7 @@ def search_session_notes(
 		if not text.strip():
 			continue
 		hay = _normalize_query(f"{title} {text}")
-		if not _matches(hay, "", q, terms, require_all, min_or_hits):
+		if not _matches(hay, q, terms, require_all, min_or_hits):
 			continue
 		lexical = float(hay.count(q)) if q else 0.0
 		lexical += float(sum(hay.count(t) for t in terms if t != q))
@@ -508,7 +496,7 @@ def search_rollout_summaries(
 		sid = str(meta.get("session_id") or path.stem)
 		title = _goal_topic(raw, limit=60) or path.stem[:60]
 		hay = _normalize_query(f"{sid} {title} {raw}")
-		if not _matches(hay, "", q, terms, require_all, min_or_hits):
+		if not _matches(hay, q, terms, require_all, min_or_hits):
 			continue
 		lexical = float(hay.count(q)) if q else 0.0
 		lexical += float(sum(hay.count(t) for t in terms if t != q))

@@ -10,6 +10,8 @@ import {
 import {MarkdownView} from '@/components/MarkdownView';
 import {htmlToMarkdown} from '@/lib/htmlToMarkdown';
 import {isImeComposing} from '@/lib/ime';
+import {uploadMedia} from '@/lib/api';
+import {toast} from '@/lib/toast';
 
 export type EditableMarkdownHandle = {
 	flush: () => string;
@@ -180,8 +182,38 @@ export const EditableMarkdown = forwardRef<EditableMarkdownHandle, Props>(
 					setFrozen(null);
 				}}
 				onPaste={e => {
+					// #13：剪贴板里的图片走「上传 → 插入 ![](xeyo-media://…)」链
+					//（与 Composer 同手势同规：纯文本照旧、混合两者都保、失败必须出声）。
+					const cd = e.clipboardData;
+					const images = Array.from(cd?.files ?? []).filter(f =>
+						f.type.startsWith('image/'),
+					);
+					const text = cd?.getData?.('text/plain') ?? '';
 					e.preventDefault();
-					insertPlain(e.clipboardData.getData('text/plain'));
+					if (!images.length) {
+						insertPlain(text);
+						return;
+					}
+					if (text) {
+						insertPlain(text);
+					}
+					void (async () => {
+						for (const file of images) {
+							try {
+								const asset = await uploadMedia(file);
+								insertPlain(
+									`![${file.name || 'image'}](${asset.media_ref})`,
+								);
+								queueFlush();
+							} catch (err) {
+								toast.error(
+									err instanceof Error
+										? err.message
+										: `图片上传失败：${String(err)}`,
+								);
+							}
+						}
+					})();
 				}}
 				onKeyDown={e => {
 					// 组词中：Tab/Ctrl+S 属于输入法会话，一律交还（与 Composer 同规）。

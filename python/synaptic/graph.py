@@ -7,9 +7,14 @@
 from __future__ import annotations
 
 import re
+import json
 from dataclasses import dataclass, field, replace
 
+from common.read_target import single_file_target
+from synaptic.read_receipt import is_read_semantic, is_successful_read
+
 from synaptic.textutil import (
+	normalize_path,
 	classify_tool,
 	command_paths,
 	content_hash,
@@ -136,6 +141,7 @@ class Graph:
 	noise_refs: tuple[str, ...] = ()
 	#: 路径变体归并的 ``(原写法, 最短写法)`` 对（去噪审计用）。
 	refs_merged: tuple[tuple[str, str], ...] = ()
+	use_signatures: dict[str, str] = field(default_factory=dict)
 
 	def node(self, idx: int) -> Node | None:
 		if 0 <= idx < len(self.nodes):
@@ -267,6 +273,24 @@ def _demote_normal_nonzero(text: str, command: str) -> bool:
 	return True
 
 
+def result_is_error(block: dict, *, command: str = "", tool_name: str = "") -> bool:
+	"""Use the same receipt verdict for graph and file observations."""
+	if is_successful_read(block, tool_name):
+		return False
+	text = tool_result_text(block)
+	if is_read_semantic(block, tool_name, command=command):
+		# 只读命令/搜索的正文是内容或命中行：只有机器判据能定失败，正文里的错误
+		# 字样不再升格。管道/重定向/写命令走下面的完整判据。
+		verdict = _status_verdict(text)
+		if verdict is None:
+			verdict = _receipt_verdict(text)
+		return verdict is True and not _demote_normal_nonzero(text, command)
+	flag = block.get("is_error")
+	failed = bool(flag) if flag is not None else _looks_like_error(text)
+	failed = failed or _looks_like_hard_error(text)
+	return failed and not _demote_normal_nonzero(text, command)
+
+
 def _classify_message(
 	msg: dict, name_by_id: dict[str, str], cmd_by_id: dict[str, str] | None = None
 ) -> tuple[str, str, str, str, bool, bool, bool, str]:
@@ -275,15 +299,17 @@ def _classify_message(
 	results = tool_result_blocks(msg)
 	role_raw = str(msg.get("role") or "")
 	if results:
-		uid = str(results[0].get("tool_use_id") or "")
+		failed = [b for b in results if result_is_error(
+			b, command=(cmd_by_id or {}).get(str(b.get("tool_use_id") or ""), ""),
+			tool_name=name_by_id.get(str(b.get("tool_use_id") or ""), str(msg.get("name") or "")))]
+		primary = failed[0] if failed else results[0]
+		uid = str(primary.get("tool_use_id") or "")
 		name = name_by_id.get(uid, str(msg.get("name") or ""))
+		# One message can carry several failures; one retry cannot resolve them all.
+		if len(failed) > 1:
+			uid = ""
 		text = "\n".join(tool_result_text(b) for b in results)
-		flag = results[0].get("is_error")
-		is_err = bool(flag) if flag is not None else _looks_like_error(text)
-		if not is_err:
-			is_err = _looks_like_hard_error(text)
-		if is_err and _demote_normal_nonzero(text, (cmd_by_id or {}).get(uid, "")):
-			is_err = False
+		is_err = bool(failed)
 		# tool_result 节点本身不改盘也不可重放（重放的是那次调用）
 		return (
 			KIND_TOOL_RESULT,
@@ -293,7 +319,7 @@ def _classify_message(
 			is_err,
 			False,
 			False,
-			extract_error_sig(text) if is_err else "",
+			extract_error_sig("\n".join(tool_result_text(b) for b in failed)) if is_err else "",
 		)
 	if uses:
 		names: list[str] = []
@@ -374,12 +400,17 @@ def build_graph(messages: list[dict], *, include_soft_edges: bool = True) -> Gra
 	# 第一遍：tool_use_id -> 工具名（tool_result 需要反查名字）
 	name_by_id: dict[str, str] = {}
 	cmd_by_id: dict[str, str] = {}
+	paths_by_id: dict[str, tuple[str, ...]] = {}
+	use_signatures: dict[str, str] = {}
 	for msg in messages:
 		for u in tool_use_blocks(msg):
 			uid = str(u.get("id") or "")
 			if uid:
 				name_by_id[uid] = str(u.get("name") or "tool")
 				inp = u.get("input")
+				paths_by_id[uid] = tuple(dict.fromkeys((*tool_input_paths(inp), *command_paths(inp))))
+				use_signatures[uid] = json.dumps(
+					[name_by_id[uid], inp], ensure_ascii=False, sort_keys=True, default=str)
 				if isinstance(inp, dict):
 					cmd = inp.get("command") or inp.get("cmd")
 					if isinstance(cmd, str):
@@ -409,11 +440,22 @@ def build_graph(messages: list[dict], *, include_soft_edges: bool = True) -> Gra
 		scan = text[:8000]
 		refs: list[str] = []
 		replay_cmd = ""
+		arg_refs: list[str] = []
 		for u in tool_use_blocks(msg):
 			inp = u.get("input")
-			refs.extend(tool_input_paths(inp))
+			name = str(u.get("name") or "")
+			paths = tool_input_paths(inp)
+			arg_refs.extend(paths)
+			refs.extend(paths)
 			refs.extend(command_paths(inp))
-			_, _, rc = classify_tool(str(u.get("name") or ""), inp)
+			if not paths and name in ("Bash", "exec_command", "exec") and isinstance(inp, dict):
+				# 命令点名的唯一文件算"身份"（sed/npm test 的 <file>）：判据与 bash 路由、
+				# 读观测同源（common.read_target）——"标签与命令指向两个不同文件"就是
+				# 这里漂移出来的（现场：Bash runtime.py 完成，命令却是 Get-Content l5_flag.py）。
+				target = single_file_target(str(inp.get("command") or inp.get("cmd") or ""))
+				if target:
+					arg_refs.append(normalize_path(target))
+			_, _, rc = classify_tool(name, inp)
 			if rc and not replay_cmd:
 				replay_cmd = rc
 		for r in tool_result_blocks(msg):
@@ -421,6 +463,7 @@ def build_graph(messages: list[dict], *, include_soft_edges: bool = True) -> Gra
 		if not refs:
 			refs.extend(extract_paths(scan, limit=12))
 		refs = list(dict.fromkeys(p for p in refs if p))
+		arg_refs = list(dict.fromkeys(p for p in arg_refs if p))
 		# 来源过滤（去噪机制之一，对所有信息类同口径、在建图之前生效）：机器噪音路径
 		# 不进 file_index / 文件状态 / [PATHS] / 针。原始消息一字节不动，冷层仍可展开。
 		_noise = [p for p in refs if is_noise_path(p)]
@@ -428,6 +471,7 @@ def build_graph(messages: list[dict], *, include_soft_edges: bool = True) -> Gra
 			noise_refs.extend(_noise)
 			_noise_set = set(_noise)
 			refs = [p for p in refs if p not in _noise_set]
+			arg_refs = [p for p in arg_refs if p not in _noise_set]
 		symbols = extract_symbols(scan, limit=12) if kind in (KIND_USER, KIND_ASST_TEXT) else ()
 		ts = msg.get("ts")
 		nodes.append(
@@ -444,6 +488,7 @@ def build_graph(messages: list[dict], *, include_soft_edges: bool = True) -> Gra
 				read_only=read_only,
 				ts=float(ts) if isinstance(ts, (int, float)) else 0.0,
 				refs=tuple(refs),
+				arg_paths=tuple(arg_refs),
 				symbols=tuple(symbols),
 				error_sig=err_sig,
 				replay_cmd=replay_cmd,
@@ -460,28 +505,32 @@ def build_graph(messages: list[dict], *, include_soft_edges: bool = True) -> Gra
 	_canon = suffix_chain_canonical(_ref_pool)
 	_refs_merged = tuple(sorted((k, v) for k, v in _canon.items() if k != v))
 	for _i, _n in enumerate(nodes):
-		if not _n.refs:
+		if not _n.refs and not _n.arg_paths:
 			continue
 		_new_refs = tuple(dict.fromkeys(_canon.get(p, p) for p in _n.refs))
-		if _new_refs != _n.refs:
-			nodes[_i] = replace(_n, refs=_new_refs)
+		_new_args = tuple(dict.fromkeys(_canon.get(p, p) for p in _n.arg_paths))
+		if _new_refs != _n.refs or _new_args != _n.arg_paths:
+			nodes[_i] = replace(_n, refs=_new_refs, arg_paths=_new_args)
 
 	# 第三遍：建边
 	edges: list[Edge] = []
 	by_use_id: dict[str, int] = {}
 	for n in nodes:
-		if n.kind == KIND_TOOL_USE and n.tool_use_id:
-			by_use_id.setdefault(n.tool_use_id, n.idx)
+		for use in tool_use_blocks(messages[n.idx]):
+			uid = str(use.get("id") or "")
+			if uid:
+				by_use_id.setdefault(uid, n.idx)
 
 	# 补 refs：tool_result 的「现场」由**发起它的调用**决定，不是由输出文本决定。
 	# 只在输出文本自身没扫出路径时继承，避免把调用参数里的无关路径灌进结果节点。
 	for n in nodes:
-		if n.kind != KIND_TOOL_RESULT or not n.tool_use_id or n.refs:
+		if n.kind != KIND_TOOL_RESULT or n.refs:
 			continue
-		src = by_use_id.get(n.tool_use_id)
-		if src is None:
-			continue
-		inherited = nodes[src].refs
+		ids = [str(b.get("tool_use_id") or "")
+		       for b in tool_result_blocks(messages[n.idx])]
+		inherited = tuple(dict.fromkeys(
+			_canon.get(p, p) for uid in ids if uid in by_use_id
+			for p in paths_by_id.get(uid, ()) if not is_noise_path(p)))
 		if inherited:
 			nodes[n.idx] = replace(n, refs=inherited)
 
@@ -502,9 +551,17 @@ def build_graph(messages: list[dict], *, include_soft_edges: bool = True) -> Gra
 		if n.kind == KIND_TOOL_USE:
 			pending.append(n.idx)
 		elif n.kind == KIND_TOOL_RESULT:
-			if n.tool_use_id and n.tool_use_id in by_use_id:
-				edges.append(Edge(by_use_id[n.tool_use_id], n.idx, EDGE_USE, 1.0))
-			elif pending:
+			matched = False
+			sources: set[int] = set()
+			for result in tool_result_blocks(messages[n.idx]):
+				uid = str(result.get("tool_use_id") or "")
+				if uid in by_use_id:
+					src = by_use_id[uid]
+					if src not in sources:
+						edges.append(Edge(src, n.idx, EDGE_USE, 1.0))
+						sources.add(src)
+					matched = True
+			if not matched and not n.tool_use_id and pending:
 				edges.append(Edge(pending[-1], n.idx, EDGE_USE, 0.6))
 			if pending:
 				pending.pop()
@@ -548,6 +605,7 @@ def build_graph(messages: list[dict], *, include_soft_edges: bool = True) -> Gra
 		in_adj={k: tuple(dict.fromkeys(v)) for k, v in in_map.items()},
 		file_index={k: tuple(v) for k, v in file_index.items()},
 		by_use_id=by_use_id,
+		use_signatures=use_signatures,
 		out_kind={k: tuple(dict.fromkeys(v)) for k, v in out_kind.items()},
 		in_kind={k: tuple(dict.fromkeys(v)) for k, v in in_kind.items()},
 		noise_refs=tuple(dict.fromkeys(noise_refs)),

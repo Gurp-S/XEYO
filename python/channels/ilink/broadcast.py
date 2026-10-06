@@ -1,4 +1,4 @@
-"""iLink SSE 广播：与 filehelper 形状相同，流独立以免串台。"""
+"""iLink SSE 广播：独立成流，避免与其它事件通道串台。"""
 
 from __future__ import annotations
 

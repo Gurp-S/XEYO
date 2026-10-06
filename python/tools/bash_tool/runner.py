@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import threading
 import time
@@ -21,6 +22,7 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from engine.abort import AbortController
+from tools.bash_tool.ansi import strip_ansi
 from tools.bash_tool.win_job import JobHandle, create_bash_job
 
 #: 泵线程结束后等待残余输出的上限（秒）
@@ -99,15 +101,13 @@ def _decode(data: bytes) -> str:
 		return ""
 	for codec in ("utf-8", "gbk", "cp1252"):
 		try:
-			return data.decode(codec)
+			return strip_ansi(data.decode(codec))
 		except UnicodeDecodeError:
 			continue
-	return data.decode("utf-8", errors="replace")
+	return strip_ansi(data.decode("utf-8", errors="replace"))
 
 
-# ---------------------------------------------------------------------------
 # shell 解析：PowerShell 7 → 5.1 兜底（argv 向量，非套壳）
-# ---------------------------------------------------------------------------
 
 _SHELL_META_CACHE: dict[str, str] = {}
 _SHELL_META_LOCK = threading.Lock()
@@ -147,6 +147,30 @@ def build_shell_argv(command: str) -> tuple[list[str], str]:
 	return [_ps51_exe(), "-NoLogo", "-NoProfile", "-NonInteractive", "-Command"], "powershell"
 
 
+#: pwsh 控制台输出编码前缀。本机 pwsh 7.6.6 默认 ``gb2312``：中文输出被编成
+#: ``C4BF C2BC``（"目录"）这类**恰好合法 UTF-8** 的字节对，解码端 utf-8 优先分支
+#: 直接解成 "Ŀ¼"（U+013F U+00BC）——gbk 回退永远走不到 ⇒ **静默有损**。
+#: 副作用（2026-10-04 重测发现）：该 setter 会**改共享控制台的输出代码页**
+#: （.NET 在 Windows 上的已知行为）——这正是"让输出按 UTF-8 到"的手段本身；
+#: 需要旧行为时用 ``XEYO_PWSH_UTF8=0`` 整体关闭。
+_UTF8_PREFIX = "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; "
+#: 反例守卫：``param(...)`` 起头的命令拼接后 param 不再位于首语句，报"术语不被
+#: 识别"而**退出码仍为 0**（静默语义改变，最难发现的那类，2026-10-03 实测）。
+_PARAM_HEAD = re.compile(r"^\s*param\s*[\(\[]", re.I)
+_UTF8_ENV = "XEYO_PWSH_UTF8"
+
+
+def apply_utf8_command(command: str) -> str:
+	"""Windows 上给 pwsh 命令前置 UTF-8 控制台编码；``XEYO_PWSH_UTF8=0`` 可关。"""
+	if os.name != "nt" or not command or not command.strip():
+		return command
+	if os.environ.get(_UTF8_ENV, "").strip() in ("0", "false", "False"):
+		return command
+	if _PARAM_HEAD.match(command):
+		return command
+	return _UTF8_PREFIX + command
+
+
 def shell_display_name() -> str:
 	"""探测 shell 版本（进程内缓存一次），用于结果头元信息与诊断。"""
 	argv, kind = build_shell_argv("")
@@ -176,9 +200,7 @@ def shell_display_name() -> str:
 	return name
 
 
-# ---------------------------------------------------------------------------
 # 流式 spawn（前台/后台共用底座）
-# ---------------------------------------------------------------------------
 
 SinkFn = Callable[[str], None]
 
@@ -343,7 +365,7 @@ def spawn_streaming(
 	job = create_bash_job(memory_mb=_job_memory_mb(cwd))
 	try:
 		proc = subprocess.Popen(
-			[*argv, command],
+			[*argv, apply_utf8_command(command)],
 			cwd=cwd,
 			env=_utf8_env(),
 			shell=False,

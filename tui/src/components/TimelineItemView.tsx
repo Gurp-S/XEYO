@@ -72,7 +72,9 @@ function usageLine(u: UsageInfo | undefined): string | undefined {
   // 没有这项账就说没有：终端头部把空白读成 0 会谎报一次真实消耗。
   const tok = (v: number | undefined) => (v == null ? "未知" : String(v));
   const base = `token 消耗: ${tok(u.promptTokens)}+${tok(u.completionTokens)}`;
-  return u.cny != null ? `${base} · ¥${fmtCny(u.cny)}` : base;
+  if (u.cny != null) return `${base} · ¥${fmtCny(u.cny)}`;
+  // 没有权威价目时把「费用未知」说出来：静默省略会被读成「这轮不花钱」。
+  return u.costUnknown ? `${base} · 费用未知` : base;
 }
 
 function fmtCny(v: number): string {

@@ -97,11 +97,12 @@ def _invalidate_read_cache(path: Path) -> None:
 def _parse_jsonl(path: Path) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     try:
-        with path.open("r", encoding="utf-8") as handle:
+        with path.open("rb") as handle:
             # 进程被杀可能留下最后一行残页：解析失败的行直接跳过即可，
-            # 无需（也不应该）为每个坏行重新打开文件数总行数。
-            for line in handle:
-                text = line.strip()
+            # 无需（也不应该）为每个坏行重新打开文件数总行数。截断常落在半个
+            # 多字节序列上 ⇒ 必须按行取字节再解码，否则整本 journal 一起抛。
+            for raw in handle:
+                text = raw.decode("utf-8", errors="replace").strip()
                 if not text:
                     continue
                 try:

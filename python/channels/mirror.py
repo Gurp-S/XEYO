@@ -1,8 +1,8 @@
 """通道镜像公共状态：事件环形缓冲、流文本 30Hz 合并广播、工具事件。
 
-ilink 与 filehelper 两个 service 曾各写一份几乎相同的实现（_push_event /
-events_since / _broadcast_stream / _emit_ui_tool / status_payload 的流段）。
-本类收敛公共部分，差异（微信协议、poll 状态、session 游标）留在各 service。
+远程通道 service 曾各自写一份几乎相同的实现（_push_event / events_since /
+_broadcast_stream / _emit_ui_tool / status_payload 的流段）。本类收敛公共部分，
+差异（微信协议、poll 状态、session 游标）留在各 service。
 """
 
 from __future__ import annotations

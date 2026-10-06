@@ -52,6 +52,17 @@ _DENY_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
 		),
 		"destructive_root_delete",
 	),
+	# rm 裸目标（. / .. / *，含引号与 .\ 变体）：级联删除当前工作区根，
+	# 会使 _bash_write_path_block 对工作区内 .git/.xeyo/.agents 的保护被整体绕过。
+	(
+		re.compile(
+			r"\brm\s+(?:--?[a-zA-Z-]+\s+)*(?<![\w/\\-])[\"']?"
+			r"(?:\.{1,2}[\\/]?|\*)[\"']?"
+			r"(?=\s|$|;|&|\||\)|`|\"|')",
+			re.I | re.S,
+		),
+		"destructive_root_delete",
+	),
 	(re.compile(r"\bformat\s+[a-z]:", re.I), "disk_format"),
 	(re.compile(r"\bmkfs(\.\w+)?\b", re.I), "disk_format"),
 	(re.compile(r"\bcipher\s+/w", re.I), "disk_wipe"),
@@ -204,9 +215,7 @@ _READONLY_SUBCOMMANDS: dict[str, frozenset[str]] = {
 	"dotnet": frozenset({"--info", "--list-sdks", "--list-runtimes"}),
 }
 
-# ---------------------------------------------------------------------------
 # T7 bash 前缀规则引擎
-# ---------------------------------------------------------------------------
 # 规则条目：{program(basename), prefix: [tokens], decision: allow|ask|deny,
 #            match_examples?, not_match_examples?}
 # - 按 program(basename) 索引，prefix 逐 token 匹配（大小写不敏感）；
@@ -711,6 +720,6 @@ def bash_grant_admissible(command: str | None, fingerprint: str) -> bool:
 
 
 def is_remote_session(session_id: str | None) -> bool:
-	"""微信 / 文件助手等远程会话：Bash 策略更严。"""
+	"""微信远程会话（iLink）：Bash 策略更严。"""
 	sid = (session_id or "").strip().lower()
-	return sid.startswith("ilink:") or sid.startswith("filehelper:")
+	return sid.startswith("ilink:")

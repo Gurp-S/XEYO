@@ -32,9 +32,7 @@ from typing import Any
 
 _logger = logging.getLogger("xeyo.goal")
 
-# ---------------------------------------------------------------------------
 # 状态机
-# ---------------------------------------------------------------------------
 STATUS_ACTIVE = "active"
 STATUS_PAUSED = "paused"
 STATUS_BLOCKED = "blocked"
@@ -268,9 +266,7 @@ class GoalConflict(Exception):
 		super().__init__(_REVISION_CONFLICT)
 
 
-# ---------------------------------------------------------------------------
 # 存储
-# ---------------------------------------------------------------------------
 class GoalStore:
 	"""按 workspace 的 goal 持久化 + 绑定（并发三层里的锁/CAS 落在这里）。
 
@@ -360,7 +356,7 @@ class GoalStore:
 			import time
 
 			now = time.time()
-		except Exception:  # noqa: BLE001
+		except Exception:  # noqa: BLE001 — 时间戳读取失败回落 0.0，不阻断目标创建
 			pass
 		goal = Goal(
 			goal_id=goal_id or uuid.uuid4().hex[:12],
@@ -508,7 +504,7 @@ class GoalStore:
 			import time
 
 			now = time.time()
-		except Exception:  # noqa: BLE001
+		except Exception:  # noqa: BLE001 — 时间戳读取失败回落 0.0，不阻断目标创建
 			pass
 		goal = Goal(
 			goal_id=goal_id or uuid.uuid4().hex[:12],

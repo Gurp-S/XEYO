@@ -12,6 +12,7 @@ import logging
 import os
 import tempfile
 import threading
+import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Iterator, Literal
@@ -69,7 +70,29 @@ def _serialized_flush(path: Path) -> Iterator[None]:
 						_FLUSH_LOCKS[key] = (lock, current[1] - 1)
 
 
-def _atomic_write(path: Path, payload: str) -> None:
+#: 活动态快照的 fsync 节流窗。逐帧刷续传游标时不必逐次 FlushFileBuffers——
+#: 2026-10-05 实测：一场流式回合 `_persist` 逐帧整写 **628 次**，逐次 fsync
+#: 把"毫秒级整写"推成"秒级"（并当场打红一个 1.5s 预算的 SSE 用例）。
+#: 终态快照不受节流（崩溃恢复判定依赖它落稳）。
+_FSYNC_MIN_INTERVAL_S = 0.5
+_last_fsync_at: dict[str, float] = {}
+
+
+def _durable_now(path: Path, snap: TurnSnapshot) -> bool:
+	"""终态必落稳；活动态按窗口节流（返回本次是否要 fsync）。"""
+	key = os.path.normcase(str(path.absolute()))
+	now = time.monotonic()
+	if str(getattr(snap, "status", "") or "") not in _ACTIVE:
+		_last_fsync_at[key] = now
+		return True
+	last = _last_fsync_at.get(key)
+	if last is None or now - last >= _FSYNC_MIN_INTERVAL_S:
+		_last_fsync_at[key] = now
+		return True
+	return False
+
+
+def _atomic_write(path: Path, payload: str, *, durable: bool) -> None:
 	fd, tmp_name = tempfile.mkstemp(
 		prefix=f".{path.name}.",
 		suffix=".tmp",
@@ -80,6 +103,12 @@ def _atomic_write(path: Path, payload: str) -> None:
 		with os.fdopen(fd, "w", encoding="utf-8") as handle:
 			fd = -1
 			handle.write(payload)
+			# 原子替换只保证"不读到半个文件"，不保证内容已离开页缓存——sidecar 是
+			# 重启 recovery 的权威状态源，断电丢内容会把 crashed 判定变错
+			# （2026-10-05 复核 09-10 P1-6；与 transcript 落盘同口径）。
+			if durable:
+				handle.flush()
+				os.fsync(handle.fileno())
 		os.replace(tmp, path)
 	finally:
 		if fd >= 0:
@@ -198,7 +227,7 @@ def flush(snap: TurnSnapshot) -> None:
 			snap.updated_at = time.time()
 			path.parent.mkdir(parents=True, exist_ok=True)
 			payload = json.dumps(snap.to_dict(), ensure_ascii=False, indent=None)
-			_atomic_write(path, payload)
+			_atomic_write(path, payload, durable=_durable_now(path, snap))
 	except Exception:  # noqa: BLE001
 		_logger.warning(
 			"turn snapshot flush failed session=%s", snap.session_id, exc_info=True

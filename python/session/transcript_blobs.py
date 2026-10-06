@@ -64,7 +64,12 @@ def resolve_transcript_row(row: dict[str, Any], anchor: Path) -> dict[str, Any]:
 		return out
 	try:
 		out["content"] = json.loads(path.read_text(encoding="utf-8"))
-	except (OSError, json.JSONDecodeError):
+	except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+		# UnicodeDecodeError 不在原名单里：截断的落盘会把一个多字节字符切在两半之间，
+		# 那是解码失败而不是 JSON 语法失败。原先它会逃到这里的历史水合调用点
+		# （engine/subagent_runner 恢复子会话）⇒ 一条坏 blob 打断一整次子代理运行。
+		# 注：这与既有的"读不出当空内容"同口径 —— 该口径本身会不会把"读不出"
+		# 显示成"没有内容"，已单独登记待裁，不在本次顺手改。
 		out["content"] = ""
 	return out
 

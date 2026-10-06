@@ -44,6 +44,25 @@ async def on_turn_settled(
 			session_id,
 			exc_info=True,
 		)
+	# 引导兜底租户（排第二）：settle 时把「回执已发、回合却在下一边界前结束」而
+	# 滞留在 steer 内存队列里的消息转入 inbox —— 引导路径不建卡也没有 settle
+	# 兜底，不转就是「已回 202、模型整轮没见过、GUI 无任何指示」。排在 inbox
+	# 之后：inbox 仍排第一（保证「用户消息优先于 goal」不变量），本租户只把
+	# 条目补进同一个队列，两者由同一套排水批投。
+	try:
+		from server.steer_settle_fallback import (
+			on_turn_settled as _steer_settle_fallback,
+		)
+
+		await _steer_settle_fallback(
+			session_id, final_status, stop_reason, user_message_id
+		)
+	except Exception:  # noqa: BLE001
+		_logger.debug(
+			"settlement hub: steer fallback tenant failed sid=%s",
+			session_id,
+			exc_info=True,
+		)
 	# 41 号租户：goal round driver 检查点。
 	try:
 		from server.goal_round_driver import get_goal_round_driver

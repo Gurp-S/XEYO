@@ -16,6 +16,15 @@ export type PermissionFrame =
 
 const TOOL_UNKNOWN = "（服务端未提供工具名）";
 
+/** 与 GUI/服务端同口径：多会话冲突三选才带"提醒"（engine/session_presence.PEER_CHOICES）。 */
+const PEER_CHOICES = new Set(["deny", "remind", "allow"]);
+
+/** 只有三件套齐全才能当多会话冲突弹窗；普通确认请求没有"提醒"这个动作。 */
+export function isPeerChoicePrompt(p: { choices?: string[] }): boolean {
+  const c = p.choices ?? [];
+  return c.length >= 3 && c.every((x) => PEER_CHOICES.has(x));
+}
+
 /** 解析一帧 `permission_pending`。只认字段本身，不做任何猜测性兜底。 */
 export function parsePermissionPending(
   xy: Record<string, unknown>,
@@ -29,12 +38,16 @@ export function parsePermissionPending(
   }
   const tool = String(xy.tool_name ?? "").trim() || TOOL_UNKNOWN;
   const promptRaw = xy.prompt ?? xy.reason;
+  const choices = (Array.isArray(xy.choices) ? xy.choices : [])
+    .map((c) => (typeof c === "string" ? c.trim().toLowerCase() : ""))
+    .filter((c) => c !== "");
   return {
     kind: "open",
     prompt: {
       requestId,
       tool,
       prompt: promptRaw == null ? "" : String(promptRaw),
+      choices,
     },
   };
 }

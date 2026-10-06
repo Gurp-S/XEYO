@@ -1,7 +1,8 @@
 """副作用工具的幂等动作账本。
 
-动作账本解决的是断流/恢复边界，而不是替代 rewind。它只记录动作意图、状态
-和有限结果预览，不保存完整参数、文件内容或秘密。默认关闭；benchmark 或
+动作账本解决的是断流/恢复边界，而不是替代 rewind。热账本只记录动作意图、状态
+和有限结果预览；长结果及结构化载荷保存在同会话的冷结果文件中，不额外记录工具
+参数。结果文件与会话同生命周期，不进入模型注意力。默认关闭；benchmark 或
 长任务宿主可通过 ``XEYO_ACTION_JOURNAL=1`` 开启。
 
 状态语义：
@@ -9,7 +10,7 @@
 ``executing``
     意图已持久化，执行尚未得到终态。
 ``completed``
-    执行已经得到结果；同一个 idempotency key 可安全 replay 有限结果。
+    执行已经得到终态；同一个 idempotency key 可 replay 完整结果或旧版完整预览。
 ``unknown``
     进程/abort 在执行边界中断，不能自动重做副作用。
 ``failed``
@@ -27,6 +28,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from engine.action_lock import action_file_lock
+from engine.action_result import store_result
 from session.persistence import default_sessions_dir, safe_session_filename
 
 _LOCKS: dict[str, threading.RLock] = {}
@@ -89,29 +92,38 @@ class ActionJournal:
 	def _append(self, record: dict[str, Any]) -> None:
 		if not self.enabled:
 			return
+		with _lock_for(self.path), action_file_lock(self.path):
+			self._append_locked(record)
+
+	def _append_locked(self, record: dict[str, Any]) -> None:
+		"""Caller holds both thread and process locks."""
 		self.path.parent.mkdir(parents=True, exist_ok=True)
 		line = json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n"
-		with _lock_for(self.path):
-			with self.path.open("a", encoding="utf-8", newline="") as handle:
-				handle.write(line)
-				handle.flush()
-				if os.environ.get("XEYO_REWIND_FSYNC", "").strip().lower() in {"1", "true", "yes", "on"}:
-					os.fsync(handle.fileno())
+		with self.path.open("a", encoding="utf-8", newline="") as handle:
+			handle.write(line)
+			handle.flush()
+			os.fsync(handle.fileno())
 
 	def _latest(self) -> dict[str, dict[str, Any]]:
 		if not self.enabled:
 			return {}
 		latest: dict[str, dict[str, Any]] = {}
 		try:
-			with self.path.open("r", encoding="utf-8") as handle:
-				for line in handle:
+			# 逐行取字节再 decode(replace)（2026-10-05）：坏字节只报废它所在那一行，
+			# 不再让整本动作账本因 UnicodeDecodeError 读不出来；行级校验保持原样。
+			with self.path.open("rb") as handle:
+				for raw_line in handle:
+					line = raw_line.decode("utf-8", errors="replace")
+					if not line.strip():
+						continue
 					try:
 						row = json.loads(line)
-					except (TypeError, json.JSONDecodeError):
-						continue
-					if isinstance(row, dict) and row.get("action_id"):
-						latest[str(row["action_id"])] = row
-		except OSError:
+					except (TypeError, json.JSONDecodeError) as exc:
+						raise OSError("action journal contains an invalid record") from exc
+					if not isinstance(row, dict) or not row.get("action_id") or row.get("status") not in {"executing", "completed", "unknown", "failed"}:
+						raise OSError("action journal contains an invalid record")
+					latest[str(row["action_id"])] = row
+		except FileNotFoundError:
 			pass
 		return latest
 
@@ -129,7 +141,7 @@ class ActionJournal:
 			return ActionDecision("execute")
 		# 读取 latest 与写入 executing 必须在同一把 session/action 锁内完成。
 		# 否则两个并发恢复请求可能都先读到“无记录”，随后重复执行同一个副作用。
-		with _lock_for(self.path):
+		with _lock_for(self.path), action_file_lock(self.path):
 			current = self._latest().get(action_id)
 			if current is not None:
 				status = str(current.get("status") or "")
@@ -138,7 +150,7 @@ class ActionJournal:
 				if status in {"executing", "unknown"}:
 					return ActionDecision("recovery_required", current)
 			now = time.time()
-			self._append(
+			self._append_locked(
 				{
 					"action_id": action_id,
 					"idempotency_key": idempotency_key,
@@ -157,12 +169,19 @@ class ActionJournal:
 	def complete(self, action_id: str, result: Any) -> None:
 		if not self.enabled:
 			return
+		if getattr(result, "status", None) in {"pending", "running", "cancelled"}:
+			self.unknown(action_id, "nonterminal action result")
+			return
 		content = str(getattr(result, "content", "") or "")
+		artifact = {}
+		if len(content) > self.MAX_REPLAY_CHARS or any(getattr(result, key, None) for key in ("images", "todos", "ui", "metadata")):
+			artifact = store_result(self.path, action_id, result)
 		self._append(
 			{
 				"action_id": action_id,
 				"status": "completed",
 				"updated_at": time.time(),
+				**artifact,
 				"result_content": content[: self.MAX_REPLAY_CHARS],
 				"result_truncated": len(content) > self.MAX_REPLAY_CHARS,
 				"result_is_error": bool(getattr(result, "is_error", False)),

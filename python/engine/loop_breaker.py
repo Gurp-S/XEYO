@@ -17,7 +17,9 @@ L1 同签名连续：``(tool, semantic_key)`` 连续 ≥ N（默认 6）。
 L2 周期重复：最近 ``k·C`` 个签名构成周期 k（k=2,3）的重复——抓"换个近邻签名接着转"。
 L3 结果等价：同签名**且结果摘要与上次相同**连续 ≥ K（默认 3）——真正零进展。
 L4 同工具无新内容：同工具连续 ≥ M（默认 4）次结果都是**本回合已见过的摘要**——
-   抓"换着花样调但结果全是旧的"（参数可不同，逐字节判据）。
+   只拒绝已有结果证据的签名；新参数的结果未知，不能由别的参数预判。
+
+结果证据在执行副作用或退出可见上下文后失效；调用模式证据独立保留。
 
 不要踩的坑（2026-09-14 实测的误判风险）
 --------------------------------------
@@ -248,7 +250,8 @@ class LoopBreaker:
 		if equiv >= self.equiv_at:
 			return "L3", equiv
 		streak = self._no_new_streak.get(tool_name, 0)
-		if streak >= self.family_at:
+		# Prior receipts from other inputs cannot predict an unobserved call.
+		if streak >= self.family_at and key in self._last_digest:
 			return "L4", streak
 		return None, 0
 
@@ -289,6 +292,18 @@ class LoopBreaker:
 		)
 
 	# ── 结果登记 ──────────────────────────────────────────────────
+	def invalidate_result_evidence(self) -> None:
+		"""Observations become stale after mutation or removal from attention.
+
+		Call-pattern guards remain active; old output equality cannot veto a
+		fresh observation of the changed environment.
+		"""
+		self._equiv_count.clear()
+		self._last_digest.clear()
+		self._seen_by_tool.clear()
+		self._no_new_streak.clear()
+		self._denied.clear()
+		self._probe.clear()
 
 	def observe_result(self, tool_name: str, input_data: Any, content: Any) -> None:
 		"""工具结果写入 store 前登记（L3 等价 / L4 无新内容 / 探针自愈）。"""
@@ -380,11 +395,6 @@ class LoopBreaker:
 		self._last_key = None
 		self._same_count = 0
 		self._history.clear()
-		self._equiv_count.clear()
-		self._last_digest.clear()
-		self._seen_by_tool.clear()
-		self._no_new_streak.clear()
-		self._denied.clear()
-		self._probe.clear()
+		self.invalidate_result_evidence()
 		self._tokens_by_key.clear()
 		self._tokens_total = 0

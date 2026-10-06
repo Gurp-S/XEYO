@@ -226,3 +226,80 @@ def test_peer_notice_block_carries_neither_topic_nor_beacon(
     assert "正在聊:" not in block
     assert "重构滚动条跟尾逻辑" not in block
     assert "邻居对话" not in block
+
+
+# ---------------------------------------------------------------------------
+# ws_index 缓存失效（09-10 SES-05/06 复核）
+# ---------------------------------------------------------------------------
+
+
+def test_foreign_process_append_becomes_visible(
+    sessions_env: Path, tmp_path: Path
+) -> None:
+    """其它进程直接追加索引行后，本进程必须能看到（mtime_ns 失效重载）。"""
+    import json as _json
+    import os as _os
+
+    from session.ws_index import index_path, sessions_for_workspace
+    from memory.memdir import workspace_id as _wsid
+
+    ws = tmp_path / "proj"
+    ws.mkdir()
+    record_session_workspace("sess-local", str(ws))
+    assert "sess-local" in sessions_for_workspace(str(ws))
+
+    # 模拟其它进程直接写盘（绕过本进程缓存）。
+    path = index_path()
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(
+            _json.dumps(
+                {"session_id": "sess-foreign", "workspace_id": _wsid(str(ws)), "ts": 1.0}
+            )
+            + "\n"
+        )
+    # 显式推 mtime，摆脱文件系统时间粒度的不确定性。
+    now = path.stat().st_mtime + 5
+    _os.utime(path, (now, now))
+
+    assert "sess-foreign" in sessions_for_workspace(str(ws))
+
+
+def test_transient_read_error_does_not_freeze_view(
+    sessions_env: Path, tmp_path: Path
+) -> None:
+    """一次瞬时读失败：不吐异常、不冻结视图；恢复后新行可见（SES-06）。"""
+    import os as _os
+
+    from session.ws_index import index_path, sessions_for_workspace
+
+    ws = tmp_path / "proj"
+    ws.mkdir()
+    record_session_workspace("sess-a", str(ws))
+    assert "sess-a" in sessions_for_workspace(str(ws))
+
+    path = index_path()
+    saved = path.read_text(encoding="utf-8")
+    path.unlink()
+    path.mkdir()  # 同名目录：read_text 抛 OSError（非 FileNotFoundError）
+    try:
+        # 失败当口：保持旧视图、不抛异常。
+        assert "sess-a" in sessions_for_workspace(str(ws))
+    finally:
+        path.rmdir()
+    path.write_text(saved, encoding="utf-8")
+
+    # 恢复后追加的新行必须可见（读失败不得把 loaded 永久置位）。
+    import json as _json
+
+    from memory.memdir import workspace_id as _wsid
+
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(
+            _json.dumps(
+                {"session_id": "sess-b", "workspace_id": _wsid(str(ws)), "ts": 2.0}
+            )
+            + "\n"
+        )
+    now_val = path.stat().st_mtime + 5
+    _os.utime(path, (now_val, now_val))
+    assert "sess-b" in sessions_for_workspace(str(ws))

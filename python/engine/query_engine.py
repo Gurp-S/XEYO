@@ -41,7 +41,8 @@ from engine.workspace_context import (
     WorkspaceContext,
     set_workspace_context,
 )
-from memory.working import apply_to_tools, collect_from_tools, flush, hydrate
+from memory.working import apply_to_tools, collect_from_tools, flush
+from memory.wsc_source_policy import hydrate_source as hydrate
 from model.client import ModelClient              # 模型客户端抽象
 from msgtypes.events import (
     AssistantDelta,
@@ -70,6 +71,7 @@ from session.workspace_path import resolve_physical_cwd
 from session.persistence import is_session_persistence_disabled  # 持久化开关
 from session.state import SessionState             # 会话状态
 from tools.tool_registry import ToolRegistry      # 工具注册表
+from usage.money import round_money8 as _round8    # 金额取整：None（费用未知）原样穿过
 
 
 def _rewind_take_snapshot(cwd: str, session_id: str, phase: str) -> str | None:
@@ -169,10 +171,7 @@ class QueryEngine:
         self._config: QueryEngineConfig = config
         # Date 在会话启动时固化：跨天首请求不改左段字节，保住 KV 前缀
         self._date_iso: str = date.today().isoformat()
-        # 可变消息历史，用于内存中的对话记录
-        self._mutable_messages: list[Message] = list(
-            config.get("initial_messages") or []
-        )
+        initial_messages = list(config.get("initial_messages") or [])
 
         self._has_handled_orphaned_permission: bool = False
         self._discovered_skill_names: set[str] = set()   # 发现的内置技能名称
@@ -226,12 +225,12 @@ class QueryEngine:
         self._permission_profile: str = "workspace-write"
 
         # 将初始消息填入 session
-        for msg in self._mutable_messages:
+        for msg in initial_messages:
             self._session.messages.append(msg)
         self._session.transcript_known_ids.update(
-            m.id for m in self._mutable_messages if m.id
+            m.id for m in initial_messages if m.id
         )
-        self._session.transcript_persist_index = len(self._mutable_messages)
+        self._session.transcript_persist_index = len(initial_messages)
 
         # 决定使用外部传入的 AbortController 还是内部新建
         abort = config.get("abort_controller")
@@ -295,11 +294,11 @@ class QueryEngine:
     @property
     def mutable_messages(self) -> list[Message]:
         """返回当前内存中消息历史的浅拷贝，供外部只读访问。"""
-        return self._mutable_messages.copy()
+        return self._session.messages.items.copy()
 
     def is_empty(self) -> bool:
         """检查是否没有任何历史消息（未开始任何回合）。"""
-        return len(self._mutable_messages) == 0
+        return len(self._session.messages) == 0
 
     def set_permission_profile(self, profile: str) -> None:
         """T10：设置会话权限 preset（由 SessionPool 在创建时调用一次）。"""
@@ -317,10 +316,9 @@ class QueryEngine:
 
         用于进程重启后或通过 session_id 恢复上下文。若成功注入则返回 True。
         """
-        if self._mutable_messages or not messages:
+        if len(self._session.messages) or not messages:
             return False
         copied = list(messages)
-        self._mutable_messages = copied
         for msg in copied:
             self._session.messages.append(msg)
             if msg.id:
@@ -332,35 +330,19 @@ class QueryEngine:
         """回溯后整表替换内存历史，对齐重写后的磁盘 transcript 前缀。
 
         与 ``hydrate_if_empty``（仅空引擎生效）不同：本方法无条件覆盖。
-        回溯只重写磁盘 transcript；常驻 engine 的 ``_mutable_messages``
+        回溯只重写磁盘 transcript；常驻 engine 的 ``MessageStore``
         若不同步截断，下一轮 LLM 仍会看到已被回溯掉的回合（GUI 不可见）。
         同时按 ``memory.working.reset_after_rollback`` 同清单复位压缩/投影
         态，并把复位结果灌回工具侧（TodoStore / ReadFileState）。
         """
         copied = list(messages)
-        self._mutable_messages = copied
         self._session.messages.replace(copied)
         self._session.transcript_known_ids = {m.id for m in copied if m.id}
         self._session.transcript_persist_index = len(copied)
         snap = self._session.working
-        snap.compact_cursor = 0
-        snap.c1_frozen_until = 0
-        snap.c2_summary_text = ""
-        snap.turns_since_c2 = 0
-        snap.last_x_sim = ""
-        snap.last_x_sent = ""
-        snap.last_action = ""
-        snap.speculation = []
-        snap.todos = []
-        snap.tasks = []
-        snap.read_file_state = {}
-        snap.session_md_tool_epoch = 0
-        snap.proj_cache = None
-        snap.compact_checkpoint = None
-        snap._pending_c2_summary = None
-        snap.last_projection = None
-        snap.last_projection_manifest = None
-        snap.current_atoms = []
+        from memory.working import reset_rollback_state
+
+        reset_rollback_state(snap)
         apply_to_tools(snap, self._tools)
         flush(self._session.session_id, snap)
 
@@ -392,10 +374,11 @@ class QueryEngine:
             "grace_reason": b.grace_reason,
             "used_tokens": b.used_tokens,
 
-            "used_usd": round(b.used_usd, 8),
+            "used_usd": _round8(b.used_usd),
             "usd_limit": b.usd_limit,
             "last_usage_tokens": b.last_usage_tokens,
-            "last_usage_usd": round(b.last_usage_usd, 8),
+            "last_usage_usd": _round8(b.last_usage_usd),
+            "usd_unpriced_turns": b.usd_unpriced_turns,
 			"last_cache_hit_tokens": int(_hit or 0),
 			"last_cache_miss_tokens": int(_miss or 0),
 			"lifecycle": b.lifecycle_snapshot(),
@@ -834,7 +817,6 @@ class QueryEngine:
         else:
             user_msg = user_message(text, images=images)
         self._session.messages.append(user_msg)
-        self._mutable_messages.append(user_msg)
 
         # 用户消息必须在调厂商之前落盘：403/网络失败时也要能编辑重发与 rewind。
         if self._should_persist():

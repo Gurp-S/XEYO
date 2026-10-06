@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "xeyo"
-version = "0.1.0"
+version = "1.1.0"
 description = "XEYO coding assistant engine"
 requires-python = ">=3.11"
 dependencies = [
@@ -65,5 +65,5 @@ timeout_method = "thread"
 markers = [
 	"live: hits real provider APIs (deselected unless --live)",
 	"slow: long-running tests, allowed up to 300s",
-	"channel: filehelper/ilink 通道测试（fixture 做单例隔离）",
+	"channel: ilink 通道测试（fixture 做单例隔离）",
 ]

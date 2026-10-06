@@ -210,3 +210,16 @@ def test_forget_and_clear(monkeypatch):
 	assert "s1" not in store._ledger
 	store.clear()
 	assert store.stats()["sessions"] == 0
+
+
+def test_forget_discards_retractions_without_touching_another_session(monkeypatch):
+	monkeypatch.setenv(inject_store.FLAG_ENV, MODE_ON)
+	store = InjectStore()
+	for i in range(128):
+		sid = f"retired-{i}"
+		assert store.retract(sid, "world_state")
+		store.forget(sid)
+	assert store.retract("live", "world_state")
+	assert set(store._retracting) == {"live"}
+	assert store.take_retractions("retired-0") == []
+	assert store.take_retractions("live") == ["world_state"]

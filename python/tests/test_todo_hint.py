@@ -146,14 +146,14 @@ class TestInjectWiring:
 			self, stub_advice, monkeypatch):
 		stub_advice.advice = "重复调用提醒"
 		text = _run_inject(monkeypatch, stub_advice, [_t("only")])
-		assert "Repeat guard" in text
+		assert "Repeat guard" not in text
 		assert "Todo progress" not in text  # total<2
 
 	def test_advice_with_all_done_no_hint(self, stub_advice, monkeypatch):
 		stub_advice.advice = "重复调用提醒"
 		text = _run_inject(monkeypatch, stub_advice,
 						   [_t("a", "completed"), _t("b", "done")])
-		assert "Repeat guard" in text
+		assert "Repeat guard" not in text
 		assert "Todo progress" not in text  # 全 done
 
 	def test_advice_with_open_todos_injects_hint(self, stub_advice, monkeypatch):
@@ -161,7 +161,7 @@ class TestInjectWiring:
 		text = _run_inject(
 			monkeypatch, stub_advice,
 			[_t("a", "completed"), _t("b", "in_progress"), _t("c", "pending")])
-		assert "Repeat guard" in text
+		assert "Repeat guard" not in text
 		assert "Todo progress" in text
 		assert "1/3" in text and "[进行中]" in text and "[待办]" in text
 

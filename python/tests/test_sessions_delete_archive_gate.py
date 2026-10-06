@@ -115,3 +115,23 @@ def test_delete_unknown_session_still_gated(isolated_env: Path) -> None:
 		_delete("sess_never_existed")
 	assert ei.value.status_code == 409
 	assert ei.value.detail["type"] == "archived_required"
+
+
+def test_delete_drops_goal_driver_state(isolated_env: Path) -> None:
+	"""2026-10-05：删除会话必须同时拆掉 goal 驱动器的 per-session 内存态
+	（否则已删会话仍会被自动续跑排合成轮——与 rewind 的 _detach_auto_drivers 同法）。"""
+	from server.goal_round_driver import get_goal_round_driver
+	from server.routers import sessions as sessions_module
+
+	sid = "sess_goal_driver_drop"
+	_seed_transcript(isolated_env, sid)
+	sessions_module.archive_session(sid)
+
+	driver = get_goal_round_driver()
+	driver.arm(sid)
+	snap = driver.snapshot(sid)
+	assert snap is not None and snap["activation"] == "armed"
+
+	out = _delete(sid)
+	assert out["ok"] is True
+	assert driver.snapshot(sid) is None, "删除后 goal 驱动器不得再持有该会话状态"

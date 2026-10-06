@@ -182,10 +182,10 @@ async def test_store_resolve_writes_resolved_audit(audit_log):
 		matched_rule="bash_policy_ask",
 		command_summary="ls",
 	)
-	assert store.resolve(req.request_id, True, actor="filehelper") is True
+	assert store.resolve(req.request_id, True, actor="ilink") is True
 	resolved = [r for r in audit_log.read_all() if r["kind"] == "permission.resolved"]
 	assert len(resolved) == 1
-	assert resolved[0]["actor"] == "filehelper"
+	assert resolved[0]["actor"] == "ilink"
 	assert resolved[0]["approved"] is True
 	assert resolved[0]["matched_rule"] == "bash_policy_ask"
 

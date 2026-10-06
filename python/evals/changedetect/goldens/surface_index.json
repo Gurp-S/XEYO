@@ -1,5 +1,5 @@
 {
- "artifact_count": 43,
+ "artifact_count": 44,
  "artifacts": {
   "meta/power_table": {
    "chars": 227,
@@ -9,18 +9,18 @@
    "sha256": "0a396e6698f1c93459d077c0e29ae08e1d4051635a6e715c338674d12985b8df"
   },
   "slash/gui_manifest": {
-   "chars": 8797,
+   "chars": 9068,
    "file": "slash__gui_manifest.txt",
    "group": "slash",
    "note": "",
-   "sha256": "0fa6d85dc9c9ab46c98eea2370222adfd50790adf74ada07482b7af447288319"
+   "sha256": "8b11a0ddfbc9766aa1b6c451481cf2916ec436049ce515ca6e477b1d44007263"
   },
   "slash/tui_manifest": {
-   "chars": 8797,
+   "chars": 9068,
    "file": "slash__tui_manifest.txt",
    "group": "slash",
    "note": "",
-   "sha256": "0fa6d85dc9c9ab46c98eea2370222adfd50790adf74ada07482b7af447288319"
+   "sha256": "8b11a0ddfbc9766aa1b6c451481cf2916ec436049ce515ca6e477b1d44007263"
   },
   "system/assembled": {
    "chars": 217,
@@ -97,21 +97,21 @@
    "file": "tnow__block_count.txt",
    "group": "tnow",
    "note": "登记块数（与硬顶一起决定准入）",
-   "sha256": "54183f4323f377b737433a1e98229ead0fdc686f93bab057ecb612daa94002b5"
+   "sha256": "a9742eb8ee320e006666aef25ae9aeed948247f3125c9cafa7cf97b7e7467dd5"
   },
   "tnow/hard_cap": {
    "chars": 3,
    "file": "tnow__hard_cap.txt",
    "group": "tnow",
    "note": "",
-   "sha256": "54183f4323f377b737433a1e98229ead0fdc686f93bab057ecb612daa94002b5"
+   "sha256": "a9742eb8ee320e006666aef25ae9aeed948247f3125c9cafa7cf97b7e7467dd5"
   },
   "tnow/registry": {
-   "chars": 1165,
+   "chars": 1405,
    "file": "tnow__registry.txt",
    "group": "tnow",
    "note": "块登记表（加块必须登记，机器执法）",
-   "sha256": "67ab1cd2a18fb9354e223c5d10a50e97985acbb16a95a30c8a7ff02cebbafe09"
+   "sha256": "b239245923ac85283d65495e0f1c9075cb3d4b2b631219b88ceaa15c0d7fe583"
   },
   "tools/Agent": {
    "chars": 1141,
@@ -254,25 +254,32 @@
    "sha256": "7126c4ca62c86f097ea8911d46685c83d4c21743a8fe5390a21718f1f759595f"
   },
   "tools/_bench_minimal_names": {
-   "chars": 158,
+   "chars": 169,
    "file": "tools___bench_minimal_names.txt",
    "group": "tools",
    "note": "XEYO_BENCH_MINIMAL=1 时的工具集（评测口径红线）",
-   "sha256": "29615ea6929b88efbe3fda27d511fc3848e57cdf9955607a7672a3e790190ae5"
+   "sha256": "8b317e73562ef6177bbc097ea6c4013c1fc2fd877787f42f4d9b479a3035509a"
   },
   "tools/_count": {
    "chars": 3,
    "file": "tools___count.txt",
    "group": "tools",
    "note": "",
-   "sha256": "68ca3fba3b7e864770cb61aeb306d4bd4354b68ab4dd38450860c5d823e42a53"
+   "sha256": "64aeb9975f234becd55bb4635e6e2f2da7a6b7bf0a896f0c07763bdfbfb31420"
   },
   "tools/_index": {
-   "chars": 205,
+   "chars": 216,
    "file": "tools___index.txt",
    "group": "tools",
    "note": "工具名清单（模型可见面）",
-   "sha256": "7d8cab49b122fbfaaa2d3c440890e5675f5835ceb90a7caae8a3fd450bd30a32"
+   "sha256": "886b3c770a1c455bc7a94a3e613cb204c152a4120d10762517631a3eafc3e9f1"
+  },
+  "tools/agent_send": {
+   "chars": 318,
+   "file": "tools__agent_send.txt",
+   "group": "tools",
+   "note": "工具 schema（决定模型怎么调）",
+   "sha256": "1f8233dfd1958f22dcb5f394cb93fbebf1f7f4d85a81234e2e73a087bec5eb7f"
   },
   "tools/getTime": {
    "chars": 150,

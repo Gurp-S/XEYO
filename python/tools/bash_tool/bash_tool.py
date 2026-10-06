@@ -16,6 +16,15 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+from tools.error_taxonomy import (
+	ABORTED,
+	COMMAND_NOT_FOUND,
+	INVALID_ARGUMENT,
+	PERMISSION_DENIED,
+	TIMEOUT,
+	classify_exception,
+)
+
 _log = logging.getLogger(__name__)
 
 # docker 路由的后台 job 表（评测场景自持；registry 依赖 server，headless 不可用）
@@ -226,6 +235,32 @@ def expect_no_output(command: str) -> bool:
 	return base in SILENT_COMMANDS
 
 
+def classify_failure_kind(out: "BashOutput", content: str) -> str | None:
+	"""失败结果的 error_kind 组成映射（B-5-A：只补 kind，不改模型可见呈现）。
+
+	归属口径沿 diagnostics/fault_split.py：环境侧找不到命令（退出码 127 /
+	POSIX 命令落在非 POSIX 壳的"not recognized / 不会被识别"）→ COMMAND_NOT_FOUND；
+	壳侧解析失败（ParserError / syntax error，命令串本身不合法）→ INVALID_ARGUMENT；
+	其余返回 None（不硬归责，交由 ToolResult 兜底 INTERNAL）。
+	"""
+	if out.timed_out:
+		return TIMEOUT
+	if out.interrupted:
+		return ABORTED
+	low = content.lower()
+	if (
+		out.code == 127
+		or "command not found" in low
+		or "not recognized" in low
+		or "不会被识别" in content
+		or "不是内部或外部命令" in content
+	):
+		return COMMAND_NOT_FOUND
+	if "parsererror" in low or "syntax error" in low or "语法错误" in content:
+		return INVALID_ARGUMENT
+	return None
+
+
 def _docker_exec_with_timeout(
 	cid: str,
 	command: str,
@@ -310,6 +345,25 @@ def _docker_exec_with_timeout(
 		0,
 		f"[命令仍在运行，已自动转入后台 job {job_id}。"
 		f"完成状态将在后台完成事件中出现。]\n已累积输出：\n",
+	)
+
+
+def _finalize_docker_result(command: str, code: int, text: str) -> "BashOutput":
+	"""容器分支收尾：与宿主 call() 尾部同一条退出码纪律（is_error + Exit code 行）。
+
+	此前容器分支拿到 (code, text) 后直接返回 BashOutput——跳过
+	``interpret_command_result`` 与非零退出的 "Exit code N" 追加 ⇒
+	失败在模型与归属表里被当成成功（2026-10-05 修）。
+	"""
+	is_error, msg = interpret_command_result(command, code)
+	stdout = text or ""
+	if is_error and code != 0:
+		stdout = stdout.rstrip() + f"\nExit code {code}"
+	return BashOutput(
+		stdout=stdout,
+		code=code,
+		is_error=is_error,
+		return_code_interpretation=msg,
 	)
 
 
@@ -456,7 +510,7 @@ def _coerce_optional_int(value: Any) -> int | None:
 	if isinstance(value, str):
 		try:
 			return int(float(value.strip()))
-		except ValueError:
+		except (ValueError, OverflowError):
 			return None
 	return None
 
@@ -724,7 +778,8 @@ class BashTool:
 			out_code, out_text = _docker_exec_with_timeout(
 				cid, routed_command, timeout_ms
 			)
-			return BashOutput(code=out_code, stdout=out_text)
+			# 收尾与宿主等价（2026-10-05）：非零退出必须给 is_error 与 Exit code 行。
+			return _finalize_docker_result(inp.command, out_code, out_text)
 
 		# 预检查：只拦「等 TTY/编辑器会挂」的形态；预检自身异常必须 fail-open，
 		# 否则一次正则意外就把整个 Bash 工具打挂（call 是 Bash 唯一执行路径）。
@@ -860,7 +915,7 @@ class BashTool:
 			and not expect_no_output(inp.command)
 		):
 			self._shell_notice_sent = True
-			stdout = f"[shell: {shell_display_name()}]\n" + stdout
+			stdout = f"[shell: {shell_display_name()}]{self._venv_fact_line()}\n" + stdout
 		return BashOutput(
 			stdout=stdout,
 			code=result.code,
@@ -871,6 +926,22 @@ class BashTool:
 			persisted_path=persisted,
 			no_output_expected=expect_no_output(inp.command),
 		)
+
+	def _venv_fact_line(self) -> str:
+		"""仓库内 .venv 解释器（正典）事实：模型不必猜依赖装在哪边。不存在则不报。"""
+		if not self._cwd:
+			return ""
+		rel = (
+			os.path.join(".venv", "Scripts", "python.exe")
+			if os.name == "nt"
+			else os.path.join(".venv", "bin", "python")
+		)
+		try:
+			if os.path.isfile(os.path.join(self._cwd, rel)):
+				return f" [python: {rel.replace(os.sep, '/')}]"
+		except OSError:
+			pass
+		return ""
 
 	def _promote_running(
 		self,
@@ -1087,7 +1158,10 @@ class BashTool:
 		inp = parse_input(input)
 		v = validate_input(inp)
 		if not v.get("result"):
-			return ToolResult(content=str(v.get("message")), is_error=True)
+			return ToolResult(
+				content=str(v.get("message")), is_error=True,
+				error_kind=INVALID_ARGUMENT,
+			)
 		if _worker_bash_active() and inp.run_in_background:
 			return ToolResult(
 				content="sub-agent Bash cannot run in background",
@@ -1095,10 +1169,13 @@ class BashTool:
 			)
 		resolved = resolve_working_directory(inp, cwd=self._cwd)
 		if not resolved.get("result"):
-			return ToolResult(content=str(resolved.get("message")), is_error=True)
+			return ToolResult(
+				content=str(resolved.get("message")), is_error=True,
+				error_kind=INVALID_ARGUMENT,
+			)
 		work = str(resolved["cwd"])
 		if not self.check_permissions(inp, cwd=work):
-			return ToolResult(content="permission denied", is_error=True)
+			return ToolResult(content="permission denied", is_error=True, error_kind=PERMISSION_DENIED)
 		abort.raise_if_aborted()
 		git_op = self._begin_presence(work, inp.command)
 		try:
@@ -1116,15 +1193,23 @@ class BashTool:
 		except Exception as e:  # noqa: BLE001
 			self._end_presence(work, git_op)
 			self._invalidate_search_caches(inp.command, background=inp.run_in_background)
-			return ToolResult(content=str(e), is_error=True)
+			return ToolResult(
+				content=str(e), is_error=True,
+				error_kind=classify_exception(e)[0],
+			)
 		self._end_presence(work, git_op)
 		abort.raise_if_aborted()
 		self._note_bash_write_target(work, inp.command)
 		self._invalidate_search_caches(inp.command, background=inp.run_in_background)
-		return ToolResult(
+		result = ToolResult(
 			content=self.map_tool_result_to_content(out),
 			is_error=bool(out.is_error),
 		)
+		if result.is_error:
+			kind = classify_failure_kind(out, result.content)
+			if kind:
+				result.error_kind = kind
+		return result
 
 	def _session_id(self) -> str:
 		try:

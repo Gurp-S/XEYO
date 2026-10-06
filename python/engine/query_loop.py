@@ -29,14 +29,20 @@ from engine.repeat_guard import (
 	clear_advice,
 )
 from engine.repeat_fold import IdenticalResultFold
+from engine.tool_observation import observation_payload
+from engine.early_read_executor import EarlyReadExecutor
 from engine.loop_breaker import LoopBreaker
 from engine.loop_ledger import LoopLedger, params_digest
 from engine.observe_safety import safe_observe
 from engine.tool_coordinator import ToolCoordinator
 from engine.turn_runtime import TurnRuntime
+from engine.turn_completion import completion_event
+from engine.stream_failure import failed_attempt_usage, settle_failed_stream
+from engine.terminal_settlement import settle_tool_exit
 from memory.l5_flag import l5_mode
 from memory.runtime import (
 	c2_llm_summary_enabled,
+	idle_seconds,
 	maybe_force_compact_on_pressure,
 	prefetch_c2_summary,
 	project_for_model,
@@ -54,6 +60,7 @@ from permissions.policy import (
 	tool_allowed_in_mode,
 )
 from session.message_store import MessageStore
+from session.compression_source import compression_messages
 from tools.base_tool import ToolResult, tool_flag
 from tools.orchestration import is_concurrency_safe
 from tools.tool_registry import ToolRegistry
@@ -79,6 +86,7 @@ from msgtypes.events import (
     ToolResultEvent,
     UsageEvent,
 )
+from usage.money import round_money8 as _round8
 from usage.pricing import split_usage
 from memory.token import token_len
 from msgtypes.message import Message, ToolUse, assistant_text_message, tool_result_message
@@ -129,36 +137,6 @@ def wrap_quota_from_env(default: int = 3) -> int:
 		except (TypeError, ValueError):
 			return default
 	return default
-
-
-def _publish_wrap_guide(tools: Any, cwd: str, quota: int) -> None:
-	"""进入收尾窗时发布缺口清单 + 配额（wrap_gap 模块级）。
-
-	从 TodoWrite 工具的当前清单读 output 声明,stat 磁盘缺口;失败 fail-open
-	为空(不挡 wrap 主路径)。纯事实呈现,不裁决不拦截。
-
-	⚠️ 2026-09-15（用户裁定撤块后）：本函数的**模型可见承载已不存在**——
-	``pre_llm_inject`` 的 wrap_up 块连同渲染器 ``_wrap_up_block_text`` 一并删除，
-	``current_gap()`` 目前没有消费者。保留原因（用户裁决：缩小本轮爆炸半径）：
-	它只发布引擎侧事实、绝不写模型可见文本，留着零风险；但**它不是"还有人在读"
-	的活路径**——将来要么找到新承载（新块须自证作用域：写"回合配额"而非"预算"），
-	要么整体删除。切勿把 ``current_gap()`` 直接塞回任何模型可见文本。
-	"""
-	try:
-		from engine.wrap_gap import build_gap_lines, compose_guide_text, publish_gap
-
-		todo_tool = tools.get("TodoWrite") if tools is not None else None
-		todos = todo_tool.current_todos() if todo_tool is not None else None
-		lines = build_gap_lines(todos, cwd)
-		text = compose_guide_text(quota, lines)
-		publish_gap(text if text.strip() else "")
-	except Exception:  # noqa: BLE001 — 缺口清单只是引导增强，失败静默
-		try:
-			from engine.wrap_gap import publish_gap
-
-			publish_gap("")
-		except Exception:  # noqa: BLE001
-			pass
 
 
 def _eligible_for_early(
@@ -469,30 +447,6 @@ def _audit_model_event(
         default_audit_log().record(kind, **fields)
     except Exception:  # noqa: BLE001 —审计故障不挡模型调用
         logging.getLogger(__name__).debug("model audit failed", exc_info=True)
-
-
-def _persist_interrupted_anchor(
-    store: MessageStore, narration_gate: Any, tool_uses: list[ToolUse]
-) -> bool:
-    """44 号：abort 时把已产出（但未落盘）的部分输出写成 interrupted 锚消息。
-
-    返回是否真的写了锚（GUI 已看到非空前缀）。注意：本函数只做「入史」，
-    不 yield 任何增量（流已死）；失败静默——宁可缺锚也不挡 abort 主路径。
-    """
-    try:
-        partial, _flush = narration_gate.finish(has_tools=bool(tool_uses))
-    except Exception:  # noqa: BLE001
-        partial = ""
-    partial = (partial or "").strip()
-    if not partial and not tool_uses:
-        return False
-    try:
-        store.append(
-            assistant_text_message(partial, tool_uses or None, interrupted=True)
-        )
-    except Exception:  # noqa: BLE001
-        return False
-    return True
 
 
 def _positive_int(value: object) -> int | None:
@@ -882,6 +836,33 @@ def _append_skipped_tool_results(
 		)
 
 
+def _wrap_window_scoped(fn):
+	"""把查询循环包进收尾窗的作用域：出口恢复进入前的状态（token 还原）。
+
+	10-05：query_loop 有多个出口且此前都不复位 ContextVar ⇒ 预算/宽限耗尽从
+	收尾窗退出后，同上下文 `in_wrap_window()` 恒 True（长命令晋升阈值被压到
+	1ms）；嵌套（子 Agent 同 task 直接 await）还会把内层状态留给父上下文。
+	"""
+	import functools
+
+	@functools.wraps(fn)
+	async def _scoped(*args, **kwargs):
+		from contextlib import aclosing
+
+		from engine.wrap_window import reset_wrap_window, snapshot_wrap_window
+
+		token = snapshot_wrap_window()
+		try:
+			async with aclosing(fn(*args, **kwargs)) as agen:
+				async for ev in agen:
+					yield ev
+		finally:
+			reset_wrap_window(token)
+
+	return _scoped
+
+
+@_wrap_window_scoped
 async def query_loop(
 	*,
 	store: MessageStore,
@@ -920,7 +901,7 @@ async def query_loop(
         ) or _self_session_id()
         if _perm_sid:
             begin_permission_turn(_perm_sid)
-    except Exception:
+    except Exception:  # noqa: BLE001 — 权限轮记账降级：失败不阻断本回合（policy 侧另有独立降级）
         pass
     approved_plan: str | None = None
     # 首写收敛后：全量计划静默，切换为"实施中"指针块（正文已进紧邻历史）。
@@ -955,6 +936,7 @@ async def query_loop(
         wrap_quota_left=wrap_quota_from_env(),
     )
     turn_reasoning_parts: list[str] = []
+    turn_reasoning_blocks: list[dict] = []
     # 配对修复只在 submit 入口（及 abort 路径的 _fill_missing）做一次，
     # 不在每轮模型请求前全量扫 store。
     _repair_unpaired_tool_calls(store, "aborted")
@@ -968,19 +950,6 @@ async def query_loop(
             yield StoppedEvent(reason=budget.hard_stop_reason or "max_turns")
             return
         forced_wrap_up = turn_runtime.forced_wrap_up
-        if turn_decision == "wrap_up":
-            # R3'：进收尾窗时发布缺口清单 + 剩余配额。
-            # 2026-09-15 起模型可见承载（T_now wrap_up 块）已撤销 ⇒ 本发布目前
-            # 无消费者（见 _publish_wrap_guide docstring）；引擎侧事实保留，
-            # 收尾窗本身与配额闸不受影响。
-            try:
-                _publish_wrap_guide(
-                    tools,
-                    _workspace_cwd_for_turn(tools),
-                    turn_runtime.wrap_quota_left,
-                )
-            except Exception:  # noqa: BLE001 — 引导增强失败不影响 wrap 主路径
-                pass
         runtime_notice = budget.consume_runtime_notice()
         # 收尾窗广播（工具层只读信号）：窗口内长命令后台化，把窗口留给落盘。
         # 每轮刷新 → 剩余墙钟变化可被工具层看到；未进入窗口时广播 inactive。
@@ -1070,13 +1039,16 @@ async def query_loop(
                 ),
             )
 
+        _turn_cwd = _workspace_cwd_for_turn(tools)
+        from memory.wsc_source_transition import prepare_compression_source
+        prepare_compression_source(store, snap, cwd=_turn_cwd, carrier=_note_carrier)
         compact_cursor_before = snap.compact_cursor
+        c1_frozen_before = snap.c1_frozen_until
         # T8：每轮先清空预取槽（防跨轮脏数据），再按开关决定是否异步预取。
         # C2 LLM 摘要旁路（默认关）：仅首压前（compact_cursor==0 且会话足够长）
         # 重放前缀打 warm cache，结果存进 snap._pending_c2_summary，供
         # apply_c2_messages 同步消费（失败/未启用 → 置空回退确定性摘要）。
         snap._pending_c2_summary = None
-        _turn_cwd = _workspace_cwd_for_turn(tools)
         if (
             c2_llm_summary_enabled()
             and int(snap.compact_cursor or 0) == 0
@@ -1086,7 +1058,7 @@ async def query_loop(
             try:
                 await prefetch_c2_summary(
                     snap,
-                    store.as_api_messages(),
+                    compression_messages(store, snap),
                     system_prompt,
                     model,
                     abort,
@@ -1097,7 +1069,7 @@ async def query_loop(
         # 厂商上下文达 95%（可用 XEYO_CONTEXT_COMPACT_RATIO）→ 强制 C2，避免 1261
         pressure_limit = _positive_int(getattr(model, "context_limit", None))
         if maybe_force_compact_on_pressure(
-            store.as_api_messages(),
+            compression_messages(store, snap),
             snap,
             context_limit=pressure_limit,
             remaining_turns=remaining,
@@ -1107,7 +1079,6 @@ async def query_loop(
             snap.proj_cache = None
         summary_fp = len(snap.c2_summary_text or "")
         frozen = snap.c1_frozen_until
-        cur_len = len(store)
         # 增量缓存：
         # - gate 关：整段 project 前缀可复用（旧行为）
         # - gate 开但已压缩：左段摘要冻结，只增量投影 cursor 右侧尾部
@@ -1121,7 +1092,9 @@ async def query_loop(
         # 先清空缓存，未触发 C2 时历史只追加，正是增量缓存的前置条件。
         # 继续把 ``compact_cursor > 0`` 当成必要条件会让缓存永远不建立，
         # 也会破坏跨 submit 的既有契约。
-        use_proj_cache = l5_mode() == "project"
+        api_all = compression_messages(store, snap)
+        # 当前状态过滤旧版本后输入可能移位，不能当作 append-only 增量消息缓存。
+        use_proj_cache = l5_mode() == "project" and not any(row.get("note_key") for row in api_all)
         # 缓存命中路径会跳过 project_for_model（其内部才推进 aging/C1）；
         # 在走缓存前显式跑一次老化决策。推进时 note_c1 会把 proj_cache 置
         # None，下面的命中检查自然失败、回落全量投影——不会投影错位。
@@ -1129,12 +1102,16 @@ async def query_loop(
             try:
                 from memory.runtime import maybe_advance_aging_boundary
 
-                maybe_advance_aging_boundary(store.as_api_messages(), snap)
+                maybe_advance_aging_boundary(compression_messages(store, snap), snap)
                 frozen = snap.c1_frozen_until
-            except Exception:
+            except Exception:  # noqa: BLE001 — aging 推进失败按未推进处理（不更新冻结窗），不阻断本轮投影
                 pass
         # 无论是否命中增量缓存，manifest 都需要同一份 canonical projection 输入。
-        api_all = store.as_api_messages()
+        api_all = compression_messages(store, snap)
+        # 缓存基线的下标空间 = **投影**（已筛选），不是未筛选的历史：留痕被撤回/
+        # 逐出后 len(store) > len(api_all)，拿历史长度当 base_len 去切 api_all
+        # 会把新段头部若干条真实消息整段跳掉（上一枪的助手回复静默消失）。
+        cur_len = len(api_all)
         proj_cache = snap.proj_cache
         if (
             use_proj_cache
@@ -1148,7 +1125,7 @@ async def query_loop(
             if cur_len == base_len:
                 projected = base_proj
             else:
-                api_all = store.as_api_messages()
+                api_all = compression_messages(store, snap)
                 new_msgs = api_all[base_len:]
                 if cursor > 0:
                     frozen_rel = max(0, frozen - cursor)
@@ -1181,7 +1158,7 @@ async def query_loop(
                     names,
                 )
         else:
-            api_all = store.as_api_messages()
+            api_all = compression_messages(store, snap)
             projected = project_for_model(
                 api_all,
                 snap,
@@ -1191,29 +1168,13 @@ async def query_loop(
                 # 真实模型窗口（route capacity）——Path A 压力门据此推导，修复
                 # 「C2 误以为窗口只有 128k」：主流模型已 1M，但 params.window_tokens 恒 128k。
                 context_limit=_positive_int(getattr(model, "context_limit", None)),
+                provider=_llm_provider_name(model),
+                model_name=_llm_model_name(model),
                 cwd=_turn_cwd,
             )
             names = build_tool_use_names(api_all)
             projected = apply_tool_output_fences(projected, id_to_name=names)
             projected = apply_tool_result_digest(projected, id_to_name=names)
-            # 阶段 B：WSC 影子档（默认关，`XEYO_WSC=1` 开）。只记账、不生效——
-            # 无返回值，异常在模块内吞掉（`memory/wsc_shadow.py` 红线 1/2）。
-            # 位置说明：本分支是**每轮都会走到**的全量投影路径（缓存命中路径要求
-            # 消息数未变，新用户轮必然不命中）⇒ 影子档每轮都有机会采样。
-            try:
-                from memory.wsc_shadow import maybe_observe
-
-                maybe_observe(
-                    api_all,
-                    session_id=getattr(snap, "session_id", "") or "",
-                    projected=projected,
-                    context_limit=_positive_int(getattr(model, "context_limit", None)),
-                    # 读取方自己的工作区：影子档据此把取回视图落进 `<ws>/.xeyo_offload/`
-                    # （`Read` 的 read-state 豁免按该根判定，见 memory/offload.py）。
-                    cwd=_turn_cwd,
-                )
-            except Exception:  # noqa: BLE001 — 影子档绝不挡主链
-                pass
             if use_proj_cache:
                 snap.proj_cache = (
                     cur_len,
@@ -1266,7 +1227,7 @@ async def query_loop(
             # 管道 2 去重真相源：本轮投影里真实存在的留痕身份（见 _dedup_round）。
             # 台账只是快路径——投影里没有就必须重发（历史被改写未清账时兜底）。
             visible_notes=frozenset(
-                store.note_fingerprints(start=int(snap.compact_cursor or 0))
+                store.note_fingerprints(projected=projected)
             ),
         )
 
@@ -1278,7 +1239,7 @@ async def query_loop(
                 pass
             snap.proj_cache = None
             _inject_kwargs["visible_notes"] = frozenset()
-            hidden_api = store.as_api_messages()
+            hidden_api = compression_messages(store, snap)
             rebuilt = project_for_model(
                 hidden_api,
                 snap,
@@ -1286,6 +1247,8 @@ async def query_loop(
                 system_prompt=system_prompt,
                 include_memory_index=_memory_index_live_enabled(),
                 context_limit=_positive_int(getattr(model, "context_limit", None)),
+                provider=_llm_provider_name(model),
+                model_name=_llm_model_name(model),
                 cwd=_turn_cwd,
             )
             hidden_names = build_tool_use_names(hidden_api)
@@ -1368,6 +1331,8 @@ async def query_loop(
             )
             schemas_json_cache = (tool_schemas, tool_schemas_json)
         compression_started = snap.compact_cursor > compact_cursor_before
+        if compression_started or snap.c1_frozen_until > c1_frozen_before:
+            loop_breaker.invalidate_result_evidence()
         if compression_started:
             yield ContextCompressionEvent(phase="start", source="automatic")
             # 历史被改写（有界窗口折叠）⇒ 留痕台账清账：被折掉的版本不再是
@@ -1385,6 +1350,7 @@ async def query_loop(
         seen_tool_ids: set[str] = set()
         do_early = early_readonly_tools_enabled()
         turn_reasoning_parts = []
+        turn_reasoning_blocks = []
         # stream 期间即可 yield / 占配额 / early；progress 与 result 队列提前建好。
         wake = asyncio.Event()
 
@@ -1396,6 +1362,7 @@ async def query_loop(
         progress_q: asyncio.Queue[ToolProgressEvent] = _NotifyQueue()
         result_q: asyncio.Queue[tuple[ToolUse, ToolResult]] = _NotifyQueue()
         tool_coordinator = ToolCoordinator(tools, coordinator)
+        early_executor = EarlyReadExecutor(tools)
         results_by_id: dict[str, ToolResult] = {}
         quota_held: set[str] = set()
         emitted_calls: set[str] = set()
@@ -1443,8 +1410,7 @@ async def query_loop(
                 repeat_guard.observe, tu.name, tu.input,
                 label="RepeatCallGuard.observe",
             )
-            # T6：ACTION_ADVICE 不改写 ToolResult——提醒经 T_now
-            # （pre_llm_inject 的 Repeat guard 块）在下一轮模型请求前注入。
+            # 重复调用信号只触发 TODO 状态，不改写 ToolResult。
             _ = guard_action
             # 循环熔断：命中即该次调用不执行（也不占 tool-call 配额），回中性
             # 结果型 ToolResult；同签名再来一次仍会命中（永不静默）。判定失败
@@ -1488,13 +1454,14 @@ async def query_loop(
             # fail-closed：宁可恢复时欠一条结果，也不得让无 tool_use 的裸结果落盘。
             if not is_concurrency_safe(tools, tu.name):
                 _safe_flush_transcript()
-            if do_early and _eligible_for_early(
+            if do_early and early_executor.admit(tu) and _eligible_for_early(
                 tools,
                 tu,
                 forced_wrap_up=forced_wrap_up,
             ):
                 early[tu.id] = asyncio.create_task(
-                    tool_coordinator.run_one(
+                    early_executor.run_one(
+                        tool_coordinator,
                         tu,
                         abort,
                         progress_q=progress_q,
@@ -1518,6 +1485,10 @@ async def query_loop(
         prepared_events_acknowledged = False
         while True:
             attempt += 1
+            from tools.fileio.read_visibility import sync_read_visibility
+
+            sync_read_visibility(tools, api_messages)
+            request_cache_age = idle_seconds(snap)
             # B0.5：每次尝试前注入记账 meta（model._meta_*），保持 stream() 接口
             # 不变 —— 对测试 fake / 其它模型实现零侵入。request_id 跨 attempt
             # 不变（归并同一次逻辑调用的重试），attempt 递增区分第几次尝试。
@@ -1579,6 +1550,8 @@ async def query_loop(
                         if chunk.text:
                             turn_reasoning_parts.append(chunk.text)
                         yield ReasoningDelta(text=chunk.text)
+                    elif chunk.kind == "reasoning_block":
+                        turn_reasoning_blocks.append(dict(chunk.block))
                     elif chunk.kind == "tool_use" and chunk.tool_use is not None:
                         for ev in _admit_tool_use(chunk.tool_use):
                             yield ev
@@ -1607,45 +1580,15 @@ async def query_loop(
                     status="aborted",
                     error_code="aborted",
                 )
-                await _cancel_early_tasks(early)
-                # smoke-test #4：用户停止/中断时若厂商 usage 尾帧(include_usage)已
-                # 在中断前到达,补发用量事件——否则该回合的 token/缓存命中在
-                # GUI 与用量账本中整体缺失（"缓存命中有点异常,消耗记录对不上"）。
-                # 客户端流在每次 stream() 开始时置空 last_usage,非 None 即本次流
-                # 已取得真实 usage;本回合的用量尾(1119 行 emit)尚未执行,不会重复。
-                _ab_usage = getattr(model, "last_usage", None)
-                if isinstance(_ab_usage, dict):
-                    budget.add_usage(_ab_usage)
-                    _ah, _am, _ao = split_usage(_ab_usage)
-                    yield UsageEvent(
-                        prompt_tokens=_ah + _am,
-                        completion_tokens=_ao,
-                        cache_hit_tokens=_ah,
-                        cache_miss_tokens=_am,
-                        tokens=budget.last_usage_tokens,
-                        used_tokens=budget.used_tokens,
-                        usd=round(budget.last_usage_usd, 8),
-                        used_usd=round(budget.used_usd, 8),
-                        cny=round(budget.last_usage_cny, 8),
-                        used_cny=round(budget.used_cny, 8),
-                        cost_source=budget.last_cost_source,
-                        usd_limit=budget.usd_limit,
-                        context_tokens=_positive_int(
-                            getattr(model, "last_context_tokens", None)
-                        )
-                        or _ah + _am,
-                        context_limit=_positive_int(
-                            getattr(model, "context_limit", None)
-                        ),
-                        context_breakdown=None,
-                        compact_cursor=int(snap.compact_cursor or 0),
-                        last_action=str(snap.last_action or ""),
-                        c2_summary_chars=0,
-                    )
-                # 44 号：中断锚——已吐给 GUI 的部分输出必须入史（刷新/重放可见）。
-                interrupted = _persist_interrupted_anchor(
-                    store, narration_gate, tool_uses
+                interrupted, failure_events = await settle_failed_stream(
+                    store, narration_gate, tool_uses, early, results_by_id,
+                    reason="aborted", reasoning="".join(turn_reasoning_parts), reasoning_blocks=turn_reasoning_blocks,
                 )
+                usage_event = failed_attempt_usage(model, budget, snap)
+                if usage_event is not None:
+                    yield usage_event
+                for event in failure_events:
+                    yield event
                 yield StoppedEvent(reason="aborted", interrupted=interrupted)
                 return
             except ProviderError as exc:
@@ -1745,9 +1688,10 @@ async def query_loop(
                 # existing bounded retry path instead of leaking raw English
                 # messages such as "All connection attempts failed".
                 failure = classify_llm_failure(exc)
-                if failure.code not in {"network", "timeout"}:
-                    raise
-                pending_exc = NetworkError(friendly_error(exc))
+                pending_exc = (
+                    NetworkError(friendly_error(exc))
+                    if failure.code in {"network", "timeout"} else exc
+                )
                 failure_message = friendly_error(exc)
                 failure_status = None
             if not (failure.retryable and not saw_any and attempt < _llm_max_attempts()):
@@ -1761,9 +1705,30 @@ async def query_loop(
                     status="failed",
                     error_code=str(failure.code or "model_failure"),
                 )
+                _, failure_events = await settle_failed_stream(
+                    store, narration_gate, tool_uses, early, results_by_id,
+                    reason="error", reasoning="".join(turn_reasoning_parts), reasoning_blocks=turn_reasoning_blocks,
+                )
+                usage_event = failed_attempt_usage(model, budget, snap)
+                if usage_event is not None:
+                    yield usage_event
+                for event in failure_events:
+                    yield event
                 if failure.code == "empty_response":
                     raise EmptyResponseError() from None
                 raise pending_exc
+            usage_event = failed_attempt_usage(model, budget, snap)
+            if usage_event is not None:
+                yield usage_event
+            if budget.over_budget:
+                yield StoppedEvent(
+                    reason="budget_usd", budget_used_usd=round(budget.used_usd, 8),
+                    budget_limit_usd=budget.usd_limit,
+                )
+                return
+            if budget.over_token_budget():
+                yield StoppedEvent(reason="budget")
+                return
             delay_ms = _llm_retry_delay_ms(attempt, failure.retry_after_ms)
             _audit_llm_failure(
                 failure.code,
@@ -1853,6 +1818,7 @@ async def query_loop(
                 turn=budget.turn_count,
                 provider=getattr(model, "provider", None),
                 model=getattr(model, "_model", None) or getattr(model, "model", None),
+                cache_age=request_cache_age,
                 label="memory.observe.observe_shot",
             )
 
@@ -1882,12 +1848,14 @@ async def query_loop(
                 cache_miss_tokens=miss,
                 tokens=budget.last_usage_tokens,
                 used_tokens=budget.used_tokens,
-                usd=round(budget.last_usage_usd, 8),
+                usd=_round8(budget.last_usage_usd),
                 used_usd=round(budget.used_usd, 8),
-                cny=round(budget.last_usage_cny, 8),
+                cny=_round8(budget.last_usage_cny),
                 used_cny=round(budget.used_cny, 8),
                 cost_source=budget.last_cost_source,
                 usd_limit=budget.usd_limit,
+                unpriced_turns=budget.usd_unpriced_turns,
+                budget_gate_note=budget.usd_gate_note,
                 context_tokens=context_tokens,
                 context_limit=context_limit,
                 context_breakdown=context_breakdown or None,
@@ -1903,10 +1871,17 @@ async def query_loop(
                 context_limit=context_limit,
             )
         if budget.over_budget:
-            await _cancel_early_tasks(early)
+            interrupted, terminal_events = await settle_failed_stream(
+                store, narration_gate, tool_uses, early, results_by_id,
+                reason="budget_usd", reasoning="".join(turn_reasoning_parts),
+                reasoning_blocks=turn_reasoning_blocks,
+            )
+            for event in terminal_events:
+                yield event
             await _await_observe()
             yield StoppedEvent(
                 reason="budget_usd",
+                interrupted=interrupted,
                 budget_used_usd=round(budget.used_usd, 8),
                 budget_limit_usd=budget.usd_limit,
             )
@@ -1951,33 +1926,9 @@ async def query_loop(
                 tool_uses or None,
                 narration=narration,
                 reasoning="".join(turn_reasoning_parts),
+                reasoning_blocks=turn_reasoning_blocks,
             )
         )
-
-        if forced_wrap_up:
-            # 空工具列表下正常不应出现 tool_use；万一厂商仍吐出，就补确定性
-            # 错误行保持配对完整。收尾有任何文本则以 FinalEvent 交付；完全无
-            # 文本（如假模型/异常空响应）则回退原硬停语义，保持既有契约。
-            await _cancel_early_tasks(early)
-            if tool_uses:
-                _fill_missing_tool_results(store, tool_uses, "wrap_up")
-            final_text = assistant_text.strip()
-            if not final_text:
-                await _await_observe()
-                yield StoppedEvent(reason=budget.hard_stop_reason or "max_turns")
-                return
-            await _await_observe()
-            yield FinalEvent(
-                text=final_text,
-                prompt_tokens=hit + miss,
-                completion_tokens=out,
-                cache_hit_tokens=hit,
-                cache_miss_tokens=miss,
-                usd=round(budget.last_usage_usd, 8),
-                used_usd=round(budget.used_usd, 8),
-                usd_limit=budget.usd_limit,
-            )
-            return
 
         exit_plan_use = _find_exit_plan_use(tool_uses)
         if current_agent_mode() == "plan" and exit_plan_use is not None:
@@ -2076,7 +2027,7 @@ async def query_loop(
                 completion_tokens=out,
                 cache_hit_tokens=hit,
                 cache_miss_tokens=miss,
-                usd=round(budget.last_usage_usd, 8),
+                usd=_round8(budget.last_usage_usd),
                 used_usd=round(budget.used_usd, 8),
                 usd_limit=budget.usd_limit,
             )
@@ -2084,15 +2035,9 @@ async def query_loop(
 
         if not tool_uses:
             await _await_observe()
-            yield FinalEvent(
-                text=assistant_text,
-                prompt_tokens=hit + miss,
-                completion_tokens=out,
-                cache_hit_tokens=hit,
-                cache_miss_tokens=miss,
-                usd=round(budget.last_usage_usd, 8),
-                used_usd=round(budget.used_usd, 8),
-                usd_limit=budget.usd_limit,
+            yield completion_event(
+                assistant_text, budget, hit=hit, miss=miss, out=out,
+                forced_wrap_up=forced_wrap_up,
             )
             return
 
@@ -2268,11 +2213,20 @@ async def query_loop(
             results_by_id[tu.id] = result
             return events
 
+        async def _settle_tools(reason):
+            return await settle_tool_exit(
+                store, tool_uses, early, results_by_id, reason=reason,
+                tasks=(late_task, early_task, *ask_waiters.values(), *perm_waiters.values()),
+                result_q=result_q,
+            )
+
         try:
             if late_uses:
                 late_task = asyncio.create_task(
-                    tool_coordinator.run_batch(
+                    early_executor.run_late(
+                        tool_coordinator,
                         late_uses,
+                        early_admitted,
                         abort,
                         progress_q=progress_q,
                         result_q=result_q,
@@ -2346,26 +2300,18 @@ async def query_loop(
                 for ev in _ingest_raw_result(tu, raw):
                     yield ev
         except Aborted:
-            if late_task is not None and not late_task.done():
-                late_task.cancel()
-            for t in (*ask_waiters.values(), *perm_waiters.values()):
-                t.cancel()
-            await _cancel_early_tasks(early)
-            _fill_missing_tool_results(store, tool_uses, "aborted")
+            for event in await _settle_tools("aborted"):
+                yield event
             await _await_observe()
             yield StoppedEvent(reason="aborted")
             return
         except Exception:
-            if late_task is not None and not late_task.done():
-                late_task.cancel()
-            for t in (*ask_waiters.values(), *perm_waiters.values()):
-                t.cancel()
-            await _cancel_early_tasks(early)
-            _fill_missing_tool_results(store, tool_uses, "error")
+            for event in await _settle_tools("error"):
+                yield event
             await _await_observe()
             raise
 
-        # 同批 Ask / Permission 并行等用户；已确认的立即返回。
+        # 同批 Ask / Permission 并行等用户；保持原调用顺序执行批准项。
         # 该区间同样要兜 Aborted / 异常：批准后的写工具重跑（tools.run）
         # 落在 abort 置位窗口会抛 Aborted，若不补 StoppedEvent / tool_result，
         # SSE 契约破坏、transcript 留 unpaired tool_use、turn 被记 failed。
@@ -2374,22 +2320,14 @@ async def query_loop(
             if wait_set:
                 await asyncio.wait(wait_set)
         except Aborted:
-            if late_task is not None and not late_task.done():
-                late_task.cancel()
-            for t in (*ask_waiters.values(), *perm_waiters.values()):
-                t.cancel()
-            await _cancel_early_tasks(early)
-            _fill_missing_tool_results(store, tool_uses, "aborted")
+            for event in await _settle_tools("aborted"):
+                yield event
             await _await_observe()
             yield StoppedEvent(reason="aborted")
             return
         except Exception:
-            if late_task is not None and not late_task.done():
-                late_task.cancel()
-            for t in (*ask_waiters.values(), *perm_waiters.values()):
-                t.cancel()
-            await _cancel_early_tasks(early)
-            _fill_missing_tool_results(store, tool_uses, "error")
+            for event in await _settle_tools("error"):
+                yield event
             await _await_observe()
             raise
 
@@ -2410,7 +2348,12 @@ async def query_loop(
                 actor=resolved.actor if resolved else "",
                 timeout=timeout,
             )
-            if not timeout:
+            if resolved is not None and resolved.actor == "abort":
+                results_by_id[tu_id] = ToolResult(
+                    content=CANCELLED_COPY, is_error=True, status="cancelled",
+                    metadata={"ask_cancelled": True},
+                )
+            elif not timeout:
                 results_by_id[tu_id] = ToolResult(content=answer, is_error=False)
             else:
                 results_by_id[tu_id] = ToolResult(
@@ -2419,61 +2362,69 @@ async def query_loop(
                     metadata={"ask_timeout": True},
                 )
 
-        for tu_id, task in perm_waiters.items():
-            info = perm_meta[tu_id]
-            rid = str(info["rid"])
-            tu = info["tu"]
-            try:
-                choice = str(task.result() or "deny")
-            except Exception:
-                choice = "timeout"
-            approved = choice == "allow"
-            yield PermissionResolvedEvent(
-                request_id=rid,
-                approved=approved,
-                actor="",
-                reason="user_decided" if choice in ("allow", "deny", "remind") else choice,
-                choice=choice,
-            )
-            if approved:
+        try:
+            for tu_id, task in perm_waiters.items():
+                info = perm_meta[tu_id]
+                rid = str(info["rid"])
+                tu = info["tu"]
                 try:
-                    results_by_id[tu_id] = await tool_coordinator.run_authorized(tu, abort)
-                except Aborted:
+                    choice = str(task.result() or "deny")
+                except Exception:
+                    choice = "timeout"
+                approved = choice == "allow"
+                yield PermissionResolvedEvent(
+                    request_id=rid,
+                    approved=approved,
+                    actor="",
+                    reason="user_decided" if choice in ("allow", "deny", "remind") else choice,
+                    choice=choice,
+                )
+                if approved:
+                    try:
+                        results_by_id[tu_id] = await tool_coordinator.run_authorized(tu, abort)
+                    except Aborted:
+                        results_by_id[tu_id] = ToolResult(
+                            content="[tool aborted]",
+                            is_error=True,
+                            metadata={"aborted": True},
+                        )
+                    _notify_peers_after_allow(tu, cwd=_workspace_cwd_for_turn(tools))
+                elif choice == "remind":
                     results_by_id[tu_id] = ToolResult(
-                        content="[tool aborted]",
+                        content=_peer_remind_tool_message(tu),
                         is_error=True,
-                        metadata={"aborted": True},
+                        metadata={"permission_denied": True, "permission_choice": "remind"},
                     )
-                _notify_peers_after_allow(tu, cwd=_workspace_cwd_for_turn(tools))
-            elif choice == "remind":
-                results_by_id[tu_id] = ToolResult(
-                    content=_peer_remind_tool_message(tu),
-                    is_error=True,
-                    metadata={"permission_denied": True, "permission_choice": "remind"},
-                )
-                _queue_peer_remind_notices(tu, cwd=_workspace_cwd_for_turn(tools))
-            else:
-                # T3 统一文案：rejected（显式拒绝）/ cancelled（面板关闭/停止）/
-                # unavailable（超时）——按 store 的 outcome 区分。
-                _item = coordinator.store.get(rid)
-                _outcome = str(getattr(_item, "outcome", "") or "")
-                if _outcome == "aborted":
-                    _deny_text = CANCELLED_COPY
-                elif _outcome == "timeout" or choice == "timeout":
-                    _deny_text = UNAVAILABLE_COPY
+                    _queue_peer_remind_notices(tu, cwd=_workspace_cwd_for_turn(tools))
                 else:
-                    _deny_text = REJECTED_COPY
-                results_by_id[tu_id] = ToolResult(
-                    content=_deny_text,
-                    is_error=True,
-                    metadata={"permission_denied": True, "permission_choice": choice},
-                )
+                    # T3 统一文案：rejected（显式拒绝）/ cancelled（面板关闭/停止）/
+                    # unavailable（超时）——按 store 的 outcome 区分。
+                    _item = coordinator.store.get(rid)
+                    _outcome = str(getattr(_item, "outcome", "") or "")
+                    if _outcome == "aborted":
+                        _deny_text = CANCELLED_COPY
+                    elif _outcome == "timeout" or choice == "timeout":
+                        _deny_text = UNAVAILABLE_COPY
+                    else:
+                        _deny_text = REJECTED_COPY
+                    results_by_id[tu_id] = ToolResult(
+                        content=_deny_text,
+                        is_error=True,
+                        metadata={"permission_denied": True, "permission_choice": choice},
+                    )
+
+        except Exception:
+            for event in await _settle_tools("error"):
+                yield event
+            await _await_observe()
+            raise
 
         for tu in tool_uses:
             result = results_by_id[tu.id]
 
             if abort.aborted:
-                _fill_missing_tool_results(store, tool_uses, "aborted")
+                for event in await _settle_tools("aborted"):
+                    yield event
                 await _await_observe()
                 yield StoppedEvent(reason="aborted")
                 return
@@ -2526,11 +2477,13 @@ async def query_loop(
                 params_digest=params_digest(getattr(tu, "input", None)),
             )
             # 循环熔断：L3 结果等价 / L4 无新内容 / 半开探针自愈（写入 store 前）。
+            if getattr(result, "side_effect", "none") not in (None, "", "none"):
+                loop_breaker.invalidate_result_evidence()
             safe_observe(
                 loop_breaker.observe_result,
                 tu.name,
                 getattr(tu, "input", None),
-                out_content,
+                observation_payload(out_content, getattr(result, "images", None)),
                 label="LoopBreaker.observe_result",
             )
             try:
@@ -2557,19 +2510,36 @@ async def query_loop(
                     tu.name,
                     stored_content,
                     is_error=result.is_error,
+                    status=result.status,
                     images=getattr(result, "images", None),
                 )
             )
             # 批次4：Plan 衰减（首写收敛）——批准后本 query 内首次成功写盘，
             # 全量计划块静默并切换为"实施中"指针块（正文已在紧邻历史，
             # 重发只剩 ≤4k 冗余；指针保留"契约仍在"的轻在场）。
-            if approved_plan and approved_plan_decays_on(tu.name, result.is_error):
-                approved_plan = None
-                plan_pointer = True
+            if approved_plan:
+                # 这一句此前把 `approved_plan_decays_on` 当**全局名**加载，而本模块
+                # 从未绑定它（函数住在 prompt/pre_llm_inject.py，靠 re-export 使用）
+                # ⇒ 批准过计划的会话里，第一条工具结果落盘就 NameError，回合当场炸。
+                # 与本文件其它 pre_llm_inject 用法同形：函数内导入，不引模块级环依赖。
+                from prompt.pre_llm_inject import approved_plan_decays_on
+
+                if approved_plan_decays_on(tu.name, result.is_error):
+                    approved_plan = None
+                    plan_pointer = True
         if abort.aborted:
             _fill_missing_tool_results(store, tool_uses, "aborted")
             await _await_observe()
             yield StoppedEvent(reason="aborted")
+            return
+        if forced_wrap_up:
+            # Accepted finalization tools use the same execution and persistence
+            # path as ordinary tools; termination cannot precede their results.
+            await _await_observe()
+            yield completion_event(
+                assistant_text, budget, hit=hit, miss=miss, out=out,
+                forced_wrap_up=True,
+            )
             return
         if budget.over_token_budget():
             await _await_observe()

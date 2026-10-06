@@ -26,7 +26,6 @@ _EXCLUDED_DIRS = {
 	".xy-shadow-git",
 	".xy-trash",
 	".xeyo_uploads",
-	".xeyo_filehelper",
 	".xeyo_ilink",
 }
 _MAX_SEARCH_DEPTH = 6
@@ -200,7 +199,17 @@ def read_file(cwd: str, rel: str) -> dict[str, Any]:
 	try:
 		text = raw.decode("utf-8")
 	except UnicodeDecodeError:
-		text = raw.decode("gbk", errors="replace")
+		# 截断读（read(_MAX_TEXT+8)）可能把前缀切在 UTF-8 多字节字符中间
+		# （单字符至多 4 字节）——直接落 gbk 兜底会让整个大 UTF-8 文件预览成乱码。
+		# 先按边界回退最多 3 字节重试；真 GBK/混合编码同样会全部失败，仍走 gbk。
+		trimmed: str | None = None
+		for back in (1, 2, 3):
+			try:
+				trimmed = raw[: len(raw) - back].decode("utf-8")
+				break
+			except UnicodeDecodeError:
+				continue
+		text = trimmed if trimmed is not None else raw.decode("gbk", errors="replace")
 	truncated = size > _MAX_TEXT
 	if truncated:
 		text = text[:_MAX_TEXT] + "\n…[truncated]"

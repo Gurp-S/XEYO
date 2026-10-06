@@ -30,7 +30,8 @@ from session.transcript_blobs import row_from_message
 
 _logger = logging.getLogger(__name__)
 
-# 按 transcript 路径缓存已写入 id，避免 ui_thought 同步等路径反复全文件扫描。
+# Accepted IDs reserve queued rows; a successful flush confirms durability.
+# Failed rows remain owned by the queue until an explicit retry succeeds.
 _known_ids_cache: dict[str, set[str]] = {}
 
 # G107: 磁盘临界区锁——所有物理写入路径共用，防止 rotate(rename 当前→归档)
@@ -39,9 +40,11 @@ _disk_lock = threading.Lock()
 
 # 后台写入队列：(seq, path, line)。seq 单调递增，用于 flush 判定「全部落盘」。
 _pending: list[tuple[int, str, str]] = []
+_failed: list[tuple[int, str, str]] = []
+_retry_paths: set[str] = set()
+_writing = False
 _cv = threading.Condition()
 _submitted_seq = 0
-_written_seq = 0
 _writer_thread: threading.Thread | None = None
 _stop = False
 
@@ -120,7 +123,7 @@ def discard_rotated_transcripts(path: Path) -> list[str]:
 
 def _writer_loop() -> None:
 	"""批量消费队列：一次取出一整批，按 path 分组追加写盘。"""
-	global _written_seq
+	global _writing
 	while True:
 		with _cv:
 			while not _pending and not _stop:
@@ -129,13 +132,26 @@ def _writer_loop() -> None:
 				return
 			batch = list(_pending)
 			_pending.clear()
-			max_seq = batch[-1][0]
-		try:
-			_write_batch(batch)
-		except Exception:  # noqa: BLE001
-			_logger.debug("transcript writer batch failed", exc_info=True)
+			_writing = True
+		groups: dict[str, list[tuple[int, str, str]]] = {}
+		for item in batch:
+			groups.setdefault(item[1], []).append(item)
+		failed = []
+		for path, items in groups.items():
+			try:
+				_write_batch(items)
+			except Exception:  # noqa: BLE001
+				_logger.debug("transcript writer batch failed", exc_info=True)
+				failed.extend(items)
+			else:
+				_retry_paths.discard(path)
 		with _cv:
-			_written_seq = max(_written_seq, max_seq)
+			failed_paths = {path for _, path, _ in failed}
+			_failed.extend(failed)
+			_failed.extend(item for item in _pending if item[1] in failed_paths)
+			_pending[:] = [item for item in _pending if item[1] not in failed_paths]
+			_retry_paths.update(failed_paths)
+			_writing = False
 			_cv.notify_all()
 
 
@@ -148,7 +164,11 @@ def _write_batch(batch: list[tuple[int, str, str]]) -> None:
 		# rotate + append 同一临界区,杜绝与 sync 直写交错(G107)
 		with _disk_lock:
 			p.parent.mkdir(parents=True, exist_ok=True)
-			_maybe_rotate(p)
+			if path in _retry_paths:
+				from session.transcript_retry import reconcile_retry
+				lines = reconcile_retry(p, transcript_read_paths(p), lines)
+			if lines:
+				_maybe_rotate(p)
 			with p.open("a", encoding="utf-8") as f:
 				f.writelines(lines)
 				f.flush()
@@ -169,9 +189,12 @@ def _ensure_writer() -> None:
 def submit_async_append(path: str, lines: list[str]) -> None:
 	"""把待写行入队；调用方必须已完成去重记账（known_ids 就地更新）。"""
 	global _submitted_seq
-	if not lines:
-		return
 	with _cv:
+		if not lines and not _failed:
+			return
+		if _failed:
+			_pending[:0] = _failed
+			_failed.clear()
 		for line in lines:
 			_submitted_seq += 1
 			_pending.append((_submitted_seq, path, line))
@@ -183,19 +206,24 @@ def flush_pending_sync(timeout: float = 5.0) -> bool:
 	"""阻塞等待所有已提交行落盘；返回是否在超时前排空。"""
 	deadline = time.monotonic() + timeout
 	with _cv:
-		while _written_seq < _submitted_seq:
+		# One retry per explicit flush; failed batches never spin in the writer.
+		if _failed:
+			_pending[:0] = _failed
+			_failed.clear()
+			_cv.notify_all()
+		while _pending or _writing:
 			if time.monotonic() >= deadline:
 				return False
 			_cv.wait(0.2)
-		return True
+		return not _failed
 
 
 def _atexit_drain() -> None:
 	global _stop
+	flush_pending_sync(timeout=2.0)
 	with _cv:
 		_stop = True
 		_cv.notify_all()
-	flush_pending_sync(timeout=2.0)
 
 
 atexit.register(_atexit_drain)
@@ -238,9 +266,13 @@ def _load_written_ids(path: Path) -> set[str]:
 		if not p.is_file():
 			continue
 		try:
-			with p.open("r", encoding="utf-8") as f:
-				for line in f:
-					line = line.strip()
+			# 逐行按字节解码：进程在 append 中途被强杀会留下半个 UTF-8 序列，
+			# 文本模式一遇坏字节就整文件抛 UnicodeDecodeError（不是 OSError）⇒
+			# 该会话之后每一次落盘都失败。坏行只丢它自己，与下面
+			# JSONDecodeError 的"跳过这一行"同一口径。
+			with p.open("rb") as f:
+				for raw in f:
+					line = raw.decode("utf-8", errors="replace").strip()
 					if not line:
 						continue
 					try:
@@ -310,12 +342,14 @@ async def record_transcript(
 
 	pending = [m for m in messages if m.id and m.id not in known]
 	if not pending:
+		submit_async_append(str(target), [])
 		return 0
 	rows = [
 		json.dumps(message_to_dict(m, anchor=target), ensure_ascii=False) + "\n"
 		for m in pending
 	]
-	# 先记账再去重：known 挡掉后续重复提交，行内容交给后台线程写盘。
+	# known reserves accepted rows, including recoverable failed appends.
+	# Only a successful flush certifies that these rows reached disk.
 	for m in pending:
 		known.add(m.id)
 	submit_async_append(str(target), rows)
@@ -338,6 +372,8 @@ def record_transcript_sync(
 	known = _resolve_known_ids(target, known_ids)
 	pending = [m for m in messages if m.id and m.id not in known]
 	if not pending:
+		if not flush_pending_sync():
+			raise OSError("transcript append incomplete")
 		return 0
 	rows = [
 		json.dumps(message_to_dict(m, anchor=target), ensure_ascii=False) + "\n"
@@ -359,9 +395,11 @@ def load_transcript(path: Path) -> list[dict[str, Any]]:
 	if not path.is_file():
 		return []
 	out: list[dict[str, Any]] = []
-	with path.open("r", encoding="utf-8") as f:
-		for line in f:
-			line = line.strip()
+	# 与 _load_written_ids 同口径：坏字节只报废它所在的那一行，绝不因
+	# UnicodeDecodeError 让整份转录打不开（resume / session_pool 会直接 500）。
+	with path.open("rb") as f:
+		for raw in f:
+			line = raw.decode("utf-8", errors="replace").strip()
 			if not line:
 				continue
 			try:
@@ -429,4 +467,5 @@ async def record_ui_thoughts(
 def flush_transcript(path: Path | None = None) -> None:
 	"""阻塞等待后台写入队列排空（保证调用返回后转录已落盘）。"""
 	_ = path
-	flush_pending_sync()
+	if not flush_pending_sync():
+		raise OSError("transcript append incomplete")

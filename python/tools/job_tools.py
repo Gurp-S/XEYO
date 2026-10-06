@@ -29,6 +29,27 @@ _OUTPUT_WAIT_DEFAULT_MS = 30_000
 _OUTPUT_WAIT_MAX_MS = 600_000
 
 
+def _coerce_bool(value: Any, default: bool = False) -> bool:
+	"""与 Bash/Edit/Grep/TodoWrite 同一条字面量口径（2026-10-05）。
+
+	`wait` 在 schema 里是 boolean，模型常写成字符串；裸 ``bool("false")`` 是 True
+	⇒ ``job_output`` 会做与要求相反的事并按住回合到超时。认不出的值回默认。
+	"""
+	if value is None:
+		return default
+	if isinstance(value, bool):
+		return value
+	if isinstance(value, (int, float)):
+		return bool(value)
+	if isinstance(value, str):
+		s = value.strip().lower()
+		if s in ("true", "on", "1", "yes"):
+			return True
+		if s in ("false", "off", "0", "no"):
+			return False
+	return default
+
+
 def _registry() -> Any:
 	from server.job_registry import get_job_registry
 
@@ -110,10 +131,10 @@ class JobOutputTool:
 			)
 		# server registry 与 Docker 直连后台表都支持事件唤醒；不再按容器
 		# 路由强制关闭 wait=true。ContextVar 仍只用于选择哪条后台事实源。
-		wait = bool(input.get("wait"))
+		wait = _coerce_bool(input.get("wait"), False)
 		try:
 			timeout_ms = int(float(input.get("timeout_ms") or _OUTPUT_WAIT_DEFAULT_MS))
-		except (TypeError, ValueError):
+		except (TypeError, ValueError, OverflowError):
 			timeout_ms = _OUTPUT_WAIT_DEFAULT_MS
 		timeout_ms = max(1_000, min(_OUTPUT_WAIT_MAX_MS, timeout_ms))
 		# docker 后台 job 回退（评测 headless：registry 依赖 server，不可用）

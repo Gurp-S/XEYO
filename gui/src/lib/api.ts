@@ -322,6 +322,28 @@ export async function resumeInbox(
 	}
 }
 
+/** 边界引导单条排队消息（DSH QueueAction:steer 对齐）：下一个采样边界投递、不打断工具批次。 */
+export async function steerInboxItem(
+	sessionId: string,
+	queueId: string,
+): Promise<boolean> {
+	try {
+		const res = await fetchWithTimeout(
+			apiUrl(
+				`/v1/sessions/${encodeURIComponent(sessionId)}/inbox/${encodeURIComponent(queueId)}/steer`,
+			),
+			{method: 'POST', headers: {...authHeaders()}},
+		);
+		if (!res.ok) return false;
+		// 200 ≠ 被接受：信封 {ok:false}（该项已被投递/取消/引导队列拒绝）必须落 false，
+		// 否则界面会把"没插进去"渲染成成功（receipt 棘轮同族）。
+		const body = (await res.json().catch(() => null)) as {ok?: boolean} | null;
+		return body?.ok === true;
+	} catch {
+		return false;
+	}
+}
+
 export type AgentInboxPostResult = {
 	ok?: boolean;
 	deliver?: 'running' | 'pending';
@@ -1278,6 +1300,10 @@ export type RemoteEvent = {
 	request_id?: string | null;
 	tool_name?: string | null;
 	reason?: string | null;
+	/** #11 提问桥：ask 事件的选项/默认值/向导分题（与 ask_user_pending 帧同形）。 */
+	options?: string[] | null;
+	default?: string | null;
+	questions?: unknown[] | null;
 };
 
 export type RemoteStatus = {

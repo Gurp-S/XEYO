@@ -202,3 +202,212 @@ def test_settings_keep_last_good(
 	home.unlink()
 	cfg3 = ext_config.load_ext_config(None)
 	assert not cfg3.enabled_extensions
+
+
+# ---------- T25 延伸：键认得、值读不出 = 与坏文件同向（收紧 + 出声）----------
+
+
+@pytest.mark.parametrize(
+	"bad",
+	["ask_me", "desny", 123, True, {"on": True}],
+	ids=["typo_ask", "transposed_deny", "int", "bool", "dict"],
+)
+def test_unreadable_bash_value_never_reaches_loose_default(
+	monkeypatch: pytest.MonkeyPatch, tmp_path: Path, bad: object
+) -> None:
+	"""核心回归：收紧意图打错，过去静默落到 bash=default（只读命令自动放行）。
+
+	对照臂是坏文件本身：整个文件解析失败 → ask（T25），单个键读不出却 → 宽档。
+	"""
+	_set_audit(monkeypatch, tmp_path)
+	_write_policy(tmp_path, {"bash": bad})
+	from permissions.workspace_policy import load_workspace_policy
+
+	pol = load_workspace_policy(str(tmp_path))
+	assert pol.bash == "ask"
+	assert pol.exists and pol.parse_error is None  # 文件仍生效，只该键被收紧
+	cwd = str(_work(tmp_path))
+	r = evaluate_policy("Bash", {"command": "ls -la"}, cwd=cwd)
+	assert r.decision == PermissionDecision.ASK
+	assert r.matched_rule == "bash_policy_ask"
+
+
+def test_readable_bash_values_keep_documented_semantics(tmp_path: Path) -> None:
+	"""方向控制：修复不许把合法值 / 缺省（键缺失、空值）一起收紧。"""
+	from permissions.workspace_policy import load_workspace_policy
+
+	for payload, want in (
+		({"bash": "default"}, "default"),
+		({"bash": "ask"}, "ask"),
+		({"bash": "allow"}, "allow"),
+		({"bash": "deny"}, "deny"),
+		({"bash": "  ASK  "}, "ask"),
+		({"bash": ""}, "default"),
+		({"bash": None}, "default"),
+		({}, "default"),
+	):
+		_write_policy(tmp_path, payload)
+		assert load_workspace_policy(str(tmp_path)).bash == want, payload
+
+
+def test_deny_lists_written_as_bare_string_still_deny(
+	monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+	"""漏方括号（"deny_tools": "Read"）过去整条丢弃 ⇒ deny 静默失效。"""
+	_set_audit(monkeypatch, tmp_path)
+	_write_policy(tmp_path, {"deny_tools": "Read", "deny_commands": "ls"})
+	cwd = str(_work(tmp_path))
+	t = evaluate_policy("Read", {"file_path": str(tmp_path / "safe.txt")}, cwd=cwd)
+	assert t.decision == PermissionDecision.DENY
+	assert t.matched_rule == "policy_deny_tool"
+	b = evaluate_policy("Bash", {"command": "ls -la"}, cwd=cwd)
+	assert b.decision == PermissionDecision.DENY
+	assert b.matched_rule == "bash_deny"
+
+
+def test_allowed_roots_written_as_bare_string_is_honored(tmp_path: Path) -> None:
+	import os
+
+	from permissions.workspace_policy import resolve_allowed_roots
+
+	_write_policy(tmp_path, {"allowed_roots": "../extra"})
+	roots = resolve_allowed_roots(str(tmp_path))
+	assert os.path.abspath(os.path.join(str(tmp_path), "../extra")) in roots
+
+
+def test_unreadable_write_value_tightens(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+	_set_audit(monkeypatch, tmp_path)
+	monkeypatch.delenv("XEYO_PERMISSION_MODE", raising=False)
+	cwd = str(_work(tmp_path))
+	# 对照：合法 risk 不收紧（用户模式说话）。
+	_write_policy(tmp_path, {"write": "risk"})
+	base = evaluate_policy(
+		"Write", {"file_path": str(tmp_path / "out.txt"), "content": "x"}, cwd=cwd
+	)
+	assert base.matched_rule == "write_risk_allow"
+	# 打错的 always → 收紧档 ask，而不是回落到 risk（不收紧）。
+	_write_policy(tmp_path, {"write": "alway"})
+	r = evaluate_policy(
+		"Write", {"file_path": str(tmp_path / "out.txt"), "content": "x"}, cwd=cwd
+	)
+	assert r.decision == PermissionDecision.ASK
+	assert r.matched_rule == "write_confirm_ask"
+
+
+def test_unreadable_field_is_audited_and_keeps_readable_deny(
+	monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+	"""坏键必须出声，且不得顺手丢掉同文件里读得出的 deny。"""
+	log_path = _set_audit(monkeypatch, tmp_path)
+	_write_policy(tmp_path, {"bash": "desny", "deny_commands": ["ls"]})
+	cwd = str(_work(tmp_path))
+	b = evaluate_policy("Bash", {"command": "ls -la"}, cwd=cwd)
+	assert b.decision == PermissionDecision.DENY
+	assert b.matched_rule == "bash_deny"
+	from audit.log import default_audit_log
+
+	events = default_audit_log().query(kind="policy.field_invalid")
+	assert events, "值读不出必须产生 policy.field_invalid 审计事件"
+	assert events[0].get("field") == "bash"
+	assert "ask" in str(events[0].get("action", ""))
+	assert log_path.is_file()
+	assert "policy.field_invalid" in log_path.read_text(encoding="utf-8")
+
+
+def test_unreadable_field_absent_when_values_are_clean(
+	monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+	"""反向自证：合法文件零出声，否则该审计事件会淹掉账本。"""
+	log_path = _set_audit(monkeypatch, tmp_path)
+	_write_policy(tmp_path, {"bash": "ask", "write": "always", "deny_tools": ["Skill"]})
+	assert evaluate_policy(
+		"Bash", {"command": "ls -la"}, cwd=str(_work(tmp_path))
+	).decision == PermissionDecision.ASK
+	from audit.log import default_audit_log
+
+	assert not default_audit_log().query(kind="policy.field_invalid")
+	assert not log_path.exists() or "policy.field_invalid" not in log_path.read_text(
+		encoding="utf-8"
+	)
+
+
+def test_unreadable_numeric_fields_are_audited(
+	monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+	"""数值键读不出：值留在保守侧（不限额 / 关），但必须出声。"""
+	_set_audit(monkeypatch, tmp_path)
+	_write_policy(tmp_path, {"bash_job_memory_mb": "512MB", "bash_escalate": "three"})
+	from permissions.workspace_policy import load_workspace_policy
+
+	pol = load_workspace_policy(str(tmp_path))
+	assert pol.bash_job_memory_mb is None
+	assert pol.bash_escalate == 0
+	from audit.log import default_audit_log
+
+	fields = {
+		str(e.get("field"))
+		for e in default_audit_log().query(kind="policy.field_invalid")
+	}
+	assert {"bash_job_memory_mb", "bash_escalate"} <= fields
+	# 新事件名的诊断边界必须与 policy.invalid 一致，否则诊断面按未知种类处理。
+	from diagnostics.collect import boundary_of
+
+	assert boundary_of("policy.field_invalid") == boundary_of("policy.invalid")
+
+
+def test_unusable_deny_shape_fails_closed_instead_of_being_dropped(
+	monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+	"""deny 清单既不是字符串也不是列表 ⇒ 按坏文件处理（收紧 + 审计），不是丢掉 deny 后放行。
+
+	条目本身读不出来（无法凭空补 deny），但本文件的 T25 纪律是"宁可多问"：
+	其余档位必须落到 ask，且 `exists` 为假，让这条策略不被误当成"已生效"。
+	"""
+	log_path = _set_audit(monkeypatch, tmp_path)
+	_write_policy(tmp_path, {"deny_tools": {"Read": True}})
+	from permissions.workspace_policy import load_workspace_policy
+
+	pol = load_workspace_policy(str(tmp_path))
+	assert pol.parse_error and "deny_tools" in pol.parse_error
+	assert not pol.exists
+	assert pol.bash == "ask" and pol.write == "ask"
+	cwd = str(_work(tmp_path))
+	b = evaluate_policy("Bash", {"command": "ls -la"}, cwd=cwd)
+	assert b.decision == PermissionDecision.ASK
+	from audit.log import default_audit_log
+
+	events = default_audit_log().query(kind="policy.invalid")
+	assert events, "读不出的 deny 形状必须走 policy.invalid 留痕"
+	assert log_path.is_file()
+
+
+def test_readable_deny_list_is_not_invalidated(tmp_path: Path) -> None:
+	"""反向自证：合法 deny 列表不得被新分支判成坏文件。"""
+	_write_policy(tmp_path, {"deny_tools": ["Read"], "bash": "default"})
+	from permissions.workspace_policy import load_workspace_policy
+
+	pol = load_workspace_policy(str(tmp_path))
+	assert pol.parse_error is None and pol.exists
+	assert pol.deny_tools == ("Read",)
+	assert pol.bash == "default"
+	cwd = str(_work(tmp_path))
+	t = evaluate_policy("Read", {"file_path": str(tmp_path / "safe.txt")}, cwd=cwd)
+	assert t.decision == PermissionDecision.DENY
+
+
+def test_unusable_allowed_roots_only_drops_that_field(
+	monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+	"""allowed_roots 形状错丢掉的是**额外可写根**（收紧侧），不该牵动整份文件。"""
+	_set_audit(monkeypatch, tmp_path)
+	_write_policy(tmp_path, {"allowed_roots": {"a": 1}, "bash": "default"})
+	from permissions.workspace_policy import load_workspace_policy
+
+	pol = load_workspace_policy(str(tmp_path))
+	assert pol.parse_error is None and pol.exists
+	assert pol.allowed_roots == ()
+	assert pol.bash == "default"
+	from audit.log import default_audit_log
+
+	events = default_audit_log().query(kind="policy.field_invalid")
+	assert {str(e.get("field")) for e in events} == {"allowed_roots"}

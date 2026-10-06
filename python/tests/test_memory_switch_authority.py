@@ -181,13 +181,41 @@ def test_no_unregistered_flag_can_appear_in_the_wsc_live_path():
 	import pathlib
 	import re
 
+	import memory.fold_cadence_veto as FCV
+	import memory.wsc_head_store as HS
 	import memory.wsc_projection as WP
+	import memory.wsc_watermark as WM
 
 	# ⚠️ 必须从**模块对象**取路径：全量跑时前面有测试会 chdir 到 tmp，
 	# 相对路径 "memory/wsc_projection.py" 于是读不到文件、守卫静默失效
 	# （第一次就是这样在单文件跑绿、全量跑红的）。
-	src = pathlib.Path(WP.__file__).read_text(encoding="utf-8")
-	declared = set(re.findall(r'^_[A-Z_]*ENV\w* = "(XEYO_[A-Z0-9_]+)"', src, re.M))
+	# ⚠️ 覆盖面同样必须是**整条活路径**而不是单个文件：只扫 wsc_projection 时，
+	# 09-30 新加的两个 WSC 旁路旗标（在水位/增益模块里）悄悄绕过了这道守卫。
+	# 09-30 又加 `fold_cadence_veto`（折叠冷却真否决，runtime.try_extend_c2 的读者）。
+	_MODULES = (("wsc_projection", WP), ("wsc_head_store", HS),
+	            ("wsc_watermark", WM),
+	            ("fold_cadence_veto", FCV))
+	_PATTERNS = (r'^_[A-Z_]*ENV\w* = "(XEYO_[A-Z0-9_]+)"',     # _ENV / _FREEZE_ENV / _ABSORB_ENV
+	             r'^ENV_[A-Z_]+ = "(XEYO_[A-Z0-9_]+)"')        # ENV_GAIN_CANDIDATES
+	declared: dict[str, str] = {}
+	for label, mod in _MODULES:
+		src = pathlib.Path(mod.__file__).read_text(encoding="utf-8")
+		for pat in _PATTERNS:
+			for key in re.findall(pat, src, re.M):
+				declared[key] = label
+	assert declared, "守卫自身失效：整条活路径一个旗标常量都没抓到"
 	keys = {k for k, *_ in memory_switches.MEMORY_SWITCHES}
-	assert declared, "守卫自身失效：一个旗标常量都没抓到"
-	assert declared <= keys, f"未入册的 WSC 旗标: {sorted(declared - keys)}"
+	# 唯一豁免：数值阈值键（现两个）。注册表的行形状是「合法取值枚举 + 默认值字符串」，
+	# 装不下一个整数（`XEYO_R_GATE_*` 等数值 env 同样未入册）。它们分别由
+	# `soft_watermark_tokens()` / `fold_cadence_veto.min_interval_shots()` 自己读，
+	# 未设 / 非数 / ≤0 一律 0=关闭 ⇒ 不存在"账面开、运行时关"的两套口径空间。
+	# 豁免要写成**等式**，多一个就红。
+	numeric = {"XEYO_WSC_SOFT_WATERMARK", "XEYO_WSC_FOLD_MIN_INTERVAL"}
+	unregistered = set(declared) - keys
+	assert unregistered == numeric, (
+		f"未入册的 WSC 旗标应与豁免恰好相等：多出的 {sorted(unregistered - numeric)}、"
+		f"少了的 {sorted(numeric - unregistered)}（豁免失效也要报）")
+	for key, mod_label in sorted(declared.items()):
+		if key in numeric:
+			continue
+		assert key in keys, f"{key}（{mod_label}）未入册"

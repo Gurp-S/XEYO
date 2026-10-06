@@ -16,7 +16,7 @@ from cli.config_store import (
 	resolve_base_url,
 	validate_config_value,
 )
-from cli.interact import parse_permission_choice, prompt_permission
+from cli.interact import parse_ask_answer, parse_permission_choice, prompt_permission
 from cli.main import app
 from cli.render import EventRenderer
 from cli.sessions_cmd import format_updated_at
@@ -32,7 +32,7 @@ runner = CliRunner()
 def test_version() -> None:
 	res = runner.invoke(app, ["version"])
 	assert res.exit_code == 0
-	assert "0.1.0" in res.stdout
+	assert "1.1.0" in res.stdout
 
 
 def test_config_roundtrip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -271,8 +271,74 @@ def test_prompt_permission_headless_deny(monkeypatch: pytest.MonkeyPatch) -> Non
 
 def test_parse_permission_choice() -> None:
 	assert parse_permission_choice("a") == "allow"
-	assert parse_permission_choice("remind") == "remind"
+	assert parse_permission_choice("remind", remind_allowed=True) == "remind"
 	assert parse_permission_choice("nope") == "deny"
+
+
+def test_permission_remind_gated_by_choices(monkeypatch: pytest.MonkeyPatch) -> None:
+	"""remind 只在请求真的提供该选项（多会话冲突三件套）时可达；否则 r 落回 deny。
+
+	服务端对 choice=remind **无条件**按 peer 冲突处置（query_loop.py:2392-2398 的
+	工具结果写死 ``reason=peer_session_conflict``）——非冲突请求按 r 会被改道成
+	「伪冲突拒绝」。GUI/TUI 都已按 choices 设门（TUI 修过同款）；CLI 此前
+	提示行恒摆 [a/d/r] 且解析不设门。
+	"""
+	# 函数层：未开闸时 r/remind 一律 deny。
+	assert parse_permission_choice("r", remind_allowed=False) == "deny"
+	assert parse_permission_choice("remind", remind_allowed=False) == "deny"
+	assert parse_permission_choice("r", remind_allowed=True) == "remind"
+	# 面板层：非冲突请求（choices 为空）喂 'r' ⇒ deny。
+	monkeypatch.setattr("cli.interact.is_tty", lambda: True)
+	monkeypatch.setattr("cli.interact._readline", lambda *a, **k: "r")
+	d = prompt_permission(tool="Bash", prompt="run?", choices=[])
+	assert d.choice == "deny"
+	assert d.approved is False
+	# 冲突请求（remind 在列）：r ⇒ remind。
+	d2 = prompt_permission(
+		tool="Bash", prompt="run?", choices=["deny", "remind", "allow"]
+	)
+	assert d2.choice == "remind"
+
+
+def test_parse_ask_answer_numeric_pick() -> None:
+	# 面板把选项渲染成「1. xxx 2. xxx」——数字化输入必须按序号取选项文本；
+	# 此前整行原样回传：用户按 1，模型收到的答案是字面 "1" 而不是选项内容。
+	opts = ["先做 A", "先做 B"]
+	assert parse_ask_answer("2", opts, None) == "先做 B"
+	assert parse_ask_answer("1", opts, None) == "先做 A"
+	assert parse_ask_answer(" 2 ", opts, None) == "先做 B"
+	assert parse_ask_answer("先做 A", opts, None) == "先做 A"
+	# 越界数字 / 无选项：原样（不猜）
+	assert parse_ask_answer("5", opts, None) == "5"
+	assert parse_ask_answer("2", None, None) == "2"
+	assert parse_ask_answer("2", [], None) == "2"
+	# 空输入：有 default 回 default；无 default 则空串（现状语义）
+	assert parse_ask_answer("", opts, "先做 A") == "先做 A"
+	assert parse_ask_answer("", opts, None) == ""
+
+
+def test_permission_panel_remind_line_gated(
+	monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+	"""面板提示行也要按 choices 两态：非冲突请求不许教用户按 r（按了会是 deny），
+	冲突请求才摆 [r]emind；且不许把机器名清单（choices: deny, remind, allow）
+	原样倒给用户（与 #29 的解析/提示行修正同族）。面板经 ui.err（stderr）渲染。"""
+	monkeypatch.setattr("cli.interact.is_tty", lambda: True)
+	monkeypatch.setattr("cli.interact._readline", lambda *a, **k: "d")
+
+	def grab() -> str:
+		c = capsys.readouterr()
+		return c.out + c.err
+
+	prompt_permission(tool="Bash", prompt="run?", choices=[])
+	plain = grab()
+	assert plain, "面板必须真的渲染出内容（探针自证）"
+	assert "[r]" not in plain and "emind" not in plain, f"非冲突面板不该有 remind: {plain!r}"
+
+	prompt_permission(tool="Bash", prompt="run?", choices=["deny", "remind", "allow"])
+	peer = grab()
+	assert "emind" in peer, f"冲突面板应有 remind: {peer!r}"
+	assert "choices:" not in peer, f"机器名清单不该外露: {peer!r}"
 
 
 def test_render_no_final_double_print(capsys: pytest.CaptureFixture[str]) -> None:

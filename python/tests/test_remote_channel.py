@@ -104,13 +104,13 @@ async def test_run_final_only_mirrors_deltas_locally():
 
 	out = await run_final_only(
 		pool,  # type: ignore[arg-type]
-		session_id="filehelper:default",
+		session_id="remote:test",
 		text="hi",
 		cfg=_CFG,
 		on_delta=on_delta,
 	)
 	assert out == "THE_FINAL"
-	assert chunks == ["filehelper:default:hel", "filehelper:default:lo"]
+	assert chunks == ["remote:test:hel", "remote:test:lo"]
 
 
 @pytest.mark.asyncio

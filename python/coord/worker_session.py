@@ -83,7 +83,7 @@ async def _drain_session(engine: Any, prompt: str, *, timeout_sec: float) -> dic
             pass
         result.update(ok=False, subtype="timeout")
     except Exception as exc:  # noqa: BLE001 — 会话异常以事实上报（worker_failed 轨道）
-        _log.debug("worker session failed", exc_info=True)
+        _log.warning("worker session failed", exc_info=True)
         result.update(ok=False, subtype=f"error:{exc}")
     result["text"] = "".join(text_parts)
     return result

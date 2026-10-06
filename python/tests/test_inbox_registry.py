@@ -276,3 +276,29 @@ def test_edit_rejects_empty_and_too_long(reg):
     assert reg.edit("s1", it.queue_id, "   ") is None
     with pytest.raises(InboxTextTooLong):
         reg.edit("s1", it.queue_id, "x" * 2001)
+
+
+def test_queue_error_messages_are_user_facing(reg, monkeypatch):
+    """413/429 的 message 原样回给 GUI 横幅（chat.py `str(e)`）——必须是中文产品文案。
+
+    事故：旧文案是 "inbox queue full for session sess_xxx (limit 8)"（英文 + 内部
+    session id），前端 `formatErrorDetail` 不做映射 ⇒ 中文界面里直接显示内部英文串。
+    """
+    monkeypatch.setenv("XEYO_INBOX_MAX_QUEUED", "1")
+    reg.enqueue("s1", "第一条", message_id="m1")
+
+    from server.inbox_registry import InboxTextTooLong
+
+    with pytest.raises(InboxQueueFull) as full:
+        reg.enqueue("s1", "第二条", message_id="m2")
+    msg = str(full.value)
+    assert "排队已满" in msg
+    assert str(full.value.limit) in msg
+    assert "for session" not in msg
+
+    with pytest.raises(InboxTextTooLong) as too_long:
+        reg.enqueue("s1", "x" * 2001, message_id="m3")
+    msg2 = str(too_long.value)
+    assert "消息过长" in msg2
+    assert str(too_long.value.limit) in msg2
+    assert "for session" not in msg2

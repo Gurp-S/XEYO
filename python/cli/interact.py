@@ -51,17 +51,41 @@ def is_tty() -> bool:
 		return False
 
 
-def parse_permission_choice(raw: str) -> PermissionChoice:
+def parse_permission_choice(
+	raw: str, *, remind_allowed: bool = False
+) -> PermissionChoice:
 	text = (raw or "").strip().lower()
 	if text in ("a", "allow", "y", "yes", "1") or text == USER_CHOICE_ALLOW:
 		return USER_CHOICE_ALLOW  # type: ignore[return-value]
-	if text in ("r", "remind") or text == USER_CHOICE_REMIND:
+	# remind 只在请求真的提供了该选项（多会话冲突三件套）时可达：服务端对
+	# choice=remind 无条件按 peer 冲突处置（工具结果写死 reason=peer_session_conflict），
+	# 非冲突请求按 r 会被改道成「伪冲突拒绝」——默认关闸，r 落回 deny。
+	if remind_allowed and (text in ("r", "remind") or text == USER_CHOICE_REMIND):
 		return USER_CHOICE_REMIND  # type: ignore[return-value]
 	return USER_CHOICE_DENY  # type: ignore[return-value]
 
 
 def parse_plan_approved(raw: str) -> bool:
 	return (raw or "").strip().lower() in ("y", "yes", "a", "approve", "1")
+
+
+def parse_ask_answer(
+	raw: str, options: list[str] | None = None, default: str | None = None
+) -> str:
+	"""解析 ask 作答。
+
+	面板把选项渲染成「1. xxx」——数字输入按序号取选项文本（此前整行原样回传：
+	用户按 1，模型收到的答案是字面 "1" 而不是选项内容）；自由文本与越界数字
+	原样；空输入回 default，无 default 则空串（现状语义，见登记项）。
+	"""
+	text = (raw or "").rstrip("\n").strip()
+	if not text:
+		return str(default) if default is not None else ""
+	if options and text.isdigit():
+		idx = int(text)
+		if 1 <= idx <= len(options):
+			return options[idx - 1]
+	return text
 
 
 def _readline(prompt: str) -> str:
@@ -99,8 +123,12 @@ def prompt_permission(
 			peer_summary=peer_summary,
 		)
 	)
-	line = _readline(f"[{ui.WARN}]decision[/] [a/d/r] › ")
-	choice = parse_permission_choice(line)
+	# 提示行按请求实际可选项两态：非冲突请求不摆 r（按了也只会被服务端
+	# 改道成伪冲突拒绝，与 GUI/TUI 的门一致）。
+	remind_allowed = "remind" in (choices or [])
+	hint = "[a/d/r]" if remind_allowed else "[a/d]"
+	line = _readline(f"[{ui.WARN}]decision[/] {hint} › ")
+	choice = parse_permission_choice(line, remind_allowed=remind_allowed)
 	if choice == "allow":
 		console.print(f"[bold {ui.OK}]→ allow[/bold {ui.OK}] [dim]{tool} (awaiting server receipt)[/dim]")
 	elif choice == "remind":
@@ -131,9 +159,7 @@ def prompt_ask(
 		return AskDecision(answer=answer, actor="cli-headless", headless=True)
 	console.print(ui.ask_panel(question=question, options=options))
 	line = _readline(f"[{ui.ACCENT}]answer[/] › ")
-	answer = (line or "").rstrip("\n")
-	if not answer and default is not None:
-		answer = str(default)
+	answer = parse_ask_answer(line, options, default)
 	return AskDecision(answer=answer, actor="cli", headless=False)
 
 

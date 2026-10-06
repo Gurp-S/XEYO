@@ -43,6 +43,7 @@ from permissions.workspace_policy import (
 	load_workspace_policy,
 	resolve_allowed_roots,
 )
+from permissions.store import READ_OUTSIDE_RULE
 from permissions.write_scope import write_scope_deny_reason
 from tools.meta import (
 	ALWAYS_ALLOW_TOOLS as _ALWAYS_ALLOW,
@@ -215,8 +216,15 @@ def permission_mode() -> str:
 	if eff is not None:
 		return eff
 	mode = _permission_mode_ctx.get()
-	if mode in _PERMISSION_MODES:
-		return "never" if mode == "allow" else mode
+	# 与活值那一路共用一份归一化（2026-10-05）：此前拿原文比 _PERMISSION_MODES，
+	# `ALWAYS` 这类大小写变体会被**静默降档**到默认 risk（方向：要最严拿到更松，
+	# 且无信号）。未知值仍回退默认——"回退 vs 报错"属政策，不在本刀范围。
+	if isinstance(mode, str):
+		from permissions.runtime_mode import normalize_mode
+
+		norm = normalize_mode(mode)
+		if norm is not None:
+			return norm
 	return _default_permission_mode()
 
 
@@ -242,11 +250,17 @@ def begin_permission_turn(session_id: str) -> None:
 		from permissions.runtime_mode import get_runtime_mode_store
 
 		mode = _permission_mode_ctx.get()
-		default = (
-			("never" if mode == "allow" else mode)
-			if mode in _PERMISSION_MODES
-			else _default_permission_mode()
-		)
+		# 与 permission_mode() 同一份归一化（同 10-05 那一刀的残根）：此前拿原文比
+		# _PERMISSION_MODES，"ALWAYS" 这类大小写变体落不进去 ⇒ 本轮基线错写成默认档，
+		# 轮中把活值调松时"更严才抬升"判据对着错误低基线不抬升，放宽即时生效
+		# （T26 单向性被破；方向同 10-04 事故：要最严拿到更松）。
+		default: str | None = None
+		if isinstance(mode, str):
+			from permissions.runtime_mode import normalize_mode
+
+			default = normalize_mode(mode)
+		if default is None:
+			default = _default_permission_mode()
 		get_runtime_mode_store().begin_turn(session_id, default)
 		try:
 			from permissions.trace import current_permission_snapshot
@@ -456,8 +470,31 @@ def _pick_path(tool_input: dict | None, *keys: str) -> str | None:
 	return None
 
 
-def _prompt_for_read(name: str, path: str) -> str:
-	return f"Read permission needed for {name} on {path}"
+def _path_field_problem(tool_input: dict | None, *keys: str) -> str:
+	"""为什么拿不到可用路径：'' 拿到了 / 'missing' 没给或全空 / 'not_a_string' 给了但不是字符串。
+
+	`_pick_path` 把后两种合并成 None，于是错误原因只能说"缺路径"。模型其实**给了**
+	`file_path: 123`，被告知"缺 file_path"就会照着再发一遍同样的东西——这是把一次
+	类型错指成一次遗漏，属于模型可见文本里的假事实。
+	"""
+	if not isinstance(tool_input, dict):
+		return "missing"
+	saw_wrong_type = False
+	for key in keys:
+		val = tool_input.get(key)
+		if isinstance(val, str):
+			if val.strip():
+				return ""
+			continue
+		if val is not None:
+			saw_wrong_type = True
+	return "not_a_string" if saw_wrong_type else "missing"
+
+
+def _prompt_for_read_outside(name: str, path: str) -> str:
+	# 只陈述事实：这次批准本身是一次性的，"记住该目录"由面板上的勾选决定，
+	# 文案不能提前把勾选的效果算进批准里。
+	return f"Allow {name} to read {path}? It is outside the workspace."
 
 
 def _prompt_for_write(name: str, path: str) -> str:
@@ -1397,7 +1434,13 @@ def evaluate_policy(
 	if decision.decision != PermissionDecision.ASK:
 		return decision
 	try:
-		from permissions.store import default_grant_store, grant_fingerprint
+		from permissions.store import (
+			READ_OUTSIDE_RULE,
+			default_grant_store,
+			grant_fingerprint,
+			grantable_read_dir,
+			read_grant_path,
+		)
 		from permissions.write_scope import get_write_scope
 
 		if get_write_scope() is not None:
@@ -1406,10 +1449,11 @@ def evaluate_policy(
 			return decision  # 远程会话不得静默放行（§34 不变量）
 		if permission_mode() == "always":
 			return decision  # 用户显式要求逐条确认
+		matched = str(getattr(decision, "matched_rule", "") or "")
 		fp = grant_fingerprint(
 			name,
 			tool_input,
-			matched_rule=str(getattr(decision, "matched_rule", "") or ""),
+			matched_rule=matched,
 			mcp_target=str(getattr(decision, "mcp_target", "") or ""),
 		)
 		if not fp:
@@ -1433,9 +1477,19 @@ def evaluate_policy(
 		identity_name = (
 			str(getattr(decision, "mcp_target", "") or "").strip() or name
 		)
-		grant = default_grant_store().match(
-			tool_name=identity_name, fingerprint=fp, scope=cwd or ""
-		)
+		if matched == READ_OUTSIDE_RULE:
+			# 区外读按「该目录及其子目录」命中：指纹存的是目录，匹配走前缀包含，
+			# 所以问一次能开一格，而不是每个文件问一遍。
+			target = grantable_read_dir(read_grant_path(tool_input), cwd=cwd or "")
+			if not target:
+				return decision
+			grant = default_grant_store().match_read_dir(
+				tool_name=identity_name, target_dir=target, scope=cwd or ""
+			)
+		else:
+			grant = default_grant_store().match(
+				tool_name=identity_name, fingerprint=fp, scope=cwd or ""
+			)
 		if grant is None:
 			return decision
 		return PolicyDecision(
@@ -1490,12 +1544,14 @@ def evaluate_policy_impl(
 	if raw_name in _OUTBOUND_ASK_TOOLS:
 		path: str | None = None
 		if raw_name == "SendToWeChat":
-			raw = _pick_path(tool_input, "path", "file_path", "filePath")
+			out_keys = ("path", "file_path", "filePath")
+			raw = _pick_path(tool_input, *out_keys)
 			if not raw:
+				wrong_type = _path_field_problem(tool_input, *out_keys) == "not_a_string"
 				return PolicyDecision(
 					decision=PermissionDecision.DENY,
-					reason="missing_file_path",
-					matched_rule="outbound_missing_path",
+					reason="file_path_not_a_string" if wrong_type else "missing_file_path",
+					matched_rule="non_string_path" if wrong_type else "outbound_missing_path",
 				)
 			path = expand_to_abs(raw, cwd=cwd)
 			if not path_in_allowed_working_path(
@@ -1576,22 +1632,20 @@ def evaluate_policy_impl(
 		if decision == PermissionDecision.ASK:
 			return PolicyDecision(
 				decision=PermissionDecision.ASK,
-				reason="needs_confirmation",
-				matched_rule="read_ask",
+				reason="read_outside_working_directory",
+				matched_rule=READ_OUTSIDE_RULE,
 				path=path,
-				prompt=_prompt_for_read(name, path),
+				prompt=_prompt_for_read_outside(name, path),
 			)
-		# DENY：给出具体原因，与旧 gate 契约一致。
-		if not path_in_allowed_working_path(
+		# DENY 归因必须与裁决函数同序（密钥先于区外）：区外的密钥路径若标成
+		# "path_outside_working_directory"，模型和账本都会以为问一句就能读。
+		if is_secret_path(path, cwd=cwd):
+			reason = "secret_path"
+			rule = "secret_path_deny"
+		elif not path_in_allowed_working_path(
 			path, cwd=cwd, allowed_working_paths=ctx.allowed_working_paths or [cwd]
 		):
 			reason = "path_outside_working_directory"
-			rule = "read_deny"
-		elif is_secret_path(path, cwd=cwd):
-			reason = "secret_path"
-			rule = "secret_path_deny"
-		elif is_dangerous_path(path, cwd=cwd):
-			reason = "dangerous_path"
 			rule = "read_deny"
 		else:
 			reason = "denied"
@@ -1604,7 +1658,8 @@ def evaluate_policy_impl(
 		)
 
 	if raw_name in _WRITE_PATH_TOOLS:
-		raw = _pick_path(tool_input, "file_path", "path", "filePath", "notebook_path")
+		write_keys = ("file_path", "path", "filePath", "notebook_path")
+		raw = _pick_path(tool_input, *write_keys)
 		if raw_name in {"Memory"}:
 			return PolicyDecision(
 				decision=PermissionDecision.ALLOW,
@@ -1612,10 +1667,11 @@ def evaluate_policy_impl(
 				matched_rule="memory_allow",
 			)
 		if not raw:
+			wrong_type = _path_field_problem(tool_input, *write_keys) == "not_a_string"
 			return PolicyDecision(
 				decision=PermissionDecision.DENY,
-				reason="missing_file_path",
-				matched_rule="missing_path",
+				reason="file_path_not_a_string" if wrong_type else "missing_file_path",
+				matched_rule="non_string_path" if wrong_type else "missing_path",
 			)
 		path = expand_to_abs(raw, cwd=cwd)
 		# 策略文件本身：Agent 不可写（防自我提权）。

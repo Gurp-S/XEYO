@@ -12,6 +12,9 @@
 本文件读 `usage.ledger._read_events()`（私有）是有意的：它自带
 (路径, mtime, size) 缓存，query_usage 刚刚解析过 ⇒ 复用它是零额外成本，
 而重新解析会在生产账本上双份开销；账号身份过滤复用同一次读取。
+
+`/v1/usage/report` 是另一条路：桌面端用量页的实时数据面，只读本机账本
+（`usage.live_report`），**一次都不碰厂商接口**，也不落任何文件。
 """
 
 from __future__ import annotations
@@ -22,7 +25,7 @@ from typing import Any
 
 from fastapi import APIRouter, Header, Query
 
-from common.errors import friendly_error
+from common.errors import friendly_error, safe_error_detail
 from server.deps import _extract_bearer, _resolve_base_url, api_error
 
 router = APIRouter(tags=["usage"])
@@ -72,114 +75,11 @@ def _require_filter_token(name: str, raw: str | None) -> str | None:
 
 # ---------- 账本诚实性事实 ----------
 
-def _row_limit() -> int:
-	"""账本读取上限（ledger._MAX_LINES）；动态读，避免与 ledger 双份常量。"""
-	from usage import ledger as _ledger
-
-	try:
-		return max(1, int(getattr(_ledger, "_MAX_LINES", 80_000)))
-	except (TypeError, ValueError):
-		return 80_000
-
-
-def _count_raw_lines(path) -> tuple[int | None, str]:
-	"""二进制数原始行数（含空行 —— 与 ledger 的下标口径同分母）。"""
-	try:
-		size = path.stat().st_size
-	except OSError:
-		return None, "unreadable"
-	lines = 0
-	last = b"\n"
-	try:
-		with path.open("rb") as f:
-			while True:
-				chunk = f.read(1 << 20)
-				if not chunk:
-					break
-				lines += chunk.count(b"\n")
-				last = chunk[-1:]
-	except OSError:
-		return None, "unreadable"
-	if size and last not in (b"\n", b""):
-		lines += 1
-	return lines, "ok"
-
-
-def _scan_skipped_lines(path) -> int:
-	"""原始行数与解析行数不一致时才做的精确补扫：数坏 JSON / 空行。"""
-	try:
-		raw = path.read_text(encoding="utf-8", errors="replace")
-	except OSError:
-		return 0
-	bad = 0
-	for line in raw.splitlines():
-		line = line.strip()
-		if not line:
-			continue
-		try:
-			row = json.loads(line)
-		except json.JSONDecodeError:
-			bad += 1
-			continue
-		if not isinstance(row, dict):
-			bad += 1
-	return bad
-
-
 def _local_store_status() -> dict[str, Any]:
-	"""账本存储状态：区分「没有这个文件」「读不动」「空文件」「有货」。
-
-	这一层是端点自己看得见的唯一真相：ledger._read_events 对上述四种一律
-	返回 []，所以不在此处标注，客户端就会把「无账本」当成「零用量」。
-	"""
+	"""复用账本读取快照，记录和存储事实保持同一口径。"""
 	from usage import ledger as _ledger
 
-	out: dict[str, Any] = {
-		"store": "ok",
-		"store_raw_lines": None,
-		"lines_within_read_limit": None,
-		"store_unparsable_lines": 0,
-		"store_blank_lines": 0,
-		"read_row_limit": _row_limit(),
-		"rows_read": 0,
-		"lines_beyond_read_limit": 0,
-		"truncated_by_read_limit": False,
-	}
-	try:
-		path = _ledger.events_path()
-	except Exception:  # noqa: BLE001 — 路径解析失败也不能把端点炸成 500
-		out["store"] = "unreadable_store"
-		return out
-	if not path.exists():
-		out["store"] = "missing_store"
-		return out
-	raw_lines, status = _count_raw_lines(path)
-	if status != "ok":
-		out["store"] = "unreadable_store"
-		return out
-	out["store_raw_lines"] = raw_lines
-	limit = out["read_row_limit"]
-	out["lines_beyond_read_limit"] = max(0, int(raw_lines or 0) - limit)
-	out["truncated_by_read_limit"] = out["lines_beyond_read_limit"] > 0
-	try:
-		events = _ledger._read_events()
-	except Exception:  # noqa: BLE001
-		out["store"] = "unreadable_store"
-		return out
-	rows = len(events) if isinstance(events, list) else 0
-	out["rows_read"] = rows
-	out["lines_within_read_limit"] = max(
-		0, int(raw_lines or 0) - out["lines_beyond_read_limit"]
-	)
-	if rows != out["lines_within_read_limit"]:
-		# 读得动但行数对不上：只有坏 JSON / 非 dict 行才是真丢数据，其余是空行。
-		out["store_unparsable_lines"] = _scan_skipped_lines(path)
-		out["store_blank_lines"] = max(
-			0, out["lines_within_read_limit"] - rows - out["store_unparsable_lines"]
-		)
-	if rows == 0:
-		out["store"] = "empty_store"
-	return out
+	return _ledger.local_store_status()
 
 
 def _inspect_local_rows(day_ids: list[str]) -> dict[str, Any]:
@@ -249,7 +149,8 @@ def _money_accounting() -> dict[str, Any]:
 		"rows_missing_cost_key": 0,
 		"rows_with_unreadable_cost": 0,
 		"cost_basis_counts": {},
-		"cost_basis_labels": ("api", "estimate"),
+		# 计价口径三种取值（机器可判）：api / estimate / unpriced（无权威价目 ⇒ 金额为 null）。
+		"cost_basis_labels": ("api", "estimate", "unpriced"),
 		"rows_total": 0,
 		"priced_complete": False,
 	}
@@ -438,6 +339,59 @@ def get_usage(
 	)
 	report["money"] = _money_accounting()
 	return report
+
+
+@router.get("/v1/usage/report")
+def get_usage_report(
+	day: str | None = Query(default=None),
+	days: int = Query(default=366, ge=1, le=3660),
+) -> dict[str, Any]:
+	"""本机账本的实时用量报表（桌面端用量页数据面）。
+
+	为什么要多这一条：用量页原来只吃 A3 快照报告（``docs/A3-monitor.html`` 里内嵌的
+	JSON），而快照是 schtasks 每天跑一次的离线证据 —— 界面要看到今天的数据，就得先
+	手动点一次「立即快照」。本端点直接聚合 ``~/.xeyo/usage/`` 那两份 JSONL，打开就是
+	最新，且与厂商无关：不出网、不带 key、不算钱，``/v1/usage`` 那条厂商通路一行没动。
+
+	同步 ``def``（不是 ``async def``）是有意的：FastAPI 把它丢进线程池，全量账本聚合
+	（本机实测冷读 1.3 s / 热读 0.5 ms）永远不占事件循环 ⇒ 聊天流式不受影响。
+
+	- 不带 ``day``：回全区间日摘要（日列表 / 历史表 / Token 活动热力图都吃这一份）。
+	- 带 ``day=YYYY-MM-DD``：回那一天的分会话 + 分轮次（每轮带每枪事件行）。
+	  这一天账本里没有行 ⇒ 200 + ``missing: true``（正面答案「这一天没有用量」），
+	  不是 404 —— 界面要能分清「没有」与「没读到」。
+	- 账本**存在却读不出**（权限 / IO）才 500，``type`` 给结构化原因；缺文件 / 空文件
+	  是正面事实，走 200 并在 ``source.store`` 里自报。
+	"""
+	from usage.live_report import (
+		DAY_PATTERN,
+		LedgerUnreadable,
+		report_day,
+		report_summary,
+	)
+
+	# 空白 day 与"没带 day"是两件事：前者是调用方想过滤却没给值，静默退化成全量
+	# 就是本文件口径第 5 条要挡的那类（同 _require_filter_token）。形态不对的取值
+	# 同样是调用方错误 ⇒ 422，不让它以 500 的形式冒出来。
+	day_f = None if day is None else day.strip()
+	if day is not None and not day_f:
+		raise api_error(
+			422,
+			"missing_value_for_filter: parameter day is blank after trimming",
+			"invalid_request_error",
+		)
+	if day_f is not None and not DAY_PATTERN.match(day_f):
+		raise api_error(
+			422,
+			f"invalid_value_for_filter: parameter day must be YYYY-MM-DD, got {day_f}",
+			"invalid_request_error",
+		)
+	try:
+		if day_f is None:
+			return report_summary(max_days=days)
+		return report_day(day_f)
+	except LedgerUnreadable as exc:
+		raise api_error(500, safe_error_detail(exc), "usage_ledger_unreadable") from exc
 
 
 def _amount_status(raw: Any) -> tuple[Any, str]:

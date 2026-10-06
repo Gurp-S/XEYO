@@ -1153,6 +1153,82 @@ test('手动「继续投递」：autorun=false 的滞留项可恢复（此前零
 	await expect(page.locator(QUEUE_DOCK)).toHaveCount(0, {timeout: 10_000});
 });
 
+test('队列项「立即插入」：POST steer 后项转入投递中、按钮退场（DSH QueueAction:steer 对齐）', async ({page}) => {
+	// 真实链路难造（需要回合正忙且有排队项），用 route 造快照 + 放行 steer POST，
+	// 锁「入口出现 → 真发 POST → 释放后按钮退场（state 转 delivering）」。
+	const sid = await page.evaluate(() => {
+		const st = (
+			window as unknown as {
+				__XEYO_CHAT__?: {getState: () => Record<string, unknown>};
+			}
+		).__XEYO_CHAT__!.getState() as unknown as {activeId: string};
+		return st.activeId;
+	});
+	let steered = false;
+	const item = (state: 'queued' | 'delivering') => ({
+		queue_id: 'q-steer-1',
+		text: 'STEER-MARK',
+		message_id: 'm-steer-1',
+		media_refs: [],
+		queued_at: Date.now() / 1000,
+		attempts: 0,
+		state,
+		delivery_id: state === 'delivering' ? 'm-steer-1' : null,
+	});
+	await page.route(
+		url => url.pathname.endsWith('/inbox') && !url.pathname.includes('/steer'),
+		async route => {
+			if (route.request().method() !== 'GET') {
+				await route.continue();
+				return;
+			}
+			await route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify({
+					autorun: true,
+					items: [item(steered ? 'delivering' : 'queued')],
+				}),
+			});
+		},
+	);
+	const steerUrls: string[] = [];
+	await page.route(
+		url => url.pathname.includes('/inbox/') && url.pathname.endsWith('/steer'),
+		async route => {
+			expect(route.request().method()).toBe('POST');
+			steerUrls.push(route.request().url());
+			steered = true;
+			await route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: '{"ok":true}',
+			});
+		},
+	);
+	await page.evaluate(async (id: string) => {
+		const st = (
+			window as unknown as {
+				__XEYO_CHAT__?: {
+					getState: () => {refreshInbox: (sid: string) => Promise<boolean>};
+				};
+			}
+		).__XEYO_CHAT__!.getState();
+		await st.refreshInbox(id);
+	}, sid);
+
+	const steer = page.getByRole('button', {name: '立即插入'});
+	await expect(steer).toBeVisible({timeout: 8_000});
+	await steer.click();
+	await expect.poll(() => steerUrls.length, {timeout: 8_000}).toBe(1);
+	expect(steerUrls[0]).toContain('/inbox/q-steer-1/steer');
+	// 释放后刷新快照为 delivering：入口退场（不再可再次插入），文案与文本仍在。
+	await expect(page.getByRole('button', {name: '立即插入'})).toHaveCount(0, {
+		timeout: 10_000,
+	});
+	await expect(page.getByText('STEER-MARK')).toBeVisible();
+});
+
 test('权限弹窗作答矩阵：允许 / 三选提醒 / Esc 拒绝，回执体逐相位对上', async ({page}) => {
 	// 默认套件此前只有跑不了的 fullstack 档覆盖审批面板；这里用 route mock 回执，
 	// 锁三条作答路径的 POST 体（request_id/approved/outcome 逐字段）。
@@ -1423,22 +1499,52 @@ test('图片 chip 点开原图查看器：Esc 关闭（此前零 e2e）', async 
 	await expect(composer).toBeVisible();
 });
 
-test('沉浸待办输入：回车添加一项并清空（此前零 e2e）', async ({page}) => {
+test('沉浸待办：只读镜像模型快照，无编辑入口（F6 统一只读；口径更新）', async ({page}) => {
 	await page.getByRole('button', {name: '应用菜单'}).click();
 	await page.getByRole('menuitem', {name: '沉浸模式'}).click();
 	const panel = page.getByLabel('沉浸模式侧板');
 	await expect(panel).toBeVisible({timeout: 8_000});
 
-	const input = page.getByPlaceholder('添加今日待办…');
-	await expect(input).toBeVisible({timeout: 8_000});
-	await input.click();
-	await input.fill('TODO-PROBE-MARK');
-	await input.press('Enter');
-	await expect(panel.getByText('TODO-PROBE-MARK').first()).toBeVisible({
-		timeout: 5_000,
+	// 只读契约①：新增输入已删（旧口径「回车添加并清空」随 F6 统一只读写坏）。
+	await expect(page.getByPlaceholder('添加今日待办…')).toHaveCount(0);
+
+	// 注入模型快照（等价于 TodoWrite 事件落库后的镜像态；写入键与生产一致）。
+	await page.evaluate(() => {
+		const st = (
+			window as unknown as {
+				__XEYO_CHAT__?: {
+					getState: () => {
+						activeId: string | null;
+						sessionTodosById?: Record<string, unknown>;
+					};
+					setState: (p: {sessionTodosById: Record<string, unknown>}) => void;
+				};
+			}
+		).__XEYO_CHAT__!;
+		const {activeId, sessionTodosById} = st.getState();
+		if (!activeId) throw new Error('no active session');
+		st.setState({
+			sessionTodosById: {
+				...(sessionTodosById ?? {}),
+				[activeId]: {
+					id: 'e2e-todo-readonly',
+					running: false,
+					todos: [
+						{content: 'MODEL-TODO-A', status: 'completed', activeForm: ''},
+						{content: 'MODEL-TODO-B', status: 'pending', activeForm: ''},
+					],
+				},
+			},
+		});
 	});
-	// 添加即清空，可连加。
-	await expect.poll(() => input.inputValue(), {timeout: 5_000}).toBe('');
+	await expect(panel.getByText('MODEL-TODO-A')).toBeVisible({timeout: 5_000});
+	await expect(panel.getByText('MODEL-TODO-B')).toBeVisible();
+	await expect(panel.getByText('1/2')).toBeVisible();
+
+	// 只读契约②：行不可交互——点击不改状态（旧实现点击勾选 ⇒ 计数跳到 2/2）。
+	await expect(panel.locator('button', {hasText: 'MODEL-TODO-B'})).toHaveCount(0);
+	await panel.getByText('MODEL-TODO-B').click();
+	await expect(panel.getByText('1/2')).toBeVisible({timeout: 3_000});
 });
 
 test('双枪 Enter：同一草稿连按两次只发一条', async ({page}) => {

@@ -17,12 +17,13 @@ argv 的命令——三者都在 422 处收口，因为 dispatch 的 ``_workspac
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Header, Request
 from pydantic import BaseModel, Field
 
-from server.deps import _extract_bearer, _resolve_base_url, api_error
+from server.deps import _extract_bearer, _pool, _resolve_base_url, api_error
 from server.local_gate import require_loopback
 from server.routers.extensions import require_workspace_arg
 from server.routers.sessions import _require_stable_id
@@ -30,6 +31,8 @@ from slash.dispatch import CommandResult, DispatchContext, dispatch_command
 from slash.registry import get_command
 
 router = APIRouter(tags=["slash"])
+
+_logger = logging.getLogger(__name__)
 
 #: ``arg`` 会被原样拼进 ``git`` argv 的服务端命令（``slash.dispatch._cmd_diff`` →
 #: ``_run_git``）。实测 ``/diff --output=<绝对路径>`` 让服务端进程以调用者指定的
@@ -119,6 +122,26 @@ def slash_command(
 			model=(body.model or "").strip(),
 		)
 		result = dispatch_command(cmd, arg, ctx=ctx)
+		# /goal 是能在「还没有任何轮次」的会话上落盘的服务端命令：目标写进
+		# ctx.workspace 的 GoalStore，而 goals 读侧（GET/PATCH/round-driver 走
+		# ``_require_known_session``）要求 pool 认识这个会话 —— 新会话的 id 由前端
+		# 自造，首个 chat 请求之前两边都不满足，回读必然 404（写侧 200、读侧 404，
+		# 条带挂不出来）。在边缘把「会话 → 工作区」登记进 pool（与首个 chat 请求
+		# 同一张表、同一 first-write-wins 语义），读写两侧解析到同一个 store。
+		if (
+			cmd.name == "goal"
+			and session_id
+			and workspace
+			and result.handled
+			and isinstance(result.result, dict)
+			and result.result.get("ok") is True
+		):
+			try:
+				_pool.pin_session_cwd(session_id, workspace)
+			except Exception:  # noqa: BLE001 — 登记失败不推翻已完成的写入，只影响回读
+				_logger.warning(
+					"goal session pin failed for session %s", session_id, exc_info=True
+				)
 	if result.result is not None and not isinstance(result.result, dict):
 		result.result = {"value": result.result}
 	return {

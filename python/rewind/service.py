@@ -121,9 +121,12 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
     if not path.is_file():
         return []
     rows: list[dict[str, Any]] = []
-    with path.open("r", encoding="utf-8") as handle:
-        for line_no, line in enumerate(handle, start=1):
-            text = line.strip()
+    # 逐行取字节再 decode(replace)（2026-10-05）：进程被杀留下的半个多字节序列
+    # 此前让文本模式读整本抛 UnicodeDecodeError（不是 OSError，拦不住）；现在
+    # 坏字节只影响它所在那一行——该行照旧走下面的严格校验（invalid → Blocked）。
+    with path.open("rb") as handle:
+        for line_no, raw_line in enumerate(handle, start=1):
+            text = raw_line.decode("utf-8", errors="replace").strip()
             if not text:
                 continue
             try:
@@ -170,9 +173,10 @@ def _file_state(path: Path) -> _FileState:
     return _FileState(True, _sha256(data), False)
 
 
-def _write_atomic(path: Path, content: str) -> None:
+def _write_atomic(path: Path, content: str | bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    data = content.encode("utf-8")
+    # bytes 原样落盘：补偿写回不许改行尾/编码（str 分支留给 transcript 等文本写回）。
+    data = content if isinstance(content, bytes) else content.encode("utf-8")
     fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.rewind.", dir=str(path.parent))
     try:
         with os.fdopen(fd, "wb") as handle:
@@ -1055,9 +1059,18 @@ class RollbackService:
                 "is_symlink": state.is_symlink,
             }
             if state.exists:
-                content = path.read_text(encoding="utf-8")
-                manifest = self.snapshots.put_text(
-                    content,
+                # 这份快照是"回滚前的最后一份副本"，必须逐字节等于磁盘：
+                # 旧写法 `path.read_text(encoding="utf-8")` 有两处不忠实——
+                # ① newline=None 把 CRLF 归一成 LF ⇒ 补偿写回时把用户的行尾翻掉；
+                # ② 非 UTF-8 文件（GBK CSV 等）抛 UnicodeDecodeError。它不是 OSError，
+                #    而本行在 execute 的 try **外面** ⇒ 整个回滚请求炸成裸 traceback，
+                #    job 状态与 audit 都留不下。所以直接存原始字节。
+                try:
+                    data = path.read_bytes()
+                except OSError as exc:
+                    raise RollbackBlockedError(f"cannot read rollback path: {path}") from exc
+                manifest = self.snapshots.put_bytes(
+                    data,
                     source_path=str(path),
                     metadata={"role": "pre_rollback_checkpoint", "job_id": job_id},
                 )
@@ -1204,11 +1217,13 @@ class RollbackService:
             if markers:
                 _v2_append(self.transcript, markers)
         except Exception:  # noqa: BLE001 — marker 回填失败不阻断 v2 提交
+            # 本函数签名里没有 `plan`（旧版遗留的 kwarg）：在这里引用它会让
+            # **错误上报自身**抛 NameError，把"回填失败"顶成一次难查的崩溃，
+            # 且 audit 记录根本写不进去。`turn_id` 有默认值 None，直接省略。
             self.journal.audit(
                 "rollback_surface_marker_backfill_failed",
                 actor="system",
                 revision_id=head.revision_id if head else None,
-                turn_id=plan.target_turn_id,
             )
         discarded = discard_rotated_transcripts(self.transcript)
         if discarded:
@@ -1230,7 +1245,7 @@ class RollbackService:
                 if item.get("exists"):
                     if current.exists and current.content_hash == expected:
                         continue
-                    content = self.snapshots.get_text(str(item.get("snapshot_hash") or ""))
+                    content = self.snapshots.get_bytes(str(item.get("snapshot_hash") or ""))
                     _write_atomic(path, content)
                 elif current.exists:
                     path.unlink()

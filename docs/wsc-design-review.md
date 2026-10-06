@@ -221,8 +221,12 @@ Medium+ 另设 `journal_growth_tokens = 3×3,000 = 9,000`（其它档 2×）。�
 
 `~/.xeyo/usage/fold_events.jsonl`：**每次判定一行，放行和被拒都记**，字段
 `arm=wsc|c2 / fold / reason / forced / region_tokens / head_tokens / tail_tokens / saved_net / transition / theta`。
-它存在的理由：`calibration_events.action` 这个旧字段**不能用来数折叠**——实测 45 次真折叠只标出 1 行
-（召回率 ~2%，疑似后台线程读 `last_action` 被下一枪覆写）。【账本】
+它存在的理由：`calibration_events.action` 这个旧字段**不能用来数折叠**——但**不是因为标签坏**。
+【2026-09-30 更正，正本见 `docs/synaptic-compression.md` 第 22 条】按会话主键配对实测
+263/285 次批准折叠配到 `action=C2`（排除合成夹具与"该会话无校准行"后 263/263 = 100%）；
+本行旧句"45 次真折叠只标出 1 行（召回率 ~2%）"是拿对不上的会话主键做 join 的产物，作废。
+`action` 仍是**发射路径的状态标签**（走 C2 支的枪都算，含非折叠枪；被 θ 挡住的枪退回 `keep`），
+所以数折叠认 `c2_events.jsonl`、数放行/拒绝认 `fold_events.jsonl`、判"折叠当枪"走 `usage/pairing.py`。
 
 ---
 
@@ -309,7 +313,7 @@ forced              2 次   0.52 / 0.45                          （本枪是亏
 | D2 | 保尾按**轮数**（K=3 成对工具轮），不看 token | `engine/compact.py:115-134` | 单轮巨型结果整段留在上下文里，头部压力与它无关 |
 | D3 | index 桶只报账不裁 ⇒ **头没有总上限**（`hot_budget` 只覆盖 fixed+main） | `budget.py:267,459` | 头尺寸由内容决定；实测"请求 6k → 实得 8.8k"（旋钮当闸用被否） |
 | D4 | 首压收益门仍乘 `remaining_turns` ⇒ 门槛仍随预算档位漂 | `runtime.py:1442-1502` | 与 7.2 同源的问题，只修了一半 |
-| D5 | `calibration_events.action` 折叠标签召回率 ~2% | 45 真折叠 vs 1 行【账本】 | 一切按 action 分组的历史数字 |
+| D5 | ~~`calibration_events.action` 折叠标签召回率 ~2%~~ **09-30 作废**：标签与 C2 发射面 347/347 同步；`action` 是**路径状态**标签（含非折叠枪、拒绝退回 keep），不能当折叠计数器 | 重测 `_wsc_out/_action_recall.py`＋门 `tests/wsc/test_action_label_semantics.py` | 一切按 action 分组的历史数字：病因是**口径**不是坏标签 |
 | D6 | `CADENCE_ABSORB` 的 1.036× 旧结论在常数改 30 后作废 | `wsc_projection.py:14-21` | 该旗标要做的事已被主链覆盖，需重测才能开 |
 | D7 | `LEVEL_WATERMARK` 表无任何算法消费者 | `types.py:37-43` | 看着像档位水位，其实不生效 |
 | D8 | 收益只验证在 **1 题 × k=1**，且两跑产出不等量 | 8.1 | 单位成本可信，成绩不可信 |

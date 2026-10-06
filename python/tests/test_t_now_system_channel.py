@@ -117,8 +117,12 @@ def test_tail_is_single_native_system_message() -> None:
 	assert out[0]["content"] == _BASE[0]["content"]
 
 
-def test_empty_blocks_append_nothing() -> None:
-	"""无块时不追加空 system（避免无意义的环境消息）。"""
+def test_empty_blocks_append_nothing(monkeypatch) -> None:
+	"""无块时不追加空 system（避免无意义的环境消息）。
+
+	2026-10-07 起 ``time_now`` 与 ``env_facts`` 都常驻——"无块"状态用消融开关显式构造。
+	"""
+	monkeypatch.setenv("XEYO_T_NOW_SKIP", "time_now,env_facts")
 	msgs = [{"role": "user", "content": "hi"}]
 	assert append_system_notice(msgs, "") == msgs
 	assert append_system_notice(msgs, "   ") == msgs

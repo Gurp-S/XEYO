@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 
 from memory.simulator.state_model import ContextState, Segment, token_len
 
@@ -71,3 +72,13 @@ def lcp_tokens(x_a: str, x_prev: str) -> int:
 	if not x_a or not x_prev:
 		return 0
 	return token_len(common_prefix(x_a, x_prev))
+
+
+def verified_previous_text(x_prev: str, digest, state: ContextState) -> str:
+	"""Recover only a prefix whose persisted identity still matches."""
+	if x_prev or digest is None:
+		return x_prev
+	prefix = "".join(emit_segment(seg) for seg in state.p_s + state.p_c)
+	if hashlib.sha256(prefix.encode("utf-8")).hexdigest() != digest.prefix_hash:
+		return ""
+	return prefix

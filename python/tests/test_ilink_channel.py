@@ -241,7 +241,7 @@ async def test_send_job_result_prefixes():
 	await ch.send_job_result(
 		JobRecord(
 			job_id="j2",
-			session_id="filehelper:default",
+			session_id="other:default",
 			text="q",
 			status="done",
 			final_text="nope",
@@ -455,33 +455,6 @@ async def test_inbound_image_reaches_handler(reset_ilink, tmp_path, monkeypatch)
 	assert svc._bridge.context_token == "ctx-img"
 
 
-@pytest.mark.asyncio
-async def test_start_stops_filehelper(reset_ilink, monkeypatch):
-	import channels.filehelper.service as fh
-	import channels.ilink.service as svc
-
-	stopped: list[bool] = []
-
-	class FH:
-		state = "logged_in"
-
-	monkeypatch.setattr(fh, "get_bridge", lambda: FH())
-
-	async def fake_fh_stop(runner=None):  # noqa: ANN001
-		stopped.append(True)
-		FH.state = "stopped"
-
-	monkeypatch.setattr(fh, "stop", fake_fh_stop)
-
-	async def fake_run(*_a, **_k):
-		svc._bridge.state = "logged_in"
-
-	monkeypatch.setattr(svc, "_run", fake_run)
-	await svc.start(_DummyRunner(), JobStore())  # type: ignore[arg-type]
-	assert stopped == [True]
-	assert svc.is_running()
-
-
 def test_ilink_http_status():
 	from fastapi.testclient import TestClient
 
@@ -500,10 +473,9 @@ def test_ilink_http_status():
 	assert c.get("/v1/ilink/qr.png").status_code == 404
 
 
-@pytest.mark.xfail(reason="既有红（2026-09-21 挂账）：H 桶·**提交进仓库的红测试**：用例 import 的 status_payload / events_since 在 `git show HEAD` 的 channels/ilink/service.py 里也不存在⇒ 测试与实现分头提交。待办=补实现或删用例，并按规则 5 答三问；建议给 CI 加「收集期 import 失败也算红」的门。", strict=False)
 def test_ilink_sse_format():
 	from channels.ilink.broadcast import format_sse
-	from channels.ilink.service import status_payload
+	from channels.ilink.stream import status_payload
 
 	chunk = format_sse("state", status_payload(omit_jobs=True))
 	assert chunk.startswith("event: state")
@@ -511,9 +483,9 @@ def test_ilink_sse_format():
 	assert '"channel": "ilink"' in chunk or '"channel":"ilink"' in chunk
 
 
-@pytest.mark.xfail(reason="既有红（2026-09-21 挂账）：H 桶·**提交进仓库的红测试**：用例 import 的 status_payload / events_since 在 `git show HEAD` 的 channels/ilink/service.py 里也不存在⇒ 测试与实现分头提交。待办=补实现或删用例，并按规则 5 答三问；建议给 CI 加「收集期 import 失败也算红」的门。", strict=False)
 def test_events_since_pruned_cursor_still_returns_new():
 	import channels.ilink.service as svc
+	from channels.ilink.stream import events_since
 
 	m = svc._mirror
 	prev = m._events
@@ -522,11 +494,11 @@ def test_events_since_pruned_cursor_still_returns_new():
 		{"id": "ev-42", "kind": "inbound", "text": "b"},
 	]
 	try:
-		got = svc.events_since("ev-10")
+		got = events_since("ev-10")
 		assert [e["id"] for e in got] == ["ev-41", "ev-42"]
-		assert [e["id"] for e in svc.events_since("ev-41")] == ["ev-42"]
+		assert [e["id"] for e in events_since("ev-41")] == ["ev-42"]
 		# 重启后序号回绕，旧游标必须整表重放
-		assert [e["id"] for e in svc.events_since("ev-99")] == ["ev-41", "ev-42"]
+		assert [e["id"] for e in events_since("ev-99")] == ["ev-41", "ev-42"]
 	finally:
 		m._events = prev
 
@@ -1046,7 +1018,7 @@ def test_rpc_ok_accepts_string_zero():
 
 
 def test_inbound_queue_keeps_peer_ctx():
-	from channels.filehelper.inbound_queue import InboundQueue
+	from channels.inbound_queue import InboundQueue
 
 	q = InboundQueue()
 	assert q.push("a", peer="u1@im.wechat", ctx="ctx-a") == 1
@@ -1191,7 +1163,7 @@ async def test_busy_does_not_block_other_user(reset_ilink):
 
 
 def test_inbound_queue_pop_idle_skips_busy_session():
-	from channels.filehelper.inbound_queue import InboundQueue
+	from channels.inbound_queue import InboundQueue
 
 	q = InboundQueue()
 	q.push("a", session_id="ilink:a", peer="a")
@@ -1216,7 +1188,7 @@ def test_accepts_stream_session_filters_other_user():
 		st._last_session_id = "ilink:a"
 		assert svc.accepts_stream_session("ilink:a")
 		assert not svc.accepts_stream_session("ilink:b")
-		assert not svc.accepts_stream_session("filehelper:default")
+		assert not svc.accepts_stream_session("other:default")
 		st._stream_session_id = ""
 		st._last_session_id = ""
 		assert svc.accepts_stream_session("ilink:x")
@@ -1225,9 +1197,9 @@ def test_accepts_stream_session_filters_other_user():
 		st._last_session_id = prev_last
 
 
-@pytest.mark.xfail(reason="既有红（2026-09-21 挂账）：H 桶·**提交进仓库的红测试**：用例 import 的 status_payload / events_since 在 `git show HEAD` 的 channels/ilink/service.py 里也不存在⇒ 测试与实现分头提交。待办=补实现或删用例，并按规则 5 答三问；建议给 CI 加「收集期 import 失败也算红」的门。", strict=False)
 def test_push_event_includes_session_id():
 	import channels.ilink.service as svc
+	from channels.ilink.stream import status_payload
 
 	m = svc._mirror
 	prev = m._events
@@ -1237,16 +1209,16 @@ def test_push_event_includes_session_id():
 		m._event_seq = 0
 		rec = svc._push_event("inbound", "hi", session_id="ilink:u1")
 		assert rec["session_id"] == "ilink:u1"
-		payload = svc.status_payload(omit_jobs=True)
+		payload = status_payload(omit_jobs=True)
 		assert payload["events"][0]["session_id"] == "ilink:u1"
 	finally:
 		m._events = prev
 		m._event_seq = prev_seq
 
 
-@pytest.mark.xfail(reason="既有红（2026-09-21 挂账）：H 桶·**提交进仓库的红测试**：用例 import 的 status_payload / events_since 在 `git show HEAD` 的 channels/ilink/service.py 里也不存在⇒ 测试与实现分头提交。待办=补实现或删用例，并按规则 5 答三问；建议给 CI 加「收集期 import 失败也算红」的门。", strict=False)
 def test_status_stream_session_id_stays_with_active_stream():
 	import channels.ilink.service as svc
+	from channels.ilink.stream import status_payload
 
 	st = svc._st
 	prev_last = st._last_session_id
@@ -1254,12 +1226,12 @@ def test_status_stream_session_id_stays_with_active_stream():
 	try:
 		st._last_session_id = "ilink:u1"
 		st._stream_session_id = "ilink:u1"
-		body = svc.status_payload(omit_jobs=True)
+		body = status_payload(omit_jobs=True)
 		assert body["session_id"] == "ilink:u1"
 		assert body["last_session_id"] == "ilink:u1"
 		assert body["stream_session_id"] == "ilink:u1"
 		st._last_session_id = "ilink:u2"
-		body = svc.status_payload(omit_jobs=True)
+		body = status_payload(omit_jobs=True)
 		assert body["last_session_id"] == "ilink:u2"
 		assert body["stream_session_id"] == "ilink:u1"
 	finally:
