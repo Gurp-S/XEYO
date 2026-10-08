@@ -44,12 +44,16 @@ class ToolResult:
 
 	def execution_metadata(self) -> dict[str, Any]:
 		"""供事件/审计使用的机器字段；不包含原始参数或秘密。"""
+		from engine.execution_facts import enabled as fact_contracts
 		return {
 			"status": self.status or ("error" if self.is_error else "ok"),
 			"error_kind": self.error_kind,
 			"retryable": bool(self.retryable),
 			"side_effect": self.side_effect,
 			"action_id": self.action_id,
+			**({"exit_code": (self.metadata or {}).get("exit_code"),
+			    "complete": (self.metadata or {}).get("execution_complete", self.status in {"ok", "error"})}
+			   if fact_contracts() else {}),
 		}
 
 

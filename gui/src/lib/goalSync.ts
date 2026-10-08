@@ -8,15 +8,23 @@
  */
 import {fetchGoal, type SessionGoalState} from '@/lib/api/goals';
 import {useChatStore} from '@/stores/chatStore';
+import {goalReadToken, invalidateGoalReads} from './goalProjection';
+import type {StoreApi} from 'zustand';
+import type {ChatState} from '@/stores/chat/preStoreHelpers';
 
 /** whole-value 写回 store（SSE goal 帧 / GET 投影 / 命令回执同步三源共用同形）。 */
 export function writeGoalState(
 	sessionId: string,
 	state: SessionGoalState | null,
+	set: StoreApi<ChatState>['setState'] = useChatStore.setState,
 ) {
-	useChatStore.setState(s => ({
-		sessionGoalById: {...s.sessionGoalById, [sessionId]: state},
-	}));
+	set(s => {
+		const current = s.sessionGoalById[sessionId];
+		if (current && state && current.goal.goal_id === state.goal.goal_id &&
+			current.goal.revision > state.goal.revision) return s;
+		invalidateGoalReads(sessionId);
+		return {sessionGoalById: {...s.sessionGoalById, [sessionId]: state}};
+	});
 }
 
 export type GoalSyncResult = {ok: boolean; note: string};
@@ -48,6 +56,8 @@ export async function syncGoalAfterCommand(
 	guiSessionId: string,
 	backendSessionId?: string,
 ): Promise<GoalSyncResult> {
+	invalidateGoalReads(guiSessionId);
+	const token = goalReadToken(guiSessionId);
 	const candidates =
 		backendSessionId && backendSessionId !== guiSessionId
 			? [backendSessionId, guiSessionId]
@@ -55,6 +65,7 @@ export async function syncGoalAfterCommand(
 	let readFailure = '';
 	for (const sid of candidates) {
 		const r = await fetchGoal(sid);
+		if (!token.isCurrent()) return {ok: false, note: '目标状态已更新，本次读取已失效'};
 		if (!r.ok) {
 			readFailure = r.message;
 			continue;

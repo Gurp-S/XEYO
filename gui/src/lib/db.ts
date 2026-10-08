@@ -1,3 +1,4 @@
+import {compareTranscriptOrder, stampTranscriptOrder} from './transcriptOrder';
 import {openDB, type DBSchema, type IDBPDatabase} from 'idb';
 import type {
 	ChatHistoryState,
@@ -9,13 +10,15 @@ import {folderName, normalizePath} from './paths';
 import {coerceJsonText, parseJsonValue} from './safeJson';
 import {uid} from './utils';
 import {idbBatch} from './idbBatch';
+import {historyBackupPrefix, replaceTranscriptWithBackup} from './historyBackup';
+import {persistableMessage} from './messageDeliveryPersistence';
 
 export const DEFAULT_SPACE_ID = 'space_default';
 export const DEFAULT_SPACE_NAME = '本地工作区';
 /** 侧聊虚拟 space：只作 session.spaceId 标记，不入 spaces 表（不出现在主侧栏）。 */
 export const SIDE_SPACE_ID = 'side-chat-space';
 
-interface XeyoDB extends DBSchema {
+export interface XeyoDB extends DBSchema {
 	spaces: {
 		key: string;
 		value: ChatSpace;
@@ -498,7 +501,7 @@ export async function saveSession(session: ChatSession): Promise<void> {
 
 export async function deleteSession(sessionId: string): Promise<void> {
 	const database = await openXEYODb();
-	const tx = database.transaction(['sessions', 'messages'], 'readwrite');
+	const tx = database.transaction(['sessions', 'messages', 'kv'], 'readwrite');
 	await tx.objectStore('sessions').delete(sessionId);
 	const idx = tx.objectStore('messages').index('by-session');
 	let cursor = await idx.openCursor(sessionId);
@@ -506,7 +509,16 @@ export async function deleteSession(sessionId: string): Promise<void> {
 		await cursor.delete();
 		cursor = await cursor.continue();
 	}
+	const prefix = historyBackupPrefix(sessionId);
+	let backup = await tx.objectStore('kv').openCursor(IDBKeyRange.bound(prefix, `${prefix}\uffff`));
+	while (backup) {await backup.delete(); backup = await backup.continue();}
 	await tx.done;
+}
+
+export async function replaceMessagesWithHistoryBackup(
+	sessionId: string, backendId: string, local: ChatMessage[], messages: ChatMessage[], isCurrent: () => boolean,
+): Promise<boolean> {
+	return replaceTranscriptWithBackup(await openXEYODb(), sessionId, backendId, local, messages, isCurrent, persistableMessage);
 }
 
 export async function loadMessages(sessionId: string): Promise<ChatMessage[]> {
@@ -518,14 +530,7 @@ export async function loadMessages(sessionId: string): Promise<ChatMessage[]> {
 	);
 	return rows
 		.map(({sessionId: _s, ...msg}) => msg)
-		.sort((a, b) => a.createdAt - b.createdAt);
-}
-
-/** 去掉运行期 inbox 状态，避免整会话替换时把暂态投递标签写入 IndexedDB。 */
-function persistableMessage(message: ChatMessage): ChatMessage {
-	const copy = {...message};
-	delete copy.queueState;
-	return copy;
+		.sort(compareTranscriptOrder);
 }
 
 export async function upsertMessages(
@@ -545,13 +550,23 @@ export async function upsertMessages(
 export async function patchMessages(
 	sessionId: string,
 	messages: ChatMessage[],
+	isCurrent?: () => boolean,
 ): Promise<void> {
 	if (messages.length === 0) {
 		return;
 	}
 	const database = await openXEYODb();
+	if (isCurrent && !isCurrent()) return;
 	const tx = database.transaction('messages', 'readwrite');
-	await idbBatch(messages, m => tx.store.put({...persistableMessage(m), sessionId}));
+	await idbBatch(messages, async m => {
+		const previous = await tx.store.get(m.id);
+		if (isCurrent && !isCurrent()) return;
+		await tx.store.put({...persistableMessage(m), sessionId,
+			...(m.transcriptOrder == null && previous?.transcriptOrder != null
+				? {transcriptOrder: previous.transcriptOrder} : {}),
+		});
+	});
+	if (isCurrent && !isCurrent()) {tx.abort(); await tx.done.catch(() => {}); return;}
 	await tx.done;
 }
 
@@ -560,10 +575,13 @@ export async function updateMessageText(
 	sessionId: string,
 	messageId: string,
 	text: string,
+	isCurrent?: () => boolean,
 ): Promise<void> {
 	const database = await openXEYODb();
+	if (isCurrent && !isCurrent()) return;
 	const tx = database.transaction('messages', 'readwrite');
 	const row = await tx.store.get(messageId);
+	if (isCurrent && !isCurrent()) {tx.abort(); await tx.done.catch(() => {}); return;}
 	if (row?.sessionId === sessionId) {
 		const {sessionId: storedSessionId, ...message} = row;
 		await tx.store.put({
@@ -578,10 +596,13 @@ export async function updateMessageText(
 export async function deleteMessageForSession(
 	sessionId: string,
 	messageId: string,
+	isCurrent?: () => boolean,
 ): Promise<void> {
 	const database = await openXEYODb();
+	if (isCurrent && !isCurrent()) return;
 	const tx = database.transaction('messages', 'readwrite');
 	const row = await tx.store.get(messageId);
+	if (isCurrent && !isCurrent()) {tx.abort(); await tx.done.catch(() => {}); return;}
 	if (row?.sessionId === sessionId) {
 		await tx.store.delete(messageId);
 	}
@@ -591,14 +612,16 @@ export async function deleteMessageForSession(
 export async function replaceMessages(
 	sessionId: string,
 	messages: ChatMessage[],
+	isCurrent?: () => boolean,
 ): Promise<void> {
 	const database = await openXEYODb();
+	if (isCurrent && !isCurrent()) return;
 	const tx = database.transaction('messages', 'readwrite');
 	const store = tx.store;
 	const idx = store.index('by-session');
 	const keys = await idx.getAllKeys(sessionId);
 	await idbBatch(keys, key => store.delete(key));
-	await idbBatch(messages, m => store.put({...persistableMessage(m), sessionId}));
+	await idbBatch(stampTranscriptOrder(messages), m => store.put({...persistableMessage(m), sessionId}));
 	await tx.done;
 }
 

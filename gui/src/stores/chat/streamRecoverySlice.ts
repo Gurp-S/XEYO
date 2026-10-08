@@ -1,3 +1,5 @@
+import {createAssistantOutput} from './assistantOutput';
+import {mergeTranscript} from '@/lib/transcriptOrder';
 /**
  * streamRecoverySlice.ts — 恢复与重新挂载方法，自
  * streamSendSlice.createStreamSendSlice() 原样拆出。行为不变；
@@ -49,14 +51,16 @@ import {
 	type ChatState,
 } from './preStoreHelpers';
 import {createPendingStreamHandlers} from './uiChromeSlice';
+import {sessionProjectionHandlers} from './sessionProjectionHandlers';
 import {sessionScopedStreamHandlers} from './sessionScopedStreamHandlers';
+import {createStreamOwnership} from './streamOwnership';
+import {captureRecoveryAction} from './recoveryActions';
+import {settleStoppedTools} from './stoppedTools';
 import {
 	WAITING_TOOL_TIMEOUT_MS,
-	appendAssistantProse,
 	clearWaitingToolTimer,
 	flushOrphanStreamingTail,
 	markRunningToolsWaiting,
-	settleOrphanRunningTools,
 	settleToolsFromServer,
 	snapshotFromTodoTool,
 	waitingToolTimers,
@@ -81,7 +85,7 @@ function wholeWriteIsSafe(
 }
 
 const REATTACH_MAX_ATTEMPTS = 3;
-const reattachInFlight = new Map<string, Promise<boolean>>();
+const reattachInFlight = new Map<string, {work: Promise<boolean>; isCurrent: () => boolean}>();
 const recoveryContinueInFlight = new Set<string>();
 const reattachBackoffMs = (attempt: number) => 500 * 2 ** attempt;
 const sleep = (ms: number) =>
@@ -95,8 +99,9 @@ export function finalizeFinishedTurn(
 	sessionId: string,
 	msgs: ChatMessage[],
 	note = '回合已结束（连接曾中断，已恢复最终内容）',
+	isCurrent: () => boolean = () => true,
 ): void {
-	void replaceMessages(sessionId, msgs);
+	if (!isCurrent()) return;
 	set(s => ({
 		messagesById: {...s.messagesById, [sessionId]: msgs},
 		sessionStreams: patchSessionStream(s.sessionStreams, sessionId, {
@@ -110,6 +115,7 @@ export function finalizeFinishedTurn(
 			remoteStreaming: false,
 		}),
 	}));
+	void replaceMessages(sessionId, msgs, isCurrent);
 }
 
 /**
@@ -118,23 +124,25 @@ export function finalizeFinishedTurn(
  * 回合已结束则拉服务端 transcript 收尾；失败返回 false，由调用方显式呈现断连。
  */
 export async function recoverAfterDisconnect(
-	set: SetState,
+	rawSet: SetState,
 	get: GetState,
 	sessionId: string,
 	backendSessionId: string,
 ): Promise<boolean> {
-	const stillExists = () => sessionExists(get, sessionId);
+	const ownership = createStreamOwnership(rawSet, get, sessionId, backendSessionId);
+	const set = ownership.set;
+	const stillExists = ownership.isCurrent;
 	for (let attempt = 0; attempt < REATTACH_MAX_ATTEMPTS; attempt++) {
 		if (!stillExists() || !sessionStreamActive(get(), sessionId)) {
 			// 用户已停止/清理：放弃恢复
-			return false;
+			return true;
 		}
 		const task = await fetchSessionTask(backendSessionId);
-		if (!stillExists()) return false;
+		if (!stillExists()) return true; // superseded work is handled without touching its successor
 		if (task) {
 			if (task.status === 'recovery_required') {
 				await get().reattachStream(sessionId);
-				if (!stillExists()) return false;
+				if (!ownership.matchesBranch()) return true;
 				return true; // 显式恢复 UI 已呈现（continueRecovery / abandonRecovery）
 			}
 			const running =
@@ -144,15 +152,15 @@ export async function recoverAfterDisconnect(
 				task.status === 'stopping';
 			if (!running) {
 				const msgs = await loadServerSessionMessages(backendSessionId);
-				if (!stillExists()) return false;
+				if (!stillExists()) return true;
 				if (msgs.length > 0) {
-					finalizeFinishedTurn(set, sessionId, msgs);
+					finalizeFinishedTurn(set, sessionId, msgs, undefined, ownership.isCurrent);
 					return true;
 				}
 				// transcript 暂时拉不到：退避后重试
 			} else {
 				const reattached = await get().reattachStream(sessionId);
-				if (!stillExists()) return false;
+				if (!ownership.matchesBranch()) return true;
 				if (reattached || get().recoveryBySession[sessionId]) return true;
 			}
 		}
@@ -173,8 +181,9 @@ function reconcileToolsWithServer(
 	sid: string,
 	backendSessionId: string,
 ): void {
+	const ownership = createStreamOwnership(set, get, sid, backendSessionId);
 	void loadServerSessionMessages(backendSessionId).then(server => {
-		if (server.length === 0) {
+		if (!ownership.matchesBranch() || server.length === 0) {
 			return;
 		}
 		const cur = get();
@@ -192,7 +201,7 @@ function reconcileToolsWithServer(
 		if (!merged.changed) {
 			return;
 		}
-		void replaceMessages(sid, merged.messages);
+		void replaceMessages(sid, merged.messages, ownership.matchesBranch);
 		set(s => ({
 			messagesById: {...s.messagesById, [sid]: merged.messages},
 		}));
@@ -200,12 +209,13 @@ function reconcileToolsWithServer(
 }
 
 export function createStreamRecoverySlice(
-	set: SetState,
+	rawSet: SetState,
 	get: GetState,
 ): Pick<
 	ChatState,
 	'recoverStuckStream' | 'reattachActiveStreams' | 'reattachStream' | 'continueRecovery' | 'abandonRecovery' | 'stopGeneration' | 'sendToSession'
 > {
+	const set = rawSet;
 	return {
 	recoverStuckStream() {
 		const s = get();
@@ -286,15 +296,18 @@ export function createStreamRecoverySlice(
 
 	async reattachStream(sessionId: string) {
 		const inFlight = reattachInFlight.get(sessionId);
-		if (inFlight) return inFlight;
+		if (inFlight?.isCurrent()) return inFlight.work;
+		const ownership = createStreamOwnership(rawSet, get, sessionId,
+			activeBackendSessionId(get().historyById, sessionId));
 		const work = (async () => {
+			const set = ownership.set;
 			if (!sessionExists(get, sessionId)) return false;
 			const backendSessionId = activeBackendSessionId(
 				get().historyById,
 				sessionId,
 			);
 			const task = await fetchSessionTask(backendSessionId);
-			if (!sessionExists(get, sessionId) || !task) {
+			if (!ownership.isCurrent() || !task) {
 				return false;
 			}
 			if (task.status === 'recovery_required') {
@@ -343,22 +356,14 @@ export function createStreamRecoverySlice(
 					);
 					loaded = await loadSessionMessagesWithBackfill(sessionId, {
 						[sessionId]: history,
-					});
+					}, {isCurrent: ownership.isCurrent});
 				} catch {
 					return false;
 				}
-				if (!sessionExists(get, sessionId)) return false;
+				if (!ownership.isCurrent()) return false;
 				set(s => {
 					if (!s.sessions.some(item => item.id === sessionId)) return s;
-					const byId = new Map(loaded.map(message => [message.id, message]));
-					// Preserve current UI-only notes and optimistic messages created while
-					// the shared backfill was in flight. Current rows win on matching ids.
-					for (const message of s.messagesById[sessionId] ?? []) {
-						byId.set(message.id, message);
-					}
-					const merged = [...byId.values()].sort(
-						(a, b) => a.createdAt - b.createdAt,
-					);
+					const merged = mergeTranscript(s.messagesById[sessionId] ?? [], loaded);
 					const messagesLoadingIds = {...s.messagesLoadingIds};
 					delete messagesLoadingIds[sessionId];
 					return {
@@ -368,7 +373,7 @@ export function createStreamRecoverySlice(
 				});
 				const ready = get();
 				if (
-					!sessionExists(get, sessionId) ||
+					!ownership.isCurrent() ||
 					ready.messagesById[sessionId] === undefined ||
 					ready.messagesLoadingIds[sessionId]
 				) {
@@ -377,8 +382,8 @@ export function createStreamRecoverySlice(
 			}
 			const abort = new AbortController();
 			const cursor = Math.max(
-				readTurnCursor(backendSessionId),
-				curStream.lastEventId ?? 0,
+				readTurnCursor(backendSessionId, task.turn_id),
+				curStream.turnId === task.turn_id ? curStream.lastEventId ?? 0 : 0,
 				0,
 			);
 			set(s => ({
@@ -388,12 +393,15 @@ export function createStreamRecoverySlice(
 					abortRef: abort,
 					turnDetached: true,
 					lastEventId: cursor,
+					turnId: task.turn_id,
 					draining: false,
 					remoteStreaming: false,
 				}),
 			}));
+			const assistantOutput = createAssistantOutput();
 			let pendingDelta = '';
 			const flushDelta = () => {
+				if (!ownership.isCurrent()) return;
 				if (!pendingDelta) return;
 				const chunk = pendingDelta;
 				pendingDelta = '';
@@ -403,6 +411,7 @@ export function createStreamRecoverySlice(
 					return {
 						sessionStreams: patchSessionStream(s.sessionStreams, sessionId, {
 							streamingText: nextText,
+							streamingShown: nextText,
 							statusText: '生成中',
 							turnDetached: true,
 						}),
@@ -415,8 +424,8 @@ export function createStreamRecoverySlice(
 			// 本次订阅是否收到过后端重放空洞帧（环形缓冲已挤掉一段）。
 			let sawGap = false;
 			/** 无洞时的收尾：把本地累积的尾巴作为正文提交（带末行同文去重）。 */
-			const commitLocalTail = () => {
-				if (!sessionExists(get, sessionId)) return;
+			const commitLocalTail = (settle = true) => {
+				if (!ownership.isCurrent()) return;
 				set(s => {
 					const st = getSessionStream(s, sessionId);
 					const text = st.streamingText;
@@ -424,34 +433,35 @@ export function createStreamRecoverySlice(
 					if (text.trim()) {
 						// appendAssistantProse 带末行同文去重：重放(cursor 落后)
 						// 会把已提交的尾巴再放一遍，裸 push 会产生重复气泡。
-						msgs = appendAssistantProse(msgs, text);
+						msgs = assistantOutput.append(msgs, text);
 						if (wholeWriteIsSafe(s, sessionId)) {
-							void replaceMessages(sessionId, msgs);
+							void replaceMessages(sessionId, msgs, ownership.isCurrent);
 						}
 					}
 					return {
 						messagesById: {...s.messagesById, [sessionId]: msgs},
 						sessionStreams: patchSessionStream(s.sessionStreams, sessionId, {
-							isLoading: false,
+							isLoading: settle ? false : st.isLoading,
 							streamingText: '',
 							streamingShown: '',
 							statusText: '',
-							abortRef: null,
-							turnDetached: false,
+							abortRef: settle ? null : st.abortRef,
+							turnDetached: settle ? false : st.turnDetached,
 							draining: false,
 						}),
 					};
 				});
 			};
 			for (let attempt = 0; attempt < REATTACH_MAX_ATTEMPTS; attempt++) {
-				if (!sessionExists(get, sessionId)) return false;
+				if (!ownership.isCurrent()) return false;
 				connectionLost = false;
 				sawGap = false;
 				// cursor 每次重取：上一次断流前已收到的事件不重放
-				const cursorNow = Math.max(cursor, readTurnCursor(backendSessionId));
+				const cursorNow = Math.max(cursor, readTurnCursor(backendSessionId, task.turn_id));
 				try {
 					const handlers: ChatStreamHandlers = {
 						...pending,
+						...sessionProjectionHandlers(set, get, sessionId, backendSessionId),
 						signal: abort.signal,
 						onLlmRetry(ev) {
 							set(s => ({
@@ -474,11 +484,16 @@ export function createStreamRecoverySlice(
 								}),
 							}));
 						},
-						onDelta(text) {
+						onDelta(text, messageId) {
+							if (messageId && assistantOutput.getId() && messageId !== assistantOutput.getId()) commitLocalTail(false);
+							assistantOutput.begin(messageId);
 						pendingDelta += text;
 						flushDelta();
 					},
 					onToolCall({name, input, toolUseId}) {
+						const segment = getSessionStream(get(), sessionId).streamingText;
+						commitLocalTail(false);
+						assistantOutput.finishSegment(segment);
 						set(s => {
 							const msgs = [...(s.messagesById[sessionId] ?? [])];
 							const id = toolUseId || `tool-${Date.now()}`;
@@ -501,7 +516,7 @@ export function createStreamRecoverySlice(
 								msgs.push(row);
 							}
 							if (wholeWriteIsSafe(s, sessionId)) {
-								void replaceMessages(sessionId, msgs);
+								void replaceMessages(sessionId, msgs, ownership.isCurrent);
 							}
 							return {
 								messagesById: {...s.messagesById, [sessionId]: msgs},
@@ -534,7 +549,7 @@ export function createStreamRecoverySlice(
 								};
 							}
 							if (wholeWriteIsSafe(s, sessionId)) {
-								void replaceMessages(sessionId, msgs);
+								void replaceMessages(sessionId, msgs, ownership.isCurrent);
 							}
 							const patch: Partial<ChatState> = {
 								messagesById: {...s.messagesById, [sessionId]: msgs},
@@ -621,9 +636,9 @@ export function createStreamRecoverySlice(
 							// 重放有洞：本地尾巴是缺段，绝不能当完整内容提交 ⇒ 用服务端
 							// transcript 收尾；拉不到（网络/空集）再退回本地提交，不静默卡住。
 							void loadServerSessionMessages(backendSessionId).then(server => {
-								if (!sessionExists(get, sessionId)) return;
+								if (!ownership.isCurrent()) return;
 								if (server.length > 0) {
-									finalizeFinishedTurn(set, sessionId, server);
+									finalizeFinishedTurn(set, sessionId, server, undefined, ownership.isCurrent);
 									return;
 								}
 								commitLocalTail();
@@ -653,7 +668,7 @@ export function createStreamRecoverySlice(
 					await streamTurnEvents(
 						backendSessionId,
 						cursorNow,
-						sessionScopedStreamHandlers(handlers, () => sessionExists(get, sessionId)),
+						sessionScopedStreamHandlers(handlers, ownership.isCurrent),
 					);
 				} catch (err) {
 					// streamTurnEvents 自身不抛连接错误（都走 onError）；保守按连接失败重试
@@ -661,7 +676,7 @@ export function createStreamRecoverySlice(
 						connectionLost = true;
 					}
 				}
-				if (!sessionExists(get, sessionId)) return false;
+				if (!ownership.isCurrent()) return false;
 				if (abort.signal.aborted) {
 					// 用户在恢复期间主动停止：不再重试
 					return true;
@@ -671,7 +686,7 @@ export function createStreamRecoverySlice(
 				}
 				await sleep(reattachBackoffMs(attempt));
 			}
-			if (!sessionExists(get, sessionId)) return false;
+			if (!ownership.isCurrent()) return false;
 			// T29：重试上限已到——显式呈现断连（不静默、不假装在跑、不 interrupt）。
 			set(s => ({
 				sessionStreams: patchSessionStream(s.sessionStreams, sessionId, {
@@ -687,11 +702,12 @@ export function createStreamRecoverySlice(
 			}));
 			return false;
 		})();
-		reattachInFlight.set(sessionId, work);
+		const entry = {work, isCurrent: ownership.isCurrent};
+		reattachInFlight.set(sessionId, entry);
 		try {
 			return await work;
 		} finally {
-			if (reattachInFlight.get(sessionId) === work) {
+			if (reattachInFlight.get(sessionId) === entry) {
 				reattachInFlight.delete(sessionId);
 			}
 		}
@@ -702,13 +718,10 @@ export function createStreamRecoverySlice(
 			toast.info('归档对话为只读，请先恢复');
 			return;
 		}
-		if (recoveryContinueInFlight.has(sessionId)) return;
-		recoveryContinueInFlight.add(sessionId);
-		const clearRecovery = () => set(s => {
-			const next = {...s.recoveryBySession};
-			delete next[sessionId];
-			return {recoveryBySession: next};
-		});
+		const action = captureRecoveryAction(set, get, sessionId);
+		if (!action || recoveryContinueInFlight.has(action.key)) return;
+		recoveryContinueInFlight.add(action.key);
+		const clearRecovery = action.clear;
 		try {
 			const accepted = await get().sendMessage(
 				'继续',
@@ -724,7 +737,7 @@ export function createStreamRecoverySlice(
 			);
 			if (accepted) clearRecovery();
 		} finally {
-			recoveryContinueInFlight.delete(sessionId);
+			recoveryContinueInFlight.delete(action.key);
 		}
 	},
 
@@ -733,16 +746,10 @@ export function createStreamRecoverySlice(
 			toast.info('归档对话为只读，请先恢复');
 			return;
 		}
-		const backendSessionId = activeBackendSessionId(
-			get().historyById,
-			sessionId,
-		);
-		await abandonSessionRecovery(backendSessionId);
-		set(s => {
-			const next = {...s.recoveryBySession};
-			delete next[sessionId];
-			return {recoveryBySession: next};
-		});
+		const action = captureRecoveryAction(set, get, sessionId);
+		if (!action) return;
+		if (await abandonSessionRecovery(action.backendId, action.turnId)) action.clear();
+		else if (action.isCurrent()) toast.warn('放弃恢复未被服务端确认，请重试');
 	},
 
 	async stopGeneration() {
@@ -758,13 +765,13 @@ export function createStreamRecoverySlice(
 			return;
 		}
 		stream.abortRef?.abort();
+		const stopOwnership = createStreamOwnership(set, get, sid, activeBackendSessionId(get().historyById, sid));
 		// 立刻发请求，但回执要在到手后读：本地 abort 只证明"我不再读这条流"，
 		// 不证明引擎停了。旧实现 `void interruptChat(...)` 把 401/500/断网全吞掉。
 		const interrupting = interruptChat(activeBackendSessionId(get().historyById, sid));
 		const flushed = flushOrphanStreamingTail(messagesById, sid, stream);
 		if (flushed.changed) {
 			messagesById = flushed.messagesById;
-			void replaceMessages(sid, flushed.messagesById[sid]!);
 		}
 		const raw = messagesById[sid] ?? [];
 		// 停止是 best-effort：引擎在 chunk 边界才响应 abort，正在跑的工具
@@ -777,10 +784,7 @@ export function createStreamRecoverySlice(
 			s.errorBannerSessionId === sid || s.errorBannerSessionId == null
 				? sessionErrorBannerPatch(null, null)
 				: {};
-		if (settled.changed || flushed.changed) {
-			void replaceMessages(sid, settled.messages);
-		}
-		set(s => ({
+		stopOwnership.set(s => ({
 			sessionStreams: patchSessionStream(cleared, sid, {
 				statusText: '已停止',
 			}),
@@ -795,7 +799,11 @@ export function createStreamRecoverySlice(
 			pendingAsk: s.pendingAsk?.sessionId === sid ? null : s.pendingAsk,
 			pendingPlan: s.pendingPlan?.sessionId === sid ? null : s.pendingPlan,
 		}));
+		if (settled.changed || flushed.changed) {
+			void replaceMessages(sid, settled.messages, stopOwnership.isCurrent);
+		}
 		void interrupting.then(receipt => {
+			if (!stopOwnership.isCurrent()) return;
 			// not_running = 后端回答"这个会话没有可中断的回合"：那「已停止」就是对的。
 			if (receipt.ok || receipt.message === 'not_running') {
 				return;
@@ -809,6 +817,7 @@ export function createStreamRecoverySlice(
 			toast.warn(`停止请求未被后端确认（${receipt.message}）：回合可能仍在运行`);
 		});
 		if (settled.messages.some(m => m.role === 'tool' && m.toolStatus === 'waiting')) {
+			const stoppedIds = new Set(settled.messages.filter(m => m.role === 'tool' && m.toolStatus === 'waiting').map(m => m.id));
 			// smoke-test #15：立即以服务端 transcript 对账（引擎 abort 收尾已把
 			// 真实结果/标注落史），避免"工具成功落盘但 GUI 显示 error/等待"。
 			const bsId = activeBackendSessionId(get().historyById, sid);
@@ -816,18 +825,19 @@ export function createStreamRecoverySlice(
 				reconcileToolsWithServer(get, set, sid, bsId);
 			}
 			// 与 sendMessage 的宽限定时器同款：超时仍未被晚到结果覆盖才落 error。
-			waitingToolTimers.set(
-				sid,
-				window.setTimeout(() => {
+			const timer = window.setTimeout(() => {
+					if (waitingToolTimers.get(sid) !== timer) return;
 					waitingToolTimers.delete(sid);
+					if (!stopOwnership.matchesBranch()) return;
 					// 超时兜底同样先对账服务端一次，再猜 error。
 					const bsId2 = activeBackendSessionId(get().historyById, sid);
 					void loadServerSessionMessages(bsId2 || '').then(server => {
+						if (!stopOwnership.matchesBranch()) return;
 						const cur = get();
 						let msgsNow = cur.messagesById[sid] ?? [];
 						const merged = settleToolsFromServer(msgsNow, server);
 						if (merged.changed) {
-							void replaceMessages(sid, merged.messages);
+							void replaceMessages(sid, merged.messages, stopOwnership.matchesBranch);
 							set(s => ({
 								messagesById: {
 									...s.messagesById,
@@ -843,11 +853,11 @@ export function createStreamRecoverySlice(
 						) {
 							return;
 						}
-						const settledNow = settleOrphanRunningTools(msgsNow);
+						const settledNow = settleStoppedTools(msgsNow, stoppedIds);
 						if (!settledNow.changed) {
 							return;
 						}
-						void replaceMessages(sid, settledNow.messages);
+						void replaceMessages(sid, settledNow.messages, stopOwnership.matchesBranch);
 						set(s => ({
 							messagesById: {
 								...s.messagesById,
@@ -855,8 +865,8 @@ export function createStreamRecoverySlice(
 							},
 						}));
 					});
-				}, WAITING_TOOL_TIMEOUT_MS),
-			);
+				}, WAITING_TOOL_TIMEOUT_MS);
+			waitingToolTimers.set(sid, timer);
 		}
 	},
 

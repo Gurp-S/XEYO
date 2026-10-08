@@ -27,7 +27,7 @@ def failed_attempt_usage(model, budget, working):
     )
 
 
-def persist_interrupted_anchor(store, narration_gate, tool_uses, reasoning="", reasoning_blocks=None):
+def persist_interrupted_anchor(store, narration_gate, tool_uses, reasoning="", reasoning_blocks=None, message_id=None):
     partial, _flush = narration_gate.finish(has_tools=bool(tool_uses))
     narration = narration_gate.drain_narration()
     partial = (partial or "").strip()
@@ -36,11 +36,12 @@ def persist_interrupted_anchor(store, narration_gate, tool_uses, reasoning="", r
     store.append(assistant_text_message(
         partial, tool_uses or None, interrupted=True,
         narration=narration, reasoning=reasoning, reasoning_blocks=reasoning_blocks,
+        message_id=message_id,
     ))
     return True
 
 
-async def settle_failed_stream(store, narration_gate, tool_uses, early, results, *, reason, reasoning="", reasoning_blocks=None):
-    interrupted = persist_interrupted_anchor(store, narration_gate, tool_uses, reasoning, reasoning_blocks)
+async def settle_failed_stream(store, narration_gate, tool_uses, early, results, *, reason, reasoning="", reasoning_blocks=None, message_id=None):
+    interrupted = persist_interrupted_anchor(store, narration_gate, tool_uses, reasoning, reasoning_blocks, message_id)
     events = await settle_tool_exit(store, tool_uses, early, results, reason=reason)
     return interrupted, events

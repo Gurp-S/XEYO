@@ -15,21 +15,29 @@ pytest.importorskip("memory.wsc_watermark")
 @pytest.fixture(autouse=True)
 def _clean(monkeypatch):
 	wm._STATE.clear()
-	monkeypatch.delenv(wm._ENV, raising=False)
 	yield
 	wm._STATE.clear()
 
 
 def test_gate_off_by_default_returns_gate_off() -> None:
-	"""不设 env ⇒ 本模块不参与决策（现行为逐字不变）。"""
+	"""旋钮退场后：水位恒 0 ⇒ 本模块不按绝对水位放行折叠（安全侧默认）。"""
 	assert wm.soft_watermark_tokens() == 0
 	assert wm.admit_assessment("s", input_tokens=10**9, identity="x|1|a") == wm.REASON_DISABLED
 
 
-def test_unparsable_env_does_not_silently_enable() -> None:
+def test_retired_env_key_has_no_effect() -> None:
+	"""``XEYO_WSC_SOFT_WATERMARK`` 已退场（2026-10-08 用户裁定）：设了也不再生效。
+
+	新机制的判据明令"绝对 token 水位不得放行自动折叠"，唯一自动通路是
+	``memory/wsc_timing`` 的容量压力（≥ 声明容量的 85%）。
+	"""
 	import os
-	os.environ[wm._ENV] = "abc"
-	assert wm.soft_watermark_tokens() == 0
+	os.environ["XEYO_WSC_SOFT_WATERMARK"] = "48000"
+	try:
+		assert wm.soft_watermark_tokens() == 0
+		assert wm.admit_assessment("s", input_tokens=10**9, identity="x|1|a") == wm.REASON_DISABLED
+	finally:
+		os.environ.pop("XEYO_WSC_SOFT_WATERMARK", None)
 
 
 def test_below_watermark_is_refused_and_not_counted_as_an_assessment() -> None:

@@ -25,35 +25,17 @@ def _isolate_xeyo_sessions(tmp_path, monkeypatch):
 	# （伪 sid / write_stale）写进用户真实指标账：实测全账 14,154 行里 2,350 行是
 	# 空 sid 测试行，单次全量即新增数十行；消费者 scripts/multi_agent_gate_report.py。
 	monkeypatch.setenv("XEYO_METRICS_DIR", str(tmp_path / ".xeyo_metrics"))
-	# 机器级 XEYO_L5 / C2_GATE env 不参与运行时（get_value 语义），setenv 仅
-	# 兜底历史直读残留。C2_GATE 生产默认开（用户决策 2026-09）；需 gate 关的
-	# 单测用 mem_switch(XEYO_C2_GATE="0") 隔离 settings。
-	monkeypatch.delenv("XEYO_L5", raising=False)
-	monkeypatch.setenv("XEYO_C2_GATE", "0")
-	# T27 起 aging 生产默认关（与文档「默认关」对齐）；测试环境保持显式 "0"
-	# 兜底，防止机器级 env 泄漏影响 project 不变量单测。
-	# test_memory_aging 等需自行 setenv("XEYO_TOOL_AGING", "1").
-	monkeypatch.setenv("XEYO_TOOL_AGING", "0")
-	# 工作区 memory 镜像键（仓库 .xeyo/settings.json：WSC/SIZE_PRUNE/EMITTED_BASIS，
-	# L5 已在上面）：agent/容器会话把 settings 桥进 env 后跑套件，这些键就成了「环境
-	# 基线」——红名单随环境漂移。实测 XEYO_WSC=1 全量 12 条红（发射被 WSC 接管：
-	# test_runtime_c2 4 + test_c2_llm_summary_t8 7 + test_c2_escape_hatch 1），
-	# XEYO_WSC_SIZE_PRUNE=1 另致 test_project_cow_c2_gain 1 条红；tests/wsc 自身免疫。
-	# 要开的世界由用例显式申请（mem_switch / setenv，如 test_action_label_semantics）。
-	# 用例内 resolve_cwd 桥点火（settings→env）不在此兜底域，由 _restore_os_environ
-	# 的逐用例快照负责「不传染后续测试」。
-	monkeypatch.delenv("XEYO_WSC", raising=False)
-	monkeypatch.delenv("XEYO_WSC_SIZE_PRUNE", raising=False)
-	monkeypatch.delenv("XEYO_WSC_GATE_EMITTED_BASIS", raising=False)
-	# 工具面 deny（XEYO_TOOL_DENY）同一形状：agent / 受限容器宿主会话会把它桥进
-	# 测试进程（本机实测 XEYO_TOOL_DENY=Agent），于是"按默认工具面写"的提示装配
-	# 用例集体变红——8 个文件 18 条（test_agent_tool_as_tool / test_multi_agent_p0 /
-	# test_multi_agent_p1_toolpath / test_multi_agent_hard_gate / test_pre_llm_inject /
-	# test_t_now_env_channel / test_t_now_system_channel / test_cache_prefix_invariant），
-	# 清掉该 env 后同集 69 passed / 0 failed ⇒ 纯环境漂移，非产品回归。
-	# 要验 deny 世界的用例自行 setenv（test_agent_tool_as_tool::
-	# test_agent_denied_removes_tool_and_hint、test_bench_tool_surface）。
-	monkeypatch.delenv("XEYO_TOOL_DENY", raising=False)
+	# 产品开关的「环境基线」：宿主会话（agent / 受限容器）会把项目级开关桥进进程，套件于是
+	# 按"这台机器怎么跑"变红（实测 XEYO_WSC=1 ⇒ 12 条；XEYO_TOOL_DENY=Agent ⇒ 8 文件 18 条）。
+	# 要开的世界由用例显式申请（mem_switch / setenv），如 test_action_label_semantics。
+	# 名单与原因**只在** `engine/env_switches.py` 登记一次（原先两份名单交集只有 1 ⇒ 已合并）。
+	from engine.env_switches import isolation_pins
+
+	for _pin_name, _pin_value in isolation_pins():
+		if _pin_value is None:
+			monkeypatch.delenv(_pin_name, raising=False)
+		else:
+			monkeypatch.setenv(_pin_name, _pin_value)
 	# 审计单例按**首次调用**memoize 路径（audit/log.py::default_audit_log），只改
 	# XEYO_HOME 不够：先建好的单例仍指向真实主目录 ⇒ 测试事件写进生产审计账本
 	# （实测污染 34 条 notice.channel，正是往后要用来取发生率的那张表）。

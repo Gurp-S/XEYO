@@ -25,6 +25,7 @@ import asyncio
 import json
 import logging
 from typing import Any
+from server.request_environment import REQUEST_ENV_FIELDS
 
 _logger = logging.getLogger("xeyo.synthetic")
 
@@ -198,17 +199,7 @@ async def submit_synthetic(
 	if message_id:
 		# 客户端乐观气泡 id：chat 管线据此把投递消息 id 回传给 GUI。
 		payload["messages"][0]["id"] = message_id
-	for key in (
-		"provider",
-		"base_url",
-		"thinking",
-		"reasoning_effort",
-		"max_budget_usd",
-		"context_limit",
-		"permission_preset",
-		"permission_mode",
-		"workspace",
-	):
+	for key in REQUEST_ENV_FIELDS:
 		if env.get(key) is not None:
 			payload[key] = env[key]
 

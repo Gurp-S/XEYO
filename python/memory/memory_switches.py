@@ -66,8 +66,6 @@ MEMORY_SWITCHES: tuple[tuple[str, str, tuple[str, ...], str, bool, bool, str], .
 	# 那些 ``monkeypatch.setenv`` 会静默失效 —— 正是本轮反复抓出的"空洞测试"形状。
 	# 所以本表给这两项标 ``authority="env"``：**报的就是运行时真读到的那个值**，不留两套口径。
 	# GUI 仍不暴露（exposed 面由 test_gui_exposed_surface_is_exactly_one 锁死为恒一项）。
-	("XEYO_WSC_FROZEN_HEAD", "WSC 折叠头冻结：无新折叠事件的枪逐字节复用上次的头（默认开；关=回到'每枪重投影'的历史行为，生产实测贵 2.3 倍）", ("0", "1"), "1", False, True, "env"),
-	("XEYO_WSC_CADENCE_ABSORB", "WSC 吸收节奏：右段何时折进头改由 synaptic.cadence 的成本判据决定（默认关。09-22 实测当时 PAYBACK_SHOTS=8 下 43 次判定 0 次放行 ⇒ 只在否决；成本 1.036× vs 不折 1.000×。该常数已改 30，且同一判据现已装在推进游标的 try_extend_c2 上 ⇒ 本旗标要做的事已被主链覆盖，旧数字作废、要开得重测）", ("0", "1"), "0", False, True, "env"),
 	# 实际投影增益门的候选臂（docs 第 18 条）：开着时把"值不值得折"的比较对象从
 	# C2 估算换成**两个完整 WSC 候选的长度差**。旁路，默认关 ⇒ 生产逐字节不变。
 	("XEYO_WSC_EXTENSION_ECONOMICS", "WSC 扩展经济门：比较同一历史的 keep/fold 投影与共同前缀（旁路验证，默认关）", ("0", "1"), "0", False, True, "env"),

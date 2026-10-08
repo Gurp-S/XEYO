@@ -824,6 +824,11 @@ _BASH_PY_OPEN_RX = re.compile(
 
 def _bash_write_target(command: str) -> str | None:
 	"""尽力提取 Bash 写命令的目标文件路径。"""
+	from engine.execution_facts import enabled as fact_contracts
+	if fact_contracts():
+		from permissions.bash_targets import targets
+		proven = targets(command)
+		return proven[0] if proven else None
 	m = _BASH_REDIRECT_RX.search(command)
 	if m:
 		return m.group(1).strip()
@@ -1034,6 +1039,17 @@ def _evaluate_bash(
 	# $() / 后台 & / 包装器 一律不放行）。密钥读与工作区 ask/deny 规则仍最严。
 	# 「逐条确认」档（always）只压 dev 类：跑代码类命令仍需逐条点头；只读类
 	# 与旧只读白名单口径一致，照常放行。
+	from engine.execution_facts import enabled as fact_contracts
+	if fact_contracts() and _bash_writes_file(command):
+		from permissions.bash_targets import targets
+		proven = targets(command)
+		if not proven:
+			return PolicyDecision(decision=PermissionDecision.DENY, reason="bash_write_target_unproven",
+			                      matched_rule="bash_write_unproven_deny", prompt=_prompt_for_bash(command))
+		for target in proven:
+			blocked = _bash_write_path_block(expand_to_abs(target, cwd=cwd), cwd=cwd, roots=roots)
+			if blocked is not None:
+				return blocked
 	broad = bash_auto_allow_reason(command, cwd=cwd)
 	if broad and not (broad == BASH_DEV_TOOL_ALLOW and permission_mode() == "always"):
 		return PolicyDecision(

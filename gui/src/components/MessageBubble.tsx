@@ -59,6 +59,7 @@ function MessageBubbleInner({message, streaming, thinking}: Props) {
 				)}
 			>
 				<div className="xy-user-prompt xy-surface xy-user-bubble mx-auto max-w-3xl rounded-2xl px-4 pt-3.5 pb-2.5">
+					{message.localUndelivered ? <p className="mb-1 text-xs text-ink-soft">未送达 · 本地保留</p> : null}
 						{remote ? (
 							<p className="mb-1 font-mono text-[10px] text-accent">
 								[远程]

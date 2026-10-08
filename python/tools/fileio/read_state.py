@@ -60,6 +60,36 @@ def _max_entries_from_env(default: int = 128) -> int:
 		return default
 
 
+#: 基线世代：本册每淘汰/清空一次 +1。写给"没有基线"的报错用——把**从没读过**
+#: 与**读过但基线已被淘汰**分开，模型才知道该重读同段还是从头读
+#: （本场实测被同一句 reason 拦了两次，只能靠试）。
+_EPOCH = 0
+_DROPPED_MAX = 512
+_LEDGER_LOCK = threading.Lock()
+_DROPPED_KEYS: list[str] = []
+
+
+def _note_dropped(keys: list[str]) -> None:
+	global _EPOCH
+	with _LEDGER_LOCK:
+		_EPOCH += 1
+		_DROPPED_KEYS.extend(keys)
+		while len(_DROPPED_KEYS) > _DROPPED_MAX:
+			_DROPPED_KEYS.pop(0)
+
+
+def baseline_epoch() -> int:
+	"""当前基线世代（每次淘汰/清空 +1）。"""
+	return _EPOCH
+
+
+def baseline_dropped(path: str) -> bool:
+	"""这条路径**读过**、但其基线已不在册（淘汰/清空）→ True；从没读过 → False。"""
+	key = ReadFileState._key(path)
+	with _LEDGER_LOCK:
+		return key in _DROPPED_KEYS
+
+
 class ReadFileState:
 	"""按绝对路径缓存已读文件快照（同一 registry / session 共享）。
 
@@ -137,10 +167,14 @@ class ReadFileState:
 			self._entries.pop(key, None)
 			self._entries[key] = entry
 			while len(self._entries) > self._max_entries:
-				self._entries.pop(next(iter(self._entries)))
+				evicted = next(iter(self._entries))
+				_note_dropped([evicted])
+				self._entries.pop(evicted)
 
 	def clear(self) -> None:
 		with self._lock:
+			if self._entries:
+				_note_dropped(list(self._entries))
 			self._entries.clear()
 
 	def sync_visible_views(self, digests: set[str]) -> None:

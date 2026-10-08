@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Any
 
 from engine.abort import Aborted, AbortController, LinkedAbortController
 from engine.tool_call_state import ToolCallState
+from common.concurrency_budget import tool_batch_limit
 from common.rwlock import RWLock
 from msgtypes.message import ToolUse
 from tools.base_tool import ToolResult, tool_flag
@@ -33,19 +34,12 @@ if TYPE_CHECKING:
 
 
 def _max_concurrency() -> int:
-	"""
-	获取最大并发执行数量。
+	"""单轮工具批并发上限。
 
-	优先从环境变量 XEYO_MAX_TOOL_USE_CONCURRENCY 读取，若未设置或无效则返回默认值 10。
-	确保返回值至少为 1，避免无意义的零并发。
+	额度与解析规则在 ``common.concurrency_budget``（单一来源，env
+	``XEYO_MAX_TOOL_USE_CONCURRENCY``，默认 10，非法值回退默认）。
 	"""
-	raw = os.environ.get("XEYO_MAX_TOOL_USE_CONCURRENCY", "").strip()
-	if not raw:
-		return 10
-	try:
-		return max(1, int(raw))
-	except ValueError:
-		return 10
+	return tool_batch_limit()
 
 
 def _tool_timeout_s() -> float | None:

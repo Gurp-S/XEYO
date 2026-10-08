@@ -1,3 +1,6 @@
+import {createAssistantOutput} from './assistantOutput';
+import {sessionProjectionHandlers} from './sessionProjectionHandlers';
+import {acceptedPendingClear} from './acceptedPending';
 /**
  * streamSendSlice.ts — 流式发送 slice。
  * sendMessage / stopGeneration / sendToSession 在此实现。恢复与重新挂载
@@ -9,13 +12,12 @@
 import type {StoreApi} from 'zustand';
 import type {ChatStreamHandlers} from '@/lib/api';
 import {sessionScopedStreamHandlers} from './sessionScopedStreamHandlers';
+import {createStreamOwnership} from './streamOwnership';
 import {
 	interruptChat,
 	loadServerSessionMessages,
 	streamChat,
 } from '@/lib/api';
-import {normalizeSessionGoalState} from '@/lib/api/goals';
-import {normalizeJobSnapshots} from '@/lib/api/jobs';
 import {dispatchXeyoUi} from '@/lib/dispatchXeyoUi';
 import {formatLlmRetryStarted, formatLlmRetryWaiting} from '@/lib/llmRetryStatus';
 import {allowsEmptyApiKey} from '@/lib/localTestGate';
@@ -92,7 +94,6 @@ import {
 } from './preStoreHelpers';
 import {
 	DRAIN_MIN_BACKLOG,
-	appendAssistantProse,
 	clearWaitingToolTimer,
 	flushThoughtSync,
 	isTodoWriteName,
@@ -115,6 +116,7 @@ import {createToolSettleController} from './streamToolSettle';
 import {createMultiAgentStreamHandlers} from './multiAgentSlice';
 import {createPendingStreamHandlers} from './uiChromeSlice';
 import {createBusyStreamProjection} from './busyStreamProjection';
+import {ensureSessionHistory} from './sessionHistoryHydration';
 
 type SetState = StoreApi<ChatState>['setState'];
 type GetState = StoreApi<ChatState>['getState'];
@@ -131,9 +133,10 @@ const SLICE_KEYS = [
 ] as const;
 
 export function createStreamSendSlice(
-	set: SetState,
+	rawSet: SetState,
 	get: GetState,
 ): Pick<ChatState, (typeof SLICE_KEYS)[number]> {
+	const set = rawSet;
 	return {
 	...createStreamRecoverySlice(set, get),
 
@@ -153,17 +156,12 @@ export function createStreamSendSlice(
 				steerIfBusy?: boolean;
 			},
 		) {
+		let set = rawSet;
 		const background = Boolean(opts?.background && opts.sessionId);
 		const trimmed =
 			text.trim() || (mediaRefs?.length ? '请分析这些图片。' : '');
 		if (!trimmed) {
 			return false;
-		}
-		// 新发送覆盖旧 Ask/Plan 面板（例如用户打「继续」续跑时不应再挂着确认框）。
-		// 后台跨会话发送不碰当前会话的挂起面板。
-		if (!background) {
-			get().setPendingAsk?.(null);
-			get().setPendingPlan?.(null);
 		}
 		set(sessionErrorBannerPatch(null, null));
 
@@ -194,6 +192,14 @@ export function createStreamSendSlice(
 		if (get().sessions.find(s => s.id === sessionId)?.archived) {
 			toast.info('该对话已归档，请先恢复后发送');
 			return false;
+		}
+		if (get().messagesLoadingIds[sessionId] && !get().historyById[sessionId]) {
+			try {
+				if (!await ensureSessionHistory(rawSet, get, sessionId)) return false;
+			} catch {
+				set(sessionErrorBannerPatch(sessionId, '历史分支信息加载失败，消息尚未发送。'));
+				return false;
+			}
 		}
 
 		commitDrainForSession(sessionId);
@@ -245,6 +251,7 @@ export function createStreamSendSlice(
 				qContext.push(qUserMsg);
 				const qApi = toApiMessages(qContext);
 				const qBackend = activeBackendSessionId(get().historyById, sessionId);
+				const clearAcceptedPending = acceptedPendingClear(set, get, sessionId);
 				// 后端是否真的受理了这条（排队 / 引导 / 竞态下直接开跑）。未受理 ⇒
 				// sendMessage 返回 false，Composer 把草稿退回输入框——对齐 Codex
 				// rejected_steers：被拒的消息绝不消失在气泡撤回与清空输入框之间。
@@ -292,6 +299,7 @@ export function createStreamSendSlice(
 					persistAcceptedUserMessage();
 				};
 				const queueAbort = new AbortController();
+				let qStreamStarted = false;
 				const queueProjection = createBusyStreamProjection(
 					get,
 					set,
@@ -302,6 +310,7 @@ export function createStreamSendSlice(
 				const queueUsage = createUsageAccumulator(get, set, sessionId);
 				const queueMulti = createMultiAgentStreamHandlers({get, set, sessionId});
 				const qPending = createPendingStreamHandlers({get, sessionId});
+				const queueSnapshots = sessionProjectionHandlers(set, get, sessionId, qBackend);
 				const queueHandlers: ChatStreamHandlers = {
 					signal: queueAbort.signal,
 					// fetch 收到 HTTP 2xx/202 即代表服务端已受理；SSE 首帧可能
@@ -311,13 +320,17 @@ export function createStreamSendSlice(
 						onAccepted?.();
 						// 本地忙碌、服务端已空闲的窗口会直接启动普通 SSE 流。
 						// 202 只登记排队状态；200 则接管可见流状态与停止控制。
-						if (status !== 202) queueProjection.start(queueAbort);
+						if (status !== 202) {
+							qStreamStarted = true;
+							clearAcceptedPending();
+							queueProjection.start(queueAbort);
+						}
 					},
 					// 忙闲竞态下后端会直接启动普通流；这些回调把正文、工具活动和
 					// 运行状态投影到常规消息区，不能只保留最后一段 assistant 文本。
-					onDelta(text: string) {
+					onDelta(text: string, messageId?: string) {
 						markQueueAccepted();
-						queueProjection.onDelta(text);
+						queueProjection.onDelta(text, messageId);
 					},
 					onDone() {
 						markQueueAccepted();
@@ -418,23 +431,8 @@ export function createStreamSendSlice(
 						markQueueAccepted();
 						queueUsage.onCompression(event);
 					},
-					onGoal(event) {
-						markQueueAccepted();
-						const next = normalizeSessionGoalState(event.goal, event.driver);
-						set(s => ({
-							sessionGoalById: {...s.sessionGoalById, [sessionId]: next},
-						}));
-					},
-					onJobs(event) {
-						markQueueAccepted();
-						const jobs = normalizeJobSnapshots(event.jobs);
-						set(s => {
-							const next = {...s.sessionJobsById};
-							if (jobs.length === 0) delete next[sessionId];
-							else next[sessionId] = jobs;
-							return {sessionJobsById: next};
-						});
-					},
+					onGoal(event) { markQueueAccepted(); queueSnapshots.onGoal?.(event); },
+					onJobs(event) { markQueueAccepted(); queueSnapshots.onJobs?.(event); },
 					onTaskState: markQueueAccepted,
 					onStreamGap: markQueueAccepted,
 					onMultiAgentTask(event) {
@@ -576,7 +574,9 @@ export function createStreamSendSlice(
 				// projection. Guard every late callback so it cannot recreate deleted state.
 				const sessionScopedQueueHandlers = sessionScopedStreamHandlers(
 					queueHandlers,
-					() => get().sessions.some(session => session.id === sessionId),
+					() => get().sessions.some(session => session.id === sessionId) &&
+						activeBackendSessionId(get().historyById, sessionId) === qBackend &&
+						(!qStreamStarted || queueProjection.isCurrent()),
 				);
 				const qSession = preSend.sessions.find(s => s.id === sessionId);
 				const qSide = qSession?.spaceId === SIDE_SPACE_ID;
@@ -616,6 +616,8 @@ export function createStreamSendSlice(
 			createdAt: now,
 		};
 
+		const ownership = createStreamOwnership(rawSet, get, sessionId, backendSessionId);
+		set = ownership.set;
 		const prev = get().messagesById[sessionId] ?? [];
 		const nextMessages = [...prev, userMsg];
 		const sessions = get().sessions.map(s =>
@@ -663,6 +665,7 @@ export function createStreamSendSlice(
 			}
 		}
 
+		if (!ownership.isCurrent()) return false;
 		const abort = new AbortController();
 		let settled = false;
 		// 本次流里被服务端记过洞（丢帧）⇒ 本地尾巴是缺段，收尾要改用 transcript。
@@ -675,6 +678,7 @@ export function createStreamSendSlice(
 		const smoothStream = () =>
 			isSmoothnessOn(useSettingsStore.getState().smoothness);
 		/** token + tool 共用一条 rAF 队列；每帧最多一次 Zustand set。 */
+		const assistantOutput = createAssistantOutput();
 		let pendingDelta = '';
 		let pendingReasoning = '';
 		type PendingTool =
@@ -752,15 +756,8 @@ export function createStreamSendSlice(
 			let nextMsgs = msgs;
 			let nextText = streamingText;
 			if (nextText) {
-				nextMsgs = [
-					...nextMsgs,
-					{
-						id: uid('msg'),
-						role: 'assistant',
-						text: nextText,
-						createdAt: Date.now(),
-					},
-				];
+				nextMsgs = assistantOutput.append(nextMsgs, nextText);
+				assistantOutput.finishSegment(nextText);
 				nextText = '';
 			} else {
 				nextMsgs = [...nextMsgs];
@@ -910,6 +907,7 @@ export function createStreamSendSlice(
 			sessionId,
 			applyToolResult,
 			persistNow: persistence.now,
+			isCurrent: ownership.isCurrent,
 		});
 
 		const streamingThoughtId = (sid: string, seg: number) =>
@@ -1240,7 +1238,7 @@ export function createStreamSendSlice(
 		void saveSession(session).catch(() => {
 			/* 尽力而为；消息已在 UI 中可见 */
 		});
-		void replaceMessages(sessionId, nextMessages).catch(err => {
+		void replaceMessages(sessionId, nextMessages, ownership.isCurrent).catch(err => {
 			const message = err instanceof Error ? err.message : String(err);
 			set(cur => ({
 				messagesById: {
@@ -1258,8 +1256,7 @@ export function createStreamSendSlice(
 			}));
 		});
 
-		const sessionStillAlive = () =>
-			get().sessions.some(s => s.id === sessionId);
+		const sessionStillAlive = ownership.isCurrent;
 
 		const clearStream = (
 			patch: Partial<ChatState> = {},
@@ -1308,7 +1305,7 @@ export function createStreamSendSlice(
 			set(s => ({
 				sessionStreams: clearSessionStreamState(s.sessionStreams, sessionId!),
 				pendingPlan:
-					s.pendingPlan?.sessionId === sessionId ? null : s.pendingPlan,
+					acceptedTurn && s.pendingPlan?.sessionId === sessionId ? null : s.pendingPlan,
 				// smoke-test #1：仍有未完成 todo 时保留快照（面板继续显示）。
 				sessionTodosById: {
 					...cur.sessionTodosById,
@@ -1375,7 +1372,7 @@ export function createStreamSendSlice(
 				withoutStream = removeActiveStreamingThought(withoutStream);
 			}
 			if (out) {
-				withoutStream = appendAssistantProse(withoutStream, out);
+				withoutStream = assistantOutput.append(withoutStream, out);
 			} else {
 				// 空回复守卫：模型回合完成但 0 输出时，检查本回合是否真的没产出
 				// （无 assistant 正文 / 无 tool 正文），是则给用户可见的反馈，
@@ -1427,6 +1424,8 @@ export function createStreamSendSlice(
 			flushThoughtSync(activeBackendSessionId(get().historyById, sessionId!), get().messagesById[sessionId!] ?? withoutStream);
 		};
 
+		let acceptedTurn = false;
+		const clearAcceptedPending = acceptedPendingClear(set, get, sessionId);
 		const drain = createStreamDrain({
 			get,
 			set,
@@ -1441,11 +1440,12 @@ export function createStreamSendSlice(
 				}
 			},
 			onFinish: commitAssistant,
+			appendProse: assistantOutput.append,
 		});
 
 		const flushPersistOnExit = () => {
 			usage.finish();
-			if (!get().sessions.some(s => s.id === sessionId)) {
+			if (!ownership.isCurrent()) {
 				return;
 			}
 			const cur = get();
@@ -1467,7 +1467,7 @@ export function createStreamSendSlice(
 				msgs = removeActiveStreamingThought(msgs);
 			}
 			if (stream.streamingText.trim()) {
-				msgs = appendAssistantProse(msgs, stream.streamingText);
+				msgs = assistantOutput.append(msgs, stream.streamingText);
 			}
 			persistence.onExit(msgs);
 		};
@@ -1475,13 +1475,19 @@ export function createStreamSendSlice(
 		try {
 			window.addEventListener('pagehide', flushPersistOnExit);
 			const apiMessages = toApiMessages(nextMessages);
-			await streamChat(backendSessionId, apiMessages, {
+			await streamChat(backendSessionId, apiMessages, sessionScopedStreamHandlers({
 				onAccepted: status => {
+					if (status !== 202) { acceptedTurn = true; clearAcceptedPending(); }
 					onAccepted?.();
 					if (status === 202) releaseQueueAcceptedStream();
 				},
 				signal: abort.signal,
-				onDelta(chunk) {
+				onDelta(chunk, messageId) {
+					if (settled) return;
+					if (messageId && assistantOutput.getId() && messageId !== assistantOutput.getId()) {
+						flushFrame({settle: true});
+					}
+					assistantOutput.begin(messageId);
 					clearRetryStatus();
 					pendingDelta += chunk;
 					scheduleFrame();
@@ -1583,37 +1589,7 @@ export function createStreamSendSlice(
 				onPlanResolved(ev) {
 					pending.onPlanResolved(ev);
 				},
-				onGoal(ev) {
-					// 41 号：goal 投影帧（whole-value）→ per-session 快照。
-					// 与 todos 不同：turn 之间不清空（goal 状态跨轮存续）。
-					if (!sessionStillAlive()) {
-						return;
-					}
-					const next = normalizeSessionGoalState(ev.goal, ev.driver);
-					set(s => ({
-						sessionGoalById: {
-							...s.sessionGoalById,
-							[sessionId]: next,
-						},
-					}));
-				},
-				onJobs(ev) {
-					// 42 号：jobs whole-value 快照。last-wins；空集 = 删除键
-					// （缺失与 [] 同一表示，消费方永不测哨兵）。
-					if (!sessionStillAlive()) {
-						return;
-					}
-					const jobs = normalizeJobSnapshots(ev.jobs);
-					set(s => {
-						const next = {...s.sessionJobsById};
-						if (jobs.length === 0) {
-							delete next[sessionId];
-						} else {
-							next[sessionId] = jobs;
-						}
-						return {sessionJobsById: next};
-					});
-				},
+				...sessionProjectionHandlers(set, get, sessionId, backendSessionId),
 				onMultiAgentTask(ev) {
 					if (!sessionStreamActive(get(), sessionId)) {
 						return;
@@ -1709,6 +1685,7 @@ export function createStreamSendSlice(
 					sawGap = true;
 				},
 				onDone() {
+					if (settled) return;
 					usage.finish();
 					flushFrame({settle: true});
 					while (pendingTools.length > 0) {
@@ -1727,6 +1704,7 @@ export function createStreamSendSlice(
 								sessionId,
 								server,
 								'本次流里有缺帧，内容已按服务端记录补齐',
+								ownership.isCurrent,
 							);
 						});
 						return;
@@ -1786,15 +1764,9 @@ export function createStreamSendSlice(
 					}
 					const cur = get();
 					const stream = getSessionStream(cur, sessionId);
-					const msgs = [...(cur.messagesById[sessionId!] ?? [])];
-					if (stream.streamingText) {
-						msgs.push({
-							id: uid('msg'),
-							role: 'assistant',
-							text: stream.streamingText,
-							createdAt: Date.now(),
-						});
-					}
+					const msgs = stream.streamingText
+						? assistantOutput.append(cur.messagesById[sessionId!] ?? [], stream.streamingText)
+						: [...(cur.messagesById[sessionId!] ?? [])];
 					const looksAuth =
 						/api key|401|authentication|未授权|鉴权/i.test(message);
 					if (looksAuth) {
@@ -1823,7 +1795,7 @@ export function createStreamSendSlice(
 							}),
 						}));
 						const recovered = await recoverAfterDisconnect(
-							set,
+							rawSet,
 							get,
 							sessionId,
 							backendSessionId,
@@ -1842,15 +1814,9 @@ export function createStreamSendSlice(
 						}
 						const cur2 = get();
 						const stream2 = getSessionStream(cur2, sessionId);
-						const msgs2 = [...(cur2.messagesById[sessionId!] ?? [])];
-						if (stream2.streamingText) {
-							msgs2.push({
-								id: uid('msg'),
-								role: 'assistant',
-								text: stream2.streamingText,
-								createdAt: Date.now(),
-							});
-						}
+						const msgs2 = stream2.streamingText
+							? assistantOutput.append(cur2.messagesById[sessionId!] ?? [], stream2.streamingText)
+							: [...(cur2.messagesById[sessionId!] ?? [])];
 						clearStream({
 							messagesById: {...cur2.messagesById, [sessionId!]: msgs2},
 							...sessionErrorBannerPatch(
@@ -1870,7 +1836,7 @@ export function createStreamSendSlice(
 					});
 					persistence.now(msgs);
 				},
-			},
+			}, ownership.isCurrent),
 			{mediaRefs, agentMode: requestedAgentMode, multiAgent: requestedMultiAgent, workspace: workspaceRoot, side: sideSession, reasoningEffort: opts?.reasoningEffort, steerIfBusy: opts?.steerIfBusy},
 			);
 		} catch (err) {
@@ -1898,7 +1864,7 @@ export function createStreamSendSlice(
 				}),
 			}));
 			const recovered = await recoverAfterDisconnect(
-				set,
+				rawSet,
 				get,
 				sessionId!,
 				backendSessionId,

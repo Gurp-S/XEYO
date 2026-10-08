@@ -17,6 +17,12 @@ R1/R4 的完整判定需要人，但 R2 是**纯文本可判定的**，R3 也有
 方向性：**行内注释与字符串字面量不豁免**（`x = 1  # 容器路由` 仍报）——宁可多报，
 不可漏报真分支。回归：tests/test_changedetect_compliance.py。
 
+**自豁免（2026-10-07，X1/#12）**：行内写 `# compliance: allow(<理由>)` ⇒ 该行不报，
+并计入 `exempted`（计数与理由都可见）。三条边界：
+- **理由非空才生效**（`allow()` / `allow(   )` 一律无效，照常报）——豁免必须带账；
+- **只豁免所在的那一行**（不做整文件豁免）——最小授权；
+- 豁免**不改判定逻辑**（规则、散文豁免、命中口径都不变），只是"这一行由人背书"这个事实被记下来。
+
 定位：这是"报警器"不是"判官"。命中不等于违规，但每一条命中都必须被解释。
 """
 
@@ -102,6 +108,9 @@ _PROSE_SUFFIXES: frozenset[str] = frozenset({".md", ".rst", ".txt", ".adoc"})
 #: .py 里可能是解包赋值（`*a, b = c`）⇒ 不能当注释。行尾注释不豁免。
 _PROSE_PREFIXES = ("#", "//", "/*", "*", "<!--")
 
+#: 行内自豁免标记：`# compliance: allow(<理由>)`。理由非空才生效（见模块说明）。
+_EXEMPT_RE = re.compile(r"#\s*compliance:\s*allow\(\s*(?P<reason>[^)\n]*?)\s*\)", flags=re.IGNORECASE)
+
 _HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
 
 #: (root, rel, mtime_ns) → docstring 行号集合。文件没变就不重复 parse。
@@ -180,39 +189,66 @@ def _iter_added(diff_text: str):
             lineno += 1
 
 
-def scan_added_lines(diff_text: str, *, root: Path | None = None) -> list[Hit]:
-    """扫描 diff 的新增行（`+` 开头且不是 `+++` 头）；散文行按模块说明豁免。"""
-    hits: list[Hit] = []
-    for where, lineno, line in _iter_added(diff_text):
-        if _is_prose(where, lineno, line, root):
-            continue
-        for rule, severity, pattern, why in _RULES:
-            if re.search(pattern, line, flags=re.IGNORECASE):
-                hits.append(
-                    Hit(
-                        rule=rule,
-                        severity=severity,
-                        pattern=f"{pattern}  —— {why}",
-                        line=line,
-                        where=where,
-                    )
-                )
-    return hits
+def _exemption_reason(line: str) -> str | None:
+	"""行内自豁免标记的**理由**；无标记或理由为空 ⇒ ``None``（不豁免）。
+
+	理由非空才生效是刻意的：豁免必须留下账（谁、为什么把这一行划出去），
+	否则标记本身就成了绕过扫描的后门。
+	"""
+	m = _EXEMPT_RE.search(line)
+	if not m:
+		return None
+	reason = (m.group("reason") or "").strip()
+	return reason or None
 
 
-def summarize(hits: list[Hit]) -> dict[str, Any]:
-    by_rule: dict[str, int] = {}
-    by_sev: dict[str, int] = {}
-    for h in hits:
-        by_rule[h.rule] = by_rule.get(h.rule, 0) + 1
-        by_sev[h.severity] = by_sev.get(h.severity, 0) + 1
-    return {
-        "hit_count": len(hits),
-        "by_rule": by_rule,
-        "by_severity": by_sev,
-        "has_fail": by_sev.get("fail", 0) > 0,
-        "hits": [h.to_dict() for h in hits],
-    }
+def scan_added_lines(diff_text: str, *, root: Path | None = None,
+                     exempted: list[dict[str, Any]] | None = None) -> list[Hit]:
+	"""扫描 diff 的新增行（`+` 开头且不是 `+++` 头）；散文行按模块说明豁免。
+
+	`exempted` 给了就登记被 `# compliance: allow(<理由>)` 背书的行（理由非空才生效）。
+	**只登记非散文行**：散文本来就不判，算进来会让计数虚高、把"没人管"写成"有人背书"。
+	"""
+	hits: list[Hit] = []
+	for where, lineno, line in _iter_added(diff_text):
+		if _is_prose(where, lineno, line, root):
+			continue
+		reason = _exemption_reason(line)
+		if reason is not None:
+			if exempted is not None:
+				exempted.append({"where": where, "line": lineno, "reason": reason})
+			continue
+		for rule, severity, pattern, why in _RULES:
+			if re.search(pattern, line, flags=re.IGNORECASE):
+				hits.append(
+					Hit(
+						rule=rule,
+						severity=severity,
+						pattern=f"{pattern}  —— {why}",
+						line=line,
+						where=where,
+					)
+				)
+	return hits
+
+
+def summarize(hits: list[Hit], *, exempted: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+	by_rule: dict[str, int] = {}
+	by_sev: dict[str, int] = {}
+	for h in hits:
+		by_rule[h.rule] = by_rule.get(h.rule, 0) + 1
+		by_sev[h.severity] = by_sev.get(h.severity, 0) + 1
+	out: dict[str, Any] = {
+		"hit_count": len(hits),
+		"by_rule": by_rule,
+		"by_severity": by_sev,
+		"has_fail": by_sev.get("fail", 0) > 0,
+		"hits": [h.to_dict() for h in hits],
+	}
+	if exempted is not None:
+		out["exempted_count"] = len(exempted)
+		out["exempted"] = list(exempted)
+	return out
 
 
 def scan_git_diff(paths: list[str] | None = None, *, root=None) -> dict[str, Any]:
@@ -235,11 +271,16 @@ def scan_git_diff(paths: list[str] | None = None, *, root=None) -> dict[str, Any
             timeout=30,
         )
     except Exception as exc:  # noqa: BLE001
-        return {"hit_count": 0, "error": f"{type(exc).__name__}: {exc}", "hits": []}
+        return {"hit_count": 0, "error": f"{type(exc).__name__}: {exc}", "hits": [],
+                "exempted_count": 0, "exempted": []}
     if proc.returncode != 0:
         return {
             "hit_count": 0,
             "error": (proc.stderr or "").strip()[:300],
             "hits": [],
+            "exempted_count": 0,
+            "exempted": [],
         }
-    return summarize(scan_added_lines(proc.stdout, root=Path(root or REPO_ROOT)))
+    exempted: list[dict[str, Any]] = []
+    hits = scan_added_lines(proc.stdout, root=Path(root or REPO_ROOT), exempted=exempted)
+    return summarize(hits, exempted=exempted)

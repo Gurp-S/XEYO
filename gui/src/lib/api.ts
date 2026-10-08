@@ -1,5 +1,6 @@
 import {useSettingsStore} from '@/stores/settingsStore';
 import {apiUrl} from '@/lib/apiBase';
+import {rememberTranscriptSnapshot} from './transcriptSnapshot';
 import type {ChatMessage, RecoveryJob, RewindCheckpointLookup, RewindEvent, RewindHotpathResult, RollbackPlan} from './types';
 import {REQUEST_TIMEOUT_MS, authHeaders, fetchWithTimeout, formatErrorDetail} from './api/core';
 import type {} from './api/core';
@@ -268,39 +269,7 @@ export async function acknowledgeInboxItems(
 	}
 }
 
-/** 取消一条排队消息。 */
-export async function cancelInboxItem(sessionId: string, queueId: string): Promise<boolean> {
-	try {
-		const res = await fetchWithTimeout(
-			apiUrl(`/v1/sessions/${encodeURIComponent(sessionId)}/inbox/${encodeURIComponent(queueId)}`),
-			{method: 'DELETE', headers: {...authHeaders()}},
-		);
-		return res.ok;
-	} catch {
-		return false;
-	}
-}
-
-/** 改写一条排队消息的文本（排队卡「编辑」动作）。 */
-export async function editInboxItem(
-	sessionId: string,
-	queueId: string,
-	text: string,
-): Promise<boolean> {
-	try {
-		const res = await fetchWithTimeout(
-			apiUrl(`/v1/sessions/${encodeURIComponent(sessionId)}/inbox/${encodeURIComponent(queueId)}`),
-			{
-				method: 'PATCH',
-				headers: {'Content-Type': 'application/json', ...authHeaders()},
-				body: JSON.stringify({text}),
-			},
-		);
-		return res.ok;
-	} catch {
-		return false;
-	}
-}
+export {cancelInboxItem, editInboxItem} from './api/inboxWrites';
 
 /** 重新 arm（stop 后 / stuck 后手动投递）。 */
 export async function resumeInbox(
@@ -454,7 +423,7 @@ export async function loadServerSessionMessages(
 		const payload = (await res.json()) as {
 			messages?: ChatMessage[];
 		};
-		return stripResumeFromMessages(payload.messages ?? []);
+		return rememberTranscriptSnapshot(stripResumeFromMessages(payload.messages ?? []), payload, sessionId);
 	} catch {
 		return [];
 	}
@@ -551,21 +520,7 @@ export async function fetchSessionTask(
 	}
 }
 
-export async function abandonSessionRecovery(
-	sessionId: string,
-): Promise<boolean> {
-	try {
-		const res = await fetchWithTimeout(
-			apiUrl(
-				`/v1/sessions/${encodeURIComponent(sessionId)}/recovery/abandon`,
-			),
-			{method: 'POST', headers: authHeaders()},
-		);
-		return res.ok;
-	} catch {
-		return false;
-	}
-}
+export {abandonSessionRecovery} from './api/recovery';
 
 export const TURN_CURSOR_KEY = 'xeyo:turnCursor:';
 

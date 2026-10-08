@@ -14,11 +14,11 @@ from __future__ import annotations
 
 import logging
 import os
-import threading
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
+from common.concurrency_budget import acquire_agent_slot, agent_spawn_limit
 from engine.abort import AbortController
 from memory.agent_scope import (
     enqueue_subagent_candidates,
@@ -32,9 +32,7 @@ from tools.progress_sink import emit_progress
 from usage.money import round_money8
 
 MAX_DEPTH = 1  # P0 硬限制（A8）：只允许一层子 agent，禁止孙 agent
-# 同会话并发 spawn 上限（硬门禁；可用环境变量覆盖）
-_MAX_CONCURRENT = max(1, int(os.environ.get("XEYO_MAX_CONCURRENT_AGENTS", "8") or "8"))
-_agent_slots = threading.Semaphore(_MAX_CONCURRENT)
+# 并发 spawn 槽 = 每会话一桶；额度与解析规则在 common.concurrency_budget（单一来源）。
 
 
 def _format_agent_tool_result(
@@ -227,10 +225,11 @@ class AgentTool:
                 )
             role_suffix = role_developer_suffix(role)
 
-        if not _agent_slots.acquire(blocking=False):
+        slot = acquire_agent_slot(self._session_id)
+        if slot is None:
             return ToolResult(
                 content=(
-                    f"max concurrent agents reached ({_MAX_CONCURRENT}); "
+                    f"max concurrent agents reached ({agent_spawn_limit()}); "
                     "wait for running sub-agents to finish"
                 ),
                 is_error=True,
@@ -314,9 +313,10 @@ class AgentTool:
             turns_used = 0
             max_turns_used = 0
         except BaseException:  # noqa: BLE001 — 只保证还槽，异常原样上抛
-            # 实测：这段裸代码一旦抛出（例如 metrics 写不下去），每次都永久烧掉 1/8
-            # 个并发槽，烧完后整个进程再也 spawn 不了子代理——桌面 app 一开数天。
-            _agent_slots.release()
+            # 实测：这段裸代码一旦抛出（例如 metrics 写不下去），每次都永久烧掉该
+            # 会话一个 spawn 槽，烧完后这个会话再也 spawn 不了子代理——桌面 app
+            # 一开数天。租约幂等：同一对象重复 release 只归还一次。
+            slot.release()
             raise
 
         try:
@@ -468,7 +468,7 @@ class AgentTool:
                 logging.getLogger(__name__).warning(
                     "record_agent_tool_end failed", exc_info=True
                 )
-            _agent_slots.release()
+            slot.release()
     def _tools_for(self, agent_input: AgentInput) -> list[str]:
         from engine.scheduler import Task, build_tool_whitelist
 

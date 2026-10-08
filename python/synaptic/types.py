@@ -71,11 +71,21 @@ class Node:
 	#: 与 ``refs`` 的差别是语义不是去重——卡面 target 只认这里；输出正文里
 	#: "提到"的路径不许冒充"被操作的文件"（现场：读 Sidebar.tsx 的卡标 ux-loaders.css）。
 	arg_paths: tuple[str, ...] = ()
+	#: 本次调用**声明的执行范围**（只在工具结果节点上补齐）：调用参数与命令里
+	#: 点名的路径。存在的理由：失败的输出正文常常一个路径都不含
+	#: （``write failed: path_denied``、被截断的退出码摘要），覆盖判据因此在真实
+	#: transcript 上拿不到证据（实测 sess_mux0q86a_ea2kv9：15 条错误 0 条闭合）。
+	#: 与 ``arg_paths`` 的分工：``arg_paths`` 是卡面身份位；本字段不进卡面、
+	#: 不改 PIN，只作为覆盖判据可核对的证据面。
+	scope_paths: tuple[str, ...] = ()
 	symbols: tuple[str, ...] = ()  # 触碰的符号（用于语义邻接的弱启发式）
 	error_sig: str = ""  # 错误签名（异常类 / 首行关键片段）
 	replay_cmd: str = ""  # 可重放命令（只读工具才有）
 	command: str = ""  # 本次工具调用携带的 shell 命令原文（非 shell 工具为空）
 	weights: dict[str, float] = field(default_factory=dict)
+	execution_status: str = ""
+	execution_complete: bool | None = None
+	execution_error_kind: str = ""
 
 	def weight(self, name: str) -> float:
 		return float(self.weights.get(name, 0.0))
@@ -97,6 +107,7 @@ class Pin:
 	label: str
 	text: str
 	nodes: tuple[int, ...] = ()
+	suppress_excerpt: bool = False
 
 
 @dataclass(frozen=True)

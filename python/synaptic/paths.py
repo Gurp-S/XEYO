@@ -38,6 +38,14 @@ from synaptic.types import WscParams
 #: 只降权不删——候选池、配额、冷层可达性全部不变（16 条缺陷 #12 的旁路候选）。
 _ALIGN_ENV = "XEYO_WSC_REQUEST_ALIGN"
 
+#: 候选池来源（旁路，默认关）：只收「**工具参数点名**的路径」= 真碰过；
+#: 不收「工具输出/正文里提到过的路径」= 只是提过。见 ``_touch_span``。
+_ENV_ARG_ONLY = "XEYO_WSC_PATHS_ARG_ONLY"
+
+
+def _arg_only() -> bool:
+	return os.environ.get(_ENV_ARG_ONLY, "").strip().lower() in ("1", "true", "on", "yes")
+
 
 def _request_paths(graph: Graph, seeds: Seeds) -> frozenset[str]:
 	"""本轮请求点名的路径（最近一条实质用户消息；机器注入块不算）。"""
@@ -81,13 +89,38 @@ def shortest_unique_suffix(path: str, others: frozenset[str]) -> str:
 
 
 def _touch_span(graph: Graph, region_end: int) -> dict[str, tuple[int, int]]:
-	"""路径 -> (首次出现下标, 最后触碰下标)，只统计区域内节点。"""
+	"""路径 -> (首次出现下标, 最后触碰下标)，只统计区域内节点。
+
+	开启时按工具参数/命令声明建立候选，排除普通正文提及。参数点名和命令提及
+	有各自的 origin；它们不证明文件存在，也不证明实际发生了文件操作。
+
+	为什么不用文件系统判存在性：投影可能跑在**宿主**而工具跑在**容器/沙箱**（见
+	``engine/env_switches`` 的"宿主会话（agent / 受限容器）"），宿主上 ``os.stat``
+	会把这些路径判成不存在 ⇒ **假阴** ⇒ 违反 fail-open。本判据**零文件系统依赖**。
+
+	``render_paths`` 的分组、配额、优先级全部走 ``p in span`` 过滤，故只改这里即生效；
+	被滤掉的路径不进索引，但仍在冷层可达（与既有配额裁剪同性质，不破坏可恢复性）。
+
+	**为什么口径是 ``arg_paths ∪ scope_paths``，而不是只用 ``arg_paths``**（2026-10-08 实测）：
+	``arg_paths`` 只装 ``tool_input_paths(inp)`` ＋ Bash 单文件 target（``graph.py:473-483``），
+	**不含 ``command_paths(inp)``** —— 即「Bash 命令串里点名的路径」只进 ``refs``。只用
+	``arg_paths`` 会把这类路径**整类误滤**（本会话实测：``AGENTS.md`` / ``XEYO.md`` /
+	``python/engine/query_loop.py`` / ``python/tests/test_*.py`` 等盘上真实存在者 32 条），
+	而项目契约要求它们进声明范围（``python/tests/wsc/test_scope_paths_evidence.py``）
+	⇒ 属**假阴**，违反 fail-open。``scope_paths``（``graph.py:437`` 组装 + ``566`` 落盘）
+	正是结果节点上的「本次调用声明的执行范围」= ``tool_input_paths ∪ command_paths``，
+	且明文「不进卡面、不改 PIN，只作判据的证据面」（``types.py:74-80``）⇒ 两者并集
+	= 声明候选。未结束的调用由 ``path_origins`` 同时补齐命令提及；配额仍可能裁剪。
+	**``arg_paths`` 是卡面身份位**（``prune.py:88``；契约见 ``types.py:70-73``），本改动不碰它。
+	"""
+	use_arg_only = _arg_only()
+	from synaptic.path_origins import declared_paths
 	first: dict[str, int] = {}
 	last: dict[str, int] = {}
 	for n in graph.nodes:
 		if n.idx >= region_end:
 			continue
-		for p in n.refs:
+		for p in (declared_paths(n, graph) if use_arg_only else n.refs):
 			if p not in first:
 				first[p] = n.idx
 			last[p] = n.idx
@@ -173,6 +206,9 @@ def render_paths(
 	for p in sorted(ordered, key=lambda x: (span[x][0], x)):
 		suffix = shortest_unique_suffix(p, pool)
 		line = suffix
+		if _arg_only():
+			from synaptic.path_origins import origin
+			line += " origin=" + origin(graph, p, region_end)
 		cost = node_token_len(line) + 1
 		if tokens + cost > budget:
 			break

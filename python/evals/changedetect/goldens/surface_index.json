@@ -1,5 +1,5 @@
 {
- "artifact_count": 44,
+ "artifact_count": 45,
  "artifacts": {
   "meta/power_table": {
    "chars": 227,
@@ -97,21 +97,21 @@
    "file": "tnow__block_count.txt",
    "group": "tnow",
    "note": "登记块数（与硬顶一起决定准入）",
-   "sha256": "a9742eb8ee320e006666aef25ae9aeed948247f3125c9cafa7cf97b7e7467dd5"
+   "sha256": "5378796307535df3ec8d8b15a2e2dc5641419c3d3060cfe32238c0fa973f7aa3"
   },
   "tnow/hard_cap": {
    "chars": 3,
    "file": "tnow__hard_cap.txt",
    "group": "tnow",
    "note": "",
-   "sha256": "a9742eb8ee320e006666aef25ae9aeed948247f3125c9cafa7cf97b7e7467dd5"
+   "sha256": "5378796307535df3ec8d8b15a2e2dc5641419c3d3060cfe32238c0fa973f7aa3"
   },
   "tnow/registry": {
-   "chars": 1405,
+   "chars": 1476,
    "file": "tnow__registry.txt",
    "group": "tnow",
    "note": "块登记表（加块必须登记，机器执法）",
-   "sha256": "b239245923ac85283d65495e0f1c9075cb3d4b2b631219b88ceaa15c0d7fe583"
+   "sha256": "0dd4d14789c28f17cdaa93fb037ffad94290912368e45638cc8450c9b43132f8"
   },
   "tools/Agent": {
    "chars": 1141,
@@ -133,6 +133,13 @@
    "group": "tools",
    "note": "工具 schema（决定模型怎么调）",
    "sha256": "6b9faeacf572504da48c9283c23948377b50b15de3af11b3532c6ebc8b8af1fa"
+  },
+  "tools/Compact": {
+   "chars": 431,
+   "file": "tools__Compact.txt",
+   "group": "tools",
+   "note": "工具 schema（决定模型怎么调）",
+   "sha256": "8029f2d727d816256b3fda813f00f94a0a465432ac48ee2e476f98f7bb0105e4"
   },
   "tools/Diagnostics": {
    "chars": 486,
@@ -163,11 +170,11 @@
    "sha256": "1fe7707c373d6987add7eedffec393f5d966fa197ec9871d444d830d4bc04f8a"
   },
   "tools/Grep": {
-   "chars": 1848,
+   "chars": 2050,
    "file": "tools__Grep.txt",
    "group": "tools",
    "note": "工具 schema（决定模型怎么调）",
-   "sha256": "86f4ff1364c96b0e40c5a24ccdb224505e49ba6c79ce8a253aae91baabf1042b"
+   "sha256": "7e4d961d33fd86d8c4fd5b0661b2977ac45eb1a891866b161a030863ae2e66a8"
   },
   "tools/JournalQuery": {
    "chars": 507,
@@ -219,11 +226,11 @@
    "sha256": "d0e973ead7bd2968402755474888221180db9108bd3d8c4fc33e4f4f2e92a6ca"
   },
   "tools/TodoWrite": {
-   "chars": 1131,
+   "chars": 1731,
    "file": "tools__TodoWrite.txt",
    "group": "tools",
    "note": "工具 schema（决定模型怎么调）",
-   "sha256": "8e90fc34bcb24714f1a93b6bdc110524dbdd6df3c556d39b5e038309ac38ea55"
+   "sha256": "8a0c0fab88ff254d0972ae79c472f32e058167b5ac68477264a3ed3057129bde"
   },
   "tools/WebFetch": {
    "chars": 425,
@@ -254,25 +261,25 @@
    "sha256": "7126c4ca62c86f097ea8911d46685c83d4c21743a8fe5390a21718f1f759595f"
   },
   "tools/_bench_minimal_names": {
-   "chars": 169,
+   "chars": 177,
    "file": "tools___bench_minimal_names.txt",
    "group": "tools",
    "note": "XEYO_BENCH_MINIMAL=1 时的工具集（评测口径红线）",
-   "sha256": "8b317e73562ef6177bbc097ea6c4013c1fc2fd877787f42f4d9b479a3035509a"
+   "sha256": "33d438a381980709a3edac174d6042f4131a1b2e7cac02f57f21c0c6c15f0d04"
   },
   "tools/_count": {
    "chars": 3,
    "file": "tools___count.txt",
    "group": "tools",
    "note": "",
-   "sha256": "64aeb9975f234becd55bb4635e6e2f2da7a6b7bf0a896f0c07763bdfbfb31420"
+   "sha256": "20d2add851bf39edcc6b5e830930f962db7e19dffa2cab8610eed551eda6c302"
   },
   "tools/_index": {
-   "chars": 216,
+   "chars": 224,
    "file": "tools___index.txt",
    "group": "tools",
    "note": "工具名清单（模型可见面）",
-   "sha256": "886b3c770a1c455bc7a94a3e613cb204c152a4120d10762517631a3eafc3e9f1"
+   "sha256": "25e5e86ba9f316fca918c18eb7a6c3470fe82fa8f36975e08afd2bd6e2b3d79b"
   },
   "tools/agent_send": {
    "chars": 318,

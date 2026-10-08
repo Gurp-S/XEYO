@@ -53,7 +53,14 @@ function isGoalLike(v: unknown): v is GoalSnapshot {
 	return (
 		typeof g.goal_id === 'string' &&
 		g.goal_id.length > 0 &&
-		typeof g.status === 'string'
+		typeof g.title === 'string' &&
+		typeof g.text === 'string' &&
+		['active', 'paused', 'blocked', 'completed', 'abandoned'].includes(String(g.status)) &&
+		Number.isInteger(g.revision) && Number(g.revision) >= 1 &&
+		typeof g.pending_complete === 'boolean' &&
+		Number.isInteger(g.rounds) && Number(g.rounds) >= 0 &&
+		Number.isInteger(g.max_rounds) && Number(g.max_rounds) >= 0 &&
+		typeof g.blocked_reason === 'string'
 	);
 }
 
@@ -105,12 +112,13 @@ export async function fetchGoal(sessionId: string): Promise<GoalReadResult> {
 			string,
 			unknown
 		> | null;
-		if (!payload) {
+		if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
 			return {ok: false, goal: null, driver: null, message: 'receipt_not_object'};
 		}
 		const driver = isDriverLike(payload.driver) ? payload.driver : null;
 		// GET 是 goal 字段平铺 + additive driver 键；未绑定返回 {}。
-		if (!isGoalLike(payload)) return {ok: true, goal: null, driver, message: ''};
+		if (Object.keys(payload).length === 0) return {ok: true, goal: null, driver, message: ''};
+		if (!isGoalLike(payload)) return {ok: false, goal: null, driver: null, message: 'receipt_invalid'};
 		return {ok: true, goal: payload, driver, message: ''};
 	} catch (err) {
 		return {
@@ -145,6 +153,7 @@ export type GoalMutationResult =
 	| {ok: false; conflict: GoalSnapshot | null; message: string};
 
 export type GoalPatchOptions = {
+	goal_id?: string;
 	revision?: number;
 	title?: string;
 	text?: string;
@@ -156,13 +165,14 @@ export async function patchGoalAction(
 	action: GoalAction,
 	opts: GoalPatchOptions = {},
 ): Promise<GoalMutationResult> {
-	const {revision, title, text} = opts;
+	const {goal_id, revision, title, text} = opts;
 	return goalMutate(
 		apiUrl(`/v1/sessions/${encodeURIComponent(sessionId)}/goal`),
 		{
 			method: 'PATCH',
 			body: {
 				action,
+				...(goal_id != null ? {goal_id} : {}),
 				...(revision != null ? {revision} : {}),
 				...(title != null ? {title} : {}),
 				...(text != null ? {text} : {}),
@@ -194,6 +204,7 @@ async function goalMutate(
 						: null;
 			const driver =
 				payload && isDriverLike(payload.driver) ? payload.driver : null;
+			if (!goal) return {ok: false, conflict: null, message: 'receipt_invalid'};
 			return {ok: true, goal, driver};
 		}
 		// 409 goal_revision_conflict：后端 handler 对含 error 的 dict detail 原样上抛
@@ -205,7 +216,7 @@ async function goalMutate(
 				message: 'goal_revision_conflict',
 			};
 		}
-		return {ok: false, conflict: null, message: `HTTP ${res.status}`};
+		return {ok: false, conflict: null, message: formatErrorDetail(payload, res.status)};
 	} catch (err) {
 		return {
 			ok: false,

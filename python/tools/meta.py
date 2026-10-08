@@ -50,9 +50,14 @@ class ToolMeta:
 
 # ── 唯一登记表（按 name）──────────────────────────────────────────
 
+from tools.compact_description import DESCRIPTION as COMPACT_DESCRIPTION
+
 TOOL_META: dict[str, ToolMeta] = {
 	m.name: m
 	for m in (
+		ToolMeta(name="Compact", read_only=True, concurrency_safe=False,
+		         policy="always_allow", repeat_exempt=True,
+		         short_description=COMPACT_DESCRIPTION),
 		ToolMeta(
 			name="echo",
 			read_only=True,

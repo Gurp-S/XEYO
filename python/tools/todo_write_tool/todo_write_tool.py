@@ -28,6 +28,7 @@ TODO_LIST_TAG = "todo_list"
 class TodoWriteInput:
 	todos: list[TodoItem]
 	merge: bool = False
+	checkpoint: dict | None = None
 
 
 @dataclass
@@ -35,6 +36,7 @@ class TodoWriteOutput:
 	old_todos: list[TodoItem] = field(default_factory=list)
 	new_todos: list[TodoItem] = field(default_factory=list)
 	stored_todos: list[TodoItem] = field(default_factory=list)
+	checkpoint: dict | None = None
 
 
 def prompt() -> str:
@@ -82,7 +84,16 @@ def parse_input(raw: dict[str, Any]) -> TodoWriteInput | dict[str, Any]:
 				"errorCode": 2,
 			}
 		items.append(item)
-	return TodoWriteInput(todos=items, merge=_coerce_bool(raw.get("merge"), False))
+	checkpoint = None
+	if "checkpoint" in raw:
+		from synaptic.task_checkpoint import enabled, validate
+		if not enabled():
+			return {"result": False, "message": "task_checkpoint_disabled", "errorCode": 0}
+		try:
+			checkpoint = validate(raw["checkpoint"])
+		except ValueError as exc:
+			return {"result": False, "message": str(exc), "errorCode": 0}
+	return TodoWriteInput(todos=items, merge=_coerce_bool(raw.get("merge"), False), checkpoint=checkpoint)
 
 
 def validate_input(inp: TodoWriteInput) -> dict[str, Any]:
@@ -176,25 +187,25 @@ class TodoWriteTool:
 			old_todos=old,
 			new_todos=result_todos,
 			stored_todos=stored,
+			checkpoint=inp.checkpoint,
 		)
 
 	@staticmethod
 	def map_tool_result_to_content(out: TodoWriteOutput) -> str:
-		"""供模型阅读的人类文本 + 供 UI 的 <todo_list> JSON。"""
-		lines = [
-			"Todo list modified successfully. The current list follows.",
-		]
-		if out.new_todos:
-			lines.append("")
-			lines.append("Current todos:")
-			for t in out.new_todos:
-				lines.append(f"- [{t.status}] {t.content}")
-			if all(t.status == "completed" for t in out.new_todos):
-				lines.append("")
+		"""供模型阅读的短事实 + 供 UI/WSC 的 <todo_list> JSON。
+
+		清单明细只出现一次：``<todo_list>`` 里已有 id/content/status/activeForm
+		（`TODO_LIST_TAG` 无其他消费方=不被投影裁掉，模型读得到），所以这里
+		不再复读一遍 bullet 列表——同一份内容在同一段回执里出现两次是回声。
+		"""
+		total = len(out.new_todos)
+		if total:
+			done = sum(1 for t in out.new_todos if t.status == "completed")
+			lines = [f"Todo list stored: {total} item(s), {done} completed."]
+			if done == total:
 				lines.append("All todos are completed.")
 		else:
-			lines.append("")
-			lines.append("Todo list is now empty.")
+			lines = ["Todo list is now empty."]
 
 		payload = [t.to_dict() for t in out.new_todos]
 		blob = json.dumps(payload, ensure_ascii=False)
@@ -202,10 +213,13 @@ class TodoWriteTool:
 		lines.append(f"<{TODO_LIST_TAG}>")
 		lines.append(blob)
 		lines.append(f"</{TODO_LIST_TAG}>")
+		if out.checkpoint is not None:
+			from synaptic.task_checkpoint import canonical
+			lines.append("<task_checkpoint>" + canonical(out.checkpoint) + "</task_checkpoint>")
 		return "\n".join(lines)
 
 	def schema(self) -> dict[str, Any]:
-		return {
+		result = {
 			"name": self.name,
 			"description": DESCRIPTION.strip(),
 			"input_schema": {
@@ -275,6 +289,16 @@ class TodoWriteTool:
 				"required": ["todos"],
 			},
 		}
+		from synaptic.task_checkpoint import enabled
+		if enabled():
+			result["input_schema"]["properties"]["checkpoint"] = {
+				"type": "object", "additionalProperties": False,
+				"description": "Declared task objective, context sources, decisions, constraints and verification call IDs. Source alias @latest_user denotes the last human text before this declaration receipt.",
+				"properties": {key: {"type": "array", "maxItems": 16, "items": {"type": "string"}}
+					for key in ("context_message_ids", "decisions", "constraints", "verification_call_ids")},
+			}
+			result["input_schema"]["properties"]["checkpoint"]["properties"]["objective"] = {"type": "string"}
+		return result
 
 	def _materialization_facts(self, todos: list[TodoItem]) -> str:
 		"""产物落盘事实（R4 注册表的确定性核对）。

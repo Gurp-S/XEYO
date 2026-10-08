@@ -29,12 +29,12 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from synaptic.graph import Graph
+from synaptic.graph import Graph, _STRONG_ERR_MARKERS
 from synaptic.seeds import extract_constraints, strip_machine_blocks
 from synaptic.textutil import is_useful_error_sig, suffix_chain_canonical
 from synaptic.types import EDGE_USE, KIND_TOOL_RESULT, KIND_TOOL_USE, KIND_USER
 
-CLASSES = ("error_sig", "decision", "filestate", "todo", "constraint", "injected", "path_dead")
+CLASSES = ("error_sig", "decision", "filestate", "todo", "constraint", "injected", "path_dead", "goal")
 
 #: 与 ``seeds._SUCCESS_MARKERS`` 同口径（此处复制常量以避免反向依赖 seed 私有名）。
 _SUCCESS_MARKERS = (
@@ -47,6 +47,10 @@ _WORD_MARKERS = ("ok", "success", "succeeded", "verified")
 #: 旧实现（正则）。**保留只作等价性自检的参照**，运行期不再使用。
 _SUCCESS_WORD_RE = re.compile(r"(?<![A-Za-z])(?:ok|success|succeeded|verified)(?![A-Za-z])")
 _ASCII_LETTERS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+
+#: 计数型失败表述（pytest/jest 摘要：``10 failed, 20 passed``）。没有强标记词、
+#: 只有计数，靠单个 ``failed`` 子串又会把 ``0 failed`` 误判成失败（见上：先抹 0）。
+_FAILED_COUNT_RE = re.compile(r"\b[1-9]\d*\s+failed\b")
 
 
 def _has_word_marker(low: str) -> bool:
@@ -184,6 +188,28 @@ def _has_success_marker(text: str) -> bool:
 
 
 
+def _has_failure_evidence(text: str) -> bool:
+	"""正文里是否有**失败证据**（覆盖者自查）。
+
+	存在理由（真实根因）：``is_error`` 是**整条 Bash 调用**的属性——判定取自最后一段
+	命令的退出状态。一次调用里用 ``;``/多段执行时，**中段失败**（``FAILED`` /
+	``AssertionError`` / ``10 failed``）会被记成 ``is_error: false``，而正文里
+	``passed`` 又会命中成功标记。实测（sess_mux0q86a_ea2kv9 的 #246）：一条
+	``10 failed, 20 passed`` 的失败重跑，把 #242 的失败"闭合"掉了——拿失败覆盖失败。
+
+	因此覆盖者必须自查正文：有失败证据 ⇒ 不得充当覆盖者（fail-closed）。
+	标记与 ``graph._STRONG_ERR_MARKERS`` 同源，不另立第二份口径。
+	"""
+	low = _marker_window(text)
+	if not low:
+		return False
+	# ``0 failed`` / ``0 errors`` 是成功表述，先抹掉再判失败词。
+	low = low.replace("0 failed", " ").replace("0 errors", " ")
+	if any(m in low for m in _STRONG_ERR_MARKERS):
+		return True
+	return _FAILED_COUNT_RE.search(low) is not None
+
+
 def _invocation_text(graph: Graph, node) -> str:
 	"""结果节点对应的**那次调用**的原文（用于「同一条命令原样重跑」判据）。"""
 	uid = str(getattr(node, "tool_use_id", "") or "")
@@ -197,6 +223,10 @@ def _invocation_text(graph: Graph, node) -> str:
 
 def _marker_at(graph: Graph, idx: int, cache: dict[int, bool] | None) -> bool:
 	"""按节点缓存成功标记判定（同一条结果会被多条错误反复判到）。"""
+	from synaptic.contracts import enabled as contracts_enabled
+	node = graph.node(idx)
+	if contracts_enabled() and node is not None and node.execution_complete is not None:
+		return node.execution_complete and node.execution_status == "ok" and not node.is_error
 	if cache is None:
 		n = graph.node(idx)
 		return _has_success_marker(n.text if n is not None else "")
@@ -260,6 +290,10 @@ def _covered_later(
 			continue
 		m = graph.nodes[j]
 		if not _marker_at(graph, j, marker_cache):
+			continue
+		# 覆盖者自查（见 ``_has_failure_evidence``）：整调用 ``is_error`` 只看最后一段
+		# 命令的退出状态，中段失败会被记成成功，正文里的 ``passed`` 又会命中成功标记。
+		if _has_failure_evidence(str(m.text or "")):
 			continue
 		if targets:
 			if not (targets & set(m.refs)):
@@ -533,7 +567,7 @@ def _dead_paths(graph: Graph, region_end: int) -> list[Downgrade]:
 	return out
 
 
-def _mis_downgrade(graph: Graph, downs: tuple[Downgrade, ...]) -> tuple[str, ...]:
+def _mis_downgrade(graph: Graph, downs: tuple[Downgrade, ...], region_end: int | None = None) -> tuple[str, ...]:
 	"""不变式复检（独立于判据本身的那种）：覆盖者必须晚于被降级者，且在图中存在、
 	自身未被降级（除非它就是删除动作本身）。"""
 	bad: list[str] = []
@@ -545,6 +579,10 @@ def _mis_downgrade(graph: Graph, downs: tuple[Downgrade, ...]) -> tuple[str, ...
 	for d in downs:
 		if d.cls == "path_dead":
 			continue
+		if d.cls == "goal":
+			from synaptic.goal_staleness import reopened_after
+			for idx in reopened_after(graph, d, region_end if region_end is not None else len(graph.nodes)):
+				bad.append(f"goal #{d.idx}: 关闭声明 #{d.by} 后用户 #{idx} 再次请求该主题")
 		if d.by <= d.idx:
 			bad.append(f"{d.cls} #{d.idx}: 覆盖者 #{d.by} 不晚于被降级者")
 			continue
@@ -576,6 +614,8 @@ def analyze(
 	todo_downs = _todo_superseders(graph, limit)
 	constraint_downs, dropped_constraints = _constraint_superseders(graph, limit, users)
 	dead = _dead_paths(graph, limit)
+	from synaptic.goal_staleness import goal_superseders
+	goal_downs = goal_superseders(graph, limit, users)
 
 	injected = tuple(
 		n.idx
@@ -587,7 +627,7 @@ def analyze(
 
 	# path_dead 也进 ``downgrades``：它同样是「时效轴判定该条目过期」，只是降级对象是
 	# **路径索引条目**而非节点（故不进 ``superseded``，不参与节点级不变式复检）。
-	downs = tuple(err_downs + file_downs + todo_downs + constraint_downs + dead)
+	downs = tuple(err_downs + file_downs + todo_downs + constraint_downs + dead + goal_downs)
 	by_class: dict[str, int] = {}
 	for d in downs:
 		by_class[d.cls] = by_class.get(d.cls, 0) + 1
@@ -626,7 +666,7 @@ def analyze(
 		identified_errors=len(errors),
 		errors_resolved=resolved,
 		injected_nodes=injected,
-		mis_downgrade=_mis_downgrade(graph, downs),
+		mis_downgrade=_mis_downgrade(graph, downs, limit),
 		by_class=by_class,
 		error_detail=tuple(err_detail),
 	)

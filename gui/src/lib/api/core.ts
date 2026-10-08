@@ -464,7 +464,7 @@ export type TitleStreamEvent = {
 export type ChatStreamHandlers = {
 	/** 服务端已接受本条消息（HTTP 2xx/202）；HTTP 拒绝时不触发。 */
 	onAccepted?: (status: number) => void;
-	onDelta: (text: string) => void;
+	onDelta: (text: string, messageId?: string) => void;
 	onReasoningDelta?: (text: string) => void;
 	onToolCall?: (ev: Omit<ToolCallStreamEvent, 'kind'>) => void;
 	onToolResult?: (ev: Omit<ToolResultStreamEvent, 'kind'>) => void;
@@ -532,7 +532,7 @@ export type ChatStreamHandlers = {
 };
 
 export type ParsedSse =
-	| {kind: 'delta'; text: string; eventId?: number}
+	| {kind: 'delta'; text: string; eventId?: number; messageId?: string; turnId?: string}
 	| ReasoningStreamEvent
 	| ToolCallStreamEvent
 	| ToolResultStreamEvent
@@ -662,6 +662,8 @@ export function parseSseBlock(part: string): ParsedSse | null {
 			choices?: {delta?: {content?: string}}[];
 			error?: {message?: string};
 			xeyo_event_id?: number;
+			xeyo_message_id?: string;
+			xeyo_turn_id?: string;
 			xy?: {
 				type?: string;
 				name?: string;
@@ -1125,6 +1127,9 @@ export function parseSseBlock(part: string): ParsedSse | null {
 			return {
 				kind: 'delta',
 				text: content,
+				...(typeof obj.xeyo_turn_id === 'string' ? {turnId: obj.xeyo_turn_id} : {}),
+				...(typeof obj.xeyo_message_id === 'string' && obj.xeyo_message_id
+					? {messageId: obj.xeyo_message_id} : {}),
 				...(Number.isFinite(Number(obj.xeyo_event_id))
 					? {eventId: Number(obj.xeyo_event_id)}
 					: {}),

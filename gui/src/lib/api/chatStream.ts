@@ -1,3 +1,5 @@
+import {rememberTurnCursor} from './turnCursor';
+export {readTurnCursor, rememberTurnCursor} from './turnCursor';
 /**
  * 归属：从 components/MessageList.tsx 巨石拆分而来（spec api2: chatStream，2026 拆分）。
  * 拆分脚本 dismantle-messagelist.cjs 已归档至 [过程]/legacy/，本文件此后为手工维护。
@@ -6,12 +8,6 @@ import {
 	useSettingsStore,
 } from '@/stores/settingsStore';
 import {allowsEmptyApiKey} from '@/lib/localTestGate';
-import {
-	useBrowserPreviewStore,
-} from '@/stores/browserPreviewStore';
-import {
-	workspaceActiveTool,
-} from '@/stores/storeRefs';
 import {
 	apiUrl,
 	backendPortLabel,
@@ -27,17 +23,8 @@ import {
 	type ChatStreamHandlers,
 	type SseTermination,
 } from './core';
-import {TURN_CURSOR_KEY, formatStreamHttpError, getCachedModelContextLimit, rollbackApiErrorType} from '../api';
-import {registeredContextLimitOf, resolveWindowLimit} from '@/lib/modelWindow';
-
-/** 浏览器预览面板打开且已加载 URL 时，供 LLM T_now 感知（省 token：无则不上报）。 */
-function browserPreviewUrlForChat(): string | undefined {
-	if (workspaceActiveTool() !== 'browser') {
-		return undefined;
-	}
-	const url = useBrowserPreviewStore.getState().url?.trim();
-	return url || undefined;
-}
+import {formatStreamHttpError, rollbackApiErrorType} from '../api';
+import {currentRequestEnvironment} from './requestEnvironment';
 
 export async function streamChat(
 	sessionId: string,
@@ -51,48 +38,7 @@ export async function streamChat(
 	// 漏传一个 `side-` 会话就等于给侧聊开了写工具。不变量放在这里，调用方就
 	// 不可能忘记（两个现有调用方本来就传 true，行为不变）。
 	const sideSession = options?.side === true || sessionId.startsWith('side-');
-	// 上下文窗口：与聊天顶部用量面板同一口径（@/lib/modelWindow）——**设置里为
-	// 该模型登记的窗口优先**（用户在账号里显式填的值就是他的意图，也是设置页承诺
-	// 的「窗口分母 + 后端压力压缩上限」），厂商 /models 缓存只在未登记时兜底。
-	// 曾经这里是厂商缓存优先 + 只读账号旧单值字段 profile.contextLimit，于是
-	// ①多模型账号下永远发的是账号级旧值、②面板与后端两侧数字打架。
-	const activeProfile = s.profiles.find(p => p.id === s.activeProfileId);
-	const contextLimit = resolveWindowLimit({
-		registered: registeredContextLimitOf(activeProfile, s.model),
-		vendorCached: getCachedModelContextLimit(
-			s.provider,
-			s.resolvedBaseUrl(),
-			s.model,
-		),
-	});
-	// 最大输出 tokens：优先账号里保存的值；无则不发送（不限制）。
-	const maxOutputTokens =
-		typeof activeProfile?.maxOutputTokens === 'number' &&
-		Number.isFinite(activeProfile.maxOutputTokens) &&
-		activeProfile.maxOutputTokens > 0
-			? activeProfile.maxOutputTokens
-			: undefined;
-	// 思考等级优先级：输入框手动选（options.reasoningEffort）> 模型默认等级 > 会话级。
-	// 模型默认等级跌出该模型已登记支持集（历史遗留数据）→ 跳过该默认，避免发出
-	// 模型不支持的 reasoning_effort。
-	const activeModel =
-		activeProfile?.models?.find(m => m.id === s.model);
-	const modelDefaultEffort = activeModel?.defaultReasoningEffort || '';
-	const modelDefaultSupported =
-		!modelDefaultEffort ||
-		!(activeModel?.reasoningLevels?.length) ||
-		(activeModel?.reasoningLevels ?? []).includes(modelDefaultEffort);
-	const defaultEffort =
-		(modelDefaultSupported ? modelDefaultEffort : '') || s.reasoningEffort || '';
-	const reasoningEffort =
-		(options?.reasoningEffort?.trim() || defaultEffort) || undefined;
-	// 思考开关与等级是成对的：选了等级就必须开 thinking，否则后端收不到
-	// reasoning_effort（DeepSeek 要求 `thinking.type==="enabled"` 才发等级）。
-	// 用户显式关思考时等级一并作废，避免发出「关了思考却带等级」的矛盾请求。
-	const thinking: 'enabled' | 'disabled' =
-		s.thinking === 'enabled' || reasoningEffort ? 'enabled' : 'disabled';
-	const effectiveEffort = thinking === 'enabled' ? reasoningEffort : undefined;
-	const previewUrl = browserPreviewUrlForChat();
+	const environment = currentRequestEnvironment(options);
 	// 空 Key 仅允许本地测试 provider（localTestGate，T25c）。
 	if (!s.apiKey.trim() && !allowsEmptyApiKey(s.provider)) {
 		handlers.onError('请先在设置中填写 API Key', {kind: 'turn_not_started'});
@@ -124,27 +70,9 @@ export async function streamChat(
 				'X-Session-Id': sessionId,
 			},
 				body: JSON.stringify({
-					model: s.model,
+					...environment,
 					stream: true,
-					context_limit: contextLimit,
-					max_tokens: maxOutputTokens,
 					session_id: sessionId,
-					provider: s.provider,
-					base_url: s.resolvedBaseUrl(),
-					thinking,
-					reasoning_effort: effectiveEffort,
-					// L1.2：USD 上限；空字符串 = 不限
-					max_budget_usd: s.maxBudgetUsd ? Number(s.maxBudgetUsd) : undefined,
-					permission_mode: s.permissionMode,
-					// 输出精简：开启时后端在 T_now 尾部注入压缩铁律 + 模式段
-					output_compact: s.outputCompact === true,
-					output_mode: s.outputCompact ? s.outputMode : undefined,
-					code_compact: s.codeCompact === true,
-					code_mode: s.codeCompact ? s.codeMode : undefined,
-					...(previewUrl ? {browser_preview_url: previewUrl} : {}),
-					searxng_url: s.searxngUrl?.trim() || undefined,
-					agent_mode: options?.agentMode ?? 'agent',
-					multi_agent: options?.multiAgent ?? false,
 					// P1 mid-turn inbox：会话忙时排队（settle 后自动投递），
 					// 而非 409 丢消息；side- 会话保持 409。
 					...(sideSession
@@ -256,7 +184,7 @@ export async function streamChat(
 					? (ev as {eventId?: number}).eventId
 					: undefined;
 			if (typeof eid === 'number') {
-				rememberTurnCursor(sessionId, eid);
+				rememberTurnCursor(sessionId, eid, 'turnId' in ev ? ev.turnId : undefined);
 			}
 			if (ev.kind === 'done') {
 				break;
@@ -266,7 +194,7 @@ export async function streamChat(
 				return;
 			}
 			if (ev.kind === 'delta') {
-				handlers.onDelta(ev.text);
+				handlers.onDelta(ev.text, ev.messageId);
 				continue;
 			}
 			if (ev.kind === 'steer_delivered') {
@@ -485,25 +413,6 @@ export type SessionAgentMeta = {
 
 /** 列出会话跑过的子 agent（多 Agent 卡片 / 历史回放入口）。 */
 
-export function rememberTurnCursor(sessionId: string, eventId: number): void {
-	if (!sessionId || !Number.isFinite(eventId) || eventId < 0) return;
-	try {
-		sessionStorage.setItem(`${TURN_CURSOR_KEY}${sessionId}`, String(eventId));
-	} catch {
-		/* 忽略配额 */
-	}
-}
-
-export function readTurnCursor(sessionId: string): number {
-	try {
-		const raw = sessionStorage.getItem(`${TURN_CURSOR_KEY}${sessionId}`);
-		const n = Number(raw);
-		return Number.isFinite(n) && n >= 0 ? n : 0;
-	} catch {
-		return 0;
-	}
-}
-
 /** 刷新后重连：订阅后端 detached turn 的事件流（从 cursor 重放）。 */
 export async function streamTurnEvents(
 	sessionId: string,
@@ -561,7 +470,7 @@ export async function streamTurnEvents(
 					? (ev as {eventId?: number}).eventId
 					: undefined;
 			if (typeof eid === 'number') {
-				rememberTurnCursor(sessionId, eid);
+				rememberTurnCursor(sessionId, eid, 'turnId' in ev ? ev.turnId : undefined);
 			}
 			if (ev.kind === 'done') {
 				break;
@@ -571,7 +480,7 @@ export async function streamTurnEvents(
 				return;
 			}
 			if (ev.kind === 'delta') {
-				handlers.onDelta(ev.text);
+				handlers.onDelta(ev.text, ev.messageId);
 				continue;
 			}
 			if (ev.kind === 'steer_delivered') {
@@ -682,6 +591,26 @@ export async function streamTurnEvents(
 			}
 			if (ev.kind === 'plan_resolved') {
 				handlers.onPlanResolved?.(ev);
+				continue;
+			}
+			if (ev.kind === 'goal') {
+				handlers.onGoal?.({
+					goal: ev.goal,
+					driver: ev.driver,
+					sessionId: ev.sessionId,
+					turnId: ev.turnId,
+					eventId: ev.eventId,
+				});
+				continue;
+			}
+			if (ev.kind === 'jobs') {
+				handlers.onJobs?.({
+					jobs: ev.jobs,
+					wake_budget_left: ev.wake_budget_left,
+					sessionId: ev.sessionId,
+					turnId: ev.turnId,
+					eventId: ev.eventId,
+				});
 				continue;
 			}
 			if (ev.kind === 'task_state_changed') {

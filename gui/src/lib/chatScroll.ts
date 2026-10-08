@@ -42,14 +42,27 @@ export function shouldFollowTail(
  * - 用户上滚（scrollTop 减小）→ 立刻取消钉住，避免 sticky 改高后被 snap 拉回
  * - 已钉住：gap ≥ FOLLOW_TAIL_PX 才松手
  * - 未钉住：须 gap < FOLLOW_TAIL_ENTER_PX 才重新钉住
+ *
+ * `contentShrank`：本帧内容高度是否比上次采样矮了。内容变矮（折叠卡收拢、
+ * 流式正文替换 settled 正文、视口变宽导致行变短）时，浏览器会把 scrollTop
+ * 夹到新的最大可滚值 —— 位移方向与「上滚」一致，视口却仍在底部。这种几何
+ * 夹持不是用户意图：把它当成上滚，会让钉住状态在一次折叠后被永久打掉，
+ * 此后整段流式都不再跟随（视口往上跳一截后卡住，新输出堆在视野下方）。
+ * 只在「原本已钉住 + 收缩 + 仍在底部」时按夹持处理（保持钉住）。
  */
 export function nextFollowTailPinned(
 	wasPinned: boolean,
 	gap: number,
 	scrolledUp: boolean,
+	contentShrank: boolean = false,
 ): boolean {
 	if (scrolledUp) {
-		return false;
+		// 收缩把 scrollTop 夹到新的最大可滚值：方向像上滚，视口却仍在底部。
+		// 已钉住 → 保持钉住（否则一次折叠就永久松手）；未钉住 → 不得借此
+		// 重钉（用户本来在回看历史，收缩不该把视口拽回底部）。
+		const geometricClamp =
+			wasPinned && contentShrank && gap <= FOLLOW_TAIL_ENTER_PX;
+		return geometricClamp;
 	}
 	if (wasPinned) {
 		return gap < FOLLOW_TAIL_PX;

@@ -162,6 +162,9 @@ class JobOutputTool:
 				elif j["status"] == "running":
 					parts.append("(no output yet)")
 				parts.append(_format_status_line(j["status"]))
+				from engine.execution_facts import enabled as fact_contracts
+				if fact_contracts():
+					parts.append(f"[activity: started_at={j.get('started', 0):.3f}; last_output_at={j.get('last_output_at', 0):.3f}; output_chars={j.get('output_chars', len(text))}; finished_at={j.get('finished_at', 0):.3f}]")
 				return ToolResult(
 					content="\n".join(parts),
 					status="running" if j["status"] == "running" else "ok",
@@ -216,6 +219,11 @@ class JobOutputTool:
 			elif status == "running":
 				parts.append("(no new output)")
 			parts.append(_format_status_line(status))
+			from engine.execution_facts import enabled as fact_contracts
+			if fact_contracts():
+				job = next((j for j in reg.snapshot_list(sid) if j["job_id"] == job_id), None)
+				if job:
+					parts.append(f"[activity: started_at={job['started_at']:.3f}; last_output_at={job['last_output_at']:.3f}; output_chars={job['output_chars']}; finished_at={job['finished_at']:.3f}]")
 			return ToolResult(
 				content="\n".join(parts),
 				status="running" if status == "running" else "ok",

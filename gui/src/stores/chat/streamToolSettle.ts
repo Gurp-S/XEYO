@@ -5,6 +5,7 @@
  * 调用方委托给返回的 controller。
  */
 import type {StoreApi} from 'zustand';
+import {settleStoppedTools} from './stoppedTools';
 import {dispatchXeyoUi} from '@/lib/dispatchXeyoUi';
 import {
 	replaceMessages,
@@ -12,7 +13,6 @@ import {
 import {
 	WAITING_TOOL_TIMEOUT_MS,
 	clearWaitingToolTimer,
-	settleOrphanRunningTools,
 	waitingToolTimers,
 } from './streamHelpers';
 import {
@@ -55,36 +55,27 @@ export function createToolSettleController(deps: {
 		toolUseId?: string,
 	) => {msgs: ChatMessage[]; sessionTodos: Record<string, TodoSnapshot | null>};
 	persistNow: (msgs: ChatMessage[]) => void;
+	isCurrent?: () => boolean;
 }): ToolSettleController {
 	const {get, set, sessionId, applyToolResult, persistNow} = deps;
+	const isCurrent = deps.isCurrent ?? (() => true);
 
 	const scheduleWaitingToolSettle = () => {
+		if (!isCurrent()) return;
 		clearWaitingToolTimer(sessionId);
-		waitingToolTimers.set(
-			sessionId,
-			window.setTimeout(() => {
-				waitingToolTimers.delete(sessionId);
-				const cur = get();
-				const raw = cur.messagesById[sessionId] ?? [];
-				const hasWaiting = raw.some(
-					m => m.role === 'tool' && m.toolStatus === 'waiting',
-				);
-				if (!hasWaiting) {
-					return;
-				}
-				const settledMsgs = settleOrphanRunningTools(raw);
-				if (!settledMsgs.changed) {
-					return;
-				}
-				void replaceMessages(sessionId, settledMsgs.messages);
-				set(s => ({
-					messagesById: {
-						...s.messagesById,
-						[sessionId]: settledMsgs.messages,
-					},
-				}));
-			}, WAITING_TOOL_TIMEOUT_MS),
-		);
+		const stoppedIds = new Set((get().messagesById[sessionId] ?? [])
+			.filter(message => message.role === 'tool' && message.toolStatus === 'waiting').map(message => message.id));
+		const timer = window.setTimeout(() => {
+			if (waitingToolTimers.get(sessionId) !== timer) return;
+			waitingToolTimers.delete(sessionId);
+			if (!isCurrent()) return;
+			const cur = get();
+			const settledMsgs = settleStoppedTools(cur.messagesById[sessionId] ?? [], stoppedIds);
+			if (!settledMsgs.changed) return;
+			void replaceMessages(sessionId, settledMsgs.messages, isCurrent);
+			set(s => ({messagesById: {...s.messagesById, [sessionId]: settledMsgs.messages}}));
+		}, WAITING_TOOL_TIMEOUT_MS);
+		waitingToolTimers.set(sessionId, timer);
 	};
 
 	const applyLateToolResult = (ev: {
@@ -95,7 +86,7 @@ export function createToolSettleController(deps: {
 		ui?: unknown;
 		toolUseId?: string;
 	}) => {
-		if (!get().sessions.some(s => s.id === sessionId)) {
+		if (!isCurrent() || !get().sessions.some(s => s.id === sessionId)) {
 			return;
 		}
 		clearWaitingToolTimer(sessionId);

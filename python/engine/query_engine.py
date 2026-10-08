@@ -253,6 +253,8 @@ class QueryEngine:
                     self._session.working.todos = [t.to_dict() for t in restored]
             except Exception:
                 pass
+        from tools.todo_write_tool.committed_restore import reconcile
+        reconcile(self._session.working, initial_messages)
         apply_to_tools(self._session.working, self._tools)
 
         configured_rewind = config.get("rewind_enabled")
@@ -343,6 +345,8 @@ class QueryEngine:
         from memory.working import reset_rollback_state
 
         reset_rollback_state(snap)
+        from tools.todo_write_tool.committed_restore import reconcile
+        reconcile(snap, copied)
         apply_to_tools(snap, self._tools)
         flush(self._session.session_id, snap)
 
@@ -978,6 +982,7 @@ class QueryEngine:
         # 3–6. 进入 agent 循环（query_loop 负责模型推理、工具调用、迭代）
         # 注意：斜杠命令 / transcript 等功能暂未实现（TODO）
         try:
+            from memory.wsc_handoff_transaction import persist_session as persist_handoff_session
             async for event in query_loop(
                 store=self._session.messages,
                 model=self._model,
@@ -992,6 +997,7 @@ class QueryEngine:
                 agent_mode=agent_mode,
                 multi_agent=multi_agent,
                 ensure_before=_ensure_before if before_task is not None else None,
+                persist_handoff=lambda: persist_handoff_session(self._session),
             ):
                 if isinstance(event, StoppedEvent):
                     turn_terminal_error = True
@@ -1414,33 +1420,16 @@ def _known_context_window(model_key: str) -> int | None:
 
 
 def _default_context_limit(provider: str, model: str) -> int | None:
-	"""为缺失 context_limit 的客户端提供真实窗口（G67；2026-09-16 改为按型号）。
-
-	- ``XEYO_CONTEXT_LIMIT`` 显式覆盖（>0 生效）;
-	- deepseek：先查已知型号的真实窗口，未登记落 ``CONSERVATIVE_CONTEXT_WINDOW``
-	  （不再让 C2 三触发点因 None 全哑，也不再用 64k 误判大窗模型）;
-	- 已知大窗 OpenAI 型号给 128k;未知型号返回 None——宁可不压，也不拿错窗口压。
-	"""
+	"""Explicit capacity fallback; model names do not establish a window."""
 	import os
 
 	raw = (os.environ.get("XEYO_CONTEXT_LIMIT") or "").strip()
 	if raw:
 		try:
-			return max(4096, int(raw))
+			value = int(raw)
+			return value if value > 0 else None
 		except ValueError:
 			return None
-	provider_key = (provider or "").lower()
-	model_key = (model or "").lower()
-	if provider_key == "deepseek":
-		return _known_context_window(model_key) or CONSERVATIVE_CONTEXT_WINDOW
-	if provider_key in ("openai", "local") and (
-		model_key.startswith("gpt-4o")
-		or model_key.startswith("gpt-4.1")
-		or model_key.startswith("o1")
-		or model_key.startswith("o3")
-		or model_key.startswith("gpt-5")
-	):
-		return 128_000
 	return None
 
 

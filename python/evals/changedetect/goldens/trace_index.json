@@ -3,24 +3,24 @@
  "schema": 1,
  "traces": {
   "inject/after_failed_tool": {
-   "chars": 851,
-   "sha256": "7d0cb045ffb08fa53776599e5cdc126366af9a67a2fffcdb204f192d9f58900f"
+   "chars": 740,
+   "sha256": "fd14f4d3f7069098ccb3a7616070f7f808a4265ff440d11d8c12e2c068bcd6fe"
   },
   "inject/after_tools": {
-   "chars": 835,
-   "sha256": "46b24374571a63302b56737c605fbef05ff1590acd831e3e5fc45027700ef928"
+   "chars": 724,
+   "sha256": "e3cde47d762d9f12375f2058fc963f1f38e02565df2d5c07d15f3d19181ac7e6"
   },
   "inject/approved_plan": {
-   "chars": 552,
-   "sha256": "2cd15f3167499d8ce5af9ccfd98e9ef3a305fcf160b7eb9b2b675b7dd7511acf"
+   "chars": 441,
+   "sha256": "a42316a6139ef792660b053a3a14eb1cdb02a1ed6fb0ba70b01cd83e37acb996"
   },
   "inject/approved_plan_pointer": {
-   "chars": 544,
-   "sha256": "76c4272c7a07ee87a32816afb2288709d9edae797497630f279ace49296e8bbe"
+   "chars": 433,
+   "sha256": "d8f6dac09d9f019ce43c3d8aac04958d6faa843c0b336b420c34c029d47f0fe0"
   },
   "inject/ask_mode": {
-   "chars": 560,
-   "sha256": "5c0b0eae13df37b03492ba04c0cc2268fb2c2ea70fe2a0457846b1e62060617f"
+   "chars": 449,
+   "sha256": "aa027c4a12a67633766618feb17401c679e47cc0e5dea73aa89aa7c3fc68d224"
   },
   "inject/channel_env": {
    "chars": 493,
@@ -31,68 +31,68 @@
    "sha256": "c6802d8d5ee12663ff3c1890c5d1b0fa6102278183fbb8e7a111cd0c87acdc16"
   },
   "inject/goal": {
-   "chars": 526,
-   "sha256": "d573f02a0ecf00098a3b95b181e650bee125dcbba5aa4ccaf120ef8006265b97"
+   "chars": 415,
+   "sha256": "563eda0a8dfae7b3c23b06076d1a0dfdf9c57c117b4482fae8d0db8d5ead655f"
   },
   "inject/instructions_off": {
-   "chars": 851,
-   "sha256": "8ddb31da4f80c3693f0f10efb3a75de4beb9ad5ce61163eda8f83ad8bd01ce2c"
+   "chars": 740,
+   "sha256": "cf3b0a74fcd6ea377a06c619ba5411fbcdb890a5d8d6fb25c69e3eee9594bec0"
   },
   "inject/instructions_on": {
-   "chars": 851,
-   "sha256": "8ddb31da4f80c3693f0f10efb3a75de4beb9ad5ce61163eda8f83ad8bd01ce2c"
+   "chars": 740,
+   "sha256": "cf3b0a74fcd6ea377a06c619ba5411fbcdb890a5d8d6fb25c69e3eee9594bec0"
   },
   "inject/multi_agent": {
-   "chars": 563,
-   "sha256": "00d40ed8f024f7e807f7a7e3c0f02bcc402eb7ca05f8d29fd6df0d6de0d1f395"
+   "chars": 452,
+   "sha256": "eb2b6fe9dc1e44009bb8f6ba888fca8d37549abdbfb0f12e91320ede8aef1ba0"
   },
   "inject/no_instructions": {
-   "chars": 359,
-   "sha256": "05235f1cc3575a6411e42a64fd39447d3a700d35df80e56c651ee4b45226b6b3"
+   "chars": 307,
+   "sha256": "6cb80e2812f3a598f82933488c2cc8cd84d7e7ade9db9ff9db2fa55589c47099"
   },
   "inject/plain": {
-   "chars": 359,
-   "sha256": "05235f1cc3575a6411e42a64fd39447d3a700d35df80e56c651ee4b45226b6b3"
+   "chars": 307,
+   "sha256": "6cb80e2812f3a598f82933488c2cc8cd84d7e7ade9db9ff9db2fa55589c47099"
   },
   "inject/plan_mode": {
-   "chars": 567,
-   "sha256": "f64d100bf1162f2b76485f56587ba8de25adef7e5d1d8709052c498eb5145e32"
+   "chars": 456,
+   "sha256": "b7dec92fd41e0638605f0a211f18e0382d8560062fc3e2dcdec05337a4e1b6a1"
   },
   "inject/runtime_notice": {
-   "chars": 359,
-   "sha256": "05235f1cc3575a6411e42a64fd39447d3a700d35df80e56c651ee4b45226b6b3"
+   "chars": 307,
+   "sha256": "6cb80e2812f3a598f82933488c2cc8cd84d7e7ade9db9ff9db2fa55589c47099"
   },
   "inject/runtime_notice_after_tools": {
-   "chars": 835,
-   "sha256": "46b24374571a63302b56737c605fbef05ff1590acd831e3e5fc45027700ef928"
+   "chars": 724,
+   "sha256": "e3cde47d762d9f12375f2058fc963f1f38e02565df2d5c07d15f3d19181ac7e6"
   },
   "inject/subagent": {
-   "chars": 835,
-   "sha256": "46b24374571a63302b56737c605fbef05ff1590acd831e3e5fc45027700ef928"
+   "chars": 724,
+   "sha256": "e3cde47d762d9f12375f2058fc963f1f38e02565df2d5c07d15f3d19181ac7e6"
   },
   "inject/wrap_up": {
-   "chars": 359,
-   "sha256": "05235f1cc3575a6411e42a64fd39447d3a700d35df80e56c651ee4b45226b6b3"
+   "chars": 307,
+   "sha256": "6cb80e2812f3a598f82933488c2cc8cd84d7e7ade9db9ff9db2fa55589c47099"
   },
   "inject/wrap_up_after_tools": {
-   "chars": 835,
-   "sha256": "46b24374571a63302b56737c605fbef05ff1590acd831e3e5fc45027700ef928"
+   "chars": 724,
+   "sha256": "e3cde47d762d9f12375f2058fc963f1f38e02565df2d5c07d15f3d19181ac7e6"
   },
   "loop/echo_empty": {
-   "chars": 125,
-   "sha256": "672feb6af26154f27901caca3c5d76c71b0f52013d469bc1a9f41e91d9f26e7f"
+   "chars": 172,
+   "sha256": "e40a4fecea88882fe648e312d5deff9cc7981a832109dcace3dc487f47b60d86"
   },
   "loop/echo_roundtrip": {
-   "chars": 132,
-   "sha256": "5cfde2033c75769fab76d64d9a79f64fdbc358843b7377e2940ccbb1a04822e6"
+   "chars": 178,
+   "sha256": "cf4f72a37b22ee88c3679bbee3129dce06df159a4eff35237e329341ea467568"
   },
   "loop/multi_turn": {
    "chars": 65,
    "sha256": "f0a5bbe1b3952bebbc801a5018f27301db98ee3fa5b61e99ee19188861a1f10c"
   },
   "loop/plain_text": {
-   "chars": 94,
-   "sha256": "5728b71e25f7a5d7c97b87ff04a338def36a8ace4eb457f87820fbe66b515849"
+   "chars": 103,
+   "sha256": "8d960c47227920e21311caaf160c685d2a8306800be551c897bdb2754450b20a"
   }
  }
 }

@@ -205,14 +205,26 @@ async def _busy_or_queue(
 			409, "side 会话不支持引导；请等本轮结束后再发", "steer_unsupported_side"
 		)
 	if body.steer_if_busy and body.queue_if_busy and not body.side:
-		from engine.t_now_steer import push as _steer_push
+		from server.boundary_submission import submit_boundary
+		from server.pending_input_identity import InputIdentityConflict
+		from server.inbox_registry import InboxPersistenceError, get_inbox_registry
 
-		if _steer_push(
-			session_id,
-			user_text,
-			images=media_refs,
-			message_id=message_id or "",
-		):
+		try:
+			staged = await asyncio.to_thread(
+				submit_boundary, get_inbox_registry(), session_id, user_text,
+				media_refs=media_refs, message_id=message_id,
+			)
+		except InboxPersistenceError as exc:
+			raise api_error(503, "inbox state could not be saved", "inbox_unavailable") from exc
+		except InputIdentityConflict as exc:
+			raise api_error(409, str(exc), "input_identity_conflict") from exc
+		if staged and not staged[1]:
+			item = staged[0]
+			return JSONResponse(status_code=202, content=accepted_payload(
+				"queued", queued=True, delivery="after_turn", queue_id=item.queue_id,
+				position=len(get_inbox_registry().snapshot(session_id)["items"]),
+			))
+		if staged:
 			return JSONResponse(
 				status_code=202,
 				content=accepted_payload(
@@ -222,9 +234,8 @@ async def _busy_or_queue(
 					# 投递口径显式化：boundary = 本轮下一个边界就送到模型；
 					# after_turn = 回落 settle 后排（下一轮才送达）。
 					delivery="boundary",
-					# 引导路径没有 queue_id（不入 inbox），客户端消息 id 就是它唯一的
-					# 身份；边界投递帧 steer_delivered 会带同一批 id + turn_id。
-					message_id=message_id or "",
+					# Receipt retains the steer wire contract; inbox owns recovery.
+					message_id=staged[0].message_id,
 				),
 			)
 		# 引导入队失败（队列满 / 内部异常）→ 回落既有 settle 排队语义
@@ -237,6 +248,7 @@ async def _busy_or_queue(
 		)
 
 		reg = get_inbox_registry()
+		from server.pending_input_identity import InputIdentityConflict
 		try:
 			item = await asyncio.to_thread(
 				reg.enqueue,
@@ -252,6 +264,8 @@ async def _busy_or_queue(
 			raise api_error(413, str(e), "inbox_text_too_long") from e
 		except InboxPersistenceError as e:
 			raise api_error(503, "排队状态保存失败，请重试。", "inbox_unavailable") from e
+		except InputIdentityConflict as exc:
+			raise api_error(409, str(exc), "input_identity_conflict") from exc
 		position = len(reg.snapshot(session_id)["items"])
 		# 2026-09-05 e2e 抓修：Starlette JSONResponse 第一个位置参数是 content，
 		# 旧写法 JSONResponse(202, {...}) 把 202 当 content、payload 当 status_code
@@ -534,6 +548,8 @@ def _openai_chunk(
 	model: str,
 	finish: str | None = None,
 	event_id: int | None = None,
+	message_id: str = "",
+	turn_id: str = "",
 ) -> str:
 	payload = {
 		"id": f"chatcmpl-{uuid.uuid4().hex[:12]}",
@@ -552,6 +568,10 @@ def _openai_chunk(
 	# （不带则游标只能停在最后一个结构化帧上，重放会把已渲染的尾巴再放一遍）。
 	if event_id is not None:
 		payload["xeyo_event_id"] = int(event_id)
+	if message_id:
+		payload["xeyo_message_id"] = message_id
+	if turn_id:
+		payload["xeyo_turn_id"] = turn_id
 	return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
@@ -803,28 +823,12 @@ async def chat_completions(
 	# 合成提交复用——否则 driver 自调用无法过 Authorization 闸（401）。
 	# 2026-09-05 修正：移到 busy 闸**之前**（首条消息被排队时 env 也要落位），
 	# 且仅人类面记录（合成轮的 env 本就取自这份快照，回写是同值 no-op）。
-	if _human_surface:
-		try:
-			from server.goal_round_driver import get_goal_round_driver
+	if _human_surface and not _inbox_surface:
+		from server.request_environment import request_environment
+		from server.synthetic_round import note_request_env
 
-			get_goal_round_driver().note_request_env(
-				session_id,
-				{
-					"model": body.model,
-					"provider": provider,
-					"base_url": base_url,
-					"api_key": api_key,
-					"thinking": (body.thinking or "disabled").strip().lower(),
-					"reasoning_effort": (body.reasoning_effort or "").strip().lower(),
-					"max_budget_usd": body.max_budget_usd,
-					"context_limit": body.context_limit,
-					"permission_preset": body.permission_preset,
-					"permission_mode": body.permission_mode,
-					"workspace": _workspace_for(session_id, body),
-				},
-			)
-		except Exception:  # noqa: BLE001
-			logging.getLogger(__name__).debug("note_request_env failed", exc_info=True)
+		note_request_env(session_id, request_environment(body, provider=provider,
+			base_url=base_url, api_key=api_key, workspace=_workspace_for(session_id, body)))
 
 	# TurnRunner 判活兜底：busy 租约被 stale 回收但 detached turn 仍在跑时，
 	# 租约互斥会放行叠跑；runner 知道所有活 turn，此处拦下（同 409 语义）。
@@ -1140,7 +1144,7 @@ async def chat_completions(
 						frames.append((
 							eid,
 							_openai_chunk(
-								ev.text, model=body.model, event_id=eid
+								ev.text, model=body.model, event_id=eid, message_id=ev.message_id, turn_id=turn_id
 							).encode("utf-8"),
 							"delta",
 						))
@@ -1422,6 +1426,9 @@ async def chat_completions(
 							"task_state_changed",
 						))
 					elif isinstance(ev, SteerDeliveredEvent):
+						from server.inbox_registry import get_inbox_registry
+
+						get_inbox_registry().finish_boundary_delivery(session_id, list(ev.message_ids or ()))
 						xy = _id({
 							"type": "steer_delivered",
 							"count": int(ev.count or 0),

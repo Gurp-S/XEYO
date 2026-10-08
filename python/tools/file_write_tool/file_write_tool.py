@@ -165,9 +165,17 @@ class FileWriteTool:
 		if not result.ok:
 			reason = str(result.reason or "")
 			if reason == "missing_read":
+				from tools.fileio.read_state import baseline_dropped, baseline_epoch
+
+				# 把"从没读过"与"读过但基线被淘汰/重建"分开：同一句话时模型只能试。
+				detail = (
+					f"baseline dropped at epoch {baseline_epoch()}"
+					if baseline_dropped(full)
+					else "never read in this session"
+				)
 				raise RuntimeError(
-					"write conflict (missing_read): no prior Read baseline for this "
-					"path in this process/session"
+					f"write conflict (missing_read: {detail}): no prior Read baseline "
+					"for this path in this process/session"
 				)
 			if result.base_stale or reason == "stale":
 				snapshot = entry.content if entry is not None else ""

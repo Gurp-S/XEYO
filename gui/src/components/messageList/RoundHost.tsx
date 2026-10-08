@@ -399,9 +399,11 @@ promptEditRef,
 						>
 							<PromptBubble
 								text={round.user.text}
+								localUndelivered={round.user.localUndelivered}
 								mediaRefs={round.user.mediaRefs}
 								editable={
 									round.user.source !== 'remote' &&
+									!round.user.localUndelivered &&
 									!sessionArchived &&
 									// 流式中编辑框是 disabled（提交期不许改历史）：入口
 									// 必须同批退场，否则点开的是一个打不了字的死框

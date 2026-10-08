@@ -21,12 +21,12 @@ from __future__ import annotations
 
 import os
 
-#: (环境变量, 它为什么会漂移 golden)——括号里的数字是 2026-10-07 实测。
-PINS: tuple[tuple[str, str], ...] = (
-    ("XEYO_TOOL_DENY", "把命名工具移出工作面 ⇒ 工具面/提示块随环境变（实测 L0 4 / L1 3）"),
-    ("XEYO_TOOL_SURFACE", "minimal 面 ⇒ 工具集随环境变（实测 L0 18）"),
-    ("XEYO_T_NOW_SKIP", "块级旁路 ⇒ 注入面随环境变（实测 L1 19）"),
-)
+from engine.env_switches import snapshot_pins
+
+#: (环境变量, 它为什么会漂移 golden)。**唯一登记表**在 `engine/env_switches.py`，
+#: 这里只是它的投影——原先 `tests/conftest.py` 的 8 键名单与本表 3 键各写一份、
+#: **交集只有 1**，两份名单各自漂移（#10）。
+PINS: tuple[tuple[str, str], ...] = snapshot_pins()
 
 
 def pin() -> list[tuple[str, str, str]]:

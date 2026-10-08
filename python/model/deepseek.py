@@ -133,6 +133,10 @@ class DeepSeekModelClient:
 			"Accept": "text/event-stream",
 		}
 
+	def context_input(self, messages, tools):
+		from model.context_input import from_body
+		return from_body(self._build_body(messages, tools, stream=False))
+
 	def _build_body(
 		self,
 		messages: list[dict[str, Any]],
@@ -153,6 +157,8 @@ class DeepSeekModelClient:
 			body["thinking"] = {"type": self._thinking}
 		if self._temperature is not None:
 			body["temperature"] = self._temperature
+		if getattr(self, "_max_tokens", None) is not None:
+			body["max_tokens"] = self._max_tokens
 		# 流式 usage，供热路径记录 H_obs / P1 校准
 		if stream:
 			body["stream_options"] = {"include_usage": True}

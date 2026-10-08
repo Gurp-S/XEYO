@@ -233,7 +233,7 @@ async def _lifespan(_app: FastAPI):
 			_log.warning("local model shutdown failed", exc_info=True)
 
 
-app = FastAPI(title="XEYO", version="1.1.0", lifespan=_lifespan)
+app = FastAPI(title="XEYO", version="1.11.0", lifespan=_lifespan)
 
 
 def _cors_origins() -> list[str]:
@@ -357,6 +357,10 @@ app.include_router(memory_router, dependencies=[Depends(require_loopback)])
 from server.routers.chat import router as chat_router
 
 app.include_router(chat_router)
+
+from server.routers.request_environment import router as request_environment_router
+
+app.include_router(request_environment_router)
 
 
 from server.routers.goals import router as goals_router

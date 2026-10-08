@@ -180,7 +180,7 @@ describe('动词只发 phase PATCH（round-driver 已废弃）', () => {
 		render(<SessionGoalDock embedded />);
 		await user.click(screen.getByRole('button', {name: '暂停'}));
 		await waitFor(() => {
-			expect(patchGoalAction).toHaveBeenCalledWith('s1', 'pause', {revision: 3});
+			expect(patchGoalAction).toHaveBeenCalledWith('s1', 'pause', {goal_id: 'g1', revision: 3});
 		});
 	});
 
@@ -191,7 +191,7 @@ describe('动词只发 phase PATCH（round-driver 已废弃）', () => {
 		render(<SessionGoalDock embedded />);
 		await user.click(screen.getByRole('button', {name: '恢复'}));
 		await waitFor(() => {
-			expect(patchGoalAction).toHaveBeenCalledWith('s1', 'resume', {revision: 3});
+			expect(patchGoalAction).toHaveBeenCalledWith('s1', 'resume', {goal_id: 'g1', revision: 3});
 		});
 	});
 
@@ -256,6 +256,7 @@ describe('编辑 / 清除', () => {
 		await user.type(textInput, '新目标');
 		await user.click(screen.getByRole('button', {name: '保存目标'}));
 		expect(patchGoalAction).toHaveBeenCalledWith('s1', 'edit', {
+			goal_id: 'g1',
 			revision: 3,
 			text: '新目标',
 		});
@@ -300,7 +301,7 @@ describe('编辑 / 清除', () => {
 		});
 		const {container} = render(<SessionGoalDock embedded />);
 		await user.click(screen.getByRole('button', {name: '清除目标'}));
-		expect(patchGoalAction).toHaveBeenCalledWith('s1', 'drop', {revision: 3});
+		expect(patchGoalAction).toHaveBeenCalledWith('s1', 'drop', {goal_id: 'g1', revision: 3});
 		expect(
 			screen.queryByRole('button', {name: '确认删除'}),
 		).not.toBeInTheDocument();
@@ -347,10 +348,12 @@ describe('CAS 与投影滞后', () => {
 			expect(patchGoalAction).toHaveBeenCalledTimes(2);
 		});
 		expect(patchGoalAction).toHaveBeenNthCalledWith(1, 's1', 'edit', {
+			goal_id: 'g1',
 			revision: 3,
 			text: '新目标',
 		});
 		expect(patchGoalAction).toHaveBeenNthCalledWith(2, 's1', 'edit', {
+			goal_id: 'g1',
 			revision: 9,
 			text: '新目标',
 		});

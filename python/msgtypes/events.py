@@ -27,6 +27,7 @@ TaskStateEvent           # 会话任务状态变化（queued/running/waiting_per
 class AssistantDelta:
 	text: str
 	type: str = "assistant_delta"
+	message_id: str = ""
 
 
 @dataclass

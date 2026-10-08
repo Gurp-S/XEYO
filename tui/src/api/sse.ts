@@ -2,7 +2,7 @@ import type { TimelineItem, TodoRow, UsageInfo } from "../types.js";
 import {consumeChatStream} from './consumeChatStream.js';
 
 export type SseHandlers = {
-  onDelta: (text: string) => void;
+  onDelta: (text: string, messageId?: string) => void;
   onXy: (xy: Record<string, unknown>) => void;
   onDone: () => void;
   onError: (err: Error) => void;
@@ -21,7 +21,7 @@ export type AcceptedPayload = {
   message_id?: string;
 };
 
-function parseDataLine(line: string): Record<string, unknown> | null {
+export function parseDataLine(line: string): Record<string, unknown> | null {
   let s = line.trim().replace(/^\uFEFF/, "");
   if (s.endsWith("\r")) s = s.slice(0, -1);
   if (!s.startsWith("data:")) return null;
@@ -68,7 +68,7 @@ export type ChatBody = {
   agent_mode?: string;
   /** T31：客户端只发 workspace id/路径，服务端解析权威路径（workspace SSOT）。 */
   workspace?: string;
-  messages: { role: string; content: string }[];
+  messages: { role: string; content: string; id?: string }[];
   /** T_now 输出精简 / 写代码精简（可省略；由 /output、/code 设置） */
   output_compact?: boolean;
   output_mode?: string;
@@ -124,7 +124,7 @@ export async function streamChat(
     const obj = parseDataLine(line);
     if (!obj) return;
     const d = deltaText(obj);
-    if (d) handlers.onDelta(d);
+    if (d) handlers.onDelta(d, typeof obj.xeyo_message_id === 'string' ? obj.xeyo_message_id : undefined);
     const xy = extractXy(obj);
     if (xy) handlers.onXy(xy);
   }, signal);
@@ -418,6 +418,7 @@ export type LoadedMessage = {
   toolName?: string;
   toolInput?: string;
   toolStatus?: string;
+  toolUseId?: string;
   mediaRefs?: string[];
 };
 

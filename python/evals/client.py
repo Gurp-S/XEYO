@@ -125,6 +125,7 @@ def chat(
     acct: UsageAccount | None = None,
     timeout: float = 300.0,
     retries: int = 4,
+    capture_wire: bool = False,
 ) -> dict:
     key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
     if not key:
@@ -185,6 +186,11 @@ def chat(
     usage = data.get("usage")
     if acct:
         acct.add(usage, elapsed)
+
+    if capture_wire:
+        # Body contains no authentication headers. Keep provider identities and
+        # assistant content intact for execution/replay probes.
+        return {"request": body, "response": data}
 
     tool_calls: list[dict] = []
     for tc in msg.get("tool_calls") or []:

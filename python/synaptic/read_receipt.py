@@ -5,6 +5,17 @@ from __future__ import annotations
 from synaptic.textutil import classify_tool
 
 
+def is_unchanged_view(block):
+	from synaptic.task_checkpoint import enabled
+	if not enabled():
+		return False
+	execution = block.get("execution")
+	if not isinstance(execution, dict):
+		return False
+	observation = execution.get("read_observation")
+	return isinstance(observation, dict) and observation.get("kind") == "file_unchanged"
+
+
 def is_successful_read(block: dict, tool_name: str) -> bool:
 	"""Only an explicit successful native read bypasses content heuristics."""
 	return block.get("is_error") is False and tool_name in ("Read", "NotebookRead")

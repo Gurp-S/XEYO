@@ -117,14 +117,14 @@ def test_goal_verbs_work_on_fresh_session(sandbox: dict[str, Path]) -> None:
 
 		paused = client.patch(
 			f"/v1/sessions/{sid}/goal",
-			json={"action": "pause", "revision": goal["revision"]},
+			json={"goal_id": goal["goal_id"], "action": "pause", "revision": goal["revision"]},
 		)
 		assert paused.status_code == 200, _ascii_only(paused.text)[:200]
 		assert paused.json()["status"] == "paused"
 
 		resumed = client.patch(
 			f"/v1/sessions/{sid}/goal",
-			json={"action": "resume", "revision": paused.json()["revision"]},
+			json={"goal_id": goal["goal_id"], "action": "resume", "revision": paused.json()["revision"]},
 		)
 		assert resumed.status_code == 200, _ascii_only(resumed.text)[:200]
 		assert resumed.json()["status"] == "active"
@@ -132,6 +132,7 @@ def test_goal_verbs_work_on_fresh_session(sandbox: dict[str, Path]) -> None:
 		edited = client.patch(
 			f"/v1/sessions/{sid}/goal",
 			json={
+				"goal_id": goal["goal_id"],
 				"action": "edit",
 				"revision": resumed.json()["revision"],
 				"text": "edited objective body",
@@ -142,7 +143,7 @@ def test_goal_verbs_work_on_fresh_session(sandbox: dict[str, Path]) -> None:
 
 		dropped = client.patch(
 			f"/v1/sessions/{sid}/goal",
-			json={"action": "drop", "revision": edited.json()["revision"]},
+			json={"goal_id": goal["goal_id"], "action": "drop", "revision": edited.json()["revision"]},
 		)
 		assert dropped.status_code == 200, _ascii_only(dropped.text)[:200]
 		assert dropped.json()["status"] == "abandoned"
@@ -164,3 +165,39 @@ def test_phantom_session_never_touched_by_slash_still_404(
 	# pool 回落工作区（conftest 钉的 xeyo_ws）不许出现幻影 goal。
 	fallback = sandbox["tmp"] / "xeyo_ws"
 	assert not (fallback / ".xeyo" / "goals").exists()
+
+
+def test_old_editor_cannot_modify_replacement_goal(sandbox: dict[str, Path]) -> None:
+	sid = "sess-goal-replaced"
+	from server.deps import _pool
+	_pool.pin_session_cwd(sid, str(sandbox["ws"]))
+	with TestClient(_app()) as client:
+		url = f"/v1/sessions/{sid}/goal"
+		old = client.patch(url, json={"action": "new", "text": "old goal"}).json()
+		new = client.patch(url, json={"action": "new", "text": "replacement"}).json()
+		assert old["revision"] == new["revision"] == 1
+		stale = client.patch(url, json={"action": "edit", "goal_id": old["goal_id"],
+			"revision": old["revision"], "text": "stale edit"})
+		assert stale.status_code == 409
+		assert stale.json()["goal"]["goal_id"] == new["goal_id"]
+		assert client.get(url).json()["text"] == "replacement"
+		for payload in ({"revision": 1}, {"goal_id": new["goal_id"]}):
+			assert client.patch(url, json={"action": "pause", **payload}).status_code == 400
+
+
+@pytest.mark.parametrize("action", ["new", "edit", "pause", "resume", "drop"])
+def test_archived_goal_writes_are_rejected(sandbox: dict[str, Path], action: str) -> None:
+	from server.deps import _pool
+	from engine.title import write_archive
+	sid = "sess-goal-archive"
+	_pool.pin_session_cwd(sid, str(sandbox["ws"]))
+	with TestClient(_app()) as client:
+		url = f"/v1/sessions/{sid}/goal"
+		goal = client.patch(url, json={"action": "new", "text": "original"}).json()
+		write_archive(sid)
+		denied = client.patch(url, json={"action": action, "goal_id": goal["goal_id"],
+			"revision": goal["revision"], "text": "changed"})
+		assert denied.status_code == 409
+		assert denied.json()["error"]["type"] == "session_archived"
+		assert client.get(url).json()["revision"] == goal["revision"]
+		assert client.post(url + "/round-driver", json={"action": "arm"}).status_code == 409

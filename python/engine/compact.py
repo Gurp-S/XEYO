@@ -205,6 +205,9 @@ def _project_tool_result_content(
     cwd: str | os.PathLike[str] | None,
 ) -> tuple[str, bool]:
     """对单个 tool_result 内容做 C0/C1，返回 (投影文本, 是否写入老化存根)。"""
+    from memory.wsc_unfolded_results import preserve
+    if preserve(frozen=frozen):
+        return raw, False
     n_lines = raw.count("\n") + (1 if raw else 0)
     from prompt.fence import (
         truncate_tool_content_preserving_fence,

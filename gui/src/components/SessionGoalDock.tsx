@@ -30,86 +30,20 @@ import {
 } from 'lucide-react';
 import {toast} from '@/lib/toast';
 import {isImeComposing} from '@/lib/ime';
-import {
-	fetchGoal,
-	patchGoalAction,
-	type GoalMutationResult,
-	type SessionGoalState,
-} from '@/lib/api/goals';
+import {type SessionGoalState} from '@/lib/api/goals';
+import {useSessionGoalLive} from '@/hooks/useSessionGoalLive';
+export {useSessionGoalLive} from '@/hooks/useSessionGoalLive';
+import {runGoalAction} from '@/lib/goalMutations';
 import {popEscLayer, pushEscLayer} from '@/lib/escStack';
-import {isGoalLive, writeGoalState} from '@/lib/goalSync';
+import {isGoalLive} from '@/lib/goalSync';
 import {cn} from '@/lib/utils';
 import {useChatStore} from '@/stores/chatStore';
 import {isSmoothnessOn, useSettingsStore} from '@/stores/settingsStore';
 import {DockPresence} from './DockPresence';
 
-const GOAL_POLL_MS = 3000;
-
-/**
- * 41 号 P0 轻量轮询：可见时每 3s GET 投影并 whole-value 覆写。
- * 只在挂载的 Dock 内运行；不可见 / 在途时跳过，绝不阻塞 UI。
- */
-export function useSessionGoalLive(sessionId: string | null) {
-	const inflight = useRef(false);
-	useEffect(() => {
-		if (!sessionId) return;
-		let stopped = false;
-		const refresh = async () => {
-			if (inflight.current || document.visibilityState !== 'visible') {
-				return;
-			}
-			inflight.current = true;
-			try {
-				const r = await fetchGoal(sessionId);
-				if (!r.ok) {
-					// 读不出 ≠ 没有目标：轮询失败时不得把 store 清成 null ——
-					// GoalDock 按 store 挂载，一次后端抖动就会让它自己消失。
-					return;
-				}
-				if (!stopped) {
-					writeGoalState(sessionId, r.goal ? {goal: r.goal, driver: r.driver} : null);
-				}
-			} catch {
-				/* 降级：下个周期再试 */
-			} finally {
-				inflight.current = false;
-			}
-		};
-		void refresh();
-		const timer = window.setInterval(() => {
-			void refresh();
-		}, GOAL_POLL_MS);
-		return () => {
-			stopped = true;
-			window.clearInterval(timer);
-		};
-	}, [sessionId]);
-}
-
 /** 动词失败的统一说法：后端的原话必须带出来，否则用户只知道"按了没反应"。 */
 function verbFailureText(label: string, message: string): string {
 	return `${label}未生效：${message || '服务端拒绝，且未给出原因'}`;
-}
-
-/** PATCH 动词执行：CAS 409 → 用后端附带的当前 goal 刷新，重试一次（禁盲写）。 */
-async function runGoalVerb(
-	sessionId: string,
-	run: (revision: number) => Promise<GoalMutationResult>,
-): Promise<GoalMutationResult | null> {
-	const cur = useChatStore.getState().sessionGoalById?.[sessionId] ?? null;
-	if (!cur) return null;
-	let res = await run(cur.goal.revision);
-	if (!res.ok && res.conflict) {
-		writeGoalState(sessionId, {goal: res.conflict, driver: cur.driver});
-		res = await run(res.conflict.revision);
-	}
-	if (res.ok) {
-		writeGoalState(
-			sessionId,
-			res.goal ? {goal: res.goal, driver: res.driver ?? cur.driver} : null,
-		);
-	}
-	return res;
 }
 
 type Props = {
@@ -189,16 +123,12 @@ export function SessionGoalDock({embedded = false}: Props) {
 	};
 	const pauseGoal = () =>
 		act(async () => {
-			const res = await runGoalVerb(activeId, rev =>
-				patchGoalAction(activeId, 'pause', {revision: rev}),
-			);
+			const res = await runGoalAction(activeId, 'pause', {goal_id: goal.goal_id});
 			if (res && !res.ok) report('目标操作', res.message);
 		});
 	const resumeGoal = () =>
 		act(async () => {
-			const res = await runGoalVerb(activeId, rev =>
-				patchGoalAction(activeId, 'resume', {revision: rev}),
-			);
+			const res = await runGoalAction(activeId, 'resume', {goal_id: goal.goal_id});
 			if (res && !res.ok) report('目标操作', res.message);
 		});
 
@@ -206,9 +136,7 @@ export function SessionGoalDock({embedded = false}: Props) {
 		act(async () => {
 			const text = draft.trim();
 			if (text === '') return;
-			const res = await runGoalVerb(activeId, rev =>
-				patchGoalAction(activeId, 'edit', {revision: rev, text}),
-			);
+			const res = await runGoalAction(activeId, 'edit', {goal_id: goal.goal_id, text});
 			if (!res) return;
 			if (!res.ok) {
 				// 只在真的改成了才收编辑器：否则用户刚输入的标题会跟着一起消失。
@@ -220,9 +148,7 @@ export function SessionGoalDock({embedded = false}: Props) {
 	const clearGoal = () =>
 		act(async () => {
 			const clearedId = goal.goal_id;
-			const res = await runGoalVerb(activeId, rev =>
-				patchGoalAction(activeId, 'drop', {revision: rev}),
-			);
+			const res = await runGoalAction(activeId, 'drop', {goal_id: goal.goal_id});
 			if (res && !res.ok) {
 				report('目标操作', res.message);
 				return;

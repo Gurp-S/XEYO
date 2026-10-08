@@ -1,3 +1,4 @@
+import {mergeTranscript} from '@/lib/transcriptOrder';
 /**
  * P1 mid-turn inbox UI slice：排队快照轮询 / 取消（Composer chip 的数据源）。
  */
@@ -14,9 +15,11 @@ import {deleteMessageForSession, patchMessages, saveSession, updateMessageText} 
 import type {ChatMessage} from '@/lib/types';
 import {
 	activeBackendSessionId,
+	commitDrainForSession,
 	type InboxQueuedItem,
 } from './preStoreHelpers';
 import {assignInboxQueuePositions} from '@/lib/inboxItemState';
+import {captureInboxMutation} from './inboxMutationOwnership';
 
 type SetState = (partial: Partial<ChatState> | ((s: ChatState) => Partial<ChatState>)) => void;
 type GetState = () => ChatState;
@@ -152,7 +155,9 @@ export function createInboxSlice(
 
 	return {
 		async refreshInbox(sessionId: string) {
+			const ownership = captureInboxMutation(get, sessionId);
 			const revision = revise(sessionId);
+			const isCurrent = () => ownership.isCurrent() && revisions.get(sessionId) === revision;
 			const backendSessionId = backendId(sessionId);
 			let payload: InboxSnapshot | null = null;
 			try {
@@ -231,7 +236,12 @@ export function createInboxSlice(
 				const changedMessages = projectedMessages.filter(
 					message => currentById.get(message.id) !== message,
 				);
-				await patchMessages(sessionId, changedMessages).catch(() => undefined);
+				await patchMessages(sessionId, changedMessages, isCurrent).catch(() => undefined);
+			}
+			if (!isCurrent()) return false;
+			if (items.some(item => item.state === 'delivering')) {
+				commitDrainForSession(sessionId);
+				void get().reattachStream(sessionId);
 			}
 
 			const syncingGroups = new Map<string, InboxQueuedItem[]>();
@@ -263,7 +273,6 @@ export function createInboxSlice(
 			);
 			if (confirmed.length === 0) return true;
 
-			const confirmedDeliveryIds = new Set(confirmed.map(([id]) => id));
 			const confirmedQueueIds = new Set(
 				confirmed.flatMap(([, group]) => group.map(item => item.queue_id)),
 			);
@@ -274,10 +283,6 @@ export function createInboxSlice(
 						.filter((id): id is string => Boolean(id && id !== deliveryId)),
 				),
 			);
-			const firstServerIndex = Math.min(
-				...confirmed.map(([id]) => serverUserIndex.get(id)!),
-			);
-			const serverTail = serverMessages.slice(firstServerIndex);
 			const acknowledged = await acknowledgeInboxItems(
 				backendSessionId,
 				[...confirmedQueueIds],
@@ -291,24 +296,7 @@ export function createInboxSlice(
 			set(s => {
 				if (!s.sessions.some(session => session.id === sessionId)) return s;
 				const messages = s.messagesById[sessionId] ?? [];
-				const byId = new Map<string, ChatMessage>();
-				for (const message of messages) {
-					if (!aliasMessageIds.has(message.id)) byId.set(message.id, message);
-				}
-			for (const message of serverTail) {
-				if (
-					confirmedDeliveryIds.has(message.id) ||
-					!byId.has(message.id)
-				) {
-					byId.set(message.id, message);
-				}
-			}
-			// 顺序取数组位置，不按 createdAt 重排：本地行是客户端 ms、服务端尾行是
-			// transcript ts，两套时钟混排会把「先发那轮的回复」排到排队消息之后
-			// （事故：排队投递完成后转录看起来像排队消息被直发；服务端 transcript
-			// 行序本身是对的）。byId 的插入序 = 本地既有顺序（含 projectQueueStates
-			// 刚把已投递气泡移到末尾的落位）+ 服务端尾行顺次追加，就地替换不改位。
-			const transcript = [...byId.values()];
+				const transcript = mergeTranscript(messages, serverMessages, aliasMessageIds);
 			const remainingItems = acknowledged
 				? items.filter(item => !confirmedQueueIds.has(item.queue_id))
 				: items;
@@ -326,33 +314,32 @@ export function createInboxSlice(
 			};
 			});
 			await Promise.all([
-				patchMessages(sessionId, changedForDb).catch(() => undefined),
+				patchMessages(sessionId, changedForDb, isCurrent).catch(() => undefined),
 				...([...aliasMessageIds].map(id =>
-					deleteMessageForSession(sessionId, id).catch(() => undefined),
+					deleteMessageForSession(sessionId, id, isCurrent).catch(() => undefined),
 				)),
 			]);
 			return true;
 		},
 		async cancelInboxItem(sessionId: string, queue_id: string) {
+			const ownership = captureInboxMutation(get, sessionId);
 			const originalItem = (get().inboxBySession[sessionId] ?? []).find(
 				it => it.queue_id === queue_id,
 			);
 			revise(sessionId);
 			let ok = false;
 			try {
-				ok = await cancelInboxItem(backendId(sessionId), queue_id);
+				ok = await cancelInboxItem(ownership.backendId, queue_id);
 			} catch {
 				ok = false;
 			} finally {
-				revise(sessionId);
+				if (ownership.isCurrent()) revise(sessionId);
 			}
 			// 失败（delivering 409 / 网络）不本地移除，调用方据返回值提示。
 			if (!ok) {
 				return false;
 			}
-			if (!get().sessions.some(session => session.id === sessionId)) {
-				return true;
-			}
+			if (!ownership.isCurrent()) return true;
 			const initialInbox = get().inboxBySession[sessionId] ?? [];
 			const item = initialInbox.find(it => it.queue_id === queue_id) ?? originalItem;
 			const messageId = item?.message_id ?? null;
@@ -371,30 +358,30 @@ export function createInboxSlice(
 				};
 			});
 			if (messageId) {
-				void deleteMessageForSession(sessionId, messageId).catch(() => undefined);
+				await deleteMessageForSession(sessionId, messageId, () => ownership.isCurrent() &&
+					!(get().messagesById[sessionId] ?? []).some(message => message.id === messageId)).catch(() => undefined);
 			}
 			return true;
 		},
 		async editInboxItem(sessionId: string, queue_id: string, text: string) {
+			const ownership = captureInboxMutation(get, sessionId);
 			const originalItem = (get().inboxBySession[sessionId] ?? []).find(
 				it => it.queue_id === queue_id,
 			);
 			revise(sessionId);
 			let ok = false;
 			try {
-				ok = await editInboxItemApi(backendId(sessionId), queue_id, text);
+				ok = await editInboxItemApi(ownership.backendId, queue_id, text);
 			} catch {
 				ok = false;
 			} finally {
-				revise(sessionId);
+				if (ownership.isCurrent()) revise(sessionId);
 			}
 			// 失败不改本地文本，调用方据返回值提示（避免「以为保存了」）。
 			if (!ok) {
 				return false;
 			}
-			if (!get().sessions.some(session => session.id === sessionId)) {
-				return true;
-			}
+			if (!ownership.isCurrent()) return true;
 			const initialInbox = get().inboxBySession[sessionId] ?? [];
 			const item = initialInbox.find(it => it.queue_id === queue_id) ?? originalItem;
 			const messageId = item?.message_id ?? null;
@@ -417,7 +404,8 @@ export function createInboxSlice(
 				};
 			});
 			if (messageId) {
-				void updateMessageText(sessionId, messageId, text).catch(() => undefined);
+				await updateMessageText(sessionId, messageId, text, () => ownership.isCurrent() &&
+					get().messagesById[sessionId]?.find(message => message.id === messageId)?.text === text).catch(() => undefined);
 			}
 			return true;
 		},

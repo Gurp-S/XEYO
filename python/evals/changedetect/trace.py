@@ -341,23 +341,23 @@ def _path_for(directory: Path, name: str) -> Path:
     return directory / "trace" / f"{canon.safe_name(name)}.txt"
 
 
-def write_golden(traces: dict[str, str], *, directory: Path = GOLDEN_DIR) -> Path:
-    target = directory / "trace"
-    target.mkdir(parents=True, exist_ok=True)
-    keep: set[str] = set()
-    for name, text in traces.items():
-        fname = f"{canon.safe_name(name)}.txt"
-        keep.add(fname)
-        (target / fname).write_text(
-            canon.canon_text(text), encoding="utf-8", newline="\n"
-        )
-    for stale in target.glob("*.txt"):
-        if stale.name not in keep:
-            stale.unlink()
-    index = {
-        name: {"sha256": canon.sha(canon.canon_text(text)), "chars": len(text)}
-        for name, text in traces.items()
-    }
+def _trace_entry(text: str) -> dict[str, Any]:
+    return {"sha256": canon.sha(canon.canon_text(text)), "chars": len(text)}
+
+
+def _load_trace_index(directory: Path) -> dict[str, Any]:
+    """读回现有 index（`--only` 档要合并）；缺失/损坏 ⇒ 空（不假装合并成功）。"""
+    path = directory / "trace_index.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return {}
+    if isinstance(payload, dict) and isinstance(payload.get("traces"), dict):
+        return dict(payload["traces"])
+    return {}
+
+
+def _write_trace_index(directory: Path, index: dict[str, Any]) -> Path:
     path = directory / "trace_index.json"
     path.write_text(
         json.dumps(
@@ -374,6 +374,45 @@ def write_golden(traces: dict[str, str], *, directory: Path = GOLDEN_DIR) -> Pat
         encoding="utf-8",
     )
     return path
+
+
+def write_golden(traces: dict[str, str], *, directory: Path = GOLDEN_DIR,
+                 only: list[str] | None = None) -> Path:
+    """写 golden。`only` 为空 ⇒ 全量重写 + 删 stale（原行为，逐字节不变）；
+    `only` 非空 ⇒ 只重钉命中项、**不删**未命中、index 合并；零命中 ⇒ `ValueError`。
+
+    与 `surface.write_golden` 同一口径（见那里的说明）：`only` 用来把"我只对这几条负责"
+    与"卷走别人在途的改动"解绑。
+    """
+    target = directory / "trace"
+    target.mkdir(parents=True, exist_ok=True)
+    if only:
+        from .surface import match_only
+
+        picked = set(match_only(list(traces), only))
+        if not picked:
+            raise ValueError(f"--only 未命中任何轨迹：{only}")
+        index = _load_trace_index(directory)
+        for name, text in traces.items():
+            if name not in picked:
+                continue
+            (target / f"{canon.safe_name(name)}.txt").write_text(
+                canon.canon_text(text), encoding="utf-8", newline="\n"
+            )
+            index[name] = _trace_entry(text)
+        return _write_trace_index(directory, index)
+    keep: set[str] = set()
+    for name, text in traces.items():
+        fname = f"{canon.safe_name(name)}.txt"
+        keep.add(fname)
+        (target / fname).write_text(
+            canon.canon_text(text), encoding="utf-8", newline="\n"
+        )
+    for stale in target.glob("*.txt"):
+        if stale.name not in keep:
+            stale.unlink()
+    index = {name: _trace_entry(text) for name, text in traces.items()}
+    return _write_trace_index(directory, index)
 
 
 def load_golden(*, directory: Path = GOLDEN_DIR) -> dict[str, str]:

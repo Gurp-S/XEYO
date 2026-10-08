@@ -183,10 +183,12 @@ def test_should_force_compact_on_pressure_threshold(monkeypatch, mem_switch):
 	assert not should_force_compact_on_pressure(
 		prompt_tokens=100_000, context_limit=128_000, ratio=0.95
 	)
+	# 旋钮已退场（2026-10-08 用户裁定）：该比值恒为声明容量的 85%（与
+	# ``memory/wsc_timing.decide`` 的容量触发线同源同值），env 不再生效。
 	monkeypatch.setenv("XEYO_CONTEXT_COMPACT_RATIO", "0.8")
 	from memory.runtime import context_compact_ratio
 
-	assert context_compact_ratio() == 0.8
+	assert context_compact_ratio() == 0.85
 
 
 def test_pressure_cliff_collapses_on_small_window(mem_switch) -> None:

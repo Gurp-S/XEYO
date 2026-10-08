@@ -69,6 +69,8 @@ class WorkingSnapshot:
     compact_cursor: int = 0  # 已压实的历史消息索引（只增不减）
     c1_frozen_until: int = 0  # C1 冻结边界：此索引之前的 tool_result 一律占位，不再回退
     c2_summary_text: str = ""  # C2 摘要文本（首次压缩时冻结，保证后续请求字节稳定）
+    c0_response_tail_from: int | None = None  # 任务续接旁路：首个发射响应窗口的固定边界
+    wsc_timing_state: dict[str, Any] = field(default_factory=dict)  # 已消费模型请求、通知投递身份
     turns_since_c2: int = 0  # 自上次 C2 压缩后的对话轮次
     # 上次折叠实测回本枪数（引擎自决的冷却下限）。0 = 未测到 → 冷却退回 params 固定值。
     c2_gap_shots: int = 0
@@ -260,6 +262,8 @@ def _to_dict(snap: WorkingSnapshot) -> dict[str, Any]:
         "compact_cursor": int(snap.compact_cursor),
         "c1_frozen_until": int(snap.c1_frozen_until),
         "c2_summary_text": str(snap.c2_summary_text or ""),
+        **({"c0_response_tail_from": snap.c0_response_tail_from} if snap.c0_response_tail_from is not None else {}),
+        **({"wsc_timing_state": dict(snap.wsc_timing_state)} if snap.wsc_timing_state else {}),
         "compact_checkpoint": cp_payload,
         "turns_since_c2": int(snap.turns_since_c2),
         "c2_gap_shots": int(getattr(snap, "c2_gap_shots", 0) or 0),
@@ -405,12 +409,15 @@ def _from_dict(raw: dict[str, Any], session_id: str, *, source_layout: str = LEG
     code_mode = str(raw.get("code_mode") or "").strip().lower()
     if code_mode not in ("lite", "full", "ultra"):
         code_mode = ""
+    from memory.wsc_execution_boundary import optional_boundary
     snapshot = WorkingSnapshot(
         session_id=str(raw.get("session_id") or session_id or ""),
         agent_id=str(raw.get("agent_id") or "main"),
         compact_cursor=cursor_i,
         c1_frozen_until=frozen,
         c2_summary_text=c2_summary_text,
+        c0_response_tail_from=optional_boundary(raw.get("c0_response_tail_from")),
+        wsc_timing_state=dict(raw.get("wsc_timing_state")) if isinstance(raw.get("wsc_timing_state"), dict) else {},
         compact_checkpoint=cp,
         turns_since_c2=max(0, int(raw.get("turns_since_c2") or 0)),
         c2_gap_shots=max(0, int(raw.get("c2_gap_shots") or 0)),
@@ -523,6 +530,7 @@ def reset_rollback_state(snap: WorkingSnapshot) -> None:
     snap._pending_c2_summary = None
     snap.last_projection = None
     snap.last_projection_manifest = None
+    snap.wsc_timing_state = {}
     snap.current_atoms = []
 
 

@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 
 from synaptic.budget import (
@@ -115,15 +116,28 @@ def build_pins(seeds: Seeds) -> tuple[Pin, ...]:
 	见 docs/synaptic-compression.md §11.8。
 	"""
 	pins: list[Pin] = []
+	from synaptic.requirement_floor import enabled as floor_enabled
+	if seeds.request_projection and seeds.request_source >= 0 and not floor_enabled():
+		pins.append(Pin(f"request:{seeds.request_source}", "折叠区末人类请求", seeds.request_text, nodes=(seeds.request_source,)))
 	if seeds.original_task:
-		pins.append(Pin("goal", "目标", seeds.original_task,
+		goal_label = f"绑定目标快照（{seeds.bound_goal_status}，revision={seeds.bound_goal_revision}）" if seeds.request_projection else "目标"
+		pins.append(Pin("goal", goal_label, seeds.original_task,
 		                nodes=(seeds.user_nodes[0],) if seeds.user_nodes else ()))
 	if seeds.goal and seeds.goal != seeds.original_task:
 		pins.append(Pin("goal_current", "当前目标", seeds.goal))
 	for i, c in enumerate(seeds.constraints):
 		pins.append(Pin(f"constraint:{i}", "约束", c))
 	for i, e in enumerate(seeds.unresolved_errors):
-		pins.append(Pin(f"unresolved:{i}", "未解决", e))
+		hide_excerpt = not seeds.unresolved_source_groups and _useful_sig_gate() and not _unresolved_is_useful(seeds, i)
+		label = "失败记录（无覆盖证据）" if seeds.unresolved_source_groups else "未解决"
+		pins.append(Pin(f"unresolved:{i}", label, e, suppress_excerpt=hide_excerpt))
+	# 限制事实（权限层拒绝）：来源行内内联，**不借用** ``pin_sources`` 的
+	# ``unresolved:`` ordinal 机制——那套按 ``seeds.pin_nodes`` 里的错误签名分组，
+	# 多一类签名会让 ordinal 与之错位（拒绝节点刻意不进 ``pin_nodes``）。
+	for i, d in enumerate(seeds.denials):
+		src = seeds.denial_sources[i] if i < len(seeds.denial_sources) else -1
+		text = f"{d} source=#{src}" if src >= 0 else d
+		pins.append(Pin(f"denial:{i}", "限制", text))
 	for i, t in enumerate(seeds.todos):
 		pins.append(Pin(f"todo:{i}", "TODO", t))
 	from synaptic.todo_state import empty_state_pin
@@ -141,11 +155,39 @@ def render_pins(pins: tuple[Pin, ...]) -> list[tuple[str, str]]:
 
 def pin_group(p: Pin) -> str:
 	"""PIN 条目归属的热层段落（规则 2 把原单一 ``[PIN]`` 拆成三段）。"""
-	if p.key.startswith("unresolved:"):
+	if p.key == "constraint_candidates":
+		return "[HISTORY]"
+	if p.key == "card_archive":
+		return H_PRUNED
+	if p.key.startswith("unresolved:") or p.key == "failure_archive":
 		return H_UNRESOLVED
 	if p.key.startswith("todo:"):
 		return H_TODO
 	return H_CONSTRAINTS
+
+
+#: 零信息签名门（默认关）。开启后，``[UNRESOLVED]`` 只挂**携带信息**的签名。
+#:
+#: 存在的理由（实测 2026-10-08，本会话 2039 行 transcript）：判据 ``is_useful_error_sig``
+#: 早就写了（``textutil.py`` 的 ``_USELESS_SIG_RE`` 含 ``^退出码 \d+$``），但渲染侧把
+#: **带展示后缀**的 ``unresolved_errors``（如 ``退出码 1（×6）``）喂给它 ⇒ 正则要求行尾，
+#: ``（×6）`` 一挂就永不匹配 ⇒ 55 条里零信息条目**一条都没被拦住**，``useless_sig`` 统计为 0。
+#: 纯签名在 ``seeds.unresolved_sigs``（与 ``unresolved_errors`` 同序）。
+_ENV_USEFUL_SIG_GATE = "XEYO_WSC_USEFUL_SIG_GATE"
+
+
+def _useful_sig_gate() -> bool:
+	raw = os.environ.get(_ENV_USEFUL_SIG_GATE, "").strip().lower()
+	return raw in ("1", "true", "on", "yes")
+
+
+def _unresolved_is_useful(seeds: Seeds, index: int) -> bool:
+	"""该条未解决错误是否携带信息；取不到纯签名时**保守放行**（宁多勿漏）。"""
+	if index >= len(seeds.unresolved_sigs):
+		return True
+	from synaptic.textutil import is_useful_error_sig
+
+	return is_useful_error_sig(seeds.unresolved_sigs[index])
 
 
 
@@ -213,7 +255,12 @@ def render_main(
 	return out
 
 
-def render_decisions(cards: tuple[PruneCard, ...], *, handles: Any = None) -> list[tuple[str, str]]:
+def render_decisions(
+	cards: tuple[PruneCard, ...],
+	*,
+	handles: Any = None,
+	dup_sigs: frozenset[str] = frozenset(),
+) -> list[tuple[str, str]]:
 	"""[DECISIONS]：带错误签名的结果卡，不推断分支已被放弃。
 
 	行里**必须带 ``files=``**。归因实测（`_cost_decompose` 同批的针漏失分类，n=185）：
@@ -232,6 +279,21 @@ def render_decisions(cards: tuple[PruneCard, ...], *, handles: Any = None) -> li
 		from synaptic.visible_paths import missing_paths
 		rest = missing_paths(c.files, c.conclusion)
 		tail = f" files={','.join(rest)}" if rest else ""
+		if c.error_sig in dup_sigs:
+			# 同一签名已在 [UNRESOLVED] 挂出：这里不再重复签名正文（信息量 1 份，
+			# 注意力也只该付 1 份）。留下的是**增量**——「{tool} 对 {target} 失败」的
+			# 现场归属、`files=` 清单、以及可恢复句柄。`dup=unresolved` 是事实标记，
+			# 不是指令；判据（签名相等）由 ``seeds.unresolved_sigs`` 提供。
+			body = (
+				c.conclusion.replace(c.error_sig, "").rstrip(" ：:")
+				if c.error_sig in c.conclusion
+				else ""
+			)
+			head = f"{body} dup=unresolved" if body else "dup=unresolved"
+			out.append(
+				(f"card:{c.card_id}", f"错误结果: {head}{tail}  {hr.expression(c.handle)}")
+			)
+			continue
 		if c.error_sig not in c.conclusion:
 			tail += f" err={c.error_sig}"
 		out.append(
@@ -310,6 +372,7 @@ class AssemblyState:
 	rehydration_leases: tuple[tuple[str, int], ...] = ()
 	#: 上一轮已回灌的节点，用于 append-only 下去重。
 	rehydration_nodes: tuple[int, ...] = ()
+	lifecycle: dict = field(default_factory=dict)
 
 	def clone(self) -> "AssemblyState":
 		return AssemblyState(
@@ -330,6 +393,7 @@ class AssemblyState:
 			req_total=self.req_total,
 			journal_appends=self.journal_appends,
 			journal_refroze=self.journal_refroze,
+			lifecycle=dict(self.lifecycle),
 			budget=dict(self.budget),
 			frozen_phase_signature=self.frozen_phase_signature,
 			frozen_region_end=self.frozen_region_end,
@@ -367,7 +431,8 @@ def _segment_groups(
 	for p in pins:
 		out.setdefault(pin_group(p), []).append((f"pin:{p.key}", pin_line(p, handles=handles)))
 	if fs:
-		out[H_WORKING] = render_working_set(fs)
+		from synaptic.failure_facts import enabled as facts_enabled, working_facts
+		out[H_WORKING] = render_working_set(working_facts(fs) if facts_enabled() else fs)
 	# [PATHS]：路径的第四条渲染通道 + 强制配额（见 synaptic/paths.py 的根因说明）。
 	# 没有它，「最近碰过但没进 working set / kept」的路径在热层里没有出口。
 	# 路径配额从属于固定段共享预算；REQUESTS 随后再拿实际剩余额度。
@@ -408,18 +473,32 @@ def _segment_groups(
 		budget_tokens=paths_budget,
 	)
 	if paths_lines:
+		from synaptic.contracts import enabled as contracts_enabled
+		if contracts_enabled():
+			from synaptic.visible_paths import missing_paths
+			visible = "\n".join(line for rows in out.values() for _, line in rows)
+			absent = set(missing_paths(tuple(line for _, line in paths_lines), visible))
+			paths_lines = [(key, line) for key, line in paths_lines if line in absent]
 		out[H_PATHS] = paths_lines
 	main = render_main(graph, kept, params, pin_nodes=pin_nodes, handles=handles)
 	if main:
 		out[H_MAIN] = main
 	if rehydration is not None and rehydration.nodes:
 		out[H_REHYDRATED] = render_rehydrated_nodes(graph, rehydration)
-	dec = render_decisions(cards, handles=handles)
+	from synaptic.contracts import enabled as contracts_enabled
+	display_cards = cards
+	if any(pin.key == "card_archive" for pin in pins):
+		display_cards = ()
+	from synaptic.failure_facts import enabled as facts_enabled
+	if contracts_enabled() or facts_enabled():
+		# Failure facts have one active channel. All card nodes remain recoverable.
+		display_cards = tuple(c for c in display_cards if not c.error_sig)
+	dec = render_decisions(display_cards, handles=handles, dup_sigs=frozenset(seeds.unresolved_sigs))
 	if dec:
 		out[H_DECISIONS] = dec
-	pruned = render_pruned(cards, handles=handles)
+	pruned = render_pruned(display_cards, handles=handles)
 	if pruned:
-		out[H_PRUNED] = pruned
+		out.setdefault(H_PRUNED, []).extend(pruned)
 	req = render_requests_compact(
 		graph,
 		region_end,
@@ -568,7 +647,7 @@ def assemble(
 		handles=handles,
 		rehydration=rehydration,
 	)
-	requests_pinned = frozenset({seeds.pin_nodes[0]}) if seeds.pin_nodes else frozenset()
+	requests_pinned = request_skip(seeds)
 	groups, budget_audit = apply_hot_budgets(
 		groups,
 		params,
@@ -613,10 +692,10 @@ def assemble(
 	req_visible = (
 		rendered_request_nodes(groups.get(H_REQUESTS, ()), handles=handles) & request_nodes
 	)
-	if seeds.pin_nodes and seeds.pin_nodes[0] in request_nodes:
+	if request_skip(seeds) & request_nodes:
 		# 首个用户节点渲染成 [CONSTRAINTS] 的「目标」pin，不占 [REQUESTS] 行，
 		# 但它在热层里可见 ⇒ 覆盖率要把它算进去。
-		req_visible = req_visible | {seeds.pin_nodes[0]}
+		req_visible = req_visible | (request_skip(seeds) & request_nodes)
 	req_rendered = len(req_visible)
 
 	def _finish(

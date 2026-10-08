@@ -1,8 +1,14 @@
-"""Wave 1: C2 热路径 / WorkingSnapshot sidecar / pair-safe 切点。"""
+"""Runtime compaction contracts: model requests, declared capacity and generations.
+
+Direct legacy economics helpers remain tested as helpers; they do not own
+ordinary runtime scheduling. Old automatic C1/HardTop expectations were
+migrated after the explicit model-owned timing decision (2026-10-08).
+"""
 
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from types import SimpleNamespace
 
 import pytest
@@ -15,6 +21,24 @@ from memory.runtime import (
 	project_for_model,
 )
 from memory.working import WorkingSnapshot, flush, hydrate, path_for
+
+
+@pytest.fixture(autouse=True)
+def isolated_runtime_home(monkeypatch, tmp_path):
+	monkeypatch.setenv("XEYO_HOME", str(tmp_path))
+	monkeypatch.setenv("XEYO_WSC", "0")
+	monkeypatch.setenv("XEYO_CWD", str(tmp_path))
+
+
+def assert_unfolded_receipts(emitted, original, start=0):
+	"""Identity headers may change representation; result bodies remain exact."""
+	from engine.compact import _iter_tool_result_blocks
+	actual = {b["tool_use_id"]: b["content"] for row in emitted for b in _iter_tool_result_blocks(row)}
+	for row in original[start:]:
+		for block in _iter_tool_result_blocks(row):
+			body = actual[block["tool_use_id"]]
+			prefix = "执行回执身份=" + json.dumps({"call_id": block["tool_use_id"]}, separators=(",", ":")) + "\n"
+			assert body == block["content"] or body == prefix + block["content"]
 
 
 def _assistant_use(uid: str, name: str) -> dict:
@@ -69,53 +93,37 @@ def test_empty_m_keep_equals_project(monkeypatch):
 
 
 def test_l5_project_never_advances(monkeypatch, mem_switch):
-	mem_switch(XEYO_L5="project")
-	monkeypatch.setattr("memory.memdir.load_index_text", lambda wsid: "")
-	working = WorkingSnapshot()
-	history: list[dict] = [{"role": "user", "content": "start"}]
-	for i in range(20):
-		uid = f"g{i}"
-		history.append(_assistant_use(uid, "Grep"))
-		history.append(_tool_result(uid, "x" * 20_000))
-	out = project_for_model(history, working, include_memory_index=False)
-	assert out == project(history)
-	assert working.compact_cursor == 0
+    mem_switch(XEYO_L5="project")
+    history = _long_history(20, 20000)
+    original = deepcopy(history)
+    working = WorkingSnapshot()
+    out = project_for_model(history, working, include_memory_index=False)
+    assert working.compact_cursor == 0 and working.c1_frozen_until == 0
+    assert_unfolded_receipts(out, history)
+    assert history == original
 
 
-def test_cooldown_blocks_non_hardtop_c2(monkeypatch, mem_switch):
-	mem_switch(XEYO_L5="v61")
-	fake = SimpleNamespace(a_star="C2", hardtop=False)
-	monkeypatch.setattr("memory.simulator.decision.decide", lambda *a, **k: fake)
-	working = WorkingSnapshot()
-	working.turns_since_c2 = 2
-	msgs = _short_history() + [
-		_assistant_use("g0", "Grep"),
-		_tool_result("g0", "body"),
-	]
-	out = project_for_model(msgs, working)
-	assert out == project(msgs)
-	assert working.compact_cursor == 0
+def test_no_model_request_keeps_history_even_when_old_c2_policy_would_fold(monkeypatch):
+    def obsolete(*args, **kwargs):
+        raise AssertionError("old scheduling policy executed")
+    monkeypatch.setattr("memory.simulator.decision.decide", obsolete)
+    working = WorkingSnapshot(turns_since_c2=100)
+    messages = _short_history() + [_assistant_use("g0", "Grep"), _tool_result("g0", "body")]
+    out = project_for_model(messages, working, context_limit=1000000, include_memory_index=False)
+    assert working.compact_cursor == 0
+    assert_unfolded_receipts(out, messages)
 
 
-def test_hardtop_advances_cursor_store_len_unchanged(monkeypatch, mem_switch):
-	mem_switch(XEYO_L5="v61")
-	# 本测试验证 decide/HardTop 的基础机制（非公式路径）；显式关掉 Path A 公式开关
-	# （默认已启用），保持其原「冻结契约」断言成立。
-	mem_switch(XEYO_C2_PRESSURE_FORMULA="0", XEYO_C2_GAIN_FORMULA="0", XEYO_C2_EXTEND_FORMULA="0")
-	fake = SimpleNamespace(a_star="C2", hardtop=True)
-	monkeypatch.setattr("memory.simulator.decision.decide", lambda *a, **k: fake)
-	working = WorkingSnapshot()
-	history: list[dict] = [{"role": "user", "content": "start"}]
-	for i in range(12):
-		uid = f"g{i}"
-		history.append(_assistant_use(uid, "Grep"))
-		history.append(_tool_result(uid, "x" * 8000, role="tool"))
-	n = len(history)
-	out = project_for_model(history, working)
-	assert working.compact_cursor > 0
-	assert len(history) == n
-	assert out[0].get("name") == "session_summary"
-	assert working.compact_cursor < n
+def test_declared_capacity_forces_fold_without_mutating_source(monkeypatch):
+    monkeypatch.setattr("memory.simulator.decision.decide", lambda *a, **k: pytest.fail("old HardTop invoked"))
+    working = WorkingSnapshot(session_id="capacity-fold")
+    history = _long_history(12, 8000)
+    original = deepcopy(history)
+    out = project_for_model(history, working, context_limit=10000, include_memory_index=False)
+    assert 0 < working.compact_cursor < len(history)
+    assert history == original
+    assert out[0].get("name") == "session_summary"
+    assert_unfolded_receipts(out, history, working.compact_cursor)
 
 
 def test_kv1_two_non_c2_rounds_same_prefix():
@@ -158,17 +166,16 @@ def test_pair_safe_cut_does_not_split_tool_calls():
 			raise AssertionError("cut still splits assistant/tool pair")
 
 
-def test_c2_projection_keeps_tool_pairs(monkeypatch, mem_switch):
-	mem_switch(XEYO_L5="v61")
-	fake = SimpleNamespace(a_star="C2", hardtop=True)
-	monkeypatch.setattr("memory.simulator.decision.decide", lambda *a, **k: fake)
+def test_c2_projection_keeps_tool_pairs(tmp_path):
+	from memory.runtime import force_compact
 	working = WorkingSnapshot()
 	history: list[dict] = [{"role": "user", "content": "start"}]
 	for i in range(10):
 		uid = f"g{i}"
 		history.append(_assistant_use(uid, "Grep"))
 		history.append(_tool_result(uid, "x" * 100, role="tool"))
-	out = project_for_model(history, working)
+	out = force_compact(history, working, cwd=tmp_path)
+	assert working.compact_cursor > 0
 	pending: set[str] = set()
 	for msg in out:
 		if msg.get("role") == "assistant":
@@ -215,10 +222,8 @@ def test_flush_then_hydrate_keeps_cursor(tmp_path, monkeypatch):
 	assert got.todos[0]["content"] == "run tests"
 
 
-def test_c2_does_not_change_message_ids(monkeypatch, mem_switch):
-	mem_switch(XEYO_L5="v61")
-	fake = SimpleNamespace(a_star="C2", hardtop=True)
-	monkeypatch.setattr("memory.simulator.decision.decide", lambda *a, **k: fake)
+def test_c2_does_not_change_message_ids(tmp_path):
+	from memory.runtime import force_compact
 	working = WorkingSnapshot()
 	history: list[dict] = [{"role": "user", "content": "start", "id": "u0"}]
 	for i in range(10):
@@ -226,7 +231,8 @@ def test_c2_does_not_change_message_ids(monkeypatch, mem_switch):
 		history.append({**_assistant_use(uid, "Grep"), "id": f"a{i}"})
 		history.append({**_tool_result(uid, "x" * 50, role="tool"), "id": f"t{i}"})
 	ids_before = [m.get("id") for m in history]
-	project_for_model(history, working)
+	force_compact(history, working, cwd=tmp_path)
+	assert working.compact_cursor > 0
 	assert [m.get("id") for m in history] == ids_before
 
 
@@ -239,91 +245,35 @@ def _long_history(n_pairs: int = 12, size: int = 8000) -> list[dict]:
 	return history
 
 
-def test_c1_freezes_middle_and_records_boundary(monkeypatch, mem_switch):
-	mem_switch(XEYO_L5="v61")
-	mem_switch(XEYO_C2_PRESSURE_FORMULA="0", XEYO_C2_GAIN_FORMULA="0", XEYO_C2_EXTEND_FORMULA="0")
-	from engine.compact import KEEP_TAIL_MESSAGES, _iter_tool_result_blocks
-
-	fake = SimpleNamespace(
-		a_star="C1",
-		hardtop=False,
-		branches={
-			"keep": SimpleNamespace(x="KEEP_X"),
-			"C1": SimpleNamespace(x="C1_X"),
-			"C2": SimpleNamespace(x="C2_X"),
-		},
-	)
-	monkeypatch.setattr("memory.simulator.decision.decide", lambda *a, **k: fake)
-	monkeypatch.setattr("memory.memdir.load_index_text", lambda wsid: "")
-	working = WorkingSnapshot()
-	working.turns_since_c2 = 5
-	history = _long_history(12)
-	n = len(history)
-	out = project_for_model(history, working)
-	assert working.c1_frozen_until == n - KEEP_TAIL_MESSAGES
-	assert working.turns_since_c2 == 0
-	assert working.last_x_sim == "C1_X"
-	kept = [
-		block["content"]
-		for msg in out
-		for block in _iter_tool_result_blocks(msg)
-	]
-	assert kept[0].startswith("[compacted] Grep:")
-	assert len(history) == n
-	# 冻结边界不重复前进：再跑一次仍是 keep 语义，边界不变
-	working.turns_since_c2 = 5
-	fake2 = SimpleNamespace(
-		a_star="keep",
-		hardtop=False,
-		branches={
-			"keep": SimpleNamespace(x="K"),
-			"C1": SimpleNamespace(x="C"),
-			"C2": SimpleNamespace(x="C2"),
-		},
-	)
-	monkeypatch.setattr("memory.simulator.decision.decide", lambda *a, **k: fake2)
-	_ = project_for_model(history, working)
-	assert working.c1_frozen_until == n - KEEP_TAIL_MESSAGES
+def test_old_c1_policy_cannot_freeze_unconsumed_history(monkeypatch):
+    monkeypatch.setattr("memory.simulator.decision.decide", lambda *a, **k: pytest.fail("old C1 invoked"))
+    history = _long_history(12)
+    working = WorkingSnapshot(turns_since_c2=100)
+    out = project_for_model(history, working, context_limit=1000000, include_memory_index=False)
+    assert working.c1_frozen_until == 0 and working.compact_cursor == 0
+    assert_unfolded_receipts(out, history)
+    again = project_for_model(history, working, context_limit=1000000, include_memory_index=False)
+    assert out == again
 
 
-def test_c1_cooldown_blocks_and_records_keep_x(monkeypatch, mem_switch):
-	mem_switch(XEYO_L5="v61")
-	fake = SimpleNamespace(
-		a_star="C1",
-		hardtop=False,
-		branches={
-			"keep": SimpleNamespace(x="KEEP_X"),
-			"C1": SimpleNamespace(x="C1_X"),
-		},
-	)
-	monkeypatch.setattr("memory.simulator.decision.decide", lambda *a, **k: fake)
-	monkeypatch.setattr("memory.memdir.load_index_text", lambda wsid: "")
-	working = WorkingSnapshot()
-	working.turns_since_c2 = 2  # 未满 4 轮 → 当 keep
-	history = _long_history(12)
-	out = project_for_model(history, working)
-	assert working.c1_frozen_until == 0
-	assert working.last_x_sim == "KEEP_X"
-	assert out[0]["content"].startswith("start")
+def test_keep_does_not_depend_on_old_c1_cooldown(monkeypatch):
+    monkeypatch.setattr("memory.simulator.decision.decide", lambda *a, **k: pytest.fail("old C1 invoked"))
+    history = _long_history(12)
+    results = []
+    for age in (0, 2, 100):
+        working = WorkingSnapshot(turns_since_c2=age, last_x_sim="stored observation")
+        results.append(project_for_model(history, working, context_limit=1000000, include_memory_index=False))
+        assert working.compact_cursor == 0 and working.c1_frozen_until == 0
+        assert working.last_x_sim == "stored observation"
+    assert results[0] == results[1] == results[2]
 
 
-def test_keep_records_last_x_sim_for_next_hit(monkeypatch, mem_switch):
-	mem_switch(XEYO_L5="v61")
-	fake = SimpleNamespace(
-		a_star="keep",
-		hardtop=False,
-		branches={
-			"keep": SimpleNamespace(x="PREV_X"),
-			"C1": SimpleNamespace(x=""),
-			"C2": SimpleNamespace(x=""),
-		},
-	)
-	monkeypatch.setattr("memory.simulator.decision.decide", lambda *a, **k: fake)
-	monkeypatch.setattr("memory.memdir.load_index_text", lambda wsid: "")
-	working = WorkingSnapshot()
-	msgs = _short_history()
-	project_for_model(msgs, working)
-	assert working.last_x_sim == "PREV_X"
+def test_keep_does_not_run_cost_predictor_or_replace_its_stored_observation(monkeypatch):
+    monkeypatch.setattr("memory.simulator.decision.decide", lambda *a, **k: pytest.fail("cost predictor invoked"))
+    working = WorkingSnapshot(last_x_sim="prior observation")
+    project_for_model(_short_history(), working, remaining_turns=999, include_memory_index=False)
+    assert working.last_x_sim == "prior observation"
+    assert working.compact_cursor == 0
 
 
 def test_project_path_also_appends_memory_index(monkeypatch, mem_switch):
@@ -481,49 +431,22 @@ def _fold_rows(path):
 	]
 
 
-def test_every_fold_attempt_is_ledgered_with_the_arm_that_ran(monkeypatch, mem_switch, tmp_path):
-	"""折叠判定的**放行和拒绝**都要落一行，且要能看出是哪一臂折的。
-
-	旧口径的缺口：被经济门拒掉时账本上什么都不留，"θ 挡了几次、每次差多少"只能靠重放
-	转录倒推；而事后唯一能区分「WSC 折的 / C2 折的」的凭据就是这个 `arm` 字段
-	（`c2_summary_text` 不是判据——它是触发侧记账，WSC 是否接管要看发射面）。
-	"""
-	import usage.ledger as L
-	from memory.runtime import project_for_model
-
-	monkeypatch.setattr(L, "usage_dir", lambda: tmp_path)
-	mem_switch(XEYO_L5="v61")
-	monkeypatch.setattr("memory.memdir.load_index_text", lambda wsid: "")
-	fake_c2 = SimpleNamespace(a_star="C2", hardtop=False, branches={
-		"keep": SimpleNamespace(x="K"),
-		"C1": SimpleNamespace(x="C"),
-		"C2": SimpleNamespace(x="C2"),
-	})
-	monkeypatch.setattr("memory.simulator.decision.decide", lambda *a, **k: fake_c2)
-	msgs = _big_msgs(30, 6000)
-
-	def one_shot(margin: str) -> dict:
-		monkeypatch.setenv("XEYO_C2_MARGIN", margin)
-		w = WorkingSnapshot()
-		w.compact_cursor = 8
-		w.c2_summary_text = "FROZEN_SUMMARY"
-		w.turns_since_c2 = 5
-		project_for_model(msgs, w, remaining_turns=30)
-		return w
-
-	one_shot("1000")   # θ 大到没人折得起 ⇒ 拒绝也要留痕
-	monkeypatch.setattr("memory.wsc_projection.live_enabled", lambda: True)
-	one_shot("0.01")    # 放行，且这一枪 WSC 在册
-
-	rows = _fold_rows(tmp_path / "fold_events.jsonl")
-	assert len(rows) == 2, rows
-	denied, allowed = rows
-	assert denied["fold"] is False and denied["reason"] == "pays_back_too_slow"
-	assert allowed["fold"] is True and allowed["reason"] == "worth_fold"
-	assert allowed["arm"] == "wsc" and denied["arm"] == "c2"
-	for row in (denied, allowed):
-		assert row["saved_net"] > 0 and row["transition"] > 0
-		assert row["theta"] > 0 and row["forced"] is False
+def test_keep_assessment_is_ledgered_without_economics_scheduling(monkeypatch, tmp_path):
+    import usage.ledger as ledger
+    monkeypatch.setattr(ledger, "usage_dir", lambda: tmp_path)
+    messages = _big_msgs(30, 6000)
+    for native in (False, True):
+        monkeypatch.setenv("XEYO_WSC", str(int(native)))
+        monkeypatch.setenv("XEYO_C2_MARGIN", "0.01" if native else "1000")
+        working = WorkingSnapshot(session_id="assessment-" + str(native))
+        project_for_model(messages, working, context_limit=1000000, include_memory_index=False)
+        assert working.compact_cursor == 0
+    rows = _fold_rows(tmp_path / "fold_events.jsonl")
+    assert len(rows) == 2
+    assert [r["arm"] for r in rows] == ["c2", "wsc"]
+    for row in rows:
+        assert row["fold"] is False and row["forced"] is False
+        assert row["timing_action"] == "keep" and row["input_tokens"] > 0
 
 
 def test_offline_replay_does_not_write_the_production_fold_ledger(monkeypatch, tmp_path):
@@ -541,89 +464,45 @@ def test_offline_replay_does_not_write_the_production_fold_ledger(monkeypatch, t
 	assert _fold_rows(tmp_path / "fold_events.jsonl") == []
 
 
-def test_c2_compact_state_never_rewrites_summary(monkeypatch, mem_switch):
-	"""已压缩态下 decide 反复给 C2 也不得重写冻结摘要（append-only）。
-
-	hardtop=False（非必要性）：扩展被收益闸拒绝时必须保持原摘要字节；必要性
-	（hardtop=True）才允许强制扩展，见 test_hardtop_forces_extension_despite_gates。
-	"""
-	from memory.runtime import project_for_model
-
-	mem_switch(XEYO_L5="v61")
-	mem_switch(XEYO_C2_PRESSURE_FORMULA="0", XEYO_C2_GAIN_FORMULA="0", XEYO_C2_EXTEND_FORMULA="0")
-	monkeypatch.setattr("memory.memdir.load_index_text", lambda wsid: "")
-	fake = SimpleNamespace(a_star="C2", hardtop=False, branches={
-		"keep": SimpleNamespace(x="K"),
-		"C1": SimpleNamespace(x="C"),
-		"C2": SimpleNamespace(x="C2"),
-	})
-	monkeypatch.setattr("memory.simulator.decision.decide", lambda *a, **k: fake)
-	w = WorkingSnapshot()
-	w.turns_since_c2 = 5  # 冷却已过（否则 cooling 会挡住首次 C2）
-	msgs = _big_msgs(14)
-	project_for_model(msgs, w, remaining_turns=10)
-	assert w.compact_cursor > 0 and w.c2_summary_text
-	frozen = w.c2_summary_text
-	# 继续追加消息，decide 仍报 C2（非必要）：扩展被收益门拒绝时应保持原摘要
-	msgs2 = _big_msgs(15)
-	project_for_model(msgs2, w, remaining_turns=10)
-	assert w.c2_summary_text == frozen
+def test_compact_generation_remains_frozen_without_new_request(monkeypatch, tmp_path):
+    from memory.runtime import force_compact
+    monkeypatch.setattr("memory.simulator.decision.decide", lambda *a, **k: pytest.fail("old C2 invoked"))
+    working = WorkingSnapshot(session_id="generation-keep")
+    messages = _big_msgs(14)
+    first = force_compact(messages, working, cwd=tmp_path)
+    cursor, frozen = working.compact_cursor, working.c2_summary_text
+    messages.append({"role": "user", "content": "continue"})
+    following = project_for_model(messages, working, context_limit=1000000, include_memory_index=False, cwd=tmp_path)
+    assert cursor > 0 and working.compact_cursor == cursor
+    assert working.c2_summary_text == frozen and following[0] == first[0]
 
 
-def test_c2_compact_state_extension_appends(monkeypatch, mem_switch):
-	"""已压缩态下新区足够大且剩余轮次多时才允许追加式扩展，旧前缀保留。"""
-	from memory.runtime import project_for_model
-
-	mem_switch(XEYO_L5="v61")
-	mem_switch(XEYO_C2_PRESSURE_FORMULA="0", XEYO_C2_GAIN_FORMULA="0", XEYO_C2_EXTEND_FORMULA="0")
-	monkeypatch.setattr("memory.memdir.load_index_text", lambda wsid: "")
-	fake = SimpleNamespace(a_star="C2", hardtop=True, branches={
-		"keep": SimpleNamespace(x="K"),
-		"C1": SimpleNamespace(x="C"),
-		"C2": SimpleNamespace(x="C2"),
-	})
-	monkeypatch.setattr("memory.simulator.decision.decide", lambda *a, **k: fake)
-	w = WorkingSnapshot()
-	msgs = _big_msgs(14, 6000)
-	project_for_model(msgs, w, remaining_turns=30)
-	assert w.compact_cursor > 0 and w.c2_summary_text
-	frozen = w.c2_summary_text
-	# 会话翻倍到 40 条且剩余 30 轮 → 保守默认仍允许 append-only 扩展
-	msgs2 = _big_msgs(40, 6000)
-	project_for_model(msgs2, w, remaining_turns=30)
-	assert w.c2_summary_text.startswith(frozen)
-	assert "[C2+EXT]" in w.c2_summary_text
-	assert w.compact_cursor > 14
+def test_new_explicit_fold_replaces_generation_and_preserves_archives(tmp_path):
+    from memory.runtime import force_compact
+    working = WorkingSnapshot(session_id="generation-replace")
+    messages = _big_msgs(14, 6000)
+    first = force_compact(messages, working, cwd=tmp_path)
+    cursor = working.compact_cursor
+    archived = {p: p.read_bytes() for p in tmp_path.rglob("*.txt")}
+    assert archived
+    messages.extend(_big_msgs(26, 6000))
+    original = deepcopy(messages)
+    second = force_compact(messages, working, cwd=tmp_path)
+    assert working.compact_cursor > cursor
+    assert second[0] != first[0]
+    assert not second[0]["content"].startswith(first[0]["content"])
+    assert messages == original
+    assert all(p.read_bytes() == content for p, content in archived.items())
 
 
 
-def test_c2_decoupled_extension_fires_when_decide_keeps(monkeypatch, mem_switch):
-	"""压缩态 + c2_extend_decouple=True：decide 返回 keep 也按 append 闸门扩展（θ 门不再卡死尾部）。"""
-	from memory.runtime import project_for_model
-	from memory.simulator.params import Params
-
-	mem_switch(XEYO_L5="v61")
-	monkeypatch.setattr("memory.memdir.load_index_text", lambda wsid: "")
-	# θ 放到 0.01：本测只验"解耦接线"，经济门另测（test_extend_gate_*）。
-	monkeypatch.setenv("XEYO_C2_MARGIN", "0.01")
-	monkeypatch.setattr(
-		"memory.simulator.params.load_params",
-		lambda: Params(c2_extend_decouple=True, c2_extend_ratio=0.5),
-	)
-	fake_keep = SimpleNamespace(a_star="keep", hardtop=False, branches={
-		"keep": SimpleNamespace(x="K"),
-		"C1": SimpleNamespace(x="C"),
-		"C2": SimpleNamespace(x="C2"),
-	})
-	monkeypatch.setattr("memory.simulator.decision.decide", lambda *a, **k: fake_keep)
-	w = WorkingSnapshot()
-	w.compact_cursor = 8
-	w.c2_summary_text = "FROZEN_SUMMARY"
-	msgs = _big_msgs(24, 6000)
-	project_for_model(msgs, w, remaining_turns=30)
-	assert w.c2_summary_text.startswith("FROZEN_SUMMARY")
-	assert "[C2+EXT]" in w.c2_summary_text
-	assert w.compact_cursor > 8
+def test_old_decoupled_extension_flag_cannot_advance_cursor(monkeypatch):
+    from memory.simulator.params import Params
+    monkeypatch.setattr("memory.simulator.params.load_params", lambda: Params(c2_extend_decouple=True, c2_extend_ratio=0.5))
+    monkeypatch.setenv("XEYO_C2_MARGIN", "0.01")
+    working = WorkingSnapshot(compact_cursor=8, c2_summary_text="FROZEN_SUMMARY")
+    project_for_model(_big_msgs(24, 6000), working, context_limit=1000000, include_memory_index=False)
+    assert working.compact_cursor == 8 and working.c2_summary_text == "FROZEN_SUMMARY"
 
 
 def test_c2_decoupled_extension_off_by_default(monkeypatch, mem_switch):
@@ -651,176 +530,65 @@ def test_c2_decoupled_extension_off_by_default(monkeypatch, mem_switch):
 	assert w.c2_summary_text == "FROZEN_SUMMARY"
 	assert w.compact_cursor == 8
 
-def test_c2_projection_prefix_stable_across_rounds(monkeypatch, mem_switch):
-	"""已压缩态连续两轮：投影首段（摘要）字节级一致，KV 前缀可命中。"""
-	import json as _json
-
-	from memory.runtime import project_for_model
-
-	mem_switch(XEYO_L5="v61")
-	mem_switch(XEYO_C2_PRESSURE_FORMULA="0", XEYO_C2_GAIN_FORMULA="0", XEYO_C2_EXTEND_FORMULA="0")
-	monkeypatch.setattr("memory.memdir.load_index_text", lambda wsid: "")
-	fake = SimpleNamespace(a_star="C2", hardtop=True, branches={
-		"keep": SimpleNamespace(x="K"),
-		"C1": SimpleNamespace(x="C"),
-		"C2": SimpleNamespace(x="C2"),
-	})
-	monkeypatch.setattr("memory.simulator.decision.decide", lambda *a, **k: fake)
-	w = WorkingSnapshot()
-	msgs = _big_msgs(14)
-	out1 = project_for_model(msgs, w, remaining_turns=10)
-	assert w.compact_cursor > 0
-	fake_keep = SimpleNamespace(a_star="keep", hardtop=False, branches={
-		"keep": SimpleNamespace(x="K"),
-		"C1": SimpleNamespace(x="C"),
-		"C2": SimpleNamespace(x="C2"),
-	})
-	monkeypatch.setattr("memory.simulator.decision.decide", lambda *a, **k: fake_keep)
-	msgs2 = _big_msgs(15)
-	out2 = project_for_model(msgs2, w, remaining_turns=10)
-	j1 = _json.dumps(out1, ensure_ascii=False, separators=(",", ":"))
-	j2 = _json.dumps(out2, ensure_ascii=False, separators=(",", ":"))
-	assert out1[0] == out2[0]
-	assert j2.startswith(j1[:-1]) or out1[0] == out2[0]
+def test_c2_projection_prefix_stable_across_rounds(tmp_path):
+    from memory.runtime import force_compact
+    working = WorkingSnapshot(session_id="prefix")
+    messages = _big_msgs(14)
+    first = force_compact(messages, working, cwd=tmp_path)
+    cursor = working.compact_cursor
+    messages.append({"role": "user", "content": "next"})
+    second = project_for_model(messages, working, context_limit=1000000, include_memory_index=False, cwd=tmp_path)
+    assert cursor > 0 and working.compact_cursor == cursor
+    assert second[0] == first[0]
 
 
-def test_hardtop_forces_extension_despite_gates(monkeypatch, mem_switch):
-	"""缺口①（兜底不受 θ 约束）：θ 抬到任何值都拦不住超窗必要性——HardTop 仍推进 cursor。
-
-	这条是"推迟过头"的安全网：θ 越大越不肯折，末枪 prompt 就会涨到水位附近（09-22 重放
-	θ=4 时末枪 52,883 ≈ 64k 档水位 52,428），越过去就是 400。所以经济门只管"值不值"，
-	"来不来得及"永远由 force 通道接管。
-	"""
-	from memory.runtime import c2_cut_index, project_for_model, try_extend_c2
-	from memory.simulator.params import load_params
-
-	mem_switch(XEYO_L5="v61")
-	monkeypatch.setattr("memory.memdir.load_index_text", lambda wsid: "")
-	monkeypatch.setenv("XEYO_C2_MARGIN", "1000")  # θ = 1000 ⇒ 没有任何一枪折得起
-	msgs = _big_msgs(30, 6000)
-	# 先证同一形状下非 force 必拒（被 θ 挡，而不是被尺寸挡）
-	probe = WorkingSnapshot()
-	probe.compact_cursor = 8
-	probe.c2_summary_text = "FROZEN_SUMMARY"
-	probe_acct: dict = {}
-	assert not try_extend_c2(probe, msgs, c2_cut_index(msgs, None), load_params(),
-	                         account=probe_acct)
-	assert probe_acct["reason"] == "pays_back_too_slow"
-	assert probe.compact_cursor == 8
-
-	fake_hard = SimpleNamespace(
-		a_star="C2",
-		hardtop=True,
-		branches={
-			"keep": SimpleNamespace(x="K"),
-			"C1": SimpleNamespace(x="C"),
-			"C2": SimpleNamespace(x="C2"),
-		},
-	)
-	monkeypatch.setattr("memory.simulator.decision.decide", lambda *a, **k: fake_hard)
-	w = WorkingSnapshot()
-	w.compact_cursor = 8
-	w.c2_summary_text = "FROZEN_SUMMARY"
-	w.turns_since_c2 = 5
-	out = project_for_model(msgs, w, remaining_turns=2)
-	assert w.compact_cursor > 8
-	assert w.c2_summary_text.startswith("FROZEN_SUMMARY")
-	assert "[C2+EXT]" in w.c2_summary_text
-	assert out[0].get("name") == "session_summary"
+def test_capacity_force_bypasses_old_economics_and_cooldown(monkeypatch, tmp_path):
+    monkeypatch.setenv("XEYO_C2_MARGIN", "1000")
+    monkeypatch.setattr("memory.simulator.decision.decide", lambda *a, **k: pytest.fail("old HardTop invoked"))
+    working = WorkingSnapshot(session_id="capacity-extension", compact_cursor=8, c2_summary_text="FROZEN_SUMMARY", c2_gap_shots=1000)
+    messages = _big_msgs(30, 6000)
+    original = deepcopy(messages)
+    out = project_for_model(messages, working, context_limit=10000, include_memory_index=False, cwd=tmp_path)
+    assert working.compact_cursor > 8
+    assert not working.c2_summary_text.startswith("FROZEN_SUMMARY")
+    assert out[0].get("name") == "session_summary"
+    assert messages == original
 
 
-def test_hardtop_no_extension_when_no_region(monkeypatch, mem_switch):
-	"""缺口①边界：HardTop 但无可前进切点（cursor 已到末端）→ 不崩溃、光标不动。"""
-	from memory.runtime import project_for_model
-
-	mem_switch(XEYO_L5="v61")
-	monkeypatch.setattr("memory.memdir.load_index_text", lambda wsid: "")
-	fake_hard = SimpleNamespace(
-		a_star="C2",
-		hardtop=True,
-		branches={
-			"keep": SimpleNamespace(x="K"),
-			"C1": SimpleNamespace(x="C"),
-			"C2": SimpleNamespace(x="C2"),
-		},
-	)
-	monkeypatch.setattr("memory.simulator.decision.decide", lambda *a, **k: fake_hard)
-	w = WorkingSnapshot()
-	w.compact_cursor = 10
-	w.c2_summary_text = "FROZEN_SUMMARY"
-	w.turns_since_c2 = 5
-	msgs = _big_msgs(12, 6000)
-	# len=12，c2_cut 取 len-KEEP_TAIL=6 < cursor=10 → new_cursor 无法前进 → 保持原样
-	out = project_for_model(msgs, w, remaining_turns=2)
-	assert w.compact_cursor == 10
-	assert w.c2_summary_text == "FROZEN_SUMMARY"
-	assert out[0].get("name") == "session_summary"
+def test_force_no_extension_when_no_eligible_region(tmp_path):
+    """An explicit fold cannot move a cursor past the safe recent boundary."""
+    from memory.runtime import force_compact
+    working = WorkingSnapshot(session_id="no-region", compact_cursor=10, c2_summary_text="FROZEN_SUMMARY")
+    messages = _big_msgs(12, 6000)
+    original = deepcopy(messages)
+    out = force_compact(messages, working, cwd=tmp_path)
+    assert working.compact_cursor == 10
+    assert working.c2_summary_text == "FROZEN_SUMMARY"
+    assert out[0].get("name") == "session_summary"
+    assert messages == original
 
 
-def test_remaining_capped_by_r_cap(monkeypatch, mem_switch):
-	"""r_cap 接线：runtime 传给 decide 的 remaining_turns 按 params.r_cap 封顶。"""
-	from memory.runtime import project_for_model
-	from memory.simulator.params import Params
-
-	mem_switch(XEYO_L5="v61")
-	monkeypatch.setattr("memory.memdir.load_index_text", lambda wsid: "")
-	captured = {}
-	fake = SimpleNamespace(
-		a_star="keep",
-		hardtop=False,
-		branches={"keep": SimpleNamespace(x="K"), "C1": SimpleNamespace(x="C"), "C2": SimpleNamespace(x="C2")},
-	)
-
-	def spy_decide(s0, cache, **kw):
-		captured["remaining"] = kw.get("remaining_turns")
-		return fake
-
-	monkeypatch.setattr("memory.simulator.decision.decide", spy_decide)
-	monkeypatch.setattr("memory.simulator.params.load_params", lambda: Params(r_cap=4))
-	w = WorkingSnapshot()
-	w.turns_since_c2 = 5
-	out = project_for_model(_short_history(), w, remaining_turns=99)
-	assert captured["remaining"] == 4
-	assert out == project(_short_history())
+def test_remaining_turns_cannot_schedule_or_change_projection(monkeypatch):
+    monkeypatch.setattr("memory.simulator.decision.decide", lambda *a, **k: pytest.fail("remaining-turns predictor invoked"))
+    messages = _long_history(12)
+    outputs = []
+    for remaining in (0, 1, 4, 99):
+        working = WorkingSnapshot()
+        outputs.append(project_for_model(messages, working, remaining_turns=remaining, context_limit=1000000, include_memory_index=False))
+        assert working.compact_cursor == 0
+    assert all(output == outputs[0] for output in outputs)
 
 
-def test_c2_compressed_right_side_freezes_after_c1(monkeypatch, mem_switch):
-	"""缺口②：压缩态 C1（原地冻结，不动 cursor）后，右段中间 tool_result 被占位、
-	尾部原文保留——「压完即回血」被截断。"""
-	from engine.compact import _iter_tool_result_blocks
-	from memory.runtime import project_for_model
-
-	mem_switch(XEYO_L5="v61")
-	monkeypatch.setattr("memory.memdir.load_index_text", lambda wsid: "")
-	# 本测考的是 C1 把右段原地冻结。θ=1 下这一枪的扩展是**划算**的（decouple 通道会先
-	# 折一次并直接返回 C2），所以把 θ 抬到 1000 关死扩展闸，免得测到别的东西。
-	monkeypatch.setenv("XEYO_C2_MARGIN", "1000")
-	fake_c1 = SimpleNamespace(
-		a_star="C1",
-		hardtop=False,
-		branches={
-			"keep": SimpleNamespace(x="K"),
-			"C1": SimpleNamespace(x="C1X"),
-			"C2": SimpleNamespace(x="C2X"),
-		},
-	)
-	monkeypatch.setattr("memory.simulator.decision.decide", lambda *a, **k: fake_c1)
-	w = WorkingSnapshot()
-	w.compact_cursor = 8
-	w.c2_summary_text = "FROZEN_SUMMARY"
-	w.turns_since_c2 = 5  # 冷却已过
-	history = _long_history(12, 8000)
-	out = project_for_model(history, w)
-	assert out[0].get("name") == "session_summary"
-	assert w.c1_frozen_until > 0
-	content = [
-		block["content"] for msg in out for block in _iter_tool_result_blocks(msg)
-	]
-	# 冻结边界之前：占位；之后（尾部）：原文
-	assert any(isinstance(c, str) and c.startswith("[compacted]") for c in content)
-	assert any(isinstance(c, str) and c.startswith("xxx") for c in content[-3:]) or any(
-		isinstance(c, str) and len(c) > 100 for c in content[-3:]
-	)
+def test_existing_compact_generation_keeps_unfrozen_tool_results(monkeypatch):
+    monkeypatch.setattr("memory.simulator.decision.decide", lambda *a, **k: pytest.fail("old C1 invoked"))
+    working = WorkingSnapshot(compact_cursor=8, c2_summary_text="FROZEN_SUMMARY", c1_frozen_until=8)
+    messages = _long_history(12, 8000)
+    original = deepcopy(messages)
+    out = project_for_model(messages, working, context_limit=1000000, include_memory_index=False)
+    assert out[0]["content"] == "FROZEN_SUMMARY"
+    assert working.compact_cursor == 8 and working.c1_frozen_until == 8
+    assert_unfolded_receipts(out, messages, 8)
+    assert messages == original
 
 
 # ---------------------------------------------------------------------------

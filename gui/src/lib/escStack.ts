@@ -1,3 +1,5 @@
+import {isImeComposing} from './ime';
+
 type EscLayer = {
 	id: string;
 	handler: () => void;
@@ -7,7 +9,7 @@ const layers: EscLayer[] = [];
 let listening = false;
 
 function onKeyDown(e: KeyboardEvent): void {
-	if (e.key !== 'Escape' || e.isComposing) {
+	if (e.key !== 'Escape' || isImeComposing(e)) {
 		return;
 	}
 	const top = layers[layers.length - 1];

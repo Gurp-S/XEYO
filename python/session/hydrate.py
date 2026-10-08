@@ -166,6 +166,18 @@ def _repair_unclosed_tool_uses(messages: list[Message]) -> list[Message]:
 		for uid, name in uses:
 			if uid in have:
 				continue
+			from engine.execution_facts import enabled as fact_contracts
+			if fact_contracts():
+				from engine.t_now_notes import current_session_id
+				from session.execution_receipt import lookup
+				row = lookup(current_session_id(), uid)
+				if row and row["phase"] == "returned":
+					text = row["content"] if row.get("complete") else f"[{name}] TOOL_RESULT_LOST state=returned status={row['status']} content_sha256={row['content_sha256']}"
+					out.append(tool_result_message(uid, name, text, is_error=bool(row["is_error"]), execution=row.get("execution")))
+					continue
+				text = f"[{name}] TOOL_OUTCOME_UNKNOWN — result unavailable." + _call_start_fact(uid)
+				out.append(tool_result_message(uid, name, text, is_error=True))
+				continue
 			if name in readonly:
 				text = (
 					f"[{name}] TOOL_NOT_STARTED — 上一进程在工具开始前中断；"

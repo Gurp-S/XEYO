@@ -1,36 +1,24 @@
-"""WSC 折叠评估的软水位与停止规则（旁路；``XEYO_WSC_SOFT_WATERMARK=0`` 时逐字不改现行为）。
+"""WSC 折叠评估的候选门（**绝对水位旋钮已退场**，2026-10-08 用户裁定）。
 
-存在的理由：现网折叠节奏由 ``memory/runtime.py`` 的 decoupled 支每枪问一次 θ 门决定，
-而 θ 的判据里**没有任何"上下文够大了才值得考虑折叠"这一项**。注意不要认错人：
-`LEVEL_WATERMARK`（`synaptic/types.py:37`）**在生产里一个读者都没有**（只剩定义 +
-`synaptic/__init__.py` 的再导出），`XEYO_WSC_CADENCE_ABSORB` 那块读的是
-`synaptic.cadence.watermark_tokens`，且该旗标默认关 ⇒ 两者都管不到现网节奏。
-本模块把"什么时候才进入候选评估"独立出来，按裁定实现成**触发线**，不是目标大小。
-候选门统一由 ``try_extend_c2`` 调用，覆盖两条普通扩展入口；HardTop 强制扩展绕过它。
+退场后本模块只负责"这一枪准不准进入候选评估"的状态机（候选身份去重 / 评估冷却），
+不再从环境读水位：新机制 ``memory/wsc_timing`` 的判据明令"绝对 token 水位不得放行
+自动折叠"，唯一自动通路是容量压力（≥ 声明容量的 85%）。因此
+:func:`soft_watermark_tokens` 恒返回 0，调用点的水位门自然短路；只有显式传
+``watermark`` 的调用者才存在闸门（测试与离线实验用）。
 
-裁定逐字落地（顾问 2026-09-30）：
-
-1. 软水位只作**完整请求进入候选评估的触发线**，不兼任折叠后的目标大小 ⇒
-   折完仍超线也算合格结果，本模块**不**要求"继续折到线以下"。
-2. 每枪最多精算一个候选；本模块只回答"这一枪准不准进评估"。
-3. 候选身份 =（冻结头版本, 可吸收边界, 消息修订状态）⇒ 相同候选不重复精算。
-4. 重评估沿用 ``params.min_middle_edit_gap``（现值 4），且**从最近一次精算起算，
-   包括被拒的那次**。
-5. 评估枪号与成功折叠枪号分开记：本模块**绝不**读写 ``turns_since_c2`` /
-   ``compact_cursor``，那两样是折叠侧的账。
-
-硬容量压力（``d.hardtop``）由调用方绕开本模块——必要性高于节奏。
+其余历史设计（候选身份三要素 / 冷却从最近一次精算起算 / 评估枪号与折叠枪号分开 /
+硬容量压力绕开本模块）继续有效。
 """
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass, field
 
-_ENV = "XEYO_WSC_SOFT_WATERMARK"
-#: 顾问给的旁路初值。**是实验起点，不是已证明的注意力最优值**：32k/48k/64k 的扫描
-#: 只能用来比较，不能单靠费用选数。默认 0 = 关闭 = 现行为。
-DEFAULT_EXPERIMENT_TOKENS = 48_000
+#: 旋钮 ``XEYO_WSC_SOFT_WATERMARK`` 已退场（2026-10-08 用户裁定）：新机制
+#: ``memory/wsc_timing`` 的判据明令"**绝对 token 水位不得放行自动折叠**"，唯一
+#: 自动通路是容量压力（≥ 声明容量的 85%）。本模块保留候选评估的状态机
+#: （候选身份去重 / 评估冷却），但不再从环境取水位——只有调用方显式传
+#: ``watermark`` 才存在闸门；生产调用点不再传（见 ``memory/runtime``）。
 
 #: 拒绝原因（对外只认这四个）。
 REASON_OK = "admit"
@@ -41,15 +29,13 @@ REASON_COOLDOWN = "assessment_cooldown"
 
 
 def soft_watermark_tokens() -> int:
-	"""软水位（token）。0 = 关闭本模块 ⇒ 生产行为逐字不变。"""
-	raw = os.environ.get(_ENV, "").strip()
-	if not raw:
-		return 0
-	try:
-		value = int(float(raw))
-	except ValueError:
-		return 0
-	return value if value > 0 else 0
+	"""软水位（token）。**退场后恒 0** ⇒ 不按绝对水位放行折叠。
+
+	历史：本函数原读 ``XEYO_WSC_SOFT_WATERMARK``（旁路实验起点值 32k/48k/64k）。
+	该键退役后，自动折叠只由 ``memory/wsc_timing`` 的容量压力触发；这里返回 0
+	让调用点的水位门自然短路（与"默认关"的历史默认值一致）。
+	"""
+	return 0
 
 
 @dataclass

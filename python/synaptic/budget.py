@@ -159,6 +159,12 @@ def render_requests(
 
 	分层：最近 ``request_recent_verbatim`` 条用完整摘录，更早的用 ``request_excerpt_chars_old``。
 	"""
+	from synaptic.requirement_floor import enabled as floor_enabled, render as render_floor
+	if floor_enabled():
+		return render_floor(graph, region_end, user_nodes, handles)
+	from synaptic.request_plane import enabled as requests_enabled
+	if requests_enabled():
+		handle_only = True
 	hr = renderer_or_default(handles)
 	recent = _recent_verbatim_ids(user_nodes, params)
 	out: list[Line] = []
@@ -194,6 +200,12 @@ def render_requests_grouped(
 	同一文本只保留一份摘录；该文本的所有原始节点合并进一个 ``node://i,j,...``
 	组句柄，因此每个节点仍可从冷层无损拉回。预算不足时再退化成整组仅句柄。
 	"""
+	from synaptic.requirement_floor import enabled as floor_enabled, render as render_floor
+	if floor_enabled():
+		return render_floor(graph, region_end, user_nodes, handles)
+	from synaptic.request_plane import enabled as requests_enabled
+	if requests_enabled():
+		handle_only = True
 	limit_default = params.request_excerpt_chars if excerpt_chars is None else excerpt_chars
 	recent = _recent_verbatim_ids(user_nodes, params)
 	groups: dict[str, list[int]] = {}
@@ -486,6 +498,15 @@ def apply_hot_budgets(
 	# WSC 招牌信息与可恢复性的载体，用假超限去换它属于自己削卖点。
 	main_headroom = max(0, int(params.fixed_segment_budget_tokens) - fixed_tokens)
 	main_cap = int(params.main_segment_budget_tokens) + main_headroom
+	from synaptic.requirement_floor import enabled as floor_enabled, render as render_floor
+	if floor_enabled():
+		out[request_header] = render_floor(graph, region_end, user_nodes, handles)
+		mode, excerpt = "verbatim_history", 0
+		fixed_tokens = sum(segment_tokens(out.get(h, ())) for h in fixed_headers)
+		fixed_overflow = max(0, fixed_tokens - fixed_cap)
+		fixed_unavoidable = max(fixed_unavoidable, fixed_overflow)
+		main_headroom = max(0, int(params.fixed_segment_budget_tokens) - fixed_tokens)
+		main_cap = int(params.main_segment_budget_tokens) + main_headroom
 	request_tokens = segment_tokens(out.get(request_header, ()))
 	audit = HotBudgetAudit(
 		fixed_budget_tokens=int(params.fixed_segment_budget_tokens),
@@ -574,6 +595,12 @@ def render_requests_compact(
 	发射顺序：**旧块（按 idx 升序）在前，最近 K 条在后**。理由与 ``[PATHS]`` 同一条：
 	新内容一律追加在段尾，段内不因「某条原话翻进/翻出近期窗口」而整体重排。
 	"""
+	from synaptic.requirement_floor import enabled as floor_enabled, render as render_floor
+	if floor_enabled():
+		return render_floor(graph, region_end, user_nodes, handles)
+	from synaptic.request_plane import enabled as requests_enabled
+	if requests_enabled():
+		handle_only = True
 	recent = _recent_verbatim_ids(user_nodes, params)
 	hr = renderer_or_default(handles)
 	old: dict[int, str] = {

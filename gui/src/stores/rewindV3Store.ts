@@ -23,6 +23,7 @@ import {
 	recoverSessionMessages,
 } from '@/stores/chat/preStoreHelpers';
 import {useChatStore} from '@/stores/chatStore';
+import {createStreamOwnership} from '@/stores/chat/streamOwnership';
 
 /**
  * 回溯 v3 热路径 store（合同见 #31，企业级口径 #36）。
@@ -1045,12 +1046,14 @@ export const useRewindV3Store = create<RewindV3Store>((set, get) => {
 				void get().loadPills(sessionId);
 				try {
 					const cur = useChatStore.getState();
+					const ownership = createStreamOwnership(useChatStore.setState, useChatStore.getState, sessionId, activeBackendSessionId(cur.historyById, sessionId));
 					// undo 后服务端是权威（orphan 已回放，本地可能是截断+新回合的混合）。
 					const msgs = await loadSessionMessagesWithBackfill(
 						sessionId,
 						cur.historyById,
-						{preferServer: true},
+						{preferServer: true, isCurrent: ownership.isCurrent},
 					);
+					if (!ownership.isCurrent()) return true;
 					useChatStore.setState({
 						messagesById: {...useChatStore.getState().messagesById, [sessionId]: msgs},
 					});
@@ -1133,14 +1136,17 @@ export const useRewindV3Store = create<RewindV3Store>((set, get) => {
 		try {
 			const ev = await fetchRewindStatus(sessionId, st.rewindId);
 			if (['committed', 'partial', 'recovery_abandoned'].includes(ev.status)) {
+				const current = useChatStore.getState();
+				const ownership = createStreamOwnership(useChatStore.setState, useChatStore.getState, sessionId, activeBackendSessionId(current.historyById, sessionId));
 				const msgs =
 					ev.status === 'recovery_abandoned'
 						? (useChatStore.getState().messagesById[sessionId] ?? [])
 						: await loadSessionMessagesWithBackfill(
 								sessionId,
 								useChatStore.getState().historyById,
-								{preferServer: true},
+									{preferServer: true, isCurrent: ownership.isCurrent},
 							);
+					if (!ownership.isCurrent()) return;
 					useChatStore.setState({
 						messagesById: {...useChatStore.getState().messagesById, [sessionId]: msgs},
 					});

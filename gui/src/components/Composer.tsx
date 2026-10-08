@@ -24,7 +24,7 @@ import {
 	type KeyboardEvent,
 	type MouseEvent as ReactMouseEvent,
 } from 'react';
-import {fetchFileReferences, uploadFile, uploadMedia, mediaUrl, resumeInbox, steerInboxItem, type SkillInfo} from '@/lib/api';
+import {fetchFileReferences, uploadFile, uploadMedia, mediaUrl, steerInboxItem, type SkillInfo} from '@/lib/api';
 import {
 	canEditInboxItem,
 	canManuallyResumeInbox,
@@ -100,9 +100,10 @@ import {ErrorBanner} from './ErrorBanner';
 import {SessionTodoDock} from './SessionTodoDock';
 import {ComposerQuickMenu} from './ComposerQuickMenu';
 import {McpPanel} from './McpPanel';
-import {SessionGoalDock, useSessionGoalDockLive} from './SessionGoalDock';
+import {SessionGoalDock} from './SessionGoalDock';
 import {ImageReaderDialog} from './ImageReader';
 import {normalizeAgentMode} from '@/lib/agentMode';
+import {useQueuedRequestSettings, resumeInboxUsingCurrentSettings} from '@/hooks/useQueuedRequestSettings';
 import {SIDE_SPACE_ID} from '@/lib/db';
 
 type FileAttachment = DraftFileAttachment;
@@ -267,7 +268,6 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 	const smoothness = useSettingsStore(s => isSmoothnessOn(s.smoothness));
 	// 忙时裸 Enter 的含义（'queue' | 'steer'）；加速键恒为其反面。
 	const busyEnter = useSettingsStore(s => normalizeBusyEnter(s.busyEnter));
-	const goalDockLive = useSessionGoalDockLive();
 	const agentMode = useChatUiStore(s => s.agentMode);
 	const setAgentMode = useChatUiStore(s => s.setAgentMode);
 	const remoteLoggedIn = useRemoteStore(s => s.loggedIn);
@@ -581,6 +581,9 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 	permissionModeRef.current = permissionMode;
 	const reasoningEffortRef = useRef(reasoningEffort);
 	reasoningEffortRef.current = reasoningEffort;
+	useQueuedRequestSettings(activeId, {
+		agentMode: normalizeAgentMode(agentMode), multiAgent, reasoningEffort,
+	});
 
 	/** 按 session 保存/恢复：输入草稿 + Agent/审批/多 Agent 模式。 */
 	useLayoutEffect(() => {
@@ -1925,7 +1928,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 				{/* composer 栈：一列独立卡 + 6px 间距（DSH composerStack）。 */}
 				<div className="xy-composer-stack">
 				{showTodoDock ? <SessionTodoDock embedded /> : null}
-				{goalDockLive ? <SessionGoalDock embedded /> : null}
+				<SessionGoalDock embedded />
 				{hasInboxChip && inboxItems.length > 0 ? (
 					// 排队列表：全部条目可见（默认 3 条，超出折叠）——
 					// 每条独立行：状态、文本与安全可用的编辑/重试/取消动作。
@@ -1951,7 +1954,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 										const backendId = activeBackendSessionId(current.historyById, sessionId);
 										void runQueueAction(
 											'__resume_queued__',
-											() => resumeInbox(backendId),
+											() => resumeInboxUsingCurrentSettings(backendId, {agentMode: normalizeAgentMode(agentMode), multiAgent, reasoningEffort}),
 											'继续投递失败',
 										).then(() => refreshInbox(sessionId));
 									}}
@@ -2098,7 +2101,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 													const backendId = activeBackendSessionId(current.historyById, sessionId);
 													void runQueueAction(
 														it.queue_id,
-														() => resumeInbox(backendId, it.queue_id),
+														() => resumeInboxUsingCurrentSettings(backendId, {agentMode: normalizeAgentMode(agentMode), multiAgent, reasoningEffort}, it.queue_id),
 														'重新投递失败',
 													).then(() => refreshInbox(sessionId));
 												}}

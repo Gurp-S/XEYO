@@ -358,6 +358,8 @@ class ToolRegistry:
 			with mark_permission_preapproved(True):
 				result = await tool.execute(tool_use.input, abort)
 		except BaseException as exc:
+			from session.execution_receipt import record as record_receipt
+			record_receipt(audit_session_id, str(tool_use.id), str(tool.name))
 			if action_journal is not None and action_id:
 				try:
 					if action_journal.enabled:
@@ -378,6 +380,8 @@ class ToolRegistry:
 					**_runtime_audit_fields(),
 				)
 			raise
+		from session.execution_receipt import record as record_receipt
+		record_receipt(audit_session_id, str(tool_use.id), str(tool.name), result)
 		# T1：原始输出先落盘（raw → spill），再替换为「预览 + 全文路径」。
 		result = self._apply_output_budget(tool, result, session_id=session_id)
 		if result.side_effect == "none":
@@ -744,6 +748,7 @@ class ToolRegistry:
 				turn_id=coordinator.turn_id if coordinator else "",
 			)
 		if decision.decision == PermissionDecision.DENY:
+			from engine.execution_facts import enabled as fact_contracts, denial_text
 			default_audit_log().record(
 				"permission.denied",
 				session_id=coordinator.session_id if coordinator else "",
@@ -759,7 +764,7 @@ class ToolRegistry:
 			# decision.prompt 是给用户的 ASK 问句文案（如 "Allow executing: …"），
 			# 不得作为拒绝结果回给模型（语义错位）。
 			return ToolResult(
-				content=f"Permission denied: {decision.reason}",
+				content=denial_text(decision, tool_use.input) if fact_contracts() else f"Permission denied: {decision.reason}",
 				is_error=True,
 				status="error",
 				error_kind=PERMISSION_DENIED,

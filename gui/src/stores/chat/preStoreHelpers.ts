@@ -4,7 +4,6 @@
  * 故留在原处。行为不变。
  */
 import {
-	loadServerSessionMessages,
 	setWorkspace,
 	type AgentDetail,
 	type AskQuestion,
@@ -13,7 +12,6 @@ import {
 } from '@/lib/api';
 import {
 	loadMessages,
-	replaceMessages,
 	saveRollbackState,
 } from '@/lib/db';
 import {
@@ -21,9 +19,7 @@ import {
 	legacyStatusToPhase,
 	phaseToLegacyStatus,
 } from '@/lib/rollbackMachine';
-import {
-	mergeTranscriptWithLocalThoughts,
-} from '@/lib/mergeTranscript';
+import {loadSessionHistory, type HistoryLoadOptions} from './sessionHistoryLoader';
 import type {
 	ChatHistoryState,
 	ChatMessage,
@@ -43,8 +39,6 @@ import {type SessionGoalState} from '@/lib/api/goals';
 import {type JobSnapshot} from '@/lib/api/jobs';
 import {
 	recoverSessionMessages,
-	scheduleThoughtSync,
-	shouldPreferServerMessages,
 } from './streamHelpers';
 import type {InboxItemState} from '@/lib/inboxItemState';
 
@@ -115,12 +109,6 @@ async function syncWorkspaceRoot(rootPath: string | undefined): Promise<boolean>
 }
 
 /**
- * 同会话并发去重：selectSession 后台回填 / hydrate 预载 / reattach 可能同时
- * 请求同一 session 的消息合并，共享同一个 promise，避免重复打网络与重复合并。
- */
-const sessionLoadInFlight = new Map<string, Promise<ChatMessage[]>>();
-
-/**
  * 只读本地 IDB（不碰网络）。乐观切换的第一步：先给 UI 一个可渲染的转录，
  * 服务端回填在后台继续。任何失败都降级为空数组（回填阶段再补）。
  */
@@ -136,52 +124,12 @@ async function loadLocalSessionMessages(sessionId: string): Promise<ChatMessage[
 	return (await loadLocalSessionSnapshot(sessionId)).messages;
 }
 
-async function loadSessionMessagesWithBackfill(
+function loadSessionMessagesWithBackfill(
 	sessionId: string,
 	historyById: Record<string, ChatHistoryState>,
-	options?: {preferServer?: boolean; localSnapshot?: {messages: ChatMessage[]; changed: boolean}},
+	options?: HistoryLoadOptions,
 ): Promise<ChatMessage[]> {
-	const existing = sessionLoadInFlight.get(sessionId);
-	if (existing) {
-		return existing;
-	}
-	const promise = (async () => {
-		const local = options?.localSnapshot ?? recoverSessionMessages(await loadMessages(sessionId));
-		let chosen = local.messages;
-
-		try {
-			const backendId = activeBackendSessionId(historyById, sessionId);
-			const server = recoverSessionMessages(
-				await loadServerSessionMessages(backendId),
-			);
-			// preferServer：回溯改写服务端 transcript 后，本地/IDB 可能仍持有
-			// 截断前的全量旧列表（比服务端“长”），shouldPreferServerMessages
-			// 会误选本地 → 被回溯消息复活。此时服务端是权威，必须强制采用。
-			if (
-				(options?.preferServer && server.messages.length > 0) ||
-				shouldPreferServerMessages(local.messages, server.messages)
-			) {
-				chosen = mergeTranscriptWithLocalThoughts(
-					server.messages,
-					local.messages,
-				);
-				void replaceMessages(sessionId, chosen);
-				scheduleThoughtSync(backendId, chosen);
-			} else if (local.changed) {
-				void replaceMessages(sessionId, local.messages);
-			}
-		} catch {
-			if (local.changed) {
-				void replaceMessages(sessionId, local.messages);
-			}
-		}
-
-		return chosen;
-	})().finally(() => {
-		sessionLoadInFlight.delete(sessionId);
-	});
-	sessionLoadInFlight.set(sessionId, promise);
-	return promise;
+	return loadSessionHistory(sessionId, activeBackendSessionId(historyById, sessionId), options);
 }
 
 function activeBackendSessionId(
@@ -308,7 +256,7 @@ function commitDrainForSession(sessionId: string): void {
 	const drain = activeDrains.get(sessionId);
 	if (drain) {
 		drain.commit();
-		activeDrains.delete(sessionId);
+		if (activeDrains.get(sessionId) === drain) activeDrains.delete(sessionId);
 	}
 }
 
@@ -316,7 +264,7 @@ function discardDrainForSession(sessionId: string): void {
 	const drain = activeDrains.get(sessionId);
 	if (drain) {
 		drain.discard();
-		activeDrains.delete(sessionId);
+		if (activeDrains.get(sessionId) === drain) activeDrains.delete(sessionId);
 	}
 }
 

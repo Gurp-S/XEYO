@@ -115,6 +115,37 @@ def _first_meaningful_line(text: str, limit: int = 90) -> str:
 	return ""
 
 
+def _is_heading_line(s: str) -> bool:
+	"""Markdown 标题行（``## 结论`` 这类）——它**只是片段，不是结论**。"""
+	hashes = len(s) - len(s.lstrip("#"))
+	return 1 <= hashes <= 6 and s[hashes : hashes + 1] == " "
+
+
+def _assistant_conclusion(text: str, limit: int) -> str:
+	"""助手文本卡的结论位。
+
+现场（本会话热摘要实测）：``[PRUNED] 助手结论: ## 结论（先说现状，再说病因）``——
+整行只有一个**小标题**，无内容、无指针；恢复第一步只能"验盘"，因为结论根本没发射。
+
+判据与处置：
+- 首行是标题 ⇒ 结论没拿到。**降标为「助手片段」**（如实标注，不冒充结论），
+  并补下一个非标题实质行；补不到就照实只给片段；
+- 首行非标题 ⇒ 行为与改动前逐字节一致（零 diff，不动既有卡面）。
+"""
+	lines = [" ".join(raw.split()) for raw in str(text or "").splitlines()]
+	# 标题行**即使短**（`## 计划` = 5 字符）也要留：它承载结构信息，被 `len>=6`
+	# 丢掉会让整卡结论位变空（实测：短标题 ⇒ 模型只看到句柄，看不到任何内容）。
+	meaningful = [s for s in lines if len(s) >= 6 or _is_heading_line(s)]
+	if not meaningful:
+		return ""
+	head = meaningful[0][:90]
+	if not _is_heading_line(head):
+		return f"助手结论: {head}"[:limit]
+	body = next((s for s in meaningful[1:] if not _is_heading_line(s)), "")
+	labelled = f"助手片段: {head} {body}" if body else f"助手片段: {head}"
+	return labelled[:limit]
+
+
 def _conclusion(
 	graph: Graph, unit: _Unit, limit: int
 ) -> str:
@@ -143,8 +174,7 @@ def _conclusion(
 		return f"用户输入: {s[: limit - 6]}" if s else ""
 	if unit.tool == "assistant_text":
 		m = graph.node(unit.root)
-		line = _first_meaningful_line(m.text if m else "")
-		return (f"助手结论: {line}" if line else "")[:limit]
+		return _assistant_conclusion(m.text if m else "", limit)
 	# 成功项的后缀是**结果**的首行：调用节点（unit.root）的 text 是参数 JSON
 	# （`Read({"file_path":…`），既是坏引用形态、又会被 90 字截断从中间切断
 	# （现场：模型拿到的"可核对引用"是断掉的 JSON）。结果未被剪进本单元时

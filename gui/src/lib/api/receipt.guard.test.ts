@@ -65,7 +65,7 @@ const BASELINE: Record<string, number> = {
 
 /** 写侧"只认 HTTP 状态"的存量基线。 */
 const WRITE_BASELINE: Record<string, number> = {
-	'api.ts': 12,
+	'api.ts': 9, // recovery/abandon and inbox edit/cancel now validate identity-bearing receipts.
 	'api/usage.ts': 1,
 };
 // api/diagnostics.ts 的那一处（deleteDiagPin 的 `return res.ok;`）已改成读 body 的

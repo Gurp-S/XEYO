@@ -19,6 +19,8 @@ import uuid
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
+from common.scope_paths import POLICY_DISPATCH, norm_scope_path as _norm_scope_path
+
 # 状态机
 
 STATUS_PENDING = "pending"
@@ -43,19 +45,8 @@ ASK_STATUS_EXPIRED = "expired"  # 超 TTL 无人裁决（中性事实；任务�
 
 
 def norm_scope_path(p: str, root: str | Path | None = None) -> str:
-    """归一 scope 路径为 posix 相对形式；无法归一返回原样小写 posix 化。"""
-    raw = (p or "").strip().replace("\\", "/")
-    if not raw:
-        return ""
-    try:
-        path = Path(raw).expanduser()
-        if path.is_absolute() and root is not None:
-            return path.resolve().relative_to(Path(root).resolve()).as_posix()
-        if path.is_absolute():
-            return path.resolve().as_posix()
-        return path.as_posix()
-    except (OSError, ValueError):
-        return raw.lstrip("./")
+    """归一 scope 路径为 posix 相对形式（实现与政策见 common.scope_paths，此处钉派发档）。"""
+    return _norm_scope_path(p, root, policy=POLICY_DISPATCH)
 
 
 def scope_conflicts(a: list[str], b: list[str]) -> bool:
@@ -64,7 +55,8 @@ def scope_conflicts(a: list[str], b: list[str]) -> bool:
     任一方为空 → 冲突（保守串行）。非空时**前缀包含也判冲突**：
     ``src/`` vs ``src/a.py`` 会在合并层真撞车，精确字符串交集漏检 →
     双放行 → 冲突重试烧 token。与 ``engine/scheduler.scope_conflicts``
-    （同会话串行调度，精确交集够用）**有意分歧**：跨进程派发层取严。"""
+    （同会话串行调度，精确交集够用）**有意分歧**：跨进程派发层取严；
+    归一的共用实现 = ``common.scope_paths``（政策由调用方显式点名）。"""
     left = {norm_scope_path(p).rstrip("/") for p in a if norm_scope_path(p)}
     right = {norm_scope_path(p).rstrip("/") for p in b if norm_scope_path(p)}
     left.discard("")

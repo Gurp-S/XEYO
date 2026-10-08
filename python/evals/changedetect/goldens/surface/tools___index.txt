@@ -1,6 +1,7 @@
 Agent
 AskUserQuestion
 Bash
+Compact
 Diagnostics
 Edit
 Git

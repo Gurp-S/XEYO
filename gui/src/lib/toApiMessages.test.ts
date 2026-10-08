@@ -3,6 +3,11 @@ import {toApiMessages} from './toApiMessages';
 import type {ChatMessage} from './types';
 
 describe('toApiMessages', () => {
+	it('does not replay queued or locally retained undelivered input as model history', () => {
+		const row: ChatMessage = {id: 'u1', role: 'user', text: 'delivered', createdAt: 1};
+		expect(toApiMessages([row, {...row, id: 'pending', queueState: 'queued'}, {...row, id: 'lost', localUndelivered: true}]))
+			.toEqual([{role: 'user', content: 'delivered', id: 'u1'}]);
+	});
 	it('skips isThought and tool rows', () => {
 		const msgs: ChatMessage[] = [
 			{id: 'u1', role: 'user', text: 'hi', createdAt: 1},

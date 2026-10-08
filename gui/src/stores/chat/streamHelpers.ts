@@ -261,9 +261,10 @@ function recoverSessionMessages(messages: ChatMessage[]): {
 } {
 	const settled = settleOrphanRunningTools(messages);
 	const scrubbed = scrubStaleUiCrashBanners(settled.messages);
+	const changed = settled.changed || scrubbed.changed;
 	return {
-		messages: scrubbed.messages,
-		changed: settled.changed || scrubbed.changed,
+		messages: changed ? scrubbed.messages : messages,
+		changed,
 	};
 }
 

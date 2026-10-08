@@ -40,4 +40,14 @@ _reader = SourceReader()
 
 
 def compression_messages(store, working):
-    return _reader.read(store, getattr(working, "compression_source_layout", LEGACY))
+    layout = getattr(working, "compression_source_layout", LEGACY)
+    rows = _reader.read(store, layout)
+    from synaptic.task_checkpoint import enabled
+    if not enabled():
+        return rows
+    # Source identities are side metadata; provider converters emit only their
+    # native role/content fields. Do not mutate the API or reader cache.
+    items = store._api_items if layout == LEGACY else store.items
+    if len(items) != len(rows):
+        raise ValueError("task_context_source_alignment")
+    return [dict(row, message_id=item.id) for row, item in zip(rows, items)]

@@ -409,6 +409,55 @@ _NUMBERED_LINE_RE = re.compile(r"(?m)^\s*\d+\s*\|\s*([^\n]{6,140})$")
 #: 明显无信息量的签名（会被上面两层替换掉；实在没有别的才留）。
 _USELESS_SIG_RE = re.compile(r"(?i)^(?:退出码 \d+|.*\bLine \|\s*|warning:?)$")
 
+#: 分隔线/空壳片段：去掉空白后**全是**这些字符（`====` / `----` / `****`）。
+_SHELL_CHARS = frozenset("=-_*~#·")
+
+#: pytest 断言行里的**实质内容**：`E   AssertionError: assert 1 == 2`。
+_PYTEST_ASSERT_RE = re.compile(
+	r"(?m)^\s*E\s+([A-Za-z_][A-Za-z0-9_.]*(?:Error|Exception|Warning))\s*:\s*([^\n]{4,140})"
+)
+
+#: pytest short summary 的失败行：`FAILED python/x.py::test_y - AssertionError: …`
+_PYTEST_FAILED_RE = re.compile(r"(?m)^\s*FAILED\s+(\S+?)(?:\s+-\s+([^\n]{4,140}))?$")
+
+
+def _is_shell_fragment(s: str) -> bool:
+	"""这个片段是否只是分隔线/空壳（不承载可判读信息）。
+
+	判据用**占比**而不是"全是分隔线字符"：pytest 的现场形态夹着短文字
+	（``==== short test summary info ====``），"全是"会正好漏掉它。
+	"""
+	core = "".join(str(s or "").split())
+	if len(core) < 3:
+		return False
+	shell = sum(1 for ch in core if ch in _SHELL_CHARS)
+	return shell / len(core) >= 0.5
+
+
+def _better_error_fragment(text: str) -> str:
+	"""分隔线之外**更实的片段**：pytest 断言行 > short-summary 失败行 > 结构化失败行。
+
+	找不到返回空串（调用方据此只留异常类）。存在的理由（#21）：签名模式把异常类后面的
+	"前 120 字符"当片段，而 pytest 的失败块首行常是分隔线 ⇒ 现场拿到
+	``AssertionError: ===== short test summary info =====``，恢复后**看不出是哪条断言**。
+	这里只换"片段那一段"：异常类别名、优先级、兜底顺序一概不动。
+	"""
+	m = _PYTEST_ASSERT_RE.search(text)
+	if m:
+		return f"{m.group(1)}: {m.group(2).strip()}"
+	m = _PYTEST_FAILED_RE.search(text)
+	if m:
+		detail = (m.group(2) or "").strip()
+		return f"{m.group(1)}: {detail}" if detail else m.group(1)
+	for pat in _FAILURE_LINE_RES:
+		m2 = pat.search(text)
+		if not m2:
+			continue
+		body = re.sub(r"\s+", " ", m2.group(1)).strip()
+		if body and not _USELESS_SIG_RE.match(body) and not _is_shell_fragment(body):
+			return body
+	return ""
+
 
 def extract_error_sig(text: str, *, limit: int = 120) -> str:
 	"""抽取错误签名：异常类 + 关键片段；无则回退首行实质内容。
@@ -430,6 +479,11 @@ def extract_error_sig(text: str, *, limit: int = 120) -> str:
 		if not m:
 			continue
 		groups = [g for g in m.groups() if g]
+		if len(groups) > 1 and _is_shell_fragment(groups[1]):
+			# 片段是分隔线/空壳 ⇒ 换一条更实的；换不到就**只留异常类**
+			# （`AssertionError` 比 `AssertionError: ====…` 有信息量）。
+			better = _better_error_fragment(head)
+			groups = [groups[0], better] if better else groups[:1]
 		sig = ": ".join(groups) if len(groups) > 1 else groups[0]
 		sig = re.sub(r"\s+", " ", sig).strip()
 		if not sig:
@@ -470,10 +524,58 @@ def extract_error_sig(text: str, *, limit: int = 120) -> str:
 	return ""
 
 
+#: 纯用例名（`python\tests\x.py::test_y` / `path/x.py::Cls::test_z[param0-False]`）：
+#: 判据是「除用例名外没有任何可读细节」——现场实测 ``[UNRESOLVED]`` 里有 3 条这种，
+#: 读者看不出是断了还是没过。参数后缀（``[param0-False]``）与实际用例 id 同属名字。
+_CASE_NAME_ONLY_RE = re.compile(r"(?i)^[\w./\\-]+\.py\w*(?:::\w[\w\-\[\]:.]*)+$")
+
+#: 用例名前可能挂的前缀（pytest 摘要 `FAILED ` / 抽取时带的异常类名）。
+#: 判"只有用例名"时要先剥掉它们，否则 ``AssertionError: FAILED x.py::test_y`` 会被当成有细节。
+_CASE_NAME_PREFIX_RE = re.compile(
+    r"(?i)^(?:FAILED\s+|PASSED\s+|ERROR\s+|[A-Za-z_][\w.]*(?:Error|Exception|Warning)\s*:\s*)+"
+)
+
+#: 截断标记：正文里出现省略号（`…` / `...`）或以长分隔符收尾 ⇒ 内容被切掉，
+#: 不可回读、不可跨轮去重。现场实测该族 5 条，形如
+#: ``ParameterBindingException: + FullyQualifiedErrorId : NamedParameterNot…``。
+# Truncated diagnostics remain evidence; ellipsis alone is not a rejection rule.
+
+
 def is_useful_error_sig(sig: str) -> bool:
-	"""签名是否携带信息（排除「退出码 N」/「Xxx: Line |」这类零信息量回落）。"""
-	s = re.sub(r"\s+", " ", str(sig or "")).strip()
-	return bool(s) and not _USELESS_SIG_RE.match(s)
+    """签名是否携带信息（排除零信息量回落与空壳片段）。
+
+    四道判据与来源（判据本身都在本模块，此处只是把它们**接到准入面**上）：
+
+    1. ``_USELESS_SIG_RE``：``退出码 N`` / ``Line |`` / ``warning:`` —— 原有判据；
+    2. ``_is_shell_fragment``：冒号后的片段是分隔线/空壳（``==== short test
+       summary info ====``、``====…``）—— **该判据早已存在**，只被
+       ``_better_error_fragment``/``extract_error_sig`` 用过，**没接到这里**；
+    3. ``_CASE_NAME_ONLY_RE``：正文只有用例名，没有错误细节；
+    截断的诊断仍保留；尾部省略号不是零信息证据。
+
+    逐条都只回答「这条签名读者能不能判读」；不判"错得严不严重"、不碰准入之外的语义。
+    实测背景（sess_mux0q86a_ea2kv9 的 ``[UNRESOLVED]`` 55 行）：仅判据 1 只挡 1 条，
+    接上 2–4 后可挡 26 条（分隔线 12、纯用例名 3、截断 5、退出码 6）。
+    """
+    s = re.sub(r"\s+", " ", str(sig or "")).strip()
+    if not s or _USELESS_SIG_RE.match(s):
+        return False
+    # 渲染期加的计数后缀（``退出码 1（×6）``）不参与判据：它与不带后缀同判。
+    bare = re.sub(r"（×\d+）\s*$", "", s).strip()
+    if bare and bare != s:
+        if _USELESS_SIG_RE.match(bare):
+            return False
+    # 纯用例名：**按整串判**——路径里含 ``::``，按冒号切会把路径丢掉；
+    # 先剥掉 `FAILED ` / 异常类前缀（``AssertionError: FAILED x.py::test_y``）。
+    probe = _CASE_NAME_PREFIX_RE.sub("", bare or s).strip()
+    if _CASE_NAME_ONLY_RE.match(probe or (bare or s)):
+        return False
+    # 「异常类: 片段」只判片段那一段；无冒号时退回整串。
+    head, _, tail = s.partition(":")
+    part = tail.strip() or head.strip()
+    if _is_shell_fragment(part):
+        return False
+    return True  # Truncation is not proof of zero information; retain the evidence.
 
 
 def _refine_sig(sig: str, head: str) -> str:

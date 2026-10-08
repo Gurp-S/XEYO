@@ -68,7 +68,6 @@ from tools.tool_registry import ToolRegistry
 from msgtypes.events import (
     AskUserPendingEvent,
     AskUserResolvedEvent,
-    AssistantDelta,
     ReasoningDelta,
     ContextCompressionEvent,
     EngineEvent,
@@ -753,6 +752,7 @@ def _attach_turn_context(
 	budget: object | None = None,
 	loop_ledger: object | None = None,
 	visible_notes: frozenset[tuple[str, str]] | None = None,
+	model: object | None = None,
 ) -> list[dict]:
 	"""薄封装：委托 ``prompt.pre_llm_inject.run_pre_llm_inject``。
 
@@ -801,6 +801,17 @@ def _attach_turn_context(
 			working=working,
 			cwd=root,
 			budget=budget,
+			# v2 接线：上一枪的厂商 usage 送进提示层 ⇒ T_now 的 context_usage 报权威
+			# 输入规模（含 system+tools+全历史），而不是只看 payload 的下界估算。
+			last_usage=getattr(budget, "last_usage", None),
+			# 分母 = **用户在设置里登记的**上下文窗口（session_pool 用
+			# declare_context_limit 钉在模型客户端上；未登记就不报占比）。
+			# 不取 params.window_tokens——离线校准常量（恒 128k），不得当判据。
+			window_tokens=(
+				int(getattr(model, "context_limit", 0) or 0)
+				if getattr(model, "context_limit_declared", False)
+				else 0
+			),
 			approved_plan=approved_plan,
 			forced_wrap_up=forced_wrap_up,
 			runtime_notice=runtime_notice,
@@ -879,6 +890,7 @@ async def query_loop(
 	multi_agent: bool = False,
 	include_memory_index: bool = True,
 	ensure_before: Any | None = None,
+	persist_handoff: Any | None = None,
 ) -> AsyncIterator[EngineEvent]:
     """Run the model/tool loop and emit authoritative vendor usage events.
 
@@ -892,6 +904,10 @@ async def query_loop(
     避免工人提示词被索引撑大、也避免误答 Memory。
     """
     snap = working if working is not None else WorkingSnapshot()
+    from memory.wsc_timing import enabled as model_timing_enabled
+    if model_timing_enabled() and tools.get("Compact") is None:
+        from tools.compact_tool import CompactTool
+        tools.register(CompactTool())
     set_agent_mode(agent_mode)
     # T：审批模式活状态 —— turn 边界拍基线（收紧即时/放宽延后）并复位广播。
     # 仅当会话有 coordinator（真实会话）时执行；本地/无会话路径跳过。
@@ -1049,8 +1065,10 @@ async def query_loop(
         # 重放前缀打 warm cache，结果存进 snap._pending_c2_summary，供
         # apply_c2_messages 同步消费（失败/未启用 → 置空回退确定性摘要）。
         snap._pending_c2_summary = None
+        from memory.wsc_timing import enabled as model_timing_enabled
         if (
             c2_llm_summary_enabled()
+            and not model_timing_enabled()
             and int(snap.compact_cursor or 0) == 0
             and model is not None
             and len(store) >= _C2_LLM_PREFETCH_MIN_MESSAGES
@@ -1068,7 +1086,7 @@ async def query_loop(
                 snap._pending_c2_summary = None
         # 厂商上下文达 95%（可用 XEYO_CONTEXT_COMPACT_RATIO）→ 强制 C2，避免 1261
         pressure_limit = _positive_int(getattr(model, "context_limit", None))
-        if maybe_force_compact_on_pressure(
+        if not model_timing_enabled() and maybe_force_compact_on_pressure(
             compression_messages(store, snap),
             snap,
             context_limit=pressure_limit,
@@ -1095,6 +1113,9 @@ async def query_loop(
         api_all = compression_messages(store, snap)
         # 当前状态过滤旧版本后输入可能移位，不能当作 append-only 增量消息缓存。
         use_proj_cache = l5_mode() == "project" and not any(row.get("note_key") for row in api_all)
+        from synaptic.task_checkpoint import enabled as continuity_enabled
+        if continuity_enabled() or model_timing_enabled():
+            use_proj_cache = False
         # 缓存命中路径会跳过 project_for_model（其内部才推进 aging/C1）；
         # 在走缓存前显式跑一次老化决策。推进时 note_c1 会把 proj_cache 置
         # None，下面的命中检查自然失败、回落全量投影——不会投影错位。
@@ -1171,6 +1192,7 @@ async def query_loop(
                 provider=_llm_provider_name(model),
                 model_name=_llm_model_name(model),
                 cwd=_turn_cwd,
+                capacity_managed=model_timing_enabled(),
             )
             names = build_tool_use_names(api_all)
             projected = apply_tool_output_fences(projected, id_to_name=names)
@@ -1213,6 +1235,7 @@ async def query_loop(
             _llm_provider_name(model), _llm_model_name(model)
         )
         _inject_kwargs: dict = dict(
+            model=model,
             approved_plan=approved_plan,
             forced_wrap_up=forced_wrap_up,
             runtime_notice=runtime_notice,
@@ -1250,6 +1273,7 @@ async def query_loop(
                 provider=_llm_provider_name(model),
                 model_name=_llm_model_name(model),
                 cwd=_turn_cwd,
+                capacity_managed=model_timing_enabled(),
             )
             hidden_names = build_tool_use_names(hidden_api)
             rebuilt = apply_tool_output_fences(rebuilt, id_to_name=hidden_names)
@@ -1288,35 +1312,138 @@ async def query_loop(
             **_inject_kwargs,
         )
         api_messages = prompt.build(system_prompt, projected)
-        # Projection manifest：只留在 WorkingSnapshot，绝不进入模型请求。
-        # 它把 compact/spill/tool-pair/cwd 的事实固化，避免失败后靠轨迹猜测。
-        try:
-            from engine.projection_manifest import build_manifest
-
-            _snap_manifest = build_manifest(
-                canonical=api_all,
-                projected=api_messages,
-                compact_cursor=int(snap.compact_cursor or 0),
-                context_limit=_positive_int(getattr(model, "context_limit", None)) or None,
-                pressure_reason=(
-                    "compact_cursor_advanced"
-                    if snap.compact_cursor > compact_cursor_before
-                    else ""
-                ),
-            )
-            snap.last_projection_manifest = _snap_manifest.to_dict()
-            try:
-                from engine.workspace_context import update_execution_context
-
-                update_execution_context(projection_id=_snap_manifest.projection_id)
-            except Exception:  # noqa: BLE001 — trace 旁路不得阻断采样
-                pass
-        except Exception:  # noqa: BLE001 — manifest 是观测旁路，不阻断采样
-            logging.getLogger(__name__).debug(
-                "projection manifest failed", exc_info=True
-            )
-
         tool_schemas = _plan_tool_schemas(tools, tools.schemas())
+        _timing_delivery_key = None
+        if model_timing_enabled():
+            from memory.wsc_request_timing import prepare as prepare_timed_request
+            from prompt.notice_channel import render_notice
+
+            def _compact_request_projection():
+                nonlocal projected_pre_inject
+                from memory.runtime import force_compact
+                raw = compression_messages(store, snap)
+                before_capacity_cursor = snap.compact_cursor
+                rebuilt = force_compact(raw, snap, remaining_turns=remaining,
+                                        system_prompt=system_prompt, cwd=_turn_cwd)
+                if snap.compact_cursor > before_capacity_cursor:
+                    from engine.t_now_notes import invalidate_after_compaction
+                    invalidate_after_compaction()
+                rebuilt_names = build_tool_use_names(raw)
+                rebuilt = apply_tool_output_fences(rebuilt, id_to_name=rebuilt_names)
+                projected_pre_inject = apply_tool_result_digest(rebuilt, id_to_name=rebuilt_names)
+                return _attach_turn_context(projected_pre_inject,
+                    t_now_strategy=t_now_strat, **_inject_kwargs)
+
+            _handoff_usage_events = []
+            async def _prepare_capacity(rows):
+                from memory.wsc_timing import request_measure
+                from memory.wsc_timing import accepted_request
+                from memory.wsc_handoff_scope import needs_refresh
+                from synaptic.todo_snapshot import latest_todo_snapshot
+                raw = compression_messages(store, snap)
+                state = latest_todo_snapshot(raw)
+                # A previous declaration is not evidence that later task
+                # messages/decisions were covered. Engine notes do not extend
+                # task scope; every other post-commit source requires refresh.
+                needs_state = needs_refresh(raw, state)
+                requested = accepted_request(raw, snap)
+                measured = request_measure(prompt.build(system_prompt, rows), tool_schemas,
+                    context_limit=_positive_int(getattr(model, "context_limit", None)), model=model)
+                # A previous failed publication can leave a successful receipt
+                # in memory. State coverage is not a durability certificate;
+                # every managed fold retries/confirms all source rows first.
+                if (measured.action == "capacity" or requested) and persist_handoff is not None:
+                    persist_handoff()
+                if (measured.action == "capacity" or requested) and needs_state:
+                    if persist_handoff is None or tools.get("TodoWrite") is None:
+                        raise ValueError("handoff_commit_unavailable")
+                    from memory.wsc_handoff_generation import generate
+                    from memory.wsc_handoff_transaction import commit
+                    def account(usage):
+                        budget.add_usage(usage)
+                        hit, miss, out = split_usage(usage) if isinstance(usage, dict) else (0, 0, 0)
+                        _handoff_usage_events.append(UsageEvent(prompt_tokens=hit + miss,
+                            completion_tokens=out, cache_hit_tokens=hit, cache_miss_tokens=miss,
+                            tokens=budget.last_usage_tokens, used_tokens=budget.used_tokens,
+                            usd=budget.last_usage_usd, used_usd=budget.used_usd,
+                            cny=budget.last_usage_cny, used_cny=budget.used_cny))
+                    async def generate_state(captured):
+                        def admit_next():
+                            if not budget.prepare_next_turn():
+                                raise ValueError("handoff_model_budget_exhausted")
+                            budget.begin_turn()
+                        def admit_read():
+                            if not budget.begin_tool_call():
+                                raise ValueError("handoff_tool_budget_exhausted")
+                        return await generate(model, prompt.build(system_prompt, rows), captured,
+                            tools.get("TodoWrite").schema(), abort, account=account,
+                            admit_next=admit_next, admit_read=admit_read)
+                    if not budget.begin_tool_call():
+                        raise ValueError("handoff_tool_budget_exhausted")
+                    committed = await commit(source=lambda: compression_messages(store, snap),
+                        generate=generate_state, store=store, tools=tools, abort=abort,
+                        persist=persist_handoff)
+                    snap.wsc_timing_state = {**snap.wsc_timing_state, "last_handoff_commit": committed}
+                    rows = rows + compression_messages(store, snap)[-2:]
+                    if not budget.prepare_next_turn():
+                        raise ValueError("handoff_model_budget_exhausted")
+                    budget.begin_turn()
+                if requested:
+                    before_requested = snap.compact_cursor
+                    rows = _compact_request_projection()
+                    snap.wsc_timing_state = {**snap.wsc_timing_state, "handled_request": requested,
+                        "request_outcome": "compacted" if snap.compact_cursor > before_requested else "no_eligible_history"}
+                return prepare_timed_request(rows, tool_schemas, snap,
+                    context_limit=_positive_int(getattr(model, "context_limit", None)),
+                    build=lambda value: prompt.build(system_prompt, value),
+                    render=lambda value, text: render_notice(value, text,
+                        strategy=t_now_strat, dimension="context_capacity", session_id=snap.session_id),
+                    compact=_compact_request_projection, model=model)
+
+            try:
+                _prepared_capacity = await _prepare_capacity(projected)
+            except (ValueError, OSError) as exc:
+                for usage_event in _handoff_usage_events:
+                    yield usage_event
+                yield StoppedEvent(reason=str(exc))
+                return
+            for usage_event in _handoff_usage_events:
+                yield usage_event
+            _handoff_usage_events.clear()
+            projected, api_messages = _prepared_capacity.projected, _prepared_capacity.messages
+            _timing_delivery_key = _prepared_capacity.delivery_key
+        def _record_current_projection():
+            # Projection manifest：只留在 WorkingSnapshot，绝不进入模型请求。
+            # 它把 compact/spill/tool-pair/cwd 的事实固化，避免失败后靠轨迹猜测。
+            try:
+                from engine.projection_manifest import build_manifest
+
+                _snap_manifest = build_manifest(
+                    canonical=api_all,
+                    projected=api_messages,
+                    compact_cursor=int(snap.compact_cursor or 0),
+                    context_limit=_positive_int(getattr(model, "context_limit", None)) or None,
+                    pressure_reason=(
+                        "compact_cursor_advanced"
+                        if snap.compact_cursor > compact_cursor_before
+                        else ""
+                    ),
+                )
+                snap.last_projection_manifest = _snap_manifest.to_dict()
+                try:
+                    from engine.workspace_context import update_execution_context
+
+                    update_execution_context(projection_id=_snap_manifest.projection_id)
+                except Exception:  # noqa: BLE001 — trace 旁路不得阻断采样
+                    pass
+            except Exception:  # noqa: BLE001 — manifest 是观测旁路，不阻断采样
+                logging.getLogger(__name__).debug(
+                    "projection manifest failed", exc_info=True
+                )
+
+        if not model_timing_enabled():
+            _record_current_projection()
+
         # 收尾请求（forced_wrap_up）同样保留 tools 数组：DeepSeek 把工具定义渲染在
         # prompt 最前端，若在最后一枪摘掉 tools，整个请求前缀会从工具段起错位重哈希，
         # 导致该枪缓存命中率坍缩到仅 system 段（观测上一枪 90%+ → 6%），白付一次
@@ -1480,6 +1607,9 @@ async def query_loop(
         # （会向 GUI 重复吐字），直接失败收敛由上层错误路径收尾。
         # B0.5：每个逻辑模型调用一个 request_id，跨 attempt 不变（dsh S2/S4
         # 归因 + 重试可观测）；attempt 递增区分第几次尝试。
+        from engine.assistant_output import AssistantOutput
+
+        assistant_output = AssistantOutput()
         call_request_id = uuid.uuid4().hex[:16]
         attempt = 0
         prepared_events_acknowledged = False
@@ -1487,6 +1617,8 @@ async def query_loop(
             attempt += 1
             from tools.fileio.read_visibility import sync_read_visibility
 
+            if model_timing_enabled():
+                _record_current_projection()
             sync_read_visibility(tools, api_messages)
             request_cache_age = idle_seconds(snap)
             # B0.5：每次尝试前注入记账 meta（model._meta_*），保持 stream() 接口
@@ -1545,7 +1677,7 @@ async def query_loop(
                             for ev in _admit_tool_use(tu):
                                 yield ev
                         for piece in narration_gate.on_delta(chunk.text):
-                            yield AssistantDelta(text=piece)
+                            yield assistant_output.delta(piece)
                     elif chunk.kind == "reasoning_delta":
                         if chunk.text:
                             turn_reasoning_parts.append(chunk.text)
@@ -1583,6 +1715,7 @@ async def query_loop(
                 interrupted, failure_events = await settle_failed_stream(
                     store, narration_gate, tool_uses, early, results_by_id,
                     reason="aborted", reasoning="".join(turn_reasoning_parts), reasoning_blocks=turn_reasoning_blocks,
+                    message_id=assistant_output.message_id,
                 )
                 usage_event = failed_attempt_usage(model, budget, snap)
                 if usage_event is not None:
@@ -1607,12 +1740,24 @@ async def query_loop(
                     _fb_model = _llm_model_name(model)
                     mark_env_channel_unsupported(env_unsupported_key(_fb_prov, _fb_model))
                     t_now_strat = STRATEGY_SKIP
+                    _timing_delivery_key = None  # Rebuilt retry no longer carries the capacity notice.
                     projected = _attach_turn_context(
                         projected_pre_inject,
                         t_now_strategy=t_now_strat,
                         **_inject_kwargs,
                     )
                     api_messages = prompt.build(system_prompt, projected)
+                    if model_timing_enabled():
+                        _prepared_capacity = await _prepare_capacity(projected)
+                        for usage_event in _handoff_usage_events:
+                            yield usage_event
+                        _handoff_usage_events.clear()
+                        projected, api_messages = _prepared_capacity.projected, _prepared_capacity.messages
+                        _timing_delivery_key = _prepared_capacity.delivery_key
+                        if snap.compact_cursor > compact_cursor_before and not compression_started:
+                            compression_started = True
+                            loop_breaker.invalidate_result_evidence()
+                            yield ContextCompressionEvent(phase="start", source="automatic")
                     logging.getLogger(__name__).warning(
                         "T_now env_channel rejected (status=%s, provider=%s, "
                         "model=%s)；本轮跳过 T_now 注入（L2，不再 legacy 尾插）。",
@@ -1648,6 +1793,7 @@ async def query_loop(
                         env_unsupported_key(_fb_prov, _fb_model)
                     )
                     t_now_strat = STRATEGY_NOTICE_FRAGMENT
+                    _timing_delivery_key = None  # Delivery must describe the request actually sent.
                     projected_pre_inject = _rebuild_projection_without_t_now_notes()
                     projected = _attach_turn_context(
                         projected_pre_inject,
@@ -1655,6 +1801,17 @@ async def query_loop(
                         **_inject_kwargs,
                     )
                     api_messages = prompt.build(system_prompt, projected)
+                    if model_timing_enabled():
+                        _prepared_capacity = await _prepare_capacity(projected)
+                        for usage_event in _handoff_usage_events:
+                            yield usage_event
+                        _handoff_usage_events.clear()
+                        projected, api_messages = _prepared_capacity.projected, _prepared_capacity.messages
+                        _timing_delivery_key = _prepared_capacity.delivery_key
+                        if snap.compact_cursor > compact_cursor_before and not compression_started:
+                            compression_started = True
+                            loop_breaker.invalidate_result_evidence()
+                            yield ContextCompressionEvent(phase="start", source="automatic")
                     logging.getLogger(__name__).warning(
                         "T_now system_channel rejected (status=%s, provider=%s, "
                         "model=%s)；本进程内退回 notice_fragment 档。",
@@ -1708,6 +1865,7 @@ async def query_loop(
                 _, failure_events = await settle_failed_stream(
                     store, narration_gate, tool_uses, early, results_by_id,
                     reason="error", reasoning="".join(turn_reasoning_parts), reasoning_blocks=turn_reasoning_blocks,
+                    message_id=assistant_output.message_id,
                 )
                 usage_event = failed_attempt_usage(model, budget, snap)
                 if usage_event is not None:
@@ -1766,6 +1924,9 @@ async def query_loop(
             )
 
         usage = getattr(model, "last_usage", None)
+        if model_timing_enabled():
+            from memory.wsc_timing import delivered
+            delivered(snap, _timing_delivery_key)
         hit, miss, out = split_usage(usage) if isinstance(usage, dict) else (0, 0, 0)
         # 分子口径（窗口占用）：厂商权威 prompt_tokens 优先——它含 system prompt 与
         # tool schemas，是真实输入。投影估算（_projected_tokens）只做兜底：它不含
@@ -1799,7 +1960,13 @@ async def query_loop(
                 for row in context_breakdown:
                     if row.get("category") == "rules":
                         row["soft_over"] = True
-        note_shot(snap, hit=hit, prompt=hit + miss, at=datetime.now())
+        note_shot(snap, hit=hit, prompt=context_tokens or 0, at=datetime.now())
+        from synaptic.task_checkpoint import enabled as task_continuity_enabled
+        if (task_continuity_enabled() or model_timing_enabled()) and isinstance(snap.last_projection_manifest, dict):
+            snap.last_projection_manifest["context_receipt_basis"] = (
+                "provider_current_request" if vendor_context is not None else "projected_estimate"
+            )
+            snap.last_projection_manifest["context_receipt_cursor"] = snap.compact_cursor
         # observe_shot：dumps 全投影 + 落盘；丢到后台与后续收尾/工具重叠，
         # 离开本回合前 await（下一轮 Ĥ / LCP 依赖 last_x_sent）。
         def _observe_body() -> None:
@@ -1874,7 +2041,7 @@ async def query_loop(
             interrupted, terminal_events = await settle_failed_stream(
                 store, narration_gate, tool_uses, early, results_by_id,
                 reason="budget_usd", reasoning="".join(turn_reasoning_parts),
-                reasoning_blocks=turn_reasoning_blocks,
+                reasoning_blocks=turn_reasoning_blocks, message_id=assistant_output.message_id,
             )
             for event in terminal_events:
                 yield event
@@ -1911,7 +2078,7 @@ async def query_loop(
             flush_deltas = []
         for piece in flush_deltas:
             if piece:
-                yield AssistantDelta(text=piece)
+                yield assistant_output.delta(piece)
         # T28：过程旁白不再从 transcript 剥除——随消息留档（background only），
         # 投影送模型时忽略，仅供「当时为何动手」追溯与刷新后回看。
         narration = narration_gate.drain_narration()
@@ -1921,7 +2088,7 @@ async def query_loop(
             label="LoopLedger.observe_assistant",
         )
         store.append(
-            assistant_text_message(
+            assistant_output.message(
                 assistant_text,
                 tool_uses or None,
                 narration=narration,
@@ -2504,6 +2671,7 @@ async def query_loop(
                 logging.getLogger(__name__).debug(
                     "repeat fold failed", exc_info=True
                 )
+            from engine.execution_facts import tool_receipt
             store.append(
                 tool_result_message(
                     tu.id,
@@ -2512,6 +2680,7 @@ async def query_loop(
                     is_error=result.is_error,
                     status=result.status,
                     images=getattr(result, "images", None),
+                    execution=tool_receipt(result),
                 )
             )
             # 批次4：Plan 衰减（首写收敛）——批准后本 query 内首次成功写盘，

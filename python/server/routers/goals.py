@@ -22,6 +22,7 @@ from engine.goal_state import (
 from server.deps import _pool
 from server.local_gate import require_loopback
 from server.routers.sessions import require_session_id
+from server.session_write_guard import require_writable_session
 
 _logger = logging.getLogger(__name__)
 
@@ -98,6 +99,7 @@ class GoalPatch(BaseModel):
 	]
 	#: PATCH revision CAS：miss 时返回 409 附当前 goal（客户端重读再提交，禁盲写）。
 	revision: int | None = Field(default=None, ge=1)
+	goal_id: str | None = Field(default=None, min_length=1)
 	#: action=new / edit 时的目标标题/正文；其它 action 忽略。
 	title: str | None = Field(default=None, max_length=200)
 	text: str | None = Field(default=None, max_length=4000)
@@ -124,6 +126,7 @@ async def patch_goal(session_id: str, body: GoalPatch) -> dict[str, Any]:
 
 	sid = require_session_id(session_id)
 	_require_known_session(sid)
+	require_writable_session(sid)
 	store = _store_for(sid)
 	cur = store.current(sid)
 	if body.action == "new":
@@ -140,6 +143,10 @@ async def patch_goal(session_id: str, body: GoalPatch) -> dict[str, Any]:
 
 	if cur is None:
 		raise HTTPException(404, "no goal bound to this session")
+	if body.goal_id is None or body.revision is None:
+		raise HTTPException(400, "goal_id and revision are required")
+	if body.goal_id != cur.goal_id:
+		return _conflict_response(cur)
 	back_to_active = False
 	try:
 		if body.action == "confirm_complete":
@@ -224,6 +231,7 @@ async def post_goal_round_driver(
 
 	sid = require_session_id(session_id)
 	_require_known_session(sid)
+	require_writable_session(sid)
 	driver = get_goal_round_driver()
 	store = _store_for(sid)
 	if body.action == "arm":

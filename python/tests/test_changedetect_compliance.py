@@ -74,3 +74,52 @@ def test_iter_added_tracks_new_file_line_numbers() -> None:
 	assert [
 		(lineno, text) for _, lineno, text in compliance._iter_added(diff_text)
 	] == [(2, "# c"), (3, "A = 1"), (4, "B = 2")]
+
+
+# -- 行内自豁免（X1/#12）------------------------------------------------------
+
+
+def test_inline_allow_with_reason_is_exempt() -> None:
+	"""带理由的行内豁免：该行不报，且理由被记进 exempted（可见即约束）。"""
+	phrase = "容器" + "路由"
+	exempted: list[dict] = []
+	hits = compliance.scan_added_lines(
+		_diff(f'ROUTE = "{phrase}"  # compliance: allow(规则词表，不是分支)'),
+		exempted=exempted,
+	)
+	assert hits == [], [h.to_dict() for h in hits]
+	assert [e["reason"] for e in exempted] == ["规则词表，不是分支"]
+
+
+def test_inline_allow_without_reason_still_reports() -> None:
+	"""理由非空才生效：空括号是空账 ⇒ 照报、且不计入豁免。"""
+	phrase = "容器" + "路由"
+	exempted: list[dict] = []
+	hits = compliance.scan_added_lines(
+		_diff(f'ROUTE = "{phrase}"  # compliance: allow()'),
+		exempted=exempted,
+	)
+	assert [h.rule for h in hits] == ["R2"], [h.to_dict() for h in hits]
+	assert exempted == []
+
+
+def test_exemption_is_line_scoped() -> None:
+	"""只豁免所在那一行：下一行同样命中仍要报。"""
+	phrase = "容器" + "路由"
+	exempted: list[dict] = []
+	hits = compliance.scan_added_lines(
+		_diff(f'A = "{phrase}"  # compliance: allow(词表)', f'B = "{phrase}"'),
+		exempted=exempted,
+	)
+	assert [h.rule for h in hits] == ["R2"], [h.to_dict() for h in hits]
+	assert len(exempted) == 1
+
+
+def test_exempted_count_visible_and_schema_stable() -> None:
+	"""计数可见；不给 exempted 时 summary 的 schema 与改动前逐键一致。"""
+	with_exempt = compliance.summarize(
+		[], exempted=[{"where": "b/x.py", "line": 1, "reason": "r"}]
+	)
+	assert with_exempt["exempted_count"] == 1
+	assert with_exempt["hit_count"] == 0
+	assert "exempted_count" not in compliance.summarize([])

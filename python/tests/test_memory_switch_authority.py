@@ -157,11 +157,10 @@ def test_wsc_flags_report_the_value_the_runtime_actually_reads():
 
 	WP = importlib.import_module("memory.wsc_projection")
 	keys = {k for k, *_ in memory_switches.MEMORY_SWITCHES}
-	assert {"XEYO_WSC_FROZEN_HEAD", "XEYO_WSC_CADENCE_ABSORB", "XEYO_WSC"} <= keys
+	assert "XEYO_WSC" in keys
+	assert not {"XEYO_WSC_FROZEN_HEAD", "XEYO_WSC_CADENCE_ABSORB"} & keys
 	defaults = {k: d for (k, _, _, d, *_rest) in memory_switches.MEMORY_SWITCHES}
-	for name, reader in (("XEYO_WSC", WP.live_enabled),
-	                     ("XEYO_WSC_FROZEN_HEAD", WP.freeze_enabled),
-	                     ("XEYO_WSC_CADENCE_ABSORB", WP.absorb_gated_enabled)):
+	for name, reader in (("XEYO_WSC", WP.live_enabled),):
 		for raw, want in ((None, defaults[name]), ("on", "1"), ("0", "0")):
 			if raw is None:
 				os.environ.pop(name, None)
@@ -171,6 +170,13 @@ def test_wsc_flags_report_the_value_the_runtime_actually_reads():
 			assert item["effective"] == want, f"{name}={raw!r} 账面报 {item['effective']}"
 			assert (reader() is True) == (want == "1"), f"{name}={raw!r} 账面与运行时反向"
 		os.environ.pop(name, None)
+	for value in ("0", "1", "on"):
+		os.environ["XEYO_WSC_FROZEN_HEAD"] = value
+		os.environ["XEYO_WSC_CADENCE_ABSORB"] = value
+		assert WP.freeze_enabled() is True
+		assert WP.absorb_gated_enabled() is False
+	os.environ.pop("XEYO_WSC_FROZEN_HEAD", None)
+	os.environ.pop("XEYO_WSC_CADENCE_ABSORB", None)
 
 
 def test_no_unregistered_flag_can_appear_in_the_wsc_live_path():
@@ -210,7 +216,9 @@ def test_no_unregistered_flag_can_appear_in_the_wsc_live_path():
 	# `soft_watermark_tokens()` / `fold_cadence_veto.min_interval_shots()` 自己读，
 	# 未设 / 非数 / ≤0 一律 0=关闭 ⇒ 不存在"账面开、运行时关"的两套口径空间。
 	# 豁免要写成**等式**，多一个就红。
-	numeric = {"XEYO_WSC_SOFT_WATERMARK", "XEYO_WSC_FOLD_MIN_INTERVAL"}
+	# XEYO_WSC_SOFT_WATERMARK 已退场（2026-10-08 用户裁定）：``memory/wsc_watermark``
+	# 不再声明该常量 ⇒ 未入册豁免只剩折叠间隔一个。
+	numeric = {"XEYO_WSC_FOLD_MIN_INTERVAL"}
 	unregistered = set(declared) - keys
 	assert unregistered == numeric, (
 		f"未入册的 WSC 旗标应与豁免恰好相等：多出的 {sorted(unregistered - numeric)}、"

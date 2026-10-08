@@ -84,6 +84,27 @@ class RecoveryRenderer(HandleRenderer):
     aliases: dict=field(default_factory=dict)
     original: object=None
 
+    def _chunked_members(self, handle):
+        from synaptic.chunked_recovery import PREFIX as chunks_prefix
+        members = self.handle_nodes.get(handle, ())
+        return members if len(members) > 1 and any(
+            str(self.aliases.get(f"node://{index}", "")).startswith(chunks_prefix)
+            for index in members) else ()
+
+    def expression(self, handle):
+        members = self._chunked_members(handle)
+        if members:
+            # Composite sources reuse immutable member views. A group does not
+            # duplicate whole bodies or claim that its first Read returns all.
+            return "; ".join(f"source=#{index} " + self.expression(f"node://{index}") for index in members)
+        return super().expression(handle)
+
+    def encoding(self, handle):
+        from synaptic.chunked_recovery import PREFIX as chunks_prefix
+        if self._chunked_members(handle):
+            return "member_views"
+        return "json_chunks" if str(self.aliases.get(handle, handle)).startswith(chunks_prefix) else "original_lf"
+
     def span(self, handle):
         if handle in self.aliases:
             return self.node_ranges.get(self.aliases[handle])
@@ -164,6 +185,8 @@ def recovery_renderer(cold,path,ranges,lengths,aliases=None):
         return original
     _text,_ranges,copies,packets=verified_layout(cold)
     assert _ranges==ranges
+    from synaptic.chunked_recovery import verified_copies
+    copies += verified_copies(cold, ranges)
     return RecoveryRenderer(style='read',path=path,node_ranges=ranges,handle_nodes=dict(cold.handles),
                             line_lengths=lengths,copy_ranges=copies,packet_handles=packets,
                             aliases=aliases or {},original=original)

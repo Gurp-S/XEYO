@@ -302,6 +302,9 @@ def _docker_exec_with_timeout(
 					job["status"] = "done"
 					job["output"] = text
 					job["exit_code"] = code
+					job["last_output_at"] = time.time() if text else 0.0
+					job["output_chars"] = len(text)
+					job["finished_at"] = time.time()
 			_notify_docker_bg(jid)
 
 	promote_s = _docker_promote_seconds(command, timeout_ms)
@@ -338,6 +341,9 @@ def _docker_exec_with_timeout(
 			"command": command,
 			"delivered": False,
 			"started": time.time(),
+			"last_output_at": 0.0,
+			"output_chars": 0,
+			"finished_at": 0.0,
 		}
 		_DOCKER_BG_WAITERS[job_id] = []
 	job_box["id"] = job_id
@@ -1205,6 +1211,11 @@ class BashTool:
 			content=self.map_tool_result_to_content(out),
 			is_error=bool(out.is_error),
 		)
+		from engine.execution_facts import enabled as fact_contracts
+		if fact_contracts():
+			result.status = "running" if out.background_task_id else ("error" if out.is_error else "ok")
+			result.metadata = {"exit_code": out.code,
+			                   "execution_complete": not (out.background_task_id or out.interrupted or out.timed_out)}
 		if result.is_error:
 			kind = classify_failure_kind(out, result.content)
 			if kind:

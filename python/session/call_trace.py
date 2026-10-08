@@ -110,6 +110,6 @@ def started(session_id: str, call_id: str) -> dict | None:
 			row = json.loads(raw)
 		except Exception:  # noqa: BLE001
 			continue
-		if isinstance(row, dict) and str(row.get("uid") or "") == str(call_id):
+		if isinstance(row, dict) and str(row.get("uid") or "") == str(call_id) and not row.get("phase"):
 			return row
 	return None

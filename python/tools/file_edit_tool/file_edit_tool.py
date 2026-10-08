@@ -183,6 +183,9 @@ class FileEditTool:
 			base_hash = entry.content_hash
 		elif entry is not None:
 			base_hash = ""
+		if not base_hash:
+			from tools.fileio.edit_contract import validated_base
+			base_hash = validated_base(self)
 		# 与直通路径 write_text_file 等价：按 line_endings 还原换行、保留
 		# encoding。store 的原子写用 newline=''，不再做平台翻译。
 		content_out = (
@@ -201,9 +204,17 @@ class FileEditTool:
 		if not result.ok:
 			reason = str(result.reason or "")
 			if reason == "missing_read":
+				from tools.fileio.read_state import baseline_dropped, baseline_epoch
+
+				# 把"从没读过"与"读过但基线被淘汰/重建"分开：同一句话时模型只能试。
+				detail = (
+					f"baseline dropped at epoch {baseline_epoch()}"
+					if baseline_dropped(full)
+					else "never read in this session"
+				)
 				raise RuntimeError(
-					"write conflict (missing_read): no prior Read baseline for this "
-					"path in this process/session"
+					f"write conflict (missing_read: {detail}): no prior Read baseline "
+					"for this path in this process/session"
 				)
 			if result.base_stale or reason == "stale":
 				snapshot = entry.content if entry is not None else ""
@@ -412,12 +423,10 @@ class FileEditTool:
 
 		actual = find_actual_string(file_content, input_data.old_string)
 		if actual is None:
+			from tools.fileio.edit_contract import mismatch
 			return {
 				"result": False,
-				"message": (
-					"String to replace not found in file.\n"
-					f"String: {input_data.old_string}"
-				),
+				"message": mismatch(input_data.old_string, file_content),
 				"errorCode": 8,
 			}
 
@@ -503,8 +512,9 @@ class FileEditTool:
 			file_content, input_data.old_string
 		)
 		if actual_old is None and input_data.old_string != "":
+			from tools.fileio.edit_contract import mismatch
 			raise RuntimeError(
-				f"String to replace not found in file.\nString: {input_data.old_string}"
+				mismatch(input_data.old_string, file_content)
 			)
 		if actual_old is None:
 			actual_old = ""

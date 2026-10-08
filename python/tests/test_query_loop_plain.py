@@ -12,7 +12,7 @@ from prompt.assembler import DEFAULT_SYSTEM, PromptAssembler
 from session.message_store import MessageStore
 from tools.echo import EchoTool
 from tools.tool_registry import ToolRegistry
-from msgtypes.events import FinalEvent
+from msgtypes.events import AssistantDelta, FinalEvent
 from msgtypes.message import user_message
 
 
@@ -34,6 +34,9 @@ async def test_plain():
 		events.append(ev)
 	assert any(isinstance(e, FinalEvent) for e in events)
 	assert store.items[-1].role == "assistant"
+	deltas = [e for e in events if isinstance(e, AssistantDelta)]
+	assert deltas
+	assert {e.message_id for e in deltas} == {store.items[-1].id}
 
 
 if __name__ == "__main__":

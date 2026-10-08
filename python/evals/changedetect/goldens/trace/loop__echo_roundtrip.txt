@@ -1,1 +1,1 @@
-{"assistant_chars":10,"events":["ToolCall:echo","ToolResult","Final"],"final":"echoed: hi","id":"echo_roundtrip","tools":["echo"]}
+{"assistant_chars":45,"events":["ToolCall:echo","ToolResult","Final"],"final":"echoed: 执行回执身份={\"call_id\":\"call_<ID>\"}\nhi","id":"echo_roundtrip","tools":["Compact","echo"]}

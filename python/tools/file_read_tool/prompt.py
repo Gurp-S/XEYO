@@ -7,6 +7,7 @@ FILE_UNCHANGED_STUB = (
 MAX_LINES_TO_READ = 2000
 
 DESCRIPTION_TEXT = f"""Reads a text file (absolute file_path). Default: first {MAX_LINES_TO_READ} lines; offset/limit address long files.
+Files at or above 600 lines return a structure view (entries with line numbers) when neither offset/limit nor symbol is given; the body then reads back via offset/limit or symbol.
 The symbol parameter returns one class/function body (for example, "MyClass.handle_request"). Ambiguous or missing symbols produce a symbol error; Grep output_mode="symbols" returns symbol definitions.
 The symbol parameter with pack=true includes same-file context such as docstrings, imports, and signatures.
 Output has line numbers starting at 1. Directories, images, PDF, Office, and binary files are rejected. Missing paths return an error; empty files return a warning."""

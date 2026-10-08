@@ -13,7 +13,7 @@ export function useWorkbenchChanges(messageId?: string) {
   const boundary = latestUserTurnBoundary(messages);
   const chosen = messageId ? messages.findIndex(message=>message.id===messageId && message.role==='user') : -1;
   const start = chosen >= 0 ? chosen : boundary?.index ?? 0;
-  const next = messages.findIndex((message,index)=>index>start && message.role==='user' && !message.queueState && !message.uiOnly);
+  const next = messages.findIndex((message,index)=>index>start && message.role==='user' && !message.queueState && !message.localUndelivered && !message.uiOnly);
   const blocks = groupTranscript(messages.slice(start, next < 0 ? undefined : next));
   return collectChangedFilesFromItems(blocks.flatMap(b => b.kind === 'turn' ? b.items : []));
  }, [messages,messageId]);

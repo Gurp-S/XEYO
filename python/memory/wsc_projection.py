@@ -4,7 +4,9 @@ C2 remains the trigger; WSC becomes the execution projection.  The module is
 fail-open: when the switch is off, the region is too small, the gain gate
 declines, or any error occurs, the caller keeps the existing C2 projection.
 
-Two caller-side policies live here because WSC's algorithm layer never reads them:
+Current policy (2026-10-08): heads are immutable between explicit fold events;
+cost cadence cannot absorb history. The switches described below are retired.
+Historical caller-side policies (the deterministic algorithm never reads them):
 
 * ``XEYO_WSC_FROZEN_HEAD`` (default on) -- between fold events the head is reused
   byte-for-byte, so the emitted prompt only ever appends.
@@ -30,16 +32,15 @@ import dataclasses
 import logging
 import os
 import re
+from pathlib import Path
 from typing import Any
 from memory.wsc_source_layout import LEGACY
 
 _log = logging.getLogger(__name__)
 _ENV = "XEYO_WSC"
 #: 头冻结（kill switch，默认开）。关掉 = 回到"每枪重投影、交界每枪前移"的历史行为。
-_FREEZE_ENV = "XEYO_WSC_FROZEN_HEAD"
 #: 吸收节奏（**默认关**，等真冒烟数据裁定）：开了就由 ``synaptic.cadence`` 的成本判据
 #: 决定何时把右段折进头，而不是等调用方下一次折叠事件。
-_ABSORB_ENV = "XEYO_WSC_CADENCE_ABSORB"
 
 
 @dataclasses.dataclass
@@ -67,6 +68,7 @@ class _Live:
     source_seal: str = ""
     source_layout: str = LEGACY
     view_path: str = ""
+    lifecycle: dict = dataclasses.field(default_factory=dict)
     #: 上一次**真折叠**实测到的头增量（token）：新头 − 旧头。−1 = 还没有实测
     #: （进程内从未折过 / 从磁盘接回头）。读者只有 `live_head_delta_tokens()`，
     #: 供 `memory.runtime.try_extend_c2` 的 θ 门在旗标打开时当"头增量"用。
@@ -94,11 +96,11 @@ def live_enabled() -> bool:
 
 
 def freeze_enabled() -> bool:
-    return _flag_on(_FREEZE_ENV)
+    return True
 
 
 def absorb_gated_enabled() -> bool:
-    return _flag_on(_ABSORB_ENV)
+    return False
 
 
 def _safe(value: str) -> str:
@@ -156,24 +158,40 @@ def _dump_emission(head: str) -> None:
         pass
 
 
-def _emit(head: str, messages: list[dict], base: int, frozen_attr: int, *, cwd, view_path=None) -> list[dict]:
+def _emit(head: str, messages: list[dict], base: int, frozen_attr: int, *, cwd, view_path=None, session="", lifecycle=None, source_layout=LEGACY) -> list[dict]:
     from engine.compact import project as project_c0c1
     from memory.wsc_recovery_emit import restore
 
+    from memory.wsc_goal_events import augment, GoalEventLedgerError
+    try:
+        messages, frozen_attr = augment(messages, base, frozen_attr, head=head, cwd=cwd,
+            session=session, lifecycle=lifecycle, source_layout=source_layout)
+    except GoalEventLedgerError:
+        raise
+    except Exception as exc:
+        from memory.wsc_diagnostics import record
+        record("goal_event", exc, session=session)
     _dump_emission(head)
     emitted = [_head_msg(head)] + project_c0c1(
         messages[base:], frozen_until=max(0, frozen_attr - base), cwd=cwd
     )
-    return restore(emitted, messages, base, frozen_attr, cwd=cwd, view_path=view_path)
+    emitted = restore(emitted, messages, base, frozen_attr, cwd=cwd, view_path=view_path)
+    from synaptic.task_checkpoint import restore_receipts
+    from synaptic.receipt_render import render as render_receipts
+    from memory.wsc_execution_boundary import restore_tail
+    return render_receipts(restore_tail(restore_receipts(emitted, messages, base, frozen_attr), messages, base, 1,
+        from_index=(lifecycle or {}).get("response_tail_from")))
 
 
 def project_c2_messages(messages: list[dict], working, *, cwd=None) -> list[dict] | None:
     if not live_enabled():
         return None
+    cached = None
     try:
         from memory import wsc_head_store
         from memory.wsc_source_layout import LEGACY, APPEND, validate
         from memory.offload import ref_path_for
+        from memory.wsc_goal_source import snapshot as goal_snapshot
         from synaptic.cadence import CadenceState
         from synaptic.project import project as wsc_project
         from synaptic.replay import _region_raw_tokens
@@ -190,6 +208,8 @@ def project_c2_messages(messages: list[dict], working, *, cwd=None) -> list[dict
         from memory.wsc_extension_economics import absorb_boundary
 
         upper = absorb_boundary(messages, cursor)
+        from memory.wsc_execution_boundary import protect
+        upper = protect(messages, upper)
         if upper <= 1:
             return None
 
@@ -263,7 +283,7 @@ def project_c2_messages(messages: list[dict], working, *, cwd=None) -> list[dict
             # 反面形状被生产实测过：交界每枪前移 ⇒ 头之后全重排，
             # 厂商 cache_hit 99.8%→55.6%、每请求成本 ¥9.23m→¥21.11m（2.3 倍）。
             _reuse_frozen(cached, messages)
-            return _emit(cached.head, messages, cached.region_end, frozen_attr, cwd=_pinned(cached, cwd), view_path=cached.view_path)
+            return _emit(cached.head, messages, cached.region_end, frozen_attr, cwd=_pinned(cached, cwd), view_path=cached.view_path, session=session, lifecycle=cached.lifecycle, source_layout=source_layout)
 
         view_path = _view_path_for(_cwd_of(cwd), session)
         from memory.wsc_continuation import resume_inputs
@@ -283,13 +303,14 @@ def project_c2_messages(messages: list[dict], working, *, cwd=None) -> list[dict
             view_path=view_path,
             view_ref=ref_path_for(view_path, os.environ.get("XEYO_CWD") if cwd is None else str(cwd) or None),
             exclude_state_notes=source_layout == APPEND,
+            goal_snapshot=goal_snapshot(_cwd_of(cwd), session),
         )
         if not proj.result.compressed:
             # 收益门拒了本次折叠 ⇒ 绝不能返回 None。返回 None 会让调用方回退 C2 本体，
             # 那等于把已冻结的头整段换掉（前缀全废），比"这次不折"糟糕得多。
             if cached is not None and cached.head and freeze_enabled():
                 _reuse_frozen(cached, messages)
-                return _emit(cached.head, messages, cached.region_end, frozen_attr, cwd=_pinned(cached, cwd), view_path=cached.view_path)
+                return _emit(cached.head, messages, cached.region_end, frozen_attr, cwd=_pinned(cached, cwd), view_path=cached.view_path, session=session, lifecycle=cached.lifecycle, source_layout=source_layout)
             return None
 
         # 本次折叠实测的头增量（新头 − 旧头；首折/头丢失时 = 整个新头）。两个读者：
@@ -309,6 +330,21 @@ def project_c2_messages(messages: list[dict], working, *, cwd=None) -> list[dict
             )
         if cached is not None:
             _note_head_usage(session, cached)   # 旧头退场前补一条取回账
+        try:
+            # 收纳事实：段数单调 + 最近出处，供 T_now 的 context_usage 一行呈现
+            # （此前折叠对模型完全不可见，唯一信号是撞上写守卫的 missing_read）。
+            from memory.wsc_folds import record_fold, subject_from
+
+            record_fold(
+                session,
+                subject_from(
+                    messages,
+                    cached.region_end if cached is not None else 0,
+                    upper,
+                ),
+            )
+        except Exception:  # noqa: BLE001 — 台账失败不许挡折叠
+            pass
         if len(_STATE) >= _MAX_STATE and key not in _STATE:
             _STATE.pop(next(iter(_STATE)))
         shot = (cached.shots if cached is not None else 0) + 1
@@ -318,6 +354,23 @@ def project_c2_messages(messages: list[dict], working, *, cwd=None) -> list[dict
         except Exception:  # noqa: BLE001 - 观测字段，拿不到就算了
             handle_tok = 0
         pinned = _pinned(cached, cwd)
+        from synaptic.task_checkpoint import enabled as continuity_enabled
+        if continuity_enabled():
+            proj.state.lifecycle["response_tail_from"] = protect(messages, len(messages))
+        # Complete the durable generation before replacing the live head.
+        saved = wsc_head_store.save(
+            session, text=proj.text, cwd=pinned, cursor=cursor,
+            region_end=upper, messages=messages,
+            view_path=str(Path(proj.view_path or view_path).resolve()),
+            source_layout=source_layout,
+            lifecycle=dict(proj.state.lifecycle),
+        )
+        from synaptic.contracts import enabled as contracts_enabled
+        if contracts_enabled() and wsc_head_store.enabled() and not saved:
+            if cached is not None and cached.head and freeze_enabled():
+                return _emit(cached.head, messages, cached.region_end, frozen_attr,
+                             cwd=_pinned(cached, cwd), view_path=cached.view_path, session=session, lifecycle=cached.lifecycle, source_layout=source_layout)
+            return None
         _STATE[key] = _Live(
             prev=proj.state,
             cold=proj.cold,
@@ -331,19 +384,27 @@ def project_c2_messages(messages: list[dict], working, *, cwd=None) -> list[dict
             handle_tokens=handle_tok,
             cwd=pinned,
             source_seal=wsc_head_store.region_seal(messages, upper, source_layout=source_layout),
-            view_path=str(view_path.resolve()),
+            view_path=str(Path(proj.view_path or view_path).resolve()),
             source_layout=source_layout,
             last_head_delta=int(head_delta_tok),
+            lifecycle=dict(proj.state.lifecycle),
         )
         # 落盘只在这一个点上发生（= 头真被重排的那一枪）⇒ 写放大 = 折叠次数，不是枪数。
-        wsc_head_store.save(
-            session, text=proj.text, cwd=pinned, cursor=cursor,
-            region_end=upper, messages=messages,
-            view_path=str(view_path.resolve()),
-            source_layout=source_layout,
-        )
-        return _emit(proj.text, messages, upper, frozen_attr, cwd=pinned, view_path=str(view_path.resolve()))
-    except Exception:  # noqa: BLE001 - WSC must never block the projection
+        return _emit(proj.text, messages, upper, frozen_attr, cwd=pinned, view_path=proj.view_path or str(view_path.resolve()), session=session, lifecycle=proj.state.lifecycle, source_layout=source_layout)
+    except Exception as exc:  # noqa: BLE001 - WSC must never block the projection
+        from memory.wsc_goal_events import GoalEventLedgerError
+        if isinstance(exc, GoalEventLedgerError):
+            raise
+        from memory.wsc_diagnostics import record
+        record("projection", exc, session=str(getattr(working, "session_id", "")))
+        if cached is not None and cached.head and freeze_enabled():
+            try:
+                return _emit(cached.head, messages, cached.region_end, frozen_attr,
+                             cwd=_pinned(cached, cwd), view_path=cached.view_path, session=session, lifecycle=cached.lifecycle, source_layout=source_layout)
+            except GoalEventLedgerError:
+                raise
+            except Exception:
+                pass
         _log.debug("wsc live projection failed; falling back to C2", exc_info=True)
         return None
 
@@ -383,6 +444,7 @@ def _restore_frozen(session: str, cursor: int, messages: list[dict], cwd, *, sou
         source_seal=wsc_head_store.region_seal(messages, fh.region_end, source_layout=source_layout),
         view_path=fh.view_path,
         source_layout=source_layout,
+        lifecycle=dict(fh.lifecycle),
     )
 
 

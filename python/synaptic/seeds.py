@@ -99,6 +99,17 @@ class Seeds:
 	original_task: str
 	constraints: tuple[str, ...] = ()
 	unresolved_errors: tuple[str, ...] = ()
+	#: ``unresolved_errors`` 的**纯签名**（去掉 ``（×N）`` 后缀）。供去重判据使用：
+	#: 同一签名的卡片已在 ``[UNRESOLVED]`` 挂出时，``[DECISIONS]`` 行不再重复签名正文。
+	unresolved_sigs: tuple[str, ...] = ()
+	unresolved_source_groups: tuple[tuple[int, ...], ...] = ()
+	unresolved_identities: tuple[str, ...] = ()
+	#: 权限层拒绝（判据见 ``synaptic.verdicts``）：**限制事实**，不是待修缺陷。
+	#: 它们不进 ``[UNRESOLVED]``，改挂 ``[CONSTRAINTS]``，且行内内联 ``source=#idx``。
+	denials: tuple[str, ...] = ()
+	#: 与 ``denials`` 逐项对应的来源节点（取该签名**最近**一次实例）。
+	denial_sources: tuple[int, ...] = ()
+	denial_source_groups: tuple[tuple[int, ...], ...] = ()
 	todos: tuple[str, ...] = ()
 	#: Node backing the current active TODO summary (input or observed result).
 	todo_source: int = -1
@@ -118,6 +129,11 @@ class Seeds:
 	user_nodes: tuple[int, ...] = ()
 	# 审计留痕：每个种子的来源与理由
 	trace: list[dict[str, str]] = field(default_factory=list)
+	request_projection: bool = False
+	request_source: int = -1
+	request_text: str = ""
+	bound_goal_status: str = ""
+	bound_goal_revision: int | None = None
 
 
 def request_skip(seeds: Seeds) -> frozenset[int]:
@@ -128,6 +144,11 @@ def request_skip(seeds: Seeds) -> frozenset[int]:
 	两份逻辑一旦漂移，渲染说「这行覆盖 A」、绑定说「这个句柄展开成 B」，
 	可恢复性就被悄悄破坏。故收敛到这一个函数。
 	"""
+	from synaptic.requirement_floor import enabled as floor_enabled
+	if floor_enabled():
+		return frozenset()
+	if seeds.request_projection:
+		return frozenset({seeds.request_source}) if seeds.request_source >= 0 else frozenset()
 	return frozenset({seeds.pin_nodes[0]}) if seeds.pin_nodes else frozenset()
 
 
@@ -158,52 +179,10 @@ def extract_constraints(text: str, *, limit: int = 12) -> tuple[str, ...]:
 	return tuple(out)
 
 
-# 「已修好」的正向标记：错误被判定为已解决，必须真的看到成功证据。
-# 仅凭「之后有同类成功结果」是不够的——一条 grep 输出提到同一个文件，也会
-# 满足「同工具 + 同路径」，但它跟「那个测试已经过了」毫无关系。误判「已解决」
-# 会让失败现场从 PIN 里消失，代价远大于误判「未解决」（后者只是 PIN 大一点）。
-_SUCCESS_MARKERS = (
-	"passed",
-	"pass",
-	"all tests",
-	"ok",
-	"success",
-	"build succeeded",
-	"exit code 0",
-	"0 failed",
-	"0 errors",
-	"✓",
-	"通过",
-	"全部成功",
-	"测试通过",
-)
-
-
-def _has_success_marker(text: str) -> bool:
-	low = (text or "")[:4000].lower()
-	return any(m in low for m in _SUCCESS_MARKERS)
-
-
-def _is_resolved(graph: Graph, n) -> bool:
-	"""错误是否已被后续成功证据覆盖（时效轴）。
-
-	**判据只有一份实现**：``freshness.error_covered_by``（同类工具成功 / 成功改写同一
-	文件）。原先这里有一份更宽松的副本（只要求「同一工具 + 成功标记」，且无文件引用时
-	完全不要求指认现场），它会把「无引用的命令失败」判成已解决，与 [UNRESOLVED] 想表达
-	的「还在的坑」不符。两份口径一旦漂移，热层显示与实际覆盖关系就会互相矛盾。
-	"""
-	from synaptic.freshness import error_covered_by
-
-	return error_covered_by(graph, n, len(graph.nodes)) is not None
-
-
 def _unresolved_error_nodes(graph: Graph) -> list[int]:
-	"""未解决错误节点：之后没有针对同一现场的成功同类动作。"""
-	return [
-		n.idx
-		for n in graph.nodes
-		if n.is_error and n.error_sig and not _is_resolved(graph, n)
-	]
+	"""Compatibility API, delegated to the single authoritative lifecycle."""
+	from synaptic.freshness import analyze
+	return sorted(analyze(graph).unresolved_idx)
 
 
 def _todo_items(messages: list[dict], graph: Graph) -> list[str]:
@@ -220,6 +199,9 @@ def collect_seeds(
 	goal_override: str = "",
 	superseded: frozenset[int] = frozenset(),
 	resolved_errors: frozenset[int] = frozenset(),
+	#: 时效轴的权威未解决集（``freshness.analyze().unresolved_idx``）。给了就用它，
+	#: 不再由本模块重算（见 ``err_nodes`` 处的说明）。
+	unresolved_idx: frozenset[int] | None = None,
 	drop_constraints: frozenset[str] = frozenset(),
 	region_end: int = 0,
 ) -> Seeds:
@@ -261,16 +243,45 @@ def collect_seeds(
 			trace.append({"kind": "constraint", "src": f"user#{n.idx}", "why": f"约束句: {c[:48]}"})
 	constraints = [c for c in dict.fromkeys(constraints) if c not in drop_constraints]
 
-	# 未解决 = 识别到的失败 − 时效轴判定已被覆盖的失败 − 显式降级集。
-	# 口径唯一来自 ``freshness``（``_is_resolved`` 只是它的转发），此处不重算。
-	err_nodes = [
-		n.idx
-		for n in graph.nodes
-		if n.is_error
-		and n.error_sig
-		and n.idx not in resolved_errors
-		and n.idx not in superseded
-	]
+	# None means an old caller, while an explicit empty set is authoritative.
+	# Compatibility callers use the SAME lifecycle, never a second local inference.
+	limit = region_end if region_end > 0 else len(graph.nodes)
+	if unresolved_idx is None:
+		from synaptic.freshness import analyze
+		unresolved_idx = analyze(graph, region_end=limit).unresolved_idx
+	err_nodes = [i for i in sorted(unresolved_idx)
+		if i < limit and i not in superseded and i not in resolved_errors]
+	# 拒绝分类（判据唯一实现 ``synaptic.verdicts``）：权限层拒绝是**限制事实**——
+	# 不进 ``[UNRESOLVED]``（它不是"还在的坑"），也**不得**标成已解决（拒绝 ≠ 目标终态）。
+	# 它们改挂 ``[CONSTRAINTS]``，行内内联 ``source=#idx``。
+	# 拒绝节点刻意**不进** ``seeds.pin_nodes``：``pin_sources`` 按那里的错误签名分组建
+	# ordinal，多一类签名会让 ``unresolved:{ordinal}`` 与分组错位（宁可来源内联）。
+	from synaptic.verdicts import is_terminal_denial
+
+	from synaptic.failure_facts import enabled as facts_enabled, denial as fact_denial
+	denial_nodes = [i for i in err_nodes if
+		(fact_denial(graph.nodes[i]) if facts_enabled() else is_terminal_denial(graph.nodes[i].error_sig))]
+	if denial_nodes:
+		_drop = set(denial_nodes)
+		err_nodes = [i for i in err_nodes if i not in _drop]
+	_denial_counts: dict[str, int] = {}
+	for _i in denial_nodes:
+		_s = graph.nodes[_i].error_sig
+		_denial_counts[_s] = _denial_counts.get(_s, 0) + 1
+	_denial_sigs = list(dict.fromkeys(graph.nodes[i].error_sig for i in denial_nodes))
+	denials = tuple(
+		f"{_s}（×{_denial_counts[_s]}）" if _denial_counts[_s] > 1 else _s for _s in _denial_sigs
+	)
+	denial_sources = tuple(
+		max(i for i in denial_nodes if graph.nodes[i].error_sig == _s) for _s in _denial_sigs
+	)
+	_denial_groups = ()
+	if facts_enabled():
+		from synaptic.failure_facts import project_groups
+		denials, _denial_groups, _ = project_groups(graph, denial_nodes)
+		denial_sources = tuple(group[-1] for group in _denial_groups)
+	for _i in denial_nodes:
+		trace.append({"kind": "denial", "src": f"msg#{_i}", "why": graph.nodes[_i].error_sig[:64]})
 	# 次序用「首现次序」而非排序——实测排序更差（[UNRESOLVED] 前缀失稳率 6% → 15%）：
 	# graph.nodes 按 idx 升序，故首现次序等价于「按最早存活实例下标排序」，它把段首
 	# 锚定在**最老的未解决错误**上（极稳）；改成字典序后段首变成「字典序最小的签名」，
@@ -282,10 +293,14 @@ def collect_seeds(
 	for _i in err_nodes:
 		_s = graph.nodes[_i].error_sig
 		_sig_counts[_s] = _sig_counts.get(_s, 0) + 1
+	_unresolved_sigs = list(dict.fromkeys(graph.nodes[i].error_sig for i in err_nodes))
 	unresolved = tuple(
-		f"{_s}（×{_sig_counts[_s]}）" if _sig_counts[_s] > 1 else _s
-		for _s in dict.fromkeys(graph.nodes[i].error_sig for i in err_nodes)
+		f"{_s}（×{_sig_counts[_s]}）" if _sig_counts[_s] > 1 else _s for _s in _unresolved_sigs
 	)
+	from synaptic.failure_facts import enabled as facts_enabled, project_groups
+	_source_groups, _identities = (), ()
+	if facts_enabled():
+		unresolved, _source_groups, _identities = project_groups(graph, err_nodes)
 	for i in err_nodes:
 		trace.append(
 			{"kind": "unresolved_error", "src": f"msg#{i}", "why": graph.nodes[i].error_sig[:64]}
@@ -299,12 +314,14 @@ def collect_seeds(
 	# PIN 节点：用户消息 + 未解决错误 + TODO 所在节点
 	pin_nodes: list[int] = [n.idx for n in user_nodes]
 	pin_nodes.extend(err_nodes)
+	if facts_enabled():
+		pin_nodes.extend(denial_nodes)
 	if todo_snapshot.backing >= 0:
 		pin_nodes.append(todo_snapshot.backing)
 
 	# PIN 路径：目标/约束/未解决错误涉及，或状态已过期/带未解错误
 	pin_paths: list[str] = []
-	for i in [*[n.idx for n in user_nodes], *err_nodes]:
+	for i in [*[n.idx for n in user_nodes], *err_nodes, *denial_nodes]:
 		node = graph.node(i)
 		if node:
 			pin_paths.extend(node.refs)
@@ -325,6 +342,12 @@ def collect_seeds(
 		original_task=original_task,
 		constraints=tuple(constraints),
 		unresolved_errors=unresolved,
+		unresolved_sigs=tuple(_unresolved_sigs),
+		unresolved_source_groups=_source_groups,
+		unresolved_identities=_identities,
+		denials=denials,
+		denial_sources=denial_sources,
+		denial_source_groups=_denial_groups,
 		todos=todos,
 		todo_source=todo_snapshot.backing,
 		todo_observed=todo_snapshot.observed,

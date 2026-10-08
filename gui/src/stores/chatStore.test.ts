@@ -107,6 +107,7 @@ import {
 	deleteSpaceRecord,
 	loadDeletedSessionIds,
 	loadMessages,
+	loadChatHistoryState,
 	loadRollbackState,
 	loadSessions,
 	loadSpaces,
@@ -200,6 +201,46 @@ describe('chatStore dialogue — normal', () => {
 			},
 		);
 		await seedSession();
+	});
+
+	it.each(['branch', 'turn'])('native old callbacks cannot overwrite a new %s', async scope => {
+		let handlers!: ChatStreamHandlers;
+		let finish!: () => void;
+		streamChat.mockImplementationOnce(async (_sid, _text, next: ChatStreamHandlers) => {
+			handlers = next; await new Promise<void>(resolve => {finish = resolve;});
+		});
+		const work = useChatStore.getState().sendMessage('old request');
+		await vi.waitFor(() => expect(handlers).toBeDefined());
+		const controller = new AbortController();
+		const messages = [{id: 'new-user', role: 'user' as const, text: 'new request', createdAt: 2}];
+		useChatStore.setState({
+			...(scope === 'branch' ? {historyById: {sess_test: {activeBranch: {branchId: 'next', backendSessionId: 'next-backend'}}} as never} : {}),
+			messagesById: {sess_test: messages},
+			sessionStreams: patchSessionStream({}, 'sess_test', {isLoading: true, abortRef: controller, turnId: 'new-turn'}),
+		});
+		handlers.onDelta('OLD RESPONSE', 'old-reply');
+		handlers.onDone(); finish(); await work;
+		expect(useChatStore.getState().messagesById.sess_test).toBe(messages);
+		expect(getSessionStream(useChatStore.getState(), 'sess_test').abortRef).toBe(controller);
+		expect(getSessionStream(useChatStore.getState(), 'sess_test').isLoading).toBe(true);
+	});
+
+	it('native gap recovery cannot overwrite a newer task after its transcript request', async () => {
+		let resolve!: (messages: unknown[]) => void;
+		loadServerSessionMessages.mockImplementationOnce(() => new Promise(done => {resolve = done;}));
+		streamChat.mockImplementationOnce(async (_sid, _text, handlers: ChatStreamHandlers) => {
+			handlers.onDelta('partial', 'old-reply');
+			handlers.onStreamGap?.({} as never); handlers.onDone();
+		});
+		await useChatStore.getState().sendMessage('old request');
+		const controller = new AbortController();
+		const messages = [{id: 'new-user', role: 'user' as const, text: 'new request', createdAt: 2}];
+		useChatStore.setState({messagesById: {sess_test: messages},
+			sessionStreams: patchSessionStream({}, 'sess_test', {isLoading: true, abortRef: controller, turnId: 'new-turn'})});
+		resolve([{id: 'old-reply', role: 'assistant', text: 'OLD FINAL HISTORY', createdAt: 1}]);
+		await Promise.resolve(); await Promise.resolve();
+		expect(useChatStore.getState().messagesById.sess_test).toBe(messages);
+		expect(getSessionStream(useChatStore.getState(), 'sess_test').abortRef).toBe(controller);
 	});
 
 	it('rejects empty / whitespace-only send', async () => {
@@ -432,10 +473,10 @@ describe('chatStore dialogue — errors & busy', () => {
 		expect(acknowledgeInboxItemsApi).toHaveBeenCalledWith('sess_test', ['q-a', 'q-b']);
 		expect(useChatStore.getState().inboxBySession.sess_test).toEqual([]);
 		expect(useChatStore.getState().messagesById.sess_test).toEqual([
-			{id: 'prior-user', role: 'user', text: 'request', createdAt: 1},
-			{id: 'prior-assistant', role: 'assistant', text: 'working', createdAt: 2},
-			{id: 'user-a', role: 'user', text: 'first\n\nsecond', createdAt: 3},
-			{id: 'answer', role: 'assistant', text: 'done', createdAt: 4},
+			{id: 'prior-user', role: 'user', text: 'request', createdAt: 1, transcriptOrder: 0},
+			{id: 'prior-assistant', role: 'assistant', text: 'working', createdAt: 2, transcriptOrder: 1},
+			{id: 'user-a', role: 'user', text: 'first\n\nsecond', createdAt: 3, transcriptOrder: 2},
+			{id: 'answer', role: 'assistant', text: 'done', createdAt: 4, transcriptOrder: 3},
 		]);
 	});
 
@@ -522,7 +563,7 @@ describe('chatStore dialogue — errors & busy', () => {
 		expect(cancelInboxItemApi).toHaveBeenCalledWith('backend-2', 'q-edit');
 		expect(useChatStore.getState().inboxBySession.sess_test).toEqual([]);
 		expect(useChatStore.getState().messagesById.sess_test).toEqual([assistantMessage]);
-		expect(deleteMessageForSession).toHaveBeenCalledWith('sess_test', 'user-queued');
+		expect(deleteMessageForSession).toHaveBeenCalledWith('sess_test', 'user-queued', expect.any(Function));
 		inboxSnapshotApi.mockResolvedValueOnce({autorun: true, coalesce: false, items: []});
 		expect(await useChatStore.getState().refreshInbox('sess_test')).toBe(true);
 		expect(inboxSnapshotApi).toHaveBeenLastCalledWith('backend-2');
@@ -1575,6 +1616,32 @@ describe('chatStore hydrate', () => {
 		vi.clearAllMocks();
 	});
 
+	it('applies delayed startup backfill without dropping newly added local UI rows', async () => {
+		const sess = session('sess_backfill');
+		const local = [{id: 'u1', role: 'user' as const, text: 'question', createdAt: 1}];
+		let resolve!: (messages: import('@/lib/types').ChatMessage[]) => void;
+		loadServerSessionMessages.mockReturnValueOnce(new Promise(done => {resolve = done;}));
+		vi.mocked(loadSpaces).mockResolvedValue([space()]); vi.mocked(loadSessions).mockResolvedValue([sess]);
+		vi.mocked(loadMessages).mockResolvedValue(local);
+		useChatStore.setState({hydrated: false, activeId: null, spaces: [], sessions: [], messagesById: {}});
+		await useChatStore.getState().hydrate();
+		await vi.waitFor(() => expect(loadServerSessionMessages).toHaveBeenCalledWith('sess_backfill'));
+		useChatStore.setState(state => ({messagesById: {...state.messagesById, sess_backfill: [...local, {id: 'ui', role: 'user', text: '/status', createdAt: 3, uiOnly: true}]}}));
+		resolve([...local, {id: 'a1', role: 'assistant', text: 'answer', createdAt: 2}]);
+		await vi.waitFor(() => expect(useChatStore.getState().messagesById.sess_backfill?.map(row => row.id)).toEqual(['u1', 'a1', 'ui']));
+	});
+
+	it('applies server backfill to memory after unchanged local recovery at startup', async () => {
+		const sp = space(); const sess = session('sess_backfill');
+		const local = [{id: 'u1', role: 'user' as const, text: 'question', createdAt: 1}];
+		const server = [...local, {id: 'a1', role: 'assistant' as const, text: 'answer', createdAt: 2}];
+		vi.mocked(loadSpaces).mockResolvedValue([sp]); vi.mocked(loadSessions).mockResolvedValue([sess]);
+		vi.mocked(loadMessages).mockResolvedValue(local); loadServerSessionMessages.mockResolvedValueOnce(server);
+		useChatStore.setState({hydrated: false, activeId: null, spaces: [], sessions: [], messagesById: {}});
+		await useChatStore.getState().hydrate();
+		await vi.waitFor(() => expect(useChatStore.getState().messagesById.sess_backfill?.map(row => row.id)).toEqual(['u1', 'a1']));
+	});
+
 		it('resets cached in-progress rollback state during hydrate', async () => {
 			const sp = space();
 			const sess = session('sess_cached');
@@ -1901,6 +1968,29 @@ describe('chatStore selectSession — optimistic switching', () => {
 			errorBannerSessionId: null,
 		});
 	}
+
+	it('restores the saved backend branch alongside a cold transcript', async () => {
+		twoSessions(); vi.mocked(loadMessages).mockResolvedValue([]);
+		vi.mocked(loadChatHistoryState).mockResolvedValueOnce({activeBranch: {branchId: 'fork', backendSessionId: 'backend-fork', parentBranchId: 'root', createdAt: 1, forkMessageId: 'u1', label: 'fork'}, archivedBranches: []});
+		loadServerSessionMessages.mockResolvedValueOnce([{id: 'fork-user', role: 'user', text: 'fork history', createdAt: 1}]);
+		await useChatStore.getState().selectSession('sess_b');
+		await vi.waitFor(() => expect(useChatStore.getState().messagesById.sess_b?.[0]?.text).toBe('fork history'));
+		expect(useChatStore.getState().historyById.sess_b?.activeBranch.backendSessionId).toBe('backend-fork');
+	});
+
+	it('waits for a cold branch identity before sending, then submits to the saved backend', async () => {
+		twoSessions(); vi.mocked(loadMessages).mockResolvedValue([]);
+		let restore!: (history: NonNullable<Awaited<ReturnType<typeof loadChatHistoryState>>>) => void;
+		vi.mocked(loadChatHistoryState).mockReturnValueOnce(new Promise(resolve => {restore = resolve;}));
+		loadServerSessionMessages.mockResolvedValueOnce([]);
+		streamChat.mockImplementationOnce(async (_sid, _text, handlers: ChatStreamHandlers) => {handlers.onDone();});
+		await useChatStore.getState().selectSession('sess_b');
+		const sending = useChatStore.getState().sendMessage('new input');
+		expect(streamChat).not.toHaveBeenCalled();
+		restore({activeBranch: {branchId: 'fork', backendSessionId: 'backend-fork', parentBranchId: 'root', createdAt: 1, forkMessageId: 'u1', label: 'fork'}, archivedBranches: []});
+		await sending;
+		expect(streamChat.mock.calls[0]?.[0]).toBe('backend-fork');
+	});
 
 	it('sets activeId synchronously for cold sessions (does not await messages)', async () => {
 		twoSessions();

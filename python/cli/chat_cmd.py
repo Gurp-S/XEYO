@@ -223,7 +223,7 @@ async def chat_async(
 		)
 
 	async def _one(text: str) -> None:
-		nonlocal engine, mode, model_cur, last_prompt
+		nonlocal engine, mode, model_cur, last_prompt, permission_mode
 		slash = handle_slash(text, engine=engine, set_agent_mode=set_agent_mode)
 		if slash.handled:
 			if slash.message and not json_mode:
@@ -240,15 +240,23 @@ async def chat_async(
 					)
 			if slash.model_override:
 				model_cur = slash.model_override
+			if slash.permission_mode:
+				permission_mode = slash.permission_mode
 			if slash.rebuild_engine or slash.model_override or slash.load_session:
+				next_session_id = (
+					slash.load_session
+					or (uuid.uuid4().hex if slash.rebuild_engine else engine.session_id)
+				)
 				engine, restored_n = build_chat_engine(
 					cwd=work,
-					session_id=slash.load_session or uuid.uuid4().hex,
+					session_id=next_session_id,
 					provider=provider,
 					model=model_cur,
 					api_key=api_key,
 					base_url=base_url,
 				)
+				if slash.rebuild_engine or slash.load_session:
+					last_prompt = None
 				if not json_mode:
 					ui.session_chip(engine.session_id, restored=restored_n)
 			if slash.exit_repl:

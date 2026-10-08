@@ -471,6 +471,13 @@ class InterruptRequest(BaseModel):
 @router.post("/v1/interrupt")
 def interrupt(body: InterruptRequest, request: Request) -> dict[str, Any]:
 	require_loopback(request)
+	from server.inbox_registry import InboxPersistenceError, get_inbox_registry
+
+	pause_error = False
+	try:
+		get_inbox_registry().pause(body.session_id)
+	except InboxPersistenceError:
+		pause_error = True
 	try:
 		from engine.turn_runner import get_turn_runner
 
@@ -478,6 +485,8 @@ def interrupt(body: InterruptRequest, request: Request) -> dict[str, Any]:
 	except Exception:
 		pass
 	ok = _pool.interrupt(body.session_id)
+	if pause_error:
+		raise api_error(503, "inbox pause could not be persisted", "inbox_unavailable")
 	return {"ok": ok}
 
 

@@ -35,6 +35,24 @@ describe('follow-tail scroll', () => {
 		expect(nextFollowTailPinned(false, 10, true)).toBe(false);
 	});
 
+	it('keeps pinning when shrinking content clamps scrollTop', () => {
+		// 流式正文替换 settled 正文 / 折叠卡收拢：scrollTop 被浏览器夹下来
+		// （方向像上滚），但视口仍在底部 —— 不是用户上滚，不得松手。
+		expect(nextFollowTailPinned(true, 0, true, true)).toBe(true);
+	});
+
+	it('never re-pins a user who is reading history when content shrinks', () => {
+		// 未钉住时收缩不得借机重钉：用户在上方回看历史，收缩把视口夹到
+		// 新的底部（gap=0），这同样不是「用户滚回底部」。
+		expect(nextFollowTailPinned(false, 0, true, true)).toBe(false);
+	});
+
+	it('still unpins when the user scrolled away during a shrink', () => {
+		// 收缩同时用户确实滚开了（gap 超出重新钉住阈值）→ 尊重用户上滚。
+		expect(nextFollowTailPinned(true, 600, true, true)).toBe(false);
+		expect(nextFollowTailPinned(false, 600, true, true)).toBe(false);
+	});
+
 	it('uses enter/exit hysteresis when not scrolling up', () => {
 		expect(nextFollowTailPinned(true, FOLLOW_TAIL_PX - 1, false)).toBe(true);
 		expect(nextFollowTailPinned(true, FOLLOW_TAIL_PX, false)).toBe(false);

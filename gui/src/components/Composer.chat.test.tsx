@@ -6,6 +6,9 @@ import {SIDE_SPACE_ID} from '@/lib/db';
 import type {InboxQueuedItem} from '@/stores/chat/preStoreHelpers';
 import {patchSessionStream} from '@/lib/sessionStreams';
 
+// Deferred settings transport has separate real-store concurrency coverage.
+vi.mock('@/hooks/useQueuedRequestSettings', () => ({useQueuedRequestSettings: vi.fn()}));
+
 const {chatState, sendMessage, stopGeneration, fetchSkills} = vi.hoisted(() => {
 	const sendMessage = vi.fn();
 	const stopGeneration = vi.fn();

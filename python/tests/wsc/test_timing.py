@@ -1,54 +1,82 @@
-"""Stage timing is diagnostic only and must not affect WSC output."""
+"""Capacity policy must supersede ordinary economics and old absolute gates."""
+from copy import deepcopy
+from types import SimpleNamespace
 
-from __future__ import annotations
+import pytest
 
-from synaptic.metrics import determinism_digest
-from synaptic.project import project
-from synaptic.types import WscParams
-from wsc._fixtures import synth_session
-
-
-def test_project_exposes_stage_timings_without_changing_digest():
-	msgs = synth_session(turns=8, error_turn=3)
-	a = project(msgs, region_end=len(msgs), params=WscParams())
-	b = project(msgs, region_end=len(msgs), params=WscParams())
-	assert determinism_digest(a.result) == determinism_digest(b.result)
-	assert {
-		"graph",
-		"file_state",
-		"seeds",
-		"select",
-		"select_plan",
-		"select_cards",
-		"coldstore",
-		"assemble",
-		"total",
-	} <= set(
-		a.result.stage_ms
-	)
-	assert all(value >= 0 for value in a.result.stage_ms.values())
+from memory import runtime
+from memory.working import WorkingSnapshot
+from memory.wsc_timing import decide, measure
 
 
-def test_default_project_does_not_build_soft_dag():
-	from synaptic.types import EDGE_ERR, EDGE_FILE, EDGE_SEQ, EDGE_USE
-
-	proj = project(
-		synth_session(turns=6, error_turn=3),
-		region_end=10_000,
-		params=WscParams(),
-	)
-	kinds = {edge.kind for edge in proj.graph.edges}
-	assert EDGE_USE in kinds
-	assert not ({EDGE_SEQ, EDGE_FILE, EDGE_ERR} & kinds)
+@pytest.mark.parametrize("tokens,action,notice", [
+    (20_000, "keep", False), (799_999, "keep", False),
+    (800_000, "keep", True), (849_999, "keep", True),
+    (850_000, "capacity", True), (1_100_000, "capacity", True)])
+def test_million_window_boundaries(tokens, action, notice):
+    result = decide(tokens, 1_000_000)
+    assert (result.action, result.notify) == (action, notice)
 
 
-def test_soft_dag_remains_explicit_offline_comparison():
-	from synaptic.types import EDGE_ERR, EDGE_FILE, EDGE_SEQ, EDGE_USE
+def test_explicit_request_unknown_capacity_and_exact_ratio():
+    assert decide(20_000, 1_000_000, model_requested=True).action == "model"
+    assert decide(999_999, None).action == "keep"
+    assert not decide(999_999, None).notify
+    assert decide(85, 101).action == "keep"
+    assert decide(86, 101).action == "capacity"
+    assert not decide(800_000, 1_000_000, notified=True).notify
 
-	proj = project(
-		synth_session(turns=6, error_turn=3),
-		region_end=10_000,
-		params=WscParams(soft_dag=True),
-	)
-	kinds = {edge.kind for edge in proj.graph.edges}
-	assert {EDGE_SEQ, EDGE_FILE, EDGE_ERR, EDGE_USE} <= kinds
+
+def test_measure_rejects_unbound_old_receipt_and_does_not_count_reserve():
+    working = SimpleNamespace(compact_cursor=10, last_prompt_tokens=999_999,
+        last_projection_manifest={"compact_cursor": 9, "context_receipt_cursor": 9,
+                                  "context_receipt_basis": "provider_current_request", "estimated_tokens": 1})
+    assert measure([], working, context_limit=1_000_000).action == "keep"
+    working.last_projection_manifest.update(compact_cursor=10, context_receipt_cursor=10)
+    assert measure([], working, context_limit=1_000_000).action == "capacity"
+    working.last_projection_manifest["context_receipt_basis"] = "projected_estimate"
+    assert measure([], working, context_limit=1_000_000).action == "keep"
+
+
+@pytest.mark.parametrize("entry", ["projection", "pressure"])
+def test_runtime_20k_does_not_admit_old_absolute_or_economic_gates(monkeypatch, entry):
+    monkeypatch.setenv("XEYO_WSC_MODEL_TIMING", "1")
+    monkeypatch.setenv("XEYO_C2_PRESSURE_TOKENS", "100")
+    monkeypatch.setenv("XEYO_WSC_SOFT_WATERMARK", "100")
+    messages = [{"role": "user", "content": "a" * 80_000}]
+    original = deepcopy(messages)
+    working = WorkingSnapshot()
+    working.last_prompt_tokens = 999_999  # Unbound old receipt is not occupancy.
+    def forbidden(*args, **kwargs):
+        pytest.fail("ordinary fold admitted below 85%")
+    monkeypatch.setattr(runtime, "force_compact", forbidden)
+    if entry == "projection":
+        assert runtime.project_for_model(messages, working, context_limit=1_000_000,
+                                         include_memory_index=False) == messages
+    else:
+        assert not runtime.maybe_force_compact_on_pressure(messages, working, context_limit=1_000_000)
+    assert messages == original
+    assert working.compact_cursor == working.c1_frozen_until == 0
+
+
+@pytest.mark.parametrize("entry", ["projection", "pressure"])
+def test_runtime_85_percent_uses_force_path(monkeypatch, entry):
+    monkeypatch.setenv("XEYO_WSC_MODEL_TIMING", "1")
+    messages = [{"role": "user", "content": "a" * 100}]
+    working = WorkingSnapshot()
+    # Actual current-request overhead is explicitly bound to this generation.
+    working.last_prompt_tokens = 850_000
+    working.last_projection_manifest = {"compact_cursor": 0, "context_receipt_cursor": 0,
+        "context_receipt_basis": "provider_current_request", "estimated_tokens": 1}
+    calls = []
+    def forced(rows, snapshot, **kwargs):
+        calls.append(rows)
+        snapshot.compact_cursor = 1
+        return [{"role": "user", "content": "new projection"}]
+    monkeypatch.setattr(runtime, "force_compact", forced)
+    if entry == "projection":
+        out = runtime.project_for_model(messages, working, context_limit=1_000_000, include_memory_index=False)
+        assert out[0]["content"] == "new projection"
+    else:
+        assert runtime.maybe_force_compact_on_pressure(messages, working, context_limit=1_000_000)
+    assert len(calls) == 1

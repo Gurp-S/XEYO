@@ -79,6 +79,7 @@ def deliver_queued_users(session_id: str, store: Any) -> list[Any]:
 					it.text,
 					images=list(it.media_refs or []),
 					message_id=it.message_id or "",
+					persist_pending=False,
 				)
 			)
 		except Exception:  # noqa: BLE001

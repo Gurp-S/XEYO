@@ -151,14 +151,31 @@ def collect(cwd: str = "") -> dict[str, str]:
 		writable = ""
 	if writable:
 		facts["writable"] = _clip(writable)
-		# 草稿目录只在工作区确实可写时报（否则报了也是假信息）
-		facts["scratch"] = SCRATCH_REL
+		# 草稿目录**不再上报**（2026-10-08）：``execution_facts.writable`` 说
+		# ``.xeyo/tmp`` 可写，而 Write 工具那条权限面
+		# （``permissions/filesystem.protected_metadata_reason``）判定不可写——实测写
+		# ``.xeyo/tmp/read_demo.py`` 被拒 ``protected_metadata``。同一屏两条互斥事实
+		# 比缺一条更坏，先撤事实；"允许写 .xeyo/tmp"（方案 A）另行评估后再决定恢复。
+	from engine.execution_facts import enabled
+	if enabled():
+		from tools.bash_tool.runner import build_shell_argv
+		facts["syntax"] = "PowerShell: object pipeline, $ variables, here-string" if build_shell_argv("")[1] in {"pwsh", "powershell"} else "POSIX sh: text pipeline, $ variables, heredoc"
 	return facts
 
 
 def facts(cwd: str = "") -> dict[str, str]:
 	"""按 cwd 缓存的采集结果（环境事实在一个进程/会话内稳定）。"""
 	key = str(cwd or "").strip()
+	from engine.execution_facts import enabled
+	if enabled():
+		# Host probes are stable; permission and scope facts are task-local live values.
+		values = dict(_FACTS_CACHE.get(key) or collect(key))
+		values.pop("writable", None)
+		values.pop("scratch", None)
+		from engine.execution_facts import writable
+		if writable(os.path.join(key, "workspace-probe.txt"), key):
+			values["writable"] = _clip(key)
+		return values
 	cached = _FACTS_CACHE.get(key)
 	if cached is None:
 		cached = collect(key)
@@ -173,7 +190,7 @@ def render(cwd: str = "") -> str:
 	无任何事实 ⇒ 空串（该块缺席，调用方不注入）。
 	"""
 	values = facts(cwd)
-	order = ("shell", "elevated", "tz", "writable", "scratch", "desktop")
+	order = ("shell", "syntax", "elevated", "tz", "writable", "desktop")
 	parts = [f"{key}: {values[key]}" for key in order if key in values]
 	if "desktop" in values and values["desktop"] == "true":
 		parts = [p for p in parts if not p.startswith("desktop:")]

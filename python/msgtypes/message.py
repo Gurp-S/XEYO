@@ -126,6 +126,7 @@ def assistant_text_message(
 	interrupted: bool = False,
 	reasoning: str = "",
 	reasoning_blocks: list[dict[str, Any]] | None = None,
+	message_id: str | None = None,
 ) -> Message:
 	"""构造 assistant 消息。
 
@@ -151,6 +152,7 @@ def assistant_text_message(
 		)
 	return Message(
 		role="assistant",
+		**({"id": message_id} if message_id else {}),
 		# block 数组只在「有工具或带思考」时使用；纯文本无 reasoning 轮回落
 		# 纯字符串（老形状零回归——下游 20+ 处 isinstance(content,str) 消费者
 		# 只需兼容"带 reasoning 的纯文本轮"这一种新形状）。
@@ -168,6 +170,7 @@ def tool_result_message(
 	is_error: bool = False,
 	images: list[str] | None = None,
 	status: str | None = None,
+	execution: dict[str, Any] | None = None,
 ) -> Message:
 	# γ4 围栏在投影送模型时（proj_cache 增量 / 全量 project）添加，
 	# 不在此处写入，以免污染 transcript / ToolResultEvent / UI。
@@ -179,6 +182,8 @@ def tool_result_message(
 			"is_error": bool(is_error or status == "cancelled"),
 		}
 	]
+	if execution is not None:
+		blocks[0]["execution"] = execution
 	for url in images or []:
 		u = (url or "").strip()
 		if u.startswith("data:image"):

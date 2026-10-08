@@ -54,7 +54,8 @@ def test_restart_then_fold_preserves_old_source(store, monkeypatch, rebase, adva
     working.compact_cursor = int(keep_tail_cut(messages))
     assert wp.project_c2_messages(messages, working)
     latest = next(iter(wp._STATE.values()))
-    assert latest.view_path == current.view_path
+    assert latest.view_path != current.view_path
+    assert Path(current.view_path).read_text(encoding="utf-8") == raw
     assert latest.cold.render_text_view()[0].startswith(raw)
     assert all(latest.cold.render_text_view()[1][h] == span for h, span in ranges.items())
 
@@ -75,7 +76,8 @@ def test_old_generation_large_receipt_survives_emit_and_other_files_do_not(tmp_p
         messages = [dict(role="assistant", content=[dict(type="tool_use", id="r", name="Read", input=dict(file_path=str(path)))]),
                     dict(role="user", content=[dict(type="tool_result", tool_use_id="r", is_error=False, content=raw)])]
         emitted = _emit("[HEAD] recovery", messages, 0, 0, cwd=str(tmp_path), view_path=current)
-        assert (emitted[-1]["content"][0]["content"] == raw) == preserved
+        # Main timing retains every unfolded receipt, regardless of path family.
+        assert emitted[-1]["content"][0]["content"].split("\n", 1)[1] == raw
 
 
 def test_multiple_restarts_keep_one_session_family(tmp_path):

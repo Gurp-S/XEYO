@@ -31,15 +31,15 @@ def inbox_state_path(session_id: str) -> Path:
 	return default_sessions_dir() / ".inbox" / f"{key}.json"
 
 
-def load_inbox_state(session_id: str) -> list[dict[str, Any]]:
+def load_inbox_snapshot(session_id: str) -> dict[str, Any]:
 	if not should_persist():
-		return []
+		return {"items": [], "paused": False}
 	path = inbox_state_path(session_id)
 	try:
 		with path.open("r", encoding="utf-8") as handle:
 			payload = json.load(handle)
 	except FileNotFoundError:
-		return []
+		return {"items": [], "paused": False}
 	except (OSError, json.JSONDecodeError) as exc:
 		_logger.warning("inbox state read failed sid=%s path=%s", session_id, path, exc_info=True)
 		raise InboxStateReadError(session_id) from exc
@@ -48,10 +48,16 @@ def load_inbox_state(session_id: str) -> list[dict[str, Any]]:
 		or payload.get("version") != _VERSION
 		or payload.get("session_id") != session_id
 		or not isinstance(payload.get("items"), list)
+		or not isinstance(payload.get("paused", False), bool)
 	):
 		_logger.warning("inbox state has an unsupported shape sid=%s path=%s", session_id, path)
 		raise InboxStateReadError(session_id)
-	return [item for item in payload["items"] if isinstance(item, dict)]
+	return {"items": [item for item in payload["items"] if isinstance(item, dict)],
+		"paused": payload.get("paused", False)}
+
+
+def load_inbox_state(session_id: str) -> list[dict[str, Any]]:
+	return load_inbox_snapshot(session_id)["items"]
 
 
 class InboxStateReadError(RuntimeError):
@@ -62,11 +68,11 @@ class InboxStateReadError(RuntimeError):
 		super().__init__(f"inbox state unavailable for session {session_id}")
 
 
-def save_inbox_state(session_id: str, items: list[dict[str, Any]]) -> bool:
+def save_inbox_state(session_id: str, items: list[dict[str, Any]], paused: bool = False) -> bool:
 	if not should_persist():
 		return True
 	path = inbox_state_path(session_id)
-	if not items:
+	if not items and not paused:
 		return delete_inbox_state(session_id)
 
 	tmp = path.with_name(path.name + ".tmp")
@@ -74,7 +80,7 @@ def save_inbox_state(session_id: str, items: list[dict[str, Any]]) -> bool:
 		path.parent.mkdir(parents=True, exist_ok=True)
 		with tmp.open("w", encoding="utf-8", newline="") as handle:
 			json.dump(
-				{"version": _VERSION, "session_id": session_id, "items": items},
+				{"version": _VERSION, "session_id": session_id, "items": items, **({"paused": True} if paused else {})},
 				handle,
 				ensure_ascii=False,
 				separators=(",", ":"),

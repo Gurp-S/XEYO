@@ -22,9 +22,9 @@ inbox registry ⇒ 复用其排水（批投 / 重试 / stuck / 手动 resume / G
 接线：``server/turn_settlement_hub.py`` 在 inbox 租户之后调用（inbox 租户仍排第一，
 保证「用户消息优先于 goal」的既有不变量）。
 
-残余边（已知、未消除）：若 settle 与本次兜底之间引擎被重建（``store`` 从 transcript
-hydrate，会把 ``push`` 时落的 WAL 行装进历史），同 message_id 可能二次入内存历史
-（transcript 按 id 去重，不落重复行；重复只影响那一轮模型输入里多一条同样文本）。
+HTTP 引导与已入队消息均已有 inbox 持久所有权；兜底恢复原队列位置，
+不提前写 transcript，也不重复 enqueue。未经过 HTTP 的旧内部 push 调用
+仍由其自身持久化契约负责，兜底保留兼容分支。
 """
 
 from __future__ import annotations
@@ -65,12 +65,15 @@ def fallback_pending(session_id: str) -> int:
 	leftovers: list[object] = []
 	for it in items:
 		try:
-			reg.enqueue(
-				sid,
-				it.text,
-				media_refs=list(it.images or []),
-				message_id=(it.message_id or None),
-			)
+			# Selected inbox steer retains its queue identity and original order.
+			# Direct steer has no inbox owner and needs a new queue entry.
+			if not reg.restore_boundary_delivery(sid, it.message_id or ""):
+				reg.enqueue(
+					sid,
+					it.text,
+					media_refs=list(it.images or []),
+					message_id=(it.message_id or None),
+				)
 			moved += 1
 		except (InboxQueueFull, InboxTextTooLong, InboxPersistenceError):
 			leftovers.append(it)
@@ -101,8 +104,12 @@ async def on_turn_settled(
 	异常全隔离——本协程绝不向调度方抛（hub 另有一层 try，见 §3.1）。
 	"""
 	try:
-		if final_status not in ("succeeded", "failed"):
+		if final_status not in ("succeeded", "failed", "stopped", "cancelled"):
 			return
+		if final_status in ("stopped", "cancelled"):
+			from server.inbox_registry import get_inbox_registry
+
+			get_inbox_registry().pause(session_id)
 		fallback_pending(session_id)
 	except Exception:  # noqa: BLE001
 		_logger.debug("steer fallback skipped sid=%s", session_id, exc_info=True)

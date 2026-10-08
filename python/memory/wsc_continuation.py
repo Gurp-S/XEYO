@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 
 
-_GENERATION = re.compile(r"^(.*?)(?:\.g-[a-f0-9]{16}-[0-9]+)+$")
+_GENERATION = re.compile(r"^(.*?)(?:\.g-[a-f0-9]{16}-[0-9]+|\.v-sha256-[a-f0-9]{64})+$")
 
 
 def prior_generation(current: str, candidate: str) -> bool:
@@ -39,6 +39,7 @@ def resume_inputs(cached, path, *, mode: str, level: str):
             previous = AssemblyState(
                 mode=mode, level=level, full_text=cached.head,
                 journal=((header, body),),
+                lifecycle=dict(getattr(cached, "lifecycle", {}) or {}),
             )
     if path.exists():
         # No layout metadata means even an equal history is insufficient to

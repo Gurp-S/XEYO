@@ -340,6 +340,7 @@ export function useMessageListViewport(
 			return;
 		}
 		let lastScrollTop = el.scrollTop;
+		let lastScrollHeight = el.scrollHeight;
 		const onScroll = () => {
 			if (!editingViewportLockRef.current) {
 				const gap = gapFromBottom(
@@ -348,10 +349,15 @@ export function useMessageListViewport(
 					el.clientHeight,
 				);
 				const scrolledUp = el.scrollTop < lastScrollTop - 0.5;
+				// 内容收缩（折叠卡收拢 / 流式正文替换 settled 正文 / 视口变宽）
+				// 会让浏览器把 scrollTop 夹到新的最大可滚值：位移方向与上滚
+				// 一致，视口却仍在底部。把它当上滚，一次折叠就永久打掉跟尾。
+				const contentShrank = el.scrollHeight < lastScrollHeight - 0.5;
 				stickToBottom.current = nextFollowTailPinned(
 					stickToBottom.current,
 					gap,
 					scrolledUp,
+					contentShrank,
 				);
 			}
 			// 会话滚动位置记忆：当前会话随时更新（切走时以最新值为准）。
@@ -363,6 +369,7 @@ export function useMessageListViewport(
 				});
 			}
 			lastScrollTop = el.scrollTop;
+			lastScrollHeight = el.scrollHeight;
 			// 同步更新打孔/pin，避免 compositor 滚动先绘制、rAF 后补偿的一帧透出。
 			flushStuck();
 			scheduleFrameRead(frameKeysRef.current!.rail, syncRailActive);

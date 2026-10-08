@@ -256,6 +256,31 @@ describe('主路径部件集成 — 发 / 停 / 权限 / reattach / 回溯', () 
 		});
 	});
 
+	it.each([202, 500])('入队或发送被拒（%s）保留尚未完成的 Ask/Plan', async status => {
+		const pendingAsk = {requestId: 'ask-old', question: 'q', options: [], questions: [], sessionId: 'sess_test'};
+		const pendingPlan = {requestId: 'plan-old', plan: 'p', sessionId: 'sess_test'};
+		useChatStore.setState({pendingAsk, pendingPlan});
+		streamChat.mockImplementation(async (_sid: string, _text: string, handlers: ChatStreamHandlers) => {
+			if (status === 202) { handlers.onAccepted?.(202); handlers.onDone(); }
+			else handlers.onError('HTTP 500');
+		});
+		await useChatStore.getState().sendMessage('next input');
+		expect(useChatStore.getState().pendingAsk).toBe(pendingAsk);
+		expect(useChatStore.getState().pendingPlan).toBe(pendingPlan);
+	});
+
+	it('只有新回合受理后才撤掉其旧 Ask/Plan', async () => {
+		useChatStore.setState({pendingAsk: {requestId: 'ask-old', question: 'q', options: [], questions: [], sessionId: 'sess_test'},
+			pendingPlan: {requestId: 'plan-old', plan: 'p', sessionId: 'sess_test'}});
+		streamChat.mockImplementation(async (_sid: string, _text: string, handlers: ChatStreamHandlers) => {
+			handlers.onAccepted?.(200);
+			expect(useChatStore.getState().pendingAsk).toBeNull();
+			expect(useChatStore.getState().pendingPlan).toBeNull();
+			handlers.onDone();
+		});
+		await useChatStore.getState().sendMessage('next turn');
+	});
+
 	it('空回复：模型 0 输出仅 onDone → 给出可见反馈而非静默（no-e2e 盲区回归）', async () => {
 		// 复现真实场景：后端受理了回合，但模型流出 0 个 token 后正常收尾
 		// （前端只能拿到 onDone，没有 onDelta）。修复前这里会只留用户气泡、

@@ -56,6 +56,7 @@ _FROZEN_ENABLED = (
 	"Screenshot",
 	"SendToWeChat",
 	"Memory",
+	"Compact",
 	"AskUserQuestion",
 	"JournalQuery",
 	"Skill",

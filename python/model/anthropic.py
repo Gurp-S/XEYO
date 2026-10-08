@@ -762,6 +762,10 @@ class AnthropicModelClient:
 				"anthropic usage ledger write failed", exc_info=True
 			)
 
+	def context_input(self, messages, tools):
+		from model.context_input import from_body
+		return from_body(self._build_body(messages, tools, stream=False))
+
 	def _build_body(
 		self,
 		messages: list[dict[str, Any]],

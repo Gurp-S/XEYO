@@ -100,6 +100,10 @@ def collect_reads_writes(graph: Graph, messages: list[dict]) -> tuple[list[_Read
 			if not paths:
 				continue
 			text = tool_result_text(block)
+			from synaptic.read_receipt import is_unchanged_view
+			if name in {"Read", "NotebookRead"} and is_unchanged_view(block):
+				# A deduplication receipt contains no new file content or range.
+				continue
 			if is_write:
 				for path in paths:
 					writes.append(_Write(idx=idx, path=path, summary=_write_summary(name, inp)))

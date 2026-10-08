@@ -21,6 +21,7 @@ class SlashResult:
 	exit_repl: bool = False
 	rebuild_engine: bool = False
 	agent_mode: str | None = None
+	permission_mode: str | None = None
 	# --- 扩展字段（client 命令向 REPL 传意图） ---
 	#: /run <cmd> → 本轮改发这段提示词（交给模型用 Bash 工具，走权限门禁）
 	prompt_override: str | None = None
@@ -113,7 +114,7 @@ def handle_slash(
 				handled=True, message="用法：/approval <always|risk|never>"
 			)
 		set_permission_mode(m)
-		return SlashResult(handled=True, message=f"审批模式 → {m}")
+		return SlashResult(handled=True, permission_mode=m, message=f"审批模式 → {m}")
 	if name == "model":
 		mid = (arg or "").strip()
 		if not mid:

@@ -16,6 +16,16 @@ function msg(id: string, text: string, extra?: Partial<ChatMessage>): ChatMessag
 }
 
 describe('messagePersist', () => {
+	it('preserves undelivered identity through writer snapshots and clears it after actual delivery', () => {
+		const queued = msg('pending', 'not yet sent', {role: 'user', queueState: 'queued'});
+		const first = collectMessagesToPersist([queued], new Map());
+		expect(first.toWrite[0]?.localUndelivered).toBe(true);
+		expect(first.toWrite[0]?.queueState).toBeUndefined();
+		expect(collectMessagesToPersist([{...queued, queueState: 'delivering'}], first.nextSaved).toWrite).toEqual([]);
+		const {queueState: _queueState, ...delivered} = queued;
+		const acknowledged = collectMessagesToPersist([delivered], first.nextSaved);
+		expect(acknowledged.toWrite).toEqual([delivered]);
+	});
 	it('persists equal-length edits outside the last 48 characters', () => {
 		const before = msg('m', 'old' + 'x'.repeat(100));
 		const after = {...before, text: 'new' + 'x'.repeat(100)};

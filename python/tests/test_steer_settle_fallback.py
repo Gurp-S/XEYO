@@ -75,8 +75,11 @@ def test_settle_stopped_holds_pending_steer(reg, steer, monkeypatch):
     from server.steer_settle_fallback import on_turn_settled
 
     asyncio.run(on_turn_settled("s1", "stopped", "user_stop"))
-    assert steer.pending_count("s1") == 1
-    assert reg.snapshot("s1")["items"] == []
+    assert steer.pending_count("s1") == 0
+    snapshot = reg.snapshot("s1")
+    assert snapshot["paused"] is True
+    assert snapshot["items"][0]["text"] == "停回合时未送达"
+    assert snapshot["items"][0]["state"] == "queued"
 
 
 def test_settle_succeeded_moves_into_inbox(reg, steer, monkeypatch):

@@ -21,6 +21,7 @@ vi.mock('@/lib/api/goals', () => ({
 
 vi.mock('@/stores/chatStore', () => ({
 	useChatStore: {
+		getState: () => ({historyById: {}}),
 		setState: (fn: (s: unknown) => Record<string, unknown>) => {
 			writes.push(fn({sessionGoalById: {}}));
 		},

@@ -1,6 +1,7 @@
 agent_settlement	event	False	False	子代理结算通知，drain 语义——静默即永久丢失
 browser_preview	state	True	True	用户预览页 URL：读页面正文的必要指针
 compact	state	False	True	输出/写码压缩开关生效的统一行为规则（任一开关开启即注入；③合并两块减一）
+context_usage	state	True	True	本次 prompt 规模与引擎压力阈值只有引擎知道；缺基准时模型无法判断规模量级
 continue	state	False	False	工具续写轮无此块模型把 tool_result 当终点，不回用户问题
 env_facts	state	False	False	执行环境事实（shell 语义 / 提权 / 时区基准 / 可写面）：缺了它模型先按 bash 语义写命令再撞墙、向不可写目录写草稿——实测两类各白烧整轮；事实引擎早算得出，此前只在首个 Bash 结果头出现（晚于第一次决策）
 file_conflict	state	False	True	触碰文件被其他会话写入——静默即丢，覆盖风险

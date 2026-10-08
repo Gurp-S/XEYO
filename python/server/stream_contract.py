@@ -66,7 +66,7 @@ class UndeclaredStreamType(ValueError):
 
 #: 忙时 POST /chat 的 202 受理体口径（唯一真相）。
 #: - queued  ：settle 后排（下一轮才送达），有 inbox queue_id 可撤销。
-#: - steered ：本轮边界投递，不入 inbox，客户端消息 id 就是它唯一的身份。
+#: - steered ：本轮边界投递，回执以 message_id 标识；inbox 独立保存待投递状态。
 #: GUI `chatStream.ts` 的 202 分支按 `steered` 分流这两者，键集漂移即幽灵卡。
 ACCEPT_EVENT_KEYS: dict[str, frozenset[str]] = {
 	"queued": frozenset({"queued", "delivery", "queue_id", "position"}),

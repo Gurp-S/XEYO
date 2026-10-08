@@ -124,6 +124,7 @@ export function PromptTextClamp({children}: {children: ReactNode}) {
 
 export type PromptBubbleProps = {
 	text: string;
+	localUndelivered?: boolean;
 	mediaRefs?: string[];
 	rise?: boolean;
 	editable?: boolean;
@@ -185,6 +186,7 @@ export function promptBubblePropsAreEqual(
 ): boolean {
 	return (
 		prev.text === next.text &&
+		prev.localUndelivered === next.localUndelivered &&
 		shallowArrayEqual(prev.mediaRefs, next.mediaRefs) &&
 		prev.rise === next.rise &&
 		prev.editable === next.editable &&
@@ -224,6 +226,7 @@ export function promptBubblePropsAreEqual(
 
 export const PromptBubble = memo(function PromptBubble({
 	text,
+	localUndelivered,
 	mediaRefs = [],
 	rise,
 	editable = false,
@@ -394,6 +397,7 @@ ref={editing ? promptEditRef : undefined}
 					[远程]
 				</p>
 			) : null}
+			{localUndelivered ? <p className="mb-1 text-xs text-ink-soft">未送达 · 本地保留</p> : null}
 				{editing ? (
 					<>
 													{editingExistingMediaRefs.length > 0 || ((!editClosing) && (editImages.length > 0 || editFiles.length > 0)) ? (

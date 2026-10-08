@@ -79,6 +79,7 @@ class FrozenHead:
     cursor: int
     region_end: int
     view_path: str = ""
+    lifecycle: dict = dataclasses.field(default_factory=dict)
 
 
 def region_seal(messages: list[dict], region_end: int, *, source_layout: str = LEGACY) -> str:
@@ -104,12 +105,16 @@ def save(
     messages: list[dict],
     view_path: str = "",
     source_layout: str = LEGACY,
-) -> None:
+    lifecycle: dict | None = None,
+) -> bool:
     """头刚建出来时写一份。只在**折叠事件**上调用（不是每枪）⇒ 写放大 = 折叠次数。"""
     if not text or not enabled():
-        return
+        return False
     try:
         validate(source_layout)
+        from synaptic.contracts import enabled as contracts_enabled
+        from memory.wsc_publication import manifest
+        publication = manifest(text, view_path, cwd, region_seal(messages, region_end, source_layout=source_layout), lifecycle) if contracts_enabled() else None
         body = json.dumps(
             {
                 "ver": _VER,
@@ -119,20 +124,34 @@ def save(
                 "seal": region_seal(messages, region_end, source_layout=source_layout),
                 "text": text,
                 "view_path": str(view_path or ""),
+                **({"publication": publication} if publication is not None else {}),
+                **({"lifecycle": lifecycle} if lifecycle is not None else {}),
                 **({"compression_source_layout": source_layout} if source_layout != LEGACY else {}),
             },
             ensure_ascii=False,
         )
         if len(body) > _MAX_BYTES:
-            return
+            return False
         path = path_for(session)
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_name(path.name + ".tmp")
-        tmp.write_text(body, encoding="utf-8")
-        os.replace(tmp, path)  # 原子替换：半截文件永远不会被读回来
+        import tempfile
+        fd, temporary = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=path.parent)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as out:
+                out.write(body)
+                out.flush()
+                os.fsync(out.fileno())
+            os.replace(temporary, path)
+        finally:
+            Path(temporary).unlink(missing_ok=True)
     except Exception:  # noqa: BLE001 - 观测/缓存面绝不许阻塞投影
         _log.debug("wsc head store write failed", exc_info=True)
+        from memory.wsc_diagnostics import record
+        import sys
+        record("head_save", sys.exc_info()[1], session=session)
+        return False
     _prune_once()
+    return True
 
 
 def _read_record(session):
@@ -201,10 +220,15 @@ def load(
         text = rec.get("text")
         if not isinstance(text, str) or not text:
             return None
+        if rec.get("publication"):
+            from memory.wsc_publication import validate as validate_publication
+            if not validate_publication(rec):
+                return None
         view_path = rec.get("view_path", "")
         if not isinstance(view_path, str):
             view_path = ""
-        return FrozenHead(text=text, cwd=rec_cwd, cursor=rec_cursor, region_end=end, view_path=view_path)
+        return FrozenHead(text=text, cwd=rec_cwd, cursor=rec_cursor, region_end=end, view_path=view_path,
+                          lifecycle=rec.get("lifecycle") or {})
     except Exception:  # noqa: BLE001 - 读坏了就当没有
         _log.debug("wsc head store read failed", exc_info=True)
         return None
@@ -221,6 +245,9 @@ def _prune_once() -> None:
         for p in _root().glob("*.json"):
             try:
                 if p.stat().st_mtime < cutoff:
+                    # Sealed records are recovery roots, not expendable TTL cache.
+                    if (_read_record(p.stem) or {}).get("publication"):
+                        continue
                     p.unlink()
             except OSError:
                 continue

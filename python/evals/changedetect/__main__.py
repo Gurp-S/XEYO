@@ -69,10 +69,26 @@ def cmd_surface_check(args: argparse.Namespace) -> int:
     return 1 if args.strict else 0
 
 
+def _split_only(raw: str) -> list[str] | None:
+    """`--only a,b` → ``["a", "b"]``；空 ⇒ ``None``（全量档）。去空项。"""
+    picked = [p.strip() for p in (raw or "").split(",") if p.strip()]
+    return picked or None
+
+
 def cmd_surface_update(args: argparse.Namespace) -> int:
     arts = surface.collect()
-    path = surface.write_golden(arts)
-    print(f"[L0] 已重写 {len(arts)} 个 artifact → {path}")
+    only = _split_only(args.only)
+    try:
+        path = surface.write_golden(arts, only=only)
+    except ValueError as exc:
+        print(f"[L0] {exc}")
+        return 2
+    if only:
+        kept = len(surface.match_only([a.name for a in arts], only))
+        print(f"[L0] 已重钉 {kept}/{len(arts)} 个 artifact（--only {','.join(only)}）→ {path}")
+        print("[L0] 未命中项：文件与 index 条目保持不动（本档不清理 stale）。")
+    else:
+        print(f"[L0] 已重写 {len(arts)} 个 artifact → {path}")
     return 0
 
 
@@ -110,8 +126,19 @@ def cmd_trace_check(args: argparse.Namespace) -> int:
 
 def cmd_trace_update(args: argparse.Namespace) -> int:
     tr = trace.collect()
-    p = trace.write_golden(tr)
-    print(f"[L1] 已重写 {len(tr)} 条轨迹 → {p}")
+    only = _split_only(args.only)
+    try:
+        p = trace.write_golden(tr, only=only)
+    except ValueError as exc:
+        print(f"[L1] {exc}")
+        return 2
+    if only:
+        from evals.changedetect.surface import match_only
+
+        kept = len(match_only(list(tr), only))
+        print(f"[L1] 已重钉 {kept}/{len(tr)} 条轨迹（--only {','.join(only)}）→ {p}")
+    else:
+        print(f"[L1] 已重写 {len(tr)} 条轨迹 → {p}")
     return 0
 
 
@@ -258,9 +285,24 @@ def cmd_compliance(args: argparse.Namespace) -> int:
     return 1 if rep.get("has_fail") else 0
 
 
+def _report_unregistered() -> None:
+    """打印"本进程里没登记、却像产品开关"的键（事实行，不劝导）。
+
+    分类规则在 `engine.env_switches.unregistered`：文本规则而非名单，所以它自己不会漂移。
+    """
+    from engine.env_switches import unregistered
+
+    keys = unregistered()
+    if keys:
+        print(f"[env] 本进程有 {len(keys)} 个未登记开关：{', '.join(keys)}")
+
+
 def cmd_check(args: argparse.Namespace) -> int:
     """提交门：L0/L1 selftest + L0/L1 check + 应试扫描（Compliance）。"""
+    if not getattr(args, "json", False):
+        _report_unregistered()
     fails = 0
+    checks = []
     for label, fn in (
         ("L0 selftest", _selftest(surface.mutation_selftest)),
         ("L1 selftest", _selftest(trace_selftest_dict)),
@@ -269,14 +311,25 @@ def cmd_check(args: argparse.Namespace) -> int:
         ("Compliance", compliance.scan_git_diff),
     ):
         rep = fn()
-        ok = _gate_ok(label, rep)
+        if getattr(args, "json", False):
+            import contextlib
+            import io
+            with contextlib.redirect_stdout(io.StringIO()):
+                ok = _gate_ok(label, rep)
+        else:
+            ok = _gate_ok(label, rep)
+        checks.append({"name": label, "passed": bool(ok), "report": rep})
         if not ok:
             fails += 1
+    if getattr(args, "json", False):
+        print(json.dumps({"schema_version": 1, "status": "passed" if not fails else "failed",
+                          "checks": checks, "failed": fails}, ensure_ascii=False))
     return 0 if fails == 0 else 1
 
 
 def cmd_all(args: argparse.Namespace) -> int:
     """L0 + L1 + compliance + verdict。"""
+    _report_unregistered()
     surf = surface.collect()
     sc = surface.compare(surf)
     tr = trace.collect()
@@ -414,6 +467,9 @@ def build_parser() -> argparse.ArgumentParser:
         if fn in (cmd_surface_check,):
             sp.add_argument("--strict", action="store_true", help="有变化就 exit 1")
             sp.add_argument("--max-show", type=int, default=20)
+        if fn is cmd_surface_update:
+            sp.add_argument("--only", default="", metavar="GLOB[,GLOB…]",
+                            help="只重钉命中名；不删未命中、index 合并")
 
     t = sub.add_parser("trace", help="L1：引擎决策轨迹")
     tsub = t.add_subparsers(dest="sub", required=True)
@@ -427,6 +483,9 @@ def build_parser() -> argparse.ArgumentParser:
             sp.add_argument("--batteries", default="")
             sp.add_argument("--strict", action="store_true")
             sp.add_argument("--max-show", type=int, default=20)
+        if fn is cmd_trace_update:
+            sp.add_argument("--only", default="", metavar="GLOB[,GLOB…]",
+                            help="只重钉命中名；不删未命中、index 合并")
 
     sub.add_parser("power", help="打印 MDE / 样本预算表")
 
@@ -463,6 +522,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("paths", nargs="*", help="限定扫描的文件（默认全树）")
 
     sp = sub.add_parser("check", help="提交门：L0+L1 selftest + check + 应试")
+    sp.add_argument("--json", action="store_true", help="只输出结构化门结果，失败返回非零")
     sp = sub.add_parser("all", help="L0+L1+合规+verdict 一并跑")
     sp = sub.add_parser("verdict", help="合成最终判决书")
     sp.add_argument("--ab-report", default="", help="可选的 A/B 报告 JSON")
@@ -476,7 +536,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd in {"surface", "trace", "check", "all"}:
         # 快照钉的是产品默认面：宿主会话桥进来的开关先按默认面归一化（见 env_baseline）。
         for _name, _value, _why in env_baseline.pin():
-            print(f"[env] {_name}={_value} 按默认面比对（{_why}）")
+            if not getattr(args, "json", False):
+                print(f"[env] {_name}={_value} 按默认面比对（{_why}）")
 
     if args.cmd == "surface":
         return {

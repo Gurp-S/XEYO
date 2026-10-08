@@ -9,7 +9,7 @@ import type {ChatMessage} from './types';
 export function toApiMessages(msgs: ChatMessage[]): ChatApiMessage[] {
 	const out: ChatApiMessage[] = [];
 	for (const m of msgs) {
-		if (m.isThought || m.uiOnly || m.role === 'tool') {
+		if (m.isThought || m.uiOnly || m.queueState || m.localUndelivered || m.role === 'tool') {
 			continue;
 		}
 		const content =

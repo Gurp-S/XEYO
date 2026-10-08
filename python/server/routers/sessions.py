@@ -769,6 +769,8 @@ def session_messages(session_id: str, include_notes: bool = False):
 						continue
 					if isinstance(row, dict):
 						raw_rows.append(row)
+					else:
+						skipped_lines += 1
 		except (OSError, UnicodeDecodeError) as exc:
 			# 整个文件（含其后所有行）丢了：半截历史必须自称半截。
 			read_errors.append({"path": str(f), "error": safe_error_detail(exc)})
@@ -805,7 +807,7 @@ def session_messages(session_id: str, include_notes: bool = False):
 		"messages": messages,
 		"cwd": _pool.session_cwd(sid) or _pool.cwd or "",
 		"transcript_found": found,
-		"degraded": bool(read_errors),
+		"degraded": bool(read_errors or skipped_lines),
 		"read_errors": read_errors,
 		"skipped_lines": skipped_lines,
 	}
@@ -1771,19 +1773,17 @@ async def session_turn_events(
 	)
 
 
+class RecoveryAbandonRequest(BaseModel):
+	turn_id: str = Field(min_length=1, max_length=256)
+
+
 @router.post("/v1/sessions/{session_id}/recovery/abandon")
-def session_recovery_abandon(session_id: str) -> dict[str, Any]:
+def session_recovery_abandon(session_id: str, body: RecoveryAbandonRequest) -> dict[str, Any]:
 	"""放弃 recovery_required 快照。"""
-	from engine.turn_snapshot import flush as flush_turn, hydrate as hydrate_turn
+	from server.recovery_abandon import abandon_recovery
 
 	sid = require_session_id(session_id)
-	snap = hydrate_turn(sid)
-	if snap is None:
-		return {"ok": True, "status": "idle"}
-	snap.status = "stopped"
-	snap.stop_reason = snap.stop_reason or "user_abandon"
-	flush_turn(snap)
-	return {"ok": True, "status": snap.status, "turn_id": snap.turn_id}
+	return abandon_recovery(sid, body.turn_id, busy=_pool.is_busy(sid))
 
 
 # P1 mid-turn inbox：排队快照 / 取消 / resume（GUI 轮询 + 操作）。
@@ -1920,6 +1920,7 @@ async def session_inbox_item_steer(session_id: str, queue_id: str) -> dict[str, 
 		item.text,
 		images=list(item.media_refs or []),
 		message_id=item.message_id or "",
+		persist_pending=False,
 	):
 		# 引导队列满 / 内部异常 ⇒ 原样放回队首（与 t_now_inbox 边界声道同款）。
 		reg.restore_front(sid, [item])

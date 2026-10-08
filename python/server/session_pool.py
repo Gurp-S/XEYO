@@ -28,20 +28,29 @@ class CwdConflictError(ValueError):
 # 若 stream 的 finally 未执行（断连等边界情况），在此时间后回收。
 # 活 turn 由 TurnRunner 逐帧心跳（touch_busy）续租；chat 提交入口另以
 # TurnRunner.is_running 判活兜底，因此租约丢失不会导致叠跑，可取较短窗。
-# 须 ≥ 权限面板 TTL（180s）——等待审批期间无事件帧，靠 stale 窗覆盖。
-_DEFAULT_BUSY_STALE_SEC = 300.0
+# 下限 = 权限面板 TTL（等待审批期间无事件帧，靠 stale 窗覆盖）+ 收尾余量。
+# 单一来源 = permissions.pending_ttl：面板 TTL 上调时这里自动跟随（此前是硬编码
+# 300 = 180 + 120，两者的关系只写在这行注释里，改面板不会带动它）。
+_BUSY_STALE_PANEL_MARGIN_SEC = 120.0
 # 常驻 engine 数上限：超限按 LRU 逐出最久未用的空闲会话（历史转 stash，可从磁盘恢复）。
 _DEFAULT_MAX_ENGINES = 64
+
+
+def _busy_stale_default_sec() -> float:
+	"""权限面板 TTL + 收尾余量（谁的面板改档，这里自动跟随）。"""
+	from permissions.pending_ttl import PENDING_PANEL_TTL_SECONDS
+
+	return float(PENDING_PANEL_TTL_SECONDS) + _BUSY_STALE_PANEL_MARGIN_SEC
 
 
 def _busy_stale_sec() -> float:
 	raw = os.environ.get("XEYO_BUSY_STALE_SEC", "").strip()
 	if not raw:
-		return _DEFAULT_BUSY_STALE_SEC
+		return _busy_stale_default_sec()
 	try:
 		return max(30.0, float(raw))
 	except ValueError:
-		return _DEFAULT_BUSY_STALE_SEC
+		return _busy_stale_default_sec()
 
 
 def _max_engines() -> int:
@@ -914,6 +923,10 @@ class SessionPool:
 			logging.getLogger(__name__).debug(
 				"session presence drop failed", exc_info=True
 			)
+		# 会话没了，它名下的 spawn 槽桶一并回收（同 id 复用时拿到计数归零的新桶）。
+		from common.concurrency_budget import forget_session
+
+		forget_session(session_id)
 		# 会话被删除：留痕台账 + 引导队列一并清（会话 id 若被复用，脏账会让
 		# "值没变"误判成"历史里还有那一版" ⇒ 丢信息）。
 		try:

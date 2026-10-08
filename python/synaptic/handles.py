@@ -70,6 +70,8 @@ class HandleRenderer:
 	_page_cache: dict[tuple[int, int], int] = field(default_factory=dict, init=False, repr=False, compare=False)
 
 	# -- 渲染 ---------------------------------------------------------------
+	def encoding(self, handle):
+		return "original_lf"
 	def span(self, handle: str) -> tuple[int, int] | None:
 		"""句柄在取回视图里的 ``(首行, 末行)``；不可得返回 ``None``（调用方回落）。
 

@@ -80,6 +80,7 @@ class Projection:
 	current_state: CurrentState | None = None
 	history_query: HistoryQuery | None = None
 	history_candidates: tuple[HistoryCandidate, ...] = ()
+	task_handoff_text: str = ""
 
 	@property
 	def text(self) -> str:
@@ -112,6 +113,7 @@ def project(
 	rehydrate_paths: tuple[str, ...] = (),
 	persist_view: bool = True,
 	exclude_state_notes: bool = False,
+	goal_snapshot: dict | None = None,
 ) -> Projection:
 	"""压缩 ``messages[:region_end]`` 为热层；``[region_end, end)`` 不触碰。
 
@@ -120,6 +122,16 @@ def project(
 短会话上 PIN + 卡片开销会超过节省，没有这道门就会出现「压缩后更大」。
 	"""
 	p = params or WscParams()
+	from synaptic.contracts import enabled as contracts_enabled
+	strict_view = contracts_enabled() and p.handle_style == "read" and bool(view_path)
+	requested_persist = persist_view
+	if strict_view:
+		# This reference has never been emitted. Publication waits for final cold bytes.
+		import hashlib
+		stamp = hashlib.sha256(repr((session, region_end)).encode()).hexdigest()[:16]
+		view_path = Path(view_path).with_name(Path(view_path).stem + ".pending-" + stamp + ".txt")
+		view_ref = Path(view_ref or str(view_path)).with_name(Path(view_path).name).as_posix()
+		persist_view = False
 	timer = StageTimer()
 	if region_end <= 0:
 		region_end = 0
@@ -137,6 +149,9 @@ def project(
 		fresh = replace(fresh, superseded=fresh.superseded | state_notes)
 	timer.mark("freshness")
 	file_states = build_file_states(graph, messages)
+	if contracts_enabled():
+		from synaptic.lifecycle import filter_file_failures
+		file_states = filter_file_failures(file_states, graph, fresh, region_end)
 	timer.mark("file_state")
 	seeds = collect_seeds(
 		graph,
@@ -145,14 +160,46 @@ def project(
 		goal_override=goal_override,
 		superseded=fresh.superseded,
 		resolved_errors=fresh.resolved_idx,
+		unresolved_idx=fresh.unresolved_idx,
 		drop_constraints=fresh.superseded_constraints,
 		region_end=region_end,
 	)
 	seeds = replace(seeds, dead_paths=fresh.dead_paths)
+	lifecycle = None
+	goal_provenance = None
+	if contracts_enabled():
+		from synaptic.lifecycle import project_goals, lifecycle_state, needs_rebase
+		from synaptic.request_plane import enabled as requests_enabled, project_requests
+		if requests_enabled():
+			seeds, goal_provenance = project_requests(seeds, graph, messages, region_end, goal_snapshot, fresh.superseded_constraints)
+		else:
+			seeds, goal_provenance = project_goals(seeds, graph, region_end, goal_snapshot, fresh.superseded_constraints)
+		lifecycle = lifecycle_state(seeds, goal_provenance)
+		if needs_rebase(prev, lifecycle) and p.journal_rebase:
+			p = replace(p, journal_growth_tokens=-1)
 	timer.mark("seeds")
 
 	pins = bind_short_pin_sources(build_pins(seeds), seeds, graph,
 	                              region_end=region_end, inline_max_tokens=p.inline_max_tokens)
+	from synaptic.task_checkpoint import pin as checkpoint_pin
+	checkpoint, checkpoint_digest = checkpoint_pin(messages, graph)
+	from synaptic.task_channels import coalesce as coalesce_task_channels
+	pins = coalesce_task_channels(pins, checkpoint, seeds)
+	from synaptic.failure_archive import compact as compact_failure_pins
+	pins = compact_failure_pins(pins, checkpoint, graph)
+	from synaptic.constraint_candidates import pin as candidate_pin
+	candidates = candidate_pin(seeds, graph, region_end)
+	if candidates is not None:
+		pins = (*pins, candidates)
+	if checkpoint is not None:
+		pins = (*pins, checkpoint)
+		if lifecycle is not None:
+			lifecycle["task_checkpoint_digest"] = checkpoint_digest
+			if prev is not None and prev.lifecycle.get("task_checkpoint_digest") != checkpoint_digest and p.journal_rebase:
+				p = replace(p, journal_growth_tokens=-1)
+	if goal_provenance is not None:
+		from synaptic.lifecycle import bind_goal
+		pins = bind_goal(pins, goal_provenance)
 	pin_tokens = sum(node_token_len(line) + 1 for _, line in render_pins(pins))
 	ws = working_set(
 		file_states,
@@ -271,6 +318,14 @@ def project(
 	# 冷层：被剪枝的 + 被骨架化的（未内联的）保留节点，全部可无损拉回
 	cs = cold or ColdStore(session=session)
 	cold_nodes: list[tuple[int, str, dict]] = []
+	for pin in pins:
+		if pin.key not in {"task_checkpoint", "failure_archive", "constraint_candidates"}:
+			continue
+		cs.bind(node_group_handle(pin.nodes), pin.nodes)
+		for index in pin.nodes:
+			node = graph.node(index)
+			if node is not None:
+				cold_nodes.append((index, node.text, {"kind": node.kind, "tool": node.tool_name}))
 	for c in cards:
 		cs.bind(c.handle, c.nodes)
 		for i in c.nodes:
@@ -345,6 +400,13 @@ def project(
 	recovery_aliases = {}
 	if p.journal_rebase and p.handle_style == "read" and view_path:
 		recovery_aliases = prepare_groups(cs, cards, view_ref or str(view_path))
+	if p.handle_style == "read" and view_path:
+		from synaptic.chunked_recovery import prepare as prepare_chunks
+		recovery_aliases.update(prepare_chunks(cs))
+	from synaptic.card_surface import prepare as prepare_card_index
+	card_index = prepare_card_index(cs, cards, pins, recovery_aliases) if p.handle_style == "read" and view_path else None
+	if card_index is not None:
+		pins = (*pins, card_index)
 	# ── 取回视图 + 句柄渲染器（2026-09-16 用户裁定：取回统一到 `Read`）──────────
 	# 顺序要求：**先定稿节点集 → 写视图拿行号 → 再渲染**。旧顺序是「先渲染句柄文本、
 	# 再绑冷层」，那样渲染时拿不到行号，也就渲染不出 `Read(file_path=…, offset=…, limit=…)`。
@@ -487,6 +549,18 @@ def project(
 		)
 
 	# 收益门（规则 7）：热层不比重放原文更省 → 不压缩。
+	from synaptic.pin_render import render_pin
+	task_handoff_text = "\n".join(render_pin(pin, handles=handles) for pin in pins if pin.key == "task_checkpoint")
+	if strict_view:
+		from synaptic.contracts import finalize
+		pending_ref = view_ref
+		text, view_out, view_ref = finalize(text, state, cs, view_path, view_ref, persist=False)
+		task_handoff_text = task_handoff_text.replace(pending_ref, view_ref)
+		hot = replace(hot, text=text, tokens=node_token_len(text))
+		tokens = hot.tokens
+		for entry in trace:
+			if entry["step"] == "handles":
+				entry["detail"] = f"style={p.handle_style} view={view_out} ref={view_ref}"
 	compressed = True
 	if region_baseline_tokens is not None:
 		if tokens >= max(0, region_baseline_tokens - p.min_gain_tokens):
@@ -501,6 +575,11 @@ def project(
 				}
 			)
 
+	if strict_view and requested_persist and compressed:
+		from synaptic.contracts import publish
+		publish(view_path, cs.render_text_view()[0].encode("utf-8"))
+	if lifecycle is not None:
+		state.lifecycle = lifecycle
 	return Projection(
 		result=WscResult(
 			hot=hot,
@@ -523,6 +602,7 @@ def project(
 		),
 		cold=cs,
 		view_path=view_out,
+		task_handoff_text=task_handoff_text,
 		state=state,
 		graph=graph,
 		seeds=seeds,

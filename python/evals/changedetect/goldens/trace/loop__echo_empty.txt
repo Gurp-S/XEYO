@@ -1,1 +1,1 @@
-{"assistant_chars":8,"events":["ToolCall:echo","ToolResult","Final"],"final":"echoed: ","id":"echo_empty","tools":["echo"]}
+{"assistant_chars":43,"events":["ToolCall:echo","ToolResult","Final"],"final":"echoed: 执行回执身份={\"call_id\":\"call_<ID>\"}\n","id":"echo_empty","tools":["Compact","echo"]}

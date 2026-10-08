@@ -34,6 +34,7 @@ from typing import Any, Optional
 from engine.abort import AbortController
 from permissions import filesystem
 from tools.base_tool import ToolResult
+from tools.fileio import file_facts
 from tools.error_taxonomy import INVALID_ARGUMENT, PERMISSION_DENIED, TIMEOUT
 from tools.input_types import int_field_type_error, string_field_type_error
 from tools.fileio.excludes import agentignore_args, excluded_dir_globs
@@ -1048,7 +1049,10 @@ class GlobTool:
 			if not output.truncated:
 				found = output.num_files
 				lines.append(f"Found {found} file{'s' if found != 1 else ''}")
-			lines += list(output.filenames)
+			lines += [
+				name + file_facts.size_suffix(os.path.join(get_cwd(), name))
+				for name in output.filenames
+			]
 			if output.truncated:
 				lines.append(
 					_truncation_note(

@@ -17,6 +17,7 @@ export type SessionStreamState = {
 	turnDetached?: boolean;
 	/** 最近一次已知的服务端 event_id（reattach cursor）。 */
 	lastEventId?: number;
+	turnId?: string;
 };
 
 export const EMPTY_SESSION_STREAM: SessionStreamState = {

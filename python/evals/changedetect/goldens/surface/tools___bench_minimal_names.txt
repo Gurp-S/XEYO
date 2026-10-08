@@ -1,5 +1,6 @@
 Agent
 Bash
+Compact
 Diagnostics
 Edit
 Git

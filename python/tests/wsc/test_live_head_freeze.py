@@ -175,13 +175,13 @@ def test_cursor_advance_refolds(live) -> None:
 	assert n[0] == 2, "调用方推进了 cursor 却没重新投影 ⇒ 头永久停更"
 
 
-def test_kill_switch_restores_per_request_reprojection(live, monkeypatch) -> None:
+def test_legacy_switch_cannot_rewrite_frozen_head(live, monkeypatch) -> None:
 	WP, n = live
 	monkeypatch.setenv("XEYO_WSC_FROZEN_HEAD", "0")
 	msgs, _out, cut = _folded_msgs(live)
 	more = msgs + [msg_asst_text("第二条" + ("正文 " * 30))]
 	assert WP.project_c2_messages(more, _W(cut), cwd=None) is not None
-	assert n[0] == 2, "kill switch 关掉后应当回到'每枪重投影'的历史行为"
+	assert n[0] == 1, "ordinary requests preserve the frozen head"
 
 
 def test_rollback_invalidates_frozen_head(live) -> None:

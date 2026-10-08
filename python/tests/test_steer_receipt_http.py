@@ -27,7 +27,7 @@ from server.stream_contract import ACCEPT_EVENT_KEYS  # noqa: E402
 
 @pytest.fixture(autouse=True)
 def _isolate(monkeypatch, tmp_path):
-	# 引导入队会写 transcript WAL；测试必须隔离会话目录，别碰真实 ~/.xeyo
+	# 引导入队会写私有 inbox 状态；测试必须隔离会话目录，别碰真实 ~/.xeyo
 	monkeypatch.setenv("XEYO_SESSIONS_DIR", str(tmp_path))
 	from engine.t_now_steer import clear as _clear_steer
 
@@ -65,7 +65,7 @@ def test_steer_receipt_carries_client_message_id() -> None:
 	assert set(body) == set(ACCEPT_EVENT_KEYS["steered"]), body
 	assert body["steered"] is True
 	assert body["delivery"] == "boundary"
-	# 引导路径不入 inbox：客户端消息 id 是它唯一的身份，回执必须原样带回来
+	# 引导回执继续以客户端 message id 标识，必须原样带回来
 	assert body["message_id"] == "m-client-1"
 
 
@@ -77,6 +77,17 @@ def test_queued_receipt_carries_queue_id_and_position() -> None:
 	assert body["delivery"] == "after_turn"
 	assert str(body["queue_id"]).strip(), "排队回执必须给出可撤销的 queue_id"
 	assert body["position"] == 1
+
+
+@pytest.mark.parametrize("steer", [False, True])
+def test_retried_busy_input_keeps_one_pending_owner(steer) -> None:
+	sid = f"retry-busy-input-{steer}"
+	first = _post_busy(sid=sid, steer=steer, queue=True)
+	second = _post_busy(sid=sid, steer=steer, queue=True)
+	assert first.status_code == second.status_code == 202
+	assert first.json() == second.json()
+	from server.inbox_registry import get_inbox_registry
+	assert len(get_inbox_registry().snapshot(sid)["items"]) == 1
 
 
 def test_side_session_steer_is_refused_not_silently_downgraded() -> None:

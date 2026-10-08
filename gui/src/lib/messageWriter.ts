@@ -5,6 +5,8 @@ import {collectMessagesToPersist, seedPersistedMessages} from './messagePersist'
 export function createMessageWriter(seed: ChatMessage[], storage: {
 	patch: (messages: ChatMessage[]) => Promise<void>;
 	replace: (messages: ChatMessage[]) => Promise<void>;
+	/** Read the authoritative store after awaiting any previous database write. */
+	current?: () => ChatMessage[] | null;
 }) {
 	let saved = seedPersistedMessages(seed);
 	let pending: ChatMessage[] | null = null;
@@ -13,8 +15,9 @@ export function createMessageWriter(seed: ChatMessage[], storage: {
 	async function drain() {
 		try {
 			while (pending) {
-				const messages = pending;
+				const messages = storage.current ? storage.current() : pending;
 				pending = null;
+				if (!messages) continue;
 				const {toWrite, nextSaved} = collectMessagesToPersist(messages, saved);
 				try {
 					if ([...saved.keys()].some(id => !nextSaved.has(id))) {

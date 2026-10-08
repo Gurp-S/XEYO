@@ -1,3 +1,4 @@
+import {createAssistantOutput} from './assistantOutput';
 /**
  * Project an unexpectedly started stream from the busy-submit race into the
  * normal transcript and stream state. A 202 queue response never activates it.
@@ -27,6 +28,8 @@ import {
 } from './streamHelpers';
 import {sessionErrorBannerPatch} from '@/lib/pendingForSession';
 import type {ChatState} from './preStoreHelpers';
+import {activeBackendSessionId} from './preStoreHelpers';
+import {createStreamOwnership} from './streamOwnership';
 
 type SetState = StoreApi<ChatState>['setState'];
 type GetState = StoreApi<ChatState>['getState'];
@@ -35,9 +38,10 @@ function persist(
 	set: SetState,
 	sessionId: string,
 	messages: ChatMessage[],
+	isCurrent: () => boolean,
 ): void {
 	if (messages.length === 0) return;
-	void patchMessages(sessionId, messages).catch(err => {
+	void patchMessages(sessionId, messages, isCurrent).catch(err => {
 		const detail = err instanceof Error ? err.message : String(err);
 		set(sessionErrorBannerPatch(sessionId, `本地保存失败：${detail}`));
 	});
@@ -45,13 +49,14 @@ function persist(
 
 export function createBusyStreamProjection(
 	get: GetState,
-	set: SetState,
+	rawSet: SetState,
 	sessionId: string,
 	priorStream: SessionStreamState,
 	anchorMessageId: string,
 ): {
+	isCurrent: () => boolean;
 	start: (abortRef: AbortController) => void;
-	onDelta: (text: string) => void;
+	onDelta: (text: string, messageId?: string) => void;
 	onReasoningDelta: (text: string) => void;
 	onToolCall: (event: Omit<ToolCallStreamEvent, 'kind'>) => void;
 	onToolResult: (event: Omit<ToolResultStreamEvent, 'kind'>) => void;
@@ -61,6 +66,11 @@ export function createBusyStreamProjection(
 	onAbort: () => void;
 	onConnectionLost: () => void;
 } {
+	let set = rawSet;
+	let ownership: ReturnType<typeof createStreamOwnership> | undefined;
+	const backendId = activeBackendSessionId(get().historyById, sessionId);
+	const isCurrent = () => ownership?.isCurrent() ?? false;
+	const assistantOutput = createAssistantOutput();
 	let started = false;
 	let prose = '';
 	let reasoning = '';
@@ -76,7 +86,7 @@ export function createBusyStreamProjection(
 
 	const flushLive = () => {
 		cancelLiveFrame();
-		if (!started) return;
+		if (!started || !isCurrent()) return;
 		set(s => ({
 			sessionStreams: patchSessionStream(s.sessionStreams, sessionId, {
 				streamingText: prose,
@@ -115,10 +125,13 @@ export function createBusyStreamProjection(
 				},
 			};
 		});
-		persist(set, sessionId, written);
+		persist(set, sessionId, written, isCurrent);
 	};
 
 	const start = (abortRef: AbortController) => {
+		ownership = createStreamOwnership(rawSet, get, sessionId, backendId);
+		if (!ownership.isCurrent()) return;
+		set = ownership.set;
 		started = true;
 		prose = '';
 		reasoning = '';
@@ -174,7 +187,7 @@ export function createBusyStreamProjection(
 			priorTail = appended;
 			return {messagesById: {...s.messagesById, [sessionId]: next}};
 		});
-		persist(set, sessionId, priorTail);
+		persist(set, sessionId, priorTail, isCurrent);
 		set(s => ({
 			sessionStreams: patchSessionStream(s.sessionStreams, sessionId, {
 				isLoading: true,
@@ -201,7 +214,7 @@ export function createBusyStreamProjection(
 				[sessionId]: [...(s.messagesById[sessionId] ?? []), message],
 			},
 		}));
-		persist(set, sessionId, [message]);
+		persist(set, sessionId, [message], isCurrent);
 	};
 
 	const commitReasoning = () => {
@@ -235,7 +248,7 @@ export function createBusyStreamProjection(
 			let written: ChatMessage[] = [];
 			set(s => {
 				const previous = s.messagesById[sessionId] ?? [];
-				const next = appendAssistantProse(previous, text);
+				const next = assistantOutput.append(previous, text);
 				if (next === previous) return {};
 				written = next.filter((message, index) => message !== previous[index]);
 				return {
@@ -245,7 +258,7 @@ export function createBusyStreamProjection(
 					},
 				};
 			});
-			persist(set, sessionId, written);
+			persist(set, sessionId, written, isCurrent);
 		}
 		set(s => ({
 			sessionStreams: patchSessionStream(s.sessionStreams, sessionId, {
@@ -258,23 +271,26 @@ export function createBusyStreamProjection(
 		}
 	};
 
-	const onDelta = (text: string) => {
-		if (!started || !text) return;
+	const onDelta = (text: string, messageId?: string) => {
+		assistantOutput.begin(messageId);
+		if (!started || !isCurrent() || !text) return;
 		prose += text;
 		scheduleLive();
 	};
 
 	const onReasoningDelta = (text: string) => {
-		if (!started || !text) return;
+		if (!started || !isCurrent() || !text) return;
 		thoughtStartedAt ??= Date.now();
 		reasoning += text;
 		scheduleLive();
 	};
 
 	const onToolCall = (event: Omit<ToolCallStreamEvent, 'kind'>) => {
-		if (!started) return;
+		if (!started || !isCurrent()) return;
 		commitReasoning();
+		const segment = prose;
 		commitProse();
+		assistantOutput.finishSegment(segment);
 		const toolInput = formatToolInputForUi(event.input);
 		const toolMessage: ChatMessage = {
 			id: uid('tool'),
@@ -310,7 +326,7 @@ export function createBusyStreamProjection(
 	};
 
 	const onToolResult = (event: Omit<ToolResultStreamEvent, 'kind'>) => {
-		if (!started) return;
+		if (!started || !isCurrent()) return;
 		commitReasoning();
 		commitProse();
 		let written: ChatMessage | null = null;
@@ -379,7 +395,7 @@ export function createBusyStreamProjection(
 				messagesById: {...s.messagesById, [sessionId]: next},
 			};
 		});
-		if (written) persist(set, sessionId, [written]);
+		if (written) persist(set, sessionId, [written], isCurrent);
 		dispatchXeyoUi(event.ui, {
 			toolUseId: event.toolUseId,
 			isError: Boolean(event.is_error),
@@ -418,7 +434,7 @@ export function createBusyStreamProjection(
 	};
 
 	const finish = (statusText: string, error = false) => {
-		if (!started) return;
+		if (!started || !isCurrent()) return;
 		commitReasoning();
 		commitProse();
 		settleUnfinishedTools(error);
@@ -443,7 +459,7 @@ export function createBusyStreamProjection(
 	};
 
 	const onToolProgress = (event: Omit<ToolProgressStreamEvent, 'kind'>) => {
-		if (!started) return;
+		if (!started || !isCurrent()) return;
 		const detail = (event.message || '').trim();
 		set(s => ({
 			sessionStreams: patchSessionStream(s.sessionStreams, sessionId, {
@@ -453,7 +469,7 @@ export function createBusyStreamProjection(
 	};
 
 	const onConnectionLost = () => {
-		if (!started) return;
+		if (!started || !isCurrent()) return;
 		commitReasoning();
 		commitProse();
 		settleUnfinishedTools();
@@ -461,6 +477,8 @@ export function createBusyStreamProjection(
 			sessionStreams: patchSessionStream(s.sessionStreams, sessionId, {
 				isLoading: true,
 				statusText: '连接中断，正在恢复…',
+				abortRef: null,
+				turnDetached: true,
 			}),
 		}));
 	};
@@ -471,6 +489,7 @@ export function createBusyStreamProjection(
 	};
 
 	return {
+		isCurrent,
 		start,
 		onDelta,
 		onReasoningDelta,

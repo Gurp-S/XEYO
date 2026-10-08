@@ -5,6 +5,9 @@
  * 门面在原位置展开 createSpaceSessionSlice(set, get)。
  */
 import type {StoreApi} from 'zustand';
+import {createStreamOwnership} from './streamOwnership';
+import {ensureSessionHistory} from './sessionHistoryHydration';
+import {projectHistoryBackfill} from './historyBackfillProjection';
 import {
 	archiveServerSession,
 	interruptChat,
@@ -231,24 +234,30 @@ messagesById: settled.messagesById,
 		void syncWorkspaceRoot(activeSpace?.rootPath);
 		if (first) {
 			void get().loadAgentsFor(first.id);
-			// 首会话服务端回填（detach）：仅当本地先行写入未被替换时覆盖。
+			const loadOwnership = createStreamOwnership(set, get, first.id, activeBackendSessionId(historyById, first.id));
+			const isCurrent = loadOwnership.isCurrent;
+			// Same-turn local UI/input changes survive the asynchronous backfill.
 			void (async () => {
 				try {
 					const chosen = await loadSessionMessagesWithBackfill(
 						first.id,
 						historyById,
+						{isCurrent},
 					);
 					set(cur =>
-						cur.sessions.some(x => x.id === first.id) &&
-						cur.messagesById[first.id] === firstLocalRef
+						isCurrent() && cur.sessions.some(x => x.id === first.id)
 							? {
 									messagesById: {
 										...cur.messagesById,
-										[first.id]: chosen,
+										[first.id]: projectHistoryBackfill(firstLocalRef ?? [], cur.messagesById[first.id] ?? [], chosen),
 									},
 								}
 							: cur,
 					);
+					const projected = get().messagesById[first.id];
+					if (isCurrent() && projected && projected !== chosen) {
+						await replaceMessages(first.id, projected, () => isCurrent() && get().messagesById[first.id] === projected);
+					}
 				} catch {}
 				finally {
 					set(cur => {
@@ -271,6 +280,7 @@ messagesById: settled.messagesById,
 			const worker = async () => {
 				while (cursor < rest.length) {
 					const s = rest[cursor++]!;
+					let loadOwnership = createStreamOwnership(set, get, s.id, activeBackendSessionId(get().historyById, s.id));
 					void get().loadAgentsFor(s.id);
 					set(cur =>
 						cur.sessions.some(x => x.id === s.id)
@@ -283,15 +293,14 @@ messagesById: settled.messagesById,
 							: cur,
 					);
 					try {
-						const hist = normalizeChatHistoryState(
-							await loadChatHistoryState(s.id),
-							s.id,
-						);
+						if (!loadOwnership.isCurrent() || !await ensureSessionHistory(set, get, s.id)) continue;
+						loadOwnership = createStreamOwnership(set, get, s.id, activeBackendSessionId(get().historyById, s.id));
+						const hist = normalizeChatHistoryState(get().historyById[s.id], s.id);
 						const msgs = await loadSessionMessagesWithBackfill(s.id, {
 							[s.id]: hist,
-						});
+						}, {isCurrent: loadOwnership.isCurrent});
 						set(cur =>
-							cur.messagesById[s.id] === undefined &&
+							loadOwnership.isCurrent() && cur.messagesById[s.id] === undefined &&
 							cur.sessions.some(x => x.id === s.id)
 								? {
 										messagesById: {
@@ -707,6 +716,7 @@ async selectSession(id) {
 		}));
 
 		if (cold) {
+			let loadOwnership = createStreamOwnership(set, get, id, activeBackendSessionId(get().historyById, id));
 			// detach 的装载管线：本地 IDB（几 ms）先给 UI，网络回填随后替换。
 			// 缓存按会话写入，切走后仍可完成；消息引用校验保护并发新发送。
 			// 同一会话重复启动装载时，仅最新请求能结束 loading 标记。
@@ -723,6 +733,7 @@ async selectSession(id) {
 					// 误判为「空对话」而复用/删除。本地为空时等服务端回填定夺。
 					const current = get();
 					if (
+						loadOwnership.isCurrent() &&
 						local.length > 0 &&
 						current.sessions.some(session => session.id === id) &&
 						current.messagesById[id] === undefined
@@ -732,14 +743,14 @@ async selectSession(id) {
 					}
 				} catch {}
 				try {
-					const hist = normalizeChatHistoryState(
-						await loadChatHistoryState(id),
-						id,
-					);
+					if (!loadOwnership.isCurrent() || !await ensureSessionHistory(set, get, id)) return;
+					loadOwnership = createStreamOwnership(set, get, id, activeBackendSessionId(get().historyById, id));
+					const hist = normalizeChatHistoryState(get().historyById[id], id);
 					const chosen = await loadSessionMessagesWithBackfill(id, {
 						[id]: hist,
-					}, {localSnapshot});
+					}, {localSnapshot, isCurrent: loadOwnership.isCurrent});
 					set(s => {
+						if (!loadOwnership.isCurrent()) return s;
 						const cur = s.messagesById[id];
 						// 覆盖条件：仍是我们本地先行写入的引用，或仍无人填充
 						// （本地为空时 localRef === undefined）。期间用户发过消息 /

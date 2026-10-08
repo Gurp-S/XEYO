@@ -114,11 +114,15 @@ __all__ = [
 ]
 
 
-def wrap_notice(body: str, key: str = "") -> str:
+def wrap_notice(body: str, key: str = "", *, include_source_line: bool = True) -> str:
 	"""把已渲染好的正文装进包封；正文为空/非字符串 → 返回空串（无信息即不注入）。
 
 	幂等：入参已包封则先解包再重包，绝不套娃。只加包封与来源声明，不生成任何
 	劝导文本（引擎铁律 1）。``key`` 是维度身份（对齐 Codex content_kind）。
+
+	``include_source_line=False``：本批次里**只有第一条**片段带来源声明。声明是
+	逐字不变的定式（35 token），一轮投 5 条片段就是同一句重复 5 遍——引擎自产回声，
+	而每个片段的包封与 key 仍是独立身份（WSC 的维度识别、替换、预算不受影响）。
 	"""
 	if not isinstance(body, str):
 		return ""
@@ -128,7 +132,10 @@ def wrap_notice(body: str, key: str = "") -> str:
 	if not inner:
 		return ""
 	inner = inner.replace(NOTICE_ENVELOPE_CLOSE, _NOTICE_CLOSE_ESCAPED)
-	return f"{notice_open_tag(key)}\n{NOTICE_SOURCE_LINE}\n{inner}\n{NOTICE_ENVELOPE_CLOSE}"
+	head = notice_open_tag(key)
+	if include_source_line:
+		head = f"{head}\n{NOTICE_SOURCE_LINE}"
+	return f"{head}\n{inner}\n{NOTICE_ENVELOPE_CLOSE}"
 
 
 def strip_notice_fragments(text: str, key: str | None = None) -> str:
@@ -171,6 +178,8 @@ def append_notice_fragment(
 	messages: list[dict[str, Any]],
 	text: str,
 	key: str = "",
+	*,
+	include_source_line: bool = True,
 ) -> list[dict[str, Any]]:
 	"""声道 C：以**一条 user 消息**尾插包封片段（对齐 Codex：片段自成一个 item）。
 
@@ -183,7 +192,13 @@ def append_notice_fragment(
 	t = (text or "").strip()
 	if not messages or not t:
 		return messages
-	return [*messages, {"role": "user", "content": wrap_notice(t, key)}]
+	return [
+		*messages,
+		{
+			"role": "user",
+			"content": wrap_notice(t, key, include_source_line=include_source_line),
+		},
+	]
 
 
 def _record_channel(
@@ -347,8 +362,12 @@ def render_notices(
 			turn_id=turn_id,
 		)
 	out = messages
-	for key, body in pairs:
-		out = append_notice_fragment(out, body, key)
+	for index, (key, body) in enumerate(pairs):
+		# 来源声明只在第一条片段上出现（同句重复 N 遍是引擎自产回声）；
+		# 每个片段的包封与 key 照旧，维度识别/替换/预算不受影响。
+		out = append_notice_fragment(
+			out, body, key, include_source_line=(index == 0)
+		)
 	_record_channel(
 		session_id=session_id,
 		turn_id=turn_id,

@@ -273,8 +273,35 @@ def _demote_normal_nonzero(text: str, command: str) -> bool:
 	return True
 
 
+#: 段级失败证据（**仅 Bash 结果**）：``is_error`` 取自整条调用的**最后一段命令**的退出
+#: 状态，一次调用里 ``cmd1; cmd2`` 的**中段失败**会被记成成功 ⇒ ``[UNRESOLVED]`` 对
+#: 段级失败失明。实证（sess_mux0q86a_ea2kv9 的 row 244/246）：正文 ``FAILED …::test_x``
+#: + ``10 failed, 20 passed``，原始记录却是 ``is_error: false``。
+#:
+#: 口径收窄有影子实测背书（``python/evals/wsc_unresolved_gap.py`` 的段级候选投影）：
+#: 宽口径 4 条命中含 1 条假阳（**成功的探针**把 ``10 failed`` 打印在行中），收窄为
+#: 「行首独立成行」或「pytest 短摘要段头 + FAILED 行」后 3/3 为真、假阳 0。
+_SEG_FAILED_LINE_RE = re.compile(r"(?m)^\s*[1-9]\d*\s+failed\b[^\n]*\b(?:passed|deselected)\b")
+_SEG_FAILED_ITEM_RE = re.compile(r"(?m)^\s*FAILED\s+\S+::\S+")
+
+
+def _looks_like_segment_failure(text: str) -> bool:
+	"""Bash 结果的**段级**失败证据（整调用 ``is_error`` 只看最后一段退出码）。"""
+	t = str(text or "")
+	if not t:
+		return False
+	if _SEG_FAILED_LINE_RE.search(t):
+		return True
+	return "short test summary info" in t and bool(_SEG_FAILED_ITEM_RE.search(t))
+
+
 def result_is_error(block: dict, *, command: str = "", tool_name: str = "") -> bool:
 	"""Use the same receipt verdict for graph and file observations."""
+	from synaptic.failure_facts import enabled as facts_enabled, receipt_verdict
+	if facts_enabled():
+		verdict = receipt_verdict(block)
+		if verdict is not None:
+			return verdict
 	if is_successful_read(block, tool_name):
 		return False
 	text = tool_result_text(block)
@@ -288,6 +315,10 @@ def result_is_error(block: dict, *, command: str = "", tool_name: str = "") -> b
 	flag = block.get("is_error")
 	failed = bool(flag) if flag is not None else _looks_like_error(text)
 	failed = failed or _looks_like_hard_error(text)
+	if not failed and str(tool_name or "") == "Bash":
+		# 段级失败：只认 Bash —— 其它工具的正文常在**引用**失败文本
+		# （判据见 ``_looks_like_segment_failure``）。
+		failed = _looks_like_segment_failure(text)
 	return failed and not _demote_normal_nonzero(text, command)
 
 
@@ -319,7 +350,7 @@ def _classify_message(
 			is_err,
 			False,
 			False,
-			extract_error_sig("\n".join(tool_result_text(b) for b in failed)) if is_err else "",
+			(extract_error_sig("\n".join(tool_result_text(b) for b in failed)) or "execution_failure") if is_err else "",
 		)
 	if uses:
 		names: list[str] = []
@@ -416,6 +447,12 @@ def build_graph(messages: list[dict], *, include_soft_edges: bool = True) -> Gra
 					if isinstance(cmd, str):
 						cmd_by_id[uid] = cmd
 
+	from synaptic.failure_facts import enabled as facts_enabled, ambiguous_calls
+	if facts_enabled():
+		for uid in ambiguous_calls(messages):
+			use_signatures[uid] = ""
+			for mapping in (name_by_id, cmd_by_id, paths_by_id):
+				mapping.pop(uid, None)
 	# 第二遍：建节点
 	nodes: list[Node] = []
 	noise_refs: list[str] = []
@@ -474,6 +511,8 @@ def build_graph(messages: list[dict], *, include_soft_edges: bool = True) -> Gra
 			arg_refs = [p for p in arg_refs if p not in _noise_set]
 		symbols = extract_symbols(scan, limit=12) if kind in (KIND_USER, KIND_ASST_TEXT) else ()
 		ts = msg.get("ts")
+		receipts = [r.get("execution") for r in tool_result_blocks(msg) if isinstance(r.get("execution"), dict)]
+		receipt = receipts[0] if len(receipts) == 1 else {}
 		nodes.append(
 			Node(
 				idx=i,
@@ -484,6 +523,9 @@ def build_graph(messages: list[dict], *, include_soft_edges: bool = True) -> Gra
 				tool_name=tool_name,
 				tool_use_id=uid,
 				is_error=is_err,
+				execution_status=str(receipt.get("status") or ""),
+				execution_error_kind=str(receipt.get("error_kind") or ""),
+				execution_complete=receipt.get("complete") if type(receipt.get("complete")) is bool else None,
 				is_write=is_write,
 				read_only=read_only,
 				ts=float(ts) if isinstance(ts, (int, float)) else 0.0,
@@ -523,16 +565,28 @@ def build_graph(messages: list[dict], *, include_soft_edges: bool = True) -> Gra
 
 	# 补 refs：tool_result 的「现场」由**发起它的调用**决定，不是由输出文本决定。
 	# 只在输出文本自身没扫出路径时继承，避免把调用参数里的无关路径灌进结果节点。
+	#
+	# 同时补 ``scope_paths``（这次调用声明的执行范围）：失败的结果正文常常一个路径
+	# 都不含（``write failed: path_denied``、被截断的退出码摘要），覆盖判据在真实
+	# transcript 上没有可用证据（实测 sess_mux0q86a_ea2kv9：15 条错误 / 0 条闭合）。
+	# 本字段不进卡面、不改 PIN——只作判据的证据面。
 	for n in nodes:
-		if n.kind != KIND_TOOL_RESULT or n.refs:
+		if n.kind != KIND_TOOL_RESULT:
 			continue
 		ids = [str(b.get("tool_use_id") or "")
 		       for b in tool_result_blocks(messages[n.idx])]
-		inherited = tuple(dict.fromkeys(
+		declared = tuple(dict.fromkeys(
 			_canon.get(p, p) for uid in ids if uid in by_use_id
 			for p in paths_by_id.get(uid, ()) if not is_noise_path(p)))
-		if inherited:
-			nodes[n.idx] = replace(n, refs=inherited)
+		if not declared:
+			continue
+		updates: dict[str, tuple[str, ...]] = {}
+		if declared != n.scope_paths:
+			updates["scope_paths"] = declared
+		if not n.refs:
+			updates["refs"] = declared
+		if updates:
+			nodes[n.idx] = replace(n, **updates)
 
 	# file_index 必须在 refs 补齐之后建，否则 err 边会漏掉一半现场
 	file_index: dict[str, list[int]] = {}

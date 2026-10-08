@@ -302,6 +302,11 @@ class InjectContext:
 
 	working: WorkingSnapshot | None = None
 	cwd: str = ""
+	#: 上一枪的厂商 usage（``engine.budget`` 的 ``last_usage``）：T_now 的
+	#: ``context_usage`` 用它报权威输入规模；None = 退回 payload 估算（下界）。
+	last_usage: dict[str, Any] | None = None
+	#: **用户登记的**上下文窗口（权威分母，未登记 = 0 ⇒ 同一行不报占比）。
+	window_tokens: int = 0
 	approved_plan: str | None = None
 	#: Approved plan 首写收敛后的指针块开关：全量正文已进历史，只留"实施中"
 	#: 锚点（见 prompt.turn_context.PLAN_POINTER_BLOCK）。
@@ -754,9 +759,17 @@ T_NOW_EVENT_WARN_CHARS = 6_000
 #      「能不能不进上下文」（引擎能强制的，一律不给模型看）。
 # 执法：tests/test_t_now_block_registry.py。
 # ---------------------------------------------------------------------------
-T_NOW_BLOCK_HARD_CAP = 19  # =现存量：23→21（删 stale_xeyo_md / nested_change）→18→16→17（2026-09-22 world_state 聚合：10 个状态块的留痕由"每块一条"合成"整段一条"，占用只降不升）→18（2026-10-04 加 time_now：一行约 12 tok/采样的事实，补「时效判断无基准」的硬缺失；T_NOW_TOTAL_BUDGET=6000 内不影响其它块配额）→19（2026-10-07 加 env_facts：shell/提权/时区/可写面一行常驻事实，dedup=False 不进 world_state 聚合 ⇒ 撤回不变量零影响，补「第一次决策前不知道 shell 语义与可写面」的硬缺失；一行约 25-35 tok/边界，与 time_now 同形态、同预算内）
+T_NOW_BLOCK_HARD_CAP = 20  # =现存量：23→21（删 stale_xeyo_md / nested_change）→18→16→17（2026-09-22 world_state 聚合：10 个状态块的留痕由"每块一条"合成"整段一条"，占用只降不升）→18（2026-10-04 加 time_now：一行约 12 tok/采样的事实，补「时效判断无基准」的硬缺失；T_NOW_TOTAL_BUDGET=6000 内不影响其它块配额）→19（2026-10-07 加 env_facts：shell/提权/时区/可写面一行常驻事实，dedup=False 不进 world_state 聚合 ⇒ 撤回不变量零影响，补「第一次决策前不知道 shell 语义与可写面」的硬缺失；一行约 25-35 tok/边界，与 time_now 同形态、同预算内）→20（2026-10-08 加 context_usage：本次 prompt 的估算规模 + 引擎两个压力阈值，一行事实；dedup=True ⇒ 只在值变时出现（估算随轮次单调增，实际约 15-25 tok/枪），撤回不变量零影响、T_NOW_TOTAL_BUDGET=6000 内不影响其它块配额。用户显式裁定覆盖 2026-09-15「预算类事实不进上下文」旧裁定：本块只报可核对数字、不报"预算已尽"，作用域写死在正文「本会话上下文」）
 
 T_NOW_BLOCK_REGISTRY: dict[str, dict[str, Any]] = {
+	"context_usage": {
+		"pipe": PIPE_STATE,
+		"quota": True,
+		"dedup": True,
+		# 只有引擎知道"这一枪有多大"与压力阈值；模型从自身输入推不出来，缺基准
+		# 时实测会把"还早 / 该收了"留成未判断（与 time_now 缺时效基准同形）。
+		"why": "本次 prompt 规模与引擎压力阈值只有引擎知道；缺基准时模型无法判断规模量级",
+	},
 	"continue": {
 		"pipe": PIPE_STATE,
 		"quota": False,
@@ -1144,6 +1157,33 @@ def _env_facts_text(cwd: str) -> str:
 		return ""
 
 
+def _context_usage_text(projected: list[dict[str, Any]], ctx: "InjectContext") -> str:
+	"""会话上下文用量事实；任何失败返回空串（该块本轮缺席，不阻断主循环）。
+
+	口径在 ``prompt/context_usage``：优先上一枪的厂商输入 token（权威，含
+	system+tools+全历史），拿不到才退回本次 payload 估算（下界）；分母不取离线
+	校准常量。
+	"""
+	try:
+		from prompt.context_usage import render
+
+		folds = None
+		try:
+			from memory.wsc_folds import snapshot
+
+			folds = snapshot(getattr(ctx, "session_id", ""))
+		except Exception:  # noqa: BLE001 — 台账缺席不影响用量事实
+			folds = None
+		return render(
+			projected,
+			getattr(ctx, "last_usage", None),
+			folds,
+			getattr(ctx, "window_tokens", 0) or 0,
+		)
+	except Exception:  # noqa: BLE001
+		return ""
+
+
 def run_pre_llm_inject(
 	projected: list[dict[str, Any]],
 	ctx: InjectContext,
@@ -1174,6 +1214,10 @@ def run_pre_llm_inject(
 	# 当前时间一行事实：判断"多久之前 / 哪份决策更新"的基准。GetTime 工具存在，
 	# 但那要多花一次调用（实测模型因此把一批时效判断留成"未核对"）。
 	_tag_block(tagged, "time_now", f"当前时间: {time.strftime('%Y-%m-%d %H:%M:%S %z')}")
+	# block: context_usage
+	# 本次要发的 prompt 的估算规模 + 引擎当前两个压力阈值。此前模型看不到自己
+	# 的规模（1145 行整读那种账只有事后才在 read_observation 里出现）。
+	_tag_block(tagged, "context_usage", _context_usage_text(projected, ctx))
 	# block: env_facts
 	# 执行环境事实（shell 语义 / 提权 / 时区基准 / 可写面）。此前唯一的到达路径是
 	# "会话首个 Bash 成功结果头"（tools/bash_tool/bash_tool.py 的 shell_notice），

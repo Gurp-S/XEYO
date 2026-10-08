@@ -127,6 +127,8 @@ class JobRecord:
 	reported: bool = False
 	started_at: float = field(default_factory=time.time)
 	finished_at: float = 0.0
+	last_output_at: float = 0.0
+	output_chars: int = 0
 
 	def to_dict(self) -> dict[str, Any]:
 		return {
@@ -138,6 +140,8 @@ class JobRecord:
 			"reported": self.reported,
 			"started_at": self.started_at,
 			"finished_at": self.finished_at,
+			"last_output_at": self.last_output_at,
+			"output_chars": self.output_chars,
 		}
 
 
@@ -473,6 +477,10 @@ class JobRegistry:
 			ring = self._rings.get(job_id)
 			if ring is not None:
 				ring.push(chunk)
+				rec = self._jobs.get(job_id)
+				if rec is not None and chunk:
+					rec.last_output_at = time.time()
+					rec.output_chars += len(chunk)
 		self._notify_job_change(job_id)
 
 	def read(

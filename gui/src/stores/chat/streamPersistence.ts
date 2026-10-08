@@ -17,6 +17,7 @@ import {
 import {createMessageWriter} from '@/lib/messageWriter';
 import {
 	type ChatState,
+    activeBackendSessionId,
 } from './preStoreHelpers';
 import {
 	flushThoughtSync,
@@ -54,9 +55,20 @@ export function createStreamPersistence(deps: {
 	let persistTimer = 0;
 	let persistIdle = 0;
 	let persistQueued: ChatMessage[] | null = null;
+	let writeSnapshot: ChatMessage[] | null = null;
+	const ownsSession = () => get().sessions.some(session => session.id === sessionId) &&
+		activeBackendSessionId(get().historyById, sessionId) === backendSessionId;
+	const guard = () => {
+		const snapshot = writeSnapshot;
+		return () => ownsSession() && get().messagesById[sessionId] === snapshot;
+	};
 	const persist = createMessageWriter(seedMessages, {
-		patch: msgs => patchMessages(sessionId, msgs),
-		replace: msgs => replaceMessages(sessionId, msgs),
+		current: () => {
+			writeSnapshot = ownsSession() ? get().messagesById[sessionId] ?? null : null;
+			return writeSnapshot;
+		},
+		patch: msgs => patchMessages(sessionId, msgs, guard()),
+		replace: msgs => replaceMessages(sessionId, msgs, guard()),
 	});
 
 	const write = (msgs: ChatMessage[]) => {

@@ -51,6 +51,7 @@ export function createStreamDrain(deps: {
 	sessionStillAlive: () => boolean;
 	cancelFrameRaf: () => void;
 	onFinish: () => void;
+	appendProse?: (messages: ChatMessage[], text: string) => ChatMessage[];
 }): StreamDrain {
 	const {get, set, sessionId, typewriterCache, persistNow, sessionStillAlive, cancelFrameRaf, onFinish} = deps;
 
@@ -59,21 +60,26 @@ export function createStreamDrain(deps: {
 	// 前先存下全文，commitAssistant 靠它落盘（见 drained 分支）。
 	let drainTextSnap = '';
 	let drainMode = false;
+	const registration = {commit: () => finishDrain(), discard: () => discardDrain()};
+	const ownsRegistration = () => activeDrains.get(sessionId) === registration;
 
 	const releaseDrainOwnership = () => {
-		activeDrains.delete(sessionId);
+		if (ownsRegistration()) activeDrains.delete(sessionId);
 		if (drainRaf) {
 			cancelAnimationFrame(drainRaf);
 			drainRaf = 0;
 		}
 	};
 	const finishDrain = () => {
+		const current = ownsRegistration() && sessionStillAlive();
 		releaseDrainOwnership();
-		onFinish();
+		if (current) onFinish();
 	};
 	const discardDrain = () => {
+		const current = ownsRegistration() && sessionStillAlive();
 		releaseDrainOwnership();
 		drainMode = false;
+		if (!current) return;
 		set(s => ({
 			sessionStreams: patchSessionStream(s.sessionStreams, sessionId, {
 				streamingText: '',
@@ -87,7 +93,8 @@ export function createStreamDrain(deps: {
 	};
 	const drainFrame = () => {
 		drainRaf = 0;
-		if (!activeDrains.has(sessionId)) {
+		if (!ownsRegistration() || !sessionStillAlive()) {
+			releaseDrainOwnership();
 			return;
 		}
 		const cur = get();
@@ -122,12 +129,13 @@ export function createStreamDrain(deps: {
 		drainRaf = requestAnimationFrame(drainFrame);
 	};
 	const start = () => {
+		if (!sessionStillAlive()) return;
 		drainTextSnap = getSessionStream(get(), sessionId).streamingText;
 		drainMode = true;
 		if (drainTextSnap.trim() && sessionStillAlive()) {
 			const cur = get();
 			// 保留已稳定的 Thought 行，仅提前挂上 prose 供排水展示
-			const msgs = appendAssistantProse(
+			const msgs = (deps.appendProse ?? appendAssistantProse)(
 				cur.messagesById[sessionId] ?? [],
 				drainTextSnap,
 			);
@@ -136,10 +144,7 @@ export function createStreamDrain(deps: {
 			}));
 			persistNow(msgs);
 		}
-		activeDrains.set(sessionId, {
-			commit: finishDrain,
-			discard: discardDrain,
-		});
+		activeDrains.set(sessionId, registration);
 		cancelFrameRaf();
 		const cur = get();
 		set(s => ({

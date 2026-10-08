@@ -12,7 +12,7 @@ import os
 from tools.fileio import fsprobe as _fsprobe
 from tools.container_fs import display_cwd as _cfs_display_cwd
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Literal, Optional
 
 from engine.abort import AbortController
@@ -66,8 +66,8 @@ MAX_COLUMNS = 500
 
 RG_TIMEOUT_SECONDS = 30
 
-OutputMode = Literal["content", "files_with_matches", "count", "symbols"]
-VALID_OUTPUT_MODES = frozenset({"content", "files_with_matches", "count", "symbols"})
+OutputMode = Literal["content", "files_with_matches", "count", "symbols", "matches"]
+VALID_OUTPUT_MODES = frozenset({"content", "files_with_matches", "count", "symbols", "matches"})
 
 # symbols 模式单次调用累计符号上限（防误扫巨型目录拖死调用）
 MAX_SCAN_SYMBOLS = 200_000
@@ -463,6 +463,7 @@ class GrepOutput:
 	# 工具说过自己匹配到过东西。`result_no_match` 也用它判定，避免把成功检索
 	# 记进 ZeroHitTracker 的"第 N 次空结果"。
 	total_matched: Optional[int] = None
+	content_kind: str = "lines"
 
 
 def prompt() -> str:
@@ -486,7 +487,7 @@ class GrepTool:
 		return True
 
 	def schema(self) -> dict[str, Any]:
-		return {
+		schema = {
 			"name": self.name,
 			"description": prompt(),
 			"input_schema": {
@@ -574,6 +575,12 @@ class GrepTool:
 				"required": ["pattern"],
 			},
 		}
+		from tools.grep_tool.match_evidence import enabled as match_evidence_enabled
+		if match_evidence_enabled():
+			mode = schema["input_schema"]["properties"]["output_mode"]
+			mode["enum"].append("matches")
+			mode["description"] += " matches returns native nonempty matching substrings with file, line and byte-column positions; pagination counts match records. Context and multiline settings are unavailable in matches mode."
+		return schema
 
 	def get_path(self, input_data: GrepInput) -> str:
 		if input_data.path:
@@ -592,6 +599,12 @@ class GrepTool:
 			}
 
 		mode = input_data.output_mode or "files_with_matches"
+		if mode == "matches":
+			from tools.grep_tool.match_evidence import enabled as match_evidence_enabled
+			if not match_evidence_enabled():
+				return {"result": False, "message": "match_evidence_disabled", "errorCode": 3}
+			if input_data.multiline or any(getattr(input_data, name) is not None for name in ("context", "context_before", "context_after", "context_c")):
+				return {"result": False, "message": "matches_context_settings_unavailable", "errorCode": 3}
 		if mode not in VALID_OUTPUT_MODES:
 			return {
 				"result": False,
@@ -666,12 +679,27 @@ class GrepTool:
 		if mode == "symbols":
 			return self._call_symbols(input_data, absolute_path)
 
-		args = build_rg_args(input_data)
+		args = build_rg_args(replace(input_data, output_mode="content") if mode == "matches" else input_data)
+		from tools.grep_tool.match_evidence import enabled as match_evidence_enabled
+		if mode == "content" and match_evidence_enabled():
+			# NUL path framing needs a path even for one explicitly named file.
+			# Otherwise line prefixes are sorted as text (1,10,11,2...).
+			args.append("--with-filename")
 		# `.agentignore` 挂载（2026-10-05）：与 Glob 同源（glob_tool 已接），工具描述
 		# 早已向模型承诺 "auto-skipped"，此前只对 Glob 兑现。搜索根 + 工作区 cwd 各
 		# 探一次；无该文件时零变化。后置的 `--glob !rule` 保证用户 glob 也穿不透。
 		args.extend(agentignore_args(absolute_path, self._cwd))
 		offset = max(0, input_data.offset or 0)
+		from tools.grep_tool.match_evidence import collect as collect_match_evidence, render as render_match_evidence
+		evidence = collect_match_evidence(input_data, args, absolute_path, self._cwd,
+			lambda evidence_args, target: run_ripgrep(evidence_args, target, abort=abort), column_limit=MAX_COLUMNS)
+		if evidence is not None:
+			limited, applied_limit = apply_head_limit(evidence, input_data.head_limit, offset)
+			return GrepOutput(mode="matches", num_files=0, content=render_match_evidence(limited),
+				num_lines=len(limited), applied_limit=applied_limit, applied_offset=offset if offset else None,
+				total_matched=len(evidence), content_kind="match_excerpts")
+		if mode == "matches":
+			raise RuntimeError("match_positions_unavailable")
 
 		# 这里曾经挂过一层 trigram 内容索引预筛（把 rg 扫描面收窄到候选集），2026-09-25
 		# 删除。账本实测：一次字面量查询省 3~9ms，而索引建一次要 142~888ms（TTL 30s），
@@ -867,8 +895,12 @@ class GrepTool:
 	def map_tool_result_to_content(output: GrepOutput) -> str:
 		"""转化为给模型看的文本结果。"""
 		limit_info = format_limit_info(output.applied_limit, output.applied_offset)
+		if output.mode == "matches":
+			facts = (f"Nonempty match records: returned={output.num_lines or 0}; "
+				f"total={output.total_matched or 0}; offset={output.applied_offset or 0}")
+			return (output.content + "\n" if output.content else "") + facts
 
-		if output.mode == "content":
+		if output.mode in {"content", "matches"}:
 			paged_empty = not output.content and (output.total_matched or 0) > 0
 			if paged_empty:
 				body = _empty_page_fact("lines", output.total_matched or 0, "line(s)")
@@ -937,9 +969,12 @@ class GrepTool:
 		"没匹配"——把它记进 ZeroHitTracker 等于对模型说"这条路没有"，而工具自己
 		刚在同一趟里数到了命中。total_matched 缺失时（旧构造点/外部调用）退回逐模式判据。
 		"""
+		if output.mode == "matches":
+			# No nonempty substring does not prove absence of zero-width hits.
+			return False
 		if output.total_matched is not None:
 			return output.total_matched == 0
-		if output.mode == "content":
+		if output.mode in {"content", "matches"}:
 			return not (output.num_lines or 0)
 		if output.mode == "symbols":
 			return not (output.num_lines or 0)
@@ -1070,5 +1105,8 @@ class GrepTool:
 		abort.raise_if_aborted()
 		return ToolResult(
 			content=self.map_tool_result_to_content(output),
-			metadata={"no_match": True} if self.result_no_match(output) else None,
+			metadata=(({"no_match": True} if self.result_no_match(output) else {}) | {
+				"grep_observation": {"kind": output.content_kind, "returned_records": output.num_lines,
+				 "total_records": output.total_matched, "offset": output.applied_offset or 0}}
+				if output.content_kind == "match_excerpts" else ({"no_match": True} if self.result_no_match(output) else None)),
 		)

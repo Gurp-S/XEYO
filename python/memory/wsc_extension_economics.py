@@ -26,11 +26,11 @@ def enabled() -> bool:
 def absorb_boundary(messages: list[dict], cursor: int) -> int:
 	"""发射与候选共用一个 pair-safe 上界。"""
 	from engine.compact import keep_tail_cut
-	from memory.runtime import c2_cut_index
+	from memory.runtime import pair_safe_cut
 
 	upper = min(len(messages), max(int(keep_tail_cut(messages)), int(cursor)))
 	try:
-		pair_safe = int(c2_cut_index(messages, None))
+		pair_safe = int(pair_safe_cut(messages, upper))
 		if 1 < pair_safe < upper:
 			upper = pair_safe
 	except Exception:

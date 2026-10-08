@@ -303,18 +303,38 @@ def _index_entry(art: Artifact) -> dict[str, Any]:
     }
 
 
-def write_golden(arts: list[Artifact], *, directory: Path = GOLDEN_DIR) -> Path:
-    surface = directory / "surface"
-    surface.mkdir(parents=True, exist_ok=True)
-    existing = {p.name for p in surface.glob("*.txt")}
-    index: dict[str, Any] = {}
-    for art in arts:
-        fname = f"{canon.safe_name(art.name)}.txt"
-        (surface / fname).write_text(art.canonical, encoding="utf-8", newline="\n")
-        existing.discard(fname)
-        index[art.name] = _index_entry(art)
-    for stale in existing:
-        (surface / stale).unlink()
+def match_only(names: list[str], only: list[str] | None) -> list[str]:
+    """按名 glob 选出要重钉的项；`only` 为空 ⇒ 全部（= 全量档语义）。
+
+    两个形态都认：全名（`tnow/registry`）与落盘文件名（`tnow__registry`）——后者是人从
+    `goldens/surface/` 目录里直接看到的名字，用哪种写法都该命中。
+    """
+    import fnmatch
+
+    if not only:
+        return list(names)
+    out: list[str] = []
+    for name in names:
+        safe = canon.safe_name(name)
+        if any(fnmatch.fnmatchcase(name, p) or fnmatch.fnmatchcase(safe, p) for p in only):
+            out.append(name)
+    return out
+
+
+def _load_index(directory: Path) -> dict[str, Any]:
+    """读回现有 index（`--only` 档要合并）；缺失/损坏 ⇒ 空（不假装合并成功）。"""
+    path = directory / "surface_index.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return {}
+    if isinstance(payload, dict) and isinstance(payload.get("artifacts"), dict):
+        return dict(payload["artifacts"])
+    return {}
+
+
+def _write_index(directory: Path, index: dict[str, Any]) -> Path:
+    """写 index（全量档与 `--only` 档共用同一形态，免得出现两套 schema）。"""
     payload = {
         "schema": 1,
         "generated_by": "evals.changedetect.surface",
@@ -327,6 +347,45 @@ def write_golden(arts: list[Artifact], *, directory: Path = GOLDEN_DIR) -> Path:
         encoding="utf-8",
     )
     return path
+
+
+def write_golden(arts: list[Artifact], *, directory: Path = GOLDEN_DIR,
+                 only: list[str] | None = None) -> Path:
+    """写 golden。
+
+    `only` 为空 ⇒ 全量重写 + **删除 stale**（原行为，逐字节不变）。
+    `only` 非空 ⇒ **只重钉命中项**：未命中项的文件保持不动、**不删**，index 与现有合并。
+    零命中 ⇒ `ValueError`——宁可报错，也不让"其实没钉到任何东西"看起来像成功。
+
+    存在的理由（#11）：全量档会把别人在途的面变化一起钉成新基线，于是"重钉我的 3 条"
+    与"卷走别人的 6 条"绑死，只能二选一。`only` 是"我只对这几条负责"的表达；
+    代价是它**不清理** stale 文件（清理是全量档的职责）。
+    """
+    surface_dir = directory / "surface"
+    surface_dir.mkdir(parents=True, exist_ok=True)
+    if only:
+        picked = set(match_only([a.name for a in arts], only))
+        if not picked:
+            raise ValueError(f"--only 未命中任何 artifact：{only}")
+        index = _load_index(directory)
+        for art in arts:
+            if art.name not in picked:
+                continue
+            (surface_dir / f"{canon.safe_name(art.name)}.txt").write_text(
+                art.canonical, encoding="utf-8", newline="\n"
+            )
+            index[art.name] = _index_entry(art)
+        return _write_index(directory, index)
+    existing = {p.name for p in surface_dir.glob("*.txt")}
+    index: dict[str, Any] = {}
+    for art in arts:
+        fname = f"{canon.safe_name(art.name)}.txt"
+        (surface_dir / fname).write_text(art.canonical, encoding="utf-8", newline="\n")
+        existing.discard(fname)
+        index[art.name] = _index_entry(art)
+    for stale in existing:
+        (surface_dir / stale).unlink()
+    return _write_index(directory, index)
 
 
 def load_golden(*, directory: Path = GOLDEN_DIR) -> dict[str, str]:

@@ -17,6 +17,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from common.concurrency_budget import subagent_dag_limit
+from common.scope_paths import POLICY_SESSION, norm_scope_path
 from engine.abort import AbortController, LinkedAbortController
 from engine.write_store import WriteStore
 from tools.meta import FORBIDDEN_SUB_TOOLS, SUBSET_TOOL_BASELINE, WRITE_PATH_TOOLS
@@ -94,17 +96,8 @@ class Task:
 
 
 def _norm_scope_path(path: str, root: str | Path | None = None) -> str:
-    """相对工作区归一：反斜杠→/、小写、剥 ./ 与绝对根前缀。"""
-    p = (path or "").replace("\\", "/").strip().lower()
-    if not p:
-        return ""
-    while p.startswith("./"):
-        p = p[2:]
-    if root is not None:
-        root_s = str(Path(root).expanduser().resolve()).replace("\\", "/").strip().lower()
-        if root_s and (p == root_s or p.startswith(root_s + "/")):
-            p = p[len(root_s):].lstrip("/")
-    return p
+    """相对工作区归一（实现与政策见 common.scope_paths，此处钉同会话档）。"""
+    return norm_scope_path(path, root, policy=POLICY_SESSION)
 
 
 def toposort(tasks: list[Task]) -> list[Task]:
@@ -254,7 +247,7 @@ class Scheduler:
         self,
         workspace_root: str | Path,
         *,
-        max_concurrency: int = 10,
+        max_concurrency: int | None = None,
         timeout_s: float = 300,
         write_store: WriteStore | None = None,
         runtime_provider: Any | None = None,
@@ -268,7 +261,10 @@ class Scheduler:
         read_state: Any | None = None,
     ) -> None:
         self._root = Path(workspace_root).expanduser().resolve()
-        self._max_concurrency = max(1, max_concurrency)
+        # None = 取单一来源的默认档（common.concurrency_budget.subagent_dag_limit）。
+        self._max_concurrency = max(
+            1, subagent_dag_limit() if max_concurrency is None else max_concurrency
+        )
         self._default_timeout = max(_MIN_TIMEOUT_S, float(timeout_s))
         self._write_store = write_store or WriteStore(self._root)
         self._runtime_provider = runtime_provider
@@ -1093,7 +1089,7 @@ async def run_task_batch(
     runtime_provider: Any,
     write_store: WriteStore | None = None,
     main_session_id: str = "",
-    max_concurrency: int = 10,
+    max_concurrency: int | None = None,
     agent_ids: dict[str, str] | None = None,
     on_event: Any | None = None,
     task_batch_id: str = "",

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "xeyo"
-version = "1.1.0"
+version = "1.11.0"
 description = "XEYO coding assistant engine"
 requires-python = ">=3.11"
 dependencies = [

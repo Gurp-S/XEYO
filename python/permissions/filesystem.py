@@ -404,6 +404,9 @@ def protected_metadata_reason(path: str, *, cwd: str | None = None) -> str | Non
 	"""
 	if _protected_metadata_allowed():
 		return None
+	from engine.execution_facts import scratch_allowed
+	if scratch_allowed(path, cwd):
+		return None
 	root = (cwd or "").strip()
 	if not root:
 		return None

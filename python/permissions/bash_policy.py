@@ -624,7 +624,8 @@ def bash_secret_read_reason(command: str | None) -> str | None:
 	text = _normalize_command(command)
 	if not text:
 		return None
-	if _SECRET_TOKEN_RX.search(text):
+	from permissions.bash_secret_evidence import match
+	if match(command):
 		return "bash_secret_read"
 	_ = _SECRET_READ_CMD_RX  # 保留：后续可收紧为「仅读命令」
 	return None

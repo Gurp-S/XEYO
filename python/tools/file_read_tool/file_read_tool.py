@@ -165,6 +165,9 @@ class ReadOutput:
 	symbol_meta: Optional[dict] = None
 	#: 本次是"无 limit 默认视图"且被 2000 行上限截断过（模型可见提示的依据）
 	default_capped: bool = False
+	#: 本次给的是长文件的**结构视图**（条目+行号），不是正文；正文由 offset/limit
+	#: 或 symbol= 取回。触发/阈值见 tools/fileio/structure_map。
+	structured: bool = False
 
 
 def prompt(*, vision: bool = False) -> str:
@@ -365,6 +368,8 @@ class FileReadTool:
 
 	def call(self, input_data: ReadInput) -> ReadOutput:
 		full = self.get_path(input_data)
+		from synaptic.contracts import verify_object
+		verify_object(full)
 		# offset 默认 1；0/1 都视为文件开头
 		offset = 1 if input_data.offset is None else max(1, input_data.offset)
 		if input_data.offset == 0:
@@ -521,6 +526,7 @@ class FileReadTool:
 
 		symbol_meta: Optional[dict] = None
 		default_capped = False
+		structured = False
 		if sym is not None:
 			if input_data.pack:
 				from codeindex.pack import pack_symbol_context
@@ -552,12 +558,22 @@ class FileReadTool:
 			# offset 从 1 开始计数
 			start_idx = max(0, offset - 1)
 			effective_limit = MAX_LINES_TO_READ if limit is None else limit
-			sliced = all_lines[start_idx : start_idx + effective_limit]
-			default_capped = (
-				limit is None and total_lines > start_idx + effective_limit
-			)
-			slice_text = "\n".join(sliced)
-			start_line_out = offset
+			if limit is None and input_data.offset is None:
+				from tools.fileio import structure_map
+
+				if structure_map.enabled(total_lines):
+					# 长文件 + 没给范围 ⇒ 先给结构（条目 + 行号），正文由 offset/limit
+					# 或 symbol= 取回。阈值/开关见 structure_map.min_lines。
+					slice_text = structure_map.render(full, all_lines, ext)
+					start_line_out = 1
+					structured = True
+			if not structured:
+				sliced = all_lines[start_idx : start_idx + effective_limit]
+				default_capped = (
+					limit is None and total_lines > start_idx + effective_limit
+				)
+				slice_text = "\n".join(sliced)
+				start_line_out = offset
 
 		tokens = _rough_token_estimate(slice_text)
 		if tokens > DEFAULT_MAX_TOKENS:
@@ -574,7 +590,10 @@ class FileReadTool:
 		# ② 同一 path+offset+limit 重复读会返回 `FILE_UNCHANGED_STUB` 顶掉正文，
 		#    而取回语义要求每次都给正文。
 		# 判定走 `memory.offload.is_externalized_path`（按 offload 根前缀，见其 docstring）。
-		if not _is_externalized(full, self._cwd):
+		# 结构视图**不记** read-state：它没返回正文，记进去等于替模型宣称"看过这个
+		# 文件"，后续 Edit 会因此通过 missing_read 前置检查 ⇒ 盲改（与 externalized
+		# 同一条纪律：不进册的东西不许充当新鲜度依据）。
+		if not structured and not _is_externalized(full, self._cwd):
 			from tools.fileio.read_visibility import view_digest
 
 			self._read_state.set(
@@ -596,6 +615,7 @@ class FileReadTool:
 			total_lines=total_lines,
 			symbol_meta=symbol_meta,
 			default_capped=default_capped,
+			structured=structured,
 		)
 
 	@staticmethod
@@ -699,7 +719,8 @@ class FileReadTool:
 			meta = dict(output.symbol_meta)
 			kind = "symbol_pack" if "pack_sections" in meta else "symbol"
 			result.metadata = {"read_kind": kind, **meta}
-		return result
+		from tools.file_read_tool.observation import attach
+		return attach(result, output)
 
 	def _execute_image(self, full: str, read_input: ReadInput) -> ToolResult:
 		from media_store import MediaError

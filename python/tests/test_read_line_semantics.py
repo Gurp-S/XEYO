@@ -50,11 +50,28 @@ async def test_shorter_than_offset_counts_real_lines(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_default_cap_states_the_truncation(tmp_path) -> None:
+async def test_default_cap_states_the_truncation(tmp_path, monkeypatch) -> None:
+	"""关掉结构视图（阈值 0）后，默认视图仍必须自报被 2000 行上限截断过。
+
+	2026-10-08 起，无范围读 ≥600 行文件走结构视图（见下一个用例）；这条钉的是
+	**退回旧行为**时截断提示不许丢——`XEYO_READ_STRUCTURE_MIN_LINES=0` 就是退回开关。
+	"""
+	monkeypatch.setenv("XEYO_READ_STRUCTURE_MIN_LINES", "0")
 	text = "\n".join(f"L{i}" for i in range(2100)) + "\n"
 	r = await _read(tmp_path, "big.txt", text)
 	assert "this view shows lines 1-2000" in r.content, r.content[-300:]
 	assert "2100" in r.content, r.content[-300:]
+
+
+@pytest.mark.asyncio
+async def test_long_file_without_range_returns_structure_view(tmp_path) -> None:
+	"""新合同：≥阈值（默认 600）且没给范围 ⇒ 结构视图，正文由 offset/limit 取回。"""
+	text = "\n".join(f"L{i}" for i in range(2100)) + "\n"
+	r = await _read(tmp_path, "big3.txt", text)
+	assert "structure view: 2100 lines" in r.content, r.content[:400]
+	assert "offset/limit or symbol=" in r.content, r.content[:400]
+	# 正文没返回：结构视图里不该出现 700 行之后的文件行号（旧路径会返回前 2000 行）
+	assert "L700" not in r.content, r.content[:400]
 
 
 @pytest.mark.asyncio

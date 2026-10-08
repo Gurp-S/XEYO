@@ -106,7 +106,7 @@ def test_pressure_ceiling_follows_the_user_window() -> None:
 	from memory.runtime import should_force_compact_on_pressure
 
 	assert should_force_compact_on_pressure(
-		prompt_tokens=100_000, context_limit=120_000
+		prompt_tokens=102_000, context_limit=120_000
 	) is True
 	assert should_force_compact_on_pressure(
 		prompt_tokens=100_000, context_limit=1_000_000

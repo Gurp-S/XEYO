@@ -194,6 +194,15 @@ class OpenAICompatClient:
 			"Accept": "text/event-stream",
 		}
 
+	def context_input(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]]) -> dict[str, Any]:
+		"""Pure input projection shared with the actual request encoder.
+
+		No headers, credentials, model options or output budget are counted.
+		This exposes input structure, not a provider tokenizer receipt.
+		"""
+		return {"messages": _normalize_messages_for_openai(messages),
+		        "tools": [_to_openai_tool(t) for t in tools]}
+
 	def _build_body(
 		self,
 		messages: list[dict[str, Any]],

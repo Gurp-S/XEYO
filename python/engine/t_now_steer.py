@@ -70,6 +70,7 @@ def push(
 	*,
 	images: list[str] | None = None,
 	message_id: str = "",
+	persist_pending: bool = True,
 ) -> bool:
 	"""把运行中用户消息排进队列；返回是否入队（入队失败 → 调用方回落排队）。"""
 	sid = (session_id or "").strip()
@@ -99,7 +100,10 @@ def push(
 		_log.debug("steer push failed", exc_info=True)
 		return False
 	# WAL：入队即落 transcript（按 message id 幂等）——重启后 hydrate 即装载
-	_write_wal(sid, item)
+	# Inbox-owned messages already have a durable pending record. They enter the
+	# transcript only when delivered, keeping recovery distinct from visibility.
+	if persist_pending:
+		_write_wal(sid, item)
 	return True
 
 
@@ -151,6 +155,7 @@ def deliver(session_id: str, store: Any) -> list[Message]:
 			continue
 		added.append(msg)
 		landed.append(msg)
+		existing.add(msg.id)
 	if failed:
 		_requeue(sid, failed)
 	if added:

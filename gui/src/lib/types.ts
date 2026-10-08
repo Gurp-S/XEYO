@@ -21,6 +21,8 @@ export type ChatMessage = {
 	mediaRefs?: string[];
 	/** 繁忙期间已接受的用户消息在 inbox 中的投递状态（仅 GUI 投影）。 */
 	queueState?: 'queued' | 'delivering' | 'syncing' | 'stuck';
+	/** Restored local input absent from the authoritative delivered history. */
+	localUndelivered?: boolean;
 	/** tool 调用前累积的 reasoning 快照（role=tool）。 */
 	reasoningBefore?: string;
 	/** reasoning 阶段耗时 ms（role=tool）。 */
@@ -38,6 +40,8 @@ export type ChatMessage = {
 	/** Rewind v2：checkpointId（来自 turn before_commit）。 */
 	checkpointId?: string;
 	createdAt: number;
+	/** Persisted list position; timestamps from different clocks are not ordering keys. */
+	transcriptOrder?: number;
 };
 
 /**

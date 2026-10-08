@@ -164,6 +164,11 @@ def _todo_write(cwd: str) -> Tool:
 	return TodoWriteTool(cwd=cwd)
 
 
+def _compact(_cwd: str) -> Tool:
+	from tools.compact_tool import CompactTool
+	return CompactTool()
+
+
 def _memory(cwd: str) -> Tool:
 	from tools.memory_tool import MemoryTool
 
@@ -272,6 +277,7 @@ ENABLED_TOOL_ENTRIES: Sequence[tuple[str, ToolFactory]] = (
 	("Screenshot", _screenshot),
 	("SendToWeChat", _send_to_wechat),
 	("Memory", _memory),
+	("Compact", _compact),
 	("AskUserQuestion", _ask_user),
 	("JournalQuery", _journal_query),
 	("Skill", _skill),

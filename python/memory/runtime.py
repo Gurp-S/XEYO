@@ -198,12 +198,16 @@ def _resolve_c2_summary(
 	返回的摘要需非空且小于 ``region_chars`` 才被采用，否则回退。
 	"""
 	pending = getattr(working, "_pending_c2_summary", None)
+	from memory.wsc_timing import enabled as model_timing_enabled
+	if model_timing_enabled():
+		working._pending_c2_summary = None
+		return deterministic_c2_summary(left, id_to_name=build_tool_use_names(messages))
 	if pending:
 		# 预取结果只在当前轮一次性消费
 		working._pending_c2_summary = None
 		if len(pending) < _region_chars(left):
 			return pending
-	if c2_llm_summary_enabled() and summary_provider is not None:
+	if not model_timing_enabled() and c2_llm_summary_enabled() and summary_provider is not None:
 		try:
 			region_chars = _region_chars(left)
 			got = summary_provider(left, region_chars)
@@ -1032,7 +1036,9 @@ def apply_c2_messages(
 	if wsc is not None:
 		return wsc
 
-	left, right = split_at_cursor(messages, working.compact_cursor)
+	from memory.wsc_execution_boundary import protect, restore_tail
+	fallback_cursor = protect(messages, working.compact_cursor)
+	left, right = split_at_cursor(messages, fallback_cursor)
 	# P1 缺失1：把 C2 左段（M 区）的原子分段记入 working，供按原子计权与审计。
 	try:
 		from memory.fidelity_segmenter import atoms_enabled, atoms_histogram
@@ -1042,10 +1048,7 @@ def apply_c2_messages(
 	except Exception:
 		pass
 	if not working.c2_summary_text:
-		summary = (
-			load_session_md(working)
-			or _resolve_c2_summary(working, left, messages, summary_provider)
-		)
+		summary = _resolve_c2_summary(working, left, messages, summary_provider)
 		# A3 逃生舱：最近 1 条完整 Traceback + 最后 3 个文件路径，先于冻结追加。
 		# 挂在本层而非 summary 层——session.md 来源路径同样受保护；逃生舱随摘要
 		# 一起冻结进 c2_summary_text（字节稳定，KV 命中不回归）。
@@ -1053,7 +1056,9 @@ def apply_c2_messages(
 			hatch = c2_escape_hatch_block(left)
 			if hatch:
 				summary = summary.rstrip() + "\n\n" + hatch
-		working.c2_summary_text = summary
+		from memory.wsc_fallback_handoff import render as render_handoff
+		handoff = render_handoff(messages, working, fallback_cursor, cwd)
+		working.c2_summary_text = summary + ("\n\n" + handoff if handoff else "")
 		# A2：压缩碎片抓拍（notes:msg:<i> 可 retrieve 还原）——与摘要冻结同点执行
 		_store_c2_fragments(working, left)
 		if working.compact_cursor > 0:
@@ -1063,12 +1068,14 @@ def apply_c2_messages(
 				frozen_until=working.c1_frozen_until,
 				summary_text=working.c2_summary_text,
 			)
-	frozen_rel = max(0, working.c1_frozen_until - working.compact_cursor)
+	frozen_rel = max(0, working.c1_frozen_until - fallback_cursor)
 	# 摘要来自历史压缩/可选模型旁路，属于会话内容，不具备 system 权限。
 	# 用 assistant 角色保留其在历史中的来源，同时避免把模型生成文本升格为
 	# system 指令；权限与模式门禁仍由执行层处理。
 	head = [{"role": "assistant", "content": working.c2_summary_text, "name": "session_summary"}]
-	return head + project_c0c1(right, frozen_until=frozen_rel, cwd=cwd)
+	from synaptic.receipt_render import render as render_receipts
+	emitted = head + project_c0c1(right, frozen_until=frozen_rel, cwd=cwd)
+	return render_receipts(restore_tail(emitted, messages, fallback_cursor, 1, from_index=fallback_cursor))
 
 
 def _emitted_basis_enabled() -> bool:
@@ -1316,7 +1323,15 @@ def try_extend_c2(
 		# WSC 接管发射面时不物化摘要：它永远不会被发出去（``apply_c2_messages`` 先 return
 		# WSC 的投影），写进 working 只会让 sidecar 无谓膨胀（实测某会话摘要 120,153 字符、
 		# 快照 7.7 MB）。判据只用 ``ext`` 的 token 数，与是否落盘无关。
-		working.c2_summary_text = (old_text.rstrip() + "\n" + ext) if old_text.strip() else ext
+		from memory.wsc_fallback_handoff import render as render_handoff
+		handoff = render_handoff(messages, working, new_cursor, cwd)
+		ext += ("\n\n" + handoff if handoff else "")
+		from memory.wsc_timing import enabled as model_timing_enabled
+		# A true fold publishes a new generation. The prior generation remains
+		# immutable on disk, but its active checkpoint cannot be concatenated
+		# into the new generation alongside a superseding checkpoint.
+		working.c2_summary_text = ext if force and model_timing_enabled() else (
+			(old_text.rstrip() + "\n" + ext) if old_text.strip() else ext)
 	working.compact_cursor = new_cursor
 	working.c1_frozen_until = max(working.c1_frozen_until, new_cursor)
 	working.turns_since_c2 = 0
@@ -1623,6 +1638,9 @@ def _c2_gain_enough(messages: list[dict], working: WorkingSnapshot, new_cursor: 
 
 	两个完整 WSC 候选的配对测量位于 evals.wsc_gain_candidates，仅由离线实验调用。
 	"""
+	from memory.wsc_first_admission import admit as first_admit
+	if _wsc_owns_emission() and not first_admit(working, account):
+		return False
 	if account is not None:
 		account.setdefault("gain_arm", "c2_region_minus_summary")
 	if _c2_formula_enabled("XEYO_C2_GAIN_FORMULA"):
@@ -1777,6 +1795,7 @@ def project_for_model(
 	provider: str = "",
 	model_name: str = "",
 	cwd: str | os.PathLike[str] | None = None,
+	capacity_managed: bool = False,
 ) -> list[dict]:
 	"""按开关生成送模型投影。
 
@@ -1788,6 +1807,37 @@ def project_for_model(
 	→ 不触发压力 C2），**绝不回退 params.window_tokens=128k**——主流模型已 1M，回退会让 C2
 	误以为窗口只有 128k。
 	"""
+	from memory.wsc_timing import enabled as model_timing_enabled
+	if model_timing_enabled():
+		from memory.wsc_pressure_admission import keep_emission
+		from memory.wsc_timing import measure, accepted_request
+		keep = keep_emission(messages, working, summary_provider=summary_provider, cwd=cwd)
+		assessment = measure(keep, working, context_limit=context_limit, system_prompt=system_prompt)
+		request_id = accepted_request(messages, working)
+		before = int(working.compact_cursor or 0)
+		if not capacity_managed and (assessment.action == "capacity" or request_id):
+			out = force_compact(messages, working, remaining_turns=remaining_turns,
+			                    system_prompt=system_prompt, summary_provider=summary_provider, cwd=cwd)
+			if request_id:
+				working.wsc_timing_state = {**working.wsc_timing_state,
+				    "handled_request": request_id, "request_outcome": "compacted" if int(working.compact_cursor or 0) > before else "no_eligible_history"}
+		else:
+			working.last_action = "keep"
+			out = keep
+		_note_fold_attempt(working, {"fold": int(working.compact_cursor or 0) > before, "forced": assessment.action == "capacity" and not capacity_managed, **assessment.facts(), "model_request_id": request_id})
+		return _append_memory_index(out) if include_memory_index else out
+	from synaptic.task_checkpoint import enabled as continuity_enabled
+	if continuity_enabled() and _wsc_owns_emission():
+		from memory.wsc_pressure_admission import assess, keep_emission
+		from memory.simulator.params import load_params
+		identity = {key: value for key, value in (("provider", provider), ("model", model_name)) if value}
+		p = params_for_window(load_params(**identity), context_limit)
+		keep = keep_emission(messages, working, summary_provider=summary_provider, cwd=cwd)
+		admission = assess(keep, working, context_limit=context_limit, system_prompt=system_prompt, params=p)
+		if not admission["admitted"]:
+			working.last_action = "keep"
+			_note_fold_attempt(working, {"fold": False, "forced": False, **admission})
+			return _append_memory_index(keep) if include_memory_index else keep
 	if l5_mode() == "project":  # 2026-09-06：C2_GATE 固化恒 True（已删开关）→ 快路径只看 L5
 		if working.compact_cursor > 0:
 			working.last_action = "C2"
@@ -1800,6 +1850,8 @@ def project_for_model(
 		else:
 			working.last_action = "project"
 			out = project_c0c1(messages, cwd=cwd)
+		from memory.wsc_execution_boundary import unfolded
+		out = unfolded(out, messages, working)
 		return _append_memory_index(out) if include_memory_index else out
 
 	# project 快路径不加载 simulator；仅 v61 决策路径使用它。
@@ -1815,6 +1867,7 @@ def project_for_model(
 	if model_name:
 		identity["model"] = model_name
 	p = params_for_window(load_params(**identity), context_limit)
+
 	# r_cap 接线（原死参数）：剩余轮数估计按 params.r_cap 封顶（与 replay.estimate_remaining 一致）
 	try:
 		remaining_turns = min(max(1, int(remaining_turns)), int(p.r_cap))
@@ -1876,6 +1929,8 @@ def project_for_model(
 			out = apply_c2_messages(messages, working, summary_provider=summary_provider, cwd=cwd)
 		else:
 			out = project_c0c1(messages, frozen_until=working.c1_frozen_until, cwd=cwd)
+			from memory.wsc_execution_boundary import unfolded
+			out = unfolded(out, messages, working, fold=action == "C1")
 		return _append_memory_index(out) if include_memory_index else out
 
 	cooling = (not d.hardtop) and working.turns_since_c2 < p.min_middle_edit_gap
@@ -2103,22 +2158,15 @@ def _c2_tail_budget_tokens(per_turn: float, rounds: int) -> int:
 
 
 def context_compact_ratio() -> float:
-	"""厂商上下文占用达到该比例时强制压缩；可用 XEYO_CONTEXT_COMPACT_RATIO 覆盖。
+	"""厂商上下文占用达到该比例时强制压缩 = **声明容量的 85%**。
 
-	默认 0.80（主动压缩阈值）：长会话在 80% 就
-	压缩，避免顶到上下文窗口；短会话远低于 80%，永不触发。
+	旋钮 ``XEYO_CONTEXT_COMPACT_RATIO`` 已退场（2026-10-08 用户裁定）：唯一权威是
+	``memory/wsc_timing.decide`` 的容量触发线（``tokens * 100 >= capacity * 85``，
+	整数交叉相乘防小容量向下取整提前触发），与此处返回值同源同值。
 
 	Path A（XEYO_C2_PRESSURE_FORMULA=1）：改用窗口几何推导的 (l_max − tail)/window。
 	"""
-	raw = os.environ.get("XEYO_CONTEXT_COMPACT_RATIO", "").strip()
-	if raw:
-		try:
-			v = float(raw)
-			if 0.5 <= v <= 0.99:
-				return v
-		except ValueError:
-			pass
-	return 0.80
+	return 0.85
 
 
 #: token 估算比例（字符/token）。reasoning 以英文为主，取 4.0 比 3.5 更接近真实，
@@ -2203,28 +2251,11 @@ def should_force_compact_on_pressure(
 	working: WorkingSnapshot | None = None,
 	params=None,
 ) -> bool:
-	"""上一枪（或本会话累计）prompt 已达厂商 context_limit 的 ratio 时返回 True。
-
-	ratio 缺省：Path A 压力公式开启时按 (l_max−tail)/window 推导，否则冻结 0.80。
-	绝对线（`XEYO_C2_PRESSURE_TOKENS`，默认 0=关）优先于比例线，且**不需要窗口**——
-	窗口未知时它仍然工作（比例线在窗口未知时按"宁可不压"返回 False）。
-	"""
+	"""Current request occupancy reaches 85% of declared capacity."""
 	limit = int(context_limit or 0)
 	prompt = int(prompt_tokens or 0)
-	if prompt <= 0:
-		return False
-	abs_line = _absolute_pressure_tokens()
-	if abs_line > 0 and prompt >= abs_line:
-		return True
-	if limit <= 0:
-		return False
-	# pressure_ratio 必须用**真实窗口**（context_limit）推导，与分母 limit 同一窗口——
-	# 否则 ratios 用 params.window_tokens=128k、分母用真实 1M，会不一致（C2 误判窗口）。
-	# 窗口未知（_c2_pressure_ratio 返回 None）→ 不触发（宁可不压，也不拿错窗口压）。
-	thr = ratio if ratio is not None else _c2_pressure_ratio(working, params, window_override=context_limit)
-	if thr is None:
-		return False
-	return prompt >= int(limit * thr)
+	from memory.wsc_timing import decide
+	return decide(prompt, limit).action == "capacity"
 
 
 def maybe_force_compact_on_pressure(
@@ -2249,6 +2280,27 @@ def maybe_force_compact_on_pressure(
 		else int(working.last_prompt_tokens or 0)
 	)
 	tokens += reasoning_tokens_in_context(messages)
+	from memory.wsc_timing import enabled as model_timing_enabled
+	if model_timing_enabled():
+		from memory.wsc_pressure_admission import keep_emission
+		from memory.wsc_timing import measure
+		keep = keep_emission(messages, working, summary_provider=summary_provider, cwd=cwd)
+		assessment = measure(keep, working, context_limit=context_limit, system_prompt=system_prompt)
+		if assessment.action != "capacity":
+			return False
+		before = int(working.compact_cursor or 0)
+		force_compact(messages, working, remaining_turns=remaining_turns,
+		              system_prompt=system_prompt, summary_provider=summary_provider, cwd=cwd)
+		working.proj_cache = None
+		return int(working.compact_cursor or 0) > before
+	from synaptic.task_checkpoint import enabled as continuity_enabled
+	if continuity_enabled() and _wsc_owns_emission():
+		from memory.wsc_pressure_admission import assess, keep_emission
+		from memory.simulator.params import load_params
+		keep = keep_emission(messages, working, summary_provider=summary_provider, cwd=cwd)
+		measurement = assess(keep, working, context_limit=context_limit,
+			system_prompt=system_prompt, params=params_for_window(load_params(), context_limit))
+		tokens = measurement["forecast_tokens"]
 	if not should_force_compact_on_pressure(
 		prompt_tokens=tokens, context_limit=context_limit, working=working
 	):
@@ -2280,7 +2332,8 @@ def force_compact(
 	JSONL 不变；仅改 working sidecar 与送模型投影。
 	"""
 	_ = remaining_turns, system_prompt
-	new_cursor = max(working.compact_cursor, c2_cut_index(messages, None))
+	from memory.wsc_execution_boundary import fold_cut
+	new_cursor = max(working.compact_cursor, fold_cut(messages))
 	if new_cursor > working.compact_cursor:
 		try:
 			from memory.agent_scope import may_touch_session_md
@@ -2313,4 +2366,5 @@ def force_compact(
 		working.last_action = "C2"
 		return apply_c2_messages(messages, working, summary_provider=summary_provider, cwd=cwd)
 	working.last_action = "project"
-	return project_c0c1(messages, frozen_until=working.c1_frozen_until, cwd=cwd)
+	from memory.wsc_execution_boundary import unfolded
+	return unfolded(project_c0c1(messages, frozen_until=working.c1_frozen_until, cwd=cwd), messages, working)
