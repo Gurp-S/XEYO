@@ -8,6 +8,7 @@ MAX_INLINE_SOURCE_BYTES = 32_000
 
 
 def enabled():
+    """Task declarations are a stable protocol shape; rendering is separately gated."""
     return True
 
 

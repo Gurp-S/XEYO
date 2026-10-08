@@ -72,6 +72,14 @@ C2_SUMMARY_INSTRUCTION = (
 )
 
 
+def _wsc_sidepath_enabled() -> bool:
+	"""Return whether the model-facing WSC side path was explicitly selected."""
+	return any(
+		(os.environ.get(key) or "").strip().lower() in {"1", "true", "yes", "on"}
+		for key in ("XEYO_WSC_TASK_CONTINUITY", "XEYO_WSC_STATE_CONTRACTS", "XEYO_WSC_MODEL_TIMING")
+	)
+
+
 def c2_llm_summary_enabled() -> bool:
 	"""C2 LLM 摘要旁路（默认关）：**settings.memory 权威（GUI「记忆系统开关」面板可切换）**。
 
@@ -1037,7 +1045,8 @@ def apply_c2_messages(
 		return wsc
 
 	from memory.wsc_execution_boundary import protect, restore_tail
-	fallback_cursor = protect(messages, working.compact_cursor)
+	fallback_cursor = (protect(messages, working.compact_cursor)
+		if _wsc_sidepath_enabled() else int(working.compact_cursor or 0))
 	left, right = split_at_cursor(messages, fallback_cursor)
 	# P1 缺失1：把 C2 左段（M 区）的原子分段记入 working，供按原子计权与审计。
 	try:
@@ -1056,8 +1065,10 @@ def apply_c2_messages(
 			hatch = c2_escape_hatch_block(left)
 			if hatch:
 				summary = summary.rstrip() + "\n\n" + hatch
-		from memory.wsc_fallback_handoff import render as render_handoff
-		handoff = render_handoff(messages, working, fallback_cursor, cwd)
+		handoff = ""
+		if _wsc_sidepath_enabled():
+			from memory.wsc_fallback_handoff import render as render_handoff
+			handoff = render_handoff(messages, working, fallback_cursor, cwd)
 		working.c2_summary_text = summary + ("\n\n" + handoff if handoff else "")
 		# A2：压缩碎片抓拍（notes:msg:<i> 可 retrieve 还原）——与摘要冻结同点执行
 		_store_c2_fragments(working, left)
@@ -1073,9 +1084,10 @@ def apply_c2_messages(
 	# 用 assistant 角色保留其在历史中的来源，同时避免把模型生成文本升格为
 	# system 指令；权限与模式门禁仍由执行层处理。
 	head = [{"role": "assistant", "content": working.c2_summary_text, "name": "session_summary"}]
-	from synaptic.receipt_render import render as render_receipts
+	from synaptic.receipt_render import projection_enabled, render as render_receipts
 	emitted = head + project_c0c1(right, frozen_until=frozen_rel, cwd=cwd)
-	return render_receipts(restore_tail(emitted, messages, fallback_cursor, 1, from_index=fallback_cursor))
+	projected = restore_tail(emitted, messages, fallback_cursor, 1, from_index=fallback_cursor)
+	return render_receipts(projected) if projection_enabled() else projected
 
 
 def _emitted_basis_enabled() -> bool:
@@ -1323,8 +1335,10 @@ def try_extend_c2(
 		# WSC 接管发射面时不物化摘要：它永远不会被发出去（``apply_c2_messages`` 先 return
 		# WSC 的投影），写进 working 只会让 sidecar 无谓膨胀（实测某会话摘要 120,153 字符、
 		# 快照 7.7 MB）。判据只用 ``ext`` 的 token 数，与是否落盘无关。
-		from memory.wsc_fallback_handoff import render as render_handoff
-		handoff = render_handoff(messages, working, new_cursor, cwd)
+		handoff = ""
+		if _wsc_sidepath_enabled():
+			from memory.wsc_fallback_handoff import render as render_handoff
+			handoff = render_handoff(messages, working, new_cursor, cwd)
 		ext += ("\n\n" + handoff if handoff else "")
 		from memory.wsc_timing import enabled as model_timing_enabled
 		# A true fold publishes a new generation. The prior generation remains
@@ -1826,8 +1840,27 @@ def project_for_model(
 			out = keep
 		_note_fold_attempt(working, {"fold": int(working.compact_cursor or 0) > before, "forced": assessment.action == "capacity" and not capacity_managed, **assessment.facts(), "model_request_id": request_id})
 		return _append_memory_index(out) if include_memory_index else out
-	from synaptic.task_checkpoint import enabled as continuity_enabled
-	if continuity_enabled() and _wsc_owns_emission():
+	# The ordinary non-WSC projection is model-owned: it must not invoke the
+	# legacy economics scheduler merely to prepare a prompt.  Capacity pressure
+	# remains an explicit execution-layer fold.
+	if (os.environ.get("XEYO_WSC") or "").strip().lower() in {"0", "false", "off"}:
+		pressure = should_force_compact_on_pressure(
+			prompt_tokens=token_len(json.dumps(messages, ensure_ascii=False, separators=(",", ":"))),
+			context_limit=context_limit, working=working
+		)
+		if pressure:
+			out = force_compact(messages, working, remaining_turns=remaining_turns,
+			                    system_prompt=system_prompt, summary_provider=summary_provider, cwd=cwd)
+		elif working.compact_cursor > 0:
+			out = apply_c2_messages(messages, working, summary_provider=summary_provider, cwd=cwd)
+		else:
+			out = list(messages)
+			_note_fold_attempt(working, {
+				"fold": False, "forced": False, "reason": "keep", "timing_action": "keep",
+				"input_tokens": token_len(json.dumps(messages, ensure_ascii=False, separators=(",", ":"))),
+			})
+		return _append_memory_index(out) if include_memory_index else out
+	if _wsc_sidepath_enabled() and _wsc_owns_emission():
 		from memory.wsc_pressure_admission import assess, keep_emission
 		from memory.simulator.params import load_params
 		identity = {key: value for key, value in (("provider", provider), ("model", model_name)) if value}
@@ -1838,6 +1871,11 @@ def project_for_model(
 			working.last_action = "keep"
 			_note_fold_attempt(working, {"fold": False, "forced": False, **admission})
 			return _append_memory_index(keep) if include_memory_index else keep
+	elif _wsc_owns_emission():
+		_note_fold_attempt(working, {
+			"fold": False, "forced": False, "reason": "keep", "timing_action": "keep",
+			"input_tokens": token_len(json.dumps(messages, ensure_ascii=False, separators=(",", ":"))),
+		})
 	if l5_mode() == "project":  # 2026-09-06：C2_GATE 固化恒 True（已删开关）→ 快路径只看 L5
 		if working.compact_cursor > 0:
 			working.last_action = "C2"
@@ -2251,11 +2289,20 @@ def should_force_compact_on_pressure(
 	working: WorkingSnapshot | None = None,
 	params=None,
 ) -> bool:
-	"""Current request occupancy reaches 85% of declared capacity."""
+	"""Return whether the declared capacity has crossed the active pressure line."""
 	limit = int(context_limit or 0)
+	if limit <= 0:
+		return False
 	prompt = int(prompt_tokens or 0)
-	from memory.wsc_timing import decide
-	return decide(prompt, limit).action == "capacity"
+	if ratio is None:
+		ratio = _c2_pressure_ratio(working, params, window_override=limit)
+	if ratio is None:
+		return False
+	try:
+		threshold = float(ratio)
+	except (TypeError, ValueError):
+		return False
+	return prompt >= int(limit * max(0.0, min(1.0, threshold)))
 
 
 def maybe_force_compact_on_pressure(
@@ -2293,8 +2340,7 @@ def maybe_force_compact_on_pressure(
 		              system_prompt=system_prompt, summary_provider=summary_provider, cwd=cwd)
 		working.proj_cache = None
 		return int(working.compact_cursor or 0) > before
-	from synaptic.task_checkpoint import enabled as continuity_enabled
-	if continuity_enabled() and _wsc_owns_emission():
+	if _wsc_sidepath_enabled() and _wsc_owns_emission():
 		from memory.wsc_pressure_admission import assess, keep_emission
 		from memory.simulator.params import load_params
 		keep = keep_emission(messages, working, summary_provider=summary_provider, cwd=cwd)
@@ -2336,6 +2382,13 @@ def force_compact(
 	new_cursor = max(working.compact_cursor, fold_cut(messages))
 	if new_cursor > working.compact_cursor:
 		try:
+			# Publish the prior cold view before advancing the generation.  The
+			# returned handoff text is deliberately not injected into the summary.
+			from memory.wsc_fallback_handoff import render as render_handoff
+			render_handoff(messages, working, new_cursor, cwd)
+		except Exception:
+			logging.getLogger(__name__).debug("publish force-compaction handoff failed", exc_info=True)
+		try:
 			from memory.agent_scope import may_touch_session_md
 			from memory.session_md import maybe_update
 
@@ -2347,6 +2400,9 @@ def force_compact(
 			from memory.simulator.params import load_params
 
 			facc: dict = {}
+			# An explicit force starts a new generation.  Append-only extension is
+			# reserved for ordinary scheduled folds.
+			working.c2_summary_text = ""
 			try_extend_c2(
 				working, messages, new_cursor, load_params(), force=True, account=facc,
 				cwd=cwd,

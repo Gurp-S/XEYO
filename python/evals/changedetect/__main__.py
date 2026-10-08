@@ -289,12 +289,16 @@ def _report_unregistered() -> None:
     """打印"本进程里没登记、却像产品开关"的键（事实行，不劝导）。
 
     分类规则在 `engine.env_switches.unregistered`：文本规则而非名单，所以它自己不会漂移。
+    已退场的键单列一行：它们不是"没人登记的新开关"，混在一起每次都要重新归因一遍。
     """
-    from engine.env_switches import unregistered
+    from engine.env_switches import retired_present, unregistered
 
     keys = unregistered()
     if keys:
         print(f"[env] 本进程有 {len(keys)} 个未登记开关：{', '.join(keys)}")
+    fossils = retired_present()
+    if fossils:
+        print(f"[env] 已退场但本机 env 仍有：{', '.join(fossils)}（不参与判定）")
 
 
 def cmd_check(args: argparse.Namespace) -> int:

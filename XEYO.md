@@ -10,8 +10,13 @@
 ## 常用命令
 - 联合离线门（仓库根）：`pwsh -File scripts/check.ps1 -Json -SkipInstall`；输出逐阶段结果与日志路径。
 - Python 测试（`python/`）：`py -3.11 -m pytest -q --timeout=60 -m "not live"`；WSC 子集：`py -3.11 -m pytest tests/wsc -q`。
+- 看当前**磁盘代码**会注入什么（新进程、零 API 成本，改完不用等重启）：`py -3.11 -m cli probe t-now --session <sid> --used <n> --window 1000000`；工具面 `py -3.11 -m cli probe tool --tool Read --args '{"file_path":"…"}'`。
+- 判归因（不动工作树）：`pwsh -File scripts/baseline_run.ps1 -PytestArgs "tests/test_x.py -q"`；`-Ref` / `REF=` 指基线，台账 `.xeyo/baseline_stamp.json`。
 - GUI（`gui/`）：测试 `npm test`；类型检查 `npm run typecheck`；前端构建 `npm run build`；桌面打包 `npm run tauri:build`。
 - TUI（`tui/`）：测试 `npm test`；类型检查 `npm run typecheck`；构建 `npm run build`。
+
+## 仓库状态（事实）
+- 本仓有**外部自动提交**：编辑会被逐批 commit（reflog 实测，偶发 merge 别的分支）⇒「改动都没提交」不是恒真前提。判归因一律带 `ref`，别把 HEAD 当"我动手之前"；基线与台账走 `scripts/baseline_run.*`。
 
 ## 禁区 / 硬约定
 - 不动 `python/memory/` 会话内冻结的召回面来「讨好」评测——召回/检索必须在报告中先归因，再谈分。

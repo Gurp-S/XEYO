@@ -24,6 +24,10 @@ app.add_typer(sessions_app, name="sessions")
 app.add_typer(config_app, name="config")
 app.add_typer(coord_app, name="coord")
 
+from cli.probe_cmd import probe_app  # noqa: E402 — 子命令注册须在 app 建好后
+
+app.add_typer(probe_app, name="probe")
+
 
 def _require_choice(flag: str, value: Optional[str], allowed: tuple[str, ...]) -> None:
 	"""用户手打的枚举参数：合法集合外的值就地退出 2。

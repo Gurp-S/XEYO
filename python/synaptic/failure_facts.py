@@ -8,8 +8,7 @@ ENV = "XEYO_WSC_FAILURE_FACTS"
 
 
 def enabled():
-    from synaptic.task_checkpoint import enabled as continuity_enabled
-    return continuity_enabled() or os.environ.get(ENV, "").strip().lower() in {"1", "true", "yes", "on"}
+    return os.environ.get(ENV, "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def identity(graph, node):

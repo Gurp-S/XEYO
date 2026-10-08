@@ -177,10 +177,11 @@ def _emit(head: str, messages: list[dict], base: int, frozen_attr: int, *, cwd, 
     )
     emitted = restore(emitted, messages, base, frozen_attr, cwd=cwd, view_path=view_path)
     from synaptic.task_checkpoint import restore_receipts
-    from synaptic.receipt_render import render as render_receipts
+    from synaptic.receipt_render import projection_enabled, render as render_receipts
     from memory.wsc_execution_boundary import restore_tail
-    return render_receipts(restore_tail(restore_receipts(emitted, messages, base, frozen_attr), messages, base, 1,
-        from_index=(lifecycle or {}).get("response_tail_from")))
+    projected = restore_tail(restore_receipts(emitted, messages, base, frozen_attr), messages, base, 1,
+        from_index=(lifecycle or {}).get("response_tail_from"))
+    return render_receipts(projected) if projection_enabled() else projected
 
 
 def project_c2_messages(messages: list[dict], working, *, cwd=None) -> list[dict] | None:

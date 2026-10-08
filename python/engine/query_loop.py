@@ -2530,15 +2530,33 @@ async def query_loop(
             if resolved is not None and resolved.actor == "abort":
                 results_by_id[tu_id] = ToolResult(
                     content=CANCELLED_COPY, is_error=True, status="cancelled",
-                    metadata={"ask_cancelled": True},
+                    metadata={"ask_cancelled": True, "reason_code": "ask_aborted"},
                 )
             elif not timeout:
-                results_by_id[tu_id] = ToolResult(content=answer, is_error=False)
+                results_by_id[tu_id] = ToolResult(
+                    content=answer,
+                    is_error=False,
+                    metadata={"reason_code": "ask_answered"},
+                )
+            elif resolved is None:
+                # 四态分开（原先四种情况共用一句 no answer）：模型既判断不了该重试还是
+                # 该继续，也无法归因。措辞只陈述结果，不写"应该怎么做"。
+                results_by_id[tu_id] = ToolResult(
+                    content="[no answer: ask never resolved (no answer record)]",
+                    is_error=True,
+                    metadata={
+                        "ask_timeout": True,
+                        "reason_code": "ask_unresolved",
+                    },
+                )
             else:
                 results_by_id[tu_id] = ToolResult(
-                    content="[no answer: the user did not respond]",
+                    content="[no answer: ask closed without an answer]",
                     is_error=True,
-                    metadata={"ask_timeout": True},
+                    metadata={
+                        "ask_timeout": True,
+                        "reason_code": "ask_dismissed",
+                    },
                 )
 
         try:

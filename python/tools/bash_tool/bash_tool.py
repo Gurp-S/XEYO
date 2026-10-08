@@ -1211,6 +1211,14 @@ class BashTool:
 			content=self.map_tool_result_to_content(out),
 			is_error=bool(out.is_error),
 		)
+		# Bash 的整文件读 → 记一条弱基线：默认只改报错里的事实（
+		# "bash read on record (full file, N lines)"），是否放行由
+		# XEYO_READ_BASELINE_BASH_EVIDENCE 决定（见 tools.fileio.read_state）。
+		from tools.bash_tool.read_evidence import note as _note_read_evidence
+
+		_note_read_evidence(
+			inp.command, cwd=work, content=result.content, is_error=result.is_error
+		)
 		from engine.execution_facts import enabled as fact_contracts
 		if fact_contracts():
 			result.status = "running" if out.background_task_id else ("error" if out.is_error else "ok")

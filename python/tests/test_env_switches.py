@@ -89,6 +89,23 @@ def test_unregistered_lists_only_switch_like_keys() -> None:
 	                     "XEYO_SESSIONS_DIR": "d", "PATH": "z"}) == ("XEYO_FOO",)
 
 
+def test_retired_keys_are_their_own_bucket() -> None:
+	"""已退场的键单列一桶：它们不是"没人登记的新开关"。
+
+	混在一起的后果（实测）：每次检查都把这几个化石当可疑项重新归因一遍。
+	"""
+	from engine.env_switches import env_buckets, retired_names, retired_present
+
+	env = {"XEYO_WSC_SOFT_WATERMARK": "200000", "XEYO_FOO": "1", "XEYO_WSC": "1"}
+	assert "XEYO_WSC_SOFT_WATERMARK" in retired_names()
+	assert retired_present(env) == ("XEYO_WSC_SOFT_WATERMARK",)
+	assert unregistered(env) == ("XEYO_FOO",)
+	buckets = env_buckets(env)
+	assert buckets["live"] == ("XEYO_WSC",)
+	assert buckets["retired"] == ("XEYO_WSC_SOFT_WATERMARK",)
+	assert buckets["unknown"] == ("XEYO_FOO",)
+
+
 def test_unregistered_is_empty_on_clean_process() -> None:
 	"""干净进程里不产生输出（能静默就不说话）。"""
 	assert unregistered({}) == ()

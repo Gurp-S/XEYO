@@ -3,6 +3,10 @@ def render(messages, working, cursor, cwd):
     from synaptic.project import project
     from memory.wsc_projection import production_params, _view_path_for
     path = _view_path_for(str(cwd or ""), working.session_id).with_suffix(".handoff.txt")
+    if path.exists():
+        # A new explicit fold publishes a new immutable generation; never
+        # overwrite the Read source that backs an earlier model response.
+        path = path.with_name(f"{path.stem}.{int(cursor)}{path.suffix}")
     # The newly committed task receipt may be in the protected raw tail.
     # State authority follows the full observed transcript; cursor controls
     # which history is folded, not which declarations are visible.

@@ -1,7 +1,17 @@
 """Render receipt identity from protocol fields; no task/completion inference."""
 import json
+import os
 
-from synaptic.task_checkpoint import enabled
+
+def projection_enabled():
+    """Model-facing receipt projection is opt-in; direct rendering stays stable."""
+    return any(
+        (os.environ.get(key) or "").strip().lower() in {"1", "true", "yes", "on"}
+        for key in ("XEYO_WSC_TASK_CONTINUITY", "XEYO_WSC_STATE_CONTRACTS", "XEYO_WSC_MODEL_TIMING")
+    )
+def enabled():
+    """Keep the renderer's direct API stable; callers gate model projection."""
+    return True
 
 
 def render(messages):

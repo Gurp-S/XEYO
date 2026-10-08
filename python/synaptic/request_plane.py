@@ -11,16 +11,15 @@ ENV = "XEYO_WSC_REQUEST_PROJECTION"
 
 
 def enabled():
-    from synaptic.task_checkpoint import enabled as continuity_enabled
-    return continuity_enabled() or os.environ.get(ENV, "").strip().lower() in {"1", "true", "yes", "on"}
+    return os.environ.get(ENV, "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def project_requests(seeds, graph, messages, region_end, snapshot, dropped=()):
     # The API role and structured note metadata identify carriers. Short human
     # follow-ups are accepted; no semantic task-switch or completion inference.
     users = []
-    from synaptic.task_checkpoint import enabled as continuity_enabled
-    lossless = continuity_enabled()
+    lossless = (os.environ.get("XEYO_WSC_TASK_CONTINUITY", "").strip().lower()
+                in {"1", "true", "yes", "on"})
     identities = {}
     for node in graph.nodes:
         msg = messages[node.idx]

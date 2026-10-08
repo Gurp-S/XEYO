@@ -186,6 +186,11 @@ class FileEditTool:
 		if not base_hash:
 			from tools.fileio.edit_contract import validated_base
 			base_hash = validated_base(self)
+		if not base_hash:
+			from tools.fileio.read_state import bash_baseline_hash
+
+			# Bash 整文件读（默认关的旁路）：mtime 未变 ⇒ 它看到的就是当前内容。
+			base_hash = bash_baseline_hash(full)
 		# 与直通路径 write_text_file 等价：按 line_endings 还原换行、保留
 		# encoding。store 的原子写用 newline=''，不再做平台翻译。
 		content_out = (
@@ -204,17 +209,13 @@ class FileEditTool:
 		if not result.ok:
 			reason = str(result.reason or "")
 			if reason == "missing_read":
-				from tools.fileio.read_state import baseline_dropped, baseline_epoch
+				from tools.fileio.read_state import missing_read_detail
 
-				# 把"从没读过"与"读过但基线被淘汰/重建"分开：同一句话时模型只能试。
-				detail = (
-					f"baseline dropped at epoch {baseline_epoch()}"
-					if baseline_dropped(full)
-					else "never read in this session"
-				)
+				# 三种形态（从没读 / 基线被淘汰 / 只在 Bash 里读过）分开陈述：
+				# 同一句话时模型只能试（本场实测被同一句 reason 拦了两次）。
 				raise RuntimeError(
-					f"write conflict (missing_read: {detail}): no prior Read baseline "
-					"for this path in this process/session"
+					f"write conflict (missing_read: {missing_read_detail(full)}): "
+					"no prior Read baseline for this path in this process/session"
 				)
 			if result.base_stale or reason == "stale":
 				snapshot = entry.content if entry is not None else ""

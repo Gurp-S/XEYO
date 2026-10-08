@@ -54,6 +54,14 @@ def resolve_bridge_workspace(raw: str | None = None) -> str | None:
 
 def main() -> None:
 	os.environ.setdefault("XEYO_REWIND_ENABLED", "1")
+	# 本进程加载的是哪一版（提示面 / 工具面改动必须重启才生效 ⇒ 需要一行可见事实；
+	# 只给人看，不进模型注意力。观测磁盘上的当前代码请用 `py -3.11 -m cli probe …`）。
+	try:
+		from common.source_revision import log_loaded
+
+		log_loaded()
+	except Exception:  # noqa: BLE001 — 版本事实不该阻断启动
+		pass
 	# 记忆系统开关：把 settings.json 的 memory 段桥接到 os.environ（运行时各开关读 env）。
 	# cwd 取当前工作区（若已设为 XEYO_CWD）或默认 home 级 settings。
 	try:

@@ -49,6 +49,8 @@ SWITCHES: tuple[EnvSwitch, ...] = (
 	EnvSwitch("XEYO_WSC_FAILURE_FACTS", "失败身份按工具/类别/声明目标，保留全部证据来源；默认关", affects_snapshots=True),
 	EnvSwitch("XEYO_WSC_REQUEST_PROJECTION", "人类请求与绑定目标分层旁路，包含不可变状态契约", affects_snapshots=True),
 	EnvSwitch("XEYO_WSC_STATE_CONTRACTS", "目标状态/不可变冷层/整代发布旁路改变 WSC 投影", affects_snapshots=True),
+	EnvSwitch("XEYO_WSC_TASK_CONTINUITY", "已提交任务检查点与执行回执进入 WSC 投影；默认关", affects_snapshots=True),
+	EnvSwitch("XEYO_WSC_MODEL_TIMING", "模型请求容量测量与 Compact 回执旁路；默认关", affects_snapshots=True),
 	EnvSwitch("XEYO_EXECUTION_FACT_CONTRACTS", "环境/编辑/执行回执事实旁路改变工具结果", affects_snapshots=True),
 	EnvSwitch(
 		"XEYO_STALE_GOAL_RETIRE",
@@ -117,6 +119,41 @@ SWITCHES: tuple[EnvSwitch, ...] = (
 )
 
 
+#: **已退场**的开关名：代码里已不再读取，但宿主机器 env 里可能仍有残留。
+#: 与 :data:`SWITCHES` 分开登记的理由：它们不需要隔离（没人读），却需要**可见**——
+#: 否则每次检查都要人肉重判"这个键还算数吗"（实测：11 个"未登记"键里混着两个化石，
+#: 每次都被当成可疑项重新归因一遍）。
+RETIRED: tuple[tuple[str, str], ...] = (
+	("XEYO_WSC_SOFT_WATERMARK", "2026-10-08 退场：软水位恒 0（memory/wsc_watermark.soft_watermark_tokens）"),
+	("XEYO_CONTEXT_COMPACT_RATIO", "2026-10-08 退场：压缩比恒 0.85（memory/runtime.context_compact_ratio）"),
+)
+
+
+def retired_names() -> tuple[str, ...]:
+	"""已退场开关名（升序）。"""
+	return tuple(sorted(name for name, _why in RETIRED))
+
+
+def retired_present(environ: Mapping[str, str] | None = None) -> tuple[str, ...]:
+	"""本进程 env 里**仍有残留**的已退场键（宿主带过来的化石）。"""
+	env = os.environ if environ is None else environ
+	return tuple(name for name in retired_names() if name in env)
+
+
+def env_buckets(environ: Mapping[str, str] | None = None) -> dict[str, tuple[str, ...]]:
+	"""把进程里"像产品开关"的键分三桶：``live`` / ``retired`` / ``unknown``。
+
+	``live`` = 已登记且在本进程 env 里；``retired`` = 已退场但宿主 env 仍有；
+	``unknown`` = 没登记过的 ``XEYO_*``（真正需要人看一眼的那桶）。
+	"""
+	env = os.environ if environ is None else environ
+	return {
+		"live": tuple(sorted(s.name for s in SWITCHES if s.name in env)),
+		"retired": retired_present(env),
+		"unknown": unregistered(env),
+	}
+
+
 def isolation_pins() -> tuple[tuple[str, str | None], ...]:
 	"""`tests/conftest.py` 的投影：``(键, 钉值)``；``None`` = 清掉该键。
 
@@ -149,7 +186,8 @@ def unregistered(environ: Mapping[str, str] | None = None) -> tuple[str, ...]:
 	措辞刻意只报事实（不写"应该登记"）：可见即约束，判不判由人。
 	"""
 	env = os.environ if environ is None else environ
-	known = {s.name for s in SWITCHES}
+	# 已退场键单列一桶（:func:`retired_present`）：它们不是"没人登记的新开关"。
+	known = {s.name for s in SWITCHES} | set(retired_names())
 	out: list[str] = []
 	for key in env:
 		if not key.startswith(_ENV_PREFIX):

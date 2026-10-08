@@ -7,13 +7,17 @@ presented as provider receipts. Output reserve is not input occupancy.
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 
 from memory.token import token_len
 
 
 def enabled() -> bool:
-    return True
+    """Enable model timing only for the explicit timing side path."""
+    return (os.environ.get("XEYO_WSC_MODEL_TIMING") or "").strip().lower() in {
+        "1", "true", "yes", "on"
+    }
 
 
 @dataclass(frozen=True)

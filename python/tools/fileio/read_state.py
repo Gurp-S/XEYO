@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import threading
+import time
 from dataclasses import dataclass
 from typing import Optional
 
@@ -32,6 +33,10 @@ class FileStateEntry:
 	content_hash: str = ""
 	view_digest: str = ""
 	view_visible: bool = True
+	#: 这条基线的来源：``read`` = Read 工具；``bash`` = Bash 的整文件读（弱基线）。
+	#: 弱基线不携带正文（正文只在 Bash 结果里），能否当基线由
+	#: :func:`bash_baseline_hash` 的开关 + 全文 + mtime 三条件决定。
+	via: str = "read"
 
 
 def _content_hash_text(content: str) -> str:
@@ -88,6 +93,95 @@ def baseline_dropped(path: str) -> bool:
 	key = ReadFileState._key(path)
 	with _LEDGER_LOCK:
 		return key in _DROPPED_KEYS
+
+
+#: Bash 读证据：``path → {mtime_ms, whole_file, lines, ts}``。
+#: 只有"整文件 + 输出未被截断"的读才是证据：``cat big.py | head -40`` 只看了前 40 行，
+#: 拿它当基线等于放行盲改。上限只为防长会话无界（值只有几十字节）。
+_BASH_READS: dict[str, dict] = {}
+_BASH_READS_MAX = 256
+
+
+def record_bash_read(
+	path: str, *, mtime_ms: int, whole_file: bool, lines: int | None = None
+) -> None:
+	"""登记一次 Bash 读（由 Bash 工具在结果落地后调用）。"""
+	key = ReadFileState._key(path)
+	if not key:
+		return
+	with _LEDGER_LOCK:
+		_BASH_READS[key] = {
+			"mtime_ms": int(mtime_ms or 0),
+			"whole_file": bool(whole_file),
+			"lines": int(lines or 0),
+			"ts": time.time(),
+		}
+		while len(_BASH_READS) > _BASH_READS_MAX:
+			_BASH_READS.pop(next(iter(_BASH_READS)), None)
+
+
+def bash_read_evidence(path: str) -> dict | None:
+	"""该路径的 Bash 读证据（没有 → None）。报错归因与弱基线都读它。"""
+	key = ReadFileState._key(path)
+	with _LEDGER_LOCK:
+		row = _BASH_READS.get(key)
+		return dict(row) if row else None
+
+
+def _bash_baseline_enabled() -> bool:
+	raw = os.environ.get("XEYO_READ_BASELINE_BASH_EVIDENCE", "").strip().lower()
+	return raw in {"1", "true", "yes", "on"}
+
+
+def bash_baseline_hash(path: str, *, enabled: bool | None = None) -> str:
+	"""Bash 的整文件读能否当写基线：能则返回当前磁盘正文哈希，否则空串。
+
+	三条同时成立才放行（缺一即维持原 ``missing_read`` 拒绝）：
+	  1. 开关 ``XEYO_READ_BASELINE_BASH_EVIDENCE`` 开（默认关 = 旁路形态）；
+	  2. 有该路径证据，且那次读**看到了全文**（输出未被工具截断）；
+	  3. 磁盘 mtime 与那次读一致 ⇒ 之后没人改过。
+	放行后仍由 Edit 的 ``old_string`` 匹配兜底，弱基线不改变"必须与所见内容一致"这层。
+	"""
+	if enabled is None:
+		enabled = _bash_baseline_enabled()
+	if not enabled:
+		return ""
+	evidence = bash_read_evidence(path)
+	if not evidence or not evidence.get("whole_file"):
+		return ""
+	try:
+		stat = os.stat(path)
+	except OSError:
+		return ""
+	if int(stat.st_mtime * 1000) != int(evidence.get("mtime_ms") or 0):
+		return ""
+	try:
+		with open(path, "rb") as fh:
+			raw = fh.read()
+	except OSError:
+		return ""
+	return _content_hash_text(raw.decode("utf-8", "replace"))
+
+
+def missing_read_detail(path: str) -> str:
+	"""``missing_read`` 的三种事实（两把写工具的报错共用一处，免得漂移）。
+
+	事故形态（本场实测被同一句 reason 拦了两次）：模型只拿到"没读过"，无法判断该
+	重读同一段、从头读、还是先 Read 一次——只能试。三种形态：
+	  - ``never read in this session``：真没读过；
+	  - ``baseline dropped at epoch N``：读过但基线被淘汰/清空；
+	  - ``bash read on record (…)``：只在 Bash 里读过（附"是否全文 + 行数"）。
+	只陈述结果，不写"应该怎么做"。
+	"""
+	evidence = bash_read_evidence(path)
+	if baseline_dropped(path):
+		return f"baseline dropped at epoch {baseline_epoch()}"
+	if evidence:
+		scope = "full file" if evidence.get("whole_file") else "truncated output"
+		lines = int(evidence.get("lines") or 0)
+		seen = f", {lines} lines" if lines else ""
+		return f"bash read on record ({scope}{seen}); no Read baseline"
+	return "never read in this session"
 
 
 class ReadFileState:

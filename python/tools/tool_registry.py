@@ -644,6 +644,8 @@ class ToolRegistry:
 					content="AskUserQuestion requires a session to suspend into",
 					is_error=True,
 					error_kind="USER_INPUT_REQUIRED",
+					# 回执分类：与"用户关闭 / 超时"形状不同（无通道可问），带码后可区分。
+					metadata={"reason_code": "ask_unavailable"},
 				)
 			from tools.ask_user_question_tool.ask_user_question_tool import (
 				format_questions_payload,

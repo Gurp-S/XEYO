@@ -1,11 +1,17 @@
 """Keep the last tool-response frame outside a newly built WSC head."""
-from synaptic.task_checkpoint import enabled as continuity_enabled
 from synaptic.textutil import tool_use_blocks, tool_result_blocks
 
 
 def enabled():
-    from memory.wsc_timing import enabled as timing_enabled
-    return continuity_enabled() or timing_enabled()
+    return True
+
+
+def _side_path_enabled():
+    import os
+    return any(
+        (os.environ.get(key) or "").strip().lower() in {"1", "true", "yes", "on"}
+        for key in ("XEYO_WSC_TASK_CONTINUITY", "XEYO_WSC_STATE_CONTRACTS")
+    )
 
 
 def optional_boundary(value):
@@ -75,5 +81,6 @@ def unfolded(projected, messages, working, *, fold=False):
     if fold or boundary is None or boundary > len(messages):
         boundary = protect(messages, len(messages))
         working.c0_response_tail_from = boundary
-    from synaptic.receipt_render import render
-    return render(restore_tail(projected, messages, from_index=boundary))
+    from synaptic.receipt_render import projection_enabled, render
+    restored = restore_tail(projected, messages, from_index=boundary)
+    return render(restored) if projection_enabled() else restored
