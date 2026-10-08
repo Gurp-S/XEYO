@@ -307,6 +307,9 @@ class InjectContext:
 	last_usage: dict[str, Any] | None = None
 	#: **用户登记的**上下文窗口（权威分母，未登记 = 0 ⇒ 同一行不报占比）。
 	window_tokens: int = 0
+	#: 用户回合身份 ``{session_id}:{turn_id}``：``context_usage`` 的**轮内冻结**键
+	#: （同一回合的后续请求复用例首枪文本，见 prompt.context_usage）；空串 = 每枪重算。
+	round_key: str = ""
 	approved_plan: str | None = None
 	#: Approved plan 首写收敛后的指针块开关：全量正文已进历史，只留"实施中"
 	#: 锚点（见 prompt.turn_context.PLAN_POINTER_BLOCK）。
@@ -1179,6 +1182,7 @@ def _context_usage_text(projected: list[dict[str, Any]], ctx: "InjectContext") -
 			getattr(ctx, "last_usage", None),
 			folds,
 			getattr(ctx, "window_tokens", 0) or 0,
+			getattr(ctx, "round_key", "") or "",
 		)
 	except Exception:  # noqa: BLE001
 		return ""

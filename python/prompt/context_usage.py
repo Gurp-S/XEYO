@@ -19,12 +19,67 @@ from __future__ import annotations
 
 import json
 import os
+from threading import Lock
 from typing import Any
 
 #: 没有厂商真值时是否允许退回估算。默认**关**：est 与随后出现的 vendor 会在同一轮
 #: 里给出两个互相矛盾的数字（实测 world_state 段同时印出 est 251k 与 vendor 294k），
 #: 错的锚比没有锚更坏。只在"该后端从不回 usage"时才显式打开。
 ENV_ALLOW_EST = "XEYO_CONTEXT_USAGE_ALLOW_EST"
+
+#: 轮内冻结（默认开；``0`` = 每枪重算 = 旧行为）。
+#:
+#: 实测（2026-10-08 本会话）：同一用户回合里的每个请求都在报一个更大的数
+#: （74k→77k→78k→83k→84k→87k），于是这行**每个边界都变** ⇒ 整段重渲染每次都
+#: 产出新片段，并且留下上一版副本（同一轮里 world_state 出现两份）：噪声、无信息
+#: （一个回合内 5k 的增量不构成决策依据），还多一次差分。
+#: 冻结后同轮后续请求复用例本回合首枪的文本 ⇒ 同轮内该行逐字节恒定。
+#: 回合边界（用户新提交）自然换键；压缩改写历史后由 :func:`forget_round` 释放
+#: （那时"早期内容已收纳 N 段"是**新的事实**，不是同一事实的第二次测量）。
+ENV_ROUND_FREEZE = "XEYO_CONTEXT_USAGE_ROUND_FREEZE"
+
+_round_lock = Lock()
+#: ``round_key`` → 该回合首枪文本。FIFO 上限，防长会话里无限攒（值只有几十字节）。
+_round_texts: dict[str, str] = {}
+_MAX_ROUND_KEYS = 256
+_ROUND_KEY_SEP = ":"
+
+
+def _round_freeze_on() -> bool:
+	return os.environ.get(ENV_ROUND_FREEZE, "").strip().lower() not in {
+		"0",
+		"false",
+		"no",
+		"off",
+	}
+
+
+def _round_text(round_key: str, text: str) -> str:
+	"""轮内冻结：``round_key`` 首次出现时记下文本，同键的后续请求复用同一文本。"""
+	key = (round_key or "").strip()
+	if not key or not _round_freeze_on():
+		return text
+	with _round_lock:
+		seen = _round_texts.get(key)
+		if seen is not None:
+			return seen
+		if len(_round_texts) >= _MAX_ROUND_KEYS:
+			oldest = next(iter(_round_texts), None)
+			if oldest is not None:
+				_round_texts.pop(oldest, None)
+		_round_texts[key] = text
+	return text
+
+
+def forget_round(session_id: str) -> None:
+	"""释放冻结（压缩改写历史后调用）：下一枪按当前值重算。"""
+	sid = (session_id or "").strip()
+	if not sid:
+		return
+	prefix = f"{sid}{_ROUND_KEY_SEP}"
+	with _round_lock:
+		for key in [k for k in _round_texts if k == sid or k.startswith(prefix)]:
+			_round_texts.pop(key, None)
 
 
 def _allow_est() -> bool:
@@ -72,8 +127,9 @@ def render(
     last_usage: dict[str, Any] | None = None,
     folds: dict[str, Any] | None = None,
     window_tokens: int = 0,
+    round_key: str = "",
 ) -> str:
-    """一行事实：``本会话上下文: vendor 366k tok / 1.0M (35%) | 早期内容已收纳 3 段 | soft …``。
+    """一行事实：``本会话上下文: vendor 366k tok / 1.0M (35%) | 早期内容已收纳 3 段``。
 
     ``folds`` = ``memory.wsc_folds.snapshot()``：收纳段数只增不减（一轮内单调），
     所以不会出现"同一轮两个版本"的自我推翻（对照 vendor/est 的教训）。措辞用日常
@@ -81,6 +137,9 @@ def render(
 
     ``window_tokens`` = **用户登记的**分母；未登记（0）⇒ 只报分子、不报占比——没有
     权威分母时宁可缺一个数，也不编一个（"感觉快到顶了"这种判断就是这么长出来的）。
+
+    ``round_key`` = 用户回合身份（``{session_id}:{turn_id}``）：给了就启用轮内冻结
+    （同回合后续请求复用首枪文本，见 :data:`ENV_ROUND_FREEZE`）；空串 = 每枪重算。
 
     优先厂商真值（上次请求的 input tokens）；拿不到才退回本次 payload 的估算
     （标注 ``est``，是下界）。两个数都取不到 → 空串（该块本轮缺席）。
@@ -109,7 +168,7 @@ def render(
             # 日常说法（不用"折叠"这类内部词）：早期内容不再逐字可见，但没丢。
             tail = f"（最近: {subject}）" if subject else ""
             parts.append(f"早期内容已收纳 {folded} 段{tail}")
-        return " | ".join(parts)
+        return _round_text(round_key, " | ".join(parts))
     except Exception:  # noqa: BLE001
         return ""
 
