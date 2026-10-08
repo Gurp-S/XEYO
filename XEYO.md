@@ -17,6 +17,8 @@
 - 不动 `python/memory/` 会话内冻结的召回面来「讨好」评测——召回/检索必须在报告中先归因，再谈分。
 - SWE 系与 XEYO 自我评测结果**禁止只报单一 accuracy**。
 - 索引类改动（⑦–⑪）必须 **fail-open**：索引不可用/异常/超限 → 无条件回退全量 `rg` / 整树语义；绝不假阴、绝不泄密。
+- **没有分母不谈余量**：上下文窗口的分母只认**用户登记的**窗口；未登记就只报分子。不准拿「跑得久 / 被压过」当余量判据（历史事故：据此判"到窗口边缘"，实际约 30%）；阈值类配置（水位 / 压缩比）不进模型可见文本。
+- **改工作树的 git 动作必须先说明**：`stash` / `checkout` / `clean` / `worktree add` 动手前先讲清"要动什么、留什么、怎么回退"；**禁止**用它们判「某条红是不是本次改动造成的」——那条判断走开关对照 / 独立进程 / `scripts/baseline_run.*`（临时 worktree，只读 HEAD）。
 
 ## 指针（细则不内联；需要时用 Read / Skill）
 - 入口与引擎约定：`AGENTS.md`；引擎入口 `python/engine/query_loop.py`，HTTP 服务 `python/server/app.py`，WSC 投影 `python/memory/wsc_projection.py` → `python/synaptic/project.py`。
