@@ -29,13 +29,18 @@ def _isolate_xeyo_sessions(tmp_path, monkeypatch):
 	# 按"这台机器怎么跑"变红（实测 XEYO_WSC=1 ⇒ 12 条；XEYO_TOOL_DENY=Agent ⇒ 8 文件 18 条）。
 	# 要开的世界由用例显式申请（mem_switch / setenv），如 test_action_label_semantics。
 	# 名单与原因**只在** `engine/env_switches.py` 登记一次（原先两份名单交集只有 1 ⇒ 已合并）。
+	#
+	# 逃生门：`XEYO_TESTS_KEEP_HOST_ENV=1` 原样保留宿主环境。存在的理由是"复现宿主红"
+	# 这一件事本身——没有它就没法回答"这条红是产品回归还是这台机器怎么跑"，只能靠人肉
+	# 二分（本会话 7 批红都是这么来的）。默认关：默认面 = 产品默认面。
 	from engine.env_switches import isolation_pins
 
-	for _pin_name, _pin_value in isolation_pins():
-		if _pin_value is None:
-			monkeypatch.delenv(_pin_name, raising=False)
-		else:
-			monkeypatch.setenv(_pin_name, _pin_value)
+	if os.environ.get("XEYO_TESTS_KEEP_HOST_ENV", "").strip() not in {"1", "true", "yes", "on"}:
+		for _pin_name, _pin_value in isolation_pins():
+			if _pin_value is None:
+				monkeypatch.delenv(_pin_name, raising=False)
+			else:
+				monkeypatch.setenv(_pin_name, _pin_value)
 	# 审计单例按**首次调用**memoize 路径（audit/log.py::default_audit_log），只改
 	# XEYO_HOME 不够：先建好的单例仍指向真实主目录 ⇒ 测试事件写进生产审计账本
 	# （实测污染 34 条 notice.channel，正是往后要用来取发生率的那张表）。
