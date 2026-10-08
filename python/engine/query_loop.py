@@ -753,6 +753,7 @@ def _attach_turn_context(
 	loop_ledger: object | None = None,
 	visible_notes: frozenset[tuple[str, str]] | None = None,
 	model: object | None = None,
+	round_key: str = "",
 ) -> list[dict]:
 	"""薄封装：委托 ``prompt.pre_llm_inject.run_pre_llm_inject``。
 
@@ -812,6 +813,9 @@ def _attach_turn_context(
 				if getattr(model, "context_limit_declared", False)
 				else 0
 			),
+			# 轮内冻结键（用户回合身份）：同一提交的后续请求复用例首枪那行文本，
+			# 免得"同回合内每枪一个新数字"整段重渲染每次都产出新片段。
+			round_key=round_key,
 			approved_plan=approved_plan,
 			forced_wrap_up=forced_wrap_up,
 			runtime_notice=runtime_notice,
@@ -1234,6 +1238,13 @@ async def query_loop(
         t_now_strat = resolve_t_now_strategy(
             _llm_provider_name(model), _llm_model_name(model)
         )
+        # 轮内冻结键：一次用户提交（=一个 turn）内所有请求共用同一键；无会话路径
+        # （本地/脚本）为空串 ⇒ 不冻结（每枪重算，与旧行为一致）。
+        _round_key = (
+            f"{coordinator.session_id}:{coordinator.turn_id}"
+            if coordinator is not None
+            else ""
+        )
         _inject_kwargs: dict = dict(
             model=model,
             approved_plan=approved_plan,
@@ -1247,6 +1258,7 @@ async def query_loop(
             plan_pointer=plan_pointer,
             budget=budget,
             loop_ledger=loop_ledger,
+            round_key=_round_key,
             # 管道 2 去重真相源：本轮投影里真实存在的留痕身份（见 _dedup_round）。
             # 台账只是快路径——投影里没有就必须重发（历史被改写未清账时兜底）。
             visible_notes=frozenset(

@@ -145,6 +145,14 @@ def invalidate_after_compaction(session_id: str = "") -> None:
 		inject_store.invalidate(sid)
 	except Exception:  # noqa: BLE001
 		_log.debug("t_now ledger invalidate failed", exc_info=True)
+	try:
+		# 同一把尺子：轮内冻结的"上下文行"也必须释放——压缩后"早期内容已收纳 N 段"
+		# 是**新的事实**（不是同一事实的第二次测量），冻结住等于把折叠藏到下一轮。
+		from prompt.context_usage import forget_round
+
+		forget_round(sid)
+	except Exception:  # noqa: BLE001
+		_log.debug("context usage round freeze release failed", exc_info=True)
 
 
 __all__ = [
