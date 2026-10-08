@@ -67,41 +67,6 @@ def _isolate(tmp: Path) -> dict[str, str]:
     return roots
 
 
-def _temporal_note_filter(items: list[dict]) -> list[dict]:
-    """生产形态的**逐枪时点**过滤：此刻每个 note_key 只留「已出现的最新版」，旧版从原位抽走。
-
-    与静态版的区别在时间维度：断点只在"新版本到来的那一枪"出现，早枪仍能看到当时的旧版。
-    """
-    last: dict[str, int] = {}
-    for i, m in enumerate(items):
-        if m.get("note_key"):
-            last[m["note_key"]] = i
-    return [m for i, m in enumerate(items)
-            if not m.get("note_key") or last[m["note_key"]] == i]
-
-
-def _temporal_fixed_filter(items: list[dict]) -> list[dict]:
-    """候选修法的逐枪时点过滤：每个 key 保留**内容等于当前版本**的**最早**实例。
-
-    与 `temporal` 的唯一区别：同内容的重复追加不再把实例"刷新"到尾部——重复追加
-    成为纯 no-op（前缀零改写）；内容真变化时，旧版才被移除、新版的**首个**实例
-    （就在其追加点）承接。语义与 `temporal` 等价（可见内容都是当前版本；
-    实例位置只差"内容没变时不动"这一条）。
-    """
-    current: dict[str, object] = {}
-    for m in items:
-        k = m.get("note_key")
-        if k:
-            current[k] = m.get("content")
-    first: dict[str, int] = {}
-    for i, m in enumerate(items):
-        k = m.get("note_key")
-        if k and m.get("content") == current.get(k):
-            first.setdefault(k, i)
-    return [m for i, m in enumerate(items)
-            if not m.get("note_key") or first.get(m["note_key"]) == i]
-
-
 def run_arm(session_path: Path, sid: str, *, watermark: int | None, limit_turns: int,
             note_policy: str = "dedup", state_policy: str = "persist",
             size_policy: str = "none", long_at: int = 64_000,
@@ -235,10 +200,13 @@ def run_arm(session_path: Path, sid: str, *, watermark: int | None, limit_turns:
 
             _wp._STATE.pop(_wp._state_key(sid, cwd), None)
         ctx = msgs[:end]
-        if note_policy == "temporal":
-            ctx = _temporal_note_filter(ctx)
-        elif note_policy == "temporal-fixed":
-            ctx = _temporal_fixed_filter(ctx)
+        if note_policy in ("temporal", "temporal-fixed"):
+            # 单一来源（`session/note_temporal.py`）：本台与契约测试用同一份实现，
+            # 避免"台子里的副本"和"被测语义"各自漂移。
+            from session.note_temporal import temporal_fixed_filter, temporal_note_filter
+
+            ctx = (temporal_note_filter(ctx) if note_policy == "temporal"
+                   else temporal_fixed_filter(ctx))
         try:
             emitted = project_for_model(
                 ctx, snap, remaining_turns=16, context_limit=1_000_000,

@@ -49,8 +49,8 @@ SWITCHES: tuple[EnvSwitch, ...] = (
 	EnvSwitch("XEYO_WSC_FAILURE_FACTS", "失败身份按工具/类别/声明目标，保留全部证据来源；默认关", affects_snapshots=True),
 	EnvSwitch("XEYO_WSC_REQUEST_PROJECTION", "人类请求与绑定目标分层旁路，包含不可变状态契约", affects_snapshots=True),
 	EnvSwitch("XEYO_WSC_STATE_CONTRACTS", "目标状态/不可变冷层/整代发布旁路改变 WSC 投影", affects_snapshots=True),
-	EnvSwitch("XEYO_WSC_TASK_CONTINUITY", "已提交任务检查点与执行回执进入 WSC 投影；默认关", affects_snapshots=True),
-	EnvSwitch("XEYO_WSC_MODEL_TIMING", "模型请求容量测量与 Compact 回执旁路；默认关", affects_snapshots=True),
+	EnvSwitch("XEYO_WSC_TASK_CONTINUITY", "旧实验键，主流程连续性恒定生效，不受此值关闭", affects_snapshots=True),
+	EnvSwitch("XEYO_WSC_MODEL_TIMING", "旧实验键，模型自决/80%通知/85%强压主流程恒定生效", affects_snapshots=True),
 	EnvSwitch("XEYO_EXECUTION_FACT_CONTRACTS", "环境/编辑/执行回执事实旁路改变工具结果", affects_snapshots=True),
 	EnvSwitch(
 		"XEYO_STALE_GOAL_RETIRE",

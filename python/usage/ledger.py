@@ -452,6 +452,11 @@ def record_fold_event(*, session_id: str = "", arm: str = "", **account: Any) ->
 	每次差多少"只能靠重放转录倒推。这里把判据数字（saved_net / transition / theta）
 	连同 **哪一臂折的**（arm=wsc|c2）一起落盘；`c2_summary_text` 不是判据（它是触发侧
 	记账，WSC 接管与否要看发射面），所以留痕必须在这里。
+	prompt 口径分界（2026-10-09 起）：`input_tokens` 一律带 `prompt_basis`——
+	`last_prompt_tokens` = 厂商实发（权威）、`estimate_messages` = 投影前原史估算、
+	`unlabelled` = 未标来源。**分界之前**落盘的行里 `input_tokens` 是投影前原史
+	（实测某会话账上 265k，同刻厂商 receipt 27k，差 10 倍）⇒ 读侧不得把
+	无标签行与 receipt 并成一个数比较。
 	"""
 	now = datetime.now(tz=BJ).timestamp()
 	event: dict[str, Any] = {

@@ -1,4 +1,12 @@
 """Committed continuity and published sources for the legacy deterministic fold."""
+def compose(messages, legacy, handoff):
+    """One task-state representation per newly published fallback generation."""
+    from synaptic.todo_snapshot import latest_todo_snapshot
+    if handoff and latest_todo_snapshot(messages).observed:
+        return handoff
+    return legacy + ("\n\n" + handoff if handoff else "")
+
+
 def render(messages, working, cursor, cwd):
     from synaptic.project import project
     from memory.wsc_projection import production_params, _view_path_for

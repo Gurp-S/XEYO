@@ -33,6 +33,7 @@ from engine.compact import (
 )
 from engine.compact import project as project_c0c1
 from engine.aging import AGING_VERSION, aging_enabled
+from memory import prompt_basis
 from memory.citation import message_citation
 from memory.l5_flag import l5_mode, use_v61
 from memory.summarize import extract_tool_summary, is_error_like
@@ -73,11 +74,9 @@ C2_SUMMARY_INSTRUCTION = (
 
 
 def _wsc_sidepath_enabled() -> bool:
-	"""Return whether the model-facing WSC side path was explicitly selected."""
-	return any(
-		(os.environ.get(key) or "").strip().lower() in {"1", "true", "yes", "on"}
-		for key in ("XEYO_WSC_TASK_CONTINUITY", "XEYO_WSC_STATE_CONTRACTS", "XEYO_WSC_MODEL_TIMING")
-	)
+	"""Compatibility helper for the selected main continuity policy."""
+	from memory.wsc_main_policy import enabled
+	return enabled()
 
 
 def c2_llm_summary_enabled() -> bool:
@@ -1069,7 +1068,8 @@ def apply_c2_messages(
 		if _wsc_sidepath_enabled():
 			from memory.wsc_fallback_handoff import render as render_handoff
 			handoff = render_handoff(messages, working, fallback_cursor, cwd)
-		working.c2_summary_text = summary + ("\n\n" + handoff if handoff else "")
+		from memory.wsc_fallback_handoff import compose
+		working.c2_summary_text = compose(messages, summary, handoff)
 		# A2：压缩碎片抓拍（notes:msg:<i> 可 retrieve 还原）——与摘要冻结同点执行
 		_store_c2_fragments(working, left)
 		if working.compact_cursor > 0:
@@ -1139,10 +1139,24 @@ def _extension_prompt_tokens(measured, messages: list[dict], working: WorkingSna
 	if measured is not None:
 		return int(measured.keep_tokens), "wsc_projected"
 	if _emitted_basis_enabled() and _wsc_owns_emission():
-		last = int(getattr(working, "last_prompt_tokens", 0) or 0)
-		if last > 0:
-			return last, "last_prompt_tokens"
+		tokens, basis = prompt_basis.prompt_tokens_with_basis(
+			working, fallback_tokens=0, fallback_basis="region_raw")
+		if basis == prompt_basis.LAST_PROMPT_TOKENS:
+			return tokens, basis
 	return _region_tokens(messages), "region_raw"
+
+
+def _prompt_account(messages: list[dict], working: WorkingSnapshot) -> dict:
+	"""折叠账行里的 prompt 量：唯一口径 + 来源标签（取法见 ``memory.prompt_basis``）。
+
+	事故（本函数诞生前）：账行直接落 ``token_len(json.dumps(messages))``——**投影前原史**，
+	字段名与实发 prompt 同名却无来源 ⇒ 实测同一会话账上 266k、同刻厂商 receipt 27k，
+	差一个数量级；而项目准入规则是"有数据证明收益才并入主链路"，凭据错 10 倍等于准入判据失效。
+	有厂商实发就用实发，没有才退回估算并强制带 ``prompt_basis``（fail-open，绝不抛）。
+	"""
+	raw = token_len(json.dumps(messages, ensure_ascii=False, separators=(",", ":")))
+	tokens, basis = prompt_basis.prompt_tokens_with_basis(working, fallback_tokens=raw)
+	return {"input_tokens": tokens, "prompt_basis": basis}
 
 
 def try_extend_c2(
@@ -1339,7 +1353,8 @@ def try_extend_c2(
 		if _wsc_sidepath_enabled():
 			from memory.wsc_fallback_handoff import render as render_handoff
 			handoff = render_handoff(messages, working, new_cursor, cwd)
-		ext += ("\n\n" + handoff if handoff else "")
+		from memory.wsc_fallback_handoff import compose
+		ext = compose(messages, ext, handoff)
 		from memory.wsc_timing import enabled as model_timing_enabled
 		# A true fold publishes a new generation. The prior generation remains
 		# immutable on disk, but its active checkpoint cannot be concatenated
@@ -1396,6 +1411,10 @@ def _note_fold_attempt(working: WorkingSnapshot, account: dict) -> None:
 	"""
 	if not account:
 		return
+	if "input_tokens" in account and "prompt_basis" not in account:
+		# 结构性归一化（静默，不进任何模型可见文本）：账上的 prompt 量，读侧必须永远能分辨来源。
+		# 缺标签的（历史写法 / 新调用点）一律标 ``unlabelled``——不拒绝、不改数值。
+		account = {**account, "prompt_basis": prompt_basis.UNLABELLED}
 	try:
 		from memory.wsc_projection import live_enabled as _wsc_live_enabled
 		from usage.ledger import record_fold_event
@@ -1857,7 +1876,7 @@ def project_for_model(
 			out = list(messages)
 			_note_fold_attempt(working, {
 				"fold": False, "forced": False, "reason": "keep", "timing_action": "keep",
-				"input_tokens": token_len(json.dumps(messages, ensure_ascii=False, separators=(",", ":"))),
+				**_prompt_account(messages, working),
 			})
 		return _append_memory_index(out) if include_memory_index else out
 	if _wsc_sidepath_enabled() and _wsc_owns_emission():
@@ -1874,7 +1893,7 @@ def project_for_model(
 	elif _wsc_owns_emission():
 		_note_fold_attempt(working, {
 			"fold": False, "forced": False, "reason": "keep", "timing_action": "keep",
-			"input_tokens": token_len(json.dumps(messages, ensure_ascii=False, separators=(",", ":"))),
+			**_prompt_account(messages, working),
 		})
 	if l5_mode() == "project":  # 2026-09-06：C2_GATE 固化恒 True（已删开关）→ 快路径只看 L5
 		if working.compact_cursor > 0:

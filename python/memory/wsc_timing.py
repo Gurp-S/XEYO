@@ -10,14 +10,13 @@ import json
 import os
 from dataclasses import dataclass
 
+from memory.prompt_basis import ESTIMATE_EMISSION
 from memory.token import token_len
 
 
 def enabled() -> bool:
-    """Enable model timing only for the explicit timing side path."""
-    return (os.environ.get("XEYO_WSC_MODEL_TIMING") or "").strip().lower() in {
-        "1", "true", "yes", "on"
-    }
+    from memory.wsc_main_policy import enabled as main_enabled
+    return main_enabled()
 
 
 @dataclass(frozen=True)
@@ -29,7 +28,8 @@ class Timing:
     notify: bool
 
     def facts(self) -> dict:
-        return {"input_tokens": self.input_tokens, "context_limit": self.capacity,
+        return {"input_tokens": self.input_tokens, "prompt_basis": ESTIMATE_EMISSION,
+                "context_limit": self.capacity,
                 "basis": self.basis, "timing_action": self.action,
                 "capacity_known": self.capacity > 0, "notify": self.notify}
 

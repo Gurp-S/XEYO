@@ -11,6 +11,30 @@ from tools.compact_description import DESCRIPTION
 from tests.wsc.test_task_continuity import receipt, task
 
 
+@pytest.mark.parametrize("legacy", [None, "0"])
+@pytest.mark.parametrize("native", [False, True])
+def test_main_timing_never_reenters_old_economics_when_flags_absent_or_zero(tmp_path, monkeypatch, legacy, native):
+    from memory import runtime
+    from memory.wsc_timing import enabled
+    monkeypatch.setenv("XEYO_HOME", str(tmp_path))
+    monkeypatch.setenv("XEYO_WSC", str(int(native)))
+    for name in ("XEYO_WSC_MODEL_TIMING", "XEYO_WSC_TASK_CONTINUITY", "XEYO_WSC_STATE_CONTRACTS"):
+        if legacy is None: monkeypatch.delenv(name, raising=False)
+        else: monkeypatch.setenv(name, legacy)
+    assert enabled() and runtime._wsc_sidepath_enabled()
+    def forbidden(*args, **kwargs):
+        raise AssertionError("old economics entered during a below-85% projection")
+    monkeypatch.setattr(runtime, "try_extend_c2", forbidden)
+    rows = [{"role": "user", "content": "进行中的长任务"}]
+    rows += [{"role": "assistant", "content": "观察 " + "x" * 4000} for _ in range(240)]
+    working = WorkingSnapshot(session_id="default-main")
+    result = runtime.project_for_model(rows, working, context_limit=1000000,
+        capacity_managed=True, include_memory_index=False, cwd=tmp_path)
+    assert working.compact_cursor == 0
+    assert working.c1_frozen_until == 0
+    assert len(result) == len(rows)
+
+
 def test_default_catalog_exposes_complete_compact_description(tmp_path, monkeypatch):
     monkeypatch.setenv("XEYO_WSC_MODEL_TIMING", "0")
     schema = next(s for s in build_default_registry(cwd=str(tmp_path)).schemas() if s["name"] == "Compact")

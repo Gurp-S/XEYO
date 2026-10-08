@@ -16,8 +16,8 @@ from __future__ import annotations
 
 import pytest
 
-from scripts.wsc_fold_watermark_ab import _temporal_note_filter
 from scripts.wsc_miss_census import census
+from session.note_temporal import temporal_fixed_filter, temporal_note_filter
 
 SID = "sess_unit_epoch"
 
@@ -105,9 +105,9 @@ def test_temporal_note_filter_replaces_only_after_the_new_version_arrives() -> N
 		{"role": "user", "content": "v2", "note_key": "world_state", "note_fp": "f2"},
 		{"role": "user", "content": "c"},
 	]
-	early = _temporal_note_filter(items[:3])   # 新版本还没来：旧版仍在原位
+	early = temporal_note_filter(items[:3])   # 新版本还没来：旧版仍在原位
 	assert [m["content"] for m in early] == ["a", "v1", "b"]
-	late = _temporal_note_filter(items)        # 新版本到来：旧版才从原位抽走
+	late = temporal_note_filter(items)        # 新版本到来：旧版才从原位抽走
 	assert [m["content"] for m in late] == ["a", "b", "v2", "c"]
 	# 时间维度是这条策略与"静态全局去重"的全部区别：早枪必须还能看到当时的旧版
 	assert not any(m.get("note_fp") == "f2" for m in early)
@@ -116,7 +116,6 @@ def test_temporal_note_filter_replaces_only_after_the_new_version_arrives() -> N
 
 def test_temporal_fixed_makes_duplicate_append_a_noop() -> None:
 	"""候选修法：同内容重复追加不得把实例"刷新"到尾部（前缀零改写）。"""
-	from scripts.wsc_fold_watermark_ab import _temporal_fixed_filter
 
 	items = [
 		{"role": "user", "content": "a"},
@@ -128,13 +127,13 @@ def test_temporal_fixed_makes_duplicate_append_a_noop() -> None:
 		{"role": "user", "content": "d"},
 	]
 	# 修法：实例留在**最早**位置，重复追加那行被吸收 ⇒ 与"没有那次追加"逐字节一致
-	fixed = _temporal_fixed_filter(items[:5])
+	fixed = temporal_fixed_filter(items[:5])
 	assert [m["content"] for m in fixed] == ["a", "v1", "b", "c"]
 	# 生产形态在同一前缀下会把实例刷到重复追加的位置（这就是那笔无谓重写的来源）
-	prod = _temporal_note_filter(items[:5])
+	prod = temporal_note_filter(items[:5])
 	assert [m["content"] for m in prod] == ["a", "b", "v1", "c"]
 	# 真更新到来：修法保留新版本的**首个**实例（追加点），旧版本仍被移除
-	fixed2 = _temporal_fixed_filter(items)
+	fixed2 = temporal_fixed_filter(items)
 	assert [m["content"] for m in fixed2] == ["a", "b", "c", "v2", "d"]
 
 

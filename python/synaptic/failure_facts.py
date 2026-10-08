@@ -8,7 +8,8 @@ ENV = "XEYO_WSC_FAILURE_FACTS"
 
 
 def enabled():
-    return os.environ.get(ENV, "").strip().lower() in {"1", "true", "yes", "on"}
+    from memory.wsc_main_policy import enabled as main_enabled
+    return main_enabled()
 
 
 def identity(graph, node):

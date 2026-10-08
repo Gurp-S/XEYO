@@ -77,6 +77,8 @@ class Catalog:
                 order.append(snapshot.checkpoint_source)
                 bound = set(snapshot.checkpoint["context_message_ids"])
                 order.extend(i for i, record in enumerate(self.records) if str(record["message_id"]) in bound)
+            order.extend([i for i, row in enumerate(self.sources)
+                          if row.get("role") in {"user", "human"} and not row.get("note_key")][-8:])
             order.extend(range(max(0, len(self.records) - INITIAL_RECORDS), len(self.records)))
         selected, size = [], 0
         for index in dict.fromkeys(order):

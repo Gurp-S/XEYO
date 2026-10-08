@@ -27,20 +27,25 @@ def setup(monkeypatch, tmp_path):
     monkeypatch.setattr(importlib.import_module("engine.query_loop"), "_attach_turn_context", lambda rows, **kw: rows)
 
 
-async def drive(store, model, registry, working):
+async def drive(store, model, registry, working, persist=None):
     return [event async for event in query_loop(store=store, model=model, tools=registry,
         prompt=PromptAssembler(), system_prompt="test", abort=AbortController(),
-        budget=BudgetTracker(max_turns=3), working=working)]
+        budget=BudgetTracker(max_turns=3), working=working, persist_handoff=persist)]
 
 
 @pytest.mark.asyncio
 async def test_final_schema_pressure_compacts_before_first_send(monkeypatch, tmp_path):
     setup(monkeypatch, tmp_path)
     rows = [user_message("current task " + "a" * 14_000)]
+    rows.append(Message(role="user", id="spec", content="Current task: continue the recorded observations."))
     for index in range(12):
         rows.extend([Message(role="assistant", content=f"observation {index}"), user_message(f"detail {index}")])
     working = WorkingSnapshot(session_id="full-capacity")
     registry = ToolRegistry()
+    from tools.todo_write_tool.todo_write_tool import TodoWriteTool
+    from msgtypes.message import ToolUse
+    from session.record_transcript import record_transcript_sync
+    registry.register(TodoWriteTool(cwd=str(tmp_path)))
     class LargeSchema:
         name = "FactProbe"
         def schema(self):
@@ -51,6 +56,14 @@ async def test_final_schema_pressure_compacts_before_first_send(monkeypatch, tmp
         context_limit = 10_000
         last_usage = {}
         requests = []
+        def for_handoff(self, max_tokens):
+            class Handoff:
+                last_usage = {}
+                async def stream(self, messages, tools, abort):
+                    yield ModelChunk(kind="tool_use", tool_use=ToolUse("schema-handoff", "TodoWrite", {
+                        "todos": [{"id": "continue", "content": "continue observations", "status": "pending", "activeForm": "continuing"}],
+                        "checkpoint": {"objective": "continue observations", "context_message_ids": ["spec"]}}))
+            return Handoff()
         async def stream(self, messages, tools, abort):
             self.requests.append(deepcopy(messages))
             assert working.compact_cursor > 0
@@ -61,7 +74,10 @@ async def test_final_schema_pressure_compacts_before_first_send(monkeypatch, tmp
             assert working.last_projection_manifest["compact_cursor"] == working.compact_cursor
             yield ModelChunk(kind="text_delta", text="continued")
     model = Model()
-    await drive(MessageStore(rows), model, registry, working)
+    store = MessageStore(rows)
+    known = set()
+    await drive(store, model, registry, working, persist=lambda: record_transcript_sync(store.items,
+        session_id=working.session_id, path=tmp_path / "transcript.jsonl", known_ids=known))
     assert len(model.requests) == 1
 
 

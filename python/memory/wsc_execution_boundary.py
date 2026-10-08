@@ -7,11 +7,8 @@ def enabled():
 
 
 def _side_path_enabled():
-    import os
-    return any(
-        (os.environ.get(key) or "").strip().lower() in {"1", "true", "yes", "on"}
-        for key in ("XEYO_WSC_TASK_CONTINUITY", "XEYO_WSC_STATE_CONTRACTS")
-    )
+    from memory.wsc_main_policy import enabled
+    return enabled()
 
 
 def optional_boundary(value):
