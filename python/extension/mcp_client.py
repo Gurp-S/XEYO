@@ -857,7 +857,7 @@ class McpStdioClient:
 			{
 				"protocolVersion": MCP_PROTOCOL_VERSION,
 				"capabilities": {},
-				"clientInfo": {"name": "xeyo-mcp-client", "version": "1.1.0"},
+				"clientInfo": {"name": "xeyo-mcp-client", "version": "1.11.0"},
 			},
 			timeout=self.spec.startup_timeout_s,
 		)

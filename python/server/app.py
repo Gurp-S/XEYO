@@ -233,7 +233,7 @@ async def _lifespan(_app: FastAPI):
 			_log.warning("local model shutdown failed", exc_info=True)
 
 
-app = FastAPI(title="XEYO", version="1.1.0", lifespan=_lifespan)
+app = FastAPI(title="XEYO", version="1.11.0", lifespan=_lifespan)
 
 
 def _cors_origins() -> list[str]:

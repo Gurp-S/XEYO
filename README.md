@@ -35,7 +35,7 @@ XEYO 把代码阅读、文件操作、命令执行和会话管理放在一个本
 
 ## Windows 桌面版
 
-打开 [XEYO Releases](https://github.com/Gurp-S/XEYO/releases/latest)，下载 XEYO_1.1.0_x64-setup.exe 并运行安装器。安装后可从开始菜单打开 XEYO。安装包已包含 Python 运行时和文件搜索工具，目标电脑不需要安装 Python、Node.js 或 Rust。
+打开 [XEYO Releases](https://github.com/Gurp-S/XEYO/releases/latest)，下载 XEYO_1.11.0_x64-setup.exe 并运行安装器。安装后可从开始菜单打开 XEYO。安装包已包含 Python 运行时和文件搜索工具，目标电脑不需要安装 Python、Node.js 或 Rust。
 
 首次打开后，在应用的“设置”面板填写模型服务商和 API Key。
 

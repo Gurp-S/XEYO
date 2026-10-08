@@ -3,7 +3,7 @@ name: Windows release
 on:
   push:
     tags:
-      - "1.1"
+      - "1.11"
 
 permissions:
   contents: read
@@ -44,7 +44,7 @@ jobs:
           "$hash  $(Split-Path -Leaf $installer)" | Set-Content -Path $checksum -Encoding ascii
 
           $notes = @"
-          XEYO 1.1 for Windows 10/11 (x64).
+          XEYO 1.11 for Windows 10/11 (x64).
 
           Download and run the XEYO installer. The desktop app includes its Python runtime and file search utility; Python, Node.js, and Rust are not required on the target computer.
 
@@ -53,5 +53,5 @@ jobs:
           $notesPath = Join-Path $env:RUNNER_TEMP "xeyo-release-notes.md"
           [System.IO.File]::WriteAllText($notesPath, $notes, [System.Text.UTF8Encoding]::new($false))
 
-          gh release create $env:GITHUB_REF_NAME $installer $checksum --title "XEYO 1.1" --notes-file $notesPath --verify-tag
+          gh release create $env:GITHUB_REF_NAME $installer $checksum --title "XEYO 1.11" --notes-file $notesPath --verify-tag
           if ($LASTEXITCODE -ne 0) { throw "GitHub Release creation failed ($LASTEXITCODE)" }

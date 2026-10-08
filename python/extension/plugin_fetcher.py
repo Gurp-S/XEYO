@@ -41,7 +41,7 @@ from extension.plugin_store import (
 _log = logging.getLogger(__name__)
 
 #: xeyo 当前版本（min_xeyo 兼容检查基准）。
-_XEYO_VERSION = "1.1.0"
+_XEYO_VERSION = "1.11.0"
 
 #: 仓库级 GIT_* 环境变量（git 操作时剥离，防泄漏主仓库/凭证/钩子）。
 GIT_ENV_STRIP = frozenset({

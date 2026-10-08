@@ -4,5 +4,5 @@ requires-python = ">=3.11"
 
 [[package]]
 name = "xeyo"
-version = "1.1.0"
+version = "1.11.0"
 source = { virtual = "." }
