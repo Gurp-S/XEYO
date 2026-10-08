@@ -446,7 +446,7 @@ def test_keep_assessment_is_ledgered_without_economics_scheduling(monkeypatch, t
     assert [r["arm"] for r in rows] == ["c2", "wsc"]
     for row in rows:
         assert row["fold"] is False and row["forced"] is False
-        assert row["timing_action"] == "keep" and row["input_tokens"] > 0
+        assert row["timing_action"] == "keep" and row["emitted_tokens"] > 0
 
 
 def test_offline_replay_does_not_write_the_production_fold_ledger(monkeypatch, tmp_path):

@@ -82,7 +82,6 @@ def main() -> None:
 	parser.add_argument("--switch-on-source-change", action="store_true")
 	parser.add_argument("--transition-control", action="store_true")
 	parser.add_argument("--keep-ledger-on-transition", action="store_true")
-	parser.add_argument("--soft-watermark", type=int, default=0)
 	parser.add_argument("--native-source", action="store_true")
 	parser.add_argument("--audit-source", action="store_true")
 	parser.add_argument("--audit-recent-prefix", action="store_true")
@@ -101,15 +100,15 @@ def main() -> None:
 		parser.error("native source requires conditional append lifecycle-current without transition control")
 	root = Path(__file__).resolve().parents[2]
 	harness = runpy.run_path(str(root / "_wsc_out" / "_fold_veto_ab.py"))
-	# 每臂一进程；清掉继承的策略覆盖值。
+	# 每臂一进程；清掉继承的策略覆盖值（含已退场键：宿主残留不得混进臂间对照）。
 	for key in ("XEYO_C2_GAP_CAP", "XEYO_C2_MARGIN", "XEYO_C2_PRICE_RATIO",
-	            "XEYO_WSC_FOLD_MIN_INTERVAL", "XEYO_C2_SAVE_RATIO"):
+	            "XEYO_WSC_FOLD_MIN_INTERVAL", "XEYO_C2_SAVE_RATIO",
+	            "XEYO_WSC_SOFT_WATERMARK", "XEYO_CONTEXT_COMPACT_RATIO"):
 		os.environ.pop(key, None)
 	os.environ.update(
 		XEYO_WSC_EXTENSION_ECONOMICS="1" if args.arm in ("projected", "marginal") else "0",
 		XEYO_WSC_FOLD_COOLDOWN_VETO="0" if args.arm == "off" else "1", XEYO_WSC_OFFLINE="1",
 		XEYO_WSC_HEAD_STORE="0",
-		XEYO_WSC_SOFT_WATERMARK=str(max(0, args.soft_watermark)),
 	)
 	if args.gap_cap > 0:
 		os.environ["XEYO_C2_GAP_CAP"] = str(args.gap_cap)
@@ -236,7 +235,6 @@ def main() -> None:
 		"marginal_transition": args.arm == "marginal",
 		"message_format": args.message_format, "gap_cap_override": args.gap_cap,
 		"min_interval_override": args.min_interval,
-		"soft_watermark_override": args.soft_watermark,
 		"cache_scenarios": "input-only LCP and optimistic previous-response prefix; neither is provider usage; primary hit/miss remain input-only",
 		"head_layout": args.head_layout,
 		"hydrate_history": args.hydrate_history,

@@ -107,7 +107,7 @@ async def run(output, key_file):
         main_captures = [capture for capture in captures if capture["purpose"] == "main"]
         first = main_captures[0] if main_captures else {}
         compact_ids = [c["id"] for c in returned_calls if c["name"] == "Compact"]
-        checks = {"first_request_below_80": bool(first) and first["admission"]["before"]["input_tokens"] < 800000,
+        checks = {"first_request_below_80": bool(first) and first["admission"]["before"]["emitted_tokens"] < 800000,
                   "first_request_not_folded": bool(first) and first["cursor_before_send"] == 0,
                   "real_model_called_compact": bool(compact_ids),
                   "success_receipt_handled": working.wsc_timing_state.get("handled_request") in compact_ids,
@@ -124,7 +124,7 @@ async def run(output, key_file):
                   "cost": {"peak_cny_upper": budget.spent_upper, "requests": budget.entries}}
         (output / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
         print(json.dumps({"checks": checks, "peak_cny_upper": budget.spent_upper,
-                          "input_tokens": [c["admission"]["before"]["input_tokens"] for c in captures],
+                          "emitted_tokens": [c["admission"]["before"]["emitted_tokens"] for c in captures],
                           "cursors": [c["cursor_before_send"] for c in captures]}, ensure_ascii=False))
         return report
 

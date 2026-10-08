@@ -28,7 +28,10 @@ class Timing:
     notify: bool
 
     def facts(self) -> dict:
-        return {"input_tokens": self.input_tokens, "prompt_basis": ESTIMATE_EMISSION,
+        # ``emitted_tokens``：**本次发射面估算**（不是厂商实发，也不是投影前原史）。
+        # 不叫 ``input_tokens``：账行里那个名字归 prompt 量（厂商实发优先、必带
+        # ``prompt_basis``）。两个量同名会让读侧把它们并成一个数——本仓已出过两次该事故。
+        return {"emitted_tokens": self.input_tokens, "prompt_basis": ESTIMATE_EMISSION,
                 "context_limit": self.capacity,
                 "basis": self.basis, "timing_action": self.action,
                 "capacity_known": self.capacity > 0, "notify": self.notify}

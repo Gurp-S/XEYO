@@ -4,11 +4,12 @@
 **不含 C2 触发链**（decide → cooling → try_extend_c2 的水位/冷却/钱门）。要回答
 "水位抬到 W 会怎样"，必须让真实的触发链跑起来。
 
-两臂（同一份转录、同一份状态机、只换一个 env）：
+臂（同一份转录、同一份状态机）：
 
-- ``baseline``：与生产一致（水位关）。
-- ``watermark<W>``：``XEYO_WSC_SOFT_WATERMARK=<W>`` ⇒ 普通扩展折叠在 prompt < W 时一律不折
-  （首压不受它管，见 ``memory/wsc_watermark`` 的适用范围）。
+- ``baseline``：与生产一致（模型自决普通折叠，容量强压归声明窗口）。
+- ``watermark<W>``：**2026-10-08 已退场**——``XEYO_WSC_SOFT_WATERMARK`` 不再被任何产品代码读取
+  （``memory/wsc_watermark.soft_watermark_tokens`` 恒 0），设了不生效。该臂**拒绝执行**：
+  留着它只会产出"两臂相同"的假对照（见 ``python/engine/env_switches.RETIRED``）。
 
 口径（**两臂同口径，差额才是结论**）：
 - ``prompt`` = 本枪发射投影的 canonical JSON 的 token（生产 ``token_len``，utf-8/4）；
@@ -67,7 +68,7 @@ def _isolate(tmp: Path) -> dict[str, str]:
     return roots
 
 
-def run_arm(session_path: Path, sid: str, *, watermark: int | None, limit_turns: int,
+def run_arm(session_path: Path, sid: str, *, limit_turns: int,
             note_policy: str = "dedup", state_policy: str = "persist",
             size_policy: str = "none", long_at: int = 64_000,
             needles: bool = False, sizes: bool = False, args_geom: str = "") -> dict:
@@ -79,11 +80,9 @@ def run_arm(session_path: Path, sid: str, *, watermark: int | None, limit_turns:
     from memory.runtime import project_for_model
     from synaptic.replay import load_jsonl
 
-    if watermark:
-        os.environ["XEYO_WSC_SOFT_WATERMARK"] = str(watermark)
-    else:
-        os.environ.pop("XEYO_WSC_SOFT_WATERMARK", None)
-    # 每臂独立会话状态：水位是软模块的进程内账，臂间必须清
+    # 退场键若由宿主 env 残留，必须清掉：本台不得让它静默混进臂间对照。
+    os.environ.pop("XEYO_WSC_SOFT_WATERMARK", None)
+    # 每臂独立会话状态：软模块的进程内账，臂间必须清
     try:
         from memory import wsc_watermark as _wm
 
@@ -322,7 +321,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="折叠水位 A/B（驱动生产入口，零 API）")
     ap.add_argument("--session", required=True, help="会话 id（sess_xxx）或 .jsonl 全路径")
     ap.add_argument("--arms", nargs="+", default=["baseline"],
-                    help="baseline / watermark<W>，如 watermark200000")
+                    help="baseline（唯一有效臂）；watermark<W> 已退场，传了会被拒绝")
     ap.add_argument("--turns", type=int, default=10**9, help="最多回放多少回合")
     ap.add_argument("--long", type=int, default=64_000, help="长对话段阈值（prompt ≥ 该值的枪单独汇总）")
     ap.add_argument("--needles", action="store_true",
@@ -366,11 +365,16 @@ def main() -> int:
         print(f"  {k}={v}")
     print()
 
+    retired = [a for a in args.arms if a.startswith("watermark")]
+    if retired:
+        # 中性结果型报错：不是警告、不是建议，只陈事实（该键已无读取点 ⇒ 两臂必然相同）。
+        print(f"拒绝执行：{'、'.join(retired)} —— XEYO_WSC_SOFT_WATERMARK 已于 2026-10-08 退场，"
+              f"设了不被读取 ⇒ 该臂与 baseline 必然同结果，不是有效对照。")
+        print("有效臂：baseline")
+        return 2
+
     for arm in args.arms:
-        wm = None
-        if arm.startswith("watermark"):
-            wm = int(arm[len("watermark"):])
-        res = run_arm(p, sid, watermark=wm, limit_turns=args.turns, note_policy=args.note_policy,
+        res = run_arm(p, sid, limit_turns=args.turns, note_policy=args.note_policy,
                       state_policy=args.state_policy, size_policy=args.size_policy,
                       long_at=args.long, needles=args.needles, sizes=args.sizes,
                       args_geom=args.prune_geom)

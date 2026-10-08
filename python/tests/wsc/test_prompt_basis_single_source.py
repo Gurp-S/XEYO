@@ -99,7 +99,36 @@ def test_keep_assessment_rows_carry_prompt_basis(monkeypatch, tmp_path) -> None:
 	assert [r["arm"] for r in rows] == ["c2", "wsc"], rows
 	for row in rows:
 		# 主策略恒定生效 ⇒ ``project_for_model`` 的账行来自 ``wsc_timing.measure``
-		# （本次发射面估算 + 匹配 receipt 的 overhead），**不是**厂商实发、也不是投影前原史
-		# ⇒ 标签必须是估算类，且绝不留 ``unlabelled``（读侧据此分辨同名不同义的 input_tokens）。
+		# （本次发射面估算 + 匹配 receipt 的 overhead），**不是**厂商实发、也不是投影前原史。
+		assert row["emitted_tokens"] > 0, row
 		assert row["prompt_basis"] == prompt_basis.ESTIMATE_EMISSION, row
-		assert row["input_tokens"] > 0, row
+		# 同名不同义从结构上消失：发射面估算不占用 ``input_tokens`` 这个名字。
+		assert "input_tokens" not in row, row
+
+
+def test_no_literal_input_tokens_bypasses_the_ledger_guard() -> None:
+	"""全树守：账行的 ``input_tokens`` 只能经 ``runtime._note_fold_attempt`` 落盘。
+
+	为什么是"全树"而不是只扫 ``memory/runtime.py``：这个字段名在链上**有多个定义**
+	（厂商实发 / 投影前原史估算 / 当前发射面估算）。任何模块**直接**
+	``record_fold_event(input_tokens=…)`` 都会绕过来源标签，读侧就再也分不清是哪种量。
+	AST 判据比"记得改"可靠：裸字段在合并前就会被这条挡下。
+	"""
+	import ast
+
+	offenders: list[str] = []
+	for path in sorted(REPO_PY.rglob("*.py")):
+		if {"_wsc_out", ".venv", ".git", "node_modules", "__pycache__"} & set(path.parts):
+			continue
+		try:
+			tree = ast.parse(path.read_text(encoding="utf-8"))
+		except (SyntaxError, UnicodeDecodeError, OSError):
+			continue
+		for node in ast.walk(tree):
+			if not isinstance(node, ast.Call):
+				continue
+			fn = node.func
+			name = fn.attr if isinstance(fn, ast.Attribute) else getattr(fn, "id", "")
+			if name == "record_fold_event" and any(kw.arg == "input_tokens" for kw in node.keywords):
+				offenders.append(f"{path.relative_to(REPO_PY)}:{node.lineno}")
+	assert not offenders, f"账行 input_tokens 必须走 _note_fold_attempt（带 prompt_basis）：{offenders}"
