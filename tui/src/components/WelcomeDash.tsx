@@ -15,7 +15,7 @@ type Props = {
  */
 export function WelcomeDash({
   config,
-  version = "1.11.0",
+  version = "1.12.0",
   connected = null,
 }: Props) {
   const { stdout } = useStdout();
