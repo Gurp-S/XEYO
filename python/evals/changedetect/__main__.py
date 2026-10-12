@@ -51,11 +51,14 @@ def _setup() -> None:
 def cmd_surface_check(args: argparse.Namespace) -> int:
     arts = surface.collect()
     changes = surface.compare(arts)
-    print(surface.render_index(arts), end="")
+    from engine.harness_policy import enabled
+    first = enabled("XEYO_HARNESS_HEALTH")
+    if not first:
+        print(surface.render_index(arts), end="")
     if not changes:
-        print("\n[L0] 无变化。")
+        print("[L0] 无变化。" if first else "\n[L0] 无变化。")
         return 0
-    print(f"\n[L0] 检测到 {len(changes)} 处变化：")
+    print(("" if first else "\n") + f"[L0] 检测到 {len(changes)} 处变化：")
     for ch in changes[: args.max_show]:
         print(
             f"  - {ch.status:<8} {ch.name}  "
@@ -108,10 +111,20 @@ def cmd_surface_selftest(args: argparse.Namespace) -> int:
 def cmd_trace_check(args: argparse.Namespace) -> int:
     batteries = set(args.batteries.split(",")) if args.batteries else None
     tr = trace.collect(batteries)
-    changes = trace.compare(tr)
-    for name, text in tr.items():
-        head = text[:80].replace("\n", "⏎")
-        print(f"  {name:<32} {canon_safe_len(text):>6}ch  {head}")
+    changes = trace.compare(tr, batteries=batteries)
+    from engine.harness_policy import enabled
+    if enabled("XEYO_HARNESS_HEALTH"):
+        from .health import failures
+        unhealthy = failures(tr)
+        print(f"[L1] changed={len(changes)}; unhealthy={len(unhealthy)}")
+        for failure in unhealthy:
+            print(f"  {failure['name']}: {failure['reason']}")
+        if unhealthy:
+            return 2
+    if not enabled("XEYO_HARNESS_HEALTH"):
+        for name, text in tr.items():
+            head = text[:80].replace("\n", "⏎")
+            print(f"  {name:<32} {canon_safe_len(text):>6}ch  {head}")
     if not changes:
         print("\n[L1] 无变化。")
         return 0
@@ -148,12 +161,17 @@ def cmd_trace_selftest(args: argparse.Namespace) -> int:
     a_h = {k: canon_sha(v) for k, v in a.items()}
     b_h = {k: canon_sha(v) for k, v in b.items()}
     same = a_h == b_h
-    rep = {"deterministic": same, "scenarios": len(a_h), "mismatched": []}
+    healthy = True
+    from engine.harness_policy import enabled
+    if enabled("XEYO_HARNESS_HEALTH"):
+        from .health import failures
+        healthy = not failures(a) and not failures(b)
+    rep = {"deterministic": same, "healthy": healthy, "scenarios": len(a_h), "mismatched": []}
     for k in a_h:
         if a_h[k] != b_h.get(k):
             rep["mismatched"].append(k)
     print(json.dumps(rep, ensure_ascii=False, indent=2))
-    return 0 if same else 2
+    return 0 if same and healthy else 2
 
 
 def cmd_power(args: argparse.Namespace) -> int:
@@ -344,6 +362,8 @@ def cmd_all(args: argparse.Namespace) -> int:
         trace_changes=tc,
         diff_text=diff_text,
     )
+    from .health import apply_verdict
+    v = apply_verdict(v, tr)
     print(verdict.render_markdown(v))
     out_dir = REPO_ROOT / "artifacts" / "changedetect"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -370,6 +390,8 @@ def cmd_verdict(args: argparse.Namespace) -> int:
         ab_report=ab_report,
         diff_text=_git_diff_text(args.ab_report is None),
     )
+    from .health import apply_verdict
+    v = apply_verdict(v, tr)
     print(verdict.render_markdown(v))
     return 0 if v.overall in ("pass", "inconclusive") else 1
 
@@ -400,7 +422,10 @@ def trace_selftest_dict() -> dict:
     b = trace.collect()
     a_h = {k: canon_sha(v) for k, v in a.items()}
     b_h = {k: canon_sha(v) for k, v in b.items()}
-    return {"deterministic": a_h == b_h, "scenarios": len(a_h)}
+    from engine.harness_policy import enabled
+    from .health import failures
+    healthy = not failures(a) and not failures(b) if enabled("XEYO_HARNESS_HEALTH") else True
+    return {"deterministic": a_h == b_h, "scenarios": len(a_h), "healthy": healthy}
 
 
 def _check_to_dict(arts, compare_fn) -> dict:
@@ -408,7 +433,10 @@ def _check_to_dict(arts, compare_fn) -> dict:
         changes = compare_fn(arts)
         return {"changed": bool(changes), "count": len(changes)}
     changes = compare_fn(arts)
-    return {"changed": bool(changes), "count": len(changes)}
+    from engine.harness_policy import enabled
+    from .health import failures
+    healthy = not failures(arts) if enabled("XEYO_HARNESS_HEALTH") else True
+    return {"changed": bool(changes), "count": len(changes), "healthy": healthy}
 
 
 def _gate_ok(label: str, rep: dict) -> bool:
@@ -421,6 +449,7 @@ def _gate_ok(label: str, rep: dict) -> bool:
         ok = not rep.get("has_fail")
     else:
         ok = not rep.get("changed")
+    ok = ok and rep.get("healthy", True)
     mark = "✓" if ok else "✗"
     print(f"  {mark} {label}: {rep}")
     return ok

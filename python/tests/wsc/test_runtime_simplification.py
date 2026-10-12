@@ -16,7 +16,7 @@ def test_project_mode_respects_an_existing_compaction(monkeypatch, mem_switch):
     assert rt.project_for_model(rows, working, include_memory_index=False) == compacted
 
 
-def test_current_model_identity_reaches_decision(monkeypatch, mem_switch):
+def test_model_owned_projection_does_not_enter_retired_automatic_decision(monkeypatch, mem_switch):
     mem_switch(XEYO_L5='v61')
     seen = []
 
@@ -25,10 +25,14 @@ def test_current_model_identity_reaches_decision(monkeypatch, mem_switch):
         return SimpleNamespace(a_star='keep', hardtop=False, branches={})
 
     monkeypatch.setattr('memory.simulator.decision.decide', decide)
-    rt.project_for_model([{'role': 'user', 'content': 'hello'}],
-                         WorkingSnapshot(session_id='model_identity'), provider='openai',
+    rows = [{'role': 'user', 'content': 'hello'}]
+    working = WorkingSnapshot(session_id='model_identity')
+    projected = rt.project_for_model(rows,
+                         working, provider='openai',
                          model_name='custom-model', context_limit=64000, include_memory_index=False)
-    assert seen == [('openai', 'custom-model', 64000)]
+    # Route capacity is admitted at the final request boundary. Ordinary
+    # projection must not revive the pre-model-owned simulator decision.
+    assert seen == [] and working.compact_cursor == 0 and projected == rows
 
 
 def test_cadence_rejection_does_not_build_unused_summary(monkeypatch):

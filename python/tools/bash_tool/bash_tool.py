@@ -49,6 +49,8 @@ from tools.bash_tool.jobs_bridge import adopt_registry_job, start_registry_job
 from tools.bash_tool.prompt import BASH_TOOL_NAME, DESCRIPTION, describe
 from tools.bash_tool.runner import (
 	finish_streaming,
+	parse_only,
+	prologue_applied,
 	shell_display_name,
 	spawn_streaming,
 )
@@ -259,6 +261,46 @@ def classify_failure_kind(out: "BashOutput", content: str) -> str | None:
 	if "parsererror" in low or "syntax error" in low or "语法错误" in content:
 		return INVALID_ARGUMENT
 	return None
+
+
+#: 失败结果的**来源归因**（谁写的这段文本错了）。**默认开**（2026-10-11 并入主链路）：
+#: 2026-10-10 实测本机撞到过这类失败——回显是"引擎前缀+我的命令"的拼接串，分辨不出谁错。
+#: 代价：只在**失败**时多一次"只解析不执行"的对照（零副作用，不重跑命令）；
+#: 成功路径一个字不加。显式设 ``0`` 退回旧行为。
+ENV_ERROR_ORIGIN = "XEYO_BASH_ERROR_ORIGIN"
+
+
+def error_origin_enabled() -> bool:
+	from engine.flag_definitions import enabled
+	return enabled(ENV_ERROR_ORIGIN)
+
+
+def classify_error_origin(
+	*,
+	command: str,
+	kind: str | None,
+	spawn_failed: bool,
+) -> str:
+	"""这条错误来自哪一段：请求命令本身 / 引擎前缀 / 引擎启动 / 判不了。
+
+	引擎会在命令前拼一句 UTF-8 编码设置（runner._UTF8_PREFIX）——执行体是**拼接后**的串，
+	报错回显也是拼接后的串，模型无法区分"我写错了"与"引擎改动了我命令的含义"（2026-10-10
+	实测：`cd X && $a = 1` 的 ParserError，回显里看不出前段不是自己写的）。
+
+	判据是**可证伪**的，不靠猜偏移：解析错误时用 runner.parse_only 对**去掉前缀的原文**
+	做一次"只解析不执行"的对照（解析失败早于执行 ⇒ 零副作用）。两种做法被否决：
+	①偏移启发式（编码/口径会漂）；②重跑对照（命令若只是输出里含语法错字样，重跑会重复副作用）。
+	"""
+	if spawn_failed:
+		return "harness_launch"
+	if kind != INVALID_ARGUMENT or not prologue_applied(command):
+		return "requested_command"
+	clean = parse_only(command)
+	if clean is True:
+		return "harness_prologue"
+	if clean is False:
+		return "requested_command"
+	return "unknown"
 
 
 def _docker_exec_with_timeout(
@@ -574,6 +616,8 @@ class BashOutput:
 	promoted_after_ms: int = 0
 	persisted_path: str | None = None
 	no_output_expected: bool = False
+	#: 本次失败是**引擎自己没能启动进程**（不是命令跑失败）：归因事实的输入之一。
+	spawn_failed: bool = False
 
 
 def parse_input(raw: dict[str, Any]) -> BashInput:
@@ -931,6 +975,7 @@ class BashTool:
 			return_code_interpretation=msg,
 			persisted_path=persisted,
 			no_output_expected=expect_no_output(inp.command),
+			spawn_failed=bool(result.spawn_failed),
 		)
 
 	def _venv_fact_line(self) -> str:
@@ -1219,15 +1264,42 @@ class BashTool:
 		_note_read_evidence(
 			inp.command, cwd=work, content=result.content, is_error=result.is_error
 		)
-		from engine.execution_facts import enabled as fact_contracts
+		from engine.execution_facts import (
+			completeness_facts_enabled,
+			enabled as fact_contracts,
+		)
+
+		meta: dict[str, Any] = dict(result.metadata or {})
 		if fact_contracts():
 			result.status = "running" if out.background_task_id else ("error" if out.is_error else "ok")
-			result.metadata = {"exit_code": out.code,
-			                   "execution_complete": not (out.background_task_id or out.interrupted or out.timed_out)}
+			meta["exit_code"] = out.code
+			meta["execution_complete"] = not (out.background_task_id or out.interrupted or out.timed_out)
 		if result.is_error:
 			kind = classify_failure_kind(out, result.content)
 			if kind:
 				result.error_kind = kind
+		if error_origin_enabled() and (result.is_error or bool(out.spawn_failed)):
+			# 只失败时给：成功结果没有"谁错了"这回事（A/B 实测 def-3：成功也带 = 噪声）。
+			origin = classify_error_origin(
+				command=inp.command,
+				kind=result.error_kind,
+				spawn_failed=bool(out.spawn_failed),
+			)
+			meta["error_origin"] = origin
+			if origin == "harness_prologue":
+				# 只给信息：点明这一段不是模型写的 + 请求原文（否则模型只能从拼接串里猜）。
+				result.content = (
+					"[error origin: harness_prologue]"
+					f"[command as requested: {inp.command}]\n{result.content}"
+				)
+		if completeness_facts_enabled() and out.persisted_path:
+			# 截断事实（原文在盘）：与 tool_registry 的 spill 事实同形，收执侧同一出口。
+			meta["truncation"] = {
+				"truncated": True,
+				"kind": "bash_output",
+				"spill_path": out.persisted_path,
+			}
+		result.metadata = meta or None
 		return result
 
 	def _session_id(self) -> str:

@@ -106,8 +106,12 @@ class MessageStore:
 		"""
 		if self._api_cache is not None:
 			return self._api_cache
-		ordered = reorder_system_messages_around_tool_results(self._items)
-		ordered = discard_unpaired_tool_results(ordered)
+		from session.late_result_guard import displaced_calls
+		from session.recovery_result_chain import supersessions
+		ordered = self._items
+		if not displaced_calls(ordered) and not supersessions(ordered):
+			ordered = reorder_system_messages_around_tool_results(ordered)
+			ordered = discard_unpaired_tool_results(ordered)
 		if ordered is not self._items:
 			self._items = ordered
 			self._api_cache = None

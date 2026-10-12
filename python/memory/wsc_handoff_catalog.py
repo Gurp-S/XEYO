@@ -29,6 +29,8 @@ class Catalog:
         counts = Counter(identities)
         self.unique_ids = [uid for uid in dict.fromkeys(identities) if counts[uid] == 1]
         calls, results = {}, {}
+        from session.recovery_result_chain import supersessions
+        replaced = {(prior, uid) for (_actual, uid), prior in supersessions(sources).items()}
         self.records = []
         for index, row in enumerate(sources):
             identity = row.get("message_id") or row.get("id")
@@ -45,7 +47,8 @@ class Catalog:
             for result in tool_result_blocks(row):
                 uid = result.get("tool_use_id")
                 if isinstance(uid, str) and uid:
-                    results.setdefault(uid, []).append((index, result))
+                    if (index, uid) not in replaced:
+                        results.setdefault(uid, []).append((index, result))
                     result_ids.append(uid)
             if use_ids: record["tool_call_ids"] = use_ids
             if result_ids: record["tool_result_call_ids"] = result_ids
@@ -57,13 +60,13 @@ class Catalog:
             execution = receipts[0][1].get("execution") or {}
             if not isinstance(execution, dict) or execution.get("complete") is False or execution.get("status") == "cancelled": continue
             self.verification_ids.append(uid)
-        eligible = set(self.verification_ids)
+        eligible = {uid: results[uid][0][0] for uid in self.verification_ids}
         from memory.wsc_handoff_facts import committed_facts
         declarations = committed_facts(sources)
         for record in self.records:
             if str(record["message_id"]) in declarations:
                 record["committed_task_fields"] = declarations[str(record["message_id"])]
-            observed = [uid for uid in record.get("tool_result_call_ids", []) if uid in eligible]
+            observed = [uid for uid in record.get("tool_result_call_ids", []) if eligible.get(uid) == record['source']]
             if observed: record["verification_call_ids"] = observed
 
     def initial(self):
@@ -75,11 +78,14 @@ class Catalog:
             order = []
             if snapshot.observed and snapshot.checkpoint is not None and snapshot.active_count:
                 order.append(snapshot.checkpoint_source)
+                # New evidence is a delta from this checkpoint. Old bound IDs
+                # and tool floods cannot fill the page before its newest row.
+                order.extend(reversed(range(snapshot.checkpoint_source + 1, len(self.records))))
                 bound = set(snapshot.checkpoint["context_message_ids"])
                 order.extend(i for i, record in enumerate(self.records) if str(record["message_id"]) in bound)
             order.extend([i for i, row in enumerate(self.sources)
                           if row.get("role") in {"user", "human"} and not row.get("note_key")][-8:])
-            order.extend(range(max(0, len(self.records) - INITIAL_RECORDS), len(self.records)))
+            order.extend(reversed(range(max(0, len(self.records) - INITIAL_RECORDS), len(self.records))))
         selected, size = [], 0
         for index in dict.fromkeys(order):
             record = self.records[index]
@@ -96,7 +102,7 @@ class Catalog:
         start, limit = arguments["start"], arguments["limit"]
         role, query = arguments.get("role"), arguments.get("query")
         if (type(start) is not int or start < 0 or type(limit) is not int or not 1 <= limit <= 16
-                or ("role" in arguments and role not in {"user", "human", "assistant", "tool", "system"})
+                or ("role" in arguments and (not isinstance(role, str) or role not in {"user", "human", "assistant", "tool", "system"}))
                 or ("query" in arguments and (not isinstance(query, str) or not 1 <= len(query) <= 256))):
             raise ValueError("handoff_catalog_invalid_arguments")
         selected, size, cursor = [], 0, min(start, len(self.records))

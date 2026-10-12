@@ -87,8 +87,8 @@
    "sha256": "cf4f72a37b22ee88c3679bbee3129dce06df159a4eff35237e329341ea467568"
   },
   "loop/multi_turn": {
-   "chars": 65,
-   "sha256": "f0a5bbe1b3952bebbc801a5018f27301db98ee3fa5b61e99ee19188861a1f10c"
+   "chars": 175,
+   "sha256": "d3cf8746b75b4dc95b582a4863554c4b33dac97784bb41e1bd9e2da3676573df"
   },
   "loop/plain_text": {
    "chars": 103,

@@ -2,10 +2,13 @@
 import json
 
 from synaptic.textutil import tool_use_blocks, tool_result_blocks
+from synaptic.receipt_payload import invocation
 
 
 def collect(messages, call_ids, before, *, inline_bytes=16000):
     uses, results = {}, {}
+    from session.recovery_result_chain import supersessions
+    observations_replaced = {(prior, uid) for (_actual, uid), prior in supersessions(messages[:before]).items()}
     for index, message in enumerate(messages[:before]):
         for block in tool_use_blocks(message):
             uid = block.get("id")
@@ -13,6 +16,8 @@ def collect(messages, call_ids, before, *, inline_bytes=16000):
                 uses.setdefault(uid, []).append((index, block))
         for block in tool_result_blocks(message):
             uid = block.get("tool_use_id")
+            if (index, str(uid)) in observations_replaced:
+                continue
             if isinstance(uid, (str, int)) and uid:
                 results.setdefault(uid, []).append((index, block))
     observations, unknown, nodes = [], [], []
@@ -27,8 +32,9 @@ def collect(messages, call_ids, before, *, inline_bytes=16000):
         size = len(json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8"))
         inline = size <= min(2048, remaining)
         remaining -= size if inline else 0
+        input_fields, remaining = invocation(calls[0][1].get("input"), calls[0][0], remaining)
         observations.append({"call_id": uid, "source": index, "tool": calls[0][1].get("name"),
-            "input": calls[0][1].get("input"), "is_error": receipt.get("is_error"),
+            **input_fields, "is_error": receipt.get("is_error"),
             "execution": receipt.get("execution"), "result_bytes": size, "result_inline": inline,
             **({"result": payload} if inline else {})})
         nodes.extend((calls[0][0], index))

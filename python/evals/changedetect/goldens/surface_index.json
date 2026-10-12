@@ -149,11 +149,11 @@
    "sha256": "ecd59ab404291cbe6242cb35065f908e7ce306ef4e8b41bfe3123cb76731b986"
   },
   "tools/Edit": {
-   "chars": 513,
+   "chars": 678,
    "file": "tools__Edit.txt",
    "group": "tools",
    "note": "工具 schema（决定模型怎么调）",
-   "sha256": "9c8b6f53bf1c8df5f91ac23b1610b215c84d71dc423a409f46bf8f5df0fbc188"
+   "sha256": "e35b0f0075bdf76c817e81d02e4ac6bd065e7ec86822348ba4d5e8812853b641"
   },
   "tools/Git": {
    "chars": 613,
@@ -177,11 +177,11 @@
    "sha256": "7e4d961d33fd86d8c4fd5b0661b2977ac45eb1a891866b161a030863ae2e66a8"
   },
   "tools/JournalQuery": {
-   "chars": 507,
+   "chars": 782,
    "file": "tools__JournalQuery.txt",
    "group": "tools",
    "note": "工具 schema（决定模型怎么调）",
-   "sha256": "2618ae79c8059417c6a2d2af2a1f3e031c18283ae23ec87ddd33165176eb32d5"
+   "sha256": "751fc265a438eaeec7ef88801d3d103e7378f431d50c1c7b7b49111eb7af524a"
   },
   "tools/Memory": {
    "chars": 867,
@@ -191,18 +191,18 @@
    "sha256": "d54435670290ec93c1cc4b2a8da42acba721257997cfa2b8ea8f5443312fbe2b"
   },
   "tools/NotebookEdit": {
-   "chars": 698,
+   "chars": 863,
    "file": "tools__NotebookEdit.txt",
    "group": "tools",
    "note": "工具 schema（决定模型怎么调）",
-   "sha256": "72c53e848f23f7fe1e9c1b046ab46b05677b52e53615bf3cfbf3b57aa61bf023"
+   "sha256": "3102099b89ab4e053d5d28e4b32724b49731ed3300bb47ad1b839711485c8bcf"
   },
   "tools/Read": {
-   "chars": 799,
+   "chars": 963,
    "file": "tools__Read.txt",
    "group": "tools",
    "note": "工具 schema（决定模型怎么调）",
-   "sha256": "82164051995b2f25fde7b67373fc2c5c46298c934ca37392c285de3b82733b28"
+   "sha256": "1a4d486729d4d9cd3144ef325600bf0d41d353a35aa0473d1ab2cad3b9a5a6af"
   },
   "tools/Screenshot": {
    "chars": 407,
@@ -247,11 +247,11 @@
    "sha256": "13d64cd75aa8af66471d176c6d6cfd8e3cb422784b642df154d9b84d0a7964d4"
   },
   "tools/Write": {
-   "chars": 305,
+   "chars": 470,
    "file": "tools__Write.txt",
    "group": "tools",
    "note": "工具 schema（决定模型怎么调）",
-   "sha256": "5c2da7f62d5627ab15436fa23c2e008010ced3cfd10ebd9ad8c823c2079e7461"
+   "sha256": "3aaff899bad78794243e1647b349089b38c95da2eb8cecd87d37f68f4ae752b4"
   },
   "tools/XeyoUI": {
    "chars": 934,

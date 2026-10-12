@@ -36,6 +36,10 @@ class NotebookEditTool:
 		self._read_state = read_state or ReadFileState()
 		self._write_store: Any | None = None
 		self._agent_id: str = "main"
+		self._session_id = ""
+
+	def set_session_id(self, session_id: str | None) -> None:
+		self._session_id = session_id or ""
 
 	def set_read_file_state(self, state: ReadFileState) -> None:
 		self._read_state = state
@@ -55,7 +59,7 @@ class NotebookEditTool:
 		return False
 
 	def schema(self) -> dict[str, Any]:
-		return {
+		schema = {
 			"name": self.name,
 			"description": DESCRIPTION,
 			"input_schema": {
@@ -94,11 +98,19 @@ class NotebookEditTool:
 			},
 		}
 
+		from tools.fileio.validation import extend_schema
+		return extend_schema(schema)
+
 	def check_permissions(self, input_data: dict[str, Any], context: Any = None) -> bool:
 		return filesystem.check_write_permission_for_tool(self, input_data, context)
 
 	def _persist(self, full: str, content: str, *, encoding: str = "utf-8") -> None:
 		"""落盘；``encoding`` 沿用读侧判定（2026-10-05）——带 BOM 的 .ipynb 写回不丢 BOM。"""
+		from engine.harness_policy import enabled
+		if enabled("XEYO_HARNESS_WRITES"):
+			from engine.write_transaction import persist_candidate
+			persist_candidate(self, full, content, encoding=encoding, line_endings="LF")
+			return
 		if self._write_store is None:
 			# 与 file_edit_tool 同款兜底：子 agent（write_scope 激活）必须经
 			# WriteStore，禁止静默直写——多 agent 写隔离唯一旁路（G129）。
@@ -146,6 +158,9 @@ class NotebookEditTool:
 	) -> ToolResult:
 		abort.raise_if_aborted()
 		raw = input or {}
+		self._validation_policy = str(raw.get("validation_policy", "draft"))
+		if self._validation_policy not in {"draft", "strict"}:
+			return ToolResult(content="invalid_argument: validation_policy", is_error=True)
 		nb_path = str(raw.get("notebook_path") or "").strip()
 		mode = str(raw.get("edit_mode") or "").strip().lower()
 		if not nb_path:
@@ -194,6 +209,8 @@ class NotebookEditTool:
 
 		abort.raise_if_aborted()
 		created = False
+		self._mutation_base = None
+		self._mutation_checks = {}
 		if not _fsprobe.exists(full):
 			if mode != "insert":
 				return ToolResult(content=f"notebook not found: {full}", is_error=True)
@@ -239,6 +256,7 @@ class NotebookEditTool:
 				return ToolResult(content=str(e), is_error=True)
 			try:
 				nb = json.loads(text)
+				self._mutation_base = text
 			except json.JSONDecodeError as e:
 				return ToolResult(
 					content=f"invalid notebook JSON: {e}",
@@ -358,6 +376,9 @@ class NotebookEditTool:
 			f"\ncells_now={n_after}; valid cell_idx 0..{max(0, n_after - 1)} "
 			f"(insert omits cell_idx to append; default cell_type=code)."
 		)
+		checks = getattr(self, "_mutation_checks", {})
+		if checks:
+			footer += "\nvalidation=" + json.dumps(checks, separators=(",", ":"))
 		return ToolResult(content=summary + preview + footer, is_error=False)
 
 

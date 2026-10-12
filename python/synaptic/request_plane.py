@@ -11,7 +11,7 @@ ENV = "XEYO_WSC_REQUEST_PROJECTION"
 
 
 def enabled():
-    from memory.wsc_main_policy import enabled as main_enabled
+    from synaptic.main_policy import enabled as main_enabled
     return main_enabled()
 
 
@@ -19,7 +19,7 @@ def project_requests(seeds, graph, messages, region_end, snapshot, dropped=()):
     # The API role and structured note metadata identify carriers. Short human
     # follow-ups are accepted; no semantic task-switch or completion inference.
     users = []
-    from memory.wsc_main_policy import enabled as continuity_enabled
+    from synaptic.main_policy import enabled as continuity_enabled
     lossless = continuity_enabled()
     identities = {}
     for node in graph.nodes:

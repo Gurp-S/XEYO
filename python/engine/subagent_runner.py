@@ -356,13 +356,12 @@ async def _run_subagent_body(
     started_ts = time.time()
     # 续跑：若同 agent_id 侧链已有对话，接着跑，避免把 Glob/Read 再做一遍。
     sidechain = _sidechain_path(main_session_id, agent_id)
-    prior_msgs: list[Any] = []
-    try:
-        from session.hydrate import messages_from_transcript
+    from session.hydrate import messages_from_transcript
+    from memory.agent_scope import scoped_session_id
 
-        prior_msgs = messages_from_transcript(sidechain)
-    except Exception:  # noqa: BLE001
-        prior_msgs = []
+    # Missing source is an empty first run; failed recovery is not.
+    prior_msgs = messages_from_transcript(sidechain,
+        session_id=scoped_session_id(main_session_id, agent_id))
     if prior_msgs:
         # 侧链已有对话：追加一轮极短续跑触发，由历史本身承接上下文。
         sub_store = MessageStore(

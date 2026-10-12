@@ -50,7 +50,7 @@ _stop = False
 
 
 def _max_transcript_bytes() -> int:
-	"""单文件上限；超过即轮转（保留 2 代归档，可跨轮转恢复）。
+	"""单文件轮转水位；两个归档槽满后继续追加，不自动删除来源。
 
 	默认 32MB，可用 XEYO_TRANSCRIPT_MAX_BYTES 覆盖（下限 1MB）。
 	"""
@@ -81,8 +81,10 @@ def rotated_transcript_path(path: Path) -> Path:
 
 
 def _maybe_rotate(path: Path) -> None:
-	"""写前检查：超过上限则把当前文件挪入归档链（.old1←current，依次后移），
-	最旧一代删除；新写入从空文件开始。
+	"""水位以上且有空槽时轮转；槽满则保留全部来源并继续追加。
+
+	删除旧行会改变恢复后的消息位置及其检查点引用。轮转不是历史
+	退休的权威；无完整来源迁移证明时不能用文件大小删除旧归档。
 	"""
 	try:
 		if not path.is_file() or path.stat().st_size <= _max_transcript_bytes():
@@ -90,7 +92,7 @@ def _maybe_rotate(path: Path) -> None:
 		olds = rotated_transcript_paths(path)
 		oldest = olds[0]
 		if oldest.is_file():
-			oldest.unlink()
+			return
 		for i in range(len(olds) - 1):
 			if olds[i].is_file():
 				os.replace(olds[i], olds[i + 1])
@@ -164,8 +166,8 @@ def _write_batch(batch: list[tuple[int, str, str]]) -> None:
 		# rotate + append 同一临界区,杜绝与 sync 直写交错(G107)
 		with _disk_lock:
 			p.parent.mkdir(parents=True, exist_ok=True)
-			if path in _retry_paths:
-				from session.transcript_retry import reconcile_retry
+			from session.transcript_retry import needs_tail_repair, reconcile_retry
+			if path in _retry_paths or needs_tail_repair(p):
 				lines = reconcile_retry(p, transcript_read_paths(p), lines)
 			if lines:
 				_maybe_rotate(p)
@@ -248,9 +250,12 @@ def _resolve_known_ids(path: Path, known_ids: set[str] | None) -> set[str]:
 	"""返回去重集合：优先复用调用方传入的 known_ids，并写入路径级缓存。"""
 	key = str(path)
 	if known_ids is not None:
-		_known_ids_cache[key] = known_ids
-		if not known_ids and path.is_file():
+		previous = _known_ids_cache.get(key)
+		# Visibility after rewind is not the append-origin identity namespace.
+		# Refresh once when a caller installs a new collection, even if nonempty.
+		if known_ids is not previous:
 			known_ids.update(_load_written_ids(path))
+		_known_ids_cache[key] = known_ids
 		return known_ids
 	cached = _known_ids_cache.get(key)
 	if cached is not None:
@@ -261,29 +266,16 @@ def _resolve_known_ids(path: Path, known_ids: set[str] | None) -> set[str]:
 
 
 def _load_written_ids(path: Path) -> set[str]:
+	from session.transcript_identity import observe, loaded
 	known: set[str] = set()
 	for p in transcript_read_paths(path):
-		if not p.is_file():
-			continue
-		try:
-			# 逐行按字节解码：进程在 append 中途被强杀会留下半个 UTF-8 序列，
-			# 文本模式一遇坏字节就整文件抛 UnicodeDecodeError（不是 OSError）⇒
-			# 该会话之后每一次落盘都失败。坏行只丢它自己，与下面
-			# JSONDecodeError 的"跳过这一行"同一口径。
-			with p.open("rb") as f:
-				for raw in f:
-					line = raw.decode("utf-8", errors="replace").strip()
-					if not line:
-						continue
-					try:
-						obj = json.loads(line)
-					except json.JSONDecodeError:
-						continue
-					mid = obj.get("id")
-					if isinstance(mid, str) and mid:
-						known.add(mid)
-		except OSError:
-			continue
+		rows = load_transcript(p, strict=True)
+		observe(path, rows)
+		for obj in rows:
+			mid = obj.get("id")
+			if isinstance(mid, str) and mid:
+				known.add(mid)
+	loaded(path)
 	return known
 
 
@@ -294,7 +286,8 @@ def _append_new_messages(
 	known: set[str],
 ) -> int:
 	"""追加未写过的消息，返回新写入条数。"""
-	pending = [m for m in messages if m.id and m.id not in known]
+	from session.transcript_retry import pending_messages
+	pending = pending_messages(messages, known)
 	if not pending:
 		return 0
 
@@ -339,8 +332,11 @@ async def record_transcript(
 
 	target = path or default_transcript_path(session_id)
 	known = _resolve_known_ids(target, known_ids)
+	from session.transcript_identity import validate_known, accepted
+	validate_known(target, messages, known)
 
-	pending = [m for m in messages if m.id and m.id not in known]
+	from session.transcript_retry import pending_messages
+	pending = pending_messages(messages, known)
 	if not pending:
 		submit_async_append(str(target), [])
 		return 0
@@ -348,6 +344,7 @@ async def record_transcript(
 		json.dumps(message_to_dict(m, anchor=target), ensure_ascii=False) + "\n"
 		for m in pending
 	]
+	accepted(target, rows)
 	# known reserves accepted rows, including recoverable failed appends.
 	# Only a successful flush certifies that these rows reached disk.
 	for m in pending:
@@ -370,7 +367,10 @@ def record_transcript_sync(
 
 	target = path or default_transcript_path(session_id)
 	known = _resolve_known_ids(target, known_ids)
-	pending = [m for m in messages if m.id and m.id not in known]
+	from session.transcript_identity import validate_known, accepted
+	validate_known(target, messages, known)
+	from session.transcript_retry import pending_messages
+	pending = pending_messages(messages, known)
 	if not pending:
 		if not flush_pending_sync():
 			raise OSError("transcript append incomplete")
@@ -379,6 +379,7 @@ def record_transcript_sync(
 		json.dumps(message_to_dict(m, anchor=target), ensure_ascii=False) + "\n"
 		for m in pending
 	]
+	accepted(target, rows)
 	# 同步调用方也进入同一全局有序队列。此前这里直写文件，而普通
 	# record_transcript() 走后台队列，导致 system 留痕可能插入一个多工具
 	# 批次的两个 role=tool 行之间，重启后上游会返回 400。
@@ -390,22 +391,31 @@ def record_transcript_sync(
 	return len(pending)
 
 
-def load_transcript(path: Path) -> list[dict[str, Any]]:
-	"""读取 JSONL，返回 dict 列表（resume 时再用）。"""
-	if not path.is_file():
+def load_transcript(path: Path, *, strict: bool = False) -> list[dict[str, Any]]:
+	"""Read rows; execution recovery rejects corrupt complete rows.
+
+	An invalid final append without a newline is not a committed row.
+	Display readers retain their existing tolerant decoding by default.
+	"""
+	try:
+		stream = path.open("rb")
+	except FileNotFoundError:
 		return []
 	out: list[dict[str, Any]] = []
-	# 与 _load_written_ids 同口径：坏字节只报废它所在的那一行，绝不因
-	# UnicodeDecodeError 让整份转录打不开（resume / session_pool 会直接 500）。
-	with path.open("rb") as f:
-		for raw in f:
-			line = raw.decode("utf-8", errors="replace").strip()
-			if not line:
-				continue
+	with stream as f:
+		for number, raw in enumerate(f, 1):
 			try:
-				out.append(json.loads(line))
-			except json.JSONDecodeError:
+				line = raw.decode("utf-8", errors="strict" if strict else "replace").strip()
+				if not line:
+					continue
+				row = json.loads(line)
+			except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+				if strict and raw.endswith(b"\n"):
+					raise ValueError(f"transcript_corrupt_row: line={number}") from exc
 				continue
+			if strict and not isinstance(row, dict):
+				raise ValueError(f"transcript_invalid_row: line={number}")
+			out.append(row)
 	return out
 
 

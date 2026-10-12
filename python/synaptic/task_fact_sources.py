@@ -38,7 +38,8 @@ def resolve(messages, identity, field, quote):
         snapshot = latest_todo_snapshot(prefix)
         if not snapshot.observed or not snapshot.active_count or snapshot.checkpoint is None or snapshot.checkpoint_source != index:
             continue
-        for fact in snapshot.checkpoint[field]:
+        from synaptic.task_phase import applicable
+        for fact in applicable(snapshot.checkpoint, field):
             if isinstance(fact, str) and fact == quote:
                 return (*chain, index)
             if (isinstance(fact, dict) and fact.get("quote") == quote

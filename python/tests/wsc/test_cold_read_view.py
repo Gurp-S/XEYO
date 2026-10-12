@@ -43,6 +43,11 @@ _TRICKY = {
 
 #: `add_line_numbers` 的前缀形态：右对齐 6 宽 + `→`（`tools/fileio/text.py:129-141`）。
 _LINENO_PREFIX = re.compile(r"^\s*\d+→")
+_STRUCTURE_METADATA = re.compile(
+	r"\n\n<system-reminder>The file has \d+ lines; "
+	r"a structure view \(line-numbered entries\) is available by reading "
+	r"it without offset/limit, or one symbol body via symbol=\.</system-reminder>$"
+)
 
 
 def _lf(text: str) -> str:
@@ -51,8 +56,17 @@ def _lf(text: str) -> str:
 
 
 def _strip_line_numbers(visible: str) -> str:
-	"""剥掉 `cat -n` 前缀，还原内容行。"""
-	return "\n".join(_LINENO_PREFIX.sub("", ln) for ln in visible.split("\n"))
+	"""还原编号正文；仅剥工具追加的已知、未编号结构视图元数据。"""
+	body = _STRUCTURE_METADATA.sub("", visible)
+	return "\n".join(_LINENO_PREFIX.sub("", ln) for ln in body.split("\n"))
+
+
+def test_numbered_literal_reminder_survives_metadata_separation():
+	literal = ("<system-reminder>The file has 1000 lines; a structure view "
+	           "(line-numbered entries) is available by reading it without offset/limit, "
+	           "or one symbol body via symbol=.</system-reminder>")
+	visible = "     1→" + literal + "\n\n" + literal
+	assert _strip_line_numbers(visible) == literal
 
 
 def _store() -> ColdStore:

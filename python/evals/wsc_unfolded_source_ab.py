@@ -27,6 +27,7 @@ def environment(root):
             else:
                 os.environ[key] = value
         os.environ.update(XEYO_HOME=str(root / "home"), XEYO_SESSIONS_DIR=str(root / "sessions"),
+            XEYO_USAGE_DIR=str(root / "usage"),
             XEYO_SPILL_DIR=str(root / "spill"), XEYO_WSC_OFFLINE="1",
             XEYO_WSC_TASK_CONTINUITY="1", XEYO_WSC_REQUEST_PROJECTION="1",
             XEYO_WSC_STATE_CONTRACTS="1", XEYO_TOOL_OFFLOAD="0", XEYO_WSC_SIZE_PRUNE="0")

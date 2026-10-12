@@ -1,4 +1,5 @@
 import json
+import pytest
 
 from tests.wsc.test_task_continuity import receipt, task
 from tests.wsc._fixtures import msg_asst_use, msg_tool
@@ -73,3 +74,39 @@ def test_large_terminal_receipt_is_recoverable_by_real_read(tmp_path):
     first, last = ranges[node_group_handle((bound["source"],))]
     result = tool_read({"file_path": output.view_path, "offset": first, "limit": last-first+1}, tmp_path)
     assert not result["is_error"] and body in result["content"]
+
+
+@pytest.mark.parametrize("status", ["in_progress", "completed"])
+def test_large_verification_input_has_separate_exact_recall_and_keeps_result(tmp_path, status):
+    from copy import deepcopy
+    from evals.stale_goal_ab import tool_read
+    from synaptic.coldstore import node_group_handle
+    command = "源文件内容🙂\\n" * 1400
+    rows = [msg_asst_use("verify-large-input", "Edit", {"new_string": command}),
+            msg_tool("verify-large-input", "Edit", "verification failed", is_error=True)]
+    rows += receipt("state", [task("verify", status)],
+                    {"objective": "当前任务", "verification_call_ids": ["verify-large-input"]})
+    before = deepcopy(rows)
+    output = project(rows, region_end=len(rows), params=production_params(), view_path=tmp_path / "cold.txt")
+    state = state_of(output)
+    scope = state if status == "in_progress" else state["terminal_task"]
+    bound = scope["verification_receipts"][0]
+    assert bound["input_inline"] is False and "input" not in bound
+    assert bound["result"] == "verification failed" and bound["is_error"] is True
+    assert "调用来源=" in output.text and command not in output.text
+    _, ranges = output.cold.render_text_view()
+    first, last = ranges[node_group_handle((bound["input_source"],))]
+    recovered = tool_read({"file_path": output.view_path, "offset": first, "limit": last-first+1}, tmp_path)
+    assert not recovered["is_error"]
+    assert json.dumps(command, ensure_ascii=False)[1:-1] in recovered["content"] or command in recovered["content"]
+    assert rows == before
+
+
+def test_verification_inputs_and_results_share_total_byte_allowance():
+    from synaptic.task_verification import collect
+    rows = evidence("a", "small-result", False) + evidence("b", "small-result", False)
+    receipts, unknown, nodes = collect(rows, ["a", "b"], len(rows), inline_bytes=55)
+    assert not unknown and len(nodes) == 4
+    assert all("input_source" in row for row in receipts)
+    assert sum(row["result_bytes"] for row in receipts if row["result_inline"]) + sum(
+        row["input_bytes"] for row in receipts if row["input_inline"]) <= 55

@@ -298,6 +298,12 @@ class TodoWriteTool:
 					for key in ("context_message_ids", "decisions", "constraints", "verification_call_ids")},
 			}
 			result["input_schema"]["properties"]["checkpoint"]["properties"]["objective"] = {"type": "string"}
+			from synaptic.task_observations import enabled as observations_enabled, schema as observation_schema
+			if observations_enabled():
+				from synaptic.task_phase import schema as phase_schema
+				properties = result["input_schema"]["properties"]["checkpoint"]["properties"]
+				properties["observations"] = observation_schema()
+				properties["phase_state"] = phase_schema()
 		return result
 
 	def _materialization_facts(self, todos: list[TodoItem]) -> str:

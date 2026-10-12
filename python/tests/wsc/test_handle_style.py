@@ -76,7 +76,7 @@ def hard_read(tmp_path):
 	msgs = _session()
 	params = replace(default_params(level="Hard"), handle_style="read")
 	proj = project(msgs, region_end=len(msgs), params=params, view_path=view)
-	return proj, view, msgs
+	return proj, Path(proj.view_path), msgs
 
 
 @pytest.fixture()
@@ -91,7 +91,8 @@ def hard_read_rel(tmp_path):
 	params = replace(default_params(level="Hard"), handle_style="read")
 	ref = view.relative_to(tmp_path).as_posix()
 	proj = project(msgs, region_end=len(msgs), params=params, view_path=view, view_ref=ref)
-	return proj, view, ref
+	actual = Path(proj.view_path)
+	return proj, actual, actual.relative_to(tmp_path).as_posix()
 
 
 def _renderer(proj, view: Path) -> HandleRenderer:
@@ -100,10 +101,11 @@ def _renderer(proj, view: Path) -> HandleRenderer:
 	测试不去偷 `project()` 的内部变量：区间表是**冷层的函数**，重建它才是「渲染 ↔ 取回」
 	这条链路的真实校验（若重建结果与投影时不同，下面的逐字节比对就会红）。
 	"""
-	ranges = proj.cold.write_text_view(view)
+	text, ranges = proj.cold.render_text_view()
+	assert view.read_text(encoding="utf-8") == text
 	return HandleRenderer(
 		style="read",
-		path=str(view),
+		path=view.as_posix(),
 		node_ranges=ranges,
 		handle_nodes=dict(proj.cold.handles),
 	)
@@ -122,7 +124,7 @@ def test_read_style_hot_layer_exposes_read_refs_only(hard_read):
 	refs = _refs(proj.text)
 	assert refs, "热层没有渲染出任何取回引用"
 	assert "expand(" not in proj.text, "read 档下仍渲染了 expand 形态（本用例所有句柄都有区间）"
-	assert {p for p, _o, _l in refs} == {str(view)}, "引用指向的路径不是取回视图"
+	assert {Path(p) for p, _o, _l in refs} == {view}, "引用指向的路径不是取回视图"
 
 
 def test_read_refs_retrieve_the_node_text_they_stand_for(hard_read, tmp_path):
@@ -186,27 +188,29 @@ def test_requests_coverage_audit_survives_read_style(hard_read):
 		f"旧（形态盲）解析器也认全了 {total} 条 —— 热层里没有 Read 形态的句柄，本用例失效"
 	)
 
-	# 同源解析（生产口径）认得出这些句柄：认全 `seeds.user_nodes`，只差**那个 pin 节点**
-	# （首个用户节点渲染成 [CONSTRAINTS] 的「目标」，不占 [REQUESTS] 行；assemble 的审计
-	# 同样把它单独补进分子 —— 这里按同一口径对齐，不然就是自己另造一个分母）。
-	request_nodes, pin = _request_nodes(_msgs)
+	# 同源解析认全REQUESTS及最终种子中已由PIN承载的当前请求。
+	# 当前请求来源由project_requests绑定，不能假定它是首条历史消息。
+	request_nodes, pin = _request_nodes(_msgs, proj.seeds)
 	assert len(request_nodes) == total, f"测试重建的分母与审计分母不同源：{len(request_nodes)} vs {total}"
 	wired = rendered_request_nodes(items, handles=_renderer(proj, view))
-	assert not (request_nodes - wired - {pin}), (
-		f"[REQUESTS] 行里没有出口的用户节点：{sorted(request_nodes - wired - {pin})}"
+	assert not (request_nodes - wired - pin), (
+		f"[REQUESTS] 行里没有出口的用户节点：{sorted(request_nodes - wired - pin)}"
 	)
 
 
-def _request_nodes(msgs: list[dict]) -> tuple[set[int], int | None]:
-	"""重建 `assemble` 的审计分母：`seeds.user_nodes` 与首个 pin 节点。"""
+def _request_nodes(msgs: list[dict], projected_seeds) -> tuple[set[int], frozenset[int]]:
+	"""独立重建用户分母，跳过集取最终生产种子的request_skip。"""
 	from synaptic.filestate import build_file_states
 	from synaptic.graph import build_graph
-	from synaptic.seeds import collect_seeds
+	from synaptic.seeds import collect_seeds, request_skip
 
 	graph = build_graph(msgs)
 	seeds = collect_seeds(graph, msgs, build_file_states(graph, msgs))
 	nodes = {i for i in seeds.user_nodes if i < len(msgs)}
-	pin = seeds.pin_nodes[0] if seeds.pin_nodes and seeds.pin_nodes[0] in nodes else None
+	assert set(projected_seeds.user_nodes) == nodes
+	# project_requests/project_goals在初始种子收集后绑定当前请求；跳过来源
+	# 必须取最终生产种子，不能把首个历史用户节点重新假定成当前请求。
+	pin = request_skip(projected_seeds) & nodes
 	return nodes, pin
 
 
@@ -323,24 +327,25 @@ def _span_nodes(lines: list[str], off: int, lim: int) -> frozenset[int]:
 	return frozenset(idx for idx, a, b in _blocks(lines) if a <= end and b >= off)
 
 
-def _ref_nodes(lines: list[str], text: str) -> dict[str, frozenset[int]]:
-	"""头里每个 `Read(…)` 引用 → 它**在该视图下**覆盖的节点集合。"""
+def _ref_nodes(views: dict[str, list[str]], text: str) -> dict[str, frozenset[int]]:
+	"""每个Read引用按自身对象路径计算覆盖，不能用最新视图替代旧视图。"""
 	out: dict[str, frozenset[int]] = {}
 	for m in _READ_CALL.finditer(text):
-		out[m.group(0)] = _span_nodes(lines, int(m.group("offset")), int(m.group("limit")))
+		out[m.group(0)] = _span_nodes(views[m.group("path")], int(m.group("offset")), int(m.group("limit")))
 	return out
 
 
 def _walk_turns(msgs: list[dict], view: Path, *, carry_cold: bool):
-	"""逐轮投影（生产形态）：返回每轮的 (头文本, 该轮视图行)。
+	"""逐轮投影：返回每轮(头文本, 按实际引用路径分组的视图行)。
 
 	`carry_cold=True` 时把冷层与 `AssemblyState` **一起**跨轮携带（接线要求）；
-	`False` 模拟「只传状态、每轮新建冷层」——用于证明这条要求不是摆设。
+	`False` 模拟只传状态/重建冷选择集，已发布引用仍绑定原对象。
 	"""
 	params = replace(default_params(level="Hard"), handle_style="read")
 	prev = None
 	cold = None
 	out = []
+	published = {}
 	for t in range(12, len(msgs) + 1, 4):
 		proj = project(
 			msgs[:t], region_end=t, params=params, prev=prev, cold=cold, view_path=view
@@ -348,7 +353,17 @@ def _walk_turns(msgs: list[dict], view: Path, *, carry_cold: bool):
 		prev = proj.state
 		if carry_cold:
 			cold = proj.cold
-		out.append((proj.text, view.read_text(encoding="utf-8").split("\n")))
+		views = {}
+		for path, _offset, _limit in _refs(proj.text):
+			data = Path(path).read_bytes()
+			if path in published:
+				assert data == published[path], "既有冷对象字节被修改"
+			published.setdefault(path, data)
+			views[path] = data.decode("utf-8").split("\n")
+		out.append((proj.text, views))
+	# 最后一次构建后重新核对每一份已发射对象，不只比较构建时副本。
+	for path, data in published.items():
+		assert Path(path).read_bytes() == data
 	return out
 
 
@@ -356,9 +371,8 @@ def test_cross_turn_refs_keep_pointing_at_their_nodes(tmp_path):
 	"""头里第 3 轮写的引用，到第 9 轮**必须还指向同一个节点**。
 
 	为什么这条不能只靠单轮测试：头是 `assemble` 的 append-only 日志
-	（只为前缀稳定才存在），老行一直在；而取回视图是**重写**的。
-	两者一旦不同步，引用「自洽、能被解析、能取回内容」——只是**内容是别的节点**，
-	单轮往返比对（本文件 ①②③）**一条都测不出来**。
+	（只为前缀稳定才存在），老行一直在；新视图可以重排但须发布成新对象。
+	旧引用必须仍按自己的对象解析，不许用最新视图的同一行号替代。
 
 	实测（`_wsc_out/_stale_ref_probe.py`，synth 40 轮）：不修时 1047 条引用样本里
 	115 条含义漂移；修后 0 条。
@@ -383,22 +397,31 @@ def test_cross_turn_refs_keep_pointing_at_their_nodes(tmp_path):
 	assert len(prev_map) >= 20, f"最后一轮头里的引用太少（{len(prev_map)}）"
 
 
-def test_without_cold_carry_the_same_refs_drift(tmp_path):
-	"""接线要求的**另一半**：只传 `prev` 不够，冷层必须一起带。
+def test_without_cold_carry_published_references_remain_readable(tmp_path):
+	"""重新生成冷选择集也不能重定向或覆盖已发射的不可变对象。
 
-	留着这条负向断言的理由：它把「为什么必须在接线点携带冷层」变成可执行的证据。
-	若哪天视图结构上不再依赖携带（例如冷层落盘 + 真正 append-only），
-	本测试会红 —— 那时**删掉它**并在接线说明里更新，而不是让要求悬空。
+	该合同只证明旧引用可读，不证明新cold对象包含所有历史。
 	"""
 	view = tmp_path / ".xeyo_offload" / "wsc" / "cold.txt"
 	steps = _walk_turns(_session_long(), view, carry_cold=False)
 	prev_map: dict[str, frozenset[int]] = {}
-	drift = 0
+	carried = 0
 	for text, lines in steps:
 		cur = _ref_nodes(lines, text)
-		drift += sum(1 for ref, nodes in cur.items() if prev_map.get(ref, nodes) != nodes)
+		for ref, nodes in cur.items():
+			if ref in prev_map:
+				carried += 1
+				assert prev_map[ref] == nodes
 		prev_map = cur
-	assert drift > 0, "未携带冷层时竟不漂移 —— 接线要求变了，见本测试 docstring"
+	assert carried >= 20
+	# 最后一轮仍携带的旧出口须经真实Read取回，不能只验证节点索引。
+	tool = FileReadTool(cwd=str(tmp_path))
+	checked = 0
+	for path, offset, limit in _refs(steps[-1][0])[:20]:
+		got = _strip_line_numbers(_read(tool, Path(path), offset=offset, limit=limit))
+		assert got == _lf("\n".join(steps[-1][1][path][offset - 1:offset - 1 + limit]))
+		checked += 1
+	assert checked == 20
 
 
 def _session_long() -> list[dict]:
@@ -425,12 +448,26 @@ def test_rebase_keeps_displaced_head_snapshot_readable(tmp_path):
 	assert p2.result.rebuilt is True
 	handle = head_handle(p1.text)
 	assert p2.cold.expand(handle) == (p1.text,)
-	ranges = p2.cold.write_text_view(view)
-	hr = HandleRenderer(style="read", path=str(view), node_ranges=ranges)
+	actual = Path(p2.view_path)
+	_text, ranges = p2.cold.render_text_view()
+	hr = HandleRenderer(style="read", path=actual.as_posix(), node_ranges=ranges)
 	expr = hr.expression(handle)
 	assert expr in p2.text
 	_off, _lim = _refs(expr)[0][1:]
 	got = _strip_line_numbers(
-		_read(FileReadTool(cwd=str(tmp_path)), view, offset=_off, limit=_lim)
+		_read(FileReadTool(cwd=str(tmp_path)), actual, offset=_off, limit=_lim)
 	)
 	assert got == _lf(p1.text)
+
+
+def test_relative_refs_read_the_published_object(hard_read_rel, tmp_path):
+	proj, view, ref = hard_read_rel
+	assert view.is_file() and Path(proj.view_path) == view
+	refs = _refs(proj.text)
+	assert refs and {path for path, _offset, _limit in refs} == {ref}
+	assert ".v-sha256-" in ref
+	tool = FileReadTool(cwd=str(tmp_path))
+	lines = view.read_text(encoding="utf-8").split("\n")
+	for path, offset, limit in refs[:5]:
+		got = _strip_line_numbers(_read(tool, Path(path), offset=offset, limit=limit))
+		assert got == _lf("\n".join(lines[offset - 1:offset - 1 + limit]))

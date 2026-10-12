@@ -697,7 +697,7 @@ async def chat_completions(
 		and "__XEYO_DROP_STREAM__" in user_text
 	)
 
-	# 手动 /compact：不进模型循环，强制前进 C2 游标并回一条系统说明
+	# 手动 /compact：复用交接事务，成功提交后确定性折叠。
 	_compact_cmd = user_text.strip().lower()
 	if _compact_cmd in {"/compact", "compact", "/压缩"}:
 		# T39：与主路径同源双闸。先查 TurnRunner.is_running——权限等待久的 turn
@@ -734,18 +734,16 @@ async def chat_completions(
 				initial_messages=prior_messages or None,
 				workspace=_workspace_for(session_id, body),
 			)
-			# 统一斜杠命令：/compact 复用 slash.dispatch（与 CLI / 远程同源）。
-			from slash.dispatch import DispatchContext, dispatch as _dispatch_slash
+			# 与 slash/CLI 同源交接操作；此处已经持有会话租约。
+			from engine.manual_compaction import compact
+			from server.session_operation import keep_lease
 
-			_compact_res = _dispatch_slash(
-				"compact",
-				"",
-				ctx=DispatchContext(session_id=session_id, engine=engine),
-			)
-			note = _compact_res.message or "已请求压缩。"
-			_compact_payload = (
-				_compact_res.result if isinstance(_compact_res.result, dict) else {}
-			)
+			async with keep_lease(_pool, session_id, lease_id) as guard:
+				_compact_payload = await compact(engine,
+					cwd=_pool.session_cwd(session_id), guard=guard,
+					pending_stop=lambda: _pool.take_pending_interrupt(session_id))
+			note = ("已压缩。" if _compact_payload.get("advanced")
+				else "历史过短或无可压缩区间，未推进 cursor。")
 			after = int(_compact_payload.get("compact_cursor") or 0)
 			chars = int(_compact_payload.get("c2_summary_chars") or 0)
 

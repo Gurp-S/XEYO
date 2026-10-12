@@ -243,7 +243,7 @@ async def _run_loop_scenario(sc: LoopScenario) -> str:
     from engine.budget import BudgetTracker
     from engine.query_loop import query_loop
     from model.fake import FakeModelClient
-    from msgtypes.message import user_message
+    from msgtypes.message import user_message, assistant_text_message
     from prompt.assembler import DEFAULT_SYSTEM, PromptAssembler
     from session.message_store import MessageStore
     from tools.echo import EchoTool
@@ -251,6 +251,10 @@ async def _run_loop_scenario(sc: LoopScenario) -> str:
 
     msgs = []
     for role, text in sc.history:
+        from engine.harness_policy import enabled
+        if enabled("XEYO_HARNESS_HEALTH"):
+            msgs.append(assistant_text_message(text) if role == "assistant" else user_message(text))
+            continue
         msg = user_message(text)
         if role == "assistant" and isinstance(msg.get("content"), str):
             msg = dict(msg)
@@ -384,6 +388,17 @@ def write_golden(traces: dict[str, str], *, directory: Path = GOLDEN_DIR,
     与 `surface.write_golden` 同一口径（见那里的说明）：`only` 用来把"我只对这几条负责"
     与"卷走别人在途的改动"解绑。
     """
+    from engine.harness_policy import enabled
+    if enabled("XEYO_HARNESS_HEALTH"):
+        from .health import failures
+        checked = traces
+        if only:
+            from .surface import match_only
+            selected = set(match_only(list(traces), only))
+            checked = {name: text for name, text in traces.items() if name in selected}
+        invalid = failures(checked)
+        if invalid:
+            raise ValueError(f"unhealthy_traces: {invalid}")
     target = directory / "trace"
     target.mkdir(parents=True, exist_ok=True)
     if only:
@@ -429,10 +444,14 @@ def compare(
     *,
     directory: Path = GOLDEN_DIR,
     max_diff_chars: int = 4000,
+    batteries: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     from .surface import Change
 
     golden = load_golden(directory=directory)
+    if batteries is not None:
+        golden = {key: value for key, value in golden.items()
+                  if any(key.startswith(name + "__") for name in batteries)}
     changes: list[dict[str, Any]] = []
     for name, text in sorted(traces.items()):
         key = canon.safe_name(name)

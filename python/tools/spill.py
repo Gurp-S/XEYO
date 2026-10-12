@@ -86,6 +86,10 @@ def _prune_old(root: Path, *, now: float | None = None) -> int:
 		days = DEFAULT_RETENTION_DAYS
 	if days <= 0:
 		return 0
+	from engine.harness_policy import enabled
+	if enabled("XEYO_HARNESS_RESOURCES"):
+		from tools.artifact_lifecycle import prune
+		return prune(root, days=days, now=now)
 	cutoff = (now if now is not None else time.time()) - days * 86400.0
 	removed = 0
 	try:
@@ -136,7 +140,17 @@ def save_text(session_id: str, text: str) -> SpillRef:
 	path = ns / name
 	fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
 	try:
-		os.write(fd, data)
+		# write() may return a short count; no reference is published until complete.
+		from engine.harness_policy import enabled
+		if enabled("XEYO_HARNESS_OUTPUT_BYTES"):
+			view = memoryview(data)
+			while view:
+				count = os.write(fd, view)
+				if count <= 0:
+					raise OSError("spill_short_write")
+				view = view[count:]
+		else:
+			os.write(fd, data)
 	finally:
 		os.close(fd)
 	# POSIX：open 的 mode 受 umask 影响，显式收紧一次。
@@ -149,6 +163,10 @@ def save_text(session_id: str, text: str) -> SpillRef:
 		bytes=len(data),
 		hint=f"full output: {path} ({len(data)} bytes)",
 	)
+	from engine.harness_policy import enabled
+	if enabled("XEYO_HARNESS_RESOURCES"):
+		from tools.artifact_lifecycle import register
+		register(path)
 	try:
 		_prune_old(spill_root())
 	except Exception:  # noqa: BLE001 — 清理失败不影响保存

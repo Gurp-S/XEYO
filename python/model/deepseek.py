@@ -137,6 +137,15 @@ class DeepSeekModelClient:
 		from model.context_input import from_body
 		return from_body(self._build_body(messages, tools, stream=False))
 
+	def context_token_measure(self, source):
+		from model.deepseek_count import measure
+		return measure(source, model=self._model, base_url=self._base_url, thinking=self._thinking)
+
+	def context_output_limit(self, messages, tools):
+		from model.context_input import output_limit_from_body
+		# _build_body emits this same configured field; avoid re-encoding media.
+		return output_limit_from_body({'max_tokens': getattr(self, '_max_tokens', None)})
+
 	def _build_body(
 		self,
 		messages: list[dict[str, Any]],

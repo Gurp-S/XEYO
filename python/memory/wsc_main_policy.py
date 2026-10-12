@@ -4,5 +4,4 @@ Legacy experiment environment values cannot disable this product contract.
 """
 
 
-def enabled() -> bool:
-    return True
+from synaptic.main_policy import enabled

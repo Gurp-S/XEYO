@@ -1,9 +1,7 @@
-"""把 transcript JSONL 行还原成 Message（坏行跳过）。
+"""把已通过读取完整性检查的 transcript 行还原成 Message。
 
-T4：tail-scan 未闭合 tool_use → 合成确定性 tool_result，防厂商 400：
-- 只读工具：``TOOL_NOT_STARTED``（未执行）；
-- 其余（写/副作用，含未知工具，fail-closed）：``TOOL_OUTCOME_UNKNOWN``
-  （可能已执行；纯事实，防重放副作用由引擎执行层承担）。
+T4：tail-scan 未闭合 tool_use → 合成确定性 tool_result，防厂商 400。
+缺少回执不是未执行的证据；派生回执等待正常持久化，不改原始行。
 """
 
 from __future__ import annotations
@@ -11,10 +9,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from msgtypes.message import Message, tool_result_message
+from msgtypes.message import Message
 from session.record_transcript import load_transcript, transcript_read_paths
 from session.transcript_blobs import resolve_transcript_rows
 from session.tool_sequence import (
+	_tool_result_id,
 	discard_unpaired_tool_results,
 	reorder_system_messages_around_tool_results,
 )
@@ -64,13 +63,13 @@ def message_from_row(row: dict[str, Any]) -> Message | None:
 	return Message(role=role, content=content, **kwargs)  # type: ignore[arg-type]
 
 
-def messages_from_rows(rows: list[dict[str, Any]]) -> list[Message]:
+def messages_from_rows(rows: list[dict[str, Any]], *, session_id: str = "") -> list[Message]:
 	out: list[Message] = []
 	for row in rows:
 		msg = message_from_row(row)
 		if msg is not None:
 			out.append(msg)
-	return _repair_unclosed_tool_uses(out)
+	return _repair_unclosed_tool_uses(out, session_id=session_id)
 
 
 def _assistant_tool_uses(m: Message) -> list[tuple[str, str]]:
@@ -114,17 +113,15 @@ def _ledger_fact() -> str:
 	return f" 进程台账：存活对象 {head}{more}。"
 
 
-def _call_start_fact(call_id: str) -> str:
+def _call_start_fact(call_id: str, session_id: str = "") -> str:
 	"""执行起点台账里的**正向证据**：这一次调用确实进入了执行。
 
 	只报正向证据：开关关着 / 会话未知 / 记录被裁剪 / 台账读炸 ⇒ 一律返回空串。
 	"无记录"不构成"未开始"的证据，报出去就是假信息（本模块原则：宁缺勿假）。
 	"""
 	try:
-		from engine.t_now_notes import current_session_id
 		from session.call_trace import started
 
-		session_id = current_session_id()
 		if not session_id:
 			return ""
 		row = started(session_id, call_id)
@@ -135,16 +132,15 @@ def _call_start_fact(call_id: str) -> str:
 	return " 执行起点台账：该调用已进入执行（有开始记录，无结果）。"
 
 
-def _repair_unclosed_tool_uses(messages: list[Message]) -> list[Message]:
+def _repair_unclosed_tool_uses(messages: list[Message], *, session_id: str = "") -> list[Message]:
 	"""T4：为没有对应 tool_result 行的 tool_use 合成确定性结果。"""
+	from session.late_result_guard import displaced_calls
+	from session.recovery_event import receipt
+	from session.recovery_result_chain import supersessions
+	if displaced_calls(messages) or supersessions(messages):
+		return messages
 	messages = reorder_system_messages_around_tool_results(messages)
 	messages = discard_unpaired_tool_results(messages)
-	try:
-		from tools.meta import READONLY_ALLOW as _readonly
-
-		readonly = _readonly
-	except Exception:  # noqa: BLE001
-		readonly = frozenset()
 	out: list[Message] = []
 	i = 0
 	while i < len(messages):
@@ -157,10 +153,9 @@ def _repair_unclosed_tool_uses(messages: list[Message]) -> list[Message]:
 		out.append(m)
 		j = i + 1
 		have: set[str] = set()
-		while j < len(messages) and messages[j].role == "tool":
-			tid = messages[j].tool_call_id or ""
-			if tid:
-				have.add(tid)
+		from session.result_identity import result_ids
+		while j < len(messages) and result_ids(messages[j]):
+			have.update(result_ids(messages[j]))
 			out.append(messages[j])
 			j += 1
 		for uid, name in uses:
@@ -168,48 +163,42 @@ def _repair_unclosed_tool_uses(messages: list[Message]) -> list[Message]:
 				continue
 			from engine.execution_facts import enabled as fact_contracts
 			if fact_contracts():
-				from engine.t_now_notes import current_session_id
 				from session.execution_receipt import lookup
-				row = lookup(current_session_id(), uid)
-				if row and row["phase"] == "returned":
+				row = lookup(session_id, uid) if session_id else None
+				if row and row.get("name") == name and row["phase"] == "returned":
 					text = row["content"] if row.get("complete") else f"[{name}] TOOL_RESULT_LOST state=returned status={row['status']} content_sha256={row['content_sha256']}"
-					out.append(tool_result_message(uid, name, text, is_error=bool(row["is_error"]), execution=row.get("execution")))
+					execution = dict(row.get("execution") or {})
+					if not row.get("complete"):
+						execution["complete"] = False
+					out.append(receipt(m, session_id, uid, name, text,
+						is_error=bool(row["is_error"]), execution=execution))
 					continue
-				text = f"[{name}] TOOL_OUTCOME_UNKNOWN — result unavailable." + _call_start_fact(uid)
-				out.append(tool_result_message(uid, name, text, is_error=True))
+				text = f"[{name}] TOOL_OUTCOME_UNKNOWN — result unavailable." + _call_start_fact(uid, session_id)
+				out.append(receipt(m, session_id, uid, name, text, is_error=True,
+					execution={"complete": False}, outcome_unknown=True))
 				continue
-			if name in readonly:
-				text = (
-					f"[{name}] TOOL_NOT_STARTED — 上一进程在工具开始前中断；"
-					"该调用未执行。"
-				)
-			else:
-				# F5 裁决：纯事实；防重放副作用由引擎执行层承担
-				# （write_store missing_read 门 / unchanged 短路 / 语法门）。
-				text = (
-					f"[{name}] TOOL_OUTCOME_UNKNOWN — 上一进程中断且该调用"
-					"可能已执行。" + _ledger_fact() + _call_start_fact(uid)
-				)
-			out.append(tool_result_message(uid, name, text, is_error=True))
+			text = (f"[{name}] TOOL_OUTCOME_UNKNOWN — result unavailable."
+				+ _call_start_fact(uid, session_id))
+			out.append(receipt(m, session_id, uid, name, text, is_error=True,
+				execution={"complete": False}, outcome_unknown=True))
 		i = j
 	return out
 
 
-def messages_from_transcript(path: Path) -> list[Message]:
+def messages_from_transcript(path: Path, *, session_id: str = "") -> list[Message]:
     """按时间顺序读取 transcript（含 .old 轮转归档），还原成 Message 列表。
 
     replace 事件化回溯：先对合并日志做 surface fold（影子化被回溯行），
     再还原 Message——旧日志无 marker 时 fold 恒等。
     """
-    try:
-        rows: list[dict[str, Any]] = []
-        for p in transcript_read_paths(path):
-            rows.extend(load_transcript(p))
-    except OSError:
-        return []
+    # Failed recovery is not an empty history. Propagate read failures before
+    # a caller creates an engine or replaces an existing message store.
+    rows: list[dict[str, Any]] = []
+    for p in transcript_read_paths(path):
+        rows.extend(load_transcript(p, strict=True))
     from session.surface import fold_surface_rows
 
-    return messages_from_rows(resolve_transcript_rows(fold_surface_rows(rows), path))
+    return messages_from_rows(resolve_transcript_rows(fold_surface_rows(rows), path, strict=True), session_id=session_id)
 
 
 def surface_rows_for_session(session_id: str) -> list[dict[str, Any]]:
@@ -222,8 +211,8 @@ def surface_rows_for_session(session_id: str) -> list[dict[str, Any]]:
 
     rows: list[dict[str, Any]] = []
     for p in transcript_read_paths(transcript_path(session_id)):
-        rows.extend(load_transcript(p))
-    return fold_surface_rows(resolve_transcript_rows(rows, transcript_path(session_id)))
+        rows.extend(load_transcript(p, strict=True))
+    return resolve_transcript_rows(fold_surface_rows(rows), transcript_path(session_id), strict=True)
 
 
 def load_session_messages(session_id: str) -> list[Message]:
@@ -235,7 +224,4 @@ def load_session_messages(session_id: str) -> list[Message]:
 	sid = (session_id or "").strip()
 	if not sid:
 		return []
-	try:
-		return messages_from_transcript(transcript_path(sid))
-	except Exception:
-		return []
+	return messages_from_transcript(transcript_path(sid), session_id=sid)

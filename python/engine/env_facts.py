@@ -121,12 +121,91 @@ def probe_desktop() -> bool:
 	return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
 
 
+#: ``browser`` 事实。**默认开**（2026-10-11）：语义改为"**只在偏离默认时出现**"——
+#: 本机有浏览器 ⇒ 一个字都不占（成本 0）；没有时才报 ``browser: unavailable``。
+#: 依据（2026-10-10 实测，分母 4159 个会话文件）：直接需要 browser 可用性的会话只有
+#: 4 个（0.1%），广义 playwright 相关 74 个（1.8%）⇒ 常驻报"available"是拿 100% 的
+#: 会话买 ≤1.8% 的收益，不划算；反过来"缺失警告"零成本且正落在决策点上。
+#: 显式设 ``0`` 关闭。
+ENV_EXTRA = "XEYO_ENV_FACTS_EXTRA"
+#: ``syntax`` 行（pwsh 语义 / POSIX 语义）。**默认关**（2026-10-11 评估未开）：
+#: 收益面 = 壳语法类事故会话（``不会被识别`` 48 + ``ParserError`` 39 + 命令找不到 12，
+#: 去重后 ≈2.2%，分母 4159），代价 = 本块 ``dedup=False`` ⇒ 每边界常驻 +~55 字符（≈14 tok）。
+#: 按边界数算总账：成本 > 期望收益。需要时显式设 ``1``。
+ENV_SYNTAX = "XEYO_ENV_FACTS_SYNTAX"
+
+
+def _extra_default_on(name: str) -> bool:
+	from engine.flag_definitions import enabled
+	return enabled(name)
+
+
+def extra_facts_enabled() -> bool:
+	return _extra_default_on(ENV_EXTRA)
+
+
+def syntax_fact_enabled() -> bool:
+	from engine.flag_definitions import enabled
+	return enabled(ENV_SYNTAX)
+
+
+def probe_scratch(cwd: str) -> str:
+	"""草稿目录事实：只报**真写得进去**的那一个（口径同源，见下）。
+
+	判据 = ``engine.execution_facts.writable``（与写路径同一道权限门 + ``os.access``），
+	且只在 ``XEYO_SCRATCH_WRITABLE`` 打开时上报。理由与本模块 ``probe_writable`` 同：
+	报一棵模型其实写不进去的树，比不报更坏——本文件 2026-10-08 的撤回记录就是这条。
+	"""
+	if not cwd:
+		return ""
+	try:
+		from engine.execution_facts import (
+			scratch_path,
+			scratch_rel,
+			scratch_writable_enabled,
+			writable,
+		)
+	except Exception:  # noqa: BLE001 — 口径不可用 ⇒ 不报
+		return ""
+	if not scratch_writable_enabled():
+		return ""
+	target = scratch_path(cwd)
+	if not target:
+		return ""
+	try:
+		if not writable(os.path.join(target, "probe.txt"), cwd):
+			return ""
+	except Exception:  # noqa: BLE001 — 单点判不了 ⇒ 不报
+		return ""
+	return scratch_rel()
+
+
+def probe_browser() -> str:
+	"""浏览器运行时**缺失**时才报（``unavailable``）：只查已知安装位置，不扫 PATH。
+
+	有浏览器是常态 ⇒ 与 ``desktop`` 同一条纪律：只在偏离默认（这里是"没有"）时出现，
+	常见情况下一个字都不占。判不了（无 ``LOCALAPPDATA``）返回空串 ⇒ 缺席，不报假值。
+	"""
+	if not extra_facts_enabled():
+		return ""
+	import glob
+
+	base = str(os.environ.get("LOCALAPPDATA") or "").strip()
+	if not base:
+		return ""
+	root = os.path.join(base, "ms-playwright")
+	if os.path.isdir(root) and glob.glob(os.path.join(root, "chromium*")):
+		return ""
+	return "unavailable"
+
+
 #: 无参探针登记表（登名字而非函数对象：测试可注入单项失败，验证 fail-open 粒度）
 _PROBES: tuple[tuple[str, str], ...] = (
 	("shell", "probe_shell"),
 	("elevated", "probe_elevated"),
 	("tz", "probe_tz"),
 	("desktop", "probe_desktop"),
+	("browser", "probe_browser"),
 )
 
 
@@ -156,8 +235,16 @@ def collect(cwd: str = "") -> dict[str, str]:
 		# （``permissions/filesystem.protected_metadata_reason``）判定不可写——实测写
 		# ``.xeyo/tmp/read_demo.py`` 被拒 ``protected_metadata``。同一屏两条互斥事实
 		# 比缺一条更坏，先撤事实；"允许写 .xeyo/tmp"（方案 A）另行评估后再决定恢复。
+		# 2026-10-10：方案 A 落地 —— 权限面加专属开关 ``XEYO_SCRATCH_WRITABLE``（窄豁免
+		# 只放 ``.xeyo/tmp/**``），事实按同一道门重新上报；两条互斥事实由此消失。
+	try:
+		scratch = probe_scratch(root)
+	except Exception:  # noqa: BLE001 — 单项失败 ⇒ 该项缺席
+		scratch = ""
+	if scratch:
+		facts["scratch"] = _clip(scratch)
 	from engine.execution_facts import enabled
-	if enabled():
+	if enabled() and syntax_fact_enabled():
 		from tools.bash_tool.runner import build_shell_argv
 		facts["syntax"] = "PowerShell: object pipeline, $ variables, here-string" if build_shell_argv("")[1] in {"pwsh", "powershell"} else "POSIX sh: text pipeline, $ variables, heredoc"
 	return facts
@@ -166,12 +253,20 @@ def collect(cwd: str = "") -> dict[str, str]:
 def facts(cwd: str = "") -> dict[str, str]:
 	"""按 cwd 缓存的采集结果（环境事实在一个进程/会话内稳定）。"""
 	key = str(cwd or "").strip()
+	from engine.harness_policy import enabled as rollout
+	if rollout("XEYO_HARNESS_FACTS"):
+		import sys
+		from engine.environment_snapshot import facts as snapshot
+		return snapshot(sys.modules[__name__], key)
 	from engine.execution_facts import enabled
 	if enabled():
 		# Host probes are stable; permission and scope facts are task-local live values.
 		values = dict(_FACTS_CACHE.get(key) or collect(key))
 		values.pop("writable", None)
-		values.pop("scratch", None)
+		from engine.execution_facts import scratch_writable_enabled
+		if not scratch_writable_enabled():
+			# 开关关时缓存里不该有 scratch；pop 只为防"进程内改开关"的脏缓存。
+			values.pop("scratch", None)
 		from engine.execution_facts import writable
 		if writable(os.path.join(key, "workspace-probe.txt"), key):
 			values["writable"] = _clip(key)
@@ -190,7 +285,7 @@ def render(cwd: str = "") -> str:
 	无任何事实 ⇒ 空串（该块缺席，调用方不注入）。
 	"""
 	values = facts(cwd)
-	order = ("shell", "syntax", "elevated", "tz", "writable", "desktop")
+	order = ("shell", "syntax", "elevated", "tz", "writable", "scratch", "desktop", "browser")
 	parts = [f"{key}: {values[key]}" for key in order if key in values]
 	if "desktop" in values and values["desktop"] == "true":
 		parts = [p for p in parts if not p.startswith("desktop:")]

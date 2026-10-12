@@ -6,9 +6,6 @@ import json
 import re
 from typing import Any
 
-from session.hydrate import messages_from_transcript
-from session.persistence import transcript_path
-from session.record_transcript import transcript_read_paths
 from tools.todo_write_tool.constants import TODO_WRITE_TOOL_NAME
 from tools.todo_write_tool.types import TodoItem, todo_item_from_raw
 
@@ -52,31 +49,15 @@ def restore_todos_from_transcript(session_id: str) -> list[TodoItem]:
 	被回溯轮写的 todo 不再复活。此前 per-file 分别 hydrate 会漏掉
 	「marker 在当前文件、被影子行在归档」的跨文件影子。
 	"""
+	from session.persistence import is_session_persistence_disabled
+	if is_session_persistence_disabled():
+		return []
 	sid = (session_id or "").strip()
 	if not sid:
 		return []
-	try:
-		from session.hydrate import surface_rows_for_session
+	from session.hydrate import surface_rows_for_session
 
-		# API hydration discards orphan tool receipts for provider sequencing.
-		# State recovery reads the rollback-folded surface instead; legacy named
-		# receipts are evidence for the compatibility reader, not new API calls.
-		return restore_todos_from_messages(surface_rows_for_session(sid))
-	except Exception:
-		from synaptic.task_checkpoint import enabled
-		if enabled():
-			# A failed rollback fold cannot establish an authoritative state.
-			return []
-		# fold 管线不可用（如 transcript_blobs 异常）→ 退回旧行为，至少不丢 todo。
-		try:
-			primary = transcript_path(sid)
-			paths = [p for p in transcript_read_paths(primary) if p.is_file()]
-		except Exception:
-			return []
-		merged: list[Any] = []
-		for p in paths:
-			try:
-				merged.extend(messages_from_transcript(p))
-			except Exception:
-				continue
-		return restore_todos_from_messages(merged)
+	# API hydration handles provider sequencing separately. State authority
+	# comes from the combined rollback-folded surface; recovery failures do
+	# not establish an empty state or permit a per-file rollback bypass.
+	return restore_todos_from_messages(surface_rows_for_session(sid))

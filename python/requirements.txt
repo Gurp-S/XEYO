@@ -4,6 +4,7 @@ uvicorn[standard]>=0.32.0
 python-multipart>=0.0.12
 typer>=0.12.0
 rich>=13.0.0
+tokenizers>=0.22.1,<0.23
 playwright>=1.49.0
 mss>=9.0.0
 Pillow>=10.0.0

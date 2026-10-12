@@ -23,7 +23,8 @@
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "icons:gen": "node scripts/gen-app-icon.mjs",
-    "preview:workflow": "npx --yes tsx scripts/preview-tool-workflow.ts"
+    "preview:workflow": "npx --yes tsx scripts/preview-tool-workflow.ts",
+    "preview:docks": "vite build --config vite.docks-preview.config.ts"
   },
   "dependencies": {
     "@preact/signals-core": "1.14.4",

@@ -165,3 +165,15 @@ def handle_slash(
 	)
 	res = dispatch(cmd.name, arg, ctx=ctx)
 	return SlashResult(handled=True, message=res.message)
+
+
+async def handle_slash_async(line: str, *, engine: Any,
+	set_agent_mode: Callable[[str], None]) -> SlashResult:
+	cmd, arg = parse_slash((line or "").strip())
+	if cmd is not None and cmd.handler == "server" and cmd.name == "compact":
+		from slash.dispatch import dispatch_async
+		res = await dispatch_async(cmd.name, arg, ctx=DispatchContext(
+			session_id=str(getattr(engine, "session_id", "") or ""),
+			engine=engine, surfaces=("cli",)))
+		return SlashResult(handled=True, message=res.message)
+	return handle_slash(line, engine=engine, set_agent_mode=set_agent_mode)

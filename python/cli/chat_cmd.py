@@ -18,7 +18,7 @@ from cli.interact import (
 	resolve_plan_interactive,
 )
 from cli.render import EventRenderer
-from cli.slash import handle_slash
+from cli.slash import handle_slash_async
 from engine.query_engine import QueryEngine, build_default_engine
 from msgtypes.events import (
 	AskUserPendingEvent,
@@ -224,7 +224,7 @@ async def chat_async(
 
 	async def _one(text: str) -> None:
 		nonlocal engine, mode, model_cur, last_prompt, permission_mode
-		slash = handle_slash(text, engine=engine, set_agent_mode=set_agent_mode)
+		slash = await handle_slash_async(text, engine=engine, set_agent_mode=set_agent_mode)
 		if slash.handled:
 			if slash.message and not json_mode:
 				if text.strip().lower() in ("/help", "/h", "/?"):

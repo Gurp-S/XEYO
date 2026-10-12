@@ -76,10 +76,13 @@ def fold_surface_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 	- ``shadow_from`` 不在可见面（如 v2 已物理重写）→ 保守不隐藏任何行。
 	- 无 id 的普通行（marker 以外的未知行）原样保留（读侧各按所需过滤）。
 	"""
-	visible: list[str] = []
-	hidden_by: dict[str, list[str]] = {}
+	# IDs locate an operation's anchor; append-origin positions identify the
+	# actual rows hidden/restored. A later row reusing an ID must not make an
+	# earlier, shadowed body visible again.
+	visible: list[int] = []
+	hidden_by: dict[str, list[int]] = {}
 	undone: set[str] = set()
-	for row in rows:
+	for position, row in enumerate(rows):
 		if is_surface_marker(row):
 			op = str(row.get("op") or "")
 			rid = str(row.get("rewind_id") or "")
@@ -87,8 +90,9 @@ def fold_surface_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 				continue
 			if op == _OP_REWIND and rid not in undone:
 				frm = str(row.get("shadow_from") or "")
-				if frm in visible:
-					idx = len(visible) - 1 - visible[::-1].index(frm)
+				idx = next((i for i in range(len(visible) - 1, -1, -1)
+					if _row_id(rows[visible[i]]) == frm), None)
+				if idx is not None:
 					hidden_by[rid] = visible[idx:]
 					visible = visible[:idx]
 			elif op == _OP_REWIND_UNDO and rid not in undone:
@@ -99,16 +103,16 @@ def fold_surface_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 			continue
 		rid = _row_id(row)
 		if rid:
-			visible.append(rid)
+			visible.append(position)
 
 	visible_set = set(visible)
 	out: list[dict[str, Any]] = []
-	for row in rows:
+	for position, row in enumerate(rows):
 		if is_surface_marker(row):
 			continue
 		rid = _row_id(row)
 		if rid:
-			if rid in visible_set:
+			if position in visible_set:
 				out.append(row)
 		else:
 			out.append(row)

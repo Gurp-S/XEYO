@@ -54,9 +54,11 @@ async def test_failed_publication_retries_durability_before_any_fold(monkeypatch
         async def stream(self, messages, tools, abort):
             calls.append("handoff")
             handoff_ids.append("durable-handoff-" + str(len(handoff_ids) + 1))
+            from tests.wsc._fixtures import declared_report_phase
             yield ModelChunk(kind="tool_use", tool_use=ToolUse(handoff_ids[-1], "TodoWrite", {
                 "todos": [{"id": "report", "content": "写报告", "activeForm": "写报告", "status": "pending"}],
-                "checkpoint": {"objective": "完成当前报告", "context_message_ids": ["spec"]}}))
+                "checkpoint": {"objective": "完成当前报告", "context_message_ids": ["spec"],
+                               "phase_state": declared_report_phase()}}))
     class Model:
         context_limit = 1000000 if ordinary else 100000
         last_usage = None

@@ -116,6 +116,13 @@ class HandleRenderer:
 			return reference if page_end == end else f"{reference} span={start}-{end}"
 		return f"expand({handle})"
 
+	def read_arguments(self, handle: str) -> dict[str, Any] | None:
+		"""Structured arguments from the same emitted first-page reference."""
+		match = _READ_RE.match(self.expression(handle))
+		if match is None:
+			return None
+		return {"file_path": match["path"], "offset": int(match["offset"]), "limit": int(match["limit"])}
+
 	# -- 解析（与渲染同源）--------------------------------------------------
 	def extract(self, text: str) -> tuple[str, ...]:
 		"""从**已渲染文本**里读回句柄列表（渲染的逆运算）。

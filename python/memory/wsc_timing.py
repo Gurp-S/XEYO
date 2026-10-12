@@ -105,6 +105,11 @@ def request_measure(api_messages, schemas, *, context_limit, model=None):
     if callable(normalize):
         source = normalize(api_messages, schemas)
         basis = "provider_normalized_input_utf8_quarters_estimate"
+    prediction = getattr(model, "context_token_measure", None)
+    counted = prediction(source) if callable(prediction) else None
+    if counted is not None:
+        tokens, basis = counted
+        return decide(tokens, context_limit, basis=basis)
     tokens = token_len(json.dumps(source, ensure_ascii=False, separators=(",", ":")))
     return decide(tokens, context_limit, basis=basis)
 
@@ -119,7 +124,8 @@ def notification(api_messages, schemas, working, *, context_limit, model=None):
     key = [int(getattr(working, "compact_cursor", 0) or 0), result.capacity]
     state = getattr(working, "wsc_timing_state", {}) or {}
     if result.notify and state.get("notification_delivered") != key:
-        return "上下文已达80%（当前完整请求估算）", key, result
+        label = "厂商预计数" if result.basis == "anthropic_count_tokens_prediction" else "当前完整请求估算"
+        return f"上下文已达80%（{label}）", key, result
     return "", None, result
 
 

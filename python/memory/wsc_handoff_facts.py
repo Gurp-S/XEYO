@@ -2,6 +2,15 @@
 from synaptic.task_fact_sources import source_text, resolve
 
 
+class CitationError(ValueError):
+    """A rejected citation's location, without instructions or replacement text."""
+    def __init__(self, code, field, index, identity=None):
+        super().__init__(code)
+        self.detail = {"error": code, "field": field, "index": index}
+        if isinstance(identity, str):
+            self.detail["source_message_id"] = identity
+
+
 def committed_facts(sources):
     """Only the latest active successful declaration supplies verified slots.
 
@@ -20,9 +29,10 @@ def committed_facts(sources):
     if not identity or sum(str(item.get("message_id") or item.get("id")) == str(identity) for item in sources) != 1:
         return {}
     fields = {}
+    from synaptic.task_phase import applicable
     for field in ("decisions", "constraints"):
         fields[field] = []
-        for value in snapshot.checkpoint[field]:
+        for value in applicable(snapshot.checkpoint, field):
             quote = value if isinstance(value, str) else value["quote"]
             if resolve(sources, str(identity), field, quote) is not None:
                 fields[field].append(quote)
@@ -39,18 +49,18 @@ def validate_facts(raw, sources, *, require_citations=False):
     context = checkpoint.get("context_message_ids", [])
     declared = committed_facts(sources)
     for field in ("decisions", "constraints"):
-        for fact in checkpoint.get(field, []):
+        for index, fact in enumerate(checkpoint.get(field, [])):
             if isinstance(fact, str) and not require_citations:
                 continue  # Existing explicit model declarations remain compatible.
             if (not isinstance(fact, dict) or set(fact) != {"source_message_id", "quote"}
                     or not isinstance(fact["source_message_id"], str)
                     or not isinstance(fact["quote"], str) or not fact["quote"].strip()):
-                raise ValueError("handoff_fact_citation_required")
+                raise CitationError("handoff_fact_citation_required", field, index)
             identity = fact["source_message_id"]
             matches = by_id.get(identity, [])
             if len(matches) != 1 or identity not in context:
-                raise ValueError("handoff_fact_source_not_unique_or_bound")
+                raise CitationError("handoff_fact_source_not_unique_or_bound", field, index, identity)
             text = source_text(matches[0])
             exact_declared = fact["quote"] in declared.get(identity, {}).get(field, [])
             if not exact_declared and (text is None or fact["quote"] not in text):
-                raise ValueError("handoff_fact_quote_not_in_source")
+                raise CitationError("handoff_fact_quote_not_in_source", field, index, identity)

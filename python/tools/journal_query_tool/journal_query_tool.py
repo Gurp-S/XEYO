@@ -25,7 +25,7 @@ class JournalQueryTool:
         return True
 
     def schema(self) -> dict[str, Any]:
-        return {
+        schema = {
             "name": self.name,
             "description": DESCRIPTION,
             "input_schema": {
@@ -51,11 +51,49 @@ class JournalQueryTool:
                 "additionalProperties": False,
             },
         }
+        from engine.harness_policy import enabled
+        if enabled("XEYO_HARNESS_QUERIES"):
+            schema["input_schema"]["properties"].update({
+                "view": {"type": "string", "enum": ["changes", "flags", "runtime"],
+                         "description": "Query view; omitted value is changes."},
+                "before_seq": {"type": "integer", "description": "Exclusive older-page sequence bound."},
+                "operation_id": {"type": "string", "description": "Exact mutation identity."},
+            })
+        return schema
 
     async def execute(
         self, input: dict[str, Any], abort: AbortController
     ) -> ToolResult:
         abort.raise_if_aborted()
+        from engine.harness_policy import enabled
+        if enabled("XEYO_HARNESS_QUERIES"):
+            import asyncio
+            from session.workset_index import query
+            from memory.memdir import workspace_id
+            from engine.workspace_context import get_workspace_context
+            import json
+            raw = input or {}
+            view = raw.get("view", "changes")
+            if view == "flags":
+                from engine.flag_definitions import snapshot
+                return ToolResult(content=json.dumps(snapshot(), ensure_ascii=False))
+            if view == "runtime":
+                from engine.runtime_identity import snapshot
+                return ToolResult(content=json.dumps(snapshot(), ensure_ascii=False))
+            if view != "changes":
+                return ToolResult(content="invalid_argument: unknown journal view", is_error=True)
+            ctx = get_workspace_context()
+            sid = ctx.session_id if ctx else ""
+            try:
+                limit = max(1, min(50, int(raw.get("limit", 20))))
+                before = int(raw["before_seq"]) if raw.get("before_seq") is not None else None
+                since = float(raw["since_ts"]) if raw.get("since_ts") is not None else None
+            except (TypeError, ValueError):
+                return ToolResult(content="invalid_argument: invalid pagination or timestamp", is_error=True)
+            result = await asyncio.to_thread(query, workspace_id(self._cwd), sid, limit=limit,
+                before_seq=before, since_ts=since, path_prefix=raw.get("path_prefix"),
+                agent_id=raw.get("agent_id"), workspace_root=self._cwd, operation_id=raw.get("operation_id"))
+            return ToolResult(content=json.dumps(result, ensure_ascii=False))
         from memory import journal
         from memory.memdir import workspace_id
 

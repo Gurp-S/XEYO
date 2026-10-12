@@ -65,6 +65,11 @@ class _LruCache:
 _data_url_cache = _LruCache(max_entries=8)
 
 
+def is_media_ref(value: str) -> bool:
+    """Validate the existing content-addressed reference syntax without IO."""
+    return bool(_MEDIA_REF_RE.fullmatch(value))
+
+
 class MediaError(ValueError):
     """客户端可理解的媒体输入错误。"""
 
@@ -331,6 +336,7 @@ def media_path(media_ref: str) -> Path:
 __all__ = [
     "MediaAsset",
     "MediaError",
+    "is_media_ref",
     "materialize_image_url",
     "materialize_media_ref",
     "media_exists",

@@ -36,9 +36,11 @@ def test_match_record_pagination_is_not_line_pagination(monkeypatch, tmp_path):
 def test_default_surface_unchanged_and_context_is_not_silently_discarded(monkeypatch, tmp_path):
     monkeypatch.delenv("XEYO_WSC_TASK_CONTINUITY", raising=False)
     modes = GrepTool(cwd=str(tmp_path)).schema()["input_schema"]["properties"]["output_mode"]["enum"]
-    assert "matches" not in modes
+    # Main continuity is now constant; the retired experiment key cannot remove matches.
+    assert "matches" in modes
     executor = RecallExecutor(tmp_path, "read_search")
-    assert executor.execute("Grep", {"pattern": "x", "output_mode": "matches"})["is_error"]
+    empty = executor.execute("Grep", {"pattern": "x", "output_mode": "matches"})
+    assert not empty["is_error"] and "returned=0; total=0" in empty["content"]
     monkeypatch.setenv("XEYO_WSC_TASK_CONTINUITY", "1")
     result = executor.execute("Grep", {"pattern": "x", "output_mode": "matches", "context": 2})
     assert result["is_error"] and "matches_context_settings_unavailable" in result["content"]
@@ -58,10 +60,11 @@ def test_content_single_file_pagination_uses_numeric_source_lines(monkeypatch, t
     query = {"pattern": "tag", "path": "a-8-.txt", "output_mode": "content", "head_limit": 1, "offset": 1}
     monkeypatch.delenv("XEYO_WSC_TASK_CONTINUITY", raising=False)
     old = executor.execute("Grep", query)
-    assert not old["is_error"] and "code=10" in old["content"]
+    assert not old["is_error"] and "a-8-.txt:2:tag code=2" in old["content"]
     monkeypatch.setenv("XEYO_WSC_TASK_CONTINUITY", "1")
     new = executor.execute("Grep", query)
     assert not new["is_error"] and "a-8-.txt:2:tag code=2" in new["content"]
+    assert old["content"] == new["content"]
 
 
 def test_invalid_regex_keeps_native_failure_instead_of_position_unknown(monkeypatch, tmp_path):

@@ -34,8 +34,8 @@ class PromptAssembler:
         self._system_memo: dict[tuple, tuple[str, list[dict]]] = {}
 
     def build(self, system: str, history: list[dict]) -> list[dict]:
-
-        return [{"role": "system", "content": system}, *history]
+        from session.late_result_projection import project
+        return project([{"role": "system", "content": system}, *history])
 
 
     def _memo_key(

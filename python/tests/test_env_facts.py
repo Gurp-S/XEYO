@@ -77,7 +77,9 @@ def test_scratch_dir_reported_only_when_workspace_is_writable(monkeypatch, tmp_p
 	workspace.mkdir()
 	monkeypatch.setattr(env_facts, "probe_shell", lambda: "pwsh")
 	assert env_facts.collect(str(workspace)).get("scratch") == env_facts.SCRATCH_REL
-	assert env_facts.collect(str(tmp_path / "missing")).get("scratch") is None
+	# Missing parents can be created by the actual writer; absence alone is not denial.
+	monkeypatch.setattr("engine.execution_facts.writable", lambda *_: False)
+	assert env_facts.collect(str(workspace)).get("scratch") is None
 
 
 def test_facts_id_is_stable_across_calls(monkeypatch):

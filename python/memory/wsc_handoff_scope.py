@@ -5,6 +5,10 @@ from synaptic.textutil import message_blocks, tool_use_blocks
 def needs_refresh(messages, snapshot):
     if not snapshot.observed or snapshot.checkpoint is None:
         return True
+    # A pre-protocol active declaration is not a scoped handoff. Upgrade by
+    # appending a new committed declaration before folding; never rewrite it.
+    if snapshot.active_count and snapshot.checkpoint.get("phase_state") is None:
+        return True
     calls = {}
     for row in messages:
         for use in tool_use_blocks(row):

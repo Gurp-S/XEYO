@@ -44,7 +44,10 @@ class EnvSwitch:
 
 
 SWITCHES: tuple[EnvSwitch, ...] = (
+    EnvSwitch("XEYO_WSC_EXECUTION_OBSERVATIONS", "模型选取的阶段执行原文片段及调用来源；默认关，改变交接schema和新代投影", affects_snapshots=True),
+    EnvSwitch("XEYO_LATE_RESULT_PROJECTION", "唯一绑定迟到结果及恢复观察续接默认开；0回退执行层拒绝，改变请求投影", affects_snapshots=True),
 	EnvSwitch("XEYO_WSC_CARD_INDEX_ONLY", "明确任务检查点下以来源索引替代历史卡面；默认关", affects_snapshots=True),
+	EnvSwitch("XEYO_WSC_RECEIPT_SOURCE_BINDING", "执行回执记录内绑定冷存档读取参数；默认关", affects_snapshots=True),
 	EnvSwitch("XEYO_WSC_REQUIREMENT_FLOOR", "已退休的全历史原话实验键；保留登记防宿主旧值泄漏，无运行行为"),
 	EnvSwitch("XEYO_WSC_FAILURE_FACTS", "失败身份按工具/类别/声明目标，保留全部证据来源；默认关", affects_snapshots=True),
 	EnvSwitch("XEYO_WSC_REQUEST_PROJECTION", "人类请求与绑定目标分层旁路，包含不可变状态契约", affects_snapshots=True),
@@ -117,6 +120,15 @@ SWITCHES: tuple[EnvSwitch, ...] = (
 		drift_value="env_facts",
 	),
 )
+
+# Actual defaults and predicates share flag_definitions; consumers reuse this list.
+from engine.flag_definitions import FLAGS as _FACT_FLAGS
+from engine.harness_policy import DEFAULTS as _HARNESS_DEFAULTS
+SWITCHES += tuple(EnvSwitch(name, meaning, affects_snapshots=True)
+                  for name, (_default, meaning) in _FACT_FLAGS.items()
+                  if name not in {item.name for item in SWITCHES})
+SWITCHES += tuple(EnvSwitch(name, "Harness rollout domain", affects_snapshots=True)
+                  for name in _HARNESS_DEFAULTS)
 
 
 #: **已退场**的开关名：代码里已不再读取，但宿主机器 env 里可能仍有残留。

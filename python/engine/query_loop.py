@@ -203,6 +203,10 @@ def _message_tool_call_id(m: Message) -> str:
 
 def _repair_unpaired_tool_calls(store: MessageStore, reason: str = "aborted") -> None:
     """Insert missing tool rows immediately after their assistant tool calls."""
+    from session.late_result_guard import displaced_calls
+    from session.recovery_result_chain import supersessions
+    if displaced_calls(store.items) or supersessions(store.items):
+        return  # A retained late receipt is not an absent/aborted result.
     from session.tool_sequence import (
         discard_unpaired_tool_results,
         reorder_system_messages_around_tool_results,
@@ -222,10 +226,9 @@ def _repair_unpaired_tool_calls(store: MessageStore, reason: str = "aborted") ->
             continue
         j = i + 1
         have: set[str] = set()
-        while j < len(items) and items[j].role == "tool":
-            tid = _message_tool_call_id(items[j])
-            if tid:
-                have.add(tid)
+        from session.result_identity import result_ids
+        while j < len(items) and result_ids(items[j]):
+            have.update(result_ids(items[j]))
             j += 1
         inserted = 0
         for uid, name in uses:
@@ -1061,7 +1064,9 @@ async def query_loop(
 
         _turn_cwd = _workspace_cwd_for_turn(tools)
         from memory.wsc_source_transition import prepare_compression_source
-        prepare_compression_source(store, snap, cwd=_turn_cwd, carrier=_note_carrier)
+        # Source-coordinate migration is not permission to retire history.
+        # The model request/85% admission below owns any subsequent fold.
+        prepare_compression_source(store, snap, cwd=_turn_cwd, carrier=_note_carrier, fold=False)
         compact_cursor_before = snap.compact_cursor
         c1_frozen_before = snap.c1_frozen_until
         # T8：每轮先清空预取槽（防跨轮脏数据），再按开关决定是否异步预取。
@@ -1292,6 +1297,11 @@ async def query_loop(
             return apply_tool_result_digest(rebuilt, id_to_name=hidden_names)
 
         projected_pre_inject = projected
+        from session.late_result_guard import request_conflict
+        sequence_error = request_conflict(projected_pre_inject)
+        if sequence_error is not None:
+            yield StoppedEvent(reason=sequence_error)
+            return
         # #8 首轮嗅探：会话第一轮（历史无 assistant）注入有界 pwd+ls 清单，
         # 零 LLM 调用、投影-only（env 声道对）、side/子代理/开关关闭时跳过。
         if not _is_side and not _in_subagent():
@@ -1327,7 +1337,7 @@ async def query_loop(
         tool_schemas = _plan_tool_schemas(tools, tools.schemas())
         _timing_delivery_key = None
         if model_timing_enabled():
-            from memory.wsc_request_timing import prepare as prepare_timed_request
+            from memory.wsc_request_timing import assemble_counted as assemble_timed_request, prepare_counted as prepare_timed_request
             from prompt.notice_channel import render_notice
 
             def _compact_request_projection():
@@ -1359,8 +1369,21 @@ async def query_loop(
                 # task scope; every other post-commit source requires refresh.
                 needs_state = needs_refresh(raw, state)
                 requested = accepted_request(raw, snap)
-                measured = request_measure(prompt.build(system_prompt, rows), tool_schemas,
-                    context_limit=_positive_int(getattr(model, "context_limit", None)), model=model)
+                capacity_limit = _positive_int(getattr(model, "context_limit", None))
+                from memory.wsc_counted_input import CountedInput
+                counted_model = CountedInput(model, abort)
+                def build_capacity(value):
+                    return prompt.build(system_prompt, value)
+                def render_capacity(value, text):
+                    return render_notice(value, text, strategy=t_now_strat,
+                        dimension="context_capacity", session_id=snap.session_id)
+                # The notice carrier itself can cross 85%. Declaration and
+                # fold admission must inspect the same fully assembled input.
+                assembled = await assemble_timed_request(rows, tool_schemas, snap,
+                    context_limit=capacity_limit, build=build_capacity,
+                    render=render_capacity, model=counted_model)
+                measured = request_measure(assembled[1], tool_schemas,
+                    context_limit=capacity_limit, model=counted_model)
                 # A previous failed publication can leave a successful receipt
                 # in memory. State coverage is not a durability certificate;
                 # every managed fold retries/confirms all source rows first.
@@ -1369,8 +1392,7 @@ async def query_loop(
                 if (measured.action == "capacity" or requested) and needs_state:
                     if persist_handoff is None or tools.get("TodoWrite") is None:
                         raise ValueError("handoff_commit_unavailable")
-                    from memory.wsc_handoff_generation import generate
-                    from memory.wsc_handoff_transaction import commit
+                    from memory.wsc_handoff_prepare import prepare as prepare_handoff
                     def account(usage):
                         budget.add_usage(usage)
                         hit, miss, out = split_usage(usage) if isinstance(usage, dict) else (0, 0, 0)
@@ -1379,49 +1401,42 @@ async def query_loop(
                             tokens=budget.last_usage_tokens, used_tokens=budget.used_tokens,
                             usd=budget.last_usage_usd, used_usd=budget.used_usd,
                             cny=budget.last_usage_cny, used_cny=budget.used_cny))
-                    async def generate_state(captured):
-                        def admit_next():
-                            if not budget.prepare_next_turn():
-                                raise ValueError("handoff_model_budget_exhausted")
-                            budget.begin_turn()
-                        def admit_read():
-                            if not budget.begin_tool_call():
-                                raise ValueError("handoff_tool_budget_exhausted")
-                        return await generate(model, prompt.build(system_prompt, rows), captured,
-                            tools.get("TodoWrite").schema(), abort, account=account,
-                            admit_next=admit_next, admit_read=admit_read)
-                    if not budget.begin_tool_call():
-                        raise ValueError("handoff_tool_budget_exhausted")
-                    committed = await commit(source=lambda: compression_messages(store, snap),
-                        generate=generate_state, store=store, tools=tools, abort=abort,
-                        persist=persist_handoff)
+                    committed = await prepare_handoff(model=model,
+                        messages=prompt.build(system_prompt, rows),
+                        source=lambda: compression_messages(store, snap),
+                        store=store, tools=tools, abort=abort, budget=budget,
+                        account=account, persist=persist_handoff, session_id=snap.session_id)
                     snap.wsc_timing_state = {**snap.wsc_timing_state, "last_handoff_commit": committed}
                     rows = rows + compression_messages(store, snap)[-2:]
+                    assembled = None  # The committed invocation/receipt changed the request.
                     if not budget.prepare_next_turn():
                         raise ValueError("handoff_model_budget_exhausted")
                     budget.begin_turn()
-                if requested:
+                def compact_admitted():
                     before_requested = snap.compact_cursor
-                    rows = _compact_request_projection()
-                    snap.wsc_timing_state = {**snap.wsc_timing_state, "handled_request": requested,
-                        "request_outcome": "compacted" if snap.compact_cursor > before_requested else "no_eligible_history"}
-                return prepare_timed_request(rows, tool_schemas, snap,
-                    context_limit=_positive_int(getattr(model, "context_limit", None)),
-                    build=lambda value: prompt.build(system_prompt, value),
-                    render=lambda value, text: render_notice(value, text,
-                        strategy=t_now_strat, dimension="context_capacity", session_id=snap.session_id),
-                    compact=_compact_request_projection, model=model)
+                    rebuilt = _compact_request_projection()
+                    if requested:
+                        snap.wsc_timing_state = {**snap.wsc_timing_state, "handled_request": requested,
+                            "request_outcome": "compacted" if snap.compact_cursor > before_requested else "no_eligible_history"}
+                    return rebuilt
+                return await prepare_timed_request(rows, tool_schemas, snap,
+                    context_limit=capacity_limit, build=build_capacity, render=render_capacity,
+                    compact=compact_admitted, model=counted_model, initial_assembly=assembled,
+                    model_requested=bool(requested))
 
-            try:
-                _prepared_capacity = await _prepare_capacity(projected)
-            except (ValueError, OSError) as exc:
-                for usage_event in _handoff_usage_events:
-                    yield usage_event
-                yield StoppedEvent(reason=str(exc))
-                return
+            async def _prepare_capacity_outcome(rows):
+                try:
+                    return await _prepare_capacity(rows), None
+                except (ValueError, OSError) as exc:
+                    return None, str(exc)
+
+            _prepared_capacity, _capacity_error = await _prepare_capacity_outcome(projected)
             for usage_event in _handoff_usage_events:
                 yield usage_event
             _handoff_usage_events.clear()
+            if _capacity_error is not None:
+                yield StoppedEvent(reason=_capacity_error)
+                return
             projected, api_messages = _prepared_capacity.projected, _prepared_capacity.messages
             _timing_delivery_key = _prepared_capacity.delivery_key
         def _record_current_projection():
@@ -1627,6 +1642,10 @@ async def query_loop(
         prepared_events_acknowledged = False
         while True:
             attempt += 1
+            sequence_error = request_conflict(api_messages)
+            if sequence_error is not None:
+                yield StoppedEvent(reason=sequence_error)
+                return
             from tools.fileio.read_visibility import sync_read_visibility
 
             if model_timing_enabled():
@@ -1760,10 +1779,13 @@ async def query_loop(
                     )
                     api_messages = prompt.build(system_prompt, projected)
                     if model_timing_enabled():
-                        _prepared_capacity = await _prepare_capacity(projected)
+                        _prepared_capacity, _capacity_error = await _prepare_capacity_outcome(projected)
                         for usage_event in _handoff_usage_events:
                             yield usage_event
                         _handoff_usage_events.clear()
+                        if _capacity_error is not None:
+                            yield StoppedEvent(reason=_capacity_error)
+                            return
                         projected, api_messages = _prepared_capacity.projected, _prepared_capacity.messages
                         _timing_delivery_key = _prepared_capacity.delivery_key
                         if snap.compact_cursor > compact_cursor_before and not compression_started:
@@ -1814,10 +1836,13 @@ async def query_loop(
                     )
                     api_messages = prompt.build(system_prompt, projected)
                     if model_timing_enabled():
-                        _prepared_capacity = await _prepare_capacity(projected)
+                        _prepared_capacity, _capacity_error = await _prepare_capacity_outcome(projected)
                         for usage_event in _handoff_usage_events:
                             yield usage_event
                         _handoff_usage_events.clear()
+                        if _capacity_error is not None:
+                            yield StoppedEvent(reason=_capacity_error)
+                            return
                         projected, api_messages = _prepared_capacity.projected, _prepared_capacity.messages
                         _timing_delivery_key = _prepared_capacity.delivery_key
                         if snap.compact_cursor > compact_cursor_before and not compression_started:

@@ -64,6 +64,34 @@ DEFAULT_HEAD_LIMIT = 250
 # 防止 base64 / 压缩单行刷爆上下文
 MAX_COLUMNS = 500
 
+#: 分页事实（分母与下一页起点）。**默认开**（2026-10-11 并入主链路）：
+#: A/B 实测分页分母覆盖率 0/4 趟 → 4/4 趟；代价只在**真分页**时 +~30 字符/结果。
+#: 显式设 ``0``/``false``/``off`` 退回旧行为（旧行为下 files/count 模式收执里没有分母）。
+ENV_PAGINATION_FACTS = "XEYO_GREP_PAGINATION_FACTS"
+
+
+def pagination_facts_enabled() -> bool:
+	"""默认开；显式关（``0``/``false``/``off``/``no``）才退回旧口径。"""
+	from engine.flag_definitions import enabled
+	return enabled(ENV_PAGINATION_FACTS)
+
+
+#: symbols 模式给**符号行号范围**（`path:start-end:`）。**默认开**（2026-10-11 并入）：
+#: 代价 ≈ +3 字符/符号行（仅该模式），收益 = 拿到符号即可定向 Read，不必猜窗口。
+#: 显式设 ``0`` 退回单点行号。
+ENV_SYMBOL_RANGES = "XEYO_GREP_SYMBOL_RANGES"
+
+
+def symbol_ranges_enabled() -> bool:
+	from engine.flag_definitions import enabled
+	return enabled(ENV_SYMBOL_RANGES)
+
+
+def _symbol_line(rel: str, sym: Any) -> str:
+	"""符号行：``path:start: signature``；旁路开启时位置改为 ``start-end``。"""
+	location = f"{sym.start}-{sym.end}" if symbol_ranges_enabled() else str(sym.start)
+	return f"{rel}:{location}: {sym.signature}"
+
 RG_TIMEOUT_SECONDS = 30
 
 OutputMode = Literal["content", "files_with_matches", "count", "symbols", "matches"]
@@ -164,12 +192,20 @@ def apply_head_limit(
 def format_limit_info(
 	applied_limit: int | None,
 	applied_offset: int | None,
+	total_matched: int | None = None,
 ) -> str:
 	parts: list[str] = []
 	if applied_limit is not None:
 		parts.append(f"limit: {applied_limit}")
 	if applied_offset:
 		parts.append(f"offset: {applied_offset}")
+	# 旁路（XEYO_GREP_PAGINATION_FACTS）：分母与下一页起点。
+	# total_matched 早就在 GrepOutput 里算好了（见该字段注释），此前只在"页切片为空"
+	# 时露过面；分页时反而把分母藏起来 ⇒ 模型无法判断是 40/40 还是 40/300。
+	# 只在真的分页时附加：未分页结果不加字。
+	if applied_limit is not None and total_matched is not None and pagination_facts_enabled():
+		parts.append(f"total: {total_matched}")
+		parts.append(f"next_offset: {(applied_offset or 0) + applied_limit}")
 	return ", ".join(parts)
 
 
@@ -842,18 +878,18 @@ class GrepTool:
 					rel = to_relative_path(buf_path, self._cwd)
 					if n_members > 0:
 						lines.append(
-							f"{rel}:{s.start}: {s.signature} "
+							f"{_symbol_line(rel, s)} "
 							f"[+{n_members} members: containing scope available]"
 						)
 					else:
-						lines.append(f"{rel}:{s.start}: {s.signature}")
+						lines.append(_symbol_line(rel, s))
 					count += 1
 			else:
 				for s in buf:
 					if not kind_ok(s.kind):
 						continue
 					rel = to_relative_path(buf_path, self._cwd)
-					lines.append(f"{rel}:{s.start}: {s.signature}")
+					lines.append(_symbol_line(rel, s))
 					count += 1
 
 		for file_path, sym in iter_symbols(
@@ -894,7 +930,9 @@ class GrepTool:
 	@staticmethod
 	def map_tool_result_to_content(output: GrepOutput) -> str:
 		"""转化为给模型看的文本结果。"""
-		limit_info = format_limit_info(output.applied_limit, output.applied_offset)
+		limit_info = format_limit_info(
+			output.applied_limit, output.applied_offset, output.total_matched
+		)
 		if output.mode == "matches":
 			facts = (f"Nonempty match records: returned={output.num_lines or 0}; "
 				f"total={output.total_matched or 0}; offset={output.applied_offset or 0}")
@@ -1103,10 +1141,52 @@ class GrepTool:
 			return ToolResult(content=text, is_error=True, error_kind=kind)
 
 		abort.raise_if_aborted()
+		metadata: dict[str, Any] = {}
+		if self.result_no_match(output):
+			metadata["no_match"] = True
+		observation = self.observation_metadata(output)
+		if observation is not None:
+			metadata["grep_observation"] = observation
 		return ToolResult(
 			content=self.map_tool_result_to_content(output),
-			metadata=(({"no_match": True} if self.result_no_match(output) else {}) | {
-				"grep_observation": {"kind": output.content_kind, "returned_records": output.num_lines,
-				 "total_records": output.total_matched, "offset": output.applied_offset or 0}}
-				if output.content_kind == "match_excerpts" else ({"no_match": True} if self.result_no_match(output) else None)),
+			metadata=metadata or None,
 		)
+
+	@staticmethod
+	def observation_metadata(output: GrepOutput) -> dict[str, Any] | None:
+		"""检索事实（收执 grep_observation 的**唯一**构造点）。
+
+		matches 模式（match_excerpts）恒有——该模式没有分页之外的完整性含义。
+		旁路开启（``XEYO_GREP_PAGINATION_FACTS``）时其余模式也带：files/count/content
+		同样会分页，此前这些模式**完全不带**检索事实 ⇒ 分母到不了模型。
+		``next_offset`` 只在真的分页时出现（完整结果不加字）。
+		"""
+		excerpts = output.content_kind == "match_excerpts"
+		if not excerpts and not pagination_facts_enabled():
+			return None
+		# 计数口径按模式取：files/count 的"返回条数"是 num_files，不是 num_lines
+		# （取值源写错会得到一个 null 事实——比缺一条更坏，见 A/B 实测 def-1）。
+		if output.mode == "files_with_matches":
+			kind, returned = "files", output.num_files
+		elif output.mode == "count":
+			kind, returned = "count", output.num_files
+		elif output.mode == "symbols":
+			kind, returned = "symbols", output.num_lines
+		else:
+			kind, returned = output.content_kind, output.num_lines
+		facts: dict[str, Any] = {
+			"kind": kind,
+			"returned_records": returned,
+			"total_records": output.total_matched,
+			"offset": output.applied_offset or 0,
+		}
+		# matches 模式**不加** next_offset：它的正文已经印了 `total=…`（那才是它的分页面），
+		# 且既有测试对该模式的收执断言是**精确相等**
+		# （tests/wsc/test_match_evidence.py::test_match_record_pagination_is_not_line_pagination，
+		# 开关对照实测：改则失败、不改则通过）。分页事实的缺口原本在 files/count/content/
+		# symbols 这四个模式——它们此前**完全不带**检索事实。
+		if excerpts:
+			return facts
+		if output.applied_limit is not None and pagination_facts_enabled():
+			facts["next_offset"] = (output.applied_offset or 0) + output.applied_limit
+		return facts

@@ -56,6 +56,19 @@ def _is_externalized(path: str, cwd: str | None = None) -> bool:
 		return False
 
 IMAGE_EXTENSIONS = frozenset({"png", "jpg", "jpeg", "gif", "webp"})
+
+#: 大文件**带范围读**时给一行结构视图事实。**默认开**（2026-10-11 并入主链路）：
+#: A/B 实测窗口读 1498 → 1681 字符（+183），只在"读 ≥ 阈值大文件 ∧ 给了 offset/limit"时付费，
+#: 正好落在"要不要再开一个窗口"的决策点（2026-10-10 实测：2650 行文件被窗口读了 4 次）。
+#: 与"改工具描述"相比：描述是每请求 +156 字符（且会改 L0 golden），本方案只在决策点付费。
+#: 无范围读（真正的结构视图）不受此开关影响，一直是开着的。
+#: 显式设 ``0`` 关闭。
+ENV_STRUCTURE_HINT = "XEYO_READ_STRUCTURE_HINT"
+
+
+def read_structure_hint_enabled() -> bool:
+	from engine.flag_definitions import enabled
+	return enabled(ENV_STRUCTURE_HINT)
 BINARY_EXTENSIONS = frozenset(
 	{
 		"exe",
@@ -153,6 +166,7 @@ class ReadInput:
 	limit: Optional[int] = None
 	symbol: Optional[str] = None
 	pack: bool = False
+	view: str = "auto"
 
 
 @dataclass
@@ -168,6 +182,8 @@ class ReadOutput:
 	#: 本次给的是长文件的**结构视图**（条目+行号），不是正文；正文由 offset/limit
 	#: 或 symbol= 取回。触发/阈值见 tools/fileio/structure_map。
 	structured: bool = False
+	#: 旁路（XEYO_READ_STRUCTURE_HINT）：大文件**带范围读**时补一行"结构视图可用"事实。
+	structure_hint: bool = False
 
 
 def prompt(*, vision: bool = False) -> str:
@@ -215,7 +231,7 @@ class FileReadTool:
 			"file_path": {
 				"type": "string",
 				"description": (
-					"Absolute path to the file to read."
+					"Path to the file. Relative paths resolve against the current workspace."
 				),
 			},
 			"offset": {
@@ -254,6 +270,10 @@ class FileReadTool:
 				),
 			},
 		}
+		from engine.harness_policy import enabled
+		if enabled("XEYO_HARNESS_QUERIES"):
+			props["view"] = {"type": "string", "enum": ["auto", "body", "structure"],
+				"description": "auto uses the default view; body returns text; structure returns line-numbered entries."}
 		return {
 			"name": self.name,
 			"description": desc.strip(),
@@ -268,6 +288,10 @@ class FileReadTool:
 		return expand_path(input_data.file_path, cwd=self._cwd)
 
 	def validate_input(self, input_data: ReadInput) -> dict[str, Any]:
+		if input_data.view not in {"auto", "body", "structure"}:
+			return {"result": False, "message": "invalid_argument: view", "errorCode": 6}
+		if input_data.view == "structure" and any(value is not None for value in (input_data.offset, input_data.limit, input_data.symbol)):
+			return {"result": False, "message": "invalid_argument: structure view excludes offset/limit/symbol", "errorCode": 6}
 		if not input_data.file_path or not str(input_data.file_path).strip():
 			return {
 				"result": False,
@@ -280,6 +304,8 @@ class FileReadTool:
 			return {"result": True}
 
 		ext = os.path.splitext(full)[1].lower().lstrip(".")
+		if input_data.view != "auto" and (ext in IMAGE_EXTENSIONS or ext in {"pdf", "ipynb"}):
+			return {"result": False, "message": "unsupported_view: " + ext, "errorCode": 6}
 		if ext in IMAGE_EXTENSIONS:
 			if not self._vision_enabled:
 				return {
@@ -558,10 +584,10 @@ class FileReadTool:
 			# offset 从 1 开始计数
 			start_idx = max(0, offset - 1)
 			effective_limit = MAX_LINES_TO_READ if limit is None else limit
-			if limit is None and input_data.offset is None:
+			if input_data.view != "body" and limit is None and input_data.offset is None:
 				from tools.fileio import structure_map
 
-				if structure_map.enabled(total_lines):
+				if input_data.view == "structure" or structure_map.enabled(total_lines):
 					# 长文件 + 没给范围 ⇒ 先给结构（条目 + 行号），正文由 offset/limit
 					# 或 symbol= 取回。阈值/开关见 structure_map.min_lines。
 					slice_text = structure_map.render(full, all_lines, ext)
@@ -582,6 +608,24 @@ class FileReadTool:
 				f"({DEFAULT_MAX_TOKENS}). offset and limit parameters select "
 				"specific portions; content search returns matching sections."
 			)
+
+		# 旁路（XEYO_READ_STRUCTURE_HINT，默认关）：读 **≥ 阈值的大文件且给了 offset/limit** 时
+		# 补一行"结构视图可用"。放在这里而不是工具描述里：描述是每请求付费，这条只在
+		# 大文件窗口读时付费，且正好落在"要不要再开一个窗口"的决策点
+		# （2026-10-10 实测：2650 行文件被窗口读了 4 次 = 4 次这个点）。
+		structure_hint = False
+		if (
+			not structured
+			and symbol_meta is None
+			and (input_data.offset is not None or input_data.limit is not None)
+			and read_structure_hint_enabled()
+		):
+			try:
+				from tools.fileio import structure_map
+
+				structure_hint = bool(structure_map.enabled(total_lines))
+			except Exception:  # noqa: BLE001 — 提示失败不许挡读路径
+				structure_hint = False
 
 		mtime = get_mtime_ms(full)
 		# 外部化内容（offload 落地文件 / WSC 冷层取回视图）**不记 read-state**：
@@ -616,6 +660,7 @@ class FileReadTool:
 			symbol_meta=symbol_meta,
 			default_capped=default_capped,
 			structured=structured,
+			structure_hint=structure_hint,
 		)
 
 	@staticmethod
@@ -632,6 +677,12 @@ class FileReadTool:
 					f"{output.start_line + shown - 1}. "
 					f"offset/limit select other portions.</system-reminder>"
 				)
+			if output.structure_hint:
+				rendered += (
+					f"\n\n<system-reminder>The file has {output.total_lines} lines; "
+					"a structure view (line-numbered entries) is available by reading "
+					"it without offset/limit, or one symbol body via symbol=.</system-reminder>"
+				)
 			return rendered
 		if output.total_lines == 0:
 			return (
@@ -645,6 +696,7 @@ class FileReadTool:
 		)
 
 	def parse_input(self, raw: dict[str, Any]) -> ReadInput:
+		from engine.harness_policy import enabled
 		pack_raw = raw.get("pack")
 		pack = pack_raw is True or (
 			isinstance(pack_raw, str) and pack_raw.strip().lower() in {"1", "true", "yes"}
@@ -655,6 +707,7 @@ class FileReadTool:
 			limit=_coerce_optional_int(raw.get("limit")),
 			symbol=(str(raw.get("symbol")).strip() or None) if raw.get("symbol") else None,
 			pack=pack,
+			view=str(raw.get("view", "auto")) if enabled("XEYO_HARNESS_QUERIES") else "auto",
 		)
 
 	async def execute(

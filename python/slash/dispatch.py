@@ -6,7 +6,7 @@
 - 微信远程通道（``channels/remote_commands.py`` / ``ilink/service.py`` 命令处理改调此处）
 
 设计约束：
-- **不通模型、不改 MessageStore / JSONL**：本模块只做「查询会话状态 / 触发已存在的
+- compact 可通过异步入口生成并追加交接；其余命令只做「查询会话状态 / 触发已存在的
   后端动作 / 只读 git / 扩展清单 / XEYO.md 维护」类事务。模式/精简/模型/主题/审批
   等开关是 client 命令，由发起面改请求体 / contextvar（AGENTS.md 的 T_now 范式）。
 - 依赖全部惰性导入 + try/except 降级：单条命令失败不影响其它命令与请求主链路。
@@ -391,6 +391,18 @@ def _cmd_allow_deny(ctx: DispatchContext, arg: str, *, approved: bool) -> Comman
 # --------------------------------------------------------------------------- #
 
 def _cmd_compact(ctx: DispatchContext, arg: str) -> CommandResult:
+	# Synchronous embedders can use the same operation outside an event loop.
+	# Async product callers use dispatch_async; never nest an event loop here.
+	import asyncio
+	try:
+		asyncio.get_running_loop()
+	except RuntimeError:
+		return asyncio.run(_cmd_compact_async(ctx, arg))
+	return CommandResult(handled=True, kind="memory", message="compact：异步入口未连接。",
+		result={"ok": False, "reason": "async_compact_required"})
+
+
+async def _cmd_compact_async(ctx: DispatchContext, arg: str) -> CommandResult:
 	blocked = _reject_if_busy(ctx)
 	if blocked is not None:
 		return blocked
@@ -401,29 +413,27 @@ def _cmd_compact(ctx: DispatchContext, arg: str) -> CommandResult:
 			handled=True, kind="memory", message="compact：没有可用会话。", result={"ok": False}
 		)
 	try:
-		from memory.runtime import force_compact
-		from session.compression_source import compression_messages
-		from memory.wsc_source_transition import prepare_compression_source
-		from memory.working import flush
-
-		compact_cwd = _workspace(ctx)
-		prepare_compression_source(session.messages, session.working, cwd=compact_cwd, fold=False)
-		msgs = compression_messages(session.messages, session.working)
-		before = int(getattr(session.working, "compact_cursor", 0) or 0)
-		force_compact(msgs, session.working, cwd=compact_cwd)
-		flush(session.session_id, session.working)
-		after = int(getattr(session.working, "compact_cursor", 0) or 0)
-		chars = len(getattr(session.working, "c2_summary_text", "") or "")
+		if ctx.engine is None:
+			# Pool-backed slash commands share the same lease and pending-stop
+			# boundary as the memory endpoint. Engine callers already own a turn
+			# lease (chat) or serialize their commands (in-process CLI).
+			from server.routers.memory import CompactBody, manual_compact
+			payload = await manual_compact(CompactBody(session_id=ctx.session_id))
+		else:
+			from engine.manual_compaction import compact
+			payload = await compact(engine, cwd=_workspace(ctx) or None)
+		after = int(payload.get("compact_cursor") or 0)
+		chars = int(payload.get("c2_summary_chars") or 0)
 		msg = (
-			f"已压缩到 cursor {after}（此前 {before}），摘要 {chars} 字。"
-			if after > before or chars
+			f"已压缩到 cursor {after}，摘要 {chars} 字。"
+			if payload.get("advanced") or chars
 			else "历史过短或无可压缩区间，未推进 cursor。"
 		)
 		return CommandResult(
 			handled=True,
 			kind="memory",
 			message=msg,
-			result={"ok": True, "compact_cursor": after, "c2_summary_chars": chars},
+			result=payload,
 		)
 	except Exception as exc:  # noqa: BLE001
 		return CommandResult(
@@ -1121,6 +1131,19 @@ def dispatch_command(
 	cmd: Command, arg: str = "", *, ctx: DispatchContext | None = None
 ) -> CommandResult:
 	return dispatch(cmd.name, arg, ctx=ctx)
+
+
+async def dispatch_async(name: str, arg: str = "", *, ctx: DispatchContext | None = None) -> CommandResult:
+	"""Async entry: compact may generate a handoff; other commands retain dispatch."""
+	cmd = get_command(name)
+	if cmd is not None and cmd.handler == "server" and cmd.name == "compact":
+		return await _cmd_compact_async(ctx or DispatchContext(), arg)
+	from starlette.concurrency import run_in_threadpool
+	return await run_in_threadpool(dispatch, name, arg, ctx=ctx)
+
+
+async def dispatch_command_async(cmd: Command, arg: str = "", *, ctx: DispatchContext | None = None) -> CommandResult:
+	return await dispatch_async(cmd.name, arg, ctx=ctx)
 
 
 def build_help(ctx: DispatchContext | None = None) -> CommandResult:

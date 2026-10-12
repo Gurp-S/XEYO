@@ -56,36 +56,29 @@ def list_notes(
 
 
 @router.post("/v1/memory/compact")
-def manual_compact(body: CompactBody) -> dict[str, Any]:
-	"""手动 /compact：强制 C2 投影游标前进；不改 JSONL。"""
-	from memory.runtime import force_compact
-	from session.compression_source import compression_messages
-	from memory.wsc_source_transition import prepare_compression_source
-	from memory.working import flush
+async def manual_compact(body: CompactBody) -> dict[str, Any]:
+	"""手动压缩：追加可核验交接后推进投影，既有原文不改。"""
+	from engine.manual_compaction import compact
+	from engine.turn_runner import get_turn_runner
+	from server.session_operation import keep_lease
 
 	engine = _pool.get_if_present(body.session_id)
 	if engine is None:
 		raise HTTPException(status_code=404, detail="session not found")
-	session = engine._session  # noqa: SLF001
-	compact_cwd = getattr(_pool, "session_cwd", lambda sid: None)(body.session_id) or _cwd()
-	prepare_compression_source(session.messages, session.working, cwd=compact_cwd, fold=False)
-	msgs = compression_messages(session.messages, session.working)
-	if len(msgs) < 4:
-		return {
-			"ok": False,
-			"reason": "too_short",
-			"compact_cursor": session.working.compact_cursor,
-		}
-	before = int(session.working.compact_cursor or 0)
-	force_compact(msgs, session.working, cwd=compact_cwd)
-	flush(session.session_id, session.working)
-	after = int(session.working.compact_cursor or 0)
-	preview = (session.working.c2_summary_text or "")[:240]
-	return {
-		"ok": True,
-		"compact_cursor": after,
-		"advanced": after > before,
-		"c2_summary_chars": len(session.working.c2_summary_text or ""),
-		"c2_summary_preview": preview,
-		"last_action": session.working.last_action,
-	}
+	if get_turn_runner().is_running(body.session_id):
+		raise HTTPException(status_code=409, detail="session busy")
+	lease_id = _pool.try_begin(body.session_id)
+	if lease_id is None:
+		raise HTTPException(status_code=409, detail="session busy")
+	try:
+		# Resolve the engine after acquiring ownership: an idle engine can
+		# have been replaced/evicted since the initial existence check.
+		engine = _pool.get_if_present(body.session_id)
+		if engine is None:
+			raise HTTPException(status_code=404, detail="session not found")
+		compact_cwd = getattr(_pool, "session_cwd", lambda sid: None)(body.session_id) or _cwd()
+		async with keep_lease(_pool, body.session_id, lease_id) as guard:
+			return await compact(engine, cwd=compact_cwd, guard=guard,
+				pending_stop=lambda: _pool.take_pending_interrupt(body.session_id))
+	finally:
+		_pool.end(body.session_id, lease_id)

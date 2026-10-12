@@ -203,6 +203,19 @@ class OpenAICompatClient:
 		return {"messages": _normalize_messages_for_openai(messages),
 		        "tools": [_to_openai_tool(t) for t in tools]}
 
+	def context_output_limit(self, messages, tools):
+		from model.context_input import output_limit_from_body
+		return output_limit_from_body({'max_tokens': self._max_tokens})
+
+	def context_token_measure(self, source):
+		if self._provider != "deepseek":
+			return None
+		from model.deepseek_count import measure
+		kind = self._thinking if self._thinking in ("enabled", "disabled") else "disabled"
+		effort = self._reasoning_effort if kind == "enabled" and self._reasoning_effort in ("low", "high", "max") else None
+		return measure(source, model=self._model, base_url=self._base_url,
+		               thinking=kind, reasoning_effort=effort)
+
 	def _build_body(
 		self,
 		messages: list[dict[str, Any]],

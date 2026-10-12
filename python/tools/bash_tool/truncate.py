@@ -139,6 +139,11 @@ def truncate_for_model(
 	ensure_dir(persist_dir)
 	with open(path, "w", encoding="utf-8", errors="replace") as f:
 		f.write(text)
+	from engine.harness_policy import enabled
+	if enabled("XEYO_HARNESS_RESOURCES"):
+		from tools.artifact_lifecycle import register, prune
+		register(path)
+		prune(persist_dir)
 
 	head = text[:HEAD_CHARS]
 	tail = text[-TAIL_CHARS:] if len(text) > HEAD_CHARS + TAIL_CHARS else ""

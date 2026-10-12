@@ -54,10 +54,11 @@ def discard_unpaired_tool_results(messages: list[Message]) -> list[Message]:
 			out.append(message)
 			continue
 		if message.role == "tool":
-			uid = _tool_result_id(message)
-			if uid and uid in pending:
+			from session.result_identity import result_ids
+			uids = result_ids(message)
+			if uids and all(uid and uid in pending for uid in uids):
 				out.append(message)
-				pending.remove(uid)
+				pending.difference_update(uids)
 			else:
 				changed = True
 			continue

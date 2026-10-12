@@ -54,6 +54,7 @@ def enabled(total_lines: int) -> bool:
 def render(full_path: str, all_lines: list[str], ext: str = "") -> str:
     """结构视图正文；任何异常回退最小视图（只报总行数）。"""
     total = len(all_lines)
+    status = "available"
     try:
         entries = (
             _code_entries(str(full_path))
@@ -62,11 +63,18 @@ def render(full_path: str, all_lines: list[str], ext: str = "") -> str:
         )
     except Exception:  # noqa: BLE001 — 结构视图失败不许挡读路径
         entries = []
+        status = "unavailable"
     head = f"structure view: {total} lines, {len(entries)} entries"
     body = [f"{line_no}  {label}" for line_no, label in entries[:_MAX_ENTRIES]]
     if len(entries) > _MAX_ENTRIES:
         body.append(f"… +{len(entries) - _MAX_ENTRIES} more entries")
-    body.append("(pass offset/limit or symbol= to read the body)")
+    from engine.harness_policy import enabled
+    if enabled("XEYO_HARNESS_FACTS"):
+        if not entries and status == "available" and (ext or "").lower() in _CODE_EXTS:
+            status = "empty_or_unindexed"
+        body.append(f"entries_status={status}; body_parameters=offset/limit/symbol")
+    else:
+        body.append("(pass offset/limit or symbol= to read the body)")
     return "\n".join([head, *body])
 
 

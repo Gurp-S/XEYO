@@ -16,6 +16,8 @@ from .dispatch import (
 	build_help,
 	dispatch,
 	dispatch_command,
+	dispatch_async,
+	dispatch_command_async,
 )
 from .registry import (
 	COMMANDS,
@@ -43,6 +45,8 @@ __all__ = [
 	"build_help",
 	"dispatch",
 	"dispatch_command",
+	"dispatch_async",
+	"dispatch_command_async",
 	"get_command",
 	"help_text",
 	"is_slash_command",

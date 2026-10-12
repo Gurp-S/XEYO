@@ -10,7 +10,8 @@ import difflib
 import os
 from tools.fileio import fsprobe as _fsprobe
 from tools.container_fs import display_cwd as _cfs_display_cwd
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+import json
 from typing import Any
 
 from engine.abort import AbortController
@@ -88,6 +89,7 @@ class EditInput:
 	old_string: str
 	new_string: str
 	replace_all: bool = False
+	validation_policy: str = "draft"
 
 
 @dataclass
@@ -101,6 +103,7 @@ class EditOutput:
 	new_content: str = ""
 	# T28：WriteStore journal 记录失败警示（文件已落盘但证据链缺口）。
 	notice: str = ""
+	checks: dict = field(default_factory=dict)
 
 
 def _line_diff_counts(old: str, new: str) -> tuple[int, int]:
@@ -160,6 +163,10 @@ class FileEditTool:
 		子 Agent（write_scope 已激活）必须经 WriteStore，禁止静默直写。
 		返回 T28 journal 警示（正常为空串）。
 		"""
+		from engine.harness_policy import enabled
+		if enabled("XEYO_HARNESS_WRITES"):
+			from engine.write_transaction import persist_candidate
+			return persist_candidate(self, full, content, encoding=encoding, line_endings=line_endings)
 		if self._write_store is None:
 			from permissions.write_scope import get_write_scope
 
@@ -250,7 +257,7 @@ class FileEditTool:
 		return False
 
 	def schema(self) -> dict[str, Any]:
-		return {
+		schema = {
 			"name": self.name,
 			"description": prompt(),
 			"input_schema": {
@@ -283,6 +290,9 @@ class FileEditTool:
 				"required": ["file_path", "old_string", "new_string"],
 			},
 		}
+
+		from tools.fileio.validation import extend_schema
+		return extend_schema(schema)
 
 	def get_path(self, input_data: EditInput) -> str:
 		return expand_path(input_data.file_path, cwd=self._cwd)
@@ -456,6 +466,9 @@ class FileEditTool:
 
 	def call(self, input_data: EditInput) -> EditOutput:
 		full = self.get_path(input_data)
+		self._mutation_base = None
+		self._mutation_checks = {}
+		self._validation_policy = input_data.validation_policy
 
 		# 新文件创建：old_string == ""
 		if not _fsprobe.exists(full) and input_data.old_string == "":
@@ -484,6 +497,7 @@ class FileEditTool:
 				old_content="",
 				new_content=new_norm,
 				notice=journal_warning,
+				checks=getattr(self, "_mutation_checks", {}),
 			)
 
 		# 优先使用 validate 缓存；否则重读
@@ -492,6 +506,7 @@ class FileEditTool:
 		endings = getattr(self, "_last_endings", "LF")
 		if file_content is None:
 			file_content, endings, encoding = read_text_file(full)
+		self._mutation_base = file_content
 
 		entry = self._read_state.get(full)
 		mtime = get_mtime_ms(full)
@@ -572,6 +587,7 @@ class FileEditTool:
 			old_content=file_content,
 			new_content=updated,
 			notice=journal_warning,
+			checks=getattr(self, "_mutation_checks", {}),
 		)
 
 	@staticmethod
@@ -591,7 +607,9 @@ class FileEditTool:
 			file_path=output.file_path,
 		)
 		body = append_diff_fence(msg, diff)
-		hint = _diagnostics_hint(output.file_path)
+		if output.checks:
+			body += "\nvalidation=" + json.dumps(output.checks, ensure_ascii=False, separators=(",", ":"))
+		hint = "" if output.checks else _diagnostics_hint(output.file_path)
 		out = body + hint if hint else body
 		if getattr(output, "notice", ""):
 			out = f"{out}\n{output.notice}"
@@ -605,6 +623,7 @@ class FileEditTool:
 			old_string="" if old is None else (old if isinstance(old, str) else str(old)),
 			new_string="" if new is None else (new if isinstance(new, str) else str(new)),
 			replace_all=_coerce_bool(raw.get("replace_all"), False),
+			validation_policy=str(raw.get("validation_policy", "draft")),
 		)
 
 	async def execute(
@@ -612,6 +631,8 @@ class FileEditTool:
 	) -> ToolResult:
 		abort.raise_if_aborted()
 		edit_input = self.parse_input(input)
+		if edit_input.validation_policy not in {"draft", "strict"}:
+			return ToolResult(content="invalid_argument: validation_policy", is_error=True, error_kind=INVALID_ARGUMENT)
 
 		validation = self.validate_input(edit_input)
 		if not validation.get("result"):

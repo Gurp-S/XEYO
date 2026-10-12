@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -37,18 +38,31 @@ def _content_json_bytes(content: Any) -> bytes:
 
 
 def write_content_blob(anchor: Path, message_id: str, content: Any) -> tuple[str, str, int]:
-	"""同步写 blob；返回 (content_ref, content_hash, content_bytes)。"""
+	"""Publish immutable source bytes; same identity/content retries are idempotent."""
 	payload = _content_json_bytes(content)
 	digest = hashlib.sha256(payload).hexdigest()
 	target = blob_file(anchor, message_id)
 	target.parent.mkdir(parents=True, exist_ok=True)
-	tmp = target.with_suffix(".json.tmp")
-	tmp.write_bytes(payload)
-	os.replace(tmp, target)
+	fd, name = tempfile.mkstemp(prefix=".blob-publish-", dir=target.parent)
+	tmp = Path(name)
+	try:
+		with os.fdopen(fd, "wb") as stream:
+			stream.write(payload)
+			stream.flush()
+			os.fsync(stream.fileno())
+		try:
+			# Publication cannot replace a source referenced by an older row.
+			os.link(tmp, target)
+		except FileExistsError:
+			pass
+		if target.read_bytes() != payload:
+			raise ValueError("transcript_blob_identity_conflict")
+	finally:
+		tmp.unlink(missing_ok=True)
 	return (f"{message_id}.json", f"sha256:{digest}", len(payload))
 
 
-def resolve_transcript_row(row: dict[str, Any], anchor: Path) -> dict[str, Any]:
+def resolve_transcript_row(row: dict[str, Any], anchor: Path, *, strict: bool = False) -> dict[str, Any]:
 	"""把 content_ref 还原为 inline content（供 hydrate / UI 恢复）。"""
 	if not isinstance(row, dict):
 		return row
@@ -59,6 +73,15 @@ def resolve_transcript_row(row: dict[str, Any], anchor: Path) -> dict[str, Any]:
 		return row
 	out = dict(row)
 	path = blobs_dir(anchor) / Path(ref).name
+	if strict:
+		# Execution recovery cannot treat missing/corrupt source bytes as an
+		# empty message. Old rows without a digest remain readable.
+		payload = path.read_bytes()
+		expected = row.get("content_hash")
+		if expected and expected != f"sha256:{hashlib.sha256(payload).hexdigest()}":
+			raise ValueError("transcript_blob_hash_mismatch")
+		out["content"] = json.loads(payload.decode("utf-8"))
+		return out
 	if not path.is_file():
 		out["content"] = ""
 		return out
@@ -77,16 +100,16 @@ def resolve_transcript_row(row: dict[str, Any], anchor: Path) -> dict[str, Any]:
 def resolve_transcript_rows(
 	rows: list[dict[str, Any]],
 	anchor: Path,
+	*, strict: bool = False,
 ) -> list[dict[str, Any]]:
-	return [resolve_transcript_row(row, anchor) for row in rows]
+	return [resolve_transcript_row(row, anchor, strict=strict) for row in rows]
 
 
-def row_from_message(message: Message, *, anchor: Path) -> dict[str, Any]:
-	"""Message → JSONL 行；大 content 外置到 blob 文件。"""
+def message_fields(message: Message) -> dict[str, Any]:
+	"""Immutable message fields before timestamping or externalizing content."""
 	row: dict[str, Any] = {
 		"id": message.id,
 		"role": message.role,
-		"ts": time.time(),
 	}
 	if message.tool_call_id:
 		row["tool_call_id"] = message.tool_call_id
@@ -108,7 +131,15 @@ def row_from_message(message: Message, *, anchor: Path) -> dict[str, Any]:
 			# 撤回标记随行留档：重启后那条已作废状态仍不得回到模型投影。
 			row["note_retracted"] = True
 
-	content = message.content
+	row["content"] = message.content
+	return row
+
+
+def row_from_message(message: Message, *, anchor: Path) -> dict[str, Any]:
+	"""Message → JSONL 行；大 content 外置到 blob 文件。"""
+	row = message_fields(message)
+	row["ts"] = time.time()
+	content = row.pop("content")
 	payload = _content_json_bytes(content)
 	if len(payload) >= blob_threshold_bytes() and message.id:
 		ref, digest, nbytes = write_content_blob(anchor, message.id, content)

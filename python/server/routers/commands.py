@@ -4,7 +4,7 @@ GUI / CLI-TS 通过该端点执行 ``handler=server`` 的斜杠命令；CLI-Py �
 进程内直接调 :func:`slash.dispatch`，不走 HTTP。
 
 鉴权与 ``/v1/chat/completions`` 同源（Bearer API key + loopback 门禁）。
-命令**不通模型、不改 MessageStore**；模式/精简/模型/主题/审批等
+compact 可生成并追加结构化交接；其余命令不通模型。模式/精简/模型/主题/审批等
 client 命令由发起面本地处理，本端点直接拒收。
 
 边缘信任（与其它 HTTP 路由同一套谓词，构造 ctx 前完成）：``workspace`` 必须是
@@ -27,7 +27,7 @@ from server.deps import _extract_bearer, _pool, _resolve_base_url, api_error
 from server.local_gate import require_loopback
 from server.routers.extensions import require_workspace_arg
 from server.routers.sessions import _require_stable_id
-from slash.dispatch import CommandResult, DispatchContext, dispatch_command
+from slash.dispatch import CommandResult, DispatchContext, dispatch_command_async
 from slash.registry import get_command
 
 router = APIRouter(tags=["slash"])
@@ -87,7 +87,7 @@ class SlashRequest(BaseModel):
 
 
 @router.post("/v1/slash")
-def slash_command(
+async def slash_command(
 	body: SlashRequest,
 	request: Request,
 	authorization: str | None = Header(default=None),
@@ -121,7 +121,7 @@ def slash_command(
 			base_url=_resolve_base_url(provider, body.base_url or x_base_url) or "",
 			model=(body.model or "").strip(),
 		)
-		result = dispatch_command(cmd, arg, ctx=ctx)
+		result = await dispatch_command_async(cmd, arg, ctx=ctx)
 		# /goal 是能在「还没有任何轮次」的会话上落盘的服务端命令：目标写进
 		# ctx.workspace 的 GoalStore，而 goals 读侧（GET/PATCH/round-driver 走
 		# ``_require_known_session``）要求 pool 认识这个会话 —— 新会话的 id 由前端

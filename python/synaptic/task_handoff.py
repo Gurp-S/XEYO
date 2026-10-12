@@ -6,6 +6,7 @@ retirement, success inference, or model calls.
 import json
 
 from synaptic.coldstore import node_group_handle
+from synaptic.receipt_source_binding import record as bound_receipt
 
 
 def scalar(value):
@@ -25,6 +26,11 @@ def render(state, nodes, handles):
             extra = {key: value for key, value in item.items() if key not in {"id", "content", "status"}}
             if extra:
                 lines.append("  字段=" + scalar(extra))
+    phase = state.get("phase_state")
+    if phase is not None:
+        current = next(item for item in phase["phases"] if item["id"] == phase["current_phase_id"])
+        lines.append("当前阶段（声明）: " + scalar(current))
+        lines.append("历史阶段引用（冷存）: " + str(state.get("historical_fact_count", 0)) + " 项")
     terminal = state.get("terminal_task")
     if terminal:
         lines.append("终态任务（已提交声明）: " + scalar({key: value for key, value in terminal.items()
@@ -32,33 +38,44 @@ def render(state, nodes, handles):
         lines.append("  终态来源=" + handles.expression(node_group_handle((terminal["commit_source"],))))
         lines.append("终态任务的检查点绑定验收（执行事实）: " + str(len(terminal.get("verification_receipts", []))) + " 项")
         for receipt in terminal.get("verification_receipts", []):
-            lines.append("- " + scalar(receipt))
+            lines.append("- " + scalar(bound_receipt(receipt, handles)))
             lines.append("  来源=" + handles.expression(node_group_handle((receipt["source"],))))
+            if receipt.get("input_inline") is False:
+                lines.append("  调用来源=" + handles.expression(node_group_handle((receipt["input_source"],))))
         for unknown in terminal.get("unknown_verification_sources", []):
             lines.append("- 未知验收来源=" + scalar(unknown))
         executions = terminal.get("preceding_executions")
         if executions:
             lines.append("终态提交前的执行事实（时间范围，任务关联未声明）: " + str(executions["observed_count"]) + " 项")
             for receipt in executions["inline_or_indexed"]:
-                lines.append("- " + scalar(receipt))
+                lines.append("- " + scalar(bound_receipt(receipt, handles)))
                 lines.append("  来源=" + handles.expression(node_group_handle((receipt["source"],))))
     for key, title in (("declared_decisions", "决定（声明）"), ("declared_constraints", "任务约束（声明）")):
         lines.append(title + f": {len(state[key])} 项")
         lines.extend("- " + scalar(value) for value in state[key])
+    if "verification_call_ids" in state:
+        lines.append("验收调用身份（声明）: " + scalar(state["verification_call_ids"]))
     lines.append("执行回执: " + str(len(state["verification_receipts"])) + " 项")
     for receipt in state["verification_receipts"]:
-        lines.append("- " + scalar(receipt))
+        lines.append("- " + scalar(bound_receipt(receipt, handles)))
         lines.append("  来源=" + handles.expression(node_group_handle((receipt["source"],))))
+        if receipt.get("input_inline") is False:
+            lines.append("  调用来源=" + handles.expression(node_group_handle((receipt["input_source"],))))
+    for observation in state.get("execution_observations", []):
+        lines.append("执行观察（原文片段）: " + scalar(observation))
+        lines.append("  来源=" + handles.expression(node_group_handle((observation["source"],))))
     executions = state.get("subsequent_executions")
     if executions:
         lines.append("检查点之后的执行事实（任务关联未声明）: " + str(executions["observed_count"]) + " 项")
         lines.append("当前显示范围: " + str(len(executions["inline_or_indexed"])) + " 项")
         for receipt in executions["inline_or_indexed"]:
-            lines.append("- " + scalar(receipt))
+            lines.append("- " + scalar(bound_receipt(receipt, handles)))
             lines.append("  来源=" + handles.expression(node_group_handle((receipt["source"],))))
     lines.append("关联原文: " + str(len(state["context_sources"])) + " 项")
     for source in state["context_sources"]:
         lines.append("- message_id=" + scalar(source["message_id"]) + " source=#" + str(source["source"]))
+        if "origin_phases" in source:
+            lines.append("  来源阶段（声明）=" + scalar(source["origin_phases"]))
         lines.append("  原文:")
         lines.extend("    " + line for line in source["text"].split("\n"))
         lines.append("  来源=" + handles.expression(node_group_handle((source["source"],))))
@@ -66,12 +83,24 @@ def render(state, nodes, handles):
         lines.append("结构化声明来源: " + scalar(source))
         for index in dict.fromkeys(index for fact in source["facts"] for index in fact["sources"]):
             lines.append("  来源=" + handles.expression(node_group_handle((index,))))
+    for source in state.get("historical_context_sources", []):
+        lines.append("历史来源（声明作用域）: " + scalar(source))
+        lines.append("  来源=" + handles.expression(node_group_handle((source["source"],))))
+    for source in state.get("phase_event_sources", []):
+        lines.append("阶段事件来源（声明）: " + scalar(source))
+        lines.append("  来源=" + handles.expression(node_group_handle((source["source"],))))
     deferred = state.get("deferred_sources", [])
+    presentation = {row["message_id"]: row for row in state.get("partially_presented_sources", [])}
     if deferred:
         lines.append("关联原文（已定位，热层未内联）: " + str(len(deferred)) + " 项")
         for source in deferred:
             handle = node_group_handle((source["source"],))
-            lines.append("- " + scalar({**source, "source_view_lines": handles.span(handle)}))
+            details = {**source, "source_view_lines": handles.span(handle)}
+            observed = presentation.get(source["message_id"])
+            if observed is not None:
+                details.update(handoff_presented_ranges=observed["presented_ranges"],
+                               source_total_characters=observed["total_characters"])
+            lines.append("- " + scalar(details))
             lines.append("  来源编码=" + handles.encoding(handle))
             lines.append("  来源=" + handles.expression(handle))
     lines.append("未知来源: " + str(len(state["unknown_sources"])) + " 项")

@@ -227,10 +227,10 @@ class QueryEngine:
         # 将初始消息填入 session
         for msg in initial_messages:
             self._session.messages.append(msg)
-        self._session.transcript_known_ids.update(
-            m.id for m in initial_messages if m.id
-        )
-        self._session.transcript_persist_index = len(initial_messages)
+        from session.recovery_event import registration
+        known, cursor = registration(initial_messages)
+        self._session.transcript_known_ids.update(known)
+        self._session.transcript_persist_index = cursor
 
         # 决定使用外部传入的 AbortController 还是内部新建
         abort = config.get("abort_controller")
@@ -245,14 +245,11 @@ class QueryEngine:
         self._session.working.session_id = self._session.session_id
         # sidecar 空时从 transcript 回填最后一次 TodoWrite（冷启动 / 丢 sidecar）。
         if not self._session.working.todos:
-            try:
-                from tools.todo_write_tool.restore import restore_todos_from_transcript
+            from tools.todo_write_tool.restore import restore_todos_from_transcript
 
-                restored = restore_todos_from_transcript(self._session.session_id)
-                if restored:
-                    self._session.working.todos = [t.to_dict() for t in restored]
-            except Exception:
-                pass
+            restored = restore_todos_from_transcript(self._session.session_id)
+            if restored:
+                self._session.working.todos = [t.to_dict() for t in restored]
         from tools.todo_write_tool.committed_restore import reconcile
         reconcile(self._session.working, initial_messages)
         apply_to_tools(self._session.working, self._tools)
@@ -323,9 +320,10 @@ class QueryEngine:
         copied = list(messages)
         for msg in copied:
             self._session.messages.append(msg)
-            if msg.id:
-                self._session.transcript_known_ids.add(msg.id)
-        self._session.transcript_persist_index = len(copied)
+        from session.recovery_event import registration
+        known, cursor = registration(copied)
+        self._session.transcript_known_ids.update(known)
+        self._session.transcript_persist_index = cursor
         return True
 
     def replace_history(self, messages: list[Message]) -> None:
@@ -339,8 +337,10 @@ class QueryEngine:
         """
         copied = list(messages)
         self._session.messages.replace(copied)
-        self._session.transcript_known_ids = {m.id for m in copied if m.id}
-        self._session.transcript_persist_index = len(copied)
+        from session.recovery_event import registration
+        known, cursor = registration(copied)
+        self._session.transcript_known_ids = known
+        self._session.transcript_persist_index = cursor
         snap = self._session.working
         from memory.working import reset_rollback_state
 

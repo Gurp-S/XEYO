@@ -18,6 +18,8 @@ import json
 import logging
 import os
 import threading
+import tempfile
+import uuid
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -67,6 +69,8 @@ class ApplyResult:
     new_hashes: dict[str, str] = field(default_factory=dict)
     # T28：journal 记录失败时非空——文件已落盘但证据链缺口必须可观测。
     journal_warning: str = ""
+    checks: dict[str, Any] = field(default_factory=dict)
+    operation_id: str = ""
 
 
 def _routed_container() -> str:
@@ -226,8 +230,12 @@ def _replace_with_retry(tmp: Path, path: Path) -> None:
 class WriteStore:
     """每文件一把线程锁。submit_sync 热路径；async submit 把 apply 挪出事件循环。"""
 
-    def __init__(self, root: str | Path, *, shards: int = 64) -> None:
+    def __init__(self, root: str | Path, *, shards: int = 64, allowed_paths: tuple[str, ...] = ()) -> None:
         self._root = Path(root).expanduser().resolve()
+        # Direct main-session tools already resolve and authorize their target.
+        # Exact extra paths preserve their existing multi-root behavior; stores
+        # supplied to sub-agents retain the default workspace restriction.
+        self._allowed_paths = frozenset(Path(path).resolve() for path in allowed_paths)
         self._shards = max(1, shards)
         # 分片锁：路径哈希映射到固定数量的锁。曾按"每文件一把锁"实现，
         # 锁表只增不减（长会话内存无界）；分片同样保证同文件串行。
@@ -263,9 +271,10 @@ class WriteStore:
         try:
             resolved.relative_to(self._root)
         except ValueError as exc:
-            raise PermissionError(
-                f"WriteStore path outside workspace root: {resolved}"
-            ) from exc
+            if resolved not in self._allowed_paths:
+                raise PermissionError(
+                    f"WriteStore path outside workspace root: {resolved}"
+                ) from exc
         # 子 Agent 写 scope 二次硬门禁
         from permissions.write_scope import write_scope_deny_reason
 
@@ -287,6 +296,11 @@ class WriteStore:
             return ApplyResult(
                 ok=False, reason="path_denied", detail=str(exc),
             )
+        from engine.harness_policy import enabled
+        if enabled("XEYO_HARNESS_WRITES"):
+            from engine.write_transaction import path_lock
+            with path_lock(str(path)):
+                return self._apply_core(intent, path)
         with self._lock_for(str(path)):
             return self._apply_core(intent, path)
 
@@ -294,6 +308,18 @@ class WriteStore:
         """同步核心：content-hash 校验 -> 计算内容 -> 语法增量 -> 原子写 -> journal。"""
         base = self._lookup_base_hash(intent, path)
         current = _content_hash(path)
+
+        from engine.harness_policy import enabled
+        candidate_mode = enabled("XEYO_HARNESS_WRITES")
+        if candidate_mode:
+            from tools.fileio import fsprobe
+            exists = fsprobe.exists(str(path))
+            if intent.annotation.get("expected_absent") and exists:
+                return ApplyResult(ok=False, reason="stale", detail="expected_absent: target exists", base_stale=True)
+            if base and not exists:
+                return ApplyResult(ok=False, reason="stale", detail="expected_version: target missing", base_stale=True)
+            if exists and not current:
+                return ApplyResult(ok=False, reason="read_failed", detail="current_content_version unavailable")
 
         session_id = self._session_id_from_intent(intent)
 
@@ -348,10 +374,17 @@ class WriteStore:
             return ApplyResult(ok=False, reason="conflict", detail="op cannot apply")
 
         syntax_ok = _syntax_ok(path, new_content)
+        checks = {}
+        if candidate_mode:
+            from tools.fileio.validation import check_content
+            checks = check_content(path, new_content)
+            if intent.annotation.get("validation_policy") == "strict" and checks["status"] != "passed":
+                return ApplyResult(ok=False, reason="validation_failed", detail=json.dumps(checks), checks=checks)
 
         # 改前内容（写前抓取，用于生成 unified diff 快照；文件不存在/不可读则视为空）。
         before_content = _read_text_safe(path)
         change_diff = _make_unified_diff(path, before_content, new_content)
+        operation_id = uuid.uuid4().hex if candidate_mode else ""
 
         self._atomic_write(path, new_content, encoding=intent.encoding)
 
@@ -367,7 +400,11 @@ class WriteStore:
             syntax_valid=syntax_ok,
             conflict_task=(bool(base) and bool(current) and base != current),
             diff=change_diff,
-            metadata={"session_id": session_id} if session_id else {},
+            metadata={**({"session_id": session_id} if session_id else {}),
+                      **({"operation_id": operation_id, "before_version": current,
+                          "after_version": new_hash, "checks": checks,
+                          "tool_name": intent.annotation.get("tool_name", "")}
+                         if candidate_mode else {})},
         )
         # journal 只是审计：文件已成功落盘，记录失败不得让工具报错——
         # 否则调用方 read_state 不更新，下一轮反而误报 modified-since-read。
@@ -390,6 +427,8 @@ class WriteStore:
             ok=True, version=new_hash, reason="ok",
             syntax_valid=syntax_ok, new_hashes={str(path): new_hash},
             journal_warning=journal_warning,
+            checks=checks,
+            operation_id=operation_id,
         )
 
     @staticmethod
@@ -459,7 +498,13 @@ class WriteStore:
                 raise OSError(f"container write failed: {path}")
             return
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_name(path.name + ".xeyo.write.tmp")
+        from engine.harness_policy import enabled
+        if enabled("XEYO_HARNESS_WRITES"):
+            fd, name = tempfile.mkstemp(prefix=path.name + ".xeyo.", suffix=".tmp", dir=path.parent)
+            os.close(fd)
+            tmp = Path(name)
+        else:
+            tmp = path.with_name(path.name + ".xeyo.write.tmp")
         try:
             with open(tmp, "wb") as handle:
                 handle.write(data)

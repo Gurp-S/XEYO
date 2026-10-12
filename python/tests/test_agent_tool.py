@@ -74,11 +74,8 @@ async def test_journal_query_execute(tmp_path, monkeypatch):
 	import memory.journal as j
 	from tools.journal_query_tool import JournalQueryTool
 
-	monkeypatch.setattr(
-		j,
-		"recent_changes",
-		lambda *_a, **_k: [
-			ChangeRecord(
+	from memory.memdir import workspace_id
+	j.record_change(workspace_id(str(tmp_path)), ChangeRecord(
 				seq=1,
 				agent_id="agent-a",
 				path="src/foo.ts",
@@ -86,9 +83,7 @@ async def test_journal_query_execute(tmp_path, monkeypatch):
 				file_hash_after="sha256:x",
 				ts=1.0,
 				brief="hook",
-			),
-		],
-	)
+			))
 	tool = JournalQueryTool(cwd=str(tmp_path))
 	res = await tool.execute({}, AbortController())
 	assert not res.is_error

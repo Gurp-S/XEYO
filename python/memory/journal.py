@@ -235,6 +235,12 @@ def record_change(
     """
     path = _changes_path(workspace_id)
 
+    from engine.harness_policy import enabled
+    if enabled("XEYO_HARNESS_WRITES") and workspace_lock is None:
+        from engine.write_transaction import path_lock
+        with path_lock(str(path)):
+            return _record_change_locked(workspace_id, rec, path)
+
     if workspace_lock is not None:
         with workspace_lock:  # type: ignore[attr-defined]
             return _record_change_locked(workspace_id, rec, path)

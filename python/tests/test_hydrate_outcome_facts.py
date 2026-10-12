@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import sys
 import types
+import pytest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -19,6 +20,13 @@ from msgtypes.message import Message
 from session.hydrate import _repair_unclosed_tool_uses
 
 _WRITE_TOOL = "Bash"
+
+
+@pytest.fixture(autouse=True)
+def legacy_process_fact_profile(monkeypatch):
+	# These original assertions cover the retained legacy synthesis branch.
+	# The current receipt contract uses positive call receipts, not tool class.
+	monkeypatch.setenv('XEYO_EXECUTION_FACT_CONTRACTS', '0')
 
 
 def _unclosed(name: str = _WRITE_TOOL, uid: str = "c1") -> list[Message]:
@@ -90,3 +98,12 @@ def test_readonly_tool_keeps_not_started_without_ledger_fact(monkeypatch):
 	text = _synth_text(name)
 	assert "TOOL_NOT_STARTED" in text
 	assert "进程台账" not in text
+
+
+@pytest.mark.parametrize('name', ['Read', 'Bash'])
+def test_current_contract_no_receipt_is_unknown_even_for_readonly(monkeypatch, name):
+	monkeypatch.setenv('XEYO_EXECUTION_FACT_CONTRACTS', '1')
+	monkeypatch.setattr('session.execution_receipt.lookup', lambda *args: None)
+	monkeypatch.setattr('session.call_trace.started', lambda *args: None)
+	text = _synth_text(name)
+	assert 'TOOL_OUTCOME_UNKNOWN' in text and 'TOOL_NOT_STARTED' not in text

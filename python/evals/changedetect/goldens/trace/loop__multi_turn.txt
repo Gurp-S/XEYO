@@ -1,1 +1,1 @@
-<raised AttributeError: 'Message' object has no attribute 'get'>
+{"assistant_chars":46,"events":["ToolCall:echo","ToolResult","Final"],"final":"echoed: 执行回执身份={\"call_id\":\"call_<ID>\"}\none","id":"multi_turn","tools":["Compact","echo"]}

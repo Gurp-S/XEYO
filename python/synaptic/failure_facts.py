@@ -8,7 +8,7 @@ ENV = "XEYO_WSC_FAILURE_FACTS"
 
 
 def enabled():
-    from memory.wsc_main_policy import enabled as main_enabled
+    from synaptic.main_policy import enabled as main_enabled
     return main_enabled()
 
 

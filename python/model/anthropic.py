@@ -149,7 +149,9 @@ def _tool_result_content(block: dict[str, Any], images: list[str] | None = None)
 		"type": "tool_result",
 		"tool_use_id": str(block.get("tool_use_id") or ""),
 	}
-	out["content"] = inner if len(inner) > 1 else (text or "")
+	# A single image is still structured content. Cardinality cannot decide
+	# whether collapsing to text preserves the tool result's payload.
+	out["content"] = inner if any(item["type"] == "image" for item in inner) else (text or "")
 	if block.get("is_error"):
 		out["is_error"] = True
 	return out
@@ -766,6 +768,14 @@ class AnthropicModelClient:
 		from model.context_input import from_body
 		return from_body(self._build_body(messages, tools, stream=False))
 
+	def context_output_limit(self, messages, tools):
+		from model.context_input import output_limit_from_body
+		return output_limit_from_body({'max_tokens': self._max_tokens})
+
+	async def predict_context_tokens(self, messages, tools, abort):
+		from model.anthropic_count import predict
+		return await predict(self, messages, tools, abort)
+
 	def _build_body(
 		self,
 		messages: list[dict[str, Any]],
@@ -773,7 +783,9 @@ class AnthropicModelClient:
 		*,
 		stream: bool,
 	) -> dict[str, Any]:
-		system_text, norm = normalize_messages_for_anthropic(messages)
+		from model.tool_media import materialize_references
+		encoded = materialize_references(messages, provider=self.provider, model=self._model)
+		system_text, norm = normalize_messages_for_anthropic(encoded)
 		body: dict[str, Any] = {
 			"model": self._model,
 			"messages": norm,

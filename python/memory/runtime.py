@@ -345,9 +345,18 @@ def _pair_ranges(messages: list[dict[str, Any]]) -> list[tuple[int, int]]:
 def pair_safe_cut(messages: list[dict[str, Any]], cut: int) -> int:
 	"""把切点移到成对边界：不得落在一次调用与它的结果之间（含并行整批内部）。"""
 	cut = max(0, min(int(cut), len(messages)))
-	for start, end in _pair_ranges(messages):
-		if start < cut < end:
-			cut = start
+	from session.tool_pair_ranges import complete_ranges
+	from session.recovery_result_chain import projected_supplements
+	supplements = projected_supplements(messages)
+	paired = [supplements.get(index, row) for index, row in enumerate(messages)] if supplements else messages
+	ranges = [*_pair_ranges(paired), *complete_ranges(paired)]
+	while True:
+		before = cut
+		for start, end in ranges:
+			if start < cut < end:
+				cut = start
+		if cut == before:
+			break
 	return cut
 
 
@@ -2400,13 +2409,12 @@ def force_compact(
 	from memory.wsc_execution_boundary import fold_cut
 	new_cursor = max(working.compact_cursor, fold_cut(messages))
 	if new_cursor > working.compact_cursor:
-		try:
-			# Publish the prior cold view before advancing the generation.  The
-			# returned handoff text is deliberately not injected into the summary.
-			from memory.wsc_fallback_handoff import render as render_handoff
-			render_handoff(messages, working, new_cursor, cwd)
-		except Exception:
-			logging.getLogger(__name__).debug("publish force-compaction handoff failed", exc_info=True)
+		# Publication is a prerequisite for retiring source rows. A failed
+		# archive must leave the cursor and frozen summary unchanged; callers
+		# already handle preparation failures before sending a model request.
+		# The returned text is deliberately not injected into the summary.
+		from memory.wsc_fallback_handoff import render as render_handoff
+		render_handoff(messages, working, new_cursor, cwd)
 		try:
 			from memory.agent_scope import may_touch_session_md
 			from memory.session_md import maybe_update

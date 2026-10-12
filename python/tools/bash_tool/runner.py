@@ -50,6 +50,12 @@ class ExecResult:
 	code: int
 	interrupted: bool = False
 	timed_out: bool = False
+	#: 归因事实（消费方 ``bash_tool`` 的 XEYO_BASH_ERROR_ORIGIN 旁路）：模型请求的命令原文 /
+	#: 引擎是否给它前置了 UTF-8 语句 / 本次失败是否引擎自己启动失败。失败时三者缺一，
+	#: 模型就只能从"前缀+命令"的拼接串里猜是谁错了（2026-10-10 实测）。
+	requested_command: str = ""
+	prologue_applied: bool = False
+	spawn_failed: bool = False
 
 
 def _job_memory_mb(cwd: str) -> int | None:
@@ -157,6 +163,16 @@ _UTF8_PREFIX = "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; "
 #: 反例守卫：``param(...)`` 起头的命令拼接后 param 不再位于首语句，报"术语不被
 #: 识别"而**退出码仍为 0**（静默语义改变，最难发现的那类，2026-10-03 实测）。
 _PARAM_HEAD = re.compile(r"^\s*param\s*[\(\[]", re.I)
+#: 同类：只有位于**首语句**才生效的构造。前置语句会让它们静默失效
+#: （``#requires`` 退化成普通注释 ⇒ 版本/模块要求被丢弃；``using`` 不再生效；
+#: ``[CmdletBinding()]`` 起头的 param 块同 ``param(`` 一类）。
+#: 命中即**放弃前置**——宁可按原样执行，也不悄悄改用户命令的含义。
+_FIRST_STATEMENT_HEADS: tuple[re.Pattern[str], ...] = (
+	_PARAM_HEAD,
+	re.compile(r"^\s*#requires\b", re.I),
+	re.compile(r"^\s*using\s+(?:namespace|module|assembly)\b", re.I),
+	re.compile(r"^\s*\[CmdletBinding\b", re.I),
+)
 _UTF8_ENV = "XEYO_PWSH_UTF8"
 
 
@@ -166,9 +182,44 @@ def apply_utf8_command(command: str) -> str:
 		return command
 	if os.environ.get(_UTF8_ENV, "").strip() in ("0", "false", "False"):
 		return command
-	if _PARAM_HEAD.match(command):
+	if any(pattern.match(command) for pattern in _FIRST_STATEMENT_HEADS):
 		return command
 	return _UTF8_PREFIX + command
+
+
+def prologue_applied(command: str) -> bool:
+	"""本次是否真的前置了 UTF-8 语句（判据与 ``apply_utf8_command`` 同源，不另立一份规则）。"""
+	return apply_utf8_command(command) != command
+
+
+#: 只解析不执行：命令串本身能否被壳解析。解析失败发生在**执行之前** ⇒ 零副作用，
+#: 所以可以安全地拿"去掉前缀的原文"做一次对照。（不做重跑对照：命令若只是**输出**里
+#: 含语法错字样，重跑会重复副作用。）
+_PARSE_ONLY_TEMPLATE = (
+	"$t=$null;$e=$null;"
+	"[void][System.Management.Automation.Language.Parser]::ParseInput("
+	"{code},[ref]$t,[ref]$e);"
+	"if($e -and $e.Count -gt 0){exit 3};exit 0"
+)
+
+
+def parse_only(command: str) -> bool | None:
+	"""True=可解析 / False=语法错 / None=判不了（不硬归责）。非 Windows 壳恒 None。"""
+	text = str(command or "")
+	if os.name != "nt" or not text.strip():
+		return None
+	literal = "'" + text.replace("'", "''") + "'"
+	try:
+		argv, _kind = build_shell_argv("")
+		proc = subprocess.run(
+			[*argv, _PARSE_ONLY_TEMPLATE.replace("{code}", literal)],
+			capture_output=True,
+			timeout=15,
+			env=_utf8_env(),
+		)
+	except Exception:  # noqa: BLE001 — 对照判不了 ⇒ 归因留空
+		return None
+	return int(proc.returncode or 0) == 0
 
 
 def shell_display_name() -> str:
@@ -223,6 +274,8 @@ class StreamHandle:
 	proc: subprocess.Popen | None
 	job: JobHandle | None
 	spawn_error: str | None = None
+	#: 模型请求的命令原文（不含引擎前置）：失败归因的唯一可比基准。
+	command: str = ""
 	buf: list[str] = field(default_factory=list)
 	sinks: list[SinkFn] = field(default_factory=list)
 	killed_by_abort: bool = False
@@ -376,14 +429,17 @@ def spawn_streaming(
 	except OSError as err:
 		job.close()
 		h = StreamHandle(
-			proc=None, job=None, spawn_error=f"Failed to start command: {err}"
+			proc=None,
+			job=None,
+			spawn_error=f"Failed to start command: {err}",
+			command=command,
 		)
 		h._pump_done.set()
 		return h
 	if proc.pid:
 		job.assign(proc.pid)
 	_ledger_register_process(proc.pid, cmdline=command)
-	h = StreamHandle(proc=proc, job=job)
+	h = StreamHandle(proc=proc, job=job, command=command)
 	if on_output is not None:
 		h.add_sink(on_output)
 	h.start_pump()
@@ -392,10 +448,22 @@ def spawn_streaming(
 	return h
 
 
+def _exec_facts(h: StreamHandle) -> dict[str, object]:
+	"""归因事实三元组的**唯一**构造点：请求命令原文 / 是否前置了 UTF-8 语句 / 是否引擎启动失败。
+
+	与 ``apply_utf8_command`` 和 ``spawn_error`` 同源，不另立判据。
+	"""
+	return {
+		"requested_command": h.command,
+		"prologue_applied": prologue_applied(h.command),
+		"spawn_failed": h.spawn_error is not None,
+	}
+
+
 def finish_streaming(h: StreamHandle, *, timeout_ms: int) -> ExecResult:
 	"""在已 spawn 的句柄上等完/超时杀树，产出与旧 run_command 等价的 ExecResult。"""
 	if h.spawn_error is not None:
-		return ExecResult(stdout=h.spawn_error, code=1)
+		return ExecResult(stdout=h.spawn_error, code=1, **_exec_facts(h))
 	timed_out = False
 	try:
 		h.proc.wait(timeout=max(0.001, timeout_ms / 1000.0))  # type: ignore[union-attr]
@@ -417,14 +485,16 @@ def finish_streaming(h: StreamHandle, *, timeout_ms: int) -> ExecResult:
 			),
 			code=code or 1,
 			timed_out=True,
+			**_exec_facts(h),
 		)
 	if h.killed_by_abort:
 		return ExecResult(
 			stdout=(stdout or "").rstrip() + "\n",
 			code=code or 1,
 			interrupted=True,
+			**_exec_facts(h),
 		)
-	return ExecResult(stdout=stdout or "", code=code)
+	return ExecResult(stdout=stdout or "", code=code, **_exec_facts(h))
 
 
 def run_command(

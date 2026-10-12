@@ -17,7 +17,7 @@ def canonical(value):
 
 
 def validate(value):
-    if not isinstance(value, dict) or set(value) - {"objective", "context_message_ids", "decisions", "constraints", "verification_call_ids"}:
+    if not isinstance(value, dict) or set(value) - {"objective", "context_message_ids", "decisions", "constraints", "verification_call_ids", "phase_state", "observations"}:
         raise ValueError("invalid_task_checkpoint")
     result = {}
     objective = value.get("objective", "")
@@ -41,6 +41,14 @@ def validate(value):
             if identity not in seen:
                 seen.add(identity)
                 result[key].append(item)
+        if "phase_state" in value and len(result[key]) != len(values):
+            raise ValueError("task_phase_duplicate_fact_or_identity")
+    if "phase_state" in value:
+        from synaptic.task_phase import validate as validate_phase
+        result["phase_state"] = validate_phase(value["phase_state"], result)
+    if "observations" in value:
+        from synaptic.task_observations import normalize
+        result["observations"] = normalize(value["observations"], result)
     if len(canonical(result).encode("utf-8")) > MAX_DECLARATION_BYTES:
         raise ValueError("task_checkpoint_too_large")
     return result
@@ -95,10 +103,32 @@ def project_state(messages, graph):
         return state, tuple(nodes)
     state["context_observed"] = True
     state["checkpoint_source"] = snapshot.checkpoint_source
+    state["verification_call_ids"] = list(context["verification_call_ids"])
+    # Presentation is an engine observation, not an assertion that the model
+    # understood the source or that the summary covers its semantic content.
+    from synaptic.textutil import tool_result_blocks
+    from synaptic.source_presentation import validated
+    for block in tool_result_blocks(messages[snapshot.checkpoint_source]):
+        execution = block.get("execution")
+        presentation = execution.get("handoff_source_presentation") if isinstance(execution, dict) else None
+        if presentation is not None:
+            try:
+                observed = validated(presentation, messages[:snapshot.checkpoint_source])
+            except ValueError:
+                state["source_presentation_status"] = "invalid_or_stale"
+            else:
+                partial = [row for row in observed["sources"] if not row["complete"]]
+                if partial:
+                    state["partially_presented_sources"] = partial
     if snapshot.checkpoint_source >= 0:
         nodes.append(snapshot.checkpoint_source)
-    state["declared_decisions"] = context["decisions"]
-    state["declared_constraints"] = context["constraints"]
+    from synaptic.task_phase import applicable, active_context
+    state["declared_decisions"] = applicable(context, "decisions")
+    state["declared_constraints"] = applicable(context, "constraints")
+    if "phase_state" in context:
+        phase = context["phase_state"]
+        state["phase_state"] = phase
+        state["historical_fact_count"] = sum(len(context[field]) - len(applicable(context, field)) for field in ("decisions", "constraints"))
     state["declared_objective"] = context["objective"]
     by_id = {}
     for index, message in enumerate(messages[:snapshot.source]):
@@ -106,6 +136,7 @@ def project_state(messages, graph):
         if identity:
             by_id.setdefault(str(identity), []).append(index)
     remaining = MAX_INLINE_SOURCE_BYTES
+    from synaptic.task_fact_sources import source_text
     for identity in context["context_message_ids"]:
         if identity == "@latest_user":
             # Explicit source alias, bound to the declaration receipt rather
@@ -123,7 +154,17 @@ def project_state(messages, graph):
             continue
         index = indices[0]
         node = graph.node(index)
-        if node is None or node.kind not in {"user_text", "assistant_text"}:
+        text = source_text(messages[index])
+        if identity not in active_context(context):
+            state.setdefault("historical_context_sources", []).append({"message_id": identity, "source": index})
+            nodes.append(index)
+            continue
+        if node is None or text is None:
+            phase = context.get("phase_state")
+            if phase is not None and any(identity in item["source_message_ids"] for item in phase["phases"]):
+                state.setdefault("phase_event_sources", []).append({"message_id": identity, "source": index})
+                nodes.append(index)
+                continue
             from synaptic.task_fact_sources import resolve
             bound = []
             for field in ("decisions", "constraints"):
@@ -138,7 +179,7 @@ def project_state(messages, graph):
                 continue
             state["unknown_sources"].append({"message_id": identity, "reason": "not_text"})
             continue
-        size = len(node.text.encode("utf-8"))
+        size = len(text.encode("utf-8"))
         if size > remaining:
             from synaptic.source_description import describe
             state["deferred_sources"].append({"message_id": identity, "source": index,
@@ -146,7 +187,11 @@ def project_state(messages, graph):
             nodes.append(index)
             continue
         remaining -= size
-        state["context_sources"].append({"message_id": identity, "source": index, "text": node.text})
+        record = {"message_id": identity, "source": index, "text": text}
+        if "phase_state" in context:
+            record["origin_phases"] = [phase["id"] for phase in context["phase_state"]["phases"]
+                                       if identity in phase["source_message_ids"]]
+        state["context_sources"].append(record)
         nodes.append(index)
     from synaptic.task_verification import collect as collect_verification
     receipts, unknown, verification_nodes = collect_verification(
@@ -154,6 +199,12 @@ def project_state(messages, graph):
     state["verification_receipts"] = receipts
     state["unknown_sources"].extend(unknown)
     nodes.extend(verification_nodes)
+    from synaptic.task_observations import enabled as observations_enabled, resolve
+    if observations_enabled() and "observations" in context:
+        facts, unknown, sources = resolve(messages, context, snapshot.source)
+        state["execution_observations"] = facts
+        state["unknown_sources"].extend(unknown)
+        nodes.extend(sources)
     return state, tuple(dict.fromkeys(nodes))
 
 

@@ -344,6 +344,30 @@ def schema_budget_enabled() -> bool:
 	return raw not in ("1", "true", "yes", "on")
 
 
+#: 短描述里保留"能力发现"事实（例：Read 的结构视图阈值）。**保持默认关**（2026-10-11 评估
+#: 未并入）：代价是 **+156 字符/请求**（≈+40 tok；tools 数组每请求都在上下文里，是本批最贵
+#: 的一项），而收益（少读窗口）只有机制证据、**任务层未证**。等 dogfood 有数据再并入。
+ENV_DESC_FACTS = "XEYO_TOOL_DESC_FACTS"
+
+
+def tool_desc_facts_enabled() -> bool:
+	from engine.flag_definitions import enabled
+	return enabled(ENV_DESC_FACTS)
+
+
+def _structure_min_lines() -> int:
+	"""结构视图阈值：与 ``tools/fileio/structure_map`` 同源（含 env 覆盖），取不到回退 600。
+
+	惰性导入：``meta`` 被注册表/policy 广泛导入，不能在模块层拉 codeindex 那条链。
+	"""
+	try:
+		from tools.fileio.structure_map import min_lines
+
+		return int(min_lines())
+	except Exception:  # noqa: BLE001 — 阈值取不到不该挡住 schema
+		return 600
+
+
 def apply_schema_budget(schema: dict) -> dict:
 	"""浅拷贝并替换 description（若有短文案且预算开启）。"""
 	name = str(schema.get("name") or "")
@@ -362,6 +386,15 @@ def apply_schema_budget(schema: dict) -> dict:
 				if vision
 				else "Read a text file (offset/limit for long files)."
 			)
+			# 旁路：长文件的**结构视图**事实在全文描述里有（file_read_tool/prompt.py），
+			# 正是在这里被压掉的那句 ⇒ 模型看不到"不带 offset/limit 会先给结构视图"，
+			# 于是整读/滑窗重建（2026-10-10 实测：2650 行文件读了 4 个窗口）。
+			if not vision and tool_desc_facts_enabled():
+				out["description"] += (
+					f" Files at or above {_structure_min_lines()} lines return a structure view"
+					" (line-numbered entries) when neither offset/limit nor symbol is given;"
+				 " symbol= returns one symbol body."
+				)
 		return out
 	out = dict(schema)
 	out["description"] = short

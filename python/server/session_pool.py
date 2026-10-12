@@ -743,13 +743,15 @@ class SessionPool:
 			self._resync_now(session_id)
 		return lease_id
 
-	def touch_busy(self, session_id: str) -> None:
-		"""长跑心跳：刷新 busy 租约起始时间，避免误回收。"""
+	def touch_busy(self, session_id: str, *, lease_id: int | None = None) -> bool:
+		"""长跑续租；给定lease_id时只续租该持有者，返回是否仍持有。"""
 		now = time.monotonic()
 		with self._lock:
 			cur = self._busy.get(session_id)
-			if cur is not None:
+			if cur is not None and (lease_id is None or cur.lease_id == lease_id):
 				self._busy[session_id] = _BusyLease(cur.lease_id, now)
+				return True
+			return False
 
 	def end(self, session_id: str, lease_id: int | None = None) -> None:
 		"""释放 busy。若指定 lease_id，则忽略不匹配的（较新）持有者。"""

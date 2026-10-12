@@ -18,25 +18,54 @@ def optional_boundary(value):
 def protect(messages, requested):
     if not enabled():
         return requested
+    calls = {}
+    from session.recovery_result_chain import projected_supplements, supersessions
+    projected = projected_supplements(messages)
+    supplemental_ids = {key for key in supersessions(messages) if key[0] in projected} if projected else set()
+    for index, message in enumerate(messages):
+        for use in tool_use_blocks(message):
+            uid = use.get("id")
+            if isinstance(uid, (str, int)) and uid:
+                calls.setdefault(uid, []).append(index)
+    # A declaration generated in the isolated compaction call is not a task
+    # model consumption receipt. Attribute it only to one matching invocation;
+    # ambiguous identities retain the conservative existing boundary.
+    isolated = set()
+    for message in messages:
+        for result in tool_result_blocks(message):
+            execution = result.get("execution")
+            if not isinstance(execution, dict):
+                continue
+            if not (execution.get("compaction_handoff") is True
+                    or isinstance(execution.get("handoff_source_presentation"), dict)):
+                continue
+            uid = result.get("tool_use_id")
+            origins = calls.get(uid, ()) if isinstance(uid, (str, int)) else ()
+            if len(origins) == 1:
+                isolated.add((origins[0], uid))
+
+    def declaration_frame(index):
+        uses = tool_use_blocks(messages[index])
+        return bool(uses) and all(use.get("name") == "TodoWrite"
+            and isinstance(use.get("id"), (str, int))
+            and (index, use.get("id")) in isolated for use in uses)
+
     latest = next((index for index in range(len(messages) - 1, -1, -1)
-                   if messages[index].get("role") == "assistant"), None)
+                   if messages[index].get("role") == "assistant"
+                   and not declaration_frame(index)), None)
     boundary = requested
     if latest is not None and tool_use_blocks(messages[latest]):
         boundary = min(boundary, latest)
     # Consumption is ordered by receipt arrival, not invocation age. A late
     # result can follow a newer assistant text/parallel invocation; that newer
     # turn could not have consumed the result before it existed.
-    calls = {}
     for index, message in enumerate(messages):
-        for use in tool_use_blocks(message):
-            uid = use.get("id")
-            if isinstance(uid, (str, int)) and uid:
-                calls.setdefault(uid, []).append(index)
         if latest is not None and index <= latest:
             continue
         for result in tool_result_blocks(message):
             uid = result.get("tool_use_id")
-            origins = calls.get(uid, ()) if isinstance(uid, (str, int)) else ()
+            origins = () if (index, str(uid)) in supplemental_ids else (
+                calls.get(uid, ()) if isinstance(uid, (str, int)) else ())
             # Ambiguous identity retains every possible earlier invocation.
             # Missing identity retains the receipt without inventing a call.
             boundary = min(boundary, index, *origins)
@@ -54,6 +83,16 @@ def restore_tail(emitted, messages, base=0, head_offset=0, *, from_index=None):
         position = index - base + head_offset
         if position < len(result):
             result[position] = messages[index]
+    from session.recovery_result_chain import projected_supplements, identity
+    supplements = projected_supplements(messages)
+    if supplements:
+        counts = {}
+        for message in messages:
+            uid = identity(message)
+            counts[uid] = counts.get(uid, 0) + 1
+        replacements = {identity(messages[index]): row for index, row in supplements.items()
+                        if identity(messages[index]) and counts[identity(messages[index])] == 1}
+        result = [replacements.get(identity(row), row) for row in result]
     return result
 
 

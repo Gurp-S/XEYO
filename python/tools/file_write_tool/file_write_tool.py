@@ -10,7 +10,8 @@ import asyncio
 import difflib
 import os
 from tools.fileio import fsprobe as _fsprobe
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+import json
 from typing import Any, Literal, Optional
 
 from engine.abort import AbortController
@@ -49,6 +50,7 @@ def _invalidate_glob_cache() -> None:
 class WriteInput:
 	file_path: str
 	content: str
+	validation_policy: str = "draft"
 
 
 @dataclass
@@ -65,6 +67,7 @@ class WriteOutput:
 	unchanged: bool = False
 	# #11：写后语法自检发现**新引入**的解析错误 → 可行动提示（含行/列）。
 	syntax_hint: str = ""
+	checks: dict = field(default_factory=dict)
 
 
 def _line_diff_counts(old: str, new: str) -> tuple[int, int]:
@@ -124,6 +127,10 @@ class FileWriteTool:
 		单 agent 默认无 store，行为不变；子 Agent（write_scope 已激活）必须经 WriteStore。
 		返回 T28 journal 警示（正常为空串）。
 		"""
+		from engine.harness_policy import enabled
+		if enabled("XEYO_HARNESS_WRITES"):
+			from engine.write_transaction import persist_candidate
+			return persist_candidate(self, full, content, encoding=encoding, line_endings=line_endings)
 		if self._write_store is None:
 			from permissions.write_scope import get_write_scope
 
@@ -211,7 +218,7 @@ class FileWriteTool:
 		return False
 
 	def schema(self) -> dict[str, Any]:
-		return {
+		schema = {
 			"name": self.name,
 			"description": prompt(),
 			"input_schema": {
@@ -231,6 +238,9 @@ class FileWriteTool:
 				"required": ["file_path", "content"],
 			},
 		}
+
+		from tools.fileio.validation import extend_schema
+		return extend_schema(schema)
 
 	def get_path(self, input_data: WriteInput) -> str:
 		return expand_path(input_data.file_path, cwd=self._cwd)
@@ -316,6 +326,8 @@ class FileWriteTool:
 		return filesystem.check_write_permission_for_tool(self, input_data, context)
 
 	def call(self, input_data: WriteInput) -> WriteOutput:
+		self._mutation_checks = {}
+		self._validation_policy = input_data.validation_policy
 		full = self.get_path(input_data)
 		existed = _fsprobe.exists(full)
 
@@ -354,12 +366,23 @@ class FileWriteTool:
 		# Write 是整文件替换：按模型给出的换行写入（用 LF 规范化）
 		content = str(input_data.content)
 		normalized = normalize_newlines(content)
+		from engine.harness_policy import enabled
+		if enabled("XEYO_HARNESS_WRITES"):
+			from engine.write_transaction import verify_observed_base
+			verify_observed_base(self, full, old_content)
 
 		# #10：内容与磁盘一致 → 跳过落盘（省无效写盘/去重）。判据只认磁盘
 		# 旧正文（权威），不认 read_state；store 直通两条路径都先在此短路。
 		if existed and old_content is not None:
 			old_norm = normalize_newlines(old_content)
 			if old_norm == normalized:
+				from engine.harness_policy import enabled
+				checks = {}
+				if enabled("XEYO_HARNESS_WRITES"):
+					from tools.fileio.validation import check_content
+					checks = check_content(full, normalized)
+					if input_data.validation_policy == "strict" and checks["status"] != "passed":
+						raise RuntimeError("validation_failed: " + json.dumps(checks, ensure_ascii=False))
 				self._read_state.set_written(
 					full,
 					normalized,
@@ -374,12 +397,14 @@ class FileWriteTool:
 					old_content=old_content,
 					new_content=normalized,
 					unchanged=True,
+					checks=checks,
 				)
 
 		# 落盘用归一后的正文：直通路径 write_text_file 自己会归一，而 store 路径的
 		# `_persist` 只按 line_endings 做 "\n"→"\r\n"。把模型的原始正文直接递过去，
 		# 同一枪 Write 在主 agent（直通）与子 agent（store）下会落成不同字节
 		# （LF 文件里留下混合行尾）。快照/行数/语法自检本来就用的 normalized。
+		self._mutation_base = old_content
 		journal_warning = self._persist(full, normalized, encoding=encoding, line_endings="LF")
 
 		self._read_state.set_written(
@@ -417,6 +442,7 @@ class FileWriteTool:
 			new_content=normalized,
 			notice=journal_warning,
 			syntax_hint=syntax_hint,
+			checks=getattr(self, "_mutation_checks", {}),
 		)
 
 	@staticmethod
@@ -426,8 +452,10 @@ class FileWriteTool:
 				f"File content is unchanged — identical write skipped: "
 				f"{output.file_path}"
 			)
-			hint = _diagnostics_hint(output.file_path)
+			hint = "" if output.checks else _diagnostics_hint(output.file_path)
 			out = msg + hint if hint else msg
+			if output.checks:
+				out += "\nvalidation=" + json.dumps(output.checks, ensure_ascii=False, separators=(",", ":"))
 			if getattr(output, "notice", ""):
 				out = f"{out}\n{output.notice}"
 			if getattr(output, "syntax_hint", ""):
@@ -445,11 +473,13 @@ class FileWriteTool:
 			file_path=output.file_path,
 		)
 		body = append_diff_fence(msg, diff)
-		hint = _diagnostics_hint(output.file_path)
+		if output.checks:
+			body += "\nvalidation=" + json.dumps(output.checks, ensure_ascii=False, separators=(",", ":"))
+		hint = "" if output.checks else _diagnostics_hint(output.file_path)
 		out = body + hint if hint else body
 		if getattr(output, "notice", ""):
 			out = f"{out}\n{output.notice}"
-		if getattr(output, "syntax_hint", ""):
+		if getattr(output, "syntax_hint", "") and not output.checks:
 			out = f"{out}\n{output.syntax_hint}"
 		return out
 
@@ -462,6 +492,7 @@ class FileWriteTool:
 		return WriteInput(
 			file_path=str(raw.get("file_path") or ""),
 			content=content_str,
+			validation_policy=str(raw.get("validation_policy", "draft")),
 		)
 
 	async def execute(
@@ -469,6 +500,8 @@ class FileWriteTool:
 	) -> ToolResult:
 		abort.raise_if_aborted()
 		write_input = self.parse_input(input)
+		if write_input.validation_policy not in {"draft", "strict"}:
+			return ToolResult(content="invalid_argument: validation_policy", is_error=True)
 
 		validation = self.validate_input(write_input)
 		if not validation.get("result"):

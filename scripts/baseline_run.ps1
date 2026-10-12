@@ -113,7 +113,7 @@ try {
 catch { Say "台账写入失败（不影响结论）：$_" }
 
 if ($missing) { Say "基线里没有这个测试文件/无用例（新增文件）⇒ 本次不构成归因结论：请用 -Ref 指到包含它的提交" }
-elseif ($code -eq 0) { Say "基线（$sha）绿 ⇒ 这次红来自未提交改动" }
-else { Say "基线（$sha）同样红（退出码 $code）⇒ 红早于未提交改动，别归因给本次改动" }
+elseif ($code -eq 0) { Say "基线（$sha）本次选定用例通过；当前版本归因尚未比较" }
+else { Say "基线（$sha）退出码 $code；同一失败身份/原因尚未与当前版本比较，不能据退出码归因" }
 if ($missing) { exit 2 }
 exit $code

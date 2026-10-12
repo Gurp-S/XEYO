@@ -123,3 +123,10 @@ def synth_session(
 def synth_api_session(*, turns: int = 10, **kw) -> list[dict[str, Any]]:
 	"""与 synth_session 相同，但把尾部留足（供 region_end 切分用）。"""
 	return synth_session(turns=turns, **kw)
+
+
+def declared_report_phase(source_id="spec"):
+    """Controlled model's explicit single-phase declaration for report fixtures."""
+    return {"current_phase_id": "report", "phases": [
+        {"id": "report", "name": "报告", "source_message_ids": [source_id]}],
+        "active_context_message_ids": [source_id], "fact_scopes": {"decisions": [], "constraints": []}}

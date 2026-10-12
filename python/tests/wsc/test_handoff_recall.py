@@ -89,7 +89,7 @@ async def test_real_cold_long_spec_is_paged_before_generated_commit(tmp_path):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("stop", ["budget", "requests", "capacity"])
+@pytest.mark.parametrize("stop", ["budget", "requests", "capacity", "bytes"])
 async def test_recall_limits_stop_without_declaration_or_unaccounted_retry(stop):
     from engine.abort import AbortController
     from memory.wsc_handoff_generation import generate, MAX_REQUESTS, OUTPUT_TOKENS, source_schema, REQUEST
@@ -111,16 +111,16 @@ async def test_recall_limits_stop_without_declaration_or_unaccounted_retry(stop)
             count.append(True)
             self.last_usage = {"prompt_tokens": 11, "completion_tokens": 2}
             yield ModelChunk(kind="tool_use", tool_use=ToolUse("read-" + str(len(count)), "HandoffSource",
-                {"message_id": "spec", "offset": 0, "limit": 4096}))
+                    {"message_id": "spec", "offset": 0, "limit": 128 if stop == "requests" else 4096}))
     class Model:
         context_limit = initial_cost + OUTPUT_TOKENS + 128 if stop == "capacity" else 100000
         def for_handoff(self, max_tokens): return Client()
     def admission():
         if stop == "budget": raise ValueError("fixture_budget_exhausted")
     expected = {"budget": "fixture_budget_exhausted", "requests": "handoff_recall_request_limit",
-                "capacity": "handoff_request_exceeds_capacity"}[stop]
+                "capacity": "handoff_request_exceeds_capacity", "bytes": "handoff_recall_byte_limit"}[stop]
     with pytest.raises(ValueError, match=expected):
         await generate(Model(), initial, sources, TodoWriteTool().schema(), AbortController(),
                        account=usage.append, admit_next=admission)
-    assert len(count) == (MAX_REQUESTS if stop == "requests" else 1)
+    assert len(count) == (MAX_REQUESTS if stop == "requests" else 4 if stop == "bytes" else 1)
     assert len(usage) == len(count)

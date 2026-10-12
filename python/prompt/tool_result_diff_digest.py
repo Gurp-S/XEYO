@@ -116,7 +116,12 @@ def apply_tool_result_digest(
 				new_blocks.append(block)
 				continue
 			raw = str(block.get("content") or "")
-			digested = strip_diff_fence(raw)
+			from engine.harness_policy import enabled
+			if enabled("XEYO_HARNESS_FACTS") and not os.environ.get(MODE_ENV, "").strip():
+				from prompt.mutation_receipt import compact
+				digested = compact(raw)
+			else:
+				digested = strip_diff_fence(raw)
 			if digested == raw:
 				new_blocks.append(block)
 				continue

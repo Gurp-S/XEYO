@@ -18,15 +18,14 @@ def test_identical_write_is_skipped(tmp_path, monkeypatch):
 	path = str(tmp_path / "a.txt")
 
 	calls = []
-	orig = fwt_mod.write_text_file
+	orig = tool._persist
 
 	def counting_write(path_, content, **kw):
 		calls.append((path_, content))
 		return orig(path_, content, **kw)
 
-	# 模块顶层 `from tools.fileio.text import write_text_file` 绑定在 fwt_mod 上，
-	# 必须 patch fwt_mod.write_text_file 而不是 fileio.text 命名空间。
-	monkeypatch.setattr(fwt_mod, "write_text_file", counting_write)
+	# Count commit requests across both direct and transactional persistence.
+	monkeypatch.setattr(tool, "_persist", counting_write)
 
 	first = tool.call(WriteInput(file_path=path, content="hello\nworld\n"))
 	assert not first.unchanged and len(calls) == 1
