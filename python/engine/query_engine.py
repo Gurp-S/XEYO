@@ -1586,7 +1586,7 @@ def build_default_engine(
         resolved_provider = backend if backend in PROVIDER_PRESETS else "openai"
     elif backend == "deepseek":
         from model.deepseek import DeepSeekModelClient
-        model_client = DeepSeekModelClient()
+        model_client = DeepSeekModelClient(model=resolved_model_name, base_url=base_url)
         resolved_provider = "deepseek"
         resolved_model_name = (
             resolved_model_name
@@ -1621,7 +1621,11 @@ def build_default_engine(
     if not getattr(model_client, "context_limit", None) and resolved_provider != "fake":
         _ctx_default = _default_context_limit(provider_name, model_name)
         if _ctx_default:
-            model_client.context_limit = _ctx_default
+            declare = getattr(model_client, "declare_context_limit", None)
+            if callable(declare):
+                declare(_ctx_default)
+            else:
+                model_client.context_limit = _ctx_default
 
     # F1：MCP 运行时接线（扩展层关 = 一次读盘 no-op；21 内置工具零变化）。
     try:

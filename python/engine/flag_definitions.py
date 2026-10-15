@@ -12,6 +12,10 @@ FLAGS = {
     "XEYO_GREP_PAGINATION_FACTS": (True, "pagination total and next offset"),
     "XEYO_GREP_SYMBOL_RANGES": (True, "symbol start and end lines"),
     "XEYO_BASH_ERROR_ORIGIN": (True, "failed command origin observation"),
+    # ── 旁路能力（2026-10-14，均默认关：先以旁路形态上线，有数据再并入主链路）──
+    "XEYO_WORKFLOW": (False, "model-written orchestration script tool"),
+    "XEYO_SUBAGENT_WORKTREE": (False, "subagent worktree isolation"),
+    "XEYO_LSP": (False, "language server integration tool"),
 }
 
 

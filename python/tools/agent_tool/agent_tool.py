@@ -34,6 +34,20 @@ from usage.money import round_money8
 MAX_DEPTH = 1  # P0 硬限制（A8）：只允许一层子 agent，禁止孙 agent
 # 并发 spawn 槽 = 每会话一桶；额度与解析规则在 common.concurrency_budget（单一来源）。
 
+#: 子代理工作区隔离的合法取值（"" = 共享 checkout）。
+ISOLATION_SHARED = ""
+ISOLATION_WORKTREE = "worktree"
+
+
+def worktree_isolation_enabled() -> bool:
+    """隔离是否可用（旁路开关，默认关）。"""
+    try:
+        from engine.flag_definitions import enabled
+
+        return bool(enabled("XEYO_SUBAGENT_WORKTREE"))
+    except Exception:  # noqa: BLE001 — 开关读不到按关处理（不静默开能力）
+        return False
+
 
 def _format_agent_tool_result(
 	*,
@@ -68,6 +82,26 @@ class AgentInput:
     reuse_agent_id: str = ""
     # T14：角色名（agents/*.toml 的 name）；注入 developer_instructions + 卡片名
     agent_type: str = ""
+    #: 子代理工作区隔离（"" = 共享 checkout；"worktree" = 独立 git worktree）。
+    #: 仅当 XEYO_SUBAGENT_WORKTREE 打开时生效（见 tools/agent_tool/worktree_isolation.py）。
+    isolation: str = ""
+
+
+def parse_agent_tool_result(content: str) -> tuple[bool, str]:
+    """``_format_agent_tool_result`` 的逆函数：取回 (is_error, 子代理正文)。
+
+    与 formatter 同处一文件，避免两处格式漂移（Workflow 的 agent() 原语依赖它）。
+    """
+    text = content or ""
+    is_error = text.startswith("[Agent tool_result status=ERROR")
+    marker = "\n---\n"
+    if marker in text:
+        body = text.split(marker, 1)[1]
+        tail = body.rfind(marker)
+        if tail != -1:
+            body = body[:tail]
+        return is_error, body.strip()
+    return is_error, text.strip()
 
 
 def _safe_agent_id(task_id: str, *, tail: str) -> str:
@@ -166,6 +200,23 @@ class AgentTool:
                             "auto-labels the spawn card."
                         ),
                     },
+                    **(
+                        {
+                            "isolation": {
+                                "type": "string",
+                                "enum": ["worktree"],
+                                "description": (
+                                    "Isolate this sub-agent in its own git worktree "
+                                    "(independent working tree; changes are merged "
+                                    "back when it finishes). Requires a non-empty "
+                                    "scope, otherwise the sub-agent stays read-only. "
+                                    "Conflicting changes are left in the worktree."
+                                ),
+                            }
+                        }
+                        if worktree_isolation_enabled()
+                        else {}
+                    ),
                 },
                 "required": ["task_id", "desc"],
             },
@@ -182,6 +233,7 @@ class AgentTool:
             parent_depth=max(0, int(raw.get("parent_depth") or 0)),
             reuse_agent_id=str(raw.get("reuse_agent_id") or "").strip(),
             agent_type=str(raw.get("agent_type") or "").strip(),
+            isolation=str(raw.get("isolation") or "").strip().lower(),
         )
 
     def _emit_xy(self, payload: dict[str, Any], *, tool_use_id: str = "") -> None:
@@ -205,6 +257,26 @@ class AgentTool:
             return ToolResult(
                 content=f"max agent depth reached ({MAX_DEPTH})", is_error=True
             )
+
+        # 隔离是旁路能力：关着的时候显式拒绝，不做静默降级（静默降级会让模型
+        # 以为"已隔离"，而实际两个子代理仍在同一 checkout 上抢文件）。
+        if agent_input.isolation:
+            if agent_input.isolation != ISOLATION_WORKTREE:
+                return ToolResult(
+                    content=(
+                        f"unknown isolation: {agent_input.isolation} "
+                        f"(supported: {ISOLATION_WORKTREE})"
+                    ),
+                    is_error=True,
+                )
+            if not worktree_isolation_enabled():
+                return ToolResult(
+                    content=(
+                        "isolation=worktree is not enabled in this deployment "
+                        "(XEYO_SUBAGENT_WORKTREE)"
+                    ),
+                    is_error=True,
+                )
 
         # T14：角色解析（agents/*.toml）——先于并发槽获取，失败不占槽。
         # 未知 agent_type 直接报错，不静默降级。
@@ -410,6 +482,10 @@ class AgentTool:
             })
 
             body = (preview or "").strip() or "(empty subagent result)"
+            iso = getattr(out, "isolation", None)
+            if iso is not None:
+                # 隔离回收是**事实**，附在正文里（不是劝导）：合并/未合并/冲突文件。
+                body = f"{body}\n{iso.summary()}"
             content = _format_agent_tool_result(
                 agent_id=agent_id,
                 task_id=task_id,
@@ -417,14 +493,25 @@ class AgentTool:
                 body=body,
                 is_error=status != "done",
             )
+            metadata: dict[str, Any] = {
+                "agent_id": agent_id,
+                "task_id": task_id,
+                "uid": uid,
+                "files_touched": list(out.files_touched or []),
+            }
+            if iso is not None:
+                metadata["isolation"] = {
+                    "mode": ISOLATION_WORKTREE,
+                    "merged": bool(iso.merged),
+                    "no_changes": bool(iso.no_changes),
+                    "branch": iso.branch,
+                    "worktree": iso.worktree,
+                    "conflicts": list(iso.conflicts),
+                    "changed_files": list(iso.changed_files),
+                }
             return ToolResult(
                 content=content,
-                metadata={
-                    "agent_id": agent_id,
-                    "task_id": task_id,
-                    "uid": uid,
-                    "files_touched": list(out.files_touched or []),
-                },
+                metadata=metadata,
                 is_error=status != "done",
             )
         finally:
@@ -499,21 +586,86 @@ class AgentTool:
                 is_error=True,
             )
 
-        from engine.subagent_runner import run_subagent
-
         append_prompt = getattr(runtime, "append_system_prompt", "") or ""
         if role_suffix:
             append_prompt = (
                 f"{append_prompt}\n\n{role_suffix}" if append_prompt else role_suffix
             )
+
+        if (agent_input.isolation or "") != ISOLATION_WORKTREE:
+            return await self._run_child(
+                agent_input,
+                agent_id=agent_id,
+                runtime=runtime,
+                tool_whitelist=tool_whitelist,
+                abort=abort,
+                append_prompt=append_prompt,
+                on_text_delta=on_text_delta,
+                workspace_root=runtime.workspace_root,
+                write_store=self._write_store,
+            )
+
+        # ── worktree 隔离路径 ──────────────────────────────────────────────
+        # 子代理在独立 worktree 里跑，写盘走该 worktree 的 WriteStore；结束后由
+        # WorktreeIsolation 回收（干净应用 → 三方合并 → 真冲突则保留隔离副本）。
+        from engine.write_store import WriteStore
+        from tools.agent_tool.worktree_isolation import (
+            IsolationUnavailable,
+            WorktreeIsolation,
+        )
+
+        iso = WorktreeIsolation(
+            self._cwd or ".",
+            f"sub-{agent_id}",
+            message=f"subagent {agent_id}: {agent_input.task_id}",
+        )
+        try:
+            with iso:
+                out = await self._run_child(
+                    agent_input,
+                    agent_id=agent_id,
+                    runtime=runtime,
+                    tool_whitelist=tool_whitelist,
+                    abort=abort,
+                    append_prompt=append_prompt,
+                    on_text_delta=on_text_delta,
+                    workspace_root=iso.path,
+                    write_store=WriteStore(
+                        iso.path, allowed_paths=(str(iso.path),)
+                    ),
+                )
+        except IsolationUnavailable as exc:
+            return SubagentOutput(
+                conclusion=f"ERROR: worktree isolation unavailable: {exc}",
+                is_error=True,
+            )
+        out.isolation = iso.outcome
+        return out
+
+    async def _run_child(
+        self,
+        agent_input: AgentInput,
+        *,
+        agent_id: str,
+        runtime: Any,
+        tool_whitelist: list[str],
+        abort: AbortController,
+        append_prompt: str,
+        on_text_delta: Any,
+        workspace_root: Any,
+        write_store: Any,
+    ) -> "SubagentOutput":
+        """真正派生一个子代理（共享 checkout 与 worktree 隔离共用这条路径）。"""
+        from engine.subagent_runner import run_subagent
+
         rr = await run_subagent(
-            workspace_root=runtime.workspace_root,
+            workspace_root=workspace_root,
             agent_id=agent_id,
             task_prompt=agent_input.desc,
             tool_whitelist=tool_whitelist,
             model_client=runtime.model_client,
             prompt_assembler=runtime.prompt_assembler,
-            write_store=self._write_store,
+            write_store=write_store,
             main_session_id=self._session_id,
             coordinator=None,
             abort=abort,
@@ -548,4 +700,6 @@ class SubagentOutput:
     turns_used: int = 0
     max_turns: int = 0
     had_write_stale: bool = False
+    #: worktree 隔离的回收结果（``None`` = 未使用隔离）。
+    isolation: Any = None
 

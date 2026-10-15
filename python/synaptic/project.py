@@ -81,6 +81,7 @@ class Projection:
 	history_query: HistoryQuery | None = None
 	history_candidates: tuple[HistoryCandidate, ...] = ()
 	task_handoff_text: str = ""
+	fallback_continuity_text: str = ""
 
 	@property
 	def text(self) -> str:
@@ -114,6 +115,8 @@ def project(
 	persist_view: bool = True,
 	exclude_state_notes: bool = False,
 	goal_snapshot: dict | None = None,
+	media_cwd: Path | str | None = None,
+	media_source_layout: str = "latest-notes-v1",
 ) -> Projection:
 	"""压缩 ``messages[:region_end]`` 为热层；``[region_end, end)`` 不触碰。
 
@@ -200,6 +203,11 @@ def project(
 	if goal_provenance is not None:
 		from synaptic.lifecycle import bind_goal
 		pins = bind_goal(pins, goal_provenance)
+	from memory.wsc_media_directory import pin as media_directory_pin
+	media_pin = media_directory_pin(messages, region_end, cwd=media_cwd,
+	                                session=session, source_layout=media_source_layout)
+	if media_pin is not None:
+		pins = (*pins, media_pin)
 	pin_tokens = sum(node_token_len(line) + 1 for _, line in render_pins(pins))
 	ws = working_set(
 		file_states,
@@ -551,11 +559,19 @@ def project(
 	# 收益门（规则 7）：热层不比重放原文更省 → 不压缩。
 	from synaptic.pin_render import render_pin
 	task_handoff_text = "\n".join(render_pin(pin, handles=handles) for pin in pins if pin.key == "task_checkpoint")
+	# The fallback generation uses the same protected facts as this projection.
+	# Without committed task state, preserve only its last observed request pin;
+	# never recover an older goal by searching historical user prose.
+	fallback_continuity_text = task_handoff_text or "\n".join(
+		render_pin(pin, handles=handles) for pin in pins if pin.key.startswith("request:"))
+	if media_pin is not None:
+		fallback_continuity_text += "\n" + render_pin(media_pin, handles=handles)
 	if strict_view:
 		from synaptic.contracts import finalize
 		pending_ref = view_ref
 		text, view_out, view_ref = finalize(text, state, cs, view_path, view_ref, persist=False)
 		task_handoff_text = task_handoff_text.replace(pending_ref, view_ref)
+		fallback_continuity_text = fallback_continuity_text.replace(pending_ref, view_ref)
 		hot = replace(hot, text=text, tokens=node_token_len(text))
 		tokens = hot.tokens
 		for entry in trace:
@@ -603,6 +619,7 @@ def project(
 		cold=cs,
 		view_path=view_out,
 		task_handoff_text=task_handoff_text,
+		fallback_continuity_text=fallback_continuity_text,
 		state=state,
 		graph=graph,
 		seeds=seeds,

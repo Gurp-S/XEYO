@@ -125,6 +125,10 @@ class InboxRegistry:
 	子 Agent 的追加指令，无重试状态，仅落 ``meta.pending_followups`` 等待 settle/retry。
 	"""
 
+	#: 会话级清理登记（顺序阶梯见 ``server/session_lifecycle``）。
+	name = "inbox_registry"
+	order = 40
+
 	def __init__(self) -> None:
 		self._lock = threading.Lock()
 		# FIFO 结构：key = session_id；value = deque[InboxItem]。
@@ -996,10 +1000,21 @@ class InboxPersistenceError(RuntimeError):
 _registry: InboxRegistry | None = None
 
 
+def current_inbox_registry() -> InboxRegistry | None:
+	"""**已创建**的实例（不创建）。见 session_lifecycle._ensure_registered。"""
+	return _registry
+
+
 def get_inbox_registry() -> InboxRegistry:
 	global _registry
 	if _registry is None:
 		_registry = InboxRegistry()
+		try:
+			from server import session_lifecycle
+
+			session_lifecycle.register(_registry)
+		except Exception:  # noqa: BLE001 — 登记失败不影响队列可用
+			_logger.debug("inbox registry lifecycle register failed", exc_info=True)
 	return _registry
 
 

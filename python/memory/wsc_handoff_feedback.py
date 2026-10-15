@@ -14,9 +14,10 @@ def invalid_arguments(raw):
     return None
 
 
-def rejected_frame(uses, facts):
+def rejected_frame(uses, facts, *, assistant=None):
     payload = json.dumps(facts, ensure_ascii=False)
-    return [{"role": "assistant", "content": [{"type": "tool_use", "id": use.id,
+    return [assistant if assistant is not None else
+            {"role": "assistant", "content": [{"type": "tool_use", "id": use.id,
              "name": use.name, "input": use.input} for use in uses]},
             *[{"role": "tool", "tool_call_id": use.id, "name": use.name,
                "content": [{"type": "tool_result", "tool_use_id": use.id,

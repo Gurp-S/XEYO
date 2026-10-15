@@ -4,7 +4,6 @@ This is provenance of a declaration, not proof that its status is correct.
 Only explicitly scoped task declarations adopt this contract.
 """
 from synaptic.todo_snapshot import latest_todo_snapshot
-from synaptic.textutil import tool_use_blocks
 from memory.wsc_handoff_phase import observed_source
 
 
@@ -23,6 +22,12 @@ def validate(raw, sources):
     changes = [{"id": item["id"], "from_status": statuses[item["id"]], "to_status": item["status"]}
                for item in raw.get("todos", [])
                if item.get("id") in statuses and item.get("status") != statuses[item["id"]]]
+    declared_ids = {item.get("id") for item in raw.get("todos", [])}
+    # Omission is also a progress transition. Otherwise an empty handoff can
+    # erase every unfinished step without the witness required for completion.
+    changes.extend({"id": uid, "from_status": status, "to_status": "absent"}
+                   for uid, status in statuses.items()
+                   if status != "completed" and uid not in declared_ids)
     if not changes:
         return
     cp = raw["checkpoint"]
@@ -39,14 +44,13 @@ def validate(raw, sources):
             continue
         if uid in context and len(indices.get(uid, [])) == 1 and observed_source(sources, i):
             return
-        # Verification identities name invocations, not receipt messages.
-        for use in tool_use_blocks(row):
-            if use.get("id") in verification:
-                from synaptic.textutil import tool_result_blocks
-                replies = [j for j, result_row in enumerate(sources)
-                           for result in tool_result_blocks(result_row) if result.get("tool_use_id") == use.get("id")]
-                if len(replies) == 1 and observed_source(sources, replies[0]):
-                    return
+    # A late actual result can postdate the checkpoint even when its original
+    # invocation predates it. Freshness belongs to the effective receipt.
+    from synaptic.task_verification import collect
+    receipts, _unknown, _nodes = collect(sources, verification, len(sources), inline_bytes=0)
+    if any(receipt['source'] > prior.checkpoint_source
+           and observed_source(sources, receipt['source']) for receipt in receipts):
+        return
     base = sources[prior.checkpoint_source]
     events = []
     for i in range(prior.checkpoint_source + 1, len(sources)):

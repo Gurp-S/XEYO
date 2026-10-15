@@ -20,8 +20,9 @@ def render(messages, working, cursor, cwd):
     # which history is folded, not which declarations are visible.
     projection = project(messages, region_end=cursor,
                          params=production_params(), view_path=path,
-                         session=working.session_id)
+                         session=working.session_id, media_cwd=cwd,
+                         media_source_layout=getattr(working, 'compression_source_layout', 'latest-notes-v1'))
     from pathlib import Path
     count = len(Path(projection.view_path).read_text(encoding="utf-8").splitlines())
-    archive = f"历史存档: Read(file_path='{projection.view_path}', offset=1, limit={min(8, count)}) span=1-{count}"
-    return projection.task_handoff_text + "\n" + archive
+    archive = f"历史存档: Read(file_path={Path(projection.view_path).resolve().as_posix()!r}, offset=1, limit={min(8, count)}) span=1-{count}"
+    return projection.fallback_continuity_text + "\n" + archive

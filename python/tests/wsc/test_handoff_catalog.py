@@ -105,8 +105,11 @@ async def test_parallel_read_frames_are_bounded_and_declaration_is_exclusive(mod
             else:
                 assert len(messages[-3]["content"]) == 2
                 assert messages[-2]["tool_call_id"] == "read-0"
-                assert messages[-1]["tool_call_id"] == "catalog-0"
-                uses = [ToolUse("declaration", "TodoWrite", declaration)]
+                assert messages[-1]["tool_call_id"] == ("declaration" if mode == "mixed" else "catalog-0")
+                if mode == "mixed":
+                    import json
+                    assert json.loads(messages[-1]["content"][0]["content"])["executed_call_ids"] == []
+                uses = [ToolUse("valid-declaration", "TodoWrite", declaration)]
             for use in uses: yield ModelChunk(kind="tool_use", tool_use=use)
     class Model:
         context_limit = 100000
@@ -114,9 +117,9 @@ async def test_parallel_read_frames_are_bounded_and_declaration_is_exclusive(mod
     async def invoke():
         return await generate(Model(), [{"role": "user", "content": "当前验收"}], transcript(),
             TodoWriteTool().schema(), AbortController(), account=usage.append, admit_read=lambda: reads.append(True))
-    if mode == "reads":
+    if mode in {"reads", "mixed"}:
         assert (await invoke()).name == "TodoWrite"
-        assert len(usage) == 2 and len(reads) == 2
+        assert len(usage) == 2 and len(reads) == (2 if mode == "reads" else 0)
     else:
         error = {"mixed": "handoff_mixed_declaration", "duplicate": "handoff_call_identity_conflict", "read_limit": "handoff_recall_request_limit"}[mode]
         with pytest.raises(ValueError, match=error): await invoke()

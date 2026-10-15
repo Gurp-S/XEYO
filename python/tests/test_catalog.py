@@ -67,12 +67,36 @@ _FROZEN_ENABLED = (
 	"WebFetch",
 	"WebSearch",
 	"XeyoUI",
+	# 旁路能力（2026-10-14）：登记在矩阵里但**默认不在工作面**——由
+	# tools/catalog.py 的 GATED_TOOL_FLAGS 按 feature flag 过滤。
+	# 见下方 _GATED_DEFAULT_OFF。
+	"Workflow",
+	"Lsp",
 )
+
+#: 默认关的旁路工具（flag 打开后才进 schemas 与子 agent 注册表）。
+_GATED_DEFAULT_OFF = frozenset({"Workflow", "Lsp"})
 
 
 def test_enabled_tools_frozen():
 	assert set(default_tool_names()) == set(_FROZEN_ENABLED)
 	assert set(default_tool_names()) == ENABLED_META_NAMES
+
+
+def test_gated_tools_absent_unless_flag_on(monkeypatch):
+	"""默认（flag 未设）旁路工具不在工作面；置 1 后进工作面。"""
+	from tools.catalog import GATED_TOOL_FLAGS
+
+	for name, flag in GATED_TOOL_FLAGS.items():
+		monkeypatch.delenv(flag, raising=False)
+	reg = build_default_registry(cwd=".")
+	assert _GATED_DEFAULT_OFF.isdisjoint(set(reg._tools))  # type: ignore[attr-defined]
+	for flag in GATED_TOOL_FLAGS.values():
+		monkeypatch.setenv(flag, "1")
+	reg_on = build_default_registry(cwd=".")
+	for name in _GATED_DEFAULT_OFF:
+		assert reg_on.get(name) is not None
+		assert any(s.get("name") == name for s in reg_on.schemas())
 
 
 def test_system_hint_is_thin_policy():
@@ -99,20 +123,23 @@ def test_unknown_tool_not_passthrough():
 def test_default_registry_matches_frozen_names():
 	reg = build_default_registry(cwd=".")
 	registered = set(reg._tools)  # type: ignore[attr-defined]
-	assert registered == set(_FROZEN_ENABLED)
-	# exposure 过滤语义：hidden 的工具注册但不进 schemas（当前**无** hidden 工具，
-	# 该断言仍保留——它锁的是过滤机制本身，将来再加 hidden 工具时自动生效）。
+	# 旁路工具默认关 ⇒ 不在默认注册表里（见 _GATED_DEFAULT_OFF）。
+	expected = set(_FROZEN_ENABLED) - _GATED_DEFAULT_OFF
+	assert registered == expected
+	# exposure 过滤语义：hidden 的工具注册但不进 schemas。
+	# 当前 hidden = {"Git"}（2026-10-13 旁路：Git 从模型可见面摘除、保留注册，
+	# 理由见 tools/meta.py 的 Git 条目）。hidden 集合变化时请连同本条一起更新。
 	from tools.meta import exposure_of
 
-	hidden = {n for n in _FROZEN_ENABLED if exposure_of(reg.get(n)) == "hidden"}
+	hidden = {n for n in expected if exposure_of(reg.get(n)) == "hidden"}
 	schema_names = {t["name"] for t in reg.schemas() if isinstance(t, dict)}
-	assert hidden == set(), "当前不应有 hidden 工具；若有，请连同本条注释一起更新"
-	assert schema_names == set(_FROZEN_ENABLED) - hidden
+	assert hidden == {"Git"}, "hidden 集合变化时请连同本条注释一起更新"
+	assert schema_names == expected - hidden
 
 
 def test_meta_flags_match_instances():
 	reg = build_default_registry(cwd=".")
-	for name in _FROZEN_ENABLED:
+	for name in set(_FROZEN_ENABLED) - _GATED_DEFAULT_OFF:
 		m = meta_for(name)
 		assert m is not None
 		tool = reg.get(name)

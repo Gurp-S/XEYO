@@ -32,7 +32,8 @@ def validate(value):
             return (key in {"decisions", "constraints"} and isinstance(item, dict)
                 and set(item) == {"source_message_id", "quote"}
                 and all(isinstance(item[k], str) and item[k].strip() for k in item))
-        if (not isinstance(values, list) or len(values) > 16 or any(not valid(item) for item in values)):
+        if (not isinstance(values, list) or (key != "verification_call_ids" and len(values) > 16)
+                or any(not valid(item) for item in values)):
             raise ValueError("invalid_task_checkpoint_" + key)
         result[key] = []
         seen = set()

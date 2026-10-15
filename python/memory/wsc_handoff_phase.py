@@ -1,7 +1,7 @@
 """Verify phase provenance and transition witnesses, without judging semantics."""
 from synaptic.task_fact_sources import source_text
 from synaptic.todo_snapshot import latest_todo_snapshot
-from synaptic.textutil import tool_use_blocks, tool_result_blocks
+from synaptic.textutil import tool_result_blocks
 
 
 class PhaseError(ValueError):
@@ -25,9 +25,9 @@ def observed_source(sources, index):
     execution = receipt.get("execution")
     if isinstance(execution, dict) and (execution.get("complete") is False or execution.get("status") == "cancelled"):
         return False
-    origins = [i for i, row in enumerate(sources) for use in tool_use_blocks(row) if use.get("id") == uid]
-    replies = [i for i, row in enumerate(sources) for result in tool_result_blocks(row) if result.get("tool_use_id") == uid]
-    return len(origins) == len(replies) == 1 and origins[0] < replies[0] == index
+    from synaptic.task_verification import collect
+    observed, _unknown, _nodes = collect(sources, [uid], len(sources), inline_bytes=0)
+    return len(observed) == 1 and observed[0]['source'] == index
 
 
 def validate(raw, sources, *, required=False):
@@ -58,15 +58,26 @@ def validate(raw, sources, *, required=False):
         checkpoint.get("objective", "") != prior.checkpoint.get("objective", ""))
     reactivated = active and prior.observed and not prior.active_count
     goal_event = active and prior.observed and (reactivated or objective_changed)
-    if phase_changed or goal_event:
-        current = next(item for item in phase["phases"] if item["id"] == phase["current_phase_id"])
-        witnesses = [indices[uid][0] for uid in current["source_message_ids"]]
-        base = prior.source if goal_event else prior.checkpoint_source
+    current = next(item for item in phase["phases"] if item["id"] == phase["current_phase_id"])
+    requirements = []
+    if phase_changed:
+        requirements.append((prior.checkpoint_source, current['source_message_ids'], 'phase'))
+    if goal_event:
+        # Refining an objective within one phase does not rewrite that phase's
+        # provenance. Its authority belongs to explicitly active task sources.
+        requirements.append((prior.source, phase['active_context_message_ids'], 'objective'))
+    for base, witness_ids, scope in requirements:
+        witnesses = [indices[uid][0] for uid in witness_ids]
         if not any(index > base and observed_source(sources, index) for index in witnesses):
             raise PhaseError("handoff_phase_transition_source_missing",
                              from_phase_id=before["current_phase_id"] if before is not None else None,
                              to_phase_id=phase["current_phase_id"], base_checkpoint_source=base,
-                             objective_changed=bool(objective_changed), task_reactivated=bool(reactivated))
+                             objective_changed=bool(objective_changed), task_reactivated=bool(reactivated),
+                             provenance_scope=scope,
+                             current_phase_sources=[{"message_id": uid, "source": indices[uid][0],
+                                 "after_checkpoint": indices[uid][0] > base,
+                                 "observed": observed_source(sources, indices[uid][0])}
+                                 for uid in current["source_message_ids"]])
     from memory.wsc_handoff_applicability import validate as validate_applicability
     if active:
         validate_applicability(checkpoint, sources, prior, indices, observed_source)

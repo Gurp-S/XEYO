@@ -66,10 +66,19 @@ class _DriverState:
 	pending: asyncio.Task | None = None
 	# 轮中的 (goal_id, round_no)；settlement 后清空。
 	active_round: tuple[str, int] | None = None
+	#: **补排请求**（防丢唤醒）。settlement 想预约时若已有在途 `pending`，旧实现
+	#: 直接丢弃该请求 ⇒ 快 turn（在 `_submit_round` 内部就结算）会让 goal 静默停摆。
+	#: 现在改为置位本标记，由 `_round_task` 的 finally 消费：**判据是"有没有待办"，
+	#: 不是"任务在不在跑"**（Monitor 语义）。disarm / drop_session 会一并清掉。
+	reschedule_requested: bool = False
 
 
 class GoalRoundDriver:
 	"""单会话至多一个在途合成轮；状态机见模块 docstring 与 41 号 §4。"""
+
+	#: 会话级清理登记（顺序阶梯见 ``server/session_lifecycle``）。
+	name = "goal_round_driver"
+	order = 30
 
 	def __init__(self) -> None:
 		self._states: dict[str, _DriverState] = {}
@@ -173,15 +182,24 @@ class GoalRoundDriver:
 	def _cancel_pending(self, st: _DriverState) -> None:
 		task = st.pending
 		st.pending = None
+		# 作废在途预约时同时清掉补排请求：否则 disarm 前记下的那次请求会在
+		# 重新 arm 时"隔代"复活一次预约（用户看到的是一次莫名其妙的自动开轮）。
+		st.reschedule_requested = False
 		if task is not None and not task.done():
 			task.cancel()
 
 	def _schedule(self, session_id: str) -> None:
-		"""预约下一轮（不消耗轮号）。仅 async 上下文调用（arm 端点 / settlement）。"""
+		"""预约下一轮（不消耗轮号）。仅 async 上下文调用（arm 端点 / settlement）。
+
+		在途预约存在时**不是丢弃请求，而是记下补排**——旧实现 `return` 掉这一枪，
+		于是"快 turn 的 settlement 落在旧 `_round_task` 未结束"就永久停摆（本仓
+		已有实测：goal 仍 armed / active，但不再自动开轮）。
+		"""
 		st = self._states.get(session_id)
 		if st is None or not st.armed:
 			return
 		if st.pending is not None and not st.pending.done():
+			st.reschedule_requested = True
 			return
 		coro = self._round_task(session_id)
 		try:
@@ -336,6 +354,11 @@ class GoalRoundDriver:
 				cur.pending = None
 			if cur is not None:
 				cur.active_round = None
+			# 补排：本任务在跑期间收到过预约请求（settlement / poke）⇒ 再排一轮。
+			# 必须放在 pending 清空之后，否则 `_schedule` 会再次只置位而不建任务。
+			if cur is not None and cur.reschedule_requested:
+				cur.reschedule_requested = False
+				self._schedule(session_id)
 
 	async def _precheck(
 		self, session_id: str
@@ -412,8 +435,19 @@ class GoalRoundDriver:
 _driver: GoalRoundDriver | None = None
 
 
+def current_goal_round_driver() -> GoalRoundDriver | None:
+	"""**已创建**的实例（不创建）。见 session_lifecycle._ensure_registered。"""
+	return _driver
+
+
 def get_goal_round_driver() -> GoalRoundDriver:
 	global _driver
 	if _driver is None:
 		_driver = GoalRoundDriver()
+		try:
+			from server import session_lifecycle
+
+			session_lifecycle.register(_driver)
+		except Exception:  # noqa: BLE001 — 登记失败不影响 driver 可用
+			_logger.debug("goal driver lifecycle register failed", exc_info=True)
 	return _driver

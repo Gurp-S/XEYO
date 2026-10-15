@@ -84,9 +84,21 @@ class DeepSeekModelClient:
 		self._thinking = thinking or _env("DEEPSEEK_THINKING", "disabled") or "disabled"
 		self._temperature = temperature
 		self.last_usage: dict[str, Any] | None = None  # 最近一次流式请求的 usage（含缓存命中）
-		self.context_limit: int | None = None  # 上下文窗口(token);由 build_default_engine 注入保守默认(G67)
+		self.context_limit: int | None = None
+		self.context_limit_declared = False
+		self.declare_context_limit(_env("XEYO_CONTEXT_LIMIT_TOKENS"))
 		self._session_id: str = ""
 		self._usage_recorded_this_stream = False
+
+	def declare_context_limit(self, context_limit) -> None:
+		try:
+			limit = int(context_limit) if not isinstance(context_limit, bool) else 0
+		except (TypeError, ValueError):
+			return
+		if limit > 0:
+			self.context_limit = limit
+			self.context_limit_declared = True
+			self.context_capacity_basis = "explicit"
 
 	def set_session_id(self, session_id: str | None) -> None:
 		"""注入会话 id（server/session_pool._inject_session_ids），供用量账本归因。"""
@@ -142,9 +154,13 @@ class DeepSeekModelClient:
 		return measure(source, model=self._model, base_url=self._base_url, thinking=self._thinking)
 
 	def context_output_limit(self, messages, tools):
-		from model.context_input import output_limit_from_body
-		# _build_body emits this same configured field; avoid re-encoding media.
-		return output_limit_from_body({'max_tokens': getattr(self, '_max_tokens', None)})
+		return self.context_output_limit_measure(messages, tools)[0]
+
+	def context_output_limit_measure(self, messages, tools):
+		from model.deepseek_output_defaults import measure
+		return measure(configured=getattr(self, '_max_tokens', None), model=self._model,
+			base_url=self._base_url, thinking=self._thinking,
+			reasoning_effort=getattr(self, '_reasoning_effort', None))
 
 	def _build_body(
 		self,

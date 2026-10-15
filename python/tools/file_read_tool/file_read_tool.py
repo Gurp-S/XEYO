@@ -794,6 +794,8 @@ class FileReadTool:
 			else:
 				with open(full, "rb") as fh:
 					raw = fh.read()
+				from memory.wsc_media_integrity import verify_read
+				verify_read(raw, read_input.file_path, cwd=self._cwd)
 			data_url, meta = compress_image_for_llm(raw)
 		except MediaError as e:
 			return ToolResult(content=str(e), is_error=True)

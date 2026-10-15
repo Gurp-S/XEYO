@@ -297,6 +297,7 @@ class TodoWriteTool:
 				"properties": {key: {"type": "array", "maxItems": 16, "items": {"type": "string"}}
 					for key in ("context_message_ids", "decisions", "constraints", "verification_call_ids")},
 			}
+			result["input_schema"]["properties"]["checkpoint"]["properties"]["verification_call_ids"].pop("maxItems")
 			result["input_schema"]["properties"]["checkpoint"]["properties"]["objective"] = {"type": "string"}
 			from synaptic.task_observations import enabled as observations_enabled, schema as observation_schema
 			if observations_enabled():

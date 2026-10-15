@@ -180,6 +180,7 @@ class OpenAICompatClient:
 			return
 		self.context_limit = limit
 		self.context_limit_declared = True
+		self.context_capacity_basis = "explicit"
 
 	def _apply_usage_context_limit(self, usage: dict[str, Any] | None) -> None:
 		"""厂商 usage 尾帧带的窗口：**未登记时**才兜底，已登记则原样不动。"""

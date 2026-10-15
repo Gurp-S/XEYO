@@ -81,6 +81,46 @@ def test_unchanged_state_and_legacy_do_not_invent_progress_events():
     validate(raw, rows[:5])
 
 
+@pytest.mark.parametrize("origin_before_checkpoint", [False, True])
+@pytest.mark.parametrize("broken", [None, "wrong_binding", "untyped", "duplicate", "cancelled", "incomplete"])
+def test_recovered_actual_result_grounds_progress_and_phase_with_same_identity(broken, origin_before_checkpoint):
+    from session.recovery_result_chain import observation
+    from memory.wsc_handoff_phase import observed_source, validate as validate_phase
+    rows, raw = changed()
+    origin = dict(msg_asst_use("fresh", "Bash", {"command": "verify"}), id="fresh-origin")
+    unknown = dict(msg_tool("fresh", "Bash", "outcome unavailable", is_error=True), id="unknown")
+    unknown['content'][0]['execution'] = {'complete': False, 'recovery_observation': observation(origin, 'fresh')}
+    actual = dict(msg_tool("fresh", "Bash", "verification failed", is_error=True), id="actual")
+    actual['content'][0]['execution'] = {'complete': True, 'status': 'error'}
+    if broken == "wrong_binding": unknown['content'][0]['execution']['recovery_observation']['invocation_sha256'] = 'wrong'
+    elif broken == "untyped": unknown['content'][0]['execution'].pop('recovery_observation')
+    elif broken == "cancelled": actual['content'][0]['execution']['status'] = 'cancelled'
+    elif broken == "incomplete": actual['content'][0]['execution']['complete'] = False
+    if origin_before_checkpoint:
+        rows[5:5] = [origin, unknown]
+        rows.append(actual)
+    else:
+        rows += [origin, unknown, actual]
+    if broken == "duplicate": rows.append(deepcopy(actual))
+    before = deepcopy(rows)
+    index = len(rows)-1
+    raw['checkpoint']['verification_call_ids'].append('fresh')
+    phase_raw = deepcopy(raw)
+    phase_raw['checkpoint']['context_message_ids'].append('actual')
+    phase = phase_raw['checkpoint']['phase_state']
+    phase['current_phase_id'] = 'verification'
+    phase['phases'].append({'id':'verification','name':'验收','source_message_ids':['actual']})
+    if broken:
+        assert observed_source(rows, index) is False
+        with pytest.raises(ProgressError): validate(raw, rows)
+        with pytest.raises(ValueError, match='handoff_phase_source_invalid'): validate_phase(phase_raw, rows)
+    else:
+        assert observed_source(rows, index) is True
+        validate(raw, rows)
+        validate_phase(phase_raw, rows)
+    assert rows == before
+
+
 @pytest.mark.asyncio
 async def test_generation_can_bind_new_report_without_reverting_its_status():
     import json

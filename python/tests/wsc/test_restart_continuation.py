@@ -10,6 +10,17 @@ from tests.wsc._fixtures import synth_session
 from engine.compact import keep_tail_cut
 
 
+def additional_session(turns, error_turn, prefix):
+    rows = synth_session(turns=turns, error_turn=error_turn)
+    for row in rows:
+        if isinstance(row.get('content'), list):
+            for block in row['content']:
+                for key in ('id', 'tool_use_id'):
+                    if key in block:
+                        block[key] = prefix + str(block[key])
+    return rows
+
+
 @pytest.mark.parametrize("rebase", [False, True])
 @pytest.mark.parametrize("advance_before_restore", [False, True])
 def test_restart_then_fold_preserves_old_source(store, monkeypatch, rebase, advance_before_restore):
@@ -18,21 +29,21 @@ def test_restart_then_fold_preserves_old_source(store, monkeypatch, rebase, adva
     monkeypatch.setattr(wp, "production_params", lambda: replace(original(), journal_rebase=rebase))
     messages = synth_session(turns=26, error_turn=4)
     working = _W(int(keep_tail_cut(messages)))
-    first = wp.project_c2_messages(messages, working)
+    first = wp.project_c2_messages(messages, working, new_generation=True)
     assert first
     previous = next(iter(wp._STATE.values()))
     old_path = Path(previous.view_path)
     old_bytes = old_path.read_bytes()
     old_ranges = previous.cold.render_text_view()[1]
     wp._STATE.clear()
-    messages += synth_session(turns=8, error_turn=2)
+    messages += additional_session(turns=8, error_turn=2, prefix='second-')
     next_cursor = int(keep_tail_cut(messages))
     assert next_cursor > working.compact_cursor
     if not advance_before_restore:
         reused = wp.project_c2_messages(messages, working)
         assert reused[0]["content"] == first[0]["content"]
     working.compact_cursor = next_cursor
-    second = wp.project_c2_messages(messages, working)
+    second = wp.project_c2_messages(messages, working, new_generation=True)
     assert second
     current = next(iter(wp._STATE.values()))
     assert Path(current.view_path) != old_path
@@ -50,9 +61,9 @@ def test_restart_then_fold_preserves_old_source(store, monkeypatch, rebase, adva
     assert current.head.startswith(previous.head) or previous.head in current.cold.snapshots.values()
     # Subsequent folds with known cold layout append in that same generation.
     raw, ranges = current.cold.render_text_view()
-    messages += synth_session(turns=4, error_turn=1)
+    messages += additional_session(turns=4, error_turn=1, prefix='third-')
     working.compact_cursor = int(keep_tail_cut(messages))
-    assert wp.project_c2_messages(messages, working)
+    assert wp.project_c2_messages(messages, working, new_generation=True)
     latest = next(iter(wp._STATE.values()))
     assert latest.view_path != current.view_path
     assert Path(current.view_path).read_text(encoding="utf-8") == raw

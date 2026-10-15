@@ -83,11 +83,15 @@ def finish(rows, messages, key, schemas, working, model, initial, final,
            before, attempts, fold_requested, model_requested):
     output_measure = getattr(model, 'context_output_limit', None)
     output_limit = output_measure(messages, schemas) if callable(output_measure) else None
+    output_basis = 'provider_request_output_limit'
+    output_details = getattr(model, 'context_output_limit_measure', None)
+    if callable(output_details):
+        output_limit, output_basis = output_details(messages, schemas)
     output_known = isinstance(output_limit, int) and not isinstance(output_limit, bool) and output_limit > 0
     output_reserve = output_limit if output_known else 0
     facts = {"before": initial.facts(), "after": final.facts(),
              "output_reserve_tokens": output_reserve if output_known else None,
-             "output_reserve_basis": "provider_request_output_limit" if output_known else "unknown",
+             "output_reserve_basis": output_basis if output_known else "unknown",
              "automatic_attempts": attempts,
              "model_requested": bool(model_requested),
              "fold_attempts": int(bool(fold_requested)),

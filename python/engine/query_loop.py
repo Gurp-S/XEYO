@@ -911,6 +911,12 @@ async def query_loop(
     避免工人提示词被索引撑大、也避免误答 Memory。
     """
     snap = working if working is not None else WorkingSnapshot()
+    from model.context_capacity import ensure_capacity
+    try:
+        await ensure_capacity(model, abort)
+    except Aborted:
+        yield StoppedEvent(reason="aborted")
+        return
     from memory.wsc_timing import enabled as model_timing_enabled
     if model_timing_enabled() and tools.get("Compact") is None:
         from tools.compact_tool import CompactTool

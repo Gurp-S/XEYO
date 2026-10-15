@@ -23,7 +23,7 @@ def test_live_recovery_is_identical_after_restart_and_root_change(store, tmp_pat
     messages=synth_session(turns=22,error_turn=4)
     cut=keep_tail_cut(messages)
     working=_W(cut,sid='recovery-live')
-    initial=wp.project_c2_messages(messages,working,cwd=str(tmp_path))
+    initial=wp.project_c2_messages(messages,working,cwd=str(tmp_path),new_generation=True)
     assert initial is not None
     cached=next(iter(wp._STATE.values()))
     path=cached.view_path
@@ -33,7 +33,7 @@ def test_live_recovery_is_identical_after_restart_and_root_change(store, tmp_pat
     grown=messages+receipt(path,result.content)
     raw=copy.deepcopy(grown)
     emitted=wp.project_c2_messages(grown,working,cwd=str(tmp_path))
-    assert emitted[-1]['content'][0]['content']==result.content
+    assert emitted[-1]['content'][0]['content'].split('\n',1)[1]==result.content
     assert emitted[0]==initial[0] and grown==raw
     wp._STATE.clear()
     monkeypatch.setenv('XEYO_OFFLOAD_DIR',str(tmp_path/'changed-root'))
@@ -55,7 +55,7 @@ def test_recovery_identity_and_frozen_boundary_are_conservative(tmp_path, monkey
         assert _emit('fixed',rows,0,frozen,cwd=str(tmp_path),view_path=view)==_emit('fixed',rows,0,frozen,cwd=str(tmp_path))
     rows=receipt(path,content)
     before=copy.deepcopy(rows)
-    assert _emit('fixed',rows,0,0,cwd=str(tmp_path),view_path=path)[-1]['content'][0]['content']==content
+    assert _emit('fixed',rows,0,0,cwd=str(tmp_path),view_path=path)[-1]['content'][0]['content'].split('\n',1)[1]==content
     assert rows==before
 
 

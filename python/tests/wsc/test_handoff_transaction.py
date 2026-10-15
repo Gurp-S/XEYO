@@ -31,9 +31,25 @@ async def test_actual_task_tool_commits_durable_pair_before_compaction(tmp_path)
     result = await commit(source=lambda: compression_messages(store, WorkingSnapshot()), generate=generate, store=store, tools=registry,
                           abort=AbortController(), persist=lambda: persisted.append(deepcopy(store.as_api_messages())))
     assert result["call_id"] == "handoff-real" and result["task_count"] == 1
+    assert result["mechanical_status"] == "VALIDATED"
+    assert result["validation_scope"] == "handoff_structure_source_identity_and_commit"
+    assert result["semantic_status"] == "SEMANTIC_UNVERIFIED"
     assert len(persisted) == 2 and len(persisted[0]) == 2 and len(persisted[1]) == 3
     assert persisted[0][-1]["content"][0]["type"] == "tool_use"
     assert persisted[1][-1]["content"][0]["is_error"] is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('objective', ['完成报告', '来源没有支持的另一个任务声明'])
+async def test_commit_status_never_certifies_objective_semantics(tmp_path, objective):
+    store, registry, state = setup(tmp_path)
+    state['checkpoint']['objective'] = objective
+    async def generate(rows): return ToolUse('declared-only', 'TodoWrite', state)
+    result = await commit(source=lambda: compression_messages(store, WorkingSnapshot()),
+                          generate=generate, store=store, tools=registry,
+                          abort=AbortController(), persist=lambda: None)
+    assert result['mechanical_status'] == 'VALIDATED'
+    assert result['semantic_status'] == 'SEMANTIC_UNVERIFIED'
 
 
 @pytest.mark.asyncio

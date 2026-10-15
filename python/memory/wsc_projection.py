@@ -184,10 +184,11 @@ def _emit(head: str, messages: list[dict], base: int, frozen_attr: int, *, cwd, 
     return render_receipts(projected) if projection_enabled() else projected
 
 
-def project_c2_messages(messages: list[dict], working, *, cwd=None) -> list[dict] | None:
+def project_c2_messages(messages: list[dict], working, *, cwd=None, new_generation=False) -> list[dict] | None:
     if not live_enabled():
         return None
     cached = None
+    verified_cached = None
     try:
         from memory import wsc_head_store
         from memory.wsc_source_layout import LEGACY, APPEND, validate
@@ -222,7 +223,7 @@ def project_c2_messages(messages: list[dict], working, *, cwd=None) -> list[dict
             # tool 结果落进尾部就会把它顶回去。旧口径在这里把整份冻结头扔掉，于是本该是
             # "前缀扩展"的一枪变成全量重排 —— 厂商侧整段 miss（不该发生的 miss 之一）。
             # 退回旧交界发射：head 与 head 之后的重投区逐字未动 ⇒ 仍是前缀扩展。
-            if len(messages) < cached.n_messages or cached.cursor > cursor:
+            if not cached.source_seal or len(messages) < cached.n_messages or cached.cursor > cursor:
                 cached = None
             elif (
                 cached.source_seal
@@ -236,6 +237,19 @@ def project_c2_messages(messages: list[dict], working, *, cwd=None) -> list[dict
 
         if cached is None:
             cached = _restore_frozen(session, cursor, messages, cwd, source_layout=source_layout)
+        # Exceptional fallback has the same source-validity boundary as normal
+        # reuse. A cache lookup alone is not a completed validation.
+        verified_cached = cached
+
+        from memory.wsc_generation_admission import retained_only
+        retain, verified = retained_only(new_generation, cached, cursor)
+        if retain:
+            if verified is None:
+                return messages
+            _reuse_frozen(verified, messages)
+            return _emit(verified.head, messages, verified.region_end, frozen_attr,
+                         cwd=_pinned(verified, cwd), view_path=verified.view_path,
+                         session=session, lifecycle=verified.lifecycle, source_layout=source_layout)
 
         # 冷却同源：活路径（`memory.runtime.try_extend_c2`）把**实测回本枪数**钉进
         # `working.c2_gap_shots`，而发射侧的节奏由 `CadenceState` 自己维护。同一会话里两条
@@ -305,11 +319,17 @@ def project_c2_messages(messages: list[dict], working, *, cwd=None) -> list[dict
             view_ref=ref_path_for(view_path, os.environ.get("XEYO_CWD") if cwd is None else str(cwd) or None),
             exclude_state_notes=source_layout == APPEND,
             goal_snapshot=goal_snapshot(_cwd_of(cwd), session),
+            media_cwd=_cwd_of(cwd), media_source_layout=source_layout,
         )
         if not proj.result.compressed:
             # 收益门拒了本次折叠 ⇒ 绝不能返回 None。返回 None 会让调用方回退 C2 本体，
             # 那等于把已冻结的头整段换掉（前缀全废），比"这次不折"糟糕得多。
             if cached is not None and cached.head and freeze_enabled():
+                if new_generation and cached.cursor != cursor:
+                    from memory.wsc_fallback_publication import rebind
+                    cached = rebind(cached, messages, working, _pinned(cached, cwd))
+                    if cached is None:
+                        return list(messages)
                 _reuse_frozen(cached, messages)
                 return _emit(cached.head, messages, cached.region_end, frozen_attr, cwd=_pinned(cached, cwd), view_path=cached.view_path, session=session, lifecycle=cached.lifecycle, source_layout=source_layout)
             return None
@@ -398,15 +418,17 @@ def project_c2_messages(messages: list[dict], working, *, cwd=None) -> list[dict
             raise
         from memory.wsc_diagnostics import record
         record("projection", exc, session=str(getattr(working, "session_id", "")))
-        if cached is not None and cached.head and freeze_enabled():
+        if verified_cached is not None and verified_cached.head and freeze_enabled():
             try:
-                return _emit(cached.head, messages, cached.region_end, frozen_attr,
-                             cwd=_pinned(cached, cwd), view_path=cached.view_path, session=session, lifecycle=cached.lifecycle, source_layout=source_layout)
+                return _emit(verified_cached.head, messages, verified_cached.region_end, frozen_attr,
+                             cwd=_pinned(verified_cached, cwd), view_path=verified_cached.view_path, session=session, lifecycle=verified_cached.lifecycle, source_layout=source_layout)
             except GoalEventLedgerError:
                 raise
             except Exception:
                 pass
         _log.debug("wsc live projection failed; falling back to C2", exc_info=True)
+        if not new_generation:
+            return messages
         return None
 
 

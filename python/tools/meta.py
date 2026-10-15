@@ -229,6 +229,41 @@ TOOL_META: dict[str, ToolMeta] = {
 			),
 		),
 		ToolMeta(
+			name="Lsp",
+			read_only=True,
+			concurrency_safe=True,
+			policy="read_path",
+			subagent_ok=True,
+			subagent_baseline=False,
+			short_description=(
+				"Language server: definition/references/hover/symbols/diagnostics "
+				"(fails open when no server is installed)."
+			),
+			# 旁路（2026-10-14）：LSP 接入，默认关（XEYO_LSP）。
+			# 依据：需要外部语言服务器进程；未装服务器的工作区上它只是死重 schema。
+			# 关时由 catalog.build_default_registry 过滤（保留注册 ⇒ 幻觉调用仍走
+			# 权限三态）。打开后找不到服务器一律 fail-open，回退 Read/Grep。
+			exposure="normal",
+		),
+		ToolMeta(
+			name="Workflow",
+			read_only=False,
+			concurrency_safe=False,
+			policy="agent_allow",
+			subagent_ok=False,
+			needs_write_store=True,
+			needs_runtime_provider=True,
+			short_description=(
+				"Runs a restricted Python orchestration script that starts sub-agents "
+				"(agent/parallel/pipeline). No imports; returns the script's value."
+			),
+			# 旁路（2026-10-14）：模型自写编排脚本，默认关（XEYO_WORKFLOW）。
+			# 依据：AST 白名单是表达能力约束、不是安全边界（见 script_guard 模块
+			# 声明），沙箱未落地前不作为默认能力——与 AGENTS.md 硬规矩 #4
+			# 「新行为先以旁路形态上线验证收益」一致。
+			exposure="normal",
+		),
+		ToolMeta(
 			name="Git",
 			read_only=True,
 			concurrency_safe=True,
@@ -236,6 +271,14 @@ TOOL_META: dict[str, ToolMeta] = {
 			subagent_ok=True,
 			subagent_baseline=True,
 			short_description="Read-only git: summary/status/log/branches/diff. No commit.",
+			# 旁路（2026-10-13）：Git 从模型可见面摘除，保留注册。
+			# 依据：40 轨迹 / 1378 轮实测 0 调用（见 catalog.MINIMAL_SURFACE_TOOLS 注释）；
+			# 且只读 Bash 在权限层已放行 git 只读子命令（permissions/bash_policy.py:185
+			# + tools/bash_tool/bash_tool.py:87 _GIT_READ_SUBS 15 个子命令，覆盖面比本工具
+			# 的 5 个 action 更宽）⇒ 摘除后仅失去 summary 的 touched-symbols 结构化段。
+			# hidden 只影响 schemas()（tool_registry.py:275），主/子注册表一并生效；
+			# 保留注册 ⇒ 幻觉调用仍走权限三态（fail-safe）。回滚 = 删这一行。
+			exposure="hidden",
 		),
 		ToolMeta(
 			name="NotebookEdit",

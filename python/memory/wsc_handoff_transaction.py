@@ -102,4 +102,7 @@ async def commit(*, source, generate, store, tools, abort, persist, require_phas
             or list(snapshot.records) != [item.to_dict() for item in parsed.todos]):
         raise ValueError("handoff_receipt_mismatch")
     return {"call_id": use.id, "source_fingerprint": before,
-            "committed_source": snapshot.source, "task_count": len(snapshot.records)}
+            "committed_source": snapshot.source, "task_count": len(snapshot.records),
+            "mechanical_status": "VALIDATED",
+            "validation_scope": "handoff_structure_source_identity_and_commit",
+            "semantic_status": "SEMANTIC_UNVERIFIED"}

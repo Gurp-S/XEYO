@@ -266,19 +266,21 @@ def delete_session(session_id: str) -> dict[str, Any]:
 			"会话尚未归档：请先归档，再从已归档列表中删除",
 			"archived_required",
 		)
-	# goal 驱动器 per-session 内存态先拆（与 rewind._detach_auto_drivers 同法）：
-	# 不拆的话已删会话仍会被自动续跑排合成轮。
-	try:
-		from server.goal_round_driver import get_goal_round_driver
+	# 会话级资源统一清理（**单点**）：所有 per-session 持有者在自己的单例 getter 里
+	# 经 ``server.session_lifecycle.register`` 登记，这里只调 ``drop_all``。
+	#
+	# 为什么不再手写枚举：旧实现排了七段 try/except，于是每新增一个 registry 就漏一处，
+	# 且漏掉是静默的。实测漏了两处——JobRegistry（后台 job 不随会话死）与
+	# synthetic_round._REQUEST_ENVS（api_key / model / workspace 陈旧快照残留）。
+	# 顺序由 session_lifecycle 的 order 阶梯保证：**job 必须先死**，否则它的 settle
+	# 会写 transcript，把刚删掉的会话目录重建出来。
+	from server import session_lifecycle
 
-		get_goal_round_driver().drop_session(sid)
-	except Exception:  # noqa: BLE001 — 内存态清理失败不挡删除
-		_logger.debug("goal driver drop failed sid=%s", sid, exc_info=True)
-	from server.inbox_registry import InboxPersistenceError, get_inbox_registry
-	try:
-		get_inbox_registry().drop_session(sid)
-	except InboxPersistenceError as exc:
-		raise api_error(503, "inbox state could not be removed", "inbox_unavailable") from exc
+	lifecycle_errors = {name: err for name, err in session_lifecycle.drop_all(sid) if err}
+	if lifecycle_errors:
+		_logger.warning(
+			"session cleanup had failures sid=%s errors=%s", sid, lifecycle_errors
+		)
 	dropped = _pool.drop(sid)
 	removed: list[str] = []
 	removal_errors: list[dict[str, str]] = []
@@ -336,21 +338,8 @@ def delete_session(session_id: str) -> dict[str, Any]:
 		_logger.warning("session index cleanup failed sid=%s", sid, exc_info=True)
 		removal_errors.append({"path": str(index_file), "error": safe_error_detail(exc)})
 
-	# 活审批模式（RuntimeModeStore）按会话清理，防残留。
-	try:
-		from permissions.runtime_mode import get_runtime_mode_store
-
-		get_runtime_mode_store().clear(sid)
-	except Exception:  # noqa: BLE001 — 内存态清理失败不影响删除结果，留痕即可
-		_logger.debug("runtime mode cleanup failed sid=%s", sid, exc_info=True)
-
-	# 运行时权限 preset 活值同样按会话清理（smoke-test #6）。
-	try:
-		from permissions.runtime_preset import get_runtime_preset_store
-
-		get_runtime_preset_store().clear(sid)
-	except Exception:  # noqa: BLE001 — 内存态清理失败不影响删除结果，留痕即可
-		_logger.debug("runtime preset cleanup failed sid=%s", sid, exc_info=True)
+	# 活审批模式 / 运行时 preset 活值：已由上面的 session_lifecycle.drop_all 统一清理
+	# （见 session_lifecycle 的 ORDER_RUNTIME_MODE / ORDER_RUNTIME_PRESET），此处不再重复。
 
 	# 删除动作的完成定义是「磁盘上不再有这个会话」。任何一件没删掉都必须说：
 	# 否则前端把卡片摘了，下次重启 list_sessions 又把残留 transcript 导回来，

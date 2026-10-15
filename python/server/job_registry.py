@@ -44,6 +44,20 @@ COMPLETION_BATCH_CAP = 24_000
 #: 忙等线程永远转下去。改为可配置的 6h 上限：足够长，不破坏"后台可长跑"的
 #: 产品承诺，同时挡住真正的僵尸。
 JOB_NO_TIMEOUT_MS = 6 * 3600_000
+#: 单 owner 终态 job 的保留上限（**有界回收**）。
+#:
+#: 修什么：终态 job 及其 ring/游标/abort/等待者此前**永不回收**，长期常驻的桌面
+#: 进程里这五个 dict 单调增长，而 ring 还持有输出。终态是不可变态 ⇒ 回收安全。
+#: 判据必须同时排除两类"还不能丢"的 job（见 ``_gc_terminal_locked``）：
+#: ① 在 ``_pending`` 里等人类补投的；② 未 reported（尚未决策）的。
+#: 取 100 而非更小：GUI 的 job 列表要能翻到历史；100 条终态 × 8KB ring ≈ 800KB 上限。
+MAX_RETAINED_TERMINAL_JOBS_PER_OWNER = 100
+#: 单 owner ``_pending``（等人类补投的通知）的行数上限。
+#:
+#: 修什么：`_requeue` 只追加不裁剪；若人类长时间不回来（或预算长期耗尽），
+#: 停放的通知会单调增长，而每条还挂着 ring 里的输出。超限丢**最旧**的行
+#: （不是丢 job 记录）——job 记录仍在，`job_output` / `job_list` 照常可读。
+MAX_PENDING_PER_OWNER = 50
 
 
 def _job_max_timeout_ms() -> int:
@@ -157,6 +171,12 @@ def _turn_running(session_id: str) -> bool:
 class JobRegistry:
 	"""单 server 单组合；线程安全（Bash worker 线程结算 → RLock + loop 代理）。"""
 
+	#: 会话级清理登记（顺序阶梯见 ``server/session_lifecycle``）。
+	#: **必须是阶梯里最小的一档**：job 的 settle 会写 transcript，若它排在
+	#: transcript 删除之后，会把刚删掉的会话目录重建出来。
+	name = "job_registry"
+	order = 10
+
 	def __init__(self) -> None:
 		self._jobs: dict[str, JobRecord] = {}
 		self._rings: dict[str, _Ring] = {}
@@ -173,6 +193,10 @@ class JobRegistry:
 		self._wake_budget: dict[str, int] = {}
 		self._pending: dict[str, list[str]] = {}
 		self._wake_tasks: dict[str, asyncio.Task] = {}
+		#: 投递代际：每次"有新的结算需要决策"就 +1。tick 结束时若代际已变 ⇒
+		#: 期间又有新结算进来，必须再排一轮。**这是"不丢唤醒"的结构性判据**——
+		#: 旧实现用"在途任务是否存在"去重，于是 B 在 A 的 await 期间结算就被吃掉。
+		self._delivery_gen: dict[str, int] = {}
 		# 监听：on_done(快照) / on_changed()——hub 与 SSE 广播各挂一个，异常隔离。
 		self.on_done: list[Callable[[JobRecord], None]] = []
 		self.on_changed: list[Callable[[], None]] = []
@@ -240,6 +264,101 @@ class JobRegistry:
 			self._change_seq[job_id] = 0
 			self._waiters[job_id] = []
 		return job_id, ""
+
+	# ---- 资源回收（补偿 + GC + 会话级清理）--------------------------------
+	# 结构性根因：注册是"先写 5 个 dict、之后可能失败"，而回收没有任何入口。
+	# 下面三个函数是**唯一**的回收入口：五张表在同一处 pop，杜绝"漏一个"。
+	def _purge_job_locked(self, job_id: str) -> None:
+		"""从五张 per-job 表里摘除该 job（调用方须持锁）。"""
+		self._jobs.pop(job_id, None)
+		self._rings.pop(job_id, None)
+		self._cursors.pop(job_id, None)
+		self._change_seq.pop(job_id, None)
+		self._waiters.pop(job_id, None)
+		self._aborts.pop(job_id, None)
+
+	def _unregister(self, job_id: str) -> None:
+		"""**补偿**：注册之后、启动之前失败时，把已写入的记录完整撤销。
+
+		修什么：`adopt_bash` 在 `attach_abort` / `replay_and_attach` 失败时直接
+		return，留下一个 `status=running` 的幽灵 job —— 它永远没有 worker 去
+		settle，而容量计数只数 running/stopping ⇒ 多失败几次就把 10 个槽位吃光。
+		"""
+		with self._lock:
+			self._purge_job_locked(job_id)
+			for pend in self._pending.values():
+				if job_id in pend:
+					pend.remove(job_id)
+
+	def _gc_terminal_locked(self, owner: str) -> None:
+		"""把 owner 的终态 job 收敛到 ``MAX_RETAINED_TERMINAL_JOBS_PER_OWNER``（调用方须持锁）。
+
+		**回收判据（两条排除都是正确性要求，不是优化）**：
+		- 在 ``_pending`` 里的 job 是"等人类下一轮补投"的：GC 掉它，``pending_digest``
+		  就取不到 ``rec``，通知**静默消失**；
+		- ``reported=False`` **且该 owner 有已登记的 loop** 时，job 正等 tick 决策，
+		  GC 掉它会让这一枪的完成事件永远不被投递（settle → call_soon_threadsafe
+		  → tick 之间存在窗口，所以"刚 settle 完"的那批必须原样留着）。
+
+		反之，**没有登记 loop 的 owner**（CLI in-process）其 job 无任何投递通道
+		（``_queue_delivery_decision`` 直接返回），未 reported 也永远不可达 ⇒ 可回收。
+		没有这一条，"无唤醒通道"的常驻进程仍会单调增长——那正是本函数要治的病。
+		"""
+		parked: set[str] = set()
+		for pend in self._pending.values():
+			parked.update(pend)
+		has_loop = owner in self._loops
+		mine = [
+			rec
+			for rec in self._jobs.values()
+			if rec.owner_session_id == owner
+			and rec.status in _TERMINAL
+			and rec.job_id not in parked
+			and (rec.reported or not has_loop)
+		]
+		overflow = len(mine) - MAX_RETAINED_TERMINAL_JOBS_PER_OWNER
+		if overflow <= 0:
+			return
+		mine.sort(key=lambda rec: rec.finished_at or 0.0)
+		for rec in mine[:overflow]:
+			self._purge_job_locked(rec.job_id)
+
+	def drop_session(self, session_id: str) -> int:
+		"""会话级清理：先杀该会话所有非终态 job，再清掉它的全部内存态。
+
+		返回被清理的 job 数。**必须由会话删除流程调用**——否则"删会话"不是
+		生命周期终态：transcript / GUI 卡片都没了，后台 Bash 还在跑。
+		"""
+		sid = (session_id or "").strip()
+		if not sid:
+			return 0
+		with self._lock:
+			ids = [j.job_id for j in self._jobs.values() if j.owner_session_id == sid]
+			live = [
+				self._aborts.get(jid)
+				for jid in ids
+				if self._jobs.get(jid) is not None
+				and self._jobs[jid].status not in _TERMINAL
+			]
+			task = self._wake_tasks.pop(sid, None)
+		for ctl in live:
+			try:
+				if ctl is not None:
+					ctl.abort(reason="session_deleted")
+			except Exception:  # noqa: BLE001 — 取消失败不阻断清理
+				_logger.debug("drop_session abort failed sid=%s", sid, exc_info=True)
+		if task is not None and not task.done():
+			task.cancel()
+		with self._lock:
+			for jid in ids:
+				self._purge_job_locked(jid)
+			self._pending.pop(sid, None)
+			self._wake_budget.pop(sid, None)
+			self._delivery_gen.pop(sid, None)
+			self._loops.pop(sid, None)
+		self._fire_changed()
+		_logger.info("job registry dropped session %s (%d jobs)", sid, len(ids))
+		return len(ids)
 
 	def _notify_job_change(self, job_id: str) -> None:
 		"""唤醒等待该 job 的 event loop；调用方不要求持有锁。"""
@@ -420,6 +539,7 @@ class JobRegistry:
 		try:
 			handle.attach_abort(ctl)
 		except Exception:  # noqa: BLE001 — handle 异常时按失败收编
+			self._unregister(job_id)  # 补偿：不留 running 幽灵（会吃掉容量槽位）
 			return None, "cannot adopt handle"
 		if loop is not None:
 			self._loops[owner_session_id] = loop
@@ -461,6 +581,7 @@ class JobRegistry:
 		try:
 			prefill = handle.replay_and_attach(lambda chunk: self._push(job_id, chunk))
 		except Exception:  # noqa: BLE001 — handle 异常时按失败收编
+			self._unregister(job_id)  # 同上：第二条失败分支同样必须补偿
 			return None, "cannot adopt handle"
 		if prefill:
 			self._push(job_id, prefill)
@@ -500,6 +621,11 @@ class JobRegistry:
 			status = rec.status
 			if status in _TERMINAL:
 				rec.reported = True
+				# 双保险的第一道：读走终态输出 ⇒ 同时从 pending 摘除。
+				# 否则 `pending_digest` 会把"用户已看过"的完成消息再注入模型一次。
+				for pend in self._pending.values():
+					if job_id in pend:
+						pend.remove(job_id)
 		return text, cur, status, truncated
 
 	def snapshot_list(self, session_id: str) -> list[dict[str, Any]]:
@@ -556,6 +682,8 @@ class JobRegistry:
 			rec.finished_at = time.time()
 			sid = rec.owner_session_id
 			fired_done = rec
+			# 有界回收：终态是不可变态 ⇒ 结算后按 owner 收敛（排除 pending / 未报告）。
+			self._gc_terminal_locked(sid)
 		self._notify_job_change(job_id)
 		if fired_done is not None:
 			self._fire_done(fired_done)
@@ -604,25 +732,42 @@ class JobRegistry:
 			pass
 
 	def _schedule_delivery_task(self, sid: str) -> None:
+		"""排一次投递决策。
+
+		代际语义（**修丢唤醒**）：每次调用都把 `_delivery_gen[sid]` +1 并把该值
+		钉给新建的 tick；在途 tick 结束时发现"代际已变"就会再排一轮。旧实现只
+		看"在途任务是否存在"，于是 **B 在 A 的 `await submit_synthetic` 期间
+		结算**时请求被吃掉、A 结束后无人再调度 ⇒ B 的通知永远不发生。
+		"""
 		with self._lock:
+			self._delivery_gen[sid] = self._delivery_gen.get(sid, 0) + 1
+			gen = self._delivery_gen[sid]
 			existing = self._wake_tasks.get(sid)
 		if existing is not None and not existing.done():
-			return  # 决策已在途（防抖去重；新结算由在途 tick 覆盖）
+			return  # 在途 tick 会在 finally 里按代际补排（不再"吃掉"新结算）
 		try:
-			task = asyncio.create_task(self.on_delivery_tick(sid))
+			task = asyncio.create_task(self.on_delivery_tick(sid, gen))
 		except RuntimeError:
 			return
 		with self._lock:
 			self._wake_tasks[sid] = task
 
-	async def on_delivery_tick(self, sid: str) -> None:
-		"""决策点：owner 忙 → 挂起；闲 + 预算 → 唤醒；预算尽 → pending。"""
+	async def on_delivery_tick(self, sid: str, gen: int = 0) -> None:
+		"""决策点：owner 忙 → 退回 pending；闲 + 预算 → 唤醒；预算尽 → pending。
+
+		**判据是"队列空"，不是"任务在跑"**（Monitor 语义）。旧实现在 owner 忙时
+		直接 `return`：既不投递也不退回，job 只是"未 reported"，若那是最后一个
+		job，人类下一轮 `pending_digest` 也是空的 ⇒ 通知永久消失。
+		"""
 		try:
 			await asyncio.sleep(_WAKE_DEBOUNCE_S)
-			if _turn_running(sid):
-				return
 			ids = self._unreported_terminal(sid)
 			if not ids and not self._pending.get(sid):
+				return
+			if _turn_running(sid):
+				# owner 忙：本次不决策，把新结算退回 pending（不消耗预算）。
+				# 该轮 settlement 会经 on_turn_settled 再进本函数。
+				self._requeue(sid, ids)
 				return
 			# 归并：未报告终态 + 既有 pending 一次性合并投递。
 			merged = self._merge_pending(sid, ids)
@@ -645,18 +790,35 @@ class JobRegistry:
 		except Exception:  # noqa: BLE001
 			_logger.debug("job delivery decision failed sid=%s", sid, exc_info=True)
 		finally:
+			need_reschedule = False
 			with self._lock:
 				if self._wake_tasks.get(sid) is asyncio.current_task():
 					self._wake_tasks.pop(sid, None)
+				# 代际已变 ⇒ 本 tick 开始后又有新结算进来（可能被上面的
+				# "在途即返回"吃掉过），补排一轮。
+				need_reschedule = self._delivery_gen.get(sid, 0) != gen
+			if need_reschedule and self._unreported_terminal(sid):
+				self._schedule_delivery_task(sid)
 
 	def _unreported_terminal(self, sid: str) -> list[str]:
+		"""尚未决策的终态 job。
+
+		**排除已在 ``_pending`` 的（已"停放"）**——这是防自旋的关键：预算尽时
+		``_requeue`` 把 job 置 ``reported=False`` 并放进 pending，若这里仍把它
+		当"未报告"，tick 结束的代际补排就会与"预算尽 → 退回"形成无限自旋。
+		停放态只由人类输入（``pending_digest``）或该轮 settlement 唤醒。
+		"""
 		with self._lock:
+			parked: set[str] = set()
+			for pend in self._pending.values():
+				parked.update(pend)
 			return [
 				j.job_id
 				for j in self._jobs.values()
 				if j.owner_session_id == sid
 				and j.status in _TERMINAL
 				and not j.reported
+				and j.job_id not in parked
 			]
 
 	def _merge_pending(self, sid: str, ids: list[str]) -> list[str]:
@@ -675,7 +837,13 @@ class JobRegistry:
 					rec = self._jobs.get(jid)
 					if rec is not None:
 						rec.reported = False
-			self._wake_budget[sid] = max(0, self._wake_budget.get(sid, 0))
+			# 有界：丢**最旧**的行（job 记录不动，job_output/job_list 照常可读）。
+			if len(pend) > MAX_PENDING_PER_OWNER:
+				del pend[: len(pend) - MAX_PENDING_PER_OWNER]
+			# 只收敛已有值；**缺键时不得写 0**（那等于把满预算的会话直接判成"预算尽"，
+			# 此后所有唤醒都被 `consume_wake` 拒绝）。缺键 = 未消费过 = 满预算。
+			if sid in self._wake_budget:
+				self._wake_budget[sid] = max(0, int(self._wake_budget[sid]))
 
 	def _build_digest(self, sid: str, ids: list[str]) -> str:
 		with self._lock:
@@ -729,7 +897,9 @@ class JobRegistry:
 			_ = final_status, stop_reason
 			if _turn_running(session_id):
 				return
-			await self.on_delivery_tick(session_id)
+			with self._lock:
+				gen = self._delivery_gen.get(session_id, 0)
+			await self.on_delivery_tick(session_id, gen)
 		except Exception:  # noqa: BLE001
 			_logger.debug("job on_turn_settled failed sid=%s", session_id, exc_info=True)
 
@@ -772,7 +942,13 @@ class JobRegistry:
 			task.cancel()
 
 	def pending_digest(self, session_id: str) -> str:
-		"""人类下一轮 T_now 补投：摘出 pending（一次性消费）并置 reported。"""
+		"""人类下一轮 T_now 补投：摘出 pending（一次性消费）并置 reported。
+
+		**必须过滤 `reported`**（第二道保险）：`_requeue` 会把停放中的 job 置回
+		`reported=False`，但用户可能在此期间用 `job_output` 主动读走了结果
+		（`read()` 置 `reported=True`）。旧实现无条件把它塞进 T_now，于是模型
+		第二次收到"某 Job 完成"——与本模块顶部声明的 reported 语义直接冲突。
+		"""
 		sid = (session_id or "").strip()
 		with self._lock:
 			ids = self._pending.pop(sid, [])
@@ -784,6 +960,8 @@ class JobRegistry:
 				rec = self._jobs.get(jid)
 				if rec is None:
 					continue
+				if rec.reported:
+					continue  # 已被 read/kill/唤醒消费过，不得重复注入
 				rec.reported = True
 				rows.append(
 					f"- {rec.job_id} [{rec.kind}] {rec.status}"
@@ -812,8 +990,25 @@ class JobRegistry:
 _registry: JobRegistry | None = None
 
 
+def current_job_registry() -> JobRegistry | None:
+	"""**已创建**的实例（不创建）。供 session_lifecycle 幂等补齐登记。
+
+	为什么需要它：单例的 register 只在创建那一刻发生；一旦注册表被重置，
+	"已存在的单例"就永久登记不上，drop_all 会静默漏掉它（实测抓到）。
+	"""
+	return _registry
+
+
 def get_job_registry() -> JobRegistry:
 	global _registry
 	if _registry is None:
 		_registry = JobRegistry()
+		# 自登记：删除会话时由 session_lifecycle.drop_all 统一清理
+		# （旧实现在 router 里手写枚举，漏了本 registry ⇒ 后台 job 不随会话死）。
+		try:
+			from server import session_lifecycle
+
+			session_lifecycle.register(_registry)
+		except Exception:  # noqa: BLE001 — 登记失败不影响 registry 本身可用
+			_logger.debug("job registry lifecycle register failed", exc_info=True)
 	return _registry

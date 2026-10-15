@@ -90,9 +90,13 @@ def test_tampered_event_ledger_is_rejected(enabled, tmp_path):
         emit(tmp_path, raw(), fact())
 
 
-def test_default_off_adds_no_state_fact(monkeypatch, tmp_path):
+def test_retired_opt_in_flag_does_not_disable_mainline_state_facts(monkeypatch, tmp_path):
     monkeypatch.delenv("XEYO_WSC_REQUEST_PROJECTION", raising=False)
-    assert emit(tmp_path, raw(), fact()) == raw()
+    from synaptic.request_plane import enabled
+    assert enabled()
+    result = emit(tmp_path, raw(), fact())
+    assert result[:len(raw())] == raw()
+    assert len(result) == len(raw()) + 1 and result[-1]['name'] == 'goal_state'
 
 
 def test_goal_event_survives_c0c1_fold(enabled, tmp_path):

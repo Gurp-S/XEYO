@@ -26,7 +26,11 @@ def _pick_context(row: dict[str, Any]) -> int | None:
 		"max_input_tokens",
 		"max_sequence_length",
 	):
-		n = _as_int(row.get(key))
+		value = row.get(key)
+		# A window is an integer declaration, never a truncated float/bool.
+		n = (value if isinstance(value, int) and not isinstance(value, bool)
+		     else int(value.strip()) if isinstance(value, str) and value.strip().isascii() and value.strip().isdigit()
+		     else 0)
 		if n > 0:
 			return n
 	# OpenRouter 把窗口放在 top_provider.context_length；部分厂商放 metadata

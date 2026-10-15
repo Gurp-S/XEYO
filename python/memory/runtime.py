@@ -1033,6 +1033,7 @@ def apply_c2_messages(
 	*,
 	summary_provider=None,
 	cwd: str | os.PathLike[str] | None = None,
+	new_generation: bool = False,
 ) -> list[dict]:
 	"""左段替换为一条 assistant 摘要，右段从 cursor 起再跑 C0+C1。
 
@@ -1048,7 +1049,7 @@ def apply_c2_messages(
 	# failed WSC returns None and the existing C2 body below remains the fallback.
 	from memory.wsc_projection import project_c2_messages
 
-	wsc = project_c2_messages(messages, working, cwd=cwd)
+	wsc = project_c2_messages(messages, working, cwd=cwd, new_generation=new_generation)
 	if wsc is not None:
 		return wsc
 
@@ -1088,6 +1089,10 @@ def apply_c2_messages(
 				frozen_until=working.c1_frozen_until,
 				summary_text=working.c2_summary_text,
 			)
+	from memory.wsc_fallback_publication import emit as emit_fallback
+	published = emit_fallback(messages, working, fallback_cursor, cwd, new_generation=new_generation)
+	if published is not None:
+		return published
 	frozen_rel = max(0, working.c1_frozen_until - fallback_cursor)
 	# 摘要来自历史压缩/可选模型旁路，属于会话内容，不具备 system 权限。
 	# 用 assistant 角色保留其在历史中的来源，同时避免把模型生成文本升格为
@@ -2392,7 +2397,16 @@ def maybe_force_compact_on_pressure(
 	return int(working.compact_cursor or 0) > before or bool(working.c2_summary_text)
 
 
-def force_compact(
+def force_compact(messages, working, **kwargs):
+	"""Explicit fold; opt-in media retirement commits working state after coverage."""
+	from memory.wsc_media_archive import ENV
+	if os.environ.get(ENV, '').strip().lower() in {'1', 'true', 'yes', 'on'}:
+		from memory.wsc_media_fold_commit import fold
+		return fold(_force_compact_impl, messages, working, **kwargs)
+	return _force_compact_impl(messages, working, **kwargs)
+
+
+def _force_compact_impl(
 	messages: list[dict],
 	working: WorkingSnapshot,
 	*,
@@ -2444,7 +2458,7 @@ def force_compact(
 		except Exception:
 			logging.getLogger(__name__).debug("record_c2_event failed", exc_info=True)
 		working.last_action = "C2"
-		return apply_c2_messages(messages, working, summary_provider=summary_provider, cwd=cwd)
+		return apply_c2_messages(messages, working, summary_provider=summary_provider, cwd=cwd, new_generation=True)
 	if working.compact_cursor > 0:
 		working.last_action = "C2"
 		return apply_c2_messages(messages, working, summary_provider=summary_provider, cwd=cwd)

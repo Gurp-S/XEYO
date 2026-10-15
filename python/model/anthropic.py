@@ -720,6 +720,7 @@ class AnthropicModelClient:
 			return
 		self.context_limit = limit
 		self.context_limit_declared = True
+		self.context_capacity_basis = "explicit"
 
 	def set_session_id(self, session_id: str | None) -> None:
 		"""注入会话 id，供用量账本归因（与 DeepSeek 客户端同款接口）。"""

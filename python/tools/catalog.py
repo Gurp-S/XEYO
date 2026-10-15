@@ -63,6 +63,8 @@ _LAZY_TOOL_IMPORTS: dict[str, str] = {
 	"AgentSendTool": "tools.agent_message_tool",
 	"JobListTool": "tools.job_tools",
 	"JobOutputTool": "tools.job_tools",
+	"WorkflowTool": "tools.workflow_tool",
+	"LspTool": "tools.lsp_tool",
 }
 
 
@@ -259,6 +261,18 @@ def _agent_send(_cwd: str) -> Tool:
 	return AgentSendTool()
 
 
+def _workflow(cwd: str) -> Tool:
+	from tools.workflow_tool import WorkflowTool
+
+	return WorkflowTool(cwd=cwd)
+
+
+def _lsp(cwd: str) -> Tool:
+	from tools.lsp_tool import LspTool
+
+	return LspTool(cwd=cwd)
+
+
 # 真实可用工具矩阵 (ENABLED_TOOL_ENTRIES)
 # 【契约】名须与 tools.meta.TOOL_META 且 tool.name 一致；副作用工具须有边界测。
 ENABLED_TOOL_ENTRIES: Sequence[tuple[str, ToolFactory]] = (
@@ -288,6 +302,11 @@ ENABLED_TOOL_ENTRIES: Sequence[tuple[str, ToolFactory]] = (
 	("WebFetch", _web_fetch),
 	("WebSearch", _web_search),
 	("XeyoUI", _xeyo_ui),
+	# 旁路能力（2026-10-14）：登记在矩阵里，但默认关 —— 由 build_default_registry
+	# 按 feature flag 过滤（见 GATED_TOOL_FLAGS）。登记是为了保住
+	# 「ENABLED_TOOL_ENTRIES == meta.enabled」这条启动自检不变式。
+	("Workflow", _workflow),
+	("Lsp", _lsp),
 )
 
 TOOL_FACTORY_BY_NAME: dict[str, ToolFactory] = {
@@ -327,6 +346,34 @@ def _minimal_surface_requested() -> bool:
 	"""``XEYO_TOOL_SURFACE=minimal`` 时启用最小面；缺省/其它值不改行为。"""
 	raw = (os.environ.get("XEYO_TOOL_SURFACE") or "").strip().lower()
 	return raw in ("minimal", "min", "small")
+
+
+#: 旁路工具 → 控制它的 feature flag（默认关；``engine/flag_definitions.py`` 登记）。
+#:
+#: 语义：**在矩阵里、但默认不在工作面**。关的时候既不进 schemas（省 schema token），
+#: 也不进子 agent 注册表；打开后按普通工具对待。flag 读不到一律按关（不静默开能力）。
+GATED_TOOL_FLAGS: dict[str, str] = {
+	"Workflow": "XEYO_WORKFLOW",
+	"Lsp": "XEYO_LSP",
+}
+
+
+def _enabled_gated_tools() -> frozenset[str]:
+	"""当前打开的旁路工具名集合。"""
+	from engine.flag_definitions import enabled
+
+	out: set[str] = set()
+	for name, flag in GATED_TOOL_FLAGS.items():
+		try:
+			if enabled(flag):
+				out.add(name)
+		except Exception:  # noqa: BLE001 — 开关不可解析按关处理
+			continue
+	return frozenset(out)
+
+
+def _disabled_gated_tools() -> frozenset[str]:
+	return frozenset(GATED_TOOL_FLAGS) - _enabled_gated_tools()
 
 
 def _denied_tools() -> frozenset[str]:
@@ -440,6 +487,11 @@ def build_default_registry(*, cwd: str = ".") -> ToolRegistry:
 			raise ValueError(f"XEYO_TOOL_DENY 含未知工具名: {_unknown}")
 		entries = [e for e in entries if e[0] not in _deny]
 		surface_id = f"{surface_id}+deny:{','.join(sorted(_deny))}"
+	# 旁路工具：默认不在工作面（flag 关 → 既不进 schemas，也不进子 agent 注册表）。
+	_gated_off = _disabled_gated_tools()
+	if _gated_off:
+		entries = [e for e in entries if e[0] not in _gated_off]
+		surface_id = f"{surface_id}-gated:{','.join(sorted(_gated_off))}"
 	reg = ToolRegistry(cwd=work, tool_surface_id=surface_id)
 	_register_factories(
 		reg, entries, cwd=work, read_state=ReadFileState()
@@ -473,7 +525,12 @@ def inject_write_store(reg: ToolRegistry, store: Any, agent_id: str) -> None:
 
 
 def inject_subagent_runtime(reg: ToolRegistry, provider: Any) -> None:
-	"""给 AgentTool 注入子 agent 运行时；缺方法则硬失败。"""
+	"""给**所有**需要子 agent 运行时的工具注入 provider；缺方法则硬失败。
+
+	历史实现命中第一个工具就 `return`：当时只有 Agent 一个消费者，等价。Workflow
+	（2026-10-14）也声明 ``needs_runtime_provider`` 后，那个 return 会让后一个工具
+	静默拿不到运行时——正是本仓最怕的"功能是死的、测试却全绿"。故改为全量注入。
+	"""
 	for name in RUNTIME_PROVIDER_TOOL_NAMES:
 		tool = reg.get(name)
 		if tool is None:
@@ -482,7 +539,7 @@ def inject_subagent_runtime(reg: ToolRegistry, provider: Any) -> None:
 			tool, "set_runtime_provider"
 		):
 			tool.set_runtime_provider(provider)  # type: ignore[attr-defined]
-			return
+			continue
 		raise RuntimeError(f"{name} missing set_runtime_provider")
 
 
@@ -532,8 +589,9 @@ def build_subagent_registry(
 		candidates = [n for n, _ in ENABLED_TOOL_ENTRIES]
 	shared = read_state or ReadFileState()
 	entries: list[tuple[str, ToolFactory]] = []
+	_gated_off = _disabled_gated_tools()
 	for name in candidates:
-		if name in FORBIDDEN_SUB_TOOLS:
+		if name in FORBIDDEN_SUB_TOOLS or name in _gated_off:
 			continue
 		factory = TOOL_FACTORY_BY_NAME.get(name)
 		if factory is None:

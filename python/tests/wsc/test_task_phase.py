@@ -105,6 +105,36 @@ def test_retired_phase_cannot_inherit_authority_from_latest_receipt():
     assert resolve(rows, "committed", "constraints", DURABLE) is not None
 
 
+@pytest.mark.parametrize('fresh_active', [False, True])
+def test_objective_refinement_in_same_phase_has_its_own_active_provenance(fresh_active):
+    from memory.wsc_handoff_phase import validate as validate_phase
+    rows = sources() + receipt('checkpoint', declaration()['todos'], declaration()['checkpoint'])
+    rows[-1]['id'] = 'base'
+    rows.append({'id':'supplement','role':'user','content':'本阶段再生成一份验收报告文件。'})
+    raw = declaration()
+    raw['checkpoint']['objective'] += '，生成验收报告文件'
+    raw['checkpoint']['context_message_ids'].append('supplement')
+    if fresh_active:
+        raw['checkpoint']['phase_state']['active_context_message_ids'].append('supplement')
+        validate_phase(raw, rows)
+    else:
+        with pytest.raises(ValueError, match='handoff_phase_transition_source_missing'):
+            validate_phase(raw, rows)
+
+
+def test_fresh_active_context_does_not_authorize_unwitnessed_phase_switch():
+    from memory.wsc_handoff_phase import validate as validate_phase
+    rows = sources() + receipt('checkpoint', declaration()['todos'], declaration()['checkpoint'])
+    rows[-1]['id'] = 'base'
+    rows.append({'id':'supplement','role':'user','content':'本阶段再生成一份验收报告文件。'})
+    raw = declaration()
+    raw['checkpoint']['context_message_ids'].append('supplement')
+    raw['checkpoint']['phase_state']['active_context_message_ids'].append('supplement')
+    raw['checkpoint']['phase_state']['current_phase_id'] = 'design'
+    with pytest.raises(ValueError, match='handoff_phase_transition_source_missing'):
+        validate_phase(raw, rows)
+
+
 @pytest.mark.parametrize("role", ["user", "assistant"])
 def test_phase_switch_requires_new_provenance_not_old_words(role):
     rows = sources() + receipt("checkpoint", declaration()["todos"], declaration()["checkpoint"])
@@ -113,8 +143,10 @@ def test_phase_switch_requires_new_provenance_not_old_words(role):
     phase = raw["checkpoint"]["phase_state"]
     phase["current_phase_id"] = "design"
     phase["active_context_message_ids"] = ["design", "plan"]
-    with pytest.raises(ValueError, match="handoff_phase_transition_source_missing"):
+    with pytest.raises(ValueError, match="handoff_phase_transition_source_missing") as caught:
         validate(raw, rows)
+    assert caught.value.detail['current_phase_sources'] == [
+        {'message_id': 'design', 'source': 0, 'after_checkpoint': False, 'observed': True}]
     rows.append({"id": "resume", "role": role, "content": "回到设计阶段重新复审方案。"})
     raw["checkpoint"]["context_message_ids"].append("resume")
     phase["phases"][0]["source_message_ids"].append("resume")
