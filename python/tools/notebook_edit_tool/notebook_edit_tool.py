@@ -208,6 +208,7 @@ class NotebookEditTool:
 				)
 
 		abort.raise_if_aborted()
+		nb_encoding = "utf-8"
 		created = False
 		self._mutation_base = None
 		self._mutation_checks = {}
@@ -322,8 +323,13 @@ class NotebookEditTool:
 				assert isinstance(new_source, str)
 				cell["cell_type"] = ctype
 				cell["source"] = _source_to_list(new_source)
-				cell["outputs"] = []
-				cell["execution_count"] = None
+				if ctype == "code":
+					cell["outputs"] = []
+					cell["execution_count"] = None
+					cell.pop("attachments", None)
+				else:
+					cell.pop("outputs", None)
+					cell.pop("execution_count", None)
 				if "metadata" not in cell or not isinstance(cell["metadata"], dict):
 					cell["metadata"] = {}
 				summary = (

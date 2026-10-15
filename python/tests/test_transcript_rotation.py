@@ -40,7 +40,7 @@ def test_rotation_creates_archive_and_keeps_continuity(tmp_path, monkeypatch):
 
 
 def test_multi_generation_rotation_bounded_and_ordered(tmp_path, monkeypatch):
-	"""多代轮转：只保留最近 2 代归档 + 当前；可恢复部分必须保序且含最新消息。"""
+	"""多代轮转：归档槽满后保留全部来源，顺序不变。"""
 	monkeypatch.setenv("XEYO_TRANSCRIPT_MAX_BYTES", "1200")
 	p = tmp_path / "s.jsonl"
 	msgs = [user_message(f"m{i} " + "y" * 90) for i in range(40)]
@@ -59,7 +59,7 @@ def test_multi_generation_rotation_bounded_and_ordered(tmp_path, monkeypatch):
 				rows.append(json.loads(line))
 
 	contents = [r["content"] for r in rows]
-	# 保序子序列（老代被淘汰，但不乱序、不重复）
+	# 全量保序（归档槽满后继续追加，不淘汰来源）
 	all_contents = [m.content for m in msgs]
 	j = 0
 	for c in contents:
@@ -68,7 +68,7 @@ def test_multi_generation_rotation_bounded_and_ordered(tmp_path, monkeypatch):
 		assert j < len(all_contents), f"消息 {c[:12]!r} 乱序或不存在"
 		j += 1
 	assert contents[-1] == msgs[-1].content, "最新消息必须在当前文件中"
-	assert len(rows) < len(msgs), "超出保留代数的旧消息被淘汰"
+	assert contents == all_contents, "归档槽满后仍须保留全部消息"
 
 
 def test_under_limit_no_archive(tmp_path, monkeypatch):
@@ -89,3 +89,16 @@ def test_flush_pending_drains_background_writes(tmp_path):
 	assert flush_pending_sync(timeout=5.0) is True
 	assert p.is_file()
 	assert len(p.read_text(encoding="utf-8").splitlines()) == 5
+
+def test_rotation_never_overwrites_newest_archive(tmp_path, monkeypatch):
+	"""A second rotation must promote old1 to old2 before publishing old1."""
+	from session.record_transcript import _maybe_rotate
+	monkeypatch.setenv("XEYO_TRANSCRIPT_MAX_BYTES", "1024")
+	path = tmp_path / "preserved.jsonl"
+	first = "first" * 300
+	second = "second" * 300
+	path.write_text(first, encoding="utf-8")
+	_maybe_rotate(path)
+	path.write_text(second, encoding="utf-8")
+	_maybe_rotate(path)
+	assert [p.read_text(encoding="utf-8") for p in rotated_transcript_paths(path)] == [first, second]

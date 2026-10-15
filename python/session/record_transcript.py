@@ -94,8 +94,8 @@ def _maybe_rotate(path: Path) -> None:
 		if oldest.is_file():
 			return
 		for i in range(len(olds) - 1):
-			if olds[i].is_file():
-				os.replace(olds[i], olds[i + 1])
+			if olds[i + 1].is_file():
+				os.replace(olds[i + 1], olds[i])
 		os.replace(path, olds[-1])
 	except OSError:
 		_logger.debug("transcript rotate failed for %s", path, exc_info=True)

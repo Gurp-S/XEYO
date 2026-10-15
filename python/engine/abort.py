@@ -113,6 +113,7 @@ class AbortController:
 		with self._lock:
 			if self._notified:
 				return
+			self._aborted = True
 			self._reason = str(reason or "aborted")
 			notifications = self._take_notifications_locked(self._reason)
 		self._dispatch_notifications(*notifications)

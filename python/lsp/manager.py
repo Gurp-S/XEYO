@@ -28,6 +28,7 @@ MAX_CLIENTS = 4
 _clients: dict[tuple[str, str], LspClient] = {}
 _order: list[tuple[str, str]] = []
 _lock = threading.Lock()
+_generation = 0
 
 
 def client_for(
@@ -44,6 +45,7 @@ def client_for(
     key = (resolved, lang)
     with _lock:
         existing = _clients.get(key)
+        generation = _generation
     if existing is not None:
         return existing
 
@@ -57,18 +59,30 @@ def client_for(
         except Exception:  # noqa: BLE001
             pass
         return None
+    victims: list[LspClient] = []
     with _lock:
-        _clients[key] = client
-        _order.append(key)
-        while len(_order) > MAX_CLIENTS:
-            evicted = _order.pop(0)
-            victim = _clients.pop(evicted, None)
-            if victim is not None:
-                try:
-                    victim.stop()
-                except Exception:  # noqa: BLE001
-                    pass
-    return client
+        winner = _clients.get(key)
+        if generation != _generation:
+            winner = None
+            victims.append(client)
+        elif winner is not None:
+            victims.append(client)
+        else:
+            winner = client
+            _clients[key] = client
+            _order.append(key)
+            while len(_order) > MAX_CLIENTS:
+                evicted = _order.pop(0)
+                victim = _clients.pop(evicted, None)
+                if victim is not None:
+                    victims.append(victim)
+    # Process shutdown can block; never hold the cache lock while stopping it.
+    for victim in victims:
+        try:
+            victim.stop()
+        except Exception:  # noqa: BLE001
+            _log.debug("lsp discarded client stop failed", exc_info=True)
+    return winner
 
 
 def drop_client(root: str | Path, language: str) -> None:
@@ -86,7 +100,9 @@ def drop_client(root: str | Path, language: str) -> None:
 
 
 def shutdown_all() -> None:
+    global _generation
     with _lock:
+        _generation += 1
         clients = list(_clients.values())
         _clients.clear()
         _order.clear()

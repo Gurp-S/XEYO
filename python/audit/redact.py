@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from audit.secret_fields import is_secret_field
+
 _MAX_DEFAULT = 200
 
 # 常见密钥形态：Bearer / API key / 长 hex / 密码赋值
@@ -14,6 +16,7 @@ _SECRET_RX = re.compile(
 	r"|(?:api[_-]?key|token|secret|password|passwd|authorization)"
 	r"\s*[=:]\s*['\"]?[^\s'\"]{6,}"
 	r"|(?:sk|pk|ghp|glpat|xox[baprs])-[a-z0-9\-_]{10,}"
+	r"|(?:gh[pousr]_|github_pat_)[a-z0-9_]{10,}"
 	r"|akia[0-9a-z]{16}"  # AWS Access Key (AKIA...)
 	r"|aiza[0-9a-z_\-]{35}"  # GCP API key (AIza...)
 	r"|eyj[a-z0-9_\-]{10,}\.[a-z0-9_\-]{10,}\.[a-z0-9_\-]{8,}"  # JWT
@@ -68,16 +71,19 @@ def scrub_audit_fields(fields: dict[str, Any]) -> dict[str, Any]:
 
 
 def _scrub_value(key: str, value: Any, depth: int) -> Any:
+	if is_secret_field(key):
+		return "***"
+	key = str(key).lower()
 	if isinstance(value, str):
 		if key == "command_summary":
 			return command_summary(value)
 		if key in _SENSITIVE_KEYS:
 			return redact_text(value)[:_MAX_DEFAULT]
 		return value
-	if depth <= 0:
-		return value
+	if depth <= 0 and isinstance(value, (dict, list, tuple)):
+		return "[redacted: depth limit]"
 	if isinstance(value, dict):
 		return {str(k): _scrub_value(str(k), v, depth - 1) for k, v in value.items()}
-	if isinstance(value, list):
+	if isinstance(value, (list, tuple)):
 		return [_scrub_value(key, v, depth - 1) for v in value]
 	return value

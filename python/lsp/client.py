@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from lsp.servers import ServerSpec
+from lsp.documents import DocumentSync
 
 _log = logging.getLogger(__name__)
 
@@ -82,7 +83,7 @@ class LspClient:
         self._diagnostics: dict[str, list[Diagnostic]] = {}
         self._diag_lock = threading.Lock()
         self._write_lock = threading.Lock()
-        self._open_docs: dict[str, int] = {}
+        self._documents = DocumentSync()
         self._closed = False
 
     # -- 生命周期 -----------------------------------------------------------
@@ -135,6 +136,14 @@ class LspClient:
         if proc is None or proc.stdout is None:
             return
         stream = proc.stdout
+        try:
+            self._read_messages(stream)
+        except Exception:  # Protocol or transport failure must wake every waiter.
+            _log.debug("lsp reader failed", exc_info=True)
+        finally:
+            self._fail_all_pending("language server connection closed")
+
+    def _read_messages(self, stream: Any) -> None:
         while not self._closed:
             try:
                 length = self._read_headers(stream)
@@ -155,7 +164,6 @@ class LspClient:
             except (ValueError, UnicodeDecodeError):
                 continue
             self._dispatch(message)
-        self._fail_all_pending("language server connection closed")
 
     @staticmethod
     def _read_headers(stream: Any) -> int | None:
@@ -181,8 +189,11 @@ class LspClient:
         method = str(message.get("method") or "")
         msg_id = message.get("id")
         if msg_id is not None and not method:
+            # Our request IDs are integers; coercion aliases unrelated IDs.
+            if type(msg_id) is not int:
+                return
             with self._pending_lock:
-                pending = self._pending.pop(int(msg_id), None)
+                pending = self._pending.pop(msg_id, None)
             if pending is not None:
                 pending.result = message.get("result")
                 pending.error = message.get("error")
@@ -226,9 +237,11 @@ class LspClient:
             self._send(
                 {"jsonrpc": "2.0", "id": request_id, "method": method, "params": params}
             )
-        except LspError:
+        except BaseException as exc:
             with self._pending_lock:
                 self._pending.pop(request_id, None)
+            if isinstance(exc, OSError):
+                raise LspError(f"{method} transport failed: {exc}") from exc
             raise
         wait = self.timeout if timeout is None else float(timeout)
         if not pending.event.wait(wait):
@@ -287,30 +300,13 @@ class LspClient:
     def ensure_open(self, path: str | Path, language_id: str) -> str:
         """确保文档已 didOpen（服务器只对已打开文档提供位置类能力）。"""
         uri = self.uri_for(path)
-        with self._write_lock:
-            already = uri in self._open_docs
-        if already:
-            return uri
         target = Path(path)
         if not target.is_absolute():
             target = self.root / target
         try:
-            text = target.read_text(encoding="utf-8", errors="replace")
+            self._documents.ensure_open(uri, target, language_id, self.notify)
         except OSError as exc:
-            raise LspError(f"cannot read {target}: {exc}") from exc
-        self.notify(
-            "textDocument/didOpen",
-            {
-                "textDocument": {
-                    "uri": uri,
-                    "languageId": language_id,
-                    "version": 1,
-                    "text": text,
-                }
-            },
-        )
-        with self._write_lock:
-            self._open_docs[uri] = 1
+            raise LspError(f"cannot synchronize {target}: {exc}") from exc
         return uri
 
     def definition(self, uri: str, line: int, character: int) -> Any:

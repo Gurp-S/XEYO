@@ -12,6 +12,7 @@ fail-open 纪律（``XEYO.md``：索引类改动必须 fail-open）：
 from __future__ import annotations
 
 import os
+import asyncio
 from typing import Any
 
 from engine.abort import AbortController
@@ -128,7 +129,8 @@ class LspTool:
                     f"available languages: {', '.join(manager.status()['available']) or '(none)'}"
                 )
             )
-        client = manager.client_for(self._cwd, language)
+        client = await asyncio.to_thread(manager.client_for, self._cwd, language)
+        abort.raise_if_aborted()
         if client is None:
             available = manager.status()["available"]
             return ToolResult(
@@ -140,17 +142,18 @@ class LspTool:
             )
 
         try:
-            body = self._dispatch(
-                manager, client, action, target, language, line, character, raw
+            body = await asyncio.to_thread(
+                self._dispatch, manager, client, action, target, language, line, character, raw
             )
         except Exception as exc:  # noqa: BLE001 — LSP 失败一律 fail-open
-            manager.drop_client(self._cwd, language)
+            await asyncio.to_thread(manager.drop_client, self._cwd, language)
             return ToolResult(
                 content=(
                     f"language server query failed ({type(exc).__name__}: {exc}); "
                     "Read/Grep still work."
                 )
             )
+        abort.raise_if_aborted()
         return ToolResult(content=body)
 
     @staticmethod

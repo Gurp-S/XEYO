@@ -8,7 +8,7 @@ from typing import Any
 def _as_int(v: Any) -> int:
 	try:
 		return int(v or 0)
-	except (TypeError, ValueError):
+	except (TypeError, ValueError, OverflowError):
 		return 0
 
 

@@ -185,11 +185,14 @@ def collect_mcp_specs(
 			else scoped.get(scope, {})
 		)
 		for sid, raw in source.items():
+			if not isinstance(raw, dict):
+				_log.warning("invalid MCP server entry %s (%s); skipping", sid, scope)
+				continue
 			d = dict(raw)
 			d["_scope"] = scope
 			d.setdefault("id", sid)
 			# project scope 标记需信任；user/plugin 免批。
-			d.setdefault("_requires_trust", scope == "project")
+			d["_requires_trust"] = scope == "project"
 			merged[sid] = d
 
 	# 企业 deny 一票否决。
