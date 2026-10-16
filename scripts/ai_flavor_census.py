@@ -34,7 +34,7 @@ PY_CORE_DIRS = {
     "engine", "memory", "server", "tools", "session", "prompt", "model",
     "synaptic", "channels", "extension", "permissions", "rewind", "slash",
     "usage", "diagnostics", "cli", "bridge", "msgtypes", "common", "audit",
-    "codeindex", "coord", "localmodels",
+    "codeindex", "coord",
 }
 SKIP_DIRS = {
     "__pycache__", ".venv", "venv", "node_modules", "target", "dist",
