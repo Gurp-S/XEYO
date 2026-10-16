@@ -2,7 +2,7 @@ function safeAttempt(attempt: number): number {
 	return Number.isFinite(attempt) ? Math.max(1, Math.floor(attempt)) : 1;
 }
 
-/** Compact user-facing status for the provider retry phase of a turn. */
+/** 面向用户的简短状态，说明当前回合的模型服务重试阶段。 */
 export function formatLlmRetryWaiting(
 	attempt: number,
 	nextRetryMs: number,

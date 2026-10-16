@@ -29,7 +29,7 @@ export async function replaceTranscriptWithBackup(
 				messages: local, persistedMessages: original.sort(compareTranscriptOrder)}), key);
 		}
 		if (!isCurrent()) return cancel();
-		await idbBatch(original, row => store.delete(row.id));
+		await idbBatch(original, row => store.delete([sessionId, row.id]));
 		if (!isCurrent()) return cancel();
 		await idbBatch(stampTranscriptOrder(messages), row => store.put({...persistable(row), sessionId}));
 		if (!isCurrent()) return cancel();

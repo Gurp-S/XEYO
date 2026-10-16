@@ -1,10 +1,11 @@
+import {renderDeferred as render} from '@/test/renderDeferred';
 /**
  * EditableMarkdown.test.tsx — 组词 Tab 闸 + 粘贴图片链（#13）。
  *
  * contentEditable 走 execCommand 插入（jsdom 无此 API，自动降级到 Selection
  * 插入——测试需先把选区放进编辑根）；行为等价性由既有 e2e（源码编辑轮）兜。
  */
-import {cleanup, fireEvent, render, waitFor} from '@testing-library/react';
+import {act, cleanup, fireEvent, render as renderImmediate, waitFor} from '@testing-library/react';
 import {afterEach, describe, expect, it, vi} from 'vitest';
 
 const uploadMedia = vi.fn();
@@ -24,9 +25,9 @@ afterEach(() => {
 	toast.error.mockReset();
 });
 
-function mount() {
+async function mount() {
 	const onChange = vi.fn();
-	const {container} = render(
+	const {container} = await render(
 		<EditableMarkdown content={'hello'} onChange={onChange} />,
 	);
 	const root = container.querySelector('.xy-md-editable') as HTMLElement;
@@ -43,15 +44,25 @@ function putCaretIn(root: HTMLElement) {
 	sel?.addRange(range);
 }
 
+it('cold loading does not expose an editable placeholder or save it', async () => {
+ const onChange = vi.fn();
+ const {container} = renderImmediate(<EditableMarkdown content="# 原始正文" onChange={onChange} />);
+ expect(container.querySelector('[contenteditable="true"]')).toBeNull();
+ expect(container.querySelector('[aria-busy="true"]')).toBeTruthy();
+ await act(async () => { await vi.dynamicImportSettled(); });
+ expect(container.querySelector('.xy-md-editable h1')?.textContent).toBe('原始正文');
+ expect(onChange).not.toHaveBeenCalled();
+});
+
 describe('EditableMarkdown 的 Tab', () => {
-	it('组词中的 Tab 不被截走（交还输入法）', () => {
-		const {root} = mount();
+	it('组词中的 Tab 不被截走（交还输入法）', async () => {
+		const {root} = await mount();
 		const prevented = !fireEvent.keyDown(root, {key: 'Tab', isComposing: true});
 		expect(prevented).toBe(false);
 	});
 
-	it('真实 Tab 照旧 preventDefault（回归护栏）', () => {
-		const {root} = mount();
+	it('真实 Tab 照旧 preventDefault（回归护栏）', async () => {
+		const {root} = await mount();
 		const prevented = !fireEvent.keyDown(root, {key: 'Tab'});
 		expect(prevented).toBe(true);
 	});
@@ -60,7 +71,7 @@ describe('EditableMarkdown 的 Tab', () => {
 describe('EditableMarkdown 粘贴图片（#13）', () => {
 	it('图片文件 → 上传后插入 xeyo-media 引用', async () => {
 		uploadMedia.mockResolvedValue({media_ref: 'xeyo-media://' + 'a'.repeat(64)});
-		const {container, root} = mount();
+		const {container, root} = await mount();
 		putCaretIn(root);
 		const file = new File([new Uint8Array([1, 2, 3])], 'shot.png', {
 			type: 'image/png',
@@ -76,7 +87,7 @@ describe('EditableMarkdown 粘贴图片（#13）', () => {
 
 	it('上传失败必须出声，不静默吞', async () => {
 		uploadMedia.mockRejectedValue(new Error('图片上传接口 500'));
-		const {root} = mount();
+		const {root} = await mount();
 		putCaretIn(root);
 		const file = new File([new Uint8Array([1])], 'shot.png', {
 			type: 'image/png',
@@ -93,7 +104,7 @@ describe('EditableMarkdown 粘贴图片（#13）', () => {
 
 	it('混合「文本+图片」：文本照常插入，图片走上传链', async () => {
 		uploadMedia.mockResolvedValue({media_ref: 'xeyo-media://' + 'b'.repeat(64)});
-		const {container, root} = mount();
+		const {container, root} = await mount();
 		putCaretIn(root);
 		const file = new File([new Uint8Array([1])], 'shot.png', {
 			type: 'image/png',
@@ -109,9 +120,9 @@ describe('EditableMarkdown 粘贴图片（#13）', () => {
 });
 
 describe('xeyo-media 图片引用渲染（#13 的另一半）', () => {
-	it('插入的引用渲染为后端只读地址', () => {
+	it('插入的引用渲染为后端只读地址', async () => {
 		const ref = 'xeyo-media://' + 'c'.repeat(64);
-		const {container} = render(
+		const {container} = await render(
 			<EditableMarkdown content={`![s](${ref})`} onChange={() => {}} />,
 		);
 		const img = container.querySelector('img');

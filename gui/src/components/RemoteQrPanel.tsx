@@ -97,8 +97,9 @@ const RemoteQrPanelBody = memo(function RemoteQrPanelBody({
 				role="dialog"
 				aria-modal="true"
 				aria-label={title}
+				style={{maxHeight: 'calc(100dvh - 32px)'}}
 				className={cn(
-					'xy-modal-panel xy-modal-elevated pointer-events-auto w-full max-w-[360px] rounded-2xl border border-line/80 bg-paper p-5',
+					'xy-modal-panel xy-modal-elevated pointer-events-auto w-full overflow-y-auto max-w-[360px] rounded-2xl border border-line/80 bg-paper p-5',
 					shown
 						? 'translate-y-0 scale-100 opacity-100'
 						: 'translate-y-2 scale-[0.98] opacity-0',

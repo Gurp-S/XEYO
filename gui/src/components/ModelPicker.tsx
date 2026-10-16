@@ -9,6 +9,7 @@ import {
 import {createPortal} from 'react-dom';
 import {allowsEmptyApiKey} from '@/lib/localTestGate';
 import {cn} from '@/lib/utils';
+import {anchoredMenuGeometry, type AnchoredMenuGeometry} from '@/ui/anchoredMenuGeometry';
 import {
 	PROVIDER_LABEL,
 	keyFingerprint,
@@ -101,7 +102,7 @@ export function ModelPicker({
 		const filtered = q
 			? ids.filter(id => id.toLowerCase().includes(q))
 			: ids;
-		return filtered.slice(0, q ? 40 : 5);
+		return filtered;
 	}, [hoverAccount, query]);
 
 	const pickModel = (account: ModelProfile, mid: string) => {
@@ -127,13 +128,7 @@ export function ModelPicker({
 		[activeModelLevels],
 	);
 
-	const [portalPosition, setPortalPosition] = useState<{
-		right: number;
-		top?: number;
-		bottom?: number;
-		placement: 'above' | 'below';
-		maxHeight: number;
-	} | null>(null);
+	const [portalPosition, setPortalPosition] = useState<AnchoredMenuGeometry | null>(null);
 
 	useLayoutEffect(() => {
 		if (!portal || !open || typeof window === 'undefined') {
@@ -145,24 +140,11 @@ export function ModelPicker({
 			setPortalPosition(null);
 			return;
 		}
-			const updatePosition = () => {
-				const rect = anchor.getBoundingClientRect();
-				const gap = 8;
-				const availableAbove = Math.max(0, rect.top - gap);
-				const availableBelow = Math.max(0, window.innerHeight - rect.bottom - gap);
-				const placement = availableBelow > availableAbove ? 'below' : 'above';
-				setPortalPosition({
-					right: Math.max(8, window.innerWidth - rect.right),
-					placement,
-					maxHeight: Math.max(
-						1,
-						Math.floor(placement === 'below' ? availableBelow : availableAbove),
-					),
-					...(placement === 'below'
-						? {top: Math.max(8, rect.bottom + 2)}
-						: {bottom: Math.max(8, window.innerHeight - rect.top + 2)}),
-				});
-			};
+		const updatePosition = () => {
+			const rect = anchor.getBoundingClientRect();
+			const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+			setPortalPosition(anchoredMenuGeometry(rect, {width: window.innerWidth, height: window.innerHeight}, 31.75 * rem));
+		};
 		updatePosition();
 		window.addEventListener('resize', updatePosition);
 		window.addEventListener('scroll', updatePosition, true);
@@ -190,6 +172,7 @@ export function ModelPicker({
 				portal && portalPosition
 						? {
 								right: portalPosition.right,
+								margin: 0,
 								...(portalPosition.placement === 'below'
 									? {top: portalPosition.top}
 									: {bottom: portalPosition.bottom}),
@@ -236,7 +219,7 @@ export function ModelPicker({
 								models.map(opt => {
 									const active =
 										opt === model &&
-										hoverAccount.provider === provider;
+										hoverAccount.provider === provider && hoverAccount.id === (activeProfileId || 'current');
 									return (
 										<button
 											key={opt}
@@ -299,7 +282,7 @@ export function ModelPicker({
 						) : null}
 						<div className="border-t border-line/40 px-2.5 py-2.5">
 							<div className="xy-section-label">
-								{models.length} 个已登记模型
+								{query.trim() ? `${models.length} 个匹配 · ` : ''}{hoverAccount ? profileModelIds(hoverAccount).length : 0} 个已登记模型
 							</div>
 						</div>
 					</>

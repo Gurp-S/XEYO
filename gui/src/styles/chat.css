@@ -1,4 +1,4 @@
-/* auto-split from index.css L620-1152 — Composer/bubble/md/code/diff/todo + sticky/pin/editing (incl. sticky); do not edit order relative to styles/entry.css */
+/* 输入框、消息、Markdown、代码与待办样式；加载顺序由 entry.css 定义。 */
 /* Composer / 共用半透明底 chip（保持壁纸可见）。 */
 .xy-user-bubble {
   background: var(--xy-user-bubble);
@@ -110,7 +110,7 @@ html[data-scheme="dark"] .xy-composer-shell textarea::placeholder {
   background: var(--xy-ink);
 }
 
-/* Light surface for long markdown blocks (tables / code) —— not a chat bubble */
+/* 长 Markdown 块（表格、代码）使用轻量背景，与聊天气泡区分。 */
 .xy-md-surface {
   background: rgb(255 255 255 / 0.34);
 }
@@ -298,8 +298,8 @@ html[data-scheme="dark"] .xy-code-fade {
 }
 
 /*
-  User bubble chip: fill/border from .xy-user-bubble (same tokens as composer).
-  Stuck float is the same chip in an overlay pin —— no wallpaper clone underlay.
+  用户气泡的填充与边框来自 .xy-user-bubble，与输入框共用样式令牌。
+  吸顶浮层复用同一气泡，不额外复制壁纸底图。
 */
 .xy-user-prompt {
   position: relative;
@@ -585,7 +585,7 @@ body,
   max-height: 100%;
   overflow: hidden;
   overscroll-behavior: none;
-  /* Opaque base —— never see desktop through the window (browser mode) */
+  /* 浏览器模式使用不透明底色，避免窗口透出桌面。 */
   background: var(--color-paper);
 }
 

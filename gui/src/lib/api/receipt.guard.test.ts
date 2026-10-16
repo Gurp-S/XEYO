@@ -53,8 +53,7 @@ const BASELINE: Record<string, number> = {
 	// 换成 parseGit*，钉在 api/gitReceipt.test.ts；terminal / session task 各 1 处
 	// 换成 parseTerminalResult、parseSessionTask，钉在 api/terminalReceipt.test.ts
 	// 与 api/sessionTaskReceipt.test.ts。剩 3 处：inbox 2（他人 lane）、rewindGc 1（rewind lane）。
-	'api.ts': 3,
-	'api/localModels.ts': 1,
+	'api.ts': 2, // Agent inbox now validates acceptance receipts.
 	'api/memory.ts': 0, // 既有 memory 回执校验已消除裸转型，收紧棘轮。
 	'api/usage.ts': 2,
 	// 工作区地图正本（刻意放在 api/ 外，见该文件首注释）——之前根本不在棘轮的
@@ -65,7 +64,7 @@ const BASELINE: Record<string, number> = {
 
 /** 写侧"只认 HTTP 状态"的存量基线。 */
 const WRITE_BASELINE: Record<string, number> = {
-	'api.ts': 9, // recovery/abandon and inbox edit/cancel now validate identity-bearing receipts.
+	'api.ts': 8, // Agent inbox cancellation also checks removed=true.
 	'api/usage.ts': 1,
 };
 // api/diagnostics.ts 的那一处（deleteDiagPin 的 `return res.ok;`）已改成读 body 的
@@ -163,6 +162,8 @@ describe('HTTP 回执裸转型棘轮', () => {
 		// 8 → 7：地图正本 workspaceMapApi.ts 的 3 处换成 parse*（api/mapReceipt.test.ts），
 		// 并删掉 api.ts 里那份没人 import 的同名死副本 fetchWorkspaceGraph。
 		// 7 → 6：memory 已有校验，见本文件 api/memory.ts 的清零记录。
-		expect(sum).toBe(6);
+		// 6 → 5：本地模型管理 API 已移除。
+		// 5 → 4：Agent 消息回执已校验。
+		expect(sum).toBe(4);
 	});
 });

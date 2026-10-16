@@ -1,6 +1,6 @@
 import {useLayoutEffect, useRef} from 'react';
 
-/** One continuous surface with a chrome tint; no independently clipped backgrounds. */
+/** 使用连续的统一背景与界面底色，避免各区域独立裁切。 */
 export function ReviewFrame() {
 	const svgRef = useRef<SVGSVGElement>(null);
 	const pathRef = useRef<SVGPathElement>(null);
@@ -39,9 +39,9 @@ export function ReviewFrame() {
 				paint();
 			}
 		};
-		// Routes can replace the chat host without remounting the outer shell.
+		// 路由可替换聊天容器，而不重新挂载外层框架。
 		const mutation = new MutationObserver(() => {
-			// Streaming prose changes descendants, not the host itself.
+			// 流式文本只改变子节点，容器本身保持不变。
 			if (!host || !root.contains(host)) bindHost();
 		});
 		mutation.observe(root, {childList: true, subtree: true});

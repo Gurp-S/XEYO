@@ -1,3 +1,4 @@
+import {readWorkspaceGit} from '@/lib/workspaceGit';
 import {REVIEW_LAYOUT_ENABLED} from '@/lib/reviewLayout';
 import {ReviewWorkspaceNav} from './review/ReviewWorkspaceNav';
 import {WorkbenchFiles} from './review/WorkbenchFiles';
@@ -36,7 +37,7 @@ import {usePaneViewportClamp} from '@/hooks/paneViewportClamp';
 import {
 	gitBranches,
 	gitLog,
-	gitStatus,
+
 	fetchWorkspaceJournal,
 	type GitBranchesResult,
 	type GitLogResult,
@@ -434,7 +435,7 @@ function JournalTree() {
 	);
 }
 
-/* ==== 审查：以对话为树，含 历史diff / 历史命令行 ==== */
+/* ==== 审查：以对话为树，含 历史diff / 调用记录 ==== */
 function collectChangedFor(
 	sessions: ChatSession[],
 	messagesById: Record<string, ChatMessage[]>,
@@ -738,10 +739,10 @@ function ReviewTree() {
 											<Boxes className="h-3.5 w-3.5 shrink-0 text-mute" strokeWidth={1.8} />
 											<span className="min-w-0 flex-1 truncate">历史diff</span>
 										</Row>
-										{/* 历史命令行：打开终端风格功能区界面（当前对话的所有命令行） */}
+										{/* 调用记录：打开终端风格功能区界面（当前对话的所有命令行） */}
 										<Row depth={2} onClick={() => setActiveTool('history')}>
 											<TerminalSquare className="h-3.5 w-3.5 shrink-0 text-accent" strokeWidth={1.8} />
-											<span className="min-w-0 flex-1 truncate">历史命令行</span>
+											<span className="min-w-0 flex-1 truncate">调用记录</span>
 											{commandsCount > 0 ? (
 												<span className="shrink-0 font-mono text-[10px] text-ok">+{commandsCount}</span>
 											) : null}
@@ -794,7 +795,7 @@ function GitTree() {
 		void (async () => {
 			try {
 				const [status, log, branches] = await Promise.all([
-					gitStatus(rootPath),
+					readWorkspaceGit(rootPath),
 					gitLog(500, rootPath),
 					gitBranches(rootPath),
 				]);
@@ -878,6 +879,21 @@ function GitTree() {
 
 /* ==== 右侧工作区侧栏（树状导航入口）==== */
 export const WorkspacePanel = memo(function WorkspacePanel() {
+	return REVIEW_LAYOUT_ENABLED ? <ReviewWorkspacePanel/> : <LegacyWorkspacePanel/>;
+});
+function ReviewWorkspacePanel() {
+	const active=useWorkspaceStore(s=>s.active);
+	const activeTool=useWorkspaceStore(s=>s.activeTool);
+	const setActive=useWorkspaceStore(s=>s.setActive);
+	const setActiveTool=useWorkspaceStore(s=>s.setActiveTool);
+	const collapseWorkspace=useWorkspaceStore(s=>s.collapseWorkspace);
+	const showExperimental=useSettingsStore(s=>s.showExperimental);
+	const anyFunctionOpen=useExplorerStore(s=>Boolean(s.selectedPath||s.reviewDiff||s.loadingFile)) || Boolean(activeTool);
+	return <ReviewWorkspaceNav active={active} activeTool={activeTool} hasContent={anyFunctionOpen} onTree={key => {useExplorerStore.getState().closePreview(); setActiveTool(null); setActive(key);}} onTool={key => {useExplorerStore.getState().closePreview(); setActiveTool(key);}} onClose={collapseWorkspace} showExperimental={showExperimental}>
+ {active === 'history' ? <WorkbenchChanges /> : active === 'git' ? <ul><GitTree /></ul> : <WorkbenchFiles />}
+ </ReviewWorkspaceNav>;
+}
+const LegacyWorkspacePanel = memo(function LegacyWorkspacePanel() {
 	const open = useWorkspaceStore(s => s.open);
 	const expanded = useWorkspaceStore(s => s.expanded);
 	const active = useWorkspaceStore(s => s.active);
@@ -969,9 +985,7 @@ export const WorkspacePanel = memo(function WorkspacePanel() {
 		}
 	};
 
-	if (REVIEW_LAYOUT_ENABLED) return <ReviewWorkspaceNav active={active} activeTool={activeTool} hasContent={anyFunctionOpen} onTree={key => {useExplorerStore.getState().closePreview(); setActiveTool(null); setActive(key);}} onTool={key => {useExplorerStore.getState().closePreview(); setActiveTool(key);}} onClose={collapseWorkspace} showExperimental={showExperimental}>
- {active === 'history' ? <WorkbenchChanges /> : active === 'git' ? <ul><GitTree /></ul> : <WorkbenchFiles />}
- </ReviewWorkspaceNav>;
+
  if (!smoothness && !mounted) return null;
 
 	// 只在工作区打开时「收起右边内容」才生效；关闭时等同于未收起，不残留任何按钮。

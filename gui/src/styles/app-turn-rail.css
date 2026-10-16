@@ -1,4 +1,4 @@
-/* auto-split from src/styles/app-chrome.css body L529-804 — Right-side conversation turn rail; imported via barrel src/styles/app-chrome.css */
+/* 右侧对话回合导航样式；由 app-chrome.css 引入。 */
 /* 鈹€鈹€ Right-side conversation turn rail 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */
 .xy-turn-rail {
   position: absolute;
@@ -12,7 +12,7 @@
   padding: 8px 0 8px 14px;
   transform: translateY(-50%);
   pointer-events: auto;
-  /* Ghost default —— rises a bit on hover intent */
+  /* 默认弱化显示，悬停时略微突出。 */
   opacity: 0.42;
   transition: opacity 180ms ease;
 }

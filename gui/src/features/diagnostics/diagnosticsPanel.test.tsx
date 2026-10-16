@@ -464,6 +464,9 @@ describe('实验层的失败信封与付费授权（P1 3 / P2 15）', () => {
 		api.fetchDiagRun.mockResolvedValue(detailFixture('t1'));
 		renderPanel();
 		await waitFor(() => expect(api.fetchDiagRun).toHaveBeenCalled());
+		// 诊断页把「实验」收进高级分组（docs/gui-layout-scope-repair-2026-10-16）：
+		// 常用排障视图下该 tab 不渲染，须先切到高级实验，再点 tab。
+		await user.click(screen.getByRole('button', {name: '高级实验'}));
 		await user.click(screen.getByRole('tab', {name: '实验'}));
 	}
 

@@ -447,8 +447,8 @@ function AssistantTurnInner({
 		}
 		setRailOpen(v => !v);
 	}, [active]);
-	// Keep every hook above this gate: an empty turn can become active before its
-	// first token, so returning before displaySegments/useState would change hook order.
+	// 所有 Hook 均在此分支前调用：空回合可在首个 token 到达前激活，
+	// 提前返回会改变 displaySegments/useState 等 Hook 的调用顺序。
 	if (!shouldRender) return null;
 
 	const hasAgents = Boolean(agentTasks?.length);

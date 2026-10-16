@@ -19,6 +19,7 @@ vi.mock('@/stores/settingsStore', () => {
 });
 
 import {fetchVendorModels, loadServerSessionMessages, streamChat} from './api';
+import {readTurnIdentity, readTurnCursor, rememberTurnCursor} from './api/turnCursor';
 
 function sseResponse(chunks: string[]): Response {
 	const enc = new TextEncoder();
@@ -562,6 +563,20 @@ describe('streamChat — 忙时 202 受理分流', () => {
 			headers: {'Content-Type': 'application/json'},
 		});
 	}
+
+	it('queue and steer retain the active turn cursor; steer captures its identity', async () => {
+		for (const steerIfBusy of [false, true]) {
+			rememberTurnCursor('busy-contract', 9, 'A');
+			fetchMock.mockResolvedValue(jsonResponse({queued: true, queue_id: 'q'}));
+			await streamChat('busy-contract', 'next', {
+				onDelta: () => undefined, onDone: () => undefined, onError: () => undefined,
+			}, {steerIfBusy});
+			const sent = JSON.parse(fetchMock.mock.calls.at(-1)![1].body);
+			expect(sent.expected_turn_id).toBe(steerIfBusy ? 'A' : undefined);
+			expect(readTurnIdentity('busy-contract')).toBe('A');
+			expect(readTurnCursor('busy-contract', 'A')).toBe(9);
+		}
+	});
 
 	it('steered=true 走引导回执，绝不记入 inbox 队列', async () => {
 		fetchMock.mockResolvedValue(

@@ -126,7 +126,7 @@ async function findSkillByName(
 		return {skill: null};
 	}
 	if (!workspace.trim()) {
-		// An omitted workspace makes /v1/skills use the server's global UI cwd.
+		// 省略工作区会让 /v1/skills 使用服务端全局界面目录。
 		return {skill: null};
 	}
 	const report = await loadSlashSkills(workspace);

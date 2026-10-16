@@ -6,6 +6,8 @@
  * createMultiAgentSlice(set, get)。
  */
 import type {StoreApi} from 'zustand';
+import {agentRequestScope, agentScopeCurrent, staleAgentEvent} from '@/lib/agentRequestScope';
+import {projectManagedAgents, beginAgentListRead, agentListReadCurrent, invalidateAgentListRead} from '@/lib/agentRuntimeProjection';
 import {
 	cancelSessionAgent,
 	listSessionAgents,
@@ -39,6 +41,8 @@ export function createMultiAgentSlice(
 ): Pick<ChatState, (typeof SLICE_KEYS)[number]> {
 	let operationSequence = 0;
 	const transcriptRequests = new Map<string, number>();
+	const transcriptScopes = new Map<string, ReturnType<typeof agentRequestScope>>();
+	const retries = new Set<string>();
 	const finalizeRequests = new Map<string, number>();
 	const liveTextRevisions = new Map<string, number>();
 	const nextSequence = () => ++operationSequence;
@@ -105,8 +109,9 @@ export function createMultiAgentSlice(
 		const sid = (sessionId || '').trim();
 		const aid = (agentId || '').trim();
 		if (!sid || !aid) return false;
-		const backendSid = activeBackendSessionId(get().historyById, sid);
-		const ok = await cancelSessionAgent(backendSid, aid);
+		const scope = agentRequestScope(get(), sid, aid);
+		const ok = await cancelSessionAgent(scope.backendSid, aid, scope.attemptId);
+		if (!agentScopeCurrent(get(), sid, aid, scope)) return false;
 		if (ok) {
 			set(s => {
 				const list = s.multiAgentTasksBySession[sid] ?? [];
@@ -139,6 +144,11 @@ export function createMultiAgentSlice(
 			return false;
 		}
 		const key = `${sid}::${aid}`;
+		if (retries.has(key)) return false;
+		retries.add(key);
+		const scope = agentRequestScope(get(), sid, aid);
+		invalidateAgentListRead(get, sid);
+		try {
 		const retryBatchAt = Date.now();
 		// A retry starts a new projection generation. Late snapshots/finalizers from
 		// the previous run must not overwrite or clear this run's live state.
@@ -173,8 +183,8 @@ export function createMultiAgentSlice(
 				},
 			};
 		});
-		const backendSid = activeBackendSessionId(get().historyById, sid);
-		const result = await retrySessionAgent(backendSid, aid);
+		const result = await retrySessionAgent(scope.backendSid, aid, scope.attemptId);
+		if (!agentScopeCurrent(get(), sid, aid, scope, result?.attemptId)) return false;
 		if (!result) {
 			set(s => {
 				const list = s.multiAgentTasksBySession[sid] ?? [];
@@ -214,6 +224,7 @@ export function createMultiAgentSlice(
 							? {
 									...t,
 									status: result.status,
+									attemptId: result.attemptId ?? t.attemptId,
 									cancelRequested: false,
 									result: result.resultPreview,
 									reason:
@@ -227,7 +238,11 @@ export function createMultiAgentSlice(
 			};
 		});
 		await get().finalizeAgentStream(sid, aid);
+		await get().loadAgentsFor(sid);
 		return result.status === 'done';
+		} finally {
+			retries.delete(key);
+		}
 	},
 
 	async loadAgentsFor(sessionId) {
@@ -235,19 +250,22 @@ export function createMultiAgentSlice(
 			return;
 		}
 		let metas: SessionAgentMeta[] = [];
+		const requestId = beginAgentListRead(get, sessionId);
+		const backendSid = activeBackendSessionId(get().historyById, sessionId);
 		try {
-			const backendSid = activeBackendSessionId(get().historyById, sessionId);
 			metas = await listSessionAgents(backendSid);
 		} catch {
 			return; // 后端不可达/接口缺失：静默跳过（历史批次合并为尽力而为）。
 		}
-		if (!get().sessions.some(s => s.id === sessionId) || metas.length === 0) {
+		if (!agentListReadCurrent(get, sessionId, requestId) ||
+			!get().sessions.some(s => s.id === sessionId) || metas.length === 0 ||
+			backendSid !== activeBackendSessionId(get().historyById, sessionId)) {
 			return;
 		}
 		set(s => ({agentsBySession: {...s.agentsBySession, [sessionId]: metas}}));
 		// 历史批次合并进卡片视图（SSE uid 优先；按 agentId 幂等去重）。
 		set(s => {
-			const existing = s.multiAgentTasksBySession[sessionId] ?? [];
+			const existing = projectManagedAgents(s.multiAgentTasksBySession[sessionId] ?? [], metas);
 			const knownAgents = new Set(
 				existing.map(t => t.agentId).filter(Boolean),
 			);
@@ -270,6 +288,8 @@ export function createMultiAgentSlice(
 					...(m.inboxCount ? {inboxCount: m.inboxCount} : {}),
 					// 历史批 token（meta 持久化）；运行中卡片由 progress 帧覆盖。
 					...(m.tokensUsed ? {tokensUsed: m.tokensUsed} : {}),
+					costCny: m.costCny,
+					costPartial: m.costPartial,
 				});
 			}
 			return {
@@ -284,15 +304,19 @@ export function createMultiAgentSlice(
 	async ensureAgentTranscript(sessionId, agentId, opts) {
 		const key = `${sessionId}::${agentId}`;
 		const cached = get().agentTranscriptsById[key];
+		const scope = agentRequestScope(get(), sessionId, agentId);
+		const cachedScope = transcriptScopes.get(key);
 		// 已有快照（含运行中快照）默认复用；运行中由 SubAgentView 轮询 force 刷新。
-		if (!opts?.force && cached !== undefined && cached !== null) {
+		if (!opts?.force && cached !== undefined && cached !== null && cachedScope &&
+			cachedScope.backendSid === scope.backendSid && cachedScope.attemptId === scope.attemptId) {
 			return true;
 		}
 		const requestId = nextSequence();
 		transcriptRequests.set(key, requestId);
-		const backendSid = activeBackendSessionId(get().historyById, sessionId);
-		const detail = await loadAgentDetail(backendSid, agentId);
-		if (transcriptRequests.get(key) !== requestId) {
+		const detail = await loadAgentDetail(scope.backendSid, agentId);
+		if (transcriptRequests.get(key) !== requestId ||
+			!agentScopeCurrent(get(), sessionId, agentId, scope) ||
+			(detail?.attemptId && scope.attemptId && detail.attemptId !== scope.attemptId)) {
 			return false;
 		}
 		transcriptRequests.delete(key);
@@ -314,6 +338,7 @@ export function createMultiAgentSlice(
 					}
 				: m,
 		);
+		transcriptScopes.set(key, scope);
 		set(s => ({
 			agentTranscriptsById: {
 				...s.agentTranscriptsById,
@@ -432,11 +457,17 @@ export function createMultiAgentStreamHandlers(deps: {
 	};
 
 	const onMultiAgentTask = (ev: Omit<MultiAgentTaskStreamEvent, 'kind'>) => {
+		const old = (get().multiAgentTasksBySession[sessionId] ?? []).find(t => t.agentId === ev.agentId);
+		if (old?.attemptId && old.attemptId === ev.attemptId &&
+			(old.status === 'done' || old.status === 'failed') && (ev.status === 'running' || ev.status === 'pending')) return;
+		if (old?.attemptId && old.attemptId !== ev.attemptId && old.runtimeUpdatedAt &&
+			(!ev.attemptStartedAt || ev.attemptStartedAt < old.runtimeUpdatedAt)) return;
+		invalidateAgentListRead(get, sessionId);
 		set(s => {
 			const list = s.multiAgentTasksBySession[sessionId] ?? [];
 			const pendingUid = `pending:${ev.taskId}`;
 			const withoutPending = list.filter(
-				t => t.uid !== pendingUid && t.uid !== ev.uid,
+				t => t.uid !== pendingUid && t.uid !== ev.uid && t.agentId !== ev.agentId,
 			);
 			return {
 				multiAgentTasksBySession: {
@@ -447,6 +478,8 @@ export function createMultiAgentStreamHandlers(deps: {
 							uid: ev.uid,
 							taskId: ev.taskId,
 							agentId: ev.agentId,
+							attemptId: ev.attemptId,
+							runtimeUpdatedAt: ev.attemptStartedAt,
 							desc: ev.desc,
 							status:
 								ev.status === 'pending' ||
@@ -477,6 +510,7 @@ export function createMultiAgentStreamHandlers(deps: {
 			const list = s.multiAgentTasksBySession[sessionId] ?? [];
 			const byUid = new Map(list.map(t => [t.uid, t]));
 			for (const row of ev.tasks) {
+				if (staleAgentEvent(s, sessionId, row.agentId, row.attemptId)) continue;
 				const prev = byUid.get(row.uid);
 				// 新出现的行（无对应 task 事件）也补批次时刻，保证可被轮次锚定。
 				byUid.set(row.uid,
@@ -507,6 +541,7 @@ export function createMultiAgentStreamHandlers(deps: {
 	};
 
 	const onMultiAgentProgress = (ev: Omit<MultiAgentProgressStreamEvent, 'kind'>) => {
+		if (staleAgentEvent(get(), sessionId, ev.agentId, ev.attemptId)) return;
 		set(s => {
 			const list = s.multiAgentTasksBySession[sessionId] ?? [];
 			const pendingUid = `pending:${ev.taskId}`;
@@ -524,6 +559,7 @@ export function createMultiAgentStreamHandlers(deps: {
 								uid: ev.uid,
 								taskId: ev.taskId,
 								agentId: ev.agentId,
+								attemptId: ev.attemptId,
 								desc: ev.taskId,
 								status: ev.status,
 								cancelRequested: false,
@@ -533,6 +569,7 @@ export function createMultiAgentStreamHandlers(deps: {
 									? {tokensUsed: ev.tokensUsed}
 									: {}),
 								...(ev.costCny !== undefined ? {costCny: ev.costCny} : {}),
+								costPartial: ev.costPartial,
 								batchAt: Date.now(),
 							},
 						],
@@ -555,7 +592,8 @@ export function createMultiAgentStreamHandlers(deps: {
 									result: ev.result ?? t.result,
 									// token 落定帧才带：有值覆盖，无值保留（列表帧兜底历史批）。
 									tokensUsed: ev.tokensUsed ?? t.tokensUsed,
-									costCny: ev.costCny ?? t.costCny,
+									costCny: ev.costCny !== undefined ? ev.costCny : t.costCny,
+									costPartial: ev.costPartial ?? t.costPartial,
 								}
 							: t,
 					),
@@ -573,6 +611,7 @@ export function createMultiAgentStreamHandlers(deps: {
 	};
 
 	const onMultiAgentDelta = (ev: Omit<MultiAgentDeltaStreamEvent, 'kind'>) => {
+		if (staleAgentEvent(get(), sessionId, ev.agentId, ev.attemptId)) return;
 		if (!ev.agentId || !ev.text) {
 			return;
 		}

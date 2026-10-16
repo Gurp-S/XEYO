@@ -1,4 +1,8 @@
-import {memo, useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {WORKSPACE_TOOL_LABELS as LABELS} from '@/lib/workspaceTools';
+import {VersionControlView} from './workspace/VersionControlView';
+import {TerminalOutput} from './TerminalOutput';
+import {readWorkspaceGit} from '@/lib/workspaceGit';
+import {memo, useCallback, useEffect, useRef, useState} from 'react';
 import {ChevronRight, Columns2, CornerDownLeft, Maximize2, Minimize2, X} from 'lucide-react';
 import {PanelExpandOverlay} from '@/components/PanelExpandOverlay';
 import {REVIEW_LAYOUT_ENABLED} from '@/lib/reviewLayout';
@@ -12,8 +16,9 @@ import {usePresence} from '@/hooks/usePresence';
 import {cn} from '@/lib/utils';
 import {isImeComposing} from '@/lib/ime';
 import {samePath} from '@/lib/paths';
-import {execWorkspaceTerminal, gitLog, gitStatus, type GitLogResult, type GitStatusEntry, type GitStatusResult} from '@/lib/api';
-import {groupTranscript, type TurnItem} from '@/lib/groupTranscript';
+import {execWorkspaceTerminal, gitLog, type GitLogResult, type GitStatusEntry, type GitStatusResult} from '@/lib/api';
+import {ToolCallHistory} from './workspace/ToolCallHistory';
+import {TerminalHistory} from './workspace/TerminalHistory';
 import {useChatStore} from '@/stores/chatStore';
 import {useSettingsStore, PANE_WIDTH_MAX, PANE_WIDTH_MIN, isSmoothnessOn} from '@/stores/settingsStore';
 import {useWorkspaceStore, type WorkspaceTool} from '@/stores/workspaceStore';
@@ -22,14 +27,7 @@ import {useExplorerStore} from '@/stores/explorerStore';
 import {AgentMapPanel} from '@/components/AgentMapPanel';
 import {BrowserPreviewPanel} from '@/components/BrowserPreviewPanel';
 import {WorkspaceToolSubtitleContext, usePanelSubtitle} from '@/lib/panelSubtitle';
-const LABELS: Record<WorkspaceTool, string> = {
-	git: 'Git',
-	terminal: '终端',
-	history: '历史命令',
-	commits: '提交记录',
-	map: '地图',
-	browser: '浏览器',
-};
+
 
 /* ==== 副标题上报：标题栏只在面板顶栏渲染一次，各 Body 通过它把
  * 「当前对话 · N 条」「PS 根目录」等副标题上报到顶栏，避免出现两行标题 ==== */
@@ -40,120 +38,6 @@ const LABELS: Record<WorkspaceTool, string> = {
  * 可读的多行命令文本。多行命令在 JSON 里会变成字面 \n 转义，直接渲染时
  * whitespace-pre-wrap 无法换行，这里还原成真实换行符以便分行阅读。
  */
-function commandDisplayText(input: string): string {
-	try {
-		const parsed = JSON.parse(input) as unknown;
-		if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-			const command = (parsed as Record<string, unknown>).command;
-			if (typeof command === 'string') {
-				return command;
-			}
-		}
-	} catch {
-		/* 非 JSON，走下方转义还原 */
-	}
-	return input.replace(/\\r\\n|\\n/g, '\n').replace(/\\t/g, '\t');
-}
-
-function collectCommands(messages: ChatMessageLike[]): Array<{name: string; input: string; display: string}> {
-	try {
-		const blocks = groupTranscript(messages);
-		const items = blocks.flatMap(b => (b.kind === 'turn' ? b.items : []));
-		return items
-			.filter((it): it is Extract<TurnItem, {kind: 'tool'}> => it.kind === 'tool')
-			.filter(it => it.tool.name && it.tool.input)
-			.map(it => ({name: it.tool.name, input: it.tool.input, display: commandDisplayText(it.tool.input)}));
-	} catch {
-		return [];
-	}
-}
-
-type ChatMessageLike = Parameters<typeof groupTranscript>[0][number];
-
-function HistoryCommandsBody() {
-	const messages = useChatStore(s => (s.activeId ? s.messagesById[s.activeId] ?? [] : []));
-	const commands = useMemo(() => collectCommands(messages), [messages]);
-	usePanelSubtitle(`当前对话 · ${commands.length} 条`);
-	const [copied, setCopied] = useState<string | null>(null);
-	// 文件树式折叠：每个节点独立展开/收起（常挂载 grid-rows 平滑动画）。
-	const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-	const area = useScrollArea({edgeFade: false});
-
-	const onCopy = async (input: string) => {
-		try {
-			await navigator.clipboard.writeText(input);
-			setCopied(input);
-			setTimeout(() => setCopied(null), 1500);
-		} catch {
-			/* 忽略 */
-		}
-	};
-
-	return (
-		<div className="flex h-full flex-col">
-			<div
-				className="xy-hover-scroll min-h-0 flex-1 overflow-auto px-1.5 py-2"
-				{...area.scrollerProps}
-			>
-				{commands.length === 0 ? (
-					<p className="py-4 text-center text-[12px] text-mute">当前对话还没有命令行</p>
-				) : (
-					commands.map((c, i) => {
-						const key = `${c.name}-${i}`;
-						const open = Boolean(expanded[key]);
-						return (
-							<div key={key} className="group">
-								<div className="flex items-center gap-1.5 rounded-md pr-1 text-left text-[13px] transition-colors hover:bg-glass-hover">
-									<button
-										type="button"
-										aria-expanded={open}
-										onClick={() => setExpanded(o => ({...o, [key]: !open}))}
-										className="flex min-w-0 flex-1 items-center gap-1.5 py-1 text-left text-ink-soft"
-									>
-										<span className="flex w-3.5 shrink-0 items-center justify-center text-mute">
-											<ChevronRight
-												className={cn(
-													'h-3.5 w-3.5 transition-transform duration-150',
-													open && 'rotate-90',
-												)}
-												strokeWidth={1.8}
-											/>
-										</span>
-										<span className="min-w-0 flex-1 truncate">
-											{c.display.split('\n')[0] || '(空命令)'}
-										</span>
-									</button>
-									<span className="shrink-0 rounded bg-glass-strong px-1 py-0.5 font-mono text-[10px] leading-none text-mute">
-										{c.name}
-									</span>
-									<button
-										type="button"
-										className="shrink-0 rounded px-1 font-mono text-[10px] text-mute opacity-0 transition-opacity hover:text-ink group-hover:opacity-100 group-focus-within:opacity-100 xy-hover-reveal"
-										title="复制命令"
-										aria-label="复制命令"
-										onClick={() => void onCopy(c.input)}
-									>
-										{copied === c.input ? '已复制' : '复制'}
-									</button>
-								</div>
-								<div
-									className={cn('xy-sidebar-tree grid', open ? 'is-open' : 'is-closed')}
-									aria-hidden={!open}
-								>
-									<ul className="min-h-0 overflow-hidden">
-									<li className="whitespace-pre-wrap break-all rounded-md px-7 py-1 text-[12px] leading-5 text-ink-soft">
-										{c.display}
-									</li>
-									</ul>
-								</div>
-							</div>
-						);
-					})
-				)}
-			</div>
-		</div>
-	);
-}
 
 function StatusGroup({title, entries, tone}: {title: string; entries: GitStatusEntry[]; tone: 'ok' | 'warn' | 'mute'}) {
 	if (entries.length === 0) {
@@ -316,7 +200,7 @@ function GitBody() {
 		setStatus(null);
 		void (async () => {
 			try {
-				const next = await gitStatus(rootPath);
+				const next = await readWorkspaceGit(rootPath);
 				if (!disposed) {
 					setStatus(next);
 					setError(null);
@@ -366,7 +250,6 @@ function GitBody() {
 function TerminalBody() {
 	const root = useExplorerStore(s => s.loadedRoot);
 	const cmd = useTerminalSessionStore(s => s.command);
-	const lines = useTerminalSessionStore(s => s.lines);
 	const busy = useTerminalSessionStore(s => s.busy);
 	const history = useTerminalSessionStore(s => s.history);
 	const cursor = useTerminalSessionStore(s => s.cursor);
@@ -376,15 +259,11 @@ function TerminalBody() {
 	const beginCommand = useTerminalSessionStore(s => s.beginCommand);
 	const appendLines = useTerminalSessionStore(s => s.appendLines);
 	const finishCommand = useTerminalSessionStore(s => s.finishCommand);
-	const scrollerRef = useRef<HTMLDivElement | null>(null);
 	usePanelSubtitle(root ? `PS ${root}` : '');
 	useEffect(() => {
 		ensureRoot(root);
 	}, [ensureRoot, root]);
 
-	useEffect(() => {
-		scrollerRef.current?.scrollTo({top: scrollerRef.current.scrollHeight});
-	}, [lines]);
 
 	const run = async (text?: string) => {
 		const value = (text ?? cmd).trim();
@@ -454,31 +333,8 @@ function TerminalBody() {
 
 	return (
 		<div className="flex h-full flex-col">
-			<div ref={scrollerRef} className="xy-hover-scroll min-h-0 flex-1 overflow-auto px-3 py-2 font-mono text-[12px] leading-6 text-ink-soft">
-				{lines.map((line, i) => (
-					<div key={i} className="whitespace-pre-wrap break-words">
-						{line.kind === 'in' ? (
-							<>
-								<span className="text-accent">{root ? `PS ${root}>` : '❯'}</span>{' '}
-								<span className="text-ink">{line.text}</span>
-							</>
-						) : line.kind === 'err' ? (
-							<span className="whitespace-pre-wrap text-danger">{line.text}</span>
-						) : line.kind === 'info' ? (
-							<span className="text-mute">{line.text}</span>
-						) : (
-							<span className="whitespace-pre-wrap">{line.text}</span>
-						)}
-					</div>
-				))}
-				{lines.length === 0 ? (
-					<div className="text-mute">
-						在工作区根目录执行 shell 命令。支持方向键回看历史。
-						<br />
-						例：<span className="text-ink-soft">npm run dev</span>、<span className="text-ink-soft">git status</span>
-					</div>
-				) : null}
-			</div>
+			<TerminalHistory />
+			<TerminalOutput root={root}/>
 			<div className="flex shrink-0 items-center gap-1 border-t border-line/40 px-2 py-1.5">
 				<span className="shrink-0 font-mono text-[12px] text-accent">{root ? '>' : '❯'}</span>
 				<input
@@ -508,16 +364,16 @@ function TerminalBody() {
 
 function ToolBody({tool}: {tool: WorkspaceTool}) {
 	if (tool === 'git') {
-		return <GitBody />;
+		return <VersionControlView view="git"><GitBody /></VersionControlView>;
 	}
 	if (tool === 'terminal') {
 		return <TerminalBody />;
 	}
 	if (tool === 'history') {
-		return <HistoryCommandsBody />;
+		return <ToolCallHistory />;
 	}
 	if (tool === 'commits') {
-		return <CommitsBody />;
+		return <VersionControlView view="commits"><CommitsBody /></VersionControlView>;
 	}
 	if (tool === 'map') {
 		return <AgentMapPanel />;
@@ -525,7 +381,7 @@ function ToolBody({tool}: {tool: WorkspaceTool}) {
 	if (tool === 'browser') {
 		return <BrowserPreviewPanel />;
 	}
-	return <CommitsBody />;
+	return <VersionControlView view="commits"><CommitsBody /></VersionControlView>;
 }
 
 export const WorkspaceToolPanel = memo(function WorkspaceToolPanel() {

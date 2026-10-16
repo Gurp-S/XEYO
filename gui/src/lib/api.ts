@@ -1,6 +1,7 @@
 import {useSettingsStore} from '@/stores/settingsStore';
 import {apiUrl} from '@/lib/apiBase';
 import {rememberTranscriptSnapshot} from './transcriptSnapshot';
+import {readTurnIdentity} from './api/turnCursor';
 import type {ChatMessage, RecoveryJob, RewindCheckpointLookup, RewindEvent, RewindHotpathResult, RollbackPlan} from './types';
 import {REQUEST_TIMEOUT_MS, authHeaders, fetchWithTimeout, formatErrorDetail} from './api/core';
 import type {} from './api/core';
@@ -11,22 +12,6 @@ export {uploadFile, uploadMedia} from './api/uploads';
 export {listPermissionGrants, resolveAsk, resolveFailureText, resolvePermission, resolvePlan, revokeFailureText, revokePermissionGrant} from './api/permissions';
 export type {PermissionGrantInfo, ResolveReceipt} from './api/permissions';
 export {syncUiThoughtsToServer} from './api/memory';
-export {
-	getLocalModelLog,
-	getLocalModels,
-	setLocalModelSettings,
-	startLocalModel,
-	stopLocalModel,
-	switchLocalModel,
-} from './api/localModels';
-export type {
-	LocalModelEntry,
-	LocalModelSettings,
-	LocalModelSettingsPatch,
-	LocalModelState,
-	LocalModelStatus,
-	LocalModelsSnapshot,
-} from './api/localModels';
 export {setSessionRuntimeMode} from './api/runtimeMode';
 export {fetchSkills} from './api/skills';export type {SkillInfo, SkillSource, SkillsReport} from './api/skills';
 export {fetchFileReferences} from './api/references';
@@ -112,6 +97,7 @@ export type AgentDetailMessage = {
 };
 
 export type AgentDetail = {
+	attemptId?: string;
 	status: string;
 	messages: AgentDetailMessage[];
 };
@@ -131,10 +117,12 @@ export async function loadAgentDetail(
 		if (!res.ok) return null;
 		const payload = (await res.json()) as {
 			status?: string;
+			attempt_id?: string;
 			messages?: AgentDetailMessage[];
 		};
 		return {
 			status: String(payload.status ?? 'done'),
+			attemptId: payload.attempt_id,
 			messages: Array.isArray(payload.messages) ? payload.messages : [],
 		};
 	} catch {
@@ -146,13 +134,14 @@ export async function loadAgentDetail(
 export async function cancelSessionAgent(
 	sessionId: string,
 	agentId: string,
+	attemptId?: string,
 ): Promise<boolean> {
 	try {
 		const res = await fetchWithTimeout(
 			apiUrl(
 				`/v1/sessions/${encodeURIComponent(sessionId)}/agents/${encodeURIComponent(agentId)}/cancel`,
 			),
-			{method: 'POST', headers: {...authHeaders()}},
+			{method: 'POST', headers: {'Content-Type': 'application/json', ...authHeaders()}, body: JSON.stringify({attempt_id: attemptId})},
 		);
 		return res.ok;
 	} catch {
@@ -161,6 +150,7 @@ export async function cancelSessionAgent(
 }
 
 export type AgentRetryResult = {
+	attemptId?: string;
 	ok: boolean;
 	agentId: string;
 	status: 'done' | 'failed';
@@ -171,6 +161,7 @@ export type AgentRetryResult = {
 export async function retrySessionAgent(
 	sessionId: string,
 	agentId: string,
+	attemptId?: string,
 ): Promise<AgentRetryResult | null> {
 	try {
 		const s = useSettingsStore.getState();
@@ -186,6 +177,7 @@ export async function retrySessionAgent(
 					...(s.provider ? {'X-Provider': s.provider} : {}),
 				},
 				body: JSON.stringify({
+					attempt_id: attemptId,
 					provider: s.provider || undefined,
 					model: s.model || undefined,
 					base_url: s.baseUrl || undefined,
@@ -200,11 +192,13 @@ export async function retrySessionAgent(
 			status?: string;
 			resultPreview?: string;
 			is_error?: boolean;
+			attempt_id?: string;
 		};
 		const failed = Boolean(payload.is_error) || payload.status === 'failed';
 		return {
 			ok: Boolean(payload.ok) && !failed,
 			agentId: String(payload.agent_id || agentId),
+			attemptId: payload.attempt_id,
 			status: failed ? 'failed' : 'done',
 			resultPreview: String(payload.resultPreview || ''),
 		};
@@ -315,6 +309,7 @@ export async function steerInboxItem(
 
 export type AgentInboxPostResult = {
 	ok?: boolean;
+	messageId?: string;
 	deliver?: 'running' | 'pending';
 	inboxCount?: number;
 };
@@ -324,6 +319,7 @@ export async function postAgentInbox(
 	sessionId: string,
 	agentId: string,
 	text: string,
+	messageId: string = crypto.randomUUID(),
 ): Promise<AgentInboxPostResult | null> {
 	try {
 		const res = await fetchWithTimeout(
@@ -331,11 +327,12 @@ export async function postAgentInbox(
 			{
 				method: 'POST',
 				headers: {'Content-Type': 'application/json', ...authHeaders()},
-				body: JSON.stringify({text}),
+				body: JSON.stringify({text, message_id: messageId}),
 			},
 		);
 		if (!res.ok) return null;
-		return (await res.json()) as AgentInboxPostResult;
+		const receipt = await res.json() as AgentInboxPostResult | null;
+		return receipt?.ok === true && (receipt.deliver === 'running' || receipt.deliver === 'pending') ? receipt : null;
 	} catch {
 		return null;
 	}
@@ -348,7 +345,9 @@ export async function cancelAgentInbox(sessionId: string, agentId: string, itemI
 			apiUrl(`/v1/sessions/${encodeURIComponent(sessionId)}/agents/${encodeURIComponent(agentId)}/inbox/${encodeURIComponent(itemId)}`),
 			{method: 'DELETE', headers: {...authHeaders()}},
 		);
-		return res.ok;
+		if (!res.ok) return false;
+		const receipt = await res.json() as {ok?: boolean; removed?: boolean} | null;
+		return receipt?.ok === true && receipt.removed === true;
 	} catch {
 		return false;
 	}
@@ -451,7 +450,7 @@ export async function interruptChat(sessionId: string): Promise<InterruptWrite> 
 		const res = await fetchWithTimeout(apiUrl('/v1/interrupt'), {
 			method: 'POST',
 			headers: {'Content-Type': 'application/json'},
-			body: JSON.stringify({session_id: sid}),
+			body: JSON.stringify({session_id: sid, expected_turn_id: readTurnIdentity(sid)}),
 		});
 		const payload = await res.json().catch(() => null);
 		if (!res.ok) {

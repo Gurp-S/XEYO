@@ -1,3 +1,4 @@
+import {createThoughtSync} from "@/lib/thoughtSync";
 /**
  * streamHelpers.ts — 流 / 工具 / 思考 / todo 相关辅助函数。
  * 自 preStoreHelpers.ts 原样拆出（自动拆分）。行为不变。
@@ -273,6 +274,7 @@ function countToolMessages(messages: ChatMessage[]): number {
 }
 
 const thoughtSyncTimers = new Map<string, number>();
+const syncThoughts = createThoughtSync((sessionId, thoughts) => syncUiThoughtsToServer(sessionId, thoughts));
 const THOUGHT_SYNC_DEBOUNCE_MS = 800;
 /** 流结束后仍 waiting 的工具：等晚到 result；超时后标 interrupted。略长于默认工具超时。 */
 const waitingToolTimers = new Map<string, number>();
@@ -297,7 +299,7 @@ function scheduleThoughtSync(backendSessionId: string, msgs: ChatMessage[]): voi
 	}
 	const timer = window.setTimeout(() => {
 		thoughtSyncTimers.delete(backendSessionId);
-		void syncUiThoughtsToServer(backendSessionId, thoughts).catch(() => {});
+		void syncThoughts(backendSessionId, thoughts).catch(() => {});
 	}, THOUGHT_SYNC_DEBOUNCE_MS);
 	thoughtSyncTimers.set(backendSessionId, timer);
 }
@@ -312,7 +314,7 @@ function flushThoughtSync(backendSessionId: string, msgs: ChatMessage[]): void {
 	if (thoughts.length === 0) {
 		return;
 	}
-	void syncUiThoughtsToServer(backendSessionId, thoughts).catch(() => {});
+	void syncThoughts(backendSessionId, thoughts).catch(() => {});
 }
 
 function shouldPreferServerMessages(

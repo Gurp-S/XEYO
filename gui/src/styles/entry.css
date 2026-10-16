@@ -14,6 +14,7 @@
 @import "motion.css";
 @import "app-chrome.css";
 @import "dock-panels.css";
+@import "task-docks.css";
 @import "agent-map.css";
 @import "../components/streamingMarkdown.css";
 @import "immersive.css";
@@ -28,3 +29,8 @@
 
 @import './review-layout.css';
 @import './review-polish.css';
+
+@import './settings-controls.css';
+
+@import './review-settings.css';
+@import './workspace-task-layout.css';

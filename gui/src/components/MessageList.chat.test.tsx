@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import {describe, expect, it, vi} from 'vitest';
 import type {ChatMessage} from '@/lib/types';
 import {MessageList} from './MessageList';
+import {renderDeferred} from '@/test/renderDeferred';
 
 vi.stubGlobal('IntersectionObserver', undefined);
 
@@ -172,8 +173,8 @@ describe('MessageList dialogue rendering', () => {
 		expect(screen.getByText('仅消息')).toBeInTheDocument();
 	});
 
-	it('shows streaming text with cursor path', () => {
-		render(
+	it('shows streaming text with cursor path', async () => {
+		await renderDeferred(
 			<MessageList
 				messages={[userMsg('q')]}
 				streamingText="正在生成…"
@@ -227,20 +228,18 @@ describe('MessageList dialogue rendering', () => {
 		state.sessionStreams = {};
 	});
 
-	it('renders long history without throw', () => {
+	it('renders long history without throw', async () => {
 		const messages = Array.from({length: 80}, (_, i) =>
 			i % 2 === 0 ? userMsg(`u-${i}`, `u${i}`) : asstMsg(`a-${i}`, `a${i}`),
 		);
-		expect(() =>
-			render(
-				<MessageList
-					messages={messages}
-					streamingText="tail"
-					isLoading={true}
-					statusText=""
-				/>,
-			),
-		).not.toThrow();
+		await renderDeferred(
+			<MessageList
+				messages={messages}
+				streamingText="tail"
+				isLoading={true}
+				statusText=""
+			/>,
+		);
 		expect(screen.getAllByText('u-0').length).toBeGreaterThan(0);
 		const liveTail = document.querySelector('.xy-streamdown-live');
 		expect(liveTail?.textContent).toContain('tail');

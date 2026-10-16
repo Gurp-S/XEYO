@@ -1,14 +1,4 @@
-/**
- * 本地模型 provider（'local'）门禁测试。
- *
- * 'local' 是正式功能（2026-09-14 起从 localTestGate 的 dev 门禁里摘出来）：
- * 生产构建同样可识别、同样允许空 Key——要不要用它由用户在本机决定
- * （设置 → 模型与账号 → 本地模型）。'fake' 仍受 dev 门禁管理。
- *
- * 判定实体是 `localTestGate.isKnownProvider`；`settingsStore.isProviderId` 只转发它，
- * 测试替身也转发它，所以这里的断言打在真实规则上。
- */
-import {beforeEach, describe, expect, it} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {
 	allowsEmptyApiKey,
 	isKnownProvider,
@@ -21,21 +11,30 @@ describe('local provider gate', () => {
 	beforeEach(() => {
 		window.localStorage.clear();
 	});
+	afterEach(() => vi.unstubAllEnvs());
 
-	it('local 不受 dev 门禁影响：识别与空 Key 恒放行', () => {
+	it('local 仅在开发测试显式开启时可用', () => {
+		window.localStorage.setItem('XEYO_ENABLE_LOCAL_TEST', '1');
 		expect(isLocalProvider('local')).toBe(true);
 		expect(allowsEmptyApiKey('local')).toBe(true);
 		expect(isKnownProvider('local')).toBe(true);
 		expect(isProviderId('local')).toBe(true);
 	});
 
-	it('门禁关时 local 仍可用、fake 仍被拒', () => {
+	it('默认不开放 local 或 fake', () => {
 		expect(isTestProvider('local')).toBe(false);
 		expect(isTestProvider('fake')).toBe(false);
 		expect(allowsEmptyApiKey('fake')).toBe(false);
 		expect(isKnownProvider('fake')).toBe(false);
-		// 同一时刻两者结论相反，证明 'local' 已不属于 dev 门禁管辖。
-		expect(isKnownProvider('local')).toBe(true);
+		expect(isKnownProvider('local')).toBe(false);
+		expect(allowsEmptyApiKey('local')).toBe(false);
+	});
+
+	it('生产构建不能通过旧测试开关恢复本地模型', () => {
+		vi.stubEnv('DEV', false);
+		window.localStorage.setItem('XEYO_ENABLE_LOCAL_TEST', '1');
+		expect(isKnownProvider('local')).toBe(false);
+		expect(isKnownProvider('fake')).toBe(false);
 	});
 
 	it('云端 provider 与非法值口径不变', () => {

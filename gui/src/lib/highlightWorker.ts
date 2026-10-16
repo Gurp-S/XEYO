@@ -1,6 +1,7 @@
 // 必须最先求值：在 prismjs 之前伪装 document，阻断其 worker message 监听注册
 // （否则每条高亮请求都会抛 JSON.parse "[object Object]" SyntaxError）。见 prismWorkerShim.ts。
 import './prismWorkerShim';
+import {TextLruCache, TEXT_CACHE_MAX_CHARS} from './textLruCache';
 import Prism from 'prismjs';
 import 'prismjs/components/prism-clike';
 import 'prismjs/components/prism-markup';
@@ -48,15 +49,13 @@ function escapeHtml(s: string): string {
 // 会被反复重发——缓存命中即零计算。LRU 触碰保证热条目存活。
 const CACHE_LIMIT = 64;
 const MAX_CACHED_CHARS = 200_000;
-const resultCache = new Map<string, string>();
+const resultCache = new TextLruCache<string>(CACHE_LIMIT, TEXT_CACHE_MAX_CHARS, html => html.length);
 
 self.onmessage = (ev: MessageEvent<HighlightRequest>) => {
 	const {id, code, lang} = ev.data;
 	const key = `${lang}\u0000${code}`;
 	const cached = resultCache.get(key);
 	if (cached !== undefined) {
-		resultCache.delete(key);
-		resultCache.set(key, cached);
 		self.postMessage({id, ok: true, html: cached} satisfies HighlightResponse);
 		return;
 	}
@@ -67,12 +66,6 @@ self.onmessage = (ev: MessageEvent<HighlightRequest>) => {
 			: escapeHtml(code);
 		if (code.length <= MAX_CACHED_CHARS) {
 			resultCache.set(key, html);
-			if (resultCache.size > CACHE_LIMIT) {
-				const oldest = resultCache.keys().next().value;
-				if (oldest !== undefined) {
-					resultCache.delete(oldest);
-				}
-			}
 		}
 		const res: HighlightResponse = {id, ok: true, html};
 		self.postMessage(res);

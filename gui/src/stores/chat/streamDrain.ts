@@ -8,9 +8,9 @@
 import type {StoreApi} from 'zustand';
 import {
 	advanceTypewriterShown,
-	drainTypewriterStep,
 	type TypewriterAdvanceCache,
 } from '@/hooks/useStreamTypewriter';
+import {createStreamReveal, STREAM_REVEAL_MS} from '@/lib/streamReveal';
 import {
 	getSessionStream,
 	patchSessionStream,
@@ -56,6 +56,8 @@ export function createStreamDrain(deps: {
 	const {get, set, sessionId, typewriterCache, persistNow, sessionStillAlive, cancelFrameRaf, onFinish} = deps;
 
 	let drainRaf = 0;
+	let drainTimer: ReturnType<typeof setTimeout> | undefined;
+	let revealStep = createStreamReveal();
 	// 排水快照：onDone 时流式输出已完整；startDrain 释放 streamingSessionId
 	// 前先存下全文，commitAssistant 靠它落盘（见 drained 分支）。
 	let drainTextSnap = '';
@@ -64,6 +66,9 @@ export function createStreamDrain(deps: {
 	const ownsRegistration = () => activeDrains.get(sessionId) === registration;
 
 	const releaseDrainOwnership = () => {
+		clearTimeout(drainTimer);
+		drainTimer = undefined;
+		document.removeEventListener('visibilitychange', onVisibilityChange);
 		if (ownsRegistration()) activeDrains.delete(sessionId);
 		if (drainRaf) {
 			cancelAnimationFrame(drainRaf);
@@ -74,6 +79,9 @@ export function createStreamDrain(deps: {
 		const current = ownsRegistration() && sessionStillAlive();
 		releaseDrainOwnership();
 		if (current) onFinish();
+	};
+	const onVisibilityChange = () => {
+		if (document.visibilityState === 'hidden') finishDrain();
 	};
 	const discardDrain = () => {
 		const current = ownsRegistration() && sessionStillAlive();
@@ -108,7 +116,7 @@ export function createStreamDrain(deps: {
 			target,
 			stream.streamingShown,
 			typewriterCache,
-			drainTypewriterStep,
+			revealStep,
 			// 排水是收尾路径：必须允许追平（否则标号被扣住后 shown 永远差一口气，drain 停不下来）
 			false,
 		);
@@ -145,6 +153,11 @@ export function createStreamDrain(deps: {
 			persistNow(msgs);
 		}
 		activeDrains.set(sessionId, registration);
+		revealStep = createStreamReveal();
+		document.addEventListener('visibilitychange', onVisibilityChange);
+		// rAF can pause when a window is occluded. Completion must not depend on
+		// another paint; the same ownership check protects a replacement turn.
+		drainTimer = setTimeout(finishDrain, STREAM_REVEAL_MS + 50);
 		cancelFrameRaf();
 		const cur = get();
 		set(s => ({

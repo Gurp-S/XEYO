@@ -59,6 +59,12 @@ beforeEach(() => {
 });
 
 describe('PermissionDialog 「不再询问」适用范围', () => {
+    it('a hidden task does not consume Escape or send a rejection', () => {
+        ask({toolName: 'Bash'});
+        render(<PermissionDialog visible={false} />);
+        fireEvent.keyDown(document, {key: 'Escape'});
+        expect(resolvePermission).not.toHaveBeenCalled();
+    });
 	it('区外读的确认给出目录粒度的勾选', () => {
 		ask({reason: 'read_outside_working_directory'});
 		render(<PermissionDialog />);

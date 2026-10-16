@@ -2,8 +2,8 @@ import {A3SnapshotPanel} from '@/components/A3SnapshotPanel';
 import {PageShell} from '@/components/PageShell';
 
 /**
- * Usage view now presents the scheduled A3 daily report as its primary surface.
- * Keep the legacy balance formatter exported for compatible callers.
+ * 用量视图以定时生成的 A3 日报为主要内容。
+ * 保留旧余额格式化函数的导出，以兼容现有调用方。
  */
 export function fmtBalance(raw: string, currency?: string): string {
 	const value = String(raw ?? '').trim();

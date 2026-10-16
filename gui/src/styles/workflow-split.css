@@ -1,4 +1,4 @@
-/* auto-split from src/styles/workflow.css body L1-289 — Activity split chrome (head/steps/rail); imported via barrel src/styles/workflow.css */
+/* 活动标题、步骤与导航轨道样式；由 workflow.css 引入。 */
 /* ===== Agent 工作流 UI 冻结：#10 拆分 + A7/A8 + L10 =====
    Typography contract = gui/workflow-ideas-preview.html 冻结底座 */
 .xy-activity-split {

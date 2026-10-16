@@ -4,7 +4,7 @@ export type EditUploadScope = {
 	messageId: string | null;
 };
 
-/** Upload completions may update the editor only while their original edit is current. */
+/** 上传完成后，仅在原编辑会话仍有效时更新编辑器。 */
 export function isCurrentEditUpload(
 	captured: EditUploadScope,
 	current: EditUploadScope,

@@ -457,7 +457,7 @@ export const useRemoteStore = create<RemoteUiState>((set, get) => ({
 		const settings = useSettingsStore.getState();
 		// 空 Key 仅允许本地测试 provider（localTestGate，T25c）。
 		if (!settings.apiKey.trim() && !allowsEmptyApiKey(settings.provider)) {
-			settings.openSettings();
+			settings.openSettings('accounts');
 			useChatStore.setState(
 				sessionErrorBannerPatch(null, '远程需要 API Key，请先在设置中填写。'),
 			);

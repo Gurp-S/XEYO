@@ -1,6 +1,7 @@
 import {useEffect} from 'react';
 import {useNavigate} from 'react-router-dom';
 import {useChatStore} from '@/stores/chatStore';
+import {useSettingsStore} from '@/stores/settingsStore';
 import {SIDE_SPACE_ID} from '@/lib/db';
 
 /**
@@ -30,6 +31,8 @@ function go(to: string, opts?: {replace?: boolean}): void {
 		// Router 未挂载（单测/极早期调用）：静默丢弃，不抛错。
 		return;
 	}
+	// 页面导航与设置共用主内容区；同路径导航也必须退出设置。
+	useSettingsStore.getState().closeSettings();
 	navigateFn(to, opts);
 }
 

@@ -4,7 +4,7 @@ import {activityCaption, toolCallLabel, type RoundActivity} from '@/lib/roundAct
 import {useDismiss} from '@/ui/useDismiss';
 import {ActivityIcon} from './ActivityIcon';
 
-/** Direct navigation for long event streams, without changing their chronology. */
+/** 为长事件流提供直接跳转，保持事件时间顺序。 */
 export function ActivityNavigator({events, activeId, onSelect}: {
 	events: RoundActivity[];
 	activeId: string | undefined;

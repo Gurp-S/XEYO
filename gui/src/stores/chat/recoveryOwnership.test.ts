@@ -1,7 +1,7 @@
 import {beforeEach, expect, it, vi} from 'vitest';
 import type {ChatStreamHandlers} from '@/lib/api';
 import type {ChatState} from './preStoreHelpers';
-import {createStreamRecoverySlice, recoverAfterDisconnect} from './streamRecoverySlice';
+import {createStreamRecoverySlice, recoverAfterDisconnect, finalizeFinishedTurn} from './streamRecoverySlice';
 import {createBusyStreamProjection} from './busyStreamProjection';
 import {getSessionStream} from '@/lib/sessionStreams';
 import {waitingToolTimers, WAITING_TOOL_TIMEOUT_MS} from './streamHelpers';
@@ -129,6 +129,46 @@ it('a late gap backfill cannot overwrite a newer turn after the stream closes', 
 	expect(f.get().sessionStreams.gui?.abortRef).toBe(controller);
 	expect(f.get().messagesById.gui?.[0]?.text).toBe('new branch');
 	expect(transport.replace).not.toHaveBeenCalled();
+});
+
+it('a failed gap backfill preserves an explicitly incomplete stream instead of committing its tail', async () => {
+	const f = fixture(); transport.task.mockResolvedValueOnce(running);
+	transport.messages.mockResolvedValue([]);
+	transport.stream.mockImplementationOnce(async (_sid, _cursor, handlers: ChatStreamHandlers) => {
+		handlers.onDelta('INCOMPLETE TAIL', 'partial');
+		handlers.onStreamGap?.({} as never); handlers.onDone();
+	});
+	await createStreamRecoverySlice(f.set, f.get).reattachStream('gui');
+	await Promise.resolve(); await Promise.resolve();
+	expect(f.get().messagesById.gui?.some(row => row.text === 'INCOMPLETE TAIL')).toBe(false);
+	expect(getSessionStream(f.get(), 'gui').turnDetached).toBe(true);
+	expect(getSessionStream(f.get(), 'gui').streamingText).toContain('INCOMPLETE TAIL');
+	expect(transport.replace).not.toHaveBeenCalled();
+});
+
+it('recovered history is acknowledged only after its local transaction commits', async () => {
+	const f = fixture();
+	f.set({sessionStreams: {gui: {isLoading: true, streamingText: 'partial'}} as never});
+	const disk = deferred<void>(); transport.replace.mockReturnValueOnce(disk.promise);
+	const rows = [{id: 'complete', role: 'assistant' as const, text: 'COMPLETE', createdAt: 1}];
+	const work = finalizeFinishedTurn(f.set, 'gui', rows);
+	try {
+		expect(getSessionStream(f.get(), 'gui').isLoading).toBe(true);
+		expect(f.get().messagesById.gui?.[0]?.text).toBe('new branch');
+	} finally {disk.resolve(); await work;}
+	expect(f.get().messagesById.gui).toBe(rows);
+	expect(getSessionStream(f.get(), 'gui').isLoading).toBe(false);
+});
+
+it('a failed local recovery transaction keeps the old history and a reconnectable stream', async () => {
+	const f = fixture();
+	f.set({sessionStreams: {gui: {isLoading: true, streamingText: 'partial'}} as never});
+	transport.replace.mockRejectedValueOnce(new DOMException('quota', 'QuotaExceededError'));
+	const previous = f.get().messagesById.gui;
+	expect(await finalizeFinishedTurn(f.set, 'gui', [{id:'final',role:'assistant',text:'complete',createdAt:1}])).toBe(false);
+	expect(f.get().messagesById.gui).toBe(previous);
+	expect(getSessionStream(f.get(), 'gui').turnDetached).toBe(true);
+	expect(getSessionStream(f.get(), 'gui').streamingText).toBe('partial');
 });
 
 it('an invalid old probe does not block immediate attachment to the new backend', async () => {

@@ -3,7 +3,7 @@ import {streamingTextSignal} from '@/lib/streamSignal';
 import {workflowDisplayText} from '@/lib/workflowDisplayText';
 import {StreamingMarkdown} from '../StreamingMarkdown';
 
-/** Keep token notifications below the event navigator and tool trace. */
+/** 将 token 更新订阅放在事件导航和工具轨迹组件的下层。 */
 export function WorkflowStreamText({text, signalLive, live}: {
 	text: string; signalLive: boolean; live: boolean;
 }) {

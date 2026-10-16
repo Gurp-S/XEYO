@@ -1,3 +1,4 @@
+import {reconcileStreamGap} from './streamGapReconcile';
 import {createAssistantOutput} from './assistantOutput';
 import {sessionProjectionHandlers} from './sessionProjectionHandlers';
 import {acceptedPendingClear} from './acceptedPending';
@@ -15,7 +16,6 @@ import {sessionScopedStreamHandlers} from './sessionScopedStreamHandlers';
 import {createStreamOwnership} from './streamOwnership';
 import {
 	interruptChat,
-	loadServerSessionMessages,
 	streamChat,
 } from '@/lib/api';
 import {dispatchXeyoUi} from '@/lib/dispatchXeyoUi';
@@ -24,7 +24,6 @@ import {allowsEmptyApiKey} from '@/lib/localTestGate';
 import {toast} from '@/lib/toast';
 import {
 	patchMessages,
-	replaceMessages,
 	saveSession,
 	SIDE_SPACE_ID,
 } from '@/lib/db';
@@ -63,12 +62,9 @@ import {
 import {
 	advanceTypewriterShown,
 	isOnlyHoldBackLag,
-	streamTypewriterStepFor,
 	type TypewriterAdvanceCache,
 } from '@/hooks/useStreamTypewriter';
-import {
-	streamNeedsFastTypewriter,
-} from '@/lib/streamMarkdown';
+import {createStreamReveal} from '@/lib/streamReveal';
 import {
 	isSmoothnessOn,
 	useSettingsStore,
@@ -676,7 +672,9 @@ export function createStreamSendSlice(
 		// 用户整条消息只剩一行横幅）。
 		let sendRolledBack = false;
 		const smoothStream = () =>
-			isSmoothnessOn(useSettingsStore.getState().smoothness);
+			isSmoothnessOn(useSettingsStore.getState().smoothness) &&
+			document.visibilityState !== 'hidden';
+		const revealStep = createStreamReveal();
 		/** token + tool 共用一条 rAF 队列；每帧最多一次 Zustand set。 */
 		const assistantOutput = createAssistantOutput();
 		let pendingDelta = '';
@@ -707,7 +705,7 @@ export function createStreamSendSlice(
 			sessionId,
 			backendSessionId,
 			smoothStream,
-			seedMessages: nextMessages,
+			seedMessages: prev,
 		});
 		const usage = createUsageAccumulator(get, set, sessionId);
 		const multi = createMultiAgentStreamHandlers({get, set, sessionId});
@@ -910,8 +908,9 @@ export function createStreamSendSlice(
 			isCurrent: ownership.isCurrent,
 		});
 
+		const thoughtTurnId = uid('thought-turn');
 		const streamingThoughtId = (sid: string, seg: number) =>
-			`thought-${sid}-${seg}`;
+			`thought-${sid}-${thoughtTurnId}-${seg}`;
 
 		/** 当前流式 Thought 段；finalize 后置空，下一段重新分配，id 在段内保持稳定。 */
 		let activeThoughtSeg = 0;
@@ -1036,6 +1035,7 @@ export function createStreamSendSlice(
 			const reasoningChunk = pendingReasoning;
 			pendingReasoning = '';
 			const written: string[] = [];
+			let messagesChanged = false;
 			set(cur => {
 				if (!sessionStreamActive(cur, sessionId) && !opts?.settle) {
 					return cur;
@@ -1054,7 +1054,6 @@ export function createStreamSendSlice(
 				}
 				let msgs = cur.messagesById[sessionId] ?? [];
 				let sessionTodos = cur.sessionTodosById;
-				let messagesChanged = false;
 				if (reasoningChunk && reasoningText.trim()) {
 					const withThought = upsertStreamingThought(
 						msgs,
@@ -1121,18 +1120,15 @@ export function createStreamSendSlice(
 					}
 				}
 				let streamingShown = stream.streamingShown;
-				if (streamingText) {
+				if (streamingText && smoothStream()) {
 					streamingShown = advanceTypewriterShown(
 						streamingText,
 						streamingShown,
 						typewriterCache,
-						streamTypewriterStepFor(
-							streamingText,
-							streamNeedsFastTypewriter,
-						),
+						revealStep,
 					);
 				} else {
-					streamingShown = '';
+					streamingShown = streamingText;
 				}
 				if (
 					streamingText === stream.streamingText &&
@@ -1158,7 +1154,7 @@ export function createStreamSendSlice(
 					sessionTodosById: sessionTodos,
 				};
 			});
-			{
+			if (messagesChanged) {
 				const msgs = get().messagesById[sessionId] ?? [];
 				persistence.hot(msgs);
 			}
@@ -1238,7 +1234,10 @@ export function createStreamSendSlice(
 		void saveSession(session).catch(() => {
 			/* 尽力而为；消息已在 UI 中可见 */
 		});
-		void replaceMessages(sessionId, nextMessages, ownership.isCurrent).catch(err => {
+		// Appending a user message does not replace the persisted history. The
+		// stream writer starts from prev, so an initial failure remains retryable.
+		void patchMessages(sessionId, [userMsg], () => ownership.isCurrent() &&
+			get().messagesById[sessionId]?.some(message => message === userMsg) === true).catch(err => {
 			const message = err instanceof Error ? err.message : String(err);
 			set(cur => ({
 				messagesById: {
@@ -1249,6 +1248,7 @@ export function createStreamSendSlice(
 							id: uid('err'),
 							role: 'system',
 							text: `本地保存失败：${message}`,
+							uiOnly: true,
 							createdAt: Date.now(),
 						},
 					],
@@ -1692,21 +1692,10 @@ export function createStreamSendSlice(
 						flushFrame({settle: true});
 					}
 					if (sawGap && sessionStillAlive()) {
-						// 缺段绝不能当完整内容提交 ⇒ 改用服务端 transcript 收尾；
-						// 拉不到（网络/空集）再退回本地提交，不静默卡住。
-						void loadServerSessionMessages(backendSessionId).then(server => {
-							if (!sessionStillAlive() || server.length === 0) {
-								commitAssistant();
-								return;
-							}
-							finalizeFinishedTurn(
-								set,
-								sessionId,
-								server,
-								'本次流里有缺帧，内容已按服务端记录补齐',
-								ownership.isCurrent,
-							);
-						});
+						settled = true;
+						void reconcileStreamGap(set, sessionId, backendSessionId, ownership.isCurrent,
+							server => finalizeFinishedTurn(set, sessionId, server,
+								'本次流里有缺帧，内容已按服务端记录补齐', ownership.isCurrent));
 						return;
 					}
 					const cur = get();

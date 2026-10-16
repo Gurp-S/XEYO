@@ -70,11 +70,6 @@ html.tauri[data-window-maximized="1"] #root:has(.xy-review-layout) { clip-path: 
 /* goal 条带不再被 review 布局改写：dock 卡的 12px 圆角 + 描边 + 6px 间距归基线。 */
 /* 条带现在是固定 36px 的单行（原地编辑/确认），不再允许 wrap + 大 padding；
    旧的 [data-goal-pop] 弹层结构已随之外移，规则一并删除。 */
-.xy-review-layout .xy-queue-card { background: var(--xy-review-card); box-shadow: none; border-color: var(--xy-line); }
-.xy-review-layout .xy-queue-head { background: var(--xy-review-card); border-color: var(--xy-line); box-shadow: none; }
-.xy-review-layout .xy-queue-dock { max-height: min(28vh,200px); overflow-y: auto; }
-.xy-review-layout .xy-queue-actions { opacity: .6; }
-.xy-review-layout .xy-queue-card:hover .xy-queue-actions,.xy-review-layout .xy-queue-card:focus-within .xy-queue-actions { opacity: 1; }
 .xy-review-layout .xy-command-receipt { background: var(--xy-review-card); padding: 10px 14px; border: 0; border-radius: 10px; }
 .xy-review-layout .xy-command-receipt > div > span:first-child { display: block; font-size: 12px; margin-bottom: 4px; }
 .xy-review-layout .xy-command-receipt summary { white-space: normal; display: flex; align-items: center; justify-content: space-between; gap: 10px; overflow-wrap: anywhere; }
@@ -85,52 +80,8 @@ html.tauri[data-window-maximized="1"] #root:has(.xy-review-layout) { clip-path: 
 .xy-pane-chat-host:has(> [aria-label="放大面板"]) > main,.xy-pane-chat-host:has(> [aria-label="文件预览（放大）"]) > main,
 .xy-pane-chat-host:has(> [aria-label="放大面板"]) > .xy-review-workbench,.xy-pane-chat-host:has(> [aria-label="文件预览（放大）"]) > .xy-review-workbench { visibility: hidden; }
 
-/* The approved preview uses a page inside the main surface, with category navigation. */
-.xy-review-layout .xy-review-settings-backdrop { position: absolute; inset: 0; padding: 0; z-index: 90; background: transparent; backdrop-filter: none; align-items: stretch; }
-.xy-review-layout .xy-review-settings.xy-modal-panel { width: 100%; height: 100%; max-width: none; padding: 24px 36px; border-radius: 0; background: transparent; box-shadow: none; }
-.xy-review-settings-backdrop { container-type: inline-size; }
-.xy-pane-chat-host:has(> .xy-review-settings-backdrop) > main,.xy-pane-chat-host:has(> .xy-review-settings-backdrop) > .xy-review-workbench { visibility: hidden; }
-.xy-pane-chat-host:has(.xy-page-view-pane[aria-hidden=false]) > .xy-review-workbench { display: none; }
-@media (max-width: 900px) {
- .xy-review-layout .xy-pane-row:has(.xy-review-settings-backdrop) > .xy-pane-slot:has(.xy-sidebar-chrome),
- .xy-review-layout .xy-pane-row:has(.xy-page-view-pane[aria-hidden=false]) > .xy-pane-slot:has(.xy-sidebar-chrome) { display: none; }
-}
-.xy-review-settings .xy-settings-page-header { min-height: 54px; margin-bottom: 16px; }
-.xy-review-settings .xy-settings-page-header h2 { font-size: 21px; }
-.xy-settings-subtitle { display: block; margin-top: 5px; font-size: 11px; font-weight: 400; color: var(--xy-mute); }
-.xy-review-settings > .grid { grid-template-columns: 170px minmax(0,1fr); gap: 40px; max-width: 1100px; width: 100%; margin: 0 auto; }
-.xy-review-settings nav { padding-top: 10px; }
-.xy-review-settings nav button { min-height: 36px; border: 0; box-shadow: none; }
-.xy-review-settings nav button[aria-current=page] { background: var(--xy-glass-hover); color: var(--xy-ink); }
-.xy-review-settings .xy-settings-body { padding: 10px 8px 32px; }
-.xy-review-settings .xy-settings-body > section > .xy-section-label { font-size: 20px; letter-spacing: 0; font-weight: 600; text-transform: none; color: var(--xy-ink); margin-bottom: 18px; }
-.xy-review-settings [role=listbox][aria-label="主题"] { grid-template-columns: repeat(4,minmax(0,1fr)); gap: 10px; margin-bottom: 26px; }
-.xy-review-settings [role=listbox][aria-label="主题"] [role=option] > span:first-child { height: 38px; }
-.xy-review-settings .xy-settings-body > section > div:not([role=listbox]) { border: 0; border-radius: 0; background: transparent; box-shadow: none; padding-top: 14px; padding-bottom: 14px; }
-.xy-review-settings .xy-settings-body button[role=switch] { border: 0; min-height: 56px; }
-.xy-settings-archive .xy-archive-project { border: 0; margin: 20px 0; background: transparent; }
-.xy-archive-project summary { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--xy-mute); cursor: pointer; margin-bottom: 8px; list-style: none; }
-.xy-archive-project summary small { margin-left: auto; }
-.xy-archive-project summary::-webkit-details-marker { display: none; }
-.xy-archive-project > div { display: flex; gap: 12px; align-items: center; padding: 10px 12px; border-radius: 9px; }
-.xy-archive-project > div:hover { background: var(--xy-glass-hover); }
-.xy-archive-project > div > span { flex: 1; min-width: 0; }
-.xy-archive-project .xy-archive-title { max-width: 100%; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.xy-archive-project > div > button { flex-shrink: 0; font-size: 12px; }
-@container (max-width: 700px) {
- .xy-review-layout .xy-review-settings.xy-modal-panel { padding: 16px; }
- .xy-review-settings > .grid { grid-template-columns: 130px minmax(0,1fr); gap: 16px; }
- .xy-review-settings [role=listbox][aria-label="主题"] { grid-template-columns: repeat(3,minmax(0,1fr)); }
-}
-@media (max-width: 600px) {
- .xy-review-settings > .grid { display: flex; flex-direction: column; gap: 12px; }
- .xy-review-settings nav { display: flex; overflow-x: auto; padding-top: 0; }
- .xy-review-settings nav button { width: auto; flex-shrink: 0; white-space: nowrap; }
- .xy-review-settings .xy-settings-body { min-height: 0; }
-}
-
 /* A3 HTML hierarchy: dates at the side, readable metrics, charts, optional detail. */
-.xy-a3-report { background: transparent; border: 0; }
+.xy-a3-report { background: transparent; border: 0; container-type: inline-size; container-name: usage-report; }
 .xy-a3-report > div:first-child { border: 0; padding: 10px 0 20px; }
 .xy-a3-report > div:first-child h2 { font-size: 20px; font-weight: 600; }
 .xy-a3-dashboard { display: grid; grid-template-columns: 150px minmax(0,1fr); gap: 24px; container-type: inline-size; }
@@ -140,7 +91,7 @@ html.tauri[data-window-maximized="1"] #root:has(.xy-review-layout) { clip-path: 
 .xy-a3-days button strong { display: block; font-size: 12px; font-weight: 500; }
 .xy-a3-days button small { display: block; margin-top: 4px; font-size: 10px; color: var(--xy-mute); }
 .xy-a3-days button[aria-current=date],.xy-a3-days button:hover { background: var(--xy-glass-hover); }
-.xy-a3-body { min-width: 0; }
+.xy-a3-body { min-width: 0; container-type: inline-size; container-name: usage-body; }
 .xy-a3-body > div:first-child { padding: 8px 0 20px; border: 0; }
 .xy-a3-heading h2 { font-size: 22px; font-weight: 600; }
 .xy-a3-heading p { margin-top: 4px; font-size: 11px; color: var(--xy-mute); }
@@ -172,7 +123,8 @@ html.tauri[data-window-maximized="1"] #root:has(.xy-review-layout) { clip-path: 
 .xy-a3-history summary::-webkit-details-marker { display: none; }
 .xy-a3-c2 { font-size: 11px; color: var(--xy-mute); padding: 0 16px 12px; }
 @container (max-width: 700px) { .xy-a3-kpis { grid-template-columns: repeat(2,minmax(0,1fr)); } }
-@container (max-width: 600px) {
+@container usage-body (max-width: 760px) { .xy-a3-donuts { grid-template-columns: minmax(0,1fr); } }
+@container usage-report (max-width: 700px) {
  .xy-a3-dashboard { grid-template-columns: minmax(0,1fr); }
  .xy-a3-days { display: none; }
  .xy-a3-date-select { display: flex; }

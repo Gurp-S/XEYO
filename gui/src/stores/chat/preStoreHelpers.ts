@@ -383,6 +383,7 @@ activeSpaceId: string;
 	cancelInboxItem: (sessionId: string, queue_id: string) => Promise<boolean>;
 	/** 改写一条排队消息文本。false = 失败（如已投递/超长）。 */
 	editInboxItem: (sessionId: string, queue_id: string, text: string) => Promise<boolean>;
+	reorderInboxItems: (sessionId: string, expected: string[], order: string[]) => Promise<boolean>;
 		/** 每个 session 整个对话累计的厂商 usage，随会话持久化。 */
 	sessionUsageById: Record<string, SessionUsageView | null>;
 	/** 每个 session 的回溯预览、确认和恢复作业状态。 */

@@ -171,14 +171,14 @@ describe('createCaretRemeasure', () => {
 		expect(onInvalidate).toHaveBeenCalledTimes(1);
 	});
 
-	it('fail-open：jsdom 下默认来源（无 ResizeObserver / 无 document.fonts）不抛', () => {
+	it('fail-open：jsdom 下默认来源（无 ResizeObserver / 无 document.fonts）不抛', async () => {
 		/* jsdom 观察器构造会直接抛；默认实现必须自行降级为"少一个信号"。
-		   rAF 用 setup.ts 的同步替身，flush 即测量。 */
+		   Wait for the asynchronous frame used by the browser. */
 		const onInvalidate = vi.fn();
 		const r = createCaretRemeasure(onInvalidate);
 		expect(() => r.attach(document.createElement('div'))).not.toThrow();
 		expect(() => r.invalidate()).not.toThrow();
-		expect(onInvalidate).toHaveBeenCalled();
+		await vi.waitFor(() => expect(onInvalidate).toHaveBeenCalled());
 		r.dispose();
 	});
 

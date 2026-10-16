@@ -1,4 +1,4 @@
-import {useEffect, useState} from 'react';
+import {useEffect, useMemo, useState} from 'react';
 import {ArrowUp, ChevronRight, FileText, Folder, RefreshCw, Search} from 'lucide-react';
 import {useExplorerStore} from '@/stores/explorerStore';
 import {useChatStore} from '@/stores/chatStore';
@@ -15,6 +15,8 @@ export function WorkbenchFiles() {
  const [directory,setDirectory] = useState('');
  const [query,setQuery] = useState('');
  const [busy,setBusy] = useState(false);
+ const [page,setPage]=useState(0);
+ useEffect(()=>setPage(0),[root,directory,query]);
  const entries = useExplorerStore(s=>s.childrenByPath[directory]);
  const error = useExplorerStore(s=>s.directoryErrors[directory] ?? s.error);
  const changed = useWorkbenchChanges();
@@ -27,7 +29,9 @@ export function WorkbenchFiles() {
   return ()=>{active=false;};
  },[root,directory]);
  const move=(path:string)=>{setDirectory(path);setQuery('');};
- const visible=(entries ?? []).filter(entry=>entry.name.toLocaleLowerCase().includes(query.toLocaleLowerCase())).slice().sort((a,b)=>Number(b.kind==='dir')-Number(a.kind==='dir') || a.name.localeCompare(b.name));
+ const visible=useMemo(()=>(entries ?? []).filter(entry=>entry.name.toLocaleLowerCase().includes(query.toLocaleLowerCase())).slice().sort((a,b)=>Number(b.kind==='dir')-Number(a.kind==='dir') || a.name.localeCompare(b.name)),[entries,query]);
+ const lastPage=Math.max(0,Math.ceil(visible.length/200)-1);
+ const currentPage=Math.min(page,lastPage);
  const crumbs=directory.split('/').filter(Boolean);
  return <div className="xy-work-files">
   <div className="xy-work-pathbar"><div className="xy-work-breadcrumbs"><Folder size={14}/><button onClick={()=>move('')}>{rootName}</button>{crumbs.map((name,index)=><span key={index}><ChevronRight size={11}/><button onClick={()=>move(crumbs.slice(0,index+1).join('/'))}>{name}</button></span>)}</div>
@@ -39,13 +43,14 @@ export function WorkbenchFiles() {
   </div>
   <label className="xy-work-filter"><Search size={14}/><input aria-label="筛选当前目录" placeholder="筛选当前目录" value={query} onChange={e=>setQuery(e.target.value)}/></label>
   <div className="xy-work-list-heading"><span>名称</span><span>{visible.length} 项</span></div>
-  {busy && !entries ? <p className="xy-work-note">正在读取目录…</p> : error ? <p className="xy-work-note">{error}</p> : !visible.length ? <p className="xy-work-note">{query ? '没有匹配的文件' : '目录为空'}</p> : <div className="xy-work-file-list">{visible.map(entry=>{
+  {busy && !entries ? <p className="xy-work-note">正在读取目录…</p> : error ? <p className="xy-work-note">{error}</p> : !visible.length ? <p className="xy-work-note">{query ? '没有匹配的文件' : '目录为空'}</p> : <div className="xy-work-file-list">{visible.slice(currentPage*200,(currentPage+1)*200).map(entry=>{
    const open=()=>entry.kind==='dir' ? move(entry.path) : void useExplorerStore.getState().openFile(entry.path);
    return <button key={entry.path} className="xy-work-file-row" onClick={open} onContextMenu={e=>showContextMenu(e,filePathMenuItems({entryPath:entry.path,entryName:entry.name,absolutePath:joinWorkspacePath(root,entry.path),kind:entry.kind==='dir'?'dir':'file',onOpen:open}),entry.name)}>
     {entry.kind==='dir' ? <Folder size={15}/> : <FileText size={15}/>}
     <span>{entry.name}</span>{entry.kind==='dir' && <ChevronRight size={12}/>}
    </button>;
   })}</div>}
+  {lastPage>0 && <nav className="xy-directory-pages" aria-label="目录分页"><button disabled={!currentPage} onClick={()=>setPage(currentPage-1)}>上一页</button><span>{currentPage+1} / {lastPage+1}</span><button disabled={currentPage===lastPage} onClick={()=>setPage(currentPage+1)}>下一页</button></nav>}
   {!!changed.length && <section className="xy-work-resource"><header><span>本轮会话 · {changed.length} 个文件</span><button onClick={()=>{useExplorerStore.getState().closePreview();useWorkspaceStore.getState().setActive('history');}}>更改</button></header>{changed.slice(0,6).map(file=><button className="xy-work-change-row" key={file.path} onClick={()=>{useWorkspaceStore.getState().setActive('history');void openChangedReview(file);}}><span>{file.name}</span><small className="text-ok">+{file.add}</small><small className="text-danger">−{file.del}</small></button>)}</section>}
  </div>;
 }

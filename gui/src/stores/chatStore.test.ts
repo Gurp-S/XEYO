@@ -11,6 +11,8 @@ import {
 	sessionStreamActive,
 } from '@/lib/sessionStreams';
 
+const defaultRaf = window.requestAnimationFrame;
+const defaultCancelRaf = window.cancelAnimationFrame;
 const streamChat = vi.fn();
 const interruptChat = vi.fn();
 const setWorkspace = vi.fn();
@@ -87,6 +89,25 @@ vi.mock('@/lib/db', async () => {
 	};
 });
 
+describe('workspace removal keeps local conversation records', () => {
+	it('removes only the space record and preserves its sessions and messages', async () => {
+		vi.clearAllMocks();
+		await seedSession('sess_kept');
+		useChatStore.setState({
+			spaces: [space({id: 'space_kept', rootPath: 'D:\\kept'})],
+			sessions: [session('sess_kept', {spaceId: 'space_kept'})],
+			messagesById: {sess_kept: [{id: 'm1', role: 'user', text: 'retain me'} as never]},
+		});
+
+		await useChatStore.getState().removeSpace('space_kept');
+
+		expect(deleteSpaceRecord).toHaveBeenCalledWith('space_kept');
+		expect(deleteSpace).not.toHaveBeenCalled();
+		expect(useChatStore.getState().sessions).toHaveLength(0);
+		expect(useChatStore.getState().messagesById.sess_kept).toBeUndefined();
+	});
+});
+
 const openSettings = vi.fn();
 vi.mock('@/stores/settingsStore', () => ({
 	useSettingsStore: Object.assign(() => ({}), {
@@ -103,6 +124,7 @@ vi.mock('@/stores/settingsStore', () => ({
 }));
 
 import {
+	deleteSpace,
 	deleteMessageForSession,
 	deleteSpaceRecord,
 	loadDeletedSessionIds,
@@ -201,6 +223,17 @@ describe('chatStore dialogue — normal', () => {
 			},
 		);
 		await seedSession();
+	});
+	it('appends a new turn without rewriting thousand-message history', async () => {
+		const history = Array.from({length: 1000}, (_, i) => ({id: `history-${i}`, role: 'assistant' as const, text: `old ${i}`, createdAt: i}));
+		useChatStore.setState({messagesById: {sess_test: history}});
+		await useChatStore.getState().sendMessage('new turn');
+		for (let i = 0; i < 12; i++) await Promise.resolve();
+		expect(replaceMessages).not.toHaveBeenCalled();
+		const written = vi.mocked(patchMessages).mock.calls.flatMap(call => call[1]);
+		expect(written.some(message => message.text === 'new turn')).toBe(true);
+		expect(written.some(message => message.id.startsWith('history-'))).toBe(false);
+		expect(useChatStore.getState().messagesById.sess_test?.slice(0, 1000)).toEqual(history);
 	});
 
 	it.each(['branch', 'turn'])('native old callbacks cannot overwrite a new %s', async scope => {
@@ -825,11 +858,8 @@ describe('chatStore dialogue — errors & busy', () => {
 			release();
 			expect(await pending).toBe(true);
 		} finally {
-			vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
-				cb(0);
-				return 1;
-			});
-			vi.stubGlobal('cancelAnimationFrame', () => {});
+			vi.stubGlobal('requestAnimationFrame', defaultRaf);
+			vi.stubGlobal('cancelAnimationFrame', defaultCancelRaf);
 		}
 	});
 
@@ -888,11 +918,8 @@ describe('chatStore dialogue — errors & busy', () => {
 			expect(await pending).toBe(true);
 		} finally {
 			vi.useRealTimers();
-			vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
-				cb(0);
-				return 1;
-			});
-			vi.stubGlobal('cancelAnimationFrame', () => {});
+			vi.stubGlobal('requestAnimationFrame', defaultRaf);
+			vi.stubGlobal('cancelAnimationFrame', defaultCancelRaf);
 		}
 	});
 
@@ -958,11 +985,8 @@ describe('chatStore dialogue — errors & busy', () => {
 			}
 			expect(await pending).toBe(true);
 		} finally {
-			vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
-				cb(0);
-				return 1;
-			});
-			vi.stubGlobal('cancelAnimationFrame', () => {});
+			vi.stubGlobal('requestAnimationFrame', defaultRaf);
+			vi.stubGlobal('cancelAnimationFrame', defaultCancelRaf);
 		}
 	});
 
@@ -1349,8 +1373,8 @@ describe('chatStore dialogue — errors & busy', () => {
 		expect(useChatStore.getState().errorBanner).toMatch(/无法绑定工作区/);
 	});
 
-		it('IDB replaceMessages failure still keeps optimistic user bubble', async () => {
-			vi.mocked(replaceMessages).mockRejectedValueOnce(new Error('idb down'));
+		it('initial IDB append failure keeps the user bubble and retries its persistence', async () => {
+			vi.mocked(patchMessages).mockRejectedValueOnce(new Error('idb down'));
 			streamChat.mockImplementation(
 				async (
 					_sid: string,
@@ -1366,6 +1390,7 @@ describe('chatStore dialogue — errors & busy', () => {
 			await Promise.resolve();
 			const msgs = useChatStore.getState().messagesById.sess_test ?? [];
 			expect(msgs.some(m => m.text === 'persist?')).toBe(true);
+			expect(vi.mocked(patchMessages).mock.calls.filter(call => call[1].some(m => m.text === 'persist?')).length).toBeGreaterThan(1);
 		});
 
 	});
@@ -1890,6 +1915,8 @@ describe('chatStore drain — burst deltas must still commit (multi-agent summar
 		// 手动泵 rAF：jsdom 环境下帧回调不保证触发，逐帧驱动排水循环。
 		let rafQueue: FrameRequestCallback[] = [];
 		const origRaf = window.requestAnimationFrame;
+		let frameTime = performance.now();
+		const clock = vi.spyOn(performance, 'now').mockImplementation(() => frameTime);
 		window.requestAnimationFrame = (cb: FrameRequestCallback): number => {
 			rafQueue.push(cb);
 			return rafQueue.length;
@@ -1921,11 +1948,12 @@ describe('chatStore drain — burst deltas must still commit (multi-agent summar
 					.messagesById.sess_test?.some(m => m.role === 'assistant'),
 			).toBe(true);
 
-			// 泵帧直到排水完成（96 码点/帧 × 数十帧）。
+			// Advance the same monotonic clock as the browser, one frame at a time.
 			for (let i = 0; i < 200; i += 1) {
 				if (!getSessionStream(useChatStore.getState(), 'sess_test').draining) {
 					break;
 				}
+				frameTime += 1000 / 60;
 				const queue = rafQueue;
 				rafQueue = [];
 				for (const cb of queue) {
@@ -1944,6 +1972,7 @@ describe('chatStore drain — burst deltas must still commit (multi-agent summar
 			expect(getSessionStream(done, 'sess_test').streamingText).toBe('');
 		} finally {
 			window.requestAnimationFrame = origRaf;
+			clock.mockRestore();
 		}
 	});
 });

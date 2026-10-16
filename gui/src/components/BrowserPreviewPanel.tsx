@@ -8,7 +8,8 @@ import {
 	RefreshCw,
 } from 'lucide-react';
 import {usePanelSubtitle} from '@/lib/panelSubtitle';
-import {isTauri} from '@/lib/tauri';
+import {openExternalUrl} from '@/lib/openExternal';
+import {toast} from '@/lib/toast';
 import {cn} from '@/lib/utils';
 import {useScrollArea} from '@/ui/useScrollArea';
 import {useBrowserPreviewStore} from '@/stores/browserPreviewStore';
@@ -56,14 +57,7 @@ function hostLabel(url: string): string {
 	}
 }
 
-async function openExternal(url: string): Promise<void> {
-	if (isTauri()) {
-		const {open} = await import('@tauri-apps/plugin-shell');
-		await open(url);
-		return;
-	}
-	window.open(url, '_blank', 'noopener,noreferrer');
-}
+const openExternal = (url:string) => openExternalUrl(url).catch(error=>toast.error(String(error)));
 
 /**
  * 工作区「浏览器」预览面板：地址栏 + iframe，仅供展示。

@@ -76,10 +76,12 @@ export function holdBackPartialListMarker(
 	let lineStart = next;
 	while (lineStart > 0 && points[lineStart - 1] !== '\n') {
 		lineStart -= 1;
+		if (next - lineStart > 8) return next;
 	}
 	let lineEnd = next;
 	while (lineEnd < points.length && points[lineEnd] !== '\n') {
 		lineEnd += 1;
+		if (lineEnd - lineStart > 8) return next;
 	}
 	const lineLen = lineEnd - lineStart;
 	// 标号行必然很短（如 “999. ”）；长行直接放行，也避免对超长单行做 slice/join
@@ -116,6 +118,7 @@ export function isOnlyHoldBackLag(text: string, shown: string): boolean {
 	if (shown === text || !text.startsWith(shown)) {
 		return false;
 	}
+	if (text.length - shown.length > 16) return false;
 	const points = Array.from(text);
 	const shownLen = Array.from(shown).length;
 	if (points.length - shownLen > 8) {
@@ -133,7 +136,7 @@ export function advanceTypewriterShown(
 	full: string,
 	shown: string,
 	cache?: TypewriterAdvanceCache,
-	step: (backlog: number) => number = typewriterStep,
+	step: (backlog: number, shown: number) => number = typewriterStep,
 	allowHoldBack = true,
 ): string {
 	if (!full) {
@@ -147,11 +150,12 @@ export function advanceTypewriterShown(
 	}
 
 	let points: string[];
-	let cacheHit = false;
+	let prefixCacheHit = false;
 	if (cache && full === cache.full) {
 		points = cache.points;
-		cacheHit = true;
+		prefixCacheHit = true;
 	} else if (cache && full.startsWith(cache.full)) {
+		prefixCacheHit = true;
 		let prefix = cache.full;
 		const hasNewCodeUnit = full.length > prefix.length;
 		const trailingHigh =
@@ -168,8 +172,10 @@ export function advanceTypewriterShown(
 	}
 
 	let have = 0;
-	if (full.startsWith(shown)) {
-		if (cacheHit && cache?.shown === shown) {
+	const cachedShown = prefixCacheHit && cache?.shown === shown;
+	const isPrefix = cachedShown || full.startsWith(shown);
+	if (isPrefix) {
+		if (cachedShown && cache) {
 			have = cache.index;
 		} else {
 			have = Array.from(shown).length;
@@ -194,11 +200,14 @@ export function advanceTypewriterShown(
 		}
 		return full;
 	}
-	const nextRaw = Math.min(points.length, have + step(backlog));
+	const nextRaw = Math.min(points.length, have + step(backlog, have));
 	const next = allowHoldBack
 		? holdBackPartialListMarker(points, nextRaw)
 		: nextRaw;
-	const result = points.slice(0, next).join('');
+	const result = next >= have && isPrefix &&
+		!isHighSurrogate(shown.charCodeAt(shown.length - 1))
+		? shown + points.slice(have, next).join('')
+		: points.slice(0, next).join('');
 	if (cache) {
 		cache.full = full;
 		cache.points = points;

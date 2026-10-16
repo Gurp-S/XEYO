@@ -1,3 +1,4 @@
+import {TaskCardBody} from './composer/TaskCardBody';
 import {useRef, useState} from 'react';
 import {ChevronDown} from 'lucide-react';
 
@@ -84,10 +85,7 @@ function PlanCard({pending}: {pending: PendingPlanInfo}) {
 			</button>
 
 			<PanelCollapse open={expanded} className="xy-panel-ask-body">
-				<div className="xy-panel-ask-cmd whitespace-pre-wrap">
-					{pending.plan}
-				</div>
-				<div className="xy-panel-ask-actions">
+<TaskCardBody actions={<> <div className="xy-panel-ask-actions">
 					<button
 						type="button"
 						className="xy-panel-ask-reject"
@@ -104,8 +102,12 @@ function PlanCard({pending}: {pending: PendingPlanInfo}) {
 					>
 						允许执行
 					</button>
+				</div> </>}>
+<div className="xy-panel-ask-cmd whitespace-pre-wrap">
+					{pending.plan}
 				</div>
-			</PanelCollapse>
+</TaskCardBody>
+</PanelCollapse>
 		</div>
 	);
 }

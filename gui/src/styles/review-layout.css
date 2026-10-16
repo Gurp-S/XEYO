@@ -153,12 +153,8 @@ html[data-smoothness="on"] .xy-workbench-content { transition: transform 300ms c
 .xy-round-event footer { display: flex; justify-content: flex-end; margin-top: 12px; }
 .xy-round-event footer button { padding: 5px; color: var(--xy-mute); border-radius: 6px; }
 .xy-round-event footer button:hover { color: var(--xy-ink); background: var(--xy-glass-hover); }
-.xy-review-layout .xy-review-settings.xy-modal-panel { width: min(940px,94vw); height: min(740px,88vh); padding: 24px; border: 0; background: var(--xy-paper); }
 .xy-review-settings-backdrop, .xy-review-settings.xy-modal-panel { opacity: 1 !important; }
 .xy-review-settings-backdrop.opacity-0 { background-color: transparent; backdrop-filter: none; }
-.xy-review-settings > .grid { grid-template-columns: 176px minmax(0,1fr); gap: 28px; }
-.xy-review-settings nav { padding-top: 5px; }
-.xy-review-settings .xy-settings-body { padding: 8px 12px 24px; }
 .xy-settings-archive h3 { margin-bottom: 18px; font-size: 14px; }
 .xy-settings-archive > div { display: flex; gap: 16px; justify-content: space-between; align-items: center; padding: 12px; margin-bottom: 6px; border-radius: 10px; background: var(--xy-paper-deep); }
 .xy-settings-archive span { min-width: 0; }
@@ -208,4 +204,4 @@ html[data-smoothness="on"] .xy-workbench-content { transition: transform 300ms c
 html[data-smoothness="off"] .xy-round-trace button.is-live::after { animation: none; transform: none; opacity: .4; }
 @media (prefers-reduced-motion:reduce) { .xy-round-trace button.is-live::after { animation: none; transform: none; opacity: .4; } .xy-round-event summary svg { transition: none; } }
 @media (max-width:900px) { .xy-review-workbench { position: absolute; z-index: 45; top: 0; bottom: 0; right: 0; max-width: calc(100% - 16px); background: var(--xy-paper); box-shadow: var(--xy-modal-shadow); } .xy-review-workbench.is-expanded { max-width: none; } .xy-review-layout .xy-pane-row > .xy-pane-slot:has(.xy-sidebar-chrome), .xy-review-layout .xy-pane-row > .xy-sidebar-chrome { position: absolute; top: 0; bottom: 0; left: 48px; z-index: 50; max-width: calc(100% - 48px); background: var(--xy-paper); box-shadow: var(--xy-modal-shadow); } }
-@media (max-width:600px) { .xy-activity-rail { width: 44px; flex-basis: 44px; gap: 6px; } .xy-review-layout .xy-pane-row > .xy-pane-slot:has(.xy-sidebar-chrome), .xy-review-layout .xy-pane-row > .xy-sidebar-chrome { left: 44px; max-width: calc(100% - 44px); } .xy-review-layout .xy-pane-row { padding-right: 4px; } .xy-round-event { padding: 15px; } .xy-review-settings > .grid { display: flex; flex-direction: column; gap: 12px; } .xy-review-settings nav { display: flex; gap: 4px; overflow-x: auto; flex-shrink: 0; } .xy-review-settings nav button { width: auto; flex-shrink: 0; white-space: nowrap; } .xy-review-layout .xy-review-settings.xy-modal-panel { padding: 16px; } .xy-review-settings .xy-settings-body { padding: 4px; } }
+@media (max-width:600px) { .xy-activity-rail { width: 44px; flex-basis: 44px; gap: 6px; } .xy-review-layout .xy-pane-row > .xy-pane-slot:has(.xy-sidebar-chrome), .xy-review-layout .xy-pane-row > .xy-sidebar-chrome { left: 44px; max-width: calc(100% - 44px); } .xy-review-layout .xy-pane-row { padding-right: 4px; } .xy-round-event { padding: 15px; } .xy-review-settings > .xy-settings-grid { display: flex; flex-direction: column; gap: 12px; } .xy-review-settings .xy-settings-nav { display: flex; gap: 4px; overflow-x: auto; flex-shrink: 0; } .xy-review-settings .xy-settings-nav button { width: auto; flex-shrink: 0; white-space: nowrap; } .xy-review-layout .xy-review-settings.xy-modal-panel { padding: 16px; } .xy-review-settings .xy-settings-body { padding: 4px; } }

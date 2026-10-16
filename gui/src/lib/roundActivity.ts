@@ -12,7 +12,7 @@ export type RoundActivity = {
 	tool?: ToolView;
 };
 
-/** All received events, in transcript order; never a planned sequence of stages. */
+/** 按对话记录顺序展示已收到的事件，不预设阶段顺序。 */
 export function roundActivities(blocks: TranscriptBlock[], settled: boolean, signalLive = false): RoundActivity[] {
 	const turns = blocks.filter(b => b.kind === 'turn');
 	const finalIds = settled ? finalRoundProseMessageIds(turns) : new Set<string>();
@@ -43,17 +43,17 @@ export function roundActivities(blocks: TranscriptBlock[], settled: boolean, sig
 
 export function toolCallLabel(tool: ToolView): string {
 	let args: Record<string, unknown> = {};
-	try { args = JSON.parse(tool.input) as Record<string, unknown>; } catch { /* plain arguments */ }
+	try { args = JSON.parse(tool.input) as Record<string, unknown>; } catch { /* 参数为普通文本，保留原样。 */ }
 	const detail = args?.command ?? args?.file_path ?? args?.path ?? args?.pattern ?? tool.input;
 	return `${tool.name} ${typeof detail === 'string' ? detail : ''}`.trim();
 }
 
-/** Compact action captions; complete arguments stay available in the detail. */
+/** 动作标题保持简短，完整参数保留在详情中。 */
 export function activityCaption(event: RoundActivity): string {
 	if (!event.tool) return event.label;
 	const tool = event.tool;
 	let args: Record<string, unknown> = {};
-	try { const parsed: unknown = JSON.parse(tool.input); if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) args = parsed as Record<string, unknown>; } catch { /* plain arguments */ }
+	try { const parsed: unknown = JSON.parse(tool.input); if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) args = parsed as Record<string, unknown>; } catch { /* 参数为普通文本，保留原样。 */ }
 	const cat = categorize(tool.name);
 	const path = args.file_path ?? args.path ?? args.filePath ?? args.notebook_path;
 	const detail = typeof path === 'string' ? path.replace(/\\/g, '/').split('/').at(-1) : cat === 'run' ? args.command ?? tool.input : cat === 'search' ? args.pattern ?? args.query : undefined;

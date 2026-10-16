@@ -4,7 +4,7 @@
  * 覆盖主路径：发（send）/ 停（stop）。权限 / reattach / 回溯按同一骨架后续补齐。
  * 门禁哲学与拆除脚本一致：失败即红。
  */
-import {fireEvent, render, screen} from '@testing-library/react';
+import {act, fireEvent, render, screen} from '@testing-library/react';
 import {beforeEach, describe, expect, it, vi} from 'vitest';
 import type {ChatStreamHandlers} from '@/lib/api';
 import {DEFAULT_SPACE_ID, replaceMessages} from '@/lib/db';
@@ -250,7 +250,13 @@ describe('主路径部件集成 — 发 / 停 / 权限 / reattach / 回溯', () 
 			sessionStreamActive(useChatStore.getState(), 'sess_test'),
 		).toBe(false);
 
-		// 助理文本渲染（真实 XyStreamdown 直出，非 MarkdownView mock）
+		// 助理文本渲染（真实 XyStreamdown 直出，非 MarkdownView mock）。
+		// 正文经 DeferredMarkdown 的 lazy 边界（启动期不加载 Markdown 解析器），
+		// 因此先等真实动态导入落定再断言：固定超时会与首次导入耗时赛跑，
+		// 全量并发下必然输给 transform 时间，把「正文迟到」误报成「正文缺失」。
+		await act(async () => {
+			await vi.dynamicImportSettled();
+		});
 		await vi.waitFor(() => {
 			expect(screen.getByText('Hello world')).toBeInTheDocument();
 		});

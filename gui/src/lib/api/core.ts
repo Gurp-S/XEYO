@@ -349,6 +349,8 @@ export type JobsStreamEvent = {
 
 /** 多 Agent：单个子任务卡片的运行时视图。 */
 export type MultiAgentTaskView = {
+	attemptId?: string;
+	runtimeUpdatedAt?: number;
 	uid: string;
 	taskId: string;
 	agentId: string;
@@ -376,10 +378,13 @@ export type MultiAgentTaskView = {
 	/** 累计 token（首轮 + follow-up 预算之和；progress/列表帧带来，>0 卡片角标）。 */
 	tokensUsed?: number;
 	/** 累计成本（CNY；title 提示用）。 */
-	costCny?: number;
+	costCny?: number | null;
+	costPartial?: boolean;
 };
 
 export type MultiAgentTaskStreamEvent = {
+	attemptId?: string;
+	attemptStartedAt?: number;
 	kind: 'multi_agent_task';
 	uid: string;
 	taskId: string;
@@ -397,6 +402,7 @@ export type MultiAgentResultStreamEvent = {
 
 /** 多 Agent：单个子任务的实时进度（开始/落定即时推送，不等全批）。 */
 export type MultiAgentProgressStreamEvent = {
+	attemptId?: string;
 	kind: 'multi_agent_progress';
 	uid: string;
 	taskId: string;
@@ -406,11 +412,13 @@ export type MultiAgentProgressStreamEvent = {
 	result?: string;
 	/** 落定帧携带：子 agent 累计 token / 成本。 */
 	tokensUsed?: number;
-	costCny?: number;
+	costCny?: number | null;
+	costPartial?: boolean;
 } & EventIdentity;
 
 /** 多 Agent：子 agent 输出的 token 级文本增量（同一 SSE 流内按 agent 有序）。 */
 export type MultiAgentDeltaStreamEvent = {
+	attemptId?: string;
 	kind: 'multi_agent_delta';
 	uid: string;
 	taskId: string;
@@ -982,6 +990,8 @@ export function parseSseBlock(part: string): ParsedSse | null {
 							: undefined;
 				return {
 					kind: 'multi_agent_task',
+					attemptId: xy.attempt_id == null ? undefined : String(xy.attempt_id),
+					attemptStartedAt: typeof xy.attempt_started_at === 'number' ? xy.attempt_started_at : undefined,
 					uid: String(xy.uid ?? xy.task_id ?? ''),
 					taskId: String(xy.task_id ?? ''),
 					agentId: String(xy.agent_id ?? ''),
@@ -1002,7 +1012,7 @@ export function parseSseBlock(part: string): ParsedSse | null {
 								return null;
 							}
 							const row = item as {
-								id?: unknown; uid?: unknown; agent_id?: unknown;
+								id?: unknown; uid?: unknown; agent_id?: unknown; attempt_id?: unknown;
 								desc?: unknown; status?: unknown; reason?: unknown; result?: unknown;
 								files_touched?: unknown;
 							};
@@ -1019,6 +1029,7 @@ export function parseSseBlock(part: string): ParsedSse | null {
 								uid,
 								taskId,
 								agentId: String(row.agent_id ?? ''),
+								attemptId: row.attempt_id == null && xy.attempt_id == null ? undefined : String(row.attempt_id ?? xy.attempt_id),
 								desc: String(row.desc ?? ''),
 								status: st === 'done' ? 'done' : 'failed',
 								reason: typeof row.reason === 'string' ? row.reason : undefined,
@@ -1034,6 +1045,7 @@ export function parseSseBlock(part: string): ParsedSse | null {
 					const st = String(xy.status ?? 'running');
 					return {
 						kind: 'multi_agent_progress',
+						attemptId: xy.attempt_id == null ? undefined : String(xy.attempt_id),
 						uid: String(xy.uid ?? xy.task_id ?? ''),
 						taskId: String(xy.task_id ?? ''),
 						agentId: String(xy.agent_id ?? ''),
@@ -1047,10 +1059,11 @@ export function parseSseBlock(part: string): ParsedSse | null {
 						// `Number(null) === 0` 会把未知读成免费，所以先判 null 再判数值。
 						costCny:
 							xy.cost_cny == null
-								? undefined
+								? (xy.cost_cny === null ? null : undefined)
 								: Number.isFinite(Number(xy.cost_cny))
 									? Math.max(0, Number(xy.cost_cny))
 									: undefined,
+						costPartial: typeof xy.cost_partial === 'boolean' ? xy.cost_partial : undefined,
 						...readIdentity(xy),
 					};
 				}
@@ -1061,6 +1074,7 @@ export function parseSseBlock(part: string): ParsedSse | null {
 				}
 				return {
 					kind: 'multi_agent_delta',
+					attemptId: xy.attempt_id == null ? undefined : String(xy.attempt_id),
 					uid: String(xy.uid ?? xy.task_id ?? ''),
 					taskId: String(xy.task_id ?? ''),
 					agentId: String(xy.agent_id ?? ''),

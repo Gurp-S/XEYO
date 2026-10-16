@@ -1,3 +1,5 @@
+import {reconcileStreamGap, finalizeFinishedTurn} from './streamGapReconcile';
+export {finalizeFinishedTurn} from './streamGapReconcile';
 import {createAssistantOutput} from './assistantOutput';
 import {mergeTranscript} from '@/lib/transcriptOrder';
 /**
@@ -92,33 +94,6 @@ const sleep = (ms: number) =>
 	new Promise<void>(resolve => setTimeout(resolve, ms));
 
 /**
- * T29：回合在断连期间已结束 → 以服务端 transcript 收尾（不报错）。
- */
-export function finalizeFinishedTurn(
-	set: SetState,
-	sessionId: string,
-	msgs: ChatMessage[],
-	note = '回合已结束（连接曾中断，已恢复最终内容）',
-	isCurrent: () => boolean = () => true,
-): void {
-	if (!isCurrent()) return;
-	set(s => ({
-		messagesById: {...s.messagesById, [sessionId]: msgs},
-		sessionStreams: patchSessionStream(s.sessionStreams, sessionId, {
-			isLoading: false,
-			streamingText: '',
-			streamingShown: '',
-			statusText: note,
-			abortRef: null,
-			turnDetached: false,
-			draining: false,
-			remoteStreaming: false,
-		}),
-	}));
-	void replaceMessages(sessionId, msgs, isCurrent);
-}
-
-/**
  * T29 断流恢复管线（绝不 interrupt）：
  * 重试上限内 task 探测 → reattach（其内部自带断流重连）→
  * 回合已结束则拉服务端 transcript 收尾；失败返回 false，由调用方显式呈现断连。
@@ -154,8 +129,7 @@ export async function recoverAfterDisconnect(
 				const msgs = await loadServerSessionMessages(backendSessionId);
 				if (!stillExists()) return true;
 				if (msgs.length > 0) {
-					finalizeFinishedTurn(set, sessionId, msgs, undefined, ownership.isCurrent);
-					return true;
+					return await finalizeFinishedTurn(set, sessionId, msgs, undefined, ownership.isCurrent);
 				}
 				// transcript 暂时拉不到：退避后重试
 			} else {
@@ -633,16 +607,8 @@ export function createStreamRecoverySlice(
 					onDone() {
 						flushDelta();
 						if (sawGap) {
-							// 重放有洞：本地尾巴是缺段，绝不能当完整内容提交 ⇒ 用服务端
-							// transcript 收尾；拉不到（网络/空集）再退回本地提交，不静默卡住。
-							void loadServerSessionMessages(backendSessionId).then(server => {
-								if (!ownership.isCurrent()) return;
-								if (server.length > 0) {
-									finalizeFinishedTurn(set, sessionId, server, undefined, ownership.isCurrent);
-									return;
-								}
-								commitLocalTail();
-							});
+							void reconcileStreamGap(set, sessionId, backendSessionId, ownership.isCurrent,
+								server => finalizeFinishedTurn(set, sessionId, server, undefined, ownership.isCurrent));
 							return;
 						}
 						commitLocalTail();
@@ -669,6 +635,7 @@ export function createStreamRecoverySlice(
 						backendSessionId,
 						cursorNow,
 						sessionScopedStreamHandlers(handlers, ownership.isCurrent),
+						task.turn_id,
 					);
 				} catch (err) {
 					// streamTurnEvents 自身不抛连接错误（都走 onError）；保守按连接失败重试

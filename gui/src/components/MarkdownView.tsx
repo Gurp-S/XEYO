@@ -1,14 +1,15 @@
-import {memo, useEffect, useMemo, useState} from 'react';
+import {memo, useEffect, useMemo, useRef, useState} from 'react';
+import {followDeferredMarkdownAnchor} from '@/lib/deferredMarkdownAnchor';
 import {perfTrace} from '@/lib/perfTrace';
 import {
 	prepareStaticMarkdown,
 	promoteDisplayMath,
 	sanitizeMarkdown,
-} from '@/lib/markdownStaticCache';
-import {XyStreamdown} from './XyStreamdown';
+} from '@/lib/markdownPrepare';
+import {DeferredMarkdown as XyStreamdown} from './DeferredMarkdown';
 import {ImageReaderDialog, type ImageReaderSource} from './ImageReader';
 
-// 规范实现移至 markdownStaticCache（含记忆化）；此处 re-export 兼容既有导入。
+// 预处理与解析器依赖分开；此处 re-export 兼容既有导入。
 export {sanitizeMarkdown, promoteDisplayMath};
 
 type Props = {
@@ -35,10 +36,6 @@ export function markdownHasMath(content: string): boolean {
 	return content.includes('$');
 }
 
-function scrollToHeading(id: string) {
-	document.getElementById(id)?.scrollIntoView({block: 'start', behavior: 'smooth'});
-}
-
 /**
  * 静态 / 文件预览 Markdown：同一 Streamdown 内核（static）。
  */
@@ -59,17 +56,17 @@ function MarkdownViewInner({
 		[content],
 	);
 	const [imagePreview, setImagePreview] = useState<ImageReaderSource | null>(null);
+	const rootRef = useRef<HTMLDivElement>(null);
 
 	useEffect(() => {
 		if (!scrollToId) {
 			return;
 		}
-		const t = window.setTimeout(() => scrollToHeading(scrollToId), 40);
-		return () => window.clearTimeout(t);
+		return followDeferredMarkdownAnchor(rootRef.current, scrollToId);
 	}, [safe, scrollToId]);
 
 	return (
-		<div className={className}>
+		<div ref={rootRef} className={className}>
 			<XyStreamdown
 				content={safe}
 				streaming={false}

@@ -3,7 +3,7 @@ import {createPortal} from 'react-dom';
 
 export const WorkbenchOverlayHost = createContext<HTMLElement | null>(null);
 
-/** Enlarged tools keep covering the chat host after nesting the workbench. */
+/** 工作台嵌套后，放大的工具面板仍覆盖聊天容器。 */
 export function WorkbenchOverlay({children}: {children: ReactNode}) {
  const host = useContext(WorkbenchOverlayHost);
  return host ? createPortal(children, host) : children;

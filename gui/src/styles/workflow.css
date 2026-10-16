@@ -1,7 +1,4 @@
-/* Domain barrel: was monolithic src/styles/workflow.css.
- * Children below are a partition of the previous body; cascade order matters.
- * Restore: copy workflow.css.pre-split.bak over this file.
- */
+/* 工作流样式入口；下列文件的顺序决定样式层叠结果。 */
 
 @import "./workflow-split.css";
 @import "./workflow-morph.css";

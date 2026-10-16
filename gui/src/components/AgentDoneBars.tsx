@@ -6,6 +6,7 @@ import {cn} from '@/lib/utils';
 import {isSmoothnessOn, useSettingsStore} from '@/stores/settingsStore';
 import {ThoughtTicker} from './activity/MorphVerb';
 import {canOpenAgentTask, canRetryAgentTask} from '@/lib/agentTaskActions';
+import {agentUsageTitle} from '@/lib/agentUsage';
 
 /** 可扫视短名：序号 + 任务描述首段，避免千篇一律的 "Agent"。 */
 export function agentDisplayName(desc: string, index: number): string {
@@ -133,6 +134,7 @@ const AgentBar = memo(function AgentBar({
 	const pending = task.status === 'pending';
 	const failed = task.status === 'failed';
 	const done = task.status === 'done';
+	const resumable = done && (task.inboxCount ?? 0) > 0;
 	const clickable = Boolean(task.agentId);
 	const taskName = task.desc?.trim() || `子任务 ${index + 1}`;
 	const label = agentDisplayName(task.desc, index);
@@ -222,7 +224,7 @@ const AgentBar = memo(function AgentBar({
 				<span
 					className="xy-agent-bar-inbox rounded px-1 text-[10px] leading-tight text-amber-300"
 					style={{background: 'rgba(251,191,36,.12)'}}
-					title={`${task.inboxCount} 条 follow-up 已排队（回合结束后自动续跑）`}
+					title={`${task.inboxCount} 条消息待投递；运行中在下次模型请求时接收，已结束的子任务需继续执行`}
 				>
 					+{task.inboxCount}
 				</span>
@@ -230,11 +232,7 @@ const AgentBar = memo(function AgentBar({
 			{task.tokensUsed ? (
 				<span
 					className="xy-agent-bar-tokens"
-					title={
-						task.costCny
-							? `共消耗 ${task.tokensUsed.toLocaleString()} tokens，约 ¥${task.costCny.toFixed(4)}`
-							: `共消耗 ${task.tokensUsed.toLocaleString()} tokens`
-					}
+					title={agentUsageTitle(task)}
 				>
 					{formatTokensUsed(task.tokensUsed)}
 				</span>
@@ -262,7 +260,7 @@ const AgentBar = memo(function AgentBar({
 					)}
 				</span>
 			</button>
-			{(running || failed) && task.agentId ? (
+			{(running || failed || resumable) && task.agentId ? (
 				<span className="xy-agent-bar-actions">
 					{running ? (
 						<button
@@ -278,19 +276,19 @@ const AgentBar = memo(function AgentBar({
 							{cancelling ? '取消中' : '取消'}
 						</button>
 					) : null}
-					{failed ? (
+					{failed || resumable ? (
 						<button
 							type="button"
 							className="xy-agent-bar-action"
-							aria-label={`重试 ${taskName}`}
-							title={archived ? '归档对话不能启动新的子任务，请先恢复' : '重试子任务'}
+							aria-label={`${resumable ? '继续' : '重试'} ${taskName}`}
+							title={archived ? '归档对话不能启动新的子任务，请先恢复' : resumable ? '继续子任务并接收待投递消息' : '重试子任务'}
 							disabled={!canRetryAgentTask(archived, task.agentId)}
 							onClick={e => {
 								e.stopPropagation();
 								if (canRetryAgentTask(archived, task.agentId)) onRetry();
 							}}
 						>
-							重试
+							{resumable ? '继续' : '重试'}
 						</button>
 					) : null}
 				</span>

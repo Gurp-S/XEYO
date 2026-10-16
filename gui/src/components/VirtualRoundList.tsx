@@ -174,8 +174,8 @@ export function VirtualRoundList({
 		const update = () => setWin(prev =>
 			prev.start === next.start && prev.end === next.end ? prev : next,
 		);
-		// Initial landing must finish before paint. During scrolling, let input
-		// and paint interrupt offscreen Markdown preparation within overscan.
+		// 首次定位在绘制前完成；滚动期间允许输入和绘制
+		// 打断预渲染区域中屏幕外 Markdown 的准备工作。
 		if (urgent) update(); else startTransition(update);
 	}, [ensurePrefix]);
 

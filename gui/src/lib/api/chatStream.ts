@@ -1,4 +1,4 @@
-import {rememberTurnCursor} from './turnCursor';
+import {readTurnIdentity, rememberTurnCursor} from './turnCursor';
 export {readTurnCursor, rememberTurnCursor} from './turnCursor';
 /**
  * 归属：从 components/MessageList.tsx 巨石拆分而来（spec api2: chatStream，2026 拆分）。
@@ -59,9 +59,11 @@ export async function streamChat(
 
 	let res: Response;
 	const watchdog = createStreamWatchdog(handlers.signal);
-	// event_id 每 turn 从 1 重新编号 ⇒ 本轮起点先把会话级游标归零；否则 reattach
-	// 会拿上一轮的大游标把本轮帧全部滤掉（后端另有同向钳制，两处口径一致）。
-	rememberTurnCursor(sessionId, 0);
+	// Capture before sending. A queued/steered submission does not start a new
+	// turn; its receipt must not erase the active stream's identity or cursor.
+	// readTurnCursor compares turn ids when reconnecting; the first new-turn
+	// frame replaces the saved cursor.
+	const expectedTurnId = options?.steerIfBusy ? readTurnIdentity(sessionId) : undefined;
 	try {
 		res = await fetch(apiUrl('/v1/chat/completions'), {
 			method: 'POST',
@@ -82,7 +84,7 @@ export async function streamChat(
 							// 引导（steer）：忙时改走**边界**投递（下一轮采样前），
 							// 作为真 user 消息进历史，不打断正在进行的工具批次。
 							// 默认关——保持"排队等 settle"的既有语义，调用方显式开启。
-							...(options?.steerIfBusy ? {steer_if_busy: true} : {}),
+							...(options?.steerIfBusy ? {steer_if_busy: true, expected_turn_id: expectedTurnId} : {}),
 						}),
 					// 侧聊（side- 前缀会话）：复用同一回合链路，body.side 让后端
 					// 收紧到只读工具白名单并跳过 workspace 内容注入；也不绑定
@@ -397,6 +399,9 @@ export type ServerSession = {
 
 /** 多 Agent：子 agent 元数据（卡片列表条目）。 */
 export type SessionAgentMeta = {
+	attemptId?: string;
+	updatedAt?: number;
+	runtimeState?: string;
 	agentId: string;
 	taskId: string;
 	desc: string;
@@ -409,6 +414,8 @@ export type SessionAgentMeta = {
 	inboxCount?: number;
 	/** 累计 token（meta 持久化带来；历史批卡片角标）。 */
 	tokensUsed?: number;
+	costCny?: number | null;
+	costPartial?: boolean;
 };
 
 /** 列出会话跑过的子 agent（多 Agent 卡片 / 历史回放入口）。 */
@@ -418,11 +425,13 @@ export async function streamTurnEvents(
 	sessionId: string,
 	cursor: number,
 	handlers: ChatStreamHandlers,
+	expectedTurnId?: string,
 ): Promise<void> {
 	const watchdog = createStreamWatchdog(handlers.signal);
 	let res: Response;
 	try {
 		const q = new URLSearchParams({cursor: String(Math.max(0, cursor))});
+		if (expectedTurnId) q.set('expected_turn_id', expectedTurnId);
 		res = await fetch(
 			apiUrl(
 				`/v1/sessions/${encodeURIComponent(sessionId)}/turns/current/events?${q}`,

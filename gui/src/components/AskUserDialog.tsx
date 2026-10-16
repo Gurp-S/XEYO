@@ -1,3 +1,4 @@
+import {TaskCardBody} from './composer/TaskCardBody';
 import {useRef, useState} from 'react';
 import {ChevronDown, ChevronLeft, ChevronRight} from 'lucide-react';
 import {resolveAsk, resolveFailureText} from '@/lib/api';
@@ -169,7 +170,58 @@ function QuestionFlow({
 	const hasOptions = q.options.length > 0;
 
 	return (
-		<div>
+<TaskCardBody actions={<>
+			<div className="xy-panel-ask-foot">
+				<div className="xy-ask-pager">
+					<button
+						type="button"
+						className="xy-ask-icon-btn"
+						aria-label="上一题"
+						disabled={index === 0 || submitting}
+						onClick={() => go(index - 1)}
+					>
+						<ChevronLeft className="size-3.5" />
+					</button>
+					<span className="xy-ask-progress">
+						{index + 1} / {questions.length}
+					</span>
+					<button
+						type="button"
+						className="xy-ask-icon-btn"
+						aria-label="下一题"
+						disabled={index === questions.length - 1 || submitting}
+						onClick={() => go(index + 1)}
+					>
+						<ChevronRight className="size-3.5" />
+					</button>
+				</div>
+				<span className="xy-ask-feedback" role="status">
+					{error}
+				</span>
+				<div className="xy-ask-foot-actions">
+					<button
+						type="button"
+						className="xy-ask-skip"
+						disabled={submitting}
+						onClick={skip}
+					>
+						跳过
+					</button>
+					<button
+						type="button"
+						className="xy-panel-ask-submit xy-ask-next"
+						disabled={submitting || !answered(draft)}
+						onClick={continueFlow}
+					>
+						{submitting
+							? '提交中…'
+							: index === questions.length - 1
+								? '提交全部答案'
+								: '下一题'}
+					</button>
+				</div>
+			</div> </>}>
+
 			{q.header ? <div className="xy-panel-ask-eyebrow">{q.header}</div> : null}
 			<div className="xy-panel-ask-q">
 				{index + 1}. {q.question}
@@ -306,57 +358,7 @@ function QuestionFlow({
 				/>
 			)}
 
-			<div className="xy-panel-ask-foot">
-				<div className="xy-ask-pager">
-					<button
-						type="button"
-						className="xy-ask-icon-btn"
-						aria-label="上一题"
-						disabled={index === 0 || submitting}
-						onClick={() => go(index - 1)}
-					>
-						<ChevronLeft className="size-3.5" />
-					</button>
-					<span className="xy-ask-progress">
-						{index + 1} / {questions.length}
-					</span>
-					<button
-						type="button"
-						className="xy-ask-icon-btn"
-						aria-label="下一题"
-						disabled={index === questions.length - 1 || submitting}
-						onClick={() => go(index + 1)}
-					>
-						<ChevronRight className="size-3.5" />
-					</button>
-				</div>
-				<span className="xy-ask-feedback" role="status">
-					{error}
-				</span>
-				<div className="xy-ask-foot-actions">
-					<button
-						type="button"
-						className="xy-ask-skip"
-						disabled={submitting}
-						onClick={skip}
-					>
-						跳过
-					</button>
-					<button
-						type="button"
-						className="xy-panel-ask-submit xy-ask-next"
-						disabled={submitting || !answered(draft)}
-						onClick={continueFlow}
-					>
-						{submitting
-							? '提交中…'
-							: index === questions.length - 1
-								? '提交全部答案'
-								: '下一题'}
-					</button>
-				</div>
-			</div>
-		</div>
+</TaskCardBody>
 	);
 }
 
@@ -451,25 +453,7 @@ function AskCard({pending}: {pending: PendingAskInfo}) {
 						onSubmit={a => void doResolve(a)}
 					/>
 				) : (
-					<>
-						<div className="xy-panel-ask-q">{pending.question}</div>
-
-						{options.length > 0 ? (
-							<div className="xy-panel-ask-opts">
-								{options.map((opt, oi) => (
-									<button
-										key={`${oi}-${opt}`}
-										type="button"
-										className="xy-panel-ask-opt"
-										disabled={submitting}
-										onClick={() => submit(opt)}
-									>
-										{opt}
-									</button>
-								))}
-							</div>
-						) : null}
-
+<TaskCardBody actions={<>
 						<div className="xy-panel-ask-free">
 							<input
 								autoFocus={freeText}
@@ -502,8 +486,27 @@ function AskCard({pending}: {pending: PendingAskInfo}) {
 									<path d="M12 19V5M6 11l6-6 6 6" />
 								</svg>
 							</button>
-						</div>
-					</>
+						</div> </>}>
+
+						<div className="xy-panel-ask-q">{pending.question}</div>
+
+						{options.length > 0 ? (
+							<div className="xy-panel-ask-opts">
+								{options.map((opt, oi) => (
+									<button
+										key={`${oi}-${opt}`}
+										type="button"
+										className="xy-panel-ask-opt"
+										disabled={submitting}
+										onClick={() => submit(opt)}
+									>
+										{opt}
+									</button>
+								))}
+							</div>
+						) : null}
+
+</TaskCardBody>
 				)}
 			</PanelCollapse>
 		</div>

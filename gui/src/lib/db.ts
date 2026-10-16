@@ -30,7 +30,7 @@ export interface XeyoDB extends DBSchema {
 		indexes: {'by-updated': number; 'by-space': string};
 	};
 	messages: {
-		key: string;
+		key: [string, string];
 		value: ChatMessage & {sessionId: string};
 		indexes: {'by-session': string};
 	};
@@ -51,10 +51,30 @@ const DELETED_SPACE_PATHS_KEY = 'deleted-space-paths';
 const SIDE_CHAT_SESSIONS_KEY = 'side-chat-sessions';
 const SIDE_CHAT_ACTIVE_KEY = 'side-chat-active';
 
-function dbUpgrade(db: any, _oldVersion: number) {
-	if (!db.objectStoreNames.contains('messages')) {
-		const messages = db.createObjectStore('messages', {keyPath: 'id'});
+function dbUpgrade(db: any, _oldVersion: number, _newVersion: number | null, tx?: any) {
+	const createMessages = () => {
+		const messages = db.createObjectStore('messages', {keyPath: ['sessionId', 'id']});
 		messages.createIndex('by-session', 'sessionId');
+	};
+	if (!db.objectStoreNames.contains('messages')) {
+		createMessages();
+	} else {
+		const existing = tx?.objectStore('messages');
+		const keyPath = existing?.keyPath;
+		if (!(Array.isArray(keyPath) && keyPath[0] === 'sessionId' && keyPath[1] === 'id')) {
+			const rowsRequest = existing.getAll();
+			rowsRequest.onsuccess = () => {
+				const rows = rowsRequest.result as Array<Record<string, unknown>>;
+				db.deleteObjectStore('messages');
+				createMessages();
+				const upgraded = tx.objectStore('messages');
+				for (const row of rows) {
+					if (typeof row.sessionId === 'string' && typeof row.id === 'string') {
+						upgraded.put(row);
+					}
+				}
+			};
+		}
 	}
 	if (!db.objectStoreNames.contains('sessions')) {
 		const sessions = db.createObjectStore('sessions', {keyPath: 'id'});
@@ -99,152 +119,114 @@ async function loadTombstoneIds(key: string): Promise<Set<string>> {
 	}
 }
 
-async function markMigrationComplete(db: IDBPDatabase<XeyoDB>): Promise<void> {
-	await db.put('kv', '1', MIGRATED_KEY);
+async function finalizeMigration(db: IDBPDatabase<XeyoDB>): Promise<IDBPDatabase<XeyoDB>> {
+	// Another tab running the old app can still write after this copy. Keep the
+	// source database and make future opens replay the idempotent merge.
+	await db.put('kv', 'pending', MIGRATED_KEY);
+	return db;
 }
 
-function dropOldDatabase(): void {
-	try {
-		indexedDB.deleteDatabase(OLD_DB_NAME);
-	} catch {
-		/* 忽略 */
-	}
-}
-
-async function mergeKvTombstones(
-	db: IDBPDatabase<XeyoDB>,
-	key: string,
-	incomingRaw: string | undefined,
-): Promise<void> {
-	if (incomingRaw === undefined) {
-		return;
-	}
-	const existing = await db.get('kv', key);
-	let merged = new Set<string>();
-	for (const raw of [existing, incomingRaw]) {
-		if (!raw) {
-			continue;
-		}
+function mergeTombstoneRaw(existing: string | undefined, incoming: string): string {
+	const merged = new Set<string>();
+	for (const raw of [existing, incoming]) {
+		if (!raw) continue;
 		try {
 			const parsed = parseJsonValue(raw);
 			if (Array.isArray(parsed)) {
 				for (const item of parsed) {
-					if (typeof item === 'string' && item.trim()) {
-						merged.add(item.trim());
-					}
+					if (typeof item === 'string' && item.trim()) merged.add(item.trim());
 				}
 			}
 		} catch {
-			/* 忽略畸形的墓碑数据 */
+			/* Keep the other valid tombstone source. */
 		}
 	}
-	if (merged.size === 0) {
-		return;
-	}
-	await db.put('kv', JSON.stringify([...merged]), key);
-}
-
-async function finalizeMigration(db: IDBPDatabase<XeyoDB>): Promise<IDBPDatabase<XeyoDB>> {
-	await markMigrationComplete(db);
-	dropOldDatabase();
-	return db;
+	return JSON.stringify([...merged]);
 }
 
 async function migrateOldDb(): Promise<IDBPDatabase<XeyoDB>> {
+	const newDb = await openDB<XeyoDB>(NEW_DB_NAME, 5, {upgrade: dbUpgrade});
+	if ((await newDb.get('kv', MIGRATED_KEY)) === 'complete') return newDb;
+
+	let oldDb: IDBPDatabase<XeyoDB>;
 	try {
-		const existing = await openDB<XeyoDB>(NEW_DB_NAME, 4, {upgrade: dbUpgrade});
-		const flag = await existing.get('kv', MIGRATED_KEY);
-		if (flag) {
-			return existing;
-		}
+		oldDb = await openDB<XeyoDB>(OLD_DB_NAME, 4);
 	} catch {
-		/* 新库尚未就绪 */
+		// There is no readable source database to migrate or delete.
+		return newDb;
 	}
 
 	try {
-		const newDb = await openDB<XeyoDB>(NEW_DB_NAME, 4, {upgrade: dbUpgrade});
-		const newHasData =
-			(await newDb.count('sessions')) > 0 ||
-			(await newDb.count('messages')) > 0 ||
-			(await newDb.count('spaces')) > 0;
-
-		let oldDb: IDBPDatabase<XeyoDB> | null = null;
-		try {
-			oldDb = await openDB<XeyoDB>(OLD_DB_NAME, 4);
-		} catch {
-			oldDb = null;
+		const oldSpaces = await oldDb.getAll('spaces');
+		const oldSessions = await oldDb.getAll('sessions');
+		const oldMessages = await oldDb.getAll('messages');
+		const oldKvKeys = await oldDb.getAllKeys('kv');
+		const oldKv: Array<{key: string; value: string}> = [];
+		for (const key of oldKvKeys) {
+			if (key === MIGRATED_KEY) continue;
+			const value = await oldDb.get('kv', key);
+			if (value !== undefined) oldKv.push({key: String(key), value});
 		}
-
-		if (!oldDb) {
-			return finalizeMigration(newDb);
-		}
-
-		const oldHasData =
-			(await oldDb.count('sessions')) > 0 ||
-			(await oldDb.count('messages')) > 0 ||
-			(await oldDb.count('spaces')) > 0;
-
-		if (!oldHasData || newHasData) {
-			// 新库已有数据时绝不从旧库覆盖（否则每次启动会把已删条目复活）。
+		const hasSourceData = oldSpaces.length + oldSessions.length + oldMessages.length + oldKv.length > 0;
+		if (!hasSourceData) {
 			oldDb.close();
 			return finalizeMigration(newDb);
 		}
 
-		for (const name of ['spaces', 'sessions', 'messages'] as const) {
-			const all = await oldDb.getAll(name);
-			if (all.length === 0) {
-				continue;
-			}
-			const tx = newDb.transaction(name, 'readwrite');
-			for (const item of all) {
-				await tx.store.put(item as ChatSpace | ChatSession | (ChatMessage & {sessionId: string}));
-			}
+		// Existing target rows win key conflicts. The copy and migration marker
+		// commit in one transaction, so a failed copy leaves the source intact
+		// and the next open can safely retry missing rows.
+		const tombstoneKeys = new Set([
+			DELETED_SESSIONS_KEY,
+			DELETED_SPACES_KEY,
+			DELETED_SPACE_PATHS_KEY,
+		]);
+		const tx = newDb.transaction(['spaces', 'sessions', 'messages', 'kv'], 'readwrite');
+		const [migrationFlag, newSpaces, newSessions, newMessages, newKvKeys] = await Promise.all([
+			tx.objectStore('kv').get(MIGRATED_KEY),
+			tx.objectStore('spaces').getAll(),
+			tx.objectStore('sessions').getAll(),
+			tx.objectStore('messages').getAll(),
+			tx.objectStore('kv').getAllKeys(),
+		]);
+		if (migrationFlag === 'complete') {
 			await tx.done;
+			oldDb.close();
+			return newDb;
 		}
-
-		const kvKeys = await oldDb.getAllKeys('kv');
-		if (kvKeys.length > 0) {
-			const tombstoneKeys = new Set([
-				DELETED_SESSIONS_KEY,
-				DELETED_SPACES_KEY,
-				DELETED_SPACE_PATHS_KEY,
-			]);
-			const regularKv: Array<{key: string; value: string}> = [];
-			for (const key of kvKeys) {
-				if (key === MIGRATED_KEY) {
-					continue;
-				}
-				const value = await oldDb.get('kv', key);
-				if (value === undefined) {
-					continue;
-				}
-				if (tombstoneKeys.has(key)) {
-					await mergeKvTombstones(newDb, key, value);
-					continue;
-				}
-				regularKv.push({key, value});
-			}
-			if (regularKv.length > 0) {
-				const tx = newDb.transaction('kv', 'readwrite');
-				for (const {key, value} of regularKv) {
-					await tx.store.put(value, key);
-				}
-				await tx.done;
+		const spaceIds = new Set(newSpaces.map(row => row.id));
+		const sessionIds = new Set(newSessions.map(row => row.id));
+		const messageIds = new Set(
+			newMessages.map(row => JSON.stringify([row.sessionId, row.id])),
+		);
+		const kvKeys = new Set(newKvKeys.map(String));
+		for (const row of oldSpaces) if (!spaceIds.has(row.id)) await tx.objectStore('spaces').put(row);
+		for (const row of oldSessions) if (!sessionIds.has(row.id)) await tx.objectStore('sessions').put(row);
+		for (const row of oldMessages) {
+			const message = row as ChatMessage & {sessionId: string};
+			const messageKey = JSON.stringify([message.sessionId, message.id]);
+			if (typeof message.sessionId === 'string' && !messageIds.has(messageKey)) {
+				await tx.objectStore('messages').put(message);
 			}
 		}
-
+		for (const item of oldKv) {
+			if (tombstoneKeys.has(item.key)) {
+				const existing = await tx.objectStore('kv').get(item.key);
+				await tx.objectStore('kv').put(mergeTombstoneRaw(existing, item.value), item.key);
+			} else if (!kvKeys.has(item.key)) {
+				await tx.objectStore('kv').put(item.value, item.key);
+			}
+		}
+		await tx.objectStore('kv').put('pending', MIGRATED_KEY);
+		await tx.done;
 		oldDb.close();
-		return finalizeMigration(newDb);
-	} catch (e) {
-		console.warn('[XEYO] migration skipped:', e);
-		try {
-			const newDb = await openDB<XeyoDB>(NEW_DB_NAME, 4, {upgrade: dbUpgrade});
-			return finalizeMigration(newDb);
-		} catch {
-			/* 继续向下执行 */
-		}
+		return newDb;
+	} catch (error) {
+		oldDb.close();
+		console.warn('[XEYO] migration skipped:', error);
+		// No migration marker and no source deletion: next open can retry.
+		return newDb;
 	}
-	return openDB<XeyoDB>(NEW_DB_NAME, 4, {upgrade: dbUpgrade});
 }
 
 function openXEYODb() {
@@ -559,7 +541,7 @@ export async function patchMessages(
 	if (isCurrent && !isCurrent()) return;
 	const tx = database.transaction('messages', 'readwrite');
 	await idbBatch(messages, async m => {
-		const previous = await tx.store.get(m.id);
+		const previous = await tx.store.get([sessionId, m.id]);
 		if (isCurrent && !isCurrent()) return;
 		await tx.store.put({...persistableMessage(m), sessionId,
 			...(m.transcriptOrder == null && previous?.transcriptOrder != null
@@ -580,7 +562,7 @@ export async function updateMessageText(
 	const database = await openXEYODb();
 	if (isCurrent && !isCurrent()) return;
 	const tx = database.transaction('messages', 'readwrite');
-	const row = await tx.store.get(messageId);
+	const row = await tx.store.get([sessionId, messageId]);
 	if (isCurrent && !isCurrent()) {tx.abort(); await tx.done.catch(() => {}); return;}
 	if (row?.sessionId === sessionId) {
 		const {sessionId: storedSessionId, ...message} = row;
@@ -601,10 +583,10 @@ export async function deleteMessageForSession(
 	const database = await openXEYODb();
 	if (isCurrent && !isCurrent()) return;
 	const tx = database.transaction('messages', 'readwrite');
-	const row = await tx.store.get(messageId);
+	const row = await tx.store.get([sessionId, messageId]);
 	if (isCurrent && !isCurrent()) {tx.abort(); await tx.done.catch(() => {}); return;}
 	if (row?.sessionId === sessionId) {
-		await tx.store.delete(messageId);
+		await tx.store.delete([sessionId, messageId]);
 	}
 	await tx.done;
 }

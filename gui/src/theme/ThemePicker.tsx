@@ -80,6 +80,7 @@ export function ThemePicker({value, onChange, compact = false, className}: Props
 	return (
 		<div
 			className={cn(
+				'xy-theme-picker',
 				'grid gap-2',
 				compact ? 'grid-cols-3 w-[236px]' : 'grid-cols-3',
 				className,

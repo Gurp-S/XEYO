@@ -8,7 +8,7 @@ beforeEach(() => {
 	vi.stubGlobal('requestAnimationFrame', vi.fn(callback => {frames.push(callback); return frames.length;}));
 	vi.stubGlobal('cancelAnimationFrame', vi.fn());
 });
-afterEach(() => {activeDrains.clear(); vi.unstubAllGlobals();});
+afterEach(() => {activeDrains.clear(); vi.unstubAllGlobals(); vi.useRealTimers();});
 
 function fixture() {
 	let state = {activeId: null, messagesById: {gui: []}, sessionTodosById: {},
@@ -44,4 +44,40 @@ it.each(['finish', 'discard'] as const)('old %s cannot release a replacement dra
 it('a current drain finishes and releases its own registration', () => {
 	const f = fixture(); const drain = f.make(); drain.start(); drain.finish();
 	expect(f.finish).toHaveBeenCalledOnce(); expect(activeDrains.has('gui')).toBe(false);
+});
+
+it('finishes without another animation frame when the window is occluded', () => {
+	vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout']});
+	const f = fixture(); const drain = f.make(); drain.start();
+	vi.advanceTimersByTime(150);
+	expect(f.finish).toHaveBeenCalledOnce();
+	expect(activeDrains.has('gui')).toBe(false);
+	frames[0]!(150);
+	expect(f.finish).toHaveBeenCalledOnce();
+});
+
+it('a stale deadline cannot settle a replacement turn', () => {
+	vi.useFakeTimers();
+	const f = fixture(); const old = f.make(); old.start();
+	vi.advanceTimersByTime(50);
+	const current = f.make(); current.start();
+	const owner = activeDrains.get('gui');
+	vi.advanceTimersByTime(100);
+	expect(f.finish).not.toHaveBeenCalled();
+	expect(activeDrains.get('gui')).toBe(owner);
+	current.discard();
+	vi.advanceTimersByTime(200);
+	expect(f.finish).not.toHaveBeenCalled();
+});
+
+it('commits immediately on hiding the document and removes the listener', () => {
+	vi.useFakeTimers();
+	const f = fixture(); const drain = f.make(); drain.start();
+	const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+	document.dispatchEvent(new Event('visibilitychange'));
+	expect(f.finish).toHaveBeenCalledOnce();
+	document.dispatchEvent(new Event('visibilitychange'));
+	vi.advanceTimersByTime(200);
+	expect(f.finish).toHaveBeenCalledOnce();
+	visibility.mockRestore();
 });

@@ -3,7 +3,7 @@
   container-type: inline-size;
 }
 
-/* Keep edit controls inside the bubble in narrow chat columns and side panes. */
+/* 聊天列或侧栏较窄时，编辑控件仍保持在气泡内部。 */
 @container xy-prompt-edit (max-width: 340px) {
   .xy-prompt-edit-toolbar {
     flex-wrap: wrap;

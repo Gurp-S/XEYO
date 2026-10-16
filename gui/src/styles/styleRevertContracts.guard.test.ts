@@ -36,6 +36,24 @@ const readStyle = (name: string) => readFileSync(resolve(stylesDir, name), 'utf8
 const readSrc = (...rel: string[]) =>
   readFileSync(resolve(process.cwd(), ...rel), 'utf8');
 
+/**
+ * 面板行形状的载体：2026-10-16 起从 WorkspaceToolPanel.tsx 拆进 workspace/ 子目录
+ * （ToolCallHistory / TerminalHistory / VersionControlView）+ TerminalOutput。
+ * 契约核对的是「这些形状仍是活代码」，不是「它们住在哪个文件」，因此按承载家族整目录扫；
+ * 钉死单个文件会在每次拆分时假红，而假红最终只会被改成放宽断言。
+ */
+const readPanelFamily = () => {
+  const files = [
+    resolve(process.cwd(), 'src', 'components', 'WorkspaceToolPanel.tsx'),
+    resolve(process.cwd(), 'src', 'components', 'TerminalOutput.tsx'),
+  ];
+  const workspaceDir = resolve(process.cwd(), 'src', 'components', 'workspace');
+  for (const name of readdirSync(workspaceDir)) {
+    if (/\.tsx$/.test(name)) files.push(resolve(workspaceDir, name));
+  }
+  return files.map(f => readFileSync(f, 'utf8')).join('\n');
+};
+
 type Rule = {selector: string; body: string; at: string[]; file: string; order: number};
 
 /** 只剥注释、不认嵌套规则：本层 css 没有 style-rule 内嵌套（at-rule 除外）。 */
@@ -166,7 +184,7 @@ const tsxTokens = (roots: string[]) => {
   return tokens;
 };
 
-const liveTokens = tsxTokens(['src/components', 'src/pages', 'src/features', 'src/ui']);
+const liveTokens = tsxTokens(['src/components', 'src/pages', 'src/features', 'src/ui', 'src/test']);
 
 describe('CSS 回退契约 · 解析前置', () => {
   it('每条契约都真的读到了内容（空串会让全部断言静默假绿）', () => {
@@ -356,7 +374,7 @@ describe('D3 · workbench.css 的两条宽匹配已换成形状判据', () => {
 
   it('这些形状锚点仍对应活代码（注释里的 >-形状声明在这里被核对）', () => {
     const literals = [
-      ...readSrc('src', 'components', 'WorkspaceToolPanel.tsx').matchAll(/className="([^"]+)"/g),
+      ...readPanelFamily().matchAll(/className="([^"]+)"/g),
     ].map(m => m[1]);
     /* 完整 token 判据：`py-1` 不得匹配到 `py-1.5`，`hover:bg-glass-hover` 不得匹配到
        `hover:bg-glass-hover/50`——否则"收紧"只是换了一种子串匹配。 */

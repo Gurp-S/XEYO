@@ -1,4 +1,5 @@
 import {mergeTranscript} from '@/lib/transcriptOrder';
+import {reorderInbox} from '@/lib/api/inboxOrder';
 /**
  * P1 mid-turn inbox UI slice：排队快照轮询 / 取消（Composer chip 的数据源）。
  */
@@ -141,7 +142,7 @@ function projectQueueStates(
 export function createInboxSlice(
 	set: SetState,
 	get: GetState,
-): Pick<ChatState, 'refreshInbox' | 'cancelInboxItem' | 'editInboxItem'> {
+): Pick<ChatState, 'refreshInbox' | 'cancelInboxItem' | 'editInboxItem' | 'reorderInboxItems'> {
 	// Poll replies and mutations share a revision per UI session. A response that
 	// started before a newer poll or an edit/cancel cannot overwrite newer state.
 	const revisions = new Map<string, number>();
@@ -154,6 +155,25 @@ export function createInboxSlice(
 		activeBackendSessionId(get().historyById, sessionId);
 
 	return {
+		async reorderInboxItems(sessionId, expected, order) {
+			const ownership = captureInboxMutation(get, sessionId);
+			if (!ownership.isCurrent()) return false;
+			revise(sessionId);
+			const ok = await reorderInbox(ownership.backendId, expected, order);
+			if (!ownership.isCurrent()) return ok;
+			revise(sessionId);
+			if (ok) set(state => {
+				const items = state.inboxBySession[sessionId] ?? [];
+				const pending = items.filter(item => item.state === 'queued');
+				if (pending.map(item=>item.queue_id).join('\0') !== expected.join('\0')) return {};
+				const byId = new Map(pending.map(item=>[item.queue_id,item]));
+				let index = 0;
+				const next = items.map(item=>item.state==='queued' ? byId.get(order[index++])! : item);
+				return {inboxBySession:{...state.inboxBySession,[sessionId]:assignInboxQueuePositions(next)}};
+			});
+			await get().refreshInbox(sessionId);
+			return ok;
+		},
 		async refreshInbox(sessionId: string) {
 			const ownership = captureInboxMutation(get, sessionId);
 			const revision = revise(sessionId);

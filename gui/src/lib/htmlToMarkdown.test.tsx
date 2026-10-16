@@ -1,4 +1,4 @@
-import {render} from '@testing-library/react';
+import {renderDeferred} from '@/test/renderDeferred';
 import {describe, expect, it, vi} from 'vitest';
 import {MarkdownView} from '@/components/MarkdownView';
 import {
@@ -23,8 +23,8 @@ function fromHtml(html: string): string {
 	return htmlToMarkdown(root);
 }
 
-function fromMarkdown(md: string): string {
-	const {container} = render(
+async function fromMarkdown(md: string): Promise<string> {
+	const {container} = await renderDeferred(
 		<MarkdownView content={md} className="xy-md-doc" editable />,
 	);
 	const root = container.querySelector('.xy-md-doc');
@@ -35,7 +35,7 @@ function fromMarkdown(md: string): string {
 }
 
 describe('htmlToMarkdown', () => {
-	it('serializes headings, emphasis, lists, quote, link, hr', () => {
+	it('serializes headings, emphasis, lists, quote, link, hr', async () => {
 		const html = `
 			<h1>Title</h1>
 			<p>Paragraph with <strong>bold</strong>, <em>italic</em>, <del>strike</del>, and <code>inline</code>.</p>
@@ -58,12 +58,12 @@ describe('htmlToMarkdown', () => {
 		expect(out).toContain('---');
 	});
 
-	it('keeps underline as source tags but roundtrips through render', () => {
+	it('keeps underline as source tags but roundtrips through render', async () => {
 		expect(fromHtml('<p>请看<u>测两轮</u>这里</p>')).toContain('<u>测两轮</u>');
-		expect(fromMarkdown('请看<u>测两轮</u>这里')).toContain('<u>测两轮</u>');
+		expect(await fromMarkdown('请看<u>测两轮</u>这里')).toContain('<u>测两轮</u>');
 	});
 
-	it('serializes tables and task lists', () => {
+	it('serializes tables and task lists', async () => {
 		const html = `
 			<table>
 				<tr><th>A</th><th>B</th></tr>
@@ -82,15 +82,15 @@ describe('htmlToMarkdown', () => {
 		expect(out).toContain('- [ ] todo');
 	});
 
-	it('uses data-md-code for fenced blocks', () => {
+	it('uses data-md-code for fenced blocks', async () => {
 		const html = `<p>Before</p><div data-md-code="const x = 1;" data-md-fence="ts"></div>`;
 		const out = fromHtml(html);
 		expect(out).toContain('```ts');
 		expect(out).toContain('const x = 1;');
 	});
 
-	it('roundtrips rendered MarkdownView for basic gfm', () => {
-		const out = fromMarkdown(MD_BASIC);
+	it('roundtrips rendered MarkdownView for basic gfm', async () => {
+		const out = await fromMarkdown(MD_BASIC);
 		expect(out).toContain('# Title');
 		expect(out).toContain('**bold**');
 		expect(out).toContain('*italic*');
@@ -102,21 +102,21 @@ describe('htmlToMarkdown', () => {
 		expect(out).toContain('[link](https://example.com)');
 	});
 
-	it('roundtrips headings, tables, tasks, code, mermaid', () => {
-		expect(fromMarkdown(MD_HEADINGS)).toContain('###### H6');
-		expect(fromMarkdown(MD_TABLE)).toMatch(/\| A \| B \|/);
-		expect(fromMarkdown(MD_TASKS)).toContain('- [x] done');
-		expect(fromMarkdown(MD_TASKS)).toContain('- [ ] todo');
-		const code = fromMarkdown(MD_CODE_JS);
+	it('roundtrips headings, tables, tasks, code, mermaid', async () => {
+		expect(await fromMarkdown(MD_HEADINGS)).toContain('###### H6');
+		expect(await fromMarkdown(MD_TABLE)).toMatch(/\| A \| B \|/);
+		expect(await fromMarkdown(MD_TASKS)).toContain('- [x] done');
+		expect(await fromMarkdown(MD_TASKS)).toContain('- [ ] todo');
+		const code = await fromMarkdown(MD_CODE_JS);
 		expect(code).toContain('```javascript');
 		expect(code).toContain('function hello');
-		const mermaid = fromMarkdown(MD_MERMAID);
+		const mermaid = await fromMarkdown(MD_MERMAID);
 		expect(mermaid).toContain('```mermaid');
 		expect(mermaid).toContain('flowchart LR');
 	});
 
-	it('picks up in-place text edits', () => {
-		const {container} = render(
+	it('picks up in-place text edits', async () => {
+		const {container} = await renderDeferred(
 			<MarkdownView content={'# Old\n\nHi'} className="xy-md-doc" editable />,
 		);
 		const html = container.innerHTML;
@@ -135,17 +135,17 @@ describe('htmlToMarkdown', () => {
 });
 
 describe('htmlToMarkdown 往返等式补强（写回通道结构性保真）', () => {
-	it('嵌套列表整段等式往返', () => {
-		expect(fromMarkdown('- a\n  - b\n- c').trimEnd()).toBe('- a\n  - b\n- c');
+	it('嵌套列表整段等式往返', async () => {
+		expect((await fromMarkdown('- a\n  - b\n- c')).trimEnd()).toBe('- a\n  - b\n- c');
 	});
 
-	it('围栏内嵌反引号时外层自动加长（fenceWrap n+1）', () => {
+	it('围栏内嵌反引号时外层自动加长（fenceWrap n+1）', async () => {
 		const md = '````\n```\ninner\n```\n````';
-		expect(fromMarkdown(md).trimEnd()).toBe(md);
+		expect((await fromMarkdown(md)).trimEnd()).toBe(md);
 	});
 
-	it('链接 title 存活往返（渲染层 anchor 带 title + 序列化写回）', () => {
+	it('链接 title 存活往返（渲染层 anchor 带 title + 序列化写回）', async () => {
 		const md = '[标题](https://example.com "提示")';
-		expect(fromMarkdown(md).trimEnd()).toBe(md);
+		expect((await fromMarkdown(md)).trimEnd()).toBe(md);
 	});
 });

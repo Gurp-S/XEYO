@@ -1,7 +1,7 @@
 import {cn} from '@/lib/utils';
 import {stripXmlToolCallsForDisplay} from '@/lib/stripXmlToolCalls';
 import {memo} from 'react';
-import {XyStreamdown} from './XyStreamdown';
+import {DeferredMarkdown as XyStreamdown} from './DeferredMarkdown';
 import './streamingMarkdown.css';
 
 /**

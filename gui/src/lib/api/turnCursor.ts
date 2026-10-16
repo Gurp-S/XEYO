@@ -26,3 +26,8 @@ export function readTurnCursor(sessionId: string, turnId?: string): number {
 	if (!saved || (turnId && saved.turnId !== turnId)) return 0;
 	return Number.isFinite(saved.eventId) && saved.eventId >= 0 ? saved.eventId : 0;
 }
+
+export function readTurnIdentity(sessionId: string): string {
+	const value = load(sessionId)?.turnId;
+	return typeof value === 'string' ? value : '';
+}

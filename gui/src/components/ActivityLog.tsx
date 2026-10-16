@@ -133,7 +133,7 @@ export function oneLinePreview(step: ActivityStep): string {
 	return '';
 }
 
-/** Codex 式结果行：只显示第一行，其余折成「+N 行」；路由标注不进摘要。 */
+/** 结果摘要只显示第一行，其余折成「+N 行」；路由标注不进摘要。 */
 function resultPeek(
 	result?: string,
 ): {text: string; extra: number} | null {
@@ -427,7 +427,7 @@ function ToolStepRow({
 	const {open, mounted, toggle} = useExpandReveal();
 	const preview = oneLinePreview(step);
 	const peek = resultPeek(step.result);
-	// Codex 式：命令类动作的对象带 $ 前缀，一眼区分「跑了什么」与「读了什么」。
+	// 命令类动作的对象带 $ 前缀，用于区分命令执行与文件读取。
 	// steps.ts 把出错动词统一改写成 Failed，只看动词会让失败命令退化成「失败的读」，
 	// 所以并上既有的 categorize() 结果：命令族在它最该被认出来的那一格不再塌。
 	const isCommand =

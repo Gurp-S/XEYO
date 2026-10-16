@@ -1,3 +1,6 @@
+import {AccountProtocolField} from './settings/AccountProtocolField';
+import {SettingsScopeNote} from './settings/SettingsScopeNote';
+import {storageDraftToBytes, bytesToStorageDraft} from './settings/storageUnits';
 import {REVIEW_LAYOUT_ENABLED} from '@/lib/reviewLayout';
 import {ArchivedSessions} from './review/ArchivedSessions';
 import {SettingsLayoutHost} from './review/SettingsLayoutHost';
@@ -34,8 +37,9 @@ import {
 import {getThemeMeta, type ThemeId} from '@/theme/catalog';
 import {ThemePicker} from '@/theme/ThemePicker';
 import {BashRoutingSetting} from './BashRoutingSetting';
-import {LocalModelSetting} from './LocalModelSetting';
-import {MemorySwitchesSetting} from './MemorySwitchesSetting';
+import {BehaviorSettings} from './settings/BehaviorSettings';
+import {RemoteSettingsHelp} from './settings/RemoteSettingsHelp';
+import {useModalA11y} from '@/hooks/useModalA11y';
 
 type Props = {
 	open: boolean;
@@ -175,12 +179,6 @@ export function SettingsModal({open, onClose}: Props) {
 			const xeyoPetEnabled = useSettingsStore(s => s.xeyoPetEnabled === true);
 			const xeyoPetReducedMotion = useSettingsStore(s => s.xeyoPetReducedMotion === true);
 			const xeyoPetId = useSettingsStore(s => s.xeyoPetId);
-	const maxBudgetUsd = useSettingsStore(s => s.maxBudgetUsd);
-	const searxngUrl = useSettingsStore(s => s.searxngUrl ?? '');
-	const outputCompact = useSettingsStore(s => s.outputCompact === true);
-	const outputMode = useSettingsStore(s => s.outputMode ?? 'lite');
-	const codeCompact = useSettingsStore(s => s.codeCompact === true);
-	const codeMode = useSettingsStore(s => s.codeMode ?? 'lite');
 	const showExperimental = useSettingsStore(s => s.showExperimental === true);
 	const update = useSettingsStore(s => s.update);
 	const updateProfile = useSettingsStore(s => s.updateProfile);
@@ -188,12 +186,12 @@ export function SettingsModal({open, onClose}: Props) {
 		() => (rewindGcKeepRecent == null ? '' : String(rewindGcKeepRecent)),
 	);
 	const [gcMaxBytesDraft, setGcMaxBytesDraft] = useState<string>(
-		() => (rewindGcMaxBytes == null ? '' : String(rewindGcMaxBytes)),
+		() => (rewindGcMaxBytes == null ? '' : bytesToStorageDraft(rewindGcMaxBytes)),
 	);
 	useEffect(() => {
 		if (open) {
 			setGcKeepRecentDraft(rewindGcKeepRecent == null ? '' : String(rewindGcKeepRecent));
-			setGcMaxBytesDraft(rewindGcMaxBytes == null ? '' : String(rewindGcMaxBytes));
+			setGcMaxBytesDraft(rewindGcMaxBytes == null ? '' : bytesToStorageDraft(rewindGcMaxBytes));
 		}
 	}, [open, rewindGcKeepRecent, rewindGcMaxBytes]);
 	// Escape 关闭模态（2026-09-05 交互审计：此前无键盘退出路径，
@@ -224,7 +222,7 @@ export function SettingsModal({open, onClose}: Props) {
 			toast.error(keep.message);
 			return;
 		}
-		const bytes = parseGcField(gcMaxBytesDraft, {field: '体积上限（字节）', min: 0});
+		const bytes = storageDraftToBytes(gcMaxBytesDraft);
 		if (!bytes.ok) {
 			toast.error(bytes.message);
 			return;
@@ -250,7 +248,7 @@ export function SettingsModal({open, onClose}: Props) {
 		const {mounted, shown} = usePresence(open, modalExitMs);
 
 	const [activeTab, setActiveTab] = useState<
-		'appearance' | 'accounts' | 'rewind' | 'perms' | 'pet' | 'remote' | 'archive'
+		'appearance' | 'behavior' | 'accounts' | 'rewind' | 'perms' | 'pet' | 'remote' | 'archive'
 	>('appearance');
 		const [showAdd, setShowAdd] = useState(false);
 		/** 正在被编辑的账号 id；非空时表单处于「编辑账号」态并预填现存值。 */
@@ -261,6 +259,7 @@ export function SettingsModal({open, onClose}: Props) {
 		const [showKey, setShowKey] = useState(false);
 		const [draft, setDraft] = useState({
 			name: '',
+			provider: 'openai' as ProviderId,
 			note: '',
 			apiKey: '',
 			baseUrl: '',
@@ -272,6 +271,7 @@ export function SettingsModal({open, onClose}: Props) {
 			models?: string;
 		}>({});
 		/** 厂商 GET /models 拉取状态（模型 ID 候选：可拉取也可手填）。 */
+		const vendorRequest = useRef(0);
 		const [vendorModels, setVendorModels] = useState<VendorModel[] | null>(null);
 		const [vendorFetchError, setVendorFetchError] = useState<string | null>(null);
 		const [fetchingVendorModels, setFetchingVendorModels] = useState(false);
@@ -306,28 +306,10 @@ export function SettingsModal({open, onClose}: Props) {
 
 		/** 重置厂商模型拉取状态（表单打开 / baseUrl·Key 变化时候选作废）。 */
 		const resetVendorModelCache = () => {
+			vendorRequest.current += 1;
+			setFetchingVendorModels(false);
 			setVendorModels(null);
 			setVendorFetchError(null);
-		};
-
-		/** 按 API 请求地址推断服务商协议（表单不再暴露「服务商」选择）。 */
-		const inferProviderFromBaseUrl = (url: string): ProviderId => {
-			const u = url.trim().toLowerCase();
-			if (u.includes('deepseek')) {
-				return 'deepseek';
-			}
-			// Anthropic 走 Messages API 原生适配器，协议与 OpenAI 不同，
-			// 必须按地址识别出来，否则请求体会被按 chat/completions 组装。
-			if (u.includes('anthropic') || u.includes('claude')) {
-				return 'anthropic';
-			}
-			if (u.includes('openai')) {
-				return 'openai';
-			}
-			if (u.includes('localhost') || u.includes('127.0.0.1')) {
-				return 'local';
-			}
-			return 'openai';
 		};
 
 		/** 从厂商 GET /models 拉取模型候选（用表单当前 Key/地址，不依赖已保存值）。 */
@@ -337,14 +319,16 @@ export function SettingsModal({open, onClose}: Props) {
 				setVendorFetchError('请先填写 API 请求地址');
 				return;
 			}
+			const requestId = ++vendorRequest.current;
 			setFetchingVendorModels(true);
 			setVendorFetchError(null);
 			try {
 				const report = await fetchVendorModels({
 					apiKey: draft.apiKey.trim(),
-					provider: inferProviderFromBaseUrl(baseUrl),
+					provider: draft.provider,
 					baseUrl,
 				});
+				if (requestId !== vendorRequest.current) return;
 				if (!report.vendor_ok && report.data.length === 0) {
 					setVendorModels(null);
 					setVendorFetchError(
@@ -357,12 +341,13 @@ export function SettingsModal({open, onClose}: Props) {
 					setVendorFetchError('厂商未返回模型列表；可直接手动填写模型 ID');
 				}
 			} catch (err) {
+				if (requestId !== vendorRequest.current) return;
 				setVendorModels(null);
 				setVendorFetchError(
 					`拉取失败：${err instanceof Error ? err.message : String(err)}；可直接手动填写模型 ID`,
 				);
 			} finally {
-				setFetchingVendorModels(false);
+				if (requestId === vendorRequest.current) setFetchingVendorModels(false);
 			}
 		};
 
@@ -412,6 +397,7 @@ export function SettingsModal({open, onClose}: Props) {
 			resetVendorModelCache();
 			setDraft({
 				name: '',
+			provider: 'openai' as ProviderId,
 				note: '',
 				apiKey: '',
 				baseUrl: '',
@@ -427,6 +413,7 @@ export function SettingsModal({open, onClose}: Props) {
 			resetVendorModelCache();
 			setDraft({
 				name: p.name ?? '',
+				provider: p.provider,
 				note: p.note ?? '',
 				apiKey: p.apiKey,
 				baseUrl: p.baseUrl,
@@ -457,7 +444,7 @@ export function SettingsModal({open, onClose}: Props) {
 			// 空 Key 仅允许本地测试 provider（localTestGate，T25c）。
 			if (
 				!draft.apiKey.trim() &&
-				!allowsEmptyApiKey(inferProviderFromBaseUrl(draft.baseUrl))
+				!allowsEmptyApiKey(draft.provider)
 			) {
 				errs.apiKey = '请填写 API Key';
 			}
@@ -492,10 +479,7 @@ export function SettingsModal({open, onClose}: Props) {
 				existing?.model && rows.some(m => m.id === existing.model)
 					? existing.model
 					: rows[0].id;
-			// 「服务商」字段已从表单移除：按 API 请求地址推断协议；编辑时沿用现存值。
-			const providerForSave = editingId
-				? (existing?.provider ?? inferProviderFromBaseUrl(draft.baseUrl))
-				: inferProviderFromBaseUrl(draft.baseUrl);
+			const providerForSave = draft.provider;
 			if (editingId) {
 				updateProfile(editingId, {
 					provider: providerForSave,
@@ -527,6 +511,15 @@ export function SettingsModal({open, onClose}: Props) {
 			setFieldErrors({});
 		};
 
+	const panelRef = useRef<HTMLDivElement>(null);
+	useModalA11y({open:open && mounted && !REVIEW_LAYOUT_ENABLED, rootRef:panelRef});
+	useEffect(() => {
+		if (!open || !mounted || !REVIEW_LAYOUT_ENABLED) return;
+		const previous=document.activeElement instanceof HTMLElement ? document.activeElement : null;
+		const panel=panelRef.current;
+		panel?.focus();
+		return () => {if (previous?.isConnected && (document.activeElement === document.body || panel?.contains(document.activeElement))) previous.focus();};
+	}, [open,mounted]);
 	if (!mounted) {
 		return null;
 	}
@@ -560,11 +553,14 @@ export function SettingsModal({open, onClose}: Props) {
 			onClick={onClose}
 		>
 			<div
+				ref={panelRef}
 				role="dialog"
+				aria-label="设置"
+				tabIndex={-1}
 				aria-modal={!REVIEW_LAYOUT_ENABLED}
 				className={cn(
 					REVIEW_LAYOUT_ENABLED && 'xy-review-settings',
-					'xy-modal-panel xy-modal-elevated flex h-[560px] w-[720px] max-w-[92vw] flex-col overflow-hidden rounded-2xl border border-line/80 bg-paper p-5',
+					'xy-settings-root xy-modal-panel xy-modal-elevated flex h-[560px] w-[720px] max-w-[92vw] flex-col overflow-hidden rounded-2xl border border-line/80 bg-paper p-5',
 					shown ? 'translate-y-0 scale-100 opacity-100' : 'translate-y-2 scale-[0.98] opacity-0',
 				)}
 				onClick={e => e.stopPropagation()}
@@ -583,11 +579,12 @@ export function SettingsModal({open, onClose}: Props) {
 						<X className="h-4 w-4" />
 					</button>
 				</div>
-				<div className="grid min-h-0 flex-1 grid-cols-[150px_1fr] gap-4">
-					<nav className="space-y-1" aria-label="设置分类">
+				<div className="xy-settings-grid grid min-h-0 flex-1 grid-cols-[150px_1fr] gap-4">
+					<nav className="xy-settings-nav space-y-1" aria-label="设置分类">
 						{([
 							['appearance', '外观'],
 							['accounts', '模型与账号'],
+							['behavior', '对话与工具'],
 							['perms', '权限'],
 							['rewind', '回溯'],
 							['remote', '远程 · 微信'],
@@ -610,6 +607,7 @@ export function SettingsModal({open, onClose}: Props) {
 						))}
 					</nav>
 					<div className="xy-settings-body min-w-0 flex-1 overflow-y-auto pr-1">
+                        <SettingsScopeNote tab={activeTab} />
 						{REVIEW_LAYOUT_ENABLED && activeTab === 'archive' && <ArchivedSessions />}
 
 				<section className={cn('mb-5 space-y-3', activeTab !== 'appearance' && 'hidden')}>
@@ -636,7 +634,7 @@ export function SettingsModal({open, onClose}: Props) {
 						>
 							<span>
 								<span className="block text-sm text-ink">实验功能</span>
-								<span className="mt-0.5 block text-[11px] leading-snug text-mute">
+								<span className="mt-0.5 block text-[12px] leading-snug text-ink-soft">
 									{showExperimental
 										? '已显示半成品实验入口（AgentMap 代码/架构地图等）'
 										: '隐藏 AgentMap 等实验功能（默认）'}
@@ -738,7 +736,7 @@ export function SettingsModal({open, onClose}: Props) {
 					>
 						<span>
 							<span className="block text-sm text-ink">流畅</span>
-							<span className="mt-0.5 block text-[11px] leading-snug text-mute">
+							<span className="mt-0.5 block text-[12px] leading-snug text-ink-soft">
 								输入和滚动跟屏幕刷新；Agent 更新每帧最多提交一次。
 							</span>
 						</span>
@@ -772,7 +770,7 @@ export function SettingsModal({open, onClose}: Props) {
 						>
 							<span>
 								<span className="block text-sm text-ink">标题栏分割线</span>
-								<span className="mt-0.5 block text-[11px] leading-snug text-mute">
+								<span className="mt-0.5 block text-[12px] leading-snug text-ink-soft">
 									在窗口标题栏底部显示一条细线，与下方内容区分。
 								</span>
 							</span>
@@ -806,7 +804,7 @@ export function SettingsModal({open, onClose}: Props) {
 						>
 							<span>
 								<span className="block text-sm text-ink">侧栏动画：极平滑减速</span>
-								<span className="mt-0.5 block text-[11px] leading-snug text-mute">
+								<span className="mt-0.5 block text-[12px] leading-snug text-ink-soft">
 									默认柔和减速；开启后侧边栏收放用更柔的减速曲线（均 420ms + 40ms）。
 								</span>
 							</span>
@@ -832,7 +830,7 @@ export function SettingsModal({open, onClose}: Props) {
 							className="rounded-xl border border-line bg-glass-strong px-3 py-2.5"
 						>
 							<span className="block text-sm text-ink">忙时 Enter 键位</span>
-							<span className="mt-0.5 block text-[11px] leading-snug text-mute">
+							<span className="mt-0.5 block text-[12px] leading-snug text-ink-soft">
 								任务正在跑时按 Enter 做什么；Ctrl+Enter 永远是另一个选择。侧栏会话与子任务只排队。
 							</span>
 							<div className="mt-2 grid grid-cols-2 gap-2">
@@ -878,7 +876,7 @@ export function SettingsModal({open, onClose}: Props) {
 						>
 							<span>
 								<span className="block text-sm text-ink">气泡吸顶</span>
-								<span className="mt-0.5 block text-[11px] leading-snug text-mute">
+								<span className="mt-0.5 block text-[12px] leading-snug text-ink-soft">
 									对话中上一条你的消息吸顶为可编辑气泡。默认关：气泡留在原位。
 								</span>
 							</span>
@@ -910,7 +908,7 @@ export function SettingsModal({open, onClose}: Props) {
 									)}
 								>
 									<span className="block text-[12px] text-ink">减少动态</span>
-									<span className="mt-0.5 block text-[10px] leading-snug text-mute">仅保留 opacity 状态切换。</span>
+									<span className="mt-0.5 block text-[12px] leading-snug text-ink-soft">仅保留淡入淡出效果。</span>
 								</button>
 								<button
 									type="button"
@@ -923,7 +921,7 @@ export function SettingsModal({open, onClose}: Props) {
 									)}
 								>
 									<span className="block text-[12px] text-ink">暂停桌宠</span>
-									<span className="mt-0.5 block text-[10px] leading-snug text-mute">暂停桌宠状态更新，保留当前画面。</span>
+									<span className="mt-0.5 block text-[12px] leading-snug text-ink-soft">暂停桌宠状态更新，保留当前画面。</span>
 								</button>
 							</div>
 							</section>
@@ -945,7 +943,7 @@ export function SettingsModal({open, onClose}: Props) {
 									>
 										<span>
 											<span className="block text-sm text-ink">XeyoPet 桌宠</span>
-											<span className="mt-0.5 block text-[11px] leading-snug text-mute">
+											<span className="mt-0.5 block text-[12px] leading-snug text-ink-soft">
 												{xeyoPetEnabled ? `已启用 · ${xeyoPetId}` : '已关闭独立透明桌宠窗口'}
 											</span>
 										</span>
@@ -976,7 +974,7 @@ export function SettingsModal({open, onClose}: Props) {
 									>
 										<span>
 											<span className="block text-sm text-ink">桌宠减少动态</span>
-											<span className="mt-0.5 block text-[11px] leading-snug text-mute">仅保留当前状态首帧，适合低打扰使用。</span>
+											<span className="mt-0.5 block text-[12px] leading-snug text-ink-soft">仅保留当前状态首帧，适合低打扰使用。</span>
 										</span>
 										<span
 											className={cn(
@@ -1054,6 +1052,7 @@ export function SettingsModal({open, onClose}: Props) {
 									/>
 								</label>
 							</div>
+							<AccountProtocolField value={draft.provider} onChange={provider=>{resetVendorModelCache();setDraft(d=>({...d,provider}));}} />
 							<div className="text-xs">
 								<span className="mb-1 block text-mute">API Key（仅本机）</span>
 								<div className="flex items-center gap-2">
@@ -1068,6 +1067,7 @@ export function SettingsModal({open, onClose}: Props) {
 										placeholder="只需要填这里"
 										value={draft.apiKey}
 										onChange={e => {
+											resetVendorModelCache();
 											setDraft(d => ({...d, apiKey: e.target.value}));
 											if (fieldErrors.apiKey) {
 												setFieldErrors(f => ({...f, apiKey: undefined}));
@@ -1453,7 +1453,7 @@ export function SettingsModal({open, onClose}: Props) {
 												<span className="font-mono">{p.apiKey}</span>
 											) : fp ? (
 												'本机 Key'
-											) : p.provider === 'local' ? (
+											) : allowsEmptyApiKey(p.provider) ? (
 												'无需 Key'
 											) : (
 												'未填 Key'
@@ -1516,226 +1516,9 @@ export function SettingsModal({open, onClose}: Props) {
 						})}
 					</ul>
 
-					<label className="block text-sm">
-						<span className="mb-1 block text-mute">
-							单次对话 USD 上限（L1.2；留空 = 不限）
-						</span>
-						<input
-							type="number"
-							min={0}
-							step="0.001"
-							value={maxBudgetUsd}
-							onChange={e => update({maxBudgetUsd: e.target.value})}
-							placeholder="如 0.01"
-							className="xy-surface w-full rounded-xl border border-line bg-glass-strong px-3 py-2 text-ink outline-none focus:border-accent"
-						/>
-						<span className="mt-1 block text-[11px] leading-snug text-mute">
-							每轮按厂商响应 usage 累计；超过上限立即停止并提示「预算超限」。
-						</span>
-					</label>
-
-					{/* 本地模型（llama.cpp）：与「账号」同族的另一种拿模型的方式——账号是
-					    远端 API Key，它是本机进程。放在账号列表之后、网络工具之前。 */}
-					<LocalModelSetting />
-
-					<div className="border-t border-line/60 pt-4">
-						<h3 className="xy-section-label">
-							网络工具
-						</h3>
-					</div>
-					<label className="block text-sm">
-						<span className="mb-1 block text-mute">
-							SearXNG 地址（可选）
-						</span>
-						<input
-							type="url"
-							value={searxngUrl}
-							onChange={e => update({searxngUrl: e.target.value})}
-							placeholder="http://127.0.0.1:8080"
-							className="xy-surface w-full rounded-xl border border-line bg-glass-strong px-3 py-2 text-ink outline-none focus:border-accent"
-						/>
-						<span className="mt-1 block text-[11px] leading-snug text-mute">
-							自建 SearXNG 的基址；填写后 WebSearch 优先用它。留空则默认
-							Bing / Mojeek（需外网确认）。不随安装包内置。
-						</span>
-					</label>
-
-					<div className="border-t border-line/60 pt-4">
-						<h3 className="xy-section-label">
-							输出精简
-						</h3>
-					</div>
-					<button
-						type="button"
-						role="switch"
-						aria-checked={outputCompact}
-						onClick={() => update({outputCompact: !outputCompact})}
-						className={cn(
-							'xy-press flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors',
-							outputCompact
-								? 'border-accent/50 bg-accent-soft'
-								: 'border-line bg-glass-strong hover:border-line',
-						)}
-					>
-						<span>
-							<span className="block text-sm text-ink">输出精简</span>
-							<span className="mt-0.5 block text-[11px] leading-snug text-mute">
-								只删减不改写；代码块、路径、报错原文等原样保留。注入走对话尾部，不影响上下文缓存。
-							</span>
-						</span>
-						<span
-							className={cn(
-								'relative h-5 w-9 shrink-0 rounded-full transition-colors',
-								outputCompact ? 'bg-accent' : 'bg-line',
-							)}
-							aria-hidden
-						>
-							<span
-								className={cn(
-									'absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white transition-transform',
-									outputCompact ? 'translate-x-4' : 'translate-x-0',
-								)}
-							/>
-						</span>
-					</button>
-					{outputCompact ? (
-						<>
-							<div
-								role="radiogroup"
-								aria-label="输出精简模式"
-								className="grid grid-cols-3 gap-2"
-							>
-								{(
-									[
-										{id: 'lite', label: 'Lite'},
-										{id: 'full', label: 'Full'},
-										{id: 'ultra', label: 'Ultra'},
-									] as const
-								).map(opt => {
-									const active = outputMode === opt.id;
-									return (
-										<button
-											key={opt.id}
-											type="button"
-											role="radio"
-											aria-checked={active}
-											onClick={() => update({outputMode: opt.id})}
-											className={cn(
-												'xy-press rounded-xl border px-3 py-2 text-sm transition-colors',
-												active
-													? 'border-accent/50 bg-accent-soft text-accent'
-													: 'border-line bg-glass-strong text-ink-soft hover:border-line hover:text-ink',
-											)}
-										>
-											{opt.label}
-										</button>
-									);
-								})}
-							</div>
-							<p className="text-[11px] leading-snug text-mute">
-								{outputMode === 'lite'
-									? 'Lite：完整语法，只去冗余。'
-									: outputMode === 'full'
-										? 'Full：碎片短句，长会话输出不递增。'
-										: 'Ultra：极简碎片，仅关键信息。'}
-							</p>
-						</>
-					) : null}
-
-					<div className="border-t border-line/60 pt-4">
-						<h3 className="xy-section-label">
-							写代码精简
-						</h3>
-					</div>
-					<button
-						type="button"
-						role="switch"
-						aria-checked={codeCompact}
-						onClick={() => update({codeCompact: !codeCompact})}
-						className={cn(
-							'xy-press flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors',
-							codeCompact
-								? 'border-accent/50 bg-accent-soft'
-								: 'border-line bg-glass-strong hover:border-line',
-						)}
-					>
-						<span>
-							<span className="block text-sm text-ink">写代码精简</span>
-							<span className="mt-0.5 block text-[11px] leading-snug text-mute">
-								约束实现体积：少写、多复用；与输出精简独立。注入走对话尾部，关掉不进历史。
-							</span>
-						</span>
-						<span
-							className={cn(
-								'relative h-5 w-9 shrink-0 rounded-full transition-colors',
-								codeCompact ? 'bg-accent' : 'bg-line',
-							)}
-							aria-hidden
-						>
-							<span
-								className={cn(
-									'absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white transition-transform',
-									codeCompact ? 'translate-x-4' : 'translate-x-0',
-								)}
-							/>
-						</span>
-					</button>
-					{codeCompact ? (
-						<>
-							<div
-								role="radiogroup"
-								aria-label="写代码精简模式"
-								className="grid grid-cols-3 gap-2"
-							>
-								{(
-									[
-										{id: 'lite', label: 'Lite'},
-										{id: 'full', label: 'Full'},
-										{id: 'ultra', label: 'Ultra'},
-									] as const
-								).map(opt => {
-									const active = codeMode === opt.id;
-									return (
-										<button
-											key={opt.id}
-											type="button"
-											role="radio"
-											aria-checked={active}
-											onClick={() => update({codeMode: opt.id})}
-											className={cn(
-												'xy-press rounded-xl border px-3 py-2 text-sm transition-colors',
-												active
-													? 'border-accent/50 bg-accent-soft text-accent'
-													: 'border-line bg-glass-strong text-ink-soft hover:border-line hover:text-ink',
-											)}
-										>
-											{opt.label}
-										</button>
-									);
-								})}
-							</div>
-							<p className="text-[11px] leading-snug text-mute">
-								{codeMode === 'lite'
-									? 'Lite：按所求实现；更短做法可点出，仍交付所求。'
-									: codeMode === 'full'
-										? 'Full：复用梯子 + 最短 diff；禁止顺手扩范围。'
-										: 'Ultra：能删不增；只做已明确的需求。'}
-							</p>
-						</>
-					) : null}
 				</section>
 
-				<section className={cn('mb-5 space-y-3', activeTab !== 'appearance' && 'hidden')}>
-					<div className="border-t border-line/60 pt-4">
-						<h3 className="xy-section-label">
-							记忆系统开关
-						</h3>
-					</div>
-					<p className="text-[11px] leading-relaxed text-mute">
-						持久化到 .xeyo/settings.json 的 memory 段，切换后运行时立即生效。其余记忆开关仅供测试/评测，不在本面板暴露。
-					</p>
-					<MemorySwitchesSetting />
-				</section>
+				{open && activeTab === 'behavior' && <BehaviorSettings />}
 
 				<section className={cn('mb-5 space-y-3', activeTab !== 'appearance' && 'hidden')}>
 					<div className="border-t border-line/60 pt-4">
@@ -1835,19 +1618,19 @@ export function SettingsModal({open, onClose}: Props) {
 					</h3>
 					<p className="text-[12px] leading-relaxed text-mute">
 						审批模式（请求批准 / 帮我批准 / 完全访问）在顶栏实时切换，立即对
-						本会话生效。下方会话权限 preset 同样支持本会话内实时切换。
+						本会话生效。下方会话权限预设 同样支持本会话内实时切换。
 					</p>
 					<div className="border-t border-line/60 pt-3">
-						<RuntimePresetSetting />
+						{open && activeTab === 'perms' && <RuntimePresetSetting />}
 					</div>
 					<div className="border-t border-line/60 pt-3">
 						<h4 className="mb-2 font-sans text-[12px] font-semibold text-ink-soft">
 							不再询问（always-allow）
 						</h4>
-						<GrantsPanel />
+						{open && activeTab === 'perms' && <GrantsPanel />}
 					</div>
 					<div className="border-t border-line/60 pt-3">
-						<BashRoutingSetting />
+						{open && activeTab === 'perms' && <BashRoutingSetting />}
 					</div>
 				</section>
 
@@ -1874,8 +1657,8 @@ export function SettingsModal({open, onClose}: Props) {
 					>
 						<span>
 							<span className="block text-sm text-ink">整树工作区恢复</span>
-							<span className="mt-0.5 block text-[11px] leading-snug text-mute">
-								开启后使用 Shadow Git 整仓恢复到目标提交；关闭时默认按本轮改过的路径做差集恢复（有提交则走 shadow，无提交才用 journal 逆操作）。
+							<span className="mt-0.5 block text-[12px] leading-snug text-ink-soft">
+								开启后恢复整个工作区；关闭时只恢复本轮改过的文件。
 							</span>
 						</span>
 						<span
@@ -1916,18 +1699,18 @@ export function SettingsModal({open, onClose}: Props) {
 								/>
 							</label>
 							<label className="block">
-								<span className="mb-1 block text-[10px] text-mute">单个对话的存储上限（字节）</span>
+								<span className="mb-1 block text-[10px] text-mute">单个对话的存储上限（MiB）</span>
 								<input
 									type="number"
 									min={0}
 									value={gcMaxBytesDraft}
 									onChange={e => setGcMaxBytesDraft(e.target.value)}
-									placeholder="留空 = 后端默认"
+									placeholder="留空 = 不设上限"
 									className="w-full rounded-lg border border-line bg-paper px-2 py-1.5 text-[12px] text-ink outline-none focus:border-accent/60"
 								/>
 							</label>
 						</div>
-						<p className="mt-2 text-[10px] leading-snug text-mute">
+						<p className="mt-2 text-[12px] leading-snug text-ink-soft">
 							<span className="text-warn">太小：</span>无法回退较远时点，长任务/大乱局救不回来。
 							<span className="text-warn">太大：</span>磁盘与恢复性能占用升高，旧版本拖慢清理与启动扫描。
 						</p>
@@ -1941,33 +1724,7 @@ export function SettingsModal({open, onClose}: Props) {
 					</div>
 				</section>
 
-				<section className={cn('mb-5 space-y-3', activeTab !== 'remote' && 'hidden')}>
-					<h3 className="xy-section-label">
-						远程 · 微信
-					</h3>
-					<p className="text-[12px] leading-relaxed text-mute">
-						点顶栏二维码启动微信远程；回复以 [XEYO] 开头。
-					</p>
-					<p className="text-[12px] leading-relaxed text-mute">
-						不依赖手机里的「插件」入口，也不安装 OpenClaw。点顶栏二维码后，用微信扫描
-						XEYO 弹出的码并确认。支持私聊文字、图片和文件。截图由 Screenshot 工具完成；连上远程时会在后台发一份到微信，不阻塞模型。
-					</p>
-					<p className="text-[12px] leading-relaxed text-ink-soft">
-						验收：设置里选本通道 → 填 API Key → 点顶栏二维码 →
-						手机微信扫码确认 → 给该 Bot 发「你好」→ 桌面当前对话出现
-						[远程] 气泡，回复回到微信。若接口报灰度/风控，面板会显示
-						errmsg。
-					</p>
-					<ul className="space-y-1 font-mono text-[11px] text-ink-soft">
-						<li>/help · 帮助 — 指令列表（远程统一入口）</li>
-						<li>/status · 状态 — 连接与任务</li>
-						<li>/cwd · 目录 — 当前工作区路径</li>
-						<li>/stop · 停止 — 中断正在跑的任务</li>
-						<li>/allow · 允许 / /deny · 拒绝 — 处理待批准操作</li>
-						<li>/rule · /doctor · /proposals — 工作区 XEYO.md 规则</li>
-						<li>截图 — 直接说「截图」，由 Screenshot 工具交给模型查看</li>
-					</ul>
-				</section>
+				{activeTab === 'remote' && <RemoteSettingsHelp />}
 
 					</div>
 				</div>

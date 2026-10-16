@@ -1,8 +1,9 @@
+import {PanelErrorBoundary} from '@/components/PanelErrorBoundary';
 import {REVIEW_LAYOUT_ENABLED} from '@/lib/reviewLayout';
 import {ActivityRail} from '@/components/review/ActivityRail';
 import {ReviewWorkbench} from '@/components/review/ReviewWorkbench';
 import {ReviewLayoutBehavior} from '@/components/review/ReviewLayoutBehavior';
-import {useEffect, useLayoutEffect, useRef} from 'react';
+import {lazy, Suspense, useEffect, useLayoutEffect, useRef} from 'react';
 import {AppShell} from '@/components/AppShell';
 import {ChatHeader} from '@/components/ChatHeader';
 
@@ -25,11 +26,12 @@ import {useSettingsStore, isSmoothnessOn} from '@/stores/settingsStore';
 import {DEFAULT_SPACE_ID, SIDE_SPACE_ID} from '@/lib/db';
 import {useLocation, useNavigate, useParams} from 'react-router-dom';
 import {ImmersiveLayer} from '@/components/immersive/ImmersiveLayer';
-import {UsagePanel} from '@/components/UsagePanel';
-import {PluginsPanel} from '@/components/PluginsPanel';
-import {DiagnosticsPanel} from '@/features/diagnostics/DiagnosticsPanel';
+const UsagePanel=lazy(()=>import('@/components/UsagePanel').then(module=>({default:module.UsagePanel})));
+const PluginsPanel=lazy(()=>import('@/components/PluginsPanel').then(module=>({default:module.PluginsPanel})));
+const DiagnosticsPanel=lazy(()=>import('@/features/diagnostics/DiagnosticsPanel').then(module=>({default:module.DiagnosticsPanel})));
 import {PageViewPane} from '@/components/PageViewPane';
 import {usePresence} from '@/hooks/usePresence';
+import {useBackgroundAgents} from '@/hooks/useBackgroundAgents';
 import {closePageView, isSideChatPath, pageViewFromPath} from '@/lib/appNav';
 import {popEscLayer, pushEscLayer} from '@/lib/escStack';
 import {cn} from '@/lib/utils';
@@ -75,6 +77,7 @@ function RecoveryBanner() {
 }
 
 export function ChatPage() {
+	useBackgroundAgents();
 	const {sessionId} = useParams();
 	const navigate = useNavigate();
 	const offlineReplay =
@@ -289,9 +292,8 @@ export function ChatPage() {
 			<AppShell>
 				<RemotePoller />
 				<RemoteSseClient />
-				{REVIEW_LAYOUT_ENABLED && <ReviewLayoutBehavior />}
 				<div className="xy-pane-row relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
-					{REVIEW_LAYOUT_ENABLED && <ActivityRail />}
+					{REVIEW_LAYOUT_ENABLED && <><ActivityRail /><ReviewLayoutBehavior /></>}
 					<Sidebar />
 					{/* 聊天列 + 文件预览/工具面板共用宿主，放大时预览 absolute 盖住聊天。 */}
 					<div className="xy-pane-chat-host relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
@@ -333,13 +335,13 @@ export function ChatPage() {
 							<Composer showTodoDock={!isSideChat} />
 							</div>
 						<PageViewPane active={usageActive} mounted={usageMounted} shown={usageShown} label="用量">
-							<UsagePanel active={usageActive} />
+							<PanelErrorBoundary name="页面"><Suspense fallback={<p className="p-4 text-sm">正在加载…</p>}><UsagePanel active={usageActive} /></Suspense></PanelErrorBoundary>
 						</PageViewPane>
 						<PageViewPane active={pluginsActive} mounted={pluginsMounted} shown={pluginsShown} label="扩展中心">
-							<PluginsPanel active={pluginsActive} />
+							<PanelErrorBoundary name="页面"><Suspense fallback={<p className="p-4 text-sm">正在加载…</p>}><PluginsPanel active={pluginsActive} /></Suspense></PanelErrorBoundary>
 						</PageViewPane>
 						<PageViewPane active={diagnosticsActive} mounted={diagnosticsMounted} shown={diagnosticsShown} label="诊断中心">
-							<DiagnosticsPanel active={diagnosticsActive} />
+							<PanelErrorBoundary name="页面"><Suspense fallback={<p className="p-4 text-sm">正在加载…</p>}><DiagnosticsPanel active={diagnosticsActive} /></Suspense></PanelErrorBoundary>
 						</PageViewPane>
 								</div>
 							</main>
@@ -347,10 +349,10 @@ export function ChatPage() {
 						{REVIEW_LAYOUT_ENABLED ? (
 							<ReviewWorkbench>
 								<WorkspacePanel />
-								<FilePreview />
-								<WorkspaceToolPanel />
+								<PanelErrorBoundary name="文件预览" resetKey={activeId ?? undefined}><FilePreview /></PanelErrorBoundary>
+								<PanelErrorBoundary name="工作区工具" resetKey={activeId ?? undefined}><WorkspaceToolPanel /></PanelErrorBoundary>
 							</ReviewWorkbench>
-						) : <><FilePreview /><WorkspaceToolPanel /></>}
+						) : <><PanelErrorBoundary name="文件预览" resetKey={activeId ?? undefined}><FilePreview /></PanelErrorBoundary><PanelErrorBoundary name="工作区工具" resetKey={activeId ?? undefined}><WorkspaceToolPanel /></PanelErrorBoundary></>}
 					</div>
 					{!REVIEW_LAYOUT_ENABLED && <WorkspacePanel />}
 					<RemoteQrPanel />

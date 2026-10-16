@@ -14,17 +14,6 @@ export function loadIconTheme(): Promise<IconThemeModule> {
 	return loaderPromise;
 }
 
-if (typeof window !== 'undefined') {
-	const preload = () => {
-		void loadIconTheme().catch(() => undefined);
-	};
-	if (typeof window.requestIdleCallback === 'function') {
-		window.requestIdleCallback(preload);
-	} else {
-		window.setTimeout(preload, 1500);
-	}
-}
-
 export function useIconTheme(): IconThemeModule | null {
 	const [mod, setMod] = useState<IconThemeModule | null>(null);
 	useEffect(() => {

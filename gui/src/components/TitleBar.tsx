@@ -2,7 +2,7 @@ import type {CSSProperties, MouseEvent} from 'react';
 import {Minus, Square, Copy, Moon, PanelRightClose, PanelRightOpen, Sun, X} from 'lucide-react';
 import {REVIEW_LAYOUT_ENABLED} from '@/lib/reviewLayout';
 import {FileMenu} from '@/components/FileMenu';
-import {SettingsModal} from '@/components/SettingsModal';
+import {DeferredSettingsModal as SettingsModal} from '@/components/DeferredSettingsModal';
 import {isTauri} from '@/lib/tauri';
 import {useDismiss} from '@/ui/useDismiss';
 import {cn} from '@/lib/utils';
@@ -131,8 +131,8 @@ export function TitleBar() {
 			</button>
 			{themeOpen ? (
 				<div
-					className="xy-menu-flyout absolute right-0 top-[calc(100%+6px)] z-[80] rounded-2xl border border-line/50 p-2"
-					style={noDragStyle}
+					className="xy-menu-flyout absolute right-0 top-[calc(100%+6px)] z-[80] overflow-y-auto overscroll-contain rounded-2xl border border-line/50 p-2"
+					style={{...noDragStyle, maxHeight: 'calc(100dvh - 48px)'}}
 					onMouseDown={stopNativeDrag}
 				>
 					<ThemePicker
@@ -162,7 +162,7 @@ export function TitleBar() {
 				>
 					{REVIEW_LAYOUT_ENABLED ? <>
 						<span className="xy-app-name">XEYO</span>
-						<FileMenu label="文件" />
+						<FileMenu label="应用" />
 					</> : <FileMenu />}
 				</div>
 				<div

@@ -1,4 +1,4 @@
-/* auto-split from src/styles/app-chrome.css body L1-528 — Usage/title/panes/chrome shell; imported via barrel src/styles/app-chrome.css */
+/* 用量、标题与面板外框样式；由 app-chrome.css 按固定顺序引入。 */
 .xy-sidebar {
   overflow: hidden;
   contain: paint;
@@ -461,7 +461,7 @@ html[data-smoothness="on"] .xy-enter-fade {
   }
 }
 
-/* Prism worker HTML —— last-good fence, scoped so it does not fight SyntaxHighlighter. */
+/* Prism 工作线程生成的 HTML 保留最近有效结果，并限定作用域以避免与 SyntaxHighlighter 冲突。 */
 .xy-prism-html {
   margin: 0;
   padding: 12px 14px 12px 16px;

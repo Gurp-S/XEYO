@@ -1,0 +1,15 @@
+.xy-behavior-settings small,.xy-setting-row p { display:block; margin-top:5px; font-size:12px; line-height:1.6; color:var(--xy-ink-soft); }
+.xy-settings-input { display:block; width:100%; margin-top:8px; padding:9px 11px; border:1px solid var(--xy-line); border-radius:8px; background:var(--xy-paper); color:var(--xy-ink); }
+.xy-setting-row { display:flex; justify-content:space-between; align-items:center; gap:16px; padding:10px 0; font-size:13px; }
+.xy-setting-row strong { font-weight:500; }
+.xy-setting-row select { border:1px solid var(--xy-line); border-radius:6px; padding:6px; background:var(--xy-paper); }
+.xy-setting-group { border-top:1px solid var(--xy-line); padding-top:12px; }
+.xy-output-controls { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:8px 12px; font-size:12px; border-bottom:1px solid var(--xy-line); }
+.xy-output-controls span { flex:1; color:var(--xy-ink-soft); }
+.xy-output-controls button,.xy-panel-error button { padding:4px 8px; border:1px solid var(--xy-line); border-radius:5px; }
+.xy-output-controls button:disabled { opacity:.4; }
+.xy-panel-error { padding:24px; font-size:13px; }
+.xy-directory-pages { display:flex; justify-content:center; align-items:center; gap:12px; font-size:12px; padding:8px; }
+.xy-directory-pages button:disabled { opacity:.4; }
+.xy-compact-sidebar-backdrop { display:none; }
+@media(max-width:900px) { .xy-compact-sidebar-backdrop { display:block; position:absolute; inset:0 0 0 48px; z-index:49; background:rgb(0 0 0 / .15); } }

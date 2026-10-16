@@ -1,9 +1,10 @@
-import {memo, useEffect, useMemo, useState, type ReactNode} from 'react';
+import {memo, useEffect, useMemo, useRef, useState, type ReactNode} from 'react';
 import type {MultiAgentTaskView} from '@/lib/api';
 import type {AgentDetailMessage} from '@/lib/api';
 import {postAgentInbox} from '@/lib/api';
 import type {ChatMessage} from '@/lib/types';
 import {useChatStore} from '@/stores/chatStore';
+import {activeBackendSessionId} from '@/stores/chat/preStoreHelpers';
 import {isImeComposing} from '@/lib/ime';
 import {MessageList} from './MessageList';
 
@@ -84,9 +85,11 @@ const SubAgentTranscript = memo(function SubAgentTranscript({
 	// P2 follow-up inbox：向本 agent 投递 follow-up（park；settle 后同实例续跑）。
 	const [followText, setFollowText] = useState('');
 	const [sentNote, setSentNote] = useState('');
+	const pendingMessage = useRef<{key: string; id: string} | null>(null);
+	const sending = useRef(false);
 	const sendFollow = async () => {
 		const t = followText.trim();
-		if (!t || !sessionId) {
+		if (!t || !sessionId || sending.current) {
 			return;
 		}
 		if (
@@ -97,13 +100,24 @@ const SubAgentTranscript = memo(function SubAgentTranscript({
 			setSentNote('归档对话为只读，请先恢复');
 			return;
 		}
-		const r = await postAgentInbox(sessionId, agentId, t);
+		const backendSid = activeBackendSessionId(useChatStore.getState().historyById, sessionId);
+		const key = JSON.stringify([backendSid, agentId, t]);
+		if (pendingMessage.current?.key !== key) pendingMessage.current = {key, id: crypto.randomUUID()};
+		sending.current = true;
+		const r = await postAgentInbox(backendSid, agentId, t, pendingMessage.current.id);
+		sending.current = false;
+		const state = useChatStore.getState();
+		if (state.activeId !== sessionId || activeBackendSessionId(state.historyById, sessionId) !== backendSid) return;
 		if (r?.ok) {
-			setFollowText('');
+			pendingMessage.current = null;
+			// Completed agents are not part of the running-agent poll. Refresh the
+			// durable receipt so their card exposes the explicit continuation action.
+			void state.loadAgentsFor(sessionId);
+			setFollowText(value => value.trim() === t ? '' : value);
 			setSentNote(
 				r.deliver === 'running'
-					? `已排队待该 agent 本轮完成后续跑（inbox ${r.inboxCount ?? 1}）`
-					: '已挂起；重试该 agent 时会附带执行',
+					? `消息已排队（${r.inboxCount ?? 1} 条待接收）`
+					: '消息已保存；可从任务卡片继续执行',
 			);
 		} else {
 			setSentNote('投递失败');
@@ -245,7 +259,7 @@ const SubAgentTranscript = memo(function SubAgentTranscript({
 							void sendFollow();
 						}
 					}}
-					placeholder={`向 ${agentId} 追加信息（回合结束后自动续跑）`}
+					placeholder={`向 ${agentId} 追加信息`}
 					className="min-w-0 flex-1 rounded-md border border-line/70 bg-glass-strong px-2 py-1 text-xs text-ink outline-none placeholder:text-mute focus:border-accent"
 				/>
 				<button

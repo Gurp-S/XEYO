@@ -1,7 +1,4 @@
-/* Domain barrel: was monolithic src/styles/app-chrome.css.
- * Children below are a partition of the previous body; cascade order matters.
- * Restore: copy app-chrome.css.pre-split.bak over this file.
- */
+/* 界面外框样式入口；下列文件的顺序决定样式层叠结果。 */
 
 @import "./app-chrome-shell.css";
 @import "./app-turn-rail.css";

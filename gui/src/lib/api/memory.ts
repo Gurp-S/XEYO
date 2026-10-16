@@ -18,7 +18,7 @@ export async function syncUiThoughtsToServer(
 		thoughtMs?: number;
 		createdAt: number;
 	}>,
-): Promise<number> {
+): Promise<number | null> {
 	if (!sessionId || thoughts.length === 0) {
 		return 0;
 	}
@@ -39,11 +39,12 @@ export async function syncUiThoughtsToServer(
 			},
 		);
 		if (!res.ok) {
-			return 0;
+			return null;
 		}
-		const payload = (await res.json()) as {written?: number};
-		return payload.written ?? 0;
+		const payload = (await res.json()) as {ok?: boolean; written?: number};
+		return payload.ok === true && typeof payload.written === "number" &&
+			Number.isFinite(payload.written) && payload.written >= 0 ? payload.written : null;
 	} catch {
-		return 0;
+		return null;
 	}
 }

@@ -1,4 +1,4 @@
-/* auto-split from index.css L1153-1354 — Tauri window, scrollbar, hover-scroll, scroll-fade; do not edit order relative to styles/entry.css */
+/* Tauri 窗口、滚动条与滚动渐隐样式；加载顺序由 entry.css 定义。 */
 /* ============================================================
    Tauri 透明圆角窗口（真正裁出纸面四角）
    - html/body 永远透明，圆角弧线外直接透出桌面壁纸

@@ -4,7 +4,7 @@ import {ActivityIcon} from './ActivityIcon';
 
 type Props = {events: RoundActivity[]; activeId?: string; onSelect: (id: string) => void};
 
-/** Prose and tool output updates do not change the trace's labels. */
+/** 文本和工具输出更新不改变轨迹标签。 */
 export const WorkflowTrace = memo(function WorkflowTrace({events, activeId, onSelect}: Props) {
 	return events.map((event, index) => <Fragment key={event.id}>
 		{index > 0 && <span className="xy-round-arrow" aria-hidden>→</span>}

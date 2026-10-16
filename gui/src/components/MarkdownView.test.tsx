@@ -1,4 +1,5 @@
-import {render, screen} from '@testing-library/react';
+import {screen} from '@testing-library/react';
+import {renderDeferred as render} from '@/test/renderDeferred';
 import userEvent from '@testing-library/user-event';
 import {describe, expect, it, vi} from 'vitest';
 import {
@@ -36,43 +37,43 @@ vi.mock('./MermaidBlock', () => ({
 }));
 
 describe('sanitizeMarkdown', () => {
-	it('strips control characters but keeps newlines/tabs', () => {
+	it('strips control characters but keeps newlines/tabs', async () => {
 		expect(sanitizeMarkdown('a\u0000b\nc\td')).toBe('ab\nc\td');
 	});
 
-	it('detects math delimiters for KaTeX gating', () => {
+	it('detects math delimiters for KaTeX gating', async () => {
 		expect(markdownHasMath('hello')).toBe(false);
 		expect(markdownHasMath('a $x$ b')).toBe(true);
 		expect(markdownHasMath('$$E=mc^2$$')).toBe(true);
 	});
 
-	it('handles empty', () => {
+	it('handles empty', async () => {
 		expect(sanitizeMarkdown('')).toBe('');
 	});
 });
 
 describe('promoteDisplayMath', () => {
-	it('lifts one-line $$ into a fence', () => {
+	it('lifts one-line $$ into a fence', async () => {
 		expect(promoteDisplayMath('$$ S = 1 $$')).toBe('$$\nS = 1\n$$');
 	});
 });
 
 describe('normalizeHighlightLanguage', () => {
-	it('aliases common tags', () => {
+	it('aliases common tags', async () => {
 		expect(normalizeHighlightLanguage('ts')).toBe('typescript');
 		expect(normalizeHighlightLanguage('py')).toBe('python');
 		expect(normalizeHighlightLanguage('sh')).toBe('bash');
 	});
 
-	it('falls back safely', () => {
+	it('falls back safely', async () => {
 		expect(normalizeHighlightLanguage('')).toBe('text');
 		expect(normalizeHighlightLanguage('!!!')).toBe('text');
 	});
 });
 
 describe('MarkdownView rendering', () => {
-	it('renders basic gfm inline/block elements', () => {
-		const {container} = render(<MarkdownView content={MD_BASIC} />);
+	it('renders basic gfm inline/block elements', async () => {
+		const {container} = await render(<MarkdownView content={MD_BASIC} />);
 		expect(container.querySelector('h1')?.textContent).toContain('Title');
 		expect(container.querySelector('strong')?.textContent).toBe('bold');
 		expect(container.querySelector('em')?.textContent).toBe('italic');
@@ -87,40 +88,40 @@ describe('MarkdownView rendering', () => {
 		);
 	});
 
-	it('renders tables', () => {
-		const {container} = render(<MarkdownView content={MD_TABLE} />);
+	it('renders tables', async () => {
+		const {container} = await render(<MarkdownView content={MD_TABLE} />);
 		expect(container.querySelector('table')).toBeTruthy();
 		expect(container.querySelectorAll('th').length).toBe(2);
 		expect(container.querySelectorAll('td').length).toBe(4);
 	});
 
-	it('renders fenced javascript with Prism chrome', () => {
-		const {container} = render(<MarkdownView content={MD_CODE_JS} />);
+	it('renders fenced javascript with Prism chrome', async () => {
+		const {container} = await render(<MarkdownView content={MD_CODE_JS} />);
 		expect(container.textContent).toContain('javascript');
 		expect(container.textContent).toContain('function hello');
 		expect(container.textContent).toContain('Before');
 		expect(container.textContent).toContain('After');
 	});
 
-	it('renders empty fence without crashing', () => {
-		const {container} = render(<MarkdownView content={MD_CODE_EMPTY} />);
+	it('renders empty fence without crashing', async () => {
+		const {container} = await render(<MarkdownView content={MD_CODE_EMPTY} />);
 		expect(container.textContent).toContain('python');
 	});
 
-	it('renders unknown language without crashing', () => {
-		const {container} = render(
+	it('renders unknown language without crashing', async () => {
+		const {container} = await render(
 			<MarkdownView content={MD_CODE_UNKNOWN_LANG} />,
 		);
 		expect(container.textContent).toContain('foo bar');
 	});
 
-	it('renders ts alias fence', () => {
-		const {container} = render(<MarkdownView content={MD_CODE_ALIAS} />);
+	it('renders ts alias fence', async () => {
+		const {container} = await render(<MarkdownView content={MD_CODE_ALIAS} />);
 		expect(container.textContent).toContain('const x');
 	});
 
-	it('tolerates incomplete fence (streaming mid-code)', () => {
-		const {container} = render(
+	it('tolerates incomplete fence (streaming mid-code)', async () => {
+		const {container} = await render(
 			<MarkdownView content={MD_INCOMPLETE_FENCE} codeAutoCollapse={false} />,
 		);
 		expect(container.textContent).toContain('Intro');
@@ -128,20 +129,20 @@ describe('MarkdownView rendering', () => {
 		expect(container.textContent).not.toContain('```');
 	});
 
-	it('renders nested backticks fence', () => {
-		const {container} = render(<MarkdownView content={MD_NESTED_BACKTICKS} />);
+	it('renders nested backticks fence', async () => {
+		const {container} = await render(<MarkdownView content={MD_NESTED_BACKTICKS} />);
 		expect(container.textContent).toContain('Use');
 		expect(container.textContent).toContain('code');
 	});
 
-	it('renders task list items', () => {
-		const {container} = render(<MarkdownView content={MD_TASKS} />);
+	it('renders task list items', async () => {
+		const {container} = await render(<MarkdownView content={MD_TASKS} />);
 		expect(container.textContent).toContain('done');
 		expect(container.textContent).toContain('todo');
 	});
 
-	it('neutralizes dangerous links / does not execute script tags as HTML', () => {
-		const {container} = render(<MarkdownView content={MD_HTML_INJECTION} />);
+	it('neutralizes dangerous links / does not execute script tags as HTML', async () => {
+		const {container} = await render(<MarkdownView content={MD_HTML_INJECTION} />);
 		expect(container.querySelector('script')).toBeNull();
 		expect(
 			container.querySelector('a[href^="javascript:"]'),
@@ -154,33 +155,33 @@ describe('MarkdownView rendering', () => {
 		expect(container.textContent).toContain('bad');
 	});
 
-	it('strips control chars in content and code', () => {
-		const {container} = render(<MarkdownView content={MD_CONTROL_CHARS} />);
+	it('strips control chars in content and code', async () => {
+		const {container} = await render(<MarkdownView content={MD_CONTROL_CHARS} />);
 		expect(container.textContent).toContain('Linewithnulls');
 		expect(container.textContent).not.toMatch(/\u0000/);
 	});
 
-	it('renders CJK + table + code', () => {
-		const {container} = render(<MarkdownView content={MD_CJK} />);
+	it('renders CJK + table + code', async () => {
+		const {container} = await render(<MarkdownView content={MD_CJK} />);
 		expect(container.textContent).toContain('中文');
 		expect(container.textContent).toContain('你好');
 		expect(container.querySelector('table')).toBeTruthy();
 	});
 
-	it('does not mount KaTeX for copy without math', () => {
-		const {container} = render(<MarkdownView content={MD_BASIC} />);
+	it('does not mount KaTeX for copy without math', async () => {
+		const {container} = await render(<MarkdownView content={MD_BASIC} />);
 		expect(container.querySelector('.katex')).toBeNull();
 	});
 
-	it('renders inline and display math with KaTeX', () => {
-		const {container} = render(<MarkdownView content={MD_MATH} />);
+	it('renders inline and display math with KaTeX', async () => {
+		const {container} = await render(<MarkdownView content={MD_MATH} />);
 		expect(container.querySelector('.katex')).toBeTruthy();
 		expect(container.querySelector('.katex-display')).toBeTruthy();
 		expect(container.textContent).not.toContain('$$');
 	});
 
-	it('renders <u> as underline, not literal tags', () => {
-		const {container} = render(
+	it('renders <u> as underline, not literal tags', async () => {
+		const {container} = await render(
 			<MarkdownView content="请看<u>测两轮</u>这里" />,
 		);
 		expect(container.querySelector('u')?.textContent).toBe('测两轮');
@@ -189,46 +190,43 @@ describe('MarkdownView rendering', () => {
 		expect(container.textContent).not.toContain('</u>');
 	});
 
-	it('renders h1–h6', () => {
-		const {container} = render(<MarkdownView content={MD_HEADINGS} />);
+	it('renders h1–h6', async () => {
+		const {container} = await render(<MarkdownView content={MD_HEADINGS} />);
 		expect(container.querySelector('h1')).toBeTruthy();
 		expect(container.querySelector('h6')).toBeTruthy();
 	});
 
-	it('long code with autoCollapse shows expand control', () => {
-		render(<MarkdownView content={MD_LONG_CODE} codeAutoCollapse />);
+	it('long code with autoCollapse shows expand control', async () => {
+		await render(<MarkdownView content={MD_LONG_CODE} codeAutoCollapse />);
 		expect(screen.getByText('展开全部代码')).toBeInTheDocument();
 	});
 
-	it('long code with codeAutoCollapse=false stays expanded', () => {
-		render(
+	it('long code with codeAutoCollapse=false stays expanded', async () => {
+		await render(
 			<MarkdownView content={MD_LONG_CODE} codeAutoCollapse={false} />,
 		);
 		expect(screen.queryByText('展开全部代码')).toBeNull();
 		expect(screen.getByText(/line-39/)).toBeInTheDocument();
 	});
 
-	it('mixed extreme fixture renders without throw', () => {
-		expect(() =>
-			render(
-				<MarkdownView content={MD_MIXED_EXTREME} codeAutoCollapse={false} />,
-			),
-		).not.toThrow();
+	it('mixed extreme fixture renders without throw', async () => {
+		const {container} = await render(<MarkdownView content={MD_MIXED_EXTREME} codeAutoCollapse={false} />);
+		expect(container.querySelector('[aria-busy="true"]')).toBeNull();
 	});
 
-	it('streaming and final paths share Prism (not lite)', () => {
-		const stream = render(
+	it('streaming and final paths share Prism (not lite)', async () => {
+		const stream = await render(
 			<MarkdownView content={MD_CODE_JS} codeAutoCollapse={false} />,
 		);
-		const final_ = render(<MarkdownView content={MD_CODE_JS} />);
+		const final_ = await render(<MarkdownView content={MD_CODE_JS} />);
 		// 两者都应从 CodeBlock chrome 暴露 language 标签
 		expect(stream.container.textContent).toMatch(/javascript/i);
 		expect(final_.container.textContent).toMatch(/javascript/i);
 		expect(stream.container.querySelector('.token') || stream.container.textContent).toBeTruthy();
 	});
 
-	it('renders mermaid fence as an image', () => {
-		const {container} = render(<MarkdownView content={MD_MERMAID} />);
+	it('renders mermaid fence as an image', async () => {
+		const {container} = await render(<MarkdownView content={MD_MERMAID} />);
 		expect(container.querySelector('img[alt="mermaid"]')).toBeTruthy();
 		expect(container.textContent).toContain('Intro');
 	});
@@ -236,7 +234,7 @@ describe('MarkdownView rendering', () => {
 	it('opens relative wiki links via onOpenPath', async () => {
 		const user = userEvent.setup();
 		const onOpenPath = vi.fn();
-		render(
+		await render(
 			<MarkdownView
 				content={MD_REL_LINK}
 				basePath="docs/设计/10-完整记忆体系.md"
@@ -250,8 +248,8 @@ describe('MarkdownView rendering', () => {
 		);
 	}, 10_000);
 
-	it('assigns heading ids for in-page jumps', () => {
-		const {container} = render(<MarkdownView content={MD_HEADINGS} />);
+	it('assigns heading ids for in-page jumps', async () => {
+		const {container} = await render(<MarkdownView content={MD_HEADINGS} />);
 		expect(container.querySelector('h1')?.id).toBeTruthy();
 	});
 });

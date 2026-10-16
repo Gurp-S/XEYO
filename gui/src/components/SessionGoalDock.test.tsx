@@ -84,6 +84,7 @@ function seed(next: SessionGoalState | null) {
 }
 
 beforeEach(() => {
+	useChatStore.setState({sessions: [], historyById: {}});
 	fetchGoalMock.mockImplementation(async () =>
 		fixture
 			? {ok: true, goal: fixture.goal, driver: fixture.driver, message: ''}
@@ -116,10 +117,10 @@ describe('渲染矩阵', () => {
 });
 
 describe('条带上有什么、没什么（DSH GoalBar 的字面动作集）', () => {
-	it('active：进行中的目标 + 恰好 暂停/编辑目标/清除目标 三个动作', () => {
+	it('active：进行中 + 恰好 暂停/编辑目标/清除目标 三个动作', () => {
 		seed(makeGoal());
 		const {container} = render(<SessionGoalDock embedded />);
-		expect(screen.getByText('进行中的目标')).toBeInTheDocument();
+		expect(screen.getByText('进行中')).toBeInTheDocument();
 		expect(goalButtonLabels()).toEqual(['暂停', '编辑目标', '清除目标']);
 		// 撤掉的能力不许留痕迹：待确认完成文案、armed 状态圆点。
 		expect(screen.queryByText('待确认完成')).not.toBeInTheDocument();
@@ -129,7 +130,7 @@ describe('条带上有什么、没什么（DSH GoalBar 的字面动作集）', (
 	it('active + pending_complete：与 active 同形，没有「标记完成」入口', () => {
 		seed(makeGoal({pending_complete: true}));
 		render(<SessionGoalDock embedded />);
-		expect(screen.getByText('进行中的目标')).toBeInTheDocument();
+		expect(screen.getByText('进行中')).toBeInTheDocument();
 		expect(
 			screen.queryByRole('button', {name: '标记完成'}),
 		).not.toBeInTheDocument();
@@ -138,17 +139,17 @@ describe('条带上有什么、没什么（DSH GoalBar 的字面动作集）', (
 		).not.toBeInTheDocument();
 	});
 
-	it('paused：已暂停的目标 + 恢复/编辑/清除', () => {
+	it('paused：已暂停 + 恢复/编辑/清除', () => {
 		seed(makeGoal({status: 'paused'}));
 		render(<SessionGoalDock embedded />);
-		expect(screen.getByText('已暂停的目标')).toBeInTheDocument();
+		expect(screen.getByText('已暂停')).toBeInTheDocument();
 		expect(goalButtonLabels()).toEqual(['恢复', '编辑目标', '清除目标']);
 	});
 
-	it('blocked：受阻的目标 + 只有编辑/清除', () => {
+	it('blocked：受阻 + 只有编辑/清除', () => {
 		seed(makeGoal({status: 'blocked', blocked_reason: 'provider_error'}));
 		render(<SessionGoalDock embedded />);
-		expect(screen.getByText('受阻的目标')).toBeInTheDocument();
+		expect(screen.getByText('受阻')).toBeInTheDocument();
 		expect(goalButtonLabels()).toEqual(['编辑目标', '清除目标']);
 		expect(screen.queryByRole('button', {name: '恢复'})).not.toBeInTheDocument();
 	});
@@ -205,7 +206,7 @@ describe('动词只发 phase PATCH（round-driver 已废弃）', () => {
 		});
 		render(<SessionGoalDock embedded />);
 		await user.click(screen.getByRole('button', {name: '暂停'}));
-		await waitFor(() => expect(screen.getByText('已暂停的目标')).toBeInTheDocument());
+		await waitFor(() => expect(screen.getByText('已暂停')).toBeInTheDocument());
 		expect(screen.getByRole('button', {name: '恢复'})).toBeInTheDocument();
 	});
 
@@ -222,10 +223,10 @@ describe('动词只发 phase PATCH（round-driver 已废弃）', () => {
 		});
 		render(<SessionGoalDock embedded />);
 		await user.click(screen.getByRole('button', {name: '暂停'}));
-		await waitFor(() => expect(goalAlert()).toContain('目标操作未生效'));
+		await waitFor(() => expect(goalAlert()).toContain('操作未生效'));
 		expect(goalAlert()).toContain('goal_action_not_allowed');
 		expect(useChatStore.getState().sessionGoalById?.s1?.goal.status).toBe('active');
-		expect(screen.getByText('进行中的目标')).toBeInTheDocument();
+		expect(screen.getByText('进行中')).toBeInTheDocument();
 	});
 
 	it('恢复失败 → 条带内报出原话，目标仍是已暂停', async () => {
@@ -326,7 +327,7 @@ describe('编辑 / 清除', () => {
 });
 
 describe('CAS 与投影滞后', () => {
-	it('409 conflict：刷新 store 后带新 revision 重试一次', async () => {
+	it('409 edit conflict：保留草稿，由用户选择后再保存', async () => {
 		const user = userEvent.setup();
 		seed(makeGoal());
 		const conflicted = makeGoal({revision: 9});
@@ -344,9 +345,13 @@ describe('CAS 与投影滞后', () => {
 		await user.clear(textInput);
 		await user.type(textInput, '新目标');
 		await user.click(screen.getByRole('button', {name: '保存目标'}));
-		await waitFor(() => {
-			expect(patchGoalAction).toHaveBeenCalledTimes(2);
-		});
+		await screen.findByText('目标已被更新，你的修改尚未保存。');
+		expect(patchGoalAction).toHaveBeenCalledTimes(1);
+		expect(textInput).toHaveValue('新目标');
+		await user.click(screen.getByRole('button',{name:'保留我的修改继续编辑'}));
+		expect(patchGoalAction).toHaveBeenCalledTimes(1);
+		await user.click(screen.getByRole('button',{name:'保存目标'}));
+		await waitFor(()=>expect(patchGoalAction).toHaveBeenCalledTimes(2));
 		expect(patchGoalAction).toHaveBeenNthCalledWith(1, 's1', 'edit', {
 			goal_id: 'g1',
 			revision: 3,
@@ -456,4 +461,18 @@ describe('投影轮询的三种读数', () => {
 			expect(useChatStore.getState().sessionGoalById.s1).toBeNull(),
 		);
 	});
+});
+
+describe('多行目标编辑',()=>{
+ it('Enter 换行、失焦不保存，显式保存保持换行',async()=>{
+  const user=userEvent.setup();seed(makeGoal({text:'第一行\n第二行'}));render(<SessionGoalDock embedded/>);
+  await user.click(screen.getByRole('button',{name:'编辑目标'}));
+  const editor=screen.getByRole('textbox',{name:'目标内容'});
+  expect(editor.tagName).toBe('TEXTAREA');expect(editor).toHaveValue('第一行\n第二行');
+  await user.click(editor);await user.keyboard('{End}{Enter}第三行');await user.tab();
+  expect(patchGoalAction).not.toHaveBeenCalled();
+  patchGoalAction.mockResolvedValue({ok:true,goal:makeGoal({text:'第一行\n第二行\n第三行',revision:4}).goal,driver:null});
+  await user.click(screen.getByRole('button',{name:'保存目标'}));
+  expect(patchGoalAction).toHaveBeenCalledWith('s1','edit',{goal_id:'g1',revision:3,text:'第一行\n第二行\n第三行'});
+ });
 });

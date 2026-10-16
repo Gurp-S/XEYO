@@ -1,4 +1,4 @@
-/* auto-split from index.css L1355-1657 — Sidebar affordance/tree/run-dot/pane/tool-detail wrap; do not edit order relative to styles/entry.css */
+/* 侧栏、文件树、运行状态与工具详情样式；加载顺序由 entry.css 定义。 */
 .xy-sidebar-affordance {
   backface-visibility: hidden;
   -webkit-font-smoothing: antialiased;

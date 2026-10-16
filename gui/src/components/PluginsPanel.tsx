@@ -1,3 +1,4 @@
+import {ExtensionConfiguration} from './settings/ExtensionConfiguration';
 import {
 	AlertTriangle,
 	Blocks,
@@ -471,10 +472,8 @@ export function PluginsPanel({active = true}: {active?: boolean}) {
 		};
 	}, [active, tick]);
 
-	const masterOn =
-		(plugins?.enabled_extensions ??
-			mcp?.enabled_extensions ??
-			settings?.enabled_extensions) === true;
+	const masterEnabled = (plugins?.ok ? plugins.enabled_extensions : undefined) ?? (mcp?.ok ? mcp.enabled_extensions : undefined) ?? (settings?.ok ? settings.enabled_extensions : undefined);
+	const masterOn = masterEnabled === true;
 	const run = async (
 		key: string,
 		fn: () => Promise<{ok: boolean; message?: string}>,
@@ -571,10 +570,10 @@ export function PluginsPanel({active = true}: {active?: boolean}) {
 		);
 	}, [allSkills, q]);
 
-	const tabCount: Record<TabKey, number> = {
-		plugins: plugins?.plugins.length ?? 0,
-		mcp: mcp?.servers.length ?? 0,
-		skills: allSkills.length,
+	const tabCount: Record<TabKey, number | string> = {
+		plugins: plugins?.ok ? plugins.plugins.length : '—',
+		mcp: mcp?.ok ? mcp.servers.length : '—',
+		skills: skills?.ok ? allSkills.length : '—',
 	};
 	const tabIdx = TABS.findIndex(t => t.key === tab);
 	const filteredTotal =
@@ -685,6 +684,7 @@ export function PluginsPanel({active = true}: {active?: boolean}) {
 			}
 		>
 
+				<ExtensionConfiguration onSaved={refresh} />
 				{loading && !plugins && !mcp && !skills ? (
 					<div className="flex items-center justify-center gap-2 py-8 text-[12px] text-mute">
 						<Loader2 className="h-4 w-4 animate-spin" />
@@ -709,9 +709,9 @@ export function PluginsPanel({active = true}: {active?: boolean}) {
 								</div>
 							</div>
 						) : null}
-						{!masterOn ? (
+						{masterEnabled === false ? (
 							<p className="rounded-lg bg-paper-deep px-3 py-2 text-[11px] text-mute">
-								扩展层当前关闭：插件条目暂不生效。可在 .xeyo/settings.json 将 enabled_extensions 设为 true。
+								扩展层当前关闭：插件条目暂不生效。可在上方配置入口开启扩展。
 							</p>
 						) : null}
 						{pluginRows.length > 0 ? (
@@ -727,13 +727,13 @@ export function PluginsPanel({active = true}: {active?: boolean}) {
 									/>
 								))}
 							</ul>
-						) : (
+						) : plugins?.ok && !loading ? (
 							<EmptyHint
 								icon={PackageOpen}
 								title={q ? '没有匹配的插件。' : '未安装插件。'}
 								hint="插件声明于 .xeyo/settings.json 或 ~/.xeyo/plugins。"
 							/>
-						)}
+						) : null}
 					</div>
 				) : null}
 
@@ -744,9 +744,9 @@ export function PluginsPanel({active = true}: {active?: boolean}) {
 								加载失败：{mcp.message}
 							</p>
 						) : null}
-						{!masterOn ? (
+						{masterEnabled === false ? (
 							<p className="rounded-lg bg-paper-deep px-3 py-2 text-[11px] text-mute">
-								扩展层当前关闭：MCP 服务器暂不启动。可在 .xeyo/settings.json 将 enabled_extensions 设为 true。
+								扩展层当前关闭：MCP 服务器暂不启动。可在上方配置入口开启扩展。
 							</p>
 						) : null}
 						{mcpRows.length > 0 ? (
@@ -764,21 +764,22 @@ export function PluginsPanel({active = true}: {active?: boolean}) {
 									/>
 								))}
 							</ul>
-						) : (
+						) : mcp?.ok && !loading ? (
 							<EmptyHint
 								icon={Plus}
 								title={q ? '没有匹配的 MCP。' : '未配置 MCP 服务器。'}
-								hint="在 .xeyo/mcp.json 声明服务器后重启后端。"
+								hint="使用上方添加 / 导入配置声明服务器，再校验保存。"
 							/>
-						)}
+						) : null}
 					</div>
 				) : null}
 
 				{tab === 'skills' ? (
 					<div className="space-y-2">
-						{!masterOn ? (
+						{skills?.ok === false && <p role="alert" className="text-danger text-sm">技能加载失败：{skills.message}</p>}
+						{masterEnabled === false ? (
 							<p className="rounded-lg bg-paper-deep px-3 py-2 text-[11px] text-mute">
-								扩展层当前关闭：技能暂不可用。可在 .xeyo/settings.json 将 enabled_extensions 设为 true。
+								扩展层当前关闭：技能暂不可用。可在上方配置入口开启扩展。
 							</p>
 						) : null}
 						{skillRows.length > 0 ? (
@@ -798,13 +799,13 @@ export function PluginsPanel({active = true}: {active?: boolean}) {
 									/>
 								))}
 							</ul>
-						) : (
+						) : skills?.ok && !loading ? (
 							<EmptyHint
 								icon={Wand2}
 								title={q ? '没有匹配的技能。' : '未发现技能。'}
 								hint="技能来自工作区 / 本机 / 插件三源（SKILL.md）。"
 							/>
-						)}
+						) : null}
 					</div>
 				) : null}
 						</PageShell>

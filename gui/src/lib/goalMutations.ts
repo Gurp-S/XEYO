@@ -11,6 +11,9 @@ export async function runGoalAction(
 ): Promise<GoalMutationResult | null> {
 	const initial = useChatStore.getState().sessionGoalById[sessionId];
 	if (!initial) return null;
+	if (action === 'edit' && options.revision != null && options.revision !== initial.goal.revision) {
+		return {ok:false,conflict:initial.goal,message:'goal_revision_conflict'};
+	}
 	if (options.goal_id && options.goal_id !== initial.goal.goal_id) {
 		return {ok: false, conflict: null, message: 'goal_changed'};
 	}
@@ -26,6 +29,7 @@ export async function runGoalAction(
 	if (!stillCurrent()) return {ok: false, conflict: null, message: 'goal_changed'};
 	if (!result.ok && result.conflict) {
 		writeGoalState(sessionId, {goal: result.conflict, driver: initial.driver});
+		if (action === 'edit') return result;
 		if (result.conflict.goal_id !== goalId) return result;
 		result = await run(result.conflict.revision);
 		if (!stillCurrent()) return {ok: false, conflict: null, message: 'goal_changed'};

@@ -1,6 +1,7 @@
 import {act, cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import {afterEach, beforeAll, describe, expect, it, vi} from 'vitest';
 import {MemoryRouter} from 'react-router-dom';
+import {Profiler} from 'react';
 import {DEFAULT_SPACE_ID, SIDE_SPACE_ID} from '@/lib/db';
 import {EMPTY_SESSION_STREAM} from '@/lib/sessionStreams';
 import type {ChatSession, ChatSpace} from '@/lib/types';
@@ -190,6 +191,28 @@ async function acceptDeleteDialog() {
 afterEach(() => {
 	cleanup();
 	setAppNavigator(null);
+});
+
+describe('侧栏消息订阅开销', () => {
+	it('100 次消息更新不刷新工作区分组，打开菜单仍读取最新消息', async () => {
+		seed({spaces: [space('A')], sessions: [session('m1', 'A', '性能会话', T0)], activeId: 'm1'});
+		const commits = vi.fn();
+		render(<MemoryRouter><Profiler id="sidebar" onRender={commits}><Sidebar /></Profiler><ContextMenuHost /></MemoryRouter>);
+		await expandWorkspaces();
+		await act(async () => { await Promise.resolve(); });
+		commits.mockClear();
+		for (let i = 0; i < 100; i++) {
+			act(() => useChatStore.setState({messagesById: {m1: [{id: 'msg', role: 'user', text: String(i), createdAt: T0}]}}));
+		}
+		console.info('PERF sidebar commits for 100 message updates:', commits.mock.calls.length);
+		expect(commits).not.toHaveBeenCalled();
+		let menu = await openRowMenu('性能会话');
+		expect(within(menu).getByRole('menuitem', {name: /分叉/})).not.toBeDisabled();
+		fireEvent.keyDown(document, {key: 'Escape'});
+		act(() => useChatStore.setState({messagesById: {m1: []}}));
+		menu = await openRowMenu('性能会话');
+		expect(within(menu).getByRole('menuitem', {name: /分叉/})).toBeDisabled();
+	});
 });
 
 describe('侧栏会话路由判定（bug #1）', () => {

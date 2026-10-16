@@ -32,6 +32,7 @@ import {
 } from '@/lib/api/jobs';
 import type {MultiAgentTaskView} from '@/lib/api';
 import {useDismiss} from '@/ui/useDismiss';
+import {startVisiblePolling} from '@/lib/visiblePolling';
 
 const JOBS_POLL_MS = 5000;
 /** 展开行运行中的输出刷新间隔。 */
@@ -444,7 +445,6 @@ function JobTerminal({
 
 	useEffect(() => {
 		let stopped = false;
-		let timer = 0;
 		const load = async () => {
 			const out = await fetchJobOutput(sessionId, job.job_id);
 			if (!stopped && out !== null) {
@@ -454,13 +454,11 @@ function JobTerminal({
 				setLoaded(true);
 			}
 		};
-		void load();
-		if (running) {
-			timer = window.setInterval(() => void load(), JOB_OUTPUT_REFRESH_MS);
-		}
+		const stop = running ? startVisiblePolling(load, JOB_OUTPUT_REFRESH_MS) : undefined;
+		if (!running) void load();
 		return () => {
 			stopped = true;
-			window.clearInterval(timer);
+			stop?.();
 		};
 	}, [sessionId, job.job_id, running]);
 

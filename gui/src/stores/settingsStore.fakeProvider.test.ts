@@ -3,7 +3,7 @@
  * 'fake' 仍受 localTestGate 管理：仅 DEV 构建 + XEYO_ENABLE_LOCAL_TEST=1 时放行
  * （空 Key 合法、isProviderId 识别），否则归一化为 deepseek。
  *
- * 注意 'local' 已不属于本门禁——它是正式功能（本地模型服务），门禁测试见
+ * 'local' HTTP mock transport 同样属于开发测试门禁，测试见
  * `@/lib/localTestGate.test.ts`。
  */
 import {beforeEach, describe, expect, it} from 'vitest';

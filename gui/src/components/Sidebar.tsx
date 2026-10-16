@@ -1,3 +1,4 @@
+import {startVisiblePolling} from '@/lib/visiblePolling';
 import {REVIEW_LAYOUT_ENABLED} from '@/lib/reviewLayout';
 import {
 	Archive,
@@ -329,13 +330,10 @@ export const Sidebar = memo(function Sidebar() {
 			}
 		};
 
-		void refresh();
-		const timer = window.setInterval(() => {
-			void refresh();
-		}, 5000);
+		const stop = startVisiblePolling(refresh, 5000);
 		return () => {
 			cancelled = true;
-			window.clearInterval(timer);
+			stop();
 		};
 	}, [sidebarOpen, workspaceRootsKey, mainRunningKey]);
 
@@ -1088,11 +1086,12 @@ const SpaceFolder = memo(function SpaceFolder({
 	// 「归档了才能删除」——删除是不可逆操作，归档作为缓冲层。
 	// 空会话不可分叉：transcript 为空时后端 /fork 必 404（2026-09-05 E2E 排查）。
 	// 仅对已装载且零消息的会话置灰；冷会话（未装载，undefined）不误伤。
-	const messagesById = useChatStore(s => s.messagesById);
 	const openItemMenu = useCallback(
 		(e: React.MouseEvent, item: ChatSession) => {
 			e.preventDefault();
 			e.stopPropagation();
+			// 菜单打开时读取最新快照，不让每条消息更新重绘全部工作区。
+			const messages = useChatStore.getState().messagesById[item.id];
 			// 公共菜单工厂（SessionBits）：归档门槛/删除确认与 Chat 分区同源。
 			const items = buildSessionMenuItems(item, {
 				onRename: title => onRenameSession(item.id, title),
@@ -1102,9 +1101,7 @@ const SpaceFolder = memo(function SpaceFolder({
 					// 置灰而不是让用户撞错误 toast（2026-09-05 E2E 排查）。
 					disabled:
 						item.spaceId === SIDE_SPACE_ID ||
-						!Array.isArray(messagesById[item.id]) ||
-						(Array.isArray(messagesById[item.id]) &&
-							messagesById[item.id].length === 0),
+						!Array.isArray(messages) || messages.length === 0,
 				},
 				onArchive: () => onArchiveSession(item.id),
 				onRestore: () => onRestoreSession(item.id),
@@ -1118,7 +1115,6 @@ const SpaceFolder = memo(function SpaceFolder({
 			onArchiveSession,
 			onRestoreSession,
 			onRemoveSession,
-			messagesById,
 		],
 	);
 

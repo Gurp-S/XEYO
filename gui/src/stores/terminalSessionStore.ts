@@ -1,12 +1,15 @@
 import {create} from 'zustand';
 import {samePath} from '@/lib/paths';
 
-export type TerminalLine = {kind: 'in' | 'out' | 'err' | 'info'; text: string};
+import {appendTerminalBuffer,type TerminalLine} from '@/lib/terminalBuffer';
+export type {TerminalLine} from '@/lib/terminalBuffer';
 
 type TerminalSessionState = {
 	rootPath: string;
 	command: string;
 	lines: TerminalLine[];
+	discardedChars:number;
+	clearOutput:()=>void;
 	history: string[];
 	cursor: number;
 	busy: boolean;
@@ -23,6 +26,7 @@ export const useTerminalSessionStore = create<TerminalSessionState>()((set, get)
 	rootPath: '',
 	command: '',
 	lines: [],
+	discardedChars:0,
 	history: [],
 	cursor: -1,
 	busy: false,
@@ -34,12 +38,14 @@ export const useTerminalSessionStore = create<TerminalSessionState>()((set, get)
 			rootPath,
 			command: '',
 			lines: [],
+	discardedChars:0,
 			history: [],
 			cursor: -1,
 			busy: false,
 			sequence: state.sequence + 1,
 		}));
 	},
+	clearOutput() {set({lines:[],discardedChars:0});},
 	setCommand(command) {
 		set({command});
 	},
@@ -53,22 +59,24 @@ export const useTerminalSessionStore = create<TerminalSessionState>()((set, get)
 			return null;
 		}
 		const sequence = current.sequence + 1;
+		const buffer=appendTerminalBuffer(current.lines,[{kind:'in',text:command}]);
 		set({
 			sequence,
 			command: '',
 			cursor: -1,
 			busy: true,
-			lines: [...current.lines, {kind: 'in', text: command}],
+			lines:buffer.lines,
+			discardedChars:current.discardedChars+buffer.discardedChars,
 			history: [command, ...current.history.filter(item => item !== command)].slice(0, 30),
 		});
 		return sequence;
 	},
 	appendLines(sequence, lines) {
-		set(state =>
-			state.sequence === sequence
-				? {lines: [...state.lines, ...lines]}
-				: state,
-		);
+		set(state => {
+			if(state.sequence!==sequence)return state;
+			const buffer=appendTerminalBuffer(state.lines,lines);
+			return {lines:buffer.lines,discardedChars:state.discardedChars+buffer.discardedChars};
+		});
 	},
 	finishCommand(sequence) {
 		set(state => (state.sequence === sequence ? {busy: false} : state));

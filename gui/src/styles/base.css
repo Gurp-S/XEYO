@@ -1,4 +1,4 @@
-/* auto-split from index.css L2-71 — Theme doc comment + cursor/select base; do not edit order relative to styles/entry.css */
+/* 主题、光标与选择行为的基础样式；加载顺序由 entry.css 定义。 */
 /*
  * 主题系统说明（黑白基调）：
  * 全部主题以黑白灰为基调，个别仅强调色带极少彩色点缀。
@@ -45,8 +45,8 @@ code {
 }
 
 /*
-  Light = xuan-paper warm white (solid surfaces, no milky fog).
-  Dark  = carbon black (near-neutral, slightly lifted lines).
-  Accents stay untouched (original teal/blue system).
+  浅色主题：宣纸暖白，使用实色表面。
+  深色主题：近中性的炭黑底色，分隔线略微提亮。
+  强调色沿用青绿与蓝色体系。
 */
 

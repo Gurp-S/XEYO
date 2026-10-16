@@ -1,0 +1,53 @@
+.xy-review-workbench.is-tool-focused { position:absolute; top:0; left:0; right:0; width:100%!important; max-width:none; z-index:60; border-left:0; background:var(--xy-paper); }
+.xy-review-workbench.is-tool-focused .xy-workbench-content { width:100%; }
+.xy-settings-scope { margin:0 0 18px; font-size:13px; line-height:1.6; color:var(--xy-ink-soft); }
+.xy-settings-field { display:flex; flex-direction:column; gap:6px; font-size:13px; }
+.xy-settings-field select,.xy-remote-management button { padding:8px 10px; border:1px solid var(--xy-line); border-radius:8px; background:var(--xy-paper); color:var(--xy-ink); }
+.xy-settings-field small { font-size:13px; color:var(--xy-ink-soft); line-height:1.5; }
+.xy-review-settings .xy-settings-body { font-size:14px; line-height:1.6; }
+.xy-review-settings .xy-settings-body :where(p,label,small,button,input,select,span) { font-size:max(13px,1em); }
+.xy-review-settings .xy-settings-body :where(.text-mute) { color:var(--xy-ink-soft); }
+.xy-review-settings .xy-settings-body input,.xy-review-settings .xy-settings-body select { min-height:34px; }
+.xy-remote-management { display:flex; flex-direction:column; gap:12px; }
+.xy-remote-management [role=alert] { color:var(--xy-danger); overflow-wrap:anywhere; }
+
+.xy-call-filter { display:flex; align-items:center; flex-wrap:wrap; gap:8px; padding:8px 10px; border-bottom:1px solid var(--xy-line); font-size:13px; }
+.xy-call-filter select { flex:1; min-width:0; max-width:100%; padding:5px; background:var(--xy-paper); border:1px solid var(--xy-line); border-radius:6px; }
+.xy-version-view { display:flex; flex-direction:column; height:100%; min-height:0; }
+.xy-version-view > div { flex:1; min-height:0; overflow:auto; }
+.xy-version-view nav,.xy-diagnostics-groups { display:flex; gap:6px; }
+.xy-version-view nav button,.xy-diagnostics-groups button { padding:7px 10px; font-size:13px; border-radius:6px; }
+.xy-version-view nav [aria-current],.xy-diagnostics-groups [aria-pressed=true] { background:var(--xy-accent-soft); color:var(--xy-accent); }
+
+.xy-composer-panels:has(.xy-task-dock) { overflow:visible; max-height:none; }
+.xy-task-dock { min-width:0; }
+.xy-task-dock[hidden],.xy-task-dock-slot[hidden] { display:none; }
+.xy-task-dock-tabs { display:flex; gap:4px; overflow-x:auto; padding:2px 0 5px; }
+.xy-task-dock-tabs button { flex:none; border-radius:6px; padding:5px 10px; font-size:13px; color:var(--xy-ink-soft); }
+.xy-task-dock-tabs [aria-selected=true] { color:var(--xy-accent); background:var(--xy-accent-soft); }
+.xy-task-dock-slot { max-height:min(46vh,380px); overflow-y:auto; overscroll-behavior:contain; }
+.xy-composer-stack .xy-task-dock .xy-panel-ask.is-expanded .xy-panel-collapse.open .xy-panel-ask-body { max-height:none; overflow:visible; padding:0; }
+.xy-task-card-body { display:flex; flex-direction:column; min-height:0; max-height:min(36vh,300px); }
+.xy-task-card-scroll { min-height:0; flex:1 1 auto; overflow-y:auto; overscroll-behavior:contain; padding:10px 14px; }
+.xy-task-card-actions { flex:none; border-top:1px solid var(--xy-line); padding:8px 12px; background:var(--xy-paper); }
+.xy-task-card-actions .xy-panel-ask-actions,.xy-task-card-actions .xy-panel-ask-foot,.xy-task-card-actions .xy-panel-ask-free { margin:0; }
+.xy-task-card-scroll .xy-panel-ask-cmd { max-height:none; overflow:visible; }
+
+.xy-extension-config { margin-bottom:18px; padding-bottom:16px; border-bottom:1px solid var(--xy-line); font-size:13px; line-height:1.6; }
+.xy-extension-config header { display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap; }
+.xy-extension-config h3 { font-size:16px; font-weight:600; }
+.xy-extension-config p { color:var(--xy-ink-soft); margin:6px 0; }
+.xy-extension-config button { border:1px solid var(--xy-line); padding:7px 12px; border-radius:7px; background:var(--xy-paper); }
+.xy-extension-config button:disabled { opacity:.45; }
+.xy-configuration-editor { display:flex; flex-direction:column; gap:12px; padding-top:16px; }
+.xy-configuration-editor label { display:flex; flex-direction:column; gap:5px; flex:1; min-width:0; }
+.xy-configuration-editor input,.xy-configuration-editor select,.xy-configuration-editor textarea { background:var(--xy-paper); border:1px solid var(--xy-line); padding:8px; border-radius:7px; color:var(--xy-ink); min-width:0; width:100%; }
+.xy-configuration-editor textarea { font-family:var(--font-mono,monospace); resize:vertical; max-height:42vh; }
+.xy-configuration-selectors,.xy-configuration-editor footer { display:flex; gap:12px; flex-wrap:wrap; }
+.xy-configuration-source { overflow-wrap:anywhere; }
+.xy-extension-config [role=alert] { color:var(--xy-danger); overflow-wrap:anywhere; }
+
+.xy-review-workbench.is-wide-tool { max-width:none; }
+
+.xy-pane-chat-host:has(> .xy-review-workbench.is-tool-focused[aria-hidden=false]) > main > header,
+.xy-pane-chat-host:has(> .xy-review-workbench.is-tool-focused[aria-hidden=false]) .xy-chat-surface.xy-hover-scroll { visibility:hidden; }

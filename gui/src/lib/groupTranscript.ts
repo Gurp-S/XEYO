@@ -126,7 +126,7 @@ function toToolView(m: ChatMessage): ToolView {
 /**
  * 配对旧版分离的 call/result 行；现代消息已合并为单行。
  */
-function consumeTools(
+export function consumeTools(
 	messages: ChatMessage[],
 	start: number,
 ): {item: TurnItem; next: number} | null {

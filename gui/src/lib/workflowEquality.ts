@@ -36,7 +36,7 @@ export function multiAgentTaskViewsEqual(
 			x.batchAt !== y.batchAt ||
 			x.inboxCount !== y.inboxCount ||
 			x.tokensUsed !== y.tokensUsed ||
-			x.costCny !== y.costCny
+			x.costCny !== y.costCny || x.costPartial !== y.costPartial
 		) {
 			return false;
 		}

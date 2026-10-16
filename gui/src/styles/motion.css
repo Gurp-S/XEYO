@@ -1,5 +1,5 @@
-/* auto-split from index.css L2791-2912 — Motion system keyframes + anim utilities; do not edit order relative to styles/entry.css */
-/* —— Motion system: GPU-friendly (opacity + transform only) —— */
+/* 动效关键帧与通用动画类；加载顺序由 entry.css 定义。 */
+/* 动效仅使用 opacity 与 transform，便于 GPU 合成。 */
 
 @keyframes fade-in {
   from {

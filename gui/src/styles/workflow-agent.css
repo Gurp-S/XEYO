@@ -1,4 +1,4 @@
-/* auto-split from src/styles/workflow.css body L612-1087 — Idea 8 agent cards + activity list; imported via barrel src/styles/workflow.css */
+/* 子代理卡片与活动列表样式；由 workflow.css 引入。 */
 /* Idea 8 — 子 Agent：跟随输入框/用户气泡中性色，微光点表达运行态 */
 .xy-agent-done-list {
   display: flex;
@@ -469,7 +469,7 @@ html[data-smoothness="off"] .xy-dock-presence > .xy-dock-presence-inner {
     color 90ms ease;
 }
 
-/* Activity step list: no nested scroll —— chat scroller owns overflow */
+/* 活动步骤列表不设嵌套滚动，溢出由聊天滚动容器统一处理。 */
 .xy-tool-scroll {
   overflow: visible;
   max-height: none;

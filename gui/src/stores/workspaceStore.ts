@@ -46,7 +46,7 @@ const DEFAULT_EXPANDED: Record<WorkspaceSection, boolean> = {
 };
 
 export const useWorkspaceStore = create<WorkspaceState>(set => ({
-	open: true,
+	open: false,
 	active: 'files',
 	expanded: DEFAULT_EXPANDED,
 	activeTool: null,

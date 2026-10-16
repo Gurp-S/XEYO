@@ -1,3 +1,4 @@
+import {clampToolWidth, TOOL_WIDTH_DEFAULT} from '@/lib/workbenchLayout';
 import {create} from 'zustand';
 import {deleteKv, getKv, setKv} from '@/lib/db';
 import {
@@ -20,8 +21,9 @@ import {
 
 export type {ThemeId} from '@/theme/catalog';
 import {isKnownProvider} from '@/lib/localTestGate';
+import {isRetiredLocalProvider, retireLocalModelSettings} from '@/lib/retiredLocalModelSettings';
 
-// 'local' = 本地模型服务（正式功能）；'fake' = 测试假模型（仅 dev 门禁内可达）。
+// 'local' / 'fake' 仅供显式开启的开发测试使用。
 export type ProviderId = 'deepseek' | 'openai' | 'anthropic' | 'local' | 'fake';
 export type PermissionMode = 'always' | 'risk' | 'never';
 export type OutputMode = 'lite' | 'full' | 'ultra';
@@ -186,6 +188,7 @@ export type Settings = {
 	sidebarWidth: number;
 	/** 文件预览栏宽度 */
 	previewWidth: number;
+	workspaceToolWidth: number;
 	/** 右侧文件树宽度 */
 	explorerWidth: number;
 	/**
@@ -346,6 +349,7 @@ const DEFAULTS: Settings = {
 	bgBlur: 12,
 	sidebarWidth: SIDEBAR_WIDTH_DEFAULT,
 	previewWidth: PREVIEW_WIDTH_DEFAULT,
+	workspaceToolWidth: TOOL_WIDTH_DEFAULT,
 		explorerWidth: EXPLORER_WIDTH_DEFAULT,
 			smoothness: true,
 			titleBarDivider: true,
@@ -589,8 +593,7 @@ function newProfileId(): string {
 }
 
 export function isProviderId(v: unknown): v is ProviderId {
-	// 判定实体在 localTestGate.isKnownProvider（'local' 是正式功能；
-	// 'fake' 仅测试门禁内可达）。
+	// 判定实体在 localTestGate.isKnownProvider；测试 transport 只在开发门禁内可达。
 	return isKnownProvider(v);
 }
 
@@ -772,6 +775,7 @@ function normalizeProfile(raw: unknown): ModelProfile | null {
 		return null;
 	}
 	const row = raw as Partial<ModelProfile>;
+	if (isRetiredLocalProvider(row.provider)) return null;
 	const provider: ProviderId = isProviderId(row.provider)
 		? row.provider
 		: 'deepseek';
@@ -813,6 +817,7 @@ function seedProfiles(parsed: {
 	profiles?: unknown;
 	activeProfileId?: unknown;
 }): {profiles: ModelProfile[]; activeProfileId: string} {
+	parsed = retireLocalModelSettings(parsed, DEFAULTS);
 	const list = Array.isArray(parsed.profiles)
 		? parsed.profiles.map(normalizeProfile).filter((p): p is ModelProfile => p !== null)
 		: [];
@@ -986,6 +991,7 @@ function loadLite(): PersistedLite {
 			bgOpacity: parsed.bgOpacity,
 			bgBlur: parsed.bgBlur,
 			sidebarWidth: clampSidebarWidth(parsed.sidebarWidth),
+			workspaceToolWidth: clampToolWidth(parsed.workspaceToolWidth),
 			previewWidth: clampPaneWidth(
 				parsed.previewWidth,
 				PREVIEW_WIDTH_DEFAULT,
@@ -1055,6 +1061,7 @@ function writePersistLite(settings: Settings) {
 		bgBlur: settings.bgBlur,
 		sidebarWidth: settings.sidebarWidth,
 		previewWidth: settings.previewWidth,
+		workspaceToolWidth: settings.workspaceToolWidth,
 		explorerWidth: settings.explorerWidth,
 			smoothness: settings.smoothness !== false,
 			titleBarDivider: settings.titleBarDivider !== false,
@@ -1109,6 +1116,7 @@ if (typeof window !== 'undefined') {
 }
 
 export type SettingsTab =
+	| 'behavior'
 	| 'appearance'
 	| 'accounts'
 	| 'rewind'
@@ -1138,7 +1146,7 @@ export const PROVIDER_DEFAULT_URL: Record<ProviderId, string> = {
 	openai: 'https://api.openai.com/v1',
 	// Claude 走 Messages API 原生适配器（思考态带签名，兼容层承载不了）。
 	anthropic: 'https://api.anthropic.com',
-	// 本地模型服务（llama.cpp 等 OpenAI 兼容环回服务）；无需 API Key。
+	// HTTP 全栈测试 mock transport。
 	local: 'http://localhost:8080/v1',
 	// HTTP 全栈测试假模型（仅 localTestGate 开启时可选）。
 	fake: '',
@@ -1148,8 +1156,8 @@ export const PROVIDER_LABEL: Record<ProviderId, string> = {
 	deepseek: 'DeepSeek',
 	openai: 'OpenAI',
 	anthropic: 'Anthropic',
-	// 正式功能：设置 → 模型与账号 → 本地模型（llama.cpp）。
-	local: '本地模型',
+	// 仅开发测试门禁内可达。
+	local: '测试接口',
 	fake: 'Fake（测试）',
 };
 
@@ -1238,6 +1246,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 			bgBlur: cur.bgBlur,
 			sidebarWidth: cur.sidebarWidth ?? SIDEBAR_WIDTH_DEFAULT,
 			previewWidth: cur.previewWidth ?? PREVIEW_WIDTH_DEFAULT,
+			workspaceToolWidth: cur.workspaceToolWidth ?? TOOL_WIDTH_DEFAULT,
 			explorerWidth: cur.explorerWidth ?? EXPLORER_WIDTH_DEFAULT,
 				smoothness: cur.smoothness !== false,
 				titleBarDivider: cur.titleBarDivider !== false,
@@ -1269,6 +1278,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 		if (patch.sidebarWidth !== undefined) {
 			next.sidebarWidth = clampSidebarWidth(patch.sidebarWidth);
 		}
+		if (patch.workspaceToolWidth !== undefined) next.workspaceToolWidth = clampToolWidth(patch.workspaceToolWidth);
 		if (patch.previewWidth !== undefined) {
 			next.previewWidth = clampPaneWidth(
 				patch.previewWidth,
@@ -1388,7 +1398,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 			patchKeys.every(
 				k =>
 					k === 'sidebarWidth' ||
-					k === 'previewWidth' ||
+					k === 'previewWidth' || k === 'workspaceToolWidth' ||
 					k === 'explorerWidth',
 			);
 		if (widthOnlyPatch) {

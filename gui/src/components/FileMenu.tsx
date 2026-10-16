@@ -6,7 +6,6 @@ import {cn} from '@/lib/utils';
 import {useChatStore} from '@/stores/chatStore';
 import {useSettingsStore} from '@/stores/settingsStore';
 import {useRemoteStore} from '@/stores/remoteStore';
-import {useWorkspaceStore} from '@/stores/workspaceStore';
 import {closePetWindow} from '@/pet/PetBridge';
 import {useDismiss} from '@/ui/useDismiss';
 import {toast} from '@/lib/toast';
@@ -24,8 +23,7 @@ export function FileMenu({label = 'XEYO'}: {label?: string}) {
 	const openFolder = useChatStore(s => s.openFolder);
 	const enterSpace = useChatStore(s => s.enterSpace);
 	const openSettings = useSettingsStore(s => s.openSettings);
-	const toggleRemote = useRemoteStore(s => s.toggleRemote);
-	const remoteLoggedIn = useRemoteStore(s => s.loggedIn);
+		const remoteLoggedIn = useRemoteStore(s => s.loggedIn);
 	const pollError = useRemoteStore(s => s.pollError);
 	const [open, setOpen] = useState(false);
 	const [busy, setBusy] = useState(false);
@@ -59,18 +57,6 @@ export function FileMenu({label = 'XEYO'}: {label?: string}) {
 		}
 	}, [busy, enterSpace, navigate, openFolder]);
 
-	const onOpenTerminal = useCallback(() => {
-		const ws = useWorkspaceStore.getState();
-		ws.setOpen(true);
-		ws.setActiveTool('terminal');
-	}, []);
-
-	const onOpenBrowser = useCallback(() => {
-		const ws = useWorkspaceStore.getState();
-		ws.setOpen(true);
-		ws.setActiveTool('browser');
-	}, []);
-
 	const onExit = useCallback(async () => {
 			if (!isTauri()) {
 				toast.info('浏览器模式无窗口可关闭');
@@ -103,22 +89,9 @@ export function FileMenu({label = 'XEYO'}: {label?: string}) {
 		{kind: 'sep'},
 		{
 			kind: 'action',
-			id: 'terminal',
-			label: '终端',
-			onSelect: onOpenTerminal,
-		},
-		{
-			kind: 'action',
-			id: 'browser',
-			label: '浏览器预览',
-			onSelect: onOpenBrowser,
-		},
-		{kind: 'sep'},
-		{
-			kind: 'action',
 			id: 'remote',
-			label: remoteLoggedIn ? '断开远程' : '远程连接',
-			onSelect: () => void toggleRemote(),
+			label: '远程连接',
+			onSelect: () => openSettings('remote'),
 		},
 		{kind: 'sep'},
 		{

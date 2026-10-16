@@ -1,3 +1,5 @@
+import {startVisiblePolling} from '@/lib/visiblePolling';
+import {useWorkspaceVisible} from '@/hooks/useWorkspaceVisible';
 import {Columns2, Maximize2, Minimize2, X} from 'lucide-react';
 import {WorkbenchOverlay} from './review/WorkbenchOverlay';
 import {WorkbenchView} from './review/WorkbenchView';
@@ -168,6 +170,7 @@ export const FilePreview = memo(function FilePreview() {
 	const paneRef = useRef<HTMLElement | null>(null);
 	const chatHostWidth = usePaneChatHostWidth();
 	// 工作区未展开时不显示文件预览（含聊天区链接触发的打开），收起状态下无任何工作区按钮。
+	const visible = useWorkspaceVisible();
 	const paneOpen = Boolean(workspaceOpen && (selectedPath || loadingFile || reviewDiff));
 	const holdDoc = useRef(docLive);
 	if (paneOpen) {
@@ -447,6 +450,7 @@ export const FilePreview = memo(function FilePreview() {
 		if (
 			!selectedPath ||
 			!paneOpen ||
+			!visible ||
 			!root ||
 			!samePath(root, activeWorkspaceRoot())
 		) {
@@ -490,20 +494,10 @@ export const FilePreview = memo(function FilePreview() {
 				/* 预览保持现状 */
 			}
 		};
-		void checkStat();
-		if (!agentBusy) {
-			return () => {
-				active = false;
-			};
-		}
-		const timer = window.setInterval(() => {
-			void checkStat();
-		}, 700);
-		return () => {
-			active = false;
-			window.clearInterval(timer);
-		};
-	}, [agentBusy, selectedPath, paneOpen, reviewCoversFile, refreshLiveDiff, loadedRoot]);
+		const stop = agentBusy ? startVisiblePolling(checkStat, 700) : undefined;
+		if (!agentBusy) void checkStat();
+		return () => {active = false; stop?.();};
+	}, [agentBusy, selectedPath, paneOpen, visible, reviewCoversFile, refreshLiveDiff, loadedRoot]);
 
 	// Escape 退出放大（与 Mermaid 全屏同一 escStack）。
 	useEffect(() => {
@@ -767,10 +761,6 @@ export const FilePreview = memo(function FilePreview() {
 		[doc, onDraftChange, persist, truncated],
 	);
 
-	if (!smoothness && !mounted) {
-		return null;
-	}
-
 	const name =
 		doc?.name ||
 		reviewDiff?.name ||
@@ -798,6 +788,7 @@ export const FilePreview = memo(function FilePreview() {
 		registerFileClose(closeSavedPreview);
 		return () => registerFileClose(null);
 	}, [registerFileClose, closeSavedPreview]);
+	if (!smoothness && !mounted) return null;
 	const headerBar = (
 		<div className="xy-file-preview-header flex h-10 shrink-0 items-center justify-between gap-2 px-2">
 			<div

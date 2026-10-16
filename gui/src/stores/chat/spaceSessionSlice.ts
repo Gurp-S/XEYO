@@ -21,7 +21,6 @@ import {
 	clearRollbackState,
 	clearSpacePathTombstone,
 	deleteSession,
-	deleteSpace,
 	deleteSpaceRecord,
 	loadChatHistoryState,
 	loadDeletedSessionIds,
@@ -517,7 +516,7 @@ messagesById: settled.messagesById,
 		// 内存视图之外。重新打开同一文件夹时 openFolder →
 		// adoptWorkspaceSessions 按后端 ws_index 把它们挂回新 space，
 		// 对话即恢复显示（一稿曾迁入默认分区，用户不需要该中间态）。
-		await deleteSpace(spaceId);
+		await deleteSpaceRecord(spaceId);
 		set(s => {
 			const spaces = s.spaces.filter(x => x.id !== spaceId);
 			const removedIds = new Set(doomed.map(x => x.id));

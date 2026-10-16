@@ -27,7 +27,7 @@ import {useViewport} from './useViewport';
 export const CHAT_MIN_READABLE = 340;
 export const SIDEBAR_COMPACT_WIDTH_MAX = 280;
 
-/** Track the space shared by chat and its preview/tool panes as sibling panes change width. */
+/** 同级面板宽度变化时，重新计算聊天与预览、工具面板共享的空间。 */
 export function usePaneChatHostWidth(): number {
 	const [hostWidth, setHostWidth] = useState(() => {
 		if (typeof document === 'undefined') return PANE_WIDTH_MAX * 2;

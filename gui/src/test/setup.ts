@@ -3,12 +3,12 @@ import {vi} from 'vitest';
 // 转发真实判定实体，避免替身与实现各写一份"看起来一样"的规则。
 import {isKnownProvider} from '@/lib/localTestGate';
 
-/** 同步 flush rAF，以便测试流式合并。 */
+/** Browser frames are asynchronous and advance time; recursive cb(0) hides
+ * scheduling bugs and cannot exercise time-based animations. */
 vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
-	cb(0);
-	return 1;
+	return window.setTimeout(() => cb(performance.now()), 16);
 });
-vi.stubGlobal('cancelAnimationFrame', () => {});
+vi.stubGlobal('cancelAnimationFrame', (id: number) => window.clearTimeout(id));
 
 /**
  * jsdom 不实现 scrollIntoView。缺了它，产品代码要么写 `typeof x === 'function'`

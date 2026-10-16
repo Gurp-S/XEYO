@@ -1,6 +1,7 @@
-import {afterEach, beforeEach, describe, expect, it} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {SIDE_SPACE_ID} from '@/lib/db';
 import {useChatStore} from '@/stores/chatStore';
+import {useSettingsStore} from '@/stores/settingsStore';
 import type {ChatSession} from '@/lib/types';
 import {
 	closePageView,
@@ -69,6 +70,23 @@ describe('路径谓词按 React Router 的规则归一（bug #1）', () => {
 });
 
 describe('页面视图导航不污染历史（bug #4）', () => {
+	it('切换页面或回到对话时先关闭占用主内容区的设置，同路径也生效', () => {
+		const closed: boolean[] = [];
+		const closeSettings = vi.spyOn(useSettingsStore.getState(), 'closeSettings');
+		try {
+			setAppNavigator(() => closed.push(closeSettings.mock.calls.length > 0));
+			for (const navigate of [() => openPageView('usage'), closePageView]) {
+				closeSettings.mockClear();
+				goTo('/usage');
+				navigate();
+				expect(closeSettings).toHaveBeenCalledOnce();
+			}
+			expect(closed).toEqual([true, true]);
+		} finally {
+			closeSettings.mockRestore();
+		}
+	});
+
 	it('从聊天界面进入页面视图仍是 push：后退要回得来那个会话', () => {
 		const nav = recordingNavigator();
 		setAppNavigator(nav.set);

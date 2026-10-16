@@ -42,6 +42,13 @@ afterEach(() => {
 });
 
 describe('AgentDoneBars 的取消', () => {
+	it('已完成但有待投递消息的子任务提供继续入口', async () => {
+		const retryAgentTask = vi.fn().mockResolvedValue(true);
+		useChatStore.setState({retryAgentTask} as never);
+		render(<AgentDoneBars tasks={[{...task, status: 'done', inboxCount: 1}]} />);
+		await userEvent.click(screen.getByRole('button', {name: /^继续 /}));
+		expect(retryAgentTask).toHaveBeenCalledWith('s1', 'ag1');
+	});
 	it('取消被接受时不报警', async () => {
 		cancelAgentTask.mockResolvedValue(true);
 		render(<AgentDoneBars tasks={[task]} />);

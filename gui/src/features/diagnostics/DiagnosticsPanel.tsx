@@ -308,13 +308,16 @@ export function DiagnosticsPanel({active}: {active: boolean}) {
 	}, [sessionId, turnId]);
 
 	const contentKey = `${sessionId}:${turnId}`;
-	const tabIdx = Math.max(0, TABS.findIndex(t => t.key === tab));
+	const advanced = tab === 'experiments';
+ const visibleTabs = TABS.filter(t=>advanced ? t.key==='experiments' : t.key!=='experiments');
+ const tabIdx = Math.max(0, visibleTabs.findIndex(t => t.key === tab));
 	const onTabKeyDown = (e: React.KeyboardEvent) => {
 		if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
 		e.preventDefault();
 		const dir = e.key === 'ArrowRight' ? 1 : -1;
-		const next = (tabIdx + dir + TABS.length) % TABS.length;
-		setTab(TABS[next]!.key);
+		const next = (tabIdx + dir + visibleTabs.length) % visibleTabs.length;
+		setTab(visibleTabs[next]!.key);
+ requestAnimationFrame(()=>document.querySelector<HTMLElement>('[aria-label="诊断视图"] [aria-selected="true"]')?.focus());
 	};
 
 	const {runs, detail} = data;
@@ -331,8 +334,9 @@ export function DiagnosticsPanel({active}: {active: boolean}) {
 					data.clearLink();
 				}}
 			/>
-			<div role="tablist" aria-label="诊断视图" onKeyDown={onTabKeyDown} className="xy-dig-tabs">
-				{TABS.map(t => (
+			<div className="xy-diagnostics-groups" aria-label="诊断分组"><button aria-pressed={!advanced} onClick={()=>setTab('problems')}>常用排障</button><button aria-pressed={advanced} onClick={()=>setTab('experiments')}>高级实验</button></div>
+   <div role="tablist" aria-label="诊断视图" onKeyDown={onTabKeyDown} className="xy-dig-tabs">
+				{visibleTabs.map(t => (
 					<button
 						key={t.key}
 						type="button"
@@ -413,7 +417,7 @@ export function DiagnosticsPanel({active}: {active: boolean}) {
 					{ledger.note && !ledger.complete ? (
 						<p className="xy-dig-foot">{ledger.note}</p>
 					) : null}
-					<div className="xy-dig-capture">
+					<details className="xy-dig-capture"><summary>高级 · 复现记录</summary>
 						<label className="xy-dig-check">
 							<input
 								type="checkbox"
@@ -435,7 +439,7 @@ export function DiagnosticsPanel({active}: {active: boolean}) {
 						) : (
 							<p className="xy-dig-capture-note">采集状态未取回：该端点不可达时不改动任何配置。</p>
 						)}
-					</div>
+					</details>
 					{pinOpen && turnId ? (
 						<PinForm
 							key={contentKey}

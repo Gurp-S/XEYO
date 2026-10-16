@@ -1,3 +1,4 @@
+import {WORKSPACE_TOOL_LABELS} from '@/lib/workspaceTools';
 import {useContext, useEffect, useRef, useState, type ReactNode} from 'react';
 import {Folder, GitBranch, Globe, History, GitCommitHorizontal, Map as MapIcon, Maximize2, Minimize2, PanelRightClose, Plus, Terminal, FileText, X} from 'lucide-react';
 import type {WorkspaceSection, WorkspaceTool} from '@/stores/workspaceStore';
@@ -11,9 +12,9 @@ type Tab = {key:string; name:string; kind:'tree'|'tool'|'file'; value:string; re
 const baseTabs: Tab[] = [
  {key:'files',name:'文件',kind:'tree',value:'files'},
  {key:'history',name:'更改',kind:'tree',value:'history'},
- {key:'git',name:'Git',kind:'tree',value:'git'},
+ {key:'git',name:'版本控制',kind:'tree',value:'git'},
 ];
-const tools: [WorkspaceTool,string][] = [['terminal','终端'],['browser','浏览器'],['history','命令记录'],['commits','提交记录']];
+const tools = (['terminal','browser','history'] as WorkspaceTool[]).map(key=>[key,WORKSPACE_TOOL_LABELS[key]] as [WorkspaceTool,string]);
 const toolIcons = {terminal:Terminal,browser:Globe,history:History,commits:GitCommitHorizontal,map:MapIcon,git:GitBranch};
 
 export function ReviewWorkspaceNav({active, activeTool, hasContent, onTree, onTool, onClose, showExperimental, children}: {
@@ -30,7 +31,7 @@ export function ReviewWorkspaceNav({active, activeTool, hasContent, onTree, onTo
  const dragged = useRef<string | null>(null);
  const filePath = review ? null : path;
  useEffect(()=>{if(review) useWorkspaceStore.getState().setActive('history');},[review]);
- const current: Tab = filePath ? {key:`file:${filePath}`,name:filePath.replace(/\\/g,'/').split('/').at(-1) || filePath,kind:'file',value:filePath,review:review ?? undefined} : activeTool ? {key:`tool:${activeTool}`,name:tools.find(t=>t[0]===activeTool)?.[1] ?? activeTool,kind:'tool',value:activeTool} : baseTabs.find(t=>t.value===active) ?? baseTabs[0];
+ const current: Tab = filePath ? {key:`file:${filePath}`,name:filePath.replace(/\\/g,'/').split('/').at(-1) || filePath,kind:'file',value:filePath,review:review ?? undefined} : activeTool ? {key:`tool:${activeTool}`,name:WORKSPACE_TOOL_LABELS[activeTool],kind:'tool',value:activeTool} : baseTabs.find(t=>t.value===active) ?? baseTabs[0];
  useEffect(()=>setTabs(baseTabs.slice(0,2)),[space]);
  useEffect(()=>{
   setTabs(previous=>previous.some(t=>t.key===current.key) ? previous.map(t=>t.key===current.key ? current : t) : [...previous,current]);
@@ -52,6 +53,7 @@ export function ReviewWorkspaceNav({active, activeTool, hasContent, onTree, onTo
   if (!rest.length) { onClose(); return; }
   setTabs(rest);
   if(current.key===tab.key) select(rest[Math.min(index,rest.length-1)]);
+  requestAnimationFrame(()=>tabRow.current?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[Math.min(index,rest.length-1)]?.focus());
  };
  return <section className="xy-review-workspace-nav" aria-label="工作区导航">
   <header>
@@ -59,7 +61,12 @@ export function ReviewWorkspaceNav({active, activeTool, hasContent, onTree, onTo
     {tabs.map(tab=>{
      const Icon=tab.kind==='file' ? FileText : tab.kind==='tool' ? toolIcons[tab.value as WorkspaceTool] : tab.value==='files' ? Folder : GitBranch;
      return <div key={tab.key} className={`xy-work-tab ${current.key===tab.key ? 'is-active' : ''}`} draggable onDragStart={()=>{dragged.current=tab.key;}} onDragEnd={()=>{dragged.current=null;}} onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();const key=dragged.current; if(!key || key===tab.key) return;setTabs(previous=>{const next=previous.filter(t=>t.key!==key);const source=previous.find(t=>t.key===key);if(source) next.splice(next.findIndex(t=>t.key===tab.key),0,source);return next;});}}>
-      <button role="tab" aria-selected={current.key===tab.key} title={tab.value} onClick={()=>select(tab)}><Icon size={13}/><span>{tab.name}</span></button>
+      <button role="tab" tabIndex={current.key===tab.key?0:-1} onKeyDown={e=>{
+       const index=tabs.findIndex(t=>t.key===tab.key);
+       const next=e.key==='Home'?0:e.key==='End'?tabs.length-1:e.key==='ArrowRight'?(index+1)%tabs.length:e.key==='ArrowLeft'?(index-1+tabs.length)%tabs.length:null;
+       if(next!==null){e.preventDefault();select(tabs[next]);tabRow.current?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus();}
+       else if(e.key==='Delete'){e.preventDefault();void close(tab);}
+      }} aria-selected={current.key===tab.key} title={tab.value} onClick={()=>select(tab)}><Icon size={13}/><span>{tab.name}</span></button>
       <button className="xy-work-tab-close" aria-label={`关闭标签：${tab.name}`} onClick={()=>void close(tab)}><X size={12}/></button>
      </div>;
     })}

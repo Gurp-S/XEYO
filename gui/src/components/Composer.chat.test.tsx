@@ -497,19 +497,19 @@ describe('Composer send UX', () => {
 		};
 		const user = userEvent.setup();
 		render(<Composer />);
-		expect(screen.getByText('2 条排队消息')).toBeInTheDocument();
+		expect(screen.getByRole('button', {name: /待发送消息.*2 条/})).toBeInTheDocument();
 		expect(screen.queryByText('第一条排队')).not.toBeInTheDocument();
-		await user.click(screen.getByRole('button', {name: /2 条排队消息/}));
+		await user.click(screen.getByRole('button', {name: /待发送消息.*2 条/}));
 		expect(screen.getByText('第一条排队')).toBeInTheDocument();
 		expect(screen.getByText('第二条排队')).toBeInTheDocument();
 	});
 
-	it('单条队列不出计数头，直接可见', () => {
+	it('单条队列直接可见', () => {
 		chatState.inboxBySession = {
 			sess_1: [queueItem({queue_id: 'q1', text: '只有一条'})],
 		};
 		render(<Composer />);
-		expect(screen.queryByText(/条排队消息/)).not.toBeInTheDocument();
+		expect(screen.getByRole('button', {name: /待发送消息.*1 条/})).toHaveAttribute('aria-expanded', 'true');
 		expect(screen.getByText('只有一条')).toBeInTheDocument();
 	});
 
@@ -522,10 +522,10 @@ describe('Composer send UX', () => {
 		};
 		const user = userEvent.setup();
 		render(<Composer />);
-		await user.click(screen.getByRole('button', {name: /2 条排队消息/}));
+		await user.click(screen.getByRole('button', {name: /待发送消息.*2 条/}));
 		await user.click(screen.getAllByTitle('编辑消息')[0]);
 		expect(screen.getByLabelText('编辑排队消息')).toBeInTheDocument();
-		expect(screen.getByRole('button', {name: /2 条排队消息/})).toBeDisabled();
+		expect(screen.getByRole('button', {name: /待发送消息.*2 条/})).toBeDisabled();
 		expect(screen.getByText('第二条排队')).toBeInTheDocument();
 	});
 
@@ -768,9 +768,9 @@ describe('Composer send UX', () => {
 			cleanup();
 		});
 
-		it('renders 进行中的目标 + DSH 动作集（暂停/编辑/清除），不再有自动续跑入口', () => {
+		it('renders the named goal dock with pause, edit and clear actions', () => {
 			render(<Composer />);
-			expect(screen.getByText('进行中的目标')).toBeInTheDocument();
+			expect(screen.getByRole('region', {name: 'Session goal'})).toBeInTheDocument();
 			expect(screen.getByRole('button', {name: '暂停'})).toBeInTheDocument();
 			expect(screen.getByRole('button', {name: '编辑目标'})).toBeInTheDocument();
 			expect(screen.getByRole('button', {name: '清除目标'})).toBeInTheDocument();
@@ -782,7 +782,7 @@ describe('Composer send UX', () => {
 		it('does not render the dock when the session has no goal', () => {
 			chatState.sessionGoalById = {};
 			render(<Composer />);
-			expect(screen.queryByText('进行中的目标')).not.toBeInTheDocument();
+			expect(screen.queryByRole('region', {name: 'Session goal'})).not.toBeInTheDocument();
 		});
 	});
 

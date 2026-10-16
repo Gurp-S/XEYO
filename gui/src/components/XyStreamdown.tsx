@@ -1,3 +1,4 @@
+import {scrollMarkdownHeading} from '@/lib/markdownAnchor';
 import {
 	memo,
 	useContext,
@@ -73,10 +74,6 @@ const XyTailFadeBlock = memo(function XyTailFadeBlock(props: BlockProps) {
 	}, [props.rehypePlugins, fadeCount]);
 	return <Block {...props} rehypePlugins={rehypePlugins} />;
 });
-
-function scrollToHeading(id: string) {
-	document.getElementById(id)?.scrollIntoView({block: 'start', behavior: 'smooth'});
-}
 
 function fenceLock(
 	editable: boolean | undefined,
@@ -257,7 +254,7 @@ export const XyStreamdown = memo(function XyStreamdown({
 							{...lock}
 							onClick={e => {
 								e.preventDefault();
-								scrollToHeading(dest.id);
+								scrollMarkdownHeading(e.currentTarget.closest('.xy-streamdown'), dest.id);
 							}}
 						>
 							{children}

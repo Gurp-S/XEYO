@@ -1,10 +1,10 @@
 import {describe, expect, it} from 'vitest';
-import {render} from '@testing-library/react';
+import {renderDeferred as render} from '@/test/renderDeferred';
 import {StreamingMarkdown} from './StreamingMarkdown';
 
 describe('StreamingMarkdown heavy paths', () => {
-	it('renders an established table without pipe source', () => {
-		const {container} = render(
+	it('renders an established table without pipe source', async () => {
+		const {container} = await render(
 			<StreamingMarkdown text={'| A | B |\n| --- | --- |\n| 1 | hello'} />,
 		);
 		expect(container.querySelector('table')).toBeTruthy();
@@ -13,8 +13,8 @@ describe('StreamingMarkdown heavy paths', () => {
 		expect(container.textContent).not.toContain('---');
 	});
 
-	it('pending delimiter never shows raw dashes or pipes', () => {
-		const {container} = render(
+	it('pending delimiter never shows raw dashes or pipes', async () => {
+		const {container} = await render(
 			<StreamingMarkdown text={'| Name | Age |\n| ---'} />,
 		);
 		expect(container.textContent).toContain('Name');
@@ -23,8 +23,8 @@ describe('StreamingMarkdown heavy paths', () => {
 		expect(container.textContent).not.toContain('---');
 	});
 
-	it('renders an open fence via CodeBlock without backticks', () => {
-		const {container} = render(
+	it('renders an open fence via CodeBlock without backticks', async () => {
+		const {container} = await render(
 			<StreamingMarkdown text={'```ts\nconst x = 1'} />,
 		);
 		expect(container.querySelector('.xy-stream-code')).toBeTruthy();
@@ -32,16 +32,16 @@ describe('StreamingMarkdown heavy paths', () => {
 		expect(container.textContent).not.toContain('```');
 	});
 
-	it('holds growing fence closers out of the code body', () => {
-		const {container} = render(
+	it('holds growing fence closers out of the code body', async () => {
+		const {container} = await render(
 			<StreamingMarkdown text={'```ts\nconst x = 1\n``'} />,
 		);
 		expect(container.textContent).toContain('const x = 1');
 		expect(container.textContent).not.toContain('``');
 	});
 
-	it('renders plain streaming prose with tail fade chars', () => {
-		const {container} = render(<StreamingMarkdown text={'Hello'} />);
+	it('renders plain streaming prose with tail fade chars', async () => {
+		const {container} = await render(<StreamingMarkdown text={'Hello'} />);
 		expect(container.textContent).toContain('Hello');
 		expect(container.querySelector('.xy-streamdown-live')).toBeTruthy();
 		expect(container.querySelectorAll('.xy-char').length).toBeGreaterThan(0);

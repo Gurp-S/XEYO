@@ -1,15 +1,5 @@
-// 本地/测试 provider 门禁。
-//
-// 'local' 与 'fake' 走的是相反的路，2026-09-14 起分开管理：
-//
-// * **'local' = 正式功能**（本地模型服务，llama.cpp / 任何 OpenAI 兼容的环回服务）。
-//   它**不再受 dev 构建门禁**——生产包同样可用，因为要不要开放由用户在本机决定
-//   （设置 → 模型与账号 → 本地模型）。后端对应的授权位是
-//   `settings.local_models.enabled`（见 `python/localmodels/gate.py`）。
-//   本地服务通常不校验 Key，所以空 Key 合法。
-// * **'fake' = 测试专用**（Playwright 全栈测试的确定性假模型）。仍然只在
-//   dev 构建 + 显式开启（localStorage `XEYO_ENABLE_LOCAL_TEST=1`）时可用，
-//   生产构建恒关闭。
+// 测试 transport 门禁。内置本地模型产品功能已移除；local / fake 仅供
+// DEV 构建且显式设置 XEYO_ENABLE_LOCAL_TEST=1 的全栈测试使用。
 
 export function isLocalTestEnabled(): boolean {
 	if (!import.meta.env.DEV) {
@@ -22,9 +12,9 @@ export function isLocalTestEnabled(): boolean {
 	}
 }
 
-/** provider 是否为本地模型服务（'local'）。正式功能，不受 dev 门禁限制。 */
+/** HTTP mock transport，仅在显式开启的开发测试中可用。 */
 export function isLocalProvider(provider: string | undefined | null): boolean {
-	return !!provider && provider === 'local';
+	return provider === 'local' && isLocalTestEnabled();
 }
 
 /** 受 dev 门禁管理的测试 provider（仅 'fake'）。 */
@@ -35,7 +25,7 @@ export function isTestProvider(provider: string | undefined | null): boolean {
 /**
  * 空 API Key 放行条件。
  *
- * 'local' 恒放行（本机服务不校验 Key）；'fake' 仅门禁开启时放行。
+ * 仅显式开启的开发测试 transport 放行。
  */
 export function allowsEmptyApiKey(provider: string | undefined | null): boolean {
 	return isLocalProvider(provider) || isTestProvider(provider);

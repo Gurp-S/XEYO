@@ -148,7 +148,7 @@ describe('发送路径遇到 stream_gap 改用服务端 transcript 收尾', () =
 		expect(storedTexts()).toContain('完整答案全文');
 	});
 
-	it('拉不到服务端记录时退回本地提交，绝不静默卡住', async () => {
+	it('拉不到服务端记录时保留未完成尾巴，等待恢复', async () => {
 		streamChat.mockImplementation(
 			async (_sid: string, _msgs: unknown, h: Handlers) => {
 				h.onAccepted?.(200);
@@ -162,6 +162,12 @@ describe('发送路径遇到 stream_gap 改用服务端 transcript 收尾', () =
 		await useChatStore.getState().sendMessage('问题', []);
 		await settle();
 
-		expect(storedTexts()).toContain('能看到的尾巴');
+		expect(storedTexts()).not.toContain('能看到的尾巴');
+		const stream = useChatStore.getState().sessionStreams[SID];
+		expect(stream.streamingText).toBe('能看到的尾巴');
+		expect(stream.turnDetached).toBe(true);
+		expect(stream.isLoading).toBe(false);
+		expect(useChatStore.getState().errorBanner).toBeTruthy();
+		expect(replaceMessages).not.toHaveBeenCalled();
 	});
 });

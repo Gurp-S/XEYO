@@ -1,5 +1,6 @@
 import {
 	forwardRef,
+	Suspense,
 	useCallback,
 	useEffect,
 	useImperativeHandle,
@@ -57,7 +58,7 @@ function insertPlain(text: string) {
 	}
 }
 
-export const EditableMarkdown = forwardRef<EditableMarkdownHandle, Props>(
+const EditableMarkdownContent = forwardRef<EditableMarkdownHandle, Props>(
 	function EditableMarkdown(
 		{
 			content,
@@ -244,5 +245,13 @@ export const EditableMarkdown = forwardRef<EditableMarkdownHandle, Props>(
 				/>
 			</div>
 		);
+	},
+);
+
+export const EditableMarkdown = forwardRef<EditableMarkdownHandle, Props>(
+	function EditableMarkdownBoundary(props, ref) {
+		return <Suspense fallback={<div role="status" aria-busy="true">正在加载正文…</div>}>
+			<EditableMarkdownContent {...props} ref={ref} />
+		</Suspense>;
 	},
 );

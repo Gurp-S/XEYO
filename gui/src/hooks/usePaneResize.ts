@@ -33,9 +33,9 @@ export function usePaneResize(
 		slotOf?: (base: number) => number;
 		slotMax?: () => number;
 		chatMin?: number;
-		/** Nested review panes store the visible width, without an invisible drag range. */
+		/** 嵌套面板只保存可见宽度，不保留不可见的拖动范围。 */
 		constrainBaseToSlot?: boolean;
-		/** Continue dragging past the minimum to collapse an auxiliary pane. */
+		/** 拖动超过最小宽度后折叠辅助面板。 */
 		onCollapse?: () => void;
 	},
 ) {
@@ -78,9 +78,9 @@ export function usePaneResize(
 				min,
 				Math.min(effectiveSlotMax(), baseMaxSlot),
 			);
-			// A translated slot can have a nominal minimum larger than the available
-			// width (e.g. hidden tree width + preview minimum). Keep the visible floor
-			// at the pane minimum, while retaining the user's base width under clamping.
+			// 带位移的面板槽，其标称最小宽度可能超过可用空间
+			// （如隐藏文件树宽度加预览最小宽度）。可见区域以面板最小宽度为下限，
+			// 收缩时仍保留用户设置的基础宽度。
 			const slotMin = Math.min(baseMinSlot, availableSlotMax);
 			const slot = Math.min(
 				availableSlotMax,

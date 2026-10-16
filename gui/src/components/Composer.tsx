@@ -1,16 +1,12 @@
+import {ComposerTaskDock} from './composer/ComposerTaskDock';
+import {ComposerQueueDock} from './composer/ComposerQueueDock';
 import {
 	ArrowUp,
 	ChevronDown,
-	ChevronUp,
-	GripVertical,
-	ListChecks,
 	Network,
-	Pencil,
 	Plus,
-	Send,
 	Square,
 	X,
-	Zap,
 } from 'lucide-react';
 import {
 	useEffect,
@@ -24,20 +20,7 @@ import {
 	type KeyboardEvent,
 	type MouseEvent as ReactMouseEvent,
 } from 'react';
-import {fetchFileReferences, uploadFile, uploadMedia, mediaUrl, steerInboxItem, type SkillInfo} from '@/lib/api';
-import {
-	canEditInboxItem,
-	canManuallyResumeInbox,
-	canMutateInboxItem,
-	canSteerInboxItem,
-	prioritizeInboxPreview,
-} from '@/lib/inboxItemState';
-import {
-	queueCountLabel,
-	queueDockView,
-	queueImageRefs,
-	shouldCollapseQueueDock,
-} from '@/lib/inboxDockPresentation';
+import {fetchFileReferences, uploadFile, uploadMedia, type SkillInfo} from '@/lib/api';
 import {
 	currentFileReferenceResult,
 	fileReferenceQueryKey,
@@ -93,9 +76,6 @@ import {showContextMenu} from '@/components/ui/ContextMenu';
 import {ZoomIn} from 'lucide-react';
 import {ApprovalModeButton} from './ApprovalModeButton';
 import {ModeChip} from './ModeChip';
-import {PermissionDialog} from './PermissionDialog';
-import {AskUserDialog} from './AskUserDialog';
-import {PlanDialog} from './PlanDialog';
 import {ErrorBanner} from './ErrorBanner';
 import {SessionTodoDock} from './SessionTodoDock';
 import {ComposerQuickMenu} from './ComposerQuickMenu';
@@ -103,7 +83,7 @@ import {McpPanel} from './McpPanel';
 import {SessionGoalDock} from './SessionGoalDock';
 import {ImageReaderDialog} from './ImageReader';
 import {normalizeAgentMode} from '@/lib/agentMode';
-import {useQueuedRequestSettings, resumeInboxUsingCurrentSettings} from '@/hooks/useQueuedRequestSettings';
+import {useQueuedRequestSettings} from '@/hooks/useQueuedRequestSettings';
 import {SIDE_SPACE_ID} from '@/lib/db';
 
 type FileAttachment = DraftFileAttachment;
@@ -302,8 +282,6 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 	// P1 mid-turn inbox：排队 chip（会话忙时后端 202 排队；轮询刷新/逐条取消）。
 	const inboxBySession = useChatUiStore(s => s.inboxBySession);
 	const refreshInbox = useChatUiStore(s => s.refreshInbox);
-	const cancelInboxItem = useChatUiStore(s => s.cancelInboxItem);
-	const editInboxItem = useChatUiStore(s => s.editInboxItem);
 	const inboxItems: InboxQueuedItem[] = (activeId ? inboxBySession[activeId] : undefined) ?? [];
 	// 每会话派生：切走再切回时不会因其它会话的轮询结果把本会话 chip 熄灭。
 	const hasInboxChip = inboxItems.length > 0;
@@ -315,11 +293,6 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 			Boolean(stream.remoteStreaming || stream.turnDetached)
 		);
 	});
-	const manualQueueResumeAvailable = canManuallyResumeInbox(
-		activeSessionArchived,
-		queueSessionBusy,
-		inboxItems,
-	);
 	// Side 会话目前不支持忙碌回合引导；忙碌状态仍可接收普通排队发送。
 	const canSteerCurrentSession = queueSessionBusy && !activeSessionIsSide;
 	const inboxPollingActive = useChatUiStore(s => {
@@ -331,148 +304,6 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 			Boolean(stream.remoteStreaming || stream.turnDetached)
 		);
 	});
-	// 排队 dock 形态：多于 1 条默认折叠成「N 条排队消息」计数头；行内编辑或
-	// 动作在飞时强制展开。规则本身在 lib/inboxDockPresentation（可单测）。
-	const [queueCollapsed, setQueueCollapsed] = useState(true);
-	const prioritizedInbox = prioritizeInboxPreview(inboxItems);
-	// 行内编辑：editingId 锁定目标条目——轮询导致的队列位移不会再改错行。
-	// Enter/失焦保存；Esc 取消（escRef 拦住失焦触发的保存，避免误保存）。
-	const [editingId, setEditingId] = useState<string | null>(null);
-	const [queueDraft, setQueueDraft] = useState('');
-	const queueEscRef = useRef(false);
-	const [queueActionsInFlight, setQueueActionsInFlight] = useState<Set<string>>(
-		() => new Set(),
-	);
-	const queueActionsInFlightRef = useRef(new Set<string>());
-	const queueView = queueDockView({
-		count: inboxItems.length,
-		collapsed: queueCollapsed,
-		interactionActive: editingId !== null || queueActionsInFlight.size > 0,
-	});
-	useEffect(() => {
-		// 队列清空后收回折叠态：下次出现队列不沿用上一轮的展开偏好。
-		if (shouldCollapseQueueDock(inboxItems.length, queueCollapsed)) {
-			setQueueCollapsed(true);
-		}
-	}, [inboxItems.length, queueCollapsed]);
-	const runQueueAction = async (
-		queueId: string,
-		action: () => Promise<boolean>,
-		failureText: string,
-	): Promise<boolean> => {
-		if (queueActionsInFlightRef.current.has(queueId)) return false;
-		queueActionsInFlightRef.current.add(queueId);
-		setQueueActionsInFlight(new Set(queueActionsInFlightRef.current));
-		try {
-			const ok = await action();
-			if (!ok) toast.error(failureText);
-			return ok;
-		} catch (error) {
-			toast.error(error instanceof Error ? error.message : failureText);
-			return false;
-		} finally {
-			queueActionsInFlightRef.current.delete(queueId);
-			setQueueActionsInFlight(new Set(queueActionsInFlightRef.current));
-		}
-	};
-	const editingTargetRef = useRef<{
-		sessionId: string;
-		item: InboxQueuedItem;
-	} | null>(null);
-	const closeQueueEdit = () => {
-		editingTargetRef.current = null;
-		setEditingId(null);
-		setQueueDraft('');
-	};
-	useEffect(() => {
-		closeQueueEdit();
-		// 切会话/切后端/归档态变化都收回折叠态：新会话的队列不该沿用上一轮的展开。
-		setQueueCollapsed(true);
-	}, [activeId, activeInboxBackendId, activeSessionArchived]);
-	const openQueueEdit = (it: InboxQueuedItem) => {
-		if (!canEditInboxItem(it.state, activeSessionArchived) || !activeId) return;
-		queueEscRef.current = false;
-		editingTargetRef.current = {sessionId: activeId, item: it};
-		setEditingId(it.queue_id);
-		setQueueDraft(it.text);
-	};
-	const saveQueueEdit = () => {
-		// Esc 取消路径：跳过这次由失焦触发的调用。
-		if (queueEscRef.current) {
-			queueEscRef.current = false;
-			closeQueueEdit();
-			return;
-		}
-		const target = editingTargetRef.current;
-		const t = queueDraft.trim();
-		closeQueueEdit();
-		if (
-			target &&
-			chatUiStoreApi.getState().sessions.some(session =>
-				session.id === target.sessionId && session.archived,
-			)
-		) {
-			toast.info('归档对话为只读，请先恢复后编辑');
-			return;
-		}
-		if (!target || !t || t === target.item.text) return;
-		if (!canMutateInboxItem(target.item.state)) {
-			// 编辑期间被投递：保存必 409，直接提示而不是静默丢改动。
-			toast.error('该消息已开始投递，无法编辑');
-			return;
-		}
-		void runQueueAction(
-			target.item.queue_id,
-			() => editInboxItem(target.sessionId, target.item.queue_id, t),
-			'编辑失败（消息可能已开始投递）',
-		).then(async saved => {
-			if (saved) return;
-			await refreshInbox(target.sessionId);
-			if (
-				chatUiStoreApi.getState().activeId !== target.sessionId ||
-				editingTargetRef.current
-			) {
-				return;
-			}
-			const latest = chatUiStoreApi.getState();
-			if (
-				latest.sessions.some(
-					session => session.id === target.sessionId && session.archived,
-				)
-			) {
-				return;
-			}
-			const current = latest.inboxBySession[target.sessionId]?.find(
-				item => item.queue_id === target.item.queue_id,
-			);
-			if (!current || !canEditInboxItem(current.state)) return;
-			// 保存失败时保留用户输入；消息若已进入投递态则由刷新结果决定，
-			// 不会把一个已不能编辑的旧队列项重新打开。
-			editingTargetRef.current = {sessionId: target.sessionId, item: current};
-			setEditingId(current.queue_id);
-			setQueueDraft(t);
-		});
-	};
-	const cancelQueueItem = (it: InboxQueuedItem) => {
-		const sessionId = activeId;
-		if (!sessionId) return;
-		if (
-			activeSessionArchived ||
-			chatUiStoreApi.getState().sessions.some(
-				session => session.id === sessionId && session.archived,
-			)
-		) {
-			toast.info('归档对话为只读，请先恢复后取消排队消息');
-			return;
-		}
-		if (it.queue_id === editingId) closeQueueEdit();
-		void runQueueAction(
-			it.queue_id,
-			() => cancelInboxItem(sessionId, it.queue_id),
-			'取消失败（消息可能已开始投递）',
-		);
-	};
-	// 会话切换时先取快照；运行中快速轮询，空闲时低频同步其它客户端入队。
 	useEffect(() => {
 		if (!activeId || activeSessionIsSide) {
 			return;
@@ -831,6 +662,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 		onClose: () => setModelOpen(false),
 		escId: 'composer-model',
 		keepOpenRefs: [modelMenuRef],
+		panelId: modelMenuId,
 	});
 
 	useDismiss({
@@ -1044,21 +876,6 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 		pushEscLayer('composer-slash', () => setSlashDismissed(true));
 		return () => popEscLayer('composer-slash');
 	}, [popupOpen]);
-
-	// 排队消息编辑态也拥有 Esc（escStack LIFO 顶层）：元素级 onKeyDown 的
-	// 冒泡监听在流式期间会被 window 捕获阶段的「停止生成」层先吃掉 —— 实测
-	// Esc 把回合停了、编辑框还开着（e2e input-chain 探针）。取消编辑的旗标
-	// 与失焦保存守卫同路径，行为与输入框内 Esc 完全一致。
-	useEffect(() => {
-		if (editingId === null) {
-			return;
-		}
-		pushEscLayer('composer-queue-edit', () => {
-			queueEscRef.current = true;
-			closeQueueEdit();
-		});
-		return () => popEscLayer('composer-queue-edit');
-	}, [editingId]);
 
 	// 点选候选项后把光标放回替换点。
 	useEffect(() => {
@@ -1860,7 +1677,7 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 						<button
 							type="button"
 							className="ml-1 text-accent underline-offset-2 hover:underline"
-							onClick={() => openSettings()}
+							onClick={() => openSettings('accounts')}
 						>
 							打开设置
 						</button>
@@ -1927,252 +1744,9 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 				) : null}
 				{/* composer 栈：一列独立卡 + 6px 间距（DSH composerStack）。 */}
 				<div className="xy-composer-stack">
-				{showTodoDock ? <SessionTodoDock embedded /> : null}
-				<SessionGoalDock embedded />
-				{hasInboxChip && inboxItems.length > 0 ? (
-					// 排队列表：全部条目可见（默认 3 条，超出折叠）——
-					// 每条独立行：状态、文本与安全可用的编辑/重试/取消动作。
-					// delivering / syncing 行不可编辑/取消（后端 409，前端先行拦截）。
-					<div className="xy-queue-dock" data-queue-dock="">
-						{manualQueueResumeAvailable ? (
-							<div className="flex items-center justify-between gap-3 border-b border-line/40 px-3 py-2 text-xs text-mute">
-								<span>自动投递已暂停</span>
-								<button
-									type="button"
-									className="shrink-0 rounded-md px-2 py-1 font-medium text-accent hover:bg-accent/10 disabled:opacity-50"
-									disabled={activeSessionArchived || queueActionsInFlight.has('__resume_queued__')}
-									title={activeSessionArchived ? '归档对话不能继续投递，请先恢复' : undefined}
-									onClick={() => {
-										if (!activeId || activeSessionArchived) return;
-										const sessionId = activeId;
-										const current = chatUiStoreApi.getState();
-										if (
-											current.sessions.some(
-												session => session.id === sessionId && session.archived,
-											)
-										) return;
-										const backendId = activeBackendSessionId(current.historyById, sessionId);
-										void runQueueAction(
-											'__resume_queued__',
-											() => resumeInboxUsingCurrentSettings(backendId, {agentMode: normalizeAgentMode(agentMode), multiAgent, reasoningEffort}),
-											'继续投递失败',
-										).then(() => refreshInbox(sessionId));
-									}}
-								>
-									继续投递
-								</button>
-							</div>
-						) : null}
-						{queueView.showHeader ? (
-							<button
-								type="button"
-								className="xy-queue-head"
-								aria-expanded={queueView.expanded}
-								// 交互中不让头收起：正在改的那行会跟着消失。
-								disabled={editingId !== null || queueActionsInFlight.size > 0}
-								onClick={() => setQueueCollapsed(v => !v)}
-							>
-								<ListChecks className="h-3.5 w-3.5 shrink-0" strokeWidth={1.9} aria-hidden />
-								<span className="min-w-0 flex-1 truncate">
-									{queueCountLabel(inboxItems.length)}
-								</span>
-								{queueView.expanded ? (
-									<ChevronDown className="h-3.5 w-3.5 shrink-0" strokeWidth={1.9} aria-hidden />
-								) : (
-									<ChevronUp className="h-3.5 w-3.5 shrink-0" strokeWidth={1.9} aria-hidden />
-								)}
-							</button>
-						) : null}
-						{queueView.listVisible ? (
-							<div className="xy-queue-list">
-							{prioritizedInbox.map(it => {
-							const isEditing = editingId === it.queue_id;
-							// 排队行的图片：media_refs 后端一直在写，GUI 此前从不渲染。
-							const queueImages = queueImageRefs(it.media_refs);
-							const statusLabel =
-								it.state === 'syncing'
-									? '同步回复'
-									: it.state === 'delivering'
-										? '投递中'
-										: it.state === 'stuck'
-											? '需重试'
-											: '排队';
-							const queuePositionLabel = it.state === 'queued'
-								? ` · 第 ${it.position} 位`
-								: '';
-							const statusClass = cn(
-								'shrink-0 text-[10px]',
-								it.state === 'delivering' || it.state === 'syncing'
-									? 'text-accent'
-									: it.state === 'stuck'
-										? 'text-danger'
-										: 'text-mute',
-							);
-							return (
-								<div className="xy-queue-card" key={it.queue_id}>
-									<span className="xy-queue-grip" aria-hidden>
-										<GripVertical className="h-3.5 w-3.5" strokeWidth={1.9} />
-									</span>
-									{isEditing ? (
-										<input
-											value={queueDraft}
-											onChange={e => setQueueDraft(e.target.value)}
-											onKeyDown={e => {
-												if (isImeComposing(e.nativeEvent)) return;
-												if (e.key === 'Enter') saveQueueEdit();
-												if (e.key === 'Escape') {
-													// 先立旗再关闭：拦住随后的失焦保存，避免 Esc 误保存。
-													queueEscRef.current = true;
-													closeQueueEdit();
-												}
-											}}
-											onBlur={saveQueueEdit}
-											autoFocus
-											maxLength={2000}
-											aria-label="编辑排队消息"
-											className="min-w-0 flex-1 rounded-md border border-line/70 bg-paper-deep/40 px-2 py-0.5 text-[12.5px] text-ink outline-none focus:border-accent/60"
-										/>
-									) : (
-										<>
-											{queueImages.length > 0 ? (
-												<span className="xy-queue-attachments">
-													{queueImages.map(ref => (
-														<img
-															key={ref}
-															className="xy-queue-thumb"
-															src={mediaUrl(ref)}
-															alt="排队消息图片"
-															loading="lazy"
-														/>
-													))}
-												</span>
-											) : null}
-											<span
-												className="xy-queue-text"
-												data-stuck={it.state === 'stuck' ? '' : undefined}
-											>
-												{it.text}
-											</span>
-										</>
-									)}
-									<span
-										className={statusClass}
-										title={
-											it.state === 'queued'
-												? `队列位置 ${it.position}`
-												: undefined
-										}
-									>
-										{statusLabel}{queuePositionLabel}
-									</span>
-									<div className="xy-queue-actions" hidden={isEditing}>
-										{canMutateInboxItem(it.state) ? (
-											<button
-												type="button"
-												className="xy-queue-action disabled:pointer-events-none disabled:opacity-40"
-												title={activeSessionArchived ? '归档对话只读，请先恢复' : '编辑消息'}
-												disabled={activeSessionArchived || queueActionsInFlight.has(it.queue_id)}
-												onClick={() => openQueueEdit(it)}
-											>
-												<Pencil className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden />
-											</button>
-										) : null}
-										{it.state === 'stuck' ? (
-											<button
-												type="button"
-												className="xy-queue-action disabled:pointer-events-none disabled:opacity-40"
-												title={
-													queueActionsInFlight.has(it.queue_id)
-														? '正在重新投递…'
-														: activeSessionArchived
-															? '归档对话不能启动新的投递，请先恢复'
-															: '重新投递'
-												}
-												disabled={activeSessionArchived || queueActionsInFlight.has(it.queue_id)}
-												onClick={() => {
-													const sessionId = activeId;
-													if (!sessionId || activeSessionArchived) return;
-													const current = chatUiStoreApi.getState();
-													if (
-														current.sessions.some(
-															session => session.id === sessionId && session.archived,
-														)
-													) return;
-													const backendId = activeBackendSessionId(current.historyById, sessionId);
-													void runQueueAction(
-														it.queue_id,
-														() => resumeInboxUsingCurrentSettings(backendId, {agentMode: normalizeAgentMode(agentMode), multiAgent, reasoningEffort}, it.queue_id),
-														'重新投递失败',
-													).then(() => refreshInbox(sessionId));
-												}}
-											>
-												<Send className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden />
-											</button>
-										) : null}
-										{canSteerInboxItem(it.state, activeSessionArchived, activeSessionIsSide) ? (
-											<button
-												type="button"
-												className="xy-queue-action disabled:pointer-events-none disabled:opacity-40"
-												title={
-													queueActionsInFlight.has(it.queue_id)
-														? '正在插入…'
-														: '立即插入：本轮下一个采样边界投递，不打断当前工具批次'
-												}
-												disabled={queueActionsInFlight.has(it.queue_id)}
-												onClick={() => {
-													const sessionId = activeId;
-													if (!sessionId || activeSessionArchived) return;
-													const current = chatUiStoreApi.getState();
-													if (
-														current.sessions.some(
-															session => session.id === sessionId && session.archived,
-														)
-													) return;
-													const backendId = activeBackendSessionId(current.historyById, sessionId);
-													void runQueueAction(
-														it.queue_id,
-														() => steerInboxItem(backendId, it.queue_id),
-														'立即插入失败',
-													).then(() => refreshInbox(sessionId));
-												}}
-											>
-												<Zap className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden />
-											</button>
-										) : null}
-										<button
-											type="button"
-											className="xy-queue-action disabled:pointer-events-none disabled:opacity-40"
-											title={
-												activeSessionArchived
-													? '归档对话只读，请先恢复'
-													: it.state === 'syncing'
-														? '等待同步服务端回复'
-														: it.state === 'delivering'
-															? '已开始投递，无法取消'
-															: queueActionsInFlight.has(it.queue_id)
-																? '正在处理…'
-																: '取消排队'
-											}
-											disabled={
-												activeSessionArchived ||
-												!canMutateInboxItem(it.state) ||
-												queueActionsInFlight.has(it.queue_id)
-											}
-											onClick={() => cancelQueueItem(it)}
-										>
-											<X className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden />
-										</button>
-									</div>
-								</div>
-							);
-							})}
-							</div>
-						) : null}
-					</div>
-				) : null}
-				<PermissionDialog />
-				<AskUserDialog />
-				<PlanDialog />
+<div className="xy-composer-panels">
+<ComposerTaskDock hasQueue={inboxItems.length>0} hasTodo={showTodoDock} goal={<SessionGoalDock embedded />} todo={showTodoDock ? <SessionTodoDock embedded /> : null} queue={onEditingChange=>activeId && <ComposerQueueDock key={`${activeId}:${activeInboxBackendId}:${activeSessionArchived}`} sessionId={activeId} items={inboxItems} archived={activeSessionArchived} side={activeSessionIsSide} busy={queueSessionBusy} onEditingChange={onEditingChange} options={{agentMode: normalizeAgentMode(agentMode), multiAgent, reasoningEffort}} />} />
+				</div>
 
 				<div className="shrink-0">
 				<div
@@ -2606,6 +2180,8 @@ export function Composer({showTodoDock = true}: {showTodoDock?: boolean}) {
 										<ModelPicker
 											open={modelOpen}
 											menuId={modelMenuId}
+											portal
+											anchorRef={modelMenuRef}
 											reasoningEffort={reasoningEffort}
 											onReasoningEffortChange={setReasoningEffort}
 										/>

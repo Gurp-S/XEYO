@@ -79,9 +79,9 @@ function mergeSeries(
  */
 
 type MergeOptions = {
-	/** Model-filtered local ledger responses can be repeated across API channels. */
+	/** 按模型筛选的本地账本可能经多个 API 通道重复返回。 */
 	modelFiltered?: boolean;
-	/** Per-account requests repeat the same local ledger once for each API channel. */
+	/** 按账号请求时，每个 API 通道都会返回同一份本地账本。 */
 	localByProvider?: boolean;
 };
 
@@ -103,7 +103,7 @@ function mergeDimensionReports(
 		if (sourceForDimension(report, dimension) !== 'local') return true;
 		const provider = report.filters?.provider?.trim().toLowerCase();
 		const scope = options.modelFiltered ? '*' : provider;
-		// Older/mixed reports may not identify a safe local-data scope; preserve them.
+		// 旧版或混合报表可能无法确定本地数据范围，此时保留原数据。
 		if (!scope) return true;
 		if (localSeen.has(scope)) return false;
 		localSeen.add(scope);

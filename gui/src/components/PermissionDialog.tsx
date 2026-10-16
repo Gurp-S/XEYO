@@ -1,3 +1,4 @@
+import {TaskCardBody} from './composer/TaskCardBody';
 import {useCallback, useEffect, useRef, useState} from 'react';
 import {ChevronDown, X} from 'lucide-react';
 import {resolveFailureText, resolvePermission} from '@/lib/api';
@@ -11,10 +12,6 @@ import {cn} from '@/lib/utils';
 import {DockPresence} from './DockPresence';
 import {PanelCollapse} from './PanelCollapse';
 
-/** 命令区域可显示的行数上限（超出即出现底部渐化 + 图标展开）。 */
-const COLLAPSE_LINES = 3;
-const LINE_HEIGHT = 18;
-
 const PEER_CHOICES = new Set(['deny', 'remind', 'allow']);
 /** T3：到期前 30s 高亮（与 PENDING_REMINDER_BEFORE_S 对齐）。 */
 const EXPIRE_WARN_S = 30;
@@ -25,23 +22,21 @@ const INTENT_TITLE: Record<string, string> = {
 	'plan-review': '计划确认',
 };
 
-export function PermissionDialog() {
+export function PermissionDialog({visible=true}:{visible?:boolean}) {
 	const pending = usePendingPermissionForActiveSession();
 	const smoothness = useSettingsStore(s => isSmoothnessOn(s.smoothness));
 
 	return (
 		<DockPresence open={Boolean(pending)} smoothness={smoothness}>
 			{pending ? (
-				<PermissionCard key={pending.requestId} pending={pending} />
+				<PermissionCard key={pending.requestId} pending={pending} visible={visible} />
 			) : null}
 		</DockPresence>
 	);
 }
 
-function PermissionCard({pending}: {pending: PendingPermissionInfo}) {
+function PermissionCard({pending,visible}: {pending: PendingPermissionInfo;visible:boolean}) {
 	const prompt = pending.prompt ?? '';
-	const cmdRef = useRef<HTMLDivElement | null>(null);
-	const [isLong, setIsLong] = useState(false);
 	// T3：面板默认展开——安全决策不应藏在折叠条里。
 	const [expanded, setExpanded] = useState(true);
 	const [expiring, setExpiring] = useState(false);
@@ -64,17 +59,6 @@ function PermissionCard({pending}: {pending: PendingPermissionInfo}) {
 		}
 	};
 
-	useEffect(() => {
-		const el = cmdRef.current;
-		if (!el) {
-			return;
-		}
-		const check = () => setIsLong(el.scrollHeight > el.clientHeight + 1);
-		check();
-		const ro = new ResizeObserver(check);
-		ro.observe(el);
-		return () => ro.disconnect();
-	}, [prompt, expanded]);
 
 	// T3：倒计时——距到期 <30s 高亮（客户端计算，无需服务端推送）。
 	// 全局 1s 心跳:共享单一定时器,替代自建 setInterval(见 lib/heartbeat.ts)
@@ -142,34 +126,22 @@ function PermissionCard({pending}: {pending: PendingPermissionInfo}) {
 		void decide(false, 'deny');
 	};
 
-	useEffect(() => {
-		const onKey = (e: KeyboardEvent) => {
-			if (e.key === 'Escape') {
-				e.preventDefault();
-				cancel();
-			}
-		};
-		window.addEventListener('keydown', onKey);
-		return () => window.removeEventListener('keydown', onKey);
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [pending.requestId]);
 
 	// 弹窗的 Esc 走 escStack 顶层：window 冒泡监听在流式期间会被「停止生成」
 	// 层先吃掉 —— Esc 既不拒绝也不关弹窗，还顺手停了回合。层顺序按弹窗出现
 	// 时间入栈（晚于 composer-stop），LIFO 保证「谁最上层谁收 Esc」。
 	useEffect(() => {
-		if (!pending.requestId) {
+		if (!visible || !pending.requestId) {
 			return;
 		}
 		pushEscLayer('permission-dialog', cancel);
 		return () => popEscLayer('permission-dialog');
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [pending.requestId]);
+	}, [pending.requestId,visible]);
 
 	const intent = pending.intent ?? (isPeerThree ? 'choice' : 'confirm');
 	const title = INTENT_TITLE[intent] ?? '请求批准';
 	const toolLabel = pending.toolName || '工具';
-	const clipped = isLong && expanded;
 	const timeoutNote = pending.expiresAt
 		? ` · ${expiring ? '即将超时并默认拒绝' : '超时后默认拒绝'}`
 		: ' · 不超时，等待你的决定';
@@ -228,26 +200,7 @@ function PermissionCard({pending}: {pending: PendingPermissionInfo}) {
 			</div>
 
 			<PanelCollapse open={expanded} className="xy-panel-ask-body">
-				<div className="xy-panel-ask-cmd-wrap">
-					<div
-						ref={cmdRef}
-						className={`xy-panel-ask-cmd${clipped ? ' is-clipped' : ''}`}
-						style={{
-							maxHeight: clipped
-								? COLLAPSE_LINES * LINE_HEIGHT
-								: undefined,
-						}}
-					>
-						{prompt || `允许执行 ${toolLabel}？`}
-					</div>
-					{isLong ? (
-						<div
-							className={`xy-panel-ask-cmd-mask${clipped ? ' is-show' : ''}`}
-						/>
-					) : null}
-				</div>
-
-				{intent === 'choice' && isPeerThree ? (
+<TaskCardBody actions={<> {intent === 'choice' && isPeerThree ? (
 					<div className="xy-panel-ask-actions flex-wrap gap-2">
 						<button
 							type="button"
@@ -311,8 +264,10 @@ function PermissionCard({pending}: {pending: PendingPermissionInfo}) {
 							允许
 						</button>
 					</div>
-				)}
-			</PanelCollapse>
+				)} </>}>
+<div className="xy-panel-ask-cmd whitespace-pre-wrap">{prompt || `允许执行 ${toolLabel}？`}</div>
+</TaskCardBody>
+</PanelCollapse>
 		</div>
 	);
 }

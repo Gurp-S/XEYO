@@ -1,6 +1,6 @@
 import {stripXmlToolCallsForDisplay} from './stripXmlToolCalls';
 
-/** The stream sentinel and raw tool markup are not readable narration. */
+/** 流占位标记和原始工具标记不作为可读叙述。 */
 export function workflowDisplayText(text: string): string {
 	return stripXmlToolCallsForDisplay(text).replace(/[\u200b\ufeff]/g, '').trim();
 }

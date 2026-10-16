@@ -3,7 +3,7 @@ import {lazy, memo, Suspense, useEffect, useRef, useState} from 'react';
 import {useHoverScroll} from '@/hooks/useHoverScroll';
 import {highlightCode} from '@/lib/highlightClient';
 import {cn} from '@/lib/utils';
-import {isSmoothnessOn, useSettingsStore} from '@/stores/settingsStore';
+import {useSettingsStore} from '@/stores/settingsStore';
 import {isDarkScheme} from '@/theme/catalog';
 
 /** 主线程高亮兜底,懒加载(独立 chunk):react-syntax-highlighter + 28 个 refractor
@@ -83,15 +83,14 @@ function CodeBlockInner({
 	);
 	const [copied, setCopied] = useState(false);
 	const theme = useSettingsStore(s => s.theme);
-	const smoothness = useSettingsStore(s => isSmoothnessOn(s.smoothness));
 	const dark = isDarkScheme(theme);
 	const lang = normalizeHighlightLanguage(language);
 	const langLabel = (language || 'text').trim() || 'text';
 	const file = variant === 'file';
 	/** 流式 fence 跳过 Prism；文件预览强制走 worker，避免大文件打开时
 	    Prism 在主线程同步高亮造成卡顿（worker 完成前先显示纯文本）。 */
-	const skipPrism = smoothness && !autoCollapse && !file;
-	const useWorker = (smoothness || file) && !skipPrism;
+	const skipPrism = !autoCollapse && !file;
+	const useWorker = !skipPrism;
 	const [workerResult, setWorkerResult] = useState<{
 		key: string;
 		html: string;

@@ -1,4 +1,4 @@
-/* auto-split from src/styles/workflow.css body L290-474 — A8 morph + handoff + live→done settle; imported via barrel src/styles/workflow.css */
+/* 工作流状态切换与完成过渡样式；由 workflow.css 引入。 */
 /* A8 Morph 契约——weight 650 与预览的 .verb 一致 */
 .xy-morph {
   display: inline-grid;
