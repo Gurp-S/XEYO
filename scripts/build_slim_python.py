@@ -17,7 +17,7 @@ KEEP_TOP = {
     "server", "engine", "cli", "tools", "prompt", "slash", "permissions",
     "session", "msgtypes", "model", "channels", "rewind", "audit",
     "codeindex", "common", "extension", "usage", "bridge", "coord",
-    "diagnostics", "localmodels", "sidecar", "synaptic",
+    "diagnostics", "sidecar", "synaptic",
 }
 # memory 单独处理：保留运行时引用的子模块，去 simulator/out
 CUT_TOP = {"evals", "scripts", "tests"}

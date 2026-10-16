@@ -5,8 +5,8 @@ cd /d "%~dp0"
 REM ============================================================
 REM  XEYO launcher (dev / hot-reload)
 REM  - Browser dev: Vite hot-reloads gui\src changes
-REM  - Backend: FastAPI, waits for /health before launching frontend
-REM  - Both console windows share backend/frontend logs
+REM  - Backend: Tauri owns FastAPI startup and shutdown; the window opens while it starts
+REM  - Backend errors are shown in the startup window
 REM  How to use: double-click this file, or run it in cmd: XEYO.bat
 REM ============================================================
 
@@ -30,11 +30,6 @@ REM Per-run log path: a unique name so a stale holder from a previous run can ne
 REM lock the same file and block a new launch with a file-sharing violation.
 if not defined XEYO_PY_LOG_TAG set "XEYO_PY_LOG_TAG=%RANDOM%"
 set "XEYO_PY_LOG=%TEMP%\xeyo-python_%XEYO_PY_LOG_TAG%.log"
-REM Local models are not started by this script: the backend owns those processes, and
-REM enabling one is a setting under Settings - Models and Accounts - Local model,
-REM persisted in ~/.xeyo/settings.json. This script only does two things: scavenge
-REM leftovers from the previous run before start, and scavenge this run's leftovers
-REM after exit as a hard-kill fallback.
 
 echo.
 echo   XEYO - launcher (dev / hot-reload)
@@ -69,6 +64,9 @@ if errorlevel 1 (
 )
 
 :AFTER_PY
+REM Keep the same interpreter whose dependencies were checked above; a project
+REM .venv must not silently replace the launcher's established Python runtime.
+if not defined XEYO_PYTHON for /f "delims=" %%p in ('py -3.11 -c "import sys; print(sys.executable)"') do set "XEYO_PYTHON=%%p"
 if exist "%~dp0gui\node_modules\" goto AFTER_NPM
 echo   First run: npm install...
 pushd "%~dp0gui"
@@ -83,26 +81,9 @@ popd
 REM Free stale listeners on both the backend and frontend port first (port-occupied fix).
 call :FREE_PORT
 
-REM Scavenge local-model processes left over from a crash (they keep holding VRAM and the port)
-call :SCAVENGE_LOCAL_MODEL
-
-REM ---------- start backend (background) + wait for /health ----------
-echo   Starting FastAPI backend on http://%XEYO_HTTP_HOST%:%XEYO_HTTP_PORT% ...
-pushd "%XEYO_PYTHON_ROOT%"
-start "XEYO-Python" /b py -3.11 -u -m server > "%XEYO_PY_LOG%" 2>&1
-popd
-
-REM Let wait_health resolve the real backend port (it auto-moves if the configured one was occupied).
-py -3.11 "%~dp0python\scripts\wait_health.py" "http://%XEYO_HTTP_HOST%:{PORT}/health" 25 "%~dp0.xeyo\backend_port"
-if errorlevel 1 goto ERR_BRIDGE
-
-REM Now the port file is guaranteed written; read it for the frontend (T30: JSON {port,pid,...}).
-set "ACTUAL_PORT=%XEYO_HTTP_PORT%"
-if exist "%~dp0.xeyo\backend_port" (
-  for /f "usebackq delims=" %%a in (`py -3.11 "%~dp0python\scripts\read_port.py" "%~dp0.xeyo\backend_port"`) do set "ACTUAL_PORT=%%a"
-)
-if not "%ACTUAL_PORT%"=="%XEYO_HTTP_PORT%" echo   Backend auto-using port %ACTUAL_PORT% (configured %XEYO_HTTP_PORT% was occupied).
-echo   Backend ready.
+REM Tauri is the single backend owner. It starts the service in a worker while
+REM the window paints; frontend hydration waits for health inside that window.
+REM The live proxy / native port lookup follows backend port migrations.
 
 REM ---------- start frontend (Tauri dev / Vite hot-reload) ----------
 REM Rust/cargo required for the Tauri desktop window; browser dev uses: cd gui && npm run dev.
@@ -114,15 +95,12 @@ if errorlevel 1 (
   exit /b 1
 )
 
-set "VITE_XEYO_HTTP_PORT=%ACTUAL_PORT%"
+set "VITE_XEYO_HTTP_PORT=%XEYO_HTTP_PORT%"
 pushd "%~dp0gui"
 call npm run tauri:dev
 set "EXITCODE=%ERRORLEVEL%"
 popd
 call :FREE_PORT
-REM Closing XEYO closes the local model too. The backend's shutdown hook handles the
-REM normal path; this call covers hard-kill and crash.
-call :STOP_LOCAL_MODEL
 if not "%EXITCODE%"=="0" goto ERR_TAURI
 goto DONE
 
@@ -139,17 +117,6 @@ if exist "%~dp0.xeyo\backend_port" (
 if defined XEYO_FRONTEND_PORT (
   for /f "tokens=5" %%p in ('netstat -ano ^| findstr ":%XEYO_FRONTEND_PORT% " ^| findstr LISTENING') do taskkill /PID %%p /T /F >nul 2>&1
 )
-exit /b 0
-
-REM ===== Local model (llama.cpp) lifecycle fallback; the backend owns the processes, this only cleans up =====
-REM Kills the whole process tree via the pid in ~/.xeyo/local-models/run/run.json.
-REM The backend does this itself on a normal exit; these two hooks cover "Python was hard-killed".
-:SCAVENGE_LOCAL_MODEL
-py -3.11 "%~dp0python\scripts\local_model_ctl.py" --stop >nul 2>&1
-exit /b 0
-
-:STOP_LOCAL_MODEL
-py -3.11 "%~dp0python\scripts\local_model_ctl.py" --stop >nul 2>&1
 exit /b 0
 
 :ERR_NODE
@@ -174,13 +141,6 @@ exit /b 1
 :ERR_NPM
 echo.
 echo   ERROR: npm install failed in gui\.
-pause
-exit /b 1
-
-:ERR_BRIDGE
-echo.
-echo   ERROR: FastAPI did not become healthy on port %XEYO_HTTP_PORT%.
-echo   Tip: check %XEYO_PY_LOG%
 pause
 exit /b 1
 

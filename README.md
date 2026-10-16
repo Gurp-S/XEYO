@@ -31,7 +31,7 @@ XEYO 把代码阅读、文件操作、命令执行和会话管理放在一个本
 - 工作区边界和权限确认
 - JSONL 会话持久化，支持从历史会话继续
 - HTTP/SSE 接口，可连接桌面端、TUI 或脚本
-- 可选的本地模型、MCP、Skill 和插件扩展
+- 可选的 MCP、Skill 和插件扩展
 
 ## Windows 桌面版
 
@@ -134,7 +134,7 @@ py -3.11 -m cli sessions list
 Copy-Item .env.example .env
 ```
 
-它主要用于配置后端地址、端口和默认工作区。模型、账号和 API Key 可在 GUI 的设置面板中管理；本地模型的运行参数也在设置中配置。
+它主要用于配置后端地址、端口和默认工作区。模型、账号和 API Key 可在 GUI 的设置面板中管理。
 
 扩展功能默认关闭。如需使用 MCP、Skill 或插件，在工作区的 `.xeyo/settings.json` 中显式启用。
 
