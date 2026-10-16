@@ -190,12 +190,12 @@ export default defineConfig(({command}) => {
 				pet: path.resolve(__dirname, 'pet.html'),
 			},
 			output: {
+				// Keep React/shared utilities out of optional renderer chunks, and
+				// preserve Mermaid's own per-diagram dynamic imports.
+				onlyExplicitManualChunks: true,
 				manualChunks(id) {
 					if (!id.includes('node_modules')) {
 						return;
-					}
-					if (/[\\/]node_modules[\\/](?:@mermaid-js|mermaid)[\\/]/.test(id)) {
-						return 'mermaid';
 					}
 					if (
 						/[\\/]node_modules[\\/](?:@[^\\/]+[\\/])?katex[\\/]/.test(id) ||

@@ -1,0 +1,5 @@
+.xy-startup{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#f4f1eb;color:#383733;font:14px/1.6 system-ui,sans-serif}
+.xy-startup strong{font-size:22px;letter-spacing:.12em}.xy-startup p{max-width:80%;text-align:center;white-space:pre-wrap}
+.xy-startup button{border:1px solid #aaa7a1;border-radius:6px;padding:6px 12px;background:transparent;color:inherit;cursor:pointer}
+.xy-startup button[hidden]{display:none}.xy-startup .xy-startup-close{position:absolute;right:12px;top:12px;border:0;font-size:24px}
+@media(prefers-color-scheme:dark){.xy-startup{background:#222321;color:#e5e4df}}

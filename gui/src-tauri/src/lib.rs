@@ -9,6 +9,9 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager, RunEvent};
 
 mod pet;
+mod startup_gate;
+mod backend_startup;
+use backend_startup::backend_startup_ready;
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -439,8 +442,8 @@ fn spawn_python(app: &AppHandle) -> Result<Child, String> {
 		.current_dir(&root)
 		.env("PYTHONUNBUFFERED", "1")
 		.env("PYTHONIOENCODING", "utf-8")
-		.env("XEYO_HTTP_HOST", "127.0.0.1")
-		.env("XEYO_HTTP_PORT", "8000")
+		.env("XEYO_HTTP_HOST", std::env::var("XEYO_HTTP_HOST").unwrap_or_else(|_| "127.0.0.1".into()))
+		.env("XEYO_HTTP_PORT", std::env::var("XEYO_HTTP_PORT").unwrap_or_else(|_| "8000".into()))
 		// 端口文件路径由壳决定并下发：后端写、壳读，同一份。
 		.env("XEYO_PORT_FILE", init_port_file(app))
 		.env_remove("XEYO_CWD")
@@ -916,7 +919,8 @@ pub fn run() {
 				set_allowed_roots,
 				get_backend_port,
 				get_backend_error,
-				clear_backend_error
+				clear_backend_error,
+				backend_startup_ready
 			])
 		.manage(AllowedRoots(Mutex::new(default_allowed_roots())))
 .setup(|app| {
@@ -925,37 +929,17 @@ pub fn run() {
 					// XeyoPet is docked in the main sidebar by default. The native
 					// window is created lazily when the user long-presses to extract it.
 
-			// 幂等启动后端：若 :8000 已有健康后端（例如由 XEYO.bat 先启动），
-			// 就不再拉起第二个 `-m server`，避免双后端抢 8000 端口导致 GUI 间歇性“重启”。
+			// 复用端口文件登记的健康后端，否则由后台线程启动并守护一个实例。
 			// 先定端口文件路径：wait_health 认的是"端口文件登记的 pid 仍存活"，
 			// 路径未定时任何健康探测都会被判成不健康。
 			init_port_file(app.handle());
-			let spawn_mark = Arc::new(Mutex::new(None::<Instant>));
-			if !wait_health(Duration::from_secs(3)) {
-				match spawn_python(app.handle()) {
-					Ok(child) => {
-						*app.state::<PythonChild>().0.lock().unwrap() = Some(child);
-						record_spawn(&spawn_mark);
-						if !wait_health(Duration::from_secs(25)) {
-							record_spawn_error(
-								"后端进程已启动但健康检查超时（25s 内 /health 未就绪）",
-							);
-						} else {
-							clear_backend_error();
-						}
-					}
-					Err(err) => {
-						// spawn_python 内部已记录到 BACKEND_SPAWN_ERROR
-						eprintln!("failed to start python backend: {err}");
-					}
-				}
-			}
+			backend_startup::start(app.handle());
 
 			// Fallback: the frontend shows the main window after its first
 			// frame; if that never happens (e.g. JS error), reveal it here so
 			// the window cannot stay invisible forever.
 			let handle = app.handle().clone();
-			tauri::async_runtime::spawn(async move {
+			thread::spawn(move || {
 				thread::sleep(Duration::from_secs(4));
 				if let Some(window) = handle.get_webview_window("main") {
 					if !window.is_visible().unwrap_or(true) {
@@ -964,65 +948,6 @@ pub fn run() {
 				}
 			});
 
-			// 守护后端：setup 只 spawn 一次，之后靠本线程周期探测。后端长跑崩溃/挂起
-			// 则杀树并重新拉起，否则 GUI 永远连不上、只能人工重开（本 Bug 根因）。
-			{
-				let app_handle = app.handle().clone();
-				let spawn_mark = spawn_mark.clone();
-				thread::spawn(move || {
-					let mut consecutive_unhealthy: u32 = 0;
-					loop {
-						thread::sleep(Duration::from_secs(SUPERVISE_INTERVAL_S));
-						let port = backend_port();
-						let healthy = wait_health(Duration::from_secs(2));
-						if healthy {
-							consecutive_unhealthy = 0;
-							continue;
-						}
-						consecutive_unhealthy += 1;
-						// 刚 spawn 过（< 冷启动宽限）说明是冷启动期，别急着再杀。
-						// setup 初始 spawn 与守护 respawn 都计入宽限（共享 spawn_mark）。
-						if spawn_within_grace(&spawn_mark) {
-							continue;
-						}
-						// 默认 3 次（30s）不健康才动；给后端留恢复窗口，避免抖动误杀。
-						let kill_after = (SUPERVISE_KILL_AFTER_UNHEALTHY_S / SUPERVISE_INTERVAL_S) as u32;
-						if consecutive_unhealthy < kill_after {
-							continue;
-						}
-						// 旧进程按 pid 收树（可能已无 Child 句柄）。
-						if let Some((_, pid)) = read_backend_port_file() {
-							if let Some(p) = pid {
-								kill_pid_tree(p);
-							}
-						}
-						cleanup_stale_backend();
-						// 复用已有 Child（若被 Tauri 持有）优先，避免孤儿进程叠加。
-						let child = match app_handle.state::<PythonChild>().0.lock() {
-							Ok(mut guard) => guard.take(),
-							Err(_) => None,
-						};
-						if let Some(mut c) = child {
-							kill_python_tree(&mut c);
-						}
-						match spawn_python(&app_handle) {
-							Ok(child) => {
-								if let Ok(mut guard) = app_handle.state::<PythonChild>().0.lock() {
-									*guard = Some(child);
-								}
-								// 不阻塞等健康：record 宽限后立即进入下一轮循环，
-								// 由后续 10s 探测确认；避免 25s 阻塞抢占守护调度。
-								record_spawn(&spawn_mark);
-								consecutive_unhealthy = 0;
-								eprintln!(
-									"[xeyo:supervisor] backend respawned on :{port} (awaiting health)"
-								);
-							}
-							Err(err) => eprintln!("[xeyo:supervisor] respawn failed: {err}"),
-						}
-					}
-				});
-			}
 
 				Ok(())
 			})
@@ -1052,15 +977,7 @@ RunEvent::WindowEvent {
 							if let Some(pet) = app_handle.get_webview_window("pet") {
 								let _ = pet.close();
 							}
-						if let Some(state) = app_handle.try_state::<PythonChild>() {
-							if let Ok(mut guard) = state.0.lock() {
-								if let Some(mut child) = guard.take() {
-									kill_python_tree(&mut child);
-								}
-							}
-						}
-						// T30：子进程已被 kill_python_tree 收树；这里只清僵尸端口文件。
-						cleanup_stale_backend();
+						backend_startup::stop(app_handle);
 					}
 					_ => {}
 				}

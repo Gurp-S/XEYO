@@ -6,7 +6,7 @@ import {parseJsonValue} from '@/lib/safeJson';
 import {applyDocumentTheme, type ThemeId} from '@/stores/settingsStore';
 import {normalizeThemeId} from '@/theme/catalog';
 import {bindWorkspaceExplorerSync} from '@/stores/workspaceExplorerSync';
-import {preloadMermaid} from '@/lib/mermaidRender';
+import {refreshRuntimeBackendPort} from '@/lib/apiBase';
 import './styles/entry.css';
 import '@/pet/pet.css';
 
@@ -35,9 +35,6 @@ try {
 
 bindWorkspaceExplorerSync();
 
-// 预热 mermaid 动态 chunk（首条图渲染前先加载，降低 wasm/worker 受限环境的冷启动失败）。
-preloadMermaid();
-
 // DEV / e2e：暴露 chat store 供 Playwright 注入「打开的文件夹」工作区。
 // 仅 dev 构建生效（生产 import.meta.env.DEV 为 false），不改变任何生产行为。
 if (import.meta.env.DEV) {
@@ -46,18 +43,13 @@ if (import.meta.env.DEV) {
 	});
 }
 
-createRoot(document.getElementById('root')!).render(
+export async function mountApp() {
+	// Native bootstrap may select a different port while JavaScript is loading.
+	// Resolve it before the first hydration request, not after a failed request.
+	if (isTauri()) await refreshRuntimeBackendPort();
+	createRoot(document.getElementById('root')!).render(
 	<StrictMode>
 		<App />
 	</StrictMode>,
-);
-
-if (isTauri()) {
-	requestAnimationFrame(() =>
-		requestAnimationFrame(() => {
-			void import('@tauri-apps/api/window')
-				.then(({getCurrentWindow}) => getCurrentWindow().show())
-				.catch(() => {});
-		}),
 	);
 }

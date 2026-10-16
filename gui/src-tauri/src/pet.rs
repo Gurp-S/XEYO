@@ -30,12 +30,12 @@ fn ensure_pet_window(app: &AppHandle) -> tauri::WebviewWindow {
         .expect("failed to create pet window")
 }
 
-/// Create and show the desktop pet. Used by the launcher so the pet appears
-/// without depending on a button click inside the chat UI.
+/// 创建并显示桌面宠物，供启动器直接调用，
+/// 无需先在聊天界面点击按钮。
 pub fn spawn_pet(app: &AppHandle) -> Result<(), String> {
     let window = ensure_pet_window(app);
-    // Place the pet near the main window, then clamp it to the current monitor.
-    // A maximized main window can otherwise put the pet outside the right edge.
+    // 将宠物放在主窗口附近，并限制在当前显示器范围内。
+    // 主窗口最大化时，其右侧坐标可能已经超出显示器。
     if let Some(main) = app.get_webview_window("main") {
         if let Ok(pos) = main.outer_position() {
             let width = main.outer_size().map(|s| s.width as i32).unwrap_or(1180);
@@ -67,7 +67,7 @@ pub fn pet_set_context(app: AppHandle, payload: Value) -> Result<(), String> {
     let state = app.state::<PetState>();
     *state.0.lock().map_err(|_| "pet state lock poisoned".to_string())? =
         Some(payload.clone());
-    // Forward to the pet window (no-op if it is not open yet).
+    // 转发到宠物窗口；窗口尚未打开时不执行操作。
     let _ = app.emit_to(PET_LABEL, "xy:pet-context", payload);
     Ok(())
 }
@@ -86,11 +86,11 @@ pub fn pet_get_context(app: AppHandle) -> Result<Option<Value>, String> {
 pub fn character_lift(app: AppHandle, x: f64, y: f64) -> Result<(), String> {
     let window = ensure_pet_window(&app);
     if x.is_finite() && y.is_finite() {
-        // Position is best-effort; a fractional/logical mismatch must not fail the lift.
+        // 定位失败不影响窗口弹出，兼容小数坐标与逻辑坐标差异。
         let _ = window.set_position(tauri::LogicalPosition::new(x, y));
     }
     window.show().map_err(|e| e.to_string())?;
-    // Focus is best-effort on always-on-top / skip-taskbar windows.
+    // 置顶或隐藏任务栏的窗口可能无法获取焦点，此时保留窗口。
     let _ = window.set_focus();
     Ok(())
 }
@@ -125,6 +125,6 @@ pub fn pet_close(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 pub fn character_drop_elsewhere(_app: AppHandle) -> Result<(), String> {
-    // Keep the pet on the desktop; nothing to do.
+    // 宠物保持在桌面，无需额外操作。
     Ok(())
 }
