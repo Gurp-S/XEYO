@@ -16,6 +16,7 @@ from typing import Any, Iterable, TypeVar
 
 from rewind import is_rewind_enabled
 from rewind.models import AuditEvent, OperationRecord, TurnRecord
+from rewind.reference_lock import reference_publication_lock
 from session.persistence import default_sessions_dir, safe_session_filename
 
 
@@ -72,12 +73,13 @@ def _append_json(path: Path, payload: dict[str, Any]) -> None:
 
     path.parent.mkdir(parents=True, exist_ok=True)
     line = json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n"
-    with _lock_for(path):
-        with path.open("a", encoding="utf-8", newline="") as handle:
-            handle.write(line)
-            handle.flush()
-            if _fsync_enabled():
-                os.fsync(handle.fileno())
+    with reference_publication_lock():
+        with _lock_for(path):
+            with path.open("a", encoding="utf-8", newline="") as handle:
+                handle.write(line)
+                handle.flush()
+                if _fsync_enabled():
+                    os.fsync(handle.fileno())
     _invalidate_read_cache(path)
 
 

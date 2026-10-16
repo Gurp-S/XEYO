@@ -22,6 +22,7 @@ SnapshotStore 目前只增不删：每次 ``record_file_mutation`` / checkpoint 
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from dataclasses import dataclass, field
@@ -29,6 +30,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from session.persistence import default_sessions_dir
+from rewind.reference_lock import reference_publication_lock
 
 
 @dataclass
@@ -198,6 +200,85 @@ def _iter_jsonl(path: Path) -> Iterator[dict[str, Any]]:
         return
 
 
+def _reference_journal_state(root: Path) -> dict[str, tuple[int, int, str]] | None:
+    """Return stable signatures only when every blob-reference journal is readable JSONL."""
+    try:
+        root.stat()
+    except FileNotFoundError:
+        return {}
+    except OSError:
+        return None
+    if not root.is_dir():
+        return None
+    names = (
+        "agent_file_index.jsonl",
+        "checkpoints.jsonl",
+        "operations.jsonl",
+        "rewind_events.jsonl",
+        "turns.jsonl",
+        "recovery_jobs.jsonl",
+    )
+    try:
+        sessions = sorted(root.iterdir())
+    except OSError:
+        return None
+    signatures: dict[str, tuple[int, int, str]] = {}
+    for session in sessions:
+        try:
+            session.stat()
+        except OSError:
+            return None
+        if not session.is_dir():
+            continue
+        paths = [session / name for name in names]
+        orphan_dir = session / "orphans"
+        try:
+            orphan_dir.stat()
+            has_orphans = True
+        except FileNotFoundError:
+            has_orphans = False
+        except OSError:
+            return None
+        if has_orphans:
+            if not orphan_dir.is_dir():
+                return None
+            try:
+                paths.extend(
+                    path
+                    for path in sorted(orphan_dir.iterdir())
+                    if path.suffix == ".jsonl"
+                )
+            except OSError:
+                return None
+        for path in paths:
+            try:
+                before = path.stat()
+            except FileNotFoundError:
+                continue
+            except OSError:
+                return None
+            if not path.is_file():
+                return None
+            try:
+                digest = hashlib.sha256()
+                with path.open("rb") as handle:
+                    for raw in handle:
+                        digest.update(raw)
+                        if not raw.strip():
+                            continue
+                        value = json.loads(raw.decode("utf-8"))
+                        if not isinstance(value, dict):
+                            return None
+                after = path.stat()
+            except (OSError, UnicodeError, json.JSONDecodeError):
+                return None
+            signature = (after.st_mtime_ns, after.st_size, digest.hexdigest())
+            if (before.st_mtime_ns, before.st_size) != signature[:2]:
+                return None
+            signatures[str(path)] = signature
+    return signatures
+
+
 # --------------------------------------------------------------------------- #
 # 可达性收集
 # --------------------------------------------------------------------------- #
@@ -252,16 +333,18 @@ def retained_checkpoint_ids(session_dir: Path, keep_recent: int) -> set[str]:
     - 基线 = 会话最早冻结的检查点（ts 最小）。
     - 锚点 = 行中带 ``"anchor": true``（前向兼容；现阶段无写入方）。
     """
-    cps: dict[str, tuple[float, bool]] = {}  # cp_id -> (latest_ts, anchor)
+    cps: dict[str, tuple[float, bool]] = {}  # cp_id -> (latest_ts, latest anchor state)
     for row in _iter_jsonl(session_dir / "checkpoints.jsonl"):
         cid = str(row.get("checkpoint_id") or "")
         if not cid:
             continue
         ts = float(row.get("ts") or 0.0)
-        anchor = bool(row.get("anchor") is True or row.get("metadata", {}).get("anchor") is True)
-        prev = cps.get(cid)
-        if prev is None or ts > prev[0]:
-            cps[cid] = (ts, anchor or bool(prev and prev[1]))
+        metadata = row.get("metadata")
+        anchor = bool(
+            row.get("anchor") is True
+            or (isinstance(metadata, dict) and metadata.get("anchor") is True)
+        )
+        cps[cid] = (ts, anchor)
     if not cps:
         return set()
     ordered = sorted(cps.items(), key=lambda kv: (kv[1][0], kv[0]))
@@ -285,22 +368,29 @@ def retained_turn_ids(
     - 锚点 turn = 其 user 消息在 checkpoints.jsonl 里带 ``anchor: true`` 的 turn。
     - 无 turns.jsonl（旧会话/未写 turn）时返回空集，调用方回退到 checkpoint-id 保留。
     """
-    turns: list[tuple[str, str, float]] = []  # (turn_id, user_message_id, started_at)
+    latest_turns: dict[str, tuple[str, str, float]] = {}
     for row in _iter_jsonl(session_dir / "turns.jsonl"):
         tid = str(row.get("turn_id") or "")
         if not tid:
             continue
-        turns.append(
-            (tid, str(row.get("user_message_id") or ""), float(row.get("started_at") or 0.0))
+        latest_turns[tid] = (
+            tid,
+            str(row.get("user_message_id") or ""),
+            float(row.get("started_at") or 0.0),
         )
+    turns = list(latest_turns.values())
     if not turns:
         return set(), set()
-    anchor_msgs: set[str] = set()
+    latest_anchor_state: dict[str, bool] = {}
     for row in _iter_jsonl(session_dir / "checkpoints.jsonl"):
-        if row.get("anchor") is True or (isinstance(row.get("metadata"), dict) and row["metadata"].get("anchor") is True):
-            mid = str(row.get("user_message_id") or "")
-            if mid:
-                anchor_msgs.add(mid)
+        mid = str(row.get("user_message_id") or "")
+        if mid:
+            metadata = row.get("metadata")
+            latest_anchor_state[mid] = bool(
+                row.get("anchor") is True
+                or (isinstance(metadata, dict) and metadata.get("anchor") is True)
+            )
+    anchor_msgs = {mid for mid, anchor in latest_anchor_state.items() if anchor}
     ordered = sorted(turns, key=lambda t: (t[2], t[0]))
     keep_ids: set[str] = set()
     keep_msgs: set[str] = set()
@@ -345,6 +435,10 @@ def collect_reachable_blobs(
         for row in _iter_jsonl(child / "agent_file_index.jsonl"):
             _collect_hashes(row, reachable)
         for row in _iter_jsonl(child / "rewind_events.jsonl"):
+            _collect_hashes(row, reachable)
+        # Recovery job checkpoints remain authoritative until resolved, even
+        # when their originating turn falls outside the retention window.
+        for row in _iter_jsonl(child / "recovery_jobs.jsonl"):
             _collect_hashes(row, reachable)
 
         turn_ids: set[str] = set()
@@ -425,7 +519,7 @@ def _delete_blob(path: Path) -> None:
 # 主入口
 # --------------------------------------------------------------------------- #
 
-def garbage_collect(
+def _garbage_collect_locked(
     sessions_root: Path | None = None,
     snapshot_root_path: Path | None = None,
     *,
@@ -469,7 +563,12 @@ def garbage_collect(
     result.total_blobs = len(blobs)
     result.total_bytes = sum(item.size for item in blobs)
 
+    journal_state = _reference_journal_state(sroot)
     reachable = collect_reachable_blobs(sroot, keep_recent=keep)
+    if journal_state is None or _reference_journal_state(sroot) != journal_state:
+        # A partial or changing reference inventory cannot prove any blob dead.
+        reachable = {item.hash for item in blobs}
+        result.errors.append("reference_journal_incomplete")
     result.reachable = len(reachable)
 
     # 不可达 = 快照里存在、但没有任何 rewind 记录引用（如已删除/过期会话的残留）。
@@ -504,6 +603,29 @@ def garbage_collect(
     result.deleted = freed
     result.deleted_bytes = freed_bytes
     return result
+
+
+def garbage_collect(
+    sessions_root: Path | None = None,
+    snapshot_root_path: Path | None = None,
+    *,
+    enabled: bool | None = None,
+    dry_run: bool | None = None,
+    max_bytes: int | None = None,
+    keep_recent: int | None = None,
+) -> BlobGcResult:
+    """Run reference scan and collection under the shared publication lock."""
+
+    root = snapshot_root_path or snapshot_root()
+    with reference_publication_lock(root):
+        return _garbage_collect_locked(
+            sessions_root=sessions_root,
+            snapshot_root_path=root,
+            enabled=enabled,
+            dry_run=dry_run,
+            max_bytes=max_bytes,
+            keep_recent=keep_recent,
+        )
 
 
 def main() -> None:

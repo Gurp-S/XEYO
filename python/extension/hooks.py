@@ -84,6 +84,17 @@ def _plugin_hooks(cfg: ExtensionConfig, cwd: str | None) -> list[PluginHook]:
 			cmd = _resolve_command(root, spec.command)
 			if cmd is None:
 				_log.warning("plugin %s hook %s missing at %s", lp.name, spec.event, cmd)
+				if spec.event == "PermissionRequest":
+					out.append(
+						PluginHook(
+							plugin_name=lp.name,
+							event=spec.event,
+							command=root / ".xeyo-missing-permission-hook",
+							args=tuple(spec.args),
+							timeout_s=spec.timeout_s,
+							fail_policy=spec.fail_policy,
+						)
+					)
 				continue
 			out.append(
 				PluginHook(
@@ -108,9 +119,10 @@ def _resolve_command(root: Path, rel: str) -> Path | None:
 
 
 def _outcome_for(result: dict[str, Any], hook: PluginHook) -> str:
-	"""把子进程结果归类为三分状态。"""
+	"""Map one hook result to an execution status."""
+	if hook.event == "PermissionRequest":
+		return "success" if result.get("status") == "ok" and result.get("returncode") == 0 else "abort"
 	if result["status"] == "timeout":
-		# 超时按 fail-closed 归 FailedAbort（PermissionRequest 场景 DENY）。
 		return "abort"
 	if result["returncode"] == 0:
 		return "success"
@@ -175,6 +187,10 @@ def run_event_hooks(
 			res = _run_one_sync(hook, context)
 		except Exception as exc:  # noqa: BLE001
 			errors.append(f"{hook.plugin_name}:{hook.event} {exc}")
+			if event == "PermissionRequest":
+				last_status = "abort"
+				aborted = True
+				break
 			last_status = "continue"
 			continue
 		status = _outcome_for(res, hook)

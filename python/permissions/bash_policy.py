@@ -174,9 +174,6 @@ _READONLY_BASES = frozenset(
 		"cargo",
 		"go",
 		"dotnet",
-		"pytest",
-		"tsc",
-		"eslint",
 	}
 )
 
@@ -269,12 +266,13 @@ def _build_default_rule_dicts() -> tuple[dict, ...]:
 				{"name": f"builtin-{base}", "program": base, "prefix": [], "decision": "allow"}
 			)
 		elif base in {"python", "python3", "py", "node"}:
-			# 解释器仅版本探测；-c/-e 任意代码不自动放行。
+			# Python -v enables verbose startup; only uppercase -V is a version probe.
+			prefix = ["-v|-V|--version"] if base == "node" else ["-V|--version"]
 			rules.append(
 				{
 					"name": f"builtin-{base}-version",
 					"program": base,
-					"prefix": ["-V|--version"],
+					"prefix": prefix,
 					"decision": "allow",
 				}
 			)
@@ -294,7 +292,7 @@ def _build_default_rule_dicts() -> tuple[dict, ...]:
 						{
 							"name": f"builtin-git-opt-{sub}",
 							"program": "git",
-							"prefix": ["-c", "*", sub],
+							"prefix": ["-c|-C", "*", sub],
 							"decision": "allow",
 						}
 					)
@@ -313,7 +311,10 @@ def _token_matches(rule_tok: str, cmd_tok: str) -> bool:
 			continue
 		if alt == "*":
 			return True
-		if alt.lower() == cmd_tok.lower():
+		if alt.startswith("-"):
+			if alt == cmd_tok:
+				return True
+		elif alt.lower() == cmd_tok.lower():
 			return True
 	return False
 
@@ -531,23 +532,23 @@ def clear_bash_rules_cache() -> None:
 
 
 def bash_rule_decision(command: str | None, *, cwd: str | None = None) -> str | None:
-	"""前缀规则判定：命中多条取最严（allow<ask<deny）；未命中/空命令返回 None。
-
-	多行命令按物理行逐条判定并取最严结果——防止「首行蹭 allow、
-	次行跑任意脚本」的换行绕过（`ls -la\\npython -c ...` 之类）。
-	"""
+	"""Return the strictest configured decision across every executable segment."""
 	if not isinstance(command, str):
 		return None
-	lines = [ln for ln in re.split(r"[\r\n]+", command) if ln.strip()]
-	if not lines:
+	from permissions.bash_readonly import command_segments
+
+	segments, reject = command_segments(command)
+	if reject:
+		from permissions.literal_redirects import redirect_command_segments
+		segments = redirect_command_segments(command)
+	if not segments:
 		return None
 	ruleset = load_bash_rules(_effective_cwd(cwd))
 	best: str | None = None
-	for ln in lines:
-		toks = _tokenize(ln)
-		if not toks:
-			continue
+	for toks in segments:
 		for rule in ruleset.rules_for(_program_of_token(toks[0])):
+			if reject and rule.decision == "allow":
+				continue  # Removing redirections can only recover tightening rules.
 			if not _rule_matches_tokens(rule, toks):
 				continue
 			if best is None or _SEVERITY[rule.decision] > _SEVERITY[best]:

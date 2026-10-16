@@ -211,7 +211,7 @@ def _map_to_grep_flags(args: list[str]) -> list[str] | None:
 			pattern_seen = True
 			i += 2
 			continue
-		if tok in ("-i", "-l", "-c", "-n"):
+		if tok in ("-i", "-l", "-c", "-n", "-H"):
 			out.append(tok)
 			i += 1
 			continue

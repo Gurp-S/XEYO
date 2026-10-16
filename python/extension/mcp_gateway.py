@@ -169,6 +169,10 @@ class McpGatewayTool(Tool):
             "hidden": target.exposure == "hidden",
             "inputSchema": schema.get("input_schema") or schema.get("inputSchema") or {},
         }
+        from msgtypes.input_contract import enabled
+        if enabled():
+            from extension.mcp_input_contract import describe_payload
+            return describe_payload(payload)
         return _clip(json.dumps(payload, ensure_ascii=False, indent=1))
 
     async def _act_call(self, data: dict[str, Any], abort: AbortController) -> ToolResult:

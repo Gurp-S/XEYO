@@ -2,4 +2,4 @@
 
 __all__ = ["__version__"]
 
-__version__ = "1.11.0"
+from common.version import __version__

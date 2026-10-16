@@ -39,16 +39,6 @@ class ProjectionManifest:
         return asdict(self)
 
 
-def _walk(value: Any):
-    if isinstance(value, dict):
-        yield value
-        for child in value.values():
-            yield from _walk(child)
-    elif isinstance(value, list):
-        for child in value:
-            yield from _walk(child)
-
-
 # 「截断」这个词在投影里由三个不同的产生方写下，形状各不相同：
 #   tools/tool_registry.py      [output truncated: …；full output: <path>]   —— 声明+句柄成对
 #   tools/spill.py              full output: <path> (N bytes)                —— 只有句柄
@@ -92,32 +82,6 @@ def _spill_handle_count(text: str) -> int:
     return text.count(_SPILL_HANDLE) + text.count(_BASH_SPILL_MARK)
 
 
-def _tool_ids(messages: list[dict[str, Any]]) -> tuple[set[str], set[str]]:
-    calls: set[str] = set()
-    results: set[str] = set()
-    for node in _walk(messages):
-        type_name = str(node.get("type") or "")
-        if type_name in {"tool_use", "tool_call"}:
-            uid = str(node.get("id") or node.get("tool_use_id") or "")
-            if uid:
-                calls.add(uid)
-        elif type_name in {"tool_result", "tool_result_block"}:
-            uid = str(node.get("tool_use_id") or node.get("tool_call_id") or "")
-            if uid:
-                results.add(uid)
-    return calls, results
-
-
-def _text(value: Any) -> str:
-    if isinstance(value, str):
-        return value
-    if isinstance(value, dict):
-        return " ".join(_text(v) for v in value.values())
-    if isinstance(value, list):
-        return " ".join(_text(v) for v in value)
-    return ""
-
-
 def build_manifest(
     *,
     canonical: list[dict[str, Any]],
@@ -127,11 +91,11 @@ def build_manifest(
     pressure_reason: str = "",
 ) -> ProjectionManifest:
     """对当前模型投影做不阻断主链的结构检查。"""
-    calls, canonical_results = _tool_ids(canonical)
-    projected_calls, projected_results = _tool_ids(projected)
+    from engine.projection_scan import inspect_projection
+
+    calls, canonical_results, projected_calls, projected_results, text = inspect_projection(canonical, projected)
     pairs = len(projected_calls & projected_results)
     unresolved = len(projected_calls - projected_results)
-    text = _text(projected)
     try:
         serialized = json.dumps(
             projected, ensure_ascii=False, sort_keys=True, separators=(",", ":")

@@ -235,18 +235,13 @@ def record_change(
     """
     path = _changes_path(workspace_id)
 
-    from engine.harness_policy import enabled
-    if enabled("XEYO_HARNESS_WRITES") and workspace_lock is None:
-        from engine.write_transaction import path_lock
-        with path_lock(str(path)):
-            return _record_change_locked(workspace_id, rec, path)
-
+    from engine.write_transaction import path_lock
     if workspace_lock is not None:
         with workspace_lock:  # type: ignore[attr-defined]
-            return _record_change_locked(workspace_id, rec, path)
+            with path_lock(str(path)):
+                return _record_change_locked(workspace_id, rec, path)
 
-    # 跨进程依赖 O_APPEND 单次追加的原子性；同进程内仍加锁。
-    with _lock_for(path):
+    with path_lock(str(path)):
         return _record_change_locked(workspace_id, rec, path)
 
 
@@ -405,7 +400,8 @@ def recent_changes(
     # 回退：全量扫描（原逻辑）
     want_agent = (agent_id or "").strip() or None
     out: list[ChangeRecord] = []
-    with _lock_for(path):
+    from engine.write_transaction import path_lock
+    with path_lock(str(path)), _lock_for(path):
         with path.open("r", encoding="utf-8", errors="ignore") as handle:
             for line in handle:
                 line = line.strip()
@@ -458,41 +454,19 @@ def gc(workspace_id: str, *, ttl_seconds: float = 7 * 24 * 3600) -> int:
     属运维操作）。
     """
     path = _changes_path(workspace_id)
-    if not path.is_file():
-        return 0
-    now = _now()
-    keep: list[str] = []
-    removed = 0
-    with _lock_for(path):
-        with path.open("r", encoding="utf-8", errors="ignore") as handle:
-            for line in handle:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    rec = _from_dict(json.loads(line))
-                except (json.JSONDecodeError, TypeError, ValueError):
-                    continue
-                if (now - rec.ts) > ttl_seconds:
-                    removed += 1
-                else:
-                    keep.append(line)
-        # 重写为仅保留的条目（append-only 语义在清理时临时放宽，属运维操作）
-        tmp = path.with_name(path.name + ".tmp")
-        with tmp.open("w", encoding="utf-8", newline="\n") as handle:
-            for line in keep:
-                handle.write(line + "\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(tmp, path)
-    # 让索引与裁剪后的 journal 对齐。重建失败时绝不能留着旧索引：它比 journal 多出的
-    # 行正是刚被删掉的变更，留着就是"报出已经不存在的改动"。删掉索引 ⇒ 下一次读走
-    # 全量扫描（慢一点，但不错答）。
-    try:
-        rebuild_index(workspace_id)
-    except OSError as exc:
-        _discard_stale_index(workspace_id, exc)
-    return removed
+    from engine.write_transaction import path_lock
+
+    # record_change uses this cross-process lock around its journal and index
+    # append. Hold the same lock through replacement and index rebuild so an
+    # append cannot land in the old inode between the scan and os.replace.
+    with path_lock(str(path)):
+        return _gc_locked(workspace_id, path, ttl_seconds)
+
+
+def _gc_locked(workspace_id: str, path: Path, ttl_seconds: float) -> int:
+    from memory.journal_retention import compact_journal
+
+    return compact_journal(workspace_id, path, ttl_seconds)
 
 
 def _discard_stale_index(workspace_id: str, cause: OSError) -> None:

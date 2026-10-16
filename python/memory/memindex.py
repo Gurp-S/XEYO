@@ -103,13 +103,9 @@ def db_path(domain: str) -> Path:
 
 
 def _connect(domain: str) -> sqlite3.Connection:
-    path = db_path(domain)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(path), timeout=2.0)
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA busy_timeout=2000")
-    conn.executescript(_SCHEMA_SQL)
-    return conn
+    from memory.index_connection import connect
+
+    return connect(db_path(domain), _SCHEMA_SQL, _SCHEMA_VERSION)
 
 
 def _now_iso() -> str:
@@ -186,10 +182,6 @@ def _sync_table(
                 conn.execute(
                     f"DELETE FROM {table} WHERE domain = ? AND path = ?", (domain, name)
                 )
-        conn.execute(
-            "INSERT OR REPLACE INTO meta(k, v) VALUES ('schema_version', ?)",
-            (str(_SCHEMA_VERSION),),
-        )
 
 
 def _load_note_file(path: Path) -> tuple[str, str] | None:
@@ -217,11 +209,11 @@ def load_notes_cached(domain: str):
     任何 sqlite 异常向上抛出，由调用方（memdir.load_notes）fail-open 回退。
     """
     from memory.governance import parse_and_validate
-    from memory.memdir import memdir_root
+    from memory.memdir import memdir_root, topic_filename
 
     topics = memdir_root(domain) / "topics"
     _sync_table(domain, "notes", topics, loader=_load_note_file)
-    out = []
+    notes_by_id = {}
     with _connect(domain) as conn:
         cur = conn.execute(
             "SELECT path, fm_json, body FROM notes WHERE domain = ? ORDER BY path",
@@ -233,10 +225,18 @@ def load_notes_cached(domain: str):
             except json.JSONDecodeError:
                 continue
             try:
-                out.append(parse_and_validate(fm, body))
+                note = parse_and_validate(fm, body)
             except Exception:  # noqa: BLE001 — 坏行与文件扫描跳过语义一致
                 continue
-    return out
+            canonical = Path(_path).name == topic_filename(note)
+            previous = notes_by_id.get(note.id)
+            if (
+                previous is None
+                or (canonical and not previous[0])
+                or (canonical == previous[0] and note.updated_at > previous[1].updated_at)
+            ):
+                notes_by_id[note.id] = (canonical, note)
+    return [note for _, note in notes_by_id.values()]
 
 
 def load_rollouts_cached(domain: str) -> dict[str, str]:
@@ -258,7 +258,8 @@ def load_rollouts_cached(domain: str) -> dict[str, str]:
 def upsert_note_file(domain: str, path: Path) -> None:
     """write-through：write_note 落盘后立即同步单文件（尽力而为，失败静默）。"""
     try:
-        _sync_table(domain, "notes", path.parent, loader=_load_note_file)
+        from memory.index_updates import upsert_file
+        upsert_file(domain, path, "notes")
     except Exception:  # noqa: BLE001 — write-through 不阻塞写路径
         pass
 
@@ -266,7 +267,8 @@ def upsert_note_file(domain: str, path: Path) -> None:
 def upsert_rollout_file(domain: str, path: Path) -> None:
     """write-through：rollout 归档落盘后立即同步单文件（尽力而为）。"""
     try:
-        _sync_table(domain, "rollouts", path.parent, loader=_load_rollout_file)
+        from memory.index_updates import upsert_file
+        upsert_file(domain, path, "rollouts")
     except Exception:  # noqa: BLE001
         pass
 

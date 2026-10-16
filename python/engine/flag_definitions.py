@@ -1,7 +1,16 @@
 """One parser/default source for execution facts and harness rollout domains."""
 import os
+from msgtypes.input_contract import DEFAULT_ENABLED as INPUT_CONTRACT_DEFAULT
 
 FLAGS = {
+    "XEYO_AGENT_RUNTIME_V2": (True, "owned agent attempts, durable mail and explicit worktree publication"),
+    "XEYO_LLM_INPUT_CONTRACT": (INPUT_CONTRACT_DEFAULT, "lossless model input and explicit origin"),
+    # Offline before/after contracts: tests/test_agent_runtime_repairs.py.
+    "XEYO_MCP_ROUTER": (True, "request-owned MCP replies"),
+    "XEYO_TOOL_OUTCOME_CONTRACT": (True, "uncertain side-effect outcomes retain identity"),
+    "XEYO_SHARED_AGENT_BUDGET": (True, "root and child task spending share a budget"),
+    "XEYO_TURN_BOUND_CONTROL": (True, "interrupt and steer bind to a turn"),
+    "XEYO_SUBAGENT_RESULT_CONTRACT": (True, "child model and usage identity"),
     "XEYO_EXECUTION_FACT_CONTRACTS": (True, "execution receipt and live permission facts"),
     "XEYO_TOOL_COMPLETENESS_FACTS": (True, "truncated output observation"),
     "XEYO_SCRATCH_WRITABLE": (True, "narrow scratch write permission"),

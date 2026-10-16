@@ -173,6 +173,9 @@ async def _run_one_tool(
 			)
 
 	sink_token = set_progress_sink(_put_progress if progress_q is not None else None)
+	from tools.execution_outcome import ExecutionAttempt, current_attempt
+	execution = ExecutionAttempt()
+	execution_token = current_attempt.set(execution)
 
 	async def _beat() -> None:
 		if progress_q is None or interval <= 0:
@@ -245,7 +248,7 @@ async def _run_one_tool(
 			else (
 				"cancelled"
 				if str(result.status or "") == "cancelled"
-				else ("failed" if result.is_error else "completed")
+				else ("unknown" if result.status == "unknown" else ("failed" if result.is_error else "completed"))
 			),
 		)
 		_emit_result(result_q, tu, result)
@@ -258,12 +261,12 @@ async def _run_one_tool(
 			retryable=True,
 			timeout_s=timeout,
 		)
-		result = _finish_state(result, "failed", reason="timeout")
+		result = execution.recover(result)
+		result = _finish_state(result, "unknown" if result.status == "unknown" else ("failed" if result.is_error else "completed"), reason="timeout")
 		_emit_result(result_q, tu, result)
 		return result
 	except asyncio.CancelledError:
-		# T2：用户中止（turn 被取消）→ 确定性结果，非 error；不再落
-		# "missing result" 错误占位。
+		# Cancelling the waiter does not establish the outcome of a side effect.
 		elapsed = time.monotonic() - started
 		result = _error_result(
 			content=f"aborted by user after {elapsed:.1f}s",
@@ -273,10 +276,17 @@ async def _run_one_tool(
 			is_error=False,
 			cancelled=True,
 		)
-		result = _finish_state(result, "cancelled", reason="task_cancelled")
+		result = execution.recover(result)
+		result = _finish_state(result, "unknown" if result.status == "unknown" else ("cancelled" if result.status == "cancelled" else ("failed" if result.is_error else "completed")), reason="task_cancelled")
 		_emit_result(result_q, tu, result)
 		return result
 	except Aborted as exc:
+		result = execution.recover(_error_result(content="tool interrupted", kind=ABORTED,
+			retryable=False, status="cancelled", is_error=False))
+		if result.status == "unknown" or result is execution.result:
+			result = _finish_state(result, "unknown" if result.status == "unknown" else ("failed" if result.is_error else "completed"), reason="aborted")
+			_emit_result(result_q, tu, result)
+			return result
 		if not state.terminal:
 			state.transition("unknown", reason=str(exc) or "aborted")
 		raise
@@ -303,10 +313,12 @@ async def _run_one_tool(
 			retryable=retryable,
 			exception_type=type(exc).__name__,
 		)
-		result = _finish_state(result, "failed", reason=type(exc).__name__)
+		result = execution.recover(result)
+		result = _finish_state(result, "unknown" if result.status == "unknown" else ("failed" if result.is_error else "completed"), reason=type(exc).__name__)
 		_emit_result(result_q, tu, result)
 		return result
 	finally:
+		current_attempt.reset(execution_token)
 		reset_progress_sink(sink_token)
 		if heartbeat is not None:
 			heartbeat.cancel()

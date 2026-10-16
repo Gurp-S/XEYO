@@ -1,4 +1,4 @@
-"""通报包封的**词法身份**（唯一实现）。
+"""通报包封格式及结构化来源判据（唯一实现）。
 
 放在 `msgtypes`（纯数据类型层，非生产根）而不是 `prompt/`：WSC 算法层
 （``synaptic/``，见 ``synaptic/metrics.py::PRODUCTION_ROOTS`` 的隔离门）必须能
@@ -122,13 +122,16 @@ def is_notice_message(msg: object) -> bool:
 	的话"的下游判据（会话摘要、C2 摘要的用户子池、折叠节奏、rewind 轮锚点、
 	离线重放的轮数……）会把引擎当用户。判据两级，绝不猜测：
 
-	1. 结构化身份优先——``note_key``（Message 属性或 transcript 行字段）非空即留痕；
-	2. 词法包封兜底——投影 dict 不带 note_key，只能按包封标签整段匹配。
+	修复路径只认 ``note_key``（Message 属性或投影/transcript 字段）。用户正文中的
+	信封字面量不构成来源证据。词法兜底仅保留在关闭输入契约的旧路径中。
 
 	宿主原文里夹了片段（legacy 尾插）不算通报：那是用户消息，剥掉片段仍是它。
 	"""
 	if msg is None:
 		return False
+	from msgtypes.input_contract import enabled, notice_identity
+	if enabled():
+		return notice_identity(msg)
 	if getattr(msg, "hidden", False):
 		return True
 	if isinstance(msg, dict):

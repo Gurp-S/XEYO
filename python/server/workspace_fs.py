@@ -7,7 +7,6 @@ import functools
 import os
 import mimetypes
 import shutil
-from collections import deque
 from pathlib import Path
 from typing import Any
 
@@ -61,26 +60,7 @@ def _audit_write(action: str, cwd: str, rel: str, **extra: Any) -> None:
 		)
 
 
-def resolve_in_workspace(cwd: str, rel: str) -> Path:
-	root = Path(cwd).expanduser().resolve()
-	if not root.is_dir():
-		raise FileNotFoundError(f"workspace not found: {root}")
-	raw = (rel or "").strip().replace("\\", "/")
-	if raw in ("", ".", "/"):
-		return root
-	candidate = Path(raw)
-	try:
-		target = candidate.resolve() if candidate.is_absolute() else (root / raw).resolve()
-	except (OSError, ValueError) as exc:
-		# NUL / \n / \x1a 这类字符会让 resolve() 底层 stat 直接抛 ValueError。
-		# 这里是所有调用方（HTTP 路由、git diff、outline 等）的必经点：向外抛
-		# 出去就是每个入口一个 500，而"这个路径没法解析"本身是个拒绝事实。
-		raise PermissionError("path cannot be resolved") from exc
-	try:
-		target.relative_to(root)
-	except ValueError as e:
-		raise PermissionError("path outside workspace") from e
-	return target
+from common.workspace_paths import resolve_in_workspace
 
 
 def _rel_posix(root: Path, path: Path) -> str:
@@ -266,49 +246,11 @@ def delete_path(cwd: str, rel: str, recursive: bool = False) -> dict[str, Any]:
 
 
 def search_entries(cwd: str, query: str, limit: int = _MAX_SEARCH_HITS) -> dict[str, Any]:
-	"""按文件名（大小写不敏感、包含匹配）在工作区内搜索。
+	"""按文件名广度优先搜索，复用目录枚举元数据，命中数封顶。"""
+	from server.workspace_search import search
 
-	广度优先遍历，最多 _MAX_SEARCH_DEPTH 层；隐藏内部目录，命中数封顶。
-	"""
 	root = Path(cwd).expanduser().resolve()
 	if not root.is_dir():
 		raise FileNotFoundError(f"workspace not found: {root}")
-	q = (query or "").strip().lower()
-	limit = max(1, min(limit, _MAX_SEARCH_HITS))
-	hits: list[dict[str, Any]] = []
-	if not q:
-		return {"cwd": str(root), "query": query, "hits": hits, "truncated": False}
-	frontier: deque[tuple[Path, int]] = deque([(root, 0)])
-	truncated = False
-	while frontier and len(hits) < limit:
-		folder, depth = frontier.popleft()
-		try:
-			children = list(folder.iterdir())
-		except OSError:
-			continue
-		for child in children:
-			if child.name in _EXCLUDED_DIRS:
-				continue
-			try:
-				is_dir = child.is_dir()
-			except OSError:
-				continue
-			if q in child.name.lower():
-				try:
-					size = None if is_dir else child.stat().st_size
-				except OSError:
-					size = None
-				hits.append(
-					{
-						"name": child.name,
-						"path": _rel_posix(root, child),
-						"kind": "dir" if is_dir else "file",
-						"size": size,
-					}
-				)
-			if is_dir and depth + 1 <= _MAX_SEARCH_DEPTH:
-				frontier.append((child, depth + 1))
-		if len(hits) >= limit:
-			truncated = True
-			break
-	return {"cwd": str(root), "query": query, "hits": hits, "truncated": truncated}
+	return search(root, query, max(1, min(limit, _MAX_SEARCH_HITS)),
+	              excluded=_EXCLUDED_DIRS, max_depth=_MAX_SEARCH_DEPTH, relative=_rel_posix)

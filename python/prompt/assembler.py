@@ -46,6 +46,8 @@ class PromptAssembler:
 
             cwd: str,
 
+            workspace_root: str | None = None,
+
             model: str,
 
             names: Sequence[str],
@@ -68,7 +70,7 @@ class PromptAssembler:
 
             from memory.instruction import instruction_cache_signature
 
-            instr_sig = instruction_cache_signature(work, work)
+            instr_sig = instruction_cache_signature(work, workspace_root or work)
 
         except Exception:
 
@@ -77,6 +79,8 @@ class PromptAssembler:
         return (
 
             work,
+
+            workspace_root or work,
 
             model,
 
@@ -104,6 +108,8 @@ class PromptAssembler:
             *,
 
             cwd: str,
+
+            workspace_root: str | None = None,
 
             model: str,
 
@@ -139,9 +145,16 @@ class PromptAssembler:
 
         )
 
+        from msgtypes.input_contract import enabled
+        if enabled():
+            from memory.instruction_contract import workspace_root as resolve_root
+            workspace_root = resolve_root(cwd, workspace_root)
+
         key = self._memo_key(
 
             cwd=cwd,
+
+            workspace_root=workspace_root,
 
             model=model,
 
@@ -155,7 +168,7 @@ class PromptAssembler:
 
             date_iso=date_iso,
 
-        )
+        ) + (enabled(),)
 
         hit = self._system_memo.get(key)
 
@@ -165,6 +178,8 @@ class PromptAssembler:
         parts = await fetch_system_prompt_parts(
 
             cwd=cwd,
+
+            workspace_root=workspace_root,
 
             model=model,
 
@@ -200,6 +215,8 @@ class PromptAssembler:
 
             cwd: str,
 
+            workspace_root: str | None = None,
+
             model: str,
 
             tools: Any = None,
@@ -227,6 +244,8 @@ class PromptAssembler:
         text, _breakdown = await self.build_system_parts(
 
             cwd=cwd,
+
+            workspace_root=workspace_root,
 
             model=model,
 

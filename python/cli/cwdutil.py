@@ -1,4 +1,4 @@
-"""Workspace cwd helpers."""
+"""工作区当前目录的解析与校验。"""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from session.workspace_path import (
 
 
 def _looks_like_project_root(path: str) -> bool:
-	"""Heuristic: monorepo / app root rather than the engine package itself."""
+	"""按项目特征识别仓库或应用根目录，避免选中引擎包目录。"""
 	p = Path(path)
 	markers = (
 		"gui",
@@ -30,7 +30,7 @@ def _looks_like_project_root(path: str) -> bool:
 
 
 def package_parent_workspace() -> str | None:
-	"""If CWD is python/, prefer the repo parent when it looks like a project."""
+	"""当前目录为 python/ 且父目录具备项目特征时，使用父目录。"""
 	pkg = python_package_root()
 	parent = str(Path(pkg).parent)
 	if parent and _looks_like_project_root(parent) and not is_python_package_root(parent):
@@ -39,7 +39,7 @@ def package_parent_workspace() -> str | None:
 
 
 def try_resolve_workspace(path: str) -> str | None:
-	"""Resolve a user-typed workspace; None if invalid or is the package root."""
+	"""解析用户输入的工作区；路径无效或指向包根目录时返回 None。"""
 	raw = (path or "").strip()
 	if not raw:
 		return None

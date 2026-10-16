@@ -44,7 +44,7 @@ def worktree_isolation_enabled() -> bool:
     try:
         from engine.flag_definitions import enabled
 
-        return bool(enabled("XEYO_SUBAGENT_WORKTREE"))
+        return bool(enabled("XEYO_SUBAGENT_WORKTREE") or enabled("XEYO_AGENT_RUNTIME_V2"))
     except Exception:  # noqa: BLE001 — 开关读不到按关处理（不静默开能力）
         return False
 
@@ -153,12 +153,21 @@ class AgentTool:
         return provider() if callable(provider) else None
 
     def schema(self) -> dict[str, Any]:
+        from engine.agent_runtime import enabled as managed
         return {
             "name": self.name,
-            "description": DESCRIPTION.strip(),
+            "description": ("Delegated agent with a durable identity and independent context. "
+                "Background execution returns an agent_id and attempt_id; agent_control exposes status, "
+                "wait, interrupt and continuation. agent_send delivers attributed messages within this "
+                "session. Write scopes default to independent worktrees; completed changes remain on "
+                "their branch until agent_apply publishes them. Empty scope is read-only."
+                if managed() else DESCRIPTION.strip()),
             "input_schema": {
                 "type": "object",
                 "properties": {
+                    **({"background": {"type": "boolean", "default": True,
+                        "description": "True returns a running handle; false waits for the result."}}
+                       if managed() else {}),
                     "task_id": {
                         "type": "string",
                         "description": "Stable id for this sub-task (also names the sidechain).",
@@ -187,10 +196,12 @@ class AgentTool:
                     "reuse_agent_id": {
                         "type": "string",
                         "description": (
-                            "Reuse an existing sidechain agent_id (clear then rerun); "
-                            "omit to spawn a new id."
+                            "Continue an existing agent identity with its history and immutable scope."
+                            if managed() else "Reuse an existing sidechain agent_id (clear then rerun); omit to spawn a new id."
                         ),
                     },
+                    **({"reuse_attempt_id": {"type": "string",
+                        "description": "Expected previous attempt when reusing an agent identity."}} if managed() else {}),
                     "agent_type": {
                         "type": "string",
                         "description": (
@@ -204,14 +215,16 @@ class AgentTool:
                         {
                             "isolation": {
                                 "type": "string",
-                                "enum": ["worktree"],
-                                "description": (
+                                "enum": ["worktree", "shared"] if managed() else ["worktree"],
+                                "description": ("worktree retains an independent branch; shared uses "
+                                    "exclusive overlapping write scopes. Default: worktree for write tasks."
+                                    if managed() else (
                                     "Isolate this sub-agent in its own git worktree "
                                     "(independent working tree; changes are merged "
                                     "back when it finishes). Requires a non-empty "
                                     "scope, otherwise the sub-agent stays read-only. "
                                     "Conflicting changes are left in the worktree."
-                                ),
+                                )),
                             }
                         }
                         if worktree_isolation_enabled()
@@ -237,6 +250,11 @@ class AgentTool:
         )
 
     def _emit_xy(self, payload: dict[str, Any], *, tool_use_id: str = "") -> None:
+        from engine.agent_identity import current_agent
+        identity = current_agent.get()
+        if identity is not None:
+            payload = {**payload, "attempt_id": identity.attempt_id,
+                       "attempt_started_at": int(identity.created_at * 1000)}
         emit_progress(
             ToolProgressEvent(
                 name=self.name,
@@ -247,6 +265,14 @@ class AgentTool:
         )
 
     async def execute(
+        self, input: dict[str, Any], abort: AbortController
+    ) -> ToolResult:
+        from engine.agent_runtime import dispatch, enabled
+        if enabled():
+            return await dispatch(self, input, abort)
+        return await self._execute_legacy(input, abort)
+
+    async def _execute_legacy(
         self, input: dict[str, Any], abort: AbortController
     ) -> ToolResult:
         abort.raise_if_aborted()
@@ -324,7 +350,9 @@ class AgentTool:
                 try:
                     from engine.subagent_runner import clear_sidechain
 
-                    clear_sidechain(self._session_id, agent_id)
+                    from engine.agent_identity import current_agent
+                    if current_agent.get() is None:
+                        clear_sidechain(self._session_id, agent_id)
                 except Exception:  # noqa: BLE001
                     pass
             else:
@@ -346,7 +374,7 @@ class AgentTool:
             agent_input.scope = list(scope_paths)
             tool_whitelist = self._tools_for(agent_input)
             local_abort = LinkedAbortController(abort)
-            register_live_agent(self._session_id, agent_id, local_abort)
+            live_owner = register_live_agent(self._session_id, agent_id, local_abort)
             started = _time.monotonic()
             record_agent_tool_start(
                 session_id=self._session_id,
@@ -388,6 +416,8 @@ class AgentTool:
             # 实测：这段裸代码一旦抛出（例如 metrics 写不下去），每次都永久烧掉该
             # 会话一个 spawn 槽，烧完后这个会话再也 spawn 不了子代理——桌面 app
             # 一开数天。租约幂等：同一对象重复 release 只归还一次。
+            if "live_owner" in locals():
+                unregister_live_agent(self._session_id, agent_id, live_owner)
             slot.release()
             raise
 
@@ -430,11 +460,16 @@ class AgentTool:
 
             turns_used = int(getattr(out, "turns_used", 0) or 0)
             max_turns_used = int(getattr(out, "max_turns", 0) or 0)
+            from engine.agent_runtime import enabled as managed_agents
+            retained = managed_agents() and getattr(out, "isolation", None) is not None
+            if managed_agents() and (local_abort.aborted or getattr(out, "stop_reason", "") in
+                    {"error", "budget", "budget_usd", "max_turns", "max_tool_calling", "aborted", "timeout"}):
+                out.is_error = True
             handoff = handoff_from_run_result(
                 agent_id=agent_id,
-                conclusion=out.conclusion,
-                files_touched=out.files_touched,
-                memories=out.memories,
+                conclusion=(out.conclusion + "\n" + out.isolation.summary()) if retained else out.conclusion,
+                files_touched=[] if retained else out.files_touched,
+                memories=[] if retained else out.memories,
                 is_error=out.is_error,
             )
             try:
@@ -479,11 +514,13 @@ class AgentTool:
                 # 没有权威价目时 cost_cny 是 None（费用未知），原样传给 GUI；
                 # 不能用 `or 0.0` 把它顶成 0，那会让卡片显示"花了 ¥0.00"。
                 "cost_cny": round_money8(getattr(out, "cost_cny", None)),
+                "cost_partial": bool(getattr(out, "cost_partial", False)),
+                "stop_reason": str(getattr(out, "stop_reason", "") or ""),
             })
 
             body = (preview or "").strip() or "(empty subagent result)"
             iso = getattr(out, "isolation", None)
-            if iso is not None:
+            if iso is not None and not retained:
                 # 隔离回收是**事实**，附在正文里（不是劝导）：合并/未合并/冲突文件。
                 body = f"{body}\n{iso.summary()}"
             content = _format_agent_tool_result(
@@ -497,7 +534,11 @@ class AgentTool:
                 "agent_id": agent_id,
                 "task_id": task_id,
                 "uid": uid,
-                "files_touched": list(out.files_touched or []),
+                "files_touched": [] if retained else list(out.files_touched or []),
+                "tokens_used": out.tokens_used,
+                "cost_cny": out.cost_cny,
+                "cost_partial": out.cost_partial,
+                "stop_reason": out.stop_reason,
             }
             if iso is not None:
                 metadata["isolation"] = {
@@ -535,7 +576,7 @@ class AgentTool:
                     "record_agent_settlement failed", exc_info=True
                 )
             try:
-                unregister_live_agent(self._session_id, agent_id)
+                unregister_live_agent(self._session_id, agent_id, live_owner)
             except Exception:  # noqa: BLE001 — 注销失败不许挡住后面的记账与还槽
                 logging.getLogger(__name__).warning(
                     "unregister_live_agent failed", exc_info=True
@@ -604,6 +645,13 @@ class AgentTool:
                 workspace_root=runtime.workspace_root,
                 write_store=self._write_store,
             )
+
+        from engine.agent_identity import current_agent
+        if current_agent.get() is not None:
+            from engine.agent_workspaces import run_child
+            return await run_child(self, agent_input, agent_id=agent_id, runtime=runtime,
+                tool_whitelist=tool_whitelist, abort=abort, append_prompt=append_prompt,
+                on_text_delta=on_text_delta)
 
         # ── worktree 隔离路径 ──────────────────────────────────────────────
         # 子代理在独立 worktree 里跑，写盘走该 worktree 的 WriteStore；结束后由
@@ -676,8 +724,13 @@ class AgentTool:
             task_id=agent_input.task_id,
             write_scope_paths=list(agent_input.scope or []),
             read_state=getattr(runtime, "read_state", None),
+            host_services=getattr(runtime, "host_services", None),
             allow_followups=True,
         )
+        from engine.flag_definitions import enabled
+        if enabled("XEYO_SUBAGENT_RESULT_CONTRACT"):
+            from tools.agent_tool.result_contract import adapt_result
+            return adapt_result(rr, SubagentOutput)
         return SubagentOutput(
             conclusion=rr.conclusion,
             files_touched=rr.files_touched,
@@ -700,6 +753,10 @@ class SubagentOutput:
     turns_used: int = 0
     max_turns: int = 0
     had_write_stale: bool = False
+    tokens_used: int = 0
+    cost_cny: float | None = None
+    cost_partial: bool = False
+    stop_reason: str = ""
     #: worktree 隔离的回收结果（``None`` = 未使用隔离）。
     isolation: Any = None
 

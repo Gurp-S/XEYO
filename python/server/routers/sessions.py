@@ -33,12 +33,16 @@ from session.persistence import (
     transcript_path,
 )
 from session.record_transcript import (
-    record_ui_thoughts,
     rotated_transcript_path,
     rotated_transcript_paths,
     transcript_read_paths,
 )
-from session.transcript_blobs import remove_blobs_dir, resolve_transcript_rows
+from session.transcript_blobs import (
+	blobs_dir,
+	remove_blobs_dir,
+	resolve_transcript_row,
+	resolve_transcript_rows,
+)
 from server.deps import _MAX_USER_CHARS, _pool, api_error
 from server.local_gate import require_loopback
 
@@ -267,6 +271,16 @@ def delete_session(session_id: str) -> dict[str, Any]:
 			"archived_required",
 		)
 	# 会话级资源统一清理（**单点**）：所有 per-session 持有者在自己的单例 getter 里
+	from engine.agent_runtime import session_active, cancel_session
+	if session_active(sid):
+		cancel_session(sid)
+		raise api_error(409, "subagents are stopping", "agents_stopping")
+	from engine.agent_run_store import AgentRunStore
+	from engine.agent_identity import AgentBusy
+	try:
+		AgentRunStore().drop_session(sid)
+	except AgentBusy as exc:
+		raise api_error(409, str(exc), "agents_stopping") from exc
 	# 经 ``server.session_lifecycle.register`` 登记，这里只调 ``drop_all``。
 	#
 	# 为什么不再手写枚举：旧实现排了七段 try/except，于是每新增一个 registry 就漏一处，
@@ -633,26 +647,57 @@ def fork_session(session_id: str, body: ForkRequest | None = None) -> dict[str, 
 	dst_tp = transcript_path(new_sid, sessions_dir=root)
 	dst_tp.parent.mkdir(parents=True, exist_ok=True)
 
-	# 复制 current transcript 与**全部**轮转归档（.old1/.old2，顺序保留）。
-	# 早先只带 .old1：轮转一旦开始，fork 出来的会话会静默丢掉最老一代历史。
 	copied: list[str] = []
 	warnings: list[str] = []
-	if src_tp.is_file():
-		try:
-			shutil.copy2(src_tp, dst_tp)
-			copied.append(str(dst_tp))
-		except OSError as e:
-			raise api_error(
-				500, safe_error_detail(e, fallback="copy transcript failed"), "server_error"
-			) from e
-	for src_old in src_archives:
-		dst_old = dst_tp.with_name(dst_tp.name + src_old.name[len(src_tp.name) :])
-		try:
-			shutil.copy2(src_old, dst_old)
-			copied.append(str(dst_old))
-		except OSError as e:
-			# 归档复制失败不影响主 fork，但必须说出口：分叉体少了历史。
-			warnings.append(f"old-copy-failed: {safe_error_detail(e)}")
+	from session.record_transcript import _disk_lock, flush_pending_sync
+	flush_pending_sync(timeout=5.0)
+	src_blob_dir = blobs_dir(src_tp)
+	dst_blob_dir = blobs_dir(dst_tp)
+	staged_blob_dir: Path | None = None
+	try:
+		with _disk_lock:
+			# Validate every externalized body against the source anchor before
+			# publishing a fork. Rotated rows use the same session blob directory.
+			for source_path in [*src_archives, src_tp]:
+				if not source_path.is_file():
+					continue
+				for line in source_path.read_bytes().splitlines():
+					if not line.strip():
+						continue
+					row = json.loads(line.decode("utf-8"))
+					if isinstance(row, dict) and row.get("content_ref"):
+						resolve_transcript_row(row, src_tp, strict=True)
+
+			if src_blob_dir.is_dir():
+				staged_blob_dir = dst_blob_dir.with_name(
+					dst_blob_dir.name + f".copy-{uuid.uuid4().hex}"
+				)
+				shutil.copytree(src_blob_dir, staged_blob_dir)
+				os.replace(staged_blob_dir, dst_blob_dir)
+				staged_blob_dir = None
+				copied.append(str(dst_blob_dir))
+
+			# Copy current transcript and every retained archive as one serialized
+			# bundle with the immutable blob bodies.
+			if src_tp.is_file():
+				shutil.copy2(src_tp, dst_tp)
+				copied.append(str(dst_tp))
+			for src_old in src_archives:
+				dst_old = dst_tp.with_name(dst_tp.name + src_old.name[len(src_tp.name) :])
+				try:
+					shutil.copy2(src_old, dst_old)
+					copied.append(str(dst_old))
+				except OSError as e:
+					warnings.append(f"old-copy-failed: {safe_error_detail(e)}")
+	except Exception as e:  # noqa: BLE001 — fork must not publish unresolved blob refs
+		if staged_blob_dir is not None:
+			shutil.rmtree(staged_blob_dir, ignore_errors=True)
+		for partial in [dst_tp, *rotated_transcript_paths(dst_tp)]:
+			partial.unlink(missing_ok=True)
+		remove_blobs_dir(dst_tp)
+		raise api_error(
+			500, safe_error_detail(e, fallback="copy transcript bundle failed"), "server_error"
+		) from e
 
 	# 复制 title sidecar（如有）并加 (分叉) 标签，避免直接覆盖原 pinned。
 	src_title = read_title(sid, sessions_dir=root)
@@ -679,6 +724,15 @@ def fork_session(session_id: str, body: ForkRequest | None = None) -> dict[str, 
 		warnings.append(f"index-update-failed: {safe_error_detail(exc)}")
 
 	cwd = _pool.session_cwd(sid) or _pool.cwd or ""
+	bound_cwd = _pool.pin_session_cwd(new_sid, cwd) if cwd else None
+	if bound_cwd:
+		cwd = bound_cwd
+		try:
+			from session.ws_index import record_session_workspace
+
+			record_session_workspace(new_sid, cwd)
+		except Exception:  # noqa: BLE001 — workspace index is auxiliary
+			_logger.debug("fork workspace binding index failed sid=%s", new_sid, exc_info=True)
 	return {
 		"ok": True,
 		"source_id": sid,
@@ -1057,11 +1111,11 @@ async def sync_ui_thoughts(
         for t in body.thoughts
     ]
     known_ids = _pool.transcript_known_ids(sid)
-    written = await record_ui_thoughts(
-        rows,
-        session_id=sid,
-        known_ids=known_ids,
-    )
+    from server.thought_persistence import persist_thoughts
+    try:
+        written = await persist_thoughts(rows, session_id=sid, known_ids=known_ids)
+    except OSError as exc:
+        raise api_error(503, "transcript append incomplete", "persistence_error") from exc
     return {"ok": True, "written": written}
 
 
@@ -1139,8 +1193,11 @@ def session_agents(session_id: str) -> dict[str, Any]:
             ][:16],
             "inboxCount": _combined_inbox_count(sid, aid, pending),
             "tokensUsed": max(0, int(m.get("tokens_used") or 0)),
+            "costCny": m.get("cost_cny"),
+            "costPartial": bool(m.get("cost_partial", False)),
         })
-    return {"session_id": sid, "agents": agents}
+    from server.agent_runtime_views import project_agents
+    return {"session_id": sid, "agents": project_agents(sid, agents)}
 
 
 @router.get("/v1/sessions/{session_id}/agents/{agent_id}", response_model=None)
@@ -1167,7 +1224,9 @@ def session_agent_detail(session_id: str, agent_id: str) -> dict[str, Any]:
     raw_rows = load_sidechain_messages(sid, aid)
     # 元数据与侧链都不存在 ⇒ 该子 agent 从未运行过（而非「暂时没内容」）；
     # 用 404 让前端保持可重试/可识别，而不是误判为已失败的空记录。
-    if meta is None and not raw_rows:
+    from server.agent_runtime_views import project_agents
+    managed = next((card for card in project_agents(sid, []) if card["agentId"] == aid), None)
+    if meta is None and not raw_rows and managed is None:
         raise api_error(404, "subagent transcript not found", "agent_not_found")
 
     messages: list[dict[str, Any]] = []
@@ -1182,20 +1241,36 @@ def session_agent_detail(session_id: str, agent_id: str) -> dict[str, Any]:
     return {
         "session_id": sid,
         "agent_id": aid,
-        "status": status,
+        "status": managed["status"] if managed else status,
+		"attempt_id": managed["attemptId"] if managed else None,
         "meta": meta,
         "messages": messages,
-        "inboxCount": _combined_inbox_count(sid, aid, pending_followups),
+        "inboxCount": managed["inboxCount"] if managed else _combined_inbox_count(sid, aid, pending_followups),
     }
 
 
+class AgentCancelRequest(BaseModel):
+    attempt_id: str | None = None
+
+
 @router.post("/v1/sessions/{session_id}/agents/{agent_id}/cancel")
-def session_agent_cancel(session_id: str, agent_id: str) -> dict[str, Any]:
+def session_agent_cancel(session_id: str, agent_id: str, body: AgentCancelRequest | None = None) -> dict[str, Any]:
     """取消正在运行的单个子 Agent（不影响主会话 abort）。"""
     from engine.live_agents import abort_live_agent, is_live_agent
 
     sid = require_session_id(session_id)
     aid = require_agent_id(agent_id)
+    from engine.agent_live_bridge import store_for
+    managed_store = store_for(sid, aid)
+    if managed_store:
+        from engine.agent_runtime import cancel
+        row = managed_store.get(sid, aid)
+        expected = body.attempt_id if body and body.attempt_id else row["attempt"]
+        if expected != row["attempt"]:
+            raise api_error(409, "stale_agent_attempt", "stale_agent_attempt")
+        if not cancel(sid, aid, expected):
+            raise api_error(409, "agent_owner_unavailable", "agent_owner_unavailable")
+        return {"ok": True, "session_id": sid, "agent_id": aid, "attempt_id": expected, "status": "cancelling"}
     if not is_live_agent(sid, aid):
         raise api_error(404, "subagent is not running", "agent_not_live")
     ok = abort_live_agent(sid, aid)
@@ -1237,6 +1312,15 @@ def session_agent_followup(
             422, "follow-up text exceeds 2000 characters", "invalid_request"
         )
 
+    from engine.agent_live_bridge import store_for
+    managed_store = store_for(sid, aid)
+    if managed_store is not None:
+        try:
+            receipt = managed_store.send(sid, aid, "parent", text, message_id=str(body.message_id or ""))
+        except Exception as exc:
+            raise api_error(409, str(exc), "agent_message_rejected") from exc
+        return {"ok": True, "deliver": "running" if is_live_agent(sid, aid) else "pending",
+                "messageId": receipt["message_id"], "inboxCount": len(managed_store.pending(sid, aid, limit=256))}
     if is_live_agent(sid, aid):
         post_to_agent(sid, aid, text, message_id=str(body.message_id or ""))
         pending_now = _read_pending_followups(_meta_path, sid, aid)
@@ -1318,6 +1402,12 @@ def session_agent_followup_remove(
     sid = require_session_id(session_id)
     aid = require_agent_id(agent_id)
     target = _require_stable_id(item_id, field="item_id")
+
+    from engine.agent_live_bridge import store_for
+    managed_store = store_for(sid, aid)
+    if managed_store is not None:
+        return {"ok": True, "deliver": "running" if is_live_agent(sid, aid) else "pending",
+                "removed": managed_store.remove_message(sid, aid, message_id=target)}
 
     if is_live_agent(sid, aid):
         removed = remove_agent_inbox_item(sid, aid, target)
@@ -1410,6 +1500,7 @@ def _reattach_pending_followups(sid: str, aid: str, pending: list[str]) -> int:
 
 
 class AgentRetryRequest(BaseModel):
+    attempt_id: str | None = None
     provider: str | None = None
     model: str | None = None
     base_url: str | None = None
@@ -1431,6 +1522,7 @@ async def session_agent_retry(
 ) -> dict[str, Any]:
     """按原 task_desc 清侧链后重跑同一 agent_id（失败/取消后）。"""
     import json as _json
+    import asyncio
 
     from engine.abort import AbortController
     from engine.live_agents import is_live_agent
@@ -1469,13 +1561,24 @@ async def session_agent_retry(
                 meta = obj
     except Exception:  # noqa: BLE001
         meta = {}
-    desc = str(meta.get("task_desc") or "").strip()
-    task_id = str(meta.get("task_id") or "").strip() or "task"
+    from engine.agent_runtime import enabled as managed_agents
+    from engine.agent_run_store import AgentRunStore
+    try:
+        stored = await asyncio.to_thread(AgentRunStore().get, sid, aid) if managed_agents() else None
+    except BaseException:
+        _pool.end(sid, lease_id)
+        raise
+    saved_spec = stored["spec"] if stored else {}
+    desc = str(saved_spec.get("desc") or meta.get("task_desc") or "").strip()
+    task_id = str(saved_spec.get("task_id") or meta.get("task_id") or "").strip() or "task"
     if not desc:
         _pool.end(sid, lease_id)
         raise api_error(400, "no task_desc in agent meta; cannot retry", "agent_no_desc")
 
     body = body or AgentRetryRequest()
+    if stored and body.attempt_id and body.attempt_id != stored["attempt"]:
+        _pool.end(sid, lease_id)
+        raise api_error(409, "stale_agent_attempt", "stale_agent_attempt")
     try:
         engine = _pool.get_if_present(sid)
         if engine is None:
@@ -1517,7 +1620,9 @@ async def session_agent_retry(
         raise api_error(500, "Agent tool not available on session engine")
 
     try:
-        clear_sidechain(sid, aid)
+        from engine.agent_runtime import enabled as managed_agents
+        if not managed_agents():
+            clear_sidechain(sid, aid)
         # P2：已结束 agent 的迟到 follow-up 在 retry 时连带执行——置入运行时
         # inbox，run_subagent 的 follow-up 循环同实例消费（清侧链后重跑但消息不丢）。
         # F7：与运行时残留按多重集配对后放回（abort 窗口里两处各一份的项不重投）。
@@ -1527,22 +1632,27 @@ async def session_agent_retry(
                 for x in (meta.get("pending_followups") or [])
                 if str(x).strip()
             ]
-            _reattach_pending_followups(sid, aid, pending_fu)
+            if not stored:
+                _reattach_pending_followups(sid, aid, pending_fu)
         except Exception:  # noqa: BLE001 — 投递失败只留痕：条目仍留在 meta.pending_followups，重试会重新投递
             _logger.warning(
                 "pending follow-up delivery failed sid=%s agent=%s", sid, aid,
                 exc_info=True,
             )
-        abort = AbortController()
-        result = await at.execute(
-            {
+        abort = _pool.attach_batch_abort(sid) if hasattr(_pool, "attach_batch_abort") else AbortController()
+        request = saved_spec or {
                 "task_id": task_id,
                 "desc": desc,
-                "reuse_agent_id": aid,
                 "parent_depth": 0,
-            },
-            abort,
-        )
+                "scope": list(meta.get("write_scope") or []),
+            }
+        from server.agent_commands import retry
+        try:
+            result = await retry(engine, sid, {**request, "reuse_agent_id": aid, "background": False,
+                **({"reuse_attempt_id": stored["attempt"]} if stored else {})}, abort)
+        finally:
+            if hasattr(_pool, "detach_batch_abort"):
+                _pool.detach_batch_abort(sid, abort)
     finally:
         _pool.end(sid, lease_id)
     status = "failed" if result.is_error else "done"
@@ -1555,6 +1665,7 @@ async def session_agent_retry(
         "status": status,
         "resultPreview": preview,
         "is_error": bool(result.is_error),
+        "attempt_id": (result.metadata or {}).get("attempt_id"),
     }
 
 
@@ -1717,15 +1828,20 @@ async def session_turn_events(
 	session_id: str,
 	request: Request,
 	cursor: int = Query(default=0, ge=0),
+	expected_turn_id: str | None = Query(default=None, min_length=1, max_length=256),
 ) -> StreamingResponse:
 	"""从 cursor 重放 + live 订阅（GUI 刷新 reattach）。"""
 	sid = require_session_id(session_id)
 	from engine.turn_runner import get_turn_runner
 
 	runner = get_turn_runner()
+	from engine.turn_subscription import rejection
+	reason = rejection(expected_turn_id, runner.get_public(sid))
+	if reason:
+		raise api_error(409, reason, reason)
 
 	async def _live() -> Any:
-		agen = runner.subscribe(sid, cursor=cursor)
+		agen = runner.subscribe(sid, cursor=cursor, expected_turn_id=expected_turn_id)
 		got_any = False
 		while True:
 			try:
@@ -1793,6 +1909,29 @@ async def session_inbox_list(session_id: str) -> dict[str, Any]:
 
 class InboxEditRequest(BaseModel):
 	text: str = Field(min_length=1, description="改写后的消息文本")
+
+
+class InboxOrderRequest(BaseModel):
+	expected_order: list[str] = Field(max_length=64)
+	order: list[str] = Field(max_length=64)
+
+
+@router.post("/v1/sessions/{session_id}/inbox/reorder")
+def session_inbox_reorder(session_id: str, body: InboxOrderRequest) -> dict[str, Any]:
+	from server.inbox_registry import InboxPersistenceError, get_inbox_registry
+	from engine.title import read_archive
+	sid = require_session_id(session_id)
+	if read_archive(sid) is not None:
+		raise api_error(403, "archived session is read-only", "session_archived")
+	expected = [_require_stable_id(qid, field="queue_id") for qid in body.expected_order]
+	order = [_require_stable_id(qid, field="queue_id") for qid in body.order]
+	try:
+		ok = get_inbox_registry().reorder(sid, expected, order)
+	except InboxPersistenceError as exc:
+		raise api_error(503, "inbox state could not be updated", "inbox_unavailable") from exc
+	if not ok:
+		raise api_error(409, "queued items changed", "inbox_order_conflict")
+	return {"ok": True, "session_id": sid, "order": order}
 
 
 class InboxAckRequest(BaseModel):

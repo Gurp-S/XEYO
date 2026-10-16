@@ -2,8 +2,8 @@
 
 动作账本解决的是断流/恢复边界，而不是替代 rewind。热账本只记录动作意图、状态
 和有限结果预览；长结果及结构化载荷保存在同会话的冷结果文件中，不额外记录工具
-参数。结果文件与会话同生命周期，不进入模型注意力。默认关闭；benchmark 或
-长任务宿主可通过 ``XEYO_ACTION_JOURNAL=1`` 开启。
+参数。结果文件与会话同生命周期，不进入模型注意力。结果契约开启时默认启用；
+``XEYO_ACTION_JOURNAL`` 可显式覆盖，关闭后不提供跨调用的持久未决保护。
 
 状态语义：
 
@@ -47,7 +47,10 @@ def _lock_for(path: Path) -> threading.RLock:
 
 
 def enabled_from_env() -> bool:
-	raw = os.environ.get("XEYO_ACTION_JOURNAL", "0").strip().lower()
+	from engine.flag_definitions import enabled
+	raw = os.environ.get("XEYO_ACTION_JOURNAL", "").strip().lower()
+	if not raw:
+		return enabled("XEYO_TOOL_OUTCOME_CONTRACT")
 	return raw in {"1", "true", "yes", "on"}
 
 
@@ -122,7 +125,8 @@ class ActionJournal:
 						raise OSError("action journal contains an invalid record") from exc
 					if not isinstance(row, dict) or not row.get("action_id") or row.get("status") not in {"executing", "completed", "unknown", "failed"}:
 						raise OSError("action journal contains an invalid record")
-					latest[str(row["action_id"])] = row
+					key = str(row["action_id"])
+					latest[key] = {**latest.get(key, {}), **row}
 		except FileNotFoundError:
 			pass
 		return latest
@@ -136,24 +140,40 @@ class ActionJournal:
 		tool_use_id: str,
 		tool_name: str,
 		side_effect: str,
+		operation_key: str = "",
+		recoverable: bool = False,
 	) -> ActionDecision:
 		if not self.enabled:
 			return ActionDecision("execute")
 		# 读取 latest 与写入 executing 必须在同一把 session/action 锁内完成。
 		# 否则两个并发恢复请求可能都先读到“无记录”，随后重复执行同一个副作用。
 		with _lock_for(self.path), action_file_lock(self.path):
-			current = self._latest().get(action_id)
+			latest = self._latest()
+			current = latest.get(action_id)
+			recovery_of = set()
 			if current is not None:
 				status = str(current.get("status") or "")
 				if status == "completed":
 					return ActionDecision("replay", current)
 				if status in {"executing", "unknown"}:
-					return ActionDecision("recovery_required", current)
+					if not recoverable:
+						return ActionDecision("recovery_required", current)
+					recovery_of.add(action_id)
+			if operation_key:
+				for row in latest.values():
+					if row.get("operation_key") == operation_key and row.get("status") in {"executing", "unknown"}:
+						if not recoverable:
+							return ActionDecision("recovery_required", row)
+						recovery_of.add(row["action_id"])
 			now = time.time()
+			if recovery_of:
+				self._recovering_action_ids = {*getattr(self, "_recovering_action_ids", ()), action_id}
 			self._append_locked(
 				{
 					"action_id": action_id,
 					"idempotency_key": idempotency_key,
+					"operation_key": operation_key,
+					"recovery_of": sorted(recovery_of),
 					"session_id": self.session_id,
 					"turn_id": turn_id,
 					"tool_use_id": tool_use_id,
@@ -169,7 +189,7 @@ class ActionJournal:
 	def complete(self, action_id: str, result: Any) -> None:
 		if not self.enabled:
 			return
-		if getattr(result, "status", None) in {"pending", "running", "cancelled"}:
+		if getattr(result, "status", None) in {"pending", "running", "cancelled", "unknown"}:
 			self.unknown(action_id, "nonterminal action result")
 			return
 		content = str(getattr(result, "content", "") or "")
@@ -191,6 +211,10 @@ class ActionJournal:
 				"side_effect": str(getattr(result, "side_effect", "unknown") or "unknown"),
 			}
 		)
+
+		if action_id in getattr(self, "_recovering_action_ids", ()):
+			from engine.agent_action_contract import settle_recoveries
+			settle_recoveries(self, action_id)
 
 	def unknown(self, action_id: str, error: str) -> None:
 		if self.enabled:

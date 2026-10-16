@@ -1,4 +1,4 @@
-"""Shared Rich visual chrome for the XEYO CLI (human mode only)."""
+"""XEYO 命令行共用的 Rich 界面组件，仅用于人类可读输出。"""
 
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ def print_banner(
 	model: str = "",
 	restored: int = 0,
 ) -> None:
-	"""Startup header for interactive chat / attach — icon + I am XEYO."""
+	"""交互聊天与连接会话的启动标题：图标及 I am XEYO。"""
 	cwd_name = Path(cwd).name or cwd
 	meta = Table.grid(padding=(0, 2))
 	meta.add_column(style=MUTED, justify="right")

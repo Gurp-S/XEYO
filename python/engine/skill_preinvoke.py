@@ -46,6 +46,10 @@ def _leading_slash_token(text: str) -> tuple[str, str] | None:
 	词边界与 GUI ``slashTokenAt`` / 技能语法一致：``/`` 前是行首；
 	``https://…``、``src/foo`` 不命中（``/`` 不在行首）。
 	"""
+	from msgtypes.input_contract import enabled
+	if enabled():
+		from engine.skill_input_contract import leading_token
+		return leading_token(text)
 	for raw_line in (text or "").splitlines():
 		line = raw_line.strip()
 		if not line:
@@ -109,6 +113,10 @@ def preinvoke_skill_block(cwd: str, user_text: str) -> str:
 	except Exception:  # noqa: BLE001
 		return ""
 	body = _apply_arguments(body.strip(), args)
+	from msgtypes.input_contract import enabled
+	if enabled():
+		from engine.skill_input_contract import render_skill
+		return render_skill(entry, body, BODY_MAX)
 	if len(body) > BODY_MAX:
 		body = body[:BODY_MAX].rstrip() + "\n\n…（技能正文过长已截断；完整内容在 "
 		f"{entry.path / 'SKILL.md'}，Read 可读。）"

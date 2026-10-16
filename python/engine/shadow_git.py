@@ -180,11 +180,13 @@ class ShadowGit:
         """
         self.init_if_needed()
         if paths is not None:
-            scoped = [
-                str(p).replace("\\", "/").lstrip("./")
-                for p in paths
-                if str(p).strip()
-            ]
+            scoped = []
+            for path in paths:
+                value = str(path).replace("\\", "/").strip()
+                while value.startswith("./"):
+                    value = value[2:]
+                if value:
+                    scoped.append(value)
             if not scoped:
                 head = self.head_commit()
                 if head:

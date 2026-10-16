@@ -22,6 +22,7 @@ from rewind.locks import SessionLock
 from rewind.models import ApprovalRecord, RecoveryJob, RollbackPlan, SessionRevision, TurnRecord
 from rewind.revision import RevisionStore
 from rewind.snapshot import SnapshotStore
+from rewind.reference_lock import reference_publication_lock
 from session.persistence import (
     default_sessions_dir,
     is_session_persistence_disabled,
@@ -111,10 +112,11 @@ def _json_hash(value: Mapping[str, Any]) -> str:
 def _append_json(path: Path, payload: Mapping[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     line = json.dumps(dict(payload), ensure_ascii=False, sort_keys=True) + "\n"
-    with path.open("a", encoding="utf-8", newline="") as handle:
-        handle.write(line)
-        handle.flush()
-        os.fsync(handle.fileno())
+    with reference_publication_lock():
+        with path.open("a", encoding="utf-8", newline="") as handle:
+            handle.write(line)
+            handle.flush()
+            os.fsync(handle.fileno())
 
 
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -1177,6 +1179,7 @@ class RollbackService:
         retained_ids: list[str],
         *,
         target_message_id: str | None = None,
+        job: RecoveryJob | None = None,
     ) -> tuple[str, str, list[dict[str, Any]]]:
         from session.record_transcript import discard_rotated_transcripts
 
@@ -1198,14 +1201,23 @@ class RollbackService:
             retained = [row for row in rows if str(row.get("id") or "") in keep]
         text = "".join(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n" for row in retained)
         backup_text = self.transcript.read_text(encoding="utf-8")
-        backup_manifest = self.snapshots.put_text(
-            backup_text,
-            source_path=str(self.transcript),
-            metadata={"role": "pre_rollback_transcript"},
-        )
-        if backup_manifest is None:
-            raise RollbackBlockedError("pre-rollback transcript checkpoint could not be persisted")
-        _write_atomic(self.transcript, text)
+        with reference_publication_lock(self.snapshots.root):
+            backup_manifest = self.snapshots.put_text(
+                backup_text,
+                source_path=str(self.transcript),
+                metadata={"role": "pre_rollback_transcript"},
+            )
+            if backup_manifest is None:
+                raise RollbackBlockedError("pre-rollback transcript checkpoint could not be persisted")
+            if job is not None:
+                self.jobs.update(
+                    job,
+                    metadata={
+                        **job.metadata,
+                        "transcript_backup_hash": backup_manifest.content_hash,
+                    },
+                )
+            _write_atomic(self.transcript, text)
         # 46 号：重写后回填仍生效的 v3 rewind marker。fold 对「marker 在、
         # 影子首行缺失」保守不隐藏，因此回填方向安全；丢失 marker 则会让
         # 已被 v3 回溯的行在下次 fold 复活。
@@ -1359,19 +1371,20 @@ class RollbackService:
             return None
 
         normalized = self._normalize_ops_for_execute(details, target_commit="")
-        checkpoint = self._checkpoint_files(normalized or [], job.job_id)
-        self.jobs.update(
-            job,
-            status="executing",
-            metadata={
-                **job.metadata,
-                "checkpoint": checkpoint,
-                "full_tree_restore": False,
-                "restore_workspace": True,
-                "fingerprint_paths": fingerprint_paths,
-                "phase": "workspace_restoring",
-            },
-        )
+        with reference_publication_lock(self.snapshots.root):
+            checkpoint = self._checkpoint_files(normalized or [], job.job_id)
+            self.jobs.update(
+                job,
+                status="executing",
+                metadata={
+                    **job.metadata,
+                    "checkpoint": checkpoint,
+                    "full_tree_restore": False,
+                    "restore_workspace": True,
+                    "fingerprint_paths": fingerprint_paths,
+                    "phase": "workspace_restoring",
+                },
+            )
         if normalized:
             current_rev = WorkspaceRevision(self.workspace_root).calculate(
                 paths=fingerprint_paths
@@ -1386,13 +1399,20 @@ class RollbackService:
                 ttl_seconds=self._lease_ttl_seconds,
             )
             workspace_lock_instance.acquire()
-            self._restore_ops_scoped(
-                normalized,
-                target_commit="",
-                job=job,
-                actor=actor,
-                plan=plan,
-            )
+            try:
+                self._restore_ops_scoped(
+                    normalized,
+                    target_commit="",
+                    job=job,
+                    actor=actor,
+                    plan=plan,
+                )
+            except BaseException:
+                # The lock is returned to the caller only after a complete
+                # scoped restore. If mutation/audit fails, this stack owns it.
+                workspace_lock_instance.release()
+                workspace_lock_instance = None
+                raise
         return workspace_lock_instance
 
     def execute(
@@ -1528,6 +1548,7 @@ class RollbackService:
                 ) = self._rewrite_transcript(
                     retained_ids,
                     target_message_id=target_message_id or None,
+                    job=job,
                 )
                 retained_turn_ids = tuple(
                     str(item) for item in plan.metadata.get("retained_turn_ids") or []

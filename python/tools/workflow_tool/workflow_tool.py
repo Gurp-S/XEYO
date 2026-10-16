@@ -24,6 +24,8 @@ import json
 import logging
 import os
 import uuid
+import contextvars
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
@@ -143,6 +145,8 @@ class _ScriptRuntime:
         self._meta = meta
         self._args = args
         self.agents_started = 0
+        self._agent_lock = threading.Lock()
+        self._tasks: set[asyncio.Task] = set()
         self.phases: list[str] = []
         self.logs: list[str] = []
 
@@ -162,13 +166,11 @@ class _ScriptRuntime:
         unknown = sorted(set(options) - _AGENT_OPTION_KEYS)
         if unknown:
             raise WorkflowFatal(f"agent() unknown option(s): {', '.join(unknown)}")
-        if self.agents_started >= self._max_agents:
-            raise WorkflowFatal(
-                f"workflow agent budget exhausted ({self._max_agents}); "
-                "raise max_agents or split the run"
-            )
-        self.agents_started += 1
-        index = self.agents_started
+        with self._agent_lock:
+            if self.agents_started >= self._max_agents:
+                raise WorkflowFatal(f"workflow agent budget exhausted ({self._max_agents})")
+            self.agents_started += 1
+            index = self.agents_started
         task_id = f"wf-{self._run_short}-{index}"
         desc = str(prompt or "")
         schema = options.get("schema")
@@ -181,7 +183,7 @@ class _ScriptRuntime:
                 f"{desc}\n\nReturn ONLY a JSON object matching this schema "
                 f"(no prose, no code fence): {schema_text}"
             )
-        tool_input: dict[str, Any] = {"task_id": task_id, "desc": desc}
+        tool_input: dict[str, Any] = {"task_id": task_id, "desc": desc, "background": False}
         scope = options.get("scope")
         if scope:
             if not isinstance(scope, (list, tuple)):
@@ -197,11 +199,29 @@ class _ScriptRuntime:
             if value:
                 tool_input[key] = str(value)
 
-        future = asyncio.run_coroutine_threadsafe(
-            self._agent_tool.execute(tool_input, self._abort), self._loop
-        )
+        async def owned_agent():
+            task = asyncio.current_task()
+            self._tasks.add(task)
+            try:
+                return await self._agent_tool.execute(tool_input, self._abort)
+            finally:
+                self._tasks.discard(task)
+        future = asyncio.run_coroutine_threadsafe(owned_agent(), self._loop)
         try:
-            result = future.result(timeout=self._agent_timeout_s)
+            import time
+            deadline = time.monotonic() + self._agent_timeout_s
+            while True:
+                if self._abort.aborted:
+                    future.cancel()
+                    raise WorkflowAborted("workflow aborted")
+                left = deadline - time.monotonic()
+                if left <= 0:
+                    raise TimeoutError
+                try:
+                    result = future.result(timeout=min(.1, left))
+                    break
+                except TimeoutError:
+                    continue
         except TimeoutError:
             future.cancel()
             self._log(f"agent {task_id} timed out after {self._agent_timeout_s:g}s")
@@ -244,7 +264,9 @@ class _ScriptRuntime:
                 results[index] = None
 
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            futures = [pool.submit(_run, i, t) for i, t in enumerate(items)]
+            from tools.workflow_tool.lifetime import checked_call
+            futures = [pool.submit(contextvars.copy_context().run, checked_call, _run, self, i, t)
+                       for i, t in enumerate(items)]
             for future in futures:
                 future.result()  # WorkflowFatal / WorkflowAborted 原样上抛
         return results
@@ -448,9 +470,10 @@ class WorkflowTool:
             )
 
         max_agents = self._max_agents(raw.get("max_agents"))
+        from engine.abort import LinkedAbortController
         runtime = _ScriptRuntime(
             agent_tool=agent_tool,
-            abort=abort,
+            abort=LinkedAbortController(abort),
             loop=asyncio.get_running_loop(),
             run_short=uuid.uuid4().hex[:8],
             max_agents=max_agents,
@@ -463,10 +486,10 @@ class WorkflowTool:
         timeout = _env_float("XEYO_WORKFLOW_SCRIPT_TIMEOUT_S", DEFAULT_SCRIPT_TIMEOUT_S)
 
         try:
-            value = await asyncio.wait_for(
-                asyncio.to_thread(self._run_script, prepared, runtime),
-                timeout=timeout,
-            )
+            from tools.workflow_tool.lifetime import run_owned
+            value = await run_owned(self._run_script, prepared, runtime, timeout)
+        except asyncio.CancelledError:
+            raise
         except TimeoutError:
             return self._failure(runtime, f"script exceeded {timeout:g}s", facts)
         except WorkflowAborted:

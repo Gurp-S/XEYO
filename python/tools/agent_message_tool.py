@@ -49,6 +49,16 @@ class AgentSendTool:
 		return False
 
 	def schema(self) -> dict[str, Any]:
+		from engine.agent_runtime import enabled
+		if enabled():
+			return {"name": self.name, "description":
+				"Durable message to a same-session agent_id or parent. Sender identity comes from the runtime. "
+				"Messages arrive at model request boundaries; an inactive agent retains messages until resumed. "
+				"message_id deduplicates retries; attempt_id rejects a replaced recipient execution.",
+				"input_schema": {"type": "object", "properties": {
+					"agent_id": {"type": "string"}, "text": {"type": "string", "maxLength": 8000},
+					"message_id": {"type": "string"}, "attempt_id": {"type": "string"}},
+					"required": ["agent_id", "text"]}}
 		return {
 			"name": self.name,
 			"description": (
@@ -75,6 +85,27 @@ class AgentSendTool:
 	async def execute(
 		self, input: dict[str, Any], abort: AbortController
 	) -> ToolResult:
+		from engine.agent_runtime import actor, enabled, result
+		if enabled():
+			import asyncio
+			from engine.agent_run_store import AgentRunStore
+			from engine.agent_identity import current_agent
+			from engine.agent_io import owned_io
+			abort.raise_if_aborted()
+			sid, sender = actor()
+			if not sid:
+				return result({"error": "missing_session_identity"}, error=True)
+			try:
+				store = await asyncio.to_thread(AgentRunStore)
+				identity = current_agent.get()
+				item = await owned_io(store.send, sid, str(input.get("agent_id") or ""), sender,
+					str(input.get("text") or ""), message_id=str(input.get("message_id") or ""),
+					expected_attempt=str(input.get("attempt_id") or ""),
+					sender_attempt=identity.attempt_id if identity else "")
+				return result({"message_id": item["message_id"], "state": item["state"],
+					"recipient": item["recipient"], "target_attempt": item["target_attempt"]})
+			except Exception as exc:
+				return result({"error": str(exc)}, error=True)
 		agent_id = str(input.get("agent_id") or "").strip()
 		text = str(input.get("text") or "").strip()
 		if not agent_id or not text:

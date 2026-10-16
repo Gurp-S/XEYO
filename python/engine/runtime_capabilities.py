@@ -16,12 +16,10 @@ import time
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from engine.command_probe import probe_commands
+
 Capability = bool | None
 RuntimeKind = Literal["local", "docker", "ssh", "unknown"]
-
-
-def _which_any(names: tuple[str, ...]) -> bool:
-	return any(bool(shutil.which(name)) for name in names)
 
 
 @dataclass(frozen=True)
@@ -96,16 +94,24 @@ def probe_runtime_capabilities(
 		disk_free = int(shutil.disk_usage(root).free) if os.path.isdir(root) else None
 	except OSError:
 		writable, disk_free = False, None
-	python_available = bool(sys.executable) or _which_any(("python", "python3"))
+	groups = {
+		"git": ("git",),
+		"node": ("node",),
+		"compiler": ("cc", "gcc", "clang", "cl"),
+		"package_manager": ("uv", "pip", "npm", "cargo"),
+	}
+	if not sys.executable:
+		groups["python"] = ("python", "python3")
+	commands = probe_commands(groups)
 	return RuntimeCapabilities(
 		runtime="local",
 		cwd=root,
 		writable=writable,
-		git=_which_any(("git",)),
-		python=python_available,
-		node=_which_any(("node",)),
-		compiler=_which_any(("cc", "gcc", "clang", "cl")),
-		package_manager=_which_any(("uv", "pip", "npm", "cargo")),
+		git=commands["git"],
+		python=bool(sys.executable) or commands["python"],
+		node=commands["node"],
+		compiler=commands["compiler"],
+		package_manager=commands["package_manager"],
 		network=None,
 		disk_free_bytes=disk_free,
 		container_id="",

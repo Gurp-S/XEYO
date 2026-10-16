@@ -466,12 +466,25 @@ class InterruptRequest(BaseModel):
 	#: ``victim``，落不存在的 id 也只是幂等 no-op——所以这里不套固定点（那会破坏
 	#: 已钉死的幂等 stop 契约），只挡超长串。
 	session_id: str = Field(max_length=_MAX_ID_CHARS)
+	# None retains the legacy session-wide stop API. Updated clients always send
+	# a captured turn id, including an empty id when no turn has been observed.
+	expected_turn_id: str | None = Field(default=None, max_length=_MAX_ID_CHARS)
 
 
 @router.post("/v1/interrupt")
 def interrupt(body: InterruptRequest, request: Request) -> dict[str, Any]:
 	require_loopback(request)
 	from server.inbox_registry import InboxPersistenceError, get_inbox_registry
+	from engine.flag_definitions import enabled
+	if enabled("XEYO_TURN_BOUND_CONTROL") and body.expected_turn_id is not None:
+		from engine.turn_runner import get_turn_runner
+		from server.turn_control import TurnMismatch, interrupt_turn
+		try:
+			return interrupt_turn(get_turn_runner(), _pool, get_inbox_registry(), body.session_id, body.expected_turn_id)
+		except TurnMismatch as exc:
+			raise api_error(409, str(exc), "turn_mismatch") from exc
+		except InboxPersistenceError as exc:
+			raise api_error(503, "inbox pause could not be persisted", "inbox_unavailable") from exc
 
 	pause_error = False
 	try:

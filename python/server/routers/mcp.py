@@ -47,27 +47,25 @@ def _ws_of(request: Request, workspace: str | None) -> str | None:
 
 
 def _write_trust_entry(ws: str | None, spec: dict[str, Any]) -> None:
-    """project 级批准：按声明 hash 写 ``<ws>/.xeyo/mcp-trust.json``（原子）。"""
-    from extension.mcp_scopes import declaration_hash, trust_path
+    """Write a workspace-bound approval into user-owned trust state."""
+    from extension.mcp_scopes import trust_key, trust_path
 
     path = trust_path(ws)
     trust: dict[str, Any] = {}
     if path.is_file():
-        # 读不出/解不动/不是对象都**必须停下来**，不能当成"本来就没批准过"。
-        # 下面整份重写：把失败吞成 trust={} 会连带抹掉此前所有 server 的信任记录，
-        # 于是"临时读不到"变成一次静默的授权清空。
         try:
             raw = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError) as exc:
             raise RuntimeError(
-                f"mcp-trust.json 读不出，已停止批准（避免覆盖既有信任记录）: {type(exc).__name__}"
+                f"mcp-trust.json unreadable; approval stopped: {type(exc).__name__}"
             ) from exc
         if not isinstance(raw, dict):
-            raise RuntimeError(
-                "mcp-trust.json 顶层不是对象，已停止批准（避免覆盖既有信任记录）"
-            )
+            raise RuntimeError("mcp-trust.json is not an object; approval stopped")
         trust = raw
-    trust[declaration_hash(spec)] = {"approved": True}
+    key = trust_key(ws, spec) if ws else ""
+    if not key:
+        raise RuntimeError("workspace identity unavailable; approval stopped")
+    trust[key] = {"approved": True}
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f"{path.name}.tmp")
     tmp.write_text(
@@ -75,7 +73,6 @@ def _write_trust_entry(ws: str | None, spec: dict[str, Any]) -> None:
         encoding="utf-8",
     )
     tmp.replace(path)
-
 
 @router.get("/v1/mcp")
 def get_mcp_status(

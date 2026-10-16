@@ -66,7 +66,7 @@ CleanupFn = Callable[[Entry], bool]
 
 
 def _pid_alive(pid: int) -> bool:
-	from server.portfile import is_pid_alive
+	from common.process_identity import is_pid_alive
 
 	return is_pid_alive(pid)
 

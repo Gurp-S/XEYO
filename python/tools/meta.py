@@ -352,11 +352,14 @@ TOOL_META: dict[str, ToolMeta] = {
 			read_only=False,
 			concurrency_safe=False,
 			policy="always_allow",
-			subagent_ok=False,
-			short_description=(
-				"Send a follow-up to a running subagent (parked until settle)."
-			),
+			subagent_ok=True,
+			short_description="",
 		),
+		ToolMeta(name="agent_control", read_only=False, concurrency_safe=True,
+		         policy="always_allow", subagent_ok=True, needs_runtime_provider=True,
+		         needs_write_store=True, repeat_exempt=True),
+		ToolMeta(name="agent_apply", read_only=False, concurrency_safe=False,
+		         policy="agent_allow"),
 	)
 }
 
@@ -377,6 +380,13 @@ def exposure_of(tool: Any) -> str:
 
 
 def short_description_for(name: str) -> str:
+	from engine.agent_runtime import enabled as managed_agents
+	if managed_agents():
+		from engine.agent_descriptions import DESCRIPTIONS
+		if name in DESCRIPTIONS:
+			return DESCRIPTIONS[name]
+	if name == "agent_send":
+		return "Send a follow-up to a running subagent; delivery occurs after its current turn settles."
 	m = meta_for(name)
 	return (m.short_description if m else "") or ""
 
@@ -413,6 +423,12 @@ def _structure_min_lines() -> int:
 
 def apply_schema_budget(schema: dict) -> dict:
 	"""浅拷贝并替换 description（若有短文案且预算开启）。"""
+	from msgtypes.input_contract import enabled
+	if enabled():
+		from tools.schema_contract import preserve_discovery
+		protected = preserve_discovery(schema)
+		if protected is not None:
+			return protected
 	name = str(schema.get("name") or "")
 	short = short_description_for(name)
 	if not short or not schema_budget_enabled():

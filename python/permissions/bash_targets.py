@@ -32,25 +32,37 @@ def segments(command):
 
 
 def targets(command):
-    from permissions.policy import _BASH_WRITE_CMD_RX, _BASH_REDIRECT_RX, _BASH_INTERP_RX, _BASH_WRITE_MARK_RX
+    from permissions.policy import _BASH_WRITE_CMD_RX, _BASH_INTERP_RX, _BASH_WRITE_MARK_RX
     parts = segments(command)
     if parts is None:
         return None
+    from permissions.literal_redirects import split_output_redirects
+    from permissions.bash_readonly import analyze, READONLY, DEV
     out = []
     for part in parts:
-        writes = _BASH_WRITE_CMD_RX.search(part) or _BASH_REDIRECT_RX.search(part) or (_BASH_INTERP_RX.search(part) and _BASH_WRITE_MARK_RX.search(part))
-        if not writes:
-            continue
+        redirected = split_output_redirects(part)
+        if redirected is None:
+            return None
+        part, output_paths = redirected
+        out.extend(output_paths)
         try:
             raw = shlex.split(part, posix=False)
         except ValueError:
             return None
         tokens = [token[1:-1] if len(token) >= 2 and token[0] == token[-1] and token[0] in "'\"" else token for token in raw]
         program = tokens[0].lower().rsplit("/", 1)[-1].rsplit("\\", 1)[-1].removesuffix(".exe") if tokens else ""
+        if program in {"cd", "chdir", "sl", "set-location", "pushd", "popd", "push-location", "pop-location"}:
+            return None
+        writes = _BASH_WRITE_CMD_RX.search(part) or (_BASH_INTERP_RX.search(part) and _BASH_WRITE_MARK_RX.search(part))
+        if not writes:
+            # A shell-state change or unclassified command invalidates the
+            # target proof for the rest of the chain.
+            if analyze(part).kind not in (READONLY, DEV):
+                return None
+            continue
         if program in {"set-content", "add-content", "out-file", "new-item", "clear-content", "remove-item"}:
-            explicit = [tokens[i+1] for i, tok in enumerate(tokens[:-1]) if tok.lower() in {"-literalpath", "-path", "-filepath"}]
-            positional = [t for t in tokens[1:] if not t.startswith("-")]
-            found = explicit or (positional[:1] if program in {"remove-item", "clear-content"} else [])
+            from permissions.powershell_targets import cmdlet_targets
+            found = cmdlet_targets(program, tokens)
         elif program in {"rm", "unlink", "rmdir", "touch", "mkdir"}:
             found = [t for t in tokens[1:] if not t.startswith("-")]
         else:

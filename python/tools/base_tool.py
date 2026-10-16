@@ -6,7 +6,7 @@ from typing import Any, Literal, Protocol, runtime_checkable
 from engine.abort import AbortController
 
 
-ToolStatus = Literal["ok", "error", "pending", "running", "cancelled"]
+ToolStatus = Literal["ok", "error", "pending", "running", "cancelled", "unknown"]
 
 
 @dataclass

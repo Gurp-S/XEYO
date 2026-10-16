@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any
 
 from extension.errors import ConfigError
+from extension.config_documents import atomic_document_write, serialized_config_write
 
 _DEFAULT: dict[str, Any] = {
 	"enabled_extensions": False,
@@ -248,30 +249,20 @@ def load_ext_config(cwd: str | None = None) -> ExtensionConfig:
 	)
 
 
+@serialized_config_write
 def write_settings(path: Path, data: dict[str, Any]) -> None:
 	"""写一份设置（全量覆盖单文件；temp+``os.replace`` 原子落盘）。
 
 	原子性（P0b F2.5）：push reconcile 写入后立即 apply，读侧（mtime 缓存/
 	其他进程）不应看到半截 JSON；keep-last-good 是最后防线，不是常规路径。
 	"""
-	tmp: Path | None = None
 	try:
-		path.parent.mkdir(parents=True, exist_ok=True)
-		tmp = path.with_name(f"{path.name}.tmp{os.getpid()}")
-		tmp.write_text(
-			json.dumps(data, ensure_ascii=False, indent=2) + "\n",
-			encoding="utf-8",
-		)
-		os.replace(tmp, path)
+		atomic_document_write(path, data)
 	except OSError as e:
-		if tmp is not None:
-			try:
-				tmp.unlink(missing_ok=True)
-			except OSError:
-				pass
 		raise ConfigError(f"cannot write settings {path}: {e}") from e
 
 
+@serialized_config_write
 def set_plugin_enabled(cwd: str | None, name: str, enabled: bool) -> None:
 	"""写工作区级 settings.json 的 plugin 开关（demo 用；后续 GUI 接管）。"""
 	target = workspace_settings_path(cwd) if cwd else home_settings_path()
@@ -282,6 +273,7 @@ def set_plugin_enabled(cwd: str | None, name: str, enabled: bool) -> None:
 	write_settings(target, data)
 
 
+@serialized_config_write
 def set_mcp_enabled(cwd: str | None, mcp_id: str, enabled: bool) -> None:
 	"""写工作区级 settings.json 的 MCP server 开关（P0b F2.5 push reconcile）。
 
@@ -306,6 +298,7 @@ def set_mcp_enabled(cwd: str | None, mcp_id: str, enabled: bool) -> None:
 		)
 
 
+@serialized_config_write
 def set_skill_enabled(cwd: str | None, name: str, enabled: bool) -> None:
 	"""写工作区级 settings.json 的 skill 开关（P0b F2.5 push reconcile）。
 
@@ -330,6 +323,7 @@ def set_skill_enabled(cwd: str | None, name: str, enabled: bool) -> None:
 		)
 
 
+@serialized_config_write
 def set_extensions_enabled(cwd: str | None, enabled: bool) -> None:
 	"""写扩展层主开关（P0b 控制路径；变化才发布工具面活页块）。"""
 	target = workspace_settings_path(cwd) if cwd else home_settings_path()
@@ -352,6 +346,7 @@ def set_extensions_enabled(cwd: str | None, enabled: bool) -> None:
 		publish_if_changed("extensions_master", {"enabled": bool(enabled)}, _build)
 
 
+@serialized_config_write
 def set_plugin_market_enabled(cwd: str | None, enabled: bool) -> None:
 	"""写插件市场开关（默认关）。"""
 	target = workspace_settings_path(cwd) if cwd else home_settings_path()
@@ -360,6 +355,7 @@ def set_plugin_market_enabled(cwd: str | None, enabled: bool) -> None:
 	write_settings(target, data)
 
 
+@serialized_config_write
 def set_hooks_enabled(cwd: str | None, enabled: bool) -> None:
 	"""写生命周期钩子总开关（默认关）。"""
 	target = workspace_settings_path(cwd) if cwd else home_settings_path()

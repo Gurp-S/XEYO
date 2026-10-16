@@ -68,6 +68,11 @@ def iter_sse_objects(
 			end_state["done"] = True
 		obj = parse_data_line(one)
 		if obj is not None:
+			if end_state is not None:
+				from cli.turn_identity import observed_turn_id
+				tid = observed_turn_id(obj)
+				if tid:
+					end_state["turn_id"] = tid
 			yield obj
 
 	for chunk in chunks:
@@ -182,6 +187,7 @@ def attach_repl(
 				"workspace": work,
 				"messages": [{"role": "user", "content": text}],
 			}
+			end_state: dict[str, Any] = {}
 			try:
 				with client.stream(
 					"POST",
@@ -197,7 +203,6 @@ def attach_repl(
 						)
 						continue
 					saw_delta = False
-					end_state: dict[str, Any] = {}
 					for obj in iter_sse_objects(
 						resp.iter_text(), end_state=end_state
 					):
@@ -222,7 +227,7 @@ def attach_repl(
 				# 本地 abort 只保证"不再接收"；服务端有没有停要靠这条回执。
 				note = ""
 				try:
-					if not http_api.interrupt_http(client, session_id):
+					if not http_api.interrupt_http(client, session_id, expected_turn_id=str(end_state.get("turn_id") or "")):
 						note = " (no running turn to stop)"
 				except Exception as exc:  # noqa: BLE001 — 停止失败要说出来，不能静默
 					note = f" (server did not confirm: {escape(str(exc))})"

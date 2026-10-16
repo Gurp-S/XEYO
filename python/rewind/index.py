@@ -19,6 +19,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import stat
 import threading
 import time
 from dataclasses import dataclass, field
@@ -26,6 +27,7 @@ from pathlib import Path
 from typing import Any
 
 from rewind.snapshot import SnapshotStore
+from rewind.reference_lock import reference_publication_lock
 from session.persistence import default_sessions_dir, safe_session_filename
 
 __all__ = [
@@ -87,11 +89,12 @@ def _append_row(path: Path, payload: dict[str, Any]) -> None:
     """追加一行 JSONL 并 fsync（崩溃顺序合同要求）。"""
     path.parent.mkdir(parents=True, exist_ok=True)
     line = json.dumps(payload, ensure_ascii=False) + "\n"
-    with _lock_for(path):
-        with open(path, "a", encoding="utf-8", newline="\n") as fh:
-            fh.write(line)
-            fh.flush()
-            os.fsync(fh.fileno())
+    with reference_publication_lock():
+        with _lock_for(path):
+            with open(path, "a", encoding="utf-8", newline="\n") as fh:
+                fh.write(line)
+                fh.flush()
+                os.fsync(fh.fileno())
 
 
 def _read_rows(path: Path) -> list[dict[str, Any]]:
@@ -197,6 +200,7 @@ class FileCheckpoint:
     user_message_id: str
     ts: float
     entries: dict[str, str] = field(default_factory=dict)
+    modes: dict[str, int] = field(default_factory=dict)
 
 
 def _checkpoints_path(session_id: str, sessions_dir: Path | None) -> Path:
@@ -213,11 +217,18 @@ def _normalize_rel_path(raw: str) -> str:
     return text.lstrip("/").strip()
 
 
-def _hash_entries(session_id: str, user_message_id: str, entries: dict[str, str]) -> str:
+def _hash_entries(
+    session_id: str,
+    user_message_id: str,
+    entries: dict[str, str],
+    modes: dict[str, int] | None = None,
+) -> str:
     digest = hashlib.sha256()
     digest.update(f"{session_id}|{user_message_id}".encode("utf-8"))
     for path in sorted(entries):
         digest.update(f"{path}:{entries[path]}".encode("utf-8"))
+        if modes and path in modes:
+            digest.update(f":mode={int(modes[path])}".encode("ascii"))
     return f"cp3_{digest.hexdigest()[:32]}"
 
 
@@ -228,6 +239,7 @@ def freeze_checkpoint(
     snapshots: SnapshotStore,
     sessions_dir: Path | None = None,
     index: AgentFileIndex | None = None,
+    workspace_root: Path | str | None = None,
 ) -> FileCheckpoint:
     """发送时冻结 COW checkpoint；同 (session, user message, 图) 幂等。"""
     idx = index or AgentFileIndex(session_id, sessions_dir=sessions_dir)
@@ -236,7 +248,20 @@ def freeze_checkpoint(
         for entry in idx.entries().values()
         if entry.content_hash
     }
-    checkpoint_id = _hash_entries(session_id, user_message_id, entries)
+    modes: dict[str, int] = {}
+    if workspace_root is not None:
+        root = Path(workspace_root).expanduser().resolve()
+        for rel in entries:
+            candidate = root.joinpath(*Path(rel).parts)
+            try:
+                resolved = candidate.resolve(strict=True)
+                resolved.relative_to(root)
+                info = candidate.lstat()
+                if stat.S_ISREG(info.st_mode):
+                    modes[rel] = stat.S_IMODE(info.st_mode)
+            except (OSError, ValueError):
+                continue
+    checkpoint_id = _hash_entries(session_id, user_message_id, entries, modes)
     path = _checkpoints_path(session_id, sessions_dir)
     for row in _read_rows(path):
         if row.get("checkpoint_id") == checkpoint_id:
@@ -245,6 +270,7 @@ def freeze_checkpoint(
                 user_message_id=user_message_id,
                 ts=float(row.get("ts") or 0.0),
                 entries=entries,
+                modes={str(k): int(v) for k, v in (row.get("modes") or {}).items()},
             )
     _append_row(
         path,
@@ -253,6 +279,7 @@ def freeze_checkpoint(
             "user_message_id": user_message_id,
             "ts": time.time(),
             "entries": sorted(entries.items()),
+            "modes": modes,
         },
     )
     return FileCheckpoint(
@@ -260,6 +287,7 @@ def freeze_checkpoint(
         user_message_id=user_message_id,
         ts=time.time(),
         entries=entries,
+        modes=modes,
     )
 
 
@@ -307,6 +335,7 @@ def load_checkpoint(
             user_message_id=str(row.get("user_message_id") or ""),
             ts=float(row.get("ts") or 0.0),
             entries=entries,
+            modes={str(k): int(v) for k, v in (row.get("modes") or {}).items()},
         )
     return None
 
@@ -375,6 +404,7 @@ class TurnFileDiff:
 
     changed: list[str] = field(default_factory=list)
     removed: list[str] = field(default_factory=list)
+    created: list[str] = field(default_factory=list)
     truncated: bool = False
 
 
@@ -439,10 +469,16 @@ def diff_turn_changes(
         if baseline.signatures.get(path) != signature
     ]
     removed = [path for path in baseline.signatures if path not in current]
-    return TurnFileDiff(changed=changed, removed=removed, truncated=truncated)
+    created = [path for path in changed if path not in baseline.signatures]
+    return TurnFileDiff(
+        changed=changed,
+        removed=removed,
+        created=created if not baseline.truncated and not truncated else [],
+        truncated=truncated,
+    )
 
 
-def _apply_turn_diff(
+def _apply_turn_diff_locked(
     idx: AgentFileIndex,
     prior: dict[str, IndexEntry],
     diff: TurnFileDiff,
@@ -457,6 +493,7 @@ def _apply_turn_diff(
     """
     upserted = 0
     failed: list[str] = []
+    created = set(diff.created)
     for rel in diff.changed:
         full = root / rel
         try:
@@ -475,7 +512,11 @@ def _apply_turn_diff(
             content_hash=manifest.content_hash,
             size=stat.st_size,
             mtime_ns=stat.st_mtime_ns,
-            source="turn_diff",
+            source=(
+                "turn_diff_created"
+                if rel in created or (prior.get(rel) is not None and prior[rel].source == "turn_diff_created")
+                else "turn_diff"
+            ),
         )
         upserted += 1
     removed = 0
@@ -494,6 +535,24 @@ def _apply_turn_diff(
         "before_missing": before_missing,
         "truncated": diff.truncated,
     }
+
+
+def _apply_turn_diff(
+    idx: AgentFileIndex,
+    prior: dict[str, IndexEntry],
+    diff: TurnFileDiff,
+    *,
+    snapshots: SnapshotStore,
+    root: Path,
+) -> dict[str, Any]:
+    with reference_publication_lock(snapshots.root):
+        return _apply_turn_diff_locked(
+            idx,
+            prior,
+            diff,
+            snapshots=snapshots,
+            root=root,
+        )
 
 
 def _signature_reference(prior: dict[str, IndexEntry]) -> dict[str, tuple[int, int]]:

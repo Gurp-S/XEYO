@@ -15,7 +15,7 @@ def pin(messages, region_end, *, cwd, session, source_layout):
     owned = sum(record['availability'] == 'owned_exact_asset' for record in catalog['records'])
     sources = sorted({record['source_index'] for record in catalog['records']})
     source_text = ','.join(f'#{index}' for index in sources[:8])
-    return Pin(key='media_archive', label='已归档媒体',
+    return Pin(key='media_archive', label='已归档媒体', evidence_paths=(path,),
                text=f"owned_images={owned} reference_only={catalog['count']-owned} "
                     f"source_indices={source_text} source_count={len(sources)} "
                     f"Read(file_path={path!r}, offset=1, limit={min(8, catalog['count'])}) records={catalog['count']}")

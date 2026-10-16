@@ -351,7 +351,10 @@ class WorkspaceRestoreTransaction:
             if target is not None:
                 if current.object_hash == target_hash:
                     continue
-                if expected is None or current.object_hash != expected_hash:
+                if expected is None:
+                    if current.exists:
+                        raise RestoreError(f"conditional write failed: {relative_path!r}")
+                elif current.object_hash != expected_hash:
                     raise RestoreError(f"conditional write failed: {relative_path!r}")
                 data = self._read_target_bytes(source_commit, relative_path)
                 self._atomic_write(relative_path, data, target.mode)

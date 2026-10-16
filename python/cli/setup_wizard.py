@@ -1,4 +1,4 @@
-"""First-run / click-to-use onboarding for the CLI."""
+"""命令行首次运行的配置引导。"""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ def needs_credentials(
 	api_key: str,
 	base_url: str = "",
 ) -> bool:
-	"""True when chat would likely fail without an interactive setup."""
+	"""当前配置需要交互式补全才能发起聊天时返回 True。"""
 	prov = (provider or "").strip().lower()
 	if prov == "fake":
 		return False
@@ -70,7 +70,7 @@ def run_setup_wizard(
 	cfg: CliConfig | None = None,
 	force: bool = False,
 ) -> CliConfig:
-	"""Interactive provider / key / workspace. Saves ~/.xeyo/config.toml."""
+	"""交互配置服务商、密钥与工作区，并保存到 ~/.xeyo/config.toml。"""
 	cfg = cfg or load_config()
 	provider = resolve_provider(None, cfg=cfg)
 	api_key = resolve_api_key(None, cfg=cfg)
@@ -146,7 +146,7 @@ def ensure_ready_for_chat(
 	json_mode: bool,
 	print_mode: bool,
 ) -> CliConfig:
-	"""Run setup wizard when credentials are missing and stdin is a TTY."""
+	"""缺少凭据且标准输入为终端时运行配置向导。"""
 	cfg = load_config()
 	if json_mode or print_mode:
 		return cfg

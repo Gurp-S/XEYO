@@ -311,8 +311,8 @@ def mcp_policy_decision(name: str, policy: str) -> PolicyDecision:
 def sanitize_tool_schema(raw: Mapping[str, Any], *, budget_bytes: int = SCHEMA_BUDGET_BYTES) -> dict[str, Any]:
 	"""Convert an MCP tool object into the engine's ``{name, description, input_schema}`` shape.
 
-	Only a fixed allow-list of fields survives (sanitise), and if the serialized size
-	exceeds ``budget_bytes`` it is progressively degraded (tiered) to fit.
+	Only engine tool fields survive at the top level. With the input contract on,
+	the complete input schema is retained; manager budgets control exposure.
 	"""
 	mcp_input = raw.get("inputSchema") if isinstance(raw, Mapping) else None
 	if not isinstance(mcp_input, dict):
@@ -329,6 +329,10 @@ def sanitize_tool_schema(raw: Mapping[str, Any], *, budget_bytes: int = SCHEMA_B
 
 def _degrade(obj: Any, budget_bytes: int) -> Any:
 	"""Tiered JSON-schema degradation to fit ``budget_bytes``."""
+	from msgtypes.input_contract import enabled
+	if enabled():
+		from extension.mcp_input_contract import complete_schema
+		return complete_schema(obj)
 	import copy
 
 	current = copy.deepcopy(obj)
@@ -351,7 +355,7 @@ def _degrade(obj: Any, budget_bytes: int) -> Any:
 
 def _size(obj: Any) -> int:
 	try:
-		return len(json.dumps(obj, ensure_ascii=False))
+		return len(json.dumps(obj, ensure_ascii=False).encode("utf-8"))
 	except Exception:  # noqa: BLE001
 		return 1 << 30
 
@@ -775,6 +779,10 @@ class McpStdioClient:
 		else:
 			self._transport = transport_factory(spec, logger=self._log)
 		self._next_id = 1
+		self._request_id_lock = threading.Lock()
+		self._lifecycle_lock = threading.RLock()
+		self._dispatcher = None
+		self._routed_transport = False
 		self._tools: dict[str, dict] = {}
 		self._generation = 0
 		self._ready = False
@@ -786,6 +794,10 @@ class McpStdioClient:
 	@property
 	def ready(self) -> bool:
 		return self._ready
+
+	def _connection_alive(self) -> bool:
+		dispatcher = self._dispatcher
+		return self._ready and self._transport.alive() and (dispatcher is None or not dispatcher.closed)
 
 	@property
 	def generation(self) -> int:
@@ -802,12 +814,16 @@ class McpStdioClient:
 	# -- 生命周期（lifecycle） ----------------------------------------------------------
 
 	def start(self, *, fetch: bool = True, force: bool = False) -> bool:
+		with self._lifecycle_lock:
+			return self._start_locked(fetch=fetch, force=force)
+
+	def _start_locked(self, *, fetch: bool = True, force: bool = False) -> bool:
 		"""生成子进程 + 握手 + 列举工具。绝不抛异常（skip-and-log）。
 
 		服务器就绪返回 True；被跳过则返回 False（auto_start 关、
 		生成失败、握手/列举失败、重连次数耗尽）。
 		"""
-		if self._ready:
+		if self._connection_alive():
 			return True
 		if not self.spec.auto_start and not force:
 			self._log.debug(
@@ -823,10 +839,18 @@ class McpStdioClient:
 			self._log.warning(
 				"mcp server %s failed to start, skipping: %s", self.spec.id, e
 			)
+			self._stop_locked()
 			return False
 
 	def stop(self) -> None:
+		with self._lifecycle_lock:
+			self._stop_locked()
+
+	def _stop_locked(self) -> None:
 		self._ready = False
+		if self._dispatcher is not None:
+			self._dispatcher.close()
+			self._dispatcher = None
 		try:
 			self._transport.close()
 		finally:
@@ -834,11 +858,24 @@ class McpStdioClient:
 
 	def reconnect(self, *, fetch: bool = True) -> bool:
 		"""Settings HMR hook: disconnect + reconnect. Returns True on success."""
-		self.stop()
-		return self.start(fetch=fetch, force=True)
+		with self._lifecycle_lock:
+			self.stop()
+			return self.start(fetch=fetch, force=True)
+
+	def _spawn_transport(self) -> None:
+		self._ready = False
+		if self._dispatcher is not None:
+			self._dispatcher.close()
+			self._dispatcher = None
+		self._transport.spawn()
+		from engine.flag_definitions import enabled
+		self._routed_transport = enabled("XEYO_MCP_ROUTER")
+		if self._routed_transport:
+			from extension.mcp_dispatcher import McpDispatcher
+			self._dispatcher = McpDispatcher(self._transport, self._dispatch_notification)
 
 	def _spawn_and_init(self, *, fetch: bool = True) -> None:
-		self._transport.spawn()  # raises McpSpawnError
+		self._spawn_transport()  # raises McpSpawnError
 		self._handshake()
 		self._spawn_time = self._clock()
 		if fetch:
@@ -866,11 +903,19 @@ class McpStdioClient:
 		self._notify("notifications/initialized", {})
 
 	def _request(
-		self, method: str, params: dict[str, Any] | None = None, *, timeout: float | None = None
+		self, method: str, params: dict[str, Any] | None = None, *, timeout: float | None = None, abort: AbortController | None = None
 	) -> Any:
 		timeout = float(timeout) if timeout is not None else self.spec.tool_timeout_s
-		req_id = self._next_id
-		self._next_id += 1
+		with self._request_id_lock:
+			req_id = self._next_id
+			self._next_id += 1
+		dispatcher = self._dispatcher
+		if dispatcher is not None:
+			return dispatcher.request(
+				{"jsonrpc": "2.0", "id": req_id, "method": method, "params": params or {}}, timeout, abort
+			)
+		if self._routed_transport:
+			raise McpProtocolError("mcp transport closed")
 		self._transport.send(
 			{"jsonrpc": "2.0", "id": req_id, "method": method, "params": params or {}}
 		)
@@ -932,8 +977,14 @@ class McpStdioClient:
 		if not fetch:
 			return McpGeneration(self._generation, dict(self._tools), applied=False)
 		try:
-			result = self._request("tools/list", {}, timeout=self.spec.startup_timeout_s)
-		except McpError as e:
+			from msgtypes.input_contract import enabled
+			if enabled():
+				from extension.mcp_input_contract import list_all_tools
+				raw_tools = list_all_tools(self._request, timeout=self.spec.startup_timeout_s)
+			else:
+				result = self._request("tools/list", {}, timeout=self.spec.startup_timeout_s)
+				raw_tools = result.get("tools") or []
+		except (McpError, ValueError) as e:
 			self._log.warning(
 				"mcp server %s tools/list failed: %s; keeping generation %s",
 				self.spec.id,
@@ -941,7 +992,6 @@ class McpStdioClient:
 				self._generation,
 			)
 			return McpGeneration(self._generation, dict(self._tools), applied=False)
-		raw_tools = result.get("tools") or []
 		new: dict[str, dict] = {}
 		for t in raw_tools:
 			if not isinstance(t, dict):
@@ -978,8 +1028,12 @@ class McpStdioClient:
 	# -- 工具执行 ------------------------------------------------------
 
 	def _ensure_running(self, *, fetch: bool = False) -> bool:
+		with self._lifecycle_lock:
+			return self._ensure_running_locked(fetch=fetch)
+
+	def _ensure_running_locked(self, *, fetch: bool = False) -> bool:
 		"""Bounded reconnect loop. Returns True if connected, False after exhausting."""
-		if self._ready and self._transport.alive():
+		if self._connection_alive():
 			return True
 		if self._backoff.exhausted():
 			return False
@@ -999,7 +1053,7 @@ class McpStdioClient:
 			)
 			self._sleep(delay)
 			try:
-				self._transport.spawn()
+				self._spawn_transport()
 				self._handshake()
 				self._spawn_time = self._clock()
 				if fetch:
@@ -1018,16 +1072,19 @@ class McpStdioClient:
 		return False
 
 	def call_tool(
-		self, raw_name: str, arguments: dict[str, Any] | None = None, *, timeout: float | None = None
+		self, raw_name: str, arguments: dict[str, Any] | None = None, *, timeout: float | None = None, abort: AbortController | None = None
 	) -> ToolResult:
 		"""Invoke ``tools/call`` on the server and deserialize to :class:`ToolResult`."""
-		if not (self._ready and self._transport.alive()):
+		if abort is not None:
+			abort.raise_if_aborted()
+		if not self._connection_alive():
 			if not self._ensure_running(fetch=False):
 				raise McpError(f"mcp server {self.spec.id} not connected")
 		result = self._request(
 			"tools/call",
 			{"name": raw_name, "arguments": arguments or {}},
 			timeout=timeout if timeout is not None else self.spec.tool_timeout_s,
+			**({"abort": abort} if abort is not None else {}),
 		)
 		return _result_from_mcp_call(result)
 
@@ -1038,7 +1095,7 @@ class McpStdioClient:
 
 		server 不支持 resources 能力 → JSON-RPC error → 调用方（网关）转 error 结果。
 		"""
-		if not (self._ready and self._transport.alive()):
+		if not self._connection_alive():
 			if not self._ensure_running(fetch=False):
 				raise McpError(f"mcp server {self.spec.id} not connected")
 		params: dict[str, Any] = {}
@@ -1053,7 +1110,7 @@ class McpStdioClient:
 
 	def read_resource(self, uri: str, *, timeout: float | None = None) -> dict[str, Any]:
 		"""F6b：``resources/read``（按 uri）→ ``{"contents": [...]}``。"""
-		if not (self._ready and self._transport.alive()):
+		if not self._connection_alive():
 			if not self._ensure_running(fetch=False):
 				raise McpError(f"mcp server {self.spec.id} not connected")
 		result = self._request(
@@ -1199,12 +1256,18 @@ class McpTool:
 		started = time.monotonic()
 		try:
 			result = await asyncio.to_thread(
-				self._client.call_tool, self.raw_name, input or {}
+				self._client.call_tool, self.raw_name, input or {}, abort=abort
 			)
 		except McpError as e:
 			# fail-closed：断连 / 崩溃的服务器返回错误结果，而不是
 			# 让工具循环崩溃（与 skip-and-log 哲学一致）。
 			_audit_mcp_call(self.server_id, self.raw_name, True, int((time.monotonic() - started) * 1000), str(e))
+			from engine.flag_definitions import enabled
+			if enabled("XEYO_TOOL_OUTCOME_CONTRACT") and isinstance(e, (McpTimeoutError, McpProtocolError)):
+				if not self.is_read_only():
+					from tools.execution_outcome import unknown_result
+					return unknown_result(str(e))
+				return ToolResult(content=str(e), is_error=True, error_kind="TIMEOUT" if isinstance(e, McpTimeoutError) else "MCP_DISCONNECTED", retryable=True)
 			return ToolResult(
 				content=f"MCP tool {self.raw_name} error: {e}", is_error=True
 			)

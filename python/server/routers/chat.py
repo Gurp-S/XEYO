@@ -145,6 +145,7 @@ class ChatCompletionRequest(BaseModel):
 	# 消息进历史，模型在下一步行动前看到它（不打断正在进行的工具批次）。
 	# 仅在 queue_if_busy 同时为 True 时生效；side 会话强制忽略；入队失败回落排队。
 	steer_if_busy: bool = False
+	expected_turn_id: str | None = Field(default=None, max_length=128)
 	# 遗留字段：旧批量 API 的显式 tasks；工具化后忽略（主模型自行 tool call）。
 	tasks: list[dict[str, Any]] | None = None
 
@@ -206,14 +207,20 @@ async def _busy_or_queue(
 		)
 	if body.steer_if_busy and body.queue_if_busy and not body.side:
 		from server.boundary_submission import submit_boundary
+		from engine.flag_definitions import enabled
+		from server.turn_control import TurnMismatch, submit_to_turn
 		from server.pending_input_identity import InputIdentityConflict
 		from server.inbox_registry import InboxPersistenceError, get_inbox_registry
 
 		try:
+			targeted = enabled("XEYO_TURN_BOUND_CONTROL") and body.expected_turn_id is not None
 			staged = await asyncio.to_thread(
-				submit_boundary, get_inbox_registry(), session_id, user_text,
+				submit_to_turn if targeted else submit_boundary, get_inbox_registry(), session_id, user_text,
 				media_refs=media_refs, message_id=message_id,
+				**({"expected_turn_id": body.expected_turn_id} if targeted else {}),
 			)
+		except TurnMismatch as exc:
+			raise api_error(409, str(exc), "turn_mismatch") from exc
 		except InboxPersistenceError as exc:
 			raise api_error(503, "inbox state could not be saved", "inbox_unavailable") from exc
 		except InputIdentityConflict as exc:
@@ -473,7 +480,9 @@ def _engine_message_from_chat(item: ChatMessage) -> Message | None:
 	if role not in ("user", "assistant", "system"):
 		return None
 	text = _message_text(item.content).strip()
-	if not text:
+	from msgtypes.input_contract import enabled as input_contract_enabled, has_user_content
+	images = _validated_media_refs(item.media_refs) if role == "user" and input_contract_enabled() else []
+	if not has_user_content(text, images):
 		return None
 	client_id = _client_message_id(item)
 	if role == "system":
@@ -486,7 +495,7 @@ def _engine_message_from_chat(item: ChatMessage) -> Message | None:
 		)
 	return user_message(
 		text,
-		images=_validated_media_refs(item.media_refs),
+		images=images if input_contract_enabled() else _validated_media_refs(item.media_refs),
 		message_id=client_id,
 	)
 
@@ -681,7 +690,8 @@ async def chat_completions(
 		body.media_refs or _last_user_media_refs(body.messages)
 	)
 	prior_messages, user_text, user_message_id = _split_prior_and_user(body.messages)
-	if not user_text:
+	from msgtypes.input_contract import has_user_content
+	if not has_user_content(user_text, media_refs):
 		raise api_error(400, "no user message content")
 	if len(user_text) > _MAX_USER_CHARS:
 		raise api_error(
@@ -689,8 +699,13 @@ async def chat_completions(
 			f"user message too large ({len(user_text)} > {_MAX_USER_CHARS} chars)",
 		)
 
-	# T29 测试钩子：仅当 XEYO_TEST_STREAM_DROP=1 且用户消息含哨兵时，故意让前端在
-	# 未收到 [DONE] 前断流 → 前端触发「连接中断」banner，且不自动 interrupt。
+	from engine.flag_definitions import enabled as repair_enabled
+	if (repair_enabled("XEYO_TURN_BOUND_CONTROL") and body.steer_if_busy
+			and body.expected_turn_id is not None):
+		return await _busy_or_queue(session_id, body, user_text,
+			media_refs=media_refs, message_id=user_message_id)
+
+	# T29：测试开关与哨兵同时命中时，在 [DONE] 前断流以验证客户端恢复。
 	# 生产路径（未设该 env 或缺哨兵）完全不受影响。
 	drop_stream = (
 		os.environ.get("XEYO_TEST_STREAM_DROP") == "1"
@@ -1458,15 +1473,8 @@ async def chat_completions(
 						))
 					for item in frames:
 						yield item
-					# A2b（2026-09-09）：完成信号锚定「内容终结事件」而非 submit
-					# 迭代自然排空。引擎契约：ResultEvent 是 submit_message 的
-					# 最后一个事件（query_loop 不产它），其后只剩 finally 收尾
-					# （transcript flush / memory 归档 / rewind After 快照+差量同步
-					# +journal 终态 / revision commit），全部不产帧。因此此刻立即
-					# 发 [DONE]——GUI 判定的回合完成不再被 rewind/memory 数百 ms
-					# 收尾阻塞（「模型答完仍回复中」根因 #2）；runner/lease/settle
-					# 语义零变化（收尾照常排空后才归还租约）。防御：若 ResultEvent
-					# 后仍出现事件（引擎契约破坏），继续正常分发，不吞帧。
+					# ResultEvent marks the content boundary. The detached runner holds DONE
+					# until this producer finishes cleanup and its terminal checkpoint is durable.
 					if isinstance(ev, ResultEvent) and not done_sent:
 						done_sent = True
 						done_id = envelope_gen.next()
@@ -1494,7 +1502,8 @@ async def chat_completions(
 
 		# ContextVar 在 create_task 时拷贝；HTTP finally 清 mode 不影响 producer。
 		try:
-			await runner.start(
+			from server.turn_admission import start_detached_turn
+			await start_detached_turn(runner,
 				session_id=session_id,
 				lease_id=lease_id,
 				model=body.model,

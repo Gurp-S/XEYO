@@ -102,11 +102,15 @@ def get_system_context() -> dict[str, str]:
 	return {}
 
 
-def _load_instructions(cwd: str) -> str:
+def _load_instructions(cwd: str, workspace_root: str | None = None) -> str:
 	"""读取 L1 XEYO.md 族；失败则空串。"""
 	try:
 		from memory.instruction import load_instruction_text
 
+		from msgtypes.input_contract import enabled
+		if enabled():
+			from memory.instruction_contract import workspace_root as resolve_root
+			return load_instruction_text(cwd, resolve_root(cwd, workspace_root))
 		return load_instruction_text(cwd, cwd)
 	except Exception:
 		return ""
@@ -115,6 +119,7 @@ def _load_instructions(cwd: str) -> str:
 async def fetch_system_prompt_parts(
 	*,
 	cwd: str,
+	workspace_root: str | None = None,
 	model: str,
 	tool_names: Sequence[str],
 	custom_system_prompt: str | None = None,
@@ -137,7 +142,7 @@ async def fetch_system_prompt_parts(
 			system_context=get_system_context(),
 		)
 	user_ctx = get_user_context(cwd=cwd)
-	user_ctx["instructions"] = _load_instructions(cwd)
+	user_ctx["instructions"] = _load_instructions(cwd, workspace_root)
 	return SystemPromptParts(
 		default_system_prompt=get_default_system_prompt_parts(
 			cwd=cwd,

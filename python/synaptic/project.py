@@ -74,6 +74,7 @@ class Projection:
 	audit: list[dict] = field(default_factory=list)
 	#: 冷层取回视图路径（`handle_style=read` 时非空）。
 	view_path: str = ""
+	evidence_paths: tuple[str, ...] = ()
 	#: 时效轴（去噪）审计：错误识别数 / 按类降级数 / 误降级复检 / 死路径。
 	denoise: dict = field(default_factory=dict)
 	#: 当前状态与历史候选（仅审计/旁路；不改变当前热层文本）。
@@ -618,6 +619,8 @@ def project(
 		),
 		cold=cs,
 		view_path=view_out,
+		evidence_paths=tuple(dict.fromkeys(([view_out] if view_out else []) +
+		    [path for pin in pins for path in pin.evidence_paths])),
 		task_handoff_text=task_handoff_text,
 		fallback_continuity_text=fallback_continuity_text,
 		state=state,

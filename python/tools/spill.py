@@ -78,16 +78,21 @@ def _safe_session(session_id: str) -> str:
 	return name[:120]
 
 
-def _prune_old(root: Path, *, now: float | None = None) -> int:
-	"""删除超过保留期的 spill 文件；返回删除数。尽力而为，不抛错。"""
+def _retention_days() -> float:
 	try:
-		days = float(os.environ.get(ENV_RETENTION_DAYS, "").strip() or DEFAULT_RETENTION_DAYS)
+		return float(os.environ.get(ENV_RETENTION_DAYS, "").strip() or DEFAULT_RETENTION_DAYS)
 	except ValueError:
-		days = DEFAULT_RETENTION_DAYS
+		return DEFAULT_RETENTION_DAYS
+
+
+def _prune_old(root: Path, *, now: float | None = None, days: float | None = None, resources: bool | None = None) -> int:
+	"""删除超过保留期的 spill 文件；返回删除数。尽力而为，不抛错。"""
+	if days is None:
+		days = _retention_days()
 	if days <= 0:
 		return 0
 	from engine.harness_policy import enabled
-	if enabled("XEYO_HARNESS_RESOURCES"):
+	if resources if resources is not None else enabled("XEYO_HARNESS_RESOURCES"):
 		from tools.artifact_lifecycle import prune
 		return prune(root, days=days, now=now)
 	cutoff = (now if now is not None else time.time()) - days * 86400.0
@@ -114,7 +119,7 @@ def save_text(session_id: str, text: str) -> SpillRef:
 
 	- ``O_EXCL`` 独占创建，绝不覆盖已有证据；
 	- POSIX 追加 0600（Windows 忽略 mode，继承用户目录 ACL）；
-	- 每次保存顺带做一次保留期清理（成本：一次 os.walk，量级可控）。
+	- 保留期清理在后台执行，同根目录五分钟内合并。
 	"""
 	data = (text or "").encode("utf-8", errors="replace")
 	stamp = time.strftime("%Y%m%d-%H%M%S", time.localtime())
@@ -168,7 +173,10 @@ def save_text(session_id: str, text: str) -> SpillRef:
 		from tools.artifact_lifecycle import register
 		register(path)
 	try:
-		_prune_old(spill_root())
+		from functools import partial
+		from tools.spill_maintenance import schedule
+		schedule(ns.parent, partial(_prune_old, days=_retention_days(),
+		                           resources=enabled("XEYO_HARNESS_RESOURCES")))
 	except Exception:  # noqa: BLE001 — 清理失败不影响保存
 		pass
 	return ref

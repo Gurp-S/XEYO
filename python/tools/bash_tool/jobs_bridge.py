@@ -1,15 +1,14 @@
-"""Bash → JobRegistry 桥（42 号 P0）。
+"""Bash background start/adoption through an explicitly supplied host port.
 
-依赖方向约束：``tools/`` 不 import ``server/``（CLI in-process 运行时无 server）。
-桥在**调用时**惰性尝试 server.registry；不可用返回 None，BashTool 落回旧式
-日志文件后台——server 场景获得 42 号 job 语义（完成通知 / job_output / kill），
-纯引擎场景行为逐字节不变。
+An absent or failing host preserves the existing log-file fallback.
 """
 
 from __future__ import annotations
 
 import asyncio
 from typing import Any
+from collections.abc import Callable
+from tools.host_services import BackgroundJobs
 
 
 def start_registry_job(
@@ -20,6 +19,7 @@ def start_registry_job(
 	session_id: str,
 	loop: asyncio.AbstractEventLoop | None = None,
 	parent_abort: Any | None = None,
+	jobs: Callable[[], BackgroundJobs] | None = None,
 ) -> tuple[str, str] | None:
 	"""尝试把命令登记为 42 号后台 job。
 
@@ -31,18 +31,17 @@ def start_registry_job(
 	sid = (session_id or "").strip()
 	if not sid:
 		return None
-	try:
-		from server.job_registry import get_job_registry
-	except Exception:  # noqa: BLE001 — 无 server 运行时（CLI in-process）
+	if jobs is None:
 		return None
 	try:
+		registry = jobs()
 		first_line = command.strip().splitlines()[0] if command.strip() else ""
 		label = (description or first_line).strip()[:120]
 		if parent_abort is None:
 			from engine.cancellation import get_session_scope
 
 			parent_abort = get_session_scope(sid)
-		job_id, err = get_job_registry().start_bash(
+		job_id, err = registry.start_bash(
 			command=command,
 			cwd=cwd,
 			label=label,
@@ -66,6 +65,7 @@ def adopt_registry_job(
 	session_id: str,
 	loop: asyncio.AbstractEventLoop | None = None,
 	parent_abort: Any | None = None,
+	jobs: Callable[[], BackgroundJobs] | None = None,
 ) -> tuple[str, str] | None:
 	"""前台超时晋升：把运行中的活进程收编为 42 号 job。
 
@@ -75,18 +75,17 @@ def adopt_registry_job(
 	sid = (session_id or "").strip()
 	if not sid:
 		return None
-	try:
-		from server.job_registry import get_job_registry
-	except Exception:  # noqa: BLE001 — 无 server 运行时（CLI in-process）
+	if jobs is None:
 		return None
 	try:
+		registry = jobs()
 		first_line = command.strip().splitlines()[0] if command.strip() else ""
 		label = (description or first_line).strip()[:120]
 		if parent_abort is None:
 			from engine.cancellation import get_session_scope
 
 			parent_abort = get_session_scope(sid)
-		job_id, err = get_job_registry().adopt_bash(
+		job_id, err = registry.adopt_bash(
 			handle=handle,
 			command=command,
 			cwd=cwd,

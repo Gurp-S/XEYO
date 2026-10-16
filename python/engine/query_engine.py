@@ -36,6 +36,7 @@ from engine.budget import (
 from engine.query_loop import query_loop           # 核心对话循环
 from engine.permission_coordinator import PermissionCoordinator
 from engine.runtime_profile import RuntimeProfile, resolve_runtime_profile
+from engine.runtime_services import RuntimeServices
 from engine.task_state import SessionTaskState     # 会话级任务状态机
 from engine.workspace_context import (
     WorkspaceContext,
@@ -155,6 +156,8 @@ class QueryEngineConfig(TypedDict):
     runtime_profile: NotRequired[Optional[Any]]
     #: 是否执行完成前 runtime 一致性检查；旁路默认关闭，评测适配器显式开启。
     runtime_verify: NotRequired[Optional[bool]]
+    #: Host-owned jobs and boundary inbox; omitted for a standalone engine.
+    runtime_services: NotRequired[RuntimeServices]
 
 
 class QueryEngine:
@@ -169,6 +172,7 @@ class QueryEngine:
     def __init__(self, config: QueryEngineConfig) -> None:
         """初始化引擎，复制配置并建立初始会话状态。"""
         self._config: QueryEngineConfig = config
+        self._runtime_services = config.get("runtime_services") or RuntimeServices()
         # Date 在会话启动时固化：跨天首请求不改左段字节，保住 KV 前缀
         self._date_iso: str = date.today().isoformat()
         initial_messages = list(config.get("initial_messages") or [])
@@ -379,6 +383,7 @@ class QueryEngine:
             "used_tokens": b.used_tokens,
 
             "used_usd": _round8(b.used_usd),
+            "task_budget": b.shared_budget.snapshot() if b.shared_budget is not None else None,
             "usd_limit": b.usd_limit,
             "last_usage_tokens": b.last_usage_tokens,
             "last_usage_usd": _round8(b.last_usage_usd),
@@ -412,9 +417,7 @@ class QueryEngine:
         )
         jobs: list[dict[str, Any]] = []
         try:
-            from server.job_registry import get_job_registry
-
-            jobs = get_job_registry().snapshot_list(self._session.session_id)
+            jobs = self._runtime_services.job_snapshots(self._session.session_id)
         except Exception:  # noqa: BLE001 — CLI/in-process 无 server 时为空
             jobs = []
         from engine.state_authority import authority_manifest
@@ -494,11 +497,9 @@ class QueryEngine:
 					"tool_schema_hash": self._tools.schema_fingerprint(),
 				}
             )
-            from server.job_registry import get_job_registry
-
             current = {
                 "context": context,
-                "jobs": get_job_registry().snapshot_list(self._session.session_id),
+                "jobs": self._runtime_services.job_snapshots(self._session.session_id),
             }
             report = compare_runtime_checkpoint(self.load_runtime_checkpoint(), current)
             self._runtime_recovery = report.to_dict()
@@ -755,9 +756,15 @@ class QueryEngine:
             provider=self._provider,
             model=self._model_name,
         )
-        from engine.runtime_capabilities import probe_runtime_capabilities
+        # Establish this turn's cancellation scope before the first await.
+        # Stops received during filesystem probing must target the current turn.
+        self._session.abort = CancellationScope(label=f"turn:{turn_id}")
+        self._abort_controller = self._session.abort
+        if options_dict.get("stop_requested"):
+            self._abort_controller.abort()
+        from engine.runtime_probe import probe
 
-        runtime_caps = probe_runtime_capabilities(
+        runtime_caps = await probe(
             cwd,
             runtime=configured_runtime,  # type: ignore[arg-type]
             container_id=configured_container,
@@ -788,14 +795,6 @@ class QueryEngine:
             logging.getLogger(__name__).debug(
                 "runtime recovery check failed at turn start", exc_info=True
             )
-        # 重置本回合 AbortController。
-        # 注意：不要继承「上一控制器已 abort」——那是 interrupt-then-new-submit 的正常清场
-        # （见 test_interrupt_then_submit）。Stop 打在 try_begin→submit 窗口时，由
-        # options.stop_requested 显式传入，避免信号丢失。
-        self._session.abort = CancellationScope(label=f"turn:{turn_id}")
-        self._abort_controller = self._session.abort
-        if options_dict.get("stop_requested"):
-            self._abort_controller.abort()
         try:
             self._runtime_checkpoint.save(self.runtime_snapshot())
         except Exception:  # noqa: BLE001 — checkpoint 不得改变 turn 启动
@@ -928,6 +927,7 @@ class QueryEngine:
                             self._session.session_id,
                             str(user_msg.id or ""),
                             snapshots=self._snapshot_store,
+                            workspace_root=cwd,
                         )
                     except Exception:
                         logging.getLogger(__name__).debug(
@@ -998,6 +998,7 @@ class QueryEngine:
                 multi_agent=multi_agent,
                 ensure_before=_ensure_before if before_task is not None else None,
                 persist_handoff=lambda: persist_handoff_session(self._session),
+                boundary_inbox=self._runtime_services.inbox,
             ):
                 if isinstance(event, StoppedEvent):
                     turn_terminal_error = True
@@ -1025,9 +1026,7 @@ class QueryEngine:
                 try:
                     from engine.action_journal import ActionJournal
                     from engine.runtime_verification import verify_runtime
-                    from server.job_registry import get_job_registry
-
-                    job_rows = get_job_registry().snapshot_list(self._session.session_id)
+                    job_rows = self._runtime_services.job_snapshots(self._session.session_id)
                     action_summary = ActionJournal(self._session.session_id).summary()
                     report = verify_runtime(
                         store=self._session.messages,
@@ -1098,7 +1097,7 @@ class QueryEngine:
                     num_turns=num_turns,
                     session_id=session_id,
                     stop_reason="budget_usd",
-                    budget_used_usd=round(self._session.budget.used_usd, 8),
+                    budget_used_usd=round(self._session.budget.total_used_usd, 8),
                     budget_limit_usd=self._session.budget.usd_limit,
                 )
             elif turn_stop_reason == "max_tool_calling":
@@ -1451,6 +1450,7 @@ def build_default_engine(
     runtime_checkpoint: bool | None = None,
     runtime_profile: Any | None = None,
     runtime_verify: bool | None = None,
+    runtime_services: RuntimeServices | None = None,
     initial_messages: list[Message] | None = None,
     thinking: str = "disabled",
     reasoning_effort: str = "",
@@ -1472,6 +1472,7 @@ def build_default_engine(
         runtime_profile: 显式运行档案；评测适配器应传 terminal-bench-2.1。
 		runtime_verify: 是否启用完成前 runtime 一致性检查旁路。
         initial_messages: 冷启动 hydrate 的历史消息。
+        runtime_services: 入口注入的宿主服务；缺省不查找服务端单例。
 
     返回：
         配置好的 QueryEngine 实例。
@@ -1482,7 +1483,7 @@ def build_default_engine(
 
     work_cwd = cwd or os.getcwd()
     # 构建默认工具注册表（包含文件操作、bash、编辑等基础工具）
-    registry = build_default_registry(cwd=work_cwd)
+    registry = build_default_registry(cwd=work_cwd, host_services=runtime_services.tools if runtime_services is not None else None)
 
     # 确定后端
     backend = (
@@ -1658,6 +1659,7 @@ def build_default_engine(
             workspace_root=work_cwd,
             date_iso=date.today().isoformat(),
             read_state=shared_read_state(registry),
+            host_services=registry.host_services,
         )
 
     inject_subagent_runtime(registry, _subagent_runtime_provider)
@@ -1687,6 +1689,8 @@ def build_default_engine(
         config["runtime_profile"] = runtime_profile
     if runtime_verify is not None:
         config["runtime_verify"] = runtime_verify
+    if runtime_services is not None:
+        config["runtime_services"] = runtime_services
     sid = (session_id or "").strip()
     if sid:
         config["session_id"] = sid

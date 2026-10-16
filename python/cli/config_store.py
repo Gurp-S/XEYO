@@ -1,4 +1,4 @@
-"""CLI config: ~/.xeyo/config.toml"""
+"""命令行配置：~/.xeyo/config.toml。"""
 
 from __future__ import annotations
 
@@ -46,8 +46,8 @@ def asdict_safe(cfg: CliConfig) -> dict[str, Any]:
 
 
 def _secret_env_ref(data: dict[str, Any]) -> str:
-	"""A secret reference can live top-level (``api_key_env``) or in
-	``[secrets] env_key``. Either form points at an env var; never a plaintext."""
+	"""密钥可通过顶层 ``api_key_env`` 或 ``[secrets] env_key`` 引用。
+	两种形式均保存环境变量名，不保存明文密钥。"""
 	top = data.get("api_key_env")
 	if isinstance(top, str) and top.strip():
 		return top.strip()
@@ -68,12 +68,10 @@ def _profile_table(data: dict[str, Any], name: str) -> dict[str, Any] | None:
 
 
 def resolve_profile(base: CliConfig, data: dict[str, Any], name: str) -> CliConfig:
-	"""Merge a named ``[profiles.<name>]`` table over ``base``.
+	"""将指定的 ``[profiles.<name>]`` 配置叠加到 ``base``。
 
-	Only keys DECLARED in the profile override the base; undeclared keys keep
-	the base value. Missing/empty ``name`` returns ``base`` unchanged, and a
-	missing or non-table profile is fail-closed to ``base`` (with a warning),
-	so ``load_config`` never crashes on a bad profile reference.
+	只覆盖配置中显式声明的字段，其余值沿用基础配置。
+	名称为空时原样返回；配置缺失或不是表时，输出提示并保留基础配置。
 	"""
 	if not name:
 		return base
@@ -151,7 +149,7 @@ def save_config(cfg: CliConfig) -> Path:
 
 
 def validate_config_value(key: str, value: str) -> str | bool:
-	"""Normalize/validate a config set value; raise ValueError on bad input."""
+	"""归一化并校验配置值；无效输入抛出 ValueError。"""
 	v = (value or "").strip()
 	if key == "provider":
 		low = v.lower()

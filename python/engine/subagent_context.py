@@ -3,8 +3,8 @@
 设计（多 Agent 协同落地 #29 §2.3 / 附录 A C2/C6）：
 - **稳定前缀（A3/#4）**：`[Fix System][工具 schema]` 严格连续、置于最前 —— 保证多个子 agent
   命中同一段 provider 前缀缓存。
-- **动态尾部，只能 append 在最后**：任务 prompt + 近期变更（`recent_changes`）。任何动态内容
-  不得插入 base_prefix 之中（否则前缀哈希全变、缓存全 miss，比不共享更贵）。
+- 任务与近期变更由 subagent_input_contract 放在独立输入消息中；system 只含稳定前缀。
+  dynamic_tail 保留为旧路径的兼容字段。
 - **工具白名单（A4/C2）**：按 `required_tools` 裁剪；`FORBIDDEN_SUB_TOOLS`（如 `_agent`）永不下发。
 - 近期变更注入：写前让子 agent 知道"这块刚被谁改过"（解决"瞎"）。
 
@@ -28,7 +28,7 @@ class SubagentContext:
     """组装好的子 agent 上下文。"""
     system_prompt: str
     base_prefix: str          # 稳定前缀（跨子 agent 应字节一致）
-    dynamic_tail: str         # 动态尾部（任务 + 近期变更），置于 base_prefix 之后
+    dynamic_tail: str         # 旧路径的动态尾部；输入契约路径不将其拼入 system
     tool_names: list[str]     # 白名单工具名（A4/C2，已剔除禁止项）
 
 
@@ -41,8 +41,7 @@ def build_subagent_context(
 ) -> SubagentContext:
     """组装子 agent 上下文。
 
-    A3 不变量：`[base_prefix]`（稳定）在最前，`task_prompt` + `recent_changes`（动态）
-    **只在最后**。任何人把动态内容拼进 base_prefix 中间都会破坏前缀缓存。
+    输入契约路径的 system 与 base_prefix 相等；任务与环境事实由独立消息承载。
     A4/A8 兜底：工具白名单剔除 `FORBIDDEN_SUB_TOOLS`（如 Agent/Memory），绝不下发。
     （Phase 2：Bash/Git 可在白名单；Bash 另受工人策略沙箱约束。）
     """
@@ -53,6 +52,9 @@ def build_subagent_context(
         # 近期变更作为"写前提醒"拼在任务前（仍是尾部，不插进 base_prefix）
         dynamic_tail = f"{recent_changes}\n\n{task_prompt}"
     system_prompt = f"{base_prefix}\n\n{dynamic_tail}".rstrip()
+    from msgtypes.input_contract import enabled
+    if enabled():
+        system_prompt = base_prefix
     return SubagentContext(
         system_prompt=system_prompt,
         base_prefix=base_prefix,

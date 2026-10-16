@@ -28,6 +28,11 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 _pool = SessionPool(cwd=CWD)
 
+# Composition belongs to the host; engine never imports the server to find a pool.
+from engine.turn_runner import bind_turn_runner
+
+bind_turn_runner(_pool)
+
 _STATUS_ERROR_TYPE = {
 	400: "invalid_request",
 	401: "authentication_error",
@@ -168,13 +173,15 @@ def _settings_paths() -> list[Path]:
 
 
 def _iter_configured_base_urls(node: Any) -> list[str]:
-	"""递归收集设置树里所有 base_url 字符串值。"""
+	"""收集有效设置中的 base_url；退役功能的配置不再授权网络地址。"""
 	found: list[str] = []
 	stack: list[Any] = [node]
 	while stack:
 		cur = stack.pop()
 		if isinstance(cur, dict):
 			for key, val in cur.items():
+				if key == "local_models":
+					continue
 				if isinstance(val, str) and key == "base_url":
 					found.append(val)
 				elif isinstance(val, (dict, list)):
@@ -185,14 +192,7 @@ def _iter_configured_base_urls(node: Any) -> list[str]:
 
 
 def local_model_enabled() -> bool:
-	"""provider="local"（本地 llama.cpp 等）需显式开启：XEYO_ALLOW_LOCAL_MODEL=1。
-
-	开启后仍允许空 API key（本地推理服务通常不校验）。默认关闭，
-	避免生产环境残留免鉴权的本地通道。
-
-	注意：这是**环境变量口径**（评测 / 脚本 / CI 用）。产品路径请用
-	:func:`local_model_allowed`——它把「设置面板里启用本地模型」也算作授权。
-	"""
+	"""测试 / 评测 HTTP transport，只有 XEYO_ALLOW_LOCAL_MODEL=1 才启用。"""
 	return os.environ.get("XEYO_ALLOW_LOCAL_MODEL", "").strip().lower() in (
 		"1",
 		"true",
@@ -202,14 +202,8 @@ def local_model_enabled() -> bool:
 
 
 def local_model_allowed() -> bool:
-	"""provider="local" 是否被接受：环境变量 **或** 设置面板启用本地模型。
-
-	判定实现在 ``localmodels.gate``（单一权威）；此处只做惰性转发，避免
-	模块级 import 把 ``localmodels``（会读 settings.json）拖进启动路径。
-	"""
-	from localmodels.gate import local_model_allowed as _allowed
-
-	return _allowed()
+	"""保留显式测试 transport；退役的产品设置不能重新启用它。"""
+	return local_model_enabled()
 
 
 def fake_model_enabled() -> bool:

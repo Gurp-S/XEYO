@@ -39,12 +39,11 @@ def _enabled() -> bool:
 
 
 def _registry() -> Any:
-	from server.inbox_registry import get_inbox_registry
+	# No host service is configured for direct/embedded calls.
+	return None
 
-	return get_inbox_registry()
 
-
-def deliver_queued_users(session_id: str, store: Any) -> list[Any]:
+def deliver_queued_users(session_id: str, store: Any, *, registry: Any = None) -> list[Any]:
 	"""把该会话 inbox 里排队的用户消息在边界投进历史；返回本次已进模型输入的消息。
 
 	返回值含"新追加的"与"因幂等已在历史里的"——它是 ``steer_delivered`` 回执的
@@ -57,7 +56,9 @@ def deliver_queued_users(session_id: str, store: Any) -> list[Any]:
 	if not _enabled():
 		return []
 	try:
-		reg = _registry()
+		reg = registry if registry is not None else _registry()
+		if reg is None:
+			return []
 		items = reg.consume_for_boundary(sid)
 	except Exception:  # noqa: BLE001 — inbox 不可用时绝不挡主链
 		_log.debug("inbox boundary consume failed", exc_info=True)

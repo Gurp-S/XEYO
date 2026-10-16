@@ -8,7 +8,7 @@ _INITIALIZED = datetime.now(timezone.utc).isoformat()
 
 
 def snapshot():
-    from server.portfile import engine_version
+    from common.version import engine_version
     return {"instance_id": _INSTANCE, "pid": os.getpid(),
             "identity_initialized_at": _INITIALIZED, "engine_version": engine_version(),
             "loaded_source_identity": "unknown",

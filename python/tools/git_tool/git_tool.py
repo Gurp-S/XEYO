@@ -1,10 +1,11 @@
-"""Git — read-only workspace git (reuses server.workspace_git)."""
+"""Git — read-only workspace Git through an injected service."""
 
 from __future__ import annotations
 
 import os
 from typing import Any
 
+from tools.host_services import HostBoundTool, ToolHostServices
 from engine.abort import AbortController
 from tools.base_tool import ToolResult
 from tools.error_taxonomy import INVALID_ARGUMENT
@@ -19,11 +20,12 @@ _OUT_CAP = 16_000
 _STATUS_PATH_CAP = 80
 
 
-class GitTool:
+class GitTool(HostBoundTool):
 	name = GIT_TOOL_NAME
 	max_result_size_chars = _OUT_CAP
 
-	def __init__(self, *, cwd: str = ".") -> None:
+	def __init__(self, *, cwd: str = ".", host_services: ToolHostServices | None = None) -> None:
+		super().__init__(host_services=host_services)
 		self._cwd = os.path.abspath(os.path.expanduser(cwd or "."))
 
 	@staticmethod
@@ -75,15 +77,9 @@ class GitTool:
 		if action in _WRITE_ACTIONS or action not in _READ_ACTIONS:
 			return ToolResult(content=WRITE_REJECT, is_error=True)
 
-		from server.workspace_git import (
-			GitBinaryMissing,
-			GitError,
-			read_changed_hunks,
-			read_file_diff,
-			read_git_branches,
-			read_git_log,
-			read_git_status,
-		)
+		from common.workspace_git import GitBinaryMissing, GitError
+
+		git = self._host_services.git
 
 		try:
 			# workspace_git 的 read_* 都是同步 subprocess.run，大仓库 status/log
@@ -94,9 +90,9 @@ class GitTool:
 				# 三个只读 git 子进程相互独立，并行跑（原先串行叠加 ~120ms）；
 				# 干净仓库多跑一次廉价 diff，换取恒定的一轮往返。
 				st, log, ch = await asyncio.gather(
-					asyncio.to_thread(read_git_status, self._cwd),
-					asyncio.to_thread(read_git_log, self._cwd, limit=3),
-					asyncio.to_thread(read_changed_hunks, self._cwd),
+					asyncio.to_thread(git.read_git_status, self._cwd),
+					asyncio.to_thread(git.read_git_log, self._cwd, limit=3),
+					asyncio.to_thread(git.read_changed_hunks, self._cwd),
 				)
 				touched_section = ""
 				if st.get("repo") and not st.get("clean"):
@@ -122,7 +118,7 @@ class GitTool:
 					content=_cap(_format_summary(st, log, touched_section=touched_section))
 				)
 			if action == "status":
-				payload = await asyncio.to_thread(read_git_status, self._cwd)
+				payload = await asyncio.to_thread(git.read_git_status, self._cwd)
 				return ToolResult(content=_cap(_format_status(payload)))
 			if action == "log":
 				try:
@@ -130,10 +126,10 @@ class GitTool:
 				except (TypeError, ValueError):
 					limit = 20
 				limit = max(1, min(100, limit))
-				payload = await asyncio.to_thread(read_git_log, self._cwd, limit=limit)
+				payload = await asyncio.to_thread(git.read_git_log, self._cwd, limit=limit)
 				return ToolResult(content=_cap(_format_log(payload)))
 			if action == "branches":
-				payload = await asyncio.to_thread(read_git_branches, self._cwd)
+				payload = await asyncio.to_thread(git.read_git_branches, self._cwd)
 				return ToolResult(content=_cap(_format_branches(payload)))
 			path = str(raw.get("path") or "").strip()
 			if not path:
@@ -142,7 +138,7 @@ class GitTool:
 					is_error=True,
 					error_kind=INVALID_ARGUMENT,
 				)
-			payload = await asyncio.to_thread(read_file_diff, self._cwd, path)
+			payload = await asyncio.to_thread(git.read_file_diff, self._cwd, path)
 			return ToolResult(content=_cap(_maybe_compact("diff", _format_diff(payload))))
 		except GitBinaryMissing as e:
 			return ToolResult(content=str(e), is_error=True)

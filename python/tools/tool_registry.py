@@ -22,6 +22,7 @@ from permissions.policy import agent_mode, evaluate_policy, readonly_gate
 from permissions.workspace_policy import load_workspace_policy
 from tools.ask_user_question_tool import ASK_USER_TOOL_NAME
 from tools.base_tool import Tool, ToolResult, tool_flag
+from tools.host_services import ToolHostServices
 from tools.error_taxonomy import (
 	INVALID_ARGUMENT,
 	PERMISSION_DENIED,
@@ -38,8 +39,12 @@ if TYPE_CHECKING:
 _log = logging.getLogger(__name__)
 
 
-def _side_effect_class(tool_name: str, tool: Tool) -> str:
+def _side_effect_class(tool_name: str, tool: Tool, payload=None) -> str:
 	"""把工具的副作用归类；具体工具不需要知道 journal。"""
+	from engine.agent_action_contract import side_effect
+	specific = side_effect(tool_name, payload)
+	if specific is not None:
+		return specific
 	if tool_flag(tool, "is_read_only", default=False):
 		return "none"
 	if tool_name in {"Write", "Edit", "NotebookEdit"}:
@@ -198,8 +203,9 @@ class ToolRegistry:
 	PREVIEW_HEAD = 6_000
 	PREVIEW_TAIL = 2_000
 
-	def __init__(self, *, cwd: str | None = None, tool_surface_id: str = "custom@1") -> None:
+	def __init__(self, *, cwd: str | None = None, tool_surface_id: str = "custom@1", host_services: ToolHostServices | None = None) -> None:
 		self._tools: dict[str, Tool] = {}
+		self._host_services = host_services
 		self._cwd = os.path.abspath(os.path.expanduser(cwd)) if cwd else ""
 		# Policy identity is separate from the exact schema hash so diagnostics can
 		# distinguish an intentional surface from an accidental schema drift.
@@ -221,7 +227,14 @@ class ToolRegistry:
 		"""Stable policy identity for the model-visible tool surface."""
 		return self._tool_surface_id
 
+	@property
+	def host_services(self) -> ToolHostServices | None:
+		return self._host_services
+
 	def register(self, tool: Tool) -> None:
+		setter = getattr(tool, "set_host_services", None)
+		if self._host_services is not None and callable(setter):
+			setter(self._host_services)
 		self._tools[tool.name] = tool
 		self._schemas_cache = None
 		self._schema_revision += 1
@@ -291,7 +304,13 @@ class ToolRegistry:
 		started = time.monotonic()
 		action_journal = None
 		action_id: str | None = None
-		side_effect = _side_effect_class(tool.name, tool)
+		side_effect = _side_effect_class(tool.name, tool, tool_use.input)
+		from tools.execution_outcome import execute_attempt, operation_key
+		from engine.flag_definitions import enabled as repair_enabled
+		if repair_enabled("XEYO_TOOL_OUTCOME_CONTRACT") and side_effect != "none":
+			from engine.action_journal import action_identity
+			action_id, _ = action_identity(session_id=audit_session_id, turn_id=audit_turn_id,
+				tool_use_id=tool_use.id, tool_name=tool.name, tool_input=tool_use.input)
 		# 空 session_id 曾让整段幂等保护静默跳过：coordinator=None 是合法的
 		# 早期执行路径，身份从执行上下文补齐后，副作用工具照样入 journal。
 		if side_effect != "none" and audit_session_id:
@@ -306,6 +325,7 @@ class ToolRegistry:
 					tool_input=tool_use.input if isinstance(tool_use.input, dict) else {},
 				)
 				action_journal = ActionJournal(audit_session_id)
+				from engine.agent_action_contract import owns_recovery
 				decision = await asyncio.to_thread(action_journal.begin,
 					action_id=action_id,
 					idempotency_key=idempotency_key,
@@ -313,11 +333,18 @@ class ToolRegistry:
 					tool_use_id=tool_use.id,
 					tool_name=tool.name,
 					side_effect=side_effect,
+					recoverable=owns_recovery(tool.name, tool_use.input),
+					operation_key=operation_key(audit_session_id, tool.name, tool_use.input)
+					if repair_enabled("XEYO_TOOL_OUTCOME_CONTRACT") else "",
 				) if action_journal.enabled else ActionDecision("execute")
 				if decision.action == "replay" and decision.record is not None:
 					from engine.action_result import replay_result
 					return replay_result(decision.record, action_id=action_id, side_effect=side_effect)
 				if decision.action == "recovery_required":
+					if repair_enabled("XEYO_TOOL_OUTCOME_CONTRACT"):
+						from tools.execution_outcome import unknown_result
+						return unknown_result("execution was not repeated", side_effect=side_effect,
+						                      action_id=(decision.record or {}).get("action_id", action_id))
 					return ToolResult(
 						content="action outcome unknown; execution was not repeated",
 						is_error=True,
@@ -356,7 +383,40 @@ class ToolRegistry:
 		try:
 			# 策略层已 ALLOW / skip_ask：工具内 check_permissions 不得再把 ASK 降成 DENY。
 			with mark_permission_preapproved(True):
-				result = await tool.execute(tool_use.input, abort)
+				if tool.name in {"Write", "Edit", "NotebookEdit", "Bash"}:
+					from engine.workspace_context import get_workspace_context
+					from engine.workspace_mutation import (
+						WorkspaceMutationBusy,
+						hold_workspace_mutation,
+					)
+
+					workspace_context = get_workspace_context()
+					workspace_root = str(
+						getattr(tool, "_cwd", "")
+						or getattr(workspace_context, "cwd", "")
+						or self._cwd
+						or ""
+					)
+					if workspace_root and os.path.isdir(workspace_root):
+						try:
+							with hold_workspace_mutation(
+								workspace_root,
+								owner=audit_session_id or tool.name,
+							):
+								result = await execute_attempt(tool, tool_use.input, abort, side_effect=side_effect, action_id=action_id)
+						except WorkspaceMutationBusy:
+							result = ToolResult(
+								content="workspace lock is unavailable",
+								is_error=True,
+								status="error",
+								error_kind="WORKSPACE_BUSY",
+								retryable=True,
+								metadata={"workspace_lock": "unavailable"},
+							)
+					else:
+						result = await execute_attempt(tool, tool_use.input, abort, side_effect=side_effect, action_id=action_id)
+				else:
+					result = await execute_attempt(tool, tool_use.input, abort, side_effect=side_effect, action_id=action_id)
 		except BaseException as exc:
 			from session.execution_receipt import record as record_receipt
 			record_receipt(audit_session_id, str(tool_use.id), str(tool.name))
@@ -494,7 +554,9 @@ class ToolRegistry:
 			out = await run_event_hooks_async(
 				event, cwd, {"tool_name": tool_name, "tool_input": tool_input}, config=cfg
 			)
-			if out.should_abort:
+			if out.should_abort or (
+				event == "PermissionRequest" and out.status not in ("success", "skipped")
+			):
 				return ToolResult(
 					content=f"aborted by plugin hook on {abort_label}",
 					is_error=True,
@@ -507,6 +569,15 @@ class ToolRegistry:
 			import logging
 
 			logging.getLogger(__name__).debug("plugin hook %s failed", event, exc_info=True)
+			if event == "PermissionRequest":
+				return ToolResult(
+					content=f"aborted by plugin hook on {abort_label}",
+					is_error=True,
+					status="error",
+					error_kind="ABORTED",
+					retryable=False,
+					metadata={"hook_abort": True, "event": event},
+				)
 		return None
 
 	async def _post_tool_hooks(

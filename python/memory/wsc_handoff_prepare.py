@@ -18,10 +18,8 @@ async def prepare(*, model, messages, source, store, tools, abort, budget, accou
     def check_budget():
         if guard is not None:
             guard()
-        if budget.over_budget:
-            raise ValueError("budget_usd")
-        if budget.over_token_budget():
-            raise ValueError("budget")
+        from memory.wsc_handoff_budget import check_usage
+        check_usage(budget)
 
     def admit_next():
         check_budget()
@@ -36,9 +34,17 @@ async def prepare(*, model, messages, source, store, tools, abort, budget, accou
 
     async def generate_state(captured):
         check_budget()
-        return await generate(model, messages, captured, task_tool.schema(), abort,
+        try:
+            return await generate(model, messages, captured, task_tool.schema(), abort,
                               account=account, admit_next=admit_next,
                               admit_read=admit_tool, scope_protocol=True)
+        except Exception as exc:
+            if guard is not None:
+                guard()
+            abort.raise_if_aborted()
+            from memory.wsc_compaction_failure import mark_generation_failure
+            mark_generation_failure(exc)
+            raise
 
     return await commit(source=source, generate=generate_state, store=store,
                         tools=tools, abort=abort, persist=persist,

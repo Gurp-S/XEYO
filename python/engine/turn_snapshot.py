@@ -83,11 +83,9 @@ def _durable_now(path: Path, snap: TurnSnapshot) -> bool:
 	key = os.path.normcase(str(path.absolute()))
 	now = time.monotonic()
 	if str(getattr(snap, "status", "") or "") not in _ACTIVE:
-		_last_fsync_at[key] = now
 		return True
 	last = _last_fsync_at.get(key)
 	if last is None or now - last >= _FSYNC_MIN_INTERVAL_S:
-		_last_fsync_at[key] = now
 		return True
 	return False
 
@@ -215,30 +213,46 @@ def hydrate(session_id: str) -> TurnSnapshot | None:
 	)
 
 
-def flush(snap: TurnSnapshot) -> None:
+def flush(snap: TurnSnapshot, *, expected_turn_id: str | None = None, strict: bool = False,
+	force_durable: bool = False) -> bool:
 	"""原子写回 sidecar。"""
 	import time
 
 	if not snap.session_id:
-		return
+		return False
 	path = path_for(snap.session_id)
 	try:
 		with _serialized_flush(path):
+			if expected_turn_id is not None:
+				current = hydrate(snap.session_id)
+				if current is not None and (current.turn_id != expected_turn_id or current.revision > snap.revision):
+					return False
 			snap.updated_at = time.time()
 			path.parent.mkdir(parents=True, exist_ok=True)
 			payload = json.dumps(snap.to_dict(), ensure_ascii=False, indent=None)
-			_atomic_write(path, payload, durable=_durable_now(path, snap))
+			durable = force_durable or _durable_now(path, snap)
+			_atomic_write(path, payload, durable=durable)
+			key = os.path.normcase(str(path.absolute()))
+			if not snap.is_active():
+				_last_fsync_at.pop(key, None)
+			elif durable:
+				_last_fsync_at[key] = time.monotonic()
+			return True
 	except Exception:  # noqa: BLE001
 		_logger.warning(
 			"turn snapshot flush failed session=%s", snap.session_id, exc_info=True
 		)
+		if strict:
+			raise
+		return False
 
 
 def clear(session_id: str) -> None:
 	path = path_for(session_id)
 	try:
-		if path.is_file():
-			path.unlink()
+		with _serialized_flush(path):
+			path.unlink(missing_ok=True)
+			_last_fsync_at.pop(os.path.normcase(str(path.absolute())), None)
 	except Exception:  # noqa: BLE001
 		_logger.debug("turn snapshot clear failed", exc_info=True)
 

@@ -360,6 +360,10 @@ def discover_nested_instruction_files(
 	already: Iterable[str] | None = None,
 ) -> list[str]:
 	"""读某文件时：收集其所在目录向上到（不含）工作区根的嵌套 XEYO.md。"""
+	from msgtypes.input_contract import enabled
+	if enabled():
+		from memory.instruction_contract import nested_files
+		return nested_files(file_path, workspace_root, already or ())
 	have = {os.path.normcase(os.path.abspath(p)) for p in (already or [])}
 	try:
 		root = Path(workspace_root).expanduser().resolve()

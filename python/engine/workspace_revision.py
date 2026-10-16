@@ -39,7 +39,9 @@ class WorkspaceRevision:
             return ()
         seen: list[str] = []
         for raw in paths:
-            text = str(raw or "").replace("\\", "/").strip().lstrip("./")
+            text = str(raw or "").replace("\\", "/").strip()
+            while text.startswith("./"):
+                text = text[2:]
             if text and text not in seen:
                 seen.append(text)
         return tuple(seen)

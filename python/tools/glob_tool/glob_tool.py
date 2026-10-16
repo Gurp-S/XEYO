@@ -710,14 +710,8 @@ def perform_glob(
 	# rg's modified-time sort has no stable tie-break for files with the same
 	# timestamp. Pages are scanned independently, so an unstable tie can put the
 	# same file on adjacent pages. Rebuild the ordering with a path tie-break.
-	all_files.sort(
-		key=lambda rel: (
-			_stat_mtime_safe(os.path.join(root_dir, rel)),
-			rel.replace("\\", "/").casefold(),
-			rel.replace("\\", "/"),
-		),
-		reverse=True,
-	)
+	from tools.fileio.path_metadata import sort_by_mtime
+	sort_by_mtime(all_files, root_dir, _stat_mtime_safe)
 	total = len(all_files)
 	sliced = all_files[offset : offset + limit]
 	truncated = total > offset + limit

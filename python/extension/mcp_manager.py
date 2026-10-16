@@ -34,6 +34,7 @@ from extension.config import (
 	write_settings,
 )
 from extension.errors import ConfigError
+from extension.config_documents import serialized_config_write
 from extension import mcp_scopes as scopes
 from extension.mcp_client import (
 	MAX_SERVER_SCHEMA_BYTES,
@@ -474,6 +475,7 @@ class McpManager:
 			self._servers.clear()
 
 
+@serialized_config_write
 def set_mcp_tool_enabled(
 	cwd: str | None, server_id: str, raw_name: str, enabled: bool
 ) -> str:

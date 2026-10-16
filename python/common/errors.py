@@ -86,11 +86,10 @@ def classify_llm_failure(exc: BaseException) -> LlmFailure:
 	# httpx/httpcore transport errors are intentionally recognized without
 	# importing either optional transport package here.  The async model clients
 	# expose these exceptions directly when connection setup/read fails.
-	if _is_http_transport_error(exc):
-		return LlmFailure(
-			"timeout" if "timeout" in type(exc).__name__.lower() else "network",
-			retryable=True,
-		)
+	from common.transport_errors import transport_failure_kind
+	transport_kind = transport_failure_kind(exc)
+	if transport_kind is not None:
+		return LlmFailure(transport_kind, retryable=True)
 	if isinstance(exc, EmptyResponseError):
 		return empty_response_failure()
 	if isinstance(exc, (TimeoutError, URLError, ConnectionError)):
@@ -122,13 +121,8 @@ def classify_llm_failure(exc: BaseException) -> LlmFailure:
 
 def _is_http_transport_error(exc: BaseException) -> bool:
 	"""Whether an exception is an httpx/httpcore request transport failure."""
-	module = type(exc).__module__
-	name = type(exc).__name__
-	return module.startswith(("httpx", "httpcore")) and (
-		name.endswith("RequestError")
-		or name.endswith("Timeout")
-		or name in {"ConnectError", "ConnectTimeout", "ReadTimeout", "WriteTimeout"}
-	)
+	from common.transport_errors import transport_failure_kind
+	return transport_failure_kind(exc) is not None
 
 
 #: 400 类「上下文超长」特征（OpenAI 兼容各厂商常见措辞，覆盖常见变体）。

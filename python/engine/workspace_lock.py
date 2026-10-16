@@ -10,6 +10,8 @@ from pathlib import Path
 from threading import Event, Lock as ThreadLock, Thread, current_thread
 from typing import Iterator
 
+from engine.workspace_ownership import WorkspaceOwnership
+
 
 class LeaseError(RuntimeError):
     """Raised when a workspace lease is invalid or expired."""
@@ -25,9 +27,10 @@ class Lease:
     owner: str
     acquired_at: float
     expires_at: float
+    ownership: str = ""
 
 
-class WorkspaceLock:
+class WorkspaceLock(WorkspaceOwnership):
     """Cross-process workspace lease with atomic acquisition and heartbeats.
 
     The canonical lock file is created with ``O_EXCL`` and is never replaced by
@@ -68,9 +71,19 @@ class WorkspaceLock:
         self._heartbeat_stop: Event | None = None
         self._heartbeat_thread: Thread | None = None
         self._heartbeat_error: LeaseError | None = None
+        self._process_owner = None
+        self._owner_acquiring = False
 
     def _heartbeat_path(self, lease_id: str) -> Path:
         return self.shadow_dir / f"workspace.lock.{lease_id}.heartbeat"
+
+    @contextmanager
+    def _coordination_guard(self) -> Iterator[None]:
+        """Serialize canonical lease creation, reclamation, renewal, and release."""
+        from engine.write_transaction import path_lock
+
+        with path_lock(str(self.shadow_dir / "workspace.lock.guard")):
+            yield
 
     def _read_lease(self) -> Lease | None:
         try:
@@ -104,6 +117,7 @@ class WorkspaceLock:
             owner=owner,
             acquired_at=acquired_at,
             expires_at=heartbeat_mtime + self.ttl_seconds,
+            ownership=str(data.get("ownership") or ""),
         )
 
     def _lock_file_is_stale(self) -> bool:
@@ -114,31 +128,50 @@ class WorkspaceLock:
         except OSError:
             return False
 
-    def _reclaim_stale(self, lease: Lease | None) -> bool:
-        if lease is not None and time.time() < lease.expires_at:
-            return False
-        # lease 为 None 说明锁文件已损坏（解析失败）。
-        # 此时依据文件 mtime 判断是否足够陈旧、可以回收。
-        if lease is None and not self._lock_file_is_stale():
-            return False
-
-        heartbeat = self._heartbeat_path(lease.lease_id) if lease is not None else None
-        try:
-            self.lock_file.unlink()
-        except FileNotFoundError:
-            return True
-        except OSError:
-            return False
-        if heartbeat is not None:
+    def _reclaim_stale_owned(self, lease: Lease | None) -> bool:
+        with self._coordination_guard():
             try:
-                heartbeat.unlink()
+                current = self._read_lease()
+                corrupt = False
+            except LeaseError:
+                current = None
+                corrupt = self.lock_file.exists()
+
+            if lease is None:
+                if not corrupt:
+                    return True
+                if not self._lock_file_is_stale():
+                    return False
+                heartbeat = None
+            else:
+                if current is None:
+                    return not corrupt
+                if current.lease_id != lease.lease_id or current.owner != lease.owner:
+                    return False
+                if current.ownership != "os" and time.time() < current.expires_at:
+                    return False
+                heartbeat = self._heartbeat_path(current.lease_id)
+
+            try:
+                self.lock_file.unlink()
             except FileNotFoundError:
-                pass
+                return True
             except OSError:
-                pass
-        return True
+                return False
+            if heartbeat is not None:
+                try:
+                    heartbeat.unlink()
+                except FileNotFoundError:
+                    pass
+                except OSError:
+                    pass
+            return True
 
     def _create_lease(self, lease: Lease) -> None:
+        with self._coordination_guard():
+            self._create_lease_locked(lease)
+
+    def _create_lease_locked(self, lease: Lease) -> None:
         heartbeat = self._heartbeat_path(lease.lease_id)
         heartbeat_fd: int | None = None
         lock_fd: int | None = None
@@ -160,6 +193,7 @@ class WorkspaceLock:
                     "lease_id": lease.lease_id,
                     "owner": lease.owner,
                     "acquired_at": lease.acquired_at,
+                    "ownership": "os",
                 },
                 separators=(",", ":"),
             ).encode("utf-8")
@@ -214,7 +248,7 @@ class WorkspaceLock:
             return self._reclaim_stale(None)
         return self._reclaim_stale(existing)
 
-    def acquire(self, *, blocking: bool = False, timeout: float = 0.0) -> Lease:
+    def _acquire_lease(self, *, blocking: bool = False, timeout: float = 0.0) -> Lease:
         if timeout < 0:
             raise ValueError("timeout must be non-negative")
         with self._state_guard:
@@ -268,14 +302,15 @@ class WorkspaceLock:
         if lease is None:
             raise LeaseError("workspace lock is not held by this instance")
 
-        current = self._read_lease()
-        if current is None or current.lease_id != lease.lease_id or current.owner != lease.owner:
-            raise LeaseError("workspace lock ownership was lost")
-        heartbeat = self._heartbeat_path(lease.lease_id)
-        try:
-            os.utime(heartbeat, None)
-        except OSError as exc:
-            raise LeaseError("workspace lock heartbeat renewal failed") from exc
+        with self._coordination_guard():
+            current = self._read_lease()
+            if current is None or current.lease_id != lease.lease_id or current.owner != lease.owner:
+                raise LeaseError("workspace lock ownership was lost")
+            heartbeat = self._heartbeat_path(lease.lease_id)
+            try:
+                os.utime(heartbeat, None)
+            except OSError as exc:
+                raise LeaseError("workspace lock heartbeat renewal failed") from exc
         renewed = replace(lease, expires_at=time.time() + self.ttl_seconds)
         with self._state_guard:
             if self._current_lease is None or self._current_lease.lease_id != lease.lease_id:
@@ -283,7 +318,7 @@ class WorkspaceLock:
             self._current_lease = renewed
         return renewed
 
-    def release(self) -> None:
+    def _release_lease(self) -> None:
         with self._state_guard:
             lease = self._current_lease
             stop = self._heartbeat_stop
@@ -298,23 +333,24 @@ class WorkspaceLock:
         if lease is None:
             return
 
-        try:
-            current = self._read_lease()
-        except LeaseError:
-            current = None
-        if current is not None and current.lease_id == lease.lease_id and current.owner == lease.owner:
+        with self._coordination_guard():
             try:
-                self.lock_file.unlink()
+                current = self._read_lease()
+            except LeaseError:
+                current = None
+            if current is not None and current.lease_id == lease.lease_id and current.owner == lease.owner:
+                try:
+                    self.lock_file.unlink()
+                except FileNotFoundError:
+                    pass
+                except OSError:
+                    pass
+            try:
+                self._heartbeat_path(lease.lease_id).unlink()
             except FileNotFoundError:
                 pass
             except OSError:
                 pass
-        try:
-            self._heartbeat_path(lease.lease_id).unlink()
-        except FileNotFoundError:
-            pass
-        except OSError:
-            pass
 
     @contextmanager
     def hold(self, *, blocking: bool = False, timeout: float = 0.0) -> Iterator[Lease]:

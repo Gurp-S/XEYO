@@ -40,6 +40,7 @@ _disk_lock = threading.Lock()
 
 # 后台写入队列：(seq, path, line)。seq 单调递增，用于 flush 判定「全部落盘」。
 _pending: list[tuple[int, str, str]] = []
+_inflight: list[tuple[int, str, str]] = []
 _failed: list[tuple[int, str, str]] = []
 _retry_paths: set[str] = set()
 _writing = False
@@ -93,9 +94,12 @@ def _maybe_rotate(path: Path) -> None:
 		oldest = olds[0]
 		if oldest.is_file():
 			return
-		for i in range(len(olds) - 1):
-			if olds[i].is_file():
-				os.replace(olds[i], olds[i + 1])
+		# ``olds`` is newest-first (old2, old1). Move old1 toward old2
+		# before publishing the current file as old1, or the second rotation
+		# replaces the only copy of the first archive.
+		for i in range(len(olds) - 2, -1, -1):
+			if olds[i + 1].is_file():
+				os.replace(olds[i + 1], olds[i])
 		os.replace(path, olds[-1])
 	except OSError:
 		_logger.debug("transcript rotate failed for %s", path, exc_info=True)
@@ -133,6 +137,7 @@ def _writer_loop() -> None:
 			if not _pending and _stop:
 				return
 			batch = list(_pending)
+			_inflight[:] = batch
 			_pending.clear()
 			_writing = True
 		groups: dict[str, list[tuple[int, str, str]]] = {}
@@ -153,8 +158,37 @@ def _writer_loop() -> None:
 			_failed.extend(item for item in _pending if item[1] in failed_paths)
 			_pending[:] = [item for item in _pending if item[1] not in failed_paths]
 			_retry_paths.update(failed_paths)
+			_inflight.clear()
 			_writing = False
 			_cv.notify_all()
+
+
+def _append_rotating_lines(path: Path, lines: list[str]) -> None:
+	"""Append a batch in size-bounded chunks so rotation is checked between rows."""
+	limit = _max_transcript_bytes()
+	offset = 0
+	while offset < len(lines):
+		_maybe_rotate(path)
+		olds = rotated_transcript_paths(path)
+		if olds[0].is_file():
+			# The two archive generations are full. The current transcript stays
+			# appendable and keeps its rows; no archive is replaced.
+			chunk = lines[offset:]
+			offset = len(lines)
+		else:
+			size = path.stat().st_size if path.is_file() else 0
+			chunk = []
+			while offset < len(lines):
+				line = lines[offset]
+				chunk.append(line)
+				size += len(line.encode("utf-8"))
+				offset += 1
+				if size > limit:
+					break
+		with path.open("a", encoding="utf-8") as stream:
+			stream.writelines(chunk)
+			stream.flush()
+			os.fsync(stream.fileno())
 
 
 def _write_batch(batch: list[tuple[int, str, str]]) -> None:
@@ -170,7 +204,8 @@ def _write_batch(batch: list[tuple[int, str, str]]) -> None:
 			if path in _retry_paths or needs_tail_repair(p):
 				lines = reconcile_retry(p, transcript_read_paths(p), lines)
 			if lines:
-				_maybe_rotate(p)
+				_append_rotating_lines(p, lines)
+				continue
 			with p.open("a", encoding="utf-8") as f:
 				f.writelines(lines)
 				f.flush()

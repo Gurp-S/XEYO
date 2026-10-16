@@ -241,7 +241,8 @@ class SessionPool:
 		for sid in candidates:
 			if len(self._engines) <= self._max_engines:
 				break
-			if sid in self._busy:
+			from engine.agent_runtime import session_active
+			if sid in self._busy or session_active(sid):
 				continue
 			item = self._engines.pop(sid)
 			self._last_use.pop(sid, None)
@@ -512,7 +513,10 @@ class SessionPool:
 	) -> QueryEngine:
 		from tools.catalog import build_default_registry  # 惰性:会话创建时才建工具面
 
-		reg = build_default_registry(cwd=cwd)
+		from server.engine_services import product_runtime_services
+
+		services = product_runtime_services(pool=self)
+		reg = build_default_registry(cwd=cwd, host_services=services.tools)
 		# HTTP 全栈测试的确定性假模型：直接复用 FakeModelClient + 注入 EchoTool
 		# （与 query_engine 的 fake 分支同款）；不走 OpenAI 兼容客户端。
 		if cfg.provider == "fake":
@@ -573,7 +577,9 @@ class SessionPool:
 		# 身份与安全围栏已在 PromptAssembler 左段；勿再 append 第二段 You-are。
 		# 子 agent 不再附加任何文本附录（理念裁决 A2：约束由执行层强制）。
 		assembler = PromptAssembler()
+
 		config: QueryEngineConfig = {
+			"runtime_services": services,
 			"cwd": cwd,
 			"tools": reg,
 			"model_client": model,
@@ -627,6 +633,7 @@ class SessionPool:
 				workspace_root=cwd,
 				date_iso=date.today().isoformat(),
 				read_state=shared_read_state(reg),
+				host_services=reg.host_services,
 			),
 		)
 
@@ -814,7 +821,7 @@ class SessionPool:
 		# 别的会话会一直看到这个已停的会话"在跑 git / 在跑某工具"。
 		self._presence_busy(session_id, target_cwd, busy=False)
 
-	def interrupt(self, session_id: str) -> bool:
+	def interrupt(self, session_id: str, *, expected_lease_id: int | None = None) -> bool:
 		"""请求取消。
 
 		- Busy（engine 可能尚未存在）：排队 pending + 若 engine 存在则 interrupt。
@@ -822,8 +829,14 @@ class SessionPool:
 		请求被接受时始终返回 True（含 idle noop）。
 		"""
 		with self._lock:
+			if expected_lease_id is not None:
+				lease = self._busy.get(session_id)
+				if lease is None or lease.lease_id != expected_lease_id:
+					return False
 			item = self._engines.get(session_id)
 			busy = session_id in self._busy
+			from engine.agent_runtime import cancel_session
+			cancel_session(session_id)
 			self._abort_batch_locked(session_id)
 			if item is not None:
 				item[1].interrupt()
@@ -892,6 +905,8 @@ class SessionPool:
 
 	def drop(self, session_id: str) -> bool:
 		"""移除 FE 已删除 session 的 engine + busy + stash（#7）。"""
+		from engine.agent_runtime import cancel_session
+		cancel_session(session_id)
 		with self._lock:
 			item = self._engines.pop(session_id, None)
 			self._busy.pop(session_id, None)
@@ -950,6 +965,8 @@ class SessionPool:
 		TodoStore 与 workspace id 映射，避免 v2 ``on_commit=_pool.drop`` 曾有的
 		「下一请求不带 workspace 时静默重钉到 _ui_cwd」换仓问题。
 		"""
+		from engine.agent_runtime import cancel_session
+		cancel_session(session_id)
 		with self._lock:
 			item = self._engines.pop(session_id, None)
 			self._busy.pop(session_id, None)
@@ -1040,6 +1057,7 @@ class SessionPool:
 	def scheduler_for(self, session_id: str, *, write_store: Any | None = None) -> Any:
 		"""按 session 延迟创建确定性调度器（HTTP 层做多任务分发的入口）。"""
 		from engine.scheduler import Scheduler
+		from server.engine_services import product_runtime_services
 		from tools.catalog import shared_read_state
 
 		with self._lock:
@@ -1053,6 +1071,7 @@ class SessionPool:
 					root,
 					write_store=store,
 					main_session_id=session_id,
+					host_services=product_runtime_services(pool=self).tools,
 					read_state=None,
 				)
 				self._schedulers[session_id] = sched

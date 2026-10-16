@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from tools.host_services import HostBoundTool, ToolHostServices
 from engine.abort import AbortController
 from permissions.filesystem import expand_to_abs, path_in_allowed_working_path
 from permissions.policy import current_surface, is_gui_surface
@@ -41,7 +42,7 @@ def _as_bool(value: Any) -> bool | None:
 	return None
 
 
-class XeyoUITool:
+class XeyoUITool(HostBoundTool):
 	name = XEYO_UI_TOOL_NAME
 
 	@staticmethod
@@ -53,7 +54,8 @@ class XeyoUITool:
 	def is_concurrency_safe() -> bool:
 		return False
 
-	def __init__(self, cwd: str = ".") -> None:
+	def __init__(self, cwd: str = ".", *, host_services: ToolHostServices | None = None) -> None:
+		super().__init__(host_services=host_services)
 		self._cwd = cwd
 		self._session_id = ""
 
@@ -148,9 +150,7 @@ class XeyoUITool:
 		rows: list[dict[str, Any]] = []
 		busy_fn = None
 		try:
-			from server.deps import _pool
-
-			busy_fn = _pool.is_busy
+			busy_fn = self._host_services.sessions.is_busy if self._host_services.sessions is not None else None
 		except Exception:
 			busy_fn = None
 		if root.exists():
@@ -287,9 +287,7 @@ class XeyoUITool:
 				is_error=True,
 			)
 		try:
-			from server.deps import _pool
-
-			if _pool.is_busy(target):
+			if self._host_services.sessions is not None and self._host_services.sessions.is_busy(target):
 				return ToolResult(
 					content=f"target session is busy: {target}",
 					is_error=True,

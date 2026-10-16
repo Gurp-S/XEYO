@@ -1,4 +1,4 @@
-"""Rich / JSONL event renderer."""
+"""Rich 与 JSONL 格式的事件渲染。"""
 
 from __future__ import annotations
 

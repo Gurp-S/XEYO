@@ -27,6 +27,7 @@ _lock = threading.Lock()
 _LIVE: dict[str, "AbortController"] = {}
 # follow-up inbox：key 同上；value = list[dict(text, message_id, queued_at, state)]
 _INBOX: dict[str, list[dict[str, Any]]] = {}
+_OWNERS: dict[str, str] = {}
 
 
 def _key(session_id: str, agent_id: str) -> str:
@@ -37,22 +38,42 @@ def register_live_agent(
 	session_id: str,
 	agent_id: str,
 	abort: "AbortController",
-) -> None:
+) -> str:
 	sid = (session_id or "").strip()
 	aid = (agent_id or "").strip()
 	if not sid or not aid:
 		return
 	with _lock:
+		from engine.agent_runtime import enabled
+		from engine.agent_identity import current_agent, AgentBusy
+		import uuid
+		key = _key(sid, aid)
+		if enabled() and key in _LIVE:
+			raise AgentBusy("agent_busy")
+		identity = current_agent.get()
+		owner = identity.attempt_id if identity else uuid.uuid4().hex
 		_LIVE[_key(sid, aid)] = abort
+		_OWNERS[key] = owner
+		return owner
 
 
-def unregister_live_agent(session_id: str, agent_id: str) -> None:
+def unregister_live_agent(session_id: str, agent_id: str, owner: str = "") -> None:
 	with _lock:
+		from engine.agent_runtime import enabled
+		from engine.agent_identity import current_agent
+		identity = current_agent.get()
+		expected = owner or (identity.attempt_id if identity else "")
+		if enabled() and _OWNERS.get(_key(session_id, agent_id)) != expected:
+			return
 		_LIVE.pop(_key(session_id, agent_id), None)
+		_OWNERS.pop(_key(session_id, agent_id), None)
 
 
 def abort_live_agent(session_id: str, agent_id: str) -> bool:
 	"""取消指定子 Agent；找不到返回 False。"""
+	from engine.agent_runtime import cancel, enabled
+	if enabled() and cancel(session_id, agent_id):
+		return True
 	with _lock:
 		ctl = _LIVE.get(_key(session_id, agent_id))
 	if ctl is None:
@@ -62,6 +83,9 @@ def abort_live_agent(session_id: str, agent_id: str) -> bool:
 
 
 def is_live_agent(session_id: str, agent_id: str) -> bool:
+	from engine.agent_runtime import enabled, running
+	if enabled() and running(session_id, agent_id) is not None:
+		return True
 	with _lock:
 		return _key(session_id, agent_id) in _LIVE
 
@@ -73,6 +97,14 @@ def post_to_agent(session_id: str, agent_id: str, text: str, message_id: str = "
 	空文本拒收（返回 -1）；运行中或已结束均可调用——运行中由 settle 消费，
 	已结束由调用方（retry）读 meta 决定是否附带。
 	"""
+	from engine.agent_live_bridge import store_for
+	store = store_for(session_id, agent_id)
+	if store is not None:
+		try:
+			store.send(session_id, agent_id, "parent", text, message_id=message_id)
+			return len(store.pending(session_id, agent_id, limit=256))
+		except (ValueError, OSError):
+			return -1
 	sid = (session_id or "").strip()
 	aid = (agent_id or "").strip()
 	t = (text or "").strip()
@@ -99,12 +131,20 @@ def drain_agent_inbox(session_id: str, agent_id: str) -> list[dict[str, Any]]:
 
 
 def inbox_count(session_id: str, agent_id: str) -> int:
+	from engine.agent_live_bridge import store_for
+	store = store_for(session_id, agent_id)
+	if store is not None:
+		return len(store.pending(session_id, agent_id, limit=256))
 	with _lock:
 		return len(_INBOX.get(_key(session_id, agent_id), []))
 
 
 def inbox_texts(session_id: str, agent_id: str) -> list[str]:
 	"""运行时队列的文本快照（只读）。与 meta 待办配份计数、配对重投用。"""
+	from engine.agent_live_bridge import store_for
+	store = store_for(session_id, agent_id)
+	if store is not None:
+		return [r["text"] for r in store.pending(session_id, agent_id, limit=256)]
 	with _lock:
 		q = _INBOX.get(_key(session_id, agent_id), [])
 		return [str(it.get("text") or "") for it in q]
@@ -116,6 +156,10 @@ def remove_agent_inbox_text(session_id: str, agent_id: str, text: str) -> bool:
 	删除路由用：retry 把 meta 项放回运行时后、消费前 abort 的窗口里，
 	同一逻辑项在 meta 与运行时各有一份——只删 meta 那份，下轮 retry 会复活。
 	"""
+	from engine.agent_live_bridge import store_for
+	store = store_for(session_id, agent_id)
+	if store is not None:
+		return store.remove_message(session_id, agent_id, text=text)
 	key = _key(session_id, agent_id)
 	t = (text or "").strip()
 	if not t:
@@ -135,6 +179,10 @@ def remove_agent_inbox_text(session_id: str, agent_id: str, text: str) -> bool:
 
 def remove_agent_inbox_item(session_id: str, agent_id: str, message_id: str) -> bool:
 	"""按 message_id（为空则取首条）移除一条 follow-up；返回是否命中。"""
+	from engine.agent_live_bridge import store_for
+	store = store_for(session_id, agent_id)
+	if store is not None:
+		return store.remove_message(session_id, agent_id, message_id=message_id)
 	key = _key(session_id, agent_id)
 	mid = (message_id or "").strip()
 	with _lock:
@@ -165,6 +213,7 @@ def clear_all_for_tests() -> None:
 	with _lock:
 		_LIVE.clear()
 		_INBOX.clear()
+		_OWNERS.clear()
 
 
 __all__ = [

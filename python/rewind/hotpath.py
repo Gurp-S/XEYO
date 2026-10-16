@@ -16,18 +16,21 @@ from __future__ import annotations
 
 import json
 import os
+import stat as stat_module
 import threading
 import time
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Iterator
 
 from rewind.index import (
     AgentFileIndex,
     load_checkpoint,
 )
 from rewind.snapshot import SnapshotStore
+from rewind.reference_lock import reference_publication_lock
 from session.persistence import default_sessions_dir, safe_session_filename, transcript_path
 
 __all__ = [
@@ -95,26 +98,28 @@ def _read_rows(path: Path) -> list[dict[str, Any]]:
     if not path.is_file():
         return []
     rows: list[dict[str, Any]] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(row, dict):
-            rows.append(row)
+    with path.open("rb") as handle:
+        for raw in handle:
+            line = raw.decode("utf-8", errors="replace").strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(row, dict):
+                rows.append(row)
     return rows
 
 
 def _append_event(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with _lock_for(str(path)):
-        with open(path, "a", encoding="utf-8", newline="\n") as fh:
-            fh.write(json.dumps(payload, ensure_ascii=False) + "\n")
-            fh.flush()
-            os.fsync(fh.fileno())
+    with reference_publication_lock():
+        with _lock_for(str(path)):
+            with open(path, "a", encoding="utf-8", newline="\n") as fh:
+                fh.write(json.dumps(payload, ensure_ascii=False) + "\n")
+                fh.flush()
+                os.fsync(fh.fileno())
 
 
 def _write_atomic(path: Path, text: str) -> None:
@@ -335,6 +340,7 @@ class RewindHotpath:
         sessions_dir: Path | None = None,
         snapshots: SnapshotStore | None = None,
         workspace_root: Path | str | None = None,
+        on_restore_complete: Callable[[], None] | None = None,
     ) -> None:
         self.session_id = str(session_id or "").strip()
         if not self.session_id:
@@ -342,6 +348,7 @@ class RewindHotpath:
         self.sessions_dir = sessions_dir or default_sessions_dir()
         self.snapshots = snapshots or SnapshotStore(self.session_id)
         self.workspace_root = Path(workspace_root) if workspace_root else None
+        self.on_restore_complete = on_restore_complete
         self._session_dir = self.sessions_dir / safe_session_filename(self.session_id)
         self.transcript = transcript_path(self.session_id, sessions_dir=self.sessions_dir)
         self.index = AgentFileIndex(self.session_id, sessions_dir=self.sessions_dir)
@@ -531,6 +538,7 @@ class RewindHotpath:
         if not self.workspace_root:
             event = {**event, "status": "failed", "error": "workspace_root unavailable"}
             _append_event(self.events_path, event)
+            self._notify_restore_complete()
             return
         if not event.get("checkpoint_id"):
             # 无 checkpoint 也必须给终态：事件停在 transcript_committed/restoring
@@ -557,6 +565,7 @@ class RewindHotpath:
             else:
                 event = {**event, "status": "failed", "error": "no checkpoint to restore"}
             _append_event(self.events_path, event)
+            self._notify_restore_complete()
             return
         thread = threading.Thread(
             target=self._restore_worker,
@@ -570,13 +579,60 @@ class RewindHotpath:
         # 同会话的 restore 必须串行：快速连续两次回溯会 spawn 两个 worker，
         # 并发 _write_atomic_bytes 的终态取决于调度，undo 的哈希守卫还会把
         # 混合态判 skipped_dirty。后到 worker 等待前者完成后再拍 pre_index。
-        with _restore_lock_for(self.session_id):
-            self._restore_worker_locked(event)
+        try:
+            with _restore_lock_for(self.session_id):
+                with self._workspace_mutation_lock():
+                    self._restore_worker_locked(event)
+        except Exception as exc:  # noqa: BLE001
+            _append_event(
+                self.events_path,
+                {
+                    **event,
+                    "status": "recovery_required",
+                    "error": str(exc),
+                    "restore": None,
+                    "pre_rewind_index": list(event.get("pre_rewind_index") or []),
+                },
+            )
+        finally:
+            self._notify_restore_complete()
+
+    @contextmanager
+    def _workspace_mutation_lock(self) -> Iterator[None]:
+        if self.workspace_root is None:
+            yield
+            return
+        from engine.workspace_lock import LeaseError, WorkspaceLock
+
+        lock = WorkspaceLock(
+            self.workspace_root,
+            owner=f"rewind:{self.session_id}",
+        )
+        try:
+            with lock.hold(blocking=True, timeout=30.0):
+                yield
+        except LeaseError as exc:
+            raise RewindStateError("workspace lock is unavailable") from exc
+
+    def _notify_restore_complete(self) -> None:
+        callback = self.on_restore_complete
+        if callback is not None:
+            callback()
 
     def _restore_worker_locked(self, event: dict[str, Any]) -> None:
+        pre_index = [dict(row) for row in (event.get("pre_rewind_index") or [])]
+
+        def persist_pre_index() -> None:
+            _append_event(
+                self.events_path,
+                {**event, "status": "restoring", "pre_rewind_index": list(pre_index)},
+            )
+
         try:
             report, pre_index = self._restore_checkpoint_files(
-                str(event.get("checkpoint_id") or "")
+                str(event.get("checkpoint_id") or ""),
+                pre_index=pre_index,
+                before_mutation=persist_pre_index,
             )
         except Exception as exc:  # noqa: BLE001 — 恢复失败必须落事件而不是抛出
             # 恢复中间态：工作区可能已写了一半，只能用「从检查点重试 / 放弃」。
@@ -587,6 +643,7 @@ class RewindHotpath:
                     "status": "recovery_required",
                     "error": str(exc),
                     "restore": None,
+                    "pre_rewind_index": pre_index,
                 },
             )
             return
@@ -595,7 +652,7 @@ class RewindHotpath:
         if failures:
             # 部分文件未能恢复 → 工作区处于中间态，需显式处理（§9.2）。
             status = "recovery_required"
-        elif skipped:
+        elif skipped or report.get("missing_preimage"):
             # 仅用户手改路径被跳过（预期行为）→ partial，可视为成功。
             status = "partial"
         else:
@@ -610,41 +667,63 @@ class RewindHotpath:
             },
         )
 
-    def _journal_before_hash(self, rel: str) -> str | None:
-        """查该会话 journal，判断某路径是否「既有文件被 agent 修改」。
-
-        删除分支的防御（BUG-1 数据丢失）：一个检查点冻结前**从未被索引、但本轮被
-        agent 首次修改**的既有用户文件，不在 checkpoint.entries、却在 index.entries，
-        会落入删除分支被 ``unlink``。这类文件在 mutation 时 ``existed_before=True``，
-        journal 里 ``before_hash`` 非空（``inverse_kind='restore_snapshot'``）。凡是存在
-        此类记录，就应**恢复 before 内容**而非删除。返回 before 内容哈希；纯新建文件
-        （``before_hash is None``）返回 None，仍走删除。
-
-        方向安全：宁可多恢复、绝不误删用户文件（I7 用户数据安全）。
-        """
-        try:
-            ops = _read_rows(self._session_dir / "operations.jsonl")
-        except Exception:  # noqa: BLE001 — journal 不可读则保守：不删除
-            return ""
+    def _journal_first_state(
+        self, rel: str, checkpoint_ts: float, *, index_source: str = ""
+    ) -> tuple[str, str | None]:
+        """Return the earliest journaled existence state after the checkpoint."""
         root = self.workspace_root
         if root is None:
-            return ""
+            return "unknown", None
         try:
             abs_path = str((root / rel).resolve())
         except Exception:  # noqa: BLE001
-            return ""
-        for row in ops:
+            return "unknown", None
+        ops = _read_rows(self._session_dir / "operations.jsonl")
+        matching: list[tuple[float, int, str, str | None]] = []
+        for position, row in enumerate(ops):
             if str(row.get("status") or "") != "completed":
                 continue
-            if str(row.get("path") or "").replace("\\", "/") != abs_path.replace("\\", "/"):
+            try:
+                started_at = float(row.get("started_at"))
+            except (TypeError, ValueError):
                 continue
-            bh = row.get("before_hash")
-            if bh:
-                return str(bh)
-        return ""
+            if started_at < checkpoint_ts:
+                continue
+            recorded_path = str(row.get("path") or "")
+            try:
+                candidate = Path(recorded_path)
+                if not candidate.is_absolute():
+                    candidate = root / candidate
+                recorded_abs = str(candidate.resolve())
+            except Exception:  # noqa: BLE001
+                continue
+            if os.path.normcase(recorded_abs) != os.path.normcase(abs_path):
+                continue
+            payload = row.get("inverse_payload")
+            payload = payload if isinstance(payload, dict) else {}
+            existed = payload.get("file_existed_before")
+            inverse_kind = str(row.get("inverse_kind") or "")
+            if existed is True or inverse_kind == "restore_snapshot":
+                state = "existing"
+                before_hash = str(row.get("before_hash") or payload.get("before_content_hash") or "") or None
+            elif existed is False or inverse_kind == "delete_file":
+                state, before_hash = "created", None
+            else:
+                state, before_hash = "unknown", None
+            matching.append((started_at, position, state, before_hash))
+        if not matching:
+            if index_source == "turn_diff_created":
+                return "created", None
+            return "unknown", None
+        _started_at, _position, state, before_hash = min(matching)
+        return state, before_hash
 
     def _restore_checkpoint_files(
-        self, checkpoint_id: str
+        self,
+        checkpoint_id: str,
+        *,
+        pre_index: list[dict[str, Any]] | None = None,
+        before_mutation: Any | None = None,
     ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
         cp = load_checkpoint(
             self.session_id, checkpoint_id, sessions_dir=self.sessions_dir
@@ -661,8 +740,19 @@ class RewindHotpath:
             "skipped_dirty": [],
             "failed": [],
             "written": [],
+            "missing_preimage": [],
         }
-        pre_index: list[dict[str, Any]] = []
+        pre_index = pre_index if pre_index is not None else []
+        recorded_paths = {str(row.get("path") or "") for row in pre_index}
+
+        def record_preimage(item: dict[str, Any]) -> None:
+            rel_path = str(item.get("path") or "")
+            if rel_path in recorded_paths:
+                return
+            pre_index.append(item)
+            recorded_paths.add(rel_path)
+            if before_mutation is not None:
+                before_mutation()
 
         for rel in sorted(cp.entries):
             cp_hash = cp.entries[rel]
@@ -672,7 +762,14 @@ class RewindHotpath:
                 continue
             try:
                 self._restore_one_file(
-                    root, rel, full, cp_hash, index_entries, report, pre_index
+                    root,
+                    rel,
+                    full,
+                    cp_hash,
+                    cp.modes.get(rel),
+                    index_entries,
+                    report,
+                    record_preimage,
                 )
             except OSError as exc:
                 report["failed"].append(f"{rel}: {exc}")
@@ -697,19 +794,25 @@ class RewindHotpath:
                 report["failed"].append(f"{rel}: {exc}")
                 continue
             now_hash = _hash_bytes(data)
-            before_hash = self._journal_before_hash(rel)
-            if before_hash:
+            first_state, before_hash = self._journal_first_state(
+                rel, cp.ts, index_source=str(entry.source or "")
+            )
+            if first_state == "existing" and before_hash:
                 # 既有文件被 agent 首次修改：恢复 before 内容，不删除。
                 try:
                     content = self.snapshots.get_bytes(before_hash)
                 except (OSError, KeyError) as exc:
                     report["failed"].append(f"{rel}: {exc}")
                     continue
-                pre_index.append(
-                    {"path": rel, "hash": now_hash, "existed": True}
+                record_preimage(
+                    {"path": rel, "hash": now_hash, "existed": True, "mode": _file_mode(full)}
                 )
                 try:
-                    _write_atomic_bytes(full, content)
+                    _write_atomic_bytes(
+                        full,
+                        content,
+                        mode=cp.modes.get(rel) if rel in cp.modes else _file_mode(full),
+                    )
                     stat = full.lstat()
                     self.index.upsert(
                         rel,
@@ -719,12 +822,18 @@ class RewindHotpath:
                         source="restore_writeback",
                     )
                     report["restored"].append(rel)
-                    report["written"].append({"path": rel, "hash_written": before_hash})
+                    report["written"].append(
+                        {"path": rel, "hash_written": before_hash, "mode_written": cp.modes.get(rel)}
+                    )
                 except OSError as exc:
                     report["failed"].append(f"{rel}: {exc}")
                 continue
-            pre_index.append(
-                {"path": rel, "hash": now_hash, "existed": True}
+            if first_state != "created":
+                report["missing_preimage"].append(rel)
+                report["skipped_dirty"].append(rel)
+                continue
+            record_preimage(
+                {"path": rel, "hash": now_hash, "existed": True, "mode": _file_mode(full)}
             )
             try:
                 full.unlink()
@@ -739,6 +848,31 @@ class RewindHotpath:
                 report["written"].append({"path": rel, "hash_written": None})
             except OSError as exc:
                 report["failed"].append(f"{rel}: {exc}")
+        # A retry may find that an earlier attempt already wrote the target.
+        # Reconstruct write guards from the durable preimage ledger so Undo can
+        # still validate and restore those paths.
+        written_paths = {str(item.get("path") or "") for item in report["written"]}
+        for pre in pre_index:
+            rel = str(pre.get("path") or "")
+            if not rel or rel in written_paths:
+                continue
+            full = _safe_resolve(root, rel)
+            if full is None:
+                continue
+            if rel in cp.entries and full.is_file():
+                actual_hash = _hash_bytes(full.read_bytes())
+                target_mode = cp.modes.get(rel)
+                if actual_hash == cp.entries[rel] and (
+                    target_mode is None or _file_mode(full) == target_mode
+                ):
+                    report["written"].append(
+                        {"path": rel, "hash_written": cp.entries[rel], "mode_written": target_mode}
+                    )
+                    written_paths.add(rel)
+            elif rel not in cp.entries and not full.exists():
+                report["written"].append({"path": rel, "hash_written": None})
+                written_paths.add(rel)
+
         return report, pre_index
 
     def _restore_one_file(
@@ -747,16 +881,27 @@ class RewindHotpath:
         rel: str,
         full: Path,
         cp_hash: str,
+        cp_mode: int | None,
         index_entries: dict[str, Any],
         report: dict[str, Any],
-        pre_index: list[dict[str, Any]],
+        record_preimage: Any,
     ) -> None:
         exists = full.is_file()
         current_hash: str | None = None
+        current_mode = _file_mode(full) if exists else None
         if exists:
             current_hash = _hash_bytes(full.read_bytes())
             if current_hash == cp_hash:
-                report["unchanged"].append(rel)
+                if cp_mode is None or current_mode == cp_mode:
+                    report["unchanged"].append(rel)
+                    return
+                content = full.read_bytes()
+                record_preimage({"path": rel, "hash": current_hash, "existed": True, "mode": current_mode})
+                _write_atomic_bytes(full, content, mode=cp_mode)
+                stat = full.lstat()
+                self.index.upsert(rel, content_hash=cp_hash, size=stat.st_size, mtime_ns=stat.st_mtime_ns, source="restore_writeback")
+                report["restored"].append(rel)
+                report["written"].append({"path": rel, "hash_written": cp_hash, "mode_written": cp_mode})
                 return
             entry = index_entries.get(rel)
             # managed 判定改用内容哈希，而不是 (size, mtime) 签名：
@@ -777,8 +922,8 @@ class RewindHotpath:
         except (OSError, KeyError) as exc:
             report["failed"].append(f"{rel}: {exc}")
             return
-        pre_index.append({"path": rel, "hash": current_hash, "existed": exists})
-        _write_atomic_bytes(full, content)
+        record_preimage({"path": rel, "hash": current_hash, "existed": exists, "mode": current_mode})
+        _write_atomic_bytes(full, content, mode=cp_mode)
         stat = full.lstat()
         self.index.upsert(
             rel,
@@ -788,7 +933,7 @@ class RewindHotpath:
             source="restore_writeback",
         )
         report["restored"].append(rel)
-        report["written"].append({"path": rel, "hash_written": cp_hash})
+        report["written"].append({"path": rel, "hash_written": cp_hash, "mode_written": cp_mode})
 
     # ------------------------------------------------------------------ 撤销
 
@@ -807,10 +952,10 @@ class RewindHotpath:
                 )
 
             result: dict[str, Any] = {"rewind_id": rewind_id, "conversation": None, "files": None}
-
-            if event.get("mode") == "continue":
-                self._undo_conversation(event, result)
-            self._undo_files(event, result)
+            with self._workspace_mutation_lock():
+                if event.get("mode") == "continue":
+                    self._undo_conversation(event, result)
+                self._undo_files(event, result)
 
             _append_event(
                 self.events_path,
@@ -977,11 +1122,16 @@ class RewindHotpath:
                 continue
             info = written.get(rel) or {}
             current_hash = _hash_bytes(full.read_bytes()) if full.is_file() else None
-            if current_hash != info.get("hash_written"):
+            current_mode = _file_mode(full) if full.is_file() else None
+            expected_mode = info.get("mode_written")
+            if current_hash != info.get("hash_written") or (
+                expected_mode is not None and current_mode != int(expected_mode)
+            ):
                 # 评审 #5：恢复后路径又被改动（可能来自新 turn）→ 跳过。
                 skipped.append(rel)
                 continue
             pre_hash = pre.get("hash")
+            pre_mode = pre.get("mode")
             if pre_hash is None:
                 if full.exists():
                     full.unlink()
@@ -991,10 +1141,14 @@ class RewindHotpath:
                 self.index.upsert(rel, content_hash=None, size=0, mtime_ns=0, source="undo_writeback")
                 continue
             content = self.snapshots.get_bytes(pre_hash)
-            if current_hash == pre_hash:
+            if current_hash == pre_hash and (
+                pre_mode is None or current_mode == int(pre_mode)
+            ):
                 restored += 1
                 continue
-            _write_atomic_bytes(full, content)
+            _write_atomic_bytes(
+                full, content, mode=int(pre_mode) if pre_mode is not None else None
+            )
             stat = full.lstat()
             self.index.upsert(
                 rel,
@@ -1007,7 +1161,17 @@ class RewindHotpath:
         result["files"] = {"restored": restored, "skipped_dirty": skipped, "reason": None}
 
 
-def _write_atomic_bytes(path: Path, data: bytes) -> None:
+def _file_mode(path: Path) -> int | None:
+    try:
+        info = path.lstat()
+    except OSError:
+        return None
+    if not stat_module.S_ISREG(info.st_mode):
+        return None
+    return stat_module.S_IMODE(info.st_mode)
+
+
+def _write_atomic_bytes(path: Path, data: bytes, *, mode: int | None = None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temp_name = tempfile_mkstemp_in(path.parent)
     try:
@@ -1015,6 +1179,8 @@ def _write_atomic_bytes(path: Path, data: bytes) -> None:
             fh.write(data)
             fh.flush()
             os.fsync(fh.fileno())
+        if mode is not None:
+            os.chmod(temp_name, mode)
         os.replace(temp_name, path)
     except BaseException:
         try:

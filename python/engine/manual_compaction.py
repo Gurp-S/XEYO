@@ -54,7 +54,9 @@ async def compact(engine, *, cwd=None, guard=None, pending_stop=None):
         return {"ok": False, "reason": "too_short", "compact_cursor": snap.compact_cursor}
     before = int(snap.compact_cursor or 0)
     persist()  # Source durability precedes declaration and archive retirement.
-    if needs_refresh(raw, latest_todo_snapshot(raw)):
+    from memory import wsc_semantic_compaction as semantic
+    semantic_mode = semantic.enabled()
+    if semantic_mode or needs_refresh(raw, latest_todo_snapshot(raw)):
         trace_id = "manual-compact-" + uuid4().hex
         usd_limit = cfg.get("max_budget_usd")
         if usd_limit is None:
@@ -76,17 +78,27 @@ async def compact(engine, *, cwd=None, guard=None, pending_stop=None):
                 custom_system_prompt=cfg.get("custom_system_prompt"),
                 append_system_prompt=cfg.get("append_system_prompt"), date_iso=engine._date_iso)
             check()
+            from memory.wsc_handoff_budget import check_usage
+            check_usage(budget)
+            if semantic_mode:
+                return await _semantic_compact(engine, snap, source, persist, abort, cwd, check, before, system)
             # Rendering this dedicated request cannot authorize a fold, even
             # when the caller has disabled model timing or the WSC side path.
             rows = keep_emission(source(), snap, cwd=cwd)
+            from memory.wsc_semantic_binding import capture, verify
+            binding = capture(cwd, snap)
+            def check_handoff():
+                check()
+                verify(binding, cwd, snap)
             if not budget.prepare_next_turn():
                 raise ValueError("handoff_model_budget_exhausted")
             budget.begin_turn()
             committed = await prepare(model=engine._model,
                 messages=engine._prompt.build(system, rows), source=source, store=store,
                 tools=engine._tools, abort=abort, budget=budget,
-                account=budget.add_usage, persist=persist, guard=check,
+                account=budget.add_usage, persist=persist, guard=check_handoff,
                 publish_guard=guard, session_id=session.session_id)
+            check_handoff()
             snap.wsc_timing_state = {**snap.wsc_timing_state, "last_handoff_commit": committed}
     check()
     force_compact(source(), snap, cwd=cwd)
@@ -98,3 +110,29 @@ async def compact(engine, *, cwd=None, guard=None, pending_stop=None):
         "c2_summary_chars": len(snap.c2_summary_text or ""),
         "c2_summary_preview": (snap.c2_summary_text or "")[:240],
         "last_action": snap.last_action, "budget": engine.budget_snapshot()}
+
+
+async def _semantic_compact(engine, snap, source, persist, abort, cwd, check, before, system):
+    from memory import wsc_semantic_compaction as semantic
+    from memory.wsc_pressure_admission import keep_emission
+    budget = engine._session.budget
+    if not budget.prepare_next_turn():
+        raise ValueError('handoff_model_budget_exhausted')
+    budget.begin_turn()
+    from memory.wsc_semantic_originals import from_store
+    try:
+        candidate = await semantic.prepare(model=engine._model,
+            messages=engine._prompt.build(system, keep_emission(source(), snap, cwd=cwd)),
+            source=source, working=snap, abort=abort, account=budget.add_usage, persist=persist, guard=check, cwd=cwd,
+            budget=budget,
+            original_source=lambda: from_store(engine._session.messages))
+    except Exception as exc:
+        if not semantic.resumable_failure(exc):
+            raise
+        return {'ok': False, 'reason': str(exc), 'advanced': False, 'compact_cursor': before,
+                'source_retained': True, 'budget': engine.budget_snapshot()}
+    check()
+    if candidate is not None:
+        semantic.publish(candidate, source(), snap, cwd=cwd, guard=check)
+    return {'ok': True, 'advanced': snap.compact_cursor > before, 'compact_cursor': snap.compact_cursor,
+            'last_action': snap.last_action, 'budget': engine.budget_snapshot()}

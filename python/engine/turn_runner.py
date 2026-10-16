@@ -7,15 +7,19 @@ from __future__ import annotations
 
 import asyncio
 from contextvars import ContextVar
+from contextlib import aclosing
 import json
 import logging
 import threading
 import time
 import uuid
 from dataclasses import dataclass, field
+from collections import deque
 from typing import Any, AsyncIterator, Awaitable, Callable, Optional
 
 from engine.turn_snapshot import TurnSnapshot, flush as flush_turn, hydrate as hydrate_turn
+from engine.turn_event_state import apply_event
+from engine.turn_checkpoint import write_checkpoint
 
 _log = logging.getLogger("xeyo.turn_runner")
 
@@ -158,10 +162,14 @@ class _DetachedTurn:
 	waiting_permission: bool = False
 	revision: int = 0
 	last_event_id: int = 0
-	frames: list[tuple[int, bytes, str]] = field(default_factory=list)
+	frames: deque[tuple[int, bytes, str]] = field(default_factory=deque)
+	outcome: str = ""
+	outcome_reason: str = ""
+	last_checkpoint_at: float = 0.0
 	subscribers: list[_SubscriberQueue] = field(default_factory=list)
 	task: asyncio.Task[None] | None = None
 	done: asyncio.Event = field(default_factory=asyncio.Event)
+	finalizing: bool = False
 	started_at: float = field(default_factory=time.monotonic)
 	incomplete_tools: list[str] = field(default_factory=list)
 	active_agents: list[str] = field(default_factory=list)
@@ -169,6 +177,17 @@ class _DetachedTurn:
 	# 已被环形缓冲挤掉的最大事件号（0 = 没挤过）。重放只能给还留着的帧，
 	# 客户端必须知道中间有洞——否则缺段会被当成完整内容提交。
 	dropped_through_id: int = 0
+
+
+def _record_stream_gap(turn: _DetachedTurn, dropped: int, first_available: int) -> None:
+	try:
+		from audit.log import default_audit_log
+		default_audit_log().record(
+			"stream.gap", session_id=turn.session_id, turn_id=turn.turn_id,
+			dropped_through_event_id=int(dropped), first_available_event_id=first_available,
+		)
+	except Exception:  # Observability must not interrupt replay.
+		_log.debug("stream.gap audit failed", exc_info=True)
 
 
 _END = object()
@@ -183,7 +202,6 @@ class TurnRunner:
 	def __init__(self, pool: Any) -> None:
 		self._pool = pool
 		self._turns: dict[str, _DetachedTurn] = {}
-		self._lock = asyncio.Lock()
 		# T39：跨线程读防护。sync 路由（slash/interrupt）在 threadpool 读
 		# _turns，loop 侧写——字典成员增删与字段写入用短临界区线程锁串起，
 		# 保证 is_running/get_public 读到一致快照（临界区内绝不 await）。
@@ -196,6 +214,18 @@ class TurnRunner:
 	def get_public(self, session_id: str) -> TurnPublic | None:
 		with self._tlock:
 			t = self._turn_locked(session_id)
+			if t is not None:
+				return TurnPublic(
+					session_id=t.session_id,
+					turn_id=t.turn_id,
+					status=t.status,
+					last_event_id=t.last_event_id,
+					stop_reason=t.stop_reason,
+					goal_text=t.goal_text,
+					model=t.model,
+					waiting_permission=t.waiting_permission,
+					revision=t.revision,
+				)
 		if t is None:
 			snap = hydrate_turn(session_id)
 			if snap is None:
@@ -211,27 +241,12 @@ class TurnRunner:
 				waiting_permission=snap.waiting_permission,
 				revision=snap.revision,
 			)
-		return TurnPublic(
-			session_id=t.session_id,
-			turn_id=t.turn_id,
-			status=t.status,
-			last_event_id=t.last_event_id,
-			stop_reason=t.stop_reason,
-			goal_text=t.goal_text,
-			model=t.model,
-			waiting_permission=t.waiting_permission,
-			revision=t.revision,
-		)
+
 
 	def is_running(self, session_id: str) -> bool:
 		with self._tlock:
 			t = self._turn_locked(session_id)
-			return t is not None and not t.done.is_set() and t.status in {
-				"running",
-				"waiting_permission",
-				"stopping",
-				"queued",
-			}
+			return t is not None and not t.done.is_set()
 
 	async def start(
 		self,
@@ -245,36 +260,42 @@ class TurnRunner:
 		turn_id: str | None = None,
 	) -> str:
 		"""启动 detached turn。若已有活跃 turn 则抛 RuntimeError。"""
-		async with self._lock:
-			# 临界区（含 threading 锁）内无 await——start 的成员操作对
-			# threadpool 读侧原子可见。
+		# 临界区（含 threading 锁）内无 await——start 的成员操作对
+		# threadpool 读侧原子可见。
+		with self._tlock:
+			existing = self._turn_locked(session_id)
+			if existing is not None and not existing.done.is_set():
+				raise RuntimeError(f"turn already running for session {session_id}")
+			tid = (turn_id or uuid.uuid4().hex[:12]).strip()
+			det = _DetachedTurn(
+				session_id=session_id,
+				turn_id=tid,
+				lease_id=lease_id,
+				model=model,
+				goal_text=(goal_text or "")[:4000],
+				user_message_id=user_message_id or "",
+				status="running",
+			)
+			self._turns[session_id] = det
+			self._evict_terminal_turns_locked()
+		try:
+			await write_checkpoint(self._persist, det, begin=True, force_durable=True)
+			det.last_checkpoint_at = time.monotonic()
+		except BaseException:
 			with self._tlock:
-				existing = self._turn_locked(session_id)
-				if existing is not None and not existing.done.is_set():
-					raise RuntimeError(f"turn already running for session {session_id}")
-				tid = (turn_id or uuid.uuid4().hex[:12]).strip()
-				det = _DetachedTurn(
-					session_id=session_id,
-					turn_id=tid,
-					lease_id=lease_id,
-					model=model,
-					goal_text=(goal_text or "")[:4000],
-					user_message_id=user_message_id or "",
-					status="running",
-				)
-				self._turns[session_id] = det
-				self._persist(det)
-				self._evict_terminal_turns_locked()
-			_log.info(
-				"turn_start session=%s turn_id=%s reason=submit",
-				session_id,
-				tid,
-			)
-			det.task = asyncio.create_task(
-				self._run_producer(det, producer),
-				name=f"xeyo-turn-{session_id}-{tid}",
-			)
-			return tid
+				if self._turns.get(session_id) is det:
+					del self._turns[session_id]
+			raise
+		_log.info(
+			"turn_start session=%s turn_id=%s reason=submit",
+			session_id,
+			tid,
+		)
+		det.task = asyncio.create_task(
+			self._run_producer(det, producer),
+			name=f"xeyo-turn-{session_id}-{tid}",
+		)
+		return tid
 
 	def _evict_terminal_turns_locked(self) -> None:
 		"""调用方必须持有 _tlock。终态 turn 只保留最近 N 个会话的，控内存。
@@ -290,228 +311,119 @@ class TurnRunner:
 		for sid, _t in terminal[: len(terminal) - _MAX_TERMINAL_TURNS]:
 			self._turns.pop(sid, None)
 
-	async def _run_producer(
-		self, det: _DetachedTurn, producer: ProducerFn
-	) -> None:
-		final_status = "succeeded"
-		stop_reason = ""
+	def _publish(self, det: _DetachedTurn, item: tuple[int, bytes, str]) -> None:
+		event_id, frame, _kind = item
+		det.last_event_id = max(det.last_event_id, event_id)
+		det.frames.append(item)
+		det.frames_bytes += len(frame)
+		while det.frames and (len(det.frames) > _MAX_BUFFERED_FRAMES or det.frames_bytes > _MAX_BUFFERED_BYTES):
+			ev_id, ev_frame, _ = det.frames.popleft()
+			det.frames_bytes -= len(ev_frame)
+			det.dropped_through_id = max(det.dropped_through_id, ev_id)
+		for queue in list(det.subscribers):
+			_fanout(queue, item)
+
+	async def _run_producer(self, det: _DetachedTurn, producer: ProducerFn) -> None:
+		final_status, stop_reason = "succeeded", ""
 		last_touch = 0.0
+		pending_done = None
+		failure_frame = None
 		try:
-			async for event_id, frame, kind in producer():
-				det.last_event_id = max(det.last_event_id, int(event_id))
-				det.frames.append((int(event_id), frame, kind))
-				det.frames_bytes += len(frame)
-				if (
-					len(det.frames) > _MAX_BUFFERED_FRAMES
-					or det.frames_bytes > _MAX_BUFFERED_BYTES
-				):
-					while det.frames and (
-						len(det.frames) > _MAX_BUFFERED_FRAMES
-						or det.frames_bytes > _MAX_BUFFERED_BYTES
-					):
-						_ev_id, ev_frame, _k = det.frames.pop(0)
-						det.frames_bytes -= len(ev_frame)
-						det.dropped_through_id = max(
-							det.dropped_through_id, int(_ev_id)
-						)
-				# busy 租约心跳：每 ≥30s 刷一次，防止长回合被 stale 回收。
-				# 逐帧节流，避免每 delta 都抢 pool 锁。
-				now = time.monotonic()
-				if now - last_touch >= 30.0:
-					last_touch = now
-					try:
-						self._pool.touch_busy(det.session_id)
-					except Exception:
-						pass
-				if kind == "permission_pending":
-					det.waiting_permission = True
-					det.status = "waiting_permission"
-				elif kind == "permission_resolved":
-					det.waiting_permission = False
-					if det.status == "waiting_permission":
-						det.status = "running"
-				elif kind == "tool_call":
-					# 恢复数据：记录已发起未返回的工具（崩溃后续跑提示用）
-					try:
-						import json as _json
-
-						xy = _json.loads(frame).get("xy") or {}
-						tuid = str(xy.get("tool_use_id") or "")
-						if tuid and tuid not in det.incomplete_tools:
-							det.incomplete_tools.append(tuid)
-							if len(det.incomplete_tools) > 64:
-								del det.incomplete_tools[:32]
-					except Exception:  # noqa: BLE001
-						pass
-				elif kind == "tool_result":
-					try:
-						import json as _json
-
-						xy = _json.loads(frame).get("xy") or {}
-						tuid = str(xy.get("tool_use_id") or "")
-						if tuid and tuid in det.incomplete_tools:
-							det.incomplete_tools.remove(tuid)
-					except Exception:  # noqa: BLE001
-						pass
-				elif kind in ("multi_agent_task", "multi_agent_progress"):
-					# 恢复数据：本 turn 出现过的子 agent id
-					try:
-						import json as _json
-
-						xy = _json.loads(frame).get("xy") or {}
-						aid = str(xy.get("agent_id") or "")
-						if aid and aid not in det.active_agents:
-							det.active_agents.append(aid)
-							if len(det.active_agents) > 32:
-								del det.active_agents[:16]
-					except Exception:  # noqa: BLE001
-						pass
-				# 扇出：满了丢这条连接自己的队首并记账，绝不摘除活着的订阅者
-				# ——旧写法 QueueFull 即标死，尾部帧与 [DONE] 一起消失。
-				for q in list(det.subscribers):
-					try:
-						_fanout(q, (int(event_id), frame, kind))
-					except Exception:  # noqa: BLE001 — 队列对象自己坏了才算掉线
+			async with aclosing(producer()) as events:
+				async for event_id, frame, kind in events:
+					if kind == "done":
+						# Completion acknowledges producer cleanup and the terminal checkpoint.
+						pending_done = (int(event_id), frame, kind)
+						continue
+					with self._tlock:
+						changed = apply_event(det, kind, frame)
+						det.revision += 1
+					self._publish(det, (int(event_id), frame, kind))
+					now = time.monotonic()
+					if now - last_touch >= 30.0:
+						last_touch = now
 						try:
-							det.subscribers.remove(q)
-						except ValueError:
+							self._pool.touch_busy(det.session_id)
+						except Exception:
 							pass
-				if det.revision % 8 == 0:
-					self._persist(det)
-				det.revision += 1
+					# Recovery facts are durable at their transition. Text cursors need only
+					# the existing half-second recovery window, regardless of chunk size.
+					if changed or now - det.last_checkpoint_at >= 0.5:
+						await write_checkpoint(self._persist, det, force_durable=changed)
+						det.last_checkpoint_at = time.monotonic()
 		except asyncio.CancelledError:
-			final_status = "stopped"
-			stop_reason = "cancelled"
-			_log.info(
-				"turn_end session=%s turn_id=%s reason=cancelled",
-				det.session_id,
-				det.turn_id,
-			)
+			final_status, stop_reason = "stopped", "cancelled"
 			raise
-		except Exception as exc:  # noqa: BLE001
-			final_status = "failed"
-			stop_reason = type(exc).__name__
-			_log.warning(
-				"turn_end session=%s turn_id=%s reason=error err=%s",
-				det.session_id,
-				det.turn_id,
-				exc,
-				exc_info=True,
-			)
-			# 通知订阅者错误帧由 producer 内部 yield；此处兜底
+		except Exception as exc:
+			final_status, stop_reason = "failed", type(exc).__name__
+			failure_frame = {"error": {"message": str(exc), "type": stop_reason}}
+			_log.warning("turn producer failed session=%s turn=%s", det.session_id, det.turn_id, exc_info=True)
 		else:
-			if det.status == "stopping":
-				final_status = "stopped"
-				stop_reason = det.stop_reason or "user_stop"
-			else:
-				final_status = "succeeded"
-				stop_reason = ""
-			_log.info(
-				"turn_end session=%s turn_id=%s reason=%s",
-				det.session_id,
-				det.turn_id,
-				final_status if final_status != "succeeded" else "complete",
-			)
+			if det.outcome:
+				final_status, stop_reason = det.outcome, det.outcome_reason
+			elif det.status == "stopping":
+				final_status, stop_reason = "stopped", det.stop_reason or "user_stop"
 		finally:
-			# 终态写入 + done 置位对读侧原子可见（临界区内无 await）。
 			with self._tlock:
-				det.status = final_status
-				det.stop_reason = stop_reason
+				det.finalizing = True
+				det.revision += 1
+				if pending_done is not None:
+					# Persist the same cursor that clients will observe after completion.
+					det.last_event_id = max(pending_done[0], det.last_event_id + 1)
+			try:
+				await write_checkpoint(self._persist, det, status=final_status, stop_reason=stop_reason, force_durable=True)
+			except Exception:
+				final_status, stop_reason = "failed", "snapshot_persist_failed"
+				failure_frame = {"error": {"message": "Turn recovery state could not be persisted", "type": stop_reason}}
+				_log.warning("terminal checkpoint failed session=%s turn=%s", det.session_id, det.turn_id, exc_info=True)
+			with self._tlock:
+				det.status, det.stop_reason = final_status, stop_reason
 				det.waiting_permission = False
-				det.done.set()
-			self._persist(det)
-			for q in list(det.subscribers):
-				try:
-					first_available = int(det.frames[0][0]) if det.frames else 0
-					if q.dropped_through_id:
-						# 洞必须在 [DONE] 之前交给这条连接：GUI 收到 stream_gap
-						# 就改用服务端 transcript 收尾，不把本地缺段当完整提交。
-						_fanout(
-							q,
-							(
-								det.last_event_id + 1,
-								_stream_gap_frame(
-									dropped_through_event_id=q.dropped_through_id,
-									first_available_event_id=first_available,
-								),
-								"stream_gap",
-							),
-						)
-						try:
-							from audit.log import default_audit_log
-
-							default_audit_log().record(
-								"stream.gap",
-								session_id=det.session_id,
-								turn_id=det.turn_id,
-								dropped_through_event_id=int(q.dropped_through_id),
-								first_available_event_id=first_available,
-							)
-						except Exception:  # noqa: BLE001 — 观测失败不挡收尾
-							_log.debug("stream.gap audit failed", exc_info=True)
-					_fanout(q, _END)
-				except Exception:  # noqa: BLE001 — 结束帧 fanout best-effort：失败不挡收尾（随后清订阅/置 done）
-					pass
+			if failure_frame is not None:
+				frame = ("data: " + json.dumps(failure_frame) + "\n\n").encode()
+				self._publish(det, (det.last_event_id + 1, frame, "error"))
+			if pending_done is not None:
+				self._publish(det, (det.last_event_id + (1 if failure_frame is not None else 0), pending_done[1], "done"))
+			for queue in list(det.subscribers):
+				_fanout(queue, _END)
 			det.subscribers.clear()
-			det.done.set()
 			try:
 				self._pool.end(det.session_id, det.lease_id)
-			except Exception:  # noqa: BLE001
-				# 租约没放成 = 会话可能一直显示"忙"。debug 在本仓等于没说
-				# （产品从不配置 logging handler），必须到 warning 才看得见。
-				_log.warning(
-					"pool.end failed session=%s turn=%s lease=%s",
-					det.session_id,
-					det.turn_id,
-					det.lease_id,
-					exc_info=True,
-				)
-			# 41 号：turn 终态广播（settlement 检查点）。此刻转录已落盘、租约已放
-			# （等价 flush 义务）；listener 内部自隔离异常，这里再兜一层，
-			# create_task 调度绝不阻塞 teardown、绝不影响 turn 终态。
+			except Exception:
+				_log.warning("pool.end failed session=%s turn=%s", det.session_id, det.turn_id, exc_info=True)
+			with self._tlock:
+				det.done.set()
 			listener = _settlement_listener
 			if listener is not None:
 				try:
 					token = _settled_user_message_id.set(det.user_message_id)
 					try:
-						_coro = listener(det.session_id, final_status, stop_reason)
-						if _coro is not None:
-							_spawn_settlement(_coro)
+						coro = listener(det.session_id, final_status, stop_reason)
+						if coro is not None:
+							_spawn_settlement(coro)
 					finally:
 						_settled_user_message_id.reset(token)
-				except Exception:  # noqa: BLE001
-					# 这一支吞掉的是"回调根本没被调度"（签名不符、listener 自己
-					# 同步抛）——比协体里晚到的异常更严重：收尾整件没发生。
-					_log.warning(
-						"turn settlement dispatch failed session=%s turn=%s status=%s",
-						det.session_id,
-						det.turn_id,
-						final_status,
-						exc_info=True,
-					)
-			# 终态保留一小段时间供 reattach 读 done；稍后可被新 turn 覆盖
-			await asyncio.sleep(0)
-			# 若已成功/失败，清 active 标记但保留 snapshot 供查询
-			if final_status in {"succeeded", "failed", "stopped"}:
-				# 保留 frames 直到被新 turn 替换或 GC
-				pass
+				except Exception:
+					_log.warning("turn settlement dispatch failed session=%s", det.session_id, exc_info=True)
 
-	def _persist(self, det: _DetachedTurn) -> None:
-		snap = TurnSnapshot(
-			session_id=det.session_id,
-			turn_id=det.turn_id,
-			status=det.status,  # type: ignore[arg-type]
-			goal_text=det.goal_text,
-			last_user_message_id=det.user_message_id,
-			revision=det.revision,
-			last_event_id=det.last_event_id,
-			incomplete_tool_uses=list(det.incomplete_tools),
-			active_agent_ids=list(det.active_agents),
-			stop_reason=det.stop_reason,
-			waiting_permission=det.waiting_permission,
-			model=det.model,
-		)
-		flush_turn(snap)
+	def _persist(self, det: _DetachedTurn, *, begin: bool = False, status: str | None = None,
+		stop_reason: str | None = None, force_durable: bool = False) -> bool:
+		with self._tlock:
+			if self._turns.get(det.session_id) is not det:
+				return False
+			if det.finalizing and status is None:
+				return False
+			snap = TurnSnapshot(
+				session_id=det.session_id, turn_id=det.turn_id,
+				status=status or det.status, goal_text=det.goal_text,
+				last_user_message_id=det.user_message_id, revision=det.revision,
+				last_event_id=det.last_event_id, incomplete_tool_uses=list(det.incomplete_tools),
+				active_agent_ids=list(det.active_agents),
+				stop_reason=det.stop_reason if stop_reason is None else stop_reason,
+				waiting_permission=det.waiting_permission if status is None else False, model=det.model,
+			)
+		return flush_turn(snap, expected_turn_id=None if begin else det.turn_id,
+			strict=True, force_durable=force_durable)
 
 	def note_client_disconnect(self, session_id: str, turn_id: str = "") -> None:
 		"""SSE 断开：只记日志，不 interrupt。"""
@@ -528,11 +440,12 @@ class TurnRunner:
 	def mark_stopping(self, session_id: str, reason: str = "user_stop") -> None:
 		with self._tlock:
 			t = self._turn_locked(session_id)
-			if t is None or t.done.is_set():
+			if t is None or t.done.is_set() or t.finalizing:
 				return
 			t.status = "stopping"
 			t.stop_reason = reason
-		self._persist(t)
+			t.revision += 1
+		self._persist(t, force_durable=True)
 		_log.info(
 			"turn_stopping session=%s turn_id=%s reason=%s",
 			session_id,
@@ -545,6 +458,7 @@ class TurnRunner:
 		session_id: str,
 		*,
 		cursor: int = 0,
+		expected_turn_id: str | None = None,
 	) -> AsyncIterator[bytes | None]:
 		"""从 cursor（不含）之后重放缓冲帧，再跟 live，直到 turn 结束。
 
@@ -555,7 +469,17 @@ class TurnRunner:
 		"""
 		with self._tlock:
 			t = self._turn_locked(session_id)
+		from engine.turn_subscription import rejection, rejection_frame
+		reason = rejection(expected_turn_id, t if t is not None else self.get_public(session_id))
+		if reason:
+			yield rejection_frame(reason)
+			return
 		if t is None:
+			# A completed durable snapshot may outlive its in-memory replay buffer.
+			pub = self.get_public(session_id) if expected_turn_id else None
+			if pub is not None and pub.last_event_id > cursor:
+				yield _stream_gap_frame(dropped_through_event_id=pub.last_event_id, first_available_event_id=0)
+				yield b"data: [DONE]\n\n"
 			return
 		# event_id 每 turn 从 1 重新编号（chat.py 每请求 new EventIdGenerator），而 GUI
 		# 把游标存在会话级 sessionStorage 里 ⇒ 上一轮的大游标会把本轮重放全部滤空，
@@ -575,20 +499,7 @@ class TurnRunner:
 					dropped_through_event_id=t.dropped_through_id,
 					first_available_event_id=first_available,
 				)
-				# 缺口也得留得下证据：这条帧只活在本次连接里，事后无法统计"界面曾经
-				# 缺过一段"。诊断层的 wire_gap（SSE/界面）需要按轮次回读它。
-				try:
-					from audit.log import default_audit_log
-
-					default_audit_log().record(
-						"stream.gap",
-						session_id=t.session_id,
-						turn_id=t.turn_id,
-						dropped_through_event_id=int(t.dropped_through_id),
-						first_available_event_id=first_available,
-					)
-				except Exception:  # noqa: BLE001 — 观测失败不挡重放
-					_log.debug("stream.gap audit failed", exc_info=True)
+				_record_stream_gap(t, t.dropped_through_id, first_available)
 			for event_id, frame, _kind in list(t.frames):
 				if event_id > cursor:
 					yield frame
@@ -605,6 +516,15 @@ class TurnRunner:
 						return
 					yield None
 					continue
+				# Even the end sentinel can evict an unread event from a full queue.
+				# Report the gap before forwarding DONE, where clients stop reading.
+				if q.dropped_through_id > cursor:
+					yield _stream_gap_frame(
+						dropped_through_event_id=q.dropped_through_id,
+						first_available_event_id=0 if item is _END else int(item[0]),
+					)
+					_record_stream_gap(t, q.dropped_through_id, 0 if item is _END else int(item[0]))
+					cursor = q.dropped_through_id
 				if item is _END:
 					break
 				event_id, frame, _kind = item
@@ -637,11 +557,8 @@ _runner: TurnRunner | None = None
 
 
 def get_turn_runner() -> TurnRunner:
-	global _runner
 	if _runner is None:
-		from server.deps import _pool
-
-		_runner = TurnRunner(_pool)
+		raise RuntimeError("TurnRunner is not bound; call bind_turn_runner(pool)")
 	return _runner
 
 

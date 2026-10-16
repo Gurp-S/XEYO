@@ -30,6 +30,7 @@ from tools.meta import (
 	meta_for,
 )
 from tools.tool_registry import ToolRegistry
+from tools.host_services import ToolHostServices
 
 # ---------------------------------------------------------------------------
 # 工具类惰性解析(PEP 562 模块 __getattr__):工厂函数体引用的类名在
@@ -261,6 +262,16 @@ def _agent_send(_cwd: str) -> Tool:
 	return AgentSendTool()
 
 
+def _agent_control(cwd: str) -> Tool:
+	from tools.agent_control_tool import AgentControlTool
+	return AgentControlTool(cwd)
+
+
+def _agent_apply(_cwd: str) -> Tool:
+	from tools.agent_control_tool import AgentApplyTool
+	return AgentApplyTool()
+
+
 def _workflow(cwd: str) -> Tool:
 	from tools.workflow_tool import WorkflowTool
 
@@ -288,6 +299,8 @@ ENABLED_TOOL_ENTRIES: Sequence[tuple[str, ToolFactory]] = (
 	("job_list", _job_list),
 	("job_kill", _job_kill),
 	("agent_send", _agent_send),
+	("agent_control", _agent_control),
+	("agent_apply", _agent_apply),
 	("Screenshot", _screenshot),
 	("SendToWeChat", _send_to_wechat),
 	("Memory", _memory),
@@ -353,6 +366,8 @@ def _minimal_surface_requested() -> bool:
 #: 语义：**在矩阵里、但默认不在工作面**。关的时候既不进 schemas（省 schema token），
 #: 也不进子 agent 注册表；打开后按普通工具对待。flag 读不到一律按关（不静默开能力）。
 GATED_TOOL_FLAGS: dict[str, str] = {
+	"agent_control": "XEYO_AGENT_RUNTIME_V2",
+	"agent_apply": "XEYO_AGENT_RUNTIME_V2",
 	"Workflow": "XEYO_WORKFLOW",
 	"Lsp": "XEYO_LSP",
 }
@@ -449,7 +464,7 @@ def _register_factories(
 		reg.register(tool)
 
 
-def build_default_registry(*, cwd: str = ".") -> ToolRegistry:
+def build_default_registry(*, cwd: str = ".", host_services: ToolHostServices | None = None) -> ToolRegistry:
 	work = os.path.abspath(os.path.expanduser(cwd or "."))
 	# The surface label identifies the selected policy; the schema hash below
 	# still detects changes to the concrete model-visible definitions.
@@ -492,7 +507,7 @@ def build_default_registry(*, cwd: str = ".") -> ToolRegistry:
 	if _gated_off:
 		entries = [e for e in entries if e[0] not in _gated_off]
 		surface_id = f"{surface_id}-gated:{','.join(sorted(_gated_off))}"
-	reg = ToolRegistry(cwd=work, tool_surface_id=surface_id)
+	reg = ToolRegistry(cwd=work, tool_surface_id=surface_id, host_services=host_services)
 	_register_factories(
 		reg, entries, cwd=work, read_state=ReadFileState()
 	)
@@ -554,11 +569,7 @@ def apply_read_vision(reg: ToolRegistry, *, enabled: bool) -> None:
 
 
 def shared_read_state(reg: ToolRegistry) -> ReadFileState:
-	"""取 registry 内注入的共享 ReadFileState（父子 agent 须同册）。
-
-	子 agent 若持有独立实例，它写的文件在主会话 read_state 里时间戳过期，
-	主会话随后 Edit 同一文件会误报 "File has been modified since read"。
-	"""
+	"""取单个 registry 的观察状态；managed 子 agent 不与父会话共用。"""
 	for tool in list(getattr(reg, "_tools", {}).values()):
 		state = getattr(tool, "_read_state", None)
 		if isinstance(state, ReadFileState):
@@ -573,10 +584,11 @@ def build_subagent_registry(
 	read_state: ReadFileState | None = None,
 	write_store: Any | None = None,
 	agent_id: str = "main",
+	host_services: ToolHostServices | None = None,
 ) -> ToolRegistry:
 	"""构建子 agent 受限注册表：按名 O(1) 取工厂，禁发 FORBIDDEN_SUB_TOOLS。"""
 	work = os.path.abspath(os.path.expanduser(cwd or "."))
-	reg = ToolRegistry(cwd=work)
+	reg = ToolRegistry(cwd=work, host_services=host_services)
 	from memory.agent_scope import filter_tool_names_for_scope
 
 	names_in = [str(n) for n in (tool_names or []) if str(n).strip()]
@@ -587,10 +599,13 @@ def build_subagent_registry(
 		candidates = sorted(set(filter_tool_names_for_scope(names_in, agent_id)))
 	else:
 		candidates = [n for n, _ in ENABLED_TOOL_ENTRIES]
-	shared = read_state or ReadFileState()
+	from engine.agent_runtime import enabled as managed_agents
+	shared = ReadFileState() if managed_agents() else (read_state or ReadFileState())
 	entries: list[tuple[str, ToolFactory]] = []
 	_gated_off = _disabled_gated_tools()
 	for name in candidates:
+		if name == "agent_send" and not managed_agents():
+			continue
 		if name in FORBIDDEN_SUB_TOOLS or name in _gated_off:
 			continue
 		factory = TOOL_FACTORY_BY_NAME.get(name)

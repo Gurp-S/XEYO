@@ -69,6 +69,7 @@ class _Live:
     source_layout: str = LEGACY
     view_path: str = ""
     lifecycle: dict = dataclasses.field(default_factory=dict)
+    evidence_paths: tuple[str, ...] = ()
     #: 上一次**真折叠**实测到的头增量（token）：新头 − 旧头。−1 = 还没有实测
     #: （进程内从未折过 / 从磁盘接回头）。读者只有 `live_head_delta_tokens()`，
     #: 供 `memory.runtime.try_extend_c2` 的 θ 门在旗标打开时当"头增量"用。
@@ -236,7 +237,9 @@ def project_c2_messages(messages: list[dict], working, *, cwd=None, new_generati
                 cached = None
 
         if cached is None:
-            cached = _restore_frozen(session, cursor, messages, cwd, source_layout=source_layout)
+            from memory.wsc_committed_head import KEY
+            cached = _restore_frozen(session, cursor, messages, cwd, source_layout=source_layout,
+                committed_ref=(getattr(working, 'wsc_timing_state', {}) or {}).get(KEY))
         # Exceptional fallback has the same source-validity boundary as normal
         # reuse. A cache lookup alone is not a completed validation.
         verified_cached = cached
@@ -378,6 +381,8 @@ def project_c2_messages(messages: list[dict], working, *, cwd=None, new_generati
         from synaptic.task_checkpoint import enabled as continuity_enabled
         if continuity_enabled():
             proj.state.lifecycle["response_tail_from"] = protect(messages, len(messages))
+        evidence_paths = tuple(dict.fromkeys(proj.evidence_paths +
+            (cached.evidence_paths if cached is not None and not proj.result.rebuilt else ())))
         # Complete the durable generation before replacing the live head.
         saved = wsc_head_store.save(
             session, text=proj.text, cwd=pinned, cursor=cursor,
@@ -385,6 +390,7 @@ def project_c2_messages(messages: list[dict], working, *, cwd=None, new_generati
             view_path=str(Path(proj.view_path or view_path).resolve()),
             source_layout=source_layout,
             lifecycle=dict(proj.state.lifecycle),
+            evidence_paths=evidence_paths,
         )
         from synaptic.contracts import enabled as contracts_enabled
         if contracts_enabled() and wsc_head_store.enabled() and not saved:
@@ -409,6 +415,7 @@ def project_c2_messages(messages: list[dict], working, *, cwd=None, new_generati
             source_layout=source_layout,
             last_head_delta=int(head_delta_tok),
             lifecycle=dict(proj.state.lifecycle),
+            evidence_paths=evidence_paths,
         )
         # 落盘只在这一个点上发生（= 头真被重排的那一枪）⇒ 写放大 = 折叠次数，不是枪数。
         return _emit(proj.text, messages, upper, frozen_attr, cwd=pinned, view_path=proj.view_path or str(view_path.resolve()), session=session, lifecycle=proj.state.lifecycle, source_layout=source_layout)
@@ -432,7 +439,7 @@ def project_c2_messages(messages: list[dict], working, *, cwd=None, new_generati
         return None
 
 
-def _restore_frozen(session: str, cursor: int, messages: list[dict], cwd, *, source_layout="latest-notes-v1"):
+def _restore_frozen(session: str, cursor: int, messages: list[dict], cwd, *, source_layout="latest-notes-v1", committed_ref=None):
     """进程内状态没了（重启 / 状态槽被顶掉）时，把上一份冻结头**字节**接回来。
 
     不接会怎样（生产实测形状）：那一枪交给 `synaptic.project` 从头重排 ⇒ 发出的 prompt
@@ -446,9 +453,13 @@ def _restore_frozen(session: str, cursor: int, messages: list[dict], cwd, *, sou
         return None  # 头冻结关着 ⇒ 语义上本来就每枪重投影，别偷偷改行为
     from memory import wsc_head_store
 
-    fh = wsc_head_store.load(
-        session, cwd=_cwd_of(cwd), cursor=cursor, messages=messages, allow_advance=True, source_layout=source_layout
-    )
+    if (isinstance(committed_ref, dict)
+            and committed_ref.get('cursor') == cursor and isinstance(committed_ref.get('path'), str)):
+        fh = wsc_head_store.load(session, cwd=_cwd_of(cwd), cursor=cursor,
+            messages=messages, source_layout=source_layout, record_path=committed_ref['path'])
+    else:
+        fh = wsc_head_store.load(session, cwd=_cwd_of(cwd), cursor=cursor,
+            messages=messages, allow_advance=True, source_layout=source_layout)
     if fh is None or not _junction_intact(messages, fh.region_end):
         return None
     # 不恢复瞬时统计。下一次折叠由 resume_inputs 保留旧文件，并接续完整旧头。
@@ -468,6 +479,7 @@ def _restore_frozen(session: str, cursor: int, messages: list[dict], cwd, *, sou
         view_path=fh.view_path,
         source_layout=source_layout,
         lifecycle=dict(fh.lifecycle),
+        evidence_paths=fh.evidence_paths,
     )
 
 

@@ -108,6 +108,7 @@ class Pin:
 	text: str
 	nodes: tuple[int, ...] = ()
 	suppress_excerpt: bool = False
+	evidence_paths: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

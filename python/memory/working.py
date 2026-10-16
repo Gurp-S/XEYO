@@ -69,6 +69,7 @@ class WorkingSnapshot:
     compact_cursor: int = 0  # 已压实的历史消息索引（只增不减）
     c1_frozen_until: int = 0  # C1 冻结边界：此索引之前的 tool_result 一律占位，不再回退
     c2_summary_text: str = ""  # C2 摘要文本（首次压缩时冻结，保证后续请求字节稳定）
+    c2_evidence_paths: tuple[str, ...] = ()  # Fallback artifact dependencies, never inferred from prose.
     c0_response_tail_from: int | None = None  # 任务续接旁路：首个发射响应窗口的固定边界
     wsc_timing_state: dict[str, Any] = field(default_factory=dict)  # 已消费模型请求、通知投递身份
     turns_since_c2: int = 0  # 自上次 C2 压缩后的对话轮次
@@ -262,6 +263,7 @@ def _to_dict(snap: WorkingSnapshot) -> dict[str, Any]:
         "compact_cursor": int(snap.compact_cursor),
         "c1_frozen_until": int(snap.c1_frozen_until),
         "c2_summary_text": str(snap.c2_summary_text or ""),
+        **({"c2_evidence_paths": list(snap.c2_evidence_paths)} if snap.c2_evidence_paths else {}),
         **({"c0_response_tail_from": snap.c0_response_tail_from} if snap.c0_response_tail_from is not None else {}),
         **({"wsc_timing_state": dict(snap.wsc_timing_state)} if snap.wsc_timing_state else {}),
         "compact_checkpoint": cp_payload,
@@ -377,7 +379,9 @@ def _from_dict(raw: dict[str, Any], session_id: str, *, source_layout: str = LEG
         frozen = 0
     c2_summary_text = str(raw.get("c2_summary_text") or "")
     cp = _parse_checkpoint(raw.get("compact_checkpoint"))
-    if cp is not None:
+    committed = (raw.get('wsc_timing_state') or {}).get('committed_head_ref') if isinstance(raw.get('wsc_timing_state'), dict) else None
+    has_committed_head = isinstance(committed, dict) and committed.get('cursor') == cursor_i and bool(committed.get('path'))
+    if cp is not None and not has_committed_head:
         cursor_i = max(cursor_i, int(cp.anchor_cursor or 0))
         frozen = max(frozen, int(cp.anchor_frozen_until or 0))
         if not (c2_summary_text or "").strip():
@@ -416,6 +420,7 @@ def _from_dict(raw: dict[str, Any], session_id: str, *, source_layout: str = LEG
         compact_cursor=cursor_i,
         c1_frozen_until=frozen,
         c2_summary_text=c2_summary_text,
+        c2_evidence_paths=tuple(p for p in (raw.get('c2_evidence_paths') or []) if isinstance(p, str)),
         c0_response_tail_from=optional_boundary(raw.get("c0_response_tail_from")),
         wsc_timing_state=dict(raw.get("wsc_timing_state")) if isinstance(raw.get("wsc_timing_state"), dict) else {},
         compact_checkpoint=cp,
@@ -481,15 +486,15 @@ def hydrate(session_id: str, *, source_layout: str | None = LEGACY) -> WorkingSn
     return snap
 
 
-def flush(session_id: str, snap: WorkingSnapshot) -> None:
+def flush(session_id: str, snap: WorkingSnapshot) -> bool:
     """把 WorkingSnapshot 原子写回 sidecar，供重启后续聊。
 
-    落盘失败只记日志不抛：调用方多在 finally 收尾链上，抛出会吞掉
+    返回是否完成原子替换。落盘失败只记日志不抛：调用方多在 finally 收尾链上，抛出会吞掉
     后续的 journal 终态 / task_state 复位（曾致重启误报 recovery_required）。
     """
     sid = (session_id or snap.session_id or "").strip()
     if not sid:
-        return
+        return False
     snap.session_id = sid
     path = path_for(sid)
     tmp = path.with_name(path.name + ".tmp")
@@ -498,6 +503,7 @@ def flush(session_id: str, snap: WorkingSnapshot) -> None:
         payload = json.dumps(_to_dict(snap), ensure_ascii=False, indent=2)
         tmp.write_text(payload, encoding="utf-8")
         os.replace(tmp, path)
+        return True
     except OSError:
         logging.getLogger(__name__).warning(
             "working snapshot flush failed session=%s", sid, exc_info=True
@@ -507,6 +513,7 @@ def flush(session_id: str, snap: WorkingSnapshot) -> None:
                 tmp.unlink()
         except OSError:
             pass
+        return False
 
 
 def reset_rollback_state(snap: WorkingSnapshot) -> None:
@@ -514,6 +521,7 @@ def reset_rollback_state(snap: WorkingSnapshot) -> None:
     snap.compact_cursor = 0
     snap.c1_frozen_until = 0
     snap.c2_summary_text = ""
+    snap.c2_evidence_paths = ()
     snap.turns_since_c2 = 0
     # 回本间隔属于已丢弃的冻结头，不能带到回滚后的新时间线。
     snap.c2_gap_shots = 0

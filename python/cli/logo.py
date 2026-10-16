@@ -1,4 +1,4 @@
-"""XEYO mark — half-block art derived from assets/xeyo-icon-white.png."""
+"""XEYO 标识：由 assets/xeyo-icon-white.png 转换的半格字符图。"""
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ def identity_block(
 	accent: str = "cyan",
 	muted: str = "dim",
 ) -> Table:
-	"""Wordmark + 'I am XEYO' tagline (right of the icon)."""
+	"""图标右侧的名称与 'I am XEYO' 标语。"""
 	grid = Table.grid(padding=(0, 0))
 	grid.add_column()
 	title = Text()
@@ -53,7 +53,7 @@ def logo_with_identity(
 	muted: str = "dim",
 	logo_style: str = "bold bright_white",
 ) -> Table:
-	"""Icon art + identity column — primary startup brand lockup."""
+	"""启动标识由字符图标和身份文字列组成。"""
 	row = Table.grid(padding=(0, 3))
 	row.add_column(no_wrap=True)
 	row.add_column(vertical="middle")
@@ -67,7 +67,7 @@ def banner_body(
 	accent: str = "cyan",
 	muted: str = "dim",
 ) -> Group:
-	"""Full banner: logo lockup above session meta."""
+	"""完整启动横幅：标识位于会话信息上方。"""
 	return Group(
 		logo_with_identity(accent=accent, muted=muted),
 		Text(""),

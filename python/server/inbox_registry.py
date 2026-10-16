@@ -392,6 +392,10 @@ class InboxRegistry:
 			"items": [it.to_dict(position=i + 1) for i, it in enumerate(items)],
 		}
 
+	def reorder(self, session_id: str, expected: list[str], order: list[str]) -> bool:
+		from server.inbox_order import reorder_pending
+		return reorder_pending(self, session_id, expected, order)
+
 	def prepare_snapshot(self, session_id: str) -> None:
 		"""Load/reconcile disk state separately from an async HTTP event loop."""
 		with self._lock:

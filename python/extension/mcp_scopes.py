@@ -21,6 +21,7 @@ import hashlib
 import json
 import logging
 import os
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +37,8 @@ ENV_MODES = ("scrub", "minimal")
 
 # 企业 deny 文件（env 可覆盖路径）。
 _DEFAULT_ENTERPRISE_POLICY = Path.home() / ".xeyo" / "policy.json"
+_POLICY_CACHE: dict[str, dict[str, Any]] = {}
+_POLICY_CACHE_LOCK = threading.Lock()
 
 
 # --------------------------------------------------------------------------- #
@@ -189,11 +192,14 @@ def collect_mcp_specs(
 			d["_scope"] = scope
 			d.setdefault("id", sid)
 			# project scope 标记需信任；user/plugin 免批。
-			d.setdefault("_requires_trust", scope == "project")
+			# Scope is derived from the source file; project JSON cannot waive approval.
+			d["_requires_trust"] = scope == "project"
 			merged[sid] = d
 
 	# 企业 deny 一票否决。
 	pol = load_enterprise_policy()
+	if pol.get("_policy_invalid"):
+		return {}
 	sid_list = list(merged.keys())
 	for sid in sid_list:
 		if sid in pol["mcp_server_deny"]:
@@ -213,7 +219,7 @@ def enterprise_policy_path() -> Path:
 	return _DEFAULT_ENTERPRISE_POLICY
 
 
-def _default_enterprise_policy() -> dict[str, list[str]]:
+def _default_enterprise_policy() -> dict[str, Any]:
 	return {
 		"mcp_server_deny": [],
 		"mcp_tool_deny": [],
@@ -223,29 +229,39 @@ def _default_enterprise_policy() -> dict[str, list[str]]:
 	}
 
 
-def load_enterprise_policy() -> dict[str, list[str]]:
-	"""读取企业 deny 策略；坏读 → keep-last-good / 空（record + 审计）。"""
+def load_enterprise_policy() -> dict[str, Any]:
+	"""Read enterprise policy; absent files use defaults, invalid files fail closed."""
 	path = enterprise_policy_path()
 	if not path.is_file():
 		return _default_enterprise_policy()
+	cache_key = str(path.expanduser().resolve())
 	try:
 		raw = json.loads(path.read_text(encoding="utf-8"))
-		if isinstance(raw, dict):
-			return _normalize_policy(raw)
-		_log.warning("policy.json at %s not an object; using defaults", path)
-		_record_policy_invalid(path, "not a JSON object")
-		return _default_enterprise_policy()
-	except (OSError, json.JSONDecodeError) as e:
-		_log.warning("bad policy.json at %s: %s; using defaults", path, e)
+		if not isinstance(raw, dict):
+			raise ValueError("not a JSON object")
+		policy = _normalize_policy(raw)
+		with _POLICY_CACHE_LOCK:
+			_POLICY_CACHE[cache_key] = dict(policy)
+		return policy
+	except (OSError, json.JSONDecodeError, ValueError) as e:
+		_log.warning("bad policy.json at %s: %s; applying restrictive policy state", path, e)
 		_record_policy_invalid(path, str(e))
-		return _default_enterprise_policy()
+		with _POLICY_CACHE_LOCK:
+			previous = _POLICY_CACHE.get(cache_key)
+		if previous is not None:
+			return dict(previous)
+		return {**_default_enterprise_policy(), "_policy_invalid": True}
 
 
 def _normalize_policy(raw: dict[str, Any]) -> dict[str, list[str]]:
 	def _as_list(key: str) -> list[str]:
 		v = raw.get(key)
+		if key in raw and not isinstance(v, list):
+			raise ValueError(f"{key} must be a list")
 		if isinstance(v, list):
-			return [str(x) for x in v if str(x).strip()]
+			if any(not isinstance(x, str) for x in v):
+				raise ValueError(f"{key} entries must be strings")
+			return [x for x in v if x.strip()]
 		return []
 
 	return {
@@ -262,57 +278,56 @@ def _record_policy_invalid(path: Path, error: str) -> None:
 		from audit.log import default_audit_log
 
 		default_audit_log().record(
-			"config.invalid", path=str(path), error=error, action="enterprise_policy_defaults"
+			"config.invalid", path=str(path), error=error, action="enterprise_policy_restrictive"
 		)
 	except Exception:  # noqa: BLE001 — 审计故障不影响回退
 		logging.getLogger(__name__).debug("enterprise policy invalid audit failed", exc_info=True)
 
 
-def mcp_server_denied(server_id: str, *, policy: dict[str, list[str]] | None = None) -> bool:
-	"""企业 deny 是否命中 server（一票否决）。"""
+def mcp_server_denied(server_id: str, *, policy: dict[str, Any] | None = None) -> bool:
+	"""Return whether enterprise policy denies this server."""
 	if not (server_id or "").strip():
 		return False
 	pol = policy if policy is not None else load_enterprise_policy()
+	if pol.get("_policy_invalid"):
+		return True
 	return server_id in pol["mcp_server_deny"]
 
 
 def mcp_tool_denied(
-	server_id: str, raw_name: str, *, policy: dict[str, list[str]] | None = None
+	server_id: str, raw_name: str, *, policy: dict[str, Any] | None = None
 ) -> bool:
-	"""企业 deny 是否命中单个工具（``server/raw`` 或 ``server/*``）。"""
 	server_id = (server_id or "").strip()
 	raw_name = (raw_name or "").strip()
 	if not server_id or not raw_name:
 		return False
 	pol = policy if policy is not None else load_enterprise_policy()
+	if pol.get("_policy_invalid"):
+		return True
 	denies = pol["mcp_tool_deny"]
-	if f"{server_id}/{raw_name}" in denies:
-		return True
-	if f"{server_id}/*" in denies:
-		return True
-	return False
+	return f"{server_id}/{raw_name}" in denies or f"{server_id}/*" in denies
 
 
-def skill_denied(name: str, *, policy: dict[str, list[str]] | None = None) -> bool:
+def skill_denied(name: str, *, policy: dict[str, Any] | None = None) -> bool:
 	pol = policy if policy is not None else load_enterprise_policy()
+	if pol.get("_policy_invalid"):
+		return True
 	return (name or "").strip() in pol["skill_deny"]
 
 
-def plugin_denied(name: str, *, policy: dict[str, list[str]] | None = None) -> bool:
-	"""企业 deny：插件名命中 ``plugin_deny`` 即一票否决（不可被低级 scope 覆盖）。"""
+def plugin_denied(name: str, *, policy: dict[str, Any] | None = None) -> bool:
 	pol = policy if policy is not None else load_enterprise_policy()
+	if pol.get("_policy_invalid"):
+		return True
 	return (name or "").strip() in pol["plugin_deny"]
 
 
 def plugin_market_allowed(
-	source: str, *, policy: dict[str, list[str]] | None = None
+	source: str, *, policy: dict[str, Any] | None = None
 ) -> bool:
-	"""市场白名单：``plugin_market_allow`` 非空时仅列出的来源允许；空=全放白名单外源。
-
-	注意：白名单只决定「市场浏览/来源检索」，真正的安装限制仍由
-	``plugin_deny`` 一票否决 + 总开关 ``plugin_market`` 控制。
-	"""
 	pol = policy if policy is not None else load_enterprise_policy()
+	if pol.get("_policy_invalid"):
+		return False
 	allow = pol["plugin_market_allow"]
 	if not allow:
 		return True
@@ -326,19 +341,13 @@ def plugin_market_allowed(
 def trust_path(cwd: str | None) -> Path:
 	from memory.instruction import xeyo_home
 
-	if cwd:
-		try:
-			return Path(cwd).expanduser().resolve() / ".xeyo" / "mcp-trust.json"
-		except OSError:
-			pass
+	# Trust records live only in user-controlled state; workspace declarations
+	# cannot create or edit the file that grants them execution.
 	return xeyo_home() / "mcp-trust.json"
 
 
 def load_mcp_trust(cwd: str | None) -> dict[str, Any]:
-	"""读取 ``<ws>/.xeyo/mcp-trust.json``（若不存在则是 user-level 兜底）。
-
-	返回 ``{declaration_hash: {"approved": true, ...}}``。
-	"""
+	"""Read user-owned MCP trust records."""
 	path = trust_path(cwd)
 	if not path.is_file():
 		return {}
@@ -347,7 +356,6 @@ def load_mcp_trust(cwd: str | None) -> dict[str, Any]:
 		return dict(raw) if isinstance(raw, dict) else {}
 	except (OSError, json.JSONDecodeError):
 		return {}
-
 
 def declaration_hash(spec: dict[str, Any]) -> str:
 	"""server 声明（canonical JSON）的 sha256；信任键即按此 hash。"""
@@ -362,10 +370,22 @@ def _canonical_declaration(spec: dict[str, Any]) -> str:
 
 
 def is_server_trusted(cwd: str | None, spec: dict[str, Any]) -> bool:
-	"""project scope 是否已批准（按声明 hash）；user/plugin 免批恒 True。"""
+	"""Check workspace-bound approval for project-scope server declarations."""
 	if not spec.get("_requires_trust"):
 		return True
-	h = declaration_hash(spec)
+	if not cwd:
+		return False
+	h = trust_key(cwd, spec)
 	trust = load_mcp_trust(cwd)
 	entry = trust.get(h)
 	return bool(entry and entry.get("approved"))
+
+
+def trust_key(cwd: str, spec: dict[str, Any]) -> str:
+	"""Bind approval to canonical workspace identity and declaration."""
+	try:
+		workspace = str(Path(cwd).expanduser().resolve())
+	except OSError:
+		return ""
+	material = f"{workspace}\0{declaration_hash(spec)}"
+	return hashlib.sha256(material.encode("utf-8")).hexdigest()

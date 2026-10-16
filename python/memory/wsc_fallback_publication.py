@@ -1,7 +1,7 @@
 """Publish an explicit fallback generation through the existing head contract."""
 
 
-def _install(messages, working, boundary, cwd, text, view_path, lifecycle):
+def _install(messages, working, boundary, cwd, text, view_path, lifecycle, evidence_paths=()):
     from memory import wsc_projection, wsc_head_store
     session = str(getattr(working, 'session_id', '') or '-')
     pinned = wsc_projection._cwd_of(cwd)
@@ -9,7 +9,7 @@ def _install(messages, working, boundary, cwd, text, view_path, lifecycle):
     cursor = int(working.compact_cursor)
     saved = wsc_head_store.save(session, text=text, cwd=pinned,
         cursor=cursor, region_end=boundary, messages=messages, source_layout=layout,
-        view_path=view_path, lifecycle=lifecycle)
+        view_path=view_path, lifecycle=lifecycle, evidence_paths=evidence_paths)
     if not saved:
         return None
     frozen = wsc_projection._restore_frozen(session, cursor, messages, pinned, source_layout=layout)
@@ -29,7 +29,7 @@ def rebind(cached, messages, working, cwd):
     if not store_enabled() or not contracts_enabled():
         return cached
     return _install(messages, working, cached.region_end, cwd,
-                    cached.head, cached.view_path, cached.lifecycle)
+                    cached.head, cached.view_path, cached.lifecycle, cached.evidence_paths)
 
 
 def emit(messages, working, boundary, cwd, *, new_generation):
@@ -48,7 +48,8 @@ def emit(messages, working, boundary, cwd, *, new_generation):
         lifecycle['goal'] = (str(observed.get('text') or '')
                              if observed.get('status') in {'active', 'paused', 'blocked'} else '')
         lifecycle['response_tail_from'] = protect(messages, len(messages))
-        frozen = _install(messages, working, boundary, cwd, working.c2_summary_text, '', lifecycle)
+        frozen = _install(messages, working, boundary, cwd, working.c2_summary_text, '', lifecycle,
+                          getattr(working, 'c2_evidence_paths', ()))
         if frozen is None:
             return list(messages)
         return wsc_projection._emit(frozen.head, messages, frozen.region_end,

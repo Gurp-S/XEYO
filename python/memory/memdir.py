@@ -63,7 +63,7 @@ def prune_dead_notes(wsid: str, *, now: float | None = None) -> int:
 	for path in topics.glob("*.md"):
 		try:
 			fm, _body = split_frontmatter(path.read_text(encoding="utf-8"))
-		except (OSError, MemorySchemaError):
+		except (OSError, UnicodeError, MemorySchemaError):
 			continue
 		status = str(fm.get("status") or "active")
 		if status == "active":
@@ -164,7 +164,12 @@ def _parse_scalar(raw: str) -> Any:
         return True
     if s in ("false", "False"):
         return False
-    if (s.startswith('"') and s.endswith('"')) or (s.startswith("'") and s.endswith("'")):
+    if s.startswith('"') and s.endswith('"'):
+        try:
+            return json.loads(s)
+        except json.JSONDecodeError:
+            return s[1:-1]
+    if s.startswith("'") and s.endswith("'"):
         return s[1:-1]
     if s.startswith("{") or s.startswith("["):
         try:
@@ -190,8 +195,12 @@ def _parse_fm(text: str) -> dict[str, Any]:
         if raw_line.startswith("  - "):
             if list_key is None:
                 continue
-            data.setdefault(list_key, [])
-            data[list_key].append(_parse_scalar(raw_line[4:]))
+            items = data.get(list_key)
+            if not isinstance(items, list):
+                if items != {}:
+                    continue
+                items = data[list_key] = []
+            items.append(_parse_scalar(raw_line[4:]))
             continue
         if raw_line.startswith("  ") and map_key:
             line = raw_line.strip()
@@ -247,13 +256,24 @@ def dump_frontmatter(data: dict[str, Any]) -> str:
 
 def topic_filename(note: MemoryNote) -> str:
     """topics/ 下的稳定文件名。"""
-    slug = _SLUG_RE.sub("-", (note.title or note.id).lower()).strip("-")[:40] or "note"
-    return f"{note.type}-{slug}.md"
+    identity = hashlib.sha256(note.id.encode("utf-8")).hexdigest()
+    return f"{note.type}-{identity}.md"
 
 
 def note_topics_path(note: MemoryNote, wsid: str) -> Path:
     """该 note 在 topics/ 下的磁盘路径。"""
-    return memdir_root(wsid) / "topics" / topic_filename(note)
+    topics = memdir_root(wsid) / "topics"
+    canonical = topics / topic_filename(note)
+    if canonical.is_file():
+        return canonical
+    for candidate in sorted(topics.glob("*.md")):
+        try:
+            fm, _ = split_frontmatter(candidate.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, MemorySchemaError):
+            continue
+        if str(fm.get("id") or "").strip() == note.id:
+            return candidate
+    return canonical
 
 
 def note_location(note: MemoryNote, wsid: str) -> tuple[str, int | None, int | None]:
@@ -262,8 +282,8 @@ def note_location(note: MemoryNote, wsid: str) -> tuple[str, int | None, int | N
     行号取 frontmatter 结束后的正文首/末非空行；文件缺失或 frontmatter 不规整
     时行号返回 None（只给路径）。供 citation 检索锚点使用，纯读无副作用。
     """
-    rel = f"notes/topics/{topic_filename(note)}"
     path = note_topics_path(note, wsid)
+    rel = f"notes/topics/{path.name}"
     if not path.is_file():
         return rel, None, None
     try:
@@ -289,9 +309,10 @@ def note_location(note: MemoryNote, wsid: str) -> tuple[str, int | None, int | N
     return rel, start + 1, end + 1
 
 
-def index_line(note: MemoryNote) -> str:
+def index_line(note: MemoryNote, *, wsid: str | None = None) -> str:
     """MEMORY.md 一行导航（无叙事）。"""
-    rel = f"topics/{topic_filename(note)}"
+    filename = topic_filename(note) if wsid is None else note_topics_path(note, wsid).name
+    rel = f"topics/{filename}"
     title = (note.title or note.id).replace("\n", " ").strip()
     return f"[{note.type}] {title} → {rel}"
 
@@ -303,7 +324,7 @@ def rewrite_index(notes: list[MemoryNote], *, wsid: str) -> None:
     for note in notes:
         if note.status != "active" or not note.indexable or note.type not in ALLOWED_TYPES:
             continue
-        lines.append(index_line(note))
+        lines.append(index_line(note, wsid=wsid))
         if len(lines) - 1 >= INDEX_MAX_LINES:
             break
     text = "\n".join(lines) + "\n"
@@ -340,20 +361,34 @@ def load_notes(wsid: str) -> list[MemoryNote]:
         from memory import memindex
 
         if memindex.sqlite_index_enabled():
-            return memindex.load_notes_cached(wsid)
+            cached = memindex.load_notes_cached(wsid)
+            latest: dict[str, MemoryNote] = {}
+            for note in cached:
+                previous = latest.get(note.id)
+                if previous is None or note.updated_at >= previous.updated_at:
+                    latest[note.id] = note
+            return list(latest.values())
     except Exception:  # noqa: BLE001 — fail-open 回退文件扫描
         pass
     topics = memdir_root(wsid) / "topics"
     if not topics.is_dir():
         return []
-    notes: list[MemoryNote] = []
+    notes_by_id: dict[str, tuple[bool, MemoryNote]] = {}
     for path in sorted(topics.glob("*.md")):
         try:
             fm, body = split_frontmatter(path.read_text(encoding="utf-8"))
-            notes.append(parse_and_validate(fm, body))
-        except (OSError, MemorySchemaError):
+            note = parse_and_validate(fm, body)
+        except (OSError, UnicodeError, MemorySchemaError):
             continue
-    return notes
+        canonical = path.name == topic_filename(note)
+        previous = notes_by_id.get(note.id)
+        if (
+            previous is None
+            or (canonical and not previous[0])
+            or (canonical == previous[0] and note.updated_at > previous[1].updated_at)
+        ):
+            notes_by_id[note.id] = (canonical, note)
+    return [note for _, note in notes_by_id.values()]
 
 
 def write_note(note: MemoryNote, *, wsid: str) -> Path:
@@ -361,14 +396,69 @@ def write_note(note: MemoryNote, *, wsid: str) -> Path:
 
     ``scope=user`` 路由到 ``~/.xeyo/memory/user/``，与工作区域隔离。
     """
+    from memory.note_access import identity_lock
+
     target = resolve_memdir_id(wsid, scope=note.scope)
+    with identity_lock(target, note.id):
+        return _write_note_locked(note, target=target)
+
+
+def _write_note_locked(note: MemoryNote, *, target: str, migrate: bool = True) -> Path:
     root = ensure_layout(target)
     path = root / "topics" / topic_filename(note)
     body = dump_frontmatter(note_to_frontmatter(note)) + "\n" + note.content.strip() + "\n"
     path.parent.mkdir(parents=True, exist_ok=True)
+    legacy_paths: list[Path] = []
+    for candidate in (path.parent.glob("*.md") if migrate else ()):
+        if candidate == path:
+            continue
+        try:
+            fm, _ = split_frontmatter(candidate.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, MemorySchemaError):
+            continue
+        if str(fm.get("id") or "").strip() == note.id:
+            legacy_paths.append(candidate)
+    if path.exists():
+        try:
+            fm, _ = split_frontmatter(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, MemorySchemaError) as exc:
+            raise MemorySchemaError("topic_identity_unreadable") from exc
+        if str(fm.get("id") or "").strip() != note.id:
+            raise MemorySchemaError("topic_identity_conflict")
     tmp = path.with_suffix(".md.tmp")
-    tmp.write_text(body, encoding="utf-8")
+    with tmp.open("w", encoding="utf-8", newline="\n") as handle:
+        handle.write(body)
+        handle.flush()
+        os.fsync(handle.fileno())
     os.replace(tmp, path)
+    try:
+        published, _ = split_frontmatter(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, MemorySchemaError) as exc:
+        raise MemorySchemaError("topic_identity_unreadable") from exc
+    if str(published.get("id") or "").strip() != note.id:
+        raise MemorySchemaError("topic_identity_conflict")
+    if legacy_paths:
+        index_path = root / "MEMORY.md"
+        index_text = index_path.read_text(encoding="utf-8")
+        migrated_index = index_text
+        for legacy in legacy_paths:
+            migrated_index = migrated_index.replace(
+                f"topics/{legacy.name}", f"topics/{path.name}"
+            )
+        if migrated_index != index_text:
+            index_tmp = index_path.with_name(index_path.name + ".migrate.tmp")
+            with index_tmp.open("w", encoding="utf-8", newline="\n") as handle:
+                handle.write(migrated_index)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(index_tmp, index_path)
+    # Publish the identity-addressed file before retiring any legacy title path.
+    # A failed write therefore leaves the prior source available.
+    for legacy in legacy_paths:
+        try:
+            legacy.unlink()
+        except OSError:
+            pass
     # A4 write-through：落盘即同步进 sqlite 派生索引（尽力而为，失败静默）
     try:
         from memory import memindex
@@ -381,31 +471,31 @@ def write_note(note: MemoryNote, *, wsid: str) -> Path:
 
 def find_note(wsid: str, note_id: str) -> MemoryNote | None:
     """按 id 找一条 Note（先工作区，再 user 域）。"""
-    for note in load_notes(wsid):
-        if note.id == note_id:
-            return note
-    if wsid != USER_MEMDIR_ID:
-        for note in load_notes(USER_MEMDIR_ID):
-            if note.id == note_id:
-                return note
-    return None
+    from memory.note_access import find_in_domain
+
+    note = find_in_domain(wsid, note_id)
+    if note is None and wsid != USER_MEMDIR_ID:
+        note = find_in_domain(USER_MEMDIR_ID, note_id)
+    return note
 
 
 def touch_last_used(note: MemoryNote, *, wsid: str) -> MemoryNote:
-    """检索命中后更新 last_used_at 并写回（不改索引字节）。
+    """Re-read under the writer lock; unchanged dates do not publish a new file."""
+    from dataclasses import replace
+    from memory.note_access import find_in_domain, identity_lock
 
-    写前重读磁盘（2026-10-05）：调用方持有的 ``note`` 可能是过期快照——
-    与 forget/治理并发时直接写回会把已删笔记复活；仅当磁盘上仍为
-    active 且 id 匹配时才落盘（以磁盘对象为准更新）。
-    """
-    from dataclasses import replace as _replace
-
-    current = find_note(wsid, note.id)
-    if current is None or current.status != "active":
-        return note
-    updated = _replace(current, last_used_at=today_iso(), updated_at=current.updated_at)
-    write_note(updated, wsid=wsid)
-    return updated
+    target = resolve_memdir_id(wsid, scope=note.scope)
+    with identity_lock(target, note.id):
+        current = find_in_domain(target, note.id)
+        if current is None or current.status != "active":
+            return note
+        today = today_iso()
+        if current.last_used_at == today:
+            return current
+        updated = replace(current, last_used_at=today, updated_at=current.updated_at)
+        canonical = memdir_root(target) / "topics" / topic_filename(current)
+        _write_note_locked(updated, target=target, migrate=not canonical.is_file())
+        return updated
 
 
 def load_notes_for_search(wsid: str, *, scope: str = "") -> list[MemoryNote]:

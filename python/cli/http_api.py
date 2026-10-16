@@ -197,13 +197,16 @@ def resolve_plan_http(client: httpx.Client, request_id: str, approved: bool) -> 
 	return _confirmed(r, "计划批准")
 
 
-def interrupt_http(client: httpx.Client, session_id: str) -> bool:
+def interrupt_http(client: httpx.Client, session_id: str, *, expected_turn_id: str | None = None) -> bool:
 	"""True=服务端确认停止；False=服务端没有在跑的回合（幂等 no-op，不是失败）。
 
 	读不出（缺 ok / 正文不是对象）抛 :class:`ApiError`：把"没确认"和"确认了但没东西可停"
 	混成同一个 False，等于让调用方拿猜测填空白。
 	"""
-	r = client.post("/v1/interrupt", json={"session_id": session_id})
+	body = {"session_id": session_id}
+	if expected_turn_id is not None:
+		body["expected_turn_id"] = expected_turn_id
+	r = client.post("/v1/interrupt", json=body)
 	_ensure_ok(r)
 	data = _receipt(r, "停止会话")
 	if "ok" not in data:

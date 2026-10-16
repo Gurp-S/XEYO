@@ -161,6 +161,20 @@ class BudgetTracker:
 	wall_hard_stop: bool = field(default=False, init=False, repr=False)
 	# submit 内部生命周期；执行层读取，模型不可见。
 	lifecycle: AgentLifecycle = field(default_factory=AgentLifecycle, repr=False)
+	shared_budget: Any = field(default=None, repr=False)
+
+	def __post_init__(self) -> None:
+		from engine.shared_budget import inherit_budget
+		if self.shared_budget is None:
+			self.shared_budget = inherit_budget()
+
+	@property
+	def total_used_usd(self) -> float:
+		return self.shared_budget.snapshot()["used_usd"] if self.shared_budget is not None else self.used_usd
+
+	@property
+	def effective_usd_limit(self) -> float | None:
+		return self.shared_budget.usd_limit if self.shared_budget is not None else self.usd_limit
 
 	def set_wall_deadline(self, deadline_ts: float | None, *, started_ts: float | None = None) -> None:
 		"""设置墙钟死线与（可选）起始时刻；None 清除。reset_for_new_submit 不清除。"""
@@ -441,7 +455,7 @@ class BudgetTracker:
 			provider=self.provider,
 			model=self.model,
 			usage=usage,
-			local_only=self.usd_limit is None,
+			local_only=self.usd_limit is None and (self.shared_budget is None or self.shared_budget.usd_limit is None),
 			ts=ts,
 		)
 		self.last_price_authority = basis
@@ -466,7 +480,7 @@ class BudgetTracker:
 			model=self.model,
 			usage=usage,
 			ts=ts if ts is not None else time.time(),
-			local_only=self.usd_limit is None,
+			local_only=self.usd_limit is None and (self.shared_budget is None or self.shared_budget.usd_limit is None),
 		)
 
 	def add_usage(self, usage: dict[str, Any] | None, ts: float | None = None) -> None:
@@ -501,6 +515,8 @@ class BudgetTracker:
 		if self.last_usage_cny is not None and not math.isfinite(self.last_usage_cny):
 			self.last_usage_cny = None
 		self.used_tokens += round_tokens
+		if self.shared_budget is not None:
+			self.shared_budget.settle(round_tokens, self.last_usage_usd)
 		if self.last_usage_usd is None:
 			self.usd_unpriced_turns += 1
 		else:
@@ -544,12 +560,18 @@ class BudgetTracker:
 		无价目的回合不编价；``used_usd`` 仍是已知非负费用的下界。
 		下界达到上限即可判定超限，即使部分回合费用未知。
 		"""
+		if self.shared_budget is not None and self.shared_budget.stop_reason() == "budget_usd":
+			return True
 		if self.usd_limit is None:
 			return False
 		return self.used_usd >= self.usd_limit
 
 	def over_token_budget(self) -> bool:
 		"""是否超过 token 预算。"""
+		if self.shared_budget is not None:
+			s = self.shared_budget.snapshot()
+			if s["token_limit"] is not None and s["used_tokens"] >= s["token_limit"]:
+				return True
 		return self.max_tokens is not None and self.used_tokens > self.max_tokens
 
 	def reset_for_new_submit(
@@ -574,6 +596,7 @@ class BudgetTracker:
 		self._hard_stop_reason = None
 		self.lifecycle.reset()
 		self.used_tokens = 0
+		self.shared_budget = None
 		self.used_usd = 0.0
 		self.last_usage = None
 		self.last_usage_tokens = 0

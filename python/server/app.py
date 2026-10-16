@@ -136,7 +136,7 @@ async def _lifespan(_app: FastAPI):
 
 	async def _sidechain_gc_loop() -> None:
 		"""每小时清理超 TTL 的子 agent 侧链（B6/C9）。"""
-		from engine.subagent_runner import gc_sidechains
+		from server.session_maintenance import collect_expired
 		from memory import journal
 
 		ttl = float(os.environ.get("XEYO_SIDECHAIN_GC_TTL_S", str(7 * 24 * 3600)))
@@ -150,16 +150,7 @@ async def _lifespan(_app: FastAPI):
 		while True:
 			await asyncio.sleep(max(60.0, interval))
 			try:
-				if sessions_root.is_dir():
-					for d in sessions_root.iterdir():
-						if d.is_dir():
-							gc_sidechains(d.name, ttl_seconds=ttl)
-				if journal_root.is_dir():
-					# 只清真正的 journal：派生索引也叫 *.jsonl，把它当 journal 喂给 gc
-					# 会让文件名每小时多长一层 .index（实测堆到 9662 个文件、最深 37 层、
-					# 最长名 250 字符，逼近 260 上限后整轮 GC 会静默失效）。
-					for wsid in journal.journal_workspace_ids(journal_root):
-						journal.gc(wsid, ttl_seconds=ttl)
+				await asyncio.to_thread(collect_expired, sessions_root, journal_root, ttl)
 			except Exception:  # noqa: BLE001
 				# 这一轮没清理成是事实，得说出来：静默吞掉等于让"GC 在跑"这个假设
 				# 一直成立，而它已经不成立了。
@@ -186,19 +177,12 @@ async def _lifespan(_app: FastAPI):
 	gc_task = asyncio.create_task(_sidechain_gc_loop())
 	blob_gc_task = asyncio.create_task(_blob_gc_loop())
 	_ensure_toolchain_prewarm()
-	# 本地模型：仅在设置里启用时拉起。默认关 ⇒ 进程不存在 ⇒ 零常驻占用。
-	# 已在跑（上次会话遗留且 /health 通）则收养，不重复拉起：单实例约束下
-	# 重复拉起会把显存撞爆。
-	try:
-		from localmodels.manager import default_manager as _local_model_manager
-
-		_local_model_manager().autostart()
-	except Exception:  # noqa: BLE001 — 本地模型起不来不应阻断引擎启动
-		_log.warning("local model autostart failed", exc_info=True)
 	try:
 		yield
 	finally:
 		# 41/42 号：hub teardown——driver 全量 disarm + 唤醒任务取消 + 请求环境清。
+		from engine.agent_runtime import shutdown as shutdown_agents
+		await shutdown_agents()
 		try:
 			from server.turn_settlement_hub import shutdown as hub_shutdown
 
@@ -223,14 +207,6 @@ async def _lifespan(_app: FastAPI):
 			shutdown_all_managers()
 		except Exception:  # noqa: BLE001
 			_log.warning("mcp shutdown_all_managers failed", exc_info=True)
-		# 本地模型：连带收掉 llama-server 的 pid 树。「随 XEYO 关闭而关闭」不能只靠
-		# 正常退出路径——异常退出时由 run.json 兜底（XEYO.bat 也读同一份文件）。
-		try:
-			from localmodels.manager import shutdown as local_model_shutdown
-
-			local_model_shutdown()
-		except Exception:  # noqa: BLE001
-			_log.warning("local model shutdown failed", exc_info=True)
 
 
 app = FastAPI(title="XEYO", version="1.11.0", lifespan=_lifespan)
@@ -383,6 +359,10 @@ from server.routers.extensions import router as extensions_router  # noqa: E402
 
 app.include_router(extensions_router)
 
+from server.routers.extension_documents import router as extension_documents_router  # noqa: E402
+
+app.include_router(extension_documents_router)
+
 from server.routers.mcp import router as mcp_router  # noqa: E402
 
 app.include_router(mcp_router)
@@ -390,10 +370,6 @@ app.include_router(mcp_router)
 from server.routers.plugins import router as plugins_router  # noqa: E402
 
 app.include_router(plugins_router)
-
-from server.routers.local_models import router as local_models_router  # noqa: E402
-
-app.include_router(local_models_router, dependencies=[Depends(require_loopback)])
 
 
 @app.exception_handler(HTTPException)

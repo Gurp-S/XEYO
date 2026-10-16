@@ -1,4 +1,4 @@
-"""xeyo serve — thin wrapper around `python -m server`."""
+"""xeyo serve：封装 `python -m server` 的启动入口。"""
 
 from __future__ import annotations
 

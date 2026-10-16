@@ -442,6 +442,10 @@ def tool_allowed_in_mode(name: str, *, tool: object | None = None) -> bool:
 
 def readonly_gate(name: str, *, tool: object | None = None) -> str | None:
 	"""只读模式 gate。返回拒绝原因；agent 模式始终放行。"""
+	if name in {"agent_control", "agent_send"}:
+		from engine.agent_runtime import enabled
+		if enabled():
+			return None  # Starting a write attempt remains gated by its persisted scope.
 	profile = session_permission_profile()
 	if profile == "readonly":
 		# T10 preset：readonly 会话只放只读白名单（等价侧聊只读语义）。
@@ -1307,8 +1311,13 @@ def _evaluate_mcp(
 				matched_rule="mcp_enterprise_deny",
 				prompt=f"MCP tool {raw_name} is denied by enterprise policy",
 			)
-	except Exception:  # noqa: BLE001 — deny 读取失败不放松权限：仍走 tool_policies。
-		pass
+	except Exception:  # enterprise policy read failure denies the MCP call
+		return PolicyDecision(
+			decision=PermissionDecision.DENY,
+			reason="mcp_enterprise_policy_unavailable",
+			matched_rule="mcp_enterprise_policy_unavailable",
+			prompt="MCP enterprise policy is unavailable",
+		)
 
 	# ①.5 F2.5 移除→DENY 门：会话内停用（server 关停/取消勾选）→ 拒绝。
 	# 先于 grant 匹配（impl 返回即终局），用户停用不可被授权穿越。
@@ -1396,8 +1405,14 @@ def _evaluate_mcp_gateway(
 				prompt=f"MCP tool {target.name} is denied by enterprise policy",
 				mcp_target=target.name,
 			)
-	except Exception:  # noqa: BLE001 — deny 读取失败不放松权限
-		pass
+	except Exception:  # enterprise policy read failure denies the MCP call
+		return PolicyDecision(
+			decision=PermissionDecision.DENY,
+			reason="mcp_enterprise_policy_unavailable",
+			matched_rule="mcp_enterprise_policy_unavailable",
+			prompt="MCP enterprise policy is unavailable",
+			mcp_target=target.name,
+		)
 
 	# F2.5 移除→DENY 门：会话内停用（server 关停/取消勾选）→ 拒绝。
 	# 该 DENY 先于 grant 匹配（impl 返回即终局），用户停用不可被授权穿越。
@@ -1549,6 +1564,9 @@ def evaluate_policy_impl(
 	if raw_name == "Mcp":
 		return _evaluate_mcp_gateway(raw_name, tool_input, tool=tool)
 
+	if raw_name in {"agent_control", "agent_apply"}:
+		from engine.agent_permissions import evaluate
+		return evaluate(raw_name, tool_input, cwd=cwd, allowed_paths=allowed_paths)
 	if raw_name in _ALWAYS_ALLOW:
 		return PolicyDecision(
 			decision=PermissionDecision.ALLOW,

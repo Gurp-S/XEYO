@@ -8,6 +8,8 @@ DAG 事件驱动：依赖就绪且与运行中任务无文件 scope 冲突即可
 
 from __future__ import annotations
 
+from tools.host_services import ToolHostServices
+
 import asyncio
 import json
 import logging
@@ -251,6 +253,7 @@ class Scheduler:
         timeout_s: float = 300,
         write_store: WriteStore | None = None,
         runtime_provider: Any | None = None,
+        host_services: ToolHostServices | None = None,
         main_session_id: str = "",
         agent_ids: dict[str, str] | None = None,
         progress_sink: Any | None = None,
@@ -268,6 +271,7 @@ class Scheduler:
         self._default_timeout = max(_MIN_TIMEOUT_S, float(timeout_s))
         self._write_store = write_store or WriteStore(self._root)
         self._runtime_provider = runtime_provider
+        self._host_services = host_services
         self._main_session_id = main_session_id
         self._agent_ids = dict(agent_ids or {})
         self._progress_sink = progress_sink
@@ -695,6 +699,7 @@ class Scheduler:
             main_session_id=self._main_session_id or t.id,
             append_system_prompt=runtime.append_system_prompt,
             date_iso=runtime.date_iso,
+            host_services=getattr(runtime, "host_services", None) or self._host_services,
             recent_changes=recent,
             abort=abort,
             max_turns=max_turns,
@@ -912,7 +917,9 @@ class Scheduler:
     def registry_for(self, task: Task) -> Any:
         from tools.catalog import build_subagent_registry
 
+        runtime = self._runtime_provider() if callable(self._runtime_provider) else None
         return build_subagent_registry(
+            host_services=getattr(runtime, "host_services", None) or self._host_services,
             cwd=str(self._root),
             tool_names=self.whitelist_for(task),
             read_state=self._read_state,

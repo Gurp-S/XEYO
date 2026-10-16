@@ -10,6 +10,7 @@ v2 的 ``/rollback/*`` 路由保持原样作测试/降级路径，本文件不�
 
 from __future__ import annotations
 
+import threading
 from typing import Any
 
 from fastapi import APIRouter, Depends
@@ -97,6 +98,34 @@ def _hotpath(session_id: str) -> RewindHotpath:
     return RewindHotpath(sid, workspace_root=cwd)
 
 
+def _begin_mutation_lease(session_id: str) -> tuple[int, Any]:
+    lease = _pool.try_begin(session_id)
+    if lease is None:
+        raise api_error(409, "session is busy; stop the running turn first", "session_busy")
+    try:
+        from engine.turn_runner import get_turn_runner
+
+        turn_running = bool(get_turn_runner().is_running(session_id))
+    except Exception:  # noqa: BLE001
+        turn_running = False
+    if turn_running:
+        _pool.end(session_id, lease)
+        raise api_error(409, "session is busy; stop the running turn first", "session_busy")
+
+    released = False
+    release_lock = threading.Lock()
+
+    def release() -> None:
+        nonlocal released
+        with release_lock:
+            if released:
+                return
+            released = True
+        _pool.end(session_id, lease)
+
+    return lease, release
+
+
 def _flush_transcript_writes() -> None:
     """回溯改写 transcript 前必须排空异步写队列。
 
@@ -177,9 +206,20 @@ def _resync_memory(session_id: str, mode: str) -> bool:
 
 @router.post("/v1/sessions/{session_id}/rewind")
 def rewind_session(session_id: str, body: RewindRequest) -> dict[str, Any]:
+    hot = _hotpath(session_id)
+    _lease, release = _begin_mutation_lease(hot.session_id)
+    route_ready = threading.Event()
+    restore_done = threading.Event()
+
+    def on_restore_complete() -> None:
+        restore_done.set()
+        if route_ready.is_set():
+            release()
+
+    hot.on_restore_complete = on_restore_complete
     try:
         _flush_transcript_writes()
-        result = _hotpath(session_id).rewind(
+        result = hot.rewind(
             mode=body.mode,
             target_message_id=body.target_message_id,
             checkpoint_id=body.checkpoint_id,
@@ -188,7 +228,13 @@ def rewind_session(session_id: str, body: RewindRequest) -> dict[str, Any]:
             confirmed=body.confirmed,
         )
     except RewindHotpathError as exc:
+        route_ready.set()
+        release()
         _raise_rewind_api_error(exc)
+    except BaseException:
+        route_ready.set()
+        release()
+        raise
     # 成功路径必须返回 result，否则落到下方 AssertionError("unreachable")
     # → 前端弹窗收到 500「unreachable」，Restore 永远到不了「回溯完成」。
     memory_resync = _resync_memory(session_id, body.mode)
@@ -196,19 +242,29 @@ def rewind_session(session_id: str, body: RewindRequest) -> dict[str, Any]:
         _detach_auto_drivers(session_id)
     payload = result.to_dict()
     payload["memory_resync"] = memory_resync
+    route_ready.set()
+    if result.reused or restore_done.is_set():
+        release()
     return payload
 
 
 @router.post("/v1/sessions/{session_id}/rewind/{rewind_id}/undo")
 def rewind_undo(session_id: str, rewind_id: str, body: RewindUndoRequest) -> dict[str, Any]:
+    hot = _hotpath(session_id)
+    _lease, release = _begin_mutation_lease(hot.session_id)
     try:
         _flush_transcript_writes()
-        result = _hotpath(session_id).undo(rewind_id, confirmed=body.confirmed)
+        result = hot.undo(rewind_id, confirmed=body.confirmed)
     except RewindHotpathError as exc:
+        release()
         _raise_rewind_api_error(exc)
+    except BaseException:
+        release()
+        raise
     # undo 把 orphan 行回放进 transcript：内存历史同样要对齐回来。
     memory_resync = _resync_memory(session_id, "continue")
     result["memory_resync"] = memory_resync
+    release()
     return result
 
 
@@ -224,13 +280,24 @@ def rewind_recover(
     body: RewindRecoverRequest,
 ) -> dict[str, Any]:
     """处理 ``recovery_required`` 中间态（§9.2）：retry / abandon。"""
+    hot = _hotpath(session_id)
+    _lease, release = _begin_mutation_lease(hot.session_id)
+    transferred = body.action == "retry"
+    if transferred:
+        hot.on_restore_complete = release
     try:
-        return _hotpath(session_id).recover(
+        result = hot.recover(
             rewind_id, action=body.action, confirmed=body.confirmed
         )
     except RewindHotpathError as exc:
+        release()
         _raise_rewind_api_error(exc)
-    raise AssertionError("unreachable")
+    except BaseException:
+        release()
+        raise
+    if not transferred:
+        release()
+    return result
 
 
 @router.get("/v1/sessions/{session_id}/rewind/{rewind_id}")

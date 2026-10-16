@@ -24,5 +24,6 @@ def render(messages, working, cursor, cwd):
                          media_source_layout=getattr(working, 'compression_source_layout', 'latest-notes-v1'))
     from pathlib import Path
     count = len(Path(projection.view_path).read_text(encoding="utf-8").splitlines())
+    working.c2_evidence_paths = projection.evidence_paths
     archive = f"历史存档: Read(file_path={Path(projection.view_path).resolve().as_posix()!r}, offset=1, limit={min(8, count)}) span=1-{count}"
     return projection.fallback_continuity_text + "\n" + archive

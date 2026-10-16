@@ -17,6 +17,7 @@ import os
 import re
 from pathlib import Path
 from typing import Iterable
+from msgtypes.input_contract import enabled as input_contract_enabled
 
 INCLUDE_RE = re.compile(r"^@include\s+(\S+)\s*$", re.MULTILINE)
 FRONTMATTER_RE = re.compile(r"^---\r?\n(.*?)\r?\n---\r?\n(.*)\Z", re.DOTALL)
@@ -37,7 +38,7 @@ def instruction_char_budget() -> int:
 
 	# 入参 (cwd, workspace_root, budget)，返回 (top_sig, full_sig, text)
 _CACHE: dict[
-	tuple[str, str, int],
+	tuple[str, str, int, bool],
 	tuple[tuple[tuple[str, int, int], ...], tuple[tuple[str, int, int], ...], str],
 ] = {}
 
@@ -49,6 +50,11 @@ def clear_instruction_cache() -> None:
 
 def instruction_cache_signature(cwd: str, workspace_root: str) -> tuple:
 	"""对外暴露的缓存签名，供 PromptAssembler 会话级 memo。"""
+	if input_contract_enabled():
+		# The loader owns dependency invalidation; memo observes its rendered revision.
+		import hashlib
+		text = load_instruction_text(cwd, workspace_root)
+		return (instruction_char_budget(), hashlib.sha256(text.encode("utf-8")).hexdigest())
 	discovered = _discover_paths(cwd, workspace_root)
 	return _signature(discovered)
 
@@ -260,6 +266,9 @@ def _expand_includes(
 		key = str(target)
 		if key in seen:
 			return ""
+		if collect is not None and input_contract_enabled():
+			# Missing includes are dependencies too (creation must invalidate caches).
+			collect.add(target)
 		if not target.is_file():
 			return ""
 		seen.add(key)
@@ -302,6 +311,10 @@ def _chain_files(chain: list[Path]) -> list[Path]:
 	"""展开链上每个目录的 XEYO.md / .xeyo/XEYO.md / .xeyo/rules/*.md。"""
 	files: list[Path] = []
 	for directory in chain:
+		if input_contract_enabled():
+			from memory.instruction_contract import rule_files
+			files.extend(rule_files(directory))
+			continue
 		files.append(directory / "XEYO.md")
 		files.append(directory / ".xeyo" / "XEYO.md")
 		rules_dir = directory / ".xeyo" / "rules"
@@ -390,7 +403,7 @@ def load_instruction_text(cwd: str, workspace_root: str) -> str:
 	top_sig = _signature(discovered)
 	budget = instruction_char_budget()
 
-	key = (str(cwd), str(workspace_root), budget)
+	key = (str(cwd), str(workspace_root), budget, input_contract_enabled())
 	cached = _CACHE.get(key)
 	if cached is not None:
 		cached_top, cached_full, cached_text = cached
@@ -409,7 +422,8 @@ def load_instruction_text(cwd: str, workspace_root: str) -> str:
 		chunks.extend(read_optional(root / "XEYO.local.md", collect=collect))
 	except OSError:
 		pass
-	chunks.extend(read_aliases(workspace_root, collect=collect))
+	if not input_contract_enabled():
+		chunks.extend(read_aliases(workspace_root, collect=collect))
 
 	core: list[str] = []
 	scoped: list[str] = []

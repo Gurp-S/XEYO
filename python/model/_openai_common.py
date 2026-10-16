@@ -47,10 +47,8 @@ def get_shared_httpx_client(timeout: float) -> "httpx.AsyncClient":
 	loop = asyncio.get_running_loop()
 	client = _shared_httpx_clients.get(loop)
 	if client is None:
-		client = httpx.AsyncClient(
-			timeout=httpx.Timeout(timeout),
-			limits=httpx.Limits(max_connections=50, max_keepalive_connections=20),
-		)
+		from model.http_transport import create_client
+		client = create_client(httpx, timeout)
 		_shared_httpx_clients[loop] = client
 	return client
 
@@ -220,6 +218,9 @@ def normalize_messages_for_openai(
 	"""将内部消息转换为 OpenAI chat 格式，并按供应商上限物化图片。"""
 	from media_store import materialize_image_url
 	from model.tool_media import append_tool_media, tool_images
+	from msgtypes.input_contract import enabled as input_contract_enabled
+	from model.tool_media_contract import bind_media, finish_media
+	repaired_media = input_contract_enabled()
 
 	image_count = 0
 	for row in messages:
@@ -348,7 +349,10 @@ def normalize_messages_for_openai(
 				continue
 
 		if role == "tool":
-			pending_tool_images.extend(tool_images(content, provider=provider, model=model, image_count=image_count))
+			images = tool_images(content, provider=provider, model=model, image_count=image_count)
+			result_start = len(out)
+			if not repaired_media:
+				pending_tool_images.extend(images)
 			tool_call_id = m.get("tool_call_id") or ""
 			# dsh 口径（serialize.ts:269-271）：空 tool 输出在 wire 上也需要
 			# 非空内容——部分网关拒收空串 tool 消息，统一给结构性哨兵。
@@ -370,6 +374,8 @@ def normalize_messages_for_openai(
 						"content": str(content or "") or "(no output)",
 					}
 				)
+			if repaired_media:
+				bind_media(out[result_start:], images, str(tool_call_id))
 	pruned, dropped = prune_orphan_tool_rows(out)
 	if dropped:
 		# 只记数量与前几个 id（工具调用 id 非内容），便于定位投影链上的改写点。
@@ -385,6 +391,9 @@ def normalize_messages_for_openai(
 			record_wire_drop(dropped_ids=dropped, target="openai_compat")
 		except Exception:  # noqa: BLE001
 			logging.getLogger(__name__).debug("record_wire_drop failed", exc_info=True)
+	if repaired_media:
+		return finish_media(pruned)
+	if dropped:
 		return pruned
 	append_tool_media(out, pending_tool_images)
 	return out

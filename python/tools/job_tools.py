@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+from tools.host_services import HostBoundTool
 from engine.abort import AbortController
 from tools.base_tool import ToolResult
 from tools.error_taxonomy import INVALID_ARGUMENT, NOT_FOUND, TRANSIENT_INFRA
@@ -50,12 +51,6 @@ def _coerce_bool(value: Any, default: bool = False) -> bool:
 	return default
 
 
-def _registry() -> Any:
-	from server.job_registry import get_job_registry
-
-	return get_job_registry()
-
-
 def _session_id() -> str:
 	try:
 		from engine.workspace_context import get_workspace_context
@@ -81,7 +76,7 @@ def _clip(text: str, limit: int) -> str:
 	return text if len(text) <= limit else text[:limit] + "…"
 
 
-class JobOutputTool:
+class JobOutputTool(HostBoundTool):
 	name = JOB_OUTPUT_TOOL_NAME
 
 	@staticmethod
@@ -172,7 +167,7 @@ class JobOutputTool:
 		except Exception:  # noqa: BLE001
 			pass
 		try:
-			reg = _registry()
+			reg = self._host_services.job_registry()
 			sid = _owner_only(_session_id())
 			# 先拿变更序号再读：若生产线程在 read 后、注册 waiter 前
 			# 写入输出，wait_for_change 会用序号补上这个窗口，避免丢唤醒。
@@ -238,7 +233,7 @@ class JobOutputTool:
 			)
 
 
-class JobListTool:
+class JobListTool(HostBoundTool):
 	name = JOB_LIST_TOOL_NAME
 
 	@staticmethod
@@ -278,7 +273,7 @@ class JobListTool:
 		except Exception:  # noqa: BLE001
 			pass
 		try:
-			jobs = _registry().snapshot_list(_owner_only(_session_id()))
+			jobs = self._host_services.job_registry().snapshot_list(_owner_only(_session_id()))
 		except Exception:  # noqa: BLE001
 			jobs = []
 		if not jobs:
@@ -296,7 +291,7 @@ class JobListTool:
 		return ToolResult(content="\n".join(lines))
 
 
-class JobKillTool:
+class JobKillTool(HostBoundTool):
 	name = JOB_KILL_TOOL_NAME
 
 	@staticmethod
@@ -358,7 +353,7 @@ class JobKillTool:
 		except Exception:  # noqa: BLE001 — 回退 registry 路径
 			pass
 		try:
-			msg = _registry().kill(job_id, _owner_only(_session_id()), reason)
+			msg = self._host_services.job_registry().kill(job_id, _owner_only(_session_id()), reason)
 			unknown = msg.startswith("unknown job")
 			return ToolResult(
 				content=msg,

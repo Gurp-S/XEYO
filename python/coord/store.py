@@ -95,6 +95,7 @@ class Task:
     findings: list[dict] = field(default_factory=list)
     created_at: float = 0.0
     updated_at: float = 0.0
+    deps: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -102,6 +103,7 @@ class Task:
             "goal_id": self.goal_id,
             "title": self.title,
             "scope": list(self.scope),
+            "deps": list(self.deps),
             "model": self.model,
             "max_turns": int(self.max_turns),
             "required_tools": list(self.required_tools),
@@ -125,6 +127,7 @@ class Task:
             goal_id=str(raw.get("goal_id") or ""),
             title=str(raw.get("title") or ""),
             scope=[str(p) for p in (raw.get("scope") or [])],
+            deps=[str(p) for p in (raw.get("deps") or [])],
             model=str(raw.get("model") or ""),
             max_turns=int(raw.get("max_turns") or 0),
             required_tools=[str(t) for t in (raw.get("required_tools") or [])],

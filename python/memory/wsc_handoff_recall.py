@@ -1,6 +1,4 @@
 """Read-only exact transcript sources for the isolated handoff request."""
-import json
-
 NAME = "HandoffSource"
 MAX_CHARACTERS = 4096
 
@@ -27,10 +25,8 @@ def read(arguments, sources):
     if len(matches) != 1:
         raise ValueError("handoff_source_not_unique")
     row = matches[0]
-    from synaptic.task_fact_sources import source_text
-    text = source_text(row)
-    if text is None:
-        text = json.dumps(row.get("content"), ensure_ascii=False, separators=(",", ":"))
+    from memory.wsc_handoff_source_content import render
+    text = render(row)
     if query is not None:
         from memory.wsc_handoff_search import passages
         return {"message_id": identity, "role": row.get("role"), "query": query,

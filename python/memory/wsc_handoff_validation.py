@@ -42,8 +42,6 @@ def validate(raw, messages, *, require_phase=False):
                 if recognized:
                     details['defined_field_paths'] = [f'$.{field}' for field in recognized]
         raise StateError("handoff_invalid_state", **details)
-    from memory.wsc_handoff_facts import validate_facts
-    validate_facts(raw, messages)
     ids = [item.get("id") for item in raw["todos"]]
     invalid = [index for index, uid in enumerate(ids) if not isinstance(uid, str) or not uid.strip()]
     # The general parser strips surrounding whitespace. Uniqueness belongs to
@@ -53,6 +51,10 @@ def validate(raw, messages, *, require_phase=False):
     if invalid or duplicates:
         raise StateError("handoff_step_identity_invalid", field="$.todos[*].id",
                          missing_or_blank_indices=invalid, duplicate_normalized_ids=duplicates)
+    from memory.wsc_handoff_contract import normalized
+    raw = normalized(raw, parsed)
+    from memory.wsc_handoff_facts import validate_facts
+    validate_facts(raw, messages)
     checkpoint = parsed.checkpoint
     from synaptic.task_observations import validate_sources
     validate_sources({**raw, "checkpoint": checkpoint}, messages)

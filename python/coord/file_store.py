@@ -72,7 +72,10 @@ def _atomic_write_json(path: Path, data: Any) -> bool:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(path.suffix + f".tmp{os.getpid()}")
-        tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        with tmp.open("w", encoding="utf-8") as handle:
+            handle.write(json.dumps(data, ensure_ascii=False))
+            handle.flush()
+            os.fsync(handle.fileno())
         os.replace(tmp, path)
         return True
     except OSError as exc:
@@ -217,35 +220,48 @@ class CoordFileStore:
         return self.coord_dir / "tasks" / f"{task_id}.json"
 
     def create_task(self, task: Task) -> Task:
+        from coord.task_dependencies import enabled, publish
+        if enabled():
+            report = publish(self, [(task, task.deps)], [])
+            if not report["created"]:
+                raise ValueError(str(report["rejected"]))
+            return task
         _atomic_write_json(self._task_path(task.task_id), task.to_dict())
         return task
 
     def load_task(self, task_id: str) -> Task | None:
         raw = _read_json(self._task_path(task_id))
         if not isinstance(raw, dict) or not raw.get("task_id"):
-            return None
+            from coord.task_batches import load
+            if self._task_path(task_id).exists():
+                raise OSError("invalid_task_snapshot")
+            return load(self).get(task_id)
         return Task.from_dict(raw)
 
     def list_tasks(self, status: str | None = None) -> list[Task]:
-        out: list[Task] = []
+        from coord.task_batches import load
+        tasks = load(self)
         try:
             paths = sorted((self.coord_dir / "tasks").glob("task_*.json"))
         except OSError:
-            return out
+            paths = []
         for p in paths:
             raw = _read_json(p)
             if not isinstance(raw, dict):
-                continue
+                raise OSError("invalid_task_snapshot")
             t = Task.from_dict(raw)
-            if status is None or t.status == status:
-                out.append(t)
-        return out
+            tasks[t.task_id] = t
+        return [task for task in tasks.values() if status is None or task.status == status]
 
     def _save_task(self, task: Task) -> None:
-        _atomic_write_json(self._task_path(task.task_id), task.to_dict())
+        if not _atomic_write_json(self._task_path(task.task_id), task.to_dict()):
+            raise OSError("task persistence failed")
 
     def claim_task(self, task_id: str, worker_id: str, base_commit: str) -> Task | None:
         """CAS 认领：并发下恰好一个成功；锁竞争超时 → None（守方重试）。"""
+        from coord.task_dependencies import enabled, claim
+        if enabled():
+            return claim(self, task_id, worker_id, base_commit)
         with self._guard(f"task-{task_id}") as ok:
             if not ok:
                 return None
@@ -261,6 +277,11 @@ class CoordFileStore:
     def task_transition(self, task_id: str, worker_id: str, action: str,
                         findings: list[dict] | None = None) -> Task | None:
         """状态转换统一入口：action ∈ review|resume|complete|reopen。"""
+        from coord.task_dependencies import graph_guard
+        with graph_guard(self) as ok:
+            return self._transition_locked(task_id, worker_id, action, findings) if ok else None
+
+    def _transition_locked(self, task_id, worker_id, action, findings):
         with self._guard(f"task-{task_id}") as ok:
             if not ok:
                 return None
@@ -292,6 +313,11 @@ class CoordFileStore:
 
     def _task_cas(self, task_id: str, fn) -> Task | None:
         """锁内 load → 纯函数转换 → save 的通用骨架。fn 返回 None 即拒绝。"""
+        from coord.task_dependencies import graph_guard
+        with graph_guard(self) as ok:
+            return self._cas_locked(task_id, fn) if ok else None
+
+    def _cas_locked(self, task_id, fn):
         with self._guard(f"task-{task_id}") as ok:
             if not ok:
                 return None

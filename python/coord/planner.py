@@ -87,6 +87,9 @@ class Planner:
             seen_ids.add(task.task_id)
             drafts.append((task, [str(d) for d in (sp.get("deps") or [])]))
 
+        from coord.task_dependencies import enabled, publish
+        if enabled():
+            return publish(self.store, drafts, rejected)
         for task, deps in drafts:
             for d in deps:
                 if d not in seen_ids and self.store.load_task(d) is None:

@@ -260,7 +260,8 @@ def build_rg_args(input_data: "GrepInput") -> list[str]:
 	if mode == "files_with_matches":
 		args.append("-l")
 	elif mode == "count":
-		args.append("-c")
+		# The parser consumes path:count even for one explicitly named file.
+		args.extend(["-c", "-H"])
 
 	if mode == "content" and input_data.show_line_numbers:
 		args.append("-n")

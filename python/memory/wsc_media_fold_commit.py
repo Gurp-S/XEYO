@@ -4,15 +4,13 @@ The existing caller serializes session mutation. Immutable orphan publications
 may remain on refusal; this module never deletes or repairs cold artifacts.
 """
 from copy import deepcopy
-import ast
 import json
 from pathlib import Path
 
 
 def fold(operation, messages, working, **kwargs):
     from memory.wsc_media_archive import images
-    from memory.wsc_publication import _READ
-    from memory.wsc_head_store import region_seal
+    from memory.wsc_head_store import region_seal, load
     from synaptic.contracts import verify_object
     staged = deepcopy(working)
     emitted = operation(messages, staged, **kwargs)
@@ -23,11 +21,11 @@ def fold(operation, messages, working, **kwargs):
         if required:
             covered = set()
             seals = {}
-            head = emitted[0].get('content', '') if emitted else ''
-            for match in _READ.finditer(head if isinstance(head, str) else ''):
-                if 'media-index.v-sha256-' not in match.group(1):
-                    continue
-                name = ast.literal_eval(match.group(1))
+            frozen = load(staged.session_id, cwd=str(kwargs.get('cwd') or ''),
+                          cursor=staged.compact_cursor, messages=messages,
+                          source_layout=staged.compression_source_layout)
+            references = frozen.evidence_paths if frozen is not None else staged.c2_evidence_paths
+            for name in references:
                 path = Path(name)
                 if not path.name.startswith('media-index.v-sha256-'):
                     continue
@@ -39,7 +37,11 @@ def fold(operation, messages, working, **kwargs):
                     record = json.loads(line)
                     end = record['region_end']
                     layout = staged.compression_source_layout
-                    if type(end) is not int or not staged.compact_cursor <= end <= len(messages):
+                    # A retained head can reference an earlier valid catalog.
+                    # Coverage is the union of exact sources, not catalog age.
+                    if (type(end) is not int or not 0 < end <= len(messages)
+                            or type(record.get('source_index')) is not int
+                            or not 0 <= record['source_index'] < end):
                         raise ValueError('media_fold_catalog_source_mismatch')
                     if end not in seals:
                         seals[end] = region_seal(messages, end, source_layout=layout)

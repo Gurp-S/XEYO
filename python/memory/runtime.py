@@ -2398,12 +2398,19 @@ def maybe_force_compact_on_pressure(
 
 
 def force_compact(messages, working, **kwargs):
-	"""Explicit fold; opt-in media retirement commits working state after coverage."""
+	"""Explicit fold; all WSC generation publication shares one commit boundary."""
 	from memory.wsc_media_archive import ENV
+	from memory.wsc_projection import live_enabled
+	from memory.wsc_head_store import enabled as store_enabled
+	operation = _force_compact_impl
 	if os.environ.get(ENV, '').strip().lower() in {'1', 'true', 'yes', 'on'}:
 		from memory.wsc_media_fold_commit import fold
-		return fold(_force_compact_impl, messages, working, **kwargs)
-	return _force_compact_impl(messages, working, **kwargs)
+		operation = lambda rows, staged, **opts: fold(_force_compact_impl, rows, staged, **opts)
+	if live_enabled() and store_enabled():
+		from memory.wsc_generation_commit import commit
+		return commit(messages, working, cwd=kwargs.get('cwd'),
+		              build=lambda staged: operation(messages, staged, **kwargs))
+	return operation(messages, working, **kwargs)
 
 
 def _force_compact_impl(

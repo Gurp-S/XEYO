@@ -116,6 +116,7 @@ async def generate(model, messages, sources, schema, abort, *, account, admit_ne
         return measured.input_tokens + output_tokens <= capacity
     anchors = anchor_materialize(sources, presented_ids=presented_ids, admit=admit_anchor if capacity else None)
     request[-1]["content"] = anchor_base if anchors is None else anchor_content(anchors)
+    presented_ids.update(row["message_id"] for row in (anchors or {}).get("sources", []))
     from memory.wsc_counted_input import CountedInput
     counted_client = CountedInput(client, abort)
     seen = {block.get("id") for row in sources for block in tool_use_blocks(row)}
@@ -142,15 +143,8 @@ async def generate(model, messages, sources, schema, abort, *, account, admit_ne
         # Only admitted requests count as presentation. A tool result prepared
         # locally but never sent cannot prove the model received its contents.
         if attempt == 0:
-            for record in (workset["sources"] + recent["sources"] + (delta["sources"] if delta else [])
-                           + (anchors["sources"] if anchors else [])):
-                coverage.full(record["message_id"])
-            for source in sources:
-                identity = str(source.get("message_id") or source.get("id") or "")
-                text = coverage.texts.get(identity)
-                if text is not None and any(row.get("role") == source.get("role")
-                                             and row.get("content") == text for row in messages):
-                    coverage.full(identity)
+            for identity in presented_ids:
+                coverage.full(identity)
         for value in pending_source_results:
             coverage.source_result(value)
         pending_source_results.clear()
@@ -169,8 +163,8 @@ async def generate(model, messages, sources, schema, abort, *, account, admit_ne
         except OutputLimitError as exc:
             exhausted = exc
         finally:
-            await stream.aclose()
-            account(getattr(client, "last_usage", None))
+            from memory.wsc_stream_cleanup import close_and_account
+            await close_and_account(stream, client, account)
         if exhausted is not None:
             from memory.wsc_handoff_exhaustion import next_limit
             larger_output = next_limit(exhausted, output_tokens)

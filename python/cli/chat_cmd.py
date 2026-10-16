@@ -48,7 +48,10 @@ def build_chat_engine(
 ) -> tuple[QueryEngine, int]:
 	messages = load_session_messages(session_id)
 	backend = "fake" if provider == "fake" else provider
+	from server.engine_services import product_runtime_services
+
 	engine = build_default_engine(
+		runtime_services=product_runtime_services(),
 		cwd=cwd,
 		model_backend=backend,
 		session_id=session_id,
@@ -281,7 +284,10 @@ async def chat_async(
 		# 一次性 / 脚本路径：退出码就是收据。引擎把一轮判为 error result，或本轮
 		# 直接抛异常，都必须以非 0 退出——否则管道上游看到 0 就当这轮成功了。
 		try:
+			from engine.agent_host_lifetime import attempt_snapshot, finish_session
+			previous_attempts = await attempt_snapshot(engine.session_id)
 			await _one(prompt.strip())
+			agents_ok = await finish_session(engine.session_id, previous_attempts)
 		except Exception as exc:  # noqa: BLE001 — SystemExit/KeyboardInterrupt 不在内
 			renderer.stop_status()
 			console.print(
@@ -289,7 +295,7 @@ async def chat_async(
 				f"{type(exc).__name__}: {escape(str(exc))}"
 			)
 			return 1
-		return 1 if renderer.last_turn_errored else 0
+		return 1 if renderer.last_turn_errored or not agents_ok else 0
 	if print_mode:
 		console.print("[bold red]--print requires a prompt[/bold red]")
 		return 2
@@ -317,4 +323,10 @@ async def chat_async(
 
 
 def run_chat(**kwargs: Any) -> int:
-	return asyncio.run(chat_async(**kwargs))
+	async def owned_chat() -> int:
+		try:
+			return await chat_async(**kwargs)
+		finally:
+			from engine.agent_runtime import shutdown
+			await shutdown()
+	return asyncio.run(owned_chat())

@@ -135,10 +135,6 @@ def _sync_notes_content_hash(domain: str, directory, *, loader) -> None:
         for name in known:
             if name not in entries:
                 conn.execute("DELETE FROM notes WHERE domain = ? AND path = ?", (domain, name))
-        conn.execute(
-            "INSERT OR REPLACE INTO meta(k, v) VALUES ('schema_version', ?)",
-            (str(getattr(_TARGET, "_SCHEMA_VERSION", 1)),),
-        )
         conn.commit()
     finally:
         conn.close()

@@ -54,6 +54,10 @@ def git(cwd: str | Path, *args: str, check: bool = True) -> subprocess.Completed
 
 def task_short(task_id: str) -> str:
     """task 短名：字母数字前 16 位（Windows 路径长度防线）。"""
+    from engine.agent_runtime import enabled
+    if enabled():
+        from coord.worktree_identity import task_resource
+        return task_resource(task_id)
     raw = (task_id or "").strip()
     if raw.startswith("task_"):
         raw = raw[len("task_"):]
@@ -93,6 +97,9 @@ class WorktreeManager:
             if not acquired:
                 raise WorktreeError("worktree metadata lock unavailable")
             if path.exists():
+                from engine.agent_runtime import enabled
+                if enabled():
+                    raise WorktreeError("worktree_resource_busy")
                 self._remove_unlocked(task_id)
             git(self.repo, "worktree", "add", "-b", branch, str(path), base_commit or "HEAD")
         return WorktreeHandle(repo=self.repo, path=path, branch=branch, task_id=task_id)

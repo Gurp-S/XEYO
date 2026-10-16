@@ -36,6 +36,7 @@ DENY 黑名单（``bash_policy._DENY_RULES``）、密钥路径、策略文件、
 from __future__ import annotations
 
 import re
+import os
 from dataclasses import dataclass
 
 #: 放行类别（字符串常量；调用方直接用作 policy matched_rule 后缀）。
@@ -641,7 +642,9 @@ def _scan(text: str) -> tuple[list[list[str]], str]:
 	while i < n:
 		ch = text[i]
 		if quote:
-			if ch == "\\" and quote == '"' and i + 1 < n:
+			if quote == '"' and (ch == "`" or (ch == "$" and i + 1 < n and text[i + 1] == "(")):
+				return segments, R_SUBSTITUTION
+			if ch == "\\" and quote == '"' and i + 1 < n and os.name != "nt":
 				buf.append(text[i + 1])
 				i += 2
 				continue
@@ -656,7 +659,7 @@ def _scan(text: str) -> tuple[list[list[str]], str]:
 			quote = ch
 			i += 1
 			continue
-		if ch == "\\" and i + 1 < n:
+		if ch == "\\" and i + 1 < n and os.name != "nt":
 			buf.append(text[i + 1])
 			i += 2
 			continue
@@ -732,6 +735,12 @@ def _scan(text: str) -> tuple[list[list[str]], str]:
 		return segments, R_QUOTE
 	flush_segment()
 	return segments, ""
+
+
+
+def command_segments(command: str) -> tuple[list[list[str]], str]:
+	"""Return shell executable segments and any structural rejection reason."""
+	return _scan(command)
 
 
 def _flag_hit(args: tuple[str, ...], flags: frozenset[str]) -> bool:
@@ -864,8 +873,8 @@ def _classify_interpreter(program: str, args: tuple[str, ...]) -> str:
 			rest = rest[1:]
 		if not rest:
 			return ""
-		first = rest[0].lower()
-		if first in ("-v", "--version"):
+		first = rest[0]
+		if first in ("-V", "--version"):
 			return READONLY
 		if first == "-m":
 			if len(rest) >= 2:
@@ -880,7 +889,7 @@ def _classify_interpreter(program: str, args: tuple[str, ...]) -> str:
 			return ""
 		return DEV  # python <script.py>：跑工作区里的脚本
 	if program == "node":
-		first = args[0].lower()
+		first = args[0]
 		if first in ("-v", "--version"):
 			return READONLY
 		if first.startswith("-"):

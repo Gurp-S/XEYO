@@ -59,9 +59,8 @@ NOTICE_SOURCE_LINE = (
 #: 等于没转义——test_body_cannot_break_out_of_the_envelope 就是钉这条的）。
 _NOTICE_CLOSE_ESCAPED = f"[&lt;/{NOTICE_ENVELOPE_CLOSE[1:-1]}&gt;]"
 
-#: 对齐 Codex ``MAX_ADDITIONAL_CONTEXT_VALUE_TOKENS = 1_000`` 的中段截断。
-#: 用字符预算近似（本仓无跨厂商 token 计数的无副作用入口），截断保头尾、丢中段，
-#: 与 Codex 的 truncate_middle 同向：两端最可能含结论与最新状态。
+#: 旧路径的渲染预算；输入契约路径由生产/聚合阶段统一持有预算。
+#: 单独的 truncate_notice_body 仍供显式选择摘要视图的调用者使用。
 NOTICE_BODY_MAX_CHARS = 4000
 _NOTICE_TRUNCATED_MARK = "\n…[中段已截断]…\n"
 
@@ -126,9 +125,12 @@ def wrap_notice(body: str, key: str = "", *, include_source_line: bool = True) -
 	"""
 	if not isinstance(body, str):
 		return ""
-	inner = truncate_notice_body(
-		_unwrap_notice(body).strip(), _body_limit(key)
-	)
+	from msgtypes.input_contract import enabled
+	# Budgeting belongs to the producer/aggregate stage. Rendering and persistence
+	# must not truncate a second time, especially for complete event/skill payloads.
+	inner = _unwrap_notice(body).strip()
+	if not enabled():
+		inner = truncate_notice_body(inner, _body_limit(key))
 	if not inner:
 		return ""
 	inner = inner.replace(NOTICE_ENVELOPE_CLOSE, _NOTICE_CLOSE_ESCAPED)
@@ -197,6 +199,7 @@ def append_notice_fragment(
 		{
 			"role": "user",
 			"content": wrap_notice(t, key, include_source_line=include_source_line),
+			"note_key": key or "runtime_notice",
 		},
 	]
 

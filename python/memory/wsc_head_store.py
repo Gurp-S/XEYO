@@ -80,6 +80,7 @@ class FrozenHead:
     region_end: int
     view_path: str = ""
     lifecycle: dict = dataclasses.field(default_factory=dict)
+    evidence_paths: tuple[str, ...] = ()
 
 
 def region_seal(messages: list[dict], region_end: int, *, source_layout: str = LEGACY) -> str:
@@ -106,6 +107,7 @@ def save(
     view_path: str = "",
     source_layout: str = LEGACY,
     lifecycle: dict | None = None,
+    evidence_paths: tuple[str, ...] = (),
 ) -> bool:
     """头刚建出来时写一份。只在**折叠事件**上调用（不是每枪）⇒ 写放大 = 折叠次数。"""
     if not text or not enabled():
@@ -114,14 +116,15 @@ def save(
         validate(source_layout)
         from synaptic.contracts import enabled as contracts_enabled
         from memory.wsc_publication import manifest
-        publication = manifest(text, view_path, cwd, region_seal(messages, region_end, source_layout=source_layout), lifecycle) if contracts_enabled() else None
+        seal = region_seal(messages, region_end, source_layout=source_layout)
+        publication = manifest(text, view_path, cwd, seal, lifecycle, evidence_paths=evidence_paths) if contracts_enabled() else None
         body = json.dumps(
             {
                 "ver": _VER,
                 "cwd": str(cwd or ""),
                 "cursor": int(cursor),
                 "region_end": int(region_end),
-                "seal": region_seal(messages, region_end, source_layout=source_layout),
+                "seal": seal,
                 "text": text,
                 "view_path": str(view_path or ""),
                 **({"publication": publication} if publication is not None else {}),
@@ -154,10 +157,17 @@ def save(
     return True
 
 
-def _read_record(session):
-    path = path_for(session)
+def _read_record(session, record_path=None):
+    path = path_for(session) if record_path is None else Path(record_path)
     if path.stat().st_size > _MAX_BYTES:
         return None
+    if record_path is not None:
+        from synaptic.contracts import verify_object
+        expected = path_for(session)
+        if (path.parent.resolve() != expected.parent.resolve()
+                or not path.name.startswith(expected.stem + '.v-sha256-')
+                or not verify_object(path)):
+            return None
     rec = json.loads(path.read_text(encoding="utf-8"))
     return rec if isinstance(rec, dict) else None
 
@@ -193,13 +203,14 @@ def load(
     messages: list[dict],
     allow_advance: bool = False,
     source_layout: str = LEGACY,
+    record_path: str | None = None,
 ) -> "FrozenHead | None":
     """接回头字节；任一封印不成立返回 None（调用方重建）。顺序 = 从便宜到贵。"""
     if not enabled():
         return None
     try:
         validate(source_layout)
-        rec = _read_record(session)
+        rec = _read_record(session, record_path)
         if rec is None:
             return None
         if int(rec.get("ver") or 0) != _VER:
@@ -228,7 +239,8 @@ def load(
         if not isinstance(view_path, str):
             view_path = ""
         return FrozenHead(text=text, cwd=rec_cwd, cursor=rec_cursor, region_end=end, view_path=view_path,
-                          lifecycle=rec.get("lifecycle") or {})
+                          lifecycle=rec.get("lifecycle") or {},
+                          evidence_paths=tuple((rec.get('publication') or {}).get('objects', {})))
     except Exception:  # noqa: BLE001 - 读坏了就当没有
         _log.debug("wsc head store read failed", exc_info=True)
         return None

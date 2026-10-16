@@ -15,6 +15,8 @@
 
 from __future__ import annotations
 
+from tools.host_services import ToolHostServices
+
 from dataclasses import dataclass, field
 import logging
 from pathlib import Path
@@ -79,6 +81,11 @@ def _consume_parked_followup(
     返回 False = 队列为空（调用方结束 follow-up 循环）。整段无 await（同步块），
     与 abort 检查之间不会半更新；meta 退休失败由 retire 内部静默兜住。
     """
+    from engine.agent_identity import current_agent
+    identity = current_agent.get()
+    if identity is not None:
+        from engine.agent_mailbox import deliver_sync
+        return bool(deliver_sync(sub_store, main_session_id, agent_id, identity.attempt_id))
     from engine.live_agents import drain_agent_inbox, post_to_agent
     from msgtypes.message import user_message
 
@@ -153,9 +160,9 @@ class SubagentRuntime:
     workspace_root: str | Path
     append_system_prompt: str = ""     # 基础系统提示（如 identity + tools hint）
     date_iso: str = ""                 # 固化日期，保证左段字节稳定
-    # 与主会话同册的 ReadFileState；缺省时子 agent 自建（会破坏主会话
-    # 的 Edit 新鲜度校验，见 catalog.shared_read_state）。
+    # Legacy compatibility only. Managed attempts use private observation state.
     read_state: Any | None = None
+    host_services: ToolHostServices | None = None
 
 
 @dataclass
@@ -193,8 +200,8 @@ async def run_subagent(
     abort: Any = None,
     max_turns: int = DEFAULT_SUB_MAX_TURNS,
     max_tool_calling: int = DEFAULT_SUB_MAX_TOOL_CALLING,
-    provider: str = "deepseek",
-    model: str = "deepseek-v4-flash",
+    provider: str | None = None,
+    model: str | None = None,
     append_system_prompt: str = "",
     date_iso: str = "",
     on_text_delta: Any = None,
@@ -204,6 +211,7 @@ async def run_subagent(
     write_scope_paths: list[str] | None = None,
     read_state: Any | None = None,
     allow_followups: bool = True,
+    host_services: ToolHostServices | None = None,
 ) -> SubagentRunResult:
     """spawn 一个子 agent 并驱动 query_loop；写侧链；返回可回传的结果。
 
@@ -220,6 +228,16 @@ async def run_subagent(
     from permissions.write_scope import write_scope as write_scope_cm
 
     abort = abort if abort is not None else AbortController()
+    from engine.flag_definitions import enabled
+    if enabled("XEYO_SUBAGENT_RESULT_CONTRACT"):
+        from tools.agent_tool.result_contract import child_client, model_identity
+        provider, model = model_identity(model_client, provider=provider, model=model)
+        from engine.agent_identity import current_agent
+        if not (enabled("XEYO_AGENT_RUNTIME_V2") and current_agent.get() is not None):
+            model_client = child_client(model_client)
+    else:
+        provider = provider or "deepseek"
+        model = model or "deepseek-v4-flash"
     if getattr(abort, "aborted", False):
         return SubagentRunResult(
             conclusion="interrupted", is_error=True, stop_reason="aborted"
@@ -237,11 +255,17 @@ async def run_subagent(
 
     # T14：标记子代理上下文——pre_llm_inject 的净化清单据此跳过易变块
     # （peer presence / 文件冲突 / 浏览器预览 / repeat guard 等）。
-    from permissions.policy import set_in_subagent
+    from permissions.policy import in_subagent, set_in_subagent
 
+    was_subagent = in_subagent()
     set_in_subagent(True)
+    from contextlib import nullcontext
+    from engine.agent_runtime import enabled as managed
+    from engine.agent_identity import child_execution_context
+    isolation = (child_execution_context(workspace_root, main_session_id, agent_id)
+                 if managed() else nullcontext())
     try:
-        with write_scope_cm(scope_paths):
+        with isolation, write_scope_cm(scope_paths):
             out = await _run_subagent_body(
                 workspace_root=workspace_root,
                 agent_id=agent_id,
@@ -267,12 +291,13 @@ async def run_subagent(
                 write_scope_paths=scope_paths,
                 read_state=read_state,
                 allow_followups=allow_followups,
+                host_services=host_services,
             )
             out.read_only = len(scope_paths) == 0
             out.max_turns = max_turns
             return out
     finally:
-        set_in_subagent(False)
+        set_in_subagent(was_subagent)
 
 
 async def _run_subagent_body(
@@ -301,6 +326,7 @@ async def _run_subagent_body(
     write_scope_paths: list[str] | None = None,
     read_state: Any | None = None,
     allow_followups: bool = True,
+    host_services: ToolHostServices | None = None,
 ) -> SubagentRunResult:
     from engine.budget import BudgetTracker
     from engine.query_loop import query_loop
@@ -316,36 +342,43 @@ async def _run_subagent_body(
     from session.message_store import MessageStore
     from tools.catalog import build_subagent_registry
     from tools.fileio.read_state import ReadFileState
+    from msgtypes.input_contract import enabled as input_contract_enabled
 
     # 1) 注入式受限工具注册表（多 Agent 写路径：写工具拿到 write_store）
+    from engine.agent_runtime import enabled as managed
+    if managed():
+        read_state = ReadFileState()
+        tool_whitelist = sorted(set(tool_whitelist) | {"agent_send", "agent_control"})
     reg = build_subagent_registry(
         cwd=str(workspace_root),
         tool_names=tool_whitelist,
         read_state=read_state or ReadFileState(),
         write_store=write_store,
         agent_id=agent_id,
+        host_services=host_services,
     )
     sub_tool_names = sorted(getattr(reg, "_tools", {}).keys())
 
-    # 2) A3 稳定前缀：瘦工人提示——不含 XEYO.md / Memory 索引；再 + 动态尾部
+    # 输入契约路径继承项目规则；委派任务不抬升到 system，Memory 索引仍独立。
     build_parts = getattr(prompt_assembler, "build_system_parts", None)
     if callable(build_parts):
         base_prefix, _breakdown = await build_parts(
             cwd=str(workspace_root), model=model, tools=reg,
             custom_system_prompt=None, append_system_prompt=append_system_prompt,
             date_iso=date_iso, tool_names=sub_tool_names,
-            include_context_blocks=False,
+            include_context_blocks=input_contract_enabled(),
         )
     else:
         base_prefix = await prompt_assembler.build_system(
             cwd=str(workspace_root), model=model, tools=reg,
             custom_system_prompt=None, append_system_prompt=append_system_prompt,
             date_iso=date_iso, tool_names=sub_tool_names,
-            include_context_blocks=False,
+            include_context_blocks=input_contract_enabled(),
         )
     ctx = build_subagent_context(
         base_prefix=base_prefix,
-        task_prompt=f"{task_prompt.rstrip()}\n\n{SUBAGENT_MEMORY_INSTRUCTION}",
+        task_prompt=(task_prompt if input_contract_enabled() else
+                     f"{task_prompt.rstrip()}\n\n{SUBAGENT_MEMORY_INSTRUCTION}"),
         recent_changes=recent_changes,
         tool_whitelist=tool_whitelist,
     )
@@ -362,7 +395,10 @@ async def _run_subagent_body(
     # Missing source is an empty first run; failed recovery is not.
     prior_msgs = messages_from_transcript(sidechain,
         session_id=scoped_session_id(main_session_id, agent_id))
-    if prior_msgs:
+    if input_contract_enabled():
+        from engine.subagent_input_contract import initial_messages
+        sub_store = MessageStore(initial=initial_messages(prior_msgs, task_prompt, recent_changes))
+    elif prior_msgs:
         # 侧链已有对话：追加一轮极短续跑触发，由历史本身承接上下文。
         sub_store = MessageStore(
             initial=[*prior_msgs, user_message("[Resume] Continue.")]
@@ -829,6 +865,8 @@ def upsert_subagent_meta(
             if str(x).strip()
         ][:16],
     }
+    from engine.agent_live_bridge import followup_generation
+    payload["pending_followups_generation"] = followup_generation(existing, payload["pending_followups"])
     if tokens_used >= 0:
         payload["tokens_used"] = int(tokens_used)
     else:

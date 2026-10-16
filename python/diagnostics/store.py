@@ -218,6 +218,19 @@ def _pinned_markers() -> set[str]:
 	return out
 
 
+def _protected_control_roots() -> tuple[Path, ...]:
+	"""Directories containing durable run authority and experiment state."""
+	return (pins_dir().resolve(), baselines_dir().resolve(), experiments_dir().resolve())
+
+
+def _is_protected_control(path: Path, roots: tuple[Path, ...]) -> bool:
+	try:
+		resolved = path.resolve()
+		return any(resolved == root or root in resolved.parents for root in roots)
+	except OSError:
+		return False
+
+
 def enforce_quota(*, target: int | None = None) -> dict[str, Any]:
 	"""按磁盘配额清理：跳过固定证据，按最旧优先删非固定产物。
 
@@ -236,12 +249,20 @@ def enforce_quota(*, target: int | None = None) -> dict[str, Any]:
 	if cap <= 0 or used <= cap:
 		return result
 	protected = _pinned_markers()
+	control_roots = _protected_control_roots()
+	reservations = reservations_path().resolve()
+	reservation_tmp = reservations.with_name(reservations.name + ".tmp")
 	# ``.tmp`` 永远不是权威产物（写入一律 tmp→replace），残片先回收。
 	# 但回收要避开还在写的那一个：本模块的 _STORE_LOCK 只管本进程，GUI server 与
 	# CLI 可以并发写同一目录，抢在 os.replace 之前 unlink 会让对方的原子写直接失败。
 	now = time.time()
 	for stale in root.rglob("*.tmp"):
 		try:
+			if (
+				_is_protected_control(stale, control_roots)
+				or stale.resolve() in {reservations, reservation_tmp}
+			):
+				continue
 			if stale.is_file():
 				stat = stale.stat()
 				if now - stat.st_mtime < _TMP_GRACE_S:
@@ -258,7 +279,12 @@ def enforce_quota(*, target: int | None = None) -> dict[str, Any]:
 		try:
 			if not entry.is_file():
 				continue
-			if str(entry) in protected:
+			if (
+				str(entry) in protected
+				or str(entry.resolve()) in protected
+				or _is_protected_control(entry, control_roots)
+				or entry.resolve() in {reservations, reservation_tmp}
+			):
 				continue
 			st = entry.stat()
 			candidates.append((int(st.st_mtime), int(st.st_size), entry))

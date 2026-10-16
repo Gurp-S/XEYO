@@ -42,10 +42,12 @@ from typing import Any
 try:  # rewind 依赖链异常时 Bash 工具必须仍可用 → 一律 fail-open
 	from rewind.context import RewindExecutionContext, current_context
 	from rewind.models import SnapshotManifest
+	from rewind.reference_lock import reference_publication_lock
 except Exception:  # noqa: BLE001
 	RewindExecutionContext = None  # type: ignore[assignment,misc]
 	current_context = None  # type: ignore[assignment]
 	SnapshotManifest = None  # type: ignore[assignment,misc]
+	reference_publication_lock = None  # type: ignore[assignment]
 
 _log = logging.getLogger(__name__)
 
@@ -293,46 +295,47 @@ def _plan(command: str, cwd: str, ctx: Any) -> DestructivePlan | None:
 		except OSError:
 			skipped += 1
 			return False
-		manifest = ctx.snapshots.put_bytes(
-			data,
-			source_path=file_path,
-			content_kind="binary",
-			metadata={"role": "before", "guard": "bash_destructive"},
-		)
-		if manifest is None:
-			skipped += 1
-			return False
-		record = ctx.journal.start_operation(
-			turn_id=ctx.turn_id,
-			revision_id=ctx.revision_id,
-			tool_name="bash",
-			operation_type="bash_destructive",
-			path=file_path,
-			before_hash=manifest.content_hash,
-			after_hash=None,
-			inverse_kind="restore_snapshot",
-			inverse_payload={
-				"file_existed_before": True,
-				"before_snapshot_id": manifest.snapshot_id,
-				"before_content_hash": manifest.content_hash,
-				"source_path": file_path,
-				"size_bytes": len(data),
-				"command": (command or "")[:500],
-			},
-			metadata={"guard": "bash_destructive", "cwd": cwd},
-		)
-		if record is None:
-			skipped += 1
-			return False
-		operation_ids.append(record.operation_id)
-		entries.append(
-			GuardEntry(
-				path=file_path,
-				snapshot_id=manifest.snapshot_id,
-				content_hash=manifest.content_hash,
-				size_bytes=len(data),
+		with reference_publication_lock(ctx.snapshots.root):
+			manifest = ctx.snapshots.put_bytes(
+				data,
+				source_path=file_path,
+				content_kind="binary",
+				metadata={"role": "before", "guard": "bash_destructive"},
 			)
-		)
+			if manifest is None:
+				skipped += 1
+				return False
+			record = ctx.journal.start_operation(
+				turn_id=ctx.turn_id,
+				revision_id=ctx.revision_id,
+				tool_name="bash",
+				operation_type="bash_destructive",
+				path=file_path,
+				before_hash=manifest.content_hash,
+				after_hash=None,
+				inverse_kind="restore_snapshot",
+				inverse_payload={
+					"file_existed_before": True,
+					"before_snapshot_id": manifest.snapshot_id,
+					"before_content_hash": manifest.content_hash,
+					"source_path": file_path,
+					"size_bytes": len(data),
+					"command": (command or "")[:500],
+				},
+				metadata={"guard": "bash_destructive", "cwd": cwd},
+			)
+			if record is None:
+				skipped += 1
+				return False
+			operation_ids.append(record.operation_id)
+			entries.append(
+				GuardEntry(
+					path=file_path,
+					snapshot_id=manifest.snapshot_id,
+					content_hash=manifest.content_hash,
+					size_bytes=len(data),
+				)
+			)
 		return True
 
 	for candidate in _expand_targets(raw_targets, base):

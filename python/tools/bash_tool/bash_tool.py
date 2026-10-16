@@ -33,6 +33,7 @@ _DOCKER_BG_LOCK = threading.Lock()
 _DOCKER_BG_WAITERS: dict[str, list[tuple[asyncio.AbstractEventLoop, asyncio.Event]]] = {}
 _DOCKER_BG_SEQ = 0
 
+from tools.host_services import HostBoundTool, ToolHostServices
 from engine.abort import AbortController
 from permissions.filesystem import (
 	PermissionDecision,
@@ -737,14 +738,15 @@ def resolve_working_directory(
 	return {"result": True, "cwd": resolved, "message": "", "errorCode": 0}
 
 
-class BashTool:
+class BashTool(HostBoundTool):
 	name = BASH_TOOL_NAME
 
 	search_hint = "execute shell commands"
 
 	max_result_size_chars = MAX_RESULT_CHARS
 
-	def __init__(self, *, cwd: str = ".") -> None:
+	def __init__(self, *, cwd: str = ".", host_services: ToolHostServices | None = None) -> None:
+		super().__init__(host_services=host_services)
 		self._cwd = os.path.abspath(cwd or ".")
 		self._shell_notice_sent = False
 
@@ -848,6 +850,7 @@ class BashTool:
 			# 42 号：优先登记为 registry job（完成通知 / job_output / job_kill）；
 			# registry 不可用（CLI in-process）落回旧式日志文件后台，行为不变。
 			bridged = start_registry_job(
+				jobs=self._host_services.jobs,
 				command=inp.command.strip(),
 				cwd=run_cwd,
 				description=inp.description,
@@ -1017,6 +1020,7 @@ class BashTool:
 		sid = self._session_id()
 		if sid:
 			bridged = adopt_registry_job(
+				jobs=self._host_services.jobs,
 				handle=handle,
 				command=cmd,
 				cwd=run_cwd,

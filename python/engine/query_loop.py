@@ -36,6 +36,7 @@ from engine.loop_ledger import LoopLedger, params_digest
 from engine.observe_safety import safe_observe
 from engine.tool_coordinator import ToolCoordinator
 from engine.turn_runtime import TurnRuntime
+from engine.runtime_services import BoundaryInbox
 from engine.turn_completion import completion_event
 from engine.stream_failure import failed_attempt_usage, settle_failed_stream
 from engine.terminal_settlement import settle_tool_exit
@@ -880,6 +881,10 @@ def _wrap_window_scoped(fn):
 	return _scoped
 
 
+from engine.shared_budget import task_budget_scope
+
+
+@task_budget_scope
 @_wrap_window_scoped
 async def query_loop(
 	*,
@@ -898,6 +903,7 @@ async def query_loop(
 	include_memory_index: bool = True,
 	ensure_before: Any | None = None,
 	persist_handoff: Any | None = None,
+	boundary_inbox: BoundaryInbox | None = None,
 ) -> AsyncIterator[EngineEvent]:
     """Run the model/tool loop and emit authoritative vendor usage events.
 
@@ -970,6 +976,12 @@ async def query_loop(
     # 不在每轮模型请求前全量扫 store。
     _repair_unpaired_tool_calls(store, "aborted")
     while True:
+        from engine.agent_mailbox import deliver as deliver_agent_mail
+        await deliver_agent_mail(store)
+        if budget.over_budget or budget.over_token_budget():
+            from engine.shared_budget import stop_event
+            yield stop_event(budget)
+            return
         turn_decision = turn_runtime.prepare_next_turn()
         if turn_decision == "stop_aborted":
             yield StoppedEvent(reason="aborted")
@@ -1054,7 +1066,7 @@ async def query_loop(
             # 长回合不 settle ⇒ 用户消息整轮进不了模型输入（2026-09-20 事故）。
             from engine.t_now_inbox import deliver_queued_users
 
-            _delivered_steer = _delivered_steer + deliver_queued_users(_sid, store)
+            _delivered_steer = _delivered_steer + deliver_queued_users(_sid, store, registry=boundary_inbox)
             if _delivered_steer:
                 snap.proj_cache = None
         except Exception:  # noqa: BLE001 — 留痕/引导失败不影响主路径
@@ -1346,13 +1358,17 @@ async def query_loop(
             from memory.wsc_request_timing import assemble_counted as assemble_timed_request, prepare_counted as prepare_timed_request
             from prompt.notice_channel import render_notice
 
-            def _compact_request_projection():
+            def _compact_request_projection(semantic_candidate=None):
                 nonlocal projected_pre_inject
                 from memory.runtime import force_compact
                 raw = compression_messages(store, snap)
                 before_capacity_cursor = snap.compact_cursor
-                rebuilt = force_compact(raw, snap, remaining_turns=remaining,
-                                        system_prompt=system_prompt, cwd=_turn_cwd)
+                if semantic_candidate is not None:
+                    from memory.wsc_semantic_compaction import publish
+                    rebuilt = publish(semantic_candidate, raw, snap, cwd=_turn_cwd, guard=abort.raise_if_aborted)
+                else:
+                    rebuilt = force_compact(raw, snap, remaining_turns=remaining,
+                                            system_prompt=system_prompt, cwd=_turn_cwd)
                 if snap.compact_cursor > before_capacity_cursor:
                     from engine.t_now_notes import invalidate_after_compaction
                     invalidate_after_compaction()
@@ -1369,11 +1385,6 @@ async def query_loop(
                 from memory.wsc_handoff_scope import needs_refresh
                 from synaptic.todo_snapshot import latest_todo_snapshot
                 raw = compression_messages(store, snap)
-                state = latest_todo_snapshot(raw)
-                # A previous declaration is not evidence that later task
-                # messages/decisions were covered. Engine notes do not extend
-                # task scope; every other post-commit source requires refresh.
-                needs_state = needs_refresh(raw, state)
                 requested = accepted_request(raw, snap)
                 capacity_limit = _positive_int(getattr(model, "context_limit", None))
                 from memory.wsc_counted_input import CountedInput
@@ -1390,12 +1401,58 @@ async def query_loop(
                     render=render_capacity, model=counted_model)
                 measured = request_measure(assembled[1], tool_schemas,
                     context_limit=capacity_limit, model=counted_model)
+                from memory import wsc_semantic_compaction as semantic
+                semantic_mode = semantic.enabled()
+                semantic_candidate = None
+                generation_failed = False
+                from memory.wsc_semantic_binding import capture, verify
+                control_binding = capture(_turn_cwd, snap)
+                def check_compaction_control():
+                    verify(control_binding, _turn_cwd, snap)
                 # A previous failed publication can leave a successful receipt
                 # in memory. State coverage is not a durability certificate;
                 # every managed fold retries/confirms all source rows first.
                 if (measured.action == "capacity" or requested) and persist_handoff is not None:
                     persist_handoff()
-                if (measured.action == "capacity" or requested) and needs_state:
+                if (measured.action == "capacity" or requested) and semantic_mode:
+                    from memory.wsc_handoff_transaction import fingerprint
+                    source_key = fingerprint(raw)
+                    # A retained failure is diagnostic evidence, not a permanent
+                    # veto on a newly admitted request with the same history.
+                    if semantic.boundary(raw, snap) > int(snap.compact_cursor or 0):
+                        def semantic_account(usage):
+                            budget.add_usage(usage)
+                            hit, miss, out = split_usage(usage) if isinstance(usage, dict) else (0, 0, 0)
+                            _handoff_usage_events.append(UsageEvent(prompt_tokens=hit + miss,
+                                completion_tokens=out, cache_hit_tokens=hit, cache_miss_tokens=miss,
+                                tokens=budget.last_usage_tokens, used_tokens=budget.used_tokens,
+                                usd=budget.last_usage_usd, used_usd=budget.used_usd,
+                                cny=budget.last_usage_cny, used_cny=budget.used_cny))
+                        try:
+                            from memory.wsc_semantic_originals import from_store
+                            semantic_candidate = await semantic.prepare(model=model,
+                                messages=prompt.build(system_prompt, rows),
+                                source=lambda: compression_messages(store, snap), working=snap,
+                                abort=abort, account=semantic_account, persist=persist_handoff, cwd=_turn_cwd,
+                                budget=budget,
+                                original_source=lambda: from_store(store))
+                        except Exception as exc:
+                            abort.raise_if_aborted()
+                            check_compaction_control()
+                            if (not semantic.resumable_failure(exc)
+                                    or fingerprint(compression_messages(store, snap)) != source_key):
+                                raise
+                            snap.wsc_timing_state = {**snap.wsc_timing_state,
+                                'semantic_generation_failure': {'source_fingerprint': source_key,
+                                    'reason': str(exc), 'outcome': 'retained_source'}}
+                            from memory.working import flush
+                            flush(snap.session_id, snap)
+                        from memory.wsc_handoff_budget import check_usage
+                        check_usage(budget)
+                        if not budget.prepare_next_turn():
+                            raise ValueError('handoff_model_budget_exhausted')
+                        budget.begin_turn()
+                elif (measured.action == "capacity" or requested) and needs_refresh(raw, latest_todo_snapshot(raw)):
                     if persist_handoff is None or tools.get("TodoWrite") is None:
                         raise ValueError("handoff_commit_unavailable")
                     from memory.wsc_handoff_prepare import prepare as prepare_handoff
@@ -1407,20 +1464,40 @@ async def query_loop(
                             tokens=budget.last_usage_tokens, used_tokens=budget.used_tokens,
                             usd=budget.last_usage_usd, used_usd=budget.used_usd,
                             cny=budget.last_usage_cny, used_cny=budget.used_cny))
-                    committed = await prepare_handoff(model=model,
-                        messages=prompt.build(system_prompt, rows),
-                        source=lambda: compression_messages(store, snap),
-                        store=store, tools=tools, abort=abort, budget=budget,
-                        account=account, persist=persist_handoff, session_id=snap.session_id)
-                    snap.wsc_timing_state = {**snap.wsc_timing_state, "last_handoff_commit": committed}
-                    rows = rows + compression_messages(store, snap)[-2:]
-                    assembled = None  # The committed invocation/receipt changed the request.
+                    from memory.wsc_handoff_transaction import fingerprint
+                    from memory.wsc_compaction_failure import recoverable
+                    source_key = fingerprint(raw)
+                    try:
+                        committed = await prepare_handoff(model=model,
+                            messages=prompt.build(system_prompt, rows),
+                            source=lambda: compression_messages(store, snap),
+                            store=store, tools=tools, abort=abort, budget=budget,
+                            account=account, persist=persist_handoff, session_id=snap.session_id,
+                            guard=check_compaction_control)
+                    except Exception as exc:
+                        abort.raise_if_aborted()
+                        check_compaction_control()
+                        if not recoverable(exc) or fingerprint(compression_messages(store, snap)) != source_key:
+                            raise
+                        generation_failed = True
+                        snap.wsc_timing_state = {**snap.wsc_timing_state,
+                            'handoff_generation_failure': {'source_fingerprint': source_key,
+                                'reason': str(exc), 'outcome': 'retained_source'}}
+                        from memory.working import flush
+                        flush(snap.session_id, snap)
+                    else:
+                        snap.wsc_timing_state = {**snap.wsc_timing_state, "last_handoff_commit": committed}
+                        rows = rows + compression_messages(store, snap)[-2:]
+                        assembled = None  # The committed invocation/receipt changed the request.
+                    from memory.wsc_handoff_budget import check_usage
+                    check_usage(budget)
                     if not budget.prepare_next_turn():
                         raise ValueError("handoff_model_budget_exhausted")
                     budget.begin_turn()
                 def compact_admitted():
                     before_requested = snap.compact_cursor
-                    rebuilt = _compact_request_projection()
+                    rebuilt = (rows if generation_failed or (semantic_mode and semantic_candidate is None) else
+                               _compact_request_projection(semantic_candidate))
                     if requested:
                         snap.wsc_timing_state = {**snap.wsc_timing_state, "handled_request": requested,
                             "request_outcome": "compacted" if snap.compact_cursor > before_requested else "no_eligible_history"}
@@ -1433,6 +1510,8 @@ async def query_loop(
             async def _prepare_capacity_outcome(rows):
                 try:
                     return await _prepare_capacity(rows), None
+                except Aborted:
+                    return None, "aborted"
                 except (ValueError, OSError) as exc:
                     return None, str(exc)
 
@@ -1692,6 +1771,10 @@ async def query_loop(
                 status="started",
             )
             try:
+                if budget.over_budget or budget.over_token_budget():
+                    from engine.shared_budget import stop_event
+                    yield stop_event(budget)
+                    return
                 async for chunk in model.stream(api_messages, tool_schemas, abort):
                     abort.raise_if_aborted()
                     from engine.model_events import normalize_model_event
@@ -1923,8 +2006,8 @@ async def query_loop(
                 yield usage_event
             if budget.over_budget:
                 yield StoppedEvent(
-                    reason="budget_usd", budget_used_usd=round(budget.used_usd, 8),
-                    budget_limit_usd=budget.usd_limit,
+                    reason="budget_usd", budget_used_usd=round(budget.total_used_usd, 8),
+                    budget_limit_usd=budget.effective_usd_limit,
                 )
                 return
             if budget.over_token_budget():
@@ -2092,8 +2175,8 @@ async def query_loop(
             yield StoppedEvent(
                 reason="budget_usd",
                 interrupted=interrupted,
-                budget_used_usd=round(budget.used_usd, 8),
-                budget_limit_usd=budget.usd_limit,
+                budget_used_usd=round(budget.total_used_usd, 8),
+                budget_limit_usd=budget.effective_usd_limit,
             )
             return
 

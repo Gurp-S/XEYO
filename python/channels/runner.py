@@ -321,8 +321,12 @@ class FinalOnlyRunner:
 	) -> str:
 		from prompt.fence import fence_remote_user_text
 
-		# γ4：微信/远程入站标记为不可信数据（桌面 GUI 不走此路径）
+		# 旧路径保留供对照；认证直达用户消息在输入契约路径逐字传递。
 		safe_text = fence_remote_user_text(text or "", source="wechat")
+		from msgtypes.input_contract import enabled as input_contract_enabled
+		if input_contract_enabled():
+			from prompt.content_contract import direct_user_text
+			safe_text = direct_user_text(text)
 		rec = self._store.create(
 			session_id=session_id,
 			text=safe_text,

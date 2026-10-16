@@ -1,4 +1,4 @@
-"""Typer entry: `xeyo` / `python -m cli`."""
+"""Typer 命令入口：`xeyo` / `python -m cli`。"""
 
 from __future__ import annotations
 
@@ -137,7 +137,7 @@ def root(
 		None, "--profile", help="Select a [profiles.<name>] override"
 	),
 ) -> None:
-	"""Bare `xeyo` opens an in-process chat REPL (same as `xeyo chat`)."""
+	"""直接运行 `xeyo` 会打开进程内聊天交互，与 `xeyo chat` 相同。"""
 	# 所有子命令都经过这个 callback：把 stdio 归一成 UTF-8 放在这里，任何命令
 	# （含以后新增的）都不可能再因为在 GBK/cp437 控制台上打印中文或 ✓/… 而抛
 	# UnicodeEncodeError。逐个命令各自调用正是漏调的根源。
@@ -169,7 +169,7 @@ def version_cmd() -> None:
 
 @app.command("setup")
 def setup_cmd() -> None:
-	"""Interactive first-run config (provider, API key, default workspace)."""
+	"""交互式初始配置：服务商、API 密钥和默认工作区。"""
 	from cli.setup_wizard import run_setup_wizard
 
 	run_setup_wizard(force=True)
@@ -192,7 +192,7 @@ def chat_cmd(
 		None, "--profile", help="Select a [profiles.<name>] override"
 	),
 ) -> None:
-	"""In-process chat REPL (or one-shot with prompt / --print)."""
+	"""进程内聊天交互；提供 prompt / --print 时可单次执行。"""
 	_run_chat(
 		prompt=prompt,
 		cwd=cwd,

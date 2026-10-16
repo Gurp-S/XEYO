@@ -2,7 +2,7 @@
 from collections import Counter
 import json
 
-from synaptic.task_fact_sources import source_text
+from memory.wsc_handoff_source_content import render as source_content
 from synaptic.textutil import tool_use_blocks, tool_result_blocks
 
 NAME = "HandoffCatalog"
@@ -36,8 +36,7 @@ class Catalog:
             identity = row.get("message_id") or row.get("id")
             record = {"source": index, "message_id": identity, "role": row.get("role")}
             if identity: record["identity_unique"] = counts[str(identity)] == 1
-            text = source_text(row)
-            if text is not None: record["text_characters"] = len(text)
+            record["text_characters"] = len(source_content(row))
             use_ids, result_ids = [], []
             for use in tool_use_blocks(row):
                 uid = use.get("id")
@@ -112,8 +111,7 @@ class Catalog:
                 cursor += 1
                 continue
             if query is not None:
-                text = source_text(row)
-                if text is None: text = json.dumps(row.get("content"), ensure_ascii=False)
+                text = source_content(row)
                 if query not in text:
                     cursor += 1
                     continue

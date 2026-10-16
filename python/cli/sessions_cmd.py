@@ -1,4 +1,4 @@
-"""xeyo sessions list|show|rm."""
+"""xeyo sessions：列出、查看或删除会话。"""
 
 from __future__ import annotations
 
@@ -54,7 +54,7 @@ def _unreachable(what: str, url: str, exc: Exception) -> int:
 
 
 def format_updated_at(raw: object) -> str:
-	"""Turn ms epoch (or ISO) into a short local/relative string."""
+	"""将毫秒时间戳或 ISO 时间转换为简短的本地时间或相对时间。"""
 	if raw is None or raw == "":
 		return ""
 	try:

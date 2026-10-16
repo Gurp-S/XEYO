@@ -117,7 +117,7 @@ def _extract_docstring_or_jsdoc(lines: list[str], target: Symbol) -> str:
 			break
 
 	# 上方 JSDoc
-	i = target.start - 2  # 0-indexed line above
+	i = target.start - 2  # 上一行使用从 0 开始的行索引。
 	block: list[str] = []
 	while i >= 0:
 		ln = lines[i]
