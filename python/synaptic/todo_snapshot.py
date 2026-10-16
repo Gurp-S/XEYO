@@ -133,6 +133,14 @@ def latest_todo_snapshot(messages):
                     and {item.get("id") for item in state.records} == {item.get("id") for item in previous.records}):
                 state = replace(state, terminal=previous.terminal)
             previous = state
+        # 观测链之外还有更新的已落定事实时必须让位：旧转写的 TodoWrite 输出不可解析时，
+        # 它那条「已完成的输入回退」比任何更早的观测都新，就是当前状态——这是模块
+        # docstring 写明的 legacy 契约（`backing` 指向那条结果）。少了这一步，观测链会把
+        # 更新的一次提交静默丢掉，prompt 里的 todo 快照就停在旧版本上。
+        if settled:
+            latest = max(settled, key=lambda entry: entry[0])[1]
+            if latest.source > previous.source:
+                return latest
         return previous
     if any(state.observed for state in candidates):
         return max(settled, key=lambda entry: entry[0])[1]

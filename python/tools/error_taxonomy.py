@@ -24,6 +24,10 @@ ACTION_OUTCOME_UNKNOWN = "ACTION_OUTCOME_UNKNOWN"
 #: 动作账本写不进去（`tools/tool_registry.py` 的 fail-closed 分支在用；
 #: 此前只是个裸字符串，不在清单里 ⇒ 诊断面既不归引擎也不归环境，静默"归属未定"）。
 ACTION_JOURNAL_UNAVAILABLE = "ACTION_JOURNAL_UNAVAILABLE"
+#: 工作区写锁被别的持有者占着（`tools/tool_registry.py` 的 `hold_workspace_mutation`
+#: 分支在用）。锁本身是我方 `engine/workspace_mutation.py` 的机制，不是模型参数错、
+#: 也不是外部基础设施 ⇒ 归引擎侧；同样必须登记，否则这一格静默"归属未定"。
+WORKSPACE_BUSY = "WORKSPACE_BUSY"
 INTERNAL = "INTERNAL"
 FINALIZATION_RESTRICTED = "FINALIZATION_RESTRICTED"
 
@@ -80,6 +84,7 @@ __all__ = [
 	"TRANSIENT_INFRA",
 	"UNKNOWN_TOOL",
 	"USER_INPUT_REQUIRED",
+	"WORKSPACE_BUSY",
 	"classify_exception",
 	"metadata",
 ]

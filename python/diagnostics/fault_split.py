@@ -93,6 +93,9 @@ _ENGINE_KINDS = {
 	"ACTION_JOURNAL_UNAVAILABLE",
 	"UNKNOWN_TOOL",
 	"RESERVED_CHANNEL",
+	# 工作区写锁被占用：锁是 `engine/workspace_mutation.py` 的我方机制，
+	# 既不是模型参数错，也不是外部基础设施。
+	"WORKSPACE_BUSY",
 }
 _ENVIRONMENT_KINDS = {
 	"COMMAND_NOT_FOUND",
