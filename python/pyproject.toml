@@ -9,15 +9,15 @@ description = "XEYO coding assistant engine"
 requires-python = ">=3.11"
 dependencies = [
 	"httpx>=0.27.0",
-	"fastapi>=0.115.0",
-	"uvicorn[standard]>=0.32.0",
-	"python-multipart>=0.0.12",
-	"typer>=0.12.0",
-	"rich>=13.0.0",
+	"pydantic>=2.0.0",
 	"tokenizers>=0.22.1,<0.23",
 ]
 
 [project.optional-dependencies]
+# The CLI also exposes `serve`; preserve its complete existing command surface.
+cli = ["typer>=0.12.0", "rich>=13.0.0", "fastapi>=0.115.0", "uvicorn[standard]>=0.32.0", "python-multipart>=0.0.12"]
+server = ["fastapi>=0.115.0", "uvicorn[standard]>=0.32.0", "python-multipart>=0.0.12"]
+product = ["typer>=0.12.0", "rich>=13.0.0", "fastapi>=0.115.0", "uvicorn[standard]>=0.32.0", "python-multipart>=0.0.12"]
 dev = [
 	"pytest>=8.0.0",
 	"pytest-asyncio>=0.24.0",
@@ -25,7 +25,7 @@ dev = [
 ]
 
 [project.scripts]
-xeyo = "cli.main:app"
+xeyo = "xeyo._cli:main"
 
 # 顶层单文件模块（非包目录）；不写进这里则 editable 安装后 from media_store 会失败。
 [tool.setuptools]
@@ -36,6 +36,7 @@ py-modules = ["media_store"]
 
 [tool.setuptools.packages.find]
 where = ["."]
+exclude = ["tests*", "evals*", "*.tests", "*.tests.*"]
 include = [
 	"audit*",
 	"bridge*",
@@ -43,10 +44,11 @@ include = [
 	"cli*",
 	"codeindex*",
 	"common*",
+	"coord*",
 	"diagnostics*",
 	"engine*",
-	"evals*",
 	"extension*",
+	"lsp*",
 	"memory*",
 	"model*",
 	"msgtypes*",
@@ -55,10 +57,12 @@ include = [
 	"rewind*",
 	"server*",
 	"session*",
+	"sidecar*",
 	"slash*",
 	"synaptic*",
 	"tools*",
 	"usage*",
+	"xeyo*",
 ]
 
 [tool.pytest.ini_options]
