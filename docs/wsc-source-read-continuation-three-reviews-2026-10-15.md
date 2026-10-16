@@ -1,0 +1,21 @@
+# 310：已有精确来源接口的综合续接消融，实施前三轮复审
+
+## 第一轮：根因与复用
+
+307–309是Read-only消费能力下的交接/投影诊断，不是现有所有WSC恢复原型的全量对照。已有AddressedSources/ReceiptSources支持密封存档source_index、真实message_id、解码payload、原回执identity；246冷单题曾改善，综合验收未完成。否决再造Recall工具或按当前问题特定索引自动灌答案；直接复用ReceiptSources的SourceRead能力。目的不是证明模型必须Read，而是同一来源地址能在工具协议中直接表示，避免存档序号与可见消息位置混淆。
+
+唯一候选变化：在308相同消费者messages和Read能力之上，增加已有SourceRead schema与执行实现；不增加SourceCatalog、热预览、导演提示，不重新生成摘要。所有14个已接受handoff均评测，4个生成失败仍失败；不用增加接口绕过生成失败。
+
+## 第二轮：状态、失败与机械合同
+
+实际source从307三个密封原始归档构建，校验完整SHA。SourceRead既有payload/record和receipt语义保持；不是从assistant summary推断execution身份。冷对象本身保持不可变，重启重新检查seal。非法/重复/越界/布尔index、message_id+source_index双地址拒绝；未读工具执行的unknown不能自动重放。
+
+免费先检验两真实目标source_index的payload精确等于原字段，中文字符范围、call_id选择、execution metadata、哈希、重启及坏seal/私有地址边界。原生Read沿用308已修正接口，写文件用已有ExactArtifactSink。新任务的期望值/评分仍在工具能力之外。没有消费原文之前，不将工具存在计为恢复通过。
+
+## 第三轮：公平评分与可证伪
+
+全部messages和308首请求messages一致（包括artifact_root）；新任务使用隔离的物理输出副本，ArtifactSink保持同一个模型可见逻辑root，输入路径经过通用沙箱根映射，原记录/文件不覆盖；模型工具参数原样保存。这样只变化工具表和执行能力，不以新路径差异认领收益。消费者4请求、3072输出、HTTP0重试。全部14候选一次新续接，不择优拼接308旧成绩。
+
+任务Need标注：8个真实QA均需要指定原文冷摘录；新任务的3自然handoff已有交付所需数据，3结构handoff需补来源数值。按14个评测机会分别记录trigger、读到正确源、最终使用、无必要读取；不能把相同两会话的不同臂当独立样本。旧208评分不改，授权null与false歧义单列；SourceRead返回成功不等于输出正确80字符。不靠只问冷摘录或强制工具调用使成绩通过。
+
+若综合恢复仍失败，保留反例，下一步从实际请求/来源定位归因，不能无证据加提示。若改善，先以通用机械协议和独立留出验证生产接入，不能把候选reader在评测里成功冒充已上线。既有冻结前缀和原文不改；最终默认替换仍需质量门槛、原228/多代/异常等完整Goal，不缩范围。

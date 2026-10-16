@@ -1,0 +1,117 @@
+{
+  "source_revision": "e091434",
+  "mode": "offline_observation_probes",
+  "observations": [
+    {
+      "probe": "selected_steer_drops_siblings",
+      "accepted": true,
+      "before": [
+        "A",
+        "B",
+        "C"
+      ],
+      "after": [
+        "B"
+      ]
+    },
+    {
+      "probe": "selected_steer_boundary_receipt_never_finishes",
+      "landed_ids": [
+        "boundary-user"
+      ],
+      "after_settle": "delivering",
+      "acknowledgement_removed": 0
+    },
+    {
+      "probe": "snapshot_restarts_stopped_queue",
+      "before_read": [],
+      "after_read": [
+        "held"
+      ]
+    },
+    {
+      "probe": "stale_goal_editor_changes_replacement",
+      "status": 200,
+      "same_initial_revision": true,
+      "target_is_replacement": true
+    },
+    {
+      "probe": "archived_goal_write_accepted",
+      "status": 200,
+      "text": "changed while archived"
+    },
+    {
+      "probe": "queued_environment_replaced",
+      "submitted_model": "model-A",
+      "dispatched_model": "model-B",
+      "submitted_approval": "always",
+      "dispatched_approval": "never"
+    },
+    {
+      "probe": "cli_approval_reverted",
+      "builds": [
+        {
+          "sid": "original",
+          "model": "model-A"
+        }
+      ],
+      "turns": [
+        {
+          "sid": "original",
+          "text": "ordinary task",
+          "approval": "risk"
+        }
+      ]
+    },
+    {
+      "probe": "cli_model_switch_changes_session",
+      "builds": [
+        {
+          "sid": "original",
+          "model": "model-A"
+        },
+        {
+          "sid": "10f14035045b4fa798a4dbd87a3f904e",
+          "model": "model-B"
+        }
+      ],
+      "turns": [
+        {
+          "sid": "original",
+          "text": "old task",
+          "approval": "risk"
+        },
+        {
+          "sid": "10f14035045b4fa798a4dbd87a3f904e",
+          "text": "new task",
+          "approval": "risk"
+        }
+      ]
+    },
+    {
+      "probe": "cli_retry_after_clear_leaks_old_task",
+      "builds": [
+        {
+          "sid": "original",
+          "model": "model-A"
+        },
+        {
+          "sid": "0c7cf49a9dc24e8f95df43b832b1385f",
+          "model": "model-A"
+        }
+      ],
+      "turns": [
+        {
+          "sid": "original",
+          "text": "old task",
+          "approval": "risk"
+        },
+        {
+          "sid": "0c7cf49a9dc24e8f95df43b832b1385f",
+          "text": "old task",
+          "approval": "risk"
+        }
+      ]
+    }
+  ]
+}

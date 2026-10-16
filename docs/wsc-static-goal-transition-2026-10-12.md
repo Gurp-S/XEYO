@@ -1,0 +1,19 @@
+# 批次94：目标变化与终态重启的事件基点（仅静态）
+
+## 根因
+
+wsc_handoff_phase原仅在current_phase_id变化时要求检查点之后的新来源。活跃任务可以保持阶段ID却修改objective；已完成/清空任务也可以用旧来源声明重新活跃。来源真实和阶段标识稳定不能证明目标变化由当前事件支撑。
+
+不变量：对已观察状态更换活跃目标，或终态之后重新激活任务，声明必须绑定最新成功状态之后的可观察事件；不能仅重新引用老材料。阶段变化仍沿已有协议。事件存在不等于语义许可，引擎不自行理解或退休目标。
+
+## 修正
+
+复用wsc_handoff_phase的当前阶段source_message_ids及observed_source判据。活跃objective值改变（包括旧无phase检查点升级）或终态重新活跃时，以prior.source为事件基点；检查点可能因merge仍指向旧回执，因此不能只用prior.checkpoint_source。要求至少一条唯一且新于基点的真实源。其他阶段变化维持原检查点基点。
+
+失败沿既有handoff_phase_transition_source_missing及其有界拒绝反馈传播，附objective_changed/task_reactivated事实；生成和事务提交调用同一校验。无新增状态机、历史关键词规则或系统指令，未改变原消息、冻结头或已存冷对象。
+
+## 限制与口径
+
+只是结构性事件约束，不证明事件确实授权该目标，首次无任何旧权威的声明语义也仍需验收。目标措辞调整同样需绑定后续事件，模型仍能通过原来源声明；不靠文本近似度猜等价。非生产/旧协议未要求phase的直接validate调用仍保留兼容边界，不能据此声称所有入口均按新协议执行。
+
+修改python/memory/wsc_handoff_phase.py。静态核对phase/observed_source、成功snapshot的source/checkpoint_source、生产生成/事务接线及既有拒绝反馈名单。运行测试0、编译0、API0、费用0，无部署/重启/重放。四块最终效果验收仍未完成。

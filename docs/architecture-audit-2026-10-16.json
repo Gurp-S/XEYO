@@ -1,0 +1,205 @@
+{
+  "title": "XEYO 细粒度架构审查",
+  "date": "2026-10-16",
+  "source_head": "bb1af831ac707e0b2ad0e7f1dedccad0da4706b0",
+  "source_scope": "当前未提交工作区，而非仅 HEAD。795 个打包范围 Python 源文件的静态扫描，加上列出的入口、状态和生命周期路径人工核对；未声称逐行审阅全部源码。",
+  "conclusion": "两阶段消除了 engine/tools 对 server 的直接导入，但依赖的实例归属、完整生命周期、工作区配置、持久化隔离和入口一致性仍有缺口。下一轮优先建立完整的回合生命周期和会话级提交边界，再推进产品组合根与发布命名空间。",
+  "scope_notes": [
+    "本轮仅审查业务源码；只新增本报告和隔离探针，没有修改、暂存、提交、回滚其他对话的代码。",
+    "探针使用临时数据目录和 FakeModel；Anthropic 只检查构造结果，未发送模型请求；截图硬件调用被替换，未读取真实屏幕、未外发文件。",
+    "既有定向测试 29 passed in 4.49s。它们通过不代表新增异常路径已经正确。未运行 GUI/TUI 全量、真实模型、远程通道或 Linux 验证。",
+    "本轮没有实施修复，因此没有修复前后通过的 A/B 结论。各条验证项是后续旁路修复的验收条件。",
+    "新增探针记录为 11 个场景和 1 组异步清理异常；其中同输入双入口和同文件全局/定向刷新构成现状对照。"
+  ],
+  "measurements": {
+    "packaged_python_sources": 795,
+    "unique_internal_import_edges": 2854,
+    "python_files_over_1000_lines": 25,
+    "engine_tools_direct_server_cli_imports": 0,
+    "tools_to_engine_module_edges": 114,
+    "engine_to_tools_module_edges": 45,
+    "largest_static_strongly_connected_component": 341,
+    "interpretation": "边包含函数内惰性导入和类型检查导入；强连通表示静态引用互达，不等于启动时循环导入异常。代码行数仅用于定位职责集中，不作为缺陷依据。",
+    "large_files": {"engine/query_loop.py": 2861, "memory/runtime.py": 2474, "server/routers/sessions.py": 2063, "engine/query_engine.py": 1710, "server/routers/chat.py": 1656, "tools/tool_registry.py": 1056}
+  },
+  "findings": [
+    {
+      "id": "A01", "priority": "P1", "evidence": "已复现", "title": "回合清理边界没有覆盖启动阶段",
+      "trigger": "读取首个 task_state_changed 后关闭流，或 PromptAssembler 在 build_system_parts 抛异常。",
+      "observed": "两条路径均出现 turn_active=false、task_status=running；调用协程中的 WorkspaceContext 仍指向刚结束的会话。",
+      "root_cause": "设置 agent_mode、task_state、取消域和工作区上下文发生在 739–788 行；835 行已向外 yield，提示词组装在 960 行。负责终态和上下文复位的 try/finally 到 984 行才开始。外层 finally 只释放互斥并保存 checkpoint。",
+      "impact": "独立 API/CLI 集成可以收到互相矛盾的状态；同一协程后续工具操作可能继承旧会话上下文。HTTP 提示词初始化失败也会保留不正确的引擎内部任务态。未据此声称所有普通 SSE 断连均触发，HTTP 有 detached runner。",
+      "fix_boundary": "引入 engine/turn_scope.py，进入回合前就建立 finally；该作用域独占状态转换、ContextVar token、before-snapshot 任务与终态落盘。完成收尾后才释放互斥，恢复调用者原上下文，不能只 set(None)。",
+      "validation": "对首事件关闭、运行探测失败、提示词异常和 before-snapshot 失败逐个故障注入；断言终态、互斥、上下文、后台任务四者同时一致。正常流事件和模型请求应与 A 臂一致。",
+      "sources": [{"path":"python/engine/query_engine.py","line":739},{"path":"python/engine/query_engine.py","line":835},{"path":"python/engine/query_engine.py","line":956},{"path":"python/engine/query_engine.py","line":984},{"path":"python/engine/query_engine.py","line":1353}],
+      "probes": ["close_first_event", "prompt_failure"]
+    },
+    {
+      "id": "A02", "priority": "P1", "evidence": "已复现", "title": "嵌套异步流没有完整传递关闭，提前退出被记为成功",
+      "trigger": "真实 FakeModel 回合收到 assistant_delta 后，调用最外层 stream.aclose()；探针保留内层生成器引用以排除 GC 时机干扰。",
+      "observed": "外层互斥已释放，内层仍打开且任务为 running；显式关闭内层后任务被标 succeeded，虽然没有消费到 Final/Result。随后收集到 shared_agent_budget ContextVar token 在不同 Context 中 reset 的异常。",
+      "root_cause": "submit 使用 aclosing，但 submit_message → _submit_message_inner 以及后者 → query_loop 使用裸 async for。清理可能推迟到另一个 finalizer 任务；异常归类只捕获 Exception，没有把 GeneratorExit/CancelledError 建模为独立的结束原因。",
+      "impact": "关闭返回不等于资源已释放，旧回合清理可能与下一轮交错；共享预算上下文和任务终态不可信。此项与 A01 相邻但独立，扩大 try/finally 不能自动修复生成器所有权。",
+      "fix_boundary": "每层拥有的异步生成器显式 aclosing，回合作用域必须等待全部内层清理。采用显式 TurnOutcome，只有完成正常终止协议才可记 succeeded；关闭/取消不推导为成功。",
+      "validation": "在首事件、首 token、工具等待、Final 和 Result 五个边界关闭；要求内层同步关闭、无后台 finalizer 异常、原上下文恢复、下一轮预算不继承。",
+      "sources": [{"path":"python/engine/query_engine.py","line":641},{"path":"python/engine/query_engine.py","line":986},{"path":"python/engine/query_engine.py","line":1154},{"path":"python/engine/query_engine.py","line":1353},{"path":"python/engine/shared_budget.py","line":70}],
+      "probes": ["nested_close", "async_cleanup_errors"]
+    },
+    {
+      "id": "A03", "priority": "P1", "evidence": "已复现", "title": "转录提交屏障按进程而非会话隔离",
+      "trigger": "只让会话 B 的写入失败，会话 A 正常落盘，然后调用 flush_transcript(A_path)。",
+      "observed": "A 文件已含 1 条记录，flush_transcript(A_path) 仍抛 transcript append incomplete；现存 flush_path(A_path) 则返回 true。",
+      "root_cause": "flush_transcript 的 path 参数被丢弃，等待整个进程的 _pending/_writing/_failed。QueryEngine 在 async 路径上同步调用它，未采用已有的按路径屏障。",
+      "impact": "一场会话的磁盘故障会误伤其他会话的完成判定。慢磁盘期间同步 Condition.wait 还会阻塞共享事件循环；默认等待上限 5 秒。后者是代码路径上限，非实测延迟。",
+      "fix_boundary": "复用并收敛已有 transcript_barrier，提供 await flush(session/path, through_seq) 的提交回执；进程总排空仅供宿主关闭。不要新增另一套队列或去重表。",
+      "validation": "A/B 两会话并发写入，B 持续失败、A 正常、单独重试 B；断言故障归属、顺序、去重和 A 的终态，并用心跳确认慢 I/O 不堵事件循环。",
+      "sources": [{"path":"python/session/record_transcript.py","line":242},{"path":"python/session/record_transcript.py","line":512},{"path":"python/session/transcript_barrier.py","line":5},{"path":"python/engine/query_engine.py","line":827},{"path":"python/engine/query_engine.py","line":1021}],
+      "probes": ["transcript_isolation"]
+    },
+    {
+      "id": "A04", "priority": "P1", "evidence": "已复现", "title": "工作区配置仍通过进程环境串线",
+      "trigger": "XEYO_CWD 指向 A，当前 ExecutionContext 指向 B；A/B 的记忆配置设置不同值。",
+      "observed": "隐式 get_value(XEYO_C2_LLM_SUMMARY) 返回 A 的 0，显式传 B 返回 1。依次 apply_to_environ(A/B) 会把同一个进程 XEYO_WSC 从 0 改成 1。",
+      "root_cause": "extension.config.resolve_workspace_cwd 只认显式 cwd 和进程 XEYO_CWD；memory/runtime、l5_flag、aging 的若干 getter 没传 cwd。部分 WSC 开关直接读 os.environ，工作区配置桥接会覆盖进程全局。",
+      "impact": "同一服务承载多个工作区时，B 的记忆策略可能跟随 A；开关变动还可能改变正在执行的回合。探针证明配置归属错误，没有做真实长对话的 WSC 质量或费用测量。",
+      "fix_boundary": "在回合入口解析不可变 ExecutionConfig/MemoryPolicy，显式注入本轮；环境变量只作为宿主启动默认值。不要靠每轮改 os.environ 模拟隔离。WSC 冻结前缀和发布/恢复协议保持独立约束。",
+      "validation": "同进程 A/B 两工作区配置相反，交错执行并中途改变 A 设置；B 和已启动回合的配置指纹须保持不变，下一轮才按新版本生效。",
+      "sources": [{"path":"python/extension/config.py","line":75},{"path":"python/memory/memory_switches.py","line":242},{"path":"python/memory/memory_switches.py","line":315},{"path":"python/memory/runtime.py","line":90},{"path":"python/memory/wsc_projection.py","line":95}],
+      "probes": ["workspace_settings"]
+    },
+    {
+      "id": "A05", "priority": "P2", "evidence": "已复现", "title": "重复引擎工厂已经造成 Anthropic 行为分叉",
+      "trigger": "两入口都指定 anthropic、thinking=enabled、reasoning_effort=high。不发送网络请求，只检查构造出的引擎与客户端。",
+      "observed": "独立工厂：config provider=deepseek、客户端 provider=anthropic、thinking=off、effort 为空；HTTP 工厂：provider=anthropic、thinking=adaptive、effort=high。",
+      "root_cause": "build_default_engine 与 SessionPool._build 分别创建模型、工具、MCP 和运行时。前者 Anthropic 分支漏传 thinking/effort，且最终 provider 白名单遗漏 anthropic。",
+      "impact": "独立引擎公开参数被静默忽略，预算/运行事实里的厂商标识错误；HTTP 与独立 API 难以维持等价。CLI 复用独立工厂，也受 provider 归属错误影响；CLI 当前未暴露这两个参数不能等同于 CLI 参数被忽略。",
+      "fix_boundary": "提取唯一 ModelSpec → ModelClient 工厂和 EngineBuilder；HTTP/CLI 只解析输入并注入宿主服务。厂商是规范化标识，不再用分散白名单兜成 deepseek。",
+      "validation": "按支持的 provider 建工厂一致性矩阵，比较 client 类型、provider、model、thinking、effort、窗口、工具能力；先离线检查请求形状，再在确有需要时做真实模型验证。",
+      "sources": [{"path":"python/engine/query_engine.py","line":1515},{"path":"python/engine/query_engine.py","line":1535},{"path":"python/engine/query_engine.py","line":1675},{"path":"python/server/session_pool.py","line":528},{"path":"python/cli/chat_cmd.py","line":53}],
+      "probes": ["factory_parity"]
+    },
+    {
+      "id": "A06", "priority": "P2", "evidence": "已复现", "title": "同一回合有两份同名 turn_id，缺少明确关联",
+      "trigger": "通过真实 ASGI HTTP 路由运行一轮 FakeModel，对照 SSE、TurnRunner 和引擎任务快照。",
+      "observed": "HTTP 200、无错误帧；SSE/Runner 的 turn_id 相同，但与 engine task.turn_id/context.trace_id 不同。",
+      "root_cause": "chat 路由生成一个 UUID，QueryEngine 又生成一个；TaskStateEvent 的内部身份经 HTTP _id 重新包装。ActionJournal 的身份种子使用引擎内部 turn_id。",
+      "impact": "客户端拿到的回合 ID 不能直接关联内部动作和诊断。多个状态机可以有各自 span/attempt，但同名字段不应承担不同语义。未证明该差异已经导致重复执行或权限误判。",
+      "fix_boundary": "入口创建一个规范 TurnContext 并向下传递；确需不同身份的 rewind、模型请求、子任务显式命名为 revision_id/request_id/attempt_id，并保留 parent_turn_id。",
+      "validation": "同一轮 HTTP、引擎事件、任务状态、动作日志与恢复快照共用根 turn_id；重连不换根身份，下一轮必须换根身份，子请求保留独立 request_id。",
+      "sources": [{"path":"python/server/routers/chat.py","line":927},{"path":"python/server/routers/chat.py","line":1428},{"path":"python/engine/query_engine.py","line":714},{"path":"python/engine/action_journal.py","line":57}],
+      "probes": ["http_turn_identity"]
+    },
+    {
+      "id": "A07", "priority": "P2", "evidence": "已复现", "title": "无直接反向导入仍有间接产品依赖",
+      "trigger": "像现有独立安装检查一样阻止 server/fastapi 等导入，执行截图工具；硬件截图用本地桩代替。另检查 nightshift PID 存活函数。",
+      "observed": "Screenshot 和 nightshift._pid_alive 都触发 blocked:server。Screenshot → channels.remote_deliver → channels/__init__ → channels.runner → server.session_pool；nightshift 直接调用 server.portfile。",
+      "root_cause": "静态门禁只检查 engine/tools 目录内的直接 import；模块懒加载推迟了依赖，但没切断边界。截图和微信外发职责仍绑定。",
+      "impact": "独立核心的无产品模块运行契约不完整，相关能力需要加载产品实现。这里复现的是严格核心隔离失败，不能据此断言普通 pip 安装的每次截图都会失败。",
+      "fix_boundary": "截图获取与远程发送拆为独立能力，产品层注入 RemoteDelivery；默认核心仅具备本地能力。nightshift 改复用已有 common.process_identity。通道包装包不要在 __init__ 导入产品 runner。",
+      "validation": "在阻止产品模块导入的环境中执行每个核心内置工具的最小有效/不可用路径；单独对产品远程能力验证外发仍受既有权限门控制。",
+      "sources": [{"path":"python/tools/screenshot_tool/screenshot_tool.py","line":88},{"path":"python/tools/send_to_wechat_tool/send_to_wechat_tool.py","line":58},{"path":"python/channels/__init__.py","line":7},{"path":"python/channels/runner.py","line":27},{"path":"python/memory/nightshift.py","line":311}],
+      "probes": ["screenshot_core_only", "nightshift_core_only"]
+    },
+    {
+      "id": "A08", "priority": "P2", "evidence": "已复现的接口缺口", "title": "公开构造器允许引擎与工具看到不同宿主",
+      "trigger": "直接 QueryEngine(config)，同时传 RuntimeServices(jobs=J, tools=ToolHostServices(jobs=J)) 和未绑定宿主的 ToolRegistry。",
+      "observed": "runtime_snapshot.jobs 有 injected-job，job_list 却返回 no background jobs；构造器没有绑定或拒绝这种组合。",
+      "root_cause": "RuntimeServices.tools 的传播仅由两个便利工厂负责；QueryEngine 收下 services 与 registry 两个独立权威。jobs 快照端口与工具 jobs provider 也可指向不同存储。",
+      "impact": "公开 API 的自定义 registry 集成容易半接线，诊断与真实工具行为矛盾。独立工厂和 HTTP 默认工厂当前已正确接线，本条不宣称它们普遍失效。",
+      "fix_boundary": "定义一次装配契约：由 builder 唯一绑定，直接构造器验证服务身份一致；明确自定义 registry 是否拥有自己的服务。可让同一个 JobService 同时提供快照与工具操作视图。",
+      "validation": "直接构造、便利工厂、HTTP/CLI 和子 agent 均检查同一宿主；传入冲突组合要明确报错。再覆盖后注册工具与同一 tool 实例跨 registry 复用的所有权规则。",
+      "sources": [{"path":"python/engine/query_engine.py","line":174},{"path":"python/engine/query_engine.py","line":191},{"path":"python/engine/query_engine.py","line":1486},{"path":"python/engine/runtime_services.py","line":27},{"path":"python/tools/tool_registry.py","line":234}],
+      "probes": ["direct_constructor_injection"]
+    },
+    {
+      "id": "A09", "priority": "P2", "evidence": "条件性缺陷已复现", "title": "重新绑定 TurnRunner 会遗失活任务的控制入口",
+      "trigger": "同一 pool 的 runner 启动一条活 turn，再次 bind_turn_runner(pool)。",
+      "observed": "旧 runner 仍报告 active=true，新全局 runner 报 active=false；绑定过程没有 drain、取消或拒绝。",
+      "root_cause": "注入目前仍落到进程级 _runner/_settlement_listener；每次 bind 无条件覆盖。deps 导入和 app lifespan 均会调用绑定。",
+      "impact": "同进程多宿主、重复 lifespan 或重绑定时可能失去停止/重连活任务的入口。正常单应用首次启动通常没有旧活任务，本轮未复现普通 GUI 会话自然发生此问题。",
+      "fix_boundary": "由 AppRuntime 持有 runner 和 listener，路由显式取得自己的实例；兼容全局入口只能委托默认宿主。过渡期 bind 同实例幂等，有活任务时禁止替换。",
+      "validation": "同 pool 重复初始化保持实例，多 pool 不互相覆盖；有活任务时重绑定必须拒绝或完整排空，不能让旧 producer 成为孤儿。",
+      "sources": [{"path":"python/engine/turn_runner.py","line":565},{"path":"python/server/deps.py","line":35},{"path":"python/server/app.py","line":84}],
+      "probes": ["runner_rebind"]
+    },
+    {
+      "id": "A10", "priority": "P2", "evidence": "结构风险", "title": "资源创建是隐式全局，关闭也仍是全局操作",
+      "trigger": "一个进程嵌入多个引擎/宿主，或持续创建关闭不同工作区的运行时。",
+      "observed": "AgentRuntime._running 进程全局；shutdown 遍历所有运行项。MCP manager 按 cwd 全局缓存、shutdown_all_managers 全清。HTTP AsyncClient 按 loop 全局缓存，当前源码未见对应统一 aclose 生命周期。",
+      "root_cause": "显式注入目前主要解决服务访问，没有定义 create/start/drain/close 的资源所有权。QueryEngine 没有完整异步关闭协议。",
+      "impact": "一个宿主关闭可能影响另一个宿主；嵌入式调用者难以确定何时释放连接和进程。连接泄漏规模、跨宿主真实取消效果本轮未做压力复现。",
+      "fix_boundary": "AppRuntime 管资源，SessionRuntime 管回合；共享连接池/MCP 用宿主拥有的池或明确引用计数。提供 async close/drain，顺序为停止准入、收束任务、确认持久化、释放工具与传输资源。",
+      "validation": "两宿主并存，关闭 A 后 B 继续执行；关闭后无 A 的 agent/task/连接/子进程残留，重复关闭幂等；记录真实资源计数而非只断言 dict 清空。",
+      "sources": [{"path":"python/engine/agent_runtime.py","line":47},{"path":"python/engine/agent_runtime.py","line":275},{"path":"python/extension/mcp_manager.py","line":588},{"path":"python/extension/mcp_manager.py","line":599},{"path":"python/model/_openai_common.py","line":35},{"path":"python/server/app.py","line":184}],
+      "probes": []
+    },
+    {
+      "id": "A11", "priority": "P2", "evidence": "源码确认的耦合", "title": "传输协议和执行语义尚未分层",
+      "trigger": "复用核心做嵌入式、非 HTTP 宿主，或更换 SSE 传输实现。",
+      "observed": "engine/turn_runner 的 ProducerFn 是 event_id、SSE bytes、kind 三元组，直接生成 data: 帧；tools/base_tool 的基础结果还含桌面 ui 与 todo 投影字段。工具注册器承担权限、动作日志、事务、输出裁剪等多种执行策略。",
+      "root_cause": "切断 server import 后，产品协议仍以字节格式和数据字段留在核心内部。tools ↔ engine 引用互达使单独替换工具执行层成本较高。",
+      "impact": "传输变更会触碰核心，工具插件作者需要理解产品内部上下文；拆更多文件并不能建立稳定依赖方向。此项不是已发生的执行故障。",
+      "fix_boundary": "核心发布领域事件与 TurnOutcome；server adapter 负责 SSE 编码、重放和连接扇出。基础 ToolResult 使用稳定执行结果与有类型扩展，产品视图由适配器投影。先提取叶子契约，不引入通用插件框架。",
+      "validation": "同一领域事件序列通过旧/新 SSE 编码器得到相同帧与 cursor 行为；纯核心消费者不需理解 xy 或 data:。权限/动作/写事务顺序不可改变。",
+      "sources": [{"path":"python/engine/turn_runner.py","line":35},{"path":"python/engine/turn_runner.py","line":122},{"path":"python/tools/base_tool.py","line":13},{"path":"python/tools/tool_registry.py","line":292}],
+      "probes": []
+    },
+    {
+      "id": "A12", "priority": "P2", "evidence": "结构风险", "title": "GUI、TUI 与后端事件契约仍手工维护",
+      "trigger": "增加事件、调整身份或完成语义时，需要同时更改后端映射和多个客户端解释器。",
+      "observed": "后端 chat.py 手写 EngineEvent→xy/SSE 映射；GUI core.ts 自建事件联合与身份转换；TUI onXy 接 Record<string, unknown> 并另写 applyXy/reconnect 逻辑。",
+      "root_cause": "已有 envelope 和场景测试，但缺少涵盖领域事件、网络序列化与客户端解码的单一版本化契约。",
+      "impact": "容易出现一端接受另一端忽略的字段，或 done/failed/stream_gap 各自推断。当前代码已具有 turn fencing 和 gap 恢复，不能把旧版缺口重新当成现有缺陷。",
+      "fix_boundary": "从明确的事件 schema 生成双方类型，保留各自界面状态管理；建立同一组 SSE fixtures，驱动 GUI/TUI/CLI 解码并比较身份、终态和重放结果。",
+      "validation": "覆盖 queued/steered、permission、工具结果、失败、重连重复帧、gap、服务重启；未知新增事件兼容，未知版本或身份冲突有明确策略。",
+      "sources": [{"path":"python/server/routers/chat.py","line":1203},{"path":"python/server/routers/chat.py","line":1476},{"path":"gui/src/lib/api/core.ts","line":104},{"path":"gui/src/lib/api/core.ts","line":575},{"path":"tui/src/api/sse.ts","line":5},{"path":"tui/src/api/sse.ts","line":578},{"path":"tui/src/api/resumeChatStream.ts","line":7}],
+      "probes": []
+    },
+    {
+      "id": "A13", "priority": "P2", "evidence": "源码确认的规则违例", "title": "模型可见结果仍包含引擎发出的行动指令",
+      "trigger": "ExitPlanMode 获批或被拒；Diagnostics 参数缺失。",
+      "observed": "query_loop 结果写入 Plan approved. Implement the approved plan. 和 Plan not approved. Stop.；Diagnostics 缺参错误要求 Pass the file you just edited。",
+      "root_cause": "状态判定与模型可见文本混在执行分支，没有事实型结果结构和统一呈现约束。",
+      "impact": "与项目明确的“注意力里只出现信息，不出现导演”规则冲突。行为收益或模型质量影响本轮未测，不能把措辞修改自动算成性能提升。",
+      "fix_boundary": "执行层维持现有 allow/deny/stop 机制；文本仅呈现 plan approval 状态、缺失字段等事实。由有类型结果统一渲染，审查变更触及的模型文本，不做全仓盲目替换。",
+      "validation": "同输入旧/新分支的权限与状态转换完全一致；文本差异仅限批准/拒绝/缺参事实，没有额外策略建议。",
+      "sources": [{"path":"python/engine/query_loop.py","line":2292},{"path":"python/engine/query_loop.py","line":2311},{"path":"python/tools/diagnostics_tool/diagnostics_tool.py","line":98}],
+      "probes": []
+    },
+    {
+      "id": "A14", "priority": "P3", "evidence": "发布架构债务", "title": "独立安装完成依赖分组，发布边界仍在过渡期",
+      "trigger": "把 XEYO 嵌入其他 Python 项目，或维护引擎与桌面产品不同发布节奏。",
+      "observed": "xeyo 公开入口是惰性转发门面，wheel 仍安装 engine/tools/common/model/server/cli 等顶层包；extras 只区分依赖，未区分产品代码。",
+      "root_cause": "阶段一保留旧绝对导入以兼容产品，这是合理过渡，但还不是最终公开命名空间与独立产品发布单元。",
+      "impact": "常见顶层包名存在共存冲突风险；外部用户容易依赖私有模块，后续升级成本变大。本轮未与真实第三方同名包做冲突安装实验。",
+      "fix_boundary": "先宣布稳定 xeyo 公共 API 和兼容期，将 contracts/engine/adapters 逐步收入受控命名空间；再按发布需求决定 xeyo-core/xeyo-product 是否拆分。不要先大规模改包名来掩盖生命周期问题。",
+      "validation": "仓库外 clean-wheel 安装、公开示例、旧入口兼容、离线 fake 回合与可选产品启动分别验证；收集打包清单，防止实验脚本进入发布物。",
+      "sources": [{"path":"python/xeyo/__init__.py","line":1},{"path":"python/pyproject.toml","line":18},{"path":"python/pyproject.toml","line":41}],
+      "probes": []
+    },
+    {
+      "id": "A15", "priority": "P2", "evidence": "验证缺口已确认", "title": "现有架构门禁验证了局部形状，未覆盖完整语义",
+      "trigger": "以当前 29 项宿主/并发测试通过作为完整解耦或生命周期正确的证据。",
+      "observed": "29 项测试通过，同时本轮探针复现 A01–A09。close 测试只断言 _turn_active=false；导入门禁只扫描指定目录的直接 import；工厂测试主要用 fake。",
+      "root_cause": "测试围绕改动点，而未覆盖宿主能力闭包、资源所有权、失败收尾和真实 provider 参数传播。",
+      "impact": "测试绿与架构契约成立之间存在空隙；继续堆同形测试无法补齐。",
+      "fix_boundary": "把本轮可复现场景提升为跨边界契约，限定每类一个关键不变量；保留原兼容测试，避免全部重跑和无意义覆盖率目标。",
+      "validation": "旁路 B 应在已证明失败的 A 场景中通过，同时原 29 项和受影响入口契约不变；语义有意改变的异常终态应单独登记，不强求错误行为逐字节相等。",
+      "sources": [{"path":"python/tests/test_concurrency_gates.py","line":52},{"path":"python/tests/test_engine_host_boundary.py","line":14},{"path":"python/tests/test_tool_host_boundary.py","line":17},{"path":"python/scripts/check_engine_install.py","line":45}],
+      "probes": []
+    }
+  ],
+  "next_steps": [
+    {"order":1,"scope":"A01/A02 回合生命周期","sidepath":"独立 TurnScope，开关控制入口委托","acceptance":"所有关闭/失败边界先完成清理再释放互斥；正常流一致"},
+    {"order":2,"scope":"A03 持久化屏障","sidepath":"复用已有按路径屏障，与全局 flush 对照","acceptance":"坏会话不阻塞/误伤健康会话；每会话顺序和落盘证明保持"},
+    {"order":3,"scope":"A04/A05/A06/A08 配置、工厂、身份与装配","sidepath":"新增 builder 与 immutable config，旧工厂可切回","acceptance":"双工作区隔离；provider 参数一致；根 turn_id 一致；宿主接口完整"},
+    {"order":4,"scope":"A07/A09/A10/A11 产品组合根与资源生命周期","sidepath":"AppRuntime + 兼容默认宿主；产品适配器显式注册","acceptance":"两宿主独立；关闭只收束自己的资源；纯核心不加载产品模块"},
+    {"order":5,"scope":"A12–A15 对外契约与开源整理","sidepath":"生成类型、契约 fixtures、公开 API 示例和兼容入口","acceptance":"GUI/TUI/CLI 同事件解释一致；wheel 外部验证；模型文本符合项目原则"}
+  ],
+  "evidence_files": {
+    "probe_code":"python/.tmp-architecture-20261016/probes.py",
+    "probe_results":"python/.tmp-architecture-20261016/probe-results.json",
+    "targeted_tests":"python/.tmp-architecture-20261016/targeted-tests.xml",
+    "source_inventory":"python/.tmp-architecture-20261016/packaged-source-map.json"
+  }
+}

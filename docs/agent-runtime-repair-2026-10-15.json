@@ -1,0 +1,92 @@
+{
+  "date": "2026-10-15",
+  "scope": "Agent audit findings 1-5; sandbox deferred by user",
+  "baseline_commit": "bb1af831ac707e0b2ad0e7f1dedccad0da4706b0",
+  "worktree": "Existing concurrent edits preserved; no commit, push, release, or running-server restart",
+  "repairs": [
+    {
+      "id": "mcp_reply_ownership",
+      "flag": "XEYO_MCP_ROUTER",
+      "default": true,
+      "cause": "Multiple callers consumed one transport queue; an inline notification could reenter request handling and consume another request's reply.",
+      "invariant": "One receiver routes replies to request-id waiters. Notifications execute separately. Shutdown wakes pending calls; cancellation is best effort.",
+      "ab": "Legal reversed replies: old path loses both replies; repaired path returns A to A and B to B. Notification during an active call: old path times out; repaired path completes.",
+      "implementation": "python/extension/mcp_dispatcher.py",
+      "reference": "https://raw.githubusercontent.com/modelcontextprotocol/python-sdk/v1.x/src/mcp/shared/session.py"
+    },
+    {
+      "id": "uncertain_tool_outcome",
+      "flag": "XEYO_TOOL_OUTCOME_CONTRACT",
+      "default": true,
+      "cause": "Timeout/cancellation discarded the executing action identity and side-effect class. MCP timeouts were flattened into terminal generic errors.",
+      "invariant": "An unconfirmed side effect returns unknown, nonretryable, incomplete, and retains its action id. Unresolved identical operations are not repeated just because the model generates a new tool-call id.",
+      "ab": "Outer timeout: error/retryable/no action id becomes unknown/nonretryable/retained action id. Inner timeout plus new tool-call id: two delayed external effects become one effect and one blocked repeat.",
+      "implementation": "python/tools/execution_outcome.py",
+      "reference": "https://modelcontextprotocol.io/specification/2025-06-18/basic/utilities/cancellation",
+      "boundary": "A timeout does not prove remote cancellation. The operation hash only protects identical unresolved arguments within the journal's session; it is not universal business-level exactly-once execution. Confirmed successful identical operations remain repeatable. Persistent protection requires session identity and ActionJournal; XEYO_ACTION_JOURNAL=0 explicitly disables it. Unknown actions require reconciliation before that identical operation can execute again."
+    },
+    {
+      "id": "shared_task_budget",
+      "flag": "XEYO_SHARED_AGENT_BUDGET",
+      "default": true,
+      "cause": "Each child and follow-up cycle created an independent spending tracker with no parent money/token gate.",
+      "invariant": "Root, child, and follow-up usage settles into the same task ledger. Per-agent usage remains separate. Every model retry rechecks the shared limit.",
+      "ab": "Parent 0.1 USD plus child/follow-up 0.4 USD reaches the shared 0.5 USD gate. A real offline query loop stops after child spending instead of issuing the next parent model request; tool-call/result pairing remains valid.",
+      "implementation": "python/engine/shared_budget.py",
+      "reference": "https://developers.openai.com/api/docs/guides/agents-api/observability",
+      "boundary": "Admission uses settled reported usage. Already in-flight provider requests can overshoot. Unpriced usage remains unknown. This is not a prepaid hard spending cap or a billing guarantee."
+    },
+    {
+      "id": "turn_bound_control",
+      "flag": "XEYO_TURN_BOUND_CONTROL",
+      "default": true,
+      "cause": "Interrupt and steer targeted only a session, so a delayed request intended for turn A could act on turn B.",
+      "invariant": "Updated GUI, TUI, and attached CLI capture the observed turn id. Backend comparison and action share lifecycle locking; interrupt additionally validates the pool lease. Stale requests return 409 before changing queue/control state.",
+      "ab": "A stop request carrying A while B is active changes from stopping B to 409 without stopping or pausing B. Stale steer cannot enqueue a message. Queue submissions retain the active GUI turn identity.",
+      "implementation": "python/server/turn_control.py",
+      "reference": "https://learn.chatgpt.com/docs/app-server#steer-an-active-turn",
+      "boundary": "Requests omitting expected_turn_id retain the legacy session-wide API. A valid admitted steer retains the existing durable fallback-to-inbox contract if no further sampling boundary occurs."
+    },
+    {
+      "id": "child_identity_and_usage",
+      "flag": "XEYO_SUBAGENT_RESULT_CONTRACT",
+      "default": true,
+      "cause": "The child wrapper retained hardcoded provider/model defaults and omitted usage fields when adapting the runner result.",
+      "invariant": "Identity comes from the actual model client. Child clients own their per-call observation fields. Adapter, progress event, metadata, and GUI preserve token count, nullable cost, partial-cost flag, and stop reason.",
+      "ab": "An Anthropic client keeps its actual identity instead of DeepSeek defaults. 1234 tokens, 1.25 CNY, and partial=true survive adaptation instead of becoming zero, null, and absent.",
+      "implementation": "python/tools/agent_tool/result_contract.py",
+      "reference": "https://developers.openai.com/api/docs/guides/agents-api/observability"
+    }
+  ],
+  "verification": {
+    "ab_and_boundaries": "python/tests/test_agent_runtime_repairs.py",
+    "python_final": {
+      "passed": 180,
+      "seconds": 25.68,
+      "junit": ".tmp/agent-runtime-repair-20261015/pytest-final.xml",
+      "scope": [
+        "test_agent_runtime_repairs.py", "test_mcp_client_t11.py", "test_action_journal.py",
+        "test_tool_orchestration.py", "test_budget.py", "test_budget_stop_store_valid.py",
+        "test_agent_tool_orchestration_e2e.py", "test_agent_tool_as_tool.py", "test_agent_tool.py",
+        "test_interrupt_turn_store_valid.py", "test_stream_failure_settlement.py",
+        "test_inbox_boundary_delivery.py", "test_inbox_stop_hold.py", "test_cli_receipts.py",
+        "test_cli_attach_stream_completion.py", "test_subagent_meta.py",
+        "extension/test_mcp_e2e.py", "extension/test_mcp_exposure.py"
+      ]
+    },
+    "gui": {"passed": 38, "files": ["src/lib/agentRuntimeContracts.test.ts", "src/lib/api.interrupt.test.ts", "src/lib/api.stream.test.ts", "src/lib/api/turnCursor.test.ts"]},
+    "tui": {"passed": 40, "files": ["src/api/sse.test.ts", "src/api/turnIdentity.test.ts"], "typecheck": "passed"},
+    "python_compile": "passed for touched runtime modules",
+    "diff_check": "passed for selected touched tracked files",
+    "gui_typecheck": {
+      "status": "blocked by concurrent edits outside this repair",
+      "errors_observed": [
+        "Composer.tsx:5 unused ChevronUp", "Composer.tsx:23 unused mediaUrl",
+        "XyStreamdown.tsx:256 missing scrollMarkdownHeading",
+        "visiblePolling.ts:13 TS2367 visibilityState narrowing"
+      ],
+      "note": "An earlier typecheck passed. These three files changed concurrently and were not modified by this task."
+    },
+    "limits": "Targeted offline tests with fake transports/models; no paid vendor calls, real remote mutation, full repository suite, or production rollout."
+  }
+}

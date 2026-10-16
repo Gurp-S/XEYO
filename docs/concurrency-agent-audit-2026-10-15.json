@@ -1,0 +1,757 @@
+{
+  "title": "XEYO 多对话、隔离、多 Agent 与并发机制审查",
+  "date": "2026-10-15",
+  "scope": "审查与离线复现；未修改业务源码、未实现沙箱、未提交或重置混合工作区。由当前代理独立完成。",
+  "conclusion": "默认 Agent 是单层、阻塞等待的并行子任务工具。具备上下文侧链、写域、并发额度和结果契约，但运行身份、观察状态、消息时机、重试参数、可选 worktree 收集尚不构成一致的后台 agent 生命周期。Cursor/Claude/Codex 官方能力是对照，不是单一普适标准。",
+  "runtime_paths": [
+    {
+      "name": "AgentTool -> run_subagent -> query_loop",
+      "availability": "默认",
+      "mechanics": "独立子模型循环/侧链，父工具调用等待完成；同轮多 Agent 并发；单层，不向子 agent 提供 Agent/Workflow/agent_send；共享 checkout 和 ReadFileState。"
+    },
+    {
+      "name": "Workflow -> _ScriptRuntime -> AgentTool",
+      "availability": "XEYO_WORKFLOW 默认 false",
+      "mechanics": "模型自写脚本编排；底层仍复用 AgentTool，但线程执行边界引入上下文丢失。"
+    },
+    {
+      "name": "coord CLI -> WorkerPool / Planner / Reconciler",
+      "availability": "显式 xeyo coord 路径；不是 GUI/server 默认委派链",
+      "mechanics": "文件任务表、scope 租约、worker worktree 与合并；Planner 类为任务入表/认领门禁，不是已接入的递归 LLM planner。"
+    },
+    {
+      "name": "engine.scheduler / session_pool.scheduler_for",
+      "availability": "存在实现；本次源码搜索未找到默认产品路径调用",
+      "mechanics": "不能用它的 DAG/互斥能力推断默认 Agent 具有同等保障。"
+    }
+  ],
+  "configuration_boundary": "源码与本次检查进程中 Workflow/worktree 开关均关闭；没有检查用户正在运行的服务进程环境。可选路径的问题在显式进入路径的离线夹具中复现。",
+  "official_comparison": [
+    {
+      "url": "https://cursor.com/docs/agent/plan-mode",
+      "kind": "product",
+      "mechanism": "先研究和形成可审阅计划，再执行。",
+      "comparison": "Plan Mode 是交互流程，不等于 planner-worker 多 agent 调度架构。"
+    },
+    {
+      "url": "https://cursor.com/blog/self-driving-codebases",
+      "date": "2026-02-05",
+      "kind": "research",
+      "mechanism": "根 planner / 递归 subplanner 负责各自范围；worker 独立仓库副本，交付 handoff，唤醒上级继续规划，避免全局同步等待。",
+      "comparison": "XEYO 缺少默认后台运行句柄与结果唤醒。该研究的高吞吐与容忍临时坏提交取舍不能直接照搬。"
+    },
+    {
+      "url": "https://cursor.com/docs/subagents",
+      "kind": "product",
+      "mechanism": "隔离上下文；区分前台等待与后台立即返回；可按 ID 恢复。",
+      "comparison": "XEYO 短任务等待是合理模式，长任务后台/恢复需要额外原语。"
+    },
+    {
+      "url": "https://learn.chatgpt.com/docs/agent-configuration/subagents",
+      "original_url": "https://developers.openai.com/codex/multi-agent/",
+      "kind": "official Codex documentation; original URL redirects here",
+      "mechanism": "独立 agent threads；协调创建、后续消息、等待、关闭；角色和模型配置。",
+      "comparison": "XEYO 的 live map 与 reuse 需要独立 attempt 身份与状态机；不能从 Codex 文档推断每个 subagent 自动拥有 worktree。"
+    },
+    {
+      "url": "https://code.claude.com/docs/en/sub-agents",
+      "kind": "product",
+      "mechanism": "独立上下文、能力配置和前后台生命周期。",
+      "comparison": "限制嵌套深度本身是产品选择，并非必须修复的 bug。"
+    },
+    {
+      "url": "https://code.claude.com/docs/en/agent-teams",
+      "kind": "experimental product",
+      "mechanism": "独立会话、共享任务、依赖门禁、锁定认领与持久邮箱。",
+      "comparison": "coord 的 deps 丢失违反已声明的依赖语义；默认 live inbox 仅内存，不能称为可重启恢复的持久邮箱。"
+    },
+    {
+      "url": "https://code.claude.com/docs/en/worktrees",
+      "kind": "product",
+      "mechanism": "分离 checkout，保留脏或未合入工作区；重用时核验状态。",
+      "comparison": "XEYO 资源命名、所有权、产物合入与清理需要事务契约。"
+    },
+    {
+      "url": "https://code.claude.com/docs/en/sandboxing",
+      "kind": "product boundary",
+      "mechanism": "shell 的 OS 文件/网络隔离与 worktree 分开；官方原生 Windows shell 没有这套沙箱。",
+      "comparison": "XEYO worktree 可先解决代码互踩；不能承诺进程、网络或任意宿主文件安全隔离。"
+    },
+    {
+      "url": "https://git-scm.com/docs/git-apply",
+      "kind": "primitive documentation",
+      "mechanism": "--3way 涉及 index。",
+      "comparison": "只恢复文件字节不足以回滚。"
+    }
+  ],
+  "findings": [
+    {
+      "id": "M01",
+      "priority": "P2",
+      "kind": "mechanism_gap",
+      "path": "default Agent",
+      "title": "父模型等待整批子任务，运行中消息工具缺少正常模型调用时机",
+      "source": [
+        [
+          "python/tools/agent_tool/agent_tool.py",
+          396
+        ],
+        [
+          "python/engine/query_loop.py",
+          2538
+        ],
+        [
+          "python/tools/orchestration.py",
+          331
+        ],
+        [
+          "python/tools/agent_message_tool.py",
+          51
+        ],
+        [
+          "python/tools/agent_message_tool.py",
+          120
+        ]
+      ],
+      "evidence_level": "static control-flow proof",
+      "scenario": "A、B 同轮派发；A 先完成，父模型仍等待 B。agent_send 只接收 live agent，且被分在串行工具批；同批 Agent 后发送时 Agent 已注销，下一模型轮同样太晚。外部 GUI/API follow-up 可在 worker 运行中抵达，本项不否认该路径。",
+      "root_cause": "子 agent 的生命周期绑定在一个等待完成的工具调用中；消息、等待、取消、恢复没有独立于父模型回合的运行对象。",
+      "structural_rule": "保留短任务阻塞调用，同时以统一 AgentRun 提供可选后台 spawn/状态/消息/wait/interrupt/resume；后台 spawn 返回稳定 handle，终态事件可唤醒父 agent。模型决定是否及何时调用。",
+      "regression": "快 worker 完成而慢 worker 仍活动时，父模型能取得快结果并投递一次消息；消息绑定正确 attempt，不能投到已结束或替代的运行。"
+    },
+    {
+      "id": "M02",
+      "priority": "P1",
+      "kind": "bug",
+      "path": "default shared checkout",
+      "title": "共享已读状态使旧内容写入通过新鲜度检查",
+      "source": [
+        [
+          "python/tools/catalog.py",
+          556
+        ],
+        [
+          "python/tools/fileio/read_state.py",
+          249
+        ],
+        [
+          "python/tools/agent_tool/agent_tool.py",
+          684
+        ]
+      ],
+      "probe": "shared_observations",
+      "scenario": "A、B 都读旧文件；B 完成写入。共享 ReadFileState 随 B 更新后，A 用旧认识覆盖 B 被允许。独立状态对照会拒绝并保留 B 的改动。",
+      "root_cause": "把谁看过哪个版本的事实，与文件当前版本混为全体 agent 共享的可变状态。",
+      "structural_rule": "观察状态按 agent/attempt 隔离；共享文件 revision 和写事务。锁内验证本 agent 的 observed hash，任何其他 agent 的写入都不能替它更新已读事实。",
+      "regression": "两 agent 读同版后 B 写成功，A 不重读必须 stale 拒绝；A 重读新版本后才可写。"
+    },
+    {
+      "id": "M03",
+      "priority": "P2",
+      "kind": "bug",
+      "path": "default Agent and worktree",
+      "title": "子任务继承父执行上下文对象并互相覆盖请求身份",
+      "source": [
+        [
+          "python/engine/workspace_context.py",
+          36
+        ],
+        [
+          "python/engine/subagent_runner.py",
+          248
+        ]
+      ],
+      "probe": "execution_context_leak",
+      "scenario": "两个实际 run_subagent 调用继承同一个父 ExecutionContext；A 修改 request ID 后 B 修改，A 随后读到 B，父对象也被改写。请求子工作区时 context.cwd 仍为父目录。",
+      "root_cause": "ContextVar 隔离变量绑定，不会复制其可变值；入口没有为每个子 agent 建立独立执行上下文。",
+      "structural_rule": "每次派生运行显式 fork 不可变上下文；独立绑定 session/agent/attempt/request/workspace，父权限作为继承上界；预算账本等有意共享对象单独声明。",
+      "regression": "并发更改子请求身份互不影响，父快照不变；工具审计上下文与实际 worker workspace 一致。",
+      "boundary": "已证明身份、工作区元数据串扰，未证明任意越界文件写入。"
+    },
+    {
+      "id": "M04",
+      "priority": "P1",
+      "kind": "bug",
+      "path": "default Agent reuse",
+      "title": "同一 agent_id 可同时重跑，旧运行清理会注销新运行",
+      "source": [
+        [
+          "python/tools/agent_tool/agent_tool.py",
+          320
+        ],
+        [
+          "python/engine/live_agents.py",
+          41
+        ],
+        [
+          "python/engine/live_agents.py",
+          57
+        ]
+      ],
+      "probe": "duplicate_live_id",
+      "scenario": "两个 execute 并发使用 same-agent；侧链清空两次。第一运行结束后，第二仍在运行却已经不在 live 表中，取消返回找不到。",
+      "root_cause": "agent ID 同时充当历史身份和运行身份；注册覆盖、注销按键删除，无 attempt token 和单实例准入。",
+      "structural_rule": "每个 agent 允许一个活动 attempt；注册原子占用，释放须匹配 owner token。resume 保留历史，retry 建新 attempt，不能预先清空活动历史。",
+      "regression": "同时重跑仅一个获准；旧 attempt 的 finally 不得注销新 attempt；取消应精确到在途实例。"
+    },
+    {
+      "id": "M05",
+      "priority": "P2",
+      "kind": "bug",
+      "path": "HTTP agent retry",
+      "title": "重试没有还原原任务写域",
+      "source": [
+        [
+          "python/server/routers/sessions.py",
+          1470
+        ],
+        [
+          "python/server/routers/sessions.py",
+          1583
+        ]
+      ],
+      "probe": "retry_drops_scope",
+      "scenario": "原 meta.write_scope=[f.txt]；retry 提交参数未含 scope，解析后 scope=[]，工具白名单不再含 Write/Edit。",
+      "root_cause": "恢复逻辑手工拼装部分入参，缺少持久化、可校验的完整 RunSpec。",
+      "structural_rule": "持久化任务参数、角色/模型/工具能力/写域/隔离策略；重试恢复 spec 并与当前授权取交集，身份与 attempt 分离。",
+      "regression": "失败的有写域任务重试保留写域与工具面；权限收窄时应明确拒绝或报告变化。",
+      "boundary": "本次动态验证只证明 scope 丢失，未声称所有配置项都已实测丢失。"
+    },
+    {
+      "id": "M06",
+      "priority": "P1",
+      "kind": "bug",
+      "path": "explicit coord CLI worker system",
+      "title": "deps 只校验引用，未保存也未约束认领",
+      "source": [
+        [
+          "python/coord/planner.py",
+          49
+        ],
+        [
+          "python/coord/planner.py",
+          103
+        ],
+        [
+          "python/coord/store.py",
+          79
+        ]
+      ],
+      "probe": "coord_drops_dependencies",
+      "scenario": "A 生产 API，B 消费 API，B.deps=[A]，scope 不同。A 尚在 claimed，B 已被另一个 worker 认领；持久任务中没有 deps。",
+      "root_cause": "任务数据模型不含依赖；认领只检查状态和文件 scope，不检查数据依赖。",
+      "structural_rule": "依赖进入持久任务 schema，建表校验 DAG；原子认领同时检查前置任务的有效成功/合入状态与版本，明确失败依赖处理。",
+      "regression": "A 未完成时 B 不可认领；A 成功满足前置条件后可认领；失败、循环、未知依赖、并发 claim 有独立断言。",
+      "boundary": "这是 coord 专用路径，不是默认 Agent 的 DAG 调度。"
+    },
+    {
+      "id": "M07",
+      "priority": "P1",
+      "kind": "bug",
+      "path": "optional Workflow; default disabled",
+      "title": "parallel 线程池丢失会话上下文和父任务预算",
+      "source": [
+        [
+          "python/tools/workflow_tool/workflow_tool.py",
+          200
+        ],
+        [
+          "python/tools/workflow_tool/workflow_tool.py",
+          246
+        ]
+      ],
+      "probe": "workflow_parallel_drops_context",
+      "scenario": "串行 workflow agent 调用继承 workflow-audit session 和 SharedBudget；同一 runtime._parallel 分支中 session 为 None，inherit_budget() 不再返回父账本。",
+      "root_cause": "asyncio.to_thread 复制的 ContextVars 在嵌套 ThreadPoolExecutor.submit 边界丢失，run_coroutine_threadsafe 从空线程上下文提交。",
+      "structural_rule": "跨异步/线程边界统一传递 RunContext；每个并行分支独立复制绑定，共享预算引用须显式保留。",
+      "regression": "serial/parallel 的授权、会话身份、deadline、预算归属一致；子请求达到根预算后同样停止准入。",
+      "boundary": "Workflow 默认关闭；未调用模型计费，实测为入口上下文/预算继承断裂。"
+    },
+    {
+      "id": "W01",
+      "priority": "P1",
+      "kind": "bug",
+      "path": "optional subagent worktree; default disabled",
+      "title": "截断 ID 撞名后强制删除另一工作区",
+      "source": [
+        [
+          "python/coord/worktree.py",
+          55
+        ],
+        [
+          "python/coord/worktree.py",
+          95
+        ],
+        [
+          "python/coord/worktree.py",
+          121
+        ],
+        [
+          "python/tools/agent_tool/agent_tool.py",
+          623
+        ]
+      ],
+      "probe": "collision",
+      "scenario": "两个不同 implement_backend agent ID 被截成相同前 16 字符；第二次 create 命中同路径，强制删除第一工作区及其未提交文件。",
+      "root_cause": "显示短名被用于资源唯一身份；发现已存在便假定残留，无活动所有权核验。",
+      "structural_rule": "资源 ID 包含 session/agent/attempt 的抗碰撞摘要；绑定 owner lease，已存在资源只允许核验后恢复，不能无条件 remove --force。",
+      "regression": "相同长任务名前缀的两个 agent 得到不同路径；活动或脏工作区不被创建/回收另一任务删除。"
+    },
+    {
+      "id": "W02",
+      "priority": "P1",
+      "kind": "bug",
+      "path": "optional subagent worktree",
+      "title": "合并失败仅恢复文件，Git index 留下冲突",
+      "source": [
+        [
+          "python/tools/agent_tool/worktree_isolation.py",
+          128
+        ],
+        [
+          "python/tools/agent_tool/worktree_isolation.py",
+          246
+        ]
+      ],
+      "probe": "index_rollback",
+      "scenario": "三方合并失败后工作文件恢复，git ls-files -u 仍有 3 条 unmerged entries。",
+      "root_cause": "事务快照只有文件字节，git apply --3way 同时修改 index。",
+      "structural_rule": "用隔离 index/临时整合工作区验证；正式提交需覆盖文件与 index 的一致事务，保留父工作区原暂存状态。",
+      "regression": "合并失败前后文件字节、暂存内容、index stages 完全一致；成功也不能改变不属于补丁的暂存状态。"
+    },
+    {
+      "id": "W03",
+      "priority": "P1",
+      "kind": "bug",
+      "path": "optional subagent worktree with concurrent writers",
+      "title": "失败回滚覆盖同期其他会话的成功写入",
+      "source": [
+        [
+          "python/tools/agent_tool/worktree_isolation.py",
+          246
+        ],
+        [
+          "python/tools/agent_tool/worktree_isolation.py",
+          258
+        ]
+      ],
+      "probe": "rollback_loses_peer_write",
+      "scenario": "受控交错：merge 失败与 _restore 之间，另一个写者写入新内容；_restore 用旧快照覆盖它。",
+      "root_cause": "worktree collect 直接改父 checkout，未参与共享工作区写事务/路径锁，也无 revision fencing。",
+      "structural_rule": "全部父工作区变更统一参加同一写事务；回滚只能撤销本事务仍拥有的版本，不能覆盖外部后续提交。",
+      "regression": "屏障控制 peer write 插入合并失败与回滚之间，peer 内容必须保留或 peer 在合法锁边界等待。",
+      "boundary": "确定性交错复现，非随机压力测试。"
+    },
+    {
+      "id": "W04",
+      "priority": "P1",
+      "kind": "bug",
+      "path": "optional subagent worktree",
+      "title": "子任务返回失败也会把半成品合入主目录",
+      "source": [
+        [
+          "python/engine/subagent_runner.py",
+          494
+        ],
+        [
+          "python/tools/agent_tool/agent_tool.py",
+          629
+        ],
+        [
+          "python/tools/agent_tool/worktree_isolation.py",
+          188
+        ]
+      ],
+      "probe": "returned_failure",
+      "scenario": "实际 AgentTool._run_subagent 路径中 worker 返回 is_error=True/stop_reason=error，主目录仍收到 HALF DONE，merged=True。",
+      "root_cause": "隔离上下文只认 Python exception，不认已有结构化子任务结果；runner 将异常转换成普通返回值。",
+      "structural_rule": "显式传入 run outcome；失败/中止/预算终止产物保留待处理，合入为单独受控状态转换，不由 with 正常退出自动推断成功。",
+      "regression": "失败、取消、超时、预算终止均不自动合入；仅满足明确接受条件的结果可合入。"
+    },
+    {
+      "id": "W05",
+      "priority": "P2",
+      "kind": "conditional_bug",
+      "path": "optional worktree with external/manual commits",
+      "title": "已经提交的 worker 分支被当作无改动回收",
+      "source": [
+        [
+          "python/coord/worktree.py",
+          130
+        ],
+        [
+          "python/tools/agent_tool/worktree_isolation.py",
+          219
+        ]
+      ],
+      "probe": "already_committed",
+      "scenario": "child 已有相对 base 的提交但工作目录干净；commit_all 返回 None，被解释为 no_changes 并删除工作区/分支，没有合入。",
+      "root_cause": "用工作目录是否脏代替 base..HEAD 是否有任务产物。",
+      "structural_rule": "产物基于 base/head/tree 差异识别；清理前确认提交已交付或显式保留/放弃。",
+      "regression": "预先提交且 clean 的 worker 改动仍被正确收集；base 相同且 clean 才是无变化。",
+      "boundary": "正常 worker Bash 不允许 git commit；动态复现依赖外部/手工提交，不是默认可达写入路径。"
+    },
+    {
+      "id": "C01",
+      "priority": "P2",
+      "kind": "bug",
+      "path": "multichat cold start; optional worktree operations",
+      "title": "同步初始化与 Git 操作阻塞共享事件循环",
+      "source": [
+        [
+          "python/server/routers/chat.py",
+          889
+        ],
+        [
+          "python/server/session_pool.py",
+          296
+        ],
+        [
+          "python/server/session_pool.py",
+          345
+        ],
+        [
+          "python/extension/mcp_manager.py",
+          235
+        ],
+        [
+          "python/tools/agent_tool/agent_tool.py",
+          629
+        ]
+      ],
+      "probes": [
+        "synchronous_startup",
+        "worktree_blocks_loop"
+      ],
+      "scenario": "注入 200ms 同步启动/Git 延迟，原定 10ms 的同环心跳分别约 203ms/468ms 才完成。",
+      "root_cause": "async 请求路径直接执行同步构建/MCP 启动/Git 子进程；SessionPool 构建还位于全局锁内。",
+      "structural_rule": "每 session 单次并发初始化，短时间持有共享表锁；阻塞操作移到受限 executor，并等待取消后的真实清理完成。",
+      "regression": "慢启动某会话/慢 Git 时，其他会话心跳、取消、消息处理仍能推进；同 session 初始化仅一次。",
+      "boundary": "延迟为人工可控输入，仅证明事件循环阻塞，不能视为真实用户延迟测量。"
+    },
+    {
+      "id": "C02",
+      "priority": "P2",
+      "kind": "capacity_design_gap",
+      "path": "multiple sessions",
+      "title": "只有每会话 agent 与每批工具上限，缺少跨会话总量调节",
+      "source": [
+        [
+          "python/common/concurrency_budget.py",
+          1
+        ],
+        [
+          "python/tools/orchestration.py",
+          375
+        ]
+      ],
+      "probe": "per_session_only_limit",
+      "scenario": "默认每会话 8 个，两个会话合计成功准入 16 个；这是当前设计的正常结果。",
+      "root_cause": "没有按进程/provider/资源建立层级准入，多个聊天可以各自用满额度。",
+      "structural_rule": "根据实际多聊天压力测量决定进程/provider 限额与公平排队；保留会话额度。不要把单一全局锁当并发调度器。",
+      "regression": "未来实现需验证跨会话公平、取消释放、provider 限流、总量上界，并以延迟/吞吐 A/B 决定是否启用。",
+      "boundary": "本项不是现有每会话门禁失效；官方产品也可能用每会话限制，不能据此宣称其机制错误。"
+    }
+  ],
+  "additional_capability_boundaries": [
+    {
+      "source": "python/permissions/policy.py:967",
+      "observation": "worker Bash 为只读允许列表，未允许常规测试/构建执行；Diagnostics 仅提供 ruff/py_compile/tsc 等诊断。",
+      "interpretation": "worker 可写代码不代表具有完整实现-运行测试闭环。应为任务提供真实能力契约；扩大执行能力需先确定执行隔离与授权，不能仅为对齐竞品放开 shell。"
+    },
+    {
+      "source": "python/engine/live_agents.py:1",
+      "observation": "运行中 inbox 为内存队列，进程消失会丢失；与侧链元数据的迟到 follow-up 是不同路径。",
+      "interpretation": "如承诺可靠后台 agent，需要持久消息 ID/attempt/ack 与恢复协议；当前不应宣称具备同等持久团队邮箱。"
+    },
+    {
+      "source": "python/tools/agent_tool/result_contract.py",
+      "observation": "已有子任务结果契约与共享预算实现。",
+      "interpretation": "本次发现的是隔离收集/线程边界没有一致消费这些契约，不是整个项目缺少它们。"
+    }
+  ],
+  "recommended_order": [
+    "先修默认共享写入观察状态、agent/attempt 所有权和子执行上下文，避免并发丢数据与控制失效。",
+    "把 retry/resume、任务参数和预算继承收口到统一 RunSpec/AgentRun；修 coord deps 与 Workflow 上下文。",
+    "worktree 旁路先证明资源不撞名、不误删、失败不自动合入、文件和 Git index 事务一致，再考虑默认启用。",
+    "后台 spawn / wait / message / interrupt / resume 与完成事件建立后，模型可在其上自主选择 planner-worker 或其他路线；不在引擎提示词硬编码导演。",
+    "跨会话限额、嵌套 planner 与更广的 worker 执行权限，分别通过实际吞吐/质量/成本数据决定；操作系统沙箱另案，本次不实施。"
+  ],
+  "validation": {
+    "offline_witnesses": {
+      "total": 14,
+      "all_reproduced": true,
+      "note": "见证断言现有行为，不是修复后的回归通过；含容量边界观察与受控延迟/交错。"
+    },
+    "existing_python_tests": {
+      "passed": 39,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0,
+      "suites": [
+        "tests/test_concurrency_gates.py",
+        "tests/test_session_pool_busy.py",
+        "tests/test_session_pool_eviction.py",
+        "tests/test_subagent_worktree_isolation.py",
+        "tests/test_turn_snapshot_concurrency.py",
+        "tests/coord/test_worktree_metadata.py"
+      ]
+    },
+    "existing_gui_tests": {
+      "passed": 35,
+      "failed": 0,
+      "files": [
+        "src/lib/sessionStreams.test.ts",
+        "src/stores/chat/recoveryOwnership.test.ts",
+        "src/stores/chat/inboxMutationOwnership.test.ts",
+        "src/stores/chat/streamReattachPersist.test.ts",
+        "src/stores/chat/streamToolSettle.test.ts"
+      ]
+    },
+    "limits": [
+      "未调用真实模型或外部 provider。",
+      "没有整仓全量回归、真实并发用户压力或收益 A/B。",
+      "既有测试通过与新增缺陷复现并不矛盾，覆盖的契约不同。",
+      "不把可选关闭路径的缺陷描述为默认运行必发。"
+    ],
+    "evidence_files": [
+      ".tmp/concurrency-audit-20261015/probe.py",
+      ".tmp/concurrency-audit-20261015/results.json",
+      ".tmp/concurrency-audit-20261015/existing-tests.xml",
+      ".tmp/concurrency-audit-20261015/gui-tests.json"
+    ]
+  },
+  "dynamic_evidence": {
+    "run": "D:\\lea\\XenYon code\\.tmp\\concurrency-audit-20261015\\run-1792050607412340800",
+    "sources_before": {
+      "coord/worktree.py": "b9534cdc7a1731c04cdec14b07bb3fd989e602e2a80aa190bccf17054d37ce23",
+      "tools/agent_tool/worktree_isolation.py": "35fc1ba2fde0954687bb1dc4a3ae1c96730c38b08caab980973bf1592455660f",
+      "tools/agent_tool/agent_tool.py": "fa304b3ae46c37e16e97dbdb30d5423ffc92415c8da4b12f4e16b9692bbd3c67",
+      "tools/catalog.py": "6f28c092fe3a489df7196b97de151b929cbbf9de8b7470cb949efd4a22e4b65a",
+      "tools/fileio/read_state.py": "49df780a6fecbf9593a7b3734405826b6501aeab515df5f5c383cd731c85c28f",
+      "engine/subagent_runner.py": "f3f6017fdcdbd8ea8808903f6376a1a28382c62c72aad4b72faf29e6f6b91471",
+      "engine/workspace_context.py": "d97f9b77d31076f89e8c687b667177fbf03e439fc9e5826b82269d24c09ee287",
+      "engine/live_agents.py": "5bf26908d796b1e4ce2ce4ec6a233f097836ad93cedb825c847496e18219cf7c",
+      "server/session_pool.py": "b847d496cceea0f8c346093c6f5133af93c54375fe6990e3837f55a47fdd9419",
+      "server/routers/chat.py": "224c22f72708a5662a9e9c52463a4c81b9701c6bda4fc55e7ec777316ea1122f",
+      "server/routers/sessions.py": "1d1b09fbb7e98f62b7d0acb23238170c8599b95c5b6601e1bf8cb1f13dbdf140",
+      "extension/mcp_manager.py": "8c73370fb8391d339c3e20f77a85800bb6c0af9f6ba4ac0835ddc75fbe9fd7f7",
+      "tools/orchestration.py": "4e52541acb69afbfc361cd028fd8261c744a494356cf0fa7e27f60b73aff177d",
+      "common/concurrency_budget.py": "1e640a8bb2210bbcce7fe5d9acaa3a4600c32dcd5a635468b0aa5fa7e3981b94",
+      "engine/write_transaction.py": "84565947b649210d77a7c071c723474761ceb17669a9c0f81f94262e608170dd",
+      "coord/planner.py": "1ed57548a07c2f5c1e4689d6680b5337cc37a85a7875a9e983c39cccf0760c7a",
+      "coord/store.py": "8cb4a8599296ee95e351efb20307ac088e8cc47c784e73430f69295dbff6c6df",
+      "coord/file_store.py": "9be95a6cee53c5d079a7a6dfbbe90a9f7f29c65f841b3d419b4243335525b16a",
+      "tools/workflow_tool/workflow_tool.py": "03fec712020a33b691564228b93cdcfe62e010e85aa222cdeeb0545c7da32c6c",
+      "tools/agent_message_tool.py": "eb185e9eaf4e2bb67710d3d9d87f17d770a69bab7b99317b8e2a87e4b8688b4e",
+      "tools/meta.py": "0c739579e8ba416a2966a74318a7c8c65fb17940cae2f017f950027d81c55d50"
+    },
+    "sources_after": {
+      "coord/worktree.py": "b9534cdc7a1731c04cdec14b07bb3fd989e602e2a80aa190bccf17054d37ce23",
+      "tools/agent_tool/worktree_isolation.py": "35fc1ba2fde0954687bb1dc4a3ae1c96730c38b08caab980973bf1592455660f",
+      "tools/agent_tool/agent_tool.py": "fa304b3ae46c37e16e97dbdb30d5423ffc92415c8da4b12f4e16b9692bbd3c67",
+      "tools/catalog.py": "6f28c092fe3a489df7196b97de151b929cbbf9de8b7470cb949efd4a22e4b65a",
+      "tools/fileio/read_state.py": "49df780a6fecbf9593a7b3734405826b6501aeab515df5f5c383cd731c85c28f",
+      "engine/subagent_runner.py": "f3f6017fdcdbd8ea8808903f6376a1a28382c62c72aad4b72faf29e6f6b91471",
+      "engine/workspace_context.py": "d97f9b77d31076f89e8c687b667177fbf03e439fc9e5826b82269d24c09ee287",
+      "engine/live_agents.py": "5bf26908d796b1e4ce2ce4ec6a233f097836ad93cedb825c847496e18219cf7c",
+      "server/session_pool.py": "b847d496cceea0f8c346093c6f5133af93c54375fe6990e3837f55a47fdd9419",
+      "server/routers/chat.py": "224c22f72708a5662a9e9c52463a4c81b9701c6bda4fc55e7ec777316ea1122f",
+      "server/routers/sessions.py": "1d1b09fbb7e98f62b7d0acb23238170c8599b95c5b6601e1bf8cb1f13dbdf140",
+      "extension/mcp_manager.py": "8c73370fb8391d339c3e20f77a85800bb6c0af9f6ba4ac0835ddc75fbe9fd7f7",
+      "tools/orchestration.py": "4e52541acb69afbfc361cd028fd8261c744a494356cf0fa7e27f60b73aff177d",
+      "common/concurrency_budget.py": "1e640a8bb2210bbcce7fe5d9acaa3a4600c32dcd5a635468b0aa5fa7e3981b94",
+      "engine/write_transaction.py": "84565947b649210d77a7c071c723474761ceb17669a9c0f81f94262e608170dd",
+      "coord/planner.py": "1ed57548a07c2f5c1e4689d6680b5337cc37a85a7875a9e983c39cccf0760c7a",
+      "coord/store.py": "8cb4a8599296ee95e351efb20307ac088e8cc47c784e73430f69295dbff6c6df",
+      "coord/file_store.py": "9be95a6cee53c5d079a7a6dfbbe90a9f7f29c65f841b3d419b4243335525b16a",
+      "tools/workflow_tool/workflow_tool.py": "03fec712020a33b691564228b93cdcfe62e010e85aa222cdeeb0545c7da32c6c",
+      "tools/agent_message_tool.py": "eb185e9eaf4e2bb67710d3d9d87f17d770a69bab7b99317b8e2a87e4b8688b4e",
+      "tools/meta.py": "0c739579e8ba416a2966a74318a7c8c65fb17940cae2f017f950027d81c55d50"
+    },
+    "sources_stable_during_run": true,
+    "results": {
+      "collision": {
+        "status": "reproduced",
+        "evidence": {
+          "ids": [
+            "sub-agent-implement_backend-aaaaaa",
+            "sub-agent-implement_backend-bbbbbb"
+          ],
+          "short_ids": [
+            "subagentimplemen",
+            "subagentimplemen"
+          ],
+          "same_path": true,
+          "first_agent_uncommitted_file_deleted": true
+        }
+      },
+      "index_rollback": {
+        "status": "reproduced",
+        "evidence": {
+          "body_restored": true,
+          "index_restored": false,
+          "unmerged_index_entries": 3,
+          "outcome": {
+            "ok": true,
+            "merged": false,
+            "no_changes": false,
+            "branch": "coord/task/indexcase",
+            "worktree": "D:\\lea\\XenYon code\\.tmp\\concurrency-audit-20261015\\run-1792050607412340800\\index-rollback\\.xeyo\\worktrees\\wt_indexcase",
+            "changed_files": [
+              "f.txt"
+            ],
+            "conflicts": [
+              "f.txt"
+            ],
+            "detail": "three-way merge reported conflicts"
+          }
+        }
+      },
+      "rollback_loses_peer_write": {
+        "status": "reproduced",
+        "evidence": {
+          "controlled_interleaving": true,
+          "completed_peer_write_lost": true
+        }
+      },
+      "returned_failure": {
+        "status": "reproduced",
+        "evidence": {
+          "child_is_error": true,
+          "merged": true,
+          "main_body": "HALF DONE\n"
+        }
+      },
+      "already_committed": {
+        "status": "reproduced",
+        "evidence": {
+          "no_changes_reported": true,
+          "worktree_deleted": true,
+          "child_head": "8a638a8c58a625850806ff8e749bda95b47d9605",
+          "reachability_note": "Manual/external commit; normal worker Bash denies git commit."
+        }
+      },
+      "shared_observations": {
+        "status": "reproduced",
+        "evidence": {
+          "False": {
+            "stale_write_accepted": false,
+            "body": "B NEW WORK\n",
+            "error": "File has been unexpectedly modified. Read it again before attempting to write it.\nYour snapshot 3 lines / disk 1 lines / first differing line: snapshot 1, disk 1."
+          },
+          "True": {
+            "stale_write_accepted": true,
+            "body": "A OLD VIEW OUTPUT\n",
+            "error": ""
+          }
+        }
+      },
+      "execution_context_leak": {
+        "status": "reproduced",
+        "evidence": {
+          "children": {
+            "child-a": {
+              "same_object_as_parent": true,
+              "context_cwd": "D:\\lea\\XenYon code\\.tmp\\concurrency-audit-20261015\\run-1792050607412340800\\parent",
+              "requested_workspace": "D:\\lea\\XenYon code\\.tmp\\concurrency-audit-20261015\\run-1792050607412340800\\child-a",
+              "observed_request_id": "child-b"
+            },
+            "child-b": {
+              "same_object_as_parent": true,
+              "context_cwd": "D:\\lea\\XenYon code\\.tmp\\concurrency-audit-20261015\\run-1792050607412340800\\parent",
+              "requested_workspace": "D:\\lea\\XenYon code\\.tmp\\concurrency-audit-20261015\\run-1792050607412340800\\child-b",
+              "observed_request_id": "child-b"
+            }
+          },
+          "parent_request_after": "child-b"
+        }
+      },
+      "duplicate_live_id": {
+        "status": "reproduced",
+        "evidence": {
+          "concurrent_runs": 2,
+          "sidechain_clear_calls": 2,
+          "second_still_running_but_registered": false,
+          "cancel_found": false
+        }
+      },
+      "synchronous_startup": {
+        "status": "reproduced",
+        "evidence": {
+          "injected_synchronous_startup_ms": 200,
+          "10ms_heartbeat_delay_ms": 203,
+          "measurement_kind": "controlled blocking witness, not production latency"
+        }
+      },
+      "per_session_only_limit": {
+        "status": "reproduced",
+        "evidence": {
+          "session_limit": 8,
+          "two_sessions_admitted": 16,
+          "classification": "process-wide admission design gap, not per-session gate failure"
+        }
+      },
+      "retry_drops_scope": {
+        "status": "reproduced",
+        "evidence": {
+          "saved_scope": [
+            "f.txt"
+          ],
+          "retry_scope": [],
+          "retry_tools": [
+            "Bash",
+            "Diagnostics",
+            "Git",
+            "Glob",
+            "Grep",
+            "JournalQuery",
+            "Read"
+          ],
+          "payload": {
+            "task_id": "writer",
+            "desc": "edit f.txt",
+            "reuse_agent_id": "agent-writer",
+            "parent_depth": 0
+          }
+        }
+      },
+      "worktree_blocks_loop": {
+        "status": "reproduced",
+        "evidence": {
+          "injected_git_delay_ms": 200,
+          "10ms_heartbeat_delay_ms": 467.5,
+          "measurement_kind": "controlled blocking witness, not production latency"
+        }
+      },
+      "coord_drops_dependencies": {
+        "status": "reproduced",
+        "evidence": {
+          "admitted": {
+            "created": [
+              "task_a",
+              "task_b"
+            ],
+            "rejected": []
+          },
+          "prerequisite_status": "claimed",
+          "dependent_status": "claimed",
+          "persisted_dependencies": null
+        }
+      },
+      "workflow_parallel_drops_context": {
+        "status": "reproduced",
+        "evidence": {
+          "serial": {
+            "session_id": "workflow-audit",
+            "inherits_root_budget": true
+          },
+          "parallel": {
+            "session_id": null,
+            "inherits_root_budget": false
+          }
+        }
+      }
+    }
+  }
+}

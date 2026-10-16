@@ -1,0 +1,41 @@
+{
+  "task": "Repair the memory endpoint inventory guard without changing runtime behavior",
+  "date": "2026-10-15",
+  "root_cause": "The old regular-expression scanner only recognized dictionary returns inside a route's text block. The memory route now returns await engine.manual_compaction.compact(...); that helper still returns ok:false, but the scanner missed it.",
+  "rule": "Discover response envelopes from function syntax and follow directly returned calls to named same-module functions or explicitly imported source functions. Do not execute application modules or attribute unrelated nested/adjacent function returns to the route.",
+  "changes": [
+    "Added a separate source-only AST scanner used by the inventory guard",
+    "Preserved strict checks for unregistered and stale endpoints and disjoint classification tiers",
+    "Corrected the memory endpoint's stale client attribution: GUI compact uses /v1/slash; /v1/memory/compact stays registered in NO_UI_CLIENT",
+    "Retained the prior removal of the retired local-model endpoint"
+  ],
+  "ab": {
+    "original_guard_before": {"passed": 2, "failed": 1},
+    "original_guard_after": {"passed": 3, "failed": 0},
+    "endpoints_before": 23,
+    "endpoints_after": 24,
+    "added": ["/v1/memory/compact"],
+    "removed": [],
+    "unregistered_after": [],
+    "stale_after": [],
+    "source_evidence": "server/routers/memory.py:81 (manual_compact) -> engine/manual_compaction.py:54 (compact)"
+  },
+  "validation": {
+    "inventory_and_scanner": {"passed": 20, "failed": 0},
+    "manual_compression_early_exit": {"passed": 4, "failed": 0, "deselected": 25},
+    "covered": [
+      "Direct and asynchronous delegated responses, import aliases and helper chains",
+      "Single quotes, nested dictionaries and keyword route paths",
+      "Always-success responses and unrelated nested/adjacent functions excluded",
+      "Cycles terminate, shadowed imports are not followed and module binding order is respected",
+      "Moving a response into a helper preserves discovery; removing its rejection removes discovery",
+      "Short history and pending-stop paths preserve runtime state"
+    ],
+    "runtime_source_hashes_unchanged": {
+      "python/server/routers/memory.py": "5478341E17D03B8429A6B1FB57645D1524E83E409B2C61CD4D017759F426FFEE",
+      "python/engine/manual_compaction.py": "E802594E4729F19CE8283888CA4A4391CCE0366D12FDE67DD942635EE13D1CBC"
+    },
+    "environment_note": "The initial restricted Windows asyncio test stalled in socketpair setup. The same four isolated cases passed with normal process permissions; no live model requests were used."
+  },
+  "limits": "The scanner follows direct named return calls and absolute from-imports inside the Python source root. It is not a general data-flow or dynamic-dispatch analyzer. No full repository test run was claimed."
+}

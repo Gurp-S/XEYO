@@ -1,0 +1,61 @@
+{
+  "task": "Remove managed local models, model file management and downloaded assets",
+  "date": "2026-10-15",
+  "removed": [
+    "GUI local model settings and API client",
+    "Backend local model management routes, process manager and autostart/shutdown hooks",
+    "Model and llama.cpp downloader and launcher cleanup hooks",
+    "Local-model package from packaging inputs and current local Tauri resource snapshot",
+    "Retired local_models settings section in the current user's settings.json"
+  ],
+  "migration": "Old local profiles are filtered on settings load; remaining cloud accounts are selected. A local-only configuration resets its connection fields, without assigning the retired endpoint to a cloud provider.",
+  "preserved": [
+    "Concurrent GUI and backend changes",
+    "Cloud accounts, workspace file features and MCP",
+    "Explicitly gated development mock HTTP transport used by fullstack tests"
+  ],
+  "disk_cleanup": {
+    "directory": "C:\\Users\\48522\\.xeyo\\local-models",
+    "files_removed": 60,
+    "bytes_removed": 8643870125,
+    "model_files": [
+      {"name": "LFM2.5-8B-A1B-Q4_K_M.gguf", "bytes": 5155564768},
+      {"name": "Qwopus3.5-4B-Coder-MTP-Q4_K_M.gguf", "bytes": 2783446560}
+    ],
+    "includes": "Weights, llama.cpp/CUDA runtime, model logs and runtime directory",
+    "verified_after": {"directory_exists": false, "settings_section_present": false, "llama_server_processes": 0}
+  },
+  "before_after": {
+    "frontend_retirement_contracts_before": {"passed": 1, "failed": 4},
+    "frontend_retirement_contracts_after": {"passed": 5, "failed": 0},
+    "backend_settings_gate_before": "Old enabled product settings still authorized the local provider; retirement assertion failed.",
+    "backend_settings_gate_after": "Old product settings no longer authorize the local provider; explicit test environment gate remains available.",
+    "backend_route_baseline_limit": "The initial sandboxed TestClient run timed out in Windows socketpair setup. Post-change route checks ran outside that sandbox and verified all six management paths return 404. No before/after route timing claim is made."
+  },
+  "validation": {
+    "frontend_targeted_tests": {"passed": 27, "failed": 0},
+    "backend_targeted_tests": {"passed": 32, "failed": 0},
+    "typescript": "passed",
+    "production_frontend_build": "passed",
+    "browser": {
+      "old_local_account_removed": true,
+      "cloud_account_selected": true,
+      "cloud_account_edit_saved": true,
+      "local_model_requests": 0,
+      "page_errors": 0,
+      "mode": "Isolated development browser; mocked backend requests and separate Vite dependency cache"
+    },
+    "extra_interface_inventory_check": {
+      "passed": 2,
+      "failed": 1,
+      "failure": "test_every_envelope_endpoint_is_registered: /v1/memory/compact delegates its response to engine.manual_compaction.compact; the existing scanner only recognizes inline return dictionaries.",
+      "scope": "Unrelated memory implementation and scanner retained during local-model removal; only the removed local model route was deleted from the inventory.",
+      "follow_up": {
+        "status": "resolved",
+        "record": "docs/envelope-contract-repair-2026-10-15.json",
+        "result": "The source scanner now follows directly returned helper calls. The original three inventory checks pass; memory runtime source remains unchanged."
+      }
+    }
+  },
+  "limits": "No installed Windows application was rebuilt or reinstalled. Existing app processes need restarting to load the updated source. Historical source backup snapshots were not removed."
+}

@@ -1,0 +1,281 @@
+{
+  "date": "2026-10-15",
+  "project": "XEYO",
+  "status": "scoped_validation_passed",
+  "scope": "真实 HTTP/SSE、多会话、多 Agent 通信、独立 worktree、停止重试、断线重连与进程崩溃恢复",
+  "evidence_root": "D:/lea/XenYon code/.tmp/multiagent-soak-20261015",
+  "interpretation": {
+    "source": "保留混合工作区已有改动；未提交、未重置其他任务的变更。",
+    "long_run": "30 分钟负载期间持续修复，计划中的进程重启会加载当时源码；不能将整个长测描述为最终版本连续运行 30 分钟。",
+    "final_run": "全部本轮修复完成后另跑 184.45 秒，包含一次崩溃重启；浏览器和终端网络链路也分别复测。",
+    "provider": "本机确定性 OpenAI 兼容 HTTP/SSE 服务产生工具调用；执行真实 QueryEngine、工具、磁盘持久化和 Git worktree。未调用付费模型。",
+    "counts": "attempts 包含首次运行和重试；parent_turns 统计正常完成的父任务，不包含故障中断父任务。各定向测试集合重叠，不应相加为独立测试总数。"
+  },
+  "long_run": {
+    "status": "passed",
+    "elapsed_s": 1811.23,
+    "concurrent_sessions": 8,
+    "workers_per_session": 4,
+    "waves": 115,
+    "parent_turns": 856,
+    "attempts": 4150,
+    "send_requests": 7360,
+    "unique_messages": 3680,
+    "reattachments": 920,
+    "cancelled": 214,
+    "retried": 470,
+    "stale_attempt_cancel_rejected": 470,
+    "process_crashes": 8,
+    "evidence": [
+      "long3/result.json",
+      "long3/events.jsonl",
+      "long3/audit.json"
+    ],
+    "reconciliation": {
+      "durable_unique_mail": 3680,
+      "provider_observed_unique_mail": 3680,
+      "delivered_mail": 3680,
+      "cross_session_mail_violations": 0,
+      "active_agents_at_end": 0,
+      "completed_agents": 3680,
+      "attempt_states": {
+        "completed": 3680,
+        "cancelled": 214,
+        "interrupted": 256
+      },
+      "queued_parent_messages": 1196,
+      "pending_explanation": "父回合结束/放弃后，子任务重试产生的父信箱消息仍持久排队；没有遗留子任务待投递消息。确认投递表示进入接收方上下文，不表示模型已执行消息要求。",
+      "max_sampled_rss_bytes": 132820992,
+      "max_sampled_handles": 2111,
+      "resource_limit": "样本跨定期崩溃重启，未证明不重启运行数小时/数天时的资源稳定性。"
+    }
+  },
+  "final_run": {
+    "status": "passed",
+    "elapsed_s": 184.45,
+    "waves": 10,
+    "parent_turns": 72,
+    "attempts": 370,
+    "send_requests": 640,
+    "unique_messages": 320,
+    "reattachments": 80,
+    "cancelled": 18,
+    "retried": 50,
+    "stale_attempt_cancel_rejected": 50,
+    "process_crashes": 1,
+    "unique_mail_rows": 320,
+    "provider_observed_unique_mail": 320,
+    "active_agents_at_end": 0,
+    "evidence": [
+      "final3min/result.json",
+      "final3min/audit.json"
+    ]
+  },
+  "surface_validation": {
+    "chromium_gui": {
+      "passed": 2,
+      "elapsed_s": 58.8,
+      "coverage": [
+        "两个独立浏览器会话并行",
+        "SSE 断线与页面重载",
+        "子任务取消/重试",
+        "已完成 Agent 收信后显式继续，消费后按钮清除",
+        "进程崩溃恢复提示",
+        "父任务停止释放 busy"
+      ],
+      "evidence": [
+        "browser-final.log",
+        "browser-report.json",
+        "gui-agent.png",
+        "gui-recovery.png"
+      ]
+    },
+    "ink_tui": {
+      "status": "passed",
+      "simultaneous_apps": 4,
+      "workers": 8,
+      "keyboard": "自动化使用实际 Ink App 的受控键盘/输出流，网络请求未模拟；另以 Windows PTY 手工核验启动、重连和停止。",
+      "coverage": [
+        "跨会话输出隔离",
+        "HTTP/SSE 断线后继续接收",
+        "运行中排队、停止、Ctrl+R 恢复",
+        "崩溃提示 recovery_required",
+        "崩溃重连 POST 重放数为 0"
+      ],
+      "evidence": [
+        "surfaces-tui/ink-result.json",
+        "surfaces-tui/ink-0.log",
+        "tui-before.log",
+        "tui-after.log"
+      ]
+    },
+    "worktree_and_stop": {
+      "parent_stops": 8,
+      "cancelled_agents": 32,
+      "elapsed_s": 1.297,
+      "write_sessions": 3,
+      "isolated_worktrees": 12,
+      "explicit_publications": 1,
+      "parent_workspace_unchanged_until_publish": true,
+      "parent_git_index_preserved": true,
+      "evidence": "boundaries/result.json"
+    }
+  },
+  "fixes": [
+    {
+      "id": "N01",
+      "problem": "父任务停止会锁死整个服务",
+      "root_cause": "interrupt 在非重入生命周期锁内调用再次获取该锁的检查点写入；并持有 inbox 锁。",
+      "invariant": "状态修改在锁内，持久化在生命周期和 inbox 锁外；检查点继续校验身份和版本。",
+      "files": [
+        "python/server/turn_control.py"
+      ],
+      "before": "interrupt-before.log: 生命周期锁持有断言失败；surfaces/threads.log 有真实死锁栈。",
+      "after": "test_turn_interrupt_lock_boundary.py；8 会话同时停止真实 HTTP 专项通过。"
+    },
+    {
+      "id": "N02",
+      "problem": "响应头后立即断开导致排队任务显示运行但没有执行器",
+      "root_cause": "ASGI 取消响应生成器时，TurnRunner.start 尚在等待启动检查点，producer 未建立。",
+      "invariant": "HTTP 启动交接在 AnyIO 屏蔽取消范围内完成，随后订阅者可独立断开。",
+      "files": [
+        "python/server/turn_admission.py",
+        "python/server/routers/chat.py"
+      ],
+      "before": "admission-before.log: accepted request lost before producer admission。",
+      "after": "admission-after.log；真实 Ink 排队停止/续跑链路通过。"
+    },
+    {
+      "id": "N03",
+      "problem": "TUI 正常 EOF 断流直接失败，无法接回原任务",
+      "root_cause": "原消费器将无 DONE 的 EOF 视为最终错误，未订阅后台继续运行的同一 turn。",
+      "invariant": "仅用 GET 按 turn_id 和消费游标重连，不重发 POST；有界退避、去重、恢复状态检查。",
+      "files": [
+        "tui/src/api/resumeChatStream.ts",
+        "tui/src/api/sse.ts"
+      ],
+      "before": "tui-before.log: incomplete_stream / exit 1。",
+      "after": "tui-after.log: 完整回答 / exit 0；4 个真实 Ink 网络会话通过。"
+    },
+    {
+      "id": "N04",
+      "problem": "重连游标只绑定会话，可能接入新一轮任务",
+      "root_cause": "current/events 会在重连时重新选择当前 turn，旧游标未携带期望执行身份。",
+      "invariant": "HTTP 预检和订阅注册处均校验 expected_turn_id；GUI/TUI 传入已观察身份；崩溃状态拒绝继续执行流。",
+      "files": [
+        "python/engine/turn_subscription.py",
+        "python/engine/turn_runner.py",
+        "python/server/routers/sessions.py",
+        "gui/src/lib/api/chatStream.ts",
+        "gui/src/stores/chat/streamRecoverySlice.ts",
+        "tui/src/hooks/useQueuedTurns.ts"
+      ],
+      "before": "replay-before.log: 旧 turn 请求得到 200，预期 409。",
+      "after": "身份不符、响应头后换轮、持久化流缺口及恢复状态定向回归通过。"
+    },
+    {
+      "id": "N05",
+      "problem": "真实 httpx.ReadError 未被归类为可重试网络故障",
+      "root_cause": "按异常叶子类名称识别，遗漏 NetworkError 子类。",
+      "invariant": "按 httpx/httpcore 继承契约分类，保留仅在尚未输出内容前重试的边界。",
+      "files": [
+        "python/common/transport_errors.py",
+        "python/common/errors.py"
+      ],
+      "before": "transport-before.log: 9 failed / 4 passed。",
+      "after": "分类和实际 query_loop 首输出前/后重试边界测试通过。"
+    },
+    {
+      "id": "N06",
+      "problem": "TUI 尚无会话时轮询空 session 的 inbox",
+      "root_cause": "队列订阅钩子在 session_id 为空时仍启动。",
+      "invariant": "仅对有效会话启动队列恢复轮询。",
+      "files": [
+        "tui/src/hooks/useQueuedTurns.ts"
+      ],
+      "before": "真实 PTY 启动反复请求 /v1/sessions//inbox 并提示 404。",
+      "after": "真实 PTY 空会话启动无该请求。"
+    },
+    {
+      "id": "N07",
+      "problem": "已完成 Agent 收到消息后缺少继续入口，续跑后未清除过时收件数",
+      "root_cause": "终态卡片只提供失败重试，消息回执和续跑完成未刷新终态任务视图。",
+      "invariant": "有待处理消息的完成任务可用精确 attempt 显式继续；送达和续跑完成后刷新任务视图。",
+      "files": [
+        "gui/src/components/AgentDoneBars.tsx",
+        "gui/src/components/SubAgentView.tsx",
+        "gui/src/stores/chat/multiAgentSlice.ts"
+      ],
+      "before": "真实浏览器收信后无继续入口；续跑后旧按钮残留。",
+      "after": "真实浏览器点击继续、服务端消费消息、按钮消失完整链路通过。"
+    },
+    {
+      "id": "N08",
+      "problem": "Ctrl+R 恢复队列会在草稿中插入 r",
+      "root_cause": "通用文本输入组件同时消费命令键，按键事件会广播给 App 和编辑器。",
+      "invariant": "提示行编辑器只消费正文和编辑键，命令组合键由 App 处理；以 Unicode 字符维护光标和删除。",
+      "files": [
+        "tui/src/components/PromptTextInput.tsx",
+        "tui/src/components/PromptLine.tsx"
+      ],
+      "before": "tui-shortcut-before.log: arr🙂b != ar🙂b。",
+      "after": "tui-final.log: 光标、草稿、粘贴、删除和 App 排队/停止相关 13 项通过。"
+    }
+  ],
+  "regression_runs": [
+    {
+      "scope": "后端 Agent 压力、运行时、传输和恢复定向集合",
+      "passed": 129,
+      "warnings": 14,
+      "elapsed_s": 66.34,
+      "evidence": "final-python.log",
+      "note": "末尾启动取消修复之前的阶段结果；警告为 record_property/JUnit 兼容性。"
+    },
+    {
+      "scope": "最终启动取消、订阅身份、停止锁、恢复和 inbox 顺序",
+      "passed": 29,
+      "elapsed_s": 4.55,
+      "evidence": "admission-related.log"
+    },
+    {
+      "scope": "GUI 相关单元测试",
+      "passed": 37,
+      "files": 7,
+      "evidence": "gui-final-tests.log"
+    },
+    {
+      "scope": "TUI API/状态相关阶段测试",
+      "passed": 54,
+      "evidence": "tui-related.log"
+    },
+    {
+      "scope": "最终 TUI 输入、排队和流恢复",
+      "passed": 13,
+      "evidence": "tui-final.log"
+    },
+    {
+      "scope": "GUI/TUI TypeScript",
+      "status": "passed",
+      "evidence": [
+        "gui-final-typecheck.log",
+        "tui-final-typecheck.log"
+      ]
+    }
+  ],
+  "limitations": [
+    "未运行原生 Tauri 窗口、桌面 IPC 和系统 WebView 的专项；GUI 验证为 Chromium 中运行真实 React 界面并连接真实后端。",
+    "本地确定性模型用于控制时序与故障；未验证具体商业模型输出质量、远程 TLS/代理和供应商限流。",
+    "没有本轮不重启数小时/数天的寿命测试；30 分钟压测含 8 次主动崩溃。",
+    "worktree 验证文件修改隔离与显式合入；操作系统权限沙箱仍按用户要求暂不实施。",
+    "当前结论限定于列出的路径和故障场景，不代表全仓库无缺陷。"
+  ],
+  "reproduction": {
+    "backend_long": "在 python/：.\\.venv\\Scripts\\python.exe -m tests.soak_support.soak --directory <全新的测试目录> --seconds 1800",
+    "reconcile": "在 python/：.\\.venv\\Scripts\\python.exe -m tests.soak_support.audit <已完成测试目录>",
+    "surfaces": "在 python/：.\\.venv\\Scripts\\python.exe -m tests.soak_support.surfaces --directory <全新的测试目录>",
+    "tui": "在 tui/：node --import tsx soak-e2e/network.ts <surfaces 测试目录>",
+    "gui": "在 gui/：设置 XEYO_SOAK_LAB 为 surfaces.json 的绝对路径，再运行 node node_modules/@playwright/test/cli.js test --config playwright.soak.config.ts",
+    "notes": "目录必须独立；上述 Lab 仅连接回环端口，用独立测试 Git 仓库和独立 XEYO 数据目录。Lab 退出清理它启动的进程，测试结果保留。"
+  },
+  "cleanup": "本轮测试进程已停止；测试日志、独立工作树和结果文件保留用于复核。"
+}

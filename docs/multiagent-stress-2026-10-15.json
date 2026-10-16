@@ -1,0 +1,2270 @@
+{
+  "date": "2026-10-15",
+  "project": "XEYO",
+  "task": "多 Agent 并发压力与故障注入",
+  "result": "5 个问题已修复；19 项新增压力/故障测试和 336 项相关回归通过。",
+  "execution": {
+    "os": "Windows",
+    "python": "3.11",
+    "model": "offline fake providers; real QueryEngine / tool registry / SQLite / Git / HTTP ASGI paths",
+    "subagents_used_for_this_task": false,
+    "git_commit_created": false
+  },
+  "findings": [
+    {
+      "id": "S01",
+      "priority": "P1",
+      "problem": "关闭服务只枚举已运行的 Agent，尚在工作线程内进行的准入会被遗漏。",
+      "structural_cause": "准入阶段未进入服务生命周期的所有权集合。",
+      "invariant": "关闭期间禁止新准入；已进入准入的调用取消后必须排空阻塞操作和持久结算。关闭自身反复取消也不释放未完成的所有权。",
+      "implementation": [
+        "python/engine/agent_admission.py",
+        "python/engine/agent_runtime.py"
+      ],
+      "before": "before.xml: test_shutdown_drains_inflight_admission failed; shutdown returned while start thread was blocked",
+      "after_tests": [
+        "test_shutdown_drains_inflight_admission",
+        "test_shutdown_cancellation_still_drains_and_rejects_new_admission"
+      ]
+    },
+    {
+      "id": "S02",
+      "priority": "P1",
+      "problem": "父会话消息领取后、转录写入前，删除会话可提交，随后投递继续写入而确认失败。",
+      "structural_cause": "数据库删除事务与转录投递使用不同的互斥域。",
+      "invariant": "删除事务在写入 tombstone 前非阻塞取得所有相关收件人的投递锁；有投递正在进行时返回 delivery_busy。墓碑提交后新领取无法写转录。",
+      "implementation": [
+        "python/engine/agent_delivery_guard.py",
+        "python/engine/agent_run_store.py",
+        "python/engine/agent_mailbox.py"
+      ],
+      "before": "before.xml: test_session_delete_cannot_overtake_claimed_parent_delivery failed; deletion succeeded during reserved delivery",
+      "after_tests": [
+        "test_session_delete_cannot_overtake_claimed_parent_delivery"
+      ]
+    },
+    {
+      "id": "S03",
+      "priority": "P2",
+      "problem": "合入进程在写完首个文件或完成回执后退出，遗留工作区心跳锁使立即恢复重试超时。",
+      "structural_cause": "持有者已经死亡，但所有权仍由未过期的 TTL 文件表达。",
+      "invariant": "带 os 所有权标记的租约，以操作系统持有句柄为权威；进程退出后可接管，再按原合入日志恢复。",
+      "implementation": [
+        "python/engine/workspace_ownership.py",
+        "python/engine/workspace_lock.py"
+      ],
+      "before": "before.xml: test_process_crash_during_publication[first_file] and [receipt] failed with WorkspaceMutationBusy",
+      "after_tests": [
+        "test_process_crash_during_publication[first_file]",
+        "test_process_crash_during_publication[receipt]"
+      ]
+    },
+    {
+      "id": "S04",
+      "priority": "P1",
+      "problem": "持有者仍活着但心跳延迟时，其他持有者可抢占工作区锁并重叠写入。",
+      "structural_cause": "以时间过期推断执行者死亡，没有操作系统级执行所有权。",
+      "invariant": "活跃 OS 句柄不能按心跳时间抢占。旧版无标记租约保留原 TTL 迁移规则。",
+      "implementation": [
+        "python/engine/workspace_ownership.py",
+        "python/engine/workspace_lock.py"
+      ],
+      "before": "before-live-owner.xml: test_live_workspace_owner_is_not_stolen_after_heartbeat_delay failed because contender acquired the live owner lease",
+      "after_tests": [
+        "test_live_workspace_owner_is_not_stolen_after_heartbeat_delay"
+      ]
+    },
+    {
+      "id": "S05",
+      "priority": "P2",
+      "problem": "通过 HTTP 取消子 Agent，会把正在等待它的 retry 请求也抛成 CancelledError，前端得不到取消结果。",
+      "structural_cause": "等待子任务的 CancelledError 同时代表子任务取消和调用方取消，原分支没有区分。",
+      "invariant": "子任务取消返回带 agent_id/attempt_id 的失败结果；调用方取消才继续抛取消，且先排空子任务清理。",
+      "implementation": [
+        "python/engine/agent_task_wait.py",
+        "python/engine/agent_runtime.py"
+      ],
+      "before": "before-extra.xml and after-1.xml: HTTP cancellation returned CancelledError instead of a response",
+      "after_tests": [
+        "test_http_parallel_worktrees_cancel_and_messages",
+        "test_repeated_caller_cancel_waits_for_owned_settlement"
+      ]
+    }
+  ],
+  "stress_summary": {
+    "mail_unique": 2304,
+    "send_requests": 4608,
+    "peer_messages": 1152,
+    "parent_messages": 1152,
+    "delivered": 1999,
+    "cancelled": 305,
+    "unaccounted_messages": 0,
+    "duplicate_transcript_rows": 0,
+    "runtime_waves": {
+      "sessions": 8,
+      "peak_running": 32,
+      "waves": 3,
+      "attempts": 144,
+      "completed": 96,
+      "cancelled": 48,
+      "stale_cancels_rejected": 48,
+      "over_capacity_rejected": 3
+    },
+    "real_parent_loops": {
+      "parents": 8,
+      "concurrent_children": 16,
+      "peer_messages_observed_by_model": 16,
+      "upward_messages": 16
+    },
+    "http": {
+      "sessions": 6,
+      "independent_worktrees": 6,
+      "cancelled_then_retried": 2,
+      "message_requests": 18,
+      "unique_messages": 6
+    },
+    "processes": {
+      "contenders_per_scenario": 8,
+      "scenarios": [
+        "same identity",
+        "overlapping shared write scope",
+        "global quota"
+      ],
+      "force_killed_owners": 6,
+      "recovery_requests_per_scenario": 16
+    },
+    "injected_process_exit_points": [
+      "mail claimed",
+      "mail transcript persisted before acknowledgement",
+      "mail acknowledged",
+      "publication first file replaced",
+      "publication applied receipt before DB receipt"
+    ],
+    "mail_crash_messages_per_point": 40
+  },
+  "validation": {
+    "passed_distinct": 355,
+    "skipped": 1,
+    "excluded": [
+      "test_catalog.py::test_schema_budget_shortens_descriptions (previously known unrelated failure)"
+    ],
+    "stress": {
+      "artifact": ".tmp/multiagent-stress-20261015/final-matrix.xml",
+      "counts": {
+        "tests": 19,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "elapsed_s": 33.202,
+      "timestamp": "2026-10-15T20:52:38.783422+08:00",
+      "cases": [
+        {
+          "name": "test_parallel_mail_conservation[7]",
+          "elapsed_s": 5.22,
+          "status": "passed",
+          "metrics": {
+            "seed": 7,
+            "sessions": 8,
+            "receivers": 16,
+            "unique_messages": 768,
+            "send_requests": 1536,
+            "peer_messages": 384,
+            "parent_messages": 384,
+            "delivered": 666,
+            "cancelled": 102,
+            "elapsed_s": 4.766
+          }
+        },
+        {
+          "name": "test_parallel_mail_conservation[41]",
+          "elapsed_s": 4.901,
+          "status": "passed",
+          "metrics": {
+            "seed": 41,
+            "sessions": 8,
+            "receivers": 16,
+            "unique_messages": 768,
+            "send_requests": 1536,
+            "peer_messages": 384,
+            "parent_messages": 384,
+            "delivered": 655,
+            "cancelled": 113,
+            "elapsed_s": 4.797
+          }
+        },
+        {
+          "name": "test_parallel_mail_conservation[103]",
+          "elapsed_s": 4.94,
+          "status": "passed",
+          "metrics": {
+            "seed": 103,
+            "sessions": 8,
+            "receivers": 16,
+            "unique_messages": 768,
+            "send_requests": 1536,
+            "peer_messages": 384,
+            "parent_messages": 384,
+            "delivered": 678,
+            "cancelled": 90,
+            "elapsed_s": 4.782
+          }
+        },
+        {
+          "name": "test_runtime_cancel_retry_waves",
+          "elapsed_s": 4.065,
+          "status": "passed",
+          "metrics": {
+            "sessions": 8,
+            "peak_running": 32,
+            "waves": 3,
+            "attempts": 144,
+            "completions": 144,
+            "cancelled": 48,
+            "stale_cancels_rejected": 48,
+            "overflow_rejected": 3,
+            "elapsed_s": 4.047
+          }
+        },
+        {
+          "name": "test_shutdown_drains_inflight_admission",
+          "elapsed_s": 0.109,
+          "status": "passed"
+        },
+        {
+          "name": "test_session_delete_cannot_overtake_claimed_parent_delivery",
+          "elapsed_s": 0.037,
+          "status": "passed"
+        },
+        {
+          "name": "test_process_crash_mail_delivery_replay[claimed]",
+          "elapsed_s": 0.402,
+          "status": "passed",
+          "metrics": {
+            "crash_point": "claimed",
+            "messages": 40,
+            "recovery_contenders": 16,
+            "duplicate_transcript_rows": 0
+          }
+        },
+        {
+          "name": "test_process_crash_mail_delivery_replay[persisted]",
+          "elapsed_s": 0.393,
+          "status": "passed",
+          "metrics": {
+            "crash_point": "persisted",
+            "messages": 40,
+            "recovery_contenders": 16,
+            "duplicate_transcript_rows": 0
+          }
+        },
+        {
+          "name": "test_process_crash_mail_delivery_replay[acknowledged]",
+          "elapsed_s": 0.406,
+          "status": "passed",
+          "metrics": {
+            "crash_point": "acknowledged",
+            "messages": 40,
+            "recovery_contenders": 16,
+            "duplicate_transcript_rows": 0
+          }
+        },
+        {
+          "name": "test_process_crash_during_publication[first_file]",
+          "elapsed_s": 2.109,
+          "status": "passed",
+          "metrics": {
+            "crash_point": "first_file",
+            "published_files": 2,
+            "parent_index_preserved": true
+          }
+        },
+        {
+          "name": "test_process_crash_during_publication[receipt]",
+          "elapsed_s": 1.866,
+          "status": "passed",
+          "metrics": {
+            "crash_point": "receipt",
+            "published_files": 2,
+            "parent_index_preserved": true
+          }
+        },
+        {
+          "name": "test_live_workspace_owner_is_not_stolen_after_heartbeat_delay",
+          "elapsed_s": 0.009,
+          "status": "passed"
+        },
+        {
+          "name": "test_competing_processes_killed_owner_recovery[identity-1]",
+          "elapsed_s": 0.388,
+          "status": "passed",
+          "metrics": {
+            "mode": "identity",
+            "contenders": 8,
+            "admitted": 1,
+            "forcibly_killed": 1,
+            "recovery_contenders": 16,
+            "duplicate_completions": 0
+          }
+        },
+        {
+          "name": "test_competing_processes_killed_owner_recovery[scope-1]",
+          "elapsed_s": 0.497,
+          "status": "passed",
+          "metrics": {
+            "mode": "scope",
+            "contenders": 8,
+            "admitted": 1,
+            "forcibly_killed": 1,
+            "recovery_contenders": 16,
+            "duplicate_completions": 0
+          }
+        },
+        {
+          "name": "test_competing_processes_killed_owner_recovery[quota-4]",
+          "elapsed_s": 0.565,
+          "status": "passed",
+          "metrics": {
+            "mode": "quota",
+            "contenders": 8,
+            "admitted": 4,
+            "forcibly_killed": 4,
+            "recovery_contenders": 16,
+            "duplicate_completions": 0
+          }
+        },
+        {
+          "name": "test_http_parallel_worktrees_cancel_and_messages",
+          "elapsed_s": 3.678,
+          "status": "passed",
+          "metrics": {
+            "http_sessions": 6,
+            "worktrees": 6,
+            "cancelled_and_retried": 2,
+            "message_requests": 18,
+            "unique_messages": 6,
+            "cross_session_leaks": 0,
+            "parent_index_preserved": true
+          }
+        },
+        {
+          "name": "test_parallel_parent_loops_receive_only_their_children",
+          "elapsed_s": 3.382,
+          "status": "passed",
+          "metrics": {
+            "parent_loops": 8,
+            "concurrent_children": 16,
+            "upward_messages": 16,
+            "peer_messages_observed": 16,
+            "completions": 16,
+            "cross_session_leaks": 0
+          }
+        },
+        {
+          "name": "test_repeated_caller_cancel_waits_for_owned_settlement",
+          "elapsed_s": 0.031,
+          "status": "passed"
+        },
+        {
+          "name": "test_shutdown_cancellation_still_drains_and_rejects_new_admission",
+          "elapsed_s": 0.038,
+          "status": "passed"
+        }
+      ]
+    },
+    "regression": {
+      "artifact": ".tmp/multiagent-stress-20261015/regression-1.xml",
+      "counts": {
+        "tests": 337,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 1
+      },
+      "elapsed_s": 91.098,
+      "timestamp": "2026-10-15T20:29:45.825913+08:00",
+      "cases": [
+        {
+          "name": "test_staged_deletion_is_absent_from_child_snapshot",
+          "elapsed_s": 0.957,
+          "status": "passed"
+        },
+        {
+          "name": "test_withdrawal_cannot_report_success_during_transcript_delivery",
+          "elapsed_s": 0.031,
+          "status": "passed"
+        },
+        {
+          "name": "test_stale_delivery_cannot_write_new_attempt_transcript",
+          "elapsed_s": 0.034,
+          "status": "passed"
+        },
+        {
+          "name": "test_parent_withdrawal_is_scoped_to_parent_sender",
+          "elapsed_s": 0.038,
+          "status": "passed"
+        },
+        {
+          "name": "test_incomplete_publication_cannot_be_overwritten_by_resume",
+          "elapsed_s": 1.019,
+          "status": "passed"
+        },
+        {
+          "name": "test_applied_journal_reconciles_db_before_resume",
+          "elapsed_s": 1.377,
+          "status": "passed"
+        },
+        {
+          "name": "test_http_retry_obeys_workspace_deny",
+          "elapsed_s": 0.102,
+          "status": "passed"
+        },
+        {
+          "name": "test_cancelled_wait_does_not_poison_future_observation",
+          "elapsed_s": 0.235,
+          "status": "passed"
+        },
+        {
+          "name": "test_resume_admission_fences_attempt_replaced_after_read",
+          "elapsed_s": 0.049,
+          "status": "passed"
+        },
+        {
+          "name": "test_recovering_claim_is_replayed_once_after_transcript_failure",
+          "elapsed_s": 0.033,
+          "status": "passed"
+        },
+        {
+          "name": "test_parallel_workers_do_not_share_unresolved_operation_keys",
+          "elapsed_s": 0.015,
+          "status": "passed"
+        },
+        {
+          "name": "test_registry_can_recover_an_unknown_publication",
+          "elapsed_s": 1.271,
+          "status": "passed"
+        },
+        {
+          "name": "test_owner_crash_recovers_worktree_before_db_receipt",
+          "elapsed_s": 1.274,
+          "status": "passed"
+        },
+        {
+          "name": "test_one_shot_cli_owns_background_until_terminal[False]",
+          "elapsed_s": 0.106,
+          "status": "passed"
+        },
+        {
+          "name": "test_one_shot_cli_owns_background_until_terminal[True]",
+          "elapsed_s": 0.102,
+          "status": "passed"
+        },
+        {
+          "name": "test_task_graph_publication_has_no_partial_visible_batch",
+          "elapsed_s": 0.011,
+          "status": "passed"
+        },
+        {
+          "name": "test_http_retry_stop_before_admission_reaches_agent",
+          "elapsed_s": 0.045,
+          "status": "passed"
+        },
+        {
+          "name": "test_task_graph_owner_is_not_stolen_when_lock_timestamp_is_old",
+          "elapsed_s": 5.002,
+          "status": "passed"
+        },
+        {
+          "name": "test_failed_graph_batch_and_corrupt_transition_do_not_publish_partial_state",
+          "elapsed_s": 0.015,
+          "status": "passed"
+        },
+        {
+          "name": "test_http_retry_real_registry_model_loop_and_worktree",
+          "elapsed_s": 1.553,
+          "status": "passed"
+        },
+        {
+          "name": "test_legacy_metadata_followups_migrate_once_with_queue_overlap",
+          "elapsed_s": 0.031,
+          "status": "passed"
+        },
+        {
+          "name": "test_attempt_exclusion_and_fenced_settlement",
+          "elapsed_s": 0.032,
+          "status": "passed"
+        },
+        {
+          "name": "test_abandoned_owner_is_recovered_but_history_is_retained",
+          "elapsed_s": 0.025,
+          "status": "passed"
+        },
+        {
+          "name": "test_cross_session_write_scope_and_global_capacity",
+          "elapsed_s": 0.031,
+          "status": "passed"
+        },
+        {
+          "name": "test_durable_mail_dedupe_privacy_and_stale_recipient",
+          "elapsed_s": 0.174,
+          "status": "passed"
+        },
+        {
+          "name": "test_mail_is_acknowledged_after_durable_transcript_and_not_duplicated",
+          "elapsed_s": 0.035,
+          "status": "passed"
+        },
+        {
+          "name": "test_failed_transcript_write_does_not_acknowledge",
+          "elapsed_s": 0.03,
+          "status": "passed"
+        },
+        {
+          "name": "test_child_contexts_do_not_mutate_parent_or_siblings",
+          "elapsed_s": 0.007,
+          "status": "passed"
+        },
+        {
+          "name": "test_background_parent_and_peer_message_lifecycle",
+          "elapsed_s": 0.058,
+          "status": "passed"
+        },
+        {
+          "name": "test_workflow_parallel_preserves_root_context_and_budget",
+          "elapsed_s": 0.008,
+          "status": "passed"
+        },
+        {
+          "name": "test_worktrees_snapshot_dirty_parent_and_never_collide",
+          "elapsed_s": 0.937,
+          "status": "passed"
+        },
+        {
+          "name": "test_worktree_retained_and_publication_preserves_index",
+          "elapsed_s": 1.379,
+          "status": "passed"
+        },
+        {
+          "name": "test_publication_conflict_keeps_peer_write_and_git_state",
+          "elapsed_s": 1.426,
+          "status": "passed"
+        },
+        {
+          "name": "test_failed_worker_retains_half_done_in_worktree",
+          "elapsed_s": 0.969,
+          "status": "passed"
+        },
+        {
+          "name": "test_tools_reach_parent_and_workers_without_spawn_privilege",
+          "elapsed_s": 0.005,
+          "status": "passed"
+        },
+        {
+          "name": "test_read_evidence_isolation_ab[False]",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_read_evidence_isolation_ab[True]",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_duplicate_registration_ab[False]",
+          "elapsed_s": 0.003,
+          "status": "passed"
+        },
+        {
+          "name": "test_duplicate_registration_ab[True]",
+          "elapsed_s": 0.003,
+          "status": "passed"
+        },
+        {
+          "name": "test_dependencies_survive_plan_and_gate_claim_ab[False]",
+          "elapsed_s": 0.008,
+          "status": "passed"
+        },
+        {
+          "name": "test_dependencies_survive_plan_and_gate_claim_ab[True]",
+          "elapsed_s": 0.01,
+          "status": "passed"
+        },
+        {
+          "name": "test_dependency_cycles_unknown_ids_and_duplicate_writes_are_rejected",
+          "elapsed_s": 0.005,
+          "status": "passed"
+        },
+        {
+          "name": "test_stale_sender_cannot_message_a_new_attempt",
+          "elapsed_s": 0.029,
+          "status": "passed"
+        },
+        {
+          "name": "test_cancelled_prepare_keeps_owned_worktree_and_releases_attempt",
+          "elapsed_s": 0.571,
+          "status": "passed"
+        },
+        {
+          "name": "test_publication_failure_rolls_back_and_recovers_journal",
+          "elapsed_s": 1.783,
+          "status": "passed"
+        },
+        {
+          "name": "test_workflow_timeout_stops_thread_and_child",
+          "elapsed_s": 0.291,
+          "status": "passed"
+        },
+        {
+          "name": "test_real_engine_parent_child_mail_and_wait",
+          "elapsed_s": 0.769,
+          "status": "passed"
+        },
+        {
+          "name": "test_provider_request_state_is_private",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_lease_excludes_a_second_process",
+          "elapsed_s": 0.316,
+          "status": "passed"
+        },
+        {
+          "name": "test_deleted_session_cannot_be_recreated_by_late_agent",
+          "elapsed_s": 0.03,
+          "status": "passed"
+        },
+        {
+          "name": "test_http_retry_uses_persisted_scope_and_session_permission[readonly]",
+          "elapsed_s": 0.027,
+          "status": "passed"
+        },
+        {
+          "name": "test_http_retry_uses_persisted_scope_and_session_permission[workspace_write]",
+          "elapsed_s": 0.032,
+          "status": "passed"
+        },
+        {
+          "name": "test_session_stop_settles_background_and_pool_pins_owner",
+          "elapsed_s": 0.027,
+          "status": "passed"
+        },
+        {
+          "name": "test_coord_long_ids_do_not_collide_or_erase_active_work",
+          "elapsed_s": 0.387,
+          "status": "passed"
+        },
+        {
+          "name": "test_publication_through_real_registry_permission_path[never]",
+          "elapsed_s": 1.127,
+          "status": "passed"
+        },
+        {
+          "name": "test_publication_through_real_registry_permission_path[always]",
+          "elapsed_s": 1.136,
+          "status": "passed"
+        },
+        {
+          "name": "test_readonly_cannot_resume_write_attempt_or_publish",
+          "elapsed_s": 0.027,
+          "status": "passed"
+        },
+        {
+          "name": "test_default_engine_worker_writes_only_its_worktree_until_apply",
+          "elapsed_s": 1.823,
+          "status": "passed"
+        },
+        {
+          "name": "test_mcp_notification_during_request_ab[False]",
+          "elapsed_s": 0.103,
+          "status": "passed"
+        },
+        {
+          "name": "test_mcp_notification_during_request_ab[True]",
+          "elapsed_s": 0.013,
+          "status": "passed"
+        },
+        {
+          "name": "test_mcp_concurrent_reversed_replies_ab[False]",
+          "elapsed_s": 0.093,
+          "status": "passed"
+        },
+        {
+          "name": "test_mcp_concurrent_reversed_replies_ab[True]",
+          "elapsed_s": 0.153,
+          "status": "passed"
+        },
+        {
+          "name": "test_mcp_timeout_cancel_late_reply_and_restart",
+          "elapsed_s": 0.542,
+          "status": "passed"
+        },
+        {
+          "name": "test_outer_timeout_preserves_unknown_and_identity_ab[False]",
+          "elapsed_s": 0.438,
+          "status": "passed"
+        },
+        {
+          "name": "test_outer_timeout_preserves_unknown_and_identity_ab[True]",
+          "elapsed_s": 0.431,
+          "status": "passed"
+        },
+        {
+          "name": "test_inner_timeout_does_not_repeat_unresolved_operation_ab[False]",
+          "elapsed_s": 0.449,
+          "status": "passed"
+        },
+        {
+          "name": "test_inner_timeout_does_not_repeat_unresolved_operation_ab[True]",
+          "elapsed_s": 0.433,
+          "status": "passed"
+        },
+        {
+          "name": "test_parent_child_followup_budget_ab[False]",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_parent_child_followup_budget_ab[True]",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_child_model_identity_ab[False]",
+          "elapsed_s": 0.006,
+          "status": "passed"
+        },
+        {
+          "name": "test_child_model_identity_ab[True]",
+          "elapsed_s": 0.007,
+          "status": "passed"
+        },
+        {
+          "name": "test_child_adapter_usage_ab[False]",
+          "elapsed_s": 0.005,
+          "status": "passed"
+        },
+        {
+          "name": "test_child_adapter_usage_ab[True]",
+          "elapsed_s": 0.005,
+          "status": "passed"
+        },
+        {
+          "name": "test_stale_interrupt_ab[False]",
+          "elapsed_s": 0.027,
+          "status": "passed"
+        },
+        {
+          "name": "test_stale_interrupt_ab[True]",
+          "elapsed_s": 0.01,
+          "status": "passed"
+        },
+        {
+          "name": "test_stale_steer_has_no_queue_side_effect",
+          "elapsed_s": 0.008,
+          "status": "passed"
+        },
+        {
+          "name": "test_real_loop_stops_after_child_spending_ab[False]",
+          "elapsed_s": 0.03,
+          "status": "passed"
+        },
+        {
+          "name": "test_real_loop_stops_after_child_spending_ab[True]",
+          "elapsed_s": 0.02,
+          "status": "passed"
+        },
+        {
+          "name": "test_mcp_abort_wakes_request_and_close_fails_pending",
+          "elapsed_s": 0.624,
+          "status": "passed"
+        },
+        {
+          "name": "test_action_unknown_survives_reopen_but_completed_identical_is_repeatable",
+          "elapsed_s": 0.011,
+          "status": "passed"
+        },
+        {
+          "name": "test_cli_stream_identity_is_carried_into_interrupt",
+          "elapsed_s": 0.007,
+          "status": "passed"
+        },
+        {
+          "name": "test_cooperative_abort_of_side_effect_keeps_unknown_receipt",
+          "elapsed_s": 0.016,
+          "status": "passed"
+        },
+        {
+          "name": "test_enabled_tools_frozen",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_gated_tools_absent_unless_flag_on",
+          "elapsed_s": 0.009,
+          "status": "passed"
+        },
+        {
+          "name": "test_system_hint_is_thin_policy",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_tool_descriptions_have_no_migrate_prefix",
+          "elapsed_s": 0.005,
+          "status": "passed"
+        },
+        {
+          "name": "test_unknown_tool_not_passthrough",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_default_registry_matches_frozen_names",
+          "elapsed_s": 0.006,
+          "status": "passed"
+        },
+        {
+          "name": "test_meta_flags_match_instances",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_policy_sets_derived_from_meta",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_entries_align_with_meta",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_shared_read_state_and_subagent_reuse",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_agent_in_default_registry",
+          "elapsed_s": 0.005,
+          "status": "passed"
+        },
+        {
+          "name": "test_subagent_registry_bounded_and_excludes_forbidden",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_subagent_registry_includes_journal_query",
+          "elapsed_s": 0.005,
+          "status": "passed"
+        },
+        {
+          "name": "test_agent_tool_concurrency_safe",
+          "elapsed_s": 0.006,
+          "status": "passed"
+        },
+        {
+          "name": "test_journal_query_execute",
+          "elapsed_s": 0.011,
+          "status": "passed"
+        },
+        {
+          "name": "test_subagent_registry_injects_write_store",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_subagent_context_a3_stable_and_forbidden_removed",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_agent_tool_no_runtime_safe_error",
+          "elapsed_s": 0.007,
+          "status": "passed"
+        },
+        {
+          "name": "test_agent_tool_max_depth_rejected",
+          "elapsed_s": 0.005,
+          "status": "passed"
+        },
+        {
+          "name": "test_write_store_submit_sync_stale_rejects",
+          "elapsed_s": 0.014,
+          "status": "passed"
+        },
+        {
+          "name": "test_scheduler_toposort_and_scope_conflict",
+          "elapsed_s": 0.006,
+          "status": "passed"
+        },
+        {
+          "name": "test_flush_subagent_snapshot",
+          "elapsed_s": 0.005,
+          "status": "passed"
+        },
+        {
+          "name": "test_sidechain_gc",
+          "elapsed_s": 0.005,
+          "status": "passed"
+        },
+        {
+          "name": "test_narrow_request_filtered_to_empty_does_not_widen",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_unnamed_request_keeps_default_surface",
+          "elapsed_s": 0.005,
+          "status": "passed"
+        },
+        {
+          "name": "test_explicit_subset_is_exactly_the_request",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_production_whitelist_for_empty_scope_has_no_write_tools",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_emit_progress_noop_without_sink",
+          "elapsed_s": 0.003,
+          "status": "passed"
+        },
+        {
+          "name": "test_emit_progress_delivers_to_sink",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_agent_tool_emits_failed_progress_without_runtime",
+          "elapsed_s": 0.007,
+          "status": "passed"
+        },
+        {
+          "name": "test_partition_allows_multiple_agents_concurrent",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_agent_always_registered_soft_hint",
+          "elapsed_s": 0.005,
+          "status": "passed"
+        },
+        {
+          "name": "test_agent_denied_removes_tool_and_hint",
+          "elapsed_s": 0.009,
+          "status": "passed"
+        },
+        {
+          "name": "test_agent_tool_progress_xy_through_orchestration",
+          "elapsed_s": 0.008,
+          "status": "passed"
+        },
+        {
+          "name": "test_spawn_setup_failure_returns_the_slot",
+          "elapsed_s": 0.006,
+          "status": "passed"
+        },
+        {
+          "name": "test_repeated_setup_failures_do_not_accumulate",
+          "elapsed_s": 0.007,
+          "status": "passed"
+        },
+        {
+          "name": "test_base_exception_also_returns_the_slot",
+          "elapsed_s": 0.006,
+          "status": "passed"
+        },
+        {
+          "name": "test_normal_escape_releases_exactly_once",
+          "elapsed_s": 0.009,
+          "status": "passed"
+        },
+        {
+          "name": "test_finally_cleanup_cannot_block_the_release",
+          "elapsed_s": 0.007,
+          "status": "passed"
+        },
+        {
+          "name": "test_slots_are_per_session",
+          "elapsed_s": 0.006,
+          "status": "passed"
+        },
+        {
+          "name": "test_release_is_idempotent",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_bad_env_falls_back_instead_of_raising",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_acquire_is_inside_the_guarded_region",
+          "elapsed_s": 0.013,
+          "status": "passed"
+        },
+        {
+          "name": "test_send_to_live_agent_parks_message",
+          "elapsed_s": 0.005,
+          "status": "passed"
+        },
+        {
+          "name": "test_send_unknown_agent_is_not_found",
+          "elapsed_s": 0.005,
+          "status": "passed"
+        },
+        {
+          "name": "test_send_missing_text_or_too_long_is_invalid",
+          "elapsed_s": 0.005,
+          "status": "passed"
+        },
+        {
+          "name": "test_post_and_count",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_post_empty_rejected",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_drain_atomic",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_remove_by_message_id",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_remove_first_when_no_id",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_clear_agent_inbox",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_isolation_between_sessions",
+          "elapsed_s": 0.003,
+          "status": "passed"
+        },
+        {
+          "name": "test_followup_user_text_format",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_followup_env_budgets",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_inbox_texts_snapshot",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_remove_by_text_exact",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_retire_removes_only_consumed_and_preserves_meta",
+          "elapsed_s": 0.007,
+          "status": "passed"
+        },
+        {
+          "name": "test_retire_absent_text_is_noop",
+          "elapsed_s": 0.007,
+          "status": "passed"
+        },
+        {
+          "name": "test_retire_one_instance_of_duplicates",
+          "elapsed_s": 0.01,
+          "status": "passed"
+        },
+        {
+          "name": "test_retire_corrupt_meta_is_silent",
+          "elapsed_s": 0.007,
+          "status": "passed"
+        },
+        {
+          "name": "test_consume_parked_followup_retires_and_keeps_rest",
+          "elapsed_s": 0.009,
+          "status": "passed"
+        },
+        {
+          "name": "test_reattach_pairs_duplicate_copy",
+          "elapsed_s": 0.007,
+          "status": "passed"
+        },
+        {
+          "name": "test_reattach_leftover_first_then_meta_only",
+          "elapsed_s": 0.007,
+          "status": "passed"
+        },
+        {
+          "name": "test_second_retry_no_replay",
+          "elapsed_s": 0.011,
+          "status": "passed"
+        },
+        {
+          "name": "test_combined_inbox_count_dedups",
+          "elapsed_s": 0.005,
+          "status": "passed"
+        },
+        {
+          "name": "test_routes_roundtrip_retire_and_delete",
+          "elapsed_s": 0.01,
+          "status": "passed"
+        },
+        {
+          "name": "test_non_git_path_is_unavailable",
+          "elapsed_s": 0.075,
+          "status": "passed"
+        },
+        {
+          "name": "test_isolated_write_is_merged_back",
+          "elapsed_s": 0.674,
+          "status": "passed"
+        },
+        {
+          "name": "test_no_changes_is_reported",
+          "elapsed_s": 0.409,
+          "status": "passed"
+        },
+        {
+          "name": "test_disjoint_regions_of_same_file_merge",
+          "elapsed_s": 0.582,
+          "status": "passed"
+        },
+        {
+          "name": "test_true_conflict_keeps_worktree_and_rolls_back",
+          "elapsed_s": 0.484,
+          "status": "passed"
+        },
+        {
+          "name": "test_subagent_failure_keeps_worktree_without_merging",
+          "elapsed_s": 0.28,
+          "status": "passed"
+        },
+        {
+          "name": "test_summary_is_neutral_facts",
+          "elapsed_s": 0.916,
+          "status": "passed"
+        },
+        {
+          "name": "test_scope_for_main_vs_sub",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_scoped_session_id_isolates_subagent",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_filter_tool_names_strips_memory_for_sub",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_format_subagent_summary_with_candidates",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_attach_subagent_result_tool_path",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_attach_subagent_result_fallback_user_message",
+          "elapsed_s": 0.005,
+          "status": "passed"
+        },
+        {
+          "name": "test_normalize_and_enqueue_candidates",
+          "elapsed_s": 0.006,
+          "status": "passed"
+        },
+        {
+          "name": "test_persist_multi_agent_turn_no_extra_user_bubble",
+          "elapsed_s": 0.005,
+          "status": "passed"
+        },
+        {
+          "name": "test_append_candidates_dedupes",
+          "elapsed_s": 0.006,
+          "status": "passed"
+        },
+        {
+          "name": "test_live_agent_abort_isolated",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_clear_sidechain_removes_transcript",
+          "elapsed_s": 0.005,
+          "status": "passed"
+        },
+        {
+          "name": "test_upsert_meta_marks_empty_scope_readonly",
+          "elapsed_s": 0.005,
+          "status": "passed"
+        },
+        {
+          "name": "test_agent_tool_metrics_roundtrip",
+          "elapsed_s": 0.005,
+          "status": "passed"
+        },
+        {
+          "name": "test_handoff_enqueue_failure_leaves_a_warning",
+          "elapsed_s": 0.008,
+          "status": "passed"
+        },
+        {
+          "name": "test_end_record_failure_is_warning_not_debug",
+          "elapsed_s": 0.007,
+          "status": "passed"
+        },
+        {
+          "name": "test_settlement_record_failure_is_warning",
+          "elapsed_s": 0.007,
+          "status": "passed"
+        },
+        {
+          "name": "test_happy_path_adds_no_warnings",
+          "elapsed_s": 0.008,
+          "status": "passed"
+        },
+        {
+          "name": "test_claim_cas_two_processes_exactly_one_winner",
+          "elapsed_s": 3.073,
+          "status": "passed"
+        },
+        {
+          "name": "test_file_guard_stale_reclaim",
+          "elapsed_s": 0.005,
+          "status": "passed"
+        },
+        {
+          "name": "test_file_guard_exclusive_and_release",
+          "elapsed_s": 0.203,
+          "status": "passed"
+        },
+        {
+          "name": "test_presence_cross_process_visibility",
+          "elapsed_s": 0.327,
+          "status": "passed"
+        },
+        {
+          "name": "test_coord_home_env_override",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_task_state_machine_full",
+          "elapsed_s": 0.017,
+          "status": "passed"
+        },
+        {
+          "name": "test_reopen_fuse_blocks_after_limit",
+          "elapsed_s": 0.022,
+          "status": "passed"
+        },
+        {
+          "name": "test_claim_requires_scope",
+          "elapsed_s": 0.01,
+          "status": "passed"
+        },
+        {
+          "name": "test_scope_lease_mutual_exclusion",
+          "elapsed_s": 0.016,
+          "status": "passed"
+        },
+        {
+          "name": "test_scope_conflicts_semantics",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_ask_queue_roundtrip",
+          "elapsed_s": 0.011,
+          "status": "passed"
+        },
+        {
+          "name": "test_presence_state_roundtrip_serialization",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_root_hash_stable_and_distinct",
+          "elapsed_s": 0.005,
+          "status": "passed"
+        },
+        {
+          "name": "test_ask_suspend_releases_lease_and_unblocks",
+          "elapsed_s": 0.027,
+          "status": "passed"
+        },
+        {
+          "name": "test_ask_deny_reopens_from_pending_review",
+          "elapsed_s": 0.019,
+          "status": "passed"
+        },
+        {
+          "name": "test_ask_sweep_expired_to_pending",
+          "elapsed_s": 0.024,
+          "status": "passed"
+        },
+        {
+          "name": "test_missing_scope_rejected",
+          "elapsed_s": 0.009,
+          "status": "passed"
+        },
+        {
+          "name": "test_claim_next_scope_mutex",
+          "elapsed_s": 0.015,
+          "status": "passed"
+        },
+        {
+          "name": "test_reviewer_findings_must_be_structured",
+          "elapsed_s": 0.011,
+          "status": "passed"
+        },
+        {
+          "name": "test_replan_scope_enforcement",
+          "elapsed_s": 0.014,
+          "status": "passed"
+        },
+        {
+          "name": "test_findings_files_and_enforce_helpers",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_stage2_full_loop",
+          "elapsed_s": 2.438,
+          "status": "passed"
+        },
+        {
+          "name": "test_worktree_lifecycle_commit_and_remove",
+          "elapsed_s": 0.607,
+          "status": "passed"
+        },
+        {
+          "name": "test_cross_modify_delete_reopen_and_redo",
+          "elapsed_s": 1.863,
+          "status": "passed"
+        },
+        {
+          "name": "test_reopen_conflict_fuse",
+          "elapsed_s": 2.489,
+          "status": "passed"
+        },
+        {
+          "name": "test_submit_requires_claim",
+          "elapsed_s": 0.191,
+          "status": "passed"
+        },
+        {
+          "name": "test_interrupt_does_not_strand_claimed_task",
+          "elapsed_s": 0.399,
+          "status": "passed"
+        },
+        {
+          "name": "test_worker_pool_50_parallel_zero_index_lock",
+          "elapsed_s": 22.258,
+          "status": "passed"
+        },
+        {
+          "name": "test_guard_accepts_trailing_expression_and_return",
+          "elapsed_s": 0.006,
+          "status": "passed"
+        },
+        {
+          "name": "test_guard_rejects_escapes[import os]",
+          "elapsed_s": 0.007,
+          "status": "passed"
+        },
+        {
+          "name": "test_guard_rejects_escapes[from os import path]",
+          "elapsed_s": 0.006,
+          "status": "passed"
+        },
+        {
+          "name": "test_guard_rejects_escapes[open('/etc/passwd')]",
+          "elapsed_s": 0.006,
+          "status": "passed"
+        },
+        {
+          "name": "test_guard_rejects_escapes[x.__class__]",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_guard_rejects_escapes[().__class__.__bases__]",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_guard_rejects_escapes[eval('1')]",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_guard_rejects_escapes[exec('x=1')]",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_guard_rejects_escapes[__builtins__]",
+          "elapsed_s": 0.005,
+          "status": "passed"
+        },
+        {
+          "name": "test_guard_rejects_escapes[globals()]",
+          "elapsed_s": 0.005,
+          "status": "passed"
+        },
+        {
+          "name": "test_guard_rejects_escapes[getattr(x, 'y')]",
+          "elapsed_s": 0.005,
+          "status": "passed"
+        },
+        {
+          "name": "test_guard_rejects_escapes[class A: pass]",
+          "elapsed_s": 0.005,
+          "status": "passed"
+        },
+        {
+          "name": "test_guard_rejects_escapes[with open('x') as f: pass]",
+          "elapsed_s": 0.006,
+          "status": "passed"
+        },
+        {
+          "name": "test_guard_rejects_escapes[lambda: __import__('os')]",
+          "elapsed_s": 0.005,
+          "status": "passed"
+        },
+        {
+          "name": "test_guard_rejects_unknown_call",
+          "elapsed_s": 0.005,
+          "status": "passed"
+        },
+        {
+          "name": "test_guard_caps_size",
+          "elapsed_s": 0.005,
+          "status": "passed"
+        },
+        {
+          "name": "test_entry_name_is_generated_not_user_visible",
+          "elapsed_s": 0.007,
+          "status": "passed"
+        },
+        {
+          "name": "test_agent_returns_child_text",
+          "elapsed_s": 0.011,
+          "status": "passed"
+        },
+        {
+          "name": "test_agent_schema_parses_json",
+          "elapsed_s": 0.009,
+          "status": "passed"
+        },
+        {
+          "name": "test_agent_failure_returns_none_not_fatal",
+          "elapsed_s": 0.009,
+          "status": "passed"
+        },
+        {
+          "name": "test_parallel_runs_all_and_keeps_order",
+          "elapsed_s": 0.009,
+          "status": "passed"
+        },
+        {
+          "name": "test_pipeline_chains_stages",
+          "elapsed_s": 0.008,
+          "status": "passed"
+        },
+        {
+          "name": "test_phase_and_log_go_to_metadata_not_body",
+          "elapsed_s": 0.008,
+          "status": "passed"
+        },
+        {
+          "name": "test_unknown_agent_option_is_fatal",
+          "elapsed_s": 0.005,
+          "status": "passed"
+        },
+        {
+          "name": "test_max_agents_budget_is_enforced",
+          "elapsed_s": 0.006,
+          "status": "passed"
+        },
+        {
+          "name": "test_meta_requires_name_and_description",
+          "elapsed_s": 0.006,
+          "status": "passed"
+        },
+        {
+          "name": "test_rejected_script_is_neutral_error",
+          "elapsed_s": 0.006,
+          "status": "passed"
+        },
+        {
+          "name": "test_missing_runtime_is_reported",
+          "elapsed_s": 0.005,
+          "status": "passed"
+        },
+        {
+          "name": "test_try_begin_end_roundtrip",
+          "elapsed_s": 0.005,
+          "status": "passed"
+        },
+        {
+          "name": "test_end_ignores_mismatched_lease",
+          "elapsed_s": 0.005,
+          "status": "passed"
+        },
+        {
+          "name": "test_stale_busy_reclaimed_on_try_begin",
+          "elapsed_s": 0.086,
+          "status": "passed"
+        },
+        {
+          "name": "test_end_without_lease_still_clears",
+          "elapsed_s": 0.008,
+          "status": "passed"
+        },
+        {
+          "name": "test_interrupt_before_engine_queues",
+          "elapsed_s": 0.009,
+          "status": "passed"
+        },
+        {
+          "name": "test_interrupt_aborts_attached_batch",
+          "elapsed_s": 0.008,
+          "status": "passed"
+        },
+        {
+          "name": "test_detach_batch_abort_ignores_stale_controller",
+          "elapsed_s": 0.005,
+          "status": "passed"
+        },
+        {
+          "name": "test_try_begin_blocked_while_batch_abort_present",
+          "elapsed_s": 0.089,
+          "status": "passed"
+        },
+        {
+          "name": "test_stale_busy_not_reclaimed_while_batch_active",
+          "elapsed_s": 0.089,
+          "status": "passed"
+        },
+        {
+          "name": "test_interrupt_idle_is_idempotent_noop",
+          "elapsed_s": 0.006,
+          "status": "passed"
+        },
+        {
+          "name": "test_default_busy_stale_sec_is_five_minutes",
+          "elapsed_s": 0.007,
+          "status": "passed"
+        },
+        {
+          "name": "test_force_idle_clears_stale_busy",
+          "elapsed_s": 0.005,
+          "status": "passed"
+        },
+        {
+          "name": "test_drop_clears_busy_and_engine",
+          "elapsed_s": 0.013,
+          "status": "passed"
+        },
+        {
+          "name": "test_get_or_create_does_not_deadlock_on_todo_inject",
+          "elapsed_s": 0.014,
+          "status": "passed"
+        },
+        {
+          "name": "test_evicts_lru_not_fifo",
+          "elapsed_s": 0.021,
+          "status": "passed"
+        },
+        {
+          "name": "test_busy_session_never_evicted",
+          "elapsed_s": 0.023,
+          "status": "passed"
+        },
+        {
+          "name": "test_evicted_history_restorable_from_stash",
+          "elapsed_s": 0.021,
+          "status": "passed"
+        },
+        {
+          "name": "test_stash_bounded",
+          "elapsed_s": 0.053,
+          "status": "passed"
+        },
+        {
+          "name": "test_approval_mode_applies_to_following_turns",
+          "elapsed_s": 0.009,
+          "status": "passed"
+        },
+        {
+          "name": "test_model_switch_preserves_session_and_retry",
+          "elapsed_s": 0.009,
+          "status": "passed"
+        },
+        {
+          "name": "test_session_switch_does_not_retry_old_task[/clear]",
+          "elapsed_s": 0.007,
+          "status": "passed"
+        },
+        {
+          "name": "test_session_switch_does_not_retry_old_task[/load another]",
+          "elapsed_s": 0.007,
+          "status": "passed"
+        },
+        {
+          "name": "test_rm_refers_only_the_session_route_it_names[a/agents/b/inbox/c]",
+          "elapsed_s": 0.02,
+          "status": "passed"
+        },
+        {
+          "name": "test_rm_refers_only_the_session_route_it_names[../../etc/passwd]",
+          "elapsed_s": 0.012,
+          "status": "passed"
+        },
+        {
+          "name": "test_rm_refers_only_the_session_route_it_names[x?also=1]",
+          "elapsed_s": 0.009,
+          "status": "passed"
+        },
+        {
+          "name": "test_rm_refers_only_the_session_route_it_names[x#frag]",
+          "elapsed_s": 0.009,
+          "status": "passed"
+        },
+        {
+          "name": "test_rm_refers_only_the_session_route_it_names[]",
+          "elapsed_s": 0.009,
+          "status": "passed"
+        },
+        {
+          "name": "test_rm_refers_only_the_session_route_it_names[ pad ]",
+          "elapsed_s": 0.009,
+          "status": "passed"
+        },
+        {
+          "name": "test_rm_refers_only_the_session_route_it_names[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]",
+          "elapsed_s": 0.009,
+          "status": "passed"
+        },
+        {
+          "name": "test_show_refers_only_the_session_route_it_names[a/b]",
+          "elapsed_s": 0.01,
+          "status": "passed"
+        },
+        {
+          "name": "test_show_refers_only_the_session_route_it_names[../../etc/passwd]",
+          "elapsed_s": 0.016,
+          "status": "passed"
+        },
+        {
+          "name": "test_legit_session_ids_still_work",
+          "elapsed_s": 0.028,
+          "status": "passed"
+        },
+        {
+          "name": "test_rm_surfaces_the_servers_own_refusal_reason",
+          "elapsed_s": 0.011,
+          "status": "passed"
+        },
+        {
+          "name": "test_rm_does_not_claim_success_when_server_says_not_ok",
+          "elapsed_s": 0.011,
+          "status": "passed"
+        },
+        {
+          "name": "test_rm_reports_partial_cleanup_failures",
+          "elapsed_s": 0.01,
+          "status": "passed"
+        },
+        {
+          "name": "test_rm_says_nothing_about_counts_it_does_not_know",
+          "elapsed_s": 0.012,
+          "status": "passed"
+        },
+        {
+          "name": "test_list_rejects_an_unrecognised_body_instead_of_calling_it_empty",
+          "elapsed_s": 0.015,
+          "status": "passed"
+        },
+        {
+          "name": "test_list_reports_no_sessions_without_inventing_a_disk_claim",
+          "elapsed_s": 0.017,
+          "status": "passed"
+        },
+        {
+          "name": "test_list_renders_bracket_titles_as_text",
+          "elapsed_s": 0.013,
+          "status": "passed"
+        },
+        {
+          "name": "test_show_renders_bracket_content_as_text",
+          "elapsed_s": 0.01,
+          "status": "passed"
+        },
+        {
+          "name": "test_show_rejects_negative_limit",
+          "elapsed_s": 0.01,
+          "status": "passed"
+        },
+        {
+          "name": "test_show_limit_zero_means_everything",
+          "elapsed_s": 0.021,
+          "status": "passed"
+        },
+        {
+          "name": "test_coord_rejects_negative_counters_without_running",
+          "elapsed_s": 0.015,
+          "status": "passed"
+        },
+        {
+          "name": "test_serve_rejects_out_of_range_port",
+          "elapsed_s": 0.016,
+          "status": "passed"
+        },
+        {
+          "name": "test_mode_options_are_validated_at_the_edge[argv0]",
+          "elapsed_s": 0.013,
+          "status": "passed"
+        },
+        {
+          "name": "test_mode_options_are_validated_at_the_edge[argv1]",
+          "elapsed_s": 0.008,
+          "status": "passed"
+        },
+        {
+          "name": "test_one_shot_error_result_exits_nonzero",
+          "elapsed_s": 0.026,
+          "status": "passed"
+        },
+        {
+          "name": "test_one_shot_success_result_exits_zero",
+          "elapsed_s": 0.026,
+          "status": "passed"
+        },
+        {
+          "name": "test_one_shot_engine_exception_is_a_clean_error_not_a_traceback",
+          "elapsed_s": 0.025,
+          "status": "passed"
+        },
+        {
+          "name": "test_chat_session_id_cannot_reach_outside_the_sessions_dir[../../evil]",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_chat_session_id_cannot_reach_outside_the_sessions_dir[..\\\\..\\\\evil]",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_chat_session_id_cannot_reach_outside_the_sessions_dir[a/../../b]",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_chat_session_id_cannot_reach_outside_the_sessions_dir[/abs/path]",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_chat_session_id_cannot_reach_outside_the_sessions_dir[sess/../x]",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_chat_session_id_cannot_reach_outside_the_sessions_dir[  ]",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_chat_session_id_cannot_reach_outside_the_sessions_dir[.]",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_chat_ignores_a_traversal_session_id_without_crashing",
+          "elapsed_s": 0.538,
+          "status": "passed"
+        },
+        {
+          "name": "test_config_show_survives_an_ascii_console",
+          "elapsed_s": 0.253,
+          "status": "passed"
+        },
+        {
+          "name": "test_servers_chinese_refusal_survives_an_ascii_console",
+          "elapsed_s": 0.506,
+          "status": "passed"
+        },
+        {
+          "name": "test_coord_status_survives_brackets_in_the_workspace_path",
+          "elapsed_s": 0.022,
+          "status": "passed"
+        },
+        {
+          "name": "test_coord_status_json_mode_is_unaffected",
+          "elapsed_s": 0.02,
+          "status": "passed"
+        },
+        {
+          "name": "test_workspace_lock_rejects_second_process",
+          "elapsed_s": 0.28,
+          "status": "passed"
+        },
+        {
+          "name": "test_workspace_lock_reclaims_expired_lease",
+          "elapsed_s": 0.013,
+          "status": "passed"
+        },
+        {
+          "name": "test_reclaim_stale_if_expired",
+          "elapsed_s": 0.007,
+          "status": "passed"
+        },
+        {
+          "name": "test_stale_observation_cannot_remove_replacement_lease",
+          "elapsed_s": 0.011,
+          "status": "passed"
+        },
+        {
+          "name": "test_workspace_mutation_uses_the_shared_workspace_lease",
+          "elapsed_s": 0.012,
+          "status": "passed"
+        },
+        {
+          "name": "test_restore_transaction_reverts_tracked_and_moves_untracked_to_trash",
+          "elapsed_s": 0.964,
+          "status": "passed"
+        },
+        {
+          "name": "test_restore_transaction_rolls_back_to_safety_on_fault",
+          "elapsed_s": 0.923,
+          "status": "passed"
+        },
+        {
+          "name": "test_auto_trash_created_removes_files_absent_from_target",
+          "elapsed_s": 0.963,
+          "status": "passed"
+        },
+        {
+          "name": "test_restore_recovers_non_ascii_filename_content",
+          "elapsed_s": 1.104,
+          "status": "passed"
+        },
+        {
+          "name": "test_restore_recreates_file_deleted_since_compat_checkpoint",
+          "elapsed_s": 0.972,
+          "status": "passed"
+        },
+        {
+          "name": "test_unescape_git_octal_path",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_scoped_restore_uses_paths_snapshot_not_add_all",
+          "elapsed_s": 0.992,
+          "status": "passed"
+        },
+        {
+          "name": "test_ui_thought_rows_do_not_drop_journal_file_operations",
+          "elapsed_s": 0.267,
+          "status": "passed"
+        },
+        {
+          "name": "test_rewind_restores_agent_created_file_via_shadow_commit",
+          "elapsed_s": 0.917,
+          "status": "passed"
+        },
+        {
+          "name": "test_event_reader_skips_invalid_utf8_line_and_keeps_later_rows",
+          "elapsed_s": 0.007,
+          "status": "passed"
+        },
+        {
+          "name": "test_freeze_checkpoint_is_idempotent_and_loads",
+          "elapsed_s": 0.014,
+          "status": "passed"
+        },
+        {
+          "name": "test_turn_diff_sync_records_before_and_after",
+          "elapsed_s": 0.029,
+          "status": "passed"
+        },
+        {
+          "name": "test_continue_roundtrip_truncate_restore_undo",
+          "elapsed_s": 0.073,
+          "status": "passed"
+        },
+        {
+          "name": "test_restore_mode_keeps_transcript_and_skips_dirty",
+          "elapsed_s": 0.058,
+          "status": "passed"
+        },
+        {
+          "name": "test_undo_blocked_when_new_messages_appended",
+          "elapsed_s": 0.042,
+          "status": "passed"
+        },
+        {
+          "name": "test_validation_errors",
+          "elapsed_s": 0.005,
+          "status": "passed"
+        },
+        {
+          "name": "test_restore_recovers_first_touch_existing_file_not_deletes",
+          "elapsed_s": 0.052,
+          "status": "passed"
+        },
+        {
+          "name": "test_restore_preserves_unindexed_file_without_post_checkpoint_preimage",
+          "elapsed_s": 0.033,
+          "status": "passed"
+        },
+        {
+          "name": "test_restore_deletes_create_then_edit_using_first_post_checkpoint_operation",
+          "elapsed_s": 0.059,
+          "status": "passed"
+        },
+        {
+          "name": "test_restore_and_undo_preserve_file_modes",
+          "elapsed_s": 0.0,
+          "status": "skipped",
+          "skip_reason": "POSIX permission mode bits are required"
+        },
+        {
+          "name": "test_recovery_retry_keeps_original_pre_rewind_snapshot",
+          "elapsed_s": 0.079,
+          "status": "passed"
+        },
+        {
+          "name": "test_continue_no_checkpoint_is_partial_not_committed",
+          "elapsed_s": 0.01,
+          "status": "passed"
+        },
+        {
+          "name": "test_restore_one_file_managed_uses_content_hash_not_signature",
+          "elapsed_s": 0.082,
+          "status": "passed"
+        },
+        {
+          "name": "test_undo_resumes_after_partial_conversation_replay",
+          "elapsed_s": 0.067,
+          "status": "passed"
+        },
+        {
+          "name": "test_normalize_rel_path_preserves_root_dotfiles",
+          "elapsed_s": 0.004,
+          "status": "passed"
+        },
+        {
+          "name": "test_compat_restore_releases_workspace_lease_when_operation_raises",
+          "elapsed_s": 0.217,
+          "status": "passed"
+        },
+        {
+          "name": "test_preview_is_dry_run_and_execute_requires_confirmation",
+          "elapsed_s": 0.189,
+          "status": "passed"
+        },
+        {
+          "name": "test_execute_restores_files_truncates_transcript_and_is_idempotent",
+          "elapsed_s": 0.269,
+          "status": "passed"
+        },
+        {
+          "name": "test_execute_blocks_when_external_file_change_is_detected",
+          "elapsed_s": 0.225,
+          "status": "passed"
+        },
+        {
+          "name": "test_preview_bootstraps_revision_from_failed_turn",
+          "elapsed_s": 0.212,
+          "status": "passed"
+        },
+        {
+          "name": "test_preview_bootstraps_revision_from_transcript_without_journal",
+          "elapsed_s": 0.193,
+          "status": "passed"
+        },
+        {
+          "name": "test_preview_waits_then_force_idles_stale_session",
+          "elapsed_s": 5.186,
+          "status": "passed"
+        },
+        {
+          "name": "test_execute_acquires_pool_busy_lease",
+          "elapsed_s": 0.173,
+          "status": "passed"
+        },
+        {
+          "name": "test_chat_only_execute_skips_workspace_restore_when_no_file_ops",
+          "elapsed_s": 0.172,
+          "status": "passed"
+        },
+        {
+          "name": "test_before_commit_triggers_workspace_restore_even_without_ops",
+          "elapsed_s": 0.197,
+          "status": "passed"
+        },
+        {
+          "name": "test_before_commit_skips_full_tree_when_setting_off",
+          "elapsed_s": 0.214,
+          "status": "passed"
+        },
+        {
+          "name": "test_ops_with_target_commit_use_shadow_scoped_restore",
+          "elapsed_s": 0.594,
+          "status": "passed"
+        },
+        {
+          "name": "test_chat_only_execute_resets_working_snapshot_and_session_md",
+          "elapsed_s": 0.212,
+          "status": "passed"
+        },
+        {
+          "name": "test_query_engine_commits_turn_and_revision_when_enabled",
+          "elapsed_s": 0.946,
+          "status": "passed"
+        },
+        {
+          "name": "test_query_engine_keeps_rewind_disabled_when_opted_out",
+          "elapsed_s": 0.25,
+          "status": "passed"
+        },
+        {
+          "name": "test_file_write_records_content_addressed_inverse_metadata",
+          "elapsed_s": 0.03,
+          "status": "passed"
+        },
+        {
+          "name": "test_file_edit_records_before_and_after_snapshots",
+          "elapsed_s": 0.026,
+          "status": "passed"
+        }
+      ]
+    }
+  },
+  "ab_evidence": {
+    "first_baseline": {
+      "artifact": ".tmp/multiagent-stress-20261015/before.xml",
+      "counts": {
+        "tests": 11,
+        "failures": 4,
+        "errors": 0,
+        "skipped": 0
+      },
+      "elapsed_s": 44.537,
+      "timestamp": "2026-10-15T20:08:37.416582+08:00",
+      "cases": [
+        {
+          "name": "test_parallel_mail_conservation[7]",
+          "elapsed_s": 5.561,
+          "status": "passed",
+          "metrics": {
+            "seed": 7,
+            "sessions": 8,
+            "receivers": 16,
+            "unique_messages": 768,
+            "send_requests": 1536,
+            "delivered": 667,
+            "cancelled": 101,
+            "elapsed_s": 5.031
+          }
+        },
+        {
+          "name": "test_parallel_mail_conservation[41]",
+          "elapsed_s": 4.867,
+          "status": "passed",
+          "metrics": {
+            "seed": 41,
+            "sessions": 8,
+            "receivers": 16,
+            "unique_messages": 768,
+            "send_requests": 1536,
+            "delivered": 658,
+            "cancelled": 110,
+            "elapsed_s": 4.765
+          }
+        },
+        {
+          "name": "test_parallel_mail_conservation[103]",
+          "elapsed_s": 4.698,
+          "status": "passed",
+          "metrics": {
+            "seed": 103,
+            "sessions": 8,
+            "receivers": 16,
+            "unique_messages": 768,
+            "send_requests": 1536,
+            "delivered": 682,
+            "cancelled": 86,
+            "elapsed_s": 4.594
+          }
+        },
+        {
+          "name": "test_runtime_cancel_retry_waves",
+          "elapsed_s": 4.068,
+          "status": "passed",
+          "metrics": {
+            "sessions": 8,
+            "peak_running": 32,
+            "waves": 3,
+            "attempts": 144,
+            "completions": 144,
+            "cancelled": 48,
+            "stale_cancels_rejected": 48,
+            "overflow_rejected": 3,
+            "elapsed_s": 4.047
+          }
+        },
+        {
+          "name": "test_shutdown_drains_inflight_admission",
+          "elapsed_s": 0.116,
+          "status": "failed"
+        },
+        {
+          "name": "test_session_delete_cannot_overtake_claimed_parent_delivery",
+          "elapsed_s": 0.032,
+          "status": "failed"
+        },
+        {
+          "name": "test_process_crash_mail_delivery_replay[claimed]",
+          "elapsed_s": 0.462,
+          "status": "passed",
+          "metrics": {
+            "crash_point": "claimed",
+            "messages": 40,
+            "recovery_contenders": 16,
+            "duplicate_transcript_rows": 0
+          }
+        },
+        {
+          "name": "test_process_crash_mail_delivery_replay[persisted]",
+          "elapsed_s": 0.434,
+          "status": "passed",
+          "metrics": {
+            "crash_point": "persisted",
+            "messages": 40,
+            "recovery_contenders": 16,
+            "duplicate_transcript_rows": 0
+          }
+        },
+        {
+          "name": "test_process_crash_mail_delivery_replay[acknowledged]",
+          "elapsed_s": 0.412,
+          "status": "passed",
+          "metrics": {
+            "crash_point": "acknowledged",
+            "messages": 40,
+            "recovery_contenders": 16,
+            "duplicate_transcript_rows": 0
+          }
+        },
+        {
+          "name": "test_process_crash_during_publication[first_file]",
+          "elapsed_s": 11.801,
+          "status": "failed"
+        },
+        {
+          "name": "test_process_crash_during_publication[receipt]",
+          "elapsed_s": 11.635,
+          "status": "failed"
+        }
+      ]
+    },
+    "extra_baseline": {
+      "artifact": ".tmp/multiagent-stress-20261015/before-extra.xml",
+      "counts": {
+        "tests": 2,
+        "failures": 2,
+        "errors": 0,
+        "skipped": 0
+      },
+      "elapsed_s": 4.337,
+      "timestamp": "2026-10-15T20:20:46.056463+08:00",
+      "cases": [
+        {
+          "name": "test_live_workspace_owner_is_not_stolen_after_heartbeat_delay",
+          "elapsed_s": 0.382,
+          "status": "failed"
+        },
+        {
+          "name": "test_http_parallel_worktrees_cancel_and_messages",
+          "elapsed_s": 3.619,
+          "status": "failed"
+        }
+      ]
+    },
+    "live_owner_baseline": {
+      "artifact": ".tmp/multiagent-stress-20261015/before-live-owner.xml",
+      "counts": {
+        "tests": 1,
+        "failures": 1,
+        "errors": 0,
+        "skipped": 0
+      },
+      "elapsed_s": 0.676,
+      "timestamp": "2026-10-15T20:39:28.374806+08:00",
+      "cases": [
+        {
+          "name": "test_live_workspace_owner_is_not_stolen_after_heartbeat_delay",
+          "elapsed_s": 0.387,
+          "status": "failed"
+        }
+      ]
+    },
+    "baseline_strategy": "Snapshots captured before edits; additional old-source checks use import hooks without replacing the mixed checkout.",
+    "owned_diff": ".tmp/multiagent-stress-20261015/owned-changes.patch"
+  },
+  "test_fixture_corrections": [
+    "父对话压力夹具最初把运行数据库和转录目录放入被版本快照扫描的源码根目录；改为独立 Git 子目录。没有据此修改产品源码或计入产品修复。",
+    "同伴消息观察最初假设固定调度顺序；改用发送完成屏障，再触发下一次模型请求边界。消息发送后不声称当前已经构建的请求能看到它。"
+  ],
+  "limits": [
+    "这是有限轮次、固定种子、明确故障点的本机离线验证，不代表长时间 soak 或性能 SLA。",
+    "HTTP 使用 FastAPI ASGI transport；没有启动 Uvicorn TCP/SSE 或桌面/TUI 前端。",
+    "未调用付费模型，未测试整机断电、磁盘损坏、远程文件系统、容器或跨机器运行。",
+    "跨进程 Agent 运行所有权和恢复已测试；远程取消其他宿主进程的 Agent 仍不在实现范围。",
+    "workspace ownership 的强保证适用于采用本协议的本地进程；旧版无标记租约迁移仍遵守 TTL。",
+    "Windows 下 POSIX 文件模式测试跳过；没有执行全仓测试或本轮 GUI 测试。"
+  ],
+  "source_sha256": {
+    "python/engine/agent_admission.py": "5bf0bb4fcf1633f8a73c88ab188d5c1462388216523945abca07b64a813a2c0d",
+    "python/engine/agent_delivery_guard.py": "dbe3e43a4bb224a886069a14e75818b11235e2f8b907f95aba4a65f249703e3e",
+    "python/engine/agent_task_wait.py": "10c23c03165217db519d41657f02da0ae58f1a59e2b20904d216ddda9c2087b3",
+    "python/engine/workspace_ownership.py": "9306306e21519c59457116fafd663ad302224f8a11a724fc5a78774bddce3c81",
+    "python/engine/agent_runtime.py": "5f44d7674a01899bab9ccd58c3588b564b048610ccf1e0a1b4b52a63948bd650",
+    "python/engine/agent_run_store.py": "5fa133ec62cfbe1e598fbc56b4de65faa9ef24c96eb88df452ceb7a9024e97da",
+    "python/engine/agent_mailbox.py": "2acdcb729bf17f94de3bfa25369c15c80c4ad82cc45d31ed76f6a9cd5d931fd0",
+    "python/engine/workspace_lock.py": "9ecf58a3a715a0306fb7999d055a2d07d4412de14e2735dd40ca8f89b4f3f57f",
+    "python/tests/test_agent_runtime_stress.py": "ef045038ee6f1e2fe20916332a878a8bcc6ecd4ce92dc75b2512526e93f2e6b6"
+  }
+}

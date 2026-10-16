@@ -1481,3 +1481,599 @@ Read描述绝对路径限定与执行层/相对WSC引用矛盾；同源同messag
 ## 批次142：恢复结果与下一次交接的身份一致性（2026-10-12）
 
 新增反例复现目录把唯一耐久恢复观察+实际结果拒绝成重复回执。目录与提交校验复用既有supersessions，只将可靠绑定实际结果设为验收来源；原历史/冻结头不改，5类含糊/未完成/重复反例继续拒绝。新增7项，五相关模块85 passed，包括来源已冷后的真实TodoWrite提交、再折叠、重启恢复。合成轨迹不是现场复杂任务或85%自动入口证明，API0/费用0。用户要求实质进展后暂停；Goal未完成，恢复后继续复杂任务实际执行、完整容量自动入口、多会话覆盖/收益与迁移。见 docs/wsc-default-recall-and-recovered-handoff-2026-10-12.md。
+
+## 批次143：恢复链贯通85%强压入口（2026-10-12）
+
+Goal恢复，新增两通道真实query_loop集成：较大schema使当前完整请求>=85%，自动尝试恰好1/无Compact请求，恢复结果经交接生成、实际提交、折叠进入主请求，目标/验收ID/实际失败结果与原转录前缀保持。模型模拟、测试窗口100000和结构估算，非官方1M计量或复杂真实执行证明。六模块111 passed；追加明确水位断言后两新增项2 passed。初次fixture误用不存在extend，改用已有append，不改生产。API0/费用0，预算仍剩估算0.44550832元，Goal active；见 docs/wsc-default-recall-and-recovered-handoff-2026-10-12.md。
+
+## 批次144：默认投影后的真实读取与产物落盘（2026-10-12）
+
+官方模型在141已双fold/恢复投影上自主Read冷回执，再生产Write创建隔离acceptance-review.json，最后答复。产物当前阶段、6完成1待办、原5验收ID、两逐字原文及来源正确；10项检查通过，gate待审批/冻结头/原冷哈希保持。用户评测请求限定报告，不是引擎指挥；非本批新交接/85%或复杂代码任务。3API输入17680/18785/19678，输出127/402/579，加权hit65.66%，费用估算0.04889656元。新增1元累计18API0.60338824元、余0.39661176元；无生产改动、Goal active，见 docs/wsc-real-task-execution-2026-10-12.md。
+
+## 批次145：有效恢复来源贯通阶段与进度（2026-10-12）
+
+阶段来源/进度校验仍直接数原结果，合法恢复链被拒绝；复用既有collect后，再复现前置调用+交接后实际结果被进度漏掉的独立时间边界。修复新鲜度比较有效结果索引，不依赖原调用时刻；完整性与身份仍保守拒绝，无历史改写。新增12时间线/有效性组合，七模块131 passed。API0/费用0，无新模块/开关/导演文本；不是新真实模型任务演化证明。预算余估算0.39661176元，Goal active，见 docs/wsc-recovered-progress-phase-2026-10-12.md。
+
+## 批次146–149：目标与阶段独立来源合同（2026-10-12）
+
+146报告执行后第一份真实声明已有新活跃来源却被阶段规则拒绝；147增加阶段/148补来源事实均未改变根因。纠正最初模型归因，实际引擎混用了目标更新与阶段切换。目标更新/终态再激活看新活跃来源，阶段切换看新阶段来源，两者同时变化都检查，背景引用仍不能复活旧目标。新增3例，六模块117 passed。149不改首份真实声明离线重放，实际TodoWrite/288→296 fold/重启15审计通过，报告完成/gate pending/原约束决定/源前缀/冻结/文件哈希保持。非149新模型继续执行或现场85%证明。3新API0.06189+0.06519+0.068512=估算0.195592元，1元累计21次0.79898024、余0.20101976元。敏感源目录误匹配拦截尝试API0；后续帧均被本地预算挡住，无HTTP重试。Goal active，见 docs/wsc-objective-phase-boundary-2026-10-12.md。
+
+## 批次150：真实恢复后产物复审的状态混用（2026-10-12）
+
+官方模型自主Read旧acceptance-review.json，再生产Write复审文件，11项9通过2失败：漏最新完成步骤acceptance及144两验收身份，输出状态与旧产物完全一致。实际请求最新工具声明和冻结头已完整提供8待办/7ID，原Write身份也正确使用；排除字段压掉，确定输出选择旧快照，WSC展示是否加剧尚待同条件对照。未改生产/删源/加导演，pytest0。3API输入16266/16711/17658、输出40/431/585，加权hit65.73%，估算0.0444892元，新1元累计24调用0.84346944/余0.15653056元，非官方余额。Goal active，不打全续接完成勾，见 docs/wsc-restored-review-counterexample-2026-10-12.md。
+
+## 批次151：完整历史控制准入与九现场会话基线（2026-10-12）
+
+压前完整303来源同150 system/query/schema，1071365字节、官方参考206448tokens，保守费用上界2.175498元超单次0.5及余0.15653，未发送、不截历史。只读现场9会话1425调用，185017572输入/179306095hit，加权96.913008%，最高单次470332；记录费用26.9303279为1414estimate+11unpriced，非实付。20fold含5size/12worth/3forced，Compact调用0；旧GUI例折叠区22362触发不等于完整输入22362。9快照容量1000000、7旧字节估算，usage早于今晚修复，基线不冒充新计数/迁移/收益因果。API0/费用0/生产0/pytest0，Goal active，见 docs/wsc-live-baseline-and-full-control-2026-10-12.md。
+
+## 批次152–153：卡面候选的成本与状态采用分离（2026-10-12）
+
+同149完整来源，默认/索引两fold288→296/冻结/重启/规范checkpoint/todos均保持，完整参考16143→13877少14.04%；原未规范todo输入可选字段比较两臂false属适配器错误，改比持久化权威回执，原报告保留。真实索引同复审Read→Write仍9/11，与默认同状态混用；同两调用费用估算0.03786024→0.03309896少12.58%，输出均471tokens。系统CWD/视图路径不同，不夸大为逐字单变量或随机因果。第三确认预算拒绝未发，生产0/pytest0，2API估算0.03309896元，1元26调用累计0.8765684/余0.1234316元。不启默认/不导演/不删源，Goal active，见 docs/wsc-card-cost-and-state-adoption-2026-10-12.md。
+
+## 批次154：容量入口断链实证与暂停（2026-10-12）
+
+真实build_default_engine创建兼容/原生客户端，隔离挂接与会话初始化，无HTTP。无显式容量两者None，900000计数夹具不通知/不强压；显式1048576两者均通知/强压，四断言通过。CLI未传容量/未接既有厂商解析，属于引擎容量来源断链，不是模型问题；不是实际900K请求、完整query_loop或修复完成。生产0/API0，1元累计估算0.8765684/余0.1234316保持。固定显式优先/厂商精确模型容量贯通/未知不猜/切换失效方向。按用户要求取得实质进展后暂停，完整Goal范围不变，见 docs/wsc-capacity-entry-gap-2026-10-12.md。
+
+## 批次155：容量共享入口修复（2026-10-12）
+
+Goal恢复active。默认query_loop投影前接厂商精确模型容量，复用已有解析，显式/已有容量优先；无匹配、重复、bool/小数、缺字段不猜。原生DeepSeek创建现在使用指定模型和连接地址，环境容量声明接口一致；连接变化旧响应不提交、失败下次submit重取，中断StoppedEvent。五相关模块65 passed，新增21项；两客户端×两WSC通道真实引擎20K模拟主调用无折叠。一次免费官方/models真实Flash容量1048576，两生产客户端相同、最大输出393216不擅自作为请求参数。0生成API，预算累计估算0.8765684/余0.1234316保持。不改冻结头/冷对象/工具描述，不重启部署；不是现场1M、复杂任务或模型状态混用治本证明。见 docs/wsc-capacity-entry-repair-2026-10-12.md。
+
+## 批次156：未完成步骤漏报的进度合同（2026-10-12）
+
+复现同空交接正式校验接受，根因共有ID状态对比漏掉未完成步骤消失，终态屏障绕过其他保留合同。复用既有进度新来源规则计算absent变化，不加schema/导演/组件；完成清理和有新取消来源保持。新增9项、六模块113 passed；初始两失败为夹具最新提交缺来源ID，补ID后过，不放宽校验。149真实303来源同声明、精确仅去本批规则的旧实现接受/新拒绝，gate pending和原SHA保持。实际来源读适配器首次漏working参数后修正，无生产错误。不是新模型/折叠现场证明，来源不能证明语义，150/153反例仍保留。API0、预算余估算0.1234316元不变，Goal active，见 docs/wsc-unfinished-step-omission-2026-10-12.md。
+
+## 批次157：失败交接完整连续性边界（2026-10-12）
+
+新增两WSC通道×持续漏报拒绝/生成取消四组正式query_loop故障注入。先真实建立冻结头，再追加12KB未消费Read结果，完整schema进入85%准备；主模型不运行、游标不动、拒绝帧不写主转录且原字节相同，任务状态/旧头/结果及flush-hydrate/冷txt对象保持。五相关模块55 passed，进程exit0。模型模拟，不是现场真实任务或1Musage；不能与156真实校验层对照拼成完整现场证明。生产0、API0、预算余估算0.1234316元。没有新引擎bug不新增保护逻辑，继续完整Goal范围，见 docs/wsc-failed-handoff-continuity-2026-10-12.md。
+
+## 批次158：最终验证条件与现场数据新鲜度（2026-10-12）
+
+回答剩余3组关键验证，保留原四块/总账完整范围。只读现场events.jsonl SHA与151完全相同，最后本地01:11早于155/156，没有可复用的新链路现场请求；不把96.913%旧hit当新收益，不重复已过冻结/恢复。固定真实多阶段续接/状态混用完整控制、现场80/85/迟到媒体、多会话信息净收益/迁移具体通过条件。生产0/API0，预算估算0.1234316元，完整控制上界仍超单次0.5和余额，不裁短/假设hit。Goal active，见 docs/wsc-final-acceptance-status-2026-10-12.md；现场回执 _wsc_out/wsc-live-freshness-158/report.json。
+
+## 批次159：多会话冷来源完整性与实际Read抽查（2026-10-12）
+
+九真实保存会话5665原行/5659 surface节点；11 blob strict完整性无错误，20原文件SHA保持。独立当前生产确定性重建5652冷节点句柄展开与图文本一致，7非冷节点全热保留；26实际Read首页寻址/正文前128字符通过。初验收器混单节点/去重组/头快照命名空间产生假失败，修验收器并保留report.adapter-before，不改生产。不是全长Read、原生媒体、模型自动采用、线上原冷对象迁移或净收益证明。生产0/pytest0/API0/费用0，预算余估算0.1234316元。Goal active，原三组最终效果验证保持，见 docs/wsc-multi-session-cold-integrity-2026-10-12.md。
+
+## 批次160：九会话冷文本实际全文读取（2026-10-12）
+
+159同源独立保存冷文本，实际FileReadTool最长单行9/9、366页完整编号正文全部匹配、九份真实文本行恢复一致/SHA保持。首次末尾换行虚拟空行导致九末页假失败，修验收器并保留report.adapter-before，不改生产。不是原生媒体、自然召回采用、现场80/85、新代迁移或净收益证明；150/153反例和完整控制缺口保留。生产0/API0/费用0，原预算余估算0.1234316元；5元条件询问未视为授权。Goal active，原3组最终效果验证保持，见docs/wsc-cold-full-read-2026-10-12.md。
+
+## 批次161：状态混用同条件配对准备与预算澄清（2026-10-12）
+
+150实际首请求/151完整303来源生成新配对输入，同system/query/schema/model/output，历史中间消息各自不动/SHA记录。共同新隔离CWD，禁止覆盖150既有产物；工作目录尚未创建、无工具/API结果。参考206448 tokens约0.421088元为估算，字节准入2.175498元为保守上界，不降低准入冒充保证。原余0.1234316元，5元条件问句未视为授权；已问总5/单次2.5，待答前不发。生产0/API0/费用0，原三组效果验收仍开放，Goal active。见docs/wsc-state-paired-readiness-2026-10-12.md。
+
+## 批次162–163：实际配对与小窗口验收绑定反例（2026-10-12）
+
+用户授权总5元/单次2.5，逐次耐久准入和usage结算，无重试。162同system/query/schema双臂各3调用：完整待办8正确、压缩漏acceptance；完整错Write身份，压缩正确。两臂旧文件5验收ID与checkpoint7不同，但原查询有产物/状态范围歧义，不能仅此判语义失败。163真实303来源实际query_loop用声明窗口253947/239352：80通知一次/no fold/8待办7ID正确；85参考210943→14032、真实交接+折叠游标300，待办8项正确，验收绑定被生成模型改为旧交接单ID并被引擎接受，主模型照新错快照回答。验收器原解析后说明误报待办false，修现有解析并保留report.adapter-before，已更正。原SHA/转录前缀保持；不是1M现场/上线迁移/全部治本。待按状态变迁合同保全验收绑定、正常新执行/恢复/阶段演化复用来源规则，不加导演/去噪。共9调用估算1.36603224元，累计2.24260064/余2.75739936；三组与全Goal仍开放。见docs/wsc-paired-and-small-window-2026-10-12.md。
+
+## 批次164：默认交接验收绑定保全与实际重验（2026-10-12）
+
+根因仅验新ID身份、未验既有绑定退休。新增独立模块复用latest_todo_snapshot/有效collect/observed_source，同阶段活跃任务移除验收绑定需已选中真实新回执，旧/取消/不完整/含糊/损坏/交接结果不能见证；阶段/终态沿用前置合同、legacy兼容。默认validation接入、已有有界generation中性反馈，不新建状态库/字段/开关，不导演/代改模型声明。新增17项、六模块91 passed，差异空白检查过。163原真实错误声明旧接受/新拒绝；实际239352小窗口重跑首次错误单ID→拒绝→原7ID新声明→一次211201→17049强压/游标300→8待办7ID集合正确，原源/转录前缀保持。初排序误报修集合oracle，原report.adapter-before保留，无API补跑；元数据补边界后回归。3新调用估算0.07391736元，累计2.316518/余2.683482，HTTP无重试。具体反例闭合，不冒充全部语义/复杂多折叠/1M现场/迁移/净收益完成，Goal active。见docs/wsc-verification-transition-repair-2026-10-12.md。
+
+## 批次165–166：独立进程冷召回执行与第二Compact失败（2026-10-12）
+
+164验收未flush工作快照，不能作进程恢复证明；165完整真实强压/收尾persist+flush→独立进程hydrate游标300/7ID→真实Read×2/Write报告/Compact，8待办7ID/两原文/来源/gate pending全正确，旧冷SHA和前缀保持。第二Compact165因评测json.loads不同于生产_raw路径提前停；166新副本用生产finish_tool_bufs，首次复用用户ID被正式身份校验0API拒绝，改新ID不改旧行。后6调用模型仍循环遗漏绑定或嵌错根context_disposition，最后安全拒绝，游标300未推进；不改schema/放宽校验/搬字段/增加上限/导演来凑过。已有报告存在不代表166新Write，两个部分结果不拼第二fold完成。生产0，共16调用估算0.40877248元，累计2.72529048/余2.27470952，未402。原三组/完整Goal保持active；模型协议和现场/收益/迁移缺口仍开放。见docs/wsc-restart-cold-execution-2026-10-12.md。
+
+## 批次167：schema路径事实与第二fold实际续接（2026-10-12）
+
+不删旧绑定。默认invalid_state错误为错位已知根字段提供schema路径事实，未知不编造；无字段搬运/导演/校验放宽。3新项、三模块31 passed/差异检查过。保存166新副本同Compact任务6生成调用，合法交接最终保留旧中间绑定而非退休（中间误称已更正），第二fold300→313，原8待办7ID保持+新报告步骤completed/实际Read Write两新验收，9/9可定位，压后模型正确回报9ID/gate pending。旧冷SHA/转录/冻结前缀保持，本批报告是已有，未新Write。模型提acceptance文件缺失是测试目录未复制旧原始产物，原149保留，不当线上删除或迁移验证；新CWD/用户消息不同，非单变量随机因果。费用估算0.16434032，累计2.8896308/余2.1103692，无HTTP重试/402。该真实源多阶段有限闭环，不抹165/166失败；全Goal复杂任务/媒体/现场/跨会话收益迁移仍active，见docs/wsc-second-fold-continuation-2026-10-12.md。
+
+## 批次168：完整请求计量与费用回执核对（2026-10-12）
+
+只读34实际官方wire/usage，固定当前参考编码完整messages/system/tools重测，输入14038–215091，最大误差6token/0.042741%，仍指定文本模板估算，不拟合/改单价/阈值；七报告SHA保持。总input2646668/hit1810560，加权68.409%，全部失败/冷请求计入；暖重复前缀164/165的96%不推广首次冷或旧线上97%，组别任务效果与成本联合列明。新34call估算2.0130624+旧0.8765684=当前2.8896308，余2.1103692，不是账单余额。162便宜但当时状态失败，167成功调用序列不同，不拼修后净收益。生产0/API0/费用0，用户允许声明小窗口实际触发验收，线上容量仍1M；更多模型/媒体/跨会话净收益/迁移仍待，完整Goal active。见docs/wsc-count-and-cost-receipts-2026-10-12.md。
+
+
+## 批次169：功能验收优先，成本收益最后（2026-10-12）
+
+批次169（用户最新验收顺序）：先任务连续性与状态采用，再未消费/迟到结果保全及容量触发，再多会话精确召回和迁移完整性，最后费用与缓存净收益。短窗口、冷请求及专门测试参数下的68.409%仅是测试样本统计，不是线上缓存能力失败；97%不作为这类功能测试的通过门槛。后续收益对照须具备适配的实际长度、稳定前缀及相同任务结果。成本对照准备暂停，预算准入保持总5元/单次2.5元，剩余额度估算2.1103692元。本批未新增测试/API或完成勾，历史证据与完整Goal范围保留。
+
+
+## Batch 170: unconsumed receipt after capacity stop and disk restore
+
+170: successful isolated handoff + fold + hard-capacity stop + disk hydration retains the entire unconsumed multiline receipt in the next main request on both WSC channels. Two new cases; three scoped modules: 37 passed. Initial two failures were newline/string-representation oracle errors, corrected without production changes. Mock models and same-process disk restoration only; no API calls. See docs/wsc-unconsumed-stop-restart-2026-10-12.md. Functional acceptance remains first; economics last; Goal active.
+
+
+## Batch 171-172: active-phase verification lifecycle and actual retry continuation
+
+171-172: same saved long task with new user review, injected first Write failure, actual retry Write and another Compact. Replaced the global new-receipt retirement witness with active-phase verification binding preservation: 9 old IDs retained, 3 added; phase/terminal lifecycle uses existing contracts. Five scoped modules 93 passed. Actual paid 9+8 calls: task/gate/archive preserved, but final answer still reports old 9 instead of latest 12 despite full delivery; semantic adoption remains open. Native heads compared directly across pre-fold requests; empty legacy c2 check is not native-head evidence. See docs/wsc-active-verification-lifecycle-2026-10-12.md. Cost verification last; budget estimate spent 3.19421328 / remaining 1.80578672; Goal active.
+
+
+## Batch 173: verification bindings share the checkpoint byte budget
+
+173: proactive invariant audit found active-phase binding preservation conflicts with the old 16-ID cap. Verification IDs now share the existing 16000-byte checkpoint budget across TodoWrite schema, handoff schema and parser; other list/response/read/call limits unchanged. Three new regressions; four scoped modules 66 passed; no API. Read-only 172 wire confirms current head and latest receipt both carry 12 IDs; old report lists remain historical execution content, so current-field loss is excluded. Model adoption still open; source/index structural attribution next, no director prompts. See docs/wsc-verification-byte-budget-2026-10-12.md. Cost line last; Goal active.
+
+
+## Batch 174: state-surface attribution
+
+174: identical saved 172 final request vs receipt-payload metadata ablation, with current state/user/tools/tail unchanged. Two official one-call probes both return the correct 12 current IDs, no tool proposals. Original 172 failure retained; same-request output variance exists, so no demonstrated adoption benefit for payload removal and no candidate promotion. Head 34798 to23909 characters is not task-effect proof. Production0; budget estimate spent3.23152640/remaining1.76847360. See docs/wsc-state-surface-attribution-2026-10-12.md. Continue functional result-continuation gaps; economics last; Goal active.
+
+
+## Batch 175-176: fallback multi-fold continuity (2026-10-13)
+
+175-176: three folds (21->45->46), fresh-process restore, then late text/image revealed fallback head loses uncommitted protected request while native retains it. Default fallback now reuses existing projection request pin only when no committed task handoff; no historical-goal search or all-user replay. Three new cases, three modules26 passed. Native175 and repaired fallback176 actual model checks7/7, original fallback failure retained. Synthetic task, not live85 or real multi-task proof. Old cold/source/head-append boundaries maintained. Budget estimate3.25998840 spent/1.74001160 remaining, no midnight reset. See docs/wsc-fallback-multifold-continuity-2026-10-13.md; Goal active, costs last.
+
+
+## Batch177: saved-generation restore admission (2026-10-13)
+
+177: read-only nine real saved generations: six unfolded, three old heads/cold views exist but current source seals reject (even without message_id metadata). Actual isolated project_c2 entry attempts to rebuild at unchanged cursors1560/21/398, region_end1640/125/696; intercepted before publication, original hashes preserved. Root: cached=None is treated as a fold event. Recovery failure must be separated from explicit generation publication; source-layout cursors cannot authorize migration by numeric comparison. Fix pending, do not promote unknown-seal heads. See docs/wsc-saved-generation-migration-2026-10-13.md. Production0/API0; budget unchanged1.74001160 remaining; Goal active.
+
+
+## Batch178: explicit generation admission (2026-10-13)
+
+178: default generation publication now explicit at force_compact cursor-advance only; ordinary native projection reuses verified same-cursor head or returns full current source without rebuild. Recovery/cache loss no longer authorizes generation. Five new regressions, four modules44 passed. Three exact177 real saved cases: rebuild attempts3->0, full source replay3/3, copied heads unchanged3/3, all35 original SHA preserved; seals still rejected, not claimed migrated. New module wsc_generation_admission plus runtime/projection integration. See docs/wsc-generation-admission-repair-2026-10-13.md. Production source changed, no deployment/API; budget1.74001160 remains; costs last; Goal active.
+
+
+## Batch179: recovery capacity chain (2026-10-13)
+
+179: explicit publication setup in two old recovery suites, ordinary reuse still unprivileged. Corrected duplicate call IDs in appended fixtures and receipt-identity prefix oracle without removing cold Read/range/source assertions; 10 scoped checks pass. Two new real query_loop missing-head combinations pass: full replay -> capacity handoff/fold -> main, or still-overcapacity stop -> disk restore -> smaller schema -> main without duplicate handoff. Mock model only; no API/production changes. 177 old unmatched seals still unresolved. See docs/wsc-recovery-capacity-chain-2026-10-13.md. Budget1.74001160 unchanged; costs last; Goal active.
+
+
+## Batch180: emitted reference audit and generalization boundary (2026-10-13)
+
+> 180: generalization boundaries recorded; three saved emitted heads equal stored heads. All 182 distinct declared Read entries execute successfully; 3 cold-file SHA preserved. Readability only, not source-seal migration or semantic adoption proof. Production0/API0; unmatched source seals remain open; costs last; Goal active. See docs/wsc-generalization-and-old-references-2026-10-13.md.
+
+
+## Batch181: task lifecycle event sequences (2026-10-13)
+
+> 181: generic terminal/new-task/late-result sequences: 12 combinations across two channels, two arrival orders and three content variants pass; same phase label reused across task lifetimes. Current task/verification remain new-only, old late receipt stays undeclared or recoverable; two folds and disk hydrate preserve emission/source/cold bytes. Three scoped modules34 passed. Deterministic declarations, not actual model adoption. Production0/API0, budget1.74001160; remaining scope retained, costs last; Goal active. See docs/wsc-task-lifecycle-sequences-2026-10-13.md.
+
+
+## Batch182: matched task lifecycle model adoption (2026-10-13)
+
+> 182: matched lifecycle model adoption: full/native/fallback official Flash one call each, all six checks correct in each arm (18/18). Current baseline100/current137/delta37/new-only verification retained; old late999 attributed to old task. Two explicit folds29->69, same-process disk hydration equals saved emission. Synthetic declarations, no live85 or stability claim. Production0; API3, estimated cost0.047896, cumulative3.30788440/remaining1.69211560. Full scope remains open; costs last; Goal active. See docs/wsc-task-lifecycle-model-2026-10-13.md.
+
+
+## Batch183-184: exact-source search and validated exception fallback (2026-10-13)
+
+> 183-184: 1692 exact-seal candidate checks over retained transcript prefixes and note/identity variants find no match in three old generations; original3 transcript SHA preserved, migration unresolved. Structural exception bug reproduced twice: unvalidated cache emitted after seal/junction validator throws. Projection fallback now uses only cache verified in this call; missing-seal cache invalidated. Three new regressions; three scoped modules50 passed. No live head/cold changes/API; budget1.69211560 remains, costs last, full Goal active. See docs/wsc-source-validation-fallback-2026-10-13.md.
+
+
+## Batch185-187: real generation rebuild and bounded identity feedback (2026-10-13)
+
+> 185-187: real legacy clone with two active steps has dangling declared call_00 (no invocation/result), initial generation rejected. Added identity/count/source StateError facts and existing bounded rejection feedback integration; four new regressions, three modules35 passed. After repair, real handoff preserves objective/two statuses, declares phase, commits then explicit fold398->700; source/transcript prefixes and original source/cold SHA preserved, disk restore equal. One restored-emission model probe preserves goal/statuses/current IDs; array-vs-map strict failure kept, semantic three checks pass. One real new-generation closure only, old seal and two other migrations unresolved. API14 estimated0.07741736, cumulative3.38530176/remaining1.61469824; costs last, full Goal active. See docs/wsc-real-generation-rebuild-2026-10-13.md.
+
+
+## Batch188-189: legacy task scope and payload output reserve (2026-10-13)
+
+> 188-189: real nine-step legacy source has later genuine user corrections requiring both wiring and identity batches. Initial handoff was provider-length truncated at2048, safely rejected. New output-budget module reserves by committed declaration UTF8 payload, floor2048/cap8192, shared client/source/admission reserve; four new checks, four modules61 pass. Same-source three-call handoff at3072 preserves nine IDs and both stages, explicit fold1560->1642, original source/cold/prefix preserved, disk hydrate emission equal. One actual restored model probe all four checks correct. Second real new-generation closure, no old-seal/live85/full-task completion claim. API10 estimate0.13491176, cumulative3.52021352/remaining1.47978648; costs last, Goal full scope active. See docs/wsc-legacy-scope-output-reservation-2026-10-13.md.
+
+
+## Batch190-191: terminal-source output recovery candidate A/B (2026-10-13)
+
+> 190-191: third legacy session has no task declaration; real user scope is GUI scroll fix and ignore git. Baseline6 generation calls: four terminal TodoWrites length-truncated at2048. Opt-in output-exhaustion candidate (default off) doubles only invalid-JSON + observed exhausted usage, cap8192 and existing6 request bound; six new combinations, four modules61 pass. Controlled B replays first3 official requests/responses byte-identically, two paid calls at4096 yield valid handoff; source/cold SHA preserved. Semantic closure not accepted: waiting docs/git proposals remain pending despite ignore-git constraint retained. No new generation/promotion; separate task-authority vs waiting-proposal acceptance next, no keyword filtering. API8 estimated0.14146464, cumulative3.66167816/remaining1.33832184; full Goal active, costs last. See docs/wsc-terminal-output-candidate-2026-10-13.md.
+
+
+## Batch192: waiting authority attribution and output-recovery promotion (2026-10-13)
+
+> 192: user-authority attribution paired original history vs candidate fold: original misclassifies unaccepted docs as authorized pending; candidate correctly empty, both no tool proposals. Prior pending-count oracle narrowed; no compression-specific semantic failure or stability claim. Third isolated new generation21->128, source/cold SHA preserved, disk hydrate equal; old seal/live migration not restored. Normal real189 handoff off/on replay3 each: complete wire/replies/state equal, no new API. After output-recovery A/B, normal-path equivalence and bounds, recovery default enabled with explicit0 opt-out; four modules62 pass. API2 estimate0.21434, cumulative3.87601816/remaining1.12398184. Full Goal remains active, costs last. See docs/wsc-waiting-authority-attribution-2026-10-13.md.
+
+
+## Batch193: fresh-process exact restoration of three real generations (2026-10-13)
+
+> 193: independent fresh Python process restores all three real rebuilt clones from disk; projection state empty per case. Two-step cursor700 and nine-step1642 native emission lists exactly equal saved187/189; waiting cursor128 fully encoded provider request equals actual192 wire. 15 cloned transcript/working/head/cold SHA unchanged, 3/3 pass, API0, production0. Cross-process restore evidence added; no original-seal/live migration/stable-model/full-task completion claim. Budget3.87601816 spent/1.12398184 remaining unchanged; full Goal active, costs last. See docs/wsc-three-real-process-restore-2026-10-13.md.
+
+
+## Batch194: recent input audit and native default-output candidate (2026-10-13)
+
+> 194: readonly recent34 actual native Flash text wire/usage observations, excluding replay duplicates: input7020-80150, max7token/0.0671501% error; new3072/4096 output settings covered, five length stops retained; fixed estimate not exact/1M/media proof. Official GET/models confirms1048576 context/393216 maximum output; primary API docs distinguish8K/64K/128K defaults. Opt-in default-output reserve module and tagged measurement integration, sends identical wire, explicit config first, unverified origins/models unknown; ten new checks and three modules48 pass. Candidate default off, no generated API costs, budget unchanged1.12398184; full Goal active, costs last. See docs/wsc-recent-count-and-output-defaults-2026-10-13.md.
+
+
+## Batch195: native default-output admission A/B and promotion (2026-10-13)
+
+> 195: native default-output candidate A/B over34 actual explicit-config saved requests: complete admission/facts and source wire identical. Three documented-default total-window +1 simulations previously unchecked, candidate rejects; no real over-window API sent, 80/85/input/frozen state unchanged. After sidepath evidence, exact official Flash default reserve now on, explicit0 opt-out; custom/unverified IDs unknown, documented vs configured basis retained. Three modules49 pass. Production worktree default changed, no deployment/generation API/cost; budget1.12398184 remains. Full Goal active, costs last. See docs/wsc-default-output-admission-ab-2026-10-13.md.
+
+
+## Batch196-198: late-media count audit and cold-asset sidepath (2026-10-13)
+
+> 196-198: five actual late-image wire/usage observations: one same-type image each, upper estimate exceeds actual826-829 tokens/9.24-50.49%, four old passes and one old failure retained; no calibration/API. New after-absorption probe both channels cursor52 image source27: wire0 and emitted cold Read/text lack exact image payload, source retained in memory, not permanent raw-loss claim. Independent opt-in media_archive prototype reuses media_store + immutable publication, source seal/layout/positions and exact assets; seven checks pass, two-channel storage/Read A/B returns exact PNG bytes and preserves old artifacts. Default off, not wired into emission; next one catalog entry/new-generation failure/recovery integrity/model recall A/B. Budget1.12398184 unchanged; full Goal active, costs last. See docs/wsc-cold-media-recall-gap-2026-10-13.md.
+
+## 批次199（2026-10-13）：媒体读取完整性旁路
+- 根因：目录创建时摘要一致，不保证后续Read返回同一原图；有效PNG替换不会被格式检查发现。
+- 规则：本机现有媒体根目录内的内容寻址图片，开启XEYO_WSC_MEDIA_ARCHIVE后按原请求文件名核验原始字节，再进入图像转换；默认关闭，不覆盖损坏对象，不改冻结头。
+- 改动：新增memory/wsc_media_integrity.py、tests/wsc/test_media_integrity_sidepath.py；FileRead本机图片路径调用校验。详细边界见wsc-cold-media-recall-gap-2026-10-13.md。
+- A/B：关闭时替换后的有效图片仍返回；开启时拒绝且无图像附件；原图正常返回，非媒体目录不误拒绝，相对路径及不同资产字节检查通过。两份定向测试10 passed，0.96秒；diff检查通过，API0。
+- 未完成：目录主链发射、发布失败/恢复、容器资产验证与模型自主召回；未推广默认，Goal仍active。累计预算估算3.87601816元不变。
+
+## 批次200（2026-10-13）：媒体目录接入实际折叠旁路
+- 新模块wsc_media_directory在新投影构建时复用存储候选，生成单一媒体目录Read入口；在固定段预算计算前纳入，不逐图生成卡面。native与fallback使用同一入口，来源布局显式传入。
+- 开关仍XEYO_WSC_MEDIA_ARCHIVE，默认关闭。既有冻结头不修改；目录不可变对象纳入native现有publication manifest，不新建恢复数据库。
+- 两通道开关A/B：源27图片在后续显式折叠游标之后被吸收，关闭无媒体目录入口；开启可从实际发射头解析入口、调用真实Read读目录和PNG，原图字节精确。普通复用与清除内存状态后的恢复，头逐字一致，所有既有产物字节保持。
+- 目录预发布故障检查：异常发生在游标推进前，WorkingSnapshot保持原值。三份定向测试15 passed（1.69秒）；API0。Windows路径先转正斜杠并使用字符串字面值，避免manifest解析反斜杠失败。
+- 本轮后续工作消息仍是合成事件，不冒充真实模型消费。尚未证明模型自主召回、多图/远端完整性、预发布之后的故障原子性和损坏目录/资产恢复；候选不推广。模型仍可按普通Read取图片，未新增工具。
+- 固定下一步：审查预发布后再次发布失败与恢复资产失效边界，再运行同源模型召回。Goal其余四块验收范围保持；成本收益最后，API预算累计估算3.87601816元不变。
+
+## 批次201（2026-10-13）：媒体退休与后续发布失败
+- 反例先运行：目录预发布成功、后续create失败，native返回旧头但WorkingSnapshot游标21→52。失败检查真实输出1 failed；这是引擎状态提交顺序问题，不是模型判断问题。
+- 新模块memory/wsc_media_fold_commit.py，在XEYO_WSC_MEDIA_ARCHIVE启用时临时复制working，复用原force_compact实现；仅当实际发射目录具备完整来源封印、正确会话/布局/归档右界及全部待退休媒体位置覆盖，才提交working。关闭开关仍原实现。
+- 后续目录发布故障，两通道working与折叠前完全相同；native旧头指针文件字节保持。拒绝不删除不可变新对象，允许留下未引用对象，不覆盖旧冷对象。来源封印按右界缓存，避免每条图片记录重新扫描全部来源。
+- 四份定向检查17 passed（2.00秒），diff检查通过，新生成API0。200的成功折叠/真实Read原图/普通复用和恢复检查仍通过。
+- 边界：并非整个折叠跨文件事务已验收；新头指针发布后与working最终落盘之间的进程崩溃、目录/资产失效后的恢复策略、容器媒体和模型自主召回仍未完成。候选默认关闭，不宣称默认线上治本。既有Goal完整范围保持，预算累计估算3.87601816元未变。
+
+## 批次202–205（2026-10-13）：恢复与自主召回验收结束，不推广
+- 202：新增tests/wsc/test_media_recovery_boundaries.py，独立进程模拟新头已发布/旧working已落盘组合。两通道保留原图来源，游标不变；native原样重放完整来源，不生成新头；旧产物字节保持。损坏目录、损坏原图、缺失原图Read均拒绝，不自动修补/覆盖。新5检查通过（1.85秒）。这证明安全回退，不能称冻结头恢复成功或崩溃事务原子性完全实现。
+- 203：实际官方Flash同源native开关A/B，初始wire图片均0。关闭/开启各1调用，模型均未Read；数字137/37正确但调用身份写成节点#27，图值null；开启回答还附说明导致严格JSON失败。模型自主召回未通过。
+- 204：候选目录补所有权图片数量、reference_only数量和最多8来源位置等事实，不含答案或读取指令。候选1调用，仍未Read、图值null、调用身份错误。无益证据不足，不推广。
+- 205：新的自然任务提问明确询问pending回执附图，与原继续提问分开记录，不当成原请求修复对照。关闭臂2调用、实际Read原文件失败/文字冷层成功，误用旧unknown回执；开启臂1调用、未Read，并明确知道目录owned_images=1、source_indices=#27但仍置图值null。证明入口事实送达不等于模型采用；不能宣称精确召回模型闭环通过。未加导演提示、强制tool_choice或答案注入。
+- 归因：存储/Read、来源绑定、投影入口、冻结复用及安全拒绝已有定向证据；本轮主要失败为模型未读取及身份采用错误，也暴露仅目录入口不能保证相关证据被消费。独立恢复与读取检查绿不能覆盖模型语义失败。
+- 测试：原17项检查保持；新增恢复5项通过。来源事实调整后，目录/提交/恢复三文件12 passed（2.72秒）；不冒充全库通过。新生成API共6调用，估算0.07978216元；累计3.95580032元，余1.04419968元（价格估算，不是实际账户余额）。三份原response与request保存且不覆写；全部旧产物保持。
+- 当前媒体验收执行结束，功能验收不通过，XEYO_WSC_MEDIA_ARCHIVE仍默认关闭。后续方向：先讨论交接对当前任务相关证据的明确引用与热/冷证据选择，不能继续按单个失败追加提示；容器媒体、恢复资产失效策略及跨文件事务整体范围仍未完成。
+- 用户明确选择“当前媒体召回验收后讨论”。此处暂停整个Goal供讨论，不标complete；原四块最终验收和全部TODO保留，恢复后继续。
+
+## 批次206–207（2026-10-13）：四臂语义/确定性层比较，实验结束
+- 用户新授权实验，原修复Goal继续paused，不自动恢复。原克隆SHA2/2保持，未改生产默认或冻结行，仅实验脚本和报告。
+- 两份真实源派生克隆共同前缀1647/133行；C/D同用已保存实际模型交接，按共同来源重新require_phase验证2/2通过，不把来源验证当语义gold。主轮共同原尾部7/8行，C/D同携2条交接；C原生边界因新增交接另吸收2/3原尾部，单列并在主消融固定右界。
+- 未适配A0请求遭HTTP拒绝，初版未留状态正文，失败不抹去、不猜费用；A*独立历史传输适配、同原生摘要参数的控制组另列，不能冒充未改原生或Codex摘要。
+- 主热头长例A*2012/B7273/C19427/D2440，GUI944/4159/17696/2267；D相对C平均热头少87.3%、完整请求少59.5%。两臂相同语义checkpoint本体约2k，旧展开交接12–13k，是体积候选而非已证明噪声率。
+- 主事实原预注册A*6/14、B0/6+GUI四调用无答案、C13/14、D12/14；current_scope歧义（当前阶段/整体任务）排除后6/13、0/5+无答案、13/13、12/13，两套都保留，不补跑改绿。活跃约束事实C/D6/6，完整选定引文C/D12/12；B原9步骤实际在任务交接快照内，不能说清单丢失。
+- 精确冷原文召回A*/B/D0/2、C1/2；只读续接验收C1/2，其余0/2。具体值7/7不是冷召回证明（其中53在题名暴露）；原文80字符为独立控题。主轮旧Goal复活0；仅热头pilot B1例复活单列。schema与字面引用验证不保证语义采用。
+- 生成/主续接分账：A*新生成2.220848；C/D复用生成各独立运行视角0.1053044，含GUI历史重放3帧，不重复记本轮实支。主续接A*0.090648/B0.163574/C0.146924/D0.051300峰价估算；不同成功率/调用/缓存初态，不宣称净收益。
+- 35请求、34usage；新增峰价估算3.028172元，未知预留0.844376，累计授权8.5、保守余0.671652。官方余额5.42→3.90（差1.52，接近半价情景），非逐臂账单，不据此私自退预留。cache主加权61.0/46.7/31.8/23.5%，不排名架构或追97；固定头普通追加前缀8/8，重建失效率仍未知。
+- 结论：优先精简热展开层，保留语义任务状态/生命周期/未消费结果/出处/冷存档/冻结恢复/完整容量与预算机制；D未达等效召回，不推广。B有状态却缺目标/上下文声明；完整普通任务状态是否可直接复用而跳过额外交接，尚须独立对照，不能认定handoff必须或冗余。
+- 全证据_wsc_out/wsc-four-arm-206/，完整比较docs/wsc-four-arm-comparison-2026-10-13.md。实验已结束，停止进一步付费/默认修改，等用户讨论方向；原Goalpaused且范围不变。
+
+
+### 批次208：同源新A1/E/DSH原生对照（2026-10-13）
+
+同两份来源完成新对照；新A1事实13/13、约束6/6、值7/7，热层7957/1322；E现有状态9/13、4/6，checkpoint前提不足；DSH使用官方源码，长4K截断拒绝，另授权8K成功，但两例续接均4调用无最终答案。旧A*/B/C/D不重跑，不能再据旧A*排除模型摘要，也不能锁定E为已证明终局。精确召回/引用均未全过。评测器目录权限失效轮独立保留并修正；共37新增usage请求，峰价估算0.603390元（含失效轮0.089963），累计预算12元、余3.568262。原Goal暂停，未并入默认。详见 docs/wsc-expanded-comparison-2026-10-13.md。
+
+
+### 批次209：同源billion-context原内核对照（2026-10-13）
+
+固定原作者623d3078/0.1.196，执行真实compress与原内核建块/保护/投影，长短各1个T1块；热层3657/4723。长例事实3/5、约束3/4、具体值2/3，另一例4调用无最终答案；一次Bash越界拒绝后剩余调用转Read，末尾结果保存未消费，未超限。Read4/4成功，native full所覆盖3146/202个输入文本保留，不把续接失败说成存档丢失。8次usage请求、峰价估算2.373767元，累计12元预算余1.194495。保持D/A竞争，E前提不足，DSH不再追加；不以该单次受控边界试验验收100K/97%/长期增量收益。Goal暂停，未并默认。详见docs/wsc-billion-context-comparison-2026-10-13.md。
+
+
+### 批次210–212：E持久状态前瞻验证（2026-10-14）
+
+已实现evals旁路的持久状态、扁平声明与稳定ID增量声明。212四阶段E有效最新状态3/4、主要当前字段28/28，D26/28；六份实际账本正确，重建视图8/8一致，候选契约10/10。完成阶段E退休ID不存在导致提交拒绝，答对依赖原文，不算状态完成。评测器单槽迟到队列被新probe覆盖，E旧r1迟到验收无效，明确保留未过项。三轮费用估算0.88692752元，累计12元预算余0.30756736元。未并默认，Goal保持暂停；下一方向为状态新鲜度边界、逐调用迟到队列及同源真实长任务D/E验证。详见 docs/wsc-persistent-state-E-validation-2026-10-14.md。
+
+
+### 批次213–217：AD1/V3.1、AD2/V3同源原型测试（2026-10-14）
+
+新增4个eval旁路模块，未并生产。复用D/A1/E有效基线；AD1仅短例候选提交，事实8/8、约束2/2、值4/4、精确冷摘录0/1；AD2真实候选未提交，两个长例8192仍截断。多代暴露部分合并关联矛盾、旧OPEN任务存活，以及两个Guard允许组合约束缩短的反控。定向契约18/18、10代为确定性检查，不是语义治本验收。213漏thinking参数是评测器失效轮，费用与请求保留；历史工具schema裁剪已修正事实载体，静态回执ID长3/3短4/4。216/217统一续接每轮仅D长例有响应，其余断连不计方法失败，不重试。新增44请求32usage，估算/预留10.64487272元（含失效4.56511224与未知响应预留1.228272），累计24元余1.66269464；充值后官方账户余额2.27元。保持A1/D竞争、E条件验证，AD方案不并默认；完整续接控制、约束原子单位和关联更新边界、执行/媒体/恢复及成本未验收。详见 docs/wsc-AD-comparison-2026-10-14.md。
+
+
+### 批次218–223：追加2元、V3/V3.1原生引用有效数据（2026-10-14）
+
+修正实验额外quote门槛：附件EvidenceRef要求事件ID/hash/定位，StateFact可转述，不能用旧逐字规则判V3无法提交。共享初始候选、原文保留、可逆执行摘录；原生引用两例两臂均提交，长16/短14事实。221/222同问题同尾部同1536输出无模型召回工具的新语义对照：D13/13、A113/13、E既有状态8/13、AD1/V3.1 12/13、AD2/V3 10/13；活跃约束6/6、6/6、3/6、5/6、4/6；值7/7、7/7、6/7、7/7、5/7。AD1热头10961/4319，AD2 2562/2847；D2440/2267。带Read工具路径仍断连，直连也未解决，不归为模型语义失败；无工具十个语义请求均返回。原生引用生命周期离线重放仍暴露关联矛盾；定向契约21/21并不证明治本。新增23请求14usage，沿用峰价usage估算2.02128304、官方低峰重估约1.01064152，另有未知usage预留0.910692；账户余额2.27→1.25。累计授权26元保守余0.73071960。方向继续D/A1竞争，E条件验证，AD不并默认；完整召回、关联状态边界及真实多代恢复未验收。当前权威报告 docs/wsc-V3-V31-results-2026-10-14.md。
+
+
+### 批次224–226：原D交接 + V3/V3.1壳（2026-10-14）
+
+按用户要求D1=原D交接+V3.1、D2=原D交接+V3，零新语义生成，不使用A1提示词。完整224同问题语义：D1事实13/13、约束6/6、值7/7；D2事实12/13、约束6/6、值7/7，缺项为授权未知。重复JSON编码/索引完整路径是热头膨胀原因；225原生D字节+路径单次声明把D2热头降到2401/2239，短例8/8，长例断连，不与226换消息角色/边界的长例5/5拼成完整验收。十次小请求八usage，峰价usage估算0.22697976、未知预留0.224476，总0.45145576；官方余额1.14，累计26元保守余0.27926384。新模块与渲染仅eval旁路，旧账本字节不改、生产WSC不改、Goal保持暂停。当前支持D原语义+薄安全层下一候选，完整召回/多代关联状态及泛化仍未验收。详见 docs/wsc-D-handoff-V3-V31-results-2026-10-14.md。
+
+
+### 批次227复查更正（2026-10-14）
+
+免费离线复查实际请求、附件和适配器：D1/V3.1语义13/13与D持平；D2仅授权未知一项缺分，不能称整体退化。224嵌套编码、已完成详情全热展开及长例3个context来源ID未携带属于原型适配缺口；225原生D前缀全部恢复。V3.1附件本身允许Protected+Tail 8K–16K，不能单凭热头大判差；实际索引2810/2119且没有独立index_budget，属于仍待优化的实现。短例热开销主要是索引。首次空状态、无模型Read没有测到合并/生命周期/自主召回增益，不代表完整架构。旧D头内source_sha256与当前同名源文件不符，未定位改变时间，不能作为已通过恢复守卫的证据。纠正结论：保留D语义基线，V3/V3.1收益待固定协议、封存来源及多代状态/召回验收；不否定方案、不并默认。详见 docs/wsc-D-shell-review-2026-10-14.md。
+
+
+### 批次228：固定协议三次重复与守卫负控（2026-10-14）
+
+18预登记调用18usage、无断连/重试，四臂同问题同资源、取消独享恢复；D/D2 wire逐字相同，共用观测不算双份。两例各3重复：严格事实D/D1/D2 36/39、A1 39/39，差异全为授权未知；约束皆18/18；值严格D21/21、A1 20/21、D1 18/21，D1三项仅正确53的字符串类型差异，事后内容诊断21/21不替代主分。D1热10026/2536，D/D2 2223/2053，索引聚合到631/408。Guard机械18/18保护、组合约束缩短/不存在phase/无关消息重开10/10未保护；原型不能称治本或并生产。CNY预算峰价估算0.16001248，累计授权27.5元余1.61925136，余额快照1.13；不据缓存续接费排名总生命周期。当前方向D语义+薄层候选，A1保留竞争，V3.1等待召回/多代收益准入；完整原型边界、关联状态、自主召回及泛化未完，成本最后。详见 docs/wsc-reliable-control-results-2026-10-14.md。
+
+
+## 2026-10-14：A1/D/D2 淘汰评测续接（230–235）
+
+固定方向与逐项状态见 [淘汰评测状态](wsc-elimination-status-2026-10-14.md)。同候选24项：D已有防护挡15/18非法；D2增量挡1/3、漏2/3、误拒4/6合法，当前原型不准入。231四代试跑存在近期原文与校验续接不公平，不能据此排名；232未压缩对照完成。233因密钥ID误判及官方402中断，已离线修正；234有21项契约/恢复检查通过。235独立修正版及首轮请求已准备，paid_run_allowed=false。Goal未完成，API已停止；累计账本余0.02416296元，含0.524586元无usage保守预留。下一步是公平A1/D四代，不改生产、不补造旧成绩。
+
+
+## 2026-10-14：用户改目标为优化D（236–242）
+
+当前平台Goal已更新且active。契约见 [D优化契约](wsc-D-optimization-contract-2026-10-14.md)，结果见 [第一批结果](wsc-D-optimization-first-results-2026-10-14.md)。用户确认质量不退化、开销凭收益准入。声明通道单独不能改善语义；精确提交后增量单代24/24、来源2/2，A1同轮23/24。36项独立离线契约通过，全部新逻辑旁路。冷源后端精确读取成功，3/4模型实际取得目标原文，但端到端冷答复0/4；统一4轮及独立6轮续接失败均保留，不并入生产。237/239/241/242共49请求均有usage，旧费率估算0.6815812元，累计账本余1.05018656元。原228指标不退化、多代、失败与重启续接、新样本泛化和开销准入仍待完成，Goal未完成。
+
+
+## 2026-10-14：D冷召回定位进展（243–246）
+
+见 [冷召回定位结果](wsc-D-cold-discovery-results-2026-10-14.md)。核实3个目标载荷实际进入下次请求，7项目录预览契约、10项定位契约通过；现有引擎交接拒绝/取消恢复回归4 passed。预览综合QA仍未通过；冷单题显示D不读源会错引可见内容。引入密封存档source_index定位后，同轮A1/D各2/2精确80字符，每样本1次读取；不算作综合任务成功或原228指标复测。新模块仍旁路。30次API均有usage，估算0.26481424元，累计预算余0.78537232元。Goal active，余下组合综合验收、多代、原指标与新样本泛化，成本验收最后。
+
+
+## 2026-10-14：严格Goal附件与247多代反例
+
+已读取用户最新附件goal-objective.md，按1/3/5/10fold及异常矩阵验收。见 [严格验收](wsc-D-strict-acceptance-2026-10-14.md) 和 [组合多代失败](wsc-D-combined-failures-2026-10-14.md)。247第二代四分支状态48/48、来源4/4，但冷摘录全失败；第三代双方错选迟到执行。D第3代当前输入没有947只有731，绑定ID不等于保住验收证据。另有6次scope长度失配拒绝。评测checkpoint指向滚动源导致旧代seal失配，须不可变版本；新8项scope表示、4项密封恢复契约通过，尚未API准入。25个请求均有usage，估算0.58468168元，累计预算余0.20069064元；准入停止后不外发。旧成绩和prefix不改，Goal active且未完成。
+
+
+## 2026-10-14 — 250：scope同项表示对照，保留综合失败
+
+同源第3代A1/D_delta/D_scoped，各两例。24调用24usage，估算¥0.50194216；生成接受2/2、1/2、1/2，严格续接及精确冷恢复各臂0/2。原先并行scope错配在6份候选声明中未出现，但来源非法/退休声明缺失与结果错选仍存在，不准入。预算null导致旧评测导入故障已拆纯parser，原响应校验后离线续接，无HTTP重发。已有结果observations槽位候选6项离线合同通过，API仍待验证。详见wsc-D-scoped-generation-results-2026-10-14.md。
+
+
+## 2026-10-14 — 251/252：精确结果字段两代对照与归因
+
+251两例×两代，40调用40usage，估算¥0.95777568；A1/D_delta/D_observations字段41/48、44/48、46/48（包括失败原文回退），同时生成接受且状态来源正确2/4、2/4、1/4，冷恢复均0/4。候选一例产生版本2精确引用并在下轮用对，但上代生成拒绝保留了原文，不能认定独立收益。252不折叠新增材料2调用，估算¥0.01227360，字段24/24、来源1/2、冷恢复0/2；内容缺失与模型错配引用、恢复未触发分开归因。尚未生产并入，详见wsc-D-observation-continuity-results-2026-10-14.md。
+
+
+### 2026-10-14 253–257：质量优先，复用已付费续接
+
+完整证据与固定TODO见 [D续接及API用量](wsc-D-paid-reuse-and-recovery-2026-10-14.md)。253语义句第2代接受0/2，不准入；官方402后保留六分支恢复与0.16913元未知预留。254事实ID形式候选接受3/4、同时接受且状态/来源正确1/4，原D为4/4、2/4；无增量收益，停止重复该付费支线。255固定头消费模式诊断：14次工具读取省略offset/query，原schema拒绝正确；无最终答案和截断不能算全字段语义错误。
+
+256缺省范围候选7类离线合同、原14个错误参数变0且原成功输出一致；零API，未准入。257复用255已付费完整前缀，仅新增5次逻辑请求，估算0.09103872元；A1总第5次状态12/12+来源+精确冷摘录通过，D同样最多6次仍无答案。原三次额度失败保留，不重新生成长交接。新候选均旁路，生产和冻结头未改。
+
+- [x] 真实usage审计：253/254/255/257新增输入命中85.40%/69.66%/71.70%/78.36%；成本包括大量输出及真正新读取冷材料，不能都归因冻结头。
+- [x] 已付费响应离线利用、逻辑续接、不预热、HTTP零重试；质量和必要信息不削弱。
+- [ ] 当前结果正文跨接受交接保留、综合冷恢复、独立留出任务、原228底线、1/3/5/10代异常矩阵仍待验证。方向与六轴要求不变，Goal恢复active且未完成。
+
+
+### 2026-10-14 258–267：回执绑定与原生交接协议
+
+完整证据及固定方向见 [回执绑定与原生交接协议](wsc-D-receipt-binding-and-replay-2026-10-14.md)。冷回执payload视图漏执行metadata已确认，旁路9类合同及4个真实回执复制通过，定位复放7类通过。260只比较自动metadata，两臂同额度无最终答案，不准入。262/263仅物化模型已选的小结果，6类合同、2次筛查，短例状态10/12→12/12，长例10/12不变，冷恢复0/2；额外1707/2743估参tokens，未准入。
+
+264–266未压缩新领域校准：报告版本与执行revision分轴、显式/交换绑定；disabled会错误凭编号关联，enabled一例正确保留未知null。旧235的产物-执行关联缺少明确定义需独立补强，但原分数不改。267直接复现原生读取/校验拒绝循环丢原思考和正文，独立ReplayModel复用已有消息构造器，7类协议/usage/中断合同通过；真实原生thinking语义仍待验收。
+
+- [x] 本轮13次付费请求13usage，估算0.17110192元，HTTP零重试；已付费基线与前部复用，所有未知费用保留。
+- [x] 新模型/引擎/评分边界分列，冻结头未改，新候选均旁路。
+- [ ] 先处理声明回执与任务证据的类别边界；再保留实际provider reasoning做D原生语义对照；新任务明确artifact/execution/版本/未知，不能用更多旧原文展开代替语义声明。
+- [ ] A1质量、原228底线、保留任务、1/3/5/10代与完整异常矩阵、综合冷/媒体恢复仍未完成；方向和六轴优先级不变，Goal active。
+
+
+### 2026-10-14 用户追加：实施前至少三轮实质复审
+
+用户指出进度慢且缺乏明显优化，要求以后每项修改先完整考虑治本、最合理方案，至少三轮复审后实施。执行方案与三轮否决/修订见 [D根因计划三轮复审](wsc-D-root-plan-three-reviews-2026-10-14.md)。本轮仅静态阅读与计划，0付费API、0行为代码改动、0测试。
+
+三轮分别检查根因/职责、失败/长期边界、效果/公平性/复杂度；记录v1→v2→v3真实改变，不用模板三次通过。后续代码、Prompt、schema、工具、投影与默认变更均需各自三轮；方案实质变化后重审，总计划不豁免具体修改。三轮前不实施或付费试错，完成后按既有授权推进，不额外要求无来源确认。
+
+固定顺序：P0可信基线/实际任务验收 → P1专用交接协议保真 → P2同一语义声明质量 → P3多代任务与按需恢复 → P4旧底线/泛化/收益准入。禁止并行状态摘要、默认大结果包、多机制捆绑排名、只凭字段或合同宣布成功；六轴质量和全部原Goal范围保持，Goal active。
+
+
+### 2026-10-14 270–271：统一源码审查与实际产物验收入口
+
+用户要求自己的审查发现不得忽略，合并清单见 [wsc-D-unified-source-audit-2026-10-14.md](D:/lea/XenYon code/docs/wsc-D-unified-source-audit-2026-10-14.md)。用户方案U1–U6与代理发现S1–S9共同保留，未通过项不并入；每项行为变化各自三轮复审和前后验证。
+
+旧28探针重新分类：机械22项原状态保护18项，4项不存在phase未保护；语义6项SEMANTIC_UNVERIFIED，不把accepted当语义真值。AD1逐项保留与整次拒绝分列；原native已有phase合同，本轮定向5/5通过。270任务入口只准备初始同源材料，271外部产物及隔离合同35/35；尚未运行模型任务或多代压缩。269旧准备错误保留并排除。
+
+本轮API=0，费用=0，新生产并入=0，冻结头不改；旧报告和旧分数不覆盖。Goal全范围未完成：原228、真实续接、多代及完整异常、冷/媒体使用和泛化仍需验收。平台查询返回blocked，文件不伪称平台active或完成。
+
+
+### 2026-10-14 272–276：机械身份与真实provider帧
+
+详见 [272–276完整证据](D:/lea/XenYon code/docs/wsc-D-mechanical-and-artifact-results-2026-10-14.md)。phase原型同28候选前后：机械保护18/22→22/22，语义6项仍未验证；16项补充合同。真实帧transport16合同及6次已付费原帧回传逐字段相同。两域未压缩实际任务：正确产物1/2、正常续接0/2；6API/6usage、费用估算0.02607976元，HTTP重试0。自己的Windows多行发布缺陷12合同及原付费参数重放已旁路修复，旧失败/分数不改。新增actor异常前trace不持久的缺口保留，后续驱动先修它，再D/A1实际任务。
+
+本次平台Goal查询active，未完成；上轮blocked记录仅为当时状态观测。U2/U3/U4/U5/U6完整合同、S2–S9、原228、长期及冷/媒体/生产重建均待验收。新候选不并入，旧前缀只追加、冻结头不改，全范围与六轴顺序不变。
+
+
+### 2026-10-14 277–280：异常续接与实际产物首次折叠
+
+详见 [277–280证据](D:/lea/XenYon code/docs/wsc-D-actual-continuation-first-fold-2026-10-14.md)。事件保存首次12/13，批次未完成误标ready的失败保留；修正13/13。279复用275三次已付费前部，仅2新API实际成功写入并正常结束，总5调用，费用估算0.00832136；数值4.0正确而strict-format仍失败，旧275和228不重评。280首次同源两域：D合法fold及压缩后产物2/2；A1合法fold/压缩后产物1/2，另1例2048截断后原文回退成功，不判方法胜负。28API/28usage，费用估算0.19495；本轮共30新API约0.20327136，HTTP重试0，全部旧未知费用保留。
+
+新审查问题继续留档：D把压缩调用用途放进objective，实际工作当前仍成功但长期影响未证；原生声明parallel fact_scopes数目错及未到账调用作phase来源被Guard拒绝。后续与U2/U3/U4/U5/U6一起三轮复审结构方案，不按短语/题目修补。冷因果恢复、长期多代、原228、泛化/媒体/生产及A1质量目标都未完成；新增候选未并入，Goal active，旧前缀仅追加。
+
+
+### 2026-10-14 用户最新准入政策：有证实进展直接接主路
+
+用户授权之前和之后有进展的正确修复直接成为真实实现，取代旧“新机制只旁路/长期不并入”要求；完整Goal、三轮复审/测试、质量及冻结头照常。详见 [主路准入与历史分类](D:/lea/XenYon code/docs/wsc-D-mainline-admission-status-2026-10-14.md)。本轮已直接接生产generate原帧收集（无需wrapper、计数/发送同请求）及commit机械VALIDATED/semantic SEMANTIC_UNVERIFIED返回；41项帧/容量/恢复、10项事务、状态变更后4项query入口验证通过；6个已付费响应直接回放原生新generate，candidate及usage一致，7次帧内容核验。零新API/费用，旧失败及冻结头不改。
+
+评测修复已在其实际评测使用；AD原型与生产registry不同，239来源呈现/冷接口按真实入口与增量收益验证后直接接，不等待整个Goal。没有收益的237/253/254/260/263不盲目启用。当前源码接入不等于已重载现场XEYO，未自动中断/重启长会话。U2–U6、原228、长期/冷/媒体/泛化/A1仍待完成，Goal active。
+
+
+## 2026-10-14：283来源增量已默认接生产，282真实热层差距已记录
+
+落实最新授权：验证正确且有收益即接所属主路，过去和未来均同；不启用失败候选。281原助手帧/计数及机械/语义状态分责已接入，本轮wsc_handoff_delta经generate默认调用，无新flag。纠正历史命名：239提交后全部完整文本增量不等于recent每角色八条。真实请求在预计数前纳入增量，容量不够整条defer，空包及metadata自身无空间不增加失败；呈现ledger只认实际发送。
+
+最终91/91定向合同；初次55通过/2空包兼容失败已保留并修复，未修改旧断言。239两会话衍生受控事件四份历史请求payload4/4相等。API新增0、费用0；历史24/24只适用原required通道两样本，不转记为当前auto已全面通过。源码接入，当前XEYO进程未重启，现场重载未验。
+
+282直接调用生产project发现task_handoff仍9444/9695估算tokens，完整热头13693/12627（同UTF8估算器，非旧tokenizer）；来源和验收回执再次展开。280直接JSON任务行为不能替代生产renderer验收，薄生产投影仍未完成。详细结果/三轮评审见docs/wsc-D-source-delta-mainline-results-2026-10-14.md及wsc-D-source-delta-mainline-review-2026-10-14.md，证据282/283。
+
+固定未完成：U2–U6、控制请求污染objective/scope数组来源资格问题、薄生产热层/精确冷恢复、原228质量底线及跨域长任务1/3/5/10代和重启/迟到/取消/重开，最后经济指标；不缩Goal，仍active。旧冻结头和台账前缀保持字节一致，仅追加。
+
+
+## 2026-10-14：284–289原始anchor与明确截断恢复已接入默认主路
+
+完整结果见docs/wsc-D-original-anchor-and-truncation-results-2026-10-14.md，三轮评审见original-anchor-three-reviews/output-exhaustion-three-reviews。generate默认用精确quote ancestry重新呈现工作集遗漏的原始普通文本，16KB整条/容量准入、去掉重复呈现；父引用与延期anchor的呈现账本同时保留，metadata不等于语义理解。真实239原始根5/4个均已在工作集，本项额外原文0/0，不假报提升。
+
+厂商length/max_tokens给兼容原父类的机械类型，handoff不提交截断帧，额度在原6次调用内倍增至原8192上限；完整预计数/caller预算/account先执行，HTTP/拒绝/断流不重试。默认生产调用，沿用原显式关闭配置，无新增旁路开关；达到上限仍按原状态/原文续接。源码默认接入，未重启现场XEYO，现场重载未验。
+
+最终定向180/180，包含实际provider httpx/stdlib边界、取消/事务/容量/引用链/父引用呈现；1/3/5/10层只是机械引用链，不是同代模型任务验收。免费12份真实已付费请求前部反事实：没有截断恢复时接受1/4，实际新实现接受4/4并四个文件正确，不改Guard或oracle；不是新采样或A1胜负。
+
+原285/287自己发现todo夹具是旧WSC第二批/report.json而goal是支付/result.json，原数据降为混合状态压力，不覆盖失败/来源/调用/费用。独立289修正准备层：两臂各2/2接受、2/2压缩后文件且正常结束；无anchor交接11/主任务8调用，有anchor交接9/主任务9调用；费用各估算0.20813648/0.12684088元。仅两同领域构造任务，不声称anchor提高成功率。四例热头缺完整必需值后都从精确冷返回恢复并正确交付；SourceCatalog完整preview也算实际读取，不仅按SourceRead名称计。仍为native JSON组件表示，不是282生产full renderer。
+
+本轮96新HTTP/96usage，费率估算0.97553896元、单次最高0.06611176元、输入cache hit86.33%；未当作97%或长期经济验收。免费重放不再付费、不计新模型样本，旧未知费用预留不丢，无HTTP重试。287资源准入停止后在既有无限累计授权下延续，仅新请求外发，前四份响应核对body/hash后离线重放。
+
+固定未完成：U2 epistemic、U3显式transition/fact版本关系、U4重要变化强制原anchor检查、U5边界完整落实、U6真正runtime phase registry；当前独立fact_scopes数组仍出现2/3事实各1scope、phase/context与disposition层次错误。下一步同一fact记录携scope、无损接旧持久格式并复用Guard，不能自动补猜scope；objective受控制请求污染也保留。原228底线、A1新对照、真实1/3/5/10代/重启/迟到/过期/范围/取消/重开、跨域及生产薄热头/实际冷Read/媒体、最后经济性全部待验，Goal仍active。旧冻结头和台账前缀未改，只追加。
+
+
+## 2026-10-14: 290/292
+
+# D 同项 scope：主路协议实现与两域实际产物对照
+
+## 结果与准入边界
+
+原始来源、quote 与 scope 在专用生成接口中成为同一记录；编译到既有持久格式后仍由原 native Guard 校验。默认入口已接入，没有新 flag、持久化格式或迁移；没有重启现场 XEYO，所以源码默认生效不等于现场长会话已经重载。
+
+本项收益是表示层消除独立 scope 数组的错配入口、缩小 schema。不是 Guard 判断语义，也不是任务成功率提升。本轮两域两臂均成功，没有证明 D 超过 A1，不能代替原228或多代验收。
+
+
+146/146 targeted checks; 31 HTTP/31 usage; estimated CNY 0.28982992; HTTP retries=0.
+
+Evidence: [290/292](wsc-D-inline-scope-results-2026-10-14.md).
+
+## 固定方向 TODO
+
+- [x] 同项scope编码及无损旧格式提交；默认主路，无新增开关。
+- [x] 原始响应重放、原Guard拒绝、真实持久化恢复与冻结头局部合同。
+- [x] 新两域同源对照与实际文件成功；保留所有调用、费用及原失败。
+- [ ] 控制请求与原任务状态的身份边界，三轮评审后独立消融；不靠关键词删除模型生成的objective，不把控制请求当用户新目标。
+- [ ] U2–U6完整状态协议；不得用同项scope代替事实生命周期、版本或registry。
+- [ ] 模型自身实际1/3/5/10次压缩、重启/迟到/过期/范围/取消/重开/失败恢复及独立留出任务。
+- [ ] 生产薄投影与实际Read/媒体精确冷恢复、必要信息误删、原228质量底线。
+- [ ] 同条件A1最终质量对照；质量相同后再验收开销、缓存及成功任务成本。
+
+完整Goal保持active，不缩小六轴、不把协议改进当作整体完成。旧冻结头和账本既有字节不改。
+
+
+## 2026-10-15: 293–302 协议恢复与载体对照
+
+完整结果：docs/wsc-D-protocol-recovery-and-control-results-2026-10-15.md。专用完整声明 merge=false 与 Guard 对齐；非法声明/未知工具批次原子拒绝、0执行，复用原六次额度中性反馈，纯读并行和原始帧保持。已接默认源码入口，无新flag，未重启现场XEYO。185个不同定向检查通过。
+
+294四臂三任务：D三种载体严格文件3/3、A1为2/3（其内容3/3，多余嵌套副本导致strict失败，不等于摘要错）。296和300独立对照均legacy3/3、split2/3；split仍候选，不拼接分数。299免费回放4份旧付费body后1次新交接接受，文件正确但错误路径请求导致strict0/1；302回放2份后1次新交接接受且一次正确写文件，strict1/1。均在原六次额度内，不改原响应、不重试HTTP、不覆盖旧失败。
+
+174新HTTP/174usage，旧费率情景估算1.54404896元，单次最大0.06513248元、输入cache hit84.01%；包括298评测准备错误额外5次/0.0216612元，未伪称D恢复成功。历史未知费用预留不丢，免费6份重放不计新样本。native JSON任务证据不代替生产完整renderer或真实长任务。
+
+固定TODO：完整schema↔Guard机械矩阵（step id已经required，不能误报缺少存在性）、控制调用与原任务边界、U2–U6、生产薄热层及真正Read/媒体恢复、1/3/5/10次模型压缩/重启/迟到/未消费/范围/取消/重开/失败与留出任务、228底线和同条件A1。仍不能宣称超过A1或全部治本，完整Goal active。旧冻结头与账本前缀不改。
+
+
+## 2026-10-15: 303–304 持久身份与fallback发布闭环
+
+结果、文件及固定TODO：docs/wsc-D-shape-and-fallback-results-2026-10-15.md。默认已修：最终持久ID归一化碰撞；已有活跃声明必需形状与Guard对齐/有界中性恢复；收益门fallback代复用同一head_store发布验证与_emit，显式无收益沿用原头时持久化本代身份。旧冻结头字节和旧冷对象不改；无新flag/状态存储/迁移/模型调用，未重启现场XEYO。
+
+最终20文件定向277/277，隔离Draft2020-12同15输入对照；API0/费用0。原失败回归在旧302validator下仍失败，新实现原断言通过。304本地真实工具提交/落盘/fold/hydrate重建：cursor18→20、region_end保持18、头和旧冷对象SHA不变。来源是构造fixture，不伪称真实长会话/模型续接；第二次没有多吸收历史。
+
+303中226通过1失败及实施首次重启失败均保留；11项新夹具错误是隔离后忘开WSC，另有1项旧默认OFF断言与现有恒True主路政策矛盾，保存旧测试后校正测试，不改生产开关。最终完整277通过，旧失败不抹、不重复累计。303合同矩阵中fallback未完成行按本追加闭环，本地范围已完成，不升级成现场/六轴通过。
+
+固定未完成方向不变：控制用途污染/split仍候选；U2–U6完整状态协议；生产薄投影/模型按需精确Read与媒体/UsefulLoss；实际1/3/5/10代与异常/独立留出/现场重建；228底线和同条件A1；最后经济性。仍不能宣称超过A1或全面治本，完整Goal active。
+
+
+## 2026-10-15: 306入口收尾及新对话三轮复审
+
+收到用户此前待提供的A1/Prompt/结构化handoff/Hybrid对话。已完成正在做的生产验收入口，结果见docs/wsc-D-production-entry-results-2026-10-15.md：9/9定向测试（其中实际执行13/13旧actor合同，不重复相加）；两份真实206来源及各自已付费D声明，经真实commit/fold/project/原生Read/restart重建2/2。无新模型生成或continuation、API0/费用0。只是评测入口收尾，不称全query_loop/现场或语义质量验收。
+
+当前同一token估算器两例checkpoint2252/2082，生产头18740/17048，完整本评测请求34843/29204；不能与282不同估算器直接相减。原body/头/来源/源码hash和Read均保存在306。现有actor默认支持原生ToolResult，老字典shape及未知副作用恢复保持；生产WSC行为未因本项改变。
+
+三轮策略见docs/wsc-semantic-format-factorial-three-reviews-2026-10-15.md。当前封存A1 Prompt本身也是handoff，不能把问题误称为交接vs不交接。第一轮拆semantic要求、输出契约与最终投影并保留原版锚点，明确派生Prompt非原版；第二轮否决Runtime自行理解lifecycle和隐瞒额外提取调用，H0最小硬状态/证据层、H1按需语义sidecar分开；第三轮同源实际续接/自身多代与独立留出决定架构，原228与A1质量后再经济性。
+
+不预设D定制格式必须赢，也不预设自然语言必胜。新实验尚未API执行；不将已有Guard通过或合法存档当语义证据。原六轴/U2–U6/未完成TODO不删除，候选选择凭证据；完整Goal active，不缩范围、不宣布D>A1。旧账本与冻结前缀只追加，当前真实会话未重启。
+
+
+## 2026-10-15 307–309：交接内容/形式与投影首轮实测
+
+用户要求连我的倾向一并实测。完成两历史检查点+一新合成交付任务的四格及A1提示词/native D参考：生成14/18；修正评测器后6/6新任务文件正确，已生成真实QA精确冷摘录0/8，不能宣称H0/D/A1全面获胜。NA与A1参考均出现第二批范围丢失，自然摘要来源ID不可靠；D/固定结构在长例出现来源/协议额度内未完成。307评测器权限cwd和Windows换行错误保留原始结果，308复用已有ExactArtifactSink并修正Read cwd，14份交接原样续接，没有重新生成挑分。309同一SD产物：薄头1411 vs生产14953，完整本评测请求8169 vs21711，事实7/8和精确召回0/1均相同；单配对不证明长期非劣。113次HTTP全有usage，历史价格情景估算约0.91813元，无HTTP重试。原始归档哈希保持。
+
+结果：docs/wsc-semantic-format-pilot-results-2026-10-15.md；原始失败307、修正续接308、同产物投影309分开保留。没有新增产品语义机制或默认替换；后续评测用308正确的原生读取/字节适配。优先把精确恢复链与生成来源/协议成本拆开验证，投影精简按质量收益准入，再进入多代/独立留出；原六轴、U2–U6、原228底线、现场容量与失败续接要求不删除。Goal仍active，本阶段不等于全Goal验收。
+
+
+## 2026-10-15 310：SourceRead综合续接负结果与评分审查
+
+完整结果docs/wsc-source-read-continuation-results-2026-10-15.md。14份交接原样，首请求messages与308相同，只增已有SourceRead能力；真实QA精确冷摘录仍0/8，新交付6/6→5/6，消费者模型请求23→31，候选不准入，不新增生产机制。31API/31usage，旧价情景估算0.21901272元，无HTTP重试。2份原文直接读取/重开/8个坏地址、execution身份、seal及沙箱根边界免费核查通过，存档哈希保持。
+
+重要解释修正：307–309把batch2_in_current_scope称为确定范围丢失说重了；228早已将其列为范围措辞歧义并排除主分数。原208 raw grade及所有旧报告行保留，不能据该项单独判scope错误，后续使用明确授权/范围转换事件。实际native D首请求也确实含msg_muykk1jd_mdii7o完整用户原文，不能归因输入漏掉“包括第二批”。来源ID不可靠、具体值/冷召回缺口仍存在，不因评分审查变成已修。
+
+下一步明确状态事件的实际多代任务与有效恢复，不继续围绕旧歧义QA加工具/提示。原六轴、U2–U6、228底线、多代/异常/独立留出/现场容量/媒体等未完成项全部保留；Goal active，未宣称超过A1或治本完成。
+
+
+## 2026-10-15 311–314：十代实际交付与事实角色默认修复
+
+结果docs/wsc-ten-generation-results-2026-10-15.md。新transit-coral明确10事件两方法自身状态链；313修正事实外层角色后，A1生成10/10、状态80/80、任务10/10，D生成3/10、状态80/80、任务6/10，成功压缩并任务成功仅2/10。真实恢复3/3各臂通过；D实际生产发布退休边界13→30→36，不伪称十次生产fold。D重开/子集/资料刷新后文件停留revision2，最新输入revision4；没有实际写调用，不靠QA满分当任务完成。
+
+312同一付费D产物、同输入只改source_record外层角色：assistant4观察状态0/32、真实任务0/4；user4观察状态32/32、真实任务2/4。313完整复验支持将评测外部事实载体修正接默认：新增evals/wsc_source_observation.py，公共wsc_elimination_chain.carrier重导出，非生产消息改动；33个真实wire载体相同。内部原始role/id/content与活动user原文不改。旧公共源码及所有原请求/原分数封存；幂等正确文件无需重复写的行为评分单列，明确不写仍严格0尝试/hash不变。
+
+本轮146API/146usage，旧价情景估算1.14083616元，无HTTP重试；87个密封文件哈希保持。API余额未返回402，本轮无未知费用。未更改WSC生产语义/配置/冻结头；不能宣布D达到A1。优先继续查D声明协议修正循环及最终呈现/实际交付，不继续加检索工具。U2–U6、原228、独立留出、现场/媒体/UsefulLoss、完整异常等仍未完成，全Goal active不缩范围。
+
+
+## 2026-10-15 315–318：自然交接生产入口与生成失败续接
+
+报告：docs/wsc-semantic-production-admission-2026-10-15.md；证据：_wsc_out/wsc-semantic-production-318/result.json。
+
+[x] 自然语言交接接入真实 query_loop 与 manual_compaction，复用封存 A1 Prompt、原生发布/冻结/恢复及精确冷来源；无额外 TodoWrite 改写。[x] 生成失败续接已默认接入当前 D：确定生成拒绝且来源未变时不退休历史，完整请求可容纳便继续，硬容量/取消/源改变/提交持久化错误仍拦截。源码默认已改，未重启现场 XEYO。
+
+[x] 50/50 定向检查，19新增+31既有；旧行为组无声明则中止，新行为组同源续接且原文/游标不变。含手动入口、重启、冻结字节、原生冷 Read、长记录无损分块与拥有图片读取。不是全部语义验收。
+
+[ ] 自然语言入口暂未设为默认（XEYO_WSC_SEMANTIC_HANDOFF默认0）；缺少三臂行为质量证据，不违背质量准入直接切换。315评测漏用生产迟到回执转换并未及时停发，产生无效400；316修正后503/超时，317独立样本仍503，均未完成，不拼接分数。27请求仅2usage，历史费率估算0.0168256元，未知保守预留1.669494元，不能当实际扣费；无HTTP重试。本轮停止新增API。
+
+固定后续：[ ] 同源A1/改动前D/新自然生产投影行为对照与自身1/3/5/10代；[ ] 两真实来源旧约束18/18、值21/21、来源36/36、复活不增及有效冷恢复；[ ] 有收益且质量不退化再直接默认准入。其余六轴/U2–U6/独立留出与现场验收不删除，经济性最后。完整Goal未完成；此文件不是平台Goal状态，不能冒称恢复active。head/working跨文件原子切换仍是已知边界，当前拒绝退休+原文恢复，不宣称完全事务化。
+
+
+## 2026-10-15 321：API故障期间的离线生产恢复验收
+
+报告 docs/wsc-offline-semantic-recovery-2026-10-15.md，证据 _wsc_out/wsc-offline-semantic-recovery-321/report.json。新增API0、费用0、socket连接禁用；复用307已付费A1文本，不增加模型质量样本。
+
+[x] 两真实来源分别重建当前D renderer/自然语言生产投影，4/4发布及重启一致、4/4追加后冻结头保持、12/12原生冷Read精确匹配、4/4无效发布拒绝并保留来源；自然语言冷层1780条规范来源逐条一致，旧冷对象未改。热头D renderer7447/4115，自然发布2971/1110，A1文本2713/971；同估算器/来源/退休边界下的渲染数据，不等于新生成或语义质量。D未重新生成提交，不能与306的18740/17048混用。
+
+[ ] 三臂同模型新生成/实际续接、原18/18+21/21+36/36、复活不增、自主冷恢复、多代/留出及质量后默认准入仍未完成。不开新付费请求、不默认更换厂商、不把离线结果写成D超过A1。生产行为与默认开关本轮未改；完整Goal/六轴/U2–U6保持。
+
+
+## 2026-10-15 322–324：仅本次智谱同源对照
+
+报告 docs/wsc-glm-temporary-comparison-2026-10-15.md。用户指定桌面GLM凭据，仅评测使用glm-5.3-flash；生产默认provider/config不变。单路、无HTTP重试、单次≤2.5元。健康检查成功。
+
+[x] 323一构造任务十阶段三臂完成：A1交付7/10、核对字段62/80；当前生产D 3/10、13/80（7个声明校验异常阶段）；自然语言生产入口9/10、80/80。实际成功fold分别10/3/7，重启各3/3，不宣称等十代/独立十任务。D raw checkpoint缺constraints触发KeyError已离线重现；自然语言第10阶段交接自称7字段却给9字段，消费者照写而失败。
+
+[x] 324两真实来源已启动，未完整完成：长会话A1明确字段5/5、自然语言4/5，二者活跃约束4/4；后者53条状态布尔值与pending声明冲突，交接本身仍保留不得伪造解决的约束，不称为实际旧任务重做。两者精确摘录失败但正确前缀已恢复；来源引用仍失败。长D引用准入失败；短A1用尽6次未作最终回答；短D已发布、续接因HTTP429/业务1113“余额不足或无可用资源包”停止；短自然语言尚未发起。
+
+本次158请求/157usage，公示费率估算0.97348912元；最后无usage另预留0.07168240元，不作实际扣费。已停发无重试，旧账/旧证据未覆盖。当前明确事实有负例，不能默认开启自然语言入口。生产源码本轮未改、未重启现场XEYO；Goal与六轴不缩范围、不标完成。
+
+[ ] 固定后续：先离线处理D解析缺省与校验raw索引不一致；查交接字段集合保持、续接回答一致性及精确来源/冷恢复；账户可用后补未完真实来源，并做同产物投影控制/独立留出。原18/18+21/21+36/36、质量不退化以及全部既有验收仍保留，不能把新模型单次分数替代旧模型合同。
+
+
+## 2026-10-15：325–327 契约与候选发布进展
+
+详见 `docs/wsc-contract-publication-results-2026-10-15.md`。D 原真实候选从 KeyError 变为校验通过；156 项定向测试通过。自然语言入口补齐 Goal 版本绑定、事实呈现、原始封套冷关联、取消及中断恢复验证，默认仍关闭。两真实来源的同产物六份请求已准备，发布/Read/重启各 2/2；行为质量未评分。DeepSeek 单路健康请求读取超时，无重试，usage 未知预留 0.016814 元。待 API 可用后继续同产物行为、多代与独立留出质量准入；最后再做去噪/缓存经济性。不能据离线通过宣布整体 Goal 完成。
+
+
+## 2026-10-15：328 离线确定性优化
+
+- [x] D/自然语言生成流关闭失败时仍记录已返回 usage，不自动重试；原反例 2 failed / 2 passed → 4/4。
+- [x] 自然语言真实发布新增冷证据身份/精确行目录；多回执不合并；原文及既有冻结头不改写。
+- [x] 两真实历史共 3560/3560 映射精确，原生 Read 10/10，重启一致，原证据字节相同；新增热入口约 90/95 token（UTF-8/4 估参）。
+- [x] 163 项定向回归通过；本轮 API 0 次、费用 0。
+- [ ] 语义质量、模型有效恢复、多代自身产物及整体自然语言默认准入仍待真实模型；未将机械通过记作质量达标。
+
+详见 [328 离线结果](wsc-offline-recovery-results-2026-10-15.md)。新目录接到已有自然语言分支，不另建开关；自然语言方法整体仍默认关闭。Goal 未完成。
+
+
+## 2026-10-15：329 失败恢复与预算边界
+
+- [x] 删除仅按历史指纹永久跳过后续生成的条件；失败记录继续保留作诊断。D 和自然语言入口均已接入。
+- [x] 复用 D 既有 token/金额检查，在交接和主模型请求之间重查预算；不增加开关、模型文本或 HTTP 重试。
+- [x] 恢复反例 2 failed → 2 passed；token 预算反例 2 failed → 2 passed；新增含金额的六项全部通过。
+- [x] 最终 179 项相关定向测试通过，API 0 次；来源、冻结和重启合同继续通过。
+- [ ] 语义质量及多代行为仍待 API，Goal 未完成。自然语言方法默认关闭状态不变。
+
+详见 [329 结果与三轮复审](wsc-failure-resume-results-2026-10-15.md)。新的恢复尝试可能再次消耗交接预算，不把恢复能力修复描述成节费收益。
+
+
+## 2026-10-15：330 多代发布中断恢复
+
+- [x] 修复第二次折叠覆盖头后、working 未保存时丢失旧交接的问题；复用不可变对象与原有 working 原子保存，添加已提交头恢复引用。
+- [x] 11 项新专项覆盖中断位置、旧会话迁移、来源/冷对象/哈希/会话引用拒绝；相关回归共 211 passed。
+- [x] 两真实来源加受控尾部重建，恢复前后投影哈希相同，原生冷 Read 可用；API 0 次，新增热上下文 0。
+- [ ] 语义质量、多代模型行为及经济性仍待 API；自然语言方法默认关闭状态不变，Goal 未完成。
+
+详见 [330 结果与三轮复审](wsc-publication-recovery-results-2026-10-15.md)。引用写入接自然语言发布入口，读取接公共恢复入口；未宣称原 D 全部发布路径或任意断电事务保证已完成。
+
+
+## 2026-10-15：331 局部计算性能
+
+- [x] 保存头记录复用本次 source seal；自然交接准备复用本次捕获来源指纹，跨生成/发布/恢复检查保持独立。
+- [x] 两真实来源同源 A/B，记录字节和完整候选一致；长来源保存中位 74.142→38.740ms，固定响应准备 145.261→105.505ms。仅本地函数耗时，不声称 API 节费或语义提升。
+- [x] 68 项相关回归通过；API 0 次、热文本增加 0，直接接入现有入口。
+- [ ] 真实模型质量、多代任务行为和整体默认准入仍未完成，Goal 未完成。
+
+详见 [331 性能结果与三轮复审](wsc-local-performance-results-2026-10-15.md)。不增加开关或跨请求缓存，原有来源和恢复校验保留。
+
+
+## 2026-10-15：332 来源呈现记录简化与取消出口
+
+- [x] D 复用请求构造时的来源集合，删除等待计数后的重复扫描；四种外部列表变化反例由失败转通过。
+- [x] 补齐容量准备阶段取消出口，D/自然交接返回标准 aborted 事件；历史、未消费结果和冻结恢复保持不变。
+- [x] 独立候选 79 项通过，最终相关回归 172 项通过；两份真实来源的请求、呈现记录及受控失败结果一致。
+- [x] 直接接入源码，生产代码净减少 4 行，无新增模块/开关/提示词，API 0 次。
+- [ ] 模型语义质量、多代行为和有效冷恢复仍待真实模型验收；本轮未证明整体优于 A1，Goal 未完成。
+
+详见 [332 结果与三轮复审](wsc-coverage-simplification-results-2026-10-15.md)。同源固定响应对照不是成功召回或任务质量验收。
+
+
+## 2026-10-15：333 手动压缩公共准备去重
+
+- [x] D/自然交接共用预算初始化、执行上下文绑定、系统上下文构造；生产文件 147→131 行，无新增模块/开关/提示词。
+- [x] 修复自然语言分支跳过旧预算配置及零预算仍生成的问题，统一使用既有预算检查。
+- [x] 4 项预算反例修复；候选 48 项通过，接入后相关回归 100 项通过。
+- [x] 两真实来源 × 两模式共四组离线前后对照，请求、空输出结果和用量一致；来源不变，API 0 次。
+- [ ] 模型语义质量、多代任务与有效冷恢复仍待验收；本轮不证明优于 A1，Goal 未完成。
+
+详见 [333 结果与三轮复审](wsc-manual-preparation-results-2026-10-15.md)。自然语言方法整体默认准入状态不变。
+
+
+## 2026-10-15：334 发布边界与显式证据收敛
+
+- [x] 三轮复审后直接接入：D/自然语言共用持久提交边界；失败不推进游标，已提交代在中断与重启后保持一致。
+- [x] 生成阶段的暂时性厂商/传输故障获续接资格，来源、Goal、取消、预算和完整窗口仍校验；不新增 HTTP 重试、不吸收存储错误。
+- [x] 新清单显式携带冷对象，旧格式兼容读；媒体覆盖按有效来源集合校验。旧冻结头不迁移。
+- [x] 改前 15 项中 11 个失败反例已定位修复；最终定向回归 233 passed。
+- [x] 两真实来源 × 两路径 × 两代，改后 8/8 重启一致、31 次实际冷 Read 成功，旧对象和折叠间冻结头不变。改前长任务 D 第二代媒体误拒被修复。
+- [x] 同产物可比较输出：D 字节一致；自然语言仅移除机器登记行，正文、尾部、冷对象集合与哈希不变。API 0 次，费用 0。
+- [ ] 真实生成/多代任务语义质量、自主冷恢复及自然语言整体默认准入继续按原 Goal 验收；本轮不证明超过 A1。
+
+详见 [334 结果](wsc-publication-convergence-results-2026-10-15.md) 与 [实施前三轮复审](wsc-publication-convergence-plan-2026-10-15.md)。仅当前机械修复完成，整个 Goal 未结案。
+
+
+### 2026-10-15 / 335：交接回查与冷入口精简
+
+三轮复审后接入自然语言生产路径；未切换整体默认模式、未增加开关、未重启线上会话。147项定向通过。两份真实来源同产物头部1484→759、1245→476字节，正文/尾部/原始证据不变，实际Read11次/Grep2次/重启一致。DeepSeek同源10事件各实际7次压缩，任务10/10、状态80/80、长期约束30/30，均无退化。自主交接回查和主模型冷恢复均0/1对0/1；工具范围事实诊断无效，未并入。API51次，高峰费用估计0.28678464元、hit43.61%；旧未知费用不释放。迟到API样本存在运行器wire丢弃，不能算使用验收。完整证据和固定TODO见[335结果](wsc-recall-projection-results-2026-10-15.md)。整体Goal未完成。

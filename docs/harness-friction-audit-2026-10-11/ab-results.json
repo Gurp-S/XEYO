@@ -1,0 +1,409 @@
+{
+  "scope": "offline mechanisms; no model tasks; no production integration",
+  "head": "3e7fff023f7e1d3bdb050f654fecd29b345a5d44",
+  "cases": {
+    "legal_semantic_deletion/direct": {
+      "A": {
+        "accepted": true,
+        "error": null,
+        "disk_unchanged": false,
+        "syntax_valid_after": true,
+        "model_diff_visible": false,
+        "raw_chars": 383,
+        "model_chars": 274,
+        "projection_preserves_transcript": true,
+        "projection_idempotent": true,
+        "after": "message = (\n    \"details\"\n)\n",
+        "model_result": "The file C:\\Users\\48522\\AppData\\Local\\Temp\\xeyo-friction-ab-cwhfcuf9\\legal_semantic_deletion\\False\\A\\example.py has been updated successfully. +0 -1\nHint: Diagnostics path=C:\\Users\\48522\\AppData\\Local\\Temp\\xeyo-friction-ab-cwhfcuf9\\legal_semantic_deletion\\False\\A\\example.py"
+      },
+      "B": {
+        "accepted": true,
+        "error": null,
+        "disk_unchanged": false,
+        "syntax_valid_after": true,
+        "model_diff_visible": true,
+        "raw_chars": 383,
+        "model_chars": 383,
+        "projection_preserves_transcript": true,
+        "projection_idempotent": true,
+        "after": "message = (\n    \"details\"\n)\n",
+        "model_result": "The file C:\\Users\\48522\\AppData\\Local\\Temp\\xeyo-friction-ab-cwhfcuf9\\legal_semantic_deletion\\False\\B\\example.py has been updated successfully. +0 -1\n\n```diff\n--- a/example.py\n+++ b/example.py\n@@ -1,4 +1,3 @@\n message = (\n-    \"ERROR: \"\n     \"details\"\n )\n```\nHint: Diagnostics path=C:\\Users\\48522\\AppData\\Local\\Temp\\xeyo-friction-ab-cwhfcuf9\\legal_semantic_deletion\\False\\B\\example.py"
+      }
+    },
+    "legal_semantic_deletion/store": {
+      "A": {
+        "accepted": true,
+        "error": null,
+        "disk_unchanged": false,
+        "syntax_valid_after": true,
+        "model_diff_visible": false,
+        "raw_chars": 381,
+        "model_chars": 272,
+        "projection_preserves_transcript": true,
+        "projection_idempotent": true,
+        "after": "message = (\n    \"details\"\n)\n",
+        "model_result": "The file C:\\Users\\48522\\AppData\\Local\\Temp\\xeyo-friction-ab-cwhfcuf9\\legal_semantic_deletion\\True\\A\\example.py has been updated successfully. +0 -1\nHint: Diagnostics path=C:\\Users\\48522\\AppData\\Local\\Temp\\xeyo-friction-ab-cwhfcuf9\\legal_semantic_deletion\\True\\A\\example.py"
+      },
+      "B": {
+        "accepted": true,
+        "error": null,
+        "disk_unchanged": false,
+        "syntax_valid_after": true,
+        "model_diff_visible": true,
+        "raw_chars": 381,
+        "model_chars": 381,
+        "projection_preserves_transcript": true,
+        "projection_idempotent": true,
+        "after": "message = (\n    \"details\"\n)\n",
+        "model_result": "The file C:\\Users\\48522\\AppData\\Local\\Temp\\xeyo-friction-ab-cwhfcuf9\\legal_semantic_deletion\\True\\B\\example.py has been updated successfully. +0 -1\n\n```diff\n--- a/example.py\n+++ b/example.py\n@@ -1,4 +1,3 @@\n message = (\n-    \"ERROR: \"\n     \"details\"\n )\n```\nHint: Diagnostics path=C:\\Users\\48522\\AppData\\Local\\Temp\\xeyo-friction-ab-cwhfcuf9\\legal_semantic_deletion\\True\\B\\example.py"
+      }
+    },
+    "syntax_error/direct": {
+      "A": {
+        "accepted": true,
+        "error": null,
+        "disk_unchanged": false,
+        "syntax_valid_after": false,
+        "model_diff_visible": false,
+        "raw_chars": 333,
+        "model_chars": 252,
+        "projection_preserves_transcript": true,
+        "projection_idempotent": true,
+        "after": "value = (\n",
+        "model_result": "The file C:\\Users\\48522\\AppData\\Local\\Temp\\xeyo-friction-ab-cwhfcuf9\\syntax_error\\False\\A\\example.py has been updated successfully. +1 -1\nHint: Diagnostics path=C:\\Users\\48522\\AppData\\Local\\Temp\\xeyo-friction-ab-cwhfcuf9\\syntax_error\\False\\A\\example.py"
+      },
+      "B": {
+        "accepted": false,
+        "error": "SyntaxError: '(' was never closed (example.py, line 1)",
+        "disk_unchanged": true,
+        "syntax_valid_after": true,
+        "model_diff_visible": false,
+        "raw_chars": 54,
+        "model_chars": 54,
+        "projection_preserves_transcript": true,
+        "projection_idempotent": true,
+        "after": "value = 1\n",
+        "model_result": "SyntaxError: '(' was never closed (example.py, line 1)"
+      }
+    },
+    "syntax_error/store": {
+      "A": {
+        "accepted": true,
+        "error": null,
+        "disk_unchanged": false,
+        "syntax_valid_after": false,
+        "model_diff_visible": false,
+        "raw_chars": 331,
+        "model_chars": 250,
+        "projection_preserves_transcript": true,
+        "projection_idempotent": true,
+        "after": "value = (\n",
+        "model_result": "The file C:\\Users\\48522\\AppData\\Local\\Temp\\xeyo-friction-ab-cwhfcuf9\\syntax_error\\True\\A\\example.py has been updated successfully. +1 -1\nHint: Diagnostics path=C:\\Users\\48522\\AppData\\Local\\Temp\\xeyo-friction-ab-cwhfcuf9\\syntax_error\\True\\A\\example.py"
+      },
+      "B": {
+        "accepted": false,
+        "error": "SyntaxError: '(' was never closed (example.py, line 1)",
+        "disk_unchanged": true,
+        "syntax_valid_after": true,
+        "model_diff_visible": false,
+        "raw_chars": 54,
+        "model_chars": 54,
+        "projection_preserves_transcript": true,
+        "projection_idempotent": true,
+        "after": "value = 1\n",
+        "model_result": "SyntaxError: '(' was never closed (example.py, line 1)"
+      }
+    },
+    "compile_only_error/direct": {
+      "A": {
+        "accepted": true,
+        "error": null,
+        "disk_unchanged": false,
+        "syntax_valid_after": false,
+        "model_diff_visible": false,
+        "raw_chars": 344,
+        "model_chars": 264,
+        "projection_preserves_transcript": true,
+        "projection_idempotent": true,
+        "after": "return 1\n",
+        "model_result": "The file C:\\Users\\48522\\AppData\\Local\\Temp\\xeyo-friction-ab-cwhfcuf9\\compile_only_error\\False\\A\\example.py has been updated successfully. +1 -1\nHint: Diagnostics path=C:\\Users\\48522\\AppData\\Local\\Temp\\xeyo-friction-ab-cwhfcuf9\\compile_only_error\\False\\A\\example.py"
+      },
+      "B": {
+        "accepted": false,
+        "error": "SyntaxError: 'return' outside function (example.py, line 1)",
+        "disk_unchanged": true,
+        "syntax_valid_after": true,
+        "model_diff_visible": false,
+        "raw_chars": 59,
+        "model_chars": 59,
+        "projection_preserves_transcript": true,
+        "projection_idempotent": true,
+        "after": "value = 1\n",
+        "model_result": "SyntaxError: 'return' outside function (example.py, line 1)"
+      }
+    },
+    "compile_only_error/store": {
+      "A": {
+        "accepted": true,
+        "error": null,
+        "disk_unchanged": false,
+        "syntax_valid_after": false,
+        "model_diff_visible": false,
+        "raw_chars": 342,
+        "model_chars": 262,
+        "projection_preserves_transcript": true,
+        "projection_idempotent": true,
+        "after": "return 1\n",
+        "model_result": "The file C:\\Users\\48522\\AppData\\Local\\Temp\\xeyo-friction-ab-cwhfcuf9\\compile_only_error\\True\\A\\example.py has been updated successfully. +1 -1\nHint: Diagnostics path=C:\\Users\\48522\\AppData\\Local\\Temp\\xeyo-friction-ab-cwhfcuf9\\compile_only_error\\True\\A\\example.py"
+      },
+      "B": {
+        "accepted": false,
+        "error": "SyntaxError: 'return' outside function (example.py, line 1)",
+        "disk_unchanged": true,
+        "syntax_valid_after": true,
+        "model_diff_visible": false,
+        "raw_chars": 59,
+        "model_chars": 59,
+        "projection_preserves_transcript": true,
+        "projection_idempotent": true,
+        "after": "value = 1\n",
+        "model_result": "SyntaxError: 'return' outside function (example.py, line 1)"
+      }
+    },
+    "undefined_name/direct": {
+      "A": {
+        "accepted": true,
+        "error": null,
+        "disk_unchanged": false,
+        "syntax_valid_after": true,
+        "model_diff_visible": false,
+        "raw_chars": 352,
+        "model_chars": 256,
+        "projection_preserves_transcript": true,
+        "projection_idempotent": true,
+        "after": "value = MISSING_CONSTANT\n",
+        "model_result": "The file C:\\Users\\48522\\AppData\\Local\\Temp\\xeyo-friction-ab-cwhfcuf9\\undefined_name\\False\\A\\example.py has been updated successfully. +1 -1\nHint: Diagnostics path=C:\\Users\\48522\\AppData\\Local\\Temp\\xeyo-friction-ab-cwhfcuf9\\undefined_name\\False\\A\\example.py"
+      },
+      "B": {
+        "accepted": true,
+        "error": null,
+        "disk_unchanged": false,
+        "syntax_valid_after": true,
+        "model_diff_visible": true,
+        "raw_chars": 352,
+        "model_chars": 352,
+        "projection_preserves_transcript": true,
+        "projection_idempotent": true,
+        "after": "value = MISSING_CONSTANT\n",
+        "model_result": "The file C:\\Users\\48522\\AppData\\Local\\Temp\\xeyo-friction-ab-cwhfcuf9\\undefined_name\\False\\B\\example.py has been updated successfully. +1 -1\n\n```diff\n--- a/example.py\n+++ b/example.py\n@@ -1 +1 @@\n-value = 1\n+value = MISSING_CONSTANT\n```\nHint: Diagnostics path=C:\\Users\\48522\\AppData\\Local\\Temp\\xeyo-friction-ab-cwhfcuf9\\undefined_name\\False\\B\\example.py"
+      }
+    },
+    "undefined_name/store": {
+      "A": {
+        "accepted": true,
+        "error": null,
+        "disk_unchanged": false,
+        "syntax_valid_after": true,
+        "model_diff_visible": false,
+        "raw_chars": 350,
+        "model_chars": 254,
+        "projection_preserves_transcript": true,
+        "projection_idempotent": true,
+        "after": "value = MISSING_CONSTANT\n",
+        "model_result": "The file C:\\Users\\48522\\AppData\\Local\\Temp\\xeyo-friction-ab-cwhfcuf9\\undefined_name\\True\\A\\example.py has been updated successfully. +1 -1\nHint: Diagnostics path=C:\\Users\\48522\\AppData\\Local\\Temp\\xeyo-friction-ab-cwhfcuf9\\undefined_name\\True\\A\\example.py"
+      },
+      "B": {
+        "accepted": true,
+        "error": null,
+        "disk_unchanged": false,
+        "syntax_valid_after": true,
+        "model_diff_visible": true,
+        "raw_chars": 350,
+        "model_chars": 350,
+        "projection_preserves_transcript": true,
+        "projection_idempotent": true,
+        "after": "value = MISSING_CONSTANT\n",
+        "model_result": "The file C:\\Users\\48522\\AppData\\Local\\Temp\\xeyo-friction-ab-cwhfcuf9\\undefined_name\\True\\B\\example.py has been updated successfully. +1 -1\n\n```diff\n--- a/example.py\n+++ b/example.py\n@@ -1 +1 @@\n-value = 1\n+value = MISSING_CONSTANT\n```\nHint: Diagnostics path=C:\\Users\\48522\\AppData\\Local\\Temp\\xeyo-friction-ab-cwhfcuf9\\undefined_name\\True\\B\\example.py"
+      }
+    },
+    "external_write_after_validate/direct": {
+      "A": {
+        "accepted": true,
+        "error": null,
+        "disk_unchanged": false,
+        "syntax_valid_after": true,
+        "model_diff_visible": false,
+        "raw_chars": 367,
+        "model_chars": 286,
+        "projection_preserves_transcript": true,
+        "projection_idempotent": true,
+        "after": "value = 2\n",
+        "model_result": "The file C:\\Users\\48522\\AppData\\Local\\Temp\\xeyo-friction-ab-cwhfcuf9\\external_write_after_validate\\False\\A\\example.py has been updated successfully. +1 -1\nHint: Diagnostics path=C:\\Users\\48522\\AppData\\Local\\Temp\\xeyo-friction-ab-cwhfcuf9\\external_write_after_validate\\False\\A\\example.py"
+      },
+      "B": {
+        "accepted": true,
+        "error": null,
+        "disk_unchanged": false,
+        "syntax_valid_after": true,
+        "model_diff_visible": true,
+        "raw_chars": 367,
+        "model_chars": 367,
+        "projection_preserves_transcript": true,
+        "projection_idempotent": true,
+        "after": "value = 2\n",
+        "model_result": "The file C:\\Users\\48522\\AppData\\Local\\Temp\\xeyo-friction-ab-cwhfcuf9\\external_write_after_validate\\False\\B\\example.py has been updated successfully. +1 -1\n\n```diff\n--- a/example.py\n+++ b/example.py\n@@ -1 +1 @@\n-value = 1\n+value = 2\n```\nHint: Diagnostics path=C:\\Users\\48522\\AppData\\Local\\Temp\\xeyo-friction-ab-cwhfcuf9\\external_write_after_validate\\False\\B\\example.py"
+      }
+    },
+    "external_write_after_validate/store": {
+      "A": {
+        "accepted": false,
+        "error": "RuntimeError: write conflict (stale): File has been unexpectedly modified. Read it again before attempting to write it.",
+        "disk_unchanged": true,
+        "syntax_valid_after": true,
+        "model_diff_visible": false,
+        "raw_chars": 119,
+        "model_chars": 119,
+        "projection_preserves_transcript": true,
+        "projection_idempotent": true,
+        "after": "value = 99\n",
+        "model_result": "RuntimeError: write conflict (stale): File has been unexpectedly modified. Read it again before attempting to write it."
+      },
+      "B": {
+        "accepted": false,
+        "error": "RuntimeError: write conflict (stale): File has been unexpectedly modified. Read it again before attempting to write it.",
+        "disk_unchanged": true,
+        "syntax_valid_after": true,
+        "model_diff_visible": false,
+        "raw_chars": 119,
+        "model_chars": 119,
+        "projection_preserves_transcript": true,
+        "projection_idempotent": true,
+        "after": "value = 99\n",
+        "model_result": "RuntimeError: write conflict (stale): File has been unexpectedly modified. Read it again before attempting to write it."
+      }
+    }
+  },
+  "flags": [
+    {
+      "name": "XEYO_EXECUTION_FACT_CONTRACTS",
+      "effective": true,
+      "default": true,
+      "explicit_0": false,
+      "explicit_1": true,
+      "registered": true
+    },
+    {
+      "name": "XEYO_TOOL_COMPLETENESS_FACTS",
+      "effective": true,
+      "default": true,
+      "explicit_0": false,
+      "explicit_1": true,
+      "registered": false
+    },
+    {
+      "name": "XEYO_SCRATCH_WRITABLE",
+      "effective": true,
+      "default": true,
+      "explicit_0": false,
+      "explicit_1": true,
+      "registered": false
+    },
+    {
+      "name": "XEYO_ENV_FACTS_EXTRA",
+      "effective": true,
+      "default": true,
+      "explicit_0": false,
+      "explicit_1": true,
+      "registered": false
+    },
+    {
+      "name": "XEYO_ENV_FACTS_SYNTAX",
+      "effective": false,
+      "default": false,
+      "explicit_0": false,
+      "explicit_1": true,
+      "registered": false
+    },
+    {
+      "name": "XEYO_TOOL_DESC_FACTS",
+      "effective": false,
+      "default": false,
+      "explicit_0": false,
+      "explicit_1": true,
+      "registered": false
+    },
+    {
+      "name": "XEYO_READ_STRUCTURE_HINT",
+      "effective": true,
+      "default": true,
+      "explicit_0": false,
+      "explicit_1": true,
+      "registered": false
+    },
+    {
+      "name": "XEYO_GREP_PAGINATION_FACTS",
+      "effective": true,
+      "default": true,
+      "explicit_0": false,
+      "explicit_1": true,
+      "registered": false
+    },
+    {
+      "name": "XEYO_GREP_SYMBOL_RANGES",
+      "effective": true,
+      "default": true,
+      "explicit_0": false,
+      "explicit_1": true,
+      "registered": false
+    },
+    {
+      "name": "XEYO_BASH_ERROR_ORIGIN",
+      "effective": true,
+      "default": true,
+      "explicit_0": false,
+      "explicit_1": true,
+      "registered": false
+    }
+  ],
+  "verdict": {
+    "fixture": "two artifacts; unchanged surface",
+    "exit_code": 0,
+    "A": "artifact-1\nartifact-2\n\n[L0] 无变化。\n",
+    "B": "[L0] 无变化。\nartifact-1\nartifact-2\n\n",
+    "A_verdict_line": 4,
+    "B_verdict_line": 1,
+    "same_lines": true
+  },
+  "source_sha256": {
+    "python/tools/file_edit_tool/file_edit_tool.py": "59bb6aa41d05dee85614ed508edd8b3e36c5ac0b587341dc8b78399f622b3ba3",
+    "python/engine/write_store.py": "5d992b23d7fb0b5920c64aad49da919d862751a0b25cc5d3d2b5ca0606bd1fa5",
+    "python/prompt/tool_result_diff_digest.py": "8366ae083cd129cb209d7ce1b2b6f744bd7dc4c1c427828e726571ea7ba111a4",
+    "python/engine/env_facts.py": "53463202efd58028c1ef002b60519a3861a5ba5c8091e8b054da4b6c04da22af",
+    "python/engine/env_switches.py": "9b58564336991612e799f7a1861d24ac6dac9a7ff9a62b37e05d6f47bae4fe7f",
+    "python/engine/session_presence.py": "81ab222de1eb95c6b80ab04ffda4e801b1d598315797991dccefacc4ac97df9a",
+    "python/engine/execution_facts.py": "31c8ba02c650bde8428910735a23e8bed2b2e1bbc79b06ecffe8ae4546fa6380",
+    "python/evals/changedetect/__main__.py": "6b81da82fa63518a909b3e308b9ebf5ab08694c5408c19c5e69e818c4fc12dfe",
+    "python/server/portfile.py": "2daf33b11c66d70b0d8f4b4d50b9b5a0372c9f3bfd2da65922791502de9583e7",
+    "scripts/baseline_run.ps1": "b596e8111f0b4d5fdf27d2bb50b2c2a8b73a5772b320973ef16c31fc792f80ad"
+  },
+  "runtime_fixture": {
+    "fixture": true,
+    "loaded_value": 1,
+    "disk_value": 2,
+    "loaded_code_hash": "afd2464f0544e5b10c5d1885b5fe350e1bd4899eb63fb942017dc28f6ef80061",
+    "hash_stable_after_disk_change": true,
+    "scope": "one loaded function, not a complete backend build identity"
+  },
+  "presence": {
+    "writes": 65,
+    "retained_before_ttl": 64,
+    "retained_after_ttl": 0,
+    "not_in_session_ledger_does_not_prove_external_author": true
+  },
+  "environment": {
+    "fixture": "two calls, then cached writable scope narrowed",
+    "collect_calls_for_two_facts_requests": 2,
+    "scope_denied_but_cached_scratch_visible": true,
+    "scope_denied_but_writable_visible": false
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "source_snapshot_sha256": "6883f3071ff97ad48982a61a34a43127ee6aa6dd688c9b1fd3c31223f9c8941f",
+  "source_unchanged_after_ab": true,
+  "ab_passed": true,
+  "tests": {
+    "passed": 225,
+    "failed": 0,
+    "scope": "22 targeted test files; not a full repository suite"
+  },
+  "surface_strict": "passed",
+  "trace_strict": {
+    "changed": 0,
+    "unhealthy": 0
+  },
+  "trace_replay": {
+    "deterministic": true,
+    "healthy": true,
+    "scenarios": 23
+  },
+  "production_defaults": {
+    "XEYO_HARNESS_WRITES": true,
+    "XEYO_HARNESS_FACTS": true,
+    "XEYO_HARNESS_HEALTH": true,
+    "XEYO_HARNESS_QUERIES": true,
+    "XEYO_HARNESS_RESOURCES": false,
+    "XEYO_HARNESS_OUTPUT_BYTES": true
+  },
+  "model_api_calls": 0
+}

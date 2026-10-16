@@ -1,0 +1,529 @@
+{
+  "schema": 1,
+  "recorded_at": "2026-10-15T10:58:54.192203+00:00",
+  "baseline_head": "bb1af831ac707e0b2ad0e7f1dedccad0da4706b0",
+  "baseline_kind": "Dirty worktree snapshot, including first-stage refactor and existing parallel changes",
+  "mode": "Isolated candidate, paired tests and behavior probes, guarded three-way integration",
+  "transport_imports": {
+    "before": [
+      "python/tools/job_tools.py:54",
+      "python/tools/bash_tool/jobs_bridge.py:35",
+      "python/tools/bash_tool/jobs_bridge.py:79",
+      "python/tools/git_tool/git_tool.py:78",
+      "python/tools/xeyo_ui_tool/xeyo_ui_tool.py:151",
+      "python/tools/xeyo_ui_tool/xeyo_ui_tool.py:290"
+    ],
+    "after": []
+  },
+  "git_algorithm_moved_without_logic_changes": true,
+  "ab": {
+    "tools": {
+      "cases": {
+        "schemas": true,
+        "git_summary": true,
+        "git_status": true,
+        "git_log": true,
+        "git_branches": true,
+        "git_diff": true,
+        "git_untracked": true,
+        "git_outside": true,
+        "git_write_rejected": true,
+        "jobs_empty": true,
+        "bash_start": true,
+        "job_output_first": true,
+        "job_output_incremental": true,
+        "jobs_list": true,
+        "job_kill_terminal": true,
+        "job_output_unknown": true,
+        "job_output_foreign": true,
+        "job_kill_foreign": true,
+        "bash_adopt": true,
+        "adopted_output": true,
+        "job_kill_running": true,
+        "cancel_terminal": true,
+        "ui_sessions": true,
+        "ui_busy": true,
+        "ui_idle": true,
+        "ui_cli": true,
+        "ui_tui": true
+      },
+      "baseline_sha256": "a651b5d61bced3478e4c941e717c7bcbe1b91141b5e09e0b33a7fff16d120fed",
+      "candidate_sha256": "a651b5d61bced3478e4c941e717c7bcbe1b91141b5e09e0b33a7fff16d120fed"
+    },
+    "behavior": {
+      "cases": {
+        "plain": true,
+        "tool": true,
+        "inbox": true,
+        "stop": true
+      },
+      "baseline_sha256": "920e529a608d1042ef956e508e18f9dee2589677af813139fb14efb2d24032d7",
+      "candidate_sha256": "920e529a608d1042ef956e508e18f9dee2589677af813139fb14efb2d24032d7"
+    }
+  },
+  "ab_normalization": [
+    "temporary workspace paths",
+    "job ids",
+    "random request identities",
+    "observed time_now and job timestamps"
+  ],
+  "ab_fixed_inputs": [
+    "Git author/committer date",
+    "session file mtimes"
+  ],
+  "python": {
+    "original_baseline": {
+      "tests": 218,
+      "passed": 194,
+      "failures": [
+        "tests.test_job_registry_t42::test_job_tools_with_fake_registry",
+        "tests.test_job_output_wait_bool::test_falsy_shapes_do_not_enter_the_wait[false]",
+        "tests.test_job_output_wait_bool::test_falsy_shapes_do_not_enter_the_wait[0]",
+        "tests.test_job_output_wait_bool::test_falsy_shapes_do_not_enter_the_wait[no]",
+        "tests.test_job_output_wait_bool::test_falsy_shapes_do_not_enter_the_wait[off]",
+        "tests.test_job_output_wait_bool::test_falsy_shapes_do_not_enter_the_wait[]",
+        "tests.test_job_output_wait_bool::test_falsy_shapes_do_not_enter_the_wait[None]",
+        "tests.test_job_output_wait_bool::test_falsy_shapes_do_not_enter_the_wait[value6]",
+        "tests.test_job_output_wait_bool::test_falsy_shapes_do_not_enter_the_wait[value7]",
+        "tests.test_job_output_wait_bool::test_falsy_shapes_do_not_enter_the_wait[value8]",
+        "tests.test_job_output_wait_bool::test_truthy_shapes_still_wait[True]",
+        "tests.test_job_output_wait_bool::test_truthy_shapes_still_wait[true]",
+        "tests.test_job_output_wait_bool::test_truthy_shapes_still_wait[1_0]",
+        "tests.test_job_output_wait_bool::test_truthy_shapes_still_wait[yes]",
+        "tests.test_job_output_wait_bool::test_truthy_shapes_still_wait[on]",
+        "tests.test_job_output_wait_bool::test_truthy_shapes_still_wait[1_1]",
+        "tests.test_job_output_wait_bool::test_missing_wait_key_defaults_to_no_wait",
+        "tests.test_job_output_wait_bool::test_unknown_wait_word_is_not_silently_true",
+        "tests.test_bash_promote::test_slow_command_auto_promotes_to_log",
+        "tests.test_bash_promote::test_adopt_registry_job_settles",
+        "tests.test_catalog::test_schema_budget_shortens_descriptions"
+      ],
+      "errors": [],
+      "expected_failures": [
+        "tests.test_bash_promotion_precedes_tool_deadline::test_promote_ceiling_is_itself_below_the_deadline",
+        "tests.test_bash_promotion_precedes_tool_deadline::test_every_family_budget_and_the_explicit_max_precede_the_deadline",
+        "tests.test_bash_promotion_precedes_tool_deadline::test_abandoned_long_command_still_hands_back_a_job"
+      ]
+    },
+    "original_candidate": {
+      "tests": 218,
+      "passed": 194,
+      "failures": [
+        "tests.test_job_registry_t42::test_job_tools_with_fake_registry",
+        "tests.test_job_output_wait_bool::test_falsy_shapes_do_not_enter_the_wait[false]",
+        "tests.test_job_output_wait_bool::test_falsy_shapes_do_not_enter_the_wait[0]",
+        "tests.test_job_output_wait_bool::test_falsy_shapes_do_not_enter_the_wait[no]",
+        "tests.test_job_output_wait_bool::test_falsy_shapes_do_not_enter_the_wait[off]",
+        "tests.test_job_output_wait_bool::test_falsy_shapes_do_not_enter_the_wait[]",
+        "tests.test_job_output_wait_bool::test_falsy_shapes_do_not_enter_the_wait[None]",
+        "tests.test_job_output_wait_bool::test_falsy_shapes_do_not_enter_the_wait[value6]",
+        "tests.test_job_output_wait_bool::test_falsy_shapes_do_not_enter_the_wait[value7]",
+        "tests.test_job_output_wait_bool::test_falsy_shapes_do_not_enter_the_wait[value8]",
+        "tests.test_job_output_wait_bool::test_truthy_shapes_still_wait[True]",
+        "tests.test_job_output_wait_bool::test_truthy_shapes_still_wait[true]",
+        "tests.test_job_output_wait_bool::test_truthy_shapes_still_wait[1_0]",
+        "tests.test_job_output_wait_bool::test_truthy_shapes_still_wait[yes]",
+        "tests.test_job_output_wait_bool::test_truthy_shapes_still_wait[on]",
+        "tests.test_job_output_wait_bool::test_truthy_shapes_still_wait[1_1]",
+        "tests.test_job_output_wait_bool::test_missing_wait_key_defaults_to_no_wait",
+        "tests.test_job_output_wait_bool::test_unknown_wait_word_is_not_silently_true",
+        "tests.test_bash_promote::test_slow_command_auto_promotes_to_log",
+        "tests.test_bash_promote::test_adopt_registry_job_settles",
+        "tests.test_catalog::test_schema_budget_shortens_descriptions"
+      ],
+      "errors": [],
+      "expected_failures": [
+        "tests.test_bash_promotion_precedes_tool_deadline::test_promote_ceiling_is_itself_below_the_deadline",
+        "tests.test_bash_promotion_precedes_tool_deadline::test_every_family_budget_and_the_explicit_max_precede_the_deadline",
+        "tests.test_bash_promotion_precedes_tool_deadline::test_abandoned_long_command_still_hands_back_a_job"
+      ]
+    },
+    "control": {
+      "tests": 243,
+      "passed": 238,
+      "failures": [
+        "tests.test_job_registry_t42::test_job_tools_with_fake_registry",
+        "tests.test_catalog::test_schema_budget_shortens_descriptions"
+      ],
+      "errors": [],
+      "expected_failures": [
+        "tests.test_bash_promotion_precedes_tool_deadline::test_promote_ceiling_is_itself_below_the_deadline",
+        "tests.test_bash_promotion_precedes_tool_deadline::test_every_family_budget_and_the_explicit_max_precede_the_deadline",
+        "tests.test_bash_promotion_precedes_tool_deadline::test_abandoned_long_command_still_hands_back_a_job"
+      ]
+    },
+    "candidate": {
+      "tests": 255,
+      "passed": 250,
+      "failures": [
+        "tests.test_job_registry_t42::test_job_tools_with_fake_registry",
+        "tests.test_catalog::test_schema_budget_shortens_descriptions"
+      ],
+      "errors": [],
+      "expected_failures": [
+        "tests.test_bash_promotion_precedes_tool_deadline::test_promote_ceiling_is_itself_below_the_deadline",
+        "tests.test_bash_promotion_precedes_tool_deadline::test_every_family_budget_and_the_explicit_max_precede_the_deadline",
+        "tests.test_bash_promotion_precedes_tool_deadline::test_abandoned_long_command_still_hands_back_a_job"
+      ]
+    },
+    "integrated": {
+      "tests": 255,
+      "passed": 250,
+      "failures": [
+        "tests.test_job_registry_t42::test_job_tools_with_fake_registry",
+        "tests.test_catalog::test_schema_budget_shortens_descriptions"
+      ],
+      "errors": [],
+      "expected_failures": [
+        "tests.test_bash_promotion_precedes_tool_deadline::test_promote_ceiling_is_itself_below_the_deadline",
+        "tests.test_bash_promotion_precedes_tool_deadline::test_every_family_budget_and_the_explicit_max_precede_the_deadline",
+        "tests.test_bash_promotion_precedes_tool_deadline::test_abandoned_long_command_still_hands_back_a_job"
+      ]
+    },
+    "final_snapshot_cli_and_host_recheck": {
+      "tests": 31,
+      "passed": 31,
+      "failures": [],
+      "errors": [],
+      "expected_failures": []
+    },
+    "new_contracts": {
+      "tests.test_tool_host_boundary::test_tools_and_engine_have_no_transport_imports": "passed",
+      "tests.test_tool_host_boundary::test_registry_injects_late_tools_and_keeps_schema_identity": "passed",
+      "tests.test_tool_host_boundary::test_concurrent_tool_instances_keep_distinct_hosts": "passed",
+      "tests.test_tool_host_boundary::test_job_source_resolves_once_during_wait": "passed",
+      "tests.test_tool_host_boundary::test_unconfigured_tools_preserve_empty_and_fallback_paths": "passed",
+      "tests.test_tool_host_boundary::test_git_service_injection_and_shared_path_fence": "passed",
+      "tests.test_tool_host_boundary::test_gui_busy_state_uses_own_pool": "passed",
+      "tests.test_tool_host_boundary::test_product_and_embedded_factories_propagate_host_services[http]": "passed",
+      "tests.test_tool_host_boundary::test_product_and_embedded_factories_propagate_host_services[cli]": "passed",
+      "tests.test_tool_host_boundary::test_product_and_embedded_factories_propagate_host_services[embedded]": "passed",
+      "tests.test_tool_host_boundary::test_subagent_runner_delivers_host_to_real_child_registry": "passed",
+      "tests.test_tool_host_boundary::test_scheduler_passes_host_to_child_execution": "passed"
+    },
+    "same_existing_outcomes": true,
+    "scope": [
+      "test_git_tool",
+      "test_workspace_git",
+      "test_xeyo_ui_tool",
+      "test_xeyo_ui_policy",
+      "test_job_registry_t42",
+      "test_job_output_wait_bool",
+      "test_job_ring_cursor_conservation",
+      "test_jobs_control_edges",
+      "test_bash_promote",
+      "test_bash_promotion_precedes_tool_deadline",
+      "test_engine_host_boundary",
+      "test_query_engine_submit",
+      "test_cli_receipts",
+      "test_cli_attach_stream_completion",
+      "test_session_pool_busy",
+      "test_workspace_fs",
+      "test_agent_tool_orchestration_e2e",
+      "test_agent_slot_release",
+      "test_scheduler_grace_cancel",
+      "test_catalog",
+      "test_tool_host_boundary"
+    ],
+    "control_adjustments": "Incomplete test double gained snapshot_list on both sides; subprocess PATH prepended the running Python directory. No baseline product edits or weakened assertions."
+  },
+  "frontend": {
+    "gui": {
+      "passed": 47,
+      "typecheck": "passed after parallel fixture correction",
+      "initial_type_error": "src/stores/chat/multiAgentBoundary.test.ts:10 TS2352; no frontend source edits by this task",
+      "scope": [
+        "src/lib/api.stream.test.ts",
+        "src/lib/api/receipt.guard.test.ts",
+        "src/lib/api/streamContract.test.ts"
+      ]
+    },
+    "tui": {
+      "passed": 14,
+      "typecheck": "passed",
+      "scope": [
+        "src/api/turnIdentity.test.ts",
+        "src/api/receipt.guard.test.ts",
+        "src/lib/streamGap.test.ts",
+        "src/lib/busySubmit.test.ts",
+        "src/lib/queuedTimeline.test.ts",
+        "src/lib/failedDraft.test.ts"
+      ]
+    }
+  },
+  "wheel": {
+    "name": "xeyo-1.11.0-py3-none-any.whl",
+    "bytes": 4236277,
+    "sha256": "43be513040a61fff1d1c227620787511107f899c83ac1ae3685621884b5eabd1",
+    "current_source_drift": [
+      "server/routers/sessions.py"
+    ],
+    "frozen_source_drift": [],
+    "source_manifest": "python/.tmp-tool-host-20261015/final-source-manifest.json",
+    "source_manifest_sha256": "7fd69a118f4b4eae9aef1a1cb5b8da87d0c11f6ca96916a0885ebc09aad685d9",
+    "verification": {
+      "wheel": "xeyo-1.11.0-py3-none-any.whl",
+      "engine": {
+        "ok": true,
+        "version": "1.11.0",
+        "cases": {
+          "plain": {
+            "final_ok": true,
+            "events": [
+              "task_state_changed",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "final",
+              "result"
+            ]
+          },
+          "tool": {
+            "final_ok": true,
+            "events": [
+              "task_state_changed",
+              "tool_call",
+              "tool_result",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "final",
+              "result"
+            ]
+          }
+        },
+        "engine_transport_imports": [],
+        "tool_host_contract": true,
+        "git_without_server": true,
+        "product_modules_loaded": false
+      },
+      "product": {
+        "ok": true,
+        "cli_help": true,
+        "cli_fake_chat": true,
+        "console_entry": true,
+        "module_entry": true,
+        "http_health": true,
+        "http_sse_chat": true,
+        "done_frame": true
+      },
+      "origin": "Fresh temporary venv, outside repository, wheel installed without source-path injection"
+    }
+  },
+  "parallel_changes_preserved": [
+    {
+      "path": "python/tools/tool_registry.py",
+      "baseline_sha256": "fd4ddecc6886b771b0fb4f4d26fb3a94bb62a69f24da31fbbf724f398a6ca62a",
+      "parallel_sha256": "d1da4f6fa87ad34e8387ae60791dc1205d25d827c9c357a6e23353aeccdc1679",
+      "merged_sha256": "efbf4b0d323830eb946ec6eb1bee42e53b4f480815f8d6a6db4fcbf20dafa408"
+    },
+    {
+      "path": "python/tools/agent_tool/agent_tool.py",
+      "baseline_sha256": "bbe251eab5ce916d2a387c1018f3d2f05acc5f2ff7cb26e6053783a740efef5b",
+      "parallel_sha256": "00e279e472a00f8b148e819d0322ec8a5dcfe3d8f9444ada2495fdae6cf58a41",
+      "merged_sha256": "02dce68c2ad8f410d43aa05651916f8539f3775812a97e74ed9f683461993ffd"
+    }
+  ],
+  "preservation": {
+    "file_preimages_rechecked": true,
+    "committed_or_staged": false,
+    "changes_after_integration": [],
+    "backups": "python/.tmp-tool-host-20261015/pre-merge",
+    "files_integrated": 26
+  },
+  "owned_changes": [
+    {
+      "path": "python/tools/host_services.py",
+      "preimage_sha256": null,
+      "current_sha256": "a49f8d78e520ee67062e7c60948958ac8523bed39d91fb458d043724d4be8127"
+    },
+    {
+      "path": "python/common/workspace_git.py",
+      "preimage_sha256": null,
+      "current_sha256": "15a301e0285fb3efff505e0ac5a9f8d55647552a5e81160462992110de0d8c2a"
+    },
+    {
+      "path": "python/server/workspace_git.py",
+      "preimage_sha256": "47d3c7678b120c1141e471d2c10cfbf96a334447cc951da6c027e938cc5f7e4b",
+      "current_sha256": "7a80b8038bfadad2b9d5f7786b2ba5ced565b983fde0f0f365acb593ce8e3349"
+    },
+    {
+      "path": "python/common/workspace_paths.py",
+      "preimage_sha256": null,
+      "current_sha256": "44d907e07a437e146086b6c11afc737a8f5361a26ba4f0833ffd38f857625994"
+    },
+    {
+      "path": "python/server/workspace_fs.py",
+      "preimage_sha256": "7bf5346766e9a4fffe2ec5ca122a4aa921fa8c66462bb140b97a5c58630a858f",
+      "current_sha256": "75f945fb50b95c6c5232f9f60319129cf5fa7a130d2063e4599fd18f9d77021e"
+    },
+    {
+      "path": "python/tools/git_tool/git_tool.py",
+      "preimage_sha256": "636e03923d482df249780c65bd068ea98f6ecf0c69f32359c5ff8322ccdaec46",
+      "current_sha256": "149eef4ec3f5d71e8849782423b63b0123ebfce3dd485efef85ea1074fae87ab"
+    },
+    {
+      "path": "python/tools/bash_tool/bash_tool.py",
+      "preimage_sha256": "b6ccc86de13d1c41af419d163b5a27f7ad58765a325a90a852c101f7870ee844",
+      "current_sha256": "ddb73e1aa0b6a86f95f12ea31e5e0a09a3d16e6694d3353836777c4a8c784084"
+    },
+    {
+      "path": "python/tools/xeyo_ui_tool/xeyo_ui_tool.py",
+      "preimage_sha256": "7594d0b67d81d8794ce10179e4bde2f26bdf6c7352bfe91c9e2c971a92d5c688",
+      "current_sha256": "dbbaeabbfed0a5fba60654f511f1a237fba0ea33f43d1d1a7533d910a4269c97"
+    },
+    {
+      "path": "python/tools/job_tools.py",
+      "preimage_sha256": "9e90542497827082e4699a3288c1f52019f419e056b01563841e4eb318bdfd1b",
+      "current_sha256": "2e5f38e55f86ac8ba3a22cecc5297a1f351728f6eaed53fb901c90206a5fc8c3"
+    },
+    {
+      "path": "python/tools/bash_tool/jobs_bridge.py",
+      "preimage_sha256": "9af27b5f4ed828ec8fc042c7732568179426a7dbd995369930b5052f1ba28630",
+      "current_sha256": "c5425320c02363bb5ac0d6fa57bca74b4abd315a72a647783b2605b8fff9cc11"
+    },
+    {
+      "path": "python/server/tool_services.py",
+      "preimage_sha256": null,
+      "current_sha256": "78b0c65e461e1b87e33c6ebd280eb02497185cbbcbe1fcd397f3116de419c683"
+    },
+    {
+      "path": "python/server/engine_services.py",
+      "preimage_sha256": "d002d6c78b3d5a4162997dd106c79da92f0581deb62a0bdea87413c6523a6633",
+      "current_sha256": "d6a74a4406950593fd7f550573f8f97a04d9277bb4e299e9a0b6a1c848a28776"
+    },
+    {
+      "path": "python/engine/runtime_services.py",
+      "preimage_sha256": "3bb353fdb86b62bf55d59efbfb73b822c25a405a924e6635532c743a1492d005",
+      "current_sha256": "61da1793b5f9526bcb8d737bb0d674a2cfa714947c8b2d0b480f897e2fa9757b"
+    },
+    {
+      "path": "python/tools/tool_registry.py",
+      "preimage_sha256": "d1da4f6fa87ad34e8387ae60791dc1205d25d827c9c357a6e23353aeccdc1679",
+      "current_sha256": "efbf4b0d323830eb946ec6eb1bee42e53b4f480815f8d6a6db4fcbf20dafa408"
+    },
+    {
+      "path": "python/tools/catalog.py",
+      "preimage_sha256": "4df46db25592a8f8f5c0f3dbb0a51b8a416dea88134e21d13504f4ba720be950",
+      "current_sha256": "b9c10b03b167ccc7c91d2414955e2afbe4c1b8137577d65579a16a6091802126"
+    },
+    {
+      "path": "python/engine/query_engine.py",
+      "preimage_sha256": "07e6098c6242ecb9318b92d54b04a573b623f49f9b12819ece156fca7e77f363",
+      "current_sha256": "7124444803fbafd9b3db0be84b7999892d9445d0c64f6a041acc8270648a4a2a"
+    },
+    {
+      "path": "python/server/session_pool.py",
+      "preimage_sha256": "c415fe883817ba8e8e7ab75ee9b69b6c734fd50bbc1de4e434963b476e1225b1",
+      "current_sha256": "352ebc7d52810db19219f818fa7b523acbbe33d61033b3e56eae326924e5077f"
+    },
+    {
+      "path": "python/engine/subagent_runner.py",
+      "preimage_sha256": "dad6135e68756501a16d4376ef5ce56e1a4c4ffc1bdca550bc4bbdcf53e6cc9a",
+      "current_sha256": "5204b309e5f1fcd4f8949bb882c9ba4b6af9b70e3176de21c7af55f224175819"
+    },
+    {
+      "path": "python/tools/agent_tool/agent_tool.py",
+      "preimage_sha256": "00e279e472a00f8b148e819d0322ec8a5dcfe3d8f9444ada2495fdae6cf58a41",
+      "current_sha256": "02dce68c2ad8f410d43aa05651916f8539f3775812a97e74ed9f683461993ffd"
+    },
+    {
+      "path": "python/engine/scheduler.py",
+      "preimage_sha256": "26deb069048c51095c71228e1d884dffb8cb301e5dae0b3b7f2f61929c0757d5",
+      "current_sha256": "4f7adbdf5fbaaf2b74b92c2a4861cf7faf04204eeea2fa1534a18cf1382c1a09"
+    },
+    {
+      "path": "python/xeyo/__init__.py",
+      "preimage_sha256": "7b89c89fe2b0b9f877b2300f08b75d79d9c1811089d75f045c8df3c71866a2fd",
+      "current_sha256": "9d6a117d96ac946b4ee3a305334de9683f55d936c2d6a57e2b5bc5ed96527c22"
+    },
+    {
+      "path": "python/tests/test_job_registry_t42.py",
+      "preimage_sha256": "788ed3f7b141f9395b4d73747dcadc9c567659ec34f7c8e20a5b7feb33f64a7e",
+      "current_sha256": "07cdb8fb261d7c8fb30cadfd5cbf268894d43b6bb0336c78565b6c7cecb40d76"
+    },
+    {
+      "path": "python/tests/test_job_output_wait_bool.py",
+      "preimage_sha256": "9cc7deb8e54c5f30646a7fe6d05072ae79841be4de41f52eb589a6a5e72fa4ef",
+      "current_sha256": "83986fad8fe2c061669e08e068f19af68a40cbb495ed544ce500cab688e37dd8"
+    },
+    {
+      "path": "python/tests/test_bash_promote.py",
+      "preimage_sha256": "3cfac62ed74fbf28aa35dc2fe39100b50e72261c154b5c704f4fa869b6b3479b",
+      "current_sha256": "17f34bc66a51f74f5463287a14daabf6516bed30808c04714b4454ff18609287"
+    },
+    {
+      "path": "python/tests/test_tool_host_boundary.py",
+      "preimage_sha256": null,
+      "current_sha256": "81f532fe5593bc3a49f3a9035c1bc36101eada6ac4e31c2b4afacccdc4da61b5"
+    },
+    {
+      "path": "python/scripts/check_engine_install.py",
+      "preimage_sha256": "20d306601d4d1db9c9c9599002379ca3d03fab29598b43f0c8063acbfc5a0a17",
+      "current_sha256": "879ac8d30770526b99065488279e849cc383b5f589f37d8bc0d4fd5de1de307f"
+    },
+    {
+      "path": "docs/tool-host-decoupling-2026-10-15.md",
+      "preimage_sha256": null,
+      "current_sha256": "3e595ae3fa8405219c8ab8c4040c0bed88fb666d4aeebacc3b243ac0bd0d8d33"
+    }
+  ],
+  "limitations": [
+    "Two existing Python assertion failures remain",
+    "No full GUI interaction or all-tool regression",
+    "No real provider or real Docker validation",
+    "No Windows installer build",
+    "Remote CI not executed"
+  ]
+}

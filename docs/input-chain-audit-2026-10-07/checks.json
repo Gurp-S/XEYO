@@ -1,0 +1,37 @@
+{
+  "source_revision": "e091434",
+  "product_code_changed": false,
+  "paid_model_calls": 0,
+  "baseline": {
+    "python_related": {"passed": 102},
+    "gui_related": {"passed": 96, "files": 7},
+    "tui": {"passed": 80},
+    "gui_typecheck": "passed",
+    "tui_typecheck": "passed",
+    "existing_browser_fullstack": {"passed": 12}
+  },
+  "audit_observations_assert_current_defects": {
+    "backend_cli": {"passed": 9},
+    "gui_components": {"passed": 5},
+    "actual_ink_app": {"passed": 3},
+    "browser_goal_reload": "reproduced",
+    "browser_queue_live_status": "reproduced",
+    "browser_selected_steer": {
+      "result": "reproduced_after_stream_and_drain_settle",
+      "original_reply_rows_server": 1,
+      "original_reply_rows_frontend": 3,
+      "original_reply_rows_after_reload": 3
+    }
+  },
+  "audit_desired_invariants": {
+    "queue_order_coalesce_1": {"result": "failed", "owner": "F02"},
+    "queue_order_coalesce_0": {"result": "failed", "owner": "F02/F03", "server_rows": 8, "frontend_rows": 9},
+    "xfail_or_suppressed": false
+  },
+  "limits": [
+    "Targeted checks only, not full repository pytest P0",
+    "Browser uses real Chromium and isolated FastAPI with gated fake provider",
+    "Ink and CLI orchestration use deterministic offline HTTP/engine doubles",
+    "Boundary receipt lifecycle reproduced through real components, not a paid multi-turn model"
+  ]
+}

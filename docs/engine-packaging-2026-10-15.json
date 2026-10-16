@@ -1,0 +1,411 @@
+{
+  "schema": 1,
+  "recorded_at": "2026-10-15T10:23:07.607071+00:00",
+  "baseline_head": "bb1af831ac707e0b2ad0e7f1dedccad0da4706b0",
+  "baseline_kind": "Snapshot of dirty working tree, including pre-existing parallel changes; not HEAD alone",
+  "implementation_mode": "Isolated candidate and paired verification before guarded file-by-file integration",
+  "engine_transport_imports": {
+    "before": [
+      "python/engine/process_ledger.py:69",
+      "python/engine/query_engine.py:416",
+      "python/engine/query_engine.py:498",
+      "python/engine/query_engine.py:1028",
+      "python/engine/runtime_identity.py:11",
+      "python/engine/turn_runner.py:642",
+      "python/engine/t_now_inbox.py:42"
+    ],
+    "after": []
+  },
+  "behavior_ab": {
+    "cases": {
+      "plain": true,
+      "tool": true,
+      "inbox": true,
+      "stop": true
+    },
+    "normalization": [
+      "temporary workspace",
+      "random identifiers",
+      "time_now timestamp",
+      "adjacent text chunks combined with count retained"
+    ],
+    "model_requests": 5,
+    "baseline_sha256": "c4ac371d5c3d9af806585b738f6f8e967d2decfed2127772a9582ba8735f889b",
+    "candidate_sha256": "c4ac371d5c3d9af806585b738f6f8e967d2decfed2127772a9582ba8735f889b"
+  },
+  "python": {
+    "baseline_initial": {
+      "tests": 186,
+      "passed": 184,
+      "failures": [
+        "tests.test_cli::test_cwd_fallback_from_package_root",
+        "tests.test_job_registry_t42::test_job_tools_with_fake_registry"
+      ],
+      "errors": 0
+    },
+    "candidate_initial": {
+      "tests": 186,
+      "passed": 184,
+      "failures": [
+        "tests.test_cli::test_cwd_fallback_from_package_root",
+        "tests.test_job_registry_t42::test_job_tools_with_fake_registry"
+      ],
+      "errors": 0
+    },
+    "root_marker_recheck": {
+      "baseline": {
+        "tests": 1,
+        "passed": 1,
+        "failures": [],
+        "errors": 0
+      },
+      "candidate": {
+        "tests": 1,
+        "passed": 1,
+        "failures": [],
+        "errors": 0
+      }
+    },
+    "new_boundary_contracts": {
+      "tests": 11,
+      "passed": 11,
+      "failures": [],
+      "errors": 0
+    },
+    "integrated": {
+      "tests": 197,
+      "passed": 196,
+      "failures": [
+        "tests.test_job_registry_t42::test_job_tools_with_fake_registry"
+      ],
+      "errors": 0
+    },
+    "known_failure": "test_job_tools_with_fake_registry expects status as final line; existing activity metadata follows it. Same baseline and candidate failure; no change to this test/tool.",
+    "scope": [
+      "tests.test_chat_cmd_drain",
+      "tests.test_cli",
+      "tests.test_cli_attach_stream_completion",
+      "tests.test_cli_receipts",
+      "tests.test_engine_host_boundary",
+      "tests.test_goal_round_driver_t41",
+      "tests.test_inbox_boundary_delivery",
+      "tests.test_inbox_registry",
+      "tests.test_inbox_stop_hold",
+      "tests.test_job_registry_t42",
+      "tests.test_port_file_health",
+      "tests.test_process_ledger",
+      "tests.test_query_engine_submit",
+      "tests.test_runtime_checkpoint",
+      "tests.test_runtime_verification",
+      "tests.test_session_pool_busy",
+      "tests.test_session_pool_presence_release",
+      "tests.test_stream_subscriber_overflow",
+      "tests.test_turn_detach_reattach",
+      "tests.test_turn_settlement_task"
+    ]
+  },
+  "gui": {
+    "passed": 47,
+    "typecheck": "passed",
+    "scope": [
+      "src/lib/api.stream.test.ts",
+      "src/lib/api/receipt.guard.test.ts",
+      "src/lib/api/streamContract.test.ts"
+    ]
+  },
+  "tui": {
+    "passed": 14,
+    "typecheck": "passed",
+    "scope": [
+      "src/api/turnIdentity.test.ts",
+      "src/api/receipt.guard.test.ts",
+      "src/lib/streamGap.test.ts",
+      "src/lib/busySubmit.test.ts",
+      "src/lib/queuedTimeline.test.ts",
+      "src/lib/failedDraft.test.ts"
+    ]
+  },
+  "packaging": {
+    "baseline": {
+      "file": "xeyo-1.11.0-py3-none-any.whl",
+      "sha256": "7cddd30317cb1a5a20f12d33628327bf0484e989c0f122e942768c19ac9db606",
+      "bytes": 4711412,
+      "archive_entries": 934,
+      "base_requirements": [
+        "httpx>=0.27.0",
+        "fastapi>=0.115.0",
+        "uvicorn[standard]>=0.32.0",
+        "python-multipart>=0.0.12",
+        "typer>=0.12.0",
+        "rich>=13.0.0",
+        "tokenizers<0.23,>=0.22.1"
+      ],
+      "packages": {
+        "coord": false,
+        "lsp": false,
+        "sidecar": false,
+        "evals": true,
+        "tests": false,
+        "xeyo": false
+      }
+    },
+    "integrated": {
+      "file": "xeyo-1.11.0-py3-none-any.whl",
+      "sha256": "7889d6212bbb6790e3a9e9c9f4a6d8583c415e8f345a42ad5e169621d65c7289",
+      "bytes": 4226791,
+      "archive_entries": 780,
+      "base_requirements": [
+        "httpx>=0.27.0",
+        "pydantic>=2.0.0",
+        "tokenizers<0.23,>=0.22.1"
+      ],
+      "packages": {
+        "coord": true,
+        "lsp": true,
+        "sidecar": true,
+        "evals": false,
+        "tests": false,
+        "xeyo": true
+      },
+      "source_drift": []
+    },
+    "installation": {
+      "wheel": "xeyo-1.11.0-py3-none-any.whl",
+      "engine": {
+        "ok": true,
+        "version": "1.11.0",
+        "cases": {
+          "plain": {
+            "final_ok": true,
+            "events": [
+              "task_state_changed",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "final",
+              "result"
+            ]
+          },
+          "tool": {
+            "final_ok": true,
+            "events": [
+              "task_state_changed",
+              "tool_call",
+              "tool_result",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "assistant_delta",
+              "final",
+              "result"
+            ]
+          }
+        },
+        "engine_transport_imports": [],
+        "product_modules_loaded": false
+      },
+      "product": {
+        "ok": true,
+        "cli_help": true,
+        "cli_fake_chat": true,
+        "console_entry": true,
+        "module_entry": true,
+        "http_health": true,
+        "http_sse_chat": true,
+        "done_frame": true
+      },
+      "installed_origin": "Fresh temporary venv site-packages outside repository"
+    }
+  },
+  "preservation": {
+    "preimage_drift_at_integration": [],
+    "files_integrated_initially": 25,
+    "staged_or_committed": false,
+    "backup": "python/.tmp-engine-decoupling-20261015/pre-merge",
+    "note": "New smoke script and handoff documentation finalized after integration; existing files preserved at line-ending granularity."
+  },
+  "owned_changes": [
+    {
+      "path": "python/engine/runtime_services.py",
+      "before_sha256": null,
+      "after_sha256": "3bb353fdb86b62bf55d59efbfb73b822c25a405a924e6635532c743a1492d005"
+    },
+    {
+      "path": "python/server/engine_services.py",
+      "before_sha256": null,
+      "after_sha256": "d002d6c78b3d5a4162997dd106c79da92f0581deb62a0bdea87413c6523a6633"
+    },
+    {
+      "path": "python/common/process_identity.py",
+      "before_sha256": null,
+      "after_sha256": "8f4d7d6d1df08ca56d36a41c6da8e043ad841923d7a9f7d635d4f2645498c698"
+    },
+    {
+      "path": "python/common/version.py",
+      "before_sha256": null,
+      "after_sha256": "015520cbdfdcf1f1234c8b6f7df4e43e69edde57f3d88893610e1bd64b4fe4b9"
+    },
+    {
+      "path": "python/server/portfile.py",
+      "before_sha256": "2daf33b11c66d70b0d8f4b4d50b9b5a0372c9f3bfd2da65922791502de9583e7",
+      "after_sha256": "ce13e42163ac488e685ebc93679de111485de5c14f945cd8c52056352047d9bb"
+    },
+    {
+      "path": "python/cli/__init__.py",
+      "before_sha256": "11325e8bb70019ddd9cda25de8d5112673d2a35f76cc7545e6c12f93af6fc034",
+      "after_sha256": "550e9275ef1211a86396286cd1422154b37e52192b6fbd9be58c86142f7109b3"
+    },
+    {
+      "path": "python/engine/runtime_identity.py",
+      "before_sha256": "6f67162999e0f0ce53eedc51ea991dfa4e1edcb6a192dfd770b16cb9d001672d",
+      "after_sha256": "373249fa8b0a6cd650ceaa9bd1227b34e90ba0acae37a31ed4b3561d7ab834d7"
+    },
+    {
+      "path": "python/engine/process_ledger.py",
+      "before_sha256": "bee0f37af9193f75c125d15703dc08d5cbf05cacc2e558411913ad475d102193",
+      "after_sha256": "a156ff16be99ed7490c027e9d1a61d183f5b1cf60e732df8b63f742a14081075"
+    },
+    {
+      "path": "python/engine/query_engine.py",
+      "before_sha256": "a31f5900c6eae97272a630f8b014e5865e76ba9674562d867cf83eede1656534",
+      "after_sha256": "07e6098c6242ecb9318b92d54b04a573b623f49f9b12819ece156fca7e77f363"
+    },
+    {
+      "path": "python/engine/query_loop.py",
+      "before_sha256": "e0e18a13b1dca6853b2632d45beefb5c9341b9e6456a85b3bd9c1e47143fc554",
+      "after_sha256": "5a8c41b6032f331be3507e1a66d9d738a764c09581c2792f24ff113887991243"
+    },
+    {
+      "path": "python/engine/t_now_inbox.py",
+      "before_sha256": "0132de7f6c4f68ac6492e1a507048a2819512a5166795b00577999b35d10072a",
+      "after_sha256": "d5a4467a4768edcf311ab3256a2bf19824e1695aa710e0efbfabf429d2b748a6"
+    },
+    {
+      "path": "python/engine/turn_runner.py",
+      "before_sha256": "1d6856e5543ecbec8d9fd33a47f7eeb3c55ad5d2848833c2ed9202c0b26e7648",
+      "after_sha256": "52bc313967a58a35b75c7e47c7a9176a7adb02d542419483c5ca481a5243ee9b"
+    },
+    {
+      "path": "python/server/deps.py",
+      "before_sha256": "63a5d46533cc9555ff7af0c6cc771c1da6073e58e7b39cb98f2ffb2471b43a63",
+      "after_sha256": "93e55f07dd77db197f3244f88a9287da6b4f82fd3391f05a5e46dd31170745b0"
+    },
+    {
+      "path": "python/server/session_pool.py",
+      "before_sha256": "87d6fc5902a6a72c873ddb58c8897491b5c8e2468cc982de502cefd393ab2045",
+      "after_sha256": "c415fe883817ba8e8e7ab75ee9b69b6c734fd50bbc1de4e434963b476e1225b1"
+    },
+    {
+      "path": "python/cli/chat_cmd.py",
+      "before_sha256": "fdce243fff0673e956ea071b0034d972b85ab010cecba730d43892dce9d790ac",
+      "after_sha256": "595c8e07e062ed60d6e0099a12eb755f7898c1338816840179de762dc421caf0"
+    },
+    {
+      "path": "python/xeyo/__init__.py",
+      "before_sha256": null,
+      "after_sha256": "7b89c89fe2b0b9f877b2300f08b75d79d9c1811089d75f045c8df3c71866a2fd"
+    },
+    {
+      "path": "python/xeyo/_cli.py",
+      "before_sha256": null,
+      "after_sha256": "841f650add1771b25f3830e1a411147029284748ec9050e098a5524d391ea269"
+    },
+    {
+      "path": "python/pyproject.toml",
+      "before_sha256": "bce769419c7f982c1b506fb3c6ab79190924b045cd0ed1f57ff5ef275ce6ec7c",
+      "after_sha256": "12bdc1b79a896d902e4dc05101d5e186cdd5e580523ca8b85aced158f9d28896"
+    },
+    {
+      "path": "python/requirements.txt",
+      "before_sha256": "366a6ea3e4c17a09d0f48edf06da47c3b76c2415d89965759ed07703da3fbfeb",
+      "after_sha256": "50cec30e8f672272f0f597c5b4e0a81ee98ac7c8b0160fb5bc0e7f055733187e"
+    },
+    {
+      "path": "python/tests/test_engine_host_boundary.py",
+      "before_sha256": null,
+      "after_sha256": "ca56c4633172ce8a8cd8c2402a32b4579b5b47a58461393c14d56eb6271810e4"
+    },
+    {
+      "path": "python/scripts/check_engine_install.py",
+      "before_sha256": null,
+      "after_sha256": "20d306601d4d1db9c9c9599002379ca3d03fab29598b43f0c8063acbfc5a0a17"
+    },
+    {
+      "path": "python/scripts/check_product_install.py",
+      "before_sha256": null,
+      "after_sha256": "278871286c452a9ae7e820b74d9324082debe8fd4b534b53e1bca3fa5ad96ab6"
+    },
+    {
+      "path": "scripts/verify_engine_wheel.py",
+      "before_sha256": null,
+      "after_sha256": "cf477aab29ba7a422600ee6107aa48884ceb39706b96c8776efc5293f133f224"
+    },
+    {
+      "path": ".github/workflows/engine-package.yml",
+      "before_sha256": null,
+      "after_sha256": "48db6066d9fbd78a76cfd6b08e073dbf6e35f2a96f169632b4db2d13a1126c1e"
+    },
+    {
+      "path": "docs/engine-packaging-2026-10-15.md",
+      "before_sha256": null,
+      "after_sha256": "baae9d451760f9414111ae2d7f17189c963b8a16aeb6bded9cff122622cb7640"
+    }
+  ],
+  "not_verified": [
+    "remote Linux/Windows CI execution",
+    "full GUI interaction",
+    "all product tools",
+    "real model providers",
+    "Windows installer"
+  ]
+}

@@ -1,0 +1,1762 @@
+{
+  "conditions": {
+    "date": "2026-10-15",
+    "samplesPerVariantAndScenario": 5,
+    "cpuThrottle": 4,
+    "browser": "151.0.7922.34",
+    "backend": "instant mocked HTTP 503; isolated IndexedDB fixture; no real server or model",
+    "byteScope": "uncompressed JS resource bytes observed by main page; idle preloads included for 5.5 seconds",
+    "nativeScope": "compiled Rust plus lifecycle tests and production frontend with mocked IPC; no packaged Windows launch timing"
+  },
+  "median": {
+    "empty": {
+      "before": {
+        "composerMs": 662.6000000089407,
+        "jsBytes": 6745892,
+        "scriptMs": 1200.414,
+        "taskMs": 1793.042,
+        "firstContentfulPaintMs": 692
+      },
+      "after": {
+        "composerMs": 691.7999999970198,
+        "jsBytes": 1163758,
+        "scriptMs": 436.772,
+        "taskMs": 982.7,
+        "firstContentfulPaintMs": 96
+      }
+    },
+    "history": {
+      "before": {
+        "composerMs": 638.2999999970198,
+        "jsBytes": 6824401,
+        "scriptMs": 1503.145,
+        "taskMs": 2664.2039999999997,
+        "firstContentfulPaintMs": 664,
+        "historyReadyMs": 2674.7999999970198
+      },
+      "after": {
+        "composerMs": 729.7000000029802,
+        "jsBytes": 3077351,
+        "scriptMs": 892.3919999999999,
+        "taskMs": 2220.5029999999997,
+        "firstContentfulPaintMs": 96,
+        "historyReadyMs": 2258.4000000059605
+      }
+    }
+  },
+  "startupRaw": {
+    "browser": "151.0.7922.34",
+    "cpuThrottle": 4,
+    "samples": 5,
+    "rows": [
+      {
+        "variant": "before",
+        "history": false,
+        "historyReadyMs": null,
+        "longTasks": [
+          138,
+          414,
+          56,
+          63,
+          717
+        ],
+        "composerMs": 649.1000000089407,
+        "paints": [
+          {
+            "name": "first-paint",
+            "ms": 92
+          },
+          {
+            "name": "first-contentful-paint",
+            "ms": 672
+          }
+        ],
+        "resources": [
+          {
+            "name": "/assets/main-hCzgX6f6.js",
+            "bytes": 1201736
+          },
+          {
+            "name": "/assets/katex-Dfg1h1nn.js",
+            "bytes": 297697
+          },
+          {
+            "name": "/assets/prism-JFvwyheA.js",
+            "bytes": 134806
+          },
+          {
+            "name": "/assets/pet-D0XNWeIR.js",
+            "bytes": 272776
+          },
+          {
+            "name": "/assets/appNav-BXsYaI58.js",
+            "bytes": 242838
+          },
+          {
+            "name": "/assets/codeMapStore-BOKphJU7.js",
+            "bytes": 4552
+          },
+          {
+            "name": "/assets/index.esm-BfNKHh0o.js",
+            "bytes": 1130061
+          },
+          {
+            "name": "/assets/mermaid-DfHVj_DZ.js",
+            "bytes": 3461426
+          }
+        ],
+        "jsBytes": 6745892,
+        "scriptMs": 1171.749,
+        "taskMs": 1752.184
+      },
+      {
+        "variant": "after",
+        "history": false,
+        "historyReadyMs": null,
+        "longTasks": [
+          71,
+          379,
+          59,
+          64
+        ],
+        "composerMs": 659.3999999910593,
+        "paints": [
+          {
+            "name": "first-paint",
+            "ms": 100
+          },
+          {
+            "name": "first-contentful-paint",
+            "ms": 100
+          }
+        ],
+        "resources": [
+          {
+            "name": "/assets/main-C_kHQz_P.js",
+            "bytes": 2311
+          },
+          {
+            "name": "/assets/preload-helper-B8tWKQ1F.js",
+            "bytes": 1852
+          },
+          {
+            "name": "/assets/tauri-DMSwwp5q.js",
+            "bytes": 105
+          },
+          {
+            "name": "/assets/main-BpPjCC8K.js",
+            "bytes": 632039
+          },
+          {
+            "name": "/assets/pet-BMgJSplM.js",
+            "bytes": 272116
+          },
+          {
+            "name": "/assets/index-CKtv7gGE.js",
+            "bytes": 7980
+          },
+          {
+            "name": "/assets/appNav-HQw1TSYR.js",
+            "bytes": 242803
+          },
+          {
+            "name": "/assets/codeMapStore-DEZnMS2Q.js",
+            "bytes": 4552
+          }
+        ],
+        "jsBytes": 1163758,
+        "scriptMs": 399.1,
+        "taskMs": 952.8870000000001
+      },
+      {
+        "variant": "after",
+        "history": false,
+        "historyReadyMs": null,
+        "longTasks": [
+          80,
+          448,
+          60,
+          61
+        ],
+        "composerMs": 735.5999999940395,
+        "paints": [
+          {
+            "name": "first-paint",
+            "ms": 100
+          },
+          {
+            "name": "first-contentful-paint",
+            "ms": 100
+          }
+        ],
+        "resources": [
+          {
+            "name": "/assets/main-C_kHQz_P.js",
+            "bytes": 2311
+          },
+          {
+            "name": "/assets/preload-helper-B8tWKQ1F.js",
+            "bytes": 1852
+          },
+          {
+            "name": "/assets/tauri-DMSwwp5q.js",
+            "bytes": 105
+          },
+          {
+            "name": "/assets/main-BpPjCC8K.js",
+            "bytes": 632039
+          },
+          {
+            "name": "/assets/pet-BMgJSplM.js",
+            "bytes": 272116
+          },
+          {
+            "name": "/assets/index-CKtv7gGE.js",
+            "bytes": 7980
+          },
+          {
+            "name": "/assets/appNav-HQw1TSYR.js",
+            "bytes": 242803
+          },
+          {
+            "name": "/assets/codeMapStore-DEZnMS2Q.js",
+            "bytes": 4552
+          }
+        ],
+        "jsBytes": 1163758,
+        "scriptMs": 460.899,
+        "taskMs": 1037.647
+      },
+      {
+        "variant": "before",
+        "history": false,
+        "historyReadyMs": null,
+        "longTasks": [
+          137,
+          474,
+          68,
+          80,
+          875
+        ],
+        "composerMs": 695.2999999970198,
+        "paints": [
+          {
+            "name": "first-paint",
+            "ms": 80
+          },
+          {
+            "name": "first-contentful-paint",
+            "ms": 732
+          }
+        ],
+        "resources": [
+          {
+            "name": "/assets/main-hCzgX6f6.js",
+            "bytes": 1201736
+          },
+          {
+            "name": "/assets/katex-Dfg1h1nn.js",
+            "bytes": 297697
+          },
+          {
+            "name": "/assets/prism-JFvwyheA.js",
+            "bytes": 134806
+          },
+          {
+            "name": "/assets/pet-D0XNWeIR.js",
+            "bytes": 272776
+          },
+          {
+            "name": "/assets/appNav-BXsYaI58.js",
+            "bytes": 242838
+          },
+          {
+            "name": "/assets/codeMapStore-BOKphJU7.js",
+            "bytes": 4552
+          },
+          {
+            "name": "/assets/index.esm-BfNKHh0o.js",
+            "bytes": 1130061
+          },
+          {
+            "name": "/assets/mermaid-DfHVj_DZ.js",
+            "bytes": 3461426
+          }
+        ],
+        "jsBytes": 6745892,
+        "scriptMs": 1367.14,
+        "taskMs": 2049.649
+      },
+      {
+        "variant": "before",
+        "history": false,
+        "historyReadyMs": null,
+        "longTasks": [
+          150,
+          415,
+          65,
+          70,
+          714
+        ],
+        "composerMs": 662.6000000089407,
+        "paints": [
+          {
+            "name": "first-paint",
+            "ms": 108
+          },
+          {
+            "name": "first-contentful-paint",
+            "ms": 692
+          }
+        ],
+        "resources": [
+          {
+            "name": "/assets/main-hCzgX6f6.js",
+            "bytes": 1201736
+          },
+          {
+            "name": "/assets/katex-Dfg1h1nn.js",
+            "bytes": 297697
+          },
+          {
+            "name": "/assets/prism-JFvwyheA.js",
+            "bytes": 134806
+          },
+          {
+            "name": "/assets/pet-D0XNWeIR.js",
+            "bytes": 272776
+          },
+          {
+            "name": "/assets/appNav-BXsYaI58.js",
+            "bytes": 242838
+          },
+          {
+            "name": "/assets/codeMapStore-BOKphJU7.js",
+            "bytes": 4552
+          },
+          {
+            "name": "/assets/index.esm-BfNKHh0o.js",
+            "bytes": 1130061
+          },
+          {
+            "name": "/assets/mermaid-DfHVj_DZ.js",
+            "bytes": 3461426
+          }
+        ],
+        "jsBytes": 6745892,
+        "scriptMs": 1198.1599999999999,
+        "taskMs": 1793.042
+      },
+      {
+        "variant": "after",
+        "history": false,
+        "historyReadyMs": null,
+        "longTasks": [
+          86,
+          443,
+          70,
+          67
+        ],
+        "composerMs": 736.2000000029802,
+        "paints": [
+          {
+            "name": "first-paint",
+            "ms": 96
+          },
+          {
+            "name": "first-contentful-paint",
+            "ms": 96
+          }
+        ],
+        "resources": [
+          {
+            "name": "/assets/main-C_kHQz_P.js",
+            "bytes": 2311
+          },
+          {
+            "name": "/assets/preload-helper-B8tWKQ1F.js",
+            "bytes": 1852
+          },
+          {
+            "name": "/assets/tauri-DMSwwp5q.js",
+            "bytes": 105
+          },
+          {
+            "name": "/assets/main-BpPjCC8K.js",
+            "bytes": 632039
+          },
+          {
+            "name": "/assets/pet-BMgJSplM.js",
+            "bytes": 272116
+          },
+          {
+            "name": "/assets/index-CKtv7gGE.js",
+            "bytes": 7980
+          },
+          {
+            "name": "/assets/appNav-HQw1TSYR.js",
+            "bytes": 242803
+          },
+          {
+            "name": "/assets/codeMapStore-DEZnMS2Q.js",
+            "bytes": 4552
+          }
+        ],
+        "jsBytes": 1163758,
+        "scriptMs": 479.317,
+        "taskMs": 1074.184
+      },
+      {
+        "variant": "after",
+        "history": false,
+        "historyReadyMs": null,
+        "longTasks": [
+          76,
+          413,
+          57,
+          63
+        ],
+        "composerMs": 691.7999999970198,
+        "paints": [
+          {
+            "name": "first-paint",
+            "ms": 96
+          },
+          {
+            "name": "first-contentful-paint",
+            "ms": 96
+          }
+        ],
+        "resources": [
+          {
+            "name": "/assets/main-C_kHQz_P.js",
+            "bytes": 2311
+          },
+          {
+            "name": "/assets/preload-helper-B8tWKQ1F.js",
+            "bytes": 1852
+          },
+          {
+            "name": "/assets/tauri-DMSwwp5q.js",
+            "bytes": 105
+          },
+          {
+            "name": "/assets/main-BpPjCC8K.js",
+            "bytes": 632039
+          },
+          {
+            "name": "/assets/pet-BMgJSplM.js",
+            "bytes": 272116
+          },
+          {
+            "name": "/assets/index-CKtv7gGE.js",
+            "bytes": 7980
+          },
+          {
+            "name": "/assets/appNav-HQw1TSYR.js",
+            "bytes": 242803
+          },
+          {
+            "name": "/assets/codeMapStore-DEZnMS2Q.js",
+            "bytes": 4552
+          }
+        ],
+        "jsBytes": 1163758,
+        "scriptMs": 436.772,
+        "taskMs": 982.7
+      },
+      {
+        "variant": "before",
+        "history": false,
+        "historyReadyMs": null,
+        "longTasks": [
+          137,
+          425,
+          60,
+          62,
+          734
+        ],
+        "composerMs": 650.2000000029802,
+        "paints": [
+          {
+            "name": "first-paint",
+            "ms": 84
+          },
+          {
+            "name": "first-contentful-paint",
+            "ms": 672
+          }
+        ],
+        "resources": [
+          {
+            "name": "/assets/main-hCzgX6f6.js",
+            "bytes": 1201736
+          },
+          {
+            "name": "/assets/katex-Dfg1h1nn.js",
+            "bytes": 297697
+          },
+          {
+            "name": "/assets/prism-JFvwyheA.js",
+            "bytes": 134806
+          },
+          {
+            "name": "/assets/pet-D0XNWeIR.js",
+            "bytes": 272776
+          },
+          {
+            "name": "/assets/appNav-BXsYaI58.js",
+            "bytes": 242838
+          },
+          {
+            "name": "/assets/codeMapStore-BOKphJU7.js",
+            "bytes": 4552
+          },
+          {
+            "name": "/assets/index.esm-BfNKHh0o.js",
+            "bytes": 1130061
+          },
+          {
+            "name": "/assets/mermaid-DfHVj_DZ.js",
+            "bytes": 3461426
+          }
+        ],
+        "jsBytes": 6745892,
+        "scriptMs": 1200.414,
+        "taskMs": 1772.271
+      },
+      {
+        "variant": "before",
+        "history": false,
+        "historyReadyMs": null,
+        "longTasks": [
+          137,
+          486,
+          72,
+          71,
+          806
+        ],
+        "composerMs": 708.1000000089407,
+        "paints": [
+          {
+            "name": "first-paint",
+            "ms": 80
+          },
+          {
+            "name": "first-contentful-paint",
+            "ms": 736
+          }
+        ],
+        "resources": [
+          {
+            "name": "/assets/main-hCzgX6f6.js",
+            "bytes": 1201736
+          },
+          {
+            "name": "/assets/katex-Dfg1h1nn.js",
+            "bytes": 297697
+          },
+          {
+            "name": "/assets/prism-JFvwyheA.js",
+            "bytes": 134806
+          },
+          {
+            "name": "/assets/pet-D0XNWeIR.js",
+            "bytes": 272776
+          },
+          {
+            "name": "/assets/appNav-BXsYaI58.js",
+            "bytes": 242838
+          },
+          {
+            "name": "/assets/codeMapStore-BOKphJU7.js",
+            "bytes": 4552
+          },
+          {
+            "name": "/assets/index.esm-BfNKHh0o.js",
+            "bytes": 1130061
+          },
+          {
+            "name": "/assets/mermaid-DfHVj_DZ.js",
+            "bytes": 3461426
+          }
+        ],
+        "jsBytes": 6745892,
+        "scriptMs": 1340.165,
+        "taskMs": 1953.03
+      },
+      {
+        "variant": "after",
+        "history": false,
+        "historyReadyMs": null,
+        "longTasks": [
+          71,
+          396,
+          62,
+          63
+        ],
+        "composerMs": 667.2999999970198,
+        "paints": [
+          {
+            "name": "first-paint",
+            "ms": 96
+          },
+          {
+            "name": "first-contentful-paint",
+            "ms": 96
+          }
+        ],
+        "resources": [
+          {
+            "name": "/assets/main-C_kHQz_P.js",
+            "bytes": 2311
+          },
+          {
+            "name": "/assets/preload-helper-B8tWKQ1F.js",
+            "bytes": 1852
+          },
+          {
+            "name": "/assets/tauri-DMSwwp5q.js",
+            "bytes": 105
+          },
+          {
+            "name": "/assets/main-BpPjCC8K.js",
+            "bytes": 632039
+          },
+          {
+            "name": "/assets/pet-BMgJSplM.js",
+            "bytes": 272116
+          },
+          {
+            "name": "/assets/index-CKtv7gGE.js",
+            "bytes": 7980
+          },
+          {
+            "name": "/assets/appNav-HQw1TSYR.js",
+            "bytes": 242803
+          },
+          {
+            "name": "/assets/codeMapStore-DEZnMS2Q.js",
+            "bytes": 4552
+          }
+        ],
+        "jsBytes": 1163758,
+        "scriptMs": 422.008,
+        "taskMs": 964.467
+      },
+      {
+        "variant": "before",
+        "history": true,
+        "historyReadyMs": 2644.0999999940395,
+        "longTasks": [
+          141,
+          407,
+          537,
+          899
+        ],
+        "composerMs": 630.5,
+        "paints": [
+          {
+            "name": "first-paint",
+            "ms": 80
+          },
+          {
+            "name": "first-contentful-paint",
+            "ms": 656
+          }
+        ],
+        "resources": [
+          {
+            "name": "/assets/main-hCzgX6f6.js",
+            "bytes": 1201736
+          },
+          {
+            "name": "/assets/katex-Dfg1h1nn.js",
+            "bytes": 297697
+          },
+          {
+            "name": "/assets/prism-JFvwyheA.js",
+            "bytes": 134806
+          },
+          {
+            "name": "/assets/pet-D0XNWeIR.js",
+            "bytes": 272776
+          },
+          {
+            "name": "/assets/appNav-BXsYaI58.js",
+            "bytes": 242838
+          },
+          {
+            "name": "/assets/codeMapStore-BOKphJU7.js",
+            "bytes": 4552
+          },
+          {
+            "name": "/assets/index.esm-BfNKHh0o.js",
+            "bytes": 1130061
+          },
+          {
+            "name": "/assets/mermaid-DfHVj_DZ.js",
+            "bytes": 3461426
+          },
+          {
+            "name": "/assets/highlightWorker-BdgHDkXR.js",
+            "bytes": 78509
+          }
+        ],
+        "jsBytes": 6824401,
+        "scriptMs": 1442.089,
+        "taskMs": 2630.687
+      },
+      {
+        "variant": "after",
+        "history": true,
+        "historyReadyMs": 2321.7999999970198,
+        "longTasks": [
+          75,
+          494,
+          221,
+          52,
+          59,
+          78,
+          107,
+          121,
+          102,
+          70,
+          122
+        ],
+        "composerMs": 744.5999999940395,
+        "paints": [
+          {
+            "name": "first-paint",
+            "ms": 96
+          },
+          {
+            "name": "first-contentful-paint",
+            "ms": 96
+          }
+        ],
+        "resources": [
+          {
+            "name": "/assets/main-C_kHQz_P.js",
+            "bytes": 2311
+          },
+          {
+            "name": "/assets/preload-helper-B8tWKQ1F.js",
+            "bytes": 1852
+          },
+          {
+            "name": "/assets/tauri-DMSwwp5q.js",
+            "bytes": 105
+          },
+          {
+            "name": "/assets/main-BpPjCC8K.js",
+            "bytes": 632039
+          },
+          {
+            "name": "/assets/pet-BMgJSplM.js",
+            "bytes": 272116
+          },
+          {
+            "name": "/assets/index-CKtv7gGE.js",
+            "bytes": 7980
+          },
+          {
+            "name": "/assets/appNav-HQw1TSYR.js",
+            "bytes": 242803
+          },
+          {
+            "name": "/assets/codeMapStore-DEZnMS2Q.js",
+            "bytes": 4552
+          },
+          {
+            "name": "/assets/mermaid-HWGCJPDP-mzAFgx6M.js",
+            "bytes": 506069
+          },
+          {
+            "name": "/assets/index.dom-BVRLkESM.js",
+            "bytes": 21418
+          },
+          {
+            "name": "/assets/katex-CsZqETVo.js",
+            "bytes": 524863
+          },
+          {
+            "name": "/assets/mermaid.core-Mr9Rf3iE.js",
+            "bytes": 641650
+          },
+          {
+            "name": "/assets/highlightWorker-BdgHDkXR.js",
+            "bytes": 78509
+          },
+          {
+            "name": "/assets/flowDiagram-UKHOOZJN-v2xbU1TE.js",
+            "bytes": 61632
+          },
+          {
+            "name": "/assets/chunk-5VM5RSS4-BXpfLggW.js",
+            "bytes": 366
+          },
+          {
+            "name": "/assets/chunk-XXDRQBXY-USWYK9y-.js",
+            "bytes": 235
+          },
+          {
+            "name": "/assets/chunk-KBJHAD2P-ph5i7Aqn.js",
+            "bytes": 532
+          },
+          {
+            "name": "/assets/chunk-2GRJ4B5K-CXO2eey0.js",
+            "bytes": 1883
+          },
+          {
+            "name": "/assets/channel-yLonJ0nJ.js",
+            "bytes": 113
+          },
+          {
+            "name": "/assets/dagre-VZM6K2ZE-eUUOSO95.js",
+            "bytes": 9101
+          },
+          {
+            "name": "/assets/chunk-RYQCIY6F-VG4mpdBP.js",
+            "bytes": 7198
+          },
+          {
+            "name": "/assets/graph-DyyCJ5C1.js",
+            "bytes": 23957
+          },
+          {
+            "name": "/assets/map-CX1PCj9d.js",
+            "bytes": 5070
+          },
+          {
+            "name": "/assets/layout-DpbYjXvU.js",
+            "bytes": 30997
+          }
+        ],
+        "jsBytes": 3077351,
+        "scriptMs": 911.7539999999999,
+        "taskMs": 2346.6800000000003
+      },
+      {
+        "variant": "after",
+        "history": true,
+        "historyReadyMs": 2147.300000011921,
+        "longTasks": [
+          80,
+          405,
+          185,
+          56,
+          87,
+          145,
+          125,
+          112,
+          59,
+          105
+        ],
+        "composerMs": 680.5,
+        "paints": [
+          {
+            "name": "first-paint",
+            "ms": 96
+          },
+          {
+            "name": "first-contentful-paint",
+            "ms": 96
+          }
+        ],
+        "resources": [
+          {
+            "name": "/assets/main-C_kHQz_P.js",
+            "bytes": 2311
+          },
+          {
+            "name": "/assets/preload-helper-B8tWKQ1F.js",
+            "bytes": 1852
+          },
+          {
+            "name": "/assets/tauri-DMSwwp5q.js",
+            "bytes": 105
+          },
+          {
+            "name": "/assets/main-BpPjCC8K.js",
+            "bytes": 632039
+          },
+          {
+            "name": "/assets/pet-BMgJSplM.js",
+            "bytes": 272116
+          },
+          {
+            "name": "/assets/index-CKtv7gGE.js",
+            "bytes": 7980
+          },
+          {
+            "name": "/assets/appNav-HQw1TSYR.js",
+            "bytes": 242803
+          },
+          {
+            "name": "/assets/codeMapStore-DEZnMS2Q.js",
+            "bytes": 4552
+          },
+          {
+            "name": "/assets/mermaid-HWGCJPDP-mzAFgx6M.js",
+            "bytes": 506069
+          },
+          {
+            "name": "/assets/index.dom-BVRLkESM.js",
+            "bytes": 21418
+          },
+          {
+            "name": "/assets/katex-CsZqETVo.js",
+            "bytes": 524863
+          },
+          {
+            "name": "/assets/mermaid.core-Mr9Rf3iE.js",
+            "bytes": 641650
+          },
+          {
+            "name": "/assets/highlightWorker-BdgHDkXR.js",
+            "bytes": 78509
+          },
+          {
+            "name": "/assets/flowDiagram-UKHOOZJN-v2xbU1TE.js",
+            "bytes": 61632
+          },
+          {
+            "name": "/assets/chunk-5VM5RSS4-BXpfLggW.js",
+            "bytes": 366
+          },
+          {
+            "name": "/assets/chunk-XXDRQBXY-USWYK9y-.js",
+            "bytes": 235
+          },
+          {
+            "name": "/assets/chunk-KBJHAD2P-ph5i7Aqn.js",
+            "bytes": 532
+          },
+          {
+            "name": "/assets/chunk-2GRJ4B5K-CXO2eey0.js",
+            "bytes": 1883
+          },
+          {
+            "name": "/assets/channel-yLonJ0nJ.js",
+            "bytes": 113
+          },
+          {
+            "name": "/assets/dagre-VZM6K2ZE-eUUOSO95.js",
+            "bytes": 9101
+          },
+          {
+            "name": "/assets/chunk-RYQCIY6F-VG4mpdBP.js",
+            "bytes": 7198
+          },
+          {
+            "name": "/assets/graph-DyyCJ5C1.js",
+            "bytes": 23957
+          },
+          {
+            "name": "/assets/map-CX1PCj9d.js",
+            "bytes": 5070
+          },
+          {
+            "name": "/assets/layout-DpbYjXvU.js",
+            "bytes": 30997
+          }
+        ],
+        "jsBytes": 3077351,
+        "scriptMs": 889.775,
+        "taskMs": 2174.5350000000003
+      },
+      {
+        "variant": "before",
+        "history": true,
+        "historyReadyMs": 2687.7999999970198,
+        "longTasks": [
+          171,
+          442,
+          530,
+          929
+        ],
+        "composerMs": 710.9000000059605,
+        "paints": [
+          {
+            "name": "first-paint",
+            "ms": 92
+          },
+          {
+            "name": "first-contentful-paint",
+            "ms": 736
+          }
+        ],
+        "resources": [
+          {
+            "name": "/assets/main-hCzgX6f6.js",
+            "bytes": 1201736
+          },
+          {
+            "name": "/assets/katex-Dfg1h1nn.js",
+            "bytes": 297697
+          },
+          {
+            "name": "/assets/prism-JFvwyheA.js",
+            "bytes": 134806
+          },
+          {
+            "name": "/assets/pet-D0XNWeIR.js",
+            "bytes": 272776
+          },
+          {
+            "name": "/assets/appNav-BXsYaI58.js",
+            "bytes": 242838
+          },
+          {
+            "name": "/assets/codeMapStore-BOKphJU7.js",
+            "bytes": 4552
+          },
+          {
+            "name": "/assets/index.esm-BfNKHh0o.js",
+            "bytes": 1130061
+          },
+          {
+            "name": "/assets/mermaid-DfHVj_DZ.js",
+            "bytes": 3461426
+          },
+          {
+            "name": "/assets/highlightWorker-BdgHDkXR.js",
+            "bytes": 78509
+          }
+        ],
+        "jsBytes": 6824401,
+        "scriptMs": 1536.3929999999998,
+        "taskMs": 2666.9230000000002
+      },
+      {
+        "variant": "before",
+        "history": true,
+        "historyReadyMs": 2959.2999999970198,
+        "longTasks": [
+          157,
+          466,
+          539,
+          1102,
+          61
+        ],
+        "composerMs": 711.4000000059605,
+        "paints": [
+          {
+            "name": "first-paint",
+            "ms": 96
+          },
+          {
+            "name": "first-contentful-paint",
+            "ms": 740
+          }
+        ],
+        "resources": [
+          {
+            "name": "/assets/main-hCzgX6f6.js",
+            "bytes": 1201736
+          },
+          {
+            "name": "/assets/katex-Dfg1h1nn.js",
+            "bytes": 297697
+          },
+          {
+            "name": "/assets/prism-JFvwyheA.js",
+            "bytes": 134806
+          },
+          {
+            "name": "/assets/pet-D0XNWeIR.js",
+            "bytes": 272776
+          },
+          {
+            "name": "/assets/appNav-BXsYaI58.js",
+            "bytes": 242838
+          },
+          {
+            "name": "/assets/codeMapStore-BOKphJU7.js",
+            "bytes": 4552
+          },
+          {
+            "name": "/assets/index.esm-BfNKHh0o.js",
+            "bytes": 1130061
+          },
+          {
+            "name": "/assets/mermaid-DfHVj_DZ.js",
+            "bytes": 3461426
+          },
+          {
+            "name": "/assets/highlightWorker-BdgHDkXR.js",
+            "bytes": 78509
+          }
+        ],
+        "jsBytes": 6824401,
+        "scriptMs": 1682.774,
+        "taskMs": 2957.56
+      },
+      {
+        "variant": "after",
+        "history": true,
+        "historyReadyMs": 2258.4000000059605,
+        "longTasks": [
+          76,
+          424,
+          211,
+          66,
+          82,
+          107,
+          109,
+          64,
+          135
+        ],
+        "composerMs": 729.4000000059605,
+        "paints": [
+          {
+            "name": "first-paint",
+            "ms": 108
+          },
+          {
+            "name": "first-contentful-paint",
+            "ms": 108
+          }
+        ],
+        "resources": [
+          {
+            "name": "/assets/main-C_kHQz_P.js",
+            "bytes": 2311
+          },
+          {
+            "name": "/assets/preload-helper-B8tWKQ1F.js",
+            "bytes": 1852
+          },
+          {
+            "name": "/assets/tauri-DMSwwp5q.js",
+            "bytes": 105
+          },
+          {
+            "name": "/assets/main-BpPjCC8K.js",
+            "bytes": 632039
+          },
+          {
+            "name": "/assets/pet-BMgJSplM.js",
+            "bytes": 272116
+          },
+          {
+            "name": "/assets/index-CKtv7gGE.js",
+            "bytes": 7980
+          },
+          {
+            "name": "/assets/appNav-HQw1TSYR.js",
+            "bytes": 242803
+          },
+          {
+            "name": "/assets/codeMapStore-DEZnMS2Q.js",
+            "bytes": 4552
+          },
+          {
+            "name": "/assets/mermaid-HWGCJPDP-mzAFgx6M.js",
+            "bytes": 506069
+          },
+          {
+            "name": "/assets/index.dom-BVRLkESM.js",
+            "bytes": 21418
+          },
+          {
+            "name": "/assets/katex-CsZqETVo.js",
+            "bytes": 524863
+          },
+          {
+            "name": "/assets/mermaid.core-Mr9Rf3iE.js",
+            "bytes": 641650
+          },
+          {
+            "name": "/assets/highlightWorker-BdgHDkXR.js",
+            "bytes": 78509
+          },
+          {
+            "name": "/assets/flowDiagram-UKHOOZJN-v2xbU1TE.js",
+            "bytes": 61632
+          },
+          {
+            "name": "/assets/chunk-5VM5RSS4-BXpfLggW.js",
+            "bytes": 366
+          },
+          {
+            "name": "/assets/chunk-XXDRQBXY-USWYK9y-.js",
+            "bytes": 235
+          },
+          {
+            "name": "/assets/chunk-KBJHAD2P-ph5i7Aqn.js",
+            "bytes": 532
+          },
+          {
+            "name": "/assets/chunk-2GRJ4B5K-CXO2eey0.js",
+            "bytes": 1883
+          },
+          {
+            "name": "/assets/channel-yLonJ0nJ.js",
+            "bytes": 113
+          },
+          {
+            "name": "/assets/dagre-VZM6K2ZE-eUUOSO95.js",
+            "bytes": 9101
+          },
+          {
+            "name": "/assets/chunk-RYQCIY6F-VG4mpdBP.js",
+            "bytes": 7198
+          },
+          {
+            "name": "/assets/graph-DyyCJ5C1.js",
+            "bytes": 23957
+          },
+          {
+            "name": "/assets/map-CX1PCj9d.js",
+            "bytes": 5070
+          },
+          {
+            "name": "/assets/layout-DpbYjXvU.js",
+            "bytes": 30997
+          }
+        ],
+        "jsBytes": 3077351,
+        "scriptMs": 892.3919999999999,
+        "taskMs": 2220.5029999999997
+      },
+      {
+        "variant": "after",
+        "history": true,
+        "historyReadyMs": 2326.7000000029802,
+        "longTasks": [
+          74,
+          472,
+          228,
+          64,
+          76,
+          91,
+          114,
+          116,
+          65,
+          139,
+          73
+        ],
+        "composerMs": 749.8000000119209,
+        "paints": [
+          {
+            "name": "first-paint",
+            "ms": 104
+          },
+          {
+            "name": "first-contentful-paint",
+            "ms": 104
+          }
+        ],
+        "resources": [
+          {
+            "name": "/assets/main-C_kHQz_P.js",
+            "bytes": 2311
+          },
+          {
+            "name": "/assets/preload-helper-B8tWKQ1F.js",
+            "bytes": 1852
+          },
+          {
+            "name": "/assets/tauri-DMSwwp5q.js",
+            "bytes": 105
+          },
+          {
+            "name": "/assets/main-BpPjCC8K.js",
+            "bytes": 632039
+          },
+          {
+            "name": "/assets/pet-BMgJSplM.js",
+            "bytes": 272116
+          },
+          {
+            "name": "/assets/index-CKtv7gGE.js",
+            "bytes": 7980
+          },
+          {
+            "name": "/assets/appNav-HQw1TSYR.js",
+            "bytes": 242803
+          },
+          {
+            "name": "/assets/codeMapStore-DEZnMS2Q.js",
+            "bytes": 4552
+          },
+          {
+            "name": "/assets/mermaid-HWGCJPDP-mzAFgx6M.js",
+            "bytes": 506069
+          },
+          {
+            "name": "/assets/index.dom-BVRLkESM.js",
+            "bytes": 21418
+          },
+          {
+            "name": "/assets/katex-CsZqETVo.js",
+            "bytes": 524863
+          },
+          {
+            "name": "/assets/mermaid.core-Mr9Rf3iE.js",
+            "bytes": 641650
+          },
+          {
+            "name": "/assets/highlightWorker-BdgHDkXR.js",
+            "bytes": 78509
+          },
+          {
+            "name": "/assets/flowDiagram-UKHOOZJN-v2xbU1TE.js",
+            "bytes": 61632
+          },
+          {
+            "name": "/assets/chunk-5VM5RSS4-BXpfLggW.js",
+            "bytes": 366
+          },
+          {
+            "name": "/assets/chunk-XXDRQBXY-USWYK9y-.js",
+            "bytes": 235
+          },
+          {
+            "name": "/assets/chunk-KBJHAD2P-ph5i7Aqn.js",
+            "bytes": 532
+          },
+          {
+            "name": "/assets/chunk-2GRJ4B5K-CXO2eey0.js",
+            "bytes": 1883
+          },
+          {
+            "name": "/assets/channel-yLonJ0nJ.js",
+            "bytes": 113
+          },
+          {
+            "name": "/assets/dagre-VZM6K2ZE-eUUOSO95.js",
+            "bytes": 9101
+          },
+          {
+            "name": "/assets/chunk-RYQCIY6F-VG4mpdBP.js",
+            "bytes": 7198
+          },
+          {
+            "name": "/assets/graph-DyyCJ5C1.js",
+            "bytes": 23957
+          },
+          {
+            "name": "/assets/map-CX1PCj9d.js",
+            "bytes": 5070
+          },
+          {
+            "name": "/assets/layout-DpbYjXvU.js",
+            "bytes": 30997
+          }
+        ],
+        "jsBytes": 3077351,
+        "scriptMs": 898.586,
+        "taskMs": 2324.611
+      },
+      {
+        "variant": "before",
+        "history": true,
+        "historyReadyMs": 2570,
+        "longTasks": [
+          148,
+          396,
+          428,
+          1030
+        ],
+        "composerMs": 638.2999999970198,
+        "paints": [
+          {
+            "name": "first-paint",
+            "ms": 108
+          },
+          {
+            "name": "first-contentful-paint",
+            "ms": 664
+          }
+        ],
+        "resources": [
+          {
+            "name": "/assets/main-hCzgX6f6.js",
+            "bytes": 1201736
+          },
+          {
+            "name": "/assets/katex-Dfg1h1nn.js",
+            "bytes": 297697
+          },
+          {
+            "name": "/assets/prism-JFvwyheA.js",
+            "bytes": 134806
+          },
+          {
+            "name": "/assets/pet-D0XNWeIR.js",
+            "bytes": 272776
+          },
+          {
+            "name": "/assets/appNav-BXsYaI58.js",
+            "bytes": 242838
+          },
+          {
+            "name": "/assets/codeMapStore-BOKphJU7.js",
+            "bytes": 4552
+          },
+          {
+            "name": "/assets/index.esm-BfNKHh0o.js",
+            "bytes": 1130061
+          },
+          {
+            "name": "/assets/mermaid-DfHVj_DZ.js",
+            "bytes": 3461426
+          },
+          {
+            "name": "/assets/highlightWorker-BdgHDkXR.js",
+            "bytes": 78509
+          }
+        ],
+        "jsBytes": 6824401,
+        "scriptMs": 1487.839,
+        "taskMs": 2560.227
+      },
+      {
+        "variant": "before",
+        "history": true,
+        "historyReadyMs": 2674.7999999970198,
+        "longTasks": [
+          134,
+          393,
+          517,
+          976
+        ],
+        "composerMs": 609.3999999910593,
+        "paints": [
+          {
+            "name": "first-paint",
+            "ms": 80
+          },
+          {
+            "name": "first-contentful-paint",
+            "ms": 632
+          }
+        ],
+        "resources": [
+          {
+            "name": "/assets/main-hCzgX6f6.js",
+            "bytes": 1201736
+          },
+          {
+            "name": "/assets/katex-Dfg1h1nn.js",
+            "bytes": 297697
+          },
+          {
+            "name": "/assets/prism-JFvwyheA.js",
+            "bytes": 134806
+          },
+          {
+            "name": "/assets/pet-D0XNWeIR.js",
+            "bytes": 272776
+          },
+          {
+            "name": "/assets/appNav-BXsYaI58.js",
+            "bytes": 242838
+          },
+          {
+            "name": "/assets/codeMapStore-BOKphJU7.js",
+            "bytes": 4552
+          },
+          {
+            "name": "/assets/index.esm-BfNKHh0o.js",
+            "bytes": 1130061
+          },
+          {
+            "name": "/assets/mermaid-DfHVj_DZ.js",
+            "bytes": 3461426
+          },
+          {
+            "name": "/assets/highlightWorker-BdgHDkXR.js",
+            "bytes": 78509
+          }
+        ],
+        "jsBytes": 6824401,
+        "scriptMs": 1503.145,
+        "taskMs": 2664.2039999999997
+      },
+      {
+        "variant": "after",
+        "history": true,
+        "historyReadyMs": 2187.2999999970198,
+        "longTasks": [
+          81,
+          446,
+          204,
+          62,
+          65,
+          89,
+          115,
+          54,
+          98
+        ],
+        "composerMs": 729.7000000029802,
+        "paints": [
+          {
+            "name": "first-paint",
+            "ms": 96
+          },
+          {
+            "name": "first-contentful-paint",
+            "ms": 96
+          }
+        ],
+        "resources": [
+          {
+            "name": "/assets/main-C_kHQz_P.js",
+            "bytes": 2311
+          },
+          {
+            "name": "/assets/preload-helper-B8tWKQ1F.js",
+            "bytes": 1852
+          },
+          {
+            "name": "/assets/tauri-DMSwwp5q.js",
+            "bytes": 105
+          },
+          {
+            "name": "/assets/main-BpPjCC8K.js",
+            "bytes": 632039
+          },
+          {
+            "name": "/assets/pet-BMgJSplM.js",
+            "bytes": 272116
+          },
+          {
+            "name": "/assets/index-CKtv7gGE.js",
+            "bytes": 7980
+          },
+          {
+            "name": "/assets/appNav-HQw1TSYR.js",
+            "bytes": 242803
+          },
+          {
+            "name": "/assets/codeMapStore-DEZnMS2Q.js",
+            "bytes": 4552
+          },
+          {
+            "name": "/assets/mermaid-HWGCJPDP-mzAFgx6M.js",
+            "bytes": 506069
+          },
+          {
+            "name": "/assets/index.dom-BVRLkESM.js",
+            "bytes": 21418
+          },
+          {
+            "name": "/assets/katex-CsZqETVo.js",
+            "bytes": 524863
+          },
+          {
+            "name": "/assets/mermaid.core-Mr9Rf3iE.js",
+            "bytes": 641650
+          },
+          {
+            "name": "/assets/highlightWorker-BdgHDkXR.js",
+            "bytes": 78509
+          },
+          {
+            "name": "/assets/flowDiagram-UKHOOZJN-v2xbU1TE.js",
+            "bytes": 61632
+          },
+          {
+            "name": "/assets/chunk-5VM5RSS4-BXpfLggW.js",
+            "bytes": 366
+          },
+          {
+            "name": "/assets/chunk-XXDRQBXY-USWYK9y-.js",
+            "bytes": 235
+          },
+          {
+            "name": "/assets/chunk-KBJHAD2P-ph5i7Aqn.js",
+            "bytes": 532
+          },
+          {
+            "name": "/assets/chunk-2GRJ4B5K-CXO2eey0.js",
+            "bytes": 1883
+          },
+          {
+            "name": "/assets/channel-yLonJ0nJ.js",
+            "bytes": 113
+          },
+          {
+            "name": "/assets/dagre-VZM6K2ZE-eUUOSO95.js",
+            "bytes": 9101
+          },
+          {
+            "name": "/assets/chunk-RYQCIY6F-VG4mpdBP.js",
+            "bytes": 7198
+          },
+          {
+            "name": "/assets/graph-DyyCJ5C1.js",
+            "bytes": 23957
+          },
+          {
+            "name": "/assets/map-CX1PCj9d.js",
+            "bytes": 5070
+          },
+          {
+            "name": "/assets/layout-DpbYjXvU.js",
+            "bytes": 30997
+          }
+        ],
+        "jsBytes": 3077351,
+        "scriptMs": 849.828,
+        "taskMs": 2212.214
+      }
+    ],
+    "errors": []
+  },
+  "projection": {
+    "tools": 1000,
+    "updates": 100,
+    "beforeMs": [
+      1533.9086,
+      1576.0783000000001,
+      1536.3811000000005,
+      1525.9243999999999,
+      1523.2203,
+      1536.2739000000001,
+      1544.2741000000005
+    ],
+    "afterMs": [
+      21.904899999999998,
+      13.659099999999853,
+      11.995299999999588,
+      12.413899999999558,
+      12.608500000000276,
+      13.32129999999961,
+      12.213400000000547
+    ],
+    "baselineToolParses": 100000,
+    "optimizedToolParsesAfterWarmup": 100
+  },
+  "nativeFrontend": {
+    "checks": [
+      {
+        "case": "visible shell before backend; hydrate only after ready; migrated port before first request",
+        "passed": true
+      },
+      {
+        "case": "close cancels readiness polling",
+        "passed": true
+      },
+      {
+        "case": "failure remains visible and permits local history",
+        "passed": true
+      }
+    ],
+    "errors": []
+  },
+  "sourceEvidence": {
+    "beforeTreeSha256": "9c78e88abf655b357c380361d69f0c3c0b34c10729f50d0432f6caeb468310f7",
+    "afterTreeSha256": "bfb746eec7e2cffe9ba061a347d2e228bd525b42d4f2ed9b6b45d9fa77571ad4",
+    "changedFiles": [
+      {
+        "path": "bootstrap.ts",
+        "before": null,
+        "after": "72e6c3ef33139c089d742b754bb13ddc7966cbaab45c0b46f7402e5652b8cdf6"
+      },
+      {
+        "path": "main.tsx",
+        "before": "144f8f11f59acb5c53ec630451f28512c54c25d22c172d56c2479bb067315d77",
+        "after": "6d3a04c13c0fd9c7fde56e9775bfd69fa20bd32c770f33afbc3c9da7e8783be0"
+      },
+      {
+        "path": "components\\DeferredMarkdown.tsx",
+        "before": null,
+        "after": "11c0e798bed0d35e0608fcc73597b33313d611229d1312c53ca5ece952eef16a"
+      },
+      {
+        "path": "components\\DeferredSettingsModal.tsx",
+        "before": null,
+        "after": "720b7e3c7f0299cbaedb9a94a56454679953fa29fe630d0563f8da422d25b258"
+      },
+      {
+        "path": "components\\EditableMarkdown.tsx",
+        "before": "3d03004b29e30820268041f04315f56fa5bf31e5a220f9698b66e44d5b1a7219",
+        "after": "b85c44ab73d9f6197b184f34cecfa2102b14ef06e4d1480ea0ea519b615aa243"
+      },
+      {
+        "path": "components\\MarkdownView.tsx",
+        "before": "40b07ac852b5ff8e7b77d79ea31d669cd8f3dcb2f8b1a28fcecde84455d8e542",
+        "after": "d5b8e8de0a2cc373a1d7ae494955f03a98c89e2eaab17cca29fbacc5c07f1d2c"
+      },
+      {
+        "path": "components\\StreamingMarkdown.tsx",
+        "before": "e74c5389e92967042a544f9f30fb085357614a9a614dfa0998d3646b5ca4730a",
+        "after": "3467a86718de3270519d7c3279b9d692b08cddf54c1e3c3443c813f2dfc571d3"
+      },
+      {
+        "path": "components\\TitleBar.tsx",
+        "before": "5dd0668f0c321b949a387b386ec9b247b9d5cdf73deb3a9f8b2c0c8f8878d8b3",
+        "after": "e1c5ded709aeaf07cb5670f812c13e9d747f4b02806bd57ad79cc647a08590c0"
+      },
+      {
+        "path": "lib\\deferredMarkdownAnchor.ts",
+        "before": null,
+        "after": "3fdf524fd41761ccd691f622b11738a6f08184e94e86c864ba6a3a5b1795b78b"
+      },
+      {
+        "path": "lib\\desktopStartup.ts",
+        "before": null,
+        "after": "b2fed075032268b4ec0aee7383d5f9f62e7895512cebac4548a4777bdbf1bb05"
+      },
+      {
+        "path": "lib\\groupTranscript.ts",
+        "before": "d7a9a842a26bef614b6c8888ba4297fcbc05c9117c9986660e1373298c4d21fa",
+        "after": "2994347dda732846d343af1d7d205cd5c0e984e59a21361f5e7662912cfa7b64"
+      },
+      {
+        "path": "lib\\iconThemeLoader.ts",
+        "before": "e5ecab598092be6c954f856e4d12c9f3646ba42cb4dad81934bb40cfa7de0b42",
+        "after": "e1532db698847c74537cff20796783495dbc16508c653b924043e2a3a551858b"
+      },
+      {
+        "path": "lib\\markdownAnchor.ts",
+        "before": "c715b95362d4165f877ab71af8d7fd15fc411d396d35c1556d1e483582c5acd4",
+        "after": "b1f37e7bee078fa78c80b74319559e4a049eb53b563e0fcabbc6ef79baed8073"
+      },
+      {
+        "path": "lib\\markdownPrepare.ts",
+        "before": null,
+        "after": "b0b5519646f063e089c993e09f5bcbe1419b2a5e302cc31f82c12a75e5aaa25c"
+      },
+      {
+        "path": "lib\\markdownStaticCache.ts",
+        "before": "175978afeca079c82986a9d8d276668c15592a52c5299de24aa6811069b94da5",
+        "after": "8edb9ed7c40a6b9db461e3ee606517adfbcda2ceec3d7ae6602ba33cc7ed1146"
+      },
+      {
+        "path": "lib\\workbenchChangesProjection.ts",
+        "before": null,
+        "after": "cdcdd78c8a1ca4b53293243b92c4255f2d83b84f346f13bb4ef475ffb9196af2"
+      },
+      {
+        "path": "styles\\startup.css",
+        "before": null,
+        "after": "158bd1c3409ef8cfc9d291ffd1a4363bbf95fb10aed8d6b3768b968ed64397b9"
+      },
+      {
+        "path": "components\\review\\useWorkbenchChanges.ts",
+        "before": "4c38db0939649a0bd34898c968b32720b152bc29500877aa15f3ea2cc7b4f23a",
+        "after": "8f3cf7ee1899d443490ec3bc5189f671dd77c4be533983700f01e69e814f6681"
+      }
+    ],
+    "viteBeforeSha256": "1cc56a78a4a8a3ad3ff7c7eeb72da83d8d4194fa934c2dce58edc498db0fee18",
+    "viteAfterSha256": "8d9aa4c2e254989c6650fab1e6f4b9de2aaa137ce6301487ae8c33dc8176e30a"
+  },
+  "validation": {
+    "targetedFrontendTests": 69,
+    "frontendFiles": 10,
+    "projectionBenchmarkSeparate": true,
+    "nativeLifecycleTests": 2,
+    "typescript": "pass",
+    "cargoCheckOffline": "pass",
+    "frozenProductionBuild": "pass",
+    "sharedCheckoutProductionBuild": "pass including final Markdown guards and concurrent source",
+    "browserSettings": "pass",
+    "browserMarkdownAnchorsAndWorker": "pass"
+  }
+}

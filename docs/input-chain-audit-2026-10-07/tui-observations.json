@@ -1,0 +1,48 @@
+{
+  "mode": "offline_actual_Ink_App",
+  "observations": [
+    {
+      "probe": "tui_retry_after_clear_leaks_old_task",
+      "chats": [
+        {
+          "model": "fake",
+          "stream": true,
+          "session_id": "original",
+          "provider": "fake",
+          "workspace": "workspace",
+          "messages": [
+            {
+              "role": "user",
+              "content": "old task"
+            }
+          ]
+        },
+        {
+          "model": "fake",
+          "stream": true,
+          "session_id": "new-session",
+          "provider": "fake",
+          "workspace": "workspace",
+          "messages": [
+            {
+              "role": "user",
+              "content": "old task"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "probe": "tui_rejected_queue_overwrites_new_draft",
+      "newerDraftPreserved": false,
+      "originalDraftRestored": true
+    },
+    {
+      "probe": "tui_queue_reply_never_subscribed",
+      "chatRequests": 2,
+      "waitedMs": 8300,
+      "readRequests": [],
+      "replyVisible": false
+    }
+  ]
+}

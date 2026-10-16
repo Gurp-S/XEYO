@@ -1,0 +1,27 @@
+{
+  "state": {
+    "activeId": "sess_muxolhux_59xtqg",
+    "goals": {}
+  },
+  "serverGoal": {
+    "goal_id": "4cb4917b60cf",
+    "title": "persistent goal",
+    "text": "persistent goal",
+    "status": "active",
+    "owner": "sess_muxolhux_59xtqg",
+    "origin": "api",
+    "pending_complete": false,
+    "revision": 1,
+    "rounds": 1,
+    "max_rounds": 0,
+    "blocked_reason": "",
+    "created_at": 1791351778.3041735,
+    "updated_at": 1791351778.3041735,
+    "driver": {
+      "activation": "disarmed",
+      "pending": false,
+      "active_round": null
+    }
+  },
+  "browserGoalRequests": []
+}

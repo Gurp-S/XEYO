@@ -1,0 +1,332 @@
+{
+  "date": "2026-10-15",
+  "status": "implemented_and_targeted_verified",
+  "scope": "多 Agent 通信、隔离、并发所有权、异常恢复、真实入口与细分架构",
+  "constraints": {
+    "subagents_used": false,
+    "os_sandbox_implemented": false,
+    "default_write_isolation": "independent retained worktree; explicit apply",
+    "git_commit_or_reset": false,
+    "mixed_worktree_preserved": true
+  },
+  "findings": [
+    {
+      "id": "R01",
+      "title": "已暂存的删除在子 worktree 中复活",
+      "root_cause": "快照以 HEAD 为基线，却只枚举现有索引和未跟踪路径；已暂存删除不在枚举中。",
+      "invariant_and_repair": "合并 HEAD 路径参与临时索引更新，并移除内部状态目录。",
+      "regression": "test_staged_deletion_is_absent_from_child_snapshot",
+      "source": "python/engine/agent_workspaces.py",
+      "status": "fixed"
+    },
+    {
+      "id": "R02",
+      "title": "撤回成功后消息仍投递",
+      "root_cause": "读取队列与确认之间缺少不可撤回的投递状态。",
+      "invariant_and_repair": "事务认领 queued→delivering；撤回仅限 queued；写入失败保留 delivering 供恢复。",
+      "regression": "test_withdrawal_cannot_report_success_during_transcript_delivery;test_recovering_claim_is_replayed_once_after_transcript_failure",
+      "source": "python/engine/agent_message_store.py",
+      "status": "fixed"
+    },
+    {
+      "id": "R03",
+      "title": "旧执行代次可先污染新侧链，再在确认阶段被拒绝",
+      "root_cause": "attempt 校验发生在 transcript 写入之后。",
+      "invariant_and_repair": "认领事务先校验当前代次和活跃状态；接收者另有 OS 投递锁。",
+      "regression": "test_stale_delivery_cannot_write_new_attempt_transcript",
+      "source": "python/engine/agent_mailbox.py",
+      "status": "fixed"
+    },
+    {
+      "id": "R04",
+      "title": "用户撤回可能取消同 ID 的同伴消息",
+      "root_cause": "去重键含 sender，撤回查询却没有 sender。",
+      "invariant_and_repair": "撤回与消息身份使用相同发送者作用域。",
+      "regression": "test_parent_withdrawal_is_scoped_to_parent_sender",
+      "source": "python/engine/agent_message_store.py",
+      "status": "fixed"
+    },
+    {
+      "id": "R05",
+      "title": "未完成合入可被重跑覆盖恢复依据",
+      "root_cause": "新 attempt 未检查 publication 日志状态。",
+      "invariant_and_repair": "持有身份租约时拒绝覆盖 applying 的 head，保留原终态供合入恢复。",
+      "regression": "test_incomplete_publication_cannot_be_overwritten_by_resume",
+      "source": "python/engine/agent_artifact_state.py",
+      "status": "fixed"
+    },
+    {
+      "id": "R06",
+      "title": "合入已完成但 DB 未写回时，续跑沿用旧基线",
+      "root_cause": "Git/文件日志与数据库收据存在崩溃窗口。",
+      "invariant_and_repair": "从持久化 artifact/publication 收据对账，再更新续跑基线。",
+      "regression": "test_applied_journal_reconciles_db_before_resume",
+      "source": "python/engine/agent_artifact_state.py",
+      "status": "fixed"
+    },
+    {
+      "id": "R07",
+      "title": "HTTP 重试绕过权限并丢失预算与运行环境",
+      "root_cause": "HTTP 直接调用 Agent.execute，另造最小上下文。",
+      "invariant_and_repair": "HTTP 复用注册表权限入口、独立上下文和共享预算；显式重试仍受 DENY 限制。",
+      "regression": "test_http_retry_obeys_workspace_deny;test_http_retry_real_registry_model_loop_and_worktree",
+      "source": "python/server/agent_commands.py",
+      "status": "fixed"
+    },
+    {
+      "id": "R08",
+      "title": "取消等待后无法再次等待",
+      "root_cause": "观察操作被作为外部副作用记为结果未知。",
+      "invariant_and_repair": "按 action 分类 list/status/wait 为观察操作。",
+      "regression": "test_cancelled_wait_does_not_poison_future_observation",
+      "source": "python/engine/agent_action_contract.py",
+      "status": "fixed"
+    },
+    {
+      "id": "R09",
+      "title": "不同 Agent 的同参数操作互相阻塞",
+      "root_cause": "未决操作去重只含 session 和参数。",
+      "invariant_and_repair": "操作身份增加稳定 Agent 所有者；同一 Agent 重试仍保留未知副作用约束。",
+      "regression": "test_parallel_workers_do_not_share_unresolved_operation_keys",
+      "source": "python/engine/agent_action_contract.py",
+      "status": "fixed"
+    },
+    {
+      "id": "R10",
+      "title": "合入恢复被通用动作账本阻断",
+      "root_cause": "底层支持幂等恢复，上层一律拒绝未知结果重试。",
+      "invariant_and_repair": "仅精确 artifact 合入和带稳定 ID 的消息允许交由自身恢复；成功后关联结清旧记录。",
+      "regression": "test_registry_can_recover_an_unknown_publication",
+      "source": "python/engine/action_journal.py",
+      "status": "fixed"
+    },
+    {
+      "id": "R11",
+      "title": "检查后到入场前被替换的 attempt 仍可重跑",
+      "root_cause": "attempt 比较只发生在事务外。",
+      "invariant_and_repair": "入场事务 CAS expected_attempt，并再次验证不可变规格；HTTP/工具重试传递预期代次。",
+      "regression": "test_resume_admission_fences_attempt_replaced_after_read",
+      "source": "python/engine/agent_run_store.py",
+      "status": "fixed"
+    },
+    {
+      "id": "R12",
+      "title": "旧后台分支的对话响应覆盖当前分支",
+      "root_cause": "前端只检查请求序号，未检查 backend session。",
+      "invariant_and_repair": "统一分支与 attempt 请求范围校验，缓存也绑定范围。",
+      "regression": "drops a transcript fetched before a backend branch switch",
+      "source": "gui/src/lib/agentRequestScope.ts",
+      "status": "fixed"
+    },
+    {
+      "id": "R13",
+      "title": "迟到取消响应标记新的 Agent attempt",
+      "root_cause": "取消以 agent_id 为唯一身份。",
+      "invariant_and_repair": "取消请求携带 attempt，服务端拒绝过期代次，前端再次校验响应范围。",
+      "regression": "late cancellation cannot mark a replacement attempt",
+      "source": "gui/src/stores/chat/multiAgentSlice.ts",
+      "status": "fixed"
+    },
+    {
+      "id": "R14",
+      "title": "重复重试按钮及迟到响应覆盖新任务",
+      "root_cause": "重试缺少并发请求所有权。",
+      "invariant_and_repair": "同一任务重试串行，分支和新返回 attempt 共同约束结果应用。",
+      "regression": "serializes retry buttons and drops a response after branch replacement",
+      "source": "gui/src/stores/chat/multiAgentSlice.ts",
+      "status": "fixed"
+    },
+    {
+      "id": "R15",
+      "title": "旧进度或起始帧把新任务/终态覆盖",
+      "root_cause": "进度/增量/结果未贯通 attempt，起始帧无代次时间。",
+      "invariant_and_repair": "贯通 attempt 与开始时间；过滤旧帧、保留终态并按 agent 身份替换卡片。",
+      "regression": "ignores progress from an earlier attempt sharing the card uid;does not regress a durable terminal card with a delayed start frame",
+      "source": "gui/src/lib/api/core.ts",
+      "status": "fixed"
+    },
+    {
+      "id": "R16",
+      "title": "worktree 已产生但 DB 收据缺失时丢失成果归属",
+      "root_cause": "资源创建与 DB artifact 关联不在同一原子事务。",
+      "invariant_and_repair": "创建前写可定位清单；OS 租约确认 owner 已退出后恢复并收集工作成果。",
+      "regression": "test_owner_crash_recovers_worktree_before_db_receipt",
+      "source": "python/engine/agent_artifact_state.py",
+      "status": "fixed"
+    },
+    {
+      "id": "R17",
+      "title": "一次性 CLI 提前成功退出并取消后台 Agent",
+      "root_cause": "进程生命周期短于默认后台任务生命周期。",
+      "invariant_and_repair": "CLI 等待本次新增任务结束，失败反映到退出码；退出入口执行所有权清理。",
+      "regression": "test_one_shot_cli_owns_background_until_terminal",
+      "source": "python/engine/agent_host_lifetime.py",
+      "status": "fixed"
+    },
+    {
+      "id": "R18",
+      "title": "依赖图写到一半就可见",
+      "root_cause": "批次逐个保存独立文件，无批次提交点。",
+      "invariant_and_repair": "以一个原子批次文件发布初始图，后续单任务快照覆盖初始行；损坏快照拒绝回退到旧状态。",
+      "regression": "test_task_graph_publication_has_no_partial_visible_batch;test_failed_graph_batch_and_corrupt_transition_do_not_publish_partial_state",
+      "source": "python/coord/task_batches.py",
+      "status": "fixed"
+    },
+    {
+      "id": "R19",
+      "title": "慢任务的图写锁可因时间戳过期被抢走",
+      "root_cause": "协调锁按 mtime/TTL 判断存活。",
+      "invariant_and_repair": "新运行模式的图锁改为 OS 所有权租约，不按时间盗取。",
+      "regression": "test_task_graph_owner_is_not_stolen_when_lock_timestamp_is_old",
+      "source": "python/coord/task_dependencies.py",
+      "status": "fixed"
+    },
+    {
+      "id": "R20",
+      "title": "HTTP 重试准备期间的停止信号丢失",
+      "root_cause": "重试独立 AbortController 未接 SessionPool pending interrupt。",
+      "invariant_and_repair": "重试绑定池内批次取消控制器，退出时按实例解除。",
+      "regression": "test_http_retry_stop_before_admission_reaches_agent",
+      "source": "python/server/routers/sessions.py",
+      "status": "fixed"
+    },
+    {
+      "id": "R21",
+      "title": "旧元数据中的待办消息迁移遗漏或重放",
+      "root_cause": "迁移仅处理内存队列，忽略 meta.pending_followups。",
+      "invariant_and_repair": "队列和元数据按多重集合并，事务记录导入代次；清理失败不重放，新批同文消息仍可投递。",
+      "regression": "test_legacy_metadata_followups_migrate_once_with_queue_overlap",
+      "source": "python/engine/agent_live_bridge.py",
+      "status": "fixed"
+    }
+  ],
+  "architecture": {
+    "new_modules": [
+      "python/engine/agent_message_store.py",
+      "python/engine/agent_artifact_state.py",
+      "python/engine/agent_action_contract.py",
+      "python/engine/agent_host_lifetime.py",
+      "python/server/agent_commands.py",
+      "python/coord/task_batches.py",
+      "gui/src/lib/agentRequestScope.ts"
+    ],
+    "boundaries": [
+      "运行 admission/settlement 与通信存储分离",
+      "资源清单恢复独立于 Git 快照和文件合入",
+      "HTTP 入口复用工具权限/预算",
+      "工具观察、副作用和可恢复性契约独立",
+      "短生命周期宿主独立管理后台任务",
+      "依赖图批次具有原子提交点",
+      "GUI 异步响应统一校验后端分支和执行代次"
+    ]
+  },
+  "verification": {
+    "python": {
+      "tests": 290,
+      "passed": 290,
+      "failures": 0,
+      "file": ".tmp\\multiagent-review-20261015\\final-python-2.xml"
+    },
+    "gui": {
+      "passed": 114,
+      "files": 6,
+      "report": ".tmp\\multiagent-review-20261015\\gui-final-2.json"
+    },
+    "typescript": "npm run typecheck passed",
+    "diff_check": "selected modified files passed",
+    "new_boundary_cases": {
+      "python": 21,
+      "gui": 5
+    },
+    "ab": {
+      "python_before": {
+        "tests": 21,
+        "passed": 0,
+        "failures": 21,
+        "file": ".tmp\\multiagent-review-20261015\\baseline-compatible.xml"
+      },
+      "python_after": "21 boundary cases included in the 290 passing tests",
+      "gui_before": {
+        "failed": 5,
+        "report": ".tmp\\multiagent-review-20261015\\gui-baseline-compare.json"
+      },
+      "gui_after": "5 boundary cases included in the 114 passing tests",
+      "baseline_method": "Saved pre-change modules loaded separately; current source was not replaced. ToolRegistry host_services constructor and metadata generation callback adapters preserve concurrent unrelated interface additions. Early incompatible baseline run is excluded as causal evidence."
+    },
+    "excluded_existing_check": {
+      "test": "tests/test_catalog.py::test_schema_budget_shortens_descriptions",
+      "current_result": "failed: Compact description length 317, expected < 200",
+      "report": ".tmp/multiagent-review-20261015/known-unrelated.xml"
+    }
+  },
+  "call_chains": [
+    {
+      "chain": "default QueryEngine -> registry -> Agent -> child model loop -> worktree -> wait -> explicit apply",
+      "evidence": "test_default_engine_worker_writes_only_its_worktree_until_apply; real engine offline provider"
+    },
+    {
+      "chain": "parent/peer agent_send -> durable mailbox -> transcript -> next request -> acknowledge",
+      "evidence": "test_real_engine_parent_child_mail_and_wait plus new delivery/withdrawal regressions"
+    },
+    {
+      "chain": "HTTP retry -> permissions/abort/budget -> Agent -> child Read/Write -> retained worktree",
+      "evidence": "test_http_retry_real_registry_model_loop_and_worktree uses FastAPI ASGI HTTP and offline model"
+    },
+    {
+      "chain": "CLI prompt -> background agent -> process completion/exit status",
+      "evidence": "test_one_shot_cli_owns_background_until_terminal, successful and failed variants"
+    },
+    {
+      "chain": "SSE/API -> GUI card/detail state",
+      "evidence": "protocol and state tests, including stale branch/attempt/start frame cases; no browser E2E"
+    },
+    {
+      "chain": "dead process -> released OS lease -> artifact manifest -> collected worktree -> interrupted terminal",
+      "evidence": "test_owner_crash_recovers_worktree_before_db_receipt uses real subprocess os._exit(23)"
+    },
+    {
+      "chain": "TUI -> HTTP/SSE -> same server/QueryEngine path",
+      "evidence": "source inspection only for TUI entry; no dedicated TUI agent UI end-to-end claim"
+    }
+  ],
+  "limitations": [
+    "Worktrees isolate ordinary code changes; OS process sandbox remains deferred as requested.",
+    "External editors do not participate in XEYO locks; no cross-editor atomicity claim.",
+    "Agent interrupt dispatch targets the local owner; no distributed multi-host executor/control plane claim.",
+    "Completion messages are durable but do not independently wake an idle parent model.",
+    "No paid model calls, long-duration load testing, or full repository suite in this review.",
+    "Compact description-length catalog test is tracked separately; excluded from the targeted passing total."
+  ],
+  "artifacts": {
+    "baseline_directory": ".tmp\\multiagent-review-20261015\\baseline",
+    "python_tests": "python/tests/test_agent_runtime_boundaries.py",
+    "gui_tests": "gui/src/stores/chat/multiAgentBoundary.test.ts"
+  },
+  "source_sha256": {
+    "gui/src/lib/agentRequestScope.ts": "4b0edca0259df0b4d47aa99e8ee77a0170cbe264705fbd9031b5ee76adfc7c13",
+    "gui/src/lib/api.ts": "68bb758884935f2063814b7a59a7525834825bac7cbca7b772d2a7ae5d491da3",
+    "gui/src/lib/api/core.ts": "9f6579df5a981bb448d0728c0e575973746a0a00376704a3e9bfcb9f65cb2f57",
+    "gui/src/stores/chat/multiAgentSlice.ts": "c8d5319e70b624fab288801d3268abf983cccddcca54d55e8e19b70c99e06402",
+    "python/cli/chat_cmd.py": "eb6cb1de6d33854aa00df4085b0393117348fae3fef35e0234b747e54563a74d",
+    "python/coord/file_store.py": "c95e4e150c9406efa09b6b74496bf0f9ac28ee0f6b6e822b7237a9f8468b477a",
+    "python/coord/task_batches.py": "cab0366ebf42b7ae68262bdf61c477b5dd2a9c03e86e4f71c15cfb62aa22fd42",
+    "python/coord/task_dependencies.py": "ad1e9bceafecd813b8b1e07a7b7657bff066056a0a9f7c300131470e74380e65",
+    "python/engine/action_journal.py": "cbad2f62eccd81c3e83612b8d3dc4558220d5f4d7dc22c852dfc936b3e9e323c",
+    "python/engine/agent_action_contract.py": "677e7861501f3732b19b37cd9f00d41a40e1b7a3bbc9279757f159b1f26b8c95",
+    "python/engine/agent_artifact_state.py": "5a2a9fb6138d7cc107ab1b599ff3ed03b1f984d16191d6a882a91ea1cddad5c5",
+    "python/engine/agent_host_lifetime.py": "b1a79a16408d5d679f3d9e7288b8e7217463aaa5409d1db14285e7848e5b2b76",
+    "python/engine/agent_identity.py": "5be8348073b8ddad14bcea0329cc08fab6875bf861d7ddec052015039be1be08",
+    "python/engine/agent_live_bridge.py": "e49ae9138962b564a0c2ddfa4bc8d45b82520dd60b4bf89070b1a43f0c960bfc",
+    "python/engine/agent_mailbox.py": "a25365d1c3ae381f6faaa48bd9a546d883dd4d55464d786639fdd688bc36cd1b",
+    "python/engine/agent_message_store.py": "26daffcf3f78a0744ff6806876cbda56692e49f37a6a4e0aa2e3fdc7fd55e35e",
+    "python/engine/agent_run_store.py": "d28d7e36299abc08b990dfa34fab510a573edcafd93ae3e5adb34e046227480e",
+    "python/engine/agent_runtime.py": "bd7d13c757c4965ed7f06f3e4c93c7606005a5d4264c55992092aa463f80d207",
+    "python/engine/agent_workspaces.py": "b75734852f32dc38d41b81fde9f859c7737bbb413d63a2bb8b61e3a39c40de3b",
+    "python/engine/subagent_runner.py": "5d5baf922412146f71c44bebd2cac2dc230783eee678d4acaa322f7ae17fd110",
+    "python/server/agent_commands.py": "e9c906a82b9af66d94737ac04c62dd003fd0fedec69c7cef7a3304f95ff3c661",
+    "python/server/routers/sessions.py": "0beaa337764a06734e93c345e7c479c211afcb0fcbc3557889c73791af9eb4b2",
+    "python/tools/agent_tool/agent_tool.py": "025b83e03bcc132d31b1df2d1a1e99bfed5acbad7051c73c77587cbe4aaeee50",
+    "python/tools/execution_outcome.py": "028f6a02468ad2caf5a8324ccaeb8e27dd266fc0617f892aaa313318f92a5242",
+    "python/tools/tool_registry.py": "efbf4b0d323830eb946ec6eb1bee42e53b4f480815f8d6a6db4fcbf20dafa408"
+  }
+}

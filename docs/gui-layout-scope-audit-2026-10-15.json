@@ -1,0 +1,1276 @@
+{
+  "date": "2026-10-15",
+  "scope": "默认桌面 GUI 布局、UI 与功能范围；小改直接修，大调整只列方案。",
+  "fixed": [
+    {
+      "id": "F01",
+      "title": "设置遮住导航目的页",
+      "root_cause": "设置开关与路由分别维护；导航只改路由，高亮也只看路由。",
+      "repair": "统一导航入口退出设置；导航高亮与点击行为同时考虑设置状态。",
+      "before": "点用量后仍显示设置，再点同页会跳回对话。",
+      "after": "切页与同路径选择均退出设置，设置打开时只高亮设置。",
+      "source": "gui/src/lib/appNav.ts:28; gui/src/components/review/ActivityRail.tsx:9"
+    },
+    {
+      "id": "F02",
+      "title": "主题菜单越过窗口下边缘",
+      "root_cause": "20 张主题卡的浮层没有视口高度约束和自己的滚动容器。",
+      "repair": "限制菜单高度，内容内部滚动。",
+      "before": "720×480 时底部到 y=599；滚到最后一项使顶栏上移 119px。",
+      "after": "菜单底部 y=468，顶栏 y=0；20 项均可滚动触达。",
+      "source": "gui/src/components/TitleBar.tsx:134"
+    },
+    {
+      "id": "F03",
+      "title": "模型选择器被聊天容器裁切",
+      "root_cause": "主输入框使用容器内绝对定位；原有浮层定位只限制右边，没有限制左边。",
+      "repair": "复用既有 portal 和关闭机制；抽出按视口约束菜单位置的纯函数。",
+      "before": "搜索框 x=-75，模型行 x=-111，左侧内容和中心点击位置被裁切。",
+      "after": "搜索框 x=50、模型行 x=14；可搜索并选中第二个模型，宽窗口保持右侧对齐。",
+      "source": "gui/src/components/Composer.tsx:666; gui/src/components/ModelPicker.tsx:140; gui/src/ui/anchoredMenuGeometry.ts:11"
+    },
+    {
+      "id": "F04",
+      "title": "远程错误弹窗把关闭按钮挤出屏幕",
+      "root_cause": "固定二维码区与不受限的错误文本共同撑高居中弹窗。",
+      "repair": "按视口限制弹窗高度并内部滚动。",
+      "before": "长错误样例下关闭按钮 y=-188.94，不在屏幕内。",
+      "after": "同一错误样例下关闭按钮 y=37，可点击。",
+      "source": "gui/src/components/RemoteQrPanel.tsx:100"
+    },
+    {
+      "id": "F05",
+      "title": "远程设置指向已不存在的顶栏二维码按钮",
+      "root_cause": "连接入口迁入应用菜单后，说明未同步。",
+      "repair": "指向左上角应用菜单中的远程连接。",
+      "before": "提示点击顶栏二维码按钮。",
+      "after": "与现有应用菜单入口一致。",
+      "source": "gui/src/components/settings/RemoteSettingsHelp.tsx:5"
+    },
+    {
+      "id": "F06",
+      "title": "命令复制成功却不显示成功反馈",
+      "root_cause": "保存的是显示文本，选中状态却与原始 JSON 参数比较。",
+      "repair": "反馈状态与实际复制的显示文本比较。",
+      "before": "剪贴板是 echo hello，按钮仍显示复制。",
+      "after": "剪贴板仍是 echo hello，按钮显示已复制。",
+      "source": "gui/src/components/WorkspaceToolPanel.tsx:140"
+    },
+    {
+      "id": "F07",
+      "title": "有数据的用量页在小窗口横向裁切",
+      "root_cause": "日期导航与图表未根据实际可用容器宽度降级；双列图表挤出正文。",
+      "repair": "给报告与正文建立明确的容器边界；窄报告使用日期选择框，窄正文使用单列图表。",
+      "before": "720px 窗口可见宽度 603px，内容宽度 682px，超出 79px。",
+      "after": "相同样例内容宽度 603px；720、800、900、1024、1280 五档宽度均无报告级横向溢出。",
+      "source": "gui/src/styles/review-polish.css:84"
+    }
+  ],
+  "proposals": [
+    {
+      "id": "P01",
+      "priority": "高",
+      "title": "工具工作区需要按任务分配空间",
+      "finding": "终端、浏览器、地图沿用约 248px 的工具列；地址、标签和操作行明显拥挤。空文件区也持续占用对话空间。",
+      "proposal": "文件列表保留侧栏；终端、浏览器、地图在窄窗口切换为主内容工具页或临时展开层，显式打开并记住用户宽度。",
+      "acceptance": "720×480 下地址和主要操作可用；对话输入不会被遮挡；关闭工具能回到原会话和滚动位置。",
+      "evidence": "tool-browser-720、tool-terminal-720、tool-map-720 截图；ReviewWorkbench.tsx；ReviewWorkspaceNav.tsx"
+    },
+    {
+      "id": "P02",
+      "priority": "高",
+      "title": "账号设置缺少明确的协议选择",
+      "finding": "新增时按地址关键词猜协议；编辑时保留旧 provider。把原 OpenAI 账号地址改为 Anthropic 地址，保存分支仍可能沿用 OpenAI 协议。此项为源码确认，未发送真实厂商请求。",
+      "proposal": "账号表单分开供应商名称、API 协议、请求地址和模型列表；允许明确选择协议，地址识别仅用于初始建议。",
+      "acceptance": "新建与编辑采用同一协议来源；官方地址和中转地址均可配置；原账号迁移不悄悄改变协议。",
+      "evidence": "gui/src/components/SettingsModal.tsx:309,488"
+    },
+    {
+      "id": "P03",
+      "priority": "中",
+      "title": "命令、工具调用和 Git 记录的范围混杂",
+      "finding": "导航叫命令记录，页内叫历史命令；实际收集所有工具调用，搜索也以参数 JSON 出现在命令列表。另有更改、Git、提交记录多组相近入口。",
+      "proposal": "把全部工具记录明确为调用记录，按工具筛选并展示摘要；终端命令历史留在终端；Git 状态与提交历史归于版本控制分组。",
+      "acceptance": "搜索不再被称为命令；每种记录有一致名称、范围和空态说明；不删除现有数据和工具能力。",
+      "evidence": "gui/src/components/review/ReviewWorkspaceNav.tsx:16; gui/src/components/WorkspaceToolPanel.tsx:30,60"
+    },
+    {
+      "id": "P04",
+      "priority": "中",
+      "title": "扩展中心可查看启停，但缺少配置入口",
+      "finding": "插件/MCP/技能可查看启停；空态要求用户修改配置文件或重启后端，GUI 内没有对应的添加配置流程。",
+      "proposal": "明确本页是管理页，并提供添加/导入配置、校验反馈和作用范围选择；安装市场与自动下载另行定义范围。",
+      "acceptance": "用户从空态能完成声明和校验；本机/工作区配置来源可见；不会把未读取状态当成关闭。",
+      "evidence": "gui/src/components/PluginsPanel.tsx:732,769; extensions-MCP-720 截图"
+    },
+    {
+      "id": "P05",
+      "priority": "中",
+      "title": "任务卡片需要统一滚动与固定操作区",
+      "finding": "长计划、审批和提问在卡片内部与外层任务栈同时滚动。实测按钮滚动后可点击，未判定为功能失效，但初始状态不易发现操作。",
+      "proposal": "统一卡片头、正文滚动区与底部操作区；批准/拒绝/提交始终可见，长 Goal 与队列保留已有草稿、冲突和顺序规则。",
+      "acceptance": "长内容和多卡并存时主要操作可见；动画开关均可用；输入框保持可访问。",
+      "evidence": "6 组计划/审批/提问边界检查，动画开关两种状态"
+    },
+    {
+      "id": "P06",
+      "priority": "中",
+      "title": "设置可读性和术语层级需要统一",
+      "finding": "模型、权限、回溯等页的辅助文字常为 10–12px，灰色层级多；部分说明混用 preset、Shadow Git、journal、字节等实现术语。",
+      "proposal": "统一标题、正文、说明与控件间距；主要正文采用一致字号；技术细节放入可展开说明，存储大小用直观单位。",
+      "acceptance": "720×480 下主要字段和操作容易辨认；深浅主题均可读；每项设置展示作用范围和生效方式。",
+      "evidence": "settings-account-form-720、settings-perms-720、settings-rewind-720 截图"
+    },
+    {
+      "id": "P07",
+      "priority": "中",
+      "title": "主导航与菜单的功能分组不一致",
+      "finding": "文件菜单同时承载新对话、终端、远程、设置、沉浸和退出；诊断中的实验、采集等高级能力与日常页面并列。",
+      "proposal": "应用菜单负责应用级操作；工作区工具集中在工具入口；诊断保留入口但区分常用排障与高级实验；远程设置提供状态与连接管理。",
+      "acceptance": "同一功能只有一个清晰的主入口；快捷入口指向同一实现；高级功能仍可访问，不静默删减能力。",
+      "evidence": "gui/src/components/FileMenu.tsx:87; gui/src/features/diagnostics/DiagnosticsPanel.tsx:54; RemoteSettingsHelp.tsx"
+    }
+  ],
+  "coverage": {
+    "states": 63,
+    "states_by_group": {
+      "before": [
+        "chat-1280",
+        "settings-appearance-1280",
+        "settings-accounts-1280",
+        "settings-account-form-1280",
+        "settings-behavior-1280",
+        "settings-perms-1280",
+        "settings-rewind-1280",
+        "settings-remote-1280",
+        "settings-archive-1280",
+        "chat-720",
+        "settings-appearance-720",
+        "settings-accounts-720",
+        "settings-account-form-720",
+        "settings-behavior-720",
+        "settings-perms-720",
+        "settings-rewind-720",
+        "settings-remote-720",
+        "settings-archive-720",
+        "tool-terminal-1280",
+        "tool-terminal-720",
+        "tool-browser-1280",
+        "tool-browser-720",
+        "tool-history-1280",
+        "tool-history-720",
+        "tool-commits-1280",
+        "tool-commits-720",
+        "tool-map-1280",
+        "tool-map-720",
+        "usage-1280",
+        "usage-720",
+        "plugins-1280",
+        "plugins-720",
+        "diagnostics-1280",
+        "diagnostics-720",
+        "command-palette-720",
+        "theme-picker-720",
+        "app-menu-720",
+        "chat-dark-720"
+      ],
+      "populated": [
+        "dock-plan-720",
+        "dock-plan-bottom-720",
+        "dock-permission-720",
+        "dock-permission-bottom-720",
+        "dock-ask-720",
+        "dock-ask-bottom-720",
+        "model-picker-720",
+        "settings-appearance-bottom-720",
+        "settings-accounts-bottom-720",
+        "settings-behavior-bottom-720",
+        "settings-perms-bottom-720",
+        "settings-rewind-bottom-720",
+        "extensions-插件-720",
+        "extensions-MCP-720",
+        "extensions-技能-720",
+        "extensions-loaded-1280",
+        "usage-loaded-1280",
+        "usage-loaded-720",
+        "diagnostics-问题-720",
+        "diagnostics-步骤-720",
+        "diagnostics-上下文-720",
+        "diagnostics-用量-720",
+        "diagnostics-实验-720",
+        "diagnostics-loaded-1280",
+        "remote-error-720"
+      ]
+    },
+    "browser_errors": 0,
+    "limits": [
+      "Chromium 浏览器与隔离服务样例，不是 Tauri 原生安装包端到端测试。",
+      "未连接真实模型、微信、MCP 或终端进程；未执行真实文件修改。",
+      "主要检查当前默认布局；旧布局开关、真实高 DPI、多显示器和所有文件格式未逐项验收。"
+    ]
+  },
+  "validation": {
+    "focused_tests": "31 passed in 4 files",
+    "typecheck": "passed after removing an unused loadServerSessionMessages import left by concurrent splitting",
+    "build": "passed; chunk size/cycle and mixed dynamic/static import warnings are not resolved in this UI audit",
+    "browser_regression": "scripts/verify-gui-layout.mjs passed",
+    "isolation": "所有候选先用隔离 Vite 源码覆盖或浏览器临时样式验证；合入前比对文件基线，保留并发改动；未提交混合工作区。"
+  },
+  "ab": {
+    "probe-before": {
+      "errors": [],
+      "checks": {
+        "settingsSelected": null,
+        "chatSelectedUnderSettings": "true",
+        "usageFromSettings": {
+          "path": "/usage",
+          "settingsVisible": true
+        },
+        "samePageFromSettings": {
+          "path": "/",
+          "settingsVisible": true
+        },
+        "chatFromSettings": {
+          "path": "/",
+          "settingsVisible": true
+        },
+        "theme": {
+          "total": 20,
+          "panelTop": 36,
+          "panelBottom": 599,
+          "viewportHeight": 480,
+          "overflowY": "visible",
+          "clientHeight": 561,
+          "scrollHeight": 561
+        },
+        "lastTheme": {
+          "label": "铅灰",
+          "top": 400,
+          "bottom": 471,
+          "fullyVisible": true
+        },
+        "titlebarAfterThemeScroll": -119,
+        "remoteGuide": "设置\n偏好与应用配置\n外观\n模型与账号\n对话与工具\n权限\n回溯\n远程 · 微信\n归档对话\n微信远程\n\n用手机继续桌面的当前对话，支持文字、图片和文件。\n\n点击顶栏的二维码按钮。\n用微信扫码，并在手机上确认连接。\n向机器人发送消息。桌面会显示远程消息，回复会返回微信。\n\n连接状态和失败原因会显示在二维码面板中。\n\n常用指令",
+        "copy": {
+          "text": "echo hello",
+          "feedback": "复制"
+        }
+      }
+    },
+    "probe-candidate": {
+      "errors": [],
+      "checks": {
+        "settingsSelected": "true",
+        "chatSelectedUnderSettings": "false",
+        "usageFromSettings": {
+          "path": "/usage",
+          "settingsVisible": false
+        },
+        "samePageFromSettings": {
+          "path": "/usage",
+          "settingsVisible": false
+        },
+        "chatFromSettings": {
+          "path": "/",
+          "settingsVisible": false
+        },
+        "theme": {
+          "total": 20,
+          "panelTop": 36,
+          "panelBottom": 468,
+          "viewportHeight": 480,
+          "overflowY": "auto",
+          "clientHeight": 430,
+          "scrollHeight": 561
+        },
+        "lastTheme": {
+          "label": "铅灰",
+          "top": 388,
+          "bottom": 459,
+          "fullyVisible": true
+        },
+        "titlebarAfterThemeScroll": 0,
+        "remoteGuide": "设置\n偏好与应用配置\n外观\n模型与账号\n对话与工具\n权限\n回溯\n远程 · 微信\n归档对话\n微信远程\n\n用手机继续桌面的当前对话，支持文字、图片和文件。\n\n点击左上角应用菜单中的“远程连接”（当前布局显示为“文件”）。\n用微信扫码，并在手机上确认连接。\n向机器人发送消息。桌面会显示远程消息，回复会返回微信。\n\n连接状态和失败原因会显示在二维码面板中。\n\n常用指令",
+        "copy": {
+          "text": "echo hello",
+          "feedback": "已复制"
+        }
+      }
+    },
+    "probe-final": {
+      "errors": [],
+      "checks": {
+        "settingsSelected": "true",
+        "chatSelectedUnderSettings": "false",
+        "usageFromSettings": {
+          "path": "/usage",
+          "settingsVisible": false
+        },
+        "samePageFromSettings": {
+          "path": "/usage",
+          "settingsVisible": false
+        },
+        "chatFromSettings": {
+          "path": "/",
+          "settingsVisible": false
+        },
+        "theme": {
+          "total": 20,
+          "panelTop": 36,
+          "panelBottom": 468,
+          "viewportHeight": 480,
+          "overflowY": "auto",
+          "clientHeight": 430,
+          "scrollHeight": 561
+        },
+        "lastTheme": {
+          "label": "铅灰",
+          "top": 388,
+          "bottom": 459,
+          "fullyVisible": true
+        },
+        "titlebarAfterThemeScroll": 0,
+        "remoteGuide": "设置\n偏好与应用配置\n外观\n模型与账号\n对话与工具\n权限\n回溯\n远程 · 微信\n归档对话\n微信远程\n\n用手机继续桌面的当前对话，支持文字、图片和文件。\n\n打开左上角的应用菜单，选择“远程连接”。\n用微信扫码，并在手机上确认连接。\n向机器人发送消息。桌面会显示远程消息，回复会返回微信。\n\n连接状态和失败原因会显示在二维码面板中。\n\n常用指令",
+        "copy": {
+          "text": "echo hello",
+          "feedback": "已复制"
+        }
+      }
+    },
+    "boundaries-before": {
+      "errors": [],
+      "checks": [
+        {
+          "kind": "plan",
+          "smoothness": false,
+          "control": {
+            "text": "允许执行",
+            "x": 350,
+            "y": 318.109375,
+            "width": 80,
+            "height": 32,
+            "withinViewport": true,
+            "centerReachable": true
+          },
+          "composer": {
+            "text": "",
+            "x": 78,
+            "y": 367,
+            "width": 359,
+            "height": 36,
+            "withinViewport": true,
+            "centerReachable": true
+          }
+        },
+        {
+          "kind": "permission",
+          "smoothness": false,
+          "control": {
+            "text": "允许",
+            "x": 374,
+            "y": 319.109375,
+            "width": 56,
+            "height": 30,
+            "withinViewport": true,
+            "centerReachable": true
+          },
+          "composer": {
+            "text": "",
+            "x": 78,
+            "y": 367,
+            "width": 359,
+            "height": 36,
+            "withinViewport": true,
+            "centerReachable": true
+          }
+        },
+        {
+          "kind": "ask",
+          "smoothness": false,
+          "control": {
+            "text": "",
+            "x": 85,
+            "y": 310.5,
+            "width": 297,
+            "height": 40,
+            "withinViewport": true,
+            "centerReachable": true
+          },
+          "composer": {
+            "text": "",
+            "x": 78,
+            "y": 367,
+            "width": 359,
+            "height": 36,
+            "withinViewport": true,
+            "centerReachable": true
+          }
+        },
+        {
+          "kind": "plan",
+          "smoothness": true,
+          "control": {
+            "text": "允许执行",
+            "x": 350,
+            "y": 303.109375,
+            "width": 80,
+            "height": 32,
+            "withinViewport": true,
+            "centerReachable": true
+          },
+          "composer": {
+            "text": "",
+            "x": 78,
+            "y": 367,
+            "width": 359,
+            "height": 36,
+            "withinViewport": true,
+            "centerReachable": true
+          }
+        },
+        {
+          "kind": "permission",
+          "smoothness": true,
+          "control": {
+            "text": "允许",
+            "x": 374,
+            "y": 304.109375,
+            "width": 56,
+            "height": 30,
+            "withinViewport": true,
+            "centerReachable": true
+          },
+          "composer": {
+            "text": "",
+            "x": 78,
+            "y": 367,
+            "width": 359,
+            "height": 36,
+            "withinViewport": true,
+            "centerReachable": true
+          }
+        },
+        {
+          "kind": "ask",
+          "smoothness": true,
+          "control": {
+            "text": "",
+            "x": 85,
+            "y": 295.5,
+            "width": 297,
+            "height": 40,
+            "withinViewport": true,
+            "centerReachable": true
+          },
+          "composer": {
+            "text": "",
+            "x": 78,
+            "y": 367,
+            "width": 359,
+            "height": 36,
+            "withinViewport": true,
+            "centerReachable": true
+          }
+        },
+        {
+          "kind": "model-picker",
+          "width": 720,
+          "search": {
+            "text": "",
+            "x": -75,
+            "y": 84.375,
+            "width": 217,
+            "height": 18.75,
+            "withinViewport": false,
+            "centerReachable": false
+          },
+          "model": {
+            "text": "audit-model",
+            "x": -111,
+            "y": 115.75,
+            "width": 267,
+            "height": 34.75,
+            "withinViewport": false,
+            "centerReachable": false
+          },
+          "canSelect": true
+        },
+        {
+          "kind": "model-picker",
+          "width": 1280,
+          "search": {
+            "text": "",
+            "x": 409.5,
+            "y": 414.375,
+            "width": 217,
+            "height": 18.75,
+            "withinViewport": true,
+            "centerReachable": true
+          },
+          "model": {
+            "text": "audit-model",
+            "x": 373.5,
+            "y": 445.75,
+            "width": 267,
+            "height": 34.75,
+            "withinViewport": true,
+            "centerReachable": true
+          },
+          "canSelect": true
+        },
+        {
+          "kind": "remote-error",
+          "close": {
+            "text": "",
+            "x": 491,
+            "y": -188.9375,
+            "width": 28,
+            "height": 28,
+            "withinViewport": false,
+            "centerReachable": false
+          }
+        }
+      ]
+    },
+    "boundaries-candidate": {
+      "errors": [],
+      "checks": [
+        {
+          "kind": "plan",
+          "smoothness": false,
+          "control": {
+            "text": "允许执行",
+            "x": 350,
+            "y": 318.109375,
+            "width": 80,
+            "height": 32,
+            "withinViewport": true,
+            "centerReachable": true
+          },
+          "composer": {
+            "text": "",
+            "x": 78,
+            "y": 367,
+            "width": 359,
+            "height": 36,
+            "withinViewport": true,
+            "centerReachable": true
+          }
+        },
+        {
+          "kind": "permission",
+          "smoothness": false,
+          "control": {
+            "text": "允许",
+            "x": 374,
+            "y": 319.109375,
+            "width": 56,
+            "height": 30,
+            "withinViewport": true,
+            "centerReachable": true
+          },
+          "composer": {
+            "text": "",
+            "x": 78,
+            "y": 367,
+            "width": 359,
+            "height": 36,
+            "withinViewport": true,
+            "centerReachable": true
+          }
+        },
+        {
+          "kind": "ask",
+          "smoothness": false,
+          "control": {
+            "text": "",
+            "x": 85,
+            "y": 310.5,
+            "width": 297,
+            "height": 40,
+            "withinViewport": true,
+            "centerReachable": true
+          },
+          "composer": {
+            "text": "",
+            "x": 78,
+            "y": 367,
+            "width": 359,
+            "height": 36,
+            "withinViewport": true,
+            "centerReachable": true
+          }
+        },
+        {
+          "kind": "plan",
+          "smoothness": true,
+          "control": {
+            "text": "允许执行",
+            "x": 350,
+            "y": 303.109375,
+            "width": 80,
+            "height": 32,
+            "withinViewport": true,
+            "centerReachable": true
+          },
+          "composer": {
+            "text": "",
+            "x": 78,
+            "y": 367,
+            "width": 359,
+            "height": 36,
+            "withinViewport": true,
+            "centerReachable": true
+          }
+        },
+        {
+          "kind": "permission",
+          "smoothness": true,
+          "control": {
+            "text": "允许",
+            "x": 374,
+            "y": 304.109375,
+            "width": 56,
+            "height": 30,
+            "withinViewport": true,
+            "centerReachable": true
+          },
+          "composer": {
+            "text": "",
+            "x": 78,
+            "y": 367,
+            "width": 359,
+            "height": 36,
+            "withinViewport": true,
+            "centerReachable": true
+          }
+        },
+        {
+          "kind": "ask",
+          "smoothness": true,
+          "control": {
+            "text": "",
+            "x": 85,
+            "y": 295.5,
+            "width": 297,
+            "height": 40,
+            "withinViewport": true,
+            "centerReachable": true
+          },
+          "composer": {
+            "text": "",
+            "x": 78,
+            "y": 367,
+            "width": 359,
+            "height": 36,
+            "withinViewport": true,
+            "centerReachable": true
+          }
+        },
+        {
+          "kind": "model-picker",
+          "width": 720,
+          "search": {
+            "text": "",
+            "x": 50,
+            "y": 82.375,
+            "width": 217,
+            "height": 18.75,
+            "withinViewport": true,
+            "centerReachable": true
+          },
+          "model": {
+            "text": "audit-model",
+            "x": 14,
+            "y": 113.75,
+            "width": 267,
+            "height": 34.75,
+            "withinViewport": true,
+            "centerReachable": true
+          },
+          "canSelect": true
+        },
+        {
+          "kind": "model-picker",
+          "width": 1280,
+          "search": {
+            "text": "",
+            "x": 409.5,
+            "y": 412.375,
+            "width": 217,
+            "height": 18.75,
+            "withinViewport": true,
+            "centerReachable": true
+          },
+          "model": {
+            "text": "audit-model",
+            "x": 373.5,
+            "y": 443.75,
+            "width": 267,
+            "height": 34.75,
+            "withinViewport": true,
+            "centerReachable": true
+          },
+          "canSelect": true
+        },
+        {
+          "kind": "remote-error",
+          "close": {
+            "text": "",
+            "x": 491,
+            "y": 37,
+            "width": 28,
+            "height": 28,
+            "withinViewport": true,
+            "centerReachable": true
+          }
+        }
+      ]
+    },
+    "boundaries-final": {
+      "errors": [],
+      "checks": [
+        {
+          "kind": "plan",
+          "smoothness": false,
+          "control": {
+            "text": "允许执行",
+            "x": 350,
+            "y": 318.109375,
+            "width": 80,
+            "height": 32,
+            "withinViewport": true,
+            "centerReachable": true
+          },
+          "composer": {
+            "text": "",
+            "x": 78,
+            "y": 367,
+            "width": 359,
+            "height": 36,
+            "withinViewport": true,
+            "centerReachable": true
+          }
+        },
+        {
+          "kind": "permission",
+          "smoothness": false,
+          "control": {
+            "text": "允许",
+            "x": 374,
+            "y": 319.109375,
+            "width": 56,
+            "height": 30,
+            "withinViewport": true,
+            "centerReachable": true
+          },
+          "composer": {
+            "text": "",
+            "x": 78,
+            "y": 367,
+            "width": 359,
+            "height": 36,
+            "withinViewport": true,
+            "centerReachable": true
+          }
+        },
+        {
+          "kind": "ask",
+          "smoothness": false,
+          "control": {
+            "text": "",
+            "x": 85,
+            "y": 310.5,
+            "width": 297,
+            "height": 40,
+            "withinViewport": true,
+            "centerReachable": true
+          },
+          "composer": {
+            "text": "",
+            "x": 78,
+            "y": 367,
+            "width": 359,
+            "height": 36,
+            "withinViewport": true,
+            "centerReachable": true
+          }
+        },
+        {
+          "kind": "plan",
+          "smoothness": true,
+          "control": {
+            "text": "允许执行",
+            "x": 350,
+            "y": 303.109375,
+            "width": 80,
+            "height": 32,
+            "withinViewport": true,
+            "centerReachable": true
+          },
+          "composer": {
+            "text": "",
+            "x": 78,
+            "y": 367,
+            "width": 359,
+            "height": 36,
+            "withinViewport": true,
+            "centerReachable": true
+          }
+        },
+        {
+          "kind": "permission",
+          "smoothness": true,
+          "control": {
+            "text": "允许",
+            "x": 374,
+            "y": 304.109375,
+            "width": 56,
+            "height": 30,
+            "withinViewport": true,
+            "centerReachable": true
+          },
+          "composer": {
+            "text": "",
+            "x": 78,
+            "y": 367,
+            "width": 359,
+            "height": 36,
+            "withinViewport": true,
+            "centerReachable": true
+          }
+        },
+        {
+          "kind": "ask",
+          "smoothness": true,
+          "control": {
+            "text": "",
+            "x": 85,
+            "y": 295.5,
+            "width": 297,
+            "height": 40,
+            "withinViewport": true,
+            "centerReachable": true
+          },
+          "composer": {
+            "text": "",
+            "x": 78,
+            "y": 367,
+            "width": 359,
+            "height": 36,
+            "withinViewport": true,
+            "centerReachable": true
+          }
+        },
+        {
+          "kind": "model-picker",
+          "width": 720,
+          "search": {
+            "text": "",
+            "x": 50,
+            "y": 82.375,
+            "width": 217,
+            "height": 18.75,
+            "withinViewport": true,
+            "centerReachable": true
+          },
+          "model": {
+            "text": "audit-model",
+            "x": 14,
+            "y": 113.75,
+            "width": 267,
+            "height": 34.75,
+            "withinViewport": true,
+            "centerReachable": true
+          },
+          "canSelect": true
+        },
+        {
+          "kind": "model-selection",
+          "selected": "audit-model-2",
+          "menuRemainsMounted": true
+        },
+        {
+          "kind": "model-picker",
+          "width": 1280,
+          "search": {
+            "text": "",
+            "x": 409.5,
+            "y": 412.375,
+            "width": 217,
+            "height": 18.75,
+            "withinViewport": true,
+            "centerReachable": true
+          },
+          "model": {
+            "text": "audit-model",
+            "x": 373.5,
+            "y": 443.75,
+            "width": 267,
+            "height": 34.75,
+            "withinViewport": true,
+            "centerReachable": true
+          },
+          "canSelect": true
+        },
+        {
+          "kind": "remote-error",
+          "close": {
+            "text": "",
+            "x": 491,
+            "y": 37,
+            "width": 28,
+            "height": 28,
+            "withinViewport": true,
+            "centerReachable": true
+          }
+        }
+      ]
+    },
+    "usage": {
+      "before-720": {
+        "width": 603,
+        "scrollWidth": 682,
+        "overflows": [
+          {
+            "tag": "DIV",
+            "cls": "xy-a3-native xy-a3-dashboard",
+            "width": 603,
+            "scroll": 682
+          },
+          {
+            "tag": "DIV",
+            "cls": "xy-a3-body",
+            "width": 429,
+            "scroll": 508
+          },
+          {
+            "tag": "SPAN",
+            "cls": "overflow-visible whitespace-nowrap",
+            "width": 14,
+            "scroll": 20
+          },
+          {
+            "tag": "SPAN",
+            "cls": "overflow-visible whitespace-nowrap",
+            "width": 14,
+            "scroll": 20
+          },
+          {
+            "tag": "SPAN",
+            "cls": "overflow-visible whitespace-nowrap",
+            "width": 14,
+            "scroll": 20
+          },
+          {
+            "tag": "DIV",
+            "cls": "xy-a3-donuts grid grid-cols-1 gap-px border-b border-line bg-line/40 lg:grid-cols-2",
+            "width": 429,
+            "scroll": 508
+          },
+          {
+            "tag": "DIV",
+            "cls": "xy-usage-donut min-w-0 bg-paper px-4 py-3",
+            "width": 210,
+            "scroll": 363
+          },
+          {
+            "tag": "DIV",
+            "cls": "mt-2 flex items-center gap-3",
+            "width": 178,
+            "scroll": 347
+          },
+          {
+            "tag": "UL",
+            "cls": "min-w-0 flex-1",
+            "width": 34,
+            "scroll": 203
+          },
+          {
+            "tag": "LI",
+            "cls": "flex cursor-pointer items-baseline gap-2 rounded-[6px] px-1.5 py-1 text-[11px] hover:bg-glass-hover",
+            "width": 34,
+            "scroll": 203
+          },
+          {
+            "tag": "DIV",
+            "cls": "xy-usage-donut min-w-0 bg-paper px-4 py-3",
+            "width": 210,
+            "scroll": 288
+          },
+          {
+            "tag": "DIV",
+            "cls": "mt-2 flex items-center gap-3",
+            "width": 178,
+            "scroll": 272
+          }
+        ],
+        "dateSelectVisible": false
+      },
+      "candidate-720": {
+        "width": 603,
+        "scrollWidth": 603,
+        "overflows": [
+          {
+            "tag": "SPAN",
+            "cls": "overflow-visible whitespace-nowrap",
+            "width": 14,
+            "scroll": 20
+          },
+          {
+            "tag": "SPAN",
+            "cls": "overflow-visible whitespace-nowrap",
+            "width": 14,
+            "scroll": 20
+          },
+          {
+            "tag": "SPAN",
+            "cls": "overflow-visible whitespace-nowrap",
+            "width": 14,
+            "scroll": 20
+          }
+        ],
+        "dateSelectVisible": true
+      },
+      "candidate-800": {
+        "width": 683,
+        "scrollWidth": 683,
+        "overflows": [
+          {
+            "tag": "SPAN",
+            "cls": "overflow-visible whitespace-nowrap",
+            "width": 14,
+            "scroll": 20
+          },
+          {
+            "tag": "SPAN",
+            "cls": "overflow-visible whitespace-nowrap",
+            "width": 14,
+            "scroll": 20
+          },
+          {
+            "tag": "SPAN",
+            "cls": "overflow-visible whitespace-nowrap",
+            "width": 14,
+            "scroll": 20
+          }
+        ],
+        "dateSelectVisible": true
+      },
+      "candidate-900": {
+        "width": 783,
+        "scrollWidth": 783,
+        "overflows": [
+          {
+            "tag": "SPAN",
+            "cls": "overflow-visible whitespace-nowrap",
+            "width": 14,
+            "scroll": 20
+          },
+          {
+            "tag": "SPAN",
+            "cls": "overflow-visible whitespace-nowrap",
+            "width": 14,
+            "scroll": 20
+          },
+          {
+            "tag": "SPAN",
+            "cls": "overflow-visible whitespace-nowrap",
+            "width": 14,
+            "scroll": 20
+          }
+        ],
+        "dateSelectVisible": false
+      },
+      "candidate-1024": {
+        "width": 907,
+        "scrollWidth": 907,
+        "overflows": [
+          {
+            "tag": "SPAN",
+            "cls": "overflow-visible whitespace-nowrap",
+            "width": 14,
+            "scroll": 20
+          },
+          {
+            "tag": "SPAN",
+            "cls": "overflow-visible whitespace-nowrap",
+            "width": 14,
+            "scroll": 20
+          },
+          {
+            "tag": "SPAN",
+            "cls": "overflow-visible whitespace-nowrap",
+            "width": 14,
+            "scroll": 20
+          }
+        ],
+        "dateSelectVisible": false
+      },
+      "candidate-1280": {
+        "width": 1163,
+        "scrollWidth": 1163,
+        "overflows": [
+          {
+            "tag": "SPAN",
+            "cls": "overflow-visible whitespace-nowrap",
+            "width": 14,
+            "scroll": 20
+          },
+          {
+            "tag": "SPAN",
+            "cls": "overflow-visible whitespace-nowrap",
+            "width": 14,
+            "scroll": 20
+          },
+          {
+            "tag": "SPAN",
+            "cls": "overflow-visible whitespace-nowrap",
+            "width": 14,
+            "scroll": 20
+          },
+          {
+            "tag": "SPAN",
+            "cls": "min-w-0 flex-1 truncate text-ink-soft",
+            "width": 104,
+            "scroll": 148
+          }
+        ],
+        "dateSelectVisible": false
+      }
+    },
+    "usage-final": {
+      "final-720": {
+        "width": 603,
+        "scrollWidth": 603,
+        "overflows": [
+          {
+            "tag": "SPAN",
+            "cls": "overflow-visible whitespace-nowrap",
+            "width": 14,
+            "scroll": 20
+          },
+          {
+            "tag": "SPAN",
+            "cls": "overflow-visible whitespace-nowrap",
+            "width": 14,
+            "scroll": 20
+          },
+          {
+            "tag": "SPAN",
+            "cls": "overflow-visible whitespace-nowrap",
+            "width": 14,
+            "scroll": 20
+          }
+        ],
+        "dateSelectVisible": true
+      },
+      "final-800": {
+        "width": 683,
+        "scrollWidth": 683,
+        "overflows": [
+          {
+            "tag": "SPAN",
+            "cls": "overflow-visible whitespace-nowrap",
+            "width": 14,
+            "scroll": 20
+          },
+          {
+            "tag": "SPAN",
+            "cls": "overflow-visible whitespace-nowrap",
+            "width": 14,
+            "scroll": 20
+          },
+          {
+            "tag": "SPAN",
+            "cls": "overflow-visible whitespace-nowrap",
+            "width": 14,
+            "scroll": 20
+          }
+        ],
+        "dateSelectVisible": true
+      },
+      "final-900": {
+        "width": 783,
+        "scrollWidth": 783,
+        "overflows": [
+          {
+            "tag": "SPAN",
+            "cls": "overflow-visible whitespace-nowrap",
+            "width": 14,
+            "scroll": 20
+          },
+          {
+            "tag": "SPAN",
+            "cls": "overflow-visible whitespace-nowrap",
+            "width": 14,
+            "scroll": 20
+          },
+          {
+            "tag": "SPAN",
+            "cls": "overflow-visible whitespace-nowrap",
+            "width": 14,
+            "scroll": 20
+          }
+        ],
+        "dateSelectVisible": false
+      },
+      "final-1024": {
+        "width": 907,
+        "scrollWidth": 907,
+        "overflows": [
+          {
+            "tag": "SPAN",
+            "cls": "overflow-visible whitespace-nowrap",
+            "width": 14,
+            "scroll": 20
+          },
+          {
+            "tag": "SPAN",
+            "cls": "overflow-visible whitespace-nowrap",
+            "width": 14,
+            "scroll": 20
+          },
+          {
+            "tag": "SPAN",
+            "cls": "overflow-visible whitespace-nowrap",
+            "width": 14,
+            "scroll": 20
+          }
+        ],
+        "dateSelectVisible": false
+      },
+      "final-1280": {
+        "width": 1163,
+        "scrollWidth": 1163,
+        "overflows": [
+          {
+            "tag": "SPAN",
+            "cls": "overflow-visible whitespace-nowrap",
+            "width": 14,
+            "scroll": 20
+          },
+          {
+            "tag": "SPAN",
+            "cls": "overflow-visible whitespace-nowrap",
+            "width": 14,
+            "scroll": 20
+          },
+          {
+            "tag": "SPAN",
+            "cls": "overflow-visible whitespace-nowrap",
+            "width": 14,
+            "scroll": 20
+          },
+          {
+            "tag": "SPAN",
+            "cls": "min-w-0 flex-1 truncate text-ink-soft",
+            "width": 104,
+            "scroll": 148
+          }
+        ],
+        "dateSelectVisible": false
+      }
+    }
+  }
+}

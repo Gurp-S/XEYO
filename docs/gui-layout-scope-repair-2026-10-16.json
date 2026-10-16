@@ -1,0 +1,1855 @@
+{
+  "date": "2026-10-16",
+  "scope": "上轮审计 P01–P07；不包含全应用重新审计或真实服务联调",
+  "method": "同一源码快照构造 A/B 独立候选；同一 Chromium、夹具、窗口尺寸与操作脚本；先确认差异再按文件摘要合入。最后在当前源码验证，并补查深色主题及队列异步投递边界。",
+  "issues": [
+    {
+      "id": "P01",
+      "title": "工具工作区按任务分配空间",
+      "root": "文件列表与浏览器、终端、地图共用窄列宽度，初始空工作区也占用空间。",
+      "fix": "工具与文件列独立记忆宽度；窄窗口工具覆盖聊天正文并避开输入与任务区；关闭后恢复原聊天位置。初始不展示空列。",
+      "evidence": "720×480 下工具宽度 248 → 667px，浏览器地址输入宽度 78 → 497px。1280px 下工具默认宽度 560px；调整后的 568px 与保存值一致。聊天滚动位置 240 → 240px。",
+      "files": [
+        "gui/src/lib/workbenchLayout.ts",
+        "gui/src/components/review/ReviewWorkbench.tsx"
+      ]
+    },
+    {
+      "id": "P02",
+      "title": "账号协议显式选择",
+      "root": "拉取模型按地址猜协议，编辑保存沿用旧账号协议，两条路径有不同来源。",
+      "fix": "新增与编辑共用协议字段，拉取模型和保存都使用该字段；更改地址不暗中换协议；过期拉取结果不再回填新表单。",
+      "evidence": "同一 OpenAI 账号改用 Anthropic 地址：A 拉取为 anthropic、保存仍为 openai；B 明确选择 anthropic 后拉取与保存均为 anthropic。请求全部由本地夹具接收。",
+      "files": [
+        "gui/src/components/settings/AccountProtocolField.tsx",
+        "gui/src/components/SettingsModal.tsx"
+      ]
+    },
+    {
+      "id": "P03",
+      "title": "调用记录、终端历史与版本控制分组",
+      "root": "全部工具调用被混称为命令历史；Git 状态与提交历史散落在通用工具入口。",
+      "fix": "调用记录统一命名、按工具筛选、显示内容摘要；Bash 复制命令，其他工具复制参数；终端保留命令历史；状态和提交记录归入版本控制。",
+      "evidence": "B 可筛选 Search，仅展示搜索摘要且没有“复制命令”按钮；A 没有筛选器。没有删除记录数据或提交历史能力。",
+      "files": [
+        "gui/src/components/workspace/ToolCallHistory.tsx",
+        "gui/src/components/workspace/TerminalHistory.tsx",
+        "gui/src/components/workspace/VersionControlView.tsx",
+        "gui/src/lib/toolCallHistory.ts"
+      ]
+    },
+    {
+      "id": "P04",
+      "title": "扩展配置从空态可完成",
+      "root": "原管理页只提供读取和启停，缺少声明、导入、校验以及明确的写入范围。",
+      "fix": "增加 MCP 声明表单和 JSON 导入，显示本机／工作区作用范围与保存位置；先校验再保存；原子写入和版本检查保留其他配置并拒绝覆盖较新的版本。",
+      "evidence": "A 没有配置入口；B 完成创建草稿→校验→保存。校验不创建文件、不启动进程；并发版本冲突返回 409，界面保留草稿；非法配置返回 422。后端定向检查 36 项通过。",
+      "files": [
+        "gui/src/components/settings/ExtensionConfiguration.tsx",
+        "python/server/routers/extension_documents.py",
+        "python/extension/config_documents.py"
+      ]
+    },
+    {
+      "id": "P05",
+      "title": "统一任务正文滚动和固定操作区",
+      "root": "长正文与整个任务栈共同滚动，底部操作落在首屏外；多卡垂直叠加进一步挤占空间。",
+      "fix": "共用正文滚动区和固定操作区，多任务以页签切换且保持挂载；不可见审批不响应 Escape。队列页签同时考虑排队内容与编辑草稿。",
+      "evidence": "720×480 下 5 种长内容／多卡场景 × 动画开关，首屏主要按钮可直接操作 0/10 → 10/10，输入框 10/10 保持可访问。原先按钮滚动后仍可操作，不把首屏不可达描述为完全失效。队列清空期间保留草稿的补充用例由失败变为通过。",
+      "files": [
+        "gui/src/components/composer/TaskCardBody.tsx",
+        "gui/src/components/composer/ComposerTaskDock.tsx",
+        "gui/src/components/composer/ComposerQueueDock.tsx"
+      ]
+    },
+    {
+      "id": "P06",
+      "title": "设置字号、术语与作用范围",
+      "root": "各页分别使用小字号和实现术语，存储大小直接暴露字节数，设置作用范围不清楚。",
+      "fix": "统一主要正文、说明和控件间距；常用说明采用直观中文；回溯容量用 MiB 显示并保持原字节语义；各设置页说明作用范围及生效时机。",
+      "evidence": "同一回溯样例：说明字号 12 → 14px；104857600 字节 → 100 MiB。单位转换和边界有定向测试；paper / graphite 均完成浏览器检查，深色截图人工复核。",
+      "files": [
+        "gui/src/components/settings/SettingsScopeNote.tsx",
+        "gui/src/lib/storageUnits.ts",
+        "gui/src/styles/workspace-task-layout.css"
+      ]
+    },
+    {
+      "id": "P07",
+      "title": "应用菜单、诊断与远程管理",
+      "root": "应用级操作和工作区工具混杂；诊断实验与常用排障同级；远程设置只有说明。",
+      "fix": "应用菜单集中应用级操作，终端与浏览器集中到工作区；诊断拆分常用排障与高级实验；远程页直接提供状态、连接、二维码、断开和刷新入口。",
+      "evidence": "A 远程页无连接／刷新操作，B 有；高级实验从常用主列表移出，但仍可通过分组进入；原导航、主题菜单、模型选择器、远程长错误、用量布局检查继续通过。",
+      "files": [
+        "gui/src/components/FileMenu.tsx",
+        "gui/src/features/diagnostics/DiagnosticsPanel.tsx",
+        "gui/src/components/settings/RemoteSettingsHelp.tsx"
+      ]
+    }
+  ],
+  "validation": {
+    "frontend_targeted_tests": 19,
+    "backend_targeted_tests": 36,
+    "typecheck": "passed",
+    "production_build": "passed",
+    "diff_whitespace_check": "passed",
+    "existing_layout_regression": "passed",
+    "goal_queue_regression": "passed",
+    "browser_runtime_errors_light": [],
+    "browser_runtime_errors_dark": [],
+    "integrated_frontend_files": 35,
+    "concurrent_conflicts_on_merge": [],
+    "post_merge_source_drift": []
+  },
+  "limits": [
+    "GUI A/B 使用离线浏览器和模拟接口；没有真实厂商请求、微信扫码连接、MCP 进程启动或插件安装。",
+    "新配置接口已用 FastAPI TestClient 和临时目录验证；GUI 与真实运行中的服务尚未做端到端实连。",
+    "没有构建或实测 Tauri 原生桌面包；生产构建为前端产物。",
+    "扩展配置目前支持已有扩展开关与 stdio MCP 声明；安装市场、自动下载、HTTP MCP 不在本次范围。",
+    "配置锁串行化同一后端进程内的写入，并检测读取后的外部文件变化；不承诺对外部同时写文件的进程提供分布式事务。",
+    "生产构建存在既有的 Mermaid/KaTeX 分块依赖提示；本轮没有以此作启动性能改善声明。"
+  ],
+  "before": {
+    "errors": [],
+    "checks": [
+      {
+        "kind": "initial-workspace",
+        "open": true
+      },
+      {
+        "kind": "tool",
+        "tool": "browser",
+        "width": 720,
+        "pane": {
+          "x": 467,
+          "y": 34,
+          "width": 248,
+          "height": 441,
+          "bottom": 475,
+          "reachable": true,
+          "font": "16px"
+        },
+        "input": {
+          "x": 78,
+          "y": 367,
+          "width": 359,
+          "height": 36,
+          "bottom": 403,
+          "reachable": true,
+          "font": "14px"
+        },
+        "address": {
+          "x": 591,
+          "y": 144,
+          "width": 78,
+          "height": 18,
+          "bottom": 162,
+          "reachable": true,
+          "font": "12px"
+        }
+      },
+      {
+        "kind": "tool",
+        "tool": "terminal",
+        "width": 720,
+        "pane": {
+          "x": 467,
+          "y": 34,
+          "width": 248,
+          "height": 441,
+          "bottom": 475,
+          "reachable": true,
+          "font": "16px"
+        },
+        "input": {
+          "x": 78,
+          "y": 367,
+          "width": 359,
+          "height": 36,
+          "bottom": 403,
+          "reachable": true,
+          "font": "14px"
+        },
+        "address": null
+      },
+      {
+        "kind": "tool",
+        "tool": "map",
+        "width": 720,
+        "pane": {
+          "x": 467,
+          "y": 34,
+          "width": 248,
+          "height": 441,
+          "bottom": 475,
+          "reachable": true,
+          "font": "16px"
+        },
+        "input": {
+          "x": 78,
+          "y": 367,
+          "width": 359,
+          "height": 36,
+          "bottom": 403,
+          "reachable": true,
+          "font": "14px"
+        },
+        "address": null
+      },
+      {
+        "kind": "tool",
+        "tool": "browser",
+        "width": 1280,
+        "pane": {
+          "x": 1027,
+          "y": 34,
+          "width": 248,
+          "height": 761,
+          "bottom": 795,
+          "reachable": true,
+          "font": "16px"
+        },
+        "input": {
+          "x": 153.5,
+          "y": 697,
+          "width": 768,
+          "height": 36,
+          "bottom": 733,
+          "reachable": true,
+          "font": "14px"
+        },
+        "address": {
+          "x": 1151,
+          "y": 144,
+          "width": 78,
+          "height": 18,
+          "bottom": 162,
+          "reachable": true,
+          "font": "12px"
+        }
+      },
+      {
+        "kind": "tool",
+        "tool": "terminal",
+        "width": 1280,
+        "pane": {
+          "x": 1027,
+          "y": 34,
+          "width": 248,
+          "height": 761,
+          "bottom": 795,
+          "reachable": true,
+          "font": "16px"
+        },
+        "input": {
+          "x": 153.5,
+          "y": 697,
+          "width": 768,
+          "height": 36,
+          "bottom": 733,
+          "reachable": true,
+          "font": "14px"
+        },
+        "address": null
+      },
+      {
+        "kind": "tool-resize",
+        "width": 256
+      },
+      {
+        "kind": "tool",
+        "tool": "map",
+        "width": 1280,
+        "pane": {
+          "x": 1019,
+          "y": 34,
+          "width": 256,
+          "height": 761,
+          "bottom": 795,
+          "reachable": true,
+          "font": "16px"
+        },
+        "input": {
+          "x": 149.5,
+          "y": 697,
+          "width": 768,
+          "height": 36,
+          "bottom": 733,
+          "reachable": true,
+          "font": "14px"
+        },
+        "address": null
+      },
+      {
+        "kind": "chat-restored",
+        "before": 240,
+        "after": 240,
+        "input": {
+          "x": 88.015625,
+          "y": 377,
+          "width": 586.953125,
+          "height": 36,
+          "bottom": 413,
+          "reachable": true,
+          "font": "14px"
+        }
+      },
+      {
+        "kind": "task",
+        "task": "plan",
+        "smoothness": false,
+        "control": {
+          "x": 577.96875,
+          "y": 1367.109375,
+          "width": 80,
+          "height": 32,
+          "bottom": 1399.109375,
+          "reachable": false,
+          "font": "12px"
+        },
+        "input": {
+          "x": 88.015625,
+          "y": 377,
+          "width": 586.953125,
+          "height": 36,
+          "bottom": 413,
+          "reachable": true,
+          "font": "14px"
+        },
+        "tabs": 0
+      },
+      {
+        "kind": "task",
+        "task": "permission",
+        "smoothness": false,
+        "control": {
+          "x": 601.96875,
+          "y": 1368.109375,
+          "width": 56,
+          "height": 30,
+          "bottom": 1398.109375,
+          "reachable": false,
+          "font": "12px"
+        },
+        "input": {
+          "x": 88.015625,
+          "y": 377,
+          "width": 586.953125,
+          "height": 36,
+          "bottom": 413,
+          "reachable": true,
+          "font": "14px"
+        },
+        "tabs": 0
+      },
+      {
+        "kind": "task",
+        "task": "ask",
+        "smoothness": false,
+        "control": {
+          "x": 617.96875,
+          "y": 613.796875,
+          "width": 40,
+          "height": 40,
+          "bottom": 653.796875,
+          "reachable": false,
+          "font": "16px"
+        },
+        "input": {
+          "x": 88.015625,
+          "y": 377,
+          "width": 586.953125,
+          "height": 36,
+          "bottom": 413,
+          "reachable": true,
+          "font": "14px"
+        },
+        "tabs": 0
+      },
+      {
+        "kind": "task",
+        "task": "wizard",
+        "smoothness": false,
+        "control": {
+          "x": 549.96875,
+          "y": 569.015625,
+          "width": 40,
+          "height": 34,
+          "bottom": 603.015625,
+          "reachable": false,
+          "font": "12px"
+        },
+        "input": {
+          "x": 88.015625,
+          "y": 377,
+          "width": 586.953125,
+          "height": 36,
+          "bottom": 413,
+          "reachable": true,
+          "font": "14px"
+        },
+        "tabs": 0
+      },
+      {
+        "kind": "task",
+        "task": "multiple",
+        "smoothness": false,
+        "control": {
+          "x": 601.96875,
+          "y": 1368.109375,
+          "width": 56,
+          "height": 30,
+          "bottom": 1398.109375,
+          "reachable": false,
+          "font": "12px"
+        },
+        "input": {
+          "x": 88.015625,
+          "y": 377,
+          "width": 586.953125,
+          "height": 36,
+          "bottom": 413,
+          "reachable": true,
+          "font": "14px"
+        },
+        "tabs": 0
+      },
+      {
+        "kind": "task",
+        "task": "plan",
+        "smoothness": true,
+        "control": {
+          "x": 577.96875,
+          "y": 1367.109375,
+          "width": 80,
+          "height": 32,
+          "bottom": 1399.109375,
+          "reachable": false,
+          "font": "12px"
+        },
+        "input": {
+          "x": 88.015625,
+          "y": 377,
+          "width": 586.953125,
+          "height": 36,
+          "bottom": 413,
+          "reachable": true,
+          "font": "14px"
+        },
+        "tabs": 0
+      },
+      {
+        "kind": "task",
+        "task": "permission",
+        "smoothness": true,
+        "control": {
+          "x": 601.96875,
+          "y": 1368.109375,
+          "width": 56,
+          "height": 30,
+          "bottom": 1398.109375,
+          "reachable": false,
+          "font": "12px"
+        },
+        "input": {
+          "x": 88.015625,
+          "y": 377,
+          "width": 586.953125,
+          "height": 36,
+          "bottom": 413,
+          "reachable": true,
+          "font": "14px"
+        },
+        "tabs": 0
+      },
+      {
+        "kind": "task",
+        "task": "ask",
+        "smoothness": true,
+        "control": {
+          "x": 617.96875,
+          "y": 613.796875,
+          "width": 40,
+          "height": 40,
+          "bottom": 653.796875,
+          "reachable": false,
+          "font": "16px"
+        },
+        "input": {
+          "x": 88.015625,
+          "y": 377,
+          "width": 586.953125,
+          "height": 36,
+          "bottom": 413,
+          "reachable": true,
+          "font": "14px"
+        },
+        "tabs": 0
+      },
+      {
+        "kind": "task",
+        "task": "wizard",
+        "smoothness": true,
+        "control": {
+          "x": 549.96875,
+          "y": 569.015625,
+          "width": 40,
+          "height": 34,
+          "bottom": 603.015625,
+          "reachable": false,
+          "font": "12px"
+        },
+        "input": {
+          "x": 88.015625,
+          "y": 377,
+          "width": 586.953125,
+          "height": 36,
+          "bottom": 413,
+          "reachable": true,
+          "font": "14px"
+        },
+        "tabs": 0
+      },
+      {
+        "kind": "task",
+        "task": "multiple",
+        "smoothness": true,
+        "control": {
+          "x": 601.96875,
+          "y": 1368.109375,
+          "width": 56,
+          "height": 30,
+          "bottom": 1398.109375,
+          "reachable": false,
+          "font": "12px"
+        },
+        "input": {
+          "x": 88.015625,
+          "y": 377,
+          "width": 586.953125,
+          "height": 36,
+          "bottom": 413,
+          "reachable": true,
+          "font": "14px"
+        },
+        "tabs": 0
+      },
+      {
+        "kind": "protocol",
+        "explicit": 0
+      },
+      {
+        "kind": "account-save",
+        "profile": {
+          "provider": "openai",
+          "baseUrl": "https://api.anthropic.com"
+        }
+      },
+      {
+        "kind": "rewind",
+        "size": "104857600",
+        "help": {
+          "x": 219,
+          "y": 175,
+          "width": 471,
+          "height": 39,
+          "bottom": 214,
+          "reachable": true,
+          "font": "12px"
+        },
+        "technicalExposed": 1
+      },
+      {
+        "kind": "remote-management",
+        "connect": 0,
+        "refresh": 0
+      },
+      {
+        "kind": "app-menu",
+        "text": "新建对话\nCtrl+N\n打开文件夹\nCtrl+O\n终端\n浏览器预览\n远程连接\n设置\n沉浸模式\n退出应用"
+      },
+      {
+        "kind": "extensions",
+        "add": 0
+      },
+      {
+        "kind": "diagnostics",
+        "groups": 0,
+        "experimentPrimary": 1
+      },
+      {
+        "kind": "call-filter",
+        "available": 0
+      }
+    ],
+    "requests": [
+      {
+        "path": "/v1/models",
+        "provider": "anthropic",
+        "baseUrl": "https://api.anthropic.com"
+      }
+    ]
+  },
+  "after_light": {
+    "errors": [],
+    "checks": [
+      {
+        "kind": "initial-workspace",
+        "open": false
+      },
+      {
+        "kind": "tool",
+        "tool": "browser",
+        "width": 720,
+        "pane": {
+          "x": 48,
+          "y": 34,
+          "width": 667,
+          "height": 337,
+          "bottom": 371,
+          "reachable": true,
+          "font": "16px"
+        },
+        "input": {
+          "x": 88.015625,
+          "y": 377,
+          "width": 586.953125,
+          "height": 36,
+          "bottom": 413,
+          "reachable": true,
+          "font": "14px"
+        },
+        "address": {
+          "x": 172,
+          "y": 144,
+          "width": 497,
+          "height": 18,
+          "bottom": 162,
+          "reachable": true,
+          "font": "12px"
+        }
+      },
+      {
+        "kind": "tool",
+        "tool": "terminal",
+        "width": 720,
+        "pane": {
+          "x": 48,
+          "y": 34,
+          "width": 667,
+          "height": 337,
+          "bottom": 371,
+          "reachable": true,
+          "font": "16px"
+        },
+        "input": {
+          "x": 88.015625,
+          "y": 377,
+          "width": 586.953125,
+          "height": 36,
+          "bottom": 413,
+          "reachable": true,
+          "font": "14px"
+        },
+        "address": null
+      },
+      {
+        "kind": "tool",
+        "tool": "map",
+        "width": 720,
+        "pane": {
+          "x": 48,
+          "y": 34,
+          "width": 667,
+          "height": 337,
+          "bottom": 371,
+          "reachable": true,
+          "font": "16px"
+        },
+        "input": {
+          "x": 88.015625,
+          "y": 377,
+          "width": 586.953125,
+          "height": 36,
+          "bottom": 413,
+          "reachable": true,
+          "font": "14px"
+        },
+        "address": null
+      },
+      {
+        "kind": "tool",
+        "tool": "browser",
+        "width": 1280,
+        "pane": {
+          "x": 715,
+          "y": 34,
+          "width": 560,
+          "height": 761,
+          "bottom": 795,
+          "reachable": true,
+          "font": "16px"
+        },
+        "input": {
+          "x": 88.015625,
+          "y": 697,
+          "width": 586.953125,
+          "height": 36,
+          "bottom": 733,
+          "reachable": true,
+          "font": "14px"
+        },
+        "address": {
+          "x": 839,
+          "y": 144,
+          "width": 390,
+          "height": 18,
+          "bottom": 162,
+          "reachable": true,
+          "font": "12px"
+        }
+      },
+      {
+        "kind": "tool",
+        "tool": "terminal",
+        "width": 1280,
+        "pane": {
+          "x": 715,
+          "y": 34,
+          "width": 560,
+          "height": 761,
+          "bottom": 795,
+          "reachable": true,
+          "font": "16px"
+        },
+        "input": {
+          "x": 88.015625,
+          "y": 697,
+          "width": 586.953125,
+          "height": 36,
+          "bottom": 733,
+          "reachable": true,
+          "font": "14px"
+        },
+        "address": null
+      },
+      {
+        "kind": "tool-resize",
+        "saved": 568,
+        "width": 568
+      },
+      {
+        "kind": "tool",
+        "tool": "map",
+        "width": 1280,
+        "pane": {
+          "x": 707,
+          "y": 34,
+          "width": 568,
+          "height": 761,
+          "bottom": 795,
+          "reachable": true,
+          "font": "16px"
+        },
+        "input": {
+          "x": 87.546875,
+          "y": 697,
+          "width": 579.90625,
+          "height": 36,
+          "bottom": 733,
+          "reachable": true,
+          "font": "14px"
+        },
+        "address": null
+      },
+      {
+        "kind": "chat-restored",
+        "before": 240,
+        "after": 240,
+        "input": {
+          "x": 88.015625,
+          "y": 377,
+          "width": 586.953125,
+          "height": 36,
+          "bottom": 413,
+          "reachable": true,
+          "font": "14px"
+        }
+      },
+      {
+        "kind": "task",
+        "task": "plan",
+        "smoothness": false,
+        "control": {
+          "x": 579.96875,
+          "y": 328,
+          "width": 80,
+          "height": 32,
+          "bottom": 360,
+          "reachable": true,
+          "font": "12px"
+        },
+        "input": {
+          "x": 88.015625,
+          "y": 377,
+          "width": 586.953125,
+          "height": 36,
+          "bottom": 413,
+          "reachable": true,
+          "font": "14px"
+        },
+        "tabs": 1
+      },
+      {
+        "kind": "task",
+        "task": "permission",
+        "smoothness": false,
+        "control": {
+          "x": 603.96875,
+          "y": 329,
+          "width": 56,
+          "height": 30,
+          "bottom": 359,
+          "reachable": true,
+          "font": "12px"
+        },
+        "input": {
+          "x": 88.015625,
+          "y": 377,
+          "width": 586.953125,
+          "height": 36,
+          "bottom": 413,
+          "reachable": true,
+          "font": "14px"
+        },
+        "tabs": 1
+      },
+      {
+        "kind": "task",
+        "task": "ask",
+        "smoothness": false,
+        "control": {
+          "x": 619.96875,
+          "y": 320,
+          "width": 40,
+          "height": 40,
+          "bottom": 360,
+          "reachable": true,
+          "font": "16px"
+        },
+        "input": {
+          "x": 88.015625,
+          "y": 377,
+          "width": 586.953125,
+          "height": 36,
+          "bottom": 413,
+          "reachable": true,
+          "font": "14px"
+        },
+        "tabs": 1
+      },
+      {
+        "kind": "task",
+        "task": "wizard",
+        "smoothness": false,
+        "control": {
+          "x": 551.96875,
+          "y": 326,
+          "width": 40,
+          "height": 34,
+          "bottom": 360,
+          "reachable": true,
+          "font": "12px"
+        },
+        "input": {
+          "x": 88.015625,
+          "y": 377,
+          "width": 586.953125,
+          "height": 36,
+          "bottom": 413,
+          "reachable": true,
+          "font": "14px"
+        },
+        "tabs": 1
+      },
+      {
+        "kind": "task",
+        "task": "multiple",
+        "smoothness": false,
+        "control": {
+          "x": 603.96875,
+          "y": 329,
+          "width": 56,
+          "height": 30,
+          "bottom": 359,
+          "reachable": true,
+          "font": "12px"
+        },
+        "input": {
+          "x": 88.015625,
+          "y": 377,
+          "width": 586.953125,
+          "height": 36,
+          "bottom": 413,
+          "reachable": true,
+          "font": "14px"
+        },
+        "tabs": 1
+      },
+      {
+        "kind": "task-draft",
+        "smoothness": false,
+        "value": "保留这份草稿"
+      },
+      {
+        "kind": "task",
+        "task": "plan",
+        "smoothness": true,
+        "control": {
+          "x": 579.96875,
+          "y": 328,
+          "width": 80,
+          "height": 32,
+          "bottom": 360,
+          "reachable": true,
+          "font": "12px"
+        },
+        "input": {
+          "x": 88.015625,
+          "y": 377,
+          "width": 586.953125,
+          "height": 36,
+          "bottom": 413,
+          "reachable": true,
+          "font": "14px"
+        },
+        "tabs": 1
+      },
+      {
+        "kind": "task",
+        "task": "permission",
+        "smoothness": true,
+        "control": {
+          "x": 603.96875,
+          "y": 329,
+          "width": 56,
+          "height": 30,
+          "bottom": 359,
+          "reachable": true,
+          "font": "12px"
+        },
+        "input": {
+          "x": 88.015625,
+          "y": 377,
+          "width": 586.953125,
+          "height": 36,
+          "bottom": 413,
+          "reachable": true,
+          "font": "14px"
+        },
+        "tabs": 1
+      },
+      {
+        "kind": "task",
+        "task": "ask",
+        "smoothness": true,
+        "control": {
+          "x": 619.96875,
+          "y": 320,
+          "width": 40,
+          "height": 40,
+          "bottom": 360,
+          "reachable": true,
+          "font": "16px"
+        },
+        "input": {
+          "x": 88.015625,
+          "y": 377,
+          "width": 586.953125,
+          "height": 36,
+          "bottom": 413,
+          "reachable": true,
+          "font": "14px"
+        },
+        "tabs": 1
+      },
+      {
+        "kind": "task",
+        "task": "wizard",
+        "smoothness": true,
+        "control": {
+          "x": 551.96875,
+          "y": 326,
+          "width": 40,
+          "height": 34,
+          "bottom": 360,
+          "reachable": true,
+          "font": "12px"
+        },
+        "input": {
+          "x": 88.015625,
+          "y": 377,
+          "width": 586.953125,
+          "height": 36,
+          "bottom": 413,
+          "reachable": true,
+          "font": "14px"
+        },
+        "tabs": 1
+      },
+      {
+        "kind": "task",
+        "task": "multiple",
+        "smoothness": true,
+        "control": {
+          "x": 603.96875,
+          "y": 329,
+          "width": 56,
+          "height": 30,
+          "bottom": 359,
+          "reachable": true,
+          "font": "12px"
+        },
+        "input": {
+          "x": 88.015625,
+          "y": 377,
+          "width": 586.953125,
+          "height": 36,
+          "bottom": 413,
+          "reachable": true,
+          "font": "14px"
+        },
+        "tabs": 1
+      },
+      {
+        "kind": "task-draft",
+        "smoothness": true,
+        "value": "保留这份草稿"
+      },
+      {
+        "kind": "protocol",
+        "explicit": 1
+      },
+      {
+        "kind": "account-save",
+        "profile": {
+          "provider": "anthropic",
+          "baseUrl": "https://api.anthropic.com"
+        }
+      },
+      {
+        "kind": "rewind",
+        "size": "100",
+        "help": {
+          "x": 219,
+          "y": 239.46875,
+          "width": 471,
+          "height": 45.5,
+          "bottom": 284.96875,
+          "reachable": true,
+          "font": "14px"
+        },
+        "technicalExposed": 0
+      },
+      {
+        "kind": "remote-management",
+        "connect": 1,
+        "refresh": 1
+      },
+      {
+        "kind": "app-menu",
+        "text": "新建对话\nCtrl+N\n打开文件夹\nCtrl+O\n远程连接\n设置\n沉浸模式\n退出应用"
+      },
+      {
+        "kind": "extensions",
+        "add": 1
+      },
+      {
+        "kind": "config-save-before-validation",
+        "disabled": true
+      },
+      {
+        "kind": "config-conflict",
+        "draftKept": true,
+        "saveDisabled": true
+      },
+      {
+        "kind": "diagnostics",
+        "groups": 1,
+        "experimentPrimary": 0
+      },
+      {
+        "kind": "advanced-access",
+        "tab": 1
+      },
+      {
+        "kind": "call-filter",
+        "available": 1
+      },
+      {
+        "kind": "filtered-call",
+        "shellCopyButtons": 0,
+        "searchSummary": 1
+      }
+    ],
+    "requests": [
+      {
+        "path": "/v1/models",
+        "provider": "anthropic",
+        "baseUrl": "https://api.anthropic.com"
+      },
+      {
+        "path": "/v1/extensions/configuration",
+        "scope": "home",
+        "kind": "mcp",
+        "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "data": {
+          "servers": {
+            "example": {
+              "command": "example-installed-server",
+              "args": []
+            }
+          }
+        },
+        "validate_only": true
+      },
+      {
+        "path": "/v1/extensions/configuration",
+        "scope": "home",
+        "kind": "mcp",
+        "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "data": {
+          "servers": {
+            "example": {
+              "command": "example-installed-server",
+              "args": []
+            }
+          }
+        },
+        "validate_only": false
+      },
+      {
+        "path": "/v1/extensions/configuration",
+        "scope": "home",
+        "kind": "mcp",
+        "revision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "data": {
+          "servers": {
+            "example": {
+              "command": "changed-local-server"
+            }
+          }
+        },
+        "validate_only": true
+      },
+      {
+        "path": "/v1/extensions/configuration",
+        "scope": "home",
+        "kind": "mcp",
+        "revision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "data": {
+          "servers": {
+            "example": {
+              "command": "changed-local-server"
+            }
+          }
+        },
+        "validate_only": false
+      }
+    ]
+  },
+  "after_dark": {
+    "errors": [],
+    "checks": [
+      {
+        "kind": "initial-workspace",
+        "open": false
+      },
+      {
+        "kind": "tool",
+        "tool": "browser",
+        "width": 720,
+        "pane": {
+          "x": 48,
+          "y": 34,
+          "width": 667,
+          "height": 337,
+          "bottom": 371,
+          "reachable": true,
+          "font": "16px"
+        },
+        "input": {
+          "x": 88.015625,
+          "y": 377,
+          "width": 586.953125,
+          "height": 36,
+          "bottom": 413,
+          "reachable": true,
+          "font": "14px"
+        },
+        "address": {
+          "x": 172,
+          "y": 144,
+          "width": 497,
+          "height": 18,
+          "bottom": 162,
+          "reachable": true,
+          "font": "12px"
+        }
+      },
+      {
+        "kind": "tool",
+        "tool": "terminal",
+        "width": 720,
+        "pane": {
+          "x": 48,
+          "y": 34,
+          "width": 667,
+          "height": 337,
+          "bottom": 371,
+          "reachable": true,
+          "font": "16px"
+        },
+        "input": {
+          "x": 88.015625,
+          "y": 377,
+          "width": 586.953125,
+          "height": 36,
+          "bottom": 413,
+          "reachable": true,
+          "font": "14px"
+        },
+        "address": null
+      },
+      {
+        "kind": "tool",
+        "tool": "map",
+        "width": 720,
+        "pane": {
+          "x": 48,
+          "y": 34,
+          "width": 667,
+          "height": 337,
+          "bottom": 371,
+          "reachable": true,
+          "font": "16px"
+        },
+        "input": {
+          "x": 88.015625,
+          "y": 377,
+          "width": 586.953125,
+          "height": 36,
+          "bottom": 413,
+          "reachable": true,
+          "font": "14px"
+        },
+        "address": null
+      },
+      {
+        "kind": "tool",
+        "tool": "browser",
+        "width": 1280,
+        "pane": {
+          "x": 715,
+          "y": 34,
+          "width": 560,
+          "height": 761,
+          "bottom": 795,
+          "reachable": true,
+          "font": "16px"
+        },
+        "input": {
+          "x": 88.015625,
+          "y": 697,
+          "width": 586.953125,
+          "height": 36,
+          "bottom": 733,
+          "reachable": true,
+          "font": "14px"
+        },
+        "address": {
+          "x": 839,
+          "y": 144,
+          "width": 390,
+          "height": 18,
+          "bottom": 162,
+          "reachable": true,
+          "font": "12px"
+        }
+      },
+      {
+        "kind": "tool",
+        "tool": "terminal",
+        "width": 1280,
+        "pane": {
+          "x": 715,
+          "y": 34,
+          "width": 560,
+          "height": 761,
+          "bottom": 795,
+          "reachable": true,
+          "font": "16px"
+        },
+        "input": {
+          "x": 88.015625,
+          "y": 697,
+          "width": 586.953125,
+          "height": 36,
+          "bottom": 733,
+          "reachable": true,
+          "font": "14px"
+        },
+        "address": null
+      },
+      {
+        "kind": "tool-resize",
+        "saved": 568,
+        "width": 568
+      },
+      {
+        "kind": "tool",
+        "tool": "map",
+        "width": 1280,
+        "pane": {
+          "x": 707,
+          "y": 34,
+          "width": 568,
+          "height": 761,
+          "bottom": 795,
+          "reachable": true,
+          "font": "16px"
+        },
+        "input": {
+          "x": 87.546875,
+          "y": 697,
+          "width": 579.90625,
+          "height": 36,
+          "bottom": 733,
+          "reachable": true,
+          "font": "14px"
+        },
+        "address": null
+      },
+      {
+        "kind": "chat-restored",
+        "before": 240,
+        "after": 240,
+        "input": {
+          "x": 88.015625,
+          "y": 377,
+          "width": 586.953125,
+          "height": 36,
+          "bottom": 413,
+          "reachable": true,
+          "font": "14px"
+        }
+      },
+      {
+        "kind": "task",
+        "task": "plan",
+        "smoothness": false,
+        "control": {
+          "x": 579.96875,
+          "y": 328,
+          "width": 80,
+          "height": 32,
+          "bottom": 360,
+          "reachable": true,
+          "font": "12px"
+        },
+        "input": {
+          "x": 88.015625,
+          "y": 377,
+          "width": 586.953125,
+          "height": 36,
+          "bottom": 413,
+          "reachable": true,
+          "font": "14px"
+        },
+        "tabs": 1
+      },
+      {
+        "kind": "task",
+        "task": "permission",
+        "smoothness": false,
+        "control": {
+          "x": 603.96875,
+          "y": 329,
+          "width": 56,
+          "height": 30,
+          "bottom": 359,
+          "reachable": true,
+          "font": "12px"
+        },
+        "input": {
+          "x": 88.015625,
+          "y": 377,
+          "width": 586.953125,
+          "height": 36,
+          "bottom": 413,
+          "reachable": true,
+          "font": "14px"
+        },
+        "tabs": 1
+      },
+      {
+        "kind": "task",
+        "task": "ask",
+        "smoothness": false,
+        "control": {
+          "x": 619.96875,
+          "y": 320,
+          "width": 40,
+          "height": 40,
+          "bottom": 360,
+          "reachable": true,
+          "font": "16px"
+        },
+        "input": {
+          "x": 88.015625,
+          "y": 377,
+          "width": 586.953125,
+          "height": 36,
+          "bottom": 413,
+          "reachable": true,
+          "font": "14px"
+        },
+        "tabs": 1
+      },
+      {
+        "kind": "task",
+        "task": "wizard",
+        "smoothness": false,
+        "control": {
+          "x": 551.96875,
+          "y": 326,
+          "width": 40,
+          "height": 34,
+          "bottom": 360,
+          "reachable": true,
+          "font": "12px"
+        },
+        "input": {
+          "x": 88.015625,
+          "y": 377,
+          "width": 586.953125,
+          "height": 36,
+          "bottom": 413,
+          "reachable": true,
+          "font": "14px"
+        },
+        "tabs": 1
+      },
+      {
+        "kind": "task",
+        "task": "multiple",
+        "smoothness": false,
+        "control": {
+          "x": 603.96875,
+          "y": 329,
+          "width": 56,
+          "height": 30,
+          "bottom": 359,
+          "reachable": true,
+          "font": "12px"
+        },
+        "input": {
+          "x": 88.015625,
+          "y": 377,
+          "width": 586.953125,
+          "height": 36,
+          "bottom": 413,
+          "reachable": true,
+          "font": "14px"
+        },
+        "tabs": 1
+      },
+      {
+        "kind": "task-draft",
+        "smoothness": false,
+        "value": "保留这份草稿"
+      },
+      {
+        "kind": "task",
+        "task": "plan",
+        "smoothness": true,
+        "control": {
+          "x": 579.96875,
+          "y": 328,
+          "width": 80,
+          "height": 32,
+          "bottom": 360,
+          "reachable": true,
+          "font": "12px"
+        },
+        "input": {
+          "x": 88.015625,
+          "y": 377,
+          "width": 586.953125,
+          "height": 36,
+          "bottom": 413,
+          "reachable": true,
+          "font": "14px"
+        },
+        "tabs": 1
+      },
+      {
+        "kind": "task",
+        "task": "permission",
+        "smoothness": true,
+        "control": {
+          "x": 603.96875,
+          "y": 329,
+          "width": 56,
+          "height": 30,
+          "bottom": 359,
+          "reachable": true,
+          "font": "12px"
+        },
+        "input": {
+          "x": 88.015625,
+          "y": 377,
+          "width": 586.953125,
+          "height": 36,
+          "bottom": 413,
+          "reachable": true,
+          "font": "14px"
+        },
+        "tabs": 1
+      },
+      {
+        "kind": "task",
+        "task": "ask",
+        "smoothness": true,
+        "control": {
+          "x": 619.96875,
+          "y": 320,
+          "width": 40,
+          "height": 40,
+          "bottom": 360,
+          "reachable": true,
+          "font": "16px"
+        },
+        "input": {
+          "x": 88.015625,
+          "y": 377,
+          "width": 586.953125,
+          "height": 36,
+          "bottom": 413,
+          "reachable": true,
+          "font": "14px"
+        },
+        "tabs": 1
+      },
+      {
+        "kind": "task",
+        "task": "wizard",
+        "smoothness": true,
+        "control": {
+          "x": 551.96875,
+          "y": 326,
+          "width": 40,
+          "height": 34,
+          "bottom": 360,
+          "reachable": true,
+          "font": "12px"
+        },
+        "input": {
+          "x": 88.015625,
+          "y": 377,
+          "width": 586.953125,
+          "height": 36,
+          "bottom": 413,
+          "reachable": true,
+          "font": "14px"
+        },
+        "tabs": 1
+      },
+      {
+        "kind": "task",
+        "task": "multiple",
+        "smoothness": true,
+        "control": {
+          "x": 603.96875,
+          "y": 329,
+          "width": 56,
+          "height": 30,
+          "bottom": 359,
+          "reachable": true,
+          "font": "12px"
+        },
+        "input": {
+          "x": 88.015625,
+          "y": 377,
+          "width": 586.953125,
+          "height": 36,
+          "bottom": 413,
+          "reachable": true,
+          "font": "14px"
+        },
+        "tabs": 1
+      },
+      {
+        "kind": "task-draft",
+        "smoothness": true,
+        "value": "保留这份草稿"
+      },
+      {
+        "kind": "protocol",
+        "explicit": 1
+      },
+      {
+        "kind": "account-save",
+        "profile": {
+          "provider": "anthropic",
+          "baseUrl": "https://api.anthropic.com"
+        }
+      },
+      {
+        "kind": "rewind",
+        "size": "100",
+        "help": {
+          "x": 219,
+          "y": 239.46875,
+          "width": 471,
+          "height": 45.5,
+          "bottom": 284.96875,
+          "reachable": true,
+          "font": "14px"
+        },
+        "technicalExposed": 0
+      },
+      {
+        "kind": "remote-management",
+        "connect": 1,
+        "refresh": 1
+      },
+      {
+        "kind": "app-menu",
+        "text": "新建对话\nCtrl+N\n打开文件夹\nCtrl+O\n远程连接\n设置\n沉浸模式\n退出应用"
+      },
+      {
+        "kind": "extensions",
+        "add": 1
+      },
+      {
+        "kind": "config-save-before-validation",
+        "disabled": true
+      },
+      {
+        "kind": "config-conflict",
+        "draftKept": true,
+        "saveDisabled": true
+      },
+      {
+        "kind": "diagnostics",
+        "groups": 1,
+        "experimentPrimary": 0
+      },
+      {
+        "kind": "advanced-access",
+        "tab": 1
+      },
+      {
+        "kind": "call-filter",
+        "available": 1
+      },
+      {
+        "kind": "filtered-call",
+        "shellCopyButtons": 0,
+        "searchSummary": 1
+      }
+    ],
+    "requests": [
+      {
+        "path": "/v1/models",
+        "provider": "anthropic",
+        "baseUrl": "https://api.anthropic.com"
+      },
+      {
+        "path": "/v1/extensions/configuration",
+        "scope": "home",
+        "kind": "mcp",
+        "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "data": {
+          "servers": {
+            "example": {
+              "command": "example-installed-server",
+              "args": []
+            }
+          }
+        },
+        "validate_only": true
+      },
+      {
+        "path": "/v1/extensions/configuration",
+        "scope": "home",
+        "kind": "mcp",
+        "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "data": {
+          "servers": {
+            "example": {
+              "command": "example-installed-server",
+              "args": []
+            }
+          }
+        },
+        "validate_only": false
+      },
+      {
+        "path": "/v1/extensions/configuration",
+        "scope": "home",
+        "kind": "mcp",
+        "revision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "data": {
+          "servers": {
+            "example": {
+              "command": "changed-local-server"
+            }
+          }
+        },
+        "validate_only": true
+      },
+      {
+        "path": "/v1/extensions/configuration",
+        "scope": "home",
+        "kind": "mcp",
+        "revision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "data": {
+          "servers": {
+            "example": {
+              "command": "changed-local-server"
+            }
+          }
+        },
+        "validate_only": false
+      }
+    ]
+  },
+  "queue_regression": {
+    "checks": [
+      {
+        "name": "Goal and queue edit, reorder and conflict",
+        "ok": true,
+        "goalEditor": "TEXTAREA",
+        "queueEditor": "TEXTAREA",
+        "writes": [
+          {
+            "kind": "order",
+            "body": {
+              "expected_order": [
+                "audit-q0",
+                "audit-q1",
+                "audit-q2"
+              ],
+              "order": [
+                "audit-q0",
+                "audit-q2",
+                "audit-q1"
+              ]
+            }
+          },
+          {
+            "kind": "order",
+            "body": {
+              "expected_order": [
+                "audit-q0",
+                "audit-q2",
+                "audit-q1"
+              ],
+              "order": [
+                "audit-q2",
+                "audit-q1",
+                "audit-q0"
+              ]
+            }
+          },
+          {
+            "kind": "order",
+            "body": {
+              "expected_order": [
+                "audit-q2",
+                "audit-q1",
+                "audit-q0"
+              ],
+              "order": [
+                "audit-q1",
+                "audit-q2",
+                "audit-q0"
+              ]
+            }
+          },
+          {
+            "kind": "goal",
+            "body": {
+              "action": "edit",
+              "goal_id": "audit-goal",
+              "revision": 1,
+              "text": "第一行\n第二行\n第三行"
+            }
+          },
+          {
+            "kind": "goal",
+            "body": {
+              "action": "edit",
+              "goal_id": "audit-goal",
+              "revision": 2,
+              "text": "保留我的草稿"
+            }
+          },
+          {
+            "kind": "queue",
+            "body": {
+              "text": "修改后第一行\n修改后第二行"
+            }
+          },
+          {
+            "kind": "queue",
+            "body": {
+              "text": "修改后第一行\n修改后第二行"
+            }
+          }
+        ],
+        "deliveredQueueDraftRetained": true
+      }
+    ],
+    "errors": []
+  },
+  "source_hashes": {
+    "src/components/AskUserDialog.tsx": "b7baa7b4a031279d51f4eaf36d3de89d8c03c67ff6331ac9059ac1ae904ba311",
+    "src/components/Composer.tsx": "3be62aff7806de491a21647bdaac9c2fad8f79dcbdb5c7af4caf32900d3d59b7",
+    "src/components/FileMenu.tsx": "5828c111a81a0a2f806599e0b9f251afdc0fc4b56859747ae6eebf967d9f875b",
+    "src/components/PermissionDialog.test.tsx": "e5ea4e61b3f69efb4d4ca961757ebb0518c329605a49ee9a96e6990a20bca095",
+    "src/components/PermissionDialog.tsx": "92a3000a46ef6626d5cfcb47f527d2f3f9de1a776eb5644a3b3823695beb8d9f",
+    "src/components/PlanDialog.tsx": "57bce5d217676e824e6624c57c1aeb39b9496dc8ec36de7f0cb8b58442331ad5",
+    "src/components/PluginsPanel.tsx": "d1851e53fe8844936882d8a619af7da98f98bb3937a20a5eac171005197f1f75",
+    "src/components/SettingsModal.tsx": "7ad72094ae8057cf58defbf0648465a8365662aabebdb6faea6c00e7c50ce52d",
+    "src/components/TitleBar.tsx": "05e62396211f15ac37add18b91f8630afdc3898b25c1c12f39426a096d5160b2",
+    "src/components/WorkspacePanel.tsx": "4797541e5197c456a1c21b3f075d9173f1083647ba983e4c54b9c2378d4c0771",
+    "src/components/WorkspaceToolPanel.tsx": "b8554aa6c04f5c392fc25b39fe4192ce3daf4eb31ed92de8bd5b22fbf71ee562",
+    "src/components/composer/ComposerTaskDock.tsx": "2289a17d2444c0225a69574bf026e7be93377a6533d738be4fded9448d674801",
+    "src/components/composer/TaskCardBody.tsx": "b6ea125902bbcc7f191666a3bb71a11d2b591834473c4a6a65fca8f5e88eeb1b",
+    "src/components/review/ReviewWorkbench.tsx": "6b6a62dc21f5a6ba03c2fda2ded5a0d3810592094ee740d2cd758f4096a06e51",
+    "src/components/review/ReviewWorkspaceNav.tsx": "56202f01e36ed5dffa4f3aecd944e226e713f40d54506980f9a46a9d6364e224",
+    "src/components/settings/AccountProtocolField.tsx": "e4bf8710e4fe544f5070cd3b2224ff7f9e44656e1a62b15f8a146fdeb06c8dc9",
+    "src/components/settings/ExtensionConfiguration.tsx": "ba4414bfaa4268f8f11a6ea9d708d68babc4ba382518367706cd21cd0a62c818",
+    "src/components/settings/RemoteSettingsHelp.tsx": "bedb44d8f41aa0d8f2923823de3d65ab9ec18755e48f87de6a5a5803736a9f87",
+    "src/components/settings/SettingsScopeNote.tsx": "0e80332f978a58fd26558fbe0f052e18572f20bb9936c9167a2d30381d646236",
+    "src/components/settings/storageUnits.ts": "f664044eb0ef5f5f258e578b9f720aec6c57a1acbb1aa8fd15d40b30f3a32fc6",
+    "src/components/workspace/TerminalHistory.tsx": "5256649e30123769d58d130d3f8f2bbcc8d64c0a97918a27e92d417d8d959c24",
+    "src/components/workspace/ToolCallHistory.tsx": "5881ec6a450eb7460fa576b316c37c032f050b23f18930128967126f607eda5d",
+    "src/components/workspace/VersionControlView.tsx": "4db98840c6cf6460d92bdc523111a97cae70422120baba458e5f5eba79078f3d",
+    "src/features/diagnostics/DiagnosticsPanel.tsx": "3f26e3f1da3ee9a78164151f45db05faab6057df43edb7b3ded97444bb009b2a",
+    "src/lib/toolCallHistory.ts": "0e7dbbf35c4c7a9ba5c8828a623591eeafbb111faf713926536bdac19c25ba5e",
+    "src/lib/workbenchLayout.test.ts": "c969666347fd4980ed7cd32effcdcc2d6459269904ebc20b5773bbc621e08204",
+    "src/lib/workbenchLayout.ts": "9c00c7c97024df1d34409a92653d4eff0c20a41492a280bf462cfe52c83ca0cc",
+    "src/lib/workspaceTools.ts": "1c05277c29c1d6069169ab4ec5742319450722b237afbc6040a8b051c3a2f831",
+    "src/lib/api/extensionConfiguration.ts": "d284c3a3b4787cc14c0e37272d39bd6b0b74d1f16d9c2f7e067e6a59b5c52e2d",
+    "src/stores/remoteStore.ts": "b3613d31afe9ffad1942d4d1d545539f327874fd35c89d6692d8db8c98fe1aa1",
+    "src/stores/settingsStore.ts": "cdefa81ebdc365a538f8395e6609233e6a6d4842df59f017e129b3773dd2a476",
+    "src/stores/workspaceStore.ts": "a0649f34a15782801cc4fb1d75d79ce50895a73601d074d904008884ae50b916",
+    "src/styles/entry.css": "66cf8284087743675bf7a92bf8f41158a1037fd834e328eceaccf7f5c73a0e81",
+    "src/styles/workspace-task-layout.css": "381a7b6784b0490c594b3bcaf807b8889826f9bf7bd9f940992fac6f91e441e8",
+    "src/components/composer/ComposerQueueDock.tsx": "1581a4e2f2a45fadac411888b3bdf4d81b1c63728a1dbc0d0959e625ba41d379"
+  }
+}

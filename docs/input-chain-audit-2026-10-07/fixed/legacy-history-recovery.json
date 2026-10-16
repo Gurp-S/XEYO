@@ -1,0 +1,125 @@
+{
+  "server": [
+    {
+      "id": "msg_muycwxzw_wa523k",
+      "role": "user",
+      "text": "HISTORY-BASE",
+      "createdAt": 1791392622779
+    },
+    {
+      "id": "0a3677380c974e3ab37cd9f67f32bb73",
+      "role": "assistant",
+      "text": "ok: HISTORY-BASE",
+      "createdAt": 1791392623866
+    }
+  ],
+  "restored": [
+    {
+      "id": "msg_muycwxzw_wa523k",
+      "role": "user",
+      "text": "HISTORY-BASE",
+      "createdAt": 1791392622779,
+      "transcriptOrder": 0
+    },
+    {
+      "id": "0a3677380c974e3ab37cd9f67f32bb73",
+      "role": "assistant",
+      "text": "ok: HISTORY-BASE",
+      "createdAt": 1791392623866,
+      "transcriptOrder": 1
+    },
+    {
+      "id": "undelivered-input",
+      "role": "user",
+      "text": "RETAIN-UNDELIVERED-INPUT",
+      "createdAt": 1791392624146,
+      "transcriptOrder": 2,
+      "localUndelivered": true
+    }
+  ],
+  "backup": {
+    "version": 1,
+    "sessionId": "sess_muycwxie_j9vtc1",
+    "backendId": "sess_muycwxie_j9vtc1",
+    "createdAt": 1791392624789,
+    "messages": [
+      {
+        "id": "msg_muycwxzw_wa523k",
+        "role": "user",
+        "text": "HISTORY-BASE",
+        "createdAt": 1791392622779,
+        "transcriptOrder": 0
+      },
+      {
+        "id": "0a3677380c974e3ab37cd9f67f32bb73",
+        "role": "assistant",
+        "text": "ok: HISTORY-BASE",
+        "createdAt": 1791392623866,
+        "transcriptOrder": 1
+      },
+      {
+        "id": "legacy-duplicate",
+        "role": "assistant",
+        "text": "ok: HISTORY-BASE",
+        "createdAt": 1791392623866,
+        "transcriptOrder": 2
+      },
+      {
+        "id": "legacy-fragment",
+        "role": "assistant",
+        "text": "unsaved partial response",
+        "createdAt": 1791392623866,
+        "transcriptOrder": 3
+      },
+      {
+        "id": "undelivered-input",
+        "role": "user",
+        "text": "RETAIN-UNDELIVERED-INPUT",
+        "createdAt": 1791392624146,
+        "transcriptOrder": 4
+      }
+    ],
+    "persistedMessages": [
+      {
+        "id": "msg_muycwxzw_wa523k",
+        "role": "user",
+        "text": "HISTORY-BASE",
+        "createdAt": 1791392622779,
+        "transcriptOrder": 0,
+        "sessionId": "sess_muycwxie_j9vtc1"
+      },
+      {
+        "id": "0a3677380c974e3ab37cd9f67f32bb73",
+        "role": "assistant",
+        "text": "ok: HISTORY-BASE",
+        "createdAt": 1791392623866,
+        "transcriptOrder": 1,
+        "sessionId": "sess_muycwxie_j9vtc1"
+      },
+      {
+        "id": "legacy-duplicate",
+        "role": "assistant",
+        "text": "ok: HISTORY-BASE",
+        "createdAt": 1791392623866,
+        "transcriptOrder": 2,
+        "sessionId": "sess_muycwxie_j9vtc1"
+      },
+      {
+        "id": "legacy-fragment",
+        "role": "assistant",
+        "text": "unsaved partial response",
+        "createdAt": 1791392623866,
+        "transcriptOrder": 3,
+        "sessionId": "sess_muycwxie_j9vtc1"
+      },
+      {
+        "id": "undelivered-input",
+        "role": "user",
+        "text": "RETAIN-UNDELIVERED-INPUT",
+        "createdAt": 1791392624146,
+        "transcriptOrder": 4,
+        "sessionId": "sess_muycwxie_j9vtc1"
+      }
+    ]
+  }
+}

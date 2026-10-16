@@ -1,0 +1,212 @@
+{
+  "title": "XEYO 多 Agent 运行机制改造与验收",
+  "date": "2026-10-15",
+  "status": "implemented; default enabled in source; running backend restart required",
+  "authorization": {
+    "scope": "通信、隔离、并发控制与生命周期",
+    "write_worker_default": "独立 worktree，单独合入",
+    "os_sandbox": "按用户指示暂不实现",
+    "collaboration": "当前代理直接完成，无子代理",
+    "git": "保留混合工作区，未提交、重置或覆盖其他任务的变更"
+  },
+  "design": {
+    "model_decides": "引擎只执行身份、权限、资源和状态契约；没有写入固定 planner-worker 路线。",
+    "identity": "session_id + agent_id 为稳定身份；每次执行分配唯一 attempt_id。操作系统文件锁持有至阻塞 I/O 与结算完成，不靠 TTL 抢占活实例。",
+    "mail": "SQLite 持久消息箱；运行时绑定发送者，限制同会话寻址。message_id 去重并拒绝同 ID 不同载荷；可指定目标 attempt_id。子发送者也校验自身 attempt。消息先写接收方 transcript，再确认投递。",
+    "delivery": "在每次模型请求边界接收消息。完成事件写入父收件箱。已结束 agent 的消息保留至显式 resume/retry；父模型可用 wait 等待。没有为已结束父回合新增自动模型唤醒。",
+    "isolation": "子 Agent 独立 ExecutionContext、读文件观察状态与模型请求状态。继承已有共享预算机制。写域在重试中保持不变。",
+    "worktree": "可写 Agent 默认在独立 worktree 运行，基线包含父工作区可见的未提交变更；任务结束或失败均保留分支与产物。只读 Agent 默认使用共享工作区。",
+    "publication": "agent_apply 是单独操作。要求完成状态、准确 attempt_id、父身份和当前路径权限；覆盖前在锁内比较源文件字节哈希。父 Git index 保持不变。写入原子替换，失败回滚；崩溃中断后可凭持久日志显式重试。合入写入工作区，不创建父分支提交。",
+    "lifecycle": "后台任务持有运行身份；会话停止/服务退出取消并收敛任务。后台运行期间会话引擎不因空闲被逐出。删除等待活动任务退出，并封闭已删除会话身份。",
+    "gui": "运行卡片从持久状态更新；轮询覆盖父 SSE 结束后的后台状态；请求序号防旧响应覆盖新 attempt。跟进消息绑定活动后端分支、使用稳定 message_id，并验证接收/删除回执。",
+    "coord": "持久化 deps；拒绝未知依赖/循环；依赖未完成不能认领。coord worktree 使用完整任务身份的哈希；创建不删除已有 worktree。",
+    "workflow": "并行线程继承 ContextVars 和共享预算；计数加锁；超时协作取消线程与子调用，等待清理。Workflow 继续默认关闭。"
+  },
+  "interfaces": [
+    {
+      "name": "Agent",
+      "behavior": "默认 background=true；空 scope 只读/shared；非空 scope 默认 worktree；background=false 同步等待。"
+    },
+    {
+      "name": "agent_send",
+      "behavior": "向同会话 agent 或 parent 发送持久消息。"
+    },
+    {
+      "name": "agent_control",
+      "behavior": "list/status/wait/interrupt/resume/retry；子 Agent 无启动/停止兄弟权限。"
+    },
+    {
+      "name": "agent_apply",
+      "behavior": "独立合入已完成 worktree；接入现有逐次审批与路径权限，DENY 不可绕过。"
+    }
+  ],
+  "configuration": {
+    "XEYO_AGENT_RUNTIME_V2": {
+      "default": true,
+      "rollback": "0"
+    },
+    "XEYO_MAX_CONCURRENT_AGENTS": {
+      "default": 8,
+      "scope": "per session"
+    },
+    "XEYO_MAX_TOTAL_AGENTS": {
+      "default": 32,
+      "scope": "同一持久运行库中的 managed agents"
+    },
+    "queue_limit": 256,
+    "message_text_limit": 8000,
+    "gui_message_text_limit": 2000,
+    "publication_bytes_limit": 134217728
+  },
+  "root_causes_and_contracts": [
+    {
+      "root": "agent 名字被当成当前执行所有权，重复启动和迟到清理能相互覆盖。",
+      "rule": "稳定 agent 与唯一 attempt 分离；OS lease + 数据库条件更新；清理必须匹配所有者。",
+      "tests": "重复启动、迟到结算、跨进程锁、取消准备阶段后锁可重新获取。"
+    },
+    {
+      "root": "共享可变上下文和文件观察册使别的 agent 的证据变成本 agent 的写入依据。",
+      "rule": "每次执行拥有独立上下文和观察状态；共享资源显式限定为预算/传输池等。",
+      "tests": "并发兄弟上下文隔离、读证据开关 A/B、请求状态私有性。"
+    },
+    {
+      "root": "仅内存消息和清侧链重试缺少持久身份及确认边界。",
+      "rule": "去重消息标识；先持久 transcript 后确认；重试保留运行规格和历史。",
+      "tests": "并发消息、重复 ID/冲突 ID、落盘失败保留消息、真实默认引擎父子通信、HTTP 重试写域与权限。"
+    },
+    {
+      "root": "短 worktree 名称碰撞及自动应用/破坏性回滚使并发修改被删除或覆盖。",
+      "rule": "完整身份资源名；不替换已有工作区；计算和发布分离；锁内版本比较、事务日志、保留 index。",
+      "tests": "同前缀长 ID、失败 worker 保留、父 dirty/staged 内容、冲突保留、磁盘故障回滚、崩溃日志恢复。"
+    },
+    {
+      "root": "后台任务超出父工具生命周期后，UI、取消、会话池与线程仍按前台模型处理。",
+      "rule": "运行任务有独立所有者；后台状态持久化；取消等待已启动 I/O；旧界面响应不能改变新 attempt。",
+      "tests": "停止后台任务、引擎逐出保护、Workflow 超时及并行线程取消、前端新旧 attempt 与乱序请求。"
+    }
+  ],
+  "ab_evidence": [
+    {
+      "case": "父子 ReadFileState",
+      "off": "worker 写观察册后父册被改写",
+      "on": "父观察证据保留不变"
+    },
+    {
+      "case": "重复注册与迟到 unregister",
+      "off": "第二实例覆盖第一实例，旧清理删除新实例",
+      "on": "重复启动被拒绝，错误 owner 的清理不生效"
+    },
+    {
+      "case": "任务依赖",
+      "off": "deps 未持久化，依赖未完成仍可认领",
+      "on": "deps 持久化，依赖完成后才可认领"
+    }
+  ],
+  "validation": {
+    "python_targeted": {
+      "passed": 200,
+      "deselected": 1,
+      "artifact": ".tmp/multiagent-redesign-20261015/python-results.xml",
+      "scope": "新运行机制、工具目录、旧版回退 Agent 契约、coord、Workflow、SessionPool"
+    },
+    "python_last_lifetime_recheck": {
+      "passed": 63,
+      "scope": "最终 Workflow 并行线程取消补充后的新运行机制与 Workflow 套件"
+    },
+    "new_runtime_contract_cases": 36,
+    "additional_write_e2e": {
+      "passed": 1,
+      "scope": "真实默认引擎 Agent -> 独立 worktree Read/Write -> wait -> agent_apply；合入前父文件不变，合入后 parent index 不变。"
+    },
+    "python_distinct_passed_across_targeted_runs": 201,
+    "legacy_tests": "明确标注 rollback-mode fixture=0；新路径由独立真实机制与默认引擎测试验证，未将旧行为当作新默认行为。",
+    "frontend_targeted": {
+      "passed": 109,
+      "files": [
+        "agentRuntimeProjection.test.ts",
+        "api/agentInbox.test.ts",
+        "api.stream.test.ts",
+        "chatStore.test.ts",
+        "api/receipt.guard.test.ts"
+      ]
+    },
+    "typescript": "passed",
+    "default_surface_probe": {
+      "runtime_v2": true,
+      "tools": [
+        "Agent",
+        "agent_send",
+        "agent_control",
+        "agent_apply"
+      ]
+    },
+    "known_unrelated_failure": {
+      "test": "tests/test_catalog.py::test_schema_budget_shortens_descriptions",
+      "detail": "Compact 的当前描述为 317 字符，旧断言要求 <200；本次未修改 Compact 文案或放宽该断言。首次完整定向运行记录到此失败，后续验收显式排除。"
+    },
+    "not_run": [
+      "全仓测试",
+      "真实付费模型调用",
+      "长时间多机负载测试",
+      "Windows/Linux OS 沙箱验证"
+    ]
+  },
+  "boundaries": [
+    "worktree 隔离工作目录与 Git index，不构成进程、网络或系统文件访问沙箱。",
+    "锁保护遵守 XEYO 锁协议的操作；外部编辑器/第三方进程不受这些锁约束。",
+    "显式 worktree 写入路径目前要求 local Git 工作区；不静默退回共享目录。",
+    "服务崩溃后的活 attempt 标记 interrupted；模型任务需显式继续，不重放未知副作用。",
+    "worktree/分支保留供审阅，合入后也不自动删除。",
+    "共享预算沿用已结算用量准入；已在途请求可能超过额度，不声称硬实时花费上限。",
+    "Workflow 取消是协作机制，仍不是任意 Python 的安全沙箱。",
+    "审查与测试基于当前混合源码工作区，不代表已安装发行包已更新。"
+  ],
+  "official_reference_choices": [
+    {
+      "url": "https://cursor.com/docs/agent/plan-mode",
+      "use": "计划/执行是交互选择，不等同于强制 planner-worker 调度。"
+    },
+    {
+      "url": "https://cursor.com/blog/self-driving-codebases",
+      "use": "独立 worker 工作副本与 handoff；未照搬研究系统的自动递归调度或合并策略。"
+    },
+    {
+      "url": "https://developers.openai.com/codex/multi-agent/",
+      "use": "独立 agent 身份、等待/控制与上下文隔离；只引用官方公开机制，不推断私有实现。"
+    },
+    {
+      "url": "https://code.claude.com/docs/en/agent-teams",
+      "use": "同团队通信、共享任务依赖与明确生命周期。"
+    },
+    {
+      "url": "https://code.claude.com/docs/en/worktrees",
+      "use": "独立工作目录；依据用户决定采用结果单独合入。"
+    },
+    {
+      "url": "https://code.claude.com/docs/en/sandboxing",
+      "use": "区分工作区隔离与系统沙箱。"
+    }
+  ],
+  "reference_evidence": "本轮之前已完成的官方资料审查见 docs/concurrency-agent-audit-2026-10-15.json；这些实现是对照，不是单一普适标准。",
+  "entry_files": [
+    "python/engine/agent_runtime.py",
+    "python/engine/agent_run_store.py",
+    "python/engine/agent_workspaces.py",
+    "python/engine/agent_permissions.py",
+    "python/tools/agent_control_tool.py",
+    "python/server/agent_runtime_views.py",
+    "python/tests/test_agent_runtime_v2.py",
+    "gui/src/lib/agentRuntimeProjection.ts"
+  ],
+  "source_sha256": {
+    "python/engine/agent_runtime.py": "8e3c80dfa1ea24da20e7c8fe5cb10d046824d7a461bc4eb6e768d986c7c9b09a",
+    "python/engine/agent_run_store.py": "b8cca85815e3d2fbef87ec9f459da82bc8bf1e63c19052a078b7ec9c9df3cf27",
+    "python/engine/agent_workspaces.py": "a6d431a548c13b80b117db8ce4bb41b7b9b8199130eab76073973aecd6816fd5",
+    "python/engine/agent_permissions.py": "6a3de5d31070d3a43d157d852277880433b18aed021220fa4c159b7b162eda9f",
+    "python/tools/agent_control_tool.py": "7d5c53c4ae48e968144c7afedff552fb85cef50283d85eed8d58d89866be9d0a",
+    "python/server/agent_runtime_views.py": "2eb34f1bdbd38f8e8f805d2bca634fe3deb7a3f35a261dad6cdf436c7d13d61a",
+    "python/tests/test_agent_runtime_v2.py": "3552147d3ff46b03fa1e525993134c1e34da6447070970d9668fe0bfc9cb11fb",
+    "gui/src/lib/agentRuntimeProjection.ts": "ad61ca2572a74fa625e1f227d9ed7009fb1fbb178a5fadd3ecac17bd012598e5"
+  },
+  "source_hash_scope": "当前混合工作区的文件快照，不表示文件中的全部改动归本任务所有"
+}

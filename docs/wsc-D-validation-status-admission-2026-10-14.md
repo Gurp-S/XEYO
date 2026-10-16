@@ -1,0 +1,9 @@
+# U1主路校验结果口径：三轮复审
+
+第一轮：现有生产验证已经明确不证明语义真值，但成功提交返回call_id/fingerprint/cursor/count，消费者可能把提交成功当语义PASS。否决再加一次LLM判真或拒绝所有未验证语义。主路只在成功的原事务返回中增加机械已校验与SEMANTIC_UNVERIFIED的独立状态。
+
+第二轮：机械状态只表示既有structure/source identity/commit合同通过，明确validation_scope，不能宣称新registry/file version/全部机械协议完成。拒绝、来源变化、发布失败与receipt不匹配仍抛原错误，不返回成功状态；新增状态不进入模型请求或冻结头，没有新的持久化authority。
+
+第三轮：保持所有旧返回字段和值，原调用方通过字段读取兼容。使用实际ToolRegistry、TodoWrite和原事务的既有正反例检查；新增两个语义不同但结构相同的objective（正常任务/无语义依据的声明）均机械提交，但两者都SEMANTIC_UNVERIFIED，不在guard里猜事实是否支持objective。正确性通过就按用户新授权直接主路生效，无flag，不等整个Goal完成。
+
+这只完成U1的原生commit结果分责。28旧原型探针、epistemic/显式transition及完整phase registry不会因为增加返回元数据而被算作修好。
