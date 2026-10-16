@@ -102,6 +102,12 @@ python/chunk*.txt
 python/xeyo.egg-info/
 gui/test-results/
 
+# Python 打包产物（setuptools build/ 与 wheel 输出，构建脚本生成，不入库；2026-10-16）
+python/build/
+python/dist/
+/dist/
+*.egg-info/
+
 # 会话/工具临时目录（2026-09-05 二次事故后补充）
 .tmp/
 .archify/
@@ -128,6 +134,8 @@ test-results/
 
 # 工作区数据目录（memory 已跟踪文件不受影响，屏蔽 tmp/截图噪音；2026-09-05）
 .workbuddy/
+# 本机代理工作区记忆（仅本地，不入库；2026-10-16）
+.workbuddy-ai/
 
 # 评测基准资产（体积大，仅本地保留；2026-09-05）
 BFCL/
