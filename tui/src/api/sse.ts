@@ -1,5 +1,6 @@
 import type { TimelineItem, TodoRow, UsageInfo } from "../types.js";
-import {consumeChatStream} from './consumeChatStream.js';
+import {consumeResumableChat} from './resumeChatStream.js';
+import {readTurnIdentity, rememberTurnIdentity} from './turnIdentity.js';
 
 export type SseHandlers = {
   onDelta: (text: string, messageId?: string) => void;
@@ -78,6 +79,7 @@ export type ChatBody = {
   queue_if_busy?: boolean;
   /** 引导：忙时投到本轮下一个采样边界，不打断工具批次（Codex turn/steer 同形）。 */
   steer_if_busy?: boolean;
+  expected_turn_id?: string;
 };
 
 export async function streamChat(
@@ -97,7 +99,8 @@ export async function streamChat(
   const res = await fetch(url, {
     method: "POST",
     headers,
-    body: JSON.stringify(body),
+    body: JSON.stringify({...body, ...(body.steer_if_busy
+      ? {expected_turn_id: body.expected_turn_id ?? readTurnIdentity(body.session_id)} : {})}),
     signal,
   });
   if (!res.ok) {
@@ -120,14 +123,14 @@ export async function streamChat(
   }
   if (!res.body) throw new Error("No response body");
 
-  await consumeChatStream(res.body, handlers, line => {
-    const obj = parseDataLine(line);
-    if (!obj) return;
+  await consumeResumableChat({body: res.body, baseUrl, sessionId: body.session_id,
+    headers, handlers, signal, parse: parseDataLine, onFrame: obj => {
+    rememberTurnIdentity(body.session_id, obj);
     const d = deltaText(obj);
     if (d) handlers.onDelta(d, typeof obj.xeyo_message_id === 'string' ? obj.xeyo_message_id : undefined);
     const xy = extractXy(obj);
     if (xy) handlers.onXy(xy);
-  }, signal);
+  }});
 }
 
 /**
@@ -243,7 +246,7 @@ export async function interruptSession(
   const res = await fetch(`${baseUrl.replace(/\/$/, "")}/v1/interrupt`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ session_id: sessionId }),
+    body: JSON.stringify({ session_id: sessionId, expected_turn_id: readTurnIdentity(sessionId) }),
   });
   // 同上：本地 abort() 只保证"不再接收"，服务端有没有停要靠这个响应。
   if (!res.ok) throw new Error(`HTTP ${res.status}`);

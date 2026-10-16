@@ -1,5 +1,7 @@
+import {createDeltaBuffer} from "../lib/deltaBuffer.js";
 import {useEffect, useRef, useState} from 'react';
 import {consumeChatStream} from '../api/consumeChatStream.js';
+import {rememberTurnIdentity} from '../api/turnIdentity.js';
 import {deltaText, extractXy, getSessionMessages, parseDataLine, type AcceptedPayload} from '../api/sse.js';
 import {mergeQueuedTimeline, messagesToItems} from '../lib/queuedTimeline.js';
 import type {CliConfig, TimelineItem} from '../types.js';
@@ -48,7 +50,7 @@ export function useQueuedTurns(options: Options) {
     return () => {stopped = true;};
   }, [options.config, options.modesTouched, version]);
   useEffect(() => {
-    if (current.current.config.demo) return;
+    if (current.current.config.demo || !current.current.config.sessionId) return;
     const {config} = current.current;
     const root = `${config.baseUrl.replace(/\/$/, '')}/v1/sessions/${encodeURIComponent(config.sessionId)}`;
     const headers: Record<string, string> = config.apiKey ? {Authorization: `Bearer ${config.apiKey}`} : {};
@@ -90,6 +92,7 @@ export function useQueuedTurns(options: Options) {
     }
     async function follow(turnId: string) {
       following = true;
+      rememberTurnIdentity(config.sessionId, {xeyo_turn_id: turnId});
       if (cursorTurn !== turnId) {
         cursorTurn = turnId; cursor = 0; texts.clear(); liveIds.clear();
       }
@@ -98,18 +101,31 @@ export function useQueuedTurns(options: Options) {
       current.current.abortRef.current = ac;
       current.current.setBusy(true);
       let completed = false;
+      const deltas = createDeltaBuffer(id => {
+        if (stopped) return;
+        const prefix = texts.get(id)!;
+        current.current.setItems(local => {
+          const exists = local.some(item => item.id === id);
+          const updated = local.map(item => item.kind === 'assistant' && item.id === id
+            ? {...item, text: item.text.length > prefix.length ? item.text : prefix, streaming: true} : item);
+          return exists ? updated : [...updated, {id, kind: 'assistant', text: prefix, streaming: true}];
+        });
+      });
+      const flushOnAbort = () => deltas.flush();
+      ac.signal.addEventListener('abort', flushOnAbort, {once: true});
       try {
-        const response = await request(`/turns/current/events?cursor=${cursor}`, {signal: ac.signal});
+        const response = await request(`/turns/current/events?cursor=${cursor}&expected_turn_id=${encodeURIComponent(turnId)}`, {signal: ac.signal});
         if (!response.body) throw new Error('empty response body');
         await consumeChatStream(response.body, {
-          onDelta() {}, onXy() {}, onDone() {completed = true;},
-          onError(error) {if (!stopped) current.current.onError(error.message);},
+          onDelta() {}, onXy() {}, onDone() {deltas.flush(); completed = true;},
+          onError(error) {deltas.flush(); if (!stopped) current.current.onError(error.message);},
         }, line => {
           if (stopped) return;
           const object = parseDataLine(line); if (!object) return;
+          if (object.error) throw new Error(JSON.stringify(object.error));
           const xy = extractXy(object);
           const frameTurn = object.xeyo_turn_id || xy?.turn_id;
-          if (frameTurn && frameTurn !== turnId) return;
+          if (frameTurn && frameTurn !== turnId) throw new Error('turn_mismatch: queued stream belongs to another turn');
           const eventId = object.xeyo_event_id ?? xy?.event_id;
           if (typeof eventId === 'number' && Number.isSafeInteger(eventId) && eventId > 0) {
             if (eventId <= cursor) return;
@@ -119,19 +135,15 @@ export function useQueuedTurns(options: Options) {
           if (text) {
             const id = typeof object.xeyo_message_id === 'string' ? object.xeyo_message_id : `queued-${turnId}`;
             texts.set(id, (texts.get(id) || '') + text); liveIds.add(id);
-            const prefix = texts.get(id)!;
-            current.current.setItems(local => {
-              const exists = local.some(item => item.id === id);
-              const updated = local.map(item => item.kind === 'assistant' && item.id === id
-                ? {...item, text: item.text.length > prefix.length ? item.text : prefix, streaming: true} : item);
-              return exists ? updated : [...updated, {id, kind: 'assistant', text: prefix, streaming: true}];
-            });
+            deltas.push(id, text, id);
           }
-          if (xy) current.current.onXy(xy);
+          if (xy) { deltas.flush(); current.current.onXy(xy); }
         }, ac.signal);
       } catch (error) {
         if (!stopped && !ac.signal.aborted) current.current.onError(String(error));
       } finally {
+        ac.signal.removeEventListener('abort', flushOnAbort);
+        deltas.flush();
         if (completed && !ac.signal.aborted) completedTurn = turnId;
         if (!stopped && current.current.abortRef.current === ac) {
           current.current.abortRef.current = null;

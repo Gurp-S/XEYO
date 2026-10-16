@@ -1,8 +1,8 @@
 /**
- * 忙时提交的纯判定与回执文案（App 接线无 TTY 不可测，判定与文案在真值表里钉住）。
+ * 忙时提交方式的纯函数判定与受理回执文案。
  *
  * 口径对齐：服务端 `_busy_or_queue`（queue_if_busy → 202 accepted_payload）与
- * GUI `resolveSendMode`（Enter=排队 / 加速键=边界引导，Codex queue vs TurnSteer 同形）。
+ * GUI `resolveSendMode`（Enter 排队，组合键在采样边界引导）。
  */
 export type BusySubmitPlan = {
   queueIfBusy: true;

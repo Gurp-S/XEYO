@@ -12,7 +12,7 @@ export function messagesToItems(messages: LoadedMessage[]): TimelineItem[] {
   });
 }
 
-/** Server order is authoritative; pending users and local notes remain visible. */
+/** 以服务端顺序为准，同时保留待投递的用户消息和本地备注。 */
 export function mergeQueuedTimeline(
   local: TimelineItem[], server: TimelineItem[], removedIds: Set<string>,
 ): TimelineItem[] {
@@ -26,7 +26,7 @@ export function mergeQueuedTimeline(
     return old?.kind === 'assistant' && item.kind === 'assistant'
       ? {...old, ...item, streaming: false} : item;
   });
-  // Preserve notes next to their next authoritative row; queued users go last.
+  // 备注保持在其后首条服务端记录旁，排队中的用户消息置于末尾。
   for (const item of extra) {
     const index = local.indexOf(item);
     const next = item.kind === 'user' ? undefined : local.slice(index + 1).find(row => serverIds.has(row.id));
@@ -40,7 +40,7 @@ export function appendAssistantDelta(
   items: TimelineItem[], id: string, text: string, previousId?: string,
 ): TimelineItem[] {
   let next = items;
-  // The native turn creates an empty placeholder before its first delta.
+  // 原生回合在首个增量到达前创建空占位行。
   if (previousId && previousId !== id) {
     next = items.flatMap(item => item.id === previousId && item.kind === 'assistant'
       ? item.text ? [{...item, streaming: false}] : [] : [item]);

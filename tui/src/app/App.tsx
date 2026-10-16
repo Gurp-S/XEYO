@@ -1,3 +1,4 @@
+import {createDeltaBuffer} from "../lib/deltaBuffer.js";
 import {useQueuedTurns} from '../hooks/useQueuedTurns.js';
 import {messagesToItems, appendAssistantDelta} from '../lib/queuedTimeline.js';
 import {restoreFailedDraft} from '../lib/failedDraft.js';
@@ -819,6 +820,12 @@ export function App({ config: initial }: Props) {
       ]);
     };
 
+    const deltaBuffer = createDeltaBuffer((id, chunk, previousId) => {
+      setItems(prev => appendAssistantDelta(prev, id, chunk, previousId));
+    });
+    const flushDeltaOnAbort = () => deltaBuffer.flush();
+    ac.signal.addEventListener('abort', flushDeltaOnAbort, {once: true});
+
     // T31：会话 id 由服务端签发（无则先申请；不再客户端自造 UUID）。
     // 申请失败与流式失败共用一道守卫：未上屏 ⇒ 放回草稿；已上屏 ⇒ 气泡在，草稿不回。
     // 此前 ensureSessionId 的拒绝会逃出 sendTurn（TextInput 不接 promise）⇒
@@ -862,13 +869,15 @@ export function App({ config: initial }: Props) {
             const previousId = assistantId;
             assistantId = messageId || assistantId;
             const id = assistantId;
-            setItems(prev => appendAssistantDelta(prev, id, chunk, previousId));
+            deltaBuffer.push(id, chunk, previousId);
           },
           onXy: (xy: Record<string, unknown>) => {
+            deltaBuffer.flush();
             ensureBubbles();
             receiveXy(xy);
           },
           onAccepted: (payload) => {
+            deltaBuffer.flush();
             // 忙时受理（202）：不是一轮对话——用户气泡 + 中性回执（含位次/口径）。
             accepted = true;
             surfaced = true;
@@ -882,6 +891,7 @@ export function App({ config: initial }: Props) {
             followAccepted.accept(payload, id, noteId);
           },
           onDone: () => {
+            deltaBuffer.flush();
             if (accepted || !userAdded) {
               return;
             }
@@ -924,7 +934,7 @@ export function App({ config: initial }: Props) {
                 sysNote(gapNote(gapThrough, "failed"));
               });
           },
-          onError: (err: Error) => setError(err.message),
+          onError: (err: Error) => { deltaBuffer.flush(); setError(err.message); },
         },
         ac.signal,
       );
@@ -935,6 +945,8 @@ export function App({ config: initial }: Props) {
       setError(String(e));
       return false;
     } finally {
+      ac.signal.removeEventListener('abort', flushDeltaOnAbort);
+      deltaBuffer.flush();
       // busy 提交未接管（受理/失败）时不碰 busy/abort——原回合还在跑。
       if ((!busyIntent || tookOver) && abortRef.current === ac) {
         abortRef.current = null;

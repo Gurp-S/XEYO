@@ -1,5 +1,5 @@
 import { Box, Text } from "ink";
-import TextInput from "ink-text-input";
+import { PromptTextInput } from "./PromptTextInput.js";
 import React, { useMemo } from "react";
 import { formatElapsed } from "../hooks/useElapsed.js";
 import { slashCommands } from "../generated/slashManifest.js";
@@ -96,7 +96,7 @@ export function PromptLine({
             （等待作答…）
           </Text>
         ) : (
-          <TextInput
+          <PromptTextInput
             value={value}
             onChange={onChange}
             onSubmit={onSubmit}

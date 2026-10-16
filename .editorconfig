@@ -12,20 +12,20 @@ trim_trailing_whitespace = true
 indent_style = tab
 indent_size = 4
 
+# 通用规则放在项目专用规则之前，避免覆盖下方的缩进约定。
+[*.{ts,tsx,js,jsx,mjs,cjs}]
+indent_style = tab
+indent_size = 4
+
 # ---- GUI（React+TS）：既有代码以 tab 缩进为主 ----
 [gui/src/**/*.{ts,tsx}]
 indent_style = tab
 indent_size = 4
 
-# ---- tui（Ink TUI）：既有代码以 4 空格缩进为主 ----
+# ---- TUI（Ink）：既有代码以 2 空格缩进为主 ----
 [tui/src/**/*.{ts,tsx}]
 indent_style = space
-indent_size = 4
-
-# ---- 其余 TS/JS ----
-[*.{ts,tsx,js,jsx,mjs,cjs}]
-indent_style = tab
-indent_size = 4
+indent_size = 2
 
 # ---- 数据/样式/文档 ----
 [*.{css,scss,less,html,json,yml,yaml,toml}]

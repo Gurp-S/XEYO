@@ -70,7 +70,12 @@ async function queueScenario(hold: boolean, recover = false, reconnect = false) 
     if (reconnect) {
       automatic.error(new Error('connection lost'));
       await until(() => follows === 2);
-      assert.ok(requests.some(url => url.endsWith('/turns/current/events?cursor=2')), 'resume from the last consumed event in this turn');
+      assert.ok(requests.some(url => {
+        const parsed = new URL(url);
+        return parsed.pathname.endsWith('/turns/current/events')
+          && parsed.searchParams.get('cursor') === '2'
+          && parsed.searchParams.get('expected_turn_id') === 'automatic-turn';
+      }), 'resume from the last consumed event with the same turn identity');
       automatic.enqueue(encoder.encode('data: {"xeyo_event_id":1,"xeyo_turn_id":"automatic-turn","xeyo_message_id":"queued-reply","choices":[{"delta":{"content":"DUPLICATE"}}]}\n\ndata: {"xy":{"type":"ask_user_pending","event_id":2,"turn_id":"automatic-turn","request_id":"ask-queue","question":"DUPLICATE QUESTION","options":["yes","no"]}}\n\ndata: {"xeyo_event_id":3,"xeyo_turn_id":"automatic-turn","xeyo_message_id":"queued-reply","choices":[{"delta":{"content":" continued"}}]}\n\n'));
       await until(() => output.includes('automatic live response continued'));
       assert.equal(output.includes('DUPLICATE'), false, 'replayed text and dialogs must not appear again');
