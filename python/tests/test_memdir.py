@@ -188,3 +188,218 @@ def test_write_memdir_missing_schema_denied(tmp_path, monkeypatch):
 	)
 	assert not gate.allowed
 	assert gate.reason == "memdir_schema_rejected"
+
+
+def test_applies_to_roundtrips_as_a_nonempty_list(tmp_path, monkeypatch):
+	root = _ws(tmp_path, monkeypatch)
+	wsid = workspace_id(str(root))
+	note = parse_and_validate(
+		{
+			"id": "mem_applies_to",
+			"type": "feedback",
+			"source": {"kind": "user"},
+			"confidence": 1.0,
+			"status": "active",
+			"scope": "workspace",
+			"applies_to": ["src/**", {"path": "tests/**", "reason": "test"}],
+			"title": "applies to",
+		},
+		"body",
+	)
+	write_note(note, wsid=wsid)
+	assert [loaded for loaded in load_notes(wsid) if loaded.id == note.id] == [note]
+
+
+def test_same_title_slug_keeps_distinct_note_ids(tmp_path, monkeypatch):
+	root = _ws(tmp_path, monkeypatch)
+	wsid = workspace_id(str(root))
+	base = {
+		"type": "feedback",
+		"source": {"kind": "user"},
+		"confidence": 1.0,
+		"status": "active",
+		"scope": "workspace",
+	}
+	first = parse_and_validate({**base, "id": "mem_first", "title": "科学"}, "first")
+	second = parse_and_validate({**base, "id": "mem_second", "title": "哲学"}, "second")
+	write_note(first, wsid=wsid)
+	write_note(second, wsid=wsid)
+	assert {note.id for note in load_notes(wsid)} == {first.id, second.id}
+
+
+def test_frontmatter_escaped_strings_roundtrip(tmp_path, monkeypatch):
+	root = _ws(tmp_path, monkeypatch)
+	wsid = workspace_id(str(root))
+	title = 'quoted "title" with \\\\ and\nnext line'
+	note = parse_and_validate(
+		{
+			"id": "mem_escaped",
+			"type": "feedback",
+			"source": {"kind": "user"},
+			"confidence": 1.0,
+			"status": "active",
+			"scope": "workspace",
+			"title": title,
+		},
+		"body",
+	)
+	write_note(note, wsid=wsid)
+	assert next(loaded for loaded in load_notes(wsid) if loaded.id == note.id).title == title
+
+
+def test_legacy_title_migration_is_identity_scoped(tmp_path, monkeypatch):
+	from dataclasses import replace
+
+	from memory.governance import note_to_frontmatter
+	from memory.memdir import dump_frontmatter, memdir_root, topic_filename
+
+	root = _ws(tmp_path, monkeypatch)
+	wsid = workspace_id(str(root))
+	base = {
+		"type": "feedback",
+		"source": {"kind": "user"},
+		"confidence": 1.0,
+		"status": "active",
+		"scope": "workspace",
+	}
+	legacy = parse_and_validate({**base, "id": "mem_legacy", "title": "legacy title"}, "old body")
+	other = parse_and_validate({**base, "id": "mem_other", "title": "new shared title"}, "other body")
+	topics = memdir_root(wsid) / "topics"
+	topics.mkdir(parents=True, exist_ok=True)
+	legacy_path = topics / "feedback-legacy-title.md"
+	other_path = topics / "feedback-new-shared-title.md"
+	legacy_path.write_text(dump_frontmatter(note_to_frontmatter(legacy)) + "\nold body\n", encoding="utf-8")
+	other_path.write_text(dump_frontmatter(note_to_frontmatter(other)) + "\nother body\n", encoding="utf-8")
+	rewrite_index([legacy, other], wsid=wsid)
+	assert "topics/feedback-legacy-title.md" in load_index_text(wsid)
+	assert "topics/feedback-new-shared-title.md" in load_index_text(wsid)
+
+	updated = replace(legacy, title="new shared title", content="updated body")
+	new_path = write_note(updated, wsid=wsid)
+	assert new_path.is_file()
+	assert not legacy_path.exists()
+	assert other_path.read_text(encoding="utf-8").endswith("other body\n")
+	index = load_index_text(wsid)
+	assert f"topics/{new_path.name}" in index
+	assert "topics/feedback-legacy-title.md" not in index
+	assert "topics/feedback-new-shared-title.md" in index
+	assert {note.id for note in load_notes(wsid)} == {legacy.id, other.id}
+	assert next(note for note in load_notes(wsid) if note.id == legacy.id).content == "updated body"
+	assert new_path.name == topic_filename(updated)
+
+
+def test_legacy_file_survives_failed_identity_migration(tmp_path, monkeypatch):
+	from dataclasses import replace
+
+	import pytest
+	import memory.memdir as memdir
+	from memory.governance import note_to_frontmatter
+
+	root = _ws(tmp_path, monkeypatch)
+	wsid = workspace_id(str(root))
+	note = parse_and_validate(
+		{
+			"id": "mem_interrupted",
+			"type": "feedback",
+			"source": {"kind": "user"},
+			"confidence": 1.0,
+			"status": "active",
+			"scope": "workspace",
+			"title": "old title",
+		},
+		"old body",
+	)
+	legacy = memdir.memdir_root(wsid) / "topics" / "feedback-old-title.md"
+	legacy.parent.mkdir(parents=True, exist_ok=True)
+	legacy.write_text(memdir.dump_frontmatter(note_to_frontmatter(note)) + "\nold body\n", encoding="utf-8")
+	rewrite_index([note], wsid=wsid)
+	assert "topics/feedback-old-title.md" in load_index_text(wsid)
+	before = legacy.read_bytes()
+	updated = replace(note, title="new title")
+	new_path = memdir.memdir_root(wsid) / "topics" / memdir.topic_filename(updated)
+	original_replace = memdir.os.replace
+
+	def fail_publish(source, destination):
+		if Path(destination) == new_path:
+			raise OSError("simulated publish interruption")
+		return original_replace(source, destination)
+
+	monkeypatch.setattr(memdir.os, "replace", fail_publish)
+	with pytest.raises(OSError, match="simulated publish interruption"):
+		write_note(replace(updated, content="new body"), wsid=wsid)
+	assert legacy.read_bytes() == before
+	assert not new_path.exists()
+	assert "topics/feedback-old-title.md" in load_index_text(wsid)
+
+
+def test_legacy_file_survives_failed_index_migration(tmp_path, monkeypatch):
+	from dataclasses import replace
+
+	import pytest
+	import memory.memdir as memdir
+	from memory.governance import note_to_frontmatter
+
+	root = _ws(tmp_path, monkeypatch)
+	wsid = workspace_id(str(root))
+	note = parse_and_validate(
+		{
+			"id": "mem_index_interrupted",
+			"type": "feedback",
+			"source": {"kind": "user"},
+			"confidence": 1.0,
+			"status": "active",
+			"scope": "workspace",
+			"title": "old title",
+		},
+		"old body",
+	)
+	legacy = memdir.memdir_root(wsid) / "topics" / "feedback-old-title.md"
+	legacy.parent.mkdir(parents=True, exist_ok=True)
+	legacy.write_text(memdir.dump_frontmatter(note_to_frontmatter(note)) + "\nold body\n", encoding="utf-8")
+	rewrite_index([note], wsid=wsid)
+	index_before = load_index_text(wsid)
+	legacy_before = legacy.read_bytes()
+	updated = replace(note, title="new title", content="new body")
+	new_path = memdir.memdir_root(wsid) / "topics" / memdir.topic_filename(updated)
+	original_replace = memdir.os.replace
+
+	def fail_index_replace(source, destination):
+		if Path(destination) == memdir.memdir_root(wsid) / "MEMORY.md":
+			raise OSError("simulated index migration interruption")
+		return original_replace(source, destination)
+
+	monkeypatch.setattr(memdir.os, "replace", fail_index_replace)
+	with pytest.raises(OSError, match="simulated index migration interruption"):
+		write_note(updated, wsid=wsid)
+	assert new_path.is_file()
+	assert legacy.read_bytes() == legacy_before
+	assert load_index_text(wsid) == index_before
+	loaded = [loaded for loaded in load_notes(wsid) if loaded.id == note.id]
+	assert len(loaded) == 1
+	assert loaded[0].content == "new body"
+
+
+def test_note_write_rejects_identity_collision_without_overwrite(tmp_path, monkeypatch):
+	import pytest
+
+	from memory.governance import MemorySchemaError, note_to_frontmatter
+	from memory.memdir import dump_frontmatter, memdir_root, topic_filename
+
+	root = _ws(tmp_path, monkeypatch)
+	wsid = workspace_id(str(root))
+	base = {
+		"type": "feedback",
+		"source": {"kind": "user"},
+		"confidence": 1.0,
+		"status": "active",
+		"scope": "workspace",
+	}
+	note = parse_and_validate({**base, "id": "mem_expected", "title": "expected"}, "new")
+	other = parse_and_validate({**base, "id": "mem_wrong", "title": "wrong"}, "existing")
+	path = memdir_root(wsid) / "topics" / topic_filename(note)
+	path.parent.mkdir(parents=True, exist_ok=True)
+	path.write_text(dump_frontmatter(note_to_frontmatter(other)) + "\nexisting\n", encoding="utf-8")
+	before = path.read_bytes()
+	with pytest.raises(MemorySchemaError, match="topic_identity_conflict"):
+		write_note(note, wsid=wsid)
+	assert path.read_bytes() == before

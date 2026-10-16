@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import pytest
+from agent_legacy_contract import legacy_agent_runtime as _legacy_agent_runtime
 
 from engine.abort import AbortController
 from msgtypes.events import ToolProgressEvent

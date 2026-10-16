@@ -82,7 +82,11 @@ def test_invalid_fallback_replays_source_without_republication(tmp_path, monkeyp
     with environment(tmp_path):
         rows, state, first, rec = prepare(tmp_path)
         if damage == 'source': rows[0]['content'] = 'new specification'
-        if damage == 'head': wsc_head_store.path_for(state.session_id).unlink()
+        if damage == 'head':
+            wsc_head_store.path_for(state.session_id).unlink()
+            # The committed immutable record is now the authority. Losing only
+            # the compatibility cache is recoverable, not lost publication.
+            Path(state.wsc_timing_state['committed_head_ref']['path']).unlink()
         path = Path(next(iter(rec['publication']['objects'])))
         if damage == 'cold_missing': path.unlink()
         if damage == 'cold_corrupt': path.write_bytes(b'corrupted cold evidence')
@@ -105,11 +109,13 @@ def test_failed_first_publication_never_installs_unrecoverable_head(tmp_path, mo
         rows += [{'id': f'small-{i}', 'role': 'assistant', 'content': 'receipt observed'} for i in range(20)]
         state = WorkingSnapshot(session_id='failed-fallback')
         wsc_projection._STATE.clear()
+        before = keep(rows, state, tmp_path)
         monkeypatch.setattr(wsc_head_store, 'save', lambda *a, **kw: False)
-        assert force_compact(rows, state, cwd=tmp_path) == rows
-        assert state.c2_summary_text  # Its existence is insufficient authority.
+        with pytest.raises(ValueError, match='publication_generation_not_verified'):
+            force_compact(rows, state, cwd=tmp_path)
+        assert state.compact_cursor == 0 and not state.c2_summary_text
         assert not wsc_head_store.path_for(state.session_id).exists()
-        assert keep(rows, state, tmp_path) == rows
+        assert keep(rows, state, tmp_path) == before
 
 
 def test_disabled_wsc_keeps_legacy_projection_without_wsc_head(tmp_path, monkeypatch):

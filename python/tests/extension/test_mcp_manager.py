@@ -197,9 +197,9 @@ def test_unapproved_project_scope_not_spawned(home, tmp_path):
 	h = mgr.collect_specs()["fs"]
 	from extension import mcp_scopes as scopes
 
-	hp = ws / ".xeyo" / "mcp-trust.json"
+	hp = scopes.trust_path(str(ws))
 	hp.parent.mkdir(parents=True, exist_ok=True)
-	hp.write_text(json.dumps({scopes.declaration_hash(h): {"approved": True}}), encoding="utf-8")
+	hp.write_text(json.dumps({scopes.trust_key(str(ws), h): {"approved": True}}), encoding="utf-8")
 	reg2 = ToolRegistry(cwd=str(ws))
 	mgr.attach_mcp_tools(reg2)
 	assert fake.spawn_calls == 1

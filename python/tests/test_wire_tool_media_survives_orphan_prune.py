@@ -11,11 +11,8 @@
 2. 同一条请求里存在无主 tool 行需要被丢。这不是假想：2026-09-20 实测
    （sess_mu9oqy8m_63ljiu，投影 137 calls / 138 results）就是这条分支存在的理由。
 
-本轮不落刀：``model/_openai_common.py`` 正被并发会话改（这套 media 机制本身就在它
-未提交的 diff 里），``model/tool_media.py`` 是它新建的未跟踪文件。改法一行：
-把 ``append_tool_media(out, pending_tool_images)`` 挪到 ``prune_orphan_tool_rows``
-之前 —— 媒体行落在 ``out`` 末尾，prune 只会把它当普通 user 行保留，不改配对。
-修好后本文件会 XPASS（strict），摘掉 xfail 标记即可。
+2026-10-15 修复：图片先绑定到结果行，配对裁剪后统一输出有效结果的图片。
+本用例已由 strict xfail 提升为正常回归；孤儿结果的图片归属另有专项测试。
 """
 
 from __future__ import annotations
@@ -104,13 +101,6 @@ def test_orphan_row_is_the_dropped_one_not_the_image() -> None:
     assert [str(r.get("tool_call_id") or "") for r in wire if r.get("role") == "tool"] == ["c0"], wire
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "10-04 实测：有孤儿行时走 `return pruned` 提前出口，收尾的 append_tool_media 不执行，"
-        "尾巴上待发的工具图片整批消失（_image_blocks == 0）。修法见模块 docstring。"
-    ),
-)
 def test_orphan_prune_keeps_pending_tool_images() -> None:
     wire = normalize_messages_for_openai(_request(with_orphan=True))
     assert _image_blocks(wire) == 1, wire

@@ -25,6 +25,7 @@ async def test_failed_publication_retries_durability_before_any_fold(monkeypatch
     transcript = importlib.import_module("session.record_transcript")
     monkeypatch.setenv("XEYO_HOME", str(tmp_path / "home"))
     monkeypatch.setenv("XEYO_WSC", str(int(native)))
+    monkeypatch.setenv("XEYO_WSC_SEMANTIC_HANDOFF", "0")  # Explicit legacy declaration durability.
     monkeypatch.setattr("engine.first_sniff.maybe_first_sniff_text", lambda **kwargs: "")
     store = MessageStore([Message(role="user", id="spec", content="当前任务：写报告并引用实际验收")])
     for i in range(35): store.append(Message(role="assistant", content="背景 " + "x" * 2000))

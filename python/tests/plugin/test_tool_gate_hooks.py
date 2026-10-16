@@ -53,3 +53,26 @@ def test_pre_tool_skips_when_hooks_off(tmp_path):
 	reg = ToolRegistry(cwd=str(ws))
 	res = asyncio.run(reg._hook_blocker("PreToolUse", str(ws), "Bash", {"command": "ls"}, abort_label="Bash"))
 	assert res is None
+
+
+def test_permission_request_hook_runner_exception_denies(tmp_path, monkeypatch):
+	from extension import config, hooks
+
+	ws = _setup(tmp_path)
+	monkeypatch.setattr(config, "load_ext_config", lambda _cwd: type("Cfg", (), {"hooks_enabled": lambda self: True})())
+	reg = ToolRegistry(cwd=str(ws))
+	async def broken(*_args, **_kwargs):
+		raise OSError("synthetic hook runner failure")
+	monkeypatch.setattr(hooks, "run_event_hooks_async", broken)
+	coro = reg._hook_blocker(
+		"PermissionRequest", str(ws), "Write", {"path": "safe.txt"}, abort_label="Write"
+	)
+	try:
+		coro.send(None)
+	except StopIteration as completed:
+		res = completed.value
+	finally:
+		coro.close()
+	assert res is not None
+	assert res.is_error
+	assert res.metadata["hook_abort"] is True

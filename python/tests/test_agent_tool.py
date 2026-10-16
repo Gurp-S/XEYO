@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from agent_legacy_contract import legacy_agent_runtime as _legacy_agent_runtime
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -119,7 +120,7 @@ def test_subagent_context_a3_stable_and_forbidden_removed():
 		tool_whitelist=["Edit", "Read", "_agent", "Bash", "Grep"],
 	)
 	assert ctx.system_prompt.startswith(base)                 # 稳定前缀在最前、未被改
-	assert ctx.system_prompt.rstrip().endswith(ctx.dynamic_tail)  # 动态在尾部（A3）
+	assert ctx.system_prompt == base  # 委派任务进入 user，system 只有稳定前缀
 	assert ctx.dynamic_tail not in base                        # 动态未插进 base
 	assert "_agent" not in ctx.tool_names
 	assert "Bash" in ctx.tool_names  # Phase 2：Bash 可进白名单（另受策略沙箱约束）

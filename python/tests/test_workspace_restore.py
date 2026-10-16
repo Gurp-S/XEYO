@@ -123,6 +123,23 @@ def test_restore_recovers_non_ascii_filename_content(tmp_path) -> None:
     assert target.read_text(encoding="utf-8") == "完整评测内容\n第二行"
 
 
+def test_restore_recreates_file_deleted_since_compat_checkpoint(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    target = workspace / "deleted-after-checkpoint.txt"
+    target.write_text("historical", encoding="utf-8")
+
+    shadow = ShadowGit(workspace)
+    target_commit = shadow.snapshot("target with file")
+    target.unlink()
+    current_revision = WorkspaceRevision(workspace).calculate()
+
+    tx = WorkspaceRestoreTransaction(workspace, owner="restore-deleted")
+    tx.execute(target_commit, current_revision)
+
+    assert target.read_text(encoding="utf-8") == "historical"
+
+
 def test_unescape_git_octal_path() -> None:
     quoted = r'docs/\350\265\267\346\255\245\351\230\266\346\256\265\350\257\204\346\265\213\347\273\223\346\236\234.md'
     assert (

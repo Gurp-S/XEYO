@@ -36,3 +36,23 @@ def test_no_matches_is_explicit_empty_result_not_empty_source():
     result = read({"message_id": "spec", "query": "missing", "limit": 16},
                   [{"message_id": "spec", "role": "user", "content": "原始内容"}])
     assert result["matches_total"] == 0 and result["passages"] == [] and result["total_characters"] == 4
+
+
+@pytest.mark.parametrize('text,query,limit', [
+    ('aaaaa', 'a', 20), ('a' * 100, 'a', 40), ('a' * 41, 'aaa', 40),
+    ('ababa' * 40, 'aba', 32), ('Ω匹配' * 80, '匹配', 120),
+    ('hit' + 'x'*1000 + 'hit'*9, 'hit', 100),
+])
+def test_omissions_count_actual_fully_returned_matches(text, query, limit):
+    import re
+    result = read({'message_id':'r','query':query,'limit':limit},
+                  [{'id':'r','role':'user','content':text}])
+    matches = list(re.finditer(re.escape(query), text))
+    returned = sum(any(p['offset'] <= m.start() and m.end() <= p['end_offset']
+                       for p in result['passages']) for m in matches)
+    assert result['matches_total'] == len(matches)
+    assert result['unreturned_match_count'] == len(matches) - returned
+    assert sum(len(p['content']) for p in result['passages']) <= limit
+    assert all(p['content'] == text[p['offset']:p['end_offset']] for p in result['passages'])
+    if result['text_complete']:
+        assert result['unreturned_match_count'] == 0

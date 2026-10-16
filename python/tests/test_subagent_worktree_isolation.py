@@ -6,6 +6,7 @@
 import subprocess
 import sys
 from pathlib import Path
+from agent_legacy_contract import legacy_agent_runtime as _legacy_agent_runtime
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -41,7 +42,10 @@ def _make_repo(tmp_path: Path, files: dict[str, str]) -> Path:
     return repo
 
 
-def test_non_git_path_is_unavailable(tmp_path):
+def test_non_git_path_is_unavailable(tmp_path, monkeypatch):
+    from coord.worktree import GIT_ENV
+    # A custom pytest basetemp can itself be inside the checkout.
+    monkeypatch.setitem(GIT_ENV, "GIT_CEILING_DIRECTORIES", str(tmp_path.parent))
     assert is_git_repo(tmp_path) is False
     iso = WorktreeIsolation(tmp_path, "t0")
     try:

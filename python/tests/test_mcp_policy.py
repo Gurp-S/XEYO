@@ -167,3 +167,17 @@ def test_early_speculative_eligible_for_readonly_mcp(tmp_path):
 	reg2.register(tool2)
 	ok2 = _eligible_for_early(reg2, ToolUse(id="9", name=tool2.name, input={}), forced_wrap_up=False)
 	assert ok2 is False
+
+
+def test_enterprise_policy_loader_exception_denies(tmp_path, monkeypatch):
+	from extension import mcp_scopes
+
+	tool = _tool(policy="always_allow")
+	monkeypatch.setattr(
+		mcp_scopes,
+		"load_enterprise_policy",
+		lambda: (_ for _ in ()).throw(OSError("synthetic policy read failure")),
+	)
+	d = evaluate_policy_impl(tool.name, {}, cwd=_cwd(tmp_path), tool=tool)
+	assert d.decision == PermissionDecision.DENY
+	assert d.matched_rule == "mcp_enterprise_policy_unavailable"

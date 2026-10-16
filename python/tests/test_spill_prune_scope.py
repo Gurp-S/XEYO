@@ -35,6 +35,8 @@ def spill_at(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 	root = tmp_path / "xeyo_home"
 	root.mkdir()
 	monkeypatch.setenv("XEYO_SPILL_DIR", str(root))
+	# Scope tests run the retention pass explicitly; scheduling is tested separately.
+	monkeypatch.setattr("tools.spill_maintenance.schedule", lambda root, cleanup: cleanup(root))
 	monkeypatch.delenv("XEYO_SPILL_RETENTION_DAYS", raising=False)
 	return root
 

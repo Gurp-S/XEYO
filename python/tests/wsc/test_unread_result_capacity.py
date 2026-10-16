@@ -5,10 +5,10 @@ import pytest
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('native', [False, True])
+@pytest.mark.parametrize('native,semantic', [(False, False), (True, False), (True, True)])
 @pytest.mark.parametrize('result_bytes', [260000, 420000])
 @pytest.mark.parametrize('nonadjacent', [False, True])
-async def test_unread_large_result_is_presented_whole_or_stops_before_any_model_send(monkeypatch, tmp_path, native, result_bytes, nonadjacent):
+async def test_unread_large_result_is_presented_whole_or_stops_before_any_model_send(monkeypatch, tmp_path, native, semantic, result_bytes, nonadjacent):
     from engine.abort import AbortController
     from engine.budget import BudgetTracker
     from engine.query_loop import query_loop
@@ -25,6 +25,7 @@ async def test_unread_large_result_is_presented_whole_or_stops_before_any_model_
     monkeypatch.setenv('XEYO_SESSIONS_DIR', str(tmp_path / 'sessions'))
     monkeypatch.setenv('XEYO_SPILL_DIR', str(tmp_path / 'spill'))
     monkeypatch.setenv('XEYO_WSC', str(int(native)))
+    monkeypatch.setenv('XEYO_WSC_SEMANTIC_HANDOFF', str(int(semantic)))
     monkeypatch.setenv('XEYO_LATE_RESULT_PROJECTION', str(int(nonadjacent)))
     monkeypatch.setattr('memory.wsc_projection._STATE', {})
     monkeypatch.setattr('engine.first_sniff.maybe_first_sniff_text', lambda **kwargs: '')
@@ -60,6 +61,10 @@ async def test_unread_large_result_is_presented_whole_or_stops_before_any_model_
         async def stream(self, messages, tools, abort):
             calls.append('handoff')
             assert contains_complete_result(messages)
+            if semantic:
+                assert 'TodoWrite' not in {tool['name'] for tool in tools}
+                yield ModelChunk(kind='text_delta', text='当前任务：根据完整读回结果写报告，尚未完成。')
+                return
             from tests.wsc._fixtures import declared_report_phase
             yield ModelChunk(kind='tool_use', tool_use=ToolUse('state', 'TodoWrite', {
                 'todos': [{'id': 'report', 'content': '写报告', 'status': 'pending', 'activeForm': '写报告'}],
@@ -91,7 +96,13 @@ async def test_unread_large_result_is_presented_whole_or_stops_before_any_model_
     if result_bytes == 420000:
         assert calls == [] and working.compact_cursor == 0
         assert path.read_bytes() == prefix
-        assert any(getattr(event, 'reason', '') == 'handoff_request_exceeds_capacity' for event in events)
+        # An unavailable generator retains the source. The complete main
+        # request is then independently refused, rather than sent or clipped.
+        assert any(getattr(event, 'reason', '').startswith('context_capacity_exceeded:') for event in events)
+        key = 'semantic_generation_failure' if semantic else 'handoff_generation_failure'
+        failure = working.wsc_timing_state[key]
+        assert failure['outcome'] == 'retained_source'
+        assert failure['reason'] == ('semantic_generation_capacity_exceeded' if semantic else 'handoff_request_exceeds_capacity')
     else:
         assert calls == ['handoff', 'main'], [getattr(event, 'reason', '') for event in events]
         assert working.compact_cursor <= invocation_index

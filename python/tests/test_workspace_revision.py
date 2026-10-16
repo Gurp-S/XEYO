@@ -72,3 +72,22 @@ def test_legacy_full_revision_still_sees_untracked(tmp_path) -> None:
     second = revision.calculate()
 
     assert first != second
+
+
+def test_scoped_paths_preserve_dotfiles_and_shadow_snapshot_names(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    env_file = workspace / ".env"
+    env_file.write_text("SECRET=value", encoding="utf-8")
+    (workspace / "env").write_text("plain", encoding="utf-8")
+
+    revision = WorkspaceRevision(workspace)
+    assert revision.normalize_paths(["./.env", "./env"]) == (".env", "env")
+    before = revision.calculate(paths=[".env"])
+    env_file.write_text("SECRET=updated", encoding="utf-8")
+    assert revision.calculate(paths=[".env"]) != before
+
+    shadow = ShadowGit(workspace)
+    shadow.snapshot("dotfiles", paths=["./.env", "./env"])
+    assert shadow._run(["show", "HEAD:.env"]).stdout == "SECRET=updated"
+    assert shadow._run(["show", "HEAD:env"]).stdout == "plain"

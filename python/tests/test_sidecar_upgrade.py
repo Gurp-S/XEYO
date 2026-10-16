@@ -36,9 +36,9 @@ def test_apply_then_unapply(monkeypatch):
     assert upgrade.apply() is True
     assert memindex._sync_table is not before
     assert getattr(memindex, "__memindex_sig_installed", False) is True
-    # 其他挂钩型也应被安装（抽查 spill / pre_llm_inject）。
+    # Removed hint decoration stays absent; unrelated hooks still install.
     from tools import spill
-    assert getattr(spill, "__spill_tail_hint_installed", False) is True
+    assert not getattr(spill, "__spill_tail_hint_installed", False)
     from prompt import pre_llm_inject
     assert getattr(pre_llm_inject, "__c2_transcript_pointer_installed", False) is True
 

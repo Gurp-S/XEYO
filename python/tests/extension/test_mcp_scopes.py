@@ -35,7 +35,7 @@ def _write(ws, *, scope=None, spec=None, trust=None, settings=None):
 			p.parent.mkdir(parents=True, exist_ok=True)
 			p.write_text(json.dumps({"servers": spec}), encoding="utf-8")
 	if trust:
-		p = ws / ".xeyo" / "mcp-trust.json"
+		p = _home_root() / "mcp-trust.json"
 		p.parent.mkdir(parents=True, exist_ok=True)
 		p.write_text(json.dumps(trust), encoding="utf-8")
 	if settings:
@@ -105,13 +105,27 @@ def test_mcp_tool_deny_patterns(home, tmp_path, monkeypatch):
 	assert scopes.mcp_tool_denied("server", "write") is False
 
 
-def test_bad_policy_falls_back_defaults(home, tmp_path, monkeypatch):
+def test_bad_policy_without_last_good_is_restrictive(home, tmp_path, monkeypatch):
 	pol_path = tmp_path / "policy.json"
 	monkeypatch.setenv("XEYO_ENTERPRISE_POLICY", str(pol_path))
 	pol_path.write_text("{not json", encoding="utf-8")
 	pol = scopes.load_enterprise_policy()
-	assert pol["mcp_server_deny"] == []
-	assert pol["mcp_tool_deny"] == []
+	assert pol["_policy_invalid"] is True
+	assert scopes.mcp_server_denied("anything", policy=pol) is True
+	assert scopes.mcp_tool_denied("anything", "read", policy=pol) is True
+	assert scopes.skill_denied("anything", policy=pol) is True
+	assert scopes.plugin_denied("anything", policy=pol) is True
+	assert scopes.plugin_market_allowed("registry", policy=pol) is False
+
+
+def test_bad_policy_uses_last_valid_policy(home, tmp_path, monkeypatch):
+	pol_path = tmp_path / "policy.json"
+	monkeypatch.setenv("XEYO_ENTERPRISE_POLICY", str(pol_path))
+	pol_path.write_text(json.dumps({"mcp_server_deny": ["blocked"]}), encoding="utf-8")
+	assert scopes.mcp_server_denied("blocked") is True
+	pol_path.write_text("{not json", encoding="utf-8")
+	assert scopes.mcp_server_denied("blocked") is True
+	assert scopes.mcp_server_denied("other") is False
 
 
 def test_trust_project_requires_approval(home, tmp_path):
@@ -124,10 +138,37 @@ def test_trust_project_requires_approval(home, tmp_path):
 	# 未批准 → False（不会 spawn）。
 	assert scopes.is_server_trusted(str(ws), spec) is False
 	# 批准（按声明 hash）→ True。
-	h = scopes.declaration_hash(spec)
+	h = scopes.trust_key(str(ws), spec)
 	_write(ws, trust={h: {"approved": True}})
 	assert scopes.is_server_trusted(str(ws), spec) is True
 
+
+
+def test_project_cannot_disable_its_trust_requirement(home, tmp_path):
+	ws = tmp_path / "ws"
+	ws.mkdir()
+	_write(ws, settings={"enabled_extensions": True})
+	_write(
+		ws,
+		scope="project",
+		spec={"fs": _server(_requires_trust=False)},
+	)
+	spec = scopes.collect_mcp_specs(str(ws))["fs"]
+	assert spec["_requires_trust"] is True
+	assert scopes.is_server_trusted(str(ws), spec) is False
+	assert scopes.trust_path(str(ws)) == _home_root() / "mcp-trust.json"
+
+
+def test_project_trust_is_bound_to_workspace(home, tmp_path):
+	ws1 = tmp_path / "ws1"
+	ws2 = tmp_path / "ws2"
+	ws1.mkdir()
+	ws2.mkdir()
+	spec = {"id": "fs", "command": "npx", "_requires_trust": True}
+	key = scopes.trust_key(str(ws1), spec)
+	_write(ws1, trust={key: {"approved": True}})
+	assert scopes.is_server_trusted(str(ws1), spec) is True
+	assert scopes.is_server_trusted(str(ws2), spec) is False
 
 def test_trust_user_plugin_exempt(home):
 	# user/plugin scope 免批。

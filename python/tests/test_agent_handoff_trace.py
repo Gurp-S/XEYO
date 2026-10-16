@@ -17,6 +17,7 @@ from types import SimpleNamespace
 from pathlib import Path
 
 import pytest
+from agent_legacy_contract import legacy_agent_runtime as _legacy_agent_runtime
 
 import tools.agent_tool.agent_tool as at
 from engine.abort import AbortController
@@ -31,6 +32,8 @@ OUT_FIELDS = SimpleNamespace(
     max_turns=8,
     tokens_used=100,
     cost_cny=None,
+    cost_partial=False,
+    stop_reason="finished",
     had_write_stale=False,
 )
 

@@ -18,6 +18,8 @@
 
 from __future__ import annotations
 
+from server.engine_services import product_runtime_services
+
 import pytest
 
 import server.job_registry as jr
@@ -40,6 +42,10 @@ class _FakeRegistry:
         self.reads += 1
         return ("still running…", 7, "running", False)   # 永远 running，逼出等待分支
 
+    def snapshot_list(self, session_id: str):
+        # Activity facts query the same host port after reading output.
+        return []
+
     async def wait_for_change(self, job_id: str, caller: str, token: int, *, timeout_s: float):
         self.waited += 1
         return token
@@ -57,7 +63,7 @@ def fake_registry(monkeypatch: pytest.MonkeyPatch) -> _FakeRegistry:
 
 
 async def _call(tmp_path, payload: dict) -> object:
-    reg = build_default_registry(cwd=str(tmp_path))
+    reg = build_default_registry(cwd=str(tmp_path), host_services=product_runtime_services().tools)
     return await reg.run(
         ToolUse(id="t", name="job_output", input=payload), AbortController(), skip_ask=True
     )

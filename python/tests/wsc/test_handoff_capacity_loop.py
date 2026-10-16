@@ -26,6 +26,7 @@ async def test_capacity_generates_before_fold_and_accounts_separate_request(monk
     monkeypatch.setenv("XEYO_SESSIONS_DIR", str(tmp_path / "sessions"))
     monkeypatch.setenv("XEYO_SPILL_DIR", str(tmp_path / "spill"))
     monkeypatch.setenv("XEYO_WSC", str(int(native)))
+    monkeypatch.setenv("XEYO_WSC_SEMANTIC_HANDOFF", "0")  # Explicit legacy declaration contract.
     monkeypatch.setattr("memory.wsc_projection._STATE", {})
     monkeypatch.setattr("engine.first_sniff.maybe_first_sniff_text", lambda **kwargs: "")
     store = MessageStore([Message(role="user", id="spec", content="当前规范：写报告并引用实际验收")])
@@ -110,6 +111,8 @@ async def test_capacity_generates_before_fold_and_accounts_separate_request(monk
         force_compact(compression_messages(store, working), working, cwd=tmp_path)
         assert working.compact_cursor > 0
         wsc_head_store.path_for(working.session_id).unlink()
+        from pathlib import Path
+        Path(working.wsc_timing_state['committed_head_ref']['path']).unlink()
         wsc_projection._STATE.clear()
     budget = BudgetTracker(max_turns=4)
     events = [event async for event in query_loop(store=store, model=Model(), tools=registry,

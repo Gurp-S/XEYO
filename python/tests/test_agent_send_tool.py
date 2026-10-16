@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from agent_legacy_contract import legacy_agent_runtime as _legacy_agent_runtime
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 

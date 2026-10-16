@@ -170,12 +170,12 @@ def test_strip_by_key_keeps_other_dimensions() -> None:
 	assert strip_notice_fragments(host) == "真实工具输出"
 
 
-def test_notice_body_is_middle_truncated() -> None:
+def test_notice_render_preserves_producer_budget() -> None:
 	body = "H" * 3000 + "T" * 3000
 	wrapped = wrap_notice(body)
-	assert len(wrapped) < len(body)
-	assert "H" * 200 in wrapped and "T" * 200 in wrapped
-	assert "[中段已截断]" in wrapped
+	assert body in wrapped
+	assert "[中段已截断]" not in wrapped
+	assert len(truncate_notice_body(body)) < len(body)
 	assert truncate_notice_body("短正文") == "短正文"
 
 
@@ -276,14 +276,14 @@ def _has_tool_shape(messages: list[dict[str, Any]]) -> bool:
 # ────────────────────── 说话人归属：落库的通报留痕不是"用户说的话"
 
 
-def test_is_notice_message_covers_both_identities():
-	"""两级判据：结构化 note_key 优先，投影 dict 只能按包封词法兜底。"""
+def test_is_notice_message_uses_structured_origin():
+	"""用户粘贴信封字面量仍是用户；引擎投影携带结构化 note_key。"""
 	from msgtypes.message import notice_note, user_message
 	from prompt.notice_channel import is_notice_message, wrap_notice
 
 	assert is_notice_message(
 		{"role": "user", "content": wrap_notice("# Goal\n甲", key="goal")}
-	) is True
+	) is False
 	assert is_notice_message(
 		{"role": "user", "note_key": "goal", "content": "# Goal\n甲"}
 	) is True
@@ -306,7 +306,7 @@ def test_session_md_current_is_the_human_not_an_injected_notice():
 		[
 			{"role": "user", "content": "把 loadUser 改成带缓存的"},
 			{"role": "assistant", "content": "先看现状。"},
-			{"role": "user", "content": wrap_notice("# Goal\n目标：发布", key="goal")},
+			{"role": "user", "note_key": "goal", "content": wrap_notice("# Goal\n目标：发布", key="goal")},
 		]
 	)
 	assert "loadUser" in f["current"]
@@ -326,6 +326,7 @@ def test_rewind_turn_anchors_skip_notice_rows():
 			{
 				"role": "user",
 				"id": "n1",
+				"note_key": "goal",
 				"content": wrap_notice("# Goal\n甲", key="goal"),
 			}
 		)
@@ -348,7 +349,7 @@ def test_last_user_text_skips_persisted_notice_tail():
 			[
 				{"role": "user", "content": "/pdf 转成 markdown"},
 				{"role": "assistant", "content": "好"},
-				{"role": "user", "content": wrap_notice("# Continue\n…", key="continue")},
+				{"role": "user", "note_key": "continue", "content": wrap_notice("# Continue\n…", key="continue")},
 			]
 		)
 		== "/pdf 转成 markdown"
@@ -360,7 +361,7 @@ def test_c2_summary_does_not_charge_notices_to_the_user_pool():
 	from memory.runtime import _msg_kind, _role_group
 	from prompt.notice_channel import wrap_notice
 
-	note = {"role": "user", "content": wrap_notice("# 引擎状态\nurl: x", key="world_state")}
+	note = {"role": "user", "note_key": "world_state", "content": wrap_notice("# 引擎状态\nurl: x", key="world_state")}
 	assert _msg_kind(note) == "notice"
 	assert _role_group("notice") == 2  # 0=叙事结论(assistant/user)，2=其它
 	assert _role_group(_msg_kind({"role": "user", "content": "把登录页改掉"})) == 0
@@ -375,7 +376,7 @@ def test_cadence_user_turns_ignore_persisted_notices():
 	with_notes = [
 		*real[:1],
 		*[
-			{"role": "user", "content": wrap_notice(f"# 状态 {i}", key="world_state")}
+			{"role": "user", "note_key": "world_state", "content": wrap_notice(f"# 状态 {i}", key="world_state")}
 			for i in range(8)
 		],
 		*real[1:],
@@ -391,13 +392,13 @@ def test_replay_counts_exclude_notice_rows():
 	assert _is_user_text({"role": "user", "content": "不对，重来"}) is True
 	assert (
 		_is_user_text(
-			{"role": "user", "content": wrap_notice("# 引擎状态\nx", key="world_state")}
+			{"role": "user", "note_key": "world_state", "content": wrap_notice("# 引擎状态\nx", key="world_state")}
 		)
 		is False
 	)
 	msgs = [
 		{"role": "user", "content": "把登录页改掉"},
-		{"role": "user", "content": wrap_notice("# 引擎状态\n不对，重来", key="world_state")},
+		{"role": "user", "note_key": "world_state", "content": wrap_notice("# 引擎状态\n不对，重来", key="world_state")},
 	]
 	assert count_reverts(msgs) == 0
 
@@ -416,7 +417,7 @@ def test_resume_derived_goal_is_the_human_not_the_state_fragment():
 		{"role": "user", "content": "旧目标：给登录页加校验"},
 		{"role": "user", "content": "新目标：把记忆栈改成可回滚"},
 		{"role": "assistant", "content": "先看现状"},
-		{"role": "user", "content": wrap_notice("# 引擎状态\nurl: x", key="world_state")},
+		{"role": "user", "note_key": "world_state", "content": wrap_notice("# 引擎状态\nurl: x", key="world_state")},
 	]
 	assert _previous_user_goal(msgs) == "旧目标：给登录页加校验"
 
@@ -439,7 +440,7 @@ def test_ends_with_tool_result_looks_past_persisted_notices():
 		ends_with_tool_result(
 			[
 				*after_tools,
-				{"role": "user", "content": wrap_notice("# 引擎状态\nx", key="world_state")},
+				{"role": "user", "note_key": "world_state", "content": wrap_notice("# 引擎状态\nx", key="world_state")},
 			]
 		)
 		is True

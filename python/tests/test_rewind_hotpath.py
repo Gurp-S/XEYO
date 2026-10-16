@@ -10,6 +10,8 @@
 from __future__ import annotations
 
 import json
+import os
+import stat
 import time
 from pathlib import Path
 
@@ -19,6 +21,7 @@ from rewind.hotpath import (
     RewindHotpath,
     RewindStateError,
     RewindValidationError,
+    _read_rows,
 )
 from rewind.index import (
     AgentFileIndex,
@@ -71,10 +74,17 @@ def _wait_status(hot: RewindHotpath, rewind_id: str, timeout: float = 5.0) -> di
     while time.time() < deadline:
         event = hot.get_event(rewind_id)
         assert event is not None
-        if event.get("status") in {"committed", "partial", "failed"}:
+        if event.get("status") in {"committed", "partial", "failed", "recovery_required"}:
             return event
         time.sleep(0.02)
     raise AssertionError("restore did not settle in time")
+
+
+def test_event_reader_skips_invalid_utf8_line_and_keeps_later_rows(tmp_path: Path) -> None:
+    path = tmp_path / "events.jsonl"
+    path.write_bytes(b'{"id":"first"}\n\xff\n{"id":"last"}\n')
+
+    assert _read_rows(path) == [{"id": "first"}, {"id": "last"}]
 
 
 def test_freeze_checkpoint_is_idempotent_and_loads(env):
@@ -318,7 +328,14 @@ def test_validation_errors(env):
         hot.rewind(mode="branch", target_message_id="m3", edited_text="x", confirmed=True)
 
 
-def _append_journal_operation(sessions: Path, sid: str, *, path: str, before_hash: str | None) -> None:
+def _append_journal_operation(
+    sessions: Path,
+    sid: str,
+    *,
+    path: str,
+    before_hash: str | None,
+    started_at: float | None = None,
+) -> None:
     """直接 append 一条 operations.jsonl 记录，模拟工具层 mutation 的 journal 写回。
 
     聚焦删除分支对「既有文件被 agent 首次修改」与「agent 新建文件」的区分：
@@ -332,6 +349,7 @@ def _append_journal_operation(sessions: Path, sid: str, *, path: str, before_has
         "turn_id": "turn_x",
         "status": "completed",
         "path": path,
+        "started_at": time.time() if started_at is None else started_at,
         "before_hash": before_hash,
         "after_hash": "after-hash-placeholder",
         "inverse_kind": "restore_snapshot" if before_hash else "delete_file",
@@ -391,6 +409,160 @@ def test_restore_recovers_first_touch_existing_file_not_deletes(env):
     assert (ws / "user.txt").read_text(encoding="utf-8") == "user-original"
     assert "user.txt" not in event["restore"]["deleted"]
     assert "user.txt" in event["restore"]["restored"]
+
+
+def test_restore_preserves_unindexed_file_without_post_checkpoint_preimage(env):
+    ws = env["workspace"]
+    target = ws / "preexisting-unindexed.txt"
+    target.write_text("user data", encoding="utf-8")
+    cp = freeze_checkpoint(
+        env["sid"], "m3", snapshots=env["snapshots"], sessions_dir=env["sessions"]
+    )
+    index = AgentFileIndex(env["sid"], sessions_dir=env["sessions"])
+    current = target.stat()
+    index.upsert(
+        "preexisting-unindexed.txt",
+        content_hash=env["snapshots"].put_bytes(b"user data").content_hash,
+        size=current.st_size,
+        mtime_ns=current.st_mtime_ns,
+        source="turn_diff",
+    )
+
+    hot = RewindHotpath(env["sid"], sessions_dir=env["sessions"], snapshots=env["snapshots"], workspace_root=ws)
+    result = hot.rewind(mode="restore", target_message_id="m3", checkpoint_id=cp.checkpoint_id, confirmed=True)
+    event = _wait_status(hot, result.rewind_id)
+
+    assert target.read_text(encoding="utf-8") == "user data"
+    assert "preexisting-unindexed.txt" in event["restore"]["missing_preimage"]
+
+
+def test_restore_deletes_create_then_edit_using_first_post_checkpoint_operation(env):
+    ws = env["workspace"]
+    cp = freeze_checkpoint(
+        env["sid"], "m3", snapshots=env["snapshots"], sessions_dir=env["sessions"]
+    )
+    target = ws / "created-then-edited.txt"
+    abs_target = str(target.resolve()).replace("\\", "/")
+    stale_hash = env["snapshots"].put_bytes(b"old prior state").content_hash
+    _append_journal_operation(
+        env["sessions"], env["sid"], path=abs_target, before_hash=stale_hash, started_at=cp.ts - 1
+    )
+    time.sleep(0.01)
+    target.write_text("created version", encoding="utf-8")
+    _append_journal_operation(env["sessions"], env["sid"], path=abs_target, before_hash=None)
+    time.sleep(0.01)
+    target.write_text("edited version", encoding="utf-8")
+    after_hash = env["snapshots"].put_bytes(b"created version").content_hash
+    _append_journal_operation(
+        env["sessions"], env["sid"], path=abs_target, before_hash=after_hash
+    )
+    stat_result = target.stat()
+    AgentFileIndex(env["sid"], sessions_dir=env["sessions"]).upsert(
+        target.name,
+        content_hash=env["snapshots"].put_bytes(b"edited version").content_hash,
+        size=stat_result.st_size,
+        mtime_ns=stat_result.st_mtime_ns,
+        source="turn_diff",
+    )
+
+    hot = RewindHotpath(env["sid"], sessions_dir=env["sessions"], snapshots=env["snapshots"], workspace_root=ws)
+    result = hot.rewind(mode="restore", target_message_id="m3", checkpoint_id=cp.checkpoint_id, confirmed=True)
+    event = _wait_status(hot, result.rewind_id)
+
+    assert not target.exists()
+    assert target.name in event["restore"]["deleted"]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission mode bits are required")
+def test_restore_and_undo_preserve_file_modes(env):
+    ws = env["workspace"]
+    target = ws / "executable.sh"
+    target.write_text("#!/bin/sh\necho old\n", encoding="utf-8")
+    os.chmod(target, 0o751)
+    index = AgentFileIndex(env["sid"], sessions_dir=env["sessions"])
+    initial = target.stat()
+    index.upsert(
+        target.name,
+        content_hash=env["snapshots"].put_bytes(target.read_bytes()).content_hash,
+        size=initial.st_size,
+        mtime_ns=initial.st_mtime_ns,
+        source="turn_diff",
+    )
+    cp = freeze_checkpoint(
+        env["sid"], "m3", snapshots=env["snapshots"], sessions_dir=env["sessions"], workspace_root=ws
+    )
+    target.write_text("#!/bin/sh\necho changed\n", encoding="utf-8")
+    os.chmod(target, 0o600)
+    changed = target.stat()
+    index.upsert(
+        target.name,
+        content_hash=env["snapshots"].put_bytes(target.read_bytes()).content_hash,
+        size=changed.st_size,
+        mtime_ns=changed.st_mtime_ns,
+        source="turn_diff",
+    )
+
+    hot = RewindHotpath(env["sid"], sessions_dir=env["sessions"], snapshots=env["snapshots"], workspace_root=ws)
+    result = hot.rewind(mode="restore", target_message_id="m3", checkpoint_id=cp.checkpoint_id, confirmed=True)
+    _wait_status(hot, result.rewind_id)
+    assert stat.S_IMODE(target.stat().st_mode) == 0o751
+    hot.undo(result.rewind_id, confirmed=True)
+    assert stat.S_IMODE(target.stat().st_mode) == 0o600
+
+
+def test_recovery_retry_keeps_original_pre_rewind_snapshot(env, monkeypatch):
+    ws = env["workspace"]
+    index = AgentFileIndex(env["sid"], sessions_dir=env["sessions"])
+    for name in ("a.txt", "b.txt"):
+        target = ws / name
+        target.write_text(f"before-{name}", encoding="utf-8")
+        current = target.stat()
+        index.upsert(
+            name,
+            content_hash=env["snapshots"].put_bytes(target.read_bytes()).content_hash,
+            size=current.st_size,
+            mtime_ns=current.st_mtime_ns,
+            source="turn_diff",
+        )
+    cp = freeze_checkpoint(
+        env["sid"], "m3", snapshots=env["snapshots"], sessions_dir=env["sessions"]
+    )
+    for name in ("a.txt", "b.txt"):
+        target = ws / name
+        target.write_text(f"after-{name}", encoding="utf-8")
+        current = target.stat()
+        index.upsert(
+            name,
+            content_hash=env["snapshots"].put_bytes(target.read_bytes()).content_hash,
+            size=current.st_size,
+            mtime_ns=current.st_mtime_ns,
+            source="turn_diff",
+        )
+
+    import rewind.hotpath as hotpath_module
+
+    original_write = hotpath_module._write_atomic_bytes
+    failed = {"done": False}
+
+    def fail_once(path, data, *, mode=None):
+        if path.name == "b.txt" and not failed["done"]:
+            failed["done"] = True
+            raise OSError("injected failure")
+        return original_write(path, data, mode=mode)
+
+    monkeypatch.setattr(hotpath_module, "_write_atomic_bytes", fail_once)
+    hot = RewindHotpath(env["sid"], sessions_dir=env["sessions"], snapshots=env["snapshots"], workspace_root=ws)
+    result = hot.rewind(mode="restore", target_message_id="m3", checkpoint_id=cp.checkpoint_id, confirmed=True)
+    failed_event = _wait_status(hot, result.rewind_id)
+    assert failed_event["status"] == "recovery_required"
+    assert {row["path"] for row in failed_event["pre_rewind_index"]} == {"a.txt", "b.txt"}
+
+    hot.recover(result.rewind_id, action="retry", confirmed=True)
+    recovered = _wait_status(hot, result.rewind_id)
+    assert recovered["status"] == "committed"
+    hot.undo(result.rewind_id, confirmed=True)
+    assert (ws / "a.txt").read_text(encoding="utf-8") == "after-a.txt"
+    assert (ws / "b.txt").read_text(encoding="utf-8") == "after-b.txt"
 
 
 def test_continue_no_checkpoint_is_partial_not_committed(env):

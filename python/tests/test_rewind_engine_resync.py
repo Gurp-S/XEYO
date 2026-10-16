@@ -17,10 +17,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from fastapi.testclient import TestClient
-
+import pytest
+from fastapi import HTTPException
 from server import app as app_mod
-from server.app import app
+from server.routers import rewind as rewind_router
+from server.routers.rewind import RewindRequest
 from server.session_pool import ModelConfig, SessionPool
 from session.persistence import transcript_path
 
@@ -169,14 +170,95 @@ def test_rewind_route_triggers_resync(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(
         app_mod._pool, "resync_after_rewind", lambda sid: called.append(sid) or True
     )
-    resp = TestClient(app).post(
-        f"/v1/sessions/{service.session_id}/rewind",
-        json={
-            "mode": "continue",
-            "target_message_id": ids["target_message_id"],
-            "edited_text": "edited copy",
-            "confirmed": True,
-        },
+    payload = rewind_router.rewind_session(
+        service.session_id,
+        RewindRequest(
+            mode="continue",
+            target_message_id=ids["target_message_id"],
+            edited_text="edited copy",
+            confirmed=True,
+        ),
     )
-    assert resp.status_code == 200
+    assert payload["mode"] == "continue"
     assert called == [service.session_id]
+
+    monkeypatch.setattr(app_mod._pool, "is_busy", lambda _sid: False)
+    monkeypatch.setattr(app_mod._pool, "try_begin", lambda _sid: None)
+    with pytest.raises(HTTPException) as raised:
+        rewind_router.rewind_session(
+            service.session_id,
+            RewindRequest(
+                mode="continue",
+                target_message_id=ids["target_message_id"],
+                edited_text="second edit",
+                confirmed=True,
+            ),
+        )
+    assert raised.value.status_code == 409
+
+
+def test_rewind_route_uses_atomic_session_lease(monkeypatch, tmp_path: Path) -> None:
+    from tests.test_rewind_service import _build_session
+    from server.routers.rewind import RewindRequest
+    from server.routers import rewind as rewind_router
+
+    monkeypatch.setenv("XEYO_SESSIONS_DIR", str(tmp_path / "sessions"))
+    service, _target, ids = _build_session(tmp_path)
+    app_mod._pool.set_cwd(str(tmp_path / "workspace"))
+    monkeypatch.setattr(app_mod._pool, "is_busy", lambda _sid: False)
+    monkeypatch.setattr(app_mod._pool, "try_begin", lambda _sid: None)
+
+    with pytest.raises(HTTPException) as raised:
+        rewind_router.rewind_session(
+            service.session_id,
+            RewindRequest(
+                mode="continue",
+                target_message_id=ids["target_message_id"],
+                edited_text="edited copy",
+                confirmed=True,
+            ),
+        )
+    assert raised.value.status_code == 409
+
+
+def test_reused_rewind_idempotency_releases_route_lease(monkeypatch, tmp_path: Path) -> None:
+    from rewind.hotpath import RewindResult
+
+    sid = "rewind-reused-lease"
+    pool = SessionPool(cwd=str(tmp_path), busy_stale_sec=600)
+
+    class ReusedHotpath:
+        session_id = sid
+        on_restore_complete = None
+
+        def rewind(self, **_kwargs):
+            return RewindResult(
+                rewind_id="rw-existing",
+                mode="continue",
+                transcript_committed=True,
+                removed_rows=1,
+                retained_rows=2,
+                checkpoint_id=None,
+                status="completed",
+                reused=True,
+            )
+
+    monkeypatch.setattr(rewind_router, "_pool", pool)
+    monkeypatch.setattr(rewind_router, "_hotpath", lambda _sid: ReusedHotpath())
+    monkeypatch.setattr(rewind_router, "_flush_transcript_writes", lambda: None)
+    monkeypatch.setattr(rewind_router, "_resync_memory", lambda *_args: True)
+    monkeypatch.setattr(rewind_router, "_detach_auto_drivers", lambda _sid: None)
+
+    payload = rewind_router.rewind_session(
+        sid,
+        RewindRequest(
+            mode="continue",
+            target_message_id="target",
+            edited_text="edited",
+            idempotency_key="duplicate-key",
+            confirmed=True,
+        ),
+    )
+
+    assert payload["reused"] is True
+    assert pool.is_busy(sid) is False

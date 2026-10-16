@@ -90,7 +90,68 @@ def test_factor_classification():
 	assert _outcome_for({"status": "timeout"}, _hook(fail="continue")) == "abort"
 
 
-def _hook(*, fail: str):
+
+def test_permission_request_failure_ignores_continue_policy():
 	from extension.hooks import PluginHook
 
-	return PluginHook(plugin_name="p", event="PreToolUse", command=Path("x"), fail_policy=fail)
+	hook = PluginHook(
+		plugin_name="p",
+		event="PermissionRequest",
+		command=Path("x"),
+		fail_policy="continue",
+	)
+	assert _outcome_for({"status": "ok", "returncode": 9}, hook) == "abort"
+	assert _outcome_for({"status": "error", "returncode": -1}, hook) == "abort"
+
+
+def test_permission_request_hook_failure_is_monotonic(tmp_path, monkeypatch):
+	from extension import hooks
+	from extension.config import load_ext_config
+	from extension.hooks import PluginHook
+
+	ws = _setup(tmp_path, hooks=[{"event": "PermissionRequest", "command": "hook.cmd"}])
+	cfg = load_ext_config(str(ws))
+	first = PluginHook("p1", "PermissionRequest", Path("first"), fail_policy="continue")
+	second = PluginHook("p2", "PermissionRequest", Path("second"), fail_policy="continue")
+	calls = []
+	monkeypatch.setattr(hooks, "_plugin_hooks", lambda _cfg, _cwd: [first, second])
+	def run_one(hook, _context):
+		calls.append(hook.plugin_name)
+		if hook is first:
+			return {"status": "ok", "returncode": 4, "stdout": "", "stderr": ""}
+		return {"status": "ok", "returncode": 0, "stdout": "", "stderr": ""}
+	monkeypatch.setattr(hooks, "_run_one_sync", run_one)
+	out = run_event_hooks("PermissionRequest", str(ws), {}, config=cfg)
+	assert out.status == "abort"
+	assert calls == ["p1"]
+
+
+def test_permission_request_hook_execution_exception_aborts(tmp_path, monkeypatch):
+	from extension import hooks
+	from extension.config import load_ext_config
+	from extension.hooks import PluginHook
+
+	ws = _setup(tmp_path, hooks=[{"event": "PermissionRequest", "command": "hook.cmd"}])
+	cfg = load_ext_config(str(ws))
+	hook = PluginHook("p", "PermissionRequest", Path("missing"), fail_policy="continue")
+	monkeypatch.setattr(hooks, "_plugin_hooks", lambda _cfg, _cwd: [hook])
+	def raise_error(_hook, _context):
+		raise OSError("synthetic hook failure")
+	monkeypatch.setattr(hooks, "_run_one_sync", raise_error)
+	out = run_event_hooks("PermissionRequest", str(ws), {}, config=cfg)
+	assert out.status == "abort"
+	assert out.errors
+
+def _hook(*, fail: str, event="PreToolUse"):
+	from extension.hooks import PluginHook
+
+	return PluginHook(plugin_name="p", event=event, command=Path("x"), fail_policy=fail)
+
+
+def test_missing_permission_request_hook_aborts(tmp_path):
+	ws = _setup(
+		tmp_path,
+		hooks=[{"event": "PermissionRequest", "command": "missing.cmd", "fail_policy": "continue"}],
+	)
+	out = run_event_hooks("PermissionRequest", str(ws), {})
+	assert out.status == "abort"

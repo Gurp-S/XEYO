@@ -7,7 +7,7 @@ import pytest
 @pytest.mark.asyncio
 @pytest.mark.parametrize('native', [False, True])
 @pytest.mark.parametrize('failure', ['omission', 'cancelled'])
-async def test_failed_capacity_handoff_preserves_frozen_state_and_unread_result(monkeypatch, tmp_path, native, failure):
+async def test_failed_capacity_handoff_preserves_frozen_state_and_unread_result(monkeypatch, tmp_path, native, failure, semantic=False):
     from engine.abort import AbortController
     from engine.budget import BudgetTracker
     from engine.query_loop import query_loop
@@ -26,6 +26,7 @@ async def test_failed_capacity_handoff_preserves_frozen_state_and_unread_result(
     from tests.wsc.test_handoff_fact_disposition import prepared
     monkeypatch.setenv('XEYO_HOME', str(tmp_path / 'home'))
     monkeypatch.setenv('XEYO_WSC', str(int(native)))
+    monkeypatch.setenv('XEYO_WSC_SEMANTIC_HANDOFF', str(int(semantic)))
     monkeypatch.setattr('memory.wsc_projection._STATE', {})
     monkeypatch.setattr('engine.first_sniff.maybe_first_sniff_text', lambda **kw: '')
     rows, _ = prepared()
@@ -82,7 +83,8 @@ async def test_failed_capacity_handoff_preserves_frozen_state_and_unread_result(
         prompt=PromptAssembler(), system_prompt='fixture', abort=AbortController(),
         budget=BudgetTracker(max_turns=10), working=working, persist_handoff=persist,
         include_memory_index=False)]
-    assert any(getattr(e, 'reason', '') in {'handoff_progress_source_missing', 'handoff_cancelled'} for e in events)
+    expected = 'aborted' if failure == 'cancelled' else 'handoff_progress_source_missing'
+    assert any(getattr(e, 'reason', '') == expected for e in events)
     assert requests and working.compact_cursor == cursor
     assert path.read_bytes() == prefix and source() == baseline
     after_state = latest_todo_snapshot(source())
@@ -98,3 +100,9 @@ async def test_failed_capacity_handoff_preserves_frozen_state_and_unread_result(
     assert resumed[0]['content'].startswith(frozen) and unread in str(resumed)
     assert restored.compact_cursor == cursor
     assert all(p.read_bytes() == data for p, data in objects.items())
+
+
+@pytest.mark.asyncio
+async def test_cancelled_semantic_generation_keeps_frozen_state_and_unread_result(monkeypatch, tmp_path):
+    await test_failed_capacity_handoff_preserves_frozen_state_and_unread_result(
+        monkeypatch, tmp_path, native=True, failure='cancelled', semantic=True)

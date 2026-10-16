@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from pathlib import Path
 
 from rewind.blob_gc import (
@@ -90,6 +91,133 @@ def test_cross_session_shared_blob_survives(tmp_path: Path):
     assert (snap / shared).is_file(), "跨会话共享 blob 被误删"
     assert not (snap / "dead").exists(), "不可达 blob 应被回收"
     assert result.deleted == 1
+
+
+def test_gc_keeps_all_blobs_when_reference_journal_is_corrupt(tmp_path: Path):
+    sessions = tmp_path / "sessions"
+    snap = tmp_path / "snapshots"
+    referenced = _put_blob(snap, "possibly-referenced")
+    unrelated = _put_blob(snap, "unrelated")
+    journal = sessions / "sess_a" / "operations.jsonl"
+    _write_jsonl(journal, [{"operation_id": "op1", "after_hash": referenced}])
+    with journal.open("a", encoding="utf-8") as handle:
+        handle.write("{truncated json\n")
+
+    result = garbage_collect(
+        sessions_root=sessions,
+        snapshot_root_path=snap,
+        enabled=True,
+        dry_run=False,
+        max_bytes=1,
+    )
+
+    assert result.deleted == 0
+    assert result.deletable == 0
+    assert (snap / referenced).is_file()
+    assert (snap / unrelated).is_file()
+
+
+def test_gc_keeps_all_blobs_when_recovery_journal_is_corrupt(tmp_path: Path):
+    sessions = tmp_path / "sessions"
+    snap = tmp_path / "snapshots"
+    referenced = _put_blob(snap, "recovery-checkpoint")
+    unrelated = _put_blob(snap, "unrelated")
+    journal = sessions / "sess_a" / "recovery_jobs.jsonl"
+    _write_jsonl(journal, [{"job_id": "job-1", "metadata": {"checkpoint": [{"snapshot_hash": referenced}]}}])
+    with journal.open("a", encoding="utf-8") as handle:
+        handle.write("{truncated json\n")
+
+    result = garbage_collect(
+        sessions_root=sessions,
+        snapshot_root_path=snap,
+        enabled=True,
+        dry_run=False,
+        max_bytes=1,
+    )
+
+    assert result.deleted == 0
+    assert result.deletable == 0
+    assert (snap / referenced).is_file()
+    assert (snap / unrelated).is_file()
+
+
+def test_gc_serializes_actual_snapshot_publication_with_blob_deletion(tmp_path: Path, monkeypatch):
+    import rewind.blob_gc as blob_gc
+    from rewind.context import RewindExecutionContext
+    from rewind.journal import OperationJournal
+    from rewind.snapshot import SnapshotStore
+
+    sessions = tmp_path / "sessions"
+    snap = tmp_path / "snapshots"
+    content = "published-during-gc"
+    candidate_hash = _put_blob(snap, content)
+    delete_entered = threading.Event()
+    release_delete = threading.Event()
+    publication_done = threading.Event()
+    publisher_errors: list[BaseException] = []
+    original_delete = blob_gc._delete_blob
+
+    def pause_delete(path: Path) -> None:
+        if path == snap / candidate_hash:
+            delete_entered.set()
+            assert release_delete.wait(5)
+        original_delete(path)
+
+    monkeypatch.setattr(blob_gc, "_delete_blob", pause_delete)
+    gc_errors: list[BaseException] = []
+
+    def run_gc() -> None:
+        try:
+            garbage_collect(
+                sessions_root=sessions,
+                snapshot_root_path=snap,
+                enabled=True,
+                dry_run=False,
+                max_bytes=1,
+            )
+        except BaseException as exc:
+            gc_errors.append(exc)
+
+    def publish() -> None:
+        try:
+            context = RewindExecutionContext(
+                session_id="sess-race",
+                turn_id="turn-race",
+                revision_id=None,
+                journal=OperationJournal("sess-race", sessions_dir=sessions, enabled=True),
+                snapshots=SnapshotStore("sess-race", root=snap, enabled=True),
+            )
+            context.record_file_mutation(
+                tool_name="write_file",
+                operation_type="write",
+                path=str(tmp_path / "workspace" / "file.txt"),
+                old_content="before-publication",
+                new_content=content,
+                existed_before=True,
+            )
+        except BaseException as exc:
+            publisher_errors.append(exc)
+        finally:
+            publication_done.set()
+
+    gc_thread = threading.Thread(target=run_gc)
+    gc_thread.start()
+    assert delete_entered.wait(5), "GC did not reach candidate deletion"
+    publisher_thread = threading.Thread(target=publish)
+    publisher_thread.start()
+    completed_while_gc_holds_publication = publication_done.wait(0.5)
+    release_delete.set()
+    gc_thread.join(5)
+    publisher_thread.join(5)
+
+    assert not gc_thread.is_alive()
+    assert not publisher_thread.is_alive()
+    assert not gc_errors, gc_errors
+    assert not publisher_errors, publisher_errors
+    assert not completed_while_gc_holds_publication
+    assert (snap / candidate_hash).is_file(), "published snapshot must survive GC"
+    reachable = collect_reachable_blobs(sessions)
+    assert candidate_hash in reachable
 
 
 def test_dry_run_and_disabled_never_delete(tmp_path: Path):
@@ -176,6 +304,74 @@ def test_retained_turn_ids_recent_n_plus_baseline_anchor(tmp_path: Path):
     )
     tids2, mids2 = retained_turn_ids(tmp_path / sid, 1)
     assert "t2" in tids2 and "u2" in mids2
+
+
+def test_retained_turn_ids_deduplicates_latest_row_per_turn(tmp_path: Path):
+    sid = "sess_latest-turn"
+    _write_jsonl(
+        tmp_path / sid / "turns.jsonl",
+        [
+            {"turn_id": "t1", "user_message_id": "u1-old", "started_at": 1.0},
+            {"turn_id": "t1", "user_message_id": "u1", "started_at": 1.0},
+            {"turn_id": "t2", "user_message_id": "u2", "started_at": 2.0},
+            {"turn_id": "t3", "user_message_id": "u3", "started_at": 3.0},
+        ],
+    )
+
+    turn_ids, message_ids = retained_turn_ids(tmp_path / sid, 1)
+
+    assert turn_ids == {"t1", "t3"}
+    assert message_ids == {"u1", "u3"}
+
+
+def test_latest_anchor_cancellation_releases_checkpoint_and_turn(tmp_path: Path):
+    sid = "sess-anchor-cancel"
+    session_dir = tmp_path / sid
+    _write_jsonl(
+        session_dir / "checkpoints.jsonl",
+        [
+            {"checkpoint_id": "cp1", "user_message_id": "u1", "ts": 1.0},
+            {"checkpoint_id": "cp2", "user_message_id": "u2", "ts": 2.0, "anchor": True},
+            {"checkpoint_id": "cp3", "user_message_id": "u3", "ts": 3.0},
+            {"checkpoint_id": "cp2", "user_message_id": "u2", "ts": 2.0, "anchor": False},
+        ],
+    )
+    _write_jsonl(
+        session_dir / "turns.jsonl",
+        [
+            {"turn_id": "t1", "user_message_id": "u1", "started_at": 1.0},
+            {"turn_id": "t2", "user_message_id": "u2", "started_at": 2.0},
+            {"turn_id": "t3", "user_message_id": "u3", "started_at": 3.0},
+        ],
+    )
+
+    assert retained_checkpoint_ids(session_dir, 1) == {"cp1", "cp3"}
+    turn_ids, message_ids = retained_turn_ids(session_dir, 1)
+    assert turn_ids == {"t1", "t3"}
+    assert message_ids == {"u1", "u3"}
+
+
+def test_recovery_job_checkpoints_are_reachable(tmp_path: Path):
+    sessions = tmp_path / "sessions"
+    sid = "sess-recovery-job"
+    checkpoint_hash = _put_blob(tmp_path / "snapshots", "rollback-checkpoint")
+    transcript_hash = _put_blob(tmp_path / "snapshots", "transcript-checkpoint")
+    _write_jsonl(
+        sessions / sid / "recovery_jobs.jsonl",
+        [{
+            "job_id": "job-1",
+            "status": "recovery_required",
+            "metadata": {
+                "checkpoint": [{"snapshot_hash": checkpoint_hash}],
+                "transcript_backup_hash": transcript_hash,
+            },
+        }],
+    )
+
+    reachable = collect_reachable_blobs(sessions, keep_recent=1)
+
+    assert checkpoint_hash in reachable
+    assert transcript_hash in reachable
 
 
 def test_turn_level_prune_old_turn_blobs(tmp_path: Path):

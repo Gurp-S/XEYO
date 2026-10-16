@@ -69,6 +69,10 @@ class _BoomTool:
 	name = "Boom"
 
 	@staticmethod
+	def is_read_only() -> bool:
+		return True
+
+	@staticmethod
 	def is_concurrency_safe() -> bool:
 		return True
 
@@ -103,6 +107,10 @@ class _OkSafeTool:
 
 class _SlowTool:
 	name = "Slow"
+
+	@staticmethod
+	def is_read_only() -> bool:
+		return True
 
 	@staticmethod
 	def is_concurrency_safe() -> bool:

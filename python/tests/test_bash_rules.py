@@ -74,7 +74,6 @@ def test_default_rules_preserve_readonly_allow() -> None:
 		"node -v",
 		"dir",
 		"rg foo",
-		"pytest -q",
 	):
 		assert bash_readonly_allow(cmd), cmd
 	for cmd in (
@@ -86,8 +85,11 @@ def test_default_rules_preserve_readonly_allow() -> None:
 		"npm publish",
 		"type .env",
 		"unknown-tool x",
+		"pytest -q",  # Executes workspace code: dev allowance, never worker readonly.
 	):
 		assert not bash_readonly_allow(cmd), cmd
+	from permissions.bash_policy import bash_auto_allow_reason
+	assert bash_auto_allow_reason("pytest -q") == "bash_dev_tool_allow"
 
 
 def test_strictest_wins(tmp_path: Path) -> None:
@@ -110,6 +112,32 @@ def test_strictest_wins(tmp_path: Path) -> None:
 	assert bash_rule_decision("git fetch origin", cwd=str(tmp_path)) == "ask"
 	assert bash_rule_decision("git status", cwd=str(tmp_path)) == "allow"
 	assert bash_rule_decision("git push", cwd=str(tmp_path)) is None
+
+
+
+def test_dev_tools_are_not_prefix_readonly_rules(tmp_path: Path) -> None:
+	for command in ("pytest -q", "tsc --noEmit", "eslint src"):
+		assert bash_rule_decision(command, cwd=str(tmp_path)) is None, command
+		assert not bash_readonly_allow(command, cwd=str(tmp_path)), command
+	assert bash_rule_decision("python -v", cwd=str(tmp_path)) is None
+	assert bash_rule_decision("python -V", cwd=str(tmp_path)) == "allow"
+	assert bash_readonly_allow("python -V", cwd=str(tmp_path)) is True
+
+
+def test_same_line_segments_apply_ask_and_deny_rules(tmp_path: Path) -> None:
+	_write_rules(
+		tmp_path,
+		[
+			{"name": "status-ask", "program": "git", "prefix": ["status"], "decision": "ask"},
+			{"name": "publish-deny", "program": "npm", "prefix": ["publish"], "decision": "deny"},
+		],
+	)
+	cwd = str(tmp_path)
+	assert bash_rule_decision("echo hi; git status", cwd=cwd) == "ask"
+	assert bash_rule_decision("git status && npm publish", cwd=cwd) == "deny"
+	result = evaluate_policy("Bash", {"command": "git status && npm publish"}, cwd=cwd)
+	assert result.decision == PermissionDecision.DENY
+	assert result.matched_rule == "bash_rule_deny"
 
 
 def test_workspace_rule_extends_allow(tmp_path: Path) -> None:

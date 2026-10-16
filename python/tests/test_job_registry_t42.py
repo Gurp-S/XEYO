@@ -18,6 +18,8 @@
 
 from __future__ import annotations
 
+from server.engine_services import product_runtime_services
+
 import asyncio
 import sys
 from pathlib import Path
@@ -147,7 +149,7 @@ async def test_job_output_local_context_ignores_stale_container_env(
 	import tools.bash_tool.bash_tool as bash_module
 
 	reg = JobRegistry()
-	monkeypatch.setattr("tools.job_tools._registry", lambda: reg)
+	monkeypatch.setattr("server.job_registry.get_job_registry", lambda: reg)
 	monkeypatch.setattr(bash_module, "docker_bg_snapshot", lambda: [])
 	monkeypatch.setenv("XEYO_DOCKER_CONTAINER", "stale-container")
 
@@ -167,7 +169,7 @@ async def test_job_output_local_context_ignores_stale_container_env(
 		from engine.abort import AbortController
 		from tools.job_tools import JobOutputTool
 
-		out = await JobOutputTool().execute(
+		out = await JobOutputTool(host_services=product_runtime_services().tools).execute(
 			{"job_id": job_id, "wait": True, "timeout_ms": 1_000},
 			AbortController(),
 		)
@@ -198,7 +200,7 @@ async def test_job_output_wait_keeps_output_across_incremental_reads(
 	from tools.job_tools import JobOutputTool
 
 	reg = JobRegistry()
-	monkeypatch.setattr("tools.job_tools._registry", lambda: reg)
+	monkeypatch.setattr("server.job_registry.get_job_registry", lambda: reg)
 	monkeypatch.setattr(bash_module, "docker_bg_snapshot", lambda: [])
 	payload = "acc-out\n"
 	settled = threading.Event()
@@ -217,7 +219,7 @@ async def test_job_output_wait_keeps_output_across_incremental_reads(
 	)
 	try:
 		task = asyncio.create_task(
-			JobOutputTool().execute(
+			JobOutputTool(host_services=product_runtime_services().tools).execute(
 				{"job_id": job_id, "wait": True, "timeout_ms": 30_000},
 				AbortController(),
 			)
@@ -711,7 +713,7 @@ async def test_job_tools_with_fake_registry(monkeypatch: pytest.MonkeyPatch) -> 
 	from tools.job_tools import JobKillTool, JobListTool, JobOutputTool
 
 	abort = AbortController()
-	lst = await JobListTool().execute({}, abort)
+	lst = await JobListTool(host_services=product_runtime_services().tools).execute({}, abort)
 	assert lst.content == "(no background jobs)"
 
 	reg.settle  # noqa: B018 — touch for lint clarity
@@ -719,15 +721,15 @@ async def test_job_tools_with_fake_registry(monkeypatch: pytest.MonkeyPatch) -> 
 		kind="bash", label="全量回归", owner_session_id=SID,
 		producer=lambda push: (STATUS_SUCCEEDED, "exit code 0") if push("line1\n") or True else ("", ""),
 	)
-	out = await JobOutputTool().execute({"job_id": jid}, abort)
+	out = await JobOutputTool(host_services=product_runtime_services().tools).execute({"job_id": jid}, abort)
 	assert "line1" in out.content and out.content.endswith("[status: succeeded]")
 
-	lst = await JobListTool().execute({}, abort)
+	lst = await JobListTool(host_services=product_runtime_services().tools).execute({}, abort)
 	assert jid in lst.content and "bash" in lst.content and "全量回归" in lst.content
 
-	kill = await JobKillTool().execute({"job_id": jid}, abort)
+	kill = await JobKillTool(host_services=product_runtime_services().tools).execute({"job_id": jid}, abort)
 	assert "already succeeded" in kill.content or "requested" in kill.content
-	kill_unknown = await JobKillTool().execute({"job_id": "bash-999"}, abort)
+	kill_unknown = await JobKillTool(host_services=product_runtime_services().tools).execute({"job_id": "bash-999"}, abort)
 	assert kill_unknown.is_error is True and "unknown job" in kill_unknown.content
 	assert kill_unknown.error_kind == "NOT_FOUND"
 
@@ -743,7 +745,7 @@ async def test_job_output_foreign_owner_is_error(monkeypatch: pytest.MonkeyPatch
 	jid, _ = reg.start(
 		kind="bash", label="x", owner_session_id=SID, producer=_sync_producer()
 	)
-	out = await JobOutputTool().execute({"job_id": jid}, AbortController())
+	out = await JobOutputTool(host_services=product_runtime_services().tools).execute({"job_id": jid}, AbortController())
 	assert out.is_error is True and "unknown job" in out.content
 
 

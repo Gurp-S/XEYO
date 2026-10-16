@@ -262,12 +262,8 @@ def test_verify_remote_token(monkeypatch: pytest.MonkeyPatch):
 async def test_final_only_runner_serial_queue(monkeypatch: pytest.MonkeyPatch):
 	"""同一 session 上的两个 job 依次运行。"""
 	order: list[str] = []
-	# γ4 起远程入站文本带 untrusted 围栏进引擎；假引擎原样回显，
-	# 因此排序标记与断言都用围栏后的字符串。
-	from prompt.fence import fence_remote_user_text
-
-	fa = fence_remote_user_text("a", source="wechat")
-	fb = fence_remote_user_text("b", source="wechat")
+	# 认证入站消息与 GUI 用户输入同源，保留原文。
+	fa, fb = "a", "b"
 
 	class Engine:
 		async def submit(self, text: str) -> AsyncIterator[Any]:

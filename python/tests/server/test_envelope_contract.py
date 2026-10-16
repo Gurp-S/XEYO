@@ -16,21 +16,18 @@
   不是安全状态；清零是目标。本轮全部门端点已分类完毕，所以它是空的——
   新增端点时必须选其中一档，不能不登记。
 
-分类那次的实测口径（数字会随清单变化；保证它不说谎的是下面两条测试，不是这句话）：
-扫到 25 个信封端点 = 20 个已核实客户端读 body.ok + 5 个在任何 UI/CLI 里都没有调用点，欠账 0。
+扫描同时覆盖路由内的返回值和显式委托给独立函数的返回值。
+数量随源码变化；下面的集合比较保证端点既不能漏登记，也不能留过期登记。
 """
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
-ROUTERS = Path(__file__).resolve().parents[2] / "server" / "routers"
+from scripts.envelope_contract_scan import envelope_endpoints
 
-# 信封式拒绝：`{"ok": False}` 或 `{"ok": <变量>}`。常量 `{"ok": True}` 不算——
-# 那意味着这端点从不拒绝，失败一律走 HTTP 错误码，客户端看状态码就够。
-_ENVELOPE = re.compile(r'return \{[^{}]*"ok":\s*(?!True\b)[A-Za-z_]')
-_ENVELOPE_LINE = re.compile(r'return \{[^{}]*"ok":\s*(?!True\b)([A-Za-z_]\w*)')
+SOURCE_ROOT = Path(__file__).resolve().parents[2]
+ROUTERS = SOURCE_ROOT / "server" / "routers"
 
 READS_ENVELOPE: dict[str, str] = {
     "/v1/interrupt": "gui api.ts::interruptChat + tui sse.ts::interruptSession",
@@ -41,14 +38,12 @@ READS_ENVELOPE: dict[str, str] = {
     "/v1/diagnostics/pins/{pin_id}": "gui diagnostics.ts::deleteDiagPin",
     "/v1/settings/memory": "gui api.bashPolicy/memorySwitches 系列：读 body.ok + 必需字段",
     "/v1/settings/memory/snapshot": "同上（同一客户端家族）",
-    # 以下七个是本轮核实并顺手把"缺 ok 也算成功"改成"缺 ok = 读不出"的：
+    # 以下客户端已把"缺 ok 也算成功"改成"缺 ok = 读不出"：
     "/v1/plugins": "gui plugins.ts::fetchPlugins（ok === true）",
     "/v1/extensions/settings": "gui plugins.ts::fetchExtensionSettings（ok === true）",
     "/v1/skills": "gui skills.ts::fetchSkills（ok === true）",
     "/v1/references/files": "gui references.ts::fetchFileReferences（ok !== true 即读不出）",
     "/v1/mcp/op": "gui mcp.ts::mcpOp（body.ok === true）",
-    "/v1/memory/compact": "gui memory.ts 透传服务端 ok/compact_cursor/reason",
-    "/v1/local-models": "gui localModels.ts::setLocalModelSettings（b.ok === true + 必需字段）",
     "/v1/mcp": "gui mcp.ts::fetchMcpStatus（透传 body.ok；缺字段为 undefined ⇒ 调用方按失败处理）",
     "/v1/diagnostics/experiments": "gui diagnostics.ts::rawJson 的 envelopeFailure + ExperimentsView 按 r.ok 分支",
     "/v1/diagnostics/experiments/plan": "同上（plan/cancel 走同一个 rawJson）",
@@ -59,6 +54,7 @@ READS_ENVELOPE: dict[str, str] = {
 # 没有任何 UI/CLI 调用点的信封端点：本轮用 grep 在 gui/src、tui/src、python/cli 三处核实过。
 # 有人补上客户端时，必须把它从这一档挪进 READS_ENVELOPE（并真的读 body.ok）。
 NO_UI_CLIENT: dict[str, str] = {
+    "/v1/memory/compact": "GUI/TUI/CLI 已无此 HTTP 调用点；GUI /compact 走 /v1/slash。保留 HTTP 信封契约登记。",
     "/v1/plugins/install": "仅服务端/人工调用；gui 里只有 GET /v1/plugins",
     "/v1/plugins/update": "同上",
     "/v1/plugins/remove": "同上",
@@ -70,22 +66,7 @@ BASELINE_NOT_YET_VERIFIED: frozenset[str] = frozenset()
 
 
 def _envelope_endpoints() -> dict[str, str]:
-    """按 @router 装饰器切块扫描。
-
-    必须整块扫，不能逐行：`return {` 换行的写法（control.py 的 permission resolve）
-    逐行正则看不见，那正是最需要被守住的那个端点。
-    """
-    found: dict[str, str] = {}
-    blocks = re.compile(r'@router\.(?:get|post|put|delete|patch)\("([^"]+)"')
-    for path in sorted(ROUTERS.glob("*.py")):
-        text = path.read_text(encoding="utf-8", errors="replace")
-        marks = [(m.start(), m.group(1)) for m in blocks.finditer(text)]
-        for i, (start, route) in enumerate(marks):
-            end = marks[i + 1][0] if i + 1 < len(marks) else len(text)
-            hit = _ENVELOPE_LINE.search(text[start:end])
-            if hit:
-                found.setdefault(route, f"{path.name}:{hit.group(1)}")
-    return found
+    return envelope_endpoints(ROUTERS, SOURCE_ROOT)
 
 
 def test_every_envelope_endpoint_is_registered() -> None:
@@ -114,19 +95,16 @@ def test_envelope_tiers_do_not_overlap() -> None:
     assert not (no_client & debt), f"既说没有客户端又挂着欠账：{sorted(no_client & debt)}"
 
 
-def test_envelope_regex_actually_catches_the_shape() -> None:
-    """哨兵：正则必须抓得到那种写法，也必须放过常量 True。
-
-    哪天 return 被拆成多行或换了引号而正则失配，两条清单断言会一起"绿"成零违规。
-    """
-    dynamic = '@router.post("/v1/x")\ndef x(b) -> dict:\n\tok = store.resolve(b.id)\n\treturn {"ok": ok, "id": b.id}\n'
-    # /v1/permission/resolve 真实就是这种形状：`return {` 换行、"ok" 单独一行。
-    multiline = '@router.post("/v1/w")\ndef w(b) -> dict:\n\tres = store.resolve(b.id)\n\treturn {\n\t\t"ok": res,\n\t}\n'
-    literal_false = '@router.post("/v1/y")\ndef y() -> dict:\n\treturn {"ok": False, "error": "bad"}\n'
-    always_true = '@router.post("/v1/z")\ndef z() -> dict:\n\treturn {"ok": True}\n'
-    assert _ENVELOPE.search(dynamic) and _ENVELOPE_LINE.search(dynamic)
-    assert _ENVELOPE.search(multiline), "多行 return 也必须抓到：漏了它，最危险的端点会悄悄不出现在清单里"
-    assert _ENVELOPE_LINE.search(multiline).group(1) == "res"
-    assert _ENVELOPE.search(literal_false)
-    assert not _ENVELOPE.search(always_true), "常量 True 的端点不该算信封拒绝"
-    assert not _ENVELOPE_LINE.findall("x = {'ok': ok}")  # 非 return 语句不抓
+def test_extracting_response_to_helper_preserves_inventory(tmp_path: Path) -> None:
+    """重构返回值的位置不能让契约消失；只保留成功返回时则必须从发现结果消失。"""
+    routers = tmp_path / "routers"
+    routers.mkdir()
+    route = routers / "example.py"
+    route.write_text('@router.post("/x")\nasync def x():\n    return {"ok": False}\n', encoding="utf-8")
+    assert set(envelope_endpoints(routers, tmp_path)) == {"/x"}
+    helper = tmp_path / "helper.py"
+    helper.write_text('async def result():\n    return {"ok": False}\n', encoding="utf-8")
+    route.write_text('@router.post("/x")\nasync def x():\n    from helper import result\n    return await result()\n', encoding="utf-8")
+    assert set(envelope_endpoints(routers, tmp_path)) == {"/x"}
+    helper.write_text('async def result():\n    return {"ok": True}\n', encoding="utf-8")
+    assert envelope_endpoints(routers, tmp_path) == {}

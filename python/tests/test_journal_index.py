@@ -7,6 +7,11 @@ tmp_path，避免污染用户 home（``_index_path`` 由 ``_changes_path`` 派�
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -120,6 +125,87 @@ def test_gc_prunes_and_rebuilds_index(isolated):
     wm, by_path = j._read_index(ws)
     assert "old.ts" not in by_path
     assert wm == 2
+
+
+def test_gc_serializes_cross_process_append_until_journal_replace(isolated, monkeypatch):
+    ws = "ws-cross-process-gc"
+    now = j._now()
+    j.record_change(ws, _rec(0, "old", "expired.ts", now - 1000))
+    j.record_change(ws, _rec(0, "kept", "kept.ts", now))
+    journal = Path(isolated) / f"{ws}.jsonl"
+
+    replacing = threading.Event()
+    continue_replace = threading.Event()
+    gc_errors = []
+    original_replace = j.os.replace
+
+    def pause_replace(source, destination):
+        if Path(destination) == journal:
+            replacing.set()
+            assert continue_replace.wait(5)
+        return original_replace(source, destination)
+
+    def run_gc():
+        try:
+            j.gc(ws, ttl_seconds=10)
+        except BaseException as exc:
+            gc_errors.append(exc)
+
+    monkeypatch.setattr(j.os, "replace", pause_replace)
+    gc_thread = threading.Thread(target=run_gc)
+    gc_thread.start()
+    assert replacing.wait(5)
+
+    attempted = Path(isolated) / "append-attempted"
+    acquired = Path(isolated) / "append-lock-acquired"
+    done = Path(isolated) / "append-done"
+    child_script = f'''\
+from contextlib import contextmanager
+from pathlib import Path
+from engine import write_transaction as wt
+real_path_lock = wt.path_lock
+@contextmanager
+def observed_path_lock(path):
+    if Path(path) == Path({str(journal)!r}):
+        Path({str(attempted)!r}).write_text("attempted")
+    with real_path_lock(path):
+        if Path(path) == Path({str(journal)!r}):
+            Path({str(acquired)!r}).write_text("acquired")
+        yield
+wt.path_lock = observed_path_lock
+from memory import journal as j
+r = j.ChangeRecord(seq=0, agent_id="child", path="child.ts", action="write", file_hash_after="sha256:child", ts=j._now())
+j.record_change("ws-cross-process-gc", r)
+Path({str(done)!r}).write_text("done")
+'''
+    env = os.environ.copy()
+    env["XEYO_JOURNAL_DIR"] = str(isolated)
+    env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1])
+    child = subprocess.Popen(
+        [sys.executable, "-c", child_script],
+        env=env,
+        cwd=str(Path(__file__).resolve().parents[1]),
+    )
+    try:
+        deadline = time.monotonic() + 5
+        while not attempted.exists() and child.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert attempted.exists(), "append process did not attempt the journal lock"
+        deadline = time.monotonic() + 1
+        while not acquired.exists() and child.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert not acquired.exists(), "append must not acquire the journal lock during GC replacement"
+    finally:
+        continue_replace.set()
+    gc_thread.join(5)
+    assert not gc_thread.is_alive()
+    assert not gc_errors, gc_errors
+    assert child.wait(timeout=5) == 0
+    assert done.exists()
+
+    rows = j._read_rows(journal)
+    assert {row["path"] for row in rows} == {"kept.ts", "child.ts"}
+    assert j._journal_fresh(ws, journal)
 
 
 def test_recent_changes_uses_the_index_when_aligned(isolated, monkeypatch):

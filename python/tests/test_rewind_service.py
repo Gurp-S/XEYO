@@ -13,6 +13,8 @@ from rewind.service import (
     RollbackConflictError,
     RollbackService,
 )
+from rewind.models import RecoveryJob
+from engine.workspace_lock import WorkspaceLock
 from server.session_pool import SessionPool
 from rewind.snapshot import SnapshotStore
 from session.persistence import transcript_path
@@ -119,6 +121,42 @@ def _build_session(tmp_path: Path) -> tuple[RollbackService, Path, dict[str, str
         enabled=True,
     )
     return service, target, {"target_message_id": second_user.id, "operation_id": operation.operation_id}
+
+
+def test_compat_restore_releases_workspace_lease_when_operation_raises(tmp_path, monkeypatch):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    service = RollbackService(
+        "compat-lease-test", workspace, sessions_dir=tmp_path / "sessions", enabled=True
+    )
+    details = [{"operation_id": "op-test", "path": str(workspace / "file.txt")}]
+    job = RecoveryJob(session_id=service.session_id, plan_id="plan-test")
+    monkeypatch.setattr(service, "_normalize_ops_for_execute", lambda _details, **_kwargs: details)
+    monkeypatch.setattr(service, "_checkpoint_files", lambda _details, _job_id: [])
+
+    def fail_restore(*_args, **_kwargs):
+        raise OSError("injected compat restore failure")
+
+    monkeypatch.setattr(service, "_restore_ops_scoped", fail_restore)
+    from engine.workspace_revision import WorkspaceRevision
+
+    expected = WorkspaceRevision(workspace).calculate(paths=[])
+    with pytest.raises(OSError, match="injected compat restore failure"):
+        service._apply_workspace_restore(
+            plan=None,  # the injected operation fails before inspecting the plan
+            job=job,
+            details=details,
+            target_commit="",
+            shadow_paths=[],
+            fingerprint_paths=[],
+            expected_rev=expected,
+            allow_full_tree=False,
+            actor="test",
+        )
+
+    next_owner = WorkspaceLock(workspace, owner="next-restore")
+    next_owner.acquire()
+    next_owner.release()
 
 
 def test_preview_is_dry_run_and_execute_requires_confirmation(tmp_path: Path) -> None:

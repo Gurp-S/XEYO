@@ -102,14 +102,12 @@ def test_workspace_wins_over_home(_isolate) -> None:
 def test_private_resolvers_forward_the_single_rule(_isolate) -> None:
 	"""各消费方不得再抄一份解析规则，必须转发到 ``extension.config``。"""
 	from extension.config import resolve_workspace_cwd
-	from localmodels.config import _resolve_cwd as lm
 	from memory.memory_switches import _resolve_cwd as ms
 
 	_, ws = _isolate
 	os.environ["XEYO_CWD"] = str(ws)
-	for fn in (ms, lm):
-		assert fn(None) == resolve_workspace_cwd(None) == str(ws)
-		assert fn("other") == "other"
+	assert ms(None) == resolve_workspace_cwd(None) == str(ws)
+	assert ms("other") == "other"
 	assert resolve_workspace_cwd("") == str(ws)
 
 

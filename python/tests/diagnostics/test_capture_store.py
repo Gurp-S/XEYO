@@ -240,6 +240,38 @@ def test_quota_cleanup_spares_pinned_evidence() -> None:
 	assert out["shortfall"] >= 0
 
 
+def test_quota_cleanup_preserves_durable_control_state() -> None:
+	store.ensure_dirs()
+	root = store.diagnostics_root()
+	control_files = [
+		store.pins_dir() / "s1" / "pin.json",
+		store.baselines_dir() / "baseline.json",
+		store.experiments_dir() / "index.json",
+		store.experiments_dir() / "exp_1" / "state.json",
+		store.experiments_dir() / "exp_1" / "manifest.json",
+		store.experiments_dir() / "locks" / "index.lock",
+		store.reservations_path(),
+	]
+	for path in control_files:
+		path.parent.mkdir(parents=True, exist_ok=True)
+		path.write_bytes(b"control" * 700)
+	# The atomic replacement sidecar is control state too.
+	reservation_tmp = store.reservations_path().with_name(store.reservations_path().name + ".tmp")
+	reservation_tmp.write_bytes(b"ledger in flight")
+	old = time.time() - 3600
+	os.utime(reservation_tmp, (old, old))
+
+	evidence = store.reports_dir() / "evictable.json"
+	store.write_json(evidence, {"evidence": "x" * 4096})
+
+	out = store.enforce_quota(target=1)
+
+	assert all(path.is_file() for path in control_files)
+	assert reservation_tmp.is_file()
+	assert not evidence.exists()
+	assert out["shortfall"] > 0
+
+
 def test_report_saved_and_loaded() -> None:
 	from diagnostics.collect import collect_run
 	from diagnostics.report import build_report, load_report, report_id, save_report, to_markdown

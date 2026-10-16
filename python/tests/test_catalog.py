@@ -53,6 +53,8 @@ _FROZEN_ENABLED = (
 	"job_list",
 	"job_kill",
 	"agent_send",
+	"agent_control",
+	"agent_apply",
 	"Screenshot",
 	"SendToWeChat",
 	"Memory",
@@ -188,6 +190,9 @@ def test_schema_budget_shortens_descriptions(monkeypatch):
 		name = schema["name"]
 		short = short_description_for(name)
 		desc = schema["description"]
+		if name == "Skill":
+			assert desc == reg.get(name).schema()["description"]
+			continue
 		if short:
 			assert desc == short
 			assert len(short) < 200
@@ -206,14 +211,15 @@ def test_entries_align_with_meta():
 
 
 def test_shared_read_state_and_subagent_reuse():
-	"""子 agent registry 应复用主 registry 的 ReadFileState 实例（同册）。"""
+	"""新版隔离观察证据；回退模式保留旧的共享实例契约。"""
 	from tools.catalog import shared_read_state
 
 	reg = build_default_registry(cwd=".")
 	state = shared_read_state(reg)
 	assert isinstance(state, ReadFileState)
-	# 注入同一实例 → 子 agent 写文件主会话可见（时间戳新鲜）。
+	# 新版不能把另一个 agent 的读观察当成本 agent 的写基线。
 	sub = build_subagent_registry(
 		cwd=".", tool_names=["Read", "Edit"], read_state=state, agent_id="main"
 	)
-	assert shared_read_state(sub) is state
+	from engine.agent_runtime import enabled
+	assert (shared_read_state(sub) is state) is not enabled()

@@ -1,5 +1,6 @@
 ﻿import sys
 from pathlib import Path
+import json
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import pytest
@@ -21,14 +22,18 @@ async def test_submit_plain():
 @pytest.mark.asyncio
 async def test_submit_echo():
 	eng = build_default_engine(model_backend="fake")
-	saw_tool = False
+	call_id = None
 	final = None
 	async for ev in eng.submit("echo:hi"):
 		if isinstance(ev, ToolCallEvent):
-			saw_tool = True
+			call_id = ev.tool_use_id
 		if isinstance(ev, FinalEvent):
 			final = ev
-	assert saw_tool and final and final.text == "echoed: hi"
+	assert call_id and final
+	# The fake model echoes the complete model-visible result and its receipt.
+	prefix, body = final.text.split("\n", 1)
+	assert prefix.startswith("echoed: 执行回执身份=") and body == "hi"
+	assert json.loads(prefix.removeprefix("echoed: 执行回执身份=")) == {"call_id": call_id}
 
 
 @pytest.mark.asyncio

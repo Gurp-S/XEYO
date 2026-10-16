@@ -516,13 +516,13 @@ def test_schema_sanitize_shapes():
 	assert "extra" not in schema
 
 
-def test_schema_degrades_oversized_to_budget():
+def test_schema_budget_never_changes_the_contract():
 	props = {}
 	for i in range(300):
 		props[f"p_{i}"] = {"type": "string", "description": "x" * 500, "default": "y" * 100}
 	raw = {"name": "huge", "description": "huge", "inputSchema": {"type": "object", "properties": props}}
 	schema = sanitize_tool_schema(raw, budget_bytes=SCHEMA_BUDGET_BYTES)
-	assert len(json.dumps(schema["input_schema"])) <= SCHEMA_BUDGET_BYTES
+	assert schema["input_schema"] == raw["inputSchema"]
 	assert schema["input_schema"]["type"] == "object"
 
 

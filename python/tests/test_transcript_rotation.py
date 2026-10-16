@@ -39,8 +39,8 @@ def test_rotation_creates_archive_and_keeps_continuity(tmp_path, monkeypatch):
 	assert {m.id for m in msgs} <= ids
 
 
-def test_multi_generation_rotation_bounded_and_ordered(tmp_path, monkeypatch):
-	"""多代轮转：只保留最近 2 代归档 + 当前；可恢复部分必须保序且含最新消息。"""
+def test_multi_generation_rotation_preserves_order_when_archives_fill(tmp_path, monkeypatch):
+	"""Two full archive slots stop rotation and retain all rows."""
 	monkeypatch.setenv("XEYO_TRANSCRIPT_MAX_BYTES", "1200")
 	p = tmp_path / "s.jsonl"
 	msgs = [user_message(f"m{i} " + "y" * 90) for i in range(40)]
@@ -59,16 +59,9 @@ def test_multi_generation_rotation_bounded_and_ordered(tmp_path, monkeypatch):
 				rows.append(json.loads(line))
 
 	contents = [r["content"] for r in rows]
-	# 保序子序列（老代被淘汰，但不乱序、不重复）
-	all_contents = [m.content for m in msgs]
-	j = 0
-	for c in contents:
-		while j < len(all_contents) and all_contents[j] != c:
-			j += 1
-		assert j < len(all_contents), f"消息 {c[:12]!r} 乱序或不存在"
-		j += 1
-	assert contents[-1] == msgs[-1].content, "最新消息必须在当前文件中"
-	assert len(rows) < len(msgs), "超出保留代数的旧消息被淘汰"
+	# When both archive slots are full, rotation stops and the current file stays appendable.
+	assert contents == [m.content for m in msgs], "rotation preserves every row in source order"
+	assert contents[-1] == msgs[-1].content, "the latest message remains in the current file"
 
 
 def test_under_limit_no_archive(tmp_path, monkeypatch):
@@ -79,6 +72,27 @@ def test_under_limit_no_archive(tmp_path, monkeypatch):
 	)
 	assert not any(q.is_file() for q in rotated_transcript_paths(p))
 	assert transcript_read_paths(p) == [p]
+
+
+def test_rotation_preserves_archive_generations_and_stops_when_full(tmp_path, monkeypatch):
+	"""Existing archives move older before current becomes old1."""
+	import json
+
+	from session.record_transcript import _maybe_rotate
+
+	monkeypatch.setenv("XEYO_TRANSCRIPT_MAX_BYTES", "1024")
+	p = tmp_path / "generations.jsonl"
+	rows = []
+	for name in ("first", "second", "third"):
+		row = {"id": name, "role": "user", "content": name + "x" * 1100}
+		rows.append(row)
+		p.write_text(json.dumps(row) + "\n", encoding="utf-8")
+		_maybe_rotate(p)
+
+	old2, old1 = rotated_transcript_paths(p)
+	assert json.loads(old2.read_text(encoding="utf-8")) == rows[0]
+	assert json.loads(old1.read_text(encoding="utf-8")) == rows[1]
+	assert json.loads(p.read_text(encoding="utf-8")) == rows[2]
 
 
 def test_flush_pending_drains_background_writes(tmp_path):

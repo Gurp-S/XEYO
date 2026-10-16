@@ -21,7 +21,7 @@ from permissions.bash_policy import (
 	bash_auto_allow_reason,
 	bash_readonly_allow,
 )
-from permissions.bash_readonly import analyze, verdict_kind
+from permissions.bash_readonly import analyze, verdict_kind, R_SUBSTITUTION
 from permissions.filesystem import PermissionDecision
 from permissions.policy import evaluate_policy, set_permission_mode
 from permissions.workspace_policy import (
@@ -347,3 +347,9 @@ def test_ps_write_cmdlets_use_workspace_write_proof(tmp_path: Path) -> None:
 		allowed_paths=[cwd],
 	)
 	assert outside.decision in (PermissionDecision.DENY, PermissionDecision.ASK)
+
+
+def test_double_quoted_command_substitution_is_rejected():
+	assert analyze('echo "$(whoami)"').reason == R_SUBSTITUTION
+	assert analyze('echo "\x60whoami\x60"').reason == R_SUBSTITUTION
+	assert verdict_kind("echo '$(literal)'") == "readonly"

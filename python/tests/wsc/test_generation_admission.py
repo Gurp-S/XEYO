@@ -27,7 +27,10 @@ def test_failed_restore_replays_source_without_publication(monkeypatch,tmp_path,
     head_path=wsc_head_store.path_for(working.session_id)
     old_head=head_path.read_bytes()
     if failure=='seal':rows[0]=dict(rows[0],content='Current task changed.')
-    if failure=='missing_head':head_path.unlink()
+    if failure=='missing_head':
+        from pathlib import Path
+        head_path.unlink()
+        Path(working.wsc_timing_state['committed_head_ref']['path']).unlink()
     if failure=='missing_view':
         from pathlib import Path
         Path(json.loads(old_head)['view_path']).unlink()

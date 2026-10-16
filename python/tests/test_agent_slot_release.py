@@ -24,6 +24,7 @@ import ast
 from pathlib import Path
 
 import pytest
+from agent_legacy_contract import legacy_agent_runtime as _legacy_agent_runtime
 
 import tools.agent_tool.agent_tool as at
 from common.concurrency_budget import (
@@ -232,7 +233,7 @@ def test_acquire_is_inside_the_guarded_region() -> None:
     fn = next(
         n
         for n in ast.walk(tree)
-        if isinstance(n, ast.AsyncFunctionDef) and n.name == "execute"
+        if isinstance(n, ast.AsyncFunctionDef) and n.name == "_execute_legacy"
     )
     acquires = [
         n for n in ast.walk(fn)

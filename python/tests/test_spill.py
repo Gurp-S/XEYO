@@ -37,6 +37,8 @@ class _BigOutputTool:
 def spill_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 	root = tmp_path / "spill"
 	monkeypatch.setenv("XEYO_SPILL_DIR", str(root))
+	# Scope tests run the retention pass explicitly; scheduling is tested separately.
+	monkeypatch.setattr("tools.spill_maintenance.schedule", lambda root, cleanup: cleanup(root))
 	return root
 
 

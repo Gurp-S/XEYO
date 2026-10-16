@@ -87,3 +87,32 @@ def test_reclaim_stale_if_expired(tmp_path) -> None:
     os.utime(heartbeat, (time.time() - 20, time.time() - 20))
     assert lock.reclaim_stale_if_expired() is True
     assert not lock.lock_file.exists()
+
+
+def test_stale_observation_cannot_remove_replacement_lease(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    seed = WorkspaceLock(workspace, owner="expired-owner", ttl_seconds=5)
+    seed.lock_file.parent.mkdir(parents=True, exist_ok=True)
+    seed.lock_file.write_text(
+        json.dumps({"lease_id": "expired", "owner": "expired-owner", "acquired_at": time.time() - 20}),
+        encoding="utf-8",
+    )
+    heartbeat = seed._heartbeat_path("expired")
+    heartbeat.write_bytes(b"heartbeat\n")
+    os.utime(heartbeat, (time.time() - 20, time.time() - 20))
+
+    stale_reclaimer = WorkspaceLock(workspace, owner="stale-reclaimer", ttl_seconds=5)
+    observed = stale_reclaimer._read_lease()
+    assert observed is not None and observed.owner == "expired-owner"
+
+    replacement = WorkspaceLock(workspace, owner="replacement-owner", ttl_seconds=5)
+    replacement_lease = replacement.acquire()
+    try:
+        assert stale_reclaimer._reclaim_stale(observed) is False
+        current = stale_reclaimer._read_lease()
+        assert current is not None
+        assert current.lease_id == replacement_lease.lease_id
+        assert current.owner == "replacement-owner"
+    finally:
+        replacement.release()

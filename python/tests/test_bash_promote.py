@@ -148,6 +148,7 @@ def test_adopt_registry_job_settles(tmp_path: Path) -> None:
 	h = spawn_streaming(cmd, cwd=str(tmp_path))
 	assert h.spawn_error is None
 	bridged = adopt_registry_job(
+		jobs=get_job_registry,
 		handle=h,
 		command=cmd,
 		cwd=str(tmp_path),

@@ -127,7 +127,8 @@ def test_preinvoke_body_truncated(fake_skills, tmp_path: Path, monkeypatch):
 	fake_skills(entry)
 	block = preinvoke_skill_block(str(tmp_path), "/review x")
 	assert len(block) < sp.BODY_MAX + 500
-	assert "已截断" in block
+	assert "节选" in block and "全文" not in block
+	assert str(entry.path / "SKILL.md") in block
 
 
 # ---------------------------------------------------------------- 开关

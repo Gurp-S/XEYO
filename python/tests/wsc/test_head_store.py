@@ -98,8 +98,8 @@ def test_corrupt_record_is_fail_open(store) -> None:
 	assert HS.load("bad", cwd="/x", cursor=2, messages=msgs) is None
 
 
-def test_lost_state_reuses_bytes_and_rewrite_forces_rebuild(store, monkeypatch) -> None:
-	"""状态丢失后那一枪**不许再重排**；但历史被改写时必须重排（宁重建不发错头）。"""
+def test_lost_state_reuses_bytes_and_rewrite_requires_explicit_fold(store, monkeypatch) -> None:
+	"""重启复用；改史后普通请求回放来源，只有显式折叠可生成新头。"""
 	HS, WP = store
 	SP = importlib.import_module("synaptic.project")
 	from engine.compact import keep_tail_cut
@@ -117,7 +117,7 @@ def test_lost_state_reuses_bytes_and_rewrite_forces_rebuild(store, monkeypatch) 
 	cut = int(keep_tail_cut(msgs))
 
 	# ① 首次折叠：真调 project，并落盘
-	first = WP.project_c2_messages(msgs, _W(cut), cwd=None)
+	first = WP.project_c2_messages(msgs, _W(cut), cwd=None, new_generation=True)
 	assert first is not None, "合成会话没被接管 ⇒ 先确认收益门/区域尺寸"
 	assert n[0] == 1
 
@@ -128,9 +128,11 @@ def test_lost_state_reuses_bytes_and_rewrite_forces_rebuild(store, monkeypatch) 
 	assert n[0] == 1, "状态丢了就走重排 ⇒ 那一枪与上一枪逐字无关（厂商侧整段 miss）"
 	assert _body(second).startswith(_body(first)), "接回来的头没构成前缀扩展"
 
-	# ③ 历史被改写 + 状态丢失：seal 必须拒，重排（即使重排结果是另一个头）
+	# ③ 改史拒绝旧头，但恢复本身不能授权再次折叠。
 	rewritten = [dict(msgs[0], content=str(msgs[0].get("content")) + " 改写")] + msgs[1:]
 	WP._STATE.clear()
 	third = WP.project_c2_messages(rewritten, _W(cut), cwd=None)
-	assert third is not None
-	assert n[0] == 2, "历史变了还复用旧头 ⇒ 发出的 prompt 与历史不一致"
+	assert third == rewritten
+	assert n[0] == 1, "普通恢复请求不能自行生成新头"
+	WP.project_c2_messages(rewritten, _W(cut), cwd=None, new_generation=True)
+	assert n[0] == 2, "显式折叠在来源改变后必须生成新头"

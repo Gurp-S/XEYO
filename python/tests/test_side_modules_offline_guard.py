@@ -16,7 +16,6 @@ import importlib
 _HOOKED = [
     ("memory.memindex_sig_shadow", "memory.memindex", "_sync_table", "XEYO_MEMINDEX_SIG_HASH"),
     ("memory.eval_cold_memory_shadow", "memory.search", "search", "XEYO_EVAL_COLD_MEMORY"),
-    ("tools.spill_shadow", "tools.spill", "save_text", "XEYO_SPILL_TAIL_HINT"),
     ("prompt.transcript_pointer_shadow", "prompt.pre_llm_inject", "run_pre_llm_inject", "XEYO_C2_TRANSCRIPT_POINTER"),
 ]
 
