@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=65"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "xeyo-wsc"
+version = "0.1.0"
+description = "Independent, provenance-preserving work-state compaction"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+wsc = "wsc.cli:main"
+wsc-results = "wsc.tool_results.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

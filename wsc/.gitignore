@@ -1,0 +1,19 @@
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.venv/
+.local/
+.pytest_cache/
+
+# Local store and experiment artifacts stay out of version control.
+*.db
+x.db
+
+# Measurement and version snapshots are workspace-local evidence, not source.
+reviews/
+validation/
+experiments/
+versions/
+benchmarks/
