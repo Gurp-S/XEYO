@@ -125,6 +125,47 @@ class DurableResultChecks(TestCase):
         self.assertEqual(1,self.ev(event))
         self.assertEqual(0,ctx.recover()['scanned'])
 
+    def test_legacy_writer_stays_explicit_and_is_not_recoverable(self):
+        base=self.root/'legacy'
+        core=WSC(Store(base/'core.db',session_id='session',workspace=str(base)),access=lambda s,k,a:True)
+        results=ResultStore(base/'results',session='session',access=lambda s,k,a:True)
+        legacy=ContextRuntime(core,results,policy=ResultPolicy(enabled=True),durable_results=False)
+        self.assertIsNone(legacy.durable_ops)
+        raw='legacy text\n'*4000
+        legacy.observe(self.adapter.import_items(
+            [dict(type='function_call',call_id='legacy1',name='f',arguments='{}')],
+            thread_id='t',start_ordinal=0))
+        event=self.adapter.import_items(
+            [dict(type='function_call_output',call_id='legacy1',output=raw)],
+            thread_id='t',start_ordinal=1)[0]
+        self.assertTrue(legacy.record_tool_result(event,ToolText(raw,kind='terminal_log'))['external'])
+        self.assertEqual(0,legacy.recover()['scanned'])
+        with core.store.connect() as db:
+            tables={row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            self.assertEqual(1,db.execute('SELECT COUNT(*) FROM wsc_context_delivery_v1').fetchone()[0])
+        self.assertNotIn('wsc_context_intents_v1',tables)
+
+    def test_legacy_then_durable_upgrade_keeps_one_row_per_identity(self):
+        base=self.root/'upgrade'
+        core=WSC(Store(base/'core.db',session_id='session',workspace=str(base)),access=lambda s,k,a:True)
+        results=ResultStore(base/'results',session='session',access=lambda s,k,a:True)
+        legacy=ContextRuntime(core,results,policy=ResultPolicy(enabled=True),durable_results=False)
+        raw='upgrade text\n'*4000
+        legacy.observe(self.adapter.import_items(
+            [dict(type='function_call',call_id='upgrade1',name='f',arguments='{}')],
+            thread_id='t',start_ordinal=0))
+        event=self.adapter.import_items(
+            [dict(type='function_call_output',call_id='upgrade1',output=raw)],
+            thread_id='t',start_ordinal=1)[0]
+        value=ToolText(raw,kind='terminal_log')
+        legacy.record_tool_result(event,value)
+        upgraded=ContextRuntime(core,results,policy=ResultPolicy(enabled=True))
+        self.assertTrue(upgraded.record_tool_result(event,value)['external'])
+        with core.store.connect() as db:
+            self.assertEqual(1,db.execute("SELECT COUNT(*) FROM events WHERE kind='result'").fetchone()[0])
+            self.assertEqual(1,db.execute('SELECT COUNT(*) FROM wsc_context_delivery_v1').fetchone()[0])
+            self.assertEqual(1,db.execute("SELECT COUNT(*) FROM wsc_context_intents_v1 WHERE state='committed'").fetchone()[0])
+
     def test_corrupt_blob_blocks_recovery_instead_of_faking_text(self):
         event,value=self.result()
         with self.assertRaises(Crash):

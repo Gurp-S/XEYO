@@ -24,6 +24,11 @@ class MaterialViewChecks(unittest.TestCase):
     def test_byte_size_is_the_exact_serialized_size(self):
         self.assertEqual(len(encode(self.view.public())), self.view.byte_size())
 
+    def test_byte_size_stays_exact_for_non_ascii_and_bounds_the_early_check(self):
+        view = material_v2.MaterialView([row(1, text="中文🙂")], [], session_id="s", cut=1)
+        self.assertEqual(len(encode(view.public()).encode("utf-8")), view.byte_size())
+        self.assertLessEqual(view.text_bytes(), view.byte_size())
+
     def test_slice_projects_only_the_window(self):
         page = self.view.event_slice(1, 2)
         self.assertEqual(["e2", "e4"], [event["id"] for event in page["events"]])

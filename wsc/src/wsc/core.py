@@ -10,7 +10,7 @@ from . import accounting, events, evidence, excerpts, understanding
 from .contracts import (AccessCheck, Event, Generated, GeneratorPort, Limits, Selection,
                         Snapshot, Understanding, Usage, digest, encode, require)
 from .store import Store, getmeta, getmetas
-from .snapshots import semantic_writes_allowed, validate_snapshot
+from .snapshots import semantic_writes_allowed, validate_snapshot, view_record
 from .projection import public_material, snapshot_binding
 from .material_v2 import MaterialView
 from .view_budget import admit_generation, mandatory_sources
@@ -79,6 +79,22 @@ class WSC:
                 evidence.authorize(self.store, self.access, row["id"])
             return MaterialView(prefix, understanding.all_records(db),
                                 session_id=snapshot.session_id, cut=snapshot.cut)
+
+    def snapshot_content(self, snapshot: Snapshot) -> tuple[list, list]:
+        """Public read: validated rows and understanding records for a snapshot."""
+        with self.store.connect() as db:
+            prefix = validate_snapshot(db, self.store, snapshot, indexed=self.indexed_queries)
+            return prefix, understanding.all_records(db)
+
+    def check_snapshot(self, snapshot: Snapshot) -> None:
+        """Public re-validation that a snapshot still matches stored content."""
+        with self.store.connect() as db:
+            validate_snapshot(db, self.store, snapshot, indexed=self.indexed_queries)
+
+    def view(self, view_id: str) -> dict:
+        """Public read of a stored view record."""
+        with self.store.connect() as db:
+            return view_record(db, view_id)
 
     def generate(self, snapshot: Snapshot, generator: GeneratorPort, *, producer: str,
                  limits: Limits = Limits(), include_selection_facts: bool = False) -> str:
@@ -206,6 +222,7 @@ class WSC:
             return operation(db, operation_id)["package"]
 
     def status(self) -> dict:
+        """Current durable state: metadata, source count, operations, usage."""
         with self.store.connect() as db:
             return {**getmetas(db, ("binding", "mode", "generation", "cursor", "head")),
                     "source_count": db.execute("SELECT COUNT(*) FROM events").fetchone()[0],

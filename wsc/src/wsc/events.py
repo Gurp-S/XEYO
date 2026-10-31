@@ -96,10 +96,12 @@ def safe_boundary(db, cut: int, *, indexed=False, all_rows=None) -> list[dict]:
     require(cut <= len(all_rows), "source_boundary_missing")
     prefix = all_rows[:cut]
     pending = set()
-    delivered = set()
-    if integrity.receipts_installed(db):
-        delivered = integrity.delivered(db)
+    chained = integrity.receipts_installed(db)
+    if chained:
+        require(integrity.verify_receipts(db)["ok"], "presentation_receipt_integrity")
+        delivered = None
     else:
+        delivered = set()
         for receipt in db.execute("SELECT data FROM presentations"):
             delivered.update(json.loads(receipt[0])["source_ids"])
     for row in prefix:
@@ -107,6 +109,8 @@ def safe_boundary(db, cut: int, *, indexed=False, all_rows=None) -> list[dict]:
             pending.add(row["call_id"])
         elif row["kind"] == "result":
             pending.remove(row["call_id"])
-            require(row["id"] in delivered, "result_presentation_unknown")
+            seen = (integrity.is_delivered(db, row["id"], verified=True) if chained
+                    else row["id"] in delivered)
+            require(seen, "result_presentation_unknown")
     require(not pending, "pending_tool_results")
     return prefix

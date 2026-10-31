@@ -7,7 +7,21 @@ for that surplus: it computes reachability first, then removes the difference,
 one file at a time, so an interrupted run leaves a smaller surplus and a repeat
 run finishes the job.
 """
+import time
 from pathlib import Path
+
+# A capture writes one dot-prefixed temp file, then links it into place.  A
+# killed writer leaves that file behind; it is never referenced by a row, so the
+# only question is whether a concurrent writer may still be using it.
+TEMP_GLOB = ".*.tmp"
+TEMP_AGE_SECONDS = 300
+
+
+def stale_temps(store, *, age_seconds=TEMP_AGE_SECONDS, now=None) -> list:
+    """Temp files old enough that no live writer can still own them."""
+    now = time.time() if now is None else now
+    return sorted(path for path in Path(store.objects).glob(TEMP_GLOB)
+                  if now - path.stat().st_mtime >= age_seconds)
 
 
 def reachable(store, keep_hashes=()) -> set:
@@ -22,14 +36,19 @@ def orphans(store, *, keep_hashes=()) -> list:
     return sorted(path for path in Path(store.objects).glob("*.txt") if path.stem not in keep)
 
 
-def collect(store, *, keep_hashes=(), dry_run=True) -> dict:
+def collect(store, *, keep_hashes=(), dry_run=True, temp_age_seconds=TEMP_AGE_SECONDS) -> dict:
     found = orphans(store, keep_hashes=keep_hashes)
-    removed = []
+    temps = stale_temps(store, age_seconds=temp_age_seconds)
+    removed, temp_removed = [], []
     if not dry_run:
         for path in found:
             path.unlink(missing_ok=True)
             removed.append(path.name)
-    return {"orphans": [path.name for path in found], "removed": removed}
+        for path in temps:
+            path.unlink(missing_ok=True)
+            temp_removed.append(path.name)
+    return {"orphans": [path.name for path in found], "removed": removed,
+            "temp_orphans": [path.name for path in temps], "temp_removed": temp_removed}
 
 
 def live_hashes(store, *, call_ids=(), result_ids=()) -> set:

@@ -10,13 +10,22 @@ import sys
 
 sys.path[:0] = [str(Path(__file__).resolve().parents[1] / 'src')]
 from wsc import WSC, Store, WSCError
-from wsc.cli import main
+from wsc.cli import main as cli
 from wsc.redaction import redact
 
 
 class RedactionChecks(TestCase):
     def test_windows_path_becomes_a_placeholder(self):
         self.assertEqual('failed at <path>', redact(r'failed at C:\Users\me\secret\a.txt'))
+
+    def test_relative_home_and_forward_slash_paths_are_redacted(self):
+        for text in (r'open src\wsc\core.py', 'open tests/test_redaction.py',
+                     'read ~/secrets/token.txt', 'run ./scripts/build.ps1',
+                     'see ../review/notes.md', 'copy C:/Users/me/a.txt'):
+            redacted = redact(text)
+            self.assertIn('<path>', redacted, text)
+            self.assertNotIn('secrets', redacted, text)
+        self.assertEqual('read/write', redact('read/write'))
 
     def test_a_known_root_is_replaced_by_name(self):
         text = redact(r'cannot open D:\lea\work\wsc\s.db', roots=[r'D:\lea\work'])
@@ -37,7 +46,7 @@ class RedactionChecks(TestCase):
         output, error = io.StringIO(), io.StringIO()
         with patch.object(WSC, 'status', side_effect=WSCError(f'broken {root / "secret"}')), \
                 contextlib.redirect_stdout(output), contextlib.redirect_stderr(error):
-            status = main(['--db', str(core.store.path), '--session', 's', '--workspace',
+            status = cli(['--db', str(core.store.path), '--session', 's', '--workspace',
                            str(root), 'status'])
         self.assertEqual(2, status)
         payload = json.loads(error.getvalue())

@@ -31,7 +31,51 @@ class IntegrityWiringChecks(ContextRuntimeChecks):
             self.assertTrue(integrity.verify_receipts(db)["ok"])
             db.execute("UPDATE presentations SET data=? WHERE id='r1'",
                        (encode({"source_ids": [], "receiver": "model"}),))
+            self.assertFalse(integrity.verify_receipts(db, full=True)["ok"])
+
+    def test_receipt_verification_rehashes_only_new_rows(self):
+        self.ctx = ContextRuntime(self.core, self.store, policy=ResultPolicy(enabled=True),
+                                  integrity_policy="chain_v1")
+        with self.core.store.transaction() as db:
+            ids = [row["id"] for row in events.rows(db)]
+            events.presented(db, "r1", tuple(ids), "model")
+            self.assertEqual(1, integrity.verify_receipts(db)["scanned"])
+            self.assertEqual(0, integrity.verify_receipts(db)["scanned"])
+
+    def test_rewritten_verified_receipt_needs_a_full_audit(self):
+        # Incremental verification deliberately does not re-hash history; the
+        # rewrite is caught by the explicit full audit, not by every ingest.
+        self.ctx = ContextRuntime(self.core, self.store, policy=ResultPolicy(enabled=True),
+                                  integrity_policy="chain_v1")
+        with self.core.store.transaction() as db:
+            ids = [row["id"] for row in events.rows(db)]
+            events.presented(db, "r1", tuple(ids), "model")
+            integrity.verify_receipts(db)
+            db.execute("UPDATE presentations SET data=? WHERE id='r1'",
+                       (encode({"source_ids": [], "receiver": "model"}),))
+            self.assertTrue(integrity.verify_receipts(db)["ok"])
+            self.assertFalse(integrity.verify_receipts(db, full=True)["ok"])
+
+    def test_truncated_receipts_are_rejected(self):
+        self.ctx = ContextRuntime(self.core, self.store, policy=ResultPolicy(enabled=True),
+                                  integrity_policy="chain_v1")
+        with self.core.store.transaction() as db:
+            ids = [row["id"] for row in events.rows(db)]
+            events.presented(db, "r1", tuple(ids), "model")
+            integrity.verify_receipts(db)
+            db.execute("DELETE FROM presentations WHERE id='r1'")
             self.assertFalse(integrity.verify_receipts(db)["ok"])
+
+    def test_presented_index_backfills_an_existing_chain(self):
+        self.ctx = ContextRuntime(self.core, self.store, policy=ResultPolicy(enabled=True),
+                                  integrity_policy="chain_v1")
+        with self.core.store.transaction() as db:
+            ids = [row["id"] for row in events.rows(db)]
+            events.presented(db, "r1", tuple(ids), "model")
+            integrity.verify_receipts(db)
+            db.execute("DROP TABLE wsc_receipt_sources_v1")
+            self.assertTrue(integrity.is_delivered(db, ids[0]))
+            self.assertFalse(integrity.is_delivered(db, "missing"))
 
     def test_tampered_receipts_fail_the_boundary_check(self):
         self.ctx = ContextRuntime(self.core, self.store, policy=ResultPolicy(enabled=True),
@@ -39,8 +83,9 @@ class IntegrityWiringChecks(ContextRuntimeChecks):
         with self.core.store.transaction() as db:
             ids = [row["id"] for row in events.rows(db)]
             events.presented(db, "r1", tuple(ids), "model")
+            events.presented(db, "r2", tuple(ids), "model")
             cut = max(1, getmeta(db, "cursor") or 0)
-            db.execute("UPDATE presentations SET data=? WHERE id='r1'",
+            db.execute("UPDATE presentations SET data=? WHERE id='r2'",
                        (encode({"source_ids": [], "receiver": "model"}),))
             with self.assertRaisesRegex(WSCError, "presentation_receipt_integrity"):
                 events.safe_boundary(db, cut)

@@ -119,6 +119,14 @@ class DurableResults:
         self.fault('after_commit_tx')
 
     def recover(self,*,limit=32):
+        """Settle open intents left by a crash.
+
+        ``scanned/committed/aborted/blocked`` count intents; ``details`` names
+        each one.  ``blobs`` is the collector summary (``orphans``/``removed``
+        for unreferenced objects, ``temp_orphans``/``temp_removed`` for killed
+        writers' temp files), so a caller can distinguish "nothing to do" from
+        "reclaimed surplus".
+        """
         report=dict(scanned=0,committed=0,aborted=0,blocked=0,details=[])
         for row in self.pending(limit=limit):
             report['scanned']+=1
@@ -161,6 +169,7 @@ class DurableResults:
             self._mark(op_id,'aborted',note='blob_unavailable');return 'aborted'
         if record['hash']!=row['text_sha256']:
             self._mark(op_id,'recovery_required',note='blob_hash_mismatch');return 'blocked'
+        self.fault('during_recovery')
         try:
             text=self.results.store.text(record)
             data=json.loads(row['event']);data['text']=text

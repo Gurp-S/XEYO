@@ -8,7 +8,13 @@ exit points run text through :func:`redact` first.
 import re
 
 _ROOT = '<workspace>'
-_PATH = re.compile(r'(?:[A-Za-z]:\\|\\\\)[^\s"\'<>|]*|(?<!\w)/[^\s"\'<>|]*/[^\s"\'<>|]*')
+_PATH = re.compile(
+    r'(?:[A-Za-z]:[\\/]|\\\\)[^\s"\'<>|]*'                         # drive or UNC, either separator
+    r'|~[\\/][^\s"\'<>|]*'                                         # home-relative
+    r'|\.{1,2}[\\/][^\s"\'<>|]+'                                   # explicit relative
+    r'|(?<!\w)/[^\s"\'<>|]*/[^\s"\'<>|]*'                          # absolute POSIX
+    r'|(?:[\w.-]+[\\/])+[\w-]+\.[A-Za-z0-9]{1,8}(?![A-Za-z0-9])'   # relative with extension
+)
 
 
 def redact(value, *, roots=(), limit=240) -> str:

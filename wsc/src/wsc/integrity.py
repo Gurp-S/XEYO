@@ -136,6 +136,20 @@ _RECEIPT_SCHEMA = (
     )""",
 )
 
+# Additive tables: the source index answers "was this id presented?" in O(1),
+# and the verify cursor keeps a receipt check proportional to new receipts.
+_RECEIPT_AUX_SCHEMA = (
+    """CREATE TABLE IF NOT EXISTS wsc_receipt_sources_v1(
+        source_id TEXT PRIMARY KEY,
+        receipt_id TEXT NOT NULL
+    )""",
+    """CREATE TABLE IF NOT EXISTS wsc_receipt_verified_v1(
+        name TEXT PRIMARY KEY,
+        verified_rowid INTEGER NOT NULL,
+        verified_link TEXT NOT NULL
+    )""",
+)
+
 
 def receipts_installed(db) -> bool:
     return db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='wsc_receipt_chain_v1'"
@@ -158,10 +172,25 @@ def _save_receipts(db, chained: int, head: str) -> None:
                (chained, head))
 
 
+def _ensure_receipt_aux(db) -> None:
+    """Create the source index and verify cursor; backfill the index once."""
+    created = db.execute("SELECT 1 FROM sqlite_master WHERE type='table' "
+                         "AND name='wsc_receipt_sources_v1'").fetchone() is None
+    for statement in _RECEIPT_AUX_SCHEMA:
+        db.execute(statement)
+    if created:
+        for receipt_id, source_ids in db.execute(
+                "SELECT receipt_id, source_ids FROM wsc_receipt_chain_v1").fetchall():
+            for source_id in source_ids.split():
+                db.execute("INSERT OR IGNORE INTO wsc_receipt_sources_v1 VALUES (?,?)",
+                           (source_id, receipt_id))
+
+
 def advance_receipts(db) -> dict:
     """Link presentation receipts newer than the cursor. Idempotent; O(new receipts)."""
     if not receipts_installed(db):
         install_receipts(db)
+    _ensure_receipt_aux(db)
     chained, head = _receipt_state(db)
     scanned = 0
     for rowid, receipt_id, data in db.execute(
@@ -170,6 +199,9 @@ def advance_receipts(db) -> dict:
         source_ids = " ".join(json.loads(data)["source_ids"])
         db.execute("INSERT OR REPLACE INTO wsc_receipt_chain_v1(rowid_, receipt_id, source_ids, link) "
                    "VALUES (?,?,?,?)", (rowid, receipt_id, source_ids, head))
+        for source_id in source_ids.split():
+            db.execute("INSERT OR IGNORE INTO wsc_receipt_sources_v1 VALUES (?,?)",
+                       (source_id, receipt_id))
         chained = rowid
         scanned += 1
     if scanned:
@@ -177,21 +209,72 @@ def advance_receipts(db) -> dict:
     return {"scanned": scanned, "through": chained, "head": head}
 
 
-def verify_receipts(db) -> dict:
-    """Recompute the receipt chain from scratch and compare it with the recorded head."""
+def _receipt_verified(db) -> tuple[int, str]:
+    row = db.execute("SELECT verified_rowid, verified_link FROM wsc_receipt_verified_v1 "
+                     "WHERE name='receipts'").fetchone()
+    return (0, GENESIS) if row is None else (int(row[0]), row[1])
+
+
+def _save_receipt_verified(db, rowid: int, head: str) -> None:
+    db.execute("INSERT INTO wsc_receipt_verified_v1(name, verified_rowid, verified_link) "
+               "VALUES ('receipts',?,?) ON CONFLICT(name) DO UPDATE SET "
+               "verified_rowid=excluded.verified_rowid, verified_link=excluded.verified_link",
+               (rowid, head))
+
+
+def verify_receipts(db, *, full: bool = False) -> dict:
+    """Check receipts against the chain, re-hashing only receipts past the cursor.
+
+    New receipts are re-hashed and compared with their chain links, and the chain
+    head must still equal the recorded head. A chain that ends before the
+    presentations table does is reported as ``ok=False`` (truncation). Rewriting a
+    receipt that was already verified adds no new row, so ``full=True`` recomputes
+    the entire chain for explicit audits instead of the ingest path.
+    """
     if not receipts_installed(db):
-        return {"ok": True, "count": 0, "head": GENESIS}
+        return {"ok": True, "count": 0, "scanned": 0, "head": GENESIS}
+    _ensure_receipt_aux(db)
     _, recorded = _receipt_state(db)
-    head, count = GENESIS, 0
+    chain_max = db.execute("SELECT COALESCE(MAX(rowid_),0) FROM wsc_receipt_chain_v1").fetchone()[0]
+    rows_max = db.execute("SELECT COALESCE(MAX(rowid),0) FROM presentations").fetchone()[0]
+    if chain_max != rows_max:
+        return {"ok": False, "count": 0, "scanned": 0, "head": recorded}
+    if full:
+        start, prev = 0, GENESIS
+    else:
+        start, prev = _receipt_verified(db)
+        if start:
+            row = db.execute("SELECT link FROM wsc_receipt_chain_v1 WHERE rowid_=?", (start,)).fetchone()
+            if row is None or row[0] != prev:
+                return {"ok": False, "count": 0, "scanned": 0, "head": recorded}
+    head, last, scanned = prev, start, 0
     for rowid, receipt_id, data in db.execute(
-            "SELECT rowid, id, data FROM presentations ORDER BY rowid").fetchall():
-        head = link(head, rowid, receipt_id, sha256(data.encode("utf-8")).hexdigest())
-        count += 1
-    return {"ok": head == recorded, "count": count, "head": head}
+            "SELECT rowid, id, data FROM presentations WHERE rowid>? ORDER BY rowid", (start,)).fetchall():
+        expected = link(head, rowid, receipt_id, sha256(data.encode("utf-8")).hexdigest())
+        row = db.execute("SELECT link FROM wsc_receipt_chain_v1 WHERE rowid_=?", (rowid,)).fetchone()
+        if row is None or row[0] != expected:
+            return {"ok": False, "count": 0, "scanned": scanned, "head": head}
+        head, last = expected, rowid
+        scanned += 1
+    if scanned:
+        _save_receipt_verified(db, last, head)
+    return {"ok": head == recorded, "count": last if full else scanned,
+            "scanned": scanned, "head": head}
+
 
 def delivered(db) -> set[str]:
-    """All presented source ids, backed by the receipt chain head."""
-    report = verify_receipts(db)
-    require(report["ok"], "presentation_receipt_integrity")
-    return {source_id for row in db.execute("SELECT source_ids FROM wsc_receipt_chain_v1")
-            for source_id in row[0].split()}
+    """All presented source ids, after an incremental receipt check."""
+    if not receipts_installed(db):
+        return set()
+    require(verify_receipts(db)["ok"], "presentation_receipt_integrity")
+    return {row[0] for row in db.execute("SELECT source_id FROM wsc_receipt_sources_v1")}
+
+
+def is_delivered(db, source_id: str, *, verified: bool = False) -> bool:
+    """Whether one source was presented; ``verified`` skips the receipt check."""
+    if not receipts_installed(db):
+        return False
+    if not verified:
+        require(verify_receipts(db)["ok"], "presentation_receipt_integrity")
+    return db.execute("SELECT 1 FROM wsc_receipt_sources_v1 WHERE source_id=?",
+                      (source_id,)).fetchone() is not None

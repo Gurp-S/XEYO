@@ -1,4 +1,10 @@
-"""Opt-in host lifecycle: capture, presentation, checkpoints and one recovery port."""
+"""Opt-in host lifecycle: capture, presentation, checkpoints and one recovery port.
+
+``durable_results=True`` is the standard path: event, reference binding, delivery
+receipt and intent state commit in one transaction.  ``durable_results=False``
+keeps the legacy separate-commit writer for callers that must not pay the intent
+table; that mode is explicitly not crash-recoverable.
+"""
 from threading import RLock
 import json
 
@@ -21,7 +27,7 @@ class ContextResults(RuntimeResults):
 
 class ContextRuntime:
     def __init__(self,core,result_store,*,policy=ResultPolicy(),max_queries=64,max_query_bytes=32768,
-                 durable_results=False,fault=None,query_policy='per_query_v1',reader_cache=4,integrity_policy='off'):
+                 durable_results=True,fault=None,query_policy='per_query_v1',reader_cache=4,integrity_policy='off'):
         require(type(max_queries) is int and max_queries>0 and type(max_query_bytes) is int and max_query_bytes>=1024,'context_limits_invalid')
         require(query_policy in {'per_query_v1','reader_reuse_v1'},'context_query_policy_invalid')
         require(type(reader_cache) is int and reader_cache>0,'context_limits_invalid')
