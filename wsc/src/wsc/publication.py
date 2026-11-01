@@ -9,7 +9,7 @@ from functools import partial
 
 from .contracts import HostReceipt, HostRejection, Snapshot, digest, encode, require
 from .snapshots import validate_snapshot, view_record
-from . import events, evidence, excerpts, references, understanding
+from . import events, evidence, excerpts, integrity, references, understanding
 from .store import getmeta, setmeta
 from .settlement import check_committed_binding, record_lost_reply, record_unsettled_receipt
 
@@ -44,6 +44,10 @@ def stage(core, view_id, *, directory, adapter, detach, archive_directory=None):
         require(getmeta(db, "mode") == "active", "component_not_active")
         require(not db.execute("SELECT 1 FROM operations WHERE state IN ('preparing','ready','installing','unknown','recovery_required')").fetchone(),
                 "publication_pending")
+        if integrity.receipts_installed(db):
+            # A release must not lean on an incremental check that cannot see a
+            # rewritten receipt; publication runs the explicit full audit.
+            require(integrity.audit_receipts(db)["ok"], "presentation_receipt_integrity")
         source = events.rows(db)
         view = view_record(db, view_id) if view_id else None
         if not detach:

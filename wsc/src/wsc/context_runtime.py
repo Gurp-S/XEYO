@@ -1,9 +1,10 @@
 """Opt-in host lifecycle: capture, presentation, checkpoints and one recovery port.
 
-``durable_results=True`` is the standard path: event, reference binding, delivery
-receipt and intent state commit in one transaction.  ``durable_results=False``
-keeps the legacy separate-commit writer for callers that must not pay the intent
-table; that mode is explicitly not crash-recoverable.
+``durable_results=True`` is the recommended explicit configuration: event,
+reference binding, delivery receipt and intent state commit in one transaction,
+so a killed process is recoverable.  The default keeps the legacy
+separate-commit writer byte-for-byte; that mode is explicitly not
+crash-recoverable, so hosts opt in after their platform has been validated.
 """
 from threading import RLock
 import json
@@ -27,7 +28,7 @@ class ContextResults(RuntimeResults):
 
 class ContextRuntime:
     def __init__(self,core,result_store,*,policy=ResultPolicy(),max_queries=64,max_query_bytes=32768,
-                 durable_results=True,fault=None,query_policy='per_query_v1',reader_cache=4,integrity_policy='off'):
+                 durable_results=False,fault=None,query_policy='per_query_v1',reader_cache=4,integrity_policy='off'):
         require(type(max_queries) is int and max_queries>0 and type(max_query_bytes) is int and max_query_bytes>=1024,'context_limits_invalid')
         require(query_policy in {'per_query_v1','reader_reuse_v1'},'context_query_policy_invalid')
         require(type(reader_cache) is int and reader_cache>0,'context_limits_invalid')
@@ -89,6 +90,11 @@ class ContextRuntime:
         return self.core.presented(request_id,tuple(source_ids),receiver=receiver)
 
     def capture(self,**kwargs):return self.core.capture(**kwargs)
+
+    def check(self,snapshot,*,light=False):
+        # ``light`` answers only "is this snapshot still current"; it makes no
+        # claim about content authenticity, so releases still use the default.
+        return self.core.snapshot_current(snapshot) if light else self.core.check_snapshot(snapshot)
 
     def query_tool(self,snapshot,**kwargs):
         if self.query_policy!='reader_reuse_v1':return ContextQuery(self,snapshot,**kwargs)

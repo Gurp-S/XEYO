@@ -159,7 +159,7 @@ class DurableResultChecks(TestCase):
             thread_id='t',start_ordinal=1)[0]
         value=ToolText(raw,kind='terminal_log')
         legacy.record_tool_result(event,value)
-        upgraded=ContextRuntime(core,results,policy=ResultPolicy(enabled=True))
+        upgraded=ContextRuntime(core,results,policy=ResultPolicy(enabled=True),durable_results=True)
         self.assertTrue(upgraded.record_tool_result(event,value)['external'])
         with core.store.connect() as db:
             self.assertEqual(1,db.execute("SELECT COUNT(*) FROM events WHERE kind='result'").fetchone()[0])

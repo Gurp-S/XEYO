@@ -66,6 +66,29 @@ class IntegrityWiringChecks(ContextRuntimeChecks):
             db.execute("DELETE FROM presentations WHERE id='r1'")
             self.assertFalse(integrity.verify_receipts(db)["ok"])
 
+    def test_receipt_assurance_reports_scope_and_survives_migration(self):
+        self.ctx = ContextRuntime(self.core, self.store, policy=ResultPolicy(enabled=True),
+                                  integrity_policy="chain_v1")
+        with self.core.store.transaction() as db:
+            ids = [row["id"] for row in events.rows(db)]
+            events.presented(db, "r1", tuple(ids), "model")
+            incremental = integrity.verify_receipts(db)
+            self.assertEqual("incremental", incremental["scope"])
+            self.assertEqual(0, incremental["full_verified_through"])
+            audit = integrity.audit_receipts(db)
+            self.assertEqual("full", audit["scope"])
+            self.assertEqual(1, audit["full_verified_through"])
+            self.assertIsNotNone(audit["last_full_audit_at"])
+            self.assertEqual(audit["integrity_root"], audit["head"])
+            # The cursor migrates in place: rebuilding its derived index keeps
+            # the audit record and the O(1) delivery answer intact.
+            db.execute("DROP TABLE wsc_receipt_sources_v1")
+            integrity.rebuild_receipt_index(db)
+            self.assertTrue(integrity.is_delivered(db, ids[0]))
+            again = integrity.verify_receipts(db)
+            self.assertEqual(1, again["full_verified_through"])
+            self.assertEqual(audit["last_full_audit_at"], again["last_full_audit_at"])
+
     def test_presented_index_backfills_an_existing_chain(self):
         self.ctx = ContextRuntime(self.core, self.store, policy=ResultPolicy(enabled=True),
                                   integrity_policy="chain_v1")

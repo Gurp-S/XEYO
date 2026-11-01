@@ -27,6 +27,13 @@ class RedactionChecks(TestCase):
             self.assertNotIn('secrets', redacted, text)
         self.assertEqual('read/write', redact('read/write'))
 
+    def test_urls_and_plain_relative_mentions_survive(self):
+        for text in ('see https://example.com/a/b.py',
+                     'docs/readme.md describes the flow',
+                     'open https://example.com/a/b.py'):
+            self.assertEqual(text, redact(text))
+        self.assertIn('<path>', redact('open src/wsc/core.py'))
+
     def test_a_known_root_is_replaced_by_name(self):
         text = redact(r'cannot open D:\lea\work\wsc\s.db', roots=[r'D:\lea\work'])
         self.assertIn('<workspace>', text)

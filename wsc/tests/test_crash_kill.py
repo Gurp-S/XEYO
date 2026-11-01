@@ -44,7 +44,8 @@ class RealKillChecks(TestCase):
 
     def runtime(self):
         results = ResultStore(self.root / 'results', session='session', access=lambda s, k, a: True)
-        return ContextRuntime(self.store(), results, policy=ResultPolicy(enabled=True))
+        return ContextRuntime(self.store(), results, policy=ResultPolicy(enabled=True),
+                              durable_results=True)
 
     def counts(self):
         with self.store().store.connect() as db:

@@ -91,6 +91,27 @@ class WSC:
         with self.store.connect() as db:
             validate_snapshot(db, self.store, snapshot, indexed=self.indexed_queries)
 
+    def snapshot_current(self, snapshot: Snapshot) -> bool:
+        """Cheap staleness check: O(1), with no content or permission claim.
+
+        Answers only whether the binding (session, workspace, mode, generation,
+        epochs, cut range) would still be accepted.  It does not re-read history
+        and therefore proves nothing about content authenticity; the
+        authenticating path remains :meth:`check_snapshot`, and per-source
+        permission is enforced by :meth:`material`/:meth:`prepare` when rows are
+        actually used.  Publication paths must not substitute this check.
+        """
+        with self.store.connect() as db:
+            if snapshot.session_id != self.store.session_id or snapshot.workspace != self.store.workspace:
+                return False
+            if getmeta(db, "mode") != "active":
+                return False
+            if (snapshot.generation, snapshot.control_epoch, snapshot.understanding_epoch) != (
+                    getmeta(db, "generation"), getmeta(db, "control_epoch"),
+                    getmeta(db, "understanding_epoch")):
+                return False
+            return snapshot.cut <= db.execute("SELECT COUNT(*) FROM events").fetchone()[0]
+
     def view(self, view_id: str) -> dict:
         """Public read of a stored view record."""
         with self.store.connect() as db:

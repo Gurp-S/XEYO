@@ -6,8 +6,16 @@ cost proportional to *new* rows rather than to the whole history:
 ``chained_through`` (how far the chain has been extended) and
 ``verified_through`` (how far the text has been re-hashed and checked).
 
+Receipts use the same two layers.  Routine ingest runs an incremental check that
+covers only new receipts; an explicit full audit re-hashes the whole history and
+is the only check that can detect a rewrite of an already-verified receipt.
+Both return an assurance record (``scope``, ``verified_through``,
+``full_verified_through``, ``last_full_audit_at``, ``integrity_root``) so a
+partial check can never be reported as a complete one.
+
 Nothing here is enabled implicitly: callers opt in with ``policy='chain_v1'``
-and the tables are created on first use.  Existing tables are never altered.
+and the tables are created on first use.  Existing tables are never dropped or
+rewritten; the verify cursor gains its audit columns additively.
 """
 from __future__ import annotations
 
@@ -138,6 +146,8 @@ _RECEIPT_SCHEMA = (
 
 # Additive tables: the source index answers "was this id presented?" in O(1),
 # and the verify cursor keeps a receipt check proportional to new receipts.
+# The same cursor row records the last successful full audit, so callers can
+# tell a routine incremental check from an assurance over the whole history.
 _RECEIPT_AUX_SCHEMA = (
     """CREATE TABLE IF NOT EXISTS wsc_receipt_sources_v1(
         source_id TEXT PRIMARY KEY,
@@ -146,8 +156,19 @@ _RECEIPT_AUX_SCHEMA = (
     """CREATE TABLE IF NOT EXISTS wsc_receipt_verified_v1(
         name TEXT PRIMARY KEY,
         verified_rowid INTEGER NOT NULL,
-        verified_link TEXT NOT NULL
+        verified_link TEXT NOT NULL,
+        full_verified_through INTEGER NOT NULL DEFAULT 0,
+        last_full_audit_at TEXT,
+        integrity_root TEXT
     )""",
+)
+
+# Columns added after the first release of the verify cursor: migrate in place
+# instead of dropping the cursor (a drop would silently replay verification).
+_AUDIT_COLUMNS = (
+    ("full_verified_through", "INTEGER NOT NULL DEFAULT 0"),
+    ("last_full_audit_at", "TEXT"),
+    ("integrity_root", "TEXT"),
 )
 
 
@@ -173,11 +194,15 @@ def _save_receipts(db, chained: int, head: str) -> None:
 
 
 def _ensure_receipt_aux(db) -> None:
-    """Create the source index and verify cursor; backfill the index once."""
+    """Create the source index and verify cursor; migrate and backfill once."""
     created = db.execute("SELECT 1 FROM sqlite_master WHERE type='table' "
                          "AND name='wsc_receipt_sources_v1'").fetchone() is None
     for statement in _RECEIPT_AUX_SCHEMA:
         db.execute(statement)
+    columns = {row[1] for row in db.execute("PRAGMA table_info(wsc_receipt_verified_v1)").fetchall()}
+    for name, declaration in _AUDIT_COLUMNS:
+        if name not in columns:
+            db.execute(f"ALTER TABLE wsc_receipt_verified_v1 ADD COLUMN {name} {declaration}")
     if created:
         for receipt_id, source_ids in db.execute(
                 "SELECT receipt_id, source_ids FROM wsc_receipt_chain_v1").fetchall():
@@ -222,44 +247,120 @@ def _save_receipt_verified(db, rowid: int, head: str) -> None:
                (rowid, head))
 
 
+def _receipt_audit(db) -> tuple[int, str | None]:
+    row = db.execute("SELECT full_verified_through, last_full_audit_at FROM wsc_receipt_verified_v1 "
+                     "WHERE name='receipts'").fetchone()
+    return (0, None) if row is None else (int(row[0]), row[1])
+
+
+def _save_audit(db, through: int, at: str, root: str) -> None:
+    db.execute("INSERT INTO wsc_receipt_verified_v1(name, verified_rowid, verified_link, "
+               "full_verified_through, last_full_audit_at, integrity_root) "
+               "VALUES ('receipts',?,?,?,?,?) ON CONFLICT(name) DO UPDATE SET "
+               "verified_rowid=excluded.verified_rowid, verified_link=excluded.verified_link, "
+               "full_verified_through=excluded.full_verified_through, "
+               "last_full_audit_at=excluded.last_full_audit_at, "
+               "integrity_root=excluded.integrity_root",
+               (through, root, through, at, root))
+
+
+def _now() -> str:
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _receipt_result(*, ok: bool, scope: str, count: int, scanned: int, verified_through: int,
+                    full_verified_through: int, last_full_audit_at: str | None,
+                    integrity_root: str, head: str) -> dict:
+    """One shape for every outcome, so a partial check is never read as a full one."""
+    return {"ok": ok, "scope": scope, "count": count, "scanned": scanned,
+            "verified_through": verified_through,
+            "full_verified_through": full_verified_through,
+            "last_full_audit_at": last_full_audit_at,
+            "integrity_root": integrity_root, "head": head}
+
+
 def verify_receipts(db, *, full: bool = False) -> dict:
     """Check receipts against the chain, re-hashing only receipts past the cursor.
 
-    New receipts are re-hashed and compared with their chain links, and the chain
-    head must still equal the recorded head. A chain that ends before the
-    presentations table does is reported as ``ok=False`` (truncation). Rewriting a
-    receipt that was already verified adds no new row, so ``full=True`` recomputes
-    the entire chain for explicit audits instead of the ingest path.
+    ``scope`` says what this run actually covered. ``incremental`` re-hashes new
+    receipts and rejects a chain that ends early (truncation); it cannot see a
+    rewrite of a receipt that was already verified, because that adds no row.
+    ``full`` recomputes the whole chain and is the only scope that detects such a
+    rewrite, so a release must not treat an incremental result as assurance over
+    the whole history. Every outcome carries ``verified_through``,
+    ``full_verified_through``, ``last_full_audit_at`` and ``integrity_root`` so a
+    caller cannot mistake a partial check for a complete one.
     """
+    scope = "full" if full else "incremental"
     if not receipts_installed(db):
-        return {"ok": True, "count": 0, "scanned": 0, "head": GENESIS}
+        return _receipt_result(ok=True, scope=scope, count=0, scanned=0, verified_through=0,
+                               full_verified_through=0, last_full_audit_at=None,
+                               integrity_root=GENESIS, head=GENESIS)
     _ensure_receipt_aux(db)
     _, recorded = _receipt_state(db)
+    full_through, last_audit = _receipt_audit(db)
+    verified, verified_link = _receipt_verified(db)
     chain_max = db.execute("SELECT COALESCE(MAX(rowid_),0) FROM wsc_receipt_chain_v1").fetchone()[0]
     rows_max = db.execute("SELECT COALESCE(MAX(rowid),0) FROM presentations").fetchone()[0]
     if chain_max != rows_max:
-        return {"ok": False, "count": 0, "scanned": 0, "head": recorded}
+        return _receipt_result(ok=False, scope=scope, count=0, scanned=0, verified_through=verified,
+                               full_verified_through=full_through, last_full_audit_at=last_audit,
+                               integrity_root=recorded, head=recorded)
     if full:
         start, prev = 0, GENESIS
     else:
-        start, prev = _receipt_verified(db)
+        start, prev = verified, verified_link
         if start:
             row = db.execute("SELECT link FROM wsc_receipt_chain_v1 WHERE rowid_=?", (start,)).fetchone()
             if row is None or row[0] != prev:
-                return {"ok": False, "count": 0, "scanned": 0, "head": recorded}
+                return _receipt_result(ok=False, scope=scope, count=0, scanned=0,
+                                       verified_through=verified, full_verified_through=full_through,
+                                       last_full_audit_at=last_audit, integrity_root=recorded, head=recorded)
     head, last, scanned = prev, start, 0
     for rowid, receipt_id, data in db.execute(
             "SELECT rowid, id, data FROM presentations WHERE rowid>? ORDER BY rowid", (start,)).fetchall():
         expected = link(head, rowid, receipt_id, sha256(data.encode("utf-8")).hexdigest())
         row = db.execute("SELECT link FROM wsc_receipt_chain_v1 WHERE rowid_=?", (rowid,)).fetchone()
         if row is None or row[0] != expected:
-            return {"ok": False, "count": 0, "scanned": scanned, "head": head}
+            return _receipt_result(ok=False, scope=scope, count=0, scanned=scanned,
+                                   verified_through=last, full_verified_through=full_through,
+                                   last_full_audit_at=last_audit, integrity_root=recorded, head=head)
         head, last = expected, rowid
         scanned += 1
-    if scanned:
-        _save_receipt_verified(db, last, head)
-    return {"ok": head == recorded, "count": last if full else scanned,
-            "scanned": scanned, "head": head}
+    ok = head == recorded
+    if full:
+        if ok:
+            at = _now()
+            _save_audit(db, last, at, recorded)
+            full_through, last_audit = last, at
+        verified_through = last if ok else verified
+    else:
+        if scanned:
+            _save_receipt_verified(db, last, head)
+        verified_through = last if scanned else verified
+    return _receipt_result(ok=ok, scope=scope, count=last if full else scanned, scanned=scanned,
+                           verified_through=verified_through, full_verified_through=full_through,
+                           last_full_audit_at=last_audit, integrity_root=recorded, head=head)
+
+
+def audit_receipts(db) -> dict:
+    """Explicit full audit: re-hash the entire receipt history. O(history)."""
+    return verify_receipts(db, full=True)
+
+
+def rebuild_receipt_index(db) -> dict:
+    """Recreate the derived source index from the chain; safe to call at any time."""
+    _ensure_receipt_aux(db)
+    db.execute("DELETE FROM wsc_receipt_sources_v1")
+    rebuilt = 0
+    for receipt_id, source_ids in db.execute(
+            "SELECT receipt_id, source_ids FROM wsc_receipt_chain_v1").fetchall():
+        for source_id in source_ids.split():
+            db.execute("INSERT OR IGNORE INTO wsc_receipt_sources_v1 VALUES (?,?)",
+                       (source_id, receipt_id))
+            rebuilt += 1
+    return {"rebuilt": rebuilt}
 
 
 def delivered(db) -> set[str]:

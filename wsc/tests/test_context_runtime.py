@@ -140,6 +140,15 @@ class ContextRuntimeChecks(TestCase):
         with self.core.store.connect() as db:body=json.loads(db.execute('SELECT data FROM views WHERE id=?',(vid,)).fetchone()[0])['body']
         self.assertEqual(2,sum(r.get('role')=='user' for r in body['sources']))
 
+    def test_light_check_reports_staleness_without_claiming_content(self):
+        _,_,_=self.result();snapshot=self.ctx.capture()
+        self.assertTrue(self.ctx.core.snapshot_current(snapshot))
+        self.assertTrue(self.ctx.check(snapshot,light=True))
+        self.assertIsNone(self.ctx.check(snapshot))
+        with self.core.store.transaction() as db:
+            db.execute("UPDATE meta SET value=? WHERE key='mode'",(json.dumps('paused'),))
+        self.assertFalse(self.ctx.core.snapshot_current(snapshot))
+
     def test_source_and_external_corruption_are_not_hidden_by_references(self):
         event,view,_=self.result();query=self.ctx.query_tool(self.ctx.capture())
         with self.core.store.transaction() as db:

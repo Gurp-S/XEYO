@@ -34,7 +34,8 @@ def runtime(root, fault=None):
     core = WSC(Store(root / 'core.db', session_id='session', workspace=str(root)),
                access=lambda s, k, a: True)
     results = ResultStore(root / 'results', session='session', access=lambda s, k, a: True)
-    return core, results, ContextRuntime(core, results, policy=ResultPolicy(enabled=True), fault=fault)
+    return core, results, ContextRuntime(core, results, policy=ResultPolicy(enabled=True),
+                                         durable_results=True, fault=fault)
 
 
 def event_and_value():
