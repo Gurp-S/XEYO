@@ -1,1 +1,0 @@
-{"description":"Returns the current local date/time.","input_schema":{"additionalProperties":false,"properties":{},"type":"object"},"name":"getTime"}

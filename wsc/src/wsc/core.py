@@ -7,6 +7,7 @@ from time import monotonic
 from uuid import uuid4
 
 from . import accounting, events, evidence, excerpts, understanding
+from .audit_cache import validate_anchor
 from .contracts import (AccessCheck, Event, Generated, GeneratorPort, Limits, Selection,
                         Snapshot, Understanding, Usage, digest, encode, require)
 from .store import Store, getmeta, getmetas
@@ -18,7 +19,7 @@ from .view_budget import admit_generation, mandatory_sources
 
 class WSC:
     def __init__(self, store: Store, *, access: AccessCheck, resource_io=None,query_policy=None,publication_policy=None,
-                 evidence_sync: bool = True):
+                 evidence_sync: bool = True, integrity_anchor: str | None = None):
         self.store, self.access = store, access
         self.resource_io = resource_io
         require(query_policy in (None,'prefix_index_v1'),'query_policy_unsupported')
@@ -27,6 +28,8 @@ class WSC:
         self.bounded_catalog=publication_policy=='bounded_catalog_v1'
         require(type(evidence_sync) is bool,'evidence_sync_policy_invalid')
         self.evidence_sync=evidence_sync
+        # Optional out-of-band pin on the receipt chain head a release expects.
+        self.integrity_anchor=validate_anchor(integrity_anchor)
 
     def ingest(self, batch: list[Event]) -> list[str]:
         with self.store.transaction() as db:
@@ -86,13 +89,33 @@ class WSC:
             prefix = validate_snapshot(db, self.store, snapshot, indexed=self.indexed_queries)
             return prefix, understanding.all_records(db)
 
-    def check_snapshot(self, snapshot: Snapshot) -> None:
-        """Public re-validation that a snapshot still matches stored content."""
+    def check_snapshot(self, snapshot: Snapshot, *, rows=None) -> None:
+        """Public re-validation that a snapshot still matches stored content.
+
+        ``rows`` lets a caller that already validated this exact content reuse
+        it; the digest and pairing checks still run on those rows.
+        """
         with self.store.connect() as db:
-            validate_snapshot(db, self.store, snapshot, indexed=self.indexed_queries)
+            validate_snapshot(db, self.store, snapshot, indexed=self.indexed_queries,
+                              all_rows=rows)
+
+    def snapshot_token(self, snapshot: Snapshot) -> tuple:
+        """Cheap fingerprint of the binding and the event extent.
+
+        Two equal tokens mean no event was appended or removed and no epoch or
+        generation moved; they do not prove that a stored row was not rewritten
+        in place.  Callers use it to skip a redundant re-read of content they
+        already validated, and fall back to a full read when it differs.
+        """
+        with self.store.connect() as db:
+            return (snapshot.session_id, snapshot.workspace, getmeta(db, "mode"),
+                    getmeta(db, "generation"), getmeta(db, "control_epoch"),
+                    getmeta(db, "understanding_epoch"), snapshot.cut,
+                    *db.execute("SELECT COALESCE(MAX(rowid),0), COUNT(*) FROM events").fetchone())
 
     def snapshot_current(self, snapshot: Snapshot) -> bool:
-        """Cheap staleness check: O(1), with no content or permission claim.
+        """Cheap staleness check: metadata reads plus one COUNT over the event
+        index; it does not read content and makes no permission claim.
 
         Answers only whether the binding (session, workspace, mode, generation,
         epochs, cut range) would still be accepted.  It does not re-read history

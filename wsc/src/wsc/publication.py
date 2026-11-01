@@ -9,7 +9,7 @@ from functools import partial
 
 from .contracts import HostReceipt, HostRejection, Snapshot, digest, encode, require
 from .snapshots import validate_snapshot, view_record
-from . import events, evidence, excerpts, integrity, references, understanding
+from . import audit_cache, events, evidence, excerpts, integrity, references, understanding
 from .store import getmeta, setmeta
 from .settlement import check_committed_binding, record_lost_reply, record_unsettled_receipt
 
@@ -46,8 +46,15 @@ def stage(core, view_id, *, directory, adapter, detach, archive_directory=None):
                 "publication_pending")
         if integrity.receipts_installed(db):
             # A release must not lean on an incremental check that cannot see a
-            # rewritten receipt; publication runs the explicit full audit.
-            require(integrity.audit_receipts(db)["ok"], "presentation_receipt_integrity")
+            # rewritten receipt. A cached full-audit checkpoint is accepted only
+            # for the exact receipt range and protocol version it was written
+            # for; every other case re-audits the whole history.
+            audit = audit_cache.audit_receipts_cached(
+                db, session_id=core.store.session_id,
+                anchor=getattr(core, "integrity_anchor", None))
+            require(audit["ok"], "presentation_receipt_integrity")
+        else:
+            audit = None
         source = events.rows(db)
         view = view_record(db, view_id) if view_id else None
         if not detach:
@@ -69,6 +76,12 @@ def stage(core, view_id, *, directory, adapter, detach, archive_directory=None):
         if validate_adapter is not None:
             validate_adapter(dict(binding))
         data = {"binding": binding, "detach": detach, "view_id": view_id}
+        if audit is not None:
+            # Record which assurance the release actually got: a cached hit is
+            # never presented as a fresh full audit.
+            data["receipt_audit"] = {"scope": audit["scope"], "reused": audit["reused"],
+                                     "count": audit["count"], "head": audit["head"],
+                                     "integrity_version": audit["integrity_version"]}
         db.execute("INSERT INTO operations(id,kind,state,data) VALUES (?,?,?,?)",
                    (key, "detach" if detach else "publish", "preparing", encode(data)))
         records = understanding.all_records(db)

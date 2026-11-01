@@ -9,6 +9,14 @@ from wsc.tool_results import ResultPolicy
 from tests.test_context_runtime import ContextRuntimeChecks, message
 
 
+def tamper(db, sql, params=()):
+    """Simulate an offline writer: the chain installs append-only guards, so a
+    rewrite of committed history has to disable them first."""
+    for trigger in ("wsc_receipts_append_only_update", "wsc_receipts_append_only_delete"):
+        db.execute(f"DROP TRIGGER IF EXISTS {trigger}")
+    db.execute(sql, params)
+
+
 class IntegrityWiringChecks(ContextRuntimeChecks):
     def test_default_runtime_leaves_no_chain(self):
         with self.core.store.transaction() as db:self.assertFalse(integrity.installed(db))
@@ -29,8 +37,8 @@ class IntegrityWiringChecks(ContextRuntimeChecks):
             ids = [row["id"] for row in events.rows(db)]
             events.presented(db, "r1", tuple(ids), "model")
             self.assertTrue(integrity.verify_receipts(db)["ok"])
-            db.execute("UPDATE presentations SET data=? WHERE id='r1'",
-                       (encode({"source_ids": [], "receiver": "model"}),))
+            tamper(db, "UPDATE presentations SET data=? WHERE id='r1'",
+                   (encode({"source_ids": [], "receiver": "model"}),))
             self.assertFalse(integrity.verify_receipts(db, full=True)["ok"])
 
     def test_receipt_verification_rehashes_only_new_rows(self):
@@ -51,8 +59,8 @@ class IntegrityWiringChecks(ContextRuntimeChecks):
             ids = [row["id"] for row in events.rows(db)]
             events.presented(db, "r1", tuple(ids), "model")
             integrity.verify_receipts(db)
-            db.execute("UPDATE presentations SET data=? WHERE id='r1'",
-                       (encode({"source_ids": [], "receiver": "model"}),))
+            tamper(db, "UPDATE presentations SET data=? WHERE id='r1'",
+                   (encode({"source_ids": [], "receiver": "model"}),))
             self.assertTrue(integrity.verify_receipts(db)["ok"])
             self.assertFalse(integrity.verify_receipts(db, full=True)["ok"])
 
@@ -63,7 +71,7 @@ class IntegrityWiringChecks(ContextRuntimeChecks):
             ids = [row["id"] for row in events.rows(db)]
             events.presented(db, "r1", tuple(ids), "model")
             integrity.verify_receipts(db)
-            db.execute("DELETE FROM presentations WHERE id='r1'")
+            tamper(db, "DELETE FROM presentations WHERE id='r1'")
             self.assertFalse(integrity.verify_receipts(db)["ok"])
 
     def test_receipt_assurance_reports_scope_and_survives_migration(self):
@@ -108,8 +116,8 @@ class IntegrityWiringChecks(ContextRuntimeChecks):
             events.presented(db, "r1", tuple(ids), "model")
             events.presented(db, "r2", tuple(ids), "model")
             cut = max(1, getmeta(db, "cursor") or 0)
-            db.execute("UPDATE presentations SET data=? WHERE id='r2'",
-                       (encode({"source_ids": [], "receiver": "model"}),))
+            tamper(db, "UPDATE presentations SET data=? WHERE id='r2'",
+                   (encode({"source_ids": [], "receiver": "model"}),))
             with self.assertRaisesRegex(WSCError, "presentation_receipt_integrity"):
                 events.safe_boundary(db, cut)
 
@@ -124,3 +132,4 @@ class IntegrityWiringChecks(ContextRuntimeChecks):
 
 if __name__ == "__main__":
     unittest.main()
+

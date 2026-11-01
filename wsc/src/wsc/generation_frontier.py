@@ -27,6 +27,9 @@ class FrontierSpanSelectionGenerator:
         prefix, records = core.snapshot_content(snapshot)
         require(list(snapshot.events) == prefix and list(snapshot.understandings) == records,
                 "frontier_snapshot_content_changed")
+        # Content validated once here; ``offer`` reuses it while the cheap token
+        # still matches, and falls back to a full re-read when anything moved.
+        self._prefix, self._token = prefix, core.snapshot_token(snapshot)
         self.previous = core.view(previous_view)
         binding = self.previous["binding"]
         require(binding["session_id"] == snapshot.session_id and binding["workspace"] == snapshot.workspace,
@@ -55,7 +58,10 @@ class FrontierSpanSelectionGenerator:
             require(type(limit) is int and limit > 0, "frontier_selection_facts_invalid")
             expected["selection_facts"] = describe(self.snapshot.events, limit)
         require(material == expected, "frontier_generation_material_changed")
-        self.core.check_snapshot(self.snapshot)
+        if self.core.snapshot_token(self.snapshot) == self._token:
+            self.core.check_snapshot(self.snapshot, rows=self._prefix)
+        else:
+            self.core.check_snapshot(self.snapshot)
         full = span_material(material, max_chars=self.max_chars, boundary_policy=self.boundary_policy)
         root = self.archive_directory
         root.mkdir(parents=True, exist_ok=True)
