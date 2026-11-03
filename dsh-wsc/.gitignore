@@ -2,3 +2,4 @@ node_modules/
 .ab*/
 .smoke*/
 *.log
+experiments/bench/
