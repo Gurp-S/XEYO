@@ -1,0 +1,78 @@
+{
+  "name": "gen-refactor-wsc",
+  "profile": "ab-echo-k",
+  "started": "2026-11-04T03:46:28",
+  "seconds": 36,
+  "exitCode": 0,
+  "score": 1,
+  "passed": 5,
+  "total": 5,
+  "failed": [],
+  "session": "--D-lea-XenYon~0020code-dsh-wsc-experiments-runs-gen-refactor-wsc--",
+  "requests": 12,
+  "inputTokens": 15666,
+  "outputTokens": 3720,
+  "events": 286,
+  "steps": [
+    {
+      "step": 1,
+      "input": 11772,
+      "output": 75
+    },
+    {
+      "step": 2,
+      "input": 388,
+      "output": 198
+    },
+    {
+      "step": 3,
+      "input": 1080,
+      "output": 753
+    },
+    {
+      "step": 4,
+      "input": 144,
+      "output": 399
+    },
+    {
+      "step": 5,
+      "input": 258,
+      "output": 163
+    },
+    {
+      "step": 6,
+      "input": 164,
+      "output": 60
+    },
+    {
+      "step": 7,
+      "input": 244,
+      "output": 112
+    },
+    {
+      "step": 8,
+      "input": 273,
+      "output": 342
+    },
+    {
+      "step": 9,
+      "input": 525,
+      "output": 697
+    },
+    {
+      "step": 10,
+      "input": 230,
+      "output": 215
+    },
+    {
+      "step": 11,
+      "input": 148,
+      "output": 168
+    },
+    {
+      "step": 12,
+      "input": 440,
+      "output": 538
+    }
+  ]
+}

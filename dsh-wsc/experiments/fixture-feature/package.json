@@ -1,0 +1,8 @@
+{
+  "name": "csv-lite",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "bin": { "csv-lite": "bin/csv.js" },
+  "scripts": { "test": "node --test tests/visible/basic.test.mjs" }
+}

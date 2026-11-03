@@ -1,0 +1,68 @@
+{
+  "name": "gen2-feature-native",
+  "profile": "ab-native-s",
+  "started": "2026-11-04T04:25:15",
+  "seconds": 181,
+  "exitCode": 0,
+  "score": 1,
+  "passed": 6,
+  "total": 6,
+  "failed": [],
+  "session": "--D-lea-XenYon~0020code-dsh-wsc-experiments-runs-gen2-feature-native--",
+  "requests": 10,
+  "inputTokens": 55444,
+  "outputTokens": 7718,
+  "events": 425,
+  "steps": [
+    {
+      "step": 1,
+      "input": 11419,
+      "output": 104
+    },
+    {
+      "step": 2,
+      "input": 345,
+      "output": 297
+    },
+    {
+      "step": 3,
+      "input": 4772,
+      "output": 3673
+    },
+    {
+      "step": 4,
+      "input": 7479,
+      "output": 76
+    },
+    {
+      "step": 5,
+      "input": 5325,
+      "output": 263
+    },
+    {
+      "step": 6,
+      "input": 4651,
+      "output": 446
+    },
+    {
+      "step": 7,
+      "input": 5643,
+      "output": 1119
+    },
+    {
+      "step": 8,
+      "input": 5029,
+      "output": 409
+    },
+    {
+      "step": 9,
+      "input": 4015,
+      "output": 210
+    },
+    {
+      "step": 10,
+      "input": 6766,
+      "output": 1121
+    }
+  ]
+}

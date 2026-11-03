@@ -1,0 +1,78 @@
+{
+  "name": "gen2-refactor-native",
+  "profile": "ab-native-s",
+  "started": "2026-11-04T04:43:17",
+  "seconds": 174,
+  "exitCode": 0,
+  "score": 1,
+  "passed": 5,
+  "total": 5,
+  "failed": [],
+  "session": "--D-lea-XenYon~0020code-dsh-wsc-experiments-runs-gen2-refactor-native--",
+  "requests": 12,
+  "inputTokens": 70062,
+  "outputTokens": 4421,
+  "events": 386,
+  "steps": [
+    {
+      "step": 1,
+      "input": 11410,
+      "output": 108
+    },
+    {
+      "step": 2,
+      "input": 3797,
+      "output": 245
+    },
+    {
+      "step": 3,
+      "input": 5234,
+      "output": 160
+    },
+    {
+      "step": 4,
+      "input": 12999,
+      "output": 245
+    },
+    {
+      "step": 5,
+      "input": 4198,
+      "output": 372
+    },
+    {
+      "step": 6,
+      "input": 3942,
+      "output": 162
+    },
+    {
+      "step": 7,
+      "input": 5171,
+      "output": 218
+    },
+    {
+      "step": 8,
+      "input": 5235,
+      "output": 214
+    },
+    {
+      "step": 9,
+      "input": 4869,
+      "output": 245
+    },
+    {
+      "step": 10,
+      "input": 4160,
+      "output": 630
+    },
+    {
+      "step": 11,
+      "input": 4240,
+      "output": 1072
+    },
+    {
+      "step": 12,
+      "input": 4807,
+      "output": 750
+    }
+  ]
+}

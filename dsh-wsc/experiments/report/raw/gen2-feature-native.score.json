@@ -1,0 +1,37 @@
+{
+  "score": 1,
+  "passed": 6,
+  "total": 6,
+  "exitCode": 0,
+  "tests": [
+    {
+      "name": "parser accepts a custom delimiter",
+      "ok": true
+    },
+    {
+      "name": "custom delimiter keeps quoted fields intact",
+      "ok": true
+    },
+    {
+      "name": "default delimiter still works",
+      "ok": true
+    },
+    {
+      "name": "cli --delimiter reads semicolon files",
+      "ok": true
+    },
+    {
+      "name": "cli --no-header returns raw rows",
+      "ok": true
+    },
+    {
+      "name": "cli keeps the default object output",
+      "ok": true
+    }
+  ],
+  "rawScore": 1,
+  "rawPassed": 6,
+  "rawTotal": 6,
+  "excluded": []
+}
+

@@ -1,0 +1,78 @@
+{
+  "name": "gen-config-native",
+  "profile": "ab-native",
+  "started": "2026-11-04T03:48:26",
+  "seconds": 83,
+  "exitCode": 0,
+  "score": 1,
+  "passed": 7,
+  "total": 7,
+  "failed": [],
+  "session": "--D-lea-XenYon~0020code-dsh-wsc-experiments-runs-gen-config-native--",
+  "requests": 12,
+  "inputTokens": 33830,
+  "outputTokens": 11572,
+  "events": 450,
+  "steps": [
+    {
+      "step": 1,
+      "input": 11487,
+      "output": 106
+    },
+    {
+      "step": 2,
+      "input": 190,
+      "output": 333
+    },
+    {
+      "step": 3,
+      "input": 1639,
+      "output": 4605
+    },
+    {
+      "step": 4,
+      "input": 159,
+      "output": 1083
+    },
+    {
+      "step": 5,
+      "input": 134,
+      "output": 64
+    },
+    {
+      "step": 6,
+      "input": 823,
+      "output": 302
+    },
+    {
+      "step": 7,
+      "input": 158,
+      "output": 637
+    },
+    {
+      "step": 8,
+      "input": 603,
+      "output": 650
+    },
+    {
+      "step": 9,
+      "input": 189,
+      "output": 1489
+    },
+    {
+      "step": 10,
+      "input": 237,
+      "output": 1086
+    },
+    {
+      "step": 11,
+      "input": 16888,
+      "output": 263
+    },
+    {
+      "step": 12,
+      "input": 1323,
+      "output": 954
+    }
+  ]
+}

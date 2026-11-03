@@ -1,0 +1,32 @@
+{
+  "score": 1,
+  "passed": 5,
+  "total": 5,
+  "exitCode": 0,
+  "tests": [
+    {
+      "name": "loader module exists at the new path",
+      "ok": true
+    },
+    {
+      "name": "old config module is gone",
+      "ok": true
+    },
+    {
+      "name": "loadConfig is exported and still validates",
+      "ok": true
+    },
+    {
+      "name": "createApp uses the renamed loader",
+      "ok": true
+    },
+    {
+      "name": "no compatibility re-export of the old name",
+      "ok": true
+    }
+  ],
+  "rawScore": 1,
+  "rawPassed": 5,
+  "rawTotal": 5,
+  "excluded": []
+}

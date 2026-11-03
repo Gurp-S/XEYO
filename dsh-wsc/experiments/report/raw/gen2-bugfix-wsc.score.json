@@ -1,0 +1,40 @@
+{
+  "score": 1,
+  "passed": 7,
+  "total": 7,
+  "exitCode": 0,
+  "tests": [
+    {
+      "name": "collapses runs of separators",
+      "ok": true
+    },
+    {
+      "name": "trims separators at both ends",
+      "ok": true
+    },
+    {
+      "name": "transliterates accents",
+      "ok": true
+    },
+    {
+      "name": "treats underscores and symbols as separators",
+      "ok": true
+    },
+    {
+      "name": "empty and separator-only input",
+      "ok": true
+    },
+    {
+      "name": "digits survive",
+      "ok": true
+    },
+    {
+      "name": "list helper keeps the same rules",
+      "ok": true
+    }
+  ],
+  "rawScore": 1,
+  "rawPassed": 7,
+  "rawTotal": 7,
+  "excluded": []
+}

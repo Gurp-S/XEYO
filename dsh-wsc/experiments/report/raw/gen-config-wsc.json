@@ -1,0 +1,73 @@
+{
+  "name": "gen-config-wsc",
+  "profile": "ab-echo-k",
+  "started": "2026-11-04T03:47:41",
+  "seconds": 44,
+  "exitCode": 0,
+  "score": 1,
+  "passed": 7,
+  "total": 7,
+  "failed": [],
+  "session": "--D-lea-XenYon~0020code-dsh-wsc-experiments-runs-gen-config-wsc--",
+  "requests": 11,
+  "inputTokens": 15583,
+  "outputTokens": 5853,
+  "events": 282,
+  "steps": [
+    {
+      "step": 1,
+      "input": 11851,
+      "output": 103
+    },
+    {
+      "step": 2,
+      "input": 150,
+      "output": 339
+    },
+    {
+      "step": 3,
+      "input": 1611,
+      "output": 1592
+    },
+    {
+      "step": 4,
+      "input": 158,
+      "output": 617
+    },
+    {
+      "step": 5,
+      "input": 195,
+      "output": 479
+    },
+    {
+      "step": 6,
+      "input": 220,
+      "output": 817
+    },
+    {
+      "step": 7,
+      "input": 205,
+      "output": 67
+    },
+    {
+      "step": 8,
+      "input": 471,
+      "output": 337
+    },
+    {
+      "step": 9,
+      "input": 228,
+      "output": 313
+    },
+    {
+      "step": 10,
+      "input": 189,
+      "output": 516
+    },
+    {
+      "step": 11,
+      "input": 305,
+      "output": 673
+    }
+  ]
+}

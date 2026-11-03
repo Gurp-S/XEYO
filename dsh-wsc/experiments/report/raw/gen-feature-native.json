@@ -1,0 +1,108 @@
+{
+  "name": "gen-feature-native",
+  "profile": "ab-native",
+  "started": "2026-11-04T03:44:22",
+  "seconds": 125,
+  "exitCode": 0,
+  "score": 1,
+  "passed": 6,
+  "total": 6,
+  "failed": [],
+  "session": "--D-lea-XenYon~0020code-dsh-wsc-experiments-runs-gen-feature-native--",
+  "requests": 18,
+  "inputTokens": 57332,
+  "outputTokens": 17012,
+  "events": 645,
+  "steps": [
+    {
+      "step": 1,
+      "input": 11417,
+      "output": 87
+    },
+    {
+      "step": 2,
+      "input": 324,
+      "output": 165
+    },
+    {
+      "step": 3,
+      "input": 1236,
+      "output": 5914
+    },
+    {
+      "step": 4,
+      "input": 284,
+      "output": 1018
+    },
+    {
+      "step": 5,
+      "input": 140,
+      "output": 292
+    },
+    {
+      "step": 6,
+      "input": 374,
+      "output": 853
+    },
+    {
+      "step": 7,
+      "input": 1657,
+      "output": 2805
+    },
+    {
+      "step": 8,
+      "input": 18341,
+      "output": 88
+    },
+    {
+      "step": 9,
+      "input": 1155,
+      "output": 721
+    },
+    {
+      "step": 10,
+      "input": 148,
+      "output": 210
+    },
+    {
+      "step": 11,
+      "input": 428,
+      "output": 280
+    },
+    {
+      "step": 12,
+      "input": 228,
+      "output": 215
+    },
+    {
+      "step": 13,
+      "input": 242,
+      "output": 1438
+    },
+    {
+      "step": 14,
+      "input": 19242,
+      "output": 1005
+    },
+    {
+      "step": 15,
+      "input": 389,
+      "output": 231
+    },
+    {
+      "step": 16,
+      "input": 609,
+      "output": 154
+    },
+    {
+      "step": 17,
+      "input": 805,
+      "output": 127
+    },
+    {
+      "step": 18,
+      "input": 313,
+      "output": 1409
+    }
+  ]
+}

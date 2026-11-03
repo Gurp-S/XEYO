@@ -1,0 +1,68 @@
+{
+  "name": "gen-bugfix-native",
+  "profile": "ab-native",
+  "started": "2026-11-04T03:42:14",
+  "seconds": 60,
+  "exitCode": 0,
+  "score": 1,
+  "passed": 7,
+  "total": 7,
+  "failed": [],
+  "session": "--D-lea-XenYon~0020code-dsh-wsc-experiments-runs-gen-bugfix-native--",
+  "requests": 10,
+  "inputTokens": 14447,
+  "outputTokens": 8592,
+  "events": 354,
+  "steps": [
+    {
+      "step": 1,
+      "input": 11411,
+      "output": 135
+    },
+    {
+      "step": 2,
+      "input": 356,
+      "output": 99
+    },
+    {
+      "step": 3,
+      "input": 230,
+      "output": 126
+    },
+    {
+      "step": 4,
+      "input": 597,
+      "output": 2537
+    },
+    {
+      "step": 5,
+      "input": 503,
+      "output": 2412
+    },
+    {
+      "step": 6,
+      "input": 160,
+      "output": 247
+    },
+    {
+      "step": 7,
+      "input": 189,
+      "output": 444
+    },
+    {
+      "step": 8,
+      "input": 221,
+      "output": 590
+    },
+    {
+      "step": 9,
+      "input": 203,
+      "output": 823
+    },
+    {
+      "step": 10,
+      "input": 577,
+      "output": 1179
+    }
+  ]
+}

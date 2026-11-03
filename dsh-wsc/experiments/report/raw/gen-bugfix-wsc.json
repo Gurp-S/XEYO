@@ -1,0 +1,78 @@
+{
+  "name": "gen-bugfix-wsc",
+  "profile": "ab-echo-k",
+  "started": "2026-11-04T03:41:20",
+  "seconds": 54,
+  "exitCode": 0,
+  "score": 1,
+  "passed": 7,
+  "total": 7,
+  "failed": [],
+  "session": "--D-lea-XenYon~0020code-dsh-wsc-experiments-runs-gen-bugfix-wsc--",
+  "requests": 12,
+  "inputTokens": 16032,
+  "outputTokens": 6621,
+  "events": 324,
+  "steps": [
+    {
+      "step": 1,
+      "input": 11775,
+      "output": 105
+    },
+    {
+      "step": 2,
+      "input": 417,
+      "output": 183
+    },
+    {
+      "step": 3,
+      "input": 716,
+      "output": 2488
+    },
+    {
+      "step": 4,
+      "input": 194,
+      "output": 486
+    },
+    {
+      "step": 5,
+      "input": 235,
+      "output": 145
+    },
+    {
+      "step": 6,
+      "input": 1188,
+      "output": 737
+    },
+    {
+      "step": 7,
+      "input": 250,
+      "output": 235
+    },
+    {
+      "step": 8,
+      "input": 261,
+      "output": 659
+    },
+    {
+      "step": 9,
+      "input": 217,
+      "output": 89
+    },
+    {
+      "step": 10,
+      "input": 207,
+      "output": 400
+    },
+    {
+      "step": 11,
+      "input": 140,
+      "output": 352
+    },
+    {
+      "step": 12,
+      "input": 432,
+      "output": 742
+    }
+  ]
+}

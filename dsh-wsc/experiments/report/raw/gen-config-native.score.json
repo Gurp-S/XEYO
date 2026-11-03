@@ -1,0 +1,41 @@
+{
+  "score": 1,
+  "passed": 7,
+  "total": 7,
+  "exitCode": 0,
+  "tests": [
+    {
+      "name": "version 1 still normalises",
+      "ok": true
+    },
+    {
+      "name": "version 2 is accepted directly",
+      "ok": true
+    },
+    {
+      "name": "version 2 honours ssl",
+      "ok": true
+    },
+    {
+      "name": "version 1 rejects ssl because it cannot express it",
+      "ok": true
+    },
+    {
+      "name": "mixing both shapes is rejected",
+      "ok": true
+    },
+    {
+      "name": "unknown top-level keys are rejected",
+      "ok": true
+    },
+    {
+      "name": "validation still applies to version 2",
+      "ok": true
+    }
+  ],
+  "rawScore": 1,
+  "rawPassed": 7,
+  "rawTotal": 7,
+  "excluded": []
+}
+
