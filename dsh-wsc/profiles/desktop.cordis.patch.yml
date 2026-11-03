@@ -1,0 +1,103 @@
+# Your patch layer for this dsh profile, applied after every bundle layer:
+# a top-level YAML array of loader patch entries (id-targeted config
+# overrides, disables, and insert lists; `!!js` expressions allowed).
+- id: ui-settings-general
+  name: "@deepseek-ai/dsh-client-ui-settings-general"
+  config:
+    welcomeNoticeVersion: 2026-08-13.1
+- id: agent-default-model
+  name: "@deepseek-ai/dsh-agent-default-model"
+  config:
+    provider: wd
+    model: deepseek-v4.1-flash
+    reasoningEffort: high
+- id: llm-pi-ai
+  name: "@deepseek-ai/dsh-llm-pi-ai"
+  config:
+    providers:
+      wd:
+        displayName: wd
+        apiKeyEnv: WD_API_KEY
+        api: openai-completions
+        baseURL: http://127.0.0.1:8788
+        models:
+          - id: deepseek-v4.1-flash
+            name: Deepseek-V4.1-Flash
+            contextWindow: 1000000
+            maxTokens: 128000
+            input:
+              - text
+              - image
+            reasoningEfforts:
+              off: null
+              low: low
+              medium: medium
+              high: high
+- id: llm-deepseek
+  name: "@deepseek-ai/dsh-llm-deepseek-api-key"
+  config:
+    models:
+      - id: deepseek-flash
+        name: deepseek-flash
+        inputModalities:
+          - text
+          - image
+        imagePixelBudget: 640000
+        imageMaxBytes: 1048576
+- id: ui-chat
+  name: "@deepseek-ai/dsh-client-ui-chat"
+  config:
+    transcriptView: standard
+    performanceUsage: detailed
+- id: ui-settings
+  name: "@deepseek-ai/dsh-client-ui-settings"
+  config:
+    enabled: true
+- id: ui-settings-account
+  name: "@deepseek-ai/dsh-client-ui-settings-account"
+  config:
+    version: 1
+    step: done
+    usage: detailed
+    developerTools: true
+    purpose: null
+    process: standard
+    completion: api-key
+- id: agent-preset-registry
+  name: "@deepseek-ai/dsh-agent-preset-registry"
+  config:
+    default: standard
+    selectedDefault: cordis
+# WSC 协作式压缩（主链路）。参数取自质量/成本验证里最好的 k2 臂：
+# echo-k 用 tokens 28235 = 43.1% x 65536；这里改成 ratio 模式按窗口比例缩放，
+# 1M 窗口下等价于同一比例（capacity 43%，force 0.85 -> 36.6% 触发）。
+# 回退：把 mode 改回 off 即恢复原生 compaction-basic。
+- id: wsc-config
+  name: "@xeyo/dsh-wsc"
+  config:
+    mode: active
+    capacityMode: ratio
+    capacityPercent: 43
+    warnRatio: 0.8
+    forceRatio: 0.85
+    retainRatio: 0.136
+    minReclaimRatio: 0
+    selection: selective
+    controlItemCap: 4000
+    selectionMaxTokens: 16384
+    payloadWorkingset: true
+    payloadWorkingsetVersion: 2
+    payloadWorkingsetFiles: 6
+    payloadWorkingsetItemCap: 700
+    payloadWorkingsetSectionCap: 2500
+    denoise: true
+
+# 本 profile 没有 preset-cordis 花名册，包自带补丁打不上（dsh 会报
+# "entry preset-cordis not found"），所以和 k 臂一样在 profile 层替换后端：
+# 关掉原生 compaction-basic，插入 WSC 引擎。
+- id: compaction-basic
+  disabled: true
+
+- insert:
+    - id: wsc-engine
+      name: "@xeyo/dsh-wsc/engine"

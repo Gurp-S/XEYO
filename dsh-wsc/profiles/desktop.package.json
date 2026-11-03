@@ -1,0 +1,16 @@
+{
+  "name": "dsh-profile-desktop",
+  "private": true,
+  "dsh": {
+    "profile": {
+      "bundles": [
+        "@deepseek-ai/dsh-base",
+        "@deepseek-ai/dsh-web-app",
+        "@xeyo/dsh-wsc"
+      ]
+    }
+  },
+  "dependencies": {
+    "@xeyo/dsh-wsc": "link:D:/lea/XenYon code/dsh-wsc"
+  }
+}
