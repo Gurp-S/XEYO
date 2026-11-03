@@ -6,7 +6,7 @@
 |---|---|---|
 | WSC vs 原生（成本+质量） | WSC 0.992（n=18）vs 原生 0.786（n=4）；中位请求 22 vs 70，输入 60k vs 304k，墙钟 126s vs 907s | `QUALITY-VERDICT.md` |
 | 并入主链路 | desktop profile 已换 WSC 后端，k2 参数，真机启动 200 | `MERGE-WSC.md`，commit `ab7d6417`/`e2461ae0` |
-| WSM 真实质量 | 789 次读里 489 次重读（62%），工作集只覆盖 16 次（3%）；k 臂重读率 73%、j 臂 65%，工作集没有抑制重读 | `experiments/tools/wsm-quality.mjs` |
+| WSM 真实质量（只看 k2） | 70 次读、26 次重读（37%）、工作集覆盖 0 次；`sectionCap 2500` 放不下 6×700 字符，是直接原因 | `experiments/tools/wsm-quality.mjs` |
 | c 臂 WSC 分数 | echo-c-1 0.778（7/9）、echo-c-2 0.889（8/9），9 项任务书 v1 | `report/raw/echo-c-*.score.json` |
 
 ## 被阻塞（需要外部输入）
@@ -21,9 +21,10 @@
 
 ## L 臂实验：把工作集从 6 文件抬到 12 文件（未采纳）
 
-离线回放（`experiments/tools/ws-sweep.mjs`，纯函数、零 API）先给出假设：
-6 文件只覆盖 39% 的重读，12 文件 85%，24 文件 100%；而 k2 的 `sectionCap 2500`
-连 6 文件都截断。于是建了 `ab-echo-l`（k2 + files 12 + sectionCap 9000）跑真机。
+离线回放（`experiments/tools/ws-sweep.mjs`，纯函数、零 API，**只用 k2 的会话**，
+样本是 28 次重读）先给出假设：6 文件覆盖 43%，12 文件 79%，24 文件 100%；
+而 k2 的 `sectionCap 2500` 放不下 6×700 字符，会截断。于是建了 `ab-echo-l`
+（k2 原封不动，只改 files 6→12、sectionCap 2500→9000）跑真机。
 
 结果（`echo-l-1`，跑了 62 分钟被手动终止）：
 

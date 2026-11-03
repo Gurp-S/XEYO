@@ -12,7 +12,7 @@ import { readSessionEvents } from './read-session.mjs'
 import { buildWorkingSet } from '../../lib/workingset.js'
 
 const ROOT = 'C:/Users/48522/.dsh/sessions'
-const PREFIXES = ['runs-echo-k', 'runs-echo-j']
+const PREFIXES = process.argv.slice(2).length > 0 ? process.argv.slice(2) : ['runs-echo-k2']
 const GRID = [
   { maxFiles: 6, capChars: 700 },
   { maxFiles: 12, capChars: 700 },
@@ -98,3 +98,4 @@ for (const [key, stats] of totals) {
   const pct = stats.redundant === 0 ? 0 : Math.round((stats.covered / stats.redundant) * 100)
   console.log(key.padEnd(18), String(stats.redundant).padStart(9), String(stats.covered).padStart(8), String(pct).padStart(7) + '%', String(stats.redundant === 0 ? 0 : (stats.listed / stats.redundant).toFixed(1)).padStart(11))
 }
+
