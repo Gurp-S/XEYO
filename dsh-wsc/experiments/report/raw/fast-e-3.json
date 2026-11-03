@@ -1,0 +1,218 @@
+{
+  "name": "fast-e-3",
+  "profile": "ab-fast-e",
+  "started": "2026-11-03T13:50:02",
+  "seconds": 532,
+  "exitCode": 0,
+  "score": 1,
+  "passed": 4,
+  "total": 4,
+  "failed": [],
+  "session": "--D-lea-XenYon~0020code-dsh-wsc-experiments-runs-fast-e-3--",
+  "requests": 40,
+  "inputTokens": 160054,
+  "outputTokens": 9813,
+  "events": 932,
+  "steps": [
+    {
+      "step": 1,
+      "input": 11614,
+      "output": 136
+    },
+    {
+      "step": 2,
+      "input": 12572,
+      "output": 188
+    },
+    {
+      "step": 3,
+      "input": 844,
+      "output": 1327
+    },
+    {
+      "step": 4,
+      "input": 14882,
+      "output": 153
+    },
+    {
+      "step": 5,
+      "input": 4616,
+      "output": 206
+    },
+    {
+      "step": 6,
+      "input": 4906,
+      "output": 103
+    },
+    {
+      "step": 7,
+      "input": 187,
+      "output": 122
+    },
+    {
+      "step": 8,
+      "input": 906,
+      "output": 167
+    },
+    {
+      "step": 9,
+      "input": 374,
+      "output": 206
+    },
+    {
+      "step": 10,
+      "input": 6668,
+      "output": 279
+    },
+    {
+      "step": 11,
+      "input": 4216,
+      "output": 265
+    },
+    {
+      "step": 12,
+      "input": 304,
+      "output": 128
+    },
+    {
+      "step": 13,
+      "input": 628,
+      "output": 280
+    },
+    {
+      "step": 14,
+      "input": 807,
+      "output": 238
+    },
+    {
+      "step": 15,
+      "input": 6848,
+      "output": 260
+    },
+    {
+      "step": 16,
+      "input": 5214,
+      "output": 383
+    },
+    {
+      "step": 17,
+      "input": 5094,
+      "output": 242
+    },
+    {
+      "step": 18,
+      "input": 147,
+      "output": 101
+    },
+    {
+      "step": 19,
+      "input": 156,
+      "output": 166
+    },
+    {
+      "step": 20,
+      "input": 241,
+      "output": 127
+    },
+    {
+      "step": 21,
+      "input": 6220,
+      "output": 104
+    },
+    {
+      "step": 22,
+      "input": 4702,
+      "output": 319
+    },
+    {
+      "step": 23,
+      "input": 4823,
+      "output": 142
+    },
+    {
+      "step": 24,
+      "input": 811,
+      "output": 98
+    },
+    {
+      "step": 25,
+      "input": 251,
+      "output": 189
+    },
+    {
+      "step": 26,
+      "input": 6509,
+      "output": 471
+    },
+    {
+      "step": 27,
+      "input": 4671,
+      "output": 234
+    },
+    {
+      "step": 28,
+      "input": 9273,
+      "output": 350
+    },
+    {
+      "step": 29,
+      "input": 5240,
+      "output": 253
+    },
+    {
+      "step": 30,
+      "input": 6167,
+      "output": 164
+    },
+    {
+      "step": 31,
+      "input": 6815,
+      "output": 384
+    },
+    {
+      "step": 32,
+      "input": 4475,
+      "output": 217
+    },
+    {
+      "step": 33,
+      "input": 891,
+      "output": 150
+    },
+    {
+      "step": 34,
+      "input": 581,
+      "output": 165
+    },
+    {
+      "step": 35,
+      "input": 6461,
+      "output": 466
+    },
+    {
+      "step": 36,
+      "input": 5134,
+      "output": 253
+    },
+    {
+      "step": 37,
+      "input": 4820,
+      "output": 119
+    },
+    {
+      "step": 38,
+      "input": 297,
+      "output": 65
+    },
+    {
+      "step": 39,
+      "input": 493,
+      "output": 167
+    },
+    {
+      "step": 40,
+      "input": 196,
+      "output": 426
+    }
+  ]
+}

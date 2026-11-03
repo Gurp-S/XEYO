@@ -1,0 +1,68 @@
+{
+  "name": "fast-h-1",
+  "profile": "ab-fast-h",
+  "started": "2026-11-03T15:12:28",
+  "seconds": 89,
+  "exitCode": 0,
+  "score": 1,
+  "passed": 4,
+  "total": 4,
+  "failed": [],
+  "session": "--D-lea-XenYon~0020code-dsh-wsc-experiments-runs-fast-h-1--",
+  "requests": 10,
+  "inputTokens": 17153,
+  "outputTokens": 4406,
+  "events": 312,
+  "steps": [
+    {
+      "step": 1,
+      "input": 11614,
+      "output": 103
+    },
+    {
+      "step": 2,
+      "input": 791,
+      "output": 288
+    },
+    {
+      "step": 3,
+      "input": 1506,
+      "output": 199
+    },
+    {
+      "step": 4,
+      "input": 429,
+      "output": 1520
+    },
+    {
+      "step": 5,
+      "input": 333,
+      "output": 201
+    },
+    {
+      "step": 6,
+      "input": 796,
+      "output": 572
+    },
+    {
+      "step": 7,
+      "input": 359,
+      "output": 476
+    },
+    {
+      "step": 8,
+      "input": 354,
+      "output": 356
+    },
+    {
+      "step": 9,
+      "input": 230,
+      "output": 313
+    },
+    {
+      "step": 10,
+      "input": 741,
+      "output": 378
+    }
+  ]
+}

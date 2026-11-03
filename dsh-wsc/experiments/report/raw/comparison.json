@@ -1,0 +1,567 @@
+[
+  {
+    "name": "fast-native-1",
+    "session": "session-fc12e194-89b1-4436-9dd4-619c66b26c49",
+    "seconds": 53,
+    "score": 1,
+    "passed": 4,
+    "total": 4,
+    "steps": 14,
+    "calls": 22,
+    "reads": 9,
+    "distinctFiles": 6,
+    "readsPerFile": 1.5,
+    "compactions": 0,
+    "compactionsPerStep": 0,
+    "callsByTool": {
+      "read": 9,
+      "pwsh": 6,
+      "write": 6,
+      "glob": 1
+    },
+    "hottest": [
+      {
+        "file": "tokenize.js",
+        "count": 2
+      },
+      {
+        "file": "count.js",
+        "count": 2
+      },
+      {
+        "file": "cli.js",
+        "count": 2
+      },
+      {
+        "file": "README.md",
+        "count": 1
+      },
+      {
+        "file": "basic.test.mjs",
+        "count": 1
+      },
+      {
+        "file": "package.json",
+        "count": 1
+      }
+    ],
+    "inputTokens": 18173,
+    "outputTokens": 5637,
+    "checkpointBytes": [],
+    "perCompaction": []
+  },
+  {
+    "name": "fast-d-2",
+    "session": "session-3009a7f0-139e-4534-b609-c5a6c627be8d",
+    "seconds": 185,
+    "score": 1,
+    "passed": 4,
+    "total": 4,
+    "steps": 16,
+    "calls": 23,
+    "reads": 13,
+    "distinctFiles": 5,
+    "readsPerFile": 2.6,
+    "compactions": 8,
+    "compactionsPerStep": 0.5,
+    "callsByTool": {
+      "read": 13,
+      "pwsh": 5,
+      "glob": 2,
+      "edit": 2,
+      "write": 1
+    },
+    "hottest": [
+      {
+        "file": "tokenize.js",
+        "count": 3
+      },
+      {
+        "file": "count.js",
+        "count": 3
+      },
+      {
+        "file": "cli.js",
+        "count": 3
+      },
+      {
+        "file": "README.md",
+        "count": 2
+      },
+      {
+        "file": "basic.test.mjs",
+        "count": 2
+      }
+    ],
+    "inputTokens": 73975,
+    "outputTokens": 3849,
+    "checkpointBytes": [
+      887,
+      1001,
+      2380,
+      1025,
+      576,
+      3599,
+      1262,
+      560
+    ],
+    "perCompaction": [
+      {
+        "index": 1,
+        "shadowedTokens": 822,
+        "bytes": 887,
+        "keepRatio": 0.27,
+        "sections": [
+          {
+            "heading": "User requests and instructions (verbatim, control)",
+            "bytes": 414,
+            "items": 1
+          },
+          {
+            "heading": "Selected excerpts (verbatim; role prefix shows the speake",
+            "bytes": 212,
+            "items": 2
+          },
+          {
+            "heading": "Recorded judgments (model, sourced; [sN] cites a selected",
+            "bytes": 259,
+            "items": 2
+          }
+        ]
+      },
+      {
+        "index": 2,
+        "shadowedTokens": 3070,
+        "bytes": 1001,
+        "keepRatio": 0.082,
+        "sections": [
+          {
+            "heading": "Prior checkpoint (historical; re-check current evidence)",
+            "bytes": 785,
+            "items": 6
+          },
+          {
+            "heading": "Tool calls (oldest first)",
+            "bytes": 126,
+            "items": 2
+          },
+          {
+            "heading": "Files touched",
+            "bytes": 88,
+            "items": 1
+          }
+        ]
+      },
+      {
+        "index": 3,
+        "shadowedTokens": 2923,
+        "bytes": 2380,
+        "keepRatio": 0.204,
+        "sections": [
+          {
+            "heading": "Prior checkpoint (historical; re-check current evidence)",
+            "bytes": 370,
+            "items": 4
+          },
+          {
+            "heading": "Selected excerpts (verbatim; role prefix shows the speake",
+            "bytes": 1491,
+            "items": 5
+          },
+          {
+            "heading": "Verification state (runtime facts; #n is the message posi",
+            "bytes": 517,
+            "items": 3
+          }
+        ]
+      },
+      {
+        "index": 4,
+        "shadowedTokens": 484,
+        "bytes": 1025,
+        "keepRatio": 0.529,
+        "sections": [
+          {
+            "heading": "Prior checkpoint (historical; re-check current evidence)",
+            "bytes": 1025,
+            "items": 4
+          }
+        ]
+      },
+      {
+        "index": 5,
+        "shadowedTokens": 2697,
+        "bytes": 576,
+        "keepRatio": 0.053,
+        "sections": [
+          {
+            "heading": "Prior checkpoint (historical; re-check current evidence)",
+            "bytes": 195,
+            "items": 1
+          },
+          {
+            "heading": "Selected excerpts (verbatim; role prefix shows the speake",
+            "bytes": 198,
+            "items": 1
+          },
+          {
+            "heading": "Recorded judgments (model, sourced; [sN] cites a selected",
+            "bytes": 181,
+            "items": 1
+          }
+        ]
+      },
+      {
+        "index": 6,
+        "shadowedTokens": 2867,
+        "bytes": 3599,
+        "keepRatio": 0.314,
+        "sections": [
+          {
+            "heading": "Prior checkpoint (historical; re-check current evidence)",
+            "bytes": 576,
+            "items": 3
+          },
+          {
+            "heading": "Selected excerpts (verbatim; role prefix shows the speake",
+            "bytes": 2588,
+            "items": 13
+          },
+          {
+            "heading": "Recorded judgments (model, sourced; [sN] cites a selected",
+            "bytes": 433,
+            "items": 5
+          }
+        ]
+      },
+      {
+        "index": 7,
+        "shadowedTokens": 613,
+        "bytes": 1262,
+        "keepRatio": 0.515,
+        "sections": [
+          {
+            "heading": "Prior checkpoint (historical; re-check current evidence)",
+            "bytes": 1262,
+            "items": 7
+          }
+        ]
+      },
+      {
+        "index": 8,
+        "shadowedTokens": 2744,
+        "bytes": 560,
+        "keepRatio": 0.051,
+        "sections": [
+          {
+            "heading": "Prior checkpoint (historical; re-check current evidence)",
+            "bytes": 225,
+            "items": 1
+          },
+          {
+            "heading": "Selected excerpts (verbatim; role prefix shows the speake",
+            "bytes": 160,
+            "items": 1
+          },
+          {
+            "heading": "Recorded judgments (model, sourced; [sN] cites a selected",
+            "bytes": 173,
+            "items": 1
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "fast-f-2",
+    "session": "session-62dba886-8454-4851-950f-db9f822ff658",
+    "seconds": 218,
+    "score": 1,
+    "passed": 4,
+    "total": 4,
+    "steps": 15,
+    "calls": 25,
+    "reads": 13,
+    "distinctFiles": 6,
+    "readsPerFile": 2.2,
+    "compactions": 8,
+    "compactionsPerStep": 0.53,
+    "callsByTool": {
+      "read": 13,
+      "pwsh": 6,
+      "glob": 3,
+      "edit": 3
+    },
+    "hottest": [
+      {
+        "file": "README.md",
+        "count": 3
+      },
+      {
+        "file": "count.js",
+        "count": 3
+      },
+      {
+        "file": "cli.js",
+        "count": 3
+      },
+      {
+        "file": "tokenize.js",
+        "count": 2
+      },
+      {
+        "file": "basic.test.mjs",
+        "count": 1
+      },
+      {
+        "file": "package.json",
+        "count": 1
+      }
+    ],
+    "inputTokens": 76598,
+    "outputTokens": 5029,
+    "checkpointBytes": [
+      982,
+      1094,
+      5508,
+      1262,
+      847,
+      5372,
+      1262,
+      452
+    ],
+    "perCompaction": [
+      {
+        "index": 1,
+        "shadowedTokens": 822,
+        "bytes": 982,
+        "keepRatio": 0.299,
+        "sections": [
+          {
+            "heading": "User requests and instructions (verbatim, control)",
+            "bytes": 414,
+            "items": 1
+          },
+          {
+            "heading": "Selected excerpts (verbatim; role prefix shows the speake",
+            "bytes": 429,
+            "items": 2
+          },
+          {
+            "heading": "Recorded judgments (model, sourced; [sN] cites a selected",
+            "bytes": 137,
+            "items": 1
+          }
+        ]
+      },
+      {
+        "index": 2,
+        "shadowedTokens": 3081,
+        "bytes": 1094,
+        "keepRatio": 0.089,
+        "sections": [
+          {
+            "heading": "Prior checkpoint (historical; re-check current evidence)",
+            "bytes": 878,
+            "items": 5
+          },
+          {
+            "heading": "Tool calls (oldest first)",
+            "bytes": 126,
+            "items": 2
+          },
+          {
+            "heading": "Files touched",
+            "bytes": 88,
+            "items": 1
+          }
+        ]
+      },
+      {
+        "index": 3,
+        "shadowedTokens": 2906,
+        "bytes": 5508,
+        "keepRatio": 0.474,
+        "sections": [
+          {
+            "heading": "Prior checkpoint (historical; re-check current evidence)",
+            "bytes": 370,
+            "items": 4
+          },
+          {
+            "heading": "Selected excerpts (verbatim; role prefix shows the speake",
+            "bytes": 855,
+            "items": 3
+          },
+          {
+            "heading": "Recorded judgments (model, sourced; [sN] cites a selected",
+            "bytes": 208,
+            "items": 1
+          },
+          {
+            "heading": "Verification state (runtime facts; #n is the message posi",
+            "bytes": 517,
+            "items": 3
+          },
+          {
+            "heading": "Recent tool results",
+            "bytes": 3554,
+            "items": 8
+          }
+        ]
+      },
+      {
+        "index": 4,
+        "shadowedTokens": 1385,
+        "bytes": 1262,
+        "keepRatio": 0.228,
+        "sections": [
+          {
+            "heading": "Prior checkpoint (historical; re-check current evidence)",
+            "bytes": 1262,
+            "items": 5
+          }
+        ]
+      },
+      {
+        "index": 5,
+        "shadowedTokens": 3407,
+        "bytes": 847,
+        "keepRatio": 0.062,
+        "sections": [
+          {
+            "heading": "Prior checkpoint (historical; re-check current evidence)",
+            "bytes": 180,
+            "items": 1
+          },
+          {
+            "heading": "Selected excerpts (verbatim; role prefix shows the speake",
+            "bytes": 198,
+            "items": 1
+          },
+          {
+            "heading": "Recorded judgments (model, sourced; [sN] cites a selected",
+            "bytes": 141,
+            "items": 1
+          },
+          {
+            "heading": "Recent tool results",
+            "bytes": 325,
+            "items": 1
+          }
+        ]
+      },
+      {
+        "index": 6,
+        "shadowedTokens": 2864,
+        "bytes": 5372,
+        "keepRatio": 0.469,
+        "sections": [
+          {
+            "heading": "Prior checkpoint (historical; re-check current evidence)",
+            "bytes": 667,
+            "items": 4
+          },
+          {
+            "heading": "Selected excerpts (verbatim; role prefix shows the speake",
+            "bytes": 2097,
+            "items": 11
+          },
+          {
+            "heading": "Recorded judgments (model, sourced; [sN] cites a selected",
+            "bytes": 706,
+            "items": 5
+          },
+          {
+            "heading": "Recent tool results",
+            "bytes": 1899,
+            "items": 3
+          }
+        ]
+      },
+      {
+        "index": 7,
+        "shadowedTokens": 1058,
+        "bytes": 1262,
+        "keepRatio": 0.298,
+        "sections": [
+          {
+            "heading": "Prior checkpoint (historical; re-check current evidence)",
+            "bytes": 1262,
+            "items": 7
+          }
+        ]
+      },
+      {
+        "index": 8,
+        "shadowedTokens": 2750,
+        "bytes": 452,
+        "keepRatio": 0.041,
+        "sections": [
+          {
+            "heading": "Prior checkpoint (historical; re-check current evidence)",
+            "bytes": 254,
+            "items": 1
+          },
+          {
+            "heading": "Selected excerpts (verbatim; role prefix shows the speake",
+            "bytes": 197,
+            "items": 1
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "fast-g-1",
+    "session": "session-40a202a6-2ca2-4bf3-a1a7-d9f6b768ecfc",
+    "seconds": 47,
+    "score": 1,
+    "passed": 4,
+    "total": 4,
+    "steps": 14,
+    "calls": 18,
+    "reads": 7,
+    "distinctFiles": 6,
+    "readsPerFile": 1.2,
+    "compactions": 0,
+    "compactionsPerStep": 0,
+    "callsByTool": {
+      "read": 7,
+      "pwsh": 6,
+      "edit": 3,
+      "glob": 1,
+      "write": 1
+    },
+    "hottest": [
+      {
+        "file": "count.js",
+        "count": 2
+      },
+      {
+        "file": "README.md",
+        "count": 1
+      },
+      {
+        "file": "basic.test.mjs",
+        "count": 1
+      },
+      {
+        "file": "tokenize.js",
+        "count": 1
+      },
+      {
+        "file": "cli.js",
+        "count": 1
+      },
+      {
+        "file": "package.json",
+        "count": 1
+      }
+    ],
+    "inputTokens": 16722,
+    "outputTokens": 4246,
+    "checkpointBytes": [],
+    "perCompaction": []
+  }
+]

@@ -1,0 +1,62 @@
+{
+  "name": "native-3",
+  "profile": "ab-native",
+  "started": "2026-11-04T02:06:55",
+  "seconds": 209,
+  "exitCode": 1,
+  "score": 0.1429,
+  "passed": 1,
+  "total": 7,
+  "failed": [
+    "css url() target change rebuilds the stylesheet",
+    "json extends base change rebuilds the derived file",
+    "content change with an unchanged mtime is rebuilt",
+    "deleting a source removes its output and manifest entry",
+    "a manifest that claims missing outputs self-heals",
+    "--concurrency and --watch are supported",
+    "--watch rebuilds after a source change",
+    "contract: dry-run, manifest shape, determinism, zero deps"
+  ],
+  "session": "--D-lea-XenYon~0020code-dsh-wsc-experiments-runs-native-3--",
+  "requests": 7,
+  "inputTokens": 18493,
+  "outputTokens": 36598,
+  "events": 1044,
+  "steps": [
+    {
+      "step": 1,
+      "input": 11485,
+      "output": 138
+    },
+    {
+      "step": 2,
+      "input": 613,
+      "output": 114
+    },
+    {
+      "step": 3,
+      "input": 1063,
+      "output": 118
+    },
+    {
+      "step": 4,
+      "input": 2822,
+      "output": 237
+    },
+    {
+      "step": 5,
+      "input": 1392,
+      "output": 342
+    },
+    {
+      "step": 6,
+      "input": 591,
+      "output": 2881
+    },
+    {
+      "step": 7,
+      "input": 527,
+      "output": 32768
+    }
+  ]
+}

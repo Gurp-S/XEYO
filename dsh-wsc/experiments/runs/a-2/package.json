@@ -1,0 +1,17 @@
+{
+  "name": "mini-build",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Tiny incremental builder for a static asset tree",
+  "type": "module",
+  "bin": {
+    "mini-build": "./bin/build.js"
+  },
+  "scripts": {
+    "build": "node bin/build.js",
+    "test": "node --test tests/visible/basic.test.mjs tests/visible/fixes.test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

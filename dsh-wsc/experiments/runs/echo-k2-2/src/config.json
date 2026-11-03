@@ -1,0 +1,5 @@
+{
+  "entry": "compile-tree",
+  "symbol": "compileTree",
+  "modules": ["a", "b", "c", "d", "e", "f"]
+}

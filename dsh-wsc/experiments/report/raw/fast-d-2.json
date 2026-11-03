@@ -1,0 +1,98 @@
+{
+  "name": "fast-d-2",
+  "profile": "ab-fast-d",
+  "started": "2026-11-03T13:36:48",
+  "seconds": 185,
+  "exitCode": 0,
+  "score": 1,
+  "passed": 4,
+  "total": 4,
+  "failed": [],
+  "session": "--D-lea-XenYon~0020code-dsh-wsc-experiments-runs-fast-d-2--",
+  "requests": 16,
+  "inputTokens": 73975,
+  "outputTokens": 3849,
+  "events": 374,
+  "steps": [
+    {
+      "step": 1,
+      "input": 11614,
+      "output": 99
+    },
+    {
+      "step": 2,
+      "input": 12278,
+      "output": 241
+    },
+    {
+      "step": 3,
+      "input": 1142,
+      "output": 1165
+    },
+    {
+      "step": 4,
+      "input": 14318,
+      "output": 116
+    },
+    {
+      "step": 5,
+      "input": 4566,
+      "output": 322
+    },
+    {
+      "step": 6,
+      "input": 4903,
+      "output": 57
+    },
+    {
+      "step": 7,
+      "input": 138,
+      "output": 131
+    },
+    {
+      "step": 8,
+      "input": 631,
+      "output": 118
+    },
+    {
+      "step": 9,
+      "input": 6384,
+      "output": 197
+    },
+    {
+      "step": 10,
+      "input": 4719,
+      "output": 194
+    },
+    {
+      "step": 11,
+      "input": 227,
+      "output": 169
+    },
+    {
+      "step": 12,
+      "input": 5377,
+      "output": 76
+    },
+    {
+      "step": 13,
+      "input": 337,
+      "output": 65
+    },
+    {
+      "step": 14,
+      "input": 509,
+      "output": 65
+    },
+    {
+      "step": 15,
+      "input": 401,
+      "output": 222
+    },
+    {
+      "step": 16,
+      "input": 6431,
+      "output": 612
+    }
+  ]
+}

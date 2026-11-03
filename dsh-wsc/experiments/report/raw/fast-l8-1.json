@@ -1,0 +1,63 @@
+{
+  "name": "fast-l8-1",
+  "profile": "ab-fast-l8",
+  "started": "2026-11-03T15:47:04",
+  "seconds": 88,
+  "exitCode": 0,
+  "score": 1,
+  "passed": 4,
+  "total": 4,
+  "failed": [],
+  "session": "--D-lea-XenYon~0020code-dsh-wsc-experiments-runs-fast-l8-1--",
+  "requests": 9,
+  "inputTokens": 15246,
+  "outputTokens": 2932,
+  "events": 229,
+  "steps": [
+    {
+      "step": 1,
+      "input": 11616,
+      "output": 100
+    },
+    {
+      "step": 2,
+      "input": 534,
+      "output": 293
+    },
+    {
+      "step": 3,
+      "input": 1387,
+      "output": 590
+    },
+    {
+      "step": 4,
+      "input": 331,
+      "output": 331
+    },
+    {
+      "step": 5,
+      "input": 369,
+      "output": 519
+    },
+    {
+      "step": 6,
+      "input": 152,
+      "output": 156
+    },
+    {
+      "step": 7,
+      "input": 290,
+      "output": 434
+    },
+    {
+      "step": 8,
+      "input": 418,
+      "output": 214
+    },
+    {
+      "step": 9,
+      "input": 149,
+      "output": 295
+    }
+  ]
+}

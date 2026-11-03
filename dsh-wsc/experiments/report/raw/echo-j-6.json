@@ -1,0 +1,78 @@
+{
+  "name": "echo-j-6",
+  "profile": "ab-echo-j",
+  "started": "2026-11-04T00:26:14",
+  "seconds": 50,
+  "exitCode": 0,
+  "score": 1,
+  "passed": 7,
+  "total": 7,
+  "failed": [],
+  "session": "--D-lea-XenYon~0020code-dsh-wsc-experiments-runs-echo-j-6--",
+  "requests": 12,
+  "inputTokens": 18311,
+  "outputTokens": 5762,
+  "events": 384,
+  "steps": [
+    {
+      "step": 1,
+      "input": 11641,
+      "output": 160
+    },
+    {
+      "step": 2,
+      "input": 1151,
+      "output": 457
+    },
+    {
+      "step": 3,
+      "input": 1434,
+      "output": 440
+    },
+    {
+      "step": 4,
+      "input": 874,
+      "output": 211
+    },
+    {
+      "step": 5,
+      "input": 395,
+      "output": 1454
+    },
+    {
+      "step": 6,
+      "input": 288,
+      "output": 897
+    },
+    {
+      "step": 7,
+      "input": 1224,
+      "output": 256
+    },
+    {
+      "step": 8,
+      "input": 288,
+      "output": 324
+    },
+    {
+      "step": 9,
+      "input": 435,
+      "output": 357
+    },
+    {
+      "step": 10,
+      "input": 184,
+      "output": 458
+    },
+    {
+      "step": 11,
+      "input": 247,
+      "output": 186
+    },
+    {
+      "step": 12,
+      "input": 150,
+      "output": 562
+    }
+  ]
+}

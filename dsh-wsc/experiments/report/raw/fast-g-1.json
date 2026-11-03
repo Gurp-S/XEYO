@@ -1,0 +1,88 @@
+{
+  "name": "fast-g-1",
+  "profile": "ab-fast-g",
+  "started": "2026-11-03T15:05:51",
+  "seconds": 47,
+  "exitCode": 0,
+  "score": 1,
+  "passed": 4,
+  "total": 4,
+  "failed": [],
+  "session": "--D-lea-XenYon~0020code-dsh-wsc-experiments-runs-fast-g-1--",
+  "requests": 14,
+  "inputTokens": 16722,
+  "outputTokens": 4246,
+  "events": 280,
+  "steps": [
+    {
+      "step": 1,
+      "input": 11614,
+      "output": 140
+    },
+    {
+      "step": 2,
+      "input": 945,
+      "output": 176
+    },
+    {
+      "step": 3,
+      "input": 1000,
+      "output": 294
+    },
+    {
+      "step": 4,
+      "input": 184,
+      "output": 63
+    },
+    {
+      "step": 5,
+      "input": 261,
+      "output": 996
+    },
+    {
+      "step": 6,
+      "input": 248,
+      "output": 105
+    },
+    {
+      "step": 7,
+      "input": 552,
+      "output": 322
+    },
+    {
+      "step": 8,
+      "input": 222,
+      "output": 345
+    },
+    {
+      "step": 9,
+      "input": 215,
+      "output": 299
+    },
+    {
+      "step": 10,
+      "input": 160,
+      "output": 276
+    },
+    {
+      "step": 11,
+      "input": 247,
+      "output": 238
+    },
+    {
+      "step": 12,
+      "input": 318,
+      "output": 426
+    },
+    {
+      "step": 13,
+      "input": 277,
+      "output": 191
+    },
+    {
+      "step": 14,
+      "input": 479,
+      "output": 375
+    }
+  ]
+}

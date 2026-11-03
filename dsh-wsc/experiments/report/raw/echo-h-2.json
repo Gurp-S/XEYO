@@ -1,0 +1,298 @@
+{
+  "name": "echo-h-2",
+  "profile": "ab-echo-h",
+  "started": "2026-11-03T16:06:57",
+  "seconds": 814,
+  "exitCode": 0,
+  "score": 1,
+  "passed": 7,
+  "total": 7,
+  "failed": [],
+  "session": "--D-lea-XenYon~0020code-dsh-wsc-experiments-runs-echo-h-2--",
+  "requests": 56,
+  "inputTokens": 187062,
+  "outputTokens": 55792,
+  "events": 2258,
+  "steps": [
+    {
+      "step": 1,
+      "input": 11802,
+      "output": 107
+    },
+    {
+      "step": 2,
+      "input": 159,
+      "output": 116
+    },
+    {
+      "step": 3,
+      "input": 1125,
+      "output": 120
+    },
+    {
+      "step": 4,
+      "input": 2888,
+      "output": 234
+    },
+    {
+      "step": 5,
+      "input": 1716,
+      "output": 134
+    },
+    {
+      "step": 6,
+      "input": 0,
+      "output": 0
+    },
+    {
+      "step": 6,
+      "input": 156,
+      "output": 15862
+    },
+    {
+      "step": 7,
+      "input": 22637,
+      "output": 152
+    },
+    {
+      "step": 8,
+      "input": 15098,
+      "output": 155
+    },
+    {
+      "step": 9,
+      "input": 611,
+      "output": 373
+    },
+    {
+      "step": 10,
+      "input": 2037,
+      "output": 182
+    },
+    {
+      "step": 11,
+      "input": 205,
+      "output": 96
+    },
+    {
+      "step": 12,
+      "input": 190,
+      "output": 1621
+    },
+    {
+      "step": 13,
+      "input": 836,
+      "output": 218
+    },
+    {
+      "step": 14,
+      "input": 199,
+      "output": 848
+    },
+    {
+      "step": 15,
+      "input": 461,
+      "output": 155
+    },
+    {
+      "step": 16,
+      "input": 616,
+      "output": 535
+    },
+    {
+      "step": 17,
+      "input": 395,
+      "output": 272
+    },
+    {
+      "step": 18,
+      "input": 3313,
+      "output": 579
+    },
+    {
+      "step": 19,
+      "input": 20284,
+      "output": 295
+    },
+    {
+      "step": 20,
+      "input": 3643,
+      "output": 9234
+    },
+    {
+      "step": 21,
+      "input": 16209,
+      "output": 2541
+    },
+    {
+      "step": 22,
+      "input": 7831,
+      "output": 182
+    },
+    {
+      "step": 23,
+      "input": 1047,
+      "output": 164
+    },
+    {
+      "step": 24,
+      "input": 1026,
+      "output": 221
+    },
+    {
+      "step": 25,
+      "input": 1019,
+      "output": 132
+    },
+    {
+      "step": 26,
+      "input": 3541,
+      "output": 2570
+    },
+    {
+      "step": 27,
+      "input": 857,
+      "output": 1826
+    },
+    {
+      "step": 28,
+      "input": 296,
+      "output": 669
+    },
+    {
+      "step": 29,
+      "input": 13754,
+      "output": 291
+    },
+    {
+      "step": 30,
+      "input": 2682,
+      "output": 2386
+    },
+    {
+      "step": 31,
+      "input": 152,
+      "output": 505
+    },
+    {
+      "step": 32,
+      "input": 205,
+      "output": 224
+    },
+    {
+      "step": 33,
+      "input": 11592,
+      "output": 645
+    },
+    {
+      "step": 34,
+      "input": 0,
+      "output": 0
+    },
+    {
+      "step": 34,
+      "input": 172,
+      "output": 470
+    },
+    {
+      "step": 35,
+      "input": 1377,
+      "output": 482
+    },
+    {
+      "step": 36,
+      "input": 175,
+      "output": 2115
+    },
+    {
+      "step": 37,
+      "input": 304,
+      "output": 112
+    },
+    {
+      "step": 38,
+      "input": 480,
+      "output": 182
+    },
+    {
+      "step": 39,
+      "input": 215,
+      "output": 173
+    },
+    {
+      "step": 40,
+      "input": 308,
+      "output": 809
+    },
+    {
+      "step": 41,
+      "input": 246,
+      "output": 552
+    },
+    {
+      "step": 42,
+      "input": 436,
+      "output": 445
+    },
+    {
+      "step": 43,
+      "input": 14126,
+      "output": 588
+    },
+    {
+      "step": 44,
+      "input": 431,
+      "output": 729
+    },
+    {
+      "step": 45,
+      "input": 214,
+      "output": 234
+    },
+    {
+      "step": 46,
+      "input": 590,
+      "output": 507
+    },
+    {
+      "step": 47,
+      "input": 2552,
+      "output": 524
+    },
+    {
+      "step": 48,
+      "input": 12657,
+      "output": 380
+    },
+    {
+      "step": 49,
+      "input": 1721,
+      "output": 198
+    },
+    {
+      "step": 50,
+      "input": 1374,
+      "output": 309
+    },
+    {
+      "step": 51,
+      "input": 190,
+      "output": 622
+    },
+    {
+      "step": 52,
+      "input": 480,
+      "output": 1527
+    },
+    {
+      "step": 53,
+      "input": 256,
+      "output": 308
+    },
+    {
+      "step": 54,
+      "input": 176,
+      "output": 882
+    }
+  ]
+}

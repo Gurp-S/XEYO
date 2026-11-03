@@ -1,0 +1,58 @@
+{
+  "version": 2,
+  "files": {
+    "a.js": {
+      "key": "sha1:5df52881a113fa32368ea01455bb437ee1aac7bf",
+      "deps": {
+        "b.js": "sha1:2a6e167e1216588b58282947b60b3aabf31215bd"
+      },
+      "out": [
+        "a.js"
+      ]
+    },
+    "b.js": {
+      "key": "sha1:2a6e167e1216588b58282947b60b3aabf31215bd",
+      "deps": {},
+      "out": [
+        "b.js"
+      ]
+    },
+    "base.json": {
+      "key": "sha1:e13b568f368e87c091fd99df7466191b5bea7c37",
+      "deps": {},
+      "out": [
+        "base.json"
+      ]
+    },
+    "data.json": {
+      "key": "sha1:a050c40d6afd0ec8d0f22ccf30bb86e719518c46",
+      "deps": {
+        "base.json": "sha1:e13b568f368e87c091fd99df7466191b5bea7c37"
+      },
+      "out": [
+        "data.json"
+      ]
+    },
+    "extra.js": {
+      "key": "sha1:91fa01ec07b52387175cfd80fcdff9bd11375827",
+      "deps": {},
+      "out": [
+        "extra.js"
+      ]
+    },
+    "img.png": {
+      "key": "sha1:ae9a018b235db134e9f923bb5ca91d17ddafe747",
+      "deps": {},
+      "out": [
+        "img.png"
+      ]
+    },
+    "style.css": {
+      "key": "sha1:526ae47712dd3c255adef5be2ba75402734942c6",
+      "deps": {},
+      "out": [
+        "style.css"
+      ]
+    }
+  }
+}

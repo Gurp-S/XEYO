@@ -1,0 +1,29 @@
+{
+  "score": 1,
+  "passed": 4,
+  "total": 4,
+  "exitCode": 0,
+  "tests": [
+    {
+      "name": "tokenize folds case and drops punctuation",
+      "ok": true
+    },
+    {
+      "name": "tokenize keeps an apostrophe inside a word",
+      "ok": true
+    },
+    {
+      "name": "top sorts by count then by word, and respects the limit",
+      "ok": true
+    },
+    {
+      "name": "the cli prints word and count, tab separated",
+      "ok": true
+    }
+  ],
+  "rawScore": 1,
+  "rawPassed": 4,
+  "rawTotal": 4,
+  "excluded": []
+}
+

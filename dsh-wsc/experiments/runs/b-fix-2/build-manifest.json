@@ -1,0 +1,57 @@
+{
+  "version": 2,
+  "files": {
+    "a.js": {
+      "key": "106:1793549617865",
+      "deps": {
+        "b.js": "23:1793549617875"
+      },
+      "out": [
+        "a.js"
+      ]
+    },
+    "b.js": {
+      "key": "23:1793549617875",
+      "deps": {},
+      "out": [
+        "b.js"
+      ]
+    },
+    "base.json": {
+      "key": "35:1793549617917",
+      "deps": {},
+      "out": [
+        "base.json"
+      ]
+    },
+    "data.json": {
+      "key": "49:1793549617906",
+      "deps": {},
+      "out": [
+        "data.json"
+      ]
+    },
+    "extra.js": {
+      "key": "27:1793549617885",
+      "deps": {},
+      "out": [
+        "extra.js"
+      ]
+    },
+    "img.png": {
+      "key": "70:1793549636774",
+      "deps": {},
+      "out": [
+        "img.png"
+      ]
+    },
+    "style.css": {
+      "key": "63:1793549617896",
+      "deps": {},
+      "out": [
+        "style.css",
+        "img.9fb285da.png"
+      ]
+    }
+  }
+}

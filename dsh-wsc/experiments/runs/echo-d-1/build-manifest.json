@@ -1,0 +1,61 @@
+{
+  "version": 2,
+  "files": {
+    "a.js": {
+      "key": "5e7d29553d85dc8e45155a51031a243518ff0e7416fb70480de5829709565aed",
+      "deps": {
+        "b.js": "3d883cdee43f808af8aa6d8ee9e943158f7564c1bf0f7b5affd7b81340a904f3"
+      },
+      "out": [
+        "a.js"
+      ]
+    },
+    "b.js": {
+      "key": "3d883cdee43f808af8aa6d8ee9e943158f7564c1bf0f7b5affd7b81340a904f3",
+      "deps": {},
+      "out": [
+        "b.js"
+      ]
+    },
+    "base.json": {
+      "key": "3d0f79d5f714db9be4846790250bac242844bf7daee8218013dfc415771d51d0",
+      "deps": {},
+      "out": [
+        "base.json"
+      ]
+    },
+    "data.json": {
+      "key": "43598d5099c8a68aad13f2ccccacd1e577b92e05697c7b3f278a50b81f79b01c",
+      "deps": {
+        "base.json": "3d0f79d5f714db9be4846790250bac242844bf7daee8218013dfc415771d51d0"
+      },
+      "out": [
+        "data.json"
+      ]
+    },
+    "extra.js": {
+      "key": "7735a7af722361bf5d0b5517ab0a2b869b0a613c1ef8b1e07add03971db12391",
+      "deps": {},
+      "out": [
+        "extra.js"
+      ]
+    },
+    "img.png": {
+      "key": "a4bcd7b80c65e14e3809783fc4c587ce66a995dcc142e25bf61c9337ef6f3443",
+      "deps": {},
+      "out": [
+        "img.png"
+      ]
+    },
+    "style.css": {
+      "key": "51f3eae53bf779caad082388b9f2dcd2e7fe6021c2d4117d72d7c8b5d7460462",
+      "deps": {
+        "img.png": "a4bcd7b80c65e14e3809783fc4c587ce66a995dcc142e25bf61c9337ef6f3443"
+      },
+      "out": [
+        "style.css",
+        "img.9fb285da.png"
+      ]
+    }
+  }
+}

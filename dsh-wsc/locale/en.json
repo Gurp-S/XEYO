@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "WSC Compaction",
+    "description": "Model-owned context compaction: a warning at 80%, forced compaction at 85%, and provenance-preserving checkpoints."
+  }
+}

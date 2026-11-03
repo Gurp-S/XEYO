@@ -1,0 +1,5 @@
+{
+  "entry": "tree",
+  "symbol": "buildTree",
+  "modules": ["a", "b", "c", "d", "e", "f"]
+}

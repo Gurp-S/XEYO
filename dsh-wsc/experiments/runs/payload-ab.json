@@ -1,0 +1,3541 @@
+{
+  "compactions": 160,
+  "shipped": {
+    "meanBytes": 749,
+    "meanRecall": 0.005
+  },
+  "bypass": {
+    "meanBytes": 749,
+    "meanRecall": 0.005
+  },
+  "recorded": {
+    "meanBytes": 3022,
+    "meanRecall": 0.075
+  },
+  "delta": {
+    "bytes": 0,
+    "recall": 0
+  },
+  "rows": [
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 1,
+      "sourceBytes": 36547,
+      "lines": 294,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 1755,
+        "budget": 12791,
+        "recall": 0.017
+      },
+      "bypass": {
+        "bytes": 1755,
+        "budget": 21928,
+        "recall": 0.017
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 1885,
+        "recall": 0.027
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 2,
+      "sourceBytes": 88351,
+      "lines": 20,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 358,
+        "budget": 24000,
+        "recall": 0.05
+      },
+      "bypass": {
+        "bytes": 358,
+        "budget": 40000,
+        "recall": 0.05
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 1611,
+        "recall": 0.5
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 3,
+      "sourceBytes": 39298,
+      "lines": 311,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 1619,
+        "budget": 13754,
+        "recall": 0.026
+      },
+      "bypass": {
+        "bytes": 1619,
+        "budget": 23578,
+        "recall": 0.026
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 3362,
+        "recall": 0.048
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 4,
+      "sourceBytes": 31606,
+      "lines": 34,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 149,
+        "budget": 11062,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 149,
+        "budget": 18963,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wsc",
+        "bytes": 1413,
+        "recall": 0.235
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 5,
+      "sourceBytes": 39699,
+      "lines": 281,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 1564,
+        "budget": 13894,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 1564,
+        "budget": 23819,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 2844,
+        "recall": 0.043
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 6,
+      "sourceBytes": 62189,
+      "lines": 27,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 628,
+        "budget": 21766,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 628,
+        "budget": 37313,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wsc",
+        "bytes": 1892,
+        "recall": 0.259
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 7,
+      "sourceBytes": 43271,
+      "lines": 320,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 1637,
+        "budget": 15144,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 1637,
+        "budget": 25962,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 2727,
+        "recall": 0.037
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 8,
+      "sourceBytes": 57146,
+      "lines": 31,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 238,
+        "budget": 20001,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 238,
+        "budget": 34287,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wsc",
+        "bytes": 1502,
+        "recall": 0.194
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 9,
+      "sourceBytes": 35814,
+      "lines": 219,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 545,
+        "budget": 12534,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 545,
+        "budget": 21488,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 2801,
+        "recall": 0.032
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 10,
+      "sourceBytes": 49170,
+      "lines": 312,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 1011,
+        "budget": 17209,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 1011,
+        "budget": 29502,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 3342,
+        "recall": 0.061
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 11,
+      "sourceBytes": 3812,
+      "lines": 17,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 20,
+        "budget": 1334,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 20,
+        "budget": 2287,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wsc",
+        "bytes": 1262,
+        "recall": 0.235
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 12,
+      "sourceBytes": 67224,
+      "lines": 28,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 439,
+        "budget": 23528,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 439,
+        "budget": 40000,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 3958,
+        "recall": 0.393
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 13,
+      "sourceBytes": 41415,
+      "lines": 299,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 729,
+        "budget": 14495,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 729,
+        "budget": 24849,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 3934,
+        "recall": 0.047
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 14,
+      "sourceBytes": 4407,
+      "lines": 17,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 20,
+        "budget": 1542,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 20,
+        "budget": 2644,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wsc",
+        "bytes": 1262,
+        "recall": 0.176
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 15,
+      "sourceBytes": 37644,
+      "lines": 26,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 191,
+        "budget": 13175,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 191,
+        "budget": 22586,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 4137,
+        "recall": 0.346
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 16,
+      "sourceBytes": 32811,
+      "lines": 225,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 354,
+        "budget": 11483,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 354,
+        "budget": 19686,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 4294,
+        "recall": 0.044
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 17,
+      "sourceBytes": 19240,
+      "lines": 216,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 191,
+        "budget": 6734,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 191,
+        "budget": 11544,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wsc",
+        "bytes": 1455,
+        "recall": 0.009
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 18,
+      "sourceBytes": 45367,
+      "lines": 316,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 721,
+        "budget": 15878,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 721,
+        "budget": 27220,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 5958,
+        "recall": 0.057
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 19,
+      "sourceBytes": 6446,
+      "lines": 30,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 20,
+        "budget": 2256,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 20,
+        "budget": 3867,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wsc",
+        "bytes": 1262,
+        "recall": 0.1
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 20,
+      "sourceBytes": 49378,
+      "lines": 29,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 1433,
+        "budget": 17282,
+        "recall": 0.034
+      },
+      "bypass": {
+        "bytes": 1433,
+        "budget": 29626,
+        "recall": 0.034
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 5468,
+        "recall": 0.483
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 21,
+      "sourceBytes": 31948,
+      "lines": 85,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 943,
+        "budget": 11181,
+        "recall": 0.012
+      },
+      "bypass": {
+        "bytes": 943,
+        "budget": 19168,
+        "recall": 0.012
+      },
+      "recorded": {
+        "provider": "wsc",
+        "bytes": 2207,
+        "recall": 0.047
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 22,
+      "sourceBytes": 35293,
+      "lines": 215,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 1472,
+        "budget": 12352,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 1472,
+        "budget": 21175,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 3696,
+        "recall": 0.051
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 23,
+      "sourceBytes": 33711,
+      "lines": 416,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 686,
+        "budget": 11798,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 686,
+        "budget": 20226,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wsc",
+        "bytes": 1950,
+        "recall": 0.007
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 24,
+      "sourceBytes": 34444,
+      "lines": 157,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 719,
+        "budget": 12055,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 719,
+        "budget": 20666,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 4082,
+        "recall": 0.064
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 25,
+      "sourceBytes": 19184,
+      "lines": 218,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 338,
+        "budget": 6714,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 338,
+        "budget": 11510,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wsc",
+        "bytes": 1602,
+        "recall": 0.014
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 26,
+      "sourceBytes": 35983,
+      "lines": 205,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 1366,
+        "budget": 12594,
+        "recall": 0.034
+      },
+      "bypass": {
+        "bytes": 1366,
+        "budget": 21589,
+        "recall": 0.034
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 3482,
+        "recall": 0.054
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 27,
+      "sourceBytes": 29387,
+      "lines": 279,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 932,
+        "budget": 10285,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 932,
+        "budget": 17632,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 3867,
+        "recall": 0.043
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 28,
+      "sourceBytes": 31534,
+      "lines": 195,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 463,
+        "budget": 11036,
+        "recall": 0.021
+      },
+      "bypass": {
+        "bytes": 463,
+        "budget": 18920,
+        "recall": 0.021
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 3042,
+        "recall": 0.051
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 29,
+      "sourceBytes": 21689,
+      "lines": 217,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 631,
+        "budget": 7591,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 631,
+        "budget": 13013,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wsc",
+        "bytes": 1895,
+        "recall": 0.014
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 30,
+      "sourceBytes": 33427,
+      "lines": 191,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 510,
+        "budget": 11699,
+        "recall": 0.01
+      },
+      "bypass": {
+        "bytes": 510,
+        "budget": 20056,
+        "recall": 0.01
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 4408,
+        "recall": 0.052
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 31,
+      "sourceBytes": 28489,
+      "lines": 292,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 355,
+        "budget": 9971,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 355,
+        "budget": 17093,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 2193,
+        "recall": 0.024
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 32,
+      "sourceBytes": 39025,
+      "lines": 215,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 719,
+        "budget": 13658,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 719,
+        "budget": 23415,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 3150,
+        "recall": 0.037
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 33,
+      "sourceBytes": 36177,
+      "lines": 213,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 555,
+        "budget": 12661,
+        "recall": 0.005
+      },
+      "bypass": {
+        "bytes": 555,
+        "budget": 21706,
+        "recall": 0.005
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 3635,
+        "recall": 0.061
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 34,
+      "sourceBytes": 28512,
+      "lines": 74,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 203,
+        "budget": 9979,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 203,
+        "budget": 17107,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 4357,
+        "recall": 0.162
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 35,
+      "sourceBytes": 34772,
+      "lines": 282,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 158,
+        "budget": 12170,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 158,
+        "budget": 20863,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wsc",
+        "bytes": 1422,
+        "recall": 0.011
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 36,
+      "sourceBytes": 25744,
+      "lines": 81,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 158,
+        "budget": 9010,
+        "recall": 0.012
+      },
+      "bypass": {
+        "bytes": 158,
+        "budget": 15446,
+        "recall": 0.012
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 5224,
+        "recall": 0.185
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 37,
+      "sourceBytes": 31534,
+      "lines": 217,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 1542,
+        "budget": 11036,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 1542,
+        "budget": 18920,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wsc",
+        "bytes": 2806,
+        "recall": 0.014
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 38,
+      "sourceBytes": 27955,
+      "lines": 120,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 1096,
+        "budget": 9784,
+        "recall": 0.008
+      },
+      "bypass": {
+        "bytes": 1096,
+        "budget": 16773,
+        "recall": 0.008
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 4785,
+        "recall": 0.108
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 39,
+      "sourceBytes": 27672,
+      "lines": 242,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 1624,
+        "budget": 9685,
+        "recall": 0.008
+      },
+      "bypass": {
+        "bytes": 1624,
+        "budget": 16603,
+        "recall": 0.008
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 1829,
+        "recall": 0.029
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 40,
+      "sourceBytes": 32200,
+      "lines": 167,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 649,
+        "budget": 11270,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 649,
+        "budget": 19320,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 5363,
+        "recall": 0.102
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 41,
+      "sourceBytes": 5849,
+      "lines": 25,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 20,
+        "budget": 2047,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 20,
+        "budget": 3509,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wsc",
+        "bytes": 1262,
+        "recall": 0.12
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 42,
+      "sourceBytes": 40064,
+      "lines": 456,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 191,
+        "budget": 14022,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 191,
+        "budget": 24038,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wsc",
+        "bytes": 1455,
+        "recall": 0.007
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 43,
+      "sourceBytes": 29988,
+      "lines": 181,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 1000,
+        "budget": 10495,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 1000,
+        "budget": 17992,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 5288,
+        "recall": 0.077
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 44,
+      "sourceBytes": 28616,
+      "lines": 296,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 518,
+        "budget": 10015,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 518,
+        "budget": 17169,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wsc",
+        "bytes": 1782,
+        "recall": 0.01
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 45,
+      "sourceBytes": 37883,
+      "lines": 197,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 550,
+        "budget": 13259,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 550,
+        "budget": 22729,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 4047,
+        "recall": 0.046
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 46,
+      "sourceBytes": 32390,
+      "lines": 226,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 354,
+        "budget": 11336,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 354,
+        "budget": 19434,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wsc",
+        "bytes": 1618,
+        "recall": 0.013
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 47,
+      "sourceBytes": 38850,
+      "lines": 229,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 763,
+        "budget": 13597,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 763,
+        "budget": 23310,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 3826,
+        "recall": 0.044
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 48,
+      "sourceBytes": 35823,
+      "lines": 277,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 234,
+        "budget": 12538,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 234,
+        "budget": 21493,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 3302,
+        "recall": 0.036
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 49,
+      "sourceBytes": 16478,
+      "lines": 134,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 344,
+        "budget": 5767,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 344,
+        "budget": 9886,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 1847,
+        "recall": 0.045
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 50,
+      "sourceBytes": 43286,
+      "lines": 264,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 571,
+        "budget": 15150,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 571,
+        "budget": 25971,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 6161,
+        "recall": 0.061
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 51,
+      "sourceBytes": 27358,
+      "lines": 258,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 191,
+        "budget": 9575,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 191,
+        "budget": 16414,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 1663,
+        "recall": 0.019
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 52,
+      "sourceBytes": 36001,
+      "lines": 201,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 701,
+        "budget": 12600,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 701,
+        "budget": 21600,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 4352,
+        "recall": 0.075
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 53,
+      "sourceBytes": 38926,
+      "lines": 285,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 533,
+        "budget": 13624,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 533,
+        "budget": 23355,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 3060,
+        "recall": 0.035
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 54,
+      "sourceBytes": 27852,
+      "lines": 199,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 573,
+        "budget": 9748,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 573,
+        "budget": 16711,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 4537,
+        "recall": 0.05
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 55,
+      "sourceBytes": 47217,
+      "lines": 112,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 1092,
+        "budget": 16525,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 1092,
+        "budget": 28330,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 4536,
+        "recall": 0.107
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 56,
+      "sourceBytes": 33525,
+      "lines": 402,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 154,
+        "budget": 11733,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 154,
+        "budget": 20115,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 3122,
+        "recall": 0.027
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 57,
+      "sourceBytes": 33183,
+      "lines": 212,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 455,
+        "budget": 11614,
+        "recall": 0.009
+      },
+      "bypass": {
+        "bytes": 455,
+        "budget": 19909,
+        "recall": 0.009
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 4889,
+        "recall": 0.071
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 58,
+      "sourceBytes": 20397,
+      "lines": 86,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 334,
+        "budget": 7138,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 334,
+        "budget": 12238,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wsc",
+        "bytes": 1598,
+        "recall": 0.035
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 59,
+      "sourceBytes": 23140,
+      "lines": 99,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 271,
+        "budget": 8098,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 271,
+        "budget": 13884,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 4836,
+        "recall": 0.111
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 60,
+      "sourceBytes": 35217,
+      "lines": 398,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 354,
+        "budget": 12325,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 354,
+        "budget": 21130,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wsc",
+        "bytes": 1618,
+        "recall": 0.008
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 61,
+      "sourceBytes": 47890,
+      "lines": 469,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 467,
+        "budget": 16761,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 467,
+        "budget": 28734,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 4180,
+        "recall": 0.019
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 62,
+      "sourceBytes": 33401,
+      "lines": 152,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 354,
+        "budget": 11690,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 354,
+        "budget": 20040,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 2577,
+        "recall": 0.053
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 63,
+      "sourceBytes": 24839,
+      "lines": 135,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 534,
+        "budget": 8693,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 534,
+        "budget": 14903,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 5019,
+        "recall": 0.104
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 64,
+      "sourceBytes": 37639,
+      "lines": 337,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 590,
+        "budget": 13173,
+        "recall": 0.003
+      },
+      "bypass": {
+        "bytes": 590,
+        "budget": 22583,
+        "recall": 0.003
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 3937,
+        "recall": 0.024
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 65,
+      "sourceBytes": 45941,
+      "lines": 360,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 792,
+        "budget": 16079,
+        "recall": 0.008
+      },
+      "bypass": {
+        "bytes": 792,
+        "budget": 27564,
+        "recall": 0.008
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 3045,
+        "recall": 0.022
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 66,
+      "sourceBytes": 22179,
+      "lines": 250,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 181,
+        "budget": 7762,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 181,
+        "budget": 13307,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wsc",
+        "bytes": 1445,
+        "recall": 0.012
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 67,
+      "sourceBytes": 21751,
+      "lines": 85,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 191,
+        "budget": 7612,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 191,
+        "budget": 13050,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wsc",
+        "bytes": 1455,
+        "recall": 0.035
+      }
+    },
+    {
+      "session": "session-62370bde-d789-4389-82da-56b239feb663",
+      "compaction": 68,
+      "sourceBytes": 29450,
+      "lines": 193,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 779,
+        "budget": 10307,
+        "recall": 0.005
+      },
+      "bypass": {
+        "bytes": 779,
+        "budget": 17670,
+        "recall": 0.005
+      },
+      "recorded": {
+        "provider": "wsc",
+        "bytes": 2043,
+        "recall": 0.021
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 1,
+      "sourceBytes": 38025,
+      "lines": 287,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 3180,
+        "budget": 13308,
+        "recall": 0.017
+      },
+      "bypass": {
+        "bytes": 3180,
+        "budget": 22815,
+        "recall": 0.017
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 1748,
+        "recall": 0.028
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 2,
+      "sourceBytes": 134795,
+      "lines": 215,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 456,
+        "budget": 24000,
+        "recall": 0.005
+      },
+      "bypass": {
+        "bytes": 456,
+        "budget": 40000,
+        "recall": 0.005
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 1929,
+        "recall": 0.047
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 3,
+      "sourceBytes": 39178,
+      "lines": 286,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 1572,
+        "budget": 13712,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 1572,
+        "budget": 23506,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 2723,
+        "recall": 0.045
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 4,
+      "sourceBytes": 66041,
+      "lines": 48,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 191,
+        "budget": 23114,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 191,
+        "budget": 39624,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 2138,
+        "recall": 0.25
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 5,
+      "sourceBytes": 39562,
+      "lines": 292,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 1589,
+        "budget": 13846,
+        "recall": 0.007
+      },
+      "bypass": {
+        "bytes": 1589,
+        "budget": 23737,
+        "recall": 0.007
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 2893,
+        "recall": 0.045
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 6,
+      "sourceBytes": 98499,
+      "lines": 29,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 1094,
+        "budget": 24000,
+        "recall": 0.069
+      },
+      "bypass": {
+        "bytes": 1094,
+        "budget": 40000,
+        "recall": 0.069
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 2962,
+        "recall": 0.483
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 7,
+      "sourceBytes": 44848,
+      "lines": 313,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 2011,
+        "budget": 15696,
+        "recall": 0.003
+      },
+      "bypass": {
+        "bytes": 2011,
+        "budget": 26908,
+        "recall": 0.003
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 2347,
+        "recall": 0.042
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 8,
+      "sourceBytes": 54798,
+      "lines": 20,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 720,
+        "budget": 19179,
+        "recall": 0.05
+      },
+      "bypass": {
+        "bytes": 720,
+        "budget": 32878,
+        "recall": 0.05
+      },
+      "recorded": {
+        "provider": "wsc",
+        "bytes": 1984,
+        "recall": 0.35
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 9,
+      "sourceBytes": 30437,
+      "lines": 110,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 958,
+        "budget": 10652,
+        "recall": 0.009
+      },
+      "bypass": {
+        "bytes": 958,
+        "budget": 18262,
+        "recall": 0.009
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 3007,
+        "recall": 0.1
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 10,
+      "sourceBytes": 25162,
+      "lines": 282,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 1540,
+        "budget": 8806,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 1540,
+        "budget": 15097,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wsc",
+        "bytes": 2804,
+        "recall": 0.018
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 11,
+      "sourceBytes": 22833,
+      "lines": 104,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 217,
+        "budget": 7991,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 217,
+        "budget": 13699,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 2233,
+        "recall": 0.038
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 12,
+      "sourceBytes": 27271,
+      "lines": 276,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 1737,
+        "budget": 9544,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 1737,
+        "budget": 16362,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wsc",
+        "bytes": 3001,
+        "recall": 0.018
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 13,
+      "sourceBytes": 30410,
+      "lines": 148,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 433,
+        "budget": 10643,
+        "recall": 0.007
+      },
+      "bypass": {
+        "bytes": 433,
+        "budget": 18246,
+        "recall": 0.007
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 1621,
+        "recall": 0.047
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 14,
+      "sourceBytes": 26336,
+      "lines": 367,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 111,
+        "budget": 9217,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 111,
+        "budget": 15801,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wsc",
+        "bytes": 1375,
+        "recall": 0.008
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 15,
+      "sourceBytes": 37679,
+      "lines": 263,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 917,
+        "budget": 13187,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 917,
+        "budget": 22607,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 3774,
+        "recall": 0.034
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 16,
+      "sourceBytes": 25940,
+      "lines": 232,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 1398,
+        "budget": 9079,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 1398,
+        "budget": 15564,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 1488,
+        "recall": 0.022
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 17,
+      "sourceBytes": 32126,
+      "lines": 288,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 355,
+        "budget": 11244,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 355,
+        "budget": 19275,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 4902,
+        "recall": 0.052
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 18,
+      "sourceBytes": 38026,
+      "lines": 263,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 918,
+        "budget": 13309,
+        "recall": 0.011
+      },
+      "bypass": {
+        "bytes": 918,
+        "budget": 22815,
+        "recall": 0.011
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 1762,
+        "recall": 0.019
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 19,
+      "sourceBytes": 33830,
+      "lines": 273,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 354,
+        "budget": 11840,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 354,
+        "budget": 20298,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 5705,
+        "recall": 0.066
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 20,
+      "sourceBytes": 24697,
+      "lines": 205,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 1081,
+        "budget": 8643,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 1081,
+        "budget": 14818,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wsc",
+        "bytes": 2345,
+        "recall": 0.015
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 21,
+      "sourceBytes": 26919,
+      "lines": 134,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 609,
+        "budget": 9421,
+        "recall": 0.03
+      },
+      "bypass": {
+        "bytes": 609,
+        "budget": 16151,
+        "recall": 0.03
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 5078,
+        "recall": 0.075
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 22,
+      "sourceBytes": 13786,
+      "lines": 143,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 192,
+        "budget": 4825,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 192,
+        "budget": 8271,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wsc",
+        "bytes": 1456,
+        "recall": 0.021
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 23,
+      "sourceBytes": 34407,
+      "lines": 219,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 1383,
+        "budget": 12042,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 1383,
+        "budget": 20644,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 3700,
+        "recall": 0.046
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 24,
+      "sourceBytes": 4173,
+      "lines": 17,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 20,
+        "budget": 1460,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 20,
+        "budget": 2503,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wsc",
+        "bytes": 1262,
+        "recall": 0.176
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 25,
+      "sourceBytes": 41430,
+      "lines": 318,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 1312,
+        "budget": 14500,
+        "recall": 0.031
+      },
+      "bypass": {
+        "bytes": 1312,
+        "budget": 24858,
+        "recall": 0.031
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 3140,
+        "recall": 0.028
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 26,
+      "sourceBytes": 26521,
+      "lines": 212,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 1360,
+        "budget": 9282,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 1360,
+        "budget": 15912,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 3816,
+        "recall": 0.057
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 27,
+      "sourceBytes": 30248,
+      "lines": 223,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 354,
+        "budget": 10586,
+        "recall": 0.004
+      },
+      "bypass": {
+        "bytes": 354,
+        "budget": 18148,
+        "recall": 0.004
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 3949,
+        "recall": 0.058
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 28,
+      "sourceBytes": 30518,
+      "lines": 269,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 1830,
+        "budget": 10681,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 1830,
+        "budget": 18310,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 2527,
+        "recall": 0.026
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 29,
+      "sourceBytes": 29481,
+      "lines": 216,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 355,
+        "budget": 10318,
+        "recall": 0.005
+      },
+      "bypass": {
+        "bytes": 355,
+        "budget": 17688,
+        "recall": 0.005
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 3730,
+        "recall": 0.056
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 30,
+      "sourceBytes": 30129,
+      "lines": 271,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 1830,
+        "budget": 10545,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 1830,
+        "budget": 18077,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 3249,
+        "recall": 0.037
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 31,
+      "sourceBytes": 27703,
+      "lines": 189,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 219,
+        "budget": 9696,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 219,
+        "budget": 16621,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 2286,
+        "recall": 0.037
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 32,
+      "sourceBytes": 24927,
+      "lines": 300,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 710,
+        "budget": 8724,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 710,
+        "budget": 14956,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wsc",
+        "bytes": 1974,
+        "recall": 0.01
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 33,
+      "sourceBytes": 22563,
+      "lines": 98,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 265,
+        "budget": 7897,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 265,
+        "budget": 13537,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 2864,
+        "recall": 0.092
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 34,
+      "sourceBytes": 34121,
+      "lines": 340,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 1652,
+        "budget": 11942,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 1652,
+        "budget": 20472,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 3398,
+        "recall": 0.029
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 35,
+      "sourceBytes": 33486,
+      "lines": 288,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 364,
+        "budget": 11720,
+        "recall": 0.003
+      },
+      "bypass": {
+        "bytes": 364,
+        "budget": 20091,
+        "recall": 0.003
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 3499,
+        "recall": 0.045
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 36,
+      "sourceBytes": 21846,
+      "lines": 229,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 1090,
+        "budget": 7646,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 1090,
+        "budget": 13107,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wsc",
+        "bytes": 2354,
+        "recall": 0.013
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 37,
+      "sourceBytes": 28298,
+      "lines": 173,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 817,
+        "budget": 9904,
+        "recall": 0.023
+      },
+      "bypass": {
+        "bytes": 817,
+        "budget": 16978,
+        "recall": 0.023
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 3657,
+        "recall": 0.058
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 38,
+      "sourceBytes": 13524,
+      "lines": 148,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 338,
+        "budget": 4733,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 338,
+        "budget": 8114,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wsc",
+        "bytes": 1602,
+        "recall": 0.02
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 39,
+      "sourceBytes": 30776,
+      "lines": 205,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 919,
+        "budget": 10771,
+        "recall": 0.034
+      },
+      "bypass": {
+        "bytes": 919,
+        "budget": 18465,
+        "recall": 0.034
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 3597,
+        "recall": 0.049
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 40,
+      "sourceBytes": 23587,
+      "lines": 259,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 1242,
+        "budget": 8255,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 1242,
+        "budget": 14152,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wsc",
+        "bytes": 2506,
+        "recall": 0.012
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 41,
+      "sourceBytes": 38833,
+      "lines": 325,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 949,
+        "budget": 13591,
+        "recall": 0.04
+      },
+      "bypass": {
+        "bytes": 949,
+        "budget": 23299,
+        "recall": 0.04
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 3534,
+        "recall": 0.025
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 42,
+      "sourceBytes": 27863,
+      "lines": 204,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 1630,
+        "budget": 9752,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 1630,
+        "budget": 16717,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 3051,
+        "recall": 0.054
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 43,
+      "sourceBytes": 45286,
+      "lines": 389,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 1114,
+        "budget": 15850,
+        "recall": 0.013
+      },
+      "bypass": {
+        "bytes": 1114,
+        "budget": 27171,
+        "recall": 0.013
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 3802,
+        "recall": 0.028
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 44,
+      "sourceBytes": 25702,
+      "lines": 201,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 1332,
+        "budget": 8995,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 1332,
+        "budget": 15421,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 3739,
+        "recall": 0.035
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 45,
+      "sourceBytes": 31073,
+      "lines": 213,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 503,
+        "budget": 10875,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 503,
+        "budget": 18643,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 5511,
+        "recall": 0.075
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 46,
+      "sourceBytes": 29967,
+      "lines": 263,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 354,
+        "budget": 10488,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 354,
+        "budget": 17980,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wsc",
+        "bytes": 1618,
+        "recall": 0.011
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 47,
+      "sourceBytes": 45912,
+      "lines": 333,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 680,
+        "budget": 16069,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 680,
+        "budget": 27547,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 3545,
+        "recall": 0.021
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 48,
+      "sourceBytes": 4004,
+      "lines": 23,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 20,
+        "budget": 1401,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 20,
+        "budget": 2402,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wsc",
+        "bytes": 1262,
+        "recall": 0.13
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 49,
+      "sourceBytes": 32604,
+      "lines": 25,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 191,
+        "budget": 11411,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 191,
+        "budget": 19562,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 5332,
+        "recall": 0.4
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 50,
+      "sourceBytes": 30790,
+      "lines": 205,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 354,
+        "budget": 10776,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 354,
+        "budget": 18474,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wsc",
+        "bytes": 1618,
+        "recall": 0.015
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 51,
+      "sourceBytes": 44918,
+      "lines": 286,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 680,
+        "budget": 15721,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 680,
+        "budget": 26950,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 5069,
+        "recall": 0.042
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 52,
+      "sourceBytes": 52226,
+      "lines": 370,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 765,
+        "budget": 18279,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 765,
+        "budget": 31335,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 2071,
+        "recall": 0.019
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 53,
+      "sourceBytes": 42328,
+      "lines": 12,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 421,
+        "budget": 14814,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 421,
+        "budget": 25396,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wsc",
+        "bytes": 1685,
+        "recall": 0.25
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 54,
+      "sourceBytes": 36612,
+      "lines": 302,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 786,
+        "budget": 12814,
+        "recall": 0.01
+      },
+      "bypass": {
+        "bytes": 786,
+        "budget": 21967,
+        "recall": 0.01
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 4202,
+        "recall": 0.036
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 55,
+      "sourceBytes": 27350,
+      "lines": 245,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 1544,
+        "budget": 9572,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 1544,
+        "budget": 16410,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 2772,
+        "recall": 0.045
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 56,
+      "sourceBytes": 40036,
+      "lines": 304,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 645,
+        "budget": 14012,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 645,
+        "budget": 24021,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 4678,
+        "recall": 0.033
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 57,
+      "sourceBytes": 27137,
+      "lines": 206,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 354,
+        "budget": 9497,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 354,
+        "budget": 16282,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 3358,
+        "recall": 0.058
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 58,
+      "sourceBytes": 36560,
+      "lines": 238,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 357,
+        "budget": 12796,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 357,
+        "budget": 21936,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 3250,
+        "recall": 0.034
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 59,
+      "sourceBytes": 28256,
+      "lines": 197,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 747,
+        "budget": 9889,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 747,
+        "budget": 16953,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 3731,
+        "recall": 0.061
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 60,
+      "sourceBytes": 41988,
+      "lines": 151,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 1610,
+        "budget": 14695,
+        "recall": 0.007
+      },
+      "bypass": {
+        "bytes": 1610,
+        "budget": 25192,
+        "recall": 0.007
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 3919,
+        "recall": 0.086
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 61,
+      "sourceBytes": 12085,
+      "lines": 30,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 550,
+        "budget": 4229,
+        "recall": 0.033
+      },
+      "bypass": {
+        "bytes": 550,
+        "budget": 7251,
+        "recall": 0.033
+      },
+      "recorded": {
+        "provider": "wsc",
+        "bytes": 1814,
+        "recall": 0.133
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 62,
+      "sourceBytes": 32661,
+      "lines": 243,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 487,
+        "budget": 11431,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 487,
+        "budget": 19596,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 5884,
+        "recall": 0.058
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 63,
+      "sourceBytes": 22473,
+      "lines": 101,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 1006,
+        "budget": 7865,
+        "recall": 0.01
+      },
+      "bypass": {
+        "bytes": 1006,
+        "budget": 13483,
+        "recall": 0.01
+      },
+      "recorded": {
+        "provider": "wsc",
+        "bytes": 2270,
+        "recall": 0.04
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 64,
+      "sourceBytes": 27696,
+      "lines": 109,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 648,
+        "budget": 9693,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 648,
+        "budget": 16617,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 4215,
+        "recall": 0.11
+      }
+    },
+    {
+      "session": "session-179b6863-2d2b-475b-b786-38917e66775d",
+      "compaction": 65,
+      "sourceBytes": 26729,
+      "lines": 70,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 1491,
+        "budget": 9355,
+        "recall": 0.014
+      },
+      "bypass": {
+        "bytes": 1508,
+        "budget": 16037,
+        "recall": 0.014
+      },
+      "recorded": {
+        "provider": "wsc",
+        "bytes": 2755,
+        "recall": 0.057
+      }
+    },
+    {
+      "session": "session-a273afbe-8b21-46d3-ad6c-1341bc96b1ef",
+      "compaction": 1,
+      "sourceBytes": 34409,
+      "lines": 278,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 1426,
+        "budget": 12043,
+        "recall": 0.018
+      },
+      "bypass": {
+        "bytes": 1426,
+        "budget": 20645,
+        "recall": 0.018
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 3075,
+        "recall": 0.04
+      }
+    },
+    {
+      "session": "session-a273afbe-8b21-46d3-ad6c-1341bc96b1ef",
+      "compaction": 2,
+      "sourceBytes": 81819,
+      "lines": 85,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 315,
+        "budget": 24000,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 315,
+        "budget": 40000,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 1600,
+        "recall": 0.106
+      }
+    },
+    {
+      "session": "session-a273afbe-8b21-46d3-ad6c-1341bc96b1ef",
+      "compaction": 3,
+      "sourceBytes": 33620,
+      "lines": 278,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 414,
+        "budget": 11767,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 414,
+        "budget": 20172,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 3081,
+        "recall": 0.047
+      }
+    },
+    {
+      "session": "session-a273afbe-8b21-46d3-ad6c-1341bc96b1ef",
+      "compaction": 4,
+      "sourceBytes": 35722,
+      "lines": 266,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 125,
+        "budget": 12502,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 125,
+        "budget": 21433,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 1727,
+        "recall": 0.038
+      }
+    },
+    {
+      "session": "session-a273afbe-8b21-46d3-ad6c-1341bc96b1ef",
+      "compaction": 5,
+      "sourceBytes": 37456,
+      "lines": 296,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 1472,
+        "budget": 13109,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 1472,
+        "budget": 22473,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 3496,
+        "recall": 0.051
+      }
+    },
+    {
+      "session": "session-a273afbe-8b21-46d3-ad6c-1341bc96b1ef",
+      "compaction": 6,
+      "sourceBytes": 43373,
+      "lines": 52,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 998,
+        "budget": 15180,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 998,
+        "budget": 26023,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 2462,
+        "recall": 0.231
+      }
+    },
+    {
+      "session": "session-a273afbe-8b21-46d3-ad6c-1341bc96b1ef",
+      "compaction": 7,
+      "sourceBytes": 27324,
+      "lines": 223,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 922,
+        "budget": 9563,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 922,
+        "budget": 16394,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wsc",
+        "bytes": 2186,
+        "recall": 0.031
+      }
+    },
+    {
+      "session": "session-a273afbe-8b21-46d3-ad6c-1341bc96b1ef",
+      "compaction": 8,
+      "sourceBytes": 32658,
+      "lines": 306,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 148,
+        "budget": 11430,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 148,
+        "budget": 19594,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 3189,
+        "recall": 0.036
+      }
+    },
+    {
+      "session": "session-a273afbe-8b21-46d3-ad6c-1341bc96b1ef",
+      "compaction": 9,
+      "sourceBytes": 21436,
+      "lines": 233,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 1246,
+        "budget": 7502,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 1246,
+        "budget": 12861,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wsc",
+        "bytes": 2510,
+        "recall": 0.026
+      }
+    },
+    {
+      "session": "session-a273afbe-8b21-46d3-ad6c-1341bc96b1ef",
+      "compaction": 10,
+      "sourceBytes": 42710,
+      "lines": 323,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 1625,
+        "budget": 14948,
+        "recall": 0.074
+      },
+      "bypass": {
+        "bytes": 1625,
+        "budget": 25626,
+        "recall": 0.074
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 3343,
+        "recall": 0.034
+      }
+    },
+    {
+      "session": "session-a273afbe-8b21-46d3-ad6c-1341bc96b1ef",
+      "compaction": 11,
+      "sourceBytes": 93099,
+      "lines": 41,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 865,
+        "budget": 24000,
+        "recall": 0.024
+      },
+      "bypass": {
+        "bytes": 865,
+        "budget": 40000,
+        "recall": 0.024
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 2179,
+        "recall": 0.22
+      }
+    },
+    {
+      "session": "session-a273afbe-8b21-46d3-ad6c-1341bc96b1ef",
+      "compaction": 12,
+      "sourceBytes": 33377,
+      "lines": 126,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 1208,
+        "budget": 11681,
+        "recall": 0.04
+      },
+      "bypass": {
+        "bytes": 1208,
+        "budget": 20026,
+        "recall": 0.04
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 3820,
+        "recall": 0.119
+      }
+    },
+    {
+      "session": "session-a273afbe-8b21-46d3-ad6c-1341bc96b1ef",
+      "compaction": 13,
+      "sourceBytes": 25992,
+      "lines": 246,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 834,
+        "budget": 9097,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 834,
+        "budget": 15595,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 1818,
+        "recall": 0.041
+      }
+    },
+    {
+      "session": "session-a273afbe-8b21-46d3-ad6c-1341bc96b1ef",
+      "compaction": 14,
+      "sourceBytes": 27901,
+      "lines": 184,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 486,
+        "budget": 9765,
+        "recall": 0.011
+      },
+      "bypass": {
+        "bytes": 486,
+        "budget": 16740,
+        "recall": 0.011
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 2794,
+        "recall": 0.049
+      }
+    },
+    {
+      "session": "session-a273afbe-8b21-46d3-ad6c-1341bc96b1ef",
+      "compaction": 15,
+      "sourceBytes": 24474,
+      "lines": 239,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 1094,
+        "budget": 8565,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 1094,
+        "budget": 14684,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wsc",
+        "bytes": 2358,
+        "recall": 0.013
+      }
+    },
+    {
+      "session": "session-a273afbe-8b21-46d3-ad6c-1341bc96b1ef",
+      "compaction": 16,
+      "sourceBytes": 27813,
+      "lines": 150,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 585,
+        "budget": 9734,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 585,
+        "budget": 16687,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 3772,
+        "recall": 0.06
+      }
+    },
+    {
+      "session": "session-a273afbe-8b21-46d3-ad6c-1341bc96b1ef",
+      "compaction": 17,
+      "sourceBytes": 31448,
+      "lines": 306,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 1334,
+        "budget": 11006,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 1334,
+        "budget": 18868,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wsc",
+        "bytes": 2598,
+        "recall": 0.007
+      }
+    },
+    {
+      "session": "session-a273afbe-8b21-46d3-ad6c-1341bc96b1ef",
+      "compaction": 18,
+      "sourceBytes": 22829,
+      "lines": 118,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 361,
+        "budget": 7990,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 361,
+        "budget": 13697,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 4966,
+        "recall": 0.11
+      }
+    },
+    {
+      "session": "session-a273afbe-8b21-46d3-ad6c-1341bc96b1ef",
+      "compaction": 19,
+      "sourceBytes": 29920,
+      "lines": 309,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 1403,
+        "budget": 10472,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 1403,
+        "budget": 17952,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wsc",
+        "bytes": 2667,
+        "recall": 0.01
+      }
+    },
+    {
+      "session": "session-a273afbe-8b21-46d3-ad6c-1341bc96b1ef",
+      "compaction": 20,
+      "sourceBytes": 28274,
+      "lines": 116,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 416,
+        "budget": 9895,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 416,
+        "budget": 16964,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 3967,
+        "recall": 0.095
+      }
+    },
+    {
+      "session": "session-a273afbe-8b21-46d3-ad6c-1341bc96b1ef",
+      "compaction": 21,
+      "sourceBytes": 4431,
+      "lines": 20,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 20,
+        "budget": 1550,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 20,
+        "budget": 2658,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wsc",
+        "bytes": 1262,
+        "recall": 0.15
+      }
+    },
+    {
+      "session": "session-a273afbe-8b21-46d3-ad6c-1341bc96b1ef",
+      "compaction": 22,
+      "sourceBytes": 32996,
+      "lines": 346,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 1392,
+        "budget": 11548,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 1392,
+        "budget": 19797,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 4339,
+        "recall": 0.038
+      }
+    },
+    {
+      "session": "session-a273afbe-8b21-46d3-ad6c-1341bc96b1ef",
+      "compaction": 23,
+      "sourceBytes": 25478,
+      "lines": 100,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 544,
+        "budget": 8917,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 544,
+        "budget": 15286,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 2614,
+        "recall": 0.07
+      }
+    },
+    {
+      "session": "session-a273afbe-8b21-46d3-ad6c-1341bc96b1ef",
+      "compaction": 24,
+      "sourceBytes": 26084,
+      "lines": 257,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 303,
+        "budget": 9129,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 303,
+        "budget": 15650,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wsc",
+        "bytes": 1567,
+        "recall": 0.012
+      }
+    },
+    {
+      "session": "session-a273afbe-8b21-46d3-ad6c-1341bc96b1ef",
+      "compaction": 25,
+      "sourceBytes": 39133,
+      "lines": 323,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 336,
+        "budget": 13696,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 336,
+        "budget": 23479,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 3944,
+        "recall": 0.04
+      }
+    },
+    {
+      "session": "session-a273afbe-8b21-46d3-ad6c-1341bc96b1ef",
+      "compaction": 26,
+      "sourceBytes": 27330,
+      "lines": 256,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 354,
+        "budget": 9565,
+        "recall": 0
+      },
+      "bypass": {
+        "bytes": 354,
+        "budget": 16398,
+        "recall": 0
+      },
+      "recorded": {
+        "provider": "wsc",
+        "bytes": 1618,
+        "recall": 0.012
+      }
+    },
+    {
+      "session": "session-a273afbe-8b21-46d3-ad6c-1341bc96b1ef",
+      "compaction": 27,
+      "sourceBytes": 26444,
+      "lines": 137,
+      "toolMessages": 0,
+      "shipped": {
+        "bytes": 816,
+        "budget": 9255,
+        "recall": 0.007
+      },
+      "bypass": {
+        "bytes": 816,
+        "budget": 15866,
+        "recall": 0.007
+      },
+      "recorded": {
+        "provider": "wd",
+        "bytes": 3679,
+        "recall": 0.073
+      }
+    }
+  ]
+}

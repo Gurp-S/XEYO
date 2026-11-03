@@ -1,0 +1,370 @@
+{
+  "name": "b-1",
+  "profile": "ab-b",
+  "started": "2026-11-02T01:37:48",
+  "seconds": 775,
+  "exitCode": 0,
+  "score": 0.5556,
+  "passed": 5,
+  "total": 9,
+  "failed": [
+    "a manifest that claims missing outputs self-heals",
+    "--concurrency and --watch are supported",
+    "--watch rebuilds after a source change",
+    "contract: dry-run, manifest shape, determinism, zero deps"
+  ],
+  "session": "--D-lea-XenYon~0020code-dsh-wsc-experiments-runs-b-1--",
+  "requests": 68,
+  "inputTokens": 304734,
+  "outputTokens": 53347,
+  "events": 2617,
+  "steps": [
+    {
+      "step": 1,
+      "input": 152,
+      "output": 108
+    },
+    {
+      "step": 2,
+      "input": 723,
+      "output": 398
+    },
+    {
+      "step": 3,
+      "input": 4244,
+      "output": 440
+    },
+    {
+      "step": 4,
+      "input": 644,
+      "output": 11200
+    },
+    {
+      "step": 5,
+      "input": 25046,
+      "output": 375
+    },
+    {
+      "step": 6,
+      "input": 5757,
+      "output": 474
+    },
+    {
+      "step": 7,
+      "input": 173,
+      "output": 118
+    },
+    {
+      "step": 8,
+      "input": 2828,
+      "output": 224
+    },
+    {
+      "step": 9,
+      "input": 994,
+      "output": 173
+    },
+    {
+      "step": 10,
+      "input": 203,
+      "output": 38
+    },
+    {
+      "step": 11,
+      "input": 414,
+      "output": 356
+    },
+    {
+      "step": 12,
+      "input": 523,
+      "output": 18486
+    },
+    {
+      "step": 13,
+      "input": 23399,
+      "output": 560
+    },
+    {
+      "step": 14,
+      "input": 23208,
+      "output": 202
+    },
+    {
+      "step": 15,
+      "input": 7840,
+      "output": 257
+    },
+    {
+      "step": 16,
+      "input": 763,
+      "output": 225
+    },
+    {
+      "step": 17,
+      "input": 1036,
+      "output": 170
+    },
+    {
+      "step": 18,
+      "input": 759,
+      "output": 38
+    },
+    {
+      "step": 19,
+      "input": 458,
+      "output": 276
+    },
+    {
+      "step": 20,
+      "input": 9318,
+      "output": 156
+    },
+    {
+      "step": 21,
+      "input": 7141,
+      "output": 172
+    },
+    {
+      "step": 22,
+      "input": 747,
+      "output": 140
+    },
+    {
+      "step": 23,
+      "input": 515,
+      "output": 38
+    },
+    {
+      "step": 24,
+      "input": 342,
+      "output": 402
+    },
+    {
+      "step": 25,
+      "input": 3250,
+      "output": 657
+    },
+    {
+      "step": 26,
+      "input": 11615,
+      "output": 202
+    },
+    {
+      "step": 27,
+      "input": 656,
+      "output": 128
+    },
+    {
+      "step": 28,
+      "input": 7553,
+      "output": 459
+    },
+    {
+      "step": 29,
+      "input": 3550,
+      "output": 146
+    },
+    {
+      "step": 30,
+      "input": 524,
+      "output": 51
+    },
+    {
+      "step": 31,
+      "input": 8851,
+      "output": 129
+    },
+    {
+      "step": 32,
+      "input": 5436,
+      "output": 194
+    },
+    {
+      "step": 33,
+      "input": 2882,
+      "output": 376
+    },
+    {
+      "step": 34,
+      "input": 2902,
+      "output": 483
+    },
+    {
+      "step": 35,
+      "input": 11595,
+      "output": 322
+    },
+    {
+      "step": 36,
+      "input": 4903,
+      "output": 55
+    },
+    {
+      "step": 37,
+      "input": 394,
+      "output": 127
+    },
+    {
+      "step": 38,
+      "input": 252,
+      "output": 149
+    },
+    {
+      "step": 39,
+      "input": 2986,
+      "output": 447
+    },
+    {
+      "step": 40,
+      "input": 2639,
+      "output": 282
+    },
+    {
+      "step": 41,
+      "input": 11267,
+      "output": 127
+    },
+    {
+      "step": 42,
+      "input": 6171,
+      "output": 61
+    },
+    {
+      "step": 43,
+      "input": 566,
+      "output": 95
+    },
+    {
+      "step": 44,
+      "input": 321,
+      "output": 252
+    },
+    {
+      "step": 45,
+      "input": 3030,
+      "output": 356
+    },
+    {
+      "step": 46,
+      "input": 10188,
+      "output": 140
+    },
+    {
+      "step": 47,
+      "input": 8372,
+      "output": 193
+    },
+    {
+      "step": 48,
+      "input": 964,
+      "output": 324
+    },
+    {
+      "step": 49,
+      "input": 967,
+      "output": 331
+    },
+    {
+      "step": 50,
+      "input": 9341,
+      "output": 512
+    },
+    {
+      "step": 51,
+      "input": 7170,
+      "output": 140
+    },
+    {
+      "step": 52,
+      "input": 239,
+      "output": 135
+    },
+    {
+      "step": 53,
+      "input": 3087,
+      "output": 254
+    },
+    {
+      "step": 54,
+      "input": 957,
+      "output": 233
+    },
+    {
+      "step": 55,
+      "input": 11713,
+      "output": 1389
+    },
+    {
+      "step": 56,
+      "input": 7793,
+      "output": 193
+    },
+    {
+      "step": 57,
+      "input": 3019,
+      "output": 277
+    },
+    {
+      "step": 58,
+      "input": 1013,
+      "output": 5188
+    },
+    {
+      "step": 59,
+      "input": 8936,
+      "output": 192
+    },
+    {
+      "step": 60,
+      "input": 498,
+      "output": 284
+    },
+    {
+      "step": 61,
+      "input": 157,
+      "output": 143
+    },
+    {
+      "step": 62,
+      "input": 288,
+      "output": 177
+    },
+    {
+      "step": 63,
+      "input": 788,
+      "output": 507
+    },
+    {
+      "step": 64,
+      "input": 6945,
+      "output": 475
+    },
+    {
+      "step": 65,
+      "input": 1029,
+      "output": 581
+    },
+    {
+      "step": 66,
+      "input": 366,
+      "output": 460
+    },
+    {
+      "step": 67,
+      "input": 3191,
+      "output": 713
+    },
+    {
+      "step": 68,
+      "input": 9143,
+      "output": 382
+    }
+  ],
+  "labor": {
+    "reads": 109,
+    "duplicateReads": 93,
+    "commands": 20,
+    "duplicateCommands": 0,
+    "toolErrors": 0
+  }
+}

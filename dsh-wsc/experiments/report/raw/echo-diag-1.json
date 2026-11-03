@@ -1,0 +1,88 @@
+{
+  "name": "echo-diag-1",
+  "profile": "ab-echo-k",
+  "started": "2026-11-04T00:44:16",
+  "seconds": 68,
+  "exitCode": 0,
+  "score": 1,
+  "passed": 7,
+  "total": 7,
+  "failed": [],
+  "session": "--D-lea-XenYon~0020code-dsh-wsc-experiments-runs-echo-diag-1--",
+  "requests": 14,
+  "inputTokens": 28511,
+  "outputTokens": 6438,
+  "events": 469,
+  "steps": [
+    {
+      "step": 1,
+      "input": 11690,
+      "output": 114
+    },
+    {
+      "step": 2,
+      "input": 629,
+      "output": 146
+    },
+    {
+      "step": 3,
+      "input": 597,
+      "output": 375
+    },
+    {
+      "step": 4,
+      "input": 1212,
+      "output": 323
+    },
+    {
+      "step": 5,
+      "input": 635,
+      "output": 1526
+    },
+    {
+      "step": 6,
+      "input": 666,
+      "output": 358
+    },
+    {
+      "step": 7,
+      "input": 609,
+      "output": 710
+    },
+    {
+      "step": 8,
+      "input": 439,
+      "output": 204
+    },
+    {
+      "step": 9,
+      "input": 548,
+      "output": 781
+    },
+    {
+      "step": 10,
+      "input": 209,
+      "output": 451
+    },
+    {
+      "step": 11,
+      "input": 258,
+      "output": 120
+    },
+    {
+      "step": 12,
+      "input": 218,
+      "output": 241
+    },
+    {
+      "step": 13,
+      "input": 746,
+      "output": 265
+    },
+    {
+      "step": 14,
+      "input": 10055,
+      "output": 824
+    }
+  ]
+}

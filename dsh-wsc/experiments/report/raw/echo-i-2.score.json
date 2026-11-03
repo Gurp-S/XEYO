@@ -1,0 +1,58 @@
+{
+  "score": 0.1429,
+  "passed": 1,
+  "total": 7,
+  "exitCode": 1,
+  "tests": [
+    {
+      "name": "css url() target change rebuilds the stylesheet",
+      "ok": false
+    },
+    {
+      "name": "json extends base change rebuilds the derived file",
+      "ok": false
+    },
+    {
+      "name": "content change with an unchanged mtime is rebuilt",
+      "ok": false
+    },
+    {
+      "name": "deleting a source removes its output and manifest entry",
+      "ok": false
+    },
+    {
+      "name": "a manifest that claims missing outputs self-heals",
+      "ok": false
+    },
+    {
+      "name": "a transitive js dependency change rebuilds the importer",
+      "ok": true
+    },
+    {
+      "name": "--concurrency and --watch are supported",
+      "ok": false
+    },
+    {
+      "name": "--watch rebuilds after a source change",
+      "ok": false
+    },
+    {
+      "name": "contract: dry-run, manifest shape, determinism, zero deps",
+      "ok": false
+    }
+  ],
+  "rawScore": 0.1111,
+  "rawPassed": 1,
+  "rawTotal": 9,
+  "excluded": [
+    {
+      "name": "--concurrency and --watch are supported",
+      "ok": false
+    },
+    {
+      "name": "--watch rebuilds after a source change",
+      "ok": false
+    }
+  ]
+}
+

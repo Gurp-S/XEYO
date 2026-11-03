@@ -1,0 +1,39 @@
+{
+  "name": "@xeyo/dsh-wsc",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "WSC compaction for DeepSeek Harness: model-owned 80/85 pressure, provenance-preserving checkpoints, optional view-level denoise.",
+  "exports": {
+    ".": "./index.js",
+    "./engine": "./engine.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "engine.js",
+    "client.js",
+    "lib/*.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg"
+  ],
+  "scripts": {
+    "test": "node --test tests/lib.test.mjs tests/workingset-v2.test.mjs tests/projection.test.mjs tests/excerpts.test.mjs tests/selection.test.mjs tests/evidence.test.mjs tests/publication.test.mjs tests/resources.test.mjs tests/understanding.test.mjs tests/integration.test.mjs tests/session.test.mjs tests/payload.test.mjs tests/admission.test.mjs tests/outputs.test.mjs tests/workingset.test.mjs"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-locale"
+      ]
+    }
+  }
+}

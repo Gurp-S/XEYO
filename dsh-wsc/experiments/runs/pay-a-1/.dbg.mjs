@@ -1,0 +1,15 @@
+import { mkdtemp, mkdir, writeFile, readdir, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { build, parseArgs } from "./lib/build.js";
+const root = await mkdtemp(path.join(tmpdir(), "dbg-"));
+await mkdir(path.join(root, "src/styles"), { recursive: true });
+await mkdir(path.join(root, "src/img"), { recursive: true });
+await writeFile(path.join(root, "src/img/logo.png"), Buffer.from([1,2,3,4]));
+await writeFile(path.join(root, "src/styles/site.css"), "body{background:url(../img/logo.png)}\n");
+const opts = parseArgs(["--src","src","--out","out","--manifest","build-manifest.json"]);
+const r = await build(opts, root);
+console.log("built:", r.built);
+const walk = async (d, base=d) => { for (const e of await readdir(d,{withFileTypes:true})) { const p = path.join(d,e.name); if (e.isDirectory()) await walk(p, base); else console.log("OUT:", path.relative(base,p)); } };
+await walk(path.join(root,"out"));
+console.log("MANIFEST:", (await (await import("node:fs/promises")).readFile(path.join(root,"build-manifest.json"),"utf8")).replace(/\s+/g," "));

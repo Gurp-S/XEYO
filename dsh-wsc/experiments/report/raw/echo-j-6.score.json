@@ -1,0 +1,41 @@
+{
+  "score": 1,
+  "passed": 7,
+  "total": 7,
+  "exitCode": 0,
+  "tests": [
+    {
+      "name": "tree.js is renamed to compile-tree.js",
+      "ok": true
+    },
+    {
+      "name": "no buildTree identifier remains anywhere",
+      "ok": true
+    },
+    {
+      "name": "compileTree keeps the nesting contract",
+      "ok": true
+    },
+    {
+      "name": "every module imports the renamed entry",
+      "ok": true
+    },
+    {
+      "name": "config names the renamed entry and symbol",
+      "ok": true
+    },
+    {
+      "name": "cli still prints every group",
+      "ok": true
+    },
+    {
+      "name": "README documents the renamed API",
+      "ok": true
+    }
+  ],
+  "rawScore": 1,
+  "rawPassed": 7,
+  "rawTotal": 7,
+  "excluded": []
+}
+

@@ -1,0 +1,128 @@
+{
+  "name": "echo-k-4",
+  "profile": "ab-echo-k",
+  "started": "2026-11-04T00:26:14",
+  "seconds": 97,
+  "exitCode": 0,
+  "score": 1,
+  "passed": 7,
+  "total": 7,
+  "failed": [],
+  "session": "--D-lea-XenYon~0020code-dsh-wsc-experiments-runs-echo-k-4--",
+  "requests": 22,
+  "inputTokens": 59605,
+  "outputTokens": 7297,
+  "events": 580,
+  "steps": [
+    {
+      "step": 1,
+      "input": 11688,
+      "output": 88
+    },
+    {
+      "step": 2,
+      "input": 623,
+      "output": 235
+    },
+    {
+      "step": 3,
+      "input": 1352,
+      "output": 296
+    },
+    {
+      "step": 4,
+      "input": 316,
+      "output": 204
+    },
+    {
+      "step": 5,
+      "input": 423,
+      "output": 704
+    },
+    {
+      "step": 6,
+      "input": 243,
+      "output": 220
+    },
+    {
+      "step": 7,
+      "input": 3968,
+      "output": 272
+    },
+    {
+      "step": 8,
+      "input": 205,
+      "output": 85
+    },
+    {
+      "step": 9,
+      "input": 212,
+      "output": 746
+    },
+    {
+      "step": 10,
+      "input": 1156,
+      "output": 230
+    },
+    {
+      "step": 11,
+      "input": 709,
+      "output": 741
+    },
+    {
+      "step": 12,
+      "input": 1060,
+      "output": 567
+    },
+    {
+      "step": 13,
+      "input": 301,
+      "output": 196
+    },
+    {
+      "step": 14,
+      "input": 20877,
+      "output": 462
+    },
+    {
+      "step": 15,
+      "input": 13747,
+      "output": 126
+    },
+    {
+      "step": 16,
+      "input": 241,
+      "output": 209
+    },
+    {
+      "step": 17,
+      "input": 643,
+      "output": 172
+    },
+    {
+      "step": 18,
+      "input": 269,
+      "output": 140
+    },
+    {
+      "step": 19,
+      "input": 692,
+      "output": 531
+    },
+    {
+      "step": 20,
+      "input": 231,
+      "output": 123
+    },
+    {
+      "step": 21,
+      "input": 194,
+      "output": 202
+    },
+    {
+      "step": 22,
+      "input": 455,
+      "output": 748
+    }
+  ]
+}

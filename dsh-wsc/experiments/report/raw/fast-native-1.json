@@ -1,0 +1,88 @@
+{
+  "name": "fast-native-1",
+  "profile": "ab-native",
+  "started": "2026-11-03T15:01:29",
+  "seconds": 53,
+  "exitCode": 0,
+  "score": 1,
+  "passed": 4,
+  "total": 4,
+  "failed": [],
+  "session": "--D-lea-XenYon~0020code-dsh-wsc-experiments-runs-fast-native-1--",
+  "requests": 14,
+  "inputTokens": 18173,
+  "outputTokens": 5637,
+  "events": 319,
+  "steps": [
+    {
+      "step": 1,
+      "input": 11299,
+      "output": 102
+    },
+    {
+      "step": 2,
+      "input": 731,
+      "output": 288
+    },
+    {
+      "step": 3,
+      "input": 1446,
+      "output": 704
+    },
+    {
+      "step": 4,
+      "input": 601,
+      "output": 399
+    },
+    {
+      "step": 5,
+      "input": 675,
+      "output": 1388
+    },
+    {
+      "step": 6,
+      "input": 319,
+      "output": 204
+    },
+    {
+      "step": 7,
+      "input": 785,
+      "output": 193
+    },
+    {
+      "step": 8,
+      "input": 400,
+      "output": 324
+    },
+    {
+      "step": 9,
+      "input": 401,
+      "output": 190
+    },
+    {
+      "step": 10,
+      "input": 396,
+      "output": 229
+    },
+    {
+      "step": 11,
+      "input": 482,
+      "output": 290
+    },
+    {
+      "step": 12,
+      "input": 182,
+      "output": 538
+    },
+    {
+      "step": 13,
+      "input": 240,
+      "output": 312
+    },
+    {
+      "step": 14,
+      "input": 216,
+      "output": 476
+    }
+  ]
+}

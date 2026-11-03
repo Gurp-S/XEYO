@@ -1,0 +1,123 @@
+{
+  "name": "echo-j2-1",
+  "profile": "ab-echo-j",
+  "started": "2026-11-04T00:30:57",
+  "seconds": 213,
+  "exitCode": 0,
+  "score": 1,
+  "passed": 7,
+  "total": 7,
+  "failed": [],
+  "session": "--D-lea-XenYon~0020code-dsh-wsc-experiments-runs-echo-j2-1--",
+  "requests": 21,
+  "inputTokens": 76563,
+  "outputTokens": 7575,
+  "events": 617,
+  "steps": [
+    {
+      "step": 1,
+      "input": 11643,
+      "output": 143
+    },
+    {
+      "step": 2,
+      "input": 12803,
+      "output": 472
+    },
+    {
+      "step": 3,
+      "input": 1572,
+      "output": 426
+    },
+    {
+      "step": 4,
+      "input": 184,
+      "output": 358
+    },
+    {
+      "step": 5,
+      "input": 7351,
+      "output": 1527
+    },
+    {
+      "step": 6,
+      "input": 5922,
+      "output": 171
+    },
+    {
+      "step": 7,
+      "input": 583,
+      "output": 247
+    },
+    {
+      "step": 8,
+      "input": 308,
+      "output": 157
+    },
+    {
+      "step": 9,
+      "input": 379,
+      "output": 151
+    },
+    {
+      "step": 10,
+      "input": 7852,
+      "output": 462
+    },
+    {
+      "step": 11,
+      "input": 12703,
+      "output": 283
+    },
+    {
+      "step": 12,
+      "input": 337,
+      "output": 180
+    },
+    {
+      "step": 13,
+      "input": 635,
+      "output": 347
+    },
+    {
+      "step": 14,
+      "input": 631,
+      "output": 275
+    },
+    {
+      "step": 15,
+      "input": 7028,
+      "output": 668
+    },
+    {
+      "step": 16,
+      "input": 4869,
+      "output": 288
+    },
+    {
+      "step": 17,
+      "input": 714,
+      "output": 218
+    },
+    {
+      "step": 18,
+      "input": 254,
+      "output": 134
+    },
+    {
+      "step": 19,
+      "input": 240,
+      "output": 156
+    },
+    {
+      "step": 20,
+      "input": 323,
+      "output": 640
+    },
+    {
+      "step": 21,
+      "input": 232,
+      "output": 272
+    }
+  ]
+}

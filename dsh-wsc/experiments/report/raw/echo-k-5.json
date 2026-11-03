@@ -1,0 +1,73 @@
+{
+  "name": "echo-k-5",
+  "profile": "ab-echo-k",
+  "started": "2026-11-04T00:26:14",
+  "seconds": 43,
+  "exitCode": 0,
+  "score": 1,
+  "passed": 7,
+  "total": 7,
+  "failed": [],
+  "session": "--D-lea-XenYon~0020code-dsh-wsc-experiments-runs-echo-k-5--",
+  "requests": 11,
+  "inputTokens": 17527,
+  "outputTokens": 5258,
+  "events": 367,
+  "steps": [
+    {
+      "step": 1,
+      "input": 11688,
+      "output": 79
+    },
+    {
+      "step": 2,
+      "input": 612,
+      "output": 401
+    },
+    {
+      "step": 3,
+      "input": 1379,
+      "output": 1612
+    },
+    {
+      "step": 4,
+      "input": 613,
+      "output": 354
+    },
+    {
+      "step": 5,
+      "input": 674,
+      "output": 885
+    },
+    {
+      "step": 6,
+      "input": 1169,
+      "output": 180
+    },
+    {
+      "step": 7,
+      "input": 393,
+      "output": 605
+    },
+    {
+      "step": 8,
+      "input": 134,
+      "output": 278
+    },
+    {
+      "step": 9,
+      "input": 337,
+      "output": 263
+    },
+    {
+      "step": 10,
+      "input": 192,
+      "output": 136
+    },
+    {
+      "step": 11,
+      "input": 336,
+      "output": 465
+    }
+  ]
+}

@@ -1,0 +1,53 @@
+{"kind":"apply","at":1793551625335}
+{"kind":"log-hooked","at":1793551625335}
+{"kind":"token-meter","at":1793551625418,"ctor":"TokenMeter"}
+{"kind":"log","at":1793551625420,"level":"info","message":"subagent provider \"spawn\" not registered yet; the \"subagent\" tool will register when it appears"}
+{"kind":"log","at":1793551625421,"level":"info","message":"subagent provider \"fork\" not registered yet; the \"subagent_fork\" tool will register when it appears"}
+{"kind":"agent/pre-step","at":1793551625485,"step":1,"tokens":0}
+{"kind":"log","at":1793551625492,"level":"info","message":"watching %o []"}
+{"kind":"log","at":1793551627608,"level":"warn","message":"session \"session-3aa5b0fd-6326-42e9-8847-4162b731ad6d\": automatic title generation failed: Error: session-title-llm: title output reached maxOutputTokens"}
+{"kind":"agent/pre-step","at":1793551628287,"step":2,"tokens":15088}
+{"kind":"agent/pre-step","at":1793551631212,"step":3,"tokens":12623}
+{"kind":"agent/pre-step","at":1793551634836,"step":4,"tokens":13384}
+{"kind":"agent/pre-step","at":1793551639374,"step":5,"tokens":28385}
+{"kind":"compaction-event","at":1793551639378,"type":"compaction/start"}
+{"kind":"log","at":1793551646547,"level":"info","message":"wsc selective checkpoint: 2 quotes (0 ambiguous/missing dropped), 2 judgments (1 unsourced dropped), 935 bytes from 22139 shadowed bytes"}
+{"kind":"compaction-event","at":1793551646550,"type":"compaction/summary"}
+{"kind":"compaction-event","at":1793551646603,"type":"compaction/end"}
+{"kind":"log","at":1793551646604,"level":"info","message":"wsc compaction (capacity): shadowed 13 surface nodes, ~4684 tokens"}
+{"kind":"agent/pre-step","at":1793551649339,"step":6,"tokens":40116}
+{"kind":"compaction-event","at":1793551649343,"type":"compaction/start"}
+{"kind":"log","at":1793551669790,"level":"info","message":"wsc selection returned no usable selection; using deterministic extraction"}
+{"kind":"log","at":1793551669792,"level":"info","message":"wsc checkpoint: 1193 bytes (budget 24000) from 76906 shadowed bytes"}
+{"kind":"compaction-event","at":1793551669793,"type":"compaction/summary"}
+{"kind":"compaction-event","at":1793551669813,"type":"compaction/end"}
+{"kind":"log","at":1793551669814,"level":"info","message":"wsc compaction (capacity): shadowed 5 surface nodes, ~18280 tokens"}
+{"kind":"agent/pre-step","at":1793551674215,"step":7,"tokens":24444}
+{"kind":"compaction-event","at":1793551674220,"type":"compaction/start"}
+{"kind":"log","at":1793551698766,"level":"info","message":"wsc selection returned no usable selection; using deterministic extraction"}
+{"kind":"log","at":1793551698766,"level":"info","message":"wsc checkpoint: 1440 bytes (budget 11091) from 31689 shadowed bytes"}
+{"kind":"compaction-event","at":1793551698768,"type":"compaction/summary"}
+{"kind":"compaction-event","at":1793551698791,"type":"compaction/end"}
+{"kind":"log","at":1793551698791,"level":"info","message":"wsc compaction (capacity): shadowed 6 surface nodes, ~7206 tokens"}
+{"kind":"agent/pre-step","at":1793551703508,"step":8,"tokens":27546}
+{"kind":"compaction-event","at":1793551703512,"type":"compaction/start"}
+{"kind":"log","at":1793551716022,"level":"info","message":"wsc checkpoint: 1578 bytes (budget 11171) from 31918 shadowed bytes"}
+{"kind":"compaction-event","at":1793551716023,"type":"compaction/summary"}
+{"kind":"compaction-event","at":1793551716043,"type":"compaction/end"}
+{"kind":"log","at":1793551716043,"level":"info","message":"wsc compaction (capacity): shadowed 6 surface nodes, ~7217 tokens"}
+{"kind":"agent/pre-step","at":1793551721838,"step":9,"tokens":29764}
+{"kind":"compaction-event","at":1793551721844,"type":"compaction/start"}
+{"kind":"log","at":1793551740986,"level":"info","message":"wsc selection returned no usable selection; using deterministic extraction"}
+{"kind":"log","at":1793551740987,"level":"info","message":"wsc checkpoint: 1608 bytes (budget 16336) from 46676 shadowed bytes"}
+{"kind":"compaction-event","at":1793551740988,"type":"compaction/summary"}
+{"kind":"compaction-event","at":1793551741009,"type":"compaction/end"}
+{"kind":"log","at":1793551741009,"level":"info","message":"wsc compaction (capacity): shadowed 7 surface nodes, ~10821 tokens"}
+{"kind":"agent/pre-step","at":1793551746232,"step":10,"tokens":21488}
+{"kind":"compaction-event","at":1793551746235,"type":"compaction/start"}
+{"kind":"log","at":1793551765124,"level":"info","message":"wsc checkpoint: 1581 bytes (budget 6610) from 18888 shadowed bytes"}
+{"kind":"compaction-event","at":1793551765125,"type":"compaction/summary"}
+{"kind":"compaction-event","at":1793551765140,"type":"compaction/end"}
+{"kind":"log","at":1793551765140,"level":"info","message":"wsc compaction (capacity): shadowed 4 surface nodes, ~4519 tokens"}
+{"kind":"agent/pre-step","at":1793551769629,"step":11,"tokens":13680}
+{"kind":"agent/pre-step","at":1793551774564,"step":12,"tokens":14196}
+{"kind":"agent/pre-step","at":1793551785368,"step":13,"tokens":14776}
