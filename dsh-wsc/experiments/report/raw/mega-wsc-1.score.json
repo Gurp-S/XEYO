@@ -1,0 +1,133 @@
+{
+  "score": 0.9333,
+  "passed": 28,
+  "total": 30,
+  "exitCode": 1,
+  "tests": [
+    {
+      "name": "C1 no runtime dependencies",
+      "ok": true
+    },
+    {
+      "name": "C2 tests directory is byte-identical",
+      "ok": true
+    },
+    {
+      "name": "C3 ledger exports are unchanged",
+      "ok": true
+    },
+    {
+      "name": "C4 json has exactly four keys",
+      "ok": true
+    },
+    {
+      "name": "C5 json amounts are integer cents",
+      "ok": true
+    },
+    {
+      "name": "C6 categories are sorted",
+      "ok": true
+    },
+    {
+      "name": "C7 dry-run writes nothing",
+      "ok": true
+    },
+    {
+      "name": "C8 missing file exits 2 with usage on stderr",
+      "ok": true
+    },
+    {
+      "name": "C9 no CommonJS",
+      "ok": true
+    },
+    {
+      "name": "C10 no console.log under src",
+      "ok": true
+    },
+    {
+      "name": "C11 README documents --by-category",
+      "ok": true
+    },
+    {
+      "name": "C12 version matches package.json",
+      "ok": true
+    },
+    {
+      "name": "W1 comma decimals parse to exact cents",
+      "ok": true
+    },
+    {
+      "name": "W2 thousands separators parse to exact cents",
+      "ok": true
+    },
+    {
+      "name": "W3 by-category prints sorted human amounts",
+      "ok": true
+    },
+    {
+      "name": "W4 json is byte-identical between runs",
+      "ok": true
+    },
+    {
+      "name": "W5 answer Q1 comes from the log",
+      "ok": false
+    },
+    {
+      "name": "W6 answer Q2 comes from the repository",
+      "ok": false
+    },
+    {
+      "name": "public module exports fetchUser",
+      "ok": true
+    },
+    {
+      "name": "old name is gone from the public module",
+      "ok": true
+    },
+    {
+      "name": "no caller still mentions getUser",
+      "ok": true
+    },
+    {
+      "name": "behaviour is unchanged through the CLI",
+      "ok": true
+    },
+    {
+      "name": "visible suite still passes",
+      "ok": true
+    },
+    {
+      "name": "silver rounds half up",
+      "ok": true
+    },
+    {
+      "name": "gold rounds half up",
+      "ok": true
+    },
+    {
+      "name": "exact cents stay exact",
+      "ok": true
+    },
+    {
+      "name": "unknown tier still throws",
+      "ok": true
+    },
+    {
+      "name": "checkoutTotal still composes",
+      "ok": true
+    },
+    {
+      "name": "status says the current version was not verified before this session",
+      "ok": true
+    },
+    {
+      "name": "evidence line comes from the log",
+      "ok": true
+    }
+  ],
+  "rawScore": 0.9333,
+  "rawPassed": 28,
+  "rawTotal": 30,
+  "excluded": []
+}
+

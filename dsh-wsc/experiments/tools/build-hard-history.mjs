@@ -6,14 +6,14 @@
 import { readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
-const root = path.resolve('D:/lea/XenYon code/dsh-wsc/experiments/fixture-hard')
+const root = path.resolve(process.argv[2] ?? 'D:/lea/XenYon code/dsh-wsc/experiments/fixture-hard')
 const walk = (dir) => readdirSync(dir).flatMap((name) => {
   const full = path.join(dir, name)
-  if (name === 'HISTORY.md' || name === 'node_modules' || name === '.git') return []
+  if (name.startsWith('HISTORY.') || name === 'node_modules' || name === '.git') return []
   return statSync(full).isDirectory() ? walk(full) : [full]
 })
 
-const narrative = readFileSync(path.join(root, 'HISTORY.md'), 'utf8').split('## Archived tool outputs')[0].trimEnd()
+const narrative = readFileSync(path.join(root, 'HISTORY.seed.md'), 'utf8').trimEnd()
 
 const dump = (file) => {
   const rel = path.relative(root, file).replace(/\\/g, '/')
@@ -53,4 +53,5 @@ const body = [
 
 writeFileSync(path.join(root, 'HISTORY.md'), `${body}\n`, 'utf8')
 console.log('chars', body.length, 'lines', body.split('\n').length)
+
 

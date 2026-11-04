@@ -1,0 +1,108 @@
+{
+  "name": "hard-v2-wsc-1",
+  "profile": "ab-echo-k",
+  "started": "2026-11-04T08:13:45",
+  "seconds": 108,
+  "exitCode": 0,
+  "score": 1,
+  "passed": 7,
+  "total": 7,
+  "failed": [],
+  "session": "--D-lea-XenYon~0020code-dsh-wsc-experiments-runs-hard-v2-wsc-1--",
+  "requests": 18,
+  "inputTokens": 62314,
+  "outputTokens": 7684,
+  "events": 420,
+  "steps": [
+    {
+      "step": 1,
+      "input": 11814,
+      "output": 80
+    },
+    {
+      "step": 2,
+      "input": 30135,
+      "output": 2132
+    },
+    {
+      "step": 3,
+      "input": 15281,
+      "output": 155
+    },
+    {
+      "step": 4,
+      "input": 355,
+      "output": 98
+    },
+    {
+      "step": 5,
+      "input": 215,
+      "output": 57
+    },
+    {
+      "step": 6,
+      "input": 1177,
+      "output": 403
+    },
+    {
+      "step": 7,
+      "input": 298,
+      "output": 74
+    },
+    {
+      "step": 8,
+      "input": 565,
+      "output": 1444
+    },
+    {
+      "step": 9,
+      "input": 154,
+      "output": 56
+    },
+    {
+      "step": 10,
+      "input": 274,
+      "output": 257
+    },
+    {
+      "step": 11,
+      "input": 211,
+      "output": 108
+    },
+    {
+      "step": 12,
+      "input": 280,
+      "output": 446
+    },
+    {
+      "step": 13,
+      "input": 135,
+      "output": 328
+    },
+    {
+      "step": 14,
+      "input": 716,
+      "output": 582
+    },
+    {
+      "step": 15,
+      "input": 178,
+      "output": 159
+    },
+    {
+      "step": 16,
+      "input": 166,
+      "output": 645
+    },
+    {
+      "step": 17,
+      "input": 138,
+      "output": 150
+    },
+    {
+      "step": 18,
+      "input": 222,
+      "output": 510
+    }
+  ]
+}

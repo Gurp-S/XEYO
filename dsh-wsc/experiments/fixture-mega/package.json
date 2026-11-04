@@ -1,0 +1,8 @@
+{
+  "name": "ledger-cli",
+  "version": "2.4.0",
+  "private": true,
+  "type": "module",
+  "bin": { "ledger": "bin/ledger.js" },
+  "scripts": { "test": "node --test tests/visible/basic.test.mjs" }
+}

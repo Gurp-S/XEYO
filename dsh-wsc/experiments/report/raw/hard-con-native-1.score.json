@@ -1,0 +1,33 @@
+{
+  "score": 1,
+  "passed": 5,
+  "total": 5,
+  "exitCode": 0,
+  "tests": [
+    {
+      "name": "public module exports fetchUser",
+      "ok": true
+    },
+    {
+      "name": "old name is gone from the public module",
+      "ok": true
+    },
+    {
+      "name": "no caller still mentions getUser",
+      "ok": true
+    },
+    {
+      "name": "behaviour is unchanged through the CLI",
+      "ok": true
+    },
+    {
+      "name": "visible suite still passes",
+      "ok": true
+    }
+  ],
+  "rawScore": 1,
+  "rawPassed": 5,
+  "rawTotal": 5,
+  "excluded": []
+}
+

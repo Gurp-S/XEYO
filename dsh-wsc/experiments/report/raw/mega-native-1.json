@@ -1,0 +1,216 @@
+{
+  "name": "mega-native-1",
+  "profile": "ab-native",
+  "started": "2026-11-04T09:08:29",
+  "seconds": 355,
+  "exitCode": 0,
+  "score": 0.9333,
+  "passed": 28,
+  "total": 30,
+  "failed": [
+    "W5 answer Q1 comes from the log",
+    "W6 answer Q2 comes from the repository"
+  ],
+  "session": "--D-lea-XenYon~0020code-dsh-wsc-experiments-runs-mega-native-1--",
+  "requests": 39,
+  "inputTokens": 145682,
+  "outputTokens": 24211,
+  "events": 1172,
+  "steps": [
+    {
+      "step": 1,
+      "input": 11803,
+      "output": 118
+    },
+    {
+      "step": 2,
+      "input": 1942,
+      "output": 676
+    },
+    {
+      "step": 3,
+      "input": 2747,
+      "output": 553
+    },
+    {
+      "step": 4,
+      "input": 5454,
+      "output": 309
+    },
+    {
+      "step": 5,
+      "input": 14522,
+      "output": 560
+    },
+    {
+      "step": 6,
+      "input": 17455,
+      "output": 548
+    },
+    {
+      "step": 7,
+      "input": 1616,
+      "output": 2217
+    },
+    {
+      "step": 8,
+      "input": 916,
+      "output": 3366
+    },
+    {
+      "step": 9,
+      "input": 14261,
+      "output": 233
+    },
+    {
+      "step": 10,
+      "input": 12078,
+      "output": 265
+    },
+    {
+      "step": 11,
+      "input": 283,
+      "output": 1679
+    },
+    {
+      "step": 12,
+      "input": 231,
+      "output": 92
+    },
+    {
+      "step": 13,
+      "input": 413,
+      "output": 940
+    },
+    {
+      "step": 14,
+      "input": 11844,
+      "output": 1135
+    },
+    {
+      "step": 15,
+      "input": 241,
+      "output": 626
+    },
+    {
+      "step": 16,
+      "input": 161,
+      "output": 149
+    },
+    {
+      "step": 17,
+      "input": 276,
+      "output": 129
+    },
+    {
+      "step": 18,
+      "input": 211,
+      "output": 855
+    },
+    {
+      "step": 19,
+      "input": 231,
+      "output": 96
+    },
+    {
+      "step": 20,
+      "input": 427,
+      "output": 918
+    },
+    {
+      "step": 21,
+      "input": 12556,
+      "output": 84
+    },
+    {
+      "step": 22,
+      "input": 9266,
+      "output": 111
+    },
+    {
+      "step": 23,
+      "input": 208,
+      "output": 70
+    },
+    {
+      "step": 24,
+      "input": 138,
+      "output": 118
+    },
+    {
+      "step": 25,
+      "input": 190,
+      "output": 90
+    },
+    {
+      "step": 26,
+      "input": 147,
+      "output": 197
+    },
+    {
+      "step": 27,
+      "input": 289,
+      "output": 559
+    },
+    {
+      "step": 28,
+      "input": 252,
+      "output": 189
+    },
+    {
+      "step": 29,
+      "input": 1018,
+      "output": 2021
+    },
+    {
+      "step": 30,
+      "input": 156,
+      "output": 102
+    },
+    {
+      "step": 31,
+      "input": 148,
+      "output": 447
+    },
+    {
+      "step": 32,
+      "input": 355,
+      "output": 482
+    },
+    {
+      "step": 33,
+      "input": 13356,
+      "output": 389
+    },
+    {
+      "step": 34,
+      "input": 8822,
+      "output": 548
+    },
+    {
+      "step": 35,
+      "input": 419,
+      "output": 170
+    },
+    {
+      "step": 36,
+      "input": 151,
+      "output": 509
+    },
+    {
+      "step": 37,
+      "input": 179,
+      "output": 570
+    },
+    {
+      "step": 38,
+      "input": 432,
+      "output": 290
+    },
+    {
+      "step": 39,
+      "input": 488,
+      "output": 1801
+    }
+  ]
+}

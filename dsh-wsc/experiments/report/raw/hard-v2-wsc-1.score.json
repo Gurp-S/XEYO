@@ -1,0 +1,41 @@
+{
+  "score": 1,
+  "passed": 7,
+  "total": 7,
+  "exitCode": 0,
+  "tests": [
+    {
+      "name": "silver rounds half up",
+      "ok": true
+    },
+    {
+      "name": "gold rounds half up",
+      "ok": true
+    },
+    {
+      "name": "exact cents stay exact",
+      "ok": true
+    },
+    {
+      "name": "unknown tier still throws",
+      "ok": true
+    },
+    {
+      "name": "checkoutTotal still composes",
+      "ok": true
+    },
+    {
+      "name": "status says the current version was not verified before this session",
+      "ok": true
+    },
+    {
+      "name": "evidence line comes from the log",
+      "ok": true
+    }
+  ],
+  "rawScore": 1,
+  "rawPassed": 7,
+  "rawTotal": 7,
+  "excluded": []
+}
+

@@ -1,0 +1,62 @@
+# 有代表性的 WSC 数据（当前配置，只算可比运行）
+
+2026-11-04。口径：只统计**当前配置**的运行——WSC 用 k2 参数（capacityTokens 28235、
+retainRatio 0.136、selective、工作集 v2 6 文件），native 用 DSH 自带 compaction-basic
+（thresholdRatio 0.366、retainTokens 3840）。修复前的 a/b/c/d/e/g/h/i/j/l 臂和已拒绝的
+gen2/L 实验全部排除，避免口径混杂。
+
+## 汇总
+
+| 臂 | n | 均分 | 最差 | 最好 |
+|---|---|---|---|---|
+| WSC (k2) | 12 | **0.995** | 0.944 | 1.000 |
+| native | 13 | 0.929 | **0.143** | 1.000 |
+
+## 逐任务（同一题两边都跑过）
+
+| 任务 | WSC | native | WSC 墙钟 | native 墙钟 |
+|---|---|---|---|---|
+| echo（原始长任务，n=3/4） | 1.000 / 1.000 / 1.000 | 1.000 / 1.000 / **0.143** / 1.000 | 96 / 231 / 126s | 666 / 989 / 209 / 907s |
+| gen-bugfix | 1.000 | 1.000 | 54s | 60s |
+| gen-feature | 1.000 | 1.000 | 65s | 125s |
+| gen-refactor | 1.000 | 1.000 | 36s | 35s |
+| gen-config | 1.000 | 1.000 | 44s | 83s |
+| hard（12 约束 + provenance） | 1.000 / 0.944 | 1.000 / 1.000 | 713 / 610s | 290 / 390s |
+| mega（三工作流合并） | 1.000¹ | 1.000¹ | 1621s | 355s |
+| v2 歧义 | 1.000 | 1.000 | 108s | 54s |
+| 约束演化 | 1.000 | 1.000 | 179s | 34s |
+
+¹ mega 实际问到的 28 项两边全过；另有 2 项（ANSWER.md 两个问题）在 mega 的题面里没有要求，
+不计入。
+
+## 这组数据说明什么
+
+1. **质量**：WSC 在 12 次运行里 11 次满分，唯一失手是 hard-wsc-2 的 `--by-category` 排序
+   （0.944）。native 13 次里 12 次满分，但有一次 0.143（echo native-3，7 项里只过 1 项）。
+   也就是说：**WSC 的方差明显更小，最差情况好得多**；两边的最好情况一样。
+2. **成本不是单向的**：
+   - 在原始 echo 长任务上 WSC 快 5–7 倍（126s vs 788s 中位）。
+   - 在新增的 hard / mega 上 WSC 慢 2–4.6 倍（713/610 vs 290/390；1621 vs 355）。
+   差别来自任务形态：echo 靠工具输出累积上下文，WSC 的选材省掉了重读；
+   hard/mega 有一个 40 KB 的冻结 HISTORY 文件，两边都要反复回读，WSC 每次压缩还要
+   重新跑选材请求，于是更贵。
+3. **压缩频率**：hard 上 WSC 13 次 vs native 6–9 次；mega 上 26 次 vs 9 次。
+   触发阈值两边一样（≈24k），WSC 压得更勤。
+
+## 被否掉的一条路（也算数据）
+
+把预算压到 12k（WSC capacity 12000 / native 0.1831×65536）想让两边都压缩，结果 WSC
+28 步压了 27 次，几乎每步一次，跑 20 分钟不收敛，实验终止。这和之前 6k 预算的观察一致：
+**WSC 在低预算下会抖动**。
+
+## 局限
+
+- 单模型（deepseek-v4.1-flash）、65k 窗口（生产是 1M），按同比例缩小。
+- hard/mega 两臂各只有 2 次和 1 次运行，方差估计不可靠。
+- mega 的 0.933 是题面漏问 ANSWER.md 造成的，已按 28 项口径修正。
+
+## 复现
+
+    node experiments/tools/aggregate-arms.mjs      # 汇总（已按当前配置过滤）
+    node experiments/tools/hard-probes.mjs         # 约束/工作/provenance 明细
+    node experiments/tools/constraint-survival.mjs # checkpoint 里的约束存活

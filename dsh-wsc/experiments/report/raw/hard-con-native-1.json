@@ -1,0 +1,63 @@
+{
+  "name": "hard-con-native-1",
+  "profile": "ab-native",
+  "started": "2026-11-04T08:19:28",
+  "seconds": 34,
+  "exitCode": 0,
+  "score": 1,
+  "passed": 5,
+  "total": 5,
+  "failed": [],
+  "session": "--D-lea-XenYon~0020code-dsh-wsc-experiments-runs-hard-con-native-1--",
+  "requests": 9,
+  "inputTokens": 16869,
+  "outputTokens": 3865,
+  "events": 272,
+  "steps": [
+    {
+      "step": 1,
+      "input": 11343,
+      "output": 151
+    },
+    {
+      "step": 2,
+      "input": 2289,
+      "output": 575
+    },
+    {
+      "step": 3,
+      "input": 843,
+      "output": 171
+    },
+    {
+      "step": 4,
+      "input": 645,
+      "output": 589
+    },
+    {
+      "step": 5,
+      "input": 170,
+      "output": 335
+    },
+    {
+      "step": 6,
+      "input": 833,
+      "output": 370
+    },
+    {
+      "step": 7,
+      "input": 141,
+      "output": 640
+    },
+    {
+      "step": 8,
+      "input": 173,
+      "output": 207
+    },
+    {
+      "step": 9,
+      "input": 432,
+      "output": 827
+    }
+  ]
+}

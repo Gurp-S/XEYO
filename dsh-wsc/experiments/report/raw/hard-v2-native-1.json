@@ -1,0 +1,83 @@
+{
+  "name": "hard-v2-native-1",
+  "profile": "ab-native",
+  "started": "2026-11-04T08:15:33",
+  "seconds": 54,
+  "exitCode": 0,
+  "score": 1,
+  "passed": 7,
+  "total": 7,
+  "failed": [],
+  "session": "--D-lea-XenYon~0020code-dsh-wsc-experiments-runs-hard-v2-native-1--",
+  "requests": 13,
+  "inputTokens": 17345,
+  "outputTokens": 6652,
+  "events": 351,
+  "steps": [
+    {
+      "step": 1,
+      "input": 11450,
+      "output": 107
+    },
+    {
+      "step": 2,
+      "input": 2238,
+      "output": 460
+    },
+    {
+      "step": 3,
+      "input": 999,
+      "output": 2241
+    },
+    {
+      "step": 4,
+      "input": 217,
+      "output": 263
+    },
+    {
+      "step": 5,
+      "input": 160,
+      "output": 96
+    },
+    {
+      "step": 6,
+      "input": 191,
+      "output": 169
+    },
+    {
+      "step": 7,
+      "input": 152,
+      "output": 276
+    },
+    {
+      "step": 8,
+      "input": 233,
+      "output": 247
+    },
+    {
+      "step": 9,
+      "input": 697,
+      "output": 838
+    },
+    {
+      "step": 10,
+      "input": 159,
+      "output": 363
+    },
+    {
+      "step": 11,
+      "input": 224,
+      "output": 502
+    },
+    {
+      "step": 12,
+      "input": 386,
+      "output": 320
+    },
+    {
+      "step": 13,
+      "input": 239,
+      "output": 770
+    }
+  ]
+}
