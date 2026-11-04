@@ -1,0 +1,153 @@
+{
+  "name": "hard-wsc-3",
+  "profile": "ab-echo-k",
+  "started": "2026-11-04T09:15:57",
+  "seconds": 423,
+  "exitCode": 0,
+  "score": 1,
+  "passed": 18,
+  "total": 18,
+  "failed": [],
+  "session": "--D-lea-XenYon~0020code-dsh-wsc-experiments-runs-hard-wsc-3--",
+  "requests": 27,
+  "inputTokens": 139753,
+  "outputTokens": 24136,
+  "events": 996,
+  "steps": [
+    {
+      "step": 1,
+      "input": 12038,
+      "output": 187
+    },
+    {
+      "step": 2,
+      "input": 31926,
+      "output": 371
+    },
+    {
+      "step": 3,
+      "input": 563,
+      "output": 456
+    },
+    {
+      "step": 4,
+      "input": 7177,
+      "output": 2326
+    },
+    {
+      "step": 5,
+      "input": 35710,
+      "output": 7301
+    },
+    {
+      "step": 6,
+      "input": 13426,
+      "output": 225
+    },
+    {
+      "step": 7,
+      "input": 12873,
+      "output": 4772
+    },
+    {
+      "step": 8,
+      "input": 9692,
+      "output": 144
+    },
+    {
+      "step": 9,
+      "input": 789,
+      "output": 1025
+    },
+    {
+      "step": 10,
+      "input": 211,
+      "output": 618
+    },
+    {
+      "step": 11,
+      "input": 251,
+      "output": 523
+    },
+    {
+      "step": 12,
+      "input": 252,
+      "output": 92
+    },
+    {
+      "step": 13,
+      "input": 444,
+      "output": 357
+    },
+    {
+      "step": 14,
+      "input": 223,
+      "output": 224
+    },
+    {
+      "step": 15,
+      "input": 238,
+      "output": 80
+    },
+    {
+      "step": 16,
+      "input": 243,
+      "output": 70
+    },
+    {
+      "step": 17,
+      "input": 416,
+      "output": 503
+    },
+    {
+      "step": 18,
+      "input": 210,
+      "output": 1122
+    },
+    {
+      "step": 19,
+      "input": 9660,
+      "output": 137
+    },
+    {
+      "step": 20,
+      "input": 903,
+      "output": 278
+    },
+    {
+      "step": 21,
+      "input": 134,
+      "output": 779
+    },
+    {
+      "step": 22,
+      "input": 290,
+      "output": 504
+    },
+    {
+      "step": 23,
+      "input": 508,
+      "output": 320
+    },
+    {
+      "step": 24,
+      "input": 550,
+      "output": 247
+    },
+    {
+      "step": 25,
+      "input": 216,
+      "output": 288
+    },
+    {
+      "step": 26,
+      "input": 554,
+      "output": 285
+    },
+    {
+      "step": 27,
+      "input": 256,
+      "output": 902
+    }
+  ]
+}
