@@ -1,0 +1,248 @@
+{
+  "name": "hard-native-2",
+  "profile": "ab-native",
+  "started": "2026-11-04T08:05:29",
+  "seconds": 390,
+  "exitCode": 0,
+  "score": 1,
+  "passed": 18,
+  "total": 18,
+  "failed": [],
+  "session": "--D-lea-XenYon~0020code-dsh-wsc-experiments-runs-hard-native-2--",
+  "requests": 46,
+  "inputTokens": 135778,
+  "outputTokens": 38653,
+  "events": 1523,
+  "steps": [
+    {
+      "step": 1,
+      "input": 11674,
+      "output": 130
+    },
+    {
+      "step": 2,
+      "input": 2109,
+      "output": 277
+    },
+    {
+      "step": 3,
+      "input": 4568,
+      "output": 222
+    },
+    {
+      "step": 4,
+      "input": 801,
+      "output": 292
+    },
+    {
+      "step": 5,
+      "input": 1205,
+      "output": 475
+    },
+    {
+      "step": 6,
+      "input": 615,
+      "output": 11186
+    },
+    {
+      "step": 7,
+      "input": 26114,
+      "output": 1165
+    },
+    {
+      "step": 8,
+      "input": 8319,
+      "output": 207
+    },
+    {
+      "step": 9,
+      "input": 640,
+      "output": 600
+    },
+    {
+      "step": 10,
+      "input": 149,
+      "output": 508
+    },
+    {
+      "step": 11,
+      "input": 205,
+      "output": 119
+    },
+    {
+      "step": 12,
+      "input": 736,
+      "output": 375
+    },
+    {
+      "step": 13,
+      "input": 148,
+      "output": 313
+    },
+    {
+      "step": 14,
+      "input": 248,
+      "output": 484
+    },
+    {
+      "step": 15,
+      "input": 860,
+      "output": 3120
+    },
+    {
+      "step": 16,
+      "input": 185,
+      "output": 582
+    },
+    {
+      "step": 17,
+      "input": 283,
+      "output": 948
+    },
+    {
+      "step": 18,
+      "input": 11875,
+      "output": 657
+    },
+    {
+      "step": 19,
+      "input": 580,
+      "output": 629
+    },
+    {
+      "step": 20,
+      "input": 412,
+      "output": 355
+    },
+    {
+      "step": 21,
+      "input": 173,
+      "output": 973
+    },
+    {
+      "step": 22,
+      "input": 183,
+      "output": 453
+    },
+    {
+      "step": 23,
+      "input": 773,
+      "output": 739
+    },
+    {
+      "step": 24,
+      "input": 11551,
+      "output": 364
+    },
+    {
+      "step": 25,
+      "input": 231,
+      "output": 1389
+    },
+    {
+      "step": 26,
+      "input": 145,
+      "output": 546
+    },
+    {
+      "step": 27,
+      "input": 1147,
+      "output": 3118
+    },
+    {
+      "step": 28,
+      "input": 11849,
+      "output": 1003
+    },
+    {
+      "step": 29,
+      "input": 8882,
+      "output": 189
+    },
+    {
+      "step": 30,
+      "input": 1636,
+      "output": 991
+    },
+    {
+      "step": 31,
+      "input": 240,
+      "output": 140
+    },
+    {
+      "step": 32,
+      "input": 424,
+      "output": 98
+    },
+    {
+      "step": 33,
+      "input": 657,
+      "output": 581
+    },
+    {
+      "step": 34,
+      "input": 260,
+      "output": 162
+    },
+    {
+      "step": 35,
+      "input": 213,
+      "output": 113
+    },
+    {
+      "step": 36,
+      "input": 621,
+      "output": 245
+    },
+    {
+      "step": 37,
+      "input": 423,
+      "output": 183
+    },
+    {
+      "step": 38,
+      "input": 484,
+      "output": 835
+    },
+    {
+      "step": 39,
+      "input": 13317,
+      "output": 448
+    },
+    {
+      "step": 40,
+      "input": 9440,
+      "output": 652
+    },
+    {
+      "step": 41,
+      "input": 301,
+      "output": 444
+    },
+    {
+      "step": 42,
+      "input": 183,
+      "output": 339
+    },
+    {
+      "step": 43,
+      "input": 248,
+      "output": 449
+    },
+    {
+      "step": 44,
+      "input": 136,
+      "output": 129
+    },
+    {
+      "step": 45,
+      "input": 195,
+      "output": 175
+    },
+    {
+      "step": 46,
+      "input": 340,
+      "output": 1251
+    }
+  ]
+}

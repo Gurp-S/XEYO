@@ -1,0 +1,85 @@
+{
+  "score": 1,
+  "passed": 18,
+  "total": 18,
+  "exitCode": 0,
+  "tests": [
+    {
+      "name": "C1 no runtime dependencies",
+      "ok": true
+    },
+    {
+      "name": "C2 tests directory is byte-identical",
+      "ok": true
+    },
+    {
+      "name": "C3 ledger exports are unchanged",
+      "ok": true
+    },
+    {
+      "name": "C4 json has exactly four keys",
+      "ok": true
+    },
+    {
+      "name": "C5 json amounts are integer cents",
+      "ok": true
+    },
+    {
+      "name": "C6 categories are sorted",
+      "ok": true
+    },
+    {
+      "name": "C7 dry-run writes nothing",
+      "ok": true
+    },
+    {
+      "name": "C8 missing file exits 2 with usage on stderr",
+      "ok": true
+    },
+    {
+      "name": "C9 no CommonJS",
+      "ok": true
+    },
+    {
+      "name": "C10 no console.log under src",
+      "ok": true
+    },
+    {
+      "name": "C11 README documents --by-category",
+      "ok": true
+    },
+    {
+      "name": "C12 version matches package.json",
+      "ok": true
+    },
+    {
+      "name": "W1 comma decimals parse to exact cents",
+      "ok": true
+    },
+    {
+      "name": "W2 thousands separators parse to exact cents",
+      "ok": true
+    },
+    {
+      "name": "W3 by-category prints sorted human amounts",
+      "ok": true
+    },
+    {
+      "name": "W4 json is byte-identical between runs",
+      "ok": true
+    },
+    {
+      "name": "W5 answer Q1 comes from the log",
+      "ok": true
+    },
+    {
+      "name": "W6 answer Q2 comes from the repository",
+      "ok": true
+    }
+  ],
+  "rawScore": 1,
+  "rawPassed": 18,
+  "rawTotal": 18,
+  "excluded": []
+}
+

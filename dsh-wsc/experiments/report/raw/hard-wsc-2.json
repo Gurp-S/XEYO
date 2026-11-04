@@ -1,0 +1,195 @@
+{
+  "name": "hard-wsc-2",
+  "profile": "ab-echo-k",
+  "started": "2026-11-04T07:55:17",
+  "seconds": 610,
+  "exitCode": 0,
+  "score": 0.9444,
+  "passed": 17,
+  "total": 18,
+  "failed": [
+    "W3 by-category prints sorted human amounts"
+  ],
+  "session": "--D-lea-XenYon~0020code-dsh-wsc-experiments-runs-hard-wsc-2--",
+  "requests": 35,
+  "inputTokens": 261752,
+  "outputTokens": 34042,
+  "events": 1427,
+  "steps": [
+    {
+      "step": 1,
+      "input": 12038,
+      "output": 140
+    },
+    {
+      "step": 2,
+      "input": 32006,
+      "output": 101
+    },
+    {
+      "step": 3,
+      "input": 433,
+      "output": 359
+    },
+    {
+      "step": 4,
+      "input": 15240,
+      "output": 269
+    },
+    {
+      "step": 5,
+      "input": 617,
+      "output": 82
+    },
+    {
+      "step": 6,
+      "input": 2928,
+      "output": 629
+    },
+    {
+      "step": 7,
+      "input": 1152,
+      "output": 6343
+    },
+    {
+      "step": 8,
+      "input": 12472,
+      "output": 330
+    },
+    {
+      "step": 9,
+      "input": 6556,
+      "output": 187
+    },
+    {
+      "step": 10,
+      "input": 487,
+      "output": 270
+    },
+    {
+      "step": 11,
+      "input": 2378,
+      "output": 397
+    },
+    {
+      "step": 12,
+      "input": 6403,
+      "output": 173
+    },
+    {
+      "step": 13,
+      "input": 14216,
+      "output": 320
+    },
+    {
+      "step": 14,
+      "input": 16155,
+      "output": 391
+    },
+    {
+      "step": 15,
+      "input": 4316,
+      "output": 547
+    },
+    {
+      "step": 16,
+      "input": 1594,
+      "output": 14050
+    },
+    {
+      "step": 17,
+      "input": 19393,
+      "output": 143
+    },
+    {
+      "step": 18,
+      "input": 18425,
+      "output": 593
+    },
+    {
+      "step": 19,
+      "input": 5856,
+      "output": 142
+    },
+    {
+      "step": 20,
+      "input": 684,
+      "output": 745
+    },
+    {
+      "step": 21,
+      "input": 140,
+      "output": 147
+    },
+    {
+      "step": 22,
+      "input": 32982,
+      "output": 353
+    },
+    {
+      "step": 23,
+      "input": 32237,
+      "output": 493
+    },
+    {
+      "step": 24,
+      "input": 8759,
+      "output": 597
+    },
+    {
+      "step": 25,
+      "input": 562,
+      "output": 544
+    },
+    {
+      "step": 26,
+      "input": 259,
+      "output": 485
+    },
+    {
+      "step": 27,
+      "input": 209,
+      "output": 611
+    },
+    {
+      "step": 28,
+      "input": 172,
+      "output": 618
+    },
+    {
+      "step": 29,
+      "input": 249,
+      "output": 441
+    },
+    {
+      "step": 30,
+      "input": 469,
+      "output": 371
+    },
+    {
+      "step": 31,
+      "input": 1429,
+      "output": 449
+    },
+    {
+      "step": 32,
+      "input": 9785,
+      "output": 564
+    },
+    {
+      "step": 33,
+      "input": 431,
+      "output": 573
+    },
+    {
+      "step": 34,
+      "input": 513,
+      "output": 463
+    },
+    {
+      "step": 35,
+      "input": 207,
+      "output": 1122
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+{
+  "currency": "EUR",
+  "retentionDays": 45,
+  "rounding": "half-up"
+}
